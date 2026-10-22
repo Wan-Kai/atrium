@@ -6,6 +6,7 @@ import {
   crumbsOf,
   descendantsOf,
   heldIn,
+  modelLine,
   rowStatus,
   tabStatus,
 } from "./children";
@@ -161,5 +162,38 @@ describe("chainOf and crumbsOf", () => {
       { session: "c" },
       { session: "d" },
     ]);
+  });
+});
+
+describe("modelLine", () => {
+  const listed = [
+    { providerId: "openai-codex", modelId: "gpt-6.1-sol", name: "GPT-6.1 Sol", thinkingLevels: ["off", "low", "high"] },
+    { providerId: "faux", modelId: "faux-1", name: "Faux", thinkingLevels: ["off"] },
+  ] as const;
+  const catalog = listed.map((model) => ({
+    ...model,
+    contextWindow: 0,
+    maxOutput: 0,
+    supportsImage: false,
+    thinkingLevels: [...model.thinkingLevels],
+    fast: null,
+  }));
+
+  it("names the model as the catalog does and the level as the model button does", () => {
+    expect(modelLine({ providerId: "openai-codex", modelId: "gpt-6.1-sol", thinkingLevel: "high" }, catalog)).toBe(
+      "GPT-6.1 Sol · 高",
+    );
+    expect(modelLine({ providerId: "openai-codex", modelId: "gpt-6.1-sol", thinkingLevel: "off" }, catalog)).toBe(
+      "GPT-6.1 Sol · 关闭",
+    );
+  });
+
+  it("leaves the level out for a model that does not think, and goes by the id for one the catalog lacks", () => {
+    expect(modelLine({ providerId: "faux", modelId: "faux-1", thinkingLevel: "off" }, catalog)).toBe("Faux");
+    expect(modelLine({ providerId: "x", modelId: "x-9", thinkingLevel: "xhigh" }, catalog)).toBe("x-9 · 极高");
+  });
+
+  it("says nothing without a model", () => {
+    expect(modelLine(null, catalog)).toBeNull();
   });
 });

@@ -82,6 +82,23 @@ const user = (content: string) => ({
   message: { role: "user", content },
 });
 
+/** A `model_change` entry. */
+const model = (provider: string, modelId: string) => ({
+  type: "model_change",
+  id: "m",
+  parentId: null,
+  provider,
+  modelId,
+});
+
+/** A `thinking_level_change` entry. */
+const level = (thinkingLevel: string) => ({
+  type: "thinking_level_change",
+  id: "l",
+  parentId: null,
+  thinkingLevel,
+});
+
 describe("SessionCatalog", () => {
   it("lists the sessions run in registered directories, with their names, prompts and files", async () => {
     const { sessions, dirs, root, write } = await catalog();
@@ -108,6 +125,7 @@ describe("SessionCatalog", () => {
         attention: null,
         handedOff: false,
         fast: null,
+        model: null,
         parent: null,
         usageAfter: null,
         agent: null,
@@ -115,6 +133,32 @@ describe("SessionCatalog", () => {
         deliveries: [],
       },
       expect.objectContaining({ sessionId: "s2", containerId: B, prompt: "hello", updatedAt: 200_000 }),
+    ]);
+  });
+
+  it("lists the model and thinking level a session's file records, and none for a level or id the protocol cannot carry", async () => {
+    const { sessions, dirs, write } = await catalog();
+    await write(dirs.a, "s1", [
+      model("faux", "faux-1"),
+      level("medium"),
+      model("openai-codex", "gpt-6.1-sol"),
+      level("xhigh"),
+    ]);
+    await write(dirs.a, "s2", [model("faux", "faux-1")]);
+    await write(dirs.a, "s3", [model("faux", "faux-1"), level("turbo")]);
+    await write(dirs.a, "s4", [model("p".repeat(257), "faux-1"), level("low")]);
+    await write(dirs.a, "s5", [model("faux", "m".repeat(513)), level("low")]);
+    await write(dirs.a, "s6", [level("low")]);
+
+    await sessions.scan();
+
+    expect(sessions.list().map((entry) => [entry.sessionId, entry.model])).toStrictEqual([
+      ["s1", { providerId: "openai-codex", modelId: "gpt-6.1-sol", thinkingLevel: "xhigh" }],
+      ["s2", null],
+      ["s3", null],
+      ["s4", null],
+      ["s5", null],
+      ["s6", null],
     ]);
   });
 
@@ -171,6 +215,7 @@ describe("SessionCatalog", () => {
         attention: null,
         handedOff: false,
         fast: null,
+        model: null,
         parent: null,
         usageAfter: null,
         agent: null,

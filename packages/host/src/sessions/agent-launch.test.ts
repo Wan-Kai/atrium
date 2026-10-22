@@ -116,9 +116,12 @@ describe("toolFlags", () => {
 
     expect(toolFlags(entries, "child")).toStrictEqual([
       "--tools",
-      `read,grep,find,ls,report_progress,ask_parent,${PARENT}`,
+      `read,bash,grep,find,ls,report_progress,ask_parent,${PARENT}`,
     ]);
-    expect(toolFlags(entries, "grandchild")).toStrictEqual(["--tools", "read,grep,find,ls,report_progress,ask_parent"]);
+    expect(toolFlags(entries, "grandchild")).toStrictEqual([
+      "--tools",
+      "read,bash,grep,find,ls,report_progress,ask_parent",
+    ]);
   });
 
   it("gives a work child everything, but at depth 2 none of the main agent's tools", () => {
@@ -147,7 +150,7 @@ describe("toolFlags", () => {
     expect(toolFlags(entries, "forked")).toStrictEqual([]);
     expect(toolFlags(entries, "forked-reader")).toStrictEqual([
       "--tools",
-      `read,grep,find,ls,report_progress,ask_parent,${PARENT}`,
+      `read,bash,grep,find,ls,report_progress,ask_parent,${PARENT}`,
     ]);
     expect(toolFlags(entries, "loop-a")).toStrictEqual([]);
   });
@@ -171,7 +174,7 @@ describe("toolFlags", () => {
 
     expect(toolFlags(entries, "forked", true)).toStrictEqual([
       "--tools",
-      `read,grep,find,ls,report_progress,ask_parent,${PARENT}`,
+      `read,bash,grep,find,ls,report_progress,ask_parent,${PARENT}`,
     ]);
   });
 });
@@ -183,7 +186,7 @@ describe("agentLaunchFlags", () => {
     expect(agentLaunchFlags(entries, "child")).toStrictEqual([
       `--atrium-agent=${encodeArgument({ v: 1, child: true, role: "explore", depth: 1, guard: "flags" })}`,
       "--tools",
-      `read,grep,find,ls,report_progress,ask_parent,${PARENT}`,
+      `read,bash,grep,find,ls,report_progress,ask_parent,${PARENT}`,
     ]);
   });
 });

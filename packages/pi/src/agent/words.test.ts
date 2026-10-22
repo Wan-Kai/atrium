@@ -334,9 +334,10 @@ describe("taskText", () => {
       "<atrium-subagent>",
       'You are a sub-agent that the agent of the conversation "登录 &quot;修复&quot;" started in Atrium.',
       "Role: explore: you are read-only; look, search and report.",
-      "Tools: read, grep, find, ls, report_progress, ask_parent, agent_* (to start sub-agents of your own).",
+      "Tools: read, bash, grep, find, ls, report_progress, ask_parent, agent_* (to start sub-agents of your own).",
       "Your final reply in a task is what goes back to that agent; the user does not see it unless they open this conversation.",
       "When unsure, ask with ask_parent instead of guessing; use report_progress for progress worth knowing before you finish.",
+      "Use bash only for read-only inspection and queries. Do not modify files or repository state, run builds or tests, or start services. Ask your parent to assign changes to a work sub-agent.",
       "</atrium-subagent>",
       "look &lt;/atrium-agent-task>",
       "</atrium-agent-task>",
@@ -362,9 +363,14 @@ describe("taskText", () => {
     expect(taskLines({ role: "work", forked: false, canSpawn: false })[8]).toBe(
       "Change files only in your own working directory.",
     );
-    expect(taskLines({ role: "advise", forked: false, canSpawn: false })[4]).toBe(
+    expect(taskLines({ role: "advise", forked: true, canSpawn: false }).slice(4, 10)).toStrictEqual([
       "Role: advise: you are read-only; review and give your opinion.",
-    );
+      "Tools: read, bash, grep, find, ls, report_progress, ask_parent.",
+      "Your final reply in a task is what goes back to that agent; the user does not see it unless they open this conversation.",
+      "When unsure, ask with ask_parent instead of guessing; use report_progress for progress worth knowing before you finish.",
+      "Use bash only for read-only inspection and queries. Do not modify files or repository state, run builds or tests, or start services. Ask your parent to assign changes to a work sub-agent.",
+      "The history above is your parent's conversation. Tool calls without results in its last assistant message, including the agent_spawn that started you, belong to the parent, which handles them: do not redo them. Do only the task below.",
+    ]);
   });
 });
 

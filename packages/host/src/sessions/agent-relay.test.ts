@@ -57,6 +57,7 @@ function session(sessionId: string, fields: Partial<CatalogEntry> = {}): Catalog
     archived: false,
     attention: null,
     handedOff: false,
+    model: null,
     parent: null,
     cwd: `/repo/${sessionId}`,
     fast: null,

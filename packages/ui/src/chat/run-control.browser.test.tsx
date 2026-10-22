@@ -397,7 +397,7 @@ describe("ControlTrack's panels on their capsules", () => {
     await expect.poll(() => caretTurn(capsule.element())).toBe("180deg");
   });
 
-  it("closes the queue on a press outside it, playing the close before the panel goes", async () => {
+  it("closes the queue on a press outside it, the panel going at once", async () => {
     const screen = await render(scene(queued("one", "two")));
     const capsule = screen.getByRole("button", { name: "排队 2" });
     await capsule.click();
@@ -406,8 +406,7 @@ describe("ControlTrack's panels on their capsules", () => {
 
     await screen.getByRole("button", { name: "外面" }).click();
 
-    expect((await closed).shown).toBe(true);
-    await expect.poll(() => screen.container.querySelector('[role="dialog"]')).toBeNull();
+    expect((await closed).shown).toBe(false);
   });
 
   it("keeps the queue open on a press in the input box or on its stop button, and closes it on blank space", async () => {
@@ -467,7 +466,7 @@ describe("ControlTrack's panels on their capsules", () => {
     await expect.element(screen.getByRole("dialog", { name: "排队" })).not.toBeInTheDocument();
   });
 
-  it("grows the panel from its bottom edge, the rows one by one after it, and closes all together", async () => {
+  it("grows the panel from its bottom edge, the rows one by one after it, and closes it at once", async () => {
     const screen = await render(scene(queued("one", "two")));
     const capsule = screen.getByRole("button", { name: "排队 2" });
     const opened = whenExpanded(capsule.element(), true);
@@ -485,33 +484,7 @@ describe("ControlTrack's panels on their capsules", () => {
     await expect.poll(() => screen.getByRole("dialog", { name: "排队" }).element().getAnimations()).toStrictEqual([]);
     const closed = whenExpanded(capsule.element(), false);
     await capsule.click();
-    expect(await closed).toStrictEqual({
-      shown: true,
-      clip: ["inset(-64px)", "inset(100% -64px -64px)"],
-      motion: [
-        [200, 0, EASE],
-        [160, 0, EASE],
-        [160, 0, EASE],
-      ],
-    });
-  });
-
-  it("closes a panel turned back halfway from where it got to", async () => {
-    const screen = await render(scene(queued("one")));
-    const capsule = screen.getByRole("button", { name: "排队 1" });
-    await capsule.click();
-    for (const animation of screen.getByRole("dialog", { name: "排队" }).element().getAnimations()) {
-      animation.pause();
-      animation.currentTime = 140;
-    }
-    const closed = whenExpanded(capsule.element(), false);
-
-    await capsule.click();
-
-    expect((await closed).clip).toStrictEqual([
-      expect.stringMatching(/^inset\(calc\([\d.]+% - [\d.]+px\) -64px -64px\)$/),
-      "inset(100% -64px -64px)",
-    ]);
+    expect(await closed).toStrictEqual({ shown: false, clip: [], motion: [STILL] });
   });
 
   it("opens and closes at once when less motion is asked for", async () => {

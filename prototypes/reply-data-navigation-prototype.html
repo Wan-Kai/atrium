@@ -1,0 +1,1140 @@
+<!doctype html>
+<!-- PROTOTYPE — throwaway, on prototype/ui only. Three ways to read JSON / CSV / reply diffs
+     inside Atrium's existing conversation: A inline result, B source-first, C side-by-side.
+     File references always open the existing file tab. All examples are synthetic.
+     No filesystem access, network, clipboard writes, storage, patch application or execution.
+     THESIS: add navigable results without turning the conversation into a dashboard.
+     OWN-WORLD: inherit Atrium's flat code surfaces, 14.5px replies and system typography.
+     STORY: locate a file, inspect data, understand a proposed patch, return to the conversation.
+     FIRST VIEWPORT: existing sidebar, tabs, a reply with a file reference and the selected example.
+     FORM: three local extensions in the established visual world; no identity redesign.
+     FINISH: prototype only; user selection precedes production implementation. -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>原型 · 文件定位与结构化回复</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --main: #fff;
+        --surface: #f2f2f4;
+        --code: #f6f6f8;
+        --page: #e8ecf2;
+        --sidebar: #e1e4ea;
+        --text: #1d1d1f;
+        --muted: #6e6e74;
+        --line: rgba(0, 0, 0, 0.1);
+        --tint: #2f6fed;
+        --green: #1e8e3e;
+        --red: #c93036;
+        --add: rgba(22, 163, 74, 0.09);
+        --del: rgba(229, 72, 77, 0.08);
+        --shadow: 0 12px 40px rgba(25, 40, 70, 0.15);
+        --mono: "SF Mono", ui-monospace, Menlo, monospace;
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --main: #151517;
+        --surface: #2c2c2e;
+        --code: #19191b;
+        --page: #0d1016;
+        --sidebar: #242830;
+        --text: #f9fafb;
+        --muted: #adb2b8;
+        --line: rgba(255, 255, 255, 0.12);
+        --tint: #7aaaff;
+        --green: #4ade80;
+        --red: #f25a5a;
+        --add: rgba(34, 197, 94, 0.12);
+        --del: rgba(242, 90, 90, 0.12);
+        --shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--text);
+        font:
+          14px/1.55 -apple-system,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      button,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        border: 0;
+        background: none;
+        padding: 5px 9px;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: var(--surface);
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      button[aria-pressed="true"] {
+        background: var(--surface);
+        color: var(--tint);
+      }
+      button:focus-visible,
+      select:focus-visible,
+      summary:focus-visible,
+      a:focus-visible {
+        outline: 3px solid var(--tint);
+        outline-offset: 2px;
+      }
+      header {
+        max-width: 1240px;
+        margin: auto;
+        padding: 22px 24px 15px;
+      }
+      h1 {
+        font-size: 20px;
+        font-weight: 600;
+        line-height: 1.35;
+        margin: 0 0 7px;
+      }
+      header p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .window {
+        display: flex;
+        max-width: 1200px;
+        margin: 0 auto;
+        height: min(720px, calc(100dvh - 220px));
+        min-height: 460px;
+        overflow: hidden;
+        background: var(--main);
+        border-radius: 16px;
+        box-shadow: var(--shadow);
+      }
+      .sidebar {
+        width: 220px;
+        flex: none;
+        background: var(--sidebar);
+        padding: 18px 14px;
+      }
+      .traffic {
+        display: flex;
+        gap: 7px;
+        margin: 0 0 28px 3px;
+      }
+      .traffic i {
+        height: 12px;
+        width: 12px;
+        border-radius: 50%;
+        background: #ff5f57;
+      }
+      .traffic i:nth-child(2) {
+        background: #febc2e;
+      }
+      .traffic i:nth-child(3) {
+        background: #28c840;
+      }
+      .search {
+        background: var(--main);
+        color: var(--muted);
+        padding: 7px 9px;
+        border-radius: 8px;
+        font-size: 13px;
+        margin-bottom: 24px;
+      }
+      .group {
+        font-size: 12px;
+        color: var(--muted);
+        padding: 0 8px;
+        margin: 12px 0 7px;
+      }
+      .side-row {
+        font-size: 13px;
+        padding: 6px 10px;
+        border-radius: 8px;
+      }
+      .side-row.active {
+        background: var(--line);
+      }
+      .main {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 0;
+      }
+      .tabs {
+        height: 48px;
+        flex: none;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        box-shadow: inset 0 -0.5px var(--line);
+        padding: 0 12px;
+        font-size: 13px;
+      }
+      .tab {
+        padding: 5px 12px;
+        border-radius: 8px;
+        white-space: nowrap;
+      }
+      .tab.active {
+        background: var(--surface);
+      }
+      .dim {
+        color: var(--muted);
+      }
+      .thread {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 24px;
+      }
+      .column {
+        max-width: 752px;
+        margin: auto;
+        font-size: 14.5px;
+        line-height: 1.55;
+      }
+      .bubble {
+        margin: 0 0 22px auto;
+        background: var(--surface);
+        padding: 9px 16px;
+        border-radius: 22px;
+        width: fit-content;
+        max-width: 90%;
+      }
+      .reply p {
+        margin: 0 0 12px;
+      }
+      .inline {
+        background: var(--code);
+        border-radius: 5px;
+        padding: 2px 5px;
+        font: 12.5px/1.5 var(--mono);
+      }
+      .file-link {
+        color: var(--tint);
+        background: var(--code);
+        font: 12.5px/1.5 var(--mono);
+        padding: 2px 5px;
+        border-radius: 5px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        text-decoration: none;
+        vertical-align: baseline;
+      }
+      .file-link svg {
+        width: 13px;
+        height: 13px;
+        flex: none;
+      }
+      .file-link:hover {
+        background: var(--surface);
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+      .block {
+        margin: 16px 0 12px;
+        background: var(--code);
+        border-radius: 10px;
+        overflow: hidden;
+        min-width: 0;
+      }
+      .block-head {
+        min-height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 8px 3px 14px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .block-head .language {
+        font: 11px var(--mono);
+        margin-right: auto;
+      }
+      .block-head button {
+        padding: 4px 7px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .block-head svg {
+        height: 14px;
+        width: 14px;
+      }
+      .body {
+        padding: 8px 14px 14px;
+        overflow: auto;
+        font: 12.5px/1.7 var(--mono);
+      }
+      pre {
+        margin: 0;
+        font: 12.5px/1.7 var(--mono);
+        white-space: pre;
+        tab-size: 2;
+        min-width: max-content;
+      }
+      .source {
+        padding: 8px 14px 16px;
+        overflow: auto;
+        max-height: 360px;
+      }
+      .source pre {
+        color: var(--text);
+      }
+      .body details {
+        padding: 0;
+      }
+      .body details details {
+        margin-left: 20px;
+      }
+      .body summary {
+        width: fit-content;
+        cursor: pointer;
+        list-style: none;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 26px;
+      }
+      .body summary::-webkit-details-marker {
+        display: none;
+      }
+      .body summary::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        box-shadow: 1px 1px currentColor;
+        transform: rotate(-45deg);
+        margin: 0 3px;
+        color: var(--muted);
+      }
+      .body details[open] > summary::before {
+        transform: rotate(45deg) translate(-1px, -1px);
+      }
+      .leaf {
+        padding-left: 20px;
+        min-height: 26px;
+        white-space: nowrap;
+      }
+      .key {
+        color: var(--text);
+      }
+      .value {
+        color: var(--green);
+      }
+      .number {
+        color: var(--tint);
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .type {
+        font:
+          11px/1.4 -apple-system,
+          "PingFang SC",
+          sans-serif;
+        color: var(--muted);
+        margin-left: 6px;
+      }
+      .block-foot {
+        font-size: 11px;
+        color: var(--muted);
+        padding: 0 14px 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .block-foot button {
+        margin-left: auto;
+        font-size: 12px;
+      }
+      .table-scroll {
+        overflow: auto;
+        padding: 2px 14px 14px;
+      }
+      table {
+        border-collapse: collapse;
+        min-width: 100%;
+        font-size: 12.5px;
+        line-height: 1.55;
+        text-align: left;
+      }
+      th,
+      td {
+        padding: 9px 14px 9px 0;
+        white-space: pre-wrap;
+        min-width: 100px;
+        vertical-align: top;
+        box-shadow: inset 0 -0.5px var(--line);
+      }
+      th {
+        font-weight: 500;
+        color: var(--muted);
+      }
+      td.numeric {
+        font-variant-numeric: tabular-nums;
+        font-family: var(--mono);
+        text-align: right;
+      }
+      .diff {
+        overflow: auto;
+        padding: 5px 0 0;
+        font: 12.5px/1.7 var(--mono);
+      }
+      .diff-line {
+        display: flex;
+        white-space: pre;
+        min-width: max-content;
+        padding: 0 14px;
+        line-height: 23px;
+      }
+      .diff-line.add {
+        background: var(--add);
+        box-shadow: inset 2px 0 var(--green);
+      }
+      .diff-line.del {
+        background: var(--del);
+        box-shadow: inset 2px 0 var(--red);
+      }
+      .diff-line.meta {
+        color: var(--muted);
+      }
+      .diff-line.hunk {
+        color: var(--tint);
+        padding-top: 4px;
+        padding-bottom: 4px;
+      }
+      .diff-line .sign {
+        display: inline-block;
+        width: 18px;
+        flex: none;
+        color: var(--muted);
+        user-select: none;
+      }
+      .diff-line.add .sign {
+        color: var(--green);
+      }
+      .diff-line.del .sign {
+        color: var(--red);
+      }
+      .diff-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 9px 12px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .add-count {
+        color: var(--green);
+        font-variant-numeric: tabular-nums;
+      }
+      .del-count {
+        color: var(--red);
+        font-variant-numeric: tabular-nums;
+      }
+      .notice {
+        color: var(--muted);
+        font-size: 12px;
+        padding: 8px 14px 3px;
+      }
+      .notice.error {
+        color: var(--red);
+      }
+      .result-button {
+        color: var(--tint);
+        font-size: 12px;
+      }
+      .split {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      }
+      .split > div {
+        min-width: 0;
+      }
+      .split > div + div {
+        box-shadow: inset 0.5px 0 var(--line);
+      }
+      .pane-label {
+        font:
+          11px -apple-system,
+          "PingFang SC",
+          sans-serif;
+        color: var(--muted);
+        padding: 7px 14px;
+      }
+      .split .source {
+        max-height: 360px;
+        padding-top: 0;
+      }
+      .split .body {
+        padding-top: 0;
+        max-height: 360px;
+      }
+      .split table {
+        font-size: 12px;
+      }
+      .split th,
+      .split td {
+        min-width: 90px;
+      }
+      .split .diff {
+        padding-top: 0;
+        max-height: 360px;
+      }
+      .footer {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 18px;
+      }
+      .footer svg {
+        width: 14px;
+        height: 14px;
+      }
+      .composer {
+        flex: none;
+        margin: 10px 24px 16px;
+        padding: 12px 16px;
+        border-radius: 22px;
+        background: var(--surface);
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .composer small {
+        display: block;
+        margin-top: 16px;
+        font-size: 12px;
+      }
+      .description {
+        max-width: 1200px;
+        margin: 12px auto 0;
+        padding: 0 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .description strong {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .state-readout {
+        max-width: 1200px;
+        margin: 8px auto 90px;
+        padding: 0 8px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .switcher {
+        position: fixed;
+        z-index: 10;
+        bottom: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        padding: 8px;
+        background: var(--main);
+        box-shadow: var(--shadow);
+        border-radius: 12px;
+        white-space: nowrap;
+        font-size: 12px;
+      }
+      .switcher select {
+        font-size: 12px;
+        border: 0;
+        background: var(--surface);
+        padding: 6px;
+        border-radius: 6px;
+      }
+      .separator {
+        height: 20px;
+        width: 0.5px;
+        background: var(--line);
+        margin: 0 6px;
+      }
+      .switcher svg {
+        width: 15px;
+        height: 15px;
+      }
+      .switcher .arrow {
+        display: grid;
+        place-items: center;
+        padding: 7px;
+      }
+      .file-toolbar {
+        height: 38px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 16px;
+        box-shadow: inset 0 -0.5px var(--line);
+        font-size: 12px;
+        color: var(--muted);
+        flex: none;
+      }
+      .file-toolbar strong {
+        font-weight: 500;
+        color: var(--text);
+      }
+      .file-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 8px 0;
+        font: 12px/1.7 var(--mono);
+      }
+      .file-line {
+        display: flex;
+        white-space: pre;
+        min-width: max-content;
+        min-height: 22px;
+      }
+      .file-line > span {
+        width: 48px;
+        text-align: right;
+        padding-right: 12px;
+        color: var(--muted);
+        user-select: none;
+        flex: none;
+      }
+      .file-line.target {
+        background: color-mix(in srgb, var(--tint) 12%, transparent);
+        box-shadow: inset 2px 0 var(--tint);
+      }
+      .file-line code {
+        font: inherit;
+        padding-right: 24px;
+      }
+      .fileview {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+      }
+      .demo-message {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 12px;
+        min-height: 19px;
+      }
+      .file-examples {
+        display: flex;
+        gap: 12px;
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 14px 0;
+      }
+      .file-examples p {
+        font-size: 13px;
+        color: var(--muted);
+        margin: 0;
+      }
+      .inline-action {
+        color: var(--tint);
+        padding: 0;
+        font-size: 13px;
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+      .scope-note {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 18px;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      @media (max-width: 900px) {
+        .sidebar {
+          width: 185px;
+        }
+        .switcher {
+          max-width: calc(100vw - 16px);
+          flex-wrap: wrap;
+          justify-content: center;
+          white-space: normal;
+        }
+        .switcher button {
+          padding: 5px 7px;
+        }
+        .split {
+          grid-template-columns: 1fr;
+        }
+        .split > div + div {
+          box-shadow: inset 0 0.5px var(--line);
+        }
+        .split .source {
+          max-height: 180px;
+        }
+        .description {
+          padding: 0 16px;
+        }
+        .state-readout {
+          padding: 0 16px;
+          margin-bottom: 130px;
+        }
+      }
+      @media (max-width: 650px) {
+        header {
+          padding: 16px;
+        }
+        header p {
+          font-size: 12px;
+        }
+        .window {
+          border-radius: 0;
+          min-height: 420px;
+          height: calc(100dvh - 370px);
+        }
+        .sidebar {
+          display: none;
+        }
+        .thread {
+          padding: 18px;
+        }
+        .composer {
+          margin: 8px 18px 14px;
+        }
+        .tabs {
+          padding: 0 8px;
+          gap: 2px;
+        }
+        .tab {
+          padding: 5px 8px;
+        }
+        .switcher {
+          bottom: 10px;
+        }
+        .description {
+          font-size: 12px;
+        }
+        .source {
+          max-height: 260px;
+        }
+        .block-head {
+          gap: 2px;
+          padding-left: 12px;
+        }
+        .block-head button {
+          padding: 4px 5px;
+        }
+        .body {
+          padding-left: 12px;
+        }
+        .block-foot {
+          padding-left: 12px;
+        }
+        .bubble {
+          font-size: 13px;
+        }
+        .file-toolbar {
+          padding: 0 12px;
+        }
+        .file-toolbar .dim {
+          display: none;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>文件定位与结构化回复</h1>
+      <p>
+        比较 JSON、CSV、Diff
+        在消息里怎么读。文件引用都接已有文件标签。仅合成数据与交互示意，不读文件、不复制到系统剪贴板、不应用补丁。
+      </p>
+    </header>
+    <div class="window">
+      <aside class="sidebar">
+        <div class="traffic"><i></i><i></i><i></i></div>
+        <div class="search">搜索项目和对话</div>
+        <div class="group">项目</div>
+        <div class="side-row">示例项目</div>
+        <div class="side-row active">　回复展示增强</div>
+        <div class="group">对话</div>
+        <div class="side-row">接口设计</div>
+      </aside>
+      <main class="main">
+        <nav class="tabs" aria-label="查看标签">
+          <button class="tab active" id="conversation-tab">回复展示增强</button
+          ><button class="tab" id="file-tab" hidden>auth.ts <span class="dim">×</span></button
+          ><span class="dim" id="new-label">新建</span>
+        </nav>
+        <section class="thread" id="thread">
+          <div class="column">
+            <div class="bubble" id="question"></div>
+            <div class="reply" id="reply"></div>
+            <div class="demo-message" id="demo-message" role="status" aria-live="polite"></div>
+            <div class="footer" id="footer"></div>
+          </div>
+        </section>
+        <section class="fileview" id="fileview" hidden>
+          <div class="file-toolbar">
+            <strong>src/auth.ts</strong><span id="range-label"></span><span style="flex: 1"></span
+            ><span class="dim">只读 · 合成代码</span><button id="back">返回对话</button>
+          </div>
+          <div class="file-scroll" id="file-scroll" tabindex="0" aria-label="示例文件内容"></div>
+        </section>
+        <div class="composer" id="composer">发消息或描述任务，@ 引用文件，/ 使用命令<small>示例模型 · 高</small></div>
+      </main>
+    </div>
+    <p class="description" id="description"></p>
+    <p class="state-readout" id="state-readout"></p>
+    <div class="switcher" aria-label="原型控制">
+      <button class="arrow" id="previous" aria-label="上一方案"></button><button data-variant="A">A 就地看结果</button
+      ><button data-variant="B">B 源码优先</button><button data-variant="C">C 并排核对</button
+      ><button class="arrow" id="next" aria-label="下一方案"></button><span class="separator"></span>
+      <select id="sample" aria-label="展示内容">
+        <option value="json">JSON</option>
+        <option value="csv">CSV</option>
+        <option value="diff">Diff</option>
+        <option value="file">文件定位</option></select
+      ><select id="condition" aria-label="内容状态">
+        <option value="ready">完整内容</option>
+        <option value="streaming">正在输出</option>
+        <option value="invalid">数据无效</option></select
+      ><button id="theme">深色</button>
+    </div>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const paths = {
+        copy: "M9 9h11v12H9zM5 16H3V3h12v3",
+        code: "m8 7-5 5 5 5m8-10 5 5-5 5M14 4l-4 16",
+        file: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5",
+        left: "m14 6-6 6 6 6",
+        right: "m10 6 6 6-6 6",
+        check: "m5 12 4 4 10-10",
+      };
+      /** Draws one fixed prototype icon. */
+      function icon(name) {
+        return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]}"/></svg>`;
+      }
+      /** Escapes synthetic source so no source is interpreted as page markup. */
+      function escaped(text) {
+        return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+      }
+      const query = new URLSearchParams(location.search);
+      const state = {
+        variant: ["A", "B", "C"].includes(query.get("variant")) ? query.get("variant") : "A",
+        sample: ["json", "csv", "diff", "file"].includes(query.get("sample")) ? query.get("sample") : "json",
+        dark: query.get("theme") === "dark",
+        condition: "ready",
+        source: false,
+        expanded: false,
+        file: false,
+        range: [42, 45],
+      };
+      const jsonSource = `{
+  "service": "profile-api",
+  "enabled": true,
+  "timeoutMs": 8000,
+  "requestId": 9223372036854775807,
+  "retry": { "count": 3, "delayMs": 200 },
+  "routes": [
+    { "path": "/profile", "method": "GET" },
+    { "path": "/settings", "method": "PATCH" }
+  ]
+}`;
+      const csvSource = `endpoint,平均耗时(ms),成功率,备注
+/profile,82,99.8%,"正常, 已缓存"
+/settings,146,99.2%,"待检查\n高峰时段"
+/health,12,100%,正常`;
+      const diffLines = [
+        "diff --git a/src/auth.ts b/src/auth.ts",
+        "--- a/src/auth.ts",
+        "+++ b/src/auth.ts",
+        "@@ -38,4 +38,8 @@ export async function fetchProfile() {",
+        "   const token = await getToken();",
+        '-  const response = await request("/profile");',
+        '+  const response = await request("/profile", {',
+        "+    token,",
+        "+    timeout: 8000,",
+        "+    retries: 3,",
+        "+  });",
+        "   return response.json();",
+        " }",
+        "@@ -58,6 +62,6 @@ export function retryPolicy() {",
+        "-  return { count: 0 };",
+        "+  return { count: 3, delayMs: 200 };",
+        " }",
+        " ",
+        " export function isSessionValid(session) {",
+        "-  return Boolean(session);",
+        "+  return Boolean(session?.token);",
+        " }",
+      ];
+      const descriptions = {
+        A: "<strong>A · 就地看结果（建议）</strong>　JSON 默认折叠树、CSV 默认表格、Diff 默认精简增删行；源码随时可切回。结果就在回复里，延续已有平铺块，不新增查看区域。",
+        B: "<strong>B · 源码优先</strong>　默认保留今天的代码块阅读方式；主动点「查看数据／查看补丁」才替换为结果。适合经常核对原始输出，但结构化能力多一次点击。",
+        C: "<strong>C · 并排核对</strong>　原文与结果一直并排，方便逐项对照；同一块内容会出现两遍，消息更宽更密。窄窗自动改成上下两段。",
+      };
+      /** The common, synthetic file reference. */
+      function fileReference() {
+        return `<button class="file-link" data-file="42-45" title="在文件标签中定位第 42–45 行">${icon("file")}src/auth.ts:42–45</button>`;
+      }
+      /** The structured tree deliberately keeps the exact large numeric spelling. */
+      function tree() {
+        return `<div class="body"><details open><summary><span>{</span><span class="type">对象 · 6 个属性</span></summary><div class="leaf"><span class="key">service:</span> <span class="value">"profile-api"</span></div><div class="leaf"><span class="key">enabled:</span> <span class="number">true</span></div><div class="leaf"><span class="key">timeoutMs:</span> <span class="number">8000</span></div><div class="leaf"><span class="key">requestId:</span> <span class="number">9223372036854775807</span></div><details><summary><span>retry</span><span class="muted">{…}</span><span class="type">2 个属性</span></summary><div class="leaf">count: <span class="number">3</span></div><div class="leaf">delayMs: <span class="number">200</span></div></details><details><summary><span>routes</span><span class="muted">[…]</span><span class="type">2 项</span></summary><details><summary><span>0</span><span class="muted">{…}</span></summary><div class="leaf">path: <span class="value">"/profile"</span></div><div class="leaf">method: <span class="value">"GET"</span></div></details><details><summary><span>1</span><span class="muted">{…}</span></summary><div class="leaf">path: <span class="value">"/settings"</span></div><div class="leaf">method: <span class="value">"PATCH"</span></div></details></details><div class="muted">}</div></details></div>`;
+      }
+      /** Shows fixed CSV cells without sorting, evaluation or HTML interpretation. */
+      function table() {
+        const rows = [
+          ["/profile", "82", "99.8%", "正常, 已缓存"],
+          ["/settings", "146", "99.2%", "待检查\n高峰时段"],
+          ["/health", "12", "100%", "正常"],
+        ];
+        return `<div class="table-scroll"><table><thead><tr>${["endpoint", "平均耗时(ms)", "成功率", "备注"].map((x) => `<th scope="col">${escaped(x)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((x, i) => `<td class="${i === 1 ? "numeric" : ""}">${escaped(x)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+      }
+      /** Preserves diff headers and context, colouring only content additions and deletions. */
+      function diff() {
+        const shown = state.expanded ? diffLines : diffLines.slice(0, 12);
+        return `<div class="diff">${shown
+          .map((line) => {
+            const kind = line.startsWith("@@")
+              ? "hunk"
+              : line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ")
+                ? "meta"
+                : line.startsWith("+")
+                  ? "add"
+                  : line.startsWith("-")
+                    ? "del"
+                    : "";
+            const sign = kind === "add" ? "+" : kind === "del" ? "-" : "";
+            return `<div class="diff-line ${kind}">${sign ? `<span class="sign">${sign}</span>${escaped(line.slice(1))}` : escaped(line)}</div>`;
+          })
+          .join("")}</div>`;
+      }
+      /** Displays unchanged source as plain code. */
+      function sourceView(source) {
+        return `<div class="source"><pre>${escaped(source)}</pre></div>`;
+      }
+      /** Provides small, consistent block controls. */
+      function blockHeader(language, source) {
+        const toggle =
+          state.variant === "C"
+            ? ""
+            : `<button id="toggle-source" aria-pressed="${!source}">${source ? (state.sample === "diff" ? "查看补丁" : "查看数据") : "源码"}</button>`;
+        return `<div class="block-head"><span class="language">${language}</span>${toggle}<button id="copy" aria-label="复制原文（原型仅演示反馈）">${icon("copy")}复制原文</button></div>`;
+      }
+      /** Builds the chosen result layout, or retains source during streaming/invalid data. */
+      function content() {
+        const lang = state.sample,
+          raw = lang === "json" ? jsonSource : lang === "csv" ? csvSource : diffLines.join("\n");
+        const incomplete = state.condition === "streaming";
+        const invalid = state.condition === "invalid" && (lang === "json" || lang === "csv");
+        const rawShown = incomplete
+          ? raw.slice(0, Math.floor(raw.length * 0.65))
+          : invalid
+            ? lang === "json"
+              ? '{\n  "service": "profile-api",\n  "timeoutMs":\n}'
+              : 'endpoint,备注\n/profile,"尚未结束'
+            : raw;
+        const plain = incomplete || invalid || state.source;
+        let view;
+        if (incomplete || invalid) {
+          view = `<div class="notice ${invalid ? "error" : ""}">${invalid ? "数据无法解析，保留原文。" : "代码块还在输出，完成后可查看结构。"}</div>${sourceView(rawShown)}`;
+        } else if (state.variant === "C") {
+          const result = lang === "json" ? tree() : lang === "csv" ? table() : diff();
+          view = `<div class="split"><div><div class="pane-label">原文</div>${sourceView(raw)}</div><div><div class="pane-label">${lang === "diff" ? "只读补丁" : "结构化视图"}</div>${result}</div></div>`;
+        } else {
+          view = plain ? sourceView(raw) : lang === "json" ? tree() : lang === "csv" ? table() : diff();
+        }
+        let foot = "";
+        if (!plain && lang === "diff") {
+          foot = `<div class="diff-foot"><span>提议补丁 · 未应用到文件</span><button id="expand-diff">${state.expanded ? "收起为前 12 行" : `展开剩余 ${diffLines.length - 12} 行`}</button></div>`;
+        } else if (!plain && lang === "csv") {
+          foot = '<div class="block-foot">3 行数据 · 4 列 · 首行作为表头 · 原始顺序</div>';
+        } else if (!plain && lang === "json") {
+          foot = '<div class="block-foot">对象和数组可折叠 · 数字按原文显示</div>';
+        }
+        return `<section class="block" aria-label="${lang} 示例">${blockHeader(lang, plain)}${view}${foot}</section>`;
+      }
+      /** Creates the reply, with content rather than controls leading each example. */
+      function reply() {
+        if (state.sample === "file")
+          return `<p>重试逻辑在 ${fileReference()}。点击会打开已有文件标签，定位并高亮这几行。</p><div class="file-examples"><button class="file-link" data-file="42">${icon("file")}src/auth.ts:42</button><p>单行引用 → 定位第 42 行。</p><button class="file-link" data-file="42-45">${icon("file")}请求重试配置 · 第 42–45 行</button><p>Markdown 链接 → 同一个文件标签，不重复开标签。</p><span><code class="inline">pnpm test</code> 是命令，仍只是文字。</span><button class="inline-action" id="outside">演示工作区外的引用</button></div><p class="scope-note">只读、点击后才读取；不打开任意本地路径。示例只模拟文件标签，不访问真实文件。</p>`;
+        const lead =
+          state.sample === "json"
+            ? `重试配置见 ${fileReference()}。下面是接口返回的数据，可以展开嵌套字段。`
+            : state.sample === "csv"
+              ? `下面是三条接口的统计数据。包含带逗号和换行的单元格，按原始顺序展示。`
+              : `建议给 ${fileReference()} 加上超时和重试。下面只是提议的补丁，尚未修改文件。`;
+        return `<p>${lead}</p>${content()}<p>${state.sample === "json" ? "其中 requestId 保留原始数字，不转成近似值。" : state.sample === "csv" ? "这些都是合成示例值，表格不会执行单元格里的内容。" : "文件头、hunk 头和上下文保持原样；这里没有「应用补丁」按钮。"}</p>`;
+      }
+      /** Updates the synthetic app and exposes the complete interaction state. */
+      function render() {
+        document.documentElement.dataset.theme = state.dark ? "dark" : "light";
+        $("theme").textContent = state.dark ? "浅色" : "深色";
+        $("description").innerHTML = descriptions[state.variant];
+        $("state-readout").textContent =
+          `原型状态：${state.variant} · ${state.sample.toUpperCase()} · ${state.condition} · ${state.file ? "文件标签" : "对话"} · ${state.source ? "原文" : "结果"} · ${state.expanded ? "完整补丁" : "精简补丁"}`;
+        document
+          .querySelectorAll("[data-variant]")
+          .forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.variant === state.variant)));
+        $("sample").value = state.sample;
+        $("condition").value = state.condition;
+        $("condition").disabled = state.sample === "file";
+        $("condition").querySelector("[value=invalid]").disabled = state.sample === "diff";
+        $("thread").hidden = state.file;
+        $("fileview").hidden = !state.file;
+        $("composer").hidden = state.file;
+        $("conversation-tab").classList.toggle("active", !state.file);
+        $("file-tab").hidden = !state.file;
+        $("file-tab").classList.toggle("active", state.file);
+        $("new-label").hidden = state.file;
+        $("question").textContent = {
+          json: "看看返回的数据，指出重试配置在哪里。",
+          csv: "把接口统计整理成容易看的表格。",
+          diff: "给请求加上超时与重试，先给我看补丁。",
+          file: "带我看一下具体修改位置。",
+        }[state.sample];
+        $("reply").innerHTML = reply();
+        $("footer").innerHTML = `${icon("copy")}复制回复 <span>·</span> 已完成`;
+        const toggle = $("toggle-source");
+        if (toggle) {
+          toggle.disabled = state.condition !== "ready";
+          toggle.onclick = () => {
+            state.source = !state.source;
+            render();
+          };
+        }
+        const copy = $("copy");
+        if (copy)
+          copy.onclick = () => {
+            copy.innerHTML = icon("check") + "已复制（演示）";
+            $("demo-message").textContent = "原型只演示反馈，不写入系统剪贴板；正式实现复制完整原文。";
+          };
+        const expand = $("expand-diff");
+        if (expand)
+          expand.onclick = () => {
+            state.expanded = !state.expanded;
+            render();
+          };
+        document
+          .querySelectorAll("[data-file]")
+          .forEach((button) => (button.onclick = () => openFile(button.dataset.file)));
+        if ($("outside"))
+          $("outside").onclick = () => {
+            $("demo-message").textContent = "不能在此打开：引用不在当前工作区内。";
+          };
+        history.replaceState(
+          null,
+          "",
+          "?" +
+            new URLSearchParams({ variant: state.variant, sample: state.sample, theme: state.dark ? "dark" : "light" }),
+        );
+      }
+      /** Resets only local reading state on a prototype variant/content switch. */
+      function change() {
+        state.source = state.variant === "B";
+        state.expanded = false;
+        state.file = false;
+        if (state.sample === "diff" && state.condition === "invalid") state.condition = "ready";
+        $("demo-message").textContent = "";
+        render();
+        $("thread").scrollTop = 0;
+      }
+      /** Opens a fake file tab and targets its exact example rows. */
+      function openFile(range) {
+        state.range = range.split("-").map(Number);
+        if (state.range.length === 1) state.range.push(state.range[0]);
+        state.file = true;
+        const lines = Array.from({ length: 80 }, (_, index) => (index < 35 ? "" : `// 示例代码 ${index + 1}`));
+        Object.assign(lines, {
+          37: "export async function fetchProfile() {",
+          38: "  const token = await getToken();",
+          39: "",
+          40: "  // 显式的超时与重试配置",
+          41: '  const response = await request("/profile", {',
+          42: "    timeout: 8000,",
+          43: "    retries: 3,",
+          44: "  });",
+          45: "  return response.json();",
+          46: "}",
+        });
+        $("range-label").textContent =
+          state.range[0] === state.range[1] ? `第 ${state.range[0]} 行` : `第 ${state.range[0]}–${state.range[1]} 行`;
+        $("file-scroll").innerHTML = lines
+          .map(
+            (text, index) =>
+              `<div class="file-line ${index + 1 >= state.range[0] && index + 1 <= state.range[1] ? "target" : ""}" id="line-${index + 1}"><span>${index + 1}</span><code>${escaped(text)}</code></div>`,
+          )
+          .join("");
+        render();
+        requestAnimationFrame(() => {
+          $("file-scroll").scrollTop = (state.range[0] - 1) * 22 - 100;
+          $("file-scroll").focus({ preventScroll: true });
+        });
+      }
+      /** Cycles the three reading structures without touching source data. */
+      function cycle(step) {
+        const keys = ["A", "B", "C"];
+        state.variant = keys[(keys.indexOf(state.variant) + step + 3) % 3];
+        change();
+      }
+      $("previous").innerHTML = icon("left");
+      $("next").innerHTML = icon("right");
+      $("previous").onclick = () => cycle(-1);
+      $("next").onclick = () => cycle(1);
+      document.querySelectorAll("[data-variant]").forEach(
+        (button) =>
+          (button.onclick = () => {
+            state.variant = button.dataset.variant;
+            change();
+          }),
+      );
+      $("sample").onchange = (event) => {
+        state.sample = event.target.value;
+        change();
+      };
+      $("condition").onchange = (event) => {
+        state.condition = event.target.value;
+        render();
+      };
+      $("theme").onclick = () => {
+        state.dark = !state.dark;
+        render();
+      };
+      $("back").onclick = $("conversation-tab").onclick = () => {
+        state.file = false;
+        render();
+      };
+      $("file-tab").onclick = () => {
+        state.file = false;
+        render();
+      };
+      document.addEventListener("keydown", (event) => {
+        if (event.target.closest("input,textarea,select,summary,[contenteditable]")) return;
+        if (event.key === "ArrowLeft") cycle(-1);
+        if (event.key === "ArrowRight") cycle(1);
+        if (event.key === "Escape" && state.file) {
+          state.file = false;
+          render();
+        }
+      });
+      change();
+    </script>
+  </body>
+</html>

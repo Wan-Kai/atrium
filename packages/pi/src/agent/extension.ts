@@ -543,8 +543,9 @@ export function parentCalls(branch: readonly SessionEntryView[]): { name: string
  * Whether a session may call a tool, by who it is.
  *
  * @remarks
- * SPEC-0002, "角色与限制": a read-only role only `read`, `grep`, `find`, `ls` and its own two
- * tools; `work` everything; the main agent's tools only below depth 2; a child's own tools only
+ * SPEC-0002, "角色与限制": a read-only role gets `read`, `bash`, `grep`, `find`, `ls` and its
+ * own two tools; Bash's read-only use is a behavioral instruction, not a sandbox. `work` gets
+ * everything; the main agent's tools only below depth 2; a child's own tools only
  * in a child the agent opened. With `guard: "flags"`, pi's own flags already left the rest out.
  *
  * @sideEffects none

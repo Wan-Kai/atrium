@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Atrium 领域模型 · 类图</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        font:
+          14px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "PingFang SC",
+          sans-serif;
+        background: #f5f5f7;
+        color: #1d1d1f;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+        padding: 10px 16px;
+        background: rgba(245, 245, 247, 0.9);
+        backdrop-filter: blur(16px);
+        border-bottom: 0.5px solid rgba(0, 0, 0, 0.1);
+      }
+      header b {
+        margin-right: 8px;
+      }
+      header a {
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: #fff;
+        box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1);
+        color: #2c2c30;
+        text-decoration: none;
+        font-size: 12.5px;
+      }
+      section {
+        margin: 18px 16px;
+        background: #fff;
+        border-radius: 14px;
+        box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+      }
+      section h2 {
+        margin: 0;
+        padding: 12px 16px;
+        font-size: 15px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border-bottom: 0.5px solid rgba(0, 0, 0, 0.08);
+      }
+      section h2 .sp {
+        flex: 1;
+      }
+      section h2 button {
+        border: 0;
+        border-radius: 8px;
+        padding: 4px 10px;
+        background: #f0f0f3;
+        font: inherit;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+      .box {
+        overflow: auto;
+        padding: 16px;
+      }
+      .box svg {
+        display: block;
+        max-width: none !important;
+        height: auto;
+      }
+      #zoom {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        background: #fff;
+        display: none;
+        cursor: grab;
+      }
+      #zoom.on {
+        display: block;
+      }
+      #zoom .stage {
+        position: absolute;
+        left: 0;
+        top: 0;
+        transform-origin: 0 0;
+      }
+      #zoom .bar {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        display: flex;
+        gap: 6px;
+        z-index: 11;
+      }
+      #zoom .bar button {
+        border: 0;
+        border-radius: 10px;
+        padding: 6px 12px;
+        background: #1d1d1f;
+        color: #fff;
+        font: inherit;
+        cursor: pointer;
+      }
+      #zoom .tip {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        color: #6e6e74;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <header><b>Atrium 领域模型</b><span id="nav"></span></header>
+    <main id="main"></main>
+    <div id="zoom">
+      <div class="stage" id="stage"></div>
+      <div class="bar">
+        <button id="zfit">适应窗口</button><button id="z100">100%</button><button id="zclose">关闭 Esc</button>
+      </div>
+      <div class="tip">滚轮缩放 · 拖动平移 · 双击放大到所点位置</div>
+    </div>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: "neutral",
+        themeVariables: { fontSize: "15px" },
+        class: { useMaxWidth: false },
+      });
+      const D = [
+        {
+          title: "1. 项目、工作区、会话",
+          code: 'classDiagram\n    direction LR\n    class Project {\n      <<索引>>\n      id  prj_随机\n      path\n      displayName\n      mainBranchOverride?\n    }\n    class Workspace {\n      <<索引 + 扫描>>\n      id  wks_随机\n      kind: local | worktree\n      dir\n      alias?\n      baseCommit?\n      external: bool\n      archived: bool\n      branch?  [扫描]\n      createdAt  [扫描]\n      name()  alias 或 branch 或目录名\n    }\n    class ChatSpace {\n      <<单例>>\n      root: ~/.atrium/chats\n    }\n    class SessionContainer {\n      <<interface>>\n      id\n      listSessions()\n      dirForNewSession()\n    }\n    class Session {\n      <<pi + 索引>>\n      id  pi 的会话 id\n      containerId?  [索引] Atrium 建的会话\n      file?\n      persistence: draft | persisted | missing\n      cwd  文件头记录\n      piName?\n      firstPrompt?  [扫描]\n      updatedAt\n      archived: bool\n      title()  piName 或兜底标题\n    }\n    class MergeState {\n      <<运行时缓存>>\n      dirty: bool\n      ahead: int\n      verdict: noChange | pending | merged | removed | unknown\n      reason?\n      observedAt\n    }\n    class ClientLayout {\n      <<索引，按客户端>>\n      clientId\n      containerId\n      openTabs: SessionId[]\n      activeTab?\n    }\n\n    Project "1" *-- "1..*" Workspace : 登记记录，恰好一个 local\n    SessionContainer <|.. Workspace\n    SessionContainer <|.. ChatSpace\n    SessionContainer "1" -- "0..*" Session : 记录的容器，否则按 cwd\n    Workspace "1" -- "0..1" MergeState : 仅 worktree\n    ClientLayout "0..*" --> "1" SessionContainer\n',
+        },
+        {
+          title: "2. 会话历史：条目、分支与对话记录",
+          code: 'classDiagram\n    direction TB\n    class SessionEntry {\n      <<pi>>\n      id  8 位十六进制，仅文件内唯一\n      parentId?\n      type\n      timestamp\n    }\n    class SessionLog {\n      <<宿主缓存>>\n      entries: Map\n      leafId\n      cursor  最后收到的条目\n      currentBranch()\n    }\n    class TranscriptProjection {\n      <<派生>>\n      items: TranscriptItem[]\n      sourceEntryIds\n    }\n    class ContextBreakdown {\n      <<派生，估算>>\n      total?\n      system?\n      tools?\n      messages?\n      estimated: bool\n    }\n    class TranscriptItem {\n      <<interface>>\n    }\n    class Turn {\n      id\n      user: UserMessage\n      steps: Step[]\n      reply?\n      outcome: running | done | stopped | failed\n      startedAt?\n      duration?\n    }\n    class Notice {\n      kind: compacted | retrying | extension\n      raw?\n    }\n    class Step {\n      <<interface>>\n      status\n    }\n    class ThinkingStep\n    class TextStep\n    class ToolStep {\n      tool\n      callId\n      args\n      result?\n      details?\n    }\n    class SteerStep\n    class InteractionStep {\n      interactionId\n      question\n      answer?\n    }\n\n    SessionLog "1" *-- "0..*" SessionEntry\n    SessionLog ..> TranscriptProjection : 按当前分支重建\n    SessionLog ..> ContextBreakdown : 回放系统消息与检查点\n    TranscriptProjection "1" *-- "0..*" TranscriptItem\n    TranscriptItem <|.. Turn\n    TranscriptItem <|.. Notice\n    Turn "1" *-- "0..*" Step\n    Step <|.. ThinkingStep\n    Step <|.. TextStep\n    Step <|.. ToolStep\n    Step <|.. SteerStep\n    Step <|.. InteractionStep\n',
+        },
+        {
+          title: "3. 会话运行：控制器、运行状态、排队、待交互",
+          code: 'classDiagram\n    direction TB\n    class SessionManager {\n      open() create() find()\n      closeTab() handOff() archive()\n    }\n    class SessionController {\n      submit() steer() stop()\n      resume() clearQueue()\n      answer() setModel()\n      snapshot()\n    }\n    class SessionRuntime {\n      <<状态>>\n      processEpoch\n      seq\n      lifecycle: initializing | idle | running | error | closed\n      stopping: bool\n      attention?: Attention\n      restartAttempts\n      model: ModelRef\n      thinking\n    }\n    class PiAdapter {\n      <<pi 集成>>\n      spawn() send() kill()\n    }\n    class PiProcess {\n      pid\n      epoch\n      lastUsedAt\n    }\n    class PromptQueue {\n      items: QueuedPrompt[]\n      paused: bool\n    }\n    class QueuedPrompt {\n      id\n      text\n      attachments\n      mode: prompt | steer\n      submission: waiting | sent | started | queuedInPi | handled | delivered | failed\n    }\n    class PendingInteraction {\n      id\n      processEpoch\n      kind: select | confirm | input | editor\n      question\n      options?\n      deadline?\n      state: pending | answered | timedOut | stale\n      answeredBy?\n    }\n    class Attention {\n      <<索引>>\n      reason: error | auth | finished\n      detail?\n      at\n      cleared: bool\n    }\n    class LiveTiming {\n      <<宿主观测>>\n      ttft?\n      lastTps?\n      modelTime?\n    }\n    class PiStats {\n      <<来自 pi>>\n      branchUsage\n      fileUsage\n      cost\n      contextTokens?\n    }\n\n    SessionManager "1" *-- "0..*" SessionController\n    SessionController "0..1" --> "1" Session\n    SessionController "1" *-- "1" SessionRuntime\n    SessionController "1" *-- "1" PiAdapter\n    PiAdapter "1" *-- "0..1" PiProcess\n    SessionRuntime "1" *-- "1" PromptQueue\n    PromptQueue "1" *-- "0..*" QueuedPrompt\n    SessionRuntime "1" *-- "0..*" PendingInteraction\n    SessionRuntime "1" *-- "1" SessionLog\n    SessionRuntime "1" *-- "1" LiveTiming\n    SessionRuntime "1" *-- "1" PiStats\n    SessionRuntime "1" o-- "0..1" Attention\n',
+        },
+        {
+          title: "4. 状态的派生",
+          code: "classDiagram\n    direction LR\n    class SessionStatus {\n      <<派生>>\n      approval | answer | auth | error | running | idle\n    }\n    class Attention {\n      <<索引>>\n      reason: error | auth | finished\n      detail?\n      at\n      cleared: bool\n    }\n    class InboxEntry {\n      <<派生>>\n      session\n      container\n      status\n      since\n    }\n    class WorkspaceSummary {\n      <<派生>>\n      topStatus\n      merge\n    }\n    class ProjectSummary {\n      <<派生>>\n      topStatus\n      pendingWorktrees\n    }\n    SessionRuntime ..> SessionStatus\n    Attention ..> SessionStatus\n    SessionStatus ..> InboxEntry\n    Attention ..> InboxEntry : 未清除的才进收件箱\n    SessionStatus ..> WorkspaceSummary\n    WorkspaceSummary ..> ProjectSummary\n",
+        },
+        {
+          title: "5. 模型、设置与首次启动",
+          code: 'classDiagram\n    direction LR\n    class ModelRef {\n      providerId\n      modelId\n    }\n    class Provider {\n      <<pi>>\n      id\n      name\n      authMethods: oauth, apiKey\n      credential: none | present | invalid\n    }\n    class Model {\n      <<pi>>\n      ref: ModelRef\n      contextWindow\n      maxOutput\n      supportsImage\n      thinkingLevels: string[]\n    }\n    class PiCatalog {\n      <<宿主，不隶属会话>>\n      providers()\n      models()\n      commands(dir)\n    }\n    class Preferences {\n      <<索引，全局>>\n      appearance\n      displayMode\n      statusBar: StatusGroupId[]\n      lastModel: ModelRef\n      lastThinking\n      titleModel?\n    }\n    class StatusGroup {\n      <<注册表>>\n      id\n      name\n      defaultVisible\n      summary(stats)\n      detail(stats)\n    }\n    class SetupState {\n      <<运行时>>\n      pi: missing | outdated | ok\n      node: missing | ok\n      hasUsableModel: bool\n      hasProject: bool\n    }\n    class InstallJob {\n      kind: pi | update | node\n      state: waiting | running | ok | failed | cancelled\n      output\n    }\n    class LoginJob {\n      providerId\n      state: waitingBrowser | ok | failed | cancelled\n    }\n    PiCatalog ..> Provider\n    PiCatalog ..> Model\n    Provider "1" -- "0..*" Model\n    Model ..> ModelRef\n    Preferences ..> StatusGroup\n    SetupState ..> InstallJob\n    SetupState ..> LoginJob\n',
+        },
+        {
+          title: "6. 宿主的组件",
+          code: 'classDiagram\n    direction TB\n    class WsServer {\n      auth(token)\n      route(command)\n    }\n    class Connection {\n      clientId\n      viewing: SessionId[]\n      subscriptions\n    }\n    class IndexStore\n    class ProjectService {\n      list() add() remove() rename()\n    }\n    class WorkspaceService {\n      scan() rename() archive()\n      scheduleFetch() onWindowFocus()\n    }\n    class MergeInspector {\n      inspect(workspace)\n    }\n    class SessionManager\n    class SessionController\n    class FileSearch {\n      search(dir, query)\n    }\n    class SetupService {\n      check() install() update()\n      login() setApiKey() cancel()\n    }\n    class TitleGenerator {\n      generate(sessionId)\n    }\n    class PiIntegration {\n      <<模块>>\n      PiAdapter\n      EventTranslator\n      SessionCatalog\n      PiCatalog\n      ContextEstimator\n      OneShotPi\n    }\n\n    WsServer "1" *-- "0..*" Connection\n    WsServer --> ProjectService\n    WsServer --> WorkspaceService\n    WsServer --> SessionManager\n    WsServer --> FileSearch\n    WsServer --> SetupService\n    SessionManager ..> Connection : 谁在看哪个会话\n    SessionManager *-- SessionController\n    SessionManager --> PiIntegration : SessionCatalog\n    SessionController --> PiIntegration : PiAdapter、EventTranslator\n    SessionController ..> TitleGenerator : 第一轮结束后\n    TitleGenerator --> PiIntegration : OneShotPi\n    SetupService --> PiIntegration : PiCatalog\n    SetupService ..> SessionManager : 更新前确认无运行\n    WorkspaceService --> MergeInspector\n    ProjectService --> IndexStore\n    WorkspaceService --> IndexStore\n    SessionManager --> IndexStore\n',
+        },
+        {
+          title: "7. 客户端与一致性",
+          code: 'classDiagram\n    direction LR\n    class AtriumClient {\n      <<packages/client，无 DOM>>\n      clientId\n      connect(token)\n      send(command)\n      reconnect()\n    }\n    class IndexView {\n      projects\n      containers\n      sessions\n      statuses\n      layout\n    }\n    class SessionView {\n      sessionId\n      epoch\n      seq\n      transcript\n      execution\n      queue\n      interactions\n      stats\n    }\n    class ViewState {\n      <<packages/ui>>\n      expandedTurns\n      drafts\n      scroll\n    }\n    AtriumClient "1" *-- "1" IndexView\n    AtriumClient "1" *-- "0..*" SessionView : 按 sessionId\n    ViewState ..> SessionView\n',
+        },
+      ];
+      const main = document.getElementById("main"),
+        nav = document.getElementById("nav");
+      for (const [i, d] of D.entries()) {
+        const { svg } = await mermaid.render("d" + i, d.code);
+        const sec = document.createElement("section");
+        sec.id = "s" + i;
+        sec.innerHTML = `<h2>图 ${i + 1} · ${d.title}<span class="sp"></span><button data-z="${i}">全屏查看</button><button data-dl="${i}">下载 SVG</button></h2><div class="box">${svg}</div>`;
+        main.appendChild(sec);
+        nav.insertAdjacentHTML("beforeend", `<a href="#s${i}">图 ${i + 1}</a> `);
+      }
+      // 全屏：滚轮缩放、拖动平移
+      const zoom = document.getElementById("zoom"),
+        stage = document.getElementById("stage");
+      let k = 1,
+        x = 0,
+        y = 0,
+        cur = null;
+      const apply = () => (stage.style.transform = `translate(${x}px,${y}px) scale(${k})`);
+      function fit() {
+        const s = stage.firstElementChild,
+          w = s.width.baseVal.value || s.getBBox().width,
+          h = s.height.baseVal.value || s.getBBox().height;
+        k = Math.min(innerWidth / w, innerHeight / h) * 0.94;
+        x = (innerWidth - w * k) / 2;
+        y = (innerHeight - h * k) / 2;
+        apply();
+      }
+      document.addEventListener("click", (e) => {
+        const z = e.target.closest("[data-z]"),
+          dl = e.target.closest("[data-dl]");
+        if (z) {
+          const svg = document.querySelector(`#s${z.dataset.z} svg`).cloneNode(true);
+          stage.innerHTML = "";
+          stage.appendChild(svg);
+          zoom.classList.add("on");
+          requestAnimationFrame(fit);
+        }
+        if (dl) {
+          const svg = document.querySelector(`#s${dl.dataset.dl} svg`);
+          const blob = new Blob([new XMLSerializer().serializeToString(svg)], { type: "image/svg+xml" });
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `atrium-domain-${+dl.dataset.dl + 1}.svg`;
+          a.click();
+        }
+      });
+      document.getElementById("zfit").onclick = fit;
+      document.getElementById("z100").onclick = () => {
+        k = 1;
+        x = 20;
+        y = 60;
+        apply();
+      };
+      document.getElementById("zclose").onclick = () => zoom.classList.remove("on");
+      addEventListener("keydown", (e) => {
+        if (e.key === "Escape") zoom.classList.remove("on");
+      });
+      zoom.addEventListener(
+        "wheel",
+        (e) => {
+          e.preventDefault();
+          const f = Math.exp(-e.deltaY * 0.0015),
+            nk = Math.min(8, Math.max(0.1, k * f));
+          x = e.clientX - ((e.clientX - x) * nk) / k;
+          y = e.clientY - ((e.clientY - y) * nk) / k;
+          k = nk;
+          apply();
+        },
+        { passive: false },
+      );
+      zoom.addEventListener("dblclick", (e) => {
+        const nk = Math.min(8, k * 2);
+        x = e.clientX - ((e.clientX - x) * nk) / k;
+        y = e.clientY - ((e.clientY - y) * nk) / k;
+        k = nk;
+        apply();
+      });
+      zoom.addEventListener("pointerdown", (e) => {
+        if (e.target.closest(".bar")) return;
+        const sx = e.clientX - x,
+          sy = e.clientY - y;
+        zoom.style.cursor = "grabbing";
+        const mv = (ev) => {
+          x = ev.clientX - sx;
+          y = ev.clientY - sy;
+          apply();
+        };
+        const up = () => {
+          zoom.style.cursor = "";
+          removeEventListener("pointermove", mv);
+          removeEventListener("pointerup", up);
+        };
+        addEventListener("pointermove", mv);
+        addEventListener("pointerup", up);
+      });
+    </script>
+  </body>
+</html>

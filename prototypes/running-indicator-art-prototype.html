@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型：运行中的图标 · 粒子、光影、点阵</title>
+    <!--
+  原型（PROTOTYPE，用完即弃）：第一版五种（猫脸、轨道、点阵扫光、声纳、三点）被否，太平。
+  这一版换成画布逐帧绘制，往"粒子化、光影化、点阵化"走。打开：双击；右上角切深色、配色、减弱动态。
+  参考（2026-10-20 检索）：
+  - thinking-orbs（Jakub Antalik）：点组成的 3D 球，按深度调大小和明暗，Canvas 2D；20px 单独调一套（点更少、更大、更慢）
+  - Linear 注册页的翻点矩阵（Adrien Griveau，灵感来自机场航班牌）
+  - zzzzshawn/dotmatrix：55+ 点阵 loader（涡旋、径向涟漪、扫描）
+  - Apple Intelligence 的流光：conic 渐变 + 模糊光晕；小于约 200px 的元素只留光环、不加大光晕
+  所有图标共用一个时钟逐帧画，几个会话同时运行时天然同相位。
+-->
+    <style>
+      :root {
+        --main: #fff;
+        --surface-2: #f2f2f4;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --attn: #dd8629;
+        --danger: #e5484d;
+        --page: #eef1f6;
+        --sidebar: linear-gradient(180deg, #d5dbe9 0%, #e1e4ea 25%, #e3e7e9 65%, #d8dbe3 100%);
+        --hero: #f4f5f8;
+      }
+      :root[data-theme="dark"] {
+        --main: #151517;
+        --surface-2: #2c2c2e;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --selected: rgba(255, 255, 255, 0.08);
+        --tint: #7aaaff;
+        --attn: #dd8629;
+        --danger: #f25a5a;
+        --page: #0c0c0e;
+        --sidebar: rgba(95, 102, 114, 0.42);
+        --hero: #0f1013;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--text);
+        font:
+          14px/1.5 -apple-system,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        padding: 24px 40px 60px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      p.lead {
+        margin: 0 0 18px;
+        color: var(--text-muted);
+        font-size: 13px;
+        max-width: 1150px;
+      }
+      .tools {
+        position: fixed;
+        top: 14px;
+        right: 18px;
+        display: flex;
+        gap: 6px;
+        z-index: 2;
+      }
+      .tools button {
+        font: inherit;
+        font-size: 12px;
+        border: 0.5px solid var(--line);
+        background: var(--main);
+        color: var(--text-2);
+        border-radius: 8px;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+      .group {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-muted);
+        letter-spacing: 0.04em;
+        margin: 22px 0 10px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(540px, 1fr));
+        gap: 18px;
+      }
+      .card {
+        background: var(--main);
+        border-radius: 16px;
+        padding: 18px 20px 16px;
+        box-shadow: 0 0 0 0.5px var(--line);
+      }
+      .card h2 {
+        font-size: 14px;
+        margin: 0 0 2px;
+      }
+      .card .why {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin: 0 0 14px;
+        min-height: 36px;
+      }
+      .stage {
+        display: grid;
+        grid-template-columns: 168px 1fr;
+        gap: 18px;
+        align-items: start;
+      }
+      .hero {
+        width: 168px;
+        height: 168px;
+        border-radius: 14px;
+        background: var(--hero);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .scale {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        justify-content: center;
+        margin-top: 8px;
+        font-size: 11px;
+        color: var(--text-dim);
+      }
+      .run {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        font-size: 13px;
+        margin-bottom: 6px;
+      }
+      .run .dim {
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+      }
+      .shimmer {
+        background: linear-gradient(90deg, var(--text-muted) 40%, var(--text) 50%, var(--text-muted) 60%) 0 0 / 200%
+          100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        animation: sh 2.2s linear infinite;
+      }
+      @keyframes sh {
+        from {
+          background-position: 100% 0;
+        }
+        to {
+          background-position: -100% 0;
+        }
+      }
+      .side {
+        background: var(--sidebar);
+        border-radius: 12px;
+        padding: 6px;
+      }
+      .srow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 30px;
+        padding: 0 8px;
+        border-radius: 8px;
+        font-size: 13px;
+        color: var(--text-2);
+      }
+      .srow.sel {
+        background: var(--selected);
+      }
+      .srow .name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .srow .ago {
+        font-size: 12px;
+        color: var(--text-dim);
+      }
+      .st {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .st svg {
+        width: 14px;
+        height: 14px;
+      }
+      .ask {
+        color: var(--attn);
+      }
+      .err {
+        color: var(--danger);
+      }
+      .tabs {
+        display: flex;
+        gap: 2px;
+        margin-top: 8px;
+        padding: 4px;
+        border-radius: 10px;
+        background: var(--surface-2);
+      }
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 10px 0 8px;
+        border-radius: 8px;
+        font-size: 13px;
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .tab.sel {
+        background: var(--main);
+        color: var(--text);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tools">
+      <button id="palette">配色：品牌蓝</button>
+      <button id="motion">减弱动态：关</button>
+      <button id="theme">深色</button>
+    </div>
+    <h1>运行中的图标 · 粒子、光影、点阵</h1>
+    <p class="lead">
+      第二版：不再用线条图标，全部用画布逐帧画，往粒子、光影、点阵三个方向各做两种。每张卡片左边是放大的样子和 14 / 18 /
+      28px 三档；右边是实际用的地方：对话里的"进行中"行（18px，替换现在的小猫）、侧栏和标签栏（14px，和待回答 ?、出错 !
+      放在一起）。小尺寸是单独调过的（点更少、更大），不是简单缩小。右上角"配色"可以在单一品牌蓝和蓝紫青三色"极光"之间切换。
+    </p>
+    <div id="root"></div>
+    <script>
+      // ---------- 颜色 ----------
+      const hex = (h) => {
+        h = h.trim().replace("#", "");
+        return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+      };
+      const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
+      const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${Math.max(0, Math.min(1, a)).toFixed(3)})`;
+      let aurora = false;
+      function palette() {
+        const dark = document.documentElement.dataset.theme === "dark";
+        const c = hex(getComputedStyle(document.documentElement).getPropertyValue("--tint"));
+        const white = [255, 255, 255],
+          black = [0, 0, 0];
+        const c2 = aurora ? hex(dark ? "#b394ff" : "#8b5cf6") : mix(c, white, dark ? 0.35 : 0.45);
+        const c3 = aurora ? hex(dark ? "#4fe0f0" : "#0bb4d6") : mix(c, dark ? white : black, dark ? 0.6 : 0.3);
+        return { c, c2, c3, dark, white, black };
+      }
+      const TAU = Math.PI * 2;
+      const dot = (ctx, x, y, r, fill) => {
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, TAU);
+        ctx.fillStyle = fill;
+        ctx.fill();
+      };
+
+      // ---------- 画法：坐标都在 100×100 里，k 是 100 单位到设备像素的比例 ----------
+      const DRAW = {
+        // 粒子 1：点组成的球，绕斜轴转，按深度调大小和明暗，一道亮带沿纬度扫过
+        sphere(ctx, t, small, P) {
+          const N = small ? 26 : 120,
+            R = 40 * (1 + 0.03 * Math.sin(t * 2.2)),
+            rot = t * 0.9,
+            tilt = 0.45;
+          const pts = [];
+          for (let i = 0; i < N; i++) {
+            const y0 = 1 - (2 * (i + 0.5)) / N,
+              r = Math.sqrt(1 - y0 * y0),
+              phi = i * 2.39996 + rot;
+            const x0 = r * Math.cos(phi),
+              z0 = r * Math.sin(phi);
+            const y = y0 * Math.cos(tilt) - z0 * Math.sin(tilt),
+              z = y0 * Math.sin(tilt) + z0 * Math.cos(tilt);
+            const band = Math.max(0, Math.cos(y0 * 3.4 - t * 2.6)) ** 8;
+            pts.push({ x: 50 + x0 * R, y: 50 + y * R, z, band });
+          }
+          pts.sort((a, b) => a.z - b.z);
+          for (const p of pts) {
+            const d = (p.z + 1) / 2;
+            const rad = (small ? 6.4 : 2.5) * (0.45 + 0.55 * d) * (1 + 0.45 * p.band);
+            const lo = small ? 0.4 : 0.16;
+            dot(
+              ctx,
+              p.x,
+              p.y,
+              rad,
+              rgba(mix(P.c, P.c2, p.band * 0.9), (lo + (1 - lo) * d) * (0.6 + 0.4 * p.band) + p.band * 0.25),
+            );
+          }
+        },
+        // 粒子 2：三条斜着的轨道，各一颗带拖尾的粒子绕发光的核转
+        orbits(ctx, t, small, P, k) {
+          const core = ctx.createRadialGradient(50, 50, 0, 50, 50, small ? 22 : 18);
+          core.addColorStop(0, rgba(mix(P.c, P.white, 0.35), 1));
+          core.addColorStop(0.45, rgba(P.c, 0.9));
+          core.addColorStop(1, rgba(P.c, 0));
+          ctx.fillStyle = core;
+          ctx.fillRect(0, 0, 100, 100);
+          const orbits = [
+            [0, 1, 0, P.c],
+            [TAU / 3, 1.3, 2.1, P.c2],
+            [(2 * TAU) / 3, 0.85, 4.2, P.c3],
+          ];
+          const rx = 42,
+            ry = small ? 15 : 13,
+            K = small ? 6 : 18;
+          for (const [tilt, sp, off, col] of orbits) {
+            const ct = Math.cos(tilt),
+              st = Math.sin(tilt);
+            if (!small) {
+              ctx.beginPath();
+              ctx.ellipse(50, 50, rx, ry, tilt, 0, TAU);
+              ctx.strokeStyle = rgba(col, 0.13);
+              ctx.lineWidth = 0.8;
+              ctx.stroke();
+            }
+            for (let j = K; j >= 0; j--) {
+              const a = t * sp * 2.6 + off - j * (small ? 0.16 : 0.07);
+              const ex = Math.cos(a) * rx,
+                ey = Math.sin(a) * ry,
+                z = Math.sin(a);
+              const f = 1 - j / (K + 1);
+              dot(
+                ctx,
+                50 + ex * ct - ey * st,
+                50 + ex * st + ey * ct,
+                (small ? 7.5 : 3.4) * (0.35 + 0.65 * f) * (0.8 + 0.2 * z),
+                rgba(col, f ** 1.6 * (0.55 + (0.45 * (z + 1)) / 2)),
+              );
+            }
+          }
+        },
+        // 光影 1：一颗玻璃珠，里面三团颜色缓慢流动，高光跟着转，外面一圈呼吸的光晕
+        pearl(ctx, t, small, P) {
+          const R = (small ? 40 : 33) * (1 + 0.025 * Math.sin(t * 2.4));
+          const halo = ctx.createRadialGradient(50, 50, R * 0.7, 50, 50, R * (small ? 1.25 : 1.45));
+          halo.addColorStop(0, rgba(P.c, (P.dark ? 0.55 : 0.35) * (0.75 + 0.25 * Math.sin(t * 2.4))));
+          halo.addColorStop(1, rgba(P.c, 0));
+          ctx.fillStyle = halo;
+          ctx.fillRect(0, 0, 100, 100);
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(50, 50, R, 0, TAU);
+          ctx.clip();
+          const base = ctx.createRadialGradient(42, 38, 2, 50, 50, R);
+          base.addColorStop(0, rgba(mix(P.c, P.white, 0.3), 1));
+          base.addColorStop(0.6, rgba(P.c, 1));
+          base.addColorStop(1, rgba(mix(P.c, P.black, 0.4), 1));
+          ctx.fillStyle = base;
+          ctx.fillRect(0, 0, 100, 100);
+          ctx.globalCompositeOperation = "lighter";
+          [
+            [P.c2, 1.1, 0],
+            [P.c3, 0.8, 2.1],
+            [mix(P.c, P.white, 0.4), 1.4, 4.2],
+          ].forEach(([col, sp, off]) => {
+            const x = 50 + Math.cos(t * sp + off) * R * 0.5,
+              y = 50 + Math.sin(t * sp * 1.3 + off) * R * 0.5;
+            const g = ctx.createRadialGradient(x, y, 0, x, y, R * 0.85);
+            g.addColorStop(0, rgba(col, 0.75));
+            g.addColorStop(1, rgba(col, 0));
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, 100, 100);
+          });
+          ctx.globalCompositeOperation = "source-over";
+          const sa = -2.3 + 0.45 * Math.sin(t * 1.3),
+            sx = 50 + Math.cos(sa) * R * 0.45,
+            sy = 50 + Math.sin(sa) * R * 0.45;
+          const spec = ctx.createRadialGradient(sx, sy, 0, sx, sy, R * 0.5);
+          spec.addColorStop(0, "rgba(255,255,255,.9)");
+          spec.addColorStop(1, "rgba(255,255,255,0)");
+          ctx.fillStyle = spec;
+          ctx.fillRect(0, 0, 100, 100);
+          ctx.restore();
+          ctx.beginPath();
+          ctx.arc(50, 50, R - 0.8, 0, TAU);
+          ctx.strokeStyle = "rgba(255,255,255,.28)";
+          ctx.lineWidth = small ? 3 : 1.6;
+          ctx.stroke();
+        },
+        // 光影 2：一圈暗轨上，一道流光带着渐隐的尾巴绕行，速度有快慢，头部发光
+        comet(ctx, t, small, P, k) {
+          const R = small ? 36 : 34,
+            w = small ? 13 : 6.5;
+          ctx.beginPath();
+          ctx.arc(50, 50, R, 0, TAU);
+          ctx.strokeStyle = rgba(P.c, P.dark ? 0.16 : 0.12);
+          ctx.lineWidth = w;
+          ctx.stroke();
+          const p = t / 1.5,
+            A = p * TAU + 0.5 * Math.sin(p * TAU),
+            L = 2.6 + 1.3 * Math.sin(t * 1.7);
+          const S = 48;
+          ctx.lineCap = "round";
+          for (let s = S; s >= 0; s--) {
+            const a0 = A - (L * s) / S,
+              a1 = A - (L * (s - 1)) / S,
+              f = 1 - s / S;
+            const col = s / S < 0.5 ? mix(P.c, P.c2, (s / S) * 2) : mix(P.c2, P.c3, (s / S) * 2 - 1);
+            ctx.beginPath();
+            ctx.arc(50, 50, R, a0, Math.max(a0, a1));
+            ctx.strokeStyle = rgba(col, f ** 1.4);
+            ctx.lineWidth = w * (0.45 + 0.55 * f);
+            ctx.stroke();
+          }
+          const hx = 50 + Math.cos(A) * R,
+            hy = 50 + Math.sin(A) * R;
+          ctx.shadowColor = rgba(P.c, 0.9);
+          ctx.shadowBlur = (small ? 6 : 10) * k;
+          dot(ctx, hx, hy, w * 0.62, rgba(mix(P.c, P.white, 0.55), 1));
+          ctx.shadowBlur = 0;
+        },
+        // 点阵 1：圆形裁出的 LED 点阵，一条螺旋臂旋转着扫过，三档亮度，亮点带光晕
+        vortex(ctx, t, small, P, k, n) {
+          // 圆按格数裁（半径 = 半宽 + 0.3 格），不按比例：5×5 按比例裁会只剩一个菱形。
+          // 大图四周留 8 给亮点的光晕，不然贴边的光被画布裁掉。
+          const pad = small ? 0 : 8,
+            cell = (100 - 2 * pad) / n,
+            half = (n - 1) / 2;
+          for (let i = 0; i < n; i++)
+            for (let j = 0; j < n; j++) {
+              const dx = i - half,
+                dy = j - half,
+                r = Math.hypot(dx, dy);
+              if (r > half + 0.3) continue;
+              const dist = r / half;
+              const v = 0.5 + 0.5 * Math.cos(dist * 4.4 - Math.atan2(dy, dx) - t * 3.8);
+              const lvl = v > 0.8 ? 1 : v > 0.5 ? 0.55 : small ? 0.2 : 0.13;
+              if (lvl === 1 && !small) {
+                ctx.shadowColor = rgba(P.c, 0.8);
+                ctx.shadowBlur = cell * 0.55 * k;
+              }
+              dot(
+                ctx,
+                pad + (i + 0.5) * cell,
+                pad + (j + 0.5) * cell,
+                cell * (small ? 0.38 : 0.31),
+                rgba(lvl === 1 ? mix(P.c, P.c2, dist) : P.c, lvl),
+              );
+              ctx.shadowBlur = 0;
+            }
+        },
+        // 点阵 2：翻点屏上的猫：一道亮光斜着扫过，眼睛（熄灭的点）看左、看右、眨一下
+        pixelcat(ctx, t, small, P, k) {
+          const M = [
+            "010000010",
+            "011000110",
+            "011111110",
+            "111111111",
+            "111111111",
+            "111111111",
+            "111111111",
+            "011111110",
+            "001111100",
+          ];
+          const n = 9,
+            cell = 100 / n,
+            ph = t % 4;
+          const s = ph > 1.4 && ph < 2 ? -1 : ph >= 2 && ph < 2.6 ? 1 : 0,
+            blink = ph > 3.4 && ph < 3.58;
+          const eye = (i, j) => !blink && (j === 4 || j === 5) && (i === 2 + s || i === 6 + s);
+          for (let j = 0; j < n; j++)
+            for (let i = 0; i < n; i++) {
+              const on = M[j][i] === "1" && !eye(i, j);
+              const sweep = Math.max(0, Math.cos((i + j) * 0.5 - t * 3)) ** 6;
+              if (on && sweep > 0.6 && !small) {
+                ctx.shadowColor = rgba(P.c2, 0.9);
+                ctx.shadowBlur = cell * 0.6 * k;
+              }
+              dot(
+                ctx,
+                (i + 0.5) * cell,
+                (j + 0.5) * cell,
+                cell * (small ? 0.44 : 0.36),
+                on ? rgba(mix(P.c, P.c2, sweep), 0.62 + 0.38 * sweep) : rgba(P.c, small ? 0 : 0.06),
+              );
+              ctx.shadowBlur = 0;
+            }
+        },
+      };
+
+      // ---------- 页面 ----------
+      const VARIANTS = [
+        [
+          "粒子",
+          "sphere",
+          "A 粒子球",
+          '一百多个点排在球面上，绕斜轴慢慢转，近大远小、近亮远暗，一道亮带沿纬度上下扫过（thinking-orbs 的路子）。14px 时换成 26 个更大的点。立体、安静，像在"想"。',
+        ],
+        [
+          "粒子",
+          "orbits",
+          "B 轨道粒子",
+          '发光的核，三条斜着的轨道上各一颗粒子拖着尾巴绕行，速度各不相同，像原子。动感最强；配色切到"极光"时三条轨道三种颜色。',
+        ],
+        [
+          "光影",
+          "pearl",
+          "C 流光珠",
+          '一颗玻璃珠：里面三团颜色缓慢流动，高光在左上微微摆动，外面一圈呼吸的光晕（Siri / Apple Intelligence 的光感，缩到 14px）。最"亮"，深色下最好看。',
+        ],
+        [
+          "光影",
+          "comet",
+          "D 流光环",
+          "暗轨上一道流光绕行，尾巴渐隐、头部发光，速度一快一慢、尾巴一长一短，不是匀速转圈。最接近原来的位置感，但有了光。",
+        ],
+        [
+          "点阵",
+          "vortex",
+          "E 点阵涡旋",
+          "圆形裁出的 LED 点阵，一条螺旋臂转着扫过，三档亮度、亮点带光晕（Linear 翻点屏、dotmatrix 的路子）。点数按尺寸分三档、轮廓都是圆：大图 9×9（69 个点），18–28px 7×7（37 个点），14px 5×5（21 个点；7×7 在 14px 下每个点只有约 2 个像素，会糊成一片）。",
+        ],
+        [
+          "点阵",
+          "pixelcat",
+          "F 点阵猫",
+          "翻点屏上的 Atrium 猫：一道亮光斜着扫过整张脸，眼睛是熄灭的点，会看左、看右、眨一下。品牌和点阵合在一起；14px 下能认出是猫，但细节要放大才看得清。",
+        ],
+      ];
+      const ASK =
+        '<svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.2" stroke="currentColor" stroke-width="1.3"/><path d="M6.3 6.3a1.8 1.8 0 1 1 2.4 1.7c-.5.2-.7.6-.7 1.1v.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="11.3" r=".8" fill="currentColor"/></svg>';
+      const ERR =
+        '<svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.2" stroke="currentColor" stroke-width="1.3"/><path d="M8 4.8v3.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.1" r=".85" fill="currentColor"/></svg>';
+      const cv = (v, s) => `<canvas data-v="${v}" data-s="${s}"></canvas>`;
+      const st = (v, kind) =>
+        kind === "run"
+          ? `<span class="st">${cv(v, 14)}</span>`
+          : kind === "ask"
+            ? `<span class="st ask">${ASK}</span>`
+            : kind === "err"
+              ? `<span class="st err">${ERR}</span>`
+              : "";
+      const SIDE = [
+        ["run", "修复登录超时", "", true],
+        ["run", "重构文件树的懒加载", ""],
+        ["ask", "迁移到新协议", ""],
+        ["", "整理 README", "3 小时"],
+        ["run", "补变异测试", ""],
+        ["err", "升级 pi 到 1.4", ""],
+      ];
+      let html = "",
+        last = "";
+      for (const [group, v, title, why] of VARIANTS) {
+        if (group !== last) {
+          html += `${last ? "</div>" : ""}<div class="group">${group}</div><div class="grid">`;
+          last = group;
+        }
+        html += `<div class="card"><h2>${title}</h2><p class="why">${why}</p><div class="stage">
+    <div><div class="hero">${cv(v, 112)}</div><div class="scale">${cv(v, 14)}${cv(v, 18)}${cv(v, 28)}</div></div>
+    <div><div class="run">${cv(v, 18)}<span class="shimmer">进行中</span><span class="dim"> · 12s</span></div>
+      <div class="side">${SIDE.map(([kd, name, ago, sel]) => `<div class="srow ${sel ? "sel" : ""}"><span class="name">${name}</span>${ago ? `<span class="ago">${ago}</span>` : ""}${st(v, kd)}</div>`).join("")}</div>
+      <div class="tabs"><div class="tab sel">${st(v, "run")}修复登录超时</div><div class="tab">${st(v, "run")}补变异测试</div><div class="tab">${st(v, "ask")}迁移到新协议</div></div>
+    </div></div></div>`;
+      }
+      document.getElementById("root").innerHTML = html + "</div>";
+
+      const canvases = [...document.querySelectorAll("canvas")].map((el) => {
+        const s = +el.dataset.s,
+          dpr = Math.max(2, devicePixelRatio || 1);
+        el.width = el.height = Math.round(s * dpr);
+        el.style.width = el.style.height = `${s}px`;
+        return {
+          ctx: el.getContext("2d"),
+          fn: DRAW[el.dataset.v],
+          k: (s * dpr) / 100,
+          small: s < 32,
+          n: s <= 16 ? 5 : s < 32 ? 7 : 9,
+        };
+      });
+      let still = false;
+      function frame(now) {
+        const P = palette(),
+          t = still ? 1.15 : now / 1000;
+        for (const c of canvases) {
+          c.ctx.setTransform(c.k, 0, 0, c.k, 0, 0);
+          c.ctx.clearRect(0, 0, 100, 100);
+          c.ctx.save();
+          c.fn(c.ctx, t, c.small, P, c.k, c.n);
+          c.ctx.restore();
+        }
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+      document.getElementById("motion").onclick = (e) => {
+        still = !still;
+        e.target.textContent = still ? "减弱动态：开" : "减弱动态：关";
+      };
+      document.getElementById("palette").onclick = (e) => {
+        aurora = !aurora;
+        e.target.textContent = aurora ? "配色：极光" : "配色：品牌蓝";
+      };
+      document.getElementById("theme").onclick = (e) => {
+        const d = document.documentElement.dataset.theme === "dark";
+        document.documentElement.dataset.theme = d ? "" : "dark";
+        e.target.textContent = d ? "深色" : "浅色";
+      };
+    </script>
+  </body>
+</html>

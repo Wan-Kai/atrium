@@ -1,4 +1,4 @@
-import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useLayoutEffect, useRef, useState } from "react";
 
 /** Where a fold is: still, or on its way. */
 type Phase = "open" | "opening" | "closing" | "closed";
@@ -83,7 +83,8 @@ function play(element: HTMLElement, closing: boolean, duration: number): Animati
  * children stay mounted until the fold has played, then give way to `folded`; opening mounts them
  * at once and unfolds. Nothing plays on the first render, so a turn opened from history is simply
  * folded, and nothing plays when the user asked for less motion. The wrapper clips while it moves;
- * still, it keeps `className`, so a fold whose rows hold menus need not clip them.
+ * still, it keeps `className`, so a fold whose rows hold menus need not clip them. `folded` is
+ * never put in the wrapper's node, which a finished fold leaves at height 0.
  *
  * @sideEffects Animates the wrapper and its rows when `open` changes; cancels them on unmount.
  * @param props - Whether it is open, what it holds, what shows while folded, its test id, how
@@ -133,7 +134,9 @@ export function Fold({
     },
     [],
   );
-  if (phase === "closed") return folded;
+  // A node of its own: a wrapper the fold left at height 0 (the animation fills forwards) must not
+  // be reused to show `folded`, whose rows would then spill over what follows.
+  if (phase === "closed") return folded === null ? null : <Fragment key="folded">{folded}</Fragment>;
   return (
     <div
       ref={ref}

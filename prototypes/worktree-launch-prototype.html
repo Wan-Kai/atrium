@@ -1,0 +1,2302 @@
+<!doctype html>
+<!--
+  PROTOTYPE · 用完即弃，不要当成正式代码。
+  问题：在"新建工作区"页选了"新建 worktree"、发出第一条消息后，Atrium 依次做四步（起名 → 创建 worktree →
+  启动会话 → 发出消息），然后 agent 的第一轮才开始。现在时间轴在对话区左上、待发的气泡在右下，斜对着、中间空一大块，
+  而且布局跳三次（重新挂载闪一下、+44px、−136px）。这里比较三种放法，都要求不跳：
+    甲 进度在这一轮里：气泡一开始就在最终位置；下面就是这一轮的过程，标题"准备工作区"，四步一步步长出来；
+       做完原地收成一行灰色摘要，同一个标题接着变成"进行中"。
+    乙 居中卡片，原地变成对话：标题区变成一张卡片，引用消息第一行，下面紧凑的四步；做完引用飞成顶上的气泡，
+       四步淡成气泡下的一行摘要。
+    丙 输入框上方一行状态：选择排原地换成一行状态胶囊（同高），悬停看完整四步；对话区只有待发的气泡。
+  底部浮条：版本（也可 ?variant=甲|乙|丙）、浅色 / 深色、播放、失败、慢放、暂停（空格）。
+  定格截图用：?variant=乙&theme=dark&play=ok|fail&hold=step2|done|fail。
+  颜色、字号、圆角、过程轨道的几何取自 docs/architecture/design-language.md；图标是 Hugeicons 免费版（stroke-rounded）。
+  数据是假的。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · 新建 worktree 的启动过程</title>
+    <style>
+      :root {
+        --window: #e8ecf2;
+        --main: #ffffff;
+        --surface-1: #ffffff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --code: #f6f6f8;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-soft: rgba(0, 0, 0, 0.05);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --linked: rgba(47, 111, 237, 0.1);
+        --danger: #e5484d;
+        --danger-soft: rgba(229, 72, 77, 0.1);
+        --ok-text: #1e8e3e;
+        --rail: rgba(0, 0, 0, 0.15);
+        --node: #c4c4c9;
+        --chip-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.05);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.08);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --soft-shadow: 0 10px 30px rgba(41, 70, 122, 0.1), 0 1px 3px rgba(41, 70, 122, 0.05); /* 乙 的卡片：无描边 */
+        --composer-bg: var(--surface-1);
+        --float-bg: var(--surface-1);
+        --sidebar-bg: linear-gradient(
+          180deg,
+          #d5dbe9 0%,
+          #dae0e9 10%,
+          #e1e4ea 25%,
+          #e3e7e9 35%,
+          #e3e7e9 65%,
+          #e2e4e6 75%,
+          #dee1e7 85%,
+          #d8dbe3 100%
+        );
+        --thumb-bg: #e6e8ec;
+        --thumb-a: #d2d5db;
+        --thumb-b: #c3c7ce;
+        --thumb-c: #f6f7f9;
+        --page: #dfe4ec;
+        --bar: rgba(255, 255, 255, 0.9);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --fs-mono: 12.5px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-btn: 12px;
+        --r-card: 16px;
+        --r-bubble: 22px;
+        --r-pill: 999px;
+        --column: 800px;
+        --smooth: cubic-bezier(0.32, 0.72, 0, 1);
+        --fold: cubic-bezier(0.45, 0, 0.15, 1);
+        --snappy: linear(0, 0.1 6%, 0.45 18%, 0.82 32%, 1.02 48%, 1.04 58%, 1.01 76%, 1);
+        --bouncy: linear(0, 0.12 6%, 0.5 18%, 0.93 32%, 1.1 45%, 1.08 55%, 0.99 72%, 1);
+        --k: 1; /* 慢放倍数 */
+      }
+      :root[data-theme="dark"] {
+        --window: #0d1016;
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --surface-3: #353638;
+        --code: #19191b;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-soft: rgba(255, 255, 255, 0.06);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --tint: #7aaaff;
+        --linked: rgba(122, 170, 255, 0.14);
+        --danger: #f25a5a;
+        --danger-soft: rgba(242, 90, 90, 0.14);
+        --ok-text: #4ade80;
+        --rail: rgba(255, 255, 255, 0.15);
+        --node: #5d6067;
+        --chip-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.3);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
+        --soft-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+        --composer-bg: var(--surface-2);
+        --float-bg: var(--surface-2);
+        --sidebar-bg: rgba(95, 102, 114, 0.42);
+        --thumb-bg: #2a2b2f;
+        --thumb-a: #3a3c41;
+        --thumb-b: #4b4e55;
+        --thumb-c: #222326;
+        --page: #08090c;
+        --bar: rgba(40, 40, 42, 0.9);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        background: var(--page);
+        color: var(--text);
+        font: var(--fs)/1.5 var(--font-sans);
+        -webkit-font-smoothing: antialiased;
+        padding: 18px 0 16px;
+        min-width: 1180px;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: 0;
+        padding: 0;
+        cursor: pointer;
+      }
+      svg {
+        display: block;
+        flex: none;
+      }
+      .mono {
+        font-family: var(--font-mono);
+        font-size: 12px;
+      }
+      .num {
+        font-variant-numeric: tabular-nums;
+      }
+
+      header.page {
+        width: 1100px;
+        margin: 0 auto 12px;
+      }
+      header.page h1 {
+        font-size: 18px;
+        margin: 0 0 4px;
+        font-weight: 600;
+      }
+      header.page p {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+        min-height: 40px;
+      }
+
+      /* ── 窗口 ── */
+      .win {
+        position: relative;
+        width: 1100px;
+        height: 720px;
+        margin: 0 auto;
+        border-radius: 12px;
+        overflow: hidden;
+        display: flex;
+        background: var(--window);
+        box-shadow:
+          0 0 0 0.5px var(--line-strong),
+          0 24px 60px rgba(20, 30, 60, 0.18);
+      }
+      :root[data-theme="dark"] .win {
+        box-shadow:
+          0 0 0 0.5px rgba(255, 255, 255, 0.12),
+          0 24px 60px rgba(0, 0, 0, 0.6);
+      }
+      .sb {
+        width: 270px;
+        flex: none;
+        background: var(--sidebar-bg);
+        padding: 0 12px;
+        font-size: var(--fs);
+        color: var(--text-2);
+      }
+      .lights {
+        height: 50px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-left: 8px;
+      }
+      .lights i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #ff5f57;
+      }
+      .lights i:nth-child(2) {
+        background: #febc2e;
+      }
+      .lights i:nth-child(3) {
+        background: #28c840;
+      }
+      .sb-search {
+        height: 32px;
+        border-radius: var(--r-md);
+        background: var(--hover);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 10px;
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+        margin-bottom: 6px;
+      }
+      .sb-h {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        padding: 14px 12px 6px;
+      }
+      .sb-row {
+        height: 34px;
+        border-radius: var(--r);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 12px;
+        margin-bottom: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .sb-row .ic {
+        color: var(--text-muted);
+      }
+      .sb-row.ws {
+        padding-left: 34px;
+        color: var(--text-3);
+      }
+      .sb-row.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .sb-row .end {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+      }
+      .sb-wrap {
+        overflow: hidden;
+      }
+
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--main);
+      }
+      .tabs {
+        height: 48px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        padding: 0 12px;
+        gap: 4px;
+      }
+      .tab {
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 8px 0 10px;
+        border-radius: var(--r);
+        background: var(--selected);
+        font-size: var(--fs-meta);
+        color: var(--text);
+        white-space: nowrap;
+      }
+      .tab .tx {
+        position: relative;
+      }
+      .tab .x {
+        color: var(--text-dim);
+        display: grid;
+        place-items: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+      }
+      .tab-st {
+        display: none;
+      }
+      .tab-st.on {
+        display: block;
+        animation: rise calc(0.3s * var(--k)) var(--smooth) both;
+      }
+
+      .convo {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .flow {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+      }
+      .col {
+        max-width: var(--column);
+        margin: 0 auto;
+        padding: 24px 24px 40px;
+      }
+      .center {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+      }
+      .center > * {
+        pointer-events: auto;
+      }
+      .hero {
+        flex-direction: column;
+        gap: 6px;
+        transition:
+          opacity calc(0.22s * var(--k)) var(--smooth),
+          transform calc(0.22s * var(--k)) var(--smooth);
+      }
+      .hero b {
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .hero span {
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .hero.off {
+        opacity: 0;
+        transform: translateY(-4px);
+        pointer-events: none;
+      }
+
+      /* ── 底部：选择排 / 状态行 / 胶囊条 + 输入框 ── */
+      .dock {
+        flex: none;
+      }
+      .dock-col {
+        max-width: var(--column);
+        margin: 0 auto;
+        padding: 0 24px 20px;
+      }
+      .slot {
+        position: relative;
+        height: 32px;
+      } /* 26px 的一排 + 6px 间距，三版都不变 */
+      .layer {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 26px;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        transition:
+          opacity calc(0.2s * var(--k)) var(--smooth),
+          transform calc(0.2s * var(--k)) var(--smooth);
+      }
+      .layer.off {
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(4px);
+      }
+      .sel {
+        all: unset;
+        cursor: pointer;
+        height: 26px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px;
+        border-radius: var(--r-btn);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        white-space: nowrap;
+        transition: color 0.2s;
+      }
+      .sel:hover {
+        background: var(--hover);
+      }
+      .sel .ic {
+        color: var(--text-muted);
+        transition: color 0.2s;
+      }
+      .sel .ic.spark {
+        color: var(--tint);
+      }
+      .sel .car {
+        color: var(--text-dim);
+      }
+      .sel .lbl {
+        position: relative;
+        display: inline-block;
+      }
+      .layer.dim .sel {
+        color: var(--text-dim);
+        cursor: default;
+      }
+      .layer.dim .sel:hover {
+        background: none;
+      }
+      .layer.dim .sel .ic {
+        color: var(--text-dim);
+      }
+
+      .composer {
+        position: relative;
+        height: 116px;
+        border-radius: var(--r-bubble);
+        background: var(--composer-bg);
+        box-shadow: var(--card-shadow);
+        padding: 14px;
+      }
+      .cm-text {
+        padding: 2px 56px 0 6px;
+        font-size: var(--fs);
+        line-height: 1.5;
+        color: var(--text);
+        height: 42px;
+        overflow: hidden;
+      }
+      .cm-text.ph {
+        color: var(--text-dim);
+      }
+      .cm-text .att {
+        display: inline-flex;
+        vertical-align: -5px;
+        align-items: center;
+        gap: 5px;
+        height: 22px;
+        padding: 0 8px 0 3px;
+        margin-right: 6px;
+        border-radius: var(--r-pill);
+        background: var(--surface-1);
+        box-shadow: var(--chip-shadow);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+      }
+      .cm-text .att .thumb {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+      }
+      .cm-bar {
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        bottom: 14px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .cm-plus {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: var(--text-muted);
+      }
+      .cm-plus:hover {
+        background: var(--hover);
+      }
+      .cm-model {
+        margin-left: auto;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 8px;
+        border-radius: var(--r-btn);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .cm-model .car {
+        color: var(--text-dim);
+      }
+      .cm-send {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--surface-3);
+        color: var(--text-dim);
+        transition:
+          background 0.2s,
+          color 0.2s,
+          transform 0.3s var(--snappy);
+      }
+      .cm-send.has,
+      .cm-send.stop {
+        background: var(--text);
+        color: var(--main);
+      }
+      .cm-send:active {
+        transform: scale(0.9);
+      }
+      .cm-send > * {
+        grid-area: 1 / 1;
+      }
+      .cm-send .sq {
+        width: 10px;
+        height: 10px;
+        border-radius: 2.5px;
+        background: currentColor;
+        display: none;
+      }
+      .cm-send.stop .sq {
+        display: block;
+      }
+      .cm-send.stop svg {
+        display: none;
+      }
+
+      /* ── 用户消息 ── */
+      .ub {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+      }
+      .ub .thumbs {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+      .thumb {
+        position: relative;
+        width: 64px;
+        height: 64px;
+        border-radius: var(--r-md);
+        overflow: hidden;
+        flex: none;
+      }
+      .thumb::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        box-shadow: inset 0 0 0 0.5px var(--line);
+      }
+      .thumb svg {
+        width: 100%;
+        height: 100%;
+      }
+      .bubble {
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 10px 16px;
+        max-width: 80%;
+        color: var(--text);
+        overflow-wrap: anywhere;
+      }
+      .ub .thumbs,
+      .ub .bubble {
+        transition: opacity calc(0.28s * var(--k)) var(--fold);
+      }
+      .ub.pending .thumbs,
+      .ub.pending .bubble {
+        opacity: 0.6;
+      }
+      .umeta {
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        white-space: nowrap;
+      }
+      .umeta .ic {
+        color: var(--text-muted);
+      }
+      .umeta .sum b {
+        font-weight: 400;
+        color: var(--text-muted);
+      }
+
+      /* ── 过程：标题行 + 轨道 ── */
+      .proc {
+        position: relative;
+        font-size: var(--fs-meta);
+        margin-top: 8px;
+      }
+      .phead {
+        position: relative;
+        height: 30px;
+        padding-left: 24px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+      }
+      .phead .pnode {
+        position: absolute;
+        left: 0;
+        top: 6px;
+        width: 18px;
+        height: 18px;
+        display: grid;
+        place-items: center;
+        color: var(--text-muted);
+      }
+      .phead .ptitle {
+        color: var(--text);
+      }
+      .phead .ptitle.done {
+        font-weight: 500;
+      }
+      .phead .psub {
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+      }
+      .cat {
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        display: block;
+      }
+      .cat-eyes {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: blink 2.6s infinite;
+      }
+      @keyframes blink {
+        0%,
+        94.2%,
+        100% {
+          transform: scaleY(1);
+        }
+        97.1% {
+          transform: scaleY(0.1);
+        }
+      }
+
+      .rail {
+        position: relative;
+      }
+      .row {
+        position: relative;
+        padding-left: 30px;
+        min-height: 30px;
+        --cy: 15px;
+        --gap: 7px;
+      }
+      .row.c {
+        min-height: 26px;
+        --cy: 13px;
+      }
+      .rl {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 30px;
+        min-width: 0;
+        white-space: nowrap;
+      }
+      .row.c .rl {
+        min-height: 26px;
+      }
+      .seg {
+        position: absolute;
+        left: 10px;
+        width: 1px;
+        background: var(--rail);
+        transform-origin: top;
+      }
+      .seg.up {
+        top: 0;
+        height: calc(var(--cy) - var(--gap));
+      }
+      .seg.down {
+        top: calc(var(--cy) + var(--gap));
+        bottom: 0;
+      }
+      .row.noup > .seg.up,
+      .row.nodown > .seg.down {
+        display: none;
+      }
+      .node {
+        position: absolute;
+        left: 10.5px;
+        top: var(--cy);
+        width: 16px;
+        height: 16px;
+        transform: translate(-50%, -50%);
+        display: grid;
+        place-items: center;
+      }
+      .node > * {
+        grid-area: 1 / 1;
+      }
+      .node .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--node);
+        transition:
+          background calc(0.2s * var(--k)),
+          box-shadow calc(0.2s * var(--k));
+      }
+      .node .ringw {
+        width: 16px;
+        height: 16px;
+        opacity: 0;
+        transform: scale(0.4);
+        transition:
+          opacity calc(0.2s * var(--k)) var(--smooth),
+          transform calc(0.2s * var(--k)) var(--smooth);
+        color: var(--tint);
+      }
+      .node .ring {
+        width: 16px;
+        height: 16px;
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .node .xi,
+      .node .chev {
+        display: none;
+      }
+      .row[data-node="live"] {
+        --gap: 11px;
+      }
+      .row[data-node="live"] .dot {
+        background: var(--tint);
+      }
+      .row[data-node="live"] .ringw {
+        opacity: 1;
+        transform: none;
+      }
+      .row[data-node="hollow"] .dot {
+        background: transparent;
+        box-shadow: inset 0 0 0 1px var(--rail);
+      }
+      .row[data-node="x"] {
+        --gap: 8px;
+      }
+      .row[data-node="x"] .dot {
+        display: none;
+      }
+      .row[data-node="x"] .xi {
+        display: block;
+        color: var(--danger);
+      }
+      .row[data-node="chev"] {
+        --gap: 9px;
+      }
+      .row[data-node="chev"] .dot {
+        display: none;
+      }
+      .row[data-node="chev"] .chev {
+        display: block;
+        color: var(--text-dim);
+      }
+      .verb {
+        color: var(--text-2);
+        flex: none;
+      }
+      .pend .verb {
+        color: var(--text-dim);
+      }
+      .det {
+        color: var(--text-dim);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .obj {
+        color: var(--text-muted);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .sep {
+        color: var(--text-dim);
+        flex: none;
+      }
+      .thought {
+        color: var(--text-muted);
+        flex: none;
+      }
+      .why {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--danger);
+        font-size: var(--fs-meta);
+        min-height: 22px;
+        margin: -4px 0 4px;
+        white-space: nowrap;
+      }
+      .why .r {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tbtn {
+        color: var(--tint);
+        flex: none;
+        border-radius: var(--r-sm);
+        padding: 0 4px;
+        margin: 0 -4px;
+      }
+      .tbtn:hover {
+        background: var(--hover);
+      }
+      .tbtn.muted {
+        color: var(--text-muted);
+      }
+      .tbtn.muted:hover {
+        color: var(--text-2);
+      }
+      .sumrow {
+        cursor: pointer;
+      }
+      .sumrow .rl {
+        color: var(--text-dim);
+      }
+      .sumrow .rl b {
+        font-weight: 400;
+        color: var(--text-muted);
+      }
+      .sumrow:hover .rl {
+        color: var(--text-muted);
+      }
+      .prep {
+        position: relative;
+      }
+      .gone {
+        display: none !important;
+      }
+
+      .shimmer {
+        background: linear-gradient(90deg, var(--text-muted) 40%, var(--text) 50%, var(--text-muted) 60%) 0 0 / 200%
+          100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent !important;
+        animation: shimmer 2.2s linear infinite;
+      }
+      @keyframes shimmer {
+        from {
+          background-position: 100% 0;
+        }
+        to {
+          background-position: -100% 0;
+        }
+      }
+
+      /* 新的一步：节点从 0.3 倍弹出，上方竖线长出来，文字从下方 6px 淡入（晚 60ms） */
+      .row.enter > .node {
+        animation: node-in calc(0.3s * var(--k)) var(--bouncy) both;
+      }
+      .row.enter > .seg.up {
+        animation: grow calc(0.24s * var(--k)) var(--smooth) both;
+      }
+      .row.enter > .rl {
+        animation: rise calc(0.3s * var(--k)) var(--smooth) calc(0.06s * var(--k)) both;
+      }
+      .seg.grow {
+        animation: grow calc(0.24s * var(--k)) var(--smooth) both;
+      }
+      .pop {
+        animation: node-in calc(0.3s * var(--k)) var(--bouncy) both;
+      }
+      @keyframes node-in {
+        from {
+          transform: translate(-50%, -50%) scale(0.3);
+          opacity: 0;
+        }
+      }
+      @keyframes grow {
+        from {
+          transform: scaleY(0);
+        }
+      }
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+      }
+      .fade-in {
+        animation: rise calc(0.32s * var(--k)) var(--smooth) both;
+      }
+
+      /* ── 乙：居中卡片 ── */
+      .bcard {
+        width: 460px;
+        height: 196px;
+        border-radius: var(--r-card);
+        background: var(--surface-1);
+        box-shadow: var(--soft-shadow);
+        padding: 12px 16px 10px;
+        display: flex;
+        flex-direction: column;
+        font-size: var(--fs-meta);
+      }
+      .bq {
+        height: 30px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-2);
+        margin-bottom: 6px;
+        min-width: 0;
+      }
+      .bq .thumb {
+        width: 22px;
+        height: 22px;
+        border-radius: 5px;
+      }
+      .bq .qt {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: var(--fs-meta);
+      }
+      .bfoot {
+        margin-top: auto;
+        height: 26px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        white-space: nowrap;
+        font-size: var(--fs-meta);
+      }
+      .bfoot .r {
+        color: var(--danger);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .bfoot .t {
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+        font-size: var(--fs-sm);
+      }
+      .bfoot .sp {
+        margin-left: auto;
+      }
+
+      /* ── 丙：状态胶囊、胶囊条、浮层 ── */
+      .stcap {
+        position: relative;
+        height: 26px;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 12px 0 8px;
+        border-radius: var(--r-pill);
+        background: var(--surface-1);
+        box-shadow: var(--chip-shadow);
+        font-size: var(--fs-sm);
+        white-space: nowrap;
+        cursor: default;
+        overflow: hidden;
+        transition: width calc(0.28s * var(--k)) var(--fold);
+        max-width: 100%;
+      }
+      :root[data-theme="dark"] .stcap,
+      :root[data-theme="dark"] .cap {
+        background: var(--surface-2);
+      }
+      .stcap .inner {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .stcap .ico {
+        width: 14px;
+        height: 14px;
+        display: grid;
+        place-items: center;
+        color: var(--tint);
+        flex: none;
+      }
+      .stcap .ico .ring {
+        width: 14px;
+        height: 14px;
+        animation: spin 0.9s linear infinite;
+      }
+      .stcap .ico.x {
+        color: var(--danger);
+      }
+      .stcap .cnt {
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+        margin-left: 4px;
+      }
+      .stcap .r {
+        color: var(--danger);
+      }
+      .capbar {
+        position: absolute;
+        left: 4px;
+        right: 4px;
+        bottom: 8px;
+        display: flex;
+        gap: 6px;
+        align-items: flex-end;
+      } /* 输入框上方 8px */
+      .cap {
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 11px 0 9px;
+        border-radius: var(--r-pill);
+        background: var(--surface-1);
+        box-shadow:
+          0 0 0 0.5px var(--line),
+          0 6px 16px -8px rgba(0, 0, 0, 0.22);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .cap .ic {
+        color: var(--tint);
+      }
+      .cap .d {
+        color: var(--text-dim);
+      }
+      .cap .car {
+        color: var(--text-dim);
+        transition: transform 0.3s var(--snappy);
+      }
+      .cap.open .car {
+        transform: rotate(180deg);
+      }
+      .pop-anchor {
+        position: relative;
+        display: inline-flex;
+      }
+      .popover {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 8px);
+        width: 400px;
+        border-radius: var(--r-card);
+        background: var(--float-bg);
+        box-shadow: var(--float-shadow);
+        padding: 8px 12px 8px;
+        font-size: var(--fs-meta);
+        z-index: 6;
+        clip-path: inset(100% 0 0 0 round var(--r-card));
+        visibility: hidden;
+        transition:
+          clip-path calc(0.2s * var(--k)) var(--fold),
+          visibility 0s calc(0.2s * var(--k));
+      }
+      .popover.open {
+        clip-path: inset(-2px -2px -2px -2px round var(--r-card));
+        visibility: visible;
+        transition:
+          clip-path calc(0.28s * var(--k)) var(--fold),
+          visibility 0s;
+      }
+      .popover .ph {
+        display: flex;
+        justify-content: space-between;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        padding: 2px 0 2px;
+      }
+      .popover .rail .row {
+        opacity: 0;
+        transform: translateY(6px);
+        transition:
+          opacity calc(0.16s * var(--k)),
+          transform calc(0.16s * var(--k));
+      }
+      .popover.open .rail .row {
+        opacity: 1;
+        transform: none;
+        transition:
+          opacity calc(0.22s * var(--k)) var(--fold),
+          transform calc(0.22s * var(--k)) var(--fold);
+      }
+
+      /* 涡旋（运行中） */
+      .vortex circle {
+        fill: var(--tint);
+      }
+
+      /* ── 浮条 ── */
+      .bar {
+        position: sticky;
+        bottom: 14px;
+        width: max-content;
+        margin: 16px auto 0;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        background: var(--bar);
+        backdrop-filter: blur(20px) saturate(1.6);
+        -webkit-backdrop-filter: blur(20px) saturate(1.6);
+        padding: 7px 10px;
+        border-radius: var(--r-pill);
+        box-shadow: var(--float-shadow);
+        font-size: var(--fs-meta);
+        z-index: 20;
+        white-space: nowrap;
+      }
+      .segc {
+        display: flex;
+        gap: 2px;
+        background: var(--surface-2);
+        border-radius: var(--r-pill);
+        padding: 2px;
+      }
+      :root[data-theme="dark"] .segc {
+        background: var(--surface-1);
+      }
+      .segc button {
+        padding: 3px 12px;
+        border-radius: var(--r-pill);
+        color: var(--text-muted);
+      }
+      .segc button.on {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow: var(--chip-shadow);
+      }
+      :root[data-theme="dark"] .segc button.on {
+        background: var(--surface-3);
+      }
+      .bbtn {
+        padding: 4px 12px;
+        border-radius: var(--r-pill);
+        color: var(--text-2);
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+      }
+      .bbtn:hover {
+        background: var(--hover);
+      }
+      .bbtn.on {
+        background: var(--linked);
+        color: var(--tint);
+        box-shadow: inset 0 0 0 0.5px var(--tint);
+      }
+      .readout {
+        min-width: 250px;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+        font-variant-numeric: tabular-nums;
+        padding: 0 6px;
+      }
+      .readout b {
+        font-weight: 500;
+        color: var(--text-2);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 1ms !important;
+          animation-delay: 0ms !important;
+          transition-duration: 1ms !important;
+          transition-delay: 0ms !important;
+        }
+        .shimmer {
+          animation: none;
+          color: var(--text-muted) !important;
+          background: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>新建 worktree：从发出第一条消息到 agent 开始干活</h1>
+      <p id="desc"></p>
+    </header>
+
+    <div class="win" id="win">
+      <aside class="sb">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <div class="sb-search" data-ic="Search01Icon:13">搜索</div>
+        <div class="sb-h">项目</div>
+        <div class="sb-row"><span data-ic="Folder01Icon:16:ic"></span>atrium</div>
+        <div id="wslist">
+          <div class="sb-row ws">本地</div>
+          <div class="sb-row ws">brave-otter</div>
+          <div class="sb-row ws">files-panel</div>
+        </div>
+        <div class="sb-row"><span data-ic="Folder01Icon:16:ic"></span>paseo</div>
+        <div class="sb-h">对话</div>
+        <div class="sb-row" style="color: var(--text-3)">周报怎么写更短</div>
+        <div class="sb-row" style="color: var(--text-3)">pi 的 compaction 是怎么触发的</div>
+      </aside>
+      <section class="main">
+        <div class="tabs">
+          <div class="tab" id="tab">
+            <span class="tab-st" id="tabSt"></span><span class="tx" id="tabLabel">新建工作区</span
+            ><span class="x" data-ic="Cancel01Icon:12"></span>
+          </div>
+        </div>
+        <div class="convo" id="convo">
+          <div class="flow"><div class="col" id="col"></div></div>
+          <div class="center hero" id="hero"><b>新建工作区</b><span>发出第一条消息时，才建 worktree</span></div>
+          <div class="center" id="bstage"></div>
+        </div>
+        <div class="dock">
+          <div class="dock-col">
+            <div class="slot" id="slot">
+              <div class="layer" id="selrow"></div>
+              <div class="layer off" id="status"></div>
+              <div class="capbar" id="capbar"></div>
+            </div>
+            <div class="composer" id="composer">
+              <div class="cm-text" id="cmText"></div>
+              <div class="cm-bar">
+                <button class="cm-plus" data-ic="Add01Icon:18"></button>
+                <button class="cm-model">
+                  Claude Sonnet 4.5 <span class="car" data-ic="ArrowDown01Icon:12"></span>
+                </button>
+                <button class="cm-send" id="send">
+                  <span data-ic="ArrowUp02Icon:16:i:2.25"></span><span class="sq"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="bar">
+      <div class="segc" id="variants">
+        <button data-v="甲">甲 在这一轮里</button><button data-v="乙">乙 居中卡片</button
+        ><button data-v="丙">丙 输入框上方</button>
+      </div>
+      <div class="segc" id="themes"><button data-t="light">浅色</button><button data-t="dark">深色</button></div>
+      <button class="bbtn" id="bPlay">▶ 播放</button>
+      <button class="bbtn" id="bFail">播放失败</button>
+      <button class="bbtn" id="bSlow">慢放</button>
+      <button class="bbtn" id="bPause">暂停</button>
+      <span class="readout" id="readout"></span>
+    </div>
+
+    <script>
+      /* ───────────── 资源 ───────────── */
+      const I = {
+        Folder01Icon:
+          '<path d="M8 7H16.75C18.8567 7 19.91 7 20.6667 7.50559C20.9943 7.72447 21.2755 8.00572 21.4944 8.33329C22 9.08996 22 10.1433 22 12.25C22 15.7612 22 17.5167 21.1573 18.7779C20.7926 19.3238 20.3238 19.7926 19.7779 20.1573C18.5167 21 16.7612 21 13.25 21H12C7.28595 21 4.92893 21 3.46447 19.5355C2 18.0711 2 15.714 2 11V7.94427C2 6.1278 2 5.21956 2.38032 4.53806C2.65142 4.05227 3.05227 3.65142 3.53806 3.38032C4.21956 3 5.1278 3 6.94427 3C8.10802 3 8.6899 3 9.19926 3.19101C10.3622 3.62712 10.8418 4.68358 11.3666 5.73313L12 7" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/>',
+        GitBranchIcon:
+          '<path d="M7 19H13C15.8284 19 17.2426 19 18.1213 18.1213C19 17.2426 19 15.8284 19 13V10M19 10C19.7002 10 21.0085 11.9943 21.5 12.5M19 10C18.2998 10 16.9915 11.9943 16.5 12.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M5 7L5 17" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><circle cx="5" cy="5" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="19" cy="5" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="19" r="2" stroke="currentColor" stroke-width="1.5"/>',
+        GitCommitIcon:
+          '<path d="M12 3L12 8.5M12 21L12 15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/>',
+        SparklesIcon:
+          '<path d="M15 2L15.5387 4.39157C15.9957 6.42015 17.5798 8.00431 19.6084 8.46127L22 9L19.6084 9.53873C17.5798 9.99569 15.9957 11.5798 15.5387 13.6084L15 16L14.4613 13.6084C14.0043 11.5798 12.4202 9.99569 10.3916 9.53873L8 9L10.3916 8.46127C12.4201 8.00431 14.0043 6.42015 14.4613 4.39158L15 2Z" stroke="currentColor" stroke-linejoin="round" stroke-width="1.5"/><path d="M7 12L7.38481 13.7083C7.71121 15.1572 8.84275 16.2888 10.2917 16.6152L12 17L10.2917 17.3848C8.84275 17.7112 7.71121 18.8427 7.38481 20.2917L7 22L6.61519 20.2917C6.28879 18.8427 5.15725 17.7112 3.70827 17.3848L2 17L3.70827 16.6152C5.15725 16.2888 6.28879 15.1573 6.61519 13.7083L7 12Z" stroke="currentColor" stroke-linejoin="round" stroke-width="1.5"/>',
+        ArrowDown01Icon:
+          '<path d="M18 9.00005C18 9.00005 13.5811 15 12 15C10.4188 15 6 9 6 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        ArrowUp02Icon:
+          '<path d="M12 5.5V19" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M18 11C18 11 13.5811 5.00001 12 5C10.4188 4.99999 6 11 6 11" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Add01Icon:
+          '<path d="M12.001 5.00003V19.002" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M19.002 12.002L4.99998 12.002" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Cancel01Icon:
+          '<path d="M18 6L6.00081 17.9992M17.9992 18L6 6.00085" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Tick02Icon:
+          '<path d="M5 14L8.5 17.5L19 6.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Search01Icon:
+          '<path d="M17 17L21 21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11C3 15.4183 6.58172 19 11 19C15.4183 19 19 15.4183 19 11Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Copy01Icon:
+          '<path d="M7.5 14.5C7.5 11.2 7.5 9.55 8.53 8.53C9.55 7.5 11.2 7.5 14.5 7.5C17.8 7.5 19.45 7.5 20.47 8.53C21.5 9.55 21.5 11.2 21.5 14.5C21.5 17.8 21.5 19.45 20.47 20.47C19.45 21.5 17.8 21.5 14.5 21.5C11.2 21.5 9.55 21.5 8.53 20.47C7.5 19.45 7.5 17.8 7.5 14.5Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M7.5 16.5C6.1 16.5 5.41 16.5 4.84 16.3C3.84 15.95 3.05 15.16 2.7 14.16C2.5 13.59 2.5 12.9 2.5 11.5V9.5C2.5 6.2 2.5 4.55 3.53 3.53C4.55 2.5 6.2 2.5 9.5 2.5H11.5C12.9 2.5 13.59 2.5 14.16 2.7C15.16 3.05 15.95 3.84 16.3 4.84C16.5 5.41 16.5 6.1 16.5 7.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+      };
+      const ic = (n, s = 14, cls = "", w = 1.75) =>
+        `<svg class="${cls}" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none">${I[n].replaceAll('stroke-width="1.5"', `stroke-width="${w}"`)}</svg>`;
+      document.querySelectorAll("[data-ic]").forEach((el) => {
+        const [n, s, c, w] = el.dataset.ic.split(":");
+        el.insertAdjacentHTML("afterbegin", ic(n, +s, c || "", w ? +w : 1.75));
+      });
+      const CAT = `<svg class="cat" viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="230" fill="#6c86cc"/><g transform="translate(-50 20)"><path d="M190 1120 Q170 820 200 560 L262 250 L450 410 Q640 360 830 410 L1018 250 L1080 560 Q1110 820 1090 1120 Z" fill="#f6ede1" stroke="#f6ede1" stroke-width="120" stroke-linejoin="round"/><g class="cat-eyes" fill="#1f2537"><ellipse cx="512" cy="730" rx="40" ry="58"/><ellipse cx="768" cy="730" rx="40" ry="58"/></g></g></svg>`;
+      const RING = `<svg class="ring" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="26 40"/></svg>`;
+      const XI = `<svg class="xi" width="10" height="10" viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+      const CHEV = `<svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M9 6c0 0 6 4.42 6 6s-6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      const DOWN = ic("ArrowDown01Icon", 14, "", 2);
+      /** 缩略图占位：一张中性的"页面截图"示意（不是加载动画）。 */
+      const THUMB = `<svg viewBox="0 0 64 64" preserveAspectRatio="xMidYMid slice"><rect width="64" height="64" fill="var(--thumb-bg)"/><rect width="64" height="10" fill="var(--thumb-a)"/><circle cx="6" cy="5" r="1.6" fill="var(--thumb-b)"/><circle cx="11" cy="5" r="1.6" fill="var(--thumb-b)"/><circle cx="16" cy="5" r="1.6" fill="var(--thumb-b)"/><rect x="14" y="18" width="36" height="34" rx="4" fill="var(--thumb-c)"/><rect x="20" y="24" width="18" height="3" rx="1.5" fill="var(--thumb-b)"/><rect x="20" y="31" width="24" height="5" rx="2" fill="var(--thumb-a)"/><rect x="20" y="39" width="24" height="5" rx="2" fill="var(--thumb-a)"/><rect x="30" y="46" width="14" height="3" rx="1.5" fill="var(--thumb-b)"/></svg>`;
+
+      const MSG = "登录后一刷新就被踢回登录页，帮我查查 session 为什么丢了";
+      const BRANCH = "atrium/fix-login";
+      const STEPS = [
+        {
+          label: "起名",
+          run: "正在起名",
+          done: "起好名",
+          runDet: "按第一条消息",
+          doneDet: `<span class="mono">${BRANCH}</span>`,
+        },
+        {
+          label: "创建 worktree",
+          run: "正在创建 worktree",
+          done: "创建了 worktree",
+          runDet: `<span class="mono">${BRANCH}</span> · 基于 origin/main`,
+          doneDet: "基于 origin/main",
+          fail: "没建成 worktree",
+          why: "目录 ~/.atrium/worktrees/fix-login 已存在",
+          short: "目录已存在",
+        },
+        {
+          label: "启动会话",
+          run: "正在启动会话",
+          done: "启动了会话",
+          runDet: "Claude Sonnet 4.5",
+          doneDet: "Claude Sonnet 4.5",
+        },
+        { label: "发出消息", run: "正在发出消息", done: "发出了消息", runDet: "带 1 张图片", doneDet: "带 1 张图片" },
+      ];
+      const STEP_MS = 800,
+        STEP_GAP = 90;
+      const DESC = {
+        甲: '甲 进度在这一轮里：气泡一发出就在它最终的位置（60%），下面直接是这一轮的过程，标题"准备工作区"，四步一步步长出来；做完原地收成一行灰色摘要（点开能再看），气泡变实，同一个标题接着变成"进行中"，agent 的步骤接在摘要下面。失败时 × 落在那一步，原因和"重试"在下面一行，气泡下写"没发出，已放回输入框"。',
+        乙: '乙 居中卡片，原地变成对话："新建工作区"标题区变成一张无描边的卡片，第一行引用消息（带小缩略图），下面紧凑的四步，卡片高度固定；做完引用飞到顶上变成气泡（约 0.3 秒），四步淡成气泡下的一行摘要，这一轮从下面开始。失败时卡片留着，× 加原因，"重试""改一改"。',
+        丙: '丙 输入框上方一行状态：选择排原地换成一行同高的状态胶囊（转圈 + 当前一步 + 2/4），悬停或点开看完整四步；对话区只有待发的气泡，在最终位置。做完状态行淡出，这一轮的胶囊条接替（点开仍能看四步）。失败时胶囊里是 × 加原因和"重试"。',
+      };
+
+      /* ───────────── 时钟：可慢放、可暂停、可定格 ───────────── */
+      const params = new URLSearchParams(location.search);
+      const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+      let K = 1; // 慢放倍数
+      const clock = { t: 0, last: performance.now(), paused: false, waiters: [] };
+      const CANCEL = Symbol("cancel");
+      let runId = 0;
+      const tickers = new Set();
+      setInterval(() => {
+        const now = performance.now();
+        if (!clock.paused) clock.t += (now - clock.last) / K;
+        clock.last = now;
+        clock.waiters = clock.waiters.filter((w) => {
+          if (clock.t >= w.at) {
+            w.go();
+            return false;
+          }
+          return true;
+        });
+        tickers.forEach((f) => f());
+      }, 16);
+      /** 按模拟时钟等 ms 毫秒；换版本或重播时作废。 */
+      function wait(ms) {
+        const id = runId;
+        return new Promise((res, rej) =>
+          clock.waiters.push({ at: clock.t + ms, go: () => (id === runId ? res() : rej(CANCEL)) }),
+        );
+      }
+      /** 定格点：?hold=名字 时在这里停住时钟（动画照常播完）。 */
+      function checkpoint(name) {
+        if (params.get("hold") === name) {
+          clock.paused = true;
+          syncPause();
+        }
+      }
+      /** WAAPI 动画，时长随慢放；减弱动态效果时 1ms。 */
+      function anim(el, frames, o = {}) {
+        const r = reduced();
+        return el.animate(frames, {
+          duration: r ? 1 : (o.duration ?? 280) * K,
+          delay: r ? 0 : (o.delay ?? 0) * K,
+          easing: o.easing ?? "cubic-bezier(.32,.72,0,1)",
+          fill: o.fill ?? "both",
+        });
+      }
+      const FOLD = "cubic-bezier(.45,0,.15,1)";
+      const $ = (s, el = document) => el.querySelector(s);
+      const h = (html) => {
+        const t = document.createElement("template");
+        t.innerHTML = html.trim();
+        return t.content.firstElementChild;
+      };
+      const secs = (ms) => `${Math.max(0, Math.floor(ms / 1000))} 秒`;
+
+      /* ───────────── 共用状态 ───────────── */
+      const S = {
+        variant: "甲",
+        phase: "idle",
+        step: -1,
+        st: ["pending", "pending", "pending", "pending"],
+        t0: 0,
+        tEnd: 0,
+        failAt: -1,
+      };
+
+      /* ───────────── 轨道的行 ───────────── */
+      /** 一行轨道：竖线上下两段、节点（点 / 转圈 / 空心 / × / ›）、文字。 */
+      function railRow(node, html, { compact = false, enter = false, cls = "" } = {}) {
+        return h(
+          `<div class="row ${compact ? "c" : ""} ${enter ? "enter" : ""} ${cls}" data-node="${node}"><span class="seg up"></span><span class="seg down"></span><span class="node"><span class="dot"></span><span class="ringw">${RING}</span>${XI}${CHEV}</span><div class="rl">${html}</div></div>`,
+        );
+      }
+      /** 按可见的行重算哪行没有上 / 下竖线；新接上的下竖线长出来。 */
+      function relink(rail) {
+        const rows = [...rail.querySelectorAll(".row")].filter(
+          (r) => !r.classList.contains("gone") && !r.closest(".gone"),
+        );
+        rows.forEach((r, i) => {
+          const hadDown = !r.classList.contains("nodown");
+          r.classList.toggle("noup", i === 0);
+          r.classList.toggle("nodown", i === rows.length - 1);
+          if (!hadDown && i !== rows.length - 1) {
+            const d = $(":scope > .seg.down", r);
+            d.classList.remove("grow");
+            void d.offsetWidth;
+            d.classList.add("grow");
+          }
+        });
+      }
+      const stepHtml = (i, st) => {
+        const s = STEPS[i];
+        if (st === "live")
+          return `<span class="verb shimmer">${s.run}</span><span class="sep">·</span><span class="det">${s.runDet}</span>`;
+        if (st === "done") return `<span class="verb">${s.done}</span><span class="det">${s.doneDet}</span>`;
+        if (st === "fail") return `<span class="verb">${s.fail}</span><span class="det">${s.doneDet}</span>`;
+        return `<span class="verb">${s.label}</span>`;
+      };
+      const nodeOf = (st) => ({ live: "live", done: "dot", fail: "x", pending: "hollow" })[st];
+      /** 把一行改成某个状态；节点换形时弹一下。 */
+      function setRow(row, i, st, { pop = false } = {}) {
+        row.dataset.node = nodeOf(st);
+        row.classList.toggle("pend", st === "pending");
+        $(".rl", row).innerHTML = stepHtml(i, st);
+        if (pop) {
+          const n = $(":scope > .node", row);
+          n.classList.remove("pop");
+          void n.offsetWidth;
+          n.classList.add("pop");
+          anim(
+            $(".rl", row),
+            [
+              { opacity: 0, transform: "translateY(6px)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 300, delay: 60 },
+          );
+        }
+      }
+      const whyLine = (i, retry) =>
+        h(
+          `<div class="why fade-in"><span class="r">${STEPS[i].why}</span>${retry ? `<button class="tbtn" data-act="retry">重试</button>` : ""}</div>`,
+        );
+
+      /* ───────────── 页面上共用的部件 ───────────── */
+      const SEL = () => `
+  <button class="sel">${ic("Folder01Icon", 14, "ic")}atrium${ic("ArrowDown01Icon", 12, "car")}</button>
+  <button class="sel">${ic("GitBranchIcon", 14, "ic")}新建 worktree${ic("ArrowDown01Icon", 12, "car")}</button>
+  <button class="sel" id="nameBtn" title="发出后，AI 按第一条消息起分支名；点这里自己写">${ic("SparklesIcon", 14, "ic spark")}<span class="lbl">自动起名</span></button>
+  <button class="sel">${ic("GitCommitIcon", 14, "ic")}基于 origin/main${ic("ArrowDown01Icon", 12, "car")}</button>`;
+      function setComposer(withMsg, { fade = false } = {}) {
+        const t = $("#cmText");
+        t.classList.toggle("ph", !withMsg);
+        t.innerHTML = withMsg
+          ? `<span class="att"><span class="thumb">${THUMB}</span>refresh.png</span>${MSG}`
+          : "发消息或描述任务，@ 引用文件，/ 使用命令";
+        if (fade) anim(t, [{ opacity: 0 }, { opacity: 1 }], { duration: 220 });
+      }
+      function setSend(mode) {
+        const b = $("#send");
+        b.classList.toggle("has", mode === "has");
+        b.classList.toggle("stop", mode === "stop");
+      }
+      function userBlock(pending) {
+        return h(
+          `<div class="ub ${pending ? "pending" : ""}"><div class="thumbs"><div class="thumb">${THUMB}</div></div><div class="bubble">${MSG}</div><div class="umeta"></div></div>`,
+        );
+      }
+      function sentMeta(ub, extra = "") {
+        const m = $(".umeta", ub);
+        m.innerHTML = `${extra}<span class="num">22:29</span><span class="ic">${ic("Copy01Icon", 14)}</span>`;
+        anim(
+          m,
+          [
+            { opacity: 0, transform: "translateY(-3px)" },
+            { opacity: 1, transform: "none" },
+          ],
+          { duration: 260, delay: 80 },
+        );
+      }
+      /** 这一轮的过程块：标题行（小猫 + 标题 + 用时）+ 轨道。 */
+      function procBlock(title, from) {
+        return h(
+          `<div class="proc"><div class="phead"><span class="pnode">${CAT}</span><span class="ptitle shimmer">${title}</span><span class="psub" data-from="${from}">0 秒</span></div><div class="rail"></div></div>`,
+        );
+      }
+      function swapText(el, html, cls) {
+        anim(el, [{ opacity: 1 }, { opacity: 0 }], { duration: 110, fill: "forwards" }).onfinish = () => {
+          el.innerHTML = html;
+          if (cls) el.className = cls;
+          el.getAnimations().forEach((a) => a.cancel());
+          anim(
+            el,
+            [
+              { opacity: 0, transform: "translateY(3px)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 200 },
+          );
+        };
+      }
+      /** 侧栏插入新工作区行：高度从 0 长出来，下面的行平滑下移。 */
+      function addSidebarRow() {
+        const row = h(
+          `<div class="sb-wrap"><div class="sb-row ws on" id="sbNew">fix-login<span class="end" id="sbSt"></span></div></div>`,
+        );
+        $("#wslist").children[0].after(row);
+        [...$("#wslist").querySelectorAll(".sb-row.on")].forEach((r) => r !== $("#sbNew") && r.classList.remove("on"));
+        anim(
+          row,
+          [
+            { height: "0px", opacity: 0 },
+            { height: "36px", opacity: 1 },
+          ],
+          { duration: 280, easing: FOLD, fill: "none" },
+        );
+      }
+      function setRunningIndicators(on) {
+        const ts = $("#tabSt");
+        ts.innerHTML = on ? vortex(14) : "";
+        ts.classList.toggle("on", on);
+        const ss = $("#sbSt");
+        if (ss) ss.innerHTML = on ? vortex(14) : "";
+      }
+
+      /* 涡旋：5×5 点裁成圆（21 点），螺旋臂三档亮度，1.65 秒一圈，所有实例同一个时钟。 */
+      function vortex(size) {
+        const cell = size / 5,
+          d = cell * 0.76;
+        let c = "";
+        for (let y = 0; y < 5; y++)
+          for (let x = 0; x < 5; x++) {
+            const dx = x - 2,
+              dy = y - 2;
+            if (Math.hypot(dx, dy) > 2.3) continue;
+            c += `<circle cx="${(x + 0.5) * cell}" cy="${(y + 0.5) * cell}" r="${d / 2}" data-r="${Math.hypot(dx, dy)}" data-a="${Math.atan2(dy, dx)}"/>`;
+          }
+        return `<svg class="vortex" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${c}</svg>`;
+      }
+      setInterval(() => {
+        const t = reduced() ? 1.15 : performance.now() / 1000,
+          w = (2 * Math.PI) / 1.65;
+        document.querySelectorAll(".vortex circle").forEach((el) => {
+          const v = Math.cos((4.4 * el.dataset.r) / 2 - el.dataset.a - w * t);
+          el.style.opacity = v > 0.6 ? 1 : v > 0 ? 0.55 : 0.2;
+        });
+      }, 60);
+
+      /* ───────────── agent 的第一轮（三版共用） ───────────── */
+      async function agentTurn(rail) {
+        const r1 = railRow("live", `<span class="verb shimmer">思考中</span>`, { enter: true });
+        rail.appendChild(r1);
+        relink(rail);
+        await wait(1300);
+        r1.dataset.node = "dot";
+        $(".rl", r1).innerHTML =
+          `<span class="thought">思考了 1 秒</span><span class="sep">·</span><span class="obj">先看 session 存在哪、刷新时谁在读</span>`;
+        await wait(120);
+        const r2 = railRow("live", "", { enter: true });
+        rail.appendChild(r2);
+        relink(rail);
+        const t0 = clock.t;
+        $(".rl", r2).innerHTML =
+          `<span class="verb shimmer">正在探索代码库</span><span class="sep">·</span><span class="obj">读第 <span class="num n">1</span> / 7 个文件</span>`;
+        const n = $(".n", r2);
+        const upd = () => {
+          const v = String(Math.min(7, 1 + Math.floor((clock.t - t0) / 420)));
+          if (n.textContent !== v) n.textContent = v;
+        };
+        const keep = runId;
+        const f = () => {
+          if (keep !== runId) {
+            tickers.delete(f);
+            return;
+          }
+          upd();
+        };
+        tickers.add(f);
+        await wait(900);
+        checkpoint("done");
+      }
+
+      /* ───────────── 三版 ───────────── */
+      const V = {};
+
+      /* 甲：进度在这一轮里 */
+      V.甲 = {
+        send() {
+          const col = $("#col");
+          this.ub = userBlock(true);
+          col.appendChild(this.ub);
+          anim(
+            this.ub,
+            [
+              { opacity: 0, transform: "translateY(8px)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 320 },
+          );
+          this.proc = procBlock("准备工作区", S.t0);
+          col.appendChild(this.proc);
+          anim(
+            this.proc,
+            [
+              { opacity: 0, transform: "translateY(6px)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 320, delay: 60 },
+          );
+          this.rail = $(".rail", this.proc);
+          this.prep = h(`<div class="prep"><div class="rows"></div></div>`);
+          this.rail.appendChild(this.prep);
+          this.rows = [];
+        },
+        stepStart(i, retry) {
+          if (retry) {
+            const r = this.rows[i];
+            $(".why", r)?.remove();
+            setRow(r, i, "live", { pop: true });
+            return;
+          }
+          const r = railRow("live", stepHtml(i, "live"), { enter: true });
+          this.rows[i] = r;
+          $(".rows", this.prep).appendChild(r);
+          relink(this.rail);
+        },
+        stepDone(i) {
+          setRow(this.rows[i], i, "done");
+        },
+        stepFail(i) {
+          const r = this.rows[i];
+          setRow(r, i, "fail", { pop: true });
+          r.appendChild(whyLine(i, true));
+          const head = $(".phead", this.proc);
+          $(".pnode", head).innerHTML = DOWN;
+          swapText($(".ptitle", head), "没建好工作区", "ptitle done");
+          const sub = $(".psub", head);
+          delete sub.dataset.from;
+          sub.textContent = `用时 ${secs(S.tEnd - S.t0)}`;
+          const m = $(".umeta", this.ub);
+          m.innerHTML = "没发出，已放回输入框";
+          anim(m, [{ opacity: 0 }, { opacity: 1 }], { duration: 240, delay: 120 });
+        },
+        retry() {
+          const head = $(".phead", this.proc);
+          $(".pnode", head).innerHTML = CAT;
+          swapText($(".ptitle", head), "准备工作区", "ptitle shimmer");
+          $(".psub", head).dataset.from = S.t0;
+          $(".umeta", this.ub).innerHTML = "";
+        },
+        async launchDone() {
+          const total = Math.round((S.tEnd - S.t0) / 1000);
+          const sum = railRow(
+            "chev",
+            `在 <b class="mono" style="font-size:12px">${BRANCH}</b> 建好工作区 · 基于 origin/main · 用时 ${total} 秒`,
+            { cls: "sumrow noup nodown" },
+          );
+          this.sum = sum;
+          sum.onclick = () => this.toggle();
+          await wait(350);
+          this.fold(true);
+          // 同时：气泡变实、时间出现；同一个标题接着变成"进行中"
+          this.ub.classList.remove("pending");
+          sentMeta(this.ub);
+          swapText($(".ptitle", this.proc), "进行中", "ptitle shimmer");
+          await wait(420);
+          return this.rail;
+        },
+        /** 折叠 / 展开四步：高度 0.28 秒 cubic-bezier(.45,0,.15,1)，各行依次淡出上移，摘要从左 4px 淡入。 */
+        fold(closing) {
+          const prep = this.prep,
+            rowsEl = $(".rows", prep),
+            rows = [...rowsEl.children],
+            sum = this.sum;
+          prep.getAnimations().forEach((a) => a.cancel());
+          const hasAfter = !!prep.nextElementSibling;
+          if (closing) {
+            const h0 = prep.offsetHeight;
+            if (!sum.isConnected) prep.prepend(sum);
+            sum.classList.remove("gone");
+            sum.classList.toggle("nodown", !hasAfter);
+            sum.classList.add("noup");
+            Object.assign(sum.style, { position: "absolute", left: 0, right: 0, top: 0 });
+            anim(
+              sum,
+              [
+                { opacity: 0, transform: "translateX(-4px)" },
+                { opacity: 1, transform: "none" },
+              ],
+              { duration: 260, delay: 160 },
+            );
+            rows
+              .slice()
+              .reverse()
+              .forEach((r, k) =>
+                anim(
+                  r,
+                  [
+                    { opacity: 1, transform: "none" },
+                    { opacity: 0, transform: "translateY(-6px)" },
+                  ],
+                  { duration: 220, delay: Math.min(k * 14, 120), fill: "forwards" },
+                ),
+              );
+            const a = anim(prep, [{ height: `${h0}px` }, { height: "30px" }], {
+              duration: 280,
+              easing: FOLD,
+              fill: "forwards",
+            });
+            prep.style.overflow = "hidden";
+            a.onfinish = () => {
+              rowsEl.classList.add("gone");
+              sum.style.position = "";
+              prep.style.overflow = "";
+              a.cancel();
+              rows.forEach((r) => r.getAnimations().forEach((x) => x.cancel()));
+              relink(this.rail);
+              this.folded = true;
+            };
+          } else {
+            // 摘要叠在第一行上淡出，四行从 30px 长到原高
+            rowsEl.classList.remove("gone");
+            sum.classList.add("gone");
+            relink(this.rail);
+            sum.classList.remove("gone");
+            Object.assign(sum.style, { position: "absolute", left: 0, right: 0, top: 0 });
+            const h1 = 30 + rowsEl.offsetHeight;
+            prep.style.overflow = "hidden";
+            anim(sum, [{ opacity: 1 }, { opacity: 0 }], { duration: 120, fill: "forwards" });
+            rows.forEach((r, k) =>
+              anim(
+                r,
+                [
+                  { opacity: 0, transform: "translateY(-6px)" },
+                  { opacity: 1, transform: "none" },
+                ],
+                { duration: 260, delay: 40 + Math.min(k * 14, 120) },
+              ),
+            );
+            const a = anim(prep, [{ height: "30px" }, { height: `${h1 - 30}px` }], {
+              duration: 280,
+              easing: FOLD,
+              fill: "forwards",
+            });
+            a.onfinish = () => {
+              sum.classList.add("gone");
+              sum.style.position = "";
+              a.cancel();
+              prep.style.overflow = "";
+              sum.getAnimations().forEach((x) => x.cancel());
+              relink(this.rail);
+              this.folded = false;
+            };
+            // 展开状态下点第一行的标题也能收起：给四行加一个收起入口
+            rows[0].style.cursor = "pointer";
+            rows[0].onclick = () => this.toggle();
+          }
+        },
+        toggle() {
+          if (S.phase === "turn") this.fold(!this.folded);
+        },
+      };
+
+      /* 乙：居中卡片，原地变成对话 */
+      V.乙 = {
+        send() {
+          const stage = $("#bstage");
+          this.card = h(
+            `<div class="bcard"><div class="bq"><span class="thumb">${THUMB}</span><span class="qt">${MSG}</span></div><div class="rail"></div><div class="bfoot"><span class="t"></span></div></div>`,
+          );
+          stage.appendChild(this.card);
+          anim(
+            this.card,
+            [
+              { opacity: 0, transform: "scale(.97)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 300, delay: 60 },
+          );
+          this.rail = $(".rail", this.card);
+          this.rows = STEPS.map((_, i) => {
+            const r = railRow("hollow", stepHtml(i, "pending"), { compact: true, cls: "pend" });
+            this.rail.appendChild(r);
+            return r;
+          });
+          relink(this.rail);
+          const t = $(".bfoot .t", this.card);
+          t.dataset.from = S.t0;
+          t.dataset.fmt = "s1";
+        },
+        stepStart(i) {
+          this.foot("");
+          setRow(this.rows[i], i, "live", { pop: true });
+        },
+        stepDone(i) {
+          setRow(this.rows[i], i, "done");
+        },
+        stepFail(i) {
+          setRow(this.rows[i], i, "fail", { pop: true });
+          this.foot(
+            `<span class="r" title="${STEPS[i].why}">${STEPS[i].why}</span><span class="sp"></span><button class="tbtn" data-act="retry">重试</button><button class="tbtn muted" data-act="edit">改一改</button>`,
+          );
+        },
+        foot(html) {
+          const f = $(".bfoot", this.card);
+          if (!html) {
+            if (f.querySelector(".r")) f.innerHTML = `<span class="t" data-from="${S.t0}" data-fmt="s1"></span>`;
+            return;
+          }
+          f.innerHTML = html;
+          anim(
+            f,
+            [
+              { opacity: 0, transform: "translateY(4px)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 240 },
+          );
+        },
+        retry() {},
+        /** 改一改：卡片收回成标题，消息放回输入框。 */
+        edit() {
+          const c = this.card;
+          anim(
+            c,
+            [
+              { opacity: 1, transform: "none" },
+              { opacity: 0, transform: "scale(.97)" },
+            ],
+            { duration: 200, fill: "forwards" },
+          ).onfinish = () => c.remove();
+          toIdle({ keepVariant: true, soft: true });
+        },
+        async launchDone() {
+          await wait(300);
+          const col = $("#col");
+          const ub = userBlock(false);
+          this.ub = ub;
+          col.appendChild(ub);
+          const bubble = $(".bubble", ub),
+            bthumb = $(".thumbs .thumb", ub);
+          const qt = $(".qt", this.card),
+            qthumb = $(".bq .thumb", this.card);
+          // FLIP：气泡从引用文字的位置、按字号比例缩着出发，底色淡入；缩略图从 22px 放到 64px
+          const B = bubble.getBoundingClientRect(),
+            Q = qt.getBoundingClientRect();
+          const s = 13 / 14;
+          const dx = Q.left - (B.left + 16 * s),
+            dy = Q.top - (B.top + 10 * s) + (Q.height - 21 * s) / 2 - 1;
+          const bg = getComputedStyle(bubble).backgroundColor;
+          const Bt = bthumb.getBoundingClientRect(),
+            Qt = qthumb.getBoundingClientRect();
+          qt.style.visibility = "hidden";
+          qthumb.style.visibility = "hidden";
+          if (!reduced()) {
+            bubble.style.transformOrigin = "0 0";
+            bthumb.style.transformOrigin = "0 0";
+            anim(
+              bubble,
+              [
+                {
+                  transform: `translate(${dx}px, ${dy}px) scale(${s})`,
+                  backgroundColor: "rgba(0,0,0,0)",
+                  color: getComputedStyle(qt).color,
+                },
+                { transform: "none", backgroundColor: bg, color: getComputedStyle(bubble).color },
+              ],
+              { duration: 320, fill: "none" },
+            );
+            anim(
+              bthumb,
+              [
+                {
+                  transform: `translate(${Qt.left - Bt.left}px, ${Qt.top - Bt.top}px) scale(${Qt.width / Bt.width})`,
+                  borderRadius: "16px",
+                },
+                { transform: "none", borderRadius: "10px" },
+              ],
+              { duration: 320, fill: "none" },
+            );
+          }
+          // 卡片的其余部分（底、四步、底栏）淡出
+          const card = this.card;
+          anim(card, [{ opacity: 1 }, { opacity: 0 }], { duration: 220, delay: 40, fill: "forwards" }).onfinish = () =>
+            card.remove();
+          sentMeta(
+            ub,
+            `<span class="sum">在 <b class="mono" style="font-size:11.5px">${BRANCH}</b> 建好工作区 · 基于 origin/main · 用时 ${Math.round((S.tEnd - S.t0) / 1000)} 秒</span><span>·</span>`,
+          );
+          $(".umeta", ub)
+            .getAnimations()
+            .forEach((a) => a.cancel());
+          anim(
+            $(".umeta", ub),
+            [
+              { opacity: 0, transform: "translateY(-3px)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 280, delay: 220 },
+          );
+          await wait(420);
+          const proc = procBlock("进行中", clock.t);
+          col.appendChild(proc);
+          anim(
+            proc,
+            [
+              { opacity: 0, transform: "translateY(6px)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 300 },
+          );
+          return $(".rail", proc);
+        },
+      };
+
+      /* 丙：输入框上方一行状态 */
+      V.丙 = {
+        send() {
+          const col = $("#col");
+          this.ub = userBlock(true);
+          col.appendChild(this.ub);
+          anim(
+            this.ub,
+            [
+              { opacity: 0, transform: "translateY(8px)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 320 },
+          );
+          const st = $("#status");
+          st.innerHTML = `<span class="pop-anchor" id="stAnchor"><span class="stcap" id="stcap"><span class="inner"></span></span><div class="popover" id="pop"></div></span>`;
+          $("#selrow").classList.add("off");
+          st.classList.remove("off");
+          this.wire($("#stAnchor"), $("#stcap"));
+        },
+        /** 悬停打开、移开收起；点一下钉住。 */
+        wire(anchor, cap) {
+          let pinned = false,
+            timer = 0;
+          const open = (on) => {
+            clearTimeout(timer);
+            const p = $(".popover", anchor);
+            if (on) this.renderPop(p);
+            p.classList.toggle("open", on);
+            cap.classList.toggle("open", on);
+            [...p.querySelectorAll(".rail .row")].forEach(
+              (r, k) => (r.style.transitionDelay = on ? `${(60 + k * 30) * K}ms` : "0ms"),
+            );
+          };
+          anchor.onmouseenter = () => open(true);
+          anchor.onmouseleave = () => {
+            if (!pinned) timer = setTimeout(() => open(false), 160);
+          };
+          cap.onclick = (e) => {
+            if (e.target.closest("[data-act]")) return;
+            pinned = !pinned;
+            open(pinned);
+          };
+          this.closePop = () => {
+            pinned = false;
+            open(false);
+          };
+        },
+        renderPop(p) {
+          if (!p) return;
+          const title = S.phase === "fail" ? "没建好工作区" : S.phase === "turn" ? "建好工作区" : "准备工作区";
+          const t = S.phase === "launch" ? clock.t - S.t0 : S.tEnd - S.t0;
+          p.innerHTML = `<div class="ph"><span>${title}</span><span class="num">用时 ${S.phase === "launch" ? `<span data-from="${S.t0}" data-fmt="s1"></span>` : `${(t / 1000).toFixed(1)} 秒`}</span></div><div class="rail"></div>`;
+          const rail = $(".rail", p);
+          S.st.forEach((st, i) => {
+            const r = railRow(nodeOf(st), stepHtml(i, st), { cls: st === "pending" ? "pend" : "" });
+            rail.appendChild(r);
+            if (st === "fail") r.appendChild(h(`<div class="why"><span class="r">${STEPS[i].why}</span></div>`));
+          });
+          relink(rail);
+          if (p.classList.contains("open")) rail.querySelectorAll(".row").forEach((r) => (r.style.transition = "none"));
+        },
+        setCap(html, { fadeIn = true } = {}) {
+          const cap = $("#stcap"),
+            inner = $(".inner", cap);
+          const w0 = cap.offsetWidth;
+          inner.innerHTML = html;
+          cap.style.width = "auto";
+          const w1 = cap.offsetWidth;
+          cap.style.width = `${w0}px`;
+          void cap.offsetWidth;
+          cap.style.width = `${w1}px`;
+          if (fadeIn)
+            anim(
+              inner,
+              [
+                { opacity: 0, transform: "translateY(6px)" },
+                { opacity: 1, transform: "none" },
+              ],
+              { duration: 300 },
+            );
+          this.renderPop($("#pop")?.classList.contains("open") ? $("#pop") : null);
+        },
+        stepStart(i) {
+          const s = STEPS[i];
+          this.setCap(
+            `<span class="ico">${RING}</span><span class="verb shimmer">${s.label}</span><span class="sep">·</span><span class="det">${i === 0 ? s.runDet : s.runDet.replace(" · ", " ")}</span><span class="cnt">${i + 1}/4</span>`,
+          );
+        },
+        stepDone() {
+          this.renderPop($("#pop")?.classList.contains("open") ? $("#pop") : null);
+        },
+        stepFail(i) {
+          this.setCap(
+            `<span class="ico x">${XI.replace('class="xi"', "")}</span><span class="r">${STEPS[i].label} 没建成 · ${STEPS[i].short}</span><button class="tbtn" data-act="retry" style="margin-left:4px">重试</button>`,
+          );
+        },
+        retry() {},
+        async launchDone() {
+          await wait(250);
+          const st = $("#status");
+          this.closePop?.();
+          st.classList.add("off");
+          const bar = $("#capbar");
+          bar.innerHTML = `<span class="pop-anchor" id="capAnchor"><span class="cap" id="capWs">${ic("GitBranchIcon", 13, "ic")}<span class="mono" style="font-size:11.5px">${BRANCH}</span><span class="d">· 用时 ${Math.round((S.tEnd - S.t0) / 1000)} 秒</span>${ic("ArrowDown01Icon", 10, "car", 2).replace("<svg", '<svg style="transform:rotate(180deg)"')}</span><div class="popover"></div></span>`;
+          anim(
+            $("#capAnchor"),
+            [
+              { opacity: 0, transform: "translateY(4px)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 260, delay: 120 },
+          );
+          this.wire($("#capAnchor"), $("#capWs"));
+          this.ub.classList.remove("pending");
+          sentMeta(this.ub);
+          await wait(300);
+          const proc = procBlock("进行中", clock.t);
+          $("#col").appendChild(proc);
+          anim(
+            proc,
+            [
+              { opacity: 0, transform: "translateY(6px)" },
+              { opacity: 1, transform: "none" },
+            ],
+            { duration: 300 },
+          );
+          return $(".rail", proc);
+        },
+      };
+
+      /* ───────────── 流程 ───────────── */
+      function view() {
+        return V[S.variant];
+      }
+      function setNameButton(named) {
+        const b = $("#nameBtn");
+        if (!b) return;
+        b.innerHTML = named
+          ? `${ic("GitBranchIcon", 14, "ic")}<span class="lbl mono" style="font-size:12px">${BRANCH}</span>`
+          : `${ic("SparklesIcon", 14, "ic spark")}<span class="lbl">自动起名</span>`;
+      }
+      /** 回到发出前。soft：乙的"改一改"，只把输入框和选择排放回去。 */
+      function toIdle({ soft = false } = {}) {
+        runId++;
+        clock.paused = false;
+        syncPause();
+        S.phase = "idle";
+        S.step = -1;
+        S.st = ["pending", "pending", "pending", "pending"];
+        S.failAt = -1;
+        if (!soft) {
+          $("#col").innerHTML = "";
+          $("#bstage").innerHTML = "";
+          $("#capbar").innerHTML = "";
+          $("#status").innerHTML = "";
+          $("#sbNew")?.parentElement.remove();
+          $("#tabLabel").textContent = "新建工作区";
+          setRunningIndicators(false);
+        }
+        $("#hero").classList.remove("off");
+        $("#status").classList.add("off");
+        const sel = $("#selrow");
+        sel.innerHTML = SEL();
+        sel.classList.remove("off", "dim");
+        setComposer(true, { fade: soft });
+        setSend("has");
+        readout();
+      }
+      async function launch({ fail, from = 0 }) {
+        const v = view();
+        if (from === 0) {
+          S.phase = "launch";
+          S.t0 = clock.t;
+          $("#hero").classList.add("off");
+          $("#selrow").classList.add("dim");
+          setComposer(false);
+          setSend("stop");
+          v.send();
+          await wait(240);
+        } else {
+          S.phase = "launch";
+          S.t0 = clock.t - (S.tEnd - S.t0);
+          $("#selrow").classList.add("dim");
+          setComposer(false);
+          setSend("stop");
+          v.retry();
+        }
+        for (let i = from; i < 4; i++) {
+          S.step = i;
+          S.st[i] = "live";
+          v.stepStart(i, from > 0 && i === from);
+          readout();
+          await wait(STEP_MS / 2);
+          if (i === 1) checkpoint("step2");
+          await wait(STEP_MS / 2);
+          if (fail && i === 1) {
+            S.st[i] = "fail";
+            S.phase = "fail";
+            S.failAt = i;
+            S.tEnd = clock.t;
+            v.stepFail(i);
+            if (S.variant === "甲") {
+              $("#selrow").classList.remove("dim");
+              setComposer(true, { fade: true });
+              setSend("has");
+            } else setSend("empty");
+            readout();
+            await wait(500);
+            checkpoint("fail");
+            return;
+          }
+          S.st[i] = "done";
+          v.stepDone(i);
+          if (i === 0) {
+            swapText($("#tabLabel"), "fix-login");
+            setNameButton(true);
+          }
+          if (i === 1) addSidebarRow();
+          await wait(STEP_GAP);
+        }
+        S.tEnd = clock.t;
+        S.step = 4;
+        const rail = await v.launchDone();
+        S.phase = "turn";
+        S.turn0 = clock.t;
+        setRunningIndicators(true);
+        readout();
+        $("#selrow").classList.add("off"); // 这一轮开始后选择排退场，位置留给胶囊条，输入框不动
+        await agentTurn(rail);
+      }
+      function start(fail) {
+        toIdle();
+        const id = runId;
+        const p = (async () => {
+          await wait(350);
+          if (id !== runId) return;
+          await launch({ fail });
+        })();
+        p.catch((e) => {
+          if (e !== CANCEL) console.error(e);
+        });
+      }
+      function retry() {
+        if (S.phase !== "fail") return;
+        launch({ fail: false, from: S.failAt }).catch((e) => {
+          if (e !== CANCEL) console.error(e);
+        });
+      }
+
+      /* 用时、读数 */
+      tickers.add(() => {
+        document.querySelectorAll("[data-from]").forEach((el) => {
+          const ms = clock.t - +el.dataset.from;
+          el.textContent = el.dataset.fmt === "s1" ? `${(ms / 1000).toFixed(1)} 秒` : secs(ms);
+        });
+        readout();
+      });
+      function readout() {
+        const r = $("#readout");
+        const el =
+          (S.phase === "launch"
+            ? clock.t - S.t0
+            : S.phase === "fail"
+              ? S.tEnd - S.t0
+              : S.phase === "turn"
+                ? clock.t - S.t0
+                : 0) / 1000;
+        const tt = `<span class="num">${el.toFixed(1)} 秒</span>`;
+        r.innerHTML =
+          S.phase === "idle"
+            ? `<b>${S.variant}</b> · 发出前`
+            : S.phase === "launch"
+              ? S.step < 0
+                ? `<b>${S.variant}</b> · 已发出，准备开始 · ${tt}`
+                : S.step < 4
+                  ? `<b>${S.variant}</b> · 第 ${S.step + 1}/4 步 ${STEPS[S.step].label} · ${tt}`
+                  : `<b>${S.variant}</b> · 四步完成，交给这一轮 · ${tt}`
+              : S.phase === "fail"
+                ? `<b>${S.variant}</b> · 第 2/4 步失败 · ${tt}`
+                : `<b>${S.variant}</b> · 这一轮进行中 · 准备用了 ${((S.tEnd - S.t0) / 1000).toFixed(1)} 秒 · ${tt}`;
+        if (clock.paused) r.innerHTML += ` · <b>已暂停</b>`;
+      }
+
+      /* ───────────── 控件 ───────────── */
+      function setVariant(v) {
+        S.variant = v;
+        document.querySelectorAll("#variants button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+        $("#desc").textContent = DESC[v];
+        toIdle();
+      }
+      function setTheme(t) {
+        document.documentElement.dataset.theme = t === "dark" ? "dark" : "";
+        document.querySelectorAll("#themes button").forEach((b) => b.classList.toggle("on", b.dataset.t === t));
+      }
+      function syncPause() {
+        $("#bPause").classList.toggle("on", clock.paused);
+        $("#bPause").textContent = clock.paused ? "继续" : "暂停";
+        document
+          .getAnimations()
+          .forEach((a) =>
+            clock.paused && params.get("hold") == null ? a.pause() : a.playState === "paused" && a.play(),
+          );
+      }
+      document.querySelectorAll("#variants button").forEach((b) => (b.onclick = () => setVariant(b.dataset.v)));
+      document.querySelectorAll("#themes button").forEach((b) => (b.onclick = () => setTheme(b.dataset.t)));
+      $("#bPlay").onclick = () => start(false);
+      $("#bFail").onclick = () => start(true);
+      $("#bSlow").onclick = () => {
+        K = K === 1 ? 3 : 1;
+        document.documentElement.style.setProperty("--k", K);
+        $("#bSlow").classList.toggle("on", K !== 1);
+      };
+      $("#bPause").onclick = () => {
+        clock.paused = !clock.paused;
+        syncPause();
+        readout();
+      };
+      $("#send").onclick = () => {
+        if (S.phase === "idle")
+          launch({ fail: false }).catch((e) => {
+            if (e !== CANCEL) console.error(e);
+          });
+      };
+      document.addEventListener("keydown", (e) => {
+        if (e.code === "Space") {
+          e.preventDefault();
+          $("#bPause").click();
+        }
+      });
+      document.addEventListener("click", (e) => {
+        const a = e.target.closest("[data-act]");
+        if (!a) return;
+        if (a.dataset.act === "retry") retry();
+        if (a.dataset.act === "edit") V.乙.edit();
+      });
+
+      const vp = { a: "甲", b: "乙", c: "丙", A: "甲", B: "乙", C: "丙" };
+      setTheme(params.get("theme") === "dark" ? "dark" : "light");
+      setVariant(vp[params.get("variant")] || params.get("variant") || "甲");
+      if (params.get("slow")) $("#bSlow").click();
+      if (params.get("play")) start(params.get("play") === "fail");
+    </script>
+  </body>
+</html>

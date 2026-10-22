@@ -1,10 +1,12 @@
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FauxContext } from "@atrium/testkit";
 import { describe, expect, it } from "vitest";
 import { runScenario } from "../../test/contract";
 import { encodeArgument } from "../agent/agent";
 import { type Delivery, readRequest } from "../agent/channel";
-import { resultText, taskText } from "../agent/words";
+import { CHILD_TOOLS, READ_ONLY_TOOLS, resultText, taskText } from "../agent/words";
 import type { PiEvent } from "../process/pi-process";
 
 /** Atrium's extension, as the host has pi load it (ADR-0008, ADR-0013). */
@@ -211,6 +213,63 @@ describe("pi contract: Atrium's agent tools", () => {
     );
   });
 
+  it.each([
+    {
+      role: "explore",
+      guard: "flags",
+      tools: ["--tools", [...READ_ONLY_TOOLS, ...CHILD_TOOLS].join(",")],
+      writeError: "Tool write not found",
+    },
+    {
+      role: "advise",
+      guard: "extension",
+      tools: [],
+      writeError:
+        "This sub-agent is read-only (advise): it can use read, bash, grep, find, ls, report_progress, ask_parent.",
+    },
+  ] as const)(
+    "agent-readonly-bash-$guard: $role can query with Bash but cannot call write",
+    async ({ role, guard, tools, writeError }) => {
+      await runScenario(
+        {
+          scenario: `agent-readonly-bash-${guard}`,
+          extensions: [ATRIUM_EXTENSION],
+          args: [flag({ child: true, role, depth: 2, guard }), ...tools],
+          script: {
+            replies: [
+              {
+                blocks: [
+                  { type: "toolCall", id: "bash-1", name: "bash", arguments: { command: "printf readonly-bash-ok" } },
+                ],
+              },
+              {
+                blocks: [
+                  {
+                    type: "toolCall",
+                    id: "write-1",
+                    name: "write",
+                    arguments: { path: "forbidden.txt", content: "no" },
+                  },
+                ],
+              },
+              { blocks: [{ type: "text", text: "done" }] },
+            ],
+          },
+        },
+        async ({ pi, until, contexts, cwd }) => {
+          await pi.request({ type: "prompt", message: "go" });
+          await until((event) => event.type === "agent_settled");
+          const [first, second, third] = await contexts();
+
+          expect(first?.tools).toContain("bash");
+          expect(lastResult(second)).toBe("readonly-bash-ok");
+          expect(lastResult(third)).toBe(writeError);
+          expect(await stat(join(cwd, "forbidden.txt")).catch(() => null)).toBeNull();
+        },
+      );
+    },
+  );
+
   it("agent-guard: a read-only child limited by the extension cannot run a tool off its list, and is told why", async () => {
     await runScenario(
       {
@@ -219,7 +278,7 @@ describe("pi contract: Atrium's agent tools", () => {
         args: [flag({ child: true, role: "explore", depth: 1, guard: "extension" })],
         script: {
           replies: [
-            { blocks: [{ type: "toolCall", id: "call-1", name: "bash", arguments: { command: "touch ran" } }] },
+            { blocks: [{ type: "toolCall", id: "call-1", name: "write", arguments: { path: "ran", content: "no" } }] },
             { blocks: [{ type: "text", text: "done" }] },
           ],
         },
@@ -230,7 +289,7 @@ describe("pi contract: Atrium's agent tools", () => {
         const [, second] = await contexts();
 
         expect(lastResult(second)).toBe(
-          "This sub-agent is read-only (explore): it can use read, grep, find, ls, report_progress, ask_parent and the agent_* tools.",
+          "This sub-agent is read-only (explore): it can use read, bash, grep, find, ls, report_progress, ask_parent and the agent_* tools.",
         );
       },
     );
