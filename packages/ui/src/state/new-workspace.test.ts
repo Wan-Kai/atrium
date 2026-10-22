@@ -151,10 +151,11 @@ describe("suggestBranch, defaultBase, baseRef, baseName, pageDraftKey", () => {
 
   it("starts from the main branch, else the local workspace's branch, else HEAD, as full refs", () => {
     expect([
-      defaultBase({ main: "origin/main", current: "dev" }),
+      defaultBase({ main: "refs/heads/main", current: "dev" }),
+      defaultBase({ main: "refs/remotes/origin/main", current: "dev" }),
       defaultBase({ main: null, current: "dev" }),
       defaultBase({ main: null, current: null }),
-    ]).toStrictEqual(["refs/remotes/origin/main", "refs/heads/dev", "HEAD"]);
+    ]).toStrictEqual(["refs/heads/main", "refs/remotes/origin/main", "refs/heads/dev", "HEAD"]);
   });
 
   it("writes a branch's full ref, and a ref's short name", () => {
