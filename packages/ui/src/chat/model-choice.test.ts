@@ -1,6 +1,7 @@
 import type { ModelListView } from "@atrium/client";
 import type { CatalogModel, SetupLogin, SetupProvider } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
+import catpawLogo from "../design/brand/catpaw.webp";
 import claudeLogo from "../design/brand/claude.svg";
 import copilotLogo from "../design/brand/copilot.svg";
 import deepseekLogo from "../design/brand/deepseek.svg";
@@ -211,6 +212,13 @@ describe("providers", () => {
       { name: "DeepSeek", logo: deepseekLogo },
     ]);
     expect(providerOf("acme")).toStrictEqual({ name: "acme", logo: null });
+  });
+
+  it("uses the supplied image only for catpaw-cli without changing internal provider names", () => {
+    expect([providerOf("catpaw-cli"), providerOf("sankuai-openai")]).toStrictEqual([
+      { name: "catpaw-cli", logo: catpawLogo },
+      { name: "sankuai-openai", logo: null },
+    ]);
   });
 
   it("groups models by provider in the order pi lists them", () => {

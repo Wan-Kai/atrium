@@ -1,5 +1,6 @@
 import type { ModelListView } from "@atrium/client";
 import type { CatalogModel, ModelRef, Preferences, SessionModel, SetupLogin, ThinkingLevel } from "@atrium/protocol";
+import catpawLogo from "../design/brand/catpaw.webp";
 import claudeLogo from "../design/brand/claude.svg";
 import copilotLogo from "../design/brand/copilot.svg";
 import deepseekLogo from "../design/brand/deepseek.svg";
@@ -151,7 +152,7 @@ function trim(value: number): string {
   return String(Math.round(value * 10) / 10);
 }
 
-/** Providers the panel names and shows the official icon of (brand/SOURCES.md). */
+/** Providers the panel names and shows a confirmed brand icon for (brand/SOURCES.md). */
 const PROVIDERS: Readonly<Record<string, { readonly name: string; readonly logo: string }>> = {
   anthropic: { name: "Anthropic", logo: claudeLogo },
   "claude-bridge": { name: "Claude 订阅", logo: claudeLogo },
@@ -165,13 +166,14 @@ const PROVIDERS: Readonly<Record<string, { readonly name: string; readonly logo:
   "moonshotai-cn": { name: "Kimi", logo: kimiLogo },
   "kimi-coding": { name: "Kimi Coding", logo: kimiLogo },
   deepseek: { name: "DeepSeek", logo: deepseekLogo },
+  "catpaw-cli": { name: "catpaw-cli", logo: catpawLogo },
 };
 
 /**
  * A provider's name and icon.
  *
  * @remarks
- * pi names providers only by id; the ones Atrium knows get their own name and official icon,
+ * pi names providers only by id; the ones Atrium knows get their own name and confirmed icon,
  * others show their id and the first letter in place of an icon.
  *
  * @sideEffects none

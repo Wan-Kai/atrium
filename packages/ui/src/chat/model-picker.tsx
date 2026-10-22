@@ -536,10 +536,10 @@ function ProviderColumns({
 }
 
 /**
- * A provider's official icon, or its first letter when Atrium has none.
+ * A provider's confirmed brand icon, or its first letter when Atrium has none.
  *
  * @remarks
- * Icons come from each provider's own site (design/brand/SOURCES.md).
+ * Sources include providers' own sites and user-supplied images (design/brand/SOURCES.md).
  *
  * @sideEffects none
  * @param props - The provider and the icon's size.
