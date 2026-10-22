@@ -219,10 +219,11 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
    *
    * @remarks
    * Called from `close`, and from `error` when spawning failed; when spawning fails Node may emit
-   * `close` as well, so the second call is ignored.
+   * `close` as well, so the second call is ignored. A pi that never started was logged as such
+   * already, and is not logged as exiting: it did not crash (observability.md, "pi 进程").
    *
-   * @sideEffects Fails waiting requests; cancels the drain timer; releases the resource count; logs;
-   * resolves `exited`.
+   * @sideEffects Fails waiting requests; cancels the drain timer; releases the resource count; logs
+   * the exit of a pi that started; resolves `exited`.
    * @param code - Exit code.
    * @param signal - Terminating signal.
    * @param spawnError - Why spawning failed, if it did.
@@ -239,7 +240,8 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
     cancelDrain?.();
     failAll("exited", spawnError ?? stderrTail);
     release();
-    deps.log[exit.requested ? "info" : "warn"]({ pid, code, signal, requested: exit.requested }, "pi exited");
+    if (spawnError === undefined)
+      deps.log[exit.requested ? "info" : "warn"]({ pid, code, signal, requested: exit.requested }, "pi exited");
     resolveExited(exit);
   }
 
@@ -329,6 +331,7 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
     // spawn, Node emits `error` only when `kill()` fails, which cannot be provoked in a test.
     // Stryker disable next-line ConditionalExpression: see above.
     if (pid === undefined) {
+      deps.log.warn({ cwd: launch.cwd, err: error }, "pi did not start");
       finish(null, null, error.message);
       return;
     }
@@ -344,7 +347,8 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
     }, PIPE_DRAIN_MS);
   });
   child.on("close", (code, signal) => finish(code, signal));
-  deps.log.info({ pid, cwd: launch.cwd }, "pi started");
+  // Without a pid nothing started; `error` follows and says so.
+  if (pid !== undefined) deps.log.info({ pid, cwd: launch.cwd }, "pi started");
 
   /**
    * Resolves `true` if pi exits within `ms`, `false` otherwise.

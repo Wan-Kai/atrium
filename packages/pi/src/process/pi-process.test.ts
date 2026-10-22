@@ -546,11 +546,15 @@ describe("exit", () => {
     expect(logsWith(logs, "pi stdin failed")).toHaveLength(1);
   });
 
-  it("reports a pi that cannot be started", async () => {
+  it.each([
+    ["is missing", (dir: string) => ({ piPath: `${dir}/no-such-pi`, cwd: dir })],
+    ["would work in a directory that is gone", (dir: string) => ({ piPath: process.execPath, cwd: `${dir}/gone` })],
+  ])("reports a pi that cannot be started because it %s, logging no start or exit", async (_, where) => {
     const dir = await createTempDir("pi-missing");
     cleanups.push(dir.cleanup);
     const { deps, logs, open } = recordingDeps(realClock);
-    const pi = startPiProcess({ piPath: `${dir.path}/no-such-pi`, args: [], cwd: dir.path }, deps);
+    const { piPath, cwd } = where(dir.path);
+    const pi = startPiProcess({ piPath, args: [], cwd }, deps);
     const early = pi.request({ type: "get_state" }).catch((error: unknown) => error);
 
     const exit = await pi.exited;
@@ -561,7 +565,14 @@ describe("exit", () => {
     expect(await early).toMatchObject({ reason: "exited", detail: expect.stringContaining("ENOENT") });
     await expect(pi.request({ type: "get_state" })).rejects.toMatchObject({ reason: "exited" });
     expect(open.get("pi-process")).toBe(0);
-    expect(logsWith(logs, "pi exited")).toHaveLength(1);
+    // Not run at all is not a crash (observability.md, "pi 进程").
+    expect(logs.filter((log) => log.message !== "pi request")).toStrictEqual([
+      {
+        level: "warn",
+        fields: { cwd, err: expect.objectContaining({ code: "ENOENT" }) },
+        message: "pi did not start",
+      },
+    ]);
   });
 });
 
