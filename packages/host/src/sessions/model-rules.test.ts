@@ -69,10 +69,9 @@ const LISTED = [
   model("groq", "openai/gpt-oss-120b"),
 ];
 
-/** What stays whatever the login, including pi's native Claude models. */
+/** What stays whatever the login, excluding non-plan Claude routes. */
 const KEPT = [
   "claude-bridge/claude-opus-5-5",
-  "anthropic/claude-opus-5-5",
   "openai-codex/gpt-6-astra",
   "openrouter/moonshotai/kimi-k3",
   "openrouter/deepseek/openai/compat",
@@ -83,7 +82,7 @@ const KEPT = [
 ];
 
 describe("visibleModels", () => {
-  it("keeps native Claude while dropping the other paid routes and duplicate OpenAI models however signed in", () => {
+  it("drops non-plan Claude, other paid routes and duplicate OpenAI models however signed in", () => {
     expect([
       ids(visibleModels(LISTED, openaiSignedIn("oauth"))),
       ids(visibleModels(LISTED, openaiSignedIn("api_key"))),
@@ -114,7 +113,7 @@ describe("visibleModels, without openai-codex", () => {
       ids(visibleModels(listed, openaiSignedIn("api_key"))),
       ids(visibleModels(listed, null)),
       ids(visibleModels(listed, { state: "unavailable" })),
-    ]).toStrictEqual([[...kept.slice(0, 2), "openai/gpt-6-astra", ...kept.slice(2)], kept, kept, kept]);
+    ]).toStrictEqual([[...kept.slice(0, 1), "openai/gpt-6-astra", ...kept.slice(1)], kept, kept, kept]);
   });
 });
 
@@ -148,7 +147,7 @@ describe("withModelRules", () => {
   });
 
   it.each(["oauth", "api_key"] as const)(
-    "keeps native Claude models and pi's default with %s credentials",
+    "hides native Claude models and clears pi's default with %s credentials",
     async (method) => {
       const native = model("anthropic", "claude-opus-5-5");
       const defaultModel = { providerId: native.providerId, modelId: native.modelId };
@@ -169,7 +168,7 @@ describe("withModelRules", () => {
         () => Promise.resolve(login),
       );
 
-      expect(await query("/a", new AbortController().signal)).toStrictEqual({ models: [native], defaultModel });
+      expect(await query("/a", new AbortController().signal)).toStrictEqual({ models: [], defaultModel: null });
     },
   );
 

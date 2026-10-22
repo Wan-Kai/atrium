@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { fauxPiEnvironment } from "./faux-pi";
 import { launchApp } from "./launch";
@@ -52,7 +53,7 @@ test("switches the model and thinking level beside the input box, and a new chat
   }
 });
 
-test("lists native Claude, keeps its default and selects it without plan tags", async () => {
+test("hides non-plan Claude and clears its default from the model picker", async () => {
   const testInfo = test.info();
   const pi = await fauxPiEnvironment({
     provider: "anthropic",
@@ -63,29 +64,41 @@ test("lists native Claude, keeps its default and selects it without plan tags", 
   try {
     const { window } = launched;
     const chip = window.getByRole("button", { name: /^模型与推理强度/ });
-    await expect(chip).toHaveText("faux-1", { timeout: 30_000 });
-    await expect(chip.getByRole("img", { name: "走套餐" })).toHaveCount(0);
-
+    await expect(chip).toHaveText("选择模型", { timeout: 30_000 });
     await chip.click();
-    const tab = window.getByRole("tab", { name: "Anthropic", exact: true });
-    await expect(tab.getByRole("img", { name: "走套餐" })).toHaveCount(0);
-    const panel = window.getByRole("tabpanel", { name: "Anthropic" });
-    await expect(panel.getByText("套餐", { exact: true })).toHaveCount(0);
-    await expect(panel.getByRole("menuitemradio")).toHaveCount(2);
+    await expect(window.getByText("没有可用的模型，先在 pi 里登录一个服务商")).toBeVisible({ timeout: 30_000 });
+    await expect(window.getByRole("tab", { name: "Anthropic", exact: true })).toHaveCount(0);
+    await expect(window.getByRole("menuitemradio")).toHaveCount(0);
     for (const colorScheme of ["light", "dark"] as const) {
       await window.emulateMedia({ colorScheme });
       await window.screenshot({ path: testInfo.outputPath(`native-claude-${colorScheme}.png`) });
     }
-    await panel.getByRole("menuitemradio", { name: /Native Claude/ }).click();
-    await expect(chip).toHaveText("Native Claude中");
-    const box = window.getByRole("textbox", { name: "消息" });
-    await box.fill("一");
-    await box.press("Enter");
-    await expect(window.locator('[data-testid="reply"][data-streaming="false"]')).toHaveText(["好的"], {
-      timeout: 30_000,
-    });
-    await expect(chip).toHaveText("Native Claude中");
-    await expect(chip.getByRole("img", { name: "走套餐" })).toHaveCount(0);
+  } finally {
+    await launched.close();
+    await pi.cleanup();
+  }
+});
+
+test("renders Friday branding for sankuai-openai", async () => {
+  const icon = await readFile(new URL("../../../packages/ui/src/design/brand/friday.png", import.meta.url));
+  const source = `data:image/png;base64,${icon.toString("base64")}`;
+  const pi = await fauxPiEnvironment({ provider: "sankuai-openai", replies: [] });
+  const launched = await launchApp(pi.env);
+  try {
+    const { window } = launched;
+    const chip = window.getByRole("button", { name: /^模型与推理强度/ });
+    await expect(chip).toHaveText("faux-1", { timeout: 30_000 });
+    await expect(chip.locator("img")).toHaveAttribute("src", source);
+    await expect.poll(() => chip.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(80);
+    await chip.click();
+    const tab = window.getByRole("tab", { name: "Friday", exact: true });
+    await expect(tab).toHaveAttribute("aria-selected", "true");
+    await expect(tab.locator("img")).toHaveAttribute("src", source);
+    await expect(window.getByRole("tabpanel", { name: "Friday" })).toBeVisible();
+    for (const colorScheme of ["light", "dark"] as const) {
+      await window.emulateMedia({ colorScheme });
+      await window.screenshot({ path: test.info().outputPath(`friday-${colorScheme}.png`) });
+    }
   } finally {
     await launched.close();
     await pi.cleanup();

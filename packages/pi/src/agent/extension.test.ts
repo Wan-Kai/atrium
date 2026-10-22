@@ -1589,6 +1589,41 @@ describe("deliver, while pi runs", () => {
 });
 
 describe("the tool hook", () => {
+  it.each([
+    ["explore", "extension"],
+    ["advise", "extension"],
+    ["work", "extension"],
+    ["explore", "flags"],
+    ["work", "flags"],
+  ] as const)("uses FFF names and blocks old search tools for a %s child with %s limits", (role, guard) => {
+    const child = stand({ flag: encodeArgument({ v: 1, child: true, role, depth: 1, guard }) });
+    expect(["ffgrep", "fffind", "bash", "ls"].map((tool) => child.hook(tool, {}))).toStrictEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect(["grep", "find"].map((tool) => child.hook(tool, {}))).toStrictEqual([
+      {
+        block: true,
+        reason: "Use ffgrep and fffind for search in sub-agents; the old grep and find tools are disabled.",
+      },
+      {
+        block: true,
+        reason: "Use ffgrep and fffind for search in sub-agents; the old grep and find tools are disabled.",
+      },
+    ]);
+  });
+
+  it("leaves the main session's original search selection alone", () => {
+    expect(["grep", "find", "ffgrep", "fffind"].map((tool) => stand().hook(tool, {}))).toStrictEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
   it("lets a session without the flag use everything but a child's tools", () => {
     const { hook } = stand();
 
@@ -1616,12 +1651,12 @@ describe("the tool hook", () => {
       {
         block: true,
         reason:
-          "This sub-agent is read-only (explore): it can use read, bash, grep, find, ls, report_progress, ask_parent and the agent_* tools.",
+          "This sub-agent is read-only (explore): it can use read, bash, ffgrep, fffind, ls, report_progress, ask_parent and the agent_* tools.",
       },
       {
         block: true,
         reason:
-          "This sub-agent is read-only (explore): it can use read, bash, grep, find, ls, report_progress, ask_parent and the agent_* tools.",
+          "This sub-agent is read-only (explore): it can use read, bash, ffgrep, fffind, ls, report_progress, ask_parent and the agent_* tools.",
       },
     ]);
     expect([
@@ -1635,12 +1670,12 @@ describe("the tool hook", () => {
       {
         block: true,
         reason:
-          "This sub-agent is read-only (advise): it can use read, bash, grep, find, ls, report_progress, ask_parent.",
+          "This sub-agent is read-only (advise): it can use read, bash, ffgrep, fffind, ls, report_progress, ask_parent.",
       },
       {
         block: true,
         reason:
-          "This sub-agent is read-only (advise): it can use read, bash, grep, find, ls, report_progress, ask_parent.",
+          "This sub-agent is read-only (advise): it can use read, bash, ffgrep, fffind, ls, report_progress, ask_parent.",
       },
     ]);
   });
@@ -1663,7 +1698,7 @@ describe("the tool hook", () => {
       forked.hook("bash", { timeout: 5, command: "ls" }),
       forked.hook("bash", { command: "ls -a", timeout: 5 }),
       forked.hook("read", { path: "x" }),
-      forked.hook("grep", { timeout: 5, command: "ls" }),
+      forked.hook("ffgrep", { timeout: 5, command: "ls" }),
       flagged.hook("bash", { timeout: 5, command: "ls" }),
     ]).toStrictEqual([THEIRS, undefined, undefined, undefined, undefined]);
     forked.session.branch = [...history, task(false)];

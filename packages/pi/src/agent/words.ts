@@ -15,8 +15,8 @@ import type {
 export const SUB_AGENT_ASKS_PARENT =
   "A sub-agent cannot ask the user directly; ask the agent that started you with ask_parent.";
 
-/** The read-only roles' tools; Bash's read-only use is behavioral, not sandboxed (SPEC-0002). */
-export const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls"] as const;
+/** The read-only roles' tools; FFF keeps its own names, and Bash's read-only use is behavioral (SPEC-0002). */
+export const READ_ONLY_TOOLS = ["read", "bash", "ffgrep", "fffind", "ls"] as const;
 
 /** The main agent's tools (SPEC-0002, "主 agent 用的工具"). */
 export const PARENT_TOOLS = [
@@ -218,7 +218,9 @@ export function reportText(delivery: Extract<Delivery, { kind: "report" }>): str
  */
 function preambleLines(preamble: TaskPreamble, fromTitle: string): string[] {
   const tools = [
-    ...(preamble.role === "work" ? ["all of your tools"] : [...READ_ONLY_TOOLS]),
+    ...(preamble.role === "work"
+      ? ["all of your tools except grep and find (search with fffind and ffgrep)"]
+      : [...READ_ONLY_TOOLS]),
     ...CHILD_TOOLS,
     ...(preamble.canSpawn ? ["agent_* (to start sub-agents of your own)"] : []),
   ];

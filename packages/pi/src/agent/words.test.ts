@@ -337,7 +337,7 @@ describe("taskText", () => {
       "<atrium-subagent>",
       'You are a sub-agent that the agent of the conversation "登录 &quot;修复&quot;" started in Atrium.',
       "Role: explore: you are read-only; look, search and report.",
-      "Tools: read, bash, grep, find, ls, report_progress, ask_parent, agent_* (to start sub-agents of your own).",
+      "Tools: read, bash, ffgrep, fffind, ls, report_progress, ask_parent, agent_* (to start sub-agents of your own).",
       "Your final reply in a task is what goes back to that agent; the user does not see it unless they open this conversation.",
       "End each task with a final reply that gives, in order: the conclusion; the files you changed, if any; what you checked, and how; what you did not check; anything blocking you or waiting for a decision.",
       "When unsure, ask with ask_parent instead of guessing; use report_progress for progress worth knowing before you finish.",
@@ -378,7 +378,7 @@ describe("taskText", () => {
   it("tells a work child where to change files, and a forked one that the unanswered calls are its parent's", () => {
     expect(taskLines({ role: "work", forked: true, canSpawn: false, workspace: "/w" }).slice(4, 11)).toStrictEqual([
       "Role: work: you may change files.",
-      "Tools: all of your tools, report_progress, ask_parent.",
+      "Tools: all of your tools except grep and find (search with fffind and ffgrep), report_progress, ask_parent.",
       "Your final reply in a task is what goes back to that agent; the user does not see it unless they open this conversation.",
       "End each task with a final reply that gives, in order: the conclusion; the files you changed, if any; what you checked, and how; what you did not check; anything blocking you or waiting for a decision.",
       "When unsure, ask with ask_parent instead of guessing; use report_progress for progress worth knowing before you finish.",
@@ -390,7 +390,7 @@ describe("taskText", () => {
     );
     expect(taskLines({ role: "advise", forked: true, canSpawn: false }).slice(4, 11)).toStrictEqual([
       "Role: advise: you are read-only; review and give your opinion.",
-      "Tools: read, bash, grep, find, ls, report_progress, ask_parent.",
+      "Tools: read, bash, ffgrep, fffind, ls, report_progress, ask_parent.",
       "Your final reply in a task is what goes back to that agent; the user does not see it unless they open this conversation.",
       "End each task with a final reply that gives, in order: the conclusion; the files you changed, if any; what you checked, and how; what you did not check; anything blocking you or waiting for a decision.",
       "When unsure, ask with ask_parent instead of guessing; use report_progress for progress worth knowing before you finish.",
