@@ -1118,6 +1118,18 @@ UI 默认测试端口 63315 被其它 worktree 的测试占用，未终止对方
 
 破坏检查：起点部分 7 处全部检出（`/tmp/lm-break3.json`，另加变异测试指出的一处：没有 `origin/HEAD` 时 `origin` 上恰好有叫 `null` 的分支，补进 "has no main branch without origin/HEAD…"）。变异测试：`worktree-creator.ts`、`new-workspace.ts` 改动行补测试后无存活，`workspace-service.ts`、`checkout.ts` 改动行 100%（两处等价在源码注明）。合并状态与"+A −D"部分 5 处全部检出（`/tmp/lm-break.json`；`checkout.host.test.ts` 的两处第一次没写 `project: "host"`，跑到了单元层、报 MISSED，补上后检出）。
 
+## M1.11 自用：模型列表不为不存在的目录起 pi（2026-10-22）
+
+自用整理时宿主日志里有 22 次非请求的"pi exited"，21 次是模型列表（`list_models`）为已删掉的工作区目录起的一次性 pi：起不来（没有进程号），记成"pi started"加一次非请求退出，应答 `models_unavailable`（self-use.md"问题"）。改为宿主先看目录，不在就应答 `path_not_found`（`params.path`），不起 pi；pi 起不来时只记"pi did not start"（SPEC-0001"模型与输入框"、observability.md"pi 进程"）。另 1 次（10-11）是目录在、pi 跑了 42 秒后 Node 取工作目录遇到 `EINTR`，原因不同，没改。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 工作区目录不在（含 `refresh`）、原处是文件、Atrium 目录不在时应答 `path_not_found`（`params.path` 是那个目录），不问模型目录 | `packages/host/src/sessions/model-lister.test.ts` "without asking pi when the workspace's directory is gone"、"a file stands where"、"Atrium's directory is gone"（改前三项见红） | 已覆盖 |
+| 真实宿主：添加项目后删掉目录，`list_models` 应答 `path_not_found`，日志里没有"pi started""pi exited""pi did not start" | `packages/host/src/models.host.test.ts`（去掉目录检查后见红） | 已覆盖 |
+| pi 起不来（pi 不在、工作目录不在）：只记一条 warn"pi did not start"（`cwd`、`err` 的 `ENOENT`），不记"pi started"和"pi exited"；`exited`、等待中的请求、资源计数照旧 | `packages/pi/src/process/pi-process.test.ts` "reports a pi that cannot be started because it %s"（改前两项见红，日志和用户日志里的一样：没有 pid 的"pi started"加 `code: null` 的"pi exited"） | 已覆盖 |
+
+`pnpm break-check` 8 项全部检出（`/tmp/fmd/cases.json`：去掉目录检查对单元和宿主各一项、`isDirectory` 换成只判空、去掉 `path`、去掉"pi did not start"、无条件记"pi started"、spawn 失败照记"pi exited"、真崩溃不记"pi exited"）。变异测试：`model-lister.ts` 改动行（host 组）16/16 killed；`pi-process.ts` 改动行（pi 组，分三段跑：`--mutate` 用逗号写多段时只认第一段）14/14 killed。界面不改：模型面板照常显示"读不到模型列表"和"重试"，请求时机不变。
+
 ## 子对话列表标模型、插话重叠、弹窗直接消失（2026-10-21）
 
 | 行为 | 测试 | 状态 |
