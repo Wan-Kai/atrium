@@ -116,6 +116,63 @@ describe("ChildCapsule", () => {
     expect(list.getBoundingClientRect().width).toBeLessThan(680);
   });
 
+  it("tells each child's model and thinking level in its row, and keeps the rows apart", async () => {
+    const { client } = fakeClient({
+      projects: [PROJECT],
+      workspaces: [workspace({ id: W, branch: "main" })],
+      sessions: [
+        MAIN,
+        child("甲", "main", {
+          model: { providerId: "openai-codex", modelId: "gpt-6.1-sol", thinkingLevel: "high" },
+          updatedAt: Date.now() - 1000,
+        }),
+        child("乙", "main", {
+          model: { providerId: "x", modelId: "x-9", thinkingLevel: "low" },
+          updatedAt: Date.now() - 2000,
+        }),
+        child("丙", "main", { updatedAt: Date.now() - 3000 }),
+      ],
+    });
+    client.models(W).setState({
+      status: "ready",
+      models: [
+        {
+          providerId: "openai-codex",
+          modelId: "gpt-6.1-sol",
+          name: "GPT-6.1 Sol",
+          contextWindow: 0,
+          maxOutput: 0,
+          supportsImage: false,
+          thinkingLevels: ["off", "low", "high"],
+          fast: null,
+        },
+      ],
+      defaultModel: null,
+      error: null,
+    });
+    const screen = await render(
+      <div className="relative mt-[400px] w-[680px]">
+        <ChildCapsule client={client} sessionId="main" />
+      </div>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /^子对话 3/ }));
+
+    await vi.waitFor(() =>
+      expect(
+        screen
+          .getByTestId("child-model")
+          .elements()
+          .map((one) => one.textContent),
+      ).toStrictEqual(["GPT-6.1 Sol · 高", "x-9 · 低"]),
+    );
+    const rows = screen.getByTestId("child-row").elements();
+    expect(rows.map((row) => row.getBoundingClientRect().height)).toStrictEqual([40, 40, 40]);
+    expect(rows.map((row) => row.getBoundingClientRect().top - rows[0]!.getBoundingClientRect().top)).toStrictEqual([
+      0, 42, 84,
+    ]);
+  });
+
   it("opens a child from its row, and detaches or archives one from its menu, saying when that failed", async () => {
     const { client, calls } = fakeClient(LISTED);
     client.archiveSession = () => Promise.reject(new CommandError("internal_error"));

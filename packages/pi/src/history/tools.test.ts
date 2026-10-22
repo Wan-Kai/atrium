@@ -80,6 +80,47 @@ describe("toolDetails", () => {
   it("has no details for a tool other than pi's built-in four", () => {
     expect(toolDetails("grep", { path: "a.ts", command: "x" })).toBeNull();
   });
+
+  it("shows ask_user's questions from its arguments, and how they ended from its result (SPEC-0003)", () => {
+    const args = {
+      questions: [
+        {
+          header: "Scope",
+          question: "How far?",
+          options: [
+            { label: "Inbox (Recommended)", description: "" },
+            { label: "All", description: "x" },
+          ],
+        },
+      ],
+    };
+    const questions = [
+      {
+        header: "Scope",
+        question: "How far?",
+        multiSelect: false,
+        options: [
+          { label: "Inbox", description: "", preview: null, recommended: true },
+          { label: "All", description: "x", preview: null, recommended: false },
+        ],
+      },
+    ];
+
+    expect(toolDetails("ask_user", args)).toStrictEqual({ tool: "ask_user", questions, outcome: null });
+    expect(toolDetails("ask_user", args, { v: 1, outcome: { kind: "skipped" } })).toStrictEqual({
+      tool: "ask_user",
+      questions,
+      outcome: { kind: "skipped" },
+    });
+    // A stopped call: pi's empty details.
+    expect(toolDetails("ask_user", args, {})).toStrictEqual({ tool: "ask_user", questions, outcome: null });
+    expect(toolDetails("ask_user", { questions: [] }, { v: 1, outcome: { kind: "skipped" } })).toBeNull();
+    // A result that is no outcome, as the host's refusal or another version: shown as any tool, with its output.
+    expect(toolDetails("ask_user", args, { error: "ask_user_unavailable" })).toBeNull();
+    expect(toolDetails("ask_user", args, null)).toBeNull();
+    expect(toolDetails("ask_user", args, 5)).toBeNull();
+    expect(toolDetails("ask_user", args, { v: 2, outcome: { kind: "skipped" } })).toBeNull();
+  });
 });
 
 describe("contentText", () => {

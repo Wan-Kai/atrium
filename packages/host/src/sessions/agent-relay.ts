@@ -1665,7 +1665,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
     epoch: number,
     request: Extract<AgentRequest, { kind: "call" }>,
   ): Promise<unknown> => {
-    const parentOp = request.op !== "ask" && request.op !== "branch";
+    const parentOp = request.op !== "ask" && request.op !== "branch" && request.op !== "ask_user";
     if (parentOp && agentDepth(catalog.list(), sessionId) >= MAX_DEPTH) throw new AgentFailure("agent_depth_limit");
     switch (request.op) {
       case "spawn":
@@ -1696,6 +1696,15 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
       }
       case "ask":
         return ask(sessionId, epoch, request.id, request.args);
+      // The user is asked from sessions the agent did not open (SPEC-0003, "哪些会话有这个工具").
+      case "ask_user": {
+        if (isAgentChild(find(sessionId))) throw new AgentFailure("ask_user_unavailable");
+        const controller = host.controller(sessionId);
+        if (controller === undefined) throw new AgentFailure("agent_failed");
+        // pi runs `ask_user` one call at a time; a second while one is open is not Atrium's extension.
+        if (controller.asking) throw new AgentFailure("agent_bad_request");
+        return controller.askUser(request.id, request.args.questions);
+      }
       // A directory for the extension to cut the session into.
       case "branch":
       default: {
@@ -1732,6 +1741,8 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
         return;
       case "cancel": {
         const id = request.args.id;
+        // An `ask_user` call the extension no longer waits on (SPEC-0003, "生命周期").
+        host.controller(sessionId)?.dropQuestion(id);
         const question = questions.get(sessionId)?.get(id);
         if (question !== undefined) {
           await closeQuestion(question, id, "closed");

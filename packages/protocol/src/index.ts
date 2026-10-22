@@ -56,6 +56,7 @@ export {
   ResumeDeliveriesCommand,
   SteerQueuedCommand,
   AnswerInteractionCommand,
+  AnswerQuestionCommand,
   RetryRunCommand,
   ListModelsCommand,
   SetModelCommand,
@@ -132,6 +133,16 @@ export {
   UNKNOWN_METRICS,
 } from "./metrics";
 export { Control, IDLE_CONTROL, Interaction, InteractionAnswer, PendingSteer, QueuedPrompt } from "./control";
+export {
+  AskedQuestion,
+  PendingQuestion,
+  QUESTION_LIMITS,
+  QuestionAnswer,
+  QuestionOption,
+  QuestionOutcome,
+  QuestionReply,
+  answersQuestion,
+} from "./question";
 export { ChatId, ContainerId, isChatId, ProjectId, SessionId, WorkspaceId } from "./ids";
 export {
   Appearance,

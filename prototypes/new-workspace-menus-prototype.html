@@ -1,0 +1,916 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. 新建工作区页的三个下拉（项目、工作区、起点）怎么做得不单薄。
+  现状：每行一段纯文字，没有图标、没有选中标记、没有任何辅助信息。
+  三版都只用现在已有的数据（不改协议）：项目的名字和路径；工作区的种类（本地 / worktree）、分支、
+  合并状态（有没有未提交的改动、领先几个提交）、创建时间、会话数；起点的本地 / 远程分支、主分支、当前分支。
+  A 两行：每行一个图标方块 + 名字 + 一行说明，像 macOS 的"打开最近"。
+  B 单行：紧凑，一行一个，左边上色的图标，右边灰色的补充信息，选中打勾。
+  C 面板：顶上搜索框，分组带数量，选中行有底色，底部键盘提示，像模型菜单。
+  底部浮条切换版本（也可 ?variant=A|B|C、键盘 ← →）、浅色 / 深色、打开哪个菜单。
+  颜色、字号取自 packages/ui/src/design/tokens.css；图标是 Hugeicons 免费版，从 @hugeicons/core-free-icons 直接生成。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · 新建工作区页的下拉菜单</title>
+    <style>
+      :root {
+        --main: #fff;
+        --surface-1: #fff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-soft: rgba(0, 0, 0, 0.05);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --linked: rgba(47, 111, 237, 0.1);
+        --attn: #dd8629;
+        --attn-text: #c96509;
+        --attn-soft: rgba(221, 134, 41, 0.12);
+        --ok: #16a34a;
+        --ok-text: #1e8e3e;
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+        --page: #eef1f6;
+        --bar: rgba(255, 255, 255, 0.92);
+        --float: var(--surface-1);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-btn: 12px;
+        --r-card: 16px;
+        --r-bubble: 22px;
+        --r-pill: 999px;
+      }
+      :root[data-theme="dark"] {
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --surface-3: #353638;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-soft: rgba(255, 255, 255, 0.06);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --tint: #7aaaff;
+        --linked: rgba(122, 170, 255, 0.14);
+        --attn: #dd8629;
+        --attn-text: #f0a24e;
+        --attn-soft: rgba(221, 134, 41, 0.16);
+        --ok: #22c55e;
+        --ok-text: #4ade80;
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
+        --page: #0c0c0e;
+        --bar: rgba(40, 40, 42, 0.92);
+        --float: var(--surface-2);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        font: var(--fs)/1.5 var(--font-sans);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        padding-bottom: 110px;
+      }
+      header.page {
+        padding: 24px 40px 4px;
+        max-width: 1040px;
+      }
+      header.page h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      header.page p {
+        margin: 0 0 4px;
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+      }
+      .stage {
+        padding: 14px 40px;
+      }
+      .win {
+        width: 1040px;
+        height: 680px;
+        background: var(--main);
+        border-radius: var(--r-card);
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+        display: flex;
+      }
+      .sb {
+        width: 200px;
+        background: var(--surface-2);
+        opacity: 0.6;
+        border-right: 0.5px solid var(--line);
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .tabs {
+        height: 44px;
+        border-bottom: 0.5px solid var(--line);
+        flex: none;
+      }
+      .hero {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        color: var(--text-muted);
+      }
+      .hero b {
+        font-size: 20px;
+        font-weight: 500;
+        color: var(--text);
+      }
+      .hero span {
+        font-size: var(--fs-meta);
+      }
+      .row {
+        width: 100%;
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 0 24px 6px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .chip {
+        all: unset;
+        cursor: pointer;
+        position: relative;
+        height: 26px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px;
+        border-radius: var(--r-btn);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        white-space: nowrap;
+      }
+      .chip:hover,
+      .chip.open {
+        background: var(--hover);
+      }
+      .chip .ic {
+        color: var(--text-muted);
+      }
+      .chip .car {
+        color: var(--text-dim);
+      }
+      .composer {
+        margin: 0 auto 52px;
+        width: calc(100% - 48px);
+        max-width: 672px;
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        border-radius: var(--r-bubble);
+        padding: 20px;
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+        height: 100px;
+        flex: none;
+      }
+      svg {
+        display: block;
+        flex: none;
+      }
+      .anchor {
+        position: relative;
+      }
+      .menu {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 6px);
+        z-index: 5;
+        background: var(--float);
+        border-radius: var(--r-btn);
+        box-shadow: var(--float-shadow);
+        padding: 4px;
+        max-height: 420px;
+        overflow-y: auto;
+        animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+        transform-origin: bottom left;
+      }
+      @keyframes pop {
+        from {
+          opacity: 0;
+          transform: scale(0.96) translateY(4px);
+        }
+      }
+      .mono {
+        font-family: var(--font-mono);
+        font-size: 12px;
+      }
+      .tick {
+        color: var(--tint);
+        margin-left: auto;
+      }
+      .sep {
+        height: 0.5px;
+        background: var(--line);
+        margin: 4px 6px;
+      }
+      .badge {
+        font-size: var(--fs-xs);
+        line-height: 16px;
+        padding: 0 5px;
+        border-radius: 4px;
+        white-space: nowrap;
+      }
+      .b-main {
+        color: var(--tint);
+        background: var(--linked);
+      }
+      .b-cur {
+        color: var(--text-muted);
+        background: var(--surface-2);
+      }
+      :root[data-theme="dark"] .b-cur {
+        background: var(--surface-3);
+      }
+      .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex: none;
+      }
+      .dot.dirty {
+        background: var(--attn);
+      }
+      .dot.clean {
+        background: var(--ok);
+      }
+      .item {
+        all: unset;
+        box-sizing: border-box;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        width: 100%;
+      }
+      .item[aria-disabled="true"] {
+        cursor: not-allowed;
+        color: var(--text-dim) !important;
+      }
+      .head {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        padding: 6px 10px 4px;
+        display: flex;
+        gap: 6px;
+      }
+
+      /* ---------- A 两行 ---------- */
+      .vA .menu {
+        width: 320px;
+      }
+      .vA .item {
+        gap: 10px;
+        padding: 6px 8px;
+        border-radius: var(--r-md);
+      }
+      .vA .item:hover {
+        background: var(--hover);
+      }
+      .vA .tile {
+        width: 30px;
+        height: 30px;
+        border-radius: var(--r);
+        background: var(--surface-2);
+        display: grid;
+        place-items: center;
+        color: var(--text-muted);
+        flex: none;
+      }
+      :root[data-theme="dark"] .vA .tile {
+        background: var(--surface-3);
+      }
+      .vA .tile.new {
+        background: var(--linked);
+        color: var(--tint);
+      }
+      .vA .tx {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .vA .t1 {
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+      }
+      .vA .t2 {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .vA .t2 .dot {
+        display: inline-block;
+        margin-right: 5px;
+        vertical-align: 1px;
+      }
+      .vA .item.on .t1 {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .vA .base .item {
+        padding: 5px 8px;
+      }
+      .vA .search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 2px 2px 4px;
+        padding: 0 10px;
+        height: 32px;
+        border-radius: var(--r);
+        background: var(--surface-2);
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+      }
+      :root[data-theme="dark"] .vA .search {
+        background: var(--surface-3);
+      }
+
+      /* ---------- B 单行 ---------- */
+      .vB .menu {
+        width: 290px;
+      }
+      .vB .item {
+        gap: 8px;
+        height: 32px;
+        padding: 0 10px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .vB .item:hover {
+        background: var(--hover);
+      }
+      .vB .item .nm {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+      .vB .item .meta {
+        margin-left: auto;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding-left: 12px;
+      }
+      .vB .item.on {
+        color: var(--text);
+      }
+      .vB .item .ic {
+        color: var(--text-muted);
+      }
+      .vB .item .ic.new {
+        color: var(--tint);
+      }
+      .vB .item .ic.wt {
+        color: var(--tint);
+      }
+      .vB .item .ck {
+        width: 14px;
+        display: grid;
+        place-items: center;
+        color: var(--tint);
+        flex: none;
+        margin-left: 6px;
+      }
+      .vB .filter {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 10px;
+        height: 34px;
+        border-bottom: 0.5px solid var(--line);
+        margin: -4px -4px 4px;
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+      }
+
+      /* ---------- C 面板 ---------- */
+      .vC .menu {
+        width: 380px;
+        padding: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        max-height: 460px;
+      }
+      .vC .search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 14px;
+        height: 42px;
+        border-bottom: 0.5px solid var(--line);
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+        flex: none;
+      }
+      .vC .search .kbd {
+        margin-left: auto;
+      }
+      .vC .body {
+        overflow-y: auto;
+        padding: 4px 6px 6px;
+      }
+      .vC .head {
+        justify-content: space-between;
+        padding: 8px 8px 4px;
+      }
+      .vC .item {
+        gap: 10px;
+        height: 36px;
+        padding: 0 8px;
+        border-radius: var(--r-md);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .vC .item:hover {
+        background: var(--hover);
+      }
+      .vC .item.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .vC .item .nm {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+      .vC .item .meta {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        white-space: nowrap;
+        padding-left: 12px;
+      }
+      .vC .ava {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        font-weight: 600;
+        color: #fff;
+        flex: none;
+      }
+      .vC .ic {
+        color: var(--text-muted);
+      }
+      .vC .new .ic {
+        color: var(--tint);
+      }
+      .vC .new {
+        color: var(--tint);
+      }
+      .vC .foot {
+        flex: none;
+        display: flex;
+        gap: 14px;
+        padding: 0 14px;
+        height: 32px;
+        align-items: center;
+        border-top: 0.5px solid var(--line);
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .kbd {
+        font: 11px/16px var(--font-sans);
+        padding: 0 5px;
+        border-radius: 4px;
+        background: var(--surface-2);
+        color: var(--text-muted);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+      }
+      :root[data-theme="dark"] .kbd {
+        background: var(--surface-3);
+      }
+
+      /* 浮条 */
+      .bar {
+        position: fixed;
+        left: 50%;
+        bottom: 20px;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        background: var(--bar);
+        backdrop-filter: blur(20px);
+        padding: 8px 12px;
+        border-radius: var(--r-pill);
+        box-shadow: var(--float-shadow);
+        font-size: var(--fs-meta);
+        z-index: 20;
+      }
+      .seg {
+        display: flex;
+        gap: 2px;
+        background: var(--surface-2);
+        border-radius: var(--r-pill);
+        padding: 2px;
+      }
+      .seg button {
+        all: unset;
+        cursor: pointer;
+        white-space: nowrap;
+        padding: 3px 12px;
+        border-radius: var(--r-pill);
+        color: var(--text-muted);
+      }
+      .seg button.on {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow: var(--chip-shadow, 0 0 0 0.5px var(--line));
+      }
+      .note {
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+        max-width: 1040px;
+        padding: 6px 40px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>新建工作区页 · 下拉菜单</h1>
+      <p id="desc"></p>
+      <p>
+        点选择排上的按钮打开菜单；用底部浮条切版本、浅色 / 深色。示例项目里有 5 个工作区、6 个本地分支、9 个远程分支。
+      </p>
+    </header>
+    <div class="stage">
+      <div class="win">
+        <div class="sb"></div>
+        <div class="main">
+          <div class="tabs"></div>
+          <div class="hero"><b>新建工作区</b><span>发出第一条消息时，才建 worktree</span></div>
+          <div class="row" id="row"></div>
+          <div class="composer">发消息或描述任务，@ 引用文件，/ 使用命令</div>
+        </div>
+      </div>
+    </div>
+    <div class="bar">
+      <div class="seg" id="variants"></div>
+      <div class="seg" id="themes"></div>
+      <div class="seg" id="menus"></div>
+    </div>
+    <script>
+      const I = {
+        Folder01Icon:
+          '<path d="M8 7H16.75C18.8567 7 19.91 7 20.6667 7.50559C20.9943 7.72447 21.2755 8.00572 21.4944 8.33329C22 9.08996 22 10.1433 22 12.25C22 15.7612 22 17.5167 21.1573 18.7779C20.7926 19.3238 20.3238 19.7926 19.7779 20.1573C18.5167 21 16.7612 21 13.25 21H12C7.28595 21 4.92893 21 3.46447 19.5355C2 18.0711 2 15.714 2 11V7.94427C2 6.1278 2 5.21956 2.38032 4.53806C2.65142 4.05227 3.05227 3.65142 3.53806 3.38032C4.21956 3 5.1278 3 6.94427 3C8.10802 3 8.6899 3 9.19926 3.19101C10.3622 3.62712 10.8418 4.68358 11.3666 5.73313L12 7" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/>',
+        FolderOpenIcon:
+          '<path d="M2.5 20V8.87695C2.5 7.58945 2.5 6.9457 2.78533 6.47048C2.9541 6.18939 3.18939 5.9541 3.47048 5.78533C3.9457 5.5 4.59449 5.5 5.89206 5.5C6.52339 5.5 6.83906 5.5 7.12612 5.58819C7.31759 5.64702 7.49914 5.73428 7.66469 5.84705C7.91289 6.01611 8.10859 6.26074 8.5 6.75C8.89141 7.23926 9.08711 7.48389 9.33531 7.65295C9.50086 7.76572 9.68241 7.85298 9.87388 7.91181C10.1609 8 10.4742 8 11.1008 8H15C16.4045 8 17.1067 8 17.6111 8.33706C17.8295 8.48298 18.017 8.67048 18.1629 8.88886C18.5 9.39331 18.5 10.0955 18.5 11.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M4.42028 14.0144L3.63368 16.0144C2.65618 18.4998 2.16743 19.7425 2.7524 20.6213C3.33737 21.5 4.65337 21.5 7.28537 21.5H15.1903C16.4249 21.5 17.0422 21.5 17.5295 21.1795C18.0169 20.859 18.2702 20.2865 18.7769 19.1415L19.6618 17.1415C20.7866 14.5992 21.349 13.3281 20.7679 12.4141C20.1868 11.5 18.8163 11.5 16.0752 11.5H8.07196C6.78232 11.5 6.1375 11.5 5.63811 11.8439C5.13872 12.1877 4.89924 12.7966 4.42028 14.0144Z" stroke="currentColor" stroke-width="1.5"/><path d="M11.5 4.51456C12.4151 3.28409 13.6662 2.55594 15.5125 2.50161C16.1155 2.48386 16.7152 2.61395 17.2682 2.85544C18.5748 3.42601 19.4185 4.15644 20 5.5L21.5 3" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        GitBranchIcon:
+          '<path d="M7 19H13C15.8284 19 17.2426 19 18.1213 18.1213C19 17.2426 19 15.8284 19 13V10M19 10C19.7002 10 21.0085 11.9943 21.5 12.5M19 10C18.2998 10 16.9915 11.9943 16.5 12.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M5 7L5 17" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><circle cx="5" cy="5" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="19" cy="5" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="19" r="2" stroke="currentColor" stroke-width="1.5"/>',
+        GitCommitIcon:
+          '<path d="M12 3L12 8.5M12 21L12 15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/>',
+        ComputerIcon:
+          '<path d="M14 21H16M14 21C13.1716 21 12.5 20.3284 12.5 19.5V17L12 17M14 21H10M10 21H8M10 21C10.8284 21 11.5 20.3284 11.5 19.5V17L12 17M12 17V21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M16 3H8C5.17157 3 3.75736 3 2.87868 3.87868C2 4.75736 2 6.17157 2 9V11C2 13.8284 2 15.2426 2.87868 16.1213C3.75736 17 5.17157 17 8 17H16C18.8284 17 20.2426 17 21.1213 16.1213C22 15.2426 22 13.8284 22 11V9C22 6.17157 22 4.75736 21.1213 3.87868C20.2426 3 18.8284 3 16 3Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Add01Icon:
+          '<path d="M12.001 5.00003V19.002" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M19.002 12.002L4.99998 12.002" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Tick02Icon:
+          '<path d="M5 14L8.5 17.5L19 6.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Search01Icon:
+          '<path d="M17 17L21 21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11C3 15.4183 6.58172 19 11 19C15.4183 19 19 15.4183 19 11Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        ArrowDown01Icon:
+          '<path d="M18 9.00005C18 9.00005 13.5811 15 12 15C10.4188 15 6 9 6 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        PencilEdit01Icon:
+          '<path d="M15.2141 5.98239L16.6158 4.58063C17.39 3.80646 18.6452 3.80646 19.4194 4.58063C20.1935 5.3548 20.1935 6.60998 19.4194 7.38415L18.0176 8.78591M15.2141 5.98239L6.98023 14.2163C5.93493 15.2616 5.41226 15.7842 5.05637 16.4211C4.70047 17.058 4.3424 18.5619 4 20C5.43809 19.6576 6.94199 19.2995 7.57889 18.9436C8.21579 18.5877 8.73844 18.0651 9.78375 17.0198L18.0176 8.78591M15.2141 5.98239L18.0176 8.78591" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M11 20H17" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/>',
+        CloudIcon:
+          '<path d="M17.4776 10.0001C17.485 10 17.4925 10 17.5 10C19.9853 10 22 12.0147 22 14.5C22 16.9853 19.9853 19 17.5 19H7C4.23858 19 2 16.7614 2 14C2 11.4003 3.98398 9.26407 6.52042 9.0227M17.4776 10.0001C17.4924 9.83536 17.5 9.66856 17.5 9.5C17.5 6.46243 15.0376 4 12 4C9.12324 4 6.76233 6.20862 6.52042 9.0227M17.4776 10.0001C17.3753 11.1345 16.9286 12.1696 16.2428 13M6.52042 9.0227C6.67826 9.00768 6.83823 9 7 9C8.12582 9 9.16474 9.37209 10.0005 10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Home01Icon:
+          '<path d="M3 11.9896V14.5C3 17.7998 3 19.4497 4.02513 20.4749C5.05025 21.5 6.70017 21.5 10 21.5H14C17.2998 21.5 18.9497 21.5 19.9749 20.4749C21 19.4497 21 17.7998 21 14.5V11.9896C21 10.3083 21 9.46773 20.6441 8.74005C20.2882 8.01237 19.6247 7.49628 18.2976 6.46411L16.2976 4.90855C14.2331 3.30285 13.2009 2.5 12 2.5C10.7991 2.5 9.76689 3.30285 7.70242 4.90855L5.70241 6.46411C4.37533 7.49628 3.71179 8.01237 3.3559 8.74005C3 9.46773 3 10.3083 3 11.9896Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        StarIcon:
+          '<path d="M13.7276 3.44418L15.4874 6.99288C15.7274 7.48687 16.3673 7.9607 16.9073 8.05143L20.0969 8.58575C22.1367 8.92853 22.6167 10.4206 21.1468 11.8925L18.6671 14.3927C18.2471 14.8161 18.0172 15.6327 18.1471 16.2175L18.8571 19.3125C19.417 21.7623 18.1271 22.71 15.9774 21.4296L12.9877 19.6452C12.4478 19.3226 11.5579 19.3226 11.0079 19.6452L8.01827 21.4296C5.8785 22.71 4.57865 21.7522 5.13859 19.3125L5.84851 16.2175C5.97849 15.6327 5.74852 14.8161 5.32856 14.3927L2.84884 11.8925C1.389 10.4206 1.85895 8.92853 3.89872 8.58575L7.08837 8.05143C7.61831 7.9607 8.25824 7.48687 8.49821 6.99288L10.258 3.44418C11.2179 1.51861 12.7777 1.51861 13.7276 3.44418Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        FolderLibraryIcon:
+          '<path d="M16.2627 10.5H7.73725C5.15571 10.5 3.86494 10.5 3.27143 11.3526C2.67793 12.2052 3.11904 13.4258 4.00126 15.867L5.08545 18.867C5.54545 20.1398 5.77545 20.7763 6.2889 21.1381C6.80235 21.5 7.47538 21.5 8.82143 21.5H15.1786C16.5246 21.5 17.1976 21.5 17.7111 21.1381C18.2245 20.7763 18.4545 20.1398 18.9146 18.867L19.9987 15.867C20.881 13.4258 21.3221 12.2052 20.7286 11.3526C20.1351 10.5 18.8443 10.5 16.2627 10.5Z" stroke="currentColor" stroke-linecap="square" stroke-width="1.5"/><path d="M19 8C19 7.53406 19 7.30109 18.9239 7.11732C18.8224 6.87229 18.6277 6.67761 18.3827 6.57612C18.1989 6.5 17.9659 6.5 17.5 6.5H6.5C6.03406 6.5 5.80109 6.5 5.61732 6.57612C5.37229 6.67761 5.17761 6.87229 5.07612 7.11732C5 7.30109 5 7.53406 5 8" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M16.5 4C16.5 3.53406 16.5 3.30109 16.4239 3.11732C16.3224 2.87229 16.1277 2.67761 15.8827 2.57612C15.6989 2.5 15.4659 2.5 15 2.5H9C8.53406 2.5 8.30109 2.5 8.11732 2.57612C7.87229 2.67761 7.67761 2.87229 7.57612 3.11732C7.5 3.30109 7.5 3.53406 7.5 4" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        GitPullRequestIcon:
+          '<path d="M6 8L6 16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M18 16V12C18 9.17156 18 7.75735 17.1213 6.87867C16.2426 5.99999 14.8284 5.99999 12 5.99999L11 5.99999M11 5.99999C11 5.29976 12.9943 3.99152 13.5 3.49999M11 5.99999C11 6.70022 12.9943 8.00846 13.5 8.49999" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><circle cx="6" cy="18" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="6" cy="6" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="18" r="2" stroke="currentColor" stroke-width="1.5"/>',
+        BubbleChatIcon:
+          '<path d="M21.5 12C21.5 17.2467 17.2467 21.5 12 21.5C10.3719 21.5 8.8394 21.0904 7.5 20.3687C5.63177 19.362 4.37462 20.2979 3.26592 20.4658C3.09774 20.4913 2.93024 20.4302 2.80997 20.31C2.62741 20.1274 2.59266 19.8451 2.6935 19.6074C3.12865 18.5818 3.5282 16.6382 2.98341 15C2.6698 14.057 2.5 13.0483 2.5 12C2.5 6.75329 6.75329 2.5 12 2.5C17.2467 2.5 21.5 6.75329 21.5 12Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M12.1257 12H12.0007M8.125 12H8M16.125 12H16M12.2507 12C12.2507 12.1381 12.1388 12.25 12.0007 12.25C11.8627 12.25 11.7507 12.1381 11.7507 12C11.7507 11.8619 11.8627 11.75 12.0007 11.75C12.1388 11.75 12.2507 11.8619 12.2507 12ZM8.25 12C8.25 12.1381 8.13807 12.25 8 12.25C7.86193 12.25 7.75 12.1381 7.75 12C7.75 11.8619 7.86193 11.75 8 11.75C8.13807 11.75 8.25 11.8619 8.25 12ZM16.25 12C16.25 12.1381 16.1381 12.25 16 12.25C15.8619 12.25 15.75 12.1381 15.75 12C15.75 11.8619 15.8619 11.75 16 11.75C16.1381 11.75 16.25 11.8619 16.25 12Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Clock02Icon:
+          '<path d="M5.04798 8.60657L2.53784 8.45376C4.33712 3.70477 9.503 0.999914 14.5396 2.34474C19.904 3.77711 23.0904 9.26107 21.6565 14.5935C20.2227 19.926 14.7116 23.0876 9.3472 21.6553C5.36419 20.5917 2.58192 17.2946 2 13.4844" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M12 8V12L14 14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        CircleIcon: '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-linejoin="round" stroke-width="1.5"/>',
+      };
+      const ic = (n, s = 14, cls = "") =>
+        `<svg class="${cls}" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke-width="1.75">${I[n]}</svg>`;
+      const DATA = {
+        projects: [
+          { name: "atrium", path: "~/Documents/MT/projects/atrium", ws: 5, color: "#2f6fed" },
+          { name: "paseo", path: "~/code/paseo", ws: 2, color: "#8b5cf6" },
+          { name: "pi-mono", path: "~/code/pi-mono", ws: 1, color: "#16a34a" },
+          { name: "notes", path: "~/Documents/notes", ws: 1, color: "#dd8629", notGit: true },
+        ],
+        workspaces: [
+          { name: "本地", kind: "local", branch: "main", sessions: 12, dirty: true, ahead: 0, when: null },
+          {
+            name: "brave-otter",
+            kind: "worktree",
+            branch: "atrium/brave-otter",
+            sessions: 3,
+            dirty: true,
+            ahead: 2,
+            when: "3 天前",
+          },
+          {
+            name: "files-panel",
+            kind: "worktree",
+            branch: "m1.12-files",
+            sessions: 5,
+            dirty: false,
+            ahead: 7,
+            when: "昨天",
+          },
+          {
+            name: "quiet-heron",
+            kind: "worktree",
+            branch: "atrium/quiet-heron",
+            sessions: 1,
+            dirty: false,
+            ahead: 0,
+            when: "10月9日",
+          },
+          {
+            name: "proxy-fix",
+            kind: "worktree",
+            branch: "fix/proxy",
+            sessions: 2,
+            dirty: false,
+            ahead: 1,
+            when: "10月2日",
+          },
+        ],
+        local: ["main", "m1.11-self-use", "m1.12-files", "fix/proxy", "atrium/brave-otter", "atrium/quiet-heron"],
+        remote: [
+          "origin/main",
+          "origin/m1.11-self-use",
+          "origin/m1.12-files",
+          "origin/m1.10-onboarding",
+          "origin/release/0.3",
+          "origin/fix/proxy",
+          "origin/dependabot/npm/vite-7",
+          "origin/docs",
+          "origin/gh-pages",
+        ],
+        main: "origin/main",
+        current: "m1.11-self-use",
+      };
+      const state = {
+        variant: new URLSearchParams(location.search).get("variant") || "A",
+        theme: "light",
+        open: "ws",
+        project: 0,
+        ws: -1,
+        base: "origin/main",
+      };
+      const DESC = {
+        A: "A 两行：每行一个图标方块 + 名字 + 一行灰色说明（项目的路径；工作区的分支、会话数、改动；分支的标记）。信息最全，行最高。",
+        B: "B 单行：一行一个，左边上色的图标，右边灰色的补充信息，选中的行尾打勾；分支多时顶上一行过滤。最紧凑，最像系统菜单。",
+        C: "C 面板：顶上搜索框，分组标题带数量，项目用彩色首字母方块，选中行带底色，底部键盘提示。最像模型菜单，最重。",
+      };
+      const wsMeta = (w) =>
+        [
+          w.kind === "local" ? w.branch : w.branch,
+          `${w.sessions} 个会话`,
+          w.dirty ? "有未提交的改动" : w.ahead ? `领先 ${w.ahead} 个提交` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      const baseBadges = (b) =>
+        (b === DATA.main || b === "main" ? '<span class="badge b-main">主分支</span>' : "") +
+        (b === DATA.current ? '<span class="badge b-cur">当前</span>' : "");
+
+      function menuA(kind) {
+        if (kind === "project")
+          return DATA.projects
+            .map(
+              (p, i) =>
+                `<button class="item ${i === state.project ? "on" : ""}" data-p="${i}"><span class="tile">${ic("Folder01Icon", 16)}</span><span class="tx"><span class="t1">${p.name}</span><span class="t2">${p.path}</span></span>${i === state.project ? ic("Tick02Icon", 14, "tick") : ""}</button>`,
+            )
+            .join("");
+        if (kind === "ws")
+          return (
+            `<button class="item ${state.ws === -1 ? "on" : ""}" data-w="-1"><span class="tile new">${ic("Add01Icon", 16)}</span><span class="tx"><span class="t1">新建 worktree</span><span class="t2">从一个分支开出新的工作目录</span></span>${state.ws === -1 ? ic("Tick02Icon", 14, "tick") : ""}</button><div class="sep"></div><div class="head">已有的工作区</div>` +
+            DATA.workspaces
+              .map(
+                (w, i) =>
+                  `<button class="item ${i === state.ws ? "on" : ""}" data-w="${i}"><span class="tile">${ic(w.kind === "local" ? "ComputerIcon" : "GitBranchIcon", 16)}</span><span class="tx"><span class="t1">${w.name}${w.when ? `<span class="badge b-cur">${w.when}</span>` : ""}</span><span class="t2">${w.dirty ? '<span class="dot dirty"></span>' : ""}${wsMeta(w)}</span></span>${i === state.ws ? ic("Tick02Icon", 14, "tick") : ""}</button>`,
+              )
+              .join("")
+          );
+        const group = (h, list) =>
+          `<div class="head">${h}</div>` +
+          list
+            .map(
+              (b) =>
+                `<button class="item ${b === state.base ? "on" : ""}" data-b="${b}"><span class="tile" style="width:24px;height:24px;border-radius:6px">${ic("GitBranchIcon", 14)}</span><span class="tx"><span class="t1"><span class="mono">${b}</span>${baseBadges(b)}</span></span>${b === state.base ? ic("Tick02Icon", 14, "tick") : ""}</button>`,
+            )
+            .join("");
+        return `<div class="base"><div class="search">${ic("Search01Icon", 14)}搜索分支</div>${group("本地分支", DATA.local)}${group("远程分支", DATA.remote)}</div>`;
+      }
+      function menuB(kind) {
+        const ck = (on) => `<span class="ck">${on ? ic("Tick02Icon", 14) : ""}</span>`;
+        if (kind === "project")
+          return DATA.projects
+            .map(
+              (p, i) =>
+                `<button class="item ${i === state.project ? "on" : ""}" data-p="${i}">${ic("Folder01Icon", 16, "ic")}<span class="nm">${p.name}</span><span class="meta">${p.path.replace(/^(.*)\/[^/]+$/, "$1")}</span>${ck(i === state.project)}</button>`,
+            )
+            .join("");
+        if (kind === "ws")
+          return (
+            `<button class="item ${state.ws === -1 ? "on" : ""}" data-w="-1">${ic("Add01Icon", 16, "ic new")}<span class="nm">新建 worktree</span><span class="meta"></span>${ck(state.ws === -1)}</button><div class="sep"></div>` +
+            DATA.workspaces
+              .map(
+                (w, i) =>
+                  `<button class="item ${i === state.ws ? "on" : ""}" data-w="${i}">${ic(w.kind === "local" ? "ComputerIcon" : "GitBranchIcon", 16, "ic" + (w.kind === "local" ? "" : " wt"))}<span class="nm">${w.name}</span><span class="meta">${w.dirty ? '<span class="dot dirty" title="有未提交的改动"></span>' : ""}${w.ahead ? `↑${w.ahead}` : ""}<span>${w.sessions} 会话</span></span>${ck(i === state.ws)}</button>`,
+              )
+              .join("")
+          );
+        const group = (h, list) =>
+          `<div class="head">${h}</div>` +
+          list
+            .map(
+              (b) =>
+                `<button class="item ${b === state.base ? "on" : ""}" data-b="${b}">${ic("GitBranchIcon", 14, "ic")}<span class="nm mono">${b}</span><span class="meta">${baseBadges(b)}</span>${ck(b === state.base)}</button>`,
+            )
+            .join("");
+        return `<div class="filter">${ic("Search01Icon", 14)}过滤分支…</div>${group("本地", DATA.local)}${group("远程", DATA.remote)}`;
+      }
+      function menuC(kind) {
+        const foot = `<div class="foot"><span><span class="kbd">↑↓</span> 选择</span><span><span class="kbd">⏎</span> 确定</span><span><span class="kbd">esc</span> 关闭</span></div>`;
+        if (kind === "project")
+          return (
+            `<div class="search">${ic("Search01Icon", 14)}搜索项目<span class="kbd">${DATA.projects.length}</span></div><div class="body"><div class="head"><span>项目</span><span>${DATA.projects.length}</span></div>` +
+            DATA.projects
+              .map(
+                (p, i) =>
+                  `<button class="item ${i === state.project ? "on" : ""}" data-p="${i}"><span class="ava" style="background:${p.color}">${p.name[0].toUpperCase()}</span><span class="nm">${p.name}</span><span class="meta">${p.notGit ? "不是 git 仓库" : `${p.ws} 个工作区`}${i === state.project ? ic("Tick02Icon", 14, "tick") : ""}</span></button>`,
+              )
+              .join("") +
+            `</div>${foot}`
+          );
+        if (kind === "ws")
+          return (
+            `<div class="search">${ic("Search01Icon", 14)}搜索工作区</div><div class="body"><button class="item new ${state.ws === -1 ? "on" : ""}" data-w="-1">${ic("Add01Icon", 16, "ic")}<span class="nm">新建 worktree</span><span class="meta">${state.ws === -1 ? ic("Tick02Icon", 14, "tick") : ""}</span></button><div class="head"><span>已有的工作区</span><span>${DATA.workspaces.length}</span></div>` +
+            DATA.workspaces
+              .map(
+                (w, i) =>
+                  `<button class="item ${i === state.ws ? "on" : ""}" data-w="${i}">${ic(w.kind === "local" ? "ComputerIcon" : "GitBranchIcon", 16, "ic")}<span class="nm">${w.name}</span><span class="meta"><span class="mono" style="font-size:11px">${w.branch}</span><span class="dot ${w.dirty ? "dirty" : "clean"}" title="${w.dirty ? "有未提交的改动" : "干净"}"></span>${i === state.ws ? ic("Tick02Icon", 14, "tick") : ""}</span></button>`,
+              )
+              .join("") +
+            `</div>${foot}`
+          );
+        const group = (h, list) =>
+          `<div class="head"><span>${h}</span><span>${list.length}</span></div>` +
+          list
+            .map(
+              (b) =>
+                `<button class="item ${b === state.base ? "on" : ""}" data-b="${b}">${ic("GitBranchIcon", 14, "ic")}<span class="nm mono">${b}</span><span class="meta">${baseBadges(b)}${b === state.base ? ic("Tick02Icon", 14, "tick") : ""}</span></button>`,
+            )
+            .join("");
+        return `<div class="search">${ic("Search01Icon", 14)}搜索分支</div><div class="body">${group("本地分支", DATA.local)}${group("远程分支", DATA.remote)}</div>${foot}`;
+      }
+      function render() {
+        document.documentElement.dataset.theme = state.theme;
+        document.body.className = "v" + state.variant;
+        document.getElementById("desc").textContent = DESC[state.variant];
+        const p = DATA.projects[state.project];
+        const w = DATA.workspaces[state.ws];
+        const menu = { A: menuA, B: menuB, C: menuC }[state.variant];
+        const chip = (key, icon, text) =>
+          `<span class="anchor"><button class="chip ${state.open === key ? "open" : ""}" data-open="${key}">${ic(icon, 14, "ic")}<span>${text}</span>${ic("ArrowDown01Icon", 12, "car")}</button>${state.open === key ? `<div class="menu">${menu(key)}</div>` : ""}</span>`;
+        document.getElementById("row").innerHTML =
+          chip("project", "Folder01Icon", p.name) +
+          chip("ws", "GitBranchIcon", w ? w.name : "新建 worktree") +
+          (w
+            ? ""
+            : chip("base", "GitCommitIcon", "基于 " + state.base) +
+              `<button class="chip">${ic("PencilEdit01Icon", 14, "ic")}<span>atrium/brave-otter</span></button>`);
+        const seg = (id, items, cur, key) =>
+          (document.getElementById(id).innerHTML = items
+            .map(([v, l]) => `<button class="${cur === v ? "on" : ""}" data-${key}="${v}">${l}</button>`)
+            .join(""));
+        seg(
+          "variants",
+          [
+            ["A", "A 两行"],
+            ["B", "B 单行"],
+            ["C", "C 面板"],
+          ],
+          state.variant,
+          "variant",
+        );
+        seg(
+          "themes",
+          [
+            ["light", "浅色"],
+            ["dark", "深色"],
+          ],
+          state.theme,
+          "theme",
+        );
+        seg(
+          "menus",
+          [
+            ["project", "项目"],
+            ["ws", "工作区"],
+            ["base", "起点"],
+            ["", "收起"],
+          ],
+          state.open,
+          "menu",
+        );
+      }
+      document.addEventListener("click", (e) => {
+        const t = e.target.closest("button");
+        if (!t) {
+          if (!e.target.closest(".menu")) {
+            state.open = "";
+            render();
+          }
+          return;
+        }
+        const d = t.dataset;
+        if (d.variant) state.variant = d.variant;
+        else if (d.theme) state.theme = d.theme;
+        else if (d.menu !== undefined) state.open = d.menu;
+        else if (d.open) state.open = state.open === d.open ? "" : d.open;
+        else if (d.p) {
+          state.project = +d.p;
+          state.open = "";
+        } else if (d.w) {
+          state.ws = +d.w;
+          state.open = "";
+        } else if (d.b) {
+          state.base = d.b;
+          state.open = "";
+        }
+        render();
+      });
+      document.addEventListener("keydown", (e) => {
+        const order = ["A", "B", "C"];
+        const i = order.indexOf(state.variant);
+        if (e.key === "ArrowRight") {
+          state.variant = order[(i + 1) % 3];
+          render();
+        }
+        if (e.key === "ArrowLeft") {
+          state.variant = order[(i + 2) % 3];
+          render();
+        }
+      });
+      render();
+    </script>
+  </body>
+</html>

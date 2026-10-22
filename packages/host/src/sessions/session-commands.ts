@@ -10,6 +10,7 @@ import type {
   InteractionAnswer,
   ModelRef,
   PromptCommand,
+  QuestionReply,
   SteerCommand,
   ThinkingLevel,
 } from "@atrium/protocol";
@@ -86,6 +87,12 @@ export interface SessionCommands {
     interactionId: string,
     answer: InteractionAnswer,
   ): Promise<CommandResult<"answer_interaction">>;
+  /** Answers, or skips, the questions the session's agent asked with `ask_user` (SPEC-0003). */
+  answerQuestion(
+    sessionId: string,
+    questionId: string,
+    answer: QuestionReply,
+  ): Promise<CommandResult<"answer_question">>;
   /** Switches a session's model, starting its pi first if it has none. */
   setModel(sessionId: string, model: ModelRef): Promise<CommandResult<"set_model">>;
   /** Sets how hard a session's model thinks, starting its pi first if it has none. */

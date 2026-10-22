@@ -13,6 +13,7 @@ import {
   describeStep,
   exploredFiles,
   parseDisplayDiff,
+  questionRecord,
 } from "./turn-layout";
 import { useRevealedText } from "./use-revealed-text";
 
@@ -20,9 +21,23 @@ import { useRevealedText } from "./use-revealed-text";
  * What stands on the rail for a row (design-language, "消息流 · 过程"); `fail` is a new workspace's
  * step that failed, and `more` the summary its steps fold into (design-language, "新建工作区页");
  * `compaction` is two ticks across the line (design-language, "压缩步骤"); `said` is text the agent
- * said mid-turn, a larger blue dot (design-language, "过程里 AI 说的话").
+ * said mid-turn, a larger blue dot (design-language, "过程里 AI 说的话"); `ask` is the agent's
+ * questions to you, an orange dot, and `asking` the same while they wait, with a ring spreading
+ * out of it (design-language, "提问一步").
  */
-export type RailNode = "dot" | "said" | "search" | "live" | "dead" | "steer" | "more" | "fail" | "pass" | "compaction";
+export type RailNode =
+  | "dot"
+  | "said"
+  | "search"
+  | "live"
+  | "dead"
+  | "steer"
+  | "more"
+  | "fail"
+  | "pass"
+  | "compaction"
+  | "ask"
+  | "asking";
 
 /** How far the rail stops short of each node's centre: the node's radius and a 4px gap. */
 const NODE_GAP: Readonly<Record<RailNode, number>> = {
@@ -32,6 +47,8 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
   compaction: 0,
   dot: 7,
   said: 7,
+  ask: 7,
+  asking: 7,
   live: 7,
   dead: 7,
   steer: 7,
@@ -67,6 +84,19 @@ function NodeGlyph({ node }: { readonly node: RailNode }) {
   }
   if (node === "said") {
     return <span className="size-[7px] rounded-full bg-[var(--tint)] shadow-[0_0_0_2px_var(--main)]" />;
+  }
+  if (node === "ask" || node === "asking") {
+    return (
+      <>
+        <span className="size-[7px] rounded-full bg-[var(--attn)] shadow-[0_0_0_2px_var(--main)]" />
+        {node === "asking" ? (
+          <span
+            className="atrium-asking-ring absolute top-1/2 left-1/2 -mt-[7.5px] -ml-[7.5px] size-[15px] rounded-full shadow-[inset_0_0_0_1.5px_var(--attn)]"
+            data-testid="rail-asking"
+          />
+        ) : null}
+      </>
+    );
   }
   if (node === "search") return <MagnifyingGlass size={14} className="text-[var(--text-muted)]" />;
   if (node === "dead") return <X size={10} weight="bold" className="text-[var(--text-dim)]" />;
@@ -433,6 +463,7 @@ function ToolDetail({ step }: { readonly step: ToolStep }) {
     </p>
   ) : null;
   const details = step.details;
+  if (details?.tool === "ask_user") return <QuestionsDetail details={details} />;
   if (details?.tool === "edit" && details.diff !== null) {
     return (
       <Detail label="改动" tool="edit">
@@ -536,14 +567,25 @@ function StepWords({ step, live }: { readonly step: Step; readonly live: boolean
     );
   }
   const failed = step.kind === "tool" && step.status === "failed";
+  const asking = step.kind === "tool" && step.details?.tool === "ask_user";
+  if (asking && live) {
+    // Waiting for you: orange, without the shimmer of work going on (design-language, "提问一步").
+    return (
+      <span className="min-w-0 truncate font-medium text-[var(--attn-text)]" data-testid="asking-words">
+        {line.verb} · {line.object}
+      </span>
+    );
+  }
   const tone =
-    failed || step.kind === "retry"
+    failed || step.kind === "retry" || (asking && step.status !== "done")
       ? "text-[var(--text-dim)]"
-      : step.kind === "steer"
-        ? "text-[var(--tint)]"
-        : step.kind === "thinking"
-          ? "text-[var(--text-muted)]"
-          : "text-[var(--text-2)]";
+      : asking
+        ? "text-[var(--text-muted)]"
+        : step.kind === "steer"
+          ? "text-[var(--tint)]"
+          : step.kind === "thinking"
+            ? "text-[var(--text-muted)]"
+            : "text-[var(--text-2)]";
   const verb = <span className={`flex-none ${tone} ${shimmer}`}>{line.verb}</span>;
   const details = step.kind === "tool" ? step.details : null;
   if (step.kind === "tool" && (details?.tool === "edit" || details?.tool === "write" || details?.tool === "read")) {
@@ -677,7 +719,7 @@ function StepEnd({ step }: { readonly step: Step }) {
  *
  * @remarks
  * See `RailMarks`: going on, a failed call (a dead end), a steer, a compaction, text the agent said
- * (design-language, "过程里 AI 说的话"), or done.
+ * (design-language, "过程里 AI 说的话"), the agent's questions to you (SPEC-0003), or done.
  *
  * @sideEffects none
  * @param step - The step.
@@ -685,6 +727,11 @@ function StepEnd({ step }: { readonly step: Step }) {
  * @returns The node.
  */
 function stepNode(step: Step, live: boolean): RailNode {
+  // The agent's questions are no dead end when stopped: you stopped them (SPEC-0003, "对话记录").
+  if (step.kind === "tool" && step.details?.tool === "ask_user") {
+    if (step.status === "running") return "asking";
+    return step.status === "done" ? "ask" : "dot";
+  }
   if (step.kind === "tool" && step.status === "failed") return "dead";
   if (step.kind === "steer" || step.kind === "agent") return "steer";
   if (step.kind === "compaction") return "compaction";
@@ -803,8 +850,99 @@ function StepRow({
       ) : (
         <div className={LINE_CLASS}>{words}</div>
       )}
+      {step.kind === "tool" ? <QuestionRecord step={step} /> : null}
       {detail}
     </div>
+  );
+}
+
+/**
+ * Your answers to the agent's questions, under its step without opening it: a line each.
+ *
+ * @remarks
+ * Design-language ("提问一步"): two columns, the question's name dim and the answer darker, "其他："
+ * muted (SPEC-0003, "对话记录").
+ *
+ * @sideEffects none
+ * @param props - The step.
+ * @returns The lines, or nothing.
+ */
+function QuestionRecord({ step }: { readonly step: ToolStep }) {
+  const record = questionRecord(step);
+  if (record === null) return null;
+  return (
+    <dl
+      className="m-0 mb-1.5 grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-0.5 text-[length:var(--fs-meta)]"
+      data-testid="question-record"
+    >
+      {record.map(({ header, answer }) => (
+        <div key={header} className="contents">
+          <dt className="text-[var(--text-dim)]">{header}</dt>
+          <dd className="m-0 min-w-0 break-words whitespace-pre-wrap text-[var(--text-2)]">{answer}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * The agent's questions whole, in a step's detail: each with all its options, yours ticked.
+ *
+ * @remarks
+ * SPEC-0003, "对话记录": what was asked and answered, as the record lines do not show it.
+ *
+ * @sideEffects none
+ * @param props - The questions and how they ended.
+ * @returns The questions.
+ */
+function QuestionsDetail({
+  details,
+}: {
+  readonly details: Extract<NonNullable<ToolStep["details"]>, { tool: "ask_user" }>;
+}) {
+  const answers = details.outcome?.kind === "answered" ? details.outcome.answers : [];
+  return (
+    <Detail label="问题" tool="ask_user">
+      <div className="flex flex-col gap-2.5 text-[length:var(--fs-meta)]">
+        {details.questions.map((question, index) => {
+          const answer = answers[index];
+          return (
+            <div key={question.header}>
+              <div className="text-[var(--text-2)]">
+                <span className="text-[var(--text-dim)]">{question.header} · </span>
+                {question.question}
+              </div>
+              <ul className="m-0 mt-1 list-none p-0">
+                {question.options.map((option, at) => {
+                  const picked = answer?.selected.includes(at) === true;
+                  return (
+                    <li
+                      key={option.label}
+                      className={`flex items-center gap-1.5 ${picked ? "text-[var(--text)]" : "text-[var(--text-muted)]"}`}
+                    >
+                      <span className="grid size-3 flex-none place-items-center">
+                        {picked ? (
+                          <Check size={12} weight="bold" className="text-[var(--tint)]" aria-label="选了" />
+                        ) : null}
+                      </span>
+                      {option.label}
+                    </li>
+                  );
+                })}
+                {answer?.other == null ? null : (
+                  <li className="flex items-start gap-1.5 text-[var(--text)]">
+                    <span className="grid size-3 flex-none place-items-center pt-1">
+                      <Check size={12} weight="bold" className="text-[var(--tint)]" aria-label="选了" />
+                    </span>
+                    <span className="whitespace-pre-wrap">其他：{answer.other}</span>
+                  </li>
+                )}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+    </Detail>
   );
 }
 

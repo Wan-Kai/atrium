@@ -1,0 +1,999 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. 左侧栏折叠、右侧栏开关与拖动分区。
+  问题：左侧栏怎么折叠（折叠后只留一个开关）、开关放哪；右侧栏（现在的"改动"面板）怎么打开，拖动分隔线改宽度的手感和边界。
+  两版（底部浮条切换，也可用 ?variant=A|B、键盘 ← →）：
+    A 开关固定在红绿灯右边，展开收起都在同一个位置；右栏开关在标签栏最右。
+    B 左栏开关在侧栏右上角，收起后挪到红绿灯右边；右栏开关同 A。
+  浮条还能切换：工作区 / 对话、浅色 / 深色、窗口宽度。⌘B 折叠左栏，⌥⌘B 开关右栏（原型里 Ctrl 也行）。
+  颜色、尺寸取自 packages/ui/src/design/tokens.css 和 design-language.md，图标是 Hugeicons 免费版（sidebar-left、sidebar-right 等）。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · 左右侧栏</title>
+    <style>
+      :root {
+        --main: #fff;
+        --surface-1: #fff;
+        --surface-2: #f2f2f4;
+        --code: #f6f6f8;
+        --sidebar-bg: linear-gradient(
+          180deg,
+          #d5dbe9 0%,
+          #dae0e9 10%,
+          #e1e4ea 25%,
+          #e3e7e9 35%,
+          #e3e7e9 65%,
+          #e2e4e6 75%,
+          #dee1e7 85%,
+          #d8dbe3 100%
+        );
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.045);
+        --selected: rgba(0, 0, 0, 0.065);
+        --tint: #2f6fed;
+        --ok: #1f9d55;
+        --danger: #e5484d;
+        --add-bg: rgba(31, 157, 85, 0.1);
+        --del-bg: rgba(229, 72, 77, 0.09);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+        --page: #eef1f6;
+        --bar: rgba(255, 255, 255, 0.92);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --r: 8px;
+        --r-card: 16px;
+        --r-bubble: 22px;
+        --r-pill: 999px;
+        --fold: 0.28s cubic-bezier(0.45, 0, 0.15, 1);
+      }
+      :root[data-theme="dark"] {
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --code: #19191b;
+        --sidebar-bg: rgba(95, 102, 114, 0.42);
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.06);
+        --selected: rgba(255, 255, 255, 0.09);
+        --tint: #7aaaff;
+        --ok: #3fbf74;
+        --danger: #f25a5a;
+        --add-bg: rgba(63, 191, 116, 0.13);
+        --del-bg: rgba(242, 90, 90, 0.13);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(0, 0, 0, 0.35);
+        --page: #0c0c0e;
+        --bar: rgba(40, 40, 42, 0.92);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        font: var(--fs)/1.5 var(--font-sans);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        padding-bottom: 120px;
+      }
+      header.page {
+        padding: 28px 40px 4px;
+        max-width: 1100px;
+      }
+      header.page h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      header.page p {
+        margin: 0 0 4px;
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+      }
+      .stage {
+        padding: 16px 40px;
+      }
+      button {
+        all: unset;
+        cursor: pointer;
+      }
+      svg {
+        display: block;
+      }
+
+      /* 窗口：深色下侧栏透出的"桌面"用一层彩色底示意系统材质 */
+      .win {
+        position: relative;
+        height: 600px;
+        border-radius: 12px;
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+        display: flex;
+        transition: width 0.2s;
+      }
+      .win::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 10% 20%, #6d7fa8, transparent 60%),
+          radial-gradient(circle at 20% 90%, #8a6f96, transparent 55%), #4b5466;
+        z-index: 0;
+      }
+      :root:not([data-theme="dark"]) .win::before {
+        display: none;
+      }
+      .lights {
+        position: absolute;
+        left: 20px;
+        top: 18px;
+        display: flex;
+        gap: 8px;
+        z-index: 5;
+      }
+      .lights i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #ff5f57;
+        box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.15);
+      }
+      .lights i:nth-child(2) {
+        background: #febc2e;
+      }
+      .lights i:nth-child(3) {
+        background: #28c840;
+      }
+
+      .toggle {
+        position: absolute;
+        z-index: 6;
+        width: 28px;
+        height: 28px;
+        border-radius: var(--r);
+        display: grid;
+        place-items: center;
+        color: var(--text-muted);
+        transition:
+          left var(--fold),
+          background 0.15s,
+          color 0.15s;
+      }
+      .toggle:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .tip {
+        position: absolute;
+        z-index: 20;
+        pointer-events: none;
+        background: var(--text);
+        color: var(--main);
+        font-size: var(--fs-xs);
+        padding: 3px 7px;
+        border-radius: 6px;
+        white-space: nowrap;
+        opacity: 0;
+        transition: opacity 0.12s;
+      }
+
+      /* 左侧栏：宽度收到 0，里面的内容保持 270 宽、跟着被裁掉 */
+      .sb {
+        position: relative;
+        z-index: 1;
+        width: 270px;
+        flex: none;
+        overflow: hidden;
+        background: var(--sidebar-bg);
+        box-shadow: inset -0.5px 0 0 var(--line);
+        transition: width var(--fold);
+      }
+      :root[data-theme="dark"] .sb {
+        backdrop-filter: blur(32px) saturate(1.5);
+      }
+      .win.collapsed .sb {
+        width: 0;
+      }
+      .sb-inner {
+        width: 270px;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        transition:
+          opacity 0.2s,
+          transform var(--fold);
+      }
+      .win.collapsed .sb-inner {
+        opacity: 0;
+        transform: translateX(-24px);
+      }
+      .sb-top {
+        height: 50px;
+        flex: none;
+      }
+      .sb-list {
+        flex: 1;
+        padding: 0 12px;
+      }
+      .sec {
+        height: 34px;
+        display: flex;
+        align-items: center;
+        padding: 0 8px;
+        color: var(--text-muted);
+        margin-top: 6px;
+      }
+      .row {
+        height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        color: var(--text-2);
+        margin-bottom: 2px;
+        white-space: nowrap;
+      }
+      .row.ind {
+        padding-left: 30px;
+      }
+      .row.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .row .dim {
+        margin-left: auto;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .inbox {
+        margin: 0 12px 8px;
+        background: var(--surface-1);
+        border-radius: 14px;
+        box-shadow: var(--card-shadow);
+        height: 32px;
+        display: flex;
+        align-items: center;
+        padding: 0 10px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        gap: 6px;
+      }
+      .inbox b {
+        background: rgba(221, 134, 41, 0.12);
+        color: #c96509;
+        font-weight: 600;
+        font-size: var(--fs-sm);
+        border-radius: 999px;
+        padding: 0 7px;
+        line-height: 18px;
+      }
+      .settings {
+        height: 34px;
+        margin: 0 12px 10px;
+        display: flex;
+        align-items: center;
+        padding: 0 8px;
+        color: var(--text-muted);
+      }
+
+      /* 主区 */
+      .main {
+        position: relative;
+        z-index: 1;
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--main);
+      }
+      .tabs {
+        height: 48px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 0 8px 0 12px;
+        transition: padding-left var(--fold);
+      }
+      .win.collapsed .tabs {
+        padding-left: var(--tabs-inset);
+      }
+      .tab {
+        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 12px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .tab.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .tb {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        border-radius: var(--r);
+        color: var(--text-muted);
+        flex: none;
+      }
+      .tb:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .tb[aria-pressed="true"] {
+        color: var(--tint);
+      }
+      .tb[aria-disabled="true"] {
+        opacity: 0.4;
+        cursor: default;
+      }
+      .tb[aria-disabled="true"]:hover {
+        background: none;
+        color: var(--text-muted);
+      }
+      .spacer {
+        flex: 1;
+      }
+      .body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+      }
+      .chat {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .thread {
+        flex: 1;
+        overflow: hidden;
+        padding: 20px 0;
+      }
+      .col {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 0 24px;
+        display: flex;
+        flex-direction: column;
+      }
+      .bubble {
+        align-self: flex-end;
+        max-width: 80%;
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 8px 16px;
+        margin-bottom: 14px;
+      }
+      .fold {
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+        margin-bottom: 6px;
+      }
+      .reply {
+        color: var(--text-2);
+        margin-bottom: 18px;
+      }
+      .track {
+        max-width: 680px;
+        width: calc(100% - 40px);
+        margin: 0 auto 6px;
+        display: flex;
+        gap: 6px;
+      }
+      .capsule {
+        height: 24px;
+        border-radius: 999px;
+        padding: 0 10px;
+        font-size: var(--fs-sm);
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        color: var(--text-muted);
+      }
+      .capsule .a {
+        color: var(--ok);
+      }
+      .capsule .d {
+        color: var(--danger);
+      }
+      .composer {
+        margin: 0 auto;
+        width: calc(100% - 40px);
+        max-width: 680px;
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 14px 20px;
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+        height: 84px;
+      }
+      .status {
+        height: 36px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+
+      /* 右侧栏 */
+      .panel {
+        position: relative;
+        flex: none;
+        width: 0;
+        overflow: visible;
+        transition: width var(--fold);
+      }
+      .panel.open {
+        width: var(--panel-w);
+      }
+      .dragging .panel,
+      .dragging .sb {
+        transition: none;
+      }
+      .panel-inner {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: var(--panel-w);
+        display: flex;
+        flex-direction: column;
+        background: var(--surface-1);
+        border-left: 0.5px solid var(--line);
+        overflow: hidden;
+      }
+      .panel:not(.open) .panel-inner {
+        visibility: hidden;
+        transition: visibility 0s 0.28s;
+      }
+      .ph {
+        height: 44px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 8px 0 12px;
+        border-bottom: 0.5px solid var(--line);
+        font-size: var(--fs-meta);
+        white-space: nowrap;
+      }
+      .ph h2 {
+        margin: 0;
+        font-size: var(--fs-meta);
+        font-weight: 500;
+      }
+      .ph .mode {
+        color: var(--text-muted);
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+      }
+      .files {
+        padding: 6px;
+        border-bottom: 0.5px solid var(--line);
+        font-size: var(--fs-meta);
+      }
+      .file {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        height: 28px;
+        padding: 0 8px;
+        border-radius: 6px;
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .file:hover {
+        background: var(--hover);
+      }
+      .file .p {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--text-2);
+      }
+      .file .p i {
+        font-style: normal;
+        color: var(--text-dim);
+      }
+      .a {
+        color: var(--ok);
+      }
+      .d {
+        color: var(--danger);
+      }
+      .diff {
+        font: var(--fs-sm)/1.6 var(--font-mono);
+        overflow: hidden;
+        flex: 1;
+      }
+      .dh {
+        padding: 8px 12px;
+        font: var(--fs-meta) var(--font-sans);
+        color: var(--text-2);
+        border-bottom: 0.5px solid var(--line);
+        white-space: nowrap;
+      }
+      .dl {
+        display: flex;
+        white-space: pre;
+      }
+      .dl span:first-child {
+        width: 36px;
+        text-align: right;
+        padding-right: 8px;
+        color: var(--text-dim);
+        flex: none;
+      }
+      .dl.add {
+        background: var(--add-bg);
+      }
+      .dl.del {
+        background: var(--del-bg);
+      }
+      .dl.hunk {
+        color: var(--text-dim);
+        background: var(--code);
+      }
+
+      /* 分隔线：8px 的可拖区，悬停 150ms 后 / 拖动时出现 2px 的 tint 线 */
+      .handle {
+        position: absolute;
+        left: -4px;
+        top: 0;
+        bottom: 0;
+        width: 8px;
+        cursor: col-resize;
+        z-index: 4;
+      }
+      .handle::after {
+        content: "";
+        position: absolute;
+        left: 3px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: var(--tint);
+        opacity: 0;
+        transition: opacity 0.15s;
+      }
+      .handle:hover::after {
+        opacity: 1;
+        transition-delay: 0.15s;
+      }
+      .dragging .handle::after {
+        opacity: 1;
+        transition-delay: 0s;
+      }
+      .handle:focus-visible::after {
+        opacity: 1;
+      }
+      .panel:not(.open) .handle {
+        display: none;
+      }
+      .wlabel {
+        position: absolute;
+        top: 52px;
+        left: 10px;
+        z-index: 5;
+        font: var(--fs-xs) var(--font-mono);
+        background: var(--text);
+        color: var(--main);
+        border-radius: 5px;
+        padding: 1px 6px;
+        opacity: 0;
+        transition: opacity 0.15s;
+        pointer-events: none;
+      }
+      .dragging .wlabel {
+        opacity: 0.85;
+      }
+
+      /* 浮条 */
+      .bar {
+        position: fixed;
+        left: 50%;
+        bottom: 20px;
+        transform: translateX(-50%);
+        background: var(--bar);
+        backdrop-filter: blur(12px);
+        box-shadow:
+          0 0 0 0.5px var(--line-strong),
+          0 12px 32px rgba(0, 0, 0, 0.18);
+        border-radius: 14px;
+        padding: 8px 10px;
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        white-space: nowrap;
+        z-index: 50;
+      }
+      .seg {
+        display: inline-flex;
+        background: var(--hover);
+        border-radius: 9px;
+        padding: 2px;
+      }
+      .seg button {
+        padding: 3px 10px;
+        border-radius: 7px;
+        color: var(--text-muted);
+      }
+      .seg button[aria-pressed="true"] {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow: 0 0 0 0.5px var(--line-strong);
+      }
+      .state {
+        font: var(--fs-xs)/1.4 var(--font-mono);
+        color: var(--text-dim);
+        margin: 10px 40px 0;
+      }
+      .desc {
+        margin: 12px 0 0;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        max-width: 1100px;
+      }
+      .desc li {
+        margin-bottom: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>左右侧栏（原型，审完即弃）</h1>
+      <p>
+        问题：左侧栏怎么折叠、开关放哪（折叠后只留一个开关）；右侧栏怎么打开，拖动分隔线改宽度的手感和边界。右侧栏的内容就是现在的"改动"面板。
+      </p>
+      <p>
+        试试：点开关或按 ⌘B /
+        ⌥⌘B；把鼠标放到右栏左边缘，等一下出现蓝线，按住拖；双击分隔线回到默认宽度；切到"对话"看右栏开关不可用的样子。
+      </p>
+    </header>
+    <div class="stage">
+      <div class="win" id="win">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <button class="toggle" id="left" aria-label="折叠侧栏"></button>
+        <div class="tip" id="tip"></div>
+        <nav class="sb" aria-label="侧栏">
+          <div class="sb-inner">
+            <div class="sb-top"></div>
+            <div class="sb-list">
+              <div class="sec">项目</div>
+              <div class="row" id="proj">atrium</div>
+              <div class="row ind on" id="ws">main</div>
+              <div class="row ind">m1.11-self-use <span class="dim">+120 −8</span></div>
+              <div class="row">paseo</div>
+              <div class="sec">对话</div>
+              <div class="row" id="chatrow">问一下 Electron 的 vibrancy</div>
+              <div class="row">周报</div>
+            </div>
+            <div class="inbox">等你处理 <b>2</b></div>
+            <div class="settings">设置</div>
+          </div>
+        </nav>
+        <main class="main">
+          <div class="tabs" id="tabs">
+            <span class="tab on">侧栏折叠</span><span class="tab">修 e2e</span>
+            <button class="tb" title="新建会话">＋</button>
+            <span class="spacer"></span>
+            <button class="tb" title="更多">···</button>
+            <button class="tb" id="right" aria-label="改动"></button>
+          </div>
+          <div class="body" id="body">
+            <div class="chat">
+              <div class="thread">
+                <div class="col">
+                  <div class="bubble">把左侧栏做成可以折叠的，折叠后只留一个开关</div>
+                  <div class="fold">› 已完成，用时 1 分 42 秒 · 读了 6 个文件 · 改了 3 个文件</div>
+                  <div class="reply">
+                    改好了：侧栏的宽度在 0.28 秒里收到
+                    0，里面的内容跟着淡出左移；开关固定在红绿灯右边，折叠前后不挪位置。标签栏在折叠时让出红绿灯和开关的位置。
+                  </div>
+                  <div class="bubble">右边的改动面板也要能拖宽</div>
+                  <div class="fold">› 已完成，用时 58 秒 · 改了 2 个文件</div>
+                  <div class="reply">分隔线在面板左边缘，可拖的区域 8px 宽；宽度记在本机，双击回到 560px。</div>
+                </div>
+              </div>
+              <div class="track" id="track">
+                <span class="capsule" id="capsule"><span class="a">+12</span><span class="d">−3</span></span>
+              </div>
+              <div class="composer">发消息或描述任务，@ 引用文件，/ 使用命令</div>
+              <div class="status">1 轮 7 步 · 48 tok/s　　1.3M tok · 缓存命中 73%　　42%</div>
+            </div>
+            <div class="panel" id="panel">
+              <div
+                class="handle"
+                id="handle"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="改动面板的宽度"
+                tabindex="0"
+              ></div>
+              <div class="wlabel" id="wlabel"></div>
+              <aside class="panel-inner" aria-label="改动">
+                <div class="ph">
+                  <h2>改动</h2>
+                  <span class="mode">未提交 ⌄</span><span class="a">+12</span><span class="d">−3</span
+                  ><span class="spacer"></span><button class="tb" title="刷新">↻</button
+                  ><button class="tb" id="close" title="关闭">✕</button>
+                </div>
+                <div class="files">
+                  <div class="file">
+                    <span class="p">sidebar.tsx <i>packages/ui/src/sidebar</i></span
+                    ><span class="a">+9</span><span class="d">−2</span>
+                  </div>
+                  <div class="file">
+                    <span class="p">workbench.tsx <i>packages/ui/src/app</i></span
+                    ><span class="a">+3</span><span class="d">−1</span>
+                  </div>
+                </div>
+                <div class="diff">
+                  <div class="dh">sidebar.tsx <span style="color: var(--text-dim)">packages/ui/src/sidebar</span></div>
+                  <div class="dl hunk"><span></span><span>@@ -221,7 +221,9 @@</span></div>
+                  <div class="dl"><span>221</span><span> &lt;LeavePage value={page?.leave ?? stay}&gt;</span></div>
+                  <div class="dl del">
+                    <span>222</span><span> &lt;nav aria-label="侧栏" className="w-[270px]"&gt;</span>
+                  </div>
+                  <div class="dl add">
+                    <span>222</span><span> &lt;nav aria-label="侧栏" data-collapsed={collapsed}</span>
+                  </div>
+                  <div class="dl add"><span>223</span><span> className="w-[270px] data-[collapsed]:w-0"&gt;</span></div>
+                  <div class="dl"><span>224</span><span> &lt;div className="h-[50px] shrink-0" /&gt;</span></div>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </main>
+      </div>
+      <ul class="desc" id="desc"></ul>
+    </div>
+    <div class="state" id="state"></div>
+    <div class="bar">
+      <span class="seg" id="variants"></span>
+      <span class="seg" id="places"></span>
+      <span class="seg" id="widths"></span>
+      <span class="seg" id="themes"></span>
+    </div>
+    <script>
+      const P = (d) =>
+        `<path d="${d}" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>`;
+      const FRAME =
+        "M2 12C2 8.31087 2 6.4663 2.81382 5.15877C3.1149 4.67502 3.48891 4.25427 3.91891 3.91554C5.08116 3 6.72077 3 10 3H14C17.2792 3 18.9188 3 20.0811 3.91554C20.5111 4.25427 20.8851 4.67502 21.1862 5.15877C22 6.4663 22 8.31087 22 12C22 15.6891 22 17.5337 21.1862 18.8412C20.8851 19.325 20.5111 19.7457 20.0811 20.0845C18.9188 21 17.2792 21 14 21H10C6.72077 21 5.08116 21 3.91891 20.0845C3.48891 19.7457 3.1149 19.325 2.81382 18.8412C2 17.5337 2 15.6891 2 12Z";
+      const ICON = {
+        left: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none">${P(FRAME)}${P("M9.5 3L9.5 21")}${P("M5 7H6M5 10H6")}</svg>`,
+        right: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none">${P(FRAME)}${P("M14.5 3L14.5 21")}${P("M18 7H19M18 10H19")}</svg>`,
+      };
+      const VARIANTS = {
+        A: [
+          "A · 开关固定在红绿灯右边",
+          [
+            "左栏开关在红绿灯右边（离窗口左边 84px），展开、折叠都在同一个位置，手不用找。展开时它在侧栏顶部的空白里；折叠后在标签栏最左，标签栏让出红绿灯和开关的位置（左边距 12px → 120px）。",
+            "折叠：侧栏宽度 0.28 秒收到 0（同项目展开收起的曲线），里面的内容保持 270 宽、淡出并左移 24px，被裁掉；对话列跟着平滑居中。展开反向播放。折叠后整个侧栏（含收件箱）都看不到，只有开关。",
+            '右栏开关在标签栏最右（"···"右边），图标 sidebar-right；打开时图标变成 --tint。胶囊条里的"+A −D"照旧也能打开同一个面板。面板宽度同样 0.28 秒展开。',
+          ],
+        ],
+        B: [
+          "B · 开关在侧栏右上角",
+          [
+            "左栏开关在侧栏右上角（侧栏顶部空白的右端），和侧栏内容一起；折叠后挪到红绿灯右边（位置会跳到另一处，带 0.28 秒的位移）。Codex、Cursor 是这种。",
+            "其余同 A：折叠的动效、右栏开关和拖动都一样。",
+          ],
+        ],
+      };
+      const COMMON = [
+        "右栏宽度：分隔线在面板左边缘，可拖区 8px；鼠标停 150ms 后（或用 Tab 聚焦时）出现 2px 的 --tint 竖线，拖动时一直显示、显示当前宽度。最窄 360px；最宽到对话区还剩 440px（窗口变窄时面板跟着让）。双击回到默认 560px。聚焦时 ← → 每次 16px。宽度记在本机（localStorage），所有工作区共用一个。",
+        "开关的状态：左栏折没折、右栏开没开都记在本机，重启后照旧。右栏开着的时候换工作区不再收起（现在的规格是换容器就收起）——它现在是一栏布局，不是临时的抽屉；Esc 和面板里的关闭按钮照旧能关。",
+        '对话（不在 git 工作区里）没有改动可看：右栏开关变灰、悬停说明"对话没有工作区，没有改动"；之前开着的右栏先隐去，回到工作区又出现。',
+        "快捷键：⌘B 折叠 / 展开左栏，⌥⌘B 开关右栏（同 VS Code、Cursor）。开关悬停时说明里带快捷键。减弱动态效果时直接切换。",
+      ];
+      const WIDTHS = { 1100: "窗口 1100", 1400: "窗口 1400" };
+      const q = new URLSearchParams(location.search);
+      const s = {
+        variant: VARIANTS[q.get("variant")] ? q.get("variant") : "A",
+        place: "ws",
+        winW: "1400",
+        theme: "light",
+        collapsed: false,
+        panelOpen: false,
+        panelW: 560,
+      };
+      const win = document.getElementById("win"),
+        panel = document.getElementById("panel"),
+        left = document.getElementById("left"),
+        right = document.getElementById("right"),
+        tip = document.getElementById("tip");
+      left.innerHTML = ICON.left;
+      right.innerHTML = ICON.right;
+      const MIN = 360,
+        CHAT_MIN = 440,
+        DEFAULT = 560;
+      const maxW = () => win.clientWidth - (s.collapsed ? 0 : 270) - CHAT_MIN;
+      const clampW = (w) => Math.max(MIN, Math.min(maxW(), Math.round(w)));
+
+      function paint() {
+        document.documentElement.dataset.theme = s.theme;
+        win.style.width = `min(${s.winW}px, calc(100vw - 80px))`;
+        win.classList.toggle("collapsed", s.collapsed);
+        const leftX = s.variant === "A" || s.collapsed ? 84 : 270 - 12 - 28;
+        left.style.left = `${leftX}px`;
+        left.style.top = "10px";
+        win.style.setProperty("--tabs-inset", "120px");
+        left.setAttribute("aria-label", s.collapsed ? "展开侧栏" : "折叠侧栏");
+        left.dataset.tip = `${s.collapsed ? "展开侧栏" : "折叠侧栏"}（⌘B）`;
+        const chat = s.place === "chat";
+        document.getElementById("ws").classList.toggle("on", !chat);
+        document.getElementById("chatrow").classList.toggle("on", chat);
+        document.getElementById("capsule").style.visibility = chat ? "hidden" : "visible";
+        right.setAttribute("aria-disabled", String(chat));
+        right.setAttribute("aria-pressed", String(!chat && s.panelOpen));
+        right.dataset.tip = chat ? "对话没有工作区，没有改动" : `${s.panelOpen ? "收起改动" : "看改动"}（⌥⌘B）`;
+        // 记住的是想要的宽度；窗口放不下时只在显示上让，窗口变宽又回来。
+        win.style.setProperty("--panel-w", `${clampW(s.panelW)}px`);
+        panel.classList.toggle("open", !chat && s.panelOpen);
+        document.getElementById("desc").innerHTML = [...VARIANTS[s.variant][1], ...COMMON]
+          .map((t) => `<li>${t}</li>`)
+          .join("");
+        seg("variants", Object.fromEntries(Object.entries(VARIANTS).map(([k, [l]]) => [k, l])), "variant");
+        seg("places", { ws: "工作区", chat: "对话" }, "place");
+        seg("widths", WIDTHS, "winW");
+        seg("themes", { light: "浅色", dark: "深色" }, "theme");
+        document.getElementById("state").textContent = JSON.stringify({
+          variant: s.variant,
+          place: s.place,
+          sidebarCollapsed: s.collapsed,
+          panelOpen: s.panelOpen,
+          panelWidth: s.panelW,
+          panelShown: clampW(s.panelW),
+          panelMax: maxW(),
+          theme: s.theme,
+        });
+        history.replaceState(null, "", `?variant=${s.variant}`);
+      }
+      function seg(id, options, key) {
+        const el = document.getElementById(id);
+        el.innerHTML = Object.entries(options)
+          .map(([k, l]) => `<button data-k="${k}" aria-pressed="${s[key] === k}">${l}</button>`)
+          .join("");
+        el.querySelectorAll("button").forEach(
+          (b) =>
+            (b.onclick = () => {
+              s[key] = b.dataset.k;
+              paint();
+            }),
+        );
+      }
+      const toggleLeft = () => {
+        s.collapsed = !s.collapsed;
+        paint();
+      };
+      const toggleRight = () => {
+        if (s.place === "chat") return;
+        s.panelOpen = !s.panelOpen;
+        paint();
+      };
+      left.onclick = toggleLeft;
+      right.onclick = toggleRight;
+      document.getElementById("capsule").onclick = toggleRight;
+      document.getElementById("close").onclick = () => {
+        s.panelOpen = false;
+        paint();
+      };
+      document.getElementById("chatrow").onclick = () => {
+        s.place = "chat";
+        paint();
+      };
+      document.getElementById("ws").onclick = () => {
+        s.place = "ws";
+        paint();
+      };
+      for (const el of [left, right]) {
+        el.addEventListener("mouseenter", () => {
+          const r = el.getBoundingClientRect(),
+            w = win.getBoundingClientRect();
+          tip.textContent = el.dataset.tip;
+          tip.style.top = `${r.bottom - w.top + 6}px`;
+          tip.style.left = el === right ? "auto" : `${r.left - w.left}px`;
+          tip.style.right = el === right ? `${w.right - r.right}px` : "auto";
+          tip.style.opacity = 1;
+        });
+        el.addEventListener("mouseleave", () => (tip.style.opacity = 0));
+      }
+      // 拖动分隔线
+      const handle = document.getElementById("handle"),
+        wlabel = document.getElementById("wlabel");
+      handle.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        handle.setPointerCapture(e.pointerId);
+        const startX = e.clientX,
+          startW = clampW(s.panelW);
+        win.classList.add("dragging");
+        document.body.style.cursor = "col-resize";
+        const move = (ev) => {
+          s.panelW = clampW(startW + (startX - ev.clientX));
+          wlabel.textContent = `${s.panelW}px`;
+          win.style.setProperty("--panel-w", `${s.panelW}px`);
+        };
+        move(e);
+        const up = () => {
+          win.classList.remove("dragging");
+          document.body.style.cursor = "";
+          handle.removeEventListener("pointermove", move);
+          handle.removeEventListener("pointerup", up);
+          paint();
+        };
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", up);
+      });
+      handle.addEventListener("dblclick", () => {
+        s.panelW = DEFAULT;
+        paint();
+      });
+      handle.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowLeft") {
+          s.panelW = clampW(clampW(s.panelW) + 16);
+          paint();
+          e.preventDefault();
+        }
+        if (e.key === "ArrowRight") {
+          s.panelW = clampW(clampW(s.panelW) - 16);
+          paint();
+          e.preventDefault();
+        }
+      });
+      document.addEventListener("keydown", (e) => {
+        const mod = e.metaKey || e.ctrlKey;
+        if (mod && e.key.toLowerCase() === "b" && e.altKey) {
+          toggleRight();
+          e.preventDefault();
+          return;
+        }
+        if (mod && (e.key.toLowerCase() === "b" || e.code === "KeyB")) {
+          e.altKey ? toggleRight() : toggleLeft();
+          e.preventDefault();
+          return;
+        }
+        if (e.target === handle) return;
+        const keys = Object.keys(VARIANTS),
+          i = keys.indexOf(s.variant);
+        if (e.key === "ArrowRight") {
+          s.variant = keys[(i + 1) % keys.length];
+          paint();
+        }
+        if (e.key === "ArrowLeft") {
+          s.variant = keys[(i + keys.length - 1) % keys.length];
+          paint();
+        }
+      });
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches)
+        document.documentElement.style.setProperty("--fold", "0s");
+      paint();
+    </script>
+  </body>
+</html>

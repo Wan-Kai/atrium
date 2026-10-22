@@ -579,3 +579,88 @@ describe("pi contract: SPEC-0002's child with context", () => {
     }
   });
 });
+
+describe("pi contract: SPEC-0003's ask_user on the extension channel", () => {
+  it("ask-steer: a steer sent while a tool waits on the host reaches the model right after the tool's answer, in the same run", async () => {
+    await runScenario(
+      {
+        scenario: "ask-steer",
+        extensions: [PROBE],
+        script: {
+          replies: [
+            { blocks: [{ type: "toolCall", id: "call-1", name: "probe_ask", arguments: { question: "which?" } }] },
+            { blocks: [{ type: "text", text: "done" }] },
+          ],
+        },
+      },
+      async ({ pi, events, until, contexts }) => {
+        await pi.request({ type: "prompt", message: "go" });
+        await until(isProbeQuestion);
+        // The direct reply's order (SPEC-0003, "直接回复"): the steer first, then the answer.
+        const steered = await pi.request({ type: "steer", message: "do it my way" });
+        const answered = await pi.request({
+          type: "prompt",
+          message: `/${PROBE_REPLY} q1 ${encodeArgument("replied directly")}`,
+        });
+        await until((event) => event.type === "agent_settled");
+
+        expect(steered).toStrictEqual({ disposition: "queued" });
+        expect(answered).toStrictEqual({ disposition: "handled" });
+        expect(steering(events)).toStrictEqual([["do it my way"], []]);
+        expect(events.filter((event) => event.type === "agent_start")).toHaveLength(1);
+        const [, second] = await contexts();
+        expect(seen(present(second, "the second request").messages)).toStrictEqual([
+          "user: go",
+          "assistant: call probe_ask",
+          "toolResult: replied directly",
+          "user: do it my way",
+        ]);
+      },
+    );
+  });
+
+  it("ask-abort: abort ends a tool waiting on the host as an error with the extension's text, and the model sees it so next time", async () => {
+    await runScenario(
+      {
+        scenario: "ask-abort",
+        session: true,
+        extensions: [PROBE],
+        script: {
+          replies: [
+            { blocks: [{ type: "toolCall", id: "call-1", name: "probe_ask", arguments: { question: "which?" } }] },
+            { blocks: [{ type: "text", text: "after" }] },
+          ],
+        },
+      },
+      async ({ pi, events, until, contexts, sessionsDir }) => {
+        await pi.request({ type: "prompt", message: "go" });
+        await until(isProbeQuestion);
+        await pi.request({ type: "abort" });
+        await until((event) => event.type === "agent_settled");
+        const ended = events.find((event) => event.type === "tool_execution_end");
+        await pi.request({ type: "prompt", message: "next" });
+        await until(() => events.filter((event) => event.type === "agent_settled").length === 2);
+
+        expect(ended).toMatchObject({
+          toolCallId: "call-1",
+          isError: true,
+          result: { content: [{ type: "text", text: "aborted" }], details: {} },
+        });
+        const [file] = await readdir(sessionsDir, { recursive: true });
+        const lines = await linesOf(join(sessionsDir, present(file, "the session file")));
+        // What a rebuild reads (SPEC-0003, "对话记录"): an error result without the extension's details.
+        expect(lines.find((line) => entryKind(line) === "message toolResult")).toMatchObject({
+          message: { toolCallId: "call-1", isError: true, details: {} },
+        });
+        // The abort cut the run before a second request: the next one is the user's.
+        const [, second] = await contexts();
+        expect(seen(present(second, "the request after the abort").messages)).toStrictEqual([
+          "user: go",
+          "assistant: call probe_ask",
+          "toolResult: aborted",
+          "user: next",
+        ]);
+      },
+    );
+  });
+});

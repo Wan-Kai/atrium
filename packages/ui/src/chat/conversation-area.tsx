@@ -108,6 +108,9 @@ export function describeSendError(error: unknown): string {
   if (error.code === "session_stopping") return "正在等 pi 停下，停下后再发";
   if (error.code === "queue_item_not_found") return "这条排队的消息已经发出或删掉了";
   if (error.code === "interaction_closed") return "这个问题已经回答过、超时或作废了";
+  if (error.code === "question_closed") return "这些问题已经回答过或结束了";
+  if (error.code === "question_invalid")
+    return `第 ${Number(error.params?.["index"] ?? 0) + 1} 题的回答不完整，没有发出`;
   if (error.code === "nothing_to_compact") return "对话还太短，不用压缩";
   if (error.code === "already_compacted") return "刚压缩过，没有新内容";
   if (error.code === "compact_failed") return "没能压缩：pi 出错了";
@@ -337,7 +340,8 @@ function EmptyLine() {
  * @sideEffects Subscribes to the session's store and the preferences; loads older items when
  * asked; sends run control commands and status bar choices, reporting their failures through `act`.
  * @param props - The client, the session, its view store, what to do with a message, a steer and a
- * built-in command, how to run a command whose failure should show, a notice to show above the
+ * built-in command, how to run a command whose failure should show (and learn whether it went), a
+ * notice to show above the
  * input box, the latest request to open the model panel, what the new-workspace page set going
  * here and its "重试", the workspace views, and the page's choices and box.
  * @returns The transcript and input box.
@@ -351,6 +355,7 @@ function SessionArea({
   onSteer,
   onBuiltin,
   act,
+  attempt,
   session,
   notice,
   pickerRequest,
@@ -372,6 +377,8 @@ function SessionArea({
   readonly onSteer: NonNullable<ComposerProps["onSteer"]>;
   readonly onBuiltin: NonNullable<ComposerProps["onBuiltin"]>;
   readonly act: Act;
+  /** Runs a command as `act` does, saying whether it went. */
+  readonly attempt: (command: () => Promise<unknown>) => Promise<boolean>;
   readonly session: () => Promise<string>;
   readonly notice: ReactNode;
   readonly pickerRequest: PickerRequest | null;
@@ -475,6 +482,7 @@ function SessionArea({
     removeDelivery: (deliveryId) => act(() => client.removeDelivery(sessionId, deliveryId)),
     resumeDeliveries: () => act(() => client.resumeDeliveries(sessionId, false)),
     answer: (interactionId, answer) => act(() => client.answerInteraction(sessionId, interactionId, answer)),
+    answerQuestion: (questionId, reply) => attempt(() => client.answerQuestion(sessionId, questionId, reply)),
     retry: () => act(() => client.retryRun(sessionId)),
   };
   return (
@@ -536,7 +544,11 @@ function SessionArea({
       )}
       {bottom === undefined ? (
         <>
-          <ControlCards control={view.control} actions={actions} />
+          {editing === null ? null : (
+            <div className="mx-auto w-full max-w-[var(--column)] px-6">
+              <ControlCards sessionId={sessionId} control={view.control} actions={actions} />
+            </div>
+          )}
           {notice}
           {editing === null ? (
             <Composer
@@ -557,9 +569,11 @@ function SessionArea({
               draft={draft}
               onStop={() => act(() => client.stop(sessionId))}
               running={running}
+              asked={view.control.question !== null}
               stopping={view.control.stopping}
               compacting={view.control.compacting}
               held={holdsBack(launch)}
+              pinned={<ControlCards sessionId={sessionId} control={view.control} actions={actions} />}
               above={
                 <ControlTrack
                   control={view.control}
@@ -971,21 +985,25 @@ export function ConversationArea({
    * Runs a command on the session, showing why it failed if it does.
    *
    * @remarks
-   * For the queue, stop, dialogs, "重试" and the model.
+   * For the queue, stop, dialogs, the agent's questions, "重试" and the model; the questions' card
+   * lets you send again when it did not go.
    *
    * @sideEffects Sends the command; updates component state.
    * @param command - The command.
    * @param describe - How to explain its failure.
+   * @returns Whether it went.
    */
   async function attempt(
     command: () => Promise<unknown>,
     describe: (error: unknown) => string = describeSendError,
-  ): Promise<void> {
+  ): Promise<boolean> {
     setFailure(null);
     try {
       await command();
+      return true;
     } catch (error) {
       setFailure(describe(error));
+      return false;
     }
   }
 
@@ -1226,6 +1244,7 @@ export function ConversationArea({
             onSteer={onSteer}
             onBuiltin={runBuiltin}
             act={act}
+            attempt={attempt}
             session={target}
             notice={notice}
             pickerRequest={pickerRequest}
@@ -1285,6 +1304,7 @@ export function ConversationArea({
             onSteer={onSteer}
             onBuiltin={runBuiltin}
             act={act}
+            attempt={attempt}
             session={target}
             notice={notice}
             pickerRequest={pickerRequest}

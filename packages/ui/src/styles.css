@@ -442,6 +442,44 @@ body {
   border-bottom: 0;
 }
 
+/* A table taller than 640px (`TABLE_MAX_HEIGHT` in reply-table.tsx) folds there: cut, not scrolled
+   inside, its last 48px fading out. */
+.atrium-table[data-folded] [data-streamdown="table-wrapper"] > div:last-child {
+  max-height: 640px;
+  overflow-y: hidden;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 48px), transparent);
+}
+
+/* "还有 N 行" / "收起", as "显示全部 N 个" in the sidebar, its text in line with the first column. */
+.atrium-table-fold {
+  display: flex;
+  align-items: center;
+  width: calc(100% + 16px);
+  height: 30px;
+  margin: 0 -8px;
+  padding: 0 8px;
+  border-radius: var(--r);
+  color: var(--text-dim);
+  font-size: var(--fs-meta);
+  cursor: pointer;
+}
+
+.atrium-table-fold:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+/* Opened, "收起" sticks to the bottom of the view, over the rows on the page's ground. */
+.atrium-table-fold[aria-expanded="true"] {
+  position: sticky;
+  bottom: 0;
+  background: var(--main);
+}
+
+.atrium-table-fold[aria-expanded="true"]:hover {
+  background: linear-gradient(var(--hover), var(--hover)), var(--main);
+}
+
 /* Streamdown's own margins go; a block in the reply itself keeps the 12px every block has below it. */
 .atrium-markdown
   > :is([data-streamdown="code-block"], [data-streamdown="table-wrapper"], .atrium-mermaid):not(:last-child) {
@@ -597,6 +635,53 @@ body {
 
 .atrium-step-enter > .atrium-step-line {
   animation: atrium-rise-in 0.38s cubic-bezier(0.32, 0.72, 0, 1) 0.06s both;
+}
+
+/* The agent's questions: the card rises 8px as it fades in (0.42 s snappy), and a pick's tick
+   springs out of 0.4 (0.3 s snappy) (design-language, "提问卡片"). */
+@keyframes atrium-question-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes atrium-question-tick {
+  from {
+    scale: 0.4;
+  }
+}
+
+.atrium-question-card {
+  animation: atrium-question-rise 0.42s cubic-bezier(0.2, 0.9, 0.3, 1.05);
+}
+
+.atrium-question-tick {
+  animation: atrium-question-tick 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.05);
+}
+
+/* The rail's node while the agent's questions wait: a ring spreads from 0.6 to 1.4 and fades,
+   every 1.6 s (design-language, "提问一步"); still under reduced motion. */
+@keyframes atrium-asking-ring {
+  from {
+    scale: 0.6;
+    opacity: 0.6;
+  }
+  to {
+    scale: 1.4;
+    opacity: 0;
+  }
+}
+
+.atrium-asking-ring {
+  animation: atrium-asking-ring 1.6s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atrium-asking-ring {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 /* The finished header's chevron turns from ⌄ to › as the process folds. */

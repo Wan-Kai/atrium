@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Question } from "../design/icons";
 import { useClock } from "../state/clock";
 
 /**
@@ -65,18 +66,23 @@ function RunCat() {
  * header while the run lasts (SPEC-0001, "过程的呈现"; design-language, "动效"). The timer
  * counts from the run's start on the host's clock and ticks once a second, with tabular digits so
  * it does not jump; before the host has started the run there is no timer. Before a new
- * workspace's first turn, the same line says "准备工作区" (design-language, "新建工作区页").
+ * workspace's first turn, the same line says "准备工作区" (design-language, "新建工作区页"). While the
+ * agent's questions wait, an orange question mark stands for the cat and the line says "等你回答",
+ * without the shimmer, the run's timer going on (SPEC-0003, "对话记录").
  *
  * @sideEffects Ticks the clock once a second while mounted.
- * @param props - When the run started, or `null` before it has, and what the line says.
+ * @param props - When the run started, or `null` before it has, what the line says, and whether
+ *   the agent's questions wait for you.
  * @returns The status line.
  */
 export function RunStatus({
   startedAt,
   label = "进行中",
+  asking = false,
 }: {
   readonly startedAt: number | null;
   readonly label?: string;
+  readonly asking?: boolean;
 }) {
   const clock = useClock();
   const [now, setNow] = useState(() => clock.now());
@@ -86,9 +92,22 @@ export function RunStatus({
       className="relative flex min-h-[30px] items-center pl-6 text-[length:var(--fs-meta)] tabular-nums"
       data-testid="run-status"
     >
-      <RunCat />
+      {asking ? (
+        <Question
+          size={18}
+          aria-hidden
+          className="absolute top-1/2 left-0 -translate-y-1/2 text-[var(--attn)]"
+          data-testid="run-asking"
+        />
+      ) : (
+        <RunCat />
+      )}
       <span>
-        <span className="atrium-shimmer">{label}</span>
+        {asking ? (
+          <span className="font-medium text-[var(--attn-text)]">等你回答</span>
+        ) : (
+          <span className="atrium-shimmer">{label}</span>
+        )}
         {startedAt === null ? null : (
           <span className="text-[var(--text-dim)]"> · {formatElapsed(now - startedAt)}</span>
         )}

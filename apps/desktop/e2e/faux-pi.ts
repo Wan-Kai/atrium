@@ -14,7 +14,7 @@ export interface FauxPiEnvironment {
   readonly pid: () => Promise<number>;
   /** The bodies of the requests every pi made so far, as its extensions left them. */
   readonly payloads: () => Promise<unknown[]>;
-  /** What every pi's requests carried so far: the tools' names and the messages. */
+  /** What each request every pi made so far gave the model: its tools and messages. */
   readonly contexts: () => Promise<FauxContext[]>;
   readonly cleanup: () => Promise<void>;
 }

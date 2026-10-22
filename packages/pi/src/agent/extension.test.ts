@@ -12,6 +12,7 @@ import atriumAgent, {
   refusal,
   selfOf,
 } from "./extension";
+import { ASK_USER_STOPPED, answerText } from "./ask-user";
 import { askText, errorText, reportText, resultText, taskText } from "./words";
 
 /** A note as the host sends it and the custom message keeps it. */
@@ -505,6 +506,62 @@ const DECLARED: Record<string, unknown> = {
       additionalProperties: false,
     },
   },
+  ask_user: {
+    label: "Ask user",
+    description:
+      'Ask the user 1 to 4 multiple-choice questions and wait for the answers, when you need their decision to go on: several reasonable approaches, an unclear requirement, a preference. Give each question 2 to 4 options, each with a short label and a description of what choosing it means or costs. The user can always write their own answer, so do not add an "Other" option. If you recommend an option, put it first and end its label with "(Recommended)". Ask related questions together in one call. Do not ask whether a plan is fine, and never ask for passwords or keys. The user may skip the questions, or reply in their own words instead.',
+    promptSnippet: "Ask the user multiple-choice questions and wait for the answers",
+    executionMode: "sequential",
+    parameters: {
+      type: "object",
+      properties: {
+        questions: {
+          type: "array",
+          minItems: 1,
+          maxItems: 4,
+          description: "The questions, 1 to 4.",
+          items: {
+            type: "object",
+            properties: {
+              header: {
+                type: "string",
+                description: 'A short name for the question, at most 12 characters, like "Scope".',
+              },
+              question: { type: "string", description: "The whole question. At most 1000 characters." },
+              multiSelect: { type: "boolean", description: "The user may pick several options. Default false." },
+              options: {
+                type: "array",
+                minItems: 2,
+                maxItems: 4,
+                description: "2 to 4 options.",
+                items: {
+                  type: "object",
+                  properties: {
+                    label: { type: "string", description: "1 to 5 words. At most 60 characters." },
+                    description: {
+                      type: "string",
+                      description: "What choosing it means, or its trade-off. At most 300 characters.",
+                    },
+                    preview: {
+                      type: "string",
+                      description:
+                        "Markdown to compare the options by, like a layout sketch, code or a config diff; single-choice questions only. At most 4000 characters.",
+                    },
+                  },
+                  required: ["label", "description"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["header", "question", "options"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["questions"],
+      additionalProperties: false,
+    },
+  },
 };
 
 /**
@@ -537,7 +594,7 @@ function sessionOf(manager: unknown): SessionView {
 }
 
 describe("Atrium's extension: child conversations", () => {
-  it("registers the nine tools, the command, the flag and the tool hook, and fits pi's extension API", () => {
+  it("registers the ten tools, the command, the flag and the hooks, and fits pi's extension API", () => {
     const { tools, flags, hooks, commands } = stand();
 
     expectTypeOf<ExtensionAPI>().toExtend<AgentApi>();
@@ -551,6 +608,7 @@ describe("Atrium's extension: child conversations", () => {
       "agent_models",
       "report_progress",
       "ask_parent",
+      "ask_user",
     ]);
     expect([flags, hooks, commands]).toStrictEqual([
       ["atrium-agent (string): Who this session is, set by Atrium's host"],
@@ -1548,28 +1606,41 @@ describe("the tool hook", () => {
     const deep = stand({ flag: encodeArgument({ v: 1, child: true, role: "advise", depth: 2, guard: "extension" }) });
 
     expect(
-      ["read", "ls", "ask_parent", "agent_spawn", "bash", "mcp"].map((tool) => explore.hook(tool, {})),
+      ["read", "ls", "ask_parent", "agent_spawn", "bash", "edit", "mcp"].map((tool) => explore.hook(tool, {})),
     ).toStrictEqual([
       undefined,
       undefined,
       undefined,
       undefined,
+      undefined,
       {
         block: true,
         reason:
-          "This sub-agent is read-only (explore): it can use read, grep, find, ls, report_progress, ask_parent and the agent_* tools.",
+          "This sub-agent is read-only (explore): it can use read, bash, grep, find, ls, report_progress, ask_parent and the agent_* tools.",
       },
       {
         block: true,
         reason:
-          "This sub-agent is read-only (explore): it can use read, grep, find, ls, report_progress, ask_parent and the agent_* tools.",
+          "This sub-agent is read-only (explore): it can use read, bash, grep, find, ls, report_progress, ask_parent and the agent_* tools.",
       },
     ]);
-    expect([deep.hook("agent_send", {}), deep.hook("edit", {})]).toStrictEqual([
+    expect([
+      deep.hook("bash", { command: "git diff" }),
+      deep.hook("agent_send", {}),
+      deep.hook("edit", {}),
+      deep.hook("write", {}),
+    ]).toStrictEqual([
+      undefined,
       { block: true, reason: "This sub-agent is too deep to start sub-agents of its own." },
       {
         block: true,
-        reason: "This sub-agent is read-only (advise): it can use read, grep, find, ls, report_progress, ask_parent.",
+        reason:
+          "This sub-agent is read-only (advise): it can use read, bash, grep, find, ls, report_progress, ask_parent.",
+      },
+      {
+        block: true,
+        reason:
+          "This sub-agent is read-only (advise): it can use read, bash, grep, find, ls, report_progress, ask_parent.",
       },
     ]);
   });
@@ -1689,12 +1760,18 @@ describe("refusal", () => {
       refusal({ v: 1, child: true, role: "work", depth: 2, guard: "flags" }, "agent_send"),
       refusal({ v: 1, child: false, role: null, depth: 0, guard: "extension" }, "ask_parent"),
       refusal({ v: 1, child: false, role: null, depth: 0, guard: "extension" }, "bash"),
+      refusal({ v: 1, child: false, role: null, depth: 0, guard: "flags" }, "ask_user"),
+      refusal({ v: 1, child: true, role: "work", depth: 1, guard: "extension" }, "ask_user"),
+      refusal({ v: 1, child: true, role: "explore", depth: 1, guard: "flags" }, "ask_user"),
     ]).toStrictEqual([
       null,
       null,
       "This sub-agent is too deep to start sub-agents of its own.",
       "Only a sub-agent can use this tool.",
       null,
+      null,
+      "A sub-agent cannot ask the user directly; ask the agent that started you with ask_parent.",
+      "A sub-agent cannot ask the user directly; ask the agent that started you with ask_parent.",
     ]);
   });
 });
@@ -1926,6 +2003,135 @@ describe("the extension's own timers", () => {
       { details: { answered: true, answer: "yes" } },
     ]);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("ask_user", () => {
+  /** A question as the model writes it. */
+  const scope = {
+    header: "Scope",
+    question: "How far?",
+    options: [
+      { label: "Inbox (Recommended)", description: "Nothing else" },
+      { label: "Sidebar", description: "More", preview: "<Sidebar />" },
+    ],
+  };
+  /** What the host is sent of it. */
+  const scopeRead = {
+    header: "Scope",
+    question: "How far?",
+    multiSelect: false,
+    options: [
+      { label: "Inbox", description: "Nothing else", preview: null, recommended: true },
+      { label: "Sidebar", description: "More", preview: "<Sidebar />", recommended: false },
+    ],
+  };
+
+  it("asks the host with the questions read, words the answer, and keeps how they ended as details", async () => {
+    const { call, run, statuses } = stand();
+    const answers = [{ selected: [1], other: null }];
+
+    const pending = call("ask_user", "call-1", { questions: [scope] });
+    await settled();
+    const asked = requests(statuses);
+    await run(answer("call-1", { outcome: "answered", answers }));
+
+    expect(asked).toStrictEqual([{ kind: "call", id: "call-1", op: "ask_user", args: { questions: [scopeRead] } }]);
+    expect(await pending).toStrictEqual({
+      content: [{ type: "text", text: answerText([scopeRead], { outcome: "answered", answers }) }],
+      details: { v: 1, outcome: { kind: "answered", answers } },
+    });
+    expect(cleared(statuses)).toStrictEqual(["atrium-agent:call-1"]);
+  });
+
+  it("tells the model the user skipped, or replied directly", async () => {
+    const { call, run } = stand();
+
+    const skipped = call("ask_user", "call-1", { questions: [scope] });
+    const replied = call("ask_user", "call-2", { questions: [scope] });
+    await settled();
+    await run(answer("call-1", { outcome: "skipped" }));
+    await run(answer("call-2", { outcome: "reply" }));
+
+    expect([await skipped, await replied]).toStrictEqual([
+      {
+        content: [{ type: "text", text: answerText([scopeRead], { outcome: "skipped" }) }],
+        details: { v: 1, outcome: { kind: "skipped" } },
+      },
+      {
+        content: [{ type: "text", text: answerText([scopeRead], { outcome: "reply" }) }],
+        details: { v: 1, outcome: { kind: "reply" } },
+      },
+    ]);
+  });
+
+  it("tells the model what to fix in questions it cannot ask, without asking the host", async () => {
+    const { call, statuses } = stand();
+
+    const result = await call("ask_user", "call-1", { questions: [{ ...scope, header: "x".repeat(13) }] });
+
+    expect(result).toStrictEqual({
+      content: [{ type: "text", text: "Question 1: the header is longer than 12 characters." }],
+      details: {},
+      isError: true,
+    });
+    expect(statuses).toStrictEqual([]);
+  });
+
+  it("words the host's refusal for the model", async () => {
+    const { call, run } = stand();
+
+    const pending = call("ask_user", "call-1", { questions: [scope] });
+    await settled();
+    await run(`reply ${encodeArgument({ v: 1, id: "call-1", ok: false, code: "ask_user_unavailable" })}`);
+
+    expect(await pending).toStrictEqual({
+      content: [{ type: "text", text: errorText("ask_user_unavailable") }],
+      details: { error: "ask_user_unavailable" },
+      isError: true,
+    });
+  });
+
+  it("when stopped, tells the host it no longer waits and fails with what the model reads, dropping a late answer", async () => {
+    const { call, run, statuses } = stand();
+    const stop = new AbortController();
+
+    const pending = call("ask_user", "call-1", { questions: [scope] }, stop.signal);
+    await settled();
+    stop.abort();
+    const failure = await pending.catch((error: unknown) => error);
+    await run(answer("call-1", { outcome: "skipped" }));
+
+    expect(failure).toStrictEqual(new Error(ASK_USER_STOPPED));
+    expect(requests(statuses)).toStrictEqual([
+      { kind: "call", id: "call-1", op: "ask_user", args: { questions: [scopeRead] } },
+      { kind: "note", id: "n1", op: "cancel", args: { id: "call-1" } },
+    ]);
+    expect(
+      await call("ask_user", "call-2", { questions: [scope] }, AbortSignal.abort()).catch((error: unknown) => error),
+    ).toStrictEqual(new Error(ASK_USER_STOPPED));
+  });
+
+  it("is not for a sub-agent, which is told to ask its parent, and asks the host nothing", async () => {
+    const child = stand({ flag: encodeArgument({ v: 1, child: true, role: "work", depth: 1, guard: "extension" }) });
+
+    const result = await child.call("ask_user", "call-1", { questions: [scope] });
+
+    expect(result).toStrictEqual({
+      content: [
+        {
+          type: "text",
+          text: "A sub-agent cannot ask the user directly; ask the agent that started you with ask_parent.",
+        },
+      ],
+      details: {},
+      isError: true,
+    });
+    expect(child.statuses).toStrictEqual([]);
+    expect(child.hook("ask_user", {})).toStrictEqual({
+      block: true,
+      reason: "A sub-agent cannot ask the user directly; ask the agent that started you with ask_parent.",
+    });
   });
 });
 

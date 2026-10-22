@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>工作区剩余数量 · 用户指定文案</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    body {
+      margin: 32px;
+      font-size: 14px;
+    }
+    section {
+      max-width: 320px;
+      margin-block: 24px;
+    }
+    h2 {
+      font-size: 14px;
+      font-weight: 500;
+    }
+    p {
+      color: light-dark(#6c6c74, #a1a1aa);
+    }
+    button {
+      width: 100%;
+      height: 30px;
+      text-align: left;
+      padding-inline: 36px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: light-dark(#6c6c74, #a1a1aa);
+      font: inherit;
+    }
+    button:hover {
+      background: light-dark(#e5e5ea, #2c2c30);
+    }
+  </style>
+  <h1>只改项目工作区的展开文案</h1>
+  <section>
+    <h2>共 7 个，已显示前 5 个</h2>
+    <button type="button">显示剩余 2 个</button>
+  </section>
+  <section>
+    <h2>共 8 个，前 5 个及当前工作区已显示</h2>
+    <button type="button">显示剩余 2 个</button>
+  </section>
+  <section>
+    <h2>共 6 个，前 5 个及当前工作区已全部显示</h2>
+    <p>不显示展开行，不出现“显示剩余 0 个”。</p>
+  </section>
+  <p>用户已指定此方案；展开后仍显示“收起”，点击行为、布局、对话分区保持不变。随系统切换浅色和深色。</p>
+</html>

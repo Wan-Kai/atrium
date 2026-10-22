@@ -1,8 +1,10 @@
-import type { LogEntry, PiEvent, PiStats } from "@atrium/pi";
+import type { AskUserResult, LogEntry, PiEvent, PiStats } from "@atrium/pi";
 import {
+  type AskedQuestion,
   CommandError,
   IDLE_CONTROL,
   type ModelRef,
+  type QuestionAnswer,
   SNAPSHOT_TURNS,
   type SessionEvent,
   type SessionModel,
@@ -2362,6 +2364,257 @@ describe("createSessionController answering dialogs", () => {
   });
 });
 
+/** The questions an `ask_user` call asks: one single-choice, one multiple-choice (SPEC-0003). */
+const QUESTIONS: AskedQuestion[] = [
+  {
+    header: "范围",
+    question: "改到哪为止？",
+    multiSelect: false,
+    options: [
+      { label: "只改收件箱", description: "", preview: null, recommended: true },
+      { label: "整个侧栏", description: "", preview: null, recommended: false },
+    ],
+  },
+  {
+    header: "测试",
+    question: "补哪些测试？",
+    multiSelect: true,
+    options: [
+      { label: "单元", description: "", preview: null, recommended: false },
+      { label: "组件", description: "", preview: null, recommended: false },
+      { label: "端到端", description: "", preview: null, recommended: false },
+    ],
+  },
+];
+
+/** An answer to `QUESTIONS`' first. */
+const SCOPE_ANSWER: QuestionAnswer = { selected: [0], other: null };
+
+/** An answer to `QUESTIONS`' second. */
+const TESTS_ANSWER: QuestionAnswer = { selected: [0, 2], other: "加一个基准" };
+
+/** Answers to `QUESTIONS`. */
+const ANSWERS = [SCOPE_ANSWER, TESTS_ANSWER];
+
+/**
+ * A session in a run, its agent asking `QUESTIONS` with `ask_user`.
+ *
+ * @returns The controller, its pi and events, and the call's answer to come.
+ */
+async function asking() {
+  const manual = manualPi();
+  const controlled = control(manual.pi);
+  await controlled.controller.prompt(prompt("q1", "go"));
+  manual.emit({ type: "agent_start" });
+  let answer: AskUserResult | null | undefined;
+  const asked = controlled.controller.askUser("call-1", QUESTIONS).then((result) => {
+    answer = result;
+    return result;
+  });
+  return { ...manual, ...controlled, asked, answered: () => answer };
+}
+
+describe("createSessionController asking you (SPEC-0003)", () => {
+  it("holds the agent's questions in its control until you answer them, then gives the answers and closes them", async () => {
+    const { controller, asked, events } = await asking();
+
+    expect(controller.control().question).toStrictEqual({ id: "call-1", askedAt: 1000, questions: QUESTIONS });
+    expect(controller.answerQuestion("call-1", { answers: ANSWERS })).toStrictEqual({});
+
+    expect(await asked).toStrictEqual({ outcome: "answered", answers: ANSWERS });
+    expect(controller.control().question).toBeNull();
+    expect(
+      events.filter((event) => event.type === "control_updated").map((event) => event.control.question),
+    ).toStrictEqual([{ id: "call-1", askedAt: 1000, questions: QUESTIONS }, null]);
+    expect(() => controller.answerQuestion("call-1", { skipped: true })).toThrow(
+      new CommandError("question_closed", { questionId: "call-1" }),
+    );
+  });
+
+  it("skips them all", async () => {
+    const { controller, asked } = await asking();
+
+    controller.answerQuestion("call-1", { skipped: true });
+
+    expect(await asked).toStrictEqual({ outcome: "skipped" });
+  });
+
+  it("refuses answers to other questions, and answers that leave one unanswered, keeping the questions open", async () => {
+    const { controller, answered } = await asking();
+
+    expect(() => controller.answerQuestion("call-2", { skipped: true })).toThrow(
+      new CommandError("question_closed", { questionId: "call-2" }),
+    );
+    expect(() => controller.answerQuestion("call-1", { answers: ANSWERS.slice(0, 1) })).toThrow(
+      new CommandError("question_invalid", { index: 1 }),
+    );
+    expect(() => controller.answerQuestion("call-1", { answers: [...ANSWERS, SCOPE_ANSWER] })).toThrow(
+      new CommandError("question_invalid", { index: 2 }),
+    );
+    expect(() =>
+      controller.answerQuestion("call-1", { answers: [{ selected: [0, 1], other: null }, TESTS_ANSWER] }),
+    ).toThrow(new CommandError("question_invalid", { index: 0 }));
+    expect(() =>
+      controller.answerQuestion("call-1", { answers: [SCOPE_ANSWER, { selected: [], other: " " }] }),
+    ).toThrow(new CommandError("question_invalid", { index: 1 }));
+    await settle();
+
+    expect(answered()).toBeUndefined();
+    expect(controller.control().question?.id).toBe("call-1");
+  });
+
+  it("takes a steer as the direct reply: the question goes at once, the steer goes to pi, and only then the call is answered", async () => {
+    const { controller, asked, answered, steerAnswers, sent } = await asking();
+    const taken = Promise.withResolvers<{ disposition: "queued" | "handled" }>();
+    steerAnswers.push(() => taken.promise);
+
+    const steered = controller.steer(steer("s1", "照我说的改"));
+    await settle();
+    const meanwhile = [controller.control().question, answered()];
+    taken.resolve({ disposition: "queued" });
+
+    expect(await steered).toStrictEqual({ disposition: "queued" });
+    expect(meanwhile).toStrictEqual([null, undefined]);
+    expect(await asked).toStrictEqual({ outcome: "reply" });
+    expect(sent).toStrictEqual(["prompt go", "steer 照我说的改"]);
+    expect(() => controller.answerQuestion("call-1", { skipped: true })).toThrow(
+      new CommandError("question_closed", { questionId: "call-1" }),
+    );
+  });
+
+  it("takes a steer from the queue as the direct reply too", async () => {
+    const { controller, asked } = await asking();
+    await controller.prompt(prompt("q2", "later"));
+
+    await controller.steerQueued(present(controller.control().queue[0], "the queued message").id);
+
+    expect(await asked).toStrictEqual({ outcome: "reply" });
+  });
+
+  it("keeps the questions when pi refuses the steer, or an extension handles it, so it is no reply", async () => {
+    const { controller, answered, steerAnswers, events } = await asking();
+    steerAnswers.push(async () => {
+      throw new ReplayRequestError("steer", "rejected", "no");
+    });
+    steerAnswers.push(async () => ({ disposition: "handled" }));
+
+    const refused = await controller.steer(steer("s1", "照我说的改")).catch((error: unknown) => error);
+    const handled = await controller.steer(steer("s2", "照我说的改"));
+    await settle();
+
+    expect(refused).toStrictEqual(new CommandError("pi_rejected", { detail: "no" }));
+    expect(handled).toStrictEqual({ disposition: "handled" });
+    expect(answered()).toBeUndefined();
+    expect(controller.control().question?.id).toBe("call-1");
+    // Shown again, too: the clients hear the questions are back.
+    expect(events.findLast((event) => event.type === "control_updated")).toMatchObject({
+      control: { question: { id: "call-1" }, steers: [] },
+    });
+  });
+
+  it("takes a / command as a steer, not a reply", async () => {
+    const { controller, answered } = await asking();
+
+    await controller.steer(steer("s1", "  /review"));
+    await settle();
+
+    expect(answered()).toBeUndefined();
+    expect(controller.control().question?.id).toBe("call-1");
+  });
+
+  it("drops the questions at once when you stop the run, answering the call with nothing", async () => {
+    const { controller, asked } = await asking();
+
+    void controller.stop();
+
+    expect(controller.control().question).toBeNull();
+    expect(await asked).toBeNull();
+    expect(() => controller.answerQuestion("call-1", { skipped: true })).toThrow(
+      new CommandError("question_closed", { questionId: "call-1" }),
+    );
+  });
+
+  it("drops a direct reply's questions when you stop before pi took the steer, and does not put them back", async () => {
+    const { controller, asked, steerAnswers } = await asking();
+    const taken = Promise.withResolvers<{ disposition: "queued" | "handled" }>();
+    steerAnswers.push(() => taken.promise);
+
+    const steered = controller.steer(steer("s1", "照我说的改"));
+    await settle();
+    void controller.stop();
+    taken.resolve({ disposition: "queued" });
+    await steered;
+
+    expect(await asked).toBeNull();
+    expect(controller.control().question).toBeNull();
+  });
+
+  it("drops the questions when pi exits, or the extension gives up the call, and asks none on an exited pi", async () => {
+    const first = await asking();
+    first.controller.dropQuestion("call-2");
+    first.controller.dropQuestion("call-1");
+    const second = await asking();
+    second.crash();
+    await settle();
+
+    expect(await first.asked).toBeNull();
+    expect(first.controller.control().question).toBeNull();
+    expect(await second.asked).toBeNull();
+    expect(second.controller.control().question).toBeNull();
+    expect(await second.controller.askUser("call-3", QUESTIONS)).toBeNull();
+    expect(second.controller.control().question).toBeNull();
+  });
+
+  it("refuses a second call's questions while some are open, or a steer replies to them", async () => {
+    const { controller, steerAnswers } = await asking();
+    const taken = Promise.withResolvers<{ disposition: "queued" | "handled" }>();
+    steerAnswers.push(() => taken.promise);
+
+    expect(() => controller.askUser("call-2", QUESTIONS)).toThrow(new Error("a question is already open"));
+    expect(controller.asking).toBe(true);
+    const steered = controller.steer(steer("s1", "照我说的改"));
+    await settle();
+    expect([controller.control().question, controller.asking]).toStrictEqual([null, true]);
+    expect(() => controller.askUser("call-2", QUESTIONS)).toThrow(new Error("a question is already open"));
+    taken.resolve({ disposition: "queued" });
+    await steered;
+    expect(controller.asking).toBe(false);
+  });
+
+  it("leaves a later call's questions alone as an earlier reply pi takes during a stop ends", async () => {
+    const { controller, steerAnswers } = await asking();
+    const first = Promise.withResolvers<{ disposition: "queued" | "handled" }>();
+    steerAnswers.push(() => first.promise);
+
+    const old = controller.steer(steer("s1", "照我说的改"));
+    await settle();
+    const stopped = controller.stop();
+    const later = controller.askUser("call-2", QUESTIONS);
+    first.resolve({ disposition: "queued" });
+    await old;
+    await stopped;
+
+    expect(controller.control().question?.id).toBe("call-2");
+    controller.dropQuestion("call-2");
+    expect(await later).toBeNull();
+  });
+
+  it("does not put back questions you stopped while a steer that is no reply was on its way", async () => {
+    const { controller, asked, steerAnswers } = await asking();
+    const taken = Promise.withResolvers<{ disposition: "queued" | "handled" }>();
+    steerAnswers.push(() => taken.promise);
+
+    const steered = controller.steer(steer("s1", "照我说的改"));
+    await settle();
+    void controller.stop();
+    taken.resolve({ disposition: "handled" });
+    await steered;
+
+    expect(await asked).toBeNull();
+    expect(controller.control().question).toBeNull();
+  });
+});
+
 /**
  * A controller whose pi is started again with pis the test drives, in order.
  *
@@ -2458,6 +2711,64 @@ describe("createSessionController after pi crashes", () => {
     const second = present(next[0], "the second pi");
     expect(second.sent).toStrictEqual([`prompt ${CONTINUE_TEXT}`]);
     expect(controller.snapshot().control).toMatchObject({ queue: [{ text: "also" }], paused: null, steers: [] });
+  });
+
+  it("puts a steer pi had not answered when it went back in the queue once, answering the steer as queued", async () => {
+    const { pi, emit, steerAnswers, crash } = manualPi();
+    const { controller } = control(pi);
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" }, userEnd("one"));
+    const answer = Promise.withResolvers<{ disposition: "queued" | "handled" }>();
+    steerAnswers.push(() => answer.promise);
+
+    const steered = controller.steer(steer("s1", "also"));
+    await settle();
+    crash();
+    await settle();
+    answer.reject(new ReplayRequestError("steer", "exited", ""));
+
+    // Not refused as well, or the client would put it back in its box: it waits in the queue.
+    expect(await steered).toStrictEqual({ disposition: "queued" });
+    expect(controller.snapshot().control).toMatchObject({ queue: [{ text: "also" }], steers: [] });
+  });
+
+  it("puts steers waiting their turn when pi went back in the queue once each, in order, sending none of them", async () => {
+    const { pi, emit, steerAnswers, crash, sent } = manualPi();
+    const { controller } = control(pi);
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" }, userEnd("one"));
+    const answer = Promise.withResolvers<{ disposition: "queued" | "handled" }>();
+    steerAnswers.push(() => answer.promise);
+
+    const first = controller.steer(steer("s1", "also"));
+    const second = controller.steer(steer("s2", "and this"));
+    await settle();
+    crash();
+    await settle();
+    answer.reject(new ReplayRequestError("steer", "exited", ""));
+
+    expect([await first, await second]).toStrictEqual([{ disposition: "queued" }, { disposition: "queued" }]);
+    expect(controller.snapshot().control.queue.map((item) => item.text)).toStrictEqual(["also", "and this"]);
+    expect(sent).toStrictEqual(["prompt one", "steer also"]);
+  });
+
+  it("keeps a queued message steered as pi went in the queue once", async () => {
+    const { pi, emit, steerAnswers, crash } = manualPi();
+    const { controller } = control(pi);
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" }, userEnd("one"));
+    await controller.prompt(prompt("q2", "later"));
+    const answer = Promise.withResolvers<{ disposition: "queued" | "handled" }>();
+    steerAnswers.push(() => answer.promise);
+
+    const steered = controller.steerQueued(present(controller.control().queue[0], "the queued message").id);
+    await settle();
+    crash();
+    await settle();
+    answer.reject(new ReplayRequestError("steer", "exited", ""));
+
+    expect(await steered).toStrictEqual({ disposition: "queued" });
+    expect(controller.snapshot().control.queue.map((item) => item.text)).toStrictEqual(["later"]);
   });
 
   it("gives up after three restarts in a row, failing the session until a run starts", async () => {

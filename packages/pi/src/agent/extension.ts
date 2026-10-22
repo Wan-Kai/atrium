@@ -1,4 +1,5 @@
 import { AGENT_COMMAND, AGENT_MESSAGE, agentNote, decodeArgument, noteText } from "./agent";
+import { ASK_USER_STOPPED, ASK_USER_TOOL, type AskUserResult, answerText, checkQuestions } from "./ask-user";
 import {
   AGENT_FLAG,
   AGENT_STATUS,
@@ -22,6 +23,7 @@ import {
   PARENT_TOOLS,
   PREAMBLE_OPEN,
   READ_ONLY_TOOLS,
+  SUB_AGENT_ASKS_PARENT,
   askText,
   errorText,
   reportText,
@@ -65,6 +67,8 @@ interface AgentTool {
   readonly label: string;
   readonly description: string;
   readonly promptSnippet?: string;
+  /** `sequential` runs a batch with this tool one call at a time. */
+  readonly executionMode?: "sequential" | "parallel";
   readonly parameters: Readonly<Record<string, unknown>>;
   execute(
     toolCallId: string,
@@ -300,7 +304,7 @@ const PARENT_TOOL_SPECS: Readonly<Record<(typeof PARENT_TOOLS)[number], Omit<Age
 };
 
 /** The calls each main-agent tool makes. */
-const PARENT_OPS: Readonly<Record<(typeof PARENT_TOOLS)[number], CallOp>> = {
+const PARENT_OPS: Readonly<Record<(typeof PARENT_TOOLS)[number], Exclude<CallOp, "ask_user">>> = {
   agent_spawn: "spawn",
   agent_send: "send",
   agent_reply: "reply",
@@ -520,9 +524,11 @@ export function parentCalls(branch: readonly SessionEntryView[]): { name: string
  * Whether a session may call a tool, by who it is.
  *
  * @remarks
- * SPEC-0002, "角色与限制": a read-only role only `read`, `grep`, `find`, `ls` and its own two
- * tools; `work` everything; the main agent's tools only below depth 2; a child's own tools only
- * in a child the agent opened. With `guard: "flags"`, pi's own flags already left the rest out.
+ * SPEC-0002, "角色与限制": a read-only role gets `read`, `bash`, `grep`, `find`, `ls` and its
+ * own two tools; Bash's read-only use is a behavioral instruction, not a sandbox. `work` gets
+ * everything; the main agent's tools only below depth 2; a child's own tools only
+ * in a child the agent opened, and `ask_user` only outside one (SPEC-0003). With `guard: "flags"`,
+ * pi's own flags already left the rest out.
  *
  * @sideEffects none
  * @param self - Who the session is.
@@ -534,6 +540,7 @@ export function refusal(self: AgentSelf, tool: string): string | null {
   const childTool = (CHILD_TOOLS as readonly string[]).includes(tool);
   if (parentTool && self.depth >= 2) return "This sub-agent is too deep to start sub-agents of its own.";
   if (childTool && !self.child) return "Only a sub-agent can use this tool.";
+  if (tool === ASK_USER_TOOL && self.child) return SUB_AGENT_ASKS_PARENT;
   if (self.guard !== "extension" || self.role === null || self.role === "work") return null;
   if (parentTool || childTool || (READ_ONLY_TOOLS as readonly string[]).includes(tool)) return null;
   return `This sub-agent is read-only (${self.role}): it can use ${[...READ_ONLY_TOOLS, ...CHILD_TOOLS].join(", ")}${self.depth < 2 ? " and the agent_* tools" : ""}.`;
@@ -578,8 +585,8 @@ interface Question {
  * flag says, and keeps a forked child from redoing its parent's unanswered calls. Anything the
  * extension cannot read does nothing.
  *
- * @sideEffects Registers nine tools, a command, a flag and four hooks with pi; the tools ask the
- * host and the command writes custom messages into the session.
+ * @sideEffects Registers ten tools, a command, a flag and four hooks with pi; the tools ask the host
+ * and the command writes custom messages into the session.
  * @param pi - pi's extension API.
  * @param deps - Timers and branching; tests alone pass other ones.
  */
@@ -919,6 +926,97 @@ export default function atriumAgent(pi: AgentApi, deps: AgentDeps = REAL_DEPS): 
       ["question"],
     ),
     execute: (id, params, signal, _onUpdate, ctx) => askParent(id, params, signal, ctx),
+  });
+
+  /**
+   * Asks the user the questions and waits for the answers.
+   *
+   * @remarks
+   * SPEC-0003, "工具": the questions are checked and read first, and what to fix goes back to the
+   * model without asking the host; a child the agent opened asks its parent instead. The host
+   * answers when the user does; stopped, the call fails with what the model reads, which pi keeps
+   * as the error result (契约测试 `ask-abort`). The result's details keep how the questions ended,
+   * for the transcript.
+   *
+   * @sideEffects Asks the host.
+   * @param id - The tool call's id.
+   * @param params - Its parameters.
+   * @param signal - Its signal.
+   * @param ctx - Its context.
+   * @returns The result.
+   * @throws {Error} When stopped.
+   */
+  const askUser = async (
+    id: string,
+    params: Readonly<Record<string, unknown>>,
+    signal: AbortSignal | undefined,
+    ctx: AgentContext,
+  ): Promise<ToolResult> => {
+    if (who().child) return toolResult(SUB_AGENT_ASKS_PARENT, {}, true);
+    const read = checkQuestions(params);
+    if (!read.ok) return toolResult(read.error, {}, true);
+    const reply = await ask(ctx.ui, id, "ask_user", { questions: read.questions }, signal);
+    if (reply === null) throw new Error(ASK_USER_STOPPED);
+    if (!reply.ok) return failed(reply.code, reply.params);
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the host answers `ask_user` with an AskUserResult, in the same bundle.
+    const result = reply.result as AskUserResult;
+    const outcome =
+      result.outcome === "answered" ? { kind: "answered", answers: result.answers } : { kind: result.outcome };
+    return toolResult(answerText(read.questions, result), { v: 1, outcome });
+  };
+
+  pi.registerTool({
+    name: ASK_USER_TOOL,
+    label: "Ask user",
+    description:
+      'Ask the user 1 to 4 multiple-choice questions and wait for the answers, when you need their decision to go on: several reasonable approaches, an unclear requirement, a preference. Give each question 2 to 4 options, each with a short label and a description of what choosing it means or costs. The user can always write their own answer, so do not add an "Other" option. If you recommend an option, put it first and end its label with "(Recommended)". Ask related questions together in one call. Do not ask whether a plan is fine, and never ask for passwords or keys. The user may skip the questions, or reply in their own words instead.',
+    promptSnippet: "Ask the user multiple-choice questions and wait for the answers",
+    // One set of questions at a time: a second call in the same batch waits for the first (SPEC-0003, "工具").
+    executionMode: "sequential",
+    parameters: object(
+      {
+        questions: {
+          type: "array",
+          minItems: 1,
+          maxItems: 4,
+          description: "The questions, 1 to 4.",
+          items: object(
+            {
+              header: {
+                type: "string",
+                description: 'A short name for the question, at most 12 characters, like "Scope".',
+              },
+              question: { type: "string", description: "The whole question. At most 1000 characters." },
+              multiSelect: { type: "boolean", description: "The user may pick several options. Default false." },
+              options: {
+                type: "array",
+                minItems: 2,
+                maxItems: 4,
+                description: "2 to 4 options.",
+                items: object(
+                  {
+                    label: { type: "string", description: "1 to 5 words. At most 60 characters." },
+                    description: {
+                      type: "string",
+                      description: "What choosing it means, or its trade-off. At most 300 characters.",
+                    },
+                    preview: {
+                      type: "string",
+                      description:
+                        "Markdown to compare the options by, like a layout sketch, code or a config diff; single-choice questions only. At most 4000 characters.",
+                    },
+                  },
+                  ["label", "description"],
+                ),
+              },
+            },
+            ["header", "question", "options"],
+          ),
+        },
+      },
+      ["questions"],
+    ),
+    execute: (id, params, signal, _onUpdate, ctx) => askUser(id, params, signal, ctx),
   });
 
   pi.on("tool_call", (event, ctx) => {

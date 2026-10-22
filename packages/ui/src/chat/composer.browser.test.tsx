@@ -68,6 +68,19 @@ async function composer(props: Partial<ComposerProps> = {}) {
   return { screen, box: screen.getByRole("textbox", { name: "消息" }), sent, tags, searched };
 }
 
+describe("Composer while the agent's questions wait (SPEC-0003)", () => {
+  it("says a message replies to them, and sends it as a steer on Enter as on ⌘+Enter", async () => {
+    const steered: string[] = [];
+    const { box, sent } = await composer({ running: true, asked: true, onSteer: (text) => steered.push(text) });
+
+    await expect.element(box).toHaveAttribute("placeholder", "直接回复也行：发出后代替回答，agent 接着做");
+    await userEvent.type(box, "照我说的改{Enter}");
+    await userEvent.type(box, "还有一句{Meta>}{Enter}{/Meta}");
+
+    expect([steered, sent]).toStrictEqual([["照我说的改", "还有一句"], []]);
+  });
+});
+
 describe("Composer's / commands", () => {
   it("lists pi's commands as / is typed at the start, narrowing as more is typed", async () => {
     const { screen, box } = await composer();

@@ -1,4 +1,12 @@
-import { AgentEventKind, AgentRole, type AgentStatus, ThinkingLevel } from "@atrium/protocol";
+import {
+  AgentEventKind,
+  AgentRole,
+  type AgentStatus,
+  AskedQuestion,
+  QUESTION_LIMITS,
+  ThinkingLevel,
+} from "@atrium/protocol";
+import type { AskUserResult } from "./ask-user";
 import { z } from "zod";
 
 /** The status key prefix the extension asks the host on: `atrium-agent:<request id>` (ADR-0013, point 1). */
@@ -45,6 +53,8 @@ export const AgentErrorCode = z.enum([
   "agent_question_open",
   "agent_text_too_long",
   "agent_bad_request",
+  /** `ask_user` from a child the agent opened, which asks its parent instead (SPEC-0003). */
+  "ask_user_unavailable",
   "agent_failed",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
@@ -107,6 +117,22 @@ const CallArgs = {
     timeoutSeconds: z.number().int().min(60).max(3600).optional(),
   }),
   branch: z.strictObject({}),
+  /** `ask_user`'s questions, as the extension read them (SPEC-0003, "接口与数据"). */
+  ask_user: z.strictObject({
+    questions: z
+      .array(AskedQuestion)
+      .min(1)
+      .max(QUESTION_LIMITS.questions)
+      // As the extension read them: names distinct, previews only on single choices (SPEC-0003, "工具").
+      .refine((questions) => new Set(questions.map((one) => one.header)).size === questions.length)
+      .refine((questions) =>
+        questions.every(
+          (one) =>
+            new Set(one.options.map((option) => option.label)).size === one.options.length &&
+            (!one.multiSelect || one.options.every((option) => option.preview === null)),
+        ),
+      ),
+  }),
 } as const;
 
 /** The calls the extension makes. */
@@ -462,4 +488,5 @@ export interface CallResults {
   readonly models: { readonly models: readonly ListedModel[] };
   readonly ask: AskResult;
   readonly branch: { readonly dir: string };
+  readonly ask_user: AskUserResult;
 }

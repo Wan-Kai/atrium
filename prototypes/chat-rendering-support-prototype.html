@@ -1,0 +1,831 @@
+<!doctype html>
+<!-- PROTOTYPE — throwaway. Three image-preview structures inside Atrium's conversation surface,
+     switchable with ?variant=A|B|C. Inherits reply-blocks B and the existing design tokens.
+     Diagrams and the screenshot are synthetic static fixtures, NOT a PlantUML engine demo.
+     No network, persistence, filesystem access, clipboard writes, or production mutations. -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>原型 · 对话里的图与图片预览</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --main: #fff;
+        --surface: #f2f2f4;
+        --code: #f6f6f8;
+        --page: #e8ecf2;
+        --sidebar: #e1e4ea;
+        --text: #1d1d1f;
+        --muted: #6e6e74;
+        --line: rgba(0, 0, 0, 0.12);
+        --tint: #2f6fed;
+        --danger: #c93036;
+        --scrim: rgba(22, 27, 38, 0.28);
+        --shadow: 0 12px 40px rgba(25, 40, 70, 0.18);
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --main: #151517;
+        --surface: #2c2c2e;
+        --code: #19191b;
+        --page: #0d1016;
+        --sidebar: #242830;
+        --text: #f9fafb;
+        --muted: #adb2b8;
+        --line: rgba(255, 255, 255, 0.16);
+        --tint: #7aaaff;
+        --danger: #f25a5a;
+        --scrim: rgba(0, 0, 0, 0.55);
+        --shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--text);
+        font:
+          14px/1.55 -apple-system,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      button,
+      select {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        border: 0;
+        background: none;
+        cursor: pointer;
+        border-radius: 6px;
+        padding: 6px 9px;
+      }
+      button:hover {
+        background: var(--surface);
+      }
+      button:focus-visible,
+      select:focus-visible {
+        outline: 3px solid var(--tint);
+        outline-offset: 2px;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+      button[aria-pressed="true"] {
+        background: var(--surface);
+        color: var(--tint);
+      }
+      svg {
+        display: block;
+      }
+      header {
+        max-width: 1260px;
+        margin: 0 auto;
+        padding: 22px 28px 16px;
+      }
+      h1 {
+        font-size: 20px;
+        line-height: 1.35;
+        margin: 0 0 7px;
+        font-weight: 600;
+      }
+      header p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .window {
+        margin: 0 auto;
+        max-width: 1200px;
+        height: min(760px, calc(100dvh - 205px));
+        min-height: 450px;
+        background: var(--main);
+        border-radius: 16px;
+        box-shadow: var(--shadow);
+        display: flex;
+        overflow: hidden;
+        position: relative;
+      }
+      .sidebar {
+        width: 220px;
+        flex: none;
+        background: var(--sidebar);
+        padding: 18px 14px;
+      }
+      .traffic {
+        display: flex;
+        gap: 7px;
+        margin: 0 0 25px 3px;
+      }
+      .traffic i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #ff5f57;
+      }
+      .traffic i:nth-child(2) {
+        background: #febc2e;
+      }
+      .traffic i:nth-child(3) {
+        background: #28c840;
+      }
+      .search {
+        font-size: 13px;
+        padding: 7px 9px;
+        background: var(--main);
+        opacity: 0.8;
+        border-radius: 8px;
+        margin-bottom: 22px;
+      }
+      .group {
+        font-size: 12px;
+        color: var(--muted);
+        padding: 0 8px;
+        margin: 12px 0 7px;
+      }
+      .side-row {
+        padding: 6px 10px;
+        border-radius: 8px;
+        font-size: 13px;
+      }
+      .side-row.active {
+        background: var(--line);
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .tabs {
+        height: 48px;
+        flex: none;
+        box-shadow: inset 0 -0.5px var(--line);
+        display: flex;
+        align-items: center;
+        padding: 0 12px;
+        gap: 12px;
+        font-size: 13px;
+      }
+      .tab {
+        border-radius: 8px;
+        background: var(--surface);
+        padding: 5px 12px;
+      }
+      .dim {
+        color: var(--muted);
+      }
+      .thread {
+        overflow: auto;
+        flex: 1;
+        padding: 22px 24px;
+      }
+      .column {
+        max-width: 752px;
+        margin: auto;
+      }
+      .bubble {
+        margin: 0 0 20px auto;
+        width: fit-content;
+        max-width: 85%;
+        border-radius: 22px;
+        padding: 9px 16px;
+        background: var(--surface);
+      }
+      .reply {
+        font-size: 14.5px;
+        line-height: 1.55;
+      }
+      .reply p {
+        margin: 0 0 12px;
+      }
+      .block {
+        position: relative;
+        background: var(--code);
+        border-radius: 10px;
+        margin: 0 0 12px;
+        padding: 24px 20px 16px;
+      }
+      .language {
+        position: absolute;
+        right: 12px;
+        top: 6px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .actions {
+        position: absolute;
+        right: 6px;
+        top: 5px;
+        display: flex;
+        background: var(--code);
+        opacity: 0;
+      }
+      .block:hover .actions,
+      .block:focus-within .actions {
+        opacity: 1;
+      }
+      .block:hover .language,
+      .block:focus-within .language {
+        opacity: 0;
+      }
+      .icon {
+        padding: 5px;
+        width: 26px;
+        height: 26px;
+        display: inline-grid;
+        place-items: center;
+        color: var(--muted);
+      }
+      .icon svg {
+        width: 16px;
+        height: 16px;
+      }
+      .diagram {
+        height: 145px;
+        width: 100%;
+        color: var(--text);
+      }
+      .diagram text {
+        fill: currentColor;
+        font:
+          13px -apple-system,
+          "PingFang SC",
+          sans-serif;
+      }
+      .diagram rect {
+        fill: var(--main);
+        stroke: var(--muted);
+        stroke-width: 0.8;
+      }
+      .diagram path,
+      .diagram line {
+        stroke: var(--muted);
+        fill: none;
+        stroke-width: 1;
+      }
+      .source {
+        font:
+          12.5px/1.6 "SF Mono",
+          Menlo,
+          monospace;
+        white-space: pre-wrap;
+        margin: 0;
+        color: var(--text);
+      }
+      .image-button {
+        display: block;
+        width: 100%;
+        padding: 0;
+        cursor: zoom-in;
+        overflow: hidden;
+        border-radius: 10px;
+      }
+      .image-button img {
+        display: block;
+        width: 100%;
+        height: 160px;
+        object-fit: cover;
+        object-position: top;
+      }
+      .image-note {
+        font-size: 12px;
+        color: var(--muted);
+        display: flex;
+        justify-content: space-between;
+        margin-top: 5px;
+      }
+      .status {
+        min-height: 38px;
+        background: var(--code);
+        border-radius: 8px;
+        padding: 9px 12px;
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 12px;
+      }
+      .status.error {
+        color: var(--danger);
+      }
+      .foot {
+        font-size: 12px;
+        color: var(--muted);
+        padding: 14px 0;
+      }
+      .composer {
+        margin: 8px 24px 16px;
+        padding: 12px 16px;
+        background: var(--surface);
+        border-radius: 22px;
+        color: var(--muted);
+        font-size: 13px;
+        flex: none;
+      }
+      .composer small {
+        display: block;
+        margin-top: 16px;
+        font-size: 12px;
+      }
+      .description {
+        max-width: 1200px;
+        margin: 12px auto 100px;
+        padding: 0 8px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .description strong {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .switcher {
+        position: fixed;
+        bottom: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 5px;
+        align-items: center;
+        padding: 8px;
+        background: var(--main);
+        box-shadow: var(--shadow);
+        border-radius: 12px;
+        z-index: 20;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .switcher select {
+        background: var(--surface);
+        border: 0;
+        border-radius: 6px;
+        padding: 6px;
+      }
+      .separator {
+        height: 20px;
+        width: 0.5px;
+        background: var(--line);
+        margin: 0 5px;
+      }
+      .preview-layer {
+        position: absolute;
+        inset: 0;
+        z-index: 3;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--scrim);
+      }
+      .preview {
+        width: calc(100% - 80px);
+        height: calc(100% - 70px);
+        background: var(--main);
+        border-radius: 16px;
+        box-shadow: var(--shadow);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .preview-head {
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px 8px 18px;
+        box-shadow: inset 0 -0.5px var(--line);
+        font-size: 13px;
+      }
+      .preview-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .spacer {
+        flex: 1;
+      }
+      .viewport {
+        flex: 1;
+        overflow: hidden;
+        position: relative;
+        background: var(--code);
+        touch-action: none;
+        display: grid;
+        place-items: center;
+        cursor: grab;
+      }
+      .viewport:active {
+        cursor: grabbing;
+      }
+      .viewport img {
+        width: 80%;
+        max-height: 85%;
+        object-fit: contain;
+        user-select: none;
+        pointer-events: none;
+        transform: translate(var(--x, 0px), var(--y, 0px)) scale(var(--scale, 1));
+        transform-origin: center;
+      }
+      .preview-footer {
+        padding: 8px 18px;
+        font-size: 12px;
+        color: var(--muted);
+        display: flex;
+        gap: 12px;
+      }
+      .preview-layer[data-variant="B"] {
+        background: #111114;
+      }
+      .preview-layer[data-variant="B"] .preview {
+        width: 100%;
+        height: 100%;
+        border-radius: 0;
+        background: #19191b;
+        color: #f9fafb;
+      }
+      .preview-layer[data-variant="B"] .viewport {
+        background: #111114;
+      }
+      .preview-layer[data-variant="B"] .preview-head {
+        box-shadow: none;
+      }
+      .preview-layer[data-variant="B"] .icon,
+      .preview-layer[data-variant="B"] .preview-footer {
+        color: #adb2b8;
+      }
+      .preview-layer[data-variant="C"] {
+        left: 52%;
+        background: none;
+        box-shadow: -8px 0 30px rgba(0, 0, 0, 0.09);
+      }
+      .preview-layer[data-variant="C"] .preview {
+        width: 100%;
+        height: 100%;
+        border-radius: 0;
+        box-shadow: inset 0.5px 0 var(--line);
+      }
+      .preview-layer[data-variant="C"] .preview-head {
+        flex-wrap: wrap;
+      }
+      .preview-layer[data-variant="C"] .preview-name {
+        width: calc(100% - 42px);
+      }
+      .preview-layer[data-variant="C"] .viewport img {
+        width: 94%;
+      }
+      .window:has(.preview-layer[data-variant="C"]) .thread {
+        padding-right: 51%;
+      }
+      .window:has(.preview-layer[data-variant="C"]) .sidebar {
+        width: 160px;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .zoom-readout {
+        font-size: 12px;
+        min-width: 40px;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+      }
+      @media (max-width: 760px) {
+        header {
+          padding: 16px;
+        }
+        .window {
+          border-radius: 0;
+          height: calc(100dvh - 210px);
+          min-height: 420px;
+        }
+        .sidebar {
+          display: none;
+        }
+        .thread {
+          padding: 18px;
+        }
+        .preview {
+          width: calc(100% - 24px);
+          height: calc(100% - 32px);
+        }
+        .preview-head {
+          padding-left: 10px;
+          gap: 3px;
+        }
+        .preview-layer[data-variant="C"] {
+          left: 30%;
+        }
+        .switcher {
+          gap: 2px;
+          padding: 5px;
+          max-width: calc(100vw - 12px);
+          flex-wrap: wrap;
+          justify-content: center;
+        }
+        .switcher button {
+          padding: 5px;
+        }
+        .description {
+          padding: 0 16px;
+        }
+        .preview-footer {
+          flex-wrap: wrap;
+        }
+        .preview-head button {
+          padding: 5px;
+        }
+        .preview-layer[data-variant="C"] .zoom-readout {
+          min-width: 32px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>对话里的图与图片预览</h1>
+      <p>
+        原型：PlantUML 沿用 Mermaid
+        的平铺、源码和放大操作。比较的是「图片点开后放在哪里」；图与截图均为合成示意，不代表引擎已接入。
+      </p>
+    </header>
+    <div class="window" id="window">
+      <aside class="sidebar">
+        <div class="traffic"><i></i><i></i><i></i></div>
+        <div class="search">搜索项目和对话</div>
+        <div class="group">项目</div>
+        <div class="side-row">示例项目</div>
+        <div class="side-row active">　对话渲染</div>
+        <div class="group">对话</div>
+        <div class="side-row">架构讨论</div>
+      </aside>
+      <main class="main">
+        <div class="tabs"><span class="tab">对话渲染</span><span class="dim">新建</span></div>
+        <div class="thread">
+          <div class="column">
+            <div class="bubble">画一下请求流程，再看看本地截图。</div>
+            <div class="reply">
+              <p>请求通过宿主交给模型，返回后更新当前对话：</p>
+              <div class="block">
+                <span class="language">plantuml</span>
+                <div class="actions">
+                  <button class="icon" id="source-toggle" aria-label="看源码" title="看源码"></button
+                  ><button class="icon" id="diagram-enlarge" aria-label="放大图表" title="放大"></button>
+                </div>
+                <svg
+                  class="diagram"
+                  viewBox="0 0 650 145"
+                  role="img"
+                  aria-label="示意时序图：界面发送消息，宿主请求模型，模型返回回复"
+                >
+                  <rect x="45" y="5" width="110" height="30" rx="5" />
+                  <rect x="270" y="5" width="110" height="30" rx="5" />
+                  <rect x="495" y="5" width="110" height="30" rx="5" />
+                  <text x="100" y="25" text-anchor="middle">界面</text>
+                  <text x="325" y="25" text-anchor="middle">宿主</text>
+                  <text x="550" y="25" text-anchor="middle">模型</text>
+                  <line x1="100" y1="35" x2="100" y2="142" stroke-dasharray="4 4" />
+                  <line x1="325" y1="35" x2="325" y2="142" stroke-dasharray="4 4" />
+                  <line x1="550" y1="35" x2="550" y2="142" stroke-dasharray="4 4" />
+                  <path d="M100 65H325l-7 -4m7 4 -7 4M325 95H550l-7 -4m7 4 -7 4M550 125H100l7 -4m-7 4 7 4" />
+                  <text x="212" y="56" text-anchor="middle">发送消息</text>
+                  <text x="437" y="86" text-anchor="middle">请求模型</text>
+                  <text x="325" y="117" text-anchor="middle">回复</text>
+                </svg>
+                <pre class="source" id="source" hidden>
+@startuml
+participant 界面
+participant 宿主
+participant 模型
+界面 -> 宿主: 发送消息
+宿主 -> 模型: 请求模型
+模型 --> 界面: 回复
+@enduml</pre>
+              </div>
+              <p>下面是工作区里的截图，点击可查看细节：</p>
+              <button class="image-button" id="open-image" aria-label="放大图片：布局预览">
+                <img id="inline-image" alt="示例布局截图" />
+              </button>
+              <div class="image-note"><span>布局预览 · 合成示例</span><span>1600 × 1000</span></div>
+              <div class="status" id="status" hidden></div>
+            </div>
+            <div class="foot">已完成 · 复制回复 · 23:08</div>
+          </div>
+        </div>
+        <div class="composer">发消息或描述任务，@ 引用文件，/ 使用命令<small>GPT-5.6 Sol · 高</small></div>
+      </main>
+      <div class="preview-layer" id="layer" role="region" aria-label="图片预览" hidden>
+        <section class="preview">
+          <div class="preview-head">
+            <span class="preview-name" id="preview-name">布局预览</span><span class="spacer"></span
+            ><button class="icon" id="zoom-out" aria-label="缩小" title="缩小"></button
+            ><span class="zoom-readout" id="zoom-label">100%</span
+            ><button class="icon" id="zoom-in" aria-label="放大" title="放大"></button
+            ><button id="fit" title="适应窗口">适应窗口</button
+            ><button class="icon" id="close" aria-label="关闭预览" title="关闭（Esc）"></button>
+          </div>
+          <div class="viewport" id="viewport"><img id="large-image" alt="布局预览放大图" draggable="false" /></div>
+          <div class="preview-footer">
+            <span id="image-size">1600 × 1000</span><span class="spacer"></span><span>拖动平移 · Esc 返回对话</span>
+          </div>
+        </section>
+      </div>
+    </div>
+    <p class="description" id="description"></p>
+    <div class="switcher" aria-label="原型控制">
+      <button id="previous" aria-label="上一方案">←</button><button data-variant="A">A 居中预览</button
+      ><button data-variant="B">B 全屏画布</button><button data-variant="C">C 并排查看</button
+      ><button id="next" aria-label="下一方案">→</button><span class="separator"></span><button id="theme">深色</button
+      ><select id="image-state" aria-label="图片状态">
+        <option value="ready">图片正常</option>
+        <option value="loading">正在读取</option>
+        <option value="missing">图片不在了</option>
+        <option value="blocked">越界路径</option></select
+      ><button id="preview-button">打开预览</button>
+    </div>
+    <script>
+      const paths = {
+        expand: "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M3 3l6 6m12-6-6 6M3 21l6-6m15 6-6-6",
+        close: "m6 6 12 12M6 18 18 6",
+        plus: "M5 12h14M12 5v14",
+        minus: "M5 12h14",
+        code: "m8 7-5 5 5 5m8-10 5 5-5 5M14 4l-4 16",
+      };
+      /** Draws a prototype toolbar icon. */
+      function icon(name) {
+        return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]}"/></svg>`;
+      }
+      const $ = (id) => document.getElementById(id);
+      const query = new URLSearchParams(location.search);
+      const state = {
+        variant: ["A", "B", "C"].includes(query.get("variant")) ? query.get("variant") : "A",
+        dark: query.get("theme") === "dark",
+        scale: 1,
+        x: 0,
+        y: 0,
+        open: false,
+        kind: "image",
+        image: "ready",
+        source: false,
+      };
+      const descriptions = {
+        A: "<strong>A · 居中预览（建议）</strong>　临时盖住对话，保留周边位置感。看完 Esc 回到原处；沿用现有图表放大的心智，不新增标签或侧栏。",
+        B: "<strong>B · 全屏画布</strong>　深色画布占满应用窗口，尽量给大截图和复杂图表空间；看图时不再保留对话上下文。",
+        C: "<strong>C · 并排查看</strong>　预览占右半边，可以一边看图一边读回复；但会挤窄对话，并与已有文件右栏争位置。",
+      };
+      const artwork = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000"><rect width="1600" height="1000" fill="#f8fafc"/><rect width="270" height="1000" fill="#e1e7ee"/><text x="40" y="68" fill="#202d40" font-family="sans-serif" font-size="28">示例工作台</text><rect x="22" y="120" width="226" height="48" rx="8" fill="#cbd7e7"/><text x="42" y="152" fill="#334155" font-family="sans-serif" font-size="20">项目概览</text><text x="42" y="215" fill="#64748b" font-family="sans-serif" font-size="20">文件</text><text x="42" y="277" fill="#64748b" font-family="sans-serif" font-size="20">设置</text><text x="340" y="102" fill="#1e293b" font-family="sans-serif" font-size="36">请求记录</text><text x="340" y="152" fill="#64748b" font-family="sans-serif" font-size="20">合成截图，仅用于预览交互</text><rect x="340" y="205" width="1170" height="580" rx="12" fill="white" stroke="#dae1e9"/><path d="M340 275H1510M340 365H1510M340 455H1510M340 545H1510M340 635H1510" stroke="#e2e8f0"/><g fill="#64748b" font-family="sans-serif" font-size="20"><text x="378" y="250">请求</text><text x="1120" y="250">状态</text><text x="1330" y="250">用时</text></g><g fill="#334155" font-family="monospace" font-size="21"><text x="378" y="331">GET /api/projects</text><text x="378" y="421">POST /api/messages</text><text x="378" y="511">GET /api/files</text><text x="378" y="601">GET /api/session</text></g><g fill="#18794e" font-family="sans-serif" font-size="20"><text x="1120" y="331">成功</text><text x="1120" y="421">成功</text><text x="1120" y="511">成功</text><text x="1120" y="601">成功</text></g><g fill="#475569" font-family="monospace" font-size="20"><text x="1330" y="331">24 ms</text><text x="1330" y="421">182 ms</text><text x="1330" y="511">36 ms</text><text x="1330" y="601">18 ms</text></g><text x="340" y="860" fill="#64748b" font-family="sans-serif" font-size="18">示例数据 · 不连接任何服务</text></svg>`;
+      const image = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(artwork);
+      $("inline-image").src = image;
+      $("source-toggle").innerHTML = icon("code");
+      $("diagram-enlarge").innerHTML = icon("expand");
+      $("close").innerHTML = icon("close");
+      $("zoom-in").innerHTML = icon("plus");
+      $("zoom-out").innerHTML = icon("minus");
+      /** Updates the visible prototype state and URL without persistence. */
+      function render() {
+        document.documentElement.dataset.theme = state.dark ? "dark" : "light";
+        $("theme").textContent = state.dark ? "浅色" : "深色";
+        $("layer").dataset.variant = state.variant;
+        $("layer").hidden = !state.open;
+        $("description").innerHTML = descriptions[state.variant];
+        $("zoom-label").textContent = Math.round(state.scale * 100) + "%";
+        $("large-image").style.cssText = `--scale:${state.scale};--x:${state.x}px;--y:${state.y}px`;
+        $("zoom-in").disabled = state.scale >= 4;
+        $("zoom-out").disabled = state.scale <= 0.5;
+        document
+          .querySelectorAll("[data-variant]")
+          .forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.variant === state.variant)));
+        const params = new URLSearchParams({ variant: state.variant, theme: state.dark ? "dark" : "light" });
+        history.replaceState(null, "", "?" + params);
+        $("status").hidden = state.image === "ready";
+        $("status").classList.toggle("error", ["missing", "blocked"].includes(state.image));
+        $("status").textContent =
+          {
+            loading: "正在读取工作区图片…",
+            missing: "图片不在了，请确认文件是否已移动或删除。",
+            blocked: "不能显示这张图片：路径不在当前工作区内。",
+          }[state.image] ?? "";
+        $("open-image").hidden = state.image !== "ready";
+        document.querySelector(".image-note").hidden = state.image !== "ready";
+        $("preview-button").disabled = state.image !== "ready";
+      }
+      /** Encodes the static diagram with its own styles so the preview needs no page CSS. */
+      function diagramImage() {
+        const clone = document.querySelector(".diagram").cloneNode(true);
+        const color = state.dark ? "#e7e9ec" : "#2c2c30";
+        const background = state.dark ? "#151517" : "#ffffff";
+        clone.setAttribute("width", "650");
+        clone.setAttribute("height", "145");
+        const svg = new XMLSerializer()
+          .serializeToString(clone)
+          .replace(
+            /(<svg[^>]*>)/,
+            `$1<style>text{fill:${color};font:13px sans-serif}rect{fill:${background};stroke:${color};stroke-width:.8}path,line{stroke:${color};fill:none;stroke-width:1}</style>`,
+          );
+        return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+      }
+      /** Opens a synthetic image or diagram in the chosen preview structure. */
+      function openPreview(kind) {
+        state.kind = kind;
+        state.open = true;
+        state.scale = 1;
+        state.x = 0;
+        state.y = 0;
+        $("large-image").src = kind === "image" ? image : diagramImage();
+        $("preview-name").textContent = kind === "image" ? "布局预览" : "请求流程 · PlantUML 示意";
+        $("image-size").textContent = kind === "image" ? "1600 × 1000" : "图表预览 · 静态示意";
+        render();
+        $("close").focus();
+      }
+      /** Closes the preview and restores the initiating control. */
+      function closePreview() {
+        state.open = false;
+        render();
+        $(state.kind === "image" ? "open-image" : "diagram-enlarge").focus();
+      }
+      /** Cycles the three structures. */
+      function cycle(step) {
+        const keys = ["A", "B", "C"];
+        state.variant = keys[(keys.indexOf(state.variant) + step + 3) % 3];
+        render();
+      }
+      document.querySelectorAll("[data-variant]").forEach(
+        (button) =>
+          (button.onclick = () => {
+            state.variant = button.dataset.variant;
+            render();
+          }),
+      );
+      $("previous").onclick = () => cycle(-1);
+      $("next").onclick = () => cycle(1);
+      $("theme").onclick = () => {
+        state.dark = !state.dark;
+        render();
+      };
+      $("open-image").onclick = () => openPreview("image");
+      $("preview-button").onclick = () => openPreview("image");
+      $("diagram-enlarge").onclick = () => openPreview("diagram");
+      $("close").onclick = closePreview;
+      $("zoom-in").onclick = () => {
+        state.scale = Math.min(4, state.scale + 0.25);
+        render();
+      };
+      $("zoom-out").onclick = () => {
+        state.scale = Math.max(0.5, state.scale - 0.25);
+        render();
+      };
+      $("fit").onclick = () => {
+        state.scale = 1;
+        state.x = 0;
+        state.y = 0;
+        render();
+      };
+      $("image-state").onchange = (event) => {
+        state.image = event.target.value;
+        state.open = false;
+        render();
+      };
+      $("source-toggle").onclick = () => {
+        state.source = !state.source;
+        $("source").hidden = !state.source;
+        document.querySelector(".diagram").hidden = state.source;
+        $("source-toggle").setAttribute("aria-label", state.source ? "看图" : "看源码");
+      };
+      $("layer").onclick = (event) => {
+        if (event.target === $("layer")) closePreview();
+      };
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && state.open) closePreview();
+        if (event.target.closest("input,textarea,select,[contenteditable]")) return;
+        if (event.key === "ArrowLeft") cycle(-1);
+        if (event.key === "ArrowRight") cycle(1);
+      });
+      let drag = null;
+      $("viewport").onpointerdown = (event) => {
+        drag = { x: event.clientX - state.x, y: event.clientY - state.y };
+        event.currentTarget.setPointerCapture(event.pointerId);
+      };
+      $("viewport").onpointermove = (event) => {
+        if (!drag) return;
+        state.x = event.clientX - drag.x;
+        state.y = event.clientY - drag.y;
+        render();
+      };
+      $("viewport").onpointerup = () => {
+        drag = null;
+      };
+      $("viewport").onpointercancel = () => {
+        drag = null;
+      };
+      render();
+    </script>
+  </body>
+</html>

@@ -195,6 +195,8 @@ export interface ProcessCounts {
   readonly commands: number;
   readonly failedCommands: number;
   readonly compactions: number;
+  /** The questions the agent asked you with `ask_user` (SPEC-0003, "对话记录"). */
+  readonly questions: number;
 }
 
 /**
@@ -202,7 +204,8 @@ export interface ProcessCounts {
  *
  * @remarks
  * Feeds "读了 8 个文件 · 跑了 2 条命令"; failed commands are counted apart (SPEC-0001, "显示模式"),
- * and so are compactions (SPEC-0001, "系统事件"). Files changed come from the turn's own `changes`.
+ * and so are compactions (SPEC-0001, "系统事件") and the questions the agent asked you (SPEC-0003).
+ * Files changed come from the turn's own `changes`.
  *
  * @sideEffects none
  * @param steps - The turn's steps.
@@ -214,10 +217,12 @@ export function countProcess(steps: readonly Step[]): ProcessCounts {
   let commands = 0;
   let failedCommands = 0;
   let compactions = 0;
+  let questions = 0;
   for (const step of steps) {
     if (step.kind === "compaction") compactions += 1;
     // Stryker disable next-line ConditionalExpression: a step that is not a tool has no `tool`, so no count below takes it.
     if (step.kind !== "tool") continue;
+    if (step.details?.tool === "ask_user") questions += step.details.questions.length;
     if (step.tool === "read") reads += 1;
     else if (EXPLORE_TOOLS.has(step.tool)) searches += 1;
     else if (step.tool === "bash") {
@@ -225,7 +230,7 @@ export function countProcess(steps: readonly Step[]): ProcessCounts {
       if (step.status === "failed") failedCommands += 1;
     }
   }
-  return { reads, searches, commands, failedCommands, compactions };
+  return { reads, searches, commands, failedCommands, compactions, questions };
 }
 
 /**
@@ -234,7 +239,8 @@ export function countProcess(steps: readonly Step[]): ProcessCounts {
  * @remarks
  * Only what happened is named, in a fixed order. A failed command is mentioned in grey,
  * "N 条命令没走通": the agent often recovers, so red is too loud (SPEC-0001, "过程的呈现");
- * compactions come last, "压缩了 N 次上下文" (design-language, "压缩步骤", 甲).
+ * compactions come last, "压缩了 N 次上下文" (design-language, "压缩步骤", 甲); the agent's
+ * questions after the files changed, "问了你 N 个问题" (SPEC-0003, "对话记录").
  *
  * @sideEffects none
  * @param counts - What the process did.
@@ -247,6 +253,7 @@ export function processParts(counts: ProcessCounts, filesChanged: number): strin
   if (counts.searches > 0) parts.push(`搜索了 ${counts.searches} 次`);
   if (counts.commands > 0) parts.push(`跑了 ${counts.commands} 条命令`);
   if (filesChanged > 0) parts.push(`改了 ${filesChanged} 个文件`);
+  if (counts.questions > 0) parts.push(`问了你 ${counts.questions} 个问题`);
   if (counts.failedCommands > 0) parts.push(`${counts.failedCommands} 条命令没走通`);
   if (counts.compactions > 0) parts.push(`压缩了 ${counts.compactions} 次上下文`);
   return parts;
@@ -476,6 +483,7 @@ const TOOL_VERBS: Readonly<Record<"bash" | "read" | "edit" | "write", readonly [
  */
 function describeTool(step: ToolStep): StepLine {
   const details = step.details;
+  if (details?.tool === "ask_user") return describeQuestions(step.status, details);
   const done = step.status === "done";
   const end = step.status === "done" || step.status === "running" ? null : TOOL_ENDS[step.status];
   const agentVerbs = AGENT_TOOL_VERBS[step.tool];
@@ -497,6 +505,58 @@ function describeTool(step: ToolStep): StepLine {
   }
   if (details?.tool === "write") return { verb, object: details.path, end };
   return { verb, object: compactJson(step.args), end };
+}
+
+/**
+ * Describes the agent's questions in one line: "正在问你 · 2 个问题", then how they ended.
+ *
+ * @remarks
+ * SPEC-0003, "对话记录": answered, skipped, replied to directly; stopped, the call failed, or the
+ * turn ended without its result.
+ *
+ * @sideEffects none
+ * @param status - How the call stands.
+ * @param details - Its questions and how they ended.
+ * @returns The line.
+ */
+function describeQuestions(
+  status: ToolStep["status"],
+  details: Extract<NonNullable<ToolStep["details"]>, { tool: "ask_user" }>,
+): StepLine {
+  const count = details.questions.length;
+  if (status === "running") return { verb: "正在问你", object: `${count} 个问题`, end: null };
+  const outcome = status === "done" ? details.outcome : null;
+  if (outcome?.kind === "answered") return { verb: "问了你", object: `${count} 个问题`, end: null };
+  if (outcome?.kind === "skipped")
+    return { verb: "你跳过了", object: count === 1 ? "这个问题" : `这 ${count} 个问题`, end: null };
+  if (outcome?.kind === "reply") return { verb: "你没选，直接回复了", object: "", end: null };
+  return { verb: "问题已取消", object: "", end: null };
+}
+
+/**
+ * The answers to the agent's questions, a line each: the question's name, and what you answered.
+ *
+ * @remarks
+ * Shown under the step without opening it (SPEC-0003, "对话记录"): the options' labels joined,
+ * the other answer quoted after them. Questions skipped, replied to, or not answered have none.
+ *
+ * @sideEffects none
+ * @param step - The step.
+ * @returns The lines, or `null`.
+ */
+export function questionRecord(step: ToolStep): { readonly header: string; readonly answer: string }[] | null {
+  const details = step.details;
+  // Stryker disable next-line ConditionalExpression: another tool's details have no outcome either; the check is for the type.
+  if (details?.tool !== "ask_user" || details.outcome?.kind !== "answered") return null;
+  const { answers } = details.outcome;
+  return details.questions.map((question, index) => {
+    const answer = answers[index];
+    // Stryker disable next-line OptionalChaining,ArrayDeclaration: the host took an answer of known choices for every question; the fallbacks are for the type.
+    const labels = (answer?.selected ?? []).flatMap((option) => question.options[option]?.label ?? []);
+    // Stryker disable next-line OptionalChaining: as above.
+    const other = answer?.other == null ? [] : [`其他：“${answer.other}”`];
+    return { header: question.header, answer: [...labels, ...other].join("、") };
+  });
 }
 
 /**
@@ -594,6 +654,18 @@ function turnMarkdown(turn: Turn): string {
           const line = describeStep(step, false);
           const object = line.object === "" ? "" : ` · ${line.object}`;
           if (step.kind === "compaction") return `> ${line.verb}${object}`;
+          // Stryker disable next-line ConditionalExpression: other steps have no details; the check is for the type.
+          if (step.kind === "tool" && step.details?.tool === "ask_user") {
+            // Each question whole, and the answer when there is one, quoted (SPEC-0003, "对话记录").
+            const answers = questionRecord(step);
+            const record = step.details.questions.map((asked, index) => {
+              // Stryker disable next-line OptionalChaining: answered questions have a line each; the check is for the type.
+              const answer = answers?.[index]?.answer;
+              const said = answer === undefined ? "" : ` —— ${answer.replaceAll("\n", " ")}`;
+              return `> ${asked.header} · ${asked.question.replaceAll("\n", " ")}${said}`;
+            });
+            return [`> ${line.verb}${object}`, ...record].join("\n");
+          }
           return `- ${line.verb}${object}${line.end === null ? "" : `（${line.end}）`}`;
         }),
   );

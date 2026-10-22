@@ -1,0 +1,802 @@
+<!doctype html>
+<!-- THROWAWAY PROTOTYPE: three bounded refinements of Atrium's existing reply surface.
+     A: unboxed sequence + floating controls; B: neutral nodes + quiet header controls;
+     C: blue-tinted nodes + expandable zoom. Source, app shell and existing flat surfaces stay fixed.
+     SVG samples below are produced by pinned local PlantUML/Mermaid, not a drawing mock.
+     No app session, filesystem reader, network renderer, persistence, or production code is used. -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Atrium · 图表与缩放原型</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --main: #fff;
+        --side: #f4f4f6;
+        --code: #f6f6f8;
+        --text: #25262a;
+        --muted: #6d7078;
+        --line: #e8e9ec;
+        --hover: #e9eaf0;
+        --blue: #2f6fed;
+      }
+      :root.dark {
+        color-scheme: dark;
+        --main: #151517;
+        --side: #1c1c1f;
+        --code: #1d1e22;
+        --text: #e9e9ec;
+        --muted: #a2a5ae;
+        --line: #303136;
+        --hover: #303138;
+        --blue: #8db1ff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--main);
+        color: var(--text);
+        font:
+          14px/1.55 -apple-system,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+      }
+      button,
+      input {
+        font: inherit;
+      }
+      button {
+        border: 0;
+        background: none;
+        color: inherit;
+        cursor: pointer;
+      }
+      button:hover {
+        background: var(--hover);
+      }
+      button:focus-visible,
+      input:focus-visible {
+        outline: 2px solid var(--blue);
+        outline-offset: 2px;
+      }
+      button:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
+      svg.icon {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex: none;
+      }
+      .side {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: 212px;
+        background: var(--side);
+        padding: 78px 16px 20px;
+        color: var(--muted);
+      }
+      .side p {
+        font-size: 12px;
+        margin: 28px 10px 8px;
+      }
+      .side .row {
+        padding: 8px 10px;
+        border-radius: 6px;
+      }
+      .side .active {
+        color: var(--text);
+        background: var(--hover);
+      }
+      .traffic {
+        display: flex;
+        gap: 8px;
+        position: absolute;
+        left: 18px;
+        top: 18px;
+      }
+      .traffic i {
+        display: block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+      }
+      .traffic i:nth-child(1) {
+        background: #ff5f57;
+      }
+      .traffic i:nth-child(2) {
+        background: #febc2e;
+      }
+      .traffic i:nth-child(3) {
+        background: #28c840;
+      }
+      .top {
+        position: fixed;
+        inset: 0 0 auto 212px;
+        height: 49px;
+        border-bottom: 1px solid var(--line);
+        background: var(--main);
+        display: flex;
+        align-items: center;
+        padding: 0 18px;
+        z-index: 2;
+      }
+      .tab {
+        font-size: 13px;
+        background: var(--side);
+        padding: 6px 14px;
+        border-radius: 8px;
+      }
+      .top button {
+        height: 28px;
+        padding: 3px 9px;
+        border-radius: 5px;
+        margin-left: auto;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .main {
+        margin-left: 212px;
+        padding: 76px 28px 108px;
+      }
+      .reply {
+        max-width: 800px;
+        margin: auto;
+      }
+      .question {
+        margin: 0 0 22px auto;
+        max-width: 410px;
+        background: var(--side);
+        padding: 10px 14px;
+        border-radius: 14px;
+        color: var(--text);
+      }
+      h2 {
+        font-size: 17px;
+        line-height: 1.4;
+        font-weight: 600;
+        margin: 23px 0 12px;
+        letter-spacing: -0.015em;
+      }
+      .intro {
+        margin: 0 0 20px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .diagram {
+        position: relative;
+        background: var(--code);
+        border-radius: 12px;
+        min-width: 0;
+        overflow: hidden;
+      }
+      .diagram-head {
+        height: 40px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 12px;
+        color: var(--muted);
+      }
+      .lang {
+        font:
+          11px/1.4 ui-monospace,
+          "SF Mono",
+          monospace;
+      }
+      .head-right {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .action {
+        width: 26px;
+        height: 26px;
+        border-radius: 5px;
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+        color: var(--muted);
+      }
+      .group {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 2px;
+        background: var(--code);
+        border-radius: 7px;
+      }
+      .group .action {
+        color: var(--muted);
+      }
+      .group output {
+        font:
+          11px/1.4 ui-monospace,
+          "SF Mono",
+          monospace;
+        min-width: 42px;
+        text-align: center;
+        color: var(--text);
+      }
+      .group .fit {
+        font-size: 12px;
+        padding: 4px 7px;
+        height: 26px;
+        border-radius: 5px;
+        white-space: nowrap;
+      }
+      .sequence {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 6px 30px 30px;
+        min-height: 250px;
+      }
+      .sequence img {
+        display: block;
+        height: 228px;
+        width: auto;
+        max-width: 100%;
+      }
+      .flow-viewport {
+        height: 231px;
+        overflow: auto;
+        display: flex;
+        align-items: flex-start;
+        padding: 20px 24px 28px;
+        scrollbar-width: thin;
+      }
+      .flow-content {
+        margin: auto;
+        flex: none;
+      }
+      .flow-content img {
+        display: block;
+        max-width: none;
+      }
+      .subnote {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 9px 0 0;
+      }
+      .footer-action {
+        margin-top: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .footer-action button {
+        border-radius: 6px;
+        padding: 6px 9px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .description {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .variant-A .flow-head {
+        position: absolute;
+        inset: 8px 0 auto;
+        height: 28px;
+        z-index: 1;
+      }
+      .variant-A .flow-viewport {
+        height: 256px;
+        padding-top: 58px;
+      }
+      .variant-C .flow-head {
+        height: 38px;
+      }
+      .compact-zoom {
+        position: relative;
+      }
+      .zoom-toggle {
+        height: 27px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px;
+        background: var(--hover);
+        border-radius: 6px;
+        font:
+          11px ui-monospace,
+          monospace;
+      }
+      .zoom-panel {
+        display: none;
+        position: absolute;
+        right: 0;
+        top: 34px;
+        width: 224px;
+        padding: 10px;
+        background: var(--main);
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        box-shadow: 0 8px 24px #00000012;
+        z-index: 3;
+      }
+      .zoom-panel[open] {
+        display: block;
+      }
+      .zoom-panel input {
+        width: 100%;
+        accent-color: var(--blue);
+        margin: 10px 0 4px;
+      }
+      .zoom-panel .hint {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .switcher {
+        position: fixed;
+        left: calc(50% + 106px);
+        bottom: 18px;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        background: #24262c;
+        color: #f7f7f9;
+        border-radius: 12px;
+        padding: 7px 8px;
+        box-shadow: 0 8px 24px #0002;
+        z-index: 5;
+      }
+      .switcher button {
+        color: #f7f7f9;
+        width: 30px;
+        height: 30px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .switcher button:hover {
+        background: #40434c;
+      }
+      .switcher .current {
+        padding: 0 8px;
+        font-size: 12px;
+        min-width: 145px;
+        text-align: center;
+        white-space: nowrap;
+      }
+      .switcher .state {
+        font:
+          11px ui-monospace,
+          monospace;
+        color: #b6bdca;
+        border-left: 1px solid #4b4e56;
+        margin-left: 2px;
+        padding: 0 9px;
+        white-space: nowrap;
+      }
+      .preview {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        max-width: none;
+        max-height: none;
+        margin: 0;
+        border: 0;
+        padding: 0;
+        background: #111114;
+        color: #f9fafb;
+      }
+      .preview[open] {
+        display: flex;
+        flex-direction: column;
+      }
+      .preview::backdrop {
+        background: #111114;
+      }
+      .preview-head {
+        position: relative;
+        flex: 0 0 48px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 12px 0 120px;
+        background: #19191b;
+      }
+      .preview-head .traffic {
+        top: 18px;
+      }
+      .preview-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+      }
+      .preview-head .right {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex: none;
+      }
+      .preview button:hover {
+        background: #34343a;
+      }
+      .preview .action {
+        color: #f1f2f4;
+      }
+      .preview-head output {
+        font:
+          12px ui-monospace,
+          monospace;
+        min-width: 38px;
+        text-align: center;
+      }
+      .preview-canvas {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 36px;
+        overflow: hidden;
+      }
+      .preview-canvas img {
+        max-width: 100%;
+        max-height: 100%;
+        width: auto;
+        height: auto;
+        image-rendering: auto;
+      }
+      .preview-foot {
+        flex: 0 0 34px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 18px;
+        background: #19191b;
+        color: #adb2b8;
+        font-size: 12px;
+      }
+      .prototype-notice {
+        position: fixed;
+        left: 16px;
+        bottom: 15px;
+        font-size: 10px;
+        line-height: 1.5;
+        color: var(--muted);
+        width: 180px;
+      }
+      @media (max-width: 760px) {
+        .side,
+        .prototype-notice {
+          display: none;
+        }
+        .top {
+          left: 0;
+          padding-left: 92px;
+        }
+        .top:before {
+          content: "";
+          position: absolute;
+          left: 18px;
+          top: 18px;
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          background: #ff5f57;
+          box-shadow:
+            20px 0 #febc2e,
+            40px 0 #28c840;
+        }
+        .main {
+          margin: 0;
+          padding: 70px 16px 104px;
+        }
+        .switcher {
+          left: 50%;
+          width: max-content;
+          max-width: calc(100vw - 16px);
+        }
+        .switcher .state {
+          display: none;
+        }
+        .sequence {
+          padding-inline: 16px;
+        }
+        .sequence img {
+          height: 210px;
+        }
+        .preview-head {
+          padding-left: 96px;
+          gap: 6px;
+        }
+        .preview-head .right {
+          gap: 2px;
+        }
+        .preview-head .right .fit-label {
+          display: none;
+        }
+        .preview-foot {
+          font-size: 11px;
+        }
+        .description {
+          display: none;
+        }
+        .question {
+          font-size: 13px;
+        }
+        .flow-viewport {
+          padding-inline: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <aside class="side">
+      <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="row">搜索工作区与对话</div>
+      <p>项目</p>
+      <div class="row">示例项目</div>
+      <div class="row active">　图表展示</div>
+      <p>对话</p>
+      <div class="row">新建对话</div>
+      <div class="prototype-notice">交互原型，不是生产界面<br />图表样张来自本地真实引擎</div>
+    </aside>
+    <header class="top">
+      <span class="tab">图表与图片</span><button id="theme" aria-label="切换明暗">切换深色</button>
+    </header>
+    <main class="main">
+      <article class="reply">
+        <div class="question">展示请求的交互过程和处理流程。</div>
+        <p class="intro" id="intro"></p>
+        <h2>PlantUML 时序图</h2>
+        <section class="diagram">
+          <header class="diagram-head">
+            <span class="lang">plantuml</span>
+            <div class="head-right"><span class="description" id="style-note"></span></div>
+          </header>
+          <div class="sequence"><img id="sequence" alt="PlantUML 真实引擎样张：用户、客户端、服务端的请求过程" /></div>
+        </section>
+        <h2>Mermaid 流程图</h2>
+        <section class="diagram" id="flow">
+          <header class="diagram-head flow-head">
+            <span class="lang">mermaid</span>
+            <div class="head-right" id="controls"></div>
+          </header>
+          <div class="flow-viewport" id="flow-viewport">
+            <div class="flow-content"><img id="flow-image" alt="Mermaid 真实引擎样张：校验参数与返回结果" /></div>
+          </div>
+        </section>
+        <p class="subnote">右上控制器可实际操作；放大后在图内滚动，不放大整段对话。</p>
+        <div class="footer-action">
+          <button id="preview-open">检查图片预览标题</button
+          ><span class="description">左上留出原生红绿灯区域，名称从其右侧开始。</span>
+        </div>
+      </article>
+    </main>
+    <nav class="switcher" aria-label="原型方案">
+      <button id="prev" aria-label="上一个方案"></button><span class="current" id="current"></span
+      ><button id="next" aria-label="下一个方案"></button><span class="state" id="state"></span>
+    </nav>
+    <dialog class="preview" id="preview" aria-label="图片预览修复原型">
+      <header class="preview-head">
+        <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+        <span class="preview-title">请求流程图 · 名称已避开红绿灯</span>
+        <div class="right">
+          <button class="action" id="preview-minus" aria-label="预览缩小"></button
+          ><output id="preview-percent">100%</output
+          ><button class="action" id="preview-plus" aria-label="预览放大"></button
+          ><button class="action" id="preview-fit" aria-label="预览适应窗口"></button
+          ><button class="action" id="preview-close" aria-label="关闭预览"></button>
+        </div>
+      </header>
+      <div class="preview-canvas"><img id="preview-image" alt="请求流程示例" /></div>
+      <footer class="preview-foot"><span>示例图 · 预览布局原型</span><span>红绿灯仅为位置示意 · Esc 返回</span></footer>
+    </dialog>
+    <script id="sample-data" type="application/json">
+      {
+        "A-light": "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 209 192\" width=\"209\" height=\"192\"><defs/><g><g class=\"message\" data-entity-1=\"part1\" data-entity-2=\"part2\" id=\"msg1\" data-source-line=\"22\"/><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part3\" id=\"msg2\" data-source-line=\"23\"/><g class=\"message\" data-entity-1=\"part3\" data-entity-2=\"part2\" id=\"msg3\" data-source-line=\"24\"/><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part1\" id=\"msg4\" data-source-line=\"25\"/><g class=\"participant-lifeline\" data-qualified-name=\"..\" data-entity-uid=\"part1\" id=\"part1-lifeline\" data-source-line=\"19\"><g><title>..</title><rect x=\"21.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"25\" y1=\"38.5\" x2=\"25\" y2=\"186.5\" stroke=\"#737B87\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant-lifeline\" data-qualified-name=\"...\" data-entity-uid=\"part2\" id=\"part2-lifeline\" data-source-line=\"20\"><g><title>...</title><rect x=\"97.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"101\" y1=\"38.5\" x2=\"101\" y2=\"186.5\" stroke=\"#737B87\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant-lifeline\" data-qualified-name=\"...\" data-entity-uid=\"part3\" id=\"part3-lifeline\" data-source-line=\"21\"><g><title>...</title><rect x=\"173.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"177\" y1=\"38.5\" x2=\"177\" y2=\"186.5\" stroke=\"#737B87\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant participant-head\" data-qualified-name=\"..\" data-entity-uid=\"part1\" id=\"part1-head\" data-source-line=\"19\"><rect x=\"5\" y=\"5\" width=\"40\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"1\"/><text x=\"12\" y=\"26.5\" font-size=\"13\" fill=\"#363B43\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">用户</text></g><g class=\"participant participant-head\" data-qualified-name=\"...\" data-entity-uid=\"part2\" id=\"part2-head\" data-source-line=\"20\"><rect x=\"74.5\" y=\"5\" width=\"53\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"1\"/><text x=\"81.5\" y=\"26.5\" font-size=\"13\" fill=\"#363B43\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">客户端</text></g><g class=\"participant participant-head\" data-qualified-name=\"...\" data-entity-uid=\"part3\" id=\"part3-head\" data-source-line=\"21\"><rect x=\"150.5\" y=\"5\" width=\"53\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"1\"/><text x=\"157.5\" y=\"26.5\" font-size=\"13\" fill=\"#363B43\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">服务端</text></g><g class=\"message\" data-entity-1=\"part1\" data-entity-2=\"part2\" id=\"msg1\" data-source-line=\"22\"><polygon points=\"89,67 99,71 89,75 93,71\" fill=\"#737B87\" stroke=\"#737B87\" stroke-width=\"1\"/><line x1=\"25\" y1=\"71\" x2=\"95\" y2=\"71\" stroke=\"#737B87\" stroke-width=\"1\"/><text x=\"32\" y=\"65\" font-size=\"13\" fill=\"#363B43\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">提交请求</text></g><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part3\" id=\"msg2\" data-source-line=\"23\"><polygon points=\"165,99.5 175,103.5 165,107.5 169,103.5\" fill=\"#737B87\" stroke=\"#737B87\" stroke-width=\"1\"/><line x1=\"101\" y1=\"103.5\" x2=\"171\" y2=\"103.5\" stroke=\"#737B87\" stroke-width=\"1\"/><text x=\"108\" y=\"97.5\" font-size=\"13\" fill=\"#363B43\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">发送请求</text></g><g class=\"message\" data-entity-1=\"part3\" data-entity-2=\"part2\" id=\"msg3\" data-source-line=\"24\"><polygon points=\"112,132 102,136 112,140 108,136\" fill=\"#737B87\" stroke=\"#737B87\" stroke-width=\"1\"/><line x1=\"106\" y1=\"136\" x2=\"176\" y2=\"136\" stroke=\"#737B87\" stroke-width=\"1\" stroke-dasharray=\"2,2\"/><text x=\"118\" y=\"130\" font-size=\"13\" fill=\"#363B43\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">返回结果</text></g><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part1\" id=\"msg4\" data-source-line=\"25\"><polygon points=\"36,164.5 26,168.5 36,172.5 32,168.5\" fill=\"#737B87\" stroke=\"#737B87\" stroke-width=\"1\"/><line x1=\"30\" y1=\"168.5\" x2=\"100\" y2=\"168.5\" stroke=\"#737B87\" stroke-width=\"1\" stroke-dasharray=\"2,2\"/><text x=\"42\" y=\"162.5\" font-size=\"13\" fill=\"#363B43\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">展示结果</text></g><?plantuml-src VOz1Im9168Rlyoi-xEn1Db8y12buaX3i3uoxt-gWpjZCY544rIc2iCXEYP1u28B4as27_aoxQ_-YbRLrJF7wlC_xpZUgpdYBIjg42hNhLIdQtCcBXf2W9UKgZ91hec9BrQWZEenNmQKDXKQoh4gE4Z86Tz2bxOOk2AwFQHCXKGhR1HekbFE9xLwPdIEahErXTDsUTM3bzar5uMaRkOrmGKfKQcQp5kKwj-DNfYQaWtAdildsl_3lwetPangpwnoLWXGvab9qbZDfAvtBf4cHkLXa7CqRjcSRGoQu93Nc8BX2w8eu8wtL5H3qtlpRwHhoFeOX2jx7QzJlttjthmiQLI1vk3Apu7SVlcUZ-NZgJsv8p1TINCo2rttykRfUIZ67vFhK_AldlGo2poT_q3UdGYjwEXoQF0UZMQJy0W00?></g></svg>",
+        "A-dark": "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 209 192\" width=\"209\" height=\"192\"><defs/><g><g class=\"message\" data-entity-1=\"part1\" data-entity-2=\"part2\" id=\"msg1\" data-source-line=\"22\"/><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part3\" id=\"msg2\" data-source-line=\"23\"/><g class=\"message\" data-entity-1=\"part3\" data-entity-2=\"part2\" id=\"msg3\" data-source-line=\"24\"/><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part1\" id=\"msg4\" data-source-line=\"25\"/><g class=\"participant-lifeline\" data-qualified-name=\"..\" data-entity-uid=\"part1\" id=\"part1-lifeline\" data-source-line=\"19\"><g><title>..</title><rect x=\"21.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"25\" y1=\"38.5\" x2=\"25\" y2=\"186.5\" stroke=\"#A0A6AF\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant-lifeline\" data-qualified-name=\"...\" data-entity-uid=\"part2\" id=\"part2-lifeline\" data-source-line=\"20\"><g><title>...</title><rect x=\"97.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"101\" y1=\"38.5\" x2=\"101\" y2=\"186.5\" stroke=\"#A0A6AF\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant-lifeline\" data-qualified-name=\"...\" data-entity-uid=\"part3\" id=\"part3-lifeline\" data-source-line=\"21\"><g><title>...</title><rect x=\"173.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"177\" y1=\"38.5\" x2=\"177\" y2=\"186.5\" stroke=\"#A0A6AF\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant participant-head\" data-qualified-name=\"..\" data-entity-uid=\"part1\" id=\"part1-head\" data-source-line=\"19\"><rect x=\"5\" y=\"5\" width=\"40\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"1\"/><text x=\"12\" y=\"26.5\" font-size=\"13\" fill=\"#E3E5E9\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">用户</text></g><g class=\"participant participant-head\" data-qualified-name=\"...\" data-entity-uid=\"part2\" id=\"part2-head\" data-source-line=\"20\"><rect x=\"74.5\" y=\"5\" width=\"53\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"1\"/><text x=\"81.5\" y=\"26.5\" font-size=\"13\" fill=\"#E3E5E9\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">客户端</text></g><g class=\"participant participant-head\" data-qualified-name=\"...\" data-entity-uid=\"part3\" id=\"part3-head\" data-source-line=\"21\"><rect x=\"150.5\" y=\"5\" width=\"53\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"1\"/><text x=\"157.5\" y=\"26.5\" font-size=\"13\" fill=\"#E3E5E9\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">服务端</text></g><g class=\"message\" data-entity-1=\"part1\" data-entity-2=\"part2\" id=\"msg1\" data-source-line=\"22\"><polygon points=\"89,67 99,71 89,75 93,71\" fill=\"#A0A6AF\" stroke=\"#A0A6AF\" stroke-width=\"1\"/><line x1=\"25\" y1=\"71\" x2=\"95\" y2=\"71\" stroke=\"#A0A6AF\" stroke-width=\"1\"/><text x=\"32\" y=\"65\" font-size=\"13\" fill=\"#E3E5E9\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">提交请求</text></g><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part3\" id=\"msg2\" data-source-line=\"23\"><polygon points=\"165,99.5 175,103.5 165,107.5 169,103.5\" fill=\"#A0A6AF\" stroke=\"#A0A6AF\" stroke-width=\"1\"/><line x1=\"101\" y1=\"103.5\" x2=\"171\" y2=\"103.5\" stroke=\"#A0A6AF\" stroke-width=\"1\"/><text x=\"108\" y=\"97.5\" font-size=\"13\" fill=\"#E3E5E9\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">发送请求</text></g><g class=\"message\" data-entity-1=\"part3\" data-entity-2=\"part2\" id=\"msg3\" data-source-line=\"24\"><polygon points=\"112,132 102,136 112,140 108,136\" fill=\"#A0A6AF\" stroke=\"#A0A6AF\" stroke-width=\"1\"/><line x1=\"106\" y1=\"136\" x2=\"176\" y2=\"136\" stroke=\"#A0A6AF\" stroke-width=\"1\" stroke-dasharray=\"2,2\"/><text x=\"118\" y=\"130\" font-size=\"13\" fill=\"#E3E5E9\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">返回结果</text></g><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part1\" id=\"msg4\" data-source-line=\"25\"><polygon points=\"36,164.5 26,168.5 36,172.5 32,168.5\" fill=\"#A0A6AF\" stroke=\"#A0A6AF\" stroke-width=\"1\"/><line x1=\"30\" y1=\"168.5\" x2=\"100\" y2=\"168.5\" stroke=\"#A0A6AF\" stroke-width=\"1\" stroke-dasharray=\"2,2\"/><text x=\"42\" y=\"162.5\" font-size=\"13\" fill=\"#E3E5E9\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">展示结果</text></g><?plantuml-src VOz1Im9168Rlyoi-x2maKfI7O1CzIGZs1yRTRtLGPsncn2Y2wXH1M6IdH2Wy147YIR13VwRTjN_HojewfdXztkTxvnrLOxn99Mr0cTgrYXGjxcH5NKZGad8LHiWrKR6bgjGHRSOhuDAwGYEPdqgE4lOCxg1BMtMT5rmVqGP2eXXUvsdOKCecrdibTeQGIgyFetLRkNHk9xTlBiEJ5d8RuPmKgTJCPatAzU66NvcQa0xAZShgs__2lzKhjSTLPjSuAWKfOaafslCQQzlQjVAam5miC8xcXlNPIf49BaYLEGYk4BeiJabpiGA2xfj_Crv2tiThY8BtuHBrUtVUxSkCHYUGF5YO6V0xzz-JmNGuzaVN9EOpAJxCWDTv-BcycainX-HorVIhwpttWyz7lzypgq8hUZei6Zq5Wqca_080?></g></svg>",
+        "B-light": "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 209 192\" width=\"209\" height=\"192\"><defs/><g><g class=\"message\" data-entity-1=\"part1\" data-entity-2=\"part2\" id=\"msg1\" data-source-line=\"22\"/><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part3\" id=\"msg2\" data-source-line=\"23\"/><g class=\"message\" data-entity-1=\"part3\" data-entity-2=\"part2\" id=\"msg3\" data-source-line=\"24\"/><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part1\" id=\"msg4\" data-source-line=\"25\"/><g class=\"participant-lifeline\" data-qualified-name=\"..\" data-entity-uid=\"part1\" id=\"part1-lifeline\" data-source-line=\"19\"><g><title>..</title><rect x=\"21.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"25\" y1=\"38.5\" x2=\"25\" y2=\"186.5\" stroke=\"#818997\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant-lifeline\" data-qualified-name=\"...\" data-entity-uid=\"part2\" id=\"part2-lifeline\" data-source-line=\"20\"><g><title>...</title><rect x=\"97.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"101\" y1=\"38.5\" x2=\"101\" y2=\"186.5\" stroke=\"#818997\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant-lifeline\" data-qualified-name=\"...\" data-entity-uid=\"part3\" id=\"part3-lifeline\" data-source-line=\"21\"><g><title>...</title><rect x=\"173.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"177\" y1=\"38.5\" x2=\"177\" y2=\"186.5\" stroke=\"#818997\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant participant-head\" data-qualified-name=\"..\" data-entity-uid=\"part1\" id=\"part1-head\" data-source-line=\"19\"><rect x=\"5\" y=\"5\" width=\"40\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#FFFFFF\" stroke=\"#C9CED7\" stroke-width=\"1\"/><text x=\"12\" y=\"26.5\" font-size=\"13\" fill=\"#303641\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">用户</text></g><g class=\"participant participant-head\" data-qualified-name=\"...\" data-entity-uid=\"part2\" id=\"part2-head\" data-source-line=\"20\"><rect x=\"74.5\" y=\"5\" width=\"53\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#FFFFFF\" stroke=\"#C9CED7\" stroke-width=\"1\"/><text x=\"81.5\" y=\"26.5\" font-size=\"13\" fill=\"#303641\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">客户端</text></g><g class=\"participant participant-head\" data-qualified-name=\"...\" data-entity-uid=\"part3\" id=\"part3-head\" data-source-line=\"21\"><rect x=\"150.5\" y=\"5\" width=\"53\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#FFFFFF\" stroke=\"#C9CED7\" stroke-width=\"1\"/><text x=\"157.5\" y=\"26.5\" font-size=\"13\" fill=\"#303641\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">服务端</text></g><g class=\"message\" data-entity-1=\"part1\" data-entity-2=\"part2\" id=\"msg1\" data-source-line=\"22\"><polygon points=\"89,67 99,71 89,75 93,71\" fill=\"#818997\" stroke=\"#818997\" stroke-width=\"1\"/><line x1=\"25\" y1=\"71\" x2=\"95\" y2=\"71\" stroke=\"#818997\" stroke-width=\"1\"/><text x=\"32\" y=\"65\" font-size=\"13\" fill=\"#303641\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">提交请求</text></g><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part3\" id=\"msg2\" data-source-line=\"23\"><polygon points=\"165,99.5 175,103.5 165,107.5 169,103.5\" fill=\"#818997\" stroke=\"#818997\" stroke-width=\"1\"/><line x1=\"101\" y1=\"103.5\" x2=\"171\" y2=\"103.5\" stroke=\"#818997\" stroke-width=\"1\"/><text x=\"108\" y=\"97.5\" font-size=\"13\" fill=\"#303641\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">发送请求</text></g><g class=\"message\" data-entity-1=\"part3\" data-entity-2=\"part2\" id=\"msg3\" data-source-line=\"24\"><polygon points=\"112,132 102,136 112,140 108,136\" fill=\"#818997\" stroke=\"#818997\" stroke-width=\"1\"/><line x1=\"106\" y1=\"136\" x2=\"176\" y2=\"136\" stroke=\"#818997\" stroke-width=\"1\" stroke-dasharray=\"2,2\"/><text x=\"118\" y=\"130\" font-size=\"13\" fill=\"#303641\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">返回结果</text></g><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part1\" id=\"msg4\" data-source-line=\"25\"><polygon points=\"36,164.5 26,168.5 36,172.5 32,168.5\" fill=\"#818997\" stroke=\"#818997\" stroke-width=\"1\"/><line x1=\"30\" y1=\"168.5\" x2=\"100\" y2=\"168.5\" stroke=\"#818997\" stroke-width=\"1\" stroke-dasharray=\"2,2\"/><text x=\"42\" y=\"162.5\" font-size=\"13\" fill=\"#303641\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">展示结果</text></g><?plantuml-src ROzDIm916CVlyoa6FGijHhuSWjho927O5nXtdtK7TSPcHemYg4uHX4LsIeJ2Gn0adWGxz6NQNViMhUssxgfp_FrVdl_81cLj8aWBruZHg0lUOQREcrnW9GYJlWHC8Hcvf4rCtgMiZYtIb11JmgXW870-nasmIAUfIfof8z82dAhuwHBn6wfwQhElIiy0QzdDOh0kdTtAxcnhyMLmqW5c03v75I8KDMYRCBM_ygjqwUybB5oO849PB-Y71xcul7vpHVnVkrPvR5EZmK1AhA4z8NWthCbh-K8XXyhKWZ9baBY_KLihYeCBP5CJiCMvgl5Jr5wkm5x_pRsP9f3pyUeZxtsSeExWphbzMT0WWZExIsSHkxtxxzbeFfwwasiKyOKf2XQnqtlukRmAJH77cMJL_AllF0-zpqTtE8XN-QxWj5yqUV96iy3o2m00?></g></svg>",
+        "B-dark": "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 209 192\" width=\"209\" height=\"192\"><defs/><g><g class=\"message\" data-entity-1=\"part1\" data-entity-2=\"part2\" id=\"msg1\" data-source-line=\"22\"/><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part3\" id=\"msg2\" data-source-line=\"23\"/><g class=\"message\" data-entity-1=\"part3\" data-entity-2=\"part2\" id=\"msg3\" data-source-line=\"24\"/><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part1\" id=\"msg4\" data-source-line=\"25\"/><g class=\"participant-lifeline\" data-qualified-name=\"..\" data-entity-uid=\"part1\" id=\"part1-lifeline\" data-source-line=\"19\"><g><title>..</title><rect x=\"21.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"25\" y1=\"38.5\" x2=\"25\" y2=\"186.5\" stroke=\"#A3A9B4\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant-lifeline\" data-qualified-name=\"...\" data-entity-uid=\"part2\" id=\"part2-lifeline\" data-source-line=\"20\"><g><title>...</title><rect x=\"97.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"101\" y1=\"38.5\" x2=\"101\" y2=\"186.5\" stroke=\"#A3A9B4\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant-lifeline\" data-qualified-name=\"...\" data-entity-uid=\"part3\" id=\"part3-lifeline\" data-source-line=\"21\"><g><title>...</title><rect x=\"173.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"177\" y1=\"38.5\" x2=\"177\" y2=\"186.5\" stroke=\"#A3A9B4\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant participant-head\" data-qualified-name=\"..\" data-entity-uid=\"part1\" id=\"part1-head\" data-source-line=\"19\"><rect x=\"5\" y=\"5\" width=\"40\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#24262C\" stroke=\"#555B65\" stroke-width=\"1\"/><text x=\"12\" y=\"26.5\" font-size=\"13\" fill=\"#E3E5E9\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">用户</text></g><g class=\"participant participant-head\" data-qualified-name=\"...\" data-entity-uid=\"part2\" id=\"part2-head\" data-source-line=\"20\"><rect x=\"74.5\" y=\"5\" width=\"53\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#24262C\" stroke=\"#555B65\" stroke-width=\"1\"/><text x=\"81.5\" y=\"26.5\" font-size=\"13\" fill=\"#E3E5E9\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">客户端</text></g><g class=\"participant participant-head\" data-qualified-name=\"...\" data-entity-uid=\"part3\" id=\"part3-head\" data-source-line=\"21\"><rect x=\"150.5\" y=\"5\" width=\"53\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#24262C\" stroke=\"#555B65\" stroke-width=\"1\"/><text x=\"157.5\" y=\"26.5\" font-size=\"13\" fill=\"#E3E5E9\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">服务端</text></g><g class=\"message\" data-entity-1=\"part1\" data-entity-2=\"part2\" id=\"msg1\" data-source-line=\"22\"><polygon points=\"89,67 99,71 89,75 93,71\" fill=\"#A3A9B4\" stroke=\"#A3A9B4\" stroke-width=\"1\"/><line x1=\"25\" y1=\"71\" x2=\"95\" y2=\"71\" stroke=\"#A3A9B4\" stroke-width=\"1\"/><text x=\"32\" y=\"65\" font-size=\"13\" fill=\"#E3E5E9\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">提交请求</text></g><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part3\" id=\"msg2\" data-source-line=\"23\"><polygon points=\"165,99.5 175,103.5 165,107.5 169,103.5\" fill=\"#A3A9B4\" stroke=\"#A3A9B4\" stroke-width=\"1\"/><line x1=\"101\" y1=\"103.5\" x2=\"171\" y2=\"103.5\" stroke=\"#A3A9B4\" stroke-width=\"1\"/><text x=\"108\" y=\"97.5\" font-size=\"13\" fill=\"#E3E5E9\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">发送请求</text></g><g class=\"message\" data-entity-1=\"part3\" data-entity-2=\"part2\" id=\"msg3\" data-source-line=\"24\"><polygon points=\"112,132 102,136 112,140 108,136\" fill=\"#A3A9B4\" stroke=\"#A3A9B4\" stroke-width=\"1\"/><line x1=\"106\" y1=\"136\" x2=\"176\" y2=\"136\" stroke=\"#A3A9B4\" stroke-width=\"1\" stroke-dasharray=\"2,2\"/><text x=\"118\" y=\"130\" font-size=\"13\" fill=\"#E3E5E9\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">返回结果</text></g><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part1\" id=\"msg4\" data-source-line=\"25\"><polygon points=\"36,164.5 26,168.5 36,172.5 32,168.5\" fill=\"#A3A9B4\" stroke=\"#A3A9B4\" stroke-width=\"1\"/><line x1=\"30\" y1=\"168.5\" x2=\"100\" y2=\"168.5\" stroke=\"#A3A9B4\" stroke-width=\"1\" stroke-dasharray=\"2,2\"/><text x=\"42\" y=\"162.5\" font-size=\"13\" fill=\"#E3E5E9\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">展示结果</text></g><?plantuml-src ROzDIm916CVlyoa6FNlmPIKz12fwaX3i2uoxp-gWpjZCY544rIc2iCXEYM1u28B4as27laoxQz-YbTtMNVNw-xyy_qUsAUiHGRguGVHsK_0-CqgymmLMWZ3fIi0Kae5BjeZ11vGriKaw4aAA7nKC13uASGDCqk-e2cVgX7G1nsfkkaBSXdefTjXNfnU0a-d3ehSkNawNjN8kl0pE-i1qm9UeHeIYEkqHfeexNyLJcLGsLOfOk310-BAcQSMi5fRtR-w8_sltAazRL6ypa18dKK48Fl1h2kb2hfX1LMf2bJA8t3-exHM5mHLgKGEmoRbgy7FKswx0pkZTlbj6aFNvvYBdOnwXzlZ1kfzkg1V1YUEjCu_juUFFQhQUB-t5BGhunXG4yzWQFlrUt_YcWED4j6hzFR9U9yxNipqPXwjSbtVQBLgyEBELP_a3?></g></svg>",
+        "C-light": "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 209 192\" width=\"209\" height=\"192\"><defs/><g><g class=\"message\" data-entity-1=\"part1\" data-entity-2=\"part2\" id=\"msg1\" data-source-line=\"22\"/><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part3\" id=\"msg2\" data-source-line=\"23\"/><g class=\"message\" data-entity-1=\"part3\" data-entity-2=\"part2\" id=\"msg3\" data-source-line=\"24\"/><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part1\" id=\"msg4\" data-source-line=\"25\"/><g class=\"participant-lifeline\" data-qualified-name=\"..\" data-entity-uid=\"part1\" id=\"part1-lifeline\" data-source-line=\"19\"><g><title>..</title><rect x=\"21.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"25\" y1=\"38.5\" x2=\"25\" y2=\"186.5\" stroke=\"#5E7BA8\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant-lifeline\" data-qualified-name=\"...\" data-entity-uid=\"part2\" id=\"part2-lifeline\" data-source-line=\"20\"><g><title>...</title><rect x=\"97.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"101\" y1=\"38.5\" x2=\"101\" y2=\"186.5\" stroke=\"#5E7BA8\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant-lifeline\" data-qualified-name=\"...\" data-entity-uid=\"part3\" id=\"part3-lifeline\" data-source-line=\"21\"><g><title>...</title><rect x=\"173.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"177\" y1=\"38.5\" x2=\"177\" y2=\"186.5\" stroke=\"#5E7BA8\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant participant-head\" data-qualified-name=\"..\" data-entity-uid=\"part1\" id=\"part1-head\" data-source-line=\"19\"><rect x=\"5\" y=\"5\" width=\"40\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#EEF3FC\" stroke=\"#B7C7E4\" stroke-width=\"1\"/><text x=\"12\" y=\"26.5\" font-size=\"13\" fill=\"#30496F\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">用户</text></g><g class=\"participant participant-head\" data-qualified-name=\"...\" data-entity-uid=\"part2\" id=\"part2-head\" data-source-line=\"20\"><rect x=\"74.5\" y=\"5\" width=\"53\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#EEF3FC\" stroke=\"#B7C7E4\" stroke-width=\"1\"/><text x=\"81.5\" y=\"26.5\" font-size=\"13\" fill=\"#30496F\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">客户端</text></g><g class=\"participant participant-head\" data-qualified-name=\"...\" data-entity-uid=\"part3\" id=\"part3-head\" data-source-line=\"21\"><rect x=\"150.5\" y=\"5\" width=\"53\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#EEF3FC\" stroke=\"#B7C7E4\" stroke-width=\"1\"/><text x=\"157.5\" y=\"26.5\" font-size=\"13\" fill=\"#30496F\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">服务端</text></g><g class=\"message\" data-entity-1=\"part1\" data-entity-2=\"part2\" id=\"msg1\" data-source-line=\"22\"><polygon points=\"89,67 99,71 89,75 93,71\" fill=\"#5E7BA8\" stroke=\"#5E7BA8\" stroke-width=\"1\"/><line x1=\"25\" y1=\"71\" x2=\"95\" y2=\"71\" stroke=\"#5E7BA8\" stroke-width=\"1\"/><text x=\"32\" y=\"65\" font-size=\"13\" fill=\"#30496F\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">提交请求</text></g><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part3\" id=\"msg2\" data-source-line=\"23\"><polygon points=\"165,99.5 175,103.5 165,107.5 169,103.5\" fill=\"#5E7BA8\" stroke=\"#5E7BA8\" stroke-width=\"1\"/><line x1=\"101\" y1=\"103.5\" x2=\"171\" y2=\"103.5\" stroke=\"#5E7BA8\" stroke-width=\"1\"/><text x=\"108\" y=\"97.5\" font-size=\"13\" fill=\"#30496F\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">发送请求</text></g><g class=\"message\" data-entity-1=\"part3\" data-entity-2=\"part2\" id=\"msg3\" data-source-line=\"24\"><polygon points=\"112,132 102,136 112,140 108,136\" fill=\"#5E7BA8\" stroke=\"#5E7BA8\" stroke-width=\"1\"/><line x1=\"106\" y1=\"136\" x2=\"176\" y2=\"136\" stroke=\"#5E7BA8\" stroke-width=\"1\" stroke-dasharray=\"2,2\"/><text x=\"118\" y=\"130\" font-size=\"13\" fill=\"#30496F\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">返回结果</text></g><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part1\" id=\"msg4\" data-source-line=\"25\"><polygon points=\"36,164.5 26,168.5 36,172.5 32,168.5\" fill=\"#5E7BA8\" stroke=\"#5E7BA8\" stroke-width=\"1\"/><line x1=\"30\" y1=\"168.5\" x2=\"100\" y2=\"168.5\" stroke=\"#5E7BA8\" stroke-width=\"1\" stroke-dasharray=\"2,2\"/><text x=\"42\" y=\"162.5\" font-size=\"13\" fill=\"#30496F\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">展示结果</text></g><?plantuml-src ROzFIm916CRl-oa6FGk9bkOXq6Nt927O5nXtttK7TSPcHemYg4uHX4LsIeJ2Gn0adWGxz6NQNViMhUosxghNt_FdVLxH8hIBEUwW1ZPQJSvwr5HPct4aEQR2bu1AHKGkOMEJzGbj8Wkt1SIKCCefS5ICSHCit6jBdL5vZ3k0KZK_hME_eQwcTllgv1nGDhTR3DQbStlvmmCzlWnEUq0DG1TA3ND93DB5L5OslafhcfxJrOI5SHDuA5SAQa7Bn-NjcnlY_zgjoXER62qAGg2iKkQSzSEQVQrGAHULAh6WIYWaxk_KjehYu5AnYGd8Oamss9dINQz0tl3TlPqdaFFvvYFlOvgWxkZUkNjTqI22CaThPmcvWuUVnMGvdRkp6oNYArCKB25dyFXxTHsQ8euooQhbzz1v6NjVJ-vu5A_oNS5flsZsx4qMWUKF?></g></svg>",
+        "C-dark": "<svg xmlns=\"http://www.w3.org/2000/svg\" version=\"1.1\" viewBox=\"0 0 209 192\" width=\"209\" height=\"192\"><defs/><g><g class=\"message\" data-entity-1=\"part1\" data-entity-2=\"part2\" id=\"msg1\" data-source-line=\"22\"/><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part3\" id=\"msg2\" data-source-line=\"23\"/><g class=\"message\" data-entity-1=\"part3\" data-entity-2=\"part2\" id=\"msg3\" data-source-line=\"24\"/><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part1\" id=\"msg4\" data-source-line=\"25\"/><g class=\"participant-lifeline\" data-qualified-name=\"..\" data-entity-uid=\"part1\" id=\"part1-lifeline\" data-source-line=\"19\"><g><title>..</title><rect x=\"21.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"25\" y1=\"38.5\" x2=\"25\" y2=\"186.5\" stroke=\"#93ACD6\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant-lifeline\" data-qualified-name=\"...\" data-entity-uid=\"part2\" id=\"part2-lifeline\" data-source-line=\"20\"><g><title>...</title><rect x=\"97.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"101\" y1=\"38.5\" x2=\"101\" y2=\"186.5\" stroke=\"#93ACD6\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant-lifeline\" data-qualified-name=\"...\" data-entity-uid=\"part3\" id=\"part3-lifeline\" data-source-line=\"21\"><g><title>...</title><rect x=\"173.5\" y=\"38.5\" width=\"8\" height=\"148\" fill=\"#00000000\" stroke=\"#00000000\" stroke-width=\"0\"/><line x1=\"177\" y1=\"38.5\" x2=\"177\" y2=\"186.5\" stroke=\"#93ACD6\" stroke-width=\"0.5\" stroke-dasharray=\"5,5\"/></g></g><g class=\"participant participant-head\" data-qualified-name=\"..\" data-entity-uid=\"part1\" id=\"part1-head\" data-source-line=\"19\"><rect x=\"5\" y=\"5\" width=\"40\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#242D3E\" stroke=\"#4D648A\" stroke-width=\"1\"/><text x=\"12\" y=\"26.5\" font-size=\"13\" fill=\"#D7E3FA\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">用户</text></g><g class=\"participant participant-head\" data-qualified-name=\"...\" data-entity-uid=\"part2\" id=\"part2-head\" data-source-line=\"20\"><rect x=\"74.5\" y=\"5\" width=\"53\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#242D3E\" stroke=\"#4D648A\" stroke-width=\"1\"/><text x=\"81.5\" y=\"26.5\" font-size=\"13\" fill=\"#D7E3FA\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">客户端</text></g><g class=\"participant participant-head\" data-qualified-name=\"...\" data-entity-uid=\"part3\" id=\"part3-head\" data-source-line=\"21\"><rect x=\"150.5\" y=\"5\" width=\"53\" height=\"32.5\" rx=\"4\" ry=\"4\" fill=\"#242D3E\" stroke=\"#4D648A\" stroke-width=\"1\"/><text x=\"157.5\" y=\"26.5\" font-size=\"13\" fill=\"#D7E3FA\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">服务端</text></g><g class=\"message\" data-entity-1=\"part1\" data-entity-2=\"part2\" id=\"msg1\" data-source-line=\"22\"><polygon points=\"89,67 99,71 89,75 93,71\" fill=\"#93ACD6\" stroke=\"#93ACD6\" stroke-width=\"1\"/><line x1=\"25\" y1=\"71\" x2=\"95\" y2=\"71\" stroke=\"#93ACD6\" stroke-width=\"1\"/><text x=\"32\" y=\"65\" font-size=\"13\" fill=\"#D7E3FA\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">提交请求</text></g><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part3\" id=\"msg2\" data-source-line=\"23\"><polygon points=\"165,99.5 175,103.5 165,107.5 169,103.5\" fill=\"#93ACD6\" stroke=\"#93ACD6\" stroke-width=\"1\"/><line x1=\"101\" y1=\"103.5\" x2=\"171\" y2=\"103.5\" stroke=\"#93ACD6\" stroke-width=\"1\"/><text x=\"108\" y=\"97.5\" font-size=\"13\" fill=\"#D7E3FA\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">发送请求</text></g><g class=\"message\" data-entity-1=\"part3\" data-entity-2=\"part2\" id=\"msg3\" data-source-line=\"24\"><polygon points=\"112,132 102,136 112,140 108,136\" fill=\"#93ACD6\" stroke=\"#93ACD6\" stroke-width=\"1\"/><line x1=\"106\" y1=\"136\" x2=\"176\" y2=\"136\" stroke=\"#93ACD6\" stroke-width=\"1\" stroke-dasharray=\"2,2\"/><text x=\"118\" y=\"130\" font-size=\"13\" fill=\"#D7E3FA\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">返回结果</text></g><g class=\"message\" data-entity-1=\"part2\" data-entity-2=\"part1\" id=\"msg4\" data-source-line=\"25\"><polygon points=\"36,164.5 26,168.5 36,172.5 32,168.5\" fill=\"#93ACD6\" stroke=\"#93ACD6\" stroke-width=\"1\"/><line x1=\"30\" y1=\"168.5\" x2=\"100\" y2=\"168.5\" stroke=\"#93ACD6\" stroke-width=\"1\" stroke-dasharray=\"2,2\"/><text x=\"42\" y=\"162.5\" font-size=\"13\" fill=\"#D7E3FA\" xml:space=\"preserve\" style=\"white-space: pre\" font-family=\"'PingFang SC'\">展示结果</text></g><?plantuml-src ROzFIm916CRlyobUzEn1Lymy19kh9md1li2uEwk3EcEp8qOHLAS8mY8xAKBX8GWIJu8T-ZBjhdsBLdPRTzNhx_dpFg_LegoB1Uv07UkjXk0zPXHvcmkG0ZFBamYJo0fTLXCRl4zP0qpSjaX42QA24G7v23U8YNjjMUPCdk0EWKJLIvUnrr0h9lRxQlI2G5hPB_hhajf1IIchqMNah4UOJk0ILR6GLATTpEJnrbV9J3QZAQMOXGk3Y43EQhbiNetAkpUtnF-rEvMdJQgt6B4iI2DL2DuFQWuLjQZbK8MQf48PYTtVg-qKHS4LQbA3WCcvhFDprDsi07VuxjmjOiZ-VFEG-p6BKMVyOD-_hgaVWTJHnba0P_3uivokPWjdVej2lZQ5mGBOWwVVwvl05798nQjMtqDxD76_dft9E5hbkVpJNj7ynPqkVSiV?></g></svg>",
+        "flow-light": "<svg id=\"flow-light\" width=\"100%\" xmlns=\"http://www.w3.org/2000/svg\" class=\"flowchart\" style=\"max-width: 702px;\" viewBox=\"0 0 702 178\" role=\"graphics-document document\" aria-roledescription=\"flowchart-v2\"><style>#flow-light{font-family:-apple-system,PingFang SC,sans-serif;font-size:16px;fill:#303641;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#flow-light .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#flow-light .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#flow-light .error-icon{fill:hsl(180, 0%, 100%);}#flow-light .error-text{fill:rgb(0, 0, 0);stroke:rgb(0, 0, 0);}#flow-light .edge-thickness-normal{stroke-width:1px;}#flow-light .edge-thickness-thick{stroke-width:3.5px;}#flow-light .edge-pattern-solid{stroke-dasharray:0;}#flow-light .edge-thickness-invisible{stroke-width:0;fill:none;}#flow-light .edge-pattern-dashed{stroke-dasharray:3;}#flow-light .edge-pattern-dotted{stroke-dasharray:2;}#flow-light .marker{fill:#818997;stroke:#818997;}#flow-light .marker.cross{stroke:#818997;}#flow-light svg{font-family:-apple-system,PingFang SC,sans-serif;font-size:16px;}#flow-light p{margin:0;}#flow-light .label{font-family:-apple-system,PingFang SC,sans-serif;color:#303641;}#flow-light .cluster-label text{fill:rgb(0, 0, 0);}#flow-light .cluster-label span{color:rgb(0, 0, 0);}#flow-light .cluster-label span p{background-color:transparent;}#flow-light .label text,#flow-light span{fill:#303641;color:#303641;}#flow-light .node rect,#flow-light .node circle,#flow-light .node ellipse,#flow-light .node polygon,#flow-light .node path{fill:#FFFFFF;stroke:#C9CED7;stroke-width:1px;}#flow-light .rough-node .label text,#flow-light .node .label text,#flow-light .image-shape .label,#flow-light .icon-shape .label{text-anchor:middle;}#flow-light .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#flow-light .rough-node .label,#flow-light .node .label,#flow-light .image-shape .label,#flow-light .icon-shape .label{text-align:center;}#flow-light .node.clickable{cursor:pointer;}#flow-light .root .anchor path{fill:#818997!important;stroke-width:0;stroke:#818997;}#flow-light .arrowheadPath{fill:rgba(255, 255, 255, 0);}#flow-light .edgePaths .path{stroke:#818997;stroke-width:1px;}#flow-light .flowchart-link{stroke:#818997;fill:none;}#flow-light .edgeLabel{background-color:#F6F6F8;text-align:center;}#flow-light .edgeLabel p{background-color:#F6F6F8;}#flow-light .edgeLabel rect{opacity:0.5;background-color:#F6F6F8;fill:#F6F6F8;}#flow-light .labelBkg{background-color:rgba(246, 246, 248, 0.5);}#flow-light .cluster rect{fill:hsl(180, 0%, 100%);stroke:hsl(180, 0%, 90%);stroke-width:1px;}#flow-light .cluster text{fill:rgb(0, 0, 0);}#flow-light .cluster span{color:rgb(0, 0, 0);}#flow-light .node .collapsed-indicator{fill:hsl(180, 0%, 90%);stroke:none;opacity:0.6;}#flow-light .node .collapsed-separator{stroke:hsl(180, 0%, 90%);stroke-width:0.75px;}#flow-light div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,PingFang SC,sans-serif;font-size:12px;background:hsl(180, 0%, 100%);border:1px solid hsl(180, 0%, 90%);border-radius:2px;pointer-events:none;z-index:100;}#flow-light .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#303641;}#flow-light rect.text{fill:none;stroke-width:0;}#flow-light .icon-shape,#flow-light .image-shape{background-color:#F6F6F8;text-align:center;}#flow-light .icon-shape p,#flow-light .image-shape p{background-color:#F6F6F8;padding:2px;}#flow-light .icon-shape .label rect,#flow-light .image-shape .label rect{opacity:0.5;background-color:#F6F6F8;fill:#F6F6F8;}#flow-light .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#flow-light .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#flow-light .node .neo-node{stroke:#C9CED7;}#flow-light [data-look=\"neo\"].node rect,#flow-light [data-look=\"neo\"].cluster rect,#flow-light [data-look=\"neo\"].node polygon{stroke:url(#flow-light-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#flow-light [data-look=\"neo\"].swimlane.cluster rect{filter:none;}#flow-light [data-look=\"neo\"].node path{stroke:url(#flow-light-gradient);stroke-width:1px;}#flow-light [data-look=\"neo\"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#flow-light [data-look=\"neo\"].node .neo-line path{stroke:#C9CED7;filter:none;}#flow-light [data-look=\"neo\"].node circle{stroke:url(#flow-light-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#flow-light [data-look=\"neo\"].node circle .state-start{fill:#000000;}#flow-light [data-look=\"neo\"].icon-shape .icon{fill:url(#flow-light-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#flow-light [data-look=\"neo\"].icon-shape .icon-neo path{stroke:url(#flow-light-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#flow-light :root{--mermaid-font-family:-apple-system,PingFang SC,sans-serif;}</style><g><marker id=\"flow-light_flowchart-v2-pointEnd\" class=\"marker flowchart-v2\" viewBox=\"0 0 10 10\" refX=\"5\" refY=\"5\" markerUnits=\"userSpaceOnUse\" markerWidth=\"8\" markerHeight=\"8\" orient=\"auto\"><path d=\"M 0 0 L 10 5 L 0 10 z\" class=\"arrowMarkerPath\" style=\"stroke-width: 1; stroke-dasharray: 1, 0;\"></path></marker><marker id=\"flow-light_flowchart-v2-pointStart\" class=\"marker flowchart-v2\" viewBox=\"0 0 10 10\" refX=\"4.5\" refY=\"5\" markerUnits=\"userSpaceOnUse\" markerWidth=\"8\" markerHeight=\"8\" orient=\"auto\"><path d=\"M 0 5 L 10 10 L 10 0 z\" class=\"arrowMarkerPath\" style=\"stroke-width: 1; stroke-dasharray: 1, 0;\"></path></marker><marker id=\"flow-light_flowchart-v2-pointEnd-margin\" class=\"marker flowchart-v2\" viewBox=\"0 0 11.5 14\" refX=\"11.5\" refY=\"7\" markerUnits=\"userSpaceOnUse\" markerWidth=\"10.5\" markerHeight=\"14\" orient=\"auto\"><path d=\"M 0 0 L 11.5 7 L 0 14 z\" class=\"arrowMarkerPath\" style=\"stroke-width: 0; stroke-dasharray: 1, 0;\"></path></marker><marker id=\"flow-light_flowchart-v2-pointStart-margin\" class=\"marker flowchart-v2\" viewBox=\"0 0 11.5 14\" refX=\"1\" refY=\"7\" markerUnits=\"userSpaceOnUse\" markerWidth=\"11.5\" markerHeight=\"14\" orient=\"auto\"><polygon points=\"0,7 11.5,14 11.5,0\" class=\"arrowMarkerPath\" style=\"stroke-width: 0; stroke-dasharray: 1, 0;\"></polygon></marker><marker id=\"flow-light_flowchart-v2-circleEnd\" class=\"marker flowchart-v2\" viewBox=\"0 0 10 10\" refX=\"11\" refY=\"5\" markerUnits=\"userSpaceOnUse\" markerWidth=\"11\" markerHeight=\"11\" orient=\"auto\"><circle cx=\"5\" cy=\"5\" r=\"5\" class=\"arrowMarkerPath\" style=\"stroke-width: 1; stroke-dasharray: 1, 0;\"></circle></marker><marker id=\"flow-light_flowchart-v2-circleStart\" class=\"marker flowchart-v2\" viewBox=\"0 0 10 10\" refX=\"-1\" refY=\"5\" markerUnits=\"userSpaceOnUse\" markerWidth=\"11\" markerHeight=\"11\" orient=\"auto\"><circle cx=\"5\" cy=\"5\" r=\"5\" class=\"arrowMarkerPath\" style=\"stroke-width: 1; stroke-dasharray: 1, 0;\"></circle></marker><marker id=\"flow-light_flowchart-v2-circleEnd-margin\" class=\"marker flowchart-v2\" viewBox=\"0 0 10 10\" refY=\"5\" refX=\"12.25\" markerUnits=\"userSpaceOnUse\" markerWidth=\"14\" markerHeight=\"14\" orient=\"auto\"><circle cx=\"5\" cy=\"5\" r=\"5\" class=\"arrowMarkerPath\" style=\"stroke-width: 0; stroke-dasharray: 1, 0;\"></circle></marker><marker id=\"flow-light_flowchart-v2-circleStart-margin\" class=\"marker flowchart-v2\" viewBox=\"0 0 10 10\" refX=\"-2\" refY=\"5\" markerUnits=\"userSpaceOnUse\" markerWidth=\"14\" markerHeight=\"14\" orient=\"auto\"><circle cx=\"5\" cy=\"5\" r=\"5\" class=\"arrowMarkerPath\" style=\"stroke-width: 0; stroke-dasharray: 1, 0;\"></circle></marker><marker id=\"flow-light_flowchart-v2-crossEnd\" class=\"marker cross flowchart-v2\" viewBox=\"0 0 11 11\" refX=\"12\" refY=\"5.2\" markerUnits=\"userSpaceOnUse\" markerWidth=\"11\" markerHeight=\"11\" orient=\"auto\"><path d=\"M 1,1 l 9,9 M 10,1 l -9,9\" class=\"arrowMarkerPath\" style=\"stroke-width: 2; stroke-dasharray: 1, 0;\"></path></marker><marker id=\"flow-light_flowchart-v2-crossStart\" class=\"marker cross flowchart-v2\" viewBox=\"0 0 11 11\" refX=\"-1\" refY=\"5.2\" markerUnits=\"userSpaceOnUse\" markerWidth=\"11\" markerHeight=\"11\" orient=\"auto\"><path d=\"M 1,1 l 9,9 M 10,1 l -9,9\" class=\"arrowMarkerPath\" style=\"stroke-width: 2; stroke-dasharray: 1, 0;\"></path></marker><marker id=\"flow-light_flowchart-v2-crossEnd-margin\" class=\"marker cross flowchart-v2\" viewBox=\"0 0 15 15\" refX=\"17.7\" refY=\"7.5\" markerUnits=\"userSpaceOnUse\" markerWidth=\"12\" markerHeight=\"12\" orient=\"auto\"><path d=\"M 1,1 L 14,14 M 1,14 L 14,1\" class=\"arrowMarkerPath\" style=\"stroke-width: 2.5;\"></path></marker><marker id=\"flow-light_flowchart-v2-crossStart-margin\" class=\"marker cross flowchart-v2\" viewBox=\"0 0 15 15\" refX=\"-3.5\" refY=\"7.5\" markerUnits=\"userSpaceOnUse\" markerWidth=\"12\" markerHeight=\"12\" orient=\"auto\"><path d=\"M 1,1 L 14,14 M 1,14 L 14,1\" class=\"arrowMarkerPath\" style=\"stroke-width: 2.5; stroke-dasharray: 1, 0;\"></path></marker><g class=\"root\"><g class=\"clusters\"></g><g class=\"edgePaths\"><path d=\"M136,89L161,89L182,89\" id=\"flow-light-L_A_B_0\" class=\"edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link\" style=\";\" data-edge=\"true\" data-et=\"edge\" data-id=\"L_A_B_0\" data-points=\"W3sieCI6MTM2LCJ5Ijo4OX0seyJ4IjoxNjEsInkiOjg5fSx7IngiOjE4NiwieSI6ODl9XQ==\" data-look=\"classic\" marker-end=\"url(#flow-light_flowchart-v2-pointEnd)\"></path><path d=\"M285.351,68.351L347,36L384,36\" id=\"flow-light-L_B_C_0\" class=\"edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link\" style=\";\" data-edge=\"true\" data-et=\"edge\" data-id=\"L_B_C_0\" data-points=\"W3sieCI6Mjg1LjM1MDY0OTM1MDY0OTM1LCJ5Ijo2OC4zNTA2NDkzNTA2NDkzNX0seyJ4IjozNDcsInkiOjM2fSx7IngiOjM4OCwieSI6MzZ9XQ==\" data-look=\"classic\" marker-end=\"url(#flow-light_flowchart-v2-pointEnd)\"></path><path d=\"M285.351,109.649L347,142L384,142\" id=\"flow-light-L_B_D_0\" class=\"edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link\" style=\";\" data-edge=\"true\" data-et=\"edge\" data-id=\"L_B_D_0\" data-points=\"W3sieCI6Mjg1LjM1MDY0OTM1MDY0OTM1LCJ5IjoxMDkuNjQ5MzUwNjQ5MzUwNjV9LHsieCI6MzQ3LCJ5IjoxNDJ9LHsieCI6Mzg4LCJ5IjoxNDJ9XQ==\" data-look=\"classic\" marker-end=\"url(#flow-light_flowchart-v2-pointEnd)\"></path><path d=\"M516,36L541,36L562,36\" id=\"flow-light-L_C_E_0\" class=\"edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link\" style=\";\" data-edge=\"true\" data-et=\"edge\" data-id=\"L_C_E_0\" data-points=\"W3sieCI6NTE2LCJ5IjozNn0seyJ4Ijo1NDEsInkiOjM2fSx7IngiOjU2NiwieSI6MzZ9XQ==\" data-look=\"classic\" marker-end=\"url(#flow-light_flowchart-v2-pointEnd)\"></path></g><g class=\"edgeLabels\"><g class=\"edgeLabel\"><g class=\"label\" data-id=\"L_A_B_0\" transform=\"translate(0, 0)\"><foreignObject width=\"0\" height=\"0\"><div xmlns=\"http://www.w3.org/1999/xhtml\" class=\"labelBkg\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"edgeLabel\"></span></div></foreignObject></g></g><g class=\"edgeLabel\" transform=\"translate(347, 36)\"><g class=\"label\" data-id=\"L_B_C_0\" transform=\"translate(-16, -12)\"><foreignObject width=\"32\" height=\"24\"><div xmlns=\"http://www.w3.org/1999/xhtml\" class=\"labelBkg\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"edgeLabel\"><p>有效</p></span></div></foreignObject></g></g><g class=\"edgeLabel\" transform=\"translate(347, 142)\"><g class=\"label\" data-id=\"L_B_D_0\" transform=\"translate(-16, -12)\"><foreignObject width=\"32\" height=\"24\"><div xmlns=\"http://www.w3.org/1999/xhtml\" class=\"labelBkg\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"edgeLabel\"><p>无效</p></span></div></foreignObject></g></g><g class=\"edgeLabel\"><g class=\"label\" data-id=\"L_C_E_0\" transform=\"translate(0, 0)\"><foreignObject width=\"0\" height=\"0\"><div xmlns=\"http://www.w3.org/1999/xhtml\" class=\"labelBkg\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"edgeLabel\"></span></div></foreignObject></g></g></g><g class=\"nodes\"><g class=\"node default\" id=\"flow-light-flowchart-A-0\" data-look=\"classic\" transform=\"translate(72, 89)\"><rect class=\"basic label-container\" style=\"\" x=\"-64\" y=\"-28\" width=\"128\" height=\"56\"></rect><g class=\"label\" style=\"\" transform=\"translate(-32, -12)\"><rect></rect><foreignObject width=\"64\" height=\"24\"><div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"nodeLabel\"><p>收到请求</p></span></div></foreignObject></g></g><g class=\"node default\" id=\"flow-light-flowchart-B-1\" data-look=\"classic\" transform=\"translate(246, 89)\"><polygon points=\"60,0 120,-60 60,-120 0,-60\" class=\"label-container\" transform=\"translate(-59.5, 60)\"></polygon><g class=\"label\" style=\"\" transform=\"translate(-32, -12)\"><rect></rect><foreignObject width=\"64\" height=\"24\"><div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"nodeLabel\"><p>校验参数</p></span></div></foreignObject></g></g><g class=\"node default\" id=\"flow-light-flowchart-C-3\" data-look=\"classic\" transform=\"translate(452, 36)\"><rect class=\"basic label-container\" style=\"\" x=\"-64\" y=\"-28\" width=\"128\" height=\"56\"></rect><g class=\"label\" style=\"\" transform=\"translate(-32, -12)\"><rect></rect><foreignObject width=\"64\" height=\"24\"><div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"nodeLabel\"><p>执行任务</p></span></div></foreignObject></g></g><g class=\"node default\" id=\"flow-light-flowchart-D-5\" data-look=\"classic\" transform=\"translate(452, 142)\"><rect class=\"basic label-container\" style=\"\" x=\"-64\" y=\"-28\" width=\"128\" height=\"56\"></rect><g class=\"label\" style=\"\" transform=\"translate(-32, -12)\"><rect></rect><foreignObject width=\"64\" height=\"24\"><div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"nodeLabel\"><p>返回错误</p></span></div></foreignObject></g></g><g class=\"node default\" id=\"flow-light-flowchart-E-7\" data-look=\"classic\" transform=\"translate(630, 36)\"><rect class=\"basic label-container\" style=\"\" x=\"-64\" y=\"-28\" width=\"128\" height=\"56\"></rect><g class=\"label\" style=\"\" transform=\"translate(-32, -12)\"><rect></rect><foreignObject width=\"64\" height=\"24\"><div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"nodeLabel\"><p>返回结果</p></span></div></foreignObject></g></g></g></g></g><defs><filter id=\"flow-light-drop-shadow\" height=\"130%\" width=\"130%\"><feDropShadow dx=\"4\" dy=\"4\" stdDeviation=\"0\" flood-opacity=\"0.06\" flood-color=\"#000000\"></feDropShadow></filter></defs><defs><filter id=\"flow-light-drop-shadow-small\" height=\"150%\" width=\"150%\"><feDropShadow dx=\"2\" dy=\"2\" stdDeviation=\"0\" flood-opacity=\"0.06\" flood-color=\"#000000\"></feDropShadow></filter></defs><linearGradient id=\"flow-light-gradient\" gradientUnits=\"objectBoundingBox\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"0%\"><stop offset=\"0%\" stop-color=\"#C9CED7\" stop-opacity=\"1\"></stop><stop offset=\"100%\" stop-color=\"hsl(-120, 0%, 90%)\" stop-opacity=\"1\"></stop></linearGradient></svg>",
+        "flow-dark": "<svg id=\"flow-dark\" width=\"100%\" xmlns=\"http://www.w3.org/2000/svg\" class=\"flowchart\" style=\"max-width: 702px;\" viewBox=\"0 0 702 178\" role=\"graphics-document document\" aria-roledescription=\"flowchart-v2\"><style>#flow-dark{font-family:-apple-system,PingFang SC,sans-serif;font-size:16px;fill:#E3E5E9;}@keyframes edge-animation-frame{from{stroke-dashoffset:0;}}@keyframes dash{to{stroke-dashoffset:0;}}#flow-dark .edge-animation-slow{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round;}#flow-dark .edge-animation-fast{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 20s linear infinite;stroke-linecap:round;}#flow-dark .error-icon{fill:hsl(45, 10%, 20.6862745098%);}#flow-dark .error-text{fill:rgb(196.975, 199.6125, 207.525);stroke:rgb(196.975, 199.6125, 207.525);}#flow-dark .edge-thickness-normal{stroke-width:1px;}#flow-dark .edge-thickness-thick{stroke-width:3.5px;}#flow-dark .edge-pattern-solid{stroke-dasharray:0;}#flow-dark .edge-thickness-invisible{stroke-width:0;fill:none;}#flow-dark .edge-pattern-dashed{stroke-dasharray:3;}#flow-dark .edge-pattern-dotted{stroke-dasharray:2;}#flow-dark .marker{fill:#A3A9B4;stroke:#A3A9B4;}#flow-dark .marker.cross{stroke:#A3A9B4;}#flow-dark svg{font-family:-apple-system,PingFang SC,sans-serif;font-size:16px;}#flow-dark p{margin:0;}#flow-dark .label{font-family:-apple-system,PingFang SC,sans-serif;color:#E3E5E9;}#flow-dark .cluster-label text{fill:rgb(196.975, 199.6125, 207.525);}#flow-dark .cluster-label span{color:rgb(196.975, 199.6125, 207.525);}#flow-dark .cluster-label span p{background-color:transparent;}#flow-dark .label text,#flow-dark span{fill:#E3E5E9;color:#E3E5E9;}#flow-dark .node rect,#flow-dark .node circle,#flow-dark .node ellipse,#flow-dark .node polygon,#flow-dark .node path{fill:#24262C;stroke:#555B65;stroke-width:1px;}#flow-dark .rough-node .label text,#flow-dark .node .label text,#flow-dark .image-shape .label,#flow-dark .icon-shape .label{text-anchor:middle;}#flow-dark .node .katex path{fill:#000;stroke:#000;stroke-width:1px;}#flow-dark .rough-node .label,#flow-dark .node .label,#flow-dark .image-shape .label,#flow-dark .icon-shape .label{text-align:center;}#flow-dark .node.clickable{cursor:pointer;}#flow-dark .root .anchor path{fill:#A3A9B4!important;stroke-width:0;stroke:#A3A9B4;}#flow-dark .arrowheadPath{fill:rgba(255, 255, 255, 0);}#flow-dark .edgePaths .path{stroke:#A3A9B4;stroke-width:1px;}#flow-dark .flowchart-link{stroke:#A3A9B4;fill:none;}#flow-dark .edgeLabel{background-color:#1D1E22;text-align:center;}#flow-dark .edgeLabel p{background-color:#1D1E22;}#flow-dark .edgeLabel rect{opacity:0.5;background-color:#1D1E22;fill:#1D1E22;}#flow-dark .labelBkg{background-color:rgba(29, 30, 34, 0.5);}#flow-dark .cluster rect{fill:hsl(45, 10%, 20.6862745098%);stroke:hsl(45, 0%, 10.6862745098%);stroke-width:1px;}#flow-dark .cluster text{fill:rgb(196.975, 199.6125, 207.525);}#flow-dark .cluster span{color:rgb(196.975, 199.6125, 207.525);}#flow-dark .node .collapsed-indicator{fill:hsl(45, 0%, 10.6862745098%);stroke:none;opacity:0.6;}#flow-dark .node .collapsed-separator{stroke:hsl(45, 0%, 10.6862745098%);stroke-width:0.75px;}#flow-dark div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:-apple-system,PingFang SC,sans-serif;font-size:12px;background:hsl(45, 10%, 20.6862745098%);border:1px solid hsl(45, 0%, 10.6862745098%);border-radius:2px;pointer-events:none;z-index:100;}#flow-dark .flowchartTitleText{text-anchor:middle;font-size:18px;fill:#E3E5E9;}#flow-dark rect.text{fill:none;stroke-width:0;}#flow-dark .icon-shape,#flow-dark .image-shape{background-color:#1D1E22;text-align:center;}#flow-dark .icon-shape p,#flow-dark .image-shape p{background-color:#1D1E22;padding:2px;}#flow-dark .icon-shape .label rect,#flow-dark .image-shape .label rect{opacity:0.5;background-color:#1D1E22;fill:#1D1E22;}#flow-dark .label-icon{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}#flow-dark .node .label-icon path{fill:currentColor;stroke:revert;stroke-width:revert;}#flow-dark .node .neo-node{stroke:#555B65;}#flow-dark [data-look=\"neo\"].node rect,#flow-dark [data-look=\"neo\"].cluster rect,#flow-dark [data-look=\"neo\"].node polygon{stroke:url(#flow-dark-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#flow-dark [data-look=\"neo\"].swimlane.cluster rect{filter:none;}#flow-dark [data-look=\"neo\"].node path{stroke:url(#flow-dark-gradient);stroke-width:1px;}#flow-dark [data-look=\"neo\"].node .outer-path{filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#flow-dark [data-look=\"neo\"].node .neo-line path{stroke:#555B65;filter:none;}#flow-dark [data-look=\"neo\"].node circle{stroke:url(#flow-dark-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#flow-dark [data-look=\"neo\"].node circle .state-start{fill:#000000;}#flow-dark [data-look=\"neo\"].icon-shape .icon{fill:url(#flow-dark-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#flow-dark [data-look=\"neo\"].icon-shape .icon-neo path{stroke:url(#flow-dark-gradient);filter:drop-shadow( 1px 2px 2px rgba(185,185,185,1));}#flow-dark :root{--mermaid-font-family:-apple-system,PingFang SC,sans-serif;}</style><g><marker id=\"flow-dark_flowchart-v2-pointEnd\" class=\"marker flowchart-v2\" viewBox=\"0 0 10 10\" refX=\"5\" refY=\"5\" markerUnits=\"userSpaceOnUse\" markerWidth=\"8\" markerHeight=\"8\" orient=\"auto\"><path d=\"M 0 0 L 10 5 L 0 10 z\" class=\"arrowMarkerPath\" style=\"stroke-width: 1; stroke-dasharray: 1, 0;\"></path></marker><marker id=\"flow-dark_flowchart-v2-pointStart\" class=\"marker flowchart-v2\" viewBox=\"0 0 10 10\" refX=\"4.5\" refY=\"5\" markerUnits=\"userSpaceOnUse\" markerWidth=\"8\" markerHeight=\"8\" orient=\"auto\"><path d=\"M 0 5 L 10 10 L 10 0 z\" class=\"arrowMarkerPath\" style=\"stroke-width: 1; stroke-dasharray: 1, 0;\"></path></marker><marker id=\"flow-dark_flowchart-v2-pointEnd-margin\" class=\"marker flowchart-v2\" viewBox=\"0 0 11.5 14\" refX=\"11.5\" refY=\"7\" markerUnits=\"userSpaceOnUse\" markerWidth=\"10.5\" markerHeight=\"14\" orient=\"auto\"><path d=\"M 0 0 L 11.5 7 L 0 14 z\" class=\"arrowMarkerPath\" style=\"stroke-width: 0; stroke-dasharray: 1, 0;\"></path></marker><marker id=\"flow-dark_flowchart-v2-pointStart-margin\" class=\"marker flowchart-v2\" viewBox=\"0 0 11.5 14\" refX=\"1\" refY=\"7\" markerUnits=\"userSpaceOnUse\" markerWidth=\"11.5\" markerHeight=\"14\" orient=\"auto\"><polygon points=\"0,7 11.5,14 11.5,0\" class=\"arrowMarkerPath\" style=\"stroke-width: 0; stroke-dasharray: 1, 0;\"></polygon></marker><marker id=\"flow-dark_flowchart-v2-circleEnd\" class=\"marker flowchart-v2\" viewBox=\"0 0 10 10\" refX=\"11\" refY=\"5\" markerUnits=\"userSpaceOnUse\" markerWidth=\"11\" markerHeight=\"11\" orient=\"auto\"><circle cx=\"5\" cy=\"5\" r=\"5\" class=\"arrowMarkerPath\" style=\"stroke-width: 1; stroke-dasharray: 1, 0;\"></circle></marker><marker id=\"flow-dark_flowchart-v2-circleStart\" class=\"marker flowchart-v2\" viewBox=\"0 0 10 10\" refX=\"-1\" refY=\"5\" markerUnits=\"userSpaceOnUse\" markerWidth=\"11\" markerHeight=\"11\" orient=\"auto\"><circle cx=\"5\" cy=\"5\" r=\"5\" class=\"arrowMarkerPath\" style=\"stroke-width: 1; stroke-dasharray: 1, 0;\"></circle></marker><marker id=\"flow-dark_flowchart-v2-circleEnd-margin\" class=\"marker flowchart-v2\" viewBox=\"0 0 10 10\" refY=\"5\" refX=\"12.25\" markerUnits=\"userSpaceOnUse\" markerWidth=\"14\" markerHeight=\"14\" orient=\"auto\"><circle cx=\"5\" cy=\"5\" r=\"5\" class=\"arrowMarkerPath\" style=\"stroke-width: 0; stroke-dasharray: 1, 0;\"></circle></marker><marker id=\"flow-dark_flowchart-v2-circleStart-margin\" class=\"marker flowchart-v2\" viewBox=\"0 0 10 10\" refX=\"-2\" refY=\"5\" markerUnits=\"userSpaceOnUse\" markerWidth=\"14\" markerHeight=\"14\" orient=\"auto\"><circle cx=\"5\" cy=\"5\" r=\"5\" class=\"arrowMarkerPath\" style=\"stroke-width: 0; stroke-dasharray: 1, 0;\"></circle></marker><marker id=\"flow-dark_flowchart-v2-crossEnd\" class=\"marker cross flowchart-v2\" viewBox=\"0 0 11 11\" refX=\"12\" refY=\"5.2\" markerUnits=\"userSpaceOnUse\" markerWidth=\"11\" markerHeight=\"11\" orient=\"auto\"><path d=\"M 1,1 l 9,9 M 10,1 l -9,9\" class=\"arrowMarkerPath\" style=\"stroke-width: 2; stroke-dasharray: 1, 0;\"></path></marker><marker id=\"flow-dark_flowchart-v2-crossStart\" class=\"marker cross flowchart-v2\" viewBox=\"0 0 11 11\" refX=\"-1\" refY=\"5.2\" markerUnits=\"userSpaceOnUse\" markerWidth=\"11\" markerHeight=\"11\" orient=\"auto\"><path d=\"M 1,1 l 9,9 M 10,1 l -9,9\" class=\"arrowMarkerPath\" style=\"stroke-width: 2; stroke-dasharray: 1, 0;\"></path></marker><marker id=\"flow-dark_flowchart-v2-crossEnd-margin\" class=\"marker cross flowchart-v2\" viewBox=\"0 0 15 15\" refX=\"17.7\" refY=\"7.5\" markerUnits=\"userSpaceOnUse\" markerWidth=\"12\" markerHeight=\"12\" orient=\"auto\"><path d=\"M 1,1 L 14,14 M 1,14 L 14,1\" class=\"arrowMarkerPath\" style=\"stroke-width: 2.5;\"></path></marker><marker id=\"flow-dark_flowchart-v2-crossStart-margin\" class=\"marker cross flowchart-v2\" viewBox=\"0 0 15 15\" refX=\"-3.5\" refY=\"7.5\" markerUnits=\"userSpaceOnUse\" markerWidth=\"12\" markerHeight=\"12\" orient=\"auto\"><path d=\"M 1,1 L 14,14 M 1,14 L 14,1\" class=\"arrowMarkerPath\" style=\"stroke-width: 2.5; stroke-dasharray: 1, 0;\"></path></marker><g class=\"root\"><g class=\"clusters\"></g><g class=\"edgePaths\"><path d=\"M136,89L161,89L182,89\" id=\"flow-dark-L_A_B_0\" class=\"edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link\" style=\";\" data-edge=\"true\" data-et=\"edge\" data-id=\"L_A_B_0\" data-points=\"W3sieCI6MTM2LCJ5Ijo4OX0seyJ4IjoxNjEsInkiOjg5fSx7IngiOjE4NiwieSI6ODl9XQ==\" data-look=\"classic\" marker-end=\"url(#flow-dark_flowchart-v2-pointEnd)\"></path><path d=\"M285.351,68.351L347,36L384,36\" id=\"flow-dark-L_B_C_0\" class=\"edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link\" style=\";\" data-edge=\"true\" data-et=\"edge\" data-id=\"L_B_C_0\" data-points=\"W3sieCI6Mjg1LjM1MDY0OTM1MDY0OTM1LCJ5Ijo2OC4zNTA2NDkzNTA2NDkzNX0seyJ4IjozNDcsInkiOjM2fSx7IngiOjM4OCwieSI6MzZ9XQ==\" data-look=\"classic\" marker-end=\"url(#flow-dark_flowchart-v2-pointEnd)\"></path><path d=\"M285.351,109.649L347,142L384,142\" id=\"flow-dark-L_B_D_0\" class=\"edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link\" style=\";\" data-edge=\"true\" data-et=\"edge\" data-id=\"L_B_D_0\" data-points=\"W3sieCI6Mjg1LjM1MDY0OTM1MDY0OTM1LCJ5IjoxMDkuNjQ5MzUwNjQ5MzUwNjV9LHsieCI6MzQ3LCJ5IjoxNDJ9LHsieCI6Mzg4LCJ5IjoxNDJ9XQ==\" data-look=\"classic\" marker-end=\"url(#flow-dark_flowchart-v2-pointEnd)\"></path><path d=\"M516,36L541,36L562,36\" id=\"flow-dark-L_C_E_0\" class=\"edge-thickness-normal edge-pattern-solid edge-thickness-normal edge-pattern-solid flowchart-link\" style=\";\" data-edge=\"true\" data-et=\"edge\" data-id=\"L_C_E_0\" data-points=\"W3sieCI6NTE2LCJ5IjozNn0seyJ4Ijo1NDEsInkiOjM2fSx7IngiOjU2NiwieSI6MzZ9XQ==\" data-look=\"classic\" marker-end=\"url(#flow-dark_flowchart-v2-pointEnd)\"></path></g><g class=\"edgeLabels\"><g class=\"edgeLabel\"><g class=\"label\" data-id=\"L_A_B_0\" transform=\"translate(0, 0)\"><foreignObject width=\"0\" height=\"0\"><div xmlns=\"http://www.w3.org/1999/xhtml\" class=\"labelBkg\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"edgeLabel\"></span></div></foreignObject></g></g><g class=\"edgeLabel\" transform=\"translate(347, 36)\"><g class=\"label\" data-id=\"L_B_C_0\" transform=\"translate(-16, -12)\"><foreignObject width=\"32\" height=\"24\"><div xmlns=\"http://www.w3.org/1999/xhtml\" class=\"labelBkg\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"edgeLabel\"><p>有效</p></span></div></foreignObject></g></g><g class=\"edgeLabel\" transform=\"translate(347, 142)\"><g class=\"label\" data-id=\"L_B_D_0\" transform=\"translate(-16, -12)\"><foreignObject width=\"32\" height=\"24\"><div xmlns=\"http://www.w3.org/1999/xhtml\" class=\"labelBkg\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"edgeLabel\"><p>无效</p></span></div></foreignObject></g></g><g class=\"edgeLabel\"><g class=\"label\" data-id=\"L_C_E_0\" transform=\"translate(0, 0)\"><foreignObject width=\"0\" height=\"0\"><div xmlns=\"http://www.w3.org/1999/xhtml\" class=\"labelBkg\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"edgeLabel\"></span></div></foreignObject></g></g></g><g class=\"nodes\"><g class=\"node default\" id=\"flow-dark-flowchart-A-0\" data-look=\"classic\" transform=\"translate(72, 89)\"><rect class=\"basic label-container\" style=\"\" x=\"-64\" y=\"-28\" width=\"128\" height=\"56\"></rect><g class=\"label\" style=\"\" transform=\"translate(-32, -12)\"><rect></rect><foreignObject width=\"64\" height=\"24\"><div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"nodeLabel\"><p>收到请求</p></span></div></foreignObject></g></g><g class=\"node default\" id=\"flow-dark-flowchart-B-1\" data-look=\"classic\" transform=\"translate(246, 89)\"><polygon points=\"60,0 120,-60 60,-120 0,-60\" class=\"label-container\" transform=\"translate(-59.5, 60)\"></polygon><g class=\"label\" style=\"\" transform=\"translate(-32, -12)\"><rect></rect><foreignObject width=\"64\" height=\"24\"><div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"nodeLabel\"><p>校验参数</p></span></div></foreignObject></g></g><g class=\"node default\" id=\"flow-dark-flowchart-C-3\" data-look=\"classic\" transform=\"translate(452, 36)\"><rect class=\"basic label-container\" style=\"\" x=\"-64\" y=\"-28\" width=\"128\" height=\"56\"></rect><g class=\"label\" style=\"\" transform=\"translate(-32, -12)\"><rect></rect><foreignObject width=\"64\" height=\"24\"><div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"nodeLabel\"><p>执行任务</p></span></div></foreignObject></g></g><g class=\"node default\" id=\"flow-dark-flowchart-D-5\" data-look=\"classic\" transform=\"translate(452, 142)\"><rect class=\"basic label-container\" style=\"\" x=\"-64\" y=\"-28\" width=\"128\" height=\"56\"></rect><g class=\"label\" style=\"\" transform=\"translate(-32, -12)\"><rect></rect><foreignObject width=\"64\" height=\"24\"><div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"nodeLabel\"><p>返回错误</p></span></div></foreignObject></g></g><g class=\"node default\" id=\"flow-dark-flowchart-E-7\" data-look=\"classic\" transform=\"translate(630, 36)\"><rect class=\"basic label-container\" style=\"\" x=\"-64\" y=\"-28\" width=\"128\" height=\"56\"></rect><g class=\"label\" style=\"\" transform=\"translate(-32, -12)\"><rect></rect><foreignObject width=\"64\" height=\"24\"><div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;\"><span class=\"nodeLabel\"><p>返回结果</p></span></div></foreignObject></g></g></g></g></g><defs><filter id=\"flow-dark-drop-shadow\" height=\"130%\" width=\"130%\"><feDropShadow dx=\"4\" dy=\"4\" stdDeviation=\"0\" flood-opacity=\"0.06\" flood-color=\"#000000\"></feDropShadow></filter></defs><defs><filter id=\"flow-dark-drop-shadow-small\" height=\"150%\" width=\"150%\"><feDropShadow dx=\"2\" dy=\"2\" stdDeviation=\"0\" flood-opacity=\"0.06\" flood-color=\"#000000\"></feDropShadow></filter></defs><linearGradient id=\"flow-dark-gradient\" gradientUnits=\"objectBoundingBox\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"0%\"><stop offset=\"0%\" stop-color=\"#555B65\" stop-opacity=\"1\"></stop><stop offset=\"100%\" stop-color=\"hsl(105, 0%, 5.6862745098%)\" stop-opacity=\"1\"></stop></linearGradient></svg>"
+      }
+    </script>
+    <script>
+      const samples = JSON.parse(document.querySelector("#sample-data").textContent);
+      const params = new URLSearchParams(location.search);
+      const variants = ["A", "B", "C"];
+      let variant = variants.includes(params.get("variant")) ? params.get("variant") : "B";
+      let dark = params.get("theme") === "dark";
+      let scale = 1;
+      let fitted = true;
+      let previewScale = 1;
+      const icons = {
+        minus: '<path d="M5 12h14"/>',
+        plus: '<path d="M5 12h14M12 5v14"/>',
+        fit: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
+        close: '<path d="m6 6 12 12M6 18 18 6"/>',
+        left: '<path d="m14 6-6 6 6 6"/>',
+        right: '<path d="m10 6 6 6-6 6"/>',
+        chevron: '<path d="m7 10 5 5 5-5"/>',
+      };
+      /** Returns the same small line-icon vocabulary for every variant.
+       * @remarks Icons are geometry, never a substitute font glyph.
+       * @sideEffects none
+       */
+      function icon(name) {
+        return '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">' + icons[name] + "</svg>";
+      }
+      /** Makes a data-only image from an already-generated synthetic SVG.
+       * @remarks No renderer request occurs while reviewing this standalone prototype.
+       * @sideEffects none
+       */
+      function svgData(svg) {
+        return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+      }
+      /** Updates only the diagram's original-relative geometry and its explicit state readout.
+       * @remarks Fit is responsive; manual actions are bounded to 25–400 percent.
+       * @sideEffects Changes the demo image size and control text.
+       */
+      function paintScale() {
+        if (fitted) scale = Math.min(1, (document.querySelector("#flow-viewport").clientWidth - 48) / 702);
+        const image = document.querySelector("#flow-image");
+        image.style.width = 702 * scale + "px";
+        image.style.height = 178 * scale + "px";
+        document
+          .querySelectorAll("[data-percent]")
+          .forEach((node) => (node.textContent = Math.round(scale * 100) + "%"));
+        document.querySelectorAll('[data-step="-1"]').forEach((node) => (node.disabled = scale <= 0.25));
+        document.querySelectorAll('[data-step="1"]').forEach((node) => (node.disabled = scale >= 4));
+        document.querySelector("#state").textContent = (fitted ? "适应 · " : "手动 · ") + Math.round(scale * 100) + "%";
+      }
+      /** Applies one manual step without turning a below-minimum fit into an accidental zoom-in.
+       * @remarks This matches the keyboard boundary being corrected in the application.
+       * @sideEffects Updates the diagram.
+       */
+      function step(delta) {
+        if (delta < 0 && scale <= 0.25) return;
+        fitted = false;
+        scale = Math.min(4, Math.max(0.25, scale + delta * 0.25));
+        paintScale();
+      }
+      /** Rebuilds the small controller while preserving the existing app shell and diagram content.
+       * @remarks Each proposal changes the hierarchy, not the product's identity.
+       * @sideEffects Updates the prototype DOM and its shareable selection URL.
+       */
+      function render() {
+        const names = { A: "无框线稿", B: "中性轻框", C: "柔蓝强调" };
+        const descriptions = {
+          A: "名称替代节点框，控件浮在右上。",
+          B: "细边、轻底，控件放进顶部独立工具行。",
+          C: "轻蓝节点，点击比例展开完整缩放面板。",
+        };
+        document.documentElement.classList.toggle("dark", dark);
+        document.body.className = "variant-" + variant;
+        document.querySelector("#theme").textContent = dark ? "切换浅色" : "切换深色";
+        document.querySelector("#current").textContent = variant + " · " + names[variant];
+        document.querySelector("#intro").textContent = descriptions[variant];
+        document.querySelector("#style-note").textContent = "去阴影 · 隐藏底部重复参与者 · 沿用系统字体";
+        document.querySelector("#sequence").src = svgData(samples[variant + "-" + (dark ? "dark" : "light")]);
+        document.querySelector("#flow-image").src = svgData(samples["flow-" + (dark ? "dark" : "light")]);
+        const group =
+          '<div class="group"><button class="action" data-step="-1" aria-label="缩小">' +
+          icon("minus") +
+          '</button><output data-percent></output><button class="action" data-step="1" aria-label="放大">' +
+          icon("plus") +
+          '</button><button class="fit" data-fit>适应</button></div>';
+        document.querySelector("#controls").innerHTML =
+          variant === "C"
+            ? '<div class="compact-zoom"><button class="zoom-toggle" id="zoom-toggle" aria-expanded="false" aria-label="展开缩放控制"><span data-percent></span>' +
+              icon("chevron") +
+              '</button><div class="zoom-panel" id="zoom-panel">' +
+              group +
+              '<input id="zoom-range" aria-label="手动缩放比例" type="range" min="25" max="400" value="100"><span class="hint">25%–400% · 适应后可低于 25%</span></div></div>'
+            : group;
+        document
+          .querySelectorAll("[data-step]")
+          .forEach((button) => (button.onclick = () => step(Number(button.dataset.step))));
+        document.querySelectorAll("[data-fit]").forEach(
+          (button) =>
+            (button.onclick = () => {
+              fitted = true;
+              paintScale();
+            }),
+        );
+        const toggle = document.querySelector("#zoom-toggle");
+        if (toggle)
+          toggle.onclick = () => {
+            const panel = document.querySelector("#zoom-panel");
+            panel.toggleAttribute("open");
+            toggle.setAttribute("aria-expanded", String(panel.hasAttribute("open")));
+          };
+        const range = document.querySelector("#zoom-range");
+        if (range)
+          range.oninput = () => {
+            fitted = false;
+            scale = Number(range.value) / 100;
+            paintScale();
+          };
+        const query = new URLSearchParams({ variant, theme: dark ? "dark" : "light" });
+        history.replaceState(null, "", "?" + query);
+        fitted = true;
+        paintScale();
+      }
+      /** Cycles the single retained selection rather than opening more mock pages.
+       * @remarks The URL can be shared or reopened.
+       * @sideEffects Renders another prototype variant.
+       */
+      function cycle(delta) {
+        variant = variants[(variants.indexOf(variant) + delta + 3) % 3];
+        render();
+      }
+      document.querySelector("#prev").innerHTML = icon("left");
+      document.querySelector("#next").innerHTML = icon("right");
+      document.querySelector("#prev").onclick = () => cycle(-1);
+      document.querySelector("#next").onclick = () => cycle(1);
+      document.querySelector("#theme").onclick = () => {
+        dark = !dark;
+        render();
+      };
+      document.addEventListener("keydown", (event) => {
+        if (document.querySelector("#preview").open || event.target.matches("input,textarea,[contenteditable]")) return;
+        if (event.key === "ArrowLeft") cycle(-1);
+        if (event.key === "ArrowRight") cycle(1);
+      });
+      window.addEventListener("resize", () => {
+        if (fitted) paintScale();
+      });
+      for (const [id, name] of [
+        ["preview-minus", "minus"],
+        ["preview-plus", "plus"],
+        ["preview-fit", "fit"],
+        ["preview-close", "close"],
+      ])
+        document.getElementById(id).innerHTML = icon(name);
+      document.querySelector("#preview-open").onclick = () => {
+        previewScale = 1;
+        document.querySelector("#preview-image").src = svgData(samples["flow-dark"]);
+        document.querySelector("#preview-image").style.transform = "scale(1)";
+        document.querySelector("#preview-percent").textContent = "100%";
+        document.querySelector("#preview").showModal();
+        document.querySelector("#preview-close").focus();
+      };
+      document.querySelector("#preview-close").onclick = () => document.querySelector("#preview").close();
+      document.querySelector("#preview-plus").onclick = () => {
+        previewScale = Math.min(4, previewScale + 0.25);
+        document.querySelector("#preview-image").style.transform = "scale(" + previewScale + ")";
+        document.querySelector("#preview-percent").textContent = Math.round(previewScale * 100) + "%";
+      };
+      document.querySelector("#preview-minus").onclick = () => {
+        previewScale = Math.max(0.25, previewScale - 0.25);
+        document.querySelector("#preview-image").style.transform = "scale(" + previewScale + ")";
+        document.querySelector("#preview-percent").textContent = Math.round(previewScale * 100) + "%";
+      };
+      document.querySelector("#preview-fit").onclick = () => {
+        previewScale = 1;
+        document.querySelector("#preview-image").style.transform = "scale(1)";
+        document.querySelector("#preview-percent").textContent = "100%";
+      };
+      render();
+      window.prototypeReady = true;
+    </script>
+  </body>
+</html>

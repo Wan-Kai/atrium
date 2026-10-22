@@ -69,9 +69,10 @@ const LISTED = [
   model("groq", "openai/gpt-oss-120b"),
 ];
 
-/** What stays whatever the login: every model but the paid Claude and OpenAI ones. */
+/** What stays whatever the login, including pi's native Claude models. */
 const KEPT = [
   "claude-bridge/claude-opus-5-5",
+  "anthropic/claude-opus-5-5",
   "openai-codex/gpt-6-astra",
   "openrouter/moonshotai/kimi-k3",
   "openrouter/deepseek/openai/compat",
@@ -82,7 +83,7 @@ const KEPT = [
 ];
 
 describe("visibleModels", () => {
-  it("drops the Claude and OpenAI models paid by use, and openai's beside openai-codex's however signed in", () => {
+  it("keeps native Claude while dropping the other paid routes and duplicate OpenAI models however signed in", () => {
     expect([
       ids(visibleModels(LISTED, openaiSignedIn("oauth"))),
       ids(visibleModels(LISTED, openaiSignedIn("api_key"))),
@@ -113,7 +114,7 @@ describe("visibleModels, without openai-codex", () => {
       ids(visibleModels(listed, openaiSignedIn("api_key"))),
       ids(visibleModels(listed, null)),
       ids(visibleModels(listed, { state: "unavailable" })),
-    ]).toStrictEqual([[kept[0], "openai/gpt-6-astra", ...kept.slice(1)], kept, kept, kept]);
+    ]).toStrictEqual([[...kept.slice(0, 2), "openai/gpt-6-astra", ...kept.slice(2)], kept, kept, kept]);
   });
 });
 
@@ -146,10 +147,36 @@ describe("withModelRules", () => {
     ]);
   });
 
+  it.each(["oauth", "api_key"] as const)(
+    "keeps native Claude models and pi's default with %s credentials",
+    async (method) => {
+      const native = model("anthropic", "claude-opus-5-5");
+      const defaultModel = { providerId: native.providerId, modelId: native.modelId };
+      const login: SetupLogin = {
+        state: "ready",
+        providers: [
+          {
+            providerId: "anthropic",
+            name: "Anthropic",
+            oauth: { label: "Claude", subscription: true },
+            apiKey: true,
+            signedIn: { method, stored: true },
+          },
+        ],
+      };
+      const query = withModelRules(
+        () => Promise.resolve({ models: [native], defaultModel }),
+        () => Promise.resolve(login),
+      );
+
+      expect(await query("/a", new AbortController().signal)).toStrictEqual({ models: [native], defaultModel });
+    },
+  );
+
   it("drops pi's default when it is not among what is kept, though its provider or its id is, and keeps none as none", async () => {
     const signal = new AbortController().signal;
     const defaults = [
-      { providerId: "anthropic", modelId: "claude-opus-5-5" },
+      { providerId: "azure-openai-responses", modelId: "gpt-6" },
       { providerId: "claude-bridge", modelId: "claude-retired" },
       null,
     ];

@@ -800,6 +800,7 @@ describe("createAtriumClient: sessions", () => {
       disposition: "queued",
     });
     await run(() => client.answerInteraction("s1", "d1", { confirmed: true }), "answer_interaction");
+    await run(() => client.answerQuestion("s1", "call-1", { skipped: true }), "answer_question");
     await run(() => client.retryRun("s1"), "retry_run");
     await run(() => client.removeDelivery("s1", "d2"), "remove_delivery");
     await run(() => client.resumeDeliveries("s1", true), "resume_deliveries");
@@ -817,6 +818,7 @@ describe("createAtriumClient: sessions", () => {
       { type: "remove_queued", sessionId: "s1", itemId: "i2" },
       { type: "steer_queued", sessionId: "s1", itemId: "i3" },
       { type: "answer_interaction", sessionId: "s1", interactionId: "d1", answer: { confirmed: true } },
+      { type: "answer_question", sessionId: "s1", questionId: "call-1", answer: { skipped: true } },
       { type: "retry_run", sessionId: "s1" },
       { type: "remove_delivery", sessionId: "s1", deliveryId: "d2" },
       { type: "resume_deliveries", sessionId: "s1", tree: true },
@@ -1057,6 +1059,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
         attention: null,
         asking: null,
         handedOff: false,
+        model: null,
         parent: null,
         agent: null,
         heldDeliveries: 0,
