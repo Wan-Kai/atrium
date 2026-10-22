@@ -442,6 +442,44 @@ body {
   border-bottom: 0;
 }
 
+/* A table taller than 640px (`TABLE_MAX_HEIGHT` in reply-table.tsx) folds there: cut, not scrolled
+   inside, its last 48px fading out. */
+.atrium-table[data-folded] [data-streamdown="table-wrapper"] > div:last-child {
+  max-height: 640px;
+  overflow-y: hidden;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 48px), transparent);
+}
+
+/* "还有 N 行" / "收起", as "显示全部 N 个" in the sidebar, its text in line with the first column. */
+.atrium-table-fold {
+  display: flex;
+  align-items: center;
+  width: calc(100% + 16px);
+  height: 30px;
+  margin: 0 -8px;
+  padding: 0 8px;
+  border-radius: var(--r);
+  color: var(--text-dim);
+  font-size: var(--fs-meta);
+  cursor: pointer;
+}
+
+.atrium-table-fold:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+/* Opened, "收起" sticks to the bottom of the view, over the rows on the page's ground. */
+.atrium-table-fold[aria-expanded="true"] {
+  position: sticky;
+  bottom: 0;
+  background: var(--main);
+}
+
+.atrium-table-fold[aria-expanded="true"]:hover {
+  background: linear-gradient(var(--hover), var(--hover)), var(--main);
+}
+
 /* Streamdown's own margins go; a block in the reply itself keeps the 12px every block has below it. */
 .atrium-markdown
   > :is([data-streamdown="code-block"], [data-streamdown="table-wrapper"], .atrium-mermaid):not(:last-child) {
