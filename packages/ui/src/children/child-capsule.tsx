@@ -26,9 +26,10 @@ const COUNTED: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error",
  * its rows show and how many, the same icons as the sidebar's. Opened, its list floats 8 px above
  * the capsule, its left edge at the capsule's, as the queue's does (`CapsuleUnit`), as wide as its
  * rows from 300 px but never past the bar, and a press outside or Escape closes it: each direct child with its status (its whole
- * subtree's), its name, the model and thinking level its file records (SPEC-0002), where it is when not here ("已在终端中继续" once handed off), "+N" for the
- * sessions below it, and when it last changed; clicking a row opens it, its menu opens, detaches
- * or archives it. Failures show beside the tab bar. A child opened shows, though its workspace
+ * subtree's), its name, where it is when not here ("已在终端中继续" once handed off), "+N" for the
+ * sessions below it, and, on the right in one column that every row lines up with, the model and
+ * thinking level its file records (SPEC-0002) and when it last changed; clicking a row opens it, its
+ * menu opens, detaches or archives it. Failures show beside the tab bar. A child opened shows, though its workspace
  * showed a viewer tab, as one chosen in the sidebar does. Whether the list is open is the capsule
  * bar's to say, so that one list at a time floats there; left out, the capsule keeps it. The list
  * closes once no child is left, so the next child does not open it by itself. A child the agent
@@ -246,11 +247,6 @@ function ChildRow({
             </span>
           </span>
         )}
-        {model === null ? null : (
-          <span className="shrink-0 text-[length:var(--fs-xs)] text-[var(--text-dim)]" data-testid="child-model">
-            {model}
-          </span>
-        )}
         {child.handedOff ? (
           <span className="flex shrink-0 items-center gap-1 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
             <TerminalWindow size={12} />
@@ -265,7 +261,16 @@ function ChildRow({
         {below === 0 ? null : (
           <span className="shrink-0 text-[length:var(--fs-xs)] text-[var(--text-muted)]">+{below}</span>
         )}
-        <span className="ml-auto shrink-0 pl-4 text-[length:var(--fs-xs)] text-[var(--text-dim)]">{when}</span>
+        <span className="ml-auto flex shrink-0 items-center">
+          {model === null ? null : (
+            <span className="shrink-0 text-[length:var(--fs-xs)] text-[var(--text-dim)]" data-testid="child-model">
+              {model}
+            </span>
+          )}
+          <span className="ml-2 min-w-[50px] shrink-0 text-right text-[length:var(--fs-xs)] tabular-nums text-[var(--text-dim)]">
+            {when}
+          </span>
+        </span>
       </button>
       <MenuButton label={`「${sessionTitle(child)}」的操作`} compact content={<DotsThree size={14} />}>
         {(close) => (

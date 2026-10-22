@@ -688,6 +688,14 @@ SPEC-0001“回复渲染”；原型 `chat-rendering-support-prototype.html` 的
 | 不超过 640px 的表格不渐隐、没有这一行 | 同上 "leaves a table that fits as it is: no fade, no button" | 已覆盖 |
 | 流式输出中长到 640px 以上同样收起，表头在视野里（不跟着滚到最新一行） | 同上 "folds a table still streaming in at 640px, its header in view" | 已覆盖 |
 
+### 子对话列表的模型右对齐（2026-10-22）
+
+用户指定：列表里每行的模型名都右对齐，而不是有第二行的对齐、没第二行的跟着名字靠左。根因是模型紧跟在名字块后面，位置由名字和 320px 的第二行决定。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 每个子对话行里模型的右边缘在同一竖线上：不管有没有第二行、名字多长、有没有位置或"+N"、时间文字多长（"刚刚"到"59 分钟前"）；位置和"+N"在名字后面，模型在右边一列、紧挨固定 50px 宽右对齐的时间 | `packages/ui/src/children/children.browser.test.tsx` "lines the models up in one column on the right, whatever else a row says" | 红 → 绿；两项 `pnpm break-check` 都检出（去掉 `ml-auto`、去掉时间的固定宽度）|
+
 ### catpaw-cli 图标（2026-10-22）
 
 用户指定的绿色双猫爪原图替换 `catpaw-cli` 的首字母回退，仅改品牌映射与本地资源；不改名称、布局、其他 provider 或用户的 pi 扩展、认证和模型设置。对应 SPEC-0001“模型选择按钮”。
@@ -819,7 +827,7 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 第一步 · 新建工作区的第一条消息以 `/atrium-` 开头时，界面在建 worktree 之前就报 `command_reserved`，消息放回输入框，一个命令都不发 | `packages/ui/src/state/new-workspace.test.ts` "refuses a message opening with /atrium-" | 已覆盖 |
 | 第一步 · 路由与客户端：`detach_session`、带 `child` 的 `create_session` 和 `fork_session` | `packages/host/src/server/router.test.ts`；`packages/client/src/atrium-client.test.ts` "child conversations" | 已覆盖 |
 | 第一步 · 界面规则：子对话只列直接的、没归档的、最近更新的在前；行状态取整个子树的最高（含运行中）；标签页状态被后代的待回答、待登录、出错抬高，运行中不抬；面包屑到顶层，遇环、缺父会话停下，超过三层中间折成"…" | `packages/ui/src/children/children.test.ts` | 已覆盖 |
-| 第一步 · 子对话条和弹出框：没有子对话不显示；"子对话 N"加各状态的图标和数；列表和内容一样宽、最近更新的在前，写位置、"已在终端中继续"、"+N"、时间；点行打开，菜单脱离、归档，失败在标签栏旁说 | `packages/ui/src/children/children.browser.test.tsx` "ChildCapsule"；`chat.browser.test.tsx` "children's capsule" | 已覆盖 |
+| 第一步 · 子对话条和弹出框：没有子对话不显示；"子对话 N"加各状态的图标和数；列表和内容一样宽、最近更新的在前，写位置、"已在终端中继续"、"+N"、模型和思考程度、时间；模型的右边缘每行对齐（位置、"+N"、时间文字多长都一样）；点行打开，菜单脱离、归档，失败在标签栏旁说 | `packages/ui/src/children/children.browser.test.tsx` "ChildCapsule"（"lines the models up in one column on the right"）；`chat.browser.test.tsx` "children's capsule" | 已覆盖 |
 | 第一步 · 开子对话的对话框：回复下的"↳"带上到这一轮的对话（运行中变淡、不能点）；"+ 新建"菜单开空的（草稿下不能点）；名字默认"子对话 N"；工作区的会话可选新 worktree 和分支，对话的只有"当前对话"；失败留在对话框里说；Esc 关 | `children.browser.test.tsx` "NewChildDialog"；`chat.browser.test.tsx` "asks for a child"；`packages/ui/src/app/workbench.browser.test.tsx` "+ menu"、"under a draft" | 已覆盖 |
 | 第一步 · 标签、面包屑、历史、收件箱：子对话标签有"↳"，父标签被后代抬高；标签栏下的面包屑点名字回去；历史行"↳ 名字"、悬停"属于「父对话」"；收件箱行写"位置 · 父对话 › 子对话" | `workbench.browser.test.tsx` "Workbench child conversations (SPEC-0002)"；`children.browser.test.tsx` "Breadcrumb" | 已覆盖 |
 | 第一步 · 端到端：真实宿主和 pi 下从回复开子对话，带上之前的对话，标签有"↳"、面包屑点回主对话；子对话回复后主对话的子对话条列出它，token 卡片有"含子对话"；开到新 worktree：建出 `atrium/…` 分支和工作区并切过去，提示行写新旧路径，子对话接着能回复；从"+ 新建"开空的子对话；归档主对话时同工作区的子对话一起归档，新 worktree 里的脱离（没有"↳"和面包屑） | `apps/desktop/e2e/children.spec.ts` | 已覆盖 |
