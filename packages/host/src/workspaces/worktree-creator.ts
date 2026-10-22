@@ -12,7 +12,10 @@ import type { WorktreeQueue } from "./worktree-queue";
 
 /** Creates worktree workspaces (SPEC-0001, "M1.11 的新建工作区"). */
 export interface WorktreeCreator {
-  /** Where a new worktree of a project may start: its main branch, its local workspace's branch, and every branch. */
+  /**
+   * Where a new worktree of a project may start: its main branch, local first (SPEC-0001, "M1.11 的新建工作区"),
+   * its local workspace's branch, and every branch.
+   */
   bases(projectId: string): Promise<CommandResult<"list_bases">>;
   /** Creates a worktree on a new branch from a base, next to the project's repository; returns its workspace. */
   create(projectId: string, branch: string, base: string): Promise<string>;
@@ -237,11 +240,19 @@ export function createWorktreeCreator(options: {
         run(["symbolic-ref", "--quiet", "HEAD"]),
       ]);
       const listed = remote.filter((name) => !name.endsWith("/HEAD"));
-      const mainName = main?.slice("refs/remotes/".length) ?? null;
+      // The local branch of the main branch's name first, as merge states compare (2026-10-22).
+      const mainName = main?.slice("refs/remotes/origin/".length) ?? null;
       // Stryker disable next-line ConditionalExpression,StringLiteral: detached, git prints nothing, and no branch has no name.
       const head = current.code === 0 ? current.stdout.trim().slice("refs/heads/".length) : "";
       return {
-        main: listed.find((name) => name === mainName) ?? null,
+        main:
+          mainName === null
+            ? null
+            : local.includes(mainName)
+              ? `refs/heads/${mainName}`
+              : listed.includes(`origin/${mainName}`)
+                ? `refs/remotes/origin/${mainName}`
+                : null,
         // A branch with no commit yet is not listed, and nothing can start there.
         current: local.includes(head) ? head : null,
         local,

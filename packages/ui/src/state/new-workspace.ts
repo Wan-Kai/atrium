@@ -138,16 +138,15 @@ export function suggestBranch(random: () => number): string {
  * Where a new worktree starts unless another base is chosen.
  *
  * @remarks
- * The main branch on `origin`; without one, the local workspace's branch; else `HEAD`
- * (SPEC-0001, "M1.11 的新建工作区"). As a full ref (`baseRef`).
+ * The main branch, local or `origin`'s as the host chose; without one, the local workspace's
+ * branch; else `HEAD` (SPEC-0001, "M1.11 的新建工作区"). As a full ref (`baseRef`).
  *
  * @sideEffects none
  * @param bases - What `list_bases` answered.
  * @returns The base.
  */
 export function defaultBase(bases: Pick<CommandResult<"list_bases">, "main" | "current">): string {
-  // Stryker disable next-line StringLiteral: `baseRef` tells only "local" apart, so any other word is "remote".
-  if (bases.main !== null) return baseRef("remote", bases.main);
+  if (bases.main !== null) return bases.main;
   return bases.current === null ? "HEAD" : baseRef("local", bases.current);
 }
 

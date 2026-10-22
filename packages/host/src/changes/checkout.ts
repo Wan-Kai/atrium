@@ -106,9 +106,10 @@ async function required(git: GitRunner, cwd: string, signal: AbortSignal, ...arg
  * Finds a workspace's repository, branch and what to compare it with.
  *
  * @remarks
- * As Paseo (SPEC-0001, "工作区改动"): off the main branch, `origin/<main>` when it exists, else
- * the local `<main>`, else nothing; on the main branch, or without one, `origin/<branch>` when it
- * exists. The main branch is the project's own setting or where `origin/HEAD` points
+ * SPEC-0001, "工作区改动": off the main branch, the local `<main>` when it exists, else
+ * `origin/<main>`, else nothing, as merge states compare (2026-10-22; Paseo tries `origin` first,
+ * which counts what was merged here and not pushed); on the main branch, or without one,
+ * `origin/<branch>` when it exists. The main branch is the project's own setting or where `origin/HEAD` points
  * (domain-model, "已决定 15"). A detached HEAD compares with nothing. Refs go to git by their full
  * names, so a tag or local branch named like one cannot stand in for it.
  *
@@ -150,7 +151,7 @@ async function repoFacts(
   // On the main branch, or not knowing it, a branch is compared with origin's copy of itself.
   const candidates =
     main !== null && main !== branch
-      ? [`refs/remotes/origin/${main}`, `refs/heads/${main}`]
+      ? [`refs/heads/${main}`, `refs/remotes/origin/${main}`]
       : [`refs/remotes/origin/${branch}`];
   let baseRef: string | null = null;
   for (const ref of candidates) {

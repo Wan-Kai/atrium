@@ -342,7 +342,7 @@ describe("createWorktreeCreator: create", () => {
 });
 
 describe("createWorktreeCreator: bases", () => {
-  it("lists the main branch on origin, the local workspace's branch, and every branch but origin's HEAD", async () => {
+  it("lists the local main branch, the local workspace's branch, and every branch but origin's HEAD", async () => {
     const repo = await scene();
     await repo.git(repo.repo, "branch", "zeta");
     await repo.git(repo.repo, "branch", "alpha");
@@ -351,27 +351,48 @@ describe("createWorktreeCreator: bases", () => {
     const { create, projectId } = await creator(repo);
 
     expect(await create.bases(projectId)).toStrictEqual({
-      main: "origin/main",
+      main: "refs/heads/main",
       current: "main",
       local: ["alpha", "main", "zeta"],
       remote: ["origin/alpha", "origin/main"],
     });
   });
 
-  it("follows the project's own main branch, and has none when it is not on origin", async () => {
+  it("lists origin's main branch when there is no local one", async () => {
+    const repo = await scene();
+    await repo.git(repo.repo, "checkout", "--quiet", "-b", "work");
+    await repo.git(repo.repo, "branch", "--quiet", "-D", "main");
+    const { create, projectId } = await creator(repo);
+
+    expect(await create.bases(projectId)).toStrictEqual({
+      main: "refs/remotes/origin/main",
+      current: "work",
+      local: ["work"],
+      remote: ["origin/main"],
+    });
+  });
+
+  it("follows the project's own main branch, local first, and has none when it is neither here nor on origin", async () => {
     const repo = await scene();
     await repo.git(repo.repo, "push", "--quiet", "origin", "main:release");
     await repo.git(repo.repo, "fetch", "--quiet", "origin");
     const { create, projects, projectId } = await creator(repo);
 
     await projects.setMainBranch(projectId, "release");
-    expect((await create.bases(projectId)).main).toBe("origin/release");
+    expect((await create.bases(projectId)).main).toBe("refs/remotes/origin/release");
+    await repo.git(repo.repo, "branch", "--quiet", "release", "origin/release");
+    expect((await create.bases(projectId)).main).toBe("refs/heads/release");
     await repo.git(repo.repo, "update-ref", "-d", "refs/remotes/origin/release");
+    expect((await create.bases(projectId)).main).toBe("refs/heads/release");
+    await repo.git(repo.repo, "branch", "--quiet", "-D", "release");
     expect((await create.bases(projectId)).main).toBeNull();
   });
 
   it("has no main branch without origin/HEAD, and no current branch when detached or before the first commit", async () => {
     const repo = await scene();
+    // A branch on origin named like nothing is no main branch either.
+    await repo.git(repo.repo, "push", "--quiet", "origin", "main:null");
+    await repo.git(repo.repo, "fetch", "--quiet", "origin");
     await repo.git(repo.repo, "remote", "set-head", "origin", "--delete");
     await repo.git(repo.repo, "checkout", "--quiet", "--detach");
     const { create, projectId } = await creator(repo);
@@ -380,7 +401,7 @@ describe("createWorktreeCreator: bases", () => {
       main: null,
       current: null,
       local: ["main"],
-      remote: ["origin/main"],
+      remote: ["origin/main", "origin/null"],
     });
     await repo.git(repo.repo, "checkout", "--quiet", "--orphan", "fresh");
     expect((await create.bases(projectId)).current).toBeNull();

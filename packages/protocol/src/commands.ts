@@ -906,6 +906,7 @@ export const CommandResult = {
   archive_workspace: z.strictObject({}),
   restore_workspace: z.strictObject({}),
   list_bases: z.strictObject({
+    /** The main branch new worktrees start from, as a full ref: the local one, else `origin`'s. */
     main: BranchName.nullable(),
     current: BranchName.nullable(),
     local: z.array(BranchName),

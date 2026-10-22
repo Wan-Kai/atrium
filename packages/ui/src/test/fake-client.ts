@@ -447,9 +447,10 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       calls.push(`listBases ${projectId}`);
       return (
         (await answers.bases?.(projectId)) ?? {
-          main: "origin/main",
-          current: "main",
-          local: ["main"],
+          // A repository with no local main branch, which starts from origin's.
+          main: "refs/remotes/origin/main",
+          current: "work",
+          local: ["work"],
           remote: ["origin/main"],
         }
       );
