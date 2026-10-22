@@ -144,6 +144,70 @@ describe("session controller resources", () => {
     await controller.shutdown();
   });
 
+  it("answers and lets go of the agent's questions of 200 rounds: answered, replied to, stopped and given up (SPEC-0003)", async () => {
+    const pi = drivenPi();
+    const clock = new FakeClock(1000);
+    const controller = createSessionController({
+      sessionId: "s1",
+      pi: pi.pi,
+      entries: empty,
+      publish: () => undefined,
+      clock,
+      newId: () => "id",
+      onRefreshFailed: () => undefined,
+      log: () => undefined,
+      respawn: () => Promise.reject(new Error("pi lives on")),
+    });
+    const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+    const held: WeakRef<object>[] = [];
+    let answered = 0;
+    /** Asks a fresh question, holding it only weakly, and counts the call's answer. */
+    const ask = async (id: string): Promise<void> => {
+      const questions = [
+        {
+          header: "范围",
+          question: "改到哪？",
+          multiSelect: false,
+          options: [
+            { label: "收件箱", description: "", preview: null, recommended: false },
+            { label: "侧栏", description: "", preview: null, recommended: false },
+          ],
+        },
+      ];
+      held.push(new WeakRef(questions));
+      await controller.askUser(id, questions);
+      answered += 1;
+    };
+
+    for (let round = 0; round < 200; round++) {
+      await controller.prompt({ type: "prompt", requestId: `q${round}`, traceparent, sessionId: "s1", text: "x" });
+      pi.emit({ type: "agent_start" });
+      const first = ask(`a${round}`);
+      controller.answerQuestion(`a${round}`, { answers: [{ selected: [0], other: null }] });
+      await first;
+      const second = ask(`b${round}`);
+      await controller.steer({ type: "steer", requestId: `s${round}`, traceparent, sessionId: "s1", text: "改这里" });
+      await second;
+      const third = ask(`c${round}`);
+      controller.dropQuestion(`c${round}`);
+      await third;
+      const fourth = ask(`d${round}`);
+      expect(await controller.stop()).toStrictEqual({ confirmed: true });
+      await fourth;
+      pi.emit({ type: "agent_settled" });
+      controller.resumeQueue();
+    }
+    await settle();
+    globalThis.gc?.();
+
+    expect(answered).toBe(800);
+    expect(controller.control().question).toBeNull();
+    expect(clock.pendingTimers()).toBe(0);
+    expect(pi.listeners()).toBe(1);
+    expect(held.filter((one) => one.deref() !== undefined)).toHaveLength(0);
+    await controller.shutdown();
+  });
+
   it("lets go of the context of each of 200 stops while the same pi lives on", async () => {
     const pi = drivenPi();
     const controller = createSessionController({

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { runScenario } from "../../test/contract";
 import { encodeArgument } from "../agent/agent";
 import { type Delivery, readRequest } from "../agent/channel";
+import { ASK_USER_STOPPED, type AskUserResult, answerText } from "../agent/ask-user";
 import { CHILD_TOOLS, READ_ONLY_TOOLS, resultText, taskText } from "../agent/words";
 import type { PiEvent } from "../process/pi-process";
 
@@ -291,6 +292,197 @@ describe("pi contract: Atrium's agent tools", () => {
         expect(lastResult(second)).toBe(
           "This sub-agent is read-only (explore): it can use read, bash, grep, find, ls, report_progress, ask_parent and the agent_* tools.",
         );
+      },
+    );
+  });
+});
+
+/**
+ * Each tool call that ended, with whether it failed, in order.
+ *
+ * @remarks
+ * For calls that run one after the other.
+ *
+ * @sideEffects none
+ * @param events - pi's events.
+ * @returns The calls' ids and whether each failed.
+ */
+function callsEnded(events: readonly PiEvent[]): [string, boolean][] {
+  return events.flatMap((event): [string, boolean][] =>
+    event.type === "tool_execution_end" ? [[event.toolCallId, event.isError]] : [],
+  );
+}
+
+/**
+ * The notes the extension sent on its status line, in order.
+ *
+ * @remarks
+ * What tells the host a call was given up (ADR-0013, point 6).
+ *
+ * @sideEffects none
+ * @param events - pi's events.
+ * @returns The notes.
+ */
+function notesOf(events: readonly PiEvent[]): unknown[] {
+  return events.flatMap((event) => {
+    if (event.type !== "extension_ui_request" || event.method !== "setStatus" || event.statusText === undefined)
+      return [];
+    const read = readRequest(event.statusText);
+    return "request" in read && read.request.kind === "note" ? [read.request] : [];
+  });
+}
+
+describe("pi contract: Atrium's ask_user (SPEC-0003)", () => {
+  /** A question as the model writes it. */
+  const written = {
+    header: "Scope",
+    question: "How far?",
+    options: [
+      { label: "Inbox (Recommended)", description: "Nothing else" },
+      { label: "Sidebar", description: "More" },
+    ],
+  };
+
+  it("ask-user: the tool asks the host the questions read, the host's answer returns them to the model, and the file keeps how they ended", async () => {
+    await runScenario(
+      {
+        scenario: "ask-user",
+        session: true,
+        extensions: [ATRIUM_EXTENSION],
+        args: [flag({ child: false, role: null, depth: 0, guard: "flags" })],
+        script: {
+          replies: [
+            { blocks: [{ type: "toolCall", id: "call-1", name: "ask_user", arguments: { questions: [written] } }] },
+            { blocks: [{ type: "text", text: "done" }] },
+          ],
+        },
+      },
+      async ({ pi, until, contexts, events }) => {
+        await pi.request({ type: "prompt", message: "go" });
+        const call = await until(asked("call-1"));
+        const read = readRequest(String(Reflect.get(call, "statusText")));
+        const answers = [{ selected: [1], other: null }];
+        const result: AskUserResult = { outcome: "answered", answers };
+        await pi.request({
+          type: "prompt",
+          message: `/atrium-agent reply ${encodeArgument({ v: 1, id: "call-1", ok: true, result })}`,
+        });
+        await until((event) => event.type === "agent_settled");
+        const [first, second] = await contexts();
+        const ended = events.find((event) => event.type === "tool_execution_end");
+        const questions = [
+          {
+            header: "Scope",
+            question: "How far?",
+            multiSelect: false,
+            options: [
+              { label: "Inbox", description: "Nothing else", preview: null, recommended: true },
+              { label: "Sidebar", description: "More", preview: null, recommended: false },
+            ],
+          },
+        ];
+
+        expect(read).toStrictEqual({ request: { kind: "call", id: "call-1", op: "ask_user", args: { questions } } });
+        expect(first?.tools).toContain("ask_user");
+        expect(lastResult(second)).toBe(answerText(questions, result));
+        expect(ended).toMatchObject({
+          isError: false,
+          result: { details: { v: 1, outcome: { kind: "answered", answers } } },
+        });
+      },
+    );
+  });
+
+  it("ask-user-two: two calls in one message ask one after the other, the second once the first is answered", async () => {
+    const second = { ...written, header: "Second" };
+    await runScenario(
+      {
+        scenario: "ask-user-two",
+        extensions: [ATRIUM_EXTENSION],
+        args: [flag({ child: false, role: null, depth: 0, guard: "flags" })],
+        script: {
+          replies: [
+            {
+              blocks: [
+                { type: "toolCall", id: "call-1", name: "ask_user", arguments: { questions: [written] } },
+                { type: "toolCall", id: "call-2", name: "ask_user", arguments: { questions: [second] } },
+              ],
+            },
+            { blocks: [{ type: "text", text: "done" }] },
+          ],
+        },
+      },
+      async ({ pi, until, events }) => {
+        await pi.request({ type: "prompt", message: "go" });
+        await until(asked("call-1"));
+        const before = events.filter(asked("call-2")).length;
+        const reply = (id: string) =>
+          pi.request({
+            type: "prompt",
+            message: `/atrium-agent reply ${encodeArgument({ v: 1, id, ok: true, result: { outcome: "skipped" } })}`,
+          });
+        await reply("call-1");
+        await until(asked("call-2"));
+        await reply("call-2");
+        await until((event) => event.type === "agent_settled");
+
+        expect(before).toBe(0);
+        expect(callsEnded(events)).toStrictEqual([
+          ["call-1", false],
+          ["call-2", false],
+        ]);
+      },
+    );
+  });
+
+  it("ask-user-abort: stopped while it waits, the call fails with what the model is told, and the host hears it gave up", async () => {
+    await runScenario(
+      {
+        scenario: "ask-user-abort",
+        extensions: [ATRIUM_EXTENSION],
+        args: [flag({ child: false, role: null, depth: 0, guard: "flags" })],
+        script: {
+          replies: [
+            { blocks: [{ type: "toolCall", id: "call-1", name: "ask_user", arguments: { questions: [written] } }] },
+          ],
+        },
+      },
+      async ({ pi, until, events }) => {
+        await pi.request({ type: "prompt", message: "go" });
+        await until(asked("call-1"));
+        await pi.request({ type: "abort" });
+        await until((event) => event.type === "agent_settled");
+        const notes = notesOf(events);
+
+        expect(events.find((event) => event.type === "tool_execution_end")).toMatchObject({
+          isError: true,
+          result: { content: [{ type: "text", text: ASK_USER_STOPPED }] },
+        });
+        expect(notes).toStrictEqual([{ kind: "note", id: "n1", op: "cancel", args: { id: "call-1" } }]);
+      },
+    );
+  });
+
+  it("ask-user-child: a work child the agent opened has no ask_user, as the host starts it", async () => {
+    await runScenario(
+      {
+        scenario: "ask-user-child",
+        extensions: [ATRIUM_EXTENSION],
+        args: [flag({ child: true, role: "work", depth: 1, guard: "flags" }), "--exclude-tools", "ask_user"],
+        script: {
+          replies: [
+            { blocks: [{ type: "toolCall", id: "call-1", name: "ask_user", arguments: { questions: [written] } }] },
+            { blocks: [{ type: "text", text: "done" }] },
+          ],
+        },
+      },
+      async ({ pi, until, contexts }) => {
+        await pi.request({ type: "prompt", message: "go" });
+        await until((event) => event.type === "agent_settled");
+        const [first, second] = await contexts();
+
+        expect(first?.tools).not.toContain("ask_user");
+        expect(lastResult(second)).toBe("Tool ask_user not found");
       },
     );
   });

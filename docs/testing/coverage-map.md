@@ -955,3 +955,70 @@ UI 默认测试端口 63315 被其它 worktree 的测试占用，未终止对方
 | 子对话行写"模型名 · 档位"：名字取目录、目录没有则写 id；只有 `off` 的模型不写档位；没有记录不写；行高 40px、行间 2px | `packages/ui/src/children/children.test.ts` `modelLine` 三项；`children.browser.test.tsx` "tells each child's model and thinking level in its row, and keeps the rows apart" | 已覆盖（宿主换模型到列表更新的延迟未测） |
 | 折叠过的过程只留下插话行时，折叠一结束就清掉折叠动画，插话行不再盖到回复上（原先复用同一个 DOM 节点，`fill: forwards` 的高度 0 留在上面） | `packages/ui/src/chat/turn.browser.test.tsx` "keeps the steers a folded turn leaves in view clear of the reply once the fold has played" | 已覆盖 |
 | 排队面板、子对话列表收起时直接消失，不播收起动画；展开动画不变 | `packages/ui/src/chat/run-control.browser.test.tsx` "grows the panel from its bottom edge…"、"closes the queue on a press outside it, the panel going at once" | 已覆盖 |
+
+## agent 向你提问（SPEC-0003，2026-10-21）
+
+先是实施前的 pi 契约实测，2026-10-22 实现后续登记。协议 24。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 工具挂着等宿主时先发 `steer`、再回答：插话应答 `queued` 并列在 `queue_update` 里，工具返回后紧跟工具结果送到模型，同一次运行 | `packages/pi/src/contract/subagent.pi.test.ts` "ask-steer: …"，夹具 `pi-1.3.0/ask-steer.jsonl` | 已覆盖（破坏检查：探针回答被改成别的文字时检出） |
+| 工具挂着时 `abort`：扩展抛出的文字成为 `isError` 的工具结果、`details` 为 `{}`，不再请求模型；下一次发消息模型看到这条结果 | `subagent.pi.test.ts` "ask-abort: …"，夹具 `pi-1.3.0/ask-abort.jsonl` | 已覆盖（破坏检查：探针中止时的文字被改时检出） |
+| 协议：问题与答案的形状和上限（1～4 题、2～4 个选项、各文字上限）；`answersQuestion`：单选恰好一项、多选至少一项、下标在范围内不重复、"其他"去空白后非空 | `packages/protocol/src/question.test.ts` | 已覆盖 |
+| 协议：`Control.question`、`answer_question`（答案 / 跳过，空答案和两者兼有被拒）、`ToolDetails` 的 `ask_user`、`question_closed` / `question_invalid` | `packages/protocol/src/envelope.test.ts`（各样例、命令清单、错误码清单） | 已覆盖 |
+| pi：读模型写的问题（去推荐标记、默认单选、去空白，推荐标记只认末尾），逐条拒绝并写明哪一题哪一项（题数、选项数、各文字上限、"Other"/"其他"不分大小写、重复选项、多选带预览、重复题名、形状不对），空白预览算没有 | `packages/pi/src/agent/ask-user.test.ts` "checkQuestions" | 已覆盖 |
+| pi：交回模型的文字（答案按选项顺序、"其他"去空白、跳过、直接回复）与停止时的文字；读结局（版本不对、停止后的空 `details` 读成没有） | `ask-user.test.ts` "answerText"、"askUserOutcome" | 已覆盖 |
+| pi：扩展注册 `ask_user`（声明给模型的说明和参数整体比对）、经通道问宿主、结局存进 `details`、问题不合格不问宿主、宿主拒绝的措辞、停止时通知宿主并抛出、子代理在执行和钩子两处被拒 | `packages/pi/src/agent/extension.test.ts` "ask_user"、"refusal" | 已覆盖 |
+| pi：读会话文件时从参数读问题、从结果读结局 | `packages/pi/src/history/tools.test.ts` "shows ask_user's questions" | 已覆盖 |
+| pi 契约（Atrium 扩展、真实 pi 1.3.0）：调用读成整理过的问题、宿主回答后模型读到答案、结局写进结果；停止时出错结果并通知宿主；`work` 子代理按宿主的参数没有这个工具 | `packages/pi/src/contract/agent-tools.pi.test.ts` "ask-user"、"ask-user-abort"、"ask-user-child"，夹具 `pi-1.3.0/ask-user*.jsonl`；`agent-call`、`agent-task`、`agent-guard`、`agent-readonly-bash-extension` 重录，只多了 `ask_user` 的声明 | 已覆盖 |
+| 宿主：`work` 子代理启动参数排除 `ask_user`（含层数 2、带上下文继承父会话参数、互为父会话的环） | `packages/host/src/sessions/agent-launch.test.ts` | 已覆盖 |
+| 宿主控制器：问题进控制状态、回答 / 跳过、对不上或答不全的拒绝且问题保留、插话代替回答（先摘下问题、pi 收下插话后才回答）、排队里的插话也算、插话被拒或被处理时问题恢复并重新发布、`/` 命令不算、停止当场作废、插话途中停止不恢复、pi 退出和扩展放弃时作废、同时只有一组 | `packages/host/src/sessions/session-controller.test.ts` "asking you (SPEC-0003)" | 已覆盖 |
+| 宿主中转：交给控制器、回答后回复扩展、agent 子代理（任意层）回 `ask_user_unavailable` 而你开的子对话能问、作废的不回复、扩展放弃时通知控制器、pi 已不在时的放弃安静处理、已有问题时拒绝 | `packages/host/src/sessions/agent-relay.test.ts` "ask_user (SPEC-0003)" | 已覆盖 |
+| 宿主：会话"待回答"算上问题，回答后清掉；路由转 `answer_question` | `session-manager.test.ts` "waits for the questions its agent asked"、`router.test.ts` | 已覆盖 |
+| 客户端：`answerQuestion` 发出命令 | `packages/client/src/atrium-client.test.ts` | 已覆盖 |
+| 界面状态：单选 / 多选 / "其他"的选取、算不算答了、下一道没答的题、拼出答案、按会话保存草稿（换问题、题数不对时重来） | `packages/ui/src/chat/question-state.test.ts` | 已覆盖 |
+| 提问卡片：题名标签与"已答 N / M"、单选 / 多选标签与"已选 N"、序号即控件（圆 / 圆角方、选中蓝底勾）、推荐标记、单选 0.2 秒后到下一题、多选勾选计数、没答完不能提交、"其他"多行框（铺满整行、聚焦、长高、⏎ 确定、⇧⏎ 换行）、数字键不进输入框、↑↓ 移动、← → 换题、跳过、草稿保留、预览跟着指向的选项、只有问题时卡片区也显示、在对话框下面 | `packages/ui/src/chat/question-card.browser.test.tsx` | 已覆盖 |
+| 输入框：有问题时占位文字换掉，回车和 ⌘回车都按插话发 | `composer.browser.test.tsx` "while the agent's questions wait" | 已覆盖 |
+| 过程轨道：文字（正在问你 / 问了你 / 跳过 / 直接回复 / 已取消）、折叠摘要"问了你 N 个问题"、记录行、Markdown；等你时问号标题行"等你回答"和光环节点、答完橙点和常显记录、点开看全部选项、停止后灰点不是死路 | `turn-layout.test.ts` "the agent's questions on the rail"、`turn.browser.test.tsx` "the agent's questions" | 已覆盖 |
+| 端到端：真实 Electron + pi + faux 模型，agent 问两题，卡片点选提交，模型同一轮读到答案、标签"待回答"起止、过程记录；有问题时在输入框发消息，卡片消失、模型同一轮先读到"直接回复"再读到你的话 | `apps/desktop/e2e/ask-user.spec.ts` | 已覆盖（负对照：去掉"有问题时回车按插话发"后第二条变红） |
+| 泄漏：控制器 200 轮（回答、直接回复、放弃、停止）每次调用都得到回答、不留问题、计时器和监听回到基线、问题对象可回收；界面 8 轮卡片出现消失不留脱离的 DOM | `session-controller.leak.test.ts` "answers and lets go of the agent's questions"、`apps/desktop/e2e/ask-user.leak.spec.ts` | 已覆盖（负对照：故意留住问题对象 / 卡片节点时都变红） |
+
+破坏检查（2026-10-22）：新行为的 50 个改坏点全部检出；第一次没检出的 4 处，3 处补了测试，1 处是多余的守卫，已删掉。
+
+变异测试（只变异改动的行，2026-10-22）：协议 `question.ts` 100%（76）；pi `ask-user.ts`、扩展的 `ask_user` 部分、`history/tools.ts` 100%（255），`ask-user.ts` 里 5 处为类型写的判断与一处空白预览后的上限参数注明等价；宿主控制器、中转、启动参数的改动 100%（控制器 100、中转 28、启动参数 5 个变异；过程中补了"插话被拒后重新发布问题""停止后不恢复""回复途中不收新问题""pi 已不在时放弃"四个测试，删掉了两处多余代码）；界面 `question-state.ts`、`turn-layout.ts` 的改动 100%（175），为类型写的判断注明等价。`question-state.ts` 加进了界面的变异分组。
+
+已知不稳（2026-10-22）：`children.spec.ts` "the agent opens two children" 在和其他端到端文件一起跑时 1/4 次失败（第二个子对话的来源行 5 秒内没出现，测试自己注明两条通知可能分开到），单跑 7/7、整组复跑 3/3 通过；和这次改动无关，未修改。整套界面测试在新 worktree 冷缓存第一次跑时 4 个文件导入期 SyntaxError，单跑与热缓存重跑全过（同路线图已记的现象）。
+
+### 三方审查后补（SPEC-0003，2026-10-22）
+
+GPT-6 Astra、Grok 4.7、Claude 子代理各自只读审查，合并去重后修了下列问题；每条先写会红的测试，再改代码。
+
+| 问题（来源） | 改法 | 测试 | 状态 |
+|---|---|---|---|
+| `ask_user` 没声明 `executionMode: "sequential"`，同一批两次提问时第二组被宿主拒成 `agent_bad_request`（三方） | 声明串行；本机 pi 1.3.0 已核对整批会依次执行 | `extension.test.ts` 声明比对；契约 `agent-tools.pi.test.ts` "ask-user-two"（夹具 `ask-user-two.jsonl`，改前第二组同时发出） | 已覆盖 |
+| 换题时选项重挂，焦点掉出卡片，按键失效（三方） | 焦点在卡片里时换题，焦点跟到新题选中的或第一个选项 | `question-card.browser.test.tsx` "keeps the focus in the card…"、"moves the focus onto the next question's options…" | 已覆盖 |
+| 提交失败后按钮永久锁住（三方） | 发送结果回传卡片，没发出就解锁；`question_closed` / `question_invalid` 有中文说明 | "lets you send again when sending failed…"；`chat.browser.test.tsx` "describes" 两项 | 已覆盖 |
+| "其他"没有 4000 字上限（Claude、Grok） | `maxLength` | "takes no more than 4000 characters…" | 已覆盖 |
+| 草稿在切会话（视图加载中）、直接回复被退回时被清掉（Astra、Claude） | 只在有新问题时换掉草稿，问题短暂不在时保留 | "keeps what you picked while the questions are away…" | 已覆盖 |
+| ⌘ + 数字被卡片当成选择，和切标签冲突（Claude） | 带 ⌘、Ctrl、Alt 的按键不处理 | "leaves keys held with ⌘, Ctrl or Alt…" | 已覆盖 |
+| 多行"其他"和带引号的问题会拆开交回模型的一行一题格式（Grok） | 问题、选项、"其他"都写成 JSON 字符串 | `ask-user.test.ts` "answerText"；`ask-user.jsonl` 重录（只多了引号）；端到端预期同步 | 已覆盖 |
+| 胶囊条盖住提问卡片底部的按钮（Grok；对话框卡片同样） | 对话框、出错、提问卡片都放进输入框的容器，胶囊条在卡片上方 | "sit between the capsule bar and the box…"；真实应用截图核对 | 已覆盖 |
+| pi 规范化过的参数（`null`、`"true"`/`"false"`）在读历史时读不出，提问退回普通步骤（Astra） | 读历史时照 pi 的读法 | `ask-user.test.ts` "reads a call's arguments as pi ran them…" | 已覆盖 |
+| 宿主拒绝、别的版本的结果被显示成"问题已取消"、原样输出看不到（Astra） | 读不出结局又不是空的结果按普通工具步骤显示 | `history/tools.test.ts` | 已覆盖 |
+| 直接回复被退回后"待回答"时间被重置（Astra、Claude） | 问题的等待时间取 `askedAt` | `session-manager.test.ts` "keeps since when the questions wait through a direct reply pi refused…"（改前差几毫秒） | 已覆盖 |
+| 没有控制器时调用不回复、工具一直挂着；回复途中的新问题回 `agent_failed`（Claude、Grok） | 前者回 `agent_failed`；控制器新增 `asking`（问题开着或回复在途），中转据此回 `agent_bad_request` | `agent-relay.test.ts`、`session-controller.test.ts` | 已覆盖 |
+| 宿主不查题名、选项名重复和多选带预览（Claude）；`ToolDetails.questions` 无上限 | 通道 schema 加校验；`max(4)` | `channel.test.ts` | 已覆盖 |
+| 复制成 Markdown 缺完整问题（三方） | 每题写题名、问题和回答 | `turn-layout.test.ts` | 已覆盖 |
+| 多选时取消"其他"会清掉写过的字（Grok） | 不选时留着，选回来还在 | `question-state.test.ts` "keeps the other answer's text…" | 已覆盖 |
+| 结束后的文字颜色不是 `--text-muted`（Grok） | 改色 | `turn.browser.test.tsx` 颜色断言 | 已覆盖 |
+
+破坏检查：上面 19 处全部检出；补变异测试时又加了 3 处（停止期间早先的回复不清掉后来的问题、读历史时数字和 `null` 的结果、Markdown 里问题的换行），也都检出。
+
+变异测试（审查修复后复跑改动的行，2026-10-22）：pi 组 `ask-user.ts`、`history/tools.ts`、`channel.ts` 的改动、宿主组控制器 / 中转 / 启动参数的改动、界面组 `question-state.ts` 和 `turn-layout.ts` 的改动，存活的都已补测试或在源码注明等价（控制器里"回复在途时不会有另一个回复"那处）。复跑结果：pi 99.65%（1 个存活，随后补测试检出）、宿主 100%、界面 99.49%（1 个存活，随后补测试检出）。
+
+最终验证（2026-10-22）：`pnpm check` 通过；单元与宿主串行 3532 项中 3531 过，1 项 `setup.host.test.ts` "updates pi…" 失败，这次没改这个测试和它覆盖的代码，单跑 3/3 通过；界面 964 项全过；控制器泄漏 3 项通过；端到端 `ask-user`、`ask-user.leak`、`run-control`、`children`、`chat` 共 15 项一起跑全过；pi 契约本次相关的 `agent-tools`（9 项）、`ask-steer` / `ask-abort` 通过，其余失败都是旧场景缺 1.3.0 夹具。
+
+记录、未改的：preview 按等宽原文显示（用户定，SPEC 措辞已改）；以 `/` 开头的普通回复被当成命令（SPEC 写成已知限制）；卡片出现时没有屏幕阅读器播报；后台会话结束后草稿留到页面关闭（每会话一份，有界）；插话途中 pi 退出时，同一条消息可能既回到排队又退回输入框（Grok 指出，插话本来就有的竞态），按用户要求在本分支修了，见下表最后三行。
+
+端到端排查（2026-10-22）：界面泄漏测试第一次写时，⌘T 后没等新标签就打字，6 次里约 1 次消息落到别的地方、卡片不来、超时；改成先等"新会话"标签，泄漏和端到端各重复 6 次 18/18 通过。`run-control.spec.ts` "queues a message during a run…" 在和其他文件一起跑时失败过 1 次（第一条消息后没出现"停止"），单跑 4/4、组合复跑 4/4 通过，未改。
+| 插话还在等 pi 应答、或排在别的插话后面时 pi 退出：消息被放回排队，同时命令报 `pi_unavailable`，输入框（或排队面板的"插话"）又退回一份（Grok，既有竞态） | 退出时给这些插话打上"已回排队"，它们的命令应答 `queued`，不再报错；排在后面的不再发出 | `session-controller.test.ts` "puts a steer pi had not answered when it went back in the queue once…"、"puts steers waiting their turn…"、"keeps a queued message steered as pi went in the queue once"（改前三项都报 `pi_unavailable`）；破坏检查 3 处检出 | 已覆盖 |

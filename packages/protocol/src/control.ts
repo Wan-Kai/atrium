@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { DeliveryItem } from "./agent";
+import { PendingQuestion } from "./question";
 
 /** Milliseconds since the Unix epoch, from the host's clock. */
 const Timestamp = z.number().int().nonnegative();
@@ -72,6 +73,8 @@ export const Control = z.strictObject({
   compacting: z.boolean(),
   /** Questions from extensions waiting for an answer, oldest first. */
   interactions: z.array(Interaction),
+  /** The questions the agent asked with `ask_user`, waiting for you (SPEC-0003); at most one call at a time. */
+  question: PendingQuestion.nullable(),
   /** Set once pi crashed three times in a row; cleared when the next run starts. */
   failure: z.strictObject({ reason: z.literal("crashed"), attempts: z.number().int().positive() }).nullable(),
 });
@@ -88,5 +91,6 @@ export const IDLE_CONTROL: Control = {
   restarting: false,
   compacting: false,
   interactions: [],
+  question: null,
   failure: null,
 };

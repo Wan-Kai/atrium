@@ -1344,3 +1344,99 @@ describe("NoticeView", () => {
     await expect.element(screen.getByRole("button", { name: "上下文已压缩 · 压缩前 152K tokens" })).toBeVisible();
   });
 });
+
+describe("TurnView, the agent's questions (SPEC-0003)", () => {
+  /** What `ask_user` asked: one choice, then several. */
+  const questions = [
+    {
+      header: "范围",
+      question: "改到哪？",
+      multiSelect: false,
+      options: [
+        { label: "收件箱", description: "", preview: null, recommended: true },
+        { label: "侧栏", description: "", preview: null, recommended: false },
+      ],
+    },
+    {
+      header: "测试",
+      question: "补哪些？",
+      multiSelect: true,
+      options: [
+        { label: "单元", description: "", preview: null, recommended: false },
+        { label: "端到端", description: "", preview: null, recommended: false },
+      ],
+    },
+  ];
+
+  /**
+   * An `ask_user` step.
+   *
+   * @param status - How the call stands.
+   * @param outcome - How the questions ended.
+   * @returns The step.
+   */
+  const asked = (status: "running" | "done" | "failed", outcome: unknown = null): Step => ({
+    kind: "tool",
+    id: "1",
+    callId: "c1",
+    tool: "ask_user",
+    args: {},
+    status,
+    output: null,
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- each outcome, written as data.
+    details: { tool: "ask_user", questions, outcome: outcome as never },
+    partial: false,
+  });
+
+  it("while they wait, says 等你回答 under an orange question mark, and draws the step orange with a ring spreading", async () => {
+    const screen = await render(runningView([asked("running")]));
+
+    await expect.element(screen.getByTestId("run-asking")).toBeVisible();
+    await expect.element(screen.getByText("等你回答")).toBeVisible();
+    expect(screen.getByTestId("run-cat").elements()).toHaveLength(0);
+    const words = screen.getByTestId("asking-words");
+    await expect.element(words).toHaveTextContent("正在问你 · 2 个问题");
+    expect(colorOf(getComputedStyle(words.element()).color)).toBe(colorOf("var(--attn-text)"));
+    expect(railNodes(screen.container)).toStrictEqual(["asking"]);
+    await expect.element(screen.getByTestId("rail-asking")).toBeInTheDocument();
+  });
+
+  it("once answered, keeps an orange node, a line for each answer without opening it, and every option when opened", async () => {
+    const answered = {
+      kind: "answered",
+      answers: [
+        { selected: [1], other: null },
+        { selected: [0], other: "基准" },
+      ],
+    };
+    const { screen } = await show(turn([asked("done", answered)]));
+
+    await expect.element(screen.getByTestId("process-summary")).toHaveTextContent("· 问了你 2 个问题");
+    await screen.getByTestId("process-header").click();
+    expect(railNodes(screen.container)).toStrictEqual(["ask"]);
+    await expect.element(screen.getByTestId("question-record")).toHaveTextContent("范围侧栏测试单元、其他：“基准”");
+    const said = present(
+      screen
+        .getByRole("button", { name: /问了你/ })
+        .element()
+        .querySelector("span"),
+    );
+    expect(colorOf(getComputedStyle(said).color)).toBe(colorOf("var(--text-muted)"));
+    await screen.getByRole("button", { name: /问了你/ }).click();
+
+    const detail = screen.getByTestId("step-detail");
+    await expect
+      .element(detail)
+      .toHaveTextContent("问题ask_user范围 · 改到哪？收件箱侧栏测试 · 补哪些？单元端到端其他：基准");
+    expect(screen.getByLabelText("选了").elements()).toHaveLength(3);
+  });
+
+  it("stopped, draws a grey node on the line, no dead end, and says the questions were cancelled", async () => {
+    const { screen } = await show(turn([asked("failed")], { outcome: "stopped" }));
+    await screen.getByTestId("process-header").click();
+
+    expect(railNodes(screen.container)).toStrictEqual(["dot"]);
+    await expect.element(screen.getByText("问题已取消")).toBeVisible();
+    expect(screen.getByTestId("question-record").elements()).toHaveLength(0);
+  });
+});

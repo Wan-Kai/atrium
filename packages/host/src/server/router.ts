@@ -203,6 +203,8 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.steerQueued(command.sessionId, command.itemId);
       case "answer_interaction":
         return options.sessions.answerInteraction(command.sessionId, command.interactionId, command.answer);
+      case "answer_question":
+        return options.sessions.answerQuestion(command.sessionId, command.questionId, command.answer);
       case "retry_run":
         return options.sessions.retryRun(command.sessionId);
       case "set_model":

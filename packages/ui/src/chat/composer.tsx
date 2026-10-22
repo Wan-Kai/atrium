@@ -75,12 +75,22 @@ export interface ComposerProps {
   readonly onStop?: () => void;
   /** Whether a run goes on: the button stops, Enter queues and ⌘+Enter steers. */
   readonly running?: boolean;
+  /**
+   * Whether the agent's questions wait for you: a message replies to them, so Enter sends it as a
+   * steer, as ⌘+Enter does (SPEC-0003, "直接回复").
+   */
+  readonly asked?: boolean;
   /** Whether a stop waits for pi to confirm. */
   readonly stopping?: boolean;
   /** Whether pi compacts the context: built-ins that want the session idle wait, as during a run. */
   readonly compacting?: boolean;
   /** What floats above the box: the capsule bar and its panels. */
   readonly above?: ReactNode;
+  /**
+   * What sits right above the box, under the capsule bar: the cards waiting for you, as a dialog
+   * or the agent's questions (SPEC-0003, "界面").
+   */
+  readonly pinned?: ReactNode;
   /** The model button, beside the send button. */
   readonly picker?: ReactNode;
   /** Where the draft is kept: the session id, or `new:<container>` before the session exists. */
@@ -196,9 +206,11 @@ export function Composer({
   onSteer,
   onStop,
   running = false,
+  asked = false,
   stopping = false,
   compacting = false,
   above,
+  pinned,
   picker,
   draftKey,
   history = [],
@@ -571,7 +583,7 @@ export function Composer({
       void editing.onSubmit(message, sent);
       return;
     }
-    (steer ? (onSteer ?? onSend) : onSend)(message, sent, command);
+    (steer || asked ? (onSteer ?? onSend) : onSend)(message, sent, command);
     drafts.update(draftKey, () => EMPTY_DRAFT);
     setNote(null);
     setBrowsing(null);
@@ -710,6 +722,7 @@ export function Composer({
       {/* A press in here leaves the capsule bar's panel open (`CapsuleUnit`). */}
       <div className="relative" data-capsule-dock>
         {above}
+        {pinned}
         {listOpen ? (
           <SuggestionList
             id={listId}
@@ -857,11 +870,13 @@ export function Composer({
                   ? "修改消息后重新发送"
                   : command !== null
                     ? tagPlaceholder(command)
-                    : running
-                      ? stopping
-                        ? "正在停止…"
-                        : "回车排队 · ⌘回车插话 · Esc 停止"
-                      : "发消息或描述任务，@ 引用文件，/ 使用命令"
+                    : asked && !stopping
+                      ? "直接回复也行：发出后代替回答，agent 接着做"
+                      : running
+                        ? stopping
+                          ? "正在停止…"
+                          : "回车排队 · ⌘回车插话 · Esc 停止"
+                        : "发消息或描述任务，@ 引用文件，/ 使用命令"
               }
               onChange={(event) => {
                 setText(event.target.value);

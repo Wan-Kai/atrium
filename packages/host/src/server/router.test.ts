@@ -85,6 +85,7 @@ function fakeCommands() {
     resumeDeliveries: record("resumeDeliveries", {}),
     steerQueued: record("steerQueued", { disposition: "handled" }),
     answerInteraction: record("answerInteraction", {}),
+    answerQuestion: record("answerQuestion", {}),
     retryRun: record("retryRun", {}),
     setModel: record("setModel", {}),
     setThinkingLevel: record("setThinkingLevel", {}),
@@ -427,6 +428,16 @@ describe("createRouter", () => {
         answer: { value: "a" },
       }),
     );
+    await route(
+      connection,
+      withTrace({
+        type: "answer_question",
+        requestId: "r8b",
+        ...session,
+        questionId: "call-1",
+        answer: { skipped: true },
+      }),
+    );
     await route(connection, withTrace({ type: "retry_run", requestId: "r9", ...session }));
     await route(
       connection,
@@ -453,6 +464,7 @@ describe("createRouter", () => {
       ["removeQueued", "s1", "q2"],
       ["steerQueued", "s1", "q3"],
       ["answerInteraction", "s1", "d1", { value: "a" }],
+      ["answerQuestion", "s1", "call-1", { skipped: true }],
       ["retryRun", "s1"],
       ["setModel", "s1", { providerId: "anthropic", modelId: "haiku" }],
       ["setThinkingLevel", "s1", "max"],
@@ -473,7 +485,7 @@ describe("createRouter", () => {
       { type: "response", requestId: "r2", ok: true, result: { confirmed: false } },
       ...["r3", "r4", "r5", "r6"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
       { type: "response", requestId: "r7", ok: true, result: { disposition: "handled" } },
-      ...["r8", "r9", "r10", "r11"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      ...["r8", "r8b", "r9", "r10", "r11"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
       { type: "response", requestId: "r12", ok: true, result: { commands: [] } },
       { type: "response", requestId: "r13", ok: true, result: { files: [] } },
       ...["r14", "r15", "r16"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),

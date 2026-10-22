@@ -124,7 +124,7 @@ describe("toolFlags", () => {
     ]);
   });
 
-  it("gives a work child everything, but at depth 2 none of the main agent's tools", () => {
+  it("gives a work child everything but ask_user, and at depth 2 none of the main agent's tools either", () => {
     const entries = [
       entry("main"),
       entry("child", ["main", "agent"], ["work", "flags"]),
@@ -132,8 +132,8 @@ describe("toolFlags", () => {
     ];
 
     expect([toolFlags(entries, "child"), toolFlags(entries, "grandchild")]).toStrictEqual([
-      [],
-      ["--exclude-tools", PARENT],
+      ["--exclude-tools", "ask_user"],
+      ["--exclude-tools", `${PARENT},ask_user`],
     ]);
   });
 
@@ -152,7 +152,7 @@ describe("toolFlags", () => {
       "--tools",
       `read,bash,grep,find,ls,report_progress,ask_parent,${PARENT}`,
     ]);
-    expect(toolFlags(entries, "loop-a")).toStrictEqual([]);
+    expect(toolFlags(entries, "loop-a")).toStrictEqual(["--exclude-tools", "ask_user"]);
   });
 
   it("starts a child forked from a forked child on the flags its parent starts with, keeping an exclusion of the main agent's tools", () => {
@@ -166,7 +166,7 @@ describe("toolFlags", () => {
     ];
 
     expect(toolFlags(entries, "forked-again")).toStrictEqual([]);
-    expect(toolFlags(entries, "forked-deep")).toStrictEqual(["--exclude-tools", PARENT]);
+    expect(toolFlags(entries, "forked-deep")).toStrictEqual(["--exclude-tools", `${PARENT},ask_user`]);
   });
 
   it("gives a forked child, for a terminal, the hard limits it would have without context", () => {

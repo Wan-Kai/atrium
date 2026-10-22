@@ -20,6 +20,10 @@ function recording() {
     removeDelivery: (deliveryId) => calls.push(["removeDelivery", deliveryId]),
     resumeDeliveries: () => calls.push(["resumeDeliveries"]),
     answer: (interactionId, answer) => calls.push(["answer", interactionId, answer]),
+    answerQuestion: async (questionId, reply) => {
+      calls.push(["answerQuestion", questionId, reply]);
+      return true;
+    },
     retry: () => calls.push(["retry"]),
   };
   return { calls, actions };
@@ -527,7 +531,7 @@ describe("ControlCards", () => {
         question({ id: "d4", kind: "editor", title: "改一下", prefill: "旧的" }),
       ],
     };
-    const screen = await render(<ControlCards control={control} actions={actions} />);
+    const screen = await render(<ControlCards sessionId="s1" control={control} actions={actions} />);
 
     await screen.getByRole("button", { name: "jest" }).click();
     await expect.element(screen.getByText("会删除 dist")).toBeVisible();
@@ -554,7 +558,7 @@ describe("ControlCards", () => {
     vi.setSystemTime(10_000);
     const { actions } = recording();
     const control = { ...IDLE_CONTROL, interactions: [question({ id: "d1", kind: "confirm", deadline: 15_000 })] };
-    const screen = await render(<ControlCards control={control} actions={actions} />);
+    const screen = await render(<ControlCards sessionId="s1" control={control} actions={actions} />);
     await expect.element(screen.getByText("来自 extension · 5 秒后超时")).toBeVisible();
 
     await vi.advanceTimersByTimeAsync(2000);
@@ -566,7 +570,7 @@ describe("ControlCards", () => {
   it("offers to retry a session pi keeps crashing in", async () => {
     const { calls, actions } = recording();
     const control: Control = { ...IDLE_CONTROL, failure: { reason: "crashed", attempts: 3 } };
-    const screen = await render(<ControlCards control={control} actions={actions} />);
+    const screen = await render(<ControlCards sessionId="s1" control={control} actions={actions} />);
 
     await expect.element(screen.getByText("pi 连续崩溃，自动重启 3 次都没有成功")).toBeVisible();
     await screen.getByRole("button", { name: "重试" }).click();
