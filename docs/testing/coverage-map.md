@@ -498,7 +498,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 胶囊点开的面板（design-language"胶囊点开的面板"）：排队面板和子对话列表各自浮在自己的胶囊正上方 8px、左边和胶囊左边齐；排队面板右边到胶囊条右边；子对话列表宽度按内容、最窄 300px、右边不超出胶囊条（胶囊前面的东西多了也一样）；箭头转半圈 | `packages/ui/src/chat/run-control.browser.test.tsx` "floats the queue 8px above its capsule"；`packages/ui/src/children/children.browser.test.tsx` "floats its list 8px above the capsule"、"keeps its list within the bar" | 已覆盖 |
 | 点空白处（面板、胶囊和输入框以外的地方）、按 Esc 收起面板（排队面板和子对话列表都是）；点面板里的东西（如行的"···"菜单）、点输入框和它里面的按钮（打字、停止）不收起；收起编辑的 Esc、输入框拿去停止运行的 Esc 不收起面板；点另一个胶囊换成那个的面板；收起后不再监听 | `run-control.browser.test.tsx` "closes the queue on a press outside it"、"keeps the queue open on a press in the input box or on its stop button"、"closes the queue on Escape, but not on the one that gives up an edit"、"switches to the other capsule's panel"；`children.browser.test.tsx` "closes its list on a press outside it and on Escape" | 已覆盖（输入框停止运行的 Esc 未单独测；监听的释放未单独测） |
 | 面板的动效：展开时从底边往上长（`clip-path`，0.28 秒 `cubic-bezier(.45, 0, .15, 1)`，裁剪留出阴影的位置），各行从下 6px 淡入（0.22 秒，第一行晚 60ms，之后每行再晚 30ms）；收起不做动画、面板直接消失（2026-10-21 自用时改）；减少动态效果时直接出现、消失 | `run-control.browser.test.tsx` "grows the panel from its bottom edge"（含收起时面板立刻没有）、"closes the queue on a press outside it, the panel going at once"、"opens and closes at once when less motion is asked for" | 已覆盖 |
-| 模型列表的规则表：去掉按量计费的 Claude、OpenAI（pi 自己的 `anthropic`、`azure-openai-responses`、不是 ChatGPT 登录的 `openai`、登录状态读不出时也去掉、OpenRouter 里 `anthropic/`、`openai/` 开头的，别家 `openai/` 开头的不算）；同一订阅两条路时列表里有 `openai-codex` 的模型就不列 `openai` 的，没有时 ChatGPT 登录的 `openai` 照常列；pi 的默认模型被去掉、不在列表里或没有时没有默认 | `packages/host/src/sessions/model-rules.test.ts` | 已覆盖 |
+| 模型列表的规则表：恢复 pi 自己的 `anthropic` 和它的默认模型（2026-10-22 用户要求，OAuth / API Key 都可见，界面不加套餐签）；仍去掉 `azure-openai-responses`、不是 ChatGPT 登录的 `openai`（登录状态读不出时也去掉）、OpenRouter 里 `anthropic/`、`openai/` 开头的，别家 `openai/` 开头的不算；同一订阅两条路时列表里有 `openai-codex` 的模型就不列 `openai` 的，没有时 ChatGPT 登录的 `openai` 照常列；pi 的默认模型被去掉、不在列表里或没有时没有默认 | `packages/host/src/sessions/model-rules.test.ts` | 已覆盖 |
 
 ## M1.11 自用中改（2026-10-20）
 
@@ -927,6 +927,23 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 失败只报状态码和让模型知道怎么办的话，不带服务器的原文（401 会回显 key）；不是 JSON、不是搜索或抓取的答案；连不上；不跟随重定向（key 不发到别处）；工具的信号触发时按"已停止"结束 | extension.test.ts "reports a failed status as a code…"、"words HTTP %i…"、"reports an answer that is not JSON…"、"reports unreachable…"、"ends as aborted…" | 已覆盖 |
 | 真实 pi 里加载扩展，模型调用 `web_search`、`web_fetch` 得到真实结果（2026-10-20 手动，pi 1.3.0，隔离的 `PI_CODING_AGENT_DIR`：`deepseek` 凭据带 `env` 时返回结果且 `auth.json` 没被改写；凭据有聊天 key 但没有搜索 key 时 `no_key`；环境变量里的聊天 key 不当搜索 key） | 没有自动化测试：契约夹具只录了 pi 1.1.0，且要联网和真实 key | 手动验证 |
 
+## M1.11 自用：恢复 pi 原生 Claude 模型（2026-10-22）
+
+仅移除模型规则表里对 `anthropic` 的整家过滤；模型面板、标题模型和 agent 继续共用同一目录，原生 Claude 默认模型照常保留。套餐签规则不改，OAuth 登录的原生 Claude 仍不显示签，不新增计费说明；Claude Bridge 及其它服务商规则不变。沿用现有无签布局，不引入新的视觉设计。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| `anthropic` 在 OAuth / API Key 登录时保留模型与默认；其它登录状态或读取失败不再把它过滤；仍过滤 Azure、OpenRouter 的指定前缀及付费 / 重复 OpenAI 路径 | `packages/host/src/sessions/model-rules.test.ts` 的完整列表断言与 `keeps native Claude models and pi's default with %s credentials` | 已覆盖；旧实现下五项断言见红 |
+| 即使用 Claude OAuth，按钮、服务商图标和模型列表标题都没有套餐签；可选中并关闭面板，Claude Bridge 的套餐签保持 | `packages/ui/src/chat/model-picker.browser.test.tsx` 的 `selects native Claude without a plan tag even with OAuth…` 及现有 Bridge 断言 | 已覆盖；临时把 `anthropic` 加入 OAuth 套餐名单，浏览器断言实际见红 |
+| 真实 Electron → 宿主 → pi：原生 Claude 默认模型可见、可切换并发送消息；三处无套餐签；明暗截图 | `apps/desktop/e2e/models.spec.ts` 的 `lists native Claude, keeps its default and selects it without plan tags`（隔离目录、真实 pi + faux，不使用真实账户） | 已覆盖；恢复旧过滤并重建后，默认按钮错误显示“选择模型”，端到端见红；移除后通过，明暗截图已看 |
+
+验证：`pnpm check`、构建通过；宿主集成全量 147 项、模型相关单元 26 项、UI 全量 938 项、模型相关 Electron 3 项通过。`pnpm break-check` 两项全部检出；宿主 `model-rules.ts` 聚焦变异实跑 95 个，全部 killed（100%，无缓存复用、存活或超时）。独立只读源文件复核未发现阻断（未独立执行 diff 或重跑测试）。未增加资源生命周期，无本批泄漏测试；未跑 pi 契约、其它端到端、性能 / 压力 / 浸泡、打包安装或真实账户付费请求。
+
+全量单元 / 宿主共 3407 项，**不能宣称全绿**：首轮 3406 过，未修改的 `workspace-files.test.ts` 创建 5001 个文件用例超时；复跑 3405 过，该文件创建恰好 5000 个文件用例超时，另有未修改的 `install-service.test.ts` 等安装输出用例失败。目录超时伴随清理 `ENOTEMPTY`，输出亦有日志流 `EBADF`。目录文件曾单独 22 项全过，但最终隔离复跑仍有一次目录超时；安装服务隔离复跑 24 项通过。不改超时、不弱化断言、不顺带修这些失败，保留为本次验收的验证限制。
+
+UI 默认测试端口 63315 被其它 worktree 的测试占用，未终止对方进程；用 `/tmp` 下导入原配置且仅覆盖 UI 项目端口的临时配置（63328）完成全量 UI 与浏览器破坏检查，仓库配置未改。初次浏览器破坏检查因端口冲突报 `MISSED`，换端口后确实进入测试并检出，不把环境启动失败当作检出。
+
+用户确认合并与删除 worktree 后，同步 `main` 的 `a43ba71`，仅追踪表冲突，保留双方记录；实现差异仍限于本任务。合并前 `pnpm check`、构建、串行单元 3270 项、串行 UI 940 项、模型 Electron 3 项通过，使用仓库原配置，无超时调整或断言弱化。此前单元 / 宿主的失败记录保留，不改写为从未失败：本轮单元全过但仍有日志流 `EBADF` 输出。集成后首轮 UI 有未修改的右栏 0.24 秒动画例失败，单文件 13 项及随后串行全量通过；同时模型 Electron 的旧 `/faux-noop` 命令例失败，整文件独立复跑 3 项通过。本轮不冒称重新跑过宿主全量、变异测试或其它桌面旅程；未安装、未推送，主工作区无关的文档草稿不纳入提交。
 
 ## 子对话列表标模型、插话重叠、弹窗直接消失（2026-10-21）
 
