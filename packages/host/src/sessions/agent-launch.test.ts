@@ -116,15 +116,15 @@ describe("toolFlags", () => {
 
     expect(toolFlags(entries, "child")).toStrictEqual([
       "--tools",
-      `read,bash,grep,find,ls,report_progress,ask_parent,${PARENT}`,
+      `read,bash,ffgrep,fffind,ls,report_progress,ask_parent,${PARENT}`,
     ]);
     expect(toolFlags(entries, "grandchild")).toStrictEqual([
       "--tools",
-      "read,bash,grep,find,ls,report_progress,ask_parent",
+      "read,bash,ffgrep,fffind,ls,report_progress,ask_parent",
     ]);
   });
 
-  it("gives a work child everything but ask_user, and at depth 2 none of the main agent's tools either", () => {
+  it("gives a work child everything but legacy search and ask_user, and at depth 2 none of the main agent's tools either", () => {
     const entries = [
       entry("main"),
       entry("child", ["main", "agent"], ["work", "flags"]),
@@ -132,9 +132,24 @@ describe("toolFlags", () => {
     ];
 
     expect([toolFlags(entries, "child"), toolFlags(entries, "grandchild")]).toStrictEqual([
-      ["--exclude-tools", "ask_user"],
-      ["--exclude-tools", `${PARENT},ask_user`],
+      ["--exclude-tools", "grep,find,ask_user"],
+      ["--exclude-tools", `grep,find,${PARENT},ask_user`],
     ]);
+  });
+
+  it.each(["work", "explore", "advise"] as const)(
+    "excludes legacy search for an inherited %s child even when the parent's remaining flags are empty",
+    (role) => {
+      const entries = [entry("main"), entry("forked", ["main", "agent"], [role, "extension"])];
+
+      expect(toolFlags(entries, "forked")).toStrictEqual(["--exclude-tools", "grep,find"]);
+    },
+  );
+
+  it("does not change search tools in a child you opened yourself", () => {
+    const entries = [entry("main"), entry("yours", ["main", "user"])];
+
+    expect(toolFlags(entries, "yours")).toStrictEqual(["--exclude-tools", "report_progress,ask_parent"]);
   });
 
   it("starts a child with its parent's conversation on its parent's flags, its own two tools let in", () => {
@@ -147,12 +162,14 @@ describe("toolFlags", () => {
       entry("loop-b", ["loop-a", "agent"], ["work", "extension"]),
     ];
 
-    expect(toolFlags(entries, "forked")).toStrictEqual([]);
+    expect(toolFlags(entries, "forked")).toStrictEqual(["--exclude-tools", "grep,find"]);
     expect(toolFlags(entries, "forked-reader")).toStrictEqual([
       "--tools",
-      `read,bash,grep,find,ls,report_progress,ask_parent,${PARENT}`,
+      `read,bash,ffgrep,fffind,ls,report_progress,ask_parent,${PARENT}`,
+      "--exclude-tools",
+      "grep,find",
     ]);
-    expect(toolFlags(entries, "loop-a")).toStrictEqual(["--exclude-tools", "ask_user"]);
+    expect(toolFlags(entries, "loop-a")).toStrictEqual(["--exclude-tools", "grep,find,ask_user"]);
   });
 
   it("starts a child forked from a forked child on the flags its parent starts with, keeping an exclusion of the main agent's tools", () => {
@@ -165,8 +182,8 @@ describe("toolFlags", () => {
       entry("forked-deep", ["grandchild", "agent"], ["explore", "extension"]),
     ];
 
-    expect(toolFlags(entries, "forked-again")).toStrictEqual([]);
-    expect(toolFlags(entries, "forked-deep")).toStrictEqual(["--exclude-tools", `${PARENT},ask_user`]);
+    expect(toolFlags(entries, "forked-again")).toStrictEqual(["--exclude-tools", "grep,find"]);
+    expect(toolFlags(entries, "forked-deep")).toStrictEqual(["--exclude-tools", `grep,find,${PARENT},ask_user`]);
   });
 
   it("gives a forked child, for a terminal, the hard limits it would have without context", () => {
@@ -174,7 +191,7 @@ describe("toolFlags", () => {
 
     expect(toolFlags(entries, "forked", true)).toStrictEqual([
       "--tools",
-      `read,bash,grep,find,ls,report_progress,ask_parent,${PARENT}`,
+      `read,bash,ffgrep,fffind,ls,report_progress,ask_parent,${PARENT}`,
     ]);
   });
 });
@@ -186,7 +203,7 @@ describe("agentLaunchFlags", () => {
     expect(agentLaunchFlags(entries, "child")).toStrictEqual([
       `--atrium-agent=${encodeArgument({ v: 1, child: true, role: "explore", depth: 1, guard: "flags" })}`,
       "--tools",
-      `read,bash,grep,find,ls,report_progress,ask_parent,${PARENT}`,
+      `read,bash,ffgrep,fffind,ls,report_progress,ask_parent,${PARENT}`,
     ]);
   });
 });

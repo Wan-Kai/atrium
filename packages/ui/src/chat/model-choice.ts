@@ -1,6 +1,7 @@
 import type { ModelListView } from "@atrium/client";
 import type { CatalogModel, ModelRef, Preferences, SessionModel, SetupLogin, ThinkingLevel } from "@atrium/protocol";
 import catpawLogo from "../design/brand/catpaw.webp";
+import fridayLogo from "../design/brand/friday.png";
 import claudeLogo from "../design/brand/claude.svg";
 import copilotLogo from "../design/brand/copilot.svg";
 import deepseekLogo from "../design/brand/deepseek.svg";
@@ -167,6 +168,7 @@ const PROVIDERS: Readonly<Record<string, { readonly name: string; readonly logo:
   "kimi-coding": { name: "Kimi Coding", logo: kimiLogo },
   deepseek: { name: "DeepSeek", logo: deepseekLogo },
   "catpaw-cli": { name: "catpaw-cli", logo: catpawLogo },
+  "sankuai-openai": { name: "Friday", logo: fridayLogo },
 };
 
 /**

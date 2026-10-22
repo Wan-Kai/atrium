@@ -524,9 +524,9 @@ export function parentCalls(branch: readonly SessionEntryView[]): { name: string
  * Whether a session may call a tool, by who it is.
  *
  * @remarks
- * SPEC-0002, "角色与限制": a read-only role gets `read`, `bash`, `grep`, `find`, `ls` and its
- * own two tools; Bash's read-only use is a behavioral instruction, not a sandbox. `work` gets
- * everything; the main agent's tools only below depth 2; a child's own tools only
+ * SPEC-0002, "角色与限制": a read-only role gets `read`, `bash`, `ffgrep`, `fffind`, `ls` and its
+ * own two tools; Bash's read-only use is a behavioral instruction, not a sandbox. Every child
+ * uses FFF names instead of `grep` and `find`; `work` gets everything else. The main agent's tools only below depth 2; a child's own tools only
  * in a child the agent opened, and `ask_user` only outside one (SPEC-0003). With `guard: "flags"`,
  * pi's own flags already left the rest out.
  *
@@ -541,6 +541,8 @@ export function refusal(self: AgentSelf, tool: string): string | null {
   if (parentTool && self.depth >= 2) return "This sub-agent is too deep to start sub-agents of its own.";
   if (childTool && !self.child) return "Only a sub-agent can use this tool.";
   if (tool === ASK_USER_TOOL && self.child) return SUB_AGENT_ASKS_PARENT;
+  if (self.child && (tool === "grep" || tool === "find"))
+    return "Use ffgrep and fffind for search in sub-agents; the old grep and find tools are disabled.";
   if (self.guard !== "extension" || self.role === null || self.role === "work") return null;
   if (parentTool || childTool || (READ_ONLY_TOOLS as readonly string[]).includes(tool)) return null;
   return `This sub-agent is read-only (${self.role}): it can use ${[...READ_ONLY_TOOLS, ...CHILD_TOOLS].join(", ")}${self.depth < 2 ? " and the agent_* tools" : ""}.`;

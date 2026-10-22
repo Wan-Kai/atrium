@@ -249,12 +249,13 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 
 | 测试 | 现象 | 怎么复现 | 状态 |
 |---|---|---|---|
+| `packages/ui/src/app/workbench.browser.test.tsx` “names a chat by its alias, else its first session's title, else as new” | 2026-10-22整套串行UI首轮名称正确但行顺序变化；单跑及全量重跑通过。fixture分别取实时时间，列表按更新时间降序，跨毫秒创建可改变顺序；相关文件相对main未改 | `pnpm test:ui --maxWorkers=1`；单跑此用例 | 待修，不放宽断言或增加重试 |
 | `packages/ui/src/chat/changes-pane.browser.test.tsx` "opens from nothing in 0.24 s, the panel at its width from the start, and closes back to nothing before it goes" | 整套 ui 并行跑时偶尔失败，单独跑通过；量的是动效时长，机器忙时帧落后 | `pnpm test:stress --project ui packages/ui/src/chat/changes-pane.browser.test.tsx` | 待修（多半要改成按动画对象的时间线断言，不按墙钟） |
 | `packages/ui/src/chat/markdown.browser.test.tsx` "shows a block's buttons in place of its language while hovered or focused inside" | 同上，整套并行时偶尔失败 | 同上，换成这个文件 | 待修 |
 | `packages/ui/src/files/diff-viewer.browser.test.tsx`、`packages/ui/src/chat/streaming.browser.test.tsx` | 整套并行时偶尔有一个用例失败，单独跑通过；具体用例下次复现时记下 | 同上 | 待查 |
 | `packages/host/src/files/workspace-files.test.ts` "lists a directory of exactly 5000 entries whole" | 机器忙时超过期限 | `pnpm test:stress packages/host/src/files/workspace-files.test.ts` | 待修 |
 | `packages/host/src/setup/install-job.test.ts` "ends what the command left running in its group once it exits"（`install-service.test.ts` 有同类用例） | 整套并行时偶尔失败，单独跑通过（M1.14 时记下） | `pnpm test:stress packages/host/src/setup/` | 待修 |
-| `apps/desktop/e2e/app.spec.ts` "keeps the sidebar's material as it is when another window takes the focus" | 本机跑时窗口有时拿不到系统焦点 | 单独跑这个 spec，跑的同时不要操作别的窗口 | 待查（可能要换成不依赖系统焦点的做法） |
+| `apps/desktop/e2e/app.spec.ts` "keeps the sidebar's material as it is when another window takes the focus" | 本机跑时窗口有时拿不到系统焦点；2026-10-22整套及单跑均在 `screencapture -l` 报 `could not create image from window`，尚未到颜色断言 | 单独跑这个 spec，跑的同时不要操作别的窗口 | 待查（可能要换成不依赖系统焦点的做法）；原生截图可用性也是验证阻塞，未绕过或删除用例 |
 
 另外，`pnpm test:pi` 现在跑不过：本机 pi 升到了 1.3.0，仓库里只有 1.0.2 和 1.1.0 的夹具（"pi 夹具"一节：没有本机版本的夹具就失败）。待办：为 1.3.0 录一套夹具、审查和 1.1.0 的差异（2026-10-20 记）。
 

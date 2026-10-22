@@ -4,6 +4,35 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## FFF 与自用零散改动的统一合并（M1.11 自用，2026-10-22）
+
+用户要求统一合回 `main`，并明确选择“全部提交并合并”：除FFF接入外，纳入当前未提交的重新隐藏非套餐Claude、Friday品牌及 `4a91bcd` / `cf55815` 两个已提交的Tabler展开文件夹图标改动。核对 `main` 为 `1a8f99f`，是当前分支祖先，无新增主干提交或代码冲突；主工作区未提交的 `docs/architecture/plugin-model.md` 不在范围内，保持原样。保留用户选择的“稍后更新”，本轮不安装或重启应用、不推送。
+
+合并前验证：
+
+- `pnpm check`、构建、串行单元3424、宿主149通过；单元仍有既有日志流EBADF提示。
+- 全量UI首轮983过、侧栏 `names a chat by its alias, else its first session's title, else as new` 1项失败；单跑通过、全量重跑984项通过。该测试及排序实现相对main均无变化：fixture分别取 `Date.now()`，而列表按更新时间降序；首轮实际名称都正确，顺序受跨毫秒创建影响。不改无关测试、排序、断言或重试设置。
+- 全量非leak/perf/package桌面61过、1项既有 `app.spec.ts` 失焦材质用例失败；单独重跑同样因系统 `screencapture -l` 的 `could not create image from window` 失败，未到颜色比较，不冒称全绿或已修复。此次相关的 `models.spec.ts` 五项再跑通过；Friday和隐藏Claude的浅/深色桌面截图已查看，子代理六项也在全量中通过。
+- 追加改动行变异：`model-rules.ts` 新增anthropic规则5个，4Killed、1等价Survived，80%；存活仅将不被过滤逻辑读取的说明字段 `reason: "paid"` 改为空字符串，已在源码注明，不为此放宽测试或豁免整条规则。Friday注册项2/2Killed，100%。新独立报告无缓存复用，不是整文件分数。host首轮误选空行产生0新变异不计；随后dry run遇既有配置队列 `config_conflict`，单文件44项通过、完整定向重跑完成。
+- FFF的host32、pi23个改动行变异全Killed、8项破坏检查全检出、相关单元压力检查和7种原包RPC场景，沿用下节本轮已完成的证据。完整pi契约56过、33项缺既有1.3.0夹具，0行为断言或漂移；不顺带重录无关夹具。
+- 对相对main的已提交及未提交整批做独立只读复核，无阻断；不冒称正式三方里程碑审查。没有新增资源管理代码，未跑完整插件泄漏、性能A/B、真实模型、浸泡或打包安装。
+
+## pi-fff 选装与子代理专用搜索工具（M1.11 自用，2026-10-22）
+
+用户确认主代理、子代理都安装，子代理关闭旧独立搜索工具，保留 `ffgrep/fffind` 名字避免混用。用户级 `pi install npm:@ff-labs/pi-fff@0.11.0` 完成，独立数据库、tools-only、不扫描home根及不跟随目录链接的配置见 [调研 §8](../research/pi-fff.md#8-用户选装与子代理限制2026-10-22)。不增加生产依赖、不默认内置、不自动重启现有会话。所有 agent 开的子对话停用旧 `grep/find`，包括 work、带上下文和交给终端；主代理选择不变，`read/bash/ls` 保留，不禁止 Bash 内搜索命令。
+
+| 行为 | 验证 |
+|---|---|
+| 只读角色使用独立FFF工具名、主代理不受影响 | `agent-launch.test.ts` 精确启动参数；`agent/words.test.ts` 首件任务工具列表及work说明 |
+| work、深层、继承父参数、循环祖先、终端交接均排除旧名字 | `agent-launch.test.ts` 14项；父级agent工具排除及角色限制继续保留 |
+| 扩展防线允许新名字、拦旧名字，主代理仍可使用原工具 | `agent/extension.test.ts` 参数化角色/guard；新旧工具名及主代理各精确断言 |
+| 原有只读保护与任务说明仍通过真实pi | `agent-tools.pi.test.ts` 12项；重录并复跑pi1.3.0的 `agent-guard`、两种 `agent-readonly-bash`、`agent-task` 四夹具；不改旧版本夹具 |
+| 已安装FFF原包经过模型→工具→结果链路 | 隔离原生+faux实测7种主/子参数场景，均能调用 `ffgrep/fffind` 并得到文件/行；旧名被注册表或扩展挡下。没有从桌面实际派出子代理，不冒称真实模型或完整桌面验收；脚本在 `/private/tmp/atrium-fff-live-check/` |
+
+先修改期望观察8项失败，再实现pi侧；宿主侧新期望也先观察work/继承路径失败。8项定向破坏检查（pi4、host4）全部检出；三个相关单元文件2副本×2轮压力检查通过。`pnpm check`、串行单元3424、宿主149通过，单元仍输出既有日志流EBADF提示。完整pi首轮55过、34失败：33项是已知缺pi1.3.0夹具，另1项为本次改变任务工具列表后的 `agent-task` 夹具漂移，已按新语义重录；随后整个 `agent-tools.pi.test.ts` 12项通过，最终全量pi为56过、33项仅因缺夹具失败，0项行为断言或夹具漂移。最终 `pnpm check` 再通过，相关三文件加夹具回放175项通过。四份夹具差异已核对：三份只改工具名文字；flags场景未装FFF，因此除新名字的白名单参数外，声明中去掉旧grep/find，仍可用Bash。不把全量pi称为已通过，不为本次顺带重录无关夹具。
+
+独立只读复核无阻断，未代替正式三方里程碑审查。改动行范围的增量变异无缓存复用：host32、pi23个全部Killed，0存活/超时/错误；host另7个受既有注释忽略，两个范围有效分数均100%，不是整文件分数。构建和 `children.spec.ts` 六项真实桌面回归通过，包含子代理派出、孙级送达、带上下文、worktree、只读Bash与禁止write；这些桌面场景未安装FFF，实际原包搜索另由上述7种RPC场景验证。未跑完整界面/桌面、性能A/B、真实模型、完整插件泄漏或长时浸泡。当前安装应用仍是旧版，用户已选择“稍后更新”，保留4个现有pi会话，未替换或重启应用；用户目录的改动仅包安装及FFF配置，独立阶段未触碰其余并行模型/品牌改动，尚未提交、合并或推送；随后用户授权整批提交合并，见上节。
+
 ## 模型档位与发送图片预览的合并验证（M1.11 自用，2026-10-22）
 
 用户验收后要求两项代码一起合回 `main`。先提交 `self-use-hide-off-thinking-label` 与 `self-use-sent-image-preview`，在图片任务分支整合；追踪表的同位置新增记录冲突已全部保留，SPEC 与视觉规范自动合并，不改变两项已验收行为。核对最新 `main` 为 `6671c7d`，没有新的主干改动。
@@ -994,6 +1023,24 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 找 key 的顺序：`deepseek` 凭据的 `env` 先于进程环境；空白算没有、落到下一个；pi 答不出来算没有凭据；只读这个名字，不读凭据的 `apiKey`（聊天）和 `DEEPSEEK_API_KEY` | extension.test.ts "uses the search key in the env of pi's deepseek credential…"、"has no key from the chat credential alone…"；"searchKey" 一组 | 已覆盖 |
 | 失败只报状态码和让模型知道怎么办的话，不带服务器的原文（401 会回显 key）；不是 JSON、不是搜索或抓取的答案；连不上；不跟随重定向（key 不发到别处）；工具的信号触发时按"已停止"结束 | extension.test.ts "reports a failed status as a code…"、"words HTTP %i…"、"reports an answer that is not JSON…"、"reports unreachable…"、"ends as aborted…" | 已覆盖 |
 | 真实 pi 里加载扩展，模型调用 `web_search`、`web_fetch` 得到真实结果（2026-10-20 手动，pi 1.3.0，隔离的 `PI_CODING_AGENT_DIR`：`deepseek` 凭据带 `env` 时返回结果且 `auth.json` 没被改写；凭据有聊天 key 但没有搜索 key 时 `no_key`；环境变量里的聊天 key 不当搜索 key） | 没有自动化测试：契约夹具只录了 pi 1.1.0，且要联网和真实 key | 手动验证 |
+
+## M1.11 自用：Friday 服务商品牌（2026-10-22）
+
+用户指定 `sankuai-openai` 显示为 `Friday`，使用 friday.sankuai.com 官网 favicon 的本地 80×80 PNG。内部 ID、模型选择与套餐判断不变。来源登记在 `packages/ui/src/design/brand/SOURCES.md`。
+
+- `model-choice.test.ts`：精确断言 Friday 名称与本地图标，改实现前见红；名称还原和错配 OpenAI 图标两项破坏检查均检出。
+- `model-picker.browser.test.tsx`：按钮与服务商图标、图片真实加载、Friday 面板名、选择时继续传 `sankuai-openai`；单文件 41 项通过。
+- `models.spec.ts`：真实 Electron + pi + faux 验证按钮、服务商图标与面板名称，构建内嵌图像逐字节比对；1 项通过，生成浅 / 深色截图。
+- 构建、单元 3414 项、全量 UI 984 项通过；单元仍输出日志流 EBADF 警告。未跑全量桌面测试或本次 UI 核心文件变异测试。
+
+## M1.11 自用：重新隐藏非套餐 Claude（2026-10-22）
+
+按用户要求重新加入 `anthropic` 的整家过滤，保留 `claude-bridge` 套餐路径；OpenRouter Claude 过滤不变。不动凭据和正在使用这些模型的会话。此条取代下节的恢复可见行为。
+
+- `packages/host/src/sessions/model-rules.test.ts`：完整列表、OAuth / API Key 的原生 Claude 与默认模型清除；先见五项失败，再六项通过。删除新增规则的 `pnpm break-check` 检出。
+- `apps/desktop/e2e/models.spec.ts`：`hides non-plan Claude and clears its default from the model picker`，等待模型读取完再确认无 Anthropic 服务商、无可选模型；真实 Electron + pi + faux 通过。
+- `pnpm check`、构建、单元 3414 项、宿主 149 项通过。单元输出一条日志流 `EBADF` 警告，未使测试失败。
+- 定向 host 变异测试超出 120 秒执行期限，最后进度 22/100、无存活或超时，未得到最终分数；已清理本次沙箱，无残留测试进程。未跑全量 UI / 桌面测试。
 
 ## M1.11 自用：恢复 pi 原生 Claude 模型（2026-10-22）
 

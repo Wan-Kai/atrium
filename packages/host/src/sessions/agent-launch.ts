@@ -16,6 +16,9 @@ type LaunchEntry = Pick<CatalogEntry, "sessionId" | "containerId" | "parent" | "
 /** The agent depth at which a session has none of the main agent's tools (SPEC-0002, "概念 · 层数"). */
 const MAX_DEPTH = 2;
 
+/** Legacy search names children leave out in favor of pi-fff's explicit names (SPEC-0002). */
+const CHILD_SEARCH_EXCLUSIONS = ["grep", "find"] as const;
+
 /**
  * Who a session is, as Atrium's extension is told (ADR-0013, point 3).
  *
@@ -45,12 +48,13 @@ export function agentSelf(entries: readonly LaunchEntry[], sessionId: string): A
  *
  * @remarks
  * SPEC-0002, "角色与限制": a read-only child the agent opened gets the white list `--tools`, with
- * the main agent's tools below depth 2; a `work` child has `ask_user` excluded (SPEC-0003), and at
- * depth 2 those too; any session not opened by the agent has a child's own two tools excluded. A child whose limits are its
+ * the main agent's tools below depth 2; a `work` child has legacy `grep` / `find` and
+ * `ask_user` excluded (SPEC-0003), and at depth 2 the main agent's tools too. Any session not
+ * opened by the agent has a child's own two tools excluded. A child whose limits are its
  * extension's (`toolGuard: "extension"`, carrying its parent's conversation) starts with its
- * parent's flags, so its requests begin as its parent's did, without the exclusion of its own two
- * tools; with `hard`, as for the terminal, it gets the flags it would have without context
- * instead. A loop of parents stops at the session met again.
+ * parent's flags, without the exclusion of its own two tools, but always excludes legacy
+ * search names so only FFF's explicit names remain. With `hard`, as for the terminal, it gets
+ * the flags it would have without context instead. A loop of parents stops at the session met again.
  *
  * @sideEffects none
  * @param entries - Every session.
@@ -81,14 +85,15 @@ export function toolFlags(
   }
   if (self.role !== "work")
     return ["--tools", [...READ_ONLY_TOOLS, ...CHILD_TOOLS, ...(deep ? [] : PARENT_TOOLS)].join(",")];
-  return ["--exclude-tools", [...(deep ? PARENT_TOOLS : []), ASK_USER_TOOL].join(",")];
+  return ["--exclude-tools", [...CHILD_SEARCH_EXCLUSIONS, ...(deep ? PARENT_TOOLS : []), ASK_USER_TOOL].join(",")];
 }
 
 /**
  * A parent's tool flags with a child's own two tools let back in.
  *
  * @remarks
- * See `toolFlags`: a white list keeps them, an exclusion loses them; one left empty goes.
+ * See `toolFlags`: a white list keeps them, an exclusion loses them; inherited exclusions
+ * merge with the legacy search names every child excludes.
  *
  * @sideEffects none
  * @param flags - The parent's flags.
@@ -96,19 +101,21 @@ export function toolFlags(
  */
 function withChildTools(flags: readonly string[]): string[] {
   const out: string[] = [];
+  const excluded = new Set<string>(CHILD_SEARCH_EXCLUSIONS);
   for (let at = 0; at < flags.length; at += 2) {
     // Stryker disable next-line StringLiteral: `at` is below the length.
     const flag = flags[at] ?? "";
     // Stryker disable next-line StringLiteral,MethodExpression,ConditionalExpression: `toolFlags` gives every flag a value, a list never empty.
     const names = (flags[at + 1] ?? "").split(",").filter((name) => name !== "");
     if (flag === "--exclude-tools") {
-      const kept = names.filter((name) => !(CHILD_TOOLS as readonly string[]).includes(name));
-      if (kept.length > 0) out.push(flag, kept.join(","));
+      for (const name of names) {
+        if (!(CHILD_TOOLS as readonly string[]).includes(name)) excluded.add(name);
+      }
     } else {
       out.push(flag, names.join(","));
     }
   }
-  return out;
+  return [...out, "--exclude-tools", [...excluded].join(",")];
 }
 
 /**

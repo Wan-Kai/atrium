@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import catpawLogo from "../design/brand/catpaw.webp";
+import fridayLogo from "../design/brand/friday.png";
 import claudeLogo from "../design/brand/claude.svg";
 import deepseekLogo from "../design/brand/deepseek.svg";
 import "../styles.css";
@@ -105,6 +106,20 @@ describe("ModelPicker's button", () => {
     await expect.element(chip).toHaveAttribute("title", "模型与推理强度：中（⌘⇧I / ⌘⇧E）");
     expect(chip.element().querySelector("img")?.getAttribute("src")).toMatch(/^data:image\/svg|\.svg/);
     await expect.element(chip).not.toHaveAttribute("data-full");
+  });
+
+  it("shows Friday branding while selecting with the original sankuai-openai ID", async () => {
+    const friday = model("sankuai-openai", "gpt-friday", "Friday Model");
+    const { chip, screen, calls } = await picker(shown(friday, null), { ...READY, models: [friday, SOL] });
+    expect(chip.element().querySelector("img")?.getAttribute("src")).toBe(fridayLogo);
+    await expect.poll(() => chip.element().querySelector("img")?.naturalWidth).toBe(80);
+    await userEvent.click(chip);
+    const provider = screen.getByRole("tab", { name: "Friday", exact: true });
+    await expect.element(provider).toHaveAttribute("aria-selected", "true");
+    expect(provider.element().querySelector("img")?.getAttribute("src")).toBe(fridayLogo);
+    await expect.element(screen.getByRole("tabpanel", { name: "Friday" })).toMatchTextContent(/^Friday1 个模型/);
+    await userEvent.click(screen.getByRole("menuitemradio", { name: /Friday Model/ }));
+    expect(calls).toStrictEqual([["open"], ["model", { providerId: "sankuai-openai", modelId: "gpt-friday" }]]);
   });
 
   for (const theme of ["light", "dark"]) {

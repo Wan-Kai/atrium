@@ -348,7 +348,7 @@ describe("pi contract: Atrium's agent tools", () => {
       guard: "extension",
       tools: [],
       writeError:
-        "This sub-agent is read-only (advise): it can use read, bash, grep, find, ls, report_progress, ask_parent.",
+        "This sub-agent is read-only (advise): it can use read, bash, ffgrep, fffind, ls, report_progress, ask_parent.",
     },
   ] as const)(
     "agent-readonly-bash-$guard: $role can query with Bash but cannot call write",
@@ -412,7 +412,7 @@ describe("pi contract: Atrium's agent tools", () => {
         const [, second] = await contexts();
 
         expect(lastResult(second)).toBe(
-          "This sub-agent is read-only (explore): it can use read, bash, grep, find, ls, report_progress, ask_parent and the agent_* tools.",
+          "This sub-agent is read-only (explore): it can use read, bash, ffgrep, fffind, ls, report_progress, ask_parent and the agent_* tools.",
         );
       },
     );

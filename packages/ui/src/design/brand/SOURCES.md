@@ -10,6 +10,8 @@
 | openrouter.svg | OpenRouter 官网品牌资源：https://openrouter.ai/brand/v2/openrouter-glyph-light.svg                             |
 | deepseek.svg   | DeepSeek 官网图标：https://fe-static.deepseek.com/chat/favicon.svg（chat.deepseek.com 的 favicon）             |
 
+`friday.png` 为 https://friday.sankuai.com/ 的官网 favicon（2026-10-22 获取）：https://s3plus.meituan.net/aigc-media-resources/friday-icon.png 。保留 80×80 PNG 原图，按用户指定用于 `sankuai-openai`，显示名为 `Friday`。
+
 正式使用前按各家品牌规范核对用法（尺寸、留白、配色）。
 
 `catpaw.webp` 是用户于 2026-10-22 在本次对话提供并指定用于 `catpaw-cli` 的绿色双猫爪图片；保留收到的 512×512 WebP 原图。不推断其官方来源或授权。

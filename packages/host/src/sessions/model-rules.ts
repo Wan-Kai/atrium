@@ -25,11 +25,13 @@ interface ModelRule {
  * The models the host's list leaves out.
  *
  * @remarks
- * SPEC-0001 ("输入框 · 模型选择"): paid OpenAI and OpenRouter routes, and a second way to the same
- * ChatGPT subscription. Native `anthropic` models are allowed again at the user's request;
- * the UI still leaves them without a plan tag. Adding or dropping a rule is a line here.
+ * SPEC-0001 ("输入框 · 模型选择"): non-plan Claude, paid OpenAI and OpenRouter routes, and a
+ * second way to the same ChatGPT subscription. Native `anthropic` is metered even with OAuth;
+ * `claude-bridge` stays as the plan route. Adding or dropping a rule is a line here.
  */
 const MODEL_RULES: readonly ModelRule[] = [
+  // `reason` documents the rule but is not read by filtering; changing only that string is equivalent.
+  { providerId: "anthropic", when: { kind: "always" }, reason: "paid" },
   { providerId: "azure-openai-responses", when: { kind: "always" }, reason: "paid" },
   { providerId: "openai", when: { kind: "unless_signed_in", method: "oauth" }, reason: "paid" },
   // pi 1.1's "Sign in with ChatGPT": the same plan as `openai-codex`, which also shows its usage and has Fast.
