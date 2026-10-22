@@ -1142,6 +1142,8 @@ describe("ConversationArea", () => {
     [new CommandError("session_stopping"), "正在等 pi 停下，停下后再发"],
     [new CommandError("queue_item_not_found"), "这条排队的消息已经发出或删掉了"],
     [new CommandError("interaction_closed"), "这个问题已经回答过、超时或作废了"],
+    [new CommandError("question_closed", { questionId: "call-1" }), "这些问题已经回答过或结束了"],
+    [new CommandError("question_invalid", { index: 1 }), "第 2 题的回答不完整，没有发出"],
     [new CommandError("internal_error"), "宿主出错了，消息没有发出"],
     [new Error("other"), "发送失败"],
   ])("describes %s", (error, text) => {

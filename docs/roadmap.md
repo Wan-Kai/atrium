@@ -16,6 +16,10 @@
 
 ## 当前状态
 
+**2026-10-22："agent 向你提问"经三方审查（GPT-6 Astra、Grok 4.7、Claude）后修复，用户验收通过并合并。修了三方共同指出的 `ask_user` 未声明串行（契约 `ask-user-two` 实测同批第二组原先并发发出）、换题丢焦点、提交失败锁死、"其他"无上限；另修胶囊条盖住卡片（对话框卡片同样，现都放进输入框容器）、草稿在切会话和直接回复被退回时被清、⌘+数字冲突、多行答案拆格式（交回模型改为 JSON 字符串）、读历史与 pi 的参数规范化不一致、错误结果误显示为取消、恢复后"待回答"时间重置、Markdown 缺完整问题等。按用户要求顺带修了审查发现的既有竞态：插话在途时 pi 退出，同一条消息既回到排队又被退回输入框（现在只回排队，命令应答 `queued`，SPEC-0001"失败与重启"已补）。preview 按等宽原文显示（用户定）。详见 [追踪表](testing/coverage-map.md#三方审查后补spec-00032026-10-22)。**
+
+**2026-10-22："agent 向你提问"（[SPEC-0003](specs/0003-agent-asks-user.md)）实现完成，在 `atrium/design-agent-question-ui`，待用户验收，未合并、未推送。Atrium 扩展注册 `ask_user`（对齐 Claude Code 的 `AskUserQuestion`），宿主把问题放进 `control.question`，界面在输入框上方显示提问卡片（A、序号乙），答案作为工具结果交回、这一轮不断；在输入框发消息算直接回复（界面发插话，宿主先插话再回答，契约测试实测的顺序）；停止、pi 退出、扩展放弃时作废；只有不是 agent 开的会话有这个工具（`work` 子代理启动时排除，带上下文的由钩子拦）；过程轨道留"问了你 N 个问题"和每题一行的记录。协议 24。实现中按最小实现定的细节已写回 SPEC-0003（`details` 只存结局、不做回答的确认轮、← → 换题、标题行沿用运行计时、空白预览算没有）。`pnpm check`、单元与宿主 3513+、界面 954（新增后）、pi 契约新增 5 个场景、端到端 2 条、泄漏（宿主 200 轮、界面堆快照）通过；破坏检查 50 处全检出；改动行的变异测试各组 100%（等价处在源码注明）。已知不稳与限制见 [追踪表](testing/coverage-map.md#agent-向你提问spec-00032026-10-21)。**
+
 **2026-10-21：设计"agent 向你提问"（[SPEC-0003](specs/0003-agent-asks-user.md)，已确认，待实施），在 `atrium/design-agent-question-ui`。对齐 Claude Code 的 `AskUserQuestion`：Atrium 自带扩展的 `ask_user`，1～4 题、每题 2～4 个选项、可多选、可带预览、自动带"其他"；答案作为工具结果交回，这一轮不断。用户定了：位置 A"卡片"（输入框上方，原型 `prototypes/agent-question-prototype.html`）、序号乙"序号即控件"（单选圆、多选方，原型 `prototypes/agent-question-card-prototype.html`）、"其他"是铺满整行的多行框；等待时在输入框发消息算直接回复（先结束问题再作为插话送到）；只有不是 agent 开的会话有这个工具，agent 开的子对话照旧用 `ask_parent`；必须全部答完才能提交。design-language、SPEC-0001/0002、domain-model 已同步。下一步：契约测试实测 abort 与插话顺序，再按 SPEC 的实施计划测试先行实现。**
 
 **2026-10-21：M1.11 自用三项小改，在 `show-subchat-model-and-fix-overlap` worktree，待用户验收，未提交、合并或安装。①子对话列表每行标"模型 · 思考程度"、行距放宽（行高 40px、行间 2px）：宿主扫描会话文件读最新的 `model_change` / `thinking_level_change`，协议 23（`SessionSummary.model`），没打开过的子对话也有。②插话行偶尔盖住回复：根因是 `Fold` 折叠完后把"只留插话行"的内容渲染在同一个 DOM 节点上，折叠动画的 `fill: forwards` 高度 0 还挂在它身上；改成换节点，加回归。③排队、子对话等胶囊弹窗收起时直接消失，不播收起动画（展开不变）。`pnpm check`、单元 3263、宿主 147、UI 939 通过；6 项破坏检查全检出。未跑变异测试、桌面端到端和泄漏测试；子对话换模型到列表更新要等宿主下一次扫描，未测延迟。**

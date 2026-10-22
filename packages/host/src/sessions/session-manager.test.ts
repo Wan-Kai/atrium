@@ -3414,6 +3414,74 @@ describe("SessionManager attention (M1.9)", () => {
     expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
   });
 
+  it("says since when a session waits for the questions its agent asked with ask_user, until you answer them (SPEC-0003)", async () => {
+    const questions = [
+      {
+        header: "范围",
+        question: "改到哪？",
+        multiSelect: false,
+        options: [
+          { label: "收件箱", description: "", preview: null, recommended: true },
+          { label: "侧栏", description: "", preview: null, recommended: false },
+        ],
+      },
+    ];
+    const asked = {
+      type: "extension_ui_request",
+      id: "u1",
+      method: "setStatus",
+      statusKey: "atrium-agent:call-1",
+      statusText: JSON.stringify({ v: 1, id: "call-1", kind: "call", op: "ask_user", args: { questions } }),
+    };
+    const { manager, received } = await opened([[{ type: "agent_start" }, asked]]);
+    const before = Date.now();
+    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
+    await vi.waitFor(() => expect(manager.summaries()[0]?.asking).not.toBeNull());
+    const asking = marks(manager);
+    const shown = received.findLast((event) => event.type === "control_updated");
+
+    await manager.answerQuestion("pi-session-1", "call-1", { skipped: true });
+
+    expect(asking).toStrictEqual([{ attention: null, asking: expect.any(Number), handedOff: false }]);
+    expect(asking[0]?.asking).toBeGreaterThanOrEqual(before);
+    expect(shown).toMatchObject({ control: { question: { id: "call-1", questions } } });
+    expect(received.at(-1)).toMatchObject({ type: "control_updated", control: { question: null } });
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+  });
+
+  it("keeps since when the questions wait through a direct reply pi refused, which brings them back (SPEC-0003)", async () => {
+    const questions = [
+      {
+        header: "范围",
+        question: "改到哪？",
+        multiSelect: false,
+        options: [
+          { label: "收件箱", description: "", preview: null, recommended: true },
+          { label: "侧栏", description: "", preview: null, recommended: false },
+        ],
+      },
+    ];
+    const asked = {
+      type: "extension_ui_request",
+      id: "u1",
+      method: "setStatus",
+      statusKey: "atrium-agent:call-1",
+      statusText: JSON.stringify({ v: 1, id: "call-1", kind: "call", op: "ask_user", args: { questions } }),
+    };
+    const { manager } = await opened([[{ type: "agent_start" }, asked]], { steer: { fail: "no" } });
+    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
+    await vi.waitFor(() => expect(manager.summaries()[0]?.asking).not.toBeNull());
+    const first = present(manager.summaries()[0]?.asking, "since when the questions wait");
+    await vi.waitFor(() => expect(Date.now()).toBeGreaterThan(first));
+
+    const refused = await manager
+      .steer({ type: "steer", requestId: "s", traceparent, sessionId: "pi-session-1", text: "照我说的改" })
+      .catch((error: unknown) => error);
+
+    expect(refused).toBeInstanceOf(CommandError);
+    expect(manager.summaries()[0]?.asking).toBe(first);
+  });
+
   it("says since when the oldest dialog still unanswered waits, once an older one is answered", async () => {
     const { manager, received } = await opened([[{ type: "agent_start" }, confirmation("d1")]], {
       steer: { data: { disposition: "queued" }, events: [confirmation("d2")] },

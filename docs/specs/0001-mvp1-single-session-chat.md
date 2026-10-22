@@ -774,7 +774,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 **失败与重启**
 
 - 模型调用失败交给 pi 自带的重试：宿主启动 pi 时用 `set_auto_retry` 确保开启，次数沿用 pi 的设置（`retry.maxRetries`，默认 3），RPC 改不了（2026-10-09 定）。重试在对话记录里显示为 `retry` 步骤（M1.4 已有），当场看到的带上 pi 给的上限，显示为"正在重试（第 N / M 次）"；从文件重建的不知道上限，只显示"第 N 次"。用尽后这一轮以 `failed` 结束，带 pi 的报错原文，界面显示错误卡片。
-- pi 崩溃：本轮以 `failed` 结束，排队暂停（`reason: crashed`），还没送达的插话退回排队最前面，对话框作废，发 `session_exited`。宿主随即用 `--session` 重新启动 pi，会话的 `epoch` 加一、推新的快照，对话记录里加一条宿主的提示"进程已自动重启（第 N / 3 次）"（`restarted` 提示，只在宿主存活期间保留）。重启后：崩溃时正在运行或正在提交（已发给 pi、还没回显，包括 `agent_start` 之前和重启后的续做）的那条输入还没写进会话，就重新提交它；已经写进会话，就补发一条"上一次运行意外中断了，请从中断的地方继续。"（2026-10-09 定），这条在界面上标为"系统自动发出"（`Turn.user.auto`，记在 `~/.atrium/turns/` 里，重建后仍在）。然后解除暂停、继续出队。
+- pi 崩溃：本轮以 `failed` 结束，排队暂停（`reason: crashed`），还没送达的插话退回排队最前面，对话框作废，发 `session_exited`。还在等 pi 应答、或排在别的插话后面还没发出的插话也算：它们一样回到排队，各自的 `steer` / `steer_queued` 应答 `queued`，不再另报 `pi_unavailable`，免得同一条消息既在排队里、又被退回输入框（或排队面板再插一份）（2026-10-22 修，SPEC-0003 审查时发现的既有竞态）。宿主随即用 `--session` 重新启动 pi，会话的 `epoch` 加一、推新的快照，对话记录里加一条宿主的提示"进程已自动重启（第 N / 3 次）"（`restarted` 提示，只在宿主存活期间保留）。重启后：崩溃时正在运行或正在提交（已发给 pi、还没回显，包括 `agent_start` 之前和重启后的续做）的那条输入还没写进会话，就重新提交它；已经写进会话，就补发一条"上一次运行意外中断了，请从中断的地方继续。"（2026-10-09 定），这条在界面上标为"系统自动发出"（`Turn.user.auto`，记在 `~/.atrium/turns/` 里，重建后仍在）。然后解除暂停、继续出队。
 - 连续 3 次重启都失败（再次崩溃，或启动不起来）后不再重启：会话进入"出错"（`control.failure`），排队保持暂停，界面显示错误卡片。一次运行结束且这一轮没有失败（完成或被停止都算）后连续计数归零（2026-10-09 定）。
 - `retry_run()`：错误卡片上的"重试"。pi 没在运行就先启动，启动期间算作重启中（消息排队、再点重试不起作用），启动时会话被关闭就停掉刚启动的 pi；然后按上面"重启后"同样的规则再来一轮：被打断的那条（重启用尽时记下的）没写进会话就重新提交，写进了就补发那句话；没有被打断的，就对最后一轮失败的补发那句话。正在运行、提交或重启时什么也不做。失败状态在新的 pi 换上之后才清掉。
 - 出错状态在标签和侧栏一直显示到下一次运行开始：会话摘要 `SessionSummary` 多一个 `failed`（最后一次运行失败，或连续崩溃用尽），下一次运行开始时清掉；M1.9 换成写进索引的关注状态 `attention`，并加上收件箱（见"并行、同步与关注"）。
@@ -1299,6 +1299,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 | `resume_queue(sessionId)` / `clear_queue(sessionId)` | 继续发送或清空宿主的排队 |
 | `update_queued` / `remove_queued` / `steer_queued(sessionId, itemId, ...)` | 编辑、删除排队消息，或把它改为插话 |
 | `answer_interaction(sessionId, interactionId, answer)` | 回答 extension 的对话框；已被回答、超时或作废时应答 `interaction_closed` |
+| `answer_question(sessionId, questionId, answer)` | 回答或跳过 agent 用 `ask_user` 问你的问题；已结束时应答 `question_closed`，答案不合格时 `question_invalid`（SPEC-0003，协议 24） |
 | `retry_run(sessionId)` | 错误卡片上的"重试"：按崩溃重启后的规则再来一轮（M1.6） |
 | `set_model(sessionId, providerId, modelId)` / `set_thinking_level(sessionId, level)` | 模型和推理强度 |
 | `list_models(workspaceId \| null, refresh?)` / `list_commands(sessionId)` | 模型与推理档位（短启 pi 查询，按目录缓存）、`/` 命令（问会话自己的 pi，没启动就启动） |
@@ -1319,7 +1320,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 | `prompt_handled` | 输入被 extension 直接处理，没有启动运行 |
 | `message_started` / `text_delta` / `reasoning_delta` / `message_finished` | 助手消息的流式输出，`message_finished` 携带完整消息 |
 | `tool_started` / `tool_updated` / `tool_finished` | 工具调用，带调用 id；`tool_finished` 携带 `content` 和 `details` |
-| `control_updated` | 会话的控制状态（排队与暂停、待送达的插话、停止中、未回答的对话框、连续崩溃后的失败），整份推送（M1.6，见上文"运行控制"） |
+| `control_updated` | 会话的控制状态（排队与暂停、待送达的插话、停止中、未回答的对话框、agent 问你的问题（`question`，SPEC-0003）、连续崩溃后的失败），整份推送（M1.6，见上文"运行控制"） |
 | `install_output` / `install_updated` / `login_updated` | 安装、更新、登录的输出、状态和结果（M1.10） |
 | `pi_latest` | npm 上 pi 的最新版本和查询时间（M1.10，见上文"设置 · 接口"） |
 | `credentials_changed` | 登录成功或退出登录，凭据变了（M1.10，见上文"首次启动 · 接口"） |

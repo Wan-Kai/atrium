@@ -749,7 +749,13 @@ export function createSessionManager(options: {
       }
       const shown = askingSince(sessionId);
       const seen = asking.get(sessionId);
-      const open = new Map(event.control.interactions.map(({ id }) => [id, seen?.get(id) ?? options.clock.now()]));
+      // Dialogs and the agent's questions alike wait for you; questions since they were asked, which
+      // holds through a direct reply pi refused (SPEC-0003, "生命周期").
+      const question = event.control.question;
+      const open = new Map([
+        ...event.control.interactions.map(({ id }): [string, number] => [id, seen?.get(id) ?? options.clock.now()]),
+        ...(question === null ? [] : [[question.id, question.askedAt] as [string, number]]),
+      ]);
       if (open.size > 0) asking.set(sessionId, open);
       else asking.delete(sessionId);
       // A child the agent opened waiting for you tells its parent's agent (SPEC-0002, `needs_you`).
@@ -1678,6 +1684,7 @@ export function createSessionManager(options: {
     steerQueued: async (sessionId, itemId) => controllerOf(sessionId).steerQueued(itemId),
     answerInteraction: async (sessionId, interactionId, answer) =>
       controllerOf(sessionId).answerInteraction(interactionId, answer),
+    answerQuestion: async (sessionId, questionId, answer) => controllerOf(sessionId).answerQuestion(questionId, answer),
     setModel: async (sessionId, model) => (await commanded(sessionId)).controller.setModel(model),
     setThinkingLevel: async (sessionId, level) => (await commanded(sessionId)).controller.setThinkingLevel(level),
     setFast: async (sessionId, enabled) => (await commanded(sessionId)).controller.setFast(enabled),

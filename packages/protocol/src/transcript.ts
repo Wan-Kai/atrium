@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AgentNoticeEvent, AgentRole, AgentSource } from "./agent";
+import { AskedQuestion, QUESTION_LIMITS, QuestionOutcome } from "./question";
 
 /** Milliseconds since the Unix epoch. */
 const Timestamp = z.number().int().nonnegative();
@@ -49,6 +50,15 @@ export const ToolDetails = z.discriminatedUnion("tool", [
       })
       .nullable(),
     events: z.array(AgentNoticeEvent),
+  }),
+  /**
+   * The questions `ask_user` asked and how they ended (SPEC-0003, "对话记录"); `outcome` is
+   * `null` while they wait, or once the run stopped them.
+   */
+  z.strictObject({
+    tool: z.literal("ask_user"),
+    questions: z.array(AskedQuestion).min(1).max(QUESTION_LIMITS.questions),
+    outcome: QuestionOutcome.nullable(),
   }),
 ]);
 export type ToolDetails = z.infer<typeof ToolDetails>;

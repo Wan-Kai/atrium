@@ -1,6 +1,7 @@
-import type { Dialog, PiEvent, PiStats, PlanReport, TranslatedEvent } from "@atrium/pi";
+import type { AskUserResult, Dialog, PiEvent, PiStats, PlanReport, TranslatedEvent } from "@atrium/pi";
 import { PLAN_PROVIDERS, compactRejection, createEventTranslator, isBusyRejection, planReplyOf } from "@atrium/pi";
 import {
+  type AskedQuestion,
   type ContextReserve,
   CommandError,
   type CommandResult,
@@ -12,9 +13,11 @@ import {
   type Interaction,
   type InteractionAnswer,
   type ModelRef,
+  type PendingQuestion,
   type PendingSteer,
   type PlanProvider,
   type PromptCommand,
+  type QuestionReply,
   type RunSettledEvent,
   type SessionEvent,
   type SessionMetrics,
@@ -24,6 +27,7 @@ import {
   type SteerCommand,
   type ThinkingLevel,
   type TranscriptItem,
+  answersQuestion,
   parseTraceparent,
 } from "@atrium/protocol";
 import type { Clock } from "../platform/clock";
@@ -204,6 +208,17 @@ export interface SessionController {
   /** Takes a message out of the queue and sends it as a steer. */
   steerQueued(itemId: string): Promise<CommandResult<"steer_queued">>;
   answerInteraction(interactionId: string, answer: InteractionAnswer): CommandResult<"answer_interaction">;
+  /**
+   * Holds the questions an `ask_user` call asks until you answer them, skip them or reply, and
+   * answers the call; `null` when the run stopped, pi went or the extension gave the call up.
+   */
+  askUser(id: string, questions: readonly AskedQuestion[]): Promise<AskUserResult | null>;
+  /** Drops the questions of a call the extension no longer waits on (SPEC-0003, "生命周期"). */
+  dropQuestion(id: string): void;
+  /** Whether questions wait for you, or a steer replying to them is on its way to pi. */
+  readonly asking: boolean;
+  /** Answers, or skips, the questions an `ask_user` call asks (SPEC-0003, "作答"). */
+  answerQuestion(questionId: string, reply: QuestionReply): CommandResult<"answer_question">;
   /** Switches pi's model, from its next request to the model on. */
   setModel(model: ModelRef): Promise<CommandResult<"set_model">>;
   /** Sets how hard pi's model thinks. */
@@ -244,6 +259,12 @@ export interface SessionController {
   readonly forking: boolean;
   /** Stops pi for good, as the host asks (archiving, closing): no restart follows. */
   shutdown(): Promise<void>;
+}
+
+/** Questions an `ask_user` call asks, and how to answer the call, once (SPEC-0003). */
+interface OpenQuestion {
+  readonly pending: PendingQuestion;
+  readonly settle: (result: AskUserResult | null) => void;
 }
 
 /** A session event before the controller numbers it. */
@@ -420,6 +441,8 @@ interface Steer {
   readonly images: readonly PromptImage[];
   /** Whether pi's queue has listed it; pi's text may differ, expanded as pi expands skills and templates. */
   listed: boolean;
+  /** pi went before delivering it, and it waits in the host's queue now: its command answers so. */
+  requeued: boolean;
 }
 
 /**
@@ -640,6 +663,10 @@ export function createSessionController(options: {
   /** How many runs have started, to tell whether a message's run started before pi answered. */
   let runsStarted = 0;
   const interactions = new Map<string, { readonly interaction: Interaction; readonly expire: () => void }>();
+  /** The questions `ask_user` asks, waiting for you (SPEC-0003); at most one call at a time. */
+  let question: OpenQuestion | null = null;
+  /** Questions a steer replies to, off the control while pi takes the steer (SPEC-0003, "直接回复"). */
+  let replying: OpenQuestion | null = null;
   let restarts = 0;
   let failure: Control["failure"] = null;
   /** The restart under way; the queue waits meanwhile, and `shutdown` waits for it. */
@@ -774,6 +801,7 @@ export function createSessionController(options: {
       restarting: restarting !== null,
       compacting,
       interactions: [...interactions.values()].map((open) => open.interaction),
+      question: question?.pending ?? null,
       failure,
     };
   }
@@ -1186,6 +1214,90 @@ export function createSessionController(options: {
       }),
     );
     controlChanged();
+  }
+
+  /**
+   * Answers an `ask_user` call and takes its questions away.
+   *
+   * @remarks
+   * SPEC-0003, "生命周期": answered, skipped, replied to directly, or dropped with nothing.
+   *
+   * @sideEffects Settles the call; publishes `control_updated`.
+   * @param open - The questions.
+   * @param result - The answer, or `null`.
+   */
+  function endQuestion(open: OpenQuestion, result: AskUserResult | null): void {
+    open.settle(result);
+    if (question === open) question = null;
+    // Stryker disable next-line ConditionalExpression: a reply on its way holds a stop and the steers after it, so no other reply can be on its way.
+    if (replying === open) replying = null;
+    controlChanged();
+  }
+
+  /**
+   * Drops every question waiting, as the run stops or pi goes.
+   *
+   * @remarks
+   * The call is answered with nothing: pi ends the tool itself (SPEC-0003, "生命周期").
+   *
+   * @sideEffects As `endQuestion`.
+   */
+  function dropQuestions(): void {
+    for (const open of [question, replying]) if (open !== null) endQuestion(open, null);
+  }
+
+  /**
+   * Sends a steer, which replies to the questions waiting unless it is a `/` command.
+   *
+   * @remarks
+   * SPEC-0003, "直接回复": the questions go off the control at once, the steer goes to pi, and only
+   * once pi took it is the call answered, so the steer is in pi's queue when the tool returns and
+   * reaches the model right after its result (契约测试 `ask-steer`). A steer pi refused or an
+   * extension handled is no reply: the questions come back. Stopped or gone meanwhile, they stay
+   * dropped.
+   *
+   * @sideEffects As `steerNow`; may answer the call; publishes `control_updated`.
+   * @param message - The steer and its images.
+   * @param requestId - The command that sent it.
+   * @param traceId - Its trace.
+   * @returns The disposition.
+   * @throws {CommandError} As `steerNow`.
+   */
+  async function steerOrReply(
+    message: Outgoing,
+    requestId: string | null,
+    traceId: string | null,
+  ): Promise<CommandResult<"steer">> {
+    const open = question;
+    if (open === null || message.text.trimStart().startsWith("/")) return steerNow(message, requestId, traceId);
+    // Off the control at once: `steerNow` publishes it, with the steer, before it awaits pi.
+    question = null;
+    replying = open;
+    /**
+     * Puts the questions back, unless they were dropped meanwhile.
+     *
+     * @remarks
+     * The steer was no reply: pi refused it, or an extension handled it.
+     *
+     * @sideEffects May publish `control_updated`.
+     */
+    const restore = (): void => {
+      if (replying !== open) return;
+      replying = null;
+      question = open;
+      controlChanged();
+    };
+    let result: CommandResult<"steer">;
+    try {
+      result = await steerNow(message, requestId, traceId);
+    } catch (error) {
+      restore();
+      throw error;
+    }
+    // Dropped meanwhile, the call is answered already, and ending it again changes nothing.
+    if (result.disposition === "queued") endQuestion(open, { outcome: "reply" });
+    else restore();
+    return result;
   }
 
   /**
@@ -1712,7 +1824,13 @@ export function createSessionController(options: {
       const { disposition } = await submit(message, requestId, traceId);
       return { disposition };
     }
-    const steer: Steer = { id: requestId ?? newId(), text: message.text, images: message.images, listed: false };
+    const steer: Steer = {
+      id: requestId ?? newId(),
+      text: message.text,
+      images: message.images,
+      listed: false,
+      requeued: false,
+    };
     steers.push(steer);
     controlChanged();
     const before = steerTurn;
@@ -1742,6 +1860,8 @@ export function createSessionController(options: {
     const sendInTurn = async (): Promise<CommandResult<"steer">> => {
       try {
         await before;
+        // pi went before its turn came: it waits in the queue, once.
+        if (steer.requeued) return { disposition: "queued" };
         // A stop has begun: the steer never reached pi, so it goes back to whoever sent it.
         if (stopping !== null) throw new CommandError("session_stopping");
         if (run === null) {
@@ -1758,6 +1878,9 @@ export function createSessionController(options: {
         }
         return { disposition };
       } catch (error) {
+        // pi went with it unanswered: put back in the queue as pi exited, it is not refused as well,
+        // or whoever sent it would have it twice.
+        if (steer.requeued) return { disposition: "queued" };
         withdraw();
         throw promptFailure(error);
       } finally {
@@ -1920,7 +2043,10 @@ export function createSessionController(options: {
     starting = false;
     compacting = false;
     for (const id of interactions.keys()) close(id, "stale", null);
+    dropQuestions();
     if (steers.length > 0) {
+      // Each, sent or still waiting its turn, now waits in the queue; their commands answer so.
+      for (const steer of steers) steer.requeued = true;
       requeue(steers);
       steers = [];
     }
@@ -2154,7 +2280,7 @@ export function createSessionController(options: {
       spoke();
       // Stryker disable next-line OptionalChaining: commands are validated, so their traceparent always parses.
       const traceId = parseTraceparent(command.traceparent)?.traceId ?? null;
-      return steerNow({ text: command.text, images }, command.requestId, traceId);
+      return steerOrReply({ text: command.text, images }, command.requestId, traceId);
     },
     stop() {
       if (editing) throw new CommandError("session_busy");
@@ -2166,6 +2292,8 @@ export function createSessionController(options: {
         return Promise.resolve({ confirmed: true });
       }
       if (run === null && !sending && !starting && !compacting) return Promise.resolve({ confirmed: true });
+      // The questions go at once; pi ends `ask_user` as it aborts (SPEC-0003, "生命周期").
+      dropQuestions();
       pauseQueue("stopped");
       // pi's queue is cleared: a delivery steered in and not seen yet is gone with it (SPEC-0002, "送达").
       steered = null;
@@ -2202,12 +2330,44 @@ export function createSessionController(options: {
       queue.splice(index, 1);
       controlChanged();
       try {
-        return await steerNow(item, item.requestId, item.traceId);
+        return await steerOrReply(item, item.requestId, item.traceId);
       } catch (error) {
         queue.splice(index, 0, item);
         controlChanged();
         throw error;
       }
+    },
+    get asking() {
+      return question !== null || replying !== null;
+    },
+    askUser(id, questions) {
+      if (exited) return Promise.resolve(null);
+      if (question !== null || replying !== null) throw new Error("a question is already open");
+      const { promise, resolve } = Promise.withResolvers<AskUserResult | null>();
+      // The call is answered once: a promise takes its first answer only.
+      question = { pending: { id, askedAt: clock.now(), questions: [...questions] }, settle: resolve };
+      controlChanged();
+      return promise;
+    },
+    dropQuestion(id) {
+      for (const open of [question, replying]) if (open?.pending.id === id) endQuestion(open, null);
+    },
+    answerQuestion(questionId, reply) {
+      const open = question;
+      if (open?.pending.id !== questionId) throw new CommandError("question_closed", { questionId });
+      if ("skipped" in reply) {
+        endQuestion(open, { outcome: "skipped" });
+        return {};
+      }
+      const asked = open.pending.questions;
+      const wrong = asked.findIndex((one, index) => {
+        const answer = reply.answers[index];
+        return answer === undefined || !answersQuestion(one, answer);
+      });
+      if (wrong !== -1) throw new CommandError("question_invalid", { index: wrong });
+      if (reply.answers.length > asked.length) throw new CommandError("question_invalid", { index: asked.length });
+      endQuestion(open, { outcome: "answered", answers: reply.answers });
+      return {};
     },
     answerInteraction(interactionId, answer) {
       const open = interactions.get(interactionId);

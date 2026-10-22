@@ -1,4 +1,4 @@
-import type { Control, DiffStat, Interaction, InteractionAnswer } from "@atrium/protocol";
+import type { Control, DiffStat, Interaction, InteractionAnswer, QuestionReply } from "@atrium/protocol";
 import {
   ArrowBendDownRight,
   ArrowTurnBack,
@@ -14,6 +14,8 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "re
 import { reducedMotion } from "../design/dots";
 import { DiffCounts } from "../files/diff-parts";
 import { QUEUE_EVENT_WORDS } from "./agent-words";
+import { QuestionCard } from "./question-card";
+import { forgetDrafts } from "./question-state";
 
 /** What the run control UI can ask of the session. */
 export interface RunActions {
@@ -25,6 +27,8 @@ export interface RunActions {
   readonly removeDelivery: (deliveryId: string) => void;
   readonly resumeDeliveries: () => void;
   readonly answer: (interactionId: string, answer: InteractionAnswer) => void;
+  /** Answers, or skips, the agent's questions (SPEC-0003); whether it went. */
+  readonly answerQuestion: (questionId: string, reply: QuestionReply) => Promise<boolean>;
   readonly retry: () => void;
 }
 
@@ -788,19 +792,36 @@ function FailureCard({ attempts, onRetry }: { readonly attempts: number; readonl
 }
 
 /**
- * Everything waiting for the user above the input box: questions from extensions, then a failure.
+ * Everything waiting for the user above the input box: questions from extensions, a failure, then
+ * the agent's questions, nearest the box.
  *
  * @remarks
- * Kept out of the scrolling transcript so they stay in view (SPEC-0001, "对话框": "消息流底部的卡片").
+ * Kept out of the scrolling transcript so they stay in view (SPEC-0001, "对话框": "消息流底部的卡片";
+ * SPEC-0003, "界面"); placed in the input box's column, under the capsule bar (`Composer`'s
+ * `pinned`). What was picked for questions no longer asked is forgotten.
  *
- * @sideEffects Calls the actions as the user acts.
- * @param props - The run control and the actions.
+ * @sideEffects Calls the actions as the user acts; forgets drafts of questions that ended.
+ * @param props - The session, its run control and the actions.
  * @returns The cards, or nothing.
  */
-export function ControlCards({ control, actions }: { readonly control: Control; readonly actions: RunActions }) {
-  if (control.interactions.length === 0 && control.failure === null) return null;
+export function ControlCards({
+  sessionId,
+  control,
+  actions,
+}: {
+  readonly sessionId: string;
+  readonly control: Control;
+  readonly actions: RunActions;
+}) {
+  const asked = control.question?.id ?? null;
+  // A draft goes once other questions are asked; questions away for a moment, as a direct reply pi
+  // refused or a view loading, keep theirs.
+  useEffect(() => {
+    if (asked !== null) forgetDrafts(sessionId, asked);
+  }, [sessionId, asked]);
+  if (control.interactions.length === 0 && control.failure === null && control.question === null) return null;
   return (
-    <div className="mx-auto w-full max-w-[var(--column)] px-6">
+    <div>
       {control.interactions.map((interaction) => (
         <InteractionCard
           key={interaction.id}
@@ -809,6 +830,16 @@ export function ControlCards({ control, actions }: { readonly control: Control; 
         />
       ))}
       {control.failure === null ? null : <FailureCard attempts={control.failure.attempts} onRetry={actions.retry} />}
+      {control.question === null ? null : (
+        <QuestionCard
+          key={control.question.id}
+          sessionId={sessionId}
+          question={control.question}
+          onAnswer={(reply) =>
+            control.question === null ? Promise.resolve(false) : actions.answerQuestion(control.question.id, reply)
+          }
+        />
+      )}
     </div>
   );
 }

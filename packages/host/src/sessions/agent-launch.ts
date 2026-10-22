@@ -1,4 +1,12 @@
-import { AGENT_FLAG, type AgentSelf, CHILD_TOOLS, PARENT_TOOLS, READ_ONLY_TOOLS, encodeArgument } from "@atrium/pi";
+import {
+  AGENT_FLAG,
+  ASK_USER_TOOL,
+  type AgentSelf,
+  CHILD_TOOLS,
+  PARENT_TOOLS,
+  READ_ONLY_TOOLS,
+  encodeArgument,
+} from "@atrium/pi";
 import type { CatalogEntry } from "./session-catalog";
 import { agentDepth } from "./child-tree";
 
@@ -37,8 +45,8 @@ export function agentSelf(entries: readonly LaunchEntry[], sessionId: string): A
  *
  * @remarks
  * SPEC-0002, "角色与限制": a read-only child the agent opened gets the white list `--tools`, with
- * the main agent's tools below depth 2; a `work` child at depth 2 has those excluded; any session
- * not opened by the agent has a child's own two tools excluded. A child whose limits are its
+ * the main agent's tools below depth 2; a `work` child has `ask_user` excluded (SPEC-0003), and at
+ * depth 2 those too; any session not opened by the agent has a child's own two tools excluded. A child whose limits are its
  * extension's (`toolGuard: "extension"`, carrying its parent's conversation) starts with its
  * parent's flags, so its requests begin as its parent's did, without the exclusion of its own two
  * tools; with `hard`, as for the terminal, it gets the flags it would have without context
@@ -73,7 +81,7 @@ export function toolFlags(
   }
   if (self.role !== "work")
     return ["--tools", [...READ_ONLY_TOOLS, ...CHILD_TOOLS, ...(deep ? [] : PARENT_TOOLS)].join(",")];
-  return deep ? ["--exclude-tools", PARENT_TOOLS.join(",")] : [];
+  return ["--exclude-tools", [...(deep ? PARENT_TOOLS : []), ASK_USER_TOOL].join(",")];
 }
 
 /**

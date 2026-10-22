@@ -105,6 +105,7 @@ export const MUTATION_GROUPS = {
       "packages/ui/src/children/children.ts",
       "packages/ui/src/children/new-child.ts",
       "packages/ui/src/chat/agent-words.ts",
+      "packages/ui/src/chat/question-state.ts",
     ],
     tests: ["packages/ui"],
     skip: [],
