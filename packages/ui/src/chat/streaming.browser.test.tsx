@@ -1,9 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { type StoreApi, useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 import "../styles.css";
 import type { SessionView } from "@atrium/client";
 import { type Turn, IDLE_CONTROL, UNKNOWN_METRICS } from "@atrium/protocol";
 import { Markdown } from "./markdown";
+import { StreamedText } from "./steps";
 import { Transcript } from "./transcript";
 import showcase from "./reply-showcase.md?raw";
 
@@ -155,4 +158,60 @@ describe("streaming the reply showcase", () => {
     expect(lengths).toStrictEqual(lengths.toSorted((a, b) => a - b));
     expect(replyHtml(screen.container)).toBe(expected);
   }, 60_000);
+});
+
+/**
+ * The transcript of session s1 as a store has it, as the session area draws a watched view.
+ *
+ * @remarks
+ * Subscribes the way the app does, so each change re-renders through React's external store path.
+ *
+ * @sideEffects Subscribes to the store while mounted.
+ * @param props - The store with the view's changing fields.
+ * @returns The transcript.
+ */
+function LiveTranscript({ store }: { readonly store: StoreApi<Partial<SessionView>> }) {
+  return transcriptAt(useStore(store));
+}
+
+describe("a burst of deltas", () => {
+  it("applies more updates back to back than React's nested-update limit, as one WebSocket read does, without failing", async () => {
+    const run = { runId: "r1", startedAt: Date.now() };
+    const view = createStore<Partial<SessionView>>(() => ({ run, items: [answered("", "running")] }));
+    const screen = await render(<LiveTranscript store={view} />);
+    let text = "";
+    // React allows 50 commits in a row that leave an update behind; the burst goes past that.
+    for (let delta = 0; delta < 80; delta += 1) {
+      text += `第${delta}段 `;
+      view.setState({ items: [answered(text, "running")] });
+      // Only microtasks in between, as for frames read in one task: React renders and commits each
+      // update, but its scheduler's own task cannot run until the burst is over.
+      for (let tick = 0; tick < 5; tick += 1) await Promise.resolve();
+    }
+
+    await vi.waitFor(() =>
+      expect(screen.container.querySelector('[data-testid="reply"]')?.textContent).toBe(text.trim()),
+    );
+  });
+});
+
+describe("revealing a reply", () => {
+  it("shows it whole once it stops streaming, and keeps that much when it streams again", async () => {
+    const first = "一段很长的回复。".repeat(40);
+    const screen = await render(<StreamedText text="" streaming />);
+    const lengths: number[] = [];
+    const observer = new MutationObserver(() => lengths.push(screen.container.textContent.length));
+    observer.observe(screen.container, { subtree: true, childList: true, characterData: true });
+    onTestFinished(() => observer.disconnect());
+
+    await screen.rerender(<StreamedText text={first} streaming />);
+    // Long before the reveal could catch up.
+    await screen.rerender(<StreamedText text={first} streaming={false} />);
+    expect(screen.container.textContent).toBe(first);
+    lengths.length = 0;
+    await screen.rerender(<StreamedText text={`${first}再来一句`} streaming />);
+
+    await vi.waitFor(() => expect(screen.container.textContent).toBe(`${first}再来一句`));
+    expect(Math.min(...lengths)).toBeGreaterThanOrEqual(first.length);
+  });
 });

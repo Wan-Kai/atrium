@@ -4,6 +4,17 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## M1.11 自用之后：流式回复连着到一阵增量时界面报 React #185（2026-10-22）
+
+宿主日志 10-20 到 10-22 14:53 的 50 条 `client issue`（打包版）都是同一个栈：WebSocket 消息 → 会话视图 store 的 `setState` → `useSyncExternalStore` 的重绘 → React 抛 #185。根因是 `use-revealed-text.ts` 在 effect 里对每次新到的文字 `setState`：store 的更新按同步优先级提交，提交末尾同步跑 effect，effect 的更新留下一次待渲染，React 把连续 50 次这样的提交当成死循环。页面忙时攒下的 WebSocket 帧，Chromium 会在同一个任务里逐条派发、每条之间只跑微任务（本机 Playwright 实测：主线程忙 100 ms 后 199 条消息全在 React 调度任务之前派发完），React 自己的调度任务插不进去，于是一阵超过 50 条的增量就抛错。改为渲染时就接住新文字（React 的"根据上一次渲染调整状态"写法），effect 只管逐帧揭示，界面显示不变。完整工作台里流式思考、工具输出、回复各 120 次连续更新，修复前回复阶段每次提交都留下 `StreamedText` 的更新（另有 Streamdown 挂载时的一次），修复后只剩这一次挂载。
+
+| 行为 | 验证 |
+|---|---|
+| 会话视图连续收到超过 React 嵌套更新上限的一阵更新（中间只有微任务，同一次读 WebSocket 那样），流式回复照常揭示到完整文字，不抛错 | `packages/ui/src/chat/streaming.browser.test.tsx`"a burst of deltas" |
+| 回复停止流式时立刻整段显示；之后再流式时从已显示的长度接着揭示，任何一次 DOM 变化都不比已显示的短 | `packages/ui/src/chat/streaming.browser.test.tsx`"revealing a reply" |
+
+第一条在改动前失败，报错和线上同样经 store 的 `setState` 抛出。`pnpm break-check` 5 处：4 处检出；没检出的是把返回值从 `visibleText(shown, …)` 改回 `visibleText(state, …)`，渲染时的 `setState` 会让 React 立即重跑这次渲染、丢掉第一次的结果，重跑时两者相同，属于等价改动。`pnpm check`、构建、单元 3436、UI 996 通过（首轮 UI 有 1 项 `image-preview.browser.test.tsx`"keeps very large images fully fitted below 25 percent…"失败，单跑 3 次、全量重跑均通过，和本次改动无关）；`streaming.browser.test.tsx` 连跑 5 次通过；桌面 `chat.spec.ts` 三项、`rendering.spec.ts` 一项通过。`use-revealed-text.ts` 不在变异测试分组里，没跑变异测试。没跑全量桌面、泄漏、性能，也没有打包装上后用真实 pi 复现。
+
 ## FFF 与自用零散改动的统一合并（M1.11 自用，2026-10-22）
 
 用户要求统一合回 `main`，并明确选择“全部提交并合并”：除FFF接入外，纳入当前未提交的重新隐藏非套餐Claude、Friday品牌及 `4a91bcd` / `cf55815` 两个已提交的Tabler展开文件夹图标改动。核对 `main` 为 `1a8f99f`，是当前分支祖先，无新增主干提交或代码冲突；主工作区未提交的 `docs/architecture/plugin-model.md` 不在范围内，保持原样。保留用户选择的“稍后更新”，本轮不安装或重启应用、不推送。
