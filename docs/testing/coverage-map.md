@@ -1032,6 +1032,24 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 失败只报状态码和让模型知道怎么办的话，不带服务器的原文（401 会回显 key）；不是 JSON、不是搜索或抓取的答案；连不上；不跟随重定向（key 不发到别处）；工具的信号触发时按"已停止"结束 | extension.test.ts "reports a failed status as a code…"、"words HTTP %i…"、"reports an answer that is not JSON…"、"reports unreachable…"、"ends as aborted…" | 已覆盖 |
 | 真实 pi 里加载扩展，模型调用 `web_search`、`web_fetch` 得到真实结果（2026-10-20 手动，pi 1.3.0，隔离的 `PI_CODING_AGENT_DIR`：`deepseek` 凭据带 `env` 时返回结果且 `auth.json` 没被改写；凭据有聊天 key 但没有搜索 key 时 `no_key`；环境变量里的聊天 key 不当搜索 key） | 没有自动化测试：契约夹具只录了 pi 1.1.0，且要联网和真实 key | 手动验证 |
 
+## M1.11 自用：空闲回收 pi 与控制器（2026-10-22）
+
+`pnpm usage` 在 10-21 那次 24 小时的运行里标出 `pi-process` 3 → 17、`session.controller` 3 → 68、heap 21 → 171 MB。对照日志和索引：这一天新建 75 个会话（59 个 agent 开的子对话）、打开 400 次；留下的 pi 都属于打开过、没归档的会话，控制器多为被回收了 pi 的子对话，夜里两者和 heap 一起持平。不是违反 SPEC 的泄漏，是"不回收"的设计在重度使用下的累积。用户定：pi 已停且没人订阅就丢控制器，空闲超时就停 pi（SPEC-0001"空闲回收"，30 分钟，宿主随每分钟的资源报告查一次）。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 空闲满 30 分钟停 pi（`requested`），标签开着也停；从最后一个事件算起，没有事件时从 pi 启动算；下一条消息起新的 pi | `packages/host/src/sessions/session-manager.test.ts` "idle reclaim" 的 "since its last event"、"never used" | 已覆盖 |
+| 停 pi 途中发来的消息等它停完、送到新的 pi（不发给正在退出的那个） | 同上 "while the idle stop is under way" | 已覆盖 |
+| 等停 pi 的启动算在启动：这期间交给终端应答 `session_busy`，不留两个 pi 写同一个文件 | 同上 "counts a start waiting for the idle stop as busy" | 已覆盖 |
+| pi 已停时编辑已停止的消息：页面 epoch 是停掉的 pi 的就按新 pi 的核对，更旧的应答 `transcript_changed` | `session-manager.test.ts` "restarts an idle pi for an edit" | 已覆盖 |
+| 在跑、宿主排队里有消息、有未回答对话框的不停 | 同上 "leaves a session alone" | 已覆盖 |
+| pi 停了、没人订阅、没有标签开着时丢掉控制器；有人订阅、标签开着（切回马上有快照）、pi 还活着时不丢；再打开从文件重建 | 同上 "lets go of a stopped session's controller"、"while its tab is open"、"keeps a live session's controller" | 已覆盖 |
+| 崩溃用尽（`failure`）、排队暂停（队列已空，扣着待送达）、正在崩溃重启的不丢控制器 | 同上 "gave up after crashing"、"queue was stopped, emptied since"、"being started again after a crash" | 已覆盖 |
+| 5 轮打开 → 跑一轮 → 空闲 → 丢掉后，`pi-process`、`session.controller`、`timer` 回到 0 | 同上 "returns pi and controller counts to none" | 已覆盖 |
+| 宿主每分钟的资源报告顺带回收：第 30 分钟的报告（距最后一个事件差一点不到 30 分钟）不停，下一次停掉 | `packages/host/src/usage.host.test.ts` "stops an idle session's pi" | 已覆盖 |
+
+审查（Claude 子代理，只读）后按用户决定改：开着标签的不丢控制器；点过停止的会话（排队暂停，队列空也算）维持留着控制器；修了等停 pi 的启动没算在启动（交给终端会和它撞出两个 pi）；停掉后编辑已停止的消息第一次必定 `transcript_changed`：用户定放宽，pi 已停、页面 epoch 正是停掉的那个时按新 pi 的 epoch 核对，更旧的照样拒绝（`session-manager.test.ts` "restarts an idle pi for an edit, taking the stopped pi's epoch"，原先这条测试约定的是一律拒绝）；每分钟的报告先排下一次再回收，回收抛错不会让报告停掉（这一条没有测试：要让回收抛错只能改坏代码）；测试里"运行后的事件到齐"改为等 pi 的请求都答完（span 数回到 pi 数），宿主集成测试改为在第 30 分钟确认 pi 还在。已知：被丢掉控制器的 agent 子对话 `agent_list` 报开始时的模型。前后共 20 项 `pnpm break-check` 全部检出（审查前 13 项，含去掉 `main.ts` 里的调用；审查后 7 项，含把等待挪回启动之外、去掉标签条件、阈值提前一分钟、去掉 epoch 换算、不论新旧一律换成新 epoch）。第一轮漏了三项：断言在异步停止之前（补等待）、"排队里有消息"和"排队暂停"重复（pi 已停时有消息必然暂停，删掉前者）、释放时删时间记录只省内存（源码注明等价）。改动行变异测试 host 组审查前 56/56、审查后 58/58、放宽编辑门禁后连同之前的增量共 73/73 killed（100%）。`pnpm check`、单元（审查前首轮既有的 `pi-config.test.ts` 队列用例并发下失败 1 项，重跑全过；审查后 3436 项一次全过）、宿主 150 项、泄漏 vitest 13 项通过。未跑桌面端到端；界面对 `requested` 退出后下次发送重新打开的路径是更新 pi 后 `stopIdle` 已有的，未改界面。给空闲超时停掉的你开的会话送通知时起 pi，是 AgentRelay `wake` 既有的行为（不是 agent 子对话就直接 `ensureRunning`），已由 `agent-relay.test.ts` "drops what goes to a session archived … and starts one asleep" 覆盖（主会话 `main` 没有 pi 时被起来）。
+
 ## M1.11 自用：worktree 归档结果改为右上角提示（2026-10-22）
 
 用户嫌侧栏项目标题下的一行通知难看，选了原型 `prototypes/archive-toast-prototype.html` 的 A“玻璃胶囊”；失败按用户要求也放右上角、也自动消失（design-language“提示”，SPEC-0001“M1.11 的工作区归档”）。对话归档失败仍在侧栏问题行。
