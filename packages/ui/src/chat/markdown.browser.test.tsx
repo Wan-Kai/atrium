@@ -68,6 +68,41 @@ function buttonsOf(block: Element): HTMLElement {
 }
 
 /**
+ * A two-column Markdown table.
+ *
+ * @sideEffects none
+ * @param rows - How many rows under the header.
+ * @returns The Markdown.
+ */
+function longTable(rows: number): string {
+  return `| n | v |\n|---|---|\n${Array.from({ length: rows }, (_, index) => `| ${index} | v |`).join("\n")}`;
+}
+
+/**
+ * The element a reply's table is laid out in, which folds it.
+ *
+ * @sideEffects none
+ * @param root - What the Markdown is rendered in.
+ * @returns The table's parent.
+ */
+function tableScroller(root: ParentNode): HTMLElement {
+  return part(root, "table").parentElement as HTMLElement;
+}
+
+/**
+ * The "还有 N 行" / "收起" button under a table, once it shows.
+ *
+ * @sideEffects none
+ * @param root - What the Markdown is rendered in.
+ * @returns The button.
+ */
+async function foldButton(root: ParentNode): Promise<HTMLButtonElement> {
+  const find = (): HTMLButtonElement | null => root.querySelector<HTMLButtonElement>("button[aria-expanded]");
+  await expect.poll(find).not.toBeNull();
+  return find() as HTMLButtonElement;
+}
+
+/**
  * The computed style of an element.
  *
  * @sideEffects none
@@ -344,12 +379,97 @@ describe("Markdown", () => {
     });
   });
 
-  it("lets a long table grow to 640px before it scrolls inside", async () => {
-    const rows = Array.from({ length: 40 }, (_, index) => `| ${index} | v |`).join("\n");
-    const root = await rendered(`| n | v |\n|---|---|\n${rows}`);
-    const scroller = part(root, "table-wrapper").lastElementChild as HTMLElement;
+  it("folds a table taller than 640px there, fading out, with how many rows are left under it", async () => {
+    const root = await rendered(longTable(40));
+    const scroller = tableScroller(root);
+    // Measured once folded: until the button shows, the whole table is laid out.
+    const fold = await foldButton(root);
+    const bottom = scroller.getBoundingClientRect().bottom;
+    const unseen = [...root.querySelectorAll("tbody tr")].filter((row) => row.getBoundingClientRect().bottom > bottom);
 
-    expect([styleOf(scroller).maxHeight, scroller.getBoundingClientRect().height]).toStrictEqual(["640px", 640]);
+    expect({
+      height: scroller.getBoundingClientRect().height,
+      overflowY: styleOf(scroller).overflowY,
+      fade: styleOf(scroller).maskImage,
+      button: [fold.textContent, fold.getAttribute("aria-expanded")],
+      look: [styleOf(fold).fontSize, styleOf(fold).color, styleOf(fold).height],
+      // Its text starts where the table's first column does; its hover ground reaches 8px past.
+      aligned: [
+        fold.querySelector("span")?.getBoundingClientRect().left === scroller.getBoundingClientRect().left,
+        scroller.getBoundingClientRect().left - fold.getBoundingClientRect().left,
+      ],
+    }).toStrictEqual({
+      height: 640,
+      overflowY: "hidden",
+      fade: "linear-gradient(rgb(0, 0, 0) calc(100% - 48px), rgba(0, 0, 0, 0))",
+      button: [`还有 ${unseen.length} 行`, "false"],
+      look: ["13px", "rgb(161, 161, 167)", "30px"],
+      aligned: [true, 8],
+    });
+    expect(unseen.length).toBeGreaterThan(0);
+  });
+
+  it("lays the whole table out in the reply once opened, and folds it again on 收起", async () => {
+    const root = await rendered(longTable(40));
+    const scroller = tableScroller(root);
+    const fold = await foldButton(root);
+
+    await userEvent.click(fold);
+    const opened = {
+      height: scroller.getBoundingClientRect().height === part(root, "table").getBoundingClientRect().height,
+      fade: styleOf(scroller).maskImage,
+      button: [fold.textContent, fold.getAttribute("aria-expanded"), styleOf(fold).position],
+    };
+    await userEvent.click(fold);
+
+    expect(opened).toStrictEqual({ height: true, fade: "none", button: ["收起", "true", "sticky"] });
+    expect([scroller.getBoundingClientRect().height, fold.textContent]).toStrictEqual([
+      640,
+      expect.stringMatching(/^还有 \d+ 行$/),
+    ]);
+  });
+
+  it("keeps 收起 at the bottom of the view inside an opened table, and brings the table back into view on folding", async () => {
+    const screen = await render(
+      <div style={{ height: 500, overflowY: "auto" }} data-testid="view">
+        <Markdown text={longTable(80)} streaming={false} />
+      </div>,
+    );
+    const view = screen.getByTestId("view").element() as HTMLElement;
+    const fold = await foldButton(view);
+    await userEvent.click(fold);
+    view.scrollTop = 1000;
+
+    await expect.poll(() => fold.getBoundingClientRect().bottom).toBe(view.getBoundingClientRect().bottom);
+    await userEvent.click(fold);
+
+    await expect
+      .poll(() => part(view, "table-wrapper").getBoundingClientRect().top)
+      .toBe(view.getBoundingClientRect().top);
+  });
+
+  it("leaves a table that fits as it is: no fade, no button", async () => {
+    const root = await rendered(longTable(3));
+    const scroller = tableScroller(root);
+
+    expect([styleOf(scroller).maskImage, styleOf(scroller).overflowY, buttonNames(root)]).toStrictEqual([
+      "none",
+      "auto",
+      ["复制表格", "放大"],
+    ]);
+  });
+
+  it("folds a table still streaming in at 640px, its header in view", async () => {
+    const screen = await render(<Markdown text={longTable(5)} streaming />);
+    await screen.rerender(<Markdown text={longTable(40)} streaming />);
+    const scroller = tableScroller(screen.container);
+    const fold = await foldButton(screen.container);
+
+    expect([
+      scroller.getBoundingClientRect().height,
+      scroller.scrollTop,
+      fold.getAttribute("aria-expanded"),
+    ]).toStrictEqual([640, 0, "false"]);
   });
 
   it("keeps 12px under a code block, a table and a diagram, as under any block", async () => {
