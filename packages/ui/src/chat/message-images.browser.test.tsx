@@ -1,6 +1,7 @@
 import { CommandError } from "@atrium/client";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { page, userEvent } from "vitest/browser";
 import "../styles.css";
 import { fakeClient } from "../test/fake-client";
 import { type MessageImages, MessageImagesContext, messageImages } from "./message-images";
@@ -13,6 +14,26 @@ const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAY
 const PNG_URL = `data:image/png;base64,${PNG}`;
 
 /**
+ * A generated landscape image, distinct from the one-pixel thumbnail fixture.
+ *
+ * @remarks Real dimensions let preview tests verify uncropped pixels and actual zoom geometry.
+ * @sideEffects Creates a detached canvas.
+ * @returns The PNG address.
+ */
+function landscapeImage(): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = 640;
+  canvas.height = 400;
+  const context = canvas.getContext("2d");
+  if (context === null) throw new Error("no 2d context");
+  context.fillStyle = "#5e84ff";
+  context.fillRect(0, 0, 640, 400);
+  context.fillStyle = "#ffe0a0";
+  context.fillRect(80, 80, 480, 240);
+  return canvas.toDataURL("image/png");
+}
+
+/**
  * Images where only the message `q1` was sent from this page, with two previews, and the host has
  * the turns' images whose `load` says.
  *
@@ -21,12 +42,16 @@ const PNG_URL = `data:image/png;base64,${PNG}`;
  *
  * @sideEffects none until loaded; loads are recorded.
  * @param load - The host's answer.
+ * @param previews - The images retained for `q1`.
  * @returns The images and the loads asked for.
  */
-function images(load: (turnId: string, index: number) => Promise<string>) {
+function images(
+  load: (turnId: string, index: number) => Promise<string>,
+  previews: readonly string[] = [PNG_URL, PNG_URL],
+) {
   const loads: string[] = [];
   const value: MessageImages = {
-    sent: (clientMessageId) => (clientMessageId === "q1" ? [PNG_URL, PNG_URL] : null),
+    sent: (clientMessageId) => (clientMessageId === "q1" ? previews : null),
     load: (turnId, index) => {
       loads.push(`${turnId}/${index}`);
       return load(turnId, index);
@@ -110,6 +135,70 @@ function slowFirst() {
 }
 
 describe("MessageThumbnails", () => {
+  it.each(["q1", null])(
+    "opens image previews from the user bubble with client message id %s",
+    async (clientMessageId) => {
+      await page.viewport(1000, 800);
+      const source = landscapeImage();
+      const sources = [PNG_URL, source];
+      const { value, loads } = images((_, index) => Promise.resolve(present(sources[index])), sources);
+      const screen = await render(
+        <MessageImagesContext value={value}>
+          <UserBubble text="看看这两张" images={2} turnId="t1" clientMessageId={clientMessageId} settled />
+        </MessageImagesContext>,
+      );
+      const thumbnail = screen.getByTestId("message-images").getByRole("img", { name: "图片 2" });
+      await expect.element(thumbnail).toHaveAttribute("src", source);
+      const fetchedBefore = [...loads];
+      await userEvent.click(thumbnail);
+      const preview = screen.getByRole("dialog", { name: "图片预览" });
+      await expect.element(preview).toBeVisible();
+      const fullImage = preview.getByRole("img", { name: "图片 2" });
+      await expect.element(fullImage).toHaveAttribute("src", source);
+      await expect.element(preview.getByLabelText("缩放比例")).toHaveTextContent("100%");
+      expect(fullImage.element().getBoundingClientRect().width).toBe(640);
+      expect(fullImage.element().getBoundingClientRect().height).toBe(400);
+      await preview.getByRole("button", { name: "放大", exact: true }).click();
+      await expect.element(preview.getByLabelText("缩放比例")).toHaveTextContent("125%");
+      expect(fullImage.element().getBoundingClientRect().width).toBe(800);
+      await preview.getByRole("button", { name: "适应窗口" }).click();
+      await expect.element(preview.getByLabelText("缩放比例")).toHaveTextContent("100%");
+      await userEvent.keyboard("{Escape}");
+      await expect.element(preview).not.toBeInTheDocument();
+      await expect.element(screen.getByRole("button", { name: "放大图片：图片 2" })).toHaveFocus();
+      await userEvent.keyboard("{Enter}");
+      await expect.element(preview).toBeVisible();
+      await preview.getByRole("button", { name: "关闭预览" }).click();
+      await expect.element(preview).not.toBeInTheDocument();
+      await expect.element(screen.getByRole("button", { name: "放大图片：图片 2" })).toHaveFocus();
+      expect(loads).toStrictEqual(fetchedBefore);
+    },
+  );
+
+  it.each(["q1", null])(
+    "closes the preview on source change and unmount for client message id %s",
+    async (clientMessageId) => {
+      const view = (src: string) => (
+        <MessageImagesContext value={{ sent: () => [src], load: () => Promise.resolve(src) }}>
+          <UserBubble text="图片" images={1} turnId="t1" clientMessageId={clientMessageId} settled />
+        </MessageImagesContext>
+      );
+      const screen = await render(view(PNG_URL));
+      await screen.getByRole("button", { name: "放大图片：图片 1" }).click();
+      const first = screen.getByRole("dialog", { name: "图片预览" }).element() as HTMLDialogElement;
+      await screen.rerender(view(landscapeImage()));
+      await vi.waitFor(() => expect(document.querySelector("dialog[open]")).toBeNull());
+      expect(first.open).toBe(false);
+      await screen.getByRole("button", { name: "放大图片：图片 1" }).click();
+      const second = screen.getByRole("dialog", { name: "图片预览" }).element() as HTMLDialogElement;
+      await screen.rerender(<button type="button">另一个会话</button>);
+      expect(document.querySelector("dialog")).toBeNull();
+      expect(second.open).toBe(false);
+      await screen.getByRole("button", { name: "另一个会话" }).click();
+      await expect.element(screen.getByRole("button", { name: "另一个会话" })).toHaveFocus();
+    },
+  );
+
   it("shows the previews of a message sent from here and fetches the images of others, each on its own", async () => {
     const { value, loads } = images(onlyTheFirst);
     const screen = await render(
@@ -127,6 +216,7 @@ describe("MessageThumbnails", () => {
     );
     expect(loads).toStrictEqual(["t2/0", "t2/1"]);
     await expect.element(screen.getByRole("img", { name: "图片不可用" })).toHaveAttribute("title", "图片不可用");
+    expect(screen.getByRole("img", { name: "图片不可用" }).element().closest("button")).toBeNull();
   });
 
   it("shows 64 px squares cropped to fill, in a row above the bubble that wraps", async () => {
@@ -169,6 +259,7 @@ describe("MessageThumbnails", () => {
 
     await vi.waitFor(() => expect(thumbnails(screen.container, 1)).toStrictEqual([PNG_URL]));
     expect(thumbnails(screen.container, 0)).toStrictEqual(["正在加载图片"]);
+    await expect.element(screen.getByTestId("message-images").nth(0).getByRole("button")).not.toBeInTheDocument();
     expect(loads).toStrictEqual(["live-1/0", "live-1/0"]);
   });
 });
