@@ -144,6 +144,51 @@ describe("ModelPicker's button", () => {
     });
   }
 
+  it.each(["light", "dark"])(
+    "hides the off label on the button but keeps the effort control in %s mode",
+    async (theme) => {
+      const root = document.documentElement;
+      const wasDark = root.classList.contains("dark");
+      root.classList.toggle("dark", theme === "dark");
+      try {
+        const catpaw = model("catpaw-cli", "gemini-4-argon", "Gemini 4 Argon", {
+          thinkingLevels: ["off", "low", "medium", "high"],
+        });
+        const { chip, screen, calls } = await picker(shown(catpaw, "off"), { ...READY, models: [catpaw] });
+
+        expect(chip.element().querySelector(".atrium-model-level")).toBeNull();
+        await expect.element(chip).toHaveTextContent("Gemini 4 Argon");
+        await expect.element(chip).toHaveAccessibleName("模型与推理强度：Gemini 4 Argon，关闭");
+        await expect.element(chip).toHaveAttribute("title", "模型与推理强度：关闭（⌘⇧I / ⌘⇧E）");
+        await userEvent.click(chip);
+        const slider = screen.getByRole("slider", { name: "推理强度" });
+        await expect.element(slider).toHaveAttribute("aria-valuetext", "关闭");
+        (slider.element() as HTMLElement).focus();
+        await userEvent.keyboard("{ArrowRight}");
+        expect(calls).toStrictEqual([["open"], ["level", "low"]]);
+        await expect.element(screen.getByRole("dialog")).toBeVisible();
+      } finally {
+        root.classList.toggle("dark", wasDark);
+      }
+    },
+  );
+
+  it.each([
+    ["minimal", "最低"],
+    ["low", "低"],
+    ["medium", "中"],
+    ["high", "高"],
+    ["xhigh", "极高"],
+    ["max", "最高"],
+  ] as const)("keeps the %s level label on the button", async (level, name) => {
+    const reasoner = model("anthropic", "reasoner", "Reasoner", {
+      thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+    });
+    const { chip } = await picker(shown(reasoner, level), { ...READY, models: [reasoner] });
+    expect(chip.element().querySelector(".atrium-model-level")?.textContent).toBe(name);
+    await expect.element(chip).toHaveTextContent(`Reasoner${name}`);
+  });
+
   it("glows at the model's top level", async () => {
     const { chip } = await picker(shown(SOL, "xhigh"));
 
@@ -325,6 +370,8 @@ describe("ModelPicker's panel", () => {
   it("says a model that does not think has no levels", async () => {
     const plain = model("anthropic", "haiku", "Haiku", { thinkingLevels: ["off"] });
     const { screen, chip } = await picker(shown(plain, "off"), { ...READY, models: [plain] });
+    await expect.element(chip).toHaveTextContent("Haiku");
+    expect(chip.element().querySelector(".atrium-model-level")).toBeNull();
     await userEvent.click(chip);
 
     await expect.element(screen.getByText("这个模型不推理")).toBeVisible();
