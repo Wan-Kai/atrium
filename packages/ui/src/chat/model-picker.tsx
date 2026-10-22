@@ -53,7 +53,8 @@ export interface ModelPickerProps {
  *
  * @remarks
  * SPEC-0001 ("输入框", "模型与输入框"), prototyped in `app-prototype.html`: a pill with the
- * provider's official icon, the model's name and the level; a layer of dots fills it from the left
+ * provider's official icon, the model's name and the level (except off, whose label is hidden
+ * on the button); a layer of dots fills it from the left
  * as the level rises, and at the model's top level the dots turn to brand colours with a sweep
  * and a pale blue glow. It opens a panel above it: the models grouped by logged-in provider, each
  * row with its name and basics (context, longest output, whether it takes images) and a check on
@@ -200,7 +201,7 @@ export function ModelPicker({
               ) : null}
             </span>
             <span className="atrium-model-text max-w-[180px] truncate font-medium">{shown.name}</span>
-            {levelName === null ? null : (
+            {levelName === null || level === "off" ? null : (
               <span className="atrium-model-text atrium-model-level text-[length:var(--fs-sm)] text-[var(--text-muted)]">
                 {levelName}
               </span>
