@@ -44,8 +44,7 @@ export type AgentRecord = z.infer<typeof AgentRecord>;
  *
  * @remarks
  * A notice keeps no text, only where to read it (`replyEntry`, `questionId`, `toolCallId`); a task
- * keeps its text until pi wrote it. `claimed` by a wait (`claimedBy` its tool call), `sending` once
- * handed to pi, `deleted` once you removed it.
+ * keeps its text until pi wrote it. `sending` once handed to pi, `deleted` once you removed it.
  */
 export const DeliveryRecord = z.strictObject({
   id: z.string().min(1),
@@ -65,11 +64,29 @@ export const DeliveryRecord = z.strictObject({
   /** A task's text, until pi wrote it. */
   text: z.string().optional(),
   at: z.number(),
-  state: z.enum(["waiting", "claimed", "sending", "deleted"]),
-  /** The wait's tool call that took it. */
-  claimedBy: z.string().optional(),
+  state: z.enum(["waiting", "sending", "deleted"]),
+  /** A task's: words for the task in hand, not a new task (SPEC-0002, `agent_send`). */
+  steer: z.literal(true).optional(),
 });
 export type DeliveryRecord = z.infer<typeof DeliveryRecord>;
+
+/**
+ * A delivery as a host from before waits were dropped may have left it: one a wait took, as waiting,
+ * and none with the wait's call it was taken by.
+ *
+ * @remarks
+ * SPEC-0002, "送达": a `claimed` one (`claimedBy` its wait's tool call) is a host stopped mid-wait;
+ * it goes again as a notice, at worst a second time for an event the wait had already returned.
+ *
+ * @sideEffects none
+ * @param delivery - The delivery as kept.
+ * @returns It, a claimed one as waiting.
+ */
+function unclaimed(delivery: unknown): unknown {
+  if (typeof delivery !== "object" || delivery === null) return delivery;
+  const rest = Object.fromEntries(Object.entries(delivery).filter(([key]) => key !== "claimedBy"));
+  return rest["state"] === "claimed" ? { ...rest, state: "waiting" } : rest;
+}
 
 /**
  * A record's agent fields, read leniently.
@@ -99,7 +116,7 @@ export function agentFieldsOf(record: {
     agent: agent.success ? agent.data : null,
     usedHandles: handles.filter((handle): handle is string => typeof handle === "string"),
     deliveries: deliveries.flatMap((delivery: unknown) => {
-      const read = DeliveryRecord.safeParse(delivery);
+      const read = DeliveryRecord.safeParse(unclaimed(delivery));
       return read.success ? [read.data] : [];
     }),
   };

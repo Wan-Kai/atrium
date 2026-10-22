@@ -391,7 +391,11 @@ export function describeStep(step: Step, live: boolean): StepLine {
   }
   if (step.kind === "text") return { verb: "说明", object: opening(step.text), end: null };
   if (step.kind === "steer") return { verb: "你插话", object: step.text, end: null };
-  if (step.kind === "agent") return { verb: sourceLine(step.source), object: "", end: null };
+  // A task's message inside a run is words for the task in hand (SPEC-0002, `agent_send`).
+  if (step.kind === "agent")
+    return step.source.kind === "task"
+      ? { verb: "主 agent 插话", object: opening(step.source.text), end: null }
+      : { verb: sourceLine(step.source), object: "", end: null };
   if (step.kind === "retry") {
     const limit = step.maxAttempts === null ? "" : ` / ${step.maxAttempts}`;
     return { verb: `自动重试 · 第 ${step.attempt}${limit} 次`, object: step.error, end: null };

@@ -2,7 +2,7 @@
 
 - **状态**：草稿（三方审查三轮后修订）
 - **创建**：2026-10-16
-- **更新**：2026-10-21（用户同意只读角色默认提供 Bash，读取用途靠提示词约束，不作沙箱保证）；2026-10-20（父 agent 在跑时 `finished` 也在轮次边界 steer 进去，上一批送到前新来的留着合成一条；`agent_wait` 默认也等已经结束、结果还没交给主 agent 的任务；见"送达"时机表和"备选方案"）；2026-10-18（第二步实现：协议 19 的接口按实现改写——`control.deliveries`、`SessionSummary.agent`、`remove_delivery` / `resume_deliveries`、`hand_off` 的 `args`；排队面板和分叉变淡的细节）；2026-10-17（第二步原型选定：车道、来源行）；2026-10-16（定了 6 个的口径、手动开的不限层数、用量合计、做完停 pi、只读白名单、worktree 起点；按 Astra、Grok、Claude 三轮审查重写送达、只读、分叉进新 worktree、归档、用量、对话记录）
+- **更新**：2026-10-22（子对话的最终回复按结论、改了的文件、验证了什么、没验证什么、卡在哪里来写；`ask_parent` 没等到回答时不再按自己的判断继续，停下做依赖它的事、在最终回复里写明要什么；借鉴 `pi-subagents`）；2026-10-22（送达改由扩展在每个轮次边界合并插入，上一批没进去时新来的不再多等一个边界；`agent_send` 给正在跑的子对话时插进它手上这件事，它在等主 agent 回答问题时应答 `agent_question_open`；见"送达"、`agent_send` 和"备选方案"）；2026-10-21（子对话一律在后台跑，结果只靠通知：删掉 `agent_wait` 和 `agent_spawn`、`agent_send` 的 `wait`、`waitSeconds`，主 agent 的工具从八个减到七个，"等待的规则"整节删掉；见"备选方案"）；2026-10-21（用户同意只读角色默认提供 Bash，读取用途靠提示词约束，不作沙箱保证）；2026-10-20（父 agent 在跑时 `finished` 也在轮次边界 steer 进去，上一批送到前新来的留着合成一条；`agent_wait` 默认也等已经结束、结果还没交给主 agent 的任务；见"送达"时机表和"备选方案"）；2026-10-18（第二步实现：协议 19 的接口按实现改写——`control.deliveries`、`SessionSummary.agent`、`remove_delivery` / `resume_deliveries`、`hand_off` 的 `args`；排队面板和分叉变淡的细节）；2026-10-17（第二步原型选定：车道、来源行）；2026-10-16（定了 6 个的口径、手动开的不限层数、用量合计、做完停 pi、只读白名单、worktree 起点；按 Astra、Grok、Claude 三轮审查重写送达、只读、分叉进新 worktree、归档、用量、对话记录）
 - **相关**：[路线图](../roadmap.md) M1.15、[SPEC-0001](0001-mvp1-single-session-chat.md)、[ADR-0002](../adr/0002-connect-pi-via-rpc-subprocess.md)（一个会话一个 pi）、[ADR-0008](../adr/0008-atrium-own-pi-extension-for-fast.md)（Atrium 自带的 pi 扩展）、[ADR-0010](../adr/0010-plan-usage-through-atrium-extension.md)（自带扩展合成一个入口、状态加隐藏命令）、[领域模型](../architecture/domain-model.md)、调研 [multi-agent.md](../research/multi-agent.md)、[pi-internals.md](../research/pi-internals.md)
 
 ## 背景与目标
@@ -110,7 +110,7 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 
 **工具**（Atrium 自带扩展注册，只在 Atrium 宿主下加载：扩展只经宿主的 `--extension` 加载，终端里的 pi 本来就没有。2026-10-16 对照 pi 官方示例、pi 社区四个热门子代理包、Paseo、Codex、Claude Code 定，见 [multi-agent.md](../research/multi-agent.md) §7；2026-10-17 按三方审查修订）
 
-设计原则：一个动作一个工具、参数少、必填清楚（官方示例和 `pi-subagents` 一个工具扛多种模式，模型常传错）；用不变的句柄寻址，调用方是谁由宿主按 pi 进程认定，不从参数里读；默认后台跑、做完通知、不轮询，另给一个等待工具用于"派出几个、等齐再汇总"；子对话有自己往回说话的工具，最终回复就是交付；结果截断、按页读全文。后续要用的信息（句柄、会话 id、任务 id、实际的模型和档位、状态）都写进给模型的文字里：pi 只把工具结果的文字发给模型，`details` 只给界面和重建用。
+设计原则：一个动作一个工具、参数少、必填清楚（官方示例和 `pi-subagents` 一个工具扛多种模式，模型常传错）；用不变的句柄寻址，调用方是谁由宿主按 pi 进程认定，不从参数里读；子对话一律在后台跑、做完通知、不轮询，没有等待（2026-10-21 删掉 `agent_wait` 和 `wait: true`，见"备选方案"）：手上没别的事就结束这一轮，通知会开一轮新的把主 agent 叫醒；子对话有自己往回说话的工具，最终回复就是交付；结果截断、按页读全文。后续要用的信息（句柄、会话 id、任务 id、实际的模型和档位、状态）都写进给模型的文字里：pi 只把工具结果的文字发给模型，`details` 只给界面和重建用。
 
 **句柄与显示名**
 
@@ -120,7 +120,7 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 
 **推理档位**：用 pi 的档位名 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`（2026-10-16 定，和 pi、Claude Code、Codex 及社区插件一致）。每个模型支持的档位不同（pi 的 `getSupportedThinkingLevels`：不支持推理的只有 `off`，`xhigh`、`max` 要模型声明），`agent_models` 列出来。pi 对不支持的档位会悄悄往上（再往下）换一档，模型不知道；Atrium 不这样：指定了不支持的档位应答 `agent_thinking_invalid`，参数带这个模型支持的档位。不指定时沿用主对话当前的档位，按 pi 的规则换成新模型支持的档位，结果里写明实际用的是哪一档。
 
-**任务**：每次 `agent_spawn`、`agent_send` 交代一件事，宿主给它一个任务 id（`taskId`）。事件、等待、通知都按任务算，不按会话算：同一个子对话先后交代了几件事，各算各的。
+**任务**：每次 `agent_spawn`、`agent_send` 交代一件事，宿主给它一个任务 id（`taskId`）。事件、通知都按任务算，不按会话算：同一个子对话先后交代了几件事，各算各的。
 
 **主 agent 用的工具**（agent 层数小于 2 的会话才能用）
 
@@ -135,37 +135,21 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 | `place` | `"same"` \| `"worktree"` | 否 | 跟着角色 | 只读角色只能 `same`；对话里或项目不是 git 时也只能 `same` |
 | `model` | string，`provider/modelId` | 否 | 本会话当前的模型 | 拿不准时先调 `agent_models` |
 | `thinking` | 档位名 | 否 | 见"推理档位" | |
-| `wait` | boolean | 否 | `false` | `true` 时等这件事出结果再返回 |
-| `waitSeconds` | integer，30–3600 | 否 | 600 | 只在 `wait: true` 时有效；到时间只是不再等，子对话照跑，结果照常通知 |
 
 返回（文字里都有，`details` 同样的字段）：
 
-- `wait: false`：`{ name, sessionId, taskId, role, place, workspace?, branch?, model, thinking, status }`，文字末尾"已开始，做完会通知你；不要轮询、不要编造结果"。
-- `wait: true` 出了结果：上面这些，加 `{ event, reply?, questionId?, question?, options?, progress? }`；回复截断到 4000 字，附 `agent_read` 的用法。
-- `wait: true` 到时间：上面这些，加 `{ timedOut: true }`，文字"还在跑，结果会通知你"。
-- 提前返回（见"等待的规则"）：加 `{ interrupted: "user_message" }`。
+- `{ name, sessionId, taskId, role, place, workspace?, branch?, model, thinking, status }`，文字末尾"已开始，做完会通知你；手上没别的事就结束这一轮；不要轮询、不要编造结果"。
 
-2. `agent_send`：给自己的子对话交代下一件事。
+2. `agent_send`：给自己的子对话发话：在跑就补进它手上这件事，否则交代下一件事。
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |---|---|---|---|---|
 | `to` | string | 是 | — | 句柄或 `id:<会话 id>` |
 | `message` | string，1–32000 字 | 是 | — | |
-| `wait`、`waitSeconds` | 同 `agent_spawn` | 否 | `false`、600 | `wait: true` 只等这条交代自己那件事，之前那件事的事件照常按通知送，不算这次的结果 |
 
-对方在跑时排在它这次运行之后，不打断（Paseo 会打断并丢掉对方正在做的事）；对方做完了、被停下了，在同一个会话里带着完整上下文接着干（`pi-subagent-manager`、Claude Code 的做法）：对方的排队暂停着（被 `agent_stop` 或被你停下、崩溃用尽）时，`agent_send` 把它恢复，交代随即送出，排队里你的消息也一起走（2026-10-18 三方审查后定，原先实现成一直留着）。返回：`{ to, sessionId, taskId, queued }`；`wait: true` 时形状同 `agent_spawn` 的 `wait: true`。
+对方正在做主 agent 交代的事时，这条话**补进这件事**（2026-10-22 定，原先排在它这次运行之后）：不另开任务、任务 id 不变，在对方下一个轮次边界插进去（这一批工具跑完、下次调模型之前，见"送达"），不打断正在跑的工具（Paseo 会打断并丢掉对方正在做的事）；对方这件事的最终回复就涵盖这条话，`agent_read` 读这件事的回复时不在它这里截断。对方这一轮在它插进去之前就结束了（时间窗很窄），它照常送出、开一轮新的，记成这件事的后续任务（`followUpOf` 指回原来那件，同"通知父会话的事件"里孙对话通知开的后续任务），通知里写明是哪件事的后续；原来那件的运行已经结束、"做完"还没写进索引时也算结束了（2026-10-22 三方审查后补）。已知限制：后续任务写不进索引时（比如磁盘满），它的结果不通知父会话，只记日志，同孙对话通知开的后续任务；进行中的后续任务 `agent_read` 读不到步骤，做完后能读回复。对方挂着 `ask_parent` 在等主 agent 回答时，补进去的话要等到回答之后才有边界，所以不收，应答 `agent_question_open`（参数带 `questionId`），提示"它在等你回答这个问题，用 `agent_reply`"。宿主按自己记下的问题判断；子对话刚发出问题、宿主还没记下的那一瞬间来的话照常收下，等问题答完后的边界进去，不会丢（2026-10-22 三方审查后注明）。对方正在被停下时（排队已暂停），照旧作为下一件事。对方在跑的是你开的那一轮（不是主 agent 交代的事）时，照旧排在这次运行之后，作为下一件事。对方做完了、被停下了，在同一个会话里带着完整上下文接着干（`pi-subagent-manager`、Claude Code 的做法）：对方的排队暂停着（被 `agent_stop` 或被你停下、崩溃用尽）时，`agent_send` 把它恢复，交代随即送出，排队里你的消息也一起走（2026-10-18 三方审查后定，原先实现成一直留着）。返回：`{ to, sessionId, taskId, queued, steered }`：`steered: true` 时 `taskId` 是对方手上那件事，文字写"补进了它手上的这件事，它跑完手上这批工具就会看到"；否则 `taskId` 是新交代的事，`queued` 表示要等对方这次运行结束；文字末尾同 `agent_spawn`。
 
-3. `agent_wait`：等子对话出结果（2026-10-16 定要这个工具）。
-
-| 参数 | 类型 | 必填 | 默认 | 说明 |
-|---|---|---|---|---|
-| `tasks` | string[] | 否 | 自己所有还没结束的任务，加上已经结束、结果还在待送达里没交给主 agent 的（2026-10-20 补：原先只取没结束的，结果搁在待送达里的拿不到） | 任务 id；同一批里刚开的子对话，最好把 `agent_spawn` 返回的任务 id 传进来 |
-| `until` | `"any"` \| `"all"` | 否 | `"any"` | `all` 等每个任务都到终态（`finished`、`failed`、`stopped`、`ended`） |
-| `waitSeconds` | integer，30–3600 | 否 | 600 | |
-
-返回 `{ events: [{ name, sessionId, taskId, event, reply?, questionId?, question?, options?, progress? }], timedOut, pending: [taskId] }`（`question` 事件带问题的全文和可选答案）。名单为空立刻返回 `{ events: [], timedOut: false, pending: [] }`；不是自己的任务应答 `agent_not_allowed`。工具说明写明只在"派出几个、要等齐再汇总"时用，平时等通知。
-
-4. `agent_reply`：回答子对话用 `ask_parent` 问的问题。
+3. `agent_reply`：回答子对话用 `ask_parent` 问的问题。
 
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
@@ -173,12 +157,12 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 | `questionId` | string | 是 | `question` 事件里带的 |
 | `answer` | string，1–8000 字 | 是 | |
 
-- 回答经通道交给子对话 pi 里挂着的那个工具调用，不进排队。答了、超时、取消由子对话那边的扩展说了算：它收下回答（第一个有效的回答算数）后回报宿主，`agent_reply` 才返回 `{ delivered: true }`；问题已经超时、取消、答过，或者子对话的 pi 已经换了一个进程（宿主按进程代次判断），应答 `agent_question_closed`，提示"要补充就用 `agent_send`"。等确认最多 10 秒；等不到，宿主让子对话那边的扩展关掉这个问题，免得子对话还挂着、`agent_send` 又排在它后面：扩展回"已经收下"就返回 `{ delivered: true }`（回答进去了，只是回报慢了）；回"已关掉"就应答 `agent_question_closed`，子对话的 `ask_parent` 得到 `reason: "reply_failed"`，提示"主 agent 的回答没送到，按你的判断继续"。再等 10 秒扩展还不回（pi 卡住了），返回 `{ delivered: "unknown" }`，提示"可以用同样的 questionId 和回答再调一次"：同一个问题再收到同样的回答，扩展按已收下处理并再确认一次（幂等），收到不同的回答应答 `agent_question_closed`。
+- 回答经通道交给子对话 pi 里挂着的那个工具调用，不进排队。答了、超时、取消由子对话那边的扩展说了算：它收下回答（第一个有效的回答算数）后回报宿主，`agent_reply` 才返回 `{ delivered: true }`；问题已经超时、取消、答过，或者子对话的 pi 已经换了一个进程（宿主按进程代次判断），应答 `agent_question_closed`，提示"要补充就用 `agent_send`"。等确认最多 10 秒；等不到，宿主让子对话那边的扩展关掉这个问题，免得子对话还挂着、`agent_send` 又排在它后面：扩展回"已经收下"就返回 `{ delivered: true }`（回答进去了，只是回报慢了）；回"已关掉"就应答 `agent_question_closed`，子对话的 `ask_parent` 得到 `reason: "reply_failed"`，提示"主 agent 的回答没送到，不要猜，停下依赖它的事，在最终回复里写明要什么"（2026-10-22 改，原先按自己的判断继续）。再等 10 秒扩展还不回（pi 卡住了），返回 `{ delivered: "unknown" }`，提示"可以用同样的 questionId 和回答再调一次"：同一个问题再收到同样的回答，扩展按已收下处理并再确认一次（幂等），收到不同的回答应答 `agent_question_closed`。
 - 子对话问**你**的（pi 原有的对话框）不在这里，父 agent 拿不到，见事件 `needs_you`。
 
-5. `agent_list`：列出自己的子对话。参数 `includeEnded?: boolean`（默认 `false`；`true` 时把已归档、交给终端、记录没了的也列出，脱离的不列，它们已经不是你的）。返回 `[{ name, title, sessionId, role, status, place, branch?, model, thinking, updatedAt, openTasks: [taskId], lastProgress? }]`；`status` 是 `creating`、`running`、`queued`、`waiting_for_you`、`waiting_for_parent`、`idle`、`stopped`、`failed`、`handed_off`、`ended` 之一。
+4. `agent_list`：列出自己的子对话。参数 `includeEnded?: boolean`（默认 `false`；`true` 时把已归档、交给终端、记录没了的也列出，脱离的不列，它们已经不是你的）。返回 `[{ name, title, sessionId, role, status, place, branch?, model, thinking, updatedAt, openTasks: [taskId], lastProgress? }]`；`status` 是 `creating`、`running`、`queued`、`waiting_for_you`、`waiting_for_parent`、`idle`、`stopped`、`failed`、`handed_off`、`ended` 之一。
 
-6. `agent_read`：读子对话的回复或过程。
+5. `agent_read`：读子对话的回复或过程。
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |---|---|---|---|---|
@@ -190,13 +174,13 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 
 返回 `{ text, totalChars, nextOffset }`（还没有回复时 `{ text: null, reason: "no_reply_yet" }`）或 `{ steps: [{ title, status }] }`。由宿主从子对话的会话文件读，子对话的 pi 不用在跑；交给终端后也能读。
 
-7. `agent_stop`：停下一个子对话这次运行。参数 `to`（必填）。连带停下它下面由 agent 开的、在跑的子孙，碰到你手动开的或已脱离的就不再往下（停止父会话时连带停 `wait: true` 在等的子对话，也按这条）。会话保留，之后能用 `agent_send` 接着干。返回 `{ to, sessionId, previousStatus, stopped: [句柄] }`。
+6. `agent_stop`：停下一个子对话这次运行。参数 `to`（必填）。连带停下它下面由 agent 开的、在跑的子孙，碰到你手动开的或已脱离的就不再往下。会话保留，之后能用 `agent_send` 接着干。返回 `{ to, sessionId, previousStatus, stopped: [句柄] }`。
 
-8. `agent_models`：没有参数。返回 `[{ id: "provider/modelId", name, thinking: ["off", "low", …], current?: true }]`，取自宿主的模型列表（Paseo 也要求先查再填）；按量计费的 Claude、OpenAI 模型不在这份列表里，`agent_spawn` 指定它们应答 `agent_model_unknown`（SPEC-0001"输入框 · 模型选择"，2026-10-19 自用时定）。
+7. `agent_models`：没有参数。返回 `[{ id: "provider/modelId", name, thinking: ["off", "low", …], current?: true }]`，取自宿主的模型列表（Paseo 也要求先查再填）；按量计费的 Claude、OpenAI 模型不在这份列表里，`agent_spawn` 指定它们应答 `agent_model_unknown`（SPEC-0001"输入框 · 模型选择"，2026-10-19 自用时定）。
 
 **子对话往回说话的工具**（只在 agent 开的子对话里能用）
 
-1. `report_progress`：汇报进度，不打断主 agent。参数 `message`（string，1–2000 字，必填）。立即返回"已记下"。宿主在内存里记每个子对话最近一条，显示在主对话的子对话条里，`agent_list` 的 `lastProgress` 也看得到；不唤醒主 agent，随下一条通知或等待的结果一起带过去，带过一次就不再带。进度不进待送达、不算排队、不挡回收；宿主重启后从子对话会话文件里最后一次 `report_progress` 调用读回（`pi-subagent-manager` 的 `agent_update`、`pi-subagents` 的 `progress_update`）。
+1. `report_progress`：汇报进度，不打断主 agent。参数 `message`（string，1–2000 字，必填）。立即返回"已记下"。宿主在内存里记每个子对话最近一条，显示在主对话的子对话条里，`agent_list` 的 `lastProgress` 也看得到；不唤醒主 agent，随下一条通知一起带过去，带过一次就不再带。进度不进待送达、不算排队、不挡回收；宿主重启后从子对话会话文件里最后一次 `report_progress` 调用读回（`pi-subagent-manager` 的 `agent_update`、`pi-subagents` 的 `progress_update`）。
 
 2. `ask_parent`：向主 agent 提问，挂着等回答，超时就继续（2026-10-16 定，同 `pi-subagents` 的 `contact_supervisor`）。
 
@@ -208,7 +192,7 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 
 - 只在主 agent 交代的那件事里能问；你直接在子对话里说话开的那一轮里调用，马上返回 `{ answered: false, reason: "user_turn" }`，提示"这一轮是用户开的，有问题直接问用户"。
 - 子对话的这个工具调用一直挂着，子对话算"在跑"（`waiting_for_parent`），占名额，不回收。扩展经通道告诉宿主有了一个问题（`questionId`、问题、可选答案、这次工具调用的 id），宿主给主 agent 发 `question` 事件。
-- 返回给子对话：答了是 `{ answered: true, answer }`；超时是 `{ answered: false, reason: "timeout" }`，提示"主 agent 没有回答，按你的判断继续，并在最终回复里说明你做了什么假设"；被停下是 `"aborted"`；被脱离、归档、交给终端时宿主主动关掉，分别是 `"detached"`、`"archived"`、`"handed_off"`。主 agent 的回答没确认送到、宿主关掉问题时是 `"reply_failed"`（见 `agent_reply`）。
+- 返回给子对话：答了是 `{ answered: true, answer }`；超时是 `{ answered: false, reason: "timeout" }`；被停下是 `"aborted"`；被脱离、归档、交给终端时宿主主动关掉，分别是 `"detached"`、`"archived"`、`"handed_off"`。主 agent 的回答没确认送到、宿主关掉问题时是 `"reply_failed"`（见 `agent_reply`）。没得到回答的（除了被停下、你开的那一轮）都提示"不要猜这个答案：停下依赖它的事，以一条最终回复结束这件事，写明需要谁决定什么、已经做了什么"（2026-10-22 改，借鉴 `pi-subagents` 的"没回答不等于放行"；原先提示"按你的判断继续，并在最终回复里说明你做了什么假设"，子对话可能照猜的去改东西）。主 agent 收到这件事的 `finished` 后用 `agent_send` 交代答案，子对话带着上下文接着做。
 - 超时由扩展自己计时（pi 不给工具设超时）；工具听 `signal`，停止时马上返回，不让 RPC `abort` 卡住。同时可以有几个问题，各有 `questionId`。
 - 问题一关（答了、超时、取消、pi 退出、宿主重启），扩展回报宿主，宿主把还没送到主 agent 的这条 `question` 删掉，不再唤醒主 agent；已经送到的不追回，之后的 `agent_reply` 应答 `agent_question_closed`。宿主重启或子对话的 pi 退出时，那一轮按 `stopped` 通知主 agent。
 
@@ -235,11 +219,12 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 | 一段文字（`task`、`message`、`answer`、`question`、进度）超过这个参数的上限（ADR-0013 第 9 条） | `agent_text_too_long`（参数带哪个参数和上限） | `agent_spawn`、`agent_send`、`agent_reply`、`ask_parent`、`report_progress` |
 | 扩展发来的请求不合格式（ADR-0013） | `agent_bad_request` | 所有 |
 | 问题已经关了 | `agent_question_closed` | `agent_reply` |
+| 对方挂着 `ask_parent` 在等你回答（参数带 `questionId`；2026-10-22 加） | `agent_question_open` | `agent_send` |
 | 宿主出错（详情在宿主日志里，按 trace id 找；2026-10-17 实现时补） | `agent_failed` | 所有 |
 
-- 工具说明写明：不要轮询、不要编造还没回来的结果、子对话的回复用户看不到要自己转述（三家一致，见调研 §3）；同一个目录同一时间只让一个子对话写（`pi-subagents` 每次都提醒）。
+- 工具说明写明：不要轮询、手上没别的事就结束这一轮等通知（2026-10-21 删掉等待时加）、不要编造还没回来的结果、子对话的回复用户看不到要自己转述（三家一致，见调研 §3）；同一个目录同一时间只让一个子对话写（`pi-subagents` 每次都提醒）。
 - **交代给子对话的话不当用户的话发**：`task` 和 `message` 由宿主经隐藏命令交给子对话 pi 里的扩展，扩展发成 `task` 自定义消息，不走 `prompt`，所以开头是 `/` 的文字不会被 pi 当成命令执行，界面上也显示成"来自主对话的 agent"，不是"你说的"。宿主发给扩展的隐藏命令，参数一律是 base64url 编码的 JSON，模型的文字只在 JSON 里，碰不到命令解析。
-- **子对话的角色说明放在第一件事的消息里**（2026-10-17 审查后改，原先打算用 `--append-system-prompt`）：给了这个参数，pi 就不再读你自己的 `APPEND_SYSTEM.md`，等于顶掉了你的设置。所以扩展生成第一条 `task` 消息时，开头放一段 `<atrium-subagent>`：谁开的、什么角色、能用哪些工具；最终回复交给主 agent、用户看不到；拿不准用 `ask_parent`，不要猜；`work` 只在自己的 worktree 里改。之后每条交代只带一句简短提醒。子对话的系统提示词和你自己的会话一样，不改。
+- **子对话的角色说明放在第一件事的消息里**（2026-10-17 审查后改，原先打算用 `--append-system-prompt`）：给了这个参数，pi 就不再读你自己的 `APPEND_SYSTEM.md`，等于顶掉了你的设置。所以扩展生成第一条 `task` 消息时，开头放一段 `<atrium-subagent>`：谁开的、什么角色、能用哪些工具；最终回复交给主 agent、用户看不到；最终回复依次写结论、改了哪些文件、验证了什么（怎么验证的）、没验证什么、卡在哪里或等谁决定（2026-10-22 加，借鉴 `pi-subagents` 的"交付要有凭据"，主 agent 读到的就是能直接用的摘要，不必翻子对话的过程；不做结构化 JSON 和宿主跑检查命令）；拿不准用 `ask_parent`，不要猜；`work` 只在自己的 worktree 里改。之后每条交代只带一句简短提醒，同样提这几项。补进手上那件事的话（见 `agent_send`）开头写"这是主对话的 agent 对你手上这件事的补充"，不带提醒。子对话的系统提示词和你自己的会话一样，不改。
 - 子对话不自动开标签、不切过去：出现在子对话条里，需要你时照常进收件箱。
 - **什么时候开**：由 agent 判断（2026-10-16 定）。工具说明写明适合的情况：彼此独立、能并行的调研，交给别的模型审查，改动范围互不相交的执行；简单的查找自己做。层数和数量的上限兜底。
 
@@ -250,7 +235,7 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 - 之后同"带上下文的子对话怎么做出来"的新建 worktree 那条：宿主在目标目录（同一容器就是父会话的目录，新 worktree 就是新目录）以 `pi --mode rpc --fork <分支文件> --session-id <id>` 起子对话的 pi，`get_state` 成功后删掉临时目录。用量基线 `usageAfter` 是分支文件里最后一条条目的 id。
 - 分支停在一个还没有结果的工具调用上（就是这次 `agent_spawn`，同一批里别的调用也是）；第一条 `task` 消息之前，pi 发请求时会给没配对的工具调用补一条"No result provided"的结果（`pi-ai` 的 `transform-messages.ts`，契约测试核实）。
 - 这些"失败"的调用是父会话的，子对话不能当成自己失败了去重做（一批开三个时每个都会看到三个失败的 `agent_spawn`；`work` 可能把父会话那批写操作再做一遍）。所以带上下文的子对话，`<atrium-subagent>` 开头写明："历史最后一条助手消息里没有结果的工具调用（包括开你的这次 `agent_spawn`）属于主对话，主对话会自己处理，不要重做；你只做下面交代的事"。扩展另外兜底：子对话第一件事里，和分叉点那批调用名字、参数都相同的调用直接拦下，返回同样的说明。参数按内容比，不管键的顺序；历史里是模型写的原样，钩子拿到的是 pi 按 schema 校验过的（去掉可选字段的 `null`、把 `"5"` 转成 `5`），所以两边都把 `null` 字段当作没有、数字和布尔按文字比（2026-10-18 实现时定）。
-- 子对话的系统提示词和工具声明要和父会话一样才命中缓存，所以带上下文的子对话不另加只读和层数的限制参数：启动参数里的工具参数 = 父会话的工具参数，去掉其中对 `report_progress`、`ask_parent` 的排除（父会话不是 agent 开的时候带着这条排除）。工具限制改由扩展在 pi 的 `tool_call` 钩子里按**白名单**放行：只读角色只放 `read`、`bash`、`grep`、`find`、`ls`、`report_progress`、`ask_parent`，层数允许时再加八个 `agent_*`；`work` 放全部，层数到了拦 `agent_*`。白名单外的一律拦下（MCP、`codemode`、其他扩展注册的工具都算），带 `parentToolCallId` 的嵌套调用一样查，返回"这个子对话是只读的"之类（2026-10-17 定接受：带上下文的只读子对话，只读由扩展保证，不是 pi 注册表层面的硬限制）。子对话独有的 `report_progress`、`ask_parent` 在分叉点声明：支持中途改工具的模型照样命中缓存，其他模型丢掉缓存（同 `pi-subagents`）。2026-10-18 用真实 pi 1.1.0 和 ChatGPT 订阅的 GPT-5.6 Sol 实测：带上下文的子对话第一次请求**没有命中**（`cacheRead` 0、`input` 9529），父会话自己的下一次请求命中 8704。原因不在前缀：pi 发给 Codex 的请求带 `prompt_cache_key` = 会话 id，子对话是新会话，缓存键不同。所以在 Codex 上带上下文的子对话要按全价付一遍复制来的历史；其他服务商（按前缀缓存的 Anthropic 等）没有实测。这是已知限制（2026-10-18 定，不做）：试过让扩展把请求里的 `prompt_cache_key` 换成父会话的 id，同日实测 Codex 仍命不中，它按请求头里的 `session-id` 分缓存，那个头 pi 在扩展的钩子之后才设，扩展改不了；经 pi-claude-bridge 的 Claude 也命不中（bridge 给子对话拼的提示和父会话不同）。改动对已测的服务商都没有效果，已撤掉。Grok、DeepSeek 待登录后再测。父会话本身是带启动参数限制的子对话时，子对话照样继承它的参数，再由扩展按自己的角色拦。
+- 子对话的系统提示词和工具声明要和父会话一样才命中缓存，所以带上下文的子对话不另加只读和层数的限制参数：启动参数里的工具参数 = 父会话的工具参数，去掉其中对 `report_progress`、`ask_parent` 的排除（父会话不是 agent 开的时候带着这条排除）。工具限制改由扩展在 pi 的 `tool_call` 钩子里按**白名单**放行：只读角色只放 `read`、`bash`、`grep`、`find`、`ls`、`report_progress`、`ask_parent`，层数允许时再加七个 `agent_*`；`work` 放全部，层数到了拦 `agent_*`。白名单外的一律拦下（MCP、`codemode`、其他扩展注册的工具都算），带 `parentToolCallId` 的嵌套调用一样查，返回"这个子对话是只读的"之类（2026-10-17 定接受：带上下文的只读子对话，只读由扩展保证，不是 pi 注册表层面的硬限制）。子对话独有的 `report_progress`、`ask_parent` 在分叉点声明：支持中途改工具的模型照样命中缓存，其他模型丢掉缓存（同 `pi-subagents`）。2026-10-18 用真实 pi 1.1.0 和 ChatGPT 订阅的 GPT-5.6 Sol 实测：带上下文的子对话第一次请求**没有命中**（`cacheRead` 0、`input` 9529），父会话自己的下一次请求命中 8704。原因不在前缀：pi 发给 Codex 的请求带 `prompt_cache_key` = 会话 id，子对话是新会话，缓存键不同。所以在 Codex 上带上下文的子对话要按全价付一遍复制来的历史；其他服务商（按前缀缓存的 Anthropic 等）没有实测。这是已知限制（2026-10-18 定，不做）：试过让扩展把请求里的 `prompt_cache_key` 换成父会话的 id，同日实测 Codex 仍命不中，它按请求头里的 `session-id` 分缓存，那个头 pi 在扩展的钩子之后才设，扩展改不了；经 pi-claude-bridge 的 Claude 也命不中（bridge 给子对话拼的提示和父会话不同）。改动对已测的服务商都没有效果，已撤掉。Grok、DeepSeek 待登录后再测。父会话本身是带启动参数限制的子对话时，子对话照样继承它的参数，再由扩展按自己的角色拦。
 - 限制在哪一层记在子对话的记录里（`toolGuard: "flags" | "extension"`）：宿主拼参数的那一处按它决定加不加 `--tools` / `--exclude-tools`，回收后再起、自动重启、接回都一样。
 - 交给终端时扩展不在，所以 `toolGuard: "extension"` 的子对话，复制给终端的命令改带和不带上下文时一样的硬限制参数（只读白名单、层数排除）；这在终端里只是建议，同"交给终端"那条。
 - 换了模型的子对话，父会话里签过名的 thinking 由 pi 处理（只回放给原来的模型，别的模型变成文字）。父会话的上下文接近子对话模型的窗口时，子对话照 pi 的规则压缩，这个里程碑不做 `pi-subagents` 那种"超长时先用模型摘要"。
@@ -259,11 +244,11 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 **角色与限制**
 
 - **角色**：`explore` 只读、同一容器；`work` 可写、默认新建 worktree（只能放同一容器时默认同一容器）；`advise` 只读、同一容器、可以换模型。角色记在子对话的记录里（`role`），pi 重启、重新打开、交给终端时照样带上。
-- **只读角色的工具白名单**（2026-10-21 按用户要求调整，原先不提供 Bash）：宿主启动 `explore`、`advise` 子对话的 pi 时默认加 `--tools read,bash,grep,find,ls,report_progress,ask_parent`（agent 层数允许时再加八个 `agent_*`）。带上下文的子对话由上一节的扩展白名单同样放行 `bash`。首件任务的角色说明明确要求 Bash 仅用于读取、检查和查询；禁止修改文件与仓库状态、运行构建或测试、启动服务，需要修改时请父 agent 交给 `work` 子代理。**只读是行为约束，不是沙箱强制保证**：普通 Bash 可以执行任意命令，Atrium 不解析或过滤命令，也不保证阻止写入；这是用户明确接受的取舍。`edit`、`write`、`powershell`、MCP、`codemode` 和其他白名单外的工具仍不开放：不带上下文的由 pi 注册表限制，带上下文的由扩展拦截。扩展同名覆盖不在保证之内；`read` 与 Bash 都不限制在工作区内，仍可读取绝对路径。
+- **只读角色的工具白名单**（2026-10-21 按用户要求调整，原先不提供 Bash）：宿主启动 `explore`、`advise` 子对话的 pi 时默认加 `--tools read,bash,grep,find,ls,report_progress,ask_parent`（agent 层数允许时再加七个 `agent_*`）。带上下文的子对话由上一节的扩展白名单同样放行 `bash`。首件任务的角色说明明确要求 Bash 仅用于读取、检查和查询；禁止修改文件与仓库状态、运行构建或测试、启动服务，需要修改时请父 agent 交给 `work` 子代理。**只读是行为约束，不是沙箱强制保证**：普通 Bash 可以执行任意命令，Atrium 不解析或过滤命令，也不保证阻止写入；这是用户明确接受的取舍。`edit`、`write`、`powershell`、MCP、`codemode` 和其他白名单外的工具仍不开放：不带上下文的由 pi 注册表限制，带上下文的由扩展拦截。扩展同名覆盖不在保证之内；`read` 与 Bash 都不限制在工作区内，仍可读取绝对路径。
 - **角色不能比调用方高**：只读的子对话只能开只读的（`explore`、`advise`），且只能放同一容器，否则应答 `agent_role_not_allowed` / `agent_place_invalid`；`work` 和你自己的会话不限。宿主在 `agent_spawn` 上按调用方的记录查，不只靠启动参数。
-- **哪些会话有哪些工具**：主 agent 的八个工具只在 agent 层数小于 2 的会话里能用；`report_progress`、`ask_parent` 只在 agent 开的子对话（`by: "agent"`）里能用；反过来，向你提问的 `ask_user` 只在不是 agent 开的会话里能用，agent 开的子对话照样拦（启动参数 `--exclude-tools`，带上下文的由扩展的 `tool_call` 钩子拦，`work` 也不放；SPEC-0003，2026-10-21 定）。不带上下文的用启动参数做硬限制：agent 层数到 2 的去掉八个 `agent_*`，不是 agent 开的去掉那两个（`--exclude-tools`，只读的白名单里本来就按需加）。不用 `setActiveTools`：它只管声明给模型的工具，进程重启后也不恢复。带上下文的由扩展拦，宿主收到工具请求时照样再按记录查一遍。
+- **哪些会话有哪些工具**：主 agent 的七个工具只在 agent 层数小于 2 的会话里能用；`report_progress`、`ask_parent` 只在 agent 开的子对话（`by: "agent"`）里能用；反过来，向你提问的 `ask_user` 只在不是 agent 开的会话里能用，agent 开的子对话照样拦（启动参数 `--exclude-tools`，带上下文的由扩展的 `tool_call` 钩子拦，`work` 也不放；SPEC-0003，2026-10-21 定）。不带上下文的用启动参数做硬限制：agent 层数到 2 的去掉七个 `agent_*`，不是 agent 开的去掉那两个（`--exclude-tools`，只读的白名单里本来就按需加）。不用 `setActiveTools`：它只管声明给模型的工具，进程重启后也不恢复。带上下文的由扩展拦，宿主收到工具请求时照样再按记录查一遍。
 - 所有启动参数统一在宿主拼 pi 参数的一处算（打开、自动重启、重试、接回、草稿第一次发送都经过它）；分叉用的临时 pi 不带扩展，不受影响。
-- **名额**：同一父会话的 `agent_spawn`、"让一个空闲的子对话再干活"的 `agent_send`、给被回收的子对话送通知而起 pi，都由宿主按父会话依次受理，查名额和占名额在一起：受理时先占一个"创建中"，建 worktree、起 pi 失败就释放。受理很快，受理完就应答扩展，等子对话的部分在扩展里各自等，所以同一批里几个 `wait: true` 照样并行。工具不标成依次执行（pi 同一批里只要有一个依次执行的，整批都变成依次执行）。
+- **名额**：同一父会话的 `agent_spawn`、"让一个空闲的子对话再干活"的 `agent_send`、给被回收的子对话送通知而起 pi，都由宿主按父会话依次受理，查名额和占名额在一起：受理时先占一个"创建中"，建 worktree、起 pi 失败就释放。受理很快，受理完就应答扩展。工具不标成依次执行（pi 同一批里只要有一个依次执行的，整批都变成依次执行）。
 - **进程**（2026-10-16 定）：agent 开的子对话一轮做完、没有标签开着（你后来关掉它的标签也算）、排队为空（含待送达的交代）、没有挂着的对话框时，宿主停掉它的 pi（`requested`，界面不当成出错，记成"已回收"）；下次 `agent_send`、有通知要送给它、或你打开它时再起。停 pi 和再起由宿主按这个子对话依次处理，不会一边停一边送。只对 agent 开的子对话，别的会话照旧不回收。
 - **新建 worktree**：起点和分支名见"概念"，agent 开的分支名是 `agent/<句柄>`（2026-10-16 定）。做完的通知里带上分支和目录，由父 agent 或你来合。子对话在别的工作区，归档主对话时它被脱离、不归档，worktree 由你像别的工作区一样归档。
 
@@ -282,32 +267,25 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 
 进度（`report_progress`）不是事件，见上。
 
-**等待的规则**（`wait: true` 和 `agent_wait` 一样）
-
-- 等待开始时先按当前状态算：要等的任务里已经有了还没交给主 agent 的事件，马上算进结果。
-- 有等待接住某个任务时，这个任务的事件照样写进待送达，但状态记成 `claimed`（带接住它的那次工具调用的 id），不发；已经交给 pi（`sending`）的不再放进等待的结果。等待返回的结果写进父会话的会话文件后（宿主在文件里看到这次工具结果），这些记录才删掉；等待被中止、pi 退出而工具结果没写出，就放回 `waiting` 走普通送达。宿主重启后，`claimed` 的先去文件里找那次工具结果，找到就删，找不到放回 `waiting`。用等待取到的事件不再另发通知（`@tintinweb/pi-subagents` 的做法）。
-- 提前返回：你在主对话里发了新消息（宿主一收下就算，不等 pi），或要等的子对话问了问题（`question`），无论 `any` 还是 `all` 都提前返回；`needs_you` 只在 `any` 时让它返回。你的消息照常作为插话进这一轮。
-- `any`：任一任务有了事件就返回；`all`：都到终态才返回，期间只有 `question` 提前返回（`needs_you` 不打断 `all`，见上一条）。
-- 停止父会话时（工具的 `signal` 被中止），等待马上结束，宿主一起停掉 `wait: true` 在等的子对话（连带范围同 `agent_stop`），不靠扩展跑完清理。
-- `question`、`needs_you` 返回之后那件事还会接着跑，之后的终态照常通知或被下一次等待接住。
-
 **送达**（宿主里收件会话的 SessionController 负责；往上送的通知和往下送的交代用同一套）
 
 - 宿主退出前把还在跑的交代记成 `stopped`（原因：宿主退出），写进待送达，下次照常送。
 - 待送达的记在收件会话的记录里：`deliveries: [{ id, kind: "report" | "task", from, taskId, event?, reason?, questionId?, toolCallId?, replyEntry?, text?, at, state }]`。
   - 往上送的通知不存回复的文字（数据归属：对话内容在 pi 的会话文件里），存子对话那件事最后一条助手消息的条目 id（`replyEntry`），送的时候从子对话的会话文件里读；`question` 存 `questionId` 和那次 `ask_parent` 调用的 id，问题的文字从子对话的会话文件里读。
   - 往下送的交代，文字在写进子对话的会话文件之前只有这里有，所以记录里先存 `text`，确认写进文件后删掉。这是"对话内容不进索引"的一个短暂例外。
-  - `state`：`waiting`（待送）、`claimed`（被等待接住，见"等待的规则"）、`sending`（宿主要发 `deliver` 之前先写下这个状态，已经交给或正要交给 pi，不能再删）、`deleted`（你在排队面板里删了，重启不复活）。
-- 发出：宿主经隐藏命令 `/atrium-agent deliver <参数>` 交给收件会话 pi 里的扩展（参数见上）。回复截断到 4000 字（全文统一这个上限），提示用 `agent_read` 取全文。宿主不把参数记进日志。同时待送的几条往上送的通知合成一次发出，这条消息的 `details` 带上所有送达 id，一起确认；没带过的进度一并带上。扩展用 `pi.sendMessage(..., { triggerTurn: true, deliverAs: "steer" })` 发自定义消息：`details` 里是结构化数据和送达 id，`content` 是给模型看的文字，由扩展生成，套上标明来源、"不是用户的话"的外壳；内容里冒充外壳的标记先转义。收件的 pi 空闲就开一次运行，在跑就在下一个轮次边界送到，所以宿主判断"在跑"到扩展执行之间运行刚好结束也不会漏。pi 把 `content` 当一条用户消息给模型，`details` 不给。
+  - `state`：`waiting`（待送）、`sending`（宿主要发 `deliver` 之前先写下这个状态，已经交给或正要交给 pi，不能再删）、`deleted`（你在排队面板里删了，重启不复活）。2026-10-21 之前还有 `claimed`（被等待接住）：旧宿主在等待中途退出留下的，读索引时当成 `waiting`，最坏把一条主 agent 已经从等待结果里看过的事件再通知一次。
+- 轮次边界合并插入（2026-10-22 定，原先在跑时宿主马上 steer，上一批还没进去时新来的先留着，等它进去再合成一条发，新来的因此多等一个边界）：宿主一有就发，不等上一批；收件的 pi 在跑时扩展把收到的按送达 id 记下、不交给 pi，等 pi 的 `turn_end`（这一批工具跑完、下次调模型之前；最后一次回复之后也有）把收着的往上送的通知合成一条、补进手上那件事的话合成一条，用 steer 交给 pi，它们就在这个边界进上下文；pi 空闲时马上发，开一轮新的，连同收着的一起。扩展记住最近交给 pi 的送达 id，宿主重发同一条时不再交第二次。pi 1.3.0 在发 `turn_end` 给扩展、等它处理完之后才取 steer 队列，所以在 `turn_end` 里交的就在这个边界进去（`pi-agent-core` `agent-loop.js`、`agent-session.js` `_dispatchTurnEndBoundary`，2026-10-22 读源码，契约测试实测）。往上送的通知和补进来的话都要进去时，通知在前；pi 一个边界只取一条 steer，后一条到下一个边界。你自己的插话也走 pi 的 steer 队列，和它们在同一个边界时你的在前，它们顺延一个边界。不用 pi 的 `set_steering_mode all`（一个边界取完所有 steer）：它会写进你全局的 pi 设置（`settings-manager.js` `setSteeringMode` 存盘），终端里的 pi 也跟着变，还改了你插话的行为。正在跑的工具和模型的回复不打断，要等它们结束；长命令把通知挡住的情况先在自用里量（见"备选方案"）。
+- 扩展收着的、这一轮最后一次 `turn_end` 之后才到的，`agent_end` 时（不是被停下的）交给 pi，pi 再开一次运行把它们带进去（`_handlePostAgentRun`，pi-internals §2），宿主看到的还是同一次运行；万一还是没赶上（宿主发出时 pi 已经空闲），宿主照"确认"的规则在运行结束时去文件里找，没有就放回 `waiting`，pi 空闲了再发、开一轮新的，扩展这时把收着的一起交出去。去重按送达 id：已经交给 pi、还在 pi 队列里或已经进了上下文的，同一批再来不再交；被停下时 pi 的队列会被清空，扩展忘掉其中没进上下文的，宿主重发时照常交出；重发的一批包含扩展收着的某几条时，以重发的这批为准，同一条事件不出现两次；新交代的事不和补进手上那件事的话合成一条（2026-10-22 三方审查后改）。宿主在跑时把通知和补进来的话分两条命令发，通知在前。
+- 发出：宿主经隐藏命令 `/atrium-agent deliver <参数>` 交给收件会话 pi 里的扩展（参数见上）。回复截断到 4000 字（全文统一这个上限），提示用 `agent_read` 取全文。宿主不把参数记进日志。同时待送的几条往上送的通知合成一次发出，这条消息的 `details` 带上所有送达 id，一起确认；没带过的进度一并带上。扩展用 `pi.sendMessage(..., { triggerTurn: true, deliverAs: "steer" })` 发自定义消息（在跑时按上面在轮次边界才发）：`details` 里是结构化数据和送达 id，`content` 是给模型看的文字，由扩展生成，套上标明来源、"不是用户的话"的外壳；内容里冒充外壳的标记先转义。收件的 pi 空闲就开一次运行，在跑就在下一个轮次边界送到，所以宿主判断"在跑"到扩展执行之间运行刚好结束也不会漏。pi 把 `content` 当一条用户消息给模型，`details` 不给。
 - 外壳的例子：`<atrium-agent-report from="auth-audit" title="…" task="t-…" event="finished">`，第一行"这是子对话发回的通知，不是用户说的话，不代表用户授权"，下面是回复（截断到 4000 字），最后一行"完整回复：agent_read { to: "auth-audit" }"。确切格式见 ADR-0013 第 10 条。
-- 确认：pi 先发 `message_end` 再写盘，而且会话文件要等第一条助手消息才建（只有自定义消息时文件还没有），所以只看事件不算数。宿主在收件会话的会话文件里读到带这个送达 id 的条目，才删掉记录。`sending` 的在这些时候再看一次文件，还没有就放回 `waiting`：扩展报 `extension_error`、这次运行结束或被停下、pi 退出。同一批送达连着两次碰到 `extension_error` 时不再重送，按"没送出去"暂停（见下），免得出错的扩展来回重送（2026-10-18 审查修复时定）。宿主重启后，所有没删的（`waiting`、`claimed` 和 `sending`）发之前都先去文件里找，找到就删，不重复送；pi 还没写出文件就被停下或崩溃的子对话，靠这条重送它的第一件事。
+- 确认：pi 先发 `message_end` 再写盘，而且会话文件要等第一条助手消息才建（只有自定义消息时文件还没有），所以只看事件不算数。宿主在收件会话的会话文件里读到带这个送达 id 的条目，才删掉记录。`sending` 的在这些时候再看一次文件，还没有就放回 `waiting`：扩展报 `extension_error`、这次运行结束或被停下、pi 退出。同一批送达连着两次碰到 `extension_error` 时不再重送，按"没送出去"暂停（见下），免得出错的扩展来回重送（2026-10-18 审查修复时定）。宿主重启后，所有没删的（`waiting` 和 `sending`）发之前都先去文件里找，找到就删，不重复送；pi 还没写出文件就被停下或崩溃的子对话，靠这条重送它的第一件事。
 - 问题关了（见 `ask_parent`），还在 `waiting` 的那条 `question` 删掉。
-- 发出的时机，按收件会话当时的状态（真正要发时再判断一次；有等待接住的不在这里，见"等待的规则"）：
+- 发出的时机，按收件会话当时的状态（真正要发时再判断一次）：
 
-| 收件会话 | `finished`、`task` | `failed`、`question`、`needs_you`、`stopped`、`ended` |
+| 收件会话 | `task` | 补进手上那件事的话、往上送的通知（`finished`、`failed`、`question`、`needs_you`、`stopped`、`ended`） |
 |---|---|---|
 | 空闲，排队没暂停 | 发，开新的一轮 | 发，开新的一轮 |
-| 在跑 | `task`：等这次运行 `agent_settled` 之后，按排队的顺序；`finished`：同右（2026-10-20 改，原先也等运行结束，父 agent 一直在跑就一直看不到） | 马上发，下一个轮次边界送到（steer）；上一批 steer 进去的还没送到时先留着，它送到后把这期间来的合成一条再发（pi 一个边界只取一条 steer，分开发要多占几次模型调用） |
+| 在跑 | 等这次运行 `agent_settled` 之后，按排队的顺序 | 马上发；扩展先收着，在下一个轮次边界合成一条插进去（见下）。`finished` 在跑时也这样送（2026-10-20 改，原先等运行结束，父 agent 一直在跑就一直看不到）；补进手上那件事的话 2026-10-22 起这样送 |
 | 提交中、在压缩、在分叉、在停止、pi 在重启 | 等这件事做完再按上面判断 | 同左 |
 | 被停下或崩溃用尽（排队暂停） | 留着，你恢复排队或发消息时一起走（发消息只放行这一次暂停，之后再暂停照样留着，2026-10-18 实现时定）；主 agent 的 `agent_send` 恢复排队（见 `agent_send`） | 同左 |
 | agent 开的、pi 被回收了 | 过名额（满了就留着，等有空位）、起 pi，再按上面判断。等空位的不占名额，起 pi 那一刻才按父会话依次占；空出名额时（兄弟子对话一轮做完、被停下、归档、脱离、交给终端，或你开的那一轮结束）叫醒等着的（2026-10-18 三方审查后定：原先等空位的也算"排队里有待处理的"，几个同时等就互相占满、谁也起不来） | 同左 |
@@ -318,16 +296,15 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 - 交给空闲 pi 的送达 15 秒内没开起运行（没见到 `agent_start`），算没送出去：这几条放回 `waiting`，这个会话的送达暂停，排队面板顶上写"没送出去"，右边"重试"（重试即放开暂停再送一次）；它不算宿主重启的暂停，子对话条的"全部继续"不管它（2026-10-18 三方审查后定，原先实现时加了这条但 SPEC 没写，界面也误写成"宿主重启后暂停"）。
 - 宿主发出 `deliver` 后到看见 `agent_start`（或 steer 时的 `message_end`）之间算"提交中"：排队里的下一条不发，压缩、分叉、交给终端应答 `session_busy`，免得和刚开始的运行抢。
 - `triggerTurn` 开的运行不经 pi 的 `prompt()`，所以不做 pi 发送前的压缩检查，也不触发 `before_agent_start`（Atrium 的扩展不靠它）。上下文快满时 pi 在这一轮里溢出、先压缩再重试（SPEC-0001 已有的溢出处理）。
-- 停止收件会话时 pi 的 `clear_queue` 会清掉还没送到的 steer 自定义消息，且不在返回里带回：宿主没在文件里见到它，所以它还在待送达里，随排队暂停。
+- 停止收件会话时 pi 的 `clear_queue` 会清掉还没送到的 steer 自定义消息，且不在返回里带回：宿主没在文件里见到它，所以它还在待送达里，随排队暂停。扩展收着、还没交给 pi 的，这一轮被停下时（`agent_end` 时最后一条回复是中止的）扩展丢掉，不留到之后的一轮，同样留在待送达里（2026-10-22 定）。
 - 排队面板里，待送达的是另一种项："来自子对话「名字」：完成 / 出错 / 在问你的 agent / 在等你 / 已停下 / 已结束"，子对话里是"来自主对话的 agent"。`waiting` 的能删（父 agent 不另外得知），`sending` 的已经交给 pi、删不掉了；都不能编辑、不能改成插话。待送达的不挡交给终端（不算排队里的消息）。
 - 你在输入框里打的以 `/atrium-` 开头的消息，宿主在发消息、插话、改排队里的消息、新建工作区的第一条消息上都应答 `command_reserved`，不发给 pi（现有的 `/atrium-fast`、`/atrium-plan` 也一样）；宿主自己发的隐藏命令不受这个检查。新建工作区的第一条消息要等 worktree 建好才发，所以界面在建 worktree 之前先拦下（2026-10-17 实现时定），宿主照样在发消息时拦。
 
 **显示**（原型选了问题一 A 车道、问题二甲 来源行、问题三照原型，2026-10-17，`prototype/ui` 分支的 `prototypes/agent-children-prototype.html`，提交 `c18017b`）
 
 - **过程轨道（车道）**：`agent_spawn` 是主线上的一个步骤"开子对话 名字"，后面跟角色（"只读"写成淡字，"可写"是橙色小标签，"顾问"淡字）和位置（新 worktree 时写分支名），右边是实时状态和用时；从这个节点向右弯出一条这个子对话自己的竖线（车道），和主线并排往下，在跑时是虚线。几个子对话各占一条车道，从左往右按开出的先后排；有车道时步骤的文字往右挪，给车道让位。子对话这件事到了终态，它的车道在那一刻的位置用一个空心节点从右边弯回主线，这一行写"名字 完成 · 用时 3 分 12 秒"（`work` 加改动统计），右边"打开"；出错、停下、结束同样合回，写对应的事件。子对话问主 agent（`question` 插进这一轮）时，从它自己的车道上弯回主线一个橙色空心节点，行写"子对话「名字」在问 · 问题的第一行"。和"失败的命令向右岔出、插话从右边汇入"是同一套语言。点"开子对话"那一行或合回那一行打开子对话。
-  - `agent_spawn` 带 `wait: true` 时，车道要等这次调用返回（等到了结果、到时间或被提前结束）才出现，等待期间这一行只写"正在开子对话"：开出的子对话是这次调用的结果，pi 只把结果交给界面（已知限制，2026-10-18 定不做中间结果）。
-  - 只画在这一轮里：子对话在这一轮结束之后才出结果（默认不等），车道画到这一轮的末尾为止（虚线），结果在由通知开头的新一轮里看（见下一条），不回头改上一轮。重建对话记录时按条目推出车道：`agent_spawn` 的工具结果给出句柄和任务 id，同一轮里 `agent_wait` / `wait: true` 返回的事件和插进来的 `report` 步骤给出合回的位置。
-- **由通知开头的轮（来源行）**：轮的开头没有气泡，是一行小字：图标加"来自子对话「名字」· 完成 · 用时 3 分 12 秒"（其他事件写"出错""在问""在等你""已停下""已结束"），右边"打开"；几条通知合成一次的，每条一行。子对话里由交代开头的轮写"来自主对话的 agent · 交代的事"，右边"主对话"，下面是交代的全文，画成引用块（左边一条竖线）。给模型的外壳文字（`<atrium-agent-report …>`、`<atrium-subagent>`）不显示。运行中插进来的通知是这一轮里的一个步骤，同样写成这样一行（`question` 用问号图标、橙色）。
+  - 只画在这一轮里：子对话在这一轮结束之后才出结果，车道画到这一轮的末尾为止（虚线），结果在由通知开头的新一轮里看（见下一条），不回头改上一轮。重建对话记录时按条目推出车道：`agent_spawn` 的工具结果给出句柄和任务 id，同一轮里插进来的 `report` 步骤给出合回的位置；2026-10-21 之前的会话里还有 `agent_wait` 和 `wait: true` 的调用，它们返回的事件照样给出合回的位置，`agent_wait` 的步骤照旧写"等子对话"（只读旧记录，不再注册这个工具和参数）。
+- **由通知开头的轮（来源行）**：轮的开头没有气泡，是一行小字：图标加"来自子对话「名字」· 完成 · 用时 3 分 12 秒"（其他事件写"出错""在问""在等你""已停下""已结束"），右边"打开"；几条通知合成一次的，每条一行。子对话里由交代开头的轮写"来自主对话的 agent · 交代的事"，右边"主对话"，下面是交代的全文，画成引用块（左边一条竖线）。给模型的外壳文字（`<atrium-agent-report …>`、`<atrium-subagent>`）不显示。运行中插进来的通知是这一轮里的一个步骤，同样写成这样一行（`question` 用问号图标、橙色）。子对话里运行中插进来的主 agent 的话（见 `agent_send`）是一个步骤，写"主 agent 插话"加这段话的第一行，画法同你的插话（2026-10-22 定）。已知限制：这段话插在子对话最后一次回复（没有工具调用）之后时，对话记录里它后面是新的一次回复，界面把它画成由交代开头的新一轮，来源行写"来自主对话的 agent · 交代的事"、下面是全文；要分开得给来源加一个字段、协议加一，暂不做（2026-10-22 三方审查后定）。
 - **排队面板**：待送达的项是另一种行，排在排队的消息前面：图标加"来自子对话「名字」：完成"（子对话里是"来自主对话的 agent"）；`waiting` 的行末是"待送"和删除的"×"，`sending` 的写"已交给 pi"、没有"×"；没有编辑、改成插话的菜单。"排队 N"的计数含待送达的；待送达进来时面板不自己弹开（主 agent 会处理它，不打扰你；你自己的消息进排队照旧弹开），"清空"只清你的消息。宿主重启后暂停着时，面板顶上一条"宿主重启后暂停"，右边"继续"，胶囊写"已暂停"（2026-10-17 实现时定）；没送出去而暂停时写"没送出去"，右边"重试"（见"送达"）。只剩待送达、排队因停下而暂停时，面板照样有"继续发送"（2026-10-18 三方审查后定）。
 - **子对话条**：agent 开的子对话的行在名字后面多一个角色标记（同过程轨道）；挂着 `ask_parent` 的子对话（`waiting_for_parent`）状态图标是问号、橙色，和"待回答"同形，第二行写"在问主 agent：问题的第一行"；有最近一条进度时第二行写进度。胶囊的计数里"在问主 agent"和"待回答"算在同一个问号里。宿主重启后这棵子树里有暂停的待送达时，列表顶上一条"宿主重启后暂停了 N 条送达"，右边"全部继续"（见"送达"的时机表）。
 
@@ -341,7 +318,7 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 - 不管选哪种，ADR 都要定：请求 id、按请求 id 幂等（扩展重启后用同一个 id 问，不再开一个）、进程代次（旧 pi 的迟到应答丢掉）、超时与取消、重复或迟到的应答、JSON 的 schema 和大小上限、正文不进日志、各工具和命令的参数形状。同一个 pi 里的其他扩展也能发这个键，宿主分不出来；这算 ADR 的代价（扩展本来就和 pi 同进程、同权限）。
 - **宿主 → 扩展**：隐藏命令，同 `/atrium-fast`、`/atrium-plan`，参数是 base64url 编码的 JSON。只有宿主会给 pi 发 `prompt`，你打的 `/atrium-` 被挡在宿主（见"送达"末尾）。
 - **调用方是谁**：请求从哪个 pi 进程的管道来，就是哪个会话，宿主不信参数里写的身份。不要 socket、端口和 token，环境变量照旧去掉 `ATRIUM_*`（security.md）。
-- 工具在 `wait: true` 时一直等是可以的：pi 不给工具设超时；RPC `abort` 会中止传给 `execute` 的 `signal`，工具要听它、马上结束，否则 `abort` 不应答。
+- `ask_parent` 一直挂着等是可以的：pi 不给工具设超时；RPC `abort` 会中止传给 `execute` 的 `signal`，工具要听它、马上结束，否则 `abort` 不应答。
 - 契约测试要实测的（源码读的是仓库依赖的 pi 1.0.2，本机跑的是 1.1.0）：选定的通道来回一次、运行中途送达、`triggerTurn` 加 `deliverAs: "steer"` 在空闲和在跑时的行为、只有自定义消息时会话文件什么时候写出、`clear_queue` 清掉自定义 steer、`--tools` / `--exclude-tools` 去掉的工具模型看不到也调不到、`fork` 和 `--fork` 保留条目 id、`--fork` 在应答 `get_state` 之前就写出文件、扩展在运行中用 `createBranchedSession` 切在当前叶子、没配对的工具调用在自定义消息之前补上"No result provided"、`tool_call` 钩子拦下的工具调用模型看到的结果。2026-10-17 在本机 pi 1.1.0 上实测，除了缓存都成立（结果见 pi-internals "SPEC-0002 契约测试实测"）；通道乙走得通。上下文检查器要的"扩展给宿主发数据"也用这条通道，ADR 一起定。
 
 ## 接口与数据
@@ -361,12 +338,12 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 **第二步**
 
 - 会话记录新增 `handle`（agent 开的子对话的句柄，不变）、`toolGuard`（见"带上下文的子对话（agent 开的）"）、`usedHandles`（父会话用过的句柄，只增不减）、`role: "explore" | "work" | "advise" | null`、`deliveries`（见"送达"，含 `question`；进度不在这里，见 `report_progress`）、任务记录 `tasks: [{ taskId, originTask?, state }]`。显示名就是会话名，你改的是它，不是句柄。这是 domain-model"排队只在内存"的例外：待送达的要撑过宿主重启，往上送的只存引用。
-- 运行控制加 `control.deliveries: [{ id, kind: "report" | "task", fromTitle, event, state: "waiting" | "sending" }]`（待送达，和 `queue` 并列，不混进排队的消息：它们不能编辑、不能改成插话；`claimed` 的不列）和 `deliveriesHeld: "restart" | "stalled" | null`（为什么暂停着：宿主重启后，或没送出去；2026-10-18 三方审查后从布尔改成原因）；`resume_deliveries` 两种都放开；协议版本加一（19）（2026-10-17 实现时定，原写作"`control.queue` 的项加一种"）。
+- 运行控制加 `control.deliveries: [{ id, kind: "report" | "task", fromTitle, event, state: "waiting" | "sending" }]`（待送达，和 `queue` 并列，不混进排队的消息：它们不能编辑、不能改成插话）和 `deliveriesHeld: "restart" | "stalled" | null`（为什么暂停着：宿主重启后，或没送出去；2026-10-18 三方审查后从布尔改成原因）；`resume_deliveries` 两种都放开；协议版本加一（19）（2026-10-17 实现时定，原写作"`control.queue` 的项加一种"）。
 - 新命令 `remove_delivery(sessionId, deliveryId)`：删掉一条 `waiting` 的，记成 `deleted`，父 agent 不另外得知；`sending` 的应答 `delivery_sending`，没有的应答 `delivery_not_found`。`resume_deliveries(sessionId, tree)`：放开宿主重启后暂停的，`tree: true` 连同整棵子树（子对话条的"全部继续"）；放开的照"送达"的时机表送（被回收的子对话照样要过名额才起 pi）。
 - `Turn` 加 `source: { kind: "report", events } | { kind: "task", fromTitle, taskId, text } | null`，由通知或交代开头的轮 `user` 为空；步骤加一种 `agent`（运行中进来的通知或交代，`source` 同上）；工具步骤的 `details` 加一种 `{ tool: "agent", spawned, events }`：`agent_spawn` 开出的子对话（会话 id、句柄、任务 id、角色、分支）和这次调用带回的事件，过程轨道凭它画车道（见"对话记录里的自定义消息"、"显示"）。
 - `hand_off` 的应答加 `args`：交给终端的命令要带的工具参数（见"交接"）。
 - 工具的参数和结果、自定义消息 `atrium-agent` 的 `details`、隐藏命令 `/atrium-agent reply | deliver | cancel` 的参数：见 ADR-0013 第 1、2、8、10 条。
-- 通道的错误码（宿主答扩展，在 `packages/pi` 的通道 schema 里，不是协议给客户端的错误码；2026-10-17 实现时定）：`agent_limit`、`agent_depth_limit`、`agent_not_allowed`、`agent_gone`、`agent_handed_off`、`agent_busy`、`agent_name_taken`、`agent_name_invalid`、`agent_role_not_allowed`、`agent_place_invalid`、`agent_place_failed`、`agent_model_unknown`、`agent_thinking_invalid`、`agent_context_unavailable`、`agent_question_closed`、`agent_text_too_long`、`agent_bad_request`、`agent_failed`。协议的新错误码：`delivery_not_found`、`delivery_sending`（`remove_delivery`）。
+- 通道的错误码（宿主答扩展，在 `packages/pi` 的通道 schema 里，不是协议给客户端的错误码；2026-10-17 实现时定）：`agent_limit`、`agent_depth_limit`、`agent_not_allowed`、`agent_gone`、`agent_handed_off`、`agent_busy`、`agent_name_taken`、`agent_name_invalid`、`agent_role_not_allowed`、`agent_place_invalid`、`agent_place_failed`、`agent_model_unknown`、`agent_thinking_invalid`、`agent_context_unavailable`、`agent_question_closed`、`agent_question_open`、`agent_text_too_long`、`agent_bad_request`、`agent_failed`。协议的新错误码：`delivery_not_found`、`delivery_sending`（`remove_delivery`）。
 - 协议 23（2026-10-21）：`SessionSummary` 加 `model: { providerId, modelId, thinkingLevel } | null`，给子对话列表标明每个子对话用的模型和思考程度。宿主读会话文件里最新的 `model_change`、`thinking_level_change` 得到（同 `session_info` 的读法，只在文件变了才重读），所以没打开过、没有 pi 在跑的子对话也有；文件没有记录（草稿）、级别不是协议认得的、id 超过协议上限的为 `null`。名字取输入框已请求到的模型目录，目录里没有的写模型 id；目录里只有 `off` 的模型（不推理）不写档位。文件里的记录在 pi 写入、宿主下一次扫描之后才变，所以子对话刚换模型的那一刻列表可能还是旧的。
 - 子对话条和 `agent_list` 用到的子对话状态 `waiting_for_parent`、最近一条进度：`SessionSummary` 加 `agent: { handle, role, status, progress, question, taskId, taskStartedAt } | null`（只给 agent 开的子对话；`question` 是它挂着等主 agent 回答的第一个问题；`taskId`、`taskStartedAt` 是它手上这件事和交代下来的时间，没有在做的事为 `null`；过程轨道"开子对话"那一行只在这件事就是这一行开出的那件时，从它算实时用时（之后 `agent_send` 交代的事不算这一行的），2026-10-18 审查修复时加）和 `heldDeliveries`（宿主重启后暂停着的待送达条数，子对话条的"全部继续"按子树加总），协议版本加一（2026-10-17 实现时定，原写作 `agentStatus`、`lastProgress` 两个字段）。
 
@@ -389,7 +366,13 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 - **在父会话自己的 pi 里 `fork`**：pi 会把这个进程换到新文件上，父会话就丢了它的 pi；沿用 SPEC-0001 的临时 pi。
 - **改写会话头的 `cwd`**：要宿主改 pi 的会话文件，而 `--fork` 本来就能在新目录复制一份；不改写。
 - **只读用黑名单**（去掉 `bash`、`edit`、`write`、`powershell`）：MCP 和其他扩展的写工具照样能用，不是真的只读（2026-10-16 定用白名单）。
-- **`agent_spawn` 标成依次执行**：pi 会把整批工具调用都变成依次执行，几个 `wait: true` 就并行不了；改由宿主按父会话依次受理。
+- **等待：`agent_wait` 和 `agent_spawn`、`agent_send` 的 `wait: true`**（2026-10-16 定要，2026-10-21 删掉）：`agent_wait` 有 `tasks`、`until: "any" | "all"`、`waitSeconds`，用于"派出几个、等齐再汇总"；`wait: true` 让这次调用等这件事出结果再返回。等待接住的事件记成 `claimed`、不另发通知，结果写进父会话文件才删；你发消息、停止父会话、pi 退出都要结束等待，停止时还要停掉在等的子对话。删掉的原因：2026-10-20 起结果在父 agent 的轮次边界就送进去，父 agent 空闲时通知开一轮新的，结果不靠等待也一定送到；只删 `agent_wait`、留 `wait: true` 时，同一批几个 `wait: true` 要等最慢的那个返回，其间别的子对话用 `ask_parent` 问的问题送不进去（通知只在轮次边界插进去），提问的子对话一直挂到超时；等待是宿主里最复杂的一块（`claimed`、重启时去文件里找、中止时放回、提前返回、连带停止）。代价：等结果多一次结束这一轮、由通知再开一轮的模型调用，几个子对话先后做完时主 agent 被叫醒几次；主 agent 要守"别轮询"；停止主 agent 不再连带停掉子对话，要停用 `agent_stop` 或子对话条。Paseo、`pi-interactive-subagents` 也只有后台；Codex、`pi-subagent-manager` 留着等待（[multi-agent.md](../research/multi-agent.md) 第 3、7 节）。
+- **在跑时由宿主马上 steer，上一批没进去先留着**（2026-10-20 定，2026-10-22 改掉）：pi 一个边界只取一条 steer，留着是为了不让几条分开占几次模型调用，代价是上一批还在 pi 队列里时新来的要多等一个边界。改成扩展收着、在 `turn_end` 合成一条交给 pi（`@tintinweb/pi-subagents` 的做法）。用 pi 的 `set_steering_mode all` 也能一个边界取完，但它存进你全局的 pi 设置，不采用。Codex 和 DeepSeek Harness 都在每次调模型之前一次取完排队的（Codex `session/turn.rs` 的 `get_pending_input`，DSH `core/agent/src/inbox.ts` 的 `claim`），见 [multi-agent.md](../research/multi-agent.md) 第 3 节。
+- **给正在跑的子对话的话排到这次运行之后**（2026-10-16 定，2026-10-22 改成补进手上那件事）：语义简单、结果归属清楚，DeepSeek Harness 的 `send_message` 也这样（说明里写"不能改变已经在做的事"，要改方向就 `interrupt_agent`）；但子对话可能一直照原样做到底，补充和纠偏要等它做完才看到。改成像 Claude Code 的 `SendMessage` 一样在工具边界插进去。另开一个 `agent_steer` 工具（`improve-parent-child-agent-collab` 分支的做法）也不采用：多一个工具，模型要先判断对方在不在跑。
+- **有通知要送时把长命令转到后台**（Claude Code 2.1.284：前台的 Bash 和声明了能转后台的工具在有消息要送时立刻返回一个占位结果，进程照跑、输出写进文件，跑完再通知；二进制里的 `backgroundedToDeliverMessage`、`[foreground-tool-calls]`）：pi 的 agent 循环要等一批工具全部结束，bash 没有后台模式，扩展也没法让跑着的工具提前返回；要做得由 Atrium 扩展自己提供 `bash`，或者改 pi 上游。Codex 的 `exec_command` 最多等 `yield_time_ms`（默认 10 秒、最多 30 秒）就返回、进程留在会话里，但跑完不通知、要模型轮询；DeepSeek Harness 只有模型自己选的 `run_in_background`，跑完自动通知。暂不做（2026-10-22）：先在自用里量通知从产生到进上下文的时间（宿主确认送达时记一条日志，带这条送达等了多久），长命令确实常挡住时，先做 DeepSeek Harness 那样的"后台执行、跑完通知"。
+- **顶层会话也声明 `report_progress`、`ask_parent` 的空壳，让分叉出的子对话工具列表和父会话一致**（`pi-subagents` 的做法，2026-10-22 实测后用户定不做）：本机 pi 1.3.0 把同一段历史分叉成新会话，DeepSeek V4.1 Flash 上工具列表一致时第一次请求命中整个前缀（`cacheRead` 6912），多一个工具就是 0；Grok 4.7 两种都只命中全局共用的 1152；ChatGPT 订阅和 claude-bridge 因会话 id、bridge 重拼提示另有原因命不中（见上）。只有 DeepSeek 受益，代价是每个顶层会话每次请求多约 1000 字符的工具声明。
+- **合并工具**（2026-10-21 考虑过）：`agent_send` 和 `agent_reply` 合成一个、用 `questionId` 区分，不采用：一个进排队、产生任务、可能起 pi 和占名额，一个经通道交给挂着的 `ask_parent`，参数、长度上限和返回都不同；漏写 `questionId` 时回答会变成一件排在 `ask_parent` 后面的新任务，要等问题超时才解开。`agent_list` 和 `agent_read` 合成 `agent_inspect` 也不采用：参数几乎不重叠，合起来只是按有没有 `to` 分两种返回。
+- **`agent_spawn` 标成依次执行**：pi 会把整批工具调用都变成依次执行；改由宿主按父会话依次受理。
 - **等插件系统做完再做**：插件系统在阶段 3，v0.1 不做；子对话不依赖插件接口，先写死反而给抽接口多一个样本（2026-10-16 定）。
 
 ## 风险与待定问题
@@ -426,7 +409,7 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 0. 原型：过程轨道的分出与合回、由通知开头的轮、排队面板的待送达项、子对话条的新内容（2026-10-17 完成，选 A、甲）。
 1. ADR-0013：扩展与宿主的通道；契约测试先验证选定的通道、隐藏命令、`triggerTurn` 加 steer、`clear_queue`、工具参数。
 2. pi 包和协议：`task`、`report` 两种自定义消息作为轮的开头和步骤；`control.deliveries` 的待送达项（2026-10-18 实现时从 `control.queue` 分出来）。
-3. 扩展：主 agent 的八个工具、子对话的两个工具、`deliver` 发自定义消息、外壳和转义、`ask_parent` 的计时和取消；第一条 `task` 消息里的角色说明；带上下文时在父会话的 pi 里做分支、在 `tool_call` 钩子里按角色和层数拦工具。
+3. 扩展：主 agent 的七个工具、子对话的两个工具、`deliver` 发自定义消息、外壳和转义、`ask_parent` 的计时和取消；第一条 `task` 消息里的角色说明；带上下文时在父会话的 pi 里做分支、在 `tool_call` 钩子里按角色和层数拦工具。
 4. 宿主：AgentRelay（核对调用方和当前关系、角色和位置不高于调用方、按父会话依次受理和占名额、启动参数、做完停 pi 和再起依次处理）、SessionController 的送达（时机表、提交中、确认与去重、持久化、宿主退出前记 `stopped`、重启后暂停）。
 5. 界面：通知的轮和步骤、排队面板里的待送达项、过程轨道的分支与合回。
 6. 写回 domain-model（待送达是"排队只在内存"的例外、agent 子对话的进程回收）、security.md（只读白名单的保证范围、交给终端的参数只是建议、交代的文字在索引里的短暂停留）。
@@ -439,8 +422,8 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
   - 带上下文的子对话：同容器不动父会话的 pi；新 worktree 的中间文件只在临时目录；失败时停 pi、删临时目录、文件没写出时删记录、写出了留记录；启动时只清带标记的残留；
   - 归档连带：三个入口一致、同容器的含草稿归档、别的容器的脱离且保留下面的关系、归档中不能开新的、worktree 删失败不脱离、恢复只恢复记下的；
   - 用量合计：只算基线之后的、`null` 从头算、压缩和工具结果的用量也算、费用取原值、没起过 pi 的也算、脱离后不再算进祖先；
-  - （第二步）句柄不变、改显示名后照样能按句柄和 `id:<会话 id>` 找到、脱离和重启后句柄照样不能再用；任务 id：`agent_send` 的 `wait: true` 只等自己那件事；等待先按当前状态算、接住的事件不进送达、工具结果没写出就放回、提前返回的几种情况、名单为空立刻返回；`agent_reply` 等子对话确认、进程换了就关；问题关了删掉没送到的 `question`；进度不进待送达、不挡回收、重启后从文件读回；`agent_stop` 连带到你手动开的就停；带上下文的子对话：切在当前叶子、父会话照常在跑、记用量基线、只读和层数由 `tool_call` 钩子拦、带不了时报 `agent_context_unavailable`；档位不支持时报错、不填时沿用并换成新模型支持的档位；`agent_wait` 的 `any` / `all`、取到的事件不再通知、你发消息和 `question` 让它提前返回、超时不停子对话；`ask_parent` 答了、超时、被停下三种结果，`agent_reply` 对已关闭的问题报错，宿主重启后挂着的问题作废；`report_progress` 不唤醒主 agent、合进下一条通知；调用方核对、当前关系、各错误码；角色和位置不高于调用方；并发的第 6、7 个、让空闲的子对话再干活都查名额，你自己发的不挡；同一批几个 `wait: true` 并行；只读的启动参数是白名单、层数 2 的没有 `agent_*`，重启和接回后照样带上；做完一轮停掉 pi、关掉标签也停、下次再起，停和再起不交叉；
-  - （第二步）送达：时机表的每一格（含被回收的起 pi、重启后暂停）、提交中挡住排队压缩分叉和交接、发之前先记 `sending`、在文件里见到才删、`extension_error`、运行结束、停下、pi 退出时文件里没有就放回、重启后 `waiting` 和 `sending` 都按送达 id 去重、第一件事在文件写出前被停下或崩溃会重送、合成的一条一次确认全部、被回收的子对话为送通知起 pi 也过名额、由通知开头的那一轮也往上通知、宿主退出前记 `stopped`、归档时删掉收件人被归档的、`sending` 的删不掉；`wait: true` 碰到每种事件都返回，`needs_you` 之后的终态照常通知；你在子对话里直接说话不通知；几条同时待送的合成一次。
+  - （第二步）句柄不变、改显示名后照样能按句柄和 `id:<会话 id>` 找到、脱离和重启后句柄照样不能再用；任务 id：同一个子对话先后几件事的事件各算各的；`agent_reply` 等子对话确认、进程换了就关；问题关了删掉没送到的 `question`；进度不进待送达、不挡回收、重启后从文件读回；`agent_stop` 连带到你手动开的就停；带上下文的子对话：切在当前叶子、父会话照常在跑、记用量基线、只读和层数由 `tool_call` 钩子拦、带不了时报 `agent_context_unavailable`；档位不支持时报错、不填时沿用并换成新模型支持的档位；`ask_parent` 答了、超时、被停下三种结果，`agent_reply` 对已关闭的问题报错，宿主重启后挂着的问题作废；`report_progress` 不唤醒主 agent、合进下一条通知；调用方核对、当前关系、各错误码；角色和位置不高于调用方；并发的第 6、7 个、让空闲的子对话再干活都查名额，你自己发的不挡；只读的启动参数是白名单、层数 2 的没有 `agent_*`，重启和接回后照样带上；做完一轮停掉 pi、关掉标签也停、下次再起，停和再起不交叉；
+  - （第二步）送达：时机表的每一格（含被回收的起 pi、重启后暂停）、提交中挡住排队压缩分叉和交接、发之前先记 `sending`、在文件里见到才删、`extension_error`、运行结束、停下、pi 退出时文件里没有就放回、重启后 `waiting` 和 `sending` 都按送达 id 去重、第一件事在文件写出前被停下或崩溃会重送、合成的一条一次确认全部、被回收的子对话为送通知起 pi 也过名额、由通知开头的那一轮也往上通知、宿主退出前记 `stopped`、归档时删掉收件人被归档的、`sending` 的删不掉；`needs_you` 之后的终态照常通知；轮次边界合并插入（一批工具跑完之前到的都在这个边界进去、上一批没进去时新来的不多等、扩展按送达 id 去重、这一轮被停下时丢掉收着的、没等到边界就结束的放回再发）；`agent_send` 补进手上那件事（任务 id 不变、`agent_read` 不截断、没赶上边界的记成后续任务、对方在等回答时 `agent_question_open`、你开的那一轮照旧排在后面）；你在子对话里直接说话不通知；几条同时待送的合成一次。
 - 界面测试：子对话条的计数与排序（只列直接的、"+N"、行状态汇总子树）、面包屑超过三层收起、"含子对话"一行、主对话标签的状态汇总（子对话"运行中"不抬高）、收件箱的写法、`note` 提示行、通知开头的轮和步骤、排队面板里的待送达项（能删和删不掉的）、子对话条的"全部继续"、草稿子对话显示记录里的名字。
 - 端到端：开子对话 → 子对话跑完 → 主对话的子对话条里看到它做完、点开它；带上下文开进新 worktree；归档主对话；（第二步）agent 开两个子对话、都跑完、主对话收到通知并汇总；主 → 子 → 孙的异步链路里子对话被回收后孙的结果照样一路送到主对话；只读子对话能用 Bash 查询，但调不到 `edit`、`write` 等白名单外的工具；不把 Bash 当作强制只读沙箱。
 - pi 契约测试：见"扩展与宿主的通道"末尾和实施计划。

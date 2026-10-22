@@ -543,6 +543,14 @@ describe("agent relay: opening a child", () => {
     expect(changes()).toBeGreaterThan(0);
   });
 
+  it("opens a read-only child when no role is given, and says so", async () => {
+    const { call, created } = harness(session("main"));
+
+    const { answer } = await call("main", "spawn", { name: "audit", task: "look at auth" });
+
+    expect([answer?.["result"], created[0]?.agent.role]).toMatchObject([{ role: "explore" }, "explore"]);
+  });
+
   it("puts a work child in its own worktree by default, and the level wanted where the model has it", async () => {
     const { call, created, setModel } = harness(session("main"));
     setModel({ providerId: "faux", modelId: "m1", thinkingLevel: "minimal" });
@@ -1280,296 +1288,6 @@ async function runTask(
   await settle();
 }
 
-describe("agent relay: waiting", () => {
-  it("waits for any task by default, and takes the event it returns with from the deliveries", async () => {
-    const h = harness(
-      session("main"),
-      child("c1", "main", "audit", { tasks: [task("t-1")] }),
-      child("c2", "main", "tests", { tasks: [task("t-2"), task("t-0", { state: "done" })] }),
-    );
-
-    const waiting = await h.call("main", "wait", {}, "wait-1");
-    await runTask(h, "c2", "t-2");
-
-    expect(waiting.answer).toBeUndefined();
-    expect(h.reply("wait-1")).toStrictEqual({
-      v: 1,
-      id: "wait-1",
-      ok: true,
-      result: {
-        events: [{ name: "tests", title: "tests", sessionId: "c2", taskId: "t-2", event: "finished", elapsedMs: 0 }],
-        pending: ["t-1"],
-        progress: [],
-        timedOut: false,
-      },
-    });
-    expect(h.entry("main").deliveries).toMatchObject([{ taskId: "t-2", state: "claimed", claimedBy: "wait-1" }]);
-  });
-
-  it("waits for all, returning early at a question but not at a request for you", async () => {
-    const h = harness(
-      session("main"),
-      child("c1", "main", "audit", { tasks: [task("t-1")] }),
-      child("c2", "main", "tests", { tasks: [task("t-2")] }),
-    );
-
-    await h.call("main", "wait", { until: "all" }, "wait-1");
-    await runTask(h, "c1", "t-1");
-    h.sessions.set("c2", {
-      ...h.entry("c2"),
-      deliveries: [{ id: "k2", kind: "task", from: "main", taskId: "t-2", text: "t", at: 1, state: "sending" }],
-    });
-    h.relay.deliveries("c2").runStarted({ deliveries: ["k2"] });
-    h.relay.asking("c2", true);
-    h.relay.asking("c2", true);
-    await settle();
-    const beforeQuestion = h.reply("wait-1");
-    await h.call("c2", "ask", { question: "vitest?", options: ["yes", "no"] }, "ask-1");
-
-    expect(beforeQuestion).toBeUndefined();
-    expect(h.reply("wait-1")).toMatchObject({
-      result: {
-        events: [
-          { name: "audit", event: "finished" },
-          { name: "tests", event: "needs_you" },
-          { name: "tests", event: "question", questionId: "ask-1", question: "vitest?", options: ["yes", "no"] },
-        ],
-        pending: ["t-2"],
-        timedOut: false,
-      },
-    });
-  });
-
-  it("counts at once events already waiting for the parent, and answers at once with nothing to wait for", async () => {
-    const h = harness(
-      session("main", {
-        deliveries: [notice("n1", "t-1", "finished"), notice("n2", "t-1", "question", { state: "sending" })],
-      }),
-      child("c1", "main", "audit", { tasks: [task("t-1", { state: "done" })] }),
-    );
-
-    const listed = await h.call("main", "wait", { tasks: ["t-1"] }, "wait-1");
-    const none = await h.call("main", "wait", {}, "wait-2");
-
-    expect(listed.answer).toMatchObject({ result: { events: [{ taskId: "t-1", event: "finished" }], pending: [] } });
-    expect(none.answer).toMatchObject({ result: { events: [], pending: [], timedOut: false } });
-    expect(h.entry("main").deliveries.map((one) => [one.id, one.state])).toStrictEqual([
-      ["n1", "claimed"],
-      ["n2", "sending"],
-    ]);
-  });
-
-  it("takes by default, at once, the events still waiting of tasks that ended, as well as the open tasks", async () => {
-    const h = harness(
-      session("main", {
-        deliveries: [notice("n1", "t-1", "finished"), notice("n0", "t-0", "finished", { state: "sending" })],
-      }),
-      child("c1", "main", "audit", { tasks: [task("t-0", { state: "done" }), task("t-1", { state: "done" })] }),
-      child("c2", "main", "tests", { tasks: [task("t-2")] }),
-    );
-
-    const { answer } = await h.call("main", "wait", {}, "wait-1");
-
-    expect(answer).toMatchObject({
-      result: { events: [{ taskId: "t-1", event: "finished" }], pending: ["t-2"], timedOut: false },
-    });
-    expect(h.entry("main").deliveries.map((one) => [one.id, one.state])).toStrictEqual([
-      ["n1", "claimed"],
-      ["n0", "sending"],
-    ]);
-  });
-
-  it("answers a task not the caller's agent_not_allowed", async () => {
-    const h = harness(session("main"), session("other"), child("c1", "other", "audit", { tasks: [task("t-1")] }));
-
-    const { answer } = await h.call("main", "wait", { tasks: ["t-1"] });
-
-    expect(answer).toMatchObject({ ok: false, code: "agent_not_allowed" });
-  });
-
-  it("ends at its time, or when you send a message, with what is still running", async () => {
-    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
-
-    await h.call("main", "wait", { waitSeconds: 30 }, "wait-1");
-    h.clock.advance(29_999);
-    await settle();
-    const early = h.reply("wait-1");
-    h.clock.advance(1);
-    await settle();
-    await h.call("main", "wait", {}, "wait-2");
-    h.relay.deliveries("main").userSpoke();
-    await settle();
-
-    expect(early).toBeUndefined();
-    expect(h.reply("wait-1")).toMatchObject({ result: { events: [], pending: ["t-1"], timedOut: true } });
-    expect(h.reply("wait-2")).toMatchObject({ result: { timedOut: false, interrupted: "user_message" } });
-  });
-
-  it("puts back what a wait stopped had taken, answers nothing, and stops the child only a wait: true waited for", async () => {
-    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1"), task("t-2")] }));
-
-    await h.call("main", "wait", { until: "all" }, "wait-1");
-    await runTask(h, "c1", "t-1");
-    const taken = h.entry("main").deliveries.map((one) => [one.taskId, one.state]);
-    await h.note("main", "cancel", { id: "wait-1" });
-    h.states.set("c1", { ...IDLE, running: true });
-    await h.call("main", "send", { to: "audit", message: "more", wait: true }, "send-1");
-    await h.note("main", "cancel", { id: "send-1" });
-
-    expect(taken).toStrictEqual([["t-1", "claimed"]]);
-    expect(h.entry("main").deliveries.map((one) => [one.taskId, one.state, one.claimedBy])).toStrictEqual([
-      ["t-1", "waiting", undefined],
-    ]);
-    expect([h.reply("wait-1"), h.reply("send-1")]).toStrictEqual([undefined, undefined]);
-    expect(h.stopped).toStrictEqual(["c1"]);
-    expect(h.pumped).toContain("main");
-  });
-
-  it("leaves a child running when an agent_wait on its one task is stopped", async () => {
-    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
-    h.states.set("c1", { ...IDLE, running: true });
-
-    await h.call("main", "wait", { tasks: ["t-1"] }, "wait-1");
-    await h.note("main", "cancel", { id: "wait-1" });
-
-    expect(h.reply("wait-1")).toBeUndefined();
-    expect(h.stopped).toStrictEqual([]);
-  });
-
-  it("answers wait: true with the event of its own task only", async () => {
-    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
-
-    await h.call("main", "send", { to: "audit", message: "more", wait: true }, "send-1");
-    const taskId = present(h.entry("c1").agent?.tasks[1], "the new task").taskId;
-    await runTask(h, "c1", "t-1");
-    const afterOther = h.reply("send-1");
-    await runTask(h, "c1", taskId);
-
-    expect(afterOther).toBeUndefined();
-    expect(h.reply("send-1")).toMatchObject({
-      ok: true,
-      result: {
-        to: "audit",
-        sessionId: "c1",
-        taskId,
-        queued: false,
-        waited: { timedOut: false, event: { taskId, event: "finished" } },
-      },
-    });
-    expect(h.entry("main").deliveries.map((one) => [one.taskId, one.state])).toStrictEqual([
-      ["t-1", "waiting"],
-      [taskId, "claimed"],
-    ]);
-  });
-
-  it("answers wait: true at a message of yours, as interrupted", async () => {
-    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
-
-    await h.call("main", "send", { to: "audit", message: "more", wait: true }, "send-1");
-    h.relay.deliveries("main").userSpoke();
-    await settle();
-
-    expect(h.reply("send-1")).toStrictEqual({
-      v: 1,
-      id: "send-1",
-      ok: true,
-      result: {
-        to: "audit",
-        sessionId: "c1",
-        taskId: "t-id1",
-        queued: false,
-        waited: { timedOut: false, interrupted: "user_message" },
-      },
-    });
-  });
-
-  it("ends a session's waits only at words of yours there, or when its own pi exits", async () => {
-    const h = harness(
-      session("main"),
-      session("other"),
-      child("k1", "main", "audit", { tasks: [task("t-1")] }),
-      child("k2", "other", "tests", { tasks: [task("t-2")] }),
-    );
-    await h.call("main", "wait", {}, "wait-1");
-    await h.call("other", "wait", {}, "wait-2");
-
-    h.relay.exited("k1", 1);
-    h.relay.deliveries("main").userSpoke();
-    await settle();
-
-    expect(h.reply("wait-1")).toStrictEqual({
-      v: 1,
-      id: "wait-1",
-      ok: true,
-      result: { events: [], pending: ["t-1"], progress: [], timedOut: false, interrupted: "user_message" },
-    });
-    expect(h.reply("wait-2")).toBeUndefined();
-  });
-
-  it("stops only the wait a note names, of the process that sent it, and puts back only what that wait took", async () => {
-    const h = harness(
-      session("main"),
-      child("k1", "main", "audit", { tasks: [task("t-1"), task("t-3"), task("t-4")] }),
-    );
-    await h.call("main", "wait", { tasks: ["t-1"] }, "w1");
-    await h.call("main", "wait", { tasks: ["t-3"] }, "w3");
-    await h.call("main", "wait", { tasks: ["t-4"] }, "w4");
-
-    // A newer process does not stop what an older one waits on.
-    h.relay.request("main", 2, JSON.stringify({ v: 1, id: "n-old", kind: "note", op: "cancel", args: { id: "w1" } }));
-    await settle();
-    await runTask(h, "k1", "t-1");
-    await h.note("main", "cancel", { id: "w3" });
-    await runTask(h, "k1", "t-4");
-
-    expect(["w1", "w3", "w4"].map((id) => h.reply(id)?.["ok"])).toStrictEqual([true, undefined, true]);
-    expect(h.entry("main").deliveries.map((one) => [one.taskId, one.state, one.claimedBy])).toStrictEqual([
-      ["t-1", "claimed", "w1"],
-      ["t-4", "claimed", "w4"],
-    ]);
-  });
-
-  it("counts a final event already waiting as its task's end, before the child's record says so", async () => {
-    const h = harness(
-      session("main", { deliveries: [notice("n1", "t-1", "ended", { reason: "archived" })] }),
-      child("c1", "main", "audit", { tasks: [task("t-1")] }),
-    );
-
-    // As between the two writes of a child that ends.
-    const { answer } = await h.call("main", "wait", { tasks: ["t-1"], until: "all" });
-
-    expect(answer).toMatchObject({
-      ok: true,
-      result: { events: [{ taskId: "t-1", event: "ended", reason: "archived" }], timedOut: false },
-    });
-  });
-
-  it("leaves out of a wait's result the event of a child no longer in the index", async () => {
-    const h = harness(
-      session("main"),
-      child("c1", "main", "audit", { tasks: [task("t-1")] }),
-      child("c2", "main", "tests", { tasks: [task("t-2")] }),
-    );
-
-    await h.call("main", "wait", { until: "all" }, "wait-1");
-    await runTask(h, "c1", "t-1");
-    h.sessions.delete("c1");
-    await runTask(h, "c2", "t-2");
-
-    expect(h.reply("wait-1")).toStrictEqual({
-      v: 1,
-      id: "wait-1",
-      ok: true,
-      result: {
-        events: [{ name: "tests", title: "tests", sessionId: "c2", taskId: "t-2", event: "finished", elapsedMs: 0 }],
-        pending: [],
-        progress: [],
-        timedOut: false,
-      },
-    });
-  });
-});
-
 describe("agent relay: questions", () => {
   it("hands the child the answer and says it was delivered once the child took it", async () => {
     const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
@@ -1730,6 +1448,224 @@ async function runTaskStarted(h: ReturnType<typeof harness>, childId: string, ta
   await h.relay.deliveries(childId).confirm([id]);
   h.states.set(childId, { ...IDLE, running: true });
 }
+
+describe("agent relay: words for the task in hand (2026-10-22)", () => {
+  it("adds words to the task a running child works on, as a delivery of that task that goes into the run, and gives no new task", async () => {
+    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
+    await runTaskStarted(h, "c1", "t-1");
+
+    const sent = await h.call("main", "send", { to: "audit", message: "also login" }, "send-1");
+
+    expect(sent.answer).toStrictEqual({
+      v: 1,
+      id: "send-1",
+      ok: true,
+      result: { to: "audit", sessionId: "c1", taskId: "t-1", queued: false, steered: true },
+    });
+    expect(h.entry("c1").agent?.tasks).toStrictEqual([task("t-1")]);
+    expect(h.entry("c1").deliveries).toStrictEqual([
+      {
+        id: "id1",
+        kind: "task",
+        from: "main",
+        taskId: "t-1",
+        text: "also login",
+        at: 1000,
+        state: "waiting",
+        steer: true,
+      },
+    ]);
+    expect(h.relay.deliveries("c1").list()).toStrictEqual([
+      { id: "id1", kind: "task", at: 1000, state: "waiting", steer: true },
+    ]);
+  });
+
+  it("hands pi the words as words for the task in hand, without the first task's preamble", async () => {
+    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
+    await runTaskStarted(h, "c1", "t-1");
+    await h.call("main", "send", { to: "audit", message: "also login" }, "send-1");
+
+    const command = present(await h.relay.deliveries("c1").command(["id1"]), "the command");
+
+    expect(decode(command).value).toStrictEqual({
+      v: 1,
+      kind: "task",
+      deliveries: ["id1"],
+      from: "main",
+      fromTitle: "main",
+      taskId: "t-1",
+      text: "also login",
+      steer: true,
+    });
+  });
+
+  it("refuses words for a child waiting for your answer, naming the question, and keeps nothing", async () => {
+    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
+    await runTaskStarted(h, "c1", "t-1");
+    await h.call("c1", "ask", { question: "which?" }, "ask-1");
+
+    const sent = await h.call("main", "send", { to: "audit", message: "also login" }, "send-1");
+
+    expect(sent.answer).toStrictEqual({
+      v: 1,
+      id: "send-1",
+      ok: false,
+      code: "agent_question_open",
+      params: { questionId: "ask-1" },
+    });
+    expect(h.entry("c1").deliveries).toStrictEqual([]);
+  });
+
+  it("gives a child running a turn you opened a new task after it, as before", async () => {
+    const h = harness(session("main"), child("c1", "main", "audit"));
+    h.relay.deliveries("c1").runStarted("user");
+    h.states.set("c1", { ...IDLE, running: true });
+
+    const sent = await h.call("main", "send", { to: "audit", message: "look" }, "send-1");
+
+    expect(sent.answer).toMatchObject({ ok: true, result: { taskId: "t-id1", queued: true, steered: false } });
+    expect(h.entry("c1").deliveries).toStrictEqual([
+      { id: "id2", kind: "task", from: "main", taskId: "t-id1", text: "look", at: 1000, state: "waiting" },
+    ]);
+  });
+
+  it("puts the run that words for a task already done open under a follow-up of it, whose end the parent is told", async () => {
+    const h = harness(
+      session("main"),
+      child("c1", "main", "audit", {
+        tasks: [task("t-1", { state: "done" })],
+        entry: {
+          deliveries: [
+            { id: "s1", kind: "task", from: "main", taskId: "t-1", text: "x", at: 1, state: "sending", steer: true },
+          ],
+        },
+      }),
+    );
+    const deliveries = h.relay.deliveries("c1");
+
+    deliveries.runStarted({ deliveries: ["s1"] });
+    await settle();
+    await deliveries.confirm(["s1"]);
+    deliveries.runSettled("completed", false, Promise.resolve(null));
+    await settle();
+
+    expect(h.entry("c1").agent?.tasks).toStrictEqual([
+      task("t-1", { state: "done" }),
+      { taskId: "t-id1", state: "done", at: 1000, followUpOf: "t-1", replyEntry: null },
+    ]);
+    expect(h.entry("main").deliveries.map((one) => [one.taskId, one.event, one.followUpOf])).toStrictEqual([
+      ["t-id1", "finished", "t-1"],
+    ]);
+  });
+
+  it("hands pi several words for the task in hand as one, in order", async () => {
+    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
+    await runTaskStarted(h, "c1", "t-1");
+    await h.call("main", "send", { to: "audit", message: "also login" }, "send-1");
+    await h.call("main", "send", { to: "audit", message: "and logout" }, "send-2");
+
+    const command = present(await h.relay.deliveries("c1").command(["id1", "id2"]), "the command");
+
+    expect(decode(command).value).toMatchObject({
+      kind: "task",
+      deliveries: ["id1", "id2"],
+      taskId: "t-1",
+      text: "also login\n\nand logout",
+      steer: true,
+    });
+  });
+
+  it("hands pi only the words for the one task, of what it is given with them", async () => {
+    const h = harness(
+      session("main"),
+      child("c1", "main", "audit", {
+        tasks: [task("t-1"), task("t-2")],
+        entry: {
+          deliveries: [
+            wordsFor("w1", "t-1", "one"),
+            notice("n1", "t-9", "finished", { from: "g" }),
+            { id: "k2", kind: "task", from: "main", taskId: "t-2", text: "next", at: 1, state: "waiting" },
+            wordsFor("w2", "t-2", "other"),
+            wordsFor("w3", "t-1", "two"),
+          ],
+        },
+      }),
+    );
+
+    const command = present(await h.relay.deliveries("c1").command(["w1", "n1", "k2", "w2", "w3"]), "the command");
+
+    expect(decode(command).value).toMatchObject({ deliveries: ["w1", "w3"], taskId: "t-1", text: "one\n\ntwo" });
+  });
+
+  it("gives a child pi says is running, but whose run the relay did not see begin, its next task", async () => {
+    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
+    h.states.set("c1", { ...IDLE, running: true });
+
+    const sent = await h.call("main", "send", { to: "audit", message: "look" }, "send-1");
+
+    expect(sent.answer).toMatchObject({ ok: true, result: { taskId: "t-id1", queued: true, steered: false } });
+  });
+
+  it("keeps the task in hand going when you remove words for it before they went", async () => {
+    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
+    await runTaskStarted(h, "c1", "t-1");
+    await h.call("main", "send", { to: "audit", message: "also login" }, "send-1");
+
+    await h.relay.removeDelivery("c1", "id1");
+    h.relay.deliveries("c1").runSettled("completed", false, Promise.resolve(null));
+    await settle();
+
+    expect(h.entry("main").deliveries.map((one) => [one.taskId, one.event])).toStrictEqual([["t-1", "finished"]]);
+  });
+
+  it("puts the run words open under a follow-up when the task they were for has ended but is not written done yet", async () => {
+    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
+    await runTaskStarted(h, "c1", "t-1");
+    await h.call("main", "send", { to: "audit", message: "also login" }, "send-1");
+    const reply = Promise.withResolvers<string | null>();
+    const deliveries = h.relay.deliveries("c1");
+
+    deliveries.runSettled("completed", false, reply.promise);
+    deliveries.runStarted({ deliveries: ["id1"] });
+    reply.resolve(null);
+    await settle();
+    await deliveries.confirm(["id1"]);
+    deliveries.runSettled("completed", false, Promise.resolve(null));
+    await settle();
+
+    expect(h.entry("main").deliveries.map((one) => [one.taskId, one.event, one.followUpOf])).toStrictEqual([
+      ["t-1", "finished", undefined],
+      ["t-id2", "finished", "t-1"],
+    ]);
+  });
+
+  it("gives a child being stopped the words as its next task, not as words for the run that is ending", async () => {
+    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
+    await runTaskStarted(h, "c1", "t-1");
+    h.states.set("c1", { ...IDLE, running: true, paused: "stopped" });
+
+    const sent = await h.call("main", "send", { to: "audit", message: "also login" }, "send-1");
+
+    expect(sent.answer).toMatchObject({ ok: true, result: { taskId: "t-id1", steered: false } });
+  });
+
+  it("reads a task's reply past the words added to it in its run", async () => {
+    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
+    h.files.set("/pi/c1.jsonl", [
+      taskEntry("k1", "t-1"),
+      replied("a1", "one"),
+      {
+        ...taskEntry("k2", "t-1"),
+        details: { ...(taskEntry("k2", "t-1") as { details: object }).details, steer: true },
+      } as LogEntry,
+      replied("a2", "two"),
+    ]);
+
+    const read = await h.call("main", "read", { to: "audit", taskId: "t-1" });
+
+    expect(read.answer?.["result"]).toStrictEqual({ text: "two", totalChars: 3, nextOffset: null });
+  });
+});
 
 describe("agent relay: list, read, stop and models", () => {
   it("lists the caller's children the agent opened, their status, model and open tasks, ended ones when asked", async () => {
@@ -1954,23 +1890,20 @@ describe("agent relay: list, read, stop and models", () => {
     const sent = await h.call("main", "send", { to: "audit", message: "look" });
     const gone = await h.call("main", "send", { to: "gone", message: "look" });
     // A caller the index no longer lists has no children.
-    const ghost = [await h.call("ghost", "send", { to: "audit", message: "look" }), await h.call("ghost", "wait", {})];
+    const ghost = await h.call("ghost", "send", { to: "audit", message: "look" });
 
     expect(sent.answer).toStrictEqual({
       v: 1,
       id: sent.id,
       ok: true,
-      result: { to: "audit", sessionId: "c1", taskId: "t-id1", queued: false },
+      result: { to: "audit", sessionId: "c1", taskId: "t-id1", queued: false, steered: false },
     });
     expect(h.entry("c1").agent?.tasks).toStrictEqual([{ taskId: "t-id1", state: "open", at: 1000 }]);
     expect(h.entry("c1").deliveries).toStrictEqual([
       { id: "id2", kind: "task", from: "main", taskId: "t-id1", text: "look", at: 1000, state: "waiting" },
     ]);
     expect(gone.answer).toMatchObject({ ok: false, code: "agent_gone" });
-    expect(ghost.map((one) => one.answer)).toStrictEqual([
-      { v: 1, id: "call-3", ok: false, code: "agent_not_allowed" },
-      { v: 1, id: "call-4", ok: true, result: { events: [], pending: [], progress: [], timedOut: false } },
-    ]);
+    expect(ghost.answer).toStrictEqual({ v: 1, id: "call-3", ok: false, code: "agent_not_allowed" });
   });
 
   it("reads a reply's text parts only, joined", async () => {
@@ -2172,14 +2105,13 @@ describe("agent relay: the queue panel, a restart and the host closing", () => {
     expect(h.pumped).toStrictEqual(["main"]);
   });
 
-  it("holds what waited when the host stopped, put back as waiting, questions and what a wait got dropped, until you let it go", async () => {
+  it("holds what waited when the host stopped, put back as waiting, questions dropped, until you let it go", async () => {
     const h = harness(
       session("main", {
         deliveries: [
           notice("n1", "t-1", "finished", { state: "sending" }),
           notice("n2", "t-1", "question", { questionId: "q" }),
-          notice("n3", "t-2", "finished", { state: "claimed", claimedBy: "w" }),
-          notice("n4", "t-2", "finished", { state: "claimed", claimedBy: "w-done" }),
+          notice("n3", "t-2", "finished"),
         ],
       }),
       child("c1", "main", "audit", {
@@ -2201,7 +2133,6 @@ describe("agent relay: the queue panel, a restart and the host closing", () => {
       } as LogEntry,
       { id: "u1", parentId: null, kind: "user", text: "yours", images: 0, skill: null, timestamp: 0 },
     ]);
-    h.files.set("/pi/main.jsonl", [toolResult("r1", "w-done")]);
 
     await h.relay.start();
     const held = [
@@ -2212,9 +2143,9 @@ describe("agent relay: the queue panel, a restart and the host closing", () => {
     const progress = h.relay.summary("c1").agent?.progress;
     await h.relay.resumeDeliveries("main", true);
 
-    expect(h.entry("main").deliveries.map((one) => [one.id, one.state, one.claimedBy])).toStrictEqual([
-      ["n1", "waiting", undefined],
-      ["n3", "waiting", undefined],
+    expect(h.entry("main").deliveries.map((one) => [one.id, one.state])).toStrictEqual([
+      ["n1", "waiting"],
+      ["n3", "waiting"],
     ]);
     expect(held).toStrictEqual([2, 1, 0]);
     expect(progress).toBe("latest");
@@ -2242,14 +2173,12 @@ describe("agent relay: the queue panel, a restart and the host closing", () => {
     );
     await runTaskStarted(h, "c1", "t-1");
     h.relay.deliveries("c2").runStarted("user");
-    await h.call("main", "wait", {}, "wait-1");
 
     await h.relay.close();
 
     expect(h.entry("main").deliveries.map((one) => [one.taskId, one.event, one.reason, one.state])).toStrictEqual([
       ["t-1", "stopped", "host_exit", "waiting"],
     ]);
-    expect(h.reply("wait-1")).toBeUndefined();
   });
 
   it("ends a child's open tasks for its parent when it is archived, handed off or detached, and drops what waited for an archived one", async () => {
@@ -2311,36 +2240,24 @@ describe("agent relay: the queue panel, a restart and the host closing", () => {
     ]);
   });
 
-  it("counts held deliveries a wait has not taken, and none for a session the index does not list", async () => {
+  it("counts held deliveries, and none for a session the index does not list", async () => {
     const h = harness(
       session("main", { deliveries: [notice("n1", "t-1", "finished"), notice("n2", "t-2", "finished")] }),
       child("c1", "main", "audit", { tasks: [task("t-1", { state: "done" }), task("t-2", { state: "done" })] }),
     );
     await h.relay.start();
 
-    await h.call("main", "wait", { tasks: ["t-1"] });
-
     expect([h.relay.summary("main"), h.relay.summary("nobody")]).toStrictEqual([
-      { agent: null, heldDeliveries: 1 },
+      { agent: null, heldDeliveries: 2 },
       { agent: null, heldDeliveries: 0 },
     ]);
   });
 });
 
 describe("agent relay: resources", () => {
-  it("leaves no timer behind once waits and answers end, however they end", async () => {
-    const h = harness(
-      session("main"),
-      child("c1", "main", "audit", { tasks: [task("t-1"), task("t-2"), task("t-3")] }),
-    );
+  it("leaves no timer behind once answers end, however they end", async () => {
+    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-3")] }));
 
-    await h.call("main", "wait", { tasks: ["t-1"], waitSeconds: 30 }, "w1");
-    h.clock.advance(30_000);
-    await settle();
-    await h.call("main", "wait", { tasks: ["t-1"] }, "w2");
-    await runTask(h, "c1", "t-1");
-    await h.call("main", "wait", { tasks: ["t-2"] }, "w3");
-    await h.note("main", "cancel", { id: "w3" });
     await runTaskStarted(h, "c1", "t-3");
     await h.call("c1", "ask", { question: "a?" }, "ask-1");
     await h.call("main", "reply", { to: "audit", questionId: "ask-1", answer: "x" }, "reply-1");
@@ -2354,13 +2271,7 @@ describe("agent relay: resources", () => {
     h.clock.advance(10_000);
     await settle();
 
-    expect(["w1", "w2", "w3", "reply-1", "reply-2"].map((id) => h.reply(id)?.["ok"])).toStrictEqual([
-      true,
-      true,
-      undefined,
-      true,
-      true,
-    ]);
+    expect(["reply-1", "reply-2"].map((id) => h.reply(id)?.["ok"])).toStrictEqual([true, true]);
     expect([confirmed, h.clock.pendingTimers()]).toStrictEqual([0, 0]);
   });
 });
@@ -2395,51 +2306,7 @@ describe("agent relay: what reviews of the relay found", () => {
       ["t-1", "stopped", "user"],
     ]);
   });
-
-  it("hands a wait the end of a child archived or detached, at once", async () => {
-    const h = harness(
-      session("main"),
-      child("c1", "main", "audit", { tasks: [task("t-1")] }),
-      child("c2", "main", "tests", { tasks: [task("t-2")] }),
-    );
-
-    await h.call("main", "wait", { tasks: ["t-1", "t-2"], until: "all" }, "wait-1");
-    await h.relay.ended("c1", "archived");
-    await h.relay.ended("c2", "detached", "main");
-    await settle();
-
-    expect(h.reply("wait-1")).toMatchObject({ ok: true, result: { timedOut: false, pending: [] } });
-    expect(h.entry("main").deliveries.map((one) => [one.taskId, one.state])).toStrictEqual([
-      ["t-1", "claimed"],
-      ["t-2", "claimed"],
-    ]);
-  });
 });
-
-/**
- * A tool's result in a session's file.
- *
- * @remarks
- * As pi writes it once a call returned: a wait's result there confirms what it took.
- *
- * @sideEffects none
- * @param id - The entry's id.
- * @param callId - The call.
- * @returns The entry.
- */
-function toolResult(id: string, callId: string): LogEntry {
-  return {
-    id,
-    parentId: null,
-    kind: "toolResult",
-    callId,
-    tool: "agent_wait",
-    text: "",
-    isError: false,
-    details: undefined,
-    timestamp: 0,
-  };
-}
 
 /**
  * A reply in a child's file that only reports progress.
@@ -2535,25 +2402,6 @@ async function runNotices(h: ReturnType<typeof harness>, childId: string, delive
 }
 
 describe("agent relay: what the three-way review found (2026-10-18)", () => {
-  it("after a restart drops what a wait took whose result is on file, and puts back the rest as waiting", async () => {
-    const h = harness(
-      session("main", {
-        deliveries: [
-          notice("n1", "t-1", "finished", { state: "claimed", claimedBy: "w1" }),
-          notice("n2", "t-2", "finished", { state: "claimed", claimedBy: "w2" }),
-        ],
-      }),
-      child("c1", "main", "audit", { tasks: [task("t-1", { state: "done" }), task("t-2", { state: "done" })] }),
-    );
-    h.files.set("/pi/main.jsonl", [toolResult("r1", "w1")]);
-
-    await h.relay.start();
-
-    expect(h.entry("main").deliveries.map((one) => [one.id, one.state, one.claimedBy])).toStrictEqual([
-      ["n2", "waiting", undefined],
-    ]);
-  });
-
   it("holds every session's deliveries at once on a restart, before reading any file", async () => {
     const h = harness(
       child("c1", "main", "audit", { tasks: [task("t-1", { state: "done" })] }),
@@ -2652,7 +2500,6 @@ describe("agent relay: what the three-way review found (2026-10-18)", () => {
     const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1"), task("t-2")] }));
     h.live.delete("main");
     await runTaskStarted(h, "c1", "t-1");
-    await h.call("main", "wait", { tasks: ["t-2"] }, "wait-1");
     const pumped = h.pumped.length;
 
     await h.relay.close();
@@ -2674,54 +2521,11 @@ describe("agent relay: what the three-way review found (2026-10-18)", () => {
     expect(h.records.filter((record) => record["msg"] === "child's event not sent")).toHaveLength(1);
   });
 
-  it("gives a wait an event that comes while its write is under way, though the wait's time runs out meanwhile", async () => {
-    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
-    await h.call("main", "wait", { tasks: ["t-1"], waitSeconds: 30 }, "wait-1");
-    const written = Promise.withResolvers<void>();
-    h.holdWritesTo("main", written.promise);
-
-    await runTask(h, "c1", "t-1");
-    h.clock.advance(30_000);
-    await settle();
-    written.resolve();
-    await settle();
-
-    expect(h.reply("wait-1")).toMatchObject({
-      ok: true,
-      result: { events: [{ taskId: "t-1", event: "finished" }], pending: [], timedOut: false },
-    });
-    expect(h.entry("main").deliveries.map((one) => [one.taskId, one.state, one.claimedBy])).toStrictEqual([
-      ["t-1", "claimed", "wait-1"],
-    ]);
-  });
-
-  it("puts back as waiting an event a wait took while its write was under way, when the wait was stopped meanwhile", async () => {
-    const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1"), task("t-2")] }));
-    await h.call("main", "wait", { tasks: ["t-1", "t-2"], until: "all" }, "wait-1");
-    const written = Promise.withResolvers<void>();
-    h.holdWritesTo("main", written.promise);
-
-    await runTask(h, "c1", "t-1");
-    await h.note("main", "cancel", { id: "wait-1" });
-    written.resolve();
-    await settle();
-
-    expect(h.reply("wait-1")).toBeUndefined();
-    expect(h.entry("main").deliveries.map((one) => [one.taskId, one.state, one.claimedBy])).toStrictEqual([
-      ["t-1", "waiting", undefined],
-    ]);
-  });
-
-  it("ends at once a wait whose stop came while its child was being made, and stops the child as its run begins", async () => {
+  it("answers a spawn whose stop came while its child was being made, and leaves the child to its task", async () => {
     const h = harness(session("main"));
     const made = Promise.withResolvers<void>();
     h.holdCreate(made.promise);
-    const spawned = h.call(
-      "main",
-      "spawn",
-      { name: "audit", task: "t", role: "work", place: "worktree", wait: true },
-      "spawn-1",
-    );
+    const spawned = h.call("main", "spawn", { name: "audit", task: "t", role: "work", place: "worktree" }, "spawn-1");
     await settle();
 
     await h.note("main", "cancel", { id: "spawn-1" });
@@ -2731,14 +2535,9 @@ describe("agent relay: what the three-way review found (2026-10-18)", () => {
     const first = present(h.entry("c1").deliveries[0], "the first task");
     h.relay.deliveries("c1").runStarted({ deliveries: [first.id] });
     await settle();
-    h.relay.deliveries("c1").runSettled("stopped", false, Promise.resolve(null));
-    await settle();
 
-    expect(h.reply("spawn-1")).toBeUndefined();
-    expect(h.stopped).toStrictEqual(["c1"]);
-    expect(h.entry("main").deliveries.map((one) => [one.taskId, one.event, one.reason, one.state])).toStrictEqual([
-      [first.taskId, "stopped", "parent_stopped", "waiting"],
-    ]);
+    expect(h.reply("spawn-1")).toMatchObject({ ok: true, result: { name: "audit", sessionId: "c1" } });
+    expect(h.stopped).toStrictEqual([]);
     expect(h.clock.pendingTimers()).toBe(0);
   });
 
@@ -2770,23 +2569,24 @@ describe("agent relay: what the three-way review found (2026-10-18)", () => {
 
   it("answers a request repeated after it was answered with the same answer, for a process's latest 64", async () => {
     const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
-    await h.call("main", "list", {}, "l-0");
-    await h.call("main", "list", {}, "l-1");
-    // A wait stopped is answered nothing, so it takes none of the 64.
-    await h.call("main", "wait", { tasks: ["t-1"] }, "wait-1");
-    await h.note("main", "cancel", { id: "wait-1" });
-    for (const n of Array.from({ length: 63 }, (_, at) => at + 2)) await h.call("main", "list", {}, `l-${String(n)}`);
+    await runTaskStarted(h, "c1", "t-1");
+    await h.call("c1", "list", {}, "l-0");
+    await h.call("c1", "list", {}, "l-1");
+    // A question closed is answered nothing, so it takes none of the 64.
+    await h.call("c1", "ask", { question: "a?" }, "ask-1");
+    await h.note("c1", "cancel", { id: "ask-1" });
+    for (const n of Array.from({ length: 63 }, (_, at) => at + 2)) await h.call("c1", "list", {}, `l-${String(n)}`);
 
-    await h.call("main", "list", {}, "l-64");
-    await h.call("main", "list", {}, "l-1");
-    await h.call("main", "list", {}, "l-0");
+    await h.call("c1", "list", {}, "l-64");
+    await h.call("c1", "list", {}, "l-1");
+    await h.call("c1", "list", {}, "l-0");
 
     const [first, again] = replyValues(h.commands, "l-64");
 
     expect([repliesTo(h.commands, "l-64"), repliesTo(h.commands, "l-1"), repliesTo(h.commands, "l-0")]).toStrictEqual([
       2, 2, 1,
     ]);
-    expect(repliesTo(h.commands, "wait-1")).toBe(0);
+    expect(repliesTo(h.commands, "ask-1")).toBe(0);
     expect(again).toStrictEqual(first);
   });
 
@@ -2956,12 +2756,10 @@ describe("agent relay: what the three-way review found (2026-10-18)", () => {
     const delivery = present(h.entry("c1").deliveries[0], "the first task");
 
     await h.relay.removeDelivery("c1", delivery.id);
-    const waited = await h.call("main", "wait", { tasks: [delivery.taskId] }, "wait-1");
 
     expect(h.entry("c1").agent?.tasks.map((one) => [one.taskId, one.state])).toStrictEqual([[delivery.taskId, "done"]]);
     expect(h.relay.summary("c1").agent?.status).toBe("idle");
     expect(h.entry("main").deliveries).toStrictEqual([]);
-    expect(waited.answer).toMatchObject({ ok: true, result: { events: [], pending: [], timedOut: false } });
   });
 
   it("drops the first task of a child that could not start, which its parent was told failed", async () => {
@@ -3083,3 +2881,19 @@ describe("agent relay: ask_user (SPEC-0003)", () => {
     expect(gone.answer).toStrictEqual({ v: 1, id: gone.id, ok: false, code: "agent_failed" });
   });
 });
+
+/**
+ * Words for a child's task in hand, handed to pi.
+ *
+ * @remarks
+ * From `main` (SPEC-0002, `agent_send`).
+ *
+ * @sideEffects none
+ * @param id - The delivery's id.
+ * @param taskId - The task.
+ * @param text - The words.
+ * @returns The delivery.
+ */
+function wordsFor(id: string, taskId: string, text: string): DeliveryRecord {
+  return { id, kind: "task", from: "main", taskId, text, at: 1, state: "sending", steer: true };
+}

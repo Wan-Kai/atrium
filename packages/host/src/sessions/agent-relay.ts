@@ -43,9 +43,6 @@ const MAX_DEPTH = 2;
 /** How long `agent_reply` waits for the child's extension to take or close an answer, each time. */
 const REPLY_CONFIRM_MS = 10_000;
 
-/** How long a wait waits by default, in seconds (SPEC-0002, `agent_wait`). */
-const WAIT_DEFAULT_S = 600;
-
 /** How many answered calls' replies a process keeps, for a request it repeats (ADR-0013, point 4). */
 const KEPT_REPLIES = 64;
 
@@ -241,27 +238,6 @@ interface Question {
   readonly heard: Set<(op: "answered" | "closed") => void>;
 }
 
-/** How a wait ended: its time ran out, or you spoke; `null` when it was called off. */
-type WaitEnd = { readonly timedOut: boolean; readonly interrupted?: "user_message" } | null;
-
-/** A wait in a parent's agent: `agent_wait`, or `wait: true` (SPEC-0002, "等待的规则"). */
-interface Wait {
-  readonly parentId: string;
-  readonly epoch: number;
-  /** The wait's tool call. */
-  readonly callId: string;
-  readonly tasks: ReadonlySet<string>;
-  readonly until: "any" | "all";
-  /** A `wait: true` of `agent_spawn` or `agent_send`: stopping it stops the child (SPEC-0002, "等待的规则"). */
-  readonly ownsChild: boolean;
-  /** The deliveries it took, in order. */
-  readonly taken: DeliveryRecord[];
-  /** How it ended, once it did; `undefined` while it waits. */
-  closed: WaitEnd | undefined;
-  /** Ends it, with how; only its first end counts. */
-  readonly end: (how: WaitEnd) => void;
-}
-
 /** What runs in a child now, for its notices (SPEC-0002, "通知父会话的事件"). */
 interface RunTask {
   /** The task the run works on; `null` for a turn you opened. */
@@ -324,6 +300,7 @@ function replyText(entry: LogEntry | undefined): string | null {
  *
  * @remarks
  * A task opens at its `atrium-agent` message; the run ends at the next task or message of yours.
+ * Words added to the task in its run do not end it (SPEC-0002, `agent_send`).
  *
  * @sideEffects none
  * @param entries - The child's entries.
@@ -338,7 +315,9 @@ function taskEntries(entries: readonly LogEntry[], taskId: string): LogEntry[] |
   if (at === -1) return null;
   const rest = entries.slice(at + 1);
   const end = rest.findIndex(
-    (entry) => entry.kind === "user" || (entry.kind === "agent" && entry.details.kind === "task"),
+    (entry) =>
+      entry.kind === "user" ||
+      (entry.kind === "agent" && entry.details.kind === "task" && entry.details.steer !== true),
   );
   return end === -1 ? rest : rest.slice(0, end);
 }
@@ -385,26 +364,6 @@ function titleOf(entry: CatalogEntry | undefined): string {
  */
 function isAgentChild(entry: CatalogEntry | undefined): entry is CatalogEntry & { agent: AgentRecord } {
   return entry?.agent != null && entry.parent?.by === "agent";
-}
-
-/**
- * What a wait for one task came to, as `agent_spawn` and `agent_send` answer it.
- *
- * @remarks
- * Its one event, if it had one, and how it ended.
- *
- * @sideEffects none
- * @param waited - The wait's result.
- * @returns What it came to.
- */
-function waitedFor(waited: CallResults["wait"]): NonNullable<CallResults["send"]["waited"]> {
-  const [event] = waited.events;
-  return {
-    timedOut: waited.timedOut,
-    // Stryker disable next-line ConditionalExpression: the result goes as JSON, which drops a field left undefined.
-    ...(event === undefined ? {} : { event }),
-    ...(waited.interrupted === undefined ? {} : { interrupted: waited.interrupted }),
-  };
 }
 
 /**
@@ -463,9 +422,8 @@ function lostTasks(
  * SPEC-0002, "第二步", and ADR-0013. Each call from a session's pi is answered once per request id
  * and process (`epoch`); a second ask with the same id waits for the first. Who calls is the
  * session whose pi the status came from. A parent's spawns, and sends that set an idle child to
- * work, are accepted one at a time, so the count of unfinished children holds; a wait for the
- * child goes on outside that turn. Tasks, deliveries and handles live in the sessions' records;
- * questions, waits, progress and what each run works on live here and do not outlast the host,
+ * work, are accepted one at a time, so the count of unfinished children holds. Tasks, deliveries
+ * and handles live in the sessions' records; questions, progress and what each run works on live here and do not outlast the host,
  * which holds the deliveries for you when it starts again. An agent child that ends a run idle,
  * without a tab, has its pi stopped, and started again when there is something for it.
  *
@@ -483,8 +441,6 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
    * request repeated (ADR-0013, point 4).
    */
   const answeredCalls = new Map<string, { readonly ids: Set<string>; readonly replies: Map<string, unknown> }>();
-  /** Calls whose tool was stopped while they were still being accepted, so their wait ends as it begins. */
-  const cancelled = new Set<string>();
   /** Each parent's last accepted spawn or send, which the next waits for. */
   const turns = new Map<string, Promise<unknown>>();
   /** Children being created, by parent: they count as unfinished. */
@@ -493,14 +449,14 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
   const fresh = new Set<string>();
   /** Children asleep whose pi is being started for what waits for them: each holds a place (SPEC-0002, "送达"). */
   const waking = new Set<string>();
-  /** Children a stopped `wait: true` waited for before their run began, to stop as it begins, and why. */
-  const stopOnStart = new Map<string, string>();
   /** Sessions archived or handed off whose pi is being stopped: their run's end is not their task's. */
   const endingNow = new Map<string, number>();
   /** Set once the host closes: what is told then is only recorded (SPEC-0002, "送达"). */
   let closing = false;
   /** What each child's run works on. */
   const runs = new Map<string, RunTask>();
+  /** Tasks whose run ended and whose end is being told, before they are written done. */
+  const ending = new Set<string>();
   /** A task whose run pi interrupted by crashing, which a restart carries on. */
   const interrupted = new Map<string, string>();
   /** Why a child was stopped, for its `stopped` event. */
@@ -509,7 +465,6 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
   const progress = new Map<string, { message: string; passed: boolean }>();
   /** Open and recently closed questions, by child and question id. */
   const questions = new Map<string, Map<string, Question>>();
-  const waits = new Set<Wait>();
   /** Sessions whose deliveries wait for you, and why. */
   const held = new Map<string, HoldReason>();
   /** Temporary directories handed to a process for branches, by session and process. */
@@ -579,7 +534,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
     if (state.running) return "running";
     if (state.failed || entry.attention?.reason === "error") return "failed";
     if (state.paused === "stopped") return "stopped";
-    const waiting = entry.deliveries.some((delivery) => delivery.state !== "claimed");
+    const waiting = entry.deliveries.length > 0;
     return (state.queued > 0 && state.paused === null) || (waiting && !held.has(entry.sessionId)) ? "queued" : "idle";
   };
 
@@ -780,6 +735,32 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
       deliveries: [...fields.deliveries, delivery],
     }));
     return taskId;
+  };
+
+  /**
+   * Adds words to the task a child works on, as a delivery of that task.
+   *
+   * @remarks
+   * SPEC-0002, `agent_send`: no new task; the words go into the run going at its next turn's end.
+   *
+   * @sideEffects Writes the index.
+   * @param childId - The child.
+   * @param parentId - Its parent.
+   * @param taskId - The task in hand.
+   * @param text - The words.
+   */
+  const giveWords = async (childId: string, parentId: string, taskId: string, text: string): Promise<void> => {
+    const delivery: DeliveryRecord = {
+      id: host.newId(),
+      kind: "task",
+      from: parentId,
+      taskId,
+      text,
+      at: clock.now(),
+      state: "waiting",
+      steer: true,
+    };
+    await change(childId, (fields) => ({ ...fields, deliveries: [...fields.deliveries, delivery] }));
   };
 
   /**
@@ -998,78 +979,14 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
     });
 
   /**
-   * Ends the waits a session's agent has, as given.
+   * Tells a parent what happened to its task, as a delivery.
    *
    * @remarks
-   * When you send a message, all of them return (SPEC-0002, "等待的规则").
+   * SPEC-0002, "通知父会话的事件": a final event ends the task, once its notice is written: a
+   * notice that could not be written leaves the task open, so its end is not lost. The notice
+   * waits to go to the parent's pi. A question no longer open is not sent.
    *
-   * @sideEffects Ends the waits.
-   * @param parentId - The session.
-   * @param how - How they end.
-   */
-  const endWaits = (parentId: string, how: NonNullable<WaitEnd>): void => {
-    for (const wait of waits) if (wait.parentId === parentId) wait.end(how);
-  };
-
-  /**
-   * Whether a wait has what it waits for.
-   *
-   * @remarks
-   * SPEC-0002, "等待的规则": `any` returns at its first event; `all` once every task ended, or at a
-   * question; `needs_you` does not end `all`. Either ends once none of its tasks is open any more,
-   * as when you removed a task before it went (SPEC-0002, "排队面板").
-   *
-   * @sideEffects none
-   * @param wait - The wait.
-   * @returns Whether it ends now.
-   */
-  const waitDone = (wait: Wait): boolean => {
-    if (wait.taken.some((delivery) => delivery.event === "question")) return true;
-    if (wait.until === "any" && wait.taken.length > 0) return true;
-    return [...wait.tasks].every((taskId) => !stillOpen(wait, taskId));
-  };
-
-  /**
-   * Whether a task a wait waits for has not ended, as far as the wait knows.
-   *
-   * @remarks
-   * A final event the wait took ends it, before the child's record says so.
-   *
-   * @sideEffects none
-   * @param wait - The wait.
-   * @param taskId - The task.
-   * @returns Whether it is open.
-   */
-  const stillOpen = (wait: Wait, taskId: string): boolean =>
-    !wait.taken.some((delivery) => delivery.taskId === taskId && FINAL_EVENTS.includes(delivery.event ?? "finished")) &&
-    taskOpen(wait.parentId, taskId);
-
-  /**
-   * Whether a parent's task has not ended.
-   *
-   * @remarks
-   * Looked up among its children's records.
-   *
-   * @sideEffects none
-   * @param parentId - The parent.
-   * @param taskId - The task.
-   * @returns Whether it is open.
-   */
-  const taskOpen = (parentId: string, taskId: string): boolean =>
-    agentChildren(parentId).some((child) =>
-      child.agent.tasks.some((task) => task.taskId === taskId && task.state === "open"),
-    );
-
-  /**
-   * Tells a parent what happened to its task: to a wait that takes it, or as a delivery.
-   *
-   * @remarks
-   * SPEC-0002, "通知父会话的事件" and "等待的规则": a final event ends the task, once its notice
-   * is written: a notice that could not be written leaves the task open, so its end is not lost. A
-   * wait for the task takes the event as `claimed`, so it is not sent again; otherwise it waits to
-   * go to the parent's pi. A question no longer open is not sent.
-   *
-   * @sideEffects Writes the index; may end a wait, hand the parent's pi the notice or start it.
+   * @sideEffects Writes the index; may hand the parent's pi the notice or start it.
    * @param childId - The child.
    * @param fields - The event.
    */
@@ -1107,179 +1024,17 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
   };
 
   /**
-   * Gives a parent an event of its task: to a wait for the task, or as a delivery.
+   * Gives a parent an event of its task, as a delivery.
    *
    * @remarks
-   * SPEC-0002, "等待的规则": a wait for the task takes the event as `claimed`, and ends when it
-   * has what it waits for; otherwise the event waits to go to the parent's pi. The wait takes it
-   * before it is written, so the wait's result has it however soon the wait ends; a wait stopped
-   * meanwhile puts it back, as it does what it took before.
+   * SPEC-0002, "送达": the event waits to go to the parent's pi.
    *
-   * @sideEffects Writes the index; may end a wait, hand the parent's pi the notice or start it.
+   * @sideEffects Writes the index; may hand the parent's pi the notice or start it.
    * @param parentId - The parent.
    * @param delivery - The event, as a delivery waiting to go.
    */
   const sendUp = async (parentId: string, delivery: DeliveryRecord): Promise<void> => {
-    const wait = [...waits].find(
-      (candidate) =>
-        candidate.closed === undefined && candidate.parentId === parentId && candidate.tasks.has(delivery.taskId),
-    );
-    if (wait === undefined) {
-      await change(parentId, (parent) => ({ ...parent, deliveries: [...parent.deliveries, delivery] }));
-      await wake(parentId);
-      return;
-    }
-    const record: DeliveryRecord = { ...delivery, state: "claimed", claimedBy: wait.callId };
-    wait.taken.push(record);
-    if (waitDone(wait)) wait.end({ timedOut: false });
-    await change(parentId, (parent) => ({ ...parent, deliveries: [...parent.deliveries, record] }));
-    if (wait.closed === null) await release(parentId, wait.callId);
-  };
-
-  /**
-   * What a wait comes to, for the parent's agent.
-   *
-   * @remarks
-   * Its events, read now; the tasks still open; progress not passed on yet.
-   *
-   * @sideEffects Reads the children's files; marks progress passed on.
-   * @param wait - The wait.
-   * @param how - How it ended.
-   * @returns The result.
-   */
-  const waitResult = async (wait: Wait, how: NonNullable<WaitEnd>): Promise<CallResults["wait"]> => {
-    const events = (await Promise.all(wait.taken.map(eventOf))).flatMap((event) => event ?? []);
-    return {
-      events,
-      pending: [...wait.tasks].filter((taskId) => stillOpen(wait, taskId)),
-      progress: takeProgress(wait.parentId),
-      timedOut: how.timedOut,
-      // Stryker disable next-line ConditionalExpression: the result goes as JSON, which drops a field left undefined.
-      ...(how.interrupted === undefined ? {} : { interrupted: how.interrupted }),
-    };
-  };
-
-  /**
-   * Waits for tasks' events, as `agent_wait` and `wait: true` do.
-   *
-   * @remarks
-   * SPEC-0002, "等待的规则": events already waiting to go to the parent count at once and are
-   * taken from the deliveries; a wait ends at its time, when you send a message, when the tool is
-   * stopped (`cancel`) or pi exits, with what it took put back as waiting. It is there before it
-   * takes anything, so an event that comes meanwhile is its too. A stop that came while the call
-   * was still being accepted ends it as it begins. A stopped `wait: true` stops its child.
-   *
-   * @sideEffects Writes the index; sets a timer; may stop the child.
-   * @param parentId - The parent.
-   * @param epoch - Its process.
-   * @param callId - The wait's tool call.
-   * @param tasks - The tasks.
-   * @param until - `any` or `all`.
-   * @param seconds - How long.
-   * @param ownsChild - Whether it is a `wait: true`, whose child stops with it.
-   * @returns The wait's result, or `null` when it was called off.
-   */
-  const waitFor = async (
-    parentId: string,
-    epoch: number,
-    callId: string,
-    tasks: ReadonlySet<string>,
-    until: "any" | "all",
-    seconds: number,
-    ownsChild: boolean,
-  ): Promise<CallResults["wait"] | null> => {
-    const ended = Promise.withResolvers<WaitEnd>();
-    const wait: Wait = {
-      parentId,
-      epoch,
-      callId,
-      tasks,
-      until,
-      ownsChild,
-      taken: [],
-      closed: undefined,
-      end: (how) => {
-        if (wait.closed !== undefined) return;
-        wait.closed = how;
-        ended.resolve(how);
-      },
-    };
-    waits.add(wait);
-    if (cancelled.delete(callKey(parentId, epoch, callId))) wait.end(null);
-    const already =
-      wait.closed === undefined
-        ? (find(parentId)?.deliveries.filter(
-            // Stryker disable next-line ConditionalExpression: a session's tasks are its own, never its children's that a wait waits for.
-            (delivery) => delivery.kind === "report" && delivery.state === "waiting" && tasks.has(delivery.taskId),
-            // Stryker disable next-line ArrayDeclaration: only a caller the index does not list has no entry, and no task to wait for.
-          ) ?? [])
-        : [];
-    wait.taken.push(...already.map((delivery) => ({ ...delivery, state: "claimed" as const, claimedBy: callId })));
-    // Stryker disable next-line EqualityOperator: with nothing taken, the write changes nothing.
-    if (already.length > 0) {
-      const ids = new Set(already.map((delivery) => delivery.id));
-      await change(parentId, (fields) => ({
-        ...fields,
-        deliveries: fields.deliveries.map((delivery) =>
-          ids.has(delivery.id) ? { ...delivery, state: "claimed", claimedBy: callId } : delivery,
-        ),
-      }));
-    }
-    if (waitDone(wait)) wait.end({ timedOut: false });
-    const cancelTimer = clock.setTimeout(() => wait.end({ timedOut: true }), seconds * 1000);
-    const how = await ended.promise;
-    cancelTimer();
-    waits.delete(wait);
-    if (how === null) {
-      await release(parentId, callId);
-      if (ownsChild && !closing) await stopOwned(parentId, tasks);
-      return null;
-    }
-    return waitResult(wait, how);
-  };
-
-  /**
-   * Stops the children a stopped `wait: true` waited for.
-   *
-   * @remarks
-   * SPEC-0002, "等待的规则": as `agent_stop` does, a child running; one whose task has not begun
-   * yet, still being made or queued, stops as its run begins.
-   *
-   * @sideEffects Stops runs, or marks children to stop.
-   * @param parentId - The parent.
-   * @param tasks - The tasks waited for.
-   */
-  const stopOwned = async (parentId: string, tasks: ReadonlySet<string>): Promise<void> => {
-    for (const taskId of tasks) {
-      const child = agentChildren(parentId).find((one) => one.agent.tasks.some((task) => task.taskId === taskId));
-      if (child === undefined) continue;
-      if (host.state(child.sessionId).running) {
-        await stopTree(child.sessionId, "parent_stopped");
-      } else if (child.agent.tasks.some((task) => task.taskId === taskId && task.state === "open")) {
-        stopOnStart.set(child.sessionId, "parent_stopped");
-      }
-    }
-  };
-
-  /**
-   * Puts back as waiting what a wait took, which never reached the parent's agent.
-   *
-   * @remarks
-   * SPEC-0002, "等待的规则": a wait stopped, or its pi gone, before its result was written.
-   *
-   * @sideEffects Writes the index; may hand the parent's pi the notices.
-   * @param parentId - The parent.
-   * @param callId - The wait's tool call.
-   */
-  const release = async (parentId: string, callId: string): Promise<void> => {
-    await change(parentId, (fields) => ({
-      ...fields,
-      deliveries: fields.deliveries.map((delivery) => {
-        if (delivery.claimedBy !== callId) return delivery;
-        const { claimedBy: _claimedBy, ...rest } = delivery;
-        return { ...rest, state: "waiting" };
-      }),
-    }));
+    await change(parentId, (parent) => ({ ...parent, deliveries: [...parent.deliveries, delivery] }));
     await wake(parentId);
   };
 
@@ -1326,18 +1081,15 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
    * @sideEffects Writes the index; may create a worktree; starts the child's pi.
    * @param callerId - The parent.
    * @param epoch - Its process.
-   * @param callId - The call's id.
    * @param args - The tool's parameters.
-   * @returns The child, and what it came to when waited for; `null` when the wait was called off, which
-   * is not answered (ADR-0013, point 6).
+   * @returns The child.
    * @throws {AgentFailure} As above.
    */
   const spawn = async (
     callerId: string,
     epoch: number,
-    callId: string,
     args: Extract<AgentRequest, { op: "spawn" }>["args"],
-  ): Promise<CallResults["spawn"] | null> => {
+  ): Promise<CallResults["spawn"]> => {
     const accepted = await inTurn(callerId, () => accept(callerId, epoch, args));
     const { child, worktree, model, thinking, taskId } = accepted;
     const result: CallResults["spawn"] = {
@@ -1351,17 +1103,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
       thinking,
       status: statusOfId(child),
     };
-    if (args.wait !== true) return result;
-    const waited = await waitFor(
-      callerId,
-      epoch,
-      callId,
-      new Set([taskId]),
-      "any",
-      args.waitSeconds ?? WAIT_DEFAULT_S,
-      true,
-    );
-    return waited === null ? null : { ...result, waited: waitedFor(waited) };
+    return result;
   };
 
   /**
@@ -1525,87 +1267,50 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
   };
 
   /**
-   * Answers `agent_send`: gives one of the caller's children its next task.
+   * Answers `agent_send`: words for the task a child works on, or its next task.
    *
    * @remarks
-   * SPEC-0002, `agent_send`: it waits for the child's run in progress, which it does not
-   * interrupt; an idle child set to work counts against the six, and takes its place at once, in
-   * the parent's turn. A child whose queue is paused, stopped or crashed out, has it go again, so
-   * the task goes (2026-10-18).
+   * SPEC-0002, `agent_send`: a child at work on a task its parent gave takes the words into that
+   * task at its next turn's end (2026-10-22); one waiting for its parent's answer takes nothing.
+   * Otherwise the task waits for the child's run in progress, which it does not interrupt; an idle
+   * child set to work counts against the six, and takes its place at once, in the parent's turn. A
+   * child whose queue is paused, stopped or crashed out, has it go again, so the task goes
+   * (2026-10-18).
    *
    * @sideEffects Writes the index; may start the child's pi.
    * @param callerId - The parent.
-   * @param epoch - Its process.
-   * @param callId - The call's id.
    * @param args - The tool's parameters.
-   * @returns What it came to; `null` when its wait was called off.
+   * @returns The task given.
    * @throws {AgentFailure} See `childNamed`, and `agent_limit`.
    */
   const send = async (
     callerId: string,
-    epoch: number,
-    callId: string,
     args: Extract<AgentRequest, { op: "send" }>["args"],
-  ): Promise<CallResults["send"] | null> => {
-    const { child, taskId, queued } = await inTurn(callerId, async () => {
+  ): Promise<CallResults["send"]> => {
+    const { child, taskId, queued, steered } = await inTurn(callerId, async () => {
       const target = childNamed(callerId, args.to, true);
+      // Stryker disable next-line ArrayDeclaration: anything standing in for no questions is no open question.
+      const asking = [...(questions.get(target.sessionId)?.values() ?? [])].find(
+        (question) => question.state === "open",
+      );
+      if (asking !== undefined) throw new AgentFailure("agent_question_open", { questionId: asking.questionId });
+      // A child being stopped has its queue paused already: what is sent goes as its next task.
+      const now = host.state(target.sessionId);
+      const inHand = now.running && now.paused === null ? (runs.get(target.sessionId)?.taskId ?? null) : null;
+      if (inHand !== null) {
+        await giveWords(target.sessionId, callerId, inHand, args.message);
+        await wake(target.sessionId, true);
+        return { child: target, taskId: inHand, queued: false, steered: true };
+      }
       const busy = !unfinished(target) ? full(callerId, target.sessionId) : null;
       if (busy !== null) throw new AgentFailure("agent_limit", { children: busy });
       const state = host.state(target.sessionId);
       const given = await giveTask(target.sessionId, callerId, args.message);
       if (state.paused !== null) await host.resumeQueue(target.sessionId);
       await wake(target.sessionId, true);
-      return { child: target, taskId: given, queued: state.running };
+      return { child: target, taskId: given, queued: state.running, steered: false };
     });
-    const result: CallResults["send"] = { to: args.to, sessionId: child.sessionId, taskId, queued };
-    if (args.wait !== true) return result;
-    const waited = await waitFor(
-      callerId,
-      epoch,
-      callId,
-      new Set([taskId]),
-      "any",
-      args.waitSeconds ?? WAIT_DEFAULT_S,
-      true,
-    );
-    return waited === null ? null : { ...result, waited: waitedFor(waited) };
-  };
-
-  /**
-   * Answers `agent_wait`.
-   *
-   * @remarks
-   * SPEC-0002, `agent_wait`: by default every open task of the caller's children, and every one
-   * whose event still waits to go to the caller, which the wait then takes at once; a task not
-   * theirs is `agent_not_allowed`; none to wait for answers at once.
-   *
-   * @sideEffects See `waitFor`.
-   * @param callerId - The parent.
-   * @param epoch - Its process.
-   * @param callId - The call's id.
-   * @param args - The tool's parameters.
-   * @returns What it came to, or `null` when it was called off.
-   * @throws {AgentFailure} `agent_not_allowed`.
-   */
-  const waitCall = async (
-    callerId: string,
-    epoch: number,
-    callId: string,
-    args: Extract<AgentRequest, { op: "wait" }>["args"],
-  ): Promise<CallResults["wait"] | null> => {
-    const theirs = agentChildren(callerId).flatMap((child) => child.agent.tasks);
-    const known = new Set(theirs.map((task) => task.taskId));
-    if (args.tasks?.some((taskId) => !known.has(taskId)) === true) throw new AgentFailure("agent_not_allowed");
-    const unseen = new Set(
-      find(callerId)
-        ?.deliveries.filter((delivery) => delivery.kind === "report" && delivery.state === "waiting")
-        .map((delivery) => delivery.taskId),
-    );
-    const tasks = new Set(
-      args.tasks ??
-        theirs.filter((task) => task.state === "open" || unseen.has(task.taskId)).map((task) => task.taskId),
-    );
-    return waitFor(callerId, epoch, callId, tasks, args.until ?? "any", args.waitSeconds ?? WAIT_DEFAULT_S, false);
+    return { to: args.to, sessionId: child.sessionId, taskId, queued, steered };
   };
 
   /**
@@ -1718,7 +1423,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
    * SPEC-0002, `ask_parent`: only in a task's run; in a turn you opened it is answered `user_turn`
    * at once. The question is a `question` event of the task, not its end.
    *
-   * @sideEffects Writes the index; may end a wait or hand the parent's pi the notice.
+   * @sideEffects Writes the index; may hand the parent's pi the notice.
    * @param childId - The child.
    * @param epoch - Its process.
    * @param questionId - The question, its tool call's id.
@@ -1964,11 +1669,9 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
     if (parentOp && agentDepth(catalog.list(), sessionId) >= MAX_DEPTH) throw new AgentFailure("agent_depth_limit");
     switch (request.op) {
       case "spawn":
-        return spawn(sessionId, epoch, request.id, request.args);
+        return spawn(sessionId, epoch, request.args);
       case "send":
-        return send(sessionId, epoch, request.id, request.args);
-      case "wait":
-        return waitCall(sessionId, epoch, request.id, request.args);
+        return send(sessionId, request.args);
       case "reply":
         return replyCall(sessionId, request.args);
       case "list":
@@ -2018,8 +1721,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
    *
    * @remarks
    * ADR-0013, points 6–8: progress, a call it no longer waits for, a question it took or closed.
-   * A stopped wait puts back what it took and stops the children `wait: true` waited for (see
-   * `waitFor`); a call still being accepted, whose wait has not begun, ends its wait as it begins.
+   * Only a question's call ends early when cancelled; another call's answer the extension drops.
    *
    * @sideEffects As the note's.
    * @param sessionId - The session.
@@ -2046,11 +1748,6 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
           await closeQuestion(question, id, "closed");
           return;
         }
-        const wait = [...waits].find(
-          (candidate) => candidate.parentId === sessionId && candidate.callId === id && candidate.epoch === epoch,
-        );
-        if (wait !== undefined) wait.end(null);
-        else if (calls.has(callKey(sessionId, epoch, id))) cancelled.add(callKey(sessionId, epoch, id));
         return;
       }
       case "answered":
@@ -2116,7 +1813,6 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
           };
         } finally {
           calls.delete(key);
-          cancelled.delete(key);
           remember(process, request.id, reply);
         }
         const code: unknown = Reflect.get(Object(reply), "code") ?? null;
@@ -2132,13 +1828,11 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
     exited(sessionId, epoch) {
       const prefix = `${sessionId}#${String(epoch)}`;
       for (const key of calls.keys()) if (key.startsWith(`${prefix}#`)) calls.delete(key);
-      for (const key of cancelled) if (key.startsWith(`${prefix}#`)) cancelled.delete(key);
       answeredCalls.delete(prefix);
       for (const dir of branchDirs.get(prefix) ?? [])
         // Fire and forget: what cannot be removed now goes at the next start, with the others marked.
         void host.removeDir(dir).catch(() => undefined);
       branchDirs.delete(prefix);
-      for (const wait of waits) if (wait.parentId === sessionId && wait.epoch === epoch) wait.end(null);
       for (const [id, question] of questions.get(sessionId) ?? []) {
         if (question.epoch === epoch && question.state === "open")
           // Fire and forget: the child's pi is gone; a failed write leaves only the notice to go.
@@ -2157,7 +1851,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
             ...(delivery.event === undefined ? {} : { event: delivery.event }),
             at: delivery.at,
             state: delivery.state,
-            ...(delivery.claimedBy === undefined ? {} : { claimedBy: delivery.claimedBy }),
+            ...(delivery.steer === true ? { steer: true } : {}),
           })),
         items: () =>
           (find(sessionId)?.deliveries ?? []).flatMap((delivery): DeliveryItem[] =>
@@ -2196,23 +1890,30 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
         async command(ids) {
           const chosen = (find(sessionId)?.deliveries ?? []).filter((delivery) => ids.includes(delivery.id));
           const task = chosen.find((delivery) => delivery.kind === "task");
+          // Words for the task in hand go as one, in order (SPEC-0002, "送达").
+          const words =
+            task?.steer === true
+              ? chosen.filter((delivery) => delivery.steer === true && delivery.taskId === task.taskId)
+              : [];
           let payload: Delivery | null = null;
           if (task !== undefined) {
             const self = find(sessionId);
             const parent = find(task.from);
             // Stryker disable next-line OptionalChaining: the delivery came from the session's entry, and a child given a task has it in its record.
-            const first = self?.agent?.tasks[0]?.taskId === task.taskId;
+            const first = task.steer !== true && self?.agent?.tasks[0]?.taskId === task.taskId;
             payload =
               self?.agent == null || task.text === undefined
                 ? null
                 : {
                     v: 1,
                     kind: "task",
-                    deliveries: [task.id],
+                    deliveries: words.length > 0 ? words.map((delivery) => delivery.id) : [task.id],
                     from: parent?.agent?.handle ?? "main",
                     fromTitle: titleOf(parent),
                     taskId: task.taskId,
-                    text: task.text,
+                    // Stryker disable next-line StringLiteral: words for the task in hand always carry their text.
+                    text: words.length > 0 ? words.map((delivery) => delivery.text ?? "").join("\n\n") : task.text,
+                    ...(task.steer === true ? { steer: true as const } : {}),
                     ...(first
                       ? {
                           preamble: {
@@ -2251,16 +1952,6 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
         },
         runStarted(opening: RunOpening) {
           fresh.delete(sessionId);
-          const stopNow = stopOnStart.get(sessionId);
-          if (stopNow !== undefined) {
-            stopOnStart.delete(sessionId);
-            stopReasons.set(sessionId, stopNow);
-            // Fire and forget: the stop's end tells the parent the run stopped.
-            void host
-              .controller(sessionId)
-              ?.stop()
-              .catch((error: unknown) => host.logger.warn({ sessionId, err: error }, "child not stopped"));
-          }
           const entry = find(sessionId);
           if (!isAgentChild(entry)) return;
           if (opening === "user") {
@@ -2272,7 +1963,10 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
           } else {
             const opened = entry.deliveries.filter((delivery) => opening.deliveries.includes(delivery.id));
             const task = opened.find((delivery) => delivery.kind === "task");
-            runs.set(sessionId, { taskId: task?.taskId ?? taskOfNotices(sessionId, opened), at: clock.now() });
+            runs.set(sessionId, {
+              taskId: task === undefined ? taskOfNotices(sessionId, opened) : taskOfOpening(sessionId, task),
+              at: clock.now(),
+            });
           }
           host.changed();
         },
@@ -2301,16 +1995,23 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
           const taskId = run.taskId;
           const why = stopReasons.get(sessionId);
           stopReasons.delete(sessionId);
+          // Its run is over: what opens the next run goes under a follow-up of it (SPEC-0002, `agent_send`).
+          ending.add(taskId);
           // Fire and forget: a notice not written is logged, and leaves the task open.
           void (async () => {
-            const replyEntry = await reply;
             const event = outcome === "completed" ? "finished" : outcome === "stopped" ? "stopped" : "failed";
-            await report(sessionId, {
-              taskId,
-              event,
-              replyEntry,
-              ...(event === "stopped" ? { reason: why ?? "user" } : {}),
-            });
+            try {
+              const replyEntry = await reply;
+              await report(sessionId, {
+                taskId,
+                event,
+                replyEntry,
+                ...(event === "stopped" ? { reason: why ?? "user" } : {}),
+              });
+            } finally {
+              // Written done by now, or left open for its end not to be lost.
+              ending.delete(taskId);
+            }
             maybeRecycle(sessionId);
             // Stryker disable next-line OptionalChaining: an agent child always has its parent.
             const parentId = entry.parent?.sessionId;
@@ -2331,15 +2032,12 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
           const parentId = find(sessionId)?.parent?.sessionId;
           if (parentId !== undefined) wakeSiblings(parentId);
         },
-        userSpoke() {
-          endWaits(sessionId, { timedOut: false, interrupted: "user_message" });
-        },
       };
     },
 
     summary(sessionId) {
       const entry = find(sessionId);
-      const waiting = entry?.deliveries.filter((delivery) => delivery.state !== "claimed").length ?? 0;
+      const waiting = entry?.deliveries.length ?? 0;
       // Only the restart's: "全部继续" lets those go (SPEC-0002, "送达").
       const heldDeliveries = held.get(sessionId) === "restart" ? waiting : 0;
       if (!isAgentChild(entry)) return { agent: null, heldDeliveries };
@@ -2399,7 +2097,6 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
         await tell(sessionId, question.epoch, "cancel", { v: 1, id, reason: reason as CancelReason });
         await closeQuestion(question, id, "closed");
       }
-      stopOnStart.delete(sessionId);
       if (reason === "archived") {
         await change(sessionId, (fields) => ({ ...fields, deliveries: [] }));
         progress.delete(sessionId);
@@ -2449,11 +2146,12 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
     },
 
     async removeDelivery(sessionId, deliveryId) {
-      const delivery = find(sessionId)?.deliveries.find((one) => one.id === deliveryId && one.state !== "claimed");
+      const delivery = find(sessionId)?.deliveries.find((one) => one.id === deliveryId);
       if (delivery === undefined) throw new CommandError("delivery_not_found", { deliveryId });
       if (delivery.state === "sending") throw new CommandError("delivery_sending", { deliveryId });
       // A task removed before it went ends there, and its parent is not told (SPEC-0002, "排队面板").
-      const quiet = delivery.kind === "task" ? delivery.taskId : null;
+      // Words for the task in hand removed leave that task going.
+      const quiet = delivery.kind === "task" && delivery.steer !== true ? delivery.taskId : null;
       await change(sessionId, (fields) => ({
         ...fields,
         agent:
@@ -2470,9 +2168,6 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
       if (quiet !== null && !(find(sessionId)?.deliveries ?? []).some((one) => one.kind === "task")) {
         // Its first task gone, it is no longer being created.
         fresh.delete(sessionId);
-      }
-      if (quiet !== null) {
-        for (const wait of waits) if (wait.tasks.has(quiet) && waitDone(wait)) wait.end({ timedOut: false });
       }
       settleHold(sessionId);
       host.controller(sessionId)?.deliveriesChanged();
@@ -2507,25 +2202,14 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
           if (typeof message === "string") progress.set(entry.sessionId, { message, passed: false });
         }
         if (entry.deliveries.length === 0) continue;
-        // What a wait took is on file once the wait's result is (SPEC-0002, "等待的规则").
-        const claimed = entry.deliveries.some((delivery) => delivery.state === "claimed");
-        const results = new Set(
-          claimed && entry.file !== null
-            ? (await host.readEntries(entry.file).catch(() => [])).flatMap((one) =>
-                one.kind === "toolResult" ? [one.callId] : [],
-              )
-            : [],
-        );
         await change(entry.sessionId, (fields) => ({
           ...fields,
           // Nothing is on its way after a restart; a question asked of the host that stopped is void.
           deliveries: fields.deliveries.flatMap((delivery): DeliveryRecord[] => {
             if (delivery.event === "question") return [];
-            // Stryker disable next-line ConditionalExpression: a delivery waiting has no claimer, so it comes out the same.
+            // Stryker disable next-line ConditionalExpression: a delivery waiting comes out the same.
             if (delivery.state === "waiting") return [delivery];
-            if (delivery.claimedBy !== undefined && results.has(delivery.claimedBy)) return [];
-            const { claimedBy: _claimedBy, ...rest } = delivery;
-            return [{ ...rest, state: "waiting" }];
+            return [{ ...delivery, state: "waiting" }];
           }),
         }));
         settleHold(entry.sessionId);
@@ -2541,7 +2225,6 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
     async close() {
       // From here on what is told is only recorded: no pi is started or handed anything (SPEC-0002, "送达").
       closing = true;
-      for (const wait of waits) wait.end(null);
       // A task whose pi was restarting is unfinished too (SPEC-0002, "送达").
       const open = [
         // Stryker disable next-line ConditionalExpression,ArrayDeclaration: a report on no task, or on a task a child does not have, finds none and sends nothing.
@@ -2577,16 +2260,50 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
       const origin = from?.agent?.tasks.find((task) => task.taskId === notice.taskId)?.originTask;
       if (origin === undefined) continue;
       const task = self.agent.tasks.find((one) => one.taskId === origin);
-      if (task?.state === "open") return origin;
-      const followUp = `t-${host.newId()}`;
-      // Fire and forget: the run goes on; a follow-up not written ends with nothing to report on.
-      void changeRecord(sessionId, (agent) => ({
-        ...agent,
-        tasks: [...agent.tasks, { taskId: followUp, state: "open", at: clock.now(), followUpOf: origin }],
-      })).catch((error: unknown) => host.logger.warn({ sessionId, err: error }, "follow-up task not written"));
-      return followUp;
+      return task?.state === "open" && !ending.has(origin) ? origin : followUp(sessionId, origin);
     }
     return null;
+  }
+
+  /**
+   * The task a run a task's delivery opened goes under.
+   *
+   * @remarks
+   * SPEC-0002, `agent_send`: the task itself; words for a task that ended before they went in open
+   * a follow-up of it, so what the run does reaches the parent.
+   *
+   * @sideEffects May write the index.
+   * @param sessionId - The child.
+   * @param delivery - The delivery.
+   * @returns The task.
+   */
+  function taskOfOpening(sessionId: string, delivery: DeliveryRecord): string {
+    if (delivery.steer !== true) return delivery.taskId;
+    const task = find(sessionId)?.agent?.tasks.find((one) => one.taskId === delivery.taskId);
+    return task?.state === "open" && !ending.has(delivery.taskId)
+      ? delivery.taskId
+      : followUp(sessionId, delivery.taskId);
+  }
+
+  /**
+   * Opens a follow-up of a task that ended.
+   *
+   * @remarks
+   * SPEC-0002, "通知父会话的事件": its notices say which task it follows up.
+   *
+   * @sideEffects Writes the index.
+   * @param sessionId - The child.
+   * @param origin - The task it follows up.
+   * @returns The follow-up's id.
+   */
+  function followUp(sessionId: string, origin: string): string {
+    const taskId = `t-${host.newId()}`;
+    // Fire and forget: the run goes on; a follow-up not written ends with nothing to report on.
+    void changeRecord(sessionId, (agent) => ({
+      ...agent,
+      tasks: [...agent.tasks, { taskId, state: "open", at: clock.now(), followUpOf: origin }],
+    })).catch((error: unknown) => host.logger.warn({ sessionId, err: error }, "follow-up task not written"));
+    return taskId;
   }
 
   return relay;

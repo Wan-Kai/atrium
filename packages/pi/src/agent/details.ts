@@ -72,7 +72,7 @@ export function agentSource(details: MessageDetails): AgentSource | null {
   return read.length === 0 ? null : { kind: "report", events: read };
 }
 
-/** What a waited-for task came to, inside `agent_spawn`'s and `agent_send`'s results. */
+/** What a waited-for task came to, inside `agent_spawn`'s and `agent_send`'s results from before `wait` was dropped (2026-10-21). */
 const Waited = z.looseObject({ event: AgentEvent.optional() }).optional();
 
 /** The part of `agent_spawn`'s result a lane needs. */
@@ -88,7 +88,7 @@ const Spawned = z.looseObject({
 /** The part of `agent_send`'s result a merge needs. */
 const Sent = z.looseObject({ waited: Waited });
 
-/** The part of `agent_wait`'s result a merge needs. */
+/** The part of `agent_wait`'s result a merge needs, in sessions from before the tool was dropped (2026-10-21). */
 const Waits = z.looseObject({ events: z.array(AgentEvent) });
 
 /**
@@ -109,8 +109,9 @@ function events(list: readonly AgentEvent[]): AgentNoticeEvent[] {
  * What a main-agent tool's step shows: the child it started, and the events it brought back.
  *
  * @remarks
- * SPEC-0002, "显示 · 过程轨道": `agent_spawn` opens a lane; its own wait, `agent_send`'s and
- * `agent_wait`'s events merge lanes. A failed call's result has none of this, and nothing shows.
+ * SPEC-0002, "显示 · 过程轨道": `agent_spawn` opens a lane; its own wait's and `agent_send`'s
+ * events merge lanes, as `agent_wait`'s still do in sessions from before it was dropped. A failed
+ * call's result has none of this, and nothing shows.
  *
  * @sideEffects none
  * @param tool - The tool.

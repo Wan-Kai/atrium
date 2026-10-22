@@ -14,7 +14,7 @@ SPEC-0002 的第二步让主对话的 agent 开子对话、发消息、等结果
 
 - pi 是宿主的子进程，经 stdin/stdout 的 JSONL 说话（ADR-0002）。不另开 socket、端口，不发 token（security.md）。
 - 宿主要知道是哪个会话在问。这只能看请求从哪个 pi 进程来，不能信参数里写的身份。
-- 有的请求要等很久：`agent_wait` 最多一小时，`ask_parent` 默认十分钟。pi 不给工具设超时；RPC `abort` 会中止传给工具的 `signal`。
+- 有的请求要等很久：`ask_parent` 默认十分钟、最多一小时（2026-10-21 前还有最多等一小时的 `agent_wait` 和 `wait: true`）。pi 不给工具设超时；RPC `abort` 会中止传给工具的 `signal`。
 - 两种做法都能用（SPEC-0002"扩展与宿主的通道"的甲、乙）。2026-10-17 在本机 pi 1.1.0 上用契约测试实测了乙（`packages/pi/src/contract/subagent.pi.test.ts` 的 `agent-channel`）：工具里 `setStatus` 发出请求、挂着等；运行中宿主发隐藏命令，pi 立即执行、应答 `handled`，工具拿到回答、这一轮接着跑；命令不进会话文件、模型看不到，也不另开一次运行。
 
 ## 决策
@@ -27,7 +27,7 @@ SPEC-0002 的第二步让主对话的 agent 开子对话、发消息、等结果
    - 宿主在原始的 `extension_ui_request` 上认这个前缀，和 `atrium-fast`、`atrium-plan` 分开；`statusText` 是 `undefined` 的（扩展清掉状态）不理。扩展收到回答后用 `setStatus(key, undefined)` 清掉这个键，免得 pi 的状态表越积越多。
 2. **宿主 → 扩展**：隐藏命令 `/atrium-agent <动作> <参数>`，参数是一个 base64url 编码的 JSON，同 `/atrium-fast`、`/atrium-plan`：
    - `reply`：`{ v: 1, id, ok: true, result }` 或 `{ v: 1, id, ok: false, code, params? }`，回答一次 `call`。
-   - `deliver`：把往上送的通知、往下送的交代交给扩展，扩展用 `pi.sendMessage(…, { triggerTurn: true, deliverAs: "steer" })` 发自定义消息 `atrium-agent`（SPEC-0002"送达"）。
+   - `deliver`：把往上送的通知、往下送的交代交给扩展，扩展用 `pi.sendMessage(…, { triggerTurn: true, deliverAs: "steer" })` 发自定义消息 `atrium-agent`（SPEC-0002"送达"）；pi 在跑时扩展先收着，在 `turn_end` 合成一条再发，按送达 id 去重（2026-10-22 改）。
    - `cancel`：`{ v: 1, id, reason }`，宿主关掉一次还没回答的 `call`（目前只有 `ask`：被脱离、归档、交给终端，或回答没确认送到，见 SPEC-0002 `agent_reply`）。
    - 宿主发之前先在 `get_commands` 里确认有 `atrium-agent`，没有就当这个 pi 不支持子代理（同 `/atrium-plan`）。你在输入框里打的 `/atrium-` 开头的消息宿主不发（`command_reserved`）。
 3. **调用方是谁**：请求从哪个 pi 进程的管道来，就是哪个会话；信封里不写会话 id，写了也不认。
@@ -35,11 +35,11 @@ SPEC-0002 的第二步让主对话的 agent 开子对话、发消息、等结果
 4. **请求 id**：扩展定，在这个 pi 进程里唯一。工具发的 `call` 用工具调用的 id（`toolCallId`），别的用 `n<序号>`。同一进程里同一个 id 再来一次，宿主当成同一个请求：还在做就等它，做完了就回同一个结果，不再开一个子对话、不再发一次。扩展不重发请求：管道上的 `setStatus` 不会丢。
 5. **进程代次**：宿主给每次起的 pi 记一个代次，请求和回答都挂在那个进程上。pi 换了进程（崩溃重启、回收后再起），旧进程上没回答的请求宿主直接丢掉，不发给新进程；扩展收到不认识的 id（迟到、重复）也丢掉。pi 重启时挂着的工具调用本来就没了（模型看到的是"No result provided"），所以不跨进程续接请求。
 6. **超时与取消**：
-   - 通道本身不设超时，各个工具按 SPEC-0002 自己的规则等（`agent_wait` 的 `waitSeconds`、`ask_parent` 的 `timeoutSeconds`、`agent_reply` 等确认的 10 秒）。超时由宿主回一个正常的结果（如 `timedOut: true`），不是通道出错。
+   - 通道本身不设超时，各个工具按 SPEC-0002 自己的规则等（`ask_parent` 的 `timeoutSeconds`、`agent_reply` 等确认的 10 秒）。超时由宿主回一个正常的结果（如 `timedOut: true`），不是通道出错。
    - 工具的 `signal` 中止时（你停下了这一轮），扩展马上结束这个工具，并发一条 `{ kind: "note", op: "cancel", args: { id } }`，宿主停掉这次的等待，之后的回答不再发。
    - 宿主不知道 pi 那边已经不等了（如扩展抛错）也没关系：回答发过去，扩展按第 5 条丢掉。
 7. **重复和迟到的回答**：扩展只认每个 id 的第一个回答，后来的丢掉。`ask` 的回答要扩展确认收下（`{ kind: "note", op: "answered", args: { id } }`）；宿主发了 `cancel` 后，扩展回 `answered`（之前已经收下）或 `closed`，SPEC-0002 `agent_reply` 照这个返回。
-8. **操作和参数**：`call` 的 `op` 是 `spawn`、`send`、`wait`、`reply`、`list`、`read`、`stop`、`models`、`ask`、`branch`，`args` 就是对应工具（`agent_*`、`ask_parent`）的参数，已经过工具的 schema 校验；`result` 是 SPEC-0002 里那个工具的返回。
+8. **操作和参数**：`call` 的 `op` 是 `spawn`、`send`、`reply`、`list`、`read`、`stop`、`models`、`ask`、`branch`（2026-10-21 删掉 `wait`），`args` 就是对应工具（`agent_*`、`ask_parent`）的参数，已经过工具的 schema 校验；`result` 是 SPEC-0002 里那个工具的返回。
    - `branch`（2026-10-17 实现时定）：带上下文的 `agent_spawn` 先要一个宿主的临时目录（`{}` → `{ dir }`，同第一步分叉用的那种，带标记、启动时清），扩展把分支写进去，再发 `spawn`，`args` 多一个 `branch`（分支文件的路径）。宿主只认它发给这个进程、还没用过的目录里的文件；`spawn` 结束（成功或失败）、pi 退出时删掉这个目录。`note` 的 `op` 是 `progress`（`report_progress`）、`cancel`、`answered`、`closed`。之后上下文检查器要的"扩展给宿主发数据"也用 `note`，加新的 `op`。
 9. **格式与大小**：
    - 信封和参数由 `packages/pi` 里的一份 zod schema 定义，扩展和宿主共用；宿主收到的先校验，不合格的回 `{ ok: false, code: "agent_bad_request" }`，只是 `note` 就丢掉并记一次警告。
