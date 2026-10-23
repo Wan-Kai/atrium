@@ -190,6 +190,7 @@ describe("host connection handshake", () => {
 
   it("rejects a wrong token with the unauthorized close code and never logs the real token", async () => {
     testHost = await startTestHost();
+    testHost.expectLog({ level: "warn", msg: "client rejected: wrong token", times: 1 });
 
     const state = await testHost.connect({ token: wrongToken }).connect();
 
@@ -201,6 +202,7 @@ describe("host connection handshake", () => {
 
   it("refuses a browser from a foreign origin before the WebSocket opens", async () => {
     testHost = await startTestHost();
+    testHost.expectLog({ level: "warn", msg: "websocket upgrade rejected: origin not allowed", times: 1 });
 
     const { ended } = openRaw(testHost.url, { origin: "https://evil.example" });
 
@@ -215,6 +217,7 @@ describe("host connection handshake", () => {
 
   it("lets a page served by the host itself connect, but still requires the token", async () => {
     testHost = await startTestHost();
+    testHost.expectLog({ level: "warn", msg: "client rejected: wrong token", times: 1 });
     const { socket, opened, ended } = openRaw(testHost.url, { origin: testHost.host.origin });
 
     await opened;
@@ -250,6 +253,7 @@ describe("host connection handshake", () => {
     ],
   ])("closes the socket on %s and says why in the log", async (_label, firstMessage, expected, logRecord) => {
     testHost = await startTestHost();
+    testHost.expectLog({ level: "warn", msg: logRecord.msg, times: 1 });
     const { socket, opened, ended } = openRaw(testHost.url);
 
     await opened;
@@ -296,6 +300,8 @@ describe("host connection handshake", () => {
   it("allows exactly 200 messages per second, starts a fresh window after one second, and drops the 201st", async () => {
     const clock = new FakeClock();
     testHost = await startTestHost({ clock });
+    testHost.expectLog({ level: "warn", msg: "command refused" });
+    testHost.expectLog({ level: "warn", msg: "client dropped: message rate limit exceeded", times: 1 });
     const { socket, opened, ended, messages } = openRaw(testHost.url);
     await opened;
     socket.send(hello({ token: testHost.token }));
@@ -323,6 +329,8 @@ describe("host connection handshake", () => {
 
   it("allows exactly 32 MiB per second and drops the next byte", async () => {
     testHost = await startTestHost({ clock: new FakeClock() });
+    testHost.expectLog({ level: "warn", msg: "command refused" });
+    testHost.expectLog({ level: "warn", msg: "client dropped: message rate limit exceeded", times: 1 });
     const { socket, opened, ended, messages } = openRaw(testHost.url);
     await opened;
     const first = hello({ token: testHost.token });
@@ -340,6 +348,7 @@ describe("host connection handshake", () => {
 
   it("ignores everything a rejected client still sends", async () => {
     testHost = await startTestHost();
+    testHost.expectLog({ level: "warn", msg: "client rejected: malformed hello", times: 1 });
     const { socket, opened, ended } = openRaw(testHost.url);
     await opened;
 
@@ -354,6 +363,7 @@ describe("host connection handshake", () => {
 
   it("rejects a binary first message as a bad handshake", async () => {
     testHost = await startTestHost();
+    testHost.expectLog({ level: "warn", msg: "client rejected: malformed hello", times: 1 });
     const { socket, opened, ended } = openRaw(testHost.url);
     await opened;
 
@@ -364,6 +374,7 @@ describe("host connection handshake", () => {
 
   it("closes a connection that sends a message over 1 MiB and keeps serving others", async () => {
     testHost = await startTestHost();
+    testHost.expectLog({ level: "warn", msg: "websocket error", times: 1 });
     const { socket, opened, ended } = openRaw(testHost.url);
     await opened;
 
@@ -381,6 +392,7 @@ describe("host connection handshake", () => {
 
   it("refuses connections beyond 32 at once", async () => {
     testHost = await startTestHost();
+    testHost.expectLog({ level: "warn", msg: "client rejected: too many connections", times: 1 });
     const { url } = testHost;
     const held = Array.from({ length: 32 }, () => openRaw(url));
     await Promise.all(held.map((raw) => raw.opened));
@@ -397,6 +409,7 @@ describe("host connection handshake", () => {
   it("drops a client that never says hello once the handshake timeout passes", async () => {
     const clock = new FakeClock();
     testHost = await startTestHost({ clock, handshakeTimeoutMs: 5_000 });
+    testHost.expectLog({ level: "warn", msg: "client dropped: no hello before timeout", times: 1 });
     const { opened, ended } = openRaw(testHost.url);
     await opened;
     await vi.waitFor(() => expect(testHost?.host.resources.snapshot()["ws.connection"]).toBe(1));
@@ -414,6 +427,7 @@ describe("host connection handshake", () => {
   it("ignores a hello that arrives after the handshake timed out", async () => {
     const clock = new FakeClock();
     testHost = await startTestHost({ clock, handshakeTimeoutMs: 5_000 });
+    testHost.expectLog({ level: "warn", msg: "client dropped: no hello before timeout", times: 1 });
     const { socket, opened, ended } = openRaw(testHost.url);
     await opened;
     await vi.waitFor(() => expect(testHost?.host.resources.snapshot()["ws.connection"]).toBe(1));
@@ -484,6 +498,7 @@ describe("host connection handshake", () => {
   it("pings clients on the injected clock and drops one that has not answered by the next ping", async () => {
     const clock = new FakeClock();
     testHost = await startTestHost({ clock });
+    testHost.expectLog({ level: "warn", msg: "client dropped: no pong before the next ping", times: 1 });
     const alive = openRaw(testHost.url);
     const silent = openRaw(testHost.url, { autoPong: false });
     await Promise.all([alive.opened, silent.opened]);
@@ -512,6 +527,7 @@ describe("host connection handshake", () => {
 
   it("answers only the first of two hellos", async () => {
     testHost = await startTestHost();
+    testHost.expectLog({ level: "warn", msg: "command refused", times: 2 });
     const { socket, opened, messages } = openRaw(testHost.url);
 
     await opened;
@@ -530,6 +546,9 @@ describe("host connection handshake", () => {
 
   it("logs a disconnect only for clients that were let in", async () => {
     testHost = await startTestHost();
+    testHost.expectLog({ level: "warn", msg: "client rejected: wrong token", times: 1 });
+    testHost.expectLog({ level: "warn", msg: "client rejected: malformed hello", times: 1 });
+    testHost.expectLog({ level: "warn", msg: "client rejected: protocol version mismatch", times: 1 });
     const accepted = testHost.connect();
     await accepted.connect();
     await testHost.connect({ token: wrongToken }).connect();

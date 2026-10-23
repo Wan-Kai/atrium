@@ -469,7 +469,7 @@ describe("finding projects in pi's history over the WebSocket", () => {
       await writeFile(file, `${JSON.stringify({ type: "session", version: 3, id: name, timestamp: "", cwd })}\n`);
       await utimes(file, modifiedAt, modifiedAt);
     }
-    testHost = await startTestHost({ toolEnv: { PATH: "", HOME: home } });
+    testHost = await startTestHost({ toolEnv: { PATH: "/usr/bin:/bin", HOME: home } });
     const client = testHost.connect();
     onTestFinished(() => client.disconnect());
     await client.connect();

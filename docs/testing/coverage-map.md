@@ -4,6 +4,63 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## pi 1.3.0 契约夹具补齐（2026-10-23）
+
+本机 pi 1.3.0 此前只有 19 个场景的夹具，`pnpm test:pi` 56 过、33 失败，失败全是 `no fixture … for pi 1.3.0`（契约断言在录制比较之前跑，都通过了）。以 `RECORD_FIXTURES=1` 只跑这 33 个场景所在的 17 个契约文件录下 `pi-1.3.0/` 的 33 个新文件，同文件里已有的 `ask-steer`、`ask-abort` 重写后逐字节不变；再录一次逐字节相同。不改断言、规范化规则和产品代码，旧版本目录保留（testing.md"pi 夹具"）。和 1.1.0 的差异只有 `custom-idle` 是 pi 的变化（空闲时扩展 `sendMessage` 开的运行，`handled` 应答改在 `agent_start` 之前，系统消息带 `sections`），宿主两种先后都已处理，见 pi-internals"版本"。
+
+| 行为 | 验证 |
+|---|---|
+| 本机 pi 1.3.0 的每个契约场景都有夹具，输出和夹具不一致就失败 | `pnpm test:pi`（`packages/pi/test/contract.ts` 的 `recordOrCheck`），89 项 |
+| 新夹具都能按原样回放 | `packages/pi/src/contract/replay.test.ts`"plays back exactly as recorded" |
+
+`pnpm break-check` 3 处，全部检出：把 `custom-idle.jsonl` 的 `"disposition":"handled"` 改成 `started`、`exit-sigterm.jsonl` 的 `"code":143` 改成 `0`、`error-retry.jsonl` 的 `auto_retry_start` 改名，对应契约场景都因漂移检查失败。`pnpm test:pi` 89 过、0 失败；`pnpm test` 3473 过（含回放 102 项，仍有既有的日志流 EBADF 提示）；`pnpm check` 通过。没有改产品代码，不跑变异测试；第 1 层测试仍读旧版本夹具，没有改用 1.3.0。
+
+## 外部边界清单 `pnpm boundary` 与 `@sideEffects none` 核对（2026-10-23）
+
+审查时不再靠人在代码里找一次改动碰了哪些外部边界。security.md 新加"外部边界登记"三张表（出网地址 13、环境变量 39、隐藏命令 4，按全量扫描填），`scripts/boundary.mjs` 用 oxc-parser 按语法树从生产代码里认出它们和登记表对照；`--all` 接进 `pnpm check`（本仓库约 0.3 秒、零误报）。`@sideEffects` 只核对一种矛盾，做成 oxlint 规则 `atrium/side-effects-none`，全仓生效；启用时报了 4 处，都是测试里"等一个 tick"的辅助函数，改了 JSDoc 文字。
+
+| 行为 | 验证 |
+|---|---|
+| `--all` 列出登记表里没有的地址、环境变量、隐藏命令和非精确版本的依赖，退出码 1；注释、JSDoc、正则字面量、`import.meta.env`、测试、bench、`test/`、契约场景、testkit、scripts 都不算；模板字符串的 `${…}` 记成 `*`，句末标点去掉；常量名经相对导入解析出隐藏命令；登记了但代码里没有的只提示 | `scripts/boundary.test.ts`"lists the production URLs" |
+| `ERR_` 开头的字符串（Node 错误码）不当环境变量，单个字符串和数组里都不算；登记表里标了 `（拼出）` 的行不和代码比对，`--all` 不提示它们找不到（审查后加） | `scripts/boundary.test.ts`"lists the production URLs" |
+| 全部登记、版本精确时只打一行汇总，退出码 0 | `scripts/boundary.test.ts`"passes with one summary line" |
+| 本仓库的生产代码全部在登记表里（删掉 `https://pi.dev/api/latest-version` 那一行就失败） | `scripts/boundary.test.ts`"finds every production URL" |
+| 按改动：基准默认是和 `main` 的 merge-base，范围含提交、未提交和未跟踪的文件；依赖增删改（标出非精确）、新增和删掉的边界（标出是否登记）、协议文件改了而版本没变的警告、改动文件里的 `@sideEffects` 矛盾；新增未登记或非精确时退出码 1 | `scripts/boundary.test.ts`"lists dependency, URL" |
+| 指定基准；`PROTOCOL_VERSION` 旧值→新值；没有 `.oxlintrc.json` 时写明没查 | `scripts/boundary.test.ts`"takes an explicit base" |
+| 只改协议的测试文件不警告 | `scripts/boundary.test.ts`"warns only for non-test" |
+| 基准不是提交、生产代码解析不了时退出码 2，不当作没有边界 | `scripts/boundary.test.ts`"refuses a base"、"stops on production code" |
+| `@sideEffects none` 的函数自己或直接传给调用的回调里调起进程、写文件、网络、定时器（含注入的时钟）、`process.exit/kill`、`console`、logger、`new WebSocket` 时报错 | `scripts/lint/atrium-plugin.test.ts`"reports each" |
+| 不报：同名的正则 `exec` 和本地函数、只读的 fs 函数、返回或存起来的闭包、`process.kill(pid, 0)`、"none until …"、写了副作用的、没有 JSDoc 的 | `scripts/lint/atrium-plugin.test.ts`"leaves alone" |
+
+`pnpm break-check` 37 处：首轮 30 处检出、7 处漏掉，补了测试（解析失败、`toolEnv` 这类名字、句末标点、JSX 文字、全大写但不是环境变量的数组、只读 fs 函数）后 6 处重跑全部检出；另一处是规则里"整条 `import type` 跳过"的判断，`import type` 导入的名字不能被调用，删掉了这个分支；终版 36 处全量重跑全部检出。`pnpm check` 通过；单元默认并行两次各有 1 项未改动的 `pi-config.test.ts`"queues several same-path saves…"报 `config_conflict`（同上文已记的既有不稳，单文件 3 次 44 项通过），串行全量 182 文件 3450 项通过。审查后补登三条由登录 `baseUrl` 拼出的真实请求（Codex 模型列表、ChatGPT 和 Claude 的套餐用量），加 `ERR_` 排除和 `（拼出）` 标记，新增 4 处破坏检查全部检出。`scripts/` 不在变异测试分组里，没跑变异测试。
+
+## 日志门禁与生产日志的新错误汇总（2026-10-23）
+
+测试通过、日志里却有 warn/error 的"假绿灯"改成门禁（[testing.md · 日志门禁](../architecture/testing.md#日志门禁)）；自用的生产日志用 `pnpm errors` 汇总新错误（[testing.md · 运行时监控](../architecture/testing.md#运行时监控)）。门禁拿到的基线里，"Atrium 自己要求的停止或中止"引起的假 warn 按 observability.md 新定的原则降级，归档后改动面板还在读的问题一并修掉（SPEC-0001"M1.11 的工作区归档"）。
+
+| 行为 | 验证 |
+|---|---|
+| 门禁按 level、msg、声明的字段精确匹配；不写次数至少一次，写了正好这么多次，可能出现的次数不限；声明了没出现也失败；失败信息只有 level、msg、`err` 的类型和码 | `packages/testkit/src/log-gate.test.ts` 的 `findLogProblems` 各例 |
+| 门禁不管界面上报的性能信号（`client issue` 的 `long_task`、`slow_frames`），界面上报的错误照样拦 | `log-gate.test.ts`"leaves the UI's reports of long tasks and slow frames out, but not the errors it reports" |
+| 端到端门禁真的接在收尾上：声明了却没出现的日志让测试失败 | `apps/desktop/e2e/log-gate.spec.ts`（`test.fail()`；手工去掉门禁后变成意外通过） |
+| 读日志目录里全部 `host.<n>.jsonl`，按编号顺序，跳过半行和别的文件 | `log-gate.test.ts`"reads every rotated host log file in number order" |
+| 第 4 层：`dispose()` 关宿主、读日志、删主目录后核对，意外的 warn 让它失败且不留主目录；声明了就放过；声明了没出现也失败；只核对一次 | `packages/host/test/harness.host.test.ts` |
+| 第 6 层：`close()` / `cleanup()` 读这个主目录的宿主日志核对，同一主目录的几次启动共用声明，软断言；faux 环境自动登记"标题请求失败（`model_failed`）可能出现" | `apps/desktop/e2e/launch.ts`、`faux-pi.ts`，由全量 `pnpm test:e2e` 验证（没有单独的自测） |
+| `pnpm errors` 按 service、level、msg、`err` 类型和码分组，跨轮转文件计次数、首末时间、运行次数 | `scripts/errors.test.ts`"groups warn, error and fatal records by signature" |
+| 界面上报的问题：React 压缩错误只留错误号，其余去掉网址、路径、id、数字 | `errors.test.ts`"puts the UI's reported problems in their signature" |
+| 新签名：截止时间（默认最近一次宿主启动，`--since` 可改）之后才第一次出现；没有宿主启动时不标；`--since` 不是时间、目录不在时报错退出；不写日志目录 | `errors.test.ts` 其余三例 |
+| 没找到 pi 记 info；用不了、版本太旧仍 warn | `packages/host/src/tools.host.test.ts`"finds no pi, Node, Homebrew or fd on an empty PATH and logs that" |
+| 宿主关闭时中止读登录 shell 记 info | `tools.host.test.ts`"notes a login shell read it gave up on while closing at info level" |
+| stop 作废、signal 中止的请求，迟到的响应记 debug；过了 pi 进程期限的、没有 id 的、从没发出过的仍 warn；记住的请求 id 最多 100 个 | `packages/pi/src/process/pi-process.test.ts`"drops responses that arrive after stop was called"、"still warns after stop about a response to a request given up before it"、"notes a response to a request its caller aborted"、"remembers only the last 100 requests" |
+| 一次性 pi 被调用方中止记 info，其他原因仍 warn | `packages/pi/src/oneshot/oneshot.test.ts`"kills pi when aborted, and logs that at info level"、"fails when %s, and logs only why" |
+| 模型目录查询过了自己的期限另记 warn"model list timed out"（只带期限），关闭时中止不记 | `packages/pi/src/catalog/model-catalog.test.ts`"gives up after 120 seconds"、"aborts the queries under way on close" |
+| 停 pi 打断运行后读条目记 info，其他原因仍 warn | `packages/host/src/sessions/session-manager.test.ts`"notes a read of pi's entries cut short by closing at info level" |
+| 归档的工作区不再读改动：不跑 git、不建监听、不推送；归档时正在跑的读取失败、监听断开都不记；恢复后照常；从列表里消失（不是归档）的照旧记 | `packages/host/src/changes/changes-service.test.ts`"ChangesService: archived workspaces" 四例；`packages/host/src/changes.host.test.ts`"reads nothing more of a worktree once archived"（真实 git、真实归档，修复前门禁报 3 条"changes not read"） |
+
+每个新测试先见过失败。`pnpm break-check` 24 处全部 `CAUGHT`（门禁去掉检查、可能出现 / 字段 / 次数的判定、读轮转文件的顺序、`pnpm errors` 的 React 归一、数字归一、新签名判定、默认截止时间、`err` 进签名，以及上表每处级别改动和归档的四处判断）。增量变异测试（只变异改动的行）：pi 组 `pi-process.ts`、`oneshot.ts`、`model-catalog.ts` 30 个全部杀死；git 组 `changes-service.ts` 首轮 26/27，存活的是 `archived()` 去掉可选链（工作区从列表里消失时会抛错），补了"still logs a read that fails once the workspace is gone"后 27/27。
+
+验证：`pnpm check` 通过；单元 3463、宿主 157（连跑多次通过）；`pnpm test:leak` 全过（Node 13、端到端 7）；全量 `pnpm test:e2e` 61 过、1 项已知不稳的失焦材质用例失败（系统焦点，未到门禁）。门禁不管界面上报的长任务、掉帧（`log-gate.test.ts`"leaves the UI's reports of long tasks and slow frames out"），`kind: error` 照样拦。端到端门禁的接线自测 `apps/desktop/e2e/log-gate.spec.ts` 用 `test.fail()` 声明一条不会出现的日志；手工去掉 `launch.ts` 的软断言后它变成"Expected to fail, but passed"，恢复后通过。浸泡测试在 `main` 上同样因资源基线失败（既有问题）；临时绕过基线断言核实了声明：会话的浸泡每轮杀一次 pi，声明 `pi exited`（`requested: false`）正好轮数次，连接的浸泡声明错误 token。待查项（首次代码高亮的长任务、"changes not read"、浸泡基线、EBADF）登记在 [self-use.md · 问题](../research/self-use.md#问题)。
+
 ## M1.11 自用之后：流式回复连着到一阵增量时界面报 React #185（2026-10-22）
 
 宿主日志 10-20 到 10-22 14:53 的 50 条 `client issue`（打包版）都是同一个栈：WebSocket 消息 → 会话视图 store 的 `setState` → `useSyncExternalStore` 的重绘 → React 抛 #185。根因是 `use-revealed-text.ts` 在 effect 里对每次新到的文字 `setState`：store 的更新按同步优先级提交，提交末尾同步跑 effect，effect 的更新留下一次待渲染，React 把连续 50 次这样的提交当成死循环。页面忙时攒下的 WebSocket 帧，Chromium 会在同一个任务里逐条派发、每条之间只跑微任务（本机 Playwright 实测：主线程忙 100 ms 后 199 条消息全在 React 调度任务之前派发完），React 自己的调度任务插不进去，于是一阵超过 50 条的增量就抛错。改为渲染时就接住新文字（React 的"根据上一次渲染调整状态"写法），effect 只管逐帧揭示，界面显示不变。完整工作台里流式思考、工具输出、回复各 120 次连续更新，修复前回复阶段每次提交都留下 `StreamedText` 的更新（另有 Streamdown 挂载时的一次），修复后只剩这一次挂载。

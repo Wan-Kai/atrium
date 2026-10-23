@@ -32,14 +32,17 @@ interface Entry {
  * settings may change which models pi can use; they are kept in memory, with no expiry, until a
  * refresh. A directory has one query at a time, which every caller in between shares, a refresh
  * included. A failed query forgets the directory's answer, so the next list asks again. Each
- * query has a deadline, after which it is aborted.
+ * query has a deadline, after which it is aborted with a warning; aborting the queries on `close`
+ * is asked for, and logs nothing (observability.md, "日志格式"). The warning only says how long
+ * the deadline was: the directory is a path.
  *
- * @sideEffects none until `list`; then runs queries and timers.
- * @param options - The query, the clock for deadlines, and the deadline.
+ * @sideEffects none until `list`; then runs queries and timers, and logs a query that times out.
+ * @param options - The query, where warnings go, the clock for deadlines, and the deadline.
  * @returns The catalog.
  */
 export function createModelCatalog(options: {
   readonly query: (dir: string, signal: AbortSignal) => Promise<ModelList>;
+  readonly log: Pick<PiDeps["log"], "warn">;
   readonly clock: PiDeps["clock"];
   readonly timeoutMs?: number;
 }): ModelCatalog {
@@ -56,7 +59,7 @@ export function createModelCatalog(options: {
    * @remarks
    * See `createModelCatalog`.
    *
-   * @sideEffects Runs the query and its deadline timer; updates the directory's entry.
+   * @sideEffects Runs the query and its deadline timer, which logs a timeout; updates the directory's entry.
    * @param dir - The directory.
    * @param entry - Its entry.
    * @returns The answer.
@@ -64,7 +67,10 @@ export function createModelCatalog(options: {
   async function load(dir: string, entry: Entry): Promise<ModelList> {
     const abort = new AbortController();
     aborts.add(abort);
-    const cancel = options.clock.setTimeout(() => abort.abort(), timeoutMs);
+    const cancel = options.clock.setTimeout(() => {
+      options.log.warn({ timeoutMs }, "model list timed out");
+      abort.abort();
+    }, timeoutMs);
     try {
       const list = await options.query(dir, abort.signal);
       entry.list = list;

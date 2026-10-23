@@ -83,7 +83,7 @@ function deps(scenario: string, clock?: FakeClock) {
  * @remarks
  * For a child process to reach a state the test cannot be told about.
  *
- * @sideEffects none
+ * @sideEffects Schedules a timer every 5 ms until the condition holds.
  * @param condition - The condition.
  */
 async function until(condition: () => boolean): Promise<void> {

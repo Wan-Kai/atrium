@@ -416,6 +416,8 @@ describe("host soak", () => {
         }
       }
 
+      // Each round kills one pi mid-run, which the host logs as a crash before starting it again.
+      testHost.expectLog({ level: "warn", msg: "pi exited", fields: { requested: false }, times: cycles });
       for (const sessionId of [chats.stopped, chats.crashed, chats.finished]) await client.archiveSession(sessionId);
       client.disconnect();
       const appeared = Object.keys(host.resources.snapshot()).filter((kind) => !(kind in baseline));

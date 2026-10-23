@@ -1,4 +1,4 @@
-import { type FauxContext, type FauxScript, fauxPi } from "@atrium/testkit";
+import { type ExpectedLog, type FauxContext, type FauxScript, fauxPi } from "@atrium/testkit";
 import { access, chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -17,6 +17,30 @@ export interface FauxPiEnvironment {
   /** What each request every pi made so far gave the model: its tools and messages. */
   readonly contexts: () => Promise<FauxContext[]>;
   readonly cleanup: () => Promise<void>;
+}
+
+/** Names the real pi in a faux environment; `launchApp` also tells a faux environment by it. */
+const REAL_PI_ENV = "E2E_REAL_PI";
+
+/**
+ * Returns the host records a faux environment makes the host write on purpose.
+ *
+ * @remarks
+ * The faux model answers a title request with an error unless the script names a title, so the
+ * title stays the fallback (testing.md, "faux 模型"); the host logs that one-shot failure. Whether
+ * it comes depends on whether the title call ends before the app quits, which a test cannot
+ * control, so it is optional, and only with this reason: other one-shot failures still fail the
+ * test (testing.md, "日志门禁"). Told by the environment's variables rather than its object, since
+ * tests spread it into their own.
+ *
+ * @sideEffects none
+ * @param env - The environment `launchApp` was given.
+ * @returns The declarations; none for an environment without a faux pi.
+ */
+export function fauxExpectedLogs(env: Readonly<Record<string, string>>): readonly ExpectedLog[] {
+  return env[REAL_PI_ENV] === undefined
+    ? []
+    : [{ level: "warn", msg: "one-shot pi failed", fields: { reason: "model_failed" }, optional: true }];
 }
 
 /**
@@ -76,7 +100,7 @@ export async function fauxPiEnvironment(script: FauxScript): Promise<FauxPiEnvir
       ...launch.env,
       SHELL: "/usr/bin/false",
       PATH: `${bin}${delimiter}${process.env["PATH"] ?? ""}`,
-      E2E_REAL_PI: await realPi(),
+      [REAL_PI_ENV]: await realPi(),
     },
     agentDir: launch.agentDir,
     release: (name) => launch.release(name),

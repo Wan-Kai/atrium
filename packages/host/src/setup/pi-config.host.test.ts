@@ -10,6 +10,7 @@ it("edits isolated pi config through the real host and client without logging fi
   const root = await realpath(temporary.path);
   const directory = join(root, "isolated-agent-config");
   const host = await startTestHost({ toolEnv: { PATH: "", HOME: root, PI_CODING_AGENT_DIR: directory } });
+  host.expectLog({ level: "warn", msg: "command refused", times: 6 });
   onTestFinished(host.dispose);
   const client = host.connect();
   onTestFinished(() => client.disconnect());

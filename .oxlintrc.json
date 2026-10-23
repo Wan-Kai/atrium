@@ -8,6 +8,7 @@
   },
   "rules": {
     "atrium/require-jsdoc": "error",
+    "atrium/side-effects-none": "error",
     "typescript/no-floating-promises": "error",
     "typescript/no-misused-promises": "error",
     "typescript/switch-exhaustiveness-check": "error",

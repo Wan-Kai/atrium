@@ -6,6 +6,8 @@
 
 **版本**：本机 pi 2026-10-08 升到 1.1.0。和 1.0.2 相比，Atrium 依赖的 `prompt`、`steer`、`abort`、`clear_queue`、`queue_update`、RPC 模式本身逐字相同（2026-10-09 对照两版的 `agent-session.js`、`rpc-mode.js`）；输出多了两个字段：`agent_settled` 带 `aborted`（这次运行是否被停止），工具结果的消息、条目和 `tool_execution_end` 带 `durationMs`（工具执行时长）。契约测试在 1.1.0 上全部通过，夹具见 testing.md"pi 夹具"。
 
+本机 pi 已升到 1.3.0（2026-10-20 起的笔记都基于它）；2026-10-23 补齐 1.3.0 夹具后，契约测试 89 项全部通过。1.1.0 已有的 33 个场景重录到 1.3.0，28 个除头部版本号外逐字节相同；其余 5 个里，`agent-note`、`plan`、`plan-xai-key` 的差别来自 Atrium 自己（扩展的 agent 工具改了说明和参数，`get_commands` 多了 Atrium 的 `/atrium-edit`），`compaction-run` 只差系统消息里 1.1.0 安装路径的文字。pi 自己的变化只在 `custom-idle`（2026-10-23 对照本机 1.3.0 和 1.1.0 的 `dist/core/agent-session.js`）：扩展在空闲时 `sendMessage(…, {triggerTurn: true})`，1.1.0 当场 `_runAgentPrompt`，`agent_start` 同步发出，比扩展命令那次 `prompt` 的 `handled` 应答还早；1.3.0 改走和 `prompt` 一样的 `_startRun` → `_prepareRun`，先 `await` 扩展的 `before_agent_start`（事件多了 `messageType: "custom"` 和 `message`，用户消息的是 `messageType: "user"`），再建系统消息（因此带 `sections`，1.1.0 这条没有），所以 `handled` 应答先到、`agent_start` 在后。会话从 `_startRun` 起就算忙：这期间再来的 `sendMessage` 进这次运行，`abort` 也在 `agent_start` 时把它停下。Atrium 不用 `before_agent_start`；宿主两种先后都处理（`deliver` 应答时运行还没开始就等它开始，`DELIVERY_START_MS` 内没开始才转为暂缓，`session-controller.test.ts` 两种先后都有用例），事件翻译和 `toLogEntry` 处理新夹具不出错。
+
 Atrium 用的是 pi 的**稳定模型**：`pi --mode rpc` + JSONL 会话文件。pi 仓库里另有一套实验性的多客户端服务端（第 6 节），存储不兼容，不直接用，只借鉴设计。
 
 ## 1. 会话文件（`src/core/session-manager.ts`）
@@ -230,7 +232,7 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 - **扩展命令经 `prompt`**：`/名字 参数` 立即执行处理函数，应答 `{disposition: "handled"}`，不发 `agent_start` 等事件、不写会话文件；命令不存在时同样的文字会当普通消息发给模型，所以宿主发内部命令前要先在 `get_commands` 里确认它在。
 - **SPEC-0002 契约测试实测**（2026-10-17，本机 1.1.0，`packages/pi/src/contract/subagent.pi.test.ts`，用只在测试里的探针扩展 `packages/pi/test/subagent-probe.ts`）：上面读源码得出的都成立。
   - 通道"乙"走得通：工具里 `setStatus("atrium-probe:<id>", JSON)` 发出请求、挂着等；运行中宿主发 `/probe-reply <id> <base64url>`，应答 `handled`，工具拿到回答、这一轮接着跑；命令不进会话文件、模型看不到，也不另开一次运行。
-  - 空闲时 `sendMessage(…, {triggerTurn: true, deliverAs: "steer"})` 开一次运行，模型看到一条 user 消息；`custom_message` 的 `message_end` 之后、助手回复之前，会话目录里还没有文件；回复后文件依次是 `session`、`model_change`、`thinking_level_change`、系统消息（`message`，`role: "system"`）、`custom_message`、助手消息。
+  - 空闲时 `sendMessage(…, {triggerTurn: true, deliverAs: "steer"})` 开一次运行，模型看到一条 user 消息；`custom_message` 的 `message_end` 之后、助手回复之前，会话目录里还没有文件；回复后文件依次是 `session`、`model_change`、`thinking_level_change`、系统消息（`message`，`role: "system"`）、`custom_message`、助手消息。1.3.0 上这些都不变，只是扩展命令那次 `prompt` 的 `handled` 应答改在 `agent_start` 之前（见开头"版本"，2026-10-23）。
   - 运行中同样的调用不出现在 `queue_update` 里，在这一批工具跑完后送到，还是同一次运行（只有一个 `agent_start`）；送到之前 `clear_queue` 能清掉它，应答 `{steering: [], followUp: []}`（不列出它）。
   - `--tools read,ls,probe_ask` 只声明这三个，扩展的工具也要写上才有；`--exclude-tools bash,probe_branch` 去掉这两个；去掉的工具模型调了得到报错的工具结果 `Tool bash not found`，命令没执行。1.1.0 的工具声明在系统消息的 `toolsAdded` / `toolsRemoved` 里，请求的 `tools` 是空的。
   - `tool_call` 钩子返回 `{block: true, reason}`：工具不执行，模型得到 `isError: true`、正文就是 `reason` 的工具结果。

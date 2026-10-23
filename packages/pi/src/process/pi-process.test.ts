@@ -4,7 +4,7 @@ import { realpath } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PiDeps } from "../deps";
 import type { ProcessSystem } from "./kill-tree";
-import { type PiEvent, PiRequestError, type PiTap, startPiProcess } from "./pi-process";
+import { DROPPED_REQUESTS_KEPT, type PiEvent, PiRequestError, type PiTap, startPiProcess } from "./pi-process";
 
 /** One log call. */
 interface LogRecord {
@@ -309,6 +309,58 @@ describe("requests", () => {
     ).toStrictEqual(["get_state", "get_available_models"]);
   });
 
+  it("notes a response to a request its caller aborted at debug level", async () => {
+    const { pi, logs } = await start({
+      rules: { get_state: { after: "get_session_stats", data: {} }, get_session_stats: { data: {} } },
+    });
+    const controller = new AbortController();
+    const state = pi.request({ type: "get_state" }, { signal: controller.signal }).catch((error: unknown) => error);
+    controller.abort();
+
+    await pi.request({ type: "get_session_stats" });
+
+    expect(await state).toStrictEqual(new PiRequestError("get_state", "aborted"));
+    await vi.waitFor(
+      () =>
+        expect(logsWith(logs, "pi response matches no waiting request")).toStrictEqual([
+          {
+            level: "debug",
+            fields: { pid: pi.pid, id: "req-1", command: "get_state" },
+            message: "pi response matches no waiting request",
+          },
+        ]),
+      WAIT,
+    );
+  });
+
+  it(`remembers only the last ${DROPPED_REQUESTS_KEPT} requests given up on, and warns about a response to an older one`, async () => {
+    const { pi, logs } = await start({
+      rules: { get_state: { after: "get_session_stats", data: {} }, get_session_stats: { data: {} } },
+    });
+    const controller = new AbortController();
+    const states = Array.from({ length: DROPPED_REQUESTS_KEPT + 1 }, () =>
+      pi.request({ type: "get_state" }, { signal: controller.signal }).catch((error: unknown) => error),
+    );
+    controller.abort();
+    await Promise.all(states);
+
+    await pi.request({ type: "get_session_stats" });
+
+    await vi.waitFor(
+      () => expect(logsWith(logs, "pi response matches no waiting request")).toHaveLength(DROPPED_REQUESTS_KEPT + 1),
+      WAIT,
+    );
+    const unmatched = logsWith(logs, "pi response matches no waiting request");
+    expect(unmatched.filter((log) => log.level === "warn")).toStrictEqual([
+      {
+        level: "warn",
+        fields: { pid: pi.pid, id: "req-1", command: "get_state" },
+        message: "pi response matches no waiting request",
+      },
+    ]);
+    expect(unmatched.filter((log) => log.level === "debug")).toHaveLength(DROPPED_REQUESTS_KEPT);
+  });
+
   it("logs a response without an id and leaves waiting requests to their deadline", async () => {
     const clock = new FakeClock();
     const { pi, logs } = await start({ rules: { get_state: { noId: true, data: {} } } }, { clock });
@@ -596,7 +648,7 @@ describe("stop", () => {
     ]);
   });
 
-  it("drops responses that arrive after stop was called", async () => {
+  it("drops responses that arrive after stop was called, noting them only at debug level", async () => {
     const { pi, logs, events } = await start({
       rules: { get_state: { atStdinEnd: true, data: {} }, get_session_stats: { atStdinEnd: true, data: {} } },
     });
@@ -610,13 +662,57 @@ describe("stop", () => {
     expect(await stats).toStrictEqual(new PiRequestError("get_session_stats", "stopped"));
     expect(logsWith(logs, "pi response matches no waiting request")).toStrictEqual([
       {
+        level: "debug",
+        fields: { pid: pi.pid, id: "req-1", command: "get_state" },
+        message: "pi response matches no waiting request",
+      },
+      {
+        level: "debug",
+        fields: { pid: pi.pid, id: "req-2", command: "get_session_stats" },
+        message: "pi response matches no waiting request",
+      },
+    ]);
+  });
+
+  it("still warns after stop about a response to a request given up before it, or without an id", async () => {
+    const clock = new FakeClock();
+    const { pi, logs, events } = await start(
+      {
+        rules: {
+          get_state: { atStdinEnd: true, data: {} },
+          get_session_stats: { atStdinEnd: true, data: {} },
+          get_available_models: { atStdinEnd: true, noId: true, data: {} },
+        },
+      },
+      { clock },
+    );
+    const state = pi.request({ type: "get_state" }).catch((error: unknown) => error);
+    clock.advance(30_000);
+    const stats = pi.request({ type: "get_session_stats" }).catch((error: unknown) => error);
+    const models = pi.request({ type: "get_available_models" }).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(typesOf(events)).toStrictEqual(["received", "received", "received"]), WAIT);
+
+    await pi.stop();
+
+    expect([await state, await stats, await models]).toStrictEqual([
+      new PiRequestError("get_state", "timeout"),
+      new PiRequestError("get_session_stats", "stopped"),
+      new PiRequestError("get_available_models", "stopped"),
+    ]);
+    expect(logsWith(logs, "pi response matches no waiting request")).toStrictEqual([
+      {
         level: "warn",
         fields: { pid: pi.pid, id: "req-1", command: "get_state" },
         message: "pi response matches no waiting request",
       },
       {
-        level: "warn",
+        level: "debug",
         fields: { pid: pi.pid, id: "req-2", command: "get_session_stats" },
+        message: "pi response matches no waiting request",
+      },
+      {
+        level: "warn",
+        fields: { pid: pi.pid, id: undefined, command: "get_available_models" },
         message: "pi response matches no waiting request",
       },
     ]);

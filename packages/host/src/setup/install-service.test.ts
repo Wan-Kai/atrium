@@ -211,7 +211,7 @@ function output(events: readonly (InstallUpdatedEvent | InstallOutputEvent)[]): 
  * @remarks
  * For telling a promise still pending from one settled.
  *
- * @sideEffects none
+ * @sideEffects Schedules an immediate callback.
  * @returns `"held"`, after a macrotask.
  */
 function tick(): Promise<"held"> {
