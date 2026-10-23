@@ -10,4 +10,7 @@
 | [pi-internals.md](pi-internals.md) | pi 1.0.1 源码笔记：会话文件与条目树、运行时与队列、RPC 命令与事件、模型与认证、extension UI、实验性多客户端服务端 |
 | [self-use.md](self-use.md) | M1.11 自用记录：会话、资源趋势、pi 和 Codex 的差距、问题、需求逐条核对、新账户首次启动、H1 结论 |
 | [paseo-architecture.md](paseo-architecture.md) | Paseo 源码笔记：持久化、agent 生命周期、pi 的接入、列表与对话记录同步、关注状态、git 状态 |
+| [lowcode-engine.md](lowcode-engine.md) | 阿里低代码引擎源码笔记：插件声明与生命周期、编辑器骨架的区域和面板类型、按描述选设置器、画布 iframe、资源加载、shell 层；对 Atrium 挂载点、视图 API 和内置插件化的启示 |
+| [deepseek-harness-plugins.md](deepseek-harness-plugins.md) | DeepSeek Harness 客户端插件源码笔记：Cordis 嵌套、插槽的声明与挂入（四种基数、替换、级联卸载、错误退位）、工具按名分派、两半配对、加载与安全、"一切皆插件"的代价；与低代码引擎的对照 |
+| [pi-vs-dsh.html](pi-vs-dsh.html) | pi 与 DeepSeek Harness 的设计思路和插件开发对比（Archify 单页，源稿 [pi-vs-dsh.archify.md](pi-vs-dsh.archify.md)）；插件系统暂缓的依据 |
 | [multi-agent.md](multi-agent.md) | 子代理与多会话：Paseo、Codex、Claude Code 怎么开子代理、控制和通知、界面，以及对 Atrium 的结论 |
