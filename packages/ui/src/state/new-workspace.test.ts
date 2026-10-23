@@ -117,7 +117,7 @@ function context(
 /**
  * Lets the launch go on until it waits for the client again.
  *
- * @sideEffects none
+ * @sideEffects Schedules a zero-delay timer.
  */
 async function settle(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));

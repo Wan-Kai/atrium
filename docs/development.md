@@ -63,7 +63,8 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | `pnpm fixtures:record` | 用本机 pi 重录全部 pi 夹具，删掉其他版本的夹具目录；提交前审查 diff（testing.md"pi 夹具"） |
 | `pnpm readme:shots` | 构建后重拍 README 的六张截图，覆盖 `docs/images/*.png`（1920×1145）。只用演示数据：临时目录里现造的 `weather-app` 仓库（本地 bare origin 和两个 worktree）、临时的 Atrium 主目录、pi 配置目录和 HOME，`PI_OFFLINE=1`；模型是以真实服务商名字注册的 faux（`packages/testkit/src/faux/readme-extension.ts` 按 `apps/desktop/e2e/readme/story.ts` 的脚本回复），ChatGPT 的模型列表和用量由本机的替身服务给出，不发真实请求，不碰 `~/.atrium`。用 `screencapture` 截应用窗口，窗口会被提到最前，跑的约 3 分钟里别动它；终端要有"屏幕录制"权限。六张图在同一段故事里依次拍出，不能只拍其中一张；跑完看一眼 `git diff docs/images`，不满意就 `git checkout -- docs/images` |
 | `pnpm pi:try "<提示词>"` | 用宿主的组件直接驱动真实 pi：读登录 shell 环境、找 pi、发一条提示词，在终端里流式打出回复，结束时给出 trace id（日志在 `~/.atrium/dev-logs`）。`--cwd <目录>` 指定工作目录，`--keep-session` 保留会话文件，`--inherit-env` 跳过登录 shell，`--` 之后的参数原样交给 pi。会真的调用模型 |
-| `pnpm check` | 格式、代码检查（含 JSDoc）、类型检查、knip |
+| `pnpm check` | 格式、代码检查（含 JSDoc）、类型检查、knip、`pnpm boundary --all` |
+| `pnpm boundary [基准]` | 列出基准（默认 `git merge-base HEAD main`）以来的提交、未提交改动和未跟踪新文件碰到的外部边界：依赖增删改（标出非精确版本）、生产代码里新增和删掉的地址、环境变量、隐藏命令（标出是否已在 [security.md · 外部边界登记](architecture/security.md#外部边界登记) 登记）、`PROTOCOL_VERSION` 的变化（协议文件改了、版本没变时警告）、改动文件里的 `@sideEffects` 矛盾。新增了未登记的或非精确版本时退出码为 1。`--all` 拿全部生产代码对照登记表，接在 `pnpm check` 里 |
 | `pnpm break-check <cases.json>` | 破坏检查：按每个 case（`{ file, from, to, test, name, project? }`，`from` 在文件里恰好出现一次）把代码改坏，跑那个测试（`vitest run --project <project，默认 unit> <test> -t <name>`），打印 `CAUGHT` 或 `MISSED`，再改回去；有漏掉的退出码为 1。被中断时也会改回去（见上文"标准开发流程"第 4 步） |
 | `pnpm mutation:nightly:install` | 装上每晚的全量变异测试（见下文）；加 `uninstall` 卸掉 |
 

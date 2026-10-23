@@ -15,6 +15,25 @@
 
 `pnpm break-check` 3 处，全部检出：把 `custom-idle.jsonl` 的 `"disposition":"handled"` 改成 `started`、`exit-sigterm.jsonl` 的 `"code":143` 改成 `0`、`error-retry.jsonl` 的 `auto_retry_start` 改名，对应契约场景都因漂移检查失败。`pnpm test:pi` 89 过、0 失败；`pnpm test` 3473 过（含回放 102 项，仍有既有的日志流 EBADF 提示）；`pnpm check` 通过。没有改产品代码，不跑变异测试；第 1 层测试仍读旧版本夹具，没有改用 1.3.0。
 
+## 外部边界清单 `pnpm boundary` 与 `@sideEffects none` 核对（2026-10-23）
+
+审查时不再靠人在代码里找一次改动碰了哪些外部边界。security.md 新加"外部边界登记"三张表（出网地址 13、环境变量 39、隐藏命令 4，按全量扫描填），`scripts/boundary.mjs` 用 oxc-parser 按语法树从生产代码里认出它们和登记表对照；`--all` 接进 `pnpm check`（本仓库约 0.3 秒、零误报）。`@sideEffects` 只核对一种矛盾，做成 oxlint 规则 `atrium/side-effects-none`，全仓生效；启用时报了 4 处，都是测试里"等一个 tick"的辅助函数，改了 JSDoc 文字。
+
+| 行为 | 验证 |
+|---|---|
+| `--all` 列出登记表里没有的地址、环境变量、隐藏命令和非精确版本的依赖，退出码 1；注释、JSDoc、正则字面量、`import.meta.env`、测试、bench、`test/`、契约场景、testkit、scripts 都不算；模板字符串的 `${…}` 记成 `*`，句末标点去掉；常量名经相对导入解析出隐藏命令；登记了但代码里没有的只提示 | `scripts/boundary.test.ts`"lists the production URLs" |
+| `ERR_` 开头的字符串（Node 错误码）不当环境变量，单个字符串和数组里都不算；登记表里标了 `（拼出）` 的行不和代码比对，`--all` 不提示它们找不到（审查后加） | `scripts/boundary.test.ts`"lists the production URLs" |
+| 全部登记、版本精确时只打一行汇总，退出码 0 | `scripts/boundary.test.ts`"passes with one summary line" |
+| 本仓库的生产代码全部在登记表里（删掉 `https://pi.dev/api/latest-version` 那一行就失败） | `scripts/boundary.test.ts`"finds every production URL" |
+| 按改动：基准默认是和 `main` 的 merge-base，范围含提交、未提交和未跟踪的文件；依赖增删改（标出非精确）、新增和删掉的边界（标出是否登记）、协议文件改了而版本没变的警告、改动文件里的 `@sideEffects` 矛盾；新增未登记或非精确时退出码 1 | `scripts/boundary.test.ts`"lists dependency, URL" |
+| 指定基准；`PROTOCOL_VERSION` 旧值→新值；没有 `.oxlintrc.json` 时写明没查 | `scripts/boundary.test.ts`"takes an explicit base" |
+| 只改协议的测试文件不警告 | `scripts/boundary.test.ts`"warns only for non-test" |
+| 基准不是提交、生产代码解析不了时退出码 2，不当作没有边界 | `scripts/boundary.test.ts`"refuses a base"、"stops on production code" |
+| `@sideEffects none` 的函数自己或直接传给调用的回调里调起进程、写文件、网络、定时器（含注入的时钟）、`process.exit/kill`、`console`、logger、`new WebSocket` 时报错 | `scripts/lint/atrium-plugin.test.ts`"reports each" |
+| 不报：同名的正则 `exec` 和本地函数、只读的 fs 函数、返回或存起来的闭包、`process.kill(pid, 0)`、"none until …"、写了副作用的、没有 JSDoc 的 | `scripts/lint/atrium-plugin.test.ts`"leaves alone" |
+
+`pnpm break-check` 37 处：首轮 30 处检出、7 处漏掉，补了测试（解析失败、`toolEnv` 这类名字、句末标点、JSX 文字、全大写但不是环境变量的数组、只读 fs 函数）后 6 处重跑全部检出；另一处是规则里"整条 `import type` 跳过"的判断，`import type` 导入的名字不能被调用，删掉了这个分支；终版 36 处全量重跑全部检出。`pnpm check` 通过；单元默认并行两次各有 1 项未改动的 `pi-config.test.ts`"queues several same-path saves…"报 `config_conflict`（同上文已记的既有不稳，单文件 3 次 44 项通过），串行全量 182 文件 3450 项通过。审查后补登三条由登录 `baseUrl` 拼出的真实请求（Codex 模型列表、ChatGPT 和 Claude 的套餐用量），加 `ERR_` 排除和 `（拼出）` 标记，新增 4 处破坏检查全部检出。`scripts/` 不在变异测试分组里，没跑变异测试。
+
 ## M1.11 自用之后：流式回复连着到一阵增量时界面报 React #185（2026-10-22）
 
 宿主日志 10-20 到 10-22 14:53 的 50 条 `client issue`（打包版）都是同一个栈：WebSocket 消息 → 会话视图 store 的 `setState` → `useSyncExternalStore` 的重绘 → React 抛 #185。根因是 `use-revealed-text.ts` 在 effect 里对每次新到的文字 `setState`：store 的更新按同步优先级提交，提交末尾同步跑 effect，effect 的更新留下一次待渲染，React 把连续 50 次这样的提交当成死循环。页面忙时攒下的 WebSocket 帧，Chromium 会在同一个任务里逐条派发、每条之间只跑微任务（本机 Playwright 实测：主线程忙 100 ms 后 199 条消息全在 React 调度任务之前派发完），React 自己的调度任务插不进去，于是一阵超过 50 条的增量就抛错。改为渲染时就接住新文字（React 的"根据上一次渲染调整状态"写法），effect 只管逐帧揭示，界面显示不变。完整工作台里流式思考、工具输出、回复各 120 次连续更新，修复前回复阶段每次提交都留下 `StreamedText` 的更新（另有 Streamdown 挂载时的一次），修复后只剩这一次挂载。
