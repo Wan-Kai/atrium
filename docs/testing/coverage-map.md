@@ -4,6 +4,17 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## pi 1.3.0 契约夹具补齐（2026-10-23）
+
+本机 pi 1.3.0 此前只有 19 个场景的夹具，`pnpm test:pi` 56 过、33 失败，失败全是 `no fixture … for pi 1.3.0`（契约断言在录制比较之前跑，都通过了）。以 `RECORD_FIXTURES=1` 只跑这 33 个场景所在的 17 个契约文件录下 `pi-1.3.0/` 的 33 个新文件，同文件里已有的 `ask-steer`、`ask-abort` 重写后逐字节不变；再录一次逐字节相同。不改断言、规范化规则和产品代码，旧版本目录保留（testing.md"pi 夹具"）。和 1.1.0 的差异只有 `custom-idle` 是 pi 的变化（空闲时扩展 `sendMessage` 开的运行，`handled` 应答改在 `agent_start` 之前，系统消息带 `sections`），宿主两种先后都已处理，见 pi-internals"版本"。
+
+| 行为 | 验证 |
+|---|---|
+| 本机 pi 1.3.0 的每个契约场景都有夹具，输出和夹具不一致就失败 | `pnpm test:pi`（`packages/pi/test/contract.ts` 的 `recordOrCheck`），89 项 |
+| 新夹具都能按原样回放 | `packages/pi/src/contract/replay.test.ts`"plays back exactly as recorded" |
+
+`pnpm break-check` 3 处，全部检出：把 `custom-idle.jsonl` 的 `"disposition":"handled"` 改成 `started`、`exit-sigterm.jsonl` 的 `"code":143` 改成 `0`、`error-retry.jsonl` 的 `auto_retry_start` 改名，对应契约场景都因漂移检查失败。`pnpm test:pi` 89 过、0 失败；`pnpm test` 3473 过（含回放 102 项，仍有既有的日志流 EBADF 提示）；`pnpm check` 通过。没有改产品代码，不跑变异测试；第 1 层测试仍读旧版本夹具，没有改用 1.3.0。
+
 ## M1.11 自用之后：流式回复连着到一阵增量时界面报 React #185（2026-10-22）
 
 宿主日志 10-20 到 10-22 14:53 的 50 条 `client issue`（打包版）都是同一个栈：WebSocket 消息 → 会话视图 store 的 `setState` → `useSyncExternalStore` 的重绘 → React 抛 #185。根因是 `use-revealed-text.ts` 在 effect 里对每次新到的文字 `setState`：store 的更新按同步优先级提交，提交末尾同步跑 effect，effect 的更新留下一次待渲染，React 把连续 50 次这样的提交当成死循环。页面忙时攒下的 WebSocket 帧，Chromium 会在同一个任务里逐条派发、每条之间只跑微任务（本机 Playwright 实测：主线程忙 100 ms 后 199 条消息全在 React 调度任务之前派发完），React 自己的调度任务插不进去，于是一阵超过 50 条的增量就抛错。改为渲染时就接住新文字（React 的"根据上一次渲染调整状态"写法），effect 只管逐帧揭示，界面显示不变。完整工作台里流式思考、工具输出、回复各 120 次连续更新，修复前回复阶段每次提交都留下 `StreamedText` 的更新（另有 Streamdown 挂载时的一次），修复后只剩这一次挂载。

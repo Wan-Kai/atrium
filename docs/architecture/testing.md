@@ -91,6 +91,7 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 
 - `pnpm fixtures:record`：用本机的 pi 重录全部场景，写到 `pi-<本机版本>/`，并删掉其他版本的目录。
 - 2026-10-09 本机 pi 升到 1.1.0：另录了 `pi-1.1.0/`（直接以 `RECORD_FIXTURES=1` 跑契约测试，不删旧目录），`pi-1.0.2/` 暂时保留，因为第 1 层的回放测试还按它写；两版的差别见 pi-internals"版本"。第 1 层改用新版本时，再用 `pnpm fixtures:record` 只留一个版本。
+- 2026-10-23 补齐 `pi-1.3.0/`：本机 pi 是 1.3.0，此前只录了编辑和子对话的 19 个场景，其余 33 个场景缺夹具，`test:pi` 一直有 33 项失败。同样直接以 `RECORD_FIXTURES=1` 只跑这些场景所在的契约测试文件，不用 `pnpm fixtures:record`：第 1 层的回放测试（`translate.test.ts`、`log-entry.test.ts`、`session-files.test.ts` 读 `pi-1.0.2/`，`system-prompt.test.ts` 读 `pi-1.1.0/`）和端到端的 `history.spec.ts`（`pi-1.0.2/history.jsonl`）还按旧目录写，所以 `pi-1.0.2/`、`pi-1.1.0/` 继续保留，等第 1 层改用 1.3.0 时再一起删。两次录制逐字节相同，已有的 19 个没变；和 1.1.0 的差别见 pi-internals"版本"。
 - `pnpm test:pi`：先对真实 pi 做契约断言，再把这次的输出规范化后和同版本的夹具比较，不一致就失败，提示重录并审查 diff。本机 pi 版本没有对应的夹具时也失败，要求先录制。这样升级 pi 后，第一次跑 `test:pi` 就会逼着人看 pi 的输出变了什么。
 - 比较时只忽略系统消息里的文字（role 除外）：系统提示词写着本机的路径，换台机器就不同。系统消息的键和 `sections` 的结构仍要一致，pi 改了系统提示词的组织方式也能发现。夹具本身保存录到的文字。
 
@@ -257,7 +258,7 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 | `packages/host/src/setup/install-job.test.ts` "ends what the command left running in its group once it exits"（`install-service.test.ts` 有同类用例） | 整套并行时偶尔失败，单独跑通过（M1.14 时记下） | `pnpm test:stress packages/host/src/setup/` | 待修 |
 | `apps/desktop/e2e/app.spec.ts` "keeps the sidebar's material as it is when another window takes the focus" | 本机跑时窗口有时拿不到系统焦点；2026-10-22整套及单跑均在 `screencapture -l` 报 `could not create image from window`，尚未到颜色断言 | 单独跑这个 spec，跑的同时不要操作别的窗口 | 待查（可能要换成不依赖系统焦点的做法）；原生截图可用性也是验证阻塞，未绕过或删除用例 |
 
-另外，`pnpm test:pi` 现在跑不过：本机 pi 升到了 1.3.0，仓库里只有 1.0.2 和 1.1.0 的夹具（"pi 夹具"一节：没有本机版本的夹具就失败）。待办：为 1.3.0 录一套夹具、审查和 1.1.0 的差异（2026-10-20 记）。
+另外，`pnpm test:pi` 曾经跑不过：本机 pi 升到了 1.3.0，仓库里只有 1.0.2 和 1.1.0 的夹具（"pi 夹具"一节：没有本机版本的夹具就失败）（2026-10-20 记）。2026-10-23 已补齐 1.3.0 夹具并审查和 1.1.0 的差异，`test:pi` 89 项全部通过。
 
 ### 运行时监控
 
