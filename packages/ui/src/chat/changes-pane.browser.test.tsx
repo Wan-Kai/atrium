@@ -1,3 +1,4 @@
+import { flushSync } from "react-dom";
 import { describe, expect, it } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
@@ -132,10 +133,10 @@ describe("ChangesPane", () => {
     const { screen, panes, element } = await pane({ open: false });
     expect([element.getBoundingClientRect().width, element.childElementCount]).toStrictEqual([0, 0]);
 
-    panes.getState().setPanelOpen(true);
+    // Drawn at once and read before a frame passes, so a busy machine cannot let the move end first.
+    flushSync(() => panes.getState().setPanelOpen(true));
 
     const panel = screen.getByRole("complementary", { name: "文件与更改" });
-    await expect.element(panel).toBeInTheDocument();
     const style = getComputedStyle(element);
     expect([style.transitionProperty, style.transitionDuration, style.transitionTimingFunction]).toStrictEqual([
       "width",
@@ -145,9 +146,9 @@ describe("ChangesPane", () => {
     expect(widthFrames(element)).toStrictEqual([["width", ["0px", FITTED]]]);
     expect(panel.element().getBoundingClientRect().width).toBe(320);
     await expect.poll(() => element.getBoundingClientRect().width).toBe(320);
-    panes.getState().setPanelOpen(false);
+    flushSync(() => panes.getState().setPanelOpen(false));
 
-    await expect.poll(() => widthFrames(element)).toStrictEqual([["width", [FITTED, "0px"]]]);
+    expect(widthFrames(element)).toStrictEqual([["width", [FITTED, "0px"]]]);
     // A transition inside the panel ending first leaves it be.
     panel.element().dispatchEvent(new TransitionEvent("transitionend", { bubbles: true, propertyName: "opacity" }));
     expect(panel.element().isConnected).toBe(true);
@@ -160,6 +161,31 @@ describe("ChangesPane", () => {
     const panel = screen.getByRole("complementary", { name: "文件与更改" }).element();
 
     expect(moves(element, panel)).toStrictEqual([[], []]);
+  });
+
+  it("stays while it closes when closed partway through opening, and goes once it has closed", async () => {
+    const { screen, panes, element } = await pane({ open: false });
+    // Its style drawn closed, so opening moves it from there.
+    expect(getComputedStyle(element).width).toBe("0px");
+    flushSync(() => panes.getState().setPanelOpen(true));
+    const panel = screen.getByRole("complementary", { name: "文件与更改" });
+    const opening = element.getAnimations().at(0) as Animation;
+    opening.pause();
+    opening.currentTime = 120;
+    const shown = panel.element();
+
+    // Drawn at once, so closing can be held before it moves on.
+    flushSync(() => panes.getState().setPanelOpen(false));
+    const closing = element.getAnimations().at(0) as Animation;
+    closing.pause();
+    // Closing from where it got to cancels the opening, on the next frame; that is not the end of closing.
+    expect(widthFrames(element)).toStrictEqual([["width", [expect.any(String), "0px"]]]);
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const during = shown.isConnected;
+    closing.play();
+
+    await expect.element(panel).not.toBeInTheDocument();
+    expect([opening.playState, during, element.getBoundingClientRect().width]).toStrictEqual(["idle", true, 0]);
   });
 
   it("goes when closed just as it starts opening", async () => {

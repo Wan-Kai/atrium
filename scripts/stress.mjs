@@ -37,15 +37,15 @@ function options() {
  * Runs one copy of the tests with a single worker and reads its report.
  *
  * @remarks
- * The JSON report holds every test's outcome and duration; the copy's own output is kept only
- * for a run that produced no report.
+ * The JSON report holds every test's outcome and duration; the copy's own output is kept for a
+ * run that produced no report or ran no tests.
  *
  * @sideEffects Spawns Vitest; writes its report into `dir`.
  * @param dir - Where the report goes.
  * @param name - The copy's name, used for its report file.
  * @param project - The Vitest project.
  * @param paths - The test paths.
- * @returns The report, or the copy's output when there is none.
+ * @returns The report, if any, and the copy's output.
  */
 function runCopy(dir, name, project, paths) {
   const report = join(dir, `${name}.json`);
@@ -70,7 +70,7 @@ function runCopy(dir, name, project, paths) {
     });
     child.on("close", () => {
       try {
-        resolve({ name, report: JSON.parse(readFileSync(report, "utf8")) });
+        resolve({ name, report: JSON.parse(readFileSync(report, "utf8")), output });
       } catch {
         resolve({ name, output });
       }
@@ -89,7 +89,7 @@ function runCopy(dir, name, project, paths) {
  * starvation rather than from any fault (M1.4).
  *
  * @sideEffects Spawns the copies; writes reports to a temporary directory and removes it; prints
- * the summary; sets the exit code to 1 when any test failed or any copy produced no report.
+ * the summary; sets the exit code to 1 when any test failed or any copy ran no tests.
  */
 async function stress() {
   const { copies, rounds, project, paths } = options();
@@ -104,9 +104,10 @@ async function stress() {
     );
     for (const result of results) {
       runs += 1;
-      if (result.report === undefined) {
+      // A copy that could not start, as when its browser server found its port taken, reports no tests.
+      if (result.report === undefined || result.report.numTotalTests === 0) {
         broken += 1;
-        console.error(`copy ${result.name} produced no report:\n${result.output.slice(-2000)}`);
+        console.error(`copy ${result.name} ran no tests:\n${result.output.slice(-2000)}`);
         continue;
       }
       for (const file of result.report.testResults) {

@@ -262,6 +262,8 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 
 时有时无的失败要靠同时多跑几份才看得出来。`pnpm test:stress [--copies N] [--rounds R] [--project P] [路径…]` 同时跑 N 份（默认核数减一）、连跑 R 轮（默认 2 轮），每份只用一个 worker，最后列出失败过的测试（第几次里失败几次）和最慢的几个测试。新增或改动的测试合并前跑一次，宿主层用 `--project host`。
 
+界面层（`--project ui`）每份各起一个浏览器服务：UI 的 Vite 配置为开发服务固定了端口（`strictPort`），2026-10-23 之前各份同时启动时只有一份拿到端口，其余报"端口已被占用"、一个测试也没跑，却被当成通过计数，所以在那之前界面层的压力结果都不可信。现在测试里的 ui 项目不要求固定端口（`vitest.config.ts`），脚本也把一个测试都没跑的那份算作出错。
+
 每份只用一个 worker，是为了让各份测试互相竞争、暴露竞态和时序假设，而不是把 CPU 饿死。教训（M1.4）：13 份 Vitest 各用默认的"每核一个 worker"同时跑，14 核上有约 170 个测试进程，会启动子进程的测试（读登录 shell、跑 pi）被拖慢 30～60 倍，超过 5 秒的默认期限而失败；把期限放宽到 60 秒后全部通过，耗时连续分布在 4～6 秒、没有卡在某个固定值上，说明不是死锁或竞态。改成每份一个 worker 后，26 次全部通过，最慢的测试约 1.3 秒。
 
 ### 已知不稳的测试
@@ -270,9 +272,11 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 
 | 测试 | 现象 | 怎么复现 | 状态 |
 |---|---|---|---|
-| `packages/ui/src/chat/changes-pane.browser.test.tsx` "opens from nothing in 0.24 s, the panel at its width from the start, and closes back to nothing before it goes" | 整套 ui 并行跑时偶尔失败，单独跑通过；量的是动效时长，机器忙时帧落后 | `pnpm test:stress --project ui packages/ui/src/chat/changes-pane.browser.test.tsx` | 待修（多半要改成按动画对象的时间线断言，不按墙钟） |
-| `packages/ui/src/chat/markdown.browser.test.tsx` "shows a block's buttons in place of its language while hovered or focused inside" | 同上，整套并行时偶尔失败 | 同上，换成这个文件 | 待修 |
-| `packages/ui/src/files/diff-viewer.browser.test.tsx`、`packages/ui/src/chat/streaming.browser.test.tsx` | 整套并行时偶尔有一个用例失败，单独跑通过；具体用例下次复现时记下 | 同上 | 待查 |
+| `packages/ui/src/chat/streaming.browser.test.tsx` "streams through the transcript as the app does, never losing text, and ends as the finished reply renders" | 2026-10-23 复现：13 份并行跑这个文件和另外四个界面测试文件，39 次里失败 29 次。显示的回复文字长度在表格处变短：平滑揭示按真实的帧推进，揭示到表格分隔行一半时表头还是一段原文（`\| 模块 \| 职责 \| …`），分隔行写完后变成表格，文字少了竖线和横线。测试按文字长度只增不减断言，哪一帧落在分隔行里取决于机器忙不忙 | `pnpm test:stress --project ui packages/ui/src/chat/streaming.browser.test.tsx packages/ui/src/chat/markdown.browser.test.tsx packages/ui/src/chat/image-preview.browser.test.tsx packages/ui/src/app/workbench.browser.test.tsx packages/ui/src/files/diff-viewer.browser.test.tsx` | 待定：是改成流式时先不显示没写完的表头（界面行为，要先定），还是改测试的量法；见追踪表"已知不稳的测试修复" |
+| `packages/ui/src/files/diff-viewer.browser.test.tsx` | 整套并行时偶尔有一个用例失败，单独跑通过；具体用例下次复现时记下。2026-10-23 修好压力测试脚本后，13 份并行 4 轮、整套界面 6 份并行 2 轮、整套默认并行 15 次都没复现 | 同上 | 待查 |
+| `packages/ui/src/chat/image-preview.browser.test.tsx` "fills the application window with the chosen dark canvas and fits the original"、"does not enlarge a small image and restores the trigger after the close button" | 2026-10-23 整套界面默认并行跑时各失败过一次（15 次里共 3 次）：图片的尺寸已经显示，图却只有 1px 宽。预览区的大小要等 ResizeObserver 回调后才知道，之前按 1×1 排版；图片解码得比回调早时，先按 1×1 显示了一下 | 整套 `pnpm test:ui` 多跑几次 | 待修（多半要在打开时先同步量一次预览区）|
+| `packages/ui/src/app/new-workspace.browser.test.tsx` "shows the message at 60% until it has gone, then fully, with its time coming in" | 2026-10-23 整套界面 6 份并行 2 轮里失败一次：`expected '0.6' to be '1'` | `pnpm test:stress --project ui --copies 6 --rounds 2` | 待查 |
+| `packages/ui/src/chat/run-control.browser.test.tsx` "grows the panel from its bottom edge, the rows one by one after it, and closes it at once" | 2026-10-23 整套界面 6 份并行 2 轮里失败一次：`expected [ Animation{} ] to strictly equal []` | 同上 | 待查 |
 | `packages/host/src/setup/install-job.test.ts` "ends what the command left running in its group once it exits"（`install-service.test.ts` 有同类用例） | 整套并行时偶尔失败，单独跑通过（M1.14 时记下） | `pnpm test:stress packages/host/src/setup/` | 待修 |
 | `apps/desktop/e2e/status-bar.spec.ts` "shows the session's figures under the input box after a reply, with the context split, and keeps the groups chosen" | 2026-10-23 集成验证时整套串行跑（63 个里的最后一个）失败一次：按回车后消息没发出去，"一"还留在输入框里，30 秒没等到回复；这个用例的宿主日志没有意外的 warn/error。单跑 4 次、log-gate 分支的整套都通过。原因未查清，改动不涉及界面和输入框 | 整套跑 `pnpm test:e2e`；单跑 `--repeat-each` 没复现 | 待查 |
 | `apps/desktop/e2e/app.spec.ts` "keeps the sidebar's material as it is when another window takes the focus" | 本机跑时窗口有时拿不到系统焦点；2026-10-22整套及单跑均在 `screencapture -l` 报 `could not create image from window`，尚未到颜色断言 | 单独跑这个 spec，跑的同时不要操作别的窗口 | 待查（可能要换成不依赖系统焦点的做法）；原生截图可用性也是验证阻塞，未绕过或删除用例 |

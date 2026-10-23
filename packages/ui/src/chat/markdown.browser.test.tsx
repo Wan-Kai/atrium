@@ -328,7 +328,9 @@ describe("Markdown", () => {
     const label = part(root, "code-block-header");
     const buttons = buttonsOf(block);
     const shown = () => [getComputedStyle(label).opacity, getComputedStyle(buttons).opacity];
-    const resting = shown();
+    // The pointer is wherever an earlier test left it, possibly over the block: move it off first.
+    await userEvent.unhover(block);
+    await expect.poll(shown).toStrictEqual(["1", "0"]);
 
     await userEvent.hover(block);
     await expect.poll(shown).toStrictEqual(["0", "1"]);
@@ -337,7 +339,6 @@ describe("Markdown", () => {
     block.querySelector("button")?.focus();
 
     await expect.poll(shown).toStrictEqual(["0", "1"]);
-    expect(resting).toStrictEqual(["1", "0"]);
   });
 
   it("grounds a code block on the dark code colour in dark mode", async () => {
@@ -509,6 +510,10 @@ describe("Markdown", () => {
   it("draws Mermaid flat in neutral colours, and switches to its source and back", async () => {
     const root = await rendered("```mermaid\ngraph TD\n  A --> B\n```");
     const node = await mermaidNode(root);
+    // The zoom controls come once the diagram has been fitted, a little after it is drawn.
+    await vi.waitFor(() =>
+      expect(root.querySelector('output[aria-label="图表缩放比例"]')?.textContent).toMatch(/^[1-9][0-9]*%$/u),
+    );
     const block = part(root, "mermaid-block").closest<HTMLElement>(".atrium-mermaid-controls")!;
     const drawn = [
       getComputedStyle(node).fill,
