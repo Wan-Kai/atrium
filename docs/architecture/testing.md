@@ -270,6 +270,8 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 | `packages/ui/src/files/diff-viewer.browser.test.tsx`、`packages/ui/src/chat/streaming.browser.test.tsx` | 整套并行时偶尔有一个用例失败，单独跑通过；具体用例下次复现时记下 | 同上 | 待查 |
 | `packages/host/src/files/workspace-files.test.ts` "lists a directory of exactly 5000 entries whole" | 机器忙时超过期限 | `pnpm test:stress packages/host/src/files/workspace-files.test.ts` | 待修 |
 | `packages/host/src/setup/install-job.test.ts` "ends what the command left running in its group once it exits"（`install-service.test.ts` 有同类用例） | 整套并行时偶尔失败，单独跑通过（M1.14 时记下） | `pnpm test:stress packages/host/src/setup/` | 待修 |
+| `packages/host/src/setup/pi-config.test.ts` "queues several same-path saves in order while unrelated paths remain writable" | 整套单元并行跑时偶尔失败：第三次保存应答 `config_conflict`，没按排队的顺序写成；单独跑通过。2026-10-20 起追踪表里多次记过，2026-10-23 集成验证时又出现一次（单跑 3 次、全量重跑都通过），文件未改 | `pnpm test:stress packages/host/src/setup/pi-config.test.ts` | 待查 |
+| `apps/desktop/e2e/status-bar.spec.ts` "shows the session's figures under the input box after a reply, with the context split, and keeps the groups chosen" | 2026-10-23 集成验证时整套串行跑（63 个里的最后一个）失败一次：按回车后消息没发出去，"一"还留在输入框里，30 秒没等到回复；这个用例的宿主日志没有意外的 warn/error。单跑 4 次、log-gate 分支的整套都通过。原因未查清，改动不涉及界面和输入框 | 整套跑 `pnpm test:e2e`；单跑 `--repeat-each` 没复现 | 待查 |
 | `apps/desktop/e2e/app.spec.ts` "keeps the sidebar's material as it is when another window takes the focus" | 本机跑时窗口有时拿不到系统焦点；2026-10-22整套及单跑均在 `screencapture -l` 报 `could not create image from window`，尚未到颜色断言 | 单独跑这个 spec，跑的同时不要操作别的窗口 | 待查（可能要换成不依赖系统焦点的做法）；原生截图可用性也是验证阻塞，未绕过或删除用例 |
 
 另外，`pnpm test:pi` 曾经跑不过：本机 pi 升到了 1.3.0，仓库里只有 1.0.2 和 1.1.0 的夹具（"pi 夹具"一节：没有本机版本的夹具就失败）（2026-10-20 记）。2026-10-23 已补齐 1.3.0 夹具并审查和 1.1.0 的差异，`test:pi` 89 项全部通过。
