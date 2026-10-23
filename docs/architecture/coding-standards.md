@@ -86,6 +86,10 @@ export function EffortBox(props: EffortBoxProps) { … }
 - 不用 `any`；外部输入（WebSocket 消息、pi 输出、索引文件）在边界用 zod 校验后再进入内部。
 - 状态用可辨识联合（discriminated union）表达，`switch` 必须穷尽（`switch-exhaustiveness-check`）。
 
+## React
+
+- 不在 effect 里跟着流式 props 改状态，改在渲染中调整（状态已对上就返回原对象）。否则每次提交都留一个更新，连续到达的 WebSocket 消息会让 React 判为死循环、抛 #185（2026-10-22，见 [self-use.md · 问题](../research/self-use.md#问题)）。
+
 ## 多语言
 
 - MVP 只做中文，不引入 i18n 框架。
