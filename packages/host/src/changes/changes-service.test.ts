@@ -67,7 +67,8 @@ type Held = "changes" | "diff" | "roots" | "ignored";
  * @remarks
  * The reader answers with `now`, which a test changes; watchers record their callbacks so a test
  * can report a change or an error. `hold` makes one kind of read wait until let go, `known`
- * says which workspaces `resolve` finds, and `archived` which of them are archived.
+ * says which workspaces `resolve` finds, `archived` which of them are archived, and `gone` which
+ * directories are not there.
  *
  * @sideEffects none
  * @returns The service and what a test drives and checks.
@@ -88,6 +89,7 @@ function harness(options: { readonly reader?: "none" } = {}) {
   };
   const known = new Set([W1, W2]);
   const archived = new Set<string>();
+  const gone = new Set<string>();
   const reads: string[] = [];
   const signals: AbortSignal[] = [];
   const failures: unknown[] = [];
@@ -163,6 +165,7 @@ function harness(options: { readonly reader?: "none" } = {}) {
     resources,
     logger,
     watch,
+    present: async (dir) => !gone.has(dir),
   });
   services.push(service);
   /** The open watcher of a directory. */
@@ -183,6 +186,7 @@ function harness(options: { readonly reader?: "none" } = {}) {
     now,
     known,
     archived,
+    gone,
     reads,
     signals,
     failures,
@@ -1028,6 +1032,90 @@ describe("ChangesService: archived workspaces", () => {
     expect(counts(reads)).toBeGreaterThan(before);
     expect(open()).toStrictEqual(["/top", "/git/worktrees/w", "/git"]);
     expect(sent).toStrictEqual([["c1", updated(1)]]);
+  });
+});
+
+/** What the capsule is sent for a workspace with nothing to count. */
+function nothing(workspaceId = W1) {
+  return { type: "changes_updated", workspaceId, stat: null, dirty: false, ahead: 0, branch: null, base: null };
+}
+
+describe("ChangesService: a directory gone outside Atrium", () => {
+  it("runs no git and watches nothing there, tells the capsule there is nothing and the panel it could not read, and logs nothing", async () => {
+    const { service, gone, reads, open, sent, records } = harness();
+    gone.add("/top/w1");
+
+    service.watchChanges("c1", [W1]);
+    service.watchDiff("c1", { workspaceId: W1, mode: "base" });
+    await settle();
+
+    expect(reads).toStrictEqual([]);
+    expect(open()).toStrictEqual([]);
+    expect(sent).toStrictEqual([
+      ["c1", nothing()],
+      ["c1", { type: "diff_updated", workspaceId: W1, mode: "base", files: [], tooLarge: false, error: "failed" }],
+    ]);
+    expect(records).toStrictEqual([]);
+  });
+
+  it("looks at the directory now and then without git, and reads and watches again once it is back", async () => {
+    const { service, clock, gone, reads, open, sent, records } = harness();
+    gone.add("/top/w1");
+    service.watchChanges("c1", [W1]);
+    await settle();
+    await pass(clock, POLL_START_MS);
+    await pass(clock, RECOVER_START_MS);
+    expect(reads).toStrictEqual([]);
+
+    gone.delete("/top/w1");
+    await pass(clock, 2 * RECOVER_START_MS);
+
+    expect(counts(reads)).toBeGreaterThan(0);
+    expect(open()).toStrictEqual(["/top", "/git/worktrees/w", "/git"]);
+    expect(sent).toStrictEqual([
+      ["c1", nothing()],
+      ["c1", updated(1)],
+    ]);
+    expect(records).toStrictEqual([]);
+    service.disconnect("c1");
+    expect(clock.pendingTimers()).toBe(0);
+  });
+
+  it("schedules nothing for a workspace let go while its directory was looked at", async () => {
+    const { service, clock, gone, resources } = harness();
+    gone.add("/top/w1");
+
+    service.watchChanges("c1", [W1]);
+    service.watchChanges("c1", []);
+    await settle();
+
+    expect(clock.pendingTimers()).toBe(0);
+    expect(resources.snapshot()).toStrictEqual({});
+  });
+
+  it("tells the capsule there is nothing once the directory goes while watched, and logs neither git nor the watcher failing", async () => {
+    const { service, clock, gone, hold, failures, reads, sent, records, watcherOf } = harness();
+    service.watchChanges("c1", [W1]);
+    await settle();
+    const release = hold("changes");
+    service.refresh(W1);
+    await settle();
+
+    gone.add("/top/w1");
+    failures.push(new GitError("rev-parse", "spawn"));
+    release();
+    await settle();
+    watcherOf("/top").onError();
+    await settle();
+    const before = counts(reads);
+    await pass(clock, POLL_START_MS);
+
+    expect(counts(reads)).toBe(before);
+    expect(sent).toStrictEqual([
+      ["c1", updated(1)],
+      ["c1", nothing()],
+    ]);
+    expect(records).toStrictEqual([]);
   });
 });
 

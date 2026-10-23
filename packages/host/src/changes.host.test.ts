@@ -1,6 +1,6 @@
 import type { AtriumClient } from "@atrium/client";
 import { GIT_SCENE_ENV, createGitScene, present } from "@atrium/testkit";
-import { mkdir, realpath, symlink, writeFile } from "node:fs/promises";
+import { mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { type TestHost, startTestHost } from "../test/harness";
@@ -130,6 +130,46 @@ describe("archiving a shown workspace", () => {
       () => expect(present(testHost, "the host").host.resources.snapshot()["git.process"]).toBe(0),
       SEEN,
     );
+  });
+});
+
+describe("a shown worktree removed outside Atrium", () => {
+  it("tells the capsule there is nothing and leaves no warning in the log, as git cannot run there", async () => {
+    const scene = await createGitScene("changes-removed");
+    onTestFinished(scene.cleanup);
+    const repo = await realpath(scene.repo);
+    const dir = await scene.worktree("feature");
+    testHost = await startTestHost({ toolEnv: { ...GIT_SCENE_ENV, PATH: present(process.env["PATH"], "PATH") } });
+    await testHost.host.tools;
+    const client = testHost.connect();
+    onTestFinished(() => client.disconnect());
+    await client.connect();
+    await client.addProject(repo);
+    await vi.waitFor(() => expect(client.index.getState().workspaces).toHaveLength(2), SEEN);
+    const worktree = present(
+      client.index.getState().workspaces.find((one) => one.kind === "worktree"),
+      "the worktree",
+    ).id;
+    await client.watchChanges([worktree]);
+    await client.watchDiff({ workspaceId: worktree, mode: "uncommitted" });
+    await vi.waitFor(() => expect(client.changes(worktree).getState()).toMatchObject({ branch: "feature" }), SEEN);
+
+    // As `git worktree remove` in a terminal does, with the window still on it.
+    await rm(dir, { recursive: true, force: true });
+    await client.windowFocused();
+
+    await vi.waitFor(
+      () =>
+        expect(client.changes(worktree).getState()).toStrictEqual({
+          stat: null,
+          dirty: false,
+          ahead: 0,
+          branch: null,
+          base: null,
+        }),
+      SEEN,
+    );
+    await vi.waitFor(() => expect(client.diff.getState().error).toBe("failed"), SEEN);
   });
 });
 

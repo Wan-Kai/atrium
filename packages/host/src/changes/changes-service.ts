@@ -6,6 +6,7 @@ import {
   type DiffUpdatedEvent,
 } from "@atrium/protocol";
 import { watch } from "node:fs";
+import { stat } from "node:fs/promises";
 import { type Clock, trackedTimeout } from "../platform/clock";
 import { GitError } from "../platform/git";
 import type { Logger } from "../platform/logger";
@@ -27,6 +28,28 @@ const RECOVER_MAX_MS = 300_000;
 
 /** What a connection is told about workspaces' changes. */
 type ChangesEvent = ChangesUpdatedEvent | DiffUpdatedEvent;
+
+/** The count where there is nothing to count: no git, or no directory. */
+const NO_CHANGES: WorkspaceChanges = { stat: null, dirty: false, ahead: 0, branch: null, base: null };
+
+/** The panel's diff where git cannot be read: no git, or no directory. */
+const NO_DIFF: WorkspaceDiff = { files: [], tooLarge: false, error: "failed" };
+
+/**
+ * Whether a directory is there.
+ *
+ * @remarks
+ * A workspace's directory removed outside Atrium is not read (SPEC-0001, "工作区改动"); the same
+ * look as opening a session takes before starting pi.
+ *
+ * @sideEffects Looks at the file system.
+ * @param dir - The directory.
+ * @returns Whether it is a directory.
+ */
+async function directoryPresent(dir: string): Promise<boolean> {
+  const found = await stat(dir).catch(() => null);
+  return found?.isDirectory() === true;
+}
 
 /**
  * Watches a directory and everything below it.
@@ -141,12 +164,15 @@ function gitChangeMatters(path: string): boolean {
  * failing is logged by its command and reason only. An archived workspace's directory goes, so
  * from the moment the index marks it archived nothing of it is watched or read, and neither a read
  * under way failing nor its watcher breaking is logged (SPEC-0001, "M1.11 的工作区归档"); restored,
- * it is read again.
+ * it is read again. A directory removed outside Atrium is looked at before each read and each try
+ * to watch: while it is not there no git runs, the capsule is told there is nothing and a panel
+ * that git could not be read, nothing is logged, and the looks and tries of a broken watcher go on
+ * until it is back (SPEC-0001, "工作区改动", 2026-10-23).
  *
- * @sideEffects none until a connection watches; then runs git through `reader`, watches files,
- * schedules timers, sends events and logs.
+ * @sideEffects none until a connection watches; then looks at directories, runs git through
+ * `reader`, watches files, schedules timers, sends events and logs.
  * @param options - How to read changes, find a workspace, watch and send, and the clock, resource
- * tracker and logger.
+ * tracker and logger; `present` says whether a directory is there.
  * @returns The service.
  */
 export function createChangesService(options: {
@@ -163,8 +189,10 @@ export function createChangesService(options: {
   readonly resources: ResourceTracker;
   readonly logger: Logger;
   readonly watch?: WatchDirectory;
+  readonly present?: (dir: string) => Promise<boolean>;
 }): ChangesService {
   const watchDir = options.watch ?? watchDirectory;
+  const present = options.present ?? directoryPresent;
   const watched = new Map<string, Watched>();
   /** The workspaces each connection shows, by id. */
   const showing = new Map<string, ReadonlyMap<string, Watched>>();
@@ -263,11 +291,12 @@ export function createChangesService(options: {
    * Watches a workspace's tree and git directories.
    *
    * @remarks
-   * Nothing is watched outside a repository, whose changes are always none. A watcher failing,
-   * or git failing to say what to watch when `degradeOnFailure`, switches to looking now and then
-   * (`degrade`). Once watching, it looks again, for what changed before.
+   * Nothing is watched outside a repository, whose changes are always none, nor in a directory
+   * not there. A watcher failing, or git failing to say what to watch or the directory missing
+   * when `degradeOnFailure`, switches to looking now and then (`degrade`). Once watching, it looks
+   * again, for what changed before.
    *
-   * @sideEffects Runs git; watches files; may look.
+   * @sideEffects Looks at the directory; runs git; watches files; may look.
    * @param entry - The workspace.
    * @param degradeOnFailure - Whether git failing switches to looking now and then; a try to
    * watch again does not, as its looks go on.
@@ -278,6 +307,11 @@ export function createChangesService(options: {
     const place = options.resolve(entry.workspaceId);
     // Stryker disable next-line BooleanLiteral: only a try at a workspace removed meanwhile, which its connections stop showing.
     if (reader === null || place === undefined || place.archived) return false;
+    if (!(await present(place.dir))) {
+      // Looks see the directory gone; a try sees it back.
+      if (degradeOnFailure && !entry.stop.signal.aborted) degrade(entry);
+      return false;
+    }
     let roots: WatchRoots | null;
     try {
       roots = await reader.roots(place.dir, entry.stop.signal);
@@ -285,7 +319,8 @@ export function createChangesService(options: {
     } catch (error) {
       // Stryker disable next-line BooleanLiteral: a try at a workspace let go is over either way (`current`).
       if (entry.stop.signal.aborted) return false;
-      failed(entry, error);
+      // Fire and forget: `failed` never rejects.
+      void failed(entry, error);
       if (degradeOnFailure) degrade(entry);
       return false;
     }
@@ -421,8 +456,8 @@ export function createChangesService(options: {
      */
     const current = (): boolean =>
       entry.generation === generation && entry.stopPolling !== null && !entry.stop.signal.aborted;
-    if (!archived(entry))
-      options.logger.warn({ workspaceId: entry.workspaceId }, "changes watch failed, looking now and then");
+    // Fire and forget: `warnUnlessGone` never rejects.
+    void warnUnlessGone(entry, { workspaceId: entry.workspaceId }, "changes watch failed, looking now and then");
     let wait = POLL_START_MS;
     let tries = 0;
     let cancelLook: (() => void) | null = null;
@@ -525,7 +560,7 @@ export function createChangesService(options: {
    * @remarks
    * See `createChangesService`.
    *
-   * @sideEffects Runs git; sends events; logs failures.
+   * @sideEffects Looks at the directory; runs git; sends events; logs failures.
    * @param entry - The workspace.
    */
   async function lookLoop(entry: Watched): Promise<void> {
@@ -537,13 +572,13 @@ export function createChangesService(options: {
       entry.wantDiffs.clear();
       const place = options.resolve(entry.workspaceId);
       if (place === undefined || place.archived) return;
+      const readable = reader !== null && (await present(place.dir));
       if (changes) {
         try {
-          // Without git there is nothing to count.
-          const now: WorkspaceChanges =
-            reader === null
-              ? { stat: null, dirty: false, ahead: 0, branch: null, base: null }
-              : await reader.changes(place.dir, place.mainBranch, entry.stop.signal);
+          // Without git, or without the directory, there is nothing to count.
+          const now: WorkspaceChanges = readable
+            ? await reader.changes(place.dir, place.mainBranch, entry.stop.signal)
+            : NO_CHANGES;
           const json = JSON.stringify(now);
           const fresh = json !== entry.sentChanges;
           entry.sentChanges = json;
@@ -553,16 +588,16 @@ export function createChangesService(options: {
             options.send(connectionId, { type: "changes_updated", workspaceId: entry.workspaceId, ...now });
           }
         } catch (error) {
-          if (!entry.stop.signal.aborted) failed(entry, error);
+          if (!entry.stop.signal.aborted) await failed(entry, error);
         }
       }
       for (const mode of modes) {
         try {
-          // Without git the panel says it could not read the changes (SPEC-0001, "工作区改动").
-          const now: WorkspaceDiff =
-            reader === null
-              ? { files: [], tooLarge: false, error: "failed" }
-              : await reader.diff(place.dir, place.mainBranch, mode, entry.stop.signal);
+          // Without git, or without the directory, the panel says it could not read the changes
+          // (SPEC-0001, "工作区改动").
+          const now: WorkspaceDiff = readable
+            ? await reader.diff(place.dir, place.mainBranch, mode, entry.stop.signal)
+            : NO_DIFF;
           const json = JSON.stringify(now);
           const fresh = json !== entry.sentDiffs.get(mode);
           entry.sentDiffs.set(mode, json);
@@ -573,24 +608,31 @@ export function createChangesService(options: {
             options.send(connectionId, { type: "diff_updated", workspaceId: entry.workspaceId, mode, ...now });
           }
         } catch (error) {
-          if (!entry.stop.signal.aborted) failed(entry, error);
+          if (!entry.stop.signal.aborted) await failed(entry, error);
         }
       }
     }
   }
 
   /**
-   * Whether a workspace is archived now.
+   * Logs a warning about a workspace, unless its directory went on purpose or outside Atrium.
    *
    * @remarks
-   * See `createChangesService`.
+   * Archiving removes the directory a read under way was in (SPEC-0001, "M1.11 的工作区归档"); a
+   * directory removed outside Atrium is not read (SPEC-0001, "工作区改动"). A workspace gone from
+   * the list is still logged.
    *
-   * @sideEffects none
+   * @sideEffects Looks at the directory; logs.
    * @param entry - The workspace.
-   * @returns Whether it is.
+   * @param fields - What to log with it.
+   * @param msg - The message.
+   * @returns When logged or left out; never rejects.
    */
-  function archived(entry: Watched): boolean {
-    return options.resolve(entry.workspaceId)?.archived === true;
+  async function warnUnlessGone(entry: Watched, fields: Record<string, unknown>, msg: string): Promise<void> {
+    const place = options.resolve(entry.workspaceId);
+    if (place?.archived === true) return;
+    if (place !== undefined && !(await present(place.dir))) return;
+    options.logger.warn(fields, msg);
   }
 
   /**
@@ -598,23 +640,25 @@ export function createChangesService(options: {
    *
    * @remarks
    * By the command and reason only: git's output and the paths may be private (security.md). Not
-   * at all for an archived workspace, whose directory archiving removed.
+   * at all for a workspace whose directory went, archived or removed outside Atrium
+   * (`warnUnlessGone`).
    *
-   * @sideEffects Logs.
+   * @sideEffects Looks at the directory; logs.
    * @param entry - The workspace.
    * @param error - What failed.
+   * @returns When logged or left out; never rejects.
    */
-  function failed(entry: Watched, error: unknown): void {
-    // Archiving removes the directory a read under way was in.
-    if (archived(entry)) return;
+  async function failed(entry: Watched, error: unknown): Promise<void> {
     if (error instanceof GitError) {
       if (error.reason === "aborted") return;
-      options.logger.warn(
+      await warnUnlessGone(
+        entry,
         { workspaceId: entry.workspaceId, command: error.command, reason: error.reason },
         "changes not read",
       );
     } else {
-      options.logger.warn(
+      await warnUnlessGone(
+        entry,
         { workspaceId: entry.workspaceId, error: error instanceof Error ? error.name : "unknown" },
         "changes not read",
       );
