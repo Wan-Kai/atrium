@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-23：插件系统暂缓（用户定），在 `atrium/design-plugin-model`（worktree `atrium.worktrees/design-plugin-model`），未提交。** 设计了插件要有的能力、挂载点、状态、降级链、把现有内容型界面迁成内置插件（写进 [plugin-model.md](architecture/plugin-model.md)），调研了阿里低代码引擎（[lowcode-engine.md](research/lowcode-engine.md)）和 DeepSeek Harness 的客户端插件（[deepseek-harness-plugins.md](research/deepseek-harness-plugins.md)）。对比 pi 与 DeepSeek Harness 后（[pi-vs-dsh.html](research/pi-vs-dsh.html)），用户认为基于 pi 做整体插件化上限太低，先不做；阶段 2、3 标为暂缓。下一步仍是 MVP 2 的 SPEC-0004。
+
 **2026-10-22：M1.11 自用完成。** 用户定：自用已够（10-11 到 10-22，184 个会话，其中 agent 开的子对话 112 个，全部用 Atrium 开发 Atrium 自己）；H1 成立、继续走 pi；新账户首次启动不跑（M1.10 完成标准第一条仍未验证，开源发布前再做）。[self-use.md](research/self-use.md) 按本机数据补齐：会话按日合并、资源趋势逐日、pi 与 Codex 的差距、14 条需求的核对（第 10 条自用中没碰到、第 13 条只在本机走过）。整理时在日志里发现两个没修的问题，进 MVP 2 前先修：界面 10-20 起上报 48 次 React #185（打包版也有），模型目录为已删的 worktree 目录起一次性 pi（22 次非请求退出全是它，会话的 pi 没崩过）。下一步：写 MVP 2 的 SPEC-0004（审批与上下文检查器）。
 
 **2026-10-22（M1.11 自用）：查了 `pnpm usage` 标出的 10-21 那次 24 小时上涨（`pi-process` 3 → 17、`session.controller` 3 → 68、heap 21 → 171 MB），不是违反 SPEC 的泄漏，是"你开的会话 pi 常驻、控制器留到归档"在一天 75 个会话下的累积。按用户选择加了 SPEC-0001"空闲回收"：空闲满 30 分钟停 pi（标签开着也停，下次用时再起），pi 停了、没人订阅、也没开着标签时丢掉控制器（点过停止的、出错的留着），宿主随每分钟的资源报告查一次；M1.15 留待定的"子对话被回收后控制器留到归档"一并解决。Claude 子代理只读审查后按用户决定补了"开着标签不丢"、"停过的维持留着"，修了等停 pi 的启动没算在启动；用户定放宽编辑重发的门禁：pi 已停、页面是停掉那个 pi 的 epoch 时按新 pi 核对最后一轮。在 `atrium/self-use-resource-growth`，待用户验收，未提交、未合并。** 验证见[追踪表](testing/coverage-map.md#m111-自用空闲回收-pi-与控制器2026-10-22)。
@@ -152,6 +154,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - 测试与代码质量（[testing.md](architecture/testing.md)）：Vitest 5（含浏览器模式）、Playwright 驱动 Electron、fast-check、Stryker 变异测试（核心模块 ≥ 80%）、泄漏测试（资源计数回到基线；界面比较脱离文档的 DOM 节点）、性能预算、长时间运行；oxlint（类型感知）+ oxfmt + TypeScript 7 + knip + lefthook。能用真的就用真的，模型用 pi 的 faux，时间用假时钟。
 - 项目 → 工作区 → 会话；工作区与目录一一对应；另有不绑定项目的"对话"（[ADR-0006](adr/0006-organize-sessions-by-workspace.md)）。
 - 扩展和宿主之间有来有回：扩展 `setStatus("atrium-agent:<请求 id>", JSON)` 问，宿主隐藏命令 `/atrium-agent reply | deliver | cancel` 答；调用方身份看是哪个 pi 进程的管道，不另开端口和 token（[ADR-0013](adr/0013-agent-channel-status-and-hidden-command.md)）。
+- 插件系统暂缓（2026-10-23 定）：基于 pi 的插件做不了跨会话和常驻的事（扩展跟着一个会话的 pi 进程，宿主不跑插件代码）、数据通道窄、界面受挂载点限制，上限太低；设计留在 [plugin-model.md](architecture/plugin-model.md) 作参考，对比见 [pi-vs-dsh.html](research/pi-vs-dsh.html)。
 - Atrium 不内置浏览器：agent 的浏览器操作在外部浏览器（默认 ego lite）里做，定制功能做成自己的浏览器插件（[ADR-0009](adr/0009-browser-stays-external.md)）。
 
 数据与运行（细节见 [domain-model.md](architecture/domain-model.md)）：
@@ -466,11 +469,13 @@ v0.1 不做：沙箱隔离、插件系统、会话树、agent 自扩展、对外
 
 成功标准：连续两周把 Atrium 当作日常编码的主力工具；至少有一次通过上下文检查器发现问题，并用 extension 修好。
 
-### 2. 第一个插件：todo（先写死）
+### 2. 第一个插件：todo（先写死）（2026-10-23 暂缓）
+
+插件系统暂缓，理由见"已定的关键决策"和 [plugin-model.md](architecture/plugin-model.md)。下面是原计划。
 
 覆盖插件的三个部分：工具（`todo_write`）、数据（跟随会话分支）、视图（桌面面板实时刷新）。
 
-### 3. 抽出插件接口
+### 3. 抽出插件接口（2026-10-23 暂缓）
 
 从 todo 中抽出"extension + 视图"的插件接口，再用第二个插件验证。第二个插件的候选是 HTML 设计稿（对话里渲染模型写的 HTML、一个文件持续改、元素标注、分享），它能检验 todo 测不出的内联挂载和沙箱视图，需求见 [plugin-model.md · 待做的插件：HTML 设计稿](architecture/plugin-model.md#待做的插件html-设计稿)。
 
