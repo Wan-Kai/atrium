@@ -599,6 +599,40 @@ describe("ordinary pi configuration files", () => {
     expect(await fourth).toMatchObject({ value: { text: four } });
   });
 
+  it("accepts same-path saves in the order they were made, even when finding the file takes the earlier one longer", async () => {
+    const temp = await createTempDir("pi-config");
+    onTestFinished(temp.cleanup);
+    const root = await realpath(temp.path);
+    const global = join(root, "global");
+    const located = Promise.withResolvers<void>();
+    onTestFinished(() => located.resolve());
+    // Only the first save waits for pi's environment, so a later one would find its file first.
+    const waits: Promise<void>[] = [located.promise];
+    const service = createPiConfig({
+      environment: async () => {
+        await waits.shift();
+        return { HOME: root, PI_CODING_AGENT_DIR: global };
+      },
+      dirOf: () => undefined,
+    });
+    const [one, two] = ['{"order":1}', '{"order":2}'] as const;
+    const first = service.save(null, "settings.json", one, null).then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+    const second = service.save(null, "settings.json", two, createHash("sha256").update(one).digest("hex")).then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+    // A whole save of another file is the barrier: it is not held back, and takes longer than finding a file.
+    await service.save(null, "mcp.json", "{}", null);
+    located.resolve();
+
+    expect(await first).toMatchObject({ value: { text: one } });
+    expect(await second).toMatchObject({ value: { text: two } });
+    expect(await readFile(join(global, "settings.json"), "utf8")).toBe(two);
+  });
+
   it("handles filesystem-root configuration using actual root metadata without opening real root configs", async () => {
     const { root } = await fixture();
     const safeFile = join(root, "safe-settings.json");

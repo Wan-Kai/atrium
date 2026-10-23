@@ -1275,3 +1275,14 @@ GPT-6 Astra、Grok 4.7、Claude 子代理各自只读审查，合并去重后修
 
 端到端排查（2026-10-22）：界面泄漏测试第一次写时，⌘T 后没等新标签就打字，6 次里约 1 次消息落到别的地方、卡片不来、超时；改成先等"新会话"标签，泄漏和端到端各重复 6 次 18/18 通过。`run-control.spec.ts` "queues a message during a run…" 在和其他文件一起跑时失败过 1 次（第一条消息后没出现"停止"），单跑 4/4、组合复跑 4/4 通过，未改。
 | 插话还在等 pi 应答、或排在别的插话后面时 pi 退出：消息被放回排队，同时命令报 `pi_unavailable`，输入框（或排队面板的"插话"）又退回一份（Grok，既有竞态） | 退出时给这些插话打上"已回排队"，它们的命令应答 `queued`，不再报错；排在后面的不再发出 | `session-controller.test.ts` "puts a steer pi had not answered when it went back in the queue once…"、"puts steers waiting their turn…"、"keeps a queued message steered as pi went in the queue once"（改前三项都报 `pi_unavailable`）；破坏检查 3 处检出 | 已覆盖 |
+
+## 已知不稳的测试修复（2026-10-23）
+
+testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉，修好的从表里删去。压力测试用 `pnpm test:stress`（默认 13 份并行、每份一个 worker），修前修后用同样的方式跑。
+
+| 测试 | 根因 | 修法 | 稳定性证据 | 状态 |
+|---|---|---|---|---|
+| `pi-config.test.ts` "queues several same-path saves in order while unrelated paths remain writable" | 生产代码的竞态：`save()` 先 `await locate()`（读 pi 的环境、`realpath`、`lstat`）再进同路径的队列，后发的保存若先找到文件就插到前面，读到旧版本，应答 `config_conflict`。SPEC 写的是"同宿主对写入串行受理"，按到达的顺序受理不改外部行为 | 同一（工作区, 文件名）的保存按调用的顺序进同路径的队列：每次保存先等同一文件上一次保存排进队列，再找路径；不同文件互不等待 | 新增 "accepts same-path saves in the order they were made, even when finding the file takes the earlier one longer"（第一次保存等 pi 的环境，第二次先找到文件），修前 3/3 失败；破坏检查 3 处检出。修前压力 39 次失败 8 次，修后 104 次全过 | 已修 |
+| `workspace-files.test.ts` "lists a directory of exactly 5000 entries whole"（同文件 5001 的用例同理） | 测试本身：每次用 `await writeFile` 逐个建 5000、5001 个文件，机器忙时建文件全机竞争，13 份并行时每份约 6.5 秒，超过 5 秒期限 | 改用 testkit 新增的 `numberedFiles(count)`：只读的共享大目录，跨运行复用，全局初始化先确保在（testing.md"测试里的大目录"）；5000 的用例仍用真实 git，用 `gitSceneEnv` 拦住它往上找仓库 | 修前压力 78 次两个用例全部超时，修后 78 次全过。`shared-directory.test.ts` 3 项，破坏检查 6 处检出 | 已修 |
+| `install-service.test.ts`（表里 install-job 一行的"同类用例"） | 测试本身：每个测试新写 `brew`、`pi` 两个可执行脚本，macOS 首次运行前的检查排队，13 份并行时脚本迟迟不出输出 | 链接到 testkit 共享的 shell pi，脚本按被调用的名字区分 `brew` 和 `pi`（testing.md"测试里的可执行文件"） | 修前压力跑 `setup/` 52 次："holds pi's starts…" 52 次全败，"runs one job at a time" 46 次、另 4 个用例 3～11 次超时；修后 52 次全过。破坏检查：把替身里的 `brew` 分支改坏，"installs Node…" 检出 | 已修 |
+| `workbench.browser.test.tsx` "names a chat by its alias, else its first session's title, else as new" | 测试本身：夹具的 `session()` 各自取 `Date.now()` 作更新时间，对话列表按最近活动降序，跨毫秒建的后两个对话排到前面 | 三个对话的更新时间在测试里写定（相差 1 秒） | 在建夹具前插入 2 毫秒忙等可稳定复现（修前失败、行序为"新对话、周报、解释 merge-tree"），修后同样插入忙等通过；压力结果见下 | 已修 |

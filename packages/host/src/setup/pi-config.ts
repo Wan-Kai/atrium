@@ -165,6 +165,7 @@ export function createPiConfig(options: {
   readonly dirOf: (workspaceId: string) => string | undefined;
 }): PiConfig {
   const saves = new Map<string, Promise<void>>();
+  const admissions = new Map<string, Promise<void>>();
 
   /** Resolves only allowlisted names in the selected scope.
    * @remarks Runtime validation also protects callers bypassing protocol types.
@@ -251,16 +252,32 @@ export function createPiConfig(options: {
       }
     },
     save: async (workspaceId, name, text, revision) => {
+      // Saves of one file join its path's queue in the order they were made: finding the path takes
+      // a different time each save, and a later save must not overtake an earlier one.
+      const request = JSON.stringify([workspaceId, name]);
+      const earlier = admissions.get(request) ?? Promise.resolve();
+      const { promise: admitted, resolve: admit } = Promise.withResolvers<void>();
+      admissions.set(request, admitted);
       try {
-        const location = await locate(workspaceId, name);
+        let location: Awaited<ReturnType<typeof locate>>;
+        let previous: Promise<void>;
+        let pending: Promise<void>;
+        let release: () => void;
+        try {
+          await earlier;
+          location = await locate(workspaceId, name);
+          // Mutation equivalence for this encoding, writeFile below, and Buffer.from at return:
+          // Node treats the mutated empty-string encoding as the same UTF-8 default.
+          if (Buffer.byteLength(text, "utf8") > MAX_BYTES) throw new CommandError("config_too_large");
+          if (!isPiConfigValid(name, text)) throw new CommandError("config_invalid");
+          previous = saves.get(location.path) ?? Promise.resolve();
+          ({ promise: pending, resolve: release } = Promise.withResolvers<void>());
+          saves.set(location.path, pending);
+        } finally {
+          admit();
+          if (admissions.get(request) === admitted) admissions.delete(request);
+        }
         const { path } = location;
-        // Mutation equivalence for this encoding, writeFile below, and Buffer.from at return:
-        // Node treats the mutated empty-string encoding as the same UTF-8 default.
-        if (Buffer.byteLength(text, "utf8") > MAX_BYTES) throw new CommandError("config_too_large");
-        if (!isPiConfigValid(name, text)) throw new CommandError("config_invalid");
-        const previous = saves.get(path) ?? Promise.resolve();
-        const { promise: pending, resolve: release } = Promise.withResolvers<void>();
-        saves.set(path, pending);
         await previous;
         let lock: PiSettingsLock | undefined;
         try {

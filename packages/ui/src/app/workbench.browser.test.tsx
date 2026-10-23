@@ -924,13 +924,23 @@ describe("Workbench sidebar", () => {
 
   it("names a chat by its alias, else its first session's title, else as new", async () => {
     const initial = list();
+    // The chats are listed latest first: set when each was last changed, not left to the clock.
+    const at = Date.now() - 60_000;
     await workbench({
       initial: {
         ...initial,
         sessions: [
-          ...initial.sessions,
-          session({ sessionId: "d1", containerId: "cht_b", prompt: null, file: null, state: "draft" }),
-          session({ sessionId: "r1", containerId: "cht_c", prompt: "周报的提纲" }),
+          ...initial.sessions.filter((each) => each.sessionId !== "c1"),
+          session({ sessionId: "c1", containerId: CHAT, prompt: "解释 merge-tree", updatedAt: at }),
+          session({
+            sessionId: "d1",
+            containerId: "cht_b",
+            prompt: null,
+            file: null,
+            state: "draft",
+            updatedAt: at - 1000,
+          }),
+          session({ sessionId: "r1", containerId: "cht_c", prompt: "周报的提纲", updatedAt: at - 2000 }),
         ],
         chats: [
           ...initial.chats,
