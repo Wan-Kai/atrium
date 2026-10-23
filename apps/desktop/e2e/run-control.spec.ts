@@ -132,6 +132,8 @@ test("starts pi again after it is killed mid-run, and asks the agent to go on", 
     const first = await sessionPi();
     expect(first).toBeDefined();
 
+    // The kill is a crash to the host, which it logs before starting pi again.
+    launched.expectLog({ level: "warn", msg: "pi exited", times: 1 });
     process.kill(Number(first), "SIGKILL");
 
     await expect(window.getByTestId("notice")).toHaveText("进程已自动重启（第 1 / 3 次）", { timeout: 30_000 });

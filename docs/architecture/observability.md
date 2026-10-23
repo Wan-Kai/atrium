@@ -72,7 +72,14 @@ span 结束时另写一条 `kind: "span"` 的记录：名称、开始结束时�
 
 - 文件位置：`~/.atrium/logs/host.<n>.jsonl`（按 10MB 轮转，磁盘上最多保留 5 个，包括之前运行留下的；`current.log` 链接到正在写的那个；含 client 和 UI 发回的记录）；Electron 主进程的日志以后加 `desktop.<n>.jsonl`。日志流出错（如磁盘写满）时写到 stderr，不让宿主崩溃。
 - 级别：默认 `info`；设置里可切到 `debug`；`trace` 级只在开发时用。
-- 查看：`pnpm trace <trace id>` 把一条链路的 span 和日志按树形打印出来。
+- warn 和 error 只留给需要有人看的事。Atrium 自己要求的停止或中止引起的记录不记 warn，和"pi exited"按 `requested` 分 info、warn 一致（2026-10-23 定）。原先这几处都记 warn，宿主测试加上日志门禁（[testing.md · 日志门禁](testing.md#日志门禁)）后才发现：每次关会话、关宿主都会留下几条假 warn，把真的问题埋住。改为：
+  - Atrium 自己放弃的请求（宿主停 pi 时还在等的、调用方用 signal 中止的），pi 之后才回的响应记 debug，照样丢掉；过了 pi 进程自己的期限（timeout）才到的、没有 id 的、从没发出过的 id 仍记 warn"pi response matches no waiting request"。为此记住的请求 id 有上限（最近 100 个，先进先出）：pi 可能永远不回，会话的 pi 可能一连跑好几天。
+  - 模型目录的查询过了自己的期限（120 秒）被中止时，另记一条 warn"model list timed out"，只带期限（`timeoutMs`），不带目录路径；目录关闭时中止查询不记。这样上一条把"中止后的迟到响应"降为 debug 后，查询超时仍然看得见。
+  - 运行后读 pi 的条目（`get_entries`）时宿主停了这个 pi（`reason: "stopped"`，只在 `stop()` 之后出现）记 info，pi 崩溃（`exited`）、超时、被拒仍记 warn"transcript refresh failed"。
+  - 读登录 shell 的环境被宿主关闭中止（`reason: "aborted"`）记 info，超时、退出码不对、读不到标记、起不来仍记 warn"login shell attempt failed"。
+  - 一次性 pi（标题生成等）因调用方中止而失败（宿主关闭时中止正在生成的标题）：`reason: "aborted"` 记 info，其他原因仍记 warn"one-shot pi failed"。
+  - 没找到 pi（`pi inspected` 的 `status: "missing"`）记 info：没装 pi 是首次启动的正常状态，界面会引导安装；找到了却用不了（`unusable`）或版本太旧（`outdated`）仍记 warn。
+- 查看：`pnpm trace <trace id>` 把一条链路的 span 和日志按树形打印出来。`pnpm errors` 把 warn、error、fatal 按签名汇总，标出最近一次宿主启动后才出现的新签名（[testing.md · 运行时监控](testing.md#运行时监控)）；签名不含 `msg` 之外的文字，所以 `msg` 要保持固定的短句，变化的信息放结构化字段。
 
 ## 脱敏
 
@@ -87,5 +94,6 @@ span 结束时另写一条 `kind: "span"` 的记录：名称、开始结束时�
 ## 和测试的关系
 
 - 测试里换成内存导出器，可以断言一次操作产生了预期的 span 树（例如停止时依次出现暂停出队、`clear_queue`、`abort`），用来定位第 4 层测试的失败。
+- 第 4 层和第 6 层的测试收尾时检查宿主日志：测试没声明的 warn、error、fatal 让测试失败（[testing.md · 日志门禁](testing.md#日志门禁)，2026-10-23）。
 - 泄漏测试把"未结束的 span 数"也算进资源计数：操作结束后必须回到 0（[testing.md · 性能与资源泄漏](testing.md#性能与资源泄漏)）。
 - 资源计数和内存的定时记录（每分钟一次）也写进同一份日志：宿主的资源计数、堆和 RSS 记为 `resource usage`；Electron 主进程没有自己的日志，每分钟把 `app.getAppMetrics()` 里各进程的类型、内存（working set，KB）和 CPU 交给宿主，记为 `app metrics`（2026-10-11 定）。`pnpm usage` 按宿主的每次运行汇总这两种记录。

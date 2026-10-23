@@ -29,6 +29,7 @@
     "bench": "vitest bench --run",
     "trace": "node scripts/trace.mjs",
     "usage": "node scripts/usage.mjs",
+    "errors": "node scripts/errors.mjs",
     "postinstall": "pnpm --filter @atrium/desktop exec install-electron",
     "pi:try": "pnpm --silent --filter @atrium/host build && node packages/host/dist/try-pi.cjs",
     "fixtures:record": "node scripts/record-fixtures.mjs",

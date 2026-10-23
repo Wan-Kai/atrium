@@ -66,8 +66,8 @@ type Held = "changes" | "diff" | "roots" | "ignored";
  *
  * @remarks
  * The reader answers with `now`, which a test changes; watchers record their callbacks so a test
- * can report a change or an error. `hold` makes one kind of read wait until let go, and `known`
- * says which workspaces `resolve` finds.
+ * can report a change or an error. `hold` makes one kind of read wait until let go, `known`
+ * says which workspaces `resolve` finds, and `archived` which of them are archived.
  *
  * @sideEffects none
  * @returns The service and what a test drives and checks.
@@ -87,6 +87,7 @@ function harness(options: { readonly reader?: "none" } = {}) {
     ignored: ["build/", "node_modules/"],
   };
   const known = new Set([W1, W2]);
+  const archived = new Set<string>();
   const reads: string[] = [];
   const signals: AbortSignal[] = [];
   const failures: unknown[] = [];
@@ -153,7 +154,10 @@ function harness(options: { readonly reader?: "none" } = {}) {
   const sent: [string, unknown][] = [];
   const service = createChangesService({
     reader: Promise.resolve(options.reader === "none" ? null : reader),
-    resolve: (workspaceId) => (known.has(workspaceId) ? PLACES.get(workspaceId) : undefined),
+    resolve: (workspaceId) => {
+      const place = known.has(workspaceId) ? PLACES.get(workspaceId) : undefined;
+      return place === undefined ? undefined : { ...place, archived: archived.has(workspaceId) };
+    },
     send: (connectionId, event) => sent.push([connectionId, event]),
     clock,
     resources,
@@ -178,6 +182,7 @@ function harness(options: { readonly reader?: "none" } = {}) {
     resources,
     now,
     known,
+    archived,
     reads,
     signals,
     failures,
@@ -947,6 +952,82 @@ describe("ChangesService: looks", () => {
     expect(open()).toStrictEqual([]);
     expect(clock.pendingTimers()).toBe(0);
     expect(resources.snapshot()).toStrictEqual({});
+  });
+});
+
+describe("ChangesService: archived workspaces", () => {
+  it("reads nothing more of a workspace once archived, and logs nothing for a read under way that fails as its directory goes", async () => {
+    const { service, clock, hold, failures, archived, reads, sent, logged, watcherOf } = harness();
+    service.watchChanges("c1", [W1]);
+    await settle();
+    const release = hold("changes");
+    service.refresh(W1);
+    await settle();
+    const before = counts(reads);
+
+    archived.add(W1);
+    failures.push(new GitError("rev-parse", "spawn"));
+    release();
+    await settle();
+    watcherOf("/top").onEvent("a.ts");
+    await pass(clock, CHANGES_DEBOUNCE_MS);
+    service.refresh(W1);
+    await settle();
+
+    expect(counts(reads)).toBe(before);
+    expect(logged("changes not read")).toStrictEqual([]);
+    expect(sent).toStrictEqual([["c1", updated(1)]]);
+  });
+
+  it("still logs a read that fails once the workspace is gone from the list rather than archived", async () => {
+    const { service, hold, failures, known, logged } = harness();
+    service.watchChanges("c1", [W1]);
+    await settle();
+    const release = hold("changes");
+    service.refresh(W1);
+    await settle();
+
+    known.delete(W1);
+    failures.push(new GitError("rev-parse", "spawn"));
+    release();
+    await settle();
+
+    expect(logged("changes not read")).toStrictEqual([
+      expect.objectContaining({ workspaceId: W1, command: "rev-parse", reason: "spawn" }),
+    ]);
+  });
+
+  it("watches and reads nothing of a workspace shown while archived, and tells no one its watcher broke", async () => {
+    const { service, archived, reads, sent, open, records } = harness();
+    archived.add(W1);
+
+    service.watchChanges("c1", [W1]);
+    service.watchDiff("c1", { workspaceId: W1, mode: "base" });
+    await settle();
+
+    expect(reads).toStrictEqual([]);
+    expect(open()).toStrictEqual([]);
+    expect(sent).toStrictEqual([]);
+    expect(records).toStrictEqual([]);
+  });
+
+  it("logs no broken watcher of an archived workspace, and watches and reads it again once restored", async () => {
+    const { service, clock, archived, watcherOf, logged, open, reads, sent } = harness();
+    service.watchChanges("c1", [W1]);
+    await settle();
+    archived.add(W1);
+    watcherOf("/top").onError();
+    await settle();
+    expect(logged("changes watch failed, looking now and then")).toStrictEqual([]);
+    const before = counts(reads);
+
+    archived.delete(W1);
+    service.refresh(W1);
+    await pass(clock, RECOVER_START_MS);
+
+    expect(counts(reads)).toBeGreaterThan(before);
+    expect(open()).toStrictEqual(["/top", "/git/worktrees/w", "/git"]);
+    expect(sent).toStrictEqual([["c1", updated(1)]]);
   });
 });
 

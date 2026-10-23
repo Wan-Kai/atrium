@@ -3,7 +3,7 @@ import { FakeClock, createTempDir, present, writeScriptedPi } from "@atrium/test
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { WebSocket } from "ws";
 import { type TestHost, startTestHost } from "../test/harness";
-import { PONG_ENTRIES, PONG_TURN } from "../test/scripted-chat";
+import { PONG_ENTRIES, PONG_STATS, PONG_TURN } from "../test/scripted-chat";
 
 const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
@@ -80,6 +80,7 @@ describe("usage in the host's log", () => {
         rules: {
           get_state: { data: { sessionId: "pi-session-1" } },
           get_entries: PONG_ENTRIES,
+          get_session_stats: PONG_STATS,
           prompt: { data: { disposition: "started" }, events: PONG_TURN },
         },
       },
@@ -116,6 +117,7 @@ describe("usage in the host's log", () => {
     clearInterval(ticking);
 
     // The client answers no pings in fake time and is dropped meanwhile; the counts and the log tell.
+    testHost.expectLog({ level: "warn", msg: "client dropped: no pong before the next ping", times: 1 });
     // The 30th minute's report comes a little under 30 minutes after the run: pi stays.
     for (let minute = 0; minute < 30; minute++) clock.advance(60_000);
     // A stop begun by then would have ended within this while, time going on meanwhile.

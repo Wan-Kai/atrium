@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { WebSocket } from "ws";
 import { type TestHost, startTestHost } from "../test/harness";
+import { PONG_STATS } from "../test/scripted-chat";
 
 /** Rounds in a batch; with a pause after each, a client stays under the host's 200 messages a second. */
 const BATCH = 50;
@@ -82,6 +83,7 @@ async function sessionsHost(): Promise<{ readonly host: TestHost; readonly clien
       rules: {
         get_state: { data: { sessionId: "pi-session-1" } },
         get_entries: { data: { entries: [], leafId: null } },
+        get_session_stats: PONG_STATS,
         prompt: { data: { disposition: "started" }, events: [{ type: "agent_start" }] },
         abort: { data: {}, events: [{ type: "agent_settled" }] },
       },
@@ -465,6 +467,9 @@ async function agentRound(client: AtriumClient, sessionId: string, round: number
 describe("agent children's resources (SPEC-0002, 第二步)", () => {
   it("keeps no more pi running after the agent opens a child, it finishes and is put away, again and again", async () => {
     const { host, client } = await agentHost(AGENT_ROUNDS + 1);
+    // The faux model answers a title request with an error unless its script names one (testing.md,
+    // "faux 模型"); whether a title call ends before the host closes is up to timing.
+    host.expectLog({ level: "warn", msg: "one-shot pi failed", fields: { reason: "model_failed" }, optional: true });
     const { sessionId } = await client.createChat();
     await client.watch([sessionId]);
     await agentRound(client, sessionId, 0);

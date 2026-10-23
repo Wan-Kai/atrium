@@ -38,7 +38,7 @@
 4. **测试先行**：一个测试、一段实现交替推进，每个测试先见过失败；修 bug 先写能复现它的测试。写完用 `pnpm break-check <cases.json>` 把代码按每个 case 改坏，确认测试会红（`MISSED` 的要补测试，确实等价的说明原因）。新行为登记进 `docs/testing/coverage-map.md`，自用中的改动记在"M1.11 自用中改（日期）"一节。
 5. **检查与变异测试**：格式化改过的文件（`(git diff --name-only; git ls-files --others --exclude-standard) | grep -E '\.(ts|tsx|md|css|mjs)$' | xargs npx oxfmt`），`pnpm check` 通过，跑相关的测试层。改到核心模块时只对改动的文件跑变异测试（`pnpm test:mutation <组> --mutate=<文件>`），存活的补测试或注明等价（`// Stryker disable next-line <变异> : 原因`）。跑完按进程号清掉 Stryker 留下的孤儿进程（父进程是 1、命令行在本 worktree 的 `.stryker-tmp/` 里的），删掉 `.stryker-tmp`（里面有测试故意留的只读目录，先 `chmod -R u+rwx`）；worktree 根目录不留 `.tmp/`。
 6. **审查**：里程碑或大的改动合并前做三方审查：两个外部模型加一个 Claude 子代理，各自只读审查，按"和 SPEC/ADR 不一致、竞态、安全、资源泄漏、界面是否按设计、测试缺口"逐条报，带严重程度、文件行号、触发场景。外部模型用哪两个由用户定，不自己换；合并去重后把需要拍板的设计问题交给用户，其余按测试先行修掉。
-7. **请用户验收**：实现、自查和审查完成后，主动通知用户，给出待验收版本、worktree 路径、启动方式、操作步骤、预期结果及已知限制，保留本任务分支和 worktree，等待用户明确确认验收通过。测试通过或自己认为完成不代替用户验收；未通过时在本任务 worktree 修复、复验，再请用户验收。用户要装上试用时才运行 `pnpm package`；先看正在跑的 Atrium 下有几个 pi（重启会中断它们的回复），问过用户再用 `osascript -e 'tell application "Atrium" to quit'` 退出，替换 `/Applications/Atrium.app`（`ditto`），重新打开，看一眼宿主日志有没有新的错误。
+7. **请用户验收**：实现、自查和审查完成后，主动通知用户，给出待验收版本、worktree 路径、启动方式、操作步骤、预期结果及已知限制，保留本任务分支和 worktree，等待用户明确确认验收通过。测试通过或自己认为完成不代替用户验收；未通过时在本任务 worktree 修复、复验，再请用户验收。用户要装上试用时才运行 `pnpm package`；先看正在跑的 Atrium 下有几个 pi（重启会中断它们的回复），问过用户再用 `osascript -e 'tell application "Atrium" to quit'` 退出，替换 `/Applications/Atrium.app`（`ditto`），重新打开，用一阵后跑 `pnpm errors` 看有没有新的错误签名。
 8. **验收通过后合并与清理**：收到用户明确确认验收通过后，按提交约定收尾（用户说"提交"才提交）；合回 `main` 前先把 `main` 合进分支、`pnpm check` 和单元测试通过，再在主工作区 `git merge --no-ff`（它里面别人的未提交改动不碰，合并不涉及那些文件才合）。准备合并期间若改变了验收内容，重新请用户验收。合并成功后，确认原 worktree 无未保存的用户内容、无仍在运行的开发或验收服务，再以非强制方式删除本任务原 worktree 和已合并分支；存在未保存内容、仍在使用或用户要求保留时，保留并报告，不为清理终止用户进程或强制删除。只在用户明确要求时推送。
 
 ## 第一次准备
@@ -59,6 +59,7 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | `pnpm package` | 构建后打包成本机用的 `apps/desktop/out/Atrium-darwin-<架构>/Atrium.app`（只做 ad-hoc 签名，不公证；[overview.md · 桌面端怎么启动宿主](architecture/overview.md#桌面端怎么启动宿主)）。拷进"应用程序"后从程序坞或 Spotlight 打开；数据同样在 `~/.atrium`，和 `pnpm dev` 不能同时开。改了代码要重新打包 |
 | `node packages/host/dist/entry.cjs` | 不经 Electron 单独运行宿主；第一行输出地址和 token（只打到终端，不进日志） |
 | `pnpm usage [日志目录]` | 按宿主的每次运行汇总日志里每分钟的资源计数和内存（宿主和 Electron 各进程），列出每小时的数值，第一个小时和最后一个小时的最低值对比，持续上涨的标 `↑`（[testing.md · 运行时监控](architecture/testing.md#运行时监控)）；默认读 `~/.atrium/logs` |
+| `pnpm errors [日志目录] [--since <ISO 时间>]` | 把日志里的 warn、error、fatal 按签名（service、level、msg、`err` 的类型和码，界面上报的再加归一后的问题文字）分组，列出次数、首次和最后出现的时间、涉及几次宿主运行；截止时间（默认最近一次宿主启动，`--since` 可改）之后才第一次出现的签名标 `new`、排在前面（[testing.md · 运行时监控](architecture/testing.md#运行时监控)）。只读；默认读 `~/.atrium/logs` |
 | `pnpm trace <trace id> [日志目录]` | 按 trace id 打印一条链路的 span 树和日志；默认读 `~/.atrium/logs` |
 | `pnpm fixtures:record` | 用本机 pi 重录全部 pi 夹具，删掉其他版本的夹具目录；提交前审查 diff（testing.md"pi 夹具"） |
 | `pnpm readme:shots` | 构建后重拍 README 的六张截图，覆盖 `docs/images/*.png`（1920×1145）。只用演示数据：临时目录里现造的 `weather-app` 仓库（本地 bare origin 和两个 worktree）、临时的 Atrium 主目录、pi 配置目录和 HOME，`PI_OFFLINE=1`；模型是以真实服务商名字注册的 faux（`packages/testkit/src/faux/readme-extension.ts` 按 `apps/desktop/e2e/readme/story.ts` 的脚本回复），ChatGPT 的模型列表和用量由本机的替身服务给出，不发真实请求，不碰 `~/.atrium`。用 `screencapture` 截应用窗口，窗口会被提到最前，跑的约 3 分钟里别动它；终端要有"屏幕录制"权限。六张图在同一段故事里依次拍出，不能只拍其中一张；跑完看一眼 `git diff docs/images`，不满意就 `git checkout -- docs/images` |

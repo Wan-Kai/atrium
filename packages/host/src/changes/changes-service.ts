@@ -138,7 +138,10 @@ function gitChangeMatters(path: string): boolean {
  * has not had one yet gets it. When watching fails the service looks every 5 seconds, doubling the
  * wait to a minute while nothing changes, and tries to watch again after 30 seconds, doubling to 5
  * minutes. One workspace has at most one look under way; asks meanwhile run once it ends. git
- * failing is logged by its command and reason only.
+ * failing is logged by its command and reason only. An archived workspace's directory goes, so
+ * from the moment the index marks it archived nothing of it is watched or read, and neither a read
+ * under way failing nor its watcher breaking is logged (SPEC-0001, "M1.11 的工作区归档"); restored,
+ * it is read again.
  *
  * @sideEffects none until a connection watches; then runs git through `reader`, watches files,
  * schedules timers, sends events and logs.
@@ -148,8 +151,13 @@ function gitChangeMatters(path: string): boolean {
  */
 export function createChangesService(options: {
   readonly reader: Promise<CheckoutReader | null>;
-  /** A workspace's directory and its project's own main branch; `undefined` for an unknown one. */
-  readonly resolve: (workspaceId: string) => { readonly dir: string; readonly mainBranch: string | null } | undefined;
+  /**
+   * A workspace's directory, its project's own main branch and whether it is archived; `undefined`
+   * for an unknown one.
+   */
+  readonly resolve: (
+    workspaceId: string,
+  ) => { readonly dir: string; readonly mainBranch: string | null; readonly archived: boolean } | undefined;
   readonly send: (connectionId: string, event: ChangesEvent) => void;
   readonly clock: Clock;
   readonly resources: ResourceTracker;
@@ -269,7 +277,7 @@ export function createChangesService(options: {
     const reader = await options.reader;
     const place = options.resolve(entry.workspaceId);
     // Stryker disable next-line BooleanLiteral: only a try at a workspace removed meanwhile, which its connections stop showing.
-    if (reader === null || place === undefined) return false;
+    if (reader === null || place === undefined || place.archived) return false;
     let roots: WatchRoots | null;
     try {
       roots = await reader.roots(place.dir, entry.stop.signal);
@@ -413,7 +421,8 @@ export function createChangesService(options: {
      */
     const current = (): boolean =>
       entry.generation === generation && entry.stopPolling !== null && !entry.stop.signal.aborted;
-    options.logger.warn({ workspaceId: entry.workspaceId }, "changes watch failed, looking now and then");
+    if (!archived(entry))
+      options.logger.warn({ workspaceId: entry.workspaceId }, "changes watch failed, looking now and then");
     let wait = POLL_START_MS;
     let tries = 0;
     let cancelLook: (() => void) | null = null;
@@ -527,7 +536,7 @@ export function createChangesService(options: {
       entry.wantChanges = false;
       entry.wantDiffs.clear();
       const place = options.resolve(entry.workspaceId);
-      if (place === undefined) return;
+      if (place === undefined || place.archived) return;
       if (changes) {
         try {
           // Without git there is nothing to count.
@@ -571,16 +580,33 @@ export function createChangesService(options: {
   }
 
   /**
+   * Whether a workspace is archived now.
+   *
+   * @remarks
+   * See `createChangesService`.
+   *
+   * @sideEffects none
+   * @param entry - The workspace.
+   * @returns Whether it is.
+   */
+  function archived(entry: Watched): boolean {
+    return options.resolve(entry.workspaceId)?.archived === true;
+  }
+
+  /**
    * Logs git failing on a workspace.
    *
    * @remarks
-   * By the command and reason only: git's output and the paths may be private (security.md).
+   * By the command and reason only: git's output and the paths may be private (security.md). Not
+   * at all for an archived workspace, whose directory archiving removed.
    *
    * @sideEffects Logs.
    * @param entry - The workspace.
    * @param error - What failed.
    */
   function failed(entry: Watched, error: unknown): void {
+    // Archiving removes the directory a read under way was in.
+    if (archived(entry)) return;
     if (error instanceof GitError) {
       if (error.reason === "aborted") return;
       options.logger.warn(
