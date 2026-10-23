@@ -1047,8 +1047,12 @@ export function createSessionManager(options: {
       },
       clock: timers,
       newId: options.newId,
+      // A read cut short by stopping pi is what Atrium asked for (observability.md, "日志格式").
       onRefreshFailed: (error) =>
-        options.logger.warn({ ...failureFields(error), sessionId }, "transcript refresh failed"),
+        options.logger[error instanceof PiRequestError && error.reason === "stopped" ? "info" : "warn"](
+          { ...failureFields(error), sessionId },
+          "transcript refresh failed",
+        ),
       log: (level, message, fields) => options.logger[level]({ ...fields }, message),
       respawn: () => respawn(sessionId),
       readReserve: (chosen) => compactionReserve(env, chosen),

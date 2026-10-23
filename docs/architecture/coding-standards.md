@@ -53,7 +53,7 @@ export function EffortBox(props: EffortBoxProps) { … }
 ```
 
 - **唯一的豁免**：内联的匿名回调（传给 `map`、`filter`、`then`、事件属性的箭头函数）。它们要么足够短一眼能看懂，要么就该提成具名函数并写 JSDoc。测试用例靠测试标题说明，不写 JSDoc。
-- **检查**：本地 oxlint 插件 `scripts/lint/atrium-plugin.mjs` 的 `atrium/require-jsdoc` 规则，要求函数声明、方法、类、函数表达式和赋给变量的箭头函数都有 JSDoc，且有第一句、`@remarks`、`@sideEffects`（`eslint-plugin-jsdoc` 要求 Node ≥ 22.22，比项目的 22.19 新，所以没用它）；`require-param`、`check-tag-names` 等用 oxlint 自带的 jsdoc 规则。语义是否写对，靠代码审查。
+- **检查**：本地 oxlint 插件 `scripts/lint/atrium-plugin.mjs` 的 `atrium/require-jsdoc` 规则，要求函数声明、方法、类、函数表达式和赋给变量的箭头函数都有 JSDoc，且有第一句、`@remarks`、`@sideEffects`（`eslint-plugin-jsdoc` 要求 Node ≥ 22.22，比项目的 22.19 新，所以没用它）；`require-param`、`check-tag-names` 等用 oxlint 自带的 jsdoc 规则。语义是否写对，靠代码审查。`@sideEffects` 是作者自己写的描述，不当证据；只核对一种矛盾（2026-10-23 加，`atrium/side-effects-none`）：写 `@sideEffects none` 的函数，自己或直接传给某个调用的回调（`new Promise(…)`、`.map(…)`、`.then(…)`）里调了有副作用的 API，就报错。算数的 API：从 `child_process` 导入的起进程函数，从 `fs`、`fs/promises` 导入的写文件、删文件、建目录等，`http`、`https`、`net` 的请求和监听，全局的 `fetch`、`setTimeout`、`setInterval`、`setImmediate`，任何对象上的 `.setTimeout` / `.setInterval`（注入的时钟），`process.exit`、`process.kill`（信号 0 除外），`console.*`，名叫 `log` 或以 `logger` 结尾的对象上的日志级别方法，`new WebSocket`。返回或存起来、以后才跑的闭包不算，宁可漏报不误报；只认原样的 `none`，"none until … then …"这类已经写明的留给审查。
 - 函数内部的行内注释只解释"为什么"，不复述代码在做什么。
 
 ## 命名与组织
@@ -85,6 +85,10 @@ export function EffortBox(props: EffortBoxProps) { … }
 - TypeScript strict，另开 `noUncheckedIndexedAccess`、`exactOptionalPropertyTypes`。
 - 不用 `any`；外部输入（WebSocket 消息、pi 输出、索引文件）在边界用 zod 校验后再进入内部。
 - 状态用可辨识联合（discriminated union）表达，`switch` 必须穷尽（`switch-exhaustiveness-check`）。
+
+## React
+
+- 不在 effect 里跟着流式 props 改状态，改在渲染中调整（状态已对上就返回原对象）。否则每次提交都留一个更新，连续到达的 WebSocket 消息会让 React 判为死循环、抛 #185（2026-10-22，见 [self-use.md · 问题](../research/self-use.md#问题)）。
 
 ## 多语言
 

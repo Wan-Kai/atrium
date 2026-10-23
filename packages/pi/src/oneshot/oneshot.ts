@@ -116,14 +116,15 @@ export async function runOneShot(
    * Logs why the call failed and makes its error.
    *
    * @remarks
-   * See `runOneShot`.
+   * See `runOneShot`. An abort only comes from the caller's signal, which Atrium sent on purpose,
+   * so it is logged at info level; other reasons are warnings (observability.md, "日志格式").
    *
    * @sideEffects Logs.
    * @param reason - Why.
    * @returns The error.
    */
   const failure = (reason: OneShotFailure): OneShotError => {
-    deps.log.warn({ reason }, "one-shot pi failed");
+    deps.log[reason === "aborted" ? "info" : "warn"]({ reason }, "one-shot pi failed");
     return new OneShotError(reason);
   };
   if (options.signal?.aborted === true) throw failure("aborted");

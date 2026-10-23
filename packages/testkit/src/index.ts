@@ -23,6 +23,7 @@ export {
 } from "./faux/readme-script";
 export { CODEX_MODEL_LIST, type ListRequest, type ModelListServer, startModelListServer } from "./model-list-server";
 export { GIT_SCENE_ENV, type GitScene, createGitScene, gitSceneEnv } from "./git";
+export { type ExpectedLog, type GatedLevel, findLogProblems, readLogRecords } from "./log-gate";
 export { present } from "./present";
 export { type ScriptedPiBehavior, type ScriptedRule, warmScriptedPi, writeScriptedPi } from "./scripted-pi";
 export { TEST_BIN_DIR_ENV } from "./shared-executable";

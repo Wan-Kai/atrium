@@ -1,0 +1,7 @@
+{"kind":"fixture","scenario":"dialog","pi":"1.3.0","script":{"replies":[]},"args":["--no-session"]}
+{"kind":"send","record":{"type":"prompt","message":"/faux-confirm","id":"r1"}}
+{"kind":"stdout","record":{"type":"extension_ui_request","id":"<uuid-1>","method":"confirm","title":"Proceed?","message":"The faux extension asks."}}
+{"kind":"send","record":{"type":"extension_ui_response","id":"<uuid-1>","confirmed":true}}
+{"kind":"stdout","record":{"type":"extension_ui_request","id":"<uuid-2>","method":"notify","message":"confirmed","notifyType":"info"}}
+{"kind":"stdout","record":{"id":"r1","type":"response","command":"prompt","success":true,"data":{"disposition":"handled"}}}
+{"kind":"exit","code":0,"signal":null,"requested":true}

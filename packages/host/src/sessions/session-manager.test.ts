@@ -1072,6 +1072,27 @@ describe("SessionManager running sessions", () => {
     expect(JSON.stringify(records)).not.toContain("secret-in-pi-text");
   });
 
+  it("notes a read of pi's entries cut short by closing at info level, not as a warning", async () => {
+    const { manager, records, sent } = await manage({
+      rules: {
+        get_state: { data: { sessionId: "pi-session-1" } },
+        get_entries: { sequence: [{ data: { entries: [], leafId: null } }, { silent: true }] },
+        prompt: { data: { disposition: "started" }, events: turn },
+      },
+    });
+    const { sessionId } = await manager.createChat("client-1");
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
+    await vi.waitFor(() => expect(sent().filter((command) => command === "get_entries")).toHaveLength(2));
+
+    await manager.close();
+
+    expect(
+      records
+        .filter((record) => record["msg"] === "transcript refresh failed")
+        .map(({ level, command, reason }) => ({ level, command, reason })),
+    ).toStrictEqual([{ level: "info", command: "get_entries", reason: "stopped" }]);
+  });
+
   it("sends a snapshot only for sessions a connection did not already watch", async () => {
     const { manager, received } = await manage({ rules: SESSION_ONE });
     const { sessionId } = await manager.createChat("client-1");

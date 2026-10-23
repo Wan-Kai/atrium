@@ -1,5 +1,5 @@
 import type { AtriumClient } from "@atrium/client";
-import { GIT_SCENE_ENV, createGitScene } from "@atrium/testkit";
+import { GIT_SCENE_ENV, createGitScene, present } from "@atrium/testkit";
 import { mkdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
@@ -90,6 +90,46 @@ describe("workspace changes over the WebSocket", () => {
     await client.watchChanges([]);
 
     expect(host?.resources.snapshot()["changes.watch"]).toBe(0);
+  });
+});
+
+describe("archiving a shown workspace", () => {
+  it("reads nothing more of a worktree once archived, so its directory going leaves no warning in the log", async () => {
+    const scene = await createGitScene("changes-archive");
+    onTestFinished(scene.cleanup);
+    const repo = await realpath(scene.repo);
+    await scene.worktree("feature");
+    testHost = await startTestHost({ toolEnv: { ...GIT_SCENE_ENV, PATH: present(process.env["PATH"], "PATH") } });
+    await testHost.host.tools;
+    const client = testHost.connect();
+    onTestFinished(() => client.disconnect());
+    await client.connect();
+    await client.addProject(repo);
+    await vi.waitFor(() => expect(client.index.getState().workspaces).toHaveLength(2), SEEN);
+    const { workspaces } = client.index.getState();
+    const local = present(
+      workspaces.find((one) => one.kind === "local"),
+      "the local workspace",
+    ).id;
+    const worktree = present(
+      workspaces.find((one) => one.kind === "worktree"),
+      "the worktree",
+    ).id;
+    // As a window still showing it while the archive runs: the capsule, and the panel open on it.
+    await client.watchChanges([local, worktree]);
+    await client.watchDiff({ workspaceId: worktree, mode: "uncommitted" });
+    await vi.waitFor(() => expect(client.changes(worktree).getState()).toMatchObject({ branch: "feature" }), SEEN);
+
+    await client.archiveWorkspace(worktree);
+    await writeFile(join(repo, "after.txt"), "a\n");
+    // Works out every shown workspace's changes again; the local one's new file says that look is done.
+    await client.windowFocused();
+
+    await vi.waitFor(() => expect(client.changes(local).getState()).toMatchObject({ dirty: true }), SEEN);
+    await vi.waitFor(
+      () => expect(present(testHost, "the host").host.resources.snapshot()["git.process"]).toBe(0),
+      SEEN,
+    );
   });
 });
 

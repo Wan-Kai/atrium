@@ -85,10 +85,12 @@ async function oneShot(
   cleanups.push(dir.cleanup);
   const recordTo = join(dir.path, "seen.json");
   const fake = await writeScriptedPi(dir.path, { print: { ...print, recordTo } });
-  const logs: { readonly fields: object; readonly message: string }[] = [];
-  const record = (fields: object, message: string): void => {
-    logs.push({ fields, message });
-  };
+  const logs: { readonly level: string; readonly fields: object; readonly message: string }[] = [];
+  const record =
+    (level: string) =>
+    (fields: object, message: string): void => {
+      logs.push({ level, fields, message });
+    };
   const open = new Map<string, number>();
   const timers = new Set<NodeJS.Timeout>();
   const deps: PiDeps = {
@@ -110,7 +112,7 @@ async function oneShot(
       open.set(kind, (open.get(kind) ?? 0) + 1);
       return () => open.set(kind, (open.get(kind) ?? 0) - 1);
     },
-    log: { debug: record, info: record, warn: record, error: record },
+    log: { debug: record("debug"), info: record("info"), warn: record("warn"), error: record("error") },
     nextRequestId: () => "unused",
     env: { PATH: process.env["PATH"] ?? "", FROM_HOST: "yes" },
   };
@@ -182,7 +184,7 @@ describe("runOneShot", () => {
 
     expect(outcome).toStrictEqual({ error: new OneShotError(reason) });
     expect(logs.filter((log) => log.message === "one-shot pi failed")).toStrictEqual([
-      { fields: { reason }, message: "one-shot pi failed" },
+      { level: "warn", fields: { reason }, message: "one-shot pi failed" },
     ]);
     expect(open.get("pi-oneshot")).toBe(0);
   });
@@ -283,13 +285,16 @@ describe("runOneShot", () => {
     expect(open.get("pi-oneshot")).toBe(0);
   });
 
-  it("kills pi when aborted", async () => {
+  it("kills pi when aborted, and logs that at info level, since the caller asked for it", async () => {
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 300);
 
-    const { outcome, seen, open } = await oneShot({ hang: true }, { signal: controller.signal });
+    const { outcome, seen, open, logs } = await oneShot({ hang: true }, { signal: controller.signal });
 
     expect(outcome).toStrictEqual({ error: new OneShotError("aborted") });
+    expect(logs.filter((log) => log.message === "one-shot pi failed")).toStrictEqual([
+      { level: "info", fields: { reason: "aborted" }, message: "one-shot pi failed" },
+    ]);
     const { pid } = (await seen()) as { pid: number };
     expect(alive(pid)).toBe(false);
     expect(open.get("pi-oneshot")).toBe(0);

@@ -53,3 +53,32 @@ export const PONG_ENTRIES: ScriptedRule = {
     },
   ],
 };
+
+/**
+ * pi's answer to `get_session_stats` after `PONG_TURN`: one message each way.
+ *
+ * @remarks
+ * Without a rule the scripted pi answers with no data, which the host cannot read and warns
+ * about, so the log gate would fail on the test double rather than on the host (testing.md,
+ * "日志门禁").
+ */
+export const PONG_STATS: ScriptedRule = {
+  data: {
+    userMessages: 1,
+    assistantMessages: 1,
+    toolCalls: 0,
+    totalMessages: 2,
+    tokens: { input: 3, output: 1, cacheRead: 0, cacheWrite: 0, total: 4 },
+    cost: 0,
+  },
+};
+
+/**
+ * pi's answer to `get_session_stats` for tests that check the exact order of a session's events:
+ * none, as if the read were still under way.
+ *
+ * @remarks
+ * Figures would bring a `metrics_updated` whenever the read lands, which such tests do not expect;
+ * a read still waiting is dropped without a warning when pi stops (see `PONG_STATS`).
+ */
+export const UNANSWERED_STATS: ScriptedRule = { silent: true };

@@ -77,6 +77,103 @@
 - 安装 pi 只运行官方安装脚本（`https://pi.dev/install.sh`），地址写死在代码里。
 - **Atrium 自带的 pi 扩展**（ADR-0008）：只加载应用自己带的、随应用签名的文件，路径由宿主算出，不来自客户端或用户输入。它改发往服务商的请求里的 `service_tier`，并查 Codex 的模型列表：在 pi 进程里经 pi 的 `modelRegistry.getApiKeyAndHeaders` 取 ChatGPT 登录的凭据，只发往 pi 平时请求这个模型的地址（登录给的 `baseUrl`，没有就是 `openai-codex` 模型自己的 `baseUrl`）下的 `/codex/models`，走 pi 设好的代理。另外查套餐用量（ADR-0010，2026-10-15 修订）：ChatGPT 登录发往同一地址的根下的 `/wham/usage`（即 `chatgpt.com/backend-api/wham/usage`），Claude 只在订阅登录（`isUsingOAuth`）时发往模型 `baseUrl` 下的 `/api/oauth/usage`，API key 的不查；Grok（`xai`）只在订阅登录时发往写死的 `https://cli-chat-proxy.grok.com/v1/billing?format=credits`，只带 bearer 令牌和 `x-xai-token-auth: xai-grok-cli`、`accept`，不带 pi 给 `api.x.ai` 的其他头，API key 的不查——这是扩展发往 pi 平时不请求的服务器的第一个地址，再加别的要另写 ADR（ADR-0011，2026-10-16）；第二个是联网工具（ADR-0014，2026-10-20）：`web_search`、`web_fetch` 用名为 `DEEPSEEK_SEARCH_API_KEY` 的专用 key，先取 pi 里 `deepseek` 凭据的 `env`（经 `modelRegistry.getApiKeyAndHeaders`，宿主不碰），再取进程环境；不读凭据的 `apiKey` 和 `DEEPSEEK_API_KEY`，搜索与聊天分开计费，发往写死的 `https://api.deepseek.com/v1/tools/search` 和 `/fetch`（不取模型的 `baseUrl`），只带 `authorization`、`content-type`、`accept`，不跟随重定向，网页和搜索结果当数据不当指令；失败只报状态码，不带服务器的原文（DeepSeek 的 401 会回显收到的 key），`query` 和 `url`、网页内容不进日志，扩展不向宿主报任何状态；同一服务商 60 秒内最多一次。Claude 的用量另从回复里读：当前模型是 `claude-bridge` 或 `anthropic` 时，扩展在 `after_provider_response` 里只读 `anthropic-ratelimit-unified-*` 这组响应头，不碰凭据、不发请求（ADR-0012，2026-10-17）。带凭据的请求不跟随重定向（重定向算连不上，2026-10-16 审查后加）。凭据不离开 pi、不交给宿主、不写文件、不记日志；报给宿主的只有模型 id、速度倍数和是否多耗额度，以及套餐名、各窗口的已用百分比、长度、重置时间、按模型窗口的模型名和按产品的拆分（产品名和百分比，M1.14 起），宿主按格式校验后才用；查失败只报原因代码，不带服务器的原文。内部命令 `/atrium-fast`、`/atrium-plan` 只由宿主在确认扩展已加载后发出（2026-10-12 修订）。
 
+## 外部边界登记
+
+2026-10-23 加。上面的散文写的是规则；这里用表格列出生产代码实际碰到的外部边界：发往或显示的地址、读到或交出去的环境变量、宿主发给扩展的隐藏命令。原先这些只散在各节和 SPEC、pi-internals 里，例如宿主每天请求的 `https://pi.dev/api/latest-version` 只写在 SPEC-0001 和 pi-internals 里，审查时要靠人在代码里找一次改动碰了什么。现在由 `pnpm boundary`（`scripts/boundary.mjs`）从代码里列出来和这三张表对照：
+
+- `pnpm boundary [基准]`：列出基准（默认 `git merge-base HEAD main`）以来的提交、未提交的改动和未跟踪的新文件里，依赖的增删改（标出不是精确版本的）、新增和删掉的地址、环境变量、隐藏命令（标出是否已登记）、`PROTOCOL_VERSION` 的变化（`packages/protocol/src/` 的非测试文件改了、版本没变时警告），以及改动文件里 `atrium/side-effects-none` 报的矛盾。新增了未登记的地址、环境变量、隐藏命令，或依赖不是精确版本时退出码为 1。交付汇报里附上它的输出（acceptance.md"交给用户之前"）。
+- `pnpm boundary --all`：拿全部生产代码对照这三张表，再查全部依赖是不是精确版本，有缺的退出码为 1；也列出登记了、代码里却找不到的项（只提示）。它接在 `pnpm check` 里。
+
+**生产代码**的范围：`packages/{protocol,pi,host,client,ui}/src` 和 `apps/desktop/src` 下的源文件，不含 `*.test.*`、`*.bench.*`、`test/` 目录和 `packages/pi/src/contract/`（契约场景）；`packages/testkit`、`apps/desktop/e2e`、`scripts/` 和构建脚本不算。
+
+**脚本怎么认**（按语法树，注释和正则字面量都不算）：
+
+- 地址：字符串、模板字符串（`${…}` 记成 `*`）、JSX 文字里 `http://`、`https://`、`ws://`、`wss://` 开头的地址，去掉句末标点。
+- 环境变量：环境对象（名字是 `env`、`environment` 或以 `Env` 结尾，如 `process.env`、`options.env`；`import.meta.env` 是 Vite 的构建常量，除外）上按名字取的和解构的；展开了环境对象、作为 `env` 选项或存进环境对象名下的对象字面量的键；全大写带下划线的字符串（以下划线结尾的是前缀，记成 `ATRIUM_*`）；全是全大写名字、至少一个带下划线的字符串数组的每一项。后两种不算 `ERR_` 开头的：那是 Node 的错误码（如 `ERR_STREAM_PREMATURE_CLOSE`），拿来和 `error.code` 比，不是环境变量（2026-10-23 审查后加）；在环境对象上按名字取的照样算。
+- 隐藏命令：`registerCommand(…)` 的第一个参数（字符串，或本文件、相对导入的文件里的字符串常量），记成 `/名字`。
+
+表格第一列反引号里的值和脚本找到的按原文精确比对，改表格的格式要同步改脚本。只看代码认不出来的边界（拼出来的地址、按变量名取的环境变量）照样要登记，靠审查发现。拼出来的地址在第一列反引号后面写 `（拼出）`，反引号里用 `<…>` 写出地址的根从哪来：脚本不拿这类行和代码比对，`--all` 也不把它们当成"登记了、代码里找不到"来提示（2026-10-23 审查后加）。
+
+### 出网地址
+
+性质："请求"是 Atrium 的代码真的连过去；"显示"是界面里给你看、点了交给系统浏览器的；"比对"只用来解析或比较，不连。
+
+| 地址 | 性质 | 谁 | 用途 | 出处 |
+|---|---|---|---|---|
+| `https://pi.dev/api/latest-version` | 请求 | 宿主（`setup/pi-latest.ts`） | 每天查一次 pi 的最新版本；`ATRIUM_PI_LATEST_URL` 可换地址、设为空就不查，pi 的环境里有 `PI_OFFLINE` 时也不查 | SPEC-0001"设置 · pi"、pi-internals |
+| `https://pi.dev/install.sh` | 请求 | 宿主（`setup/install-script.ts`）；界面（`setup/install-step.tsx`）显示同一条命令 | 安装 pi 的官方脚本，地址写死 | 本文"子进程与文件" |
+| `https://api.deepseek.com/v1/tools/search` | 请求 | Atrium 的 pi 扩展（`pi/src/search`） | `web_search` 联网工具 | ADR-0014，本文"子进程与文件" |
+| `https://api.deepseek.com/v1/tools/fetch` | 请求 | Atrium 的 pi 扩展（`pi/src/search`） | `web_fetch` 联网工具 | ADR-0014 |
+| `https://cli-chat-proxy.grok.com/v1/billing?format=credits` | 请求 | Atrium 的 pi 扩展（`pi/src/plan`） | Grok 订阅登录时查套餐用量 | ADR-0011 |
+| `<ChatGPT 登录的 baseUrl 的根>/codex/models?client_version=*` （拼出） | 请求 | Atrium 的 pi 扩展（`pi/src/fast/extension.ts`） | 查 Codex 的模型列表和速度档；根是 pi 里 ChatGPT（`openai-codex`）登录给的 `baseUrl`，没有就是模型自己的 `baseUrl`，去掉末尾的 `/codex` 或 `/codex/responses`（`extension/credentials.ts` 的 `backendRoot`） | ADR-0008，本文"子进程与文件" |
+| `<ChatGPT 登录的 baseUrl 的根>/wham/usage` （拼出） | 请求 | Atrium 的 pi 扩展（`pi/src/plan/extension.ts`） | ChatGPT 登录时查套餐用量（即 `chatgpt.com/backend-api/wham/usage`）；根同上 | ADR-0010 |
+| `<Claude 订阅登录的模型 baseUrl>/api/oauth/usage` （拼出） | 请求 | Atrium 的 pi 扩展（`pi/src/plan/extension.ts`） | Claude 只在订阅登录（`isUsingOAuth`）时查套餐用量；根是模型的 `baseUrl`，去掉末尾的 `/` | ADR-0010 |
+| `http://127.0.0.1:*` | 请求 | 桌面端主进程（`main/main.ts`）连宿主，`atrium` 协议拼上请求路径转发到这里；宿主（`server/ws-server.ts`）把它当自己的来源 | 本机宿主的地址和 `Origin` 白名单 | 本文"WebSocket 与鉴权" |
+| `ws://127.0.0.1:*` | 请求 | 桌面端主进程（`main/main.ts`）写进 CSP 的 `connect-src`；界面（`app/app.tsx`）把宿主地址的 `http` 换成 `ws` 连过去 | 页面只允许连本机宿主 | 本文"Electron" |
+| `http://localhost:*` | 比对 | 宿主（`server/ws-server.ts`） | `Origin` 白名单里的另一种写法 | 本文"WebSocket 与鉴权" |
+| `http://host.invalid` | 比对 | 宿主（`server/static-files.ts`） | 解析请求路径用的假基准地址，不会连 | — |
+| `https://api.openai.com/auth` | 比对 | Atrium 的 pi 扩展（`pi/src/extension/credentials.ts`） | ChatGPT 访问令牌里账号 id 所在的声明名，不是请求地址 | ADR-0008 |
+| `https://pi.dev` | 显示 | 界面（欢迎页、设置） | pi 官网链接 | SPEC-0001 |
+| `https://nodejs.org/` | 显示 | 界面（`setup/install-step.tsx`） | 缺 Node 时给的下载链接 | SPEC-0001"第 1 步" |
+| `http://127.0.0.1:7897` | 显示 | 界面（`settings/proxy-group.tsx`） | 代理地址输入框的示例和报错文字 | SPEC-0001"设置 · pi" |
+
+### 环境变量
+
+| 名字 | 谁读或交给谁 | 用途 | 出处 |
+|---|---|---|---|
+| `ATRIUM_HOME` | 宿主、桌面端主进程、`pi:try` | Atrium 的数据目录（默认 `~/.atrium`）；桌面端据此把 Electron 的数据分开 | development.md、本文"凭据与日志" |
+| `ATRIUM_PORT` | 宿主（单独运行时） | 监听端口，默认随机 | 本文"WebSocket 与鉴权" |
+| `ATRIUM_TOKEN` | 宿主（单独运行时） | 指定 token，要满足长度和字符集 | 本文"WebSocket 与鉴权" |
+| `ATRIUM_UI_DIR` | 宿主（单独运行时） | 要提供的界面文件目录 | overview.md"桌面端怎么启动宿主" |
+| `ATRIUM_PI_LATEST_URL` | 宿主 | 查 pi 最新版本的地址，空就不查（测试不联网） | 见上表 |
+| `ATRIUM_DEV_URL` | 桌面端主进程 | 开发时页面来自 Vite 的地址 | development.md `pnpm dev` |
+| `ATRIUM_HOST_ENTRY` | 桌面端主进程 | 换一个宿主入口（测试用） | overview.md"桌面端怎么启动宿主" |
+| `ATRIUM_APP_METRICS_INTERVAL_MS` | 桌面端主进程 | 进程资源采样间隔（测试用） | testing.md"运行时监控" |
+| `ATRIUM_*` | 宿主（`platform/login-shell.ts`）、`pi/src/env/pi-env.ts` | 这个前缀的变量不交给登录 shell 读出的工具环境和 pi | 本文"子进程与文件" |
+| `ELECTRON_*` | 同上 | 同上，例如 `ELECTRON_RUN_AS_NODE` | 本文"子进程与文件" |
+| `HOME` | 宿主、pi 包 | 登录 shell 启动时带上；找 pi 的配置目录和会话目录 | SPEC-0001"第 1 步" |
+| `USER` | 宿主（`platform/login-shell.ts`） | 登录 shell 启动时带上的基本变量 | 同上 |
+| `LOGNAME` | 同上 | 同上 | 同上 |
+| `SHELL` | 宿主、`pi:try` | 用哪个登录 shell 读环境；登录 shell 启动时带上 | 同上 |
+| `TMPDIR` | 宿主（`platform/login-shell.ts`） | 登录 shell 启动时带上的基本变量 | 同上 |
+| `LANG` | 同上 | 同上 | 同上 |
+| `LC_ALL` | 宿主（登录 shell、git） | 登录 shell 启动时带上；跑 git 时设成 `C`，输出不随语言变 | 同上 |
+| `LC_CTYPE` | 宿主（`platform/login-shell.ts`） | 登录 shell 启动时带上的基本变量 | 同上 |
+| `SSH_AUTH_SOCK` | 同上 | 同上（git 走 ssh 要用） | 同上 |
+| `ZDOTDIR` | 同上 | 同上 | 同上 |
+| `__CF_USER_TEXT_ENCODING` | 同上 | 同上 | 同上 |
+| `PATH` | 宿主、pi 包 | 登录 shell 启动时带上；找 pi、git、fd、Homebrew，交给 pi 和 git 前去掉相对项 | 本文"子进程与文件" |
+| `SHLVL` | 宿主（`platform/login-shell.ts`） | 读出的环境里去掉的 shell 自己的变量 | 同上 |
+| `_` | 同上 | 同上 | 同上 |
+| `PWD` | 同上 | 同上 | 同上 |
+| `OLDPWD` | 同上 | 同上 | 同上 |
+| `HTTPS_PROXY` | 宿主（`platform/proxy.ts`）读登录 shell 的、写设置里的交给 pi 和安装程序 | 网络代理 | 本文"子进程与文件" |
+| `https_proxy` | 同上 | 同上 | 同上 |
+| `HTTP_PROXY` | 同上 | 同上 | 同上 |
+| `http_proxy` | 同上 | 同上 | 同上 |
+| `NO_PROXY` | 同上 | 不走代理的地址，总带本机地址 | 同上 |
+| `no_proxy` | 同上 | 同上 | 同上 |
+| `GIT_OPTIONAL_LOCKS` | 宿主（`platform/git.ts`）交给 git | 设成 `0`，查询时不抢仓库的锁 | — |
+| `GIT_TERMINAL_PROMPT` | 同上 | 设成 `0`，git 不在终端里问密码 | — |
+| `PI_CODING_AGENT_DIR` | pi 包（`env/agent-dir.ts`、`sessions/session-files.ts`） | 照 pi 的规则找它的配置目录 | pi-internals |
+| `PI_CODING_AGENT_SESSION_DIR` | pi 包（`sessions/session-files.ts`） | 照 pi 的规则找会话目录 | pi-internals |
+| `PI_OFFLINE` | 宿主（`main.ts`）读交给 pi 的环境 | 设了就不查 pi 的最新版本，和 pi 一致 | SPEC-0001"设置 · pi" |
+| `DEEPSEEK_SEARCH_API_KEY` | Atrium 的 pi 扩展（`pi/src/search`） | 联网工具的专用 key，先取 pi 凭据的 `env`、再取进程环境；不读 `DEEPSEEK_API_KEY` | ADR-0014 |
+| `INIT_CWD` | `pnpm pi:try`（`host/src/dev/try-pi.ts`） | pnpm 给的调用目录，作默认工作目录；只在开发命令里用 | development.md |
+
+只在开发和测试里用的不在生产代码范围内，不登记：`ATRIUM_DEV_PORT`（`scripts/dev.mjs`、界面的 Vite 配置）、`UV_THREADPOOL_SIZE`（测试）、测试场景里的 `GIT_*` 等。
+
+### 隐藏命令
+
+| 命令 | 谁发 | 用途 | 出处 |
+|---|---|---|---|
+| `/atrium-agent` | 宿主 | 子对话的送达、取消、给模型的说明 | ADR-0013，本文"子进程与文件" |
+| `/atrium-fast` | 宿主 | 开关 Fast、查 Codex 的速度档 | ADR-0008 |
+| `/atrium-plan` | 宿主 | 查套餐用量 | ADR-0010 |
+| `/atrium-edit` | 宿主 | 停止后编辑消息：回退和恢复 | 本文"子进程与文件" |
+
+隐藏命令都由 Atrium 自带的 pi 扩展注册，宿主确认扩展已加载后才发；`/atrium-` 开头的消息留给宿主（见上文"子进程与文件"）。
+
 ## 测试
 
 每一条都要有测试证明：没有 token、token 错误、来源不对的连接被拒绝；渲染进程里拿不到 Node；导航和新窗口被拦截；日志里搜不到测试时用的 token 和 API Key；`@` 搜索不会返回工作区之外的文件。追踪表里单列"安全"一组。

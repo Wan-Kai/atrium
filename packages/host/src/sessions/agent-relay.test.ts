@@ -118,7 +118,7 @@ function task(taskId: string, fields: Partial<AgentTask> = {}): AgentTask {
  * @remarks
  * It answers on the host's command a few awaits after a request.
  *
- * @sideEffects none
+ * @sideEffects Schedules a zero-delay timer.
  * @returns Once they ran.
  */
 function settle(): Promise<void> {

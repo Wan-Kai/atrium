@@ -16,11 +16,15 @@
 
 ## 当前状态
 
-**2026-10-23：插件系统暂缓（用户定），在 `atrium/design-plugin-model`（worktree `atrium.worktrees/design-plugin-model`），未提交。** 设计了插件要有的能力、挂载点、状态、降级链、把现有内容型界面迁成内置插件（写进 [plugin-model.md](architecture/plugin-model.md)），调研了阿里低代码引擎（[lowcode-engine.md](research/lowcode-engine.md)）和 DeepSeek Harness 的客户端插件（[deepseek-harness-plugins.md](research/deepseek-harness-plugins.md)）。对比 pi 与 DeepSeek Harness 后（[pi-vs-dsh.html](research/pi-vs-dsh.html)），用户认为基于 pi 做整体插件化上限太低，先不做；阶段 2、3 标为暂缓。下一步仍是 MVP 2 的 SPEC-0004。
+**2026-10-23：插件系统暂缓（用户定），在 `atrium/design-plugin-model`（worktree `atrium.worktrees/design-plugin-model`），已本地合并回 `main`，未推送。** 设计了插件要有的能力、挂载点、状态、降级链、把现有内容型界面迁成内置插件（写进 [plugin-model.md](architecture/plugin-model.md)），调研了阿里低代码引擎（[lowcode-engine.md](research/lowcode-engine.md)）和 DeepSeek Harness 的客户端插件（[deepseek-harness-plugins.md](research/deepseek-harness-plugins.md)）。对比 pi 与 DeepSeek Harness 后（[pi-vs-dsh.html](research/pi-vs-dsh.html)），用户认为基于 pi 做整体插件化上限太低，先不做；阶段 2、3 标为暂缓。同日用户定：新账户首次启动不再做（M1.10 完成标准第一条），开源发布前的核对（字体许可、品牌图标、签名、公证与自动更新）先放着。下一步仍是 MVP 2 的 SPEC-0004。
 
-**2026-10-22：M1.11 自用完成。** 用户定：自用已够（10-11 到 10-22，184 个会话，其中 agent 开的子对话 112 个，全部用 Atrium 开发 Atrium 自己）；H1 成立、继续走 pi；新账户首次启动不跑（M1.10 完成标准第一条仍未验证，开源发布前再做）。[self-use.md](research/self-use.md) 按本机数据补齐：会话按日合并、资源趋势逐日、pi 与 Codex 的差距、14 条需求的核对（第 10 条自用中没碰到、第 13 条只在本机走过）。整理时在日志里发现两个没修的问题，进 MVP 2 前先修：界面 10-20 起上报 48 次 React #185（打包版也有），模型目录为已删的 worktree 目录起一次性 pi（22 次非请求退出全是它，会话的 pi 没崩过）。下一步：写 MVP 2 的 SPEC-0004（审批与上下文检查器）。
+**2026-10-23：审查与验证工具三件，在 `atrium/review-tooling`（worktree `atrium.worktrees/review-tooling`，合了三个子代理 `agent/pi130-fixtures`、`agent/boundary-manifest`、`agent/log-gate` 的改动），用户验收通过，已本地合并回 `main`，未推送。** ①补录 pi 1.3.0 缺的 33 个契约夹具：`test:pi` 从 56 过、33 失败到 89 项全过；和 1.1.0 相比只有 `custom-idle` 是 pi 自己的变化（空闲时扩展 `sendMessage` 开的运行，`handled` 应答改在 `agent_start` 之前），宿主两种先后都已处理（pi-internals"版本"）；`pi-1.0.2/`、`pi-1.1.0/` 仍被第 1 层回放和 `history.spec.ts` 用着，留着。②`pnpm boundary`：按改动列出依赖、地址、环境变量、隐藏命令和 `PROTOCOL_VERSION`，对照 security.md 新加的"外部边界登记"（地址 13 条加拼出的 3 条、环境变量 39、隐藏命令 4；补上了宿主每天请求却没登记的 `https://pi.dev/api/latest-version`）；`--all` 接进 `pnpm check`；新 lint 规则 `atrium/side-effects-none` 拦"写 `@sideEffects none` 却直接起进程、写文件、联网、设定时器、写日志"（生产代码 0 处，测试辅助函数 4 处改了 JSDoc）；新开发依赖 `oxc-parser@0.150.0`（TypeScript 7 没有 JS 编译 API）。③日志门禁：宿主集成测试和端到端测试收尾时，测试没声明的 warn/error/fatal 让测试失败；界面上报的长任务、掉帧不算（用户定，由性能预算测试管）；`pnpm errors` 按签名汇总生产日志，标出最近一次宿主启动后的新签名。门禁的基线找出并修了归档后改动面板还在读已删目录的问题（SPEC-0001 先改）；按用户定的"Atrium 自己要求的停止或中止不记 warn"改了 6 处日志级别（observability.md）。待查项记在 self-use.md"问题"：首次代码高亮约 50 ms 的长任务；生产日志里 "changes not read" 的 rev-parse 起不来 87 次、超时 28 次（不是归档引起）；浸泡测试的资源基线竞态（`main` 上同样失败）；EBADF 提示的根因（`logger.test.ts` 的收尾顺序）。集成后验证：`pnpm check`、单元 3506、宿主 157、pi 89、界面 996、泄漏 13 加桌面 7 通过；端到端 61 过、2 失败，一个是已知不稳的失焦材质，另一个是新记入"已知不稳的测试"的 `status-bar.spec.ts`（整套跑时回车没把消息发出去，单跑 4 次通过，原因待查）；拆提交时单元里 `pi-config.test.ts` 的保存排队用例并行偶发 `config_conflict`（既有，单跑 3 次和全量重跑都通过），一并补记进"已知不稳的测试"。子代理各自跑过的：break-check 共 69 处全部检出；改动行的变异测试 pi 组 30/30、git 组 27/27。
 
-**2026-10-22（M1.11 自用）：查了 `pnpm usage` 标出的 10-21 那次 24 小时上涨（`pi-process` 3 → 17、`session.controller` 3 → 68、heap 21 → 171 MB），不是违反 SPEC 的泄漏，是"你开的会话 pi 常驻、控制器留到归档"在一天 75 个会话下的累积。按用户选择加了 SPEC-0001"空闲回收"：空闲满 30 分钟停 pi（标签开着也停，下次用时再起），pi 停了、没人订阅、也没开着标签时丢掉控制器（点过停止的、出错的留着），宿主随每分钟的资源报告查一次；M1.15 留待定的"子对话被回收后控制器留到归档"一并解决。Claude 子代理只读审查后按用户决定补了"开着标签不丢"、"停过的维持留着"，修了等停 pi 的启动没算在启动；用户定放宽编辑重发的门禁：pi 已停、页面是停掉那个 pi 的 epoch 时按新 pi 核对最后一轮。在 `atrium/self-use-resource-growth`，待用户验收，未提交、未合并。** 验证见[追踪表](testing/coverage-map.md#m111-自用空闲回收-pi-与控制器2026-10-22)。
+**2026-10-22（M1.11 收尾后）：整理自用记录时发现的两个问题修好，用户验收通过，已本地合并回 `main`，未推送。** ①界面的 React #185：流式回复逐字显示的 `useRevealedText` 在 effect 里跟着每段文字改状态，页面忙时一口气到的多条 WebSocket 消息让 React 连续 50 多次提交都留着更新，判为死循环；改成在渲染中收进新文字（`atrium/fix-react-185`）。②模型目录为已删掉的目录起一次性 pi：先看目录，不在就应答 `path_not_found`，pi 起不来时只记"pi did not start"（`atrium/fix-models-missing-dir`）。验证见[追踪表](testing/coverage-map.md)；没在打包版里实际确认 #185 不再出现。
+
+**2026-10-22：M1.11 自用完成。** 用户定：自用已够（10-11 到 10-22，184 个会话，其中 agent 开的子对话 112 个，全部用 Atrium 开发 Atrium 自己）；H1 成立、继续走 pi；新账户首次启动不跑（M1.10 完成标准第一条未验证；2026-10-23 用户定不再做）。[self-use.md](research/self-use.md) 按本机数据补齐：会话按日合并、资源趋势逐日、pi 与 Codex 的差距、14 条需求的核对（第 10 条自用中没碰到、第 13 条只在本机走过）。整理时在日志里发现两个问题（同日已修，见上一条）：界面 10-20 起上报 48 次 React #185（打包版也有），模型目录为已删的 worktree 目录起一次性 pi（22 次非请求退出里 21 次是它，另 1 次是 pi 取工作目录时 Node 偶发 `EINTR`；会话的 pi 没崩过；10-22 已修）。下一步：写 MVP 2 的 SPEC-0004（审批与上下文检查器）。
+
+**2026-10-22（M1.11 自用）：查了 `pnpm usage` 标出的 10-21 那次 24 小时上涨（`pi-process` 3 → 17、`session.controller` 3 → 68、heap 21 → 171 MB），不是违反 SPEC 的泄漏，是"你开的会话 pi 常驻、控制器留到归档"在一天 75 个会话下的累积。按用户选择加了 SPEC-0001"空闲回收"：空闲满 30 分钟停 pi（标签开着也停，下次用时再起），pi 停了、没人订阅、也没开着标签时丢掉控制器（点过停止的、出错的留着），宿主随每分钟的资源报告查一次；M1.15 留待定的"子对话被回收后控制器留到归档"一并解决。Claude 子代理只读审查后按用户决定补了"开着标签不丢"、"停过的维持留着"，修了等停 pi 的启动没算在启动；用户定放宽编辑重发的门禁：pi 已停、页面是停掉那个 pi 的 epoch 时按新 pi 核对最后一轮。在 `atrium/self-use-resource-growth`，用户验收通过，已本地合并回 `main`（`9daac76`），未推送。** 验证见[追踪表](testing/coverage-map.md#m111-自用空闲回收-pi-与控制器2026-10-22)。
 
 **2026-10-22（M1.11 自用）：worktree 归档的结果改为窗口右上角的提示，用户验收通过，已从 `atrium/redesign-archive-success-toast` 本地合并回 `main`，未推送。** 用户选原型 `archive-toast-prototype.html` 的 A“玻璃胶囊”：成功“已归档「名称」”3 秒，失败“没能归档「名称」：原因”6 秒，悬停或聚焦 × 时暂停，最多叠 3 条；侧栏项目标题下的那行通知去掉。design-language“提示”、SPEC-0001 已同步，详见[追踪表](testing/coverage-map.md#m111-自用worktree-归档结果改为右上角提示2026-10-22)。
 
@@ -28,13 +32,13 @@
 
 **2026-10-22（M1.11 自用）：用户已验收并要求将两项界面小改一起合回 `main`：模型按钮在思考档位为 `off` 时不显示“关闭”文字，面板及其他档位不变；发送的图片可点击打开既有全屏预览，本页图片与重启后的历史图片均支持，关闭恢复焦点、换图 / 卸载关闭预览，不新增图片请求。** 来源为 `self-use-hide-off-thinking-label` 与 `self-use-sent-image-preview`；独立只读复核图片改动无阻断。整合后检查、构建、单元 3414、最终 UI 983、相关桌面六项（含重启恢复和连续开关 20 次的 DOM 泄漏）通过；UI 首轮既有 Markdown 悬停用例失败，单文件 27 项及全量重跑通过，未顺带修它。六项定向破坏检查全检出、两个相关浏览器文件各 2 副本 × 2 轮压力检查通过；不涉及核心变异分组、未新增变异分数，未跑全量桌面或 pi 契约。只做本地合并，未推送、未安装，不标整个 M1.11 完成。详见[集成验证](testing/coverage-map.md#模型档位与发送图片预览的合并验证m111-自用2026-10-22)。
 
-**2026-10-22（自用）：worktree 合并状态、胶囊条"+A −D"和新建 worktree 的默认起点改为先用本机主干，本机没有再用 `origin/<主干>`（`list_bases` 的 `main` 改成完整 ref，协议 25），在 `atrium/compare-with-local-main`，待用户验收。原先只比 `origin/main`，本机合并、不推送时侧栏一直显示未合并。详见 [追踪表](testing/coverage-map.md#m111-自用合并状态a-d和新-worktree-起点先用本机主干2026-10-22)。**
+**2026-10-22（自用）：worktree 合并状态、胶囊条"+A −D"和新建 worktree 的默认起点改为先用本机主干，本机没有再用 `origin/<主干>`（`list_bases` 的 `main` 改成完整 ref，协议 25），在 `atrium/compare-with-local-main`，用户验收通过，已本地合并回 `main`（`4ecbc0e`）。原先只比 `origin/main`，本机合并、不推送时侧栏一直显示未合并。详见 [追踪表](testing/coverage-map.md#m111-自用合并状态a-d和新-worktree-起点先用本机主干2026-10-22)。**
 
 **2026-10-22：M1.11 自用中改子代理的工具和送达，在 `atrium/consolidate-agent-tools`（worktree `atrium.worktrees/consolidate-agent-tools`，基于 `e2d3895`），用户验收通过，已提交，合入最新 main（含"agent 向你提问"、只读子代理可用 Bash）。** 用户选定：子对话一律在后台跑、结果只靠通知，删掉 `agent_wait` 和 `agent_spawn`/`agent_send` 的 `wait`、`waitSeconds`（只删 `agent_wait` 时，同一批几个 `wait: true` 要等最慢的，其间别的子对话问的问题送不进去），主 agent 工具从八个减到七个，`agent_reply` 保留；通知改由 Atrium 扩展在每个轮次边界合并插入（pi 1.3.0 跑完 `turn_end` 处理函数才取 steer 队列，不用会写进全局设置的 `set_steering_mode`），上一批没进去时新来的不再多等一个边界；`agent_send` 给正在做主 agent 交代之事的子对话时补进这件事（任务 id 不变，没赶上边界的记成后续任务），它在等回答时应答 `agent_question_open`。旧会话里的 `agent_wait`、`wait: true` 照旧显示车道合回，索引里旧宿主留下的 `claimed` 读成 `waiting`。子对话过程轨道里插进来的主 agent 的话写"主 agent 插话"加第一行（文案待用户确认）。对比 `pi-subagents` 后用户选定借两条：子对话的最终回复按结论、改了的文件、验证了什么、没验证什么、卡在哪里来写；`ask_parent` 没等到回答时不再按自己的判断继续，停下依赖它的事、在最终回复里写明要什么。"分叉时工具列表一致"实测只有 DeepSeek 受益（Grok、ChatGPT 订阅、claude-bridge 都另有原因命不中），用户定不做；"通知被忽略时提醒一次"不做。分析了冻结的 `improve-parent-child-agent-collab`：委托工具执行依赖等待里的工具上下文、pi 1.3.0 公开 API 无法安全取消，建议不做，其中的完成通知带正文、关闭时等写完、交接保留排队等修复另拆小改动；"有通知时把长命令转到后台"（Claude Code 做法）暂不做，先用新加的送达日志量延迟（SPEC-0002"备选方案"，Codex、DeepSeek Harness 的对比见 multi-agent.md）。三方审查（Astra、Grok 4.7、Claude Opus 5.5）合并后 11 条（高 4、中 3、低 4），修了 9 条：扩展在 `agent_end` 时交出收着的、空闲重发也交出、去重只认还在 pi 队列里或已进上下文的（被停下时忘掉队列里那些）、重发的批取代重叠部分；宿主在跑时通知和补话分两条命令、relay 合并同一件事的补话；删补话不结束那件事；运行结束而"做完"未写入时补话开的运行记成后续任务；正在停止时 `agent_send` 排成下一件；确认日志不重复；JSDoc、ADR 跟上。补话插在最后一次回复之后时界面另开一轮、后续任务写不进索引时结果丢，写进 SPEC 作为已知限制。用户定不复审。最终验证（2026-10-22 15:20）：`pnpm check`、单元 3278、宿主 147、泄漏 12＋桌面 5、全部端到端 57 通过（新加的补话端到端连跑 5 次通过）；界面 938 里 changes-pane"0.24 s"动画失败 1 项（已知不稳，单跑 13/13 通过）；真实 pi 1.3.0 送达契约 `agent-boundary`、`agent-boundary-stop`、`agent-boundary-end`（测试专用探针在 `agent_end` 卡住 pi）通过，`agent-call/task/guard/note` 仍缺 1.3.0 夹具（既有）。破坏检查新增 54 条全部检出。改动行变异：host 445 杀死、0 存活、17 超时（送达改坏后的真实忙循环），pi 166/166，ui 12/12。下午 14:08 起 macOS `syspolicyd` 文件句柄耗尽，扫描失败即杀新建的脚本（日志"Malware rejection"），导致一段时间的测试失败，用户 `sudo killall syspolicyd` 后恢复。README 截图的演示脚本已改成派出后自己接着看代码、通知在轮次边界插进来，用户定不重拍，现有截图仍是 `agent_wait` 版本的流程。
 
 **2026-10-22："agent 向你提问"经三方审查（GPT-6 Astra、Grok 4.7、Claude）后修复，用户验收通过并合并。修了三方共同指出的 `ask_user` 未声明串行（契约 `ask-user-two` 实测同批第二组原先并发发出）、换题丢焦点、提交失败锁死、"其他"无上限；另修胶囊条盖住卡片（对话框卡片同样，现都放进输入框容器）、草稿在切会话和直接回复被退回时被清、⌘+数字冲突、多行答案拆格式（交回模型改为 JSON 字符串）、读历史与 pi 的参数规范化不一致、错误结果误显示为取消、恢复后"待回答"时间重置、Markdown 缺完整问题等。按用户要求顺带修了审查发现的既有竞态：插话在途时 pi 退出，同一条消息既回到排队又被退回输入框（现在只回排队，命令应答 `queued`，SPEC-0001"失败与重启"已补）。preview 按等宽原文显示（用户定）。详见 [追踪表](testing/coverage-map.md#三方审查后补spec-00032026-10-22)。**
 
-**2026-10-22："agent 向你提问"（[SPEC-0003](specs/0003-agent-asks-user.md)）实现完成，在 `atrium/design-agent-question-ui`，待用户验收，未合并、未推送。Atrium 扩展注册 `ask_user`（对齐 Claude Code 的 `AskUserQuestion`），宿主把问题放进 `control.question`，界面在输入框上方显示提问卡片（A、序号乙），答案作为工具结果交回、这一轮不断；在输入框发消息算直接回复（界面发插话，宿主先插话再回答，契约测试实测的顺序）；停止、pi 退出、扩展放弃时作废；只有不是 agent 开的会话有这个工具（`work` 子代理启动时排除，带上下文的由钩子拦）；过程轨道留"问了你 N 个问题"和每题一行的记录。协议 24。实现中按最小实现定的细节已写回 SPEC-0003（`details` 只存结局、不做回答的确认轮、← → 换题、标题行沿用运行计时、空白预览算没有）。`pnpm check`、单元与宿主 3513+、界面 954（新增后）、pi 契约新增 5 个场景、端到端 2 条、泄漏（宿主 200 轮、界面堆快照）通过；破坏检查 50 处全检出；改动行的变异测试各组 100%（等价处在源码注明）。已知不稳与限制见 [追踪表](testing/coverage-map.md#agent-向你提问spec-00032026-10-21)。**
+**2026-10-22："agent 向你提问"（[SPEC-0003](specs/0003-agent-asks-user.md)）实现完成，在 `atrium/design-agent-question-ui`（三方审查后修复，用户验收通过，已合并，见上文 2026-10-22 那条）。Atrium 扩展注册 `ask_user`（对齐 Claude Code 的 `AskUserQuestion`），宿主把问题放进 `control.question`，界面在输入框上方显示提问卡片（A、序号乙），答案作为工具结果交回、这一轮不断；在输入框发消息算直接回复（界面发插话，宿主先插话再回答，契约测试实测的顺序）；停止、pi 退出、扩展放弃时作废；只有不是 agent 开的会话有这个工具（`work` 子代理启动时排除，带上下文的由钩子拦）；过程轨道留"问了你 N 个问题"和每题一行的记录。协议 24。实现中按最小实现定的细节已写回 SPEC-0003（`details` 只存结局、不做回答的确认轮、← → 换题、标题行沿用运行计时、空白预览算没有）。`pnpm check`、单元与宿主 3513+、界面 954（新增后）、pi 契约新增 5 个场景、端到端 2 条、泄漏（宿主 200 轮、界面堆快照）通过；破坏检查 50 处全检出；改动行的变异测试各组 100%（等价处在源码注明）。已知不稳与限制见 [追踪表](testing/coverage-map.md#agent-向你提问spec-00032026-10-21)。**
 
 **2026-10-21：设计"agent 向你提问"（[SPEC-0003](specs/0003-agent-asks-user.md)，已确认，待实施），在 `atrium/design-agent-question-ui`。对齐 Claude Code 的 `AskUserQuestion`：Atrium 自带扩展的 `ask_user`，1～4 题、每题 2～4 个选项、可多选、可带预览、自动带"其他"；答案作为工具结果交回，这一轮不断。用户定了：位置 A"卡片"（输入框上方，原型 `prototypes/agent-question-prototype.html`）、序号乙"序号即控件"（单选圆、多选方，原型 `prototypes/agent-question-card-prototype.html`）、"其他"是铺满整行的多行框；等待时在输入框发消息算直接回复（先结束问题再作为插话送到）；只有不是 agent 开的会话有这个工具，agent 开的子对话照旧用 `ask_parent`；必须全部答完才能提交。design-language、SPEC-0001/0002、domain-model 已同步。下一步：契约测试实测 abort 与插话顺序，再按 SPEC 的实施计划测试先行实现。**
 
@@ -377,17 +381,17 @@ MVP 1 里还没设计、做到时先补设计的：
   - 字体子集和品牌图标打包进应用，不依赖网络。
   - 设置页（先设计，原型里只有入口）：外观；自动生成标题用的模型；项目的主干分支；pi 的版本与"更新 pi"（宿主每天查一次 npm，有会话在运行时等它们结束再更新）。
 - **参考**：[SPEC-0001 · 首次启动](specs/0001-mvp1-single-session-chat.md#首次启动)、原型 `onboarding-prototype.html`、[design-language · 点阵、字体](architecture/design-language.md#点阵)、[pi-internals](research/pi-internals.md) §4 模型与认证、[domain-model](architecture/domain-model.md) §5 首次启动。
-- **完成标准**：在一个没装 pi 的账户上走通；SPEC-0001 需求 13 通过；设置页里的每一项改完都生效。
+- **完成标准**：在一个没装 pi 的账户上走通（不做，2026-10-23 用户定）；SPEC-0001 需求 13 通过；设置页里的每一项改完都生效。
 
 ##### M1.11 自用 ✅
 
-- **完成**（2026-10-22）：记录与结论见 [self-use.md](research/self-use.md)。没做到的：新账户首次启动（用户定不跑）、只在 Atrium 自己这个项目上用过、会话和资源是事后从数据整理的。
+- **完成**（2026-10-22）：记录与结论见 [self-use.md](research/self-use.md)。没做到的：新账户首次启动（用户定不跑，2026-10-23 定不再做）、只在 Atrium 自己这个项目上用过、会话和资源是事后从数据整理的。
 
 - 用本机打包的 Atrium.app（`pnpm package`）或开发模式运行，连续一周用它完成真实的编码任务，至少 10 个会话。打包只给本机用：只做 ad-hoc 签名，不公证、不自动更新（2026-10-11 定，见 [overview.md · 桌面端怎么启动宿主](architecture/overview.md#桌面端怎么启动宿主)）。
 - 每天看宿主日志里的资源计数和内存趋势；发现持续上涨就补一个能复现的泄漏测试再修。
 - 记录 pi 比 Codex 明显不够用的地方，作为 H1 的结论，决定是否继续这条路线。
 - 对照 SPEC-0001 的 14 条需求逐条过一遍。
-- 在一个没装 pi 的 macOS 账户上从首次启动走到第一次对话（M1.10 完成标准第一条，合并时还没手动验证）。
+- 在一个没装 pi 的 macOS 账户上从首次启动走到第一次对话（M1.10 完成标准第一条，合并时还没手动验证；2026-10-23 用户定不做）。
 - 以上都记在 [self-use.md](research/self-use.md)；每天的资源趋势用 `pnpm usage` 看（宿主每分钟记资源计数和内存，Electron 主进程每分钟把各进程的内存交给宿主记下）。
 - 标志：一只猫，用作 Atrium.app 的图标和欢迎页的 logo 位（2026-10-11 定，见 [design-language · 标志](architecture/design-language.md#标志)）。
 - 自用中补的：发送后到有内容之前显示眨眼的小猫和"进行中"（SPEC-0001"过程的呈现 · 等待回复"）；新建会话不等 pi 启动，宿主定 id、马上打开标签，pi 在后台用 `--session-id` 启动，空状态里一输入就新建（领域模型"已决定 9"，2026-10-11 改）。
@@ -496,7 +500,7 @@ Atrium 区别于宿主层方案的核心，按学习价值和实现难度排序�
 
 通过 pi package 分发。评估第三方插件的沙箱、权限声明，以及 UI 部分是否向 MCP Apps 这类标准靠拢。
 
-开源发布前要核对：汇文明朝体等"免费商用"字体的许可、各家品牌图标的使用规范、打包签名与自动更新。
+开源发布前要核对：汇文明朝体等"免费商用"字体的许可、各家品牌图标的使用规范、打包签名、公证与自动更新（2026-10-23 用户定：先放着）。
 
 ## 以后再说
 

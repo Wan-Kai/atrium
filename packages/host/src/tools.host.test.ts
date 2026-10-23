@@ -104,6 +104,7 @@ describe("tool detection at startup", () => {
       },
     );
     testHost = await startTestHost({ toolEnv: broken });
+    testHost.expectLog({ level: "error", msg: "tool detection failed", times: 1 });
 
     expect(await testHost.host.tools).toBeNull();
     expect(await testHost.readLog()).toContainEqual(
@@ -125,7 +126,7 @@ describe("tool detection at startup", () => {
       fd: null,
     });
     expect(await testHost.readLog()).toContainEqual(
-      expect.objectContaining({ level: "warn", msg: "pi inspected", status: "missing" }),
+      expect.objectContaining({ level: "info", msg: "pi inspected", status: "missing" }),
     );
   });
 
@@ -184,5 +185,20 @@ describe("tool detection at startup", () => {
       .split("\n")
       .filter((line) => line.trim() === HANGING);
     expect(sleeping).toStrictEqual([]);
+  });
+
+  it("notes a login shell read it gave up on while closing at info level, not as a warning", async () => {
+    const host = await hostWithShell({ ".zprofile": `${HANGING}\n`, ".zshrc": `${HANGING}\n` });
+    await vi.waitFor(() => expect(host.resources.snapshot()["tools.detect"]).toBe(1));
+
+    await host.close();
+    const attempts = (await readFile(host.logFile, "utf8"))
+      .split("\n")
+      .filter((line) => line.includes('"login shell attempt failed"'))
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+    expect(attempts.map(({ level, reason }) => ({ level, reason }))).toStrictEqual([
+      { level: "info", reason: "aborted" },
+    ]);
   });
 });

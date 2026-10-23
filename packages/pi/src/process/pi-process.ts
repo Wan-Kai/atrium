@@ -147,6 +147,11 @@ const STDERR_TAIL_BYTES = 8 * 1024;
 const STDERR_LINE_LIMIT = 16 * 1024;
 /** How long to wait for pi's pipes to close after it exited before giving up on them. */
 const PIPE_DRAIN_MS = 1_000;
+/**
+ * How many requests given up on by Atrium are remembered, so a late answer to one is not a warning.
+ * Bounded: pi may never answer them, and a session's pi can run for days.
+ */
+export const DROPPED_REQUESTS_KEPT = 100;
 
 /** A request waiting for its response. */
 interface Pending {
@@ -191,10 +196,30 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
   const listeners = new Set<(event: PiEvent) => void>();
   let stderrTail = "";
   let stopRequested = false;
+  /**
+   * Requests Atrium gave up on, by `stop` or the caller's signal, oldest first; pi may still answer
+   * them. At most `DROPPED_REQUESTS_KEPT`.
+   */
+  const dropped = new Set<string | undefined>();
   let exit: PiExit | undefined;
   let cancelDrain: (() => void) | undefined;
   let stopping: Promise<PiExit> | undefined;
   const { promise: exited, resolve: resolveExited } = Promise.withResolvers<PiExit>();
+
+  /**
+   * Remembers a request Atrium gave up on, forgetting the oldest beyond `DROPPED_REQUESTS_KEPT`.
+   *
+   * @remarks
+   * See `handleResponse`.
+   *
+   * @sideEffects Updates the set of dropped requests.
+   * @param id - The request's id.
+   */
+  function drop(id: string | undefined): void {
+    dropped.add(id);
+    const oldest = dropped.values().next().value;
+    if (dropped.size > DROPPED_REQUESTS_KEPT) dropped.delete(oldest);
+  }
 
   /**
    * Fails every waiting request.
@@ -219,10 +244,11 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
    *
    * @remarks
    * Called from `close`, and from `error` when spawning failed; when spawning fails Node may emit
-   * `close` as well, so the second call is ignored.
+   * `close` as well, so the second call is ignored. A pi that never started was logged as such
+   * already, and is not logged as exiting: it did not crash (observability.md, "pi 进程").
    *
-   * @sideEffects Fails waiting requests; cancels the drain timer; releases the resource count; logs;
-   * resolves `exited`.
+   * @sideEffects Fails waiting requests; cancels the drain timer; releases the resource count; logs
+   * the exit of a pi that started; resolves `exited`.
    * @param code - Exit code.
    * @param signal - Terminating signal.
    * @param spawnError - Why spawning failed, if it did.
@@ -239,7 +265,8 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
     cancelDrain?.();
     failAll("exited", spawnError ?? stderrTail);
     release();
-    deps.log[exit.requested ? "info" : "warn"]({ pid, code, signal, requested: exit.requested }, "pi exited");
+    if (spawnError === undefined)
+      deps.log[exit.requested ? "info" : "warn"]({ pid, code, signal, requested: exit.requested }, "pi exited");
     resolveExited(exit);
   }
 
@@ -248,7 +275,10 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
    *
    * @remarks
    * A response without an id is pi's answer to a line it could not parse; one with an unknown id
-   * belongs to a request that already timed out or was aborted.
+   * belongs to a request that was given up on, or that was never sent. A late answer to a request
+   * Atrium gave up on itself, by `stop` or the caller's signal, is what Atrium asked for, so it is
+   * only noted at debug level (observability.md, "日志格式"); one past pi's own deadline, one without
+   * an id and one nobody sent are warned about.
    *
    * @sideEffects Settles a pending request; logs unmatched responses.
    * @param response - The response pi printed.
@@ -256,7 +286,8 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
   function handleResponse(response: RpcResponse): void {
     const waiting = pending.get(response.id);
     if (waiting === undefined) {
-      deps.log.warn({ pid, id: response.id, command: response.command }, "pi response matches no waiting request");
+      const level = dropped.has(response.id) ? "debug" : "warn";
+      deps.log[level]({ pid, id: response.id, command: response.command }, "pi response matches no waiting request");
       return;
     }
     pending.delete(response.id);
@@ -329,6 +360,7 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
     // spawn, Node emits `error` only when `kill()` fails, which cannot be provoked in a test.
     // Stryker disable next-line ConditionalExpression: see above.
     if (pid === undefined) {
+      deps.log.warn({ cwd: launch.cwd, err: error }, "pi did not start");
       finish(null, null, error.message);
       return;
     }
@@ -344,7 +376,8 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
     }, PIPE_DRAIN_MS);
   });
   child.on("close", (code, signal) => finish(code, signal));
-  deps.log.info({ pid, cwd: launch.cwd }, "pi started");
+  // Without a pid nothing started; `error` follows and says so.
+  if (pid !== undefined) deps.log.info({ pid, cwd: launch.cwd }, "pi started");
 
   /**
    * Resolves `true` if pi exits within `ms`, `false` otherwise.
@@ -438,6 +471,7 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
       // Stryker disable next-line ConditionalExpression: unreachable, since settling cancels both the deadline and the abort listener; kept for the type.
       if (waiting === undefined) return;
       pending.delete(id);
+      if (reason === "aborted") drop(id);
       waiting.cleanup();
       waiting.reject(new PiRequestError(type, reason));
     }
@@ -474,6 +508,7 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
   function stop(): Promise<PiExit> {
     if (stopping === undefined) {
       stopRequested = true;
+      for (const id of pending.keys()) drop(id);
       failAll("stopped");
       // Resolve only after the shutdown steps have cancelled their own timers, not just when pi exits.
       stopping = shutdown().then(() => exited);

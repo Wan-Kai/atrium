@@ -16,6 +16,7 @@ afterEach(async () => {
 describe("connection resources", () => {
   it("returns every resource count to its baseline after 200 accepted and 50 rejected connections", async () => {
     testHost = await startTestHost({ logLevel: "warn" });
+    testHost.expectLog({ level: "warn", msg: "client rejected: wrong token", times: 50 });
     const host = testHost.host;
     // Three timers stay: the next resource report, the background fetch's next run and the daily
     // look for the latest pi. Finding the tools may still be under way when the host is up.

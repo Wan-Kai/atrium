@@ -1,7 +1,9 @@
+import { type ExpectedLog, findLogProblems, readLogRecords } from "@atrium/testkit";
 import { type ElectronApplication, type Page, _electron as electron, expect } from "@playwright/test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fauxExpectedLogs } from "./faux-pi";
 
 /** A launched desktop app with its own Atrium home directory. */
 export interface LaunchedApp {
@@ -13,12 +15,37 @@ export interface LaunchedApp {
   readonly connectedAfterMs: number;
   /** Reads every record in the host's current log file. */
   readonly readHostLog: () => Promise<Array<Record<string, unknown>>>;
-  /** Quits the app and deletes its home directory. */
+  /** Declares a warn, error or fatal host record the test's scenario writes on purpose, for any launch on this home. */
+  readonly expectLog: (expected: ExpectedLog) => void;
+  /** Quits the app, checks the host log against what was declared, and deletes its home directory. */
   readonly close: () => Promise<void>;
   /** Quits the app but keeps its home directory, so the final log can be read. */
   readonly quit: () => Promise<void>;
-  /** Deletes the home directory after `quit`. */
+  /** Checks the host log against what was declared and deletes the home directory, after `quit`. */
   readonly cleanup: () => Promise<void>;
+}
+
+/** What tests declared for each home, kept across the launches that share it until the home goes. */
+const expectedByHome = new Map<string, ExpectedLog[]>();
+
+/**
+ * Checks a home's host log against what the test declared, then deletes the home.
+ *
+ * @remarks
+ * A test can pass while the host logs warnings or errors, such as an unhandled rejection the host
+ * survives in its utility process; the log gate makes that fail (testing.md, "日志门禁"). Launches
+ * on the same home share one log and one set of declarations, so the check runs once, when the
+ * home goes. It is a soft assertion: the test still cleans up, and a failure of its own still shows.
+ *
+ * @sideEffects Reads the home's logs; deletes the home; records a soft failure in the running test.
+ * @param home - The Atrium home directory, with no app running on it.
+ */
+async function checkAndRemove(home: string): Promise<void> {
+  const records = await readLogRecords(join(home, "logs"));
+  const problems = findLogProblems(records, expectedByHome.get(home) ?? []);
+  expectedByHome.delete(home);
+  await rm(home, { recursive: true, force: true });
+  expect.soft(problems, "the host log has records the test did not declare").toStrictEqual([]);
 }
 
 /** `preferences.json` with first launch done and the rest as a new home has it. */
@@ -74,7 +101,9 @@ export function median(values: readonly number[]): number {
  * `env` says where, so it stays off the network. A new home has first launch done already, so the
  * window opens on the workbench, unless `options.firstLaunch` asks for first launch; then the
  * launch waits for the welcome page instead, which has no connection status. With
- * `options.executablePath` it launches a packaged app instead of the repository's.
+ * `options.executablePath` it launches a packaged app instead of the repository's. Closing it, or
+ * cleaning up after quitting, checks the host log (`checkAndRemove`), with what a faux environment
+ * makes the host write on purpose declared already (`fauxExpectedLogs`).
  *
  * @sideEffects Creates a temp directory unless given one, with the preferences in it; launches
  * Electron; waits for the page to connect.
@@ -90,6 +119,19 @@ export async function launchApp(
 ): Promise<LaunchedApp> {
   const firstLaunch = options.firstLaunch === true;
   const home = existingHome ?? (await mkdtemp(join(tmpdir(), "atrium-e2e-")));
+  /**
+   * Declares a host record the test expects, for every launch on this home.
+   *
+   * @remarks
+   * See `checkAndRemove`.
+   *
+   * @sideEffects Adds to the home's declarations.
+   * @param expected - The record.
+   */
+  const declare = (expected: ExpectedLog): void => {
+    expectedByHome.set(home, [...(expectedByHome.get(home) ?? []), expected]);
+  };
+  for (const expected of fauxExpectedLogs(env)) declare(expected);
   if (existingHome === undefined && !firstLaunch) await markSetupDone(home);
   const started = Date.now();
   const app = await electron.launch({
@@ -115,11 +157,12 @@ export async function launchApp(
         .split("\n")
         .filter((line) => line.length > 0)
         .map((line) => JSON.parse(line) as Record<string, unknown>),
+    expectLog: declare,
     close: async () => {
       await app.close();
-      await rm(home, { recursive: true, force: true });
+      await checkAndRemove(home);
     },
     quit: () => app.close(),
-    cleanup: () => rm(home, { recursive: true, force: true }),
+    cleanup: () => checkAndRemove(home),
   };
 }

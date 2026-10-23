@@ -91,6 +91,7 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 
 - `pnpm fixtures:record`：用本机的 pi 重录全部场景，写到 `pi-<本机版本>/`，并删掉其他版本的目录。
 - 2026-10-09 本机 pi 升到 1.1.0：另录了 `pi-1.1.0/`（直接以 `RECORD_FIXTURES=1` 跑契约测试，不删旧目录），`pi-1.0.2/` 暂时保留，因为第 1 层的回放测试还按它写；两版的差别见 pi-internals"版本"。第 1 层改用新版本时，再用 `pnpm fixtures:record` 只留一个版本。
+- 2026-10-23 补齐 `pi-1.3.0/`：本机 pi 是 1.3.0，此前只录了编辑和子对话的 19 个场景，其余 33 个场景缺夹具，`test:pi` 一直有 33 项失败。同样直接以 `RECORD_FIXTURES=1` 只跑这些场景所在的契约测试文件，不用 `pnpm fixtures:record`：第 1 层的回放测试（`translate.test.ts`、`log-entry.test.ts`、`session-files.test.ts` 读 `pi-1.0.2/`，`system-prompt.test.ts` 读 `pi-1.1.0/`）和端到端的 `history.spec.ts`（`pi-1.0.2/history.jsonl`）还按旧目录写，所以 `pi-1.0.2/`、`pi-1.1.0/` 继续保留，等第 1 层改用 1.3.0 时再一起删。两次录制逐字节相同，已有的 19 个没变；和 1.1.0 的差别见 pi-internals"版本"。
 - `pnpm test:pi`：先对真实 pi 做契约断言，再把这次的输出规范化后和同版本的夹具比较，不一致就失败，提示重录并审查 diff。本机 pi 版本没有对应的夹具时也失败，要求先录制。这样升级 pi 后，第一次跑 `test:pi` 就会逼着人看 pi 的输出变了什么。
 - 比较时只忽略系统消息里的文字（role 除外）：系统提示词写着本机的路径，换台机器就不同。系统消息的键和 `sections` 的结构仍要一致，pi 改了系统提示词的组织方式也能发现。夹具本身保存录到的文字。
 
@@ -149,6 +150,20 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 - **追踪表** `docs/testing/coverage-map.md`（M1.1 建立）：SPEC 的每条需求、每条关键流程、每种错误路径，对应到具体测试文件和用例名。
 - **每个可能失败的操作**至少测成功和失败；超时、断线有不同的恢复方式时再单独测。失败用例断言用户看得到、能操作的东西，不断言内部字段或日志。
 - **里程碑完成标准**都包含：追踪表里这个里程碑涉及的行都有测试，并通过变异门槛。
+
+## 日志门禁
+
+2026-10-23 定。测试通过、宿主日志里却有 warn 或 error，是一种"假绿灯"：之前单元测试输出里的"日志流 EBADF"在追踪表里被记了 11 次"不影响用例通过"，一直没人修。做成门禁而不是报告，因为报告会被习惯性忽略。
+
+- **第 4 层**：`startTestHost()` 起的宿主在 `dispose()` 时，关掉宿主，读日志目录里全部 `host.<n>.jsonl`，删掉临时主目录，再核对：出现测试没有声明的 `warn`、`error`、`fatal` 记录，`dispose()` 就失败（测试在 `afterEach` 里调它，测试随之失败）。
+- **第 6 层**：`launchApp()` 起的应用在 `close()`，或 `quit()` 之后的 `cleanup()` 时，读这次临时主目录里的全部宿主日志，同样核对。同一个主目录的几次启动（重启应用的测试）共用声明，按主目录登记，在删掉主目录时统一核对。失败用 Playwright 的软断言记下，测试照常继续收尾，也不掩盖测试本身的失败。宿主在 Electron 的 utilityProcess 里遇到没人处理的 Promise 拒绝时只记一条 error"unhandled rejection"、照常运行，端到端测试以前看不到它，现在会因此失败。
+- **声明预期的日志**：`testHost.expectLog({ level: "warn", msg: "pi did not start" })`，端到端是 `launched.expectLog(…)`，在测试里任何时候调都行。按 `level` 和 `msg` 精确匹配，`fields` 里写的结构化字段也要逐个相等（如 `fields: { reason: "model_failed" }`）；不写 `times` 表示至少出现一次，写了就要正好这么多次。声明了却没出现也算失败，免得场景变了、声明还留着，把以后同样的问题放过去。
+- **可能出现**（`optional: true`，次数不限，零次也行）：只用于出现与否取决于测试控制不了的时机的记录，例如后台工作和关应用赛跑；声明处写注释说明原因。不能用来放过被测行为本身的不稳定。目前只有一处：faux 在脚本没写 `title` 时对标题请求回错误（见上文"faux 模型"），宿主记 warn"one-shot pi failed"（`reason: "model_failed"`），标题调用在关应用之前跑完才有。端到端由 `fauxPiEnvironment` 的环境自动登记这一条（`fauxExpectedLogs`），只放过这个原因，一次性 pi 的其他失败照样拦下。
+- **不管性能信号**（2026-10-23 定）：界面上报的问题（`client issue`）里，`kind` 为 `long_task`（长任务）和 `slow_frames`（掉帧）的不算意外，门禁不看；`kind: "error"`（如 React #185）照样拦。这是门禁的范围，不是声明：这些信号取决于机器负载，功能测试里拿它做门禁会时有时无地失败；性能由预算测试（`chat.perf.spec.ts` 等，`pnpm test:perf`）管，自用中的长任务由 `pnpm errors` 汇总。
+- **失败信息**只列 level、msg、`err` 的类型和码以及次数，不打印记录的其他字段，避免把路径、对话内容之类带进测试输出。
+- **和"失败用例断言用户看得到的东西"的关系**：声明不是断言。走失败路径的测试照旧断言用户看得到、能操作的东西（"让覆盖面全"）；声明只说明"这个场景本来就会记这条日志"，让门禁放过它，不逼测试去断言日志。要证明"出错时记了日志"本身（如 observability.md 要求的某条记录），照旧用 `readLog()` 断言。
+- **不设全局白名单**。新出现的失败按三类处理：测试场景本来就会产生的，在这个测试里声明；测试环境造成的噪音（如临时目录的权限让每个宿主都 warn），修 harness 的环境；暴露了真实 bug 的，修掉或登记，不悄悄放行。
+- **范围**：直接调 `startHost` 的宿主测试（`index.host.test.ts`、`ws-server.host.test.ts`、`setup.host.test.ts`、`tools.host.test.ts` 里共 9 处）不经 harness，不受门禁约束；`host-standalone.spec.ts` 这类不用 `launchApp` 的端到端测试同样不受约束。宿主写到 stderr 的提示（如日志流出错时的 `atrium: log stream error: …`）不是日志记录，门禁看不到。
 
 ## 性能与资源泄漏
 
@@ -255,13 +270,21 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 | `packages/ui/src/files/diff-viewer.browser.test.tsx`、`packages/ui/src/chat/streaming.browser.test.tsx` | 整套并行时偶尔有一个用例失败，单独跑通过；具体用例下次复现时记下 | 同上 | 待查 |
 | `packages/host/src/files/workspace-files.test.ts` "lists a directory of exactly 5000 entries whole" | 机器忙时超过期限 | `pnpm test:stress packages/host/src/files/workspace-files.test.ts` | 待修 |
 | `packages/host/src/setup/install-job.test.ts` "ends what the command left running in its group once it exits"（`install-service.test.ts` 有同类用例） | 整套并行时偶尔失败，单独跑通过（M1.14 时记下） | `pnpm test:stress packages/host/src/setup/` | 待修 |
+| `packages/host/src/setup/pi-config.test.ts` "queues several same-path saves in order while unrelated paths remain writable" | 整套单元并行跑时偶尔失败：第三次保存应答 `config_conflict`，没按排队的顺序写成；单独跑通过。2026-10-20 起追踪表里多次记过，2026-10-23 集成验证时又出现一次（单跑 3 次、全量重跑都通过），文件未改 | `pnpm test:stress packages/host/src/setup/pi-config.test.ts` | 待查 |
+| `apps/desktop/e2e/status-bar.spec.ts` "shows the session's figures under the input box after a reply, with the context split, and keeps the groups chosen" | 2026-10-23 集成验证时整套串行跑（63 个里的最后一个）失败一次：按回车后消息没发出去，"一"还留在输入框里，30 秒没等到回复；这个用例的宿主日志没有意外的 warn/error。单跑 4 次、log-gate 分支的整套都通过。原因未查清，改动不涉及界面和输入框 | 整套跑 `pnpm test:e2e`；单跑 `--repeat-each` 没复现 | 待查 |
 | `apps/desktop/e2e/app.spec.ts` "keeps the sidebar's material as it is when another window takes the focus" | 本机跑时窗口有时拿不到系统焦点；2026-10-22整套及单跑均在 `screencapture -l` 报 `could not create image from window`，尚未到颜色断言 | 单独跑这个 spec，跑的同时不要操作别的窗口 | 待查（可能要换成不依赖系统焦点的做法）；原生截图可用性也是验证阻塞，未绕过或删除用例 |
 
-另外，`pnpm test:pi` 现在跑不过：本机 pi 升到了 1.3.0，仓库里只有 1.0.2 和 1.1.0 的夹具（"pi 夹具"一节：没有本机版本的夹具就失败）。待办：为 1.3.0 录一套夹具、审查和 1.1.0 的差异（2026-10-20 记）。
+另外，`pnpm test:pi` 曾经跑不过：本机 pi 升到了 1.3.0，仓库里只有 1.0.2 和 1.1.0 的夹具（"pi 夹具"一节：没有本机版本的夹具就失败）（2026-10-20 记）。2026-10-23 已补齐 1.3.0 夹具并审查和 1.1.0 的差异，`test:pi` 89 项全部通过。
 
 ### 运行时监控
 
 测试覆盖不到真实使用。宿主每分钟把资源计数、堆、RSS 写进日志；Electron 主进程每分钟把 `app.getAppMetrics()` 里各进程的内存和 CPU 交给宿主写进同一份日志（[observability.md](observability.md#和测试的关系)）。M1.11 自用期间每天用 `pnpm usage` 看一眼趋势：它按宿主的每次运行列出每小时的数值，并比较第一个小时和最后一个小时里的最低值。泄漏会抬高最低值，所以资源计数的最低值变高、或内存的最低值涨到 1.5 倍以上时标出 `↑`；运行不到两小时不比较（2026-10-11 定）。发现持续上涨就补一个能复现的泄漏测试再修。
+
+真实的异常多半出现在自用的生产日志里，测试的日志门禁看不到。`pnpm errors [日志目录]`（默认 `~/.atrium/logs`，只读）把日志里的 `warn`、`error`、`fatal` 按签名分组，列出次数、首次和最后出现的时间、涉及几次宿主运行，并把**新签名**（截止时间之后才第一次出现、之前保留的日志里没有的）排在前面、标 `new`（2026-10-23 定，动机：界面从 10-20 起上报的 48 次 React #185、模型目录为已删除的目录起的一次性 pi，都是 10-22 人工翻日志才发现的）。
+
+- **签名**：`service`、`level`、`msg`，加上 `err` 的类型和码（不含错误文字）。界面上报的问题（`client issue`）再加上报的种类和归一后的问题文字：React 的压缩错误只留错误号（`React #185`），其余文字里的网址、路径、id、数字换成占位符。
+- **截止时间**：默认是最近一次宿主运行的开始（最后一条 `host listening`），也就是最近一次装上新版本、或重启宿主的时候。宿主启动时的记录里没有每次构建都会变的东西（版本号一直是 `0.0.0`），认不出"最近一次安装"，所以用宿主的启动代替；要从更早算起用 `--since <ISO 时间>`。
+- **什么时候看**：装上新版本、用过一阵之后（acceptance.md"装上试用"），以及每天看 `pnpm usage` 时一起看。新签名逐条查清：真实的 bug 补一个能复现的测试再修。
 
 ## 命令
 

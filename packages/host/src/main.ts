@@ -247,7 +247,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       const workspace = workspaces.list().find((one) => one.id === workspaceId);
       if (workspace === undefined) return undefined;
       const project = projects.projects().find((one) => one.id === workspace.projectId);
-      return { dir: workspace.dir, mainBranch: project?.mainBranch ?? null };
+      return { dir: workspace.dir, mainBranch: project?.mainBranch ?? null, archived: workspace.archivedAt !== null };
     },
     send: (connectionId, event) => subscriptions.sendTo(connectionId, event),
     clock,
@@ -280,6 +280,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
           throw error;
         }),
     ),
+    log: logger,
     clock,
   });
   // The title model chosen in the settings, when pi lists it; it names new worktrees' branches too.
@@ -625,7 +626,9 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
               env: process.env,
               clock,
               signal,
-              onFailure: (failure) => logger.warn({ ...failure }, "login shell attempt failed"),
+              // Closing the host gives up on the read on purpose (observability.md, "日志格式").
+              onFailure: (failure) =>
+                logger[failure.reason === "aborted" ? "info" : "warn"]({ ...failure }, "login shell attempt failed"),
             })
           : { source: "configured", env: config.toolEnv };
       const { env: shellEnv, ...origin } = found;
@@ -645,7 +648,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         findFd(env),
       ]);
       if (signal.aborted) return null;
-      logger[pi.status === "ready" ? "info" : "warn"]({ ...pi }, "pi inspected");
+      // No pi is where first launch starts, not a fault (observability.md, "日志格式").
+      logger[pi.status === "ready" || pi.status === "missing" ? "info" : "warn"]({ ...pi }, "pi inspected");
       logger.info({ node: node.status, homebrew: homebrew !== null, fd: fd !== null }, "setup tools inspected");
       return { env, envSource: found.source, pi, node, homebrew, fd };
     } catch (error) {

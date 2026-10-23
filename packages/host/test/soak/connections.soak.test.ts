@@ -31,6 +31,7 @@ describe("host soak", () => {
     `keeps resources flat while clients connect and disconnect for ${minutes} minutes`,
     async () => {
       const testHost = await startTestHost({ logLevel: "warn" });
+      testHost.expectLog({ level: "warn", msg: "client rejected: wrong token" });
       const baseline = { ...testHost.host.resources.snapshot(), span: 0, timer: 1, "ws.connection": 0 };
       const samples: Sample[] = [];
       const started = Date.now();

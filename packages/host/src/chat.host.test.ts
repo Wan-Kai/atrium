@@ -4,7 +4,7 @@ import { createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { WebSocket } from "ws";
 import { type TestHost, startTestHost } from "../test/harness";
-import { PONG_ENTRIES, PONG_TURN } from "../test/scripted-chat";
+import { PONG_ENTRIES, PONG_TURN, UNANSWERED_STATS } from "../test/scripted-chat";
 
 const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
 const traceparent = `00-${traceId}-00f067aa0ba902b7-01`;
@@ -25,6 +25,7 @@ async function chatHost() {
       rules: {
         get_state: { data: { sessionId: "pi-session-1" } },
         get_entries: PONG_ENTRIES,
+        get_session_stats: UNANSWERED_STATS,
         prompt: { data: { disposition: "started" }, events: PONG_TURN },
       },
     },
