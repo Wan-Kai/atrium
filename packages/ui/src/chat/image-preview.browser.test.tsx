@@ -130,7 +130,9 @@ describe("ImagePreview", () => {
         disconnect(): void {}
       },
     );
-    onTestFinished(() => vi.unstubAllGlobals());
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
     // Taller than the canvas, so it is fitted by the canvas's height.
     const { screen } = await openPreview(png(400, 2000));
     await expect.element(screen.getByText("400 × 2000")).toBeVisible();
