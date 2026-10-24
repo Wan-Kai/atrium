@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { startTestHost } from "../harness";
+import { settledResources, startTestHost } from "../harness";
 
 const minutes = Number(process.env["SOAK_MINUTES"] ?? 30);
 const durationMs = minutes * 60_000;
@@ -32,7 +32,7 @@ describe("host soak", () => {
     async () => {
       const testHost = await startTestHost({ logLevel: "warn" });
       testHost.expectLog({ level: "warn", msg: "client rejected: wrong token" });
-      const baseline = { ...testHost.host.resources.snapshot(), span: 0, timer: 1, "ws.connection": 0 };
+      const baseline = await settledResources(testHost.host);
       const samples: Sample[] = [];
       const started = Date.now();
       let nextSample = started;
@@ -58,7 +58,10 @@ describe("host soak", () => {
         }
       }
 
-      await vi.waitFor(() => expect(testHost.host.resources.snapshot()).toStrictEqual(baseline), { timeout: 5_000 });
+      // Kinds first counted during the soak, such as connections, are back to none.
+      const appeared = Object.keys(testHost.host.resources.snapshot()).filter((kind) => !(kind in baseline));
+      const expected = { ...baseline, ...Object.fromEntries(appeared.map((kind) => [kind, 0])) };
+      await vi.waitFor(() => expect(testHost.host.resources.snapshot()).toStrictEqual(expected), { timeout: 5_000 });
       const report = join(process.cwd(), "reports", "soak");
       await mkdir(report, { recursive: true });
       await writeFile(

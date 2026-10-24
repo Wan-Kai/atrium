@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { type TestHost, startTestHost } from "../harness";
+import { type TestHost, settledResources, startTestHost } from "../harness";
 
 const minutes = Number(process.env["SOAK_MINUTES"] ?? 30);
 const durationMs = minutes * 60_000;
@@ -359,12 +359,7 @@ describe("host soak", () => {
     async () => {
       const { testHost, pids } = await fauxHost();
       const host = testHost.host;
-      await vi.waitFor(() =>
-        expect([host.resources.snapshot()["span"] ?? 0, host.resources.snapshot()["git.process"] ?? 0]).toStrictEqual([
-          0, 0,
-        ]),
-      );
-      const baseline = host.resources.snapshot();
+      const baseline = await settledResources(host);
       const samples: Sample[] = [];
       const started = Date.now();
       let cycles = 0;

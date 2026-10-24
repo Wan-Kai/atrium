@@ -2,6 +2,7 @@ import { type AtriumClient, createAtriumClient } from "@atrium/client";
 import { type ExpectedLog, createTempDir, findLogProblems, readLogRecords } from "@atrium/testkit";
 import { readFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { expect, vi } from "vitest";
 import { type HostConfig, type RunningHost, startHost } from "../src/main";
 
 /** A real host started in this process for one test. */
@@ -91,4 +92,26 @@ export async function startTestHost(overrides: Partial<HostConfig> = {}): Promis
       return disposed;
     },
   };
+}
+
+/**
+ * Waits for what a host does on its own once it is up, and gives its resource counts then.
+ *
+ * @remarks
+ * The host finds the tools, then runs git's version check for merge states (`main.ts`), each
+ * counted while it runs, and the counts it comes back to once idle are those after both. A
+ * baseline taken sooner holds `tools.detect: 1` and fails a soak that ends idle (self-use.md,
+ * "问题", 2026-10-23). git's count shows only once git has run, so its 0 means the check is over.
+ *
+ * @sideEffects Waits.
+ * @param host - The host.
+ * @returns The resource counts.
+ */
+export async function settledResources(host: RunningHost): Promise<Record<string, number>> {
+  await host.tools;
+  await vi.waitFor(() => {
+    const now = host.resources.snapshot();
+    expect([now["tools.detect"], now["git.process"], now["span"] ?? 0]).toStrictEqual([0, 0, 0]);
+  });
+  return host.resources.snapshot();
 }
