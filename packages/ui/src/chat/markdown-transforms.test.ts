@@ -5,6 +5,7 @@ import {
   remarkReplyImages,
   remarkReplyFiles,
   remarkReplyData,
+  withoutUnfinishedTable,
 } from "./markdown-transforms";
 
 describe("reply file addresses", () => {
@@ -381,5 +382,46 @@ describe("remarkHtmlAsText", () => {
         },
       ],
     });
+  });
+});
+
+describe("withoutUnfinishedTable", () => {
+  it.each([
+    ["the header being written", "表格\n\n| 模块 | 职", "表格\n"],
+    ["the header written", "表格\n\n| 模块 | 职责 | 行数 |", "表格\n"],
+    ["the header and its line's end", "表格\n\n| 模块 | 职责 | 行数 |\n", "表格\n"],
+    ["the header and half the delimiter row", "表格\n\n| 模块 | 职责 | 行数 |\n| -------- | -----", "表格\n"],
+    ["a delimiter cell only begun", "| a | b |\n| --- | :", ""],
+    ["a header without its closing pipe", "| a | b\n| --- |", ""],
+    ["cells written without spaces", "| a | b | c |\n|---|-", ""],
+    ["a delimiter row without its opening pipe", "| a | b | c |\n--- | -", ""],
+    ["an indented delimiter row", "| a | b | c |\n   | --- | -", ""],
+  ])("holds back a table not yet a table: %s", (_case, text, shown) => {
+    expect(withoutUnfinishedTable(text)).toBe(shown);
+  });
+
+  it.each([
+    ["the delimiter row written", "| a | b |\n| --- | --- |"],
+    ["the delimiter row as long as a header with an escaped pipe", "| a \\| b | c |\n| --- | --- |"],
+    ["the delimiter row with all its columns, its end still coming", "| a | b |\n| :-- | -"],
+    ["a body row being written", "| a | b |\n| - | - |\n| 1 | 2"],
+    ["a table and a blank line after it", "| a |\n| - |\n| 1 |\n"],
+    ["a row after a line that is not a delimiter", "| a |\nhello"],
+    ["a second line not a delimiter, starting with a pipe", "| a |\n| b"],
+    ["a pipe inside a line", "a | b"],
+    ["a cell ending in other than dashes", "| a | b | c |\n| --x | -"],
+    ["a cell starting with other than dashes", "| a | b | c |\n| x-- | -"],
+    ["an indented header and its delimiter row", "  | a |\n| --- |"],
+    ["a lone pipe and its line's end", "|\n"],
+    ["a header line inside code", "```\n| a | b |"],
+    ["a header line in code a shorter fence does not close", "````\n```\n| a | b |"],
+    ["a header line in code another kind of fence does not close", "~~~\n```\n| a | b |"],
+    ["nothing", ""],
+  ])("shows the rest as it is: %s", (_case, text) => {
+    expect(withoutUnfinishedTable(text)).toBe(text);
+  });
+
+  it("holds back a table after code that has closed", () => {
+    expect(withoutUnfinishedTable("```\nx\n```\n| a |")).toBe("```\nx\n```");
   });
 });

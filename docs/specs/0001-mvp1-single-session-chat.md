@@ -388,6 +388,7 @@ Electron 主进程
 
 - 采用 Vercel 的 [Streamdown](https://github.com/vercel/streamdown)（Apache-2.0）：react-markdown 的替代品，专为 AI 流式输出设计。
   - 流式：自动补全没写完的语法（未闭合的代码块、加粗），输出途中不闪烁错乱的格式；按块缓存，已经写完的块不重新渲染。
+  - 流式时末尾还没写完分隔行的表格先不显示：以 `|` 开头的表头行和写了一半的分隔行留着，分隔行的列数写够了直接出表格（2026-10-24 定，修压力测试里的偶发失败时发现：原先表头先以原文"`| 模块 | 职责 |`"显示，分隔行写完才变成表格，竖线一闪、文字一下子变少）。代码块里的不算；不以 `|` 开头的表头照旧。输出结束（含停止）时全部显示。
   - 功能拆成按需安装的插件：`@streamdown/code`（Shiki 高亮）、`@streamdown/math`（KaTeX）、`@streamdown/mermaid`、`@streamdown/cjk`。
   - 内置链接和图片的安全限制（rehype-harden）；和 ADR-0005 选定的 Tailwind / shadcn 一致。
 - 渲染范围：

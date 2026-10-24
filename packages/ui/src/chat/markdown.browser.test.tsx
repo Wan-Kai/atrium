@@ -460,6 +460,35 @@ describe("Markdown", () => {
     ]);
   });
 
+  it("shows a table streaming in only once its delimiter row has all its columns, never its header as text", async () => {
+    const header = "表格\n\n| 模块 | 职责 | 行数 |\n";
+    const screen = await render(<Markdown text={header} streaming />);
+    const seen = () =>
+      ["p", "th"].map((tag) => [...screen.container.querySelectorAll(tag)].map((each) => each.textContent));
+    const shown = [seen()];
+    for (const delimiter of ["| ---", "| --- | ---", "| --- | --- | -"]) {
+      await screen.rerender(<Markdown text={header + delimiter} streaming />);
+      shown.push(seen());
+    }
+
+    expect(shown).toStrictEqual([
+      [["表格"], []],
+      [["表格"], []],
+      [["表格"], []],
+      [["表格"], ["模块", "职责", "行数"]],
+    ]);
+  });
+
+  it("shows a table's header as written once a reply that stops before its delimiter row has ended", async () => {
+    const screen = await render(<Markdown text={"表格\n\n| 模块 | 职责 |"} streaming />);
+    await screen.rerender(<Markdown text={"表格\n\n| 模块 | 职责 |"} streaming={false} />);
+
+    expect([...screen.container.querySelectorAll("p")].map((each) => each.textContent)).toStrictEqual([
+      "表格",
+      "| 模块 | 职责 |",
+    ]);
+  });
+
   it("folds a table still streaming in at 640px, its header in view", async () => {
     const screen = await render(<Markdown text={longTable(5)} streaming />);
     await screen.rerender(<Markdown text={longTable(40)} streaming />);
