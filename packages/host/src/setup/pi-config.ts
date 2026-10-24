@@ -275,6 +275,7 @@ export function createPiConfig(options: {
           saves.set(location.path, pending);
         } finally {
           admit();
+          // Coverage limitation, as for `saves` below: omitting the delete only retains a settled entry.
           if (admissions.get(request) === admitted) admissions.delete(request);
         }
         const { path } = location;
