@@ -120,6 +120,27 @@ describe("ImagePreview", () => {
     await screen.getByRole("region", { name: "图片画布" }).click();
     expect(activated).not.toHaveBeenCalled();
   });
+  it("fits the image to the canvas even when it has loaded before the canvas was first observed", async () => {
+    // A busy page may decode the image before the observer's first report; until then nothing reports.
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe(): void {}
+        unobserve(): void {}
+        disconnect(): void {}
+      },
+    );
+    onTestFinished(() => vi.unstubAllGlobals());
+    // Taller than the canvas, so it is fitted by the canvas's height.
+    const { screen } = await openPreview(png(400, 2000));
+    await expect.element(screen.getByText("400 × 2000")).toBeVisible();
+    const { image, canvas } = geometry(screen.container);
+    const expected = Math.min((canvas.clientWidth - 48) / 400, (canvas.clientHeight - 48) / 2000);
+
+    expect(expected).toBeLessThan(1);
+    expect(image.getBoundingClientRect().height).toBeCloseTo(2000 * expected, 1);
+  });
+
   it("fills the application window with the chosen dark canvas and fits the original", async () => {
     const { screen } = await openPreview();
     await expect.element(screen.getByText("1600 × 1000")).toBeVisible();

@@ -1918,11 +1918,15 @@ describe("Workbench tabs", () => {
 
   it("lists every session of the container in its history, newest first, marking open ones", async () => {
     const initial = list();
+    // Newest first: set when each was last changed, not left to the clock.
+    const at = Date.now() - 60_000;
     const { screen, calls } = await workbench({
       initial: {
         ...initial,
         sessions: [
-          ...initial.sessions,
+          ...initial.sessions.filter((each) => !["s1", "s2"].includes(each.sessionId)),
+          session({ sessionId: "s1", containerId: LOCAL, prompt: "重构宿主", updatedAt: at }),
+          session({ sessionId: "s2", containerId: LOCAL, prompt: "调研 pi RPC", running: true, updatedAt: at - 1000 }),
           session({ sessionId: "old", containerId: LOCAL, prompt: "旧的", updatedAt: Date.now() - 3 * 3_600_000 }),
           session({ sessionId: "gone", containerId: LOCAL, prompt: "归档的", archived: true }),
         ],
