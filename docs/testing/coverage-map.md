@@ -61,6 +61,18 @@
 
 验证：`pnpm check` 通过；单元 3463、宿主 157（连跑多次通过）；`pnpm test:leak` 全过（Node 13、端到端 7）；全量 `pnpm test:e2e` 61 过、1 项已知不稳的失焦材质用例失败（系统焦点，未到门禁）。门禁不管界面上报的长任务、掉帧（`log-gate.test.ts`"leaves the UI's reports of long tasks and slow frames out"），`kind: error` 照样拦。端到端门禁的接线自测 `apps/desktop/e2e/log-gate.spec.ts` 用 `test.fail()` 声明一条不会出现的日志；手工去掉 `launch.ts` 的软断言后它变成"Expected to fail, but passed"，恢复后通过。浸泡测试在 `main` 上同样因资源基线失败（既有问题）；临时绕过基线断言核实了声明：会话的浸泡每轮杀一次 pi，声明 `pi exited`（`requested: false`）正好轮数次，连接的浸泡声明错误 token。待查项（首次代码高亮的长任务、"changes not read"、浸泡基线、EBADF）登记在 [self-use.md · 问题](../research/self-use.md#问题)。
 
+## 自用记录里 2026-10-23 的待查项（2026-10-24）
+
+[self-use.md · 问题](../research/self-use.md#问题) 10-23 记下的几项。首次代码高亮的长任务查明后用户定暂不做，没有改动，测量记在 self-use.md。
+
+| 行为 | 验证 |
+|---|---|
+| 工作区目录在 Atrium 外被删（界面还停在上面）：不跑 git、不建监听、不记日志，胶囊收到 `stat` 为 `null`、面板"读不到改动"；按轮询和重试只看目录，回来了照常读和监听；读到一半目录没了、监听因此断开都不记；看目录期间工作区被放下不留定时器 | `packages/host/src/changes/changes-service.test.ts`"ChangesService: a directory gone outside Atrium"四例；`packages/host/src/changes.host.test.ts`"a shown worktree removed outside Atrium"（真实 git、真实删目录，修复前门禁报"changes not read"、胶囊停在旧数字） |
+| 浸泡测试的资源基线等宿主启动后自己做的事（找工具、git 版本检查）结束再取，结束时比对基线加上浸泡中才出现的计数（为 0） | `packages/host/test/harness.ts` 的 `settledResources`；`packages/host/test/soak/connections.soak.test.ts`、`sessions.soak.test.ts` |
+| 单元测试不再漏出"atrium: log stream error: EBADF"：写失败的日志流关完之后才恢复 stderr | `packages/host/src/platform/logger.test.ts` 的 `failingLogFile`；全量 `pnpm test` 输出里没有这行 |
+
+每个新测试先见过失败。`pnpm break-check` 改坏 5 处、6 次检查（不看目录就读、不看目录就建监听、目录不在时仍记日志、目录不在时不进轮询、放下后仍进轮询；第一处另用宿主用例跑了一次），全部 `CAUGHT`；"放下后仍进轮询"首轮 `MISSED`，补了"schedules nothing for a workspace let go while its directory was looked at"后检出。git 组只变异 `changes-service.ts` 改动的行：49 个全部杀死。浸泡测试和 EBADF 是测试自己的改动，没有破坏检查（改坏的就是被修的测试本身）。
+
 ## M1.11 自用之后：流式回复连着到一阵增量时界面报 React #185（2026-10-22）
 
 宿主日志 10-20 到 10-22 14:53 的 50 条 `client issue`（打包版）都是同一个栈：WebSocket 消息 → 会话视图 store 的 `setState` → `useSyncExternalStore` 的重绘 → React 抛 #185。根因是 `use-revealed-text.ts` 在 effect 里对每次新到的文字 `setState`：store 的更新按同步优先级提交，提交末尾同步跑 effect，effect 的更新留下一次待渲染，React 把连续 50 次这样的提交当成死循环。页面忙时攒下的 WebSocket 帧，Chromium 会在同一个任务里逐条派发、每条之间只跑微任务（本机 Playwright 实测：主线程忙 100 ms 后 199 条消息全在 React 调度任务之前派发完），React 自己的调度任务插不进去，于是一阵超过 50 条的增量就抛错。改为渲染时就接住新文字（React 的"根据上一次渲染调整状态"写法），effect 只管逐帧揭示，界面显示不变。完整工作台里流式思考、工具输出、回复各 120 次连续更新，修复前回复阶段每次提交都留下 `StreamedText` 的更新（另有 Streamdown 挂载时的一次），修复后只剩这一次挂载。
