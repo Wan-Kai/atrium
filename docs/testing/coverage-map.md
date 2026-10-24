@@ -69,9 +69,10 @@
 |---|---|
 | 工作区目录在 Atrium 外被删（界面还停在上面）：不跑 git、不建监听、不记日志，胶囊收到 `stat` 为 `null`、面板"读不到改动"；按轮询和重试只看目录，回来了照常读和监听；读到一半目录没了、监听因此断开都不记；看目录期间工作区被放下不留定时器 | `packages/host/src/changes/changes-service.test.ts`"ChangesService: a directory gone outside Atrium"四例；`packages/host/src/changes.host.test.ts`"a shown worktree removed outside Atrium"（真实 git、真实删目录，修复前门禁报"changes not read"、胶囊停在旧数字） |
 | 浸泡测试的资源基线等宿主启动后自己做的事（找工具、git 版本检查）结束再取，结束时比对基线加上浸泡中才出现的计数（为 0） | `packages/host/test/harness.ts` 的 `settledResources`；`packages/host/test/soak/connections.soak.test.ts`、`sessions.soak.test.ts` |
+| 会话浸泡里被停、被杀的两个对话，停止和杀进程一定落在运行中：它们的回复由 faux 挂住，测试等它们这一轮的轮开出来再动手，不看回复长短 | `packages/host/test/soak/sessions.soak.test.ts`（`HELD`、`runsStarted`）；faux 按提示词挑回复：`packages/testkit/src/faux/faux.pi.test.ts`"answers a prompt starting as a byPrompt entry says with its reply"。杀之前人为等 2 秒，旧写法第一轮就报"the round has not ended"，新写法各轮照常；30 分钟 1800 轮全部正确（堆斜率 1060 B/轮仍超门槛，待定，见 self-use.md） |
 | 单元测试不再漏出"atrium: log stream error: EBADF"：写失败的日志流关完之后才恢复 stderr | `packages/host/src/platform/logger.test.ts` 的 `failingLogFile`；全量 `pnpm test` 输出里没有这行 |
 
-每个新测试先见过失败。`pnpm break-check` 改坏 5 处、6 次检查（不看目录就读、不看目录就建监听、目录不在时仍记日志、目录不在时不进轮询、放下后仍进轮询；第一处另用宿主用例跑了一次），全部 `CAUGHT`；"放下后仍进轮询"首轮 `MISSED`，补了"schedules nothing for a workspace let go while its directory was looked at"后检出。git 组只变异 `changes-service.ts` 改动的行：49 个全部杀死。浸泡测试和 EBADF 是测试自己的改动，没有破坏检查（改坏的就是被修的测试本身）。
+每个新测试先见过失败。`pnpm break-check` 改坏 5 处、6 次检查（不看目录就读、不看目录就建监听、目录不在时仍记日志、目录不在时不进轮询、放下后仍进轮询；第一处另用宿主用例跑了一次），全部 `CAUGHT`；"放下后仍进轮询"首轮 `MISSED`，补了"schedules nothing for a workspace let go while its directory was looked at"后检出。git 组只变异 `changes-service.ts` 改动的行：49 个全部杀死。浸泡测试和 EBADF 是测试自己的改动，没有破坏检查（改坏的就是被修的测试本身）。faux 的 `byPrompt` 破坏检查 4 处全部 `CAUGHT`（不按提示词挑、取不到文字块、取第一条而不是最新一条用户消息、取到文字后丢掉）。
 
 ## M1.11 自用之后：流式回复连着到一阵增量时界面报 React #185（2026-10-22）
 
