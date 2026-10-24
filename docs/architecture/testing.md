@@ -57,6 +57,7 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 - 自动生成标题的一次性 pi（`-p`）也加载这个扩展，但它不按回复脚本回答：脚本里写了 `title` 就回这个标题，没写就回一个错误，标题保持兜底（2026-10-10 定，M1.9）。这样每个 pi 进程各自从第一条回复开始的脚本不会被标题调用打乱，没关心标题的测试也不受影响。
 - 扩展要在模型的 `baseUrl` 旁边发请求时（Fast 查 Codex 模型列表，ADR-0008 第 6 条），环境变量 `FAUX_PI_BASE_URL` 把 faux 模型的 `baseUrl` 指到测试自己在 127.0.0.1 起的服务（testkit 的 `startModelListServer`）；不写进脚本，因为脚本进夹具头，端口每次不同。契约场景通过 `runScenario` 的 `env` 传入，夹具里这个值记作 `<FAUX_PI_BASE_URL>`。没设时 faux 的地址是 `http://localhost:0`，请求立即失败，不出本机（2026-10-12）。
 - 每次请求带了什么（声明的工具名、pi 转换后给模型的消息）写进 `contexts.jsonl`，`fauxPi(…).contexts()` 读；1.1.0 的工具声明在系统消息的 `toolsAdded` / `toolsRemoved` 里，扩展按顺序回放出工具名。SPEC-0002 的契约测试靠它看模型能看到什么（2026-10-17）。
+- 回复也能按提示词挑（`byPrompt`，2026-10-24）：请求里最新一条用户消息以某项的 `startsWith` 开头，就回那一项的回复，`replies` 里排到的那条照样算用掉。同一份脚本下的几个对话就能回得不一样：会话浸泡把要停、要杀的两个对话的回复用不放行的 `waitFor` 挂住，停止和杀进程一定落在运行中，跑完的那个对话照常流式回复。
 - 实现在 `packages/testkit/src/faux/`：`extension.ts` 是交给 pi 加载的扩展（为什么它能 import pi-ai，见 [架构总览 · 包之间的依赖](overview.md#包之间的依赖)），`fauxPi(script)` 写好脚本并返回启动参数和环境变量，三层测试用同一个入口。
 
 没有采用的退路：本地 HTTP 服务模拟兼容 OpenAI 的接口，用 `models.json` 指向它。
@@ -273,7 +274,6 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 | `packages/host/src/setup/pi-config.test.ts` "queues several same-path saves in order while unrelated paths remain writable" | 整套单元并行跑时偶尔失败：第三次保存应答 `config_conflict`，没按排队的顺序写成；单独跑通过。2026-10-20 起追踪表里多次记过，2026-10-23 集成验证时又出现一次（单跑 3 次、全量重跑都通过），文件未改 | `pnpm test:stress packages/host/src/setup/pi-config.test.ts` | 待查 |
 | `apps/desktop/e2e/status-bar.spec.ts` "shows the session's figures under the input box after a reply, with the context split, and keeps the groups chosen" | 2026-10-23 集成验证时整套串行跑（63 个里的最后一个）失败一次：按回车后消息没发出去，"一"还留在输入框里，30 秒没等到回复；这个用例的宿主日志没有意外的 warn/error。单跑 4 次、log-gate 分支的整套都通过。原因未查清，改动不涉及界面和输入框 | 整套跑 `pnpm test:e2e`；单跑 `--repeat-each` 没复现 | 待查 |
 | `apps/desktop/e2e/app.spec.ts` "keeps the sidebar's material as it is when another window takes the focus" | 本机跑时窗口有时拿不到系统焦点；2026-10-22整套及单跑均在 `screencapture -l` 报 `could not create image from window`，尚未到颜色断言 | 单独跑这个 spec，跑的同时不要操作别的窗口 | 待查（可能要换成不依赖系统焦点的做法）；原生截图可用性也是验证阻塞，未绕过或删除用例 |
-| `packages/host/test/soak/sessions.soak.test.ts` "keeps resources flat while three chats run, stop, crash and reconnect…" | 跑上几分钟就偶尔有一轮不对："这一轮没结束"（`settled` 30 秒没等到最后一轮结束）；或停止落在回复跑完之后（被停的对话结局是 `done`，排队留在 `paused: "stopped"`，下一轮发不出去）；探查时还见过 `stopped,failed,done`。2026-10-23～24 真实用例跑了 4 次（10 分钟、30 分钟各 2 次），3 次碰到，最早第 4 分钟；同期机器上另有变异测试在跑（负载 8～12）。修好资源基线（2026-10-24）之前一直卡在基线断言上，所以以前没暴露 | `SOAK_MINUTES=10 pnpm test:soak`，机器忙时更容易出 | 待查。疑是测试的时序假设：一轮回复只有约 1.2 秒（60 个 token、50 个每秒），机器慢时停止赶不上；"没结束"的原因没定位 |
 
 另外，`pnpm test:pi` 曾经跑不过：本机 pi 升到了 1.3.0，仓库里只有 1.0.2 和 1.1.0 的夹具（"pi 夹具"一节：没有本机版本的夹具就失败）（2026-10-20 记）。2026-10-23 已补齐 1.3.0 夹具并审查和 1.1.0 的差异，`test:pi` 89 项全部通过。
 

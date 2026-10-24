@@ -15,8 +15,15 @@ const durationMs = minutes * 60_000;
  * minutes.
  */
 const ROUNDS_PER_CHATS = 30;
-/** Long enough that a stop or a kill lands mid-stream: 60 tokens of two characters at 50 a second. */
+/** What the finished chat, and the crashed chat once it goes on, stream: 60 tokens of two characters at 50 a second. */
 const REPLY = "浸泡测试的回答，".repeat(15);
+/**
+ * How the stopped and the crashed chat's messages begin. The faux model holds their replies until
+ * the run is stopped or pi is killed, so both land mid-run however slow the machine: a reply of
+ * its own ends in about a second, and under load a stop or a kill sent after it had started could
+ * come after it ended (self-use.md, "问题", 2026-10-24).
+ */
+const HELD = { stopped: "停 ", crashed: "断 " } as const;
 
 interface Sample {
   readonly elapsedMs: number;
@@ -29,9 +36,9 @@ interface Sample {
 
 /** The three chats of a stretch of rounds, by what each round does to them. */
 interface Chats {
-  /** Stopped mid-run every round. */
+  /** Stopped mid-run every round, its reply held. */
   readonly stopped: string;
-  /** Its pi is killed mid-run every round; the host restarts it and the run goes on. */
+  /** Its pi is killed mid-run every round, its reply held; the host restarts it and the run goes on. */
   readonly crashed: string;
   /** Runs to the end every round. */
   readonly finished: string;
@@ -98,7 +105,8 @@ async function realPi(): Promise<string> {
  * straight through, as in the end-to-end tests. Before it becomes the session's pi it appends its
  * process id to the list, so the soak can kill that very process; the one-shot title calls (`-p`)
  * stay off the list. Each pi answers the replies from the start, more than one stretch of rounds
- * asks of it.
+ * asks of it; the stopped and the crashed chat's messages (`HELD`) get a reply held by a gate
+ * never released instead, which a stop or pi's exit ends.
  *
  * @sideEffects Creates a temporary directory with the script, the wrapper and pi's own config;
  * starts a host.
@@ -110,6 +118,10 @@ async function fauxHost(): Promise<{ readonly testHost: TestHost; readonly pids:
     {
       tokensPerSecond: 50,
       replies: Array.from({ length: ROUNDS_PER_CHATS * 3 }, () => ({ blocks: [{ type: "text", text: REPLY }] })),
+      byPrompt: Object.values(HELD).map((startsWith) => ({
+        startsWith,
+        reply: { waitFor: "never", blocks: [{ type: "text", text: REPLY }] },
+      })),
       title: "浸泡",
     },
     dir.path,
@@ -307,21 +319,36 @@ async function diagnose(testHost: TestHost, client: AtriumClient, chats: Chats):
 }
 
 /**
- * Waits until the stopped and the crashing chat both run, so the round can stop and kill them.
+ * Waits until pi has taken the stopped and the crashing chat's messages of the round, so the round
+ * can stop and kill them.
+ *
+ * @remarks
+ * A turn opens once pi has taken its message: killed after that, pi is told to go on rather than
+ * sent the message again, which would be held once more. Their replies are held, so the runs
+ * are still going whenever the stop and the kill come.
  *
  * @sideEffects Waits; reads the host's log when they do not.
  * @param testHost - The host.
  * @param client - A client watching the chats.
  * @param chats - The chats.
+ * @param text - What the round sent.
  * @returns What went wrong, or nothing.
  */
-async function runsStarted(testHost: TestHost, client: AtriumClient, chats: Chats): Promise<string> {
-  const view = (sessionId: string) => present(client.session(sessionId), "view").getState();
+async function runsStarted(testHost: TestHost, client: AtriumClient, chats: Chats, text: string): Promise<string> {
+  /** The last item of a chat, as its round's turn would show. */
+  const last = (sessionId: string) => {
+    const item = present(client.session(sessionId), "view").getState().items.at(-1);
+    return item?.kind === "turn" ? { text: item.user.text, outcome: item.outcome } : null;
+  };
   try {
-    await vi.waitFor(() => expect([view(chats.stopped).run, view(chats.crashed).run]).not.toContain(null), {
-      timeout: 30_000,
-      interval: 20,
-    });
+    await vi.waitFor(
+      () =>
+        expect([last(chats.stopped), last(chats.crashed)]).toStrictEqual([
+          { text: `${HELD.stopped}${text}`, outcome: "running" },
+          { text: `${HELD.crashed}${text}`, outcome: "running" },
+        ]),
+      { timeout: 30_000, interval: 20 },
+    );
     return "";
   } catch {
     return diagnose(testHost, client, chats);
@@ -335,7 +362,7 @@ async function runsStarted(testHost: TestHost, client: AtriumClient, chats: Chat
  * @param testHost - The host.
  * @param client - A client watching the chats.
  * @param chats - The chats.
- * @param text - What the round sent.
+ * @param text - What the round sent the finished chat; the others had it after their `HELD`.
  * @returns The outcomes, stopped, crashed and finished, and what went wrong if anything.
  */
 async function roundOutcomes(
@@ -345,8 +372,8 @@ async function roundOutcomes(
   text: string,
 ): Promise<{ readonly outcomes: string[]; readonly diagnosis: string }> {
   const outcomes = [
-    await settled(client, chats.stopped, text),
-    await settled(client, chats.crashed, text),
+    await settled(client, chats.stopped, `${HELD.stopped}${text}`),
+    await settled(client, chats.crashed, `${HELD.crashed}${text}`),
     await settled(client, chats.finished, text),
   ];
   if (outcomes.join() === "stopped,done,done") return { outcomes, diagnosis: "" };
@@ -371,13 +398,12 @@ describe("host soak", () => {
         await client.watch([chats.stopped, chats.crashed, chats.finished]);
         const text = `第 ${cycles} 轮`;
         await Promise.all([
-          client.prompt(chats.stopped, text),
-          client.prompt(chats.crashed, text),
+          client.prompt(chats.stopped, `${HELD.stopped}${text}`),
+          client.prompt(chats.crashed, `${HELD.crashed}${text}`),
           client.prompt(chats.finished, text),
         ]);
-        expect(await runsStarted(testHost, client, chats)).toBe("");
+        expect(await runsStarted(testHost, client, chats, text)).toBe("");
 
-        // Killed first, so it lands mid-run rather than as the run ends.
         const listed = (await pids()).length;
         // Only a pi this soak started and that still runs: never a reused pid.
         expect(children()).toContain(crashingPid);

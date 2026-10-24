@@ -242,6 +242,26 @@ function repliesIn(context: { readonly messages?: readonly unknown[] }): number 
 }
 
 /**
+ * The text of a request's newest user message.
+ *
+ * @remarks
+ * pi gives the model a user message's content as a list of blocks; only its text blocks count.
+ *
+ * @sideEffects none
+ * @param context - The request.
+ * @returns The text, empty when there is no user message.
+ */
+function newestUserText(context: { readonly messages?: readonly unknown[] }): string {
+  const message = (context.messages ?? []).findLast((one) => Reflect.get(Object(one), "role") === "user");
+  const content: unknown = Reflect.get(Object(message), "content");
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block: unknown) => (Reflect.get(Object(block), "type") === "text" ? Reflect.get(Object(block), "text") : ""))
+    .filter((text): text is string => typeof text === "string")
+    .join("");
+}
+
+/**
  * pi extension that registers pi-ai's faux provider and answers from a script file.
  *
  * @remarks
@@ -251,8 +271,8 @@ function repliesIn(context: { readonly messages?: readonly unknown[] }): number 
  * the same script produces the same output on every run apart from timestamps, which recorded
  * fixtures rely on (testing.md, "faux 模型").
  *
- * Replies scripted with `waitFor` hold until the test releases them; pi's process id goes into
- * `pi.pid` beside the gates, so a test can kill that very process. A pi in print mode (`-p`), as
+ * A prompt may pick its reply (`byPrompt`). Replies scripted with `waitFor` hold until the test
+ * releases them; pi's process id goes into `pi.pid` beside the gates, so a test can kill that very process. A pi in print mode (`-p`), as
  * the host's one-shot call for a title, answers the script's `title` instead, or its `branch` when
  * told to name a git branch, in those words (SPEC-0001, "AI 起分支名"), or an error without one; it adds what the model
  * was told to `prints.jsonl` beside the script, and leaves `pi.pid` to the session's pi (SPEC-0001,
@@ -335,6 +355,24 @@ export default function fauxExtension(pi: ExtensionApi): void {
   };
   const childAnswers = childList.map((reply) => answerWith(reply));
   const noMoreReplies = answerWith({ blocks: [], error: "faux script has no more child replies" });
+  const byPrompt = (script.byPrompt ?? []).map(({ startsWith, reply }) => ({ startsWith, answer: answerWith(reply) }));
+  /**
+   * Answers with the reply the prompt picks, if one does, or else with `answer`.
+   *
+   * @remarks
+   * See `FauxScript.byPrompt`.
+   *
+   * @sideEffects As the answer chosen.
+   * @param answer - The answer `replies` had next.
+   * @returns The answer.
+   */
+  const orByPrompt =
+    (answer: FauxResponseFactory): FauxResponseFactory =>
+    (context, options, state, model) => {
+      const text = newestUserText(context);
+      const picked = byPrompt.find((entry) => text.startsWith(entry.startsWith))?.answer ?? answer;
+      return picked(context, options, state, model);
+    };
   faux.setResponses(
     printing
       ? [
@@ -351,12 +389,14 @@ export default function fauxExtension(pi: ExtensionApi): void {
           },
         ]
       : depth === null
-        ? script.replies.map((reply) => answerWith(reply))
+        ? script.replies.map((reply) => orByPrompt(answerWith(reply)))
         : // A child picks by the conversation; as many as it may ask for.
-          childAnswers.map(() => (context, options, state, model) => {
-            const answer = childAnswers[repliesIn(context)] ?? noMoreReplies;
-            return answer(context, options, state, model);
-          }),
+          childAnswers.map(() =>
+            orByPrompt((context, options, state, model) => {
+              const answer = childAnswers[repliesIn(context)] ?? noMoreReplies;
+              return answer(context, options, state, model);
+            }),
+          ),
   );
   // The faux provider takes no thinking map, so it is added to the models it made; each model
   // carries its own base address, so a test's goes on each.
