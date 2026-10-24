@@ -396,6 +396,20 @@ describe("withoutUnfinishedTable", () => {
     ["cells written without spaces", "| a | b | c |\n|---|-", ""],
     ["a delimiter row without its opening pipe", "| a | b | c |\n--- | -", ""],
     ["an indented delimiter row", "| a | b | c |\n   | --- | -", ""],
+    ["a cell ending in other than dashes", "| a | b | c |\n| --x | -", "| a | b | c |"],
+    ["a cell starting with other than dashes", "| a | b | c |\n| x-- | -", "| a | b | c |"],
+    ["a second line starting with a pipe, after a pipe line that is only a paragraph", "| a |\n| b", "| a |"],
+    ["a header after a paragraph line", "foo\n| a | b |", "foo"],
+    [
+      "a header after a heading that ended a table",
+      "| a | b |\n| - | - |\n# h\n| x | y |",
+      "| a | b |\n| - | - |\n# h",
+    ],
+    ["a header after code closed by a fence with spaces after it", "```\n```  \n| a | b |", "```\n```  "],
+    ["a header after a blank line that ended a table", "| a |\n| - |\n\n| x |", "| a |\n| - |\n"],
+    ["a header after code holding what looks like a table", "```\n| a |\n| - |\n```\n| x |", "```\n| a |\n| - |\n```"],
+    ["a header after a delimiter row of the wrong width", "| a | b |\n| - |\n| x |", "| a | b |\n| - |"],
+    ["a header after a line no fence, its info string holding a backtick", "```a`b\n| a |", "```a`b"],
   ])("holds back a table not yet a table: %s", (_case, text, shown) => {
     expect(withoutUnfinishedTable(text)).toBe(shown);
   });
@@ -407,15 +421,19 @@ describe("withoutUnfinishedTable", () => {
     ["a body row being written", "| a | b |\n| - | - |\n| 1 | 2"],
     ["a table and a blank line after it", "| a |\n| - |\n| 1 |\n"],
     ["a row after a line that is not a delimiter", "| a |\nhello"],
-    ["a second line not a delimiter, starting with a pipe", "| a |\n| b"],
     ["a pipe inside a line", "a | b"],
-    ["a cell ending in other than dashes", "| a | b | c |\n| --x | -"],
-    ["a cell starting with other than dashes", "| a | b | c |\n| x-- | -"],
     ["an indented header and its delimiter row", "  | a |\n| --- |"],
     ["a lone pipe and its line's end", "|\n"],
     ["a header line inside code", "```\n| a | b |"],
     ["a header line in code a shorter fence does not close", "````\n```\n| a | b |"],
     ["a header line in code another kind of fence does not close", "~~~\n```\n| a | b |"],
+    ["a header line in code a fence with more after it does not close", "```\n```not-a-close\n| a | b |"],
+    ["a header line in code a fence indented four spaces does not close", "```\n    ```\n| a |"],
+    ["a body row after a delimiter row without its opening pipe", "| a | b |\n--- | ---\n| 1 | 2 |"],
+    ["a body row of a table whose header has no opening pipe", "a | b\n--- | ---\n| 1 | 2 |"],
+    ["a body row after one without pipes", "| a | b |\n| - | - |\n1 | 2\n| 3 | 4 |"],
+    ["a body row after plain text the table took in", "| a | b |\n| - | - |\nplain\n| 3 | 4 |"],
+    ["a pipe line a quote after a table takes in", "| a | b |\n| - | - |\n> q\n| x | y |"],
     ["nothing", ""],
   ])("shows the rest as it is: %s", (_case, text) => {
     expect(withoutUnfinishedTable(text)).toBe(text);

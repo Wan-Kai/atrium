@@ -3,6 +3,7 @@ import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { Markdown } from "./markdown";
+import { withoutUnfinishedTable } from "./markdown-transforms";
 
 /** Renders finished Markdown and returns its root element. */
 async function rendered(text: string): Promise<HTMLElement> {
@@ -477,6 +478,47 @@ describe("Markdown", () => {
       [["表格"], []],
       [["表格"], ["模块", "职责", "行数"]],
     ]);
+  });
+
+  it("holds back, while streaming, just the trailing lines that the renderer leaves as a paragraph, not code or table rows", async () => {
+    const texts = [
+      "表格\n\n| 模块 | 职",
+      "| a | b |\n| --- | :",
+      "| a | b | c |\n--- | -",
+      "| a | b | c |\n| --x | -",
+      "| a |\n| b",
+      "foo\n| a | b |",
+      "| a | b |\n| - | - |\n# h\n| x | y |",
+      "```\n```  \n| a | b |",
+      "| a |\n| - |\n\n| x |",
+      "```\n| a |\n| - |\n```\n| x |",
+      "| a | b |\n| - | - |\n> q\n| x | y |",
+      "| a | b |\n| - |\n| x |",
+      "```a`b\n| a |",
+      "```\nx\n```\n| a |",
+      "| a | b |\n| --- | --- |",
+      "| a | b |\n| :-- | -",
+      "| a | b |\n| - | - |\n| 1 | 2",
+      "  | a |\n| --- |",
+      "```\n| a | b |",
+      "````\n```\n| a | b |",
+      "~~~\n```\n| a | b |",
+      "```\n```not-a-close\n| a | b |",
+      "```\n    ```\n| a |",
+      "| a | b |\n--- | ---\n| 1 | 2 |",
+      "a | b\n--- | ---\n| 1 | 2 |",
+      "| a | b |\n| - | - |\n1 | 2\n| 3 | 4 |",
+      "| a | b |\n| - | - |\nplain\n| 3 | 4 |",
+    ];
+    const agree: [string, boolean, boolean][] = [];
+    for (const text of texts) {
+      const screen = await render(<Markdown text={text} streaming={false} />);
+      const blocks = screen.container.querySelector(".atrium-markdown")?.children;
+      agree.push([text, blocks?.item(blocks.length - 1)?.tagName === "P", withoutUnfinishedTable(text) !== text]);
+      await screen.unmount();
+    }
+
+    expect(agree.filter(([, paragraph, held]) => paragraph !== held)).toStrictEqual([]);
   });
 
   it("shows a table's header as written once a reply that stops before its delimiter row has ended", async () => {
