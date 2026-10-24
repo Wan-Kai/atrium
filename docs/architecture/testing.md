@@ -279,7 +279,6 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 | `packages/ui/src/chat/run-control.browser.test.tsx` "grows the panel from its bottom edge, the rows one by one after it, and closes it at once" | 2026-10-23 整套界面 6 份并行 2 轮里失败一次：`expected [ Animation{} ] to strictly equal []` | 同上 | 待查 |
 | `packages/host/src/setup/install-job.test.ts` "ends what the command left running in its group once it exits"（`install-service.test.ts` 有同类用例） | 整套并行时偶尔失败，单独跑通过（M1.14 时记下） | `pnpm test:stress packages/host/src/setup/` | 待修 |
 | `apps/desktop/e2e/status-bar.spec.ts` "shows the session's figures under the input box after a reply, with the context split, and keeps the groups chosen" | 2026-10-23 集成验证时整套串行跑（63 个里的最后一个）失败一次：按回车后消息没发出去，"一"还留在输入框里，30 秒没等到回复；这个用例的宿主日志没有意外的 warn/error。单跑 4 次、log-gate 分支的整套都通过。原因未查清，改动不涉及界面和输入框 | 整套跑 `pnpm test:e2e`；单跑 `--repeat-each` 没复现 | 待查 |
-| `apps/desktop/e2e/app.spec.ts` "keeps the sidebar's material as it is when another window takes the focus" | 本机跑时窗口有时拿不到系统焦点；2026-10-22整套及单跑均在 `screencapture -l` 报 `could not create image from window`，尚未到颜色断言 | 单独跑这个 spec，跑的同时不要操作别的窗口 | 待查（可能要换成不依赖系统焦点的做法）；原生截图可用性也是验证阻塞，未绕过或删除用例 |
 
 另外，`pnpm test:pi` 曾经跑不过：本机 pi 升到了 1.3.0，仓库里只有 1.0.2 和 1.1.0 的夹具（"pi 夹具"一节：没有本机版本的夹具就失败）（2026-10-20 记）。2026-10-23 已补齐 1.3.0 夹具并审查和 1.1.0 的差异，`test:pi` 89 项全部通过。
 
