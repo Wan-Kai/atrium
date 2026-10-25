@@ -46,7 +46,7 @@ MP0 用它检查 TypeScript 和 Swift 两份 Noise 实现、Atrium 线路层（S
 | `plaintext`  | 分帧后的明文：第 1 字节是类型（`00` 最后一块、`01` 还有块、`02` 心跳、`03` 心跳回应、`04` 控制消息），后面是正文 |
 | `ciphertext` | 线上的帧，即 Noise 传输消息（AD 为空，16 字节标签在最后）                                                        |
 
-`decoded[i]`，每当接收方收齐一样东西记一项：
+`decoded[i]`，每当接收方收齐一样东西记一项（`value` 里的对象键按字典序写出，TS 回放用 `JSON.stringify` 比较，对键序敏感）：
 
 - `{ "from", "kind": "message", "text" }`：一条完整的 Atrium 消息（各块拼起来的 UTF-8）；
 - `{ "from", "kind": "control", "value" }`：控制消息解析后的 JSON 对象；

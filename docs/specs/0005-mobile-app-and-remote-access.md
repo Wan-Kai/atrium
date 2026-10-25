@@ -202,7 +202,7 @@ iOS App ──wss──▶ relay（用户 VPS，Caddy 终止外层 TLS）◀─�
   - 会话事件：改发这个会话的快照（受手机的快照预算）；
   - 都按编码后的整条消息算（含信封、`control`、base64）。
 - **不压缩**：先压缩再加密，在攻击者能往里放内容时会泄露信息。
-- **实现**：先在 MP0 的互通实验里比较现成的 Noise 实现（TypeScript 和 Swift 各看 2～3 个），能用就用。自己写的话：TypeScript 用 `@noble/curves`、`@noble/ciphers`、`@noble/hashes`，Swift 用 CryptoKit，状态机两边各写一份，除了公开测试向量（cacophony 的 IK、IKpsk2），还要测畸形消息、低阶公钥、nonce 边界，并做模糊测试。新依赖精确锁定版本，登记进 security.md"外部边界登记"。
+- **实现**：MP0 比较后定为两边各自写（见 ADR-0016 第 5 条"MP0 的选择"）：TypeScript 用 `@noble/curves`、`@noble/ciphers`、`@noble/hashes`，Swift 用 CryptoKit，状态机两边各写一份，除了公开测试向量（cacophony 的 IK、IKpsk2），还要测畸形消息、低阶公钥、nonce 边界，并做模糊测试。新依赖精确锁定版本，登记进 security.md"外部边界登记"。
 
 ### 宿主
 
@@ -344,7 +344,7 @@ iOS App ──wss──▶ relay（用户 VPS，Caddy 终止外层 TLS）◀─�
 
 ## 风险与待定问题
 
-1. **钥匙串授权会反复弹**：本机打包只做 ad-hoc 签名，每次重新打包签名都变，macOS 会再问一次"允许 Atrium 访问钥匙串"。`pnpm dev` 和打包版签名不同，各弹各的。MP0 实测，写进验收步骤。
+1. **钥匙串授权会反复弹**：本机打包只做 ad-hoc 签名，每次重新打包签名都变，macOS 会再问一次"允许 Atrium 访问钥匙串"。`pnpm dev` 和打包版签名不同，各弹各的。MP0 实测（2026-10-25，`spikes/mobile-mp0/safestorage/`，打包的 `AtriumSpike.app`）：签名不变时不弹，一次读写交接 67–94 ms；重新打包后弹授权，读保险箱一直等到用户点允许（这次 6.6 秒）。所以宿主启动不能等保险箱：本机功能照常起来，远程访问显示"等待钥匙串授权"，授权后再连 relay。写进验收步骤。
 2. **免费账号 7 天到期**：App 打不开前要重装。是否改用 SideStore 自动续签，用户自用一段时间后再定。
 3. **Noise 两份实现**：原语成熟不等于组合起来对。先做互通实验、优先用现成实现；自己写就加畸形输入和模糊测试。
 4. **Swift 侧跟不上协议**：靠生成类型、往返测试和契约测试守住。桌面的验收清单加一条"手机端是否要跟"。
