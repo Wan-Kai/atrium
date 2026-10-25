@@ -195,7 +195,9 @@ describe("closeLogFile", () => {
  *
  * @remarks
  * The stream is pointed at a descriptor that is not open; its own descriptor is closed when the
- * test ends, and never while the test runs, so no other file can take its number.
+ * test ends, and never while the test runs, so no other file can take its number. A stream
+ * closed in the test closes that descriptor later and reports failing to on stderr, so stderr
+ * stays silenced until the close is over.
  *
  * @sideEffects Creates a temporary log directory; silences the stream's error report on stderr;
  * all undone when the test ends.
@@ -208,7 +210,17 @@ async function failingLogFile() {
   const own = stream.fd;
   onTestFinished(() => closeSync(own));
   const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-  onTestFinished(() => stderr.mockRestore());
+  // SonicBoom reports a failed close as an error, and a close as `close`.
+  const closeOver = new Promise<void>((settle) => {
+    stream.once("close", () => settle());
+    stream.on("error", () => {
+      if (stream.destroyed) settle();
+    });
+  });
+  onTestFinished(async () => {
+    if (stream.destroyed) await closeOver;
+    stderr.mockRestore();
+  });
   (stream as unknown as { fd: number }).fd = 999_999;
   return stream;
 }
