@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-25：设计手机端的开发路线图，在 `atrium/plan-mobile-roadmap`，用户确认，已本地合并回 `main`，未推送。** 把"手机端"一节从 MP0–MP7 的列表扩成里程碑：顺序与依赖（MP0 互通实验先行，MP1 Swift 工程基础和 MP2 relay 并行，MP3 宿主远程模块拆成宿主和设置页，MP4 是第一个手机上能用的纵向切片），每步的目标、范围、完成标准和需要用户做的事，以及三方审查放在 MP3、MP4、MP7。
+
 **2026-10-25：手机端设计定稿，用户确认 SPEC-0005、开始开发，在 `atrium/research-mobile-app`（只改文档和原型），用户确认后已提交并本地合并回 `main`，未推送。** 手机 App 经三轮原型：第一轮选 A"系统原生"，细化后用户觉得像普通 iOS 配置页，参考 Claude Code、Codex、Cursor 重做视觉、选乙"Claude 式"（暖色底、衬线标题、无卡片无分隔线、悬浮玻璃按钮、无 tab bar），过程保留纵向时间轴，插图是点阵像素猫，新会话改成"空的对话页、发出时原地变成对话"；桌面"手机"设置页选链路图、改成顺序动画（上行汇合、下行分发）。规范写进 [design-language · 手机端](architecture/design-language.md#手机端)、"设置"的"手机"分类和 SPEC-0005"界面"；路线图加了"手机端"一节（MP0–MP7）。下一步：MP0 互通实验。
 
 **2026-10-24：定了手机端的方向，在 `atrium/research-mobile-app`（worktree `atrium.worktrees/research-mobile-app`），只改文档；2026-10-25 随定稿一起提交。** 调研了 Paseo（最新源码）、Claude Code Remote Control、Happy、Codex、Cursor、OpenCode、Copilot CLI 等怎么让本机的 agent 和手机共用一个对话（[mobile-remote.md](research/mobile-remote.md)）。用户定：手机端做 SwiftUI 原生 iOS App（[ADR-0015](adr/0015-native-ios-app-in-swiftui.md)），经自己 VPS 上的 TypeScript relay 加 Noise IK 端到端加密连回宿主（[ADR-0016](adr/0016-remote-access-through-own-relay-with-noise.md)），取代 ADR-0005 的 PWA 加 Tailscale；没有付费开发者账号，App 用免费账号每 7 天重签，先不做推送。overview、security、路线图已同步。同日用户定宿主的长期密钥和设备列表放 macOS 钥匙串保护的保险箱（ADR-0016 第 7 条），写了 [SPEC-0005](specs/0005-mobile-app-and-remote-access.md) 草稿（relay 线路协议、Noise 通道、配对与撤销、远程命令白名单、续传、幂等、App 架构、实施计划 MP0–MP7），经 GPT-6 Astra 只读审查后重写（配对加密钥确认和状态机、字节级线路契约、每台手机单开数据连接、出站上限、回执只管远程的 `prompt`/`steer` 并写明"结果不确定"、续传加 `stream` 和 `session_resumed`、事件按来源过滤、第一版收窄、先做互通实验）；手机 App 和桌面"手机"设置页的原型在做。下一步：用户选原型、确认 SPEC 后，按 MP0 开工。
@@ -478,14 +480,73 @@ MVP 1 里还没设计、做到时先补设计的：
 
 #### 手机端（[SPEC-0005](specs/0005-mobile-app-and-remote-access.md)）
 
-2026-10-25 用户确认设计稿、开始开发。SwiftUI 原生 iOS App（ADR-0015），经用户 VPS 上的 relay 加 Noise 端到端加密连回宿主（ADR-0016），先不做推送。视觉见 [design-language · 手机端](architecture/design-language.md#手机端) 和"设置"的"手机"分类。每步按标准流程走，步骤和完成标准以 SPEC-0005"实施计划"为准：
+2026-10-25 用户确认设计稿、开始开发。SwiftUI 原生 iOS App（ADR-0015），经用户 VPS 上的 relay 加 Noise 端到端加密连回宿主（ADR-0016），先不做推送。视觉见 [design-language · 手机端](architecture/design-language.md#手机端) 和"设置"的"手机"分类。
 
-- **MP0 互通实验**：选定 Noise 实现；TS 和 Swift 各跑通 IK、IKpsk2、密钥确认、分帧、心跳；最小的本机 relay；真机经它和 TS 假宿主完成配对握手；实测 `safeStorage` 经 Electron 端口交接和钥匙串弹窗。
-- **MP1 Swift 规范与类型生成**：coding-standards、testing 补 Swift；`apps/ios` 工程；`pnpm protocol:swift`。
-- **MP2 relay**：`apps/relay`，部署到用户的 VPS。
-- **MP3 宿主远程模块与桌面"手机"页**（链路图）。
-- **MP4 纵向切片**：配对 → 列表 → 打开会话 → 发一条 → 断网再连上（快照预算、续传、回执）。
-- **MP5 对话**、**MP6 改动与新建**、**MP7 自用**。
+**顺序与依赖**（2026-10-25 定）：
+
+```
+MP0 互通实验 ──┬── MP1 Swift 工程基础 ──┐
+               └── MP2 relay ───────────┼── MP3 宿主远程模块 ── MP4 纵向切片 ── MP5 对话 ── MP6 改动与新建 ── MP7 自用
+                                         │   （MP3b 设置页可与 MP4 并行）
+```
+
+- 最没把握的放最前：两种语言的加密互通、真机、钥匙串先在 MP0 验证；结论不成立就回到 ADR-0016 重新比较，不往下做。
+- MP1 和 MP2 互不依赖，可以由两个子代理在各自的 worktree 里并行；MP3 起的宿主、协议改动只由一个 worktree 写。
+- MP4 是第一个"手机上真能用"的点（看列表、打开会话、发一句、断网再连上），之后每步都在它上面加宽。MP5 和 MP6 都改同一个 Xcode 工程，按顺序做。
+- 三方审查：MP3（安全和宿主改动最集中）、MP4（协议改动和同步语义）、MP7 收尾前各一次；其余步自查加一个只读审查。
+- 每步结束都请用户验收；分步合回 `main`，未完成的远程访问在设置里默认关着，不影响桌面自用。
+
+##### MP0 互通实验
+
+- **目标**：在写正式代码前，证明 SPEC-0005 的加密和连接方案在 TypeScript、Swift 和真机上都走得通。
+- **范围**：比较现成的 Noise 实现（TS、Swift 各 2～3 个：维护情况、是否支持 IK / IKpsk2、依赖、能否跑公开测试向量）并选定；两边各跑通 IK、IKpsk2、密钥确认、分帧（含拼块超时）、心跳；一个最小的本机 relay（只做接线转发）；一个 TS 写的假宿主；一个只有扫码和握手的 Swift 测试 App，装到真机，经本机 relay 和假宿主完成配对握手；实测 Electron `safeStorage` 经端口交接读写保险箱、ad-hoc 签名重打包后钥匙串的弹窗。代码放在 `spikes/mobile-mp0/`，结论定了以后只把可复用的（Noise 封装、测试向量）挪进正式位置。
+- **参考**：SPEC-0005"Noise 通道""配对流程""日常连接""宿主 · 保险箱的进程交接"；ADR-0016。
+- **完成标准**：两边都通过 cacophony 的 IK、IKpsk2 向量；TS ↔ Swift 互通（用对方生成的确定性握手记录）；真机扫码后两边显示同一个 6 位校验码；`safeStorage` 和钥匙串的实测写进 SPEC-0005"风险与待定问题"第 1 条；选定的 Noise 实现和理由写进 ADR-0016 第 5 条。
+- **需要你做的**：用线或同一 Wi-Fi 连上 iPhone；第一次装时在"设置 › 通用 › VPN 与设备管理"里信任开发者；钥匙串弹窗时点"始终允许"。
+
+##### MP1 Swift 工程基础
+
+- **目标**：让 Swift 代码和 TypeScript 一样有规范、有检查、有测试，协议类型自动跟上。
+- **范围**：coding-standards、testing 补 Swift 一节（格式化、静态检查、文档注释、Swift Testing、并发检查、哪些检查进 `pnpm check`）；`apps/ios` 工程（Xcode 工程文件怎么生成、避免合并冲突的办法在这一步定）和 SwiftPM 模块的骨架（`AtriumProtocol`、`AtriumNoise`、`AtriumRemote`、`AtriumSync`、`AtriumRender`、`AtriumUI`）；`pnpm protocol:swift`（zod → JSON Schema → Swift）、生成文件的比对检查、`envelope.test.ts` 样例的往返测试；`pnpm test:ios`（模拟器上跑 Swift 测试）、`pnpm ios:install`（装到真机）。Swift 没有变异测试工具，破坏检查怎么扩展到 Swift 在这一步定。
+- **完成标准**：生成的类型能编译，往返测试通过；协议改了没重新生成时 `pnpm check` 失败（做一次破坏检查）；空 App 装到真机能打开。
+
+##### MP2 relay
+
+- **目标**：用户 VPS 上跑起只转发、看不到内容的 relay。
+- **范围**：`apps/relay`：控制连接和每台手机的数据连接、令牌认证、代数、接线缓冲、各项上限、日志、`/healthz`、`add-host` / `rotate-host` / `remove-host`；打包成单文件；`apps/relay/README.md`（Caddyfile、systemd unit、升级）。
+- **参考**：SPEC-0005"部署 relay""relay 的线路协议"。
+- **完成标准**：用真实 `ws` 的集成测试覆盖 SPEC-0005"验证 · relay"列的情况，泄漏测试通过，变异测试 ≥ 80%；部署到你的 VPS，`/healthz` 可达，`add-host` 打印的一行能在本机测试连接里用上。
+- **需要你准备的**：VPS 的登录方式、一个指向它的域名（relay 要正式证书）、开放 443 端口。
+
+##### MP3 宿主远程模块与桌面"手机"页
+
+- **目标**：Mac 上的宿主能经 relay 接受配对过的手机，桌面能管理它们。
+- **范围**：
+  - MP3a 宿主（先做）：抽出 `ClientTransport`（本机行为不变，现有宿主测试全过）；保险箱的进程交接；RelayLink、通道、配对状态机、设备、撤销、命令白名单和事件过滤（都有"每项都归了类"的测试）、消息上限；`remote_updated` 等本机命令和事件；`security.md` 补威胁模型和外部边界登记。
+  - MP3b 设置页：链路图（顺序动画、设备色）、节点详情、诊断清单、设备列表、配对弹层，照 design-language"设置 · 手机"。
+- **完成标准**：TS 写的假手机经真实 relay 进程，在端到端测试里走完 SPEC-0005"验证 · 宿主"里配对、日常连接、撤销的各种情况；`remote/` 加进变异分组且 ≥ 80%；连接、定时器、数据连接的泄漏测试通过；设置页的界面测试和明暗截图；三方审查后修完。
+
+##### MP4 纵向切片
+
+- **目标**：第一次在手机上真正用起来：配对 → 看列表 → 打开会话 → 发一句 → 断网再连上，结果对。
+- **范围**：宿主和协议：快照预算、`fetch_transcript` 的字节上限、续传（`stream`、`session_resumed`、事件环）、`prompt` / `steer` 的回执；App：`AtriumRemote`（心跳、重连、前后台）、`AtriumSync`（快照、续传、"发送中"和回执、同步完成的判断、缓存）、配对的几屏、首页（等你处理、按项目分组，先用简单的行）、最朴素的对话页（纯文本、过程只列步骤）、连接胶囊和各种连接状态。
+- **完成标准**：契约测试（Swift 客户端经本机 relay 连真实宿主加 faux pi）覆盖续传、回执、"结果不确定"；网络故障代理下（丢包、断开、延迟）不丢消息、不重复发；真机上走通上面那条路；三方审查后修完。
+
+##### MP5 对话
+
+- **范围**：Markdown 流式渲染（`swift-markdown`、按块缓存、平滑揭示）、代码高亮（比较后选定）、过程轨道（暖色、动效）、眨眼小猫、运行中发送进排队和长按插话、排队 sheet、停止和"继续发送"、出错卡片和详情、提问 sheet 自动弹出和"已在别处回答"、对话框、子对话列表、关注状态的清除、发图片。
+- **完成标准**：契约测试覆盖两端同时回答、排队和插话；性能预算（长回复、大代码块在 iPhone 16 Pro 上主线程没有超过 50 毫秒的卡顿）；明暗、减弱动态效果的截图对照原型。
+
+##### MP6 改动、新建与其余各屏
+
+- **范围**：改动列表（单行分组、按改动量排、筛选）和 diff（不换行、折叠上下文、工具条）、新会话页（入口、位置和模型胶囊、选位置 sheet、发出时原地变成对话、回首页插入、找不到的工作区）、模型 sheet（图标栏、点阵推理强度框、Fast）、首页的完整视觉（衬线标题、工作区小标题、"还有 N 个"、工作区页）、左上角抽屉、像素猫插图和空状态、"签名还剩 N 天"。
+- **完成标准**：同 MP5；各屏截图对照定稿原型逐项核对。
+
+##### MP7 自用
+
+- **目标**：用一周，把手机端当作离开电脑时的主要入口。
+- **范围**：看重连日志、耗电、流量、relay 的资源；按问题修；补 App 的安装和续签说明。
+- **完成标准**：用户验收；`self-use.md` 补手机端一节；三方审查后修完。
 
 v0.1 不做：沙箱隔离、插件系统、会话树、agent 自扩展、对外分发的签名与公证（本机用的打包在 M1.11 做了）、空闲进程回收、编辑文件（M1.12 的文件区只读；外部改动的处理留到做编辑时设计）。
 
