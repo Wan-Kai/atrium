@@ -9,7 +9,7 @@
     "relay": "node relay.ts",
     "host": "node fake-host.ts",
     "phone": "node fake-phone.ts",
-    "interop:write": "node write-interop.ts"
+    "interop:write": "node interop.ts"
   },
   "dependencies": {
     "@noble/ciphers": "2.4.0",
