@@ -25,7 +25,7 @@ security.md 的底线是凭据和对话内容不外泄，所以中继不能看�
 ## 决策
 
 1. **宿主主动出站连 relay，不开入站端口**。宿主仍只监听 `127.0.0.1`（security.md）；远程访问在设置里显式打开，关着时不连 relay。
-2. **relay 是用户自己 VPS 上的 TypeScript 服务**，放在 `apps/relay`（Node + `ws`），前面由 Caddy 签证书、终止外层 TLS。
+2. **relay 是用户自己 VPS 上的 TypeScript 服务**，放在 `apps/relay`（Node + `ws`），前面由一个反代终止外层 TLS。原定 Caddy；2026-10-25 MP2 改为"Caddy 或已有的 nginx"，用户的 VPS 上 443 已由 xray 占着，非代理流量回落到 nginx，relay 跑在 Docker 里、挂在路径前缀下（SPEC-0005"部署 relay"）。
 3. **relay 只转发，看不到内容**：
    - 每个宿主一条控制连接，只用来通知"有手机来了"；每台手机连上来，宿主再开一条数据连接，relay 把它和手机的连接一对一接起来、原样转发字节（2026-10-24 审查后定，不在一条连接里多路复用，免得一台读得慢的手机堵住别的）。
    - relay 只看得到 IP、时间、大小、宿主 id 和握手里的公钥。

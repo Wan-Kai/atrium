@@ -77,6 +77,16 @@
 - 安装 pi 只运行官方安装脚本（`https://pi.dev/install.sh`），地址写死在代码里。
 - **Atrium 自带的 pi 扩展**（ADR-0008）：只加载应用自己带的、随应用签名的文件，路径由宿主算出，不来自客户端或用户输入。它改发往服务商的请求里的 `service_tier`，并查 Codex 的模型列表：在 pi 进程里经 pi 的 `modelRegistry.getApiKeyAndHeaders` 取 ChatGPT 登录的凭据，只发往 pi 平时请求这个模型的地址（登录给的 `baseUrl`，没有就是 `openai-codex` 模型自己的 `baseUrl`）下的 `/codex/models`，走 pi 设好的代理。另外查套餐用量（ADR-0010，2026-10-15 修订）：ChatGPT 登录发往同一地址的根下的 `/wham/usage`（即 `chatgpt.com/backend-api/wham/usage`），Claude 只在订阅登录（`isUsingOAuth`）时发往模型 `baseUrl` 下的 `/api/oauth/usage`，API key 的不查；Grok（`xai`）只在订阅登录时发往写死的 `https://cli-chat-proxy.grok.com/v1/billing?format=credits`，只带 bearer 令牌和 `x-xai-token-auth: xai-grok-cli`、`accept`，不带 pi 给 `api.x.ai` 的其他头，API key 的不查——这是扩展发往 pi 平时不请求的服务器的第一个地址，再加别的要另写 ADR（ADR-0011，2026-10-16）；第二个是联网工具（ADR-0014，2026-10-20）：`web_search`、`web_fetch` 用名为 `DEEPSEEK_SEARCH_API_KEY` 的专用 key，先取 pi 里 `deepseek` 凭据的 `env`（经 `modelRegistry.getApiKeyAndHeaders`，宿主不碰），再取进程环境；不读凭据的 `apiKey` 和 `DEEPSEEK_API_KEY`，搜索与聊天分开计费，发往写死的 `https://api.deepseek.com/v1/tools/search` 和 `/fetch`（不取模型的 `baseUrl`），只带 `authorization`、`content-type`、`accept`，不跟随重定向，网页和搜索结果当数据不当指令；失败只报状态码，不带服务器的原文（DeepSeek 的 401 会回显收到的 key），`query` 和 `url`、网页内容不进日志，扩展不向宿主报任何状态；同一服务商 60 秒内最多一次。Claude 的用量另从回复里读：当前模型是 `claude-bridge` 或 `anthropic` 时，扩展在 `after_provider_response` 里只读 `anthropic-ratelimit-unified-*` 这组响应头，不碰凭据、不发请求（ADR-0012，2026-10-17）。带凭据的请求不跟随重定向（重定向算连不上，2026-10-16 审查后加）。凭据不离开 pi、不交给宿主、不写文件、不记日志；报给宿主的只有模型 id、速度倍数和是否多耗额度，以及套餐名、各窗口的已用百分比、长度、重置时间、按模型窗口的模型名和按产品的拆分（产品名和百分比，M1.14 起），宿主按格式校验后才用；查失败只报原因代码，不带服务器的原文。内部命令 `/atrium-fast`、`/atrium-plan` 只由宿主在确认扩展已加载后发出（2026-10-12 修订）。
 
+## relay
+
+2026-10-25 MP2 定，`apps/relay`，协议见 [SPEC-0005 · relay 的线路协议](../specs/0005-mobile-app-and-remote-access.md#relay-的线路协议appsrelay)。relay 跑在用户的 VPS 上，按"可能被攻破"设计：它只转发 Noise 密文，看不到对话和凭据；被攻破的后果是手机连不上（SPEC-0005"安全"）。它自己守的是"别人冒充不了宿主连上来、拖不垮它、日志里没有秘密"：
+
+- **宿主令牌**：32 字节随机数，`add-host` / `rotate-host` 只往标准输出打印一次那一行，不进日志、不落盘；`hosts.json` 只存 SHA-256（文件 `0600`，原子写入）。比对用 `timingSafeEqual`，`hostId` 不存在时拿一个固定的哈希照样比一次。换令牌、删宿主后，正在跑的 relay 在 2 秒内发现，立刻以 4401 关掉这个宿主的控制连接和它的流。
+- **日志**：只记元数据（`hostId`、`streamId`、IP 的加盐哈希、字节数、关闭码、时长）。不记载荷、`hello` 帧、令牌、查询串和原始 IP；盐每次启动随机生成、不落盘。没认证的连接发来的 `hostId` 不符合 `hst_<16hex>` 时不记。日志写在数据目录的 `logs/`（文件 `0600`），按天一个文件，留 14 天。
+- **上限**：见 SPEC；都由 relay 自己守，宿主另有自己的上限（不信 relay）。WebSocket 不开压缩（`perMessageDeflate: false`）；HTTP 请求头 10 秒内要收齐。
+- **真实 IP**：只信 `trustedProxies` 里的地址给的 `X-Forwarded-For` / `X-Real-IP`，别的连接的这两个头一概不看，伪造不了 IP 绕开按 IP 的限速。用户的部署里拿不到真实 IP，按 IP 的限速退化成全局的（SPEC-0005"部署 relay"第 3 条）。
+- **部署**：只监听本机地址，TLS 由前面的反代终止；Docker 镜像以 `node` 用户（非 root）运行，示例里根文件系统只读、去掉全部 capability、`no-new-privileges`，端口只发布到 `127.0.0.1`；数据目录只挂这一个。
+
 ## 外部边界登记
 
 2026-10-23 加。上面的散文写的是规则；这里用表格列出生产代码实际碰到的外部边界：发往或显示的地址、读到或交出去的环境变量、宿主发给扩展的隐藏命令。原先这些只散在各节和 SPEC、pi-internals 里，例如宿主每天请求的 `https://pi.dev/api/latest-version` 只写在 SPEC-0001 和 pi-internals 里，审查时要靠人在代码里找一次改动碰了什么。现在由 `pnpm boundary`（`scripts/boundary.mjs`）从代码里列出来和这三张表对照：
@@ -84,7 +94,7 @@
 - `pnpm boundary [基准]`：列出基准（默认 `git merge-base HEAD main`）以来的提交、未提交的改动和未跟踪的新文件里，依赖的增删改（标出不是精确版本的）、新增和删掉的地址、环境变量、隐藏命令（标出是否已登记）、`PROTOCOL_VERSION` 的变化（`packages/protocol/src/` 的非测试文件改了、版本没变时警告），以及改动文件里 `atrium/side-effects-none` 报的矛盾。新增了未登记的地址、环境变量、隐藏命令，或依赖不是精确版本时退出码为 1。交付汇报里附上它的输出（acceptance.md"交给用户之前"）。
 - `pnpm boundary --all`：拿全部生产代码对照这三张表，再查全部依赖是不是精确版本，有缺的退出码为 1；也列出登记了、代码里却找不到的项（只提示）。它接在 `pnpm check` 里。
 
-**生产代码**的范围：`packages/{protocol,pi,host,client,ui}/src` 和 `apps/desktop/src` 下的源文件，不含 `*.test.*`、`*.bench.*`、`test/` 目录和 `packages/pi/src/contract/`（契约场景）；`packages/testkit`、`apps/desktop/e2e`、`scripts/` 和构建脚本不算。
+**生产代码**的范围：`packages/{protocol,pi,host,client,ui}/src`、`apps/desktop/src` 和 `apps/relay/src`（2026-10-25 加）下的源文件，不含 `*.test.*`、`*.bench.*`、`test/` 目录和 `packages/pi/src/contract/`（契约场景）；`packages/testkit`、`apps/desktop/e2e`、`scripts/` 和构建脚本不算。
 
 **脚本怎么认**（按语法树，注释和正则字面量都不算）：
 

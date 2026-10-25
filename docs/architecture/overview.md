@@ -38,10 +38,15 @@
 ```
 atrium/
 ├── apps/
-│   └── desktop/                    Electron 外壳：只负责启动宿主和开窗口
-│       ├── src/main/               主进程：启动宿主、窗口、菜单、用系统浏览器开外链
-│       ├── src/preload/            把宿主地址和 token 交给 UI
-│       └── e2e/                    第 6 层端到端测试；heap.ts 取堆快照、比较脱离文档的 DOM 节点
+│   ├── desktop/                    Electron 外壳：只负责启动宿主和开窗口
+│   │   ├── src/main/               主进程：启动宿主、窗口、菜单、用系统浏览器开外链
+│   │   ├── src/preload/            把宿主地址和 token 交给 UI
+│   │   └── e2e/                    第 6 层端到端测试；heap.ts 取堆快照、比较脱离文档的 DOM 节点
+│   └── relay/                      手机端的 relay（SPEC-0005，2026-10-25 MP2）：跑在用户的 VPS 上，只转发字节
+│       ├── src/                    relay.ts 线路协议；config 和 hosts 读写配置与宿主表；cli 命令行；
+│       │                           daily-log 按天的日志；clock、resources 同宿主的做法（不 import 宿主）
+│       ├── deploy/                 nginx 的 location 片段、compose.yaml、systemd unit
+│       └── Dockerfile              多阶段：构建单文件 relay.cjs，运行时用官方 node 镜像、非 root
 ├── packages/
 │   ├── protocol/                   宿主和客户端之间的协议（zod），只放线上传输的东西
 │   │   └── src/
@@ -150,6 +155,7 @@ protocol  ←──  pi  ←──  host
 | client | protocol、zustand | DOM、React | tsconfig 不含 DOM，oxlint 禁止 import react |
 | ui | client、protocol（只用类型） | host、pi | 没有声明依赖；oxlint 只许生产代码 `import type` protocol，要用的值（`CommandError`、`isChatId` 等）由 client 转出（测试不限） |
 | desktop | 不 import host 和 ui 的代码 | — | 只知道构建好的宿主入口路径，窗口经 `atrium://app/` 加载宿主提供的页面 |
+| relay | ws、zod | 任何内部包（testkit 只作开发依赖，测试里用假时钟） | package.json 没声明；它部署在另一台机器上，Clock 和资源计数各写一份小的，不从宿主拿 |
 | testkit | protocol | 其他内部包；被生产代码依赖 | 避免和被测包形成循环依赖；knip、oxlint 检查 |
 
 - **回复增强的 UI 内部边界（2026-10-20）**：`chat/file-opener.ts` 只声明当前工作区的惰性打开能力，供工具胶囊与 Markdown 引用共同使用；不从 Markdown 反向 import 步骤组件。文件路径的工作区校验与打开仍由 ConversationArea 组装；`state/workspace-views.ts` 保存窗口内的一次性行范围导航，FileViewer 在读取和恢复滚动后按实际行元素消费，不增加宿主命令或持久索引字段。JSON 使用精确锁定的 `jsonc-parser@3.3.1` 的 scanner/AST（严格 JSON，不接受注释），通过源码位置展示数值和属性，CSV 用受限状态机；两者都不引入脚本执行或网络能力。

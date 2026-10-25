@@ -515,7 +515,7 @@ MP0 互通实验 ──┬── MP1 Swift 工程基础 ──┐
 ##### MP2 relay
 
 - **目标**：用户 VPS 上跑起只转发、看不到内容的 relay。
-- **范围**：`apps/relay`：控制连接和每台手机的数据连接、令牌认证、代数、接线缓冲、各项上限、日志、`/healthz`、`add-host` / `rotate-host` / `remove-host`；打包成单文件；`apps/relay/README.md`（Caddyfile、systemd unit、升级）。
+- **范围**：`apps/relay`：控制连接和每台手机的数据连接、令牌认证、代数、接线缓冲、各项上限、日志、`/healthz`、`add-host` / `rotate-host` / `remove-host`；打包成单文件和 Docker 镜像；`apps/relay/README.md`（nginx 片段、Docker、systemd unit、升级和回滚；2026-10-25 按用户的 VPS 把 Caddyfile 换成了已有的 nginx）。
 - **参考**：SPEC-0005"部署 relay""relay 的线路协议"。
 - **完成标准**：用真实 `ws` 的集成测试覆盖 SPEC-0005"验证 · relay"列的情况，泄漏测试通过，变异测试 ≥ 80%；部署到你的 VPS，`/healthz` 可达，`add-host` 打印的一行能在本机测试连接里用上。
 - **需要你准备的**：VPS 的登录方式、一个指向它的域名（relay 要正式证书）、开放 443 端口。
