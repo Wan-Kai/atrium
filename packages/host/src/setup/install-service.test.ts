@@ -1,6 +1,6 @@
 import { CommandError, type InstallKind, type InstallOutputEvent, type InstallUpdatedEvent } from "@atrium/protocol";
-import { createTempDir } from "@atrium/testkit";
-import { access, chmod, realpath, writeFile } from "node:fs/promises";
+import { createTempDir, writeShellPi } from "@atrium/testkit";
+import { access, readlink, realpath, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
@@ -54,20 +54,29 @@ function testSessions(initial: number): TestSessions {
 }
 
 /**
- * Writes an executable shell script.
+ * Puts a `brew` and a `pi` in `dir` that run as shell scripts.
  *
  * @remarks
- * Stands in for `brew` and `pi`.
+ * Both link to testkit's one shared shell pi, already checked by macOS, rather than to new
+ * executables: a test writing its own waited for macOS to check them before their first run, a
+ * second or more when tests ran side by side (testing.md, "测试里的可执行文件"). The script tells
+ * the two apart by the name it was run as.
  *
- * @sideEffects Writes the file.
- * @param path - Where.
- * @param body - The script after the `#!/bin/sh` line.
- * @returns The path.
+ * @sideEffects Creates two symlinks in `dir`.
+ * @param dir - A temporary directory owned by the test.
+ * @returns The two paths, and the environment their commands need.
  */
-async function executable(path: string, body: string): Promise<string> {
-  await writeFile(path, `#!/bin/sh\n${body}\n`);
-  await chmod(path, 0o755);
-  return path;
+async function standIns(dir: string): Promise<{ brew: string; pi: string; env: Readonly<Record<string, string>> }> {
+  const { piPath, env } = await writeShellPi(
+    dir,
+    `case "\${0##*/}" in
+      brew) echo "brew $* in $(pwd)"; exit "\${BREW_EXIT:-0}" ;;
+      *) touch "${dir}/pi-ran"; sleep "\${PI_WAIT:-0}"; echo "pi $* in $(pwd)"; exit "\${PI_EXIT:-0}" ;;
+    esac`,
+  );
+  const brew = join(dir, "brew");
+  await symlink(await readlink(piPath), brew);
+  return { brew, pi: piPath, env };
 }
 
 /**
@@ -106,13 +115,9 @@ async function service(
   const temp = await createTempDir("install-service");
   cleanups.push(temp.cleanup);
   const dir = await realpath(temp.path);
-  const brew = await executable(join(dir, "brew"), 'echo "brew $* in $(pwd)"; exit "${BREW_EXIT:-0}"');
-  const pi = await executable(
-    join(dir, "pi"),
-    `touch "${dir}/pi-ran"; sleep "\${PI_WAIT:-0}"; echo "pi $* in $(pwd)"; exit "\${PI_EXIT:-0}"`,
-  );
+  const { brew, pi, env } = await standIns(dir);
   const tools: HostTools = {
-    env: { PATH: "/usr/bin:/bin", ...options.env },
+    env: { PATH: "/usr/bin:/bin", ...env, ...options.env },
     envSource: "configured",
     pi: { status: "outdated", piPath: pi, version: [1, 0, 0], minimum: [1, 0, 1] },
     node: { status: "ready", nodePath: process.execPath, version: [22, 19, 0] },

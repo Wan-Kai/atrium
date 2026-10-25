@@ -3,6 +3,7 @@ import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { Markdown } from "./markdown";
+import { withoutUnfinishedTable } from "./markdown-transforms";
 
 /** Renders finished Markdown and returns its root element. */
 async function rendered(text: string): Promise<HTMLElement> {
@@ -328,7 +329,9 @@ describe("Markdown", () => {
     const label = part(root, "code-block-header");
     const buttons = buttonsOf(block);
     const shown = () => [getComputedStyle(label).opacity, getComputedStyle(buttons).opacity];
-    const resting = shown();
+    // The pointer is wherever an earlier test left it, possibly over the block: move it off first.
+    await userEvent.unhover(block);
+    await expect.poll(shown).toStrictEqual(["1", "0"]);
 
     await userEvent.hover(block);
     await expect.poll(shown).toStrictEqual(["0", "1"]);
@@ -337,7 +340,6 @@ describe("Markdown", () => {
     block.querySelector("button")?.focus();
 
     await expect.poll(shown).toStrictEqual(["0", "1"]);
-    expect(resting).toStrictEqual(["1", "0"]);
   });
 
   it("grounds a code block on the dark code colour in dark mode", async () => {
@@ -459,6 +461,87 @@ describe("Markdown", () => {
     ]);
   });
 
+  it("shows a table streaming in only once its delimiter row has all its columns, never its header as text", async () => {
+    const header = "表格\n\n| 模块 | 职责 | 行数 |\n";
+    const screen = await render(<Markdown text={header} streaming />);
+    const seen = () =>
+      ["p", "th"].map((tag) => [...screen.container.querySelectorAll(tag)].map((each) => each.textContent));
+    const shown = [seen()];
+    for (const delimiter of ["| ---", "| --- | ---", "| --- | --- | -"]) {
+      await screen.rerender(<Markdown text={header + delimiter} streaming />);
+      shown.push(seen());
+    }
+
+    expect(shown).toStrictEqual([
+      [["表格"], []],
+      [["表格"], []],
+      [["表格"], []],
+      [["表格"], ["模块", "职责", "行数"]],
+    ]);
+  });
+
+  it("holds back, while streaming, just the trailing lines that the renderer leaves as a paragraph, not code or table rows", async () => {
+    const texts = [
+      "表格\n\n| 模块 | 职",
+      "| a | b |\n| --- | :",
+      "| a | b | c |\n--- | -",
+      "| a | b | c |\n| --x | -",
+      "| a |\n| b",
+      "foo\n| a | b |",
+      "| a | b |\n| - | - |\n# h\n| x | y |",
+      "```\n```  \n| a | b |",
+      "| a |\n| - |\n\n| x |",
+      "| a |\n| - |\n   \n| x |",
+      "| a | b |\n| - | - |\n## h\n| x |",
+      "| a |\n| - |\n#\n| x |",
+      "| a | b |\n| - | x |\n| y |",
+      "a ```\n| a |",
+      "~\n| a |",
+      "```ts\n| a | b |",
+      "~~~\n| a |",
+      "| a | b |\n| - | - |\nx ```\n| y |",
+      "| a |\n| - |\n`x`\n| y |",
+      "| a |\n| - |\n~x\n| y |",
+      "```\n| a |\n| - |\n```\n| x |",
+      "| a | b |\n| - | - |\n> q\n| x | y |",
+      "| a | b |\n| - |\n| x |",
+      "```a`b\n| a |",
+      "```\nx\n```\n| a |",
+      "| a | b |\n| --- | --- |",
+      "| a | b |\n| :-- | -",
+      "| a | b |\n| - | - |\n| 1 | 2",
+      "  | a |\n| --- |",
+      "```\n| a | b |",
+      "````\n```\n| a | b |",
+      "~~~\n```\n| a | b |",
+      "```\n```not-a-close\n| a | b |",
+      "```\n    ```\n| a |",
+      "| a | b |\n--- | ---\n| 1 | 2 |",
+      "a | b\n--- | ---\n| 1 | 2 |",
+      "| a | b |\n| - | - |\n1 | 2\n| 3 | 4 |",
+      "| a | b |\n| - | - |\nplain\n| 3 | 4 |",
+    ];
+    const agree: [string, boolean, boolean][] = [];
+    for (const text of texts) {
+      const screen = await render(<Markdown text={text} streaming={false} />);
+      const blocks = screen.container.querySelector(".atrium-markdown")?.children;
+      agree.push([text, blocks?.item(blocks.length - 1)?.tagName === "P", withoutUnfinishedTable(text) !== text]);
+      await screen.unmount();
+    }
+
+    expect(agree.filter(([, paragraph, held]) => paragraph !== held)).toStrictEqual([]);
+  });
+
+  it("shows a table's header as written once a reply that stops before its delimiter row has ended", async () => {
+    const screen = await render(<Markdown text={"表格\n\n| 模块 | 职责 |"} streaming />);
+    await screen.rerender(<Markdown text={"表格\n\n| 模块 | 职责 |"} streaming={false} />);
+
+    expect([...screen.container.querySelectorAll("p")].map((each) => each.textContent)).toStrictEqual([
+      "表格",
+      "| 模块 | 职责 |",
+    ]);
+  });
+
   it("folds a table still streaming in at 640px, its header in view", async () => {
     const screen = await render(<Markdown text={longTable(5)} streaming />);
     await screen.rerender(<Markdown text={longTable(40)} streaming />);
@@ -509,6 +592,10 @@ describe("Markdown", () => {
   it("draws Mermaid flat in neutral colours, and switches to its source and back", async () => {
     const root = await rendered("```mermaid\ngraph TD\n  A --> B\n```");
     const node = await mermaidNode(root);
+    // The zoom controls come once the diagram has been fitted, a little after it is drawn.
+    await vi.waitFor(() =>
+      expect(root.querySelector('output[aria-label="图表缩放比例"]')?.textContent).toMatch(/^[1-9][0-9]*%$/u),
+    );
     const block = part(root, "mermaid-block").closest<HTMLElement>(".atrium-mermaid-controls")!;
     const drawn = [
       getComputedStyle(node).fill,

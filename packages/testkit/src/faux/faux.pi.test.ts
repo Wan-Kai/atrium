@@ -319,6 +319,22 @@ describe("faux model in a real pi process", () => {
     expect(lastAssistant(pi.records)).toMatchObject({ stopReason: "aborted" });
   });
 
+  it("answers a prompt starting as a byPrompt entry says with its reply, in place of the next one", async () => {
+    const pi = await startPi({
+      replies: [{ blocks: [{ type: "text", text: "first" }] }, { blocks: [{ type: "text", text: "second" }] }],
+      byPrompt: [{ startsWith: "held", reply: { blocks: [{ type: "text", text: "by prompt" }] } }],
+    });
+    const finished = () => pi.records.filter(settled).length;
+
+    pi.send({ id: "r1", type: "prompt", message: "held for a while" });
+    await pi.until(() => finished() === 1);
+    const byPrompt = deltas(pi.records, "text_delta").join("");
+    pi.send({ id: "r2", type: "prompt", message: "plain" });
+    await pi.until(() => finished() === 2);
+
+    expect([byPrompt, deltas(pi.records, "text_delta").join("")]).toStrictEqual(["by prompt", "by promptsecond"]);
+  });
+
   it("writes down the process id of the pi that loaded it", async () => {
     const pi = await startPi({ replies: [] });
     pi.send({ id: "r1", type: "get_state" });

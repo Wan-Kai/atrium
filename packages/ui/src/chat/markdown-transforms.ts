@@ -60,6 +60,175 @@ export function normalizeMathDelimiters(markdown: string): string {
     .join("\n");
 }
 
+/** A line starting with a pipe, as a table's rows do. */
+const PIPE_ROW = /^ {0,3}\|/u;
+
+/** A pipe between table cells, not an escaped one. */
+const CELL_PIPE = /(?<!\\)\|/u;
+
+/** A delimiter row's cell: dashes, with a colon at either end for the alignment. */
+const DELIMITER_CELL = /^\s*:?-+:?\s*$/u;
+
+/** The start of a delimiter row's cell, still being written. */
+const DELIMITER_CELL_START = /^\s*:?-*:?\s*$/u;
+
+/** An opening code fence: a backtick one's info string has no backtick. */
+const OPENING_FENCE = /^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$/u;
+
+/** A closing code fence: nothing but spaces after it. */
+// Stryker disable next-line Regex: a fence shorter than three never closes one, at least three long.
+const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/u;
+
+/**
+ * The start of a block that ends a table, after which a pipe line is a paragraph's: a heading or a
+ * code fence. After a quote or a list item it would go on their paragraph instead.
+ */
+const BLOCK_START = /^ {0,3}(?:#{1,6}(?:[ \t]|$)|`{3,}|~{3,})/u;
+
+/**
+ * A table row's cells, without its outer pipes.
+ *
+ * @remarks
+ * An escaped pipe stays inside its cell, as GFM reads it.
+ *
+ * @sideEffects none
+ * @param line - The row.
+ * @returns The cells' text.
+ */
+function cellsOf(line: string): string[] {
+  // Stryker disable next-line Regex: the header passed PIPE_ROW, so once trimmed it starts with its pipe.
+  const cells = line.trim().replace(/^\|/u, "").split(CELL_PIPE);
+  // Trimmed, a row ending in a pipe leaves exactly an empty last piece.
+  return cells.at(-1) === "" ? cells.slice(0, -1) : cells;
+}
+
+/**
+ * Whether a line is the start of a delimiter row with fewer columns than its header.
+ *
+ * @remarks
+ * Every cell but the last is whole; the last may still be empty or half written.
+ *
+ * @sideEffects none
+ * @param line - The line after the header.
+ * @param columns - How many columns the header has.
+ * @returns Whether the delimiter row has still to be finished.
+ */
+function unfinishedDelimiter(line: string, columns: number): boolean {
+  const whole = line.trim().replace(/^\|/u, "").split(CELL_PIPE);
+  // Stryker disable next-line StringLiteral: split always gives at least one piece.
+  const last = whole.pop() ?? "";
+  if (!whole.every((cell) => DELIMITER_CELL.test(cell)) || !DELIMITER_CELL_START.test(last)) return false;
+  return whole.length + (DELIMITER_CELL.test(last) ? 1 : 0) < columns;
+}
+
+/**
+ * Whether a line is a whole delimiter row for a header with this many columns.
+ *
+ * @remarks
+ * As GFM reads it: every cell dashes with an optional colon at either end, as many as the
+ * header's, with or without the outer pipes.
+ *
+ * @sideEffects none
+ * @param line - The line after the header.
+ * @param columns - How many columns the header has.
+ * @returns Whether it makes the header a table's.
+ */
+function delimiterRow(line: string, columns: number): boolean {
+  const cells = cellsOf(line);
+  return cells.length === columns && cells.every((cell) => DELIMITER_CELL.test(cell));
+}
+
+/**
+ * Whether a line is one of a table's rows: a delimiter row, or a row after one.
+ *
+ * @remarks
+ * A table goes on to the first blank line or the start of another block, whatever the rows look
+ * like, pipes or not (GFM). So the lines before it, back to such a break, are looked through for
+ * a header with its delimiter row.
+ *
+ * @sideEffects none
+ * @param lines - The reply's lines.
+ * @param at - The line's index.
+ * @returns Whether it is in a table.
+ */
+function inTable(lines: readonly string[], at: number): boolean {
+  // Stryker disable next-line EqualityOperator: before the first line there is none, read as blank.
+  for (let row = at; row > 0; row -= 1) {
+    // Stryker disable next-line StringLiteral: `row` stays within the lines.
+    const header = lines[row - 1] ?? "";
+    if (header.trim() === "" || BLOCK_START.test(header)) return false;
+    // Stryker disable next-line StringLiteral: as above.
+    if (delimiterRow(lines[row] ?? "", cellsOf(header).length)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a line is inside fenced code, by the fences before it.
+ *
+ * @remarks
+ * A fence closes only with the same character, at least as long, and nothing but spaces after it
+ * (CommonMark); an unclosed fence takes in the rest of the text.
+ *
+ * @sideEffects none
+ * @param lines - The reply's lines.
+ * @param at - The line's index.
+ * @returns Whether it is code.
+ */
+function inCode(lines: readonly string[], at: number): boolean {
+  let fence: string | null = null;
+  // Stryker disable next-line MethodExpression: the header and the line after it start with no fence.
+  for (const line of lines.slice(0, at)) {
+    if (fence === null)
+      fence =
+        OPENING_FENCE.exec(line)
+          ?.slice(1)
+          .find((marker) => marker !== undefined) ?? null;
+    else {
+      const marker = CLOSING_FENCE.exec(line)?.[1];
+      if (marker !== undefined && marker[0] === fence[0] && marker.length >= fence.length) fence = null;
+    }
+  }
+  return fence !== null;
+}
+
+/**
+ * Holds back a table at the end of a streaming reply until its delimiter row has all its columns.
+ *
+ * @remarks
+ * Until then the header is a paragraph, drawn as its pipes; once the delimiter row is written it
+ * becomes a table and its text shrinks to the cells', a flash of raw syntax mid-stream (SPEC-0001,
+ * "回复渲染"). Only a header starting with a pipe, which is no row of a table already there, and
+ * outside code is held; the rest is shown as it is. For streaming text only: once the reply has
+ * ended it is shown whole.
+ *
+ * @sideEffects none
+ * @param markdown - The reply received so far.
+ * @returns The text to render now.
+ */
+export function withoutUnfinishedTable(markdown: string): string {
+  const lines = markdown.split("\n");
+  const last = lines.length - 1;
+  // Stryker disable StringLiteral: only before the first line is there none, and that is no pipe row either.
+  /**
+   * Whether a line could become a table's header: it starts with a pipe and is no row of a table.
+   *
+   * @remarks
+   * A table can start right after a paragraph's line, even one starting with a pipe.
+   *
+   * @sideEffects none
+   * @param at - The line's index.
+   */
+  const opens = (at: number): boolean => PIPE_ROW.test(lines[at] ?? "") && !inTable(lines, at);
+  let header: number;
+  if (opens(last - 1) && unfinishedDelimiter(lines[last] ?? "", cellsOf(lines[last - 1] ?? "").length))
+    header = last - 1;
+  // Stryker restore StringLiteral
+  else if (opens(last)) header = last;
+  else return markdown;
+  return inCode(lines, header) ? markdown : lines.slice(0, header).join("\n");
+}
+
 /**
  * Turns every HTML node at or below `node` into a text node with the same source.
  *

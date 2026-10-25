@@ -1,6 +1,8 @@
 import { CommandError, type DiffMode } from "@atrium/protocol";
-import { FakeClock } from "@atrium/testkit";
-import { afterEach, describe, expect, it } from "vitest";
+import { FakeClock, createTempDir } from "@atrium/testkit";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, onTestFinished } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import { GitError } from "../platform/git";
 import {
@@ -11,6 +13,7 @@ import {
   RECOVER_START_MS,
   type WatchDirectory,
   createChangesService,
+  directoryPresent,
 } from "./changes-service";
 import type { CheckoutReader, WatchRoots, WorkspaceChanges, WorkspaceDiff } from "./checkout";
 
@@ -67,7 +70,8 @@ type Held = "changes" | "diff" | "roots" | "ignored";
  * @remarks
  * The reader answers with `now`, which a test changes; watchers record their callbacks so a test
  * can report a change or an error. `hold` makes one kind of read wait until let go, `known`
- * says which workspaces `resolve` finds, and `archived` which of them are archived.
+ * says which workspaces `resolve` finds, `archived` which of them are archived, `gone` which
+ * directories are not there, and `looking.held` holds the looks at them.
  *
  * @sideEffects none
  * @returns The service and what a test drives and checks.
@@ -88,6 +92,9 @@ function harness(options: { readonly reader?: "none" } = {}) {
   };
   const known = new Set([W1, W2]);
   const archived = new Set<string>();
+  const gone = new Set<string>();
+  /** Holds every look at a directory until let go. */
+  const looking: { held: Promise<void> | undefined } = { held: undefined };
   const reads: string[] = [];
   const signals: AbortSignal[] = [];
   const failures: unknown[] = [];
@@ -163,6 +170,10 @@ function harness(options: { readonly reader?: "none" } = {}) {
     resources,
     logger,
     watch,
+    present: async (dir) => {
+      await looking.held;
+      return !gone.has(dir);
+    },
   });
   services.push(service);
   /** The open watcher of a directory. */
@@ -183,6 +194,8 @@ function harness(options: { readonly reader?: "none" } = {}) {
     now,
     known,
     archived,
+    gone,
+    looking,
     reads,
     signals,
     failures,
@@ -1031,6 +1044,151 @@ describe("ChangesService: archived workspaces", () => {
   });
 });
 
+/** What the capsule is sent for a workspace with nothing to count. */
+function nothing(workspaceId = W1) {
+  return { type: "changes_updated", workspaceId, stat: null, dirty: false, ahead: 0, branch: null, base: null };
+}
+
+describe("ChangesService: a directory gone outside Atrium", () => {
+  it("runs no git and watches nothing there, tells the capsule there is nothing and the panel it could not read, and logs nothing", async () => {
+    const { service, gone, reads, open, sent, records } = harness();
+    gone.add("/top/w1");
+
+    service.watchChanges("c1", [W1]);
+    service.watchDiff("c1", { workspaceId: W1, mode: "base" });
+    await settle();
+
+    expect(reads).toStrictEqual([]);
+    expect(open()).toStrictEqual([]);
+    expect(sent).toStrictEqual([
+      ["c1", nothing()],
+      ["c1", { type: "diff_updated", workspaceId: W1, mode: "base", files: [], tooLarge: false, error: "failed" }],
+    ]);
+    expect(records).toStrictEqual([]);
+  });
+
+  it("looks at the directory now and then without git, and reads and watches again once it is back", async () => {
+    const { service, clock, gone, reads, open, sent, records } = harness();
+    gone.add("/top/w1");
+    service.watchChanges("c1", [W1]);
+    await settle();
+    await pass(clock, POLL_START_MS);
+    await pass(clock, RECOVER_START_MS);
+    expect(reads).toStrictEqual([]);
+
+    gone.delete("/top/w1");
+    await pass(clock, 2 * RECOVER_START_MS);
+
+    expect(counts(reads)).toBeGreaterThan(0);
+    expect(open()).toStrictEqual(["/top", "/git/worktrees/w", "/git"]);
+    expect(sent).toStrictEqual([
+      ["c1", nothing()],
+      ["c1", updated(1)],
+    ]);
+    expect(records).toStrictEqual([]);
+    service.disconnect("c1");
+    expect(clock.pendingTimers()).toBe(0);
+  });
+
+  it("schedules nothing for a workspace let go while its directory was looked at", async () => {
+    const { service, clock, gone, resources } = harness();
+    gone.add("/top/w1");
+
+    service.watchChanges("c1", [W1]);
+    service.watchChanges("c1", []);
+    await settle();
+
+    expect(clock.pendingTimers()).toBe(0);
+    expect(resources.snapshot()).toStrictEqual({});
+  });
+
+  it("stops the watchers once a read finds the directory gone though none broke, and watches once again when it is back", async () => {
+    const { service, clock, gone, open, reads, sent, records, resources, watcherOf } = harness();
+    service.watchChanges("c1", [W1]);
+    await settle();
+    expect(open()).toStrictEqual(["/top", "/git/worktrees/w", "/git"]);
+
+    // Removing the tree tells the watchers of files going, and need not break them.
+    gone.add("/top/w1");
+    watcherOf("/top").onEvent("a.ts");
+    await pass(clock, CHANGES_DEBOUNCE_MS);
+    expect(open()).toStrictEqual([]);
+    const before = reads.length;
+    await pass(clock, POLL_START_MS);
+    expect(reads.length).toBe(before);
+    gone.delete("/top/w1");
+    await pass(clock, RECOVER_START_MS);
+
+    expect(open()).toStrictEqual(["/top", "/git/worktrees/w", "/git"]);
+    expect(sent).toStrictEqual([
+      ["c1", updated(1)],
+      ["c1", nothing()],
+      ["c1", updated(1)],
+    ]);
+    expect(records).toStrictEqual([]);
+    service.disconnect("c1");
+    expect(clock.pendingTimers()).toBe(0);
+    expect(resources.snapshot()).toStrictEqual({ "changes.watch": 0, timer: 0 });
+  });
+
+  it("tries to watch again 30 seconds after first finding the directory gone, however often looks find it still gone", async () => {
+    const { service, clock, gone, open, records } = harness();
+    gone.add("/top/w1");
+    service.watchChanges("c1", [W1]);
+    await settle();
+
+    await pass(clock, RECOVER_START_MS - 1);
+    gone.delete("/top/w1");
+    await pass(clock, 1);
+
+    expect(open()).toStrictEqual(["/top", "/git/worktrees/w", "/git"]);
+    expect(records).toStrictEqual([]);
+  });
+
+  it("schedules nothing for a workspace let go while a look found its directory gone", async () => {
+    const { service, clock, gone, looking, resources } = harness();
+    service.watchChanges("c1", [W1]);
+    await settle();
+    gone.add("/top/w1");
+    const { promise, resolve } = Promise.withResolvers<void>();
+    looking.held = promise;
+    service.refresh(W1);
+    await settle();
+
+    service.watchChanges("c1", []);
+    resolve();
+    await settle();
+
+    expect(clock.pendingTimers()).toBe(0);
+    expect(resources.snapshot()).toStrictEqual({ "changes.watch": 0 });
+  });
+
+  it("tells the capsule there is nothing once the directory goes while watched, and logs neither git nor the watcher failing", async () => {
+    const { service, clock, gone, hold, failures, reads, sent, records, watcherOf } = harness();
+    service.watchChanges("c1", [W1]);
+    await settle();
+    const release = hold("changes");
+    service.refresh(W1);
+    await settle();
+
+    gone.add("/top/w1");
+    failures.push(new GitError("rev-parse", "spawn"));
+    release();
+    await settle();
+    watcherOf("/top").onError();
+    await settle();
+    const before = counts(reads);
+    await pass(clock, POLL_START_MS);
+
+    expect(counts(reads)).toBe(before);
+    expect(sent).toStrictEqual([
+      ["c1", updated(1)],
+      ["c1", nothing()],
+    ]);
+    expect(records).toStrictEqual([]);
+  });
+});
+
 describe("ChangesService: closing", () => {
   it("stops every watcher, timer and git run, and closes once the look under way is over", async () => {
     const { service, clock, hold, open, resources, signals, watcherOf } = harness();
@@ -1124,5 +1282,31 @@ describe("ChangesService: watching again", () => {
       ["c1", diffUpdated("base", 1)],
       ["c1", diffUpdated("base", 2)],
     ]);
+  });
+});
+
+describe("directoryPresent", () => {
+  it("finds a directory, and no directory where nothing is, where a file is, or below a file", async () => {
+    const dir = await createTempDir("present");
+    onTestFinished(dir.cleanup);
+    const file = join(dir.path, "file");
+    await writeFile(file, "");
+
+    expect(
+      await Promise.all([dir.path, join(dir.path, "missing"), file, join(file, "below")].map(directoryPresent)),
+    ).toStrictEqual([true, false, false, false]);
+  });
+
+  it("takes a directory it may not look at as there, so reading it fails and is logged as before", async () => {
+    const dir = await createTempDir("present-denied");
+    const shut = join(dir.path, "shut");
+    await mkdir(join(shut, "inside"), { recursive: true });
+    await chmod(shut, 0o000);
+    onTestFinished(async () => {
+      await chmod(shut, 0o700);
+      await dir.cleanup();
+    });
+
+    expect(await directoryPresent(join(shut, "inside"))).toBe(true);
   });
 });

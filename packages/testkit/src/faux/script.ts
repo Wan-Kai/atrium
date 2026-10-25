@@ -46,6 +46,13 @@ export interface FauxScript {
   readonly tokensPerSecond?: number;
   readonly replies: readonly FauxReply[];
   /**
+   * Replies picked by the prompt: a request whose newest user message starts with an entry's
+   * `startsWith` gets that entry's reply (the first that matches) in place of the one `replies`
+   * had next, which is used up all the same. So chats of one script can answer differently, as
+   * when a soak holds the replies of the chats it stops and kills, and lets the rest run.
+   */
+  readonly byPrompt?: readonly { readonly startsWith: string; readonly reply: FauxReply }[];
+  /**
    * What a pi Atrium started as a child the agent opened says instead, told by the flag the host
    * gives it (`--atrium-agent=…` with `child: true`; SPEC-0002), so a parent and its children can
    * answer differently from one script.

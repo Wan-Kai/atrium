@@ -26,6 +26,7 @@ export { GIT_SCENE_ENV, type GitScene, createGitScene, gitSceneEnv } from "./git
 export { type ExpectedLog, type GatedLevel, findLogProblems, readLogRecords } from "./log-gate";
 export { present } from "./present";
 export { type ScriptedPiBehavior, type ScriptedRule, warmScriptedPi, writeScriptedPi } from "./scripted-pi";
+export { numberedFiles } from "./shared-directory";
 export { TEST_BIN_DIR_ENV } from "./shared-executable";
 export { warmShellPi, writeShellPi } from "./shell-pi";
 export { type TempDir, createTempDir } from "./temp-dir";

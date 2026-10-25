@@ -2,6 +2,8 @@ import { type AtriumClient, createAtriumClient } from "@atrium/client";
 import { type ExpectedLog, createTempDir, findLogProblems, readLogRecords } from "@atrium/testkit";
 import { readFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { getHeapSpaceStatistics } from "node:v8";
+import { expect, vi } from "vitest";
 import { type HostConfig, type RunningHost, startHost } from "../src/main";
 
 /** A real host started in this process for one test. */
@@ -91,4 +93,51 @@ export async function startTestHost(overrides: Partial<HostConfig> = {}): Promis
       return disposed;
     },
   };
+}
+
+/**
+ * Waits for what a host does on its own once it is up, and gives its resource counts then.
+ *
+ * @remarks
+ * The host finds the tools, then runs git's version check for merge states (`main.ts`), each
+ * counted while it runs, and the counts it comes back to once idle are those after both. A
+ * baseline taken sooner holds `tools.detect: 1` and fails a soak that ends idle (self-use.md,
+ * "问题", 2026-10-23). git's count shows only once git has run, so its 0 means the check is over.
+ *
+ * @sideEffects Waits.
+ * @param host - The host.
+ * @returns The resource counts.
+ */
+export async function settledResources(host: RunningHost): Promise<Record<string, number>> {
+  await host.tools;
+  await vi.waitFor(() => {
+    const now = host.resources.snapshot();
+    expect([now["tools.detect"], now["git.process"], now["span"] ?? 0]).toStrictEqual([0, 0, 0]);
+  });
+  return host.resources.snapshot();
+}
+
+/** V8's heap spaces that hold compiled code: bytecode, optimized code and what they carry. */
+const CODE_SPACES: ReadonlySet<string> = new Set([
+  "code_space",
+  "code_large_object_space",
+  "trusted_space",
+  "trusted_large_object_space",
+]);
+
+/**
+ * How much of the heap is used, leaving out V8's compiled code.
+ *
+ * @remarks
+ * The soaks judge growth by this: V8 goes on compiling hot functions long into a run, which no
+ * release of Atrium's own objects undoes (testing.md, "长时间运行", 2026-10-24). A leak that shows
+ * only as code goes unseen here.
+ *
+ * @sideEffects none
+ * @returns The bytes.
+ */
+export function heapWithoutCode(): number {
+  return getHeapSpaceStatistics()
+    .filter((space) => !CODE_SPACES.has(space.space_name))
+    .reduce((sum, space) => sum + space.space_used_size, 0);
 }

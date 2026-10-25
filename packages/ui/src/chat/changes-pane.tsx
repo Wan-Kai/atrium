@@ -1,5 +1,5 @@
 import type { AtriumClient } from "@atrium/client";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { type TransitionEvent, memo, useCallback, useEffect, useRef, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { RightPanel } from "../files/right-panel";
 import { PANEL_WIDTH, type Panes, fitPanelWidth, panelWidthCss } from "../state/panes";
@@ -85,16 +85,28 @@ export function ChangesPane({
   const choose = (separator: Element, next: number, keep = true): void =>
     setPanelWidth(fitPanelWidth(next, separator.parentElement?.offsetParent?.clientWidth ?? 0), keep);
 
+  /**
+   * Lets the panel go once the pane has closed, or its move was cancelled.
+   *
+   * @remarks
+   * Only once the pane has stopped moving: closed partway through opening, the opening is
+   * cancelled as the closing takes over, and the panel stays until that ends too. A transition
+   * inside the panel ending is not the pane's.
+   *
+   * @sideEffects Sets whether the panel is there.
+   * @param event - The pane's or the panel's transition ending or cancelled.
+   */
+  const settle = (event: TransitionEvent<HTMLDivElement>): void => {
+    if (event.target === event.currentTarget && !open && event.currentTarget.getAnimations().length === 0)
+      setPresent(false);
+  };
+
   return (
     <div
       data-testid="changes-pane"
       style={{ width: open ? width : 0 }}
-      onTransitionEnd={(event) => {
-        if (event.target === event.currentTarget && !open) setPresent(false);
-      }}
-      onTransitionCancel={(event) => {
-        if (event.target === event.currentTarget && !open) setPresent(false);
-      }}
+      onTransitionEnd={settle}
+      onTransitionCancel={settle}
       className={`flex-none ${moving ? "[transition:width_240ms_cubic-bezier(.2,.8,.2,1)]" : ""}`}
     >
       {present && workspaceId !== null ? (
