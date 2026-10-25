@@ -35,20 +35,28 @@ const NO_CHANGES: WorkspaceChanges = { stat: null, dirty: false, ahead: 0, branc
 /** The panel's diff where git cannot be read: no git, or no directory. */
 const NO_DIFF: WorkspaceDiff = { files: [], tooLarge: false, error: "failed" };
 
+/** What `stat` fails with where nothing is: no such entry, or a file on the way. */
+const ABSENT: ReadonlySet<unknown> = new Set(["ENOENT", "ENOTDIR"]);
+
 /**
  * Whether a directory is there.
  *
  * @remarks
- * A workspace's directory removed outside Atrium is not read (SPEC-0001, "工作区改动"); the same
- * look as opening a session takes before starting pi.
+ * A workspace's directory removed outside Atrium is not read (SPEC-0001, "工作区改动"), and
+ * nothing is logged for it. Only a directory gone, or something else in its place, counts as not
+ * there: one that cannot be looked at (EACCES, EPERM, EIO) counts as there, so git runs and fails
+ * and the failure is logged as before.
  *
  * @sideEffects Looks at the file system.
  * @param dir - The directory.
- * @returns Whether it is a directory.
+ * @returns Whether it is a directory, or cannot be told.
  */
-async function directoryPresent(dir: string): Promise<boolean> {
-  const found = await stat(dir).catch(() => null);
-  return found?.isDirectory() === true;
+export async function directoryPresent(dir: string): Promise<boolean> {
+  try {
+    return (await stat(dir)).isDirectory();
+  } catch (error) {
+    return !ABSENT.has(Reflect.get(Object(error), "code"));
+  }
 }
 
 /**
@@ -292,8 +300,8 @@ export function createChangesService(options: {
    *
    * @remarks
    * Nothing is watched outside a repository, whose changes are always none, nor in a directory
-   * not there. A watcher failing, or git failing to say what to watch or the directory missing
-   * when `degradeOnFailure`, switches to looking now and then (`degrade`). Once watching, it looks
+   * not there. A watcher failing, or git failing to say what to watch when `degradeOnFailure`,
+   * switches to looking now and then (`degrade`). Once watching, it looks
    * again, for what changed before.
    *
    * @sideEffects Looks at the directory; runs git; watches files; may look.
@@ -307,11 +315,9 @@ export function createChangesService(options: {
     const place = options.resolve(entry.workspaceId);
     // Stryker disable next-line BooleanLiteral: only a try at a workspace removed meanwhile, which its connections stop showing.
     if (reader === null || place === undefined || place.archived) return false;
-    if (!(await present(place.dir))) {
-      // Looks see the directory gone; a try sees it back.
-      if (degradeOnFailure && !entry.stop.signal.aborted) degrade(entry);
-      return false;
-    }
+    // The look asked for with the first watch finds the directory gone and looks now and then; a
+    // try sees it back.
+    if (!(await present(place.dir))) return false;
     let roots: WatchRoots | null;
     try {
       roots = await reader.roots(place.dir, entry.stop.signal);
@@ -525,6 +531,20 @@ export function createChangesService(options: {
   }
 
   /**
+   * Looks now and then at a workspace whose directory is gone, unless it already does.
+   *
+   * @remarks
+   * A round of looking under way keeps its waits, so finding the directory still gone on a look
+   * does not put the next try to watch off.
+   *
+   * @sideEffects May stop the watchers and schedule looks and tries.
+   * @param entry - The workspace.
+   */
+  function lookNowAndThen(entry: Watched): void {
+    if (entry.stopPolling === null) degrade(entry);
+  }
+
+  /**
    * Asks for a look at a workspace's count, or panels' diffs.
    *
    * @remarks
@@ -573,6 +593,9 @@ export function createChangesService(options: {
       const place = options.resolve(entry.workspaceId);
       if (place === undefined || place.archived) return;
       const readable = reader !== null && (await present(place.dir));
+      // A tree removed may only tell its watchers of files going; watched no more, it is looked at
+      // now and then until it is back.
+      if (reader !== null && !readable && !entry.stop.signal.aborted) lookNowAndThen(entry);
       if (changes) {
         try {
           // Without git, or without the directory, there is nothing to count.
