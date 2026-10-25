@@ -1,0 +1,2830 @@
+<!doctype html>
+<!--
+  PROTOTYPE · 用完即弃，不要当成正式代码。
+  第三轮：用户在第二轮选了甲"横向扇出"，觉得连续的数据流有点乱，改成顺序动画；乙、丙删掉。
+  回答的问题：链路图上的"数据流动"怎么做才清楚、好看。
+    一轮分两段循环：上行（各台在线手机同时发一个包 → relay 里汇成一个 → Mac）→ 停顿 → 下行（Mac → relay 里分开 → 各台手机）→ 停顿。
+    包只有一种样式（实心点加柔和光晕），颜色跟所在的那段线：Mac—relay 用强调色，车道上用设备色。
+    包进出 relay 时藏进节点里，relay 的锁亮一下，表示只转发、不解开。线一样粗，流量只写在节点名下面。
+  依据：SPEC-0005（配对流程、撤销、部署 relay、宿主）、design-language（设置、改名框、提示、颜色、动效）、
+  packages/ui/src/settings/*（窗口 900×640、左栏 212px、组与行的样式）。数据全是假的；橙色虚线框是原型调试入口。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Atrium 设置 · 手机 · 链路图 · 第二轮</title>
+    <style>
+      /* ══ 1. 设计变量（照 packages/ui/src/design/tokens.css）══════════════════ */
+      :root,
+      [data-theme="light"] {
+        color-scheme: light;
+        --window: #e8ecf2;
+        --blob-1: #cfdcf7;
+        --blob-2: #d7eee6;
+        --blob-3: #f6e3d6;
+        --main: #ffffff;
+        --surface-1: #ffffff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --code: #f6f6f8;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-soft: rgba(0, 0, 0, 0.05);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --focus-ring: 0 0 0 3px rgba(47, 111, 237, 0.16);
+        --linked: rgba(47, 111, 237, 0.1);
+        --scrim: rgba(30, 38, 56, 0.3);
+        --nav-bg: rgba(0, 0, 0, 0.022);
+        --tint: #2f6fed;
+        --on-tint: #ffffff;
+        --attn: #dd8629;
+        --attn-text: #c96509;
+        --attn-soft: rgba(221, 134, 41, 0.12);
+        --danger: #e5484d;
+        --danger-soft: rgba(229, 72, 77, 0.1);
+        --ok: #16a34a;
+        --ok-text: #1e8e3e;
+        --ok-soft: rgba(22, 163, 74, 0.1);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+        --win-shadow: 0 0 0 0.5px var(--line-strong), 0 30px 80px -12px rgba(30, 40, 80, 0.3);
+        /* 链路图：底、主干、空闲车道 */
+        --map-bg: #f6f7f9;
+        --trunk: rgba(0, 0, 0, 0.16);
+        --lane-off: rgba(0, 0, 0, 0.14);
+        --node-bg: #ffffff;
+        /* 设备色：取自 design-language 已有的上下文分段色系（扩展青、工具紫、MCP 粉、Skills 琥珀），再补一个靛 */
+        --c1: #0e9fb5;
+        --c2: #7c5ce6;
+        --c3: #d6409f;
+        --c4: #c98a12;
+        --c5: #4f6be0;
+        --qr-ink: #1d1d1f;
+        --qr-bg: #ffffff;
+      }
+      [data-theme="dark"] {
+        color-scheme: dark;
+        --window: #0d1016;
+        --blob-1: #1f3765;
+        --blob-2: #172b3f;
+        --blob-3: #2a2433;
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --surface-3: #353638;
+        --code: #19191b;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-soft: rgba(255, 255, 255, 0.06);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --focus-ring: 0 0 0 3px rgba(122, 170, 255, 0.22);
+        --linked: rgba(122, 170, 255, 0.14);
+        --scrim: rgba(6, 8, 12, 0.42);
+        --nav-bg: rgba(255, 255, 255, 0.025);
+        --tint: #7aaaff;
+        --on-tint: #0d1016;
+        --attn: #dd8629;
+        --attn-text: #f0a24e;
+        --attn-soft: rgba(221, 134, 41, 0.16);
+        --danger: #f25a5a;
+        --danger-soft: rgba(242, 90, 90, 0.14);
+        --ok: #22c55e;
+        --ok-text: #4ade80;
+        --ok-soft: rgba(34, 197, 94, 0.14);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
+        --win-shadow: 0 0 0 0.5px var(--line-strong), 0 30px 80px -10px rgba(0, 0, 0, 0.55);
+        --map-bg: #19191b;
+        --trunk: rgba(255, 255, 255, 0.2);
+        --lane-off: rgba(255, 255, 255, 0.16);
+        --node-bg: #2c2c2e;
+        --c1: #3cc4d8;
+        --c2: #a78bfa;
+        --c3: #ee6bbd;
+        --c4: #e8b04a;
+        --c5: #8ea2ff;
+        --qr-ink: #1d1d1f;
+        --qr-bg: #f9fafb;
+      }
+      :root {
+        --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-btn: 12px;
+        --r-card: 16px;
+        --r-pill: 999px;
+        --snappy: cubic-bezier(0.2, 0.9, 0.3, 1.06);
+        --smooth: cubic-bezier(0.25, 0.8, 0.25, 1);
+      }
+
+      /* ══ 2. 基础与原型外壳 ═══════════════════════════════════════════════════ */
+      * {
+        box-sizing: border-box;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        background: var(--window);
+        color: var(--text);
+        font: var(--fs)/1.5 var(--font);
+        -webkit-font-smoothing: antialiased;
+      }
+      button,
+      input {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      svg {
+        flex: none;
+        display: block;
+      }
+      .mono {
+        font-family: var(--font-mono);
+      }
+      .tnum {
+        font-variant-numeric: tabular-nums;
+      }
+      .proto-bar {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding: 10px 20px;
+        background: color-mix(in srgb, var(--main) 86%, transparent);
+        backdrop-filter: blur(20px);
+        box-shadow: inset 0 -0.5px 0 var(--line);
+        font-size: var(--fs-sm);
+      }
+      .proto-bar .t {
+        font-weight: 600;
+        font-size: var(--fs-meta);
+      }
+      .proto-bar .lb {
+        color: var(--text-dim);
+      }
+      .pseg {
+        display: inline-flex;
+        gap: 2px;
+        padding: 2px;
+        border-radius: 9px;
+        background: var(--selected);
+      }
+      .pseg button {
+        height: 24px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 7px;
+        background: none;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+      }
+      .pseg button.on {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow:
+          0 0 0 0.5px var(--line),
+          0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      [data-theme="dark"] .pseg button.on {
+        background: var(--surface-3);
+      }
+      .dbg {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 22px;
+        padding: 0 8px;
+        border: 1px dashed #f59e0b;
+        border-radius: 6px;
+        background: rgba(245, 158, 11, 0.08);
+        color: #d97706;
+        font: 500 11px var(--font);
+        cursor: pointer;
+      }
+      .dbg select,
+      .dbg input {
+        border: 0;
+        background: none;
+        color: inherit;
+        font: inherit;
+        outline: none;
+        cursor: pointer;
+        margin: 0;
+      }
+      .stage {
+        position: relative;
+        height: 740px;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background:
+          radial-gradient(50% 45% at 0% 0%, var(--blob-1), transparent 70%),
+          radial-gradient(45% 50% at 5% 100%, var(--blob-2), transparent 70%),
+          radial-gradient(40% 40% at 30% 55%, var(--blob-3), transparent 70%), var(--window);
+      }
+      .stage .wb {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-columns: 270px 1fr;
+      }
+      .stage .wb .mn {
+        background: var(--main);
+      }
+      .stage .scrim {
+        position: absolute;
+        inset: 0;
+        background: var(--scrim);
+        backdrop-filter: blur(8px) saturate(1.1);
+      }
+      .notes {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 22px 0 60px;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .notes h3 {
+        margin: 18px 0 8px;
+        font-size: 15px;
+      }
+      .notes ul {
+        margin: 0;
+        padding-left: 18px;
+        line-height: 1.7;
+      }
+      .notes li b {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      /* ══ 3. 设置窗口（照 settings-panel.tsx）══════════════════════════════════ */
+      .win {
+        position: relative;
+        width: 900px;
+        height: 640px;
+        display: grid;
+        grid-template-columns: 212px 1fr;
+        grid-template-rows: minmax(0, 1fr);
+        border-radius: 14px;
+        overflow: hidden;
+        background: var(--main);
+        box-shadow: var(--win-shadow);
+      }
+      .nav {
+        display: flex;
+        flex-direction: column;
+        background: var(--nav-bg);
+        box-shadow: inset -0.5px 0 0 var(--line);
+        padding: 0 10px 12px;
+      }
+      .nav .tb {
+        height: 50px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-left: 8px;
+      }
+      .nav .tb i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+      }
+      .nav .tb i:nth-child(1) {
+        background: #ff6058;
+      }
+      .nav .tb i:nth-child(2) {
+        background: #ffbd2e;
+      }
+      .nav .tb i:nth-child(3) {
+        background: #28c840;
+      }
+      .nrow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        height: 32px;
+        margin: 1px 0;
+        padding: 0 10px;
+        border: 0;
+        border-radius: var(--r);
+        background: none;
+        color: var(--text-2);
+        font-size: var(--fs-meta);
+        text-align: left;
+      }
+      .nrow:hover {
+        background: var(--hover);
+      }
+      .nrow.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .nrow .ic {
+        color: var(--text-muted);
+        display: inline-flex;
+      }
+      .nrow.on .ic {
+        color: var(--text-2);
+      }
+      .nrow .grow {
+        flex: 1;
+      }
+      .ct {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+        position: relative;
+      }
+      .ch {
+        height: 50px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 12px 0 32px;
+      }
+      .ch b {
+        flex: 1;
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .ch .esc {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+      }
+      .ibtn {
+        width: 28px;
+        height: 28px;
+        border: 0;
+        border-radius: var(--r);
+        background: none;
+        color: var(--text-muted);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition:
+          transform 0.3s var(--snappy),
+          background-color 0.14s;
+      }
+      .ibtn:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .ibtn:active {
+        transform: scale(0.9);
+        transition: transform 80ms;
+      }
+      .ibtn.sm {
+        width: 24px;
+        height: 24px;
+      }
+      .sbody {
+        flex: 1;
+        overflow-y: auto;
+        padding: 6px 32px 40px;
+        scroll-behavior: smooth;
+      }
+      .lead {
+        margin: -4px 0 16px;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+      }
+
+      /* ══ 4. 通用件（照 parts.tsx）════════════════════════════════════════════ */
+      .grp {
+        margin: 0 0 26px;
+      }
+      .grp > h4 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 2px;
+        font-size: var(--fs-meta);
+        font-weight: 600;
+        min-height: 24px;
+      }
+      .grp > h4 .sp {
+        flex: 1;
+      }
+      .grp > h4 small {
+        font-weight: 400;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .grp > .gd {
+        margin: 0 0 8px;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+        line-height: 1.55;
+      }
+      .grp > .gf {
+        margin: 8px 0 0;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+        line-height: 1.55;
+      }
+      .gl {
+        margin: 0 -12px;
+      }
+      .it {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 48px;
+        padding: 8px 12px;
+        border-radius: var(--r-md);
+        transition:
+          opacity 0.2s,
+          background-color 0.15s;
+      }
+      .it + .it::before,
+      .it + .itx::before {
+        content: "";
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        top: 0;
+        height: 0.5px;
+        background: var(--line);
+      }
+      .it.kv {
+        min-height: 38px;
+        padding-top: 7px;
+        padding-bottom: 7px;
+      }
+      .it .lab {
+        flex: 1;
+        min-width: 0;
+      }
+      .it .lab b {
+        display: block;
+        font-weight: 500;
+        font-size: var(--fs);
+      }
+      .it.kv .lab b {
+        font-weight: 400;
+        color: var(--text-2);
+        font-size: var(--fs-meta);
+      }
+      .it .lab small {
+        display: block;
+        margin-top: 1px;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+        line-height: 1.5;
+      }
+      .it .ctl {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: none;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .it .val {
+        color: var(--text-2);
+        font-size: var(--fs-meta);
+      }
+      .it.warn {
+        background: var(--danger-soft);
+      }
+      .it.warn::before,
+      .it.warn + .it::before {
+        opacity: 0;
+      }
+      .it.warn:has(+ .itx) {
+        border-radius: var(--r-md) var(--r-md) 0 0;
+      }
+      .itx {
+        position: relative;
+        padding: 2px 12px 12px;
+      }
+      .it.warn + .itx {
+        background: var(--danger-soft);
+        border-radius: 0 0 var(--r-md) var(--r-md);
+      }
+      .it.warn + .itx::before {
+        display: none;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: var(--r-pill);
+        background: none;
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        color: var(--text-2);
+        font-size: var(--fs-meta);
+        white-space: nowrap;
+        transition:
+          transform 0.3s var(--snappy),
+          background-color 0.14s;
+      }
+      .btn:hover {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .btn:active {
+        transform: scale(0.95);
+        transition: transform 80ms;
+      }
+      .btn.primary {
+        background: var(--text);
+        color: var(--main);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+        font-weight: 500;
+      }
+      .btn.primary:hover {
+        opacity: 0.9;
+      }
+      .btn.danger {
+        background: var(--danger);
+        color: #fff;
+        box-shadow: none;
+        font-weight: 500;
+      }
+      .btn.danger-soft {
+        background: var(--danger-soft);
+        color: var(--danger);
+        box-shadow: none;
+        font-weight: 500;
+      }
+      .btn.ghost {
+        height: 24px;
+        padding: 0 8px;
+        box-shadow: none;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+      }
+      .btn.ghost:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .btn.sm {
+        height: 24px;
+        padding: 0 10px;
+        font-size: var(--fs-sm);
+      }
+      .btn[disabled] {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .lnk {
+        border: 0;
+        background: none;
+        padding: 0;
+        color: var(--tint);
+        font-size: var(--fs-sm);
+      }
+      .lnk:hover {
+        text-decoration: underline;
+      }
+      .field {
+        height: 30px;
+        min-width: 0;
+        border: 0;
+        border-radius: var(--r);
+        padding: 0 10px;
+        background: var(--hover);
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        color: var(--text);
+        font-size: var(--fs-meta);
+        outline: none;
+      }
+      .field:focus {
+        box-shadow:
+          inset 0 0 0 0.5px var(--line-strong),
+          var(--focus-ring);
+      }
+      .field::placeholder {
+        color: var(--text-dim);
+      }
+      .field.mono {
+        font-family: var(--font-mono);
+        font-size: var(--fs-sm);
+      }
+      .masked {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 10px;
+        border-radius: var(--r);
+        background: var(--hover);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+        font: var(--fs-sm) var(--font-mono);
+        color: var(--text-3);
+        max-width: 330px;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+      .masked .dim {
+        color: var(--text-dim);
+      }
+      .switch {
+        position: relative;
+        width: 34px;
+        height: 20px;
+        flex: none;
+        border: 0;
+        border-radius: 999px;
+        background: var(--line-strong);
+        transition: background 0.2s;
+      }
+      .switch::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+        transition: transform 0.3s var(--snappy);
+      }
+      .switch.on {
+        background: var(--tint);
+      }
+      .switch.on::after {
+        transform: translateX(14px);
+      }
+      .spin {
+        width: 12px;
+        height: 12px;
+        flex: none;
+        border-radius: 50%;
+        border: 1.5px solid currentColor;
+        border-right-color: transparent;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      /* 状态靠形状区分：勾圆圈 / 转圈 / 感叹号圆圈 / 空心点 */
+      .st {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-meta);
+        white-space: nowrap;
+      }
+      .st.ok {
+        color: var(--ok-text);
+      }
+      .st.busy {
+        color: var(--tint);
+      }
+      .st.err {
+        color: var(--danger);
+      }
+      .st.off {
+        color: var(--text-dim);
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex: none;
+        display: inline-block;
+      }
+      .dot.offl {
+        box-shadow: inset 0 0 0 1.5px var(--text-dim);
+      }
+      .fp {
+        font: var(--fs-sm) var(--font-mono);
+        color: var(--text-2);
+        letter-spacing: 0.04em;
+      }
+      .hint {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        line-height: 1.55;
+      }
+      .warn-line {
+        display: flex;
+        gap: 6px;
+        align-items: flex-start;
+        font-size: var(--fs-sm);
+        color: var(--attn-text);
+        line-height: 1.55;
+      }
+      .err-line {
+        font-size: var(--fs-sm);
+        color: var(--danger);
+        line-height: 1.55;
+      }
+      .confirm {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        font-size: var(--fs-sm);
+        color: var(--danger);
+      }
+      .confirm .sp {
+        flex: 1;
+      }
+      /* 拷贝按钮：成功时图标换成 ✓（--ok-text），旁边浮一个"已复制"，2 秒后换回 */
+      .copy {
+        position: relative;
+      }
+      .copy.done {
+        color: var(--ok-text);
+      }
+      .copy .tip {
+        position: absolute;
+        bottom: calc(100% + 4px);
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 3px 8px;
+        border-radius: var(--r-sm);
+        white-space: nowrap;
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+        font-size: var(--fs-xs);
+        color: var(--text-2);
+        animation: pop 0.3s var(--snappy);
+        pointer-events: none;
+      }
+      [data-theme="dark"] .copy .tip {
+        background: var(--surface-2);
+      }
+      @keyframes pop {
+        from {
+          opacity: 0;
+          transform: translate(-50%, 4px) scale(0.96);
+        }
+      }
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+      }
+      @keyframes fade {
+        from {
+          opacity: 0;
+        }
+      }
+
+      /* 改名框（design-language「改名框」）：原地盖在名字上，字位不动，下方 4px 浮提示 */
+      .rename {
+        position: relative;
+        display: inline-block;
+      }
+      .rename input {
+        margin: -2px -6px;
+        width: 220px;
+        height: 26px;
+        padding: 0 6px;
+        border: 0;
+        border-radius: var(--r-sm);
+        background: var(--main);
+        font: inherit;
+        color: var(--text);
+        outline: none;
+        box-shadow:
+          inset 0 0 0 1px var(--tint),
+          var(--focus-ring);
+      }
+      .rename .rtip {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: -6px;
+        z-index: 5;
+        display: flex;
+        gap: 10px;
+        padding: 3px 8px;
+        border-radius: var(--r-sm);
+        white-space: nowrap;
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+        font: 400 var(--fs-xs) var(--font);
+        color: var(--text-muted);
+        animation: fade 0.15s;
+      }
+      [data-theme="dark"] .rename .rtip {
+        background: var(--surface-2);
+      }
+      .kc {
+        display: inline-block;
+        padding: 0 4px;
+        margin-right: 3px;
+        border-radius: 4px;
+        background: var(--surface-2);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+        font-size: 11px;
+        line-height: 16px;
+        color: var(--text-2);
+      }
+
+      /* ══ 5. 链路图 ═══════════════════════════════════════════════════════════════════ */
+      .map {
+        position: relative;
+        height: 252px;
+        margin: 0 0 12px;
+        border-radius: var(--r-card);
+        background: var(--map-bg);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+      }
+      .map svg.lanes {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+      }
+      .lane {
+        fill: none;
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        transition: opacity 0.2s;
+      }
+      .lane.on {
+        opacity: 0.85;
+      }
+      .lane.hit {
+        stroke: transparent;
+        stroke-width: 14;
+        cursor: pointer;
+      }
+      .lane.off {
+        stroke: var(--lane-off) !important;
+        stroke-dasharray: 3 4;
+      }
+      .lane.pairing {
+        stroke: var(--text-dim) !important;
+        stroke-dasharray: 2 4;
+      }
+      .lane.trunk {
+        stroke: var(--trunk);
+      }
+      .lane.trunk.connecting {
+        stroke: var(--tint);
+        stroke-dasharray: 4 5;
+        animation: dash 0.9s linear infinite;
+      }
+      .lane.trunk.broken {
+        stroke: var(--danger);
+        stroke-dasharray: 4 4;
+      }
+      @keyframes dash {
+        to {
+          stroke-dashoffset: -9;
+        }
+      }
+      /* 数据包：一个 6.5px 的实心点加一圈模糊的光晕，只有这一种 */
+      .pk .h {
+        opacity: 0.32;
+        filter: blur(2.5px);
+      }
+      /* relay 的锁：包在 relay 里汇合、分开时轻轻亮一下 */
+      .node .badge {
+        transition:
+          color 0.25s,
+          box-shadow 0.25s,
+          transform 0.25s var(--snappy);
+      }
+      .node .badge.lit {
+        color: var(--tint);
+        transform: scale(1.15);
+        box-shadow:
+          0 0 0 0.5px var(--tint),
+          0 0 0 2px var(--map-bg),
+          0 0 10px 1px color-mix(in srgb, var(--tint) 45%, transparent);
+      }
+      /* 收到包的节点闪一圈 */
+      .ping {
+        animation: ping 0.6s var(--smooth);
+      }
+      @keyframes ping {
+        0% {
+          box-shadow:
+            0 0 0 0.5px var(--line-strong),
+            0 0 0 0 color-mix(in srgb, currentColor 40%, transparent);
+        }
+        100% {
+          box-shadow:
+            0 0 0 0.5px var(--line-strong),
+            0 0 0 9px transparent;
+        }
+      }
+      .pn .pt.ping {
+        animation: pingc 0.6s var(--smooth);
+      }
+      @keyframes pingc {
+        0% {
+          box-shadow:
+            0 0 0 1px var(--dc),
+            0 0 0 0 color-mix(in srgb, var(--dc) 45%, transparent);
+        }
+        100% {
+          box-shadow:
+            0 0 0 1px color-mix(in srgb, var(--dc) 55%, transparent),
+            0 0 0 9px transparent;
+        }
+      }
+      .map-msg.brk {
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--map-bg);
+        color: var(--danger);
+      }
+      .map-msg.brk.ping-red {
+        animation: pingr 0.6s var(--smooth);
+      }
+      @keyframes pingr {
+        0% {
+          box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 45%, transparent);
+        }
+        100% {
+          box-shadow: 0 0 0 9px transparent;
+        }
+      }
+      /* 悬停一台设备：它的车道、包、节点、列表行亮起，其余变淡 */
+      .hov [data-dev]:not(.hot) {
+        opacity: 0.18;
+      }
+      .hov .drow[data-dev]:not(.hot) {
+        opacity: 0.45;
+      }
+      .hov .lane.hot:not(.hit) {
+        stroke-width: 2.5;
+        opacity: 1;
+      }
+
+      .node {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        padding: 0;
+        border: 0;
+        background: none;
+        color: var(--text-2);
+        font-size: var(--fs-sm);
+        transition: opacity 0.2s;
+        z-index: 2;
+      }
+      .node .tile {
+        position: relative;
+        width: 46px;
+        height: 46px;
+        border-radius: 14px;
+        display: grid;
+        place-items: center;
+        background: var(--node-bg);
+        color: var(--text-2);
+        box-shadow:
+          0 0 0 0.5px var(--line-strong),
+          0 4px 12px -4px rgba(0, 0, 0, 0.18);
+        transition:
+          box-shadow 0.2s,
+          transform 0.3s var(--snappy);
+      }
+      .node:hover .tile {
+        transform: translateY(-1px);
+      }
+      .node:active .tile {
+        transform: scale(0.95);
+        transition: transform 80ms;
+      }
+      .node.sel .tile {
+        box-shadow:
+          0 0 0 0.5px var(--line-strong),
+          0 0 0 3px var(--map-bg),
+          0 0 0 4.5px var(--text-muted);
+      }
+      .node small {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+        margin-top: -4px;
+      }
+      .node.bad .tile {
+        color: var(--danger);
+        box-shadow:
+          0 0 0 1px var(--danger),
+          0 0 0 4px var(--danger-soft);
+      }
+      .node.dim .tile {
+        color: var(--text-dim);
+      }
+      .node .badge {
+        position: absolute;
+        right: -5px;
+        bottom: -5px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--node-bg);
+        color: var(--text-muted);
+        box-shadow:
+          0 0 0 0.5px var(--line-strong),
+          0 0 0 2px var(--map-bg);
+      }
+      .node .badge.flash {
+        color: var(--tint);
+      }
+      /* 手机节点：设备色的圆角块加名字，名字在右边 */
+      .pn {
+        position: absolute;
+        transform: translate(-15px, -50%);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 8px 0 0;
+        border: 0;
+        background: none;
+        text-align: left;
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        z-index: 2;
+        transition: opacity 0.2s;
+      }
+      .pn .pt {
+        position: relative;
+        width: 30px;
+        height: 30px;
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        color: var(--dc);
+        background: color-mix(in srgb, var(--dc) 16%, var(--node-bg));
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--dc) 55%, transparent);
+        transition: transform 0.3s var(--snappy);
+      }
+      .pn:hover .pt {
+        transform: scale(1.06);
+      }
+      .pn.sel .pt {
+        box-shadow:
+          0 0 0 1px var(--dc),
+          0 0 0 3px var(--map-bg),
+          0 0 0 4.5px var(--dc);
+      }
+      .pn .nm {
+        display: block;
+        max-width: 96px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 500;
+      }
+      .pn .sub {
+        display: block;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        white-space: nowrap;
+      }
+      .pn.offline .pt {
+        color: var(--text-dim);
+        background: var(--node-bg);
+        box-shadow: 0 0 0 1px var(--lane-off);
+      }
+      .pn.offline .pt::after {
+        content: "";
+        position: absolute;
+        inset: -4px;
+        border-radius: 13px;
+        border: 1px dashed var(--lane-off);
+      }
+      .pn.offline .nm {
+        color: var(--text-muted);
+        font-weight: 400;
+      }
+      .pn.pairing .pt {
+        --dc: var(--text-muted);
+        animation: breathe 1.8s ease-in-out infinite;
+      }
+      .pn.pairing .pt::after {
+        content: "";
+        position: absolute;
+        inset: -1px;
+        border-radius: 10px;
+        border: 1.5px solid var(--text-muted);
+        animation: halo 1.8s ease-out infinite;
+      }
+      @keyframes breathe {
+        50% {
+          transform: scale(1.08);
+        }
+      }
+      @keyframes halo {
+        from {
+          transform: scale(1);
+          opacity: 0.6;
+        }
+        to {
+          transform: scale(1.7);
+          opacity: 0;
+        }
+      }
+      .pn.born .pt {
+        animation: born 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+      }
+      @keyframes born {
+        from {
+          transform: scale(0.6);
+        }
+      }
+      .pn.more .pt {
+        --dc: var(--text-muted);
+        font-size: var(--fs-sm);
+        font-weight: 600;
+      }
+
+      .legend {
+        position: absolute;
+        left: 14px;
+        bottom: 10px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        z-index: 1;
+      }
+      .legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .legend .ph {
+        transition: color 0.25s;
+      }
+      .legend .ph.on {
+        color: var(--text-2);
+      }
+      .map-msg {
+        position: absolute;
+        z-index: 3;
+        transform: translate(-50%, 0);
+        padding: 2px 8px;
+        border-radius: var(--r-pill);
+        font-size: var(--fs-xs);
+        white-space: nowrap;
+      }
+      .map-msg.err {
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+      .map-msg.busy {
+        background: var(--linked);
+        color: var(--tint);
+      }
+      .map-msg.off {
+        background: var(--hover);
+        color: var(--text-dim);
+      }
+      .map-msg.seal {
+        color: var(--text-dim);
+        background: none;
+      }
+
+      /* 图下的详情卡：顶上一个尖角指向选中的节点 */
+      .detail {
+        position: relative;
+        margin: 0 0 22px;
+        padding: 12px 16px 6px;
+        border-radius: var(--r-card);
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        animation: rise 0.3s var(--smooth);
+      }
+      [data-theme="dark"] .detail {
+        background: var(--surface-2);
+      }
+      .detail::before {
+        content: "";
+        position: absolute;
+        top: -6px;
+        left: var(--nx, 50%);
+        width: 12px;
+        height: 12px;
+        margin-left: -6px;
+        transform: rotate(45deg);
+        background: inherit;
+        box-shadow: -0.5px -0.5px 0 var(--line);
+        border-radius: 2px 0 0 0;
+        transition: left 0.3s var(--snappy);
+      }
+      .detail > h4 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 4px;
+        font-size: var(--fs-meta);
+        font-weight: 600;
+        min-height: 28px;
+      }
+      .detail > h4 .sp {
+        flex: 1;
+      }
+      .detail .gl {
+        margin: 0 -12px;
+      }
+      .detail .sec {
+        margin: 10px 0 2px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .checks {
+        margin: 2px 0 6px;
+      }
+      .chk {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 32px;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .chk .r {
+        margin-left: auto;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .chk.todo {
+        color: var(--text-dim);
+      }
+      .chk .ln {
+        width: 14px;
+        display: inline-flex;
+        justify-content: center;
+      }
+
+      /* 设备列表 */
+      .drow {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 48px;
+        padding: 8px 12px;
+        border-radius: var(--r-md);
+        transition:
+          opacity 0.2s,
+          background-color 0.15s;
+        cursor: default;
+      }
+      .drow + .drow::before {
+        content: "";
+        position: absolute;
+        left: 54px;
+        right: 12px;
+        top: 0;
+        height: 0.5px;
+        background: var(--line);
+      }
+      .drow.hot,
+      .drow:hover {
+        background: var(--hover);
+      }
+      .drow.hot::before,
+      .drow.hot + .drow::before,
+      .drow:hover::before,
+      .drow:hover + .drow::before {
+        opacity: 0;
+      }
+      .drow.sel {
+        background: var(--selected);
+      }
+      .drow .pt {
+        position: relative;
+        width: 30px;
+        height: 30px;
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        color: var(--dc);
+        background: color-mix(in srgb, var(--dc) 16%, transparent);
+      }
+      .drow.offline .pt {
+        color: var(--text-dim);
+        background: var(--hover);
+        box-shadow: inset 0 0 0 1px var(--lane-off);
+      }
+      .drow .lab {
+        flex: 1;
+        min-width: 0;
+      }
+      .drow .lab b {
+        font-weight: 500;
+        font-size: var(--fs);
+      }
+      .drow .lab b .md {
+        font-weight: 400;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+        margin-left: 6px;
+      }
+      .drow .lab small {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+      }
+      .sw {
+        width: 8px;
+        height: 8px;
+        border-radius: 2.5px;
+        background: var(--dc);
+        flex: none;
+      }
+      .drow .ctl {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+      }
+
+      /* ══ 6. 配对弹层：只遮住链路图下面的部分，图上"配对中"的节点一直看得见 ══════════════ */
+      .pair-ov {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 20;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        padding-top: 4px;
+        background: color-mix(in srgb, var(--main) 62%, transparent);
+        backdrop-filter: blur(6px);
+        animation: fade 0.2s ease;
+      }
+      .sheet {
+        width: 460px;
+        padding: 16px 20px;
+        border-radius: var(--r-card);
+        background: var(--surface-1);
+        box-shadow:
+          var(--card-shadow),
+          0 24px 60px -20px rgba(0, 0, 0, 0.35);
+        animation: sheetIn 0.3s var(--snappy);
+      }
+      [data-theme="dark"] .sheet {
+        background: var(--surface-2);
+      }
+      @keyframes sheetIn {
+        from {
+          opacity: 0;
+          transform: translateY(-8px) scale(0.97);
+        }
+      }
+      .sheet h3 {
+        margin: 0 0 4px;
+        font-size: 15px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .sheet h3 .sp {
+        flex: 1;
+      }
+      .sheet .sd {
+        margin: 0 0 14px;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        line-height: 1.55;
+      }
+      .sheet .foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 14px;
+      }
+      .sheet .foot .sp {
+        flex: 1;
+      }
+      .sheet .body2 {
+        display: grid;
+        grid-template-columns: 140px 1fr;
+        gap: 18px;
+        align-items: start;
+      }
+      .steps {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        margin-bottom: 12px;
+      }
+      .steps span {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .steps span.on {
+        color: var(--text-2);
+        font-weight: 500;
+      }
+      .steps span.done {
+        color: var(--ok-text);
+      }
+      .steps i {
+        width: 14px;
+        height: 0.5px;
+        background: var(--line-strong);
+      }
+      .qrbox {
+        position: relative;
+        width: 140px;
+        height: 140px;
+        padding: 9px;
+        border-radius: var(--r-btn);
+        background: var(--qr-bg);
+        box-shadow:
+          0 0 0 0.5px rgba(0, 0, 0, 0.1),
+          0 6px 18px -8px rgba(0, 0, 0, 0.25);
+      }
+      .qrbox > svg {
+        width: 100%;
+        height: 100%;
+      }
+      .qrbox.expired > svg {
+        filter: blur(5px);
+        opacity: 0.35;
+      }
+      .qrbox.wait > svg {
+        opacity: 0.12;
+      }
+      .qrbox .over {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 8px;
+        color: #48484e;
+        font-size: var(--fs-meta);
+      }
+      .qrbox .over .btn {
+        background: #1d1d1f;
+        color: #fff;
+        box-shadow: none;
+      }
+      .timer {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0 0 10px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .timer b {
+        font-weight: 500;
+        color: var(--text-2);
+      }
+      .timer.low b {
+        color: var(--attn-text);
+      }
+      .code {
+        display: flex;
+        gap: 5px;
+        margin: 6px 0 8px;
+      }
+      .code span {
+        width: 32px;
+        height: 42px;
+        display: grid;
+        place-items: center;
+        border-radius: var(--r);
+        background: var(--surface-2);
+        font: 600 21px var(--font-mono);
+        color: var(--text);
+      }
+      [data-theme="dark"] .code span {
+        background: var(--surface-3);
+      }
+      .code .gap {
+        width: 8px;
+        background: none !important;
+      }
+      .req {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: var(--r-md);
+        background: var(--attn-soft);
+        margin-bottom: 12px;
+      }
+      .req .ph {
+        width: 32px;
+        height: 32px;
+        border-radius: 9px;
+        display: grid;
+        place-items: center;
+        background: var(--surface-1);
+        color: var(--attn-text);
+        flex: none;
+      }
+      [data-theme="dark"] .req .ph {
+        background: var(--surface-3);
+      }
+      .req b {
+        display: block;
+        font-weight: 500;
+      }
+      .req small {
+        display: block;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+      }
+      .refused {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        animation: rise 0.3s var(--smooth);
+      }
+      .refused svg {
+        color: var(--text-dim);
+      }
+      .wait-dots {
+        display: inline-flex;
+        gap: 4px;
+      }
+      .wait-dots i {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--tint);
+        animation: blink 1.2s infinite;
+      }
+      .wait-dots i:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+      .wait-dots i:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+      @keyframes blink {
+        0%,
+        60%,
+        100% {
+          opacity: 0.25;
+        }
+        30% {
+          opacity: 1;
+        }
+      }
+      .newdev {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        border-radius: var(--r-md);
+        background: color-mix(in srgb, var(--dc) 12%, transparent);
+      }
+      .newdev .pt {
+        width: 36px;
+        height: 36px;
+        border-radius: 11px;
+        display: grid;
+        place-items: center;
+        color: var(--dc);
+        background: color-mix(in srgb, var(--dc) 18%, var(--node-bg));
+        animation: born 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+      }
+      .newdev b {
+        display: block;
+        font-weight: 500;
+      }
+      .newdev small {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+      }
+
+      /* 窗口右上角的提示（design-language「提示」的玻璃胶囊）*/
+      .toast {
+        position: absolute;
+        top: 56px;
+        right: 12px;
+        z-index: 30;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        height: 34px;
+        padding: 0 12px 0 10px;
+        border-radius: var(--r-pill);
+        background: color-mix(in srgb, var(--surface-1) 78%, transparent);
+        backdrop-filter: blur(28px) saturate(1.7);
+        box-shadow:
+          var(--float-shadow),
+          inset 0 1px 0 rgba(255, 255, 255, 0.25);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        animation: sheetIn 0.3s var(--snappy);
+      }
+      .toast b {
+        color: var(--text);
+        font-weight: 500;
+      }
+
+      /* 减弱动态效果：所有动画降为 1ms；链路图改用静态箭头和线粗 */
+      .rm *,
+      .rm *::before,
+      .rm *::after {
+        animation-duration: 1ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 1ms !important;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 1ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 1ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="proto-bar">
+      <span class="t">手机 · 链路图</span>
+      <span class="lb">外观</span><span class="pseg" id="themeSeg"></span> <span class="lb">状态</span
+      ><label class="dbg"><select id="stateSel"></select></label> <span class="lb">设备</span
+      ><span class="pseg" id="countSeg"></span>
+      <label class="dbg"><input type="checkbox" id="rmChk" /> 减弱动态效果</label>
+    </div>
+    <div class="stage">
+      <div class="wb"><i></i><i class="mn"></i></div>
+      <div class="scrim"></div>
+      <div class="win" id="win"></div>
+    </div>
+    <div class="notes" id="notes"></div>
+    <script>
+      /* ══ 图标：照 Hugeicons stroke-rounded 的画法（24 栅格、线宽 1.75、圆头），原型里手画近似 ══ */
+      const P = {
+        phone: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.6"/><path d="M11 18.5h2"/>',
+        tablet: '<rect x="4.5" y="2.5" width="15" height="19" rx="2.6"/><path d="M11 18.5h2"/>',
+        laptop: '<rect x="4" y="4.5" width="16" height="11.5" rx="1.8"/><path d="M2 19.5h20"/>',
+        cloud: '<path d="M7 18.5a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 17.9 9a4.75 4.75 0 0 1-.4 9.5Z"/>',
+        ok: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/>',
+        alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.4v.1"/>',
+        x: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+        plus: '<path d="M12 5v14M5 12h14"/>',
+        pencil: '<path d="M4.5 19.5h4l10-10-4-4-10 10z"/><path d="m13 7 4 4"/>',
+        refresh: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/>',
+        key: '<circle cx="8.5" cy="15.5" r="4"/><path d="m11.5 12.5 8-8M16.5 7.5l2 2"/>',
+        lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
+        wifiOff:
+          '<path d="M2.5 8.8a14 14 0 0 1 4-2.4M21.5 8.8a14 14 0 0 0-8.6-3.3M5.5 12.3a9.5 9.5 0 0 1 3-1.8M18.5 12.3a9.5 9.5 0 0 0-3.2-2M8.8 15.7a4.6 4.6 0 0 1 6.4 0M12 19.3v.1M3.5 3.5l17 17"/>',
+        copy: '<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2.4"/><path d="M15.5 8.5V6.4A2.4 2.4 0 0 0 13.1 4H6.4A2.4 2.4 0 0 0 4 6.4v6.7a2.4 2.4 0 0 0 2.4 2.4h2.1"/>',
+        check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+        qr: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><path d="M14 14h2.5v2.5H14zM18 18h2.5v2.5H18zM18 14h2.5M14 18v2.5"/>',
+        palette:
+          '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.8 1.6-1.6 0-1.4-1.3-1.9-1.3-3 0-.9.7-1.4 1.6-1.4H16a5 5 0 0 0 5-5C21 6.3 17 3 12 3z"/><circle cx="7.5" cy="11" r=".9"/><circle cx="10.5" cy="7" r=".9"/><circle cx="15" cy="7.5" r=".9"/>',
+        user: '<circle cx="12" cy="8" r="3.8"/><path d="M4.5 20.5c1-3.6 4-5.5 7.5-5.5s6.5 1.9 7.5 5.5"/>',
+        folder: '<path d="M3.5 7.5a2 2 0 0 1 2-2h3.8l2 2h7.2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+        terminal: '<rect x="3" y="4.5" width="18" height="15" rx="2.6"/><path d="m7 9.5 3 2.5-3 2.5M12.5 15h4.5"/>',
+        info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.1"/>',
+        trash: '<path d="M4.5 6.5h15M9.5 6.5V4.5h5v2M6.5 6.5l.8 12.2a2 2 0 0 0 2 1.8h5.4a2 2 0 0 0 2-1.8l.8-12.2"/>',
+        shield: '<path d="M12 3 19 6v5.2c0 4.6-3 7.8-7 9.8-4-2-7-5.2-7-9.8V6z"/>',
+      };
+      /** 一个线性图标。 */
+      const ic = (n, s = 16, w = 1.75) =>
+        `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${P[n]}</svg>`;
+
+      /* ══ 假数据 ══ */
+      const HOST_ID = "hst_8m2kq4c71f0a9e3d";
+      const DOMAIN = "relay.ktoon.dev";
+      const FP = "7F3A 9C21 E04B 55D8";
+      const SAS = "482916";
+      const COLORS = { c1: "青", c2: "紫", c3: "粉", c4: "琥珀", c5: "靛" };
+      /** 每台设备配对时分到一个固定颜色，之后不变；五色用完后循环。load：busy 正在收流式输出，idle 只有心跳。 */
+      const BASE = () => [
+        {
+          id: "d1",
+          name: "工作 iPhone",
+          model: "iPhone 15 Pro",
+          kind: "phone",
+          c: "c1",
+          online: true,
+          load: "busy",
+          paired: "10月20日",
+          seen: "现在",
+        },
+        {
+          id: "d2",
+          name: "iPad Air",
+          model: "iPad Air · M2",
+          kind: "tab",
+          c: "c2",
+          online: true,
+          load: "idle",
+          paired: "10月12日",
+          seen: "现在",
+        },
+        {
+          id: "d3",
+          name: "旧 iPhone",
+          model: "iPhone 12",
+          kind: "phone",
+          c: "c3",
+          online: false,
+          load: "idle",
+          paired: "9月30日",
+          seen: "9月30日",
+        },
+      ];
+      const EXTRA = () => [
+        {
+          id: "d4",
+          name: "家里的 iPad mini",
+          model: "iPad mini",
+          kind: "tab",
+          c: "c4",
+          online: true,
+          load: "idle",
+          paired: "8月2日",
+          seen: "现在",
+        },
+        {
+          id: "d5",
+          name: "测试机",
+          model: "iPhone SE",
+          kind: "phone",
+          c: "c5",
+          online: false,
+          load: "idle",
+          paired: "7月18日",
+          seen: "3 天前",
+        },
+        {
+          id: "d6",
+          name: "备用 iPhone",
+          model: "iPhone 13",
+          kind: "phone",
+          c: "c1",
+          online: false,
+          load: "idle",
+          paired: "6月1日",
+          seen: "上个月",
+        },
+      ];
+      const NEW_DEV = { name: "小林的 iPhone", model: "iPhone 16", kind: "phone" };
+      /** 连不上的原因：对应诊断清单里卡住的那一步（SPEC-0005：网络 → 解析地址 → TLS → relay 认可宿主令牌）。 */
+      const ERRORS = {
+        network: {
+          step: 0,
+          icon: "wifiOff",
+          title: "网络断开",
+          detail: "这台 Mac 没有网络，恢复后自动重连，12 秒后重试",
+          act: "现在重试",
+          fix: "retry",
+        },
+        address: {
+          step: 1,
+          icon: "alert",
+          title: "找不到 relay",
+          detail: `${DOMAIN} 解析不到地址，检查粘贴的那一行里的域名`,
+          act: "重新粘贴",
+          fix: "edit",
+        },
+        tls: {
+          step: 2,
+          icon: "shield",
+          title: "加密连接建不起来",
+          detail: "relay 的证书不对或过期了，到 VPS 上看 Caddy 的日志",
+          act: "现在重试",
+          fix: "retry",
+        },
+        token: {
+          step: 3,
+          icon: "key",
+          title: "relay 不认宿主令牌",
+          detail: "令牌不对，或者在 relay 上 rotate-host 换过。粘贴新的那一行",
+          act: "重新粘贴",
+          fix: "edit",
+        },
+      };
+      const CHECKS = ["这台 Mac 有网络", `解析 ${DOMAIN}`, "建立加密连接（TLS）", "relay 认可宿主令牌"];
+
+      /* ══ 状态 ══ */
+      const S = {
+        theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+        count: 3,
+        rm: matchMedia("(prefers-reduced-motion: reduce)").matches,
+        preset: "devices",
+        configured: true,
+        enabled: true,
+        conn: "ok",
+        err: "network",
+        devices: [],
+        sel: "relay",
+        hover: null,
+        pair: null,
+        secs: 300,
+        refused: 0,
+        qrSeed: 7,
+        newId: null,
+        revoke: null,
+        nuke: false,
+        rename: null,
+        relayEdit: false,
+        testing: false,
+        tested: false,
+        copied: false,
+        toast: null,
+        born: null,
+      };
+      const PRESETS = [
+        ["setup", "初始 · 还没粘 relay", { configured: false, enabled: false, conn: "off", devices: [] }],
+        ["off", "远程访问关着", { enabled: false, conn: "off" }],
+        ["connecting", "正在连接 relay", { conn: "busy" }],
+        ["empty", "已连接 · 还没有设备", { devices: [] }],
+        ["devices", "已连接 · 设备在收发", {}],
+        ["sel-phone", "选中一台手机", { sel: "d1" }],
+        ["sel-mac", "选中这台 Mac", { sel: "mac" }],
+        ["pair-qr", "配对 ① 二维码倒计时", { pair: "qr" }],
+        ["pair-exp", "配对 ① 二维码过期", { pair: "qr", secs: 0 }],
+        ["pair-verify", "配对 ② 已握手，等密钥确认", { pair: "verify" }],
+        ["pair-confirm", "配对 ② 请求配对 · 校验码", { pair: "confirm" }],
+        ["pair-refused", "配对 ② 另一台手机被拒", { pair: "confirm", refused: 1 }],
+        ["pair-done", "配对 ③ 完成", { pair: "done" }],
+        ["revoke", "撤销一台 · 确认", { sel: "d2", revoke: "d2" }],
+        ["nuke", "撤销全部并重新生成 · 确认", { sel: "mac", nuke: true }],
+        ["relay-edit", "替换 relay 那一行", { sel: "relay", relayEdit: true }],
+        ["err-network", "连不上 · 网络断开", { conn: "err", err: "network" }],
+        ["err-address", "连不上 · 解析不到", { conn: "err", err: "address" }],
+        ["err-tls", "连不上 · TLS", { conn: "err", err: "tls" }],
+        ["err-token", "连不上 · 令牌被拒", { conn: "err", err: "token" }],
+      ];
+      /** 套用一个预设：先回到默认（已配置、已连接、按设备数给设备），再盖上预设。 */
+      function preset(id) {
+        const p = PRESETS.find((x) => x[0] === id);
+        Object.assign(
+          S,
+          {
+            configured: true,
+            enabled: true,
+            conn: "ok",
+            devices: S.count > 3 ? [...BASE(), ...EXTRA()] : BASE(),
+            sel: "relay",
+            hover: null,
+            pair: null,
+            secs: 300,
+            refused: 0,
+            newId: null,
+            revoke: null,
+            nuke: false,
+            rename: null,
+            relayEdit: false,
+            testing: false,
+            tested: false,
+            copied: false,
+            toast: null,
+            born: null,
+          },
+          p[2],
+        );
+        if (S.pair) S.sel = "pair";
+        ENG.hs = S.pair === "verify" ? performance.now() : null;
+        if (S.pair === "done") {
+          addNewDevice();
+          S.sel = S.newId;
+        }
+        S.preset = id;
+      }
+      function nextColor() {
+        const used = S.devices.map((d) => d.c);
+        return Object.keys(COLORS).find((c) => !used.includes(c)) || Object.keys(COLORS)[S.devices.length % 5];
+      }
+      function addNewDevice() {
+        const d = {
+          id: "n" + Date.now(),
+          ...NEW_DEV,
+          c: nextColor(),
+          online: true,
+          load: "sync",
+          paired: "今天 14:06",
+          seen: "现在",
+        };
+        S.devices = [d, ...S.devices];
+        S.newId = d.id;
+        S.born = d.id;
+        setTimeout(() => {
+          d.load = "idle";
+          if (S.born === d.id) S.born = null;
+        }, 2600);
+      }
+
+      /* ══ 小件 ══ */
+      const esc = (s) =>
+        String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+      const btn = (label, act, cls = "", arg = "", extra = "") =>
+        `<button class="btn ${cls}" data-act="${act}" data-arg="${arg}" ${extra}>${label}</button>`;
+      const dbg = (label, act, arg = "") => `<button class="dbg" data-act="${act}" data-arg="${arg}">${label}</button>`;
+      const sw = (on, act) =>
+        `<button class="switch ${on ? "on" : ""}" role="switch" aria-checked="${on}" data-act="${act}"></button>`;
+      const row = (label, detail, ctl, cls = "") =>
+        `<div class="it ${cls}"><div class="lab"><b>${label}</b>${detail ? `<small>${detail}</small>` : ""}</div><div class="ctl">${ctl || ""}</div></div>`;
+      const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+      const live = () => S.configured && S.enabled && S.conn === "ok";
+      const isOn = (d) => live() && d.online;
+      const dc = (d) => `--dc: var(--${d.c})`;
+      const devIc = (d, s = 16) => ic(d.kind === "tab" ? "tablet" : "phone", s);
+      const devById = (id) => S.devices.find((d) => d.id === id);
+      /** 最后在线：原本在线、但 relay 现在不通的设备，算到上次连上 relay 的时间。 */
+      const seenOf = (d) => (d.online && !live() ? "今天 09:42" : d.seen);
+
+      /* ══ 链路图的布局：Mac — relay 一段直线，relay 到各台手机是对称的扇形贝塞尔 ══ */
+      const W = 624,
+        H = 252,
+        CY = 112;
+      /** 图上的手机位：在线的优先，最多 4 台，多的收成"+N"，配对中的放在最后。 */
+      function slots() {
+        const ordered = [...S.devices].sort((a, b) => Number(b.online) - Number(a.online));
+        const out = ordered.slice(0, 4).map((d) => ({ id: d.id, d }));
+        const hidden = ordered.slice(4);
+        if (hidden.length) out.push({ id: "more", hidden });
+        if (S.pair && S.pair !== "done" && S.pair !== "fail") out.push({ id: "pair" });
+        return out;
+      }
+      const spread = (n, gap, i) => CY + (i - (n - 1) / 2) * (n > 1 ? Math.min(gap, 184 / (n - 1)) : 0);
+      /** 车道从 relay 中心出发，两个控制点各取水平距离的一半：起点水平、终点水平，每条都是同一种 S 形。 */
+      function layout() {
+        const sl = slots(),
+          n = sl.length;
+        const mac = { x: 72, y: CY },
+          relay = { x: 268, y: CY },
+          px = 452,
+          end = px - 15,
+          k = (end - relay.x) / 2;
+        sl.forEach((s, i) => {
+          s.x = px;
+          s.y = spread(n, 46, i);
+          s.lane = `M ${relay.x} ${CY} C ${relay.x + k} ${CY} ${end - k} ${s.y} ${end} ${s.y}`;
+        });
+        return { mac, relay, sl, brk: (mac.x + relay.x) / 2 };
+      }
+
+      /** 一条车道的状态：on 在用 / off 离线或连不上 / pairing 配对中。 */
+      function slotState(s) {
+        if (s.id === "pair") return "pairing";
+        if (s.id === "more") return live() && s.hidden.some((d) => d.online) ? "on" : "off";
+        return isOn(s.d) ? "on" : "off";
+      }
+      const slotColor = (s) => (s.d ? `var(--${s.d.c})` : "var(--text-muted)");
+      /** 节点名下面那一行小字的速率（流量只写在这里，不画进线和包里）。 */
+      const rateText = (d) => ({ busy: "12 KB/s", sync: "同步中", idle: "空闲" })[d.load] || "空闲";
+
+      function renderMap() {
+        const L = layout();
+        const tState = !S.configured ? "none" : !S.enabled ? "off" : S.conn;
+        const a = L.mac.x + 23,
+          b = L.relay.x - 23;
+        let svg =
+          tState === "err"
+            ? `<path class="lane trunk broken" d="M ${a} ${CY} L ${L.brk - 11} ${CY} M ${L.brk + 11} ${CY} L ${b} ${CY}"/>`
+            : `<path class="lane trunk ${tState === "busy" ? "connecting" : ""} ${["off", "none"].includes(tState) ? "off" : ""}" d="M ${a} ${CY} L ${b} ${CY}"/>`;
+        svg += `<path id="trunk" d="M ${L.mac.x} ${CY} L ${L.relay.x} ${CY}" fill="none" stroke="none"/>`;
+        for (const s of L.sl) {
+          const st = slotState(s),
+            dev = s.d ? `data-dev="${s.d.id}"` : s.id === "more" ? 'data-dev="more"' : "";
+          svg += `<path class="lane ${st}" ${dev} id="ln-${s.id}" d="${s.lane}" style="stroke:${slotColor(s)}"/>`;
+        }
+        for (const s of L.sl)
+          svg += `<path class="lane hit" data-act="sel" data-arg="${s.id}" ${s.d ? `data-dev="${s.d.id}"` : ""} d="${s.lane}"/>`;
+        if (S.rm) svg += staticArrows(L, tState);
+
+        let msg = "";
+        if (tState === "err")
+          msg = `<span class="map-msg err" style="left:${L.brk}px;top:${CY - 34}px">${ERRORS[S.err].title}</span>
+    <span class="map-msg brk" id="brk" style="left:${L.brk}px;top:${CY - 10}px">${ic(ERRORS[S.err].icon, 13, 2)}</span>`;
+        else if (tState === "busy")
+          msg = `<span class="map-msg busy" style="left:${L.brk}px;top:${CY - 34}px">正在连接</span>`;
+        else if (tState === "off")
+          msg = `<span class="map-msg off" style="left:${L.brk}px;top:${CY - 34}px">远程访问已关闭</span>`;
+        else if (tState === "none")
+          msg = `<span class="map-msg off" style="left:${L.brk}px;top:${CY - 34}px">还没接 relay</span>`;
+        else msg = `<span class="map-msg seal" style="left:${L.relay.x}px;top:${CY - 54}px">只转发 · 看不到内容</span>`;
+
+        const relayCls = tState === "err" ? "bad" : tState === "ok" || tState === "busy" ? "" : "dim";
+        let nodes = `<button class="node ${S.sel === "mac" ? "sel" : ""}" id="nodeMac" style="left:${L.mac.x}px;top:${CY + 9}px" data-act="sel" data-arg="mac"><span class="tile">${ic("laptop", 22)}</span>这台 Mac<small class="mono">${FP.slice(0, 9)}</small></button>
+    <button class="node ${relayCls} ${S.sel === "relay" ? "sel" : ""}" style="left:${L.relay.x}px;top:${CY + 9}px" data-act="sel" data-arg="relay"><span class="tile">${ic("cloud", 22)}<span class="badge" id="relayLock">${ic("lock", 10, 2)}</span></span>relay<small>${S.configured ? DOMAIN : "未设置"}</small></button>`;
+        for (const s of L.sl) {
+          const pos = `left:${s.x}px;top:${s.y}px`;
+          if (s.id === "more")
+            nodes += `<button class="pn more" id="pn-more" data-dev="more" style="${pos}" data-act="sel" data-arg="more"><span class="pt">+${s.hidden.length}</span><span><span class="nm">还有 ${s.hidden.length} 台</span><span class="sub">在下面的列表里</span></span></button>`;
+          else if (s.id === "pair") {
+            const t = {
+              qr: ["配对中", "等手机扫码"],
+              verify: ["配对中", "正在握手"],
+              confirm: [NEW_DEV.name, "等你确认"],
+            }[S.pair];
+            nodes += `<button class="pn pairing ${S.sel === "pair" ? "sel" : ""}" id="pn-pair" style="${pos}" data-act="sel" data-arg="pair"><span class="pt">${ic("phone", 15)}</span><span><span class="nm">${t[0]}</span><span class="sub">${t[1]}</span></span></button>`;
+          } else {
+            const d = s.d,
+              on = isOn(d);
+            nodes += `<button class="pn ${on ? "" : "offline"} ${S.sel === d.id ? "sel" : ""} ${S.born === d.id ? "born" : ""}" id="pn-${d.id}" data-dev="${d.id}" style="${pos};${dc(d)}" data-act="sel" data-arg="${d.id}">
+        <span class="pt">${devIc(d, 15)}</span><span><span class="nm">${esc(d.name)}</span><span class="sub tnum">${on ? `在线 · ${rateText(d)}` : `离线 · ${seenOf(d)}`}</span></span></button>`;
+          }
+        }
+        const legend = S.rm
+          ? `<span>箭头表示两个方向（减弱动态效果时不播放）</span><span>${ic("lock", 11, 2)}过 relay 时保持加密</span>`
+          : `<span class="ph" id="phUp">↑ 上行 · 手机 → Mac</span><span class="ph" id="phDown">↓ 下行 · Mac → 手机</span><span>${ic("lock", 11, 2)}过 relay 时保持加密</span>`;
+        MAP_LAYOUT = L;
+        return `<div class="map" id="map"><svg class="lanes" viewBox="0 0 ${W} ${H}">${svg}</svg>${nodes}${msg}
+    <svg class="lanes" id="pkts" viewBox="0 0 ${W} ${H}" style="z-index:3;pointer-events:none">${packetEls(L)}</svg><div class="legend">${legend}</div></div>`;
+      }
+      let MAP_LAYOUT = null;
+
+      /** 减弱动态效果时：每段在用的线上画同样大小的箭头，朝手机的和朝 Mac 的各一个。 */
+      function staticArrows(L, tState) {
+        const tmp = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const chev = (d, f, dir, color, dev) => {
+          tmp.setAttribute("d", d);
+          const len = tmp.getTotalLength(),
+            p = tmp.getPointAtLength(len * f),
+            q = tmp.getPointAtLength(len * f + dir * 2);
+          const ang = (Math.atan2(q.y - p.y, q.x - p.x) * 180) / Math.PI;
+          return `<path d="M -3.5 -3.5 L 0 0 L -3.5 3.5" transform="translate(${p.x} ${p.y}) rotate(${ang})" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" ${dev ? `data-dev="${dev}"` : ""}/>`;
+        };
+        if (tState !== "ok" && tState !== "err") return "";
+        const trunk = `M ${L.mac.x + 23} ${CY} L ${L.relay.x - 23} ${CY}`;
+        if (tState === "err")
+          return chev(`M ${L.mac.x + 23} ${CY} L ${L.brk - 11} ${CY}`, 0.55, 1, "var(--text-muted)");
+        let out = chev(trunk, 0.3, -1, "var(--text-muted)") + chev(trunk, 0.7, 1, "var(--text-muted)");
+        for (const s of L.sl)
+          if (slotState(s) === "on")
+            out += chev(s.lane, 0.4, -1, slotColor(s), s.d?.id) + chev(s.lane, 0.72, 1, slotColor(s), s.d?.id);
+        return out;
+      }
+
+      /* ══ 数据包：一轮分两段循环播放 ══
+       * 上行：每台在线的手机同时发一个包，沿车道走到 relay，在 relay 里汇成一个，再沿主干走到 Mac；
+       * 停一下；下行：Mac 发一个包，到 relay 里分成几个，沿各车道同时送到每台手机；停一会儿再来。
+       * 每一小段各自缓入缓出，包进出 relay、Mac、手机时淡出淡入，relay 的锁在汇合、分开时亮一下。 */
+      const TL = { lane: 640, hold: 140, trunk: 520, gap: 300, rest: 1000 };
+      const LEG = TL.lane + TL.hold + TL.trunk;
+      const CYCLE = LEG + TL.gap + LEG + TL.rest;
+      const ENG = { t0: null, prev: 0, hs: null };
+      const ease = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+      const clamp = (x) => Math.max(0, Math.min(1, x));
+
+      /** 包的元素：一个实心圆点加一圈柔和的光晕，颜色跟所在的那段线。 */
+      function packetEls(L) {
+        const g = (id, color, dev) =>
+          `<g class="pk" id="pk-${id}" ${dev ? `data-dev="${dev}"` : ""} style="fill:${color};opacity:0"><circle class="h" r="6.5"/><circle r="3.25"/></g>`;
+        let out = g("trunk", "var(--tint)") + g("hs-trunk", "var(--tint)");
+        for (const s of L.sl) out += g(s.id, slotColor(s), s.d ? s.d.id : s.id === "more" ? "more" : "");
+        return out;
+      }
+      /** 把包放到路径上 frac 处（0 是路径起点），离节点太近时淡出，藏进节点里。 */
+      function place(el, path, frac, stopAt) {
+        if (!el || !path) return;
+        const len = path.getTotalLength(),
+          p = path.getPointAtLength(len * clamp(frac));
+        const L = MAP_LAYOUT,
+          near = (x, y, r0, r1) => clamp((Math.hypot(p.x - x, p.y - y) - r0) / (r1 - r0));
+        let o = Math.min(near(L.relay.x, CY, 16, 34), near(L.mac.x, CY, 16, 34));
+        for (const s of L.sl) o = Math.min(o, near(s.x, s.y, 10, 24));
+        if (stopAt !== undefined) o = Math.min(o, clamp((stopAt - p.x) / 14));
+        el.setAttribute("transform", `translate(${p.x} ${p.y})`);
+        el.style.opacity = o.toFixed(3);
+      }
+      const hide = (el) => {
+        if (el) el.style.opacity = 0;
+      };
+      /** 让一个节点闪一下（收到包时）。 */
+      function ping(el, cls = "ping") {
+        if (!el) return;
+        el.classList.remove(cls);
+        void el.getBoundingClientRect();
+        el.classList.add(cls);
+      }
+      /** 一段的进度：c 在 [a, a + d] 里时给出缓入缓出后的 0–1，之外为 null。 */
+      const seg = (c, a, d) => (c >= a && c <= a + d ? ease((c - a) / d) : null);
+
+      /**
+       * 按时间 c（毫秒，0 到 LEG*2+gap）摆一组包：lanes 是车道上的包，trunk 是主干上的包。
+       * @returns relay 的锁该不该亮
+       */
+      function playRound(c, lanes, trunkEl, trunkPath, opts = {}) {
+        const up = seg(c, 0, TL.lane),
+          upHold = c > TL.lane && c < TL.lane + TL.hold,
+          upTrunk = seg(c, TL.lane + TL.hold, TL.trunk);
+        const d0 = LEG + TL.gap,
+          dnTrunk = seg(c, d0, TL.trunk),
+          dnHold = c > d0 + TL.trunk && c < d0 + TL.trunk + TL.hold,
+          dn = seg(c, d0 + TL.trunk + TL.hold, TL.lane);
+        for (const { el, path } of lanes) {
+          if (up !== null) place(el, path, 1 - up);
+          else if (dn !== null) place(el, path, dn);
+          else hide(el);
+        }
+        if (upTrunk !== null && !opts.noUp) place(trunkEl, trunkPath, 1 - upTrunk);
+        else if (dnTrunk !== null) place(trunkEl, trunkPath, dnTrunk, opts.stopAt);
+        else hide(trunkEl);
+        return (
+          lanes.length > 0 &&
+          (upHold ||
+            dnHold ||
+            (up !== null && up > 0.92) ||
+            (dnTrunk !== null && dnTrunk > 0.92 && opts.stopAt === undefined) ||
+            (upTrunk !== null && upTrunk < 0.08) ||
+            (dn !== null && dn < 0.08))
+        );
+      }
+
+      function frame(t) {
+        const L = MAP_LAYOUT,
+          trunkPath = document.getElementById("trunk");
+        if (L && trunkPath && !S.rm) {
+          if (ENG.t0 === null) ENG.t0 = t;
+          const c = (t - ENG.t0) % CYCLE,
+            prev = ENG.prev;
+          ENG.prev = c;
+          const crossed = (a) => prev < a && c >= a;
+          const err = S.configured && S.enabled && S.conn === "err";
+          const active = live() ? L.sl.filter((s) => slotState(s) === "on") : [];
+          const lanes = active.map((s) => ({
+            s,
+            el: document.getElementById("pk-" + s.id),
+            path: document.getElementById("ln-" + s.id),
+          }));
+          for (const s of L.sl) if (!active.includes(s) && s.id !== "pair") hide(document.getElementById("pk-" + s.id));
+          let lit = false;
+          if (live() && lanes.length) lit = playRound(c, lanes, document.getElementById("pk-trunk"), trunkPath);
+          // relay 断开：只有 Mac 发出的下行，走到断口前停住
+          else if (err) {
+            lit = false;
+            playRound(c, [], document.getElementById("pk-trunk"), trunkPath, { noUp: true, stopAt: L.brk - 12 });
+            if (crossed(LEG + TL.gap + TL.trunk * 0.8)) ping(document.getElementById("brk"), "ping-red");
+          } else hide(document.getElementById("pk-trunk"));
+          if (live() && lanes.length) {
+            if (crossed(LEG - 30)) ping(document.querySelector("#nodeMac .tile"));
+            if (crossed(LEG * 2 + TL.gap - 30))
+              lanes.forEach(({ s }) => ping(document.querySelector(`#pn-${s.id} .pt`)));
+            document.getElementById("phUp")?.classList.toggle("on", c < LEG);
+            document.getElementById("phDown")?.classList.toggle("on", c >= LEG + TL.gap && c < LEG * 2 + TL.gap);
+          }
+          // 配对中：握手时只来回走一次，灰色
+          const hsEl = document.getElementById("pk-pair");
+          if (ENG.hs !== null && S.pair && hsEl) {
+            const h = t - ENG.hs;
+            if (h < LEG * 2 + TL.gap)
+              lit =
+                playRound(
+                  h,
+                  [{ el: hsEl, path: document.getElementById("ln-pair") }],
+                  document.getElementById("pk-hs-trunk"),
+                  trunkPath,
+                ) || lit;
+            else {
+              ENG.hs = null;
+              hide(hsEl);
+              hide(document.getElementById("pk-hs-trunk"));
+            }
+          } else {
+            hide(hsEl);
+            hide(document.getElementById("pk-hs-trunk"));
+          }
+          document.getElementById("relayLock")?.classList.toggle("lit", lit);
+        }
+        requestAnimationFrame(frame);
+      }
+
+      /* ══ 假二维码：25×25，三个定位方块加伪随机的点，刷新换种子 ══ */
+      function qrSvg(seed) {
+        const n = 25;
+        let x = seed * 9301 + 49297;
+        const rnd = () => (x = (x * 9301 + 49297) % 233280) / 233280;
+        const finder = (r, c) =>
+          [
+            [0, 0],
+            [0, n - 7],
+            [n - 7, 0],
+          ].some(([fr, fc]) => r >= fr && r < fr + 7 && c >= fc && c < fc + 7);
+        let out = "";
+        for (let r = 0; r < n; r++)
+          for (let c = 0; c < n; c++)
+            if (!finder(r, c) && !(r === 7 || c === 7 || r === n - 8 || c === n - 8) && rnd() > 0.52)
+              out += `<rect x="${c}" y="${r}" width="1" height="1" rx=".25"/>`;
+        for (const [fr, fc] of [
+          [0, 0],
+          [0, n - 7],
+          [n - 7, 0],
+        ])
+          out += `<rect x="${fc + 0.5}" y="${fr + 0.5}" width="6" height="6" rx="1.6" fill="none" stroke="var(--qr-ink)" stroke-width="1"/><rect x="${fc + 2}" y="${fr + 2}" width="3" height="3" rx=".8"/>`;
+        return `<svg viewBox="0 0 ${n} ${n}" fill="var(--qr-ink)">${out}</svg>`;
+      }
+
+      /* ══ 配对弹层（三步）══ */
+      const STEP_OF = { qr: 0, verify: 1, confirm: 1, fail: 1, done: 2 };
+      function pairSteps() {
+        const i = STEP_OF[S.pair];
+        return `<div class="steps">${["扫码", "核对校验码", "完成"]
+          .map(
+            (t, k) =>
+              `<span class="${k === i ? "on" : k < i ? "done" : ""}">${k < i ? ic("ok", 12, 2) : `${k + 1}.`} ${t}</span>`,
+          )
+          .join("<i></i>")}</div>`;
+      }
+      function timerHtml() {
+        if (S.secs <= 0) return `<div class="timer" id="timer">二维码已过期</div>`;
+        const f = S.secs / 300,
+          a = 2 * Math.PI * 5.5;
+        return `<div class="timer tnum ${S.secs <= 60 ? "low" : ""}" id="timer"><svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--line-strong)" stroke-width="1.5"/>
+    <circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="${a * f} ${a}" transform="rotate(-90 7 7)" stroke-linecap="round"/></svg>
+    <b>${mmss(S.secs)}</b> 后过期</div>`;
+      }
+      const refusedLine = () =>
+        S.refused
+          ? `<div class="refused">${ic("x", 13, 2)}另一台手机也扫了这个码，已拒绝${S.refused > 1 ? `（${S.refused} 次）` : ""}</div>`
+          : "";
+      function pairSheet() {
+        const close = `<span class="sp"></span><button class="ibtn sm" data-act="pairCancel" aria-label="关闭（Esc）" title="关闭（Esc）">${ic("x", 14)}</button>`;
+        let title,
+          desc = "",
+          body,
+          foot;
+        const expired = S.secs <= 0;
+        if (S.pair === "qr") {
+          title = "配对新设备";
+          body = `<div class="body2"><div><div class="qrbox ${expired ? "expired" : ""}">${qrSvg(S.qrSeed)}${expired ? `<div class="over">已过期${btn(`${ic("refresh", 13)}刷新`, "refresh", "sm")}</div>` : ""}</div></div>
+      <div>${timerHtml()}<p class="sd" style="margin:0 0 8px">在 iPhone 上打开 Atrium，用它的扫码界面扫这个码。码里有 relay 地址、这台 Mac 的公钥和一次性的配对密钥。</p>
+      <p class="hint" style="margin:0 0 10px">5 分钟内有效，只能用一次。别发给别人，也别截图分享。</p>
+      ${expired ? "" : `<div style="display:flex;gap:6px;flex-wrap:wrap">${dbg("模拟：手机扫码", "scan")}${dbg("快进到过期", "expire")}</div>`}</div></div>`;
+          foot = btn("取消", "pairCancel");
+        } else if (S.pair === "verify") {
+          title = "等手机确认密钥";
+          body = `<div class="body2"><div class="qrbox wait">${qrSvg(S.qrSeed)}<div class="over"><span class="wait-dots"><i></i><i></i><i></i></span>已握手</div></div>
+      <div><p class="sd" style="margin:0 0 10px">一台手机扫了码、完成了握手，正在等它用握手后的密钥发来确认。解开了才说明它拿的是这个码。</p>
+      <p class="hint" style="margin:0 0 10px">通常不到一秒。</p>${refusedLine()}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${dbg("模拟：确认通过", "verified")}${dbg("模拟：确认没通过", "vfail")}</div></div></div>`;
+          foot = btn("取消", "pairCancel");
+        } else if (S.pair === "confirm") {
+          title = "核对校验码";
+          body = `<div class="req"><span class="ph">${ic("phone", 18)}</span><div><b>${NEW_DEV.name} 请求配对</b><small>${NEW_DEV.model} · 密钥已确认 · 2 分钟内确认</small></div></div>
+      <p class="sd" style="margin:0 0 4px">手机上也显示了一串数字。一致再确认，不一致就拒绝。</p>
+      <div class="code tnum" aria-label="校验码 ${SAS.slice(0, 3)} ${SAS.slice(3)}">${SAS.slice(0, 3)
+        .split("")
+        .map((d) => `<span>${d}</span>`)
+        .join("")}<span class="gap"></span>${SAS.slice(3)
+        .split("")
+        .map((d) => `<span>${d}</span>`)
+        .join("")}</div>
+      ${refusedLine()}${S.refused ? "" : `<div style="margin-top:8px">${dbg("模拟：另一台手机也扫了", "other")}</div>`}`;
+          foot = btn("拒绝", "pairReject") + '<span class="sp"></span>' + btn("确认配对", "pairOk", "primary");
+        } else if (S.pair === "fail") {
+          title = "没能配对";
+          body = `<div class="req" style="background:var(--danger-soft)"><span class="ph" style="color:var(--danger)">${ic("alert", 18)}</span><div><b>手机没能确认密钥</b><small>已断开它，这个码仍然可以用</small></div></div>
+      <p class="hint">可能是 App 版本太旧，或者连接中途断了。让手机再扫一次。</p>`;
+          foot = btn("取消", "pairCancel") + '<span class="sp"></span>' + btn("回到二维码", "backToQr", "primary");
+        } else {
+          const d = devById(S.newId);
+          title = "已配对";
+          desc = "它的车道已经接上，在图上和列表里都用这个颜色。";
+          body = `<div class="newdev" style="${dc(d)}"><span class="pt">${devIc(d, 18)}</span><div><b>${esc(d.name)}</b><small><i class="sw"></i>${COLORS[d.c]} · ${d.model} · 刚刚配对</small></div></div>
+      <p class="hint" style="margin:10px 0 0">想改名字，在下面的列表里点铅笔。以后在这页随时撤销。</p>`;
+          foot = '<span class="sp"></span>' + btn("完成", "pairDone", "primary");
+        }
+        return `<div class="pair-ov" id="pairOv"><div class="sheet" role="dialog" aria-label="配对新设备">${pairSteps()}<h3>${title}${S.pair === "done" ? "" : close}</h3>${desc ? `<p class="sd">${desc}</p>` : ""}${body}<div class="foot">${foot}</div></div></div>`;
+      }
+
+      /* ══ 图下的详情：点了哪个节点就展开哪个 ══ */
+      const copyBtn = () =>
+        `<button class="ibtn sm copy ${S.copied ? "done" : ""}" data-act="copy" title="拷贝指纹" aria-label="拷贝指纹">${ic(S.copied ? "check" : "copy", 14, S.copied ? 2.2 : 1.75)}${S.copied ? '<span class="tip" role="status">已复制</span>' : ""}</button>`;
+      function connLine() {
+        if (!S.configured) return ["还没接 relay", '<span class="st off"><i class="dot offl"></i>未设置</span>'];
+        if (!S.enabled)
+          return ["关着时不连 relay，手机连不上这台 Mac", '<span class="st off"><i class="dot offl"></i>已关闭</span>'];
+        if (S.conn === "busy")
+          return [
+            `正在连 ${DOMAIN} · 上次连上 今天 09:42`,
+            '<span class="st busy"><i class="spin"></i>正在连接</span>',
+          ];
+        if (S.conn === "err") return [`上次连上 今天 09:42`, `<span class="st err">${ic("alert", 14)}连不上</span>`];
+        return [`${DOMAIN} · 连上了 3 小时 12 分`, `<span class="st ok">${ic("ok", 14)}已连接</span>`];
+      }
+      function detailMac() {
+        const [d, st] = connLine();
+        return `<h4>${ic("laptop", 15)}这台 Mac<span class="sp"></span></h4><div class="gl">
+    ${row("允许手机远程访问", S.configured ? "宿主只主动连出去，不开端口" : "先在 relay 里粘贴那一行", S.configured ? sw(S.enabled, "toggle") : `<button class="switch" disabled style="opacity:.45;cursor:not-allowed"></button>`)}
+    ${row("宿主公钥指纹", "配对时手机上会显示同一串。私钥在保险箱里，由 macOS 钥匙串保护", `<span class="fp">${FP}</span>${copyBtn()}`, "kv")}
+    <div class="it ${S.nuke ? "warn" : ""}"><div class="lab"><b>撤销全部并重新生成宿主密钥</b><small>手机丢了、或者怀疑二维码被人拍到时用</small></div>
+      <div class="ctl">${S.nuke ? "" : btn("撤销全部…", "nuke", "sm danger-soft", "", S.devices.length ? "" : "disabled")}</div></div>
+    ${
+      S.nuke
+        ? `<div class="itx"><p class="err-line" style="margin:0 0 10px">${S.devices.length} 台设备立刻断开、都要重新扫码配对；这台 Mac 换一对新密钥，指纹会变。relay 上的宿主令牌不变。</p>
+      <div class="confirm"><span class="sp"></span>${btn("取消", "nukeCancel", "ghost")}${btn("撤销全部并重新生成", "nukeOk", "sm danger")}</div></div>`
+        : ""
+    }</div>`;
+      }
+      function relayLineRow() {
+        if (!S.configured || S.relayEdit) {
+          return `<div class="it" style="flex-direction:column;align-items:stretch;gap:8px"><div class="lab"><b>relay 的那一行</b><small>在 VPS 上运行 <span class="mono">atrium-relay add-host</span> 打印出来的，只显示一次</small></div>
+      <input class="field mono" id="relayIn" placeholder="atrium-relay://hst_…:令牌@relay.example.com" spellcheck="false">
+      ${S.configured && S.devices.length ? `<div class="warn-line">${ic("alert", 14)}<span>换了 relay 地址或宿主 id，所有手机都要重新扫码配对（设备列表保留，重新配对的手机会被认出）。只换令牌不用。</span></div>` : ""}
+      <div style="display:flex;gap:8px;align-items:center">${btn(S.configured ? "保存" : "连接", "relaySave", "primary")}${btn("测试连接", "test")}${S.configured ? btn("取消", "relayEdit", "ghost") : ""}${testResult()}
+        ${S.configured ? "" : '<span class="sp" style="flex:1"></span><button class="lnk">怎么部署 relay</button>'}</div></div>`;
+        }
+        return row(
+          "relay 的那一行",
+          "令牌只进不出，不再显示",
+          `<span class="masked">${ic("lock", 12)}${HOST_ID.slice(0, 8)}…<span class="dim">:••••••@</span>${DOMAIN}</span>${btn("替换", "relayEdit", "ghost")}`,
+        );
+      }
+      function testResult() {
+        if (S.testing)
+          return '<span class="st busy" style="font-size:var(--fs-sm)"><i class="spin"></i>正在测试</span>';
+        if (S.tested)
+          return `<span class="st ok" style="font-size:var(--fs-sm)">${ic("ok", 13)}连得上，令牌也对 · 往返 86 ms</span>`;
+        return "";
+      }
+      /** 连不上时的诊断清单：卡住的那一步是红色感叹号加修复按钮，前面的是勾，后面的没检查。 */
+      function diagnose() {
+        const e = ERRORS[S.err];
+        return `<div class="sec">诊断</div><div class="checks">${CHECKS.map(
+          (t, i) => `<div class="chk ${i > e.step ? "todo" : ""}">
+    <span class="ln">${i < e.step ? `<span class="st ok">${ic("ok", 14)}</span>` : i === e.step ? `<span class="st err">${ic("alert", 14)}</span>` : '<i class="dot offl"></i>'}</span>
+    <span>${t}${i === e.step ? `<small style="display:block;color:var(--text-muted);font-size:var(--fs-sm)">${e.detail}</small>` : ""}</span>
+    <span class="r">${i === e.step ? btn(e.act, "fix", "sm") : i > e.step ? "没有检查" : ""}</span></div>`,
+        ).join("")}</div>`;
+      }
+      function detailRelay() {
+        const [d, st] = connLine(),
+          bad = S.configured && S.enabled && S.conn === "err";
+        const head = S.configured
+          ? `${ic("cloud", 15)}relay<span class="sp"></span>`
+          : `${ic("cloud", 15)}接上你的 relay<span class="sp"></span>`;
+        const lead = S.configured
+          ? ""
+          : `<p class="hint" style="margin:-2px 0 6px;color:var(--text-muted)">手机经你自己 VPS 上的 relay 连回这台 Mac。relay 只转发加密过的字节，看不到内容。</p>`;
+        return `<h4>${head}</h4>${lead}<div class="gl">
+    ${S.configured ? `<div class="it kv ${bad ? "warn" : ""}"><div class="lab"><b>${bad ? `<span style="color:var(--danger)">${ERRORS[S.err].title}</span>` : "连接"}</b><small>${d}</small></div><div class="ctl">${st}</div></div>` : ""}
+    ${bad ? `<div class="itx">${diagnose()}</div>` : ""}
+    ${relayLineRow()}
+    ${S.configured && !S.relayEdit ? row("测试连接", S.tested || S.testing ? testResult() : "用现在的设置连一次，不影响已有的连接", S.testing ? "" : btn("测试连接", "test")) : ""}</div>`;
+      }
+      function nameEl(d) {
+        if (S.rename !== d.id) return esc(d.name);
+        return `<span class="rename"><input id="rn" value="${esc(d.name)}" aria-describedby="rntip" data-id="${d.id}"><span class="rtip" id="rntip"><span><span class="kc">⏎</span>保存</span><span><span class="kc">esc</span>取消</span><span>清空恢复为手机的名字</span></span></span>`;
+      }
+      function detailPhone(d) {
+        const on = isOn(d),
+          rv = S.revoke === d.id;
+        return `<h4 style="${dc(d)}"><span class="sw"></span>${nameEl(d)}${S.rename === d.id ? "" : `<button class="ibtn sm" data-act="rename" data-arg="${d.id}" title="改名" aria-label="改名">${ic("pencil", 13)}</button>`}<span class="sp"></span></h4><div class="gl">
+    ${row("状态", "", on ? `<span class="st ok">${ic("ok", 14)}在线 · ${rateText(d)}</span>` : `<span class="st off"><i class="dot offl"></i>离线 · 最后在线 ${seenOf(d)}</span>`, "kv")}
+    ${row("型号", "", `<span class="val">${d.model}</span>`, "kv")}
+    ${row("配对时间", "", `<span class="val">${d.paired}</span>`, "kv")}
+    ${row("颜色", "图上和列表里都用它认这台设备", `<span class="val" style="display:inline-flex;gap:6px;align-items:center;${dc(d)}"><i class="sw"></i>${COLORS[d.c]}</span>`, "kv")}
+    <div class="it ${rv ? "warn" : ""}"><div class="lab"><b>撤销这台设备</b><small>${rv ? "" : "它下次握手会被拒绝，手机上的缓存和草稿会被清掉"}</small></div><div class="ctl">${rv ? "" : btn("撤销", "revoke", "sm danger-soft", d.id)}</div></div>
+    ${rv ? `<div class="itx"><div class="confirm"><span>撤销后 ${esc(d.name)} ${on ? "立刻断开，" : ""}再用要重新扫码配对。</span><span class="sp"></span>${btn("取消", "revokeCancel", "ghost")}${btn("撤销", "revokeOk", "sm danger", d.id)}</div></div>` : ""}</div>`;
+      }
+      function renderDetail() {
+        if (S.sel === "pair" || S.sel === "more") return "";
+        const d = devById(S.sel);
+        const body = S.sel === "mac" ? detailMac() : d ? detailPhone(d) : detailRelay();
+        return `<section class="detail" id="detail" aria-label="详情">${body}</section>`;
+      }
+
+      /* ══ 设备列表：完整来源，图上放不下的也在这里 ══ */
+      function renderList() {
+        const n = S.devices.length,
+          on = S.devices.filter(isOn).length;
+        const add = btn(`${ic("plus", 13)}配对新设备`, "pairStart", "sm", "", live() && !S.pair ? "" : "disabled");
+        const rows = S.devices
+          .map((d) => {
+            const o = isOn(d);
+            return `<div class="drow ${o ? "" : "offline"} ${S.sel === d.id ? "sel" : ""}" data-dev="${d.id}" data-act="sel" data-arg="${d.id}" style="${dc(d)}">
+      <span class="pt">${devIc(d, 16)}</span>
+      <div class="lab"><b>${nameEl(d)}${S.rename === d.id ? "" : `<span class="md">${d.model}</span>`}</b>
+        <small><i class="sw" style="${o ? "" : "opacity:.45"}"></i>${o ? `在线 · ${rateText(d)}` : `离线 · 最后在线 ${seenOf(d)}`} · ${d.paired}配对</small></div>
+      <div class="ctl">${S.rename === d.id ? "" : `<button class="ibtn sm" data-act="rename" data-arg="${d.id}" title="改名" aria-label="改名">${ic("pencil", 13)}</button><button class="ibtn sm" data-act="revokeFromList" data-arg="${d.id}" title="撤销" aria-label="撤销">${ic("trash", 13)}</button>`}</div></div>`;
+          })
+          .join("");
+        const empty = `<div class="it" style="min-height:64px;justify-content:center"><span class="hint">${live() ? '还没有配对的设备。在 iPhone 上装好 Atrium，点右上角"配对新设备"' : "连上 relay 后才能配对手机"}</span></div>`;
+        return `<section class="grp" id="devList"><h4>设备${n ? `<small class="tnum">${live() ? `${on} 台在线 · ` : ""}共 ${n} 台</small>` : ""}<span class="sp"></span>${add}</h4>
+    <div class="gl">${n ? rows : empty}</div>${n && !live() && S.configured ? `<p class="gf">${S.enabled ? "连不上 relay 时设备都连不进来，也不能配对新设备。" : "远程访问关着，设备都连不上。"}</p>` : ""}</section>`;
+      }
+
+      /* ══ 整体 ══ */
+      const NAV = [
+        ["外观", "palette"],
+        ["模型与账户", "user"],
+        ["项目", "folder"],
+        ["pi", "terminal"],
+        ["手机", "phone"],
+        ["关于", "info"],
+      ];
+      const LEAD =
+        "用 iPhone 经你自己的 relay 连回这台 Mac。内容端到端加密，relay 只转发、看不到。点图上的节点看它的设置。";
+      function navMark() {
+        if (S.pair === "confirm") return '<i class="dot" style="background:var(--attn)" aria-label="等你确认配对"></i>';
+        if (S.configured && S.enabled && S.conn === "err")
+          return `<span style="color:var(--danger);display:inline-flex" aria-label="连不上 relay">${ic("alert", 14)}</span>`;
+        return "";
+      }
+      function render() {
+        document.documentElement.dataset.theme = S.theme;
+        const seg = (id, items, cur, act) => {
+          document.getElementById(id).innerHTML = items
+            .map(([k, t]) => `<button class="${cur === k ? "on" : ""}" data-act="${act}" data-arg="${k}">${t}</button>`)
+            .join("");
+        };
+        seg(
+          "themeSeg",
+          [
+            ["light", "浅色"],
+            ["dark", "深色"],
+          ],
+          S.theme,
+          "theme",
+        );
+        seg(
+          "countSeg",
+          [
+            [3, "3 台"],
+            [6, "6 台"],
+          ],
+          S.count,
+          "count",
+        );
+        document.getElementById("stateSel").innerHTML = PRESETS.map(
+          ([k, t]) => `<option value="${k}" ${S.preset === k ? "selected" : ""}>${t}</option>`,
+        ).join("");
+        document.getElementById("rmChk").checked = S.rm;
+        const scroll = document.getElementById("sbody")?.scrollTop || 0;
+        const win = document.getElementById("win");
+        win.classList.toggle("rm", S.rm);
+        win.innerHTML = `
+    <nav class="nav"><div class="tb"><i></i><i></i><i></i></div>
+      ${NAV.map(([t, i]) => `<button class="nrow ${t === "手机" ? "on" : ""}"><span class="ic">${ic(i)}</span><span class="grow">${t}</span>${t === "手机" ? navMark() : ""}</button>`).join("")}</nav>
+    <div class="ct" id="ct"><header class="ch"><b>手机</b><span class="esc">Esc</span><button class="ibtn" aria-label="关闭设置">${ic("x")}</button></header>
+      <div class="sbody ${S.hover ? "hov" : ""}" id="sbody"><p class="lead">${LEAD}</p>${renderMap()}${renderDetail()}${renderList()}</div>
+      ${S.pair ? pairSheet() : ""}
+      ${S.toast ? `<div class="toast" role="status"><span style="color:${S.toast.color || "var(--ok-text)"};display:inline-flex">${ic(S.toast.icon || "ok", 15)}</span>${S.toast.html}</div>` : ""}</div>`;
+        const sb = document.getElementById("sbody");
+        sb.style.scrollBehavior = "auto";
+        sb.scrollTop = S.pair ? 0 : scroll;
+        sb.style.scrollBehavior = "";
+        if (S.hover) setHover(S.hover);
+        // 详情卡顶上的尖角对准选中的节点
+        const det = document.getElementById("detail");
+        const node = document.querySelector(".node.sel .tile, .pn.sel .pt");
+        if (det && node) {
+          const a = node.getBoundingClientRect(),
+            b = det.getBoundingClientRect();
+          det.style.setProperty("--nx", `${a.left + a.width / 2 - b.left}px`);
+        } else if (det) det.style.setProperty("--nx", "-40px");
+        // 配对弹层只盖住链路图下面，图上"配对中"的节点一直看得见
+        const ov = document.getElementById("pairOv");
+        if (ov)
+          ov.style.top = `${document.getElementById("map").getBoundingClientRect().bottom - document.getElementById("ct").getBoundingClientRect().top - 30}px`;
+        const rn = document.getElementById("rn");
+        if (rn && document.activeElement !== rn) {
+          rn.focus();
+          rn.select();
+        }
+        document.getElementById("notes").innerHTML = NOTES;
+      }
+      /** 悬停一台设备：只改 class，不重画，包不会断。 */
+      function setHover(id) {
+        S.hover = id;
+        const sb = document.getElementById("sbody");
+        if (!sb) return;
+        sb.classList.toggle("hov", !!id);
+        sb.querySelectorAll("[data-dev]").forEach((el) => el.classList.toggle("hot", !!id && el.dataset.dev === id));
+      }
+
+      /* ══ 交互 ══ */
+      let later = null;
+      function schedule(fn, ms) {
+        clearTimeout(later);
+        later = setTimeout(() => {
+          fn();
+          render();
+        }, ms);
+      }
+      function toast(html, icon, color) {
+        S.toast = { html, icon, color };
+        clearTimeout(toast.t);
+        toast.t = setTimeout(
+          () => {
+            S.toast = null;
+            render();
+          },
+          icon === "alert" ? 6000 : 3000,
+        );
+      }
+      function clearEdits() {
+        S.revoke = null;
+        S.rename = null;
+        S.nuke = false;
+        S.relayEdit = false;
+      }
+      function saveRename() {
+        const el = document.getElementById("rn");
+        if (!el) return;
+        const d = devById(el.dataset.id);
+        const v = el.value.trim();
+        if (d) d.name = v || d.model;
+        S.rename = null;
+      }
+      const ACT = {
+        theme: (a) => {
+          S.theme = a;
+        },
+        count: (a) => {
+          S.count = +a;
+          preset(S.preset);
+        },
+        sel: (a) => {
+          if (a === "pair") return;
+          if (a === "more") {
+            document.getElementById("devList")?.scrollIntoView({ block: "start" });
+            return;
+          }
+          if (S.sel !== a) clearEdits();
+          S.sel = a;
+        },
+        toggle: () => {
+          S.enabled = !S.enabled;
+          S.conn = S.enabled ? "busy" : "off";
+          if (S.enabled)
+            schedule(() => {
+              S.conn = "ok";
+            }, 1400);
+        },
+        test: () => {
+          S.testing = true;
+          S.tested = false;
+          schedule(() => {
+            S.testing = false;
+            S.tested = true;
+          }, 1100);
+        },
+        relayEdit: () => {
+          S.relayEdit = !S.relayEdit;
+          S.tested = false;
+        },
+        relaySave: () => {
+          const had = S.configured;
+          S.configured = true;
+          S.enabled = true;
+          S.relayEdit = false;
+          S.conn = "busy";
+          S.tested = false;
+          if (had && S.devices.length) {
+            S.devices.forEach((d) => {
+              d.online = false;
+              d.seen = "刚才";
+            });
+            toast("已换 relay，<b>所有手机</b>都要重新扫码配对", "alert", "var(--attn-text)");
+          }
+          schedule(() => {
+            S.conn = "ok";
+          }, 1400);
+        },
+        fix: () => {
+          if (ERRORS[S.err].fix === "edit") S.relayEdit = true;
+          else {
+            S.conn = "busy";
+            schedule(() => {
+              S.conn = "ok";
+            }, 1400);
+          }
+        },
+        copy: () => {
+          S.copied = true;
+          clearTimeout(ACT.copy.t);
+          ACT.copy.t = setTimeout(() => {
+            S.copied = false;
+            render();
+          }, 2000);
+        },
+        pairStart: () => {
+          clearEdits();
+          S.pair = "qr";
+          S.secs = 300;
+          S.qrSeed++;
+          S.refused = 0;
+          S.sel = "pair";
+        },
+        refresh: () => {
+          S.pair = "qr";
+          S.secs = 300;
+          S.qrSeed++;
+          S.refused = 0;
+        },
+        expire: () => {
+          S.secs = 0;
+        },
+        scan: () => {
+          S.pair = "verify";
+          ENG.hs = performance.now();
+          schedule(() => {
+            if (S.pair === "verify") S.pair = "confirm";
+          }, 1800);
+        },
+        verified: () => {
+          clearTimeout(later);
+          S.pair = "confirm";
+        },
+        vfail: () => {
+          clearTimeout(later);
+          S.pair = "fail";
+        },
+        backToQr: () => {
+          S.pair = "qr";
+        },
+        other: () => {
+          S.refused++;
+        },
+        pairCancel: () => {
+          clearTimeout(later);
+          S.pair = null;
+          S.sel = "relay";
+        },
+        pairReject: () => {
+          S.pair = null;
+          S.sel = "relay";
+          toast(`已拒绝 <b>${NEW_DEV.name}</b>，这个码已作废`, "x", "var(--text-dim)");
+        },
+        pairOk: () => {
+          addNewDevice();
+          S.pair = "done";
+          S.sel = S.newId;
+          setTimeout(render, 2700);
+        },
+        pairDone: () => {
+          S.pair = null;
+          toast(`已配对 <b>${esc(devById(S.newId)?.name || "")}</b>`);
+        },
+        rename: (a) => {
+          clearEdits();
+          S.rename = a;
+          S.sel = a;
+        },
+        revoke: (a) => {
+          clearEdits();
+          S.revoke = a;
+        },
+        revokeFromList: (a) => {
+          clearEdits();
+          S.sel = a;
+          S.revoke = a;
+        },
+        revokeCancel: () => {
+          S.revoke = null;
+        },
+        revokeOk: (a) => {
+          const d = devById(a);
+          S.devices = S.devices.filter((x) => x.id !== a);
+          S.revoke = null;
+          S.sel = "relay";
+          toast(`已撤销 <b>${esc(d.name)}</b>`);
+        },
+        nuke: () => {
+          S.nuke = true;
+        },
+        nukeCancel: () => {
+          S.nuke = false;
+        },
+        nukeOk: () => {
+          S.devices = [];
+          S.nuke = false;
+          toast("已撤销全部设备，宿主密钥已重新生成");
+        },
+      };
+      document.addEventListener("click", (e) => {
+        const had = S.rename && !e.target.closest(".rename");
+        if (had) saveRename();
+        const el = e.target.closest("[data-act]");
+        if (!el || el.disabled) {
+          if (had) render();
+          return;
+        }
+        ACT[el.dataset.act]?.(el.dataset.arg);
+        render();
+      });
+      document.addEventListener("mouseover", (e) => {
+        const el = e.target.closest("#sbody [data-dev]");
+        const id = el && el.dataset.dev !== "pair" && el.dataset.dev !== "more" ? el.dataset.dev : null;
+        if (id !== S.hover) setHover(id);
+      });
+      document.addEventListener(
+        "keydown",
+        (e) => {
+          if (e.target.id === "rn") {
+            if (e.key === "Enter") {
+              saveRename();
+              render();
+            }
+            if (e.key === "Escape") {
+              S.rename = null;
+              render();
+            }
+            e.stopPropagation();
+            return;
+          }
+          if (e.key !== "Escape") return;
+          if (S.pair) ACT[S.pair === "done" ? "pairDone" : "pairCancel"]();
+          else if (S.revoke || S.nuke || S.relayEdit) clearEdits();
+          else return;
+          render();
+        },
+        true,
+      );
+      document.getElementById("stateSel").addEventListener("change", (e) => {
+        preset(e.target.value);
+        render();
+      });
+      document.getElementById("rmChk").addEventListener("change", (e) => {
+        S.rm = e.target.checked;
+        render();
+      });
+      // 二维码倒计时：只刷新计时那一行，到 0 时整体重画成过期
+      setInterval(() => {
+        if (S.pair !== "qr" || S.secs <= 0) return;
+        S.secs--;
+        if (S.secs === 0) return render();
+        const t = document.getElementById("timer");
+        if (t) t.outerHTML = timerHtml();
+      }, 1000);
+
+      /* ══ 说明 ══ */
+      const NOTES = `
+  <h3>动画</h3><ul>
+    <li><b>一轮</b>：上行（车道 0.64 秒 → 在 relay 里停 0.14 秒汇合 → 主干 0.52 秒）→ 停 0.3 秒 → 下行（主干 0.52 秒 → 在 relay 里停 0.14 秒分开 → 车道 0.64 秒）→ 停 1 秒，共 3.9 秒，循环。每一小段各自缓入缓出（三次方）。</li>
+    <li><b>包</b>：只有一种，6.5px 实心点加一圈模糊光晕。颜色跟所在的那段线：Mac—relay 用强调色，车道上用那台设备的颜色。进出 relay、Mac、手机时淡出淡入，藏进节点里；汇合和分开都发生在 relay 里面，看到的是"几个进去、一个出来"。</li>
+    <li><b>只转发</b>：包在 relay 里时，relay 右下角的锁亮一下（强调色、微微放大、一圈光）。Mac、手机收到包时节点外闪一圈。左下角的"上行 / 下行"跟着当前这一段变亮。</li>
+    <li><b>流量</b>：不再画进线和包里。所有线 1.5px；速率写在手机名下面（"在线 · 12 KB/s""在线 · 空闲"）。</li></ul>
+  <h3>状态</h3><ul>
+    <li><b>离线的手机</b>：灰色虚线，不参与。<b>"+N"</b>里有在线的设备时，那条灰色车道也走包。</li>
+    <li><b>relay 连不上</b>：断口红色。只有 Mac 发出的下行，走到断口前淡出、断口闪一下红；没有上行，见回复里的说明。</li>
+    <li><b>配对中</b>：灰色虚线车道，平时没有包；握手（扫码之后）时来回走一次，灰色。</li>
+    <li><b>减弱动态效果</b>：不播放，每段在用的线上画朝手机和朝 Mac 的两个同样大小的箭头。</li>
+    <li><b>悬停</b>：悬停车道、节点或列表行，那台设备的线、包、节点和行亮起，其余变淡；Mac—relay 段的包不变淡。</li></ul>`;
+
+      /* ══ 启动 ══ */
+      preset("devices");
+      render();
+      requestAnimationFrame(frame);
+    </script>
+  </body>
+</html>

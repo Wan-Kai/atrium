@@ -5,11 +5,15 @@
 ## 分层
 
 ```
-  Electron 桌面端          手机 / 浏览器（PWA）
-  └── ui                   └── ui
-         │                        │
-         └──── WebSocket · Atrium 协议 · token 鉴权 ────┐
-                                                        ▼
+  Electron 桌面端                 iOS App（SwiftUI）
+  └── ui                          └── 由 protocol 生成的类型
+         │                                │
+         │ 本机 WebSocket · token          │ Noise IK 端到端加密
+         │                                ▼
+         │                        relay（用户的 VPS，只转发密文）
+         │                                ▲
+         │  Atrium 协议                    │ 宿主主动出站连接
+         ▼                                │
 ┌──────────────────────── 宿主（Node） ────────────────────────┐
 │  WebSocket 服务 · 鉴权 · 会话索引 · 提供 ui 静态资源            │
 │  Harness 适配器（目前只有 pi）                                 │
@@ -20,12 +24,12 @@
 
 | 层 | 职责 |
 |---|---|
-| UI | 窗口、会话列表、对话视图、插件视图的挂载；响应式布局，兼作 PWA |
+| UI | 窗口、会话列表、对话视图、插件视图的挂载（桌面端；手机端是另写的 SwiftUI App，见 ADR-0015） |
 | 客户端层 | WebSocket 连接、协议处理、状态管理，不依赖 DOM |
 | 宿主 | WebSocket 服务、鉴权、会话索引；通过 Harness 适配器启动和监督 harness 进程，把 harness 的事件翻译成 Atrium 事件 |
 | pi + extensions | agent loop、会话、工具、上下文管理，以及插件的逻辑部分 |
 
-选择 pi 作为唯一内核的理由见 [ADR-0001](../adr/0001-use-pi-as-core.md)；宿主与 UI 分离、手机端路线见 [ADR-0005](../adr/0005-split-host-and-ui-pwa-first.md)。
+选择 pi 作为唯一内核的理由见 [ADR-0001](../adr/0001-use-pi-as-core.md)；宿主与 UI 分离见 [ADR-0005](../adr/0005-split-host-and-ui-pwa-first.md)；手机端是 SwiftUI 原生 App（[ADR-0015](../adr/0015-native-ios-app-in-swiftui.md)），经自建 relay 加 Noise 端到端加密连回宿主（[ADR-0016](../adr/0016-remote-access-through-own-relay-with-noise.md)），2026-10-24 定，代码结构里的 `apps/ios`、`apps/relay` 在开工时补进下文。
 
 ## 代码结构
 
@@ -200,7 +204,7 @@ main.ts 负责组装全部
 
 - 窗口：`titleBarStyle: "hiddenInset"`，红绿灯 `trafficLightPosition: { x: 12, y: 17 }`：14pt 的按钮中心离窗口顶部 24pt，和标签、侧栏开关对齐（2026-10-13 定；系统默认的位置中心在 18pt，高出 6pt）；`vibrancy: "sidebar"`、底色透明，侧栏透出 macOS 的侧栏材质；页面看到预加载脚本的桥（`window.atrium`）就把 `<html>` 标上 `data-material`，窗口底色和侧栏底色随之透明（[design-language · 阴影与材质](design-language.md#阴影与材质)，2026-10-13 定）。
 - Electron 主进程用 `utilityProcess.fork` 启动宿主：宿主跑在 Electron 自带的 Node 里，用户不需要另装 Node 来跑宿主（pi 本身仍用系统里的 Node）。
-- 宿主入口不依赖 Electron，`node packages/host/dist/main.js` 能单独运行，以后 PWA 和无界面运行都用它。
+- 宿主入口不依赖 Electron，`node packages/host/dist/main.js` 能单独运行，以后无界面运行用它。
 - 窗口从固定的来源 `atrium://app/` 加载界面（2026-10-08 定）：主进程用 `protocol.handle` 把这个协议的请求转给宿主的静态文件服务，只把内容安全策略换成允许连接宿主端口的版本；WebSocket 仍连宿主的随机端口，宿主的 `Origin` 白名单里加上 `atrium://app`。宿主端口每次启动都不同，直接加载 `http://127.0.0.1:<端口>` 时页面来源跟着变，`localStorage` 里的客户端 id、折叠状态、草稿重启后就丢了；固定来源让它们保留下来。开发时页面来自 Vite 的固定端口，不受影响。
 - 打包时宿主打成单个文件放进应用资源目录，避免只声明为 peerDependency 的包在 `app.asar` 里找不到（Paseo 踩过）。
 - 本机打包（2026-10-11 定）：`pnpm package` 用 `@electron/packager` 生成 `apps/desktop/out/Atrium-darwin-<架构>/Atrium.app`，不依赖仓库和本机的 Node，可以拷进"应用程序"、拷给同一台机器上的别的账户。应用目录 `Contents/Resources/app/` 里是主进程和预加载脚本（`dist/`）、宿主单文件和登录程序（`host/`）、界面（`ui/`），没有 `node_modules`；应用图标是 `apps/desktop/assets/icon.icns`（[design-language · 标志](design-language.md#标志)）；主进程按 `app.isPackaged` 在这里找宿主和界面，没打包时在仓库里找。不用 asar：登录程序由系统 Node 运行，读不了 asar，宿主的静态文件服务也按真实路径检查文件。只做 ad-hoc 签名（Apple Silicon 上的程序必须带签名才能运行），不公证：本机生成的文件没有隔离标记，Gatekeeper 不拦。开发版和打包版的应用名都是 Atrium，共用单实例锁和页面存储，同时只能开一个。
@@ -216,7 +220,7 @@ main.ts 负责组装全部
 
 - 监听地址可配置，默认只监听本机。
 - 连接时校验 token。
-- 远程访问（比如用手机访问）走 Tailscale 这类组网工具，不自建 relay。
+- 远程访问（手机）经用户自己的 relay：宿主主动出站连接，宿主仍只监听本机；手机和宿主之间用 Noise IK 端到端加密，经 Noise 认证的已配对设备算已鉴权，不用 token（[ADR-0016](../adr/0016-remote-access-through-own-relay-with-noise.md)，2026-10-24 定；原先定的是 Tailscale、不自建 relay）。
 
 ## 数据归属
 
@@ -227,4 +231,4 @@ main.ts 负责组装全部
 ## 边界
 
 - UI 和客户端层**只依赖 Atrium 协议**，不直接依赖 pi 的类型。将来接入其他 harness 时，在 `pi` 包旁边新增一个适配器包，宿主改为依赖它；现在不为此预先定义通用接口。
-- 将来做原生 App 时，复用 `protocol` 和 `client`，只重写 UI。
+- 手机端的 SwiftUI App 不复用 `client` 和 `ui`；协议只在 `protocol` 里定义，Swift 的类型由它导出的 JSON Schema 生成（[ADR-0015](../adr/0015-native-ios-app-in-swiftui.md)，2026-10-24 定；原先设想原生 App 复用 `protocol` 和 `client`、只重写 UI）。

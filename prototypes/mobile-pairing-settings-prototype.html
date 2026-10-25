@@ -1,0 +1,2727 @@
+<!doctype html>
+<!--
+  PROTOTYPE · 用完即弃，不要当成正式代码。
+  回答的问题：桌面端设置里新增的"手机"分类（远程访问、relay 配置、配对手机、已配对设备）长什么样。
+  四个方向，顶部切换（不刷新）：
+    A  分组表单：一页到底，同现有设置页的"小标题 + 说明 + 行"。
+    B  设备为主：设备卡片占主位，relay 配置折进"高级"。
+    C  向导加总览：第一次一步步配完，之后是健康总览。
+    D  链路图：Mac — relay — 手机三段，点节点看详情、断在哪里一眼看出。
+  依据：docs/adr/0016（relay + Noise IK）、docs/architecture/design-language.md（设置、提示、颜色、圆角、动效）、
+  SPEC-0001 · 设置、packages/ui/src/settings/*（布局与按钮、行的样式照搬）。
+  配对流程（2026-10-24 调整）：手机扫码完成握手后，再发一条加密的确认消息，宿主验证通过后桌面才显示"请求配对 · 校验码"；
+  同一时刻只接受一台手机，别的手机扫同一个码会被拒。
+  数据全是假的，状态只在内存里。橙色虚线框的是原型调试入口，不属于设计。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Atrium 设置 · 手机 · 原型</title>
+    <style>
+      /* ══ 1. 设计变量（照 packages/ui/src/design/tokens.css）══════════════════ */
+      :root,
+      [data-theme="light"] {
+        color-scheme: light;
+        --window: #e8ecf2;
+        --blob-1: #cfdcf7;
+        --blob-2: #d7eee6;
+        --blob-3: #f6e3d6;
+        --main: #ffffff;
+        --surface-1: #ffffff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --code: #f6f6f8;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-soft: rgba(0, 0, 0, 0.05);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --focus-ring: 0 0 0 3px rgba(47, 111, 237, 0.16);
+        --linked: rgba(47, 111, 237, 0.1);
+        --scrim: rgba(30, 38, 56, 0.3);
+        --nav-bg: rgba(0, 0, 0, 0.022);
+        --tint: #2f6fed;
+        --on-tint: #ffffff;
+        --attn: #dd8629;
+        --attn-text: #c96509;
+        --attn-soft: rgba(221, 134, 41, 0.12);
+        --danger: #e5484d;
+        --danger-soft: rgba(229, 72, 77, 0.1);
+        --ok: #16a34a;
+        --ok-text: #1e8e3e;
+        --ok-soft: rgba(22, 163, 74, 0.1);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+        --win-shadow: 0 0 0 0.5px var(--line-strong), 0 30px 80px -12px rgba(30, 40, 80, 0.3);
+        --qr-ink: #1d1d1f;
+        --qr-bg: #ffffff;
+      }
+      [data-theme="dark"] {
+        color-scheme: dark;
+        --window: #0d1016;
+        --blob-1: #1f3765;
+        --blob-2: #172b3f;
+        --blob-3: #2a2433;
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --surface-3: #353638;
+        --code: #19191b;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-soft: rgba(255, 255, 255, 0.06);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --focus-ring: 0 0 0 3px rgba(122, 170, 255, 0.22);
+        --linked: rgba(122, 170, 255, 0.14);
+        --scrim: rgba(6, 8, 12, 0.42);
+        --nav-bg: rgba(255, 255, 255, 0.025);
+        --tint: #7aaaff;
+        --on-tint: #0d1016;
+        --attn: #dd8629;
+        --attn-text: #f0a24e;
+        --attn-soft: rgba(221, 134, 41, 0.16);
+        --danger: #f25a5a;
+        --danger-soft: rgba(242, 90, 90, 0.14);
+        --ok: #22c55e;
+        --ok-text: #4ade80;
+        --ok-soft: rgba(34, 197, 94, 0.14);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
+        --win-shadow: 0 0 0 0.5px var(--line-strong), 0 30px 80px -10px rgba(0, 0, 0, 0.55);
+        /* 二维码在深色下也是白底黑点，手机才扫得出 */
+        --qr-ink: #1d1d1f;
+        --qr-bg: #f9fafb;
+      }
+      :root {
+        --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --fs-mono: 12.5px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-btn: 12px;
+        --r-card: 16px;
+        --r-pill: 999px;
+        /* 弹簧曲线的近似：snappy 0.30s bounce .15，smooth 0.42s bounce 0 */
+        --snappy: cubic-bezier(0.2, 0.9, 0.3, 1.06);
+        --smooth: cubic-bezier(0.25, 0.8, 0.25, 1);
+      }
+
+      /* ══ 2. 基础与原型外壳 ═══════════════════════════════════════════════════ */
+      * {
+        box-sizing: border-box;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        background: var(--window);
+        color: var(--text);
+        font: var(--fs)/1.5 var(--font);
+        -webkit-font-smoothing: antialiased;
+      }
+      button,
+      input {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      svg {
+        flex: none;
+        display: block;
+      }
+      .mono {
+        font-family: var(--font-mono);
+      }
+      .tnum {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .proto-bar {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        padding: 10px 20px;
+        background: color-mix(in srgb, var(--main) 86%, transparent);
+        backdrop-filter: blur(20px);
+        box-shadow: inset 0 -0.5px 0 var(--line);
+        font-size: var(--fs-sm);
+      }
+      .proto-bar .t {
+        font-weight: 600;
+        font-size: var(--fs-meta);
+      }
+      .proto-bar .lb {
+        color: var(--text-dim);
+      }
+      .proto-bar .sp {
+        flex: 1;
+      }
+      .pseg {
+        display: inline-flex;
+        gap: 2px;
+        padding: 2px;
+        border-radius: 9px;
+        background: var(--selected);
+      }
+      .pseg button {
+        height: 24px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 7px;
+        background: none;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+      }
+      .pseg button.on {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow:
+          0 0 0 0.5px var(--line),
+          0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      [data-theme="dark"] .pseg button.on {
+        background: var(--surface-3);
+      }
+
+      .stage {
+        position: relative;
+        height: 740px;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background:
+          radial-gradient(50% 45% at 0% 0%, var(--blob-1), transparent 70%),
+          radial-gradient(45% 50% at 5% 100%, var(--blob-2), transparent 70%),
+          radial-gradient(40% 40% at 30% 55%, var(--blob-3), transparent 70%), var(--window);
+      }
+      /* 背后工作台的示意：几条模糊的块，再盖一层 scrim */
+      .stage .wb {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-columns: 270px 1fr;
+      }
+      .stage .wb i {
+        display: block;
+      }
+      .stage .wb .sb {
+        background: color-mix(in srgb, var(--main) 35%, transparent);
+      }
+      .stage .wb .mn {
+        background: var(--main);
+      }
+      .stage .scrim {
+        position: absolute;
+        inset: 0;
+        background: var(--scrim);
+        backdrop-filter: blur(8px) saturate(1.1);
+      }
+
+      .notes {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 22px 0 60px;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .notes h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+      .notes ul {
+        margin: 0;
+        padding-left: 18px;
+        line-height: 1.7;
+      }
+      .notes li b {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .notes .flow {
+        margin-top: 14px;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+        line-height: 1.7;
+      }
+
+      /* 原型调试入口（不属于设计）*/
+      .dbg {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 22px;
+        padding: 0 8px;
+        border: 1px dashed #f59e0b;
+        border-radius: 6px;
+        background: rgba(245, 158, 11, 0.08);
+        color: #d97706;
+        font: 500 11px var(--font);
+        cursor: pointer;
+      }
+      .dbg select {
+        border: 0;
+        background: none;
+        color: inherit;
+        font: inherit;
+        outline: none;
+        cursor: pointer;
+      }
+
+      /* ══ 3. 设置窗口（照 settings-panel.tsx）══════════════════════════════════ */
+      .win {
+        position: relative;
+        width: 900px;
+        height: 640px;
+        display: grid;
+        grid-template-columns: 212px 1fr;
+        grid-template-rows: minmax(0, 1fr);
+        border-radius: 14px;
+        overflow: hidden;
+        background: var(--main);
+        box-shadow: var(--win-shadow);
+      }
+      .nav {
+        display: flex;
+        flex-direction: column;
+        background: var(--nav-bg);
+        box-shadow: inset -0.5px 0 0 var(--line);
+        padding: 0 10px 12px;
+      }
+      .nav .tb {
+        height: 50px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-left: 8px;
+      }
+      .nav .tb i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+      }
+      .nav .tb i:nth-child(1) {
+        background: #ff6058;
+      }
+      .nav .tb i:nth-child(2) {
+        background: #ffbd2e;
+      }
+      .nav .tb i:nth-child(3) {
+        background: #28c840;
+      }
+      .nrow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        height: 32px;
+        margin: 1px 0;
+        padding: 0 10px;
+        border: 0;
+        border-radius: var(--r);
+        background: none;
+        color: var(--text-2);
+        font-size: var(--fs-meta);
+        text-align: left;
+      }
+      .nrow:hover {
+        background: var(--hover);
+      }
+      .nrow.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .nrow .ic {
+        color: var(--text-muted);
+        display: inline-flex;
+      }
+      .nrow.on .ic {
+        color: var(--text-2);
+      }
+      .nrow .grow {
+        flex: 1;
+      }
+      /* 分类上的状态记号：连不上时一个红色感叹号，等你确认配对时一个橙点 */
+      .nrow .nmark {
+        display: inline-flex;
+      }
+      .ct {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+        position: relative;
+      }
+      .ch {
+        height: 50px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 12px 0 32px;
+      }
+      .ch b {
+        flex: 1;
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .ch .esc {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+      }
+      .ibtn {
+        width: 28px;
+        height: 28px;
+        border: 0;
+        border-radius: var(--r);
+        background: none;
+        color: var(--text-muted);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .ibtn:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .ibtn.sm {
+        width: 24px;
+        height: 24px;
+      }
+      .sbody {
+        flex: 1;
+        overflow-y: auto;
+        padding: 6px 32px 40px;
+      }
+      .lead {
+        margin: -4px 0 22px;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+      }
+
+      /* ══ 4. 通用件（照 parts.tsx）════════════════════════════════════════════ */
+      .grp {
+        margin: 0 0 30px;
+      }
+      .grp > h4 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 2px;
+        font-size: var(--fs-meta);
+        font-weight: 600;
+      }
+      .grp > h4 .sp {
+        flex: 1;
+      }
+      .grp > .gd {
+        margin: 0 0 10px;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+        line-height: 1.55;
+      }
+      .grp > .gf {
+        margin: 10px 0 0;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+        line-height: 1.55;
+      }
+      .gl {
+        margin: 0 -12px;
+      }
+      .it {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 52px;
+        padding: 10px 12px;
+        border-radius: var(--r-md);
+      }
+      .it + .it::before,
+      .it + .itx::before,
+      .itx + .it::before {
+        content: "";
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        top: 0;
+        height: 0.5px;
+        background: var(--line);
+      }
+      .it.kv {
+        min-height: 40px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+      }
+      .it .lab {
+        flex: 1;
+        min-width: 0;
+      }
+      .it .lab b {
+        display: block;
+        font-weight: 500;
+        font-size: var(--fs);
+      }
+      .it.kv .lab b {
+        font-weight: 400;
+        color: var(--text-2);
+        font-size: var(--fs-meta);
+      }
+      .it .lab small {
+        display: block;
+        margin-top: 1px;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+        line-height: 1.5;
+      }
+      .it .ctl {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: none;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .it .val {
+        color: var(--text-2);
+        font-size: var(--fs-meta);
+      }
+      .it.busy {
+        background: var(--linked);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tint) 60%, transparent);
+      }
+      .it.busy::before,
+      .it.busy + .it::before {
+        opacity: 0;
+      }
+      .it.warn {
+        background: var(--danger-soft);
+      }
+      .it.warn::before,
+      .it.warn + .it::before {
+        opacity: 0;
+      }
+      /* 行下面展开的一块（行内确认、输入框）*/
+      .itx {
+        position: relative;
+        padding: 0 12px 12px;
+        margin-top: -4px;
+      }
+      .it.busy + .itx,
+      .it.warn + .itx {
+        margin-top: 0;
+        padding-top: 10px;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: var(--r-pill);
+        background: none;
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        color: var(--text-2);
+        font-size: var(--fs-meta);
+        white-space: nowrap;
+        transition:
+          transform 0.3s var(--snappy),
+          background-color 0.14s;
+      }
+      .btn:hover {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .btn:active {
+        transform: scale(0.95);
+        transition: transform 80ms;
+      }
+      .btn.primary {
+        background: var(--text);
+        color: var(--main);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+        font-weight: 500;
+      }
+      .btn.primary:hover {
+        opacity: 0.9;
+      }
+      .btn.danger {
+        background: var(--danger);
+        color: #fff;
+        box-shadow: none;
+        font-weight: 500;
+      }
+      .btn.danger-soft {
+        background: var(--danger-soft);
+        color: var(--danger);
+        box-shadow: none;
+        font-weight: 500;
+      }
+      .btn.ghost {
+        height: 24px;
+        padding: 0 8px;
+        box-shadow: none;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+      }
+      .btn.ghost:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .btn.sm {
+        height: 24px;
+        padding: 0 10px;
+        font-size: var(--fs-sm);
+      }
+      .btn[disabled] {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .lnk {
+        border: 0;
+        background: none;
+        padding: 0;
+        color: var(--tint);
+        font-size: var(--fs-sm);
+      }
+      .lnk:hover {
+        text-decoration: underline;
+      }
+      .lnk.red {
+        color: var(--danger);
+      }
+      .field {
+        height: 30px;
+        min-width: 0;
+        border: 0;
+        border-radius: var(--r);
+        padding: 0 10px;
+        background: var(--hover);
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        color: var(--text);
+        font-size: var(--fs-meta);
+        outline: none;
+      }
+      .field:focus {
+        box-shadow:
+          inset 0 0 0 0.5px var(--line-strong),
+          var(--focus-ring);
+      }
+      .field::placeholder {
+        color: var(--text-dim);
+      }
+      .field.mono {
+        font-size: var(--fs-sm);
+      }
+      .field.bad {
+        box-shadow: inset 0 0 0 1px var(--danger);
+      }
+      .masked {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 10px;
+        border-radius: var(--r);
+        background: var(--hover);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+        font: var(--fs-sm) var(--font-mono);
+        color: var(--text-3);
+        letter-spacing: 0.02em;
+      }
+      .switch {
+        position: relative;
+        width: 34px;
+        height: 20px;
+        flex: none;
+        border: 0;
+        border-radius: 999px;
+        background: var(--line-strong);
+        transition: background 0.2s;
+      }
+      .switch::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+        transition: transform 0.3s var(--snappy);
+      }
+      .switch.on {
+        background: var(--tint);
+      }
+      .switch.on::after {
+        transform: translateX(14px);
+      }
+      .spin {
+        width: 12px;
+        height: 12px;
+        flex: none;
+        border-radius: 50%;
+        border: 1.5px solid currentColor;
+        border-right-color: transparent;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* 状态：靠形状区分（勾圆圈 / 转圈 / 感叹号圆圈 / 空心点），不只靠颜色 */
+      .st {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-meta);
+        white-space: nowrap;
+      }
+      .st.ok {
+        color: var(--ok-text);
+      }
+      .st.busy {
+        color: var(--tint);
+      }
+      .st.err {
+        color: var(--danger);
+      }
+      .st.off {
+        color: var(--text-dim);
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex: none;
+      }
+      .dot.on {
+        background: var(--ok);
+        box-shadow: 0 0 0 2.5px var(--ok-soft);
+      }
+      .dot.offl {
+        box-shadow: inset 0 0 0 1.5px var(--text-dim);
+      }
+      .kbd-fp {
+        font: var(--fs-sm) var(--font-mono);
+        color: var(--text-2);
+        letter-spacing: 0.04em;
+      }
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        height: 18px;
+        padding: 0 6px;
+        border-radius: 4px;
+        font-size: var(--fs-xs);
+        background: var(--surface-2);
+        color: var(--text-muted);
+      }
+      [data-theme="dark"] .tag {
+        background: var(--surface-3);
+      }
+      .tag.tint {
+        background: var(--linked);
+        color: var(--tint);
+      }
+      .confirm {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+      }
+      .confirm .sp {
+        flex: 1;
+      }
+      .confirm.red {
+        color: var(--danger);
+      }
+      .hint {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        line-height: 1.55;
+      }
+      .err-line {
+        font-size: var(--fs-sm);
+        color: var(--danger);
+        line-height: 1.55;
+      }
+
+      /* ══ 5. 配对（二维码、校验码、弹层）════════════════════════════════════════ */
+      /* 盖在设置窗口上的弹层：同归档确认框（380–420px、--r-card、--card-shadow），只盖内容区不盖分类 */
+      .sheet-ov {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        display: grid;
+        place-items: center;
+        background: color-mix(in srgb, var(--main) 55%, transparent);
+        backdrop-filter: blur(6px);
+        animation: fade 0.2s ease;
+      }
+      .sheet {
+        width: 420px;
+        padding: 20px;
+        border-radius: var(--r-card);
+        background: var(--surface-1);
+        box-shadow:
+          var(--card-shadow),
+          0 24px 60px -20px rgba(0, 0, 0, 0.35);
+        animation: pop 0.3s var(--snappy);
+      }
+      [data-theme="dark"] .sheet {
+        background: var(--surface-2);
+      }
+      .sheet h3 {
+        margin: 0 0 4px;
+        font-size: 15px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .sheet h3 .sp {
+        flex: 1;
+      }
+      .sheet .sd {
+        margin: 0 0 16px;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        line-height: 1.55;
+      }
+      .sheet .foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 18px;
+      }
+      .sheet .foot .sp {
+        flex: 1;
+      }
+      @keyframes pop {
+        from {
+          opacity: 0;
+          transform: translateY(8px) scale(0.97);
+        }
+      }
+      @keyframes fade {
+        from {
+          opacity: 0;
+        }
+      }
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+      }
+      .rise {
+        animation: rise 0.42s var(--smooth) both;
+      }
+
+      .steps {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        margin-bottom: 14px;
+      }
+      .steps span {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .steps span.on {
+        color: var(--text-2);
+        font-weight: 500;
+      }
+      .steps span.done {
+        color: var(--ok-text);
+      }
+      .steps i {
+        width: 14px;
+        height: 0.5px;
+        background: var(--line-strong);
+      }
+
+      .qrbox {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: 200px;
+        height: 200px;
+        margin: 0 auto;
+        padding: 12px;
+        border-radius: var(--r-btn);
+        background: var(--qr-bg);
+        box-shadow:
+          0 0 0 0.5px rgba(0, 0, 0, 0.1),
+          0 6px 18px -8px rgba(0, 0, 0, 0.25);
+      }
+      .qrbox.sm {
+        width: 156px;
+        height: 156px;
+        padding: 10px;
+      }
+      .qrbox > svg {
+        width: 100%;
+        height: 100%;
+      }
+      .qrbox.expired > svg {
+        filter: blur(5px);
+        opacity: 0.35;
+      }
+      .qrbox .over {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 8px;
+        color: #48484e;
+        font-size: var(--fs-meta);
+      }
+      .qrbox .over .btn {
+        background: #1d1d1f;
+        color: #fff;
+        box-shadow: none;
+      }
+      .qrbox.wait > svg {
+        opacity: 0.14;
+      }
+      .timer {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 6px;
+        margin-top: 12px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .timer b {
+        font-weight: 500;
+        color: var(--text-2);
+      }
+      .timer.low b {
+        color: var(--attn-text);
+      }
+      .ring {
+        width: 14px;
+        height: 14px;
+      }
+
+      .code {
+        display: flex;
+        justify-content: center;
+        gap: 6px;
+        margin: 4px 0 6px;
+      }
+      .code span {
+        width: 34px;
+        height: 44px;
+        display: grid;
+        place-items: center;
+        border-radius: var(--r);
+        background: var(--surface-2);
+        font: 600 22px var(--font-mono);
+        color: var(--text);
+        font-variant-numeric: tabular-nums;
+      }
+      [data-theme="dark"] .code span {
+        background: var(--surface-3);
+      }
+      .code .gap {
+        width: 8px;
+        background: none !important;
+      }
+      .req {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        border-radius: var(--r-md);
+        background: var(--attn-soft);
+        margin-bottom: 14px;
+      }
+      .req .ph {
+        width: 32px;
+        height: 32px;
+        border-radius: 9px;
+        display: grid;
+        place-items: center;
+        background: var(--surface-1);
+        color: var(--attn-text);
+      }
+      [data-theme="dark"] .req .ph {
+        background: var(--surface-3);
+      }
+      .req b {
+        display: block;
+        font-weight: 500;
+      }
+      .req small {
+        display: block;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+      }
+      .rejected {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 10px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .rejected svg {
+        color: var(--text-dim);
+      }
+      .done-mark {
+        width: 44px;
+        height: 44px;
+        margin: 4px auto 12px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--ok-soft);
+        color: var(--ok-text);
+        animation: pop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+      }
+      .kv2 {
+        display: grid;
+        grid-template-columns: 96px 1fr;
+        gap: 6px 10px;
+        font-size: var(--fs-sm);
+      }
+      .kv2 dt {
+        color: var(--text-dim);
+      }
+      .kv2 dd {
+        margin: 0;
+        color: var(--text-2);
+      }
+
+      /* 等待验证：三个点依次亮 */
+      .wait-dots {
+        display: inline-flex;
+        gap: 4px;
+      }
+      .wait-dots i {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--tint);
+        animation: blink 1.2s infinite;
+      }
+      .wait-dots i:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+      .wait-dots i:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+      @keyframes blink {
+        0%,
+        60%,
+        100% {
+          opacity: 0.25;
+        }
+        30% {
+          opacity: 1;
+        }
+      }
+
+      /* 窗口右上角的提示（design-language「提示」的玻璃胶囊）*/
+      .toast {
+        position: absolute;
+        top: 56px;
+        right: 12px;
+        z-index: 30;
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        height: 34px;
+        padding: 0 10px;
+        border-radius: var(--r-pill);
+        background: color-mix(in srgb, var(--surface-1) 78%, transparent);
+        backdrop-filter: blur(28px) saturate(1.7);
+        box-shadow:
+          var(--float-shadow),
+          inset 0 1px 0 rgba(255, 255, 255, 0.25);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        animation: pop 0.3s var(--snappy);
+      }
+      .toast b {
+        color: var(--text);
+        font-weight: 500;
+      }
+
+      .it.warn + .itx::before {
+        display: none;
+      }
+      .it.warn:has(+ .itx) {
+        border-radius: var(--r-md) var(--r-md) 0 0;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 1ms !important;
+          transition-duration: 1ms !important;
+        }
+      }
+
+      /* ══ 6. B · 设备为主 ═══════════════════════════════════════════════════════════ */
+      .bstrip {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 44px;
+        padding: 0 8px 0 14px;
+        margin-bottom: 18px;
+        border-radius: var(--r-btn);
+        background: var(--surface-2);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      [data-theme="dark"] .bstrip {
+        background: var(--surface-1);
+      }
+      .bstrip.err {
+        background: var(--danger-soft);
+      }
+      .bstrip.off {
+        background: none;
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+      }
+      .bstrip .sp {
+        flex: 1;
+      }
+      .bstrip .sub {
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .bgrid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+      }
+      .dcard {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        min-height: 168px;
+        padding: 14px;
+        border-radius: var(--r-card);
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+      }
+      [data-theme="dark"] .dcard {
+        background: var(--surface-2);
+      }
+      .dcard .top {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .dcard .top .sp {
+        flex: 1;
+      }
+      .dcard .phone {
+        width: 30px;
+        height: 46px;
+        border-radius: 8px;
+        box-shadow: inset 0 0 0 1.5px var(--text-dim);
+        position: relative;
+      }
+      .dcard .phone::after {
+        content: "";
+        position: absolute;
+        top: 4px;
+        left: 50%;
+        width: 8px;
+        height: 2px;
+        margin-left: -4px;
+        border-radius: 2px;
+        background: var(--text-dim);
+      }
+      .dcard .phone.tab {
+        width: 40px;
+        height: 46px;
+        border-radius: 6px;
+      }
+      .dcard.online .phone {
+        box-shadow: inset 0 0 0 1.5px var(--tint);
+      }
+      .dcard.online .phone::after {
+        background: var(--tint);
+      }
+      .dcard .nm {
+        margin-top: 12px;
+        font-weight: 500;
+        font-size: var(--fs);
+      }
+      .dcard .meta {
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        line-height: 1.6;
+      }
+      .dcard .watch {
+        margin-top: auto;
+        padding-top: 10px;
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        min-width: 0;
+      }
+      .dcard .watch span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .dcard.revoking {
+        box-shadow:
+          0 0 0 1px var(--danger),
+          var(--card-shadow);
+      }
+      .dcard .rv {
+        margin-top: auto;
+        padding-top: 10px;
+        font-size: var(--fs-sm);
+        color: var(--danger);
+      }
+      .dcard .rv .row {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      .dadd {
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 8px;
+        min-height: 168px;
+        border: 0;
+        border-radius: var(--r-card);
+        background: none;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+      }
+      .dadd {
+        background-image: linear-gradient(var(--main), var(--main));
+        outline: 1px dashed var(--line-strong);
+        outline-offset: -1px;
+        box-shadow: none;
+      }
+      .dadd:hover {
+        color: var(--text-2);
+        background: var(--hover);
+      }
+      .dadd .pl {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--surface-2);
+      }
+      .bpair {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        gap: 22px;
+        padding: 18px;
+        border-radius: var(--r-card);
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        animation: rise 0.42s var(--smooth);
+      }
+      [data-theme="dark"] .bpair {
+        background: var(--surface-2);
+      }
+      .bpair h3 {
+        margin: 0 0 4px;
+        font-size: 15px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .bpair h3 .sp {
+        flex: 1;
+      }
+      .bpair .sd {
+        margin: 0 0 12px;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        line-height: 1.55;
+      }
+      .bpair .code {
+        justify-content: flex-start;
+      }
+      .bpair .foot {
+        display: flex;
+        gap: 8px;
+        margin-top: 14px;
+      }
+      .adv {
+        margin-top: 28px;
+      }
+      .adv-h {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 8px;
+        margin: 0 -8px;
+        border: 0;
+        border-radius: var(--r);
+        background: none;
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+      }
+      .adv-h:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .adv-h svg {
+        transition: transform 0.3s var(--snappy);
+      }
+      .adv-h.open svg {
+        transform: rotate(90deg);
+      }
+      .adv-b {
+        padding-top: 8px;
+        animation: rise 0.3s var(--smooth);
+      }
+
+      /* ══ 7. C · 向导加总览 ═══════════════════════════════════════════════════════ */
+      .wiz {
+        display: grid;
+        grid-template-columns: 168px 1fr;
+        gap: 28px;
+      }
+      .wsteps {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding-top: 2px;
+      }
+      .wstep {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 34px;
+        font-size: var(--fs-meta);
+        color: var(--text-dim);
+      }
+      .wstep .n {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font: 600 11px var(--font);
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+      }
+      .wstep.on {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .wstep.on .n {
+        background: var(--text);
+        color: var(--main);
+        box-shadow: none;
+      }
+      .wstep.done {
+        color: var(--text-2);
+      }
+      .wstep.done .n {
+        background: var(--ok-soft);
+        color: var(--ok-text);
+        box-shadow: none;
+      }
+      .wstep.bad .n {
+        background: var(--danger-soft);
+        color: var(--danger);
+        box-shadow: none;
+      }
+      .wstep + .wstep::before {
+        content: "";
+        position: absolute;
+        left: 9.5px;
+        top: -9px;
+        width: 1px;
+        height: 10px;
+        background: var(--line-strong);
+      }
+      .wpane h3 {
+        margin: 0 0 4px;
+        font-size: 17px;
+        font-weight: 600;
+      }
+      .wpane .sd {
+        margin: 0 0 18px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        line-height: 1.6;
+      }
+      .wpane .fl {
+        display: block;
+        margin: 0 0 6px;
+        font-size: var(--fs-meta);
+        font-weight: 500;
+      }
+      .wpane .fl small {
+        font-weight: 400;
+        color: var(--text-dim);
+        margin-left: 6px;
+      }
+      .wpane .fld {
+        margin-bottom: 16px;
+      }
+      .wpane .foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 22px;
+        padding-top: 16px;
+        box-shadow: inset 0 0.5px 0 var(--line);
+      }
+      .wpane .foot .sp {
+        flex: 1;
+      }
+      .term {
+        margin: 0 0 4px;
+        padding: 10px 12px;
+        border-radius: var(--r-md);
+        background: var(--code);
+        font: var(--fs-sm)/1.7 var(--font-mono);
+        color: var(--text-3);
+      }
+      .term .c {
+        color: var(--text-dim);
+      }
+      .checks {
+        margin: 0 -12px;
+      }
+      .chk {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 34px;
+        padding: 0 12px;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .chk .r {
+        margin-left: auto;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .health {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin-bottom: 26px;
+      }
+      .hcell {
+        padding: 12px 14px;
+        border-radius: var(--r-btn);
+        background: var(--surface-2);
+      }
+      [data-theme="dark"] .hcell {
+        background: var(--surface-1);
+      }
+      .hcell.bad {
+        background: var(--danger-soft);
+      }
+      .hcell .k {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        margin-bottom: 6px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .hcell .v {
+        font-size: var(--fs);
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .hcell .s {
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        margin-top: 2px;
+      }
+
+      /* ══ 8. D · 链路图 ═════════════════════════════════════════════════════════════ */
+      .topo {
+        position: relative;
+        display: grid;
+        grid-template-columns: 120px 1fr 120px 1fr 150px;
+        align-items: center;
+        height: 168px;
+        margin: 0 -6px 18px;
+        padding: 0 14px;
+        border-radius: var(--r-card);
+        background: var(--code);
+      }
+      .node {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 6px;
+        border: 0;
+        border-radius: var(--r-btn);
+        background: none;
+        color: var(--text-2);
+        font-size: var(--fs-sm);
+      }
+      .node:hover {
+        background: var(--hover);
+      }
+      .node.sel {
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+      }
+      [data-theme="dark"] .node.sel {
+        background: var(--surface-2);
+      }
+      .node .nic {
+        width: 44px;
+        height: 44px;
+        border-radius: 13px;
+        display: grid;
+        place-items: center;
+        background: var(--surface-1);
+        color: var(--text-2);
+        box-shadow: 0 0 0 0.5px var(--line);
+      }
+      [data-theme="dark"] .node .nic {
+        background: var(--surface-3);
+      }
+      .node.bad .nic {
+        color: var(--danger);
+        box-shadow: 0 0 0 1px var(--danger);
+      }
+      .node.offn .nic {
+        color: var(--text-dim);
+      }
+      .node small {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+      }
+      .edge {
+        position: relative;
+        height: 2px;
+        margin: 0 6px;
+      }
+      .edge::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-top: 2px solid var(--ok);
+        opacity: 0.7;
+      }
+      .edge.busy::before {
+        border-top: 2px dashed var(--tint);
+      }
+      .edge.off::before {
+        border-top: 2px dashed var(--line-strong);
+        opacity: 1;
+      }
+      .edge.bad::before {
+        border-top: 2px dashed var(--danger);
+        opacity: 0.8;
+      }
+      .edge.idle::before {
+        border-top: 2px dashed var(--text-dim);
+        opacity: 0.6;
+      }
+      .edge .lb {
+        position: absolute;
+        left: 50%;
+        top: -24px;
+        transform: translateX(-50%);
+        white-space: nowrap;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .edge .mid {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--code);
+      }
+      .edge.ok .pkt {
+        position: absolute;
+        top: -2px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--ok);
+        animation: pkt 2.4s linear infinite;
+      }
+      @keyframes pkt {
+        from {
+          left: 0;
+          opacity: 0;
+        }
+        10% {
+          opacity: 1;
+        }
+        90% {
+          opacity: 1;
+        }
+        to {
+          left: 100%;
+          opacity: 0;
+        }
+      }
+      .phones {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        align-self: stretch;
+        justify-content: center;
+      }
+      .pnode {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 30px;
+        padding: 0 8px;
+        border: 0;
+        border-radius: var(--r);
+        background: none;
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        text-align: left;
+      }
+      .pnode:hover {
+        background: var(--hover);
+      }
+      .pnode.sel {
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+      }
+      [data-theme="dark"] .pnode.sel {
+        background: var(--surface-2);
+      }
+      .pnode span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .pnode.add {
+        color: var(--tint);
+      }
+      .dpanel h4 {
+        margin: 0 0 2px;
+        font-size: var(--fs-meta);
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .dpanel h4 .sp {
+        flex: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="proto-bar">
+      <span class="t">设置 · 手机</span>
+      <span class="lb">方向</span><span class="pseg" id="dirSeg"></span> <span class="lb">外观</span
+      ><span class="pseg" id="themeSeg"></span> <span class="lb">状态</span
+      ><label class="dbg"><select id="stateSel"></select></label>
+      <span class="sp"></span>
+      <span class="lb">数据是假的；橙色虚线框是原型调试入口</span>
+    </div>
+    <div class="stage">
+      <div class="wb"><i class="sb"></i><i class="mn"></i></div>
+      <div class="scrim"></div>
+      <div class="win" id="win"></div>
+    </div>
+    <div class="notes" id="notes"></div>
+    <script>
+      /* ══ 图标：照 Hugeicons stroke-rounded 的画法（24 栅格、线宽 1.75、圆头），原型里手画近似 ══ */
+      const P = {
+        phone: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.6"/><path d="M11 18.5h2"/>',
+        tablet: '<rect x="4.5" y="2.5" width="15" height="19" rx="2.6"/><path d="M11 18.5h2"/>',
+        laptop: '<rect x="4" y="4.5" width="16" height="11.5" rx="1.8"/><path d="M2 19.5h20"/>',
+        cloud: '<path d="M7 18.5a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 17.9 9a4.75 4.75 0 0 1-.4 9.5Z"/>',
+        ok: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/>',
+        alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.4v.1"/>',
+        x: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+        plus: '<path d="M12 5v14M5 12h14"/>',
+        chev: '<path d="m9.5 6 6 6-6 6"/>',
+        pencil: '<path d="M4.5 19.5h4l10-10-4-4-10 10z"/><path d="m13 7 4 4"/>',
+        refresh: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/>',
+        key: '<circle cx="8.5" cy="15.5" r="4"/><path d="m11.5 12.5 8-8M16.5 7.5l2 2"/>',
+        shield: '<path d="M12 3 19 6v5.2c0 4.6-3 7.8-7 9.8-4-2-7-5.2-7-9.8V6z"/><path d="m9 12 2 2 4-4"/>',
+        lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.4"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
+        wifiOff:
+          '<path d="M2.5 8.8a14 14 0 0 1 4-2.4M21.5 8.8a14 14 0 0 0-8.6-3.3M5.5 12.3a9.5 9.5 0 0 1 3-1.8M18.5 12.3a9.5 9.5 0 0 0-3.2-2M8.8 15.7a4.6 4.6 0 0 1 6.4 0M12 19.3v.1M3.5 3.5l17 17"/>',
+        eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
+        copy: '<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2.4"/><path d="M15.5 8.5V6.4A2.4 2.4 0 0 0 13.1 4H6.4A2.4 2.4 0 0 0 4 6.4v6.7a2.4 2.4 0 0 0 2.4 2.4h2.1"/>',
+        qr: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><path d="M14 14h2.5v2.5H14zM18 18h2.5v2.5H18zM18 14h2.5M14 18v2.5"/>',
+        palette:
+          '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.8 1.6-1.6 0-1.4-1.3-1.9-1.3-3 0-.9.7-1.4 1.6-1.4H16a5 5 0 0 0 5-5C21 6.3 17 3 12 3z"/><circle cx="7.5" cy="11" r=".9"/><circle cx="10.5" cy="7" r=".9"/><circle cx="15" cy="7.5" r=".9"/>',
+        user: '<circle cx="12" cy="8" r="3.8"/><path d="M4.5 20.5c1-3.6 4-5.5 7.5-5.5s6.5 1.9 7.5 5.5"/>',
+        folder: '<path d="M3.5 7.5a2 2 0 0 1 2-2h3.8l2 2h7.2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+        terminal: '<rect x="3" y="4.5" width="18" height="15" rx="2.6"/><path d="m7 9.5 3 2.5-3 2.5M12.5 15h4.5"/>',
+        info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.1"/>',
+        trash: '<path d="M4.5 6.5h15M9.5 6.5V4.5h5v2M6.5 6.5l.8 12.2a2 2 0 0 0 2 1.8h5.4a2 2 0 0 0 2-1.8l.8-12.2"/>',
+        arrowR: '<path d="M5 12h14M13.5 6.5 19 12l-5.5 5.5"/>',
+      };
+      /** 一个线性图标。 */
+      const ic = (n, s = 16, w = 1.75) =>
+        `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${P[n]}</svg>`;
+
+      /* ══ 假数据 ══ */
+      const RELAY = "wss://relay.ktoon.dev";
+      const HOST_ID = "h_8m2kq4";
+      const FP = "7F3A 9C21 E04B 55D8";
+      const CODE = "482916";
+      const ALL_DEVICES = () => [
+        {
+          id: "d1",
+          name: "工作 iPhone",
+          model: "iPhone 15 Pro",
+          kind: "phone",
+          online: true,
+          paired: "10月20日",
+          seen: "现在",
+          watching: "修复登录超时",
+        },
+        {
+          id: "d2",
+          name: "iPad Air",
+          model: "iPad Air · M2",
+          kind: "tab",
+          online: false,
+          paired: "10月12日",
+          seen: "2 小时前",
+        },
+        {
+          id: "d3",
+          name: "旧 iPhone",
+          model: "iPhone 12",
+          kind: "phone",
+          online: false,
+          paired: "9月30日",
+          seen: "9月30日",
+        },
+      ];
+      const ERRORS = {
+        address: {
+          icon: "alert",
+          title: "找不到 relay",
+          detail: "relay.ktoon.dev 解析不到地址，检查 relay 地址是否写对",
+          act: "改地址",
+          fix: "addr",
+        },
+        key: {
+          icon: "key",
+          title: "relay 拒绝了宿主密钥",
+          detail: "密钥不对，或者 relay 重新部署过。粘贴部署时生成的密钥",
+          act: "替换密钥",
+          fix: "key",
+        },
+        network: {
+          icon: "wifiOff",
+          title: "网络断开",
+          detail: "这台 Mac 没有网络，恢复后自动重连 · 12 秒后重试",
+          act: "现在重试",
+          fix: "retry",
+        },
+      };
+
+      /* ══ 状态 ══ */
+      const S = {
+        dir: "a",
+        theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+        configured: true,
+        enabled: true,
+        conn: "ok",
+        err: "address",
+        devices: ALL_DEVICES(),
+        pair: null,
+        secs: 300,
+        qrSeed: 7,
+        other: false,
+        revoke: null,
+        nuke: false,
+        adv: false,
+        node: "relay",
+        wiz: 1,
+        rename: null,
+        keyEdit: false,
+        addrEdit: false,
+        testing: false,
+        tested: false,
+        toast: null,
+        preset: "devices",
+      };
+      const PRESETS = [
+        ["setup", "初始 · 还没配 relay", { configured: false, enabled: false, conn: "off", devices: [] }],
+        ["off", "远程访问关着", { enabled: false, conn: "off" }],
+        ["connecting", "正在连接 relay", { conn: "busy" }],
+        ["empty", "已连接 · 还没有设备", { devices: [] }],
+        ["pair-qr", "配对 ① 二维码倒计时", { devices: [], pair: "qr", secs: 300 }],
+        ["pair-exp", "配对 ① 二维码过期", { devices: [], pair: "qr", secs: 0 }],
+        ["pair-verify", "配对 ② 已扫码，验证确认消息", { devices: [], pair: "verify" }],
+        ["pair-confirm", "配对 ② 请求配对 · 校验码", { devices: [], pair: "confirm" }],
+        ["pair-other", "配对 ② 另一台手机被拒", { devices: [], pair: "confirm", other: true }],
+        ["pair-fail", "配对 ② 确认消息没通过", { devices: [], pair: "fail" }],
+        ["pair-done", "配对 ③ 完成", { devices: [], pair: "done" }],
+        ["devices", "设备列表", {}],
+        ["revoke", "设备列表 · 撤销确认", { revoke: "d2" }],
+        ["nuke", "撤销全部并重新生成 · 确认", { nuke: true }],
+        ["err-address", "relay 连不上 · 地址不对", { conn: "err", err: "address" }],
+        ["err-key", "relay 连不上 · 密钥被拒", { conn: "err", err: "key" }],
+        ["err-network", "relay 连不上 · 网络断开", { conn: "err", err: "network" }],
+      ];
+      /** 套用一个预设：先回到默认（已配置、已连接、三台设备），再盖上预设。 */
+      function preset(id) {
+        const p = PRESETS.find((x) => x[0] === id);
+        Object.assign(
+          S,
+          {
+            configured: true,
+            enabled: true,
+            conn: "ok",
+            devices: ALL_DEVICES(),
+            pair: null,
+            secs: 300,
+            other: false,
+            revoke: null,
+            nuke: false,
+            rename: null,
+            keyEdit: false,
+            addrEdit: false,
+            testing: false,
+            tested: false,
+            toast: null,
+            wiz: 1,
+            wizSkip: false,
+            adv: false,
+            node: "relay",
+          },
+          p[2],
+        );
+        if (S.conn === "err")
+          S.devices.forEach((d) => {
+            d.online = false;
+            d.watching = null;
+            if (d.seen === "现在") d.seen = "今天 09:42";
+          });
+        if (S.conn === "err") S.node = "relay";
+        if (S.pair) S.node = "add";
+        if (S.revoke) S.node = S.revoke;
+        if (S.nuke) {
+          S.node = "mac";
+          S.adv = true;
+        }
+        S.preset = id;
+      }
+
+      /* ══ 小件 ══ */
+      const esc = (s) =>
+        String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+      const btn = (label, act, cls = "", arg = "") =>
+        `<button class="btn ${cls}" data-act="${act}" data-arg="${arg}">${label}</button>`;
+      const dbg = (label, act, arg = "") => `<button class="dbg" data-act="${act}" data-arg="${arg}">${label}</button>`;
+      const sw = (on, act) =>
+        `<button class="switch ${on ? "on" : ""}" role="switch" aria-checked="${on}" data-act="${act}"></button>`;
+      const row = (label, detail, ctl, cls = "") =>
+        `<div class="it ${cls}"><div class="lab"><b>${label}</b>${detail ? `<small>${detail}</small>` : ""}</div><div class="ctl">${ctl || ""}</div></div>`;
+      const grp = (title, desc, body, foot, extra = "") =>
+        `<section class="grp"><h4>${title}<span class="sp"></span>${extra}</h4>${desc ? `<p class="gd">${desc}</p>` : ""}<div class="gl">${body}</div>${foot ? `<p class="gf">${foot}</p>` : ""}</section>`;
+      const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+      const online = () => S.devices.filter((d) => d.online).length;
+
+      /** relay 连接的状态：勾圆圈 / 转圈 / 感叹号圆圈 / 空心点，形状各不相同。 */
+      function connSt(short) {
+        if (!S.enabled) return `<span class="st off"><i class="dot offl"></i>已关闭</span>`;
+        if (S.conn === "busy") return `<span class="st busy"><i class="spin"></i>正在连接</span>`;
+        if (S.conn === "err")
+          return `<span class="st err">${ic("alert", 14)}${short ? "连不上" : ERRORS[S.err].title}</span>`;
+        return `<span class="st ok">${ic("ok", 14)}已连接</span>`;
+      }
+      function connDetail() {
+        if (!S.enabled) return "关着时宿主不连 relay，手机连不上这台 Mac";
+        if (S.conn === "busy") return `正在连 ${RELAY.slice(6)} · 上次连上 今天 09:42`;
+        if (S.conn === "err") return `${ERRORS[S.err].detail} · 上次连上 今天 09:42`;
+        return `${RELAY.slice(6)} · 连上了 3 小时 12 分`;
+      }
+
+      /* ══ 假二维码：25×25，三个定位方块加伪随机的点，刷新就换种子 ══ */
+      function qrSvg(seed) {
+        const n = 25;
+        let x = seed * 9301 + 49297;
+        const rnd = () => (x = (x * 9301 + 49297) % 233280) / 233280;
+        const finder = (r, c) =>
+          [
+            [0, 0],
+            [0, n - 7],
+            [n - 7, 0],
+          ].some(([fr, fc]) => r >= fr && r < fr + 7 && c >= fc && c < fc + 7);
+        let out = "";
+        for (let r = 0; r < n; r++)
+          for (let c = 0; c < n; c++)
+            if (!finder(r, c) && !(r === 7 || c === 7 || r === n - 8 || c === n - 8) && rnd() > 0.52)
+              out += `<rect x="${c}" y="${r}" width="1" height="1" rx=".25"/>`;
+        for (const [fr, fc] of [
+          [0, 0],
+          [0, n - 7],
+          [n - 7, 0],
+        ])
+          out += `<rect x="${fc + 0.5}" y="${fr + 0.5}" width="6" height="6" rx="1.6" fill="none" stroke="var(--qr-ink)" stroke-width="1"/><rect x="${fc + 2}" y="${fr + 2}" width="3" height="3" rx=".8"/>`;
+        return `<svg viewBox="0 0 ${n} ${n}" fill="var(--qr-ink)">${out}</svg>`;
+      }
+
+      /* ══ 配对的三步（四个方向共用内容，各自套外壳）══ */
+      const STEP_OF = { qr: 0, verify: 1, confirm: 1, fail: 1, done: 2 };
+      function pairSteps() {
+        const i = STEP_OF[S.pair];
+        return `<div class="steps">${["扫码", "核对校验码", "完成"]
+          .map(
+            (t, k) =>
+              `<span class="${k === i ? "on" : k < i ? "done" : ""}">${k < i ? ic("ok", 12, 2) : `${k + 1}.`} ${t}</span>`,
+          )
+          .join("<i></i>")}</div>`;
+      }
+      function timerHtml() {
+        if (S.secs <= 0) return `<div class="timer" id="timer">二维码已过期</div>`;
+        const f = S.secs / 300,
+          a = 2 * Math.PI * 5.5;
+        return `<div class="timer tnum ${S.secs <= 60 ? "low" : ""}" id="timer"><svg class="ring" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--line-strong)" stroke-width="1.5"/>
+    <circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="${a * f} ${a}" transform="rotate(-90 7 7)" stroke-linecap="round"/></svg>
+    <b>${mmss(S.secs)}</b> 后过期</div>`;
+      }
+      /** 当前一步的标题、说明、主体和底部按钮。size 是二维码的尺寸（'' 或 'sm'）。 */
+      function pairParts(size = "") {
+        const expired = S.secs <= 0;
+        if (S.pair === "qr")
+          return {
+            title: "配对新设备",
+            desc: "用 Atrium 手机 App 扫这个码。码里有 relay 地址、这台 Mac 的公钥和一次性的配对密钥，5 分钟内有效，只能用一次。",
+            body: `<div class="qrbox ${size} ${expired ? "expired" : ""}">${qrSvg(S.qrSeed)}${expired ? `<div class="over">已过期${btn(`${ic("refresh", 13)}刷新`, "refresh", "sm")}</div>` : ""}</div>
+      ${timerHtml()}<div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:10px">${expired ? "" : dbg("模拟：手机扫码", "scan") + dbg("快进到过期", "expire")}</div>`,
+            foot:
+              btn("取消", "pairCancel") +
+              `<span class="sp"></span><span class="hint">别把这个码发给别人或截图分享</span>`,
+          };
+        if (S.pair === "verify")
+          return {
+            title: "正在确认手机",
+            desc: "手机已扫码、完成握手，正在等它发来加密的确认消息。验证通过后请你核对校验码。",
+            body: `<div class="qrbox ${size} wait">${qrSvg(S.qrSeed)}<div class="over"><span class="wait-dots"><i></i><i></i><i></i></span>等手机确认</div></div>
+      <p class="hint" style="text-align:center;margin:12px 0 0">这个码已被一台手机占用，别的手机再扫会被拒绝</p>
+      <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:10px">${dbg("模拟：验证通过", "verified")}${dbg("模拟：验证失败", "vfail")}</div>`,
+            foot: btn("取消", "pairCancel"),
+          };
+        if (S.pair === "confirm")
+          return {
+            title: "核对校验码",
+            desc: "",
+            body: `<div class="req"><span class="ph">${ic("phone", 18)}</span><div><b>iPhone 15 Pro 请求配对</b><small>确认消息已验证 · 刚刚</small></div></div>
+      <p class="hint" style="color:var(--text-2);margin:0 0 10px">手机上也显示了一串数字。和下面一致再确认，不一致就拒绝。</p>
+      <div class="code tnum">${CODE.slice(0, 3)
+        .split("")
+        .map((d) => `<span>${d}</span>`)
+        .join("")}<span class="gap"></span>${CODE.slice(3)
+        .split("")
+        .map((d) => `<span>${d}</span>`)
+        .join("")}</div>
+      ${S.other ? `<div class="rejected rise">${ic("x", 13, 2)}另一台设备也扫了这个码，已拒绝。同一时刻只接受一台</div>` : `<div style="margin-top:10px">${dbg("模拟：另一台手机也扫了", "other")}</div>`}`,
+            foot: btn("拒绝", "pairReject") + '<span class="sp"></span>' + btn("确认配对", "pairOk", "primary"),
+          };
+        if (S.pair === "fail")
+          return {
+            title: "没能配对",
+            desc: "",
+            body: `<div class="req" style="background:var(--danger-soft)"><span class="ph" style="color:var(--danger)">${ic("alert", 18)}</span><div><b>手机发来的确认消息没通过验证</b><small>已断开这台手机，这个码也作废了</small></div></div>
+      <p class="hint">可能是手机 App 版本太旧，或者二维码被别人拿去用了。重新生成一个码再扫。</p>`,
+            foot:
+              btn("取消", "pairCancel") +
+              '<span class="sp"></span>' +
+              btn(`${ic("refresh", 13)}重新生成二维码`, "refresh", "primary"),
+          };
+        return {
+          title: "已配对",
+          desc: "iPhone 15 Pro 现在可以经 relay 连回这台 Mac。以后在这里随时撤销。",
+          body: `<div class="done-mark">${ic("ok", 24, 2)}</div>
+      <label class="hint" style="display:block;margin-bottom:6px;color:var(--text-2)">设备名称</label>
+      <input class="field" style="width:100%" value="iPhone 15 Pro" id="newName">
+      <dl class="kv2" style="margin:14px 0 0"><dt>设备公钥指纹</dt><dd class="kbd-fp">C4E1 0B7A 92F3 6D18</dd><dt>配对时间</dt><dd>今天 14:06</dd></dl>`,
+          foot: '<span class="sp"></span>' + btn("完成", "pairDone", "primary"),
+        };
+      }
+      /** A、D 用的弹层：盖在内容区上。 */
+      function pairSheet() {
+        const p = pairParts();
+        const center = S.pair === "done" ? ' style="justify-content:center"' : "";
+        return `<div class="sheet-ov"><div class="sheet" role="dialog" aria-label="配对新设备">${pairSteps()}
+    <h3${center}>${p.title}${S.pair === "done" ? "" : `<span class="sp"></span><button class="ibtn sm" data-act="pairCancel" aria-label="关闭">${ic("x", 14)}</button>`}</h3>
+    ${p.desc ? `<p class="sd"${S.pair === "done" ? ' style="text-align:center"' : ""}>${p.desc}</p>` : '<div style="height:10px"></div>'}${p.body}<div class="foot">${p.foot}</div></div></div>`;
+      }
+
+      /* ══ 设置窗口 ══ */
+      const NAV = [
+        ["外观", "palette"],
+        ["模型与账户", "user"],
+        ["项目", "folder"],
+        ["pi", "terminal"],
+        ["手机", "phone"],
+        ["关于", "info"],
+      ];
+      const LEAD = "用 iPhone 经你自己的 relay 连回这台 Mac。内容端到端加密，relay 只转发、看不到。";
+      function navMark() {
+        if (S.pair === "confirm")
+          return `<span class="nmark"><i class="dot" style="background:var(--attn)"></i></span>`;
+        if (S.enabled && S.conn === "err")
+          return `<span class="nmark" style="color:var(--danger)">${ic("alert", 14)}</span>`;
+        return "";
+      }
+      function render() {
+        document.documentElement.dataset.theme = S.theme;
+        document.getElementById("dirSeg").innerHTML = [
+          ["a", "A 分组表单"],
+          ["b", "B 设备为主"],
+          ["c", "C 向导加总览"],
+          ["d", "D 链路图"],
+        ]
+          .map(([k, t]) => `<button class="${S.dir === k ? "on" : ""}" data-act="dir" data-arg="${k}">${t}</button>`)
+          .join("");
+        document.getElementById("themeSeg").innerHTML = [
+          ["light", "浅色"],
+          ["dark", "深色"],
+        ]
+          .map(
+            ([k, t]) => `<button class="${S.theme === k ? "on" : ""}" data-act="theme" data-arg="${k}">${t}</button>`,
+          )
+          .join("");
+        document.getElementById("stateSel").innerHTML = PRESETS.map(
+          ([k, t]) => `<option value="${k}" ${S.preset === k ? "selected" : ""}>${t}</option>`,
+        ).join("");
+        const body = { a: renderA, b: renderB, c: renderC, d: renderD }[S.dir]();
+        document.getElementById("win").innerHTML = `
+    <nav class="nav"><div class="tb"><i></i><i></i><i></i></div>
+      ${NAV.map(([t, i]) => `<button class="nrow ${t === "手机" ? "on" : ""}"><span class="ic">${ic(i)}</span><span class="grow">${t}</span>${t === "手机" ? navMark() : ""}</button>`).join("")}</nav>
+    <div class="ct"><header class="ch"><b>手机</b><span class="esc">Esc</span><button class="ibtn" aria-label="关闭设置">${ic("x")}</button></header>
+      <div class="sbody" id="sbody"><p class="lead">${LEAD}</p>${body}</div>
+      ${S.pair && (S.dir === "a" || S.dir === "d") ? pairSheet() : ""}
+      ${S.toast ? `<div class="toast" role="status"><span style="color:var(--ok-text)">${ic(S.toast.icon || "ok", 15)}</span>${S.toast.html}</div>` : ""}</div>`;
+        document.getElementById("notes").innerHTML = NOTES[S.dir];
+        const warn = S.nuke && document.querySelector(".it.warn"),
+          sb = document.getElementById("sbody");
+        if (warn) sb.scrollTop += warn.getBoundingClientRect().top - sb.getBoundingClientRect().top - 160;
+      }
+
+      /* ══ 几个方向共用的行 ══ */
+      const isOn = (d) => S.enabled && S.conn === "ok" && d.online;
+      const canPair = () => S.enabled && S.conn === "ok";
+      function devDetail(d) {
+        const st = isOn(d)
+          ? `<span style="color:var(--ok-text)">在线</span>${d.watching ? ` · 正在看「${d.watching}」` : ""}`
+          : `离线 · 最后在线 ${d.seen}`;
+        return `${st} · 配对于 ${d.paired}`;
+      }
+      const devIcon = (
+        d,
+      ) => `<span style="width:32px;display:inline-flex;justify-content:center;position:relative;color:${isOn(d) ? "var(--text-2)" : "var(--text-dim)"}">${ic(d.kind === "tab" ? "tablet" : "phone", 20)}
+  <i class="dot ${isOn(d) ? "on" : "offl"}" style="position:absolute;right:4px;bottom:0;width:7px;height:7px;${isOn(d) ? "" : "background:var(--main)"}"></i></span>`;
+      /** 一台设备的一行，带改名和撤销（确认在行里，同「模型与账户」的退出登录）。 */
+      function devRow(d) {
+        const editing = S.rename === d.id,
+          revoking = S.revoke === d.id;
+        const name = editing
+          ? `<input class="field" id="rn" value="${esc(d.name)}" style="width:220px;height:26px" autofocus>`
+          : `${esc(d.name)} <span class="hint" style="font-weight:400">${d.model}</span>`;
+        const ctl = editing
+          ? btn("取消", "renameCancel", "ghost") + btn("保存", "renameSave", "sm primary", d.id)
+          : revoking
+            ? ""
+            : `<button class="ibtn sm" title="改名" data-act="rename" data-arg="${d.id}">${ic("pencil", 14)}</button>${btn("撤销", "revoke", "ghost", d.id)}`;
+        return (
+          `<div class="it ${revoking ? "warn" : ""}">${devIcon(d)}<div class="lab"><b>${name}</b><small>${devDetail(d)}</small></div><div class="ctl">${ctl}</div></div>` +
+          (revoking
+            ? `<div class="itx" style="background:var(--danger-soft);border-radius:0 0 var(--r-md) var(--r-md);margin-top:0;padding-top:4px"><div class="confirm red">
+      <span>撤销后 ${esc(d.name)} ${isOn(d) ? "立刻断开，" : ""}再用要重新扫码配对。</span><span class="sp"></span>${btn("取消", "revokeCancel", "ghost")}${btn("撤销", "revokeOk", "sm danger", d.id)}</div></div>`
+            : "")
+        );
+      }
+      function relayRows() {
+        const addr = S.addrEdit
+          ? `<input class="field mono" style="width:260px" value="${RELAY}">${btn("取消", "addrEdit", "ghost")}${btn("保存", "addrSave", "sm primary")}`
+          : `<span class="val mono" style="font-size:var(--fs-sm)">${RELAY}</span>${btn("修改", "addrEdit", "ghost")}`;
+        const key = S.keyEdit
+          ? `<input class="field mono" style="width:260px" placeholder="粘贴新的宿主密钥" type="password">${btn("取消", "keyEdit", "ghost")}${btn("保存", "keySave", "sm primary")}`
+          : `<span class="masked">${ic("lock", 12)}rk_••••••••••3f9a</span>${btn("替换", "keyEdit", "ghost")}`;
+        const bad = S.enabled && S.conn === "err";
+        return (
+          row(
+            "relay 地址",
+            bad && S.err === "address"
+              ? '<span style="color:var(--danger)">解析不到这个地址</span>'
+              : "部署在你自己 VPS 上的 relay",
+            addr,
+          ) +
+          row(
+            "宿主密钥",
+            bad && S.err === "key"
+              ? '<span style="color:var(--danger)">relay 不认这个密钥</span>'
+              : "部署 relay 时生成，用来向 relay 证明这台 Mac 是它自己",
+            key,
+          ) +
+          row(
+            "测试连接",
+            S.tested
+              ? '<span style="color:var(--ok-text)">连得上，密钥也对 · 往返 86 ms</span>'
+              : "用上面的地址和密钥连一次，不影响现在的连接",
+            S.testing ? `<span class="st busy"><i class="spin"></i>正在测试</span>` : btn("测试连接", "test"),
+          )
+        );
+      }
+      function identityRows() {
+        return (
+          row(
+            "宿主公钥指纹",
+            "配对时手机会显示同一串；私钥存在 macOS 钥匙串里",
+            `<span class="kbd-fp">${FP}</span><button class="ibtn sm" title="拷贝">${ic("copy", 14)}</button>`,
+            "kv",
+          ) +
+          row("宿主 id", "", `<span class="val mono" style="font-size:var(--fs-sm)">${HOST_ID}</span>`, "kv") +
+          `<div class="it ${S.nuke ? "warn" : ""}"><div class="lab"><b>撤销全部并重新生成宿主密钥</b><small>手机丢了、或者怀疑二维码被人拍到时用</small></div>
+      <div class="ctl">${S.nuke ? "" : btn("撤销全部…", "nuke", "sm danger-soft")}</div></div>` +
+          (S.nuke
+            ? `<div class="itx" style="background:var(--danger-soft);border-radius:0 0 var(--r-md) var(--r-md);margin-top:0;padding-top:2px">
+      <p class="err-line" style="margin:0 0 10px">${S.devices.length} 台设备立刻断开、都要重新配对；这台 Mac 换一对新密钥，指纹会变，旧的二维码和截图都作废。relay 的宿主密钥不变。</p>
+      <div class="confirm"><span class="sp"></span>${btn("取消", "nukeCancel", "ghost")}${btn("撤销全部并重新生成", "nukeOk", "sm danger")}</div></div>`
+            : "")
+        );
+      }
+      /** 连不上时针对原因的那个按钮。 */
+      const fixBtn = (cls = "sm") => btn(ERRORS[S.err].act, "fix", cls);
+
+      /* ══ A · 分组表单 ══ */
+      function renderA() {
+        if (!S.configured) {
+          return (
+            grp(
+              "远程访问",
+              "",
+              row(
+                "允许手机远程访问",
+                "先在下面填好 relay，再打开",
+                `<button class="switch" disabled style="opacity:.45;cursor:not-allowed"></button>`,
+              ),
+            ) +
+            grp(
+              "relay",
+              `relay 是你部署在自己 VPS 上的转发服务，部署时会生成宿主密钥。还没有 relay？<button class="lnk">看部署说明</button>`,
+              row(
+                "relay 地址",
+                "",
+                `<input class="field mono" style="width:280px" placeholder="wss://relay.example.com">`,
+              ) +
+                row(
+                  "宿主密钥",
+                  "粘贴后只显示末尾几位",
+                  `<input class="field mono" style="width:280px" type="password" placeholder="粘贴部署时生成的密钥">`,
+                ) +
+                `<div style="display:flex;gap:8px;padding:10px 12px 0">${btn("保存并打开远程访问", "setupSave", "primary")}${btn("测试连接", "test")}</div>`,
+              "宿主只主动连出去，不开入站端口。",
+            ) +
+            grp(
+              "已配对的设备",
+              "",
+              row('<span style="color:var(--text-dim);font-weight:400">连上 relay 后才能配对手机</span>', ""),
+            )
+          );
+        }
+        const bad = S.enabled && S.conn === "err";
+        const status = S.enabled
+          ? `<div class="it kv ${bad ? "warn" : ""}"><div class="lab"><b>relay 连接</b><small>${connDetail()}</small></div><div class="ctl">${connSt()}${bad ? fixBtn() + (S.err === "network" ? "" : btn("重试", "retry", "ghost")) : ""}</div></div>`
+          : "";
+        const devs = S.devices.length
+          ? S.devices.map(devRow).join("")
+          : `<div class="it" style="min-height:84px;justify-content:center;flex-direction:column;gap:8px"><span class="hint">还没有配对的设备</span>${btn(`${ic("qr", 14)}配对新设备`, "pairStart", "primary", "")}</div>`;
+        return (
+          grp(
+            "远程访问",
+            "",
+            row(
+              "允许手机远程访问",
+              S.enabled ? "宿主保持一条到 relay 的连接，只连出去，不开端口" : connDetail(),
+              sw(S.enabled, "toggle"),
+            ) + status,
+          ) +
+          grp(
+            "已配对的设备",
+            S.devices.length ? `${online()} 台在线 · 共 ${S.devices.length} 台` : "",
+            devs,
+            !S.enabled
+              ? "远程访问关着，设备都连不上。"
+              : bad
+                ? "连不上 relay 时设备都连不进来，也不能配对新设备。"
+                : "",
+            S.devices.length
+              ? `<button class="btn sm" data-act="pairStart" ${canPair() ? "" : "disabled"}>${ic("plus", 13)}配对新设备</button>`
+              : "",
+          ) +
+          grp("relay", "", relayRows(), RELAY_FOOT) +
+          grp("这台 Mac 的身份", "", identityRows())
+        );
+      }
+
+      const RELAY_FOOT =
+        "宿主密钥存在 macOS 钥匙串里。改了地址或密钥会重新连；手机记的是二维码里的地址，换了地址要重新扫码。";
+
+      /* ══ B · 设备为主 ══ */
+      function bStrip() {
+        if (!S.enabled)
+          return `<div class="bstrip off"><span style="color:var(--text-dim)">${ic("cloud")}</span>远程访问已关闭<span class="sub">打开后手机才能连回来</span><span class="sp"></span>${sw(false, "toggle")}</div>`;
+        if (S.conn === "err") {
+          const e = ERRORS[S.err];
+          return `<div class="bstrip err" style="height:auto;padding:10px 8px 10px 14px"><span style="color:var(--danger)">${ic(e.icon)}</span>
+      <div style="flex:1;min-width:0"><b style="font-weight:500;color:var(--danger)">${e.title}</b><div class="sub" style="color:var(--text-muted)">${e.detail} · 上次连上 今天 09:42</div></div>
+      ${fixBtn()}${sw(true, "toggle")}</div>`;
+        }
+        const sub =
+          S.conn === "busy"
+            ? "正在连 relay.ktoon.dev"
+            : `relay.ktoon.dev · ${S.devices.length ? `${online()} 台在线` : "还没有设备"}`;
+        return `<div class="bstrip"><span style="color:var(--text-muted)">${ic("cloud")}</span>远程访问 ${connSt(true)}<span class="sub">${sub}</span><span class="sp"></span>${sw(true, "toggle")}</div>`;
+      }
+      function bCard(d) {
+        const on = isOn(d),
+          rv = S.revoke === d.id,
+          ed = S.rename === d.id;
+        return `<div class="dcard ${on ? "online" : ""} ${rv ? "revoking" : ""}">
+    <div class="top"><span class="phone ${d.kind === "tab" ? "tab" : ""}"></span><span class="sp"></span>
+      ${rv || ed ? "" : `<button class="ibtn sm" title="改名" data-act="rename" data-arg="${d.id}">${ic("pencil", 14)}</button><button class="ibtn sm" title="撤销" data-act="revoke" data-arg="${d.id}">${ic("trash", 14)}</button>`}</div>
+    <div class="nm">${ed ? `<input class="field" id="rn" value="${esc(d.name)}" style="width:100%;height:26px">` : esc(d.name)}</div>
+    <div class="meta">${on ? '<span class="st ok" style="font-size:var(--fs-sm)"><i class="dot on"></i>在线</span>' : `<span class="st off" style="font-size:var(--fs-sm)"><i class="dot offl"></i>离线 · ${d.seen}</span>`}<br>${d.model}<br>${d.paired}配对</div>
+    ${
+      ed
+        ? `<div class="rv" style="color:inherit"><div class="row">${btn("取消", "renameCancel", "ghost")}${btn("保存", "renameSave", "sm primary", d.id)}</div></div>`
+        : rv
+          ? `<div class="rv">撤销后${on ? "立刻断开，" : ""}要重新扫码<div class="row">${btn("取消", "revokeCancel", "ghost")}${btn("撤销", "revokeOk", "sm danger", d.id)}</div></div>`
+          : on && d.watching
+            ? `<div class="watch">${ic("eye", 13)}<span>正在看「${d.watching}」</span></div>`
+            : ""
+    }
+  </div>`;
+      }
+      function bPair() {
+        const p = pairParts("sm"),
+          qrStep = S.pair === "qr" || S.pair === "verify";
+        const left = qrStep
+          ? `<div>${p.body}</div>`
+          : `<div style="display:grid;place-items:center;border-radius:var(--r-btn);background:var(--code);min-height:160px;color:${S.pair === "fail" ? "var(--danger)" : S.pair === "done" ? "var(--ok-text)" : "var(--attn-text)"}">${ic(S.pair === "fail" ? "alert" : S.pair === "done" ? "ok" : "phone", 40, 1.5)}</div>`;
+        const right = qrStep
+          ? ""
+          : S.pair === "done"
+            ? p.body.replace(/<div class="done-mark">.*?<\/div>/s, "")
+            : p.body;
+        return `<div class="bpair">${left}<div>${pairSteps()}<h3>${p.title}<span class="sp"></span><button class="ibtn sm" data-act="pairCancel" aria-label="关闭">${ic("x", 14)}</button></h3>
+    ${p.desc ? `<p class="sd">${p.desc}</p>` : ""}${right}<div class="foot">${p.foot.replace('<span class="sp"></span>', "")}</div></div></div>`;
+      }
+      function renderB() {
+        if (!S.configured) {
+          return `<div class="bpair" style="grid-template-columns:120px 1fr"><div style="display:grid;place-items:center;border-radius:var(--r-btn);background:var(--code);color:var(--text-muted)">${ic("cloud", 40, 1.5)}</div>
+      <div><h3>先接上你的 relay</h3><p class="sd">手机经你自己 VPS 上的 relay 连回来。填上 relay 的地址和部署时生成的宿主密钥。<button class="lnk">怎么部署</button></p>
+      <div style="display:grid;gap:8px"><input class="field mono" placeholder="wss://relay.example.com"><input class="field mono" type="password" placeholder="宿主密钥"></div>
+      <div class="foot">${btn("连接", "setupSave", "primary")}${btn("测试连接", "test")}${S.testing ? '<span class="st busy"><i class="spin"></i></span>' : S.tested ? '<span class="st ok">' + ic("ok", 14) + "连得上</span>" : ""}</div></div></div>
+      <h4 style="margin:26px 0 10px;font-size:var(--fs-meta)">设备</h4><div class="bgrid"><button class="dadd" disabled style="opacity:.5;cursor:not-allowed"><span class="pl">${ic("plus")}</span>连上 relay 后配对</button></div>`;
+        }
+        const add = S.pair
+          ? ""
+          : `<button class="dadd" data-act="pairStart" ${canPair() ? "" : 'disabled style="opacity:.5;cursor:not-allowed"'}><span class="pl">${ic("plus")}</span>${canPair() ? "配对新设备" : "连上 relay 后才能配对"}</button>`;
+        const empty =
+          !S.devices.length && !S.pair && canPair()
+            ? `<div class="dcard" style="grid-column:span 2;justify-content:center;box-shadow:none;background:none"><div class="nm" style="margin:0">还没有设备</div><div class="meta">装好 Atrium 手机 App，点左边配对，用手机扫码。</div></div>`
+            : "";
+        return (
+          bStrip() +
+          `<h4 style="margin:0 0 10px;font-size:var(--fs-meta);display:flex">设备<span class="hint" style="margin-left:8px;font-weight:400">${S.devices.length ? `${S.devices.length} 台` : ""}</span></h4>
+    <div class="bgrid">${S.pair ? bPair() : ""}${S.devices.map(bCard).join("")}${add}${empty}</div>
+    <div class="adv"><button class="adv-h ${S.adv ? "open" : ""}" data-act="adv">${ic("chev", 12, 2)}高级：relay 与这台 Mac 的身份</button>
+      ${S.adv ? `<div class="adv-b">${grp("relay", "", relayRows(), RELAY_FOOT)}${grp("这台 Mac 的身份", "", identityRows())}</div>` : ""}</div>`
+        );
+      }
+
+      /* ══ C · 向导加总览 ══ */
+      const WIZ = ["准备 relay", "填地址和密钥", "测试连接", "配对第一台手机"];
+      function wsteps(names, cur, bad = -1) {
+        return `<div class="wsteps">${names.map((t, i) => `<div class="wstep ${i === cur ? "on" : i < cur ? "done" : ""} ${i === bad ? "bad" : ""}"><span class="n">${i < cur ? ic("ok", 11, 2.4) : i + 1}</span>${t}</div>`).join("")}</div>`;
+      }
+      function cPairPane(first) {
+        const p = pairParts();
+        return `<div class="wpane">${pairSteps()}<h3>${first ? "配对第一台手机" : p.title}</h3>${p.desc ? `<p class="sd">${p.desc}</p>` : ""}
+    <div style="max-width:360px">${p.body}</div><div class="foot">${p.foot}</div></div>`;
+      }
+      function cWizard() {
+        const step = S.configured ? 3 : Math.min(S.wiz, 3) - 1;
+        let pane;
+        if (step === 0)
+          pane = `<div class="wpane rise"><h3>准备一台 relay</h3><p class="sd">手机不直接连这台 Mac，而是经你自己 VPS 上的 relay 转发。relay 只转发加密过的字节，看不到对话内容。在 VPS 上运行：</p>
+    <div class="term">npx @atrium/relay init<br><span class="c">→ relay 地址   wss://relay.example.com</span><br><span class="c">→ 宿主密钥   rk_…（只显示这一次）</span></div>
+    <p class="hint">需要一个域名和 443 端口，证书由 Caddy 自动申请。<button class="lnk">完整的部署说明</button></p>
+    <div class="foot"><span class="sp"></span>${btn(`已经部署好了 ${ic("arrowR", 13)}`, "wiz", "primary", "2")}</div></div>`;
+        else if (step === 1)
+          pane = `<div class="wpane rise"><h3>填 relay 的地址和密钥</h3><p class="sd">都在 init 的输出里。密钥存进 macOS 钥匙串，之后只显示末尾几位。</p>
+    <div class="fld"><label class="fl">relay 地址</label><input class="field mono" style="width:100%" value="${RELAY}"></div>
+    <div class="fld"><label class="fl">宿主密钥<small>用来向 relay 证明这台 Mac 是它自己</small></label><input class="field mono" style="width:100%" type="password" value="rk_live_abcdefghij3f9a"></div>
+    <div class="foot">${btn("上一步", "wiz", "", "1")}<span class="sp"></span>${btn(`测试连接 ${ic("arrowR", 13)}`, "wizTest", "primary")}</div></div>`;
+        else if (step === 2) {
+          const items = [
+            ["解析 relay.ktoon.dev", "203.0.113.24"],
+            ["建立加密连接（TLS）", ""],
+            ["relay 认可宿主密钥", ""],
+            ["往返延迟", "86 ms"],
+          ];
+          pane = `<div class="wpane rise"><h3>测试连接</h3><p class="sd">用刚才填的地址和密钥连一次 relay。</p>
+      <div class="checks">${items.map(([t, r], i) => `<div class="chk">${S.testing && i > 0 ? '<span class="st busy"><i class="spin"></i></span>' : S.testing ? '<span class="st ok">' + ic("ok", 14) + "</span>" : S.tested ? '<span class="st ok">' + ic("ok", 14) + "</span>" : '<i class="dot offl"></i>'}${t}<span class="r tnum">${S.tested || (S.testing && i === 0) ? r : ""}</span></div>`).join("")}</div>
+      <div class="foot">${btn("上一步", "wiz", "", "2")}<span class="sp"></span>${btn(`打开远程访问 ${ic("arrowR", 13)}`, "setupSave", "primary" + (S.tested ? "" : '" disabled="'))}</div></div>`;
+        } else
+          pane = S.pair
+            ? cPairPane(true)
+            : `<div class="wpane rise"><h3>配对第一台手机</h3><p class="sd">relay 已接上 ${connSt(true)}。在 iPhone 上装好 Atrium，生成一个配对码用它扫。</p>
+      <div class="qrbox expired" style="margin:0">${qrSvg(3)}<div class="over">${btn(`${ic("qr", 13)}生成配对码`, "pairStart", "sm")}</div></div>
+      <div class="foot"><span class="sp"></span>${btn("以后再配", "wizSkip", "ghost")}</div></div>`;
+        return `<div class="wiz">${wsteps(WIZ, step)}${pane}</div>`;
+      }
+      function cHealth() {
+        const bad = S.enabled && S.conn === "err";
+        return `<div class="health">
+    <div class="hcell"><div class="k">${ic("laptop", 12)}远程访问</div><div class="v">${S.enabled ? "已打开" : "已关闭"}<span style="flex:1"></span>${sw(S.enabled, "toggle")}</div><div class="s">只连出去，不开端口</div></div>
+    <div class="hcell ${bad ? "bad" : ""}"><div class="k">${ic("cloud", 12)}relay</div><div class="v">${connSt(true)}</div><div class="s">${bad ? "上次连上 今天 09:42" : "relay.ktoon.dev"}</div></div>
+    <div class="hcell"><div class="k">${ic("phone", 12)}设备</div><div class="v tnum">${S.devices.length} 台</div><div class="s">${S.enabled && S.conn === "ok" ? `${online()} 台在线` : "都连不上"}</div></div></div>`;
+      }
+      /** 连不上时的诊断：哪一步断了、怎么修。 */
+      function cDiagnose() {
+        const fail = { network: 0, address: 1, key: 3 }[S.err],
+          e = ERRORS[S.err];
+        const items = ["这台 Mac 有网络", "解析 relay.ktoon.dev", "建立加密连接（TLS）", "relay 认可宿主密钥"];
+        return grp(
+          `<span style="color:var(--danger)">${e.title}</span>`,
+          e.detail,
+          `<div>${items.map((t, i) => `<div class="chk" style="${i > fail ? "color:var(--text-dim)" : ""}">${i < fail ? `<span class="st ok">${ic("ok", 14)}</span>` : i === fail ? `<span class="st err">${ic("alert", 14)}</span>` : '<i class="dot offl" style="margin:0 3.5px"></i>'}${t}<span class="r">${i === fail ? fixBtn() : i > fail ? "没有检查" : ""}</span></div>`).join("")}</div>`,
+        );
+      }
+      function renderC() {
+        if (!S.configured || (!S.devices.length && !S.wizSkip && S.enabled && S.conn !== "err")) return cWizard();
+        if (S.pair)
+          return `<div class="wiz">${wsteps(["扫码", "核对校验码", "完成"], STEP_OF[S.pair], S.pair === "fail" ? 1 : -1)}${cPairPane(false)}</div>`;
+        const bad = S.enabled && S.conn === "err";
+        const devs = S.devices.length
+          ? S.devices.map(devRow).join("")
+          : row('<span style="font-weight:400;color:var(--text-muted)">还没有设备</span>', "");
+        return (
+          cHealth() +
+          (bad ? cDiagnose() : "") +
+          grp(
+            "设备",
+            "",
+            devs,
+            "",
+            `<button class="btn sm" data-act="pairStart" ${canPair() ? "" : "disabled"}>${ic("plus", 13)}配对新设备</button>`,
+          ) +
+          grp("relay", "", relayRows(), RELAY_FOOT, `<button class="lnk" data-act="rewiz">重新走一遍向导</button>`) +
+          grp("这台 Mac 的身份", "", identityRows())
+        );
+      }
+
+      /* ══ D · 链路图 ══ */
+      function dTopo() {
+        const bad = S.enabled && S.conn === "err";
+        const e1 = !S.configured || !S.enabled ? "off" : S.conn === "busy" ? "busy" : bad ? "bad" : "ok";
+        const e2 = e1 === "ok" && online() ? "ok" : "idle";
+        const l1 = !S.configured
+          ? "还没设置"
+          : !S.enabled
+            ? "已关闭"
+            : S.conn === "busy"
+              ? "正在连接"
+              : bad
+                ? ERRORS[S.err].title
+                : "只出站 · 3 小时";
+        const sel = (k) => (S.node === k ? "sel" : "");
+        const phones = S.devices
+          .map(
+            (d) =>
+              `<button class="pnode ${sel(d.id)}" data-act="node" data-arg="${d.id}"><i class="dot ${isOn(d) ? "on" : "offl"}"></i><span>${esc(d.name)}</span></button>`,
+          )
+          .join("");
+        return `<div class="topo">
+    <button class="node ${sel("mac")}" data-act="node" data-arg="mac"><span class="nic">${ic("laptop", 22)}</span>这台 Mac<small class="mono">${FP.slice(0, 9)}</small></button>
+    <div class="edge ${e1}"><span class="lb" style="${bad ? "color:var(--danger)" : ""}">${l1}</span>${e1 === "ok" ? '<i class="pkt"></i>' : ""}${bad ? `<span class="mid" style="color:var(--danger)">${ic(S.err === "network" ? "wifiOff" : S.err === "key" ? "key" : "x", 14, 2)}</span>` : ""}</div>
+    <button class="node ${sel("relay")} ${bad ? "bad" : ""} ${!S.configured || !S.enabled ? "offn" : ""}" data-act="node" data-arg="relay"><span class="nic">${ic("cloud", 22)}</span>relay<small>${S.configured ? "relay.ktoon.dev" : "未设置"}</small></button>
+    <div class="edge ${e2}"><span class="lb">端到端加密</span></div>
+    <div class="phones">${phones}<button class="pnode add ${sel("add")}" data-act="node" data-arg="add" ${canPair() ? "" : 'disabled style="opacity:.45;cursor:not-allowed"'}>${ic("plus", 13)}<span>配对新设备</span></button></div>
+  </div>`;
+      }
+      function dPanel() {
+        if (S.node === "mac")
+          return `<div class="dpanel">${grp("这台 Mac", "宿主只主动连出去，不开入站端口。", row("允许手机远程访问", S.configured ? connDetail() : "先设置 relay", S.configured ? sw(S.enabled, "toggle") : "") + identityRows())}</div>`;
+        const d = S.devices.find((x) => x.id === S.node);
+        if (d) {
+          const on = isOn(d),
+            ed = S.rename === d.id;
+          return `<div class="dpanel">${grp(
+            ed
+              ? `<input class="field" id="rn" value="${esc(d.name)}" style="width:220px;height:26px">${btn("取消", "renameCancel", "ghost")}${btn("保存", "renameSave", "sm primary", d.id)}`
+              : `${esc(d.name)}<button class="ibtn sm" data-act="rename" data-arg="${d.id}" title="改名">${ic("pencil", 13)}</button>`,
+            "",
+            row(
+              "状态",
+              "",
+              on
+                ? '<span class="st ok"><i class="dot on"></i>在线</span>'
+                : `<span class="st off"><i class="dot offl"></i>离线 · 最后在线 ${d.seen}</span>`,
+              "kv",
+            ) +
+              (on && d.watching ? row("正在看", "", `<span class="val">${d.watching}</span>`, "kv") : "") +
+              row("型号", "", `<span class="val">${d.model}</span>`, "kv") +
+              row("配对时间", "", `<span class="val">${d.paired}</span>`, "kv") +
+              row("设备公钥指纹", "", '<span class="kbd-fp">C4E1 0B7A 92F3 6D18</span>', "kv") +
+              (S.revoke === d.id
+                ? `<div class="it warn"><div class="lab"><b style="color:var(--danger);font-size:var(--fs-meta)">撤销后${on ? "立刻断开，" : ""}再用要重新扫码配对</b></div><div class="ctl">${btn("取消", "revokeCancel", "ghost")}${btn("撤销", "revokeOk", "sm danger", d.id)}</div></div>`
+                : row("撤销这台设备", "它下次握手会被拒绝", btn("撤销", "revoke", "sm danger-soft", d.id))),
+          )}</div>`;
+        }
+        // relay（以及没选到东西时）
+        if (!S.configured)
+          return `<div class="dpanel">${grp(
+            "接上你的 relay",
+            `手机经你自己 VPS 上的 relay 连回这台 Mac，relay 只转发、看不到内容。<button class="lnk">怎么部署</button>`,
+            row(
+              "relay 地址",
+              "",
+              `<input class="field mono" style="width:280px" placeholder="wss://relay.example.com">`,
+            ) +
+              row(
+                "宿主密钥",
+                "部署 relay 时生成",
+                `<input class="field mono" style="width:280px" type="password" placeholder="粘贴密钥">`,
+              ) +
+              `<div style="display:flex;gap:8px;padding:10px 12px 0">${btn("连接", "setupSave", "primary")}${btn("测试连接", "test")}</div>`,
+          )}</div>`;
+        const bad = S.enabled && S.conn === "err";
+        return `<div class="dpanel">${grp("relay", "", `<div class="it kv ${bad ? "warn" : ""}"><div class="lab"><b>连接</b><small>${connDetail()}</small></div><div class="ctl">${connSt()}${bad ? fixBtn() : ""}</div></div>` + relayRows(), RELAY_FOOT)}</div>`;
+      }
+      function renderD() {
+        return dTopo() + dPanel();
+      }
+
+      /* ══ 各方向的说明 ══ */
+      const FLOW = `<p class="flow">配对流程（四个方向相同）：生成二维码（5 分钟倒计时，过期可刷新）→ 手机扫码、完成 IKpsk2 握手 → 手机发来一条加密的确认消息，桌面显示“等手机确认”，这时码已被占用 →
+  宿主验证通过后才显示“iPhone 15 Pro 请求配对”和六位校验码，用户确认或拒绝；验证没通过则断开、码作废 → 完成时可改名。
+  同一时刻只接受一台：在“核对校验码”里模拟“另一台手机也扫了”，桌面只记一行“已拒绝”，不打断当前配对。拒绝或取消后码作废。用顶部“状态”下拉可以直接跳到每一步。</p>`;
+      const NOTES = {
+        a: `<h3>A · 分组表单</h3><ul>
+    <li><b>是什么</b>：和现有的「pi」「模型与账户」一样，一页到底四组：远程访问 → 已配对的设备 → relay → 这台 Mac 的身份；配对是盖在内容区上的弹层，撤销、重新生成的确认都在行里。</li>
+    <li><b>适合</b>：要和其他分类一个样子；实现最省，全是现有的 Group / Row / 按钮，只新增二维码弹层。</li>
+    <li><b>代价</b>：第一次配置没有引导，用户要自己知道先部署 relay；连不上时只有一行原因加一个修复按钮，看不出断在哪一段。</li></ul>${FLOW}`,
+        b: `<h3>B · 设备为主</h3><ul>
+    <li><b>是什么</b>：顶上一条状态带（开关、relay 状态、出错原因和修复按钮），下面是设备卡片网格，最后一张虚线卡是“配对新设备”，配对就在网格里展开成一张宽卡；relay 地址、密钥、指纹、撤销全部折进“高级”。</li>
+    <li><b>适合</b>：relay 配一次就不动、之后只管设备的情形；在线、正在看哪个会话一眼看到。</li>
+    <li><b>代价</b>：卡片网格在设置里是新样式，和其他分类不一致；设备多了（十台以上）不如列表好扫；连不上要去“高级”里改，多一步。</li></ul>${FLOW}`,
+        c: `<h3>C · 向导加总览</h3><ul>
+    <li><b>是什么</b>：没配好时是四步向导（准备 relay → 填地址和密钥 → 测试连接的逐项检查 → 配对第一台手机）；配好后是三格健康总览加设备列表。连不上时把同一张检查单拿出来，标出断在哪一项。</li>
+    <li><b>适合</b>：首次配置有外部前提（VPS、域名、init 输出），一步步走最不容易卡住；诊断清单对排障最有用。</li>
+    <li><b>代价</b>：两套界面（向导、总览）要做要测；宿主要报出分步的检查结果（解析、TLS、密钥），协议多几个错误码；向导在设置里少见。</li></ul>${FLOW}`,
+        d: `<h3>D · 链路图</h3><ul>
+    <li><b>是什么</b>：顶上一张“这台 Mac — relay — 手机”的链路图，每段线的实线 / 虚线 / 红色断口就是状态；点节点，下面显示它的设置（Mac：开关和身份；relay：地址和密钥；手机：详情和撤销）。</li>
+    <li><b>适合</b>：把 ADR-0016 的结构直接画给用户看，“relay 只转发”“断在哪一段”一眼就懂；信息最紧凑。</li>
+    <li><b>代价</b>：要点节点才看得到设置，可发现性弱于 A；设备多了右侧列容不下（约五台）；比其他分类“花”，和设计语言的克制有些拉扯。</li></ul>${FLOW}`,
+      };
+
+      /* ══ 交互 ══ */
+      let tick = null,
+        later = null;
+      function schedule(fn, ms) {
+        clearTimeout(later);
+        later = setTimeout(() => {
+          fn();
+          render();
+        }, ms);
+      }
+      function toast(html, icon) {
+        S.toast = { html, icon };
+        clearTimeout(toast.t);
+        toast.t = setTimeout(() => {
+          S.toast = null;
+          render();
+        }, 3000);
+      }
+      const ACT = {
+        dir: (a) => {
+          S.dir = a;
+        },
+        theme: (a) => {
+          S.theme = a;
+        },
+        toggle: () => {
+          S.enabled = !S.enabled;
+          S.conn = S.enabled ? "busy" : "off";
+          if (S.enabled)
+            schedule(() => {
+              S.conn = "ok";
+            }, 1400);
+        },
+        setupSave: () => {
+          S.configured = true;
+          S.enabled = true;
+          S.conn = "busy";
+          S.wiz = 4;
+          schedule(() => {
+            S.conn = "ok";
+          }, 1400);
+        },
+        test: () => {
+          S.testing = true;
+          S.tested = false;
+          schedule(() => {
+            S.testing = false;
+            S.tested = true;
+          }, 1100);
+        },
+        retry: () => {
+          S.conn = "busy";
+          schedule(() => {
+            S.conn = "err";
+          }, 1200);
+        },
+        fix: () => {
+          const f = ERRORS[S.err].fix;
+          if (f === "addr") S.addrEdit = true;
+          else if (f === "key") S.keyEdit = true;
+          else ACT.retry();
+          S.adv = true;
+          S.node = "relay";
+        },
+        addrEdit: () => {
+          S.addrEdit = !S.addrEdit;
+        },
+        keyEdit: () => {
+          S.keyEdit = !S.keyEdit;
+        },
+        addrSave: () => {
+          S.addrEdit = false;
+          S.conn = "busy";
+          schedule(() => {
+            S.conn = "ok";
+            S.devices.forEach((d, i) => {
+              d.online = i === 0;
+            });
+          }, 1400);
+        },
+        keySave: () => {
+          ACT.addrSave();
+          S.keyEdit = false;
+        },
+        pairStart: () => {
+          S.pair = "qr";
+          S.secs = 300;
+          S.qrSeed++;
+          S.other = false;
+        },
+        refresh: () => {
+          S.pair = "qr";
+          S.secs = 300;
+          S.qrSeed++;
+          S.other = false;
+        },
+        expire: () => {
+          S.secs = 0;
+        },
+        scan: () => {
+          S.pair = "verify";
+          schedule(() => {
+            if (S.pair === "verify") S.pair = "confirm";
+          }, 2200);
+        },
+        verified: () => {
+          S.pair = "confirm";
+        },
+        vfail: () => {
+          S.pair = "fail";
+        },
+        other: () => {
+          S.other = true;
+        },
+        pairCancel: () => {
+          S.pair = null;
+          if (S.dir === "d") S.node = "relay";
+        },
+        pairReject: () => {
+          S.pair = null;
+          toast("已拒绝 <b>iPhone 15 Pro</b>，这个码已作废", "x");
+        },
+        pairOk: () => {
+          S.pair = "done";
+        },
+        pairDone: () => {
+          const name = document.getElementById("newName")?.value || "iPhone 15 Pro";
+          S.devices = [
+            {
+              id: "n" + Date.now(),
+              name,
+              model: "iPhone 15 Pro",
+              kind: "phone",
+              online: true,
+              paired: "今天 14:06",
+              seen: "现在",
+              watching: null,
+            },
+            ...S.devices,
+          ];
+          S.pair = null;
+          S.wiz = 5;
+          S.node = S.devices[0].id;
+          toast(`已配对 <b>${esc(name)}</b>`);
+        },
+        rename: (a) => {
+          S.rename = a;
+          S.revoke = null;
+        },
+        renameCancel: () => {
+          S.rename = null;
+        },
+        renameSave: (a) => {
+          const v = document.getElementById("rn")?.value.trim();
+          const d = S.devices.find((x) => x.id === a);
+          if (d && v) d.name = v;
+          S.rename = null;
+        },
+        revoke: (a) => {
+          S.revoke = a;
+          S.rename = null;
+        },
+        revokeCancel: () => {
+          S.revoke = null;
+        },
+        revokeOk: (a) => {
+          const d = S.devices.find((x) => x.id === a);
+          S.devices = S.devices.filter((x) => x.id !== a);
+          S.revoke = null;
+          S.node = "relay";
+          toast(`已撤销 <b>${esc(d.name)}</b>`);
+        },
+        nuke: () => {
+          S.nuke = true;
+        },
+        nukeCancel: () => {
+          S.nuke = false;
+        },
+        nukeOk: () => {
+          S.devices = [];
+          S.nuke = false;
+          S.node = "mac";
+          toast("已撤销全部设备，宿主密钥已重新生成");
+        },
+        adv: () => {
+          S.adv = !S.adv;
+        },
+        node: (a) => {
+          S.node = a;
+          if (a === "add") ACT.pairStart();
+          else S.pair = null;
+          S.revoke = null;
+          S.rename = null;
+        },
+        wiz: (a) => {
+          S.wiz = +a;
+          S.tested = false;
+        },
+        wizTest: () => {
+          S.wiz = 3;
+          ACT.test();
+        },
+        wizSkip: () => {
+          S.wizSkip = true;
+        },
+        rewiz: () => {
+          S.configured = false;
+          S.wiz = 1;
+          S.wizSkip = false;
+        },
+      };
+      document.addEventListener("click", (e) => {
+        const el = e.target.closest("[data-act]");
+        if (!el || el.disabled) return;
+        ACT[el.dataset.act]?.(el.dataset.arg);
+        render();
+      });
+      document.getElementById("stateSel").addEventListener("change", (e) => {
+        preset(e.target.value);
+        render();
+      });
+      // 二维码倒计时：只刷新计时那一行，到 0 时整体重画成过期
+      setInterval(() => {
+        if (S.pair !== "qr" || S.secs <= 0) return;
+        S.secs--;
+        if (S.secs === 0) return render();
+        const t = document.getElementById("timer");
+        if (t) t.outerHTML = timerHtml();
+      }, 1000);
+      preset("devices");
+      render();
+    </script>
+  </body>
+</html>

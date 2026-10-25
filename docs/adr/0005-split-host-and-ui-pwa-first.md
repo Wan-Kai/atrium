@@ -1,6 +1,6 @@
 # ADR-0005：宿主与 UI 分离、经 WebSocket 通信，手机端先走 PWA
 
-- **状态**：已接受
+- **状态**：已接受（第 3 条的远程访问被 [ADR-0016](0016-remote-access-through-own-relay-with-noise.md) 取代，第 4 条被 [ADR-0015](0015-native-ios-app-in-swiftui.md) 取代）
 - **日期**：2026-09-29
 - **相关**：[ADR-0002](0002-connect-pi-via-rpc-subprocess.md)、[ADR-0003](0003-plugin-as-pi-package.md)、[ADR-0004](0004-deep-pi-host-positioning.md)、[架构总览](../architecture/overview.md)
 

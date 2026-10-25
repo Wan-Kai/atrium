@@ -25,7 +25,7 @@
 | [0002](0002-connect-pi-via-rpc-subprocess.md) | 通过 RPC 子进程接入 pi | 已接受 | 2026-09-29 |
 | [0003](0003-plugin-as-pi-package.md) | 插件以 pi package 形式组织和分发 | 已接受 | 2026-09-29 |
 | [0004](0004-deep-pi-host-positioning.md) | 定位为 pi 的深度宿主，纵向做透而非横向连接 | 已接受 | 2026-09-29 |
-| [0005](0005-split-host-and-ui-pwa-first.md) | 宿主与 UI 分离、经 WebSocket 通信，手机端先走 PWA | 已接受 | 2026-09-29 |
+| [0005](0005-split-host-and-ui-pwa-first.md) | 宿主与 UI 分离、经 WebSocket 通信，手机端先走 PWA | 已接受（第 3 条的远程访问被 0016 取代，第 4 条被 0015 取代） | 2026-09-29 |
 | [0006](0006-organize-sessions-by-workspace.md) | 以工作区组织会话，工作区与目录一一对应 | 已接受（第 4 条被 0007 取代） | 2026-10-02 |
 | [0007](0007-each-chat-is-its-own-container.md) | 每个对话是一个独立的容器 | 已接受（浏览器标签页的设想被 0009 取代） | 2026-10-12 |
 | [0008](0008-atrium-own-pi-extension-for-fast.md) | 用 Atrium 自带的 pi 扩展实现 Fast | 已接受 | 2026-10-12 |
@@ -35,3 +35,5 @@
 | [0012](0012-claude-usage-from-replies-and-openai-mapping.md) | Claude 的用量也从回复的响应头读，经 claude-bridge 和 pi 新的 ChatGPT 登录的会话算到对应的订阅 | 已接受 | 2026-10-17 |
 | [0013](0013-agent-channel-status-and-hidden-command.md) | 扩展与宿主有来有回的通道用"状态加隐藏命令" | 已接受 | 2026-10-17 |
 | [0014](0014-web-search-and-fetch-through-deepseek.md) | 联网搜索和网页抓取经 Atrium 自带的 pi 扩展，用 DeepSeek 的 Search / Fetch API | 已接受 | 2026-10-20 |
+| [0015](0015-native-ios-app-in-swiftui.md) | 手机端做 SwiftUI 原生 iOS App，先不做推送 | 已接受 | 2026-10-24 |
+| [0016](0016-remote-access-through-own-relay-with-noise.md) | 手机经自建 relay 连回宿主，用 Noise 端到端加密 | 已接受 | 2026-10-24 |

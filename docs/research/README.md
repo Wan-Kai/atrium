@@ -13,4 +13,5 @@
 | [lowcode-engine.md](lowcode-engine.md) | 阿里低代码引擎源码笔记：插件声明与生命周期、编辑器骨架的区域和面板类型、按描述选设置器、画布 iframe、资源加载、shell 层；对 Atrium 挂载点、视图 API 和内置插件化的启示 |
 | [deepseek-harness-plugins.md](deepseek-harness-plugins.md) | DeepSeek Harness 客户端插件源码笔记：Cordis 嵌套、插槽的声明与挂入（四种基数、替换、级联卸载、错误退位）、工具按名分派、两半配对、加载与安全、"一切皆插件"的代价；与低代码引擎的对照 |
 | [pi-vs-dsh.html](pi-vs-dsh.html) | pi 与 DeepSeek Harness 的设计思路和插件开发对比（Archify 单页，源稿 [pi-vs-dsh.archify.md](pi-vs-dsh.archify.md)）；插件系统暂缓的依据 |
+| [mobile-remote.md](mobile-remote.md) | 手机端：Paseo、Claude Code、Happy、Codex、Cursor、OpenCode 等怎么让本机的 agent 和手机共用一个对话（连接方式、配对、加密、同步、批准、推送），以及对 Atrium 的结论 |
 | [multi-agent.md](multi-agent.md) | 子代理与多会话：Paseo、Codex、Claude Code 怎么开子代理、控制和通知、界面，以及对 Atrium 的结论 |
