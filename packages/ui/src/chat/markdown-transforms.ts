@@ -76,6 +76,7 @@ const DELIMITER_CELL_START = /^\s*:?-*:?\s*$/u;
 const OPENING_FENCE = /^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$/u;
 
 /** A closing code fence: nothing but spaces after it. */
+// Stryker disable next-line Regex: a fence shorter than three never closes one, at least three long.
 const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/u;
 
 /**
@@ -151,6 +152,7 @@ function delimiterRow(line: string, columns: number): boolean {
  * @returns Whether it is in a table.
  */
 function inTable(lines: readonly string[], at: number): boolean {
+  // Stryker disable next-line EqualityOperator: before the first line there is none, read as blank.
   for (let row = at; row > 0; row -= 1) {
     // Stryker disable next-line StringLiteral: `row` stays within the lines.
     const header = lines[row - 1] ?? "";
@@ -175,6 +177,7 @@ function inTable(lines: readonly string[], at: number): boolean {
  */
 function inCode(lines: readonly string[], at: number): boolean {
   let fence: string | null = null;
+  // Stryker disable next-line MethodExpression: the header and the line after it start with no fence.
   for (const line of lines.slice(0, at)) {
     if (fence === null)
       fence =
