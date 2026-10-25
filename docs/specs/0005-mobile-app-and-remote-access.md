@@ -85,7 +85,8 @@ iOS App ──wss──▶ relay（用户 VPS，Caddy 终止外层 TLS）◀─�
    App 只用自己的扫码界面读它，不注册给系统相机。过期、取消或刷新后，旧码作废。
 2. **握手**：手机在钥匙串里生成自己的 X25519 密钥对（`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`），先把这台主机记成"待确认"，再连 relay，握手：
    - 第一条（`e, es, s, ss`）的载荷：`{ kind: "pair", pairingId, deviceName, model, appVersion, protocolVersion }`。`deviceName` 默认取 `UIDevice.current.name`。
-   - 宿主核对 `pairingId` 是当前这次、状态 `available`、没过期，回第二条（`e, ee, se, psk`），载荷 `{ ok: true }`。核对不过就回 `{ ok: false, reason }` 后关闭（第二条的载荷用宿主的静态密钥认证过，手机可以信）。这一步**不改**配对状态。
+   - 宿主核对 `pairingId` 是当前这次、状态 `available`、没过期，回第二条（`e, ee, se, psk`），载荷 `{ ok: true }`。这一步**不改**配对状态。
+   - 核对不过时分两种（2026-10-25 MP0 实测后补）：`pairingId` 就是当前这次、但已过期、已被占用或版本不一致，用这次的 PSK 回第二条，载荷 `{ ok: false, reason }` 后关闭（载荷经宿主静态密钥和 PSK 认证，手机可以信）；`pairingId` 不是当前这次（码已取消、刷新过、扫的是别的 Mac），宿主没有手机用的那个 PSK，写出的第二条手机解不开，所以直接关闭，手机解不开第二条或连接被关时显示"二维码已失效，请在 Mac 上重新出码"。
 3. **密钥确认**：手机发第一条传输消息 `{ kind: "pair_confirm" }`。宿主能解开它，才说明手机知道 PSK。宿主**原子地**把配对从 `available` 改成 `awaiting_confirmation`，记下这台手机的静态公钥和这条通道；已经不是 `available` 的（另一台手机先到），回 `{ kind: "pair_rejected", reason: "pairing_busy" }` 并关闭。
 4. **校验码**：两边各自从握手结束时的哈希 `h` 算出 6 位校验码：`SHA-256("atrium-sas-v1" ‖ h)` 的前 4 字节按大端转成整数，对 10⁶ 取余，补零到 6 位。桌面弹层显示"某某的 iPhone 请求配对 · 校验码 123 456"，手机上显示同一个码，提示"在 Mac 上确认"。校验码只有约 20 位，只供人对照，不代替 PSK 和密钥确认。
 5. **确认**：桌面点确认。`confirm_pairing` 带 `pairingId`，宿主只认第 3 步记下的那台手机的公钥和那条通道：
