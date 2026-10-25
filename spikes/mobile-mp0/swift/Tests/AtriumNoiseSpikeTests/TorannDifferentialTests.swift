@@ -142,3 +142,80 @@ struct TorannDifferentialTests {
         }
     }
 }
+
+/// An interop record (interop/FORMAT.md), read independently of the code that wrote it.
+struct RecordFile: Decodable {
+    struct Handshake: Decodable {
+        let payload: String
+        let noise_message: String
+        let wire: String
+    }
+
+    struct Transport: Decodable {
+        let from: String
+        let plaintext: String
+        let ciphertext: String
+    }
+
+    let protocol_name: String
+    let mode: Int
+    let prologue: String
+    let psk: String?
+    let phone_static: String
+    let phone_ephemeral: String
+    let host_static: String
+    let host_ephemeral: String
+    let handshake: [Handshake]
+    let handshake_hash: String
+    let transport: [Transport]
+}
+
+/// Every `*.json` record in `spikes/mobile-mp0/interop`, Swift's and the TS side's.
+let recordFiles: [String] = {
+    let directory = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().appendingPathComponent("interop")
+    let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+    return names.filter { $0.hasSuffix(".json") }.sorted().map { directory.appendingPathComponent($0).path }
+}()
+
+@Suite("interop records against Torann")
+struct InteropRecordsAgainstTorannTests {
+    @Test func swiftRecordsArePresent() {
+        #expect(recordFiles.map { URL(fileURLWithPath: $0).lastPathComponent }.contains("swift-ik.json"))
+        #expect(recordFiles.map { URL(fileURLWithPath: $0).lastPathComponent }.contains("swift-ikpsk2.json"))
+    }
+
+    @Test(arguments: recordFiles)
+    func torannProducesTheSameBytes(path: String) throws {
+        let record = try JSONDecoder().decode(RecordFile.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        let proto = try NoiseProtocol.parse(record.protocol_name)
+        let psks = record.psk.map { [Data(hex: $0)] } ?? []
+        let hostKey = try proto.createKeyPair(privateKey: Data(hex: record.host_static))
+        let phone = try proto.createHandshake(
+            initiator: true, prologue: Data(hex: record.prologue),
+            localStatic: try proto.createKeyPair(privateKey: Data(hex: record.phone_static)),
+            remoteStatic: try hostKey.publicKey, psks: psks)
+        let host = try proto.createHandshake(
+            initiator: false, prologue: Data(hex: record.prologue), localStatic: hostKey, psks: psks)
+        try phone.setFixedEphemeral(Data(hex: record.phone_ephemeral))
+        try host.setFixedEphemeral(Data(hex: record.host_ephemeral))
+
+        let first = try phone.writeMessage(payload: Data(hex: record.handshake[0].payload))
+        #expect(first.message.hex == record.handshake[0].noise_message)
+        // The wire adds Atrium's 3-byte header to message 1 only.
+        #expect(record.handshake[0].wire == String(format: "4101%02x", record.mode) + record.handshake[0].noise_message)
+        #expect(try host.readMessage(first.message).payload.hex == record.handshake[0].payload)
+        let second = try host.writeMessage(payload: Data(hex: record.handshake[1].payload))
+        #expect(second.message.hex == record.handshake[1].noise_message)
+        #expect(record.handshake[1].wire == record.handshake[1].noise_message)
+        let end = try phone.readMessage(second.message)
+        #expect(end.handshakeHash?.hex == record.handshake_hash)
+        let phoneTransport = try #require(end.transport)
+        let hostTransport = try #require(second.transport)
+        for entry in record.transport {
+            let sender = entry.from == "phone" ? phoneTransport : hostTransport
+            #expect(try sender.writeMessage(payload: Data(hex: entry.plaintext)).hex == entry.ciphertext)
+        }
+    }
+}

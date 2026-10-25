@@ -7,6 +7,7 @@ let package = Package(
     platforms: [.macOS(.v26), .iOS(.v26)],
     products: [
         .library(name: "AtriumNoiseSpike", targets: ["AtriumNoiseSpike"]),
+        .library(name: "AtriumRemoteSpike", targets: ["AtriumRemoteSpike"]),
     ],
     dependencies: [
         // Reference implementation for differential tests only; never linked into a product.
@@ -14,10 +15,15 @@ let package = Package(
     ],
     targets: [
         .target(name: "AtriumNoiseSpike"),
+        .target(name: "AtriumRemoteSpike", dependencies: ["AtriumNoiseSpike"]),
         .testTarget(
             name: "AtriumNoiseSpikeTests",
             dependencies: ["AtriumNoiseSpike", .product(name: "Torann", package: "torann")],
             resources: [.copy("Resources/cacophony-ik.json")]
+        ),
+        .testTarget(
+            name: "AtriumRemoteSpikeTests",
+            dependencies: ["AtriumRemoteSpike", "AtriumNoiseSpike"]
         ),
     ],
     swiftLanguageModes: [.v6]
