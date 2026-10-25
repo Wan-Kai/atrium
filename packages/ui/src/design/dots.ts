@@ -261,6 +261,65 @@ export function paintBand(
 }
 
 /**
+ * The question mark in the brand's dots, on the question card's top row (design-language,
+ * "提问卡片", 2026-10-26): a 5×7 grid of rounded squares, sized like the brand field's dots.
+ */
+const QUESTION_ROWS: readonly (readonly number[])[] = [
+  [1, 1, 1, 1, 1],
+  [1, 0, 0, 0, 1],
+  [0, 0, 0, 0, 1],
+  [0, 0, 1, 1, 1],
+  [0, 0, 1, 0, 0],
+  [0, 0, 0, 0, 0],
+  [0, 0, 1, 0, 0],
+];
+/** Distance between the question mark's dots, tighter than the field's so the glyph reads at 16px. */
+const QUESTION_PITCH = 3.2;
+
+/**
+ * The dot-matrix question mark's size in CSS pixels.
+ *
+ * @remarks
+ * Fixed by the grid and the pitch; the canvas's style and backing store are sized from it before
+ * `paintQuestionDots` runs.
+ *
+ * @sideEffects none
+ * @returns The glyph's width and height.
+ */
+export function questionDotsSize(): { readonly width: number; readonly height: number } {
+  return {
+    width: (QUESTION_ROWS[0]!.length - 1) * QUESTION_PITCH + SIZE,
+    height: (QUESTION_ROWS.length - 1) * QUESTION_PITCH + SIZE,
+  };
+}
+
+/**
+ * Paints the dot-matrix question mark.
+ *
+ * @remarks
+ * Prototyped in `question-card-header-prototype.html` (辛). The dots are the brand's rounded
+ * squares at one flat colour; no noise, no motion — the glyph is an icon, not a field. The
+ * canvas must be `questionDotsSize()` big, already scaled to CSS pixels.
+ *
+ * @sideEffects Clears and draws on `context`.
+ * @param context - The canvas, already scaled to CSS pixels.
+ * @param ink - The dots' CSS colour (`--text` on the card).
+ */
+export function paintQuestionDots(context: CanvasRenderingContext2D, ink: string): void {
+  const { width, height } = questionDotsSize();
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = ink;
+  for (let row = 0; row < QUESTION_ROWS.length; row += 1) {
+    for (let col = 0; col < QUESTION_ROWS[row]!.length; col += 1) {
+      if (!QUESTION_ROWS[row]![col]) continue;
+      context.beginPath();
+      context.roundRect(col * QUESTION_PITCH, row * QUESTION_PITCH, SIZE, SIZE, RADIUS);
+      context.fill();
+    }
+  }
+}
+
+/**
  * A hash of a grid point, 0 to 1, fixed by the seed.
  *
  * @remarks
