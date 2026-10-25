@@ -9,6 +9,7 @@
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm knip && pnpm boundary --all",
     "break-check": "node scripts/break-check.mjs",
     "boundary": "node scripts/boundary.mjs",
+    "protocol:swift": "node scripts/protocol-swift.mjs",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "lint": "oxlint --type-aware --deny-warnings",

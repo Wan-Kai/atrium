@@ -318,7 +318,7 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 - **生成规则**：对象 → `struct`（必填的、可为 `null` 的、可省略的分开处理：可为 `null` 的必须有这个键；可省略的没有就是 `nil`、有了不许是 `null`；既可省略又可为 `null` 的是 `Nullable<T>?`）；判别联合（每个成员的判别字段都是常量、互不相同）→ 带关联值的 `enum`，自定义 `Codable`：先读判别字段再解对应的成员，嵌套的联合按它能取的值一起分派；只有常量字段的成员是不带关联值的 case；判别字段是字符串枚举的成员按每个值展开成 case；没有判别字段、靠"只有它有的必填键"区分的对象联合（`InteractionAnswer`、`QuestionReply`）按这个键分派；字符串枚举 → `enum: String`；品牌 id 和各种受约束的字符串 → `String` 的 `typealias`；`z.unknown()` 和多种类型混合的值 → `JSONValue`；记录 → `[String: T]`；常量字段不存，编码时写出、解码时核对。遇到别的构造（`allOf`、元组、数字常量、判别字段对不上的联合等）就报错，写明 JSON Schema 里的位置。
 - **只管形状**：长度、范围、正则这些约束不在 Swift 里校验（宿主照旧用 zod 校验收到的命令）；解码时忽略不认识的键，协议的兼容由握手的 `PROTOCOL_VERSION` 守住。
 - **比对**：`pnpm check` 跑 `pnpm protocol:swift --check`，在内存里重新生成、和提交的文件逐字节比，不一致就失败、提示重新生成；只要 Node，不要 Xcode。`scripts/protocol-swift.test.ts` 在单元测试里做同一件事。
-- **往返测试**：`packages/protocol/src/envelope.test.ts` 里的合法样例（全部命令、握手、宿主发的每类消息和变体）也是 Swift 的夹具：`UPDATE_SWIFT_FIXTURES=1` 时由那里的测试写出 `apps/ios/AtriumKit/Tests/AtriumProtocolTests/Fixtures/{client,host}-messages.json`（`pnpm protocol:swift` 顺带做），平时比较、不一致就失败。Swift 测试逐条解码成 `ClientMessage` / `HostMessage`、再编码，和原 JSON 按 JSON 语义比较（键的顺序、`1` 和 `1.0` 不算差别）。它只证明编解码对得上；同步语义靠 MP4 的契约测试。
+- **往返测试**：`packages/protocol/src/envelope.test.ts` 里的合法样例（全部命令、握手、宿主发的每类消息和变体）也是 Swift 的夹具：`UPDATE_SWIFT_FIXTURES=1` 时由那里的测试写出 `apps/ios/AtriumKit/Tests/AtriumProtocolTests/Fixtures/{client,host}-messages.json`（`pnpm protocol:swift` 顺带做），平时比较、不一致就失败。超过 4096 个字符的字符串（测长度上限的样例，有 1 MB）在夹具里截成 64 个字符，Swift 不校验长度。Swift 测试逐条解码成 `ClientMessage` / `HostMessage`、再编码，和原 JSON 按 JSON 语义比较（键的顺序、`1` 和 `1.0` 不算差别）。它只证明编解码对得上；同步语义靠 MP4 的契约测试。
 
 ### 破坏检查与变异测试
 
