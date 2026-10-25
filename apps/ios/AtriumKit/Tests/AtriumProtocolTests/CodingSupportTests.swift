@@ -15,7 +15,11 @@ struct CodingSupportTests {
     #expect(missing.proxy == nil)
     #expect(cleared.proxy == .null)
     let encoded = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(cleared))
-    #expect(encoded == .object(["type": .string("set_preferences"), "requestId": .string("r"), "traceparent": .string(""), "proxy": .null]))
+    #expect(
+      encoded
+        == .object([
+          "type": .string("set_preferences"), "requestId": .string("r"), "traceparent": .string(""), "proxy": .null,
+        ]))
   }
 
   @Test("refuses null where a field may only be left out, and a missing field that may only be null")
@@ -34,7 +38,9 @@ struct CodingSupportTests {
   func optionalConstant() throws {
     let decoder = JSONDecoder()
     #expect(try decoder.decode(ForkSessionResult.self, from: Data(#"{"sessionId":"s"}"#.utf8)).noteSent == nil)
-    #expect(try decoder.decode(ForkSessionResult.self, from: Data(#"{"sessionId":"s","noteSent":false}"#.utf8)).noteSent == false)
+    #expect(
+      try decoder.decode(ForkSessionResult.self, from: Data(#"{"sessionId":"s","noteSent":false}"#.utf8)).noteSent
+        == false)
     #expect(throws: DecodingError.self) {
       try decoder.decode(ForkSessionResult.self, from: Data(#"{"sessionId":"s","noteSent":true}"#.utf8))
     }
@@ -52,7 +58,9 @@ struct CodingSupportTests {
   func untagged() throws {
     let decoder = JSONDecoder()
     #expect(try decoder.decode(InteractionAnswer.self, from: Data(#"{"cancelled":true}"#.utf8)) == .cancelled)
-    #expect(throws: DecodingError.self) { try decoder.decode(InteractionAnswer.self, from: Data(#"{"cancelled":false}"#.utf8)) }
+    #expect(throws: DecodingError.self) {
+      try decoder.decode(InteractionAnswer.self, from: Data(#"{"cancelled":false}"#.utf8))
+    }
     #expect(throws: DecodingError.self) { try decoder.decode(InteractionAnswer.self, from: Data("{}".utf8)) }
   }
 
@@ -60,7 +68,8 @@ struct CodingSupportTests {
   func jsonValue() throws {
     let text = #"{"a":[1,2.5,true,null,"x"],"b":{}}"#
     let value = try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
-    #expect(value == .object(["a": .array([.number(1), .number(2.5), .bool(true), .null, .string("x")]), "b": .object([:])]))
+    #expect(
+      value == .object(["a": .array([.number(1), .number(2.5), .bool(true), .null, .string("x")]), "b": .object([:])]))
     #expect(try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(value)) == value)
   }
 }

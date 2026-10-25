@@ -116,7 +116,7 @@ export function EffortBox(props: EffortBoxProps) { … }
 ### 格式化与静态检查
 
 - **格式化**：`swift format`（Xcode 自带的 swift-format），配置在 `apps/ios/.swift-format`：缩进 2 空格、行宽 120（和 oxfmt 一致），其余用默认。`pnpm ios:format` 改写文件；`pnpm check` 里跑 `swift format lint --strict`，只报不改。
-- **静态检查**以编译器为主：Swift 6 语言模式（完整的数据竞争检查），所有警告当错误（SwiftPM 的 `treatAllWarnings(as: .error)`、Xcode 的 `SWIFT_TREAT_WARNINGS_AS_ERRORS`，对齐 `oxlint --deny-warnings`）。swift-format 的 lint 在默认规则外另开：`AllPublicDeclarationsHaveDocumentation`、`BeginDocumentationCommentWithOneLineSummary`、`ValidateDocumentationComments`（写了 `- Parameters:` 就要和签名对上）、`NeverForceUnwrap`、`NeverUseForceTry`、`NeverUseImplicitlyUnwrappedOptionals`、`NoLeadingUnderscores`。测试里要解包用 `try #require(…)`，不用 `!`。
+- **静态检查**以编译器为主：Swift 6 语言模式（完整的数据竞争检查），所有警告当错误（对齐 `oxlint --deny-warnings`）：`AtriumKit` 由 `scripts/ios.mjs` 给 `swift build` / `swift test` 加 `-Xswiftc -warnings-as-errors`，App 用 Xcode 的 `SWIFT_TREAT_WARNINGS_AS_ERRORS`。没写进 `Package.swift` 的 `treatAllWarnings(as: .error)`，因为 Xcode 编译本地包时带 `-suppress-warnings`，两个选项冲突、构建直接失败。swift-format 的 lint 在默认规则外另开：`AllPublicDeclarationsHaveDocumentation`、`BeginDocumentationCommentWithOneLineSummary`、`ValidateDocumentationComments`（写了 `- Parameters:` 就要和签名对上）、`NeverForceUnwrap`、`NeverUseForceTry`、`NeverUseImplicitlyUnwrappedOptionals`、`NoLeadingUnderscores`。测试里要解包用 `try #require(…)`，不用 `!`。
 - **不加 SwiftLint**（MP1 定）：它要用 Homebrew 另装、多一套版本要锁；我们要的规则里，风格和强制解包 swift-format 已经有，并发靠编译器，剩下的（每个声明都有文档注释、悬空 Task、不安全的并发豁免）swift-format 和 SwiftLint 都管不了，由下文的 `scripts/swift-lint.mjs` 做。以后真碰到要它的规则（复杂度、未使用代码的分析器等）再加。
 - **生成的代码**（`Sources/AtriumProtocol/Generated/`）不跑格式化和 lint：`pnpm check` 要逐字节比较它和生成器的输出，在没装 Xcode 的机器上也能比，所以不经过 swift-format；生成器自己保证输出整齐。
 

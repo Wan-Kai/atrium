@@ -2,10 +2,13 @@
 import PackageDescription
 
 /// Settings every target shares (coding-standards.md, "Swift（手机端）").
+///
+/// Warnings fail the build through `scripts/ios.mjs` (`-Xswiftc -warnings-as-errors`), not here:
+/// Xcode builds a local package with `-suppress-warnings`, which clashes with
+/// `treatAllWarnings(as: .error)`.
 let shared: [SwiftSetting] = [
   .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
   .enableUpcomingFeature("InferIsolatedConformances"),
-  .treatAllWarnings(as: .error),
 ]
 
 /// The interface runs on the main actor by default; the logic modules are not isolated.

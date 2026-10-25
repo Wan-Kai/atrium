@@ -75,7 +75,9 @@ extension KeyedDecodingContainer where Key == AnyKey {
   /// - Remark: An unknown JSON field (`z.unknown().optional()`) can hold `null` like any other
   ///   value, so only a missing key is `nil`.
   /// - SideEffects: none
-  /// - Parameter key: The JSON key.
+  /// - Parameters:
+  ///   - type: `JSONValue.self`.
+  ///   - key: The JSON key.
   /// - Returns: `nil` when the key is missing, else the value.
   /// - Throws: Whatever decoding the value throws.
   public func decodeOmittable(_ type: JSONValue.Type, forKey key: AnyKey) throws -> JSONValue? {
