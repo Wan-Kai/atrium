@@ -1,3 +1,4 @@
+import { act } from "react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { type StoreApi, useStore } from "zustand";
@@ -87,9 +88,108 @@ function transcriptAt(fields: Partial<SessionView>) {
   );
 }
 
-/** How many characters of the reply are on screen. */
-function replyTextLength(root: HTMLElement): number {
-  return root.querySelector('[data-testid="reply"]')?.textContent?.length ?? 0;
+/** A diagram, drawn or as the source shown until its block is closed. */
+const DIAGRAM = [
+  ".atrium-mermaid",
+  ...["mermaid", "plantuml", "puml"].map((language) => `[data-streamdown="code-block"][data-language="${language}"]`),
+].join(", ");
+
+/** One of the reply's top-level blocks, as shown. */
+interface ShownBlock {
+  readonly text: string;
+  /** Drawn, or the source of a diagram shown until its block is closed. */
+  readonly diagram: boolean;
+}
+
+/**
+ * The reply's top-level blocks as they are on screen.
+ *
+ * @remarks
+ * Streamdown renders each block on its own and keeps a finished one as it was (SPEC-0001,
+ * "回复渲染"); the last block, being written, may turn from its syntax into what it renders.
+ */
+function shownBlocks(root: HTMLElement): ShownBlock[] {
+  const markdown = root.querySelector('[data-testid="reply"] .atrium-markdown');
+  return [...(markdown?.children ?? [])].map((block) => ({
+    text: block.textContent,
+    diagram: block.matches(DIAGRAM) || block.querySelector(DIAGRAM) !== null,
+  }));
+}
+
+/**
+ * Where a step of the stream lost a finished block or some of its text.
+ *
+ * @remarks
+ * Blocks only come; a block that is no longer the last has been written, and its text only grows,
+ * as a plugin loading may draw more of it (the math). A diagram's source is replaced by the
+ * diagram, whose text is only its toolbar's until it has been drawn: diagrams are checked whole
+ * at the end, against the finished reply.
+ *
+ * @sideEffects none
+ * @param steps - The blocks after each step.
+ * @returns For each loss, the step, the block (-1 for blocks gone), and its length before and after.
+ */
+function losses(steps: readonly ShownBlock[][]): number[][] {
+  return steps.slice(1).flatMap((now, at) => {
+    const before = steps[at] ?? [];
+    if (now.length < before.length) return [[at + 1, -1, before.length, now.length]];
+    return before.slice(0, -1).flatMap((block, index) => {
+      const later = now[index];
+      if (later === undefined || block.diagram || later.diagram || later.text.length >= block.text.length) return [];
+      return [[at + 1, index, block.text.length, later.text.length]];
+    });
+  });
+}
+
+/**
+ * Animation frames that come only when the test asks for one, 1/60 s apart.
+ *
+ * @remarks
+ * The smooth reveal moves on each frame by how long the last one took; on real frames a busy
+ * machine reveals more per frame, and how far a loop of deltas gets differs from run to run. Every
+ * frame requested in the page waits for `frame`; restoring hands those still waiting to the real
+ * frames.
+ *
+ * @sideEffects Replaces the page's `requestAnimationFrame` and `cancelAnimationFrame` until restored.
+ * @returns How to run the next frame, inside React's `act`, and how to restore the real frames.
+ */
+function manualFrames(): { frame: () => Promise<void>; restore: () => void } {
+  const native = window.requestAnimationFrame.bind(window);
+  let waiting = new Map<number, FrameRequestCallback>();
+  let next = 0;
+  let time = 0;
+  const request = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    next += 1;
+    waiting.set(next, callback);
+    return next;
+  });
+  const cancel = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+    waiting.delete(id);
+  });
+  const restore = (): void => {
+    request.mockRestore();
+    cancel.mockRestore();
+    for (const callback of waiting.values()) native(callback);
+    waiting = new Map();
+  };
+  onTestFinished(restore);
+  return {
+    frame: async () => {
+      time += 1000 / 60;
+      const due = waiting;
+      waiting = new Map();
+      const flags = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+      flags.IS_REACT_ACT_ENVIRONMENT = true;
+      try {
+        await act(async () => {
+          for (const callback of due.values()) callback(time);
+        });
+      } finally {
+        flags.IS_REACT_ACT_ENVIRONMENT = false;
+      }
+    },
+    restore,
+  };
 }
 
 /** The reply's HTML, comparable across renders. */
@@ -135,7 +235,7 @@ describe("streaming the reply showcase", () => {
     expect(normalized(streamed.container)).toBe(expected);
   }, 60_000);
 
-  it("streams through the transcript as the app does, never losing text, and ends as the finished reply renders", async () => {
+  it("streams through the transcript as the app does, never dropping a finished block or shrinking it, and ends as the finished reply renders", async () => {
     const finished = answered(showcase, "done");
     const run = { runId: "r1", startedAt: Date.now() };
     // The same layout both times, since the diagram scales to the width it gets.
@@ -144,18 +244,30 @@ describe("streaming the reply showcase", () => {
     const expected = replyHtml(once.container);
     await once.unmount();
 
+    const frames = manualFrames();
     const screen = await render(transcriptAt({ run, items: [answered("", "running")] }));
-    const lengths: number[] = [];
+    const steps: ShownBlock[][] = [];
     let text = "";
+    // A frame after each delta, as when they come in at 60 a second.
     for (const delta of deltas(showcase)) {
       text += delta;
       await screen.rerender(transcriptAt({ run, items: [answered(text, "running")] }));
-      lengths.push(replyTextLength(screen.container));
+      await frames.frame();
+      steps.push(shownBlocks(screen.container));
     }
+    // Then frames until all of it is revealed while still streaming: past the table and both diagrams.
+    for (let frame = 0; frame < 120; frame += 1) {
+      await frames.frame();
+      steps.push(shownBlocks(screen.container));
+    }
+    const revealed = screen.container.querySelector('[data-testid="reply"] [data-streamdown="mermaid-block"]');
+    const drawing = screen.container.querySelector('[data-testid="reply"] [data-testid="plantuml"]');
+    frames.restore();
     await screen.rerender(transcriptAt({ items: [finished] }));
     await settled(screen.container);
 
-    expect(lengths).toStrictEqual(lengths.toSorted((a, b) => a - b));
+    expect([revealed === null, drawing === null]).toStrictEqual([false, false]);
+    expect(losses(steps)).toStrictEqual([]);
     expect(replyHtml(screen.container)).toBe(expected);
   }, 60_000);
 });

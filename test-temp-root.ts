@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TEST_BIN_DIR_ENV, warmScriptedPi, warmShellPi } from "./packages/testkit/src/index";
+import { TEST_BIN_DIR_ENV, numberedFiles, warmScriptedPi, warmShellPi } from "./packages/testkit/src/index";
 
 /**
  * Points every test in this run at a fresh temporary root and deletes it when the run ends.
@@ -15,17 +15,20 @@ import { TEST_BIN_DIR_ENV, warmScriptedPi, warmShellPi } from "./packages/testki
  * that is removed in one go. Child processes started by tests (pi, the host, Electron) inherit it.
  *
  * Shared test executables are written and run once here, before any worker starts, so tests never
- * wait for macOS to check a new executable (testing.md, "测试里的可执行文件").
+ * wait for macOS to check a new executable (testing.md, "测试里的可执行文件"). The shared
+ * directories of 5000 and 5001 files that listing tests read are made sure of here too, so no test
+ * waits for thousands of files to be created (testing.md, "测试里的大目录").
  *
  * @sideEffects Creates a directory; sets `process.env.TMPDIR` and the shared executable directory
- * for this run; writes and runs the shared test executables.
+ * for this run; writes and runs the shared test executables; writes the shared directories when
+ * missing.
  * @returns A teardown that deletes the directory and restores `TMPDIR`.
  */
 export default async function setup(): Promise<() => Promise<void>> {
   const previous = process.env["TMPDIR"];
   // Shared test executables outlive the run, so macOS checks each one once, not once per run.
   process.env[TEST_BIN_DIR_ENV] ??= join(tmpdir(), "atrium-test-bin");
-  await Promise.all([warmScriptedPi(), warmShellPi()]);
+  await Promise.all([warmScriptedPi(), warmShellPi(), numberedFiles(5000), numberedFiles(5001)]);
   const root = await mkdtemp(join(tmpdir(), "atrium-run-"));
   process.env["TMPDIR"] = root;
   return async () => {

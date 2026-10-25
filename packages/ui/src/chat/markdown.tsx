@@ -36,6 +36,7 @@ import {
 import { useDarkMode } from "../design/use-dark-mode";
 import {
   normalizeMathDelimiters,
+  withoutUnfinishedTable,
   remarkHtmlAsText,
   remarkReplyImages,
   remarkReplyFiles,
@@ -462,7 +463,7 @@ export function Markdown({ text, streaming }: MarkdownProps) {
       // space-y-3 replaces Streamdown's own space-y-4: blocks 12px apart (design-language, "字体").
       className="atrium-markdown space-y-3"
     >
-      {normalizeMathDelimiters(text)}
+      {normalizeMathDelimiters(streaming ? withoutUnfinishedTable(text) : text)}
     </Streamdown>
   );
 }

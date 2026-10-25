@@ -110,6 +110,15 @@ function once(action: () => Promise<void>): () => Promise<void> {
   };
 }
 
+/** The revision of a file holding exactly `text`.
+ * @remarks As the service computes it: the SHA-256 of the bytes.
+ * @sideEffects none
+ * @param text - The file's text.
+ */
+function revisionOf(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
 describe("ordinary pi configuration files", () => {
   it("reads missing files without creating them and saves exact text with a revision and private permissions", async () => {
     const { service, global } = await fixture();
@@ -597,6 +606,80 @@ describe("ordinary pi configuration files", () => {
     expect(await second).toMatchObject({ value: { text: two } });
     expect(await third).toMatchObject({ value: { text: three } });
     expect(await fourth).toMatchObject({ value: { text: four } });
+  });
+
+  it("accepts same-path saves in the order they were made, even when finding the file takes the earlier one longer", async () => {
+    const temp = await createTempDir("pi-config");
+    onTestFinished(temp.cleanup);
+    const root = await realpath(temp.path);
+    const global = join(root, "global");
+    const located = Promise.withResolvers<void>();
+    onTestFinished(() => located.resolve());
+    // Only the first save waits for pi's environment, so a later one would find its file first.
+    const waits: Promise<void>[] = [located.promise];
+    const service = createPiConfig({
+      environment: async () => {
+        await waits.shift();
+        return { HOME: root, PI_CODING_AGENT_DIR: global };
+      },
+      dirOf: () => undefined,
+    });
+    const [one, two] = ['{"order":1}', '{"order":2}'] as const;
+    const first = service.save(null, "settings.json", one, null).then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+    const second = service.save(null, "settings.json", two, createHash("sha256").update(one).digest("hex")).then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    );
+    // A whole save of another file is the barrier: it is not held back, and takes longer than finding a file.
+    await service.save(null, "mcp.json", "{}", null);
+    located.resolve();
+
+    expect(await first).toMatchObject({ value: { text: one } });
+    expect(await second).toMatchObject({ value: { text: two } });
+    expect(await readFile(join(global, "settings.json"), "utf8")).toBe(two);
+  });
+
+  it("keeps the order of a save made while another still finds its file, behind saves already let through", async () => {
+    const temp = await createTempDir("pi-config");
+    onTestFinished(temp.cleanup);
+    const root = await realpath(temp.path);
+    const global = join(root, "global");
+    const [first, third] = [Promise.withResolvers<void>(), Promise.withResolvers<void>()];
+    onTestFinished(() => {
+      first.resolve();
+      third.resolve();
+    });
+    // The first and third saves wait for pi's environment; the others find their file at once.
+    const waits: (Promise<void> | undefined)[] = [first.promise, undefined, third.promise];
+    let asked = 0;
+    const service = createPiConfig({
+      environment: async () => {
+        asked += 1;
+        await waits.shift();
+        return { HOME: root, PI_CODING_AGENT_DIR: global };
+      },
+      dirOf: () => undefined,
+    });
+    const [one, two, three, four] = ['{"order":1}', '{"order":2}', '{"order":3}', '{"order":4}'] as const;
+    const saving = (text: string, revision: string | null) =>
+      service.save(null, "settings.json", text, revision).then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+    const saves = [saving(one, null), saving(two, revisionOf(one)), saving(three, revisionOf(two))];
+    first.resolve();
+    // The third save is finding its file once the second has been let through.
+    await vi.waitFor(() => expect(asked).toBe(3));
+    saves.push(saving(four, revisionOf(three)));
+    // A whole save of another file is the barrier: a fourth save not held back would be queued by then.
+    await service.save(null, "mcp.json", "{}", null);
+    third.resolve();
+
+    expect(await Promise.all(saves)).toMatchObject([one, two, three, four].map((text) => ({ value: { text } })));
+    expect(await readFile(join(global, "settings.json"), "utf8")).toBe(four);
   });
 
   it("handles filesystem-root configuration using actual root metadata without opening real root configs", async () => {

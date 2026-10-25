@@ -55,6 +55,9 @@ export default defineConfig({
         // The UI's own Vite config, so tests get the same plugins as the page (React, Tailwind).
         extends: "./packages/ui/vite.config.ts",
         root: "./packages/ui",
+        // The page's port is fixed, but the browser server of each of several runs side by side
+        // (`pnpm test:stress`) needs one of its own: with the strict port, all but one stopped at once.
+        server: { strictPort: false },
         test: {
           name: "ui",
           include: ["src/**/*.browser.test.{ts,tsx}"],

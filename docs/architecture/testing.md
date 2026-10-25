@@ -252,9 +252,17 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 
 教训（M1.2）：几个测试在高并发下时有时无地失败，表现为"pi --version 10 秒没回应"、"停止时 pi 还没启动完就收到了 SIGTERM"，根因都是新写的可执行文件第一次运行被挡住。
 
+2026-10-23 修 `install-service.test.ts` 的偶发失败时又遇到一次：它每个测试都新写 `brew`、`pi` 两个脚本，压力测试 13 份并行时"settled holds pi's starts…"52 次全败、另有 5 个用例时有超时；改成链接到共享的 shell pi（按调用名区分 `brew` 和 `pi`）后 52 次全过。
+
+### 测试里的大目录
+
+2026-10-23 定。创建成千上万个文件在别的进程也在建文件时很慢：13 个进程同时各建 5000 个空文件，每个要约 6.5 秒，单独一个只要 0.35 秒（APFS 的元数据操作全机共享，加核数也没用）。所以测试不要每次自己建大目录：只读的大目录用 testkit 的 `numberedFiles(count)`，它和共享的可执行文件放在同一处，按内容哈希命名、先在旁边建好再改名就位，跨运行复用；全局初始化先确保 5000、5001 两份都在。系统可能清掉放久了的临时文件，所以每次用时数一下条目。不全的不动它，在下一个空着的名字（`<名字>-1`、`<名字>-2`……）建一份新的；读的人取第一份完整的。任何一份都从不挪动、从不删除，别的进程正在读也不受影响；不加锁，测试进程被杀也不留下要收拾的状态（2026-10-24 审查后改：原先不全就挪开重建，两个进程同时重建时，后一个会把前一个刚放好的完整目录挪走删掉）。只往确定不存在的名字上改名：一份只会由改名出现，改名到已有的非空目录会失败，失败就重新看一遍，取别人刚放好的那份。代号只在系统清理过时才增加，可以接受。它在每次运行的临时根目录之外，在里面跑 git 时要用 `gitSceneEnv(它的上一级)` 拦住 git 往上找仓库。
+
 ### 压力测试
 
 时有时无的失败要靠同时多跑几份才看得出来。`pnpm test:stress [--copies N] [--rounds R] [--project P] [路径…]` 同时跑 N 份（默认核数减一）、连跑 R 轮（默认 2 轮），每份只用一个 worker，最后列出失败过的测试（第几次里失败几次）和最慢的几个测试。新增或改动的测试合并前跑一次，宿主层用 `--project host`。
+
+界面层（`--project ui`）每份各起一个浏览器服务：UI 的 Vite 配置为开发服务固定了端口（`strictPort`），2026-10-23 之前各份同时启动时只有一份拿到端口，其余报"端口已被占用"、一个测试也没跑，却被当成通过计数，所以在那之前界面层的压力结果都不可信。现在测试里的 ui 项目不要求固定端口（`vitest.config.ts`），脚本也把一个测试都没跑的那份算作出错。
 
 每份只用一个 worker，是为了让各份测试互相竞争、暴露竞态和时序假设，而不是把 CPU 饿死。教训（M1.4）：13 份 Vitest 各用默认的"每核一个 worker"同时跑，14 核上有约 170 个测试进程，会启动子进程的测试（读登录 shell、跑 pi）被拖慢 30～60 倍，超过 5 秒的默认期限而失败；把期限放宽到 60 秒后全部通过，耗时连续分布在 4～6 秒、没有卡在某个固定值上，说明不是死锁或竞态。改成每份一个 worker 后，26 次全部通过，最慢的测试约 1.3 秒。
 
@@ -264,15 +272,14 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 
 | 测试 | 现象 | 怎么复现 | 状态 |
 |---|---|---|---|
-| `packages/ui/src/app/workbench.browser.test.tsx` “names a chat by its alias, else its first session's title, else as new” | 2026-10-22整套串行UI首轮名称正确但行顺序变化；单跑及全量重跑通过。fixture分别取实时时间，列表按更新时间降序，跨毫秒创建可改变顺序；相关文件相对main未改 | `pnpm test:ui --maxWorkers=1`；单跑此用例 | 待修，不放宽断言或增加重试 |
-| `packages/ui/src/chat/changes-pane.browser.test.tsx` "opens from nothing in 0.24 s, the panel at its width from the start, and closes back to nothing before it goes" | 整套 ui 并行跑时偶尔失败，单独跑通过；量的是动效时长，机器忙时帧落后 | `pnpm test:stress --project ui packages/ui/src/chat/changes-pane.browser.test.tsx` | 待修（多半要改成按动画对象的时间线断言，不按墙钟） |
-| `packages/ui/src/chat/markdown.browser.test.tsx` "shows a block's buttons in place of its language while hovered or focused inside" | 同上，整套并行时偶尔失败 | 同上，换成这个文件 | 待修 |
-| `packages/ui/src/files/diff-viewer.browser.test.tsx`、`packages/ui/src/chat/streaming.browser.test.tsx` | 整套并行时偶尔有一个用例失败，单独跑通过；具体用例下次复现时记下 | 同上 | 待查 |
-| `packages/host/src/files/workspace-files.test.ts` "lists a directory of exactly 5000 entries whole" | 机器忙时超过期限 | `pnpm test:stress packages/host/src/files/workspace-files.test.ts` | 待修 |
-| `packages/host/src/setup/install-job.test.ts` "ends what the command left running in its group once it exits"（`install-service.test.ts` 有同类用例） | 整套并行时偶尔失败，单独跑通过（M1.14 时记下） | `pnpm test:stress packages/host/src/setup/` | 待修 |
-| `packages/host/src/setup/pi-config.test.ts` "queues several same-path saves in order while unrelated paths remain writable" | 整套单元并行跑时偶尔失败：第三次保存应答 `config_conflict`，没按排队的顺序写成；单独跑通过。2026-10-20 起追踪表里多次记过，2026-10-23 集成验证时又出现一次（单跑 3 次、全量重跑都通过），文件未改 | `pnpm test:stress packages/host/src/setup/pi-config.test.ts` | 待查 |
-| `apps/desktop/e2e/status-bar.spec.ts` "shows the session's figures under the input box after a reply, with the context split, and keeps the groups chosen" | 2026-10-23 集成验证时整套串行跑（63 个里的最后一个）失败一次：按回车后消息没发出去，"一"还留在输入框里，30 秒没等到回复；这个用例的宿主日志没有意外的 warn/error。单跑 4 次、log-gate 分支的整套都通过。原因未查清，改动不涉及界面和输入框 | 整套跑 `pnpm test:e2e`；单跑 `--repeat-each` 没复现 | 待查 |
-| `apps/desktop/e2e/app.spec.ts` "keeps the sidebar's material as it is when another window takes the focus" | 本机跑时窗口有时拿不到系统焦点；2026-10-22整套及单跑均在 `screencapture -l` 报 `could not create image from window`，尚未到颜色断言 | 单独跑这个 spec，跑的同时不要操作别的窗口 | 待查（可能要换成不依赖系统焦点的做法）；原生截图可用性也是验证阻塞，未绕过或删除用例 |
+| `packages/ui/src/files/diff-viewer.browser.test.tsx` | 整套并行时偶尔有一个用例失败，单独跑通过；具体用例下次复现时记下。2026-10-23 修好压力测试脚本后，13 份并行 4 轮、整套界面 6 份并行 2 轮、整套默认并行 15 次都没复现 | 同上 | 待查 |
+| `packages/ui/src/app/new-workspace.browser.test.tsx` "shows the message at 60% until it has gone, then fully, with its time coming in" | 2026-10-23 整套界面 6 份并行 2 轮里失败一次：`sent.resolve()` 之后 1 秒内气泡的不透明度还是 0.6（`vi.waitFor` 默认 1 秒）。这段只有一次 store 更新和重新渲染，没有计时器；2026-10-24 整套界面 6 份并行 3 轮、13 份并行 2 轮（共 44 次），再加 14 个占满 CPU 的进程跑 13 份 2 轮，都没复现，根因未查清 | `pnpm test:stress --project ui --copies 6 --rounds 2` | 待查 |
+| `packages/ui/src/chat/run-control.browser.test.tsx` "grows the panel from its bottom edge, the rows one by one after it, and closes it at once" | 2026-10-23 整套界面 6 份并行 2 轮里失败一次：`expected [ Animation{} ] to strictly equal []`，即 1 秒内面板 0.28 秒的打开动画没结束（它结束靠下一帧发出的 `finish` 事件）。等的是墙钟，像是那一刻页面一秒多没画帧；2026-10-24 同上 70 次没复现。直接 `finish()` 也绕不开：`finish` 事件同样要等一帧，所以没改 | 同上 | 待查 |
+| `packages/ui/src/setup/first-launch.browser.test.tsx` "sweeps once soon after showing, asks no frames until the next, sweeps at once on hover, and stops once gone" | 2026-10-24 整套界面 13 份并行 2 轮（26 次）里失败一次：1.5 秒内开始按钮的光带没画出来（`expected false to be true`）。这个用例按真实时间等光带出现、消失和帧请求，组件的计时和帧都没有注入 | `pnpm test:stress --project ui --copies 13 --rounds 2` | 待修（多半要给光带注入时钟和帧，按它们推进） |
+| `packages/ui/src/app/workbench.browser.test.tsx` "unfolds the inbox's list only to the 228px it scrolls beyond" | 2026-10-24 混合压力（13 份并行 4 轮，五个界面文件）里失败一次：重新展开时列表 `scrollHeight` 是 201，像是之前点的"还有 3 条"没生效、只列了 3 条 | `pnpm test:stress --project ui packages/ui/src/app/workbench.browser.test.tsx packages/ui/src/chat/streaming.browser.test.tsx packages/ui/src/chat/markdown.browser.test.tsx` | 待查 |
+| `packages/host/src/setup/install-job.test.ts` "ends what the command left running in its group once it exits"（`install-service.test.ts` 有同类用例） | 整套并行时偶尔失败，单独跑通过（M1.14 时记下）。2026-10-23 单文件压力 13 份 10 轮 130 次、`setup/` 13 份 4 轮 52 次、整套单元 6 份 2 轮和默认并行 3 次都没复现；同目录 `install-service.test.ts` 的同类失败是新写可执行文件被 macOS 检查拖慢，已修（追踪表"已知不稳的测试修复"） | `pnpm test:stress packages/host/src/setup/` | 待修 |
+| `apps/desktop/e2e/edit-stopped-message.spec.ts` "edits the last stopped message in place, preserves the next draft and old branch, and restores the revision after restart" | 2026-10-24 整套 `pnpm test:e2e` 4 次里失败一次：把内容改成 `/help` 后点"重新发送"，5 秒内没出现"没能重新发送，编辑内容已保留，请重试"的提示 | 整套跑 `pnpm test:e2e` | 待查 |
+| `apps/desktop/e2e/status-bar.spec.ts` "shows the session's figures under the input box after a reply, with the context split, and keeps the groups chosen" | 2026-10-23 集成验证时整套串行跑（63 个里的最后一个）失败一次：按回车后消息没发出去，"一"还留在输入框里，30 秒没等到回复；这个用例的宿主日志没有意外的 warn/error。单跑 4 次、log-gate 分支的整套都通过。原因未查清，改动不涉及界面和输入框 | 整套跑 `pnpm test:e2e`；单跑 `--repeat-each` 没复现。2026-10-23～24 在 flaky-tests 分支整套跑 4 次都通过 | 待查 |
 
 另外，`pnpm test:pi` 曾经跑不过：本机 pi 升到了 1.3.0，仓库里只有 1.0.2 和 1.1.0 的夹具（"pi 夹具"一节：没有本机版本的夹具就失败）（2026-10-20 记）。2026-10-23 已补齐 1.3.0 夹具并审查和 1.1.0 的差异，`test:pi` 89 项全部通过。
 

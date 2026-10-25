@@ -5,6 +5,7 @@ import {
   remarkReplyImages,
   remarkReplyFiles,
   remarkReplyData,
+  withoutUnfinishedTable,
 } from "./markdown-transforms";
 
 describe("reply file addresses", () => {
@@ -381,5 +382,79 @@ describe("remarkHtmlAsText", () => {
         },
       ],
     });
+  });
+});
+
+describe("withoutUnfinishedTable", () => {
+  it.each([
+    ["the header being written", "表格\n\n| 模块 | 职", "表格\n"],
+    ["the header written", "表格\n\n| 模块 | 职责 | 行数 |", "表格\n"],
+    ["the header and its line's end", "表格\n\n| 模块 | 职责 | 行数 |\n", "表格\n"],
+    ["the header and half the delimiter row", "表格\n\n| 模块 | 职责 | 行数 |\n| -------- | -----", "表格\n"],
+    ["a delimiter cell only begun", "| a | b |\n| --- | :", ""],
+    ["a header without its closing pipe", "| a | b\n| --- |", ""],
+    ["cells written without spaces", "| a | b | c |\n|---|-", ""],
+    ["a delimiter row without its opening pipe", "| a | b | c |\n--- | -", ""],
+    ["an indented delimiter row", "| a | b | c |\n   | --- | -", ""],
+    ["a cell ending in other than dashes", "| a | b | c |\n| --x | -", "| a | b | c |"],
+    ["a cell starting with other than dashes", "| a | b | c |\n| x-- | -", "| a | b | c |"],
+    ["a second line starting with a pipe, after a pipe line that is only a paragraph", "| a |\n| b", "| a |"],
+    ["a header after a paragraph line", "foo\n| a | b |", "foo"],
+    [
+      "a header after a heading that ended a table",
+      "| a | b |\n| - | - |\n# h\n| x | y |",
+      "| a | b |\n| - | - |\n# h",
+    ],
+    ["a header after code closed by a fence with spaces after it", "```\n```  \n| a | b |", "```\n```  "],
+    ["a header after a blank line that ended a table", "| a |\n| - |\n\n| x |", "| a |\n| - |\n"],
+    ["a header after a line of spaces that ended a table", "| a |\n| - |\n   \n| x |", "| a |\n| - |\n   "],
+    [
+      "a header after a level-two heading that ended a table",
+      "| a | b |\n| - | - |\n## h\n| x |",
+      "| a | b |\n| - | - |\n## h",
+    ],
+    ["a header after an empty heading that ended a table", "| a |\n| - |\n#\n| x |", "| a |\n| - |\n#"],
+    ["a header after a delimiter row with a cell not dashes", "| a | b |\n| - | x |\n| y |", "| a | b |\n| - | x |"],
+    ["a header after a line with a fence inside it, no fence", "a ```\n| a |", "a ```"],
+    ["a header after a lone tilde, no fence", "~\n| a |", "~"],
+    ["a header after code holding what looks like a table", "```\n| a |\n| - |\n```\n| x |", "```\n| a |\n| - |\n```"],
+    ["a header after a delimiter row of the wrong width", "| a | b |\n| - |\n| x |", "| a | b |\n| - |"],
+    ["a header after a line no fence, its info string holding a backtick", "```a`b\n| a |", "```a`b"],
+  ])("holds back a table not yet a table: %s", (_case, text, shown) => {
+    expect(withoutUnfinishedTable(text)).toBe(shown);
+  });
+
+  it.each([
+    ["the delimiter row written", "| a | b |\n| --- | --- |"],
+    ["the delimiter row as long as a header with an escaped pipe", "| a \\| b | c |\n| --- | --- |"],
+    ["the delimiter row with all its columns, its end still coming", "| a | b |\n| :-- | -"],
+    ["a body row being written", "| a | b |\n| - | - |\n| 1 | 2"],
+    ["a table and a blank line after it", "| a |\n| - |\n| 1 |\n"],
+    ["a row after a line that is not a delimiter", "| a |\nhello"],
+    ["a pipe inside a line", "a | b"],
+    ["an indented header and its delimiter row", "  | a |\n| --- |"],
+    ["a lone pipe and its line's end", "|\n"],
+    ["a header line inside code", "```\n| a | b |"],
+    ["a header line in code a shorter fence does not close", "````\n```\n| a | b |"],
+    ["a header line in code another kind of fence does not close", "~~~\n```\n| a | b |"],
+    ["a header line in code a fence with more after it does not close", "```\n```not-a-close\n| a | b |"],
+    ["a header line in code under a fence with an info string", "```ts\n| a | b |"],
+    ["a header line in code under a tilde fence", "~~~\n| a |"],
+    ["a body row after one holding a fence's backticks", "| a | b |\n| - | - |\nx ```\n| y |"],
+    ["a body row after one starting with inline code", "| a |\n| - |\n`x`\n| y |"],
+    ["a body row after one starting with a tilde", "| a |\n| - |\n~x\n| y |"],
+    ["a header line in code a fence indented four spaces does not close", "```\n    ```\n| a |"],
+    ["a body row after a delimiter row without its opening pipe", "| a | b |\n--- | ---\n| 1 | 2 |"],
+    ["a body row of a table whose header has no opening pipe", "a | b\n--- | ---\n| 1 | 2 |"],
+    ["a body row after one without pipes", "| a | b |\n| - | - |\n1 | 2\n| 3 | 4 |"],
+    ["a body row after plain text the table took in", "| a | b |\n| - | - |\nplain\n| 3 | 4 |"],
+    ["a pipe line a quote after a table takes in", "| a | b |\n| - | - |\n> q\n| x | y |"],
+    ["nothing", ""],
+  ])("shows the rest as it is: %s", (_case, text) => {
+    expect(withoutUnfinishedTable(text)).toBe(text);
+  });
+
+  it("holds back a table after code that has closed", () => {
+    expect(withoutUnfinishedTable("```\nx\n```\n| a |")).toBe("```\nx\n```");
   });
 });

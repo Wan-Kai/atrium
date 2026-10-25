@@ -1,9 +1,9 @@
 import { CommandError, type DirEntry } from "@atrium/protocol";
-import { GIT_SCENE_ENV, createTempDir } from "@atrium/testkit";
+import { GIT_SCENE_ENV, createTempDir, gitSceneEnv, numberedFiles } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
 import { chmod, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import { systemClock } from "../platform/clock";
@@ -179,10 +179,11 @@ describe("WorkspaceFiles.listDir", () => {
     });
   });
 
+  // The directories are shared and only read: creating 5000 files took longer than a test may on a
+  // busy machine (testing.md, "测试里的大目录").
   it("lists the first 5000 entries by name of a larger directory, saying it was cut", async () => {
-    const { dir } = await scene();
+    const dir = await numberedFiles(5001);
     const names = Array.from({ length: 5001 }, (_, index) => `f${String(index).padStart(4, "0")}`);
-    for (const name of names) await writeFile(join(dir, name), "");
 
     const listed = await filesOf(dir, null).files.listDir(WORKSPACE, "");
 
@@ -193,10 +194,15 @@ describe("WorkspaceFiles.listDir", () => {
   });
 
   it("lists a directory of exactly 5000 entries whole", async () => {
-    const { dir } = await scene();
-    for (let index = 0; index < 5000; index++) await writeFile(join(dir, `f${index}`), "");
+    const dir = await numberedFiles(5000);
+    // It is outside the run's temporary root, so git is kept from looking above it for a repository.
+    const git = createGitRunner({
+      env: gitSceneEnv(dirname(dir)),
+      clock: systemClock,
+      resources: new ResourceTracker(),
+    });
 
-    const listed = await filesOf(dir, null).files.listDir(WORKSPACE, "");
+    const listed = await filesOf(dir, git).files.listDir(WORKSPACE, "");
 
     expect([listed.entries.length, listed.truncated]).toStrictEqual([5000, false]);
   });

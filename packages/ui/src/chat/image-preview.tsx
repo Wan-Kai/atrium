@@ -75,6 +75,9 @@ function ImagePreviewCanvas({ src, alt, onClose }: ImagePreviewProps) {
     const trigger = document.activeElement;
     dialog.showModal();
     closeRef.current?.focus({ preventScroll: true });
+    // Measured now, open: the observer first reports at a later frame, and an image decoded
+    // before it would be fitted to nothing.
+    setViewport({ width: canvas.clientWidth, height: canvas.clientHeight });
     const observer = new ResizeObserver(([entry]) => {
       if (entry !== undefined) setViewport({ width: entry.contentRect.width, height: entry.contentRect.height });
     });

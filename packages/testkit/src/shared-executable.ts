@@ -11,6 +11,19 @@ const run = promisify(execFile);
 export const TEST_BIN_DIR_ENV = "ATRIUM_TEST_BIN_DIR";
 
 /**
+ * The directory shared test executables and directories live in.
+ *
+ * @remarks
+ * Named by the global test setup, outside the per-run temporary root, so they outlive the run.
+ *
+ * @sideEffects none
+ * @returns Its absolute path.
+ */
+export function sharedDir(): string {
+  return process.env[TEST_BIN_DIR_ENV] ?? join(tmpdir(), "atrium-test-bin");
+}
+
+/**
  * Returns the path of an executable with this content, writing it the first time any process asks.
  *
  * @remarks
@@ -28,7 +41,7 @@ export const TEST_BIN_DIR_ENV = "ATRIUM_TEST_BIN_DIR";
  * @returns The absolute path of the shared executable.
  */
 export async function sharedExecutable(name: string, content: string): Promise<string> {
-  const dir = process.env[TEST_BIN_DIR_ENV] ?? join(tmpdir(), "atrium-test-bin");
+  const dir = sharedDir();
   const file = join(dir, `${createHash("sha256").update(content).digest("hex").slice(0, 16)}-${name}`);
   try {
     await access(file);
