@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { type TestHost, settledResources, startTestHost } from "../harness";
+import { heapWithoutCode, settledResources, startTestHost, type TestHost } from "../harness";
 
 const minutes = Number(process.env["SOAK_MINUTES"] ?? 30);
 const durationMs = minutes * 60_000;
@@ -30,6 +30,8 @@ interface Sample {
   readonly cycles: number;
   readonly rss: number;
   readonly heapUsed: number;
+  /** The heap used without V8's compiled code, by which growth is judged. */
+  readonly heapWithoutCode: number;
   readonly children: number;
   readonly resources: Record<string, number>;
 }
@@ -431,6 +433,7 @@ describe("host soak", () => {
             cycles,
             rss: memory.rss,
             heapUsed: memory.heapUsed,
+            heapWithoutCode: heapWithoutCode(),
             children: children().length,
             resources: host.resources.snapshot(),
           });
@@ -450,15 +453,15 @@ describe("host soak", () => {
       await writeFile(
         join(report, `sessions-${new Date().toISOString().replaceAll(":", "-")}.csv`),
         [
-          "elapsed_ms,cycles,rss,heap_used,children,resources",
+          "elapsed_ms,cycles,rss,heap_used,heap_without_code,children,resources",
           ...samples.map(
             (s) =>
-              `${s.elapsedMs},${s.cycles},${s.rss},${s.heapUsed},${s.children},"${JSON.stringify(s.resources).replaceAll('"', "'")}"`,
+              `${s.elapsedMs},${s.cycles},${s.rss},${s.heapUsed},${s.heapWithoutCode},${s.children},"${JSON.stringify(s.resources).replaceAll('"', "'")}"`,
           ),
         ].join("\n"),
       );
       const afterWarmup = samples.slice(Math.floor(samples.length / 3));
-      const bytesPerCycle = slope(afterWarmup.map((s) => [s.cycles, s.heapUsed] as const));
+      const bytesPerCycle = slope(afterWarmup.map((s) => [s.cycles, s.heapWithoutCode] as const));
       await testHost.dispose();
       expect(afterWarmup.length).toBeGreaterThanOrEqual(10);
       expect(bytesPerCycle).toBeLessThan(1024);

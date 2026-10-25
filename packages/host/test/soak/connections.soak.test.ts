@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { settledResources, startTestHost } from "../harness";
+import { heapWithoutCode, settledResources, startTestHost } from "../harness";
 
 const minutes = Number(process.env["SOAK_MINUTES"] ?? 30);
 const durationMs = minutes * 60_000;
@@ -13,6 +13,8 @@ interface Sample {
   readonly cycles: number;
   readonly rss: number;
   readonly heapUsed: number;
+  /** The heap used without V8's compiled code, by which growth is judged. */
+  readonly heapWithoutCode: number;
   readonly resources: Record<string, number>;
 }
 
@@ -52,6 +54,7 @@ describe("host soak", () => {
             cycles,
             rss: memory.rss,
             heapUsed: memory.heapUsed,
+            heapWithoutCode: heapWithoutCode(),
             resources: testHost.host.resources.snapshot(),
           });
           nextSample += sampleEveryMs;
@@ -67,15 +70,15 @@ describe("host soak", () => {
       await writeFile(
         join(report, `connections-${new Date().toISOString().replaceAll(":", "-")}.csv`),
         [
-          "elapsed_ms,cycles,rss,heap_used,resources",
+          "elapsed_ms,cycles,rss,heap_used,heap_without_code,resources",
           ...samples.map(
             (s) =>
-              `${s.elapsedMs},${s.cycles},${s.rss},${s.heapUsed},"${JSON.stringify(s.resources).replaceAll('"', "'")}"`,
+              `${s.elapsedMs},${s.cycles},${s.rss},${s.heapUsed},${s.heapWithoutCode},"${JSON.stringify(s.resources).replaceAll('"', "'")}"`,
           ),
         ].join("\n"),
       );
       const afterWarmup = samples.slice(Math.floor(samples.length / 3));
-      const bytesPerCycle = slope(afterWarmup.map((s) => [s.cycles, s.heapUsed] as const));
+      const bytesPerCycle = slope(afterWarmup.map((s) => [s.cycles, s.heapWithoutCode] as const));
       await testHost.dispose();
       expect(afterWarmup.length).toBeGreaterThanOrEqual(10);
       expect(bytesPerCycle).toBeLessThan(1024);
