@@ -263,6 +263,7 @@ iOS App ──wss──▶ relay（用户 VPS，Caddy 终止外层 TLS）◀─�
 ### iOS App（`apps/ios`）
 
 - **最低系统**：iOS 26（用户定，2026-10-24）。Swift 6，开严格并发检查。
+- **工程**（2026-10-25，MP1）：`apps/ios/AtriumKit` 是 SwiftPM 包，下表的模块是它的 target；App 本体和 UI 测试在手写维护的 `apps/ios/Atrium.xcodeproj` 里（文件夹同步、设置写在 xcconfig），不用 XcodeGen、Tuist，取舍见 [overview.md · iOS 工程](../architecture/overview.md#ios-工程2026-10-25-定mp1)；规范见 coding-standards、testing 的"Swift（手机端）"。
 - **模块**（同一个 Xcode 工程里的 Swift 包）：
 
   | 模块 | 内容 |

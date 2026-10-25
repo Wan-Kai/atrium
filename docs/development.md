@@ -12,6 +12,7 @@
 | Electron | 44.5.1（自带 Node 24.21、Chromium 152） | 宿主跑在它自带的 Node 里（`utilityProcess`） |
 | TypeScript | 7.0.2 | 原生实现，没有 JS 编译 API，依赖它的工具（如 Stryker 的 tsconfig 改写）要绕开 |
 | git | ≥ 2.38 | 合并状态的判定要用 `git merge-tree --write-tree` |
+| Xcode | 26.6（Swift 6.3、swift-format 6.3、iOS 26.5 模拟器） | 只有手机端（`apps/ios`）要；没装时 `pnpm check`、`pnpm test` 跳过 Swift 部分并提示，`pnpm test:ios`、`pnpm ios:*` 报错退出（2026-10-25，MP1） |
 | pi | 最低 1.0.1 | [pi-internals.md](research/pi-internals.md) 基于 1.0.1；M1.1 时本机装的是 1.0.2。pi 升级时先跑契约测试（`pnpm test:pi`） |
 
 依赖一律锁定精确版本，升级单独提交（[coding-standards.md](architecture/coding-standards.md#依赖)）。
@@ -66,7 +67,11 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | `pnpm pi:try "<提示词>"` | 用宿主的组件直接驱动真实 pi：读登录 shell 环境、找 pi、发一条提示词，在终端里流式打出回复，结束时给出 trace id（日志在 `~/.atrium/dev-logs`）。`--cwd <目录>` 指定工作目录，`--keep-session` 保留会话文件，`--inherit-env` 跳过登录 shell，`--` 之后的参数原样交给 pi。会真的调用模型 |
 | `pnpm check` | 格式、代码检查（含 JSDoc）、类型检查、knip、`pnpm boundary --all` |
 | `pnpm boundary [基准]` | 列出基准（默认 `git merge-base HEAD main`）以来的提交、未提交改动和未跟踪新文件碰到的外部边界：依赖增删改（标出非精确版本）、生产代码里新增和删掉的地址、环境变量、隐藏命令（标出是否已在 [security.md · 外部边界登记](architecture/security.md#外部边界登记) 登记）、`PROTOCOL_VERSION` 的变化（协议文件改了、版本没变时警告）、改动文件里的 `@sideEffects` 矛盾。新增了未登记的或非精确版本时退出码为 1。`--all` 拿全部生产代码对照登记表，接在 `pnpm check` 里 |
-| `pnpm break-check <cases.json>` | 破坏检查：按每个 case（`{ file, from, to, test, name, project? }`，`from` 在文件里恰好出现一次）把代码改坏，跑那个测试（`vitest run --project <project，默认 unit> <test> -t <name>`），打印 `CAUGHT` 或 `MISSED`，再改回去；有漏掉的退出码为 1。被中断时也会改回去（见上文"标准开发流程"第 4 步） |
+| `pnpm break-check <cases.json>` | 破坏检查：按每个 case（`{ file, from, to, test, name, project? }`，`from` 在文件里恰好出现一次）把代码改坏，跑那个测试（`vitest run --project <project，默认 unit> <test> -t <name>`），打印 `CAUGHT` 或 `MISSED`，再改回去；有漏掉的退出码为 1。被中断时也会改回去（见上文"标准开发流程"第 4 步）。Swift 的 case 写 `{ file, from, to, name, runner: "swift", filter, package? }`，跑 `swift test --filter <filter>`（2026-10-25 加，[testing.md · Swift（手机端）](architecture/testing.md#swift手机端)） |
+| `pnpm protocol:swift [--check]` | 从 `packages/protocol` 重新生成 Swift 的协议类型（`apps/ios/AtriumKit/Sources/AtriumProtocol/Generated/Protocol.swift`），再写出往返测试的夹具；`--check` 只在内存里生成、和提交的文件比，不一致退出码 1（接在 `pnpm check` 里）。遇到生成器不支持的 schema 构造时报错，写明位置（[testing.md · Swift（手机端）](architecture/testing.md#swift手机端)） |
+| `pnpm ios:format` | 用 Xcode 自带的 `swift format` 改写 `apps/ios` 下的 Swift 文件（生成的除外） |
+| `pnpm ios:build [--simulator]` | 用 `xcodebuild` 构建 App：默认给真机（`generic/platform=iOS`，带 `-allowProvisioningUpdates`，用 Xcode 里登录的免费账号签名），`--simulator` 给模拟器。产物在 `apps/ios/.build/xcode/`（不进 git） |
+| `pnpm ios:install` | 先 `pnpm ios:build`，再用 `xcrun devicectl` 装到连着的 iPhone 上并打开。没有配对过的 iPhone、或 iPhone 没连上（`devicectl` 里是 unavailable）时，在构建之前就报错，写明设备名、上次连接的时间和怎么连上。免费账号签的 App 7 天后打不开，到时重跑一次 |
 | `pnpm mutation:nightly:install` | 装上每晚的全量变异测试（见下文）；加 `uninstall` 卸掉 |
 
 测试命令见 [testing.md · 命令](architecture/testing.md#命令)。
