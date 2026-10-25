@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>提问卡片顶行 · 点阵问号 × 标题字体</title>
+<style>
+  /* 点阵问号用完整拉丁子集的 Syne 700（onboarding 大标题同款） */
+  @font-face {
+    font-family: "Syne";
+    font-style: normal;
+    font-weight: 700;
+    font-display: swap;
+    src: url("./fonts/syne-700-latin.woff2") format("woff2");
+  }
+  @font-face {
+    font-family: "LXGW WenKai";
+    src: local("LXGW WenKai"), url("./fonts/lxgwwenkai-0.woff2") format("woff2");
+    font-style: normal; font-display: swap; font-weight: 400;
+    unicode-range: U+4F60; /* 你 */
+  }
+  @font-face {
+    font-family: "LXGW WenKai";
+    src: local("LXGW WenKai"), url("./fonts/lxgwwenkai-2.woff2") format("woff2");
+    font-style: normal; font-display: swap; font-weight: 400;
+    unicode-range: U+5728; /* 在 */
+  }
+  @font-face {
+    font-family: "LXGW WenKai";
+    src: local("LXGW WenKai"), url("./fonts/lxgwwenkai-3.woff2") format("woff2");
+    font-style: normal; font-display: swap; font-weight: 400;
+    unicode-range: U+4E2A, U+95EE; /* 个 问 */
+  }
+
+  /* ——— tokens（同 packages/ui/src/design/tokens.css）——— */
+  :root {
+    --main: #ffffff; --surface-1: #ffffff; --surface-2: #f2f2f4; --surface-3: #e9e9ec;
+    --text: #1d1d1f; --text-2: #2c2c30; --text-3: #48484e; --text-muted: #6e6e74; --text-dim: #a1a1a7;
+    --line: rgba(0,0,0,.08); --line-strong: rgba(0,0,0,.14);
+    --hover: rgba(0,0,0,.035); --selected: rgba(0,0,0,.06);
+    --linked: rgba(47,111,237,.10);
+    --tint: #2f6fed; --attn: #dd8629; --attn-text: #c96509; --attn-soft: rgba(221,134,41,.12);
+    --ok-text: #1e8e3e;
+    --card-shadow: 0 0 0 .5px var(--line), 0 8px 24px rgba(41,70,122,.08);
+    --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+    --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+    --fs: 14px; --fs-meta: 13px; --fs-sm: 12px; --fs-xs: 11px;
+    --r-sm: 6px; --r-md: 10px; --r-card: 16px; --r-pill: 999px;
+    --page: #f7f8fa;
+  }
+  :root[data-theme="dark"] {
+    --main: #151517; --surface-1: #212123; --surface-2: #2c2c2e; --surface-3: #353638;
+    --text: #f9fafb; --text-2: #e7e9ec; --text-3: #cfd3d6; --text-muted: #adb2b8; --text-dim: #81858c;
+    --line: rgba(255,255,255,.1); --line-strong: rgba(255,255,255,.16);
+    --hover: rgba(255,255,255,.05); --selected: rgba(255,255,255,.08);
+    --linked: rgba(122,170,255,.14);
+    --tint: #7aaaff; --attn: #dd8629; --attn-text: #f0a24e; --attn-soft: rgba(221,134,41,.16);
+    --ok-text: #4ade80;
+    --card-shadow: 0 0 0 .5px var(--line), 0 9px 27px rgba(41,70,122,.2);
+    --page: #0d1016;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  body { background: var(--page); color: var(--text); font: var(--fs)/1.5 var(--font-sans); }
+
+  .bar { position: sticky; top: 0; z-index: 9; background: var(--page); padding: 18px 0 12px; }
+  .bar-in { width: 720px; margin: 0 auto; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .bar h1 { font-size: var(--fs-meta); font-weight: 600; }
+  .bar .tip { font-size: var(--fs-sm); color: var(--text-dim); }
+  .bar .sp { flex: 1; }
+  .sw { display: inline-flex; gap: 2px; background: var(--surface-2); border-radius: var(--r-pill); padding: 2px; }
+  .sw button { height: 22px; padding: 0 10px; border-radius: var(--r-pill); font-size: var(--fs-xs); color: var(--text-muted); }
+  .sw button.on { background: var(--surface-1); color: var(--text); font-weight: 500; box-shadow: 0 0 0 .5px var(--line), 0 1px 2px rgba(0,0,0,.06); }
+
+  main { width: 720px; margin: 0 auto; padding: 8px 0 40px; }
+  .variant { margin-top: 34px; }
+  .vlab { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 8px; }
+  .vlab b { font-size: var(--fs-meta); font-weight: 600; }
+  .vlab i { font-style: normal; font-size: var(--fs-sm); color: var(--text-dim); }
+
+  /* ——— 卡片与共用部件 ——— */
+  .qcard { background: var(--surface-1); border-radius: var(--r-card); box-shadow: var(--card-shadow); padding: 12px 14px; }
+  :root[data-theme="dark"] .qcard { background: var(--surface-2); }
+  .hd { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .hd .sp { flex: 1; }
+  .tabs { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+  .tab { height: 26px; display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border-radius: var(--r-pill); font-size: var(--fs-sm); color: var(--text-muted); }
+  .tab:hover { background: var(--hover); }
+  .tab.on { background: var(--selected); color: var(--text); font-weight: 500; }
+  .tab .dot { width: 6px; height: 6px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--text-dim); }
+  .tab .ok { display: none; color: var(--ok-text); }
+  .tab.done .dot { display: none; }
+  .tab.done .ok { display: block; }
+
+  .qtext { font-size: var(--fs); font-weight: 500; color: var(--text); margin: 10px 2px 8px; }
+  .qkind { display: inline-block; margin-left: 8px; padding: 0 6px; border-radius: var(--r-sm); font-size: var(--fs-xs); font-weight: 400; line-height: 18px; background: var(--surface-2); color: var(--text-muted); vertical-align: 1px; }
+  :root[data-theme="dark"] .qkind { background: var(--surface-3); }
+  .opts { display: flex; flex-direction: column; gap: 2px; }
+  .opt { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: var(--r-md); }
+  .opt:hover { background: var(--hover); }
+  .opt .idx { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--surface-2); display: grid; place-items: center; font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  :root[data-theme="dark"] .opt .idx { background: var(--surface-3); }
+  .opt:hover .idx { color: var(--text); }
+  .opt .lab { display: block; font-size: var(--fs-meta); font-weight: 500; color: var(--text); line-height: 20px; }
+  .opt .rec { display: inline-block; margin-left: 5px; padding: 0 5px; border-radius: var(--r-sm); line-height: 17px; font-size: var(--fs-xs); font-weight: 500; color: var(--tint); background: var(--linked); vertical-align: 1px; }
+  .opt .sub { display: block; font-size: var(--fs-sm); color: var(--text-muted); }
+  .foot { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: var(--fs-sm); color: var(--text-dim); }
+  .foot .sp { flex: 1; }
+  .kbd { font: var(--fs-xs)/1 var(--font-mono); padding: 2px 4px; border-radius: 4px; box-shadow: inset 0 0 0 .5px var(--line-strong); color: var(--text-muted); }
+  .btn { height: 28px; display: inline-flex; align-items: center; gap: 5px; padding: 0 12px; border-radius: var(--r-pill); font-size: var(--fs-meta); color: var(--text-2); }
+  .btn.ghost:hover { background: var(--hover); }
+  .btn.primary { background: var(--text); color: var(--main); font-weight: 500; }
+  .btn.primary[disabled] { background: var(--surface-3); color: var(--text-dim); cursor: default; }
+  svg.i { display: block; flex: none; }
+
+  /* ——— 顶行的标题字体处理 ——— */
+  .syne { font-family: "Syne", var(--font-sans); font-weight: 700; letter-spacing: .01em; }
+  .wenkai { font-family: "LXGW WenKai", var(--font-sans); }
+  .hd canvas { display: block; flex: none; }
+
+  /* 辛 · 双色混排 */
+  .v-d .t-cn { font-size: var(--fs-meta); font-weight: 500; color: var(--text); }
+  .v-d .t-latin { font-size: var(--fs-meta); color: var(--attn-text); margin: 0 6px; }
+  .v-d .cnt { font-size: var(--fs-sm); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+  /* 壬 · 大字标题 */
+  .v-f .t-big { font-family: "Syne", var(--font-sans); font-weight: 700; font-size: 16.5px; letter-spacing: .015em; color: var(--text); }
+  .v-f .t-cn2 { font-size: var(--fs-sm); color: var(--text-muted); margin-left: 8px; }
+  .v-f .t-cn2 .num { font-variant-numeric: tabular-nums; }
+
+  /* 癸 · 文楷 */
+  .v-g .t-kai { font-size: var(--fs); color: var(--text); }
+  .v-g .cnt { font-size: var(--fs-sm); color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+  .foot-note { width: 720px; margin: 46px auto 60px; font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="bar"><div class="bar-in">
+  <h1>提问卡片顶行 · 点阵问号 × 标题字体</h1>
+  <span class="tip">问号全部改成品牌点阵（canvas 圆角方点）；标题文案与字体各版不同</span>
+  <span class="sp"></span>
+  <span class="sw" id="sw-state"></span>
+  <span class="sw" id="sw-theme"></span>
+</div></div>
+<main id="list"></main>
+<div class="foot-note">
+  点阵按品牌规格画（点 ≈ 间距的 2/3、圆角 0.3）：甲是纯点阵；乙横向扫品牌渐变（蓝→青→桃）；丙的问号由四面八方飞来的点聚成，答完一题有一粒点落进缺口；丁的问号随答题逐行点亮；戊的缺口里有一颗呼吸亮点。字体：Syne 只走拉丁（中文不进衬线 / 展示体，沿用设计语言的分工），癸试中文展示体（文楷）。选定后点阵绘制收进一个共用函数，落 <code>question-card.tsx</code> 并更新 design-language.md。
+</div>
+
+<script>
+/* ——— 数据与状态 ——— */
+const HEADS = ["本机镜像", "改测试", "跑全量"];
+const N = HEADS.length;
+let K = 0;
+let theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+if (theme === "dark") document.documentElement.dataset.theme = "dark";
+
+/* ——— 点阵问号：5×7 图样，缺口在右下（3,5）——— */
+const MAP = [
+  [1,1,1,1,1],
+  [1,0,0,0,1],
+  [0,0,0,0,1],
+  [0,0,1,1,1],
+  [0,0,1,0,0],
+  [0,0,0,0,0],
+  [0,0,1,0,0],
+];
+const ROWS = 7, COLS = 5, GAP = [3,5];
+const BRAND = ["#2f6fed", "#3d8bfd", "#3fa8f5", "#35c0d0", "#5ecba0", "#f2b25c", "#f0937a"];
+
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+function ink(name) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v;
+}
+
+/*
+ * 画一帧点阵问号。
+ * opts: cell 间距, dot 点径, mode 着色（flat|gradient|rows）, base 基础色, dim 未点亮透明度,
+ *       litRows 逐行点亮数（mode=rows）, life 出生进度 0..1, tick 呼吸相位, seed 散落种子
+ */
+function drawQ(cv, o = {}) {
+  const cell = o.cell ?? 3.2, dot = o.dot ?? cell * 0.66, r = dot * 0.3;
+  const W = (COLS - 1) * cell + dot, H = (ROWS - 1) * cell + dot;
+  cv.style.width = W + "px"; cv.style.height = H + "px";
+  cv.width = W * DPR; cv.height = H * DPR;
+  const g = cv.getContext("2d");
+  g.scale(DPR, DPR);
+  const base = o.base ?? ink("--attn");
+  const dimC = ink("--text-dim");
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+    if (!MAP[y][x]) continue;
+    const isGap = x === GAP[0] && y === GAP[1];
+    let px = x * cell + dot / 2, py = y * cell + dot / 2;
+    let color = base, alpha = 1, size = dot;
+    if (o.mode === "gradient") {
+      color = BRAND[Math.round(x / (COLS - 1) * (BRAND.length - 1))];
+    } else if (o.mode === "rows") {
+      const lit = y < (o.litRows ?? 0);
+      color = lit ? base : dimC;
+      alpha = lit ? 1 : 0.38;
+      if (isGap && !lit) alpha = 0.15;
+    }
+    if (isGap && o.spark) { /* 缺口呼吸点：下面单独画 */ }
+    if (o.life !== undefined && o.life < 1) {
+      // 散落 → 归位：每点一个伪随机起点，按错峰进度插值
+      const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+      const rnd = s - Math.floor(s);
+      const s2 = Math.sin(x * 39.346 + y * 11.135) * 24634.6345;
+      const rnd2 = s2 - Math.floor(s2);
+      const start = rnd * 0.5, t = Math.max(0, Math.min(1, (o.life - start) / (1 - start)));
+      const e = 1 - Math.pow(1 - t, 3);
+      px += (rnd - 0.5) * 34 * (1 - e);
+      py += (rnd2 - 0.5) * 30 * (1 - e);
+      alpha *= 0.15 + 0.85 * e;
+      size = dot * (0.6 + 0.4 * e);
+      if (isGap) alpha = 0; // 缺口那粒留给“落点”时刻
+    } else if (isGap && !o.spark) {
+      alpha = o.gapAlpha ?? 1;
+    }
+    if (isGap && o.spark) {
+      const p = REDUCED ? 0.5 : (Math.sin(o.tick / 420) + 1) / 2; // 约 2.6s 一轮
+      alpha = 0.35 + 0.65 * p;
+      size = dot * (0.75 + 0.25 * p);
+      color = base;
+    }
+    if (alpha <= 0) continue;
+    g.globalAlpha = alpha;
+    g.fillStyle = color;
+    const q = size / 2, rr = Math.min(r, size * 0.3);
+    g.beginPath();
+    g.roundRect(px - q, py - q, size, size, rr);
+    g.fill();
+  }
+  g.globalAlpha = 1;
+}
+
+/* 丙：散落→聚拢，K 变化时缺口点单独落下 */
+let life = REDUCED ? 1 : 0, dropT = 0, lastK = K, t0 = performance.now();
+function frame(now) {
+  if (life < 1) life = Math.min(1, life + (now - (frame.p ?? now)) / 650);
+  if (dropT > 0) dropT = Math.max(0, dropT - (now - (frame.p ?? now)) / 300);
+  frame.p = now;
+  document.querySelectorAll("canvas[data-dq]").forEach((cv) => {
+    const kind = cv.dataset.dq;
+    if (kind === "static") drawQ(cv, { base: cv.dataset.c });
+    else if (kind === "gradient") drawQ(cv, { mode: "gradient" });
+    else if (kind === "scatter") {
+      drawQ(cv, { life });
+      if (K === N && dropT > 0) { /* 落点动画合并进 spark 通道 */ }
+    }
+    else if (kind === "rows") drawQ(cv, { mode: "rows", litRows: Math.ceil((K / N) * ROWS) });
+    else if (kind === "spark") drawQ(cv, { spark: true, tick: now - t0 });
+  });
+  requestAnimationFrame(frame);
+}
+
+/* ——— 图标与共用部件 ——— */
+const tickSvg = (size) => `
+  <svg class="i" width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M3 8.6 6.6 12 13 4.6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+const cur = () => Math.min(K, N - 1);
+const dq = (kind, c = "") => `<canvas data-dq="${kind}"${c ? ` data-c="${c}"` : ""} role="img" aria-label="问"></canvas>`;
+
+function tabs() {
+  return `<div class="tabs" role="tablist" aria-label="问题">${HEADS.map((h, i) => `
+    <button class="tab${i === cur() ? " on" : ""}${i < K ? " done" : ""}" role="tab" aria-selected="${i === cur()}">
+      <span class="dot"></span><span class="ok">${tickSvg(12)}</span>${h}
+    </button>`).join("")}</div>`;
+}
+
+function body() {
+  return `
+    <div class="qtext">夜间全量变异测试从 10–10 起每晚都失败，先怎么查？<span class="qkind">单选</span></div>
+    <div class="opts">
+      <div class="opt"><span class="idx">1</span><span><span class="lab">本机镜像，不碰文稿<span class="rec">推荐</span></span><span class="sub">先在本地复现，失败日志留全，不动 nightly 的配置</span></span></div>
+      <div class="opt"><span class="idx">2</span><span><span class="lab">先补追踪再查</span><span class="sub">给变异运行器加 trace id，明晚再抓一轮</span></span></div>
+      <div class="opt"><span class="idx">3</span><span><span class="lab">直接看 CI 历史</span><span class="sub">对比 10–09 与 10–10 的环境与依赖差异</span></span></div>
+      <div class="opt"><span class="idx">4</span><span><span class="lab">其他</span><span class="sub">都不合适？写你自己的回答</span></span></div>
+    </div>
+    <div class="foot">
+      <span><span class="kbd">1–4</span> 选择</span><span><span class="kbd">⏎</span> 下一题</span>
+      <span class="sp"></span>
+      <button class="btn ghost">跳过</button>
+      <button class="btn primary"${K < N ? " disabled" : ""}>提交回答</button>
+    </div>`;
+}
+
+/* ——— 各方案 ——— */
+const VARIANTS = [
+  { cls: "v-a", name: "甲 · 点阵问号 + 现状文字", note: "只换符号：圆圈问号退役，换成品牌点阵画的「?」，文案不动",
+    hd: () => `<div class="hd">${dq("static")}
+      <span style="display:flex;align-items:center;gap:6px;font-size:var(--fs-sm);font-weight:500;color:var(--attn-text)">agent 在问你
+        <span class="num" style="color:var(--text-dim);font-weight:400">· 已答 ${K} / ${N}</span></span>
+      <span class="sp"></span>${tabs()}</div>` },
+  { cls: "v-b", name: "乙 · 品牌渐变点阵 + Syne 大写", note: "点阵横向扫蓝→青→桃（拉满态同款渐变）；标题换成 Syne 小大写，中文退场",
+    hd: () => `<div class="hd">${dq("gradient")}
+      <span class="syne" style="font-size:12.5px;letter-spacing:.14em;color:var(--text)">AGENT ASKS</span>
+      <span style="font-size:var(--fs-sm);color:var(--text-dim)"><span class="num">${K} / ${N}</span> 已答</span>
+      <span class="sp"></span>${tabs()}</div>` },
+  { cls: "v-c", name: "丙 · 散落 → 聚拢", note: "问号由一把散落的点飞聚而成（页面打开时播一次）；答完最后一题，缺口那粒点才落位",
+    hd: () => `<div class="hd">${dq("scatter")}
+      <span style="font-size:var(--fs-sm);font-weight:500;color:var(--attn-text)">agent 在问你</span>
+      <span class="num" style="font-size:var(--fs-sm);color:var(--text-dim)">${K} / ${N}</span>
+      <span class="sp"></span>${tabs()}</div>` },
+  { cls: "v-d", name: "辛 · Syne × 黑体混排", note: "「agent」进 Syne、中文留系统黑体，中间一个橙色斜杠；点阵问号用深色近黑",
+    hd: () => `<div class="hd">${dq("static", "--text")}
+      <span><span class="syne t-latin" style="margin:0">agent</span><span style="color:var(--attn-text);font-size:var(--fs-sm);margin:0 2px 0 0">/</span>
+      <span class="t-cn"> 在问你</span></span>
+      <span class="cnt num">已答 ${K} / ${N}</span>
+      <span class="sp"></span>${tabs()}</div>` },
+  { cls: "v-e", name: "丁 · 点阵即进度", note: "不要计数文字：问号七行点随答题从下往上点亮，答满整枚变橙",
+    hd: () => `<div class="hd">${dq("rows")}
+      <span style="font-size:var(--fs-sm);font-weight:500;color:var(--attn-text)">agent 在问你</span>
+      <span style="font-size:var(--fs-sm);color:var(--text-dim)">${K === N ? "答完了" : K === 0 ? "还没答" : `答到第 ${K} 题`}</span>
+      <span class="sp"></span>${tabs()}</div>` },
+  { cls: "v-f", name: "壬 · 大字 Syne 标题", note: "顶行升格成真正的标题：16.5px Syne「agent asks?」，中文说明退成灰色小字",
+    hd: () => `<div class="hd">${dq("static")}
+      <span class="t-big">agent asks<span style="color:var(--attn-text)">?</span></span>
+      <span class="t-cn2">等你回答 · <span class="num">${K} / ${N}</span></span>
+      <span class="sp"></span>${tabs()}</div>` },
+  { cls: "v-g", name: "癸 · 文楷标题", note: "中文进展示体：文楷「问你在」，配深橙点阵；试一手东方式的提问感",
+    hd: () => `<div class="hd">${dq("static")}
+      <span class="wenkai t-kai">问你在</span>
+      <span class="cnt num">已答 ${K} / ${N}</span>
+      <span class="sp"></span>${tabs()}</div>` },
+  { cls: "v-h", name: "戊 · 缺口呼吸点", note: "问号右下永远缺一粒，缺口里一颗亮点缓缓呼吸——问题就是在等你的那一个空位",
+    hd: () => `<div class="hd">${dq("spark")}
+      <span style="font-size:var(--fs-sm);font-weight:500;color:var(--attn-text)">agent 在问你</span>
+      <span class="num" style="font-size:var(--fs-sm);color:var(--text-dim)">· 已答 ${K} / ${N}</span>
+      <span class="sp"></span>${tabs()}</div>` },
+];
+
+/* ——— 渲染 ——— */
+function render() {
+  document.getElementById("list").innerHTML = VARIANTS.map(v => `
+    <section class="variant ${v.cls}">
+      <div class="vlab"><b>${v.name}</b><i>${v.note}</i></div>
+      <div class="qcard">${v.hd()}${body()}</div>
+    </section>`).join("");
+  document.getElementById("sw-state").innerHTML = [0, 1, 2, 3].map(k =>
+    `<button data-k="${k}" class="${k === K ? "on" : ""}">已答 ${k} / ${N}</button>`).join("");
+  document.getElementById("sw-theme").innerHTML =
+    `<button data-t="light" class="${theme === "light" ? "on" : ""}">浅色</button>` +
+    `<button data-t="dark" class="${theme === "dark" ? "on" : ""}">深色</button>`;
+}
+
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.k !== undefined) {
+    K = Number(b.dataset.k);
+    if (K === N) dropT = 1; else dropT = 0;
+    if (K !== lastK && !REDUCED) life = Math.min(life, 0.35); // 换进度时丙快速重聚一次
+    lastK = K;
+    render();
+  }
+  if (b.dataset.t) {
+    theme = b.dataset.t;
+    document.documentElement.dataset.theme = theme === "dark" ? "dark" : "";
+    render();
+  }
+});
+render();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
