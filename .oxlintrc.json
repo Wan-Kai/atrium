@@ -276,6 +276,7 @@
     }
   ],
   "ignorePatterns": [
+    "spikes/**",
     "**/dist/**",
     "**/node_modules/**",
     "reports/**",

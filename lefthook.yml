@@ -7,7 +7,7 @@ pre-commit:
       run: pnpm exec oxfmt --check {staged_files}
     - name: lint
       glob: "*.{ts,tsx,mjs}"
-      run: pnpm exec oxlint --type-aware --deny-warnings {staged_files}
+      run: pnpm exec oxlint --type-aware --deny-warnings --no-error-on-unmatched-pattern {staged_files}
 
 pre-push:
   jobs:
