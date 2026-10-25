@@ -16,6 +16,10 @@
 
 ## 当前状态
 
+**2026-10-25：手机端设计定稿，用户确认 SPEC-0005、开始开发，仍在 `atrium/research-mobile-app`（只改文档和原型），待用户确认提交与合并。** 手机 App 经三轮原型：第一轮选 A"系统原生"，细化后用户觉得像普通 iOS 配置页，参考 Claude Code、Codex、Cursor 重做视觉、选乙"Claude 式"（暖色底、衬线标题、无卡片无分隔线、悬浮玻璃按钮、无 tab bar），过程保留纵向时间轴，插图是点阵像素猫，新会话改成"空的对话页、发出时原地变成对话"；桌面"手机"设置页选链路图、改成顺序动画（上行汇合、下行分发）。规范写进 [design-language · 手机端](architecture/design-language.md#手机端)、"设置"的"手机"分类和 SPEC-0005"界面"；路线图加了"手机端"一节（MP0–MP7）。下一步：MP0 互通实验。
+
+**2026-10-24：定了手机端的方向，在 `atrium/research-mobile-app`（worktree `atrium.worktrees/research-mobile-app`），只改文档，待用户验收，未提交。** 调研了 Paseo（最新源码）、Claude Code Remote Control、Happy、Codex、Cursor、OpenCode、Copilot CLI 等怎么让本机的 agent 和手机共用一个对话（[mobile-remote.md](research/mobile-remote.md)）。用户定：手机端做 SwiftUI 原生 iOS App（[ADR-0015](adr/0015-native-ios-app-in-swiftui.md)），经自己 VPS 上的 TypeScript relay 加 Noise IK 端到端加密连回宿主（[ADR-0016](adr/0016-remote-access-through-own-relay-with-noise.md)），取代 ADR-0005 的 PWA 加 Tailscale；没有付费开发者账号，App 用免费账号每 7 天重签，先不做推送。overview、security、路线图已同步。同日用户定宿主的长期密钥和设备列表放 macOS 钥匙串保护的保险箱（ADR-0016 第 7 条），写了 [SPEC-0005](specs/0005-mobile-app-and-remote-access.md) 草稿（relay 线路协议、Noise 通道、配对与撤销、远程命令白名单、续传、幂等、App 架构、实施计划 MP0–MP7），经 GPT-6 Astra 只读审查后重写（配对加密钥确认和状态机、字节级线路契约、每台手机单开数据连接、出站上限、回执只管远程的 `prompt`/`steer` 并写明"结果不确定"、续传加 `stream` 和 `session_resumed`、事件按来源过滤、第一版收窄、先做互通实验）；手机 App 和桌面"手机"设置页的原型在做。下一步：用户选原型、确认 SPEC 后，按 MP0 开工。
+
 **2026-10-23：插件系统暂缓（用户定），在 `atrium/design-plugin-model`（worktree `atrium.worktrees/design-plugin-model`），已本地合并回 `main`，未推送。** 设计了插件要有的能力、挂载点、状态、降级链、把现有内容型界面迁成内置插件（写进 [plugin-model.md](architecture/plugin-model.md)），调研了阿里低代码引擎（[lowcode-engine.md](research/lowcode-engine.md)）和 DeepSeek Harness 的客户端插件（[deepseek-harness-plugins.md](research/deepseek-harness-plugins.md)）。对比 pi 与 DeepSeek Harness 后（[pi-vs-dsh.html](research/pi-vs-dsh.html)），用户认为基于 pi 做整体插件化上限太低，先不做；阶段 2、3 标为暂缓。同日用户定：新账户首次启动不再做（M1.10 完成标准第一条），开源发布前的核对（字体许可、品牌图标、签名、公证与自动更新）先放着。下一步仍是 MVP 2 的 SPEC-0004。
 
 **2026-10-23：审查与验证工具三件，在 `atrium/review-tooling`（worktree `atrium.worktrees/review-tooling`，合了三个子代理 `agent/pi130-fixtures`、`agent/boundary-manifest`、`agent/log-gate` 的改动），用户验收通过，已本地合并回 `main`，未推送。** ①补录 pi 1.3.0 缺的 33 个契约夹具：`test:pi` 从 56 过、33 失败到 89 项全过；和 1.1.0 相比只有 `custom-idle` 是 pi 自己的变化（空闲时扩展 `sendMessage` 开的运行，`handled` 应答改在 `agent_start` 之前），宿主两种先后都已处理（pi-internals"版本"）；`pi-1.0.2/`、`pi-1.1.0/` 仍被第 1 层回放和 `history.spec.ts` 用着，留着。②`pnpm boundary`：按改动列出依赖、地址、环境变量、隐藏命令和 `PROTOCOL_VERSION`，对照 security.md 新加的"外部边界登记"（地址 13 条加拼出的 3 条、环境变量 39、隐藏命令 4；补上了宿主每天请求却没登记的 `https://pi.dev/api/latest-version`）；`--all` 接进 `pnpm check`；新 lint 规则 `atrium/side-effects-none` 拦"写 `@sideEffects none` 却直接起进程、写文件、联网、设定时器、写日志"（生产代码 0 处，测试辅助函数 4 处改了 JSDoc）；新开发依赖 `oxc-parser@0.150.0`（TypeScript 7 没有 JS 编译 API）。③日志门禁：宿主集成测试和端到端测试收尾时，测试没声明的 warn/error/fatal 让测试失败；界面上报的长任务、掉帧不算（用户定，由性能预算测试管）；`pnpm errors` 按签名汇总生产日志，标出最近一次宿主启动后的新签名。门禁的基线找出并修了归档后改动面板还在读已删目录的问题（SPEC-0001 先改）；按用户定的"Atrium 自己要求的停止或中止不记 warn"改了 6 处日志级别（observability.md）。待查项记在 self-use.md"问题"：首次代码高亮约 50 ms 的长任务；生产日志里 "changes not read" 的 rev-parse 起不来 87 次、超时 28 次（不是归档引起）；浸泡测试的资源基线竞态（`main` 上同样失败）；EBADF 提示的根因（`logger.test.ts` 的收尾顺序）。集成后验证：`pnpm check`、单元 3506、宿主 157、pi 89、界面 996、泄漏 13 加桌面 7 通过；端到端 61 过、2 失败，一个是已知不稳的失焦材质，另一个是新记入"已知不稳的测试"的 `status-bar.spec.ts`（整套跑时回车没把消息发出去，单跑 4 次通过，原因待查）；拆提交时单元里 `pi-config.test.ts` 的保存排队用例并行偶发 `config_conflict`（既有，单跑 3 次和全量重跑都通过），一并补记进"已知不稳的测试"。子代理各自跑过的：break-check 共 69 处全部检出；改动行的变异测试 pi 组 30/30、git 组 27/27。
@@ -152,6 +156,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - pi 是唯一内核，以 `pi --mode rpc` 子进程接入，**一个会话一个进程**，不用 `switch_session`（[ADR-0001](adr/0001-use-pi-as-core.md)、[ADR-0002](adr/0002-connect-pi-via-rpc-subprocess.md)）。
 - Claude 订阅的额度经用户自己装的 pi 扩展 pi-claude-bridge（服务商 `claude-bridge`，经 Agent SDK 用本机 `claude` 的登录）用，Atrium 不自己写桥接，只在自己这边适配；pi 的 `anthropic` 订阅登录会被算成额外用量（2026-10-16 定，[pi-internals §4](research/pi-internals.md)"经 Claude Code 的模型"）。
 - 宿主（Node）与 UI 分离，WebSocket + token；TypeScript monorepo（pnpm workspaces）：`protocol` / `client`（无 DOM）/ `host` / `ui`（React + Vite）+ `apps/desktop`（Electron），先只做 macOS（[ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）。
+- 手机端是 SwiftUI 原生 iOS App，协议类型由 `protocol` 导出的 JSON Schema 生成；手机经用户自己 VPS 上的 relay（TypeScript）连回宿主，宿主主动出站，两端用 Noise IK 端到端加密，每台设备有长期身份、可单独撤销；先不做推送（[ADR-0015](adr/0015-native-ios-app-in-swiftui.md)、[ADR-0016](adr/0016-remote-access-through-own-relay-with-noise.md)，2026-10-24 定）。
 - pi 适配器**自己实现，不用 pi 自带的 `RpcClient`**：它回答不了 extension 对话框，启动方式、超时都写死（理由见 [SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)）。
 - `client` 的状态用 **Zustand**（`zustand/vanilla`），按领域拆 store，UI 用选择器订阅。
 - 工程约束：[coding-standards.md](architecture/coding-standards.md)（每个函数和组件写 JSDoc：what、why、副作用）、[security.md](architecture/security.md)、[observability.md](architecture/observability.md)（OpenTelemetry 追踪 + pino 日志，全链路 trace id）。MVP 只做中文，宿主只发错误码不发文案。
@@ -469,6 +474,17 @@ MVP 1 里还没设计、做到时先补设计的：
 - 新建 worktree 工作区：由宿主创建 worktree，记下起点提交，会话在其中运行；工作区提供查看改动、合并、归档并清理 worktree 的入口（归档 2026-10-12 提前在 M1.11 做了，见 SPEC-0001"M1.11 的工作区归档"）；新会话时可选"当前工作区 / 新建 worktree"。
 - 参考：[SPEC-0001 · worktree 合并状态](specs/0001-mvp1-single-session-chat.md#侧栏)、[paseo-architecture](research/paseo-architecture.md) §6 git 状态。
 
+#### 手机端（[SPEC-0005](specs/0005-mobile-app-and-remote-access.md)）
+
+2026-10-25 用户确认设计稿、开始开发。SwiftUI 原生 iOS App（ADR-0015），经用户 VPS 上的 relay 加 Noise 端到端加密连回宿主（ADR-0016），先不做推送。视觉见 [design-language · 手机端](architecture/design-language.md#手机端) 和"设置"的"手机"分类。每步按标准流程走，步骤和完成标准以 SPEC-0005"实施计划"为准：
+
+- **MP0 互通实验**：选定 Noise 实现；TS 和 Swift 各跑通 IK、IKpsk2、密钥确认、分帧、心跳；最小的本机 relay；真机经它和 TS 假宿主完成配对握手；实测 `safeStorage` 经 Electron 端口交接和钥匙串弹窗。
+- **MP1 Swift 规范与类型生成**：coding-standards、testing 补 Swift；`apps/ios` 工程；`pnpm protocol:swift`。
+- **MP2 relay**：`apps/relay`，部署到用户的 VPS。
+- **MP3 宿主远程模块与桌面"手机"页**（链路图）。
+- **MP4 纵向切片**：配对 → 列表 → 打开会话 → 发一条 → 断网再连上（快照预算、续传、回执）。
+- **MP5 对话**、**MP6 改动与新建**、**MP7 自用**。
+
 v0.1 不做：沙箱隔离、插件系统、会话树、agent 自扩展、对外分发的签名与公证（本机用的打包在 M1.11 做了）、空闲进程回收、编辑文件（M1.12 的文件区只读；外部改动的处理留到做编辑时设计）。
 
 成功标准：连续两周把 Atrium 当作日常编码的主力工具；至少有一次通过上下文检查器发现问题，并用 extension 修好。
@@ -508,6 +524,6 @@ Atrium 区别于宿主层方案的核心，按学习价值和实现难度排序�
 - DeepSeek Harness：稳定后写桥接插件，与 pi 做横向对比
 - 沙箱隔离：v0.1 只靠审批，以后评估容器方案（pi 官方的建议）
 - 浏览器插件：ego lite 做不到的、或和 Atrium 相关的浏览器功能（例如把当前页面送进会话），自用中真遇到时再做；连宿主的鉴权、只操作"Atrium"标签组等规则见 [ADR-0009](adr/0009-browser-stays-external.md)。不内置浏览器（原先的"内嵌浏览器面板"，2026-10-12 改）
-- 手机端：先做响应式 + PWA，远程访问走 Tailscale；原生 App 视需要再做（见 [ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）
+- 手机端的推送、局域网直连、Android：见 SPEC-0005"非目标"（手机端本身已排进上文"手机端"，2026-10-25）
 - 空闲进程回收、文件区、forge（PR）状态
 - SPEC-0001 里标为"以后"的：侧聊、agent 提出的任务建议卡片、全文搜索、置顶、一个目录多个工作区、把对话移到项目、收藏模型、语音输入、长会话虚拟列表、extension 单向通知的显示

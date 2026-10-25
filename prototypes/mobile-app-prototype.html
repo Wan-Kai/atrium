@@ -1,0 +1,1525 @@
+<!doctype html>
+<!--
+  PROTOTYPE — 设计稿。Atrium iOS App（ADR-0015、ADR-0016）的四个方向：
+  A 系统原生 / B Atrium 延续 / C 收件箱优先 / D 对话优先。顶部切换方向、外观、减弱动态效果。
+  颜色、字号取自 docs/architecture/design-language.md；画布 393×852（iPhone 16/17 Pro 逻辑尺寸）。
+  各方向的样式写在自己 section 里的 <style>，类名以 a- / b- / c- / d- 开头。
+-->
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<title>原型 · Atrium 手机 App · 四个方向</title>
+<style>
+:root{color-scheme:light;
+  --window:#e8ecf2;--main:#fff;--surface-1:#fff;--surface-2:#f2f2f4;--surface-3:#e9e9ec;--code:#f6f6f8;
+  --text:#1d1d1f;--text-2:#2c2c30;--text-3:#48484e;--text-muted:#6e6e74;--text-dim:#a1a1a7;
+  --line:rgba(0,0,0,.08);--line-soft:rgba(0,0,0,.05);--line-strong:rgba(0,0,0,.14);
+  --hover:rgba(0,0,0,.035);--selected:rgba(0,0,0,.06);--linked:rgba(47,111,237,.1);
+  --rail:rgba(0,0,0,.15);--branch:rgba(0,0,0,.26);--node:#c4c4c9;
+  --tint:#2f6fed;--attn:#dd8629;--attn-text:#c96509;--attn-soft:rgba(221,134,41,.12);
+  --danger:#e5484d;--danger-soft:rgba(229,72,77,.1);--ok:#16a34a;--ok-text:#1e8e3e;--on-tint:#fff;
+  --add-bg:rgba(22,163,74,.09);--del-bg:rgba(229,72,77,.08);
+  --card-shadow:0 0 0 .5px var(--line),0 8px 24px rgba(41,70,122,.08);
+  --float-shadow:0 0 0 .5px var(--line-strong),0 12px 32px rgba(0,0,0,.14);
+  --chip-shadow:0 0 0 .5px rgba(0,0,0,.09),0 1px 1px rgba(0,0,0,.05);
+  /* iOS 系统色（方向 A 用） */
+  --ios-bg:#f2f2f7;--ios-cell:#fff;--ios-sep:rgba(60,60,67,.29);--ios-label2:rgba(60,60,67,.6);--ios-fill:rgba(120,120,128,.12);
+  --glass:rgba(255,255,255,.62);--glass-edge:rgba(255,255,255,.9);
+  --page:#dfe3ea;--bar:rgba(255,255,255,.86);
+  --font:-apple-system,"SF Pro Text","PingFang SC",sans-serif;--mono:"SF Mono",ui-monospace,Menlo,monospace;
+  --snappy:cubic-bezier(.2,.9,.3,1.05);--smooth:cubic-bezier(.45,0,.15,1);
+}
+[data-theme="dark"]{color-scheme:dark;
+  --window:#0d1016;--main:#151517;--surface-1:#212123;--surface-2:#2c2c2e;--surface-3:#353638;--code:#19191b;
+  --text:#f9fafb;--text-2:#e7e9ec;--text-3:#cfd3d6;--text-muted:#adb2b8;--text-dim:#81858c;
+  --line:rgba(255,255,255,.1);--line-soft:rgba(255,255,255,.06);--line-strong:rgba(255,255,255,.16);
+  --hover:rgba(255,255,255,.05);--selected:rgba(255,255,255,.08);--linked:rgba(122,170,255,.14);
+  --rail:rgba(255,255,255,.15);--branch:rgba(255,255,255,.28);--node:#5d6067;
+  --tint:#7aaaff;--attn-text:#f0a24e;--attn-soft:rgba(221,134,41,.16);
+  --danger:#f25a5a;--danger-soft:rgba(242,90,90,.14);--ok:#22c55e;--ok-text:#4ade80;--on-tint:#0d1016;
+  --add-bg:rgba(34,197,94,.12);--del-bg:rgba(242,90,90,.12);
+  --card-shadow:0 0 0 .5px var(--line),0 9px 27px rgba(41,70,122,.2);
+  --float-shadow:0 0 0 .5px var(--line-strong),0 16px 40px rgba(0,0,0,.45);
+  --chip-shadow:0 0 0 .5px rgba(255,255,255,.1),0 1px 1px rgba(0,0,0,.3);
+  --ios-bg:#000;--ios-cell:#1c1c1e;--ios-sep:rgba(84,84,88,.6);--ios-label2:rgba(235,235,245,.6);--ios-fill:rgba(120,120,128,.24);
+  --glass:rgba(40,40,44,.58);--glass-edge:rgba(255,255,255,.14);
+  --page:#08090b;--bar:rgba(28,28,30,.86);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--text);font:14px/1.45 var(--font);-webkit-font-smoothing:antialiased}
+button{all:unset;cursor:pointer;box-sizing:border-box}
+svg{flex:none;display:block}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--mono)}
+/* 顶部工具条 */
+.bar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:18px;padding:12px 32px;background:var(--bar);
+  backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);box-shadow:0 .5px 0 var(--line)}
+.bar h1{font-size:15px;margin:0;font-weight:600}
+.seg{display:flex;gap:2px;padding:2px;border-radius:10px;background:var(--surface-2)}
+.seg button{height:28px;padding:0 12px;border-radius:8px;font-size:13px;color:var(--text-muted);display:flex;align-items:center}
+.seg button[aria-pressed="true"]{background:var(--surface-1);color:var(--text);font-weight:500;box-shadow:0 0 0 .5px var(--line),0 1px 2px rgba(0,0,0,.08)}
+.bar label{font-size:13px;color:var(--text-muted);display:flex;gap:6px;align-items:center}
+/* 方向 */
+.dir{display:none;padding:22px 32px 60px}
+.dir.on{display:block}
+.dir>h2{font-size:20px;margin:0 0 4px}
+.dir>.lead{margin:0 0 6px;color:var(--text-muted);font-size:13px;max-width:1100px}
+.notes{margin:8px 0 18px;padding:12px 16px;max-width:1100px;border-radius:12px;background:var(--surface-1);box-shadow:var(--card-shadow);font-size:13px;color:var(--text-2)}
+.notes p{margin:3px 0}.notes b{color:var(--text)}
+.row{display:flex;flex-wrap:wrap;gap:30px 26px;align-items:flex-start}
+.shot{display:flex;flex-direction:column;gap:10px}
+.shot>.cap{font-size:13px;color:var(--text-muted);padding-left:6px}
+.shot>.cap b{color:var(--text);font-weight:600;margin-right:6px}
+/* iPhone 外框 393×852 */
+.phone{width:411px;height:870px;padding:9px;border-radius:64px;background:#1b1c1f;
+  box-shadow:inset 0 0 0 2px #3a3b40,inset 0 0 0 4px #0b0b0c,0 24px 60px rgba(20,30,60,.22)}
+.scr{position:relative;width:393px;height:852px;border-radius:55px;overflow:hidden;background:var(--main);isolation:isolate}
+.scr::before{content:"";position:absolute;z-index:40;top:11px;left:133px;width:126px;height:37px;border-radius:20px;background:#000}
+.scr::after{content:"";position:absolute;z-index:40;bottom:8px;left:129px;width:135px;height:5px;border-radius:3px;background:var(--text);opacity:.9}
+.sb{position:absolute;z-index:39;top:0;left:0;right:0;height:54px;display:flex;align-items:center;justify-content:space-between;
+  padding:4px 34px 0 50px;font:600 17px/1 var(--font);color:var(--text);pointer-events:none}
+.sb .ic{display:flex;gap:6px;align-items:center}
+.sb.light{color:#fff}
+/* 减弱动态效果 */
+[data-reduce="1"] *{animation-duration:1ms!important;animation-iteration-count:1!important;transition-duration:1ms!important}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Atrium 手机 App · 视觉方向</h1>
+  <div class="seg" id="dirSeg">
+    <button data-dir="a" aria-pressed="true">A 系统原生</button>
+    <button data-dir="b" aria-pressed="false">B Atrium 延续</button>
+    <button data-dir="c" aria-pressed="false">C 收件箱优先</button>
+    <button data-dir="d" aria-pressed="false">D 对话优先</button>
+  </div>
+  <div class="seg" id="themeSeg">
+    <button data-theme="light" aria-pressed="true">浅色</button>
+    <button data-theme="dark" aria-pressed="false">深色</button>
+  </div>
+  <label><input type="checkbox" id="reduce" /> 减弱动态效果</label>
+</div>
+
+<!-- 图标：Hugeicons stroke-rounded 风格，24 栅格，线宽 1.75 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev-u" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.5" fill="currentColor"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-q" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="9.25"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.85.85c0 1.7-2.45 2.2-2.45 3.6"/></g><circle cx="12" cy="16.9" r="1.05" fill="currentColor"/></symbol>
+  <symbol id="i-err" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="9.25"/><path d="M12 7.6v5.2"/></g><circle cx="12" cy="16.3" r="1.05" fill="currentColor"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2 2M14 9l1.5 1.5"/></g></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7.5c0-1.1.9-2 2-2h3.6l2 2h7.4c1.1 0 2 .9 2 2v8c0 1.1-.9 2-2 2h-13c-1.1 0-2-.9-2-2z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="6.5" cy="5.5" r="2"/><circle cx="6.5" cy="18.5" r="2"/><circle cx="17.5" cy="7.5" r="2"/><path d="M6.5 7.5v9M17.5 9.5c0 4-5 3.5-9.6 7.4"/></g></symbol>
+  <symbol id="i-diff" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M12 9v5M9.5 11.5h5M9.5 17h5"/></g></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 11.5c0-4 3.6-7 8-7s8 3 8 7-3.6 7-8 7c-1 0-2-.15-2.9-.45L5 19.5l1.1-3.3A6.6 6.6 0 0 1 4 11.5z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round"><path d="M3.5 13.5l2.4-7.2a2 2 0 0 1 1.9-1.3h8.4a2 2 0 0 1 1.9 1.3l2.4 7.2v4a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M3.5 13.5h4.5l1.5 2.5h5l1.5-2.5h4.5"/></g></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></g></symbol>
+  <symbol id="i-scan" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M7 12h10"/></g></symbol>
+  <symbol id="i-mac" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4.5" width="16" height="11" rx="2"/><path d="M2.5 19h19"/></g></symbol>
+  <symbol id="i-cloud-off" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7.2A5.5 5.5 0 0 1 17.3 10a4 4 0 0 1 2.4 6.6M15 18.5H7a4.5 4.5 0 0 1-1.6-8.7"/><path d="M3 3l18 18"/></g></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3.5c.6 4.3 2.2 5.9 6.5 6.5-4.3.6-5.9 2.2-6.5 6.5-.6-4.3-2.2-5.9-6.5-6.5 4.3-.6 5.9-2.2 6.5-6.5zM18.5 15.5c.25 1.7.8 2.25 2.5 2.5-1.7.25-2.25.8-2.5 2.5-.25-1.7-.8-2.25-2.5-2.5 1.7-.25 2.25-.8 2.5-2.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><g fill="currentColor"><circle cx="5.5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18.5" cy="12" r="1.7"/></g></symbol>
+  <symbol id="i-sub" viewBox="0 0 24 24"><path d="M6 4.5v6.5a3 3 0 0 0 3 3h10M15.5 10.5L19 14l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2"/></g></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3L5.5 13.5H12L11 21l7.5-10.5H12z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3L19.5 9"/><path d="M19.5 4.5V9H15"/></g></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M14 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M14 3.5v5h5"/></g></symbol>
+  <symbol id="i-sig" viewBox="0 0 18 12"><g fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></g></symbol>
+  <symbol id="i-wifi" viewBox="0 0 16 12"><path d="M8 11.5l2.3-2.6a3.3 3.3 0 0 0-4.6 0zM3.7 6.9a6.1 6.1 0 0 1 8.6 0l1.5-1.7a8.4 8.4 0 0 0-11.6 0zM.4 3.3a10.9 10.9 0 0 1 15.2 0L16 2.8 14.9 1.6A12.9 12.9 0 0 0 1.1 1.6L0 2.8z" fill="currentColor"/></symbol>
+  <symbol id="i-bat" viewBox="0 0 27 13"><rect x=".5" y=".5" width="23" height="12" rx="3.8" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="9" rx="2.4" fill="currentColor"/><path d="M25 4.5v4a2 2 0 0 0 0-4z" fill="currentColor" opacity=".45"/></symbol>
+</svg>
+
+<section class="dir on" id="dir-a">
+  <h2>A 系统原生</h2>
+  <p class="lead">iOS 26 Liquid Glass 的导航栏与 tab bar、inset grouped 列表、系统 sheet。Atrium 的颜色只用在状态和强调上。</p>
+  <div class="notes">
+    <p><b>适合</b>：想要"像系统自带 App 一样"顺手、少学习成本；三个 tab（会话 / 改动 / 主机）把看进度和看改动分开。</p>
+    <p><b>代价</b>：和桌面不像一个产品，过程轨道退化成普通列表行，Atrium 的点阵、小猫、层级色几乎看不到；"等你处理"只是列表里的一组，信息密度低（大标题、44pt 行），一屏放的会话最少。</p>
+    <p><b>SwiftUI</b>：最省事。NavigationStack + List(.insetGrouped) + TabView（iOS 26 自带 Liquid Glass 的 tab bar、toolbar、.sheet 的 detent）+ Menu / Picker / Toggle 全是系统控件；提问用 .sheet(presentationDetents: [.medium, .large])。</p>
+  </div>
+  <div class="row">
+    <style>
+    .s-a{background:var(--ios-bg);color:var(--text);font-size:17px}
+    .a-glass{background:var(--glass);backdrop-filter:blur(18px) saturate(1.8);-webkit-backdrop-filter:blur(18px) saturate(1.8);
+      box-shadow:inset 0 1px 0 var(--glass-edge),inset 0 0 0 .5px var(--glass-edge),0 8px 24px rgba(0,0,0,.12)}
+    .a-top{position:absolute;z-index:20;top:54px;left:0;right:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
+    .a-cb{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;color:var(--text)}
+    .a-cb svg{width:20px;height:20px}
+    .a-cbs{display:flex;gap:0;border-radius:22px;height:44px}.a-cbs .a-cb{box-shadow:none;background:none}
+    .a-scroll{position:absolute;inset:0;overflow:hidden;padding:106px 0 110px}
+    .a-lt{font:700 34px/1.15 var(--font);padding:0 20px;margin:2px 0 4px;letter-spacing:.2px}
+    .a-host{display:flex;align-items:center;gap:6px;padding:0 20px 14px;font-size:13px;color:var(--ios-label2)}
+    .a-host i{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+    .a-gh{font-size:13px;color:var(--ios-label2);padding:0 36px 6px;text-transform:none}
+    .a-gh.attn{color:var(--attn-text);font-weight:600}
+    .a-grp{margin:0 16px 22px;border-radius:26px;background:var(--ios-cell);overflow:hidden}
+    .a-cell{display:flex;align-items:center;gap:12px;min-height:52px;padding:10px 16px;position:relative}
+    .a-cell+.a-cell::before{content:"";position:absolute;top:0;left:50px;right:0;height:.5px;background:var(--ios-sep)}
+    .a-cell .ic{width:22px;height:22px;display:grid;place-items:center;color:var(--ios-label2)}
+    .a-cell .ic svg{width:20px;height:20px}
+    .a-cell .tx{flex:1;min-width:0}
+    .a-cell .t1{font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .a-cell .t2{font-size:13px;color:var(--ios-label2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .a-cell .rt{font-size:15px;color:var(--ios-label2);display:flex;align-items:center;gap:4px}
+    .a-cell .rt svg{width:13px;height:13px;opacity:.55}
+    .a-tab{position:absolute;z-index:20;bottom:26px;left:20px;display:flex;height:62px;border-radius:31px;padding:4px}
+    .a-tab b{width:96px;border-radius:27px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font:500 10px/1 var(--font);color:var(--text)}
+    .a-tab b svg{width:24px;height:24px}
+    .a-tab b.on{background:var(--ios-fill);color:var(--tint)}
+    .a-tab-s{position:absolute;z-index:20;bottom:26px;right:20px;width:62px;height:62px;border-radius:50%;display:grid;place-items:center}
+    .a-tab-s svg{width:24px;height:24px}
+    .a-cell .ic.st-q{color:var(--attn)}.a-cell .ic.st-err{color:var(--danger)}
+    .a-nt{text-align:center;line-height:1.15}.a-nt b{display:block;font:600 16px/1.2 var(--font)}.a-nt span{font-size:12px;color:var(--ios-label2)}
+    .a-chat{position:absolute;inset:0;padding:112px 16px 200px;overflow:hidden;background:var(--main)}
+    .a-ub{margin:0 0 10px auto;max-width:78%;width:fit-content;padding:9px 14px;border-radius:20px;background:var(--ios-fill);font-size:16px;line-height:1.35}
+    .a-meta{font-size:12px;color:var(--ios-label2);text-align:right;margin:-4px 4px 12px}
+    .a-fold{display:flex;align-items:center;gap:4px;font-size:14px;color:var(--ios-label2);margin:6px 0 8px}
+    .a-fold svg{width:14px;height:14px}
+    .a-rp{font-size:16px;line-height:1.45;margin:0 0 8px}
+    .a-rp code{font:13.5px var(--mono);background:var(--ios-fill);padding:1px 5px;border-radius:5px}
+    .a-code{font:12.5px/1.6 var(--mono);background:var(--code);border-radius:12px;padding:10px 12px;margin:8px 0;white-space:pre;color:var(--text-2)}
+    .a-code .k{color:#cf222e}.a-code .s{color:#0a7f3f}.a-code .f{color:#8250df}
+    [data-theme="dark"] .a-code .k{color:#ff7b72}[data-theme="dark"] .a-code .s{color:#7ee787}[data-theme="dark"] .a-code .f{color:#d2a8ff}
+    .a-run{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--ios-label2);margin:4px 0 6px}
+    .a-steps{margin:0 0 10px;border-radius:14px;background:var(--ios-bg);padding:4px 12px}
+    .a-step{display:flex;align-items:center;gap:10px;height:34px;font-size:14px;color:var(--text-2)}
+    .a-step svg{width:16px;height:16px;color:var(--ios-label2)}
+    .a-step em{font-style:normal;margin-left:auto;font-size:12px;color:var(--ios-label2)}
+    .caret{display:inline-block;width:2px;height:1.05em;background:var(--tint);vertical-align:-2px;margin-left:2px;border-radius:1px;animation:car 1.06s steps(1) infinite}
+    @keyframes car{50%{opacity:0}}
+    .a-dock{position:absolute;z-index:20;left:12px;right:12px;bottom:28px}
+    .a-pills{display:flex;gap:8px;margin:0 0 8px 4px}
+    .a-pill{height:32px;padding:0 12px;border-radius:16px;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-2)}
+    .a-pill svg{width:12px;height:12px}
+    .a-comp{border-radius:26px;padding:12px 10px 8px 16px}
+    .a-comp .ph{font-size:16px;color:var(--ios-label2);margin:0 0 12px}
+    .a-comp .bt{display:flex;align-items:center;gap:6px}
+    .a-rb{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--ios-fill)}
+    .a-rb svg{width:18px;height:18px}
+    .a-model{height:34px;padding:0 10px;border-radius:17px;background:var(--ios-fill);display:flex;align-items:center;gap:5px;font-size:14px}
+    .a-model svg{width:12px;height:12px;color:var(--ios-label2)}
+    .a-stop{margin-left:auto;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:var(--text);color:var(--main)}
+    .a-stop svg{width:20px;height:20px}
+    .a-badge{position:absolute;top:6px;margin-left:26px;min-width:18px;height:18px;border-radius:9px;background:var(--attn);color:#fff;font:600 11px/18px var(--font);text-align:center;padding:0 5px}
+    </style>
+
+    <!-- A1 首页 -->
+    <div class="shot"><div class="cap"><b>1 首页</b>等你处理、运行中置顶，下面是项目和工作区</div>
+    <div class="phone"><div class="scr s-a">
+      <div class="a-top"><span></span>
+        <div class="a-cbs a-glass"><span class="a-cb"><svg><use href="#i-more"/></svg></span><span class="a-cb"><svg><use href="#i-plus"/></svg></span></div></div>
+      <div class="a-scroll">
+        <div class="a-lt">会话</div>
+        <div class="a-host"><i></i>已连接 · MacBook Pro（家）</div>
+        <div class="a-gh attn">等你处理 2</div>
+        <div class="a-grp">
+          <div class="a-cell"><span class="ic st-q"><svg><use href="#i-q"/></svg></span><div class="tx"><div class="t1">接入降水雷达</div><div class="t2">在问你 · 雷达瓦片用哪家的？</div></div><span class="rt">2 分钟<svg><use href="#i-chev-r"/></svg></span></div>
+          <div class="a-cell"><span class="ic st-err"><svg><use href="#i-err"/></svg></span><div class="tx"><div class="t1">升级 Swift 6 并发检查</div><div class="t2">出错 · 模型调用失败，重试用尽</div></div><span class="rt">18 分钟<svg><use href="#i-chev-r"/></svg></span></div>
+        </div>
+        <div class="a-gh">运行中</div>
+        <div class="a-grp">
+          <div class="a-cell"><span class="ic"><span class="vx"></span></span><div class="tx"><div class="t1">补缓存过期的测试</div><div class="t2">weather-app · fix/cache-ttl</div></div><span class="rt num">1:12<svg><use href="#i-chev-r"/></svg></span></div>
+          <div class="a-cell"><span class="ic"><span class="vx"></span></span><div class="tx"><div class="t1">重写预报卡片的布局</div><div class="t2">weather-app · main</div></div><span class="rt num">6:40<svg><use href="#i-chev-r"/></svg></span></div>
+        </div>
+        <div class="a-gh">weather-app</div>
+        <div class="a-grp">
+          <div class="a-cell"><span class="ic"><svg><use href="#i-mac"/></svg></span><div class="tx"><div class="t1">main</div><div class="t2"><span style="color:var(--tint)">●</span> 整理 README 截图 · 已完成</div></div><span class="rt">4<svg><use href="#i-chev-r"/></svg></span></div>
+          <div class="a-cell"><span class="ic" style="color:var(--tint)"><svg><use href="#i-branch"/></svg></span><div class="tx"><div class="t1">feat/radar-map</div><div class="t2">↑3 · 未提交</div></div><span class="rt">2<svg><use href="#i-chev-r"/></svg></span></div>
+          <div class="a-cell"><span class="ic" style="color:var(--tint)"><svg><use href="#i-branch"/></svg></span><div class="tx"><div class="t1">fix/cache-ttl</div><div class="t2">↑1</div></div><span class="rt">1<svg><use href="#i-chev-r"/></svg></span></div>
+        </div>
+        <div class="a-gh">对话</div>
+        <div class="a-grp">
+          <div class="a-cell"><span class="ic"><svg><use href="#i-chat"/></svg></span><div class="tx"><div class="t1">解释 Swift 的 actor 隔离</div></div><span class="rt">昨天<svg><use href="#i-chev-r"/></svg></span></div>
+        </div>
+      </div>
+      <div class="a-tab a-glass"><b class="on"><svg><use href="#i-chat"/></svg>会话</b><b><svg><use href="#i-diff"/></svg>改动</b><b><svg><use href="#i-mac"/></svg>主机</b></div>
+      <div class="a-tab-s a-glass"><svg><use href="#i-search"/></svg></div>
+    </div></div></div>
+
+    <!-- A2 对话 -->
+    <div class="shot"><div class="cap"><b>2 对话</b>运行中，有一条排队、两个子对话</div>
+    <div class="phone"><div class="scr s-a">
+      <div class="a-top">
+        <span class="a-cb a-glass"><svg><use href="#i-chev-l"/></svg></span>
+        <div class="a-nt"><b>补缓存过期的测试</b><span>fix/cache-ttl</span></div>
+        <div class="a-cbs a-glass"><span class="a-cb"><svg><use href="#i-diff"/></svg></span><span class="a-cb"><svg><use href="#i-more"/></svg></span></div>
+      </div>
+      <div class="a-chat">
+        <div class="a-ub">给 ttl.ts 加上过期的测试，顺便看看为什么缓存永远不失效</div>
+        <div class="a-fold"><svg><use href="#i-chev-r"/></svg>用时 48 秒 · 读了 3 个文件，运行了 2 条命令</div>
+        <p class="a-rp">原因是 <code>expiresAt</code> 用了秒，而 <code>Date.now()</code> 是毫秒，比较永远为真。改成统一用毫秒：</p>
+        <div class="a-code"><span class="k">export function</span> <span class="f">isFresh</span>(e: Entry) {
+  <span class="k">return</span> e.expiresAt * <span class="s">1000</span> &gt; Date.now();
+}</div>
+        <div class="a-ub" style="margin-top:14px">再补一个 TTL 为 0 的边界</div>
+        <div class="a-run"><span class="vx"></span><span class="shine">进行中</span><span class="num">· 1:12</span></div>
+        <div class="a-steps">
+          <div class="a-step"><svg><use href="#i-file"/></svg>读了 ttl.test.ts</div>
+          <div class="a-step"><svg><use href="#i-chev-r"/></svg><span class="mono" style="font-size:13px">pnpm test cache</span><em>✓ 通过</em></div>
+          <div class="a-step"><svg style="color:var(--tint)"><use href="#i-diff"/></svg><span class="shine">正在编辑 ttl.test.ts</span></div>
+        </div>
+        <p class="a-rp">加上了 TTL 为 0 的用例，写入后应当立刻算作过期<span class="caret"></span></p>
+      </div>
+      <div class="a-dock">
+        <div class="a-pills"><span class="a-pill a-glass">排队 1<svg><use href="#i-chev-u"/></svg></span><span class="a-pill a-glass">子对话 2 · <span class="vx s12"></span>1 · <svg style="color:var(--attn)"><use href="#i-q"/></svg>1<svg><use href="#i-chev-u"/></svg></span></div>
+        <div class="a-comp a-glass">
+          <div class="ph">插话或排队…</div>
+          <div class="bt"><span class="a-rb"><svg><use href="#i-plus"/></svg></span><span class="a-model">GPT-6.1 Sol · 高<svg><use href="#i-chev-d"/></svg></span><span class="a-stop"><svg><use href="#i-stop"/></svg></span></div>
+        </div>
+      </div>
+    </div></div></div>
+
+    <style>
+    .a-dim{position:absolute;inset:0;z-index:25;background:rgba(0,0,0,.28)}
+    .a-sheet{position:absolute;z-index:30;left:8px;right:8px;bottom:8px;top:236px;border-radius:44px;background:var(--ios-bg);overflow:hidden;box-shadow:0 -10px 40px rgba(0,0,0,.2)}
+    .a-sheet .gb{width:36px;height:5px;border-radius:3px;background:var(--ios-sep);margin:6px auto 0}
+    .a-shd{display:flex;align-items:center;justify-content:space-between;padding:8px 14px 4px}
+    .a-shd .tt{text-align:center}.a-shd .tt b{display:block;font:600 17px/1.2 var(--font)}.a-shd .tt span{font-size:12px;color:var(--ios-label2)}
+    .a-shd .a-cb{background:var(--ios-fill);box-shadow:none;width:36px;height:36px}.a-shd .a-cb svg{width:16px;height:16px}
+    .a-segc{display:flex;margin:10px 16px 12px;padding:2px;border-radius:999px;background:var(--ios-fill)}
+    .a-segc b{flex:1;height:30px;border-radius:999px;display:flex;align-items:center;justify-content:center;gap:5px;font:500 13px var(--font);color:var(--text-2)}
+    .a-segc b.on{background:var(--ios-cell);box-shadow:0 2px 6px rgba(0,0,0,.1)}.a-segc b svg{width:12px;height:12px;color:var(--ok-text)}
+    .a-qt{font:600 17px/1.35 var(--font);padding:0 22px 8px}
+    .a-cell .chk{width:22px;height:22px;color:var(--tint)}
+    .a-cell .t2.wrap{white-space:normal}
+    .a-field{margin-top:6px;padding:8px 10px;border-radius:10px;background:var(--ios-fill);font-size:15px;color:var(--ios-label2)}
+    .a-sbtm{position:absolute;left:16px;right:16px;bottom:22px;display:flex;gap:10px}
+    .a-sbtm b{flex:1;height:50px;border-radius:25px;display:grid;place-items:center;font:600 17px var(--font)}
+    .a-sbtm .sk{background:var(--ios-fill);color:var(--text)}.a-sbtm .go{background:var(--tint);color:#fff}
+    </style>
+
+    <!-- A3 提问 -->
+    <div class="shot"><div class="cap"><b>3 提问</b>系统 sheet（中等高度），题目用分段切换，选项是列表行加勾</div>
+    <div class="phone"><div class="scr s-a">
+      <div class="a-top"><span class="a-cb a-glass"><svg><use href="#i-chev-l"/></svg></span><div class="a-nt"><b>接入降水雷达</b><span>feat/radar-map</span></div><span class="a-cb a-glass"><svg><use href="#i-more"/></svg></span></div>
+      <div class="a-chat"><div class="a-ub">在首页地图上叠一层降水雷达</div><div class="a-run"><svg width="16" height="16" class="st-q"><use href="#i-q"/></svg><span style="color:var(--attn-text);font-weight:500">等你回答</span><span class="num">· 3:05</span></div></div>
+      <div class="a-dim"></div>
+      <div class="a-sheet"><div class="gb"></div>
+        <div class="a-shd"><span class="a-cb"><svg><use href="#i-x"/></svg></span><div class="tt"><b>agent 在问你</b><span class="num">已答 0 / 2</span></div><span class="a-cb" style="visibility:hidden"></span></div>
+        <div class="a-segc"><b class="on">瓦片源</b><b>显示范围</b></div>
+        <div class="a-qt">雷达瓦片用哪家的？</div>
+        <div class="a-grp" style="margin-bottom:10px">
+          <div class="a-cell"><div class="tx"><div class="t1">RainViewer <span class="rec">推荐</span></div><div class="t2 wrap">免费，5 分钟更新一次，不要 Key</div></div><svg class="chk"><use href="#i-check"/></svg></div>
+          <div class="a-cell"><div class="tx"><div class="t1">OpenWeatherMap</div><div class="t2 wrap">要 Key，免费额度每天 1000 次</div></div></div>
+          <div class="a-cell"><div class="tx"><div class="t1">自己切片</div><div class="t2 wrap">用 NOAA 原始数据，最费事</div></div></div>
+          <div class="a-cell"><div class="tx"><div class="t1">其他</div><div class="t2 wrap">都不合适？写你自己的回答</div></div></div>
+        </div>
+        <div style="font-size:13px;color:var(--ios-label2);padding:0 30px">也可以关掉这张表，在输入框里直接回复。</div>
+        <div class="a-sbtm"><b class="sk">跳过</b><b class="go">下一题</b></div>
+      </div>
+    </div></div></div>
+
+    <style>
+    .a-fi{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;font:700 9px var(--mono);color:#fff;flex:none}
+    .a-cell .nums{font:13px var(--mono);display:flex;gap:6px}
+    .a-pick{display:flex;align-items:center;gap:6px;margin:0 20px 12px;font-size:15px;color:var(--tint)}.a-pick svg{width:14px;height:14px}
+    .a-sum{margin:0 20px 14px;font-size:13px;color:var(--ios-label2)}
+    .a-dfw{position:absolute;inset:0;padding:110px 0 120px;overflow:hidden;background:var(--main)}
+    .a-fh{display:flex;align-items:center;gap:8px;padding:6px 16px 10px;font-size:13px;color:var(--ios-label2)}
+    .a-tb{position:absolute;z-index:20;bottom:30px;left:50%;transform:translateX(-50%);display:flex;gap:2px;height:52px;padding:4px;border-radius:26px}
+    .a-tb b{white-space:nowrap;height:44px;padding:0 14px;border-radius:22px;display:flex;align-items:center;gap:6px;font:500 14px var(--font)}.a-tb b svg{width:18px;height:18px}
+    .a-tb b.on{background:var(--ios-fill);color:var(--tint)}
+    </style>
+
+    <!-- A4 改动列表 -->
+    <div class="shot"><div class="cap"><b>4 改动</b>tab 里的“改动”：选工作区，分段切本轮 / 工作区</div>
+    <div class="phone"><div class="scr s-a">
+      <div class="a-top"><span></span><span class="a-cb a-glass"><svg><use href="#i-refresh"/></svg></span></div>
+      <div class="a-scroll">
+        <div class="a-lt">改动</div>
+        <div class="a-pick"><svg><use href="#i-branch"/></svg>weather-app · fix/cache-ttl<svg><use href="#i-chev-d"/></svg></div>
+        <div class="a-segc" style="margin-top:0"><b class="on">工作区（未提交）</b><b>比 main</b></div>
+        <div class="a-sum num">4 个文件 · <span class="add">+48</span> <span class="del">−12</span></div>
+        <div class="a-grp">
+          <div class="a-cell"><span class="a-fi" style="background:#3178c6">TS</span><div class="tx"><div class="t1">ttl.ts</div><div class="t2">src/cache</div></div><span class="nums"><span class="add">+9</span><span class="del">−4</span></span><span class="rt"><svg><use href="#i-chev-r"/></svg></span></div>
+          <div class="a-cell"><span class="a-fi" style="background:#3178c6">TS</span><div class="tx"><div class="t1">ttl.test.ts <span style="font-size:12px;color:var(--ok-text)">新增</span></div><div class="t2">src/cache</div></div><span class="nums"><span class="add">+34</span></span><span class="rt"><svg><use href="#i-chev-r"/></svg></span></div>
+          <div class="a-cell"><span class="a-fi" style="background:#3178c6">TS</span><div class="tx"><div class="t1">forecast.ts</div><div class="t2">src/api</div></div><span class="nums"><span class="add">+4</span><span class="del">−6</span></span><span class="rt"><svg><use href="#i-chev-r"/></svg></span></div>
+          <div class="a-cell"><span class="a-fi" style="background:#42a5f5">MD</span><div class="tx"><div class="t1">README.md</div><div class="t2">根目录</div></div><span class="nums"><span class="add">+1</span><span class="del">−2</span></span><span class="rt"><svg><use href="#i-chev-r"/></svg></span></div>
+        </div>
+        <div class="a-gh">按轮看</div>
+        <div class="a-grp">
+          <div class="a-cell"><span class="ic"><svg><use href="#i-chat"/></svg></span><div class="tx"><div class="t1">再补一个 TTL 为 0 的边界</div><div class="t2">进行中 · 1 个文件</div></div><span class="nums"><span class="add">+12</span></span></div>
+          <div class="a-cell"><span class="ic"><svg><use href="#i-chat"/></svg></span><div class="tx"><div class="t1">给 ttl.ts 加上过期的测试</div><div class="t2">22:32 · 2 个文件</div></div><span class="nums"><span class="add">+24</span><span class="del">−6</span></span></div>
+        </div>
+      </div>
+      <div class="a-tab a-glass"><b><svg><use href="#i-chat"/></svg>会话</b><b class="on"><svg><use href="#i-diff"/></svg>改动</b><b><svg><use href="#i-mac"/></svg>主机</b></div>
+      <div class="a-tab-s a-glass"><svg><use href="#i-search"/></svg></div>
+    </div></div></div>
+
+    <!-- A5 diff -->
+    <div class="shot"><div class="cap"><b>5 diff</b>统一视图、一列行号、默认换行；底部切换上一个 / 下一个文件</div>
+    <div class="phone"><div class="scr s-a">
+      <div class="a-top"><span class="a-cb a-glass"><svg><use href="#i-chev-l"/></svg></span><div class="a-nt"><b>ttl.ts</b><span class="num">src/cache · <span class="add">+9</span> <span class="del">−4</span></span></div><span class="a-cb a-glass"><svg><use href="#i-more"/></svg></span></div>
+      <div class="a-dfw">
+        <div class="df">
+          <div class="h">@@ -8,14 +8,19 @@ export interface Entry</div>
+          <div class="l"><i>8</i><span><span class="k">const</span> DEFAULT_TTL_SECONDS = 600;</span></div>
+          <div class="l"><i>9</i><span></span></div>
+          <div class="l dd"><i>10</i><span><span class="c">// expiresAt 是毫秒</span></span></div>
+          <div class="l da"><i>10</i><span><span class="c">// expiresAt 是秒（和服务端一致），比较时换算成毫秒</span></span></div>
+          <div class="l"><i>11</i><span><span class="k">export function</span> <span class="f">put</span>(key: string, value: Forecast, options: PutOptions = {}) {</span></div>
+          <div class="l dd"><i>12</i><span>  <span class="k">const</span> expiresAt = Date.now() + DEFAULT_TTL_SECONDS;</span></div>
+          <div class="l da"><i>12</i><span>  <span class="k">const</span> ttl = options.ttlSeconds ?? DEFAULT_TTL_SECONDS;</span></div>
+          <div class="l da"><i>13</i><span>  <span class="k">const</span> expiresAt = Math.floor(Date.now() / 1000) + ttl;</span></div>
+          <div class="l"><i>14</i><span>  store.set(key, { value, expiresAt, ttl });</span></div>
+          <div class="l"><i>15</i><span>}</span></div>
+          <div class="l"><i>16</i><span></span></div>
+          <div class="l"><i>17</i><span><span class="k">export function</span> <span class="f">isFresh</span>(e: Entry) {</span></div>
+          <div class="l dd"><i>18</i><span>  <span class="k">return</span> e.expiresAt &gt; Date.now();</span></div>
+          <div class="l da"><i>18</i><span>  <span class="k">if</span> (e.ttl === 0) <span class="k">return</span> <span class="k">false</span>;</span></div>
+          <div class="l da"><i>19</i><span>  <span class="k">return</span> e.expiresAt * 1000 &gt; Date.now();</span></div>
+          <div class="l"><i>20</i><span>}</span></div>
+          <div class="h">@@ -41,6 +46,8 @@ export function clear()</div>
+          <div class="l"><i>46</i><span><span class="k">export function</span> <span class="f">sweep</span>() {</span></div>
+          <div class="l da"><i>47</i><span>  <span class="k">const</span> now = Date.now();</span></div>
+          <div class="l da"><i>48</i><span>  <span class="k">for</span> (<span class="k">const</span> [k, e] <span class="k">of</span> store) <span class="k">if</span> (!isFresh(e)) store.delete(k);</span></div>
+          <div class="l"><i>49</i><span>}</span></div>
+        </div>
+      </div>
+      <div class="a-tb a-glass"><b><svg><use href="#i-chev-l"/></svg></b><b class="on">换行</b><b class="num">1 / 4</b><b><svg><use href="#i-chev-r"/></svg></b></div>
+    </div></div></div>
+
+    <style>
+    .a-wel{position:absolute;inset:0;padding:150px 32px 0;text-align:center}
+    .a-wel .ico{width:96px;height:96px;border-radius:22px;margin:0 auto 18px;box-shadow:0 10px 30px rgba(108,134,204,.35)}
+    .a-wel h3{font:700 30px/1.2 var(--font);margin:0 0 6px}.a-wel p{margin:0;font-size:16px;color:var(--ios-label2)}
+    .a-feat{text-align:left;margin:40px 4px 0;display:flex;flex-direction:column;gap:22px}
+    .a-feat div{display:flex;gap:14px;align-items:flex-start}.a-feat svg{width:28px;height:28px;color:var(--tint);flex:none}
+    .a-feat b{display:block;font:600 16px/1.3 var(--font)}.a-feat span{font-size:14px;color:var(--ios-label2)}
+    .a-big{position:absolute;left:24px;right:24px;bottom:72px;height:52px;border-radius:26px;background:var(--tint);color:#fff;display:flex;align-items:center;justify-content:center;gap:8px;font:600 17px var(--font)}
+    .a-big svg{width:20px;height:20px}
+    .a-foot{position:absolute;left:0;right:0;bottom:40px;text-align:center;font-size:13px;color:var(--ios-label2)}
+    .cam{position:absolute;inset:0;background:radial-gradient(300px 260px at 50% 45%,#3a4150,#0e0f12 75%)}
+    .cam .fr{position:absolute;left:76px;top:280px;width:240px;height:240px}
+    .cam .fr i{position:absolute;width:44px;height:44px;border:4px solid #fff;border-radius:4px}
+    .cam .fr i:nth-child(1){left:0;top:0;border-right:0;border-bottom:0;border-top-left-radius:22px}
+    .cam .fr i:nth-child(2){right:0;top:0;border-left:0;border-bottom:0;border-top-right-radius:22px}
+    .cam .fr i:nth-child(3){left:0;bottom:0;border-right:0;border-top:0;border-bottom-left-radius:22px}
+    .cam .fr i:nth-child(4){right:0;bottom:0;border-left:0;border-top:0;border-bottom-right-radius:22px}
+    .cam .qr{position:absolute;left:46px;top:46px;width:148px;height:148px;border-radius:8px;background:#f4f4f4;opacity:.92;
+      background-image:conic-gradient(#111 25%,transparent 0 50%,#111 0 75%,transparent 0);background-size:14px 14px}
+    .cam .tip{position:absolute;left:0;right:0;top:150px;text-align:center;color:#fff}
+    .cam .tip b{display:block;font:600 22px var(--font)}.cam .tip span{font-size:14px;opacity:.75}
+    .cam .gl{position:absolute;left:50%;transform:translateX(-50%);bottom:70px;height:48px;padding:0 20px;border-radius:24px;display:flex;align-items:center;gap:8px;color:#fff;font-size:15px;
+      background:rgba(255,255,255,.16);backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,.3)}
+    </style>
+
+    <!-- A6 首次打开 -->
+    <div class="shot"><div class="cap"><b>6 配对 · 首次打开</b>系统式的欢迎页，只有一个主按钮</div>
+    <div class="phone"><div class="scr s-a">
+      <div class="a-wel">
+        <svg class="ico" viewBox="0 0 28 28"><rect width="28" height="28" fill="#6c86cc"/><path d="M6 28V12l2.5-7 4.5 4h4l4.5-4L24 12v16z" fill="#fbf5ec"/><ellipse cx="11.3" cy="16" rx="1.4" ry="2.2" fill="#1f2537"/><ellipse cx="16.7" cy="16" rx="1.4" ry="2.2" fill="#1f2537"/></svg>
+        <h3>Atrium</h3><p>在手机上接着管 Mac 上的 agent</p>
+        <div class="a-feat">
+          <div><svg><use href="#i-chat"/></svg><span><b>看进度、插话、停止</b>会话还在 Mac 上跑，手机只是另一个窗口</span></div>
+          <div><svg><use href="#i-q"/></svg><span><b>回答提问、看改动</b>谁在等你，打开就看得到</span></div>
+          <div><svg><use href="#i-key"/></svg><span><b>端到端加密</b>经你自己的 relay，中间看不到内容</span></div>
+        </div>
+      </div>
+      <div class="a-big"><svg><use href="#i-scan"/></svg>扫码连接 Mac</div>
+      <div class="a-foot">在 Mac 上打开 Atrium › 设置 › 手机</div>
+    </div></div></div>
+
+    <!-- A7 扫码 -->
+    <div class="shot"><div class="cap"><b>6 配对 · 扫码</b>全屏相机，识别到就跳下一步</div>
+    <div class="phone"><div class="scr s-a" data-sb="light">
+      <div class="cam"><div class="tip"><b>扫 Mac 上的二维码</b><span>二维码 5 分钟内有效，只能用一次</span></div>
+        <div class="fr"><i></i><i></i><i></i><i></i><div class="qr"></div></div>
+        <div class="gl"><svg width="16" height="16"><use href="#i-x"/></svg>取消</div></div>
+      <div class="a-top" style="top:54px"><span class="a-cb" style="color:#fff;background:rgba(255,255,255,.16);backdrop-filter:blur(20px)"><svg><use href="#i-bolt"/></svg></span><span></span></div>
+    </div></div></div>
+
+    <style>
+    .a-cell .val{font-size:16px;color:var(--ios-label2)}
+    .a-ft{font-size:13px;color:var(--ios-label2);padding:0 36px;margin:-14px 0 22px}
+    .a-hero{text-align:center;padding:4px 30px 22px}.a-hero svg{width:56px;height:56px;color:var(--tint)}
+    .a-hero b{display:block;font:700 22px/1.3 var(--font);margin-top:8px}.a-hero span{font-size:14px;color:var(--ios-label2)}
+    .a-host.off i{background:var(--text-dim)}
+    .a-offbar{position:absolute;z-index:21;left:16px;right:16px;bottom:104px;display:flex;align-items:center;gap:10px;padding:12px 12px 12px 16px;border-radius:22px;font-size:14px}
+    .a-offbar svg{width:20px;height:20px;color:var(--ios-label2)}.a-offbar .t{flex:1}.a-offbar .t span{display:block;font-size:12px;color:var(--ios-label2)}
+    .a-offbar b{height:34px;padding:0 14px;border-radius:17px;background:var(--tint);color:#fff;display:grid;place-items:center;font:600 14px var(--font)}
+    .dim .a-grp,.dim .a-gh{opacity:.55}
+    </style>
+
+    <!-- A8 确认 -->
+    <div class="shot"><div class="cap"><b>6 配对 · 确认</b>核对 Mac 名称和安全码，给这台手机起名</div>
+    <div class="phone"><div class="scr s-a">
+      <div class="a-top"><span class="a-cb a-glass"><svg><use href="#i-x"/></svg></span><span class="a-cb a-glass" style="background:var(--tint);color:#fff;width:auto;padding:0 16px;border-radius:22px;font:600 16px var(--font)">配对</span></div>
+      <div class="a-scroll" style="padding-top:112px">
+        <div class="a-hero"><svg><use href="#i-mac"/></svg><b>连接到这台 Mac？</b><span>确认后，它会记住这台手机</span></div>
+        <div class="a-grp">
+          <div class="a-cell"><div class="tx"><div class="t1">Mac</div></div><span class="val">MacBook Pro（家）</span></div>
+          <div class="a-cell"><div class="tx"><div class="t1">relay</div></div><span class="val">relay.example.net</span></div>
+          <div class="a-cell"><div class="tx"><div class="t1">安全码</div></div><span class="val mono" style="font-size:14px">7F3A 91C2 0B6E</span></div>
+        </div>
+        <div class="a-ft">和 Mac 上显示的安全码一致再配对。</div>
+        <div class="a-gh">这台手机叫</div>
+        <div class="a-grp"><div class="a-cell"><div class="tx"><div class="t1">iPhone 17 Pro<span class="caret"></span></div></div><svg width="18" height="18" style="color:var(--ios-label2)"><use href="#i-x"/></svg></div></div>
+        <div class="a-ft">在 Mac 的设置 › 手机里用这个名字列出，可以单独撤销。</div>
+      </div>
+    </div></div></div>
+
+    <!-- A9 主机离线 -->
+    <div class="shot"><div class="cap"><b>7 离线</b>主机离线：列表是上次的缓存，变淡；底部常驻一条说明</div>
+    <div class="phone"><div class="scr s-a">
+      <div class="a-top"><span></span><div class="a-cbs a-glass"><span class="a-cb"><svg><use href="#i-more"/></svg></span><span class="a-cb" style="opacity:.35"><svg><use href="#i-plus"/></svg></span></div></div>
+      <div class="a-scroll dim">
+        <div class="a-lt">会话</div>
+        <div class="a-host off"><i></i>主机离线 · 上次在线 22:48</div>
+        <div class="a-gh attn">等你处理 1</div>
+        <div class="a-grp"><div class="a-cell"><span class="ic st-q"><svg><use href="#i-q"/></svg></span><div class="tx"><div class="t1">接入降水雷达</div><div class="t2">在问你 · 22:46</div></div></div></div>
+        <div class="a-gh">weather-app</div>
+        <div class="a-grp">
+          <div class="a-cell"><span class="ic"><svg><use href="#i-mac"/></svg></span><div class="tx"><div class="t1">main</div></div><span class="rt">4</span></div>
+          <div class="a-cell"><span class="ic"><svg><use href="#i-branch"/></svg></span><div class="tx"><div class="t1">feat/radar-map</div></div><span class="rt">2</span></div>
+          <div class="a-cell"><span class="ic"><svg><use href="#i-branch"/></svg></span><div class="tx"><div class="t1">fix/cache-ttl</div></div><span class="rt">1</span></div>
+        </div>
+      </div>
+      <div class="a-offbar a-glass"><svg><use href="#i-cloud-off"/></svg><div class="t">Mac 可能睡着了<span>relay 在线，Mac 上的 Atrium 没连上来</span></div><b>重试</b></div>
+      <div class="a-tab a-glass"><b class="on"><svg><use href="#i-chat"/></svg>会话</b><b><svg><use href="#i-diff"/></svg>改动</b><b><svg><use href="#i-mac"/></svg>主机</b></div>
+      <div class="a-tab-s a-glass"><svg><use href="#i-search"/></svg></div>
+    </div></div></div>
+
+    <style>
+    .a-sheet.full{top:62px;left:0;right:0;bottom:0;border-radius:38px 38px 0 0}
+    .a-segs{display:flex;padding:2px;border-radius:9px;background:var(--ios-fill);font-size:13px}
+    .a-segs b{padding:5px 10px;border-radius:7px;font-weight:500;color:var(--text-2)}.a-segs b.on{background:var(--ios-cell);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+    .a-tog{width:51px;height:31px;border-radius:16px;background:var(--ok);position:relative;flex:none}.a-tog::after{content:"";position:absolute;right:2px;top:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.2)}
+    .a-tog.off{background:var(--ios-fill)}.a-tog.off::after{right:auto;left:2px}
+    .a-msg{min-height:110px;align-items:flex-start!important;font-size:16px;color:var(--ios-label2)}
+    .a-pv{width:22px;height:22px;border-radius:6px;background:#fff;box-shadow:0 0 0 .5px var(--line-strong);display:grid;place-items:center;font:700 10px var(--font);color:#111}
+    </style>
+
+    <!-- A10 新建会话 -->
+    <div class="shot"><div class="cap"><b>8 新建会话</b>系统 sheet 里的表单：位置、模型、思考、第一条消息</div>
+    <div class="phone"><div class="scr s-a" data-sb="light" style="background:#000">
+      <div class="a-sheet full">
+        <div class="a-shd" style="padding-top:14px"><span class="a-cb a-glass" style="width:44px;height:44px"><svg><use href="#i-x"/></svg></span><div class="tt"><b>新建会话</b></div><span class="a-cb" style="width:44px;height:44px;background:var(--tint);color:#fff"><svg><use href="#i-up"/></svg></span></div>
+        <div style="height:14px"></div>
+        <div class="a-gh">放在</div>
+        <div class="a-grp">
+          <div class="a-cell"><span class="ic"><svg><use href="#i-folder"/></svg></span><div class="tx"><div class="t1">项目</div></div><span class="val">weather-app</span><svg width="13" height="13" style="color:var(--ios-label2)"><use href="#i-chev-d"/></svg></div>
+          <div class="a-cell"><span class="ic"><svg><use href="#i-branch"/></svg></span><div class="tx"><div class="t1">工作区</div></div><span class="val">fix/cache-ttl</span><svg width="13" height="13" style="color:var(--ios-label2)"><use href="#i-chev-d"/></svg></div>
+        </div>
+        <div class="a-gh">模型</div>
+        <div class="a-grp">
+          <div class="a-cell"><span class="a-pv">G</span><div class="tx"><div class="t1">GPT-6.1 Sol</div><div class="t2">OpenAI · 套餐</div></div><span class="rt"><svg><use href="#i-chev-r"/></svg></span></div>
+          <div class="a-cell"><div class="tx"><div class="t1">思考</div></div><span class="a-segs"><b>低</b><b>中</b><b class="on">高</b><b>极高</b></span></div>
+          <div class="a-cell"><span class="ic" style="color:var(--tint)"><svg><use href="#i-bolt"/></svg></span><div class="tx"><div class="t1">Fast</div></div><span class="a-tog off"></span></div>
+        </div>
+        <div class="a-gh">第一条消息</div>
+        <div class="a-grp"><div class="a-cell a-msg">发消息或描述任务</div></div>
+      </div>
+    </div></div></div>
+
+    <!-- A:screens -->
+  </div>
+</section>
+
+<section class="dir" id="dir-b">
+  <h2>B Atrium 延续</h2>
+  <p class="lead">沿用桌面的层级色、0.5px 细线、22px 气泡、过程轨道、点阵和运行中的小猫，导航自绘。</p>
+  <div class="notes">
+    <p><b>适合</b>：手机和桌面是同一个产品：侧栏的"项目 → 工作区 → 会话"、收件箱卡片、过程轨道、提问卡片、改动树、点阵模型按钮都照搬，桌面上定过的规则（排队 / 插话、序号即控件、空状态那句话）手机上不用重新解释。</p>
+    <p><b>代价</b>：自绘导航，要自己做返回手势、动态字体、VoiceOver 的细节；侧栏式的三层树在手机上偏挤，"等你处理"卡片在底部，会话多时要滚到底才看到；提问卡片和输入框叠在一起，题多时占掉半屏。</p>
+    <p><b>SwiftUI</b>：中等。轨道用 Canvas 或 Path + 叠放的 HStack；点阵、涡旋用 Canvas + TimelineView；底部输入区 safeAreaInset(edge: .bottom)；返回仍可用 NavigationStack，隐藏系统栏再画自己的标题行（保留边缘右滑返回）。</p>
+  </div>
+  <div class="row">
+    <style>
+    .s-b{background:var(--main);font-size:15px;color:var(--text-2)}
+    .b-amb{position:absolute;inset:0;z-index:-1;background:
+      radial-gradient(220px 180px at 10% 8%,#cfdcf7,transparent 70%),radial-gradient(220px 200px at 95% 20%,#d7eee6,transparent 70%),radial-gradient(260px 200px at 60% 100%,#f6e3d6,transparent 70%),var(--window)}
+    [data-theme="dark"] .b-amb{background:radial-gradient(220px 180px at 10% 8%,#1f3765,transparent 70%),radial-gradient(220px 200px at 95% 20%,#172b3f,transparent 70%),radial-gradient(260px 200px at 60% 100%,#2a2433,transparent 70%),var(--window)}
+    .b-home{position:absolute;inset:0;padding:58px 14px 0;display:flex;flex-direction:column}
+    .b-hd{display:flex;align-items:center;gap:10px;height:44px;padding:0 4px}
+    .b-logo{width:28px;height:28px;border-radius:9px;overflow:hidden}
+    .b-hd .nm{font:600 17px/1.2 var(--font);color:var(--text)}
+    .b-conn{margin-left:auto;height:28px;padding:0 10px;border-radius:999px;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2);
+      background:linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,.25));box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 0 0 .5px var(--line);backdrop-filter:blur(28px) saturate(1.7)}
+    [data-theme="dark"] .b-conn{background:linear-gradient(180deg,rgba(255,255,255,.1),rgba(255,255,255,.04));box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 0 0 .5px var(--line)}
+    .b-conn i{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+    .b-search{display:flex;align-items:center;gap:8px;height:36px;margin:8px 0 10px;padding:0 12px;border-radius:10px;background:var(--hover);box-shadow:inset 0 0 0 .5px var(--line);color:var(--text-dim);font-size:14px}
+    .b-search svg{width:15px;height:15px}
+    .b-gt{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--text-dim);padding:6px 8px 4px}
+    .b-gt svg{width:16px;height:16px;color:var(--text-muted)}
+    .b-r{display:flex;align-items:center;gap:10px;height:42px;padding:0 10px;border-radius:10px;color:var(--text-2);margin-bottom:2px}
+    .b-r svg.i{width:16px;height:16px;color:var(--text-muted)}
+    .b-r .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .b-r .m{font-size:12px;color:var(--text-dim)}
+    .b-r.ws{padding-left:36px}.b-r.ss{padding-left:52px;height:38px;font-size:14px;color:var(--text-3)}
+    .b-r.on{background:var(--selected);color:var(--text)}
+    .b-r .st{width:14px;height:14px;display:grid;place-items:center}.b-r .st svg{width:14px;height:14px}
+    .tag-attn{font-size:12px;color:var(--attn-text);font-weight:600;display:flex;align-items:center;gap:3px}
+    .tag-attn::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--attn)}
+    .b-inbox{margin-top:auto;background:var(--surface-1);border-radius:16px;box-shadow:var(--card-shadow);padding:4px}
+    .b-inbox .ir{display:flex;gap:10px;padding:8px 10px;border-radius:10px}
+    .b-inbox .ir svg{width:16px;height:16px;margin-top:2px}
+    .b-inbox .ir .t{font-size:14px;color:var(--text)}.b-inbox .ir .s{font-size:12px;color:var(--text-dim)}
+    .b-inbox .ih{display:flex;align-items:center;gap:6px;height:36px;padding:0 10px;font-size:13px;color:var(--text-muted)}
+    .cnt{height:18px;line-height:18px;padding:0 7px;border-radius:999px;background:var(--attn-soft);color:var(--attn-text);font-weight:600;font-size:12px}
+    .b-new{position:relative;margin:10px 0 40px;height:48px;border-radius:999px;background:#17181b;color:#fff;display:flex;align-items:center;justify-content:center;gap:8px;font:600 15px/1 var(--font);overflow:hidden}
+    [data-theme="dark"] .b-new{background:#f3f4f6;color:#111}
+    .b-new canvas{position:absolute;inset:0;width:100%;height:100%;opacity:.9}
+    .b-new span,.b-new svg{position:relative;width:16px;height:16px}.b-new span{width:auto;height:auto}
+    </style>
+
+    <!-- B1 首页 -->
+    <div class="shot"><div class="cap"><b>1 首页</b>桌面侧栏搬到手机：项目 → 工作区 → 会话，收件箱卡片在底部</div>
+    <div class="phone"><div class="scr s-b"><div class="b-amb"></div>
+      <div class="b-home">
+        <div class="b-hd"><svg class="b-logo" viewBox="0 0 28 28"><rect width="28" height="28" fill="#6c86cc"/><path d="M6 28V12l2.5-7 4.5 4h4l4.5-4L24 12v16z" fill="#fbf5ec"/><ellipse cx="11.3" cy="16" rx="1.4" ry="2.2" fill="#1f2537"/><ellipse cx="16.7" cy="16" rx="1.4" ry="2.2" fill="#1f2537"/></svg>
+          <span class="nm">Atrium</span><span class="b-conn"><i></i>MacBook Pro（家）</span></div>
+        <div class="b-search"><svg><use href="#i-search"/></svg>搜索工作区、对话和会话</div>
+        <div class="b-gt">项目</div>
+        <div class="b-r"><svg class="i" style="color:var(--tint)"><use href="#i-folder"/></svg><span class="t">weather-app</span></div>
+        <div class="b-r ws"><span class="t">main</span><span class="vx"></span></div>
+        <div class="b-r ss"><span class="st"><span class="vx"></span></span><span class="t">重写预报卡片的布局</span><span class="m num">6:40</span></div>
+        <div class="b-r ss"><span class="st"><i class="dot7"></i></span><span class="t">整理 README 截图</span><span class="m">12 分钟前</span></div>
+        <div class="b-r ws"><span class="t">feat/radar-map</span><span class="tag-attn"><svg width="11" height="11"><use href="#i-up"/></svg>3</span><span class="st st-q"><svg><use href="#i-q"/></svg></span></div>
+        <div class="b-r ws on"><span class="t">fix/cache-ttl</span><span class="vx"></span></div>
+        <div class="b-r ss"><span class="st"><span class="vx"></span></span><span class="t">补缓存过期的测试</span><span class="m num">1:12</span></div>
+        <div class="b-r"><svg class="i"><use href="#i-folder"/></svg><span class="t">dotfiles</span><span class="m">2 待合并</span></div>
+        <div class="b-gt">对话<svg><use href="#i-chat"/></svg></div>
+        <div class="b-r"><span class="t" style="padding-left:2px">解释 Swift 的 actor 隔离</span><span class="m">昨天</span></div>
+        <div class="b-inbox">
+          <div class="ir"><svg class="st-q"><use href="#i-q"/></svg><div><div class="t">接入降水雷达</div><div class="s">feat/radar-map · 2 分钟前</div></div></div>
+          <div class="ir"><svg class="st-err"><use href="#i-err"/></svg><div><div class="t">升级 Swift 6 并发检查</div><div class="s">main · 18 分钟前</div></div></div>
+          <div class="ih">等你处理<span class="cnt num">2</span><svg style="margin-left:auto;width:12px;height:12px"><use href="#i-chev-d"/></svg></div>
+        </div>
+        <div class="b-new"><canvas class="dm" data-sweep="1"></canvas><svg><use href="#i-plus"/></svg><span>新建会话</span></div>
+      </div>
+    </div></div></div>
+
+    <style>
+    .b-nav{position:absolute;z-index:20;top:54px;left:0;right:0;height:48px;display:flex;align-items:center;gap:6px;padding:0 10px;background:color-mix(in srgb,var(--main) 86%,transparent);backdrop-filter:blur(20px);box-shadow:0 .5px 0 var(--line-soft)}
+    .b-ib{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:var(--text-muted)}.b-ib svg{width:18px;height:18px}
+    .b-nav .tt{flex:1;min-width:0}.b-nav .tt b{display:block;font:600 15px/1.25 var(--font);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .b-nav .tt span{font-size:12px;color:var(--text-dim);display:flex;align-items:center;gap:4px}.b-nav .tt span svg{width:11px;height:11px}
+    .b-dp{height:28px;padding:0 10px;border-radius:999px;display:flex;align-items:center;gap:5px;font:12px var(--mono);background:var(--surface-1);box-shadow:var(--chip-shadow)}
+    .b-chat{position:absolute;inset:0;padding:112px 18px 210px;overflow:hidden;font-size:14.5px;line-height:1.55;color:var(--text)}
+    .b-ub{margin:0 0 4px auto;max-width:80%;width:fit-content;padding:9px 14px;border-radius:22px;background:var(--surface-2)}
+    .b-um{font-size:12px;color:var(--text-dim);text-align:right;margin:0 6px 12px}
+    .b-sum{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);margin:0 0 8px}.b-sum svg{width:12px;height:12px}
+    .b-sum .d{color:var(--text-dim)}
+    .b-chat p{margin:0 0 10px}.b-chat code{font:12.5px var(--mono);background:var(--surface-2);padding:1px 5px;border-radius:6px}
+    .b-code{position:relative;background:var(--code);border-radius:10px;padding:12px 14px;font:12.5px/1.6 var(--mono);white-space:pre;color:var(--text-2);margin:0 0 10px}
+    .b-code .lg{position:absolute;top:6px;right:10px;font:11px var(--mono);color:var(--text-dim)}
+    .b-code .k{color:#cf222e}.b-code .s{color:#0a7f3f}.b-code .f{color:#8250df}
+    [data-theme="dark"] .b-code .k{color:#ff7b72}[data-theme="dark"] .b-code .s{color:#7ee787}[data-theme="dark"] .b-code .f{color:#d2a8ff}
+    .b-info{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-dim);margin:-2px 0 16px}.b-info>svg{width:14px;height:14px}
+    .b-head{display:flex;align-items:center;gap:6px;height:30px;font-size:13px}
+    .rail{position:relative;margin:0 0 8px}
+    .rail::before{content:"";position:absolute;left:10px;top:0;bottom:12px;width:1px;background:var(--rail)}
+    .rl{position:relative;min-height:30px;padding:5px 0 5px 30px;font-size:13px;color:var(--text-2)}
+    .rl .o{color:var(--text-muted)}.rl .sep{color:var(--text-dim)}.rl .res{float:right;font-size:12px;color:var(--text-dim)}
+    .rl .n{position:absolute;left:7.5px;top:12px;width:6px;height:6px;border-radius:50%;background:var(--node);box-shadow:0 0 0 4px var(--main)}
+    .rl .n.mag{left:4px;top:8px;width:14px;height:14px;border-radius:0;background:var(--main);color:var(--text-muted);box-shadow:0 0 0 2px var(--main)}
+    .rl .n.cur{background:var(--tint)}
+    .rl .n.cur::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:1.5px solid var(--tint);border-right-color:transparent;animation:spin .9s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .rl.br .n{left:16.5px;width:8px;height:8px;top:11px;background:var(--main);box-shadow:inset 0 0 0 1.5px var(--tint),0 0 0 3px var(--main)}
+    .rl.br::before{content:"";position:absolute;left:10.5px;top:-8px;width:10px;height:18px;border:1px solid var(--branch);border-left:0;border-top:0;border-radius:0 0 8px 0;transform:scaleX(-1);transform-origin:5px}
+    .rl .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px}
+    .b-dock{position:absolute;z-index:20;left:0;right:0;bottom:0;padding:44px 12px 34px;background:linear-gradient(transparent,var(--main) 40px)}
+    .b-caps{display:flex;gap:8px;margin:0 0 8px 2px}
+    .b-cap{height:28px;padding:0 10px;border-radius:999px;display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-2);background:var(--surface-1);box-shadow:0 0 0 .5px var(--line),0 2px 6px rgba(0,0,0,.06)}
+    .b-cap svg{width:10px;height:10px}.b-cap i{width:6px;height:6px;border-radius:50%;background:var(--tint)}
+    .b-in{border-radius:22px;padding:14px 12px 10px 16px;background:var(--surface-1);box-shadow:var(--card-shadow)}
+    [data-theme="dark"] .b-in{background:var(--surface-2)}
+    .b-in .tx{font-size:15px;color:var(--text);margin:0 0 12px 2px}
+    .b-in .bt{display:flex;align-items:center;gap:6px}
+    .b-round{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:var(--text-muted)}.b-round svg{width:18px;height:18px}
+    .b-mb{position:relative;height:30px;padding:0 10px;border-radius:12px;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-2);overflow:hidden;box-shadow:inset 0 0 0 .5px var(--line)}
+    .b-mb canvas{position:absolute;inset:0;width:100%;height:100%;color:var(--text)}.b-mb span{position:relative;text-shadow:0 0 2px var(--surface-1),0 0 4px var(--surface-1),0 0 8px var(--surface-1)}
+    [data-theme="dark"] .b-mb span{text-shadow:0 0 2px var(--surface-2),0 0 4px var(--surface-2),0 0 8px var(--surface-2)}
+    .b-mode{margin-left:auto;display:flex;padding:2px;border-radius:999px;background:var(--surface-2);font-size:12px}
+    .b-mode b{font-weight:400;padding:4px 9px;border-radius:999px;color:var(--text-muted)}.b-mode b.on{background:var(--surface-1);color:var(--text);font-weight:500;box-shadow:0 0 0 .5px var(--line)}
+    .b-send{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--text);color:var(--main)}.b-send svg{width:16px;height:16px}
+    .b-stopb{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--surface-3);color:var(--text)}.b-stopb svg{width:18px;height:18px}
+    </style>
+
+    <!-- B2 对话 -->
+    <div class="shot"><div class="cap"><b>2 对话</b>运行中的过程轨道；输入框已有字，可选排队或插话</div>
+    <div class="phone"><div class="scr s-b">
+      <div class="b-nav"><span class="b-ib"><svg><use href="#i-chev-l"/></svg></span>
+        <div class="tt"><b>补缓存过期的测试</b><span><svg><use href="#i-branch"/></svg>weather-app · fix/cache-ttl</span></div>
+        <span class="b-dp num"><span class="add">+48</span><span class="del">−12</span></span><span class="b-ib"><svg><use href="#i-more"/></svg></span></div>
+      <div class="b-chat">
+        <div class="b-ub">给 ttl.ts 加上过期的测试，顺便看看为什么缓存永远不失效</div><div class="b-um num">22:31</div>
+        <div class="b-sum"><svg><use href="#i-chev-r"/></svg>已完成，用时 48 秒<span class="d">·</span>读了 3 个文件<span class="d">·</span>运行了 2 条命令</div>
+        <p><code>expiresAt</code> 存的是秒，<code>Date.now()</code> 是毫秒，所以永远不过期：</p>
+        <div class="b-code"><span class="lg">ts</span><span class="k">export function</span> <span class="f">isFresh</span>(e: Entry) {
+  <span class="k">return</span> e.expiresAt * <span class="s">1000</span> &gt; Date.now();
+}</div>
+        <div class="b-info"><svg><use href="#i-file"/></svg><span class="chip">改了 2 个文件 <span class="add">+24</span> <span class="del">−6</span></span><span class="num">22:32</span></div>
+        <div class="b-ub">再补一个 TTL 为 0 的边界</div><div class="b-um num">22:40</div>
+        <div class="b-head"><span class="cat"></span><span class="shine">进行中</span><span class="num" style="color:var(--text-dim)">· 1:12</span></div>
+        <div class="rail">
+          <div class="rl"><svg class="n mag"><use href="#i-search"/></svg>探索了代码库 <span class="sep">·</span> <span class="o">读了 2 个文件</span>
+            <div class="chips"><span class="chip"><i class="ft ts">TS</i>ttl.ts</span><span class="chip"><i class="ft ts">TS</i>ttl.test.ts</span></div></div>
+          <div class="rl"><i class="n"></i>运行了 <span class="mono o" style="font-size:12px">pnpm test cache</span><span class="res">✓ 通过</span></div>
+          <div class="rl br"><i class="n"></i><span style="color:var(--tint)">你插话</span> <span class="sep">·</span> <span class="o">别动 forecast.ts</span></div>
+          <div class="rl"><i class="n cur"></i><span class="shine">正在编辑</span> <span class="chip"><i class="ft ts">TS</i>ttl.test.ts <span class="add">+12</span></span></div>
+        </div>
+      </div>
+      <div class="b-dock">
+        <div class="b-caps"><span class="b-cap"><i></i>排队 1<svg><use href="#i-chev-u"/></svg></span><span class="b-cap">子对话 2 · <span class="vx s12"></span>1 · <svg style="width:12px;height:12px;color:var(--attn)"><use href="#i-q"/></svg>1<svg><use href="#i-chev-u"/></svg></span></div>
+        <div class="b-in"><div class="tx">顺便把 README 里的缓存说明也改了</div>
+          <div class="bt"><span class="b-round"><svg><use href="#i-plus"/></svg></span>
+            <span class="b-mb"><canvas class="dm" data-fill=".75"></canvas><span>GPT-6.1 Sol · 高</span></span>
+            <span class="b-mode"><b class="on">排队</b><b>插话</b></span><span class="b-stopb"><svg><use href="#i-stop"/></svg></span><span class="b-send"><svg><use href="#i-up"/></svg></span></div></div>
+      </div>
+    </div></div></div>
+
+    <style>
+    .qc{background:var(--surface-1);border-radius:16px;box-shadow:var(--card-shadow);padding:12px 14px;margin:0 0 8px}
+    [data-theme="dark"] .qc{background:var(--surface-2)}
+    .qc .hd{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--attn-text);font-weight:500}.qc .hd svg{width:15px;height:15px}
+    .qc .hd .n{color:var(--text-dim);font-weight:400}
+    .qc .tabs{display:flex;gap:4px;margin:10px 0 0}
+    .qc .tabs b{height:28px;padding:0 10px;border-radius:999px;display:flex;align-items:center;gap:5px;font-size:12px;font-weight:400;color:var(--text-muted)}
+    .qc .tabs b.on{background:var(--selected);color:var(--text);font-weight:500}
+    .qc .tabs i{width:6px;height:6px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--text-dim)}.qc .tabs svg{width:12px;height:12px;color:var(--ok-text)}
+    .qc .qq{font:500 14px/1.45 var(--font);color:var(--text);margin:10px 0 8px}
+    .qc .ty{display:inline-block;font-size:11px;line-height:18px;padding:0 6px;border-radius:6px;margin-left:8px;font-weight:400;background:var(--linked);color:var(--tint);vertical-align:1px}
+    .qo{display:flex;gap:10px;padding:8px 10px;border-radius:10px;margin-bottom:2px}
+    .qo.on{background:var(--linked)}
+    .qo .no{width:22px;height:22px;flex:none;border-radius:7px;background:var(--surface-2);display:grid;place-items:center;font:600 12px var(--font);color:var(--text-muted)}
+    [data-theme="dark"] .qo .no{background:var(--surface-3)}
+    .qo.r .no{border-radius:50%}
+    .qo.on .no{background:var(--tint);color:var(--on-tint)}.qo .no svg{width:12px;height:12px}
+    .qo .l{font:500 13px/20px var(--font);color:var(--text)}.qo .d{font-size:12px;color:var(--text-muted)}
+    .qc .ft{display:flex;align-items:center;justify-content:flex-end;gap:6px;margin-top:10px}
+    .qc .ft b{height:32px;padding:0 14px;border-radius:999px;display:flex;align-items:center;font-size:13px;font-weight:400;color:var(--text-2)}
+    .qc .ft b.pri{background:var(--text);color:var(--main);font-weight:500}
+    .rl .n.ask{background:var(--attn)}
+    </style>
+
+    <!-- B3 提问 -->
+    <div class="shot"><div class="cap"><b>3 提问</b>桌面的提问卡片搬到输入框上方；序号即控件，多选是方</div>
+    <div class="phone"><div class="scr s-b">
+      <div class="b-nav"><span class="b-ib"><svg><use href="#i-chev-l"/></svg></span>
+        <div class="tt"><b>接入降水雷达</b><span><svg><use href="#i-branch"/></svg>weather-app · feat/radar-map</span></div><span class="b-ib"><svg><use href="#i-more"/></svg></span></div>
+      <div class="b-chat">
+        <div class="b-ub">在首页地图上叠一层降水雷达</div><div class="b-um num">22:12</div>
+        <div class="b-head"><svg width="18" height="18" class="st-q"><use href="#i-q"/></svg><span style="color:var(--attn-text);font-weight:500">等你回答</span><span class="num" style="color:var(--text-dim)">· 3:05</span></div>
+        <div class="rail"><div class="rl"><svg class="n mag"><use href="#i-search"/></svg>探索了代码库 <span class="sep">·</span> <span class="o">读了 4 个文件</span></div>
+          <div class="rl"><i class="n ask pulse"></i><span style="color:var(--attn-text);font-weight:500">正在问你 · 2 个问题</span></div></div>
+      </div>
+      <div class="b-dock" style="padding-top:20px">
+        <div class="qc">
+          <div class="hd"><svg><use href="#i-q"/></svg>agent 在问你<span class="n num">· 已答 1 / 2</span></div>
+          <div class="tabs"><b><svg><use href="#i-check"/></svg>瓦片源</b><b class="on"><i></i>显示范围</b></div>
+          <div class="qq">雷达图层显示哪些内容？<span class="ty">多选 · 已选 2</span></div>
+          <div class="qo on"><span class="no"><svg><use href="#i-check"/></svg></span><div><div class="l">降水强度</div><div class="d">当前一帧，按强度着色</div></div></div>
+          <div class="qo on"><span class="no"><svg><use href="#i-check"/></svg></span><div><div class="l">过去 2 小时回放</div><div class="d">底部加时间轴，可拖动</div></div></div>
+          <div class="qo"><span class="no num">3</span><div><div class="l">未来 1 小时预报</div><div class="d">要付费接口</div></div></div>
+          <div class="qo"><span class="no num">4</span><div><div class="l">其他</div><div class="d">都不合适？写你自己的回答</div></div></div>
+          <div class="ft"><b>跳过</b><b class="pri">提交回答</b></div>
+        </div>
+        <div class="b-in"><div class="tx" style="color:var(--text-dim);font-size:14px">直接回复也行：发出后代替回答，agent 接着做</div>
+          <div class="bt"><span class="b-round"><svg><use href="#i-plus"/></svg></span><span class="b-mb"><canvas class="dm" data-fill=".75"></canvas><span>GPT-6.1 Sol · 高</span></span><span class="b-stopb" style="margin-left:auto"><svg><use href="#i-stop"/></svg></span></div></div>
+      </div>
+    </div></div></div>
+
+    <style>
+    .b-pg{position:absolute;inset:0;padding:102px 0 0;overflow:hidden}
+    .b-tabs{display:flex;gap:2px;padding:8px 10px;height:48px;align-items:center}
+    .b-tabs b{height:32px;padding:0 12px 0 10px;border-radius:8px;display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;color:var(--text-muted)}
+    .b-tabs b svg{width:15px;height:15px}.b-tabs b.on{background:var(--selected);color:var(--text)}
+    .b-tabs .n{font-size:11px;color:var(--text-dim)}
+    .b-rng{display:flex;align-items:center;gap:6px;height:38px;padding:0 14px;font-size:13px;color:var(--text-muted);box-shadow:0 .5px 0 var(--line-soft)}
+    .b-rng svg{width:12px;height:12px}.b-rng .tot{margin-left:auto;font:12px var(--mono)}
+    .b-tree{padding:6px 8px}
+    .b-tr{display:flex;align-items:center;gap:8px;height:40px;padding:0 10px;border-radius:8px;font-size:14px;color:var(--text-2)}
+    .b-tr .ar{width:14px;height:14px;color:var(--text-dim)}
+    .b-tr .nm{flex:1;min-width:0}.b-tr .ct{font:12px var(--mono);display:flex;gap:5px}
+    .b-tr .ct.dim{opacity:.75}
+    .b-tr .mk{width:6px;height:6px;border-radius:50%;background:var(--attn)}.b-tr .mk.new{background:var(--ok)}
+    .b-tr.on{background:var(--selected);color:var(--text)}
+    .b-fhd{position:sticky;top:0;display:flex;align-items:center;gap:8px;height:40px;padding:0 14px;background:var(--main);box-shadow:0 .5px 0 var(--line),0 -.5px 0 var(--line);font-size:13px}
+    .b-fhd .ar{width:11px;height:11px;color:var(--text-dim)}.b-fhd .dir{color:var(--text-dim);flex:1}.b-fhd .ct{font:12px var(--mono);display:flex;gap:5px}
+    .b-fhd.closed .ar{transform:rotate(-90deg)}
+    .b-scrollx{height:3px;margin:4px 14px 0 48px;border-radius:2px;background:var(--line)}.b-scrollx i{display:block;width:55%;height:100%;border-radius:2px;background:var(--line-strong)}
+    </style>
+
+    <!-- B4 改动树 -->
+    <div class="shot"><div class="cap"><b>4 改动</b>点导航栏的 +48 −12 进来，和桌面右栏同一棵树</div>
+    <div class="phone"><div class="scr s-b">
+      <div class="b-nav"><span class="b-ib"><svg><use href="#i-chev-l"/></svg></span><div class="tt"><b>改动</b><span><svg><use href="#i-branch"/></svg>weather-app · fix/cache-ttl</span></div><span class="b-ib"><svg><use href="#i-refresh"/></svg></span></div>
+      <div class="b-pg">
+        <div class="b-tabs"><b><svg><use href="#i-folder"/></svg>文件</b><b class="on"><svg><use href="#i-diff"/></svg>更改 <span class="n num">4</span></b></div>
+        <div class="b-rng">未提交<svg><use href="#i-chev-d"/></svg><span class="tot num"><span class="add">+48</span> <span class="del">−12</span></span></div>
+        <div class="b-tree">
+          <div class="b-tr"><svg class="ar"><use href="#i-chev-d"/></svg><span class="nm">src</span><span class="ct dim num"><span class="add">+47</span><span class="del">−10</span></span></div>
+          <div class="b-tr" style="padding-left:22px"><svg class="ar"><use href="#i-chev-d"/></svg><span class="nm">api</span></div>
+          <div class="b-tr" style="padding-left:34px"><i class="ft ts" style="width:14px;height:14px;padding:0;border-radius:3px;box-shadow:none">TS</i><span class="nm">forecast.ts</span><span class="ct num"><span class="add">+4</span><span class="del">−6</span></span><i class="mk"></i></div>
+          <div class="b-tr" style="padding-left:22px"><svg class="ar"><use href="#i-chev-d"/></svg><span class="nm">cache</span></div>
+          <div class="b-tr on" style="padding-left:34px"><i class="ft ts" style="width:14px;height:14px;padding:0;border-radius:3px;box-shadow:none">TS</i><span class="nm">ttl.ts</span><span class="ct num"><span class="add">+9</span><span class="del">−4</span></span><i class="mk"></i></div>
+          <div class="b-tr" style="padding-left:34px"><i class="ft ts" style="width:14px;height:14px;padding:0;border-radius:3px;box-shadow:none">TS</i><span class="nm">ttl.test.ts</span><span class="ct num"><span class="add">+34</span></span><i class="mk new"></i></div>
+          <div class="b-tr"><i class="ft md" style="width:14px;height:14px;padding:0;border-radius:3px;box-shadow:none;margin-left:22px">MD</i><span class="nm">README.md</span><span class="ct num"><span class="add">+1</span><span class="del">−2</span></span><i class="mk"></i></div>
+        </div>
+        <div style="margin:10px 18px;font-size:12px;color:var(--text-dim)">点文件看 diff；「未提交」可换成「比 main」或某一轮</div>
+      </div>
+    </div></div></div>
+
+    <!-- B5 diff -->
+    <div class="shot"><div class="cap"><b>5 diff</b>桌面“改动”标签的做法：所有文件竖着排、文件头吸顶；不换行，每个文件各自横滚</div>
+    <div class="phone"><div class="scr s-b">
+      <div class="b-nav"><span class="b-ib"><svg><use href="#i-chev-l"/></svg></span><div class="tt"><b>改动 · 4 个文件</b><span class="num"><span class="add">+48</span> <span class="del">−12</span> · 未提交</span></div><span class="b-ib"><svg><use href="#i-more"/></svg></span></div>
+      <div class="b-pg">
+        <div class="b-fhd"><svg class="ar"><use href="#i-chev-d"/></svg><i class="ft ts" style="width:13px;height:13px;border-radius:3px;font:700 7px/13px var(--mono);text-align:center;color:#fff">TS</i><b style="font-weight:500">ttl.ts</b><span class="dir">src/cache</span><span class="ct num"><span class="add">+9</span><span class="del">−4</span></span></div>
+        <div class="df nw" data-copy></div>
+        <div class="b-scrollx"><i></i></div>
+        <div class="b-fhd closed" style="margin-top:8px"><svg class="ar"><use href="#i-chev-d"/></svg><i class="ft ts" style="width:13px;height:13px;border-radius:3px;font:700 7px/13px var(--mono);text-align:center;color:#fff">TS</i><b style="font-weight:500">ttl.test.ts</b><span class="dir">src/cache</span><span class="ct num"><span class="add">+34</span></span></div>
+      </div>
+    </div></div></div>
+
+    <style>
+    .b-steps{display:flex;gap:6px;justify-content:center;margin:0 0 18px}
+    .b-steps span{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim)}
+    .b-steps span i{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font:600 11px var(--font);font-style:normal;background:var(--surface-2)}
+    .b-steps span.on{color:var(--text)}.b-steps span.on i{background:var(--text);color:var(--main)}
+    .b-steps span.ok i{background:var(--ok);color:#fff}
+    .b-steps em{width:18px;height:1px;background:var(--line-strong);align-self:center}
+    .b-flow{position:absolute;inset:0;padding:70px 20px 0}
+    .b-camc{position:relative;height:420px;border-radius:28px;overflow:hidden;margin:6px 0 20px}
+    .b-camc .cam .fr{left:60px;top:80px}.b-camc .cam .tip{display:none}
+    .b-flow h3{font:600 22px/1.3 var(--font);color:var(--text);margin:0 0 6px;text-align:center}
+    .b-flow p{margin:0 0 6px;text-align:center;font-size:14px;color:var(--text-muted)}
+    .b-kbd{display:inline-block;font:11px var(--mono);padding:0 5px;border-radius:4px;background:var(--surface-2);box-shadow:inset 0 0 0 .5px var(--line);color:var(--text-2)}
+    .b-card{background:var(--surface-1);border-radius:16px;box-shadow:var(--card-shadow);padding:6px 16px;margin:0 0 14px}
+    .b-kv{display:flex;align-items:center;gap:10px;min-height:50px;font-size:14px;color:var(--text-muted)}
+    .b-kv+.b-kv{box-shadow:0 -.5px 0 var(--line)}
+    .b-kv b{margin-left:auto;font-weight:500;color:var(--text)}
+    .b-name{display:flex;align-items:center;height:46px;padding:0 12px;border-radius:12px;background:var(--main);box-shadow:inset 0 0 0 1px var(--tint),0 0 0 3px var(--linked);font-size:15px;color:var(--text)}
+    .b-lbl{font-size:12px;color:var(--text-dim);margin:0 4px 6px}
+    .b-hint{font-size:12px;color:var(--text-dim);margin:6px 4px 0}
+    .b-cta{position:absolute;left:20px;right:20px;bottom:56px}
+    .b-cta .b-new{margin:0}
+    </style>
+
+    <!-- B6 扫码 -->
+    <div class="shot"><div class="cap"><b>6 配对 · 扫码</b>首次打开就是这一页：步骤条、相机、去哪里找二维码</div>
+    <div class="phone"><div class="scr s-b"><div class="b-amb"></div>
+      <div class="b-flow">
+        <div class="b-steps"><span class="on"><i>1</i>扫码</span><em></em><span><i>2</i>确认</span><em></em><span><i>3</i>完成</span></div>
+        <div class="b-camc"><div class="cam"><div class="fr"><i></i><i></i><i></i><i></i><div class="qr"></div></div></div></div>
+        <h3>扫 Mac 上的二维码</h3>
+        <p>在 Mac 的 Atrium 里打开 设置 › 手机 › 配对新手机</p>
+        <p style="font-size:12px;color:var(--text-dim)">二维码 5 分钟内有效，只能用一次</p>
+      </div>
+    </div></div></div>
+
+    <!-- B7 确认 -->
+    <div class="shot"><div class="cap"><b>6 配对 · 确认</b>显示 Mac 名称，给这台手机起名（原地改名框的样子）</div>
+    <div class="phone"><div class="scr s-b"><div class="b-amb"></div>
+      <div class="b-flow">
+        <div class="b-steps"><span class="ok"><i>✓</i>扫码</span><em></em><span class="on"><i>2</i>确认</span><em></em><span><i>3</i>完成</span></div>
+        <h3 style="margin-top:30px">连接到这台 Mac？</h3><p style="margin-bottom:22px">确认后，Mac 会记住这台手机</p>
+        <div class="b-card">
+          <div class="b-kv"><svg width="18" height="18"><use href="#i-mac"/></svg>Mac<b>MacBook Pro（家）</b></div>
+          <div class="b-kv"><svg width="18" height="18"><use href="#i-wifi"/></svg>relay<b class="mono" style="font-size:13px">relay.example.net</b></div>
+          <div class="b-kv"><svg width="18" height="18"><use href="#i-key"/></svg>安全码<b class="mono" style="font-size:13px">7F3A 91C2 0B6E</b></div>
+        </div>
+        <div class="b-lbl">这台手机叫</div>
+        <div class="b-name">iPhone 17 Pro<span class="caret"></span></div>
+        <div class="b-hint">Mac 的设置 › 手机里用这个名字列出，可以单独撤销</div>
+      </div>
+      <div class="b-cta"><div class="b-new"><canvas class="dm"></canvas><span>配对</span></div></div>
+    </div></div></div>
+
+    <style>
+    .b-done{width:96px;height:96px;margin:120px auto 22px;border-radius:30px;position:relative;overflow:hidden;box-shadow:0 0 30px -6px rgba(94,132,255,.55)}
+    .b-done canvas{position:absolute;inset:0;width:100%;height:100%}
+    .b-done svg{position:absolute;left:28px;top:28px;width:40px;height:40px;color:#fff;filter:drop-shadow(0 1px 4px rgba(0,0,0,.35))}
+    .b-empty{position:absolute;inset:0;padding:240px 32px 0;text-align:center}
+    .b-empty .ill{width:120px;height:72px;margin:0 auto 22px;position:relative}
+    .b-empty .ill canvas{position:absolute;inset:0;width:100%;height:100%;color:var(--text)}
+    .b-empty .ill svg{position:absolute;left:44px;top:20px;width:32px;height:32px;color:var(--text-muted);background:var(--window);border-radius:8px;padding:3px}
+    .b-empty h3{font:600 20px/1.3 var(--font);color:var(--text);margin:0 0 8px}
+    .b-empty p{margin:0 0 4px;font-size:14px;color:var(--text-muted)}
+    .b-empty .why{margin:18px 0 22px;text-align:left;background:var(--surface-1);border-radius:16px;box-shadow:var(--card-shadow);padding:6px 14px}
+    .b-empty .why div{display:flex;gap:10px;min-height:42px;align-items:center;font-size:13px;color:var(--text-2)}
+    .b-empty .why div+div{box-shadow:0 -.5px 0 var(--line)}
+    .b-empty .why i{width:8px;height:8px;border-radius:50%;flex:none}
+    .b-empty .why em{margin-left:auto;font-style:normal;font-size:12px;color:var(--text-dim)}
+    .b-btns{display:flex;gap:8px;justify-content:center}
+    .b-btns b{height:40px;padding:0 18px;border-radius:999px;display:flex;align-items:center;gap:6px;font-size:14px;font-weight:500}
+    .b-btns .p{background:var(--text);color:var(--main)}.b-btns .g{box-shadow:inset 0 0 0 .5px var(--line-strong);color:var(--text-2);font-weight:400}
+    </style>
+
+    <!-- B8 完成 -->
+    <div class="shot"><div class="cap"><b>6 配对 · 完成</b>品牌点阵（拉满的配色）做完成时刻，然后进首页</div>
+    <div class="phone"><div class="scr s-b"><div class="b-amb"></div>
+      <div class="b-flow">
+        <div class="b-steps"><span class="ok"><i>✓</i>扫码</span><em></em><span class="ok"><i>✓</i>确认</span><em></em><span class="on"><i>3</i>完成</span></div>
+        <div class="b-done"><canvas class="dm" data-brand="1"></canvas><svg><use href="#i-check"/></svg></div>
+        <h3>已配对</h3>
+        <p>这台 iPhone 17 Pro 已连上 MacBook Pro（家）</p>
+        <p style="font-size:12px;color:var(--text-dim);margin-top:14px">没有推送：回到 App 时会先告诉你谁在等你</p>
+      </div>
+      <div class="b-cta"><div class="b-new"><canvas class="dm"></canvas><span>开始</span></div></div>
+    </div></div></div>
+
+    <!-- B9 relay 连不上 -->
+    <div class="shot"><div class="cap"><b>7 离线</b>relay 连不上且没有缓存时的空状态：说清卡在哪一段</div>
+    <div class="phone"><div class="scr s-b"><div class="b-amb"></div>
+      <div class="b-home" style="padding-bottom:0"><div class="b-hd"><span class="nm">Atrium</span><span class="b-conn"><i style="background:var(--danger)"></i>连不上 relay</span></div></div>
+      <div class="b-empty">
+        <div class="ill"><canvas class="dm"></canvas><svg><use href="#i-cloud-off"/></svg></div>
+        <h3>连不上 relay</h3>
+        <p>relay.example.net 没有响应</p>
+        <div class="why">
+          <div><i style="background:var(--ok)"></i>这台手机的网络<em>正常</em></div>
+          <div><i style="background:var(--danger)"></i>relay<em>12 秒前超时</em></div>
+          <div><i style="background:var(--line-strong)"></i>MacBook Pro（家）<em>上次在线 22:48</em></div>
+        </div>
+        <div class="b-btns"><b class="p"><svg width="15" height="15"><use href="#i-refresh"/></svg>重试</b><b class="g">重新配对</b></div>
+      </div>
+    </div></div></div>
+
+    <style>
+    .b-emp{position:absolute;left:0;right:0;top:230px;text-align:center;font:500 20px var(--font);color:var(--text)}
+    .b-emp i{display:inline-block;width:2px;height:1.15em;background:var(--tint);border-radius:1px;margin-left:3px;vertical-align:-3px;animation:car 1.06s steps(1) infinite}
+    .b-sel{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 6px 2px}
+    .b-sel span{height:30px;padding:0 9px;border-radius:12px;display:flex;align-items:center;gap:5px;font-size:13px;color:var(--text-2)}
+    .b-sel span.on{background:var(--selected)}.b-sel svg{width:14px;height:14px;color:var(--text-muted)}.b-sel .cv{width:11px;height:11px;color:var(--text-dim)}
+    .b-mp{background:var(--surface-1);border-radius:16px;box-shadow:var(--float-shadow);padding:8px;margin:0 0 8px}
+    [data-theme="dark"] .b-mp{background:var(--surface-2)}
+    .b-mp .top{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--text-dim);padding:2px 6px 6px}
+    .b-mp .cols{display:flex;gap:6px;height:186px}
+    .b-mp .pv{display:flex;flex-direction:column;gap:2px;padding-right:6px;box-shadow:.5px 0 0 var(--line)}
+    .b-mp .pv b{position:relative;width:44px;height:40px;border-radius:10px;display:grid;place-items:center}
+    .b-mp .pv b.on{background:var(--selected)}.b-mp .pv b.on::after{content:"";position:absolute;top:6px;right:7px;width:6px;height:6px;border-radius:50%;background:var(--tint);box-shadow:0 0 0 1.5px var(--surface-1)}
+    .b-mp .pv b span{width:22px;height:22px;border-radius:6px;background:#fff;box-shadow:0 0 0 .5px var(--line-strong);display:grid;place-items:center;font:700 10px var(--font);color:#111}
+    .b-mp .ml{flex:1;min-width:0}
+    .b-mp .ml .h{font-size:12px;font-weight:500;color:var(--text-2);padding:4px 8px}.b-mp .ml .h em{font-style:normal;font-weight:400;font-size:11px;color:var(--text-dim)}
+    .b-mp .ml .r{padding:6px 8px;border-radius:10px;display:flex;align-items:center}
+    .b-mp .ml .r.on{background:var(--selected)}.b-mp .ml .r div{flex:1}
+    .b-mp .ml .r b{display:block;font-size:13px;font-weight:500;color:var(--text)}.b-mp .ml .r span{font-size:11px;color:var(--text-dim)}
+    .b-mp .ml .r svg{width:14px;height:14px;color:var(--tint)}
+    .b-eff{position:relative;height:38px;border-radius:12px;overflow:hidden;margin:8px 0 0;box-shadow:inset 0 0 0 .5px var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:13px;color:var(--text)}
+    .b-eff canvas{position:absolute;inset:0;width:100%;height:100%;color:var(--tint)}
+    .b-eff span{position:relative;text-shadow:0 0 4px var(--surface-1),0 0 8px var(--surface-1)}
+    .b-eff i{position:absolute;top:8px;bottom:8px;width:.5px;background:var(--line-strong)}
+    </style>
+
+    <!-- B10 新建会话 -->
+    <div class="shot"><div class="cap"><b>8 新建会话</b>空状态 + 输入框上方的选择排；模型面板是桌面的图标栏 + 点阵推理强度框</div>
+    <div class="phone"><div class="scr s-b">
+      <div class="b-nav"><span class="b-ib"><svg><use href="#i-x"/></svg></span><div class="tt"><b>新会话</b></div></div>
+      <div class="b-emp">每天都做一些改变出来<i></i></div>
+      <div class="b-dock">
+        <div class="b-mp">
+          <div class="top"><span style="color:var(--text-2);font-weight:500">模型</span><svg width="14" height="14"><use href="#i-refresh"/></svg></div>
+          <div class="cols">
+            <div class="pv"><b class="on"><span>G</span></b><b><span>A</span></b><b><span>D</span></b><b><span>F</span></b></div>
+            <div class="ml"><div class="h">OpenAI <em>3 个模型</em></div>
+              <div class="r on"><div><b>GPT-6.1 Sol</b><span>400K · 支持图片</span></div><svg><use href="#i-check"/></svg></div>
+              <div class="r"><div><b>GPT-6.1 Sol mini</b><span>400K</span></div></div>
+              <div class="r"><div><b>GPT-6 Astra</b><span>1M</span></div></div></div>
+          </div>
+          <div class="b-eff"><canvas class="dm" data-fill=".75" data-k="2.6"></canvas><i style="left:25%"></i><i style="left:50%"></i><i style="left:75%"></i><span>高</span><span class="num" style="color:var(--text-muted)">3 / 4</span></div>
+        </div>
+        <div class="b-sel"><span><svg><use href="#i-folder"/></svg>weather-app<svg class="cv"><use href="#i-chev-d"/></svg></span><span class="on"><svg style="color:var(--tint)"><use href="#i-plus"/></svg>新建 worktree<svg class="cv"><use href="#i-chev-d"/></svg></span><span><svg style="color:var(--tint)"><use href="#i-sparkle"/></svg>自动起名</span></div>
+        <div class="b-in"><div class="tx" style="color:var(--text-dim)">发消息或描述任务</div>
+          <div class="bt"><span class="b-round"><svg><use href="#i-plus"/></svg></span><span class="b-mb" style="background:var(--selected)"><canvas class="dm" data-fill=".75"></canvas><span>GPT-6.1 Sol · 高</span></span><span class="b-send" style="margin-left:auto;background:var(--surface-3);color:var(--text-dim)"><svg><use href="#i-up"/></svg></span></div></div>
+      </div>
+    </div></div></div>
+
+    <!-- B:screens -->
+  </div>
+</section>
+
+<section class="dir" id="dir-c">
+  <h2>C 收件箱优先</h2>
+  <p class="lead">首页是按紧急度排的卡片流：等你处理在最上，运行中其次，已完成未读最后。对话以全屏 sheet 打开，提问在卡片上直接答。</p>
+  <div class="notes">
+    <p><b>适合</b>：没有推送时，"回到 App 立刻看到谁在等你"最直接：首页就是按紧急度排的卡片，提问、重试、停止都能在卡片上直接做，很多时候不用进对话。</p>
+    <p><b>代价</b>：项目 / 工作区的结构藏到"全部会话"里，想找某个空闲的旧会话要多一步；卡片上能答的只适合短问题，带预览的题、长的"其他"还是要进对话；对话是 sheet，层级多一层。</p>
+    <p><b>SwiftUI</b>：中等。ScrollView + LazyVStack 的卡片流，卡片里复用提问组件；对话用 .fullScreenCover 或 .sheet(.large)；吸顶的运行条用 safeAreaInset(edge: .top)；卡片排序、插入用 withAnimation 的默认过渡即可。</p>
+  </div>
+  <div class="row">
+    <style>
+    .s-c{background:var(--window);font-size:15px}
+    [data-theme="light"] .s-c{background:#eef1f6}
+    .c-home{position:absolute;inset:0;padding:58px 14px 0;overflow:hidden}
+    .c-hd{display:flex;align-items:center;gap:8px;height:40px;padding:0 4px}
+    .c-host{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-muted)}.c-host i{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+    .c-hd .sp{flex:1}
+    .c-ib{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;color:var(--text-2);background:var(--surface-1);box-shadow:var(--chip-shadow)}.c-ib svg{width:18px;height:18px}
+    .c-h{display:flex;align-items:baseline;gap:8px;margin:10px 6px 10px;font:700 26px/1.2 var(--font);color:var(--text)}
+    .c-h small{font:500 13px var(--font);color:var(--text-dim)}
+    .c-sec{display:flex;align-items:center;gap:6px;margin:14px 6px 8px;font-size:12px;font-weight:600;color:var(--text-muted);letter-spacing:.3px}
+    .c-card{background:var(--surface-1);border-radius:18px;box-shadow:var(--card-shadow);padding:12px 14px;margin-bottom:10px}
+    .c-card .top{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim)}
+    .c-card .top svg{width:16px;height:16px}
+    .c-card .top .who{color:var(--text-2);font-weight:600;font-size:14px}
+    .c-card .top .tm{margin-left:auto}
+    .c-card.q{box-shadow:inset 3px 0 0 var(--attn),var(--card-shadow)}
+    .c-card.e{box-shadow:inset 3px 0 0 var(--danger),var(--card-shadow)}
+    .c-qq{font:500 15px/1.4 var(--font);color:var(--text);margin:8px 0 8px}
+    .c-qq .ty{font-size:11px;font-weight:400;padding:1px 6px;border-radius:6px;background:var(--surface-2);color:var(--text-muted);margin-left:6px;vertical-align:2px}
+    .c-opt{display:flex;align-items:center;gap:10px;padding:8px 8px;border-radius:10px;font-size:14px;color:var(--text)}
+    .c-opt.on{background:var(--linked)}
+    .c-no{width:22px;height:22px;border-radius:50%;background:var(--surface-2);display:grid;place-items:center;font:600 12px var(--font);color:var(--text-muted)}
+    .c-opt.on .c-no{background:var(--tint);color:var(--on-tint)}.c-no svg{width:12px;height:12px}
+    .rec{font-size:11px;font-weight:500;color:var(--tint);background:var(--linked);border-radius:5px;padding:0 5px;line-height:17px}
+    .c-act{display:flex;align-items:center;gap:8px;margin-top:10px}
+    .c-act .lk{font-size:13px;color:var(--text-muted)}
+    .c-btn{height:32px;padding:0 14px;border-radius:999px;display:flex;align-items:center;gap:5px;font-size:13px;font-weight:500}
+    .c-btn.pri{margin-left:auto;background:var(--text);color:var(--main)}
+    .c-btn.err{margin-left:auto;background:var(--danger-soft);color:var(--danger)}
+    .c-btn.ghost{box-shadow:inset 0 0 0 .5px var(--line-strong);color:var(--text-2)}
+    .c-run{display:flex;align-items:center;gap:10px;background:var(--surface-1);border-radius:16px;box-shadow:var(--card-shadow);padding:11px 12px 11px 14px;margin-bottom:8px}
+    .c-run .tx{flex:1;min-width:0}.c-run .t1{font-size:14px;color:var(--text);font-weight:500}
+    .c-run .t2{font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .c-run .tm{font-size:12px;color:var(--text-dim)}
+    .c-stop{width:30px;height:30px;border-radius:50%;background:var(--surface-2);display:grid;place-items:center;color:var(--text-2)}.c-stop svg{width:16px;height:16px}
+    .c-fab{position:absolute;z-index:20;right:20px;bottom:40px;height:52px;padding:0 20px 0 16px;border-radius:26px;background:var(--text);color:var(--main);display:flex;align-items:center;gap:6px;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    .c-fab svg{width:18px;height:18px}
+    .c-all{position:absolute;z-index:20;left:20px;bottom:40px;height:52px;padding:0 18px;border-radius:26px;background:var(--surface-1);box-shadow:var(--float-shadow);display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text-2)}
+    .c-all svg{width:18px;height:18px;color:var(--text-muted)}
+    </style>
+
+    <!-- C1 首页 -->
+    <div class="shot"><div class="cap"><b>1 首页</b>按紧急度排的卡片，提问在卡片上直接答</div>
+    <div class="phone"><div class="scr s-c">
+      <div class="c-home">
+        <div class="c-hd"><span class="c-host"><i></i>MacBook Pro（家）· 已连接</span><span class="sp"></span><span class="c-ib"><svg><use href="#i-search"/></svg></span></div>
+        <div class="c-h">等你处理 <small class="num">2 件</small></div>
+        <div class="c-card q">
+          <div class="top"><svg class="st-q"><use href="#i-q"/></svg><span class="who">接入降水雷达</span>feat/radar-map<span class="tm">2 分钟前</span></div>
+          <div class="c-qq">雷达瓦片用哪家的？<span class="ty">单选</span></div>
+          <div class="c-opt on"><span class="c-no"><svg><use href="#i-check"/></svg></span>RainViewer<span class="rec">推荐</span></div>
+          <div class="c-opt"><span class="c-no">2</span>OpenWeatherMap</div>
+          <div class="c-opt"><span class="c-no">3</span><span style="color:var(--text-muted)">其他…</span></div>
+          <div class="c-act"><span class="lk">共 2 题 · 打开看完整</span><span class="c-btn pri">下一题</span></div>
+        </div>
+        <div class="c-card e">
+          <div class="top"><svg class="st-err"><use href="#i-err"/></svg><span class="who">升级 Swift 6 并发检查</span>main<span class="tm">18 分钟前</span></div>
+          <div class="c-act" style="margin-top:8px"><span class="lk">模型调用失败，重试用尽</span><span class="c-btn err"><svg width="14" height="14"><use href="#i-refresh"/></svg>重试</span></div>
+        </div>
+        <div class="c-sec"><span class="vx"></span>运行中 2</div>
+        <div class="c-run"><div class="tx"><div class="t1">补缓存过期的测试</div><div class="t2">正在编辑 ttl.test.ts · fix/cache-ttl</div></div><span class="tm num">1:12</span><span class="c-stop"><svg><use href="#i-stop"/></svg></span></div>
+        <div class="c-run"><div class="tx"><div class="t1">重写预报卡片的布局</div><div class="t2">运行了 pnpm build · main</div></div><span class="tm num">6:40</span><span class="c-stop"><svg><use href="#i-stop"/></svg></span></div>
+        <div class="c-sec"><i class="dot7"></i>做完了 1</div>
+        <div class="c-run"><div class="tx"><div class="t1">整理 README 截图</div><div class="t2">换好了 4 张截图，暗色版本放在 docs/img/dark</div></div><span class="chip num"><span class="add">+12</span><span class="del">−4</span></span></div>
+      </div>
+      <div class="c-all"><svg><use href="#i-folder"/></svg>全部会话</div>
+      <div class="c-fab"><svg><use href="#i-plus"/></svg>新建</div>
+    </div></div></div>
+
+    <style>
+    .c-behind{position:absolute;inset:0;background:#000}
+    .c-behind::before{content:"";position:absolute;left:16px;right:16px;top:48px;height:60px;border-radius:30px 30px 0 0;background:#eef1f6;opacity:.55}
+    [data-theme="dark"] .c-behind::before{background:#1a1c21}
+    .c-sheet{position:absolute;left:0;right:0;top:60px;bottom:0;border-radius:38px 38px 0 0;background:var(--main);overflow:hidden}
+    .c-grab{width:36px;height:5px;border-radius:3px;background:var(--line-strong);margin:6px auto 0}
+    .c-sh{display:flex;align-items:center;gap:8px;padding:6px 12px 8px}
+    .c-sh .tt{flex:1;text-align:center}.c-sh .tt b{display:block;font:600 15px/1.3 var(--font);color:var(--text)}.c-sh .tt span{font-size:12px;color:var(--text-dim)}
+    .c-live{display:flex;align-items:center;gap:8px;margin:0 12px;padding:8px 8px 8px 12px;border-radius:14px;background:var(--linked);font-size:13px;color:var(--text-2)}
+    .c-live .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .c-live .stp{height:28px;padding:0 12px;border-radius:999px;background:var(--surface-1);display:flex;align-items:center;gap:4px;font-weight:500;color:var(--text);box-shadow:var(--chip-shadow)}
+    .c-live .stp svg{width:14px;height:14px}
+    .c-body{padding:14px 18px;font-size:15px;line-height:1.55;color:var(--text)}
+    .c-body p{margin:0 0 10px}.c-body code{font:13px var(--mono);background:var(--surface-2);padding:1px 5px;border-radius:6px}
+    .c-ub{margin:0 0 12px auto;max-width:80%;width:fit-content;padding:9px 14px;border-radius:20px;background:var(--surface-2)}
+    .c-sum{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:999px;box-shadow:inset 0 0 0 .5px var(--line-strong);font-size:12px;color:var(--text-muted);margin:0 0 10px}
+    .c-sum svg{width:11px;height:11px}
+    .c-cd{background:var(--code);border-radius:10px;padding:10px 12px;font:12.5px/1.6 var(--mono);white-space:pre;color:var(--text-2);margin:0 0 10px}
+    .c-dock{position:absolute;left:0;right:0;bottom:0;padding:10px 12px 34px;background:var(--main);box-shadow:0 -.5px 0 var(--line)}
+    .c-chips{display:flex;gap:6px;margin:0 0 8px}
+    .c-chips span{height:28px;padding:0 10px;border-radius:999px;background:var(--surface-2);display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-2)}
+    .c-chips svg{width:11px;height:11px}
+    .c-inp{display:flex;align-items:center;gap:8px;height:46px;padding:0 6px 0 16px;border-radius:23px;background:var(--surface-2);font-size:15px;color:var(--text-dim)}
+    .c-inp .s{margin-left:auto;width:34px;height:34px;border-radius:50%;background:var(--surface-3);display:grid;place-items:center;color:var(--text-dim)}.c-inp .s svg{width:16px;height:16px}
+    </style>
+
+    <!-- C2 对话 -->
+    <div class="shot"><div class="cap"><b>2 对话</b>全屏 sheet，下拉回收件箱；运行状态和停止吸顶</div>
+    <div class="phone"><div class="scr s-c" data-sb="light"><div class="c-behind"></div>
+      <div class="c-sheet"><div class="c-grab"></div>
+        <div class="c-sh"><span class="c-ib"><svg><use href="#i-x"/></svg></span><div class="tt"><b>补缓存过期的测试</b><span>weather-app · fix/cache-ttl</span></div><span class="c-ib"><svg><use href="#i-diff"/></svg></span></div>
+        <div class="c-live"><span class="vx"></span><span class="t"><b class="num" style="font-weight:500">1:12</b> · <span class="shine">正在编辑 ttl.test.ts</span></span><span class="stp"><svg><use href="#i-stop"/></svg>停止</span></div>
+        <div class="c-body">
+          <div class="c-ub">给 ttl.ts 加上过期的测试，顺便看看为什么缓存永远不失效</div>
+          <span class="c-sum"><svg><use href="#i-chev-r"/></svg>48 秒 · 读了 3 个文件 · 运行了 2 条命令</span>
+          <p><code>expiresAt</code> 存的是秒，<code>Date.now()</code> 是毫秒，比较永远为真。改成毫秒：</p>
+          <div class="c-cd">return e.expiresAt * 1000 &gt; Date.now();</div>
+          <div class="c-ub">再补一个 TTL 为 0 的边界</div>
+          <span class="c-sum"><svg><use href="#i-chev-r"/></svg>读了 1 个文件 · 运行了 1 条命令 · 你插话 1 次</span>
+          <p>好，我在 ttl.test.ts 里加一个用例：TTL 为 0 时，写入后<span class="caret"></span></p>
+        </div>
+        <div class="c-dock">
+          <div class="c-chips"><span>GPT-6.1 Sol · 高<svg><use href="#i-chev-d"/></svg></span><span><i class="dot7" style="width:6px;height:6px"></i>排队 1</span><span>子对话 2 · <svg style="color:var(--attn);width:12px;height:12px"><use href="#i-q"/></svg>1</span></div>
+          <div class="c-inp"><svg width="18" height="18" style="color:var(--text-muted)"><use href="#i-plus"/></svg>插话，下一步前送达<span class="s"><svg><use href="#i-up"/></svg></span></div>
+        </div>
+      </div>
+    </div></div></div>
+
+    <style>
+    .c-steps{display:flex;gap:4px;margin:8px 0 0}.c-steps i{flex:1;height:3px;border-radius:2px;background:var(--line-strong)}.c-steps i.on{background:var(--attn)}
+    .c-opt .sq{border-radius:7px}
+    .c-other{margin:4px 0 0 40px;padding:9px 12px;border-radius:10px;background:var(--main);box-shadow:inset 0 0 0 1px var(--tint),0 0 0 3px var(--linked);font-size:14px;color:var(--text);min-height:58px}
+    .c-ans{font-size:12px;color:var(--text-dim);margin:8px 0 0;display:flex;gap:6px}.c-ans b{font-weight:400;color:var(--text-2)}
+    .c-toast{position:absolute;z-index:20;left:50%;bottom:110px;transform:translateX(-50%);height:36px;padding:0 14px;border-radius:999px;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-2);background:var(--surface-1);box-shadow:var(--float-shadow);white-space:nowrap}
+    .c-toast svg{width:15px;height:15px;color:var(--ok-text)}
+    </style>
+
+    <!-- C3 提问 -->
+    <div class="shot"><div class="cap"><b>3 提问</b>在卡片上答完两题；第 2 题选了“其他”自己写</div>
+    <div class="phone"><div class="scr s-c">
+      <div class="c-home">
+        <div class="c-hd"><span class="c-host"><i></i>MacBook Pro（家）· 已连接</span><span class="sp"></span><span class="c-ib"><svg><use href="#i-search"/></svg></span></div>
+        <div class="c-h">等你处理 <small class="num">2 件</small></div>
+        <div class="c-card q">
+          <div class="top"><svg class="st-q"><use href="#i-q"/></svg><span class="who">接入降水雷达</span>feat/radar-map<span class="tm">2 分钟前</span></div>
+          <div class="c-steps"><i class="on"></i><i class="on"></i></div>
+          <div class="c-ans">瓦片源<b>RainViewer</b></div>
+          <div class="c-qq">雷达图层显示哪些内容？<span class="ty" style="background:var(--linked);color:var(--tint)">多选</span></div>
+          <div class="c-opt"><span class="c-no sq num">1</span>降水强度</div>
+          <div class="c-opt"><span class="c-no sq num">2</span>过去 2 小时回放</div>
+          <div class="c-opt"><span class="c-no sq num">3</span>未来 1 小时预报</div>
+          <div class="c-opt on"><span class="c-no sq"><svg><use href="#i-check"/></svg></span>其他</div>
+          <div class="c-other">先只做降水强度，回放放到下一版<span class="caret"></span></div>
+          <div class="c-act"><span class="c-btn ghost">跳过</span><span class="lk">或打开对话直接回复</span><span class="c-btn pri">提交回答</span></div>
+        </div>
+        <div class="c-card e">
+          <div class="top"><svg class="st-err"><use href="#i-err"/></svg><span class="who">升级 Swift 6 并发检查</span>main<span class="tm">18 分钟前</span></div>
+          <div class="c-act" style="margin-top:8px"><span class="lk">模型调用失败，重试用尽</span><span class="c-btn err"><svg width="14" height="14"><use href="#i-refresh"/></svg>重试</span></div>
+        </div>
+      </div>
+      <div class="c-toast"><svg><use href="#i-check"/></svg>「整理 README 截图」做完了</div>
+      <div class="c-all"><svg><use href="#i-folder"/></svg>全部会话</div>
+      <div class="c-fab"><svg><use href="#i-plus"/></svg>新建</div>
+    </div></div></div>
+
+    <style>
+    .c-seg2{display:flex;margin:4px 14px 12px;padding:2px;border-radius:10px;background:var(--surface-2)}
+    .c-seg2 b{flex:1;height:30px;border-radius:8px;display:grid;place-items:center;font-size:13px;font-weight:400;color:var(--text-muted)}
+    .c-seg2 b.on{background:var(--surface-1);color:var(--text);font-weight:500;box-shadow:0 0 0 .5px var(--line),0 1px 2px rgba(0,0,0,.06)}
+    .c-fc{margin:0 14px 10px;border-radius:16px;background:var(--surface-1);box-shadow:var(--card-shadow);overflow:hidden}
+    [data-theme="dark"] .c-fc{background:var(--surface-1)}
+    .c-fc .hd{display:flex;align-items:center;gap:8px;padding:10px 12px;font-size:14px}
+    .c-fc .hd .dir{font-size:12px;color:var(--text-dim);flex:1}.c-fc .hd .ct{font:12px var(--mono);display:flex;gap:5px}
+    .c-fc .df{border-top:.5px solid var(--line)}
+    .c-fc .more{padding:8px 12px;font-size:12px;color:var(--text-dim);border-top:.5px solid var(--line)}
+    .c-fstrip{display:flex;gap:6px;padding:0 12px 10px;overflow:hidden}
+    .c-fstrip>span{flex:none;height:30px;padding:0 10px;border-radius:999px;background:var(--surface-2);display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2)}
+    .c-fstrip>span.on{background:var(--text);color:var(--main)}
+    .c-fstrip span .ct{font:11px var(--mono);opacity:.8}
+    </style>
+
+    <!-- C4 改动 -->
+    <div class="shot"><div class="cap"><b>4 改动</b>对话 sheet 里切到“改动”：每个文件一张卡，先看第一处改动</div>
+    <div class="phone"><div class="scr s-c" data-sb="light"><div class="c-behind"></div>
+      <div class="c-sheet" style="background:var(--window)"><div class="c-grab"></div>
+        <div class="c-sh"><span class="c-ib"><svg><use href="#i-x"/></svg></span><div class="tt"><b>补缓存过期的测试</b><span class="num">4 个文件 · <span class="add">+48</span> <span class="del">−12</span></span></div><span class="c-ib"><svg><use href="#i-chat"/></svg></span></div>
+        <div class="c-seg2"><b>对话</b><b class="on">改动</b></div>
+        <div class="c-fc"><div class="hd"><i class="ft ts" style="width:14px;height:14px;border-radius:3px;font:700 7px/14px var(--mono);text-align:center;color:#fff">TS</i>ttl.ts<span class="dir">src/cache</span><span class="ct num"><span class="add">+9</span><span class="del">−4</span></span></div>
+          <div class="df"><div class="l"><i>17</i><span><span class="k">export function</span> <span class="f">isFresh</span>(e: Entry) {</span></div><div class="l dd"><i>18</i><span>  <span class="k">return</span> e.expiresAt &gt; Date.now();</span></div><div class="l da"><i>18</i><span>  <span class="k">if</span> (e.ttl === 0) <span class="k">return false</span>;</span></div><div class="l da"><i>19</i><span>  <span class="k">return</span> e.expiresAt * 1000 &gt; Date.now();</span></div></div>
+          <div class="more">还有 2 处改动</div></div>
+        <div class="c-fc"><div class="hd"><i class="ft ts" style="width:14px;height:14px;border-radius:3px;font:700 7px/14px var(--mono);text-align:center;color:#fff">TS</i>ttl.test.ts<span class="dir">新增</span><span class="ct num"><span class="add">+34</span></span></div>
+          <div class="df"><div class="l da"><i>1</i><span><span class="k">import</span> { put, isFresh } <span class="k">from</span> <span class="s">"./ttl"</span>;</span></div><div class="l da"><i>2</i><span><span class="f">test</span>(<span class="s">"ttl 0 expires at once"</span>, () =&gt; {</span></div></div>
+          <div class="more">还有 32 行</div></div>
+        <div class="c-fc"><div class="hd"><i class="ft ts" style="width:14px;height:14px;border-radius:3px;font:700 7px/14px var(--mono);text-align:center;color:#fff">TS</i>forecast.ts<span class="dir">src/api</span><span class="ct num"><span class="add">+4</span><span class="del">−6</span></span></div></div>
+        <div class="c-fc"><div class="hd"><i class="ft md" style="width:14px;height:14px;border-radius:3px;font:700 7px/14px var(--mono);text-align:center;color:#fff">MD</i>README.md<span class="dir"></span><span class="ct num"><span class="add">+1</span><span class="del">−2</span></span></div></div>
+      </div>
+    </div></div></div>
+
+    <!-- C5 diff -->
+    <div class="shot"><div class="cap"><b>5 diff</b>点卡片全屏看；顶上一排文件胶囊，左右滑换文件</div>
+    <div class="phone"><div class="scr s-c" data-sb="light"><div class="c-behind"></div>
+      <div class="c-sheet"><div class="c-grab"></div>
+        <div class="c-sh"><span class="c-ib"><svg><use href="#i-chev-l"/></svg></span><div class="tt"><b>ttl.ts</b><span>src/cache</span></div><span class="c-ib"><svg><use href="#i-more"/></svg></span></div>
+        <div class="c-fstrip"><span class="on">ttl.ts <span class="ct">+9 −4</span></span><span>ttl.test.ts <span class="ct">+34</span></span><span>forecast.ts <span class="ct">+4 −6</span></span><span>README.md</span></div>
+        <div class="df" data-copy></div>
+      </div>
+    </div></div></div>
+
+    <style>
+    .c-recon{display:flex;align-items:center;gap:8px;margin:2px 0 4px;padding:10px 12px;border-radius:14px;background:var(--surface-1);box-shadow:var(--card-shadow);font-size:13px;color:var(--text-2)}
+    .c-recon .sp{width:16px;height:16px;border-radius:50%;border:2px solid var(--line-strong);border-top-color:var(--tint);animation:spin .9s linear infinite}
+    .c-recon .t{flex:1}.c-recon .t span{display:block;font-size:12px;color:var(--text-dim)}
+    .c-stale{opacity:.6}
+    </style>
+
+    <!-- C6 正在重连 -->
+    <div class="shot"><div class="cap"><b>7 离线</b>回到 App 时正在重连：先显示缓存的卡片，连上后原地更新；运行中的计时停在上次看到的值</div>
+    <div class="phone"><div class="scr s-c">
+      <div class="c-home">
+        <div class="c-hd"><span class="c-host"><i style="background:var(--attn)"></i>MacBook Pro（家）· 正在重连</span><span class="sp"></span><span class="c-ib"><svg><use href="#i-search"/></svg></span></div>
+        <div class="c-recon"><i class="sp"></i><div class="t">正在重连…<span>下面是 22:48 的内容，连上后会更新</span></div></div>
+        <div class="c-stale">
+          <div class="c-h">等你处理 <small class="num">1 件</small></div>
+          <div class="c-card q"><div class="top"><svg class="st-q"><use href="#i-q"/></svg><span class="who">接入降水雷达</span>feat/radar-map<span class="tm">22:46</span></div>
+            <div class="c-qq">雷达瓦片用哪家的？<span class="ty">单选</span></div>
+            <div class="c-act" style="margin-top:0"><span class="lk">连上后才能作答</span></div></div>
+          <div class="c-sec">运行中 2</div>
+          <div class="c-run"><div class="tx"><div class="t1">补缓存过期的测试</div><div class="t2">上次看到：正在编辑 ttl.test.ts</div></div><span class="tm num">1:12</span></div>
+          <div class="c-run"><div class="tx"><div class="t1">重写预报卡片的布局</div><div class="t2">上次看到：运行了 pnpm build</div></div><span class="tm num">6:40</span></div>
+        </div>
+      </div>
+      <div class="c-all"><svg><use href="#i-folder"/></svg>全部会话</div>
+      <div class="c-fab" style="opacity:.4"><svg><use href="#i-plus"/></svg>新建</div>
+    </div></div></div>
+
+    <style>
+    .c-new{position:absolute;left:0;right:0;bottom:0;top:250px;border-radius:38px 38px 0 0;background:var(--main);padding:8px 16px 0;box-shadow:0 -10px 40px rgba(0,0,0,.18)}
+    .c-new .ta{min-height:120px;font-size:18px;line-height:1.45;color:var(--text);padding:14px 4px 0}
+    .c-new .lbl{font-size:12px;color:var(--text-dim);margin:16px 4px 8px}
+    .c-pills{display:flex;flex-wrap:wrap;gap:8px}
+    .c-pills span{height:36px;padding:0 12px;border-radius:999px;display:flex;align-items:center;gap:6px;font-size:14px;color:var(--text-2);background:var(--surface-2)}
+    .c-pills span.on{background:var(--linked);color:var(--tint);box-shadow:inset 0 0 0 1px var(--tint)}
+    .c-pills svg{width:15px;height:15px}
+    .c-go{position:absolute;left:16px;right:16px;bottom:40px;height:52px;border-radius:26px;background:var(--text);color:var(--main);display:flex;align-items:center;justify-content:center;gap:8px;font:600 16px var(--font)}
+    </style>
+
+    <!-- C7 新建会话 -->
+    <div class="shot"><div class="cap"><b>8 新建会话</b>从“新建”弹出半屏 sheet：先写要做什么，位置和模型是下面的胶囊，默认取最近用的</div>
+    <div class="phone"><div class="scr s-c">
+      <div class="c-home" style="filter:brightness(.7)"><div class="c-hd"><span class="c-host"><i></i>MacBook Pro（家）· 已连接</span></div><div class="c-h">等你处理 <small>2 件</small></div></div>
+      <div class="c-new"><div class="c-grab"></div>
+        <div class="ta">给雷达图层加一个透明度滑块<span class="caret"></span></div>
+        <div class="lbl">放在</div>
+        <div class="c-pills"><span class="on"><svg><use href="#i-branch"/></svg>feat/radar-map</span><span><svg><use href="#i-mac"/></svg>main</span><span><svg><use href="#i-plus"/></svg>新 worktree</span><span><svg><use href="#i-chat"/></svg>对话</span></div>
+        <div class="lbl">模型</div>
+        <div class="c-pills"><span class="on">GPT-6.1 Sol · 高</span><span>Claude Opus · 中</span><span>DeepSeek V4</span><span><svg><use href="#i-more"/></svg></span></div>
+        <div class="c-go"><svg width="18" height="18"><use href="#i-up"/></svg>开始</div>
+      </div>
+    </div></div></div>
+
+    <!-- C:screens -->
+  </div>
+</section>
+
+<section class="dir" id="dir-d">
+  <h2>D 对话优先</h2>
+  <p class="lead">打开就是上次的会话。左滑出会话列表，右滑出改动面板，三块面板左右排开（类似 Paseo）。</p>
+  <div class="notes">
+    <p><b>适合</b>：手机上主要盯一个会话的人：打开就是上次的会话，左右滑切会话列表和改动（Paseo 的三面板），顶上一个胶囊提示别的会话在等你；提问直接把输入区变成答题面板，大点击区、一题一页。</p>
+    <p><b>代价</b>：横向手势要和返回手势、代码 / diff 的横向滚动抢；"等你处理"只是一条提示和列表里的一组，同时有多个会话在跑时不如 C 一目了然；手势不可见，第一次用要提示。</p>
+    <p><b>SwiftUI</b>：中等偏难。三面板用 ScrollView(.horizontal) + scrollTargetBehavior(.paging) 或自定义 DragGesture + offset；和 diff 的横向滚动冲突时要用 simultaneousGesture 仔细处理；答题面板是 TabView(.page)。</p>
+    <p style="color:var(--text-muted)">C、D 的配对流程和 B 一样（配对和信息架构无关），这里不重复画，只画各自的离线状态。</p>
+  </div>
+  <div class="row">
+    <style>
+    .s-d{background:var(--main);font-size:15px;color:var(--text)}
+    .d-nav{position:absolute;z-index:20;top:54px;left:0;right:0;height:46px;display:flex;align-items:center;gap:8px;padding:0 12px}
+    .d-ib{position:relative;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:var(--text-2)}.d-ib svg{width:20px;height:20px}
+    .d-ib .bd{position:absolute;top:2px;right:0;min-width:16px;height:16px;border-radius:8px;background:var(--attn);color:#fff;font:600 10px/16px var(--font);text-align:center;padding:0 4px;box-shadow:0 0 0 2px var(--main)}
+    .d-ttl{flex:1;text-align:center;font:600 15px/1.2 var(--font)}.d-ttl>span{display:block;font:400 11.5px var(--font);color:var(--text-dim)}
+    .d-dots{position:absolute;z-index:20;top:100px;left:0;right:0;display:flex;justify-content:center;gap:6px}
+    .d-dots i{width:6px;height:6px;border-radius:3px;background:var(--line-strong)}.d-dots i.on{width:16px;background:var(--text-muted)}
+    .d-wait{position:absolute;z-index:20;top:114px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:6px;height:30px;padding:0 12px 0 10px;border-radius:999px;background:var(--attn-soft);color:var(--attn-text);font-size:12.5px;font-weight:500;white-space:nowrap}
+    .d-wait svg{width:14px;height:14px}
+    .d-body{position:absolute;inset:0;padding:156px 18px 200px;overflow:hidden;font-size:14.5px;line-height:1.55}
+    .d-body p{margin:0 0 10px}.d-body code{font:12.5px var(--mono);background:var(--surface-2);padding:1px 5px;border-radius:6px}
+    .d-dock{position:absolute;z-index:20;left:10px;right:10px;bottom:30px}
+    .d-in{border-radius:22px;background:var(--surface-1);box-shadow:var(--card-shadow);padding:14px 10px 10px 16px}
+    [data-theme="dark"] .d-in{background:var(--surface-2)}
+    .d-in .ph{color:var(--text-dim);margin:0 0 12px}
+    .d-in .bt{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-2)}
+    .d-in .bt .m{display:flex;align-items:center;gap:4px;height:30px;padding:0 8px;border-radius:10px}
+    .d-in .bt svg{width:16px;height:16px}
+    .d-hint{display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim);margin:0 8px 6px}
+    /* 三面板：左侧列表拉出一半 */
+    .d-stage{position:absolute;inset:0;display:flex;width:calc(393px * 1.84);transform:translateX(0)}
+    .d-left{width:330px;flex:none;height:100%;background:var(--window);padding:60px 14px 0;position:relative}
+    [data-theme="light"] .d-left{background:#eceff4}
+    .d-peek{width:393px;flex:none;height:100%;background:var(--main);border-radius:28px 0 0 28px;box-shadow:-10px 0 30px rgba(0,0,0,.18),0 0 0 .5px var(--line-strong);filter:brightness(.92);overflow:hidden;position:relative}
+    .d-lh{display:flex;align-items:center;gap:8px;height:44px;font:700 22px var(--font)}
+    .d-lh .h{margin-left:auto;display:flex;align-items:center;gap:5px;font:500 12px var(--font);color:var(--text-muted)}
+    .d-lh .h i{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+    .d-g{font-size:12px;color:var(--text-dim);margin:14px 6px 4px;display:flex;align-items:center;gap:6px}
+    .d-r{display:flex;align-items:center;gap:10px;min-height:44px;padding:6px 10px;border-radius:12px;font-size:14.5px;color:var(--text-2)}
+    .d-r.on{background:var(--surface-1);box-shadow:var(--chip-shadow)}
+    .d-r .st{width:16px;display:grid;place-items:center}.d-r .st svg{width:15px;height:15px}
+    .d-r .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .d-r .m{font-size:12px;color:var(--text-dim)}
+    .d-r .sub{display:block;font-size:12px;color:var(--text-dim)}
+    </style>
+
+    <!-- D1 对话（打开即是） -->
+    <div class="shot"><div class="cap"><b>1 对话</b>打开 App 就在上次的会话；顶上提示谁在等你</div>
+    <div class="phone"><div class="scr s-d">
+      <div class="d-nav"><span class="d-ib"><svg><use href="#i-chat"/></svg><span class="bd num">2</span></span>
+        <div class="d-ttl">补缓存过期的测试<span>fix/cache-ttl · MacBook Pro（家）</span></div>
+        <span class="d-ib"><svg><use href="#i-diff"/></svg></span></div>
+      <div class="d-dots"><i></i><i class="on"></i><i></i></div>
+      <div class="d-wait"><svg><use href="#i-q"/></svg>接入降水雷达在问你 · 还有 1 个出错<svg><use href="#i-chev-r"/></svg></div>
+      <div class="d-body">
+        <div class="b-ub">给 ttl.ts 加上过期的测试，顺便看看为什么缓存永远不失效</div><div class="b-um num">22:31</div>
+        <div class="b-sum"><svg><use href="#i-chev-r"/></svg>已完成，用时 48 秒<span class="d">·</span>读了 3 个文件<span class="d">·</span>运行了 2 条命令</div>
+        <p><code>expiresAt</code> 存的是秒，<code>Date.now()</code> 是毫秒。改成毫秒后过期判断正常了。</p>
+        <div class="b-ub">再补一个 TTL 为 0 的边界</div><div class="b-um num">22:40</div>
+        <div class="b-head"><span class="cat"></span><span class="shine">进行中</span><span class="num" style="color:var(--text-dim)">· 1:12</span></div>
+        <div class="rail">
+          <div class="rl"><i class="n"></i>读了 <span class="o">ttl.test.ts</span></div>
+          <div class="rl"><i class="n"></i>运行了 <span class="mono o" style="font-size:12px">pnpm test cache</span><span class="res">✓ 通过</span></div>
+          <div class="rl"><i class="n cur"></i><span class="shine">正在编辑</span> <span class="chip"><i class="ft ts">TS</i>ttl.test.ts <span class="add">+12</span></span></div>
+        </div>
+      </div>
+      <div class="d-dock">
+        <div class="d-hint"><span>← 会话列表</span><span>改动 →</span></div>
+        <div class="b-caps" style="margin-left:4px"><span class="b-cap"><i></i>排队 1<svg><use href="#i-chev-u"/></svg></span><span class="b-cap">子对话 2<svg><use href="#i-chev-u"/></svg></span></div>
+        <div class="d-in"><div class="ph">发消息，运行中会排队</div>
+          <div class="bt"><span class="m"><svg><use href="#i-plus"/></svg></span><span class="m">GPT-6.1 Sol · 高<svg style="width:12px;height:12px;color:var(--text-dim)"><use href="#i-chev-d"/></svg></span><span class="b-stopb" style="margin-left:auto"><svg><use href="#i-stop"/></svg></span></div></div>
+      </div>
+    </div></div></div>
+
+    <!-- D2 会话列表（右滑拉出） -->
+    <div class="shot"><div class="cap"><b>2 会话列表</b>在对话上向右滑，列表从左边拉出，对话退到右边</div>
+    <div class="phone"><div class="scr s-d">
+      <div class="d-stage">
+        <div class="d-left">
+          <div class="d-lh">会话<span class="h"><i></i>MacBook Pro（家）</span></div>
+          <div class="d-g" style="color:var(--attn-text);font-weight:600">等你处理</div>
+          <div class="d-r"><span class="st st-q"><svg><use href="#i-q"/></svg></span><span class="t">接入降水雷达<span class="sub">在问你 · 2 分钟前</span></span></div>
+          <div class="d-r"><span class="st st-err"><svg><use href="#i-err"/></svg></span><span class="t">升级 Swift 6 并发检查<span class="sub">模型调用失败 · 18 分钟前</span></span></div>
+          <div class="d-g"><svg width="13" height="13"><use href="#i-folder"/></svg>weather-app</div>
+          <div class="d-r on"><span class="st"><span class="vx"></span></span><span class="t">补缓存过期的测试<span class="sub">fix/cache-ttl</span></span><span class="m num">1:12</span></div>
+          <div class="d-r"><span class="st"><span class="vx"></span></span><span class="t">重写预报卡片的布局<span class="sub">main</span></span><span class="m num">6:40</span></div>
+          <div class="d-r"><span class="st"><i class="dot7"></i></span><span class="t">整理 README 截图<span class="sub">main</span></span><span class="m">12 分钟</span></div>
+          <div class="d-r"><span class="st"></span><span class="t">拆分预报接口<span class="sub">main</span></span><span class="m">昨天</span></div>
+          <div class="d-g"><svg width="13" height="13"><use href="#i-chat"/></svg>对话</div>
+          <div class="d-r"><span class="st"></span><span class="t">解释 Swift 的 actor 隔离</span><span class="m">昨天</span></div>
+          <div style="position:absolute;left:14px;right:14px;bottom:40px;display:flex;gap:8px">
+            <span class="c-btn ghost" style="flex:1;justify-content:center;height:44px"><svg width="16" height="16"><use href="#i-search"/></svg>搜索</span>
+            <span class="c-btn" style="flex:1;justify-content:center;height:44px;background:var(--text);color:var(--main)"><svg width="16" height="16"><use href="#i-plus"/></svg>新建会话</span></div>
+        </div>
+        <div class="d-peek"><div style="padding:108px 16px;font-size:14px;color:var(--text-2);line-height:1.55">
+          <div class="b-ub">再补一个 TTL 为 0 的边界</div><div class="b-head"><span class="cat"></span><span class="shine">进行中</span></div></div></div>
+      </div>
+    </div></div></div>
+
+    <style>
+    .d-q{position:absolute;z-index:22;left:0;right:0;bottom:0;padding:16px 16px 30px;border-radius:30px 30px 0 0;background:var(--surface-1);box-shadow:0 -.5px 0 var(--line),0 -14px 40px rgba(0,0,0,.12)}
+    [data-theme="dark"] .d-q{background:var(--surface-2)}
+    .d-q .hd{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--attn-text)}.d-q .hd svg{width:15px;height:15px}
+    .d-q .hd .pg{margin-left:auto;display:flex;gap:5px}.d-q .hd .pg i{width:6px;height:6px;border-radius:3px;background:var(--line-strong)}.d-q .hd .pg i.on{width:16px;background:var(--attn)}
+    .d-q .qq{font:600 18px/1.35 var(--font);color:var(--text);margin:10px 2px 12px}
+    .d-tile{display:flex;align-items:center;gap:12px;min-height:56px;padding:10px 14px;border-radius:16px;margin-bottom:8px;box-shadow:inset 0 0 0 .5px var(--line-strong)}
+    .d-tile.on{box-shadow:inset 0 0 0 1.5px var(--tint);background:var(--linked)}
+    .d-tile .l{font:500 15px/1.3 var(--font);color:var(--text)}.d-tile .d{font-size:12.5px;color:var(--text-muted)}
+    .d-tile .rd{margin-left:auto;width:22px;height:22px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--line-strong);display:grid;place-items:center;flex:none}
+    .d-tile.on .rd{background:var(--tint);box-shadow:none;color:var(--on-tint)}.d-tile .rd svg{width:12px;height:12px}
+    .d-q .rep{display:flex;align-items:center;gap:8px;height:44px;margin-top:6px;padding:0 6px 0 14px;border-radius:22px;background:var(--surface-2);font-size:14px;color:var(--text-dim)}
+    [data-theme="dark"] .d-q .rep{background:var(--surface-3)}
+    .d-q .rep b{margin-left:auto;height:32px;padding:0 14px;border-radius:16px;background:var(--text);color:var(--main);display:grid;place-items:center;font:500 13px var(--font)}
+    </style>
+
+    <!-- D3 提问 -->
+    <div class="shot"><div class="cap"><b>3 提问</b>输入框变成答题面板：一题一页、左右滑换题，下面仍可直接回复</div>
+    <div class="phone"><div class="scr s-d">
+      <div class="d-nav"><span class="d-ib"><svg><use href="#i-chat"/></svg><span class="bd num">1</span></span>
+        <div class="d-ttl">接入降水雷达<span>feat/radar-map · MacBook Pro（家）</span></div><span class="d-ib"><svg><use href="#i-diff"/></svg></span></div>
+      <div class="d-dots"><i></i><i class="on"></i><i></i></div>
+      <div class="d-body" style="padding-top:120px">
+        <div class="b-ub">在首页地图上叠一层降水雷达</div><div class="b-um num">22:12</div>
+        <div class="b-head"><svg width="18" height="18" class="st-q"><use href="#i-q"/></svg><span style="color:var(--attn-text);font-weight:500">等你回答</span><span class="num" style="color:var(--text-dim)">· 3:05</span></div>
+        <div class="rail"><div class="rl"><svg class="n mag"><use href="#i-search"/></svg>探索了代码库 <span class="sep">·</span> <span class="o">读了 4 个文件</span></div>
+          <div class="rl"><i class="n ask pulse"></i><span style="color:var(--attn-text);font-weight:500">正在问你 · 2 个问题</span></div></div>
+      </div>
+      <div class="d-q">
+        <div class="hd"><svg><use href="#i-q"/></svg>agent 在问你 · 瓦片源<span class="pg"><i class="on"></i><i></i></span></div>
+        <div class="qq">雷达瓦片用哪家的？</div>
+        <div class="d-tile on"><div><div class="l">RainViewer <span class="rec">推荐</span></div><div class="d">免费，5 分钟更新一次，不要 Key</div></div><span class="rd"><svg><use href="#i-check"/></svg></span></div>
+        <div class="d-tile"><div><div class="l">OpenWeatherMap</div><div class="d">要 Key，免费额度每天 1000 次</div></div><span class="rd"></span></div>
+        <div class="d-tile"><div><div class="l">自己切片</div><div class="d">用 NOAA 原始数据，最费事</div></div><span class="rd"></span></div>
+        <div class="d-tile"><div><div class="l">其他</div><div class="d">都不合适？写你自己的回答</div></div><span class="rd"></span></div>
+        <div class="rep">或者直接回复…<b>下一题 ›</b></div>
+      </div>
+    </div></div></div>
+
+    <style>
+    .d-stage.r{transform:translateX(-340px);width:calc(393px + 340px)}
+    .d-peek.l{border-radius:0 28px 28px 0;box-shadow:10px 0 30px rgba(0,0,0,.18),0 0 0 .5px var(--line-strong)}
+    .d-right{width:340px;flex:none;height:100%;background:var(--window);padding:60px 14px 0}
+    [data-theme="light"] .d-right{background:#eceff4}
+    .d-fr{display:flex;align-items:center;gap:10px;min-height:52px;padding:6px 12px;border-radius:12px;font-size:14.5px;color:var(--text-2)}
+    .d-fr .t{flex:1;min-width:0}.d-fr .t span{display:block;font-size:12px;color:var(--text-dim)}
+    .d-fr .ct{font:12px var(--mono);display:flex;gap:5px}
+    .d-fr.on{background:var(--surface-1);box-shadow:var(--chip-shadow)}
+    .d-bar{display:flex;gap:3px;height:6px;border-radius:3px;overflow:hidden;margin:4px 6px 14px}
+    .d-dfw{position:absolute;inset:0;padding:104px 16px 110px 0;overflow:hidden}
+    .d-map{position:absolute;right:4px;top:110px;bottom:120px;width:6px;border-radius:3px;background:var(--line-soft)}
+    .d-map i{position:absolute;left:0;right:0;border-radius:2px}
+    .d-hk{position:absolute;z-index:20;left:16px;right:16px;bottom:30px;display:flex;gap:8px}
+    .d-hk b{height:48px;border-radius:24px;display:flex;align-items:center;justify-content:center;gap:6px;font:500 14px var(--font);background:var(--surface-1);box-shadow:var(--float-shadow);flex:1;color:var(--text-2)}
+    .d-hk b svg{width:16px;height:16px}
+    </style>
+
+    <!-- D4 改动面板 -->
+    <div class="shot"><div class="cap"><b>4 改动</b>在对话上向左滑，改动面板从右边拉出</div>
+    <div class="phone"><div class="scr s-d">
+      <div class="d-stage r">
+        <div class="d-peek l" style="filter:brightness(.92)"><div style="padding:108px 16px 0 340px;font-size:14px"><div class="b-head"><span class="cat"></span></div></div></div>
+        <div class="d-right">
+          <div class="d-lh">改动<span class="h" style="font-family:var(--mono)"><span class="add">+48</span><span class="del">−12</span></span></div>
+          <div class="c-seg2" style="margin:8px 0 10px"><b class="on">未提交</b><b>比 main</b><b>本轮</b></div>
+          <div class="d-bar"><i style="flex:48;background:var(--ok)"></i><i style="flex:12;background:var(--danger)"></i></div>
+          <div class="d-fr on"><i class="ft ts" style="width:16px;height:16px;border-radius:4px;font:700 7px/16px var(--mono);text-align:center;color:#fff">TS</i><span class="t">ttl.ts<span>src/cache</span></span><span class="ct num"><span class="add">+9</span><span class="del">−4</span></span></div>
+          <div class="d-fr"><i class="ft ts" style="width:16px;height:16px;border-radius:4px;font:700 7px/16px var(--mono);text-align:center;color:#fff">TS</i><span class="t">ttl.test.ts<span>src/cache · 新增</span></span><span class="ct num"><span class="add">+34</span></span></div>
+          <div class="d-fr"><i class="ft ts" style="width:16px;height:16px;border-radius:4px;font:700 7px/16px var(--mono);text-align:center;color:#fff">TS</i><span class="t">forecast.ts<span>src/api</span></span><span class="ct num"><span class="add">+4</span><span class="del">−6</span></span></div>
+          <div class="d-fr"><i class="ft md" style="width:16px;height:16px;border-radius:4px;font:700 7px/16px var(--mono);text-align:center;color:#fff">MD</i><span class="t">README.md<span>根目录</span></span><span class="ct num"><span class="add">+1</span><span class="del">−2</span></span></div>
+          <div class="d-g" style="margin-top:18px">分支 fix/cache-ttl · ↑ 1 · 有未提交的改动</div>
+        </div>
+      </div>
+    </div></div></div>
+
+    <!-- D5 diff -->
+    <div class="shot"><div class="cap"><b>5 diff</b>换行显示，右边一条改动位置图；底部跳到上一处 / 下一处</div>
+    <div class="phone"><div class="scr s-d">
+      <div class="d-nav"><span class="d-ib"><svg><use href="#i-chev-l"/></svg></span><div class="d-ttl">ttl.ts<span class="num">src/cache · <span class="add">+9</span> <span class="del">−4</span></span></div><span class="d-ib"><svg><use href="#i-more"/></svg></span></div>
+      <div class="d-dfw"><div class="df" data-copy></div></div>
+      <div class="d-map"><i style="top:8%;height:4%;background:var(--danger)"></i><i style="top:12%;height:4%;background:var(--ok)"></i><i style="top:28%;height:7%;background:var(--ok)"></i><i style="top:52%;height:9%;background:var(--ok)"></i><i style="top:80%;height:6%;background:var(--ok)"></i></div>
+      <div class="d-hk"><b><svg><use href="#i-chev-u"/></svg>上一处</b><b class="num">2 / 3</b><b>下一处<svg><use href="#i-chev-d"/></svg></b></div>
+    </div></div></div>
+
+    <!-- D6 主机离线 -->
+    <div class="shot"><div class="cap"><b>7 离线</b>停在对话里时主机离线：对话是缓存，输入框只存草稿、不发</div>
+    <div class="phone"><div class="scr s-d">
+      <div class="d-nav"><span class="d-ib"><svg><use href="#i-chat"/></svg></span>
+        <div class="d-ttl">补缓存过期的测试<span style="color:var(--text-muted)">主机离线 · 上次在线 22:48</span></div><span class="d-ib" style="opacity:.4"><svg><use href="#i-diff"/></svg></span></div>
+      <div class="d-wait" style="background:var(--surface-2);color:var(--text-2)"><svg><use href="#i-cloud-off"/></svg>Mac 可能睡着了 · <b style="color:var(--tint);font-weight:500">重试</b></div>
+      <div class="d-body" style="opacity:.6">
+        <div class="b-ub">再补一个 TTL 为 0 的边界</div><div class="b-um num">22:40</div>
+        <div class="b-head"><span class="cat" style="filter:grayscale(1)"></span><span style="color:var(--text-muted)">上次看到时还在运行</span><span class="num" style="color:var(--text-dim)">· 1:12</span></div>
+        <div class="rail"><div class="rl"><i class="n"></i>读了 <span class="o">ttl.test.ts</span></div><div class="rl"><i class="n"></i>运行了 <span class="mono o" style="font-size:12px">pnpm test cache</span><span class="res">✓ 通过</span></div><div class="rl"><i class="n"></i>编辑 <span class="o">ttl.test.ts</span></div></div>
+      </div>
+      <div class="d-dock">
+        <div class="d-in"><div class="ph" style="color:var(--text)">顺便把 README 的缓存说明也改了</div>
+          <div class="bt"><span style="font-size:12px;color:var(--text-dim);padding-left:2px">草稿留在手机上，连上后再发</span><span class="b-send" style="margin-left:auto;background:var(--surface-3);color:var(--text-dim)"><svg><use href="#i-up"/></svg></span></div></div>
+      </div>
+    </div></div></div>
+
+    <style>
+    .d-menu{position:absolute;z-index:30;top:104px;left:50%;transform:translateX(-50%);width:270px;border-radius:18px;background:var(--surface-1);box-shadow:var(--float-shadow);padding:6px;font-size:14.5px}
+    [data-theme="dark"] .d-menu{background:var(--surface-2)}
+    .d-menu .g{font-size:11.5px;color:var(--text-dim);padding:6px 10px 4px}
+    .d-menu .r{display:flex;align-items:center;gap:10px;height:40px;padding:0 10px;border-radius:10px;color:var(--text-2)}
+    .d-menu .r svg{width:16px;height:16px;color:var(--text-muted)}.d-menu .r .ck{margin-left:auto;color:var(--tint)}
+    .d-menu .r.on{background:var(--selected)}.d-menu .r em{margin-left:auto;font-style:normal;font-size:12px;color:var(--text-dim)}
+    .d-menu hr{border:0;height:.5px;background:var(--line);margin:4px 6px}
+    </style>
+
+    <!-- D7 新建会话 -->
+    <div class="shot"><div class="cap"><b>8 新建会话</b>新建就是一页空对话；点标题换工作区，模型在输入框里</div>
+    <div class="phone"><div class="scr s-d">
+      <div class="d-nav"><span class="d-ib"><svg><use href="#i-chat"/></svg><span class="bd num">2</span></span>
+        <div class="d-ttl">新会话<span style="color:var(--tint)">feat/radar-map ⌄</span></div><span class="d-ib" style="opacity:.35"><svg><use href="#i-diff"/></svg></span></div>
+      <div class="d-menu">
+        <div class="g">weather-app</div>
+        <div class="r"><svg><use href="#i-mac"/></svg>main<em>4 会话</em></div>
+        <div class="r on"><svg style="color:var(--tint)"><use href="#i-branch"/></svg>feat/radar-map<svg class="ck"><use href="#i-check"/></svg></div>
+        <div class="r"><svg style="color:var(--tint)"><use href="#i-branch"/></svg>fix/cache-ttl<em>1 会话</em></div>
+        <div class="r"><svg style="color:var(--tint)"><use href="#i-plus"/></svg>新建 worktree</div>
+        <hr />
+        <div class="r"><svg><use href="#i-folder"/></svg>其他项目<em>dotfiles</em></div>
+        <div class="r"><svg><use href="#i-chat"/></svg>不绑定项目的对话</div>
+      </div>
+      <div class="b-emp" style="top:520px;opacity:.5">每天都做一些改变出来<i></i></div>
+      <div class="d-dock">
+        <div class="d-in"><div class="ph">发消息或描述任务</div>
+          <div class="bt"><span class="m"><svg><use href="#i-plus"/></svg></span><span class="m" style="background:var(--selected)">GPT-6.1 Sol · 高<svg style="width:12px;height:12px;color:var(--text-dim)"><use href="#i-chev-d"/></svg></span><span class="b-send" style="margin-left:auto;background:var(--surface-3);color:var(--text-dim)"><svg><use href="#i-up"/></svg></span></div></div>
+      </div>
+    </div></div></div>
+
+    <!-- D:screens -->
+  </div>
+</section>
+
+<!-- 共用：运行中的点阵涡旋、小猫、过程轨道的基础样式 -->
+<style>
+.vx{display:inline-block;width:14px;height:14px;flex:none;vertical-align:middle;color:var(--tint)}
+.vx.s12{width:12px;height:12px}
+.vx circle{fill:currentColor}
+.cat{width:18px;height:18px;flex:none}
+.cat .eye{transform-box:fill-box;transform-origin:center;animation:blink 2.6s infinite}
+@keyframes blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.12)}}
+.shine{background:linear-gradient(90deg,var(--text-muted) 0 40%,var(--text) 50%,var(--text-muted) 60% 100%);background-size:250% 100%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;animation:shine 2.2s linear infinite}
+@keyframes shine{from{background-position:100% 0}to{background-position:-150% 0}}
+.dot7{width:7px;height:7px;border-radius:50%;background:var(--tint);flex:none}
+.st-q{color:var(--attn)}.st-err{color:var(--danger)}
+.chip{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px 0 6px;border-radius:999px;background:var(--surface-1);box-shadow:var(--chip-shadow);font-size:12px;color:var(--text-2);white-space:nowrap}
+.chip .ft{width:13px;height:13px;border-radius:3px;font:700 7px/13px var(--mono);text-align:center;color:#fff}
+.ft{font-style:normal}
+.b-tr .ft{width:14px;height:14px;border-radius:3px;font:700 7px/14px var(--mono);text-align:center;color:#fff;flex:none}
+.ft.ts{background:#3178c6}.ft.md{background:#42a5f5}.ft.js{background:#f0c419;color:#333}.ft.json{background:#f5a623}
+.add{color:var(--ok-text)}.del{color:var(--danger)}
+/* diff（各方向共用）：统一视图，只留一列行号，左侧 2px 增删竖条 */
+.df{font:11.5px/1.7 var(--mono);color:var(--text-2)}
+.df .h{padding:4px 12px;color:var(--text-dim);background:var(--surface-2);font-size:11px}
+.df .l{display:flex;padding-right:12px}
+.df .l i{width:34px;flex:none;text-align:right;padding-right:8px;font-style:normal;color:var(--text-dim);font-variant-numeric:tabular-nums}
+.df .l span{flex:1;min-width:0;white-space:pre-wrap;word-break:break-all}
+.df.nw .l span{white-space:pre;overflow:hidden}
+.df .da{background:var(--add-bg);box-shadow:inset 2px 0 0 var(--ok)}
+.df .dd{background:var(--del-bg);box-shadow:inset 2px 0 0 var(--danger)}.df .dd span{color:var(--text-3)}
+.df .k{color:#cf222e}.df .s{color:#0a3069}.df .f{color:#8250df}.df .c{color:var(--text-dim)}
+[data-theme="dark"] .df .k{color:#ff7b72}[data-theme="dark"] .df .s{color:#a5d6ff}[data-theme="dark"] .df .f{color:#d2a8ff}
+.pulse{position:relative}
+.pulse::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:1.5px solid var(--attn);animation:ring 1.6s ease-out infinite}
+@keyframes ring{from{transform:scale(.6);opacity:1}to{transform:scale(1.4);opacity:0}}
+</style>
+
+<script>
+const $ = (s, r = document) => r.querySelectorAll(s);
+function pick(seg, attr, fn) {
+  $(`#${seg} button`).forEach((b) => b.addEventListener("click", () => {
+    $(`#${seg} button`).forEach((x) => x.setAttribute("aria-pressed", x === b));
+    fn(b.dataset[attr]);
+  }));
+}
+pick("dirSeg", "dir", (d) => $(".dir").forEach((s) => s.classList.toggle("on", s.id === "dir-" + d)));
+pick("themeSeg", "theme", (t) => (document.documentElement.dataset.theme = t));
+document.getElementById("reduce").addEventListener("change", (e) => (document.documentElement.dataset.reduce = e.target.checked ? "1" : "0"));
+/* 状态栏：每个 .scr 里自动补一行 */
+$(".scr").forEach((s) => { if (s.querySelector(".sb")) return; const d = document.createElement("div"); d.className = "sb" + (s.dataset.sb === "light" ? " light" : "");
+  d.innerHTML = '<span class="num">9:41</span><span class="ic"><svg width="18" height="12"><use href="#i-sig"/></svg><svg width="16" height="12"><use href="#i-wifi"/></svg><svg width="27" height="13"><use href="#i-bat"/></svg></span>'; s.prepend(d); });
+/* 点阵涡旋：5×5 裁成圆剩 21 点，亮度三档，1.65 秒一圈，全部共用一个时钟 */
+const VX = [];
+$(".vx").forEach((el) => { let s = '<svg viewBox="0 0 5 5" width="100%" height="100%">';
+  for (let y = 0; y < 5; y++) for (let x = 0; x < 5; x++) { const dx = x - 2, dy = y - 2, r = Math.hypot(dx, dy); if (r > 2.8) continue;
+    s += `<circle cx="${x + .5}" cy="${y + .5}" r=".38" data-r="${r}" data-t="${Math.atan2(dy, dx)}"/>`; }
+  el.innerHTML = s + "</svg>"; VX.push(...el.querySelectorAll("circle")); });
+function vxFrame(t) { const w = 2 * Math.PI / 1.65;
+  VX.forEach((c) => { const v = Math.cos(4.4 * c.dataset.r / 2 - c.dataset.t - w * t); c.style.opacity = v > .6 ? 1 : v > 0 ? .55 : .2; }); }
+(function loop(now) { vxFrame(document.documentElement.dataset.reduce === "1" ? 1.15 : now / 1000); requestAnimationFrame(loop); })(0);
+/* 小猫：取标志的耳朵和眼睛 */
+$(".cat").forEach((el) => (el.outerHTML = '<svg class="cat" viewBox="0 0 18 18"><rect width="18" height="18" rx="5" fill="#6c86cc"/><path d="M3.5 18V8.5L5 3.6l3 2.6h2l3-2.6 1.5 4.9V18z" fill="#fbf5ec"/><ellipse class="eye" cx="7.1" cy="10.6" rx="1" ry="1.5" fill="#1f2537"/><ellipse class="eye" cx="10.9" cy="10.6" rx="1" ry="1.5" fill="#1f2537"/></svg>'));
+/* 点阵：圆角方点 4px、间距 6px，两层平滑噪声定深浅；data-fill=0~1 表示从左铺到哪里，data-brand 用品牌渐变 */
+function noise(x, y) { return (Math.sin(x * .9 + y * 1.7) + Math.sin(x * .23 - y * .41 + 1.3) * 1.4 + Math.sin(x * 2.1 + y * .7) * .5) / 2.9 * .5 + .5; }
+function drawDM(c) { const r = c.getBoundingClientRect(), dpr = 2, W = r.width, H = r.height; if (!W) return;
+  c.width = W * dpr; c.height = H * dpr; const g = c.getContext("2d"); g.scale(dpr, dpr);
+  const fill = +(c.dataset.fill || 1), brand = c.dataset.brand, col = getComputedStyle(c).color;
+  const stops = [[94, 132, 255], [120, 214, 214], [255, 170, 120]];
+  for (let x = 1; x < W; x += 6) for (let y = 1; y < H; y += 6) { if (x / W > fill) continue;
+    const n = noise(x / 6, y / 6); g.globalAlpha = brand ? .35 + n * .65 : Math.min(1, (.04 + n * .2) * (+c.dataset.k || 1));
+    if (brand) { const p = x / W * 2, i = Math.min(1, Math.floor(p)), f = p - i, a = stops[i], b = stops[i + 1];
+      g.fillStyle = `rgb(${a.map((v, k) => v + (b[k] - v) * f).join(",")})`; } else g.fillStyle = col;
+    g.beginPath(); g.roundRect(x, y, 4, 4, 1.2); g.fill(); } }
+const redrawDM = () => $("canvas.dm").forEach(drawDM);
+new MutationObserver(redrawDM).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+$(".seg button").forEach((b) => b.addEventListener("click", () => requestAnimationFrame(redrawDM)));
+/* 地址参数：?dir=b&theme=dark */
+const qs = new URLSearchParams(location.search);
+if (qs.get("dir")) $(`#dirSeg [data-dir="${qs.get("dir")}"]`)[0]?.click();
+if (qs.get("theme")) $(`#themeSeg [data-theme="${qs.get("theme")}"]`)[0]?.click();
+redrawDM();
+/* diff 内容各方向共用一份 */
+$(".df[data-copy]").forEach((e) => (e.innerHTML = $(".a-dfw .df")[0].innerHTML));
+/* SCRIPTS */
+</script>
+</body>
+</html>

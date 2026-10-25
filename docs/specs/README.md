@@ -26,3 +26,4 @@
 | [0001](0001-mvp1-single-session-chat.md) | MVP 1 纯对话 | 已确认 | 2026-10-04 |
 | [0002](0002-child-conversations.md) | 子对话与子代理 | 草稿 | 2026-10-16 |
 | [0003](0003-agent-asks-user.md) | agent 向你提问 | 已确认 | 2026-10-21 |
+| [0005](0005-mobile-app-and-remote-access.md) | 手机端与远程访问（SwiftUI App、自建 relay、Noise 端到端加密） | 已确认 | 2026-10-25 |
