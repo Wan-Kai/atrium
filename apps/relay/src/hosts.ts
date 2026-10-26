@@ -118,6 +118,7 @@ export async function readHosts(dir: string): Promise<{ ok: true; hosts: HostRec
 export async function writeHosts(dir: string, hosts: readonly HostRecord[]): Promise<void> {
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const temporary = join(dir, `.hosts.${randomBytes(6).toString("hex")}.tmp`);
+  // Stryker disable next-line StringLiteral: the name is random, so refusing an existing file ("wx") never triggers in practice.
   await writeFile(temporary, `${JSON.stringify({ version: 1, hosts }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
   try {
     await rename(temporary, hostsPath(dir));

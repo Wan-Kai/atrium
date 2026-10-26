@@ -70,6 +70,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
     return 2;
   }
   const { command, rest, dirOption, listenOption } = parsed;
+  // Stryker disable next-line StringLiteral: resolving "" against the working directory gives it too.
   const dir = resolve(io.cwd, dirOption ?? io.env.ATRIUM_RELAY_DIR ?? ".");
   // Stryker disable next-line StringLiteral: no command name is the same as an unknown one.
   switch (command ?? "") {

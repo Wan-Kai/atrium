@@ -333,6 +333,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
   const forward = (stream: Stream, target: WebSocket, bytes: Buffer): void => {
     // Stryker disable next-line EqualityOperator,ArithmeticOperator: the exact byte depends on how much the kernel's socket buffers took first; the slow-reader test covers the limit.
     if (target.bufferedAmount + bytes.length > limits.backlogBytes) {
+      // Stryker disable next-line StringLiteral: when the phone is the slow side the reason reaches no reader; the data connection gets none.
       endStream(stream, RelayClose.Overloaded, "", RelayClose.Overloaded);
       return;
     }
@@ -420,6 +421,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
     // Stryker disable next-line StringLiteral: utf8 is the default encoding for a string.
     const digest = createHash("sha256").update(hello.token, "utf8").digest();
     const matches = timingSafeEqual(entry?.tokenDigest ?? UNKNOWN_HOST_DIGEST, digest);
+    // Stryker disable next-line ConditionalExpression: an unknown host is compared with a digest no token has; the first check is for the type.
     if (entry === undefined || !matches) return { ok: false, hostId: loggable };
     return { ok: true, entry, streamId: hello.streamId };
   };
@@ -487,7 +489,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
           const parsed = refuseSchema.safeParse(JSON.parse(toBuffer(data).toString("utf8")));
           refuse = parsed.success ? parsed.data : null;
         } catch {
-          refuse = null;
+          // Not JSON: it stays null and is answered below.
         }
       }
       if (refuse === null) {
@@ -542,6 +544,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
     stream.cancelTimer = () => {};
     stream.data = socket;
     const early = stream.early;
+    // Stryker disable next-line ArrayDeclaration: only frees the frames sooner; nothing reads them once the data connection is set.
     stream.early = [];
     stream.earlyBytes = 0;
     // At most 256 KiB, far under the 4 MiB backlog, so forwarding them cannot end the stream.
@@ -594,6 +597,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
       settled = true;
       unauthenticated -= 1;
       releasePending();
+      // Stryker disable next-line OptionalChaining: the timer is set before the socket can close or send.
       cancelHello?.();
     };
     cancelHello = trackedTimeout(
@@ -620,9 +624,12 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
         });
         return;
       }
-      if (route === "control") onControl(socket, auth.entry);
+      if (route === "control") {
+        onControl(socket, auth.entry);
+        return;
+      }
       // Stryker disable next-line StringLiteral: `authenticate` returns a stream id for every data hello.
-      else onData(socket, auth.entry, auth.streamId ?? "");
+      onData(socket, auth.entry, auth.streamId ?? "");
     });
   };
 
@@ -709,6 +716,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
         endStream(stream, RelayClose.Overloaded, "", RelayClose.Overloaded);
       }
     });
+    // Stryker disable next-line StringLiteral: the phone has already closed; the reason goes nowhere.
     socket.on("close", () => endStream(stream, RelayClose.PeerClosed, "", RelayClose.PeerClosed));
     entry.control.send(JSON.stringify({ type: "open", streamId, ipHash }));
     log({ level: "info", event: "stream_opened", hostId, streamId, ipHash });
@@ -758,7 +766,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
   const wss = new WebSocketServer({ noServer: true, maxPayload: limits.maxFrameBytes, perMessageDeflate: false });
 
   server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
-    // Stryker disable next-line StringLiteral: only a socket reset during the upgrade emits this; it must not crash the relay.
+    // Stryker disable next-line all: only a socket reset during the upgrade emits this; it must not crash the relay.
     socket.on("error", () => {});
     const route = routeOf(request);
     if (closing || route === null || route === "healthz") {
@@ -777,7 +785,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(options.listen.port, options.listen.host, () => {
-      // Stryker disable next-line StringLiteral: a listening server emits no more listen errors.
+      // Stryker disable next-line all: a listening server emits no more listen errors.
       server.off("error", reject);
       resolve();
     });

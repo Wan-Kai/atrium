@@ -236,6 +236,25 @@ describe("watchHosts", () => {
     expect(invalid).toBe(0);
   });
 
+  it("reports no unreadable table from a poll still running when stopped", async () => {
+    const dir = await tempDir();
+    await mkdir(hostsPath(dir));
+    let invalid = 0;
+
+    const stop = watchHosts(
+      dir,
+      new FakeClock(),
+      new ResourceTracker(),
+      () => {},
+      () => (invalid += 1),
+      2_000,
+    );
+    stop();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(invalid).toBe(0);
+  });
+
   it("reports nothing from a poll still running when stopped", async () => {
     const dir = await tempDir();
     await writeHosts(dir, [record]);

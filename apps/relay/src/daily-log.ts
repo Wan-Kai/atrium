@@ -80,6 +80,7 @@ export class DailyLog {
   write(record: Readonly<Record<string, unknown>>): void {
     if (this.#closed) return;
     this.#roll();
+    // Stryker disable next-line OptionalChaining: `#roll` has just opened a stream; the check is for the type.
     this.#stream?.write(`${JSON.stringify({ time: new Date(this.#clock.now()).toISOString(), ...record })}\n`);
   }
 
@@ -114,12 +115,8 @@ export class DailyLog {
     void this.#endStream();
     this.#day = day;
     const stream = createWriteStream(join(this.#dir, `relay-${day}.jsonl`), { flags: "a", mode: 0o600 });
-    let reported = false;
-    stream.on("error", (error) => {
-      if (reported) return;
-      reported = true;
-      this.#onError(error);
-    });
+    // A stream emits "error" at most once; later writes to it are dropped.
+    stream.on("error", (error) => this.#onError(error));
     this.#stream = stream;
     this.#release = this.#resources.acquire("log.file");
     const prune = this.#prune(day);

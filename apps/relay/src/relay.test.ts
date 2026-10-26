@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { connect as connectTcp } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { newHost, onlineHost, openStream, Peer, slowPhone, startTestRelay, type TestRelay } from "../test/peers";
 import { RelayClose, type RelayEvent } from "./relay";
@@ -138,6 +139,20 @@ describe("relay entry points", () => {
 
     expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
     expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("does not wait for a half-sent request when it closes", async () => {
+    const relay = await relayFor();
+    const socket = connectTcp(relay.port, "127.0.0.1");
+    await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+    socket.write("GET /atrium/healthz HTTP/1.1\r\nHost: x\r\n");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    await relay.relay.close();
+    current = undefined;
+    socket.destroy();
+
+    expect(relay.clock.pendingTimers()).toBe(0);
   });
 
   it("does not compress frames even when the client offers it", async () => {
