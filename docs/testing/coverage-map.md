@@ -4,6 +4,14 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## M1.11 自用中改（2026-10-26）
+
+| 行为 | 测试 | 破坏检查 |
+|---|---|---|
+| 回复下方信息行自身上下各 4px 外边距（原型 `chat-footer-spacing-prototype.html` 的 A），不改字号、按钮、正文样式和轮容器之间的 24px 间隔 | `packages/ui/src/chat/turn.browser.test.tsx` "gives the reply info row 4px of vertical breathing room" | 去掉 `my-1` 后该用例见红，`CAUGHT` |
+
+验证：新用例先在原实现上失败（实际 `0px`），实现后通过；`pnpm check` 通过；单元 202 个文件 3792 项和 Swift 22 项通过；界面 49 个文件 1003 项通过；`apps/desktop/e2e/chat.spec.ts` 3 项通过；改动测试所在文件 2 份 × 2 轮压力检查通过。另用真实 Electron 和合成数据核对正文到信息行的实际间距为 8px（正文既有 4px 加信息行 4px），看过浅色、深色、长回复、空状态和出错状态截图，未见截断或布局跳动；临时截图用例与产物已清理。`pnpm boundary`：依赖、URL、环境变量、隐藏命令均无变化，协议 25 不变，未登记项 0。只改展示类名，不涉及核心纯逻辑、协议、资源或新依赖，未跑变异、泄漏、性能、浸泡、打包和真实模型测试。
+
 ## MP1 Swift 工程基础（手机端，2026-10-25～26）
 
 路线图 MP1：Swift 的规范、`apps/ios` 工程骨架、`pnpm protocol:swift` 和往返测试、Swift 进 `pnpm check` / `pnpm test`，破坏检查扩到 Swift（[testing.md · Swift（手机端）](../architecture/testing.md#swift手机端)、[overview.md · iOS 工程](../architecture/overview.md#ios-工程2026-10-25-定mp1)）。

@@ -443,7 +443,7 @@ function TurnFooter({
   return (
     <>
       <div
-        className="-ml-1 flex items-center gap-0.5 text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums"
+        className="-ml-1 my-1 flex items-center gap-0.5 text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums"
         data-testid="turn-footer"
       >
         {reply === null ? null : <CopyButton label="复制回复" text={() => reply} />}
