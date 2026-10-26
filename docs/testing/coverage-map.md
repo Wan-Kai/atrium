@@ -22,7 +22,7 @@ SPEC-0005 需求 1、配对和撤销；视觉按 design-language「设置 · 手
 | 重复打开关闭释放定时器、配对 Escape 监听、watch 与 DOM | 浏览器 frees timers 12 轮、releases pairing 8 轮；另做真实 Chromium CDP DOM 计数 25 轮及人为保留 DOM 的负对照 |
 | 明暗真实设置截图 | 浏览器 captures light and dark：`packages/ui/src/settings/.vitest/phone-settings-{light,dark}.png`（自动生成、不提交）；与原型对照记录见 MP3b 记录 |
 
-破坏检查：`pnpm break-check docs/testing/mp3b-break-check.json`，25 处检出（23+2 分两轮）。客户端增量变异（仅本次新增实现行）72/72 检出；链路动画纯逻辑初跑 102/103，唯一存活是两段三次曲线在 0.5 处相等，注明等价后 101/101。最终相关单元 151 项、界面 37 项通过；全量先前通过，最后重跑遇其他 Git/boundary 测试超时，不能算通过，详见 MP3b 记录。
+破坏检查：`pnpm break-check docs/testing/mp3b-break-check.json`，25 处检出（23+2 分两轮）。客户端增量变异（仅本次新增实现行）72/72 检出；链路动画纯逻辑初跑 102/103，唯一存活是两段三次曲线在 0.5 处相等，注明等价后 101/101。最终相关单元 151 项、界面 37 项通过；随后单 worker 全量界面 1030 项及 Swift 22 项通过。全量单元先前通过，最后单 worker 重跑仍遇其他 Git/boundary 测试超时并在 900 秒被中断，不能算通过，详见 MP3b 记录。
 
 ## MP1 Swift 工程基础（手机端，2026-10-25～26）
 
