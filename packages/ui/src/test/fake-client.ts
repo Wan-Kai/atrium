@@ -286,6 +286,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       lastFast: false,
       statusBar: {},
       titleModel: null,
+      translationLanguage: "简体中文",
       proxy: null,
       inbox: true,
     },
@@ -614,6 +615,18 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
           ? changes
           : { ...changes, proxy: { ...proxy, url: new URL(proxy.url).origin } };
       index.setState({ preferences: { ...index.getState().preferences, ...kept } });
+      return {};
+    },
+    async translateReply(sessionId: string, turnId: string, translationId: string) {
+      calls.push(`translateReply ${sessionId} ${turnId} ${translationId}`);
+      return {
+        text: "示例译文",
+        language: index.getState().preferences.translationLanguage,
+        model: { providerId: "faux", modelId: "translator" },
+      };
+    },
+    async cancelTranslation(translationId: string) {
+      calls.push(`cancelTranslation ${translationId}`);
       return {};
     },
     prompt(

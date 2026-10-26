@@ -30,6 +30,8 @@ export {
   ListBasesCommand,
   CreateWorkspaceCommand,
   NameBranchCommand,
+  TranslateReplyCommand,
+  CancelTranslationCommand,
   RenameChatCommand,
   ArchiveChatCommand,
   RestoreChatCommand,
@@ -105,6 +107,9 @@ export {
   RelayLine,
   RelayStatus,
   RemoteDevice,
+  RemoteDiagnosticCheck,
+  RemoteDiagnosticFailure,
+  RemoteRelayDiagnostics,
   RemotePairing,
   RemoteRelay,
   RemoteState,
@@ -169,6 +174,7 @@ export {
 export { ChatId, ContainerId, isChatId, ProjectId, SessionId, WorkspaceId } from "./ids";
 export {
   Appearance,
+  TranslationLanguage,
   Attention,
   Chat,
   ContainerTabs,

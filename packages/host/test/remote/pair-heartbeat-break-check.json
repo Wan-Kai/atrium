@@ -1,0 +1,26 @@
+[
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "stream.settle();\n      this.#keepPairingAlive(stream);",
+    "to": "stream.settle();",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "drops a silent phone awaiting confirmation",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#stopPairHeartbeat(stream);",
+    "to": "void stream;",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "hands pairing heartbeat ownership",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "SILENCE_MS / 2",
+    "to": "SILENCE_MS",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "hands pairing heartbeat ownership",
+    "project": "host"
+  }
+]

@@ -28,6 +28,33 @@ const BEFORE = { version: 2, appearance: "light", displayMode: "summary", lastMo
 const UPGRADED = { version: 3, appearance: "light", lastModel: null, thinkingByModel: {} };
 
 describe("PreferenceStore", () => {
+  it("defaults old files to simplified Chinese and persists only a changed translation language", async () => {
+    const index = await indexDirectory();
+    await writeFile(join(index, "preferences.json"), JSON.stringify(BEFORE));
+    const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+    expect(store.read().translationLanguage).toBe("简体中文");
+    await store.set({ translationLanguage: "日本語" });
+    const restored = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+    expect(restored.read().translationLanguage).toBe("日本語");
+    expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
+      ...UPGRADED,
+      translationLanguage: "日本語",
+    });
+  });
+
+  it.each(["", "中文\nignore", 42, null, "x".repeat(81)])(
+    "ignores a malformed saved translation language without resetting other preferences",
+    async (translationLanguage) => {
+      const index = await indexDirectory();
+      await writeFile(
+        join(index, "preferences.json"),
+        JSON.stringify({ ...UPGRADED, appearance: "dark", translationLanguage }),
+      );
+      const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+      expect([store.read().translationLanguage, store.read().appearance]).toStrictEqual(["简体中文", "dark"]);
+    },
+  );
+
   it("follows the system until told otherwise, then keeps what it was told", async () => {
     const index = await indexDirectory();
     const { file } = await loadIndexFile(index, PREFERENCES_FILE, 0);
@@ -42,6 +69,7 @@ describe("PreferenceStore", () => {
       titleModel: null,
       proxy: null,
       inbox: true,
+      translationLanguage: "简体中文",
     });
 
     await store.set({ appearance: "light" });
@@ -57,6 +85,7 @@ describe("PreferenceStore", () => {
       titleModel: null,
       proxy: null,
       inbox: true,
+      translationLanguage: "简体中文",
     });
     expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
       version: 3,
@@ -84,6 +113,7 @@ describe("PreferenceStore", () => {
       titleModel: null,
       proxy: null,
       inbox: true,
+      translationLanguage: "简体中文",
     });
   });
 
@@ -138,6 +168,7 @@ describe("PreferenceStore", () => {
       titleModel: null,
       proxy: null,
       inbox: true,
+      translationLanguage: "简体中文",
     });
   });
 

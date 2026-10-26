@@ -1,0 +1,9 @@
+[
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "else if (this.#socket.readyState !== WebSocket.CLOSED) {",
+    "to": "else if (this.#socket.readyState === WebSocket.OPEN) {",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "bounds shutdown when the relay starts a WebSocket close but leaves TCP half open"
+  }
+]

@@ -376,16 +376,34 @@ export default function fauxExtension(pi: ExtensionApi): void {
   faux.setResponses(
     printing
       ? [
-          (context) => {
+          async (context, options, state, model) => {
             const told = instructionsOf(context);
-            appendFileSync(join(dirname(scriptPath), FAUX_PRINTS_FILE), `${JSON.stringify({ systemPrompt: told })}\n`);
-            const asked = told.includes("git branch") ? "branch" : "title";
+            const translating = told.startsWith("Translate the supplied text");
+            appendFileSync(
+              join(dirname(scriptPath), FAUX_PRINTS_FILE),
+              `${JSON.stringify({
+                systemPrompt: told,
+                ...(translating
+                  ? {
+                      translation: {
+                        model: model.id,
+                        tools: declaredTools(context),
+                        messages: context.messages,
+                        pid: process.pid,
+                      },
+                    }
+                  : {}),
+              })}\n`,
+            );
+            const asked = translating ? "translation" : told.includes("git branch") ? "branch" : "title";
             const answer = script[asked];
-            return toAssistantMessage(
+            const reply =
               answer === undefined
                 ? { blocks: [], error: `faux script has no ${asked}` }
-                : { blocks: [{ type: "text", text: answer }] },
-            );
+                : typeof answer === "string"
+                  ? ({ blocks: [{ type: "text", text: answer }] } as const)
+                  : answer;
+            return answerWith(reply)(context, options, state, model);
           },
         ]
       : depth === null

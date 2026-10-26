@@ -1,0 +1,37 @@
+[
+  {
+    "file": "apps/desktop/src/main/vault.ts",
+    "from": "async function read(id: number): Promise<VaultResult> {\n    if (!(await options.crypto.available().catch(() => false)))",
+    "to": "async function read(id: number): Promise<VaultResult> {\n    if (!(await options.crypto.available()))",
+    "test": "apps/desktop/src/main/vault.test.ts",
+    "name": "vault_read availability rejects"
+  },
+  {
+    "file": "apps/desktop/src/main/vault.ts",
+    "from": "if (version <= (current ?? 0)) return { type: \"vault_result\", id, ok: false, error: \"stale\" };\n    if (!(await options.crypto.available().catch(() => false)))",
+    "to": "if (version <= (current ?? 0)) return { type: \"vault_result\", id, ok: false, error: \"stale\" };\n    if (!(await options.crypto.available()))",
+    "test": "apps/desktop/src/main/vault.test.ts",
+    "name": "vault_write availability rejects"
+  },
+  {
+    "file": "apps/desktop/src/main/vault.ts",
+    "from": ".catch((): VaultResult => ({ type: \"vault_result\", id: data.id, ok: false, error: \"io\" }));",
+    "to": ";",
+    "test": "apps/desktop/src/main/vault.test.ts",
+    "name": "temporary-file cleanup rejects"
+  },
+  {
+    "file": "apps/desktop/src/main/vault.ts",
+    "from": "if (typeof version !== \"number\" || !Number.isInteger(version) || version < 1) return { type: \"invalid\", id };",
+    "to": "if (typeof version !== \"number\" || !Number.isInteger(version) || version < 1) return null;",
+    "test": "apps/desktop/src/main/vault.test.ts",
+    "name": "known request with invalid version"
+  },
+  {
+    "file": "apps/desktop/src/main/vault.ts",
+    "from": "if (typeof data !== \"string\" || data.length > MAX_DATA) return { type: \"invalid\", id };",
+    "to": "if (typeof data !== \"string\" || data.length > MAX_DATA) return null;",
+    "test": "apps/desktop/src/main/vault.test.ts",
+    "name": "known request with oversized data"
+  }
+]

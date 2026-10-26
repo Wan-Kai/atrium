@@ -1,0 +1,18 @@
+[
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "const previous = current.devices.find((device) => device.publicKey === claim.publicKey) ?? acceptedDevice;",
+    "to": "const previous = current.devices.find((device) => device.publicKey === claim.publicKey);",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "does not admit a replacement identity when re-pair confirmation is queued between two revocations",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": " && !this.#blocked.has(deviceId)",
+    "to": "",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "lets a repeated committed revocation win a re-pair confirmation queued behind another device write",
+    "project": "host"
+  }
+]

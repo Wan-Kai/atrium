@@ -1,0 +1,100 @@
+[
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "logger.info({ host_id: endpoint.hostId }, \"relay connected\");",
+    "to": "logger.info({}, \"relay connected\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "authenticates then admits only valid ready-bound stream announcements"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "logger.info({ host_id: endpoint.hostId }, \"relay connected\");",
+    "to": "logger.info({ host_id: endpoint.hostId }, \"\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "authenticates then admits only valid ready-bound stream announcements"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "logger.info({ host_id: endpoint.hostId }, \"relay connected\");",
+    "to": "logger.info({ host_id: endpoint.hostId, token: endpoint.token, url: endpoint.url, response: message }, \"relay connected\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "authenticates then admits only valid ready-bound stream announcements"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "logger.info({ host_id: endpoint.hostId, code, ready }, \"relay connection closed\");",
+    "to": "logger.info({ code, ready }, \"relay connection closed\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "classifies rejection, retries with backoff, and manual retry resets it"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "logger.info({ host_id: endpoint.hostId, code, ready }, \"relay connection closed\");",
+    "to": "logger.info({ host_id: endpoint.hostId, ready }, \"relay connection closed\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "classifies rejection, retries with backoff, and manual retry resets it"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "logger.info({ host_id: endpoint.hostId, code, ready }, \"relay connection closed\");",
+    "to": "logger.info({ host_id: endpoint.hostId, code }, \"relay connection closed\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "classifies rejection, retries with backoff, and manual retry resets it"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "logger.info({ host_id: endpoint.hostId, code, ready }, \"relay connection closed\");",
+    "to": "logger.info({ host_id: endpoint.hostId, code, ready }, \"\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "classifies rejection, retries with backoff, and manual retry resets it"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "logger.info({ host_id: endpoint.hostId, code, ready }, \"relay connection closed\");",
+    "to": "logger.warn({ host_id: endpoint.hostId, code, ready }, \"relay connection closed\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "authenticates then admits only valid ready-bound stream announcements"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "logger.warn({ host_id: endpoint.hostId }, \"relay did not say ready in time\");",
+    "to": "logger.warn({}, \"relay did not say ready in time\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "times out a silent relay and settles pending callers on shutdown"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "logger.warn({ host_id: endpoint.hostId }, \"relay did not say ready in time\");",
+    "to": "logger.warn({ host_id: endpoint.hostId }, \"\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "times out a silent relay and settles pending callers on shutdown"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "logger.warn({ host_id: endpoint.hostId }, \"relay did not say ready in time\");",
+    "to": "logger.info({ host_id: endpoint.hostId }, \"relay did not say ready in time\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "times out a silent relay and settles pending callers on shutdown"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "logger.warn({ host_id: endpoint.hostId }, \"relay did not answer a ping\");",
+    "to": "logger.warn({}, \"relay did not answer a ping\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "drops an unanswered ping and preserves the last successful connection time"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "logger.warn({ host_id: endpoint.hostId }, \"relay did not answer a ping\");",
+    "to": "logger.warn({ host_id: endpoint.hostId }, \"\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "drops an unanswered ping and preserves the last successful connection time"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "logger.warn({ host_id: endpoint.hostId }, \"relay did not answer a ping\");",
+    "to": "logger.info({ host_id: endpoint.hostId }, \"relay did not answer a ping\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "drops an unanswered ping and preserves the last successful connection time"
+  }
+]

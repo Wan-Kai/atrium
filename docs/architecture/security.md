@@ -10,10 +10,13 @@
 | 本机其他用户或进程 | 读取 token、日志里的凭据 |
 | 模型输出和外部内容 | 回复里的链接、图片、HTML 诱导打开恶意页面或外传信息 |
 | agent 本身 | 执行危险命令。MVP 1 不做审批，靠"只在 git 仓库里用、出问题用 git 回滚"缓解（SPEC-0001 风险） |
+| relay 或外层网络被攻破 | 可以拒绝服务、观察时间和密文字节量，不能伪造 Noise 认证的手机、宿主或撤销；宿主不信 relay 的限流 |
+| 配对二维码泄露 | 有效期内可发起配对；必须持有一次性 PSK、完成密钥确认，并在 Mac 核对 SAS 后确认才获得会话权限 |
+| 已配对手机丢失 | 在 Mac 撤销后立即断开它的全部通道；保存失败仍内存拉黑，重启恢复旧权限的风险须明确提示 |
 
 ## WebSocket 与鉴权
 
-- 默认只监听 `127.0.0.1`，随机端口。监听其他地址必须在设置里显式打开。手机的远程访问不靠监听其他地址：宿主主动出站连用户自己的 relay，和手机之间用 Noise IK 端到端加密，设备配对、撤销、宿主长期密钥的存放写进手机端的 SPEC 时补到这里（[ADR-0016](../adr/0016-remote-access-through-own-relay-with-noise.md)，2026-10-24 定）。
+- 默认只监听 `127.0.0.1`，随机端口。监听其他地址必须在设置里显式打开。手机的远程访问不靠监听其他地址：宿主主动出站连用户自己的 relay，和手机之间用 Noise IK 端到端加密，设备配对、撤销、宿主长期密钥的存放见下文“宿主远程访问”（[ADR-0016](../adr/0016-remote-access-through-own-relay-with-noise.md)，2026-10-24 定）。
 - token 每次启动随机生成（32 字节，base64url 编码为 43 个字符），只存在内存里，由 Electron 主进程通过进程消息端口交给宿主、通过 preload 交给 UI，不写文件、不写日志。宿主单独运行时用 `ATRIUM_TOKEN` 指定的 token 也必须满足同样的长度和字符集，否则拒绝启动。
 - **token 不放在 URL 里**（会进日志和历史记录）。浏览器的 WebSocket 不能自定义请求头，用 `Sec-WebSocket-Protocol` 传递，或在连接后的第一条消息里鉴权；鉴权通过前不处理任何其他消息，超时断开。
 - **校验 `Origin`**：带 `Origin` 的请求只接受宿主自己提供的页面（窗口里的 `atrium://app`，以及开发时的 Vite 页面）的来源，其他来源在升级阶段就以 403 拒绝，即使带了 token。不带 `Origin` 的请求放行（仍要 token）：浏览器总会带 `Origin`，不带的只能是本机的非浏览器进程，网页无法伪造这种请求。
@@ -40,6 +43,7 @@
 - 回复里的本地图片（2026-10-20）：UI 先把工作区内的相对路径、绝对路径或 `file:` URL 化为工作区相对路径，再经现有 `read_file` 读取；宿主原有的越界、符号链接、文件类型和 10 MiB 上限仍是安全边界。工作区外、带 `..`、未知协议和没有工作区时不读取，也不向静态文件服务请求；本地 SVG 不显示。路径和图片内容不记日志。全屏预览只显示已经允许的图片，不增加读文件或导航能力。
 - 回复里的文件定位链接（2026-10-20）：只解析显式本地 Markdown 链接与完整的带行号行内代码；原始地址通过惰性属性传给受控组件，仍保留 Markdown 默认 hardener/sanitizer，不允许原始 HTML 冒充本地链接。路径校验和宿主 `read_file` 都守住当前工作区；仅点击才打开，只读定位，不执行文件或命令。没有工作区、越界或不支持的本地地址保持文字，不回退外部导航；文件路径不进日志。
 - JSON/CSV 结构化查看（2026-10-20）：不执行脚本、表达式、公式或 HTML，不自动取远端数据或把单元格变为链接。JSON 用保留源码位置的语法树，不经普通对象重建，以免大整数失真、重复属性消失或 `__proto__` 改变对象原型；CSV 只解析逗号与标准引号。输入大小、深度、节点与单元格限额见 SPEC，失败保留原文。来源内容与解析器原始错误不进入日志。
+- 回复翻译（M1.11 自用后补充）：客户端只指定会话、轮与临时操作 id，宿主从当前分支读取已结束的正文、当前模型和已保存的目标语言。独立 pi 仅获得该正文与翻译要求，不加载项目指令、不提供工具、不续接原会话；正文与语言作为固定非命令前缀后的 JSON 数据走 stdin，避免 print 模式把正文开头的 `/命令` 当作扩展、技能或模板执行。翻译专用禁用 skills/templates，并以显式空 `--append-system-prompt` 覆盖全局和项目 `APPEND_SYSTEM.md`；仍加载服务商扩展，不把用户安装的扩展视为沙箱。正文走标准输入，不进进程参数、日志、链路或磁盘；输出按不可信 Markdown 走既有净化，不放宽 CSP。每连接最多一个翻译，操作 id 只在所属连接可取消；输入 256 KiB、译文 512 KiB UTF-8、执行 60 秒上限。断开与宿主关闭中止进程并释放监听、定时器；只记录安全错误类别。精确模型守卫是唯一生成的翻译专用扩展：宿主在系统临时目录新建私有 `atrium-translation-guard-*` 目录，写 `0600` 文件，只有应用内固定可信代码与 JSON 编码的模型标识，没有正文或凭据；路径不来自客户端。它在 `before_agent_start` 对照注册表精确模型和实际模型，不一致就 abort，不能先调用替代模型再报错。成功、失败和取消后删除，不顺带改变标题调用；真实 pi 契约验证服务商请求为零与文件回收。
 - 消息缩略图（M1.11）用 `data:` 地址显示宿主从会话文件读出的图片，格式只认 png、jpeg、gif、webp，SVG 这类能带脚本的格式宿主不给、协议也不收。读哪个文件由宿主按会话目录决定，客户端只给会话、轮和第几张；图片数据不进日志和链路（SPEC-0001"M1.11 的消息图片"）。
 
 ## 凭据与日志
@@ -75,7 +79,20 @@
   - 扩展写到状态行的请求有长度上限，读不出的当坏请求回 `agent_bad_request`，不记内容；隐藏命令的参数同样不进日志。
 - 宿主提供界面文件时同样解析符号链接，真实路径不在界面目录内就返回 404；先打开文件再读大小，读失败或客户端中途断开都不会影响宿主进程。
 - 安装 pi 只运行官方安装脚本（`https://pi.dev/install.sh`），地址写死在代码里。
-- **Atrium 自带的 pi 扩展**（ADR-0008）：只加载应用自己带的、随应用签名的文件，路径由宿主算出，不来自客户端或用户输入。它改发往服务商的请求里的 `service_tier`，并查 Codex 的模型列表：在 pi 进程里经 pi 的 `modelRegistry.getApiKeyAndHeaders` 取 ChatGPT 登录的凭据，只发往 pi 平时请求这个模型的地址（登录给的 `baseUrl`，没有就是 `openai-codex` 模型自己的 `baseUrl`）下的 `/codex/models`，走 pi 设好的代理。另外查套餐用量（ADR-0010，2026-10-15 修订）：ChatGPT 登录发往同一地址的根下的 `/wham/usage`（即 `chatgpt.com/backend-api/wham/usage`），Claude 只在订阅登录（`isUsingOAuth`）时发往模型 `baseUrl` 下的 `/api/oauth/usage`，API key 的不查；Grok（`xai`）只在订阅登录时发往写死的 `https://cli-chat-proxy.grok.com/v1/billing?format=credits`，只带 bearer 令牌和 `x-xai-token-auth: xai-grok-cli`、`accept`，不带 pi 给 `api.x.ai` 的其他头，API key 的不查——这是扩展发往 pi 平时不请求的服务器的第一个地址，再加别的要另写 ADR（ADR-0011，2026-10-16）；第二个是联网工具（ADR-0014，2026-10-20）：`web_search`、`web_fetch` 用名为 `DEEPSEEK_SEARCH_API_KEY` 的专用 key，先取 pi 里 `deepseek` 凭据的 `env`（经 `modelRegistry.getApiKeyAndHeaders`，宿主不碰），再取进程环境；不读凭据的 `apiKey` 和 `DEEPSEEK_API_KEY`，搜索与聊天分开计费，发往写死的 `https://api.deepseek.com/v1/tools/search` 和 `/fetch`（不取模型的 `baseUrl`），只带 `authorization`、`content-type`、`accept`，不跟随重定向，网页和搜索结果当数据不当指令；失败只报状态码，不带服务器的原文（DeepSeek 的 401 会回显收到的 key），`query` 和 `url`、网页内容不进日志，扩展不向宿主报任何状态；同一服务商 60 秒内最多一次。Claude 的用量另从回复里读：当前模型是 `claude-bridge` 或 `anthropic` 时，扩展在 `after_provider_response` 里只读 `anthropic-ratelimit-unified-*` 这组响应头，不碰凭据、不发请求（ADR-0012，2026-10-17）。带凭据的请求不跟随重定向（重定向算连不上，2026-10-16 审查后加）。凭据不离开 pi、不交给宿主、不写文件、不记日志；报给宿主的只有模型 id、速度倍数和是否多耗额度，以及套餐名、各窗口的已用百分比、长度、重置时间、按模型窗口的模型名和按产品的拆分（产品名和百分比，M1.14 起），宿主按格式校验后才用；查失败只报原因代码，不带服务器的原文。内部命令 `/atrium-fast`、`/atrium-plan` 只由宿主在确认扩展已加载后发出（2026-10-12 修订）。
+- **Atrium 自带的 pi 扩展**（ADR-0008）：只加载应用自己带的、随应用签名的文件，路径由宿主算出，不来自客户端或用户输入。回复翻译的上述临时精确模型守卫是窄例外：应用生成固定可信代码，只有 JSON 编码的模型标识可变，私有目录内创建并随调用回收，不接受用户代码或文件路径。它改发往服务商的请求里的 `service_tier`，并查 Codex 的模型列表：在 pi 进程里经 pi 的 `modelRegistry.getApiKeyAndHeaders` 取 ChatGPT 登录的凭据，只发往 pi 平时请求这个模型的地址（登录给的 `baseUrl`，没有就是 `openai-codex` 模型自己的 `baseUrl`）下的 `/codex/models`，走 pi 设好的代理。另外查套餐用量（ADR-0010，2026-10-15 修订）：ChatGPT 登录发往同一地址的根下的 `/wham/usage`（即 `chatgpt.com/backend-api/wham/usage`），Claude 只在订阅登录（`isUsingOAuth`）时发往模型 `baseUrl` 下的 `/api/oauth/usage`，API key 的不查；Grok（`xai`）只在订阅登录时发往写死的 `https://cli-chat-proxy.grok.com/v1/billing?format=credits`，只带 bearer 令牌和 `x-xai-token-auth: xai-grok-cli`、`accept`，不带 pi 给 `api.x.ai` 的其他头，API key 的不查——这是扩展发往 pi 平时不请求的服务器的第一个地址，再加别的要另写 ADR（ADR-0011，2026-10-16）；第二个是联网工具（ADR-0014，2026-10-20）：`web_search`、`web_fetch` 用名为 `DEEPSEEK_SEARCH_API_KEY` 的专用 key，先取 pi 里 `deepseek` 凭据的 `env`（经 `modelRegistry.getApiKeyAndHeaders`，宿主不碰），再取进程环境；不读凭据的 `apiKey` 和 `DEEPSEEK_API_KEY`，搜索与聊天分开计费，发往写死的 `https://api.deepseek.com/v1/tools/search` 和 `/fetch`（不取模型的 `baseUrl`），只带 `authorization`、`content-type`、`accept`，不跟随重定向，网页和搜索结果当数据不当指令；失败只报状态码，不带服务器的原文（DeepSeek 的 401 会回显收到的 key），`query` 和 `url`、网页内容不进日志，扩展不向宿主报任何状态；同一服务商 60 秒内最多一次。Claude 的用量另从回复里读：当前模型是 `claude-bridge` 或 `anthropic` 时，扩展在 `after_provider_response` 里只读 `anthropic-ratelimit-unified-*` 这组响应头，不碰凭据、不发请求（ADR-0012，2026-10-17）。带凭据的请求不跟随重定向（重定向算连不上，2026-10-16 审查后加）。凭据不离开 pi、不交给宿主、不写文件、不记日志；报给宿主的只有模型 id、速度倍数和是否多耗额度，以及套餐名、各窗口的已用百分比、长度、重置时间、按模型窗口的模型名和按产品的拆分（产品名和百分比，M1.14 起），宿主按格式校验后才用；查失败只报原因代码，不带服务器的原文。内部命令 `/atrium-fast`、`/atrium-plan` 只由宿主在确认扩展已加载后发出（2026-10-12 修订）。
+
+## 宿主远程访问
+
+MP3a，协议见 [SPEC-0005](../specs/0005-mobile-app-and-remote-access.md)。远程能力默认关闭；独立宿主没有 Electron 保险箱时不可用。本机监听仍只在 loopback，不增加公网入口。
+
+- `remote-crypto` 只实现 IK/IKpsk2，不协商其他模式、不压缩；配对码五分钟、密钥确认后等待 Mac 两分钟。错码、错版本、认证失败、畸形帧、超限分块均不降级。
+- 宿主独立限制四条未完成握手的流、十秒握手时限、每设备两条通道；单帧 70 KiB、上行消息 1 MiB、下行 8 MiB。通道与本机共用 32 连接总上限、发送背压及断线清理。每台手机单独一条 relay 数据连接。
+- 远程 `hello` 必须不带本机 token，`clientId` 必须是 Noise 公钥认出的 `deviceId`。来源和设备 id 只由宿主写入；命令白名单、事件过滤穷举协议全集，远程不能操作配对、保险箱、登录和安装。`remote_updated` 只发给主动订阅的本机连接。
+- 长期私钥、relay 令牌、设备公钥及名称只存于 `remote/vault.bin`：主进程用异步 `safeStorage` 加密，0700 目录、0600 临时文件后原子改名；宿主经带 id/version 的进程端口读写，渲染进程没有保险箱 IPC。`remote.json` 只放开关及最后在线时间。未启用时不自动读钥匙串；显式设置 relay、测试连接、重置才会读取，读取等待不阻塞本机服务。
+- 读取必须明确返回版本与内容；缺字段、不可解码或重复的设备身份、损坏内容都 fail-closed，不自动换身份。缺文件才可首次生成；恢复损坏必须由本机显式重置。两侧写队列失败后可以继续重试，不将超限请求静默丢掉。仅落盘成功才授予配对权限或替换身份。
+- 撤销先拉黑、关闭已有通道再写盘；确认配对写盘期间发生的后来撤销优先，不能由写盘回调重新放行。重置先写新身份再撤销全部通道。relay 传来的关闭码不能作为已认证撤销。
+- TLS 默认用于远程 relay，只有 localhost、127.0.0.1、[::1] 用明文 WebSocket 供本机测试。解析时验证 URL 和端口；令牌只在控制/数据连接的首帧发送，不放 URL，不跟随重定向。临时连接测试可取消，不能在启用后认证并挤掉正式连接。
+- safeStorage 的防护边界不变：能修改 ad-hoc 签名应用或同用户进程内存的攻击者不在保证之内。relay 可拒绝服务，已认证手机可使用白名单内能力；本机工具执行仍沿用 MVP 1 的风险模型。
 
 ## relay
 
@@ -94,7 +111,7 @@
 - `pnpm boundary [基准]`：列出基准（默认 `git merge-base HEAD main`）以来的提交、未提交的改动和未跟踪的新文件里，依赖的增删改（标出不是精确版本的）、新增和删掉的地址、环境变量、隐藏命令（标出是否已登记）、`PROTOCOL_VERSION` 的变化（`packages/protocol/src/` 的非测试文件改了、版本没变时警告），以及改动文件里 `atrium/side-effects-none` 报的矛盾。新增了未登记的地址、环境变量、隐藏命令，或依赖不是精确版本时退出码为 1。交付汇报里附上它的输出（acceptance.md"交给用户之前"）。
 - `pnpm boundary --all`：拿全部生产代码对照这三张表，再查全部依赖是不是精确版本，有缺的退出码为 1；也列出登记了、代码里却找不到的项（只提示）。它接在 `pnpm check` 里。
 
-**生产代码**的范围：`packages/{protocol,pi,host,client,ui}/src`、`apps/desktop/src` 和 `apps/relay/src`（2026-10-25 加）下的源文件，不含 `*.test.*`、`*.bench.*`、`test/` 目录和 `packages/pi/src/contract/`（契约场景）；`packages/testkit`、`apps/desktop/e2e`、`scripts/` 和构建脚本不算。
+**生产代码**的范围：`packages/{protocol,pi,host,client,ui,remote-crypto}/src`、`apps/desktop/src` 和 `apps/relay/src`（2026-10-25 加）下的源文件，不含 `*.test.*`、`*.bench.*`、`test/` 目录和 `packages/pi/src/contract/`（契约场景）；`packages/testkit`、`apps/desktop/e2e`、`scripts/` 和构建脚本不算。
 
 **脚本怎么认**（按语法树，注释和正则字面量都不算）：
 
@@ -104,12 +121,18 @@
 
 表格第一列反引号里的值和脚本找到的按原文精确比对，改表格的格式要同步改脚本。只看代码认不出来的边界（拼出来的地址、按变量名取的环境变量）照样要登记，靠审查发现。拼出来的地址在第一列反引号后面写 `（拼出）`，反引号里用 `<…>` 写出地址的根从哪来：脚本不拿这类行和代码比对，`--all` 也不把它们当成"登记了、代码里找不到"来提示（2026-10-23 审查后加）。
 
+### 加密依赖
+
+`packages/remote-crypto` 精确依赖 `@noble/ciphers@2.4.0`（ChaCha20-Poly1305）、`@noble/curves@2.4.0`（X25519）、`@noble/hashes@2.4.0`（SHA-256/HMAC）。无动态下载；公开 cacophony 向量、TS/Swift 字节级夹具和畸形消息测试约束手写的两种 Noise 状态机。
+
 ### 出网地址
 
 性质："请求"是 Atrium 的代码真的连过去；"显示"是界面里给你看、点了交给系统浏览器的；"比对"只用来解析或比较，不连。
 
 | 地址 | 性质 | 谁 | 用途 | 出处 |
 |---|---|---|---|---|
+| `<用户 relay 地址>/v1/host` （拼出） | 请求 | 宿主 `remote/relay-link.ts` | 控制连接及可取消的连接测试；默认 wss，仅 loopback 用 ws | SPEC-0005、本文“宿主远程访问” |
+| `<用户 relay 地址>/v1/host/stream` （拼出） | 请求 | 宿主 `remote/channel.ts` | 每手机独立的 Noise 数据连接，令牌只进首帧 | SPEC-0005 |
 | `https://pi.dev/api/latest-version` | 请求 | 宿主（`setup/pi-latest.ts`） | 每天查一次 pi 的最新版本；`ATRIUM_PI_LATEST_URL` 可换地址、设为空就不查，pi 的环境里有 `PI_OFFLINE` 时也不查 | SPEC-0001"设置 · pi"、pi-internals |
 | `https://pi.dev/install.sh` | 请求 | 宿主（`setup/install-script.ts`）；界面（`setup/install-step.tsx`）显示同一条命令 | 安装 pi 的官方脚本，地址写死 | 本文"子进程与文件" |
 | `https://api.deepseek.com/v1/tools/search` | 请求 | Atrium 的 pi 扩展（`pi/src/search`） | `web_search` 联网工具 | ADR-0014，本文"子进程与文件" |

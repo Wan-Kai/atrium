@@ -49,7 +49,7 @@ const PLACEHOLDER = "\u0000";
  */
 function isProduction(path) {
   return (
-    /^(?:packages\/(?:protocol|pi|host|client|ui)|apps\/(?:desktop|relay))\/src\/.*\.(?:ts|tsx|mts|cts|mjs|cjs|js)$/.test(
+    /^(?:packages\/(?:protocol|pi|host|client|ui|remote-crypto)|apps\/(?:desktop|relay))\/src\/.*\.(?:ts|tsx|mts|cts|mjs|cjs|js)$/.test(
       path,
     ) &&
     !/\.(?:test|bench)\.[^/]+$/.test(path) &&

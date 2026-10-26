@@ -1,0 +1,40 @@
+[
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "this.#checkPong(this.#socket)",
+    "to": "Promise.resolve(null)",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "tests an already connected relay"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "const closed = (code: number): void => finish(code === UNAUTHORIZED ? \"relay_rejected\" : \"relay_unreachable\");",
+    "to": "const closed = (_code: number): void => finish(\"relay_unreachable\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "settles a live connection check on rejection and on host shutdown"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "trace_id: randomBytes(16).toString(\"hex\")",
+    "to": "trace_id: \"\"",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "correlates remote metadata without logging pairing or device secrets",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "{ stream_id: phone.streamId, device_id: phone.deviceId, reason },",
+    "to": "{ stream_id: phone.streamId, device_id: null, reason },",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "correlates remote metadata without logging pairing or device secrets",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "encodeURIComponent(value)",
+    "to": "encodeURIComponent(value).replaceAll(\"%20\", \"+\")",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "correlates remote metadata without logging pairing or device secrets",
+    "project": "host"
+  }
+]

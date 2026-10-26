@@ -1076,6 +1076,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
       titleModel: null,
       proxy: null,
       inbox: true,
+      translationLanguage: "简体中文",
     },
     resets: [],
     ...fields,
@@ -1230,6 +1231,7 @@ describe("createAtriumClient: the list", () => {
       titleModel: null,
       proxy: null,
       inbox: true,
+      translationLanguage: "简体中文",
     });
 
     for (const type of ["open_session", "close_tab", "select_container", "set_preferences"]) latest().answer(type);
@@ -1852,6 +1854,165 @@ describe("createAtriumClient: child conversations", () => {
       { type: "fork_session", sessionId: "s1", turnId: "s1:u2", name: "查日志", child: { place: "same" } },
       { type: "detach_session", sessionId: "s3" },
     ]);
+  });
+});
+
+describe("createAtriumClient: reply translation", () => {
+  it("waits for earlier cancellation cleanup before dispatching another reply translation", async () => {
+    const { client, latest } = await connected();
+    const cancelling = client.cancelTranslation("old-translation");
+    const translating = client.translateReply("s1", "s1:u2", "new-translation");
+    // An already-resolved empty wait must not look like a real cancellation barrier.
+    await Promise.resolve();
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "translate_reply"),
+    ).toStrictEqual([]);
+    latest().answer("cancel_translation", {});
+    await cancelling;
+    await vi.waitFor(() =>
+      expect(
+        latest()
+          .commands()
+          .filter((command) => command["type"] === "translate_reply"),
+      ).toHaveLength(1),
+    );
+    const result = { text: "译文", language: "简体中文", model: { providerId: "faux", modelId: "faux-1" } };
+    latest().answer("translate_reply", result);
+    expect(await translating).toStrictEqual(result);
+    client.disconnect();
+  });
+
+  it("releases cancellation bookkeeping before later direct translations", async () => {
+    const { client, latest } = await connected();
+    const cancelling = client.cancelTranslation("old-translation");
+    latest().answer("cancel_translation", {});
+    await cancelling;
+    const translating = client.translateReply("s1", "s1:u2", "direct-translation");
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "translate_reply"),
+    ).toHaveLength(1);
+    const result = { text: "译文", language: "简体中文", model: { providerId: "faux", modelId: "faux-1" } };
+    latest().answer("translate_reply", result);
+    expect(await translating).toStrictEqual(result);
+    client.disconnect();
+  });
+
+  it("releases a cancelled queued operation id so a later request with that id cancels remotely", async () => {
+    const { client, latest } = await connected();
+    const old = client.cancelTranslation("old-translation");
+    const first = client.translateReply("s1", "s1:u2", "reusable-id").catch((error: unknown) => error);
+    await client.cancelTranslation("reusable-id");
+    latest().answer("cancel_translation", {});
+    await old;
+    expect(await first).toStrictEqual(new CommandError("translation_failed", { reason: "aborted" }));
+    const second = client.translateReply("s1", "s1:u2", "reusable-id").catch((error: unknown) => error);
+    const cancellation = client.cancelTranslation("reusable-id");
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "cancel_translation")
+        .map((command) => command["translationId"]),
+    ).toStrictEqual(["old-translation", "reusable-id"]);
+    latest().answer("cancel_translation", {});
+    latest().fail("translate_reply", "translation_failed");
+    expect(await cancellation).toStrictEqual({});
+    expect(await second).toStrictEqual(new CommandError("translation_failed"));
+    client.disconnect();
+  });
+
+  it("does not move a translation waiting for cancellation onto a reconnected socket", async () => {
+    const { client, latest, clock } = await connected();
+    const cancelling = client.cancelTranslation("old-translation").catch((error: unknown) => error);
+    const translating = client.translateReply("s1", "s1:u2", "new-translation").catch((error: unknown) => error);
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome());
+    expect(await cancelling).toStrictEqual(new ConnectionLostError("cancel_translation"));
+    expect(await translating).toStrictEqual(new ConnectionLostError("translate_reply"));
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "translate_reply"),
+    ).toStrictEqual([]);
+    client.disconnect();
+  });
+
+  it("does not dispatch a queued translation cancelled before the previous process finishes", async () => {
+    const { client, latest } = await connected();
+    const cancelling = client.cancelTranslation("old-translation");
+    const translating = client.translateReply("s1", "s1:u2", "new-translation");
+    const result = translating.catch((error: unknown) => error);
+    await client.cancelTranslation("new-translation");
+    latest().answer("cancel_translation", {});
+    await cancelling;
+    expect(await result).toStrictEqual(new CommandError("translation_failed", { reason: "aborted" }));
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "translate_reply"),
+    ).toStrictEqual([]);
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "cancel_translation")
+        .map((command) => command["translationId"]),
+    ).toStrictEqual(["old-translation"]);
+    client.disconnect();
+  });
+
+  it("requests an independent reply translation and cancels by its own operation id", async () => {
+    const { client, latest } = await connected();
+    const translating = client.translateReply("s1", "s1:u2", "translation-1");
+    const cancelled = client.cancelTranslation("translation-1");
+    latest().answer("cancel_translation", {});
+    const result = { text: "译文", language: "简体中文", model: { providerId: "faux", modelId: "faux-1" } };
+    latest().answer("translate_reply", result);
+    expect(await translating).toStrictEqual(result);
+    expect(await cancelled).toStrictEqual({});
+    expect(
+      latest()
+        .commands()
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "ping" },
+      { type: "translate_reply", sessionId: "s1", turnId: "s1:u2", translationId: "translation-1" },
+      { type: "cancel_translation", translationId: "translation-1" },
+    ]);
+    expect(client.index.getState().preferences.translationLanguage).toBe("简体中文");
+    client.disconnect();
+  });
+
+  it("does not apply a target language before the host saves it, including a failed save", async () => {
+    const { client, latest } = await connected();
+    const saved = client.setPreferences({ translationLanguage: "日本語" });
+    expect(client.index.getState().preferences.translationLanguage).toBe("简体中文");
+    latest().receive(
+      indexSnapshot(1, "h1", {
+        preferences: { ...client.index.getState().preferences, translationLanguage: "日本語" },
+      }),
+    );
+    latest().answer("set_preferences", {});
+    expect(await saved).toStrictEqual({});
+    expect(client.index.getState().preferences.translationLanguage).toBe("日本語");
+    const rejected = client.setPreferences({ translationLanguage: "English" });
+    latest().fail("set_preferences", "internal_error");
+    await expect(rejected).rejects.toMatchObject({ code: "internal_error" });
+    expect(client.index.getState().preferences.translationLanguage).toBe("日本語");
+    expect(
+      latest()
+        .commands()
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "ping" },
+      { type: "set_preferences", translationLanguage: "日本語" },
+      { type: "set_preferences", translationLanguage: "English" },
+    ]);
+    client.disconnect();
   });
 });
 

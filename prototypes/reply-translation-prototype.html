@@ -1,0 +1,819 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Atrium · 回复翻译原型</title>
+    <!-- Throwaway prototype: three reply translation layouts, selected by ?variant=A|B|C. No model calls or persistence. -->
+    <style>
+      :root {
+        color-scheme: light;
+        --main: #fff;
+        --side: #e3e7ee;
+        --surface: #f2f2f4;
+        --code: #f6f6f8;
+        --text: #1d1d1f;
+        --muted: #6e6e74;
+        --line: rgba(0, 0, 0, 0.1);
+        --hover: rgba(0, 0, 0, 0.045);
+        --tint: #2f6fed;
+        --danger: #bc303b;
+      }
+      :root.dark {
+        color-scheme: dark;
+        --main: #1c1c1f;
+        --side: #24262c;
+        --surface: #2c2c30;
+        --code: #252528;
+        --text: #f2f2f4;
+        --muted: #acaab3;
+        --line: rgba(255, 255, 255, 0.12);
+        --hover: rgba(255, 255, 255, 0.07);
+        --tint: #82adff;
+        --danger: #ff9297;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--main);
+        color: var(--text);
+        font:
+          14px -apple-system,
+          BlinkMacSystemFont,
+          "PingFang SC",
+          sans-serif;
+      }
+      button,
+      select,
+      textarea {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        border: 0;
+        background: none;
+        cursor: pointer;
+        border-radius: 6px;
+      }
+      button:hover {
+        background: var(--hover);
+      }
+      button:focus-visible,
+      select:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid var(--tint);
+        outline-offset: 3px;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      svg {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex: none;
+      }
+      .shell {
+        min-height: 100vh;
+        display: grid;
+        grid-template-columns: 212px minmax(0, 1fr);
+      }
+      aside {
+        background: var(--side);
+        padding: 25px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+      }
+      .traffic {
+        display: flex;
+        gap: 8px;
+        margin: 0 0 32px 2px;
+      }
+      .traffic i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #ff6058;
+      }
+      .traffic i:nth-child(2) {
+        background: #ffbd2e;
+      }
+      .traffic i:nth-child(3) {
+        background: #28c840;
+      }
+      .brand {
+        font-weight: 600;
+        padding: 0 10px 19px;
+        font-size: 17px;
+      }
+      .nav-label {
+        font-size: 12px;
+        color: var(--muted);
+        padding: 12px 10px 3px;
+      }
+      .nav-item {
+        padding: 9px 10px;
+        border-radius: 8px;
+      }
+      .nav-item.active {
+        background: var(--hover);
+      }
+      .aside-bottom {
+        margin-top: auto;
+        text-align: left;
+        padding: 10px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      main {
+        min-width: 0;
+      }
+      .topbar {
+        height: 48px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border-bottom: 1px solid var(--line);
+        padding: 0 22px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .topbar span {
+        flex: 1;
+      }
+      .topbar button {
+        padding: 7px 9px;
+      }
+      .conversation {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 38px 24px 200px;
+      }
+      .user {
+        margin-left: auto;
+        width: fit-content;
+        max-width: 85%;
+        padding: 12px 17px;
+        background: var(--surface);
+        border-radius: 22px;
+      }
+      .user-time {
+        text-align: right;
+        margin: 7px 5px 32px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .process {
+        margin-bottom: 18px;
+        font-size: 13px;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .body {
+        font-size: 14.5px;
+        line-height: 1.7;
+        overflow-wrap: anywhere;
+      }
+      .body p {
+        margin: 0 0 15px;
+      }
+      .body h3 {
+        font-size: 15px;
+        margin: 24px 0 10px;
+      }
+      .body ul {
+        padding-left: 20px;
+        margin: 0 0 17px;
+      }
+      .body li {
+        margin: 6px 0;
+      }
+      code {
+        font:
+          12.5px "SF Mono",
+          Menlo,
+          monospace;
+        background: var(--surface);
+        padding: 2px 4px;
+        border-radius: 4px;
+      }
+      pre {
+        background: var(--code);
+        padding: 14px;
+        border-radius: 10px;
+        overflow: auto;
+        line-height: 1.6;
+      }
+      pre code {
+        padding: 0;
+        background: none;
+      }
+      .info {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 3px;
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 28px;
+        height: 28px;
+        padding: 6px;
+      }
+      .translate {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 28px;
+        padding: 5px 7px;
+        font-size: 12px;
+      }
+      .info .stats {
+        margin-left: 10px;
+      }
+      .translation {
+        margin-top: 19px;
+        padding-top: 17px;
+        border-top: 1px solid var(--line);
+      }
+      .translation-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 14px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .translation-head span {
+        flex: 1;
+      }
+      .translation-head button {
+        padding: 4px 6px;
+      }
+      .tabs {
+        display: flex;
+        gap: 3px;
+        margin-bottom: 16px;
+      }
+      .tabs button {
+        color: var(--muted);
+        padding: 6px 10px;
+        font-size: 12px;
+      }
+      .tabs button[aria-pressed="true"] {
+        background: var(--surface);
+        color: var(--text);
+      }
+      .columns {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 25px;
+      }
+      .column-title {
+        font-size: 12px;
+        color: var(--muted);
+        margin-bottom: 12px;
+      }
+      .columns > section + section {
+        border-left: 1px solid var(--line);
+        padding-left: 25px;
+      }
+      .notice {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-top: 15px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .notice.error {
+        color: var(--danger);
+      }
+      .notice button {
+        color: var(--tint);
+        padding: 4px 6px;
+      }
+      .spinner {
+        width: 13px;
+        height: 13px;
+        border: 1.5px solid var(--line);
+        border-top-color: var(--tint);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .composer {
+        margin-top: 45px;
+        border-radius: 22px;
+        padding: 16px 18px 10px;
+        box-shadow: 0 3px 16px rgba(0, 0, 0, 0.08);
+        border: 1px solid var(--line);
+      }
+      .composer textarea {
+        background: none;
+        border: 0;
+        width: 100%;
+        resize: none;
+        outline: none;
+      }
+      .composer textarea::placeholder {
+        color: var(--muted);
+      }
+      .composer-bottom {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .composer-bottom button {
+        padding: 6px;
+      }
+      .model {
+        display: flex;
+        gap: 9px;
+        align-items: center;
+      }
+      .prototype-bar {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        max-width: calc(100vw - 24px);
+        width: 680px;
+        padding: 11px 14px;
+        background: var(--surface);
+        border-radius: 14px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.16);
+        font-size: 12px;
+        z-index: 3;
+      }
+      .switcher {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .switcher strong {
+        flex: 1;
+        text-align: center;
+      }
+      .switcher button {
+        padding: 7px 9px;
+      }
+      #description {
+        color: var(--muted);
+        margin: 7px 3px 9px;
+        line-height: 1.5;
+        text-align: center;
+      }
+      .demo-controls {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
+      .demo-controls button {
+        padding: 5px 8px;
+      }
+      .demo-controls .active {
+        color: var(--tint);
+        background: var(--hover);
+      }
+      .scrim {
+        position: fixed;
+        inset: 0;
+        background: rgba(20, 24, 30, 0.3);
+        backdrop-filter: blur(8px);
+        display: grid;
+        place-items: center;
+        z-index: 5;
+        padding: 20px;
+      }
+      .settings {
+        width: 760px;
+        max-width: 100%;
+        min-height: 430px;
+        display: grid;
+        grid-template-columns: 190px minmax(0, 1fr);
+        border-radius: 14px;
+        background: var(--main);
+        box-shadow: 0 24px 65px rgba(0, 0, 0, 0.24);
+        overflow: hidden;
+      }
+      .settings nav {
+        background: var(--hover);
+        padding: 45px 12px;
+      }
+      .settings nav div {
+        padding: 9px;
+        margin: 2px 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .settings nav .active {
+        background: var(--hover);
+        border-radius: 8px;
+        color: var(--text);
+      }
+      .settings-content {
+        padding: 24px 30px;
+      }
+      .settings-title {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .settings h2 {
+        font-size: 20px;
+        margin: 0;
+      }
+      .settings h3 {
+        font-size: 14px;
+        margin: 38px 0 10px;
+      }
+      .settings p {
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+      .setting-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 15px;
+        align-items: center;
+        padding: 18px 0;
+        border-top: 1px solid var(--line);
+        font-size: 13px;
+      }
+      select {
+        padding: 6px 8px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface);
+        max-width: 190px;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      @media (max-width: 850px) {
+        .shell {
+          grid-template-columns: 160px minmax(0, 1fr);
+        }
+        .conversation {
+          padding-left: 22px;
+          padding-right: 22px;
+        }
+      }
+      @media (max-width: 650px) {
+        aside {
+          display: none;
+        }
+        .shell {
+          display: block;
+        }
+        .columns {
+          grid-template-columns: 1fr;
+        }
+        .columns > section + section {
+          border-left: 0;
+          padding: 18px 0 0;
+          border-top: 1px solid var(--line);
+        }
+        .settings {
+          grid-template-columns: 1fr;
+        }
+        .settings nav {
+          display: none;
+        }
+        .settings-content {
+          padding: 22px;
+        }
+        .info .stats {
+          margin-left: 4px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .spinner {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg aria-hidden="true" style="display: none">
+      <defs>
+        <symbol id="translate" viewBox="0 0 24 24">
+          <path d="M3 5h12M9 3v2M12 5c-1 7-4 9-9 12M5 8c1 3 4 6 7 8M13 21l4-11 4 11M14.5 17h5" />
+        </symbol>
+        <symbol id="copy" viewBox="0 0 24 24">
+          <rect x="8" y="8" width="12" height="13" rx="2" />
+          <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" />
+        </symbol>
+        <symbol id="fork" viewBox="0 0 24 24">
+          <circle cx="6" cy="4" r="2" />
+          <circle cx="18" cy="4" r="2" />
+          <circle cx="6" cy="20" r="2" />
+          <path d="M6 6v12M18 6v2c0 4-12 1-12 6" />
+        </symbol>
+        <symbol id="child" viewBox="0 0 24 24"><path d="M5 4v9a4 4 0 0 0 4 4h11m-5-5 5 5-5 5" /></symbol>
+        <symbol id="left" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6" /></symbol>
+        <symbol id="right" viewBox="0 0 24 24"><path d="m10 6 6 6-6 6" /></symbol>
+        <symbol id="close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6" /></symbol>
+        <symbol id="settings" viewBox="0 0 24 24">
+          <path d="M4 6h16M4 12h16M4 18h16" />
+          <circle cx="8" cy="6" r="2" />
+          <circle cx="16" cy="12" r="2" />
+          <circle cx="10" cy="18" r="2" />
+        </symbol>
+      </defs>
+    </svg>
+    <div class="shell">
+      <aside>
+        <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="brand">Atrium</div>
+        <div class="nav-label">项目</div>
+        <div class="nav-item">示例项目</div>
+        <div class="nav-item active">回复翻译</div>
+        <div class="nav-label">对话</div>
+        <div class="nav-item">阅读技术说明</div>
+        <button class="aside-bottom" onclick="openSettings()">
+          <svg><use href="#settings" /></svg>设置
+        </button>
+      </aside>
+      <main>
+        <header class="topbar">
+          <span>回复翻译</span><button onclick="openSettings()">翻译设置</button
+          ><button id="theme" onclick="toggleTheme()">深色</button>
+        </header>
+        <article class="conversation">
+          <div class="user">Explain how cancellation should work here.</div>
+          <div class="user-time">14:32</div>
+          <div class="process">
+            <svg><use href="#right" /></svg>已完成，用时 18 秒 · 读了 3 个文件
+          </div>
+          <div id="reply"></div>
+          <div class="info">
+            <button class="icon" aria-label="复制原回复（原型示意）" title="复制原回复 · 原型不写剪贴板" disabled>
+              <svg><use href="#copy" /></svg>
+            </button>
+            <button id="translate-button" class="translate" onclick="translateReply()">
+              <svg><use href="#translate" /></svg><span id="translate-label">翻译</span>
+            </button>
+            <button class="icon" aria-label="从这里分叉（原型示意）" disabled>
+              <svg><use href="#fork" /></svg>
+            </button>
+            <button class="icon" aria-label="开子对话（原型示意）" disabled>
+              <svg><use href="#child" /></svg>
+            </button>
+            <span class="stats">2.1k tokens · 14:32</span>
+          </div>
+          <div id="result" aria-live="polite"></div>
+          <div class="composer">
+            <textarea aria-label="示例消息输入框" placeholder="继续对话…" rows="2"></textarea>
+            <div class="composer-bottom">
+              <button disabled aria-label="添加附件（原型示意）">＋</button
+              ><span class="model">本对话模型 <strong>示例 Agent</strong></span>
+            </div>
+          </div>
+        </article>
+      </main>
+    </div>
+    <div class="prototype-bar" aria-label="原型方案切换">
+      <div class="switcher">
+        <button onclick="switchVariant(-1)" aria-label="上一个方案">
+          <svg><use href="#left" /></svg></button
+        ><strong id="variant-name"></strong
+        ><button onclick="switchVariant(1)" aria-label="下一个方案">
+          <svg><use href="#right" /></svg>
+        </button>
+      </div>
+      <div id="description"></div>
+      <div class="demo-controls">
+        <span>原型模拟：</span><button onclick="demo('idle')">未翻译</button
+        ><button onclick="demo('loading')">进行中</button><button onclick="demo('done')">已翻译</button
+        ><button onclick="demo('error')">失败</button><button onclick="toggleLong()" id="long">长内容</button>
+      </div>
+    </div>
+    <div id="settings-scrim" class="scrim" hidden onclick="if (event.target === this) closeSettings();">
+      <div class="settings" role="dialog" aria-modal="true" aria-label="翻译设置" tabindex="-1">
+        <nav>
+          <div>外观</div>
+          <div class="active">模型与账户</div>
+          <div>项目</div>
+          <div>pi</div>
+          <div>关于</div>
+        </nav>
+        <div class="settings-content">
+          <div class="settings-title">
+            <h2>模型与账户</h2>
+            <button onclick="closeSettings()" aria-label="关闭设置">
+              <svg><use href="#close" /></svg>
+            </button>
+          </div>
+          <p>原型示意 · 本次只比较翻译交互，设置位置与语言范围待定。</p>
+          <h3>回复翻译</h3>
+          <p>使用当前对话的模型，独立翻译回复，不加入对话上下文。译文仅本次查看。</p>
+          <div class="setting-row">
+            <label for="language">目标语言</label
+            ><select id="language" onchange="changeLanguage()">
+              <option value="zh">简体中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+            </select>
+          </div>
+          <p>默认简体中文。这里的三个选项仅为交互演示；切换后可重新翻译。不提供单独的模型选择。</p>
+        </div>
+      </div>
+    </div>
+    <script>
+      const variants = ["A", "B", "C"];
+      const names = { A: "A · 原文下展开", B: "B · 原文 / 译文切换", C: "C · 左右对照" };
+      const descriptions = {
+        A: "原文保持原样，译文在信息行下展开；适合偶尔翻译。",
+        B: "译文在正文原位显示，可随时切回原文；阅读最紧凑。",
+        C: "原文与译文并排阅读，窄窗口自动上下排；适合逐句对照。",
+      };
+      const query = new URLSearchParams(location.search);
+      let variant = variants.includes(query.get("variant")) ? query.get("variant") : "A";
+      let state = "idle",
+        language = "zh",
+        showingTranslation = true,
+        long = false,
+        timer = null,
+        previousFocus = null;
+      const original =
+        "<p>The cancellation boundary should be owned by the request, not by the conversation.</p><ul><li>Pass an <code>AbortSignal</code> through the entire operation.</li><li>Release listeners and stop the child process when cancelled.</li><li>Keep the original reply intact if translation fails.</li></ul><p>This lets the agent continue working while you read the translation.</p>";
+      const translated = {
+        zh: "<p>取消边界应由请求管理，而不是由对话管理。</p><ul><li>在整个操作链路中传递 <code>AbortSignal</code>。</li><li>取消时释放监听器，并停止子进程。</li><li>翻译失败时，保留原回复，不作修改。</li></ul><p>这样你在阅读译文时，agent 仍能继续工作。</p>",
+        en: original,
+        ja: "<p>キャンセルの境界は、会話ではなくリクエストが管理すべきです。</p><ul><li>操作全体に <code>AbortSignal</code> を渡します。</li><li>キャンセル時にリスナーを解放し、子プロセスを停止します。</li><li>翻訳に失敗しても、元の返信を変更しません。</li></ul><p>翻訳を読んでいる間も、エージェントは作業を続けられます。</p>",
+      };
+      /** Returns the sample body. @remarks Long content checks wrapping. @sideEffects none */
+      function body(translation) {
+        let content = translation ? translated[language] : original;
+        if (long)
+          content +=
+            "<h3>" +
+            (translation && language === "zh" ? "实现细节" : "Implementation details") +
+            "</h3><pre><code>async function translateReply(signal) {\n  return translator.run({ signal });\n}</code></pre>" +
+            Array.from({ length: 5 }, () => (translation ? translated[language] : original)).join("");
+        return '<div class="body">' + content + "</div>";
+      }
+      /** Paints the chosen design. @remarks All requests are simulated. @sideEffects Updates demo DOM. */
+      function render() {
+        document.getElementById("variant-name").textContent = names[variant];
+        document.getElementById("description").textContent = descriptions[variant];
+        document.getElementById("long").classList.toggle("active", long);
+        const reply = document.getElementById("reply"),
+          result = document.getElementById("result");
+        const label = document.getElementById("translate-label"),
+          button = document.getElementById("translate-button");
+        const languageName = document.getElementById("language").selectedOptions[0].textContent;
+        button.disabled = state === "loading";
+        button.title = "使用本对话当前模型翻译成" + languageName;
+        label.textContent = state === "loading" ? "翻译中…" : state === "done" ? "已翻译" : "翻译";
+        reply.innerHTML = body(false);
+        result.innerHTML = "";
+        if (state === "loading")
+          result.innerHTML =
+            '<div class="notice" role="status"><i class="spinner"></i>正在翻译成' +
+            languageName +
+            "<button onclick=\"demo('idle')\">取消</button></div>";
+        if (state === "error")
+          result.innerHTML =
+            '<div class="notice error" role="alert">没能翻译：连接中断。<button onclick="translateReply()">重试</button></div>';
+        if (state !== "done") return;
+        const head =
+          '<div class="translation-head"><svg><use href="#translate"/></svg><span>' +
+          languageName +
+          " · 本对话模型</span><button onclick=\"demo('idle')\">收起译文</button></div>";
+        if (variant === "A") result.innerHTML = '<section class="translation">' + head + body(true) + "</section>";
+        if (variant === "B")
+          reply.innerHTML =
+            '<div class="tabs"><button aria-pressed="' +
+            !showingTranslation +
+            '" onclick="showOriginal(true)">原文</button><button aria-pressed="' +
+            showingTranslation +
+            '" onclick="showOriginal(false)">' +
+            languageName +
+            "</button></div>" +
+            body(showingTranslation);
+        if (variant === "C")
+          reply.innerHTML =
+            '<div class="columns"><section><div class="column-title">原文</div>' +
+            body(false) +
+            '</section><section><div class="column-title">' +
+            languageName +
+            " · 本对话模型</div>" +
+            body(true) +
+            "</section></div>";
+      }
+      /** Switches layouts. @remarks Search params make each design linkable. @sideEffects Changes URL and DOM. */
+      function switchVariant(delta) {
+        variant = variants[(variants.indexOf(variant) + delta + 3) % 3];
+        const url = new URL(location.href);
+        url.searchParams.set("variant", variant);
+        history.replaceState(null, "", url);
+        render();
+      }
+      /** Simulates a translation. @remarks No real model request occurs. @sideEffects Schedules a demo timer. */
+      function translateReply() {
+        if (state === "done") {
+          demo("idle");
+          return;
+        }
+        demo("loading");
+        timer = setTimeout(() => {
+          state = "done";
+          showingTranslation = true;
+          render();
+        }, 900);
+      }
+      /** Chooses a simulated state. @remarks Controls expose failure and cancellation. @sideEffects Clears demo timer and renders. */
+      function demo(next) {
+        clearTimeout(timer);
+        state = next;
+        showingTranslation = true;
+        render();
+      }
+      /** Chooses the shown text. @remarks Variant B preserves the original. @sideEffects Renders the demo. */
+      function showOriginal(original) {
+        showingTranslation = !original;
+        render();
+      }
+      /** Changes text length. @remarks Exercises real wrapping. @sideEffects Renders the demo. */
+      function toggleLong() {
+        long = !long;
+        render();
+      }
+      /** Toggles appearance. @remarks Matches incumbent light and dark surfaces. @sideEffects Changes page classes. */
+      function toggleTheme() {
+        const dark = document.documentElement.classList.toggle("dark");
+        document.getElementById("theme").textContent = dark ? "浅色" : "深色";
+      }
+      /** Opens illustrative settings. @remarks Language only; no model override. @sideEffects Shows modal and moves focus. */
+      function openSettings() {
+        previousFocus = document.activeElement;
+        document.getElementById("settings-scrim").hidden = false;
+        document.querySelector(".settings").focus();
+      }
+      /** Closes settings. @remarks Restores the invoking control. @sideEffects Hides modal and restores focus. */
+      function closeSettings() {
+        document.getElementById("settings-scrim").hidden = true;
+        previousFocus?.focus();
+      }
+      /** Sets the demonstration language. @remarks Existing sample is invalidated rather than mislabeled. @sideEffects Updates demo state. */
+      function changeLanguage() {
+        language = document.getElementById("language").value;
+        demo("idle");
+      }
+      document.addEventListener("keydown", (event) => {
+        const modal = document.getElementById("settings-scrim");
+        if (!modal.hidden) {
+          if (event.key === "Escape") closeSettings();
+          if (event.key === "Tab") {
+            const controls = [...modal.querySelectorAll("button,select")];
+            const first = controls[0],
+              last = controls.at(-1);
+            if (
+              event.shiftKey &&
+              (document.activeElement === first || document.activeElement === modal.querySelector(".settings"))
+            ) {
+              event.preventDefault();
+              last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          }
+          return;
+        }
+        if (event.target.closest("input,textarea,select,[contenteditable]")) return;
+        if (event.key === "ArrowLeft") switchVariant(-1);
+        if (event.key === "ArrowRight") switchVariant(1);
+      });
+      render();
+    </script>
+  </body>
+</html>

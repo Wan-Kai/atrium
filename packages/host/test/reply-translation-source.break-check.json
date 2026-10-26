@@ -1,0 +1,51 @@
+[
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "(item): item is Turn => item.kind === \"turn\" && item.id === turnId",
+    "to": "(item): item is Turn => item.id === turnId",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "refuses a system-event id"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "step.kind !== \"compaction\" && ((step.kind !== \"text\" && step.kind !== \"thinking\") || step.text.trim() !== \"\")",
+    "to": "true",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "selects only the visible final reply"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "step.kind !== \"compaction\" && ((step.kind !== \"text\" && step.kind !== \"thinking\") || step.text.trim() !== \"\")",
+    "to": "((step.kind !== \"text\" && step.kind !== \"thinking\") || step.text.trim() !== \"\")",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "with trailing compaction"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "step.text.trim() !== \"\"",
+    "to": "step.text !== \"\"",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "with trailing whitespace"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "reply?.kind === \"text\" ? reply.text : \"\"",
+    "to": "reply.text",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "with tool ending|with empty steps|with nonblank thinking ending"
+  },
+  {
+    "file": "packages/host/src/sessions/reply-translation.ts",
+    "from": "Buffer.byteLength(source.text) > TRANSLATION_INPUT_BYTES",
+    "to": "Buffer.byteLength(source.text) >= TRANSLATION_INPUT_BYTES",
+    "test": "packages/host/src/sessions/reply-translation.test.ts",
+    "name": "accepts replies exactly at both UTF-8 byte limits"
+  },
+  {
+    "file": "packages/host/src/sessions/reply-translation.ts",
+    "from": "Buffer.byteLength(text) > TRANSLATION_OUTPUT_BYTES",
+    "to": "Buffer.byteLength(text) >= TRANSLATION_OUTPUT_BYTES",
+    "test": "packages/host/src/sessions/reply-translation.test.ts",
+    "name": "accepts replies exactly at both UTF-8 byte limits"
+  }
+]

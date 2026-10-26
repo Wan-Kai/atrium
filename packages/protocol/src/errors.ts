@@ -108,6 +108,8 @@ export const ErrorCode = z.enum([
    * `invalid` or `taken` (SPEC-0001, "AI 起分支名").
    */
   "branch_name_failed",
+  /** Reply translation failed; `params.reason` identifies the safe failure category, never model output. */
+  "translation_failed",
   /** The session's pi did not load Atrium's Fast extension, so Fast cannot be switched there (ADR-0008). */
   "fast_unavailable",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */

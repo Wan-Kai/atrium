@@ -173,6 +173,29 @@ const TRICKY_SOURCE = [
 ].join("\n");
 
 describe("pnpm boundary --all", () => {
+  it("includes the remote crypto package in the production boundary gate", async () => {
+    const root = await scene();
+    await put(root, {
+      "docs/architecture/security.md": security({ urls: [], env: [], commands: [] }),
+      "packages/remote-crypto/src/network.ts":
+        'const url = "https://crypto.example"; process.env.REMOTE_NETWORK_KEY;\n',
+      "packages/remote-crypto/test/helper.ts": 'const url = "https://test-only.example";\n',
+    });
+    await git(root, "add", "-A");
+    const result = await boundary(root, "--all");
+    expect([result.stdout, result.code]).toStrictEqual([
+      [
+        "Unregistered URLs:",
+        "  https://crypto.example  packages/remote-crypto/src/network.ts:1",
+        "Unregistered environment variables:",
+        "  REMOTE_NETWORK_KEY  packages/remote-crypto/src/network.ts:1",
+        "boundary --all: URLs 1, environment variables 1, hidden commands 0; unregistered 2, not exact 0",
+        "",
+      ].join("\n"),
+      1,
+    ]);
+  });
+
   it("lists the production URLs, variables and hidden commands the registry lacks, reading code but not comments, regexes, error codes, composed rows, tests or other folders", async () => {
     const root = await scene();
     await put(root, {

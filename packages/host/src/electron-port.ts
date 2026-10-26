@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type VaultPort, portVault } from "./remote/vault";
 import { isStrongToken } from "./server/auth";
 
 /** The subset of Electron's `parentPort` the host uses; present only in a utility process. */
@@ -62,8 +63,8 @@ interface ElectronHost {
 
 /** What `runUnderElectron` needs from the process; `entry.ts` passes the real ones. */
 export interface ElectronRuntime {
-  /** Starts the host from a valid config message. */
-  start(request: HostStartRequest): Promise<ElectronHost>;
+  /** Starts the host from a valid config message, with the vault the main process keeps. */
+  start(request: HostStartRequest, vault: VaultPort): Promise<ElectronHost>;
   /** Ends the process. */
   exit(code: number): void;
 }
@@ -79,10 +80,12 @@ export interface ElectronRuntime {
  * reported and ends the process with a non-zero code instead of leaving it idle. Starting and
  * exiting are passed in, so this race can be tested without Electron. App metrics go only to a
  * host that is ready and not shutting down; others are dropped, since a missed sample costs
- * nothing.
+ * nothing. The vault's requests and answers share the port: the main process encrypts and keeps
+ * the file, the host only asks (SPEC-0005, "保险箱的进程交接").
  *
  * @sideEffects Listens for parent messages; starts the host; posts `ready` or `failed`; hands app
- * metrics to the running host; stops the host and exits on `shutdown` or after a failed start.
+ * metrics to the running host; passes vault requests and answers; stops the host and exits on
+ * `shutdown` or after a failed start.
  * @param parentPort - Electron's port to the main process.
  * @param runtime - How to start the host and end the process.
  */
@@ -90,10 +93,12 @@ export function runUnderElectron(parentPort: ParentPort, runtime: ElectronRuntim
   let starting: Promise<ElectronHost | null> | undefined;
   let running: ElectronHost | undefined;
   let shuttingDown = false;
+  const vault = portVault((message) => parentPort.postMessage(message));
   parentPort.on("message", ({ data }) => {
+    if (vault.receive(data)) return;
     const config = ConfigMessage.safeParse(data);
     if (config.success && starting === undefined) {
-      starting = runtime.start(config.data).then(
+      starting = runtime.start(config.data, vault.vault).then(
         (host) => {
           if (!shuttingDown) {
             running = host;

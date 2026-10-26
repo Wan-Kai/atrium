@@ -1,0 +1,146 @@
+[
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "sas: sas(stream.handshakeHash),",
+    "to": "sas: 'broken',",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "requires key confirmation, matches SAS, persists before accepting and publishes only to watchers",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (pairing === null || request.pairingId !== pairing.pairingId) {",
+    "to": "if (pairing === null) {",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "rejects a refreshed or cancelled QR without admitting a device",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "const check = this.#pairing.check();",
+    "to": "const check = 'ok';",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "authenticates the expired-code rejection after its five-minute deadline",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "reason: reason === \"declined\" ? \"rejected\" : reason",
+    "to": "reason: reason === \"declined\" ? \"cancelled\" : reason",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "sends an authenticated rejection on decline and closes the phone",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/pairing.ts",
+    "from": "export const CONFIRM_TIMEOUT_MS = 2 * 60_000;",
+    "to": "export const CONFIRM_TIMEOUT_MS = 3 * 60_000;",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "rejects after two minutes awaiting desktop confirmation while the phone remains alive",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#pairing.disconnected(phone);",
+    "to": "void phone;",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "rejects a claimed pairing when its phone disconnects before confirmation",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/pairing.ts",
+    "from": "return pairing.state === \"available\" ? \"ok\" : \"pairing_busy\";",
+    "to": "return 'ok';",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "lets only the first encrypted confirmation win when two phones use one QR",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "claim.stream.sendControl({ kind: \"pair_rejected\", reason: \"host_error\" });",
+    "to": "claim.stream.sendControl({ kind: 'pair_rejected', reason: 'wrong' });",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "sends host_error and never grants access when confirming cannot write the vault",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (deviceId !== null) this.#session(stream, deviceId);",
+    "to": "if (deviceId !== null) stream.close('broken');",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "recovers a committed pairing whose paired control was lost, using daily IK",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "one.publicKey === publicKey && !this.#blocked.has(one.deviceId)",
+    "to": "one.publicKey === publicKey",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "revokes all channels immediately, retains a block after write failure, and allows persistence retry",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "deviceId: previous?.deviceId ?? `dev_${randomBytes(8).toString(\"hex\")}`",
+    "to": "deviceId: `dev_${randomBytes(8).toString('hex')}`",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "reuses device identity and custom name on re-pair, supports rename reset and identity reset",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "const revokedAfterAcceptance = (this.#revocations.get(device.deviceId) ?? 0) > acceptedAt;",
+    "to": "const revokedAfterAcceptance = false;",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "never re-admits a device revoked while re-pair confirmation is writing",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "[...this.#streams].filter((stream) => !stream.settled).length >= 4",
+    "to": "[...this.#streams].filter((stream) => !stream.settled).length >= 5",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "caps pending handshakes at four and releases them at the ten-second deadline",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "while (others.length >= 2) others.shift()?.close(\"replaced\");",
+    "to": "while (others.length >= 3) others.shift()?.close('replaced');",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "keeps at most two accepted channels and drops a silent channel after thirty seconds",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "down: Math.max(0, count.down - before.down) / seconds,",
+    "to": "down: 0,",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "samples traffic only while watched and returns idle rates to zero",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "options.signal.addEventListener(\"abort\", abort, { once: true });",
+    "to": "void abort;",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "cancels an owned test_relay probe during close without waiting for its deadline",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "if (connection.origin === \"remote\" && !phoneMayRun(command)) throw new CommandError(\"local_only\");",
+    "to": "if (false) throw new CommandError('local_only');",
+    "test": "packages/host/test/remote/host-connection.host.test.ts",
+    "name": "routes daily Noise and hello, isolates local watchers, forbids management and removes all subscriptions on revoke",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/server/ws-server.ts",
+    "from": "hello.data.token === undefined && hello.data.clientId === origin.deviceId",
+    "to": "hello.data.token === undefined",
+    "test": "packages/host/test/remote/host-connection.host.test.ts",
+    "name": "rejects wrong device identity, forbidden token and incompatible common hello after successful Noise",
+    "project": "host"
+  }
+]

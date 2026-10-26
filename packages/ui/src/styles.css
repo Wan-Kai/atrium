@@ -495,7 +495,8 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* The "进行中" shimmer: a light sweep across the text every 2.2 s (design-language, "动效"). */
+/* The "进行中" shimmer: a light sweep across the text every 1.9 s, the bright band a third of the
+   gradient with a fully lit plateau (design-language, "动效 · 扫光文字"). */
 @keyframes atrium-shimmer {
   from {
     background-position: 100% 0;
@@ -506,11 +507,12 @@ body {
 }
 
 .atrium-shimmer {
-  background: linear-gradient(90deg, var(--text-muted) 40%, var(--text) 50%, var(--text-muted) 60%) 0 0 / 200% 100%;
+  background: linear-gradient(100deg, var(--text-muted) 32%, var(--text) 47%, var(--text) 53%, var(--text-muted) 68%) 0
+    0 / 220% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: atrium-shimmer 2.2s linear infinite;
+  animation: atrium-shimmer 1.9s linear infinite;
 }
 
 /* The run's cat: Atrium's mark, blinking every 2.6 s (design-language, "标志"). */
@@ -539,6 +541,72 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .atrium-run-cat-eyes {
+    animation: none;
+  }
+}
+
+/* The cat while pi compacts between turns: pressed flat every 2.4 s, its eyes widening at the
+   press (design-language, "运行中压缩"). Held slightly pressed under reduced motion. */
+@keyframes atrium-compact-cat-squash {
+  0%,
+  46% {
+    transform: none;
+  }
+  53% {
+    transform: scaleY(1.05) scaleX(0.985);
+  }
+  62%,
+  70% {
+    transform: scaleY(0.76) scaleX(1.1);
+  }
+  80% {
+    transform: scaleY(1.045) scaleX(0.99);
+  }
+  90%,
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes atrium-compact-cat-widen {
+  0%,
+  55% {
+    transform: none;
+  }
+  62%,
+  70% {
+    transform: scale(1.18);
+  }
+  82%,
+  100% {
+    transform: none;
+  }
+}
+
+.atrium-compact-cat {
+  transform-origin: 50% 94%;
+  animation: atrium-compact-cat-squash 2.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) infinite;
+}
+
+.atrium-compact-cat-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: atrium-compact-cat-widen 2.4s ease infinite;
+}
+
+/* The bottom line while pi compacts rises in like a new row on the rail (design-language,
+   "运行中压缩"). */
+.atrium-compacting-line {
+  animation: atrium-rise-in 0.38s cubic-bezier(0.32, 0.72, 0, 1) 0.06s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atrium-compact-cat {
+    animation: none;
+    transform: scaleY(0.88) scaleX(1.05);
+  }
+
+  .atrium-compact-cat-eyes {
     animation: none;
   }
 }

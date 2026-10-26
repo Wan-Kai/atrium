@@ -37,6 +37,7 @@ import { ChildCapsule } from "../children/child-capsule";
 import { askForChild } from "../children/new-child";
 import { MessageImagesContext, messageImages } from "./message-images";
 import { ReplyImagesContext, replyImageFiles } from "./reply-images";
+import { ReplyTranslationContext } from "./reply-translation";
 import type { FileOpener } from "./file-opener";
 import { Transcript } from "./transcript";
 import { StoppedMessageEditor } from "./stopped-message-editor";
@@ -424,6 +425,11 @@ function SessionArea({
     [launch, place, onRetryLaunch],
   );
   const statusBar = useStore(client.index, (index) => index.preferences.statusBar);
+  const translationLanguage = useStore(client.index, (index) => index.preferences.translationLanguage);
+  const translation = useMemo(
+    () => ({ client, sessionId, language: translationLanguage }),
+    [client, sessionId, translationLanguage],
+  );
   const plans = useStore(client.plans);
   const draft = useStore(
     client.index,
@@ -493,51 +499,53 @@ function SessionArea({
         <ReplyImagesContext value={replyImages}>
           <MessageImagesContext value={images}>
             <AgentLinksContext value={links}>
-              <Transcript
-                view={view}
-                editingStopped={editing !== null}
-                onEditStopped={(turn) => {
-                  const draftKey = `edit:${sessionId}:${crypto.randomUUID()}`;
-                  const imageIds = Array.from({ length: turn.user.images }, () => crypto.randomUUID());
-                  const next = pageDrafts().read(sessionId);
-                  pageDrafts().update(draftKey, () => ({
-                    text: turn.user.text,
-                    pastes: [],
-                    files: [],
-                    command: null,
-                    images: imageIds.map((id) => ({ id, image: null, attachmentId: null })),
-                  }));
-                  editStore.setState({
-                    target: {
-                      epoch: view.epoch,
-                      turnId: turn.id,
-                      draftKey,
-                      images: imageIds,
-                      savedDraft:
-                        next.text !== "" ||
-                        next.images.length > 0 ||
-                        next.pastes.length > 0 ||
-                        next.files.length > 0 ||
-                        next.command !== null,
-                    },
-                    submitting: false,
-                    error: null,
-                  });
-                }}
-                onLoadOlder={() => {
-                  // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
-                  client.loadOlder(sessionId).catch(() => undefined);
-                }}
-                onLoadStep={(turnId, stepId) => {
-                  // Fire and forget: a failed fetch leaves the preview, still marked as loading.
-                  client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
-                }}
-                onRetry={actions.retry}
-                onFork={(turnId) => forkFrom(client, sessionId, turnId)}
-                onChild={(turnId) => askForChild({ parentSessionId: sessionId, turnId })}
-                {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
-                launch={shown}
-              />
+              <ReplyTranslationContext value={translation}>
+                <Transcript
+                  view={view}
+                  editingStopped={editing !== null}
+                  onEditStopped={(turn) => {
+                    const draftKey = `edit:${sessionId}:${crypto.randomUUID()}`;
+                    const imageIds = Array.from({ length: turn.user.images }, () => crypto.randomUUID());
+                    const next = pageDrafts().read(sessionId);
+                    pageDrafts().update(draftKey, () => ({
+                      text: turn.user.text,
+                      pastes: [],
+                      files: [],
+                      command: null,
+                      images: imageIds.map((id) => ({ id, image: null, attachmentId: null })),
+                    }));
+                    editStore.setState({
+                      target: {
+                        epoch: view.epoch,
+                        turnId: turn.id,
+                        draftKey,
+                        images: imageIds,
+                        savedDraft:
+                          next.text !== "" ||
+                          next.images.length > 0 ||
+                          next.pastes.length > 0 ||
+                          next.files.length > 0 ||
+                          next.command !== null,
+                      },
+                      submitting: false,
+                      error: null,
+                    });
+                  }}
+                  onLoadOlder={() => {
+                    // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
+                    client.loadOlder(sessionId).catch(() => undefined);
+                  }}
+                  onLoadStep={(turnId, stepId) => {
+                    // Fire and forget: a failed fetch leaves the preview, still marked as loading.
+                    client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
+                  }}
+                  onRetry={actions.retry}
+                  onFork={(turnId) => forkFrom(client, sessionId, turnId)}
+                  onChild={(turnId) => askForChild({ parentSessionId: sessionId, turnId })}
+                  {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
+                  launch={shown}
+                />
+              </ReplyTranslationContext>
             </AgentLinksContext>
           </MessageImagesContext>
         </ReplyImagesContext>

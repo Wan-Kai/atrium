@@ -95,6 +95,7 @@ function fakeCommands() {
     forkSession: record("forkSession", { sessionId: "s2" }),
     listCommands: record("listCommands", { commands: [] }),
     searchFiles: record("searchFiles", { files: [] }),
+    currentSnapshot: () => null,
   };
   const index: IndexCommands = {
     subscribeIndex: record("subscribeIndex", {}),
@@ -187,6 +188,45 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
     },
   };
   const route = createRouter({
+    remote: {
+      get: (id, watch) => {
+        calls.push(["getRemote", id, watch]);
+        return { enabled: false, vault: "unavailable", relay: null, hostFingerprint: null, devices: [], pairing: null };
+      },
+      set: async (enabled, relay) => {
+        calls.push(["setRemote", enabled, relay]);
+        return {};
+      },
+      testRelay: async () => {
+        calls.push(["testRelay"]);
+        return {};
+      },
+      startPairing: () => {
+        calls.push(["startPairing"]);
+        return { pairingId: "pair_0123456789abcdef" };
+      },
+      cancelPairing: () => {
+        calls.push(["cancelPairing"]);
+        return {};
+      },
+      confirmPairing: async (id, accept) => {
+        calls.push(["confirmPairing", id, accept]);
+        return {};
+      },
+      renameDevice: async (id, name) => {
+        calls.push(["renameDevice", id, name]);
+        return {};
+      },
+      revokeDevice: async (id) => {
+        calls.push(["revokeDevice", id]);
+        return {};
+      },
+      resetIdentity: async () => {
+        calls.push(["resetIdentity"]);
+        return {};
+      },
+      unwatch: () => {},
+    },
     sessions,
     index,
     piConfig: {
@@ -229,6 +269,15 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
         calls.push(["cancelInstall", jobId]);
       },
     },
+    translations: {
+      translate: async (connectionId, translationId, sessionId, turnId) => {
+        calls.push(["translateReply", connectionId, translationId, sessionId, turnId]);
+        return { text: "译文", language: "简体中文", model: MODEL };
+      },
+      cancel: async (connectionId, translationId) => {
+        calls.push(["cancelTranslation", connectionId, translationId]);
+      },
+    },
     piLatest: {
       check: async () => {
         calls.push(["checkPiUpdate"]);
@@ -268,6 +317,67 @@ function withTrace(fields: Record<string, unknown>): Command {
 }
 
 describe("createRouter", () => {
+  it.each([
+    {
+      command: { type: "get_remote", watch: true },
+      call: ["getRemote", "connection-7", true],
+      result: { enabled: false, vault: "unavailable", relay: null, hostFingerprint: null, devices: [], pairing: null },
+    },
+    {
+      command: {
+        type: "set_remote",
+        enabled: true,
+        relay: `atrium-relay://hst_0123456789abcdef:${"a".repeat(43)}@localhost`,
+      },
+      call: ["setRemote", true, `atrium-relay://hst_0123456789abcdef:${"a".repeat(43)}@localhost`],
+      result: {},
+    },
+    { command: { type: "test_relay" }, call: ["testRelay"], result: {} },
+    { command: { type: "start_pairing" }, call: ["startPairing"], result: { pairingId: "pair_0123456789abcdef" } },
+    { command: { type: "cancel_pairing" }, call: ["cancelPairing"], result: {} },
+    {
+      command: { type: "confirm_pairing", pairingId: "pair_0123456789abcdef", accept: true },
+      call: ["confirmPairing", "pair_0123456789abcdef", true],
+      result: {},
+    },
+    {
+      command: { type: "rename_device", deviceId: "dev_0123456789abcdef", name: "Phone" },
+      call: ["renameDevice", "dev_0123456789abcdef", "Phone"],
+      result: {},
+    },
+    {
+      command: { type: "revoke_device", deviceId: "dev_0123456789abcdef" },
+      call: ["revokeDevice", "dev_0123456789abcdef"],
+      result: {},
+    },
+    { command: { type: "reset_remote_identity" }, call: ["resetIdentity"], result: {} },
+  ])("routes the local remote command $command.type with its complete arguments", async ({ command, call, result }) => {
+    const { route, connection, calls, sent } = setUp();
+    await route(connection, withTrace(command));
+    expect(calls).toStrictEqual([call]);
+    expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: true, result }]);
+  });
+
+  it("routes reply translation and cancellation with the requesting connection identity", async () => {
+    const { route, connection, calls, sent } = setUp();
+    await route(
+      connection,
+      withTrace({ type: "translate_reply", sessionId: "s1", turnId: "t1", translationId: "tr1" }),
+    );
+    await route(connection, withTrace({ type: "cancel_translation", translationId: "tr1" }));
+    await route(connection, withTrace({ type: "set_preferences", translationLanguage: "日本語" }));
+    expect(calls).toStrictEqual([
+      ["translateReply", "connection-7", "tr1", "s1", "t1"],
+      ["cancelTranslation", "connection-7", "tr1"],
+      ["setPreferences", { translationLanguage: "日本語" }],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: { text: "译文", language: "简体中文", model: MODEL } },
+      { type: "response", requestId: "r1", ok: true, result: {} },
+      { type: "response", requestId: "r1", ok: true, result: {} },
+    ]);
+  });
+
   it("routes a stopped edit with its revision without using ordinary prompt", async () => {
     const { route, connection, calls, sent } = setUp();
     await route(
@@ -297,6 +407,42 @@ describe("createRouter", () => {
       ),
     );
     expect(records.filter((record) => record["msg"] === "client issue")).toStrictEqual([]);
+  });
+
+  it("answers local_only to a phone for what only the Mac may do, and runs what it may", async () => {
+    const { route, sent, calls, logger } = setUp();
+    const phone = createConnection(
+      { bufferedAmount: 0, send: (data) => sent.push(JSON.parse(data) as HostMessage), close: () => undefined },
+      {
+        id: "c3",
+        clientId: "dev_0123456789abcdef",
+        trace: ROOT_CONTEXT,
+        maxBufferedBytes: 1024,
+        logger,
+        remote: { deviceId: "dev_0123456789abcdef", maxMessageBytes: 1024, snapshotOf: () => null },
+      },
+    );
+
+    await route(phone, withTrace({ type: "add_project", requestId: "r1", path: "/work" }));
+    await route(phone, withTrace({ type: "get_remote", requestId: "r2" }));
+    await route(
+      phone,
+      withTrace({
+        type: "create_session",
+        requestId: "r3",
+        containerId: WORKSPACE,
+        child: { parentSessionId: "s1", name: "child", place: "same" },
+      }),
+    );
+    await route(phone, withTrace({ type: "create_session", requestId: "r4", containerId: WORKSPACE }));
+
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: false, error: { code: "local_only" } },
+      { type: "response", requestId: "r2", ok: false, error: { code: "local_only" } },
+      { type: "response", requestId: "r3", ok: false, error: { code: "local_only" } },
+      { type: "response", requestId: "r4", ok: true, result: { sessionId: "s3" } },
+    ]);
+    expect(calls).toStrictEqual([["createSession", "dev_0123456789abcdef", WORKSPACE, true, undefined]]);
   });
 
   it("links a command to nothing when the connection has no trace", async () => {

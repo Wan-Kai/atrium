@@ -1,0 +1,65 @@
+[
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "return options.remote.get(connection.id, command.watch);",
+    "to": "return options.remote.get(connection.id, false);",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "routes the local remote command get_remote"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "return options.remote.set(command.enabled, command.relay);",
+    "to": "return options.remote.set(false, undefined);",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "routes the local remote command set_remote"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "return options.remote.testRelay();",
+    "to": "return options.remote.resetIdentity();",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "routes the local remote command test_relay"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "return options.remote.startPairing();",
+    "to": "return options.remote.cancelPairing();",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "routes the local remote command start_pairing"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "return options.remote.cancelPairing();",
+    "to": "return options.remote.resetIdentity();",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "routes the local remote command cancel_pairing"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "return options.remote.confirmPairing(command.pairingId, command.accept);",
+    "to": "return options.remote.confirmPairing(command.pairingId, false);",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "routes the local remote command confirm_pairing"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "return options.remote.renameDevice(command.deviceId, command.name);",
+    "to": "return options.remote.renameDevice(command.deviceId, '');",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "routes the local remote command rename_device"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "return options.remote.revokeDevice(command.deviceId);",
+    "to": "return options.remote.revokeDevice('dev_ffffffffffffffff');",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "routes the local remote command revoke_device"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "return options.remote.resetIdentity();",
+    "to": "return options.remote.testRelay();",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "routes the local remote command reset_remote_identity"
+  }
+]
