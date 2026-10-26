@@ -24,6 +24,8 @@ public enum RemoteError: Error, Equatable, Sendable {
   case heartbeatTimeout
   /// The host's `welcome` speaks another protocol version.
   case versionMismatch(hostProtocol: Int)
+  /// The client-side cumulative buffer budget was exceeded.
+  case backpressure
   /// The channel was closed on our side.
   case closed
 }

@@ -57,7 +57,8 @@ struct RemoteConnectionTests {
     var messages = connection.messages.makeAsyncIterator()
     try await side.send(Data(#"{"type":"index_snapshot"}"#.utf8))
     #expect(
-      await messages.next() == RemoteMessage(generation: generation, data: Data(#"{"type":"index_snapshot"}"#.utf8)))
+      await messages.next(isolation: #isolation)
+        == RemoteMessage(generation: generation, data: Data(#"{"type":"index_snapshot"}"#.utf8)))
     try await connection.send(Data(#"{"type":"ping"}"#.utf8), generation: generation)
     #expect(try await side.nextMessage() == Data(#"{"type":"ping"}"#.utf8))
     await #expect(throws: RemoteError.closed) { try await connection.send(Data(), generation: generation + 1) }

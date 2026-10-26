@@ -27,7 +27,12 @@ public actor RemoteConnection {
   /// A failed local confirmation or cleanup, retained until resolved or superseded.
   public private(set) var storageIssue: RemoteStorageIssue?
   /// The host's Atrium messages, tagged with their connection.
-  public nonisolated let messages: AsyncStream<RemoteMessage>
+  public nonisolated var messages: some AsyncSequence<RemoteMessage, Never> & Sendable { messageBuffer }
+  /// Most recent failure on this actor, used by deterministic connection diagnostics.
+  private(set) var lastFailure: RemoteError?
+  /// Unread payload and message counts, for bounded-resource assertions.
+  var unreadByteCount: Int { messageBuffer.bufferedByteCount }
+  var unreadMessageCount: Int { messageBuffer.bufferedMessageCount }
   /// What the connection line shows now.
   public private(set) var status = ConnectionStatus.connecting
   /// The current connection attempt; bumped by each new one.
@@ -59,7 +64,7 @@ public actor RemoteConnection {
   private let storageSink: AsyncStream<RemoteStorageIssue?>.Continuation
   private var ownership: HostStore.Claim
   private var storageRecovery: HostStorageRecovery?
-  private let messageSink: AsyncStream<RemoteMessage>.Continuation
+  private let messageBuffer = RemoteMessageBuffer()
   private let deviceKey: Curve25519.KeyAgreement.PrivateKey
   private let store: HostStore
   private let environment: RemoteEnvironment
@@ -104,7 +109,6 @@ public actor RemoteConnection {
     (storageIssues, storageSink) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(1))
     storageSink.yield(nil)
     (statuses, statusSink) = AsyncStream.makeStream()
-    (messages, messageSink) = AsyncStream.makeStream()
     statusSink.yield(status)
   }
 
@@ -127,7 +131,7 @@ public actor RemoteConnection {
     statusSink.finish()
     storageSink.finish()
     storageRecovery = nil
-    messageSink.finish()
+    messageBuffer.finish()
   }
 
   /// Retries the remaining version-owned storage action once.
@@ -169,7 +173,12 @@ public actor RemoteConnection {
   /// - Throws: ``RemoteError/closed`` when that connection is gone, or the channel's error.
   public func send(_ data: Data, generation: Int) async throws(RemoteError) {
     guard generation == self.generation, case .open(let channel) = link else { throw .closed }
-    try await channel.sendMessage(data)
+    do throws(RemoteError) {
+      try await channel.sendMessage(data)
+    } catch {
+      failed(generation, error)
+      throw error
+    }
   }
 
   /// Says that every open session has caught up on the connection of `generation`.
@@ -466,7 +475,11 @@ public actor RemoteConnection {
       case .heartbeatAck:
         tracker.acknowledged(at: now)
         heartbeatsAnswered += 1
-      case .message(let data): messageSink.yield(RemoteMessage(generation: generation, data: data))
+      case .message(let data):
+        guard messageBuffer.yield(RemoteMessage(generation: generation, data: data)) else {
+          failed(generation, .backpressure)
+          return
+        }
       case .control(let body):
         if (try? RemoteJSON.decode(ControlMessage.self, from: body)) == .revoked {
           failed(generation, .rejected(reason: "revoked", hostProtocol: nil))
@@ -518,6 +531,7 @@ public actor RemoteConnection {
   ///   - error: Why.
   private func failed(_ generation: Int, _ error: RemoteError) {
     guard generation == self.generation, !status.isTerminal, !isStopped else { return }
+    lastFailure = error
     tearDown()
     switch error {
     case .rejected(reason: "device_unknown", _) where host.isPending:
@@ -636,6 +650,7 @@ public actor RemoteConnection {
   ///   queued frames or launching detached cleanup work.
   /// - SideEffects: Cancels tasks; closes the connection.
   private func tearDown() {
+    messageBuffer.clear(generation: generation)
     for task in tasks { task.cancel() }
     tasks = []
     connectingTransport?.close()
