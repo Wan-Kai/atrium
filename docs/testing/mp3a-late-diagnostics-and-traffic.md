@@ -20,4 +20,8 @@
 
 验证边界已由父确认：RemoteService get/watch/unwatch、发送给本机watcher的完整remote_updated、真实Noise手机密文字节及注入Clock/ResourceTracker。先让idle/稳定公开值的回归在无条件推送版本失败，再只调整采样timer的可见down/up变化判断。不用全状态深比较，不增加参数/协议/暂停采样机制；覆盖多watcher、恢复订阅和被隐藏设备遗留计数。
 
-结果待执行后填写。
+先红后绿：原实现的idle用例推进3个tick出现3个重复事件；改为数值变化才通知后通过。恢复旧无条件推送路径时，稳定速率回归明确失败。中间仅比较内部Map时，blocked/revoked/reset三个隐藏设备用例仍红；增加与设备列表一致的可见性条件后全部通过。只改私有采样方法的布尔返回与timer调用处，没有改普通#changed、暂停采样或新增协议字段。
+
+最终：新增宿主10/10；远程宿主6文件76/76；remote-service与relay-link单元49/49；远程泄漏2/2，均单worker。14项精确负控全检出，另复验原last-unwatch守卫负控1/1；涵盖独立up/down、稳定不重复、离线半速/归零、移除即时通知、隐藏计数、2秒窗口、重复watch/multiwatch/同一时刻恢复订阅和timer清理。首轮相关单元1失败是旧测试要求空闲每tick必推，与新契约相反；更新为无重复事件，保留并加强timer和初始get断言，未删测试。首轮lint的条件断言规则失败已改为独立动作表与方向helper，最终定向lint/格式/host类型通过。
+
+独立只读审查无阻断：可见性与#view一致；未直接覆盖可见/隐藏设备同tick变化组合（当前changed只累积true，不被后续设备抹掉）。本worktree没有整合lane的SettingsPanel实现，未在此验证UI订阅owner；文档按父已定契约同步，无UI修改。不做性能测量/改善宣称，不沿用7b的变异成绩。完整红/绿/负控日志在 `/tmp/mp3a-traffic-notifications/`。

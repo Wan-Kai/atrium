@@ -213,22 +213,22 @@ describe("RemoteService", () => {
     f.clock.advance(999);
     expect(f.events).toStrictEqual([]);
     f.clock.advance(1);
-    expect(f.events).toStrictEqual([
-      ["first", { type: "remote_updated", remote: state }],
-      ["second", { type: "remote_updated", remote: state }],
-    ]);
+    expect(f.events).toStrictEqual([]);
+    expect(f.service.get("not subscribed", undefined)).toStrictEqual(state);
     f.service.get("first", false);
     f.service.unwatch("not subscribed");
     expect(f.resources.snapshot()).toStrictEqual({ timer: 1 });
     f.clock.advance(1000);
-    expect(f.events.slice(2)).toStrictEqual([["second", { type: "remote_updated", remote: state }]]);
+    expect(f.events).toStrictEqual([]);
+    expect(f.resources.snapshot()).toStrictEqual({ timer: 1 });
     f.service.unwatch("second");
     expect(f.resources.snapshot()).toStrictEqual({ timer: 0 });
     f.clock.advance(10_000);
-    expect(f.events).toHaveLength(3);
-    f.service.get("again", true);
+    expect(f.events).toStrictEqual([]);
+    expect(f.service.get("again", true)).toStrictEqual(state);
     f.clock.advance(1000);
-    expect(f.events.slice(3)).toStrictEqual([["again", { type: "remote_updated", remote: state }]]);
+    expect(f.events).toStrictEqual([]);
+    expect(f.resources.snapshot()).toStrictEqual({ timer: 1 });
     await f.service.close();
     expect(f.resources.snapshot()).toStrictEqual({ timer: 0 });
   });
