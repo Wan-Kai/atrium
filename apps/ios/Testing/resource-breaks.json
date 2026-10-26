@@ -1,0 +1,10 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Tests/AtriumRemoteTests/ConnectionTestResources.swift",
+    "from": "for (connection, _) in owned { await connection.stop() }",
+    "to": "for (connection, _) in owned { _ = connection }",
+    "name": "remote test scope always stops resources even after throw",
+    "runner": "swift",
+    "filter": "RemoteConnectionTests/teardownAfterThrow"
+  }
+]

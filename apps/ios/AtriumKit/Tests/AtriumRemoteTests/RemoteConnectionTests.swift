@@ -25,7 +25,7 @@ func waitForRetry(_ h: Harness, attempts: Int, delay: Duration) async throws {
   }
 }
 
-@Suite("Remote connection")
+@Suite("Remote connection", ConnectionResourceScope())
 struct RemoteConnectionTests {
   @Test("connects with IK, says hello without a token as the device, syncs, then counts as connected")
   func connectsAndSyncs() async throws {
@@ -287,16 +287,22 @@ struct RemoteConnectionTests {
     var statuses = StatusReader(connection)
     _ = await statuses.next()
     await connection.start()
-    let side = try await h.open(connection)
+    let incoming = await h.relay.next()
+    let side = try await h.host.accept(incoming.host, stopwatch: h.stopwatch)
+    try await side.answerHello(protocolVersion: AtriumProtocol.protocolVersion)
     #expect(await statuses.next() == .syncing)
-    await step(h.clock, seconds: 34)
+    // Read ciphertext without the host channel's automatic heartbeat replies. Each scheduled write
+    // must actually reach the wire before advancing time; enqueue alone is not a send receipt.
+    #expect(try await incoming.host.receive().count == 17)
+    for _ in 0..<3 {
+      await step(h.clock, seconds: 10)
+      #expect(try await incoming.host.receive().count == 17)
+    }
+    await step(h.clock, seconds: 4)
     #expect(await connection.status == .syncing)
     await step(h.clock, seconds: 1)
     #expect(await statuses.next() == .reconnecting)
-    // The phone sent heartbeats at 0, 10, 20 and 30 s.
-    var seen = 0
-    while let event = try? await side.next() { if event == .heartbeat { seen += 1 } }
-    #expect(seen == 4)
+    #expect(incoming.host.isClosed)
   }
 
   @Test("answered heartbeats keep the link, one every 10 seconds")
@@ -490,11 +496,31 @@ struct RemoteConnectionTests {
     let connection = RemoteConnection(
       host: h.host.record, deviceKey: try h.store.deviceKey(), store: h.store, environment: h.environment,
       handover: pairing.channel)
+    ConnectionTestResources.current?.register(connection, clock: h.clock)
     await connection.start()
     let hello = try await side.answerHello(protocolVersion: AtriumProtocol.protocolVersion)
     #expect(hello["clientId"] as? String == h.host.deviceId)
     try await eventually { await connection.status == .syncing }
     #expect(h.relay.requested.isEmpty)
+  }
+
+  /// Deliberate body failure used to exercise mandatory resource teardown.
+  ///
+  /// - Remark: A cleanup failure must not masquerade as this expected error.
+  private enum PlannedFailure: Error, Equatable { case expected }
+
+  @Test("a throwing test body still releases its connection and manual-clock sleepers")
+  func teardownAfterThrow() async throws {
+    let h = Harness()
+    await #expect(throws: PlannedFailure.expected) {
+      try await ConnectionTestResources().run {
+        let connection = try h.connection()
+        await connection.start()
+        _ = try await h.open(connection)
+        throw PlannedFailure.expected
+      }
+    }
+    #expect(h.clock.sleeperCount == 0)
   }
 
   @Test("the offline reason is read only when it is offline:<positive seconds>")

@@ -3,6 +3,7 @@ import AtriumProtocol
 import AtriumTestSupport
 import CryptoKit
 import Foundation
+import Synchronization
 import Testing
 
 @testable import AtriumRemote
@@ -11,13 +12,16 @@ import Testing
 /// a test host and the environment wiring them.
 ///
 /// - Remark: Jitter is fixed at 0, so backoff waits are exactly 1, 2, 4 … s.
-struct Harness {
+final class Harness: Sendable {
   let clock = ManualClock()
   let relay = MemoryRelay()
   let secrets = MemorySecretStore()
+  let store: HostStore
   let host = TestHost()
   let environment: RemoteEnvironment
   let stopwatch: Stopwatch
+  /// Keeps accepted host sessions alive for the harness lifetime, rather than leaking their writer tasks.
+  private let hostSessions = Mutex<[HostSide]>([])
 
   /// Wires the parts.
   ///
@@ -26,15 +30,13 @@ struct Harness {
   /// - Parameter protocolVersion: The version the phone announces.
   init(protocolVersion: Int = AtriumProtocol.protocolVersion) {
     let relay = relay
+    store = HostStore(secrets)
     stopwatch = Stopwatch(clock)
     environment = RemoteEnvironment(
       connect: { relay.connect($0) }, stopwatch: stopwatch, jitter: { 0 },
       traceparent: { "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" }, appVersion: "0.1.0",
       protocolVersion: protocolVersion)
   }
-
-  /// The keychain records.
-  var store: HostStore { HostStore(secrets) }
 
   /// A connection to the test host, with a confirmed record already in the keychain.
   ///
@@ -50,7 +52,10 @@ struct Harness {
     } else {
       try store.confirm(record, deviceId: record.deviceId ?? "")
     }
-    return RemoteConnection(host: record, deviceKey: try store.deviceKey(), store: store, environment: environment)
+    let connection = RemoteConnection(
+      host: record, deviceKey: try store.deviceKey(), store: store, environment: environment)
+    ConnectionTestResources.current?.register(connection, clock: clock)
+    return connection
   }
 
   /// Accepts the next connection as the test host and answers `hello`.
@@ -64,6 +69,7 @@ struct Harness {
     let connection = await relay.next()
     let side = try await host.accept(connection.host, stopwatch: stopwatch)
     let hello = try await side.answerHello(protocolVersion: protocolVersion)
+    hostSessions.withLock { $0.append(side) }
     return (side, hello)
   }
 }

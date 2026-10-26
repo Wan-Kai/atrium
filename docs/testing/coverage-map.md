@@ -1429,3 +1429,7 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 最终 `pnpm check` 通过；已将两个互通脚本明确登记为knip入口、把系统Swift编译器列入外部二进制名单（不忽略源码）。UI交接修复后重新跑完整 `test:ios`，上述三项从最终xcresult再次核对为Passed。
 
 边界：系统样式只是测试接线，未验收为最终视觉；首页连接仍显示“正在同步”，不会替代同步层擅自标“已连接”。未测真机扫码/权限弹窗、锁屏首次解锁、实际备份迁移、七天续签、真实生产宿主/faux-pi、WAN/TLS故障代理。此节不标完整MP4完成。
+
+### MP4 冻结基线 323e7b7 后的审查修复
+
+- 测试资源：`ConnectionResourceScope` 对 `RemoteConnectionTests` 每个 case 注册连接，成功或抛错均 stop，并检查弱引用释放及手动时钟 sleeper 归零。原 pending IK / inactive / handover 三条成功路径先在新退出断言下失败；补 teardown 后26项通过。`teardownAfterThrow` 特意抛错验证失败路径；`Testing/resource-breaks.json` 删除 stop 的破坏检查1/1检出。假宿主会话由 Harness 显式持有，不再依赖遗留 writer 泄漏保持连接；无应答心跳测试在每个发送时点读取真实密文，避免把排队等同发送成功。
