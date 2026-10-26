@@ -9,6 +9,16 @@ import SwiftUI
 struct AtriumApp: App {
   /// The single window.
   var body: some Scene {
-    WindowGroup { HomeView() }
+    WindowGroup {
+      #if DEBUG
+        if PairingKeychainCheck.isRequested {
+          PairingKeychainCheck()
+        } else {
+          PairingHome { HomeView() }
+        }
+      #else
+        PairingHome { HomeView() }
+      #endif
+    }
   }
 }

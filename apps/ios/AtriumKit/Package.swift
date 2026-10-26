@@ -51,6 +51,7 @@ let package = Package(
     ),
     .testTarget(name: "AtriumSyncTests", dependencies: ["AtriumSync"], swiftSettings: shared),
     .testTarget(name: "AtriumRenderTests", dependencies: ["AtriumRender"], swiftSettings: shared),
-    .testTarget(name: "AtriumUITests", dependencies: ["AtriumUI"], swiftSettings: mainActor),
+    .testTarget(
+      name: "AtriumUITests", dependencies: ["AtriumUI", "AtriumRemote", "AtriumTestSupport"], swiftSettings: mainActor),
   ]
 )

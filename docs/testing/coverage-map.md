@@ -1404,3 +1404,28 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 分隔行不带开头竖线（`--- \| ---`）、或表格吃进不带竖线的行之后，下一行数据被当成新表头藏起来；另外段落里一行以竖线开头的文字之后，下一行永远不藏，而真实渲染里表格可以从那里开始 | 某行是否已在表格里：往上找到空行、标题或围栏为止，中间有"表头 + 列数相同的完整分隔行"就算；不再看上一行是不是以竖线开头 | 同上；两条合起来破坏检查 12 处检出。2026-10-25 变异测试 ui 组 `markdown-transforms.ts`：新代码先存活 15 个，补 11 项（每项也加进真实渲染对照，现在 38 段），3 个注明等价（短于三个的波浪线不会闭合三个以上的围栏、第一行之前当空行、表头和它下一行不会是围栏）；之后新代码无存活，整个文件 94.21%，存活的 22 个都在这次没改的函数里 | 已修 |
 | `numberedFiles` 重建有 TOCTOU：两个进程都看到旧目录不全，A 挪走旧的、放好完整的，B 接着把 A 刚放好的挪走删掉 | 按代命名、从不挪动或删除（用户 2026-10-24 定，不用跨进程锁：锁的持有者被杀会留下锁，抢锁又会回到竞态）：不全的留着，新的放到下一个空着的名字；改名失败就重新看，取别人放好的 | `shared-directory.test.ts` "never moves or removes a complete directory another caller published while it was rebuilding a purged one"（受控交错：一方看到不全后停住，另一方放好再放行），修前失败（另一方放好的目录 inode 变了）；"takes the copy another caller published just before its own…"、"passes over a name something else holds"、改写的"builds the directory again under the next free name…"；破坏检查 7 处检出 | 已修 |
 | `pnpm test:stress` 只看每个测试的结果，丢掉子进程的退出码：导入失败、`afterAll` 抛错、运行级错误、被杀，只要报告里有测试就算通过 | 一份也算没跑好：被信号杀掉、文件在测试之外失败（报告里文件 `status: failed` 且带错误）、没有失败的测试却非零退出或报告 `success: false`；`ATRIUM_STRESS_RUNNER` 换成替身供脚本自己的测试用 | `scripts/stress.test.ts` 7 项（替身 Vitest 写报告、按要求退出或被杀），修前 4 项失败；破坏检查 7 处检出 | 已修 |
+
+## MP4 手机连接核心（SPEC-0005，2026-10-26，进行中）
+
+| 范围 | 用例与证据 |
+|---|---|
+| Noise IK / IKpsk2、SAS、分帧 | `AtriumNoiseTests`：cacophony 公开向量、TS/Swift 固定记录逐字节互通回放、负例与固定种子输入。篡改负例改为从 TS 记录重建响应方后直接断言 `.decryptFailed`，已删除 `withKnownIssue`，最终无 known issues；自实现固定种子 fuzz 不称为独立差分验证 |
+| 日常连接、同步边界 | `RemoteConnectionTests`：IK、生成的 protocol 26 `hello` 不带 token、clientId=deviceId、旧代发送和同步结果不能污染新连接、pending 用 IK 补确认、配对通道交接 |
+| 安全与连接状态 | Noise 内的 `device_unknown` / `revoked` 清理；外层 4401/4409 不删除；离线时间、版本不符、无网、relay 不通；1→30 秒退避与抖动、心跳、15 秒握手超时 |
+| 配对与存储 | `PairingFlowTests` / `HostStoreTests`：先存 pending、SAS 一致、确认后正式记录、拒绝理由、丢失确认答复恢复、全局设备密钥不随主机删除、旧正式记录不被新 pending 覆盖、损坏私钥不静默轮换 |
+| 通道 | `SecureChannelTests`：双向分块、自动心跳回复、篡改与未知帧关闭、超限、30 秒分块截止时间、关闭码；`ChannelCloseTests`：阻塞发送只能由 close 解开，优雅关闭在注入时钟 2 秒后强制释放 |
+| 审查后回归 | 只读审查发现的 4 类问题均先见测试失败：background→inactive→active 未恢复、短暂无网后卡住、关闭等待 writer 无界、确认写失败/本地超时丢 pending。另修按唤醒次数而非实际时间计配对倒计时 |
+
+连接核心阶段验证：全 Swift 111 项 / 17 suites 通过；当时篡改回放产生的 2 项 known issues 已由上述直接拒绝断言替换。`pnpm break-check apps/ios/Testing/remote-breaks.json` 最终13/13检出（核心11项，加UI即时交接与非法粘贴两项）。回归修复后 `pnpm check` 通过。全仓 `pnpm test` 首轮 3791 过、`scripts/boundary.test.ts` 1 项 5 秒超时；该文件单独重跑 8/8 通过，未修改其超时或断言。之后完整重跑：TypeScript 3792/3792、Swift 111/111 通过，保留首轮超时记录。
+
+### 配对界面、本机互通与平台验证补充
+
+- `AtriumUI/Pairing/`：系统样式测试接线，只有扫码/粘贴、SAS/倒计时、失败恢复与完成交接；协议状态仍唯一来自 `PairingFlow`。`PairingModelTests` 验证非法输入不联网、重复提交只连一次、取消后旧回调无效、通道只交接一次。审查发现成功后必须点击“完成”才交接的缺口，先复现成功后直接dismiss会abort，再改为成功回调立即交接，完成按钮只关闭页面；回归与限定复查通过。XCUITest 曾复现布尔 sheet 与可选 model 同帧设置导致空白，改成按 model 身份呈现后通过。
+- `node apps/ios/Integration/run.mjs`：真实本机 relay（路径前缀 `/atrium`）+ 不改动的 TS MP0 假宿主 + 正式 Swift WebSocket/Noise；连续三次通过配对/SAS、hello、IK重连、心跳ACK、撤销断链、旧密钥拒绝。`--negative-control` 错误SAS使指定断言失败；启动期/构建期SIGTERM正确清理，relay资源归零、临时目录无残留。**MP0协议25仅在测试显式覆盖，不是协议26生产宿主/faux-pi契约。** 普通Swift测试对此项明确skip，专用命令实际执行。
+- 平台钥匙串：最初在XCUITest Runner调用返回 `-34018`；测试target entitlement只进入bundle模拟段，实际Runner仍无权限。迁到真实App进程的DEBUG固定检查后通过，已撤掉旧Runner链接/entitlement配置。仅使用固定测试service与UUID account，所有读写与清理精确限定；验证生产KeychainStore插入、覆盖、读取、删除、缺失及实际 `AfterFirstUnlockThisDeviceOnly` 属性。把生产属性改成 `WhenUnlockedThisDeviceOnly` 的负对照使该用例失败，恢复后通过。Release构建通过且产物不含检查入口/命名空间标记。
+- 最后 `pnpm test:ios`：Swift报告115项/19 suites，无known issues（其中1项实时互通默认skip，另由专用runner实跑）；模拟器3项全部通过，xcresult `Test-Atrium-2026.10.26_16-33-59-+0800.xcresult` 明确记录首页、`PairingKeychainTests/testProductionKeychainRoundTripAndProtection()`、`PairingScreenTests/testPasteValidationAndCameraFallback()`。
+- 明暗真实截图：`apps/ios/.build/shots/pairing-light/`、`pairing-dark/`（manifest注明对应附件），已查看入口与非法链接/相机备用状态。初次用 `AppleInterfaceStyle` 启动参数未改变主题，两组实际都是深色，不算明暗验证；改由模拟器主题设置后重新拍摄。提交后收起键盘，错误不再被遮挡。
+
+最终 `pnpm check` 通过；已将两个互通脚本明确登记为knip入口、把系统Swift编译器列入外部二进制名单（不忽略源码）。UI交接修复后重新跑完整 `test:ios`，上述三项从最终xcresult再次核对为Passed。
+
+边界：系统样式只是测试接线，未验收为最终视觉；首页连接仍显示“正在同步”，不会替代同步层擅自标“已连接”。未测真机扫码/权限弹窗、锁屏首次解锁、实际备份迁移、七天续签、真实生产宿主/faux-pi、WAN/TLS故障代理。此节不标完整MP4完成。
