@@ -178,7 +178,7 @@ protocol  ←──  pi  ←──  host
 | relay | ws、zod | 任何内部包（testkit 只作开发依赖，测试里用假时钟） | package.json 没声明；它部署在另一台机器上，Clock 和资源计数各写一份小的，不从宿主拿 |
 | testkit | protocol | 其他内部包；被生产代码依赖 | 避免和被测包形成循环依赖；knip、oxlint 检查 |
 
-- **MP3a 远程边界**：`server/transport.ts`、`server/router.ts` 声明传输和管理命令接口；`remote/` 只依赖这些类型，不 import 服务器实现；`main.ts` 注入 `RunningServer.accept`、订阅表的定向发送、Clock、资源计数和 VaultPort。服务器不 import `remote/`，继续共用会话/工作区服务。主进程 `main/vault.ts` 只处理固定 vault 文件的加解密与有版本的 IPC，不 import 宿主代码。独立宿主不触碰 safeStorage，未启用时不读保险箱。
+- **MP3a 远程边界**：`server/transport.ts`、`server/router.ts` 声明传输和管理命令接口；`remote/` 只依赖这些类型，不 import 服务器实现；`main.ts` 注入 `RunningServer.accept`、订阅表的定向发送、Clock、资源计数和 VaultPort。服务器不 import `remote/`，继续共用会话/工作区服务。主进程 `main/vault.ts` 只处理固定 vault 文件的加解密与有版本的 IPC，不 import 宿主代码。独立宿主不触碰 safeStorage，未启用时不自动读保险箱（显式配置、测试、重置除外）。
 
 - **回复增强的 UI 内部边界（2026-10-20）**：`chat/file-opener.ts` 只声明当前工作区的惰性打开能力，供工具胶囊与 Markdown 引用共同使用；不从 Markdown 反向 import 步骤组件。文件路径的工作区校验与打开仍由 ConversationArea 组装；`state/workspace-views.ts` 保存窗口内的一次性行范围导航，FileViewer 在读取和恢复滚动后按实际行元素消费，不增加宿主命令或持久索引字段。JSON 使用精确锁定的 `jsonc-parser@3.3.1` 的 scanner/AST（严格 JSON，不接受注释），通过源码位置展示数值和属性，CSV 用受限状态机；两者都不引入脚本执行或网络能力。
 - **faux extension 的例外**：`packages/testkit/src/faux/extension.ts` 可以 import `@earendil-works/pi-ai`。我们的代码从不加载它，它只作为文件路径交给 pi 进程（`--extension`），由 pi 自己加载执行，import 也由 pi 解析到它自带的 pi-ai；testkit 声明的同版本 pi-ai 开发依赖只用于类型检查。oxlint 只对这一个文件放开限制。放在 testkit 而不是 pi 包，是因为 pi 契约测试、宿主集成测试和端到端测试都要用它。
