@@ -9,7 +9,7 @@ import { useFollowBottom } from "./follow-bottom";
 import { UserBubble } from "./messages";
 import { LoadStepContext } from "./steps";
 import { OpenFileContext, type FileOpener } from "./file-opener";
-import { RunStatus } from "./run-status";
+import { CompactingCat, RunStatus } from "./run-status";
 import { type ForkFromTurn, NoticeView, TurnView } from "./turn-view";
 
 /**
@@ -281,7 +281,8 @@ function cutBefore(items: readonly TranscriptItem[], index: number): boolean {
  * queue and adds no line. A failed last turn offers "重试" while no
  * run goes on and pi is not being restarted (SPEC-0001, "运行控制"). While pi compacts the
  * context, a line says so: on the running turn's rail, where it has got to, or at the bottom
- * between turns (design-language, "运行中压缩"; SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). Every finished
+ * between turns with the cat pressed flat before the words (design-language, "运行中压缩";
+ * SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). Every finished
  * turn offers "从这里分叉", greyed while a run goes on, stops, pi compacts or is restarted
  * (SPEC-0001, "M1.11 的 `/` 命令 · 分叉"), and "从这里开子对话" beside it, greyed alike (SPEC-0002).
  * The launch that made the session from the new-workspace page shows in its first turn, from the
@@ -392,7 +393,11 @@ export function Transcript({
                 <RunStatus startedAt={view.run?.startedAt ?? null} />
               )}
               {view.control.compacting && !turnRunning ? (
-                <p role="status" className="flex min-h-[30px] items-center text-[length:var(--fs-meta)]">
+                <p
+                  role="status"
+                  className="atrium-compacting-line relative flex min-h-[30px] items-center pl-6 text-[length:var(--fs-meta)]"
+                >
+                  <CompactingCat />
                   <span className="atrium-shimmer">正在压缩上下文…</span>
                 </p>
               ) : null}
