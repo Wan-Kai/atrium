@@ -22,14 +22,14 @@ const MAX_DATA = 4 * 1024 * 1024;
  * Reads a message from the host as a vault request.
  *
  * @remarks
- * The main process does not bundle zod, so the two shapes are checked by hand; anything else is
- * not a vault request.
+ * The main process does not bundle zod, so the two shapes are checked by hand. A known request
+ * with a valid id but invalid contents must get an error, not leave the host waiting forever.
  *
  * @sideEffects none
  * @param message - The message.
- * @returns The request, or `null`.
+ * @returns The request, an invalid request with its id, or `null` for unrelated messages.
  */
-function vaultRequest(message: unknown): VaultRequest | null {
+function vaultRequest(message: unknown): VaultRequest | { readonly type: "invalid"; readonly id: number } | null {
   if (typeof message !== "object" || message === null) return null;
   const type: unknown = Reflect.get(message, "type");
   const id: unknown = Reflect.get(message, "id");
@@ -38,8 +38,8 @@ function vaultRequest(message: unknown): VaultRequest | null {
   if (type !== "vault_write") return null;
   const version: unknown = Reflect.get(message, "version");
   const data: unknown = Reflect.get(message, "data");
-  if (typeof version !== "number" || !Number.isInteger(version) || version < 1) return null;
-  if (typeof data !== "string" || data.length > MAX_DATA) return null;
+  if (typeof version !== "number" || !Number.isInteger(version) || version < 1) return { type: "invalid", id };
+  if (typeof data !== "string" || data.length > MAX_DATA) return { type: "invalid", id };
   return { type, id, version, data };
 }
 
@@ -115,7 +115,7 @@ export function createVaultKeeper(options: { readonly path: string; readonly cry
    * @returns The answer.
    */
   async function read(id: number): Promise<VaultResult> {
-    if (!(await options.crypto.available()))
+    if (!(await options.crypto.available().catch(() => false)))
       return { type: "vault_result", id, ok: false, error: "keychain_unavailable" };
     let encrypted: Buffer;
     try {
@@ -154,7 +154,7 @@ export function createVaultKeeper(options: { readonly path: string; readonly cry
       if (!before.ok && before.error !== "corrupt") return before;
     }
     if (version <= (current ?? 0)) return { type: "vault_result", id, ok: false, error: "stale" };
-    if (!(await options.crypto.available()))
+    if (!(await options.crypto.available().catch(() => false)))
       return { type: "vault_result", id, ok: false, error: "keychain_unavailable" };
     let encrypted: Buffer;
     try {
@@ -179,9 +179,12 @@ export function createVaultKeeper(options: { readonly path: string; readonly cry
     handle(message) {
       const data = vaultRequest(message);
       if (data === null) return Promise.resolve(null);
-      const answer = queue.then(() =>
-        data.type === "vault_read" ? read(data.id) : write(data.id, data.version, data.data),
-      );
+      if (data.type === "invalid")
+        return Promise.resolve({ type: "vault_result", id: data.id, ok: false, error: "io" });
+      const answer = queue
+        .then(() => (data.type === "vault_read" ? read(data.id) : write(data.id, data.version, data.data)))
+        // Cleanup can fail too: still answer this request and keep later requests runnable.
+        .catch((): VaultResult => ({ type: "vault_result", id: data.id, ok: false, error: "io" }));
       queue = answer;
       return answer;
     },

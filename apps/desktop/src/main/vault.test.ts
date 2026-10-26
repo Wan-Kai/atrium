@@ -1,5 +1,5 @@
 import { createTempDir } from "@atrium/testkit";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { type VaultCrypto, createVaultKeeper } from "./vault";
@@ -14,9 +14,15 @@ import { type VaultCrypto, createVaultKeeper } from "./vault";
  * @returns The crypto and a switch.
  */
 function fakeCrypto() {
-  const state = { available: true, failEncrypt: false };
+  const state = { available: true, failEncrypt: false, rejectAvailabilityOnce: false };
   const crypto: VaultCrypto = {
-    available: async () => state.available,
+    available: async () => {
+      if (state.rejectAvailabilityOnce) {
+        state.rejectAvailabilityOnce = false;
+        throw new Error("keychain unavailable");
+      }
+      return state.available;
+    },
     encrypt: async (text) => {
       if (state.failEncrypt) throw new Error("no key");
       return Buffer.from(`enc:${Buffer.from(text).toString("base64")}`);
@@ -158,6 +164,27 @@ describe("createVaultKeeper", () => {
     await expect(stat(path)).rejects.toThrow("ENOENT");
   });
 
+  it.each(["vault_read", "vault_write"] as const)(
+    "answers keychain_unavailable when %s availability rejects, then continues queued requests",
+    async (type) => {
+      const { vault, state } = await keeper();
+      await vault.handle({ type: "vault_read", id: 1 });
+      state.rejectAvailabilityOnce = true;
+
+      expect(
+        await Promise.all([
+          vault.handle({ type, id: 2, version: 1, data: "not-written" }),
+          vault.handle({ type: "vault_write", id: 3, version: 1, data: "recovered" }),
+          vault.handle({ type: "vault_read", id: 4 }),
+        ]),
+      ).toStrictEqual([
+        { type: "vault_result", id: 2, ok: false, error: "keychain_unavailable" },
+        { type: "vault_result", id: 3, ok: true },
+        { type: "vault_result", id: 4, ok: true, version: 1, data: "recovered" },
+      ]);
+    },
+  );
+
   it("answers io when the file cannot be written, leaving no temporary file", async () => {
     const { vault, path } = await keeper();
     await vault.handle({ type: "vault_read", id: 1 });
@@ -174,6 +201,35 @@ describe("createVaultKeeper", () => {
     expect(await vault.handle({ type: "vault_read", id: 3 })).toMatchObject({ error: "io" });
   });
 
+  it("answers io even when temporary-file cleanup rejects, and accepts the next write", async () => {
+    const { vault, dir } = await keeper();
+    await vault.handle({ type: "vault_read", id: 1 });
+    const parent = join(dir, "remote");
+    await writeFile(parent, "not a directory");
+    // This real filesystem failure affects both mkdir and the attempted temporary-file cleanup.
+    await expect(rm(join(parent, ".probe.tmp"), { force: true })).rejects.toMatchObject({ code: "ENOTDIR" });
+
+    expect(await vault.handle({ type: "vault_write", id: 2, version: 1, data: "not-written" })).toStrictEqual({
+      type: "vault_result",
+      id: 2,
+      ok: false,
+      error: "io",
+    });
+    await rm(parent);
+    expect(await vault.handle({ type: "vault_write", id: 3, version: 1, data: "recovered" })).toStrictEqual({
+      type: "vault_result",
+      id: 3,
+      ok: true,
+    });
+    expect(await vault.handle({ type: "vault_read", id: 4 })).toStrictEqual({
+      type: "vault_result",
+      id: 4,
+      ok: true,
+      version: 1,
+      data: "recovered",
+    });
+  });
+
   it("handles requests one at a time, in the order they came", async () => {
     const { vault } = await keeper();
     const answers = await Promise.all([
@@ -186,6 +242,34 @@ describe("createVaultKeeper", () => {
     expect(answers[2]).toMatchObject({ version: 2, data: "b" });
   });
 
+  it.each([
+    { label: "invalid version", version: 0, data: "a" },
+    { label: "invalid data", version: 1, data: 7 },
+    { label: "oversized data", version: 1, data: "a".repeat(4 * 1024 * 1024 + 1) },
+  ])("answers io for a known request with $label instead of dropping it", async ({ version, data }) => {
+    const { vault, path } = await keeper();
+
+    expect(await vault.handle({ type: "vault_write", id: 11, version, data })).toStrictEqual({
+      type: "vault_result",
+      id: 11,
+      ok: false,
+      error: "io",
+    });
+    await expect(stat(path)).rejects.toThrow("ENOENT");
+    expect(await vault.handle({ type: "vault_write", id: 12, version: 1, data: "valid" })).toStrictEqual({
+      type: "vault_result",
+      id: 12,
+      ok: true,
+    });
+    expect(await vault.handle({ type: "vault_read", id: 13 })).toStrictEqual({
+      type: "vault_result",
+      id: 13,
+      ok: true,
+      version: 1,
+      data: "valid",
+    });
+  });
+
   it("ignores what is not a vault request", async () => {
     const { vault } = await keeper();
 
@@ -194,9 +278,6 @@ describe("createVaultKeeper", () => {
       { type: "shutdown" },
       { type: "vault_read", id: 0 },
       { type: "vault_read", id: 1.5 },
-      { type: "vault_write", id: 1, version: 0, data: "a" },
-      { type: "vault_write", id: 1, version: 1, data: 7 },
-      { type: "vault_write", id: 1, version: 1, data: "a".repeat(4 * 1024 * 1024 + 1) },
     ]) {
       expect(await vault.handle(message)).toBeNull();
     }
