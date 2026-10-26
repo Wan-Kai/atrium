@@ -9,8 +9,8 @@
   },
   {
     "file": "apps/ios/AtriumKit/Sources/AtriumRemote/PairingFlow.swift",
-    "from": "case \"declined\": .declined",
-    "to": "case \"declined\": .busy",
+    "from": "case \"declined\", \"rejected\": .declined",
+    "to": "case \"declined\", \"rejected\": .busy",
     "name": "authenticated refusal spelling",
     "runner": "swift",
     "filter": "PairingFlowTests/refuses"
