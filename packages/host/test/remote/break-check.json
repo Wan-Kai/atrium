@@ -1,0 +1,65 @@
+[
+  {
+    "file": "packages/host/test/remote/inbox.ts",
+    "from": "if (waiter === undefined) this.#items.push(value);",
+    "to": "if (waiter === undefined) return;",
+    "test": "packages/host/test/remote/harness.test.ts",
+    "name": "preserves unrelated arrivals and the final control after close"
+  },
+  {
+    "file": "packages/host/test/remote/inbox.ts",
+    "from": "cancel();",
+    "to": "void cancel;",
+    "test": "packages/host/test/remote/harness.test.ts",
+    "name": "cancels independent waiters and releases deadlines on timeout and abort"
+  },
+  {
+    "file": "packages/host/test/remote/relay-process.ts",
+    "from": "await dir.cleanup();",
+    "to": "void dir;",
+    "test": "packages/host/test/remote/harness.test.ts",
+    "name": "spawns the real relay CLI, registers a host and cleans process and files idempotently"
+  },
+  {
+    "file": "packages/host/test/remote/fake-phone.ts",
+    "from": "this.sas = sas(this.channel.handshakeHash);",
+    "to": "this.sas = 'wrong';",
+    "test": "packages/host/test/remote/harness.test.ts",
+    "name": "pairs, exchanges controls and chunked messages, overrides hello and reconnects with IK"
+  },
+  {
+    "file": "packages/host/test/remote/fake-phone.ts",
+    "from": "if (answer.reason === \"device_unknown\") this.#hosts.delete(host.hostId);",
+    "to": "if (answer.reason === \"device_unknown\") void host;",
+    "test": "packages/host/test/remote/harness.test.ts",
+    "name": "retains pending pairing after socket loss, then forgets it on authenticated device_unknown"
+  },
+  {
+    "file": "packages/host/test/remote/fake-phone.ts",
+    "from": "control.kind === \"pair_rejected\" && host.deviceId === null",
+    "to": "control.kind === \"pair_rejected\" && host.deviceId !== null",
+    "test": "packages/host/test/remote/harness.test.ts",
+    "name": "keeps a control sent immediately after message two and forgets a rejected pending pairing"
+  },
+  {
+    "file": "packages/host/test/remote/inbox.ts",
+    "from": "options.signal?.addEventListener(\"abort\", abort, { once: true });",
+    "to": "void abort;",
+    "test": "packages/host/test/remote/harness.test.ts",
+    "name": "cancels a stalled handshake and releases its socket and clock deadline"
+  },
+  {
+    "file": "packages/host/test/remote/fake-phone.ts",
+    "from": "for (const [socket] of sockets) socket.terminate();",
+    "to": "for (const [socket] of sockets) void socket;",
+    "test": "packages/host/test/remote/harness.test.ts",
+    "name": "disposes a phone while its handshake is still pending"
+  },
+  {
+    "file": "packages/host/test/remote/fake-phone.ts",
+    "from": "throw new Error(\"fake phone requires a loopback test relay\");",
+    "to": "return url;",
+    "test": "packages/host/test/remote/harness.test.ts",
+    "name": "refuses a non-loopback pairing link before connecting"
+  }
+]
