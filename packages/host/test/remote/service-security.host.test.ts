@@ -206,8 +206,23 @@ describe("remote service authorization and persisted state", () => {
     const paired = await pairDevice(f, f.phone());
     const view = f.service.get("observer", undefined);
     await f.service.set(true, undefined);
-    await f.service.testRelay();
     expect(f.service.get("observer", undefined)).toStrictEqual(view);
+    await f.service.testRelay();
+    expect(f.service.get("observer", undefined)).toStrictEqual({
+      ...view,
+      relay: {
+        ...view.relay,
+        diagnostics: {
+          kind: "live",
+          checkedAt: f.clock.now(),
+          network: "passed",
+          resolution: "not_applicable",
+          tls: "not_applicable",
+          token: "unknown",
+          failure: null,
+        },
+      },
+    });
     paired.session.channel.ping();
     expect(await paired.session.next((item) => item.kind === "pong")).toStrictEqual({ kind: "pong" });
     expect(f.accepted[0]?.closed).toBe(false);
@@ -254,12 +269,22 @@ describe("remote service authorization and persisted state", () => {
         status: "connected",
         error: null,
         lastConnectedAt: f.clock.now(),
+        diagnostics: {
+          kind: "connect",
+          checkedAt: f.clock.now(),
+          network: "passed",
+          resolution: "not_applicable",
+          tls: "not_applicable",
+          token: "passed",
+          failure: null,
+        },
       },
       hostFingerprint: fingerprint,
       devices: [
         {
           deviceId: original.deviceId,
           name: "Persistent name",
+          model: "test",
           pairedAt: f.clock.now(),
           lastSeenAt: f.clock.now(),
           online: false,
@@ -308,6 +333,15 @@ describe("remote service authorization and persisted state", () => {
         status: "connected",
         error: null,
         lastConnectedAt: f.clock.now(),
+        diagnostics: {
+          kind: "connect",
+          checkedAt: f.clock.now(),
+          network: "passed",
+          resolution: "not_applicable",
+          tls: "not_applicable",
+          token: "passed",
+          failure: null,
+        },
       },
       hostFingerprint: fingerprint,
       devices: [],
@@ -320,7 +354,7 @@ describe("remote service authorization and persisted state", () => {
     expect(f.service.get("observer", undefined)).toStrictEqual({
       ...initial,
       enabled: false,
-      relay: { ...initial.relay, status: "off", lastConnectedAt: null },
+      relay: { ...initial.relay, status: "off", lastConnectedAt: null, diagnostics: null },
     });
     expect(() => f.service.startPairing()).toThrow("remote_unavailable");
   });
@@ -330,7 +364,21 @@ describe("remote service authorization and persisted state", () => {
     await f.service.set(false, undefined);
     const before = f.service.get("observer", undefined);
     expect(await f.service.testRelay()).toStrictEqual({});
-    expect(f.service.get("observer", undefined)).toStrictEqual(before);
+    expect(f.service.get("observer", undefined)).toStrictEqual({
+      ...before,
+      relay: {
+        ...before.relay,
+        diagnostics: {
+          kind: "connect",
+          checkedAt: f.clock.now(),
+          network: "passed",
+          resolution: "not_applicable",
+          tls: "not_applicable",
+          token: "passed",
+          failure: null,
+        },
+      },
+    });
     expect(f.clock.pendingTimers()).toBe(0);
     expect(Object.values(f.resources.snapshot()).every((count) => count === 0)).toBe(true);
     await f.service.set(true, undefined);
@@ -355,6 +403,7 @@ describe("remote service authorization and persisted state", () => {
         status: "error",
         error: "relay_unreachable",
         lastConnectedAt: f.clock.now(),
+        diagnostics: connected.relay!.diagnostics,
       },
       devices: connected.devices.map((device) => ({ ...device, online: false })),
     };
@@ -417,12 +466,21 @@ describe("remote service authorization and persisted state", () => {
       {
         deviceId: a.deviceId,
         name: "A",
+        model: "test",
         pairedAt,
         lastSeenAt: pairedAt + 1_000,
         online: false,
         traffic: { down: 0, up: 0 },
       },
-      { deviceId: b.deviceId, name: "B", pairedAt, lastSeenAt: pairedAt, online: true, traffic: { down: 0, up: 0 } },
+      {
+        deviceId: b.deviceId,
+        name: "B",
+        model: "test",
+        pairedAt,
+        lastSeenAt: pairedAt,
+        online: true,
+        traffic: { down: 0, up: 0 },
+      },
     ]);
   });
 });

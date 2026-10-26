@@ -100,7 +100,7 @@ atrium/
 │   │   │   ├── entry.ts            进程入口：在 Electron 子进程里从 parentPort 收配置，或单独运行时读环境变量
 │   │   │   ├── dev/                开发用命令：`pnpm pi:try`（用宿主的组件驱动真实 pi，终端里看流式输出）
 │   │   │   ├── server/             WsServer、ClientTransport、Connection、鉴权、命令路由、上传图片的暂存（按连接）；remote-policy 穷举手机命令和事件
-│   │   │   ├── remote/             RemoteService、relay 控制/数据连接、配对状态机、设备、保险箱端口；通过注入 accept/send 接服务器
+│   │   │   ├── remote/             RemoteService、relay 控制/数据连接、连接证据采集、配对状态机及候选活动投影、设备、保险箱端口；通过注入 accept/send 接服务器
 │   │   │   ├── store/              ~/.atrium：索引文件（原子写入、格式版本与迁移、损坏挪开）、各文件的格式、
 │   │   │   │                       宿主单实例锁、偏好、插话记录
 │   │   │   ├── projects/           ProjectService：项目与工作区的登记（projects.json）

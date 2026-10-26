@@ -73,7 +73,27 @@ describe("the coordinated remote contract", () => {
   });
 
   it.each([
+    "resolution_failed",
+    "tcp_connect_failed",
+    "tls_failed",
+    "websocket_upgrade_failed",
+    "token_rejected",
+    "timeout",
+    "connection_closed",
+    "unknown",
+  ])("accepts the fixed diagnostic failure category %s", (failure) => {
+    expect(RemoteRelayDiagnostics.parse({ ...diagnostics, failure })).toStrictEqual({ ...diagnostics, failure });
+  });
+
+  it("bounds self-reported model text without requiring a fabricated model", () => {
+    expect(RemoteDevice.parse({ ...device, model: "x".repeat(64) }).model).toBe("x".repeat(64));
+    expect(RemoteDevice.safeParse({ ...device, model: "" }).success).toBe(false);
+    expect(RemoteDevice.safeParse({ ...device, model: "x".repeat(65) }).success).toBe(false);
+  });
+
+  it.each([
     { checkedAt: -1 },
+    { checkedAt: 0.5 },
     { network: true },
     { resolution: "offline" },
     { failure: "raw certificate error" },

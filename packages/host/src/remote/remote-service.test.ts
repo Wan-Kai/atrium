@@ -1,5 +1,7 @@
+import { once } from "node:events";
 import { FakeClock } from "@atrium/testkit";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished } from "vitest";
+import { WebSocketServer, type WebSocket } from "ws";
 import type { RemoteUpdatedEvent } from "@atrium/protocol";
 import pino from "pino";
 import { ResourceTracker } from "../platform/resources";
@@ -40,7 +42,97 @@ function fixture(port?: VaultPort, initial: RemoteDocument = { enabled: false, l
   return { service, events, resources, clock, index };
 }
 
+/** Starts a stalled control endpoint with a configured, disabled service. @remarks Real sockets expose cancellation races without replacing the relay module. @sideEffects Opens a loopback listener and registers teardown. */
+async function stalledProbeFixture() {
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await once(server, "listening");
+  onTestFinished(async () => {
+    for (const socket of server.clients) socket.terminate();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("missing port");
+  const sockets: WebSocket[] = [];
+  server.on("connection", (socket) => sockets.push(socket));
+  const f = fixture({
+    read: async () => ({ ok: true, version: 0, data: null }),
+    write: async () => ({ ok: true }),
+  });
+  const line = `atrium-relay://hst_0123456789abcdef:${"a".repeat(43)}@127.0.0.1:${address.port}`;
+  await f.service.set(false, line);
+  f.service.get("watcher", true);
+  return { ...f, line, sockets };
+}
+
+/** Cancels a probe via a local lifecycle action. @remarks Each case exercises the public management boundary. @sideEffects Changes configuration or closes remote resources. */
+async function cancelProbe(
+  f: Awaited<ReturnType<typeof stalledProbeFixture>>,
+  action: "configure" | "reset" | "off" | "close",
+): Promise<void> {
+  if (action === "configure") await f.service.set(false, f.line);
+  else if (action === "reset") await f.service.resetIdentity();
+  else if (action === "off") await f.service.set(false, undefined);
+  else await f.service.close();
+}
+
 describe("RemoteService", () => {
+  it.each(["configure", "reset", "off", "close"] as const)(
+    "never publishes a cancelled off-probe after %s",
+    async (action) => {
+      const f = await stalledProbeFixture();
+      expect(f.service.get("local", undefined).relay?.diagnostics).toBeNull();
+      const checking = f.service.testRelay().catch((error: unknown) => error);
+      await expect.poll(() => f.sockets.length).toBe(1);
+      await cancelProbe(f, action);
+      expect(await checking).toMatchObject({ code: "relay_unreachable" });
+      expect(f.service.get("local", undefined).relay?.diagnostics).toBeNull();
+      expect(f.events.every(([, event]) => event.remote.relay?.diagnostics === null)).toBe(true);
+    },
+  );
+
+  it("replaces a cancelled off-probe only with the newly enabled generation's diagnostics", async () => {
+    const f = await stalledProbeFixture();
+    const checking = f.service.testRelay().catch((error: unknown) => error);
+    await expect.poll(() => f.sockets.length).toBe(1);
+    await f.service.set(true, undefined);
+    expect(await checking).toMatchObject({ code: "relay_unreachable" });
+    expect(f.service.get("local", undefined).relay?.diagnostics).toBeNull();
+    expect(f.events.every(([, event]) => event.remote.relay?.diagnostics === null)).toBe(true);
+    await expect.poll(() => f.sockets.length).toBe(2);
+    f.sockets[1]!.send('{"type":"ready"}');
+    await expect.poll(() => f.service.get("local", undefined).relay?.status).toBe("connected");
+    expect(f.events.at(-1)?.[1].remote.relay?.diagnostics).toMatchObject({ kind: "connect", token: "passed" });
+  });
+
+  it("publishes an off-probe rejection and retains it until the next probe actually finishes", async () => {
+    const f = await stalledProbeFixture();
+    const first = f.service.testRelay().catch((error: unknown) => error);
+    await expect.poll(() => f.sockets.length).toBe(1);
+    f.sockets[0]!.close(4401);
+    expect(await first).toMatchObject({ code: "relay_rejected" });
+    const failed = {
+      kind: "connect",
+      checkedAt: f.clock.now(),
+      network: "passed",
+      resolution: "not_applicable",
+      tls: "not_applicable",
+      token: "failed",
+      failure: "token_rejected",
+    };
+    expect(f.service.get("local", undefined).relay?.diagnostics).toStrictEqual(failed);
+    expect(f.events.at(-1)?.[1].remote.relay?.diagnostics).toStrictEqual(failed);
+    f.clock.advance(1);
+    const second = f.service.testRelay();
+    await expect.poll(() => f.sockets.length).toBe(2);
+    expect(f.service.get("local", undefined).relay?.diagnostics).toStrictEqual(failed);
+    f.sockets[1]!.send('{"type":"ready"}');
+    expect(await second).toStrictEqual({});
+    expect(f.events.at(-1)?.[1].remote.relay).toMatchObject({
+      status: "off",
+      diagnostics: { ...failed, checkedAt: f.clock.now(), token: "passed", failure: null },
+    });
+  });
+
   it("shares a pending vault load across startup and concurrent enable commands", async () => {
     const reading = Promise.withResolvers<VaultRead>();
     let reads = 0;

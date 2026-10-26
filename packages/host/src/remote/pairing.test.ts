@@ -147,6 +147,7 @@ describe("PairingMachine", () => {
       qr: replacement.qr,
       expiresAt: PAIRING_TTL_MS + 1000,
       state: "available",
+      handshaking: false,
       reason: null,
       request: null,
       refused: 0,

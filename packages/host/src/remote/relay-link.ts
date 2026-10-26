@@ -1,4 +1,7 @@
+import type { RemoteRelayDiagnostics } from "@atrium/protocol";
 import { type RawData, WebSocket } from "ws";
+import { RelayDiagnostics, liveDiagnostics } from "./relay-diagnostics";
+import { checkRelayPong } from "./relay-pong";
 import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
@@ -62,6 +65,8 @@ export class RelayLink {
   #closed: Promise<void> = Promise.resolve();
   #waiters: ((state: LinkState) => void)[] = [];
   #checking: Promise<RelayError | null> | null = null;
+  #diagnostics: RemoteRelayDiagnostics | null = null;
+  #generation = 0;
 
   /**
    * Makes a link; nothing connects until `start`.
@@ -87,6 +92,11 @@ export class RelayLink {
    */
   get state(): LinkState {
     return this.#state;
+  }
+
+  /** Returns the last finished check. @remarks Retry progress never fabricates stage evidence. @sideEffects none */
+  get diagnostics(): RemoteRelayDiagnostics | null {
+    return this.#diagnostics;
   }
 
   /**
@@ -142,37 +152,13 @@ export class RelayLink {
    * @returns Null for a pong, otherwise a relay failure code.
    */
   #checkPong(socket: WebSocket): Promise<RelayError | null> {
-    return new Promise((resolve) => {
-      const cancel = trackedTimeout(
-        this.#options.clock,
-        this.#options.resources,
-        () => socket.terminate(),
-        READY_TIMEOUT_MS,
-      );
-      /**
-       * Releases the check before answering it.
-       * @remarks Both pong and close must remove the other's listener.
-       * @sideEffects Cancels the deadline and removes listeners.
-       * @param result - Verified success or close failure.
-       */
-      const finish = (result: RelayError | null): void => {
-        cancel();
-        socket.off("pong", pong);
-        socket.off("close", closed);
-        resolve(result);
-      };
-      /** Answers a successful check. @remarks A fresh pong proves the relay is reachable. @sideEffects Settles and cleans the check. */
-      const pong = (): void => finish(null);
-      /**
-       * Answers a closed check.
-       * @remarks Authentication rejection is distinct from network loss.
-       * @sideEffects Settles and cleans the check.
-       * @param code - Relay close code.
-       */
-      const closed = (code: number): void => finish(code === UNAUTHORIZED ? "relay_rejected" : "relay_unreachable");
-      socket.once("pong", pong);
-      socket.once("close", closed);
-      socket.ping();
+    const generation = this.#generation;
+    return checkRelayPong(socket, this.#options, READY_TIMEOUT_MS).then((result) => {
+      if (!this.#stopped && generation === this.#generation) {
+        this.#diagnostics = liveDiagnostics(this.#options.endpoint.url, this.#options.clock, result.failure);
+        this.#setState(result.error === null ? this.#state : { ...this.#state, status: "error", error: result.error });
+      }
+      return result.error;
     });
   }
 
@@ -220,8 +206,17 @@ export class RelayLink {
    */
   #connect(): void {
     const { endpoint, clock, resources, logger } = this.#options;
+    this.#generation++;
+    const diagnostics = new RelayDiagnostics(endpoint.url, clock);
     this.#setState({ status: "connecting", error: this.#state.error, lastConnectedAt: this.#lastConnectedAt });
-    const socket = new WebSocket(`${endpoint.url}/v1/host`, { perMessageDeflate: false, maxPayload: 70 * 1024 });
+    const socket = new WebSocket(`${endpoint.url}/v1/host`, {
+      perMessageDeflate: false,
+      maxPayload: 70 * 1024,
+      finishRequest: (request) => {
+        diagnostics.observe(request);
+        request.end();
+      },
+    });
     this.#socket = socket;
     const release = resources.acquire("remote.control");
     let ready = false;
@@ -232,6 +227,7 @@ export class RelayLink {
       resources,
       () => {
         logger.warn({ host_id: endpoint.hostId }, "relay did not say ready in time");
+        diagnostics.timeout();
         socket.terminate();
       },
       READY_TIMEOUT_MS,
@@ -259,6 +255,7 @@ export class RelayLink {
     const closed = Promise.withResolvers<void>();
     this.#closed = closed.promise;
     socket.on("open", () => {
+      diagnostics.opened();
       socket.send(JSON.stringify({ v: 1, type: "hello", hostId: endpoint.hostId, token: endpoint.token }));
     });
     socket.on("pong", () => {
@@ -271,6 +268,7 @@ export class RelayLink {
         cancelReady();
         this.#backoff = FIRST_BACKOFF_MS;
         this.#lastConnectedAt = clock.now();
+        this.#diagnostics = diagnostics.finish(null);
         logger.info({ host_id: endpoint.hostId }, "relay connected");
         this.#setState({ status: "connected", error: null, lastConnectedAt: this.#lastConnectedAt });
         cancelPing = trackedTimeout(clock, resources, ping, LINK_PING_MS);
@@ -291,6 +289,8 @@ export class RelayLink {
       release();
       this.#socket = null;
       const error: RelayError = code === UNAUTHORIZED ? "relay_rejected" : "relay_unreachable";
+      if (!ready && !this.#stopped) this.#diagnostics = diagnostics.finish(error);
+      else diagnostics.dispose();
       logger.info({ host_id: endpoint.hostId, code, ready }, "relay connection closed");
       if (!this.#stopped) {
         this.#setState({ status: "error", error, lastConnectedAt: this.#lastConnectedAt });
@@ -360,18 +360,40 @@ function parseControl(data: RawData): Record<string, unknown> | null {
  */
 export function probeRelay(
   endpoint: RelayEndpoint,
-  options: { readonly clock: Clock; readonly resources: ResourceTracker; readonly signal: AbortSignal },
+  options: {
+    readonly clock: Clock;
+    readonly resources: ResourceTracker;
+    readonly signal: AbortSignal;
+    readonly onDiagnostics?: (value: RemoteRelayDiagnostics) => void;
+  },
 ): Promise<RelayError | null> {
   if (options.signal.aborted) return Promise.resolve("relay_unreachable");
   return new Promise((resolve) => {
-    const socket = new WebSocket(`${endpoint.url}/v1/host`, { perMessageDeflate: false, maxPayload: 70 * 1024 });
+    const diagnostics = new RelayDiagnostics(endpoint.url, options.clock);
+    const socket = new WebSocket(`${endpoint.url}/v1/host`, {
+      perMessageDeflate: false,
+      maxPayload: 70 * 1024,
+      finishRequest: (request) => {
+        diagnostics.observe(request);
+        request.end();
+      },
+    });
     const release = options.resources.acquire("remote.control");
     let result: RelayError | null = "relay_unreachable";
-    const cancel = trackedTimeout(options.clock, options.resources, () => socket.terminate(), READY_TIMEOUT_MS);
+    const cancel = trackedTimeout(
+      options.clock,
+      options.resources,
+      () => {
+        diagnostics.timeout();
+        socket.terminate();
+      },
+      READY_TIMEOUT_MS,
+    );
     /** Ends an abandoned probe. @remarks Prevents a late authentication from evicting the active link. @sideEffects Terminates the socket. */
     const abort = (): void => socket.terminate();
     options.signal.addEventListener("abort", abort, { once: true });
     socket.on("open", () => {
+      diagnostics.opened();
       socket.send(JSON.stringify({ v: 1, type: "hello", hostId: endpoint.hostId, token: endpoint.token }));
     });
     socket.on("message", (data: RawData, isBinary: boolean) => {
@@ -384,7 +406,10 @@ export function probeRelay(
       cancel();
       options.signal.removeEventListener("abort", abort);
       release();
-      resolve(result === null ? null : code === UNAUTHORIZED ? "relay_rejected" : "relay_unreachable");
+      const error = result === null ? null : code === UNAUTHORIZED ? "relay_rejected" : "relay_unreachable";
+      if (!options.signal.aborted) options.onDiagnostics?.(diagnostics.finish(error));
+      diagnostics.dispose();
+      resolve(error);
     });
   });
 }

@@ -85,7 +85,7 @@ export class PairingMachine<Stream> {
    * The pairing as the "手机" page shows it.
    *
    * @remarks
-   * The claim's channel and key stay here.
+   * The claim's channel and key stay here. The service overlays candidate activity; this machine owns only business states.
    *
    * @sideEffects none
    * @returns The pairing, or `null`.
@@ -98,6 +98,7 @@ export class PairingMachine<Stream> {
       qr: pairing.qr,
       expiresAt: pairing.expiresAt,
       state: pairing.state,
+      handshaking: false,
       reason: pairing.reason,
       request:
         pairing.claim === null

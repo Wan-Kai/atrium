@@ -85,8 +85,8 @@
   },
   {
     "file": "packages/host/src/remote/relay-link.ts",
-    "from": "const cancel = trackedTimeout(options.clock, options.resources, () => socket.terminate(), READY_TIMEOUT_MS);",
-    "to": "const cancel = trackedTimeout(options.clock, options.resources, () => socket.terminate(), READY_TIMEOUT_MS - 1);",
+    "from": "      READY_TIMEOUT_MS,\n    );\n    /** Ends an abandoned probe.",
+    "to": "      READY_TIMEOUT_MS - 1,\n    );\n    /** Ends an abandoned probe.",
     "test": "packages/host/src/remote/relay-link.test.ts",
     "name": "times out malformed and irrelevant replies exactly at the ready deadline"
   },

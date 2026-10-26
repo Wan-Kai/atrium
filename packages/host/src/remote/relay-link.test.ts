@@ -2,7 +2,8 @@ import { once } from "node:events";
 import { FakeClock } from "@atrium/testkit";
 import pino from "pino";
 import { afterEach, describe, expect, it } from "vitest";
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
+import { checkRelayPong } from "./relay-pong";
 import { ResourceTracker } from "../platform/resources";
 import { LINK_PING_MS, READY_TIMEOUT_MS, RelayLink, probeRelay, type LinkState } from "./relay-link";
 
@@ -50,6 +51,76 @@ async function fixture(autoPong = true) {
 }
 
 describe("RelayLink", () => {
+  it("accepts only this check's pong and ignores empty, wrong, heartbeat and previous-check payloads", async () => {
+    const f = await fixture(false);
+    f.link.start();
+    await expect.poll(() => f.sockets.length).toBe(1);
+    const socket = f.sockets[0]!;
+    socket.send('{"type":"ready"}');
+    await expect.poll(() => f.link.state.status).toBe("connected");
+    const heartbeat = once(socket, "ping");
+    f.clock.advance(LINK_PING_MS);
+    const [oldHeartbeat] = await heartbeat;
+    let previous = Buffer.from("previous-check");
+    for (let round = 0; round < 2; round++) {
+      let settled = false;
+      const ping = once(socket, "ping");
+      const pending = f.link.retryNow();
+      const result = pending.then((value) => {
+        settled = true;
+        return value;
+      });
+      expect(f.link.retryNow()).toBe(pending);
+      const [payload] = await ping;
+      expect(settled).toBe(false);
+      socket.pong(oldHeartbeat);
+      socket.pong();
+      socket.pong(Buffer.from("wrong"));
+      socket.pong(previous);
+      const marker = String(round + 1).repeat(32);
+      socket.send(JSON.stringify({ type: "open", streamId: marker }));
+      await expect.poll(() => f.streams.includes(marker)).toBe(true);
+      expect(settled).toBe(false);
+      expect(Buffer.isBuffer(payload)).toBe(true);
+      expect(payload).toHaveLength(16);
+      expect(payload.equals(previous)).toBe(false);
+      socket.pong(payload);
+      expect(await result).toBeNull();
+      previous = payload;
+      expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 1 });
+    }
+    expect(f.sockets).toHaveLength(1);
+  });
+
+  it("publishes completed connection and live evidence without pretending to repeat authentication", async () => {
+    const f = await fixture();
+    expect(f.link.diagnostics).toBeNull();
+    f.link.start();
+    await expect.poll(() => f.sockets.length).toBe(1);
+    f.sockets[0]!.send('{"type":"ready"}');
+    await expect.poll(() => f.link.state.status).toBe("connected");
+    expect(f.link.diagnostics).toStrictEqual({
+      kind: "connect",
+      checkedAt: 100,
+      network: "passed",
+      resolution: "not_applicable",
+      tls: "not_applicable",
+      token: "passed",
+      failure: null,
+    });
+    f.clock.advance(1);
+    expect(await f.link.retryNow()).toBeNull();
+    expect(f.link.diagnostics).toStrictEqual({
+      kind: "live",
+      checkedAt: 101,
+      network: "passed",
+      resolution: "not_applicable",
+      tls: "not_applicable",
+      token: "unknown",
+      failure: null,
+    });
+  });
+
   it("tests an already connected relay with a fresh pong and times out silence without replacing healthy sockets", async () => {
     const f = await fixture(false);
     f.link.start();
@@ -67,15 +138,16 @@ describe("RelayLink", () => {
     expect(f.link.retryNow()).toBe(checking);
     expect(checked).toBe(false);
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 2 });
-    await ping;
+    const [payload] = await ping;
     expect(checked).toBe(false);
-    socket.pong();
+    socket.pong(payload);
     expect(await check).toBeNull();
     expect(f.sockets).toHaveLength(1);
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 1 });
     const silent = f.link.retryNow();
     f.clock.advance(READY_TIMEOUT_MS);
     expect(await silent).toBe("relay_unreachable");
+    await expect.poll(() => f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 1 });
     expect(f.link.state).toStrictEqual({ status: "error", error: "relay_unreachable", lastConnectedAt: 100 });
     await f.link.stop();
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
@@ -98,6 +170,23 @@ describe("RelayLink", () => {
     await f.link.stop();
     expect(await stopped).toBe("relay_unreachable");
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+  });
+
+  it("keeps a valid control upgrade distinct from a close before relay authentication", async () => {
+    const f = await fixture();
+    f.link.start();
+    await expect.poll(() => f.messages.length).toBe(1);
+    f.sockets[0]!.close(1000);
+    await expect.poll(() => f.link.state.status).toBe("error");
+    expect(f.link.diagnostics).toStrictEqual({
+      kind: "connect",
+      checkedAt: 100,
+      network: "passed",
+      resolution: "not_applicable",
+      tls: "not_applicable",
+      token: "unknown",
+      failure: "connection_closed",
+    });
   });
 
   it("ignores binary and non-object control frames without refreshing ready state", async () => {
@@ -306,6 +395,67 @@ describe("RelayLink", () => {
     await f.link.stop();
     expect(await pending).toBe("relay_unreachable");
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+  });
+});
+
+/** Opens a real client for listener accounting. @remarks The link's shared-check integration is tested separately. @sideEffects Opens and registers cleanup for one socket. */
+async function pongFixture() {
+  const f = await fixture(false);
+  const client = new WebSocket(`${f.endpoint.url}/v1/host`);
+  client.on("error", () => {});
+  cleanup.push(async () => {
+    if (client.readyState === WebSocket.CLOSED) return;
+    const closed = once(client, "close");
+    client.terminate();
+    await closed;
+  });
+  await once(client, "open");
+  return { ...f, client, peer: f.sockets[0]! };
+}
+
+/** Applies a table case's physical ending. @remarks Expected outcomes remain explicit test data. @sideEffects Pongs, closes, or advances the injected deadline. */
+function endPong(ending: string, peer: WebSocket, clock: FakeClock, payload: Buffer): void {
+  if (ending === "success") peer.pong(payload);
+  else if (ending === "timeout") clock.advance(READY_TIMEOUT_MS);
+  else peer.close(ending === "reject" ? 4401 : 1000);
+}
+
+describe("the correlated pong's resources", () => {
+  it.each([
+    { ending: "success", rounds: 12, error: null, failure: null, expectedState: WebSocket.OPEN },
+    {
+      ending: "close",
+      rounds: 1,
+      error: "relay_unreachable",
+      failure: "connection_closed",
+      expectedState: WebSocket.CLOSED,
+    },
+    {
+      ending: "reject",
+      rounds: 1,
+      error: "relay_rejected",
+      failure: "token_rejected",
+      expectedState: WebSocket.CLOSED,
+    },
+    { ending: "timeout", rounds: 1, error: "relay_unreachable", failure: "timeout", expectedState: WebSocket.CLOSED },
+  ])("releases listeners and deadlines after $ending", async ({ ending, rounds, error, failure, expectedState }) => {
+    const f = await pongFixture();
+    const { client, peer } = f;
+    const before = { pong: client.listenerCount("pong"), close: client.listenerCount("close") };
+    for (let round = 0; round < rounds; round++) {
+      const ping = once(peer, "ping");
+      const result = checkRelayPong(client, f, READY_TIMEOUT_MS);
+      expect({ pong: client.listenerCount("pong"), close: client.listenerCount("close") }).toStrictEqual({
+        pong: before.pong + 1,
+        close: before.close + 1,
+      });
+      const [payload] = await ping;
+      endPong(ending, peer, f.clock, payload);
+      expect(await result).toStrictEqual({ error, failure });
+      await expect.poll(() => client.readyState).toBe(expectedState);
+      expect({ pong: client.listenerCount("pong"), close: client.listenerCount("close") }).toStrictEqual(before);
+      expect(f.resources.snapshot()).toStrictEqual({ timer: 0 });
+    }
   });
 });
 

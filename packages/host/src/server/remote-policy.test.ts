@@ -42,6 +42,8 @@ describe("the phone's allowlist", () => {
       phoneMayRun({ type: "translate_reply", ...fields, sessionId: "s1", turnId: "t1", translationId: "tr1" }),
     ).toBe(false);
     expect(phoneMayRun({ type: "cancel_translation", ...fields, translationId: "tr1" })).toBe(false);
+    expect(COMMAND_REACH.translate_reply).toBe("local_only");
+    expect(COMMAND_REACH.cancel_translation).toBe("local_only");
   });
 });
 

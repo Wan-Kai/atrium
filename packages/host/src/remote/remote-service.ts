@@ -1,5 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
-import { CommandError, PROTOCOL_VERSION, type RemoteState, type RemoteUpdatedEvent } from "@atrium/protocol";
+import {
+  CommandError,
+  PROTOCOL_VERSION,
+  type RemoteRelayDiagnostics,
+  type RemoteState,
+  type RemoteUpdatedEvent,
+} from "@atrium/protocol";
 import {
   fromBase64Url,
   fromUtf8,
@@ -68,7 +74,11 @@ export class RemoteService implements RemoteCommands {
   readonly #streams = new Set<PhoneStream>();
   readonly #draining = new Set<Promise<void>>();
   readonly #totals = new Map<string, { down: number; up: number }>();
-  readonly #pairPhones = new Map<PhoneStream, PairPayload>();
+  readonly #pairPhones = new Map<PhoneStream, PairPayload & { generation: number }>();
+  #generation = 0;
+  #probeDiagnostics: RemoteRelayDiagnostics | null = null;
+  #cancelHandshakeNotice: (() => void) | null = null;
+  #publishedHandshaking = false;
   readonly #blocked = new Set<string>();
   readonly #revocations = new Map<string, number>();
   #revocationSerial = 0;
@@ -124,7 +134,9 @@ export class RemoteService implements RemoteCommands {
       this.#watchers.add(connectionId);
       this.#sampleTraffic();
     } else if (watch === false) this.unwatch(connectionId);
-    return this.#view();
+    const view = this.#view();
+    if (watch === true && view.pairing?.handshaking === true) this.#publishedHandshaking = true;
+    return view;
   }
 
   /**
@@ -138,6 +150,9 @@ export class RemoteService implements RemoteCommands {
     if (this.#watchers.size !== 0) return;
     this.#cancelTraffic?.();
     this.#cancelTraffic = null;
+    this.#cancelHandshakeNotice?.();
+    this.#cancelHandshakeNotice = null;
+    this.#publishedHandshaking = false;
     this.#samples = [];
     this.#totals.clear();
     this.#traffic.clear();
@@ -183,8 +198,17 @@ export class RemoteService implements RemoteCommands {
     this.#connect();
     if (this.#link === null && this.#probe === null) {
       const controller = new AbortController();
-      const done = probeRelay(endpoint, { ...this.#options, signal: controller.signal }).finally(() => {
-        this.#probe = null;
+      const generation = this.#generation;
+      const done = probeRelay(endpoint, {
+        ...this.#options,
+        signal: controller.signal,
+        onDiagnostics: (diagnostics) => {
+          if (controller.signal.aborted || generation !== this.#generation || this.#closed) return;
+          this.#probeDiagnostics = diagnostics;
+          this.#changed();
+        },
+      }).finally(() => {
+        if (this.#probe?.controller === controller) this.#probe = null;
         this.#connect();
       });
       this.#probe = { controller, done };
@@ -337,11 +361,9 @@ export class RemoteService implements RemoteCommands {
         devices: [],
       });
       this.#blocked.clear();
+      for (const stream of this.#streams) stream.sendControl({ kind: "revoked" });
+      await this.#disconnect("identity_reset");
       this.#pairing.dispose();
-      for (const stream of this.#streams) {
-        stream.sendControl({ kind: "revoked" });
-        stream.close("identity_reset");
-      }
       this.#changed();
       this.#connect();
       return {};
@@ -453,11 +475,16 @@ export class RemoteService implements RemoteCommands {
     }
     const endpoint = this.#relay();
     if (endpoint === null) return;
+    this.#generation++;
+    this.#probeDiagnostics = null;
     this.#link = new RelayLink({
       ...this.#options,
       endpoint,
       onState: (state) => {
-        if (state.status === "error") for (const stream of this.#streams) stream.close("relay_closed");
+        if (state.status === "error") {
+          this.#generation++;
+          for (const stream of this.#streams) stream.close("relay_closed");
+        }
         this.#changed();
       },
       onStream: (id) => this.#open(id, endpoint),
@@ -465,15 +492,22 @@ export class RemoteService implements RemoteCommands {
     this.#link.start();
   }
 
-  /** Ends all remote connections. @remarks Confirmed writes may still finish, but cannot restore access while off. @sideEffects Cancels pairing and closes sockets. */
-  async #disconnect(): Promise<void> {
+  /**
+   * Ends all remote connections.
+   * @remarks Confirmed writes may still finish, but cannot restore access while off.
+   * @sideEffects Cancels pairing and closes sockets.
+   * @param reason - Internal close reason for this generation.
+   */
+  async #disconnect(reason = "remote_off"): Promise<void> {
     this.#disconnecting++;
-    this.#pairing.cancel();
+    this.#generation++;
+    this.#probeDiagnostics = null;
     const probe = this.#probe;
     probe?.controller.abort();
     const link = this.#link;
     this.#link = null;
-    for (const stream of this.#streams) stream.close("remote_off");
+    this.#pairing.cancel();
+    for (const stream of this.#streams) stream.close(reason);
     await link?.stop();
     await probe?.done;
     await Promise.all(this.#draining);
@@ -493,6 +527,7 @@ export class RemoteService implements RemoteCommands {
       this.#link?.refuse(streamId);
       return;
     }
+    const generation = this.#generation;
     const stream = new PhoneStream(streamId, endpoint, {
       ...this.#options,
       events: {
@@ -502,7 +537,7 @@ export class RemoteService implements RemoteCommands {
           count[direction] += bytes;
           this.#totals.set(phone.deviceId, count);
         },
-        onFirstFrame: (phone, pattern, message) => this.#handshake(phone, pattern, message, endpoint),
+        onFirstFrame: (phone, pattern, message) => this.#handshake(phone, pattern, message, endpoint, generation),
         onControl: (phone, value) => this.#control(phone, value),
         onClosed: (phone, reason) => {
           this.#streams.delete(phone);
@@ -514,7 +549,8 @@ export class RemoteService implements RemoteCommands {
             { stream_id: phone.streamId, device_id: phone.deviceId, reason },
             "remote stream closed",
           );
-          this.#changed();
+          if (phone.deviceId !== null) this.#changed();
+          else this.#handshakeChanged();
         },
       },
     });
@@ -531,8 +567,19 @@ export class RemoteService implements RemoteCommands {
    * @param pattern - Requested Noise mode.
    * @param message - First Noise message.
    * @param endpoint - Relay binding for this stream.
+   * @param generation - Connection generation that admitted this stream.
    */
-  #handshake(stream: PhoneStream, pattern: Pattern, message: Uint8Array, endpoint: RelayEndpoint): void {
+  #handshake(
+    stream: PhoneStream,
+    pattern: Pattern,
+    message: Uint8Array,
+    endpoint: RelayEndpoint,
+    generation: number,
+  ): void {
+    if (generation !== this.#generation) {
+      stream.close("stale_generation");
+      return;
+    }
     try {
       const current = this.#trusted();
       const pairing = this.#pairing.view();
@@ -563,7 +610,7 @@ export class RemoteService implements RemoteCommands {
             : check !== "ok"
               ? { ok: false, reason: check }
               : { ok: true };
-        if (answer.ok === true) this.#pairPhones.set(stream, request);
+        if (answer.ok === true) this.#pairPhones.set(stream, { ...request, generation });
       } else {
         const request = ConnectPayload.parse(payload);
         const publicKey = toBase64Url(handshake.remoteStatic!);
@@ -583,6 +630,7 @@ export class RemoteService implements RemoteCommands {
       }
       stream.secure(handshake.finish());
       if (deviceId !== null) this.#session(stream, deviceId);
+      else this.#handshakeChanged();
     } catch (error) {
       stream.close(reasonOf(error));
     }
@@ -600,6 +648,7 @@ export class RemoteService implements RemoteCommands {
     if (
       value.kind !== "pair_confirm" ||
       request === undefined ||
+      request.generation !== this.#generation ||
       stream.remoteStatic === null ||
       stream.handshakeHash === null
     ) {
@@ -705,6 +754,7 @@ export class RemoteService implements RemoteCommands {
           : {
               url: endpoint.url,
               hostId: endpoint.hostId,
+              diagnostics: this.#link?.diagnostics ?? this.#probeDiagnostics,
               ...(this.#link?.state ?? { status: "off" as const, error: null, lastConnectedAt: null }),
             },
       hostFingerprint:
@@ -719,19 +769,60 @@ export class RemoteService implements RemoteCommands {
         .map((device) => ({
           deviceId: device.deviceId,
           name: nameOf(device),
+          model: device.model.trim() || null,
           pairedAt: device.pairedAt,
           lastSeenAt: this.#options.index.read().lastSeen[device.deviceId] ?? null,
           online: [...this.#streams].some((stream) => stream.deviceId === device.deviceId),
           traffic: this.#traffic.get(device.deviceId) ?? { down: 0, up: 0 },
         })),
-      pairing: this.#pairing.view(),
+      pairing: this.#pairingView(),
     };
+  }
+
+  /** Projects current candidate activity without exposing unconfirmed identities. @remarks Old QR codes and connection generations cannot animate the current pairing. @sideEffects none */
+  #pairingView(): RemoteState["pairing"] {
+    const pairing = this.#pairing.view();
+    if (pairing === null) return null;
+    return {
+      ...pairing,
+      handshaking:
+        pairing.state === "available" &&
+        [...this.#pairPhones].some(
+          ([stream, request]) =>
+            !stream.closed && request.pairingId === pairing.pairingId && request.generation === this.#generation,
+        ),
+    };
+  }
+
+  /** Coalesces candidate starts and immediately clears published activity. @remarks Unauthenticated churn must not publish full business-state events or prolong activity after its end. @sideEffects May schedule one tracked notification or send a local update. */
+  #handshakeChanged(): void {
+    const active = this.#pairingView()?.handshaking === true;
+    if (!active) {
+      this.#cancelHandshakeNotice?.();
+      this.#cancelHandshakeNotice = null;
+      if (this.#publishedHandshaking) this.#changed();
+      return;
+    }
+    if (this.#closed || this.#watchers.size === 0 || this.#publishedHandshaking || this.#cancelHandshakeNotice !== null)
+      return;
+    this.#cancelHandshakeNotice = trackedTimeout(
+      this.#options.clock,
+      this.#options.resources,
+      () => {
+        this.#cancelHandshakeNotice = null;
+        this.#changed();
+      },
+      100,
+    );
   }
 
   /** Publishes a complete state to local watchers only. @remarks Traffic-only changes are sampled separately. @sideEffects Sends local events. */
   #changed(): void {
+    this.#cancelHandshakeNotice?.();
+    this.#cancelHandshakeNotice = null;
     if (this.#closed || this.#watchers.size === 0) return;
     const event: RemoteUpdatedEvent = { type: "remote_updated", remote: this.#view() };
+    this.#publishedHandshaking = event.remote.pairing?.handshaking === true;
     for (const id of this.#watchers) this.#options.send(id, event);
   }
 

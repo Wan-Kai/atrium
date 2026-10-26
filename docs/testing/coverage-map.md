@@ -4,6 +4,25 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## MP3a 协议 27 协调及设置页接缝（2026-10-26）
+
+协调提交 `c709daf` 合入固定 main `ace843a`（已核实祖先关系），解决双方都占用版本 26 却形状不兼容的问题；保留翻译和远程协议并集，新增型号、诊断和握手活动投影，统一为 27。Swift 类型、往返夹具与版本断言同步。以下是新增验证；下节 `c09b54d` 的全量/变异仍为历史记录，不冒充本轮结果。
+
+| 行为 | 证据 |
+|---|---|
+| 三项投影字段必填，未知型号为 null，诊断区分 unknown/not_applicable/failed，拒绝原始错误字段；保持翻译命令、语言偏好、错误；两翻译命令显式 local_only | `protocol/src/remote.test.ts`、`envelope.test.ts`、`translation.test.ts`、`server/remote-policy.test.ts`；Swift 协议 16 项；`protocol/src/coordination-break-check.json` 7/7 检出 |
+| 型号从已存自报值 trim，空白为 null，不猜硬件，不改保险箱格式 | `test/remote/projections.host.test.ts` 及 `service-security.host.test.ts` 的真实 relay 流程 |
+| 多候选、旧 QR、旧连接代次、过期、取消、关闭后灰包消失；不暴露 M1 候选身份，不改业务状态机；晚加入 watcher 得到当前事实，短握手不人为延长 | `projections.host.test.ts`；`remote/pairing.test.ts`、`remote-service.test.ts`；首次 RED 后 GREEN，候选激活通知 100ms 合并，终止清除立即发送 |
+| connect/live、关着时 probe、配置/身份/代次变化、probe 取消、旧结果不能覆盖新状态；重试保留已结束快照，重置不能把旧诊断与新指纹一起推送 | `remote-service.test.ts`、`projections.host.test.ts`；投影和重置破坏检查共 14/14 检出 |
+| 实际 TCP/地址解析/TLS/HTTP Upgrade/令牌认可证据；不把普通 reset 或总超时归因为无网；正常 CA 验证的 TLS 才通过 | `relay-diagnostics.test.ts` 16 项本地真实请求/服务器：可信测试 CA、未信任证书、主机名不匹配、拒绝连接、受控 resolver、静默 TLS、reset、503、畸形 101、HPE 解析错误、正常 open 后关闭；未访问 VPS，未放宽 TLS |
+| request/socket 的七个观测监听在成功、失败、取消后移除；必须履行 finishRequest 的 request.end 责任 | 同上真实 listener 引用核对；先复现 ws 请求错误处理会同步 close，改为 prepend 记录；畸形 101/HTTP 解析回归先红后绿，不重复实现 WebSocket 验证器 |
+| 当前控制 socket 的本次随机 16 字节 ping；空/错/旧/常规心跳 pong 不成功且不消耗监听；并发共享、正确 pong 成功、超时不悬空且物理连接关闭、stop/close/rejection 清理 | `relay-link.test.ts` 真实 socket；先复现任意 pong 提前成功；重复 12 轮核对真实 socket 的监听数与资源；`diagnostics-pong-break-check.json` 20/20 检出（最初两项测试名过滤不匹配，修正后全部复验）；旧三条移动锚点复验通过 |
+| 错误码字面量不冒充环境变量；显式 env 读取/解构/对象键仍受检查，未知相似前缀不豁免 | `scripts/boundary.test.ts` 12 项、7 条破坏检查；只增 11 项精确例外，不新增虚假登记。`boundary --all` 14 URLs / 41 env / 4 commands，未登记 0 |
+
+阶段验证：协议协调阶段定向 200 项、协议类型检查和 Swift 16 项通过；行为补齐后定向协议/路由/远程单元 470 项、真实 relay 61 项通过，随后补强的协议/白名单 25 项再次通过；远程泄漏 2 项通过。最终源码 `pnpm check` 通过。变异仅对五个变更远程文件运行增量，原始报告 `reports/stryker-incremental-remote-close.json` 保留，v27 结果独立写到 `reports/stryker-incremental-remote-v27.json`；当前仍在执行，未提前称新源码达标。
+
+边界与未完成项：完整桌面泄漏、既有 file-search 竞态、既有 Electron quit 重入问题仍按下节保留失败证据，未顺带修改。未做真实钥匙串授权、真机、用户 VPS、打包安装或跨分支人工验收；本轮不是三方正式审查。
+
 ## MP3a 宿主远程模块（2026-10-26）
 
 以下为历史快照 `c09b54d` 的实现与验证记录，不作为当前整合结果：协议 v27、模型、诊断与握手的协调整合仍待完成。

@@ -113,7 +113,7 @@
   },
   {
     "file": "packages/host/src/remote/relay-link.ts",
-    "from": "resolve(result === null ? null : code === UNAUTHORIZED ? \"relay_rejected\" : \"relay_unreachable\");",
+    "from": "resolve(error);",
     "to": "resolve(\"relay_unreachable\");",
     "test": "packages/host/src/remote/relay-link.test.ts",
     "name": "closes and releases resources before returning success"
