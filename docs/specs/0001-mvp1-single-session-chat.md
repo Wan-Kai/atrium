@@ -992,7 +992,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 
 - `compact_session(sessionId, instructions?)`：宿主在会话空闲时（没有运行、没在停止或压缩）调 pi 的 `compact`；不空闲应答 `session_busy`。pi 的 `compact` 会先停掉正在进行的运行，所以运行中一律不让压缩，不是靠 pi 停。
 - 压缩中也算会话忙：交给终端应答 `session_busy`，pi 更新后停空闲的 pi 时不停它（2026-10-14 审查后补）。
-- 压缩期间排队照旧暂停出队（同自动压缩），发的新消息进排队；对话区底部一行灰色"正在压缩上下文…"（带闪光），等应答。完成后照旧出现"上下文已压缩 · 压缩前 N tokens"的提示条，状态栏重读。
+- 压缩期间排队照旧暂停出队（同自动压缩），发的新消息进排队；对话区底部一行"正在压缩上下文…"（被轻轻压扁的小猫加扫光，见 design-language"运行中压缩"），等应答。完成后照旧出现"上下文已压缩 · 压缩前 N tokens"的提示条，状态栏重读。
 - pi 报"Nothing to compact"应答 `nothing_to_compact`（"对话还太短，不用压缩"），"Already compacted"应答 `already_compacted`（"刚压缩过，没有新内容"），其余失败 `compact_failed`（"没能压缩：pi 出错了"；pi 的原话不进界面，日志只记会话 id 和失败类别）。草稿应答 `session_is_draft`。
 
 **分叉**

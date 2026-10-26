@@ -204,7 +204,26 @@ Atrium 现状（读源码确认，2026-10-24）：
 - 自己写 Noise 状态机却不对齐公开测试向量；
 - 包装 TUI、另起进程续会话。
 
-## 7. 没核实的
+## 7. 开源 App 的源码对照（2026-10-25）
+
+读了两个开源的"手机接管本机 agent"App 的源码：mimi-remote（gaixianggeng，GPLv3，commit `479358e`，SwiftUI，iOS 18+，经 Tailscale 或局域网直连 Mac 上的 Go 网关，主要接 Codex）和 cmux-iphone（lim-won，MIT，commit `982da7d`，iOS 17，HTTP + SSE 直连）。只学设计，不摘抄代码。
+
+借鉴（已写进 SPEC-0005 或留给对应里程碑）：
+
+- **发送分三态**（mimi `HarnessSubmissionController.swift`、`SessionStoreTurnSubmission.swift`）：没写进通道的是"失败"可重发，写出未确认的是"不确定"，同一会话有未确认的就拦下新发送；没有自动重试；对账按 `(clientMessageId, turn)` 精确匹配。
+- **代数**：每次连接、每台主机一个代数，异步回调写回前核对（cmux `SSEClient.swift`、mimi `HostScope`）；网络变化编序号，只接受更大的。
+- **游标在投影落地后才推进**（mimi）。cmux 的反例：事件 id 在宿主重启后从 0 重来、客户端游标只在内存，补发静默漏掉——我们的 `stream` 字段防这个，写成契约测试。
+- **重连后补推未答的审批 / 提问**，客户端按 id 去重，"提交中"的卡片不被重置回待答（cmux）；先答先得、后到 404、广播收起（cmux `resolvePermission`）；回答时带上看到的内容的哈希、宿主内容变了就 409（cmux 的"屏幕哈希"）。
+- **前后台**：`.inactive` 不动连接，`.background` 才断，`.active` 才恢复（mimi `RootView.swift`）。
+- **自检分两层**：宿主发检查项代码，桌面和手机各自本地化；手机做分段计时的连通测试（mimi `doctor.go`、`HostConnectionSupport.swift`）。
+- **流式 Markdown 的尾块边界由解析器给**：只冻结最后一个顶层块之前的内容，表格后跟半行的特例，超长纯文本快路径（mimi `MarkdownParser.swift`）。
+- **时间线用 `List`**、`.equatable()` 行、滚动三态、"首次出现定位置之后原地更新"（mimi `ConversationTimelineView.swift`、`ConversationTimelineReducer.swift`）。
+- **动效 token 带降级开关**：减弱动态效果时同一 token 返回淡变，附 `allowsScale` / `allowsSpatialMotion`；zoom 在呈现前就决定（mimi `MimiInteractionFeedback.swift`）。mimi 把 iOS 26 的玻璃全换成了扁平磨砂，理由是"一屏只要一种玻璃浓度"，这条理由值得记住；两个仓库都没有 `GlassEffectContainer` / `glassEffectID` 的写法可参考。
+- **工程**：设备按 UDID 加租约（`mkdir` 原子锁 + PID 和启动时间，忙时退出码 75，mimi `ios-device-lease.sh`）；签名团队不进仓库、一个变量派生所有 bundle id（cmux `project.yml`）；快照测试先检查固定的模拟器（mimi）；AGENTS.md 是"场景 → 必读文件"表（mimi）。
+
+不照搬：mimi 的共享 token 和可反复兑换的票据、cmux 的长期 6 位码和"撤销不断已打开的流"、靠网络层（Tailscale）加密而应用层明文、cmux 失败后降级成轮询、mimi 的 80 毫秒整块刷新（没有揭示节奏）、代码和 diff 不着色、用文案前缀推断状态、Codex 的单 writer 锁和只读观察模式（pi 不需要）。
+
+## 8. 没核实的
 
 - Claude Code 是闭源的，Remote Control 两端同时批准谁生效只有 Channels 文档；
 - Codex 中继服务端是否存储内容；

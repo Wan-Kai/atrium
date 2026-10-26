@@ -1,0 +1,5 @@
+// The UI tests, run in the simulator by `pnpm test:ios`.
+PRODUCT_NAME = AtriumUITests
+PRODUCT_BUNDLE_IDENTIFIER = site.ktoon.atrium.uitests
+GENERATE_INFOPLIST_FILE = YES
+TEST_TARGET_NAME = Atrium

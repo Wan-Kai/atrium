@@ -21,7 +21,7 @@
 | 桌面真实调用、原文和会话文件不改、只有语言落盘、重启译文消失；浅/深色截图 | `apps/desktop/e2e/reply-translation.spec.ts` |
 | 200 次真实子进程翻译后计数/实际定时器/signal 基线；切换译文页面后 DOM 不增长 | `packages/host/src/sessions/reply-translation.leak.test.ts`；`apps/desktop/e2e/reply-translation.leak.spec.ts` |
 
-最终验证（2026-10-26，`atrium/reply-translation`，未提交、合并或安装）：
+功能分支验证（2026-10-26，`79e1fd2`；以下是同步最新 `main` 之前的结果，未安装）：
 
 - `pnpm check`（格式、lint、全包类型、knip、边界登记）与构建通过。单元 **3643**、串行宿主 **164**、串行 pi 契约 **99**、串行界面 **1028** 通过；最后一次构建后重新跑真实 pi 翻译契约 **12**、真实宿主翻译 **6** 通过。完整单元后只把客户端的 `allSettled([...Set])` 按 lint 建议改为等价的 `allSettled(Set)`，客户端 **108** 项复验通过。
 - 相关泄漏 **4** 项通过：宿主 200 次成功、50 次取消，客户端 1000 次取消回执可回收，及原有客户端视图回收；桌面翻译旅程与 DOM 泄漏各连续两次，**4/4** 通过。分别故意隐藏构建产物里的翻译按钮、在隔离窗口保留已移除 DOM，桌面测试均红；DOM 负对照明确检出译文 section 从 1 增到 11，恢复后通过。浅/深色的真实 Electron 页面截图已查阅；不把透明侧栏的页面截图当原生材质验收。
@@ -31,7 +31,96 @@
 - 诚实保留首轮失败：默认全量 UI 的 status-bar tooltip 被指针拦截、宿主 setup 的 1 秒 ready 等待、pi edit-aborted 的 get_entries 时序各失败一次，单文件及随后串行全量都过，登记到 testing.md；没有放宽断言、重录夹具或删除测试。新的桌面泄漏用例曾在首条消息发出前失败，失败快照显示文字仍在输入框（已有 Enter 送出不稳现象）；本能力的两条新旅程改为点击公开的“发送”按钮，不测试键盘快捷键，之后连续两轮全部通过。
 - `pnpm boundary`：协议 **25 → 26**；无新依赖、地址、环境变量或隐藏命令；全量登记仍为 URL 13、环境变量 39、隐藏命令 4，未登记 0、非精确依赖 0。翻译 guard 的私有临时文件例外已写进 security 与 pi-internals。
 
-限制与未验证：模型调用期限 60 秒，256/512 KiB 是内存上限，不保证接近上限的回复能在期限内译完；超时保留原文并可重试。只测真实 pi 加 faux，没有调用真实订阅验证翻译质量；未跑全套桌面、性能/压力/浸泡、打包或安装。分支和 worktree 保留，待用户验收。
+限制与未验证：模型调用期限 60 秒，256/512 KiB 是内存上限，不保证接近上限的回复能在期限内译完；超时保留原文并可重试。只测真实 pi 加 faux，没有调用真实订阅验证翻译质量；未跑全套桌面、性能/压力/浸泡、打包或安装。用户随后明确要求本地合回 `main`、删除对应 worktree，不安装。
+
+### 同步 main 后的收尾（2026-10-26）
+
+同步 `main` 的 `1679b01`（MP0/MP1/MP2 和压缩提示的小猫样式）。只冲突路线图和追踪表的新增段落，保留双方内容；桌面生产代码无冲突。沿用新加入的 Swift 协议投影门禁，为两个新命令补齐结果样例（完整性测试先见红），重新生成 Swift 类型与三份往返夹具。Swift 往返测试把协议版本仍写死为 25，先看到 `26 != 25` 失败，再随本次版本升级明确改为 26；不删除断言、不绕过生成检查。
+
+合并前复验：`pnpm check`（含 Swift 格式/lint 与生成类型比较）通过；串行 Node 单元 **3854**、界面 **1028**、Swift **22** 及模拟器 UI 测试通过；重新构建后的全套桌面端到端 **63/63** 通过（日志门禁的 `test.fail()` 是预期失败，Playwright 汇总仍是 63 passed）。没有手机端翻译入口的新增设计，只同步协议投影；未安装到真机、未替换或重启用户现用 Atrium。按用户要求本地合并并安全删除任务 worktree，不推送。
+
+## MP1 Swift 工程基础（手机端，2026-10-25～26）
+
+路线图 MP1：Swift 的规范、`apps/ios` 工程骨架、`pnpm protocol:swift` 和往返测试、Swift 进 `pnpm check` / `pnpm test`，破坏检查扩到 Swift（[testing.md · Swift（手机端）](../architecture/testing.md#swift手机端)、[overview.md · iOS 工程](../architecture/overview.md#ios-工程2026-10-25-定mp1)）。
+
+| 行为 | 验证 |
+|---|---|
+| 协议包导出的每个 zod schema 按导出名、每条命令的结果按 `<命令>Result` 导出成 JSON Schema，`$ref` 都指向包里的名字，带协议版本 | `packages/protocol/src/json-schema.test.ts` 两例 |
+| 生成器：对象 → `struct`，必填、可为 `null`、可省略、既可省略又可为 `null`（`Nullable`）、常量字段分开处理；字符串枚举 → `enum: String`；嵌套类型不遮住顶层类型和 Swift 自己的类型，关键字转义 | `scripts/swift-codegen.test.ts`"writes an object as a struct…"、"keeps nested names clear…" |
+| 判别联合 → 先读判别字段再分派的 `enum`；嵌套联合按它的全部取值分派；只有常量的成员是不带值的 case；判别字段是字符串枚举时按值展开；布尔判别要给 case 名，没给就报错 | `swift-codegen.test.ts`"writes a discriminated union…"、"names a boolean discriminator's cases…" |
+| 没有判别字段的对象联合按"只有它有的必填键"分派；标量联合先试常量；品牌 id 的联合是 `String` | `swift-codegen.test.ts`"tells objects apart…" |
+| 可省略的常量（`fork_session` 的 `noteSent`）存成可选值，在时必须是那个常量 | `swift-codegen.test.ts`"keeps an optional constant…"；Swift `CodingSupportTests`"keeps an optional constant…" |
+| 不支持的构造（`allOf`、元组、数字常量、分不开的联合、找不到的引用）报错，写明位置；同样的输入输出相同 | `swift-codegen.test.ts`"refuses what the protocol does not use…"、"writes the same output…" |
+| `pnpm protocol:swift --check`：提交的 Swift 类型和协议一致时通过；差一行或没有文件时退出码 1，提示重新生成；接在 `pnpm check` 里，没有 Xcode 也跑 | `scripts/protocol-swift.test.ts` 三例；`scripts/ios.test.ts`"still compares the generated protocol types without Xcode…"；手工：给 `WelcomeMessage` 加一个可选字段后 `pnpm check` 退出码 1（"… is out of date with packages/protocol; run pnpm protocol:swift"），改回后 0 |
+| 往返夹具和 `envelope.test.ts` 的合法样例保持一致（超过 4096 字符的字符串截成 64 个） | `envelope.test.ts`"Swift fixtures" 两例 |
+| 生成的类型能编译（Swift 6、警告当错误、模块依赖检查）；每个客户端、宿主样例解码再编码后和原 JSON 语义相等；按 `type` 分派、未知类型 / 错的常量 / 缺字段报错 | `pnpm test` 的 Swift 部分；`AtriumProtocolTests/RoundTripTests.swift` 五例 |
+| 编解码支持：缺省和 `null` 分开、不许 `null` 的地方拒绝、开放字段保留 `null`、`ContextReserve`、`InteractionAnswer`、`JSONValue` 往返 | `AtriumProtocolTests/CodingSupportTests.swift` 七例 |
+| 各模块的最小实现：Noise 套件名、配对链接只认 `atrium://pair`、协议版本相同才连、Mermaid / PlantUML 显示原文、首页标题 | `NoiseSuiteTests`、`PairingLinkTests`、`ProtocolCheckTests`、`DiagramFenceTests`、`HomeViewTests` |
+| App 在模拟器上打开显示首页标题 | `apps/ios/AtriumUITests/AtriumUITests.swift`（`pnpm test:ios`） |
+| `pnpm ios:install`：没配对的 iPhone、配对了但连不上时在构建之前报错，写明设备名、上次连接时间和怎么连；连着时按免费团队构建、装上、打开 | `scripts/ios.test.ts` 三例（`xcrun` 替身）；手工：手机不在时报"katonn的iPhone (iPhone 16 Pro) is paired but not connected (last seen 2026-09-10 09:32 UTC)…"，退出码 1 |
+| `pnpm test:ios`：先 `swift test`（警告当错误、依赖检查），再在 "Atrium iPhone 16 Pro" 上跑 UI 测试；没有这个模拟器时在最新的 iOS 运行时上建；没 Xcode 时 `ios:*` 报错退出 | `scripts/ios.test.ts` 其余四例 |
+| `pnpm test` 先跑单元层再跑 `swift test`；带参数时只跑 Vitest；单元层失败就停；没 Xcode 时跳过 Swift 照样通过 | `scripts/test.test.ts` 四例 |
+| `scripts/swift-lint.mjs`：每个类型、函数、`init`、`subscript` 有文档注释、第一句、`- Remark:`，函数类有 `- SideEffects:`；多行属性、测试、XCTest 的 `test…` 方法、字符串和注释里的文字、生成的代码不算；不安全的并发要 `// Unchecked:`，没人留着的 `Task` 要 `// Fire and forget:`；AtriumKit 的源码不许直接用真实时间 | `scripts/swift-lint.test.ts` 五例 |
+| 破坏检查支持 Swift：`runner: "swift"` 跑 `swift test --filter`，Swift Testing 的失败算 `CAUGHT`，改坏后编译不过算 `NOBUILD`（算漏掉） | `scripts/break-check.test.ts`"runs swift test for Swift cases…" |
+
+`pnpm break-check` 共 41 处。TypeScript 25 处：首轮 22 处检出、3 处漏掉；标量联合"先试常量"补了断言，swift-lint 的注释处理补了用例，另一处是 case 指错了测试，改对后 3 处重跑全部检出。Swift 16 处（`runner: "swift"`）：首轮 14/15 检出，漏掉的是 `decodeOmittable` 自己的 `null` 检查。它永远不会生效（`decode` 对没有 `null` 的类型本来就拒绝 `null`），于是连同多余的 `JSONValue` 重载一起删掉，补了"开放字段保留 `null`"的测试，再把这个函数改成 `decodeIfPresent`，检出。Swift 的 case 包括生成的代码（删掉 `ResponseMessage.Success` 编码 `result` 的一行、删掉 `InteractionAnswer` 对 `cancelled: true` 的核对）、编解码支持的每个分支和各模块的判断。变异测试只涉及 `packages/protocol/src/json-schema.ts`（shared 组，`--mutate`）：16 个，首轮 14 杀死、2 存活，都是删掉和 zod 4.6.5 默认值相同的选项，已在源码注明等价，重跑 100%。跑变异时发现 Stryker 复制沙箱时卡在 SwiftPM 的 `.build`（里面有 socket），已在 `stryker.config.mjs` 忽略 `apps/ios/**/.build`。`scripts/` 和 Swift 不在变异分组里（Swift 没有接 Muter，见 testing.md）。
+
+`pnpm check` 通过（含 `ios:check`）；`pnpm test` 单元 192 个文件 3613 项、Swift 19 项通过；`pnpm test:ios` 19 项 Swift 加 1 项模拟器 UI 测试通过；`pnpm ios:build` 真机构建签名通过（团队 `QGZ4G5UJ65`，bundle id `site.ktoon.atrium`）；`pnpm ios:shot` 浅色、深色截图看过。没验证：真机安装和打开（手机不在电脑旁边，只验证了没连时的报错），以及 lefthook 推送前跑 `pnpm test` 的耗时（多了约 10 秒的 `swift test`）。
+
+### 只读审查后补（GPT-6 Astra，2026-10-26）
+
+审查报中 5 条、低 2 条，没有高。每条先写见红的测试，再修，再做破坏检查，各自提交。
+
+| 发现 | 行为 | 验证 |
+|---|---|---|
+| 中 1 | 生成的文件带整份 JSON Schema（键排好序）的 SHA-256，只改长度、范围这类约束时 `--check` 也失败 | `scripts/swift-codegen.test.ts`"carries a fingerprint…"；破坏检查把 `SessionId` 的 `max(128)` 改成 `max(64)`，`protocol-swift.test.ts` 检出 |
+| 中 2 | 每条命令至少一个合法结果写成 `command-results.json`，Swift 按生成的 `commandResultType(_:)` 用各自的类型往返；宿主样例覆盖 `HostMessage` 的每种 `type`（补上了 `credentials_changed`） | `json-schema.test.ts`"names the result schema of every command…"；`swift-codegen.test.ts`"maps each command's type…"；`envelope.test.ts`"examples" 两例；Swift `RoundTripTests`"decodes and re-encodes every command's result…"、"knows no result type…" |
+| 中 3 | 文档注释和声明之间可以隔着豁免注释（`// Unchecked:` 等）；豁免注释写在文档注释上面时照样报 | `swift-lint.test.ts`"reads a doc comment above an exemption comment…" |
+| 中 4 | 真实时间在 App 本体以外都查（含 AtriumKit 的测试和 UI 测试），确实要时上一行写 `// Real time: <为什么>` | `swift-lint.test.ts`"refuses real time everywhere but the app…" |
+| 中 5 | `test:ios` 的模拟器部分和 `ios:shot` 从找模拟器到测完、截完拿着跨 worktree 的锁；别人拿着就等、超时报出是谁；进程不在（含进程号被重用）、或 30 秒没写主人的锁被接管；退出时放锁 | `scripts/ios.test.ts`"ios.mjs simulator lock" 七例；手工：两个 `ios:shot` 同时跑，第二个打出"waiting for the Atrium simulator: pid … is using it"，等第一个截完再截，两个都退出码 0，锁目录清空 |
+| 低 6 | 可省略的常量编码时也核对，不是那个值就抛 `EncodingError` | `swift-codegen.test.ts`"keeps an optional constant…"；Swift `CodingSupportTests`"refuses to write an optional constant…" |
+| 低 7 | 读输出的 Xcode 调用失败时打出命令、输出和错误；只是探 Xcode 在不在的那次照旧不出声 | `ios.test.ts`"ios.mjs failures" 两例 |
+
+`pnpm break-check` 共 31 处（TypeScript 26、Swift 5），全部检出：指纹 3、命令结果和宿主覆盖 7（含 2 处 Swift：把 `fetch_transcript` 的结果类型换成 `PingResult`、删掉 `noteSent` 的编码）、豁免注释 1、真实时间 3、模拟器锁 9、常量编码 3（2 处 Swift）、失败输出 3。锁的"超时退出"那处改坏后脚本会一直等，跑完查过没有留下 `ios.mjs` 进程。没有改核心模块，没跑变异测试；`json-schema.ts` 多了 `commandResults`，它的测试已覆盖。
+
+
+### 真机验收时补（2026-10-26）
+
+| 行为 | 测试 | 破坏检查 |
+|---|---|---|
+| `devicectl` 不给 `reality`、`marketingName` 的配对过的 iPhone 也能装（Xcode 26.6 对刚配对的 iPhone 16 Pro 就是这样，原先误报"没有配对过的 iPhone"） | `scripts/ios.test.ts`"uses a paired iPhone that devicectl describes without reality or a marketing name"、"names a paired iPhone that is away by its product type …" | 两处，都检出 |
+| 装上了但手机还没信任开发者时，说明去哪里信任，而不是只转出 `devicectl` 的长报错 | `scripts/ios.test.ts`"says how to trust the developer when the phone refuses to open an app it has not trusted yet" | 一处，检出 |
+
+真机：`pnpm ios:install` 装到 iPhone 16 Pro（iOS 26.6.1），空 App 打开、运行（MP1 完成标准最后一条）。
+
+## 手机端 MP2：relay（SPEC-0005，2026-10-25）
+
+`apps/relay`：SPEC-0005"部署 relay""relay 的线路协议"全部。集成测试起真实的 relay（假时钟、`127.0.0.1` 随机端口、前缀 `/atrium`），用真实 `ws` 客户端当宿主和手机（`apps/relay/test/peers.ts`），读得慢的手机是完成升级后暂停读取的原始 TCP 连接。
+
+| 行为 | 验证 |
+|---|---|
+| `GET <前缀>/healthz` 回 200 `ok`（不缓存的纯文本），别的路径、方法、根路径回 404；三个入口之外的升级回 404；没有前缀时挂在根上 | `apps/relay/src/relay.test.ts`"relay entry points" |
+| 宿主 `hello` 后回 `ready`；`open` 只带 `streamId`（128 位）和 `ipHash`；二进制帧两个方向原样、按顺序转发；接线前的帧先存、接上后按顺序先送；任一端关闭另一端 1000；手机或数据连接发文本帧 4400 关掉这一对 | 同上"relay pass-through" |
+| 认证：令牌错、宿主不存在、版本或类型不对、缺令牌、二进制或非 JSON 的 `hello`、数据连接缺或格式错的 `streamId` 都 4401；失败日志只在 `hostId` 像 `hst_<16hex>` 时记它，从不记令牌；5 秒内没 `hello` 4408，4999 毫秒到的照样认；计时器先到、`hello` 后到的不认；一个连接不论怎么结束只让出一个未认证名额 | 同上"relay authentication""relay hello deadline" |
+| 代数：新控制连接挤掉旧的（4409），旧连接的流 4409；旧连接的关闭不让新的下线；挤掉前宣布的流再来数据连接 4404 | 同上"relay control generations" |
+| 宿主离线：从没上线或不存在的 `hostId` 4404 `offline:0`，`host` 参数不对 4400；控制连接断了，它的流和之后的手机 4404 `offline:<断开时的秒>`；20 秒一次 ping，答着就不断，60 秒没回应断开并关掉它的流（日志 `unresponsive`）；宿主走后不留定时器 | 同上"relay offline hosts" |
+| 接线：10 秒没有数据连接 4408（9999 毫秒时还在），之后来的数据连接 4404；接上后不再超时；同一条流的第二条数据连接 4404；`refuse` 4403，不认识的 `refuse` 不理；控制连接发二进制（即使内容是 `refuse`）、非 JSON、不认识的类型 4400 并带下它的流；接线前 9 帧或超过 256 KiB 4507（正好 256 KiB 不关） | 同上"relay wiring a stream" |
+| 上限：70 KiB 的帧过、多 1 字节发的那端 1009、另一端 1000；每宿主 16 条流，第 17 条 4429；未认证 64 条，第 65 条 4429；每地址每分钟 30 条新流（只算建起来的），滑过 60 秒恢复；设成 0 不限；只信任的反代的 `X-Forwarded-For`；缓冲合计超了新手机 4507；读得慢的手机积压过 4 MiB 4507，同一宿主的另一台手机照常收到每一帧 | 同上"relay limits" |
+| 宿主表：删掉的宿主控制连接 4401、手机 4404、数据连接 4401，之后连不上；换令牌后旧令牌 4401、新令牌可用，日志代数 1 → 下线 `revoked` → 3；被切断的宿主的手机看到切断时刻，从没上线的仍是 `offline:0`；只改名不断，新宿主可用 | 同上"relay host table" |
+| 日志只有元数据：没有令牌、载荷（原文、hex、base64）、原始 IP、`hello`；每种事件的字段逐个核对 | 同上"relay log""relay log events" |
+| 关闭：所有连接 1001，计数和定时器归零；关闭中新来的升级 404，不回应关闭帧的连接 2 秒后切断；半截的请求和 keep-alive 连接不拖住关闭 | 同上"relay shutdown"、"does not wait for a half-sent request" |
+| 不压缩帧（客户端提出也不接受） | 同上"does not compress frames" |
+| 200 轮（上线挤掉上一代、收发、接线超时、拒绝、认证失败、`hello` 超时、宿主离线的手机）后资源计数、假时钟的定时器、Node 的 TCP 句柄和 `Timeout` 回到基线；连接还开着时关闭也全部释放 | `apps/relay/src/relay.leak.test.ts` |
+| 真实 IP：只在连接来自信任的反代时读 `X-Forwarded-For`（从右往左第一个不信任的）或 `X-Real-IP`，值不是地址时用连接地址，`::ffff:` 前缀去掉 | `apps/relay/src/client-address.test.ts` |
+| 每地址的滑动窗口：不算被拒的、过了窗口忘掉地址并停掉清理定时器、0 不限 | `apps/relay/src/rate-limit.test.ts` |
+| `relay.json`：默认值、全部字段、缺文件、不认识或不对的字段只报名字、前缀格式、非 JSON | `apps/relay/src/config.test.ts` |
+| `hosts.json`：0600 原子写入、目录 0700、坏表拒读、改名失败不留临时文件；轮询报告每次变化和坏表，没变不报，停了不再报（包括正在进行的那次） | `apps/relay/src/hosts.test.ts` |
+| 日志文件：按 UTC 日期一天一个、0600、过了午夜换文件、只删自己的超过 14 天的文件、关闭后不再开文件、打不开或列不出目录时报一次错码并接着跑 | `apps/relay/src/daily-log.test.ts` |
+| 命令行：`add-host` 只往标准输出打一次那一行、只存令牌的哈希；`rotate-host` 只换这一个宿主的令牌；`remove-host`、`list-hosts`（不含令牌）；名字、用法、缺或坏的 `relay.json`、坏的 `hosts.json`（不覆盖）；`serve` 记日志、按信号干净退出、2 秒内跟上 `rotate-host`（在线的 4401）、运行中加的宿主、坏表保留旧表、每分钟资源行、日志写不了时只在终端报错码、端口被占 | `apps/relay/src/cli.test.ts` |
+
+验证（2026-10-26）：`pnpm check` 通过；`pnpm test` 196 个文件 3741 项通过；relay 的单元和集成 160 项、泄漏 2 项通过；`pnpm test:stress --copies 8 --rounds 3 apps/relay` 24 次没有失败。`pnpm break-check` 25 处全部检出（认证、代数、离线原因、两种超时、接线缓冲的帧数和字节、积压、每宿主流数、未认证数、每地址速率、缓冲合计、信任的反代、ping 超时、换令牌、日志里的 `hostId`、文本帧、只存哈希、轮询生效、3 处泄漏、日志保留、关闭码 1001）。变异测试新加 `relay` 组：第一次 82.90%（189 个存活），补测试、删掉冗余代码（关闭时第二个代数判断、`onData` 里的代数判断、`stopPings`、日志的 `#broken`、没用的 `CliIo` 选项）后 958 个全部杀死、0 存活、0 超时，等价的在源码注明理由。
+
+本机 Docker（colima，arm64）：`docker build` 和 `--platform linux/amd64` 都成功，构建的检查阶段在镜像的 Node（v24.22.1）上跑通 `add-host` / `list-hosts`，打包坏了构建失败（截断 `relay.cjs` 实测）；按 `compose.yaml` 的设置（只读、去掉 capability、uid 1000）`docker run`，再起一个和它共用网络的 nginx 原样加载 `deploy/nginx-location.conf`：直连和经 nginx 的 `/atrium/healthz` 都是 `ok`，其他路径 404；`docker exec … add-host` 打印的一行交给 MP0 的假宿主，假手机经 nginx 配对（两边校验码一致）、IK 重连、`hello`/`welcome`、心跳都通过；`rotate-host` 后在线的宿主 2 秒内收到 4401，之后的手机 4404 `offline:<秒>`；`docker stop` 干净退出（日志最后是 `stopped`），日志里没有令牌。没在用户的 VPS 上验证（由主 agent 部署）。
 
 ## pi 1.3.0 契约夹具补齐（2026-10-23）
 
@@ -697,7 +786,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 压缩记录存进 `turns/<会话 id>.json` 的 `compactions`（有了才写，每条只记一次，原因按第一次），下一个宿主读回；会话 id 不能做文件名的只在内存；分叉、子对话复制父会话的记录 | `packages/host/src/store/turn-starts.test.ts` "records the compactions the host saw during runs…"、"writes nothing when every entry recorded is known already"；`session-manager.test.ts` "hands the session the compactions an earlier host saw during runs…"、"copies the parent's turn starts to a child forked into a new worktree…" | 已覆盖 |
 | 界面：压缩步骤的节点是两道横贯主线的刻痕（13×1.5px，中心相距 3px，`--text-dim`），主线不断；文字"压缩了上下文 · 152K → 41K"（`--text-muted`，数字等宽）、不知道压缩后时"· 压缩前 152K"、溢出时"上下文超出窗口，已压缩"，后面 `›`；点开是"压缩前 152K tokens · 压缩后 41K · 保留了最近的原文"（`--fs-sm`、`--text-dim`）和 Markdown 摘要，`›` 转向下 | `packages/ui/src/chat/turn.browser.test.tsx` "TurnView compaction"；`turn-layout.test.ts` "describes a compaction by the context before and after…" | 已覆盖（深色外观未单独测） |
 | 折叠后的标题行末尾"压缩了 N 次上下文"，在"N 条命令没走通"之后 | turn.browser.test.tsx "ends the folded header with how many times the context was compacted"；`turn-layout.test.ts` "counts files read, searches and commands…" | 已覆盖 |
-| 运行中压缩：运行中的轮的轨道末尾一行"正在压缩上下文…"（闪光，刻痕节点），前一步不再算进行中；第一步之前压缩时也有轨道、没有等待行；轮与轮之间的压缩仍在底部 | turn.browser.test.tsx "says on the rail where pi compacts now…"；`chat.browser.test.tsx` "says pi compacts on the running turn's rail…"、"says at the bottom of the conversation while pi compacts" | 已覆盖 |
+| 运行中压缩：运行中的轮的轨道末尾一行"正在压缩上下文…"（闪光，刻痕节点），前一步不再算进行中；第一步之前压缩时也有轨道、没有等待行；轮与轮之间的压缩仍在底部（2026-10-26 起底部是压扁的小猫加扫光，见"M1.11 自用：'正在压缩上下文'的小猫与扫光"） | turn.browser.test.tsx "says on the rail where pi compacts now…"；`chat.browser.test.tsx` "says pi compacts on the running turn's rail…"、"says at the bottom of the conversation while pi compacts, the cat pressed flat" | 已覆盖 |
 | 轮与轮之间的提示条"上下文已压缩 · 152K → 41K"，不知道压缩后时"上下文已压缩 · 压缩前 152K tokens" | turn.browser.test.tsx "NoticeView"；`turn-layout.test.ts` "writes a compaction in the process as a quoted line…" | 已覆盖 |
 | 正文后自动压缩不把正文收进折叠过程：跳过末尾连续压缩后取最后一步文字为回复；压缩保留在过程，工具后跟压缩、只有压缩或空轮不产生回复；Markdown 导出保留完整正文；实时追加压缩后正文仍可见，折叠与展开均不重复正文（2026-10-20 自用修复） | `packages/ui/src/chat/turn-layout.test.ts` "keeps the reply outside the process…"、"has no reply for only compactions…"、"exports the complete reply…"；`turn.browser.test.tsx` "keeps the answer visible when a trailing compaction…" | 已覆盖 |
 | 复制成 Markdown：压缩步骤写成一行引用，提示条带压缩前后 | turn-layout.test.ts "writes a compaction in the process as a quoted line, and one between turns with the context after it" | 已覆盖 |
@@ -842,7 +931,7 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 分叉 · pi 契约（1.1.0）：RPC `fork {entryId}` 应答 `{text, cancelled}`，切在那条用户消息之前；`clone` 应答 `{cancelled}`，复制整条分支；新文件马上写在同一会话目录，保留条目 id，头部有 `parentSession` | `packages/pi/src/contract/session.pi.test.ts` "fork-clone" | 已覆盖 |
 | 分叉 · 宿主与客户端：`fork_session(sessionId, turnId, name)` 用另起的 pi（`--session <文件>`，在会话的工作目录）分叉，最后一轮用 `clone`、其他轮 `fork` 到下一轮（跳过压缩等不是轮次的条目）的第一条用户消息；取新会话 id、设名字、停掉这个 pi；轮次开始时间抄到新会话（抄不了只记日志）；扫描后在同一容器打开成标签并切过去（客户端已去别处时不切）；整个分叉 30 秒为限，宿主关闭时中止；扩展取消、pi 出错、退出、超时、扫不到都应答 `fork_failed`，日志只记会话 id 和失败类别；运行中、正在发送、启动、压缩、停止、重启 `session_busy`，pi 已退出也能分叉；找不到这一轮或没对上条目 `turn_not_found`；草稿 `session_is_draft`，未知会话 `session_not_found`，已交接的拒绝；路由；客户端 | `packages/host/src/sessions/session-controller.test.ts` "fork point"、`session-forker.test.ts`、`session-manager.test.ts` "SessionManager forking"、`server/router.test.ts` "run control commands"、`packages/client/src/atrium-client.test.ts` "forking"、`packages/protocol/src/envelope.test.ts` | 已覆盖 |
 | 分叉 · 界面：每一轮结束的回复下方、复制右边有"从这里分叉"，点了让宿主在这一轮后分叉，名字是会话标题（最多 250 字）加"（分叉）"；运行中、停止中、压缩中变淡（0.4）、禁止光标、悬停"运行中不能分叉"、点了没反应；失败在标签栏旁用危险色说明（`session_busy`"运行中不能分叉"、`turn_not_found`"没能分叉：找不到这一轮"、`fork_failed`"没能分叉：pi 出错了"、其他"没能分叉"），一直留着直到别的提示替换；再点分叉先清掉这个会话的提示，不动别的会话的 | `chat.browser.test.tsx` "ConversationArea's fork button"、`packages/ui/src/tabs/session-notice.browser.test.tsx` | 已覆盖 |
-| `/compact [要求]` · 界面：列表最前、参数提示"要求"；执行时把名字后面的文字作为要求交给宿主（没有就不带），成功清空输入框；`nothing_to_compact`、`already_compacted`、`compact_failed` 在输入框上方说明（"对话还太短，不用压缩""刚压缩过，没有新内容""没能压缩：pi 出错了"）、输入框不动；压缩期间对话区底部一行带闪光的"正在压缩上下文…"，结束后消失 | `packages/ui/src/chat/builtin-commands.test.ts`、`composer.browser.test.tsx` "lists the built-ins first"、`chat.browser.test.tsx` "ConversationArea's /compact" | 已覆盖 |
+| `/compact [要求]` · 界面：列表最前、参数提示"要求"；执行时把名字后面的文字作为要求交给宿主（没有就不带），成功清空输入框；`nothing_to_compact`、`already_compacted`、`compact_failed` 在输入框上方说明（"对话还太短，不用压缩""刚压缩过，没有新内容""没能压缩：pi 出错了"）、输入框不动；压缩期间对话区底部一行"正在压缩上下文…"（压扁的小猫加扫光，2026-10-26 改），结束后消失 | `packages/ui/src/chat/builtin-commands.test.ts`、`composer.browser.test.tsx` "lists the built-ins first"、`chat.browser.test.tsx` "ConversationArea's /compact" | 已覆盖 |
 
 ## 文件与更改（M1.12，协议 14，2026-10-13）
 
@@ -1350,3 +1439,15 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 分隔行不带开头竖线（`--- \| ---`）、或表格吃进不带竖线的行之后，下一行数据被当成新表头藏起来；另外段落里一行以竖线开头的文字之后，下一行永远不藏，而真实渲染里表格可以从那里开始 | 某行是否已在表格里：往上找到空行、标题或围栏为止，中间有"表头 + 列数相同的完整分隔行"就算；不再看上一行是不是以竖线开头 | 同上；两条合起来破坏检查 12 处检出。2026-10-25 变异测试 ui 组 `markdown-transforms.ts`：新代码先存活 15 个，补 11 项（每项也加进真实渲染对照，现在 38 段），3 个注明等价（短于三个的波浪线不会闭合三个以上的围栏、第一行之前当空行、表头和它下一行不会是围栏）；之后新代码无存活，整个文件 94.21%，存活的 22 个都在这次没改的函数里 | 已修 |
 | `numberedFiles` 重建有 TOCTOU：两个进程都看到旧目录不全，A 挪走旧的、放好完整的，B 接着把 A 刚放好的挪走删掉 | 按代命名、从不挪动或删除（用户 2026-10-24 定，不用跨进程锁：锁的持有者被杀会留下锁，抢锁又会回到竞态）：不全的留着，新的放到下一个空着的名字；改名失败就重新看，取别人放好的 | `shared-directory.test.ts` "never moves or removes a complete directory another caller published while it was rebuilding a purged one"（受控交错：一方看到不全后停住，另一方放好再放行），修前失败（另一方放好的目录 inode 变了）；"takes the copy another caller published just before its own…"、"passes over a name something else holds"、改写的"builds the directory again under the next free name…"；破坏检查 7 处检出 | 已修 |
 | `pnpm test:stress` 只看每个测试的结果，丢掉子进程的退出码：导入失败、`afterAll` 抛错、运行级错误、被杀，只要报告里有测试就算通过 | 一份也算没跑好：被信号杀掉、文件在测试之外失败（报告里文件 `status: failed` 且带错误）、没有失败的测试却非零退出或报告 `success: false`；`ATRIUM_STRESS_RUNNER` 换成替身供脚本自己的测试用 | `scripts/stress.test.ts` 7 项（替身 Vitest 写报告、按要求退出或被杀），修前 4 项失败；破坏检查 7 处检出 | 已修 |
+
+## M1.11 自用："正在压缩上下文"的小猫与扫光（2026-10-26）
+
+用户嫌"正在压缩上下文…"光秃秃、扫光不明显。原型 `prototypes/compacting-indicator-prototype.html` 比较四个方向（A 刻痕轻压 / B 点阵收拢 / C 小猫受压 / D 分段条压缩），用户选定 C，扫光选"加宽提亮"，`.atrium-shimmer` 全局一起换（design-language"运行中压缩""扫光文字"，SPEC-0001"压缩"）。轨道上不变（静态刻痕 + 扫光）；对话区底部换成"进行中"的版式：18px 小猫贴左、文字 24px 起，小猫每 2.4 秒压扁一次、压时眼睛睁大，眨眼照旧；这一行带 6px 淡入的入场；减弱动态效果时停在被轻轻压着的静帧。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 对话区底部一行：`role=status`、小猫（`compacting-cat`）在文字前、文字扫光、`pl-6` 版式、带入场（`atrium-compacting-line`），结束后消失 | `packages/ui/src/chat/chat.browser.test.tsx` "says at the bottom of the conversation while pi compacts, the cat pressed flat" | 已覆盖 |
+| 扫光全局换参数（1.9 秒一轮、亮带 32%–68%、47%–53% 满亮平台）："进行中"、运行中步骤、压缩提示共用 | 视觉参数无断言；两处既有用例仍断言 `.atrium-shimmer` 类名 | 已覆盖（参数未测） |
+| 压扁与睁眼的动效、减弱动态效果的静帧 | 纯 CSS；浏览器测试切不了减弱动态效果（同空状态的光标） | 未测 |
+
+5 项 `pnpm break-check` 全部检出（去小猫、去入场类、去 `pl-6`、去扫光、改 testid）。改动不在变异分组（视图组件与 CSS），未跑变异测试。真实渲染明暗截图已看（一次性用例渲染真实 `Transcript`，用完即删）。

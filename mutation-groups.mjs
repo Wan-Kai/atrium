@@ -110,4 +110,10 @@ export const MUTATION_GROUPS = {
     tests: ["packages/ui"],
     skip: [],
   },
+  // The phone relay (SPEC-0005); `entry.ts` only wires the real clock and signals to `runCli`.
+  relay: {
+    mutate: ["apps/relay/src/*.ts", "!apps/relay/src/entry.ts"],
+    tests: ["apps/relay"],
+    skip: [],
+  },
 };

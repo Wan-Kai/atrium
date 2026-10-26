@@ -25,7 +25,7 @@ security.md 的底线是凭据和对话内容不外泄，所以中继不能看�
 ## 决策
 
 1. **宿主主动出站连 relay，不开入站端口**。宿主仍只监听 `127.0.0.1`（security.md）；远程访问在设置里显式打开，关着时不连 relay。
-2. **relay 是用户自己 VPS 上的 TypeScript 服务**，放在 `apps/relay`（Node + `ws`），前面由 Caddy 签证书、终止外层 TLS。
+2. **relay 是用户自己 VPS 上的 TypeScript 服务**，放在 `apps/relay`（Node + `ws`），前面由一个反代终止外层 TLS。原定 Caddy；2026-10-25 MP2 改为"Caddy 或已有的 nginx"，用户的 VPS 上 443 已由 xray 占着，非代理流量回落到 nginx，relay 跑在 Docker 里、挂在路径前缀下（SPEC-0005"部署 relay"）。
 3. **relay 只转发，看不到内容**：
    - 每个宿主一条控制连接，只用来通知"有手机来了"；每台手机连上来，宿主再开一条数据连接，relay 把它和手机的连接一对一接起来、原样转发字节（2026-10-24 审查后定，不在一条连接里多路复用，免得一台读得慢的手机堵住别的）。
    - relay 只看得到 IP、时间、大小、宿主 id 和握手里的公钥。
@@ -43,6 +43,7 @@ security.md 的底线是凭据和对话内容不外泄，所以中继不能看�
    - Noise 握手状态机两边都跑公开的 Noise 测试向量，另有 TypeScript ↔ Swift 的互通测试；
    - 每条消息带递增 nonce，重放、乱序就断开；
    - 超过 Noise 单条上限（65535 字节）的消息分块。
+   - **MP0 的选择**（2026-10-25，`spikes/mobile-mp0/`）：两边都自己写只含 IK、IKpsk2 的状态机。TypeScript 用 `@noble/curves`、`@noble/ciphers`、`@noble/hashes` 2.4.0（Cure53 审计）：现成的 JS 实现要么哈希写死 BLAKE2b、要么不支持 PSK、要么依赖原生模块，而 Electron 44 内嵌的 Node 24.21.0 用 BoringSSL，没有 ChaCha20-Poly1305，只能用纯 JS。Swift 用 CryptoKit：现成实现里最好的 Torann 0.3.1 刚建库、单作者、未审计，只在测试 target 里精确锁定，做差分和模糊测试的对照。两边都过了 cacophony 的 IK、IKpsk2 向量，互相逐字节回放对方的确定性记录，Swift 还和 Torann 做了 100 次随机加 300 次变异的差分。实测发现：noble 和 CryptoKit 都在 DH 之前就拒绝低阶点（显式的全零检查是冗余防线）；CryptoKit 返回的 `Data` 是带偏移的切片，要在边界上重新起底；Swift 没法可靠擦除密钥。
 6. **通道里跑的仍是现有的 Atrium 协议**：消息格式不变，只是换了传输方式。经 Noise 认证过的设备算已鉴权的客户端，不再用每次启动随机的 token，也不看 `Origin`。设备以自己的 `clientId` 连接，标签布局等按它分开存（现有做法）。
 7. **密钥存放**：
    - 手机的私钥放 iOS 钥匙串，只允许本机读取（`ThisDeviceOnly`）；

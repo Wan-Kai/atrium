@@ -1,0 +1,3 @@
+# The image takes only the bundle `pnpm --filter @atrium/relay build` made (see the Dockerfile).
+*
+!dist/relay.cjs

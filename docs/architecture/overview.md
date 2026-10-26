@@ -29,7 +29,7 @@
 | 宿主 | WebSocket 服务、鉴权、会话索引；通过 Harness 适配器启动和监督 harness 进程，把 harness 的事件翻译成 Atrium 事件 |
 | pi + extensions | agent loop、会话、工具、上下文管理，以及插件的逻辑部分 |
 
-选择 pi 作为唯一内核的理由见 [ADR-0001](../adr/0001-use-pi-as-core.md)；宿主与 UI 分离见 [ADR-0005](../adr/0005-split-host-and-ui-pwa-first.md)；手机端是 SwiftUI 原生 App（[ADR-0015](../adr/0015-native-ios-app-in-swiftui.md)），经自建 relay 加 Noise 端到端加密连回宿主（[ADR-0016](../adr/0016-remote-access-through-own-relay-with-noise.md)），2026-10-24 定，代码结构里的 `apps/ios`、`apps/relay` 在开工时补进下文。
+选择 pi 作为唯一内核的理由见 [ADR-0001](../adr/0001-use-pi-as-core.md)；宿主与 UI 分离见 [ADR-0005](../adr/0005-split-host-and-ui-pwa-first.md)；手机端是 SwiftUI 原生 App（[ADR-0015](../adr/0015-native-ios-app-in-swiftui.md)），经自建 relay 加 Noise 端到端加密连回宿主（[ADR-0016](../adr/0016-remote-access-through-own-relay-with-noise.md)），2026-10-24 定；`apps/ios` 在 MP1 补进下文的代码结构（2026-10-25），`apps/relay` 在 MP2 补。
 
 ## 代码结构
 
@@ -38,10 +38,30 @@
 ```
 atrium/
 ├── apps/
-│   └── desktop/                    Electron 外壳：只负责启动宿主和开窗口
-│       ├── src/main/               主进程：启动宿主、窗口、菜单、用系统浏览器开外链
-│       ├── src/preload/            把宿主地址和 token 交给 UI
-│       └── e2e/                    第 6 层端到端测试；heap.ts 取堆快照、比较脱离文档的 DOM 节点
+│   ├── desktop/                    Electron 外壳：只负责启动宿主和开窗口
+│   │   ├── src/main/               主进程：启动宿主、窗口、菜单、用系统浏览器开外链
+│   │   ├── src/preload/            把宿主地址和 token 交给 UI
+│   │   └── e2e/                    第 6 层端到端测试；heap.ts 取堆快照、比较脱离文档的 DOM 节点
+│   ├── ios/                        手机端（SwiftUI，ADR-0015，MP1 起）
+│   │   ├── .swift-format           swift-format 的配置（coding-standards"Swift（手机端）"）
+│   │   ├── AtriumKit/              SwiftPM 包：全部逻辑和界面，逻辑 target 能在 macOS 上 `swift test`
+│   │   │   ├── Sources/
+│   │   │   │   ├── AtriumProtocol/ 协议类型：Generated/ 由 `pnpm protocol:swift` 生成、不手改；JSONValue、Nullable 等手写的编解码支持
+│   │   │   │   ├── AtriumNoise/    Noise 握手、CipherState、分帧（MP0 起）
+│   │   │   │   ├── AtriumRemote/   relay 连接、心跳、重连、前后台（actor，MP4）
+│   │   │   │   ├── AtriumSync/     列表和会话的状态：快照、续传、"发送中"和回执（MP4）
+│   │   │   │   ├── AtriumRender/   流式 Markdown、代码高亮、diff（MP5、MP6）
+│   │   │   │   └── AtriumUI/       SwiftUI 界面（默认 @MainActor）
+│   │   │   └── Tests/<模块>Tests/  Swift Testing；AtriumProtocolTests/Fixtures/ 是往返测试的夹具，由 envelope.test.ts 写出
+│   │   ├── Atrium/                 App 本体：只做组装（@main、注入依赖）
+│   │   ├── AtriumUITests/          XCUITest，在模拟器上跑
+│   │   ├── Config/                 xcconfig：工程共用、App、UI 测试各一份，构建设置都写在这里
+│   │   └── Atrium.xcodeproj/       手写维护的 Xcode 工程（见下文"iOS 工程"）
+│   └── relay/                      手机端的 relay（SPEC-0005，2026-10-25 MP2）：跑在用户的 VPS 上，只转发字节
+│       ├── src/                    relay.ts 线路协议；config 和 hosts 读写配置与宿主表；cli 命令行；
+│       │                           daily-log 按天的日志；clock、resources 同宿主的做法（不 import 宿主）
+│       ├── deploy/                 nginx 的 location 片段、compose.yaml、systemd unit
+│       └── Dockerfile              多阶段：构建单文件 relay.cjs，运行时用官方 node 镜像、非 root
 ├── packages/
 │   ├── protocol/                   宿主和客户端之间的协议（zod），只放线上传输的东西
 │   │   └── src/
@@ -51,6 +71,7 @@ atrium/
 │   │       ├── commands/           按领域分文件：projects、workspaces、sessions、run、catalog、setup
 │   │       ├── events/             同上
 │   │       ├── sync.ts             generation+seq、epoch+seq、游标、快照或增量的信封
+│   │       ├── json-schema.ts      按导出名登记全部 schema，导出 JSON Schema（`pnpm protocol:swift` 用，ADR-0015）
 │   │       └── version.ts          协议版本，握手时用
 │   ├── pi/                         pi 集成：pi 的格式和协议只出现在这里
 │   │   ├── src/
@@ -125,7 +146,8 @@ atrium/
 │           ├── bench.ts            基准与本机基线比较
 │           ├── temp-dir.ts         临时目录（以后扩展成临时 HOME、~/.atrium、pi 会话目录）
 │           └── git.ts              造 git 场景：merge、squash、rebase、cherry-pick、worktree
-├── scripts/                        开发辅助：dev.mjs、trace.mjs、lint/atrium-plugin.mjs（JSDoc 规则）；以后的录制夹具
+├── scripts/                        开发辅助：dev.mjs、trace.mjs、lint/atrium-plugin.mjs（JSDoc 规则）；ios.mjs（Swift 的检查、测试、构建、装到真机）、
+│                                   swift-lint.mjs（Swift 的文档注释等检查）、swift-codegen.mjs 和 protocol-swift.mjs（`pnpm protocol:swift`）
 ├── docs/
 └── 根目录配置：pnpm-workspace.yaml、tsconfig.base.json、vitest.config.ts、vitest.mutation.config.ts、
                stryker.config.mjs、.oxlintrc.json、.oxfmtrc.json、knip.json、lefthook.yml
@@ -151,6 +173,7 @@ protocol  ←──  pi  ←──  host
 | client | protocol、zustand | DOM、React | tsconfig 不含 DOM，oxlint 禁止 import react |
 | ui | client、protocol（只用类型） | host、pi | 没有声明依赖；oxlint 只许生产代码 `import type` protocol，要用的值（`CommandError`、`isChatId` 等）由 client 转出（测试不限） |
 | desktop | 不 import host 和 ui 的代码 | — | 只知道构建好的宿主入口路径，窗口经 `atrium://app/` 加载宿主提供的页面 |
+| relay | ws、zod | 任何内部包（testkit 只作开发依赖，测试里用假时钟） | package.json 没声明；它部署在另一台机器上，Clock 和资源计数各写一份小的，不从宿主拿 |
 | testkit | protocol | 其他内部包；被生产代码依赖 | 避免和被测包形成循环依赖；knip、oxlint 检查 |
 
 - **回复翻译的边界（M1.11 自用后补充）**：`sessions/reply-translation.ts` 只管理按连接归属的一次性翻译及取消，不控制原会话运行；`SessionManager.replyTranslationSource` 同步提取当前分支已结束轮的正文和当前模型，`main.ts` 注入偏好语言及 pi 一次性调用。服务不依赖 server，router 传连接 id，WebSocket 断开和宿主关闭调用取消；无翻译索引或历史字段。UI 的 `chat/reply-translation.tsx` 只在回复组件内存中保存结果，客户端等待之前的取消清理后再发送新请求，不跨重连补发；设置只写 `translationLanguage`。
@@ -182,6 +205,31 @@ protocol  ←──  pi  ←──  host
   ```
 
   pi 包不 import OpenTelemetry、pino 或 host 的任何模块；它自己管 pi 子进程的进程组和退出清理。测试时由测试自己构造 `PiDeps`（例如注入 `FakeClock`、计数的 `track`）；要代替整个 pi 进程时，用 testkit 的 `replayPi` 回放夹具。
+
+### iOS 工程（2026-10-25 定，MP1）
+
+- **模块之间的依赖**只能按下图的方向，由 `Package.swift` 里每个 target 声明的依赖强制（`swift build` 带 `--explicit-target-dependency-import-check error`，没声明的 import 编译失败）：
+
+  ```
+  AtriumProtocol  ←──  AtriumSync  ←──┐
+        ↑   ↑                          │
+        │   └──  AtriumRender  ←───────┼──  AtriumUI  ←──  App
+        └──────  AtriumRemote  ←───────┘
+                      ↓
+                 AtriumNoise
+  ```
+
+  `AtriumProtocol`、`AtriumNoise` 不依赖任何内部模块；`AtriumSync` 只认协议类型，不知道连接（收到的消息由 App 组装时从 `AtriumRemote` 交给它）；只有 `AtriumUI` 和 App 碰 SwiftUI。
+- **Xcode 工程文件**：`apps/ios/Atrium.xcodeproj` 提交进仓库、手写维护，不用 XcodeGen 或 Tuist。比较过的做法：
+
+  | 做法 | 好处 | 代价 |
+  |---|---|---|
+  | 手写 `.xcodeproj`，用 Xcode 16 起的文件夹同步（`PBXFileSystemSynchronizedRootGroup`），设置写在 xcconfig（采用） | 加删文件不改工程文件，`project.pbxproj` 只在加 target、改依赖时才动，合并冲突的主要来源没了；设置是纯文本、能审查；不加工具；Xcode 直接打开 | 加 target 时要改 `project.pbxproj`（Xcode 里改或手改），它的 diff 不好读 |
+  | XcodeGen：`project.yml` 生成，`.xcodeproj` 不提交 | 工程完全由一份 YAML 描述，最好审查 | 多一个 Homebrew 工具和版本；每次 checkout 后要先生成才能打开、构建；Xcode 里改的设置会被下次生成冲掉 |
+  | Tuist：Swift 写的 `Project.swift` | 类型检查的工程描述，模块化强 | 更重的工具链和缓存，对一个 App 加一个本地包来说过度 |
+
+  逻辑都在 `AtriumKit` 这个 SwiftPM 包里（`Package.swift` 是纯文本），App 只引用它的 `AtriumUI` 产品，所以工程文件本身很少变。以后要加通知扩展、小组件这类 target 而且变得频繁时，再考虑 XcodeGen。
+- **签名**：免费账号（Personal Team，团队 `QGZ4G5UJ65`），自动签名，bundle id `site.ktoon.atrium`，最低 iOS 26，只支持 iPhone、竖屏（`Config/*.xcconfig`）。`pnpm ios:build` 带 `-allowProvisioningUpdates`，描述文件由 Xcode 用已登录的账号生成，7 天到期。
 
 ### 宿主内部的依赖
 

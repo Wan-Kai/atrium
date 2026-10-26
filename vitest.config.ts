@@ -16,8 +16,13 @@ export default defineConfig({
       {
         test: {
           name: "unit",
-          include: [`${packages}/*.test.ts`, "scripts/**/*.test.ts", "apps/desktop/src/**/*.test.ts"],
-          exclude: [`${packages}/*.{pi,host,leak,soak,browser}.test.ts`],
+          include: [
+            `${packages}/*.test.ts`,
+            "scripts/**/*.test.ts",
+            "apps/desktop/src/**/*.test.ts",
+            "apps/relay/src/**/*.test.ts",
+          ],
+          exclude: [`${packages}/*.{pi,host,leak,soak,browser}.test.ts`, "apps/relay/src/**/*.leak.test.ts"],
           benchmark: { include: [`${packages}/*.bench.ts`] },
         },
       },
@@ -34,7 +39,7 @@ export default defineConfig({
         test: {
           name: "leak",
           benchmark: { include: [] },
-          include: [`${packages}/*.leak.test.ts`],
+          include: [`${packages}/*.leak.test.ts`, "apps/relay/src/**/*.leak.test.ts"],
           pool: "forks",
           execArgv: ["--expose-gc"],
           fileParallelism: false,

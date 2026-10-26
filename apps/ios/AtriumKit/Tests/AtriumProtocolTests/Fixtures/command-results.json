@@ -1,0 +1,917 @@
+{
+  "ping": [
+    {}
+  ],
+  "create_chat": [
+    {
+      "sessionId": "s1"
+    }
+  ],
+  "subscribe_sessions": [
+    {}
+  ],
+  "prompt": [
+    {
+      "disposition": "started"
+    },
+    {
+      "disposition": "handled"
+    },
+    {
+      "disposition": "queued",
+      "itemId": "q1"
+    }
+  ],
+  "edit_stopped_message": [
+    {
+      "disposition": "started"
+    }
+  ],
+  "fetch_transcript": [
+    {
+      "items": [
+        {
+          "kind": "turn",
+          "id": "s1:e1",
+          "source": {
+            "kind": "task",
+            "fromTitle": "修复",
+            "taskId": "t-1",
+            "text": "look at auth"
+          },
+          "user": {
+            "text": "hi",
+            "images": 1,
+            "clientMessageId": "r4",
+            "auto": false,
+            "command": null,
+            "timestamp": 1
+          },
+          "steps": [
+            {
+              "kind": "thinking",
+              "id": "0",
+              "text": "plan",
+              "durationMs": 1200
+            },
+            {
+              "kind": "thinking",
+              "id": "1",
+              "text": "",
+              "durationMs": null
+            },
+            {
+              "kind": "tool",
+              "id": "2",
+              "callId": "call-1",
+              "tool": "bash",
+              "args": {
+                "command": "ls"
+              },
+              "status": "done",
+              "output": "a.ts",
+              "details": {
+                "tool": "bash",
+                "command": "ls"
+              },
+              "partial": false
+            },
+            {
+              "kind": "tool",
+              "id": "3",
+              "callId": "call-2",
+              "tool": "read",
+              "args": {
+                "path": "a.ts"
+              },
+              "status": "failed",
+              "output": "…",
+              "details": {
+                "tool": "read",
+                "path": "a.ts",
+                "offset": 10,
+                "limit": null
+              },
+              "partial": false
+            },
+            {
+              "kind": "tool",
+              "id": "4",
+              "callId": "call-3",
+              "tool": "edit",
+              "args": {},
+              "status": "running",
+              "output": null,
+              "details": {
+                "tool": "edit",
+                "path": "a.ts",
+                "diff": "+1 x",
+                "added": 1,
+                "removed": 0
+              },
+              "partial": false
+            },
+            {
+              "kind": "tool",
+              "id": "5",
+              "callId": "call-4",
+              "tool": "write",
+              "args": {},
+              "status": "unfinished",
+              "output": null,
+              "details": {
+                "tool": "write",
+                "path": "b.ts",
+                "content": "x"
+              },
+              "partial": false
+            },
+            {
+              "kind": "tool",
+              "id": "6",
+              "callId": "call-5",
+              "tool": "grep",
+              "args": {},
+              "status": "done",
+              "output": null,
+              "details": null,
+              "partial": true
+            },
+            {
+              "kind": "tool",
+              "id": "11",
+              "callId": "call-6",
+              "tool": "agent_spawn",
+              "args": {
+                "name": "audit",
+                "task": "look"
+              },
+              "status": "done",
+              "output": "Sub-agent",
+              "details": {
+                "tool": "agent",
+                "spawned": {
+                  "sessionId": "s2",
+                  "name": "audit",
+                  "taskId": "t-1",
+                  "role": "work",
+                  "branch": "agent/audit"
+                },
+                "events": [
+                  {
+                    "sessionId": "s2",
+                    "name": "audit",
+                    "title": "安全审查",
+                    "taskId": "t-1",
+                    "event": "finished",
+                    "reason": null,
+                    "elapsedMs": 192000,
+                    "question": null,
+                    "branch": "agent/audit",
+                    "changes": {
+                      "files": 3,
+                      "added": 20,
+                      "removed": 4
+                    }
+                  }
+                ]
+              },
+              "partial": false
+            },
+            {
+              "kind": "tool",
+              "id": "15",
+              "callId": "call-9",
+              "tool": "ask_user",
+              "args": {},
+              "status": "done",
+              "output": "\"改到哪为止？\" = 只改收件箱",
+              "details": {
+                "tool": "ask_user",
+                "questions": [
+                  {
+                    "header": "范围",
+                    "question": "改到哪为止？",
+                    "multiSelect": true,
+                    "options": [
+                      {
+                        "label": "只改收件箱",
+                        "description": "",
+                        "preview": null,
+                        "recommended": true
+                      },
+                      {
+                        "label": "整个侧栏",
+                        "description": "改动大",
+                        "preview": null,
+                        "recommended": false
+                      }
+                    ]
+                  }
+                ],
+                "outcome": {
+                  "kind": "answered",
+                  "answers": [
+                    {
+                      "selected": [
+                        0,
+                        1
+                      ],
+                      "other": "也补测试"
+                    }
+                  ]
+                }
+              },
+              "partial": false
+            },
+            {
+              "kind": "tool",
+              "id": "16-0",
+              "callId": "call-10",
+              "tool": "ask_user",
+              "args": {},
+              "status": "done",
+              "output": null,
+              "details": {
+                "tool": "ask_user",
+                "questions": [
+                  {
+                    "header": "名字",
+                    "question": "叫什么？",
+                    "multiSelect": false,
+                    "options": [
+                      {
+                        "label": "甲",
+                        "description": "",
+                        "preview": null,
+                        "recommended": false
+                      },
+                      {
+                        "label": "乙",
+                        "description": "",
+                        "preview": null,
+                        "recommended": false
+                      }
+                    ]
+                  }
+                ],
+                "outcome": {
+                  "kind": "skipped"
+                }
+              },
+              "partial": false
+            },
+            {
+              "kind": "tool",
+              "id": "16-1",
+              "callId": "call-10",
+              "tool": "ask_user",
+              "args": {},
+              "status": "done",
+              "output": null,
+              "details": {
+                "tool": "ask_user",
+                "questions": [
+                  {
+                    "header": "名字",
+                    "question": "叫什么？",
+                    "multiSelect": false,
+                    "options": [
+                      {
+                        "label": "甲",
+                        "description": "",
+                        "preview": null,
+                        "recommended": false
+                      },
+                      {
+                        "label": "乙",
+                        "description": "",
+                        "preview": null,
+                        "recommended": false
+                      }
+                    ]
+                  }
+                ],
+                "outcome": {
+                  "kind": "reply"
+                }
+              },
+              "partial": false
+            },
+            {
+              "kind": "tool",
+              "id": "16-2",
+              "callId": "call-10",
+              "tool": "ask_user",
+              "args": {},
+              "status": "failed",
+              "output": null,
+              "details": {
+                "tool": "ask_user",
+                "questions": [
+                  {
+                    "header": "名字",
+                    "question": "叫什么？",
+                    "multiSelect": false,
+                    "options": [
+                      {
+                        "label": "甲",
+                        "description": "",
+                        "preview": null,
+                        "recommended": false
+                      },
+                      {
+                        "label": "乙",
+                        "description": "",
+                        "preview": null,
+                        "recommended": false
+                      }
+                    ]
+                  }
+                ],
+                "outcome": null
+              },
+              "partial": false
+            },
+            {
+              "kind": "steer",
+              "id": "7",
+              "text": "also b"
+            },
+            {
+              "kind": "retry",
+              "id": "8",
+              "attempt": 1,
+              "maxAttempts": 3,
+              "error": "503"
+            },
+            {
+              "kind": "compaction",
+              "id": "12",
+              "tokensBefore": 152000,
+              "tokensAfter": 41000,
+              "summary": "so far",
+              "reason": "threshold"
+            },
+            {
+              "kind": "compaction",
+              "id": "13",
+              "tokensBefore": 0,
+              "tokensAfter": null,
+              "summary": "",
+              "reason": "overflow"
+            },
+            {
+              "kind": "compaction",
+              "id": "14",
+              "tokensBefore": 9,
+              "tokensAfter": 0,
+              "summary": "x",
+              "reason": null
+            },
+            {
+              "kind": "agent",
+              "id": "10",
+              "source": {
+                "kind": "report",
+                "events": [
+                  {
+                    "sessionId": "s3",
+                    "name": "tests",
+                    "title": "补测试",
+                    "taskId": "t-2",
+                    "event": "question",
+                    "reason": null,
+                    "elapsedMs": null,
+                    "question": "vitest?",
+                    "branch": null,
+                    "changes": null
+                  }
+                ]
+              }
+            },
+            {
+              "kind": "text",
+              "id": "9",
+              "text": "done"
+            }
+          ],
+          "outcome": "done",
+          "error": null,
+          "startedAt": 1,
+          "durationMs": 2000,
+          "usage": {
+            "input": 10,
+            "output": 5
+          },
+          "changes": [
+            {
+              "path": "a.ts",
+              "added": 1,
+              "removed": 0
+            },
+            {
+              "path": "b.ts",
+              "added": null,
+              "removed": null
+            }
+          ]
+        }
+      ],
+      "hasOlder": true
+    },
+    {
+      "items": [],
+      "hasOlder": false
+    }
+  ],
+  "fetch_step": [
+    {
+      "step": {
+        "kind": "tool",
+        "id": "2",
+        "callId": "call-1",
+        "tool": "bash",
+        "args": {
+          "command": "ls"
+        },
+        "status": "done",
+        "output": "a.ts",
+        "details": {
+          "tool": "bash",
+          "command": "ls"
+        },
+        "partial": false
+      }
+    }
+  ],
+  "fetch_image": [
+    {
+      "mimeType": "image/webp",
+      "data": "eA=="
+    }
+  ],
+  "open_session": [
+    {}
+  ],
+  "subscribe_index": [
+    {}
+  ],
+  "add_project": [
+    {
+      "projectId": "prj_0123456789abcdef"
+    }
+  ],
+  "remove_project": [
+    {}
+  ],
+  "rename_project": [
+    {}
+  ],
+  "rename_workspace": [
+    {}
+  ],
+  "archive_workspace": [
+    {}
+  ],
+  "restore_workspace": [
+    {}
+  ],
+  "list_bases": [
+    {
+      "main": "refs/heads/main",
+      "current": "main",
+      "local": [
+        "main",
+        "atrium/a"
+      ],
+      "remote": [
+        "origin/main"
+      ]
+    },
+    {
+      "main": null,
+      "current": null,
+      "local": [],
+      "remote": []
+    }
+  ],
+  "create_workspace": [
+    {
+      "workspaceId": "wks_0123456789abcdef"
+    }
+  ],
+  "name_branch": [
+    {
+      "branch": "atrium/fix-login"
+    }
+  ],
+  "translate_reply": [
+    {
+      "text": "译文",
+      "language": "简体中文",
+      "model": {
+        "providerId": "faux",
+        "modelId": "faux-1"
+      }
+    }
+  ],
+  "cancel_translation": [
+    {}
+  ],
+  "rename_chat": [
+    {}
+  ],
+  "archive_chat": [
+    {}
+  ],
+  "restore_chat": [
+    {}
+  ],
+  "window_focused": [
+    {}
+  ],
+  "create_session": [
+    {
+      "sessionId": "s1"
+    }
+  ],
+  "close_tab": [
+    {}
+  ],
+  "select_container": [
+    {}
+  ],
+  "archive_session": [
+    {}
+  ],
+  "detach_session": [
+    {}
+  ],
+  "clear_attention": [
+    {}
+  ],
+  "hand_off": [
+    {
+      "file": "/pi/sessions/s1.jsonl",
+      "args": [
+        "--tools",
+        "read,ls"
+      ]
+    }
+  ],
+  "take_back": [
+    {}
+  ],
+  "rename_session": [
+    {}
+  ],
+  "set_preferences": [
+    {}
+  ],
+  "report_client_issue": [
+    {}
+  ],
+  "steer": [
+    {
+      "disposition": "started"
+    },
+    {
+      "disposition": "queued"
+    },
+    {
+      "disposition": "handled"
+    }
+  ],
+  "stop": [
+    {
+      "confirmed": true
+    },
+    {
+      "confirmed": false
+    }
+  ],
+  "resume_queue": [
+    {}
+  ],
+  "clear_queue": [
+    {}
+  ],
+  "update_queued": [
+    {}
+  ],
+  "remove_queued": [
+    {}
+  ],
+  "remove_delivery": [
+    {}
+  ],
+  "resume_deliveries": [
+    {}
+  ],
+  "steer_queued": [
+    {
+      "disposition": "queued"
+    }
+  ],
+  "answer_interaction": [
+    {}
+  ],
+  "answer_question": [
+    {}
+  ],
+  "retry_run": [
+    {}
+  ],
+  "list_models": [
+    {
+      "models": [
+        {
+          "providerId": "anthropic",
+          "modelId": "claude-opus-5-5",
+          "name": "Claude Opus 5.5",
+          "contextWindow": 1000000,
+          "maxOutput": 128000,
+          "supportsImage": true,
+          "thinkingLevels": [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "fast": null
+        },
+        {
+          "providerId": "anthropic",
+          "modelId": "claude-opus-5-5",
+          "name": "Claude Opus 5.5",
+          "contextWindow": 1000000,
+          "maxOutput": 128000,
+          "supportsImage": true,
+          "thinkingLevels": [
+            "off",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "fast": {
+            "speed": null,
+            "moreUsage": true
+          }
+        }
+      ],
+      "defaultModel": null
+    },
+    {
+      "models": [],
+      "defaultModel": {
+        "providerId": "faux",
+        "modelId": "faux-1"
+      }
+    }
+  ],
+  "set_model": [
+    {}
+  ],
+  "set_thinking_level": [
+    {}
+  ],
+  "set_fast": [
+    {}
+  ],
+  "compact_session": [
+    {}
+  ],
+  "export_session": [
+    {
+      "html": "<html></html>"
+    }
+  ],
+  "fork_session": [
+    {
+      "sessionId": "s2"
+    },
+    {
+      "sessionId": "s2",
+      "noteSent": false
+    }
+  ],
+  "list_commands": [
+    {
+      "commands": [
+        {
+          "name": "review",
+          "description": "Reviews the change",
+          "source": "prompt"
+        },
+        {
+          "name": "skill:tdd",
+          "description": null,
+          "source": "skill"
+        }
+      ]
+    }
+  ],
+  "search_files": [
+    {
+      "files": [
+        {
+          "path": "src/sessions/",
+          "directory": true
+        }
+      ]
+    }
+  ],
+  "upload_attachment": [
+    {
+      "attachmentId": "a1"
+    }
+  ],
+  "watch_changes": [
+    {}
+  ],
+  "watch_diff": [
+    {}
+  ],
+  "list_dir": [
+    {
+      "entries": [
+        {
+          "name": "src",
+          "kind": "dir"
+        },
+        {
+          "name": "a.ts",
+          "kind": "file"
+        },
+        {
+          "name": "latest",
+          "kind": "link"
+        }
+      ],
+      "truncated": false
+    }
+  ],
+  "read_file": [
+    {
+      "size": 3,
+      "content": {
+        "kind": "text",
+        "text": "abc"
+      }
+    },
+    {
+      "size": 4,
+      "content": {
+        "kind": "image",
+        "mimeType": "image/png",
+        "data": "UklGRg=="
+      }
+    },
+    {
+      "size": 9,
+      "content": {
+        "kind": "too_large"
+      }
+    }
+  ],
+  "read_pi_config": [
+    {
+      "path": "/Users/test/.pi/agent/settings.json",
+      "text": "{}\n",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "path": "/Users/test/.pi/agent/mcp.json",
+      "text": "",
+      "revision": null
+    }
+  ],
+  "save_pi_config": [
+    {
+      "path": "/Users/test/.pi/agent/settings.json",
+      "text": "{}\n",
+      "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "check_setup": [
+    {
+      "pi": {
+        "state": "broken",
+        "path": "/opt/bin/pi",
+        "version": null,
+        "minimum": "1.0.1",
+        "detail": "node: not found",
+        "latest": "1.2.0-beta.1",
+        "checkedAt": 1760000000000
+      },
+      "node": {
+        "state": "outdated",
+        "version": "20.11.0"
+      },
+      "homebrew": true,
+      "fd": false,
+      "login": {
+        "state": "ready",
+        "providers": [
+          {
+            "providerId": "anthropic",
+            "name": "Anthropic",
+            "oauth": {
+              "label": "Anthropic (Claude Pro/Max)",
+              "subscription": true
+            },
+            "apiKey": true,
+            "signedIn": {
+              "method": "oauth",
+              "stored": true
+            }
+          },
+          {
+            "providerId": "deepseek",
+            "name": "DeepSeek",
+            "oauth": null,
+            "apiKey": true,
+            "signedIn": null
+          }
+        ]
+      },
+      "projects": 2
+    }
+  ],
+  "login": [
+    {
+      "loginId": "l1"
+    }
+  ],
+  "answer_login": [
+    {}
+  ],
+  "cancel_login": [
+    {}
+  ],
+  "logout": [
+    {}
+  ],
+  "install_pi": [
+    {
+      "jobId": "j1"
+    }
+  ],
+  "install_node": [
+    {
+      "jobId": "j2"
+    }
+  ],
+  "update_pi": [
+    {
+      "jobId": "j3"
+    }
+  ],
+  "cancel_install": [
+    {}
+  ],
+  "check_pi_update": [
+    {
+      "latest": "1.1.0",
+      "checkedAt": 5
+    },
+    {
+      "latest": null,
+      "checkedAt": null
+    }
+  ],
+  "discover_projects": [
+    {
+      "directories": [
+        {
+          "path": "/Users/me/work",
+          "sessions": 3,
+          "lastUsedAt": 1700000000000
+        }
+      ]
+    }
+  ],
+  "list_branches": [
+    {
+      "branches": [
+        "main",
+        "release/1.0"
+      ],
+      "head": "main"
+    },
+    {
+      "branches": [],
+      "head": null
+    }
+  ],
+  "set_main_branch": [
+    {}
+  ]
+}

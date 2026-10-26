@@ -1,0 +1,861 @@
+[
+  {
+    "type": "hello",
+    "protocolVersion": 26,
+    "clientId": "c1",
+    "token": "t",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "ping",
+    "requestId": "r1",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "create_chat",
+    "requestId": "r2",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "subscribe_sessions",
+    "requestId": "r3",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionIds": [
+      "s1",
+      "s2"
+    ]
+  },
+  {
+    "type": "prompt",
+    "requestId": "r4",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "text": "你好"
+  },
+  {
+    "type": "edit_stopped_message",
+    "requestId": "r4b",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "epoch": 1,
+    "turnId": "s1:e1",
+    "text": "改好了"
+  },
+  {
+    "type": "report_client_issue",
+    "requestId": "r5",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "kind": "long_task",
+    "message": "took 80 ms"
+  },
+  {
+    "type": "report_client_issue",
+    "requestId": "r6",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "kind": "error",
+    "message": "TypeError",
+    "details": "at render"
+  },
+  {
+    "type": "report_client_issue",
+    "requestId": "r7",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "kind": "slow_frames",
+    "message": "p95 40 ms"
+  },
+  {
+    "type": "fetch_transcript",
+    "requestId": "r8",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "epoch": 2,
+    "before": "s1:e7",
+    "limit": 100
+  },
+  {
+    "type": "fetch_step",
+    "requestId": "r11",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "epoch": 1,
+    "turnId": "s1:e1",
+    "stepId": "12"
+  },
+  {
+    "type": "fetch_image",
+    "requestId": "r11b",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "turnId": "s1:e1",
+    "index": 19
+  },
+  {
+    "type": "open_session",
+    "requestId": "r10",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "019a-session"
+  },
+  {
+    "type": "subscribe_index",
+    "requestId": "r12",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "subscribe_index",
+    "requestId": "r12b",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "cursor": {
+      "generation": "h1",
+      "seq": 7
+    }
+  },
+  {
+    "type": "add_project",
+    "requestId": "r13",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "path": "/work/app"
+  },
+  {
+    "type": "remove_project",
+    "requestId": "r14",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "projectId": "prj_0123456789abcdef"
+  },
+  {
+    "type": "rename_project",
+    "requestId": "r15",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "projectId": "prj_0123456789abcdef",
+    "name": "app"
+  },
+  {
+    "type": "rename_workspace",
+    "requestId": "r16",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "workspaceId": "wks_0123456789abcdef",
+    "name": "侧栏"
+  },
+  {
+    "type": "rename_workspace",
+    "requestId": "r17",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "workspaceId": "wks_0123456789abcdef",
+    "name": null
+  },
+  {
+    "type": "archive_workspace",
+    "requestId": "r17a",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "workspaceId": "wks_0123456789abcdef"
+  },
+  {
+    "type": "restore_workspace",
+    "requestId": "r17b",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "workspaceId": "wks_0123456789abcdef"
+  },
+  {
+    "type": "list_bases",
+    "requestId": "r17c",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "projectId": "prj_0123456789abcdef"
+  },
+  {
+    "type": "create_workspace",
+    "requestId": "r17d",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "projectId": "prj_0123456789abcdef",
+    "branch": "atrium/brave-otter",
+    "base": "origin/main"
+  },
+  {
+    "type": "name_branch",
+    "requestId": "r17e",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "projectId": "prj_0123456789abcdef",
+    "text": "登录接口偶尔超时",
+    "model": {
+      "providerId": "anthropic",
+      "modelId": "claude-opus-5-5"
+    }
+  },
+  {
+    "type": "name_branch",
+    "requestId": "r17f",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "projectId": "prj_0123456789abcdef",
+    "text": "fix it",
+    "model": null
+  },
+  {
+    "type": "translate_reply",
+    "requestId": "r17g",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "turnId": "s1:u1",
+    "translationId": "tr-1"
+  },
+  {
+    "type": "cancel_translation",
+    "requestId": "r17h",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "translationId": "tr-1"
+  },
+  {
+    "type": "window_focused",
+    "requestId": "r18",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "create_session",
+    "requestId": "r19",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "containerId": "wks_0123456789abcdef"
+  },
+  {
+    "type": "create_session",
+    "requestId": "r19",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "containerId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc"
+  },
+  {
+    "type": "create_session",
+    "requestId": "r19",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "containerId": "wks_0123456789abcdef",
+    "go": false
+  },
+  {
+    "type": "create_session",
+    "requestId": "r19",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "containerId": "wks_0123456789abcdef",
+    "child": {
+      "parentSessionId": "s1",
+      "name": "补测试",
+      "place": "same"
+    }
+  },
+  {
+    "type": "create_session",
+    "requestId": "r19",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "containerId": "wks_0123456789abcdef",
+    "child": {
+      "parentSessionId": "s1",
+      "name": "补测试",
+      "place": "worktree",
+      "branch": "atrium/tests"
+    }
+  },
+  {
+    "type": "detach_session",
+    "requestId": "r19c",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s2"
+  },
+  {
+    "type": "rename_chat",
+    "requestId": "r19",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "chatId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
+    "name": "合并原理"
+  },
+  {
+    "type": "rename_chat",
+    "requestId": "r19",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "chatId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
+    "name": null
+  },
+  {
+    "type": "archive_chat",
+    "requestId": "r19a",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "chatId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc"
+  },
+  {
+    "type": "restore_chat",
+    "requestId": "r19b",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "chatId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc"
+  },
+  {
+    "type": "close_tab",
+    "requestId": "r20",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1"
+  },
+  {
+    "type": "select_container",
+    "requestId": "r21",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "containerId": "wks_0123456789abcdef"
+  },
+  {
+    "type": "select_container",
+    "requestId": "r22",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "containerId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc"
+  },
+  {
+    "type": "select_container",
+    "requestId": "r23",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "containerId": null
+  },
+  {
+    "type": "archive_session",
+    "requestId": "r24",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1"
+  },
+  {
+    "type": "clear_attention",
+    "requestId": "r24a",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1"
+  },
+  {
+    "type": "hand_off",
+    "requestId": "r24b",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1"
+  },
+  {
+    "type": "take_back",
+    "requestId": "r24c",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1"
+  },
+  {
+    "type": "rename_session",
+    "requestId": "r25",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "name": "重构"
+  },
+  {
+    "type": "set_preferences",
+    "requestId": "r26",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "appearance": "dark"
+  },
+  {
+    "type": "set_preferences",
+    "requestId": "r60",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "statusBar": {
+      "session": false,
+      "cost": true
+    }
+  },
+  {
+    "type": "set_preferences",
+    "requestId": "r63",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "setupDone": true,
+    "titleModel": {
+      "providerId": "anthropic",
+      "modelId": "claude-haiku-4-5"
+    }
+  },
+  {
+    "type": "set_preferences",
+    "requestId": "r64",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "titleModel": null
+  },
+  {
+    "type": "set_preferences",
+    "requestId": "r65",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "proxy": {
+      "url": "http://127.0.0.1:7897",
+      "noProxy": [
+        ".example.com",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ]
+    }
+  },
+  {
+    "type": "set_preferences",
+    "requestId": "r66",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "proxy": null
+  },
+  {
+    "type": "set_preferences",
+    "requestId": "r79",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "inbox": false
+  },
+  {
+    "type": "steer",
+    "requestId": "r28",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "text": "also b"
+  },
+  {
+    "type": "stop",
+    "requestId": "r29",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1"
+  },
+  {
+    "type": "resume_queue",
+    "requestId": "r30",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1"
+  },
+  {
+    "type": "clear_queue",
+    "requestId": "r31",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1"
+  },
+  {
+    "type": "update_queued",
+    "requestId": "r32",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "itemId": "q1",
+    "text": "later"
+  },
+  {
+    "type": "remove_queued",
+    "requestId": "r33",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "itemId": "q1"
+  },
+  {
+    "type": "remove_delivery",
+    "requestId": "r33b",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "deliveryId": "d1"
+  },
+  {
+    "type": "resume_deliveries",
+    "requestId": "r33c",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "tree": true
+  },
+  {
+    "type": "steer_queued",
+    "requestId": "r34",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "itemId": "q1"
+  },
+  {
+    "type": "answer_interaction",
+    "requestId": "r35",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "interactionId": "d1",
+    "answer": {
+      "value": "b"
+    }
+  },
+  {
+    "type": "answer_interaction",
+    "requestId": "r36",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "interactionId": "d1",
+    "answer": {
+      "confirmed": false
+    }
+  },
+  {
+    "type": "answer_interaction",
+    "requestId": "r37",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "interactionId": "d1",
+    "answer": {
+      "cancelled": true
+    }
+  },
+  {
+    "type": "retry_run",
+    "requestId": "r38",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1"
+  },
+  {
+    "type": "answer_question",
+    "requestId": "r38b",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "questionId": "call-9",
+    "answer": {
+      "answers": [
+        {
+          "selected": [
+            0
+          ],
+          "other": null
+        },
+        {
+          "selected": [
+            1,
+            2
+          ],
+          "other": "再加一个基准"
+        }
+      ]
+    }
+  },
+  {
+    "type": "answer_question",
+    "requestId": "r38c",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "questionId": "call-9",
+    "answer": {
+      "skipped": true
+    }
+  },
+  {
+    "type": "answer_interaction",
+    "requestId": "r39",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "interactionId": "d1",
+    "answer": {
+      "value": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+    }
+  },
+  {
+    "type": "list_models",
+    "requestId": "r40",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "workspaceId": "wks_0123456789abcdef"
+  },
+  {
+    "type": "list_models",
+    "requestId": "r41",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "workspaceId": null,
+    "refresh": true
+  },
+  {
+    "type": "set_model",
+    "requestId": "r42",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "providerId": "openrouter",
+    "modelId": "anthropic/claude-opus-5.5"
+  },
+  {
+    "type": "set_thinking_level",
+    "requestId": "r43",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "level": "xhigh"
+  },
+  {
+    "type": "set_fast",
+    "requestId": "r43",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "enabled": true
+  },
+  {
+    "type": "compact_session",
+    "requestId": "r43",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1"
+  },
+  {
+    "type": "compact_session",
+    "requestId": "r43",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "instructions": "留下接口设计"
+  },
+  {
+    "type": "export_session",
+    "requestId": "r43",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1"
+  },
+  {
+    "type": "fork_session",
+    "requestId": "r43",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "turnId": "t1",
+    "name": "修 bug（分叉）"
+  },
+  {
+    "type": "fork_session",
+    "requestId": "r43",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "turnId": "t1",
+    "name": "查日志",
+    "child": {
+      "place": "same"
+    }
+  },
+  {
+    "type": "fork_session",
+    "requestId": "r43",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "turnId": "t1",
+    "name": "查日志",
+    "child": {
+      "place": "worktree",
+      "branch": "atrium/logs"
+    }
+  },
+  {
+    "type": "list_commands",
+    "requestId": "r44",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1"
+  },
+  {
+    "type": "search_files",
+    "requestId": "r45",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "query": "src/ses"
+  },
+  {
+    "type": "search_files",
+    "requestId": "r46",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "query": ""
+  },
+  {
+    "type": "upload_attachment",
+    "requestId": "r47",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "mimeType": "image/webp",
+    "data": "UklGRg=="
+  },
+  {
+    "type": "prompt",
+    "requestId": "r48",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "text": "看图",
+    "attachmentIds": [
+      "a1",
+      "a2"
+    ]
+  },
+  {
+    "type": "prompt",
+    "requestId": "r49",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "text": "",
+    "attachmentIds": [
+      "a1"
+    ]
+  },
+  {
+    "type": "steer",
+    "requestId": "r50",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "text": "这张",
+    "attachmentIds": [
+      "a3"
+    ]
+  },
+  {
+    "type": "upload_attachment",
+    "requestId": "r51",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "mimeType": "image/png",
+    "data": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+    "type": "upload_attachment",
+    "requestId": "r57",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "mimeType": "image/jpeg",
+    "data": "/9j/"
+  },
+  {
+    "type": "upload_attachment",
+    "requestId": "r58",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "mimeType": "image/gif",
+    "data": "R0lG"
+  },
+  {
+    "type": "watch_changes",
+    "requestId": "r52",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "workspaceIds": [
+      "wks_0123456789abcdef"
+    ]
+  },
+  {
+    "type": "watch_changes",
+    "requestId": "r53",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "workspaceIds": []
+  },
+  {
+    "type": "watch_diff",
+    "requestId": "r54",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "target": {
+      "workspaceId": "wks_0123456789abcdef",
+      "mode": "uncommitted"
+    }
+  },
+  {
+    "type": "watch_diff",
+    "requestId": "r55",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "target": {
+      "workspaceId": "wks_0123456789abcdef",
+      "mode": "base"
+    }
+  },
+  {
+    "type": "watch_diff",
+    "requestId": "r56",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "target": null
+  },
+  {
+    "type": "list_dir",
+    "requestId": "r90",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "workspaceId": "wks_0123456789abcdef",
+    "path": ""
+  },
+  {
+    "type": "list_dir",
+    "requestId": "r91",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "workspaceId": "wks_0123456789abcdef",
+    "path": "src/files"
+  },
+  {
+    "type": "read_file",
+    "requestId": "r92",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "workspaceId": "wks_0123456789abcdef",
+    "path": "src/files/a.ts"
+  },
+  {
+    "type": "read_file",
+    "requestId": "r93",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "workspaceId": "wks_0123456789abcdef",
+    "path": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+    "type": "check_setup",
+    "requestId": "r61",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "check_setup",
+    "requestId": "r62",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "refresh": true
+  },
+  {
+    "type": "login",
+    "requestId": "r65",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "providerId": "anthropic",
+    "method": "oauth"
+  },
+  {
+    "type": "login",
+    "requestId": "r66",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "providerId": "deepseek",
+    "method": "api_key",
+    "key": "sk-test"
+  },
+  {
+    "type": "answer_login",
+    "requestId": "r67",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "loginId": "l1",
+    "promptId": 0,
+    "value": "code#state"
+  },
+  {
+    "type": "cancel_login",
+    "requestId": "r68",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "loginId": "l1"
+  },
+  {
+    "type": "logout",
+    "requestId": "r69",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "providerId": "anthropic"
+  },
+  {
+    "type": "install_pi",
+    "requestId": "r70",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "install_node",
+    "requestId": "r71",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "update_pi",
+    "requestId": "r72",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "cancel_install",
+    "requestId": "r73",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "jobId": "j1"
+  },
+  {
+    "type": "check_pi_update",
+    "requestId": "r74",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "discover_projects",
+    "requestId": "r75",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "list_branches",
+    "requestId": "r76",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "projectId": "prj_0123456789abcdef"
+  },
+  {
+    "type": "set_main_branch",
+    "requestId": "r77",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "projectId": "prj_0123456789abcdef",
+    "branch": "release/1.0"
+  },
+  {
+    "type": "set_main_branch",
+    "requestId": "r78",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "projectId": "prj_0123456789abcdef",
+    "branch": null
+  }
+]

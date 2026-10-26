@@ -1,0 +1,307 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A7A100000000000000000301 /* AtriumUI in Frameworks */ = {isa = PBXBuildFile; productRef = A7A100000000000000000901 /* AtriumUI */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A7A100000000000000000401 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A7A100000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A7A100000000000000000101;
+			remoteInfo = Atrium;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		A7A100000000000000000201 /* Atrium.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Atrium.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A7A100000000000000000202 /* AtriumUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AtriumUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A7A100000000000000000203 /* Project.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Project.xcconfig; sourceTree = "<group>"; };
+		A7A100000000000000000204 /* Atrium.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Atrium.xcconfig; sourceTree = "<group>"; };
+		A7A100000000000000000205 /* AtriumUITests.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AtriumUITests.xcconfig; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		A7A100000000000000000501 /* Atrium */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Atrium; sourceTree = "<group>"; };
+		A7A100000000000000000502 /* AtriumUITests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = AtriumUITests; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A7A100000000000000000601 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A7A100000000000000000301 /* AtriumUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A7A100000000000000000602 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A7A100000000000000000701 = {
+			isa = PBXGroup;
+			children = (
+				A7A100000000000000000501 /* Atrium */,
+				A7A100000000000000000502 /* AtriumUITests */,
+				A7A100000000000000000702 /* Config */,
+				A7A100000000000000000703 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A7A100000000000000000702 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				A7A100000000000000000203 /* Project.xcconfig */,
+				A7A100000000000000000204 /* Atrium.xcconfig */,
+				A7A100000000000000000205 /* AtriumUITests.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		A7A100000000000000000703 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A7A100000000000000000201 /* Atrium.app */,
+				A7A100000000000000000202 /* AtriumUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A7A100000000000000000101 /* Atrium */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A7A100000000000000000B02 /* Build configuration list for PBXNativeTarget "Atrium" */;
+			buildPhases = (
+				A7A100000000000000000801 /* Sources */,
+				A7A100000000000000000601 /* Frameworks */,
+				A7A100000000000000000811 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A7A100000000000000000501 /* Atrium */,
+			);
+			name = Atrium;
+			packageProductDependencies = (
+				A7A100000000000000000901 /* AtriumUI */,
+			);
+			productName = Atrium;
+			productReference = A7A100000000000000000201 /* Atrium.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A7A100000000000000000102 /* AtriumUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A7A100000000000000000B03 /* Build configuration list for PBXNativeTarget "AtriumUITests" */;
+			buildPhases = (
+				A7A100000000000000000802 /* Sources */,
+				A7A100000000000000000602 /* Frameworks */,
+				A7A100000000000000000812 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A7A100000000000000000C01 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A7A100000000000000000502 /* AtriumUITests */,
+			);
+			name = AtriumUITests;
+			packageProductDependencies = (
+			);
+			productName = AtriumUITests;
+			productReference = A7A100000000000000000202 /* AtriumUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A7A100000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					A7A100000000000000000101 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					A7A100000000000000000102 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = A7A100000000000000000101;
+					};
+				};
+			};
+			buildConfigurationList = A7A100000000000000000B01 /* Build configuration list for PBXProject "Atrium" */;
+			developmentRegion = "zh-Hans";
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				"zh-Hans",
+				Base,
+			);
+			mainGroup = A7A100000000000000000701;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A7A100000000000000000D01 /* XCLocalSwiftPackageReference "AtriumKit" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A7A100000000000000000703 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A7A100000000000000000101 /* Atrium */,
+				A7A100000000000000000102 /* AtriumUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A7A100000000000000000811 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A7A100000000000000000812 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A7A100000000000000000801 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A7A100000000000000000802 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A7A100000000000000000C01 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A7A100000000000000000101 /* Atrium */;
+			targetProxy = A7A100000000000000000401 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		A7A100000000000000000A01 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A7A100000000000000000203 /* Project.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		A7A100000000000000000A02 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A7A100000000000000000203 /* Project.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+		A7A100000000000000000A03 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A7A100000000000000000204 /* Atrium.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		A7A100000000000000000A04 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A7A100000000000000000204 /* Atrium.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+		A7A100000000000000000A05 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A7A100000000000000000205 /* AtriumUITests.xcconfig */;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		A7A100000000000000000A06 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A7A100000000000000000205 /* AtriumUITests.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A7A100000000000000000B01 /* Build configuration list for PBXProject "Atrium" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A7A100000000000000000A01 /* Debug */,
+				A7A100000000000000000A02 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A7A100000000000000000B02 /* Build configuration list for PBXNativeTarget "Atrium" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A7A100000000000000000A03 /* Debug */,
+				A7A100000000000000000A04 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A7A100000000000000000B03 /* Build configuration list for PBXNativeTarget "AtriumUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A7A100000000000000000A05 /* Debug */,
+				A7A100000000000000000A06 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A7A100000000000000000D01 /* XCLocalSwiftPackageReference "AtriumKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = AtriumKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A7A100000000000000000901 /* AtriumUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AtriumUI;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A7A100000000000000000001 /* Project object */;
+}

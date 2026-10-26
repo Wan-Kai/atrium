@@ -1,6 +1,8 @@
 packages:
   - packages/*
   - apps/*
+  # One-off MP0 experiment (roadmap, "手机端 · MP0"); its own deps, no lint or knip.
+  - spikes/mobile-mp0/ts
 allowBuilds:
   esbuild: true
   lefthook: true

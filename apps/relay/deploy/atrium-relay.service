@@ -1,0 +1,29 @@
+# Without Docker: Node 24 installed, relay.cjs in /opt/atrium-relay, data in /var/lib/atrium-relay.
+#   useradd --system --home /var/lib/atrium-relay --shell /usr/sbin/nologin atrium-relay
+#   install -d -o atrium-relay -g atrium-relay -m 0700 /var/lib/atrium-relay
+#   cp atrium-relay.service /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now atrium-relay
+# Commands: sudo -u atrium-relay node /opt/atrium-relay/relay.cjs add-host <name> --dir /var/lib/atrium-relay
+[Unit]
+Description=Atrium phone relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=atrium-relay
+Group=atrium-relay
+Environment=ATRIUM_RELAY_DIR=/var/lib/atrium-relay
+Environment=ATRIUM_RELAY_LISTEN=127.0.0.1:8787
+ExecStart=/usr/bin/node /opt/atrium-relay/relay.cjs serve
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/atrium-relay
+CapabilityBoundingSet=
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
