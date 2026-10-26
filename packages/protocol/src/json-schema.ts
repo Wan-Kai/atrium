@@ -33,6 +33,7 @@ export function protocolJsonSchema(): ProtocolJsonSchema {
   for (const [type, result] of Object.entries(CommandResult)) {
     registry.add(result, { id: `${pascalCase(type)}Result` });
   }
+  // Stryker disable next-line StringLiteral,ObjectLiteral: both are zod 4.6.5's defaults, written out so a changed default cannot widen or rename anything unseen.
   const { schemas } = z.toJSONSchema(registry, { unrepresentable: "throw", uri: (id) => id });
   const named: Record<string, Record<string, unknown>> = {};
   for (const [name, schema] of Object.entries(schemas)) {
