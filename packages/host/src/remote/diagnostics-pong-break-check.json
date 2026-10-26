@@ -50,8 +50,8 @@
   },
   {
     "file": "packages/host/src/remote/relay-pong.ts",
-    "from": "socket.terminate();",
-    "to": "",
+    "from": "finish({ error: \"relay_unreachable\", failure: \"timeout\" });",
+    "to": "finish({ error: \"relay_unreachable\", failure: \"timeout\" }); socket.terminate();",
     "test": "packages/host/src/remote/relay-link.test.ts",
     "name": "releases listeners and deadlines after timeout"
   },

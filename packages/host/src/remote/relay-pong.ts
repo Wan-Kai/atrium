@@ -14,7 +14,8 @@ export interface RelayPongResult {
  * Checks one already-open control socket with a unique non-secret ping payload.
  * @remarks Only the corresponding pong succeeds; a write callback and unrelated pongs prove nothing.
  * The caller owns authentication and coalesces concurrent requests. Close or deadline always settles the check.
- * @sideEffects Sends one ping; owns two listeners and a tracked deadline until settled; terminates on timeout.
+ * A missed probe is not a control-connection lifecycle decision; normal heartbeat and close remain the caller's responsibility.
+ * @sideEffects Sends one ping; owns two listeners and a tracked deadline until settled.
  * @param socket - The already-open authenticated control connection.
  * @param options - The host's clock and resource accounting.
  * @param timeoutMs - The bounded check deadline.
@@ -31,7 +32,6 @@ export function checkRelayPong(
       options.resources,
       () => {
         finish({ error: "relay_unreachable", failure: "timeout" });
-        socket.terminate();
       },
       timeoutMs,
     );
