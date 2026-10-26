@@ -1,4 +1,4 @@
-# Local relay ↔ TS MP0 host ↔ production Swift
+# Local relay ↔ TS hosts ↔ production Swift
 
 From the repository root (existing pnpm dependencies and Xcode Swift toolchain required):
 
@@ -6,7 +6,7 @@ From the repository root (existing pnpm dependencies and Xcode Swift toolchain r
 node apps/ios/Integration/run.mjs
 ```
 
-Only `LocalRelayInteropTests` runs. It uses the production `apps/relay/src/relay.ts`, the unchanged
+The default command runs only `LocalRelayInteropTests`. It uses the production `apps/relay/src/relay.ts`, the unchanged
 MP0 `FakeHost`, and the current `AtriumRemote` / `AtriumNoise` implementations. This is an MP4
 connection-layer check against SPEC-0005 “配对流程”, “日常连接”, “撤销” and “Noise 通道”; it is **not**
 the future full production-host/faux-pi contract suite.
@@ -60,11 +60,17 @@ existing scoped cleanup: remove this pending attempt while retaining the old con
 
 The focused Swift Noise/presentation regressions cover this mapping. The current runner exercises
 successful confirmation only; they are **not** evidence of a production RemoteService → relay → Swift
-rejection exchange. That dynamic production-service test remains a separate, pending integration step.
+rejection exchange. Use the separate production-service mode below for that boundary.
 
-## Proposed production rejection check (not implemented)
+## Production rejection check
 
-Add one opt-in fixture/suite selected by `run.mjs`, leaving the frozen MP0 test intact:
+```sh
+node apps/ios/Integration/run.mjs --production-rejection
+```
+
+This dedicated mode leaves the frozen MP0 test intact. It exercises SPEC-0005's pairing refusal
+at the service boundary, using the generated current Swift protocol version (27 at introduction).
+Its contract is:
 
 1. Reuse the existing real loopback relay, `/atrium` prefix, random credentials, authenticated control
    endpoint and owned-process cleanup. Construct **production RemoteService**, not FakeHost. Supply
@@ -84,11 +90,27 @@ Add one opt-in fixture/suite selected by `run.mjs`, leaving the frozen MP0 test 
 5. Always close service, relay and control listeners and assert both resource trackers return to zero,
    including startup/Swift/assertion failures and interruption.
 
-This would cover **RemoteService + production relay → production Swift**, including the onEnded wire
-mapping. It would not start `startHost`, Electron persistence, the application router or faux-pi, and
-would not count as full MP4 synchronization or a production-host startup contract. No such new fixture
-or dynamic run is part of the current narrow mapping fix.
+This covers **RemoteService + production relay → production Swift**, including the onEnded wire
+mapping. It does not start `startHost`, Electron persistence, the application router or faux-pi, and
+is not full MP4 synchronization or a production-host startup contract. The Swift test seeds an old
+local host record solely to check retention; it does not claim a previous server-side pairing.
 
-Not covered: production TS host, protocol 26 semantics, UI/scanning, real keychain persistence,
+### Test-only entry points
+
+| Entry | Scope |
+|---|---|
+| `--production-rejection` | Selects the production fixture and `ProductionRejectionInteropTests`; cannot combine with MP0's `--negative-control`. |
+| `--hold-confirmation` | Only with production mode: after a real matching SAS/awaiting-confirmation, hold the reject HTTP request for the SIGTERM cleanup check. Bounded to five seconds; never grants access. |
+| `ATRIUM_LOCAL_INTEROP_CONTROL` / `ATRIUM_LOCAL_INTEROP_TOKEN` | Existing ephemeral loopback origin/bearer, injected only into the owned Swift test child. |
+| `ATRIUM_LOCAL_INTEROP_SCENARIO` | Runner-set `mp0` or `production-rejection`; selects opt-in Swift tests, never read by App/production code. |
+
+Both modes compile Swift with `--jobs 1`. To prove sensitivity, temporarily remove only the Swift
+`rejected` alias, run production mode (must fail the Mac-refusal assertion), restore the alias and
+rerun. For interruption, run production mode with `--hold-confirmation`, wait for its held-rejection
+beacon, then SIGTERM the runner; expect nonzero exit, zero host/relay counters, closed control
+requests/listeners, no surviving owned Swift group and removal of the temporary bundle directory.
+Actual results belong in the coverage map, not inferred from this recipe.
+
+Not covered: complete production host/startHost, UI/scanning, real keychain persistence,
 automatic reconnect/backoff or heartbeat scheduling, background/foreground transitions, physical
 iPhone, TLS, WAN failure injection, full repository checks or mutation testing.

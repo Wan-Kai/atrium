@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { bounded, startControl, type ControlServer } from "./control";
 import { systemClock } from "../../relay/src/clock";
 import { hashToken } from "../../relay/src/hosts";
 import { type Relay, startRelay } from "../../relay/src/relay";
@@ -38,7 +38,7 @@ export async function startFixture(negativeControl: boolean): Promise<LocalFixtu
   const requested = Promise.withResolvers<PairingRequest>();
   let host: FakeHost | undefined;
   let relay: Relay | undefined;
-  let server: Server | undefined;
+  let control: ControlServer | undefined;
   let helloCount = 0;
 
   /**
@@ -49,13 +49,7 @@ export async function startFixture(negativeControl: boolean): Promise<LocalFixtu
    * @returns When cleanup and resource assertions finish.
    */
   async function close(): Promise<void> {
-    const controlClosed = server
-      ? new Promise<void>((resolve, reject) => {
-          server?.close((error) => (error ? reject(error) : resolve()));
-          server?.closeAllConnections();
-        })
-      : Promise.resolve();
-    await Promise.all([host?.close(), relay?.close(), controlClosed]);
+    await Promise.all([host?.close(), relay?.close(), control?.close()]);
     assert.ok(
       Object.values(resources.snapshot()).every((count) => count === 0),
       "relay leaked resources",
@@ -102,29 +96,23 @@ export async function startFixture(negativeControl: boolean): Promise<LocalFixtu
      *
      * @remarks Responses expose only test state; a failure never logs request bodies or credentials.
      * @sideEffects Reads HTTP input and may confirm pairing or revoke the ephemeral device.
-     * @param request - Loopback HTTP request.
-     * @param response - HTTP response.
-     * @returns Once the response is written.
+     * @param action - Authenticated fixture action.
+     * @param body - Parsed control arguments.
+     * @param signal - Request cancellation during teardown.
+     * @returns The response object, or undefined for an unknown action.
      */
-    async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-      if (request.method !== "POST" || request.headers.authorization !== `Bearer ${token}`) {
-        response.writeHead(403).end();
-        return;
-      }
-      let text = "";
-      for await (const chunk of request) {
-        text += String(chunk);
-        assert.ok(text.length <= 4096, "control request too large");
-      }
-      const body: unknown = JSON.parse(text);
-      assert.ok(typeof body === "object" && body !== null && !Array.isArray(body));
+    async function handle(
+      action: string,
+      body: object,
+      signal: AbortSignal,
+    ): Promise<Record<string, unknown> | undefined> {
       let result: Record<string, unknown>;
-      switch (request.url ?? "") {
+      switch (action) {
         case "/setup":
           result = { link: pairing.link };
           break;
         case "/confirm": {
-          const confirmation = await bounded(requested.promise);
+          const confirmation = await bounded(requested.promise, signal);
           assert.ok("sas" in body);
           assert.equal(confirmation.sas, body.sas, "Swift and TS SAS differ");
           assert.equal(confirmation.deviceName, "Local Swift interop");
@@ -143,52 +131,16 @@ export async function startFixture(negativeControl: boolean): Promise<LocalFixtu
           result = { helloCount, deviceCount: activeHost.devices.length };
           break;
         default:
-          response.writeHead(404).end();
-          return;
+          return undefined;
       }
-      response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(result));
+      return result;
     }
 
-    server = createServer((request, response) => {
-      void handle(request, response).catch(() => {
-        response.writeHead(500).end();
-      });
-    });
-    server.requestTimeout = 10_000;
-    const controlServer = server;
-    await new Promise<void>((resolve, reject) => {
-      controlServer.once("error", reject);
-      controlServer.listen(0, "127.0.0.1", resolve);
-    });
-    const address = server.address();
-    assert.ok(address !== null && typeof address === "object");
-    const port = address.port;
+    control = await startControl(token, handle);
     console.log("Local interop fixture: real relay + TS MP0 host, loopback only, prefix /atrium");
-    return { origin: `http://127.0.0.1:${port}`, token, close };
+    return { origin: control.origin, token, close };
   } catch (error) {
     await close();
     throw error;
-  }
-}
-
-/**
- * Bounds a fixture event wait without leaving its timeout behind.
- *
- * @remarks Host authentication and pair_confirm must arrive before the Swift control timeout.
- * @sideEffects Registers and clears a five-second timer.
- * @param promise - The event to await.
- * @returns The event value.
- */
-async function bounded<T>(promise: Promise<T>): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error("local fixture event timed out")), 5000);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
   }
 }

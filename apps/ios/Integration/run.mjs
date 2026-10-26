@@ -9,10 +9,17 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const require = createRequire(import.meta.url);
 const { build } = createRequire(require.resolve("vite"))("esbuild");
 const root = fileURLToPath(new URL("../../../", import.meta.url));
+const production = process.argv.includes("--production-rejection");
+const holdConfirmation = process.argv.includes("--hold-confirmation");
+const negativeControl = process.argv.includes("--negative-control");
 assert.ok(
-  process.argv.slice(2).every((arg) => arg === "--negative-control"),
+  process.argv
+    .slice(2)
+    .every((arg) => ["--negative-control", "--production-rejection", "--hold-confirmation"].includes(arg)),
   "unknown argument",
 );
+assert.ok(!production || !negativeControl, "negative-control belongs to MP0 only");
+assert.ok(!holdConfirmation || production, "hold-confirmation requires production-rejection");
 const temporary = await mkdtemp(join(tmpdir(), "atrium-local-interop-"));
 let fixture;
 const interruption = new AbortController();
@@ -32,7 +39,7 @@ process.on("SIGTERM", interrupt);
 try {
   const bundle = join(temporary, "fixture.mjs");
   await build({
-    entryPoints: [join(root, "apps/ios/Integration/fixture.ts")],
+    entryPoints: [join(root, "apps/ios/Integration", production ? "production-rejection.ts" : "fixture.ts")],
     outfile: bundle,
     bundle: true,
     platform: "node",
@@ -48,7 +55,9 @@ try {
     logLevel: "warning",
   });
   const { startFixture } = await import(pathToFileURL(bundle).href);
-  fixture = await startFixture(process.argv.includes("--negative-control"));
+  fixture = production
+    ? await startFixture(interruption.signal, holdConfirmation)
+    : await startFixture(negativeControl);
   process.exitCode = await runSwift(fixture, interruption.signal);
 } finally {
   try {
@@ -75,10 +84,14 @@ async function runSwift(local, signal) {
     "swift",
     [
       "test",
+      "--jobs",
+      "1",
+      "--explicit-target-dependency-import-check",
+      "error",
       "--package-path",
       "apps/ios/AtriumKit",
       "--filter",
-      "LocalRelayInteropTests",
+      production ? "ProductionRejectionInteropTests" : "LocalRelayInteropTests",
       "-Xswiftc",
       "-warnings-as-errors",
     ],
@@ -90,6 +103,7 @@ async function runSwift(local, signal) {
         ...process.env,
         ATRIUM_LOCAL_INTEROP_CONTROL: local.origin,
         ATRIUM_LOCAL_INTEROP_TOKEN: local.token,
+        ATRIUM_LOCAL_INTEROP_SCENARIO: production ? "production-rejection" : "mp0",
       },
     },
   );
