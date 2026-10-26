@@ -1,5 +1,11 @@
 # MP3b 手机设置页实施记录
 
+## 撤销重试边界收紧：同身份换 token（本轮）
+
+父会话复核真实 host：set_remote 保存 relay 时不会滤掉仅内存 blocked 的设备，所以同 URL / hostId 换 token 成功不等于失败撤销已落盘。纠正 A 的过宽决定：relay 保存不再调用显式清理，依靠公开 hostFingerprint / relay URL / hostId 的 observer 判定真正身份变化；reset 成功的显式、代次安全清理仍保留。保存失败、仅 token 更换均保留目标；不存 token 作比较，不改断线/null 快照逻辑。
+
+验证：新增真实 SettingsPanel + 实际 client 回归，隐藏 A 后先保存失败、再成功同身份换 token（期间离开手机分类），返回仍准确重试 A，未把 A 塞回设备列表；修改前失败（`/tmp/mp3b/token-revoke-red.log`）。另补 URL、hostId 变化清除两个用例，并将原错误的“relay save 一律清除”测试收窄为 reset 成功清除。`pnpm test:ui revocation-retry --maxWorkers=1` 当前 8/8 通过（`token-revoke-green.log`）；`pnpm break-check docs/testing/mp3b-token-revocation-break-check.json` 4/4 检出（`token-revoke-break.log`）：恢复成功保存就清除、保存失败也清除、遗漏 URL / hostId 的身份比较。UI typecheck、改动文件类型感知 lint 与格式通过。未跑全量、e2e、变异、Xcode；真实 host 落盘/blocked 联调留父会话。
+
 ## 审查修复 B：保险箱错误及重置确认文案（本轮）
 
 keychain_unavailable 仅表示暂时无法访问；提示允许授权、若此前拒绝则重启后再试。原“重新授权”改为被动“刷新状态”，不调用 set_remote、不承诺原进程再弹授权。corrupt 涵盖文件损坏或密钥不匹配导致无法读取，不断言已确定物理损坏。重置保留两步确认；只有 vault=ok 才使用设备数量，其它状态写数量未知，并明确永久替换原宿主身份/设备记录、所有手机重配；无法读取时不承诺保留 relay 凭据。仅 UI 文案与被动刷新入口，不改 host、协议或权限。不可读时设备列表标题也写“数量未知”，避免同屏一边写 0 台、一边确认数量未知。
@@ -8,7 +14,7 @@ B 验证：新增 `vault-guidance.browser.test.tsx` 8 项起初全红（`/tmp/mp
 
 ## 审查修复 A：失败撤销目标独立保留（本轮）
 
-设置窗口 owner 内按 deviceId 维护仅失败撤销的目标表，与 PhoneSection 通用 failure/notice 分开；无磁盘存储、自动重试或通用命令队列。成功重试只删除对应目标；实际卸载、可见身份/relay 配置变化清表并推进代次。保存 relay（包括只换令牌）及重置身份成功后的清表回调在操作开始时捕获代次，不依赖 PhoneSection 是否还挂载；失败不清表，旧回调不复活或清除新身份目标。宿主已隐藏/拉黑的设备不重新加入列表。原有其它历史验证不改写为本轮结果。
+设置窗口 owner 内按 deviceId 维护仅失败撤销的目标表，与 PhoneSection 通用 failure/notice 分开；无磁盘存储、自动重试或通用命令队列。成功重试只删除对应目标；实际卸载、可见身份/relay 配置变化清表并推进代次。原 A 把保存 relay（包括只换令牌）及重置身份成功都视为清表时机，此处过宽，已由文首本轮纠正；现在只有 reset 保留成功后的代次安全回调，relay 仅在公开身份变化时由 observer 清理。失败或仅换 token 不清表，旧回调不复活或清除新身份目标。宿主已隐藏/拉黑的设备不重新加入列表。原有其它历史验证不改写为本轮结果。
 
 A 验证：`revocation-retry.browser.test.tsx` 使用真实 SettingsPanel + 实际 client/协议解析 + 脚本化 socket；初始 4 项全红（`/tmp/mp3b/revoke-red.log`）。补入晚到 reset/关闭回调后共 5 项，连同 Phone 和窗口 watch 回归，`pnpm test:ui revocation-retry phone-section settings-remote-watch --maxWorkers=1` 为 37 项通过（`revoke-regression.log`）。`pnpm break-check docs/testing/mp3b-revocation-break-check.json` 7/7 检出（`revoke-break.log`）；UI typecheck 与改动文件类型感知 lint 通过。旧破坏清单的 revoke 与通用错误匹配点同步到当前代码，历史计数不重算。本轮未跑全量、e2e、变异、Xcode。
 

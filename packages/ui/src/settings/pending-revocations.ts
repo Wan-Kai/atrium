@@ -16,13 +16,14 @@ export interface PendingRevocations {
   readonly entries: readonly PendingRevocation[];
   /** Executes only on explicit user action; rejects after retaining a current-scope failure. */
   readonly revoke: (deviceId: string, name: string) => Promise<void>;
-  /** Captures a scope-safe callback to call only after a relay save or identity reset succeeds. */
+  /** Captures a scope-safe callback to call only after an explicit identity reset succeeds. */
   readonly beginIdentityChange: () => () => void;
 }
 
 /**
  * Identifies the public host/relay scope without retaining the QR or relay credential.
- * @remarks Token-only changes are invisible in snapshots and are cleared by the successful save callback.
+ * @remarks Token-only saves are deliberately outside this scope: they do not persist failed revocations.
+ * Only public fingerprint/URL/hostId changes invalidate targets; the UI never compares credentials.
  * @sideEffects none
  * @param state - The latest authoritative snapshot, or no snapshot.
  * @returns The public identity key.
@@ -34,7 +35,7 @@ function identityOf(state: RemoteState | null): string {
 /**
  * Retains failed revocations independently of Phone's generic feedback for this settings window.
  * @remarks Targets survive category changes, never window closure. A generation and per-device
- * attempt token prevent old completions from recreating targets after identity/configuration changes.
+ * attempt token prevent old completions from recreating targets after public identity changes or reset.
  * No device is reinserted in the host list and no command is retried automatically.
  * @sideEffects Observes the existing local store, sends explicit revoke commands and updates retry rows;
  * clears references and the subscription on unmount. Opens no connection and stores nothing on disk.
@@ -123,10 +124,10 @@ export function usePendingRevocations(client: AtriumClient): PendingRevocations 
   );
 
   /**
-   * Captures a successful replacement callback for the current identity generation.
+   * Captures a successful identity-reset callback for the current generation.
    * @remarks It still runs if Phone unmounts, but cannot clear failures of a newer identity/window.
    * @sideEffects The returned callback clears retry targets only if its captured scope is still current.
-   * @returns The callback to invoke after reset/save success, never after failure.
+   * @returns The callback to invoke after reset success, never after failure or a relay save.
    */
   const beginIdentityChange = useCallback((): (() => void) => {
     const generation = held.current.generation;
