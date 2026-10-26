@@ -34,10 +34,30 @@
 
 已在整合 `78a1cbd` 加该测试上执行：`pnpm build` 通过（保留 Vite 大 chunk 警告）；`pnpm --filter @atrium/desktop test:e2e phone.leak.spec.ts --workers=1` 正向 1/1 通过，临时保留真实 PhoneSection DOM 的负控在堆增长断言处失败（退出 1），按 SHA-256 核对源码完整恢复后再跑 1/1 通过。前两轮预热、20 轮设置开关，每轮两次进入手机页。日志为 `/tmp/atrium-phone-heap-{positive,negative,restored}.log`，build 日志 `/tmp/atrium-mobile-phone-heap-build.log`。初次脚本误用了已配置态标题 `relay`，在未配置页的选择器等待失败、尚未进入堆检查；改为真实标题“接上你的 relay”，没有修改产品代码或放宽断言，初次失败保留在 `/tmp/atrium-phone-heap-initial.log`。
 
+## 审查修复后的组合验证（2026-10-26 深夜至 27 日）
+
+已合 `7303616`（保险箱分类，整合 `6a581a4`）、`317b02e`（正式拒绝互通，`1371729`）、`7b88613`（诊断 / 资源补测，`1c1da5e`）、`4812542` / `69f4049`（撤销重试 / 保险箱文案，`97e5cc4`）和父复核后的 token-only 修正 `5027751`（`d910237`）。文档冲突保留双方证据，main 的小猫 / 扫光记录保持原位置，不重复追加。
+
+| 父会话独立执行 | 结果及边界 |
+|---|---|
+| 安装 | 离线 frozen 首次因缺 `@electron/osx-sign` 的公共缓存元数据失败；随后原锁文件在线 frozen 安装通过，供应链策略 896 项通过，未改版本或放宽策略。日志 `/tmp/atrium-mobile-vault-install{,-online}.log` |
+| `pnpm check` | `d910237` 通过，边界 14 URLs / 41 env / 4 隐藏命令，未登记和非精确均 0。日志 `/tmp/atrium-mobile-review-final-check.log`。此前 `1371729` 的初次 check 仅 Integration README 格式失败，单文件格式化后通过；初次 `/tmp/atrium-mobile-vault-interop-check.log` 保留 |
+| 单元，4 workers | `1371729` 为 4145/4145；补测合入后的 `d910237` 为 **4182 过、1 失败**：未改动 `packages/testkit/src/git.test.ts` 的 clone 场景超过既有 5 秒，属 testing.md 已登记的同一用例；定向单 worker 3/3，通过不覆盖整套失败。日志 `/tmp/atrium-mobile-combined-unit.log`、`/tmp/atrium-mobile-review-final-unit.log`、`/tmp/atrium-mobile-review-git-recheck.log` |
+| 宿主，1 worker | `97e5cc4` 为 **230/230**，此后只有 UI token-only 修正。日志 `/tmp/atrium-mobile-combined-host.log` |
+| UI，1 worker | `97e5cc4` 为 1097/1097；`d910237` 为 **1100/1100**。日志 `/tmp/atrium-mobile-{combined-ui,review-final-ui}.log` |
+| Swift macOS | `1371729` 的汇总为 **237 tests / 43 suites**，两个 opt-in 互通用例默认跳过；显式 target 依赖检查与 warnings-as-errors 开启。日志 `/tmp/atrium-mobile-combined-swift.log`；不是 iOS 帧预算证据 |
+| 正式服务拒绝互通 | `1371729` 实跑 `node apps/ios/Integration/run.mjs --production-rejection`，**1/1**；生产 RemoteService / relay / Swift Noise，协议 27，拒绝不新增设备、不授予应用通道、不改变拒绝前 vault，收尾 counters 归零。日志 `/tmp/atrium-mobile-parent-production-refusal.log`。另外 vault 单元独立 24/24，日志 `/tmp/atrium-mobile-parent-vault-tests.log` |
+| `pnpm test:ios` | `97e5cc4` 通过；macOS Swift 汇总同上。xcresult 实际确认 **UI 5 过 / 2 跳过**：首页、Gallery、时间线位置、App 进程 Keychain 探针、粘贴与相机后备；默认未开截图矩阵 / 性能测量。`apps/ios/.build/xcode/Logs/Test/Test-Atrium-2026.10.26_23-54-20-+0800.xcresult`，摘要 / 用例 `/tmp/atrium-mobile-combined-ios-{summary,cases}.json`。Xcode 有 debugger version 诊断但退出 0，未据此删测试；不是“Executed 0 tests”的空 XCTest 汇总 |
+| 相关 Electron | `97e5cc4` 构建后 remote-vault 2 项＋Phone heap 1 项 **3/3**，日志 `/tmp/atrium-mobile-vault-phone-e2e.log`。前者只在测试 App 中将 availability 设为 false，不碰实际钥匙串拒绝流程 |
+| Node 泄漏，1 worker | `d910237` **20/20（9 文件）**，日志 `/tmp/atrium-mobile-review-node-leak.log` |
+| 桌面全部泄漏，1 worker | `d910237` **7 过 / 2 失败**；Phone 通过。appearance 失败在日志门禁（logins unavailable 两次、pi stdin 关闭后需 SIGTERM 一次），不是其 DOM 断言；ask-user 是已登记的同一增长：运行中 span 2 / SVGCircleElement 42 / SVGSVGElement 2。两项定向复验仍失败，未放宽断言或白名单，不能报全套绿。测试 / heap helper 相对 ace843a 未改，但未据此认定运行时归属。日志 `/tmp/atrium-mobile-review-{desktop-leak,leak-recheck}.log`，首轮截图和 trace 留 `/tmp/atrium-mobile-desktop-leak-evidence.skhYAr/` |
+
+父已查看 UI 作者的四张 `phone-{vault-confirm,keychain-error}-{light,dark}.png`（明暗、不可读与长确认），不是新设计或活跃手机联调的替代。变异采用独占重型窗口，以上验证没有与新一轮 Stryker 并行。
+
 ## 尚未完成的验证
 
-- 渲染加 `ace843a` 时的检查与 98 项 Swift 结果不是四路组合的结果；宿主 / 手机连接合入后另有生成检查和 `ios:check` 通过（复验日志 `/tmp/atrium-mobile-combined-ios-check-final.log`）。尚未跑四路整合后的全量检查、TypeScript、Swift / Xcode / UI / 互通验证，单路通过不自动视为完整整合通过。
+- 整套单元与桌面泄漏当前仍有上表失败；没有通过定向重跑抹去它们。修后固定范围变异已安排、尚无新结果；三方限定复审、全套非泄漏 Electron、活跃配对 / QR 的 Electron 堆和用户验收尚未完成。
 - 手机时间线在独立渲染分支 `87c7722` 的低负载窗口已测（18:43–18:46；98 Swift + 4 UI 通过，截图矩阵按计划跳过）：List 三次仍各 180000 builder / 180 body，Stack 为 5376 / 5504 / 5504 builder。全部数据已随 `6871905` 合入本分支，见 `mobile-render.md`；不能把观察通知次数的改善当作 List 构造次数改善，也没有同窗旧实现对照可归因耗时变化。Release 主线程 trace 和真机 50 ms 预算仍未验证；上述 UI 结果不是本整合分支的运行结果。
-- 正式宿主与 Swift 客户端、真实扫码 / 权限 / 锁屏 / 续签尚未验证。
+- 正式 RemoteService → Swift 的拒绝接缝已实测，仍不是 startHost / Electron / router / faux-pi 全契约；真实扫码 / 权限 / 锁屏 / 续签尚未验证。
 - 配对系统默认样式只用于接线，非最终视觉验收；渲染零件尚缺的交互与视觉差异仍见 `docs/research/mobile-render.md`。
 - MP4 的同步层、续传和发送回执尚未实现，连接后保持“正在同步”是当前切片的边界，不标为可发送的完整手机产品。
