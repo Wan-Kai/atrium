@@ -1,6 +1,16 @@
 # MP3b 手机设置页实施记录
 
-## 协议 27 协调补齐（本轮）
+## 三方审查后的型号标注修复
+
+只修确认弹层：`request.model.trim()` 非空时按原值显示，否则“未提供”；独立一行明确“手机自报，非硬件认证”，不把密钥确认误解为型号认证，也不从设备名推断。设备详情和协议不改。
+
+- `pnpm test:ui remote-pairing.browser.test.tsx --maxWorkers=1`：先 3 项全红（`/tmp/mp3b/model-label-red.log`），实现后 3 项全绿（`model-label-green.log`）。覆盖普通型号前后空白、空字符串、全空白，并确认仍能看到校验流程和确认按钮。
+- `pnpm break-check docs/testing/mp3b-pairing-model-break-check.json`：删除自报声明、不 trim、回退到设备名三个破坏全部检出（`model-label-break.log`）。单文件串行，无全量、e2e、Xcode 或变异。
+- 改动 TSX 的格式、类型感知 lint 和 `git diff --check` 通过。历史全量超时记录保留。
+
+**watch 范围仍待用户决定，未修改。** 只读评估的最小方案：如选“整个设置窗口订阅”，把 watch true/false 的 effect 移到 `SettingsPanel`，仅挂载/卸载时运行；`PhoneSection` 保留本地 mounted/pending 生命周期保护，但移除 watch 调用。分类切换不再退订，关闭整个窗口才退订并清空含二维码的状态；不引入额外缓存或订阅 owner 参数。需要调整 PhoneSection 独立测试的初始 store 装载方式，并由 SettingsPanel 用例覆盖“外观页打开即订阅、切分类不重复订阅、关闭清空、迟到响应不能恢复、侧栏标记跟随推送”。若选“仅手机分类”，保留当前 owner，仅收窄提示的规格与验收范围。两种均须用户确认后再实现。
+
+## 协议 27 协调补齐（历史轮次）
 
 按 SPEC-0005「协议 27 的桌面接缝」：型号只显示 `model`（null 未知）；诊断只显示宿主的步骤证据、connect/live 区别和 `checkedAt`，重试不清旧证据、null 不沿用；network 文案为「到 relay 的 TCP 连接」，live 不声称重测认证/DNS/TLS；测试连接仅承诺 relay 控制链路。`available && handshaking` 才显示未认证的匿名握手阶段和一次灰色往返，false、结束、换码立即清除，不等动画播完；减弱动态效果使用静态箭头。旧的协议 26 缺字段说明保留为历史记录，本轮不再适用。
 

@@ -157,7 +157,8 @@ export function RemotePairingDialog({
               <Phone size={22} />
               <div>
                 <b>{request.deviceName} 请求配对</b>
-                <small>{request.model} · 密钥已确认 · 2 分钟内确认</small>
+                <small>型号：{request.model.trim() || "未提供"}（手机自报，非硬件认证）</small>
+                <small>密钥已确认 · 2 分钟内确认</small>
               </div>
             </div>
             <p>手机上也显示了一串数字。一致再确认，不一致就拒绝。</p>
