@@ -2,6 +2,8 @@
 
 本页保留 `e29e49a` 的验证事实；后续修复不能沿用它的变异成绩冒称新源码已验证。协议协调是 `c709daf`（固定 main `ace843a` 为祖先），未重新修改协议 27 或线上配对原因。
 
+后续 `7b88613` 的独立复核见 [审查后冻结版变异报告](mp3a-postreview-mutation.md)：原477按身份强制复核，不只重跑Survived；诊断93.78%、vault87.33%，但 `RelayLink.#checkPong` 审查小范围仍70%，不冒称全部完成。原1638本轮Killed，无新增Stryker Timeout。下面的原始失败与中断记录继续保留。
+
 ## 中断与已完成运行
 
 - 1 runner × 1 测试 worker：经主线批准正常 SIGINT，exit 130，**中止，不是通过**。实际完成 110 个新变异：84 Killed、26 Survived、0 Timeout，剩余 367 个未完成。源码/测试 hash、配置和部分报告均已保留。
