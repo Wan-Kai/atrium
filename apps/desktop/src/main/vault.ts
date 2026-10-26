@@ -68,7 +68,7 @@ function vaultContents(text: string): { version: number; data: string } | null {
 }
 
 /** The answer to one request, as posted back to the host. */
-export type VaultResult =
+type VaultResult =
   | { type: "vault_result"; id: number; ok: true; version?: number; data?: string | null }
   | { type: "vault_result"; id: number; ok: false; error: "keychain_unavailable" | "corrupt" | "stale" | "io" };
 

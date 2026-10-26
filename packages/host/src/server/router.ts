@@ -22,6 +22,28 @@ import type { PiConfig } from "../setup/pi-config";
 import type { Connection } from "./connection";
 import { phoneMayRun } from "./remote-policy";
 
+/**
+ * The remote-access commands of the desktop's "手机" page (SPEC-0005, "给本机界面的命令和事件").
+ *
+ * @remarks
+ * Defined here so the server knows only this shape; `remote/` implements it. Failures are thrown
+ * as `CommandError`. Only local connections reach them: a phone is answered `local_only` first.
+ */
+export interface RemoteCommands {
+  /** The remote state; `watch` starts or stops `remote_updated` for the connection. */
+  get(connectionId: string, watch: boolean | undefined): CommandResult<"get_remote">;
+  set(enabled: boolean, relay: string | undefined): Promise<CommandResult<"set_remote">>;
+  testRelay(): Promise<CommandResult<"test_relay">>;
+  startPairing(): CommandResult<"start_pairing">;
+  cancelPairing(): CommandResult<"cancel_pairing">;
+  confirmPairing(pairingId: string, accept: boolean): Promise<CommandResult<"confirm_pairing">>;
+  renameDevice(deviceId: string, name: string): Promise<CommandResult<"rename_device">>;
+  revokeDevice(deviceId: string): Promise<CommandResult<"revoke_device">>;
+  resetIdentity(): Promise<CommandResult<"reset_remote_identity">>;
+  /** A connection closed; it watches nothing more. */
+  unwatch(connectionId: string): void;
+}
+
 /** What the router needs from the rest of the host. */
 export interface RouterOptions {
   readonly sessions: SessionCommands;
@@ -42,6 +64,8 @@ export interface RouterOptions {
   readonly installs: Pick<InstallService, "start" | "cancel">;
   /** The latest pi. */
   readonly piLatest: Pick<PiLatestService, "check">;
+  /** Remote access, for the local "手机" page. */
+  readonly remote: RemoteCommands;
   readonly tracer: Tracer;
   readonly logger: Logger;
 }
@@ -269,17 +293,24 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.listBranches(command.projectId);
       case "set_main_branch":
         return options.index.setMainBranch(command.projectId, command.branch);
-      // The remote module comes later in MP3a; until then remote access is not there to use.
       case "get_remote":
+        return options.remote.get(connection.id, command.watch);
       case "set_remote":
+        return options.remote.set(command.enabled, command.relay);
       case "test_relay":
+        return options.remote.testRelay();
       case "start_pairing":
+        return options.remote.startPairing();
       case "cancel_pairing":
+        return options.remote.cancelPairing();
       case "confirm_pairing":
+        return options.remote.confirmPairing(command.pairingId, command.accept);
       case "rename_device":
+        return options.remote.renameDevice(command.deviceId, command.name);
       case "revoke_device":
+        return options.remote.revokeDevice(command.deviceId);
       case "reset_remote_identity":
-        throw new CommandError("remote_unavailable");
+        return options.remote.resetIdentity();
     }
     // Stryker disable next-line all: unreachable, since the switch covers every command type.
     throw new Error(`unrouted command ${String((command as { type: unknown }).type)}`);

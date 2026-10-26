@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Why the vault could not be read or written; never with the main process's own words. */
-export type VaultError = "keychain_unavailable" | "corrupt" | "stale" | "io";
+type VaultError = "keychain_unavailable" | "corrupt" | "stale" | "io";
 
 /** What reading the vault gave. */
 export type VaultRead =

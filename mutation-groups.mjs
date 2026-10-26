@@ -113,7 +113,12 @@ export const MUTATION_GROUPS = {
   // The phone's end-to-end encryption and the host's remote module (SPEC-0005, "Noise 通道", "宿主").
   remote: {
     mutate: ["packages/remote-crypto/src/**/*.ts", "packages/host/src/remote/*.ts", "apps/desktop/src/main/vault.ts"],
-    tests: ["packages/remote-crypto", "packages/host/src/remote", "apps/desktop/src/main/vault.test.ts"],
+    tests: [
+      "packages/remote-crypto",
+      "packages/host/src/remote",
+      "packages/host/test/remote",
+      "apps/desktop/src/main/vault.test.ts",
+    ],
     skip: [],
   },
   // The phone relay (SPEC-0005); `entry.ts` only wires the real clock and signals to `runCli`.

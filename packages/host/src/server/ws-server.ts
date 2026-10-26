@@ -85,6 +85,8 @@ export interface WsServerOptions {
   readonly catchUp: () => readonly (InstallUpdatedEvent | LoginUpdatedEvent | PlansUpdatedEvent)[];
   /** The latest pi. */
   readonly piLatest: RouterOptions["piLatest"];
+  /** Remote access, for the local "手机" page; a closed connection stops watching it. */
+  readonly remote: RouterOptions["remote"];
   /** Images uploaded ahead of their messages; a closed connection's go. */
   readonly attachments: AttachmentStore;
   /** Workspaces' git changes; a closed connection stops showing them. */
@@ -160,6 +162,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     logins: options.logins,
     installs: options.installs,
     piLatest: options.piLatest,
+    remote: options.remote,
     attachments: options.attachments,
     changes: options.changes,
     files: options.files,
@@ -475,6 +478,7 @@ function serveTransport(
     options.subscriptions.disconnect(connectionId);
     options.attachments.drop(connectionId);
     options.changes.disconnect(connectionId);
+    options.remote.unwatch(connectionId);
     context.with(connectionTrace, () => options.logger.info({ code }, "client disconnected"));
   });
 }

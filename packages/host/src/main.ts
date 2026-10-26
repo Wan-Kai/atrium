@@ -10,7 +10,7 @@ import {
 } from "@atrium/pi";
 import { CommandError } from "@atrium/protocol";
 import { randomBytes, randomUUID } from "node:crypto";
-import { homedir, uptime } from "node:os";
+import { homedir, hostname, uptime } from "node:os";
 import { join } from "node:path";
 import type { Level } from "pino";
 import packageJson from "../package.json" with { type: "json" };
@@ -42,6 +42,9 @@ import { createPiConfig } from "./setup/pi-config";
 import { type HostTools, createToolbox, withProxySetting } from "./setup/toolbox";
 import { HOST_TO_PHONE_LIMIT } from "@atrium/remote-crypto";
 import type { VaultPort } from "./remote/vault";
+import { RemoteService } from "./remote/remote-service";
+import { REMOTE_FILE } from "./remote/devices";
+import { loadIndexFile } from "./store/index-file";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
 import { discoverProjects } from "./projects/discovery";
@@ -182,9 +185,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const plans = createPlanUsage({ clock, logger });
   plans.subscribe((found) => subscriptions.broadcast({ type: "plans_updated", plans: found }));
   const hostInstanceId = randomBytes(8).toString("hex");
-  const [index, installSeed] = await Promise.all([
+  const [index, installSeed, remoteIndex] = await Promise.all([
     loadIndex(home.root, clock.now(), logger),
     readInstallSeed(home.root, randomUUID),
+    loadIndexFile(home.root, REMOTE_FILE, clock.now()),
   ]).catch(async (error: unknown) => {
     logger.error({ err: error }, "host failed to start");
     releaseRejections();
@@ -538,6 +542,16 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     keepMs: 30 * 60_000,
   });
   let server: Awaited<ReturnType<typeof startWsServer>>;
+  const remote = new RemoteService({
+    vault: config.vault,
+    index: remoteIndex.file,
+    clock,
+    resources,
+    logger,
+    hostName: hostname(),
+    send: (id, event) => subscriptions.sendTo(id, event),
+    accept: (transport, origin) => server.accept(transport, origin),
+  });
   try {
     server = await startWsServer({
       token: config.token,
@@ -580,6 +594,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         { type: "plans_updated", plans: plans.current() } as const,
       ],
       piLatest,
+      remote,
       attachments,
       changes,
       files: createWorkspaceFiles({ dirOf: (workspaceId) => workspaces.dirOf(workspaceId), git, logger }),
@@ -597,6 +612,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     throw error;
   }
 
+  remote.start();
   workspaces.start();
   sessions.rescan();
   let cancelReport = scheduleReport();
@@ -709,6 +725,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   async function close(): Promise<void> {
     cancelReport();
     await toolbox.close();
+    await remote.close();
     await server.close();
     // Before the sessions and the index, which a worktree being created, archived or restored still uses.
     await worktreeQueue.idle();

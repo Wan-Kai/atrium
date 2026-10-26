@@ -188,6 +188,45 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
     },
   };
   const route = createRouter({
+    remote: {
+      get: (id, watch) => {
+        calls.push(["getRemote", id, watch]);
+        return { enabled: false, vault: "unavailable", relay: null, hostFingerprint: null, devices: [], pairing: null };
+      },
+      set: async (enabled, relay) => {
+        calls.push(["setRemote", enabled, relay]);
+        return {};
+      },
+      testRelay: async () => {
+        calls.push(["testRelay"]);
+        return {};
+      },
+      startPairing: () => {
+        calls.push(["startPairing"]);
+        return { pairingId: "pair_0123456789abcdef" };
+      },
+      cancelPairing: () => {
+        calls.push(["cancelPairing"]);
+        return {};
+      },
+      confirmPairing: async (id, accept) => {
+        calls.push(["confirmPairing", id, accept]);
+        return {};
+      },
+      renameDevice: async (id, name) => {
+        calls.push(["renameDevice", id, name]);
+        return {};
+      },
+      revokeDevice: async (id) => {
+        calls.push(["revokeDevice", id]);
+        return {};
+      },
+      resetIdentity: async () => {
+        calls.push(["resetIdentity"]);
+        return {};
+      },
+      unwatch: () => {},
+    },
     sessions,
     index,
     piConfig: {
