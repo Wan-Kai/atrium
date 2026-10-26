@@ -208,7 +208,7 @@ describe("live relay diagnostics do not own the phone lifecycle", () => {
       expect(f.service.get("observer", undefined).relay).toMatchObject({
         status: "error",
         error,
-        diagnostics: { kind: "live", failure },
+        diagnostics: { kind: "live", failure, token: "unknown" },
       });
       expect(f.service.get("observer", undefined).devices).toMatchObject([{ deviceId, online: false }]);
       expect(f.accepted).toStrictEqual([accepted]);

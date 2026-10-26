@@ -1,0 +1,66 @@
+[
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#cancelHandshakeNotice = null;\n    this.#publishedHandshaking = false;",
+    "to": "this.#cancelHandshakeNotice = null;\n    this.#publishedHandshaking = true;",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "clears activity observed by a late watcher",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (phone.deviceId !== null) this.#changed();",
+    "to": "if (false) this.#changed();",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "publishes a paired phone offline immediately",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (phone.deviceId !== null) this.#changed();",
+    "to": "if (phone.deviceId !== null) ;",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "publishes a paired phone offline immediately",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (this.#closed || this.#watchers.size === 0 || this.#publishedHandshaking || this.#cancelHandshakeNotice !== null)",
+    "to": "if (false || this.#cancelHandshakeNotice !== null)",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "starts no handshake notice timer without watchers|projects only current available candidates",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (this.#closed || this.#watchers.size === 0 || this.#publishedHandshaking || this.#cancelHandshakeNotice !== null)",
+    "to": "if ((this.#closed || this.#watchers.size === 0) && this.#publishedHandshaking || this.#cancelHandshakeNotice !== null)",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "starts no handshake notice timer without watchers|projects only current available candidates",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (this.#closed || this.#watchers.size === 0 || this.#publishedHandshaking || this.#cancelHandshakeNotice !== null)",
+    "to": "if (false || this.#publishedHandshaking || this.#cancelHandshakeNotice !== null)",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "starts no handshake notice timer without watchers",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (this.#closed || this.#watchers.size === 0 || this.#publishedHandshaking || this.#cancelHandshakeNotice !== null)",
+    "to": "if (this.#closed && this.#watchers.size === 0 || this.#publishedHandshaking || this.#cancelHandshakeNotice !== null)",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "starts no handshake notice timer without watchers",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (this.#closed || this.#watchers.size === 0 || this.#publishedHandshaking || this.#cancelHandshakeNotice !== null)",
+    "to": "if (this.#closed || false || this.#publishedHandshaking || this.#cancelHandshakeNotice !== null)",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "starts no handshake notice timer without watchers",
+    "project": "host"
+  }
+]

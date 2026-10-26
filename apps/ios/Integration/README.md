@@ -97,12 +97,12 @@ local host record solely to check retention; it does not claim a previous server
 
 ### Test-only entry points
 
-| Entry | Scope |
-|---|---|
-| `--production-rejection` | Selects the production fixture and `ProductionRejectionInteropTests`; cannot combine with MP0's `--negative-control`. |
-| `--hold-confirmation` | Only with production mode: after a real matching SAS/awaiting-confirmation, hold the reject HTTP request for the SIGTERM cleanup check. Bounded to five seconds; never grants access. |
-| `ATRIUM_LOCAL_INTEROP_CONTROL` / `ATRIUM_LOCAL_INTEROP_TOKEN` | Existing ephemeral loopback origin/bearer, injected only into the owned Swift test child. |
-| `ATRIUM_LOCAL_INTEROP_SCENARIO` | Runner-set `mp0` or `production-rejection`; selects opt-in Swift tests, never read by App/production code. |
+| Entry                                                         | Scope                                                                                                                                                                                 |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--production-rejection`                                      | Selects the production fixture and `ProductionRejectionInteropTests`; cannot combine with MP0's `--negative-control`.                                                                 |
+| `--hold-confirmation`                                         | Only with production mode: after a real matching SAS/awaiting-confirmation, hold the reject HTTP request for the SIGTERM cleanup check. Bounded to five seconds; never grants access. |
+| `ATRIUM_LOCAL_INTEROP_CONTROL` / `ATRIUM_LOCAL_INTEROP_TOKEN` | Existing ephemeral loopback origin/bearer, injected only into the owned Swift test child.                                                                                             |
+| `ATRIUM_LOCAL_INTEROP_SCENARIO`                               | Runner-set `mp0` or `production-rejection`; selects opt-in Swift tests, never read by App/production code.                                                                            |
 
 Both modes compile Swift with `--jobs 1`. To prove sensitivity, temporarily remove only the Swift
 `rejected` alias, run production mode (must fail the Mac-refusal assertion), restore the alias and
