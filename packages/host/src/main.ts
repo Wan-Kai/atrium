@@ -52,6 +52,7 @@ import { withModelRules } from "./sessions/model-rules";
 import { createSessionCatalog } from "./sessions/session-catalog";
 import { createPlanUsage } from "./sessions/plan-usage";
 import { createSessionManager } from "./sessions/session-manager";
+import { createReplyTranslations, TRANSLATION_OUTPUT_BYTES } from "./sessions/reply-translation";
 import { titleModelLookup } from "./sessions/titles";
 import { acquireHostLock, processStartedAt } from "./store/host-lock";
 import { loadIndex } from "./store/load-index";
@@ -382,6 +383,21 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       return starts;
     },
   });
+  const translations = createReplyTranslations({
+    source: (sessionId, turnId) => sessions.replyTranslationSource(sessionId, turnId),
+    language: () => preferences.read().translationLanguage,
+    run: async (request, signal) => {
+      const found = await toolbox.current();
+      if (found?.pi.status !== "ready") {
+        throw new CommandError("pi_unavailable", { status: found?.pi.status ?? "unknown" });
+      }
+      return runOneShot(
+        { piPath: found.pi.piPath, ...request },
+        createPiDeps({ clock, resources, logger, env: found.env }),
+        { signal, maxOutputBytes: TRANSLATION_OUTPUT_BYTES, isolateTranslation: true },
+      );
+    },
+  });
   projects.onChange(() => feed.changed());
   catalog.onChange(() => feed.changed());
   workspaces.onChange(() => {
@@ -575,6 +591,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         { type: "plans_updated", plans: plans.current() } as const,
       ],
       piLatest,
+      translations,
       attachments,
       changes,
       files: createWorkspaceFiles({ dirOf: (workspaceId) => workspaces.dirOf(workspaceId), git, logger }),
@@ -705,6 +722,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     cancelReport();
     await toolbox.close();
     await server.close();
+    await translations.close();
     // Before the sessions and the index, which a worktree being created, archived or restored still uses.
     await worktreeQueue.idle();
     await loginService.close();

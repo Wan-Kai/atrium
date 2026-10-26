@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 25,
+    "protocolVersion": 26,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -1314,7 +1314,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -1619,7 +1620,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     }
   },
   {
@@ -2301,7 +2303,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -2553,7 +2556,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -2805,7 +2809,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -3057,7 +3062,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -3309,7 +3315,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -3561,7 +3568,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -3813,7 +3821,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -4041,7 +4050,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -4306,7 +4316,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -4571,7 +4582,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -4836,7 +4848,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -5068,7 +5081,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -5333,7 +5347,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -5598,7 +5613,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -5852,7 +5868,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "projects",
@@ -6007,7 +6024,8 @@
         "modelId": "claude-haiku-4-5"
       },
       "proxy": null,
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -6338,7 +6356,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -6662,6 +6681,14 @@
     "ok": false,
     "error": {
       "code": "branch_name_failed"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "translation_failed"
     }
   },
   {

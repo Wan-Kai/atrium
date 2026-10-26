@@ -506,6 +506,19 @@
       "branch": "atrium/fix-login"
     }
   ],
+  "translate_reply": [
+    {
+      "text": "译文",
+      "language": "简体中文",
+      "model": {
+        "providerId": "faux",
+        "modelId": "faux-1"
+      }
+    }
+  ],
+  "cancel_translation": [
+    {}
+  ],
   "rename_chat": [
     {}
   ],

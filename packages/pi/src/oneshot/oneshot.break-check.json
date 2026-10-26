@@ -1,0 +1,51 @@
+[
+  {
+    "file": "packages/pi/src/oneshot/oneshot.ts",
+    "from": "`export default function translationGuard(pi) {\n  const expected = ${JSON.stringify(model)};\n  pi.on(\"before_agent_start\", (_event, ctx) => {\n    const registered = ctx.modelRegistry.find(expected.providerId, expected.modelId);\n    if (registered === undefined || ctx.model?.provider !== expected.providerId || ctx.model?.id !== expected.modelId) ctx.abort();\n  });\n}\\n`",
+    "to": "``",
+    "test": "packages/pi/src/oneshot/oneshot.test.ts",
+    "name": "isolates translation resources"
+  },
+  {
+    "file": "packages/pi/src/oneshot/oneshot.ts",
+    "from": "await rm(directory, { recursive: true, force: true });",
+    "to": "// Deliberately retain the partially written guard.",
+    "test": "packages/pi/src/oneshot/oneshot.test.ts",
+    "name": "cleans a partially written guard"
+  },
+  {
+    "file": "packages/pi/src/oneshot/oneshot.ts",
+    "from": "    if (cancelled()) {",
+    "to": "    if (false) {",
+    "test": "packages/pi/src/oneshot/oneshot.test.ts",
+    "name": "cancels after writing the guard"
+  },
+  {
+    "file": "packages/pi/src/oneshot/oneshot.ts",
+    "from": "if (guardDirectory !== undefined) await rm(guardDirectory, { recursive: true, force: true }).catch(() => undefined);",
+    "to": "// Deliberately retain the guard on synchronous spawn failure.",
+    "test": "packages/pi/src/oneshot/oneshot.test.ts",
+    "name": "synchronous spawn failure"
+  },
+  {
+    "file": "packages/pi/src/oneshot/oneshot.ts",
+    "from": "const maxLineLength = maxOutputBytes * 6 + 16_384;",
+    "to": "const maxLineLength = maxOutputBytes / 6 + 16_384;",
+    "test": "packages/pi/src/oneshot/oneshot.test.ts",
+    "name": "accepts a long valid escaped JSON record"
+  },
+  {
+    "file": "packages/pi/src/oneshot/oneshot.ts",
+    "from": "if (line.length >= maxLineLength)",
+    "to": "if (line.length > maxLineLength)",
+    "test": "packages/pi/src/oneshot/oneshot.test.ts",
+    "name": "exactly at the JSON safety boundary"
+  },
+  {
+    "file": "packages/pi/src/oneshot/oneshot.ts",
+    "from": "if (stopped !== undefined) return;",
+    "to": "if (false) return;",
+    "test": "packages/pi/src/oneshot/oneshot.test.ts",
+    "name": "one process-tree kill"
+  }
+]

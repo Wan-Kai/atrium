@@ -4,6 +4,41 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## 回复翻译（M1.11 自用后补充）
+
+用户选 `prototypes/reply-translation-prototype.html` 的 A“原文下展开”：当前会话模型、默认简体中文、设置仅配置目标语言；译文仅挂载组件内保留，不进原对话上下文或磁盘。
+
+| 行为 | 验证 |
+|---|---|
+| 只接受会话/轮/操作引用，不接受客户端指定正文、模型、语言；操作 id 与结果形状、语言校验 | `packages/protocol/src/translation.test.ts` 三例；`envelope.test.ts` 的命令、错误码与偏好样例；协议 26 |
+| 客户端传正确引用与取消 id，语言只在宿主保存后的索引更新中生效，失败不乐观修改 | `packages/client/src/atrium-client.test.ts`“reply translation”两例；`index-view.test.ts` 默认偏好 |
+| 当前分支已结束轮的正文与当前模型；只翻译最终正文，不含过程、思考、工具；空、运行中、未知轮拒绝 | `packages/host/src/sessions/session-manager.test.ts` 的翻译来源用例 |
+| 一连接一在途请求，按连接取消、重用 id 不串请求、超限和空结果、错误不含原文 | `packages/host/src/sessions/reply-translation.test.ts` |
+| 真实宿主与 pi/faux：当前模型与保存语言、无原历史和工具、无译文落盘、失败可重试、取消和断开、宿主关闭清理 | `packages/host/src/reply-translation.host.test.ts` |
+| 输出字节上限与不完整 JSON 记录有界、期限与取消释放进程 | `packages/pi/src/oneshot/oneshot.test.ts`；真实 pi 的 `oneshot.pi.test.ts` |
+| 原文不变、A 展开/收起复开、失败重试、取消焦点、旧请求和旧取消应答不过期覆盖、源/轮/会话/语言变化和卸载清理 | `packages/ui/src/chat/reply-translation.browser.test.tsx` |
+| 目标语言默认中文，限长/控制字符校验；保存中/成功/失败、失败草稿与外部偏好更新，不出现模型选择 | `packages/ui/src/settings/translation-group.browser.test.tsx` |
+| 桌面真实调用、原文和会话文件不改、只有语言落盘、重启译文消失；浅/深色截图 | `apps/desktop/e2e/reply-translation.spec.ts` |
+| 200 次真实子进程翻译后计数/实际定时器/signal 基线；切换译文页面后 DOM 不增长 | `packages/host/src/sessions/reply-translation.leak.test.ts`；`apps/desktop/e2e/reply-translation.leak.spec.ts` |
+
+功能分支验证（2026-10-26，`79e1fd2`；以下是同步最新 `main` 之前的结果，未安装）：
+
+- `pnpm check`（格式、lint、全包类型、knip、边界登记）与构建通过。单元 **3643**、串行宿主 **164**、串行 pi 契约 **99**、串行界面 **1028** 通过；最后一次构建后重新跑真实 pi 翻译契约 **12**、真实宿主翻译 **6** 通过。完整单元后只把客户端的 `allSettled([...Set])` 按 lint 建议改为等价的 `allSettled(Set)`，客户端 **108** 项复验通过。
+- 相关泄漏 **4** 项通过：宿主 200 次成功、50 次取消，客户端 1000 次取消回执可回收，及原有客户端视图回收；桌面翻译旅程与 DOM 泄漏各连续两次，**4/4** 通过。分别故意隐藏构建产物里的翻译按钮、在隔离窗口保留已移除 DOM，桌面测试均红；DOM 负对照明确检出译文 section 从 1 增到 11，恢复后通过。浅/深色的真实 Electron 页面截图已查阅；不把透明侧栏的页面截图当原生材质验收。
+- `pnpm break-check` 最终 **60** 处全部 `CAUGHT`：协议/客户端 10、UI 19、宿主原组 14、安全 3、正文来源/边界 7、pi 准备/清理/限额 7。UI 初轮有 1 个漏检，补上等待 Promise 完成后真正提交 React 更新的测试，连同新回归后 19/19；格式化与 UTF-8 代码收敛使两处旧 case 过期，更新精确片段后宿主 14 处重新全过，没有把 case 不执行算检出。
+- 增量变异：shared **100%**；host 报告 **99.41%**（回复翻译服务与来源 accessor 都为 **100%**；唯一存活来自误纳入所选行范围的既有 proxy 守卫，未改它）；pi **97.67%**，均无超时。最初 host 来源分支覆盖不足、pi 70.83% 未过，按存活项补了尾部空白/思考/工具/压缩、空正文、精确字节边界，以及真实 FS 准备失败、取消和清理、合法长 JSON、恰好限额与重复 kill 的回归。报告含缓存复用，不把累计 killed 数当本轮新验证量；最后一轮 shared 复用 48/52、host 124/168、pi 63/124；仅非复用、非等价豁免的变异重新执行。pi 余下 3 项：同步 spawn 失败时去掉 guard 存在判断、将 rm 的 force 改 false 都在相同失败路径被 catch，结果等价；停止后仍解析剩余 stdout 的变异只涉及停止窗口内的缓冲工作，现有测试没有区分这项额外工作，保留实现并登记覆盖边界，不作广泛豁免。一次标准 host 变异在工具 600 秒期限被中断，不计通过；之后采用“定向测试先跑，未检出者仍跑完整本组”的临时配置完成，并将整组阶段串行以避免下面的基线不稳。未改项目变异配置或门槛。
+- 按用户选择，GPT-6 Astra、Grok 4.7、Claude Opus 5.5 三方只读审查；Astra 指出的斜杠执行、APPEND_SYSTEM、CLI 模糊/合成模型三项阻断均有真实 pi 回归，并经其有界复核关闭。Claude 的取消后立即请求、断线取消提示、文件列表挤在译文前的三项低问题也已修复并复核。未留已知阻断。
+- 诚实保留首轮失败：默认全量 UI 的 status-bar tooltip 被指针拦截、宿主 setup 的 1 秒 ready 等待、pi edit-aborted 的 get_entries 时序各失败一次，单文件及随后串行全量都过，登记到 testing.md；没有放宽断言、重录夹具或删除测试。新的桌面泄漏用例曾在首条消息发出前失败，失败快照显示文字仍在输入框（已有 Enter 送出不稳现象）；本能力的两条新旅程改为点击公开的“发送”按钮，不测试键盘快捷键，之后连续两轮全部通过。
+- `pnpm boundary`：协议 **25 → 26**；无新依赖、地址、环境变量或隐藏命令；全量登记仍为 URL 13、环境变量 39、隐藏命令 4，未登记 0、非精确依赖 0。翻译 guard 的私有临时文件例外已写进 security 与 pi-internals。
+
+限制与未验证：模型调用期限 60 秒，256/512 KiB 是内存上限，不保证接近上限的回复能在期限内译完；超时保留原文并可重试。只测真实 pi 加 faux，没有调用真实订阅验证翻译质量；未跑全套桌面、性能/压力/浸泡、打包或安装。用户随后明确要求本地合回 `main`、删除对应 worktree，不安装。
+
+### 同步 main 后的收尾（2026-10-26）
+
+同步 `main` 的 `1679b01`（MP0/MP1/MP2 和压缩提示的小猫样式）。只冲突路线图和追踪表的新增段落，保留双方内容；桌面生产代码无冲突。沿用新加入的 Swift 协议投影门禁，为两个新命令补齐结果样例（完整性测试先见红），重新生成 Swift 类型与三份往返夹具。Swift 往返测试把协议版本仍写死为 25，先看到 `26 != 25` 失败，再随本次版本升级明确改为 26；不删除断言、不绕过生成检查。
+
+合并前复验：`pnpm check`（含 Swift 格式/lint 与生成类型比较）通过；串行 Node 单元 **3854**、界面 **1028**、Swift **22** 及模拟器 UI 测试通过；重新构建后的全套桌面端到端 **63/63** 通过（日志门禁的 `test.fail()` 是预期失败，Playwright 汇总仍是 63 passed）。没有手机端翻译入口的新增设计，只同步协议投影；未安装到真机、未替换或重启用户现用 Atrium。按用户要求本地合并并安全删除任务 worktree，不推送。
+
 ## MP1 Swift 工程基础（手机端，2026-10-25～26）
 
 路线图 MP1：Swift 的规范、`apps/ios` 工程骨架、`pnpm protocol:swift` 和往返测试、Swift 进 `pnpm check` / `pnpm test`，破坏检查扩到 Swift（[testing.md · Swift（手机端）](../architecture/testing.md#swift手机端)、[overview.md · iOS 工程](../architecture/overview.md#ios-工程2026-10-25-定mp1)）。

@@ -1,5 +1,8 @@
 import type { ModelRef } from "@atrium/protocol";
-import { spawn } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PiDeps } from "../deps";
 import { piEnvironment } from "../env/pi-env";
 import { contentText } from "../history/tools";
@@ -13,7 +16,7 @@ export const ONESHOT_TIMEOUT_MS = 60_000;
 const PIPE_DRAIN_MS = 1_000;
 
 /** Why a one-shot call gave no text. */
-export type OneShotFailure = "model_failed" | "exited" | "no_reply" | "timed_out" | "aborted";
+export type OneShotFailure = "model_failed" | "exited" | "no_reply" | "timed_out" | "aborted" | "too_large";
 
 /**
  * A one-shot call that gave no text.
@@ -51,6 +54,37 @@ export interface OneShotRequest {
   readonly systemPrompt: string;
   /** The content, given on stdin. */
   readonly input: string;
+}
+
+/**
+ * Writes the translation-only exact-model guard to a private temporary directory.
+ * @remarks pi's CLI deliberately accepts fuzzy and synthetic model ids. Its documented extension
+ * abort hook runs before the first provider call, so a missing exact registry entry cannot incur a
+ * request on a replacement model. The file contains only trusted code and model identifiers.
+ * @sideEffects Creates a private directory and writes its guard; removes it if writing fails.
+ * @param model - The precise model selected in the conversation.
+ * @returns The directory the caller owns until process cleanup.
+ */
+async function translationGuard(model: ModelRef): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), "atrium-translation-guard-"));
+  try {
+    await writeFile(
+      join(directory, "guard.mjs"),
+      `export default function translationGuard(pi) {
+  const expected = ${JSON.stringify(model)};
+  pi.on("before_agent_start", (_event, ctx) => {
+    const registered = ctx.modelRegistry.find(expected.providerId, expected.modelId);
+    if (registered === undefined || ctx.model?.provider !== expected.providerId || ctx.model?.id !== expected.modelId) ctx.abort();
+  });
+}\n`,
+      { mode: 0o600 },
+    );
+    return directory;
+  } catch (error) {
+    // If another actor already removed it, ENOENT or force-suppressed ENOENT both become exited at the caller.
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 /** An assistant message as pi's json mode ends it, reduced to what the call reads. */
@@ -98,19 +132,32 @@ function replyOf(line: string): Reply | undefined {
  * counted as a `pi-oneshot` resource until it is gone. The last assistant reply is the answer; a
  * reply that failed or was aborted, a non-zero exit, no reply with text, the deadline and an abort
  * all fail, and only the reason is logged. stderr is read and dropped, since it may quote the
- * content.
+ * content. An optional reply-byte cap also bounds unfinished JSON records and kills oversized
+ * output, so reply translation cannot retain an unbounded partial record. Translation isolation
+ * explicitly overrides append prompts and disables skills/templates; its private guard checks the
+ * exact registry model before any provider request. The caller supplies a fixed-prefix data envelope
+ * so print mode cannot dispatch the Markdown as an extension command.
  *
- * @sideEffects Spawns pi and may kill its process tree; logs a failure's reason.
+ * @sideEffects Spawns pi and may kill its process tree; writes/removes the translation-only private
+ * guard file; logs a failure's reason.
  * @param request - pi, the directory, the model, the instructions and the content.
  * @param deps - Host infrastructure.
- * @param options - The deadline, an abort signal, and the process system for killing.
+ * @param options - The deadline, an abort signal, process system and optional UTF-8 output cap.
  * @returns The reply's text.
  * @throws {OneShotError} When the call gave no text.
  */
 export async function runOneShot(
   request: OneShotRequest,
   deps: PiDeps,
-  options: { readonly timeoutMs?: number; readonly signal?: AbortSignal; readonly processSystem?: ProcessSystem } = {},
+  options: {
+    readonly timeoutMs?: number;
+    readonly signal?: AbortSignal;
+    readonly processSystem?: ProcessSystem;
+    /** Bounds reply bytes and unfinished JSON records for ephemeral reply translation. */
+    readonly maxOutputBytes?: number;
+    /** Isolates translation resources and refuses any fuzzy or synthetic model replacement. */
+    readonly isolateTranslation?: boolean;
+  } = {},
 ): Promise<string> {
   /**
    * Logs why the call failed and makes its error.
@@ -127,34 +174,97 @@ export async function runOneShot(
     deps.log[reason === "aborted" ? "info" : "warn"]({ reason }, "one-shot pi failed");
     return new OneShotError(reason);
   };
-  if (options.signal?.aborted === true) throw failure("aborted");
+  /**
+   * Reads cancellation again after asynchronous preparation.
+   * @remarks The signal may change while the translation guard is written.
+   * @sideEffects none
+   * @returns Whether cancellation has been requested.
+   */
+  const cancelled = (): boolean => options.signal?.aborted === true;
+  if (cancelled()) throw failure("aborted");
   const { model, systemPrompt } = request;
-  const child = spawn(
-    request.piPath,
-    [
-      "--mode",
-      "json",
-      "-p",
-      "--no-session",
-      "--no-tools",
-      // Else pi adds the directory's AGENTS.md and CLAUDE.md to the instructions it sends.
-      "--no-context-files",
-      "--thinking",
-      "off",
-      "--model",
-      `${model.providerId}/${model.modelId}`,
-      "--system-prompt",
-      systemPrompt,
-    ],
-    { cwd: request.cwd, env: piEnvironment(deps.env, request.env ?? {}), detached: true },
-  );
+  let guardDirectory: string | undefined;
+  if (options.isolateTranslation === true) {
+    try {
+      guardDirectory = await translationGuard(model);
+    } catch {
+      throw failure("exited");
+    }
+    if (cancelled()) {
+      try {
+        await rm(guardDirectory, { recursive: true, force: true });
+      } catch {
+        throw failure("exited");
+      }
+      throw failure("aborted");
+    }
+  }
+  let child: ChildProcessWithoutNullStreams;
+  try {
+    child = spawn(
+      request.piPath,
+      [
+        "--mode",
+        "json",
+        "-p",
+        "--no-session",
+        "--no-tools",
+        // Else pi adds the directory's AGENTS.md and CLAUDE.md to the instructions it sends.
+        "--no-context-files",
+        ...(guardDirectory === undefined
+          ? []
+          : [
+              "--no-skills",
+              "--no-prompt-templates",
+              "--append-system-prompt",
+              "",
+              "--extension",
+              join(guardDirectory, "guard.mjs"),
+            ]),
+        "--thinking",
+        "off",
+        "--model",
+        `${model.providerId}/${model.modelId}`,
+        "--system-prompt",
+        systemPrompt,
+      ],
+      { cwd: request.cwd, env: piEnvironment(deps.env, request.env ?? {}), detached: true },
+    );
+  } catch {
+    // A synchronous spawn failure never acquires a process count; its trusted temporary file still goes.
+    // rm(undefined) would only reject into catch; avoiding it is equivalent to that rejected, swallowed call.
+    if (guardDirectory !== undefined) await rm(guardDirectory, { recursive: true, force: true }).catch(() => undefined);
+    throw failure("exited");
+  }
   const release = deps.track("pi-oneshot");
   let last: Reply | undefined;
-  let stopped: "timed_out" | "aborted" | undefined;
-  const stdout = createLineSplitter((line) => {
-    last = replyOf(line) ?? last;
+  let stopped: "timed_out" | "aborted" | "too_large" | undefined;
+  // A JSON string can escape each UTF-16 unit as six ASCII bytes; leave room for its envelope.
+  // Infinity keeps the original unlimited mode without undefined/NaN comparison branches.
+  const maxOutputBytes = options.maxOutputBytes ?? Number.POSITIVE_INFINITY;
+  const maxLineLength = maxOutputBytes * 6 + 16_384;
+  const stdout = createLineSplitter(
+    (line) => {
+      if (stopped !== undefined) return;
+      if (line.length >= maxLineLength) {
+        // Fire and forget: kill catches process-system errors and completion is awaited below.
+        void kill("too_large");
+        return;
+      }
+      const reply = replyOf(line);
+      if (reply !== undefined && Buffer.byteLength(reply.text) > maxOutputBytes) {
+        // Fire and forget: as above, the call still waits for the child's close.
+        void kill("too_large");
+        return;
+      }
+      last = reply ?? last;
+    },
+    { maxLineLength },
+  );
+  child.stdout.on("data", (chunk: Buffer) => {
+    // The inner check skips buffered records; this one also avoids buffering late raw chunks during termination.
+    if (stopped === undefined) stdout.push(chunk);
   });
-  child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
   child.stdout.on("end", () => stdout.end());
   child.stderr.resume();
   // pi may exit before reading all of stdin; its exit says what went wrong.
@@ -171,7 +281,7 @@ export async function runOneShot(
    * @sideEffects Kills processes.
    * @param why - Why pi is stopped.
    */
-  const kill = async (why: "timed_out" | "aborted"): Promise<void> => {
+  const kill = async (why: "timed_out" | "aborted" | "too_large"): Promise<void> => {
     stopped ??= why;
     // Stryker disable next-line ConditionalExpression: a pi without a pid never started and has already closed.
     if (child.pid === undefined) return;
@@ -209,6 +319,14 @@ export async function runOneShot(
   cancelTimer();
   cancelDrain?.();
   options.signal?.removeEventListener("abort", onAbort);
+  if (guardDirectory !== undefined) {
+    try {
+      await rm(guardDirectory, { recursive: true, force: true });
+    } catch {
+      release();
+      throw failure("exited");
+    }
+  }
   release();
 
   if (stopped !== undefined) throw failure(stopped);

@@ -229,6 +229,15 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
         calls.push(["cancelInstall", jobId]);
       },
     },
+    translations: {
+      translate: async (connectionId, translationId, sessionId, turnId) => {
+        calls.push(["translateReply", connectionId, translationId, sessionId, turnId]);
+        return { text: "译文", language: "简体中文", model: MODEL };
+      },
+      cancel: async (connectionId, translationId) => {
+        calls.push(["cancelTranslation", connectionId, translationId]);
+      },
+    },
     piLatest: {
       check: async () => {
         calls.push(["checkPiUpdate"]);
@@ -268,6 +277,26 @@ function withTrace(fields: Record<string, unknown>): Command {
 }
 
 describe("createRouter", () => {
+  it("routes reply translation and cancellation with the requesting connection identity", async () => {
+    const { route, connection, calls, sent } = setUp();
+    await route(
+      connection,
+      withTrace({ type: "translate_reply", sessionId: "s1", turnId: "t1", translationId: "tr1" }),
+    );
+    await route(connection, withTrace({ type: "cancel_translation", translationId: "tr1" }));
+    await route(connection, withTrace({ type: "set_preferences", translationLanguage: "日本語" }));
+    expect(calls).toStrictEqual([
+      ["translateReply", "connection-7", "tr1", "s1", "t1"],
+      ["cancelTranslation", "connection-7", "tr1"],
+      ["setPreferences", { translationLanguage: "日本語" }],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: { text: "译文", language: "简体中文", model: MODEL } },
+      { type: "response", requestId: "r1", ok: true, result: {} },
+      { type: "response", requestId: "r1", ok: true, result: {} },
+    ]);
+  });
+
   it("routes a stopped edit with its revision without using ordinary prompt", async () => {
     const { route, connection, calls, sent } = setUp();
     await route(

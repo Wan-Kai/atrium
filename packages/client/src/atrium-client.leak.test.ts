@@ -58,7 +58,37 @@ async function collected(ref: WeakRef<object>): Promise<boolean> {
   return false;
 }
 
+/**
+ * Cancels once and keeps only a weak reference to its acknowledgement.
+ * @remarks A settled cancellation retained by the client keeps this result reachable too.
+ * @sideEffects Sends one cancellation through the test socket.
+ * @param client - The connected client that must remain alive during collection.
+ * @returns The acknowledgement's weak reference, after its local strong reference is gone.
+ */
+async function cancelledOnce(client: ReturnType<typeof createAtriumClient>): Promise<WeakRef<object>> {
+  return new WeakRef(await client.cancelTranslation("finished-translation"));
+}
+
 describe("client session views", () => {
+  it("releases 1000 translation cancellation acknowledgements while the client stays connected", async () => {
+    const socket = answeringSocket();
+    const client = createAtriumClient({
+      url: "ws://host.invalid",
+      token: "t",
+      clientId: "c",
+      openSocket: () => socket,
+      clock: new FakeClock(),
+    });
+    const connected = client.connect();
+    socket.welcome();
+    await connected;
+    const first = await cancelledOnce(client);
+    for (let index = 0; index < 999; index++) await cancelledOnce(client);
+    expect(await collected(first)).toBe(true);
+    expect(client.connection.getState().status).toBe("connected");
+    client.disconnect();
+  });
+
   it("drops every view after watching and unwatching 1000 sessions, and lets them be collected", async () => {
     const socket = answeringSocket();
     const client = createAtriumClient({

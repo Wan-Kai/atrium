@@ -30,6 +30,8 @@ export {
   ListBasesCommand,
   CreateWorkspaceCommand,
   NameBranchCommand,
+  TranslateReplyCommand,
+  CancelTranslationCommand,
   RenameChatCommand,
   ArchiveChatCommand,
   RestoreChatCommand,
@@ -146,6 +148,7 @@ export {
 export { ChatId, ContainerId, isChatId, ProjectId, SessionId, WorkspaceId } from "./ids";
 export {
   Appearance,
+  TranslationLanguage,
   Attention,
   Chat,
   ContainerTabs,
