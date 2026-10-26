@@ -309,7 +309,7 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 - 逻辑 target 必须能在 macOS 上编译（`Package.swift` 的平台是 iOS 26、macOS 26），这样大部分测试不用起模拟器，能进 `pnpm test` 和 lefthook 的推送前检查。只能在 iOS 上做的事（钥匙串的 `ThisDeviceOnly`、VisionKit 扫码）放在接口后面，逻辑部分照样在 macOS 上测。
 - 模拟器固定用 iPhone 16 Pro（和用户的手机一样，MP5 的性能预算也按它），`pnpm test:ios` 找名为 "Atrium iPhone 16 Pro" 的模拟器，没有就用最新的 iOS 运行时建一个。
 - 不 mock 自己的模块；要隔离的依赖（时钟、连接、钥匙串）设计成协议注入，测试传替身，同 TypeScript 的 `PiProcess`、`Clock`。
-- 结果确定：时间经注入的时钟推进，不用 `Task.sleep` 等；随机数注入种子。
+- 结果确定：时间经注入的时钟推进，不用 `Task.sleep`、`Date()`、`Timer`、`asyncAfter`；随机数注入种子。`scripts/swift-lint.mjs` 对测试和源码一样检查（App 本体除外）。确实要真实时间的测试（量真实耗时、等系统界面出现这类注入不了时钟的地方），在那一行上面写 `// Real time: <为什么>`，审查时看理由是否成立；XCUITest 的 `waitForExistence(timeout:)` 不算，它不在检查的写法里（2026-10-26 审查后定）。
 - 测试资源（夹具）放在测试 target 的 `Fixtures/` 里，经 `Bundle.module` 读。
 - **看界面**：`pnpm ios:shot`、`pnpm ios:shot --dark` 在 "Atrium iPhone 16 Pro" 模拟器上装好、打开 App，截浅色、深色两张图到 `apps/ios/.build/shots/`。交付看得见的改动前都截两张自己看（acceptance.md"交给用户之前"）；截图里不放真实的项目名、对话和路径。要点开某一屏再截，先在 XCUITest 里走到那一屏、断言它的无障碍标识，再截图。
 - **不装 AXe**（MP1 定）：AXe（`cameroncooke/axe`）能在命令行读模拟器的无障碍树、按标签点按，方便 agent "点得动"。MP1 只有一个占位首页，没有要点的地方，`simctl io screenshot` 加 XCUITest 够用；MP4 有了配对、列表、对话几屏，手动走查变多时再评估，装了就在这里记精确版本。

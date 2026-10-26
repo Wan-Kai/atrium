@@ -1,12 +1,12 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 
 /**
  * Checks the Swift rules swift-format and the compiler cannot: doc comments on every declaration,
  * a reason for unchecked concurrency and for tasks nobody keeps, and no real time in AtriumKit.
  *
  * `node scripts/swift-lint.mjs <dir>` prints `file:line: problem` lines and exits 1 when there are
- * any (coding-standards.md "Swift（手机端）"). It reads lines, not a syntax tree: comments and string
+ * any (coding-standards.md "Swift（手机端）"). `<dir>` is `apps/ios`: its `Atrium/` folder is the app target. It reads lines, not a syntax tree: comments and string
  * contents are blanked out first, and only declarations at the start of a line count, so odd
  * layouts may slip through rather than be reported wrongly. Generated code is skipped.
  */
@@ -22,7 +22,7 @@ const ATTRIBUTES = /^\s*(?:@[A-Za-z_]\w*(?:\(.*\))?\s*)+$/u;
  * The comments that exempt the line below from a rule; they sit between a declaration and its doc
  * comment, since each must be right above the line it exempts.
  */
-const EXEMPTION = /^\/\/ (?:Unchecked|Fire and forget):/u;
+const EXEMPTION = /^\/\/ (?:Unchecked|Fire and forget|Real time):/u;
 
 /** Declarations that run code, so they must say their side effects. */
 const RUNS_CODE = new Set(["func", "init", "subscript"]);
@@ -37,7 +37,7 @@ const UNCHECKED = [
 /** An unstructured task, and what comes before it on the line. */
 const TASK = /^(.*?)\bTask(?:\.detached)?\s*(?:\([^)]*\))?\s*\{/u;
 
-/** Ways of reading or waiting on real time, refused in AtriumKit's sources. */
+/** Ways of reading or waiting on real time, refused everywhere but the app target without `// Real time:`. */
 const REAL_TIME = [
   [/\bDate\(\)/u, "Date() reads real time; take an injected now (coding-standards, Swift)"],
   [/\bTask\.sleep\b/u, "Task.sleep waits on real time; take an injected Clock (coding-standards, Swift)"],
@@ -219,15 +219,17 @@ function docProblem(raw, code, index, kind, xctest) {
  * See the module comment.
  *
  * @sideEffects Reads the file.
+ * @param {string} root - The folder linted, `apps/ios`.
  * @param {string} file - The file's path.
  * @returns {string[]} `file:line: problem` for each.
  */
-function fileProblems(file) {
+function fileProblems(root, file) {
   const text = readFileSync(file, "utf8");
   const raw = text.split("\n");
   const code = codeOnly(text).split("\n");
   const xctest = /^\s*import\s+XCTest\b/mu.test(text);
-  const sources = file.includes("/AtriumKit/Sources/");
+  // The app target only assembles, and may use real time (coding-standards "Swift（手机端）").
+  const app = relative(root, file).split(sep)[0] === "Atrium";
   const problems = [];
   code.forEach((line, index) => {
     /**
@@ -257,11 +259,14 @@ function fileProblems(file) {
     if (task !== null && !kept && !previous.startsWith("// Fire and forget:")) {
       report("keep the Task to cancel it, or write // Fire and forget: <why> above");
     }
-    if (sources) for (const [pattern, message] of REAL_TIME) if (pattern.test(line)) report(message);
+    if (!app && !previous.startsWith("// Real time:")) {
+      for (const [pattern, message] of REAL_TIME) if (pattern.test(line)) report(message);
+    }
   });
   return problems;
 }
 
-const problems = swiftFiles(process.argv[2] ?? ".").flatMap(fileProblems);
+const root = process.argv[2] ?? ".";
+const problems = swiftFiles(root).flatMap((file) => fileProblems(root, file));
 for (const problem of problems) console.log(problem);
 if (problems.length > 0) process.exitCode = 1;

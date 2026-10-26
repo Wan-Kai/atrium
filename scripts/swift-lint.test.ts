@@ -192,7 +192,7 @@ describe("swift-lint.mjs", () => {
     ]);
   });
 
-  it("refuses real time in AtriumKit's sources, but not in the app or the tests", async () => {
+  it("refuses real time everywhere but the app, unless a // Real time: comment above says why", async () => {
     const realTime = [
       "let a = Date()",
       "try await Task.sleep(for: .seconds(1))",
@@ -201,7 +201,12 @@ describe("swift-lint.mjs", () => {
     ].join("\n");
     const result = await lint({
       "AtriumKit/Sources/A/A.swift": `${realTime}\nlet b = Date(timeIntervalSince1970: 0) // not Date()\n`,
-      "AtriumKit/Tests/ATests/ATests.swift": realTime,
+      "AtriumKit/Tests/ATests/ATests.swift": [
+        "let a = Date()",
+        "// Real time: measures how long decoding really takes.",
+        "let b = Date()",
+      ].join("\n"),
+      "AtriumUITests/UITests.swift": "try await Task.sleep(for: .seconds(1))",
       "Atrium/AtriumApp.swift": realTime,
     });
 
@@ -210,6 +215,8 @@ describe("swift-lint.mjs", () => {
       "AtriumKit/Sources/A/A.swift:2: Task.sleep waits on real time; take an injected Clock (coding-standards, Swift)",
       "AtriumKit/Sources/A/A.swift:3: Timer waits on real time; take an injected Clock (coding-standards, Swift)",
       "AtriumKit/Sources/A/A.swift:4: asyncAfter waits on real time; take an injected Clock (coding-standards, Swift)",
+      "AtriumKit/Tests/ATests/ATests.swift:1: Date() reads real time; take an injected now (coding-standards, Swift)",
+      "AtriumUITests/UITests.swift:1: Task.sleep waits on real time; take an injected Clock (coding-standards, Swift)",
     ]);
   });
 });
