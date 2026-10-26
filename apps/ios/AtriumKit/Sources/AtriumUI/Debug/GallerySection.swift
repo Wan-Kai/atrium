@@ -22,6 +22,7 @@
       case "status": status(palette)
       case "cats": cats
       case "atoms": atoms(palette)
+      case "rail": GalleryRail()
       default: EmptyView()
       }
     }
