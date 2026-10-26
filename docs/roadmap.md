@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-26：MP1 Swift 工程基础实现完成，在 `agent/mp1-swift-base`（worktree `atrium.worktrees/mp1-swift-base`），待用户验收，未合并、未推送。** coding-standards、testing 补了"Swift（手机端）"：Xcode 自带的 swift-format（`apps/ios/.swift-format`）、警告当错误、不加 SwiftLint，自写的 `scripts/swift-lint.mjs` 查文档注释（`- Remark:`、`- SideEffects:`）、不安全的并发、没人留着的 `Task` 和真实时间；Swift 6 严格并发、可注入的 `Clock`；Swift Testing，逻辑在 macOS 上 `swift test`、界面在模拟器上跑；`pnpm break-check` 支持 Swift 的 case，Swift 先不做变异测试。`apps/ios`：SwiftPM 包 `AtriumKit`（六个模块各一个最小实现加测试）、手写维护的 `Atrium.xcodeproj`（文件夹同步，设置在 xcconfig，不用 XcodeGen、Tuist，理由见 overview"iOS 工程"）、占位首页，bundle id `site.ktoon.atrium`、免费团队签名。`pnpm protocol:swift` 从 zod 经 JSON Schema 生成 Swift 的 `Codable` 类型，`envelope.test.ts` 的样例做往返夹具；`pnpm check` 比对生成的类型（没 Xcode 也比）、跑 Swift 的格式和 lint，`pnpm test` 加上 `swift test`；`pnpm test:ios`、`ios:build`、`ios:install`、`ios:shot`、`ios:format` 的确切命令写进 AGENTS.md、development.md。完成标准：生成的类型能编译、往返测试通过；协议改了没重新生成时 `pnpm check` 失败（实测）；空 App 装到真机还没验证（手机不在电脑旁，只验证了没连上时的报错）。验证见[追踪表](testing/coverage-map.md#mp1-swift-工程基础手机端2026-10-2526)。
+
 **2026-10-25：设计手机端的开发路线图，在 `atrium/plan-mobile-roadmap`，用户确认，已本地合并回 `main`，未推送。** 把"手机端"一节从 MP0–MP7 的列表扩成里程碑：顺序与依赖（MP0 互通实验先行，MP1 Swift 工程基础和 MP2 relay 并行，MP3 宿主远程模块拆成宿主和设置页，MP4 是第一个手机上能用的纵向切片），每步的目标、范围、完成标准和需要用户做的事，以及三方审查放在 MP3、MP4、MP7。
 
 **2026-10-25：手机端设计定稿，用户确认 SPEC-0005、开始开发，在 `atrium/research-mobile-app`（只改文档和原型），用户确认后已提交并本地合并回 `main`，未推送。** 手机 App 经三轮原型：第一轮选 A"系统原生"，细化后用户觉得像普通 iOS 配置页，参考 Claude Code、Codex、Cursor 重做视觉、选乙"Claude 式"（暖色底、衬线标题、无卡片无分隔线、悬浮玻璃按钮、无 tab bar），过程保留纵向时间轴，插图是点阵像素猫，新会话改成"空的对话页、发出时原地变成对话"；桌面"手机"设置页选链路图、改成顺序动画（上行汇合、下行分发）。规范写进 [design-language · 手机端](architecture/design-language.md#手机端)、"设置"的"手机"分类和 SPEC-0005"界面"；路线图加了"手机端"一节（MP0–MP7）。下一步：MP0 互通实验。

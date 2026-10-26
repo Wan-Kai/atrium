@@ -4,6 +4,34 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## MP1 Swift 工程基础（手机端，2026-10-25～26）
+
+路线图 MP1：Swift 的规范、`apps/ios` 工程骨架、`pnpm protocol:swift` 和往返测试、Swift 进 `pnpm check` / `pnpm test`，破坏检查扩到 Swift（[testing.md · Swift（手机端）](../architecture/testing.md#swift手机端)、[overview.md · iOS 工程](../architecture/overview.md#ios-工程2026-10-25-定mp1)）。
+
+| 行为 | 验证 |
+|---|---|
+| 协议包导出的每个 zod schema 按导出名、每条命令的结果按 `<命令>Result` 导出成 JSON Schema，`$ref` 都指向包里的名字，带协议版本 | `packages/protocol/src/json-schema.test.ts` 两例 |
+| 生成器：对象 → `struct`，必填、可为 `null`、可省略、既可省略又可为 `null`（`Nullable`）、常量字段分开处理；字符串枚举 → `enum: String`；嵌套类型不遮住顶层类型和 Swift 自己的类型，关键字转义 | `scripts/swift-codegen.test.ts`"writes an object as a struct…"、"keeps nested names clear…" |
+| 判别联合 → 先读判别字段再分派的 `enum`；嵌套联合按它的全部取值分派；只有常量的成员是不带值的 case；判别字段是字符串枚举时按值展开；布尔判别要给 case 名，没给就报错 | `swift-codegen.test.ts`"writes a discriminated union…"、"names a boolean discriminator's cases…" |
+| 没有判别字段的对象联合按"只有它有的必填键"分派；标量联合先试常量；品牌 id 的联合是 `String` | `swift-codegen.test.ts`"tells objects apart…" |
+| 可省略的常量（`fork_session` 的 `noteSent`）存成可选值，在时必须是那个常量 | `swift-codegen.test.ts`"keeps an optional constant…"；Swift `CodingSupportTests`"keeps an optional constant…" |
+| 不支持的构造（`allOf`、元组、数字常量、分不开的联合、找不到的引用）报错，写明位置；同样的输入输出相同 | `swift-codegen.test.ts`"refuses what the protocol does not use…"、"writes the same output…" |
+| `pnpm protocol:swift --check`：提交的 Swift 类型和协议一致时通过；差一行或没有文件时退出码 1，提示重新生成；接在 `pnpm check` 里，没有 Xcode 也跑 | `scripts/protocol-swift.test.ts` 三例；`scripts/ios.test.ts`"still compares the generated protocol types without Xcode…"；手工：给 `WelcomeMessage` 加一个可选字段后 `pnpm check` 退出码 1（"… is out of date with packages/protocol; run pnpm protocol:swift"），改回后 0 |
+| 往返夹具和 `envelope.test.ts` 的合法样例保持一致（超过 4096 字符的字符串截成 64 个） | `envelope.test.ts`"Swift fixtures" 两例 |
+| 生成的类型能编译（Swift 6、警告当错误、模块依赖检查）；每个客户端、宿主样例解码再编码后和原 JSON 语义相等；按 `type` 分派、未知类型 / 错的常量 / 缺字段报错 | `pnpm test` 的 Swift 部分；`AtriumProtocolTests/RoundTripTests.swift` 五例 |
+| 编解码支持：缺省和 `null` 分开、不许 `null` 的地方拒绝、开放字段保留 `null`、`ContextReserve`、`InteractionAnswer`、`JSONValue` 往返 | `AtriumProtocolTests/CodingSupportTests.swift` 七例 |
+| 各模块的最小实现：Noise 套件名、配对链接只认 `atrium://pair`、协议版本相同才连、Mermaid / PlantUML 显示原文、首页标题 | `NoiseSuiteTests`、`PairingLinkTests`、`ProtocolCheckTests`、`DiagramFenceTests`、`HomeViewTests` |
+| App 在模拟器上打开显示首页标题 | `apps/ios/AtriumUITests/AtriumUITests.swift`（`pnpm test:ios`） |
+| `pnpm ios:install`：没配对的 iPhone、配对了但连不上时在构建之前报错，写明设备名、上次连接时间和怎么连；连着时按免费团队构建、装上、打开 | `scripts/ios.test.ts` 三例（`xcrun` 替身）；手工：手机不在时报"katonn的iPhone (iPhone 16 Pro) is paired but not connected (last seen 2026-09-10 09:32 UTC)…"，退出码 1 |
+| `pnpm test:ios`：先 `swift test`（警告当错误、依赖检查），再在 "Atrium iPhone 16 Pro" 上跑 UI 测试；没有这个模拟器时在最新的 iOS 运行时上建；没 Xcode 时 `ios:*` 报错退出 | `scripts/ios.test.ts` 其余四例 |
+| `pnpm test` 先跑单元层再跑 `swift test`；带参数时只跑 Vitest；单元层失败就停；没 Xcode 时跳过 Swift 照样通过 | `scripts/test.test.ts` 四例 |
+| `scripts/swift-lint.mjs`：每个类型、函数、`init`、`subscript` 有文档注释、第一句、`- Remark:`，函数类有 `- SideEffects:`；多行属性、测试、XCTest 的 `test…` 方法、字符串和注释里的文字、生成的代码不算；不安全的并发要 `// Unchecked:`，没人留着的 `Task` 要 `// Fire and forget:`；AtriumKit 的源码不许直接用真实时间 | `scripts/swift-lint.test.ts` 五例 |
+| 破坏检查支持 Swift：`runner: "swift"` 跑 `swift test --filter`，Swift Testing 的失败算 `CAUGHT`，改坏后编译不过算 `NOBUILD`（算漏掉） | `scripts/break-check.test.ts`"runs swift test for Swift cases…" |
+
+`pnpm break-check` 共 41 处。TypeScript 25 处：首轮 22 处检出、3 处漏掉；标量联合"先试常量"补了断言，swift-lint 的注释处理补了用例，另一处是 case 指错了测试，改对后 3 处重跑全部检出。Swift 16 处（`runner: "swift"`）：首轮 14/15 检出，漏掉的是 `decodeOmittable` 自己的 `null` 检查。它永远不会生效（`decode` 对没有 `null` 的类型本来就拒绝 `null`），于是连同多余的 `JSONValue` 重载一起删掉，补了"开放字段保留 `null`"的测试，再把这个函数改成 `decodeIfPresent`，检出。Swift 的 case 包括生成的代码（删掉 `ResponseMessage.Success` 编码 `result` 的一行、删掉 `InteractionAnswer` 对 `cancelled: true` 的核对）、编解码支持的每个分支和各模块的判断。变异测试只涉及 `packages/protocol/src/json-schema.ts`（shared 组，`--mutate`）：16 个，首轮 14 杀死、2 存活，都是删掉和 zod 4.6.5 默认值相同的选项，已在源码注明等价，重跑 100%。跑变异时发现 Stryker 复制沙箱时卡在 SwiftPM 的 `.build`（里面有 socket），已在 `stryker.config.mjs` 忽略 `apps/ios/**/.build`。`scripts/` 和 Swift 不在变异分组里（Swift 没有接 Muter，见 testing.md）。
+
+`pnpm check` 通过（含 `ios:check`）；`pnpm test` 单元 192 个文件 3613 项、Swift 19 项通过；`pnpm test:ios` 19 项 Swift 加 1 项模拟器 UI 测试通过；`pnpm ios:build` 真机构建签名通过（团队 `QGZ4G5UJ65`，bundle id `site.ktoon.atrium`）；`pnpm ios:shot` 浅色、深色截图看过。没验证：真机安装和打开（手机不在电脑旁边，只验证了没连时的报错），以及 lefthook 推送前跑 `pnpm test` 的耗时（多了约 10 秒的 `swift test`）。
+
 ## pi 1.3.0 契约夹具补齐（2026-10-23）
 
 本机 pi 1.3.0 此前只有 19 个场景的夹具，`pnpm test:pi` 56 过、33 失败，失败全是 `no fixture … for pi 1.3.0`（契约断言在录制比较之前跑，都通过了）。以 `RECORD_FIXTURES=1` 只跑这 33 个场景所在的 17 个契约文件录下 `pi-1.3.0/` 的 33 个新文件，同文件里已有的 `ask-steer`、`ask-abort` 重写后逐字节不变；再录一次逐字节相同。不改断言、规范化规则和产品代码，旧版本目录保留（testing.md"pi 夹具"）。和 1.1.0 的差异只有 `custom-idle` 是 pi 的变化（空闲时扩展 `sendMessage` 开的运行，`handled` 应答改在 `agent_start` 之前，系统消息带 `sections`），宿主两种先后都已处理，见 pi-internals"版本"。
