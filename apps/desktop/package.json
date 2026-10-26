@@ -13,6 +13,7 @@
     "readme:shots": "playwright test --config e2e/readme/playwright.config.ts"
   },
   "devDependencies": {
+    "@atrium/protocol": "workspace:*",
     "@atrium/testkit": "workspace:*",
     "@electron/packager": "20.3.0",
     "@playwright/test": "1.63.0",

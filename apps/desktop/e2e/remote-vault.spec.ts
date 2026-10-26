@@ -1,3 +1,4 @@
+import { PROTOCOL_VERSION } from "@atrium/protocol";
 import { expect, test, type Page } from "@playwright/test";
 import { type LaunchedApp, launchApp } from "./launch";
 
@@ -11,46 +12,49 @@ test.afterEach(async () => {
 
 /**
  * Sends one local command through the real Electron host.
- * @remarks Protocol 26 is the MP3a frozen contract; no renderer access to vault IPC is introduced.
+ * @remarks Uses the public protocol version; no renderer access to vault IPC is introduced.
  * @sideEffects Opens and closes a local WebSocket.
  * @param page - The application's renderer.
  * @param command - Management command fields.
  * @returns The command response.
  */
 async function request(page: Page, command: Record<string, unknown>): Promise<Record<string, unknown>> {
-  return page.evaluate(async (value) => {
-    const bootstrap = await window.atrium.getBootstrap();
-    return new Promise<Record<string, unknown>>((resolve, reject) => {
-      const socket = new WebSocket(bootstrap.hostUrl.replace(/^http/, "ws"));
-      socket.addEventListener("error", () => reject(new Error("local socket failed")));
-      socket.addEventListener("open", () =>
-        socket.send(
-          JSON.stringify({
-            type: "hello",
-            protocolVersion: 26,
-            clientId: "remote-vault-e2e",
-            token: bootstrap.token,
-            traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
-          }),
-        ),
-      );
-      socket.addEventListener("message", (event: MessageEvent<string>) => {
-        const message = JSON.parse(event.data) as Record<string, unknown>;
-        if (message.type === "welcome")
+  return page.evaluate(
+    async ({ command: value, protocolVersion }) => {
+      const bootstrap = await window.atrium.getBootstrap();
+      return new Promise<Record<string, unknown>>((resolve, reject) => {
+        const socket = new WebSocket(bootstrap.hostUrl.replace(/^http/, "ws"));
+        socket.addEventListener("error", () => reject(new Error("local socket failed")));
+        socket.addEventListener("open", () =>
           socket.send(
             JSON.stringify({
-              ...value,
-              requestId: "vault-check",
+              type: "hello",
+              protocolVersion,
+              clientId: "remote-vault-e2e",
+              token: bootstrap.token,
               traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
             }),
-          );
-        if (message.type === "response" && message.requestId === "vault-check") {
-          socket.close();
-          resolve(message);
-        }
+          ),
+        );
+        socket.addEventListener("message", (event: MessageEvent<string>) => {
+          const message = JSON.parse(event.data) as Record<string, unknown>;
+          if (message.type === "welcome")
+            socket.send(
+              JSON.stringify({
+                ...value,
+                requestId: "vault-check",
+                traceparent: "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+              }),
+            );
+          if (message.type === "response" && message.requestId === "vault-check") {
+            socket.close();
+            resolve(message);
+          }
+        });
       });
-    });
-  }, command);
+    },
+    { command, protocolVersion: PROTOCOL_VERSION },
+  );
 }
 
 test("keeps remote storage unread and absent from the renderer bridge on startup", async () => {

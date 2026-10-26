@@ -1,0 +1,58 @@
+[
+  {
+    "file": "apps/desktop/src/main/vault.ts",
+    "from": "const unreadable = error instanceof Error && error.message === CIPHERTEXT_DECRYPT_FAILED;",
+    "to": "const unreadable = true;",
+    "test": "apps/desktop/src/main/vault.test.ts",
+    "name": "decrypt rejects with temporarily unavailable"
+  },
+  {
+    "file": "apps/desktop/src/main/vault.ts",
+    "from": "current = unreadable ? 0 : null;",
+    "to": "current = 0;",
+    "test": "apps/desktop/src/main/vault.test.ts",
+    "name": "does not lower an already-known version"
+  },
+  {
+    "file": "apps/desktop/src/main/vault.ts",
+    "from": "current = unreadable ? 0 : null;",
+    "to": "current = unreadable ? 0 : current;",
+    "test": "apps/desktop/src/main/vault.test.ts",
+    "name": "decrypt rejects with temporarily unavailable"
+  },
+  {
+    "file": "apps/desktop/src/main/vault.ts",
+    "from": "error.message === CIPHERTEXT_DECRYPT_FAILED",
+    "to": "error.message.includes(CIPHERTEXT_DECRYPT_FAILED)",
+    "test": "apps/desktop/src/main/vault.test.ts",
+    "name": "known message with an unknown suffix"
+  },
+  {
+    "file": "apps/desktop/src/main/vault.ts",
+    "from": "error instanceof Error && error.message === CIPHERTEXT_DECRYPT_FAILED",
+    "to": "Reflect.get(Object(error), \"message\") === CIPHERTEXT_DECRYPT_FAILED",
+    "test": "apps/desktop/src/main/vault.test.ts",
+    "name": "non-Error rejection"
+  },
+  {
+    "file": "apps/desktop/src/main/vault.ts",
+    "from": "const unreadable = error instanceof Error && error.message === CIPHERTEXT_DECRYPT_FAILED;",
+    "to": "const unreadable = false;",
+    "test": "apps/desktop/src/main/vault.test.ts",
+    "name": "allows explicit reset after exact native ciphertext failure"
+  },
+  {
+    "file": "apps/desktop/src/main/vault.ts",
+    "from": "if (contents === null) {\n      current = 0;",
+    "to": "if (contents === null) {",
+    "test": "apps/desktop/src/main/vault.test.ts",
+    "name": "allows explicit reset after successfully decrypted"
+  },
+  {
+    "file": "apps/desktop/src/main/vault.ts",
+    "from": "if (current === null) {",
+    "to": "if (false) {",
+    "test": "apps/desktop/src/main/vault.test.ts",
+    "name": "does not initialize version 1 over an unread vault"
+  }
+]
