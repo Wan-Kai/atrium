@@ -19,12 +19,57 @@ describe("portVault", () => {
     expect(await first).toStrictEqual({ ok: false, error: "keychain_unavailable" });
   });
 
-  it("rejects a successful read missing its version or data", async () => {
-    const { vault, receive } = portVault(() => undefined);
-    const read = vault.read();
-    receive({ type: "vault_result", id: 1, ok: true });
+  it.each([{}, { version: 0 }, { data: null }])(
+    "rejects a successful read missing its version or data: %j",
+    async (fields) => {
+      const { vault, receive } = portVault(() => undefined);
+      const read = vault.read();
+      receive({ type: "vault_result", id: 1, ok: true, ...fields });
 
-    expect(await read).toStrictEqual({ ok: false, error: "corrupt" });
+      expect(await read).toStrictEqual({ ok: false, error: "corrupt" });
+    },
+  );
+
+  it("returns io when posting fails and can still match subsequent requests", async () => {
+    const posted: unknown[] = [];
+    const outcomes = [
+      () => {
+        throw new Error("port closed");
+      },
+      () => {
+        throw new Error("port closed");
+      },
+      () => {},
+    ];
+    const { vault, receive } = portVault((message) => {
+      posted.push(message);
+      outcomes.shift()!();
+    });
+    expect(await vault.read()).toStrictEqual({ ok: false, error: "io" });
+    expect(await vault.write(1, "failed")).toStrictEqual({ ok: false, error: "io" });
+    const read = vault.read();
+    expect(receive({ type: "vault_result", id: 1, ok: true, version: 99, data: "late" })).toBe(true);
+    expect(receive({ type: "vault_result", id: 3, ok: true, version: 0, data: null })).toBe(true);
+    expect(await read).toStrictEqual({ ok: true, version: 0, data: null });
+    expect(posted).toStrictEqual([
+      { type: "vault_read", id: 1 },
+      { type: "vault_write", id: 2, version: 1, data: "failed" },
+      { type: "vault_read", id: 3 },
+    ]);
+  });
+
+  it("keeps a pending request after malformed answers and ignores duplicate answers", async () => {
+    const { vault, receive } = portVault(() => undefined);
+    const first = vault.read();
+    const second = vault.read();
+    expect(receive({ type: "vault_result", id: 1, ok: true, version: -1, data: null })).toBe(false);
+    expect(receive({ type: "vault_result", id: 1, ok: false, error: "unknown" })).toBe(false);
+    expect(receive({ type: "vault_result", id: 1, ok: true, version: 0, data: null, extra: true })).toBe(false);
+    expect(receive({ type: "vault_result", id: 1, ok: true, version: 0, data: null })).toBe(true);
+    expect(receive({ type: "vault_result", id: 1, ok: false, error: "corrupt" })).toBe(true);
+    expect(receive({ type: "vault_result", id: 2, ok: true, version: 7, data: "saved" })).toBe(true);
+    expect(await first).toStrictEqual({ ok: true, version: 0, data: null });
+    expect(await second).toStrictEqual({ ok: true, version: 7, data: "saved" });
   });
 
   it("passes on a write's success and failure", async () => {
@@ -67,6 +112,29 @@ function recordingPort(answers: VaultWrite[], read = { ok: true as const, versio
 }
 
 describe("VaultStore", () => {
+  it("recovers already queued saves without consuming the rejected write's version", async () => {
+    const rejected = Promise.withResolvers<VaultWrite>();
+    const answers: (VaultWrite | Promise<VaultWrite>)[] = [rejected.promise, { ok: true }, { ok: true }];
+    const writes: [number, string][] = [];
+    const store = new VaultStore({
+      read: async () => ({ ok: true, version: 8, data: "old" }),
+      write: async (version, data) => {
+        writes.push([version, data]);
+        return answers.shift()!;
+      },
+    });
+    await store.load();
+    const saves = [store.save("first"), store.save("second"), store.save("third")];
+    await expect.poll(() => writes).toStrictEqual([[9, "first"]]);
+    rejected.reject(new Error("port disappeared"));
+    expect(await Promise.all(saves)).toStrictEqual([{ ok: false, error: "io" }, { ok: true }, { ok: true }]);
+    expect(writes).toStrictEqual([
+      [9, "first"],
+      [9, "second"],
+      [10, "third"],
+    ]);
+  });
+
   it("recovers the save queue when the port rejects unexpectedly", async () => {
     const write = vi
       .fn<VaultPort["write"]>()

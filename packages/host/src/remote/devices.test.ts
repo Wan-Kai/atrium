@@ -23,6 +23,15 @@ it("parses only canonical keys and unique device identities", () => {
   ).toBeNull();
 });
 
+it("rejects a duplicate device id even when the public keys differ", () => {
+  const other = { ...device, publicKey: Buffer.alloc(32, 1).toString("base64url") };
+  expect(parseVault(JSON.stringify({ ...contents, devices: [other] }))).toStrictEqual({
+    ...contents,
+    devices: [other],
+  });
+  expect(parseVault(JSON.stringify({ ...contents, devices: [device, other] }))).toBeNull();
+});
+
 it("restores the reported name when a local override is cleared", () => {
   expect(nameOf(device)).toBe("iPhone");
   expect(nameOf({ ...device, name: "Mine" })).toBe("Mine");

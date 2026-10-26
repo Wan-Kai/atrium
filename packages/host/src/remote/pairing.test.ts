@@ -21,6 +21,41 @@ function fixture() {
 }
 
 describe("PairingMachine", () => {
+  it("refreshes an unclaimed code without letting its old deadline expire the replacement", () => {
+    const f = fixture();
+    f.clock.advance(1000);
+    const replacement = {
+      pairingId: "pair_fedcba9876543210",
+      psk: new Uint8Array(32).fill(9),
+      qr: "atrium://pair?fresh",
+    };
+    expect(f.machine.start(replacement)).toBe(true);
+    expect(f.machine.view()).toStrictEqual({
+      pairingId: replacement.pairingId,
+      qr: replacement.qr,
+      expiresAt: PAIRING_TTL_MS + 1000,
+      state: "available",
+      reason: null,
+      request: null,
+      refused: 0,
+    });
+    expect(f.machine.pskOf(f.pairing.pairingId)).toBeNull();
+    expect(f.machine.pskOf(replacement.pairingId)).toStrictEqual(replacement.psk);
+    expect(f.machine.claim(f.pairing.pairingId, f.claim)).toBe("pairing_expired");
+    expect(f.machine.answer(replacement.pairingId, true)).toBeNull();
+    expect(f.resources.snapshot()).toStrictEqual({ timer: 1 });
+    f.clock.advance(PAIRING_TTL_MS - 1000);
+    expect(f.machine.check()).toBe("ok");
+    expect(f.machine.view()?.state).toBe("available");
+    expect(f.ends).toStrictEqual([]);
+    f.machine.cancel();
+    f.clock.advance(1000);
+    expect(f.machine.view()).toBeNull();
+    expect(f.machine.check()).toBe("pairing_expired");
+    expect(f.machine.pskOf(replacement.pairingId)).toBeNull();
+    expect(f.resources.snapshot()).toStrictEqual({ timer: 0 });
+  });
+
   it("expires an unused code exactly at its deadline", () => {
     const f = fixture();
     expect(f.machine.pskOf("wrong")).toBeNull();

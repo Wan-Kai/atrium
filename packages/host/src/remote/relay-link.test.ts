@@ -12,8 +12,8 @@ afterEach(async () => {
 });
 
 /** Starts a controllable relay control endpoint. @remarks Used only for malformed and stalled relay behavior. @sideEffects Opens a loopback listener. */
-async function fixture() {
-  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+async function fixture(autoPong = true) {
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0, autoPong });
   await once(server, "listening");
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("unexpected socket address");
@@ -45,6 +45,95 @@ async function fixture() {
 }
 
 describe("RelayLink", () => {
+  it("ignores binary and non-object control frames without refreshing ready state", async () => {
+    const f = await fixture();
+    f.link.start();
+    await expect.poll(() => f.sockets.length).toBe(1);
+    const socket = f.sockets[0]!;
+    for (const frame of ["null", "42", '"ready"', "[]", "{broken", '{"type":"unknown"}']) socket.send(frame);
+    socket.send(Buffer.from('{"type":"ready"}'));
+    socket.send(JSON.stringify({ type: "open", streamId: "b".repeat(32) }));
+    socket.send('{"type":"ready"}');
+    socket.send(JSON.stringify({ type: "open", streamId: "c".repeat(32) }));
+    await expect.poll(() => f.streams).toStrictEqual(["c".repeat(32)]);
+    expect(f.link.state).toStrictEqual({ status: "connected", error: null, lastConnectedAt: 100 });
+    f.clock.advance(1);
+    socket.send('{"type":"ready"}');
+    socket.send(JSON.stringify({ type: "open", streamId: "d".repeat(32) }));
+    await expect.poll(() => f.streams.length).toBe(2);
+    expect(f.link.state.lastConnectedAt).toBe(100);
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 1 });
+  });
+
+  it("does not coerce non-string stream ids into valid announcements", async () => {
+    const f = await fixture();
+    f.link.start();
+    await expect.poll(() => f.sockets.length).toBe(1);
+    const socket = f.sockets[0]!;
+    socket.send('{"type":"ready"}');
+    for (const streamId of [["a".repeat(32)], null, 123, {}, "A".repeat(32), "b".repeat(33)])
+      socket.send(JSON.stringify({ type: "open", streamId }));
+    socket.send(JSON.stringify({ type: "open", streamId: "c".repeat(32) }));
+    await expect.poll(() => f.streams.includes("c".repeat(32))).toBe(true);
+    expect(f.streams).toStrictEqual(["c".repeat(32)]);
+  });
+
+  it("drops an unanswered ping and preserves the last successful connection time", async () => {
+    const f = await fixture(false);
+    f.link.start();
+    await expect.poll(() => f.sockets.length).toBe(1);
+    const socket = f.sockets[0]!;
+    socket.send('{"type":"ready"}');
+    await expect.poll(() => f.link.state.status).toBe("connected");
+    const ping = once(socket, "ping");
+    f.clock.advance(LINK_PING_MS);
+    await ping;
+    expect(f.link.state.status).toBe("connected");
+    f.clock.advance(LINK_PING_MS - 1);
+    expect(f.link.state.status).toBe("connected");
+    f.clock.advance(1);
+    await expect
+      .poll(() => f.link.state)
+      .toStrictEqual({
+        status: "error",
+        error: "relay_unreachable",
+        lastConnectedAt: 100,
+      });
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 1 });
+    f.clock.advance(999);
+    expect(f.sockets).toHaveLength(1);
+    f.clock.advance(1);
+    await expect.poll(() => f.sockets.length).toBe(2);
+    f.sockets[1]!.send('{"type":"ready"}');
+    await expect
+      .poll(() => f.link.state)
+      .toStrictEqual({
+        status: "connected",
+        error: null,
+        lastConnectedAt: 61_100,
+      });
+  });
+
+  it("keeps a connection alive when each ping is answered before the next deadline", async () => {
+    const f = await fixture(false);
+    f.link.start();
+    await expect.poll(() => f.sockets.length).toBe(1);
+    const socket = f.sockets[0]!;
+    socket.send('{"type":"ready"}');
+    await expect.poll(() => f.link.state.status).toBe("connected");
+    for (const id of ["a", "b", "c"]) {
+      const ping = once(socket, "ping");
+      f.clock.advance(LINK_PING_MS);
+      await ping;
+      socket.pong();
+      socket.send(JSON.stringify({ type: "open", streamId: id.repeat(32) }));
+      await expect.poll(() => f.streams.at(-1)).toBe(id.repeat(32));
+      expect(f.link.state).toStrictEqual({ status: "connected", error: null, lastConnectedAt: 100 });
+      expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 1 });
+    }
+    expect(f.sockets).toHaveLength(1);
+  });
+
   it("authenticates then admits only valid ready-bound stream announcements", async () => {
     const f = await fixture();
     f.link.start();
@@ -97,6 +186,32 @@ describe("RelayLink", () => {
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
   });
 
+  it("caps automatic backoff at one minute and resets it after ready", async () => {
+    const f = await fixture();
+    f.link.start();
+    await expect.poll(() => f.sockets.length).toBe(1);
+    for (const delay of [1000, 2000, 4000, 8000, 16_000, 32_000, 60_000, 60_000]) {
+      f.sockets.at(-1)!.terminate();
+      await expect.poll(() => f.link.state.status).toBe("error");
+      const count = f.sockets.length;
+      f.clock.advance(delay - 1);
+      expect(f.link.state.status).toBe("error");
+      expect(f.sockets).toHaveLength(count);
+      f.clock.advance(1);
+      await expect.poll(() => f.sockets.length).toBe(count + 1);
+    }
+    const socket = f.sockets.at(-1)!;
+    socket.send('{"type":"ready"}');
+    await expect.poll(() => f.link.state.status).toBe("connected");
+    socket.terminate();
+    await expect.poll(() => f.link.state.status).toBe("error");
+    const count = f.sockets.length;
+    f.clock.advance(999);
+    expect(f.link.state.status).toBe("error");
+    f.clock.advance(1);
+    await expect.poll(() => f.sockets.length).toBe(count + 1);
+  });
+
   it("times out a silent relay and settles pending callers on shutdown", async () => {
     const f = await fixture();
     f.link.start();
@@ -112,6 +227,30 @@ describe("RelayLink", () => {
 });
 
 describe("probeRelay", () => {
+  it("ignores binary ready rather than treating it as successful authentication", async () => {
+    const f = await fixture();
+    const probe = probeRelay(f.endpoint, { ...f, signal: new AbortController().signal });
+    await expect.poll(() => f.messages.length).toBe(1);
+    f.sockets[0]!.send(Buffer.from('{"type":"ready"}'));
+    f.sockets[0]!.close(4401);
+    expect(await probe).toBe("relay_rejected");
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+  });
+
+  it("times out malformed and irrelevant replies exactly at the ready deadline", async () => {
+    const f = await fixture();
+    const probe = probeRelay(f.endpoint, { ...f, signal: new AbortController().signal });
+    await expect.poll(() => f.messages.length).toBe(1);
+    for (const frame of ["null", "42", '"ready"', "[]", "{broken", '{"type":"open"}']) f.sockets[0]!.send(frame);
+    f.clock.advance(READY_TIMEOUT_MS - 1);
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 1 });
+    f.clock.advance(1);
+    expect(await probe).toBe("relay_unreachable");
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+    f.clock.advance(60_000);
+    expect(f.sockets).toHaveLength(1);
+  });
+
   it("closes and releases resources before returning success", async () => {
     const f = await fixture();
     const controller = new AbortController();
