@@ -279,6 +279,7 @@ export class PhoneStream {
    *
    * @remarks
    * Whoever listens hears of it after the stream is marked closed, so nothing more is sent.
+   * A peer may send Close without ending TCP; CLOSING sockets need the same forced-close deadline.
    *
    * @sideEffects Closes the socket; stops timers; tells the owner and the server.
    * @param reason - Why, for the log.
@@ -290,7 +291,7 @@ export class PhoneStream {
     this.#cancelHandshake = null;
     this.#channel?.close(reason);
     if (this.#socket.readyState === WebSocket.CONNECTING) this.#socket.terminate();
-    else if (this.#socket.readyState === WebSocket.OPEN) {
+    else if (this.#socket.readyState !== WebSocket.CLOSED) {
       this.#socket.close(1000);
       this.#cancelClose = trackedTimeout(this.#clock, this.#resources, () => this.#socket.terminate(), 1000);
     }
