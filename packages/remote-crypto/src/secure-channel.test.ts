@@ -1,10 +1,11 @@
 import { FakeClock } from "@atrium/testkit";
 import { describe, expect, it } from "vitest";
 import { utf8 } from "./bytes";
-import type { Received } from "./framing";
-import { encryptTransport, generateKeyPair, HandshakeState } from "./noise";
+import type { Clock, Received } from "./framing";
+import { decryptTransport, encryptTransport, generateKeyPair, HandshakeState } from "./noise";
 import { SecureChannel } from "./secure-channel";
 import {
+  CHUNK_TIMEOUT_MS,
   ChannelError,
   type ChannelFailure,
   HOST_TO_PHONE_LIMIT,
@@ -35,10 +36,14 @@ function failureOf(run: () => unknown): ChannelFailure | "no ChannelError" {
 /**
  * Two channels over a finished IK handshake, wired to each other in memory.
  *
+ * @remarks
+ * The host's channel schedules its chunk timeout on `hostClock`; both default to one fake clock.
+ *
  * @sideEffects Reads the random source.
- * @returns Both channels and what each received.
+ * @param hostClock - The host channel's clock, when a test needs a different one.
+ * @returns Both channels, both transports and what each received.
  */
-function wiredChannels() {
+function wiredChannels(hostClock?: Clock) {
   const host = generateKeyPair();
   const initiator = HandshakeState.initiator({
     pattern: "IK",
@@ -66,13 +71,14 @@ function wiredChannels() {
     onClose: (reason) => log.phoneClosed.push(reason),
     clock,
   });
-  const hostChannel = new SecureChannel(responder.finish(), {
+  const hostTransport = responder.finish();
+  const hostChannel = new SecureChannel(hostTransport, {
     write: (bytes) => wire.toPhone.push(bytes),
     sendLimit: HOST_TO_PHONE_LIMIT,
     receiveLimit: PHONE_TO_HOST_LIMIT,
     onReceive: (received) => log.host.push(received),
     onClose: (reason) => log.hostClosed.push(reason),
-    clock,
+    clock: hostClock ?? clock,
   });
   const flush = () => {
     while (wire.toHost.length > 0 || wire.toPhone.length > 0) {
@@ -80,7 +86,7 @@ function wiredChannels() {
       for (const bytes of wire.toPhone.splice(0)) phone.receive(bytes);
     }
   };
-  return { phone, host: hostChannel, log, wire, flush, phoneTransport, clock };
+  return { phone, host: hostChannel, log, wire, flush, phoneTransport, hostTransport, clock };
 }
 
 describe("secure channel", () => {
@@ -134,5 +140,54 @@ describe("secure channel", () => {
     phone.sendMessage("small");
     flush();
     expect(log.host).toStrictEqual([{ kind: "message", text: "small" }]);
+  });
+
+  it("closes when a chunked message stays incomplete for 30 seconds", () => {
+    const { host, log, phoneTransport, clock } = wiredChannels();
+    host.receive(encryptTransport(phoneTransport.send, Uint8Array.of(0x01, 0x61)));
+    clock.advance(CHUNK_TIMEOUT_MS - 1);
+    expect(log.hostClosed).toStrictEqual([]);
+    clock.advance(1);
+    expect(log.hostClosed).toStrictEqual(["chunk_timeout"]);
+    expect(host.closed).toBe(true);
+  });
+
+  it("closes once, stops the chunk timer, kills both ciphers and drops later sends", () => {
+    const { host, log, wire, phoneTransport, hostTransport, clock } = wiredChannels();
+    host.receive(encryptTransport(phoneTransport.send, Uint8Array.of(0x01, 0x61)));
+    expect(clock.pendingTimers()).toBe(1);
+    host.close("revoked");
+    host.close("again");
+    expect(log.hostClosed).toStrictEqual(["revoked"]);
+    expect(host.closed).toBe(true);
+    expect(clock.pendingTimers()).toBe(0);
+    expect(() => encryptTransport(hostTransport.send, utf8("x"))).toThrow("noise: dead");
+    expect(() => decryptTransport(hostTransport.receive, encryptTransport(phoneTransport.send, utf8("x")))).toThrow(
+      "noise: dead",
+    );
+    host.sendMessage("late");
+    host.ping();
+    expect(wire.toPhone).toStrictEqual([]);
+  });
+
+  it("closes with nonce_exhausted when the send counter runs out, writing nothing", () => {
+    const { phone, log, wire, phoneTransport } = wiredChannels();
+    phoneTransport.send.setNonceForTest(2n ** 64n - 1n);
+    phone.ping();
+    expect(wire.toHost).toStrictEqual([]);
+    expect(log.phoneClosed).toStrictEqual(["nonce_exhausted"]);
+    expect(phone.closed).toBe(true);
+  });
+
+  it("closes with the reason error when something other than Noise or framing throws", () => {
+    const brokenClock: Clock = {
+      now: () => 0,
+      setTimeout: () => {
+        throw new Error("clock stopped");
+      },
+    };
+    const { host, log, phoneTransport } = wiredChannels(brokenClock);
+    host.receive(encryptTransport(phoneTransport.send, Uint8Array.of(0x01, 0x61)));
+    expect(log.hostClosed).toStrictEqual(["error"]);
   });
 });

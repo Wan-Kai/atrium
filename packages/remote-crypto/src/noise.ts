@@ -125,6 +125,7 @@ function dh(secretKey: Uint8Array, publicKey: Uint8Array): Uint8Array {
   } catch {
     throw new NoiseError("low_order_key");
   }
+  // Stryker disable next-line ConditionalExpression,ArrowFunction,StringLiteral,CallExpression: unreachable with noble 2.4, which throws on an all-zero output (caught above).
   if (shared.every((byte) => byte === 0)) throw new NoiseError("low_order_key");
   return shared;
 }
@@ -182,7 +183,7 @@ function hkdf(chainingKey: Uint8Array, inputKeyMaterial: Uint8Array): [Uint8Arra
  * @throws Error when it is missing, which would be a bug in this file.
  */
 function known<T>(value: T | null): T {
-  // Stryker disable next-line ConditionalExpression,BlockStatement: unreachable, `#guard` orders the steps.
+  // Stryker disable next-line ConditionalExpression,BlockStatement,StringLiteral,CallExpression: unreachable, `#guard` orders the steps.
   if (value === null) throw new Error("noise: handshake value missing");
   return value;
 }
@@ -775,6 +776,7 @@ export function encryptTransport(cipher: CipherState, plaintext: Uint8Array): Ui
 export function decryptTransport(cipher: CipherState, ciphertext: Uint8Array): Uint8Array {
   if (ciphertext.length > MAX_MESSAGE || ciphertext.length < TAG_LENGTH) {
     cipher.invalidate();
+    // Stryker disable next-line EqualityOperator: equivalent, here the length is above MAX_MESSAGE or below TAG_LENGTH, never equal to MAX_MESSAGE.
     throw new NoiseError(ciphertext.length > MAX_MESSAGE ? "message_too_long" : "message_too_short");
   }
   return cipher.decryptWithAd(EMPTY, ciphertext);

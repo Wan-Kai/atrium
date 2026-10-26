@@ -125,6 +125,7 @@ export class SecureChannel {
    * @param ciphertext - One binary frame.
    */
   receive(ciphertext: Uint8Array): void {
+    // Stryker disable next-line ConditionalExpression: equivalent, close() killed the receive cipher, so decrypting throws and close() returns at once.
     if (this.#closed) return;
     let received: Received | null;
     try {
@@ -166,6 +167,7 @@ export class SecureChannel {
    * @param plaintext - The frame.
    */
   #send(plaintext: Uint8Array): void {
+    // Stryker disable next-line ConditionalExpression: equivalent, close() killed the send cipher, so encrypting throws and close() returns at once.
     if (this.#closed) return;
     let ciphertext: Uint8Array;
     try {
