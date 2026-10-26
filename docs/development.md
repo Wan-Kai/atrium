@@ -75,6 +75,13 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | `pnpm ios:install` | 先 `pnpm ios:build`，再用 `xcrun devicectl` 装到连着的 iPhone 上并打开。没有配对过的 iPhone、或 iPhone 没连上（`devicectl` 里是 unavailable）时，在构建之前就报错，写明设备名、上次连接的时间和怎么连上。免费账号签的 App 7 天后打不开，到时重跑一次 |
 | `pnpm mutation:nightly:install` | 装上每晚的全量变异测试（见下文）；加 `uninstall` 卸掉 |
 
+真机第一次装（2026-10-26 实测，iPhone 16 Pro、iOS 26.6.1）：
+
+1. 手机用线连上、解锁，点"信任这台电脑"；`devicectl` 里显示 `unpaired` 时跑 `xcrun devicectl manage pair --device <udid>`，手机上会弹出确认。打开"设置 › 隐私与安全性 › 开发者模式"（会重启）。
+2. 第一次 `pnpm ios:install` 能装上但打不开，脚本会提示到"设置 › 通用 › VPN 与设备管理"里信任开发者，信任后再跑一次。
+3. 中国大陆的 iPhone 第一次联网会弹"允许使用无线数据"，选"无线局域网与蜂窝网络"。
+4. 免费账号只能给已经有描述文件的 bundle id 签名：命令行 `xcodebuild` 拿不到 Xcode 里登录的账号时（报"No Accounts"），新的 bundle id 会签不出来，要在 Xcode › Settings › Accounts 里重新登录一次。
+
 测试命令见 [testing.md · 命令](architecture/testing.md#命令)。
 
 ### 手机端的确切命令

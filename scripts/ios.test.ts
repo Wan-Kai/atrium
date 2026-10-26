@@ -140,6 +140,52 @@ describe("ios.mjs install", () => {
     expect(result.calls.some((call) => call[0] === "xcodebuild")).toBe(false);
   });
 
+  it("uses a paired iPhone that devicectl describes without reality or a marketing name", async () => {
+    // Xcode 26.6's devicectl, for a wired iPhone 16 Pro just paired (2026-10-26): no
+    // hardwareProperties.reality or marketingName, and the tunnel is still "disconnected".
+    const bare = phone("disconnected");
+    const { reality: _reality, marketingName: _marketingName, ...hardware } = bare.hardwareProperties;
+    const { xcrun, log } = await scene({
+      devices: { result: { devices: [{ ...bare, hardwareProperties: { ...hardware, productType: "iPhone17,1" } }] } },
+    });
+    const result = await ios(xcrun, log, ["install"]);
+
+    expect(result.code).toBe(0);
+    expect(result.output).toContain("installing on Test iPhone");
+    expect(result.calls.some((call) => call.slice(0, 4).join(" ") === "devicectl device install app")).toBe(true);
+  });
+
+  it("names a paired iPhone that is away by its product type when devicectl gives no marketing name", async () => {
+    const bare = phone("unavailable");
+    const { marketingName: _marketingName, ...hardware } = bare.hardwareProperties;
+    const { xcrun, log } = await scene({
+      devices: { result: { devices: [{ ...bare, hardwareProperties: { ...hardware, productType: "iPhone17,1" } }] } },
+    });
+    const result = await ios(xcrun, log, ["install"]);
+
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("Test iPhone (iPhone17,1) is paired but not connected");
+  });
+
+  it("says how to trust the developer when the phone refuses to open an app it has not trusted yet", async () => {
+    const { xcrun, log } = await scene({
+      devices: { result: { devices: [phone("connected")] } },
+      fail: {
+        args: "devicectl device process launch",
+        stdout: "",
+        // devicectl's words on the first install of a free-team app (2026-10-26).
+        stderr:
+          "ERROR: The application failed to launch. ... Unable to launch site.ktoon.atrium because it has an invalid code signature, inadequate entitlements or its profile has not been explicitly trusted by the user.",
+      },
+    });
+    const result = await ios(xcrun, log, ["install"]);
+
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("installed, but the iPhone has not trusted this developer yet");
+    expect(result.output).toContain("Settings › General › VPN & Device Management");
+    expect(result.output).toContain("pnpm ios:install");
+  });
+
   it("builds for devices with provisioning updates, installs on the connected iPhone and opens the app", async () => {
     const { xcrun, log } = await scene({ devices: { result: { devices: [phone("connected")] } } });
     const result = await ios(xcrun, log, ["install"]);

@@ -413,7 +413,8 @@ function connectedPhone() {
     must(["devicectl", "list", "devices", "--json-output", file], { capture: true });
     const phones = JSON.parse(readFileSync(file, "utf8")).result.devices.filter(
       (device) =>
-        device.hardwareProperties?.reality === "physical" &&
+        // Xcode 26.6 leaves out `reality` for some phones; this list only has real devices anyway.
+        (device.hardwareProperties?.reality ?? "physical") === "physical" &&
         device.hardwareProperties?.deviceType === "iPhone" &&
         device.connectionProperties?.pairingState === "paired",
     );
@@ -431,7 +432,7 @@ function connectedPhone() {
     for (const device of phones) {
       const seen = device.connectionProperties.lastConnectionDate?.slice(0, 16).replace("T", " ") ?? "never";
       console.error(
-        `pnpm ios:install: ${device.deviceProperties.name} (${device.hardwareProperties.marketingName}) is paired ` +
+        `pnpm ios:install: ${device.deviceProperties.name} (${device.hardwareProperties.marketingName ?? device.hardwareProperties.productType}) is paired ` +
           `but not connected (last seen ${seen} UTC). Connect it with a cable, or unlock it on the same Wi-Fi ` +
           "as this Mac, then try again.",
       );
@@ -464,7 +465,20 @@ function install() {
     udid,
     join(derivedData, "Build", "Products", "Debug-iphoneos", "Atrium.app"),
   ]);
-  must(["devicectl", "device", "process", "launch", "--device", udid, bundleId]);
+  const launch = xcrun(["devicectl", "device", "process", "launch", "--device", udid, bundleId], { capture: true });
+  if (launch.status === 0) return;
+  // The free team's first install on a phone: iOS will not open it until the developer is trusted.
+  if (`${launch.stdout}${launch.stderr}`.includes("not been explicitly trusted by the user")) {
+    console.error(
+      "pnpm ios:install: Atrium is installed, but the iPhone has not trusted this developer yet. On the iPhone, " +
+        "open Settings › General › VPN & Device Management, tap the developer under Developer App and trust it, " +
+        "then run pnpm ios:install again.",
+    );
+    process.exit(1);
+  }
+  console.error(`xcrun devicectl device process launch failed with exit code ${launch.status}`);
+  for (const text of [launch.stdout, launch.stderr]) if (text.trim() !== "") console.error(text.trimEnd());
+  process.exit(launch.status);
 }
 
 /**

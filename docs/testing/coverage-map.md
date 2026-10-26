@@ -48,6 +48,16 @@
 
 `pnpm break-check` 共 31 处（TypeScript 26、Swift 5），全部检出：指纹 3、命令结果和宿主覆盖 7（含 2 处 Swift：把 `fetch_transcript` 的结果类型换成 `PingResult`、删掉 `noteSent` 的编码）、豁免注释 1、真实时间 3、模拟器锁 9、常量编码 3（2 处 Swift）、失败输出 3。锁的"超时退出"那处改坏后脚本会一直等，跑完查过没有留下 `ios.mjs` 进程。没有改核心模块，没跑变异测试；`json-schema.ts` 多了 `commandResults`，它的测试已覆盖。
 
+
+### 真机验收时补（2026-10-26）
+
+| 行为 | 测试 | 破坏检查 |
+|---|---|---|
+| `devicectl` 不给 `reality`、`marketingName` 的配对过的 iPhone 也能装（Xcode 26.6 对刚配对的 iPhone 16 Pro 就是这样，原先误报"没有配对过的 iPhone"） | `scripts/ios.test.ts`"uses a paired iPhone that devicectl describes without reality or a marketing name"、"names a paired iPhone that is away by its product type …" | 两处，都检出 |
+| 装上了但手机还没信任开发者时，说明去哪里信任，而不是只转出 `devicectl` 的长报错 | `scripts/ios.test.ts`"says how to trust the developer when the phone refuses to open an app it has not trusted yet" | 一处，检出 |
+
+真机：`pnpm ios:install` 装到 iPhone 16 Pro（iOS 26.6.1），空 App 打开、运行（MP1 完成标准最后一条）。
+
 ## pi 1.3.0 契约夹具补齐（2026-10-23）
 
 本机 pi 1.3.0 此前只有 19 个场景的夹具，`pnpm test:pi` 56 过、33 失败，失败全是 `no fixture … for pi 1.3.0`（契约断言在录制比较之前跑，都通过了）。以 `RECORD_FIXTURES=1` 只跑这 33 个场景所在的 17 个契约文件录下 `pi-1.3.0/` 的 33 个新文件，同文件里已有的 `ask-steer`、`ask-abort` 重写后逐字节不变；再录一次逐字节相同。不改断言、规范化规则和产品代码，旧版本目录保留（testing.md"pi 夹具"）。和 1.1.0 的差异只有 `custom-idle` 是 pi 的变化（空闲时扩展 `sendMessage` 开的运行，`handled` 应答改在 `agent_start` 之前，系统消息带 `sections`），宿主两种先后都已处理，见 pi-internals"版本"。
