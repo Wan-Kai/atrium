@@ -225,8 +225,13 @@ export class RelayLink {
         logger.info({ host_id: endpoint.hostId }, "relay connected");
         this.#setState({ status: "connected", error: null, lastConnectedAt: this.#lastConnectedAt });
         cancelPing = trackedTimeout(clock, resources, ping, LINK_PING_MS);
-      } else if (message?.type === "open" && ready && STREAM_ID.test(String(message.streamId))) {
-        this.#options.onStream(String(message.streamId));
+      } else if (
+        message?.type === "open" &&
+        ready &&
+        typeof message.streamId === "string" &&
+        STREAM_ID.test(message.streamId)
+      ) {
+        this.#options.onStream(message.streamId);
       }
     });
     // Errors are followed by `close`, which decides what happens next.
@@ -320,8 +325,8 @@ export function probeRelay(
     socket.on("open", () => {
       socket.send(JSON.stringify({ v: 1, type: "hello", hostId: endpoint.hostId, token: endpoint.token }));
     });
-    socket.on("message", (data: RawData) => {
-      if (parseControl(data)?.type !== "ready") return;
+    socket.on("message", (data: RawData, isBinary: boolean) => {
+      if (isBinary || parseControl(data)?.type !== "ready") return;
       result = null;
       socket.terminate();
     });

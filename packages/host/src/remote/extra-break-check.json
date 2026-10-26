@@ -1,0 +1,163 @@
+[
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "typeof message.streamId === \"string\" &&",
+    "to": "true &&",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "does not coerce non-string stream ids into valid announcements"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "if (isBinary || parseControl(data)?.type !== \"ready\") return;",
+    "to": "if (parseControl(data)?.type !== \"ready\") return;",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "ignores binary ready rather than treating it as successful authentication"
+  },
+  {
+    "file": "packages/host/src/remote/vault.ts",
+    "from": "if (answer.version === undefined || answer.data === undefined) return { ok: false, error: \"corrupt\" };",
+    "to": "if (answer.version === undefined) return { ok: false, error: \"corrupt\" };",
+    "test": "packages/host/src/remote/vault.test.ts",
+    "name": "rejects a successful read missing its version or data"
+  },
+  {
+    "file": "packages/host/src/remote/vault.ts",
+    "from": "if (answer.version === undefined || answer.data === undefined) return { ok: false, error: \"corrupt\" };",
+    "to": "if (answer.data === undefined) return { ok: false, error: \"corrupt\" };",
+    "test": "packages/host/src/remote/vault.test.ts",
+    "name": "rejects a successful read missing its version or data"
+  },
+  {
+    "file": "packages/host/src/remote/vault.ts",
+    "from": "resolve({ type: \"vault_result\", id, ok: false, error: \"io\" });",
+    "to": "resolve({ type: \"vault_result\", id, ok: false, error: \"corrupt\" });",
+    "test": "packages/host/src/remote/vault.test.ts",
+    "name": "returns io when posting fails and can still match subsequent requests"
+  },
+  {
+    "file": "packages/host/src/remote/vault.ts",
+    "from": "if (!answer.success) return false;",
+    "to": "if (!answer.success) { waiting.clear(); return false; }",
+    "test": "packages/host/src/remote/vault.test.ts",
+    "name": "keeps a pending request after malformed answers and ignores duplicate answers"
+  },
+  {
+    "file": "packages/host/src/remote/vault.ts",
+    "from": "if (result.ok) this.#version += 1;",
+    "to": "this.#version += 1;",
+    "test": "packages/host/src/remote/vault.test.ts",
+    "name": "recovers already queued saves without consuming the rejected write's version"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "const message = isBinary ? null : parseControl(data);",
+    "to": "const message = parseControl(data);",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "ignores binary and non-object control frames without refreshing ready state"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "message?.type === \"ready\" && !ready",
+    "to": "message?.type === \"ready\"",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "ignores binary and non-object control frames without refreshing ready state"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "if (!answered) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "drops an unanswered ping and preserves the last successful connection time"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "socket.on(\"pong\", () => {\n      answered = true;\n    });",
+    "to": "socket.on(\"pong\", () => {});",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "keeps a connection alive when each ping is answered before the next deadline"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "const MAX_BACKOFF_MS = 60_000;",
+    "to": "const MAX_BACKOFF_MS = 120_000;",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "caps automatic backoff at one minute and resets it after ready"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "const cancel = trackedTimeout(options.clock, options.resources, () => socket.terminate(), READY_TIMEOUT_MS);",
+    "to": "const cancel = trackedTimeout(options.clock, options.resources, () => socket.terminate(), READY_TIMEOUT_MS - 1);",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "times out malformed and irrelevant replies exactly at the ready deadline"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (this.#loading !== null) return this.#loading;",
+    "to": "if (false) return this.#loading!;",
+    "test": "packages/host/src/remote/remote-service.test.ts",
+    "name": "shares a pending vault load across startup and concurrent enable commands"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (this.#closed) return;\n      if (read.data === null)",
+    "to": "if (read.data === null)",
+    "test": "packages/host/src/remote/remote-service.test.ts",
+    "name": "finishes shutdown before a keychain read and never initializes from its late answer"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (this.#watchers.size !== 0) return;",
+    "to": "if (false) return;",
+    "test": "packages/host/src/remote/remote-service.test.ts",
+    "name": "samples once for all watchers and stops only after the last unsubscribe"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (this.#vault === \"waiting\") this.#vault = \"keychain_unavailable\";",
+    "to": "if (this.#vault === \"waiting\") this.#vault = \"corrupt\";",
+    "test": "packages/host/src/remote/remote-service.test.ts",
+    "name": "reports background startup failure to watchers without rejecting local startup"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (relay !== undefined && parseRelayLine(relay) === null) throw new CommandError(\"relay_unreachable\");",
+    "to": "if (false) throw new CommandError(\"relay_unreachable\");",
+    "test": "packages/host/src/remote/remote-service.test.ts",
+    "name": "rejects malformed relay input before changing the switch or reading the vault"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#vault = read.error === \"corrupt\" ? \"corrupt\" : \"keychain_unavailable\";",
+    "to": "this.#vault = \"corrupt\";",
+    "test": "packages/host/src/remote/remote-service.test.ts",
+    "name": "maps a .* read failure to keychain unavailable without saving"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (!result.ok) throw new CommandError(result.error === \"corrupt\" ? \"vault_corrupt\" : \"keychain_unavailable\");",
+    "to": "if (false) throw new CommandError(\"keychain_unavailable\");",
+    "test": "packages/host/src/remote/remote-service.test.ts",
+    "name": "retries failed identity initialization without consuming the vault version"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "parsed === null || (parsed.relay !== null && parseRelayLine(parsed.relay) === null)",
+    "to": "parsed === null",
+    "test": "packages/host/src/remote/remote-service.test.ts",
+    "name": "treats malformed decrypted content as corrupt until explicit reset"
+  },
+  {
+    "file": "packages/host/src/remote/pairing.ts",
+    "from": "if (current?.state === \"available\") this.#end(current, \"rejected\", \"cancelled\");",
+    "to": "if (false) this.#end(current!, \"rejected\", \"cancelled\");",
+    "test": "packages/host/src/remote/pairing.test.ts",
+    "name": "refreshes an unclaimed code without letting its old deadline expire the replacement"
+  },
+  {
+    "file": "packages/host/src/remote/devices.ts",
+    "from": "if (ids.has(device.deviceId) || keys.has(device.publicKey)) return null;",
+    "to": "if (keys.has(device.publicKey)) return null;",
+    "test": "packages/host/src/remote/devices.test.ts",
+    "name": "rejects a duplicate device id even when the public keys differ"
+  }
+]
