@@ -2,8 +2,14 @@ import Testing
 
 @testable import AtriumUI
 
+/// Checks deterministic idle poses and timeline boundaries.
+///
+/// - Remark: Tests inject absolute times rather than sleeping for animation frames.
 @Suite("Pixel cat idling")
 struct PixelCatIdleTests {
+  /// Checks spacing across several seeds.
+  /// - Remark: Jitter must keep actions between four and six seconds apart.
+  /// - SideEffects: none
   @Test("starts one action every 4 to 6 seconds", arguments: [0, 7, 0xdead_beef] as [UInt64])
   func spacing(seed: UInt64) {
     let starts = (Int64(0)..<400).map { PixelCatIdle.start(of: $0, seed: seed) }
@@ -12,6 +18,9 @@ struct PixelCatIdleTests {
     }
   }
 
+  /// Checks the action distribution.
+  /// - Remark: A fixed seed makes the sample deterministic.
+  /// - SideEffects: none
   @Test("blinks about two times in three, otherwise tilts or flicks")
   func mix() {
     let actions = (Int64(0)..<3000).map { PixelCatIdle.action(of: $0, seed: 42) }
@@ -22,6 +31,9 @@ struct PixelCatIdleTests {
     #expect(actions.contains(.flick))
   }
 
+  /// Checks pose intervals around each action.
+  /// - Remark: Each action has distinct hold and rest durations.
+  /// - SideEffects: none
   @Test("holds each pose for its length, then rests")
   func poses() throws {
     let seed: UInt64 = 3
@@ -45,6 +57,9 @@ struct PixelCatIdleTests {
     }
   }
 
+  /// Checks the sparse schedule against sampled poses.
+  /// - Remark: The view needs updates only when the pose changes.
+  /// - SideEffects: none
   @Test("lists every moment the pose changes, and only those")
   func changes() {
     let seed: UInt64 = 9
@@ -68,6 +83,22 @@ struct PixelCatIdleTests {
     }
   }
 
+  /// Checks the exact large-epoch dates the view's timeline uses.
+  ///
+  /// - Remark: Sampling after a deadline hides floating-point cancellation at the boundary itself.
+  /// - SideEffects: none
+  @Test("changes pose at the timeline's exact absolute deadlines")
+  func absoluteDeadlines() {
+    let seed: UInt64 = 9
+    let moments = PixelCatIdle.changes(after: 800_000_000, seed: seed, count: 100)
+    for moment in moments {
+      #expect(PixelCatIdle.pose(at: moment.nextDown, seed: seed) != PixelCatIdle.pose(at: moment, seed: seed))
+    }
+  }
+
+  /// Checks repeatability and independent cat seeds.
+  /// - Remark: No runtime randomness is needed.
+  /// - SideEffects: none
   @Test("does the same for the same seed and differently for another")
   func seeded() {
     let first = (Int64(0)..<50).map { PixelCatIdle.start(of: $0, seed: 1) }

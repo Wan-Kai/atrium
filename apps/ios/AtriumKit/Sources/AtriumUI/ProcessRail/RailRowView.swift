@@ -24,6 +24,8 @@ struct RailRowView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   /// Whether the entrance has played (or did not need to).
   @State private var shown: Bool
+  /// Whether this row's full plain-text content is open.
+  @State private var detailExpanded = false
 
   /// Makes the row.
   ///
@@ -46,23 +48,56 @@ struct RailRowView: View {
   var body: some View {
     let palette = Palette(scheme: scheme)
     let motion = MotionToken.smooth.resolved(reduceMotion: reduceMotion)
-    words(palette)
-      .padding(.leading, 30)
-      .padding(.vertical, 5)
-      .frame(maxWidth: .infinity, minHeight: 30, alignment: .topLeading)
-      .opacity(shown ? 1 : 0)
-      .offset(y: shown || !motion.allowsSpatialMotion ? 0 : 6)
-      .background(alignment: .topLeading) {
-        GeometryReader { proxy in
-          RailMarks(
-            row: row, height: proxy.size.height, isFirst: isFirst, isLast: isLast, shown: shown, palette: palette)
+    VStack(alignment: .leading, spacing: 6) {
+      if let detail = row.detail, !detail.isEmpty {
+        Button {
+          detailExpanded.toggle()
+        } label: {
+          HStack(spacing: 4) {
+            words(palette)
+            Image(systemName: detailExpanded ? "chevron.down" : "chevron.right")
+              .font(.system(size: 10))
+              .foregroundStyle(palette.tertiary)
+          }
+          .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityValue(detailExpanded ? "已展开" : "已收起")
+        if detailExpanded {
+          Text(verbatim: detail)
+            .font(row.objectIsCode ? Typography.stepMono : Typography.step)
+            .foregroundStyle(palette.text2)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(10)
+            .background(palette.code, in: RoundedRectangle(cornerRadius: 8))
+        }
+      } else {
+        words(palette)
       }
-      .onAppear {
-        guard !shown else { return }
-        withAnimation(motion.animation.delay(reduceMotion ? 0 : 0.06)) { shown = true }
+      ForEach(Array(row.answers.enumerated()), id: \.offset) { _, answer in
+        Text(verbatim: answer)
+          .font(Typography.step)
+          .foregroundStyle(palette.secondary)
+          .textSelection(.enabled)
       }
-      .accessibilityElement(children: .combine)
+    }
+    .padding(.leading, 30)
+    .padding(.vertical, 5)
+    .frame(maxWidth: .infinity, minHeight: 30, alignment: .topLeading)
+    .opacity(shown ? 1 : 0)
+    .offset(y: shown || !motion.allowsSpatialMotion ? 0 : 6)
+    .background(alignment: .topLeading) {
+      GeometryReader { proxy in
+        RailMarks(
+          row: row, height: proxy.size.height, isFirst: isFirst, isLast: isLast, shown: shown, palette: palette)
+      }
+    }
+    .onAppear {
+      guard !shown else { return }
+      withAnimation(motion.animation.delay(reduceMotion ? 0 : 0.06)) { shown = true }
+    }
+    .accessibilityElement(children: .contain)
   }
 
   /// The verb, the object and the end, on one line.

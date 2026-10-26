@@ -30,7 +30,7 @@ struct RailNodeView: View {
       case .live:
         dot(6, palette.tint, halo: 6)
         TurningArc(color: palette.tint, still: reduceMotion)
-          .transition(.scale(scale: 0.4).combined(with: .opacity))
+          .transition(reduceMotion ? .opacity : .scale(scale: 0.4).combined(with: .opacity))
       case .search:
         Image(systemName: "magnifyingglass")
           .font(.system(size: 11, weight: .medium))
@@ -81,24 +81,22 @@ struct RailNodeView: View {
 
 /// The open arc round a live step, turning once every 0.9 s.
 ///
-/// - Remark: A view's own repeating animation, not a timeline: it needs no shared phase.
+/// - Remark: Timeline-derived rotation resumes when Reduce Motion changes without an appearance flag.
 private struct TurningArc: View {
   /// Its colour.
   let color: Color
   /// Whether it holds still (Reduce Motion), at 30°.
   let still: Bool
-  /// Whether the turning has started.
-  @State private var turning = false
-
   /// The arc.
   var body: some View {
-    Circle()
-      .trim(from: 0, to: 0.75)
-      .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-      .frame(width: 14.5, height: 14.5)
-      .rotationEffect(.degrees(still ? 30 : turning ? 360 : 0))
-      .animation(still ? nil : .linear(duration: 0.9).repeatForever(autoreverses: false), value: turning)
-      .onAppear { turning = true }
+    TimelineView(.animation(paused: still)) { context in
+      let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.9) / 0.9
+      Circle()
+        .trim(from: 0, to: 0.75)
+        .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+        .frame(width: 14.5, height: 14.5)
+        .rotationEffect(.degrees(still ? 30 : phase * 360))
+    }
   }
 }
 
@@ -110,17 +108,16 @@ private struct SpreadingRing: View {
   let color: Color
   /// Whether it holds still.
   let still: Bool
-  /// Whether it has started spreading.
-  @State private var spreading = false
-
   /// The ring.
   var body: some View {
-    Circle()
-      .stroke(color, lineWidth: 1.5)
-      .frame(width: 10, height: 10)
-      .scaleEffect(still ? 1 : spreading ? 1.4 : 0.6)
-      .opacity(still ? 0.5 : spreading ? 0 : 1)
-      .animation(still ? nil : .easeOut(duration: 1.6).repeatForever(autoreverses: false), value: spreading)
-      .onAppear { spreading = true }
+    TimelineView(.animation(paused: still)) { context in
+      let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6
+      let eased = 1 - pow(1 - phase, 3)
+      Circle()
+        .stroke(color, lineWidth: 1.5)
+        .frame(width: 10, height: 10)
+        .scaleEffect(still ? 1 : 0.6 + eased * 0.8)
+        .opacity(still ? 0.5 : 1 - eased)
+    }
   }
 }

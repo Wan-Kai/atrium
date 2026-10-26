@@ -55,6 +55,11 @@ nonisolated struct RailRow: Identifiable, Equatable, Sendable {
   /// How the end reads.
   var endTone: EndTone = .quiet
 
+  /// Full plain-text content, revealed by opening this row.
+  var detail: String?
+  /// Each question and its answer, always visible while the rail is open.
+  var answers: [String] = []
+
   /// Whether the node sits off the main line, at x = 19.5.
   var isBranch: Bool { node == .dead || node == .steer }
 }

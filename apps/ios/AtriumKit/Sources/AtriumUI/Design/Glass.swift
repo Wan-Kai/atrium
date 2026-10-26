@@ -15,6 +15,8 @@ private struct GlassSurface<S: InsettableShape>: ViewModifier {
   @Environment(\.colorScheme) private var scheme
   /// Whether the person turned on Reduce Transparency.
   @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+  /// Disables spatial glass deformation when motion is reduced.
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   /// Draws the glass, or the solid fill, under the content and the ring over it.
   ///
@@ -31,7 +33,7 @@ private struct GlassSurface<S: InsettableShape>: ViewModifier {
         .overlay(ring.allowsHitTesting(false))
     } else {
       content
-        .glassEffect(.regular.interactive(interactive), in: shape)
+        .glassEffect(.regular.interactive(interactive && !reduceMotion), in: shape)
         .overlay(ring.allowsHitTesting(false))
     }
   }

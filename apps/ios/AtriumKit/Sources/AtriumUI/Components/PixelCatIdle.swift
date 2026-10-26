@@ -63,12 +63,14 @@ nonisolated enum PixelCatIdle {
   static func pose(at time: Double, seed: UInt64) -> PixelCat.Pose {
     let current = Int64((time / slot).rounded(.down))
     for index in [current, current + 1] {
-      let elapsed = time - start(of: index, seed: seed)
-      guard elapsed >= 0 else { continue }
+      let begin = start(of: index, seed: seed)
+      guard time >= begin else { continue }
+      // Compare the same absolute deadlines emitted by changes(), avoiding subtraction rounding.
       switch action(of: index, seed: seed) {
-      case .blink where elapsed < 0.15: return PixelCat.Pose(blink: true)
-      case .tilt where elapsed < 0.52: return PixelCat.Pose(tilt: true)
-      case .flick where elapsed < 0.12 || (elapsed >= 0.24 && elapsed < 0.36): return PixelCat.Pose(flick: true)
+      case .blink where time < begin + 0.15: return PixelCat.Pose(blink: true)
+      case .tilt where time < begin + 0.52: return PixelCat.Pose(tilt: true)
+      case .flick where time < begin + 0.12 || (time >= begin + 0.24 && time < begin + 0.36):
+        return PixelCat.Pose(flick: true)
       default: continue
       }
     }

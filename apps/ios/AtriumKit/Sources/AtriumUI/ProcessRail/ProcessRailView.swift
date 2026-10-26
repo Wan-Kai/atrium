@@ -40,7 +40,17 @@ struct ProcessRailView: View {
       rail
         .frame(height: expanded ? railHeight : 0, alignment: .top)
         .clipped()
-        .animation(Motion.fold(reduceMotion: reduceMotion).animation, value: expanded)
+        .animation(reduceMotion ? nil : Motion.fold(reduceMotion: false).animation, value: expanded)
+        .accessibilityHidden(!expanded)
+      if !expanded {
+        let steers = rows.filter { $0.node == .steer }
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(Array(steers.enumerated()), id: \.element.id) { index, row in
+            RailRowView(row: row, isFirst: index == 0, isLast: index == steers.count - 1)
+          }
+        }
+        .transition(.opacity)
+      }
     }
     .onAppear { initialRows = initialRows ?? Set(rows.map(\.id)) }
   }
@@ -62,7 +72,7 @@ struct ProcessRailView: View {
     } action: {
       railHeight = $0
     }
-    .animation(MotionToken.smooth.resolved(reduceMotion: reduceMotion).animation, value: rows.map(\.id))
+    .animation(reduceMotion ? nil : MotionToken.smooth.resolved(reduceMotion: false).animation, value: rows.map(\.id))
   }
 
   /// The header line.
@@ -72,11 +82,18 @@ struct ProcessRailView: View {
   /// - Parameter palette: The colours.
   /// - Returns: The header.
   private func header(_ palette: Palette) -> some View {
-    Button {
+    let waiting = running && rows.contains { $0.node == .asking }
+    return Button {
       expanded.toggle()
     } label: {
       HStack(spacing: 6) {
-        if running {
+        if waiting {
+          Image(systemName: "questionmark.circle")
+            .font(.system(size: 18))
+            .foregroundStyle(palette.attn)
+          Text("等你回答").foregroundStyle(palette.attnText)
+          Text(duration).monospacedDigit().foregroundStyle(palette.secondary)
+        } else if running {
           RunningCat()
           ShimmerText(text: "进行中", color: palette.text2, still: reduceMotion)
           Text(duration).monospacedDigit().foregroundStyle(palette.secondary)
@@ -84,7 +101,7 @@ struct ProcessRailView: View {
           Image(systemName: "chevron.right")
             .font(.system(size: 11, weight: .semibold))
             .rotationEffect(.degrees(expanded ? 90 : 0))
-            .motion(.snappy, value: expanded)
+            .animation(reduceMotion ? nil : MotionToken.snappy.resolved(reduceMotion: false).animation, value: expanded)
           Text("用时 \(duration)")
           if !summary.isEmpty {
             Text("· " + summary.joined(separator: " · "))
@@ -107,7 +124,7 @@ struct ProcessRailView: View {
     }
     .buttonStyle(PressStyle(scale: 0.985))
     .disabled(running)
-    .accessibilityLabel(Text(running ? "进行中 \(duration)" : "用时 \(duration)"))
+    .accessibilityLabel(Text(waiting ? "等你回答 \(duration)" : running ? "进行中 \(duration)" : "用时 \(duration)"))
   }
 }
 
@@ -156,8 +173,6 @@ private struct ShimmerText: View {
   let color: Color
   /// Whether to hold still.
   let still: Bool
-  /// Whether the sweep has started.
-  @State private var sweeping = false
 
   /// The shimmering words.
   var body: some View {
@@ -165,17 +180,18 @@ private struct ShimmerText: View {
       .foregroundStyle(color)
       .overlay {
         if !still {
-          GeometryReader { proxy in
-            LinearGradient(
-              colors: [.clear, .white.opacity(0.7), .clear], startPoint: .leading, endPoint: .trailing
-            )
-            .frame(width: proxy.size.width * 0.6)
-            .offset(x: sweeping ? proxy.size.width * 1.2 : -proxy.size.width * 0.8)
-            .animation(.linear(duration: 2.2).repeatForever(autoreverses: false), value: sweeping)
+          TimelineView(.animation(paused: still)) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.2) / 2.2
+            GeometryReader { proxy in
+              LinearGradient(
+                colors: [.clear, .white.opacity(0.7), .clear], startPoint: .leading, endPoint: .trailing
+              )
+              .frame(width: proxy.size.width * 0.6)
+              .offset(x: proxy.size.width * (phase * 2 - 0.8))
+            }
           }
           .mask(Text(text))
           .blendMode(.plusLighter)
-          .onAppear { sweeping = true }
         }
       }
   }

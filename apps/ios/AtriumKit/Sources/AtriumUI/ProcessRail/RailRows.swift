@@ -64,7 +64,7 @@ nonisolated enum RailRows {
     }
     flush()
     if running, let last = rows.indices.last, rows[last].node == .dot || rows[last].node == .said,
-      let lastStep = visible.last(where: { stepID($0) == rows[last].id }), isThought(lastStep)
+      let lastStep = turn.steps.last, stepID(lastStep) == rows[last].id, isThought(lastStep)
     {
       rows[last] = live(rows[last], step: lastStep)
     }
@@ -81,17 +81,17 @@ nonisolated enum RailRows {
     switch step {
     case .thinking(let thinking):
       let verb = thinking.durationMs.map { "思考了 \(max(1, Int(($0 + 500) / 1000))) 秒" } ?? "思考过程"
-      return [RailRow(id: thinking.id, node: .dot, verb: verb, object: opening(thinking.text))]
+      return [RailRow(id: thinking.id, node: .dot, verb: verb, object: opening(thinking.text), detail: thinking.text)]
     case .text(let text):
-      return [RailRow(id: text.id, node: .said, verb: "说明", object: opening(text.text))]
+      return [RailRow(id: text.id, node: .said, verb: "说明", object: opening(text.text), detail: text.text)]
     case .tool(let tool):
       return [toolRow(tool)] + agentEvents(tool)
     case .steer(let steer):
-      return [RailRow(id: steer.id, node: .steer, verb: "你插话", object: steer.text)]
+      return [RailRow(id: steer.id, node: .steer, verb: "你插话", object: steer.text, detail: steer.text)]
     case .agent(let agent):
       switch agent.source {
       case .task(let task):
-        return [RailRow(id: agent.id, node: .steer, verb: "主 agent 插话", object: opening(task.text))]
+        return [RailRow(id: agent.id, node: .steer, verb: "主 agent 插话", object: opening(task.text), detail: task.text)]
       case .report(let report):
         return report.events.enumerated().map { index, event in eventRow(event, id: "\(agent.id):\(index)") }
       }
@@ -100,22 +100,66 @@ nonisolated enum RailRows {
       return [RailRow(id: retry.id, node: .dot, verb: "自动重试 · 第 \(retry.attempt)\(limit) 次", object: retry.error)]
     case .compaction(let compaction):
       if compaction.reason == .overflow {
-        return [RailRow(id: compaction.id, node: .compaction, verb: "上下文超出窗口，已压缩")]
+        return [RailRow(id: compaction.id, node: .compaction, verb: "上下文超出窗口，已压缩", detail: compaction.summary)]
       }
       let before = formatTokens(compaction.tokensBefore)
       let object = compaction.tokensAfter.map { "\(before) → \(formatTokens($0))" } ?? "压缩前 \(before)"
-      return [RailRow(id: compaction.id, node: .compaction, verb: "压缩了上下文", object: object)]
+      return [RailRow(id: compaction.id, node: .compaction, verb: "压缩了上下文", object: object, detail: compaction.summary)]
     }
   }
 
-  /// A tool call's row.
+  /// A tool call's row, retaining plain-text details and question answers.
+  ///
+  /// - Remark: Summary labels must not replace the original content.
+  /// - SideEffects: none
+  /// - Parameter tool: The protocol call.
+  /// - Returns: The row with its disclosure content.
+  private static func toolRow(_ tool: Step.Tool) -> RailRow {
+    var row = toolSummary(tool)
+    var parts: [String] = []
+    if !tool.args.isEmpty {
+      let encoder = JSONEncoder()
+      encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+      if let data = try? encoder.encode(tool.args) { parts.append(String(decoding: data, as: UTF8.self)) }
+    }
+    if case .edit(let edit) = tool.details, let diff = edit.diff { parts.append(diff) }
+    if case .askUser(let ask) = tool.details {
+      let answers: [QuestionAnswer]
+      if tool.status == .done, case .answered(let answered) = ask.outcome {
+        answers = answered.answers
+      } else {
+        answers = []
+      }
+      parts += ask.questions.enumerated().map { index, question in
+        let answer = answers.indices.contains(index) ? answers[index] : nil
+        if let answer {
+          let labels = answer.selected.compactMap { selected in
+            question.options.indices.contains(selected) ? question.options[selected].label : nil
+          }
+          let other = answer.other.map { "其他：“\($0)”" }
+          row.answers.append(question.header + " · " + (labels + [other].compactMap(\.self)).joined(separator: "、"))
+        }
+        return
+          ([question.header, question.question]
+          + question.options.enumerated().map { optionIndex, option in
+            let label = (answer?.selected.contains(optionIndex) == true ? "✓ " : "") + option.label
+            return [label, option.description, option.preview].compactMap(\.self).joined(separator: "\n")
+          }).joined(separator: "\n")
+      }
+    }
+    if let output = tool.output, !output.isEmpty { parts.append(output) }
+    row.detail = parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+    return row
+  }
+
+  /// A tool call's summary.
   ///
   /// - Remark: The verb says "正在…" while it runs and turns past once it ended; a command that
   ///   succeeded "通过", an edit its counts, a failure "失败", an unfinished call "未完成".
   /// - SideEffects: none
   /// - Parameter tool: The call.
   /// - Returns: The row.
-  private static func toolRow(_ tool: Step.Tool) -> RailRow {
+  private static func toolSummary(_ tool: Step.Tool) -> RailRow {
     let running = tool.status == .running
     let failedEnd: String? =
       switch tool.status {
@@ -209,7 +253,12 @@ nonisolated enum RailRows {
     let live = tools.contains { $0.status == .running }
     return RailRow(
       id: id, node: .search, verb: live ? "正在探索代码库" : "探索了代码库",
-      object: parts.compactMap(\.self).joined(separator: "，"))
+      object: parts.compactMap(\.self).joined(separator: "，"),
+      detail: tools.map { tool in
+        let row = toolRow(tool)
+        let title = [row.verb, row.object, row.end].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: " · ")
+        return [title, row.detail].compactMap(\.self).joined(separator: "\n")
+      }.joined(separator: "\n\n"))
   }
 
   /// Rows for the events a child's tool call brought back.
@@ -253,7 +302,9 @@ nonisolated enum RailRows {
   ///   - step: Its step.
   /// - Returns: The live row.
   private static func live(_ row: RailRow, step: Step) -> RailRow {
-    RailRow(id: row.id, node: .live, verb: isThinking(step) ? "思考中" : row.verb, object: row.object)
+    RailRow(
+      id: row.id, node: .live, verb: isThinking(step) ? "思考中" : row.verb, object: row.object,
+      detail: row.detail)
   }
 
   /// Tells whether a step is thinking or text, the steps that stream into one row.
