@@ -24,6 +24,13 @@ describe("RemoteService through a real relay process", () => {
     const f = await serviceFixture();
     const paired = await pairDevice(f, f.phone({ deviceName: "private phone label", model: "private model label" }));
     const qr = f.service.get("observer", undefined).pairing!.qr;
+    // Foundation URLComponents percent-decodes values but does not interpret form-style plus signs.
+    expect(
+      qr
+        .slice(qr.indexOf("?") + 1)
+        .split("&")
+        .find((field) => field.startsWith("name=")),
+    ).toBe("name=Test%20Mac");
     const psk = new URL(qr).searchParams.get("psk");
     expect(psk).toMatch(/^[A-Za-z0-9_-]{43}$/);
     await paired.session.close();
@@ -140,6 +147,41 @@ describe("RemoteService through a real relay process", () => {
     await session.closed;
     expect(f.accepted).toStrictEqual([]);
     expect(f.vault.contents().devices).toStrictEqual([]);
+  });
+
+  it("drops a silent phone awaiting confirmation after thirty seconds, before the approval deadline", async () => {
+    const f = await serviceFixture();
+    const baseline = f.clock.pendingTimers();
+    const pairing = newPairing(f);
+    const session = await f.phone().pair(pairing.qr);
+    await awaiting(f);
+    // Advance without receiving any wire traffic: the phone has been silent for the entire interval.
+    f.clock.advance(SILENCE_MS);
+    expect(f.service.get("observer", undefined).pairing).toMatchObject({ state: "rejected", reason: "disconnected" });
+    await session.closed;
+    await expect.poll(() => f.clock.pendingTimers()).toBe(baseline);
+    expect(f.accepted).toStrictEqual([]);
+    expect(f.vault.contents().devices).toStrictEqual([]);
+  });
+
+  it("hands pairing heartbeat ownership to the shared server without retaining an extra timer", async () => {
+    const f = await serviceFixture();
+    const baseline = f.clock.pendingTimers();
+    const pairing = newPairing(f);
+    const session = await f.phone().pair(pairing.qr);
+    await awaiting(f);
+    expect(f.clock.pendingTimers()).toBe(baseline + 2);
+    f.clock.advance(SILENCE_MS / 2);
+    await session.next((value) => value.kind === "ping");
+    session.channel.ping();
+    await session.next((value) => value.kind === "pong");
+    await f.service.confirmPairing(pairing.pairingId, true);
+    await session.control(["paired"]);
+    expect(f.clock.pendingTimers()).toBe(baseline);
+    f.clock.advance(SILENCE_MS);
+    expect(f.service.get("observer", undefined).devices[0]?.online).toBe(true);
+    expect(f.accepted[0]!.transport.checkAlive()).toBe(false);
+    await session.closed;
   });
 
   it("rejects after two minutes awaiting desktop confirmation while the phone remains alive", async () => {

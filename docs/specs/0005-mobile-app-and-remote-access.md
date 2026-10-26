@@ -89,7 +89,7 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
 
 1. **出码**：桌面点"配对新设备"，宿主建一次配对（状态 `available`），二维码内容：
    `atrium://pair?v=1&relay=<wss 地址>&host=<hostId>&key=<宿主公钥 b64url>&pairing=<pairingId>&psk=<PSK b64url>&name=<Mac 名字>`
-   App 只用自己的扫码界面读它，不注册给系统相机。过期、取消或刷新后，旧码作废。
+   查询参数的值按 UTF-8 百分号编码（沿用 MP0；空格是 `%20`，不是表单编码的 `+`，兼容 Swift `URLComponents`）。App 只用自己的扫码界面读它，不注册给系统相机。过期、取消或刷新后，旧码作废。
 2. **握手**：手机在钥匙串里生成自己的 X25519 密钥对（`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`），先把这台主机记成"待确认"，再连 relay，握手：
    - 第一条（`e, es, s, ss`）的载荷：`{ kind: "pair", pairingId, deviceName, model, appVersion, protocolVersion }`。`deviceName` 默认取 `UIDevice.current.name`。
    - 宿主核对 `pairingId` 是当前这次、状态 `available`、没过期，回第二条（`e, ee, se, psk`），载荷 `{ ok: true }`。这一步**不改**配对状态。
@@ -286,7 +286,7 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
 - **`test_relay`**：远程访问开着但断线时立刻重连控制连接（退避清零），等到 `ready` 或失败；已经连上时在原控制连接发 ping、等新的 pong，不为测试挤掉已连接的手机，也不直接返回缓存成功；关着时另开一条临时的控制连接，收到 `ready` 就关。成功回 `{}`，连不上应答 `relay_unreachable`，认证不过（4401）应答 `relay_rejected`，10 秒为限。
 - **relay 地址的协议**：那一行里的主机是 `127.0.0.1`、`localhost` 或 `[::1]` 时用 `ws://`（本机测试），其余一律 `wss://`。
 - **控制连接的存活**：宿主每 30 秒对控制连接发一次 WebSocket ping，上一次的没回应就断开重连（relay 自己也 20 秒 ping 一次宿主）。数据连接靠通道心跳。
-- **客户端传输**：`ClientTransport` 的 `checkAlive()` 在上一次探测没回应时自己断开对方并返回 `false`（本机是 `terminate()`，远程是关掉通道和数据连接），否则发一次探测返回 `true`；服务器每 `heartbeatMs` 调一次。远程的探测是通道心跳，30 秒没收到手机的任何东西才算没回应。
+- **客户端传输**：`ClientTransport` 的 `checkAlive()` 在上一次探测没回应时自己断开对方并返回 `false`（本机是 `terminate()`，远程是关掉通道和数据连接），否则发一次探测返回 `true`；服务器每 `heartbeatMs` 调一次。远程的探测是通道心跳，30 秒没收到手机的任何东西才算没回应。已完成密钥确认、还在等 Mac 确认的通道尚未交给服务器，由远程服务每 15 秒探测；配对成功时取消这个定时器，交给服务器统一探测，不重复计时。
 - **超上限的快照**：会话事件超过 8 MiB 改发快照，快照本身也超时（MP4 加快照预算之前可能发生），丢掉这条并记一条 warn，手机会因为 `seq` 跳号自己重新订阅。
 - **流量**：`traffic.down` 是宿主发往手机的、`up` 是手机发来的，按已认出设备的数据连接上的密文字节算（含帧类型及认证标签）。开始观看的首秒按已经观测的一秒计算，之后是两秒窗口；关闭通道后窗口里的历史流量仍保留到自然归零。
 

@@ -28,5 +28,13 @@
     "test": "packages/host/test/remote/service.host.test.ts",
     "name": "correlates remote metadata without logging pairing or device secrets",
     "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "encodeURIComponent(value)",
+    "to": "encodeURIComponent(value).replaceAll(\"%20\", \"+\")",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "correlates remote metadata without logging pairing or device secrets",
+    "project": "host"
   }
 ]

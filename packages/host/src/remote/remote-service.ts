@@ -20,7 +20,7 @@ import type { ResourceTracker } from "../platform/resources";
 import type { RemoteCommands } from "../server/router";
 import type { ClientTransport, TransportOrigin } from "../server/transport";
 import type { IndexFile } from "../store/index-file";
-import { PhoneStream, reasonOf } from "./channel";
+import { PhoneStream, SILENCE_MS, reasonOf } from "./channel";
 import { nameOf, parseVault, type RemoteDocument, type VaultContents } from "./devices";
 import { PairingMachine } from "./pairing";
 import { parseRelayLine, type RelayEndpoint } from "./relay-line";
@@ -83,6 +83,7 @@ export class RemoteService implements RemoteCommands {
   #writes: Promise<unknown> = Promise.resolve();
   #link: RelayLink | null = null;
   #cancelTraffic: (() => void) | null = null;
+  #pairHeartbeat: { stream: PhoneStream; cancel: () => void } | null = null;
   #samples: { at: number; totals: Map<string, { down: number; up: number }> }[] = [];
   readonly #traffic = new Map<string, { down: number; up: number }>();
 
@@ -201,7 +202,7 @@ export class RemoteService implements RemoteCommands {
     const key = keyPairFrom(fromBase64Url(this.#trusted().hostKey, 32));
     const pairingId = `pair_${randomBytes(8).toString("hex")}`;
     const psk = new Uint8Array(randomBytes(32));
-    const query = new URLSearchParams({
+    const query = Object.entries({
       v: "1",
       relay: endpoint.url,
       host: endpoint.hostId,
@@ -209,9 +210,10 @@ export class RemoteService implements RemoteCommands {
       pairing: pairingId,
       psk: toBase64Url(psk),
       name: this.#options.hostName,
-    });
-    if (!this.#pairing.start({ pairingId, psk, qr: `atrium://pair?${query.toString()}` }))
-      throw new CommandError("pairing_busy");
+    })
+      .map(([name, value]) => `${name}=${encodeURIComponent(value)}`)
+      .join("&");
+    if (!this.#pairing.start({ pairingId, psk, qr: `atrium://pair?${query}` })) throw new CommandError("pairing_busy");
     return { pairingId };
   }
 
@@ -505,6 +507,7 @@ export class RemoteService implements RemoteCommands {
         onClosed: (phone, reason) => {
           this.#streams.delete(phone);
           this.#pairPhones.delete(phone);
+          this.#stopPairHeartbeat(phone);
           this.#pairing.disconnected(phone);
           if (phone.deviceId !== null) this.#recordSeen(phone.deviceId);
           this.#options.logger.info(
@@ -611,11 +614,47 @@ export class RemoteService implements RemoteCommands {
       publicKey: toBase64Url(stream.remoteStatic),
       sas: sas(stream.handshakeHash),
     });
-    if (result === "ok") stream.settle();
-    else {
+    if (result === "ok") {
+      stream.settle();
+      this.#keepPairingAlive(stream);
+    } else {
       stream.sendControl({ kind: "pair_rejected", reason: result });
       stream.close(result);
     }
+  }
+
+  /**
+   * Probes the claimant while no server connection owns its heartbeat yet.
+   * @remarks Approval can take two minutes, but a silent channel must still close after thirty seconds.
+   * @sideEffects Schedules a tracked probe; may close the stream and reject its pending pairing.
+   * @param stream - The current pairing claimant.
+   */
+  #keepPairingAlive(stream: PhoneStream): void {
+    this.#pairHeartbeat = {
+      stream,
+      cancel: trackedTimeout(
+        this.#options.clock,
+        this.#options.resources,
+        () => {
+          this.#pairHeartbeat = null;
+          if (!stream.closed && stream.deviceId === null && stream.transport().checkAlive())
+            this.#keepPairingAlive(stream);
+        },
+        SILENCE_MS / 2,
+      ),
+    };
+  }
+
+  /**
+   * Releases the claimant's heartbeat before close or transfer to the server.
+   * @remarks Other unclaimed streams cannot cancel this phone's probe.
+   * @sideEffects Cancels one tracked timer.
+   * @param stream - The stream leaving the pairing phase.
+   */
+  #stopPairHeartbeat(stream: PhoneStream): void {
+    if (this.#pairHeartbeat?.stream !== stream) return;
+    this.#pairHeartbeat.cancel();
+    this.#pairHeartbeat = null;
   }
 
   /**
@@ -629,6 +668,7 @@ export class RemoteService implements RemoteCommands {
     const others = [...this.#streams].filter((one) => one.deviceId === deviceId);
     while (others.length >= 2) others.shift()?.close("replaced");
     stream.deviceId = deviceId;
+    this.#stopPairHeartbeat(stream);
     this.#recordSeen(deviceId);
     stream.settle();
     this.#options.accept(stream.transport(), { origin: "remote", deviceId });
