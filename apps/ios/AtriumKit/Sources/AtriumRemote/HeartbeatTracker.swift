@@ -43,7 +43,8 @@ public struct HeartbeatTracker: Sendable {
   /// Decides the next step at `now`.
   ///
   /// - Remark: An unanswered heartbeat counts as one miss once `timeout` has passed; the next
-  ///   heartbeat still goes out on schedule, so two misses take 25 s by default.
+  ///   heartbeat still goes out on schedule; the next timed unanswered heartbeat starts at 20 s,
+  ///   so two misses take 35 s by default.
   /// - SideEffects: none
   /// - Parameter now: The current time.
   /// - Returns: The action.

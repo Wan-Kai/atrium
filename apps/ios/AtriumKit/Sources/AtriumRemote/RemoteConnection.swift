@@ -149,6 +149,9 @@ public actor RemoteConnection {
   /// - SideEffects: May change ``status``, open a connection or send a heartbeat.
   /// - Parameter phase: The new phase.
   public func setAppPhase(_ phase: AppPhase) {
+    // Inactive is intermediate on the way out of the background as well as for alerts.
+    // Preserve the last active/background phase so either route has the same recovery.
+    guard phase != .inactive else { return }
     let previous = appPhase
     appPhase = phase
     if previous == .background, phase == .active { resume() }
@@ -176,10 +179,8 @@ public actor RemoteConnection {
     guard !status.isTerminal, !isStopped else { return }
     backoffStep = 0
     if !available {
-      if case .waiting = link {
-        tearDown()
-        link = .parked
-      }
+      tearDown()
+      link = .parked
       setStatus(.noNetwork)
       return
     }
@@ -209,7 +210,8 @@ public actor RemoteConnection {
     let now = environment.stopwatch.now
     if case .open(let channel) = link, let lastHeard, lastHeard.duration(to: now) < Self.probeWindow {
       let generation = generation
-      tasks.append(Task { await self.probe(channel, generation: generation, sentAt: now) })
+      let probeTask = Task { await self.probe(channel, generation: generation, sentAt: now) }
+      tasks.append(probeTask)
     } else if networkAvailable {
       beginAttempt()
     } else {
@@ -252,7 +254,8 @@ public actor RemoteConnection {
     tearDown()
     link = .connecting
     let generation = generation
-    tasks.append(Task { await self.attempt(generation, handover: handover) })
+    let attemptTask = Task { await self.attempt(generation, handover: handover) }
+    tasks.append(attemptTask)
   }
 
   /// Runs one attempt: handshake (or the handed-over channel), `hello`, `welcome`, within 15 s.
@@ -373,8 +376,9 @@ public actor RemoteConnection {
     lastHeard = environment.stopwatch.now
     setStatus(.syncing)
     let channel = established.channel
-    tasks.append(Task { await self.receiveLoop(channel, generation: generation) })
-    tasks.append(Task { await self.heartbeatLoop(channel, generation: generation) })
+    let receiveTask = Task { await self.receiveLoop(channel, generation: generation) }
+    let heartbeatTask = Task { await self.heartbeatLoop(channel, generation: generation) }
+    tasks.append(contentsOf: [receiveTask, heartbeatTask])
   }
 
   /// Reads events until the channel fails or is replaced.
@@ -527,15 +531,15 @@ public actor RemoteConnection {
     backoffStep += 1
     let generation = generation
     let stopwatch = environment.stopwatch
-    tasks.append(
-      Task {
-        do {
-          try await stopwatch.sleep(for: delay)
-        } catch {
-          return
-        }
-        self.retry(generation)
-      })
+    let retryTask = Task {
+      do {
+        try await stopwatch.sleep(for: delay)
+      } catch {
+        return
+      }
+      self.retry(generation)
+    }
+    tasks.append(retryTask)
   }
 
   /// The backoff ran out.
@@ -561,23 +565,17 @@ public actor RemoteConnection {
   /// Cancels the link's tasks, closes its channel or connection, and starts a new generation.
   ///
   /// - Remark: The new generation makes the dying loops' late failures stale, so they cannot cancel
-  ///   what comes next (a retry timer). Closing a channel waits for its queued frames, so it runs on
-  ///   its own.
+  ///   what comes next (a retry timer). Teardown closes the socket immediately without waiting for
+  ///   queued frames or launching detached cleanup work.
   /// - SideEffects: Cancels tasks; closes the connection.
   private func tearDown() {
     for task in tasks { task.cancel() }
     tasks = []
     connectingTransport?.close()
     connectingTransport = nil
-    if case .open(let channel) = link {
-      // Fire and forget: closing only flushes and releases the socket; nothing waits for it.
-      Task { await channel.close() }
-    }
-    if let handover {
-      self.handover = nil
-      // Fire and forget: as above.
-      Task { await handover.close() }
-    }
+    if case .open(let channel) = link { channel.abort() }
+    handover?.abort()
+    handover = nil
     link = .idle
     generation += 1
   }

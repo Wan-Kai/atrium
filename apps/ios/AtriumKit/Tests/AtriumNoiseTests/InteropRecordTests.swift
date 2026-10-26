@@ -215,27 +215,18 @@ struct InteropRecordTests {
 
   @Test("a single changed ciphertext byte is caught")
   func replayCatchesASingleChangedByte() throws {
-    var record = try InteropRecord.load("ts-ikpsk2.json")
-    var digits = Array(record.transport[0].ciphertext)
-    digits[digits.count - 1] = digits[digits.count - 1] == "0" ? "1" : "0"
-    record.transport[0].ciphertext = String(digits)
-    // The regenerated ciphertext no longer matches, and our receiver refuses the changed one.
-    let issues = Issues()
-    withKnownIssue {
-      do {
-        try InteropReplay.check(record)
-      } catch {
-        issues.thrown = error
-        throw error
-      }
-    }
-    #expect(issues.thrown as? NoiseError == .decryptFailed)
+    let record = try InteropRecord.load("ts-ikpsk2.json")
+    let host = try NoiseHandshake(
+      pattern: .ikpsk2, role: .responder, prologue: bytes(record.prologue),
+      localStatic: privateKey(bytes(record.hostStatic)), remoteStatic: nil, psk: record.psk.map { try bytes($0) },
+      fixedEphemeral: privateKey(bytes(record.hostEphemeral)))
+    _ = try host.readMessage(bytes(record.handshake[0].noiseMessage))
+    _ = try host.writeMessage(payload: bytes(record.handshake[1].payload))
+    let receiver = try host.split().transport
+    let first = try #require(record.transport.first)
+    #expect(first.from == "phone")
+    var changed = try bytes(first.ciphertext)
+    changed[changed.count - 1] ^= 1
+    #expect(throws: NoiseError.decryptFailed) { try receiver.decrypt(changed) }
   }
-}
-
-/// Holds what a known-issue block threw, for the assertion after it.
-///
-/// - Remark: A class so the closure can write to it.
-final class Issues {
-  var thrown: (any Error)?
 }

@@ -117,12 +117,12 @@ public struct PairingFlow: Sendable {
     let environment = environment
     let device = device
     let opened: Result<PairingChannel, RemoteError> = await Self.race(
-      environment.stopwatch, limit: RemoteConnection.handshakeTimeout, onTimeout: { transport.close() }
-    ) { () async throws(RemoteError) -> PairingChannel in
-      try await RemoteHandshake.pair(
-        link: link, deviceKey: deviceKey, info: device, transport: transport, stopwatch: environment.stopwatch,
-        protocolVersion: environment.protocolVersion)
-    }
+      environment.stopwatch, limit: RemoteConnection.handshakeTimeout, onTimeout: { transport.close() },
+      { () async throws(RemoteError) -> PairingChannel in
+        try await RemoteHandshake.pair(
+          link: link, deviceKey: deviceKey, info: device, transport: transport, stopwatch: environment.stopwatch,
+          protocolVersion: environment.protocolVersion)
+      })
     let pairing: PairingChannel
     switch opened {
     case .success(let value): pairing = value
@@ -133,6 +133,7 @@ public struct PairingFlow: Sendable {
       return await end(.other("cancelled"), link: link, report: report)
     }
 
+    let deadline = environment.stopwatch.now.advanced(by: .seconds(Self.confirmWindow))
     await report(.confirming(code: pairing.code, secondsLeft: Self.confirmWindow))
     let channel = pairing.channel
     let answer: Result<(deviceId: String, hostName: String), RemoteError>? = await withTaskGroup(
@@ -147,11 +148,15 @@ public struct PairingFlow: Sendable {
       }
       group.addTask {
         do {
-          for left in stride(from: Self.confirmWindow - 1, through: 0, by: -1) {
-            try await environment.stopwatch.sleep(for: .seconds(1))
+          while environment.stopwatch.now < deadline {
+            try await environment.stopwatch.sleep(
+              for: min(.seconds(1), environment.stopwatch.now.duration(to: deadline)))
+            let remaining = max(.zero, environment.stopwatch.now.duration(to: deadline)).components
+            let left = Int(remaining.seconds) + (remaining.attoseconds > 0 ? 1 : 0)
             await report(.confirming(code: pairing.code, secondsLeft: left))
           }
-          try await environment.stopwatch.sleep(for: Self.grace)
+          let graceRemaining = environment.stopwatch.now.duration(to: deadline.advanced(by: Self.grace))
+          if graceRemaining > .zero { try await environment.stopwatch.sleep(for: graceRemaining) }
         } catch {
           return .failure(.closed)
         }
@@ -166,7 +171,7 @@ public struct PairingFlow: Sendable {
     case .success(let paired)?:
       guard let record = try? store.confirm(pending, deviceId: paired.deviceId, hostName: paired.hostName) else {
         await channel.close()
-        return await end(.keychainUnavailable, link: link, report: report)
+        return await end(.keychainUnavailable, report: report)
       }
       await report(.paired(record))
       return PairingOutcome(state: .paired(record), channel: channel)
@@ -178,13 +183,15 @@ public struct PairingFlow: Sendable {
       // The Mac may have confirmed; keep the pending record for the next connection.
       return await end(.interrupted, report: report)
     case nil:
-      return await end(.timedOut, link: link, report: report)
+      // A local timeout cannot prove that the Mac did not commit before its answer was lost.
+      return await end(.timedOut, report: report)
     }
   }
 
   /// Reports and returns a failure, dropping the pending record when `link` is given.
   ///
-  /// - Remark: Only ``PairingFailure/interrupted`` and a keychain failure keep it (or have none).
+  /// - Remark: Ambiguous outcomes (interruption, local timeout, storage failure) preserve recovery
+  ///   information; an authenticated refusal can remove it.
   /// - SideEffects: May delete the pending record; calls `report`.
   /// - Parameters:
   ///   - failure: Why.
@@ -258,8 +265,8 @@ public struct PairingFlow: Sendable {
 
   /// What a refusal code from the Mac means.
   ///
-  /// - Remark: Accepts the MP0 fake host's codes and MP3a's (`declined`, `vault_failed`), so either
-  ///   host works.
+  /// - Remark: The codes SPEC-0005 gives: `pairing_busy`, `pairing_expired` and `host_error` in
+  ///   "配对流程", the end reasons `declined`, `timeout`, `cancelled` and `disconnected` in "MP3a 定的细节".
   /// - SideEffects: none
   /// - Parameter reason: The code.
   /// - Returns: What to show.
@@ -267,10 +274,10 @@ public struct PairingFlow: Sendable {
     switch reason {
     case "pairing_busy": .busy
     case "pairing_expired": .expired
-    case "rejected", "declined": .declined
+    case "declined": .declined
     case "timeout": .timedOut
     case "cancelled", "disconnected": .cancelled
-    case "host_error", "vault_failed": .hostError
+    case "host_error": .hostError
     default: .other(reason)
     }
   }

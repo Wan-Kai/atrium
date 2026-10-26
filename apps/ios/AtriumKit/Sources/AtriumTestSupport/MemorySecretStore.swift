@@ -13,6 +13,7 @@ public final class MemorySecretStore: SecretStore {
   private struct State {
     var items: [String: Data] = [:]
     var failWrites: StoreError?
+    var includingDeletes = true
   }
 
   private let state = Mutex(State())
@@ -27,9 +28,14 @@ public final class MemorySecretStore: SecretStore {
   ///
   /// - Remark: For "钥匙串不可用".
   /// - SideEffects: Changes the store's behaviour.
-  /// - Parameter error: The failure.
-  public func failWrites(with error: StoreError?) {
-    state.withLock { $0.failWrites = error }
+  /// - Parameters:
+  ///   - error: The failure.
+  ///   - includingDeletes: Whether deletion fails too; false models a write-only failure.
+  public func failWrites(with error: StoreError?, includingDeletes: Bool = true) {
+    state.withLock {
+      $0.failWrites = error
+      $0.includingDeletes = includingDeletes
+    }
   }
 
   /// The items, for assertions.
@@ -41,6 +47,7 @@ public final class MemorySecretStore: SecretStore {
   /// - SideEffects: none
   /// - Parameter account: The item's name.
   /// - Returns: The bytes, or `nil`.
+  /// - Throws: Never; declared to match the storage protocol.
   public func read(_ account: String) throws(StoreError) -> Data? {
     state.withLock { $0.items[account] }
   }
@@ -70,7 +77,7 @@ public final class MemorySecretStore: SecretStore {
   /// - Throws: The planned failure.
   public func delete(_ account: String) throws(StoreError) {
     let failure: StoreError? = state.withLock { state in
-      if let failure = state.failWrites { return failure }
+      if state.includingDeletes, let failure = state.failWrites { return failure }
       state.items[account] = nil
       return nil
     }

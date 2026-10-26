@@ -107,9 +107,9 @@ public actor SecureChannel {
   /// - Throws: ``RemoteError``.
   public func nextEvent() async throws(RemoteError) -> ChannelEvent {
     while true {
-      guard !closed else { throw .closed }
+      guard !closed, !writer.isCancelled else { throw .closed }
       let ciphertext = try await receiveFrame()
-      guard !closed else { throw .closed }
+      guard !closed, !writer.isCancelled else { throw .closed }
       do throws(RemoteError) {
         let plaintext: Data
         do {
@@ -135,13 +135,32 @@ public actor SecureChannel {
 
   /// Sends what is queued, then closes the transport.
   ///
-  /// - Remark: Used after a last control message, so `revoked` or `pair_rejected` can still go out.
+  /// - Remark: Gives final control messages at most two seconds to drain. Teardown that must not
+  ///   wait uses ``abort()`` instead.
   /// - SideEffects: Closes the network connection; ends the writer task.
   public func close() async {
     guard !closed else { return }
     closed = true
     outbox.finish()
-    await writer.value
+    let writer = writer
+    let stopwatch = stopwatch
+    await withTaskGroup(of: Void.self) { group in
+      group.addTask { await writer.value }
+      group.addTask { try? await stopwatch.sleep(for: .seconds(2)) }
+      _ = await group.next()
+      abort()
+      group.cancelAll()
+    }
+  }
+
+  /// Immediately closes the underlying socket and cancels its writer.
+  ///
+  /// - Remark: Synchronous and nonisolated so connection teardown cannot leave an unowned cleanup
+  ///   task waiting on backpressure. Cancelling alone is insufficient for some transports.
+  /// - SideEffects: Closes the transport and ends queued writes without flushing.
+  public nonisolated func abort() {
+    writer.cancel()
+    outbox.finish()
     transport.close()
   }
 
@@ -152,7 +171,7 @@ public actor SecureChannel {
   /// - Parameter frame: The frame.
   /// - Throws: ``RemoteError/noise(_:)`` or ``RemoteError/closed``.
   private func send(_ frame: ChannelFrame) throws(RemoteError) {
-    guard !closed else { throw .closed }
+    guard !closed, !writer.isCancelled else { throw .closed }
     do {
       outbox.yield(try noise.encrypt(frame.encoded()))
     } catch {
@@ -209,8 +228,6 @@ public actor SecureChannel {
   private func fail() {
     guard !closed else { return }
     closed = true
-    outbox.finish()
-    writer.cancel()
-    transport.close()
+    abort()
   }
 }

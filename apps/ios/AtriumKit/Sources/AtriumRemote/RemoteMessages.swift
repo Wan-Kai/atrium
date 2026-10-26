@@ -105,6 +105,8 @@ public enum ControlMessage: Codable, Equatable, Sendable {
   case revoked
 
   /// The JSON keys.
+  ///
+  /// - Remark: The channel control schema is separate from generated Atrium messages.
   private enum CodingKeys: String, CodingKey {
     case kind
     case deviceId

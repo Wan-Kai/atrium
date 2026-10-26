@@ -37,7 +37,9 @@ struct RemoteConnectionTests {
     let (side, hello) = try await h.acceptConnect()
     #expect(side.mode == .ik)
     #expect(side.deviceKey == (try h.store.deviceKey().publicKey.rawRepresentation))
-    #expect(try RemoteJSON.decode(ConnectRequest.self, from: side.request) == ConnectRequest(appVersion: "0.1.0", protocolVersion: AtriumProtocol.protocolVersion))
+    #expect(
+      try RemoteJSON.decode(ConnectRequest.self, from: side.request)
+        == ConnectRequest(appVersion: "0.1.0", protocolVersion: AtriumProtocol.protocolVersion))
     #expect(hello["type"] as? String == "hello")
     #expect(hello["clientId"] as? String == h.host.deviceId)
     #expect(hello["protocolVersion"] as? Int == AtriumProtocol.protocolVersion)
@@ -54,7 +56,8 @@ struct RemoteConnectionTests {
 
     var messages = connection.messages.makeAsyncIterator()
     try await side.send(Data(#"{"type":"index_snapshot"}"#.utf8))
-    #expect(await messages.next() == RemoteMessage(generation: generation, data: Data(#"{"type":"index_snapshot"}"#.utf8)))
+    #expect(
+      await messages.next() == RemoteMessage(generation: generation, data: Data(#"{"type":"index_snapshot"}"#.utf8)))
     try await connection.send(Data(#"{"type":"ping"}"#.utf8), generation: generation)
     #expect(try await side.nextMessage() == Data(#"{"type":"ping"}"#.utf8))
     await #expect(throws: RemoteError.closed) { try await connection.send(Data(), generation: generation + 1) }
@@ -161,7 +164,10 @@ struct RemoteConnectionTests {
   @Test(
     "relay close codes only change the status, never delete, and are retried",
     arguments: [
-      (TransportError.closed(code: 4404, reason: "offline:1700000000"), ConnectionStatus.hostOffline(lastSeen: Date(timeIntervalSince1970: 1_700_000_000))),
+      (
+        TransportError.closed(code: 4404, reason: "offline:1700000000"),
+        ConnectionStatus.hostOffline(lastSeen: Date(timeIntervalSince1970: 1_700_000_000))
+      ),
       (.closed(code: 4404, reason: "offline:0"), .hostOffline(lastSeen: nil)),
       (.closed(code: 4401, reason: "device_unknown"), .reconnecting),
       (.closed(code: 4409, reason: "revoked"), .reconnecting),
@@ -328,6 +334,40 @@ struct RemoteConnectionTests {
     await step(h.clock, seconds: 15)
     #expect(await statuses.next() == .reconnecting)
     #expect(incoming.host.isClosed)
+  }
+
+  @Test("foreground recovery survives the intermediate inactive phase")
+  func foregroundThroughInactive() async throws {
+    let h = Harness()
+    let connection = try h.connection()
+    await connection.start()
+    try await h.open(connection)
+    await connection.markSynced(generation: connection.generation)
+    await connection.setAppPhase(.background)
+    await connection.closeForBackground()
+    await connection.setAppPhase(.inactive)
+    await connection.setAppPhase(.active)
+    try await eventually { h.relay.requested.count == 2 }
+    #expect(await connection.status == .syncing)
+    try await h.open(connection)
+    await connection.stop()
+  }
+
+  @Test("a short network outage cannot leave a healthy socket stuck at noNetwork")
+  func networkReturnsWhileSocketIsOpen() async throws {
+    let h = Harness()
+    let connection = try h.connection()
+    await connection.start()
+    try await h.open(connection)
+    await connection.markSynced(generation: connection.generation)
+    await connection.networkChanged(available: false)
+    #expect(await connection.status == .noNetwork)
+    await connection.networkChanged(available: true)
+    try await eventually { h.relay.requested.count == 2 }
+    try await h.open(connection)
+    await connection.markSynced(generation: connection.generation)
+    #expect(await connection.status.canSend)
+    await connection.stop()
   }
 
   @Test("inactive and back leaves the link alone")

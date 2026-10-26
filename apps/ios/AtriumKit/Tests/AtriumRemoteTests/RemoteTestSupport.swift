@@ -92,7 +92,7 @@ extension Harness {
 struct StatusReader {
   private var iterator: AsyncStream<ConnectionStatus>.Iterator
 
-  /// Starts reading `connection`'s statuses.
+  /// Starts reading the connection status stream.
   ///
   /// - Remark: The first one is the status at creation, `connecting`.
   /// - SideEffects: none

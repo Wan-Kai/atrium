@@ -159,9 +159,8 @@ public enum RemoteHandshake {
 
   /// The `hello` a phone sends over a remote channel: no `token`, `clientId` = `deviceId`.
   ///
-  /// - Remark: SPEC-0005 "协议改动" 1. Written by hand until the generated `HelloMessage` has an
-  ///   optional `token` (the host side's protocol bump); then this becomes
-  ///   `HelloMessage(…, token: nil, …)` and nothing else changes.
+  /// - Remark: SPEC-0005 "协议改动" 1 (protocol 26): the host refuses a remote `hello` that carries a
+  ///   token, and one whose `clientId` is not the device the channel authenticated.
   /// - SideEffects: none
   /// - Parameters:
   ///   - deviceId: The id the host gave this phone.
@@ -172,7 +171,12 @@ public enum RemoteHandshake {
   public static func helloMessage(
     deviceId: String, traceparent: String, protocolVersion: Int = AtriumProtocol.protocolVersion
   ) throws(RemoteError) -> Data {
-    try RemoteJSON.encode(RemoteHello(protocolVersion: protocolVersion, clientId: deviceId, traceparent: traceparent))
+    let hello = HelloMessage(protocolVersion: protocolVersion, clientId: deviceId, token: nil, traceparent: traceparent)
+    do {
+      return try JSONEncoder().encode(hello)
+    } catch {
+      throw .badPayload
+    }
   }
 
   /// Sends `hello` and waits for `welcome`.
@@ -278,16 +282,6 @@ public enum RemoteHandshake {
       throw error
     }
   }
-}
-
-/// The remote `hello`, until the generated type allows leaving out `token`.
-///
-/// - Remark: See ``RemoteHandshake/helloMessage(deviceId:traceparent:protocolVersion:)``.
-struct RemoteHello: Encodable {
-  var type = "hello"
-  var protocolVersion: Int
-  var clientId: String
-  var traceparent: String
 }
 
 /// A fresh W3C `traceparent` for `hello` (observability.md: the host continues the trace from it).

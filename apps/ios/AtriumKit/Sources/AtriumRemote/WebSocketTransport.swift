@@ -114,7 +114,7 @@ public final class WebSocketTransport: RemoteTransport {
   }
 }
 
-/// The delegate of one ``WebSocketTransport``'s session: remembers how the task ended.
+/// Remembers how the WebSocket session ended.
 ///
 /// - Remark: Delegate callbacks come on URLSession's own queue; the state is behind a mutex.
 final class WebSocketEvents: NSObject, URLSessionWebSocketDelegate, Sendable {
