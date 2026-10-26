@@ -125,8 +125,9 @@ describe("QuestionCard", () => {
   it("says the agent asks, how far you are, which kind each question is, and marks the recommendation", async () => {
     const { screen } = await card(asked(scope, tests));
 
-    await expect.element(screen.getByText("agent 在问你")).toBeVisible();
-    await expect.element(screen.getByText("· 已答 0 / 2")).toBeVisible();
+    await expect.element(screen.getByText("agent")).toBeVisible();
+    await expect.element(screen.getByText("在问你")).toBeVisible();
+    await expect.element(screen.getByText("已答 0 / 2", { exact: true })).toBeVisible();
     await expect.element(screen.getByRole("tab", { name: "范围" })).toHaveAttribute("aria-selected", "true");
     await expect.element(screen.getByText("这次重构改到哪为止？")).toBeVisible();
     await expect.element(screen.getByText("单选", { exact: true })).toBeVisible();
@@ -142,6 +143,18 @@ describe("QuestionCard", () => {
     await expect.element(screen.getByText("多选", { exact: true })).toBeVisible();
     expect(screen.getByRole("checkbox").elements()).toHaveLength(4);
     expect(screen.getByRole("radio").elements()).toHaveLength(0);
+  });
+
+  it("draws the question mark in the brand's dots, not as text", async () => {
+    const { screen } = await card(asked(scope));
+
+    const glyph = screen.getByRole("img", { name: "问" });
+    await expect.element(glyph).toBeVisible();
+    const canvas = glyph.element() as HTMLCanvasElement;
+    expect(canvas.width).toBeGreaterThan(0);
+    const pixels = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+    const alphas = [...pixels].filter((_, i) => i % 4 === 3);
+    expect(Math.max(...alphas)).toBeGreaterThan(0);
   });
 
   it("draws the numbers as the control: circles for one choice, rounded squares for several, a tick once picked", async () => {
@@ -174,7 +187,7 @@ describe("QuestionCard", () => {
     expect(timers.map((timer) => timer.ms)).toStrictEqual([200]);
     timers[0]?.run();
     await expect.element(screen.getByRole("tab", { name: "测试" })).toHaveAttribute("aria-selected", "true");
-    await expect.element(screen.getByText("· 已答 1 / 2")).toBeVisible();
+    await expect.element(screen.getByText("已答 1 / 2", { exact: true })).toBeVisible();
   });
 
   it("toggles options of a multiple-choice question, counting them, and sends every answer once all have one", async () => {

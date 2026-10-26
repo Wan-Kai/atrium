@@ -1,7 +1,8 @@
 import { QUESTION_LIMITS } from "@atrium/client";
 import type { AskedQuestion, PendingQuestion, QuestionReply } from "@atrium/protocol";
-import { type KeyboardEvent, type RefObject, useEffect, useRef, useState } from "react";
-import { CaretRight, Check, Question } from "../design/icons";
+import { type KeyboardEvent, type RefObject, memo, useEffect, useRef, useState } from "react";
+import { CaretRight, Check } from "../design/icons";
+import { paintQuestionDots, questionDotsSize } from "../design/dots";
 import { useClock } from "../state/clock";
 import {
   type QuestionDraft,
@@ -24,6 +25,44 @@ const BUTTON =
 /** A key's mark in the footer's hints. */
 const KEY =
   "rounded-[4px] px-1 font-[family-name:var(--font-mono)] text-[length:var(--fs-xs)] text-[var(--text-muted)] shadow-[inset_0_0_0_0.5px_var(--line-strong)]";
+
+/**
+ * The dot-matrix question mark on the card's top row (design-language, "提问卡片", 2026-10-26).
+ *
+ * @remarks
+ * A static canvas glyph in `--text`: painted once on mount and again when the appearance flips,
+ * since canvas does not follow CSS variables by itself.
+ *
+ * @sideEffects Paints the canvas; subscribes to the colour-scheme media query while mounted.
+ * @returns The glyph.
+ */
+const DotQuestion = memo(function DotQuestion() {
+  const canvas = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const node = canvas.current;
+    if (node === null) return undefined;
+    const context = node.getContext("2d");
+    if (context === null) return undefined;
+    /** Paints one still frame at the current appearance and pixel ratio.
+     * @remarks Canvas does not follow CSS variables or resolution changes by itself.
+     * @sideEffects Sizes the backing store and paints it. */
+    const paint = (): void => {
+      const { width, height } = questionDotsSize();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      node.style.width = `${width}px`;
+      node.style.height = `${height}px`;
+      node.width = width * dpr;
+      node.height = height * dpr;
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paintQuestionDots(context, getComputedStyle(node).getPropertyValue("--text").trim());
+    };
+    paint();
+    const dark = matchMedia("(prefers-color-scheme: dark)");
+    dark.addEventListener("change", paint);
+    return (): void => dark.removeEventListener("change", paint);
+  }, []);
+  return <canvas ref={canvas} role="img" aria-label="问" className="flex-none" />;
+});
 
 /**
  * One option of a question, or the other answer, with the box to write it in once picked.
@@ -396,12 +435,18 @@ export function QuestionCard({
       className="atrium-question-card mt-3 mb-2 flex max-h-[60vh] flex-col rounded-[var(--r-card)] bg-[var(--surface-1)] px-3.5 py-3 shadow-[var(--card-shadow)] dark:bg-[var(--surface-2)]"
     >
       <div className="flex flex-none flex-wrap items-center gap-2.5">
-        <span className="flex items-center gap-1.5 text-[length:var(--fs-sm)] font-medium text-[var(--attn-text)]">
-          <Question size={15} aria-hidden />
-          <span>agent 在问你</span>
+        <span className="flex items-center gap-1.5">
+          <DotQuestion />
+          <span className="font-[family-name:Syne] text-[length:var(--fs-meta)] font-bold text-[var(--attn-text)]">
+            agent
+          </span>
+          <span aria-hidden className="-ml-1 text-[length:var(--fs-sm)] text-[var(--attn-text)]">
+            /
+          </span>
+          <span className="-ml-1 text-[length:var(--fs-meta)] font-medium text-[var(--text)]">在问你</span>
           {questions.length > 1 ? (
-            <span className="font-normal text-[var(--text-dim)] tabular-nums">
-              · 已答 {count} / {questions.length}
+            <span className="text-[length:var(--fs-sm)] font-normal text-[var(--text-dim)] tabular-nums">
+              已答 {count} / {questions.length}
             </span>
           ) : null}
         </span>
