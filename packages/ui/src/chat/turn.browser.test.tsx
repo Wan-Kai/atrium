@@ -721,6 +721,13 @@ describe("TurnView", () => {
     );
   });
 
+  it("gives the reply info row 4px of vertical breathing room", async () => {
+    const { screen } = await show(turn([answer]));
+    const style = getComputedStyle(screen.getByTestId("turn-footer").element());
+
+    expect([style.marginTop, style.marginBottom]).toStrictEqual(["4px", "4px"]);
+  });
+
   it("starts a message that started with a skill with its tag, copying it as it was typed", async () => {
     const written: string[] = [];
     vi.spyOn(navigator.clipboard, "writeText").mockImplementation(async (text) => {
