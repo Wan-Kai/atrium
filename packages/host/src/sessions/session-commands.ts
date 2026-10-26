@@ -11,6 +11,7 @@ import type {
   ModelRef,
   PromptCommand,
   QuestionReply,
+  SessionSnapshotEvent,
   SteerCommand,
   ThinkingLevel,
 } from "@atrium/protocol";
@@ -60,6 +61,11 @@ export interface SessionCommands {
   handOff(sessionId: string): Promise<CommandResult<"hand_off">>;
   /** Takes a session handed off back into Atrium and starts its pi. */
   takeBack(sessionId: string): Promise<CommandResult<"take_back">>;
+  /**
+   * A session's snapshot as it stands, for a phone that cannot take an event too large for it
+   * (SPEC-0005, "大小"); `null` for a session without one.
+   */
+  currentSnapshot(sessionId: string): SessionSnapshotEvent | null;
   /** Replaces the sessions a connection watches, sending a snapshot of each new one first. */
   subscribe(connectionId: string, sessionIds: readonly string[]): Promise<CommandResult<"subscribe_sessions">>;
   /** Sends a message with its images to a session, starting a restored draft's pi first. */

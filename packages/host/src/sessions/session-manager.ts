@@ -34,6 +34,7 @@ import {
   type SessionSnapshotEvent,
   type SessionSummary,
   type ThinkingLevel,
+  type Turn,
   UNKNOWN_METRICS,
   isAuthFailure,
   isChatId,
@@ -60,6 +61,7 @@ import { agentLaunchFlags, toolFlags } from "./agent-launch";
 import { type ChildCreated, type ChildRequest, type WorkChanges, createAgentRelay } from "./agent-relay";
 import { createChildrenUsage } from "./children-usage";
 import type { SessionCommands } from "./session-commands";
+import type { ReplyTranslationSource } from "./reply-translation";
 import {
   type PromptImage,
   type Respawned,
@@ -106,6 +108,8 @@ async function inTurn<T>(turns: Map<string, Promise<unknown>>, key: string, work
 
 /** The session layer: every session's controller, and the session commands. */
 export interface SessionManager extends SessionCommands {
+  /** Captures one finished reply and the current model without starting or modifying a session. */
+  replyTranslationSource(sessionId: string, turnId: string): ReplyTranslationSource;
   /** Every session of a registered container, with whether it runs. */
   summaries(): SessionSummary[];
   /** Stops the sessions of workspaces that went away and drops them from every layout. */
@@ -1667,6 +1671,12 @@ export function createSessionManager(options: {
       inBackground("session scan", () => options.catalog.scan());
       return {};
     },
+    currentSnapshot(sessionId) {
+      const controller = sessions.get(sessionId)?.controller;
+      if (controller !== undefined) return controller.snapshot();
+      const entry = entryOf(sessionId);
+      return entry?.state === "draft" ? draftSnapshot(sessionId, fastOf(entry)) : null;
+    },
     async subscribe(connectionId, sessionIds) {
       await options.catalog.ready();
       const snapshots = new Map<string, SessionSnapshotEvent>();
@@ -1877,6 +1887,18 @@ export function createSessionManager(options: {
       // A session this host never ran has no controller yet; starting it makes one.
       const session = sessions.get(sessionId) ?? (await ensureRunning(sessionId));
       return session.controller.retryRun();
+    },
+    replyTranslationSource(sessionId, turnId) {
+      const controller = controllerOf(sessionId);
+      const turn = controller.items().find((item): item is Turn => item.kind === "turn" && item.id === turnId);
+      if (turn === undefined) throw new CommandError("turn_not_found");
+      if (turn.outcome === "running") throw new CommandError("translation_failed", { reason: "running" });
+      // Match the reply shown by layoutTurn: blank text/thinking and trailing compactions are not replies.
+      const reply = turn.steps.findLast(
+        (step) =>
+          step.kind !== "compaction" && ((step.kind !== "text" && step.kind !== "thinking") || step.text.trim() !== ""),
+      );
+      return { cwd: entryOf(sessionId).cwd, text: reply?.kind === "text" ? reply.text : "", model: controller.model() };
     },
     async fetchStep(command) {
       return controllerOf(command.sessionId).fetchStep(command);

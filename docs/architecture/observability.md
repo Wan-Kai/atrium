@@ -81,6 +81,12 @@ span 结束时另写一条 `kind: "span"` 的记录：名称、开始结束时�
   - 没找到 pi（`pi inspected` 的 `status: "missing"`）记 info：没装 pi 是首次启动的正常状态，界面会引导安装；找到了却用不了（`unusable`）或版本太旧（`outdated`）仍记 warn。
 - 查看：`pnpm trace <trace id>` 把一条链路的 span 和日志按树形打印出来。`pnpm errors` 把 warn、error、fatal 按签名汇总，标出最近一次宿主启动后才出现的新签名（[testing.md · 运行时监控](testing.md#运行时监控)）；签名不含 `msg` 之外的文字，所以 `msg` 要保持固定的短句，变化的信息放结构化字段。
 
+### 远程访问（MP3a）
+
+- `RemoteService` 给其网络生命周期日志绑定一个随机的 32 位十六进制 `trace_id`，用于关联没有前端命令上下文的后台重连；这只是日志相关 id，不伪造已经导出的 span。手机进入共用服务器后，握手与命令仍使用原来的 tracing 链路。
+- 允许字段：`host_id`、`stream_id`、`device_id`、关闭 `code`、`reason`、是否收到 `ready`；不记录 relay 原始响应、URL 查询串、令牌、私钥/PSK、二维码、SAS、设备名、解密内容或保险箱原文。失败只给稳定原因码。主动取消、正常断线记 info；控制连接超时、最后在线时间写盘失败记 warn。
+- `remote.control`、`remote.data` 计真实未关闭 socket；握手、重连、ping、分块期限、关闭兜底和流量采样计 `timer`。流量只在本机页面订阅期间计算并最多每秒推送，不按帧写日志；最后一个 watcher 离开就清除计数和定时器。
+
 ## 脱敏
 
 脱敏在写盘前对整行进行：pino 把消息、`err`、子 logger 的绑定组装进最终那一行，只有这一行能看到全部内容。每行解析成对象，按键名替换凭据（任意深度），再把已知秘密值（会话 token）从所有字符串里擦掉，然后重新序列化。

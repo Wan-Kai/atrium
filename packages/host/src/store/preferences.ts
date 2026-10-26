@@ -3,6 +3,7 @@ import {
   type Preferences,
   type SessionModel,
   StatusGroupId,
+  TranslationLanguage,
   type ThinkingLevel,
 } from "@atrium/protocol";
 import { proxyProblem } from "../platform/proxy";
@@ -53,6 +54,8 @@ export function createPreferenceStore(file: IndexFile<PreferencesDocument>): Pre
         titleModel = null,
         proxy = null,
         inbox = true,
+        // Missing and invalid values share the schema fallback below rather than two defaults.
+        translationLanguage,
       } = file.read();
       const groups = Object.entries(statusBar).filter(([id]) => StatusGroupId.safeParse(id).success);
       return {
@@ -65,6 +68,7 @@ export function createPreferenceStore(file: IndexFile<PreferencesDocument>): Pre
         titleModel,
         proxy: proxy !== null && proxyProblem(proxy) === null ? proxy : null,
         inbox,
+        translationLanguage: TranslationLanguage.safeParse(translationLanguage).data ?? "简体中文",
       };
     },
     set: (changes) => file.save({ ...file.read(), ...changes }),

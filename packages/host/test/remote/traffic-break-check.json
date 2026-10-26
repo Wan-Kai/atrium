@@ -1,0 +1,26 @@
+[
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "const seconds = (at - previous.at) / 1000;",
+    "to": "const seconds = (at - previous.at) / 2000;",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "samples traffic only while watched",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "sample.at > at - 2000",
+    "to": "sample.at > at - 1000",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "samples traffic only while watched",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "const totals = new Map([...this.#totals].map(([id, count]) => [id, { ...count }]));",
+    "to": "const totals = new Map(this.#totals);",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "samples traffic only while watched",
+    "project": "host"
+  }
+]

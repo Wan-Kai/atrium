@@ -1,0 +1,154 @@
+[
+  {
+    "file": "packages/ui/src/chat/turn-view.tsx",
+    "from": "{translationButton}",
+    "to": "{null}",
+    "test": "packages/ui/src/chat/reply-translation.browser.test.tsx",
+    "name": "keeps the original, expands translated Markdown",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-translation.tsx",
+    "from": "key={JSON.stringify([scope.sessionId, turnId, scope.language, reply])}",
+    "to": "key={JSON.stringify([scope.sessionId, turnId, scope.language])}",
+    "test": "packages/ui/src/chat/reply-translation.browser.test.tsx",
+    "name": "cancels and clears translation when the source changes",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-translation.tsx",
+    "from": "key={JSON.stringify([scope.sessionId, turnId, scope.language, reply])}",
+    "to": "key={JSON.stringify([scope.sessionId, turnId, reply])}",
+    "test": "packages/ui/src/chat/reply-translation.browser.test.tsx",
+    "name": "cancels and clears translation when the language changes",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-translation.tsx",
+    "from": "key={JSON.stringify([scope.sessionId, turnId, scope.language, reply])}",
+    "to": "key={JSON.stringify([turnId, scope.language, reply])}",
+    "test": "packages/ui/src/chat/reply-translation.browser.test.tsx",
+    "name": "cancels and clears translation when the session changes",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-translation.tsx",
+    "from": "key={JSON.stringify([scope.sessionId, turnId, scope.language, reply])}",
+    "to": "key={JSON.stringify([scope.sessionId, scope.language, reply])}",
+    "test": "packages/ui/src/chat/reply-translation.browser.test.tsx",
+    "name": "cancels and clears translation when the turn changes",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-translation.tsx",
+    "from": "void client.cancelTranslation(id).catch(() => undefined);",
+    "to": "void Promise.resolve().catch(() => undefined);",
+    "test": "packages/ui/src/chat/reply-translation.browser.test.tsx",
+    "name": "cancels once on unmount",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-translation.tsx",
+    "from": "if (mounted.current && inFlight.current === id) setState({ status: \"done\", result, open: true });",
+    "to": "if (mounted.current) setState({ status: \"done\", result, open: true });",
+    "test": "packages/ui/src/chat/reply-translation.browser.test.tsx",
+    "name": "cancels the request, restores focus, ignores its late reply",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-translation.tsx",
+    "from": "mounted.current && generation.current === cancelledGeneration",
+    "to": "mounted.current",
+    "test": "packages/ui/src/chat/reply-translation.browser.test.tsx",
+    "name": "does not let an old cancellation failure replace",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-translation.tsx",
+    "from": "if (state.status === \"done\") {\n      setState({ ...state, open: !state.open });\n      return;\n    }",
+    "to": "if (false) return;",
+    "test": "packages/ui/src/chat/reply-translation.browser.test.tsx",
+    "name": "keeps the original, expands translated Markdown",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-translation.tsx",
+    "from": "return FAILURE_TEXT[String(error.params?.[\"reason\"])] ?? \"没能翻译，请稍后重试\";",
+    "to": "return \"没能翻译，请稍后重试\";",
+    "test": "packages/ui/src/chat/reply-translation.browser.test.tsx",
+    "name": "keeps the original on a failed command",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/translation-group.tsx",
+    "from": "const language = draft.value.trim();",
+    "to": "const language = draft.value;",
+    "test": "packages/ui/src/settings/translation-group.browser.test.tsx",
+    "name": "defaults to Chinese and saves a trimmed target",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/translation-group.tsx",
+    "from": "await client.setPreferences({ translationLanguage: language });",
+    "to": "await Promise.resolve();",
+    "test": "packages/ui/src/settings/translation-group.browser.test.tsx",
+    "name": "defaults to Chinese and saves a trimmed target",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/translation-group.tsx",
+    "from": "setFeedback(\"failed\");",
+    "to": "setFeedback(null);",
+    "test": "packages/ui/src/settings/translation-group.browser.test.tsx",
+    "name": "retains the draft after failure",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/translation-group.tsx",
+    "from": "language.length > 0 && language.length <= 80 && !/\\p{Cc}/u.test(draft.value)",
+    "to": "true",
+    "test": "packages/ui/src/settings/translation-group.browser.test.tsx",
+    "name": "rejects invalid language",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/translation-group.tsx",
+    "from": "draft.value === draft.base ? saved : draft.value",
+    "to": "saved",
+    "test": "packages/ui/src/settings/translation-group.browser.test.tsx",
+    "name": "reflects another client's saved language",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-translation.tsx",
+    "from": "if (mounted.current && inFlight.current === id) setState({ status: \"done\", result, open: true });",
+    "to": "if (mounted.current) setState({ status: \"done\", result, open: true });",
+    "test": "packages/ui/src/chat/reply-translation.browser.test.tsx",
+    "name": "does not let a cancelled request's late reply overwrite",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-translation.tsx",
+    "from": "if (error instanceof ConnectionLostError) return;",
+    "to": "if (false) return;",
+    "test": "packages/ui/src/chat/reply-translation.browser.test.tsx",
+    "name": "treats a disconnected cancellation as cancelled",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-translation.tsx",
+    "from": "if (error instanceof ConnectionLostError) return;",
+    "to": "if (error instanceof Error) return;",
+    "test": "packages/ui/src/chat/reply-translation.browser.test.tsx",
+    "name": "keeps a confirmation error when cancellation fails",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/turn-view.tsx",
+    "from": "          </div>\n        )}\n      </ReplyTranslation>\n      {filesOpen ? <FilesList turn={turn} /> : null}",
+    "to": "            {filesOpen ? <FilesList turn={turn} /> : null}\n          </div>\n        )}\n      </ReplyTranslation>",
+    "test": "packages/ui/src/chat/reply-translation.browser.test.tsx",
+    "name": "puts the translation immediately below the info row",
+    "project": "ui"
+  }
+]

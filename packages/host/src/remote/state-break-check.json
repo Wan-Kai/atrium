@@ -1,0 +1,65 @@
+[
+  {
+    "file": "packages/host/src/remote/vault.ts",
+    "from": "if (data.length > 4 * 1024 * 1024)",
+    "to": "if (data.length >= 4 * 1024 * 1024)",
+    "test": "packages/host/src/remote/vault.test.ts",
+    "name": "accepts the exact four-mebibyte IPC boundary"
+  },
+  {
+    "file": "packages/host/src/remote/vault.ts",
+    "from": ".max(4 * 1024 * 1024)",
+    "to": ".max(4 * 1024)",
+    "test": "packages/host/src/remote/vault.test.ts",
+    "name": "accepts the exact four-mebibyte IPC boundary"
+  },
+  {
+    "file": "packages/host/src/remote/vault.ts",
+    "from": "error: z.enum([\"keychain_unavailable\", \"corrupt\", \"stale\", \"io\"])",
+    "to": "error: z.enum([\"keychain_unavailable\", \"corrupt\", \"wrong\", \"io\"])",
+    "test": "packages/host/src/remote/vault.test.ts",
+    "name": "passes through stale for reads and writes"
+  },
+  {
+    "file": "packages/host/src/remote/pairing.ts",
+    "from": "pairing.state = \"committed\";\n    this.#onChange();",
+    "to": "pairing.state = \"committed\";",
+    "test": "packages/host/src/remote/pairing.test.ts",
+    "name": "publishes each visible transition"
+  },
+  {
+    "file": "packages/host/src/remote/pairing.ts",
+    "from": "pairing.confirming = false;\n    pairing.state = \"rejected\";\n    pairing.reason = \"vault_failed\";",
+    "to": "pairing.confirming = true;\n    pairing.state = \"rejected\";\n    pairing.reason = \"vault_failed\";",
+    "test": "packages/host/src/remote/pairing.test.ts",
+    "name": "publishes failed confirmation"
+  },
+  {
+    "file": "packages/host/src/remote/pairing.ts",
+    "from": "if (pairing === null) return;",
+    "to": "if (true) return;",
+    "test": "packages/host/src/remote/pairing.test.ts",
+    "name": "disposes active and confirmed pairings"
+  },
+  {
+    "file": "packages/host/src/remote/pairing.ts",
+    "from": "this.#clock.now() >= pairing.expiresAt",
+    "to": "this.#clock.now() > pairing.expiresAt",
+    "test": "packages/host/src/remote/pairing.test.ts",
+    "name": "checks expiry before timer dispatch"
+  },
+  {
+    "file": "packages/host/src/remote/pairing.ts",
+    "from": "pairing.state === \"expired\" ||",
+    "to": "false ||",
+    "test": "packages/host/src/remote/pairing.test.ts",
+    "name": "checks expiry before timer dispatch"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "socket.on(\"error\", () => {});\n    socket.once(\"close\", (code: number) => {\n      cancel();",
+    "to": "socket.on(\"wrong\", () => {});\n    socket.once(\"close\", (code: number) => {\n      cancel();",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "handles abort before the HTTP upgrade"
+  }
+]

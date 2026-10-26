@@ -1,0 +1,101 @@
+[
+  {
+    "file": "packages/host/src/sessions/reply-translation.ts",
+    "from": "const language = options.language();",
+    "to": "const language = 'English';",
+    "test": "packages/host/src/sessions/reply-translation.test.ts",
+    "name": "captures the current model"
+  },
+  {
+    "file": "packages/host/src/sessions/reply-translation.ts",
+    "from": "JSON.stringify({ targetLanguage: language, markdown: source.text })",
+    "to": "JSON.stringify({ targetLanguage: language, markdown: 'wrong reply' })",
+    "test": "packages/host/src/sessions/reply-translation.test.ts",
+    "name": "captures the current model"
+  },
+  {
+    "file": "packages/host/src/sessions/reply-translation.ts",
+    "from": "if (source.text.trim() === \"\")",
+    "to": "if (false)",
+    "test": "packages/host/src/sessions/reply-translation.test.ts",
+    "name": "rejects empty reply"
+  },
+  {
+    "file": "packages/host/src/sessions/reply-translation.ts",
+    "from": "if (source.model === null)",
+    "to": "if (false)",
+    "test": "packages/host/src/sessions/reply-translation.test.ts",
+    "name": "rejects no model"
+  },
+  {
+    "file": "packages/host/src/sessions/reply-translation.ts",
+    "from": "Buffer.byteLength(source.text) > TRANSLATION_INPUT_BYTES",
+    "to": "source.text.length > TRANSLATION_INPUT_BYTES",
+    "test": "packages/host/src/sessions/reply-translation.test.ts",
+    "name": "oversized UTF-8 reply"
+  },
+  {
+    "file": "packages/host/src/sessions/reply-translation.ts",
+    "from": "Buffer.byteLength(text) > TRANSLATION_OUTPUT_BYTES",
+    "to": "text.length > TRANSLATION_OUTPUT_BYTES",
+    "test": "packages/host/src/sessions/reply-translation.test.ts",
+    "name": "rejects unusable translated text"
+  },
+  {
+    "file": "packages/host/src/sessions/reply-translation.ts",
+    "from": "if (controller.signal.aborted)",
+    "to": "if (false)",
+    "test": "packages/host/src/sessions/reply-translation.test.ts",
+    "name": "cancels only the owner's matching id"
+  },
+  {
+    "file": "packages/host/src/sessions/reply-translation.ts",
+    "from": "if (call?.id !== translationId) return;",
+    "to": "if (call === undefined) return;",
+    "test": "packages/host/src/sessions/reply-translation.test.ts",
+    "name": "cancels only the owner's matching id"
+  },
+  {
+    "file": "packages/host/src/sessions/reply-translation.ts",
+    "from": "pending.get(connectionId)?.controller.abort();",
+    "to": "pending.get('wrong-connection')?.controller.abort();",
+    "test": "packages/host/src/sessions/reply-translation.test.ts",
+    "name": "isolates simultaneous connections"
+  },
+  {
+    "file": "packages/host/src/sessions/reply-translation.ts",
+    "from": "pending.delete(connectionId);",
+    "to": "// Deliberately retain request state.",
+    "test": "packages/host/src/sessions/reply-translation.leak.test.ts",
+    "name": "returns processes, timers and request signals",
+    "project": "leak"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "...(command.translationLanguage === undefined ? {} : { translationLanguage: command.translationLanguage }),",
+    "to": "",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "routes reply translation and cancellation"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "if (turn.outcome === \"running\")",
+    "to": "if (false)",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "refuses to translate an unfinished turn"
+  },
+  {
+    "file": "packages/pi/src/oneshot/oneshot.ts",
+    "from": "Buffer.byteLength(reply.text) > maxOutputBytes",
+    "to": "reply.text.length > maxOutputBytes",
+    "test": "packages/pi/src/oneshot/oneshot.test.ts",
+    "name": "bounds a standalone reply"
+  },
+  {
+    "file": "packages/pi/src/oneshot/oneshot.ts",
+    "from": "if (line.length >= maxLineLength)",
+    "to": "if (false)",
+    "test": "packages/pi/src/oneshot/oneshot.test.ts",
+    "name": "bounds an unfinished JSON record"
+  }
+]

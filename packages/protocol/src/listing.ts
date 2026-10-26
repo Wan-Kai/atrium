@@ -196,6 +196,14 @@ export const ProxySetting = z.strictObject({
 });
 export type ProxySetting = z.infer<typeof ProxySetting>;
 
+/** A user-written target language, without control characters or surrounding whitespace. */
+export const TranslationLanguage = z
+  .string()
+  .regex(/^\P{Cc}*$/u)
+  .trim()
+  .min(1)
+  .max(80);
+
 /**
  * Global preferences, the same for every client.
  *
@@ -220,6 +228,7 @@ export const Preferences = z.strictObject({
   titleModel: ModelRef.nullable(),
   proxy: ProxySetting.nullable(),
   inbox: z.boolean(),
+  translationLanguage: TranslationLanguage,
 });
 export type Preferences = z.infer<typeof Preferences>;
 

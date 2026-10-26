@@ -10,7 +10,7 @@ import {
 } from "@atrium/pi";
 import { CommandError } from "@atrium/protocol";
 import { randomBytes, randomUUID } from "node:crypto";
-import { homedir, uptime } from "node:os";
+import { homedir, hostname, uptime } from "node:os";
 import { join } from "node:path";
 import type { Level } from "pino";
 import packageJson from "../package.json" with { type: "json" };
@@ -40,6 +40,11 @@ import { LATEST_VERSION_URL, createPiLatest, fetchLatestPi } from "./setup/pi-la
 import { createSetupService } from "./setup/setup-service";
 import { createPiConfig } from "./setup/pi-config";
 import { type HostTools, createToolbox, withProxySetting } from "./setup/toolbox";
+import { HOST_TO_PHONE_LIMIT } from "@atrium/remote-crypto";
+import type { VaultPort } from "./remote/vault";
+import { RemoteService } from "./remote/remote-service";
+import { REMOTE_FILE } from "./remote/devices";
+import { loadIndexFile } from "./store/index-file";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
 import { discoverProjects } from "./projects/discovery";
@@ -52,6 +57,7 @@ import { withModelRules } from "./sessions/model-rules";
 import { createSessionCatalog } from "./sessions/session-catalog";
 import { createPlanUsage } from "./sessions/plan-usage";
 import { createSessionManager } from "./sessions/session-manager";
+import { createReplyTranslations, TRANSLATION_OUTPUT_BYTES } from "./sessions/reply-translation";
 import { titleModelLookup } from "./sessions/titles";
 import { acquireHostLock, processStartedAt } from "./store/host-lock";
 import { loadIndex } from "./store/load-index";
@@ -101,6 +107,8 @@ export interface HostConfig {
   readonly homebrewPlaces?: readonly string[];
   /** Where to look up the latest pi; defaults to pi.dev, as pi does; `null` never looks (tests). */
   readonly piLatestUrl?: string | null;
+  /** The vault Electron's main process keeps; without it, as when run alone, remote access is unavailable. */
+  readonly vault?: VaultPort;
 }
 
 /** A running host. */
@@ -178,9 +186,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const plans = createPlanUsage({ clock, logger });
   plans.subscribe((found) => subscriptions.broadcast({ type: "plans_updated", plans: found }));
   const hostInstanceId = randomBytes(8).toString("hex");
-  const [index, installSeed] = await Promise.all([
+  const [index, installSeed, remoteIndex] = await Promise.all([
     loadIndex(home.root, clock.now(), logger),
     readInstallSeed(home.root, randomUUID),
+    loadIndexFile(home.root, REMOTE_FILE, clock.now()),
   ]).catch(async (error: unknown) => {
     logger.error({ err: error }, "host failed to start");
     releaseRejections();
@@ -382,6 +391,21 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       return starts;
     },
   });
+  const translations = createReplyTranslations({
+    source: (sessionId, turnId) => sessions.replyTranslationSource(sessionId, turnId),
+    language: () => preferences.read().translationLanguage,
+    run: async (request, signal) => {
+      const found = await toolbox.current();
+      if (found?.pi.status !== "ready") {
+        throw new CommandError("pi_unavailable", { status: found?.pi.status ?? "unknown" });
+      }
+      return runOneShot(
+        { piPath: found.pi.piPath, ...request },
+        createPiDeps({ clock, resources, logger, env: found.env }),
+        { signal, maxOutputBytes: TRANSLATION_OUTPUT_BYTES, isolateTranslation: true },
+      );
+    },
+  });
   projects.onChange(() => feed.changed());
   catalog.onChange(() => feed.changed());
   workspaces.onChange(() => {
@@ -534,6 +558,16 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     keepMs: 30 * 60_000,
   });
   let server: Awaited<ReturnType<typeof startWsServer>>;
+  const remote = new RemoteService({
+    vault: config.vault,
+    index: remoteIndex.file,
+    clock,
+    resources,
+    logger,
+    hostName: hostname(),
+    send: (id, event) => subscriptions.sendTo(id, event),
+    accept: (transport, origin) => server.accept(transport, origin),
+  });
   try {
     server = await startWsServer({
       token: config.token,
@@ -550,6 +584,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       installSeed,
       logDir: home.logs,
       maxBufferedBytes: MAX_BUFFERED_BYTES,
+      maxPhoneMessageBytes: HOST_TO_PHONE_LIMIT,
       subscriptions,
       sessions,
       index: indexCommands,
@@ -575,6 +610,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         { type: "plans_updated", plans: plans.current() } as const,
       ],
       piLatest,
+      remote,
+      translations,
       attachments,
       changes,
       files: createWorkspaceFiles({ dirOf: (workspaceId) => workspaces.dirOf(workspaceId), git, logger }),
@@ -592,6 +629,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     throw error;
   }
 
+  remote.start();
   workspaces.start();
   sessions.rescan();
   let cancelReport = scheduleReport();
@@ -704,7 +742,9 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   async function close(): Promise<void> {
     cancelReport();
     await toolbox.close();
+    await remote.close();
     await server.close();
+    await translations.close();
     // Before the sessions and the index, which a worktree being created, archived or restored still uses.
     await worktreeQueue.idle();
     await loginService.close();

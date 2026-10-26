@@ -1,0 +1,21 @@
+{
+  "name": "@atrium/remote-crypto",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0"
+  },
+  "devDependencies": {
+    "@atrium/testkit": "workspace:*",
+    "@types/node": "26.6.4"
+  }
+}

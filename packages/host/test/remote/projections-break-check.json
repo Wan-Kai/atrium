@@ -1,0 +1,97 @@
+[
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "diagnostics: this.#link?.diagnostics ?? this.#probeDiagnostics,",
+    "to": "diagnostics: this.#probeDiagnostics,",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "publishes finished live and off-probe diagnostics",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#probeDiagnostics = diagnostics;",
+    "to": "void diagnostics;",
+    "test": "packages/host/src/remote/remote-service.test.ts",
+    "name": "publishes an off-probe rejection"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#link = null;\n    this.#pairing.cancel();",
+    "to": "this.#pairing.cancel();\n    this.#link = null;",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "never publishes old diagnostics under a reset identity",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "model: device.model.trim() || null,",
+    "to": "model: device.model || null,",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "projects stored model",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "model: device.model.trim() || null,",
+    "to": "model: device.model.trim(),",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "projects stored model",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#pairPhones.delete(phone);",
+    "to": "this.#pairPhones.clear();",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "projects only current available candidates",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "request.pairingId === pairing.pairingId && request.generation === this.#generation",
+    "to": "request.generation === this.#generation",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "does not let an old stream clear",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "pairing.state === \"available\" &&\n        [...this.#pairPhones].some(",
+    "to": "[...this.#pairPhones].some(",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "clears activity at the fixed QR expiry",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (phone.deviceId !== null) this.#changed();\n          else this.#handshakeChanged();",
+    "to": "this.#changed();",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "suppresses rapid candidate churn",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (this.#publishedHandshaking) this.#changed();",
+    "to": "if (false) this.#changed();",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "clears candidate projection immediately on failure",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (watch === true && view.pairing?.handshaking === true) this.#publishedHandshaking = true;",
+    "to": "void view;",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "clears activity observed by a late watcher",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (deviceId !== null) this.#session(stream, deviceId);\n      else this.#handshakeChanged();",
+    "to": "if (deviceId !== null) this.#session(stream, deviceId);\n      else this.#changed();",
+    "test": "packages/host/test/remote/projections.host.test.ts",
+    "name": "projects only current available candidates",
+    "project": "host"
+  }
+]

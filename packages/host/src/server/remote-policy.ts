@@ -1,0 +1,182 @@
+import type { Command, CommandType, HostMessage } from "@atrium/protocol";
+
+/** Whether a phone may send a command, or only the Mac. */
+type Reach = "phone" | "local_only";
+
+/**
+ * What a phone may send: every command classified (SPEC-0005, "远程客户端能用的命令").
+ *
+ * @remarks
+ * Typed over every command type, so a new command does not compile until someone decides; a test
+ * checks the same against `COMMAND_TYPES`. The list only narrows what the app offers: a paired
+ * phone is a trusted device that can make the agent run any tool.
+ */
+export const COMMAND_REACH = {
+  // The handshake and subscriptions.
+  ping: "phone",
+  subscribe_index: "phone",
+  subscribe_sessions: "phone",
+  open_session: "phone",
+  // Reading.
+  fetch_transcript: "phone",
+  fetch_step: "phone",
+  fetch_image: "phone",
+  list_models: "phone",
+  list_commands: "phone",
+  watch_changes: "phone",
+  watch_diff: "phone",
+  list_dir: "phone",
+  read_file: "phone",
+  // Sending and controlling.
+  prompt: "phone",
+  steer: "phone",
+  stop: "phone",
+  resume_queue: "phone",
+  clear_queue: "phone",
+  update_queued: "phone",
+  remove_queued: "phone",
+  steer_queued: "phone",
+  remove_delivery: "phone",
+  resume_deliveries: "phone",
+  retry_run: "phone",
+  answer_interaction: "phone",
+  answer_question: "phone",
+  // A session's settings.
+  set_model: "phone",
+  set_thinking_level: "phone",
+  set_fast: "phone",
+  compact_session: "phone",
+  // Sessions and chats; `create_session` with `child` is refused in `phoneMayRun`.
+  create_chat: "phone",
+  create_session: "phone",
+  select_container: "phone",
+  close_tab: "phone",
+  clear_attention: "phone",
+  rename_session: "phone",
+  archive_session: "phone",
+  // Other.
+  upload_attachment: "phone",
+  report_client_issue: "phone",
+  // Projects and workspaces.
+  add_project: "local_only",
+  remove_project: "local_only",
+  rename_project: "local_only",
+  discover_projects: "local_only",
+  archive_workspace: "local_only",
+  restore_workspace: "local_only",
+  set_main_branch: "local_only",
+  list_branches: "local_only",
+  list_bases: "local_only",
+  create_workspace: "local_only",
+  name_branch: "local_only",
+  translate_reply: "local_only",
+  cancel_translation: "local_only",
+  rename_workspace: "local_only",
+  rename_chat: "local_only",
+  // Signing in and installing.
+  login: "local_only",
+  answer_login: "local_only",
+  cancel_login: "local_only",
+  logout: "local_only",
+  install_pi: "local_only",
+  install_node: "local_only",
+  update_pi: "local_only",
+  cancel_install: "local_only",
+  check_setup: "local_only",
+  check_pi_update: "local_only",
+  // Configuration.
+  read_pi_config: "local_only",
+  save_pi_config: "local_only",
+  set_preferences: "local_only",
+  // Only for the Mac's own window.
+  window_focused: "local_only",
+  hand_off: "local_only",
+  take_back: "local_only",
+  export_session: "local_only",
+  // Not in the first version.
+  edit_stopped_message: "local_only",
+  fork_session: "local_only",
+  detach_session: "local_only",
+  archive_chat: "local_only",
+  restore_chat: "local_only",
+  search_files: "local_only",
+  // Remote access itself is managed on the Mac.
+  get_remote: "local_only",
+  set_remote: "local_only",
+  test_relay: "local_only",
+  start_pairing: "local_only",
+  cancel_pairing: "local_only",
+  confirm_pairing: "local_only",
+  rename_device: "local_only",
+  revoke_device: "local_only",
+  reset_remote_identity: "local_only",
+} as const satisfies Record<CommandType, Reach>;
+
+/**
+ * Whether a phone may run a command.
+ *
+ * @remarks
+ * By `COMMAND_REACH`; a new child conversation is not in the first version, so `create_session`
+ * with `child` is the Mac's only (SPEC-0005, "远程客户端能用的命令").
+ *
+ * @sideEffects none
+ * @param command - The command.
+ * @returns Whether to run it; otherwise it is answered with `local_only`.
+ */
+export function phoneMayRun(command: Command): boolean {
+  if (command.type === "create_session" && command.child !== undefined) return false;
+  return COMMAND_REACH[command.type] === "phone";
+}
+
+/**
+ * What goes to a phone: every kind of host message classified (SPEC-0005, "给手机推什么").
+ *
+ * @remarks
+ * Applied where every message to a connection goes through, so broadcasts and what follows the
+ * welcome are both filtered. `login_updated` carries sign-in addresses; the rest of what is held
+ * back is about the Mac's own setup, or the "手机" page.
+ */
+export const PUSHED_TO_PHONE = {
+  welcome: true,
+  response: true,
+  session_snapshot: true,
+  run_started: true,
+  run_settled: true,
+  turn_started: true,
+  step_added: true,
+  step_delta: true,
+  step_updated: true,
+  turn_finished: true,
+  notice_added: true,
+  session_exited: true,
+  control_updated: true,
+  prompt_handled: true,
+  model_updated: true,
+  fast_updated: true,
+  metrics_updated: true,
+  index_snapshot: true,
+  index_changes: true,
+  changes_updated: true,
+  diff_updated: true,
+  plans_updated: true,
+  login_updated: false,
+  install_updated: false,
+  install_output: false,
+  pi_latest: false,
+  credentials_changed: false,
+  remote_updated: false,
+} as const satisfies Record<HostMessage["type"], boolean>;
+
+/**
+ * Whether a host message may go to a phone.
+ *
+ * @remarks
+ * See `PUSHED_TO_PHONE`.
+ *
+ * @sideEffects none
+ * @param message - The message.
+ * @returns Whether to send it.
+ */
+export function pushedToPhone(message: HostMessage): boolean {
+  return PUSHED_TO_PHONE[message.type];
+}

@@ -1,0 +1,107 @@
+{
+  "decoded": [
+    {
+      "from": "phone",
+      "kind": "control",
+      "value": {
+        "kind": "pair_confirm"
+      }
+    },
+    {
+      "from": "host",
+      "kind": "control",
+      "value": {
+        "deviceId": "dev_0123456789abcdef",
+        "hostName": "Swift Mac",
+        "kind": "paired"
+      }
+    },
+    {
+      "from": "phone",
+      "kind": "message",
+      "text": "{\"clientId\":\"dev_0123456789abcdef\",\"protocolVersion\":25,\"traceparent\":\"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01\",\"type\":\"hello\"}"
+    },
+    {
+      "from": "host",
+      "kind": "message",
+      "text": "{\"heartbeatMs\":10000,\"hostInstanceId\":\"h1\",\"hostVersion\":\"0.0.0-swift\",\"protocolVersion\":25,\"type\":\"welcome\"}"
+    },
+    {
+      "from": "phone",
+      "kind": "ping"
+    },
+    {
+      "from": "host",
+      "kind": "pong"
+    }
+  ],
+  "format": 1,
+  "generator": "swift",
+  "handshake": [
+    {
+      "from": "phone",
+      "noise_message": "9c4bde3850ff047321472153a726fb2f2ece6760af2be57a131b385c2fa8c973f26818c91d7be41a6defc1631e39ada45e1f3bd0e8a932f7b61407b6d9f0391fc282a8010f7a37428cf6ee61d9ffb5fbfc66de0a0ab4f17187111e5198f19d1903fc1ce9a1ebff2691536d05aa2818f3d893f31a4d85fde72d63a4429e1fd729c587bbd057e392956d9822d25760ac6cacb2392fda975cb58e34e305a7c9761abdd48822e2b97d975adcb68f65b4e31504dc8b98f9dc4f68e8f0edbfe93de7f7d04776670f57c30df74d871277bcaffc749458b8de8abb555e6a73af069ad1e3c0567d7f3e3629daccb6de431247",
+      "payload": "7b2261707056657273696f6e223a22302e302e31222c226465766963654e616d65223a225377696674206950686f6e65222c226b696e64223a2270616972222c226d6f64656c223a226950686f6e6531382c31222c2270616972696e674964223a22706169725f30313233343536373839616263646566222c2270726f746f636f6c56657273696f6e223a32357d",
+      "payload_text": "{\"appVersion\":\"0.0.1\",\"deviceName\":\"Swift iPhone\",\"kind\":\"pair\",\"model\":\"iPhone18,1\",\"pairingId\":\"pair_0123456789abcdef\",\"protocolVersion\":25}",
+      "wire": "4101029c4bde3850ff047321472153a726fb2f2ece6760af2be57a131b385c2fa8c973f26818c91d7be41a6defc1631e39ada45e1f3bd0e8a932f7b61407b6d9f0391fc282a8010f7a37428cf6ee61d9ffb5fbfc66de0a0ab4f17187111e5198f19d1903fc1ce9a1ebff2691536d05aa2818f3d893f31a4d85fde72d63a4429e1fd729c587bbd057e392956d9822d25760ac6cacb2392fda975cb58e34e305a7c9761abdd48822e2b97d975adcb68f65b4e31504dc8b98f9dc4f68e8f0edbfe93de7f7d04776670f57c30df74d871277bcaffc749458b8de8abb555e6a73af069ad1e3c0567d7f3e3629daccb6de431247"
+    },
+    {
+      "from": "host",
+      "noise_message": "07fc6e5b5a4de01f435caef843124cdcc1f9bcc9c4a813cda967a4f90a96890be289510eeaec452a6105a89de0cc97bd4b6456bb327c5ea0330503",
+      "payload": "7b226f6b223a747275657d",
+      "payload_text": "{\"ok\":true}",
+      "wire": "07fc6e5b5a4de01f435caef843124cdcc1f9bcc9c4a813cda967a4f90a96890be289510eeaec452a6105a89de0cc97bd4b6456bb327c5ea0330503"
+    }
+  ],
+  "handshake_hash": "4dcde4c16e736c87d59e24db8c88a07f8913715819623049a6be8cadfee9b35e",
+  "host_ephemeral": "720595990c459a07dfd7c1a964f5c9d81ad11a795044b1d94f127e3ff90f05c4",
+  "host_id": "hst_0123456789abcdef",
+  "host_static": "478b4d717d06832caabd83a0343cf1934e9abc2b40ff4b966185ca9f625abfdb",
+  "host_static_public": "92690e8d7ec37720f59bce5d6f94c9da6b05339654e85f9d8c5c8bcd75a6e412",
+  "mode": 2,
+  "phone_ephemeral": "38d83887726010088a31b1abf7a9391696d866f1b04b693861424dcf9cd11a40",
+  "phone_static": "df5c1394762a9b79ee8eb554a477c3910163e51d4e2d40a46a03fe7275af4779",
+  "phone_static_public": "d242eb347e7d8359d856bcb5e566357e91dd1bb8fc0a83d34e81db40f04d8a5c",
+  "prologue": "61747269756d2d72656d6f74652f31006873745f3031323334353637383961626364656600",
+  "protocol_name": "Noise_IKpsk2_25519_ChaChaPoly_SHA256",
+  "psk": "97a31b2f180f298ea251c809cca747f049dacbb36775a8c7fdfc21b9ab0df0bd",
+  "sas": "808616",
+  "transport": [
+    {
+      "ciphertext": "69ed4cbd99c4dbd5d11e68f2e7b420ec968a143a6076626d931a73d36bfe1e61e91810f486ea8b23",
+      "from": "phone",
+      "nonce": 0,
+      "plaintext": "047b226b696e64223a22706169725f636f6e6669726d227d"
+    },
+    {
+      "ciphertext": "c968ce29a746249034d613be0204791260670ed819089e0b921782a49f342bf098ce71584a2e8278d5afba819ce7984a0c8dd18e495d65753141d7c8f5f89077a51ab80e7b7759bd66fc3ba44b92a2d66bd280552bdf024d558c4f",
+      "from": "host",
+      "nonce": 0,
+      "plaintext": "047b226465766963654964223a226465765f30313233343536373839616263646566222c22686f73744e616d65223a225377696674204d6163222c226b696e64223a22706169726564227d"
+    },
+    {
+      "ciphertext": "138f68b049605eff8e05dbd23d0d195942216b52fde4e1962373975785521ad37bc1ca904137e54da8a3e8af2ec0e160633051fcee00d88e1e0cdd7c15a3e34bb3d570dd8512436a0e4e295dc5632ec33a4b5cdcd27649b75f620f0de9f7bfa226e0695086b047d9677aabc52a14e5384a4941c06ced56724afc53fa3a2df042a1f40961d88fdd621734082297f29ba7ef16eb329d04449253e201e0d9833be4",
+      "from": "phone",
+      "nonce": 1,
+      "plaintext": "007b22636c69656e744964223a226465765f30313233343536373839616263646566222c2270726f746f636f6c56657273696f6e223a32352c227472616365706172656e74223a2230302d34626639326633353737623334646136613363653932396430653065343733362d303066303637616130626139303262372d3031222c2274797065223a2268656c6c6f227d"
+    },
+    {
+      "ciphertext": "062815d5a67fcdd4e4746cef940179bc22cfc923a9b93f9f9797b008ff47e95599cf1543f9b0e42cc2165dfb36bdedb37733fb4fa7f340429645f268ac2ace094727089be3c4445a1e0c5ccdeafa46d1f74f83f392f67c1876c828549989cfb832c45e0c6abeac94cf00add2109eb7372778a5a5904ae589372bf4961dca",
+      "from": "host",
+      "nonce": 1,
+      "plaintext": "007b226865617274626561744d73223a31303030302c22686f7374496e7374616e63654964223a226831222c22686f737456657273696f6e223a22302e302e302d7377696674222c2270726f746f636f6c56657273696f6e223a32352c2274797065223a2277656c636f6d65227d"
+    },
+    {
+      "ciphertext": "6989fa2b6106369b4e62d1185518a19ac7",
+      "from": "phone",
+      "nonce": 2,
+      "plaintext": "02"
+    },
+    {
+      "ciphertext": "d551b33b14021ade82a21cae870b22573a",
+      "from": "host",
+      "nonce": 2,
+      "plaintext": "03"
+    }
+  ]
+}

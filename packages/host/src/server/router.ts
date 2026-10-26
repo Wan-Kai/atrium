@@ -14,16 +14,42 @@ import type { Logger } from "../platform/logger";
 import { contextFromTraceparent, inSpan } from "../platform/tracing";
 import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
+import type { ReplyTranslations } from "../sessions/reply-translation";
 import type { InstallService } from "../setup/install-service";
 import type { LoginService } from "../setup/login-service";
 import type { PiLatestService } from "../setup/pi-latest";
 import type { SetupService } from "../setup/setup-service";
 import type { PiConfig } from "../setup/pi-config";
 import type { Connection } from "./connection";
+import { phoneMayRun } from "./remote-policy";
+
+/**
+ * The remote-access commands of the desktop's "手机" page (SPEC-0005, "给本机界面的命令和事件").
+ *
+ * @remarks
+ * Defined here so the server knows only this shape; `remote/` implements it. Failures are thrown
+ * as `CommandError`. Only local connections reach them: a phone is answered `local_only` first.
+ */
+export interface RemoteCommands {
+  /** The remote state; `watch` starts or stops `remote_updated` for the connection. */
+  get(connectionId: string, watch: boolean | undefined): CommandResult<"get_remote">;
+  set(enabled: boolean, relay: string | undefined): Promise<CommandResult<"set_remote">>;
+  testRelay(): Promise<CommandResult<"test_relay">>;
+  startPairing(): CommandResult<"start_pairing">;
+  cancelPairing(): CommandResult<"cancel_pairing">;
+  confirmPairing(pairingId: string, accept: boolean): Promise<CommandResult<"confirm_pairing">>;
+  renameDevice(deviceId: string, name: string): Promise<CommandResult<"rename_device">>;
+  revokeDevice(deviceId: string): Promise<CommandResult<"revoke_device">>;
+  resetIdentity(): Promise<CommandResult<"reset_remote_identity">>;
+  /** A connection closed; it watches nothing more. */
+  unwatch(connectionId: string): void;
+}
 
 /** What the router needs from the rest of the host. */
 export interface RouterOptions {
   readonly sessions: SessionCommands;
+  /** Independent reply translation, owned by the requesting connection. */
+  readonly translations: Pick<ReplyTranslations, "translate" | "cancel">;
   /** Images uploaded ahead of their messages. */
   readonly attachments: AttachmentStore;
   /** What each connection shows of workspaces' git changes. */
@@ -41,6 +67,8 @@ export interface RouterOptions {
   readonly installs: Pick<InstallService, "start" | "cancel">;
   /** The latest pi. */
   readonly piLatest: Pick<PiLatestService, "check">;
+  /** Remote access, for the local "手机" page. */
+  readonly remote: RemoteCommands;
   readonly tracer: Tracer;
   readonly logger: Logger;
 }
@@ -74,7 +102,7 @@ export function createRouter(options: RouterOptions): Route {
    *
    * @remarks
    * The `switch` is exhaustive over `Command`, so a new command type does not compile until it is
-   * routed.
+   * routed. A phone's command that is not on its allowlist is answered `local_only` first.
    *
    * @sideEffects Whatever the handler does.
    * @param connection - The connection that sent it.
@@ -82,6 +110,8 @@ export function createRouter(options: RouterOptions): Route {
    * @returns The command's result.
    */
   async function run(connection: Connection, command: Command): Promise<CommandResult<CommandType>> {
+    // A phone runs only what the allowlist gives it (SPEC-0005, "远程客户端能用的命令").
+    if (connection.origin === "remote" && !phoneMayRun(command)) throw new CommandError("local_only");
     switch (command.type) {
       case "ping":
         return {};
@@ -154,6 +184,11 @@ export function createRouter(options: RouterOptions): Route {
         return options.files.listDir(command.workspaceId, command.path);
       case "read_file":
         return options.files.readFile(command.workspaceId, command.path);
+      case "translate_reply":
+        return options.translations.translate(connection.id, command.translationId, command.sessionId, command.turnId);
+      case "cancel_translation":
+        await options.translations.cancel(connection.id, command.translationId);
+        return {};
       case "set_preferences":
         return options.index.setPreferences({
           ...(command.setupDone === undefined ? {} : { setupDone: command.setupDone }),
@@ -162,6 +197,7 @@ export function createRouter(options: RouterOptions): Route {
           ...(command.titleModel === undefined ? {} : { titleModel: command.titleModel }),
           ...(command.proxy === undefined ? {} : { proxy: command.proxy }),
           ...(command.inbox === undefined ? {} : { inbox: command.inbox }),
+          ...(command.translationLanguage === undefined ? {} : { translationLanguage: command.translationLanguage }),
         });
       case "subscribe_sessions":
         return options.sessions.subscribe(connection.id, command.sessionIds);
@@ -266,17 +302,24 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.listBranches(command.projectId);
       case "set_main_branch":
         return options.index.setMainBranch(command.projectId, command.branch);
-      // The remote module comes later in MP3a; until then remote access is not there to use.
       case "get_remote":
+        return options.remote.get(connection.id, command.watch);
       case "set_remote":
+        return options.remote.set(command.enabled, command.relay);
       case "test_relay":
+        return options.remote.testRelay();
       case "start_pairing":
+        return options.remote.startPairing();
       case "cancel_pairing":
+        return options.remote.cancelPairing();
       case "confirm_pairing":
+        return options.remote.confirmPairing(command.pairingId, command.accept);
       case "rename_device":
+        return options.remote.renameDevice(command.deviceId, command.name);
       case "revoke_device":
+        return options.remote.revokeDevice(command.deviceId);
       case "reset_remote_identity":
-        throw new CommandError("remote_unavailable");
+        return options.remote.resetIdentity();
     }
     // Stryker disable next-line all: unreachable, since the switch covers every command type.
     throw new Error(`unrouted command ${String((command as { type: unknown }).type)}`);

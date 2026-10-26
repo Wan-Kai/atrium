@@ -172,7 +172,116 @@ const TRICKY_SOURCE = [
   "",
 ].join("\n");
 
+/** Exact Node error-code literals used by relay diagnostics, not environment-variable prefixes. */
+const RELAY_ERROR_CODES = [
+  "CERT_HAS_EXPIRED",
+  "CERT_NOT_YET_VALID",
+  "CERT_SIGNATURE_FAILURE",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "EAI_AGAIN",
+  "EAI_FAIL",
+  "HPE_",
+];
+
 describe("pnpm boundary --all", () => {
+  it("excludes only exact relay error-code literals from string and array heuristics", async () => {
+    const root = await scene();
+    await put(root, {
+      "docs/architecture/security.md": security({ urls: [], env: [], commands: [] }),
+      "packages/host/src/errors.ts": RELAY_ERROR_CODES.map(
+        (code) => `check("${code}"); check(\`${code}\`); check(["${code}"]);`,
+      ).join("\n"),
+    });
+
+    const result = await boundary(root, "--all");
+
+    expect(result).toStrictEqual({
+      stdout: "boundary --all: URLs 0, environment variables 0, hidden commands 0; unregistered 0, not exact 0\n",
+      stderr: "",
+      code: 0,
+    });
+  });
+
+  it("still flags unknown names resembling relay error codes", async () => {
+    const root = await scene();
+    const names = ["CERT_UNKNOWN", "EAI_UNKNOWN", "HPE_UNKNOWN", ...RELAY_ERROR_CODES.map((code) => `${code}X`)];
+    await put(root, {
+      "docs/architecture/security.md": security({ urls: [], env: [], commands: [] }),
+      "packages/host/src/errors.ts": names.map((name) => `check("${name}");`).join("\n"),
+    });
+
+    const result = await boundary(root, "--all");
+
+    expect(result).toStrictEqual({
+      stdout: [
+        "Unregistered environment variables:",
+        ...names.map((name, index) => `  ${name}  packages/host/src/errors.ts:${index + 1}`).toSorted(),
+        `boundary --all: URLs 0, environment variables ${names.length}, hidden commands 0; unregistered ${names.length}, not exact 0`,
+        "",
+      ].join("\n"),
+      stderr: "",
+      code: 1,
+    });
+  });
+
+  it("counts exact error-code names in every static environment access form", async () => {
+    const root = await scene();
+    const names = [...RELAY_ERROR_CODES, "ERR_STREAM_PREMATURE_CLOSE", "ERR_"];
+    await put(root, {
+      "docs/architecture/security.md": security({ urls: [], env: [], commands: [] }),
+      "packages/host/src/env.ts": names
+        .flatMap((name) => [
+          `process.env.${name};`,
+          `options.env["${name}"];`,
+          `const { ${name} } = toolEnv;`,
+          `check({ ...environment, "${name}": "value" });`,
+          `check({ env: { "${name}": "value" } });`,
+          `{ const env = { "${name}": "value" }; }`,
+        ])
+        .join("\n"),
+    });
+
+    const result = await boundary(root, "--all");
+
+    expect(result).toStrictEqual({
+      stdout: [
+        "Unregistered environment variables:",
+        ...names.map((name, index) => `  ${name}  packages/host/src/env.ts:${index * 6 + 1} (+5 more)`).toSorted(),
+        `boundary --all: URLs 0, environment variables ${names.length}, hidden commands 0; unregistered ${names.length}, not exact 0`,
+        "",
+      ].join("\n"),
+      stderr: "",
+      code: 1,
+    });
+  });
+
+  it("includes the remote crypto package in the production boundary gate", async () => {
+    const root = await scene();
+    await put(root, {
+      "docs/architecture/security.md": security({ urls: [], env: [], commands: [] }),
+      "packages/remote-crypto/src/network.ts":
+        'const url = "https://crypto.example"; process.env.REMOTE_NETWORK_KEY;\n',
+      "packages/remote-crypto/test/helper.ts": 'const url = "https://test-only.example";\n',
+    });
+    await git(root, "add", "-A");
+    const result = await boundary(root, "--all");
+    expect([result.stdout, result.code]).toStrictEqual([
+      [
+        "Unregistered URLs:",
+        "  https://crypto.example  packages/remote-crypto/src/network.ts:1",
+        "Unregistered environment variables:",
+        "  REMOTE_NETWORK_KEY  packages/remote-crypto/src/network.ts:1",
+        "boundary --all: URLs 1, environment variables 1, hidden commands 0; unregistered 2, not exact 0",
+        "",
+      ].join("\n"),
+      1,
+    ]);
+  });
+
   it("lists the production URLs, variables and hidden commands the registry lacks, reading code but not comments, regexes, error codes, composed rows, tests or other folders", async () => {
     const root = await scene();
     await put(root, {

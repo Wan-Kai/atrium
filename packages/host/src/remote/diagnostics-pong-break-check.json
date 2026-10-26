@@ -1,0 +1,142 @@
+[
+  {
+    "file": "packages/host/src/remote/relay-pong.ts",
+    "from": "if (data.equals(payload))",
+    "to": "if (true)",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "accepts only this check's pong"
+  },
+  {
+    "file": "packages/host/src/remote/relay-pong.ts",
+    "from": "socket.on(\"pong\", pong);",
+    "to": "socket.once(\"pong\", pong);",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "accepts only this check's pong"
+  },
+  {
+    "file": "packages/host/src/remote/relay-pong.ts",
+    "from": "socket.ping(payload);",
+    "to": "socket.ping();",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "accepts only this check's pong"
+  },
+  {
+    "file": "packages/host/src/remote/relay-pong.ts",
+    "from": "randomBytes(16)",
+    "to": "Buffer.alloc(16)",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "accepts only this check's pong"
+  },
+  {
+    "file": "packages/host/src/remote/relay-pong.ts",
+    "from": "socket.off(\"pong\", pong);",
+    "to": "",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "releases listeners and deadlines"
+  },
+  {
+    "file": "packages/host/src/remote/relay-pong.ts",
+    "from": "socket.off(\"close\", closed);",
+    "to": "",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "releases listeners and deadlines"
+  },
+  {
+    "file": "packages/host/src/remote/relay-pong.ts",
+    "from": "cancel();",
+    "to": "",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "releases listeners and deadlines"
+  },
+  {
+    "file": "packages/host/src/remote/relay-pong.ts",
+    "from": "socket.terminate();",
+    "to": "",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "releases listeners and deadlines after timeout"
+  },
+  {
+    "file": "packages/host/src/remote/relay-pong.ts",
+    "from": "finish({ error: \"relay_unreachable\", failure: \"timeout\" });",
+    "to": "",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "releases listeners and deadlines after timeout"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "request.prependListener(\"error\", onError);",
+    "to": "request.on(\"error\", onError);",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "rejects an untrusted local certificate"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "this.#upgradeSeen = true;",
+    "to": "this.#upgradeSeen = false;",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "classifies bad-accept"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "this.#opened = true;",
+    "to": "this.#opened = false;",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "before"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "code.startsWith(\"HPE_\")",
+    "to": "false",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "classifies bad-header"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "request.off(\"error\", onError);",
+    "to": "",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "releases every observational listener"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "socket.off(\"connect\", connect);",
+    "to": "",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "releases every observational listener"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "socket.authorized",
+    "to": "false",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "releases every observational listener after trusted TLS"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "token: \"unknown\",",
+    "to": "token: \"passed\",",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "labels live evidence"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "network: failure === null ? \"passed\" : \"unknown\",",
+    "to": "network: failure === null ? \"passed\" : \"failed\",",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "labels live evidence"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "if (!options.signal.aborted) options.onDiagnostics?.(diagnostics.finish(error));",
+    "to": "options.onDiagnostics?.(diagnostics.finish(error));",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "does not publish an abandoned attempt"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "request.end();\n      },\n    });\n    const release = options.resources.acquire",
+    "to": ";\n      },\n    });\n    const release = options.resources.acquire",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "distinguishes ready"
+  }
+]

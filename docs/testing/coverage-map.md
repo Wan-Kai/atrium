@@ -4,6 +4,108 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## MP3a 协议 27 协调及设置页接缝（2026-10-26）
+
+协调提交 `c709daf` 合入固定 main `ace843a`（已核实祖先关系），解决双方都占用版本 26 却形状不兼容的问题；保留翻译和远程协议并集，新增型号、诊断和握手活动投影，统一为 27。Swift 类型、往返夹具与版本断言同步。以下是新增验证；下节 `c09b54d` 的全量/变异仍为历史记录，不冒充本轮结果。
+
+| 行为 | 证据 |
+|---|---|
+| 三项投影字段必填，未知型号为 null，诊断区分 unknown/not_applicable/failed，拒绝原始错误字段；保持翻译命令、语言偏好、错误；两翻译命令显式 local_only | `protocol/src/remote.test.ts`、`envelope.test.ts`、`translation.test.ts`、`server/remote-policy.test.ts`；Swift 协议 16 项；`protocol/src/coordination-break-check.json` 7/7 检出 |
+| 型号从已存自报值 trim，空白为 null，不猜硬件，不改保险箱格式 | `test/remote/projections.host.test.ts` 及 `service-security.host.test.ts` 的真实 relay 流程 |
+| 多候选、旧 QR、旧连接代次、过期、取消、关闭后灰包消失；不暴露 M1 候选身份，不改业务状态机；晚加入 watcher 得到当前事实，短握手不人为延长 | `projections.host.test.ts`；`remote/pairing.test.ts`、`remote-service.test.ts`；首次 RED 后 GREEN，候选激活通知 100ms 合并，终止清除立即发送 |
+| connect/live、关着时 probe、配置/身份/代次变化、probe 取消、旧结果不能覆盖新状态；重试保留已结束快照，重置不能把旧诊断与新指纹一起推送 | `remote-service.test.ts`、`projections.host.test.ts`；投影和重置破坏检查共 14/14 检出 |
+| 实际 TCP/地址解析/TLS/HTTP Upgrade/令牌认可证据；不把普通 reset 或总超时归因为无网；正常 CA 验证的 TLS 才通过 | `relay-diagnostics.test.ts` 16 项本地真实请求/服务器：可信测试 CA、未信任证书、主机名不匹配、拒绝连接、受控 resolver、静默 TLS、reset、503、畸形 101、HPE 解析错误、正常 open 后关闭；未访问 VPS，未放宽 TLS |
+| request/socket 的七个观测监听在成功、失败、取消后移除；必须履行 finishRequest 的 request.end 责任 | 同上真实 listener 引用核对；先复现 ws 请求错误处理会同步 close，改为 prepend 记录；畸形 101/HTTP 解析回归先红后绿，不重复实现 WebSocket 验证器 |
+| 当前控制 socket 的本次随机 16 字节 ping；空/错/旧/常规心跳 pong 不成功且不消耗监听；并发共享、正确 pong 成功、超时不悬空且物理连接关闭、stop/close/rejection 清理 | `relay-link.test.ts` 真实 socket；先复现任意 pong 提前成功；重复 12 轮核对真实 socket 的监听数与资源；`diagnostics-pong-break-check.json` 20/20 检出（最初两项测试名过滤不匹配，修正后全部复验）；旧三条移动锚点复验通过 |
+| 错误码字面量不冒充环境变量；显式 env 读取/解构/对象键仍受检查，未知相似前缀不豁免 | `scripts/boundary.test.ts` 12 项、7 条破坏检查；只增 11 项精确例外，不新增虚假登记。`boundary --all` 14 URLs / 41 env / 4 commands，未登记 0 |
+
+阶段验证：协议协调阶段定向 200 项、协议类型检查和 Swift 16 项通过；行为补齐后定向协议/路由/远程单元 470 项、真实 relay 61 项通过，随后补强的协议/白名单 25 项再次通过；远程泄漏 2 项通过。最终源码 `pnpm check` 通过。变异仅对五个变更远程文件运行增量，原始报告 `reports/stryker-incremental-remote-close.json` 保留，v27 结果独立写到 `reports/stryker-incremental-remote-v27.json`；当前仍在执行，未提前称新源码达标。
+
+边界与未完成项：完整桌面泄漏、既有 file-search 竞态、既有 Electron quit 重入问题仍按下节保留失败证据，未顺带修改。未做真实钥匙串授权、真机、用户 VPS、打包安装或跨分支人工验收；本轮不是三方正式审查。
+
+## MP3a 宿主远程模块（2026-10-26）
+
+以下为历史快照 `c09b54d` 的实现与验证记录，不作为当前整合结果：协议 v27、模型、诊断与握手的协调整合仍待完成。
+
+范围：SPEC-0005 的宿主、Noise、配对/日常连接/撤销、远程白名单与大小限制；不包含 MP3b 设置页和 MP4 的快照预算、续传、回执。协议独立提交 `20169cc`（26），后续未改形状。
+
+| 行为 | 验证 |
+|---|---|
+| IK/IKpsk2、低阶点、畸形密文、nonce、分帧/分块大小与期限、心跳、错误即关通道；TS/Swift 字节级互通 | `packages/remote-crypto/src/*.test.ts`、`test/interop.test.ts`、cacophony 向量与四份互通夹具；64 项 |
+| 成功读取必须有 version/data，IPC id 对应、超限写终结、post 失败、写队列拒绝后恢复且不消耗版本 | `host/src/remote/vault.test.ts`、`host/src/electron-port.test.ts` |
+| 主进程 safeStorage 异步可用性/加解密、损坏与缺文件分开、版本拒绝、原子文件、清理异常后继续 | `apps/desktop/src/main/vault.test.ts`（15 项；真实文件 ENOTDIR 复现清理失败，不 mock fs） |
+| 未启用的本机启动不自动读钥匙串；等待授权时仍能读状态和关闭开关；显式重置损坏；standalone 不可用；晚到读取不初始化已关服务 | `remote-service.test.ts`；`apps/desktop/e2e/remote-vault.spec.ts` 前两例经真实 utilityProcess IPC（不可用场景替换 safeStorage 的 availability，不触发真人授权） |
+| relay 地址只对 loopback 用 ws，端口合法；凭据不出状态；ready/ping、指数退避与手动重试、异常控制帧、可取消 probe | `relay-line.test.ts`、`relay-link.test.ts`；后者声明/行覆盖 100%、分支 94.23%（定向覆盖运行） |
+| 设备密钥 canonical base64url、id/公钥不重复、名字回退；QR 查询值用 `%20` 而非 `+`，兼容 Swift 百分号解码 | `devices.test.ts`；`service.host.test.ts` 元数据例先红后绿；实际 `xcrun swift -e` 对照 `URLComponents` 的两种输入 |
+| 可用码五分钟、确认两分钟、并发确认只能赢一个、到期码/取消/拒绝/确认前掉线/不正确 PSK/版本/保存失败 | `pairing.test.ts`；`test/remote/service.host.test.ts` 启真实本地 `apps/relay` 子进程 |
+| 保存成功但 paired 丢失后用 IK 补齐；未知设备拒绝；同公钥重配沿用身份和自定义名；重置先保存再撤销，并废弃排在重置之后的旧配对确认 | `test/remote/service.host.test.ts` |
+| 撤销立即断全部通道，保存失败仍拉黑、可重试；正在保存的确认不能解除后来撤销；撤销→排队确认→再次撤销不能绕成新 id | `service.host.test.ts` 三种 gated vault 撤销交错；后两种先复现再修复，分别以删除 `?? acceptedDevice` 和已撤销 id 的幂等门槛作负对照 |
+| 最多四个未完成握手、十秒期限；每设备两通道、三十秒静默；待确认配对同样主动探测，成功后移交服务器心跳；流量按真实密文字节、1 秒预热/2 秒窗口、离线历史自然归零 | `service.host.test.ts` 两个心跳用例先红后绿；精确计算 UTF-8＋帧类型＋Poly1305 标签及逐秒窗口；`relay-link.test.ts` 假时钟与真实 socket |
+| 手机 hello 无 token 且 clientId 等于 Noise deviceId；九个本地管理命令完整转交；手机管理请求 local_only；事件只推本机 watcher | `server/router.test.ts`、`server/remote-policy.test.ts`；`test/remote/host-connection.host.test.ts` 真实 startHost＋relay＋假手机 |
+| 命令/事件全集穷举分类，child 创建拒绝；8 MiB 应答转 response_too_large、事件转快照，仍超限告警丢弃 | `server/remote-policy.test.ts`、`server/connection.test.ts` |
+| 数据通道畸形帧、错误密文、分块超时、出站超限、CONNECTING 中止、关闭兜底、独立积压、done/资源真实关闭顺序 | `remote/channel.test.ts` 32 项真实 ws＋Noise；31 项阶段曾测行覆盖 99%、分支 95.65%，最终用整文件变异结果而非这次历史覆盖率验收 |
+| 对端发 Close 后保持 TCP 半关闭，宿主结束时仍在 1 秒内完成 done、释放资源 | `channel.test.ts` raw `allowHalfOpen` peer：核对 101、Close1000 回应及 host FIN；原实现 RED（done=false/data=1），修复后 GREEN，恢复 OPEN-only 判断的破坏检查 CAUGHT；不是通过改超时或 suppression 凑分 |
+| 已有 A 时未知 B 密钥仍拒；错误版本立即关；错误控制不能确认；撤销/改名 A 不碰 B；真实重建服务恢复 enabled/disabled；本地状态通知与元数据不含秘密 | `test/remote/service-security.host.test.ts` 18 项；`service.host.test.ts` 日志/流量例；不以空设备表下的拒绝代替身份匹配断言 |
+| 加密包也进入生产外部边界扫描，测试文件仍排除 | `scripts/boundary.test.ts` 新例先红后绿；定向删除 scope 中的 remote-crypto，破坏检查检出 |
+| 资源归零（40 轮配对/连接/撤销；20 轮四通道开关）、probe 挂起时关闭/启用不会晚到挤正式连接 | `test/remote/service.leak.test.ts` 两项；`service.host.test.ts` probe 用 SIGSTOP 控制真实 relay，finally 确保 SIGCONT |
+
+测试辅助实现也验证：`test/remote/harness.test.ts` 9 项；relay 经真实 CLI 子进程登记，强制 loopback。泄漏压力场景把测试 relay 的接入配额显式设为 1000，生产 30/分钟不变；宿主的四流/两通道上限不变。
+
+破坏检查（均已执行、全部 CAUGHT）：crypto 32（`packages/remote-crypto/test/break-check.json`，crypto 子代理）；早期服务器 8、vault 12（`/tmp/mp3a-break/`）；桌面异常修复 5（`apps/desktop/src/main/vault-break-check.json`）；辅助假手机/relay 9（`test/remote/break-check.json`）；远程单元 17＋25（`src/remote/{break-check,extra-break-check}.json`）；真实 relay 18（`test/remote/service-break-check.json`）；排队撤销 2、重置 2（`queued-{revocation,reset}-break-check.json`）；九条路由 9（`router-break-check.json`）；密文流量 3（`traffic-break-check.json`）；日志 14、活性/元数据/QR 5、状态/IPC边界 9、数据通道 34（`src/remote/{log,live-check,state,channel}-break-check.json`）；安全集成 20、配对心跳 3（`test/remote/{security,pair-heartbeat}-break-check.json`）；生产边界 1（`/tmp/mp3a-boundary-break.json`）；TCP 半关闭 1（`src/remote/half-open-break-check.json`）。Electron 前两例另把已构建宿主的 `vault: config2.vault` 改成 `undefined`，两项都失败，恢复后通过；没有用类型错误代替运行时负对照。
+
+**最终源复核（18:27～18:31）**：`pnpm check` 全过；`pnpm test` 单元 **4010**＋Swift **22** 全过；默认并行 `pnpm test:host` **205** 全过（含真实 relay **47** 项）；`vitest run --project leak` 的 Node 全量 **17** 项过；`pnpm build` 过；重建后的 Electron `app.spec.ts`＋`remote-vault.spec.ts` **14** 项过。protocol 与生成 Swift 自 `20169cc` 起无后续改动。
+
+**变异过程和最终口径**：首轮全组 **78.68% 未达标**（宿主远程 71.47%），没有用 crypto 抬平均。按存活项补测后第二轮 **90.09%**；配对等待心跳与 QR 编码修复后第三轮完整基线 **90.11%**，并把不确定的 relay 错误监听 Timeout 实际重测为 **Killed**。分析其中的存活项又复现了上述 CLOSING 原实现缺陷；修复后对 **channel 整文件强制重跑 164 个**，160 killed／4 survived／0 timeout，**97.56%**。Stryker 原生保留范围外的 2061 条真实既有状态（含 20 ignored），最终完整报告 `reports/stryker-incremental-remote-close.json` 的 13 份生产源码均与交付源码逐字一致：全组 **90.07%**（1977 killed、9 timeout、219 survived），宿主远程单独 **87.88%**，crypto **100%**，桌面保险箱 **85.65%**。`devices.ts` 单文件 79.49% 如实保留，门槛按组，未抑制真实覆盖缺口。
+
+219 个存活和 9 个缓存 Timeout 的逐项理由及对账见 [MP3a 变异存活分析](mp3a-mutation-survivors.md)。剩余 Timeout 是分块／心跳回环和设备队列忙循环，不冒称本轮全重跑；crypto 的 437 个检出来自先前独立运行（429 killed、8 timeout），18 ignored 原因在源码。破坏了清理的 Stryker 子测试曾留下 relay 子进程，已按本 worktree 的 sandbox 绝对路径和 PPID=1 精确清理，最终核对为 0；没有终止用户应用或服务器。
+
+**失败和限制如实保留**：一次 `pnpm test:host` 178/179，既有 `files/file-search.host.test.ts` 的“超过 1 MiB”失败：`runFd` 超限只 kill，但进程先退出 0 时仍接受此前 chunks，代码未在本任务修改。后一次与四 worker 变异并跑，178/182，四个既有 git 用例 15 秒超时；空载串行复核 203 项通过，最终默认并行全量 205 项也通过；未改该文件，不删用例或放宽期限。两次 `pnpm test:leak` 的 Node 17 项均过，桌面分别 5/7、6/7：首轮 ask-user 的脱离 DOM（42 个 SVGCircleElement、2 个运行中 span、2 个 SVG）、图片模态拦截下一次点击；次轮 PlantUML naturalWidth 5 秒未就绪。前两项单跑 2/2、PlantUML 单跑 1/1 均通过；尚未确认根因，未改 UI，不把整套桌面泄漏报绿。Electron 的“宿主退出后迟到的钥匙串回答”额外实验正文通过、清理阶段 Close context 超时；诊断确认原 `postMessage` 迟到时静默 no-op，没有未处理拒绝。挂起是既有 quit 重入：`will-quit` 阻止退出后，对已结束的 `host.stop()` 立即 `.finally(app.quit)` 的再次 quit 被忽略；仅延后到 `setImmediate` 的实验通过。未顺带修既有生命周期问题，撤回未提交的防御代码和实验测试，保留原两项已提交的 IPC e2e；详细复现 `/tmp/mp3a-late-vault-diagnosis.md`，恢复后的构建与两项再通过。未访问用户 VPS，未做真机、真实钥匙串授权弹窗或打包安装；MP3b/MP4 不由这些测试代验。
+
+## M1.11 自用中改（2026-10-26）
+
+| 行为 | 测试 | 破坏检查 |
+|---|---|---|
+| 回复下方信息行自身上下各 4px 外边距（原型 `chat-footer-spacing-prototype.html` 的 A），不改字号、按钮、正文样式和轮容器之间的 24px 间隔 | `packages/ui/src/chat/turn.browser.test.tsx` "gives the reply info row 4px of vertical breathing room" | 去掉 `my-1` 后该用例见红，`CAUGHT` |
+
+验证：新用例先在原实现上失败（实际 `0px`），实现后通过；`pnpm check` 通过；单元 202 个文件 3792 项和 Swift 22 项通过；界面 49 个文件 1003 项通过；`apps/desktop/e2e/chat.spec.ts` 3 项通过；改动测试所在文件 2 份 × 2 轮压力检查通过。另用真实 Electron 和合成数据核对正文到信息行的实际间距为 8px（正文既有 4px 加信息行 4px），看过浅色、深色、长回复、空状态和出错状态截图，未见截断或布局跳动；临时截图用例与产物已清理。`pnpm boundary`：依赖、URL、环境变量、隐藏命令均无变化，协议 25 不变，未登记项 0。只改展示类名，不涉及核心纯逻辑、协议、资源或新依赖，未跑变异、泄漏、性能、浸泡、打包和真实模型测试。
+
+同步 `main` 收尾：四处冲突均保留双方内容，回复翻译及协议 26 原样保留，本任务相对 `main` 仍只有信息行留白、回归测试、文档和原型。`pnpm check`、构建、串行 Node 单元 204 个文件 3854 项、Swift 22 项、界面 51 个文件 1029 项、`apps/desktop/e2e/chat.spec.ts` 3 项通过。默认并行单元曾出现两个已登记的负载敏感 git 超时，相关文件单独 8＋3 项通过，随后串行全量通过；全量界面首轮另有一个 `question-card` 预览用例失败，单文件 20 项及全量重跑通过，未改这个无关组件或放宽断言。
+
+## 回复翻译（M1.11 自用后补充）
+
+用户选 `prototypes/reply-translation-prototype.html` 的 A“原文下展开”：当前会话模型、默认简体中文、设置仅配置目标语言；译文仅挂载组件内保留，不进原对话上下文或磁盘。
+
+| 行为 | 验证 |
+|---|---|
+| 只接受会话/轮/操作引用，不接受客户端指定正文、模型、语言；操作 id 与结果形状、语言校验 | `packages/protocol/src/translation.test.ts` 三例；`envelope.test.ts` 的命令、错误码与偏好样例；协议 26 |
+| 客户端传正确引用与取消 id，语言只在宿主保存后的索引更新中生效，失败不乐观修改 | `packages/client/src/atrium-client.test.ts`“reply translation”两例；`index-view.test.ts` 默认偏好 |
+| 当前分支已结束轮的正文与当前模型；只翻译最终正文，不含过程、思考、工具；空、运行中、未知轮拒绝 | `packages/host/src/sessions/session-manager.test.ts` 的翻译来源用例 |
+| 一连接一在途请求，按连接取消、重用 id 不串请求、超限和空结果、错误不含原文 | `packages/host/src/sessions/reply-translation.test.ts` |
+| 真实宿主与 pi/faux：当前模型与保存语言、无原历史和工具、无译文落盘、失败可重试、取消和断开、宿主关闭清理 | `packages/host/src/reply-translation.host.test.ts` |
+| 输出字节上限与不完整 JSON 记录有界、期限与取消释放进程 | `packages/pi/src/oneshot/oneshot.test.ts`；真实 pi 的 `oneshot.pi.test.ts` |
+| 原文不变、A 展开/收起复开、失败重试、取消焦点、旧请求和旧取消应答不过期覆盖、源/轮/会话/语言变化和卸载清理 | `packages/ui/src/chat/reply-translation.browser.test.tsx` |
+| 目标语言默认中文，限长/控制字符校验；保存中/成功/失败、失败草稿与外部偏好更新，不出现模型选择 | `packages/ui/src/settings/translation-group.browser.test.tsx` |
+| 桌面真实调用、原文和会话文件不改、只有语言落盘、重启译文消失；浅/深色截图 | `apps/desktop/e2e/reply-translation.spec.ts` |
+| 200 次真实子进程翻译后计数/实际定时器/signal 基线；切换译文页面后 DOM 不增长 | `packages/host/src/sessions/reply-translation.leak.test.ts`；`apps/desktop/e2e/reply-translation.leak.spec.ts` |
+
+功能分支验证（2026-10-26，`79e1fd2`；以下是同步最新 `main` 之前的结果，未安装）：
+
+- `pnpm check`（格式、lint、全包类型、knip、边界登记）与构建通过。单元 **3643**、串行宿主 **164**、串行 pi 契约 **99**、串行界面 **1028** 通过；最后一次构建后重新跑真实 pi 翻译契约 **12**、真实宿主翻译 **6** 通过。完整单元后只把客户端的 `allSettled([...Set])` 按 lint 建议改为等价的 `allSettled(Set)`，客户端 **108** 项复验通过。
+- 相关泄漏 **4** 项通过：宿主 200 次成功、50 次取消，客户端 1000 次取消回执可回收，及原有客户端视图回收；桌面翻译旅程与 DOM 泄漏各连续两次，**4/4** 通过。分别故意隐藏构建产物里的翻译按钮、在隔离窗口保留已移除 DOM，桌面测试均红；DOM 负对照明确检出译文 section 从 1 增到 11，恢复后通过。浅/深色的真实 Electron 页面截图已查阅；不把透明侧栏的页面截图当原生材质验收。
+- `pnpm break-check` 最终 **60** 处全部 `CAUGHT`：协议/客户端 10、UI 19、宿主原组 14、安全 3、正文来源/边界 7、pi 准备/清理/限额 7。UI 初轮有 1 个漏检，补上等待 Promise 完成后真正提交 React 更新的测试，连同新回归后 19/19；格式化与 UTF-8 代码收敛使两处旧 case 过期，更新精确片段后宿主 14 处重新全过，没有把 case 不执行算检出。
+- 增量变异：shared **100%**；host 报告 **99.41%**（回复翻译服务与来源 accessor 都为 **100%**；唯一存活来自误纳入所选行范围的既有 proxy 守卫，未改它）；pi **97.67%**，均无超时。最初 host 来源分支覆盖不足、pi 70.83% 未过，按存活项补了尾部空白/思考/工具/压缩、空正文、精确字节边界，以及真实 FS 准备失败、取消和清理、合法长 JSON、恰好限额与重复 kill 的回归。报告含缓存复用，不把累计 killed 数当本轮新验证量；最后一轮 shared 复用 48/52、host 124/168、pi 63/124；仅非复用、非等价豁免的变异重新执行。pi 余下 3 项：同步 spawn 失败时去掉 guard 存在判断、将 rm 的 force 改 false 都在相同失败路径被 catch，结果等价；停止后仍解析剩余 stdout 的变异只涉及停止窗口内的缓冲工作，现有测试没有区分这项额外工作，保留实现并登记覆盖边界，不作广泛豁免。一次标准 host 变异在工具 600 秒期限被中断，不计通过；之后采用“定向测试先跑，未检出者仍跑完整本组”的临时配置完成，并将整组阶段串行以避免下面的基线不稳。未改项目变异配置或门槛。
+- 按用户选择，GPT-6 Astra、Grok 4.7、Claude Opus 5.5 三方只读审查；Astra 指出的斜杠执行、APPEND_SYSTEM、CLI 模糊/合成模型三项阻断均有真实 pi 回归，并经其有界复核关闭。Claude 的取消后立即请求、断线取消提示、文件列表挤在译文前的三项低问题也已修复并复核。未留已知阻断。
+- 诚实保留首轮失败：默认全量 UI 的 status-bar tooltip 被指针拦截、宿主 setup 的 1 秒 ready 等待、pi edit-aborted 的 get_entries 时序各失败一次，单文件及随后串行全量都过，登记到 testing.md；没有放宽断言、重录夹具或删除测试。新的桌面泄漏用例曾在首条消息发出前失败，失败快照显示文字仍在输入框（已有 Enter 送出不稳现象）；本能力的两条新旅程改为点击公开的“发送”按钮，不测试键盘快捷键，之后连续两轮全部通过。
+- `pnpm boundary`：协议 **25 → 26**；无新依赖、地址、环境变量或隐藏命令；全量登记仍为 URL 13、环境变量 39、隐藏命令 4，未登记 0、非精确依赖 0。翻译 guard 的私有临时文件例外已写进 security 与 pi-internals。
+
+限制与未验证：模型调用期限 60 秒，256/512 KiB 是内存上限，不保证接近上限的回复能在期限内译完；超时保留原文并可重试。只测真实 pi 加 faux，没有调用真实订阅验证翻译质量；未跑全套桌面、性能/压力/浸泡、打包或安装。用户随后明确要求本地合回 `main`、删除对应 worktree，不安装。
+
+### 同步 main 后的收尾（2026-10-26）
+
+同步 `main` 的 `1679b01`（MP0/MP1/MP2 和压缩提示的小猫样式）。只冲突路线图和追踪表的新增段落，保留双方内容；桌面生产代码无冲突。沿用新加入的 Swift 协议投影门禁，为两个新命令补齐结果样例（完整性测试先见红），重新生成 Swift 类型与三份往返夹具。Swift 往返测试把协议版本仍写死为 25，先看到 `26 != 25` 失败，再随本次版本升级明确改为 26；不删除断言、不绕过生成检查。
+
+合并前复验：`pnpm check`（含 Swift 格式/lint 与生成类型比较）通过；串行 Node 单元 **3854**、界面 **1028**、Swift **22** 及模拟器 UI 测试通过；重新构建后的全套桌面端到端 **63/63** 通过（日志门禁的 `test.fail()` 是预期失败，Playwright 汇总仍是 63 passed）。没有手机端翻译入口的新增设计，只同步协议投影；未安装到真机、未替换或重启用户现用 Atrium。按用户要求本地合并并安全删除任务 worktree，不推送。
+
 ## MP1 Swift 工程基础（手机端，2026-10-25～26）
 
 路线图 MP1：Swift 的规范、`apps/ios` 工程骨架、`pnpm protocol:swift` 和往返测试、Swift 进 `pnpm check` / `pnpm test`，破坏检查扩到 Swift（[testing.md · Swift（手机端）](../architecture/testing.md#swift手机端)、[overview.md · iOS 工程](../architecture/overview.md#ios-工程2026-10-25-定mp1)）。
@@ -751,7 +853,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 压缩记录存进 `turns/<会话 id>.json` 的 `compactions`（有了才写，每条只记一次，原因按第一次），下一个宿主读回；会话 id 不能做文件名的只在内存；分叉、子对话复制父会话的记录 | `packages/host/src/store/turn-starts.test.ts` "records the compactions the host saw during runs…"、"writes nothing when every entry recorded is known already"；`session-manager.test.ts` "hands the session the compactions an earlier host saw during runs…"、"copies the parent's turn starts to a child forked into a new worktree…" | 已覆盖 |
 | 界面：压缩步骤的节点是两道横贯主线的刻痕（13×1.5px，中心相距 3px，`--text-dim`），主线不断；文字"压缩了上下文 · 152K → 41K"（`--text-muted`，数字等宽）、不知道压缩后时"· 压缩前 152K"、溢出时"上下文超出窗口，已压缩"，后面 `›`；点开是"压缩前 152K tokens · 压缩后 41K · 保留了最近的原文"（`--fs-sm`、`--text-dim`）和 Markdown 摘要，`›` 转向下 | `packages/ui/src/chat/turn.browser.test.tsx` "TurnView compaction"；`turn-layout.test.ts` "describes a compaction by the context before and after…" | 已覆盖（深色外观未单独测） |
 | 折叠后的标题行末尾"压缩了 N 次上下文"，在"N 条命令没走通"之后 | turn.browser.test.tsx "ends the folded header with how many times the context was compacted"；`turn-layout.test.ts` "counts files read, searches and commands…" | 已覆盖 |
-| 运行中压缩：运行中的轮的轨道末尾一行"正在压缩上下文…"（闪光，刻痕节点），前一步不再算进行中；第一步之前压缩时也有轨道、没有等待行；轮与轮之间的压缩仍在底部 | turn.browser.test.tsx "says on the rail where pi compacts now…"；`chat.browser.test.tsx` "says pi compacts on the running turn's rail…"、"says at the bottom of the conversation while pi compacts" | 已覆盖 |
+| 运行中压缩：运行中的轮的轨道末尾一行"正在压缩上下文…"（闪光，刻痕节点），前一步不再算进行中；第一步之前压缩时也有轨道、没有等待行；轮与轮之间的压缩仍在底部（2026-10-26 起底部是压扁的小猫加扫光，见"M1.11 自用：'正在压缩上下文'的小猫与扫光"） | turn.browser.test.tsx "says on the rail where pi compacts now…"；`chat.browser.test.tsx` "says pi compacts on the running turn's rail…"、"says at the bottom of the conversation while pi compacts, the cat pressed flat" | 已覆盖 |
 | 轮与轮之间的提示条"上下文已压缩 · 152K → 41K"，不知道压缩后时"上下文已压缩 · 压缩前 152K tokens" | turn.browser.test.tsx "NoticeView"；`turn-layout.test.ts` "writes a compaction in the process as a quoted line…" | 已覆盖 |
 | 正文后自动压缩不把正文收进折叠过程：跳过末尾连续压缩后取最后一步文字为回复；压缩保留在过程，工具后跟压缩、只有压缩或空轮不产生回复；Markdown 导出保留完整正文；实时追加压缩后正文仍可见，折叠与展开均不重复正文（2026-10-20 自用修复） | `packages/ui/src/chat/turn-layout.test.ts` "keeps the reply outside the process…"、"has no reply for only compactions…"、"exports the complete reply…"；`turn.browser.test.tsx` "keeps the answer visible when a trailing compaction…" | 已覆盖 |
 | 复制成 Markdown：压缩步骤写成一行引用，提示条带压缩前后 | turn-layout.test.ts "writes a compaction in the process as a quoted line, and one between turns with the context after it" | 已覆盖 |
@@ -896,7 +998,7 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 分叉 · pi 契约（1.1.0）：RPC `fork {entryId}` 应答 `{text, cancelled}`，切在那条用户消息之前；`clone` 应答 `{cancelled}`，复制整条分支；新文件马上写在同一会话目录，保留条目 id，头部有 `parentSession` | `packages/pi/src/contract/session.pi.test.ts` "fork-clone" | 已覆盖 |
 | 分叉 · 宿主与客户端：`fork_session(sessionId, turnId, name)` 用另起的 pi（`--session <文件>`，在会话的工作目录）分叉，最后一轮用 `clone`、其他轮 `fork` 到下一轮（跳过压缩等不是轮次的条目）的第一条用户消息；取新会话 id、设名字、停掉这个 pi；轮次开始时间抄到新会话（抄不了只记日志）；扫描后在同一容器打开成标签并切过去（客户端已去别处时不切）；整个分叉 30 秒为限，宿主关闭时中止；扩展取消、pi 出错、退出、超时、扫不到都应答 `fork_failed`，日志只记会话 id 和失败类别；运行中、正在发送、启动、压缩、停止、重启 `session_busy`，pi 已退出也能分叉；找不到这一轮或没对上条目 `turn_not_found`；草稿 `session_is_draft`，未知会话 `session_not_found`，已交接的拒绝；路由；客户端 | `packages/host/src/sessions/session-controller.test.ts` "fork point"、`session-forker.test.ts`、`session-manager.test.ts` "SessionManager forking"、`server/router.test.ts` "run control commands"、`packages/client/src/atrium-client.test.ts` "forking"、`packages/protocol/src/envelope.test.ts` | 已覆盖 |
 | 分叉 · 界面：每一轮结束的回复下方、复制右边有"从这里分叉"，点了让宿主在这一轮后分叉，名字是会话标题（最多 250 字）加"（分叉）"；运行中、停止中、压缩中变淡（0.4）、禁止光标、悬停"运行中不能分叉"、点了没反应；失败在标签栏旁用危险色说明（`session_busy`"运行中不能分叉"、`turn_not_found`"没能分叉：找不到这一轮"、`fork_failed`"没能分叉：pi 出错了"、其他"没能分叉"），一直留着直到别的提示替换；再点分叉先清掉这个会话的提示，不动别的会话的 | `chat.browser.test.tsx` "ConversationArea's fork button"、`packages/ui/src/tabs/session-notice.browser.test.tsx` | 已覆盖 |
-| `/compact [要求]` · 界面：列表最前、参数提示"要求"；执行时把名字后面的文字作为要求交给宿主（没有就不带），成功清空输入框；`nothing_to_compact`、`already_compacted`、`compact_failed` 在输入框上方说明（"对话还太短，不用压缩""刚压缩过，没有新内容""没能压缩：pi 出错了"）、输入框不动；压缩期间对话区底部一行带闪光的"正在压缩上下文…"，结束后消失 | `packages/ui/src/chat/builtin-commands.test.ts`、`composer.browser.test.tsx` "lists the built-ins first"、`chat.browser.test.tsx` "ConversationArea's /compact" | 已覆盖 |
+| `/compact [要求]` · 界面：列表最前、参数提示"要求"；执行时把名字后面的文字作为要求交给宿主（没有就不带），成功清空输入框；`nothing_to_compact`、`already_compacted`、`compact_failed` 在输入框上方说明（"对话还太短，不用压缩""刚压缩过，没有新内容""没能压缩：pi 出错了"）、输入框不动；压缩期间对话区底部一行"正在压缩上下文…"（压扁的小猫加扫光，2026-10-26 改），结束后消失 | `packages/ui/src/chat/builtin-commands.test.ts`、`composer.browser.test.tsx` "lists the built-ins first"、`chat.browser.test.tsx` "ConversationArea's /compact" | 已覆盖 |
 
 ## 文件与更改（M1.12，协议 14，2026-10-13）
 
@@ -1452,3 +1554,15 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - `PairingFlowTests/refuses` 的真实 Noise 参数化交换覆盖8种理由，包含正式线路值、已有 declined 和未知值；断言 pending 清掉、旧正式记录保留。`PairingPresentationTests/wireRejectionMessage` 从同一真实 Noise 拒绝结果检查明确的“Mac 拒绝了配对”文案，而非网络错误。两条测试以结构化 task group 持有 flow，异常退出也取消并等待，transport/channel 的 defer 覆盖抛错路径。
 - 先改测试时，旧实现对 `rejected` 的状态及 UI 文案共3处断言失败；补一行映射后，`--jobs 1` 定向 PairingFlow/PairingPresentation 共11项、2 suites 通过。缓存只增量编译修改文件，未引入 renderer/Markdown 编译。`rejection-breaks.json` 移除 rejected 映射的单项破坏实际检出；本次通过仅向真实 xcrun 追加 `--jobs 1` 和现有缓存检查参数的临时适配器执行，没有使用伪造测试输出。
 - 红/绿/破坏日志分别为 `/tmp/ios-connect-rejected-red.log`、`/tmp/ios-connect-rejected-green.log`、`/tmp/ios-connect-rejected-break.log`。既有 `remote-breaks.json` 的理由分支匹配同步到双值分支，未在本轮重跑整组。格式、Swift文档lint、diff检查通过；未跑全量、Xcode/模拟器或动态 TS 互通。真实 RemoteService + relay → Swift 拒绝方案记录在 `apps/ios/Integration/README.md`，本轮只提方案，不冒称 startHost/faux-pi 或正式宿主动态契约已通过。
+
+## M1.11 自用："正在压缩上下文"的小猫与扫光（2026-10-26）
+
+用户嫌"正在压缩上下文…"光秃秃、扫光不明显。原型 `prototypes/compacting-indicator-prototype.html` 比较四个方向（A 刻痕轻压 / B 点阵收拢 / C 小猫受压 / D 分段条压缩），用户选定 C，扫光选"加宽提亮"，`.atrium-shimmer` 全局一起换（design-language"运行中压缩""扫光文字"，SPEC-0001"压缩"）。轨道上不变（静态刻痕 + 扫光）；对话区底部换成"进行中"的版式：18px 小猫贴左、文字 24px 起，小猫每 2.4 秒压扁一次、压时眼睛睁大，眨眼照旧；这一行带 6px 淡入的入场；减弱动态效果时停在被轻轻压着的静帧。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 对话区底部一行：`role=status`、小猫（`compacting-cat`）在文字前、文字扫光、`pl-6` 版式、带入场（`atrium-compacting-line`），结束后消失 | `packages/ui/src/chat/chat.browser.test.tsx` "says at the bottom of the conversation while pi compacts, the cat pressed flat" | 已覆盖 |
+| 扫光全局换参数（1.9 秒一轮、亮带 32%–68%、47%–53% 满亮平台）："进行中"、运行中步骤、压缩提示共用 | 视觉参数无断言；两处既有用例仍断言 `.atrium-shimmer` 类名 | 已覆盖（参数未测） |
+| 压扁与睁眼的动效、减弱动态效果的静帧 | 纯 CSS；浏览器测试切不了减弱动态效果（同空状态的光标） | 未测 |
+
+5 项 `pnpm break-check` 全部检出（去小猫、去入场类、去 `pl-6`、去扫光、改 testid）。改动不在变异分组（视图组件与 CSS），未跑变异测试。真实渲染明暗截图已看（一次性用例渲染真实 `Transcript`，用完即删）。

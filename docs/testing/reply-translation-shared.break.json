@@ -1,0 +1,73 @@
+[
+  {
+    "file": "packages/protocol/src/commands.ts",
+    "from": "  translationLanguage: TranslationLanguage.optional(),",
+    "to": "  translationLanguage: z.string().optional(),",
+    "test": "packages/protocol/src/translation.test.ts",
+    "name": "validates a saved target language"
+  },
+  {
+    "file": "packages/protocol/src/listing.ts",
+    "from": "  translationLanguage: TranslationLanguage,",
+    "to": "  translationLanguage: z.string(),",
+    "test": "packages/protocol/src/translation.test.ts",
+    "name": "validates a saved target language"
+  },
+  {
+    "file": "packages/protocol/src/commands.ts",
+    "from": "    text: z\n      .string()\n      .min(1)\n      .max(512 * 1024),",
+    "to": "    text: z.string(),",
+    "test": "packages/protocol/src/translation.test.ts",
+    "name": "validates translated text"
+  },
+  {
+    "file": "packages/protocol/src/commands.ts",
+    "from": "export const TranslateReplyCommand = z.strictObject({",
+    "to": "export const TranslateReplyCommand = z.object({",
+    "test": "packages/protocol/src/translation.test.ts",
+    "name": "accepts a reply reference"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "const { proxy: _checked, translationLanguage: _saved, ...shown } = changes;",
+    "to": "const { proxy: _checked, ...shown } = changes;",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "does not apply a target language"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "request(\"translate_reply\", { sessionId, turnId, translationId })",
+    "to": "request(\"translate_reply\", { sessionId, turnId, translationId: turnId })",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "requests an independent reply translation"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "if (translationCancellations.size > 0)",
+    "to": "if (false)",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "waits for earlier cancellation"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "waiting.cancelled = true;",
+    "to": "waiting.cancelled = false;",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "does not dispatch a queued translation cancelled"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "translationCancellations.delete(cancellation);",
+    "to": "void cancellation;",
+    "test": "packages/client/src/atrium-client.leak.test.ts",
+    "name": "translation cancellation acknowledgements",
+    "project": "leak"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "request(\"cancel_translation\", { translationId })",
+    "to": "request(\"cancel_translation\", { translationId: \"wrong\" })",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "requests an independent reply translation"
+  }
+]

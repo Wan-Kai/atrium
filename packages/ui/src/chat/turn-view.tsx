@@ -24,6 +24,7 @@ import { messageTag } from "./composer-text";
 import { Fold } from "./fold";
 import { Markdown } from "./markdown";
 import { CopyButton, UserBubble, timeOfDay } from "./messages";
+import { ReplyTranslation } from "./reply-translation";
 import { RunStatus } from "./run-status";
 import type { LanePlace } from "./lanes";
 import { SourceLines } from "./source-line";
@@ -426,7 +427,7 @@ function ChildButton({
  *
  * @sideEffects none
  * @param props - The turn, its reply and how forking behaves, if offered.
- * @returns The info row and, when open, the files.
+ * @returns The info row, its optional translation, then the open files.
  */
 function TurnFooter({
   turn,
@@ -442,39 +443,44 @@ function TurnFooter({
   const removed = turn.changes.reduce((sum, change) => sum + (change.removed ?? 0), 0);
   return (
     <>
-      <div
-        className="-ml-1 flex items-center gap-0.5 text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums"
-        data-testid="turn-footer"
-      >
-        {reply === null ? null : <CopyButton label="复制回复" text={() => reply} />}
-        {fork === undefined ? null : <ForkButton turnId={turn.id} fork={fork} />}
-        {fork?.child === undefined ? null : <ChildButton turnId={turn.id} open={fork.child} fork={fork} />}
-        {turn.changes.length === 0 ? null : (
-          <button
-            type="button"
-            aria-expanded={filesOpen}
-            onClick={() => setFilesOpen(!filesOpen)}
-            className="atrium-press ml-2 flex h-6 items-center gap-1.5 rounded-[var(--r-pill)] bg-[var(--hover)] px-2.5 text-[var(--text-muted)] hover:bg-[var(--selected)] hover:text-[var(--text-2)]"
+      <ReplyTranslation turnId={turn.id} reply={reply}>
+        {(translationButton) => (
+          <div
+            className="-ml-1 my-1 flex items-center gap-0.5 text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums"
+            data-testid="turn-footer"
           >
-            <PencilSimple size={12} />
-            改了 {turn.changes.length} 个文件
-            {added + removed === 0 ? null : (
-              <>
-                <span className="text-[var(--ok-text)]">+{added}</span>
-                <span className="text-[var(--danger)]">−{removed}</span>
-              </>
+            {reply === null ? null : <CopyButton label="复制回复" text={() => reply} />}
+            {translationButton}
+            {fork === undefined ? null : <ForkButton turnId={turn.id} fork={fork} />}
+            {fork?.child === undefined ? null : <ChildButton turnId={turn.id} open={fork.child} fork={fork} />}
+            {turn.changes.length === 0 ? null : (
+              <button
+                type="button"
+                aria-expanded={filesOpen}
+                onClick={() => setFilesOpen(!filesOpen)}
+                className="atrium-press ml-2 flex h-6 items-center gap-1.5 rounded-[var(--r-pill)] bg-[var(--hover)] px-2.5 text-[var(--text-muted)] hover:bg-[var(--selected)] hover:text-[var(--text-2)]"
+              >
+                <PencilSimple size={12} />
+                改了 {turn.changes.length} 个文件
+                {added + removed === 0 ? null : (
+                  <>
+                    <span className="text-[var(--ok-text)]">+{added}</span>
+                    <span className="text-[var(--danger)]">−{removed}</span>
+                  </>
+                )}
+                <CaretDown size={9} className={`atrium-fold-chevron ${filesOpen ? "rotate-180" : ""}`} />
+              </button>
             )}
-            <CaretDown size={9} className={`atrium-fold-chevron ${filesOpen ? "rotate-180" : ""}`} />
-          </button>
+            {turn.usage === null ? null : (
+              <span className="ml-2.5 flex items-center gap-1" title="这一轮的输入 + 输出 token">
+                <Database size={13} />
+                用量 {formatTokens(turn.usage.input + turn.usage.output)} tok
+              </span>
+            )}
+            <span className="ml-3">{timeOfDay(turn.startedAt + (turn.durationMs ?? 0))}</span>
+          </div>
         )}
-        {turn.usage === null ? null : (
-          <span className="ml-2.5 flex items-center gap-1" title="这一轮的输入 + 输出 token">
-            <Database size={13} />
-            用量 {formatTokens(turn.usage.input + turn.usage.output)} tok
-          </span>
-        )}
-        <span className="ml-3">{timeOfDay(turn.startedAt + (turn.durationMs ?? 0))}</span>
-      </div>
+      </ReplyTranslation>
       {filesOpen ? <FilesList turn={turn} /> : null}
     </>
   );

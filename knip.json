@@ -16,6 +16,9 @@
     "packages/host": {
       "entry": ["src/entry.ts", "test/**/*.ts", "src/dev/try-pi.ts"]
     },
+    "packages/remote-crypto": {
+      "entry": ["test/**/*.ts"]
+    },
     "apps/relay": {
       "entry": ["src/entry.ts", "test/**/*.ts"]
     },

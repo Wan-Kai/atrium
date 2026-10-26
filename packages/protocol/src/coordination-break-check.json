@@ -1,0 +1,51 @@
+[
+  {
+    "file": "packages/protocol/src/version.ts",
+    "from": "export const PROTOCOL_VERSION = 27;",
+    "to": "export const PROTOCOL_VERSION = 26;",
+    "test": "packages/protocol/src/remote.test.ts",
+    "name": "uses version 27 rather than either incompatible version 26"
+  },
+  {
+    "file": "packages/protocol/src/remote.ts",
+    "from": "model: z.string().min(1).max(64).nullable(),",
+    "to": "model: z.string().min(1).max(64).nullable().optional(),",
+    "test": "packages/protocol/src/remote.test.ts",
+    "name": "requires the explicit model projection"
+  },
+  {
+    "file": "packages/protocol/src/remote.ts",
+    "from": "diagnostics: RemoteRelayDiagnostics.nullable(),",
+    "to": "diagnostics: RemoteRelayDiagnostics.nullable().optional(),",
+    "test": "packages/protocol/src/remote.test.ts",
+    "name": "requires the explicit diagnostics projection"
+  },
+  {
+    "file": "packages/protocol/src/remote.ts",
+    "from": "handshaking: z.boolean(),",
+    "to": "handshaking: z.boolean().optional(),",
+    "test": "packages/protocol/src/remote.test.ts",
+    "name": "requires the explicit handshaking projection"
+  },
+  {
+    "file": "packages/protocol/src/remote.ts",
+    "from": "export const RemoteRelayDiagnostics = z.strictObject({",
+    "to": "export const RemoteRelayDiagnostics = z.object({",
+    "test": "packages/protocol/src/remote.test.ts",
+    "name": "rejects invalid or unsafe diagnostic fields"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "translate_reply: \"local_only\",",
+    "to": "translate_reply: \"phone\",",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "refuses a new child conversation, and the remote commands, to a phone"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "cancel_translation: \"local_only\",",
+    "to": "cancel_translation: \"phone\",",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "refuses a new child conversation, and the remote commands, to a phone"
+  }
+]
