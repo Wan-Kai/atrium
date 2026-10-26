@@ -1,0 +1,9 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/StreamingMarkdown.swift",
+    "from": "!text.utf8.starts(with: source.utf8)",
+    "to": "!text.hasPrefix(source)",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests/canonicalReplacements"
+  }
+]

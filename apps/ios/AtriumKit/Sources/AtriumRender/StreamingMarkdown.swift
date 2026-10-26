@@ -33,7 +33,8 @@ public struct StreamingMarkdown: Sendable {
   /// - Returns: Every visible block in source order.
   public mutating func update(_ text: String, complete: Bool = false) -> [MarkdownBlock] {
     let hasReferences = text.contains("[")
-    if complete || hasReferences || !text.hasPrefix(source) {
+    // String prefix matching is canonically equivalent; this cache holds exact UTF-8 offsets.
+    if complete || hasReferences || !text.utf8.starts(with: source.utf8) {
       frozen = []
       frozenByteCount = 0
     }

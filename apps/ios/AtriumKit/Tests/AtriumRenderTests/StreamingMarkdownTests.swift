@@ -41,6 +41,48 @@ struct StreamingMarkdownTests {
     #expect(parser.frozenByteCount == 0)
   }
 
+  @Test(
+    "canonical-equivalent replacements invalidate UTF-8 offsets", arguments: [("e\u{301}", "é"), ("é", "e\u{301}")])
+  func canonicalReplacements(_ spellings: (String, String)) throws {
+    let original = String(repeating: spellings.0, count: 8) + "\n\nx\nlong enough tail"
+    let replacementHead = String(repeating: spellings.1, count: 8)
+    let replacement = replacementHead + "\n\nx\nlong enough tailz"
+    var parser = StreamingMarkdown()
+    _ = parser.update(original)
+    #expect(parser.frozenByteCount > 0)
+    let actual = parser.update(replacement)
+    #expect(actual == StreamingMarkdown.parse(replacement))
+    #expect(parser.lastParsedByteCount == replacement.utf8.count)
+    guard case .paragraph(let text) = try #require(actual.first) else {
+      Issue.record("expected first paragraph")
+      return
+    }
+    #expect(Array(String(text.characters).utf8) == Array(replacementHead.utf8))
+  }
+
+  @Test("normalization shortening cannot retain an offset past the replacement")
+  func shorterCanonicalReplacement() {
+    var parser = StreamingMarkdown()
+    let original = String(repeating: "e\u{301}", count: 8) + "\n\nx\n"
+    let replacement = String(repeating: "é", count: 8) + "\n\nx\nz"
+    _ = parser.update(original)
+    #expect(parser.frozenByteCount > replacement.utf8.count)
+    #expect(parser.update(replacement) == StreamingMarkdown.parse(replacement))
+    #expect(parser.lastParsedByteCount == replacement.utf8.count)
+  }
+
+  @Test("a true byte append keeps the cached prefix even when it extends a grapheme")
+  func appendedCombiningMark() {
+    var parser = StreamingMarkdown()
+    let source = "first\n\nx\nlast"
+    _ = parser.update(source)
+    let frozen = parser.frozenByteCount
+    #expect(frozen == 7)
+    let next = source + "\u{301}"
+    #expect(parser.update(next) == StreamingMarkdown.parse(next))
+    #expect(parser.lastParsedByteCount == next.utf8.count - frozen)
+  }
+
   @Test("later reference definitions are not frozen away")
   func reference() {
     var parser = StreamingMarkdown()
