@@ -84,12 +84,19 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | pnpm 命令 | 实际跑的 |
 |---|---|
 | `pnpm test` 的 Swift 部分、`pnpm test:ios` 第一步 | `xcrun swift test --package-path <仓库>/apps/ios/AtriumKit --explicit-target-dependency-import-check error -Xswiftc -warnings-as-errors` |
-| `pnpm test:ios` 第二步 | `xcrun xcodebuild test -project <仓库>/apps/ios/Atrium.xcodeproj -scheme Atrium -destination id=<udid>,arch=arm64 -derivedDataPath <仓库>/apps/ios/.build/xcode -quiet` |
+| `pnpm test:ios` 第二步（拿着模拟器锁，见下文） | `xcrun xcodebuild test -project <仓库>/apps/ios/Atrium.xcodeproj -scheme Atrium -destination id=<udid>,arch=arm64 -derivedDataPath <仓库>/apps/ios/.build/xcode -quiet` |
 | `pnpm ios:build` | `xcrun xcodebuild build -project <仓库>/apps/ios/Atrium.xcodeproj -scheme Atrium -configuration Debug -destination generic/platform=iOS -derivedDataPath <仓库>/apps/ios/.build/xcode -allowProvisioningUpdates -quiet`（`--simulator` 时 destination 是 `generic/platform=iOS Simulator`） |
 | `pnpm ios:install` | 先 `xcrun devicectl list devices --json-output <临时文件>` 找配对过、连得上的 iPhone，再跑上面的构建，然后 `xcrun devicectl device install app --device <手机 udid> <仓库>/apps/ios/.build/xcode/Build/Products/Debug-iphoneos/Atrium.app`、`xcrun devicectl device process launch --device <手机 udid> site.ktoon.atrium` |
-| `pnpm ios:shot` | 构建（destination `id=<udid>,arch=arm64`），`simctl boot`、`simctl ui <udid> appearance light\|dark`、`simctl install`、`simctl launch --terminate-running-process <udid> site.ktoon.atrium`，等 3 秒，`simctl io <udid> screenshot <文件>` |
+| `pnpm ios:shot` | 拿模拟器锁（见下文），构建（destination `id=<udid>,arch=arm64`），`simctl boot`、`simctl ui <udid> appearance light\|dark`、`simctl install`、`simctl launch --terminate-running-process <udid> site.ktoon.atrium`，等 3 秒，`simctl io <udid> screenshot <文件>` |
 | `pnpm ios:check`（`pnpm check` 的最后一步） | `node scripts/protocol-swift.mjs --check`；有 Xcode 时再跑 `xcrun swift-format lint --strict --parallel --configuration <仓库>/apps/ios/.swift-format --recursive <AtriumKit 的 Package.swift、Sources、Tests，Atrium/，AtriumUITests/>` 和 `node scripts/swift-lint.mjs apps/ios` |
 | `pnpm ios:format` | 同上的 `swift-format format --in-place` |
+
+**模拟器锁**（2026-10-26 审查后加）：几个 worktree 共用一台 "Atrium iPhone 16 Pro"，一个在截图时另一个装上自己的构建，就会截到或测到别的分支的 App。所以 `pnpm test:ios` 的第二步和 `pnpm ios:shot` 从找（或建）模拟器开始、到测完或截完为止，持有一把跨 worktree 的锁：`~/Library/Caches/atrium-ios/sim.lock`，用原子的 `mkdir` 建，里面的 `owner.json` 记着进程号、进程启动时间、worktree 和命令。
+
+- 别的 worktree 拿着时就等，先打一行"waiting for the Atrium simulator: pid … (pnpm ios:shot in <worktree>) is using it"，最多等 30 分钟，超时退出码 1。
+- 记录的进程已经不在（同一个进程号、同一个启动时间的进程找不到，进程号被别的进程重用也算），或者锁目录里 30 秒还没有 `owner.json`（建完目录就被杀了），就接管，打一行"took over the Atrium simulator from pid …"。接管时先把旧锁改名挪开再删，挪开后发现主人变了就放回去。
+- 进程退出时（含 Ctrl-C、`SIGTERM`）删掉自己的锁；被 `kill -9` 的留下的锁由下一个人接管。实在卡住时确认没有别的 `ios.mjs` 在跑（`ps -ef | grep scripts/ios.mjs`），再手动删这个目录。
+- `pnpm test` 里的 `swift test`、`pnpm ios:build`、`pnpm ios:install` 不碰模拟器，不拿锁。
 
 只跑一部分 Swift 测试：`swift test --package-path apps/ios/AtriumKit --filter <套件名或测试函数名>`（例：`--filter RoundTripTests`）。
 

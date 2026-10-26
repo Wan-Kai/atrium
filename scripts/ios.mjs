@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 /**
  * The phone app's commands: checks, tests, builds, installing on the iPhone and screenshots.
@@ -23,6 +23,18 @@ const simulatorName = "Atrium iPhone 16 Pro";
 const simulatorType = "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro";
 /** A simulator runs both arm64 and x86_64 apps; naming this Mac's keeps `xcodebuild` from picking. */
 const simulatorArch = process.arch === "arm64" ? "arm64" : "x86_64";
+/**
+ * The lock every worktree takes before using the Atrium simulator; `ATRIUM_IOS_LOCK` moves it for
+ * this script's own test (development.md "手机端的确切命令").
+ */
+const simulatorLock = process.env["ATRIUM_IOS_LOCK"] ?? join(homedir(), "Library", "Caches", "atrium-ios", "sim.lock");
+/** How long to wait for another worktree to finish with the simulator before giving up. */
+const lockWaitMs = Number(process.env["ATRIUM_IOS_LOCK_WAIT_MS"] ?? 30 * 60 * 1000);
+/** How long the app gets to draw before a screenshot; the test sets 0. */
+const shotDelayMs = Number(process.env["ATRIUM_IOS_SHOT_DELAY_MS"] ?? 3000);
+/** A lock without an owner file older than this was left by a process killed right after making it. */
+const ownerlessStaleMs = 30_000;
+
 /** What `swift-format` reads; the generated file opts out with `swift-format-ignore-file`. */
 const swiftPaths = [
   join(kit, "Package.swift"),
@@ -169,6 +181,181 @@ function compareVersions(a, b) {
     if (difference !== 0) return difference;
   }
   return 0;
+}
+
+/**
+ * Waits without spinning.
+ *
+ * @remarks
+ * `scripts/` is assembly code and may wait on real time (coding-standards "异步与取消").
+ *
+ * @sideEffects Blocks this process for the time given.
+ * @param {number} ms - How long.
+ */
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(0, ms));
+}
+
+/**
+ * Says when a process started, as `ps` writes it, or `null` when there is no such process.
+ *
+ * @remarks
+ * A pid alone can be reused by an unrelated process; pid and start time together name one process.
+ *
+ * @sideEffects Runs `ps`.
+ * @param {number} pid - The process.
+ * @returns {string | null} Its start time.
+ */
+function startedAt(pid) {
+  const result = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8" });
+  const text = result.status === 0 ? result.stdout.trim() : "";
+  return text === "" ? null : text;
+}
+
+/**
+ * Reads who holds the simulator lock.
+ *
+ * @remarks
+ * The owner file is written right after the lock folder is made, so it can be missing for a moment.
+ *
+ * @sideEffects Reads the owner file.
+ * @returns {{ pid: number, started: string, worktree: string, command: string } | null} The owner, or
+ *   `null` when the file is missing or unreadable.
+ */
+function lockOwner() {
+  try {
+    return JSON.parse(readFileSync(join(simulatorLock, "owner.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tells whether the simulator lock was left by a process that is gone.
+ *
+ * @remarks
+ * Gone means no process with the owner's pid and start time; a lock without an owner file is only
+ * stale once it is old, since the owner may be writing it right now.
+ *
+ * @sideEffects Runs `ps`; reads the lock folder's time.
+ * @param {{ pid: number, started: string } | null} owner - The owner, as read.
+ * @returns {boolean} Whether it can be taken over.
+ */
+function isStale(owner) {
+  if (owner === null) {
+    try {
+      return Date.now() - statSync(simulatorLock).mtimeMs > ownerlessStaleMs;
+    } catch {
+      return false;
+    }
+  }
+  return startedAt(owner.pid) !== owner.started;
+}
+
+/**
+ * Takes over a stale simulator lock.
+ *
+ * @remarks
+ * The lock is renamed aside before it is removed, so two processes taking it over at once cannot
+ * both remove it. If the one renamed aside turns out to have a different owner (someone took the lock
+ * in between), it is put back; a third process racing in the same moment is not handled.
+ *
+ * @sideEffects Renames and removes the lock folder; prints a line.
+ * @param {{ pid: number } | null} owner - The stale owner, as read.
+ */
+function takeOver(owner) {
+  const aside = `${simulatorLock}.stale-${process.pid}-${Date.now()}`;
+  try {
+    renameSync(simulatorLock, aside);
+  } catch {
+    return;
+  }
+  let moved = null;
+  try {
+    moved = JSON.parse(readFileSync(join(aside, "owner.json"), "utf8"));
+  } catch {
+    // An ownerless lock stays ownerless.
+  }
+  if (moved?.pid !== owner?.pid || moved?.started !== owner?.started) {
+    try {
+      renameSync(aside, simulatorLock);
+      return;
+    } catch {
+      // The lock was taken again meanwhile; the one set aside is gone for good.
+    }
+  }
+  rmSync(aside, { recursive: true, force: true });
+  console.log(`took over the Atrium simulator from pid ${owner?.pid ?? "unknown"}, which is gone`);
+}
+
+/**
+ * Takes the lock on the Atrium simulator, waiting while another worktree has it.
+ *
+ * @remarks
+ * All worktrees share one simulator by name; without the lock, a screenshot or UI test in one could
+ * install over another's build mid-run. Taken for the whole cycle: finding or making the simulator,
+ * installing, testing or taking the picture. An atomic `mkdir` makes the lock; the owner file says
+ * which process and worktree has it; a lock whose process is gone is taken over. Given back when this
+ * process exits, however it exits.
+ *
+ * @sideEffects Makes the lock folder and owner file; may wait, print, take over a stale lock, or exit
+ * with 1 after `lockWaitMs`; registers exit and signal handlers that remove the lock.
+ * @param {string} command - The pnpm command, for the owner file.
+ */
+function lockSimulator(command) {
+  mkdirSync(dirname(simulatorLock), { recursive: true });
+  const deadline = Date.now() + lockWaitMs;
+  let told = false;
+  for (;;) {
+    try {
+      mkdirSync(simulatorLock);
+      break;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+    }
+    const owner = lockOwner();
+    if (isStale(owner)) {
+      takeOver(owner);
+      continue;
+    }
+    const holder =
+      owner === null ? "a process just starting" : `pid ${owner.pid} (pnpm ${owner.command} in ${owner.worktree})`;
+    if (!told) {
+      console.log(`waiting for the Atrium simulator: ${holder} is using it`);
+      told = true;
+    }
+    const left = deadline - Date.now();
+    if (left <= 0) {
+      console.error(`gave up waiting for the Atrium simulator after ${Math.round(lockWaitMs / 1000)} s: ${holder}`);
+      process.exit(1);
+    }
+    sleep(Math.min(1000, left));
+  }
+  const started = startedAt(process.pid) ?? "";
+  writeFileSync(
+    join(simulatorLock, "owner.json"),
+    JSON.stringify({ pid: process.pid, started, worktree: root, command }),
+  );
+  process.on("exit", unlockSimulator);
+  for (const [signal, code] of [
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+    ["SIGHUP", 129],
+  ]) {
+    process.once(signal, () => process.exit(code));
+  }
+}
+
+/**
+ * Gives the simulator lock back if this process holds it.
+ *
+ * @remarks
+ * Runs on exit; checks the owner so a lock another process took over is left alone.
+ *
+ * @sideEffects Removes the lock folder.
+ */
+function unlockSimulator() {
+  if (lockOwner()?.pid === process.pid) rmSync(simulatorLock, { recursive: true, force: true });
 }
 
 /**
@@ -337,7 +524,7 @@ function check() {
  *
  * @remarks
  * `pnpm ios:shot [--dark]`, how a person or an agent looks at the interface (acceptance.md). The
- * app gets three seconds to draw after launching.
+ * app gets three seconds to draw after launching. The caller holds the simulator lock.
  *
  * @sideEffects Builds, boots the simulator, sets its appearance, installs and launches the app,
  * writes `apps/ios/.build/shots/home-<light|dark>.png`; prints its path.
@@ -351,7 +538,7 @@ function shot() {
   must(["simctl", "ui", udid, "appearance", appearance]);
   must(["simctl", "install", udid, join(derivedData, "Build", "Products", "Debug-iphonesimulator", "Atrium.app")]);
   must(["simctl", "launch", "--terminate-running-process", udid, bundleId], { capture: true });
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000);
+  sleep(shotDelayMs);
   const dir = join(ios, ".build", "shots");
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `home-${appearance}.png`);
@@ -384,7 +571,12 @@ function main() {
     case "test": {
       requireXcode("test");
       const status = testKit();
-      process.exitCode = status === 0 ? testApp() : status;
+      if (status !== 0) {
+        process.exitCode = status;
+        return;
+      }
+      lockSimulator("test:ios");
+      process.exitCode = testApp();
       return;
     }
     case "build":
@@ -410,6 +602,7 @@ function main() {
       return;
     case "shot":
       requireXcode("shot");
+      lockSimulator("ios:shot");
       shot();
       return;
     default:
