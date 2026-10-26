@@ -154,6 +154,10 @@ describe("generateSwift", () => {
       '    if container.contains("value") {\n      self = .value(try Value(from: decoder))\n    } else if container.contains("cancelled") {\n      try container.expect("cancelled", true)\n      self = .cancelled\n    } else {\n      try container.noMember(of: "Answer")\n    }\n',
     );
     expect(source).toContain("public enum Reserve: Codable, Sendable, Equatable {\n  case int(Int)\n  case off\n");
+    // The constant is tried before any string or number, so "off" is never read as something else.
+    expect(source).toContain(
+      '    if let value = try? container.decode(String.self), value == "off" {\n      self = .off\n    } else if let value = try? container.decode(Int.self) {\n',
+    );
     expect(source).toContain("  public var reserve: Reserve?\n");
     expect(source).toContain('    self.reserve = try container.decodeNullable(Reserve.self, forKey: "reserve")\n');
     expect(source).toContain("public typealias Container = String\n");

@@ -177,7 +177,7 @@ describe("swift-lint.mjs", () => {
       "DispatchQueue.main.asyncAfter(deadline: .now()) {}",
     ].join("\n");
     const result = await lint({
-      "AtriumKit/Sources/A/A.swift": `${realTime}\nlet b = Date(timeIntervalSince1970: 0)\n`,
+      "AtriumKit/Sources/A/A.swift": `${realTime}\nlet b = Date(timeIntervalSince1970: 0) // not Date()\n`,
       "AtriumKit/Tests/ATests/ATests.swift": realTime,
       "Atrium/AtriumApp.swift": realTime,
     });

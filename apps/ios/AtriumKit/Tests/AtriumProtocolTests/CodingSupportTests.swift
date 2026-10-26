@@ -34,6 +34,15 @@ struct CodingSupportTests {
     }
   }
 
+  @Test("keeps null in an open field that may be left out, apart from leaving it out")
+  func openNull() throws {
+    let json = #"{"type":"response","requestId":"r","ok":true,"result":null}"#
+    let response = try JSONDecoder().decode(ResponseMessage.self, from: Data(json.utf8))
+    #expect(response == .success(.init(requestId: "r", result: .null)))
+    let again = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(response))
+    #expect(again == (try JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))))
+  }
+
   @Test("keeps an optional constant only when it is there and has its one value")
   func optionalConstant() throws {
     let decoder = JSONDecoder()

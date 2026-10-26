@@ -51,36 +51,19 @@ extension KeyedDecodingContainer where Key == AnyKey {
     return try decodeNil(forKey: key) ? nil : decode(type, forKey: key)
   }
 
-  /// Reads a field that may be left out but is never `null`.
+  /// Reads a field that may be left out.
   ///
-  /// - Remark: `decodeIfPresent` reads `null` as left out; the protocol rejects `null` here, and so
-  ///   does this, so a host that sends something the schema forbids is noticed.
+  /// - Remark: Unlike `decodeIfPresent`, which reads `null` as left out, this lets `decode` refuse
+  ///   `null` for every type that has no `null` of its own, so a host that sends something the schema
+  ///   forbids is noticed. `JSONValue` has one, so an open field (`z.unknown().optional()`) keeps it.
   /// - SideEffects: none
   /// - Parameters:
   ///   - type: The type of the value.
   ///   - key: The JSON key.
   /// - Returns: `nil` when the key is missing, else the value.
-  /// - Throws: `DecodingError.valueNotFound` for `null`; whatever decoding the value throws.
+  /// - Throws: `DecodingError.valueNotFound` for `null` where the type has none; whatever decoding
+  ///   the value throws.
   public func decodeOmittable<T: Decodable>(_ type: T.Type, forKey key: AnyKey) throws -> T? {
-    guard contains(key) else { return nil }
-    if try decodeNil(forKey: key) {
-      throw DecodingError.valueNotFound(
-        type, DecodingError.Context(codingPath: codingPath + [key], debugDescription: "null is not allowed"))
-    }
-    return try decode(type, forKey: key)
-  }
-
-  /// Reads an open JSON field that may be left out; `null` is a value here.
-  ///
-  /// - Remark: An unknown JSON field (`z.unknown().optional()`) can hold `null` like any other
-  ///   value, so only a missing key is `nil`.
-  /// - SideEffects: none
-  /// - Parameters:
-  ///   - type: `JSONValue.self`.
-  ///   - key: The JSON key.
-  /// - Returns: `nil` when the key is missing, else the value.
-  /// - Throws: Whatever decoding the value throws.
-  public func decodeOmittable(_ type: JSONValue.Type, forKey key: AnyKey) throws -> JSONValue? {
     guard contains(key) else { return nil }
     return try decode(type, forKey: key)
   }
