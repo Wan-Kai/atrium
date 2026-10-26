@@ -1,0 +1,86 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/MarkdownBlock.swift",
+    "from": "sourceLines == literalLines + 2",
+    "to": "sourceLines == literalLines + 1",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests/closingFenceIndentation"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/MarkdownBlock.swift",
+    "from": "min(endLine, enclosing.upperBound.line)",
+    "to": "max(endLine, enclosing.upperBound.line)",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests/fenceContainerBoundary"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/MarkdownBlock.swift",
+    "from": "sourceLines <= literalLines",
+    "to": "false",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests/fenceContainerBoundary"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/DiffLayout.swift",
+    "from": "let missing = oldStart - nextOld",
+    "to": "let missing = hunk.oldStart - nextOld",
+    "runner": "swift",
+    "filter": "DiffLayoutTests/zeroContextInsertion"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/DiffLayout.swift",
+    "from": "nextOld = oldStart + hunk.oldCount",
+    "to": "nextOld = hunk.oldStart + hunk.oldCount",
+    "runner": "swift",
+    "filter": "DiffLayoutTests/zeroContextInsertion"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/DiffLayout.swift",
+    "from": "nextNew = newStart + hunk.newCount",
+    "to": "nextNew = hunk.newStart + hunk.newCount",
+    "runner": "swift",
+    "filter": "DiffLayoutTests/zeroContextDeletion"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/ProcessRail/RailRows.swift",
+    "from": "parts.append(write.content)",
+    "to": "parts.append(write.path)",
+    "runner": "swift",
+    "filter": "RailDetailTests/writeContent"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/ProcessRail/RailRows.swift",
+    "from": "verb: \"上下文超出窗口，已压缩\", detail: detail",
+    "to": "verb: \"上下文超出窗口，已压缩\", detail: compaction.summary",
+    "runner": "swift",
+    "filter": "RailDetailTests/overflowCounts"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/ProcessRail/RailRows.swift",
+    "from": "let after = compaction.tokensAfter.map { \" · 压缩后 \\($0) tokens\" } ?? \"\"",
+    "to": "let after = \" · 压缩后 \\(compaction.tokensAfter ?? 0) tokens\"",
+    "runner": "swift",
+    "filter": "RailDetailTests/overflowCounts"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/CodeHighlighter.swift",
+    "from": "rest.starts(with: $0.key.utf8)",
+    "to": "String(decoding: rest, as: UTF8.self).hasPrefix($0.key)",
+    "runner": "swift",
+    "filter": "CodeHighlighterTests/unicodeRoundTrip"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/CodeHighlighter.swift",
+    "from": "rest.starts(with: closingTag)",
+    "to": "String(decoding: rest, as: UTF8.self).hasPrefix(\"</span>\")",
+    "runner": "swift",
+    "filter": "CodeHighlighterTests/unicodeRoundTrip"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/StreamingMarkdown.swift",
+    "from": "!text.utf8.starts(with: source.utf8)",
+    "to": "!text.hasPrefix(source)",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests/canonicalReplacements"
+  }
+]

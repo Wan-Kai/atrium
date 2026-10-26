@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignore": ["spikes/**"],
+  "ignore": ["spikes/**", "apps/ios/AtriumKit/Sources/AtriumRender/Resources/highlight.min.js"],
   "ignoreBinaries": ["pi", "mkfifo", "screencapture", "sips"],
   "workspaces": {
     ".": {

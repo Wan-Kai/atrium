@@ -20,12 +20,21 @@ let package = Package(
   products: [
     .library(name: "AtriumUI", targets: ["AtriumUI"])
   ],
+  dependencies: [
+    // Markdown parsing (cmark-gfm) for the reply renderer; exact, as every dependency (coding-standards).
+    .package(url: "https://github.com/swiftlang/swift-markdown.git", exact: "0.9.0")
+  ],
   targets: [
     .target(name: "AtriumProtocol", swiftSettings: shared),
     .target(name: "AtriumNoise", swiftSettings: shared),
     .target(name: "AtriumRemote", dependencies: ["AtriumProtocol", "AtriumNoise"], swiftSettings: shared),
     .target(name: "AtriumSync", dependencies: ["AtriumProtocol"], swiftSettings: shared),
-    .target(name: "AtriumRender", dependencies: ["AtriumProtocol"], swiftSettings: shared),
+    .target(
+      name: "AtriumRender",
+      dependencies: ["AtriumProtocol", .product(name: "Markdown", package: "swift-markdown")],
+      resources: [.process("Resources")],
+      swiftSettings: shared
+    ),
     .target(
       name: "AtriumUI",
       dependencies: ["AtriumProtocol", "AtriumRemote", "AtriumSync", "AtriumRender"],
@@ -41,6 +50,11 @@ let package = Package(
     .testTarget(name: "AtriumRemoteTests", dependencies: ["AtriumRemote"], swiftSettings: shared),
     .testTarget(name: "AtriumSyncTests", dependencies: ["AtriumSync"], swiftSettings: shared),
     .testTarget(name: "AtriumRenderTests", dependencies: ["AtriumRender"], swiftSettings: shared),
-    .testTarget(name: "AtriumUITests", dependencies: ["AtriumUI"], swiftSettings: mainActor),
+    .testTarget(
+      name: "AtriumUITests",
+      dependencies: ["AtriumUI"],
+      resources: [.copy("Fixtures")],
+      swiftSettings: mainActor
+    ),
   ]
 )
