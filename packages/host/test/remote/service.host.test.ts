@@ -292,6 +292,31 @@ describe("RemoteService through a real relay process", () => {
     expect(pending.channel.closed).toBe(true);
   });
 
+  it("does not admit a replacement identity when re-pair confirmation is queued between two revocations", async () => {
+    const f = await serviceFixture();
+    const phone = f.phone();
+    const original = await pairDevice(f, phone);
+    const pairing = newPairing(f);
+    const pending = await phone.pair(pairing.qr);
+    await awaiting(f);
+    const gate = f.vault.pause();
+    const firstRevoke = f.service.revokeDevice(original.deviceId);
+    await gate.entered;
+    await original.session.control(["revoked"]);
+    await original.session.closed;
+    expect(f.vault.contents().devices.map((device) => device.deviceId)).toStrictEqual([original.deviceId]);
+    const confirmation = f.service.confirmPairing(pairing.pairingId, true);
+    const secondRevoke = f.service.revokeDevice(original.deviceId);
+    gate.release();
+    await Promise.all([firstRevoke, confirmation, secondRevoke]);
+    expect(f.accepted.map((item) => item.origin)).toStrictEqual([{ origin: "remote", deviceId: original.deviceId }]);
+    expect(f.accepted.every((item) => item.closed)).toBe(true);
+    expect(f.vault.contents().devices).toStrictEqual([]);
+    expect(f.service.get("observer", undefined).devices).toStrictEqual([]);
+    await pending.closed;
+    expect(pending.channel.closed).toBe(true);
+  });
+
   it("caps pending handshakes at four and releases them at the ten-second deadline", async () => {
     expect(HANDSHAKE_TIMEOUT_MS).toBe(10_000);
     const f = await serviceFixture();
