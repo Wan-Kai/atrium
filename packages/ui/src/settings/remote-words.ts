@@ -1,6 +1,11 @@
 import { CommandError, ConnectionLostError } from "@atrium/client";
 import type { RemoteDevice, RemoteState } from "@atrium/protocol";
 
+/** Recovery guidance without promising that the current process can repeat a denied keychain prompt. */
+export const KEYCHAIN_HELP = "钥匙串暂时无法访问。请允许 Atrium 访问钥匙串；若此前拒绝授权，请重启 Atrium 后再试。";
+/** An unreadable vault is not proof that the file itself is physically corrupt. */
+export const VAULT_UNREADABLE = "保险箱文件损坏或密钥不匹配，当前无法读取。";
+
 /**
  * Describes a remote command failure without exposing server text or credentials.
  * @remarks Only protocol codes reach the user; the original error can contain sensitive input.
@@ -13,8 +18,8 @@ export function remoteError(error: unknown): string {
   if (!(error instanceof CommandError)) return "操作未完成，请重试。";
   const words: Partial<Record<CommandError["code"], string>> = {
     remote_unavailable: "远程访问暂不可用，请检查开关、relay 和钥匙串授权。",
-    keychain_unavailable: "钥匙串不可用，请允许 Atrium 访问钥匙串后重试。",
-    vault_corrupt: "保险箱损坏，请在这台 Mac 的设置中重置。",
+    keychain_unavailable: KEYCHAIN_HELP,
+    vault_corrupt: `${VAULT_UNREADABLE}可在这台 Mac 的设置中重置。`,
     pairing_expired: "配对已结束，请重新出码。",
     pairing_busy: "已有一台手机等你确认，请先完成或拒绝它。",
     device_not_found: "这台设备已经不在列表里。",

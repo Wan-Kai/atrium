@@ -12,6 +12,7 @@ import { type ConfigGuard, PiConfigGroup } from "./pi-config-group";
 import { ProxyGroup } from "./proxy-group";
 import { ProjectsSection } from "./projects-section";
 import { PhoneSection } from "./phone-section";
+import { usePendingRevocations } from "./pending-revocations";
 
 /** A part of the settings. */
 export type SettingsSection = "appearance" | "accounts" | "projects" | "pi" | "phone" | "about";
@@ -83,6 +84,7 @@ export function SettingsPanel({
   readonly reveal: ((path: string) => void) | undefined;
 }) {
   const dialog = useRef<HTMLDivElement>(null);
+  const revocations = usePendingRevocations(client);
   /**
    * Reads remote state for the settings window, including an explicit retry from the Phone page.
    * @remarks The window is the sole watch owner, so category changes cannot silence its indicators.
@@ -271,7 +273,9 @@ export function SettingsPanel({
                 />
               </>
             ) : null}
-            {section === "phone" ? <PhoneSection client={client} onRetryRemote={refreshRemote} /> : null}
+            {section === "phone" ? (
+              <PhoneSection client={client} onRetryRemote={refreshRemote} revocations={revocations} />
+            ) : null}
             {section === "about" ? <AboutSection client={client} reveal={reveal} /> : null}
           </div>
         </div>

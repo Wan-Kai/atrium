@@ -65,6 +65,8 @@ SPEC-0005 需求 1、配对和撤销；视觉按 design-language「设置 · 手
 | 协议 27 匿名握手：一次灰色往返、快速 true/false 立即清除、换 pairingId 重置、取消、原二维码期限、过期/拒绝/确认后忽略旧活动、Reduce Motion 无动画时钟 | 同上 handshaking、restarts、obsolete activity、unauthenticated request、static handshake 用例；四设备折叠仍由旧浏览器用例覆盖 |
 | 审查修复：配对确认弹层型号标注“手机自报，非硬件认证”；空字符串/空白写“未提供”，不从设备名推断 | `remote-pairing.browser.test.tsx` 参数化 3 项，修改前 3 红、修改后 3 绿；`mp3b-pairing-model-break-check.json` 3 处检出 |
 | 协议 27 全字段入 store；过期推送优先于旧读取；旧 socket 或退订后的活动不能复活 | `atrium-client.test.ts` 的 projects protocol 27 evidence（真实协议 schema 校验） |
+| 审查修复 B：keychain 暂不可用、拒绝后需重启；corrupt 为损坏或密钥不匹配导致不可读；刷新仅被动读取；未知/已知设备数量与两步不可逆 reset 提示 | `vault-guidance.browser.test.tsx` 8 红→8 绿；相关 45 项通过，`mp3b-vault-guidance-break-check.json` 6/6 检出；浅/深色错误与长确认截图见 MP3b 记录 |
+| 审查修复 A：撤销失败目标归设置窗口、按 deviceId 独立；其它动作与分类切换不覆盖；成功仅清本项；关闭、成功 reset/save 或身份变化清旧项；旧回调不能复活或清新目标 | `revocation-retry.browser.test.tsx` 5 项（真实 SettingsPanel/client）；4 红后实现，相关 37 项绿；`mp3b-revocation-break-check.json` 7/7 检出 |
 | 原地改名与清空恢复、撤销确认、撤销写盘失败仍保留可重试目标 | 浏览器 watches only、saves relay、keeps revoke retry |
 | 真实二维码输入和矩阵、5 分钟过期、刷新、SAS、确认/拒绝、另一台手机被拒、完成/失败原因、Esc 不关外层设置 | 浏览器 counts down a real QR、declines a pairing、pairing failure 参数化用例 |
 | 断线时配对不能确认但仍可 Esc 关闭；同步重复点击只发一次；失败不乐观授予权限 | 浏览器 lets Escape dismiss、blocks duplicate commands、reports failures |

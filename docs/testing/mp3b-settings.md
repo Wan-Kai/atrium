@@ -1,5 +1,17 @@
 # MP3b 手机设置页实施记录
 
+## 审查修复 B：保险箱错误及重置确认文案（本轮）
+
+keychain_unavailable 仅表示暂时无法访问；提示允许授权、若此前拒绝则重启后再试。原“重新授权”改为被动“刷新状态”，不调用 set_remote、不承诺原进程再弹授权。corrupt 涵盖文件损坏或密钥不匹配导致无法读取，不断言已确定物理损坏。重置保留两步确认；只有 vault=ok 才使用设备数量，其它状态写数量未知，并明确永久替换原宿主身份/设备记录、所有手机重配；无法读取时不承诺保留 relay 凭据。仅 UI 文案与被动刷新入口，不改 host、协议或权限。不可读时设备列表标题也写“数量未知”，避免同屏一边写 0 台、一边确认数量未知。
+
+B 验证：新增 `vault-guidance.browser.test.tsx` 8 项起初全红（`/tmp/mp3b/vault-red.log`），实现后 8 绿；列表未知数量的两个断言也单独见红（`vault-count-red.log`）。`pnpm test:ui vault-guidance revocation-retry phone-section settings-remote-watch --maxWorkers=1`：4 文件 / 45 项通过（`vault-regression.log`）；`pnpm break-check docs/testing/mp3b-vault-guidance-break-check.json`：6/6 检出（`vault-break.log`），覆盖拒绝后重启提示、腐坏/密钥不匹配的有限结论、未知/已知 0 数量、刷新不提权、两步 reset。已查看浅/深色长文案截图：`packages/ui/src/settings/.vitest/phone-vault-confirm-{light,dark}.png`、`phone-keychain-error-{light,dark}.png`。沿用既有错误行、详情与行内确认，无新卡片或页面。没有运行全量、e2e、变异或 Xcode，实际钥匙串分类留给宿主整合验证。
+
+## 审查修复 A：失败撤销目标独立保留（本轮）
+
+设置窗口 owner 内按 deviceId 维护仅失败撤销的目标表，与 PhoneSection 通用 failure/notice 分开；无磁盘存储、自动重试或通用命令队列。成功重试只删除对应目标；实际卸载、可见身份/relay 配置变化清表并推进代次。保存 relay（包括只换令牌）及重置身份成功后的清表回调在操作开始时捕获代次，不依赖 PhoneSection 是否还挂载；失败不清表，旧回调不复活或清除新身份目标。宿主已隐藏/拉黑的设备不重新加入列表。原有其它历史验证不改写为本轮结果。
+
+A 验证：`revocation-retry.browser.test.tsx` 使用真实 SettingsPanel + 实际 client/协议解析 + 脚本化 socket；初始 4 项全红（`/tmp/mp3b/revoke-red.log`）。补入晚到 reset/关闭回调后共 5 项，连同 Phone 和窗口 watch 回归，`pnpm test:ui revocation-retry phone-section settings-remote-watch --maxWorkers=1` 为 37 项通过（`revoke-regression.log`）。`pnpm break-check docs/testing/mp3b-revocation-break-check.json` 7/7 检出（`revoke-break.log`）；UI typecheck 与改动文件类型感知 lint 通过。旧破坏清单的 revoke 与通用错误匹配点同步到当前代码，历史计数不重算。本轮未跑全量、e2e、变异、Xcode。
+
 ## 用户选择：整个设置窗口订阅（本轮）
 
 审查后用户明确选择 SettingsPanel 为唯一 watch owner：挂载开启，实际卸载退订并清空；切换分类不重复订阅，未保存配置拦截关闭时维持订阅。PhoneSection 只管理自己的 mounted guard、动画和计时器；重试读取请求交给设置窗口，不持有 watch 生命周期。不全局常驻、不持久化二维码、不新增公网/手机连接、不自动确认或取消配对、不改变远程开关。

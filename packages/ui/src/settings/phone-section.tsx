@@ -1,4 +1,4 @@
-import { type AtriumClient, CommandError } from "@atrium/client";
+import type { AtriumClient } from "@atrium/client";
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { Check, Copy, PencilSimple, Phone, Plus, Trash, WarningCircle } from "../design/icons";
@@ -9,7 +9,8 @@ import { deviceStyle, RemoteLinkMap } from "./remote-link-map";
 import { RemotePairingDialog } from "./remote-pairing";
 import { RemoteDiagnostics } from "./remote-diagnostics";
 import { PhoneNotice } from "./phone-notice";
-import { deviceStatus, remoteDate, remoteError, remoteLive } from "./remote-words";
+import type { PendingRevocations } from "./pending-revocations";
+import { deviceStatus, remoteDate, remoteError, remoteLive, KEYCHAIN_HELP, VAULT_UNREADABLE } from "./remote-words";
 import "./phone-section.css";
 
 /** A replayable operation, retained for explicit retry, never automatically replayed. */
@@ -26,15 +27,17 @@ interface RemoteAction {
  * grant access. A failed revoke retains its id so retry remains possible after the host hides it.
  * @sideEffects Subscribes to remote state; sends commands on user actions; copies only
  * the public fingerprint; releases local timers and mounted guards on unmount, not the watch.
- * @param props - The desktop client and the owner's explicit read-retry handler.
+ * @param props - The client, read-retry handler and window-owned failed revocation targets.
  * @returns The link map, node details, full device list and pairing sheet.
  */
 export function PhoneSection({
   client,
   onRetryRemote,
+  revocations,
 }: {
   readonly client: AtriumClient;
   readonly onRetryRemote: () => void;
+  readonly revocations: PendingRevocations;
 }) {
   const view = useStore(client.remote);
   const connected = useStore(client.connection, (connection) => connection.status === "connected");
@@ -88,11 +91,9 @@ export function PhoneSection({
         },
         (error: unknown) => {
           if (!mounted.current) return;
-          const text =
-            action.revoke && error instanceof CommandError && error.code === "keychain_unavailable"
-              ? "没能写入保险箱，重启 Atrium 后它会恢复。请重试。"
-              : remoteError(error);
-          setFailure({ text, action });
+          // Revocation failures belong to the settings window, independently of this action's feedback.
+          if (action.revoke) return;
+          setFailure({ text: remoteError(error), action });
         },
       )
       .finally(() => {
@@ -153,7 +154,11 @@ export function PhoneSection({
   /** Saves a relay line without retaining the token after success. @remarks Replacing an address requires pairing again. @sideEffects Sends set_remote and clears the local secret field. */
   const saveRelay = (): void =>
     run({
-      perform: () => client.setRemote(true, relayLine.trim()),
+      perform: async () => {
+        const finish = revocations.beginIdentityChange();
+        await client.setRemote(true, relayLine.trim());
+        finish();
+      },
       success: "relay 已保存；地址或宿主 id 改变后，所有手机都要重新扫码配对",
       done: () => {
         setRelayLine("");
@@ -163,12 +168,39 @@ export function PhoneSection({
   /** Regenerates identity after explicit confirmation. @remarks Also recovers corrupt vaults; never automatic. @sideEffects Sends reset_remote_identity. */
   const reset = (): void =>
     run({
-      perform: () => client.resetRemoteIdentity(),
+      perform: async () => {
+        const finish = revocations.beginIdentityChange();
+        await client.resetRemoteIdentity();
+        finish();
+      },
       success: "已撤销全部设备，宿主密钥已重新生成",
       done: () => setConfirm(null),
     });
   const feedback = (
     <>
+      {revocations.entries.map((entry) => (
+        <div className="phone-error" role="alert" aria-label={`撤销 ${entry.name}`} key={entry.deviceId}>
+          <WarningCircle size={15} />
+          <span>
+            {entry.name}：{entry.error}
+          </span>
+          <button
+            type="button"
+            className={BUTTON}
+            aria-label={`重试撤销 ${entry.name}`}
+            disabled={disabled || entry.pending}
+            onClick={() =>
+              run({
+                perform: () => revocations.revoke(entry.deviceId, entry.name),
+                success: `已撤销「${entry.name}」`,
+                revoke: true,
+              })
+            }
+          >
+            {entry.pending ? "正在重试…" : "重试撤销"}
+          </button>
+        </div>
+      ))}
       {failure === null ? null : (
         <div className="phone-error" role="alert">
           <WarningCircle size={15} />
@@ -206,12 +238,13 @@ export function PhoneSection({
       .match(/.{1,4}/g)
       ?.join(" ") ?? "尚未生成";
   const live = remoteLive(state);
+  const vaultReadable = state.vault === "ok";
   const vaultWords = {
     unread: "打开远程访问后才读取保险箱",
     waiting: "等待钥匙串授权，请在 macOS 弹窗中允许 Atrium",
     ok: "",
-    keychain_unavailable: "钥匙串不可用，请允许 Atrium 访问钥匙串后重试",
-    corrupt: "保险箱损坏，需要重置宿主身份；所有手机都要重新配对",
+    keychain_unavailable: KEYCHAIN_HELP,
+    corrupt: `${VAULT_UNREADABLE}重置会替换原宿主身份，所有手机都要重新配对。`,
     unavailable: "宿主未在 Electron 中运行，远程访问不可用",
   };
   const details: ReactNode =
@@ -265,7 +298,11 @@ export function PhoneSection({
         />
         <Row
           label="撤销全部并重新生成宿主密钥"
-          detail="所有手机都要重新配对，relay 上的宿主令牌不变"
+          detail={
+            vaultReadable
+              ? "所有手机都要重新配对，relay 上的宿主令牌不变"
+              : "当前无法读取保险箱；无法恢复时需重新填写 relay 配置"
+          }
           controls={
             <button
               className={BUTTON}
@@ -281,7 +318,11 @@ export function PhoneSection({
         />
         {confirm === "reset" ? (
           <div className="phone-confirm">
-            <p>{state.devices.length} 台设备将断开，指纹会变。确认重新生成？</p>
+            <p>
+              {vaultReadable
+                ? `${state.devices.length} 台设备将断开，原宿主身份与设备记录将永久替换，所有手机都需要重新配对。确认重新生成？`
+                : "已配对设备数量未知。当前无法读取保险箱；继续会永久替换原宿主身份与设备记录，所有手机都需要重新配对。确认重置？"}
+            </p>
             <button type="button" className={GHOST_BUTTON} disabled={disabled} onClick={() => setConfirm(null)}>
               取消
             </button>
@@ -341,7 +382,7 @@ export function PhoneSection({
               disabled={disabled}
               onClick={() =>
                 run({
-                  perform: () => client.revokeDevice(device.deviceId),
+                  perform: () => revocations.revoke(device.deviceId, device.name),
                   success: `已撤销「${device.name}」`,
                   revoke: true,
                   done: () => {
@@ -490,13 +531,8 @@ export function PhoneSection({
                   重置
                 </button>
               ) : state.vault === "keychain_unavailable" ? (
-                <button
-                  type="button"
-                  className={BUTTON}
-                  disabled={disabled}
-                  onClick={() => run({ perform: () => client.setRemote(true), success: "已重新请求钥匙串授权" })}
-                >
-                  重新授权
+                <button type="button" className={BUTTON} disabled={disabled} onClick={onRetryRemote}>
+                  刷新状态
                 </button>
               ) : null}
             </div>
@@ -506,7 +542,7 @@ export function PhoneSection({
           </section>
           <section ref={list} className="phone-device-list" aria-label="设备列表">
             <h4>
-              设备 <small>{state.devices.length} 台</small>
+              设备 <small>{vaultReadable ? `${state.devices.length} 台` : "数量未知"}</small>
               <button type="button" className={BUTTON} disabled={disabled || !live} onClick={start}>
                 <Plus size={13} />
                 配对新设备
