@@ -1566,3 +1566,14 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 压扁与睁眼的动效、减弱动态效果的静帧 | 纯 CSS；浏览器测试切不了减弱动态效果（同空状态的光标） | 未测 |
 
 5 项 `pnpm break-check` 全部检出（去小猫、去入场类、去 `pl-6`、去扫光、改 testid）。改动不在变异分组（视图组件与 CSS），未跑变异测试。真实渲染明暗截图已看（一次性用例渲染真实 `Transcript`，用完即删）。
+
+## 正式 RemoteService → Swift 拒绝互通（连接切片，2026-10-26）
+
+- 在 `1399b0c` 后仅合固定 host `e29e49a`（merge `e03bc76`），协调生成协议27，文档冲突保留双方；未合 renderer/整合分支。本轮没有修改 host/protocol 生产源码，也不标完整 MP4 完成。
+- `node apps/ios/Integration/run.mjs --production-rejection` 使用实际生产 RemoteService、relay 和 Swift WebSocket/Noise/PairingFlow。vault/index 只有最小内存端口，不 import Vitest fixture，不启动 startHost/Electron/router/faux-pi。HTTP 控制复用 bearer、loopback、限长/超时和清理，只等待真实 awaiting_confirmation、核对 SAS、调用真实 `confirmPairing(false)`，不构造拒绝帧。
+- `ProductionRejectionInteropTests/macRefusal` 不覆盖版本，Swift 默认生成版本与 TS 当前27一致；断言真正加密线路的 `.failed(.declined)`、无成功通道、pending 清空、旧本地正式记录与共享设备密钥保留、无存储问题。旧记录是客户端内存夹具，不声称曾与此服务实际配对。TS 同时验证本地 reason=declined、devices/accept=0、vault 字符串未改变；cleanup 再查没有授权、host/relay counters=0、所有控制请求/listener 关闭。
+- 安全保存映射原件后，暂时仅移除 Swift `rejected` 分支，实跑新正式互通 **exit 1，仅 Mac 拒绝状态一处断言失败**（实际 `.other("rejected")`）；恢复并逐字节比对原件后同场景 **exit 0、1 test/1 suite 通过**。第一次因协议27与新测试增量编译12.09秒，无 Markdown/renderer 新编译；恢复后1.38秒。红灯 `/tmp/ios-connect-production-rejection-red.log`，首次绿灯 `...-green.log`，最终当前源码绿灯 `/tmp/ios-connect-production-rejection-final.log`。
+- `node apps/ios/Integration/run.mjs --production-rejection --hold-confirmation` 在真实匹配 SAS/awaiting_confirmation 后输出 held 信标。外部验证器此时 SIGTERM runner，实测 **exit 1**；host/relay counters归零、control请求与listener关闭、已捕获的 Swift 后代进程组全部消失、临时 bundle 目录移除。日志 `/tmp/ios-connect-production-rejection-cancel.log`。负对照断言失败也完成相同 fixture 清理；最终扫描无残留 `atrium-local-interop-*` 目录。
+- 原 MP0 命令仍通过（exit 0，1 test）；`--negative-control` 仍只在错误 SAS 断言失败（exit 1），并清理资源，再跑普通 MP0 通过。最终日志 `/tmp/ios-connect-mp0-production-final.log`，负对照 `/tmp/ios-connect-mp0-negative-after-production.log`。新增 CLI/env 仅测试可见，登记于 Integration README/development，入口登记 knip。
+- `swift test --jobs 1 --filter 'PairingFlowTests|PairingPresentationTests|RoundTripTests'`（warnings-as-errors、显式 target 依赖检查）**18项/3 suites通过**，含 declined 兼容、未知理由、UI 文案和生成协议往返，日志 `/tmp/ios-connect-production-swift-targeted.log`。定向 oxlint、包含现有 host ambient declaration/MP0 TS-extension 设置的临时 tsc 配置通过；初次 lint 的文档参数/不安全类型断言已修，初次类型检查遗漏声明和配置不计通过，未放宽类型规则或修改生产/spike源码。误用不存在的 eslint 命令失败后改用仓库 oxlint。只读审查无高可信阻断，审查者未另跑测试。
+- 未跑全量 check/test/knip、Xcode/模拟器、真机、WAN/TLS、长期整机泄漏或完整 MP4 同步。这个新增证据只覆盖正式服务拒绝接缝，不把它升级为 startHost/faux-pi 契约。

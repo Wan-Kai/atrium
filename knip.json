@@ -9,7 +9,8 @@
         "scripts/lint/*.mjs",
         "vitest.mutation.config.ts",
         "apps/ios/Integration/run.mjs",
-        "apps/ios/Integration/fixture.ts"
+        "apps/ios/Integration/fixture.ts",
+        "apps/ios/Integration/production-rejection.ts"
       ],
       "ignoreDependencies": ["@stryker-mutator/core", "@stryker-mutator/command-runner"]
     },

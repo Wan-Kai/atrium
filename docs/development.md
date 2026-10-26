@@ -124,7 +124,7 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 - 回归破坏检查：`pnpm break-check apps/ios/Testing/remote-breaks.json`。包含协议 26 的无 token hello、配对记录恢复、倒计时、前后台、无网恢复、心跳和阻塞发送关闭。
 - `SecureChannel.close()` 给队列最多 2 秒排空（注入时钟），之后强制关闭底层传输；连接停止、换代、进入后台使用同步 `abort()`，不派无人持有的清理任务。
 - 配对本地倒计时按实际经过时间计算；本地超时或正式记录写入失败不能证明 Mac 没确认，因此保留 pending，供后续 IK 补确认。宿主认证的明确拒绝才清理对应 pending。
-- 实时互通：`node apps/ios/Integration/run.mjs`，真实relay绑定本机随机端口，与固定协议25的TS MP0假宿主交互，正式App默认仍是26。`--negative-control` 故意报错SAS，命令应失败。隔离与清理说明见 `apps/ios/Integration/README.md`。
+- 实时互通：`node apps/ios/Integration/run.mjs`，真实relay绑定本机随机端口，与固定协议25的TS MP0假宿主交互，正式App使用生成的当前协议版本（现为27）。`--negative-control` 故意报错SAS，命令应失败。`--production-rejection` 改用生产 RemoteService 验证真实拒绝，不覆盖 Swift 协议版本；其 `--hold-confirmation` 仅供 SIGTERM 清理验证，不能与 MP0 负对照混用。两模式 Swift 构建均 `--jobs 1`；测试专用环境变量、隔离与清理说明见 `apps/ios/Integration/README.md`。
 - `pnpm test:ios` 包含三项XCUITest：首页、真实App进程的钥匙串、配对页面粘贴/相机备用。模拟器不支持真正扫码，手机权限与扫码仍需真机。
 - DEBUG专用入口 `ATRIUM_PAIRING_KEYCHAIN_CHECK=1` 由XCUITest设置，仅执行固定CRUD/保护属性验收，service固定为 `site.ktoon.atrium.debug.pairing-keychain-check`、account每次随机，所有查询/清理都限定该项；不接受任意service/数据、不输出秘密、不编入Release。不能在XCUITest Runner内替代执行（Runner曾返回-34018）。App业务钥匙串和签名配置未改变。
 - 截图先用 `pnpm ios:shot` / `pnpm ios:shot --dark` 在模拟器锁内切换真实主题，再 `pnpm test:ios`；从xcresult导出 `PairingScreenTests/testPasteValidationAndCameraFallback()` 的 `pairing-entry` / `pairing-invalid` 附件。`-AppleInterfaceStyle` 启动参数未生效，不作为主题验证依据。
