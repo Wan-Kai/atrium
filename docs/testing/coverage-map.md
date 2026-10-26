@@ -1246,13 +1246,15 @@ UI 默认测试端口 63315 被其它 worktree 的测试占用，未终止对方
 | 宿主：会话"待回答"算上问题，回答后清掉；路由转 `answer_question` | `session-manager.test.ts` "waits for the questions its agent asked"、`router.test.ts` | 已覆盖 |
 | 客户端：`answerQuestion` 发出命令 | `packages/client/src/atrium-client.test.ts` | 已覆盖 |
 | 界面状态：单选 / 多选 / "其他"的选取、算不算答了、下一道没答的题、拼出答案、按会话保存草稿（换问题、题数不对时重来） | `packages/ui/src/chat/question-state.test.ts` | 已覆盖 |
-| 提问卡片：题名标签与"已答 N / M"、单选 / 多选标签与"已选 N"、序号即控件（圆 / 圆角方、选中蓝底勾）、推荐标记、单选 0.2 秒后到下一题、多选勾选计数、没答完不能提交、"其他"多行框（铺满整行、聚焦、长高、⏎ 确定、⇧⏎ 换行）、数字键不进输入框、↑↓ 移动、← → 换题、跳过、草稿保留、预览跟着指向的选项、只有问题时卡片区也显示、在对话框下面 | `packages/ui/src/chat/question-card.browser.test.tsx` | 已覆盖 |
+| 提问卡片：点阵问号与顶行（`agent` Syne 橙 / `/` / `在问你` / `已答 N / M`）、题名标签、单选 / 多选标签与"已选 N"、序号即控件（圆 / 圆角方、选中蓝底勾）、推荐标记、单选 0.2 秒后到下一题、多选勾选计数、没答完不能提交、"其他"多行框（铺满整行、聚焦、长高、⏎ 确定、⇧⏎ 换行）、数字键不进输入框、↑↓ 移动、← → 换题、跳过、草稿保留、预览跟着指向的选项、只有问题时卡片区也显示、在对话框下面 | `packages/ui/src/chat/question-card.browser.test.tsx` | 已覆盖 |
 | 输入框：有问题时占位文字换掉，回车和 ⌘回车都按插话发 | `composer.browser.test.tsx` "while the agent's questions wait" | 已覆盖 |
 | 过程轨道：文字（正在问你 / 问了你 / 跳过 / 直接回复 / 已取消）、折叠摘要"问了你 N 个问题"、记录行、Markdown；等你时问号标题行"等你回答"和光环节点、答完橙点和常显记录、点开看全部选项、停止后灰点不是死路 | `turn-layout.test.ts` "the agent's questions on the rail"、`turn.browser.test.tsx` "the agent's questions" | 已覆盖 |
 | 端到端：真实 Electron + pi + faux 模型，agent 问两题，卡片点选提交，模型同一轮读到答案、标签"待回答"起止、过程记录；有问题时在输入框发消息，卡片消失、模型同一轮先读到"直接回复"再读到你的话 | `apps/desktop/e2e/ask-user.spec.ts` | 已覆盖（负对照：去掉"有问题时回车按插话发"后第二条变红） |
 | 泄漏：控制器 200 轮（回答、直接回复、放弃、停止）每次调用都得到回答、不留问题、计时器和监听回到基线、问题对象可回收；界面 8 轮卡片出现消失不留脱离的 DOM | `session-controller.leak.test.ts` "answers and lets go of the agent's questions"、`apps/desktop/e2e/ask-user.leak.spec.ts` | 已覆盖（负对照：故意留住问题对象 / 卡片节点时都变红） |
 
 破坏检查（2026-10-22）：新行为的 50 个改坏点全部检出；第一次没检出的 4 处，3 处补了测试，1 处是多余的守卫，已删掉。
+
+破坏检查（2026-10-26，顶行改版）：4 个改坏点（`agent` 写回一行纯文字、`在问你` 改名、计数加回`· `、点阵全部跳过不画）全部检出。改动只涉及 `question-card.tsx`（浏览器测试覆盖）和 `design/dots.ts`（纯绘制，不在变异分组），不跑变异测试。
 
 变异测试（只变异改动的行，2026-10-22）：协议 `question.ts` 100%（76）；pi `ask-user.ts`、扩展的 `ask_user` 部分、`history/tools.ts` 100%（255），`ask-user.ts` 里 5 处为类型写的判断与一处空白预览后的上限参数注明等价；宿主控制器、中转、启动参数的改动 100%（控制器 100、中转 28、启动参数 5 个变异；过程中补了"插话被拒后重新发布问题""停止后不恢复""回复途中不收新问题""pi 已不在时放弃"四个测试，删掉了两处多余代码）；界面 `question-state.ts`、`turn-layout.ts` 的改动 100%（175），为类型写的判断注明等价。`question-state.ts` 加进了界面的变异分组。
 
