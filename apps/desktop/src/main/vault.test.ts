@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { type VaultCrypto, createVaultKeeper } from "./vault";
 
+// Exact native messages, independently pinned here as the Electron 44.5.1 test oracle.
+const DECRYPT_FAILED = "Error while decrypting the ciphertext provided to safeStorage.decryptStringAsync.";
+const TEMPORARILY_UNAVAILABLE = "safeStorage.decryptStringAsync is temporarily unavailable. Please try again.";
+
 /**
  * A stand-in for `safeStorage`: reversible, but not the plain text, and switchable off.
  *
@@ -14,7 +18,15 @@ import { type VaultCrypto, createVaultKeeper } from "./vault";
  * @returns The crypto and a switch.
  */
 function fakeCrypto() {
-  const state = { available: true, failEncrypt: false, rejectAvailabilityOnce: false };
+  const state = {
+    available: true,
+    failEncrypt: false,
+    rejectAvailabilityOnce: false,
+    rejectDecrypt: false,
+    decryptError: undefined as unknown,
+    decryptCalls: 0,
+    encryptCalls: 0,
+  };
   const crypto: VaultCrypto = {
     available: async () => {
       if (state.rejectAvailabilityOnce) {
@@ -24,12 +36,15 @@ function fakeCrypto() {
       return state.available;
     },
     encrypt: async (text) => {
+      state.encryptCalls++;
       if (state.failEncrypt) throw new Error("no key");
       return Buffer.from(`enc:${Buffer.from(text).toString("base64")}`);
     },
     decrypt: async (data) => {
+      state.decryptCalls++;
+      if (state.rejectDecrypt) throw state.decryptError;
       const text = data.toString();
-      if (!text.startsWith("enc:")) throw new Error("bad");
+      if (!text.startsWith("enc:")) throw new Error(DECRYPT_FAILED);
       return Buffer.from(text.slice(4), "base64").toString();
     },
   };
@@ -50,10 +65,131 @@ async function keeper() {
   onTestFinished(() => dir.cleanup());
   const path = join(dir.path, "remote", "vault.bin");
   const { crypto, state } = fakeCrypto();
-  return { vault: createVaultKeeper({ path, crypto }), path, state, dir: dir.path };
+  return { vault: createVaultKeeper({ path, crypto }), path, state, crypto, dir: dir.path };
 }
 
 describe("createVaultKeeper", () => {
+  it("pins the reviewed native message contract to Electron 44.5.1", async () => {
+    const pkg = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as {
+      devDependencies: { electron: string };
+    };
+    expect(pkg.devDependencies.electron).toBe("44.5.1");
+    expect(Object.hasOwn(new Error(TEMPORARILY_UNAVAILABLE), "code")).toBe(false);
+  });
+
+  it.each([
+    { label: "temporarily unavailable", error: new Error(TEMPORARILY_UNAVAILABLE) },
+    { label: "unknown failure", error: new Error("unrecognized native error; private text") },
+    { label: "known message with an unknown suffix", error: new Error(`${DECRYPT_FAILED} private suffix`) },
+    { label: "non-Error rejection", error: { message: DECRYPT_FAILED } },
+  ])("preserves a high-version vault when decrypt rejects with $label despite availability", async ({ error }) => {
+    const { vault, path, state } = await keeper();
+    expect(await vault.handle({ type: "vault_write", id: 1, version: 50, data: "original-identity" })).toStrictEqual({
+      type: "vault_result",
+      id: 1,
+      ok: true,
+    });
+    const original = await readFile(path);
+    state.rejectDecrypt = true;
+    state.decryptError = error;
+    expect(state.available).toBe(true);
+    expect(await vault.handle({ type: "vault_read", id: 2 })).toStrictEqual({
+      type: "vault_result",
+      id: 2,
+      ok: false,
+      error: "keychain_unavailable",
+    });
+    expect(await vault.handle({ type: "vault_write", id: 3, version: 1, data: "must-not-reset" })).toStrictEqual({
+      type: "vault_result",
+      id: 3,
+      ok: false,
+      error: "keychain_unavailable",
+    });
+    expect(await vault.handle({ type: "vault_write", id: 4, version: 51, data: "must-not-replace" })).toStrictEqual({
+      type: "vault_result",
+      id: 4,
+      ok: false,
+      error: "keychain_unavailable",
+    });
+    expect(state.decryptCalls).toBe(3);
+    expect(state.encryptCalls).toBe(1);
+    expect(await readFile(path)).toStrictEqual(original);
+    expect(await readdir(join(path, ".."))).toStrictEqual(["vault.bin"]);
+    state.rejectDecrypt = false;
+    expect(await vault.handle({ type: "vault_write", id: 5, version: 1, data: "still-stale" })).toStrictEqual({
+      type: "vault_result",
+      id: 5,
+      ok: false,
+      error: "stale",
+    });
+    expect(state.decryptCalls).toBe(4);
+    expect(await vault.handle({ type: "vault_read", id: 6 })).toStrictEqual({
+      type: "vault_result",
+      id: 6,
+      ok: true,
+      version: 50,
+      data: "original-identity",
+    });
+    expect(await readFile(path)).toStrictEqual(original);
+    expect(state.encryptCalls).toBe(1);
+  });
+
+  it("does not lower an already-known version to zero after a rejected read", async () => {
+    const { vault, path, state } = await keeper();
+    await vault.handle({ type: "vault_write", id: 1, version: 50, data: "original" });
+    const original = await readFile(path);
+    state.rejectDecrypt = true;
+    state.decryptError = new Error(TEMPORARILY_UNAVAILABLE);
+    // Intentionally leave encryption usable: this proves the guard, not a platform overwrite scenario.
+    await vault.handle({ type: "vault_read", id: 2 });
+    expect(await vault.handle({ type: "vault_write", id: 3, version: 1, data: "replacement" })).toStrictEqual({
+      type: "vault_result",
+      id: 3,
+      ok: false,
+      error: "keychain_unavailable",
+    });
+    expect(await readFile(path)).toStrictEqual(original);
+    state.rejectDecrypt = false;
+    expect(await vault.handle({ type: "vault_read", id: 4 })).toStrictEqual({
+      type: "vault_result",
+      id: 4,
+      ok: true,
+      version: 50,
+      data: "original",
+    });
+  });
+
+  it("does not initialize version 1 over an unread vault when an unknown decrypt rejection recovers", async () => {
+    const { vault, path, state, crypto } = await keeper();
+    await vault.handle({ type: "vault_write", id: 1, version: 80, data: "original" });
+    const original = await readFile(path);
+    const fresh = createVaultKeeper({ path, crypto });
+    state.rejectDecrypt = true;
+    state.decryptError = new Error("unknown decrypt rejection");
+    expect(await fresh.handle({ type: "vault_write", id: 2, version: 1, data: "replacement" })).toStrictEqual({
+      type: "vault_result",
+      id: 2,
+      ok: false,
+      error: "keychain_unavailable",
+    });
+    expect(await readFile(path)).toStrictEqual(original);
+    state.rejectDecrypt = false;
+    expect(await fresh.handle({ type: "vault_write", id: 3, version: 1, data: "replacement" })).toStrictEqual({
+      type: "vault_result",
+      id: 3,
+      ok: false,
+      error: "stale",
+    });
+    expect(await fresh.handle({ type: "vault_read", id: 4 })).toStrictEqual({
+      type: "vault_result",
+      id: 4,
+      ok: true,
+      version: 80,
+      data: "original",
+    });
+    expect(await readFile(path)).toStrictEqual(original);
+  });
+
   it("reads no file as an empty vault at version 0", async () => {
     const { vault } = await keeper();
 
@@ -120,23 +256,35 @@ describe("createVaultKeeper", () => {
     expect(await again.handle({ type: "vault_write", id: 2, version: 6, data: "b" })).toMatchObject({ ok: true });
   });
 
-  it("says corrupt for a file that does not decrypt or parse, and lets a reset write over it", async () => {
+  it.each([
+    { label: "exact native ciphertext failure", bytes: "garbage" },
+    { label: "successfully decrypted invalid JSON", bytes: `enc:${Buffer.from("{").toString("base64")}` },
+    {
+      label: "successfully decrypted invalid format",
+      bytes: `enc:${Buffer.from('{"version":-1,"data":""}').toString("base64")}`,
+    },
+  ])("allows explicit reset after $label", async ({ bytes }) => {
     const { vault, path } = await keeper();
     await vault.handle({ type: "vault_write", id: 9, version: 5, data: "before" });
-    await writeFile(path, "garbage");
+    await writeFile(path, bytes);
     expect(await vault.handle({ type: "vault_read", id: 1 })).toStrictEqual({
       type: "vault_result",
       id: 1,
       ok: false,
       error: "corrupt",
     });
-    await writeFile(path, `enc:${Buffer.from("{").toString("base64")}`);
-    expect(await vault.handle({ type: "vault_read", id: 2 })).toMatchObject({ error: "corrupt" });
-    await writeFile(path, `enc:${Buffer.from('{"version":-1,"data":""}').toString("base64")}`);
-    expect(await vault.handle({ type: "vault_read", id: 3 })).toMatchObject({ error: "corrupt" });
-
-    expect(await vault.handle({ type: "vault_write", id: 4, version: 1, data: "fresh" })).toMatchObject({ ok: true });
-    expect(await vault.handle({ type: "vault_read", id: 5 })).toMatchObject({ version: 1, data: "fresh" });
+    expect(await vault.handle({ type: "vault_write", id: 4, version: 1, data: "fresh" })).toStrictEqual({
+      type: "vault_result",
+      id: 4,
+      ok: true,
+    });
+    expect(await vault.handle({ type: "vault_read", id: 5 })).toStrictEqual({
+      type: "vault_result",
+      id: 5,
+      ok: true,
+      version: 1,
+      data: "fresh",
+    });
   });
 
   it("fails closed without the keychain: no read, no write, nothing written", async () => {

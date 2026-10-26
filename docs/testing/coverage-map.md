@@ -10,6 +10,19 @@
 
 此项不冒充活跃配对 / QR 的 Electron 堆验证，也不代表全部桌面泄漏已通过；活跃状态目前仍只有浏览器资源回归。没有启用远程访问、填写 relay 凭据或操作真实钥匙串。
 
+## MP3a 保险箱解密错误分类（2026-10-26，审查修复）
+
+固定 Electron 44.5.1／Chromium 152.0.7977.130 静态源码证明：async availability 为 true 也可能缺少可用钥匙串密钥；拒绝只带消息，不带结构化 code。不是平台实测，也没有据此声称真实授权拒绝已覆盖用户文件。
+
+| 行为 | 证据 |
+|---|---|
+| available=true 但 decrypt temporarily-unavailable 或未知异常，不误报 corrupt；已知高版本退回未知状态，重试写前重读，不允许 version1 或更高新版本绕过失败覆盖原文件 | `apps/desktop/src/main/vault.test.ts` 先 6 红，后 24 项全部通过；假 crypto 刻意保持 encrypt 可用以验证守卫，不伪称系统实际覆盖；同时核对原文件字节、版本、无临时文件、无额外 encrypt |
+| 仅精确 native ciphertext 消息及成功解密后的无效 JSON／格式允许显式 reset；近似消息、普通对象 rejection 都保守 unavailable | 同文件表驱动测试，`vault-classification-break-check.json` 8/8 检出；既有 `vault-break-check.json` 5/5 再通过 |
+| Electron 升级必须复核消息合同，不依赖错误文本的 includes，不回传原文 | 测试独立写出确切消息，并断言 desktop 依赖仍为 44.5.1；静态依据和升级要求见 security.md |
+| 自己的 Electron 测试不再把 hello 写死为 26 | `remote-vault.spec.ts` 从公开 `@atrium/protocol` 引入 `PROTOCOL_VERSION`；只运行类型/lint检查，未启动 Electron。先前两例失败与 `fast tiers unavailable` 仍保留，不报已修复后通过 |
+
+仅改保险箱分类和测试协议引用；无 UI、wire 字段或版本变更，无备份／额外加密探测，无真实钥匙串操作。单 worker 定向验证、desktop 类型及 scoped lint/格式通过；未启动新 Stryker 或全量验证。
+
 ## MP3a 协议 27 协调及设置页接缝（2026-10-26）
 
 协调提交 `c709daf` 合入固定 main `ace843a`（已核实祖先关系），解决双方都占用版本 26 却形状不兼容的问题；保留翻译和远程协议并集，新增型号、诊断和握手活动投影，统一为 27。Swift 类型、往返夹具与版本断言同步。以下是新增验证；下节 `c09b54d` 的全量/变异仍为历史记录，不冒充本轮结果。

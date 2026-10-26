@@ -18,6 +18,9 @@ type VaultRequest =
 /** The largest vault text the host may hand over. */
 const MAX_DATA = 4 * 1024 * 1024;
 
+/** Exact Electron 44.5.1 native rejection; review this contract when upgrading Electron (security.md). */
+const CIPHERTEXT_DECRYPT_FAILED = "Error while decrypting the ciphertext provided to safeStorage.decryptStringAsync.";
+
 /**
  * Reads a message from the host as a vault request.
  *
@@ -47,7 +50,7 @@ function vaultRequest(message: unknown): VaultRequest | { readonly type: "invali
  * Reads the decrypted file as its version and the host's text.
  *
  * @remarks
- * Anything else means the file is damaged.
+ * Anything else is an unreadable vault format, without asserting physical file damage.
  *
  * @sideEffects none
  * @param text - The decrypted text.
@@ -88,8 +91,9 @@ export interface VaultKeeper {
  * @remarks
  * SPEC-0005, "保险箱的进程交接" and "MP3a 定的细节". The host is the only writer; requests are
  * handled one at a time in the order they came, so writes land in order. The version last read or
- * written is kept here and a write whose version is not newer is refused as stale; an unreadable
- * file counts as version 0, so the host's reset can replace it. A write goes to a temporary file
+ * written is kept here and a write whose version is not newer is refused as stale. Only the exact
+ * reviewed native ciphertext failure or invalid decrypted format counts as version 0 for reset;
+ * unknown or temporarily unavailable decryption leaves the version unknown, requiring another read. A write goes to a temporary file
  * beside the vault (mode 0600) and is renamed over it, in a folder of mode 0700. Every failure is
  * answered with a code and never falls back to plain text: no keychain, a file that does not
  * decrypt or parse, a write that fails. The keychain may ask the user first, which the async
@@ -127,7 +131,15 @@ export function createVaultKeeper(options: { readonly path: string; readonly cry
       }
       return { type: "vault_result", id, ok: false, error: "io" };
     }
-    const contents = await options.crypto.decrypt(encrypted).then(vaultContents, () => null);
+    let decrypted: string;
+    try {
+      decrypted = await options.crypto.decrypt(encrypted);
+    } catch (error) {
+      const unreadable = error instanceof Error && error.message === CIPHERTEXT_DECRYPT_FAILED;
+      current = unreadable ? 0 : null;
+      return { type: "vault_result", id, ok: false, error: unreadable ? "corrupt" : "keychain_unavailable" };
+    }
+    const contents = vaultContents(decrypted);
     if (contents === null) {
       current = 0;
       return { type: "vault_result", id, ok: false, error: "corrupt" };
