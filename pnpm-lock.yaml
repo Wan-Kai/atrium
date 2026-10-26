@@ -370,6 +370,25 @@ importers:
         specifier: 26.6.4
         version: 26.6.4
 
+  packages/remote-crypto:
+    dependencies:
+      '@noble/ciphers':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@noble/curves':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
+    devDependencies:
+      '@atrium/testkit':
+        specifier: workspace:*
+        version: link:../testkit
+      '@types/node':
+        specifier: 26.6.4
+        version: 26.6.4
+
   packages/testkit:
     devDependencies:
       '@earendil-works/pi-ai':
