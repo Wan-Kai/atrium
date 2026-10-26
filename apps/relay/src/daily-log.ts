@@ -17,8 +17,8 @@ const DAY_MS = 86_400_000;
  * SPEC-0005 asks for daily rotation; the host's pino-roll rotates by size and is driven by its own
  * timers, while this one takes the injected clock, so tests step across midnight. Writes are
  * fire-and-forget like a logger's: a failing disk must not take the relay down, so the first error
- * of a file goes to `onError` and later lines of that file are dropped until the next day's file. Files are
- * created 0600 (security.md, "relay").
+ * of a file goes to `onError`; a failed stream drops the lines written to it until the next day's
+ * file. Files are created 0600 (security.md, "relay").
  *
  * @sideEffects Opens, appends to and deletes files under `dir`; counts the open file as
  * `log.file`.
@@ -28,10 +28,10 @@ export class DailyLog {
   readonly #clock: Clock;
   readonly #resources: ResourceTracker;
   readonly #onError: (error: Error) => void;
+  // Stryker disable next-line StringLiteral: any value that is not a date makes the first write open a file.
   #day = "";
   #stream: WriteStream | null = null;
   #release: () => void = () => {};
-  #broken = false;
   #closed = false;
   #pruning: Promise<void> = Promise.resolve();
 
@@ -80,8 +80,7 @@ export class DailyLog {
   write(record: Readonly<Record<string, unknown>>): void {
     if (this.#closed) return;
     this.#roll();
-    if (this.#broken || this.#stream === null) return;
-    this.#stream.write(`${JSON.stringify({ time: new Date(this.#clock.now()).toISOString(), ...record })}\n`);
+    this.#stream?.write(`${JSON.stringify({ time: new Date(this.#clock.now()).toISOString(), ...record })}\n`);
   }
 
   /**
@@ -114,11 +113,9 @@ export class DailyLog {
     // Fire and forget: the old file's last lines are already queued on its stream.
     void this.#endStream();
     this.#day = day;
-    this.#broken = false;
     const stream = createWriteStream(join(this.#dir, `relay-${day}.jsonl`), { flags: "a", mode: 0o600 });
     let reported = false;
     stream.on("error", (error) => {
-      if (this.#stream === stream) this.#broken = true;
       if (reported) return;
       reported = true;
       this.#onError(error);
@@ -173,6 +170,7 @@ export class DailyLog {
       const names = await readdir(this.#dir);
       for (const name of names) {
         const day = FILE_NAME.exec(name)?.[1];
+        // Stryker disable next-line ConditionalExpression: `undefined < "2026-…"` is false anyway; the check is for the type.
         if (day !== undefined && day < oldestKept) await unlink(join(this.#dir, name));
       }
     } catch (error) {

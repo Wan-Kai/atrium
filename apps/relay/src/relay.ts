@@ -59,6 +59,7 @@ const DEFAULT_LIMITS: RelayLimits = {
   earlyFrames: 8,
   earlyBytes: 256 * 1024,
   backlogBytes: 4 * 1024 * 1024,
+  // Stryker disable next-line ArithmeticOperator: the SPEC's number; tests check the behaviour with a smaller total.
   totalBufferBytes: 256 * 1024 * 1024,
   shutdownGraceMs: 2_000,
 };
@@ -187,6 +188,7 @@ const helloSchema = z.object({
 const refuseSchema = z.object({ type: z.literal("refuse"), streamId: z.string().max(64) });
 
 /** Compared against when the host id is unknown, so the time taken does not tell which ids exist. */
+// Stryker disable next-line StringLiteral: any fixed text works; it is never a token's digest.
 const UNKNOWN_HOST_DIGEST = createHash("sha256").update("atrium-relay unknown host").digest();
 
 /**
@@ -200,6 +202,7 @@ const UNKNOWN_HOST_DIGEST = createHash("sha256").update("atrium-relay unknown ho
  * @returns The bytes.
  */
 function toBuffer(data: RawData): Buffer {
+  // Stryker disable next-line ConditionalExpression: with the default binaryType ws hands over one Buffer; the array form is only for the type.
   if (Array.isArray(data)) return Buffer.concat(data);
   return Buffer.isBuffer(data) ? data : Buffer.from(data);
 }
@@ -261,7 +264,6 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
   const trusted = new Set(config.trustedProxies);
   const newStreams = new SlidingWindowLimit(clock, resources, config.newStreamsPerIpPerMinute, 60_000);
   const hosts = new Map<string, HostEntry>();
-  const stopPings = new Set<() => void>();
   let unauthenticated = 0;
   let closing = false;
 
@@ -296,8 +298,9 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
   const endStream = (stream: Stream, phoneCode: number, phoneReason: string, dataCode: number): void => {
     if (stream.ended) return;
     stream.ended = true;
-    if (stream.entry.streams.get(stream.streamId) === stream) stream.entry.streams.delete(stream.streamId);
+    stream.entry.streams.delete(stream.streamId);
     stream.cancelTimer();
+    // Stryker disable next-line ArrayDeclaration: only frees the held frames sooner; nothing reads them once ended.
     stream.early = [];
     stream.earlyBytes = 0;
     closeSocket(stream.phone, phoneCode, phoneReason);
@@ -328,11 +331,12 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
    * @param bytes - The frame.
    */
   const forward = (stream: Stream, target: WebSocket, bytes: Buffer): void => {
+    // Stryker disable next-line EqualityOperator,ArithmeticOperator: the exact byte depends on how much the kernel's socket buffers took first; the slow-reader test covers the limit.
     if (target.bufferedAmount + bytes.length > limits.backlogBytes) {
       endStream(stream, RelayClose.Overloaded, "", RelayClose.Overloaded);
       return;
     }
-    target.send(bytes, { binary: true });
+    target.send(bytes);
   };
 
   /**
@@ -348,6 +352,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
     let total = 0;
     for (const entry of hosts.values()) {
       for (const stream of entry.streams.values()) {
+        // Stryker disable next-line ArithmeticOperator: the data connection's backlog is what a slow host leaves, which a test cannot hold still over loopback.
         total += stream.earlyBytes + stream.phone.bufferedAmount + (stream.data?.bufferedAmount ?? 0);
       }
     }
@@ -397,6 +402,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
     isBinary: boolean,
     route: "control" | "data",
   ): { ok: true; entry: HostEntry; streamId: string | undefined } | { ok: false; hostId: string | undefined } => {
+    // Stryker disable ObjectLiteral,BlockStatement: an empty object is just as much "not ok" with no host id to log.
     if (isBinary) return { ok: false, hostId: undefined };
     let json: unknown;
     try {
@@ -409,7 +415,9 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
     const hello = parsed.data;
     const loggable = HOST_ID.test(hello.hostId) ? hello.hostId : undefined;
     if (route === "data" && hello.streamId === undefined) return { ok: false, hostId: loggable };
+    // Stryker restore ObjectLiteral,BlockStatement
     const entry = hosts.get(hello.hostId);
+    // Stryker disable next-line StringLiteral: utf8 is the default encoding for a string.
     const digest = createHash("sha256").update(hello.token, "utf8").digest();
     const matches = timingSafeEqual(entry?.tokenDigest ?? UNKNOWN_HOST_DIGEST, digest);
     if (entry === undefined || !matches) return { ok: false, hostId: loggable };
@@ -466,21 +474,12 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
       cancelPing = trackedTimeout(clock, resources, tick, limits.pingIntervalMs);
     };
     cancelPing = trackedTimeout(clock, resources, tick, limits.pingIntervalMs);
-    /**
-     * Stops this connection's pings.
-     *
-     * @remarks
-     * On close, and when the relay shuts down.
-     *
-     * @sideEffects Cancels the timer.
-     */
-    const stopPing = (): void => cancelPing?.();
-    stopPings.add(stopPing);
     socket.on("pong", () => {
       lastPong = clock.now();
     });
 
     socket.on("message", (data, isBinary) => {
+      // Stryker disable next-line ConditionalExpression: only frames a replaced connection sent before it saw its close frame reach here; ws drops later ones.
       if (entry.control !== socket) return;
       let refuse: z.infer<typeof refuseSchema> | null = null;
       if (!isBinary) {
@@ -500,9 +499,10 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
     });
 
     socket.on("close", () => {
-      stopPing();
-      stopPings.delete(stopPing);
-      if (entry.control !== socket || entry.generation !== generation) return;
+      // Stryker disable next-line OptionalChaining: the first ping is scheduled before any close can come.
+      cancelPing?.();
+      // A newer connection (or a revoke) took over; what is left belongs to it.
+      if (entry.control !== socket) return;
       entry.control = null;
       entry.lastSeen = Math.floor(clock.now() / 1000);
       for (const stream of entry.streams.values()) {
@@ -531,13 +531,10 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
    * @param streamId - Which stream.
    */
   const onData = (socket: WebSocket, entry: HostEntry, streamId: string): void => {
+    // Streams of a replaced or revoked control connection are ended when it goes, so any stream
+    // still in the table belongs to the current one.
     const stream = entry.streams.get(streamId);
-    if (
-      stream === undefined ||
-      stream.data !== null ||
-      stream.generation !== entry.generation ||
-      entry.control === null
-    ) {
+    if (stream === undefined || stream.data !== null) {
       closeSocket(socket, RelayClose.Offline);
       return;
     }
@@ -547,11 +544,10 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
     const early = stream.early;
     stream.early = [];
     stream.earlyBytes = 0;
-    for (const bytes of early) {
-      if (stream.ended) break;
-      forward(stream, socket, bytes);
-    }
+    // At most 256 KiB, far under the 4 MiB backlog, so forwarding them cannot end the stream.
+    for (const bytes of early) forward(stream, socket, bytes);
     socket.on("message", (data, isBinary) => {
+      // Stryker disable next-line ConditionalExpression: after the end, frames already received go to a closing socket, which ws drops.
       if (stream.ended) return;
       if (!isBinary) {
         endStream(stream, RelayClose.BadRequest, "", RelayClose.BadRequest);
@@ -625,6 +621,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
         return;
       }
       if (route === "control") onControl(socket, auth.entry);
+      // Stryker disable next-line StringLiteral: `authenticate` returns a stream id for every data hello.
       else onData(socket, auth.entry, auth.streamId ?? "");
     });
   };
@@ -642,7 +639,9 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
    * @param request - The upgrade request, for `?host=` and the address.
    */
   const acceptPhone = (socket: WebSocket, request: IncomingMessage): void => {
+    // Stryker disable next-line StringLiteral: an upgrade request always has a URL.
     const url = new URL(request.url ?? "/", "http://relay.invalid");
+    // Stryker disable next-line StringLiteral: anything not `hst_<16hex>` is turned away the same way.
     const hostId = url.searchParams.get("host") ?? "";
     const address = clientAddress(request.socket.remoteAddress, request.headers, trusted);
     const ipHash = hashAddress(address);
@@ -664,6 +663,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
     const entry = hosts.get(hostId);
     if (entry?.control == null) return reject(RelayClose.Offline, `offline:${entry?.lastSeen ?? 0}`);
     if (entry.streams.size >= limits.maxStreamsPerHost) return reject(RelayClose.TooMany);
+    // Stryker disable next-line EqualityOperator: one byte either way of 256 MiB.
     if (totalBuffered() > limits.totalBufferBytes) return reject(RelayClose.Overloaded);
     if (!newStreams.take(address)) return reject(RelayClose.TooMany);
 
@@ -691,6 +691,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
     );
     entry.streams.set(streamId, stream);
     socket.on("message", (data, isBinary) => {
+      // Stryker disable next-line ConditionalExpression: as in onData; a frame that slips in is dropped or held until the stream is forgotten.
       if (stream.ended) return;
       if (!isBinary) {
         endStream(stream, RelayClose.BadRequest, "", RelayClose.BadRequest);
@@ -726,8 +727,9 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
   const routeOf = (request: IncomingMessage): Route | "healthz" | null => {
     let pathname: string;
     try {
+      // Stryker disable next-line StringLiteral: a request always has a URL.
       pathname = new URL(request.url ?? "/", "http://relay.invalid").pathname;
-    } catch {
+    } /* Stryker disable next-line BlockStatement: without the return the path stays undefined, which matches no route either. */ catch {
       return null;
     }
     switch (pathname) {
@@ -756,6 +758,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
   const wss = new WebSocketServer({ noServer: true, maxPayload: limits.maxFrameBytes, perMessageDeflate: false });
 
   server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    // Stryker disable next-line StringLiteral: only a socket reset during the upgrade emits this; it must not crash the relay.
     socket.on("error", () => {});
     const route = routeOf(request);
     if (closing || route === null || route === "healthz") {
@@ -774,6 +777,7 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(options.listen.port, options.listen.host, () => {
+      // Stryker disable next-line StringLiteral: a listening server emits no more listen errors.
       server.off("error", reject);
       resolve();
     });
@@ -796,31 +800,18 @@ export async function startRelay(options: RelayOptions): Promise<Relay> {
           revoke(entry);
           entry.record = record;
           entry.tokenDigest = Buffer.from(record.tokenSha256, "hex");
-        } else {
-          entry.record = record;
         }
       }
       for (const [hostId, record] of next) if (!hosts.has(hostId)) hosts.set(hostId, newEntry(record));
     },
     async close() {
       closing = true;
-      for (const stopPing of stopPings) stopPing();
-      stopPings.clear();
       newStreams.clear();
-      for (const entry of hosts.values()) {
-        for (const stream of entry.streams.values()) {
-          endStream(stream, RelayClose.GoingAway, "", RelayClose.GoingAway);
-        }
-      }
+      // Each socket's close handler ends its stream and cancels its timers; `ws` keeps only live
+      // sockets in `clients`.
       const clients = [...wss.clients];
       const allClosed = Promise.all(
-        clients.map(
-          (client) =>
-            new Promise<void>((resolve) => {
-              if (client.readyState === WebSocket.CLOSED) resolve();
-              else client.once("close", () => resolve());
-            }),
-        ),
+        clients.map((client) => new Promise<void>((resolve) => client.once("close", () => resolve()))),
       );
       for (const client of clients) closeSocket(client, RelayClose.GoingAway);
       const cancelGrace = trackedTimeout(

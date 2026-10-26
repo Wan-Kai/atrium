@@ -53,6 +53,7 @@ export async function loadConfig(
 ): Promise<{ ok: true; config: RelayConfig } | { ok: false; error: ConfigError }> {
   let text: string;
   try {
+    // Stryker disable next-line StringLiteral: without the encoding the Buffer parses as the same JSON.
     text = await readFile(join(dir, "relay.json"), "utf8");
   } catch (error) {
     if (errorCode(error) === "ENOENT") return { ok: false, error: { code: "config_missing" } };

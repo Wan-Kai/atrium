@@ -1,5 +1,5 @@
 import { createTempDir, FakeClock } from "@atrium/testkit";
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { Peer } from "../test/peers";
@@ -134,6 +134,24 @@ describe("atrium-relay add-host", () => {
     expect(await hostNames(dir)).toStrictEqual(["one", "two"]);
   });
 
+  it("uses the working directory when neither --dir nor ATRIUM_RELAY_DIR is given", async () => {
+    const dir = await dataDir();
+
+    const result = await run(["add-host", "Mac"], { cwd: dir });
+
+    expect(result.code).toBe(0);
+    expect(await hostNames(dir)).toStrictEqual(["Mac"]);
+  });
+
+  it("accepts a name of 64 characters", async () => {
+    const dir = await dataDir();
+
+    const result = await run(["add-host", "x".repeat(64), "--dir", dir]);
+
+    expect(result.code).toBe(0);
+    expect(await hostNames(dir)).toStrictEqual(["x".repeat(64)]);
+  });
+
   it("takes the directory from ATRIUM_RELAY_DIR, relative to the working directory", async () => {
     const dir = await dataDir();
 
@@ -148,8 +166,11 @@ describe("atrium-relay add-host", () => {
 
     const result = await run(["add-host", name, "--dir", dir]);
 
-    expect(result.code).toBe(2);
-    expect(result.stdout).toStrictEqual([]);
+    expect(result).toStrictEqual({
+      code: 2,
+      stdout: [],
+      stderr: ["the name must be 1 to 64 characters without control characters"],
+    });
     expect(await readdir(dir)).toStrictEqual(["relay.json"]);
   });
 
@@ -166,12 +187,12 @@ describe("atrium-relay add-host", () => {
   });
 
   it("names the bad fields of relay.json", async () => {
-    const dir = await dataDir({ publicHost: "relay.test", extra: 1 });
+    const dir = await dataDir({ publicHost: "relay.test", extra: 1, more: 2, pathPrefix: "x" });
 
     const result = await run(["add-host", "Mac", "--dir", dir]);
 
     expect(result.code).toBe(2);
-    expect(result.stderr).toStrictEqual([`${join(dir, "relay.json")} is not valid: extra`]);
+    expect(result.stderr).toStrictEqual([`${join(dir, "relay.json")} is not valid: pathPrefix, extra,more`]);
   });
 
   it("says when relay.json is not JSON", async () => {
@@ -196,8 +217,10 @@ describe("atrium-relay add-host", () => {
 });
 
 describe("atrium-relay rotate-host, remove-host, list-hosts", () => {
-  it("gives a host a new token and prints the new line once", async () => {
+  it("gives a host a new token and prints the new line once, leaving the other hosts alone", async () => {
     const dir = await dataDir();
+    await run(["add-host", "Other", "--dir", dir]);
+    const [other] = await hostHashes(dir);
     const old = partsOf((await run(["add-host", "Mac", "--dir", dir])).stdout[0]);
 
     const result = await run(["rotate-host", old.hostId, "--dir", dir]);
@@ -207,7 +230,7 @@ describe("atrium-relay rotate-host, remove-host, list-hosts", () => {
     const fresh = partsOf(result.stdout[0]);
     expect(fresh.hostId).toBe(old.hostId);
     expect(fresh.token).not.toBe(old.token);
-    expect(await hostHashes(dir)).toStrictEqual([["Mac", hashToken(fresh.token)]]);
+    expect(await hostHashes(dir)).toStrictEqual([other, ["Mac", hashToken(fresh.token)]]);
   });
 
   it("removes a host and keeps the others", async () => {
@@ -241,6 +264,7 @@ describe("atrium-relay rotate-host, remove-host, list-hosts", () => {
     await writeFile(hostsPath(broken), "{");
 
     expect((await run(["rotate-host", "hst_0000000000000000", "--dir", noConfig])).code).toBe(2);
+    expect((await run(["rotate-host", "hst_0000000000000000", "--dir", broken])).code).toBe(2);
     expect((await run(["remove-host", "hst_0000000000000000", "--dir", broken])).code).toBe(2);
     expect((await run(["list-hosts", "--dir", broken])).code).toBe(2);
   });
@@ -263,7 +287,9 @@ describe("atrium-relay usage", () => {
     [["add-host"]],
     [["add-host", "a", "b"]],
     [["rotate-host"]],
+    [["rotate-host", "a", "b"]],
     [["remove-host"]],
+    [["remove-host", "a", "b"]],
     [["list-hosts", "x"]],
     [["serve", "x"]],
     [["serve", "--listen", "nope"]],
@@ -283,6 +309,9 @@ describe("atrium-relay usage", () => {
     expect(parseListen("127.0.0.1:65536")).toBeNull();
     expect(parseListen("127.0.0.1")).toBeNull();
     expect(parseListen("::1:80")).toBeNull();
+    expect(parseListen("127.0.0.1:123456")).toBeNull();
+    expect(parseListen("127.0.0.1:80x")).toBeNull();
+    expect(parseListen("x127.0.0.1:80".slice(1))).toStrictEqual({ host: "127.0.0.1", port: 80 });
   });
 });
 
@@ -313,7 +342,6 @@ async function serve(
     cwd: "/",
     clock,
     signal: controller.signal,
-    memory: () => ({ rss: 1, heapUsed: 2 }),
     onListening: listening.resolve,
   });
   let stopped: Promise<Run> | null = null;
@@ -387,13 +415,15 @@ describe("atrium-relay serve", () => {
     expect(result.stdout).toStrictEqual([`atrium-relay listening on 127.0.0.1:${relay.port}/atrium`]);
     expect((await control.closed).code).toBe(1001);
     const records = await logRecords(dir);
-    expect(records.map((record) => record["event"])).toStrictEqual([
-      "listening",
-      "hosts_loaded",
-      "host_online",
-      "host_offline",
-      "stopped",
+    expect(records.map((record) => [record["level"], record["event"]])).toStrictEqual([
+      ["info", "listening"],
+      ["info", "hosts_loaded"],
+      ["info", "host_online"],
+      ["info", "host_offline"],
+      ["info", "stopped"],
     ]);
+    expect(records[0]).toMatchObject({ port: relay.port, hosts: 1 });
+    expect(relay.clock.pendingTimers()).toBe(0);
     expect(JSON.stringify(records)).not.toContain(token);
   });
 
@@ -430,6 +460,9 @@ describe("atrium-relay serve", () => {
     await writeFile(hostsPath(dir), "{broken");
     relay.clock.advance(HOSTS_POLL_MS);
     await waitForLog(dir, "hosts_invalid");
+    expect(await readFile(join(dir, "logs", "relay-2026-10-25.jsonl"), "utf8")).toContain(
+      '"level":"warn","event":"hosts_invalid"',
+    );
     const control = new Peer(`ws://127.0.0.1:${relay.port}/atrium/v1/host`);
     await control.opened;
     control.sendJson({ v: 1, type: "hello", hostId, token });
@@ -447,7 +480,24 @@ describe("atrium-relay serve", () => {
 
     const usage = (await logRecords(dir)).filter((record) => record["event"] === "resource_usage");
     expect(usage).toHaveLength(2);
-    expect(usage[0]).toMatchObject({ level: "info", rss: 1, heapUsed: 2, counts: { "log.file": 1 } });
+    expect(usage[0]).toMatchObject({
+      level: "info",
+      rss: expect.any(Number),
+      heapUsed: expect.any(Number),
+      counts: { "log.file": 1 },
+    });
+  });
+
+  it("tells the terminal, by error code only, when it cannot write its log", async () => {
+    const dir = await dataDir();
+    await mkdir(join(dir, "logs"), { mode: 0o500 });
+    onTestFinished(() => chmod(join(dir, "logs"), 0o700));
+
+    const relay = await serve(dir);
+    const result = await relay.stop();
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toStrictEqual(["log write failed: EACCES"]);
   });
 
   it("does not start without relay.json or with a broken host table", async () => {

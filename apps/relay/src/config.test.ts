@@ -66,6 +66,12 @@ describe("loadConfig", () => {
     });
   });
 
+  it("names several unknown fields together", async () => {
+    const dir = await dirWith(JSON.stringify({ publicHost: "ktoon.site", one: 1, two: 2 }));
+
+    expect(await loadConfig(dir)).toStrictEqual({ ok: false, error: { code: "config_invalid", fields: ["one,two"] } });
+  });
+
   it.each(["/atrium/", "atrium", "/a b", "//x"])("refuses the path prefix %j", async (pathPrefix) => {
     const dir = await dirWith(JSON.stringify({ publicHost: "ktoon.site", pathPrefix }));
 

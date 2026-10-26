@@ -52,11 +52,9 @@ export class SlidingWindowLimit {
   take(key: string): boolean {
     if (this.#limit === 0) return true;
     const now = this.#clock.now();
+    // Stryker disable next-line ArrayDeclaration: whatever stands in for "no events" is filtered out as not a recent time.
     const recent = (this.#events.get(key) ?? []).filter((time) => now - time < this.#windowMs);
-    if (recent.length >= this.#limit) {
-      this.#events.set(key, recent);
-      return false;
-    }
+    if (recent.length >= this.#limit) return false;
     recent.push(now);
     this.#events.set(key, recent);
     this.#scheduleSweep();

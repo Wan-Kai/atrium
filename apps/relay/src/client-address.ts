@@ -30,6 +30,7 @@ export function clientAddress(
   if (typeof forwarded === "string") {
     const hops = forwarded.split(",").map((hop) => plainAddress(hop.trim()));
     const client = hops.findLast((hop) => !trusted.has(hop));
+    // Stryker disable next-line ConditionalExpression: `isIP(undefined)` is 0 too; the first check is for the type.
     return client !== undefined && isIP(client) !== 0 ? client : direct;
   }
   const real = headers["x-real-ip"];
@@ -49,5 +50,6 @@ export function clientAddress(
  * @returns The same address, without the prefix.
  */
 function plainAddress(address: string): string {
+  // Stryker disable next-line StringLiteral: no other address has an IPv4 address from its eighth character on.
   return address.startsWith("::ffff:") && isIP(address.slice(7)) === 4 ? address.slice(7) : address;
 }

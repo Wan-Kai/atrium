@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { newHost, onlineHost, openStream, Peer, slowPhone, startTestRelay, type TestRelay } from "../test/peers";
-import { RelayClose } from "./relay";
+import { RelayClose, type RelayEvent } from "./relay";
 
 const WebSocketOpen = 1;
 
@@ -80,6 +80,20 @@ function openedHashes(relay: TestRelay): string[] {
 }
 
 /**
+ * The `host_online` and `host_offline` events so far.
+ *
+ * @remarks
+ * The generations they carry show which control connection was which.
+ *
+ * @sideEffects none
+ * @param relay - The relay.
+ * @returns Those events, in order.
+ */
+function hostEvents(relay: TestRelay): RelayEvent[] {
+  return relay.events.filter((event) => event.event === "host_online" || event.event === "host_offline");
+}
+
+/**
  * Sends `frame` on `slow` and one numbered byte on `fast`, round after round, until the relay closes
  * `slow` (at most 1000 rounds).
  *
@@ -112,6 +126,27 @@ describe("relay entry points", () => {
     expect(await http(relay, "/atrium/healthz", "POST")).toStrictEqual({ status: 404, body: "" });
     expect(await http(relay, "/atrium/v1/host")).toStrictEqual({ status: 404, body: "" });
     expect(await http(relay, "/atrium/other")).toStrictEqual({ status: 404, body: "" });
+  });
+
+  it("answers /healthz as uncached plain text, and still while it holds a keep-alive connection to close", async () => {
+    const relay = await relayFor();
+
+    const response = await fetch(`http://127.0.0.1:${relay.port}/atrium/healthz`);
+    await response.text();
+    await relay.relay.close();
+    current = undefined;
+
+    expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("does not compress frames even when the client offers it", async () => {
+    const relay = await relayFor();
+    const control = relay.peer("/v1/host", { perMessageDeflate: true });
+
+    await control.opened;
+
+    expect(control.socket.extensions).toBe("");
   });
 
   it("refuses WebSocket upgrades outside the three entry points", async () => {
@@ -212,10 +247,10 @@ describe("relay pass-through", () => {
     first.phone.socket.send("text");
     second.data.socket.send("text");
 
-    expect((await first.phone.closed).code).toBe(RelayClose.BadRequest);
-    expect((await first.data.closed).code).toBe(RelayClose.BadRequest);
-    expect((await second.phone.closed).code).toBe(RelayClose.BadRequest);
-    expect((await second.data.closed).code).toBe(RelayClose.BadRequest);
+    expect(await first.phone.closed).toStrictEqual({ code: RelayClose.BadRequest, reason: "" });
+    expect(await first.data.closed).toStrictEqual({ code: RelayClose.BadRequest, reason: "" });
+    expect(await second.phone.closed).toStrictEqual({ code: RelayClose.BadRequest, reason: "" });
+    expect(await second.data.closed).toStrictEqual({ code: RelayClose.BadRequest, reason: "" });
   });
 
   it("closes the phone with 4400 when it sends text before the data connection", async () => {
@@ -226,7 +261,7 @@ describe("relay pass-through", () => {
 
     phone.socket.send("text");
 
-    expect((await phone.closed).code).toBe(RelayClose.BadRequest);
+    expect(await phone.closed).toStrictEqual({ code: RelayClose.BadRequest, reason: "" });
   });
 });
 
@@ -268,8 +303,8 @@ describe("relay authentication", () => {
     );
     garbage.socket.send("{not json");
 
-    expect((await binary.closed).code).toBe(RelayClose.Unauthorized);
-    expect((await garbage.closed).code).toBe(RelayClose.Unauthorized);
+    expect(await binary.closed).toStrictEqual({ code: RelayClose.Unauthorized, reason: "" });
+    expect(await garbage.closed).toStrictEqual({ code: RelayClose.Unauthorized, reason: "" });
   });
 
   it("closes a data connection with 4401 for a wrong token or a missing stream id", async () => {
@@ -285,9 +320,23 @@ describe("relay authentication", () => {
     wrong.sendJson({ v: 1, type: "hello", hostId: relay.host.hostId, token: "wrong", streamId });
     missing.sendJson({ v: 1, type: "hello", hostId: relay.host.hostId, token: relay.host.token });
 
-    expect((await wrong.closed).code).toBe(RelayClose.Unauthorized);
-    expect((await missing.closed).code).toBe(RelayClose.Unauthorized);
+    expect(await wrong.closed).toStrictEqual({ code: RelayClose.Unauthorized, reason: "" });
+    expect(await missing.closed).toStrictEqual({ code: RelayClose.Unauthorized, reason: "" });
   });
+
+  it.each([`x${"0".repeat(32)}`, `${"0".repeat(32)}x`, "0".repeat(31)])(
+    "closes a data connection with 4401 for the stream id %j",
+    async (streamId) => {
+      const relay = await relayFor();
+      await onlineHost(relay);
+      const data = relay.peer("/v1/host/stream");
+      await data.opened;
+
+      data.sendJson({ v: 1, type: "hello", hostId: relay.host.hostId, token: relay.host.token, streamId });
+
+      expect(await data.closed).toStrictEqual({ code: RelayClose.Unauthorized, reason: "" });
+    },
+  );
 
   it("logs a failed hello with the host id only when it looks like one, and never the token", async () => {
     const relay = await relayFor();
@@ -318,9 +367,40 @@ describe("relay authentication", () => {
     expect(await inTime.json()).toStrictEqual({ type: "ready" });
     relay.clock.advance(1);
 
-    expect((await slow.closed).code).toBe(RelayClose.Timeout);
-    expect((await late.closed).code).toBe(RelayClose.Timeout);
+    expect(await slow.closed).toStrictEqual({ code: RelayClose.Timeout, reason: "" });
+    expect(await late.closed).toStrictEqual({ code: RelayClose.Timeout, reason: "" });
     expect(inTime.socket.readyState).toBe(WebSocketOpen);
+  });
+});
+
+describe("relay hello deadline", () => {
+  it("does not accept a hello that arrives after its timer fired", async () => {
+    const relay = await relayFor();
+    const late = relay.peer("/v1/host");
+    await late.opened;
+
+    late.sendJson({ v: 1, type: "hello", hostId: relay.host.hostId, token: relay.host.token });
+    relay.clock.advance(5_000);
+
+    expect(await late.closed).toStrictEqual({ code: RelayClose.Timeout, reason: "" });
+    expect(late.queued).toBe(0);
+    expect(relay.events).toStrictEqual([]);
+  });
+
+  it("frees an unauthenticated slot once per connection, however it ends", async () => {
+    const relay = await relayFor({ limits: { maxUnauthenticated: 2 } });
+    for (let index = 0; index < 3; index += 1) {
+      const control = await onlineHost(relay);
+      control.socket.close();
+      await control.closed;
+    }
+    await vi.waitFor(() => expect(relay.resources.snapshot()["ws.host"]).toBe(0));
+    const pending = [relay.peer("/v1/host"), relay.peer("/v1/host")];
+    await Promise.all(pending.map((peer) => peer.opened));
+
+    const third = relay.peer("/v1/host");
+
+    expect(await third.closed).toStrictEqual({ code: RelayClose.TooMany, reason: "" });
   });
 });
 
@@ -332,9 +412,9 @@ describe("relay control generations", () => {
 
     const fresh = await onlineHost(relay);
 
-    expect((await old.closed).code).toBe(RelayClose.Replaced);
-    expect((await oldStream.phone.closed).code).toBe(RelayClose.Replaced);
-    expect((await oldStream.data.closed).code).toBe(RelayClose.Replaced);
+    expect(await old.closed).toStrictEqual({ code: RelayClose.Replaced, reason: "" });
+    expect(await oldStream.phone.closed).toStrictEqual({ code: RelayClose.Replaced, reason: "" });
+    expect(await oldStream.data.closed).toStrictEqual({ code: RelayClose.Replaced, reason: "" });
     const { phone, data } = await openStream(relay, fresh);
     phone.socket.send(Buffer.from("after"));
     expect((await data.next()).data).toStrictEqual(Buffer.from("after"));
@@ -345,7 +425,7 @@ describe("relay control generations", () => {
     const old = await onlineHost(relay);
     const fresh = await onlineHost(relay);
     await old.closed;
-    await fresh.roundTrip();
+    await vi.waitFor(() => expect(relay.resources.snapshot()["ws.host"]).toBe(1));
 
     const { phone, data } = await openStream(relay, fresh);
 
@@ -383,8 +463,8 @@ describe("relay offline hosts", () => {
 
     expect(await never.closed).toStrictEqual({ code: RelayClose.Offline, reason: "offline:0" });
     expect(await unknown.closed).toStrictEqual({ code: RelayClose.Offline, reason: "offline:0" });
-    expect((await malformed.closed).code).toBe(RelayClose.BadRequest);
-    expect((await missing.closed).code).toBe(RelayClose.BadRequest);
+    expect(await malformed.closed).toStrictEqual({ code: RelayClose.BadRequest, reason: "" });
+    expect(await missing.closed).toStrictEqual({ code: RelayClose.BadRequest, reason: "" });
   });
 
   it("closes the host's streams and later phones with offline:<when it went away>", async () => {
@@ -397,7 +477,7 @@ describe("relay offline hosts", () => {
     control.socket.close(1000);
 
     expect(await phone.closed).toStrictEqual({ code: RelayClose.Offline, reason: `offline:${goneAt}` });
-    expect((await data.closed).code).toBe(1000);
+    expect(await data.closed).toStrictEqual({ code: 1000, reason: "" });
     const later = relay.peer(`/v1/client?host=${relay.host.hostId}`);
     expect(await later.closed).toStrictEqual({ code: RelayClose.Offline, reason: `offline:${goneAt}` });
   });
@@ -449,7 +529,7 @@ describe("relay wiring a stream", () => {
     expect(phone.socket.readyState).toBe(WebSocketOpen);
     relay.clock.advance(1);
 
-    expect((await phone.closed).code).toBe(RelayClose.Timeout);
+    expect(await phone.closed).toStrictEqual({ code: RelayClose.Timeout, reason: "" });
     const data = relay.peer("/v1/host/stream");
     await data.opened;
     data.sendJson({ v: 1, type: "hello", hostId: relay.host.hostId, token: relay.host.token, streamId });
@@ -488,11 +568,38 @@ describe("relay wiring a stream", () => {
 
     control.sendJson({ type: "refuse", streamId });
 
-    expect((await phone.closed).code).toBe(RelayClose.Refused);
+    expect(await phone.closed).toStrictEqual({ code: RelayClose.Refused, reason: "" });
+  });
+
+  it("ignores a refuse for a stream it does not know", async () => {
+    const relay = await relayFor();
+    const control = await onlineHost(relay);
+    const { phone } = await openStream(relay, control);
+
+    control.sendJson({ type: "refuse", streamId: "0".repeat(32) });
+    await control.roundTrip();
+
+    expect(control.socket.readyState).toBe(WebSocketOpen);
+    expect(phone.socket.readyState).toBe(WebSocketOpen);
+  });
+
+  it("leaves no timer behind once a host and its streams are gone", async () => {
+    const relay = await relayFor();
+    const control = await onlineHost(relay);
+    relay.peer(`/v1/client?host=${relay.host.hostId}`);
+    await control.json();
+
+    control.socket.close();
+    await control.closed;
+
+    await vi.waitFor(() => expect(relay.resources.snapshot()["ws.host"]).toBe(0));
+    expect(relay.clock.pendingTimers()).toBe(1);
+    relay.clock.advance(60_000);
+    expect(relay.clock.pendingTimers()).toBe(0);
   });
 
   it.each([
-    ["binary", Buffer.from("{}")],
+    ["binary", Buffer.from(JSON.stringify({ type: "refuse", streamId: "0".repeat(32) }))],
     ["not JSON", "nope"],
     ["an unknown type", JSON.stringify({ type: "hello" })],
   ])("closes a control connection that sends %s with 4400, taking its streams down", async (_name, frame) => {
@@ -502,7 +609,7 @@ describe("relay wiring a stream", () => {
 
     control.socket.send(frame);
 
-    expect((await control.closed).code).toBe(RelayClose.BadRequest);
+    expect(await control.closed).toStrictEqual({ code: RelayClose.BadRequest, reason: "" });
     expect((await phone.closed).code).toBe(RelayClose.Offline);
   });
 
@@ -514,7 +621,7 @@ describe("relay wiring a stream", () => {
 
     for (let index = 0; index < 9; index += 1) phone.socket.send(Buffer.from([index]));
 
-    expect((await phone.closed).code).toBe(RelayClose.Overloaded);
+    expect(await phone.closed).toStrictEqual({ code: RelayClose.Overloaded, reason: "" });
   });
 
   it("closes the phone with 4507 after 256 KiB held before the data connection", async () => {
@@ -530,7 +637,7 @@ describe("relay wiring a stream", () => {
     phone.socket.send(randomBytes(1));
     await almost.roundTrip();
 
-    expect((await phone.closed).code).toBe(RelayClose.Overloaded);
+    expect(await phone.closed).toStrictEqual({ code: RelayClose.Overloaded, reason: "" });
     expect(almost.socket.readyState).toBe(WebSocketOpen);
   });
 });
@@ -546,7 +653,7 @@ describe("relay limits", () => {
     phone.socket.send(randomBytes(70 * 1024 + 1));
 
     expect((await phone.closed).code).toBe(1009);
-    expect((await data.closed).code).toBe(1000);
+    expect(await data.closed).toStrictEqual({ code: 1000, reason: "" });
   });
 
   it("allows 16 streams per host and closes the 17th phone with 4429", async () => {
@@ -562,7 +669,7 @@ describe("relay limits", () => {
 
     const extra = relay.peer(`/v1/client?host=${relay.host.hostId}`);
 
-    expect((await extra.closed).code).toBe(RelayClose.TooMany);
+    expect(await extra.closed).toStrictEqual({ code: RelayClose.TooMany, reason: "" });
     phones[0]?.socket.close();
     await phones[0]?.closed;
     await control.roundTrip();
@@ -579,7 +686,7 @@ describe("relay limits", () => {
 
     const extra = relay.peer("/v1/host");
 
-    expect((await extra.closed).code).toBe(RelayClose.TooMany);
+    expect(await extra.closed).toStrictEqual({ code: RelayClose.TooMany, reason: "" });
     pending[0]?.sendJson({ v: 1, type: "hello", hostId: relay.host.hostId, token: relay.host.token });
     await pending[0]?.json();
     const control = await onlineHost(relay);
@@ -599,7 +706,7 @@ describe("relay limits", () => {
     }
 
     const extra = relay.peer(`/v1/client?host=${relay.host.hostId}`);
-    expect((await extra.closed).code).toBe(RelayClose.TooMany);
+    expect(await extra.closed).toStrictEqual({ code: RelayClose.TooMany, reason: "" });
     await advanceAlive(relay, control, 60_000);
     const later = relay.peer(`/v1/client?host=${relay.host.hostId}`);
     await later.opened;
@@ -633,7 +740,7 @@ describe("relay limits", () => {
     const sameAddress = trusting.peer(`/v1/client?host=${trusting.host.hostId}`, {
       headers: { "x-forwarded-for": "203.0.113.1" },
     });
-    expect((await sameAddress.closed).code).toBe(RelayClose.TooMany);
+    expect(await sameAddress.closed).toStrictEqual({ code: RelayClose.TooMany, reason: "" });
     const other = await openStream(trusting, control, trusting.host, { headers: { "x-forwarded-for": "203.0.113.2" } });
     const hashes = openedHashes(trusting);
 
@@ -650,7 +757,7 @@ describe("relay limits", () => {
 
     const other = relay.peer(`/v1/client?host=${relay.host.hostId}`, { headers: { "x-forwarded-for": "203.0.113.2" } });
 
-    expect((await other.closed).code).toBe(RelayClose.TooMany);
+    expect(await other.closed).toStrictEqual({ code: RelayClose.TooMany, reason: "" });
   });
 
   it("turns new phones away with 4507 while the relay holds more than its total buffer", async () => {
@@ -664,7 +771,7 @@ describe("relay limits", () => {
 
     const next = relay.peer(`/v1/client?host=${relay.host.hostId}`);
 
-    expect((await next.closed).code).toBe(RelayClose.Overloaded);
+    expect(await next.closed).toStrictEqual({ code: RelayClose.Overloaded, reason: "" });
     holding.socket.close();
     await holding.closed;
     const after = relay.peer(`/v1/client?host=${relay.host.hostId}`);
@@ -687,7 +794,7 @@ describe("relay limits", () => {
     const received = await Promise.all(Array.from({ length: sent }, () => fast.phone.next()));
     slow.destroy();
 
-    expect((await slowData.closed).code).toBe(RelayClose.Overloaded);
+    expect(await slowData.closed).toStrictEqual({ code: RelayClose.Overloaded, reason: "" });
     expect(sent * frame.length).toBeGreaterThan(4 * 1024 * 1024);
     expect(received.map((message) => message.data[0])).toStrictEqual(
       Array.from({ length: sent }, (_, index) => index % 256),
@@ -705,13 +812,13 @@ describe("relay host table", () => {
 
     relay.relay.updateHosts([]);
 
-    expect((await control.closed).code).toBe(RelayClose.Unauthorized);
+    expect(await control.closed).toStrictEqual({ code: RelayClose.Unauthorized, reason: "" });
     expect(await phone.closed).toStrictEqual({ code: RelayClose.Offline, reason: `offline:${goneAt}` });
-    expect((await data.closed).code).toBe(RelayClose.Unauthorized);
+    expect(await data.closed).toStrictEqual({ code: RelayClose.Unauthorized, reason: "" });
     const again = relay.peer("/v1/host");
     await again.opened;
     again.sendJson({ v: 1, type: "hello", hostId: relay.host.hostId, token: relay.host.token });
-    expect((await again.closed).code).toBe(RelayClose.Unauthorized);
+    expect(await again.closed).toStrictEqual({ code: RelayClose.Unauthorized, reason: "" });
   });
 
   it("cuts a host off when its token changes and accepts only the new token", async () => {
@@ -722,13 +829,40 @@ describe("relay host table", () => {
 
     relay.relay.updateHosts([record]);
 
-    expect((await control.closed).code).toBe(RelayClose.Unauthorized);
+    expect(await control.closed).toStrictEqual({ code: RelayClose.Unauthorized, reason: "" });
     const old = relay.peer("/v1/host");
     await old.opened;
     old.sendJson({ v: 1, type: "hello", hostId: relay.host.hostId, token: relay.host.token });
-    expect((await old.closed).code).toBe(RelayClose.Unauthorized);
+    expect(await old.closed).toStrictEqual({ code: RelayClose.Unauthorized, reason: "" });
     const fresh = await onlineHost(relay, { hostId: relay.host.hostId, token: rotated.token });
     expect(fresh.socket.readyState).toBe(WebSocketOpen);
+    expect(hostEvents(relay)).toStrictEqual([
+      { level: "info", event: "host_online", hostId: relay.host.hostId, generation: 1 },
+      { level: "info", event: "host_offline", hostId: relay.host.hostId, generation: 1, reason: "revoked" },
+      { level: "info", event: "host_online", hostId: relay.host.hostId, generation: 3 },
+    ]);
+  });
+
+  it("tells phones when a cut-off host was last online, and keeps offline:0 for one never online", async () => {
+    const relay = await relayFor();
+    const never = newHost("Never");
+    relay.relay.updateHosts([relay.host.record, never.record]);
+    const control = await onlineHost(relay);
+    relay.clock.advance(7_000);
+    const cutAt = Math.floor(relay.clock.now() / 1000);
+
+    relay.relay.updateHosts([
+      { ...relay.host.record, tokenSha256: newHost().record.tokenSha256 },
+      { ...never.record, tokenSha256: newHost().record.tokenSha256 },
+    ]);
+    await control.closed;
+    relay.clock.advance(3_000);
+    const phone = relay.peer(`/v1/client?host=${relay.host.hostId}`);
+    const neverPhone = relay.peer(`/v1/client?host=${never.hostId}`);
+
+    expect(await phone.closed).toStrictEqual({ code: RelayClose.Offline, reason: `offline:${cutAt}` });
+    expect(await neverPhone.closed).toStrictEqual({ code: RelayClose.Offline, reason: "offline:0" });
+    expect(relay.events.filter((event) => event.event === "host_offline")).toHaveLength(1);
   });
 
   it("keeps a host connected when only its name changes, and learns new hosts", async () => {
@@ -738,9 +872,10 @@ describe("relay host table", () => {
 
     relay.relay.updateHosts([{ ...relay.host.record, name: "Renamed" }, added.record]);
     const second = await onlineHost(relay, added);
-    await control.roundTrip();
+    const { phone, data } = await openStream(relay, control);
+    phone.socket.send(Buffer.from([5]));
 
-    expect(control.socket.readyState).toBe(WebSocketOpen);
+    expect((await data.next()).data).toStrictEqual(Buffer.from([5]));
     expect(second.socket.readyState).toBe(WebSocketOpen);
   });
 });
@@ -784,6 +919,48 @@ describe("relay log", () => {
   });
 });
 
+describe("relay log events", () => {
+  it("logs each event with exactly its fields", async () => {
+    const relay = await relayFor({ limits: { maxUnauthenticated: 1 } });
+    const control = await onlineHost(relay);
+    const unknown = newHost();
+    await relay.peer(`/v1/client?host=${unknown.hostId}`).closed;
+    await relay.peer("/v1/client?host=mac").closed;
+    const { phone, data, streamId } = await openStream(relay, control);
+    phone.socket.close();
+    await data.closed;
+    const pending = relay.peer("/v1/host");
+    await pending.opened;
+    await relay.peer("/v1/host/stream").closed;
+    pending.sendJson({ v: 1, type: "hello", hostId: relay.host.hostId, token: "wrong" });
+    await pending.closed;
+    control.socket.close();
+    await vi.waitFor(() => expect(relay.events.at(-1)?.event).toBe("host_offline"));
+    const ipHash = openedHashes(relay)[0];
+
+    expect(relay.events).toStrictEqual([
+      { level: "info", event: "host_online", hostId: relay.host.hostId, generation: 1 },
+      { level: "info", event: "phone_rejected", hostId: unknown.hostId, ipHash, code: RelayClose.Offline },
+      { level: "info", event: "phone_rejected", ipHash, code: RelayClose.BadRequest },
+      { level: "info", event: "stream_opened", hostId: relay.host.hostId, streamId, ipHash },
+      { level: "info", event: "stream_joined", hostId: relay.host.hostId, streamId },
+      {
+        level: "info",
+        event: "stream_closed",
+        hostId: relay.host.hostId,
+        streamId,
+        code: 1000,
+        up: 0,
+        down: 0,
+        durationMs: 0,
+      },
+      { level: "warn", event: "connection_rejected", route: "data", code: RelayClose.TooMany },
+      { level: "warn", event: "auth_failed", route: "control", hostId: relay.host.hostId },
+      { level: "info", event: "host_offline", hostId: relay.host.hostId, generation: 1, reason: "closed" },
+    ]);
+  });
+});
+
 describe("relay shutdown", () => {
   it("closes every connection with 1001 and leaves no timers or counted resources", async () => {
     const relay = await relayFor();
@@ -797,12 +974,36 @@ describe("relay shutdown", () => {
     await relay.relay.close();
     current = undefined;
 
-    expect((await control.closed).code).toBe(1001);
-    expect((await phone.closed).code).toBe(1001);
-    expect((await data.closed).code).toBe(1001);
-    expect((await waiting.closed).code).toBe(1001);
-    expect((await pending.closed).code).toBe(1001);
+    expect(await control.closed).toStrictEqual({ code: 1001, reason: "" });
+    expect(await phone.closed).toStrictEqual({ code: 1001, reason: "" });
+    expect(await data.closed).toStrictEqual({ code: 1001, reason: "" });
+    expect(await waiting.closed).toStrictEqual({ code: 1001, reason: "" });
+    expect(await pending.closed).toStrictEqual({ code: 1001, reason: "" });
     expect(relay.clock.pendingTimers()).toBe(0);
-    expect(Object.values(relay.resources.snapshot()).every((count) => count === 0)).toBe(true);
+    expect(relay.resources.snapshot()).toStrictEqual({
+      stream: 0,
+      timer: 0,
+      "ws.host": 0,
+      "ws.pending": 0,
+      "ws.phone": 0,
+    });
+  });
+
+  it("refuses new connections while closing and cuts off peers that do not answer within 2 seconds", async () => {
+    const relay = await relayFor();
+    await onlineHost(relay);
+    const stuck = await slowPhone(relay.port, `/atrium/v1/client?host=${relay.host.hostId}`);
+    let closed = false;
+    const closing = relay.relay.close().then(() => (closed = true));
+    current = undefined;
+
+    const late = relay.peer("/v1/host");
+    await expect(late.opened).rejects.toThrow("upgrade refused: 404");
+    expect(closed).toBe(false);
+    relay.clock.advance(2_000);
+    await closing;
+    stuck.destroy();
+
+    expect(relay.clock.pendingTimers()).toBe(0);
   });
 });

@@ -1,7 +1,7 @@
 import { createTempDir, FakeClock } from "@atrium/testkit";
 import { chmod, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { DailyLog } from "./daily-log";
 import { ResourceTracker } from "./resources";
 
@@ -95,6 +95,8 @@ describe("DailyLog", () => {
       "relay-2025-01-01.jsonl",
       "other-2026-01-01.jsonl",
       "relay-x.jsonl",
+      "xrelay-2025-01-01.jsonl",
+      "relay-2025-01-01.jsonl.bak",
     ];
     for (const name of names) await writeFile(join(dir, name), "");
 
@@ -103,9 +105,11 @@ describe("DailyLog", () => {
 
     expect((await readdir(dir)).toSorted()).toStrictEqual([
       "other-2026-01-01.jsonl",
+      "relay-2025-01-01.jsonl.bak",
       "relay-2026-10-12.jsonl",
       "relay-2026-10-25.jsonl",
       "relay-x.jsonl",
+      "xrelay-2025-01-01.jsonl",
     ]);
   });
 
@@ -120,6 +124,34 @@ describe("DailyLog", () => {
     await log.close();
 
     expect((await readdir(dir)).toSorted()).toStrictEqual(["relay-2026-10-25.jsonl", "relay-2026-10-27.jsonl"]);
+  });
+
+  it("opens no new file for lines written after close, even on a new day", async () => {
+    const { log, dir, clock, resources } = await logIn();
+    await log.open();
+    await log.close();
+
+    clock.advance(DAY);
+    log.write({ event: "late" });
+
+    expect(await readdir(dir)).toStrictEqual(["relay-2026-10-25.jsonl"]);
+    expect(resources.snapshot()).toStrictEqual({ "log.file": 0 });
+  });
+
+  it("reports a directory it cannot list and keeps logging", async () => {
+    const { log, dir, errors } = await logIn();
+    await mkdir(dir, { recursive: true, mode: 0o300 });
+    onTestFinished(() => chmod(dir, 0o700));
+
+    await log.open();
+    log.write({ event: "a" });
+    await log.close();
+
+    expect(errors.map((error) => (error as NodeJS.ErrnoException).code)).toStrictEqual(["EACCES"]);
+    await chmod(dir, 0o700);
+    expect(await lines(join(dir, "relay-2026-10-25.jsonl"))).toStrictEqual([
+      { time: "2026-10-25T23:59:59.000Z", event: "a" },
+    ]);
   });
 
   it("drops lines written after close", async () => {
@@ -142,6 +174,7 @@ describe("DailyLog", () => {
     onTestFinished(() => chmod(dir, 0o700));
 
     await log.open();
+    await vi.waitFor(() => expect(errors).toHaveLength(1));
     log.write({ event: "a" });
     log.write({ event: "b" });
     await log.close();

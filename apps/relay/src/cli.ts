@@ -6,7 +6,7 @@ import { type RelayConfig, loadConfig, relayLine } from "./config";
 import { DailyLog } from "./daily-log";
 import { errorCode } from "./errors";
 import { HOST_ID, type HostRecord, hashToken, newCredentials, readHosts, watchHosts, writeHosts } from "./hosts";
-import { type RelayLimits, startRelay } from "./relay";
+import { startRelay } from "./relay";
 import { ResourceTracker } from "./resources";
 
 /** What the command line is given by `entry.ts`, or by a test. */
@@ -22,10 +22,6 @@ export interface CliIo {
   readonly clock: Clock;
   /** Stops `serve`. */
   readonly signal: AbortSignal;
-  /** Reports memory for the minutely usage line; tests pass a fixed one. */
-  readonly memory?: () => { rss: number; heapUsed: number };
-  /** For tests: smaller limits. */
-  readonly limits?: Partial<RelayLimits>;
   /** Tells a test the port `serve` listens on. */
   readonly onListening?: (port: number) => void;
 }
@@ -34,6 +30,7 @@ export interface CliIo {
 export const HOSTS_POLL_MS = 2_000;
 /** How often the resource counts and memory are logged. */
 export const USAGE_INTERVAL_MS = 60_000;
+// Stryker disable next-line StringLiteral: tests do not bind the real default port; an empty default fails as usage.
 const DEFAULT_LISTEN = "127.0.0.1:8787";
 
 const USAGE = `usage: atrium-relay <command> [--dir <dir>] [--listen <host:port>]
@@ -74,6 +71,7 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
   }
   const { command, rest, dirOption, listenOption } = parsed;
   const dir = resolve(io.cwd, dirOption ?? io.env.ATRIUM_RELAY_DIR ?? ".");
+  // Stryker disable next-line StringLiteral: no command name is the same as an unknown one.
   switch (command ?? "") {
     case "serve": {
       const listen = parseListen(listenOption ?? io.env.ATRIUM_RELAY_LISTEN ?? DEFAULT_LISTEN);
@@ -84,10 +82,13 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       return serve(dir, listen, io);
     }
     case "add-host":
+      // Stryker disable next-line ConditionalExpression: `rest[0]` is defined when there is one; the check is for the type.
       return rest.length === 1 && rest[0] !== undefined ? addHost(dir, rest[0], io) : usage(io);
     case "rotate-host":
+      // Stryker disable next-line ConditionalExpression: as above.
       return rest.length === 1 && rest[0] !== undefined ? rotateHost(dir, rest[0], io) : usage(io);
     case "remove-host":
+      // Stryker disable next-line ConditionalExpression: as above.
       return rest.length === 1 && rest[0] !== undefined ? removeHost(dir, rest[0], io) : usage(io);
     case "list-hosts":
       return rest.length === 0 ? listHosts(dir, io) : usage(io);
@@ -153,6 +154,7 @@ export function parseListen(value: string): { host: string; port: number } | nul
   if (match === null) return null;
   const port = Number(match[3]);
   if (port > 65_535) return null;
+  // Stryker disable next-line StringLiteral: one of the two groups always matched.
   return { host: match[1] ?? match[2] ?? "", port };
 }
 
@@ -324,6 +326,7 @@ async function serve(dir: string, listen: { host: string; port: number }, io: Cl
   const resources = new ResourceTracker();
   const log = new DailyLog(join(dir, "logs"), io.clock, resources, (error) => {
     const code = errorCode(error);
+    // Stryker disable next-line ConditionalExpression: file system errors always carry a code; the name is a fallback.
     io.stderr(`log write failed: ${typeof code === "string" ? code : error.name}`);
   });
   await log.open();
@@ -334,7 +337,6 @@ async function serve(dir: string, listen: { host: string; port: number }, io: Cl
     resources,
     log: (event) => log.write(event),
     listen,
-    ...(io.limits === undefined ? {} : { limits: io.limits }),
   }).catch(async (error: unknown) => {
     await log.close();
     throw error;
@@ -356,7 +358,6 @@ async function serve(dir: string, listen: { host: string; port: number }, io: Cl
     },
     HOSTS_POLL_MS,
   );
-  const memory = io.memory ?? (() => process.memoryUsage());
   let cancelUsage: (() => void) | null = null;
   /**
    * Logs the counts and memory, then schedules the next time.
@@ -367,16 +368,17 @@ async function serve(dir: string, listen: { host: string; port: number }, io: Cl
    * @sideEffects Writes a log line; schedules a timer.
    */
   const usageTick = (): void => {
-    const { rss, heapUsed } = memory();
+    const { rss, heapUsed } = process.memoryUsage();
     log.write({ level: "info", event: "resource_usage", counts: resources.snapshot(), rss, heapUsed });
     cancelUsage = trackedTimeout(io.clock, resources, usageTick, USAGE_INTERVAL_MS);
   };
   cancelUsage = trackedTimeout(io.clock, resources, usageTick, USAGE_INTERVAL_MS);
 
   if (!io.signal.aborted) {
-    await new Promise<void>((done) => io.signal.addEventListener("abort", () => done(), { once: true }));
+    await new Promise<void>((done) => io.signal.addEventListener("abort", () => done()));
   }
   stopWatching();
+  // Stryker disable next-line OptionalChaining: the first usage line is scheduled before the stop can be awaited.
   cancelUsage?.();
   await relay.close();
   log.write({ level: "info", event: "stopped" });

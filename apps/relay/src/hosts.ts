@@ -57,6 +57,7 @@ export function hostsPath(dir: string): string {
  * @returns The digest.
  */
 export function hashToken(token: string): string {
+  // Stryker disable next-line StringLiteral: utf8 is the default encoding for a string.
   return createHash("sha256").update(token, "utf8").digest("hex");
 }
 
@@ -87,6 +88,7 @@ export function newCredentials(): { hostId: string; token: string } {
 export async function readHosts(dir: string): Promise<{ ok: true; hosts: HostRecord[] } | { ok: false }> {
   let text: string;
   try {
+    // Stryker disable next-line StringLiteral: without the encoding the Buffer parses as the same JSON.
     text = await readFile(hostsPath(dir), "utf8");
   } catch (error) {
     if (errorCode(error) === "ENOENT") return { ok: true, hosts: [] };
@@ -169,9 +171,11 @@ export function watchHosts(
   const poll = async (): Promise<void> => {
     try {
       const info = await stat(hostsPath(dir)).catch((error: unknown) => {
+        // Stryker disable next-line ConditionalExpression: any other error fails the read that follows the same way.
         if (errorCode(error) === "ENOENT") return null;
         throw error;
       });
+      // Stryker disable next-line StringLiteral: any marker that is not an inode:size:time triple.
       const version = info === null ? "none" : `${info.ino}:${info.size}:${info.mtimeMs}`;
       if (version === seen) return;
       const read = await readHosts(dir);

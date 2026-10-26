@@ -47,6 +47,17 @@ describe("host credentials", () => {
     expect(second.token).not.toBe(first.token);
   });
 
+  it("accepts only hst_ and exactly 16 lower-case hex digits as a host id", () => {
+    const valid = "hst_0123456789abcdef";
+
+    expect([valid, `x${valid}`, `${valid}0`, "hst_0123456789ABCDEF"].map((id) => HOST_ID.test(id))).toStrictEqual([
+      true,
+      false,
+      false,
+      false,
+    ]);
+  });
+
   it("hashes a token with SHA-256", () => {
     expect(hashToken("abc")).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
   });
@@ -80,6 +91,11 @@ describe("host table", () => {
     ["another version", JSON.stringify({ version: 2, hosts: [] })],
     ["a bad host id", JSON.stringify({ version: 1, hosts: [{ ...record, hostId: "mac" }] })],
     ["a stored token", JSON.stringify({ version: 1, hosts: [{ ...record, token: "x" }] })],
+    [
+      "a hash with a prefix",
+      JSON.stringify({ version: 1, hosts: [{ ...record, tokenSha256: `x${record.tokenSha256}` }] }),
+    ],
+    ["a hash too long", JSON.stringify({ version: 1, hosts: [{ ...record, tokenSha256: `${record.tokenSha256}0` }] })],
   ])("refuses a table with %s", async (_name, text) => {
     const dir = await tempDir();
     await writeFile(hostsPath(dir), text);
@@ -199,6 +215,25 @@ describe("watchHosts", () => {
     expect(clock.pendingTimers()).toBe(0);
     expect(resources.snapshot()).toStrictEqual({ timer: 0 });
     expect(seen).toStrictEqual([[]]);
+  });
+
+  it("reports no invalid table from a poll still running when stopped", async () => {
+    const dir = await tempDir();
+    await writeFile(hostsPath(dir), "{");
+    let invalid = 0;
+
+    const stop = watchHosts(
+      dir,
+      new FakeClock(),
+      new ResourceTracker(),
+      () => {},
+      () => (invalid += 1),
+      2_000,
+    );
+    stop();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(invalid).toBe(0);
   });
 
   it("reports nothing from a poll still running when stopped", async () => {
