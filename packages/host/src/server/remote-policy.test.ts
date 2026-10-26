@@ -38,6 +38,10 @@ describe("the phone's allowlist", () => {
     expect(phoneMayRun({ type: "ping", ...fields })).toBe(true);
     expect(phoneMayRun({ type: "get_remote", ...fields })).toBe(false);
     expect(phoneMayRun({ type: "set_preferences", ...fields })).toBe(false);
+    expect(
+      phoneMayRun({ type: "translate_reply", ...fields, sessionId: "s1", turnId: "t1", translationId: "tr1" }),
+    ).toBe(false);
+    expect(phoneMayRun({ type: "cancel_translation", ...fields, translationId: "tr1" })).toBe(false);
   });
 });
 

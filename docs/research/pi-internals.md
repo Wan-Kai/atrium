@@ -181,6 +181,12 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 
 **启动**：没有可用模型（没有凭据）时 RPC 模式**照常启动，不退出**（2026-10-10 在 1.1.0 上实测，原先记的"直接报错退出"不对）：`get_state` 的模型是 pi-agent-core 的占位模型（`provider`、`id`、`api` 都是 `unknown`，档位 `off`），`get_available_models` 为空，`prompt` 报错 "No API key found for the selected model."。模型目录在后台刷新，最多 15 秒。
 
+**翻译隔离补充（2026-10-26，pi 1.3.0 实测）**：普通 print 调用不是纯文本 API：stdin 会交给 `session.prompt()`，开头的 `/` 可以执行扩展命令或展开技能、模板；`--no-context-files` 只关 AGENTS / CLAUDE，不关全局与项目的 `APPEND_SYSTEM.md`；`--model provider/id` 仍会模糊匹配或构造未登记模型。这三条在回复翻译的审查中核实，不能只靠提示词约束。
+
+- 翻译输入加固定的非 `/` 前缀与数据外壳，正文仍只走 stdin；翻译专用参数另加 `--no-skills --no-prompt-templates --append-system-prompt ""`，显式空 append 覆盖文件发现，仍保留服务商扩展加载。`--no-tools` 已用真实 pi/faux 确认内置和扩展工具都不声明。
+- 翻译专用的私有临时扩展在 `before_agent_start` 检查 `ctx.modelRegistry.find(providerId, modelId)` 和实际 `ctx.model`；不存在或不精确一致时调用 `ctx.abort()`，必须在任何服务商请求前拒绝替代模型。临时文件仅含固定可信代码和 JSON 编码的模型标识，不含正文或凭据；调用结束后删除。
+- 这些隔离只给回复翻译启用，不顺带改变标题和分支名生成的既有行为。契约见 `packages/pi/src/oneshot/oneshot.pi.test.ts`；输入、模型和上下文以 faux 的真实请求记录核对，不以 CLI 参数存在当证明。
+
 **一次性调用**（`src/modes/print-mode.ts`、`json-event.ts`、`main.ts`，2026-10-10 按 `4c6fb7c` 核实，自动生成标题用）：`pi --mode json -p --no-session` 先输出会话头一行，之后每个会话事件一行 JSON（形状和 RPC 的事件相同，`message_update` 去掉了累积的 `partial`）。标准输入不是终端时，pi 读完整个标准输入作为第一条消息（参数里的消息接在后面），所以对话内容可以不放进参数。助手消息的结果看 `message_end` 里 `role: "assistant"` 的 `stopReason`（`error` / `aborted` 时 `errorMessage` 是原文）；`text` 模式出错时退出码为 1。`--no-tools` 关掉所有工具，`--system-prompt` 换掉默认的编程提示词，`--model <服务商>/<模型>` 解析不出时 pi 直接退出。认证问题的原文常见 `No API key found for …`（没有凭据，后面附"Use /login …"）、`OAuth refresh failed for …`（OAuth 刷新失败）、服务商的 401 / `unauthorized` / `invalid_api_key`，部分服务商写"Run `/login …` to sign in again"。
 
 **限制工具**（2026-10-16 读 1.0.2）：`--tools a,b` 白名单、`--exclude-tools a,b` 黑名单、`--no-builtin-tools`、`--no-tools`，内置和扩展的工具都算（用白名单时扩展的工具也得写上）。这是硬限制：不在白名单或在黑名单里的工具在注册表这一层就去掉，扩展的 `setActiveTools`、`executeTool` 也拿不到。扩展的 `pi.setActiveTools` / `getActiveTools` 只管声明给模型的工具（加载期不能调，下一次请求生效），工具变化写成系统消息的 `toolsAdded` / `toolsRemoved`，但进程重启后不从会话文件恢复。内置工具名：`read`、`bash`、`powershell`、`edit`、`write`、`grep`、`find`、`ls`。

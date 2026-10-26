@@ -39,6 +39,36 @@ export type VaultStatus = z.infer<typeof VaultStatus>;
 export const RelayStatus = z.enum(["off", "connecting", "connected", "error"]);
 export type RelayStatus = z.infer<typeof RelayStatus>;
 
+/** Evidence from a finished check, never an inferred cause for an unobserved stage. */
+export const RemoteDiagnosticCheck = z.enum(["passed", "failed", "unknown", "not_applicable"]);
+export type RemoteDiagnosticCheck = z.infer<typeof RemoteDiagnosticCheck>;
+
+/** Safe failure categories: no raw errors, certificates, paths or credentials. */
+export const RemoteDiagnosticFailure = z.enum([
+  "resolution_failed",
+  "tcp_connect_failed",
+  "tls_failed",
+  "websocket_upgrade_failed",
+  "token_rejected",
+  "timeout",
+  "connection_closed",
+  "unknown",
+]);
+export type RemoteDiagnosticFailure = z.infer<typeof RemoteDiagnosticFailure>;
+
+/** The last finished connection or same-socket liveness check; not persisted. */
+export const RemoteRelayDiagnostics = z.strictObject({
+  kind: z.enum(["connect", "live"]),
+  checkedAt: Timestamp,
+  /** TCP connectivity to this relay, not general Internet availability. */
+  network: RemoteDiagnosticCheck,
+  resolution: RemoteDiagnosticCheck,
+  tls: RemoteDiagnosticCheck,
+  token: RemoteDiagnosticCheck,
+  failure: RemoteDiagnosticFailure.nullable(),
+});
+export type RemoteRelayDiagnostics = z.infer<typeof RemoteRelayDiagnostics>;
+
 /** The relay this host uses; the token never leaves the host. */
 export const RemoteRelay = z.strictObject({
   /** `wss://<publicHost><pathPrefix>`, without the token. */
@@ -48,6 +78,8 @@ export const RemoteRelay = z.strictObject({
   /** Why the last attempt failed, while `status` is `error` or `connecting` again. */
   error: z.enum(["relay_unreachable", "relay_rejected"]).nullable(),
   lastConnectedAt: Timestamp.nullable(),
+  /** Null until a check finishes; live checks do not reauthenticate or redo DNS/TLS. */
+  diagnostics: RemoteRelayDiagnostics.nullable(),
 });
 export type RemoteRelay = z.infer<typeof RemoteRelay>;
 
@@ -56,6 +88,8 @@ export const RemoteDevice = z.strictObject({
   deviceId: DeviceId,
   /** The name given on the Mac, else the one the phone reported when it paired. */
   name: z.string().min(1).max(64),
+  /** Self-reported when paired, not hardware attestation; blank stored values project to null. */
+  model: z.string().min(1).max(64).nullable(),
   pairedAt: Timestamp,
   lastSeenAt: Timestamp.nullable(),
   online: z.boolean(),
@@ -79,6 +113,8 @@ export const RemotePairing = z.strictObject({
   qr: z.string().min(1).max(2048),
   expiresAt: Timestamp,
   state: PairingState,
+  /** Current candidates await encrypted key confirmation; M1 alone is not proof of the PSK. */
+  handshaking: z.boolean(),
   reason: PairingEndReason.nullable(),
   /** The phone waiting for the Mac's answer, with the SAS both show. */
   request: z

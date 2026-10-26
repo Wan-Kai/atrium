@@ -268,6 +268,8 @@ const PreferencesDocument = z.looseObject({
   lastFast: z.boolean().optional(),
   /** Whether the sidebar shows "等你处理"; absent before M1.11's bottom card (SPEC-0001, "侧栏 · 收件箱"). */
   inbox: z.boolean().optional(),
+  /** A target language, read leniently so one bad field does not reset unrelated preferences. */
+  translationLanguage: z.unknown().optional(),
 });
 export type PreferencesDocument = z.infer<typeof PreferencesDocument>;
 

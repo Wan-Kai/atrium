@@ -6,7 +6,7 @@ import { DirEntry, FILE_LIMITS, FileContent, WorkspacePath } from "./files";
 import { InteractionAnswer } from "./control";
 import { QuestionReply } from "./question";
 import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
-import { Appearance, BranchName, ProxySetting, StatusBarChoices } from "./listing";
+import { Appearance, BranchName, ProxySetting, StatusBarChoices, TranslationLanguage } from "./listing";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
 import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
@@ -309,6 +309,23 @@ export const NameBranchCommand = z.strictObject({
 });
 export type NameBranchCommand = z.infer<typeof NameBranchCommand>;
 
+/** Translates a finished reply through an independent, connection-owned model request. */
+export const TranslateReplyCommand = z.strictObject({
+  type: z.literal("translate_reply"),
+  ...sessionCommandFields,
+  turnId: z.string().min(1).max(512),
+  translationId: RequestId,
+});
+export type TranslateReplyCommand = z.infer<typeof TranslateReplyCommand>;
+
+/** Cancels this connection's translation; already finished requests are harmless. */
+export const CancelTranslationCommand = z.strictObject({
+  type: z.literal("cancel_translation"),
+  ...commandFields,
+  translationId: RequestId,
+});
+export type CancelTranslationCommand = z.infer<typeof CancelTranslationCommand>;
+
 /** Names a chat, or with `null` goes back to its first session's title. */
 export const RenameChatCommand = z.strictObject({
   type: z.literal("rename_chat"),
@@ -436,6 +453,7 @@ export const SetPreferencesCommand = z.strictObject({
   titleModel: ModelRef.nullable().optional(),
   proxy: ProxySetting.nullable().optional(),
   inbox: z.boolean().optional(),
+  translationLanguage: TranslationLanguage.optional(),
 });
 export type SetPreferencesCommand = z.infer<typeof SetPreferencesCommand>;
 
@@ -865,6 +883,8 @@ export const Command = z.discriminatedUnion("type", [
   ListBasesCommand,
   CreateWorkspaceCommand,
   NameBranchCommand,
+  TranslateReplyCommand,
+  CancelTranslationCommand,
   RenameChatCommand,
   ArchiveChatCommand,
   RestoreChatCommand,
@@ -989,6 +1009,15 @@ export const CommandResult = {
   }),
   create_workspace: z.strictObject({ workspaceId: WorkspaceId }),
   name_branch: z.strictObject({ branch: BranchName }),
+  translate_reply: z.strictObject({
+    text: z
+      .string()
+      .min(1)
+      .max(512 * 1024),
+    language: TranslationLanguage,
+    model: ModelRef,
+  }),
+  cancel_translation: z.strictObject({}),
   rename_chat: z.strictObject({}),
   archive_chat: z.strictObject({}),
   restore_chat: z.strictObject({}),

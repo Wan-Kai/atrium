@@ -69,6 +69,8 @@ export const COMMAND_REACH = {
   list_bases: "local_only",
   create_workspace: "local_only",
   name_branch: "local_only",
+  translate_reply: "local_only",
+  cancel_translation: "local_only",
   rename_workspace: "local_only",
   rename_chat: "local_only",
   // Signing in and installing.

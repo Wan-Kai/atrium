@@ -309,6 +309,10 @@ export interface AtriumClient {
   ): Promise<CommandResult<"save_pi_config">>;
   /** One image of a turn's user message, for its thumbnail (SPEC-0001, "M1.11 的消息图片"). */
   fetchImage(sessionId: string, turnId: string, index: number): Promise<CommandResult<"fetch_image">>;
+  /** Translates only this finished reply; the host captures the current model and target language. */
+  translateReply(sessionId: string, turnId: string, translationId: string): Promise<CommandResult<"translate_reply">>;
+  /** Cancels this connection's translation, without stopping the original conversation. */
+  cancelTranslation(translationId: string): Promise<CommandResult<"cancel_translation">>;
   /**
    * What first launch checks, as far as asked. Asked again on its own once asked before: when a
    * login or install job succeeds, after a logout, and on reaching a new host; the latest pi the
@@ -522,6 +526,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     string,
     { readonly type: CommandType; resolve(result: unknown): void; reject(error: Error): void }
   >();
+  /** Cancellation acknowledgements release the host's single translation slot before reuse. */
+  const translationCancellations = new Set<Promise<unknown>>();
+  /** Requests waiting for earlier cancellation, which can themselves be cancelled before dispatch. */
+  const waitingTranslations = new Map<string, { cancelled: boolean }>();
   /** The socket of the latest attempt. */
   let socket: SocketLike | undefined;
   /** That socket once its handshake succeeded; commands go only here. */
@@ -633,6 +641,59 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     });
     live.send(JSON.stringify({ type, requestId, traceparent: formatTraceparent(createTrace()), ...fields }));
     return answer.promise;
+  }
+
+  /**
+   * Translates a reply after earlier cancellation has released the host's connection-owned slot.
+   * @remarks Remounting a reply can request translation while its predecessor is still stopping.
+   * A queued request remains cancellable and must never migrate to a reconnected socket.
+   * @sideEffects Sends a translation command and tracks cancellation before dispatch.
+   * @param sessionId - The source conversation.
+   * @param turnId - The finished source turn.
+   * @param translationId - The operation's unique id.
+   * @returns The independent translated reply.
+   */
+  async function translateReply(
+    sessionId: string,
+    turnId: string,
+    translationId: string,
+  ): Promise<CommandResult<"translate_reply">> {
+    if (translationCancellations.size > 0) {
+      const owner = live;
+      // Stryker disable next-line ObjectLiteral: an absent cancelled field is equally falsy until cancellation writes true.
+      const waiting = { cancelled: false };
+      waitingTranslations.set(translationId, waiting);
+      try {
+        await Promise.allSettled(translationCancellations);
+        if (waiting.cancelled) throw new CommandError("translation_failed", { reason: "aborted" });
+        if (live !== owner) throw new ConnectionLostError("translate_reply");
+      } finally {
+        waitingTranslations.delete(translationId);
+      }
+    }
+    return request("translate_reply", { sessionId, turnId, translationId });
+  }
+
+  /**
+   * Cancels queued work locally, or waits for the host to finish stopping its model process.
+   * @remarks Later translations wait for acknowledgements so cancel then retry does not report busy.
+   * @sideEffects Sends cancellation and tracks its cleanup acknowledgement.
+   * @param translationId - The operation to stop.
+   * @returns An empty successful cancellation result.
+   */
+  async function cancelTranslation(translationId: string): Promise<CommandResult<"cancel_translation">> {
+    const waiting = waitingTranslations.get(translationId);
+    if (waiting !== undefined) {
+      waiting.cancelled = true;
+      return {};
+    }
+    const cancellation = request("cancel_translation", { translationId });
+    translationCancellations.add(cancellation);
+    try {
+      return await cancellation;
+    } finally {
+      translationCancellations.delete(cancellation);
+    }
   }
 
   /**
@@ -1304,8 +1365,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     restoreChat: (chatId) => request("restore_chat", { chatId }),
     windowFocused: () => request("window_focused", {}),
     setPreferences(changes) {
-      // A proxy shows once the host has checked it and written its address in one form.
-      const { proxy: _checked, ...shown } = changes;
+      // Proxy and translation language show only after the host validates and saves them.
+      const { proxy: _checked, translationLanguage: _saved, ...shown } = changes;
       // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
       index.setState(withPreferences(index.getState(), shown), true);
       return request("set_preferences", changes);
@@ -1352,6 +1413,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     savePiConfig: (workspaceId, name, text, revision) =>
       request("save_pi_config", { workspaceId, name, text, revision }),
     fetchImage: (sessionId, turnId, place) => request("fetch_image", { sessionId, turnId, index: place }),
+    translateReply,
+    cancelTranslation,
     setup,
     loadSetup: (refresh = false) => loadSetup(refresh),
     loginState,

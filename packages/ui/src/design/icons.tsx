@@ -72,6 +72,7 @@ import {
   TextAlignLeftIcon,
   TextWrapIcon,
   Tick02Icon,
+  TranslationIcon,
   UnfoldVerticalIcon,
   UserIcon,
   ViewIcon,
@@ -192,6 +193,7 @@ export const Clock = drawn(Clock01Icon);
 export const ClockCounterClockwise = drawn(Clock02Icon);
 export const Coins = drawn(Coins01Icon);
 export const Copy = drawn(Copy01Icon);
+export const Translate = drawn(TranslationIcon);
 export const Database = drawn(DatabaseIcon);
 export const DotOutline = drawn(DOT);
 export const DotsThree = drawn(MoreHorizontalIcon, 2.5);

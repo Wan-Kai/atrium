@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 26,
+    "protocolVersion": 27,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -1314,7 +1314,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -1619,7 +1620,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     }
   },
   {
@@ -2065,13 +2067,23 @@
         "hostId": "hst_0123456789abcdef",
         "status": "connected",
         "error": null,
-        "lastConnectedAt": 1760000000000
+        "lastConnectedAt": 1760000000000,
+        "diagnostics": {
+          "kind": "connect",
+          "checkedAt": 1760000000000,
+          "network": "passed",
+          "resolution": "passed",
+          "tls": "passed",
+          "token": "passed",
+          "failure": null
+        }
       },
       "hostFingerprint": "0123456789abcdef",
       "devices": [
         {
           "deviceId": "dev_0123456789abcdef",
           "name": "Ktoon 的 iPhone",
+          "model": "iPhone17,1",
           "pairedAt": 1760000000000,
           "lastSeenAt": 1760000001000,
           "online": true,
@@ -2086,6 +2098,7 @@
         "qr": "atrium://pair?v=1&relay=wss%3A%2F%2Fktoon.site%2Fatrium",
         "expiresAt": 1760000300000,
         "state": "awaiting_confirmation",
+        "handshaking": false,
         "reason": null,
         "request": {
           "deviceName": "iPhone",
@@ -2342,7 +2355,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -2594,7 +2608,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -2846,7 +2861,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -3098,7 +3114,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -3350,7 +3367,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -3602,7 +3620,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -3854,7 +3873,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -4082,7 +4102,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -4347,7 +4368,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -4612,7 +4634,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -4877,7 +4900,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -5109,7 +5133,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -5374,7 +5399,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -5639,7 +5665,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -5893,7 +5920,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "projects",
@@ -6048,7 +6076,8 @@
         "modelId": "claude-haiku-4-5"
       },
       "proxy": null,
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -6379,7 +6408,8 @@
           "h"
         ]
       },
-      "inbox": false
+      "inbox": false,
+      "translationLanguage": "简体中文"
     },
     "resets": [
       "layouts"
@@ -6703,6 +6733,14 @@
     "ok": false,
     "error": {
       "code": "branch_name_failed"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "translation_failed"
     }
   },
   {
