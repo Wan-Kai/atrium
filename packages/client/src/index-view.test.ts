@@ -68,6 +68,7 @@ describe("emptyIndex", () => {
         titleModel: null,
         proxy: null,
         inbox: true,
+        translationLanguage: "简体中文",
       },
       resets: [],
     });
@@ -262,6 +263,7 @@ describe("withContainer and withPreferences", () => {
       titleModel: null,
       proxy: null,
       inbox: true,
+      translationLanguage: "简体中文",
     });
   });
 

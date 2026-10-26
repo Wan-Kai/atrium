@@ -227,6 +227,119 @@ async function manage(
 type Manager = ReturnType<typeof createSessionManager>;
 
 /**
+ * Opens a real manager/controller on a current branch with selected reply blocks.
+ * @remarks Translation reads the public controller projection, not fabricated private state. A
+ * separate branch is deliberately present in the entries but must not appear in that projection.
+ * @sideEffects Creates temporary indexes, starts scripted pi and subscribes to its real controller.
+ * @param content - The assistant blocks forming this branch's reply and process.
+ * @param options - Optional trailing compaction and preceding system event.
+ * @returns The opened manager, current turn, snapshot and source-observation helpers.
+ */
+async function translationHistory(
+  content: readonly object[],
+  options: { readonly compacted?: boolean; readonly notice?: boolean } = {},
+) {
+  const before = options.notice
+    ? [
+        {
+          type: "compaction",
+          id: "k0",
+          parentId: null,
+          timestamp: "",
+          summary: "Previous context",
+          firstKeptEntryId: "u1",
+          tokensBefore: 100,
+        },
+      ]
+    : [];
+  const user = {
+    type: "message",
+    id: "u1",
+    parentId: options.notice ? "k0" : null,
+    timestamp: "",
+    message: { role: "user", content: [{ type: "text", text: "Read the result" }], timestamp: 1 },
+  };
+  const reply = {
+    type: "message",
+    id: "a1",
+    parentId: "u1",
+    timestamp: "",
+    message: {
+      role: "assistant",
+      content,
+      stopReason: "stop",
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+      timestamp: 2,
+    },
+  };
+  const after = options.compacted
+    ? [
+        {
+          type: "compaction",
+          id: "k1",
+          parentId: "a1",
+          timestamp: "",
+          summary: "Tail summary",
+          firstKeptEntryId: "a1",
+          tokensBefore: 100,
+        },
+      ]
+    : [];
+  const other = [
+    {
+      type: "message",
+      id: "other-u",
+      parentId: null,
+      timestamp: "",
+      message: { role: "user", content: "Other branch", timestamp: 3 },
+    },
+    {
+      type: "message",
+      id: "other-a",
+      parentId: "other-u",
+      timestamp: "",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "Not the current reply" }],
+        stopReason: "stop",
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+        timestamp: 4,
+      },
+    },
+  ];
+  const managed = await manage(
+    {
+      rules: {
+        get_state: {
+          data: { sessionId: "pi-session-1", model: { provider: "faux", id: "faux-1" }, thinkingLevel: "off" },
+        },
+        get_entries: {
+          data: { entries: [...before, user, reply, ...after, ...other], leafId: options.compacted ? "k1" : "a1" },
+        },
+      },
+    },
+    undefined,
+    async () => ({
+      opened: new Set(["u1"]),
+      auto: new Set(),
+      compactions: new Map([["k1", "threshold"]]),
+      record: async () => undefined,
+    }),
+  );
+  const { sessionId } = await started(managed.manager, managed.manager.createSession("client-1", WORKSPACE));
+  await managed.manager.subscribe("c1", [sessionId]);
+  const snapshot = present(
+    managed.received.find((event) => event.type === "session_snapshot"),
+    "opened controller snapshot",
+  );
+  const current = present(
+    snapshot.items.find((item) => item.kind === "turn"),
+    "current branch turn",
+  );
+  return { ...managed, sessionId, current, snapshot };
+}
+
+/**
  * Does something once, as a session's restart begins.
  *
  * @remarks
@@ -1018,6 +1131,141 @@ describe("SessionManager creating sessions", () => {
 });
 
 describe("SessionManager running sessions", () => {
+  it.each([
+    {
+      name: "trailing whitespace text",
+      content: [
+        { type: "text", text: "Final reply" },
+        { type: "text", text: " \t\n" },
+      ],
+      options: {},
+      kinds: ["text", "text"],
+      expected: "Final reply",
+    },
+    {
+      name: "trailing whitespace thinking",
+      content: [
+        { type: "text", text: "Final reply" },
+        { type: "thinking", thinking: " \t\n" },
+      ],
+      options: {},
+      kinds: ["text", "thinking"],
+      expected: "Final reply",
+    },
+    {
+      name: "trailing compaction",
+      content: [{ type: "text", text: "Final reply" }],
+      options: { compacted: true },
+      kinds: ["text", "compaction"],
+      expected: "Final reply",
+    },
+    {
+      name: "nonblank thinking ending",
+      content: [
+        { type: "text", text: "Process note" },
+        { type: "thinking", thinking: "Private reasoning" },
+      ],
+      options: {},
+      kinds: ["text", "thinking"],
+      expected: "",
+    },
+    {
+      name: "tool ending",
+      content: [
+        { type: "text", text: "Process note" },
+        { type: "toolCall", id: "call-read", name: "read", arguments: { path: "api.ts" } },
+      ],
+      options: {},
+      kinds: ["text", "tool"],
+      expected: "",
+    },
+    { name: "empty steps", content: [], options: {}, kinds: [], expected: "" },
+    {
+      name: "only blank text and thinking",
+      content: [
+        { type: "text", text: " \t\n" },
+        { type: "thinking", thinking: " \t\n" },
+      ],
+      options: {},
+      kinds: ["text", "thinking"],
+      expected: "",
+    },
+  ])(
+    "selects only the visible final reply for translation with $name",
+    async ({ content, options, kinds, expected }) => {
+      const { manager, sessionId, current, at, sent } = await translationHistory(content, options);
+      expect(current.steps.map((step) => step.kind)).toStrictEqual(kinds);
+      const before = sent();
+      expect(manager.replyTranslationSource(sessionId, current.id)).toStrictEqual({
+        cwd: at.workspace,
+        text: expected,
+        model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "off" },
+      });
+      expect(sent()).toStrictEqual(before);
+      expect(() => manager.replyTranslationSource(sessionId, `${sessionId}:other-u`)).toThrow(
+        new CommandError("turn_not_found"),
+      );
+    },
+  );
+
+  it("refuses a system-event id as a translation source in an existing controller", async () => {
+    const { manager, sessionId, snapshot } = await translationHistory([{ type: "text", text: "Final reply" }], {
+      notice: true,
+    });
+    const notice = present(
+      snapshot.items.find((item) => item.kind === "notice"),
+      "the preceding system event",
+    );
+    expect(notice).toMatchObject({ kind: "notice", notice: "compacted" });
+    expect(() => manager.replyTranslationSource(sessionId, notice.id)).toThrow(new CommandError("turn_not_found"));
+  });
+
+  it("reads a translation source from the current branch without sending a prompt or changing the transcript", async () => {
+    const { manager, received, sent, at } = await manage({
+      rules: {
+        ...SESSION_ONE,
+        get_state: {
+          data: { sessionId: "pi-session-1", model: { provider: "faux", id: "faux-1" }, thinkingLevel: "off" },
+        },
+        prompt: { data: { disposition: "started" }, events: turn },
+      },
+    });
+    const { sessionId } = await started(manager, manager.createSession("client-1", WORKSPACE));
+    await manager.subscribe("c1", [sessionId]);
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
+    await vi.waitFor(() => expect(received.map((event) => event.type)).toContain("run_settled"));
+    const finished = present(
+      received.find((event) => event.type === "turn_finished"),
+      "finished turn",
+    );
+    const commands = sent();
+    expect(manager.replyTranslationSource(sessionId, Reflect.get(finished, "turnId"))).toStrictEqual({
+      cwd: at.workspace,
+      text: "pong",
+      model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "off" },
+    });
+    expect(sent()).toStrictEqual(commands);
+    expect(() => manager.replyTranslationSource(sessionId, "missing")).toThrow(new CommandError("turn_not_found"));
+  });
+
+  it("refuses to translate an unfinished turn even after it has emitted text", async () => {
+    const { manager, received } = await manage({
+      rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, events: turn.slice(0, -1) } },
+    });
+    const { sessionId } = await started(manager, manager.createSession("client-1", WORKSPACE));
+    await manager.subscribe("c1", [sessionId]);
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
+    const startedTurn = await vi.waitFor(() =>
+      present(
+        received.find((event) => event.type === "turn_started"),
+        "started turn",
+      ),
+    );
+    expect(() => manager.replyTranslationSource(sessionId, Reflect.get(startedTurn, "turn").id)).toThrow(
+      new CommandError("translation_failed", { reason: "running" }),
+    );
+  });
+
   it("sends a subscriber the snapshot, then the session's events as pi works, and tracks the run", async () => {
     const { manager, received, records, refreshed, changes } = await manage({
       rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, events: turn } },

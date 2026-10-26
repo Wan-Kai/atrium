@@ -1,7 +1,7 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 25,
+    "protocolVersion": 26,
     "clientId": "c1",
     "token": "t",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
@@ -186,6 +186,20 @@
     "projectId": "prj_0123456789abcdef",
     "text": "fix it",
     "model": null
+  },
+  {
+    "type": "translate_reply",
+    "requestId": "r17g",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "turnId": "s1:u1",
+    "translationId": "tr-1"
+  },
+  {
+    "type": "cancel_translation",
+    "requestId": "r17h",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "translationId": "tr-1"
   },
   {
     "type": "window_focused",

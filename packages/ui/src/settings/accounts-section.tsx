@@ -9,6 +9,7 @@ import { groupByProvider, providerOf } from "../chat/model-choice";
 import { KeyForm, type LoginFlow, SignedIn, SubscriptionList, useLoginFlow } from "../setup/login-flow";
 import { isLastCredential, keyCandidates, keyedProviders } from "../setup/providers";
 import { GHOST_BUTTON, Group, LINK_BUTTON, Row, Tick } from "./parts";
+import { TranslationGroup } from "./translation-group";
 
 /** A credential waiting for "仍要…" before it goes. */
 interface Removing {
@@ -61,6 +62,7 @@ export function AccountsSection({
           </p>
         </Group>
         <PlanGroup plans={plans} />
+        <TranslationGroup client={client} />
       </>
     );
   }
@@ -192,6 +194,7 @@ export function AccountsSection({
         <KeyAdder flow={flow} candidates={keyCandidates(providers)} openUrl={openUrl} />
       </Group>
       <TitleModel client={client} />
+      <TranslationGroup client={client} />
     </>
   );
 }

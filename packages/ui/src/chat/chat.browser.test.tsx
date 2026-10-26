@@ -1426,7 +1426,7 @@ describe("ConversationArea's /compact", () => {
     expect(calls.filter((call) => call.startsWith("compactSession"))).toStrictEqual([]);
   });
 
-  it("says at the bottom of the conversation while pi compacts", async () => {
+  it("says at the bottom of the conversation while pi compacts, the cat pressed flat", async () => {
     const { client } = fakeClient(ON_FILE);
     const { screen } = await onOpus(client);
     const line = screen.getByText("正在压缩上下文…");
@@ -1434,6 +1434,14 @@ describe("ConversationArea's /compact", () => {
     client.session("s1")?.setState({ control: { ...IDLE_CONTROL, compacting: true } });
     await expect.element(line).toBeVisible();
     expect(line.element().className).toBe("atrium-shimmer");
+    // The pressed cat stands before the words, and the line rises in (design-language, "运行中压缩").
+    const status = line.element().closest("p")!;
+    expect(status.getAttribute("role")).toBe("status");
+    expect(status.className).toContain("atrium-compacting-line");
+    expect(status.className).toContain("pl-6");
+    const cat = status.querySelector('[data-testid="compacting-cat"]');
+    expect(cat).not.toBeNull();
+    expect(status.firstElementChild).toBe(cat);
     client.session("s1")?.setState({ control: IDLE_CONTROL });
 
     await expect.element(line).not.toBeInTheDocument();
@@ -2369,6 +2377,7 @@ describe("ConversationArea's model button", () => {
           appearance: "system",
           lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
           thinkingByModel: { "anthropic/claude-opus-5-5": "medium" },
+          translationLanguage: "简体中文",
           lastFast: false,
           statusBar: {},
           titleModel: null,
@@ -2641,6 +2650,7 @@ describe("ConversationArea's Fast button", () => {
           appearance: "system",
           lastModel: { providerId: "openai-codex", modelId: "gpt-5.5" },
           thinkingByModel: {},
+          translationLanguage: "简体中文",
           lastFast: true,
           statusBar: {},
           titleModel: null,

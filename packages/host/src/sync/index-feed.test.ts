@@ -21,6 +21,7 @@ const PREFERENCES: Preferences = {
   titleModel: null,
   proxy: null,
   inbox: true,
+  translationLanguage: "简体中文",
 };
 
 /**

@@ -1,0 +1,26 @@
+[
+  {
+    "file": "packages/pi/src/oneshot/oneshot.ts",
+    "from": "ctx.abort();",
+    "to": "void 0;",
+    "test": "packages/pi/src/oneshot/oneshot.pi.test.ts",
+    "name": "refuses a fuzzy or synthetic replacement",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/oneshot/oneshot.ts",
+    "from": "\"--append-system-prompt\",\n              \"\",",
+    "to": "",
+    "test": "packages/pi/src/oneshot/oneshot.pi.test.ts",
+    "name": "isolates translation from global",
+    "project": "pi"
+  },
+  {
+    "file": "packages/host/src/sessions/reply-translation.ts",
+    "from": "await call.settled;",
+    "to": "return;",
+    "test": "packages/host/src/sessions/reply-translation.leak.test.ts",
+    "name": "50 cancelled translations",
+    "project": "leak"
+  }
+]

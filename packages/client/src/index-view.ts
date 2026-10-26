@@ -35,6 +35,7 @@ export function emptyIndex(): IndexView {
       titleModel: null,
       proxy: null,
       inbox: true,
+      translationLanguage: "简体中文",
     },
     resets: [],
   };
