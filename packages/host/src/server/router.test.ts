@@ -308,6 +308,47 @@ function withTrace(fields: Record<string, unknown>): Command {
 }
 
 describe("createRouter", () => {
+  it.each([
+    {
+      command: { type: "get_remote", watch: true },
+      call: ["getRemote", "connection-7", true],
+      result: { enabled: false, vault: "unavailable", relay: null, hostFingerprint: null, devices: [], pairing: null },
+    },
+    {
+      command: {
+        type: "set_remote",
+        enabled: true,
+        relay: `atrium-relay://hst_0123456789abcdef:${"a".repeat(43)}@localhost`,
+      },
+      call: ["setRemote", true, `atrium-relay://hst_0123456789abcdef:${"a".repeat(43)}@localhost`],
+      result: {},
+    },
+    { command: { type: "test_relay" }, call: ["testRelay"], result: {} },
+    { command: { type: "start_pairing" }, call: ["startPairing"], result: { pairingId: "pair_0123456789abcdef" } },
+    { command: { type: "cancel_pairing" }, call: ["cancelPairing"], result: {} },
+    {
+      command: { type: "confirm_pairing", pairingId: "pair_0123456789abcdef", accept: true },
+      call: ["confirmPairing", "pair_0123456789abcdef", true],
+      result: {},
+    },
+    {
+      command: { type: "rename_device", deviceId: "dev_0123456789abcdef", name: "Phone" },
+      call: ["renameDevice", "dev_0123456789abcdef", "Phone"],
+      result: {},
+    },
+    {
+      command: { type: "revoke_device", deviceId: "dev_0123456789abcdef" },
+      call: ["revokeDevice", "dev_0123456789abcdef"],
+      result: {},
+    },
+    { command: { type: "reset_remote_identity" }, call: ["resetIdentity"], result: {} },
+  ])("routes the local remote command $command.type with its complete arguments", async ({ command, call, result }) => {
+    const { route, connection, calls, sent } = setUp();
+    await route(connection, withTrace(command));
+    expect(calls).toStrictEqual([call]);
+    expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: true, result }]);
+  });
+
   it("routes a stopped edit with its revision without using ordinary prompt", async () => {
     const { route, connection, calls, sent } = setUp();
     await route(

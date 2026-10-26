@@ -233,10 +233,12 @@ export class RemoteService implements RemoteCommands {
     if (claim === null) throw new CommandError("pairing_expired");
     if (claim === "declined") return {};
     const acceptedAt = this.#revocationSerial;
+    // Preserve the identity the user confirmed even if an earlier queued revoke removes its record.
+    const acceptedDevice = this.#contents?.devices.find((device) => device.publicKey === claim.publicKey);
     return this.#serialize(async () => {
       try {
         const current = this.#trusted();
-        const previous = current.devices.find((device) => device.publicKey === claim.publicKey);
+        const previous = current.devices.find((device) => device.publicKey === claim.publicKey) ?? acceptedDevice;
         const device = {
           deviceId: previous?.deviceId ?? `dev_${randomBytes(8).toString("hex")}`,
           publicKey: claim.publicKey,
