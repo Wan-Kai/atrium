@@ -100,7 +100,7 @@
   {
     "file": "packages/host/src/remote/channel.ts",
     "from": "if (this.#socket.readyState === WebSocket.CONNECTING) this.#socket.terminate();",
-    "to": "if (false) this.#socket.terminate();",
+    "to": "if (this.#socket.readyState === WebSocket.CONNECTING) {}",
     "test": "packages/host/src/remote/channel.test.ts",
     "name": "does not send before open and closes a connecting socket without waiting for its handshake"
   },
