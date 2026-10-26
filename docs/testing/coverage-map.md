@@ -38,6 +38,7 @@ SPEC-0005 需求 1、配对和撤销；视觉按 design-language「设置 · 手
 | relay 掩码替换及重新配对警告、测试连接、保守诊断清单 | 浏览器 saves relay、diagnostic checklist、retryable failures |
 | 协议 27 自报型号 / null；connect/live、四类步骤证据、八种安全失败文案、上次检查时间、重试保留、配置清空、原地探测的有限成功承诺 | `remote-coordination.browser.test.tsx` 的 self-reported model、diagnostic evidence、live checks、safe wording 参数化用例 |
 | 协议 27 匿名握手：一次灰色往返、快速 true/false 立即清除、换 pairingId 重置、取消、原二维码期限、过期/拒绝/确认后忽略旧活动、Reduce Motion 无动画时钟 | 同上 handshaking、restarts、obsolete activity、unauthenticated request、static handshake 用例；四设备折叠仍由旧浏览器用例覆盖 |
+| 审查修复：配对确认弹层型号标注“手机自报，非硬件认证”；空字符串/空白写“未提供”，不从设备名推断 | `remote-pairing.browser.test.tsx` 参数化 3 项，修改前 3 红、修改后 3 绿；`mp3b-pairing-model-break-check.json` 3 处检出 |
 | 协议 27 全字段入 store；过期推送优先于旧读取；旧 socket 或退订后的活动不能复活 | `atrium-client.test.ts` 的 projects protocol 27 evidence（真实协议 schema 校验） |
 | 原地改名与清空恢复、撤销确认、撤销写盘失败仍保留可重试目标 | 浏览器 watches only、saves relay、keeps revoke retry |
 | 真实二维码输入和矩阵、5 分钟过期、刷新、SAS、确认/拒绝、另一台手机被拒、完成/失败原因、Esc 不关外层设置 | 浏览器 counts down a real QR、declines a pairing、pairing failure 参数化用例 |
