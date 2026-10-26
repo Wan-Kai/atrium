@@ -4,6 +4,12 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## Electron ready 失败清理（作者基线 8a0a936）
+
+`apps/desktop/e2e/launch-failure.spec.ts` 包装 Playwright 公共 launch，取得真实 App/ChildProcess 后注入 firstWindow 失败，不 mock launchApp。三个场景：自建 home 的进程退出且目录删除；existingHome 进程退出而 caller sentinel/目录保留；真实 close 完成后额外抛错，AggregateError 按顺序保留 ready/cleanup 两个原始错误。测试外层无论断言如何都调用已保存的原 close 并删除自己创建的目录，独占单 worker，不访问用户保险箱或钥匙串。
+
+旧实现 3 红（exit 1，`/tmp/mp3b/launch-red.log`）：自建场景同时证明进程仍活、home 仍存在；existing 场景进程仍活；第三项不存在 cleanup 错误聚合。修复后 3/3 通过（exit 0，`launch-green-final.log`），desktop typecheck/scoped lint/format 通过。中间一次验证因 Playwright close 后 app.process() handle 已销毁而失败（`launch-green.log`），改为关闭前保存真实 ChildProcess，未修改期望值。`pnpm build` exit 0（`qr-build.log`）。修复只覆盖已取得 App 后的 ready 阶段，不扩大到 electron.launch 自身拒绝；成功 close 流程不变，existingHome 不擅删，清理错误不吞掉。active QR 仍待独立验证，不由此声称通过。
+
 ## 四路整合 · Mac 手机设置窗口资源（2026-10-26）
 
 `apps/desktop/e2e/phone.leak.spec.ts` 使用真实 Electron、打包的宿主 / UI 与隔离临时 home，远程访问保持默认关闭。两轮预热后取 GC 堆快照，再做 20 轮“打开设置 → 手机 → 关于 → 手机 → 关闭”，对比 detached DOM 无增长。正向 1/1 通过；临时在页面里保留真实 PhoneSection 节点后，同一堆断言真实失败（非启动或编译失败）；核对 SHA-256 恢复精确源码，再次 1/1 通过。所有已启动后的异常路径关闭测试 App、删除测试快照目录。首轮错误使用已配置页标题导致选择器失败，修成未配置页的真实标题；未修改产品或减弱堆断言。日志与边界见 [整合记录](mobile-integration.md#桌面资源验证计划)。
