@@ -777,19 +777,22 @@ class Connection {
 }
 
 /**
- * Splits an `atrium-relay://<hostId>:<token>@<host:port>` line.
+ * Splits an `atrium-relay://<hostId>:<token>@<host[:port]>[/prefix]` line.
  *
  * @remarks
- * The spike speaks plain `ws://`; the real relay sits behind Caddy on `wss://`.
+ * A line with an explicit port is a local relay and gets plain `ws://`; one without (the real relay
+ * behind its TLS proxy, such as `@ktoon.site/atrium`, MP2) gets `wss://`.
  *
  * @sideEffects none
  * @param line - The line.
- * @returns The ws URL, hostId and token.
+ * @returns The WebSocket base URL, hostId and token.
  */
 export function parseRelayLine(line: string): { relayUrl: string; hostId: string; token: string } {
   const match = /^atrium-relay:\/\/([^:@]+):([^@]+)@(.+)$/.exec(line);
-  if (match === null) throw new Error("expected atrium-relay://<hostId>:<token>@<host:port>");
-  return { hostId: match[1] as string, token: match[2] as string, relayUrl: `ws://${match[3] as string}` };
+  if (match === null) throw new Error("expected atrium-relay://<hostId>:<token>@<host[:port]>[/prefix]");
+  const where = match[3] as string;
+  const scheme = /^[^/]+:\d+(?:\/|$)/.test(where) ? "ws" : "wss";
+  return { hostId: match[1] as string, token: match[2] as string, relayUrl: `${scheme}://${where}` };
 }
 
 if (import.meta.main) {
