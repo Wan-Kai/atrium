@@ -32,7 +32,7 @@
 
 RailRows 接协议 Turn / Step，空文本过滤、末尾文字回复拆分、探索分组、插话/失败支线、压缩与提问节点。当前是显示零件，不包含连接、提问提交、详情取回和子代理车道完整交互；上层持有 expanded 与完成后 1 秒的折叠计时。
 
-DiffLayout 接协议 DiffHunk，不自行解析 git 文本。hunk 内连续上下文超过 8 行折叠，变化两侧各留 3 行；中间缺失的上下文协议没发送，必须交由上层读取，不能伪造。默认不换行；当前 SwiftUI 实现每个 hunk 横滑、header 固定，与原型每文件横滑不同，待验收。时间线方案与实测结果随后补入。
+DiffLayout 接协议 DiffHunk，不自行解析 git 文本。hunk 内连续上下文超过 8 行折叠，变化两侧各留 3 行；中间缺失的上下文协议没发送，MP6 接线必须取得匹配比较版本的内容，不能伪造。base diff 是 merge-base→HEAD；`read_file` 读取工作树，不能拿它回填 base diff。没有版本匹配保证时不提供补读动作，本路不新增宿主 API。默认不换行；当前 SwiftUI 实现每个 hunk 横滑、header 固定，与原型每文件横滑不同，待验收。时间线方案与实测结果随后补入。
 
 ## 验证记录
 
@@ -88,6 +88,23 @@ DiffLayout 接协议 DiffHunk，不自行解析 git 文本。hunk 内连续上�
 - 定向Swift测试9项通过，`timeline-break-cases.json` **8/8 CAUGHT**；`pnpm ios:check`通过；最后非基准的`pnpm test:ios` **88 Swift + 3 UI通过，2个截图/性能opt-in跳过**。本轮未叠加全量TS测试。
 
 候选仍需低负载复验真实builder次数和耗时，并保存测试前后`uptime`、构建模式与xcresult；最后仍要Release Instruments及真机。当前不能宣称180000个builder已在运行时消除，不能宣称50ms主线程门槛通过。这里只交付可审查候选和可重复的验证入口。
+
+### 冻结基线280c087的独立审查修复
+
+五条确认发现均已用真实组件/协议输入见红，再修复；不是把父会话的语言小探针当作全路径复现。另有围栏 metadata 疑点经独立期望断言确认为错误并修复。
+
+| 项目 | 真实红灯 | 修复与回归 |
+|---|---|---|
+| Markdown UTF-8 缓存 | NFD→NFC 的28 B原文换为21 B新文，实际update在旧偏移处崩溃（signal 5）；加长尾部后双向规范等价替换均产生错块和旧字节。真实字节追加组合符还会无谓重建 | `utf8.starts(with:)` 判断精确前缀；双向替换、缩短越界、组合符字节追加，输出另按UTF-8核对。`b44d0a4` |
+| 高亮 ASCII 边界 | 真实 `highlight(..., language: "javascript")` 的8组输入全部还原失败：`<`/`>`/引号后组合符、`&`后variation selector、emoji与嵌套模板span，以及 `const`后组合符残留HTML结束标签 | UTF-8扫描标签与实体，不按Character匹配；逐字节还原断言。`ade4c4e` |
+| write 正文 | 实际协议JSON解码，args为空、正文只在 `details.write.content`，原轨道detail为nil | 保留多行正文及尾换行，不捏造字段。`7f9dc25` |
+| 零count diff | 真 `git -c diff.context=0 diff --no-index` 得到 `-3,0 +4` 与 `-4 +3,0`；插入前gap原为2（应3）、后接第二hunk的旧/新起点分别错一行 | 零count的start是前一行，换成实际边界再计算缺口/下一起点；完整segments独立断言。`c5d7cc8` |
+| overflow 压缩 | 已知/未知after两条协议输入，原详情都只有摘要，丢前后token信息 | 展开显示原始精确计数与完整摘要，未知after不显示/不填0；正常与overflow共用内容。`7f9dc25` |
+| 附查：围栏闭合 metadata | 开/闭围栏各0–3格、引用内外共32组合，原实现12组误报false；`"   ```swift\nx\n```"`直接断言失败 | 用解析器source span与literal行数，容器边界排除引用外的新围栏；补引用外围栏、未闭合正文尾反引号和缩进代码字面反引号。32组合均绿。`874ba14`。**当前UI忽略closed，不是可见页面故障** |
+
+最终定向 `swift test`（warnings-as-errors / explicit import-check）**48项、8套通过**，包含时间线和轨道结构守卫；`pnpm ios:check`通过。新增 `render-review-break-cases.json` **12/12 CAUGHT**，既有render **24/24**、rail **11/11**复跑全检出；没有NOBUILD/MISSED。原始红绿/崩溃/破坏日志留在 `apps/ios/.build/review-280c087/`，回归和负控随源码提交。Swift仍按MP1约定不用变异工具。
+
+本轮未改入口、配对、工程接线、同步或时间线身份/滚动；DiffLayout/DiffView仅澄清版本匹配约束，没有补读实现，也未改变base diff语义。资源协调下未跑全量TS/完整iOS UI/截图/绝对性能对比，先前预算未通过结论不变；保留分支和worktree，未合并、未推送。
 
 ### 陈列页与限制
 

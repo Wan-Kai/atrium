@@ -38,6 +38,19 @@
 
 移除List `.id`的实验破坏了定位，已经恢复；停止AX轮询未消除长帧，也不认作根因。稳定引用候选**尚未复测真实builder计数/绝对耗时**；16:14～16:44机器load约19～25、其他路宿主变异进行中，按主代理要求停止耗时对比。低负载、记录load与构建模式的复验及真机/Release Instruments仍待做；入口 `AtriumApp.swift` 已交接 ios-connect，本批未改。
 
+### 冻结基线280c087审查修复（第四路）
+
+| 行为 | 真实回归与负控 |
+|---|---|
+| Markdown只缓存精确UTF-8前缀，规范等价替换不复用旧偏移 | `StreamingMarkdownTests.canonicalReplacements/shorterCanonicalReplacement/appendedCombiningMark`；双向NFD/NFC按字节核对，原短输入实际signal 5崩溃；恢复String前缀判断被检出 |
+| 原版高亮入口无损还原实体旁组合符、variation selector、emoji和嵌套span | `CodeHighlighterTests.unicodeRoundTrip` 8组全部先红后绿；实体/结束span各恢复Character语义均被检出 |
+| write正文只在协议details时仍完整可展开 | `RailDetailTests.writeContent`，真实JSON args为空、保留末尾空行；错取path而非content被检出 |
+| overflow与正常压缩都保留精确token和完整摘要，未知after不捏造 | `RailDetailTests.overflowCounts` 已知/未知两组；丢计数、未知填0均被检出 |
+| git零count表示前一行，首缺口与后续缺口完整旧/新坐标正确 | `DiffLayoutTests.zeroContextInsertion/zeroContextDeletion`，hunk头用真实零上下文git输出核实；首缺口、下一old、下一new三个错误分别被检出 |
+| 合法围栏的不同开闭缩进不能误报未闭合，仅metadata | `StreamingMarkdownTests.closingFenceIndentation` 32组合原12处红；`fenceContainerBoundary` 独立期望验证引用外新围栏不关闭旧代码、正文末反引号不误闭合、缩进代码反引号保持字面；三项负控全检出。UI尚未消费closed，不声称修了可见故障 |
+
+最终 **48项/8套定向Swift、`pnpm ios:check`通过**；`render-review-break-cases.json` **12/12**，既有render **24/24**、rail **11/11 CAUGHT**。红绿与崩溃记录见 [mobile-render.md](../research/mobile-render.md#冻结基线280c087的独立审查修复) 和本地 `.build/review-280c087/`。缺失上下文的版本匹配只澄清文档，由MP6接线保证；没有新增补读API/改base语义。本轮未跑全量TS、iOS UI、截图或性能；50ms预算与真实builder次数仍待低负载复验。
+
 ## MP1 Swift 工程基础（手机端，2026-10-25～26）
 
 路线图 MP1：Swift 的规范、`apps/ios` 工程骨架、`pnpm protocol:swift` 和往返测试、Swift 进 `pnpm check` / `pnpm test`，破坏检查扩到 Swift（[testing.md · Swift（手机端）](../architecture/testing.md#swift手机端)、[overview.md · iOS 工程](../architecture/overview.md#ios-工程2026-10-25-定mp1)）。
