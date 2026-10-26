@@ -32,19 +32,74 @@ async function fixture(autoPong = true) {
   const resources = new ResourceTracker();
   const states: LinkState[] = [];
   const streams: string[] = [];
+  const logs: unknown[] = [];
+  const logger = pino(
+    { base: null, timestamp: false, formatters: { level: (label) => ({ level: label }) } },
+    { write: (line) => logs.push(JSON.parse(line) as unknown) },
+  );
   const link = new RelayLink({
     endpoint,
     clock,
     resources,
-    logger: pino({ enabled: false }),
+    logger,
     onState: (state) => states.push(state),
     onStream: (id) => streams.push(id),
   });
   cleanup.push(() => link.stop());
-  return { server, endpoint, clock, resources, states, streams, link, sockets, messages };
+  return { server, endpoint, clock, resources, states, streams, link, sockets, messages, logs };
 }
 
 describe("RelayLink", () => {
+  it("tests an already connected relay with a fresh pong and times out silence without replacing healthy sockets", async () => {
+    const f = await fixture(false);
+    f.link.start();
+    await expect.poll(() => f.sockets.length).toBe(1);
+    const socket = f.sockets[0]!;
+    socket.send('{"type":"ready"}');
+    await expect.poll(() => f.link.state.status).toBe("connected");
+    let checked = false;
+    const ping = once(socket, "ping");
+    const checking = f.link.retryNow();
+    const check = checking.then((result) => {
+      checked = true;
+      return result;
+    });
+    expect(f.link.retryNow()).toBe(checking);
+    expect(checked).toBe(false);
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 2 });
+    await ping;
+    expect(checked).toBe(false);
+    socket.pong();
+    expect(await check).toBeNull();
+    expect(f.sockets).toHaveLength(1);
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 1 });
+    const silent = f.link.retryNow();
+    f.clock.advance(READY_TIMEOUT_MS);
+    expect(await silent).toBe("relay_unreachable");
+    expect(f.link.state).toStrictEqual({ status: "error", error: "relay_unreachable", lastConnectedAt: 100 });
+    await f.link.stop();
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+  });
+
+  it("settles a live connection check on rejection and on host shutdown", async () => {
+    const f = await fixture(false);
+    f.link.start();
+    await expect.poll(() => f.sockets.length).toBe(1);
+    f.sockets[0]!.send('{"type":"ready"}');
+    await expect.poll(() => f.link.state.status).toBe("connected");
+    const rejected = f.link.retryNow();
+    f.sockets[0]!.close(4401);
+    expect(await rejected).toBe("relay_rejected");
+    const connecting = f.link.retryNow();
+    await expect.poll(() => f.sockets.length).toBe(2);
+    f.sockets[1]!.send('{"type":"ready"}');
+    expect(await connecting).toBeNull();
+    const stopped = f.link.retryNow();
+    await f.link.stop();
+    expect(await stopped).toBe("relay_unreachable");
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+  });
+
   it("ignores binary and non-object control frames without refreshing ready state", async () => {
     const f = await fixture();
     f.link.start();
@@ -100,6 +155,11 @@ describe("RelayLink", () => {
         lastConnectedAt: 100,
       });
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 1 });
+    expect(f.logs).toStrictEqual([
+      { level: "info", host_id: f.endpoint.hostId, msg: "relay connected" },
+      { level: "warn", host_id: f.endpoint.hostId, msg: "relay did not answer a ping" },
+      { level: "info", host_id: f.endpoint.hostId, code: 1006, ready: true, msg: "relay connection closed" },
+    ]);
     f.clock.advance(999);
     expect(f.sockets).toHaveLength(1);
     f.clock.advance(1);
@@ -142,8 +202,9 @@ describe("RelayLink", () => {
     expect(f.messages).toStrictEqual([{ v: 1, type: "hello", hostId: f.endpoint.hostId, token: f.endpoint.token }]);
     const socket = f.sockets[0]!;
     socket.send(JSON.stringify({ type: "open", streamId: "b".repeat(32) }));
-    socket.send("not json");
-    socket.send(JSON.stringify({ type: "ready" }));
+    const privatePayload = "private-relay-response-with-device-name-and-SAS";
+    socket.send(`not json: ${privatePayload}`);
+    socket.send(JSON.stringify({ type: "ready", detail: privatePayload }));
     await expect.poll(() => f.link.state.status).toBe("connected");
     expect(f.streams).toStrictEqual([]);
     socket.send(JSON.stringify({ type: "open", streamId: "bad" }));
@@ -158,6 +219,14 @@ describe("RelayLink", () => {
     await f.link.stop();
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
     expect(await f.link.retryNow()).toBe("relay_unreachable");
+    expect(f.logs).toStrictEqual([
+      { level: "info", host_id: f.endpoint.hostId, msg: "relay connected" },
+      { level: "info", host_id: f.endpoint.hostId, code: 1006, ready: true, msg: "relay connection closed" },
+    ]);
+    const serialized = JSON.stringify(f.logs);
+    expect(serialized).not.toContain(f.endpoint.token);
+    expect(serialized).not.toContain(f.endpoint.url);
+    expect(serialized).not.toContain(privatePayload);
   });
 
   it("classifies rejection, retries with backoff, and manual retry resets it", async () => {
@@ -165,7 +234,7 @@ describe("RelayLink", () => {
     f.link.start();
     const retry = f.link.retryNow();
     await expect.poll(() => f.messages.length).toBe(1);
-    f.sockets[0]!.close(4401);
+    f.sockets[0]!.close(4401, "private-relay-rejection-detail");
     expect(await retry).toBe("relay_rejected");
     expect(f.link.state).toStrictEqual({ status: "error", error: "relay_rejected", lastConnectedAt: null });
     f.clock.advance(999);
@@ -184,6 +253,16 @@ describe("RelayLink", () => {
     f.clock.advance(60_000);
     expect(f.sockets).toHaveLength(3);
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+    expect(f.logs).toStrictEqual([
+      { level: "info", host_id: f.endpoint.hostId, code: 4401, ready: false, msg: "relay connection closed" },
+      { level: "info", host_id: f.endpoint.hostId, code: 1006, ready: false, msg: "relay connection closed" },
+      { level: "info", host_id: f.endpoint.hostId, msg: "relay connected" },
+      { level: "info", host_id: f.endpoint.hostId, code: 1006, ready: true, msg: "relay connection closed" },
+    ]);
+    const serialized = JSON.stringify(f.logs);
+    expect(serialized).not.toContain("private-relay-rejection-detail");
+    expect(serialized).not.toContain(f.endpoint.token);
+    expect(serialized).not.toContain(f.endpoint.url);
   });
 
   it("caps automatic backoff at one minute and resets it after ready", async () => {
@@ -219,6 +298,10 @@ describe("RelayLink", () => {
     const attempt = f.link.retryNow();
     f.clock.advance(READY_TIMEOUT_MS);
     expect(await attempt).toBe("relay_unreachable");
+    expect(f.logs).toStrictEqual([
+      { level: "warn", host_id: f.endpoint.hostId, msg: "relay did not say ready in time" },
+      { level: "info", host_id: f.endpoint.hostId, code: 1006, ready: false, msg: "relay connection closed" },
+    ]);
     const pending = f.link.retryNow();
     await f.link.stop();
     expect(await pending).toBe("relay_unreachable");
