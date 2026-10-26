@@ -57,6 +57,18 @@ struct CodeHighlighterTests {
     #expect(await CodeHighlighter.shared.highlight("x", language: language) != nil)
   }
 
+  @Test(
+    "real highlighting preserves Unicode beside escaped ASCII and span boundaries",
+    arguments: [
+      "<\u{301}", "&\u{FE0F}", ">\u{301}", "\"\u{301}", "'\u{301}", "<\u{301} &\u{FE0F} 👨‍👩‍👧 🇨🇳",
+      "const value = `x ${1 < 2 ? \"<\u{301}\" : \"&\u{FE0F}\"}`; // 👩🏽‍💻",
+      "const\u{301} x = 1; // combining mark after highlighted keyword",
+    ])
+  func unicodeRoundTrip(_ code: String) async throws {
+    let tokens = try #require(await CodeHighlighter.shared.highlight(code, language: "javascript"))
+    #expect(Array(tokens.map(\.text).joined().utf8) == Array(code.utf8))
+  }
+
   @Test("leaves an unknown language plain")
   func unknown() async {
     #expect(await CodeHighlighter.shared.highlight("x", language: "nope") == nil)

@@ -1,5 +1,19 @@
 [
   {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/CodeHighlighter.swift",
+    "from": "rest.starts(with: $0.key.utf8)",
+    "to": "String(decoding: rest, as: UTF8.self).hasPrefix($0.key)",
+    "runner": "swift",
+    "filter": "CodeHighlighterTests/unicodeRoundTrip"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/CodeHighlighter.swift",
+    "from": "rest.starts(with: closingTag)",
+    "to": "String(decoding: rest, as: UTF8.self).hasPrefix(\"</span>\")",
+    "runner": "swift",
+    "filter": "CodeHighlighterTests/unicodeRoundTrip"
+  },
+  {
     "file": "apps/ios/AtriumKit/Sources/AtriumRender/StreamingMarkdown.swift",
     "from": "!text.utf8.starts(with: source.utf8)",
     "to": "!text.hasPrefix(source)",

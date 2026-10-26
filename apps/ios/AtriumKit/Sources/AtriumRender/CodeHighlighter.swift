@@ -120,14 +120,15 @@ public actor CodeHighlighter {
   /// - Remark: The HTML is only `<span class="hljs-…">`, `</span>` and escaped text (`&amp;`,
   ///   `&lt;`, `&gt;`, `&quot;`, `&#x27;`). Spans nest; a run takes the scope of the innermost span
   ///   that maps to one, so `${x}` inside a template string stays a string's colour unless it is
-  ///   something itself. Adjacent runs of the same scope merge.
+  ///   something itself. Adjacent runs of the same scope merge. Syntax is scanned as UTF-8 bytes:
+  ///   a combining mark next to `;` or `>` must not make an ASCII entity or tag unrecognizable.
   /// - SideEffects: none
   /// - Parameter html: What `hljs.highlight(…).value` returned.
   /// - Returns: The tokens, in order, their texts adding up to the code.
   public static func tokens(fromHTML html: String) -> [CodeToken] {
     var tokens: [CodeToken] = []
     var stack: [CodeScope?] = []
-    var text = ""
+    var text: [UInt8] = []
     /// Ends the current run of text.
     ///
     /// - Remark: Merges into the previous token when the scope is the same.
@@ -135,34 +136,37 @@ public actor CodeHighlighter {
     func flush() {
       guard !text.isEmpty else { return }
       let scope = stack.last { $0 != nil } ?? nil
+      let decoded = String(decoding: text, as: UTF8.self)
       if let last = tokens.last, last.scope == scope {
-        tokens[tokens.count - 1] = CodeToken(last.text + text, scope)
+        tokens[tokens.count - 1] = CodeToken(last.text + decoded, scope)
       } else {
-        tokens.append(CodeToken(text, scope))
+        tokens.append(CodeToken(decoded, scope))
       }
-      text = ""
+      text.removeAll(keepingCapacity: true)
     }
-    var rest = Substring(html)
-    while let next = rest.firstIndex(where: { $0 == "<" || $0 == "&" }) {
-      text += rest[..<next]
+    let openingTag = Array("<span class=\"".utf8)
+    let closingTag = Array("</span>".utf8)
+    var rest = Array(html.utf8)[...]
+    while let next = rest.firstIndex(where: { $0 == 0x3C || $0 == 0x26 }) {
+      text.append(contentsOf: rest[..<next])
       rest = rest[next...]
-      if rest.hasPrefix("</span>") {
+      if rest.starts(with: closingTag) {
         flush()
         _ = stack.popLast()
-        rest = rest.dropFirst(7)
-      } else if rest.hasPrefix("<span class=\""), let close = rest.firstIndex(of: ">") {
+        rest = rest.dropFirst(closingTag.count)
+      } else if rest.starts(with: openingTag), let close = rest.firstIndex(of: 0x3E) {
         flush()
-        let classes = rest[rest.index(rest.startIndex, offsetBy: 13)..<close].dropLast()
-        stack.append(scope(of: String(classes)))
-        rest = rest[rest.index(after: close)...]
-      } else if let entity = entities.first(where: { rest.hasPrefix($0.key) }) {
-        text += entity.value
-        rest = rest.dropFirst(entity.key.count)
+        let classes = rest[(rest.startIndex + openingTag.count)..<close].dropLast()
+        stack.append(scope(of: String(decoding: classes, as: UTF8.self)))
+        rest = rest[(close + 1)...]
+      } else if let entity = entities.first(where: { rest.starts(with: $0.key.utf8) }) {
+        text.append(contentsOf: entity.value.utf8)
+        rest = rest.dropFirst(entity.key.utf8.count)
       } else {
         text.append(rest.removeFirst())
       }
     }
-    text += rest
+    text.append(contentsOf: rest)
     flush()
     return tokens
   }
