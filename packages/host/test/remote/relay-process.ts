@@ -62,10 +62,12 @@ async function stop(child: ChildProcess): Promise<void> {
  * The production entry is bundled into the temp directory so stale dist output cannot be used.
  * This process boundary necessarily uses the real clock; phone and host clocks remain injectable.
  * @sideEffects Builds a temporary bundle, runs add-host and serve children, opens a local port.
- * @param options - Startup timeout and cancellation.
+ * @param options - Startup deadline, cancellation, and optional relay admission budget for leak loops.
  * @returns Credentials, the real CLI line and idempotent cleanup.
  */
-export async function startTestRelay(options: WaitOptions = {}): Promise<TestRelay> {
+export async function startTestRelay(
+  options: WaitOptions & { readonly newStreamsPerIpPerMinute?: number } = {},
+): Promise<TestRelay> {
   options.signal?.throwIfAborted();
   const dir = await createTempDir("remote-relay");
   let child: ChildProcess | undefined;
@@ -96,7 +98,13 @@ export async function startTestRelay(options: WaitOptions = {}): Promise<TestRel
     const port = await localPort();
     await writeFile(
       join(dir.path, "relay.json"),
-      JSON.stringify({ publicHost: `127.0.0.1:${port}`, pathPrefix: "/atrium" }),
+      JSON.stringify({
+        publicHost: `127.0.0.1:${port}`,
+        pathPrefix: "/atrium",
+        ...(options.newStreamsPerIpPerMinute === undefined
+          ? {}
+          : { newStreamsPerIpPerMinute: options.newStreamsPerIpPerMinute }),
+      }),
     );
     const registration = spawn(process.execPath, [bundle, "add-host", "Test Mac", "--dir", dir.path], {
       stdio: ["ignore", "pipe", "pipe"],
