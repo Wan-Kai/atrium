@@ -2,6 +2,33 @@ import { describe, expect, it, vi } from "vitest";
 import { type VaultPort, type VaultWrite, VaultStore, portVault } from "./vault";
 
 describe("portVault", () => {
+  it("accepts the exact four-mebibyte IPC boundary in both directions", async () => {
+    const data = "x".repeat(4 * 1024 * 1024);
+    const posted: unknown[] = [];
+    const { vault, receive } = portVault((message) => posted.push(message));
+    const writing = vault.write(1, data);
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toMatchObject({ type: "vault_write", id: 1, version: 1 });
+    expect(receive({ type: "vault_result", id: 1, ok: true })).toBe(true);
+    expect(await writing).toStrictEqual({ ok: true });
+    const reading = vault.read();
+    expect(receive({ type: "vault_result", id: 2, ok: true, version: 1, data })).toBe(true);
+    expect(await reading).toStrictEqual({ ok: true, version: 1, data });
+  });
+
+  it.each(["keychain_unavailable", "corrupt", "stale", "io"] as const)(
+    "passes through %s for reads and writes",
+    async (error) => {
+      const { vault, receive } = portVault(() => {});
+      const reading = vault.read();
+      expect(receive({ type: "vault_result", id: 1, ok: false, error })).toBe(true);
+      expect(await reading).toStrictEqual({ ok: false, error });
+      const writing = vault.write(1, "data");
+      expect(receive({ type: "vault_result", id: 2, ok: false, error })).toBe(true);
+      expect(await writing).toStrictEqual({ ok: false, error });
+    },
+  );
+
   it("matches answers to requests by id, whatever their order", async () => {
     const posted: unknown[] = [];
     const { vault, receive } = portVault((message) => posted.push(message));

@@ -310,6 +310,16 @@ describe("RelayLink", () => {
 });
 
 describe("probeRelay", () => {
+  it("handles abort before the HTTP upgrade without an uncaught socket error", async () => {
+    const f = await fixture();
+    const controller = new AbortController();
+    const probe = probeRelay(f.endpoint, { ...f, signal: controller.signal });
+    controller.abort();
+    expect(await probe).toBe("relay_unreachable");
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+    expect(f.sockets).toStrictEqual([]);
+  });
+
   it("ignores binary ready rather than treating it as successful authentication", async () => {
     const f = await fixture();
     const probe = probeRelay(f.endpoint, { ...f, signal: new AbortController().signal });

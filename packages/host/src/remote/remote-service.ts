@@ -296,12 +296,12 @@ export class RemoteService implements RemoteCommands {
 
   /**
    * Revokes immediately, then persists removal.
-   * @remarks Failed writes remain blocked and retryable.
+   * @remarks Failed writes remain blocked and retryable; repeated revocation also supersedes queued re-pairing.
    * @sideEffects Closes all device streams and writes the vault.
    * @param deviceId - Device to revoke.
    */
   async revokeDevice(deviceId: string): Promise<Record<string, never>> {
-    if (!this.#trusted().devices.some((device) => device.deviceId === deviceId))
+    if (!this.#trusted().devices.some((device) => device.deviceId === deviceId) && !this.#blocked.has(deviceId))
       throw new CommandError("device_not_found");
     this.#blocked.add(deviceId);
     this.#revocations.set(deviceId, ++this.#revocationSerial);

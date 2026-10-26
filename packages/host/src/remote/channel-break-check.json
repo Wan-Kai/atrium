@@ -1,0 +1,240 @@
+[
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "perMessageDeflate: false, maxPayload: 70 * 1024",
+    "to": "perMessageDeflate: true, maxPayload: 70 * 1024",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "authenticates its own data socket without negotiating compression"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "  sendRaw(message: Uint8Array): void {\n    this.#write(message);\n  }",
+    "to": "  sendRaw(message: Uint8Array): void {}",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "carries a first frame and raw handshake reply then exposes authenticated metadata"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "return this.#cancelHandshake === null && !this.#closed;",
+    "to": "return this.#cancelHandshake === null && this.#closed;",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "carries a first frame and raw handshake reply then exposes authenticated metadata"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "return this.#channel?.remoteStatic ?? null;",
+    "to": "return this.#channel!.remoteStatic;",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "authenticates its own data socket without negotiating compression"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "return this.#channel?.handshakeHash ?? null;",
+    "to": "return this.#channel!.handshakeHash;",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "authenticates its own data socket without negotiating compression"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "this.close(\"text_frame\");",
+    "to": "this.close(\"wrong_reason\");",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "closes malformed first frames: text"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "this.close(reasonOf(error));",
+    "to": "this.close(\"wrong_reason\");",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "closes malformed first frames: short header"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "this.close(reasonOf(error));",
+    "to": "this.close(\"wrong_reason\");",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "closes malformed first frames: bad magic"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "this.close(reasonOf(error));",
+    "to": "this.close(\"wrong_reason\");",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "closes malformed first frames: unknown version"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "this.close(reasonOf(error));",
+    "to": "this.close(\"wrong_reason\");",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "closes malformed first frames: unknown mode"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "if (this.#firstFrameSeen) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "admits IKpsk2 framing once and rejects a second frame before security is established"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "  #onFrame(data: RawData, isBinary: boolean): void {\n    if (this.#closed) return;",
+    "to": "  #onFrame(data: RawData, isBinary: boolean): void {",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "ignores an already queued binary frame after a text frame closes the stream"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "maxPayload: 70 * 1024",
+    "to": "maxPayload: 100 * 1024",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "limits incoming WebSocket payloads even before the handshake"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "() => this.close(\"handshake_timeout\"),",
+    "to": "() => this.close(\"wrong_reason\"),",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "times out an unclaimed secure stream exactly at its handshake deadline"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "if (this.#socket.readyState === WebSocket.CONNECTING) this.#socket.terminate();",
+    "to": "if (false) this.#socket.terminate();",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "does not send before open and closes a connecting socket without waiting for its handshake"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "  secure(transport: Transport): void {\n    if (this.#closed) return;",
+    "to": "  secure(transport: Transport): void {",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "does not send before open and closes a connecting socket without waiting for its handshake"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "if (this.#closed || this.#socket.readyState !== WebSocket.OPEN) return;",
+    "to": "if (this.#closed && this.#socket.readyState !== WebSocket.OPEN) return;",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "does not send before open and closes a connecting socket without waiting for its handshake"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "this.#channel?.sendControl(value);",
+    "to": "this.#channel!.sendControl(value);",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "does not send before open and closes a connecting socket without waiting for its handshake"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "this.#channel?.sendMessage(text);",
+    "to": "this.#channel!.sendMessage(text);",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "does not send before open and closes a connecting socket without waiting for its handshake"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "this.#channel?.ping();",
+    "to": "this.#channel!.ping();",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "does not send before open and closes a connecting socket without waiting for its handshake"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "this.#cancelClose = trackedTimeout(this.#clock, this.#resources, () => this.#socket.terminate(), 1000);",
+    "to": "this.#cancelClose = trackedTimeout(this.#clock, this.#resources, () => {}, 1000);",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "notifies listeners once before done and force-closes an unresponsive peer after one second"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "if (this.#closed) listener(1000);",
+    "to": "if (this.#closed) {}",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "notifies listeners once before done and force-closes an unresponsive peer after one second"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "this.#socket.close(1000);",
+    "to": "this.#socket.terminate();",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "uses graceful close code 1000 and releases the fallback timer when the peer answers"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "onClose: (reason) => this.close(reason),",
+    "to": "onClose: () => {},",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "closes the actual socket on tampered ciphertext without delivering its payload"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "onClose: (reason) => this.close(reason),",
+    "to": "onClose: (reason) => this.close(\"wrong_reason\"),",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "closes the actual socket when SecureChannel rejects unknown frame type"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "onClose: (reason) => this.close(reason),",
+    "to": "onClose: (reason) => this.close(\"wrong_reason\"),",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "closes the actual socket when SecureChannel rejects malformed control"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "setTimeout: (callback, ms) => trackedTimeout(this.#clock, this.#resources, callback, ms),",
+    "to": "setTimeout: (callback, ms) => trackedTimeout(this.#clock, this.#resources, callback, ms + 1),",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "closes an incomplete encrypted message at thirty seconds and releases its tracked timer"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "if (received.kind === \"control\") this.#events.onControl(this, received.value);",
+    "to": "if (received.kind === \"control\") {}",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "routes decrypted messages and controls separately and sends encrypted replies"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "if (this.#messageListener === null) this.close(\"unexpected_message\");",
+    "to": "if (this.#messageListener === null) this.close(\"wrong_reason\");",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "closes a message received before a client listener is installed"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "this.close(\"message_too_large\");",
+    "to": "this.close(\"wrong_reason\");",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "closes rather than transmitting an outbound message larger than the host limit"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "this.close(\"heartbeat_timeout\");",
+    "to": "this.close(\"wrong_reason\");",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "refreshes heartbeat liveness only on inbound ciphertext and expires at the silence boundary"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "return socket.bufferedAmount;",
+    "to": "return 0;",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "keeps a stalled phone's buffered amount independent of a healthy phone"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "return typeof reason === \"string\" ? reason : \"handshake_failed\";",
+    "to": "return typeof reason === \"string\" ? reason : \"wrong_reason\";",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "uses a stable fallback rather than exposing an untyped error"
+  },
+  {
+    "file": "packages/host/src/remote/channel.ts",
+    "from": "return typeof reason === \"string\" ? reason : \"handshake_failed\";",
+    "to": "return \"handshake_failed\";",
+    "test": "packages/host/src/remote/channel.test.ts",
+    "name": "preserves a typed channel failure reason"
+  }
+]

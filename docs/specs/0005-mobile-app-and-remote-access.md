@@ -281,7 +281,7 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
 - **5 分钟过期只管 `available`**：手机已经进了 `awaiting_confirmation`，就按 2 分钟的确认时限算。握手第一条到时已过期，第二条回 `pairing_expired`；`pair_confirm` 到时已过期，回 `pair_rejected` 的 `pairing_expired`（不算进 `refused`），已被占用回 `pairing_busy`（算进 `refused`）。
 - **命令的结果**：`get_remote` 回状态；`start_pairing` 回 `{ pairingId }`；其余回 `{}`，变化经 `remote_updated` 到达（先推事件再回应答）。远程访问关着、保险箱不是 `ok` 或没填 relay 时，`start_pairing` 应答 `remote_unavailable`；保险箱 `keychain_unavailable`、`corrupt` 时要写保险箱的命令应答 `keychain_unavailable`、`vault_corrupt`（`reset_remote_identity` 除外，它就是用来从损坏里出来的）。`confirm_pairing` 的 `pairingId` 不是当前这次、或不在等确认，应答 `pairing_expired`。
 - **`rename_device`**：名字最长 64 个字符，空的恢复成手机报的名字；写进保险箱。
-- **撤销失败后重试**：写保险箱失败时设备留在内存的列表里、被拉黑，不显示、也连不上；再发一次 `revoke_device` 就是重试写入。同一台手机（按公钥）重新配对成功，拉黑解除、沿用原来的 `deviceId`。
+- **撤销失败后重试**：写保险箱失败时设备留在内存的列表里、被拉黑，不显示、也连不上；再发一次 `revoke_device` 就是重试写入。本次运行已经撤销过的 id 也接受幂等的再次撤销，使后来的撤销能压过正在排队、可能重新写回该 id 的配对确认；从未存在的 id 仍应答 `device_not_found`。同一台手机（按公钥）重新配对成功，拉黑解除、沿用原来的 `deviceId`。
 - **`reset_remote_identity`**：先写新的保险箱（新密钥对、空设备列表、已能读取的 relay 那一行不变），写成了才换上，再经每条通道发 `revoked` 并关闭；写失败什么都不变。损坏到无法读取时不能恢复 relay 凭据，重置后须重新填写，不从损坏内容里猜。成功重置也使旧二维码和排在重置之后的旧配对确认失效，不能再把旧手机写回新身份。
 - **`test_relay`**：远程访问开着但断线时立刻重连控制连接（退避清零），等到 `ready` 或失败；已经连上时在原控制连接发 ping、等新的 pong，不为测试挤掉已连接的手机，也不直接返回缓存成功；关着时另开一条临时的控制连接，收到 `ready` 就关。成功回 `{}`，连不上应答 `relay_unreachable`，认证不过（4401）应答 `relay_rejected`，10 秒为限。
 - **relay 地址的协议**：那一行里的主机是 `127.0.0.1`、`localhost` 或 `[::1]` 时用 `ws://`（本机测试），其余一律 `wss://`。
