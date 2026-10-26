@@ -54,7 +54,8 @@ struct PairingFlowTests {
     arguments: [
       ("declined", PairingFailure.declined), ("pairing_busy", .busy),
       ("pairing_expired", .expired), ("host_error", .hostError), ("timeout", .timedOut),
-      ("cancelled", .cancelled), ("rejected", .other("rejected")),
+      ("cancelled", .cancelled), ("rejected", .declined),
+      ("future_refusal", .other("future_refusal")),
     ])
   func refuses(reason: String, failure: PairingFailure) async throws {
     let h = Harness()
@@ -63,18 +64,23 @@ struct PairingFlowTests {
       environment: h.environment, store: h.store,
       device: DeviceInfo(deviceName: "Phone", model: "M", appVersion: "1"))
     let link = try PairingLink(h.host.linkText)
-    let task = Task { await flow.run(link) { _ in } }
-    defer { task.cancel() }
-    let incoming = await h.relay.next()
-    let side = try await h.host.accept(incoming.host, stopwatch: h.stopwatch)
-    #expect(try await side.nextControl() == .pairConfirm)
-    try await side.send(.pairRejected(reason: reason))
-    let outcome = await task.value
-    #expect(outcome.state == .failed(failure))
-    #expect(outcome.channel == nil)
-    #expect(try h.store.pendingHosts().isEmpty)
-    #expect(try h.store.hosts() == [h.host.record])
-    #expect(incoming.host.isClosed)
+    try await withThrowingTaskGroup(of: PairingOutcome.self) { group in
+      group.addTask { await flow.run(link) { _ in } }
+      defer { group.cancelAll() }
+      let incoming = await h.relay.next()
+      defer { incoming.host.close() }
+      let side = try await h.host.accept(incoming.host, stopwatch: h.stopwatch)
+      defer { side.channel?.abort() }
+      #expect(try await side.nextControl() == .pairConfirm)
+      try await side.send(.pairRejected(reason: reason))
+      let outcome = try #require(await group.next())
+      defer { outcome.channel?.abort() }
+      #expect(outcome.state == .failed(failure))
+      #expect(outcome.channel == nil)
+      #expect(try h.store.pendingHosts().isEmpty)
+      #expect(try h.store.hosts() == [h.host.record])
+      #expect(incoming.host.isClosed)
+    }
     try await eventually { h.clock.sleeperCount == 0 }
   }
 

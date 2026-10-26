@@ -25,6 +25,44 @@ struct PairingPresentationTests {
     #expect(incomplete.accept("atrium://pair?incomplete") == "atrium://pair?incomplete")
   }
 
+  @Test("the authenticated wire rejection is shown as a Mac refusal, not a network failure")
+  func wireRejectionMessage() async throws {
+    let host = TestHost()
+    let relay = MemoryRelay()
+    let store = HostStore(MemorySecretStore())
+    try store.confirm(host.record, deviceId: host.deviceId)
+    let clock = ManualClock()
+    let stopwatch = Stopwatch(clock)
+    let environment = RemoteEnvironment(
+      connect: { relay.connect($0) }, stopwatch: stopwatch, jitter: { 0 }, appVersion: "1")
+    let flow = PairingFlow(
+      environment: environment, store: store,
+      device: DeviceInfo(deviceName: "Phone", model: "M", appVersion: "1"))
+    let link = try PairingLink(host.linkText)
+    try await withThrowingTaskGroup(of: PairingOutcome.self) { group in
+      group.addTask { await flow.run(link) { _ in } }
+      defer { group.cancelAll() }
+      let incoming = await relay.next()
+      defer { incoming.host.close() }
+      let side = try await host.accept(incoming.host, stopwatch: stopwatch)
+      defer { side.channel?.abort() }
+      #expect(try await side.nextControl() == .pairConfirm)
+      try await side.send(.pairRejected(reason: "rejected"))
+      let outcome = try #require(await group.next())
+      defer { outcome.channel?.abort() }
+      guard case .failed(let failure) = outcome.state else {
+        Issue.record("wire refusal did not fail pairing")
+        return
+      }
+      #expect(failure == .declined)
+      #expect(PairingView.message(for: failure) == "Mac 拒绝了配对，请在 Mac 上重新出码。")
+      #expect(try store.pendingHosts().isEmpty)
+      #expect(try store.hosts() == [host.record])
+      #expect(incoming.host.isClosed)
+    }
+    #expect(clock.sleeperCount == 0)
+  }
+
   @Test("offline labels retain the supplied absolute last-seen time")
   func offlineDate() throws {
     let date = Date(timeIntervalSince1970: 0)

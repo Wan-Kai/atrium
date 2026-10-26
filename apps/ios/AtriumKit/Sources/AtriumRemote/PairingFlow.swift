@@ -354,7 +354,7 @@ public struct PairingFlow: Sendable {
     switch reason {
     case "pairing_busy": .busy
     case "pairing_expired": .expired
-    case "declined": .declined
+    case "declined", "rejected": .declined
     case "timeout": .timedOut
     case "cancelled", "disconnected": .cancelled
     case "host_error": .hostError

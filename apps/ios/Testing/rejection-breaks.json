@@ -1,0 +1,10 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/PairingFlow.swift",
+    "from": "case \"declined\", \"rejected\": .declined",
+    "to": "case \"declined\": .declined",
+    "name": "production wire rejection maps to Mac declined while preserving unknown fallback",
+    "runner": "swift",
+    "filter": "PairingFlowTests/refuses|PairingPresentationTests/wireRejectionMessage"
+  }
+]

@@ -1645,3 +1645,10 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 该生产路径在2feea5b已接好，本轮新增测试先绿；没有声称原实现先红。随后分别移除 send 中的 `failed(generation,error)`、发送代次守卫、失败回调代次守卫，三个破坏都产生真实测试失败。`buffer-breaks.json` 扩到15项，最终15/15检出。第一轮因新增测试的 actor 属性被 `||` autoclosure 隔离限制而 NOBUILD，不计检出；拆成局部 awaited 值后重跑全部实际检出。
 - 本轮新增 UI 测试局部使用 `PairingTestResources`：每 case 在 start 前注册连接、接受 responder 后注册通道；成功或抛错均 stop/abort 并检查弱引用和手动时钟归零。`PairingResourceTests/throwingBody` 覆盖 start 后、接受 responder 后故意抛错，缺少清理时实际失败；`resource-breaks.json` 扩到2项、2/2检出。新增 model 测试的 cancel defer 在 submit 前安装，不绕过 accept 抛错路径；仅检查本轮新增 UI/预算测试，没有扩成生产依赖或全仓资源框架。
 - 收尾相关定向 Swift 35项/6 suites 通过，开启 warnings-as-errors 和显式 target 依赖检查；出站组合回归另外连续5次通过。Swift格式、文档lint、diff检查通过。生产逻辑未改，仅把 PairingFlow.run 的过期取消注释改为关闭通道但保留不确定 pending。本轮未跑全量、Xcode/模拟器、真机或实时 TS 互通。
+
+### 正式线路拒绝原因接缝修复
+
+- 正式 RemoteService 的本机投影 reason 为 `declined`，其 `onEnded` 发给手机的 `pair_rejected.reason` 为 `rejected`；MP0 拒绝也发 `rejected`。Swift 现在把两者映射为 `.declined`，真正未知的 `future_refusal` 仍为 `.other`。仅改错误投影，不改权限、清理或协议定义。
+- `PairingFlowTests/refuses` 的真实 Noise 参数化交换覆盖8种理由，包含正式线路值、已有 declined 和未知值；断言 pending 清掉、旧正式记录保留。`PairingPresentationTests/wireRejectionMessage` 从同一真实 Noise 拒绝结果检查明确的“Mac 拒绝了配对”文案，而非网络错误。两条测试以结构化 task group 持有 flow，异常退出也取消并等待，transport/channel 的 defer 覆盖抛错路径。
+- 先改测试时，旧实现对 `rejected` 的状态及 UI 文案共3处断言失败；补一行映射后，`--jobs 1` 定向 PairingFlow/PairingPresentation 共11项、2 suites 通过。缓存只增量编译修改文件，未引入 renderer/Markdown 编译。`rejection-breaks.json` 移除 rejected 映射的单项破坏实际检出；本次通过仅向真实 xcrun 追加 `--jobs 1` 和现有缓存检查参数的临时适配器执行，没有使用伪造测试输出。
+- 红/绿/破坏日志分别为 `/tmp/ios-connect-rejected-red.log`、`/tmp/ios-connect-rejected-green.log`、`/tmp/ios-connect-rejected-break.log`。既有 `remote-breaks.json` 的理由分支匹配同步到双值分支，未在本轮重跑整组。格式、Swift文档lint、diff检查通过；未跑全量、Xcode/模拟器或动态 TS 互通。真实 RemoteService + relay → Swift 拒绝方案记录在 `apps/ios/Integration/README.md`，本轮只提方案，不冒称 startHost/faux-pi 或正式宿主动态契约已通过。
