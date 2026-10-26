@@ -1,0 +1,18 @@
+[
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#blocked.clear();\n      this.#pairing.dispose();",
+    "to": "this.#blocked.clear();\n      this.#pairing.cancel();",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "invalidates an old pairing confirmation queued behind a pending identity reset",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (this.#pairing.view()?.pairingId !== pairingId) throw new CommandError(\"pairing_expired\");",
+    "to": "void pairingId;",
+    "test": "packages/host/test/remote/service.host.test.ts",
+    "name": "invalidates an old pairing confirmation queued behind a pending identity reset",
+    "project": "host"
+  }
+]

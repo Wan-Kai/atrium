@@ -269,6 +269,28 @@ describe("RemoteService through a real relay process", () => {
     expect(f.vault.contents().relay).toBe(f.relay.line);
   });
 
+  it("invalidates an old pairing confirmation queued behind a pending identity reset", async () => {
+    const f = await serviceFixture();
+    const pairing = newPairing(f);
+    const pending = await f.phone().pair(pairing.qr);
+    await awaiting(f);
+    const oldHostKey = f.vault.contents().hostKey;
+    const gate = f.vault.pause();
+    const reset = f.service.resetIdentity();
+    await gate.entered;
+    const confirmation = f.service.confirmPairing(pairing.pairingId, true).catch((error: unknown) => error);
+    gate.release();
+    await reset;
+    const result = await confirmation;
+    expect(f.vault.contents().hostKey).not.toBe(oldHostKey);
+    expect(f.vault.contents().devices).toStrictEqual([]);
+    expect(f.service.get("observer", undefined).devices).toStrictEqual([]);
+    expect(f.accepted).toStrictEqual([]);
+    expect(result).toMatchObject({ code: "pairing_expired" });
+    await pending.closed;
+    expect(pending.channel.closed).toBe(true);
+  });
+
   it("never re-admits a device revoked while re-pair confirmation is writing", async () => {
     const f = await serviceFixture();
     const phone = f.phone();
