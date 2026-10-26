@@ -5,12 +5,14 @@ import {
   type StatusBarChoices,
   UNKNOWN_METRICS,
 } from "@atrium/protocol";
-import { describe, expect, it, vi } from "vitest";
-import { userEvent } from "vitest/browser";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { ClockContext, type UiClock } from "../state/clock";
 import { StatusBar } from "./status-bar";
+
+beforeEach(() => page.viewport(1280, 820));
 
 /** A session with every figure known. */
 const KNOWN: SessionMetrics = {
@@ -124,6 +126,33 @@ function shadowAround(element: Element): string | null {
 }
 
 describe("StatusBar", () => {
+  it("keeps a raised edge card and its customizer within a narrow viewport", async () => {
+    await page.viewport(360, 350);
+    const screen = await render(
+      <div style={{ position: "fixed", top: 170, left: 0, width: 140 }}>
+        <StatusBar
+          metrics={KNOWN}
+          plans={[]}
+          provider={null}
+          choices={{ session: false, tokens: false, context: true }}
+          onChoose={() => undefined}
+        />
+      </div>,
+    );
+    await screen.getByRole("button", { name: "42%" }).hover();
+    const card = screen.getByRole("tooltip").filter({ hasText: "上下文已用" });
+    await expect.element(card).toBeVisible();
+    await expect.poll(() => card.element().getBoundingClientRect().top).toBeGreaterThanOrEqual(12);
+    expect(card.element().getBoundingClientRect().left).toBeGreaterThanOrEqual(12);
+    expect(card.element().getBoundingClientRect().right).toBeLessThanOrEqual(348);
+    await screen.getByRole("button", { name: "自定义状态栏" }).click();
+    const panel = screen.getByRole("dialog", { name: "状态栏" }).element();
+    await expect.poll(() => panel.getBoundingClientRect().top).toBeGreaterThanOrEqual(12);
+    expect(panel.getBoundingClientRect().left).toBeGreaterThanOrEqual(12);
+    expect(panel.getBoundingClientRect().right).toBeLessThanOrEqual(348);
+    expect(panel.scrollHeight).toBeGreaterThan(panel.clientHeight);
+    await page.viewport(1280, 820);
+  });
   it("shows the session's statistics, tokens and context by default, the cost only when chosen", async () => {
     const { screen } = await bar();
 

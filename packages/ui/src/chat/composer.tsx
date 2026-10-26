@@ -20,6 +20,7 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
   useEffect,
   useId,
   useLayoutEffect,
@@ -27,6 +28,7 @@ import {
   useState,
 } from "react";
 import { type Draft, type KeptImage } from "../state/drafts";
+import { useFloatingLayer } from "../design/floating-layer";
 import { pageDrafts, useDraft } from "../state/use-draft";
 import {
   type BuiltinCall,
@@ -195,7 +197,7 @@ const KIND_NAMES: Readonly<Record<CommandKind, string>> = {
  * stopping, sending) leaves a panel the capsules above opened open (design-language, "胶囊点开的面板").
  *
  * @sideEffects Calls the handlers as the user acts; reads and writes the draft in storage; asks
- * for commands and files while their lists are open.
+ * for commands and files while their lists are open; follows the add menu in the top layer.
  * @param props - What to do with a message, a steer and a stop, the run's state, what floats
  * above, the model button, the draft's key, the history, where commands and files come from, and
  * whom to tell of an edit.
@@ -284,6 +286,10 @@ export function Composer({
   const [commands, setCommands] = useState<CommandList | null>(null);
   const [found, setFound] = useState<FileList | null>(null);
   const [plusOpen, setPlusOpen] = useState(false);
+  const dock = useRef<HTMLDivElement>(null);
+  const plus = useRef<HTMLButtonElement>(null);
+  const plusMenu = useRef<HTMLDivElement>(null);
+  useFloatingLayer(plus, plusMenu, { enabled: plusOpen, flip: true });
   const [note, setNote] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const imageInput = useRef<HTMLInputElement>(null);
@@ -720,11 +726,12 @@ export function Composer({
   return (
     <div className="mx-auto w-full max-w-[var(--column)] px-6 pb-1">
       {/* A press in here leaves the capsule bar's panel open (`CapsuleUnit`). */}
-      <div className="relative" data-capsule-dock>
+      <div ref={dock} className="relative" data-capsule-dock>
         {above}
         {pinned}
         {listOpen ? (
           <SuggestionList
+            anchor={dock}
             id={listId}
             kind={commandQuery === null ? "file" : "command"}
             commands={commandQuery === null ? null : commands === null ? "loading" : commands}
@@ -920,6 +927,7 @@ export function Composer({
               />
               <button
                 type="button"
+                ref={plus}
                 aria-label="添加"
                 aria-expanded={plusOpen}
                 onClick={() => setPlusOpen(!plusOpen)}
@@ -929,8 +937,9 @@ export function Composer({
               </button>
               {plusOpen ? (
                 <div
+                  ref={plusMenu}
                   role="menu"
-                  className="absolute bottom-full left-0 z-30 mb-2 min-w-44 rounded-[var(--r-btn)] bg-[var(--surface-1)] p-1 shadow-[var(--float-shadow)]"
+                  className="absolute bottom-full left-0 z-30 mb-2 min-w-44 overflow-auto rounded-[var(--r-btn)] bg-[var(--surface-1)] p-1 shadow-[var(--float-shadow)]"
                 >
                   {onUpload === undefined ? null : (
                     <button
@@ -1057,12 +1066,13 @@ function Capsule({
  * and cannot be chosen. The built-ins show while pi's commands are still being read, with a line
  * below saying so (SPEC-0001, "M1.11 的 `/` 命令 · 菜单").
  *
- * @sideEffects Calls `onPick`.
+ * @sideEffects Calls `onPick`; measures and follows the top-layer list above its input dock.
  * @param props - The list's id and kind, what it holds, why a command cannot be chosen, which
  * option is highlighted, and what a click does.
  * @returns The list.
  */
 function SuggestionList({
+  anchor,
   id,
   kind,
   commands,
@@ -1073,6 +1083,7 @@ function SuggestionList({
   highlighted,
   onPick,
 }: {
+  readonly anchor: RefObject<HTMLDivElement | null>;
   readonly id: string;
   readonly kind: "command" | "file";
   readonly commands: CommandList | null;
@@ -1083,6 +1094,8 @@ function SuggestionList({
   readonly highlighted: number;
   readonly onPick: (index: number, into: boolean) => void;
 }) {
+  const list = useRef<HTMLDivElement>(null);
+  useFloatingLayer(anchor, list, { maxHeight: "288px", maxWidth: "520px", matchWidth: true });
   let note: string | null = null;
   // Below the commands listed so far, while pi's are not there.
   let waiting: string | null = null;
@@ -1102,10 +1115,11 @@ function SuggestionList({
   const option = "flex w-full items-center gap-2 rounded-[var(--r-md)] px-2.5 py-1.5 text-left";
   return (
     <div
+      ref={list}
       id={id}
       role="listbox"
       aria-label={kind === "command" ? "命令" : "文件"}
-      className="absolute bottom-full left-0 z-30 mb-2 max-h-72 w-full max-w-[520px] overflow-y-auto rounded-[var(--r-card)] bg-[var(--popover)] p-1.5 shadow-[var(--float-shadow)]"
+      className="absolute bottom-full left-0 z-30 mb-2 w-full overflow-y-auto rounded-[var(--r-card)] bg-[var(--popover)] p-1.5 shadow-[var(--float-shadow)]"
     >
       {note === null ? (
         kind === "command" ? (

@@ -1,0 +1,90 @@
+[
+  {
+    "file": "packages/ui/src/chat/menu-button.tsx",
+    "from": "enabled: open,",
+    "to": "enabled: false,",
+    "test": "packages/ui/src/chat/menu-button.browser.test.tsx",
+    "name": "keeps a long menu inside the viewport and outside its clipping parent, following resize",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/menu-button.tsx",
+    "from": "z-10 w-min min-w-44",
+    "to": "z-10 min-w-44",
+    "test": "packages/ui/src/chat/menu-button.browser.test.tsx",
+    "name": "ideal width",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/run-control.tsx",
+    "from": "enabled: present && room !== null,",
+    "to": "enabled: false,",
+    "test": "packages/ui/src/chat/run-control.browser.test.tsx",
+    "name": "limits a long panel to the actual space above a raised capsule and keeps its last row reachable",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/model-picker.tsx",
+    "from": "useFloatingLayer(anchor, panel, { align: \"end\" });",
+    "to": "useFloatingLayer(anchor, panel, { align: \"end\", enabled: false });",
+    "test": "packages/ui/src/chat/model-picker.browser.test.tsx",
+    "name": "keeps the model panel inside a narrow window when its input anchor is raised",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/model-picker.tsx",
+    "from": "[overflow-wrap:anywhere]",
+    "to": "[overflow-wrap:normal]",
+    "test": "packages/ui/src/chat/model-picker.browser.test.tsx",
+    "name": "wraps a 256-character provider name within its narrow tooltip without overflowing text",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/composer.tsx",
+    "from": "useFloatingLayer(anchor, list, { maxHeight: \"288px\", maxWidth: \"520px\", matchWidth: true });",
+    "to": "useFloatingLayer(anchor, list, { enabled: false, maxHeight: \"288px\", maxWidth: \"520px\", matchWidth: true });",
+    "test": "packages/ui/src/chat/composer.browser.test.tsx",
+    "name": "keeps command candidates above the raised input and inside the viewport",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/status-bar.tsx",
+    "from": "useFloatingLayer(anchor, panel, { align: \"end\" });",
+    "to": "useFloatingLayer(anchor, panel, { align: \"end\", enabled: false });",
+    "test": "packages/ui/src/chat/status-bar.browser.test.tsx",
+    "name": "keeps a raised edge card and its customizer within a narrow viewport",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/fast-toggle.tsx",
+    "from": "useHoverPresence(250)",
+    "to": "useHoverPresence(0)",
+    "test": "packages/ui/src/chat/hover-presence.browser.test.tsx",
+    "name": "keeps the fast card fixed through its exit, cancels reentry, and releases its timer",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/use-hover-presence.ts",
+    "from": "useState(false)",
+    "to": "useState(true)",
+    "test": "packages/ui/src/chat/hover-presence.browser.test.tsx",
+    "name": "idle",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/use-hover-presence.ts",
+    "from": "useEffect(() => () => cancel.current?.(), []);",
+    "to": "useEffect(() => () => undefined, []);",
+    "test": "packages/ui/src/chat/hover-presence.browser.test.tsx",
+    "name": "releases its timer",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/transcript.tsx",
+    "from": "useHoverPresence(150)",
+    "to": "useHoverPresence(0)",
+    "test": "packages/ui/src/chat/run-control.browser.test.tsx",
+    "name": "until its 150ms fade",
+    "project": "ui"
+  }
+]

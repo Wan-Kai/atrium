@@ -1,5 +1,6 @@
-import { type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useFloatingLayer } from "../design/floating-layer";
 
 /** The class of a key written in the hint. */
 const KEYCAP =
@@ -22,55 +23,6 @@ function KeyHint({ keyName, does }: { readonly keyName: string; readonly does: s
       {does}
     </span>
   );
-}
-
-/**
- * Where the hint goes, beside the field on the page.
- *
- * @remarks
- * The hint floats on the page rather than in the row, as the row's list may clip it (the tab bar
- * scrolls sideways); so it follows the field as the page scrolls or resizes.
- *
- * @sideEffects Listens for scrolling and resizing on the window while mounted.
- * @param field - The field.
- * @param above - Whether the hint goes above the field rather than below.
- * @returns The hint's left edge, and its top or, above, its bottom; `null` before the field is laid
- * out.
- */
-function useHintPlace(
-  field: RefObject<HTMLInputElement | null>,
-  above: boolean,
-): { readonly left: number; readonly top?: number; readonly bottom?: number } | null {
-  const [place, setPlace] = useState<{ readonly left: number; readonly top?: number; readonly bottom?: number } | null>(
-    null,
-  );
-  useLayoutEffect(() => {
-    /**
-     * Places the hint 4px off the field.
-     *
-     * @remarks
-     * See `useHintPlace`.
-     *
-     * @sideEffects Updates the place.
-     */
-    const follow = (): void => {
-      const rect = field.current?.getBoundingClientRect();
-      if (rect === undefined) return;
-      setPlace(
-        above
-          ? { left: rect.left, bottom: window.innerHeight - rect.top + 4 }
-          : { left: rect.left, top: rect.bottom + 4 },
-      );
-    };
-    follow();
-    window.addEventListener("resize", follow);
-    window.addEventListener("scroll", follow, true);
-    return () => {
-      window.removeEventListener("resize", follow);
-      window.removeEventListener("scroll", follow, true);
-    };
-  }, [field, above]);
-  return place;
 }
 
 /**
@@ -109,7 +61,8 @@ export function RenameField({
   const field = useRef<HTMLInputElement>(null);
   const done = useRef(false);
   const hint = useId();
-  const place = useHintPlace(field, above);
+  const hintLayer = useRef<HTMLDivElement>(null);
+  useFloatingLayer(field, hintLayer, { side: above ? "top" : "bottom", gap: 4, flip: true });
   useEffect(() => {
     field.current?.focus();
     field.current?.select();
@@ -161,12 +114,12 @@ export function RenameField({
       {createPortal(
         <div
           id={hint}
-          style={place ?? { visibility: "hidden" }}
-          className="pointer-events-none fixed z-50 flex items-center gap-2.5 whitespace-nowrap rounded-[var(--r-sm)] bg-[var(--surface-1)] px-2 py-[3px] text-[length:var(--fs-xs)] text-[var(--text-muted)] shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]"
+          ref={hintLayer}
+          className="pointer-events-none fixed z-50 flex flex-wrap items-center gap-2.5 rounded-[var(--r-sm)] bg-[var(--surface-1)] px-2 py-[3px] text-[length:var(--fs-xs)] text-[var(--text-muted)] shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]"
         >
           <KeyHint keyName="⏎" does="保存" />
           <KeyHint keyName="esc" does="取消" />
-          {restores === undefined ? null : <span>{restores}</span>}
+          {restores === undefined ? null : <span className="min-w-0 [overflow-wrap:anywhere]">{restores}</span>}
         </div>,
         document.body,
       )}

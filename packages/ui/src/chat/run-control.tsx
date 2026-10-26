@@ -12,6 +12,7 @@ import {
 } from "../design/icons";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { reducedMotion } from "../design/dots";
+import { useFloatingLayer } from "../design/floating-layer";
 import { DiffCounts } from "../files/diff-parts";
 import { QUEUE_EVENT_WORDS } from "./agent-words";
 import { QuestionCard } from "./question-card";
@@ -112,7 +113,8 @@ function playPanel(panel: HTMLElement): { readonly main: Animation; readonly all
  * on the first render or with less motion asked for, and it goes at once when closed.
  *
  * @sideEffects Animates the panel and its rows as it opens, and cancels them on unmount;
- * while shown, measures the bar and observes its size; while open, listens for presses and Escape on
+ * while shown, measures the bar and viewport, follows its top-layer panel and observes sizes;
+ * while open, listens for presses and Escape on
  * the document; calls `onToggle` when the capsule is clicked and `onClose` to close.
  * @param props - Whether it is open, how to toggle and close it, the panel's name and width, what
  * the capsule says, the panel's own classes and its content.
@@ -126,6 +128,7 @@ export function CapsuleUnit({
   span,
   capsule,
   className = "",
+  maxHeight,
   children,
 }: {
   readonly open: boolean;
@@ -139,6 +142,8 @@ export function CapsuleUnit({
   readonly capsule: ReactNode;
   /** The panel's own classes, such as for scrolling. */
   readonly className?: string;
+  /** An existing design height ceiling, further limited by the space above the capsule. */
+  readonly maxHeight?: string;
   /** The panel's content; rows marked `data-panel-row` fade in one by one. */
   readonly children: ReactNode;
 }) {
@@ -155,6 +160,11 @@ export function CapsuleUnit({
     setPhase(open ? (still ? "open" : "opening") : "closed");
   }
   const present = phase !== "closed";
+  useFloatingLayer(unit, panel, {
+    enabled: present && room !== null,
+    ...(maxHeight === undefined ? {} : { maxHeight }),
+    ...(room === null ? {} : { maxWidth: `${room}px` }),
+  });
   useEffect(() => {
     closer.current = onClose;
   });
@@ -209,6 +219,7 @@ export function CapsuleUnit({
      * @param event - The pointer event.
      */
     const press = (event: Event): void => {
+      if (panel.current?.matches(":popover-open") !== true) return;
       const keeper = unit.current?.closest("[data-capsule-dock]") ?? unit.current;
       if (!(event.target instanceof Node && keeper?.contains(event.target) === true)) closer.current();
     };
@@ -222,7 +233,8 @@ export function CapsuleUnit({
      * @param event - The key event.
      */
     const escape = (event: KeyboardEvent): void => {
-      if (event.key === "Escape" && !event.defaultPrevented) closer.current();
+      if (event.key === "Escape" && !event.defaultPrevented && panel.current?.matches(":popover-open") === true)
+        closer.current();
     };
     document.addEventListener("pointerdown", press);
     document.addEventListener("keydown", escape);
@@ -245,7 +257,7 @@ export function CapsuleUnit({
           role="dialog"
           aria-label={label}
           style={width}
-          className={`pointer-events-auto absolute bottom-[calc(100%+8px)] left-0 rounded-[var(--r-card)] bg-[var(--surface-1)] p-1.5 shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)] ${className}`}
+          className={`pointer-events-auto absolute bottom-[calc(100%+8px)] left-0 overflow-auto rounded-[var(--r-card)] bg-[var(--surface-1)] p-1.5 shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)] ${className}`}
         >
           {children}
         </div>
@@ -476,7 +488,7 @@ export function ControlTrack({
           onClose={() => setPanel(null)}
           label="排队"
           span="bar"
-          className="max-h-[46vh] overflow-auto"
+          maxHeight="46vh"
           capsule={
             <>
               <span className={`size-1.5 rounded-full ${paused ? "bg-[var(--attn)]" : "bg-[var(--tint)]"}`} />

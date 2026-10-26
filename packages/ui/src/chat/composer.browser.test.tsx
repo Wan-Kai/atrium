@@ -1,7 +1,7 @@
 import { CommandError } from "@atrium/client";
 import type { FileCandidate, SlashCommand } from "@atrium/protocol";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { userEvent } from "vitest/browser";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import type { CatalogModel } from "@atrium/protocol";
@@ -11,6 +11,8 @@ import { Composer, type ComposerProps } from "./composer";
 import type { ChosenCommand } from "./composer-text";
 import { compressImage } from "./images";
 import { ModelPicker } from "./model-picker";
+
+beforeEach(() => page.viewport(1280, 820));
 
 const COMMANDS: SlashCommand[] = [
   { name: "mcp", description: "Manage MCP servers", source: "extension" },
@@ -82,6 +84,24 @@ describe("Composer while the agent's questions wait (SPEC-0003)", () => {
 });
 
 describe("Composer's / commands", () => {
+  it("keeps command candidates above the raised input and inside the viewport", async () => {
+    await page.viewport(360, 400);
+    const screen = await render(
+      <div style={{ position: "fixed", left: 0, right: 0, top: 170 }}>
+        <Composer draftKey={freshKey()} onSend={() => undefined} onListCommands={async () => COMMANDS} />
+      </div>,
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/");
+    const list = screen.getByRole("listbox", { name: "命令" });
+    await expect.element(list).toBeVisible();
+    await expect.poll(() => list.element().getBoundingClientRect().top).toBeGreaterThanOrEqual(12);
+    expect(list.element().getBoundingClientRect().left).toBeGreaterThanOrEqual(12);
+    expect(list.element().getBoundingClientRect().right).toBeLessThanOrEqual(348);
+    expect(list.element().getBoundingClientRect().bottom).toBeLessThanOrEqual(162);
+    expect(list.element().scrollHeight).toBeGreaterThan(list.element().clientHeight);
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "消息" }).element());
+    await page.viewport(1280, 820);
+  });
   it("lists pi's commands as / is typed at the start, narrowing as more is typed", async () => {
     const { screen, box } = await composer();
 
@@ -697,6 +717,35 @@ function emptyPicker(disabled: boolean) {
 }
 
 describe("Composer's other controls", () => {
+  it("keeps the add menu outside a clipping input container and leaves its actions usable", async () => {
+    await page.viewport(360, 400);
+    const screen = await render(
+      <div
+        style={{
+          position: "fixed",
+          left: 0,
+          right: 0,
+          top: 180,
+          height: 140,
+          overflow: "hidden",
+          clipPath: "inset(70px 0 0)",
+          filter: "opacity(1)",
+        }}
+      >
+        <Composer draftKey={freshKey()} onSend={() => undefined} />
+      </div>,
+    );
+    await screen.getByRole("button", { name: "添加", exact: true }).click();
+    const item = screen.getByRole("menuitem", { name: "引用文件或目录" }).element();
+    const box = item.getBoundingClientRect();
+    await expect.poll(() => item.contains(document.elementFromPoint(box.left + 8, box.top + 8))).toBe(true);
+    const bounds = screen.getByRole("menu").element().getBoundingClientRect();
+    expect(bounds.top).toBeGreaterThanOrEqual(12);
+    expect(bounds.left).toBeGreaterThanOrEqual(12);
+    expect(bounds.right).toBeLessThanOrEqual(348);
+    await screen.getByRole("menuitem", { name: "引用文件或目录" }).click();
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("@");
+  });
   it("opens the box tall and back", async () => {
     const { screen, box } = await composer();
     const short = box.element().getBoundingClientRect().height;

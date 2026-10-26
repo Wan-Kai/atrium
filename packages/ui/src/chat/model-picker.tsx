@@ -4,6 +4,7 @@ import { ArrowClockwise, CaretDown, Check, Lightning } from "../design/icons";
 import { type RefObject, useContext, useEffect, useRef, useState } from "react";
 import { DotSeedContext, paintDots, reducedMotion, sweepProgress } from "../design/dots";
 import { useDarkMode } from "../design/use-dark-mode";
+import { useFloatingLayer } from "../design/floating-layer";
 import { EffortBox } from "./effort-box";
 import {
   LEVEL_NAMES,
@@ -107,7 +108,10 @@ export function ModelPicker({
      * @param event - The key.
      */
     const onKey = (event: KeyboardEvent): void => {
-      if (!event.metaKey || !event.shiftKey || opening.current.disabled) return;
+      if (!event.metaKey || !event.shiftKey || opening.current.disabled || root.current?.closest("[inert]") !== null)
+        return;
+      const modal = event.target instanceof Element ? event.target.closest('[aria-modal="true"], dialog:modal') : null;
+      if (modal !== null && !modal.contains(root.current)) return;
       const key = event.key.toLowerCase();
       if (key !== "i" && key !== "e") return;
       event.preventDefault();
@@ -122,7 +126,7 @@ export function ModelPicker({
   useEffect(() => {
     if (request === null || request.id === handled.current) return;
     handled.current = request.id;
-    if (opening.current.disabled) return;
+    if (opening.current.disabled || root.current?.closest("[inert]") !== null) return;
     // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- opens on the request, as a key does.
     setMode(request.part);
     opening.current.onOpen();
@@ -140,7 +144,8 @@ export function ModelPicker({
      * @param event - The pointer event.
      */
     const close = (event: Event): void => {
-      if (!(event.target instanceof Node && root.current?.contains(event.target) === true)) setMode(null);
+      if (root.current?.querySelector('[role="dialog"]')?.matches(":popover-open") !== true) return;
+      if (!(event.target instanceof Node && root.current.contains(event.target))) setMode(null);
     };
     /**
      * Closes the panel on Escape, and keeps the Escape from anything else.
@@ -153,7 +158,8 @@ export function ModelPicker({
      * @param event - The key event.
      */
     const escape = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || root.current?.querySelector('[role="dialog"]')?.matches(":popover-open") !== true)
+        return;
       event.preventDefault();
       event.stopPropagation();
       setMode(null);
@@ -212,6 +218,7 @@ export function ModelPicker({
       </button>
       {mode === null ? null : (
         <ModelPanel
+          anchor={chip}
           mode={mode}
           shown={shown}
           list={list}
@@ -234,11 +241,12 @@ export function ModelPicker({
  * @remarks
  * See `ModelPicker`.
  *
- * @sideEffects Calls the handlers.
+ * @sideEffects Calls the handlers; follows the top-layer panel within the viewport.
  * @param props - Which parts to show, the model, the list, the login state and what to do.
  * @returns The panel.
  */
 function ModelPanel({
+  anchor,
   mode,
   shown,
   list,
@@ -247,6 +255,7 @@ function ModelPanel({
   onChooseModel,
   onChooseLevel,
 }: {
+  readonly anchor: RefObject<HTMLButtonElement | null>;
   readonly mode: PanelMode;
   readonly shown: ShownModel | null;
   readonly list: ModelListView;
@@ -256,11 +265,14 @@ function ModelPanel({
   readonly onChooseLevel: (level: ThinkingLevel) => void;
 }) {
   const levels = shown?.levels ?? [];
+  const panel = useRef<HTMLDivElement>(null);
+  useFloatingLayer(anchor, panel, { align: "end" });
   return (
     <div
+      ref={panel}
       role="dialog"
       aria-label="模型与推理强度"
-      className="absolute right-0 bottom-full z-30 mb-2 w-[372px] rounded-[var(--r-card)] bg-[var(--popover)] p-2 text-[var(--text-2)] shadow-[var(--float-shadow)]"
+      className="absolute right-0 bottom-full z-30 mb-2 w-[372px] overflow-auto rounded-[var(--r-card)] bg-[var(--popover)] p-2 text-[var(--text-2)] shadow-[var(--float-shadow)]"
     >
       {mode === "effort" ? null : (
         <ModelList shown={shown} list={list} login={login} onRefresh={onRefresh} onChoose={onChooseModel} />
@@ -395,7 +407,7 @@ function ModelList({
  * provider on a plan has the "套餐" tag at the bottom right of its icon, clear of the current
  * model's dot at the top right, and "套餐" after its name above its models.
  *
- * @sideEffects Calls `onChoose`.
+ * @sideEffects Calls `onChoose`; follows the provider tooltip outside scrolling content.
  * @param props - The model shown, the models by provider, the login state, and what choosing one
  * does.
  * @returns The columns.
@@ -412,8 +424,10 @@ function ProviderColumns({
   readonly onChoose: (model: ModelRef) => void;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
-  const [named, setNamed] = useState<{ readonly name: string; readonly top: number } | null>(null);
-  const root = useRef<HTMLDivElement>(null);
+  const [named, setNamed] = useState<string | null>(null);
+  const providerAnchor = useRef<HTMLElement>(null);
+  const tooltip = useRef<HTMLDivElement>(null);
+  useFloatingLayer(providerAnchor, tooltip, { enabled: named !== null, side: "left", align: "center", flip: true });
   const current = shown?.providerId;
   const active =
     groups.find((group) => group.providerId === chosen) ??
@@ -433,13 +447,12 @@ function ProviderColumns({
    * @param providerName - Its name.
    */
   const sayName = (icon: HTMLElement, providerName: string): void => {
-    const box = icon.getBoundingClientRect();
-    const at = root.current?.getBoundingClientRect();
-    if (at !== undefined) setNamed({ name: providerName, top: box.top + box.height / 2 - at.top });
+    providerAnchor.current = icon;
+    setNamed(providerName);
   };
 
   return (
-    <div ref={root} className="relative flex h-[320px]">
+    <div className="relative flex h-[320px]">
       <div
         role="tablist"
         aria-label="服务商"
@@ -525,11 +538,11 @@ function ProviderColumns({
       </div>
       {named === null ? null : (
         <div
+          ref={tooltip}
           role="tooltip"
-          style={{ top: named.top }}
-          className="pointer-events-none absolute right-[calc(100%+8px)] z-10 -translate-y-1/2 whitespace-nowrap rounded-[var(--r-sm)] bg-[var(--popover)] px-2 py-[3px] text-[length:var(--fs-xs)] text-[var(--text-2)] shadow-[var(--float-shadow)]"
+          className="pointer-events-none absolute right-[calc(100%+8px)] z-10 -translate-y-1/2 overflow-auto rounded-[var(--r-sm)] bg-[var(--popover)] px-2 py-[3px] text-[length:var(--fs-xs)] whitespace-normal text-[var(--text-2)] shadow-[var(--float-shadow)] [overflow-wrap:anywhere]"
         >
-          {named.name}
+          {named}
         </div>
       )}
     </div>
