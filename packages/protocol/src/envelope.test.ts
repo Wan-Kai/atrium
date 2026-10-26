@@ -1,5 +1,7 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { COMMAND_TYPES, type Command, CommandResult } from "./commands";
+import { COMMAND_TYPES, type Command, CommandResult, type CommandType } from "./commands";
 import { type Control, IDLE_CONTROL, type Interaction } from "./control";
 import { CommandError, ErrorCode } from "./errors";
 import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
@@ -8,6 +10,7 @@ import type { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { type CatalogModel, ThinkingLevel } from "./models";
 import { Step, Turn } from "./transcript";
 import { isChatId } from "./ids";
+import { protocolJsonSchema } from "./json-schema";
 import { PROTOCOL_VERSION } from "./version";
 
 const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
@@ -1674,6 +1677,409 @@ const changes: IndexChangesEvent = {
   preferences: snapshot.preferences,
 };
 
+/** One valid example of every message the host sends, besides the variants below. */
+const hostMessages: unknown[] = [
+  {
+    type: "welcome",
+    protocolVersion: PROTOCOL_VERSION,
+    hostVersion: "0.0.0",
+    hostInstanceId: "h1",
+    heartbeatMs: 15_000,
+    installSeed: 1,
+    logDir: "/Users/test/.atrium/logs",
+  },
+  { type: "response", requestId: "r2", ok: true, result: { sessionId: "s1" } },
+  { type: "response", requestId: "r1", ok: true },
+  { type: "response", requestId: null, ok: false, error: { code: "invalid_message" } },
+  {
+    type: "response",
+    requestId: "r4",
+    ok: false,
+    error: { code: "pi_unavailable", params: { status: "missing" } },
+  },
+  ...events,
+  snapshot,
+  changes,
+  {
+    ...changes,
+    projects: { upsert: [], remove: [] },
+    workspaces: { upsert: [], remove: [] },
+    chats: { upsert: [], remove: [] },
+    sessions: { upsert: [], remove: [] },
+    layout: null,
+    preferences: null,
+  },
+  changesUpdated,
+  { ...changesUpdated, stat: null, dirty: false, ahead: 0, branch: null, base: null },
+  diffUpdated,
+  { ...diffUpdated, mode: "base", files: [], tooLarge: true, error: null },
+  { ...diffUpdated, files: [], error: "not_git" },
+  { ...diffUpdated, files: [], error: "failed" },
+  loginUpdated,
+  {
+    ...loginUpdated,
+    method: "api_key",
+    state: "failed",
+    authUrl: null,
+    deviceCode: { ...loginUpdated.deviceCode, expiresInSeconds: null },
+    questions: [],
+    progress: null,
+    error: { reason: "insecure_url", detail: null },
+  },
+  { ...loginUpdated, state: "ok", error: null },
+  { ...loginUpdated, state: "cancelled", error: { reason: "failed", detail: "auth.json is corrupt" } },
+  installUpdated,
+  { ...installUpdated, kind: "install_pi", state: "running", running: null },
+  { ...installUpdated, kind: "install_node", state: "failed", running: null, exitCode: 1, reason: "exit" },
+  { ...installUpdated, state: "failed", running: null, reason: "exit" },
+  { ...installUpdated, state: "failed", running: null, reason: "download_failed" },
+  { ...installUpdated, state: "failed", running: null, reason: "spawn_failed" },
+  { ...installUpdated, state: "ok", running: null },
+  { ...installUpdated, state: "cancelled", running: null },
+  { type: "install_output", jobId: "j1", text: "\u001b[1m  Pi Installer\u001b[0m\r\n" },
+  { type: "pi_latest", latest: "1.1.0", checkedAt: 1_760_000_000_000 },
+  { type: "pi_latest", latest: "2.0.0-rc.1+build.5", checkedAt: 0 },
+  { type: "pi_latest", latest: null, checkedAt: null },
+  { type: "credentials_changed" },
+  { type: "plans_updated", plans: [plan, { provider: "anthropic", plan: null, windows: [], at: 0 }, grokPlan] },
+  { type: "plans_updated", plans: [] },
+];
+
+const [local, worktree] = snapshot.workspaces;
+const [session] = snapshot.sessions;
+/** Every error code, outcome, exit reason and list variant, as host messages. */
+const hostVariants: unknown[] = [
+  ...["noChange", "pending", "merged", "removed"].map((verdict) => ({
+    ...snapshot,
+    workspaces: [{ ...worktree, merge: { dirty: false, ahead: 0, verdict, reason: null } }],
+  })),
+  ...["git_too_old", "git_failed", "base_unknown"].map((reason) => ({
+    ...snapshot,
+    workspaces: [{ ...worktree, merge: { dirty: false, ahead: 0, verdict: "unknown", reason } }],
+  })),
+  ...["missing"].map((state) => ({ ...snapshot, sessions: [{ ...session, state }] })),
+  ...["generation_changed", "cursor_expired", "too_many_changes"].map((reason) => ({ ...snapshot, reason })),
+  { ...snapshot, sessions: [{ ...session, attention: { reason: "auth", at: 0, cleared: true } }] },
+  ...["light", "dark"].map((appearance) => ({ ...snapshot, preferences: { ...snapshot.preferences, appearance } })),
+  { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "chats", "sessions", "preferences"] },
+  {
+    ...snapshot,
+    preferences: {
+      ...snapshot.preferences,
+      lastModel: null,
+      thinkingByModel: {},
+      lastFast: false,
+      statusBar: {},
+      proxy: null,
+    },
+  },
+  ...ThinkingLevel.options.map((thinkingLevel) => ({
+    type: "model_updated",
+    ...at,
+    model: { providerId: "faux", modelId: "faux-1", thinkingLevel },
+  })),
+  { ...snapshot, workspaces: [local] },
+  ...ErrorCode.options.map((code) => ({ type: "response", requestId: "r1", ok: false, error: { code } })),
+  ...["running", "done", "stopped", "failed"].map((outcome) => ({ ...events[2], turn: { ...turn, outcome } })),
+  ...["done", "stopped", "failed"].map((outcome) => ({ ...events[6], outcome })),
+  ...["completed", "stopped", "failed"].map((outcome) => ({ ...events[8], outcome })),
+  ...["requested", "crashed"].map((reason) => ({ ...events[9], reason })),
+  {
+    type: "control_updated",
+    ...at,
+    control: {
+      ...control,
+      deliveriesHeld: "stalled",
+      paused: "crashed",
+      interactions: (["select", "confirm", "input", "editor"] as const).map((kind) => ({
+        ...pick,
+        id: kind,
+        kind,
+      })),
+    },
+  },
+  ...["unavailable", "failed", "timed_out", "insecure_url"].map((reason) => ({
+    ...loginUpdated,
+    state: "failed",
+    error: { reason, detail: null },
+  })),
+  ...["text", "secret", "select", "manual_code"].map((kind) => ({
+    ...loginUpdated,
+    questions: [{ promptId: 1, kind, message: "Key", placeholder: null, options: [] }],
+  })),
+  ...["answered", "cancelled", "timed_out", "stale"].map((outcome) => ({
+    type: "notice_added",
+    ...at,
+    notice: { ...asked, outcome },
+    before: null,
+  })),
+];
+
+/** Where the Swift round-trip test reads these examples (testing.md, "协议类型的生成与往返测试"). */
+const swiftFixtures = join(
+  import.meta.dirname,
+  "..",
+  "..",
+  "..",
+  "apps",
+  "ios",
+  "AtriumKit",
+  "Tests",
+  "AtriumProtocolTests",
+  "Fixtures",
+);
+
+/** At least one valid result of every command, for the Swift test of the typed results. */
+const commandResultExamples = {
+  ping: [{}],
+  create_chat: [{ sessionId: "s1" }],
+  subscribe_sessions: [{}],
+  prompt: [{ disposition: "started" }, { disposition: "handled" }, { disposition: "queued", itemId: "q1" }],
+  edit_stopped_message: [{ disposition: "started" }],
+  fetch_transcript: [
+    { items: [turn], hasOlder: true },
+    { items: [], hasOlder: false },
+  ],
+  fetch_step: [{ step: bashStep }],
+  fetch_image: [{ mimeType: "image/webp", data: "eA==" }],
+  open_session: [{}],
+  subscribe_index: [{}],
+  add_project: [{ projectId: PROJECT }],
+  remove_project: [{}],
+  rename_project: [{}],
+  rename_workspace: [{}],
+  archive_workspace: [{}],
+  restore_workspace: [{}],
+  list_bases: [
+    { main: "refs/heads/main", current: "main", local: ["main", "atrium/a"], remote: ["origin/main"] },
+    { main: null, current: null, local: [], remote: [] },
+  ],
+  create_workspace: [{ workspaceId: WORKSPACE }],
+  name_branch: [{ branch: "atrium/fix-login" }],
+  rename_chat: [{}],
+  archive_chat: [{}],
+  restore_chat: [{}],
+  window_focused: [{}],
+  create_session: [{ sessionId: "s1" }],
+  close_tab: [{}],
+  select_container: [{}],
+  archive_session: [{}],
+  detach_session: [{}],
+  clear_attention: [{}],
+  hand_off: [{ file: "/pi/sessions/s1.jsonl", args: ["--tools", "read,ls"] }],
+  take_back: [{}],
+  rename_session: [{}],
+  set_preferences: [{}],
+  report_client_issue: [{}],
+  steer: [{ disposition: "started" }, { disposition: "queued" }, { disposition: "handled" }],
+  stop: [{ confirmed: true }, { confirmed: false }],
+  resume_queue: [{}],
+  clear_queue: [{}],
+  update_queued: [{}],
+  remove_queued: [{}],
+  remove_delivery: [{}],
+  resume_deliveries: [{}],
+  steer_queued: [{ disposition: "queued" }],
+  answer_interaction: [{}],
+  answer_question: [{}],
+  retry_run: [{}],
+  list_models: [
+    { models: [model, { ...model, fast: { speed: null, moreUsage: true } }], defaultModel: null },
+    { models: [], defaultModel: { providerId: "faux", modelId: "faux-1" } },
+  ],
+  set_model: [{}],
+  set_thinking_level: [{}],
+  set_fast: [{}],
+  compact_session: [{}],
+  export_session: [{ html: "<html></html>" }],
+  fork_session: [{ sessionId: "s2" }, { sessionId: "s2", noteSent: false }],
+  list_commands: [
+    {
+      commands: [
+        { name: "review", description: "Reviews the change", source: "prompt" },
+        { name: "skill:tdd", description: null, source: "skill" },
+      ],
+    },
+  ],
+  search_files: [{ files: [{ path: "src/sessions/", directory: true }] }],
+  upload_attachment: [{ attachmentId: "a1" }],
+  watch_changes: [{}],
+  watch_diff: [{}],
+  list_dir: [
+    {
+      entries: [
+        { name: "src", kind: "dir" },
+        { name: "a.ts", kind: "file" },
+        { name: "latest", kind: "link" },
+      ],
+      truncated: false,
+    },
+  ],
+  read_file: [
+    { size: 3, content: { kind: "text", text: "abc" } },
+    { size: 4, content: { kind: "image", mimeType: "image/png", data: "UklGRg==" } },
+    { size: 9, content: { kind: "too_large" } },
+  ],
+  read_pi_config: [
+    { path: "/Users/test/.pi/agent/settings.json", text: "{}\n", revision: "a".repeat(64) },
+    { path: "/Users/test/.pi/agent/mcp.json", text: "", revision: null },
+  ],
+  save_pi_config: [{ path: "/Users/test/.pi/agent/settings.json", text: "{}\n", revision: "b".repeat(64) }],
+  check_setup: [
+    {
+      pi: {
+        state: "broken",
+        path: "/opt/bin/pi",
+        version: null,
+        minimum: "1.0.1",
+        detail: "node: not found",
+        latest: "1.2.0-beta.1",
+        checkedAt: 1_760_000_000_000,
+      },
+      node: { state: "outdated", version: "20.11.0" },
+      homebrew: true,
+      fd: false,
+      login: {
+        state: "ready",
+        providers: [
+          {
+            providerId: "anthropic",
+            name: "Anthropic",
+            oauth: { label: "Anthropic (Claude Pro/Max)", subscription: true },
+            apiKey: true,
+            signedIn: { method: "oauth", stored: true },
+          },
+          { providerId: "deepseek", name: "DeepSeek", oauth: null, apiKey: true, signedIn: null },
+        ],
+      },
+      projects: 2,
+    },
+  ],
+  login: [{ loginId: "l1" }],
+  answer_login: [{}],
+  cancel_login: [{}],
+  logout: [{}],
+  install_pi: [{ jobId: "j1" }],
+  install_node: [{ jobId: "j2" }],
+  update_pi: [{ jobId: "j3" }],
+  cancel_install: [{}],
+  check_pi_update: [
+    { latest: "1.1.0", checkedAt: 5 },
+    { latest: null, checkedAt: null },
+  ],
+  discover_projects: [{ directories: [{ path: "/Users/me/work", sessions: 3, lastUsedAt: 1_700_000_000_000 }] }],
+  list_branches: [
+    { branches: ["main", "release/1.0"], head: "main" },
+    { branches: [], head: null },
+  ],
+  set_main_branch: [{}],
+} satisfies Record<CommandType, unknown[]>;
+
+/**
+ * Lists the `type` values a schema of the protocol's JSON Schema allows, through references and unions.
+ *
+ * @remarks
+ * Tells whether the host examples cover every kind of message the host can send.
+ *
+ * @sideEffects none
+ * @param schema - A schema of the bundle, or a reference to one by name.
+ * @param schemas - The bundle's schemas, to follow references.
+ * @returns The constant `type` values.
+ */
+function typeValues(schema: unknown, schemas: Readonly<Record<string, unknown>>): string[] {
+  const ref: unknown = Reflect.get(Object(schema), "$ref");
+  if (typeof ref === "string") return typeValues(schemas[ref], schemas);
+  const members: unknown = Reflect.get(Object(schema), "anyOf") ?? Reflect.get(Object(schema), "oneOf");
+  if (Array.isArray(members)) return members.flatMap((member: unknown) => typeValues(member, schemas));
+  const value: unknown = Reflect.get(
+    Object(Reflect.get(Object(Reflect.get(Object(schema), "properties")), "type")),
+    "const",
+  );
+  return typeof value === "string" ? [value] : [];
+}
+
+describe("examples", () => {
+  it("has valid results of every command", () => {
+    for (const [type, results] of Object.entries(commandResultExamples)) {
+      for (const result of results) {
+        expect([type, CommandResult[type as CommandType].parse(result)]).toStrictEqual([type, result]);
+      }
+    }
+    expect(Object.keys(commandResultExamples).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
+  });
+
+  it("covers every type of message the host sends", () => {
+    const { schemas } = protocolJsonSchema();
+    const sent = [...hostMessages, ...hostVariants].map((message) => String(Reflect.get(Object(message), "type")));
+
+    expect([...new Set(sent)].toSorted()).toStrictEqual(
+      [...new Set(typeValues({ $ref: "HostMessage" }, schemas))].toSorted(),
+    );
+  });
+});
+
+/**
+ * Writes examples as the Swift fixtures hold them.
+ *
+ * @remarks
+ * The examples at the length limits hold strings of a megabyte; Swift does not check lengths, so
+ * they are cut to 64 characters to keep the fixtures small.
+ *
+ * @sideEffects none
+ * @param examples - The messages, or the results by command.
+ * @returns The file's text.
+ */
+function fixtureText(examples: unknown): string {
+  return `${JSON.stringify(examples, shorten, 2)}\n`;
+}
+
+/**
+ * Cuts a string over 4096 characters to its first 64, leaving other values alone.
+ *
+ * @remarks
+ * See `fixtureText`.
+ *
+ * @sideEffects none
+ * @param _key - The key, unused.
+ * @param value - The value.
+ * @returns The value, shortened if it is a long string.
+ */
+function shorten(_key: string, value: unknown): unknown {
+  return typeof value === "string" && value.length > 4096 ? value.slice(0, 64) : value;
+}
+
+/**
+ * Reads a Swift fixture, first writing it when `UPDATE_SWIFT_FIXTURES=1`.
+ *
+ * @remarks
+ * Writing is how `pnpm protocol:swift` refreshes the fixtures; every other run only compares.
+ *
+ * @sideEffects Writes the file when asked to.
+ * @param file - The fixture's name.
+ * @param text - What it should hold.
+ * @returns What it holds.
+ */
+function readFixture(file: string, text: string): string {
+  const path = join(swiftFixtures, file);
+  if (process.env["UPDATE_SWIFT_FIXTURES"] === "1") writeFileSync(path, text);
+  return readFileSync(path, "utf8");
+}
+
+describe("Swift fixtures", () => {
+  it.each([
+    [
+      "client-messages.json",
+      [{ type: "hello", protocolVersion: PROTOCOL_VERSION, clientId: "c1", token: "t", traceparent }, ...commands],
+    ],
+    ["host-messages.json", [...hostMessages, ...hostVariants]],
+    ["command-results.json", commandResultExamples],
+  ])("keeps %s the same as the examples here", (file, examples) => {
+    const text = fixtureText(examples);
+
+    expect(readFixture(file, text), "out of date: run pnpm protocol:swift").toBe(text);
+  });
+});
+
 describe("IDLE_CONTROL", () => {
   it("has nothing going on: no queue, steers, stop, restart, compaction, questions or failure", () => {
     expect(IDLE_CONTROL).toStrictEqual({
@@ -1733,147 +2139,12 @@ describe("HostMessage: changes", () => {
 
 describe("HostMessage", () => {
   it("accepts the welcome, both kinds of response and every session event", () => {
-    const messages: unknown[] = [
-      {
-        type: "welcome",
-        protocolVersion: PROTOCOL_VERSION,
-        hostVersion: "0.0.0",
-        hostInstanceId: "h1",
-        heartbeatMs: 15_000,
-        installSeed: 1,
-        logDir: "/Users/test/.atrium/logs",
-      },
-      { type: "response", requestId: "r2", ok: true, result: { sessionId: "s1" } },
-      { type: "response", requestId: "r1", ok: true },
-      { type: "response", requestId: null, ok: false, error: { code: "invalid_message" } },
-      {
-        type: "response",
-        requestId: "r4",
-        ok: false,
-        error: { code: "pi_unavailable", params: { status: "missing" } },
-      },
-      ...events,
-      snapshot,
-      changes,
-      {
-        ...changes,
-        projects: { upsert: [], remove: [] },
-        workspaces: { upsert: [], remove: [] },
-        chats: { upsert: [], remove: [] },
-        sessions: { upsert: [], remove: [] },
-        layout: null,
-        preferences: null,
-      },
-      changesUpdated,
-      { ...changesUpdated, stat: null, dirty: false, ahead: 0, branch: null, base: null },
-      diffUpdated,
-      { ...diffUpdated, mode: "base", files: [], tooLarge: true, error: null },
-      { ...diffUpdated, files: [], error: "not_git" },
-      { ...diffUpdated, files: [], error: "failed" },
-      loginUpdated,
-      {
-        ...loginUpdated,
-        method: "api_key",
-        state: "failed",
-        authUrl: null,
-        deviceCode: { ...loginUpdated.deviceCode, expiresInSeconds: null },
-        questions: [],
-        progress: null,
-        error: { reason: "insecure_url", detail: null },
-      },
-      { ...loginUpdated, state: "ok", error: null },
-      { ...loginUpdated, state: "cancelled", error: { reason: "failed", detail: "auth.json is corrupt" } },
-      installUpdated,
-      { ...installUpdated, kind: "install_pi", state: "running", running: null },
-      { ...installUpdated, kind: "install_node", state: "failed", running: null, exitCode: 1, reason: "exit" },
-      { ...installUpdated, state: "failed", running: null, reason: "exit" },
-      { ...installUpdated, state: "failed", running: null, reason: "download_failed" },
-      { ...installUpdated, state: "failed", running: null, reason: "spawn_failed" },
-      { ...installUpdated, state: "ok", running: null },
-      { ...installUpdated, state: "cancelled", running: null },
-      { type: "install_output", jobId: "j1", text: "\u001b[1m  Pi Installer\u001b[0m\r\n" },
-      { type: "pi_latest", latest: "1.1.0", checkedAt: 1_760_000_000_000 },
-      { type: "pi_latest", latest: "2.0.0-rc.1+build.5", checkedAt: 0 },
-      { type: "pi_latest", latest: null, checkedAt: null },
-      { type: "plans_updated", plans: [plan, { provider: "anthropic", plan: null, windows: [], at: 0 }, grokPlan] },
-      { type: "plans_updated", plans: [] },
-    ];
-
-    for (const message of messages) {
+    for (const message of hostMessages) {
       expect(HostMessage.parse(JSON.parse(JSON.stringify(message)))).toStrictEqual(message);
     }
   });
 
   it("accepts every error code, turn and run outcome, exit reason and list variant", () => {
-    const [local, worktree] = snapshot.workspaces;
-    const [session] = snapshot.sessions;
-    const variants: unknown[] = [
-      ...["noChange", "pending", "merged", "removed"].map((verdict) => ({
-        ...snapshot,
-        workspaces: [{ ...worktree, merge: { dirty: false, ahead: 0, verdict, reason: null } }],
-      })),
-      ...["git_too_old", "git_failed", "base_unknown"].map((reason) => ({
-        ...snapshot,
-        workspaces: [{ ...worktree, merge: { dirty: false, ahead: 0, verdict: "unknown", reason } }],
-      })),
-      ...["missing"].map((state) => ({ ...snapshot, sessions: [{ ...session, state }] })),
-      ...["generation_changed", "cursor_expired", "too_many_changes"].map((reason) => ({ ...snapshot, reason })),
-      { ...snapshot, sessions: [{ ...session, attention: { reason: "auth", at: 0, cleared: true } }] },
-      ...["light", "dark"].map((appearance) => ({ ...snapshot, preferences: { ...snapshot.preferences, appearance } })),
-      { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "chats", "sessions", "preferences"] },
-      {
-        ...snapshot,
-        preferences: {
-          ...snapshot.preferences,
-          lastModel: null,
-          thinkingByModel: {},
-          lastFast: false,
-          statusBar: {},
-          proxy: null,
-        },
-      },
-      ...ThinkingLevel.options.map((thinkingLevel) => ({
-        type: "model_updated",
-        ...at,
-        model: { providerId: "faux", modelId: "faux-1", thinkingLevel },
-      })),
-      { ...snapshot, workspaces: [local] },
-      ...ErrorCode.options.map((code) => ({ type: "response", requestId: "r1", ok: false, error: { code } })),
-      ...["running", "done", "stopped", "failed"].map((outcome) => ({ ...events[2], turn: { ...turn, outcome } })),
-      ...["done", "stopped", "failed"].map((outcome) => ({ ...events[6], outcome })),
-      ...["completed", "stopped", "failed"].map((outcome) => ({ ...events[8], outcome })),
-      ...["requested", "crashed"].map((reason) => ({ ...events[9], reason })),
-      {
-        type: "control_updated",
-        ...at,
-        control: {
-          ...control,
-          deliveriesHeld: "stalled",
-          paused: "crashed",
-          interactions: (["select", "confirm", "input", "editor"] as const).map((kind) => ({
-            ...pick,
-            id: kind,
-            kind,
-          })),
-        },
-      },
-      ...["unavailable", "failed", "timed_out", "insecure_url"].map((reason) => ({
-        ...loginUpdated,
-        state: "failed",
-        error: { reason, detail: null },
-      })),
-      ...["text", "secret", "select", "manual_code"].map((kind) => ({
-        ...loginUpdated,
-        questions: [{ promptId: 1, kind, message: "Key", placeholder: null, options: [] }],
-      })),
-      ...["answered", "cancelled", "timed_out", "stale"].map((outcome) => ({
-        type: "notice_added",
-        ...at,
-        notice: { ...asked, outcome },
-        before: null,
-      })),
-    ];
-
     expect(ErrorCode.options).toStrictEqual([
       "invalid_message",
       "unknown_command",
@@ -1939,7 +2210,7 @@ describe("HostMessage", () => {
       "internal_error",
     ]);
     expect(ThinkingLevel.options).toStrictEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
-    for (const variant of variants) expect(HostMessage.parse(variant)).toStrictEqual(variant);
+    for (const variant of hostVariants) expect(HostMessage.parse(variant)).toStrictEqual(variant);
   });
 
   it.each([

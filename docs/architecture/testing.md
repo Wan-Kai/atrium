@@ -295,11 +295,45 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 - **截止时间**：默认是最近一次宿主运行的开始（最后一条 `host listening`），也就是最近一次装上新版本、或重启宿主的时候。宿主启动时的记录里没有每次构建都会变的东西（版本号一直是 `0.0.0`），认不出"最近一次安装"，所以用宿主的启动代替；要从更早算起用 `--since <ISO 时间>`。
 - **什么时候看**：装上新版本、用过一阵之后（acceptance.md"装上试用"），以及每天看 `pnpm usage` 时一起看。新签名逐条查清：真实的 bug 补一个能复现的测试再修。
 
+## Swift（手机端）
+
+2026-10-25 定（MP1）。上文的原则（能用真的就用真的、每个测试先见过失败、断言完整确定、时有时无按 bug 修）对 Swift 同样适用；写法见 [coding-standards.md · Swift（手机端）](coding-standards.md#swift手机端)。
+
+### 工具与分层
+
+| 层 | 放哪 | 框架 | 怎么跑 |
+|---|---|---|---|
+| 纯逻辑：协议编解码、Noise、分帧、同步算法、重连状态机、渲染里不碰界面的部分 | `apps/ios/AtriumKit/Tests/<模块>Tests/` | Swift Testing（`import Testing`，`@Test`、`#expect`、`#require`） | `swift test`，在 macOS 上跑，接在 `pnpm test` 里（几秒，增量更快）；`pnpm test` 带了过滤参数时只跑 Vitest |
+| 界面和只有 iOS 才有的东西（导航、钥匙串、扫码） | `apps/ios/AtriumUITests/` | XCTest 的 XCUITest（Swift Testing 还不能驱动界面） | `pnpm test:ios`，在 iOS 模拟器上跑 |
+| 契约：Swift 客户端经本机 relay 连真实宿主加 faux pi | MP4 定 | Swift Testing | MP4 定 |
+
+- 逻辑 target 必须能在 macOS 上编译（`Package.swift` 的平台是 iOS 26、macOS 26），这样大部分测试不用起模拟器，能进 `pnpm test` 和 lefthook 的推送前检查。只能在 iOS 上做的事（钥匙串的 `ThisDeviceOnly`、VisionKit 扫码）放在接口后面，逻辑部分照样在 macOS 上测。
+- 模拟器固定用 iPhone 16 Pro（和用户的手机一样，MP5 的性能预算也按它），`pnpm test:ios` 找名为 "Atrium iPhone 16 Pro" 的模拟器，没有就用最新的 iOS 运行时建一个。
+- 不 mock 自己的模块；要隔离的依赖（时钟、连接、钥匙串）设计成协议注入，测试传替身，同 TypeScript 的 `PiProcess`、`Clock`。
+- 结果确定：时间经注入的时钟推进，不用 `Task.sleep`、`Date()`、`Timer`、`asyncAfter`；随机数注入种子。`scripts/swift-lint.mjs` 对测试和源码一样检查（App 本体除外）。确实要真实时间的测试（量真实耗时、等系统界面出现这类注入不了时钟的地方），在那一行上面写 `// Real time: <为什么>`，审查时看理由是否成立；XCUITest 的 `waitForExistence(timeout:)` 不算，它不在检查的写法里（2026-10-26 审查后定）。
+- 测试资源（夹具）放在测试 target 的 `Fixtures/` 里，经 `Bundle.module` 读。
+- **看界面**：`pnpm ios:shot`、`pnpm ios:shot --dark` 在 "Atrium iPhone 16 Pro" 模拟器上装好、打开 App，截浅色、深色两张图到 `apps/ios/.build/shots/`。交付看得见的改动前都截两张自己看（acceptance.md"交给用户之前"）；截图里不放真实的项目名、对话和路径。要点开某一屏再截，先在 XCUITest 里走到那一屏、断言它的无障碍标识，再截图。
+- **不装 AXe**（MP1 定）：AXe（`cameroncooke/axe`）能在命令行读模拟器的无障碍树、按标签点按，方便 agent "点得动"。MP1 只有一个占位首页，没有要点的地方，`simctl io screenshot` 加 XCUITest 够用；MP4 有了配对、列表、对话几屏，手动走查变多时再评估，装了就在这里记精确版本。
+
+### 协议类型的生成与往返测试
+
+- `pnpm protocol:swift`：`packages/protocol/src/json-schema.ts` 把协议包导出的每个 zod schema（加上每条命令的 `CommandResult`，命名为 `<命令>Result`）按导出名登记，用 zod 4 的 `z.toJSONSchema` 导出 JSON Schema；`scripts/swift-codegen.mjs` 把它转成 `apps/ios/AtriumKit/Sources/AtriumProtocol/Generated/Protocol.swift`。生成的文件提交进仓库，不手改。
+- **生成规则**：对象 → `struct`（必填的、可为 `null` 的、可省略的分开处理：可为 `null` 的必须有这个键；可省略的没有就是 `nil`、有了不许是 `null`；既可省略又可为 `null` 的是 `Nullable<T>?`）；判别联合（每个成员的判别字段都是常量、互不相同）→ 带关联值的 `enum`，自定义 `Codable`：先读判别字段再解对应的成员，嵌套的联合按它能取的值一起分派；只有常量字段的成员是不带关联值的 case；判别字段是字符串枚举的成员按每个值展开成 case；没有判别字段、靠"只有它有的必填键"区分的对象联合（`InteractionAnswer`、`QuestionReply`）按这个键分派；字符串枚举 → `enum: String`；品牌 id 和各种受约束的字符串 → `String` 的 `typealias`；`z.unknown()` 和多种类型混合的值 → `JSONValue`；记录 → `[String: T]`；常量字段不存，编码时写出、解码时核对。遇到别的构造（`allOf`、元组、数字常量、判别字段对不上的联合等）就报错，写明 JSON Schema 里的位置。
+- **只管形状**：长度、范围、正则这些约束不在 Swift 里校验（宿主照旧用 zod 校验收到的命令）；解码时忽略不认识的键，协议的兼容由握手的 `PROTOCOL_VERSION` 守住。
+- **指纹**：生成的文件第二行起写着整份 JSON Schema（键排好序）的 SHA-256。只改长度、范围、正则这类约束时 Swift 代码本身不变，有了指纹，比对照样失败，逼人重新生成、看一眼夹具（2026-10-26 审查后加）。
+- **比对**：`pnpm check` 跑 `pnpm protocol:swift --check`，在内存里重新生成、和提交的文件逐字节比，不一致就失败、提示重新生成；只要 Node，不要 Xcode。`scripts/protocol-swift.test.ts` 在单元测试里做同一件事。
+- **往返测试**：`packages/protocol/src/envelope.test.ts` 里的合法样例（全部命令、握手、宿主发的每类消息和变体）也是 Swift 的夹具：`UPDATE_SWIFT_FIXTURES=1` 时由那里的测试写出 `apps/ios/AtriumKit/Tests/AtriumProtocolTests/Fixtures/{client,host}-messages.json`，以及每条命令至少一个合法结果的 `command-results.json`（2026-10-26 审查后加；`envelope.test.ts` 另核对宿主样例覆盖了 `HostMessage` 的每种 `type`）（`pnpm protocol:swift` 顺带做），平时比较、不一致就失败。超过 4096 个字符的字符串（测长度上限的样例，有 1 MB）在夹具里截成 64 个字符，Swift 不校验长度。Swift 测试逐条解码成 `ClientMessage` / `HostMessage`，命令的结果按生成的 `commandResultType(_:)` 查到各自的类型（`PromptResult`、`FetchTranscriptResult`……）解码，再编码，和原 JSON 按 JSON 语义比较（键的顺序、`1` 和 `1.0` 不算差别）。它只证明编解码对得上；同步语义靠 MP4 的契约测试。
+
+### 破坏检查与变异测试
+
+- **破坏检查**（`pnpm break-check`）支持 Swift 的 case：写 `"runner": "swift"` 和 `"filter"`（交给 `swift test --filter`），不写 `test`、`name`、`project`；可选 `"package"`，默认 `apps/ios/AtriumKit`。看到 Swift Testing 报 `✘ Test … failed` 算 `CAUGHT`；改坏后编译不过算 `NOBUILD`，和 `MISSED` 一样算漏掉（要换一种能编译的改法，否则说明不了测试有没有用）。
+- **变异测试**：Stryker 不支持 Swift。Swift 有 Muter（只改 Swift 源码的四种算子：关系运算符、逻辑连接、三元互换、删掉有副作用的语句），但要关掉"警告当错误"，对 Swift Testing 失败的判定没验证过，MP1 没有可测的逻辑，先不接。现在的约定：Swift 的核心模块（`AtriumNoise`、`AtriumSync`、`AtriumRemote` 的状态机）每个测试都配破坏检查，覆盖每条分支和每个比较；MP0、MP4 有了真逻辑时再试 Muter，能稳定跑就按 TypeScript 的门槛（≥ 80%）接进来，结论写回这里。
+
 ## 命令
 
 | 命令 | 内容 |
 |---|---|
-| `pnpm test` | 第 1、2 层 |
+| `pnpm test` | 第 1、2 层；有 Xcode 时加上 AtriumKit 的 `swift test` |
 | `pnpm test:pi` | 第 3 层（需要本机装有 pi）：契约断言，并检查输出和同版本的夹具一致 |
 | `pnpm fixtures:record` | 用本机 pi 重录全部夹具，删掉其他版本的夹具目录；提交前审查 diff |
 | `pnpm test:host` | 第 4 层 |
@@ -314,6 +348,9 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 | `pnpm bench` | 热路径基准，和本机基线比较（`BENCH_UPDATE=1` 重新记录基线） |
 | `pnpm test:stress` | 同时多跑几份、连跑几轮，找时有时无的失败（见"压力测试"） |
 | `pnpm test:soak` | 长时间运行（默认 30 分钟） |
-| `pnpm check` | 格式、代码检查、类型检查、knip |
+| `pnpm check` | 格式、代码检查、类型检查、knip；Swift 的格式和静态检查、协议类型的比对（没有 Xcode 时跳过 Swift 部分并提示） |
+| `pnpm test:ios` | AtriumKit 的 `swift test`，加上 App 在 iOS 模拟器上的 UI 测试（要 Xcode） |
+| `pnpm protocol:swift` | 重新生成 Swift 的协议类型和往返测试的夹具；`--check` 只比对 |
+| `pnpm ios:shot [--dark]` | 在模拟器上打开 App 截图，看界面用 |
 
 仓库目前没有 CI，先靠 lefthook 和本地命令；推到 GitHub 后再接 CI。

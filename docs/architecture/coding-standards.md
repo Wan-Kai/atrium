@@ -108,3 +108,55 @@ export function EffortBox(props: EffortBoxProps) { … }
 - 依赖锁定精确版本，不用 `^` / `~`；升级单独提交。
 - 加新依赖前先确认没有现成的能用，并在提交信息里说明理由。
 - 只有 `pi` 包能 import `@earendil-works/*`。
+
+## Swift（手机端）
+
+2026-10-25 定（MP1）。适用于 `apps/ios`（SwiftPM 包 `AtriumKit` 和 App 本体）。上文的通用规则照样适用：标识符和注释用英文、错误按边界区分、跨协议只传错误码、不吞错误、依赖锁精确版本、不为未来预留抽象；这里只写 Swift 特有的。工具都用 Xcode 自带的（Xcode 26.6：Swift 6.3、swift-format 6.3），不另装。
+
+### 格式化与静态检查
+
+- **格式化**：`swift format`（Xcode 自带的 swift-format），配置在 `apps/ios/.swift-format`：缩进 2 空格、行宽 120（和 oxfmt 一致），其余用默认。`pnpm ios:format` 改写文件；`pnpm check` 里跑 `swift format lint --strict`，只报不改。
+- **静态检查**以编译器为主：Swift 6 语言模式（完整的数据竞争检查），所有警告当错误（对齐 `oxlint --deny-warnings`）：`AtriumKit` 由 `scripts/ios.mjs` 给 `swift build` / `swift test` 加 `-Xswiftc -warnings-as-errors`，App 用 Xcode 的 `SWIFT_TREAT_WARNINGS_AS_ERRORS`。没写进 `Package.swift` 的 `treatAllWarnings(as: .error)`，因为 Xcode 编译本地包时带 `-suppress-warnings`，两个选项冲突、构建直接失败。swift-format 的 lint 在默认规则外另开：`AllPublicDeclarationsHaveDocumentation`、`BeginDocumentationCommentWithOneLineSummary`、`ValidateDocumentationComments`（写了 `- Parameters:` 就要和签名对上）、`NeverForceUnwrap`、`NeverUseForceTry`、`NeverUseImplicitlyUnwrappedOptionals`、`NoLeadingUnderscores`。测试里要解包用 `try #require(…)`，不用 `!`。
+- **不加 SwiftLint**（MP1 定）：它要用 Homebrew 另装、多一套版本要锁；我们要的规则里，风格和强制解包 swift-format 已经有，并发靠编译器，剩下的（每个声明都有文档注释、悬空 Task、不安全的并发豁免）swift-format 和 SwiftLint 都管不了，由下文的 `scripts/swift-lint.mjs` 做。以后真碰到要它的规则（复杂度、未使用代码的分析器等）再加。
+- **生成的代码**（`Sources/AtriumProtocol/Generated/`）不跑格式化和 lint：`pnpm check` 要逐字节比较它和生成器的输出，在没装 Xcode 的机器上也能比，所以不经过 swift-format；生成器自己保证输出整齐。
+
+### 文档注释
+
+对齐上文的 JSDoc 规则，写成 Swift 的文档标记（`///`）：
+
+1. **What**：第一句话说它做什么（第一段就是摘要）。
+2. **Why**：`- Remark:` 说为什么需要它、为什么这样设计（对应哪条规格或约束、绕开了什么坑）。
+3. **副作用**：`- SideEffects:` 列出对外部世界的影响（网络、钥匙串、文件、改共享状态、起 Task、注册定时器、写日志）；没有写 `- SideEffects: none`。Swift 的文档标记没有这个字段，是 Atrium 自己的约定，Xcode 的快速帮助里显示成一条普通的列表项。
+
+按需写 `- Parameters:`（多个参数时用复数形式、逐个缩进列出；swift-format 要求）、`- Parameter x:`（只有一个参数时）、`- Returns:`、`- Throws:`。
+
+```swift
+/// Decodes one frame from the host and hands it to the session it belongs to.
+///
+/// - Remark: The host may still send events for a session this client stopped watching a
+///   moment ago (SPEC-0005 "断线与恢复"), so those are dropped instead of failing the link.
+/// - SideEffects: Updates the session's state; logs a dropped frame.
+/// - Parameter frame: One frame's plaintext.
+/// - Returns: Whether a session took it.
+/// - Throws: `DecodingError` when the frame is not a host message.
+func deliver(_ frame: Data) throws -> Bool { … }
+```
+
+- **要写的**：类型（`struct`、`class`、`enum`、`actor`、`protocol`）、函数和方法（含嵌套函数）、`init`、`subscript`，不论访问级别。函数、`init`、`subscript` 三部分都要；类型只要第一句和 `- Remark:`，因为类型本身不执行代码，副作用写在它的 `init` 和方法上。`public` 的属性和枚举 case 另由 swift-format 要求有一行文档。
+- **豁免**：闭包（同 JSDoc 的内联匿名回调）、`extension` 本身（里面的声明照常写）、`typealias`、非 `public` 的属性和 case、`@Test` 函数和 `@Suite` 类型（靠测试标题说明，同 TypeScript 的测试用例）、UI 测试里以 `test` 开头的方法（XCTest 只认这个名字），以及生成的代码。
+- **检查**：`scripts/swift-lint.mjs`（`pnpm check` 里跑）。swift-format 的 `AllPublicDeclarationsHaveDocumentation` 只管 `public`、不看段落，不够用，所以另写这个小脚本：去掉注释和字符串后逐行找声明，要求紧挨在上面（中间只能隔着属性，如 `@MainActor`）有 `///` 注释，且有第一句、`- Remark:`，函数类再要 `- SideEffects:`。只认一行开头的声明，写法奇怪的宁可漏报不误报；语义是否写对靠审查。
+
+### 并发
+
+- **Swift 6 语言模式**，完整的数据竞争检查是编译错误。另开 Xcode 26 新工程默认的"Approachable Concurrency"里 Swift 6 还没默认的两项：`NonisolatedNonsendingByDefault`（不隔离的 `async` 函数在调用方的 actor 上跑，不再悄悄换线程）、`InferIsolatedConformances`。SwiftPM 里写在 `Package.swift` 的共用设置，App 用 `SWIFT_APPROACHABLE_CONCURRENCY = YES`。
+- **默认隔离**：`AtriumUI` 和 App 默认 `@MainActor`（`defaultIsolation(MainActor.self)`、`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`），界面代码本来就都在主线程，不用到处标；其余模块默认不隔离。
+- **状态放哪**：被几个任务同时碰的可变状态放进 `actor`（relay 连接、重连状态机，SPEC-0005 的 `AtriumRemote`）；只给界面用的状态放 `@MainActor @Observable` 的类；值类型和不可变的数据标 `Sendable`。不用 `@unchecked Sendable`、`nonisolated(unsafe)`、`@preconcurrency import`；确实要用时在上一行写 `// Unchecked: <理由>`，`scripts/swift-lint.mjs` 检查这行注释在不在，理由是否成立靠审查。这类豁免注释要紧挨着它豁免的那一行，所以写在文档注释和声明之间（`/// …`、`// Unchecked: …`、`final class X: @unchecked Sendable`），检查文档注释时会跳过它（2026-10-26 审查后定）。
+- **不留悬空的 Task**（对应 TypeScript 的 `no-floating-promises`）：优先用结构化并发（`async let`、`withTaskGroup`、`withDiscardingTaskGroup`，SwiftUI 的 `.task {}` 跟着视图取消）。确实要非结构化的 `Task { … }` / `Task.detached { … }`，把句柄存在拥有者身上，拥有者结束（`stop()`、断开、`deinit`）时 `cancel()`；真要"发出去不等"，在上一行写 `// Fire and forget: <为什么>`，错误在 Task 里自己处理并记日志。`scripts/swift-lint.mjs` 拦"没被赋值、上一行也没有这句注释"的 `Task {`、`Task.detached {`。
+- **取消**：耗时的操作（网络、握手、等待回执）都是 `async` 的并响应取消（`try Task.checkCancellation()`、`withTaskCancellationHandler`），对应 TypeScript 的 `AbortSignal`；取消后释放连接和定时器。
+- **时间一律注入**（对齐上文的 `Clock`）：等待、超时、心跳、退避用注入的 `any Clock<Duration>`（标准库的 `Clock` 协议，生产传 `ContinuousClock()`）的 `sleep(for:)`；要时间戳的地方注入 `now: @Sendable () -> Date`。不直接调 `Task.sleep`、`Date()`、`Timer`、`DispatchQueue.asyncAfter`，`scripts/swift-lint.mjs` 在 App 本体以外（`AtriumKit` 的源码和测试、UI 测试）都拦这几种写法；测试确实要真实时间时（例如量真实耗时），上一行写 `// Real time: <为什么>`（2026-10-26 审查后定，原先只查源码）。例外：App 本体（`apps/ios/Atrium/`）是组装层，同 Electron 主进程，可以直接用，并在文档注释里写明。测试用的手动推进的时钟，等第一段要等待的代码出现时（MP0 的心跳或 MP4 的重连）放进一个测试支持 target，现在不建。
+
+### 命名与组织
+
+- 一个文件一个主要类型，文件名同类型名（UpperCamelCase，Swift 的惯例，不用 kebab-case）。
+- 纯逻辑放 `AtriumKit` 的 target 里（能在 macOS 上 `swift test`），App 本体只做组装（`@main`、注入时钟和依赖）。模块之间的依赖见 [overview.md · 代码结构](overview.md#代码结构)。
+- 协议类型只由 `pnpm protocol:swift` 生成，不手改（[testing.md · Swift（手机端）](testing.md#swift手机端)）。

@@ -44,8 +44,9 @@ export default {
   thresholds: { high: 90, low: 80, break: 80 },
   tempDirName: ".stryker-tmp",
   // The app `pnpm package` builds holds framework symlinks the sandbox copy cannot follow, and no
-  // Node test uses it.
-  ignorePatterns: ["apps/desktop/out"],
+  // Node test uses it. SwiftPM's and Xcode's build folders under `apps/ios` hold sockets, which
+  // cannot be copied at all; the Swift fixtures the protocol tests read stay in.
+  ignorePatterns: ["apps/desktop/out", "apps/ios/**/.build"],
   // Stryker rewrites tsconfig paths in its sandbox through the TypeScript JS API, which TypeScript 7
   // no longer ships. The sandbox keeps the repository layout, so relative `extends` stay valid and
   // the rewrite can be skipped by pointing Stryker at a file that does not exist.

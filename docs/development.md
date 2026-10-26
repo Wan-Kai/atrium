@@ -12,6 +12,7 @@
 | Electron | 44.5.1（自带 Node 24.21、Chromium 152） | 宿主跑在它自带的 Node 里（`utilityProcess`） |
 | TypeScript | 7.0.2 | 原生实现，没有 JS 编译 API，依赖它的工具（如 Stryker 的 tsconfig 改写）要绕开 |
 | git | ≥ 2.38 | 合并状态的判定要用 `git merge-tree --write-tree` |
+| Xcode | 26.6（Swift 6.3、swift-format 6.3、iOS 26.5 模拟器） | 只有手机端（`apps/ios`）要；没装时 `pnpm check`、`pnpm test` 跳过 Swift 部分并提示，`pnpm test:ios`、`pnpm ios:*` 报错退出（2026-10-25，MP1） |
 | pi | 最低 1.0.1 | [pi-internals.md](research/pi-internals.md) 基于 1.0.1；M1.1 时本机装的是 1.0.2。pi 升级时先跑契约测试（`pnpm test:pi`） |
 
 依赖一律锁定精确版本，升级单独提交（[coding-standards.md](architecture/coding-standards.md#依赖)）。
@@ -66,10 +67,45 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | `pnpm pi:try "<提示词>"` | 用宿主的组件直接驱动真实 pi：读登录 shell 环境、找 pi、发一条提示词，在终端里流式打出回复，结束时给出 trace id（日志在 `~/.atrium/dev-logs`）。`--cwd <目录>` 指定工作目录，`--keep-session` 保留会话文件，`--inherit-env` 跳过登录 shell，`--` 之后的参数原样交给 pi。会真的调用模型 |
 | `pnpm check` | 格式、代码检查（含 JSDoc）、类型检查、knip、`pnpm boundary --all` |
 | `pnpm boundary [基准]` | 列出基准（默认 `git merge-base HEAD main`）以来的提交、未提交改动和未跟踪新文件碰到的外部边界：依赖增删改（标出非精确版本）、生产代码里新增和删掉的地址、环境变量、隐藏命令（标出是否已在 [security.md · 外部边界登记](architecture/security.md#外部边界登记) 登记）、`PROTOCOL_VERSION` 的变化（协议文件改了、版本没变时警告）、改动文件里的 `@sideEffects` 矛盾。新增了未登记的或非精确版本时退出码为 1。`--all` 拿全部生产代码对照登记表，接在 `pnpm check` 里 |
-| `pnpm break-check <cases.json>` | 破坏检查：按每个 case（`{ file, from, to, test, name, project? }`，`from` 在文件里恰好出现一次）把代码改坏，跑那个测试（`vitest run --project <project，默认 unit> <test> -t <name>`），打印 `CAUGHT` 或 `MISSED`，再改回去；有漏掉的退出码为 1。被中断时也会改回去（见上文"标准开发流程"第 4 步） |
+| `pnpm break-check <cases.json>` | 破坏检查：按每个 case（`{ file, from, to, test, name, project? }`，`from` 在文件里恰好出现一次）把代码改坏，跑那个测试（`vitest run --project <project，默认 unit> <test> -t <name>`），打印 `CAUGHT` 或 `MISSED`，再改回去；有漏掉的退出码为 1。被中断时也会改回去（见上文"标准开发流程"第 4 步）。Swift 的 case 写 `{ file, from, to, name, runner: "swift", filter, package? }`，跑 `swift test --filter <filter>`（2026-10-25 加，[testing.md · Swift（手机端）](architecture/testing.md#swift手机端)） |
+| `pnpm protocol:swift [--check]` | 从 `packages/protocol` 重新生成 Swift 的协议类型（`apps/ios/AtriumKit/Sources/AtriumProtocol/Generated/Protocol.swift`），再写出往返测试的夹具；`--check` 只在内存里生成、和提交的文件比，不一致退出码 1（接在 `pnpm check` 里）。遇到生成器不支持的 schema 构造时报错，写明位置（[testing.md · Swift（手机端）](architecture/testing.md#swift手机端)） |
+| `pnpm ios:format` | 用 Xcode 自带的 `swift format` 改写 `apps/ios` 下的 Swift 文件（生成的除外） |
+| `pnpm ios:build [--simulator]` | 用 `xcodebuild` 构建 App：默认给真机（`generic/platform=iOS`，带 `-allowProvisioningUpdates`，用 Xcode 里登录的免费账号签名），`--simulator` 给模拟器。产物在 `apps/ios/.build/xcode/`（不进 git） |
+| `pnpm ios:shot [--dark]` | 在模拟器 "Atrium iPhone 16 Pro" 上构建、装好、打开 App，设成浅色或深色，3 秒后截图到 `apps/ios/.build/shots/home-<light\|dark>.png`（不进 git）并打出路径；看界面的标准手段（testing.md"Swift（手机端）"） |
+| `pnpm ios:install` | 先 `pnpm ios:build`，再用 `xcrun devicectl` 装到连着的 iPhone 上并打开。没有配对过的 iPhone、或 iPhone 没连上（`devicectl` 里是 unavailable）时，在构建之前就报错，写明设备名、上次连接的时间和怎么连上。免费账号签的 App 7 天后打不开，到时重跑一次 |
 | `pnpm mutation:nightly:install` | 装上每晚的全量变异测试（见下文）；加 `uninstall` 卸掉 |
 
+真机第一次装（2026-10-26 实测，iPhone 16 Pro、iOS 26.6.1）：
+
+1. 手机用线连上、解锁，点"信任这台电脑"；`devicectl` 里显示 `unpaired` 时跑 `xcrun devicectl manage pair --device <udid>`，手机上会弹出确认。打开"设置 › 隐私与安全性 › 开发者模式"（会重启）。
+2. 第一次 `pnpm ios:install` 能装上但打不开，脚本会提示到"设置 › 通用 › VPN 与设备管理"里信任开发者，信任后再跑一次。
+3. 中国大陆的 iPhone 第一次联网会弹"允许使用无线数据"，选"无线局域网与蜂窝网络"。
+4. 免费账号只能给已经有描述文件的 bundle id 签名：命令行 `xcodebuild` 拿不到 Xcode 里登录的账号时（报"No Accounts"），新的 bundle id 会签不出来，要在 Xcode › Settings › Accounts 里重新登录一次。
+
 测试命令见 [testing.md · 命令](architecture/testing.md#命令)。
+
+### 手机端的确切命令
+
+2026-10-25 定（MP1）。agent 和人都直接用 `pnpm` 命令；下面是它们背后实际跑的（`scripts/ios.mjs`），写死在这里免得猜 scheme 和 destination。`<仓库>` 是仓库根目录，`<udid>` 是模拟器 "Atrium iPhone 16 Pro" 的 id（`xcrun simctl list devices available | grep "Atrium iPhone 16 Pro"`；没有时 `pnpm test:ios` 在最新的 iOS 运行时上用 `com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro` 建一个），`arch` 取本机的（Apple Silicon 是 `arm64`）。
+
+| pnpm 命令 | 实际跑的 |
+|---|---|
+| `pnpm test` 的 Swift 部分、`pnpm test:ios` 第一步 | `xcrun swift test --package-path <仓库>/apps/ios/AtriumKit --explicit-target-dependency-import-check error -Xswiftc -warnings-as-errors` |
+| `pnpm test:ios` 第二步（拿着模拟器锁，见下文） | `xcrun xcodebuild test -project <仓库>/apps/ios/Atrium.xcodeproj -scheme Atrium -destination id=<udid>,arch=arm64 -derivedDataPath <仓库>/apps/ios/.build/xcode -quiet` |
+| `pnpm ios:build` | `xcrun xcodebuild build -project <仓库>/apps/ios/Atrium.xcodeproj -scheme Atrium -configuration Debug -destination generic/platform=iOS -derivedDataPath <仓库>/apps/ios/.build/xcode -allowProvisioningUpdates -quiet`（`--simulator` 时 destination 是 `generic/platform=iOS Simulator`） |
+| `pnpm ios:install` | 先 `xcrun devicectl list devices --json-output <临时文件>` 找配对过、连得上的 iPhone，再跑上面的构建，然后 `xcrun devicectl device install app --device <手机 udid> <仓库>/apps/ios/.build/xcode/Build/Products/Debug-iphoneos/Atrium.app`、`xcrun devicectl device process launch --device <手机 udid> site.ktoon.atrium` |
+| `pnpm ios:shot` | 拿模拟器锁（见下文），构建（destination `id=<udid>,arch=arm64`），`simctl boot`、`simctl ui <udid> appearance light\|dark`、`simctl install`、`simctl launch --terminate-running-process <udid> site.ktoon.atrium`，等 3 秒，`simctl io <udid> screenshot <文件>` |
+| `pnpm ios:check`（`pnpm check` 的最后一步） | `node scripts/protocol-swift.mjs --check`；有 Xcode 时再跑 `xcrun swift-format lint --strict --parallel --configuration <仓库>/apps/ios/.swift-format --recursive <AtriumKit 的 Package.swift、Sources、Tests，Atrium/，AtriumUITests/>` 和 `node scripts/swift-lint.mjs apps/ios` |
+| `pnpm ios:format` | 同上的 `swift-format format --in-place` |
+
+**模拟器锁**（2026-10-26 审查后加）：几个 worktree 共用一台 "Atrium iPhone 16 Pro"，一个在截图时另一个装上自己的构建，就会截到或测到别的分支的 App。所以 `pnpm test:ios` 的第二步和 `pnpm ios:shot` 从找（或建）模拟器开始、到测完或截完为止，持有一把跨 worktree 的锁：`~/Library/Caches/atrium-ios/sim.lock`，用原子的 `mkdir` 建，里面的 `owner.json` 记着进程号、进程启动时间、worktree 和命令。
+
+- 别的 worktree 拿着时就等，先打一行"waiting for the Atrium simulator: pid … (pnpm ios:shot in <worktree>) is using it"，最多等 30 分钟，超时退出码 1。
+- 记录的进程已经不在（同一个进程号、同一个启动时间的进程找不到，进程号被别的进程重用也算），或者锁目录里 30 秒还没有 `owner.json`（建完目录就被杀了），就接管，打一行"took over the Atrium simulator from pid …"。接管时先把旧锁改名挪开再删，挪开后发现主人变了就放回去。
+- 进程退出时（含 Ctrl-C、`SIGTERM`）删掉自己的锁；被 `kill -9` 的留下的锁由下一个人接管。实在卡住时确认没有别的 `ios.mjs` 在跑（`ps -ef | grep scripts/ios.mjs`），再手动删这个目录。
+- `pnpm test` 里的 `swift test`、`pnpm ios:build`、`pnpm ios:install` 不碰模拟器，不拿锁。
+
+只跑一部分 Swift 测试：`swift test --package-path apps/ios/AtriumKit --filter <套件名或测试函数名>`（例：`--filter RoundTripTests`）。
 
 ## 夜间变异测试
 

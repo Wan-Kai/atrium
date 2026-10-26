@@ -44,12 +44,18 @@ async function scene() {
  * @param dir - Where the cases file goes.
  * @param runner - The stand-in for Vitest.
  * @param cases - The cases.
+ * @param xcrun - A stand-in for `xcrun`, for Swift cases.
  * @returns What it printed and its exit code.
  */
-async function check(dir: string, runner: string, cases: unknown) {
+async function check(dir: string, runner: string, cases: unknown, xcrun?: string) {
   const file = join(dir, "cases.json");
   await writeFile(file, JSON.stringify(cases));
-  return run(process.execPath, [script, file], { env: { ...process.env, ATRIUM_BREAK_CHECK_RUNNER: runner } }).then(
+  const env = {
+    ...process.env,
+    ATRIUM_BREAK_CHECK_RUNNER: runner,
+    ...(xcrun === undefined ? {} : { ATRIUM_BREAK_CHECK_XCRUN: xcrun }),
+  };
+  return run(process.execPath, [script, file], { env }).then(
     ({ stdout }) => ({ stdout, code: 0 }),
     (error: unknown) => ({
       stdout: String(Reflect.get(Object(error), "stdout")),
@@ -93,6 +99,59 @@ describe("break-check", () => {
       "not exactly once in add.ts: export",
       2,
       before,
+    ]);
+  });
+
+  it("runs swift test for Swift cases: a failing Swift test is caught, a broken build is not", async () => {
+    const { dir, source, runner } = await scene();
+    const swift = join(dir, "Add.swift");
+    await writeFile(swift, 'func add(_ a: Int, _ b: Int) -> Int { a + b }\nlet label = "sum"\nlet unused = 1\n');
+    const before = await readFile(swift, "utf8");
+    const xcrun = join(dir, "xcrun.mjs");
+    await writeFile(
+      xcrun,
+      [
+        'import { appendFileSync, readFileSync } from "node:fs";',
+        `appendFileSync(${JSON.stringify(join(dir, "runs.txt"))}, process.argv.slice(2).join(" ") + "\\n");`,
+        `const text = readFileSync(${JSON.stringify(swift)}, "utf8");`,
+        'if (text.includes("a - b")) { console.log(\'✘ Test "adds two numbers" failed after 0.001 seconds with 1 issue.\'); process.exit(1); }',
+        'if (text.includes("oops")) { console.error("Add.swift:2:13: error: cannot find \'oops\' in scope"); process.exit(1); }',
+        "console.log('✔ Test \"adds two numbers\" passed after 0.001 seconds.');",
+      ].join("\n"),
+    );
+
+    const result = await check(
+      dir,
+      runner,
+      [
+        { file: swift, from: "a + b", to: "a - b", runner: "swift", filter: "AddTests" },
+        { file: swift, from: '"sum"', to: "oops", runner: "swift", filter: "AddTests", package: "Kit" },
+        { file: swift, from: "= 1", to: "= 2", runner: "swift", filter: "AddTests" },
+      ],
+      xcrun,
+    );
+
+    expect([
+      result.stdout.trim().split("\n"),
+      result.code,
+      await readFile(swift, "utf8"),
+      (await readFile(join(dir, "runs.txt"), "utf8")).trim().split("\n"),
+      await readFile(source, "utf8"),
+    ]).toStrictEqual([
+      [
+        'CAUGHT | Add.swift | a + b -> ✘ Test "adds two numbers" failed',
+        "NOBUILD | Add.swift | \"sum\" -> Add.swift:2:13: error: cannot find 'oops' in scope",
+        "MISSED | Add.swift | = 1",
+        "2 of 3 missed",
+      ],
+      1,
+      before,
+      [
+        expect.stringMatching(/^swift test --package-path \S+\/apps\/ios\/AtriumKit --filter AddTests$/u),
+        "swift test --package-path Kit --filter AddTests",
+        expect.stringMatching(/^swift test --package-path \S+\/apps\/ios\/AtriumKit --filter AddTests$/u),
+      ],
+      "export const add = (a, b) => a + b;\nexport const label = 'sum';\n",
     ]);
   });
 });

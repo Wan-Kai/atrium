@@ -1,0 +1,12 @@
+// The app. Keep the bundle id and team: the keychain's pairing and drafts survive a weekly
+// re-install only with the same ones (SPEC-0005 "安装").
+PRODUCT_NAME = Atrium
+PRODUCT_BUNDLE_IDENTIFIER = site.ktoon.atrium
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+GENERATE_INFOPLIST_FILE = YES
+INFOPLIST_KEY_CFBundleDisplayName = Atrium
+INFOPLIST_KEY_UILaunchScreen_Generation = YES
+INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES
+INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait
+SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor

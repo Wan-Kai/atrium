@@ -8,7 +8,8 @@
 
 | 改了哪里 | 加跑 | 说明 |
 |---|---|---|
-| `packages/protocol` | 单元（protocol、client） | 改了线上的形状就把 `PROTOCOL_VERSION` 加一，在 SPEC 里写明；`envelope.test.ts` 的样例跟着改 |
+| `packages/protocol` | 单元（protocol、client） | 改了线上的形状就把 `PROTOCOL_VERSION` 加一，在 SPEC 里写明；`envelope.test.ts` 的样例跟着改；再跑 `pnpm protocol:swift` 重新生成 Swift 的类型和夹具，`pnpm test:ios` 确认往返测试过了，并想一下手机端要不要跟（SPEC-0005"风险"第 4 条） |
+| `apps/ios` | 单元（含 `swift test`）+ `pnpm test:ios` | 看得见的改动用 `pnpm ios:shot`、`pnpm ios:shot --dark` 截图看浅色、深色；动了签名、bundle id 或工程设置时跑一次 `pnpm ios:build`（真机构建）。手机连着时用 `pnpm ios:install` 装上看一眼 |
 | `packages/client` | 单元 | 客户端的状态同步改了时，宿主的 `sync/` 测试也跑 |
 | `packages/pi` | 单元 + `pnpm test:pi` | 依赖了 pi 的新行为，先写契约场景、用 faux 模型录夹具（`pnpm fixtures:record`，审查 diff）；本机 pi 升级了，先为新版本录夹具，再做别的 |
 | `packages/host` | 单元 + `pnpm test:host` | 动了进程、监听、定时器、订阅的，加跑 `pnpm test:leak` |

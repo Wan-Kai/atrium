@@ -1,5 +1,13 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
   "printWidth": 120,
-  "ignorePatterns": ["**/dist/**", "pnpm-lock.yaml", "reports/**", "docs/**", "**/test-results/**", ".bench/**"]
+  "ignorePatterns": [
+    "**/dist/**",
+    "pnpm-lock.yaml",
+    "reports/**",
+    "docs/**",
+    "**/test-results/**",
+    ".bench/**",
+    "apps/ios/AtriumKit/Tests/AtriumProtocolTests/Fixtures/**"
+  ]
 }

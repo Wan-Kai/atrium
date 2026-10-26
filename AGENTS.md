@@ -50,3 +50,5 @@ Atrium 是以 pi 为唯一内核的 macOS 桌面 coding agent。本文件给在�
 ## 常用命令
 
 `pnpm dev`、`pnpm check`、`pnpm test`（及 `test:pi`、`test:host`、`test:ui`、`test:e2e`、`test:leak`、`test:perf`、`test:package`、`test:stress`、`test:soak`）、`pnpm test:mutation [组…] [--mutate=<文件>]`、`pnpm break-check <cases.json>`、`pnpm boundary [基准]`、`pnpm package`、`pnpm usage`、`pnpm errors`、`pnpm bench`、`pnpm trace <trace id>`、`pnpm pi:try "<提示词>"`、`pnpm fixtures:record`、`pnpm readme:shots`。完整说明见 [development.md · 命令](docs/development.md#命令)，以 `package.json` 为准。
+
+手机端（`apps/ios`，要 Xcode 26.6）：`pnpm test:ios`、`pnpm ios:build [--simulator]`、`pnpm ios:install`、`pnpm ios:shot [--dark]`、`pnpm ios:format`、`pnpm protocol:swift [--check]`。不要自己猜 scheme 和 destination，它们是固定的，背后的确切命令见 [development.md · 手机端的确切命令](docs/development.md#手机端的确切命令)：工程 `apps/ios/Atrium.xcodeproj`，scheme `Atrium`，模拟器 "Atrium iPhone 16 Pro"，产物 `apps/ios/.build/xcode`。只改 Swift 逻辑时，`swift test --package-path apps/ios/AtriumKit --filter <名字>` 最快，不用起模拟器。
