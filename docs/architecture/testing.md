@@ -311,6 +311,8 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 - 不 mock 自己的模块；要隔离的依赖（时钟、连接、钥匙串）设计成协议注入，测试传替身，同 TypeScript 的 `PiProcess`、`Clock`。
 - 结果确定：时间经注入的时钟推进，不用 `Task.sleep` 等；随机数注入种子。
 - 测试资源（夹具）放在测试 target 的 `Fixtures/` 里，经 `Bundle.module` 读。
+- **看界面**：`pnpm ios:shot`、`pnpm ios:shot --dark` 在 "Atrium iPhone 16 Pro" 模拟器上装好、打开 App，截浅色、深色两张图到 `apps/ios/.build/shots/`。交付看得见的改动前都截两张自己看（acceptance.md"交给用户之前"）；截图里不放真实的项目名、对话和路径。要点开某一屏再截，先在 XCUITest 里走到那一屏、断言它的无障碍标识，再截图。
+- **不装 AXe**（MP1 定）：AXe（`cameroncooke/axe`）能在命令行读模拟器的无障碍树、按标签点按，方便 agent "点得动"。MP1 只有一个占位首页，没有要点的地方，`simctl io screenshot` 加 XCUITest 够用；MP4 有了配对、列表、对话几屏，手动走查变多时再评估，装了就在这里记精确版本。
 
 ### 协议类型的生成与往返测试
 
@@ -347,5 +349,6 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 | `pnpm check` | 格式、代码检查、类型检查、knip；Swift 的格式和静态检查、协议类型的比对（没有 Xcode 时跳过 Swift 部分并提示） |
 | `pnpm test:ios` | AtriumKit 的 `swift test`，加上 App 在 iOS 模拟器上的 UI 测试（要 Xcode） |
 | `pnpm protocol:swift` | 重新生成 Swift 的协议类型和往返测试的夹具；`--check` 只比对 |
+| `pnpm ios:shot [--dark]` | 在模拟器上打开 App 截图，看界面用 |
 
 仓库目前没有 CI，先靠 lefthook 和本地命令；推到 GitHub 后再接 CI。

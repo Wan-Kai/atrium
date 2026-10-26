@@ -194,7 +194,7 @@ describe("ios.mjs test", () => {
       "-scheme",
       "Atrium",
       "-destination",
-      "id=SIM-UDID",
+      expect.stringMatching(/^id=SIM-UDID,arch=(?:arm64|x86_64)$/u),
       "-derivedDataPath",
       expect.stringMatching(/\.build\/xcode$/u),
       "-quiet",
@@ -219,7 +219,7 @@ describe("ios.mjs test", () => {
       "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro",
       "com.apple.CoreSimulator.SimRuntime.iOS-26-10",
     ]);
-    expect(result.calls.at(-1)).toContain("id=NEW-SIM-UDID");
+    expect(result.calls.at(-1)?.join(" ")).toContain("id=NEW-SIM-UDID,arch=");
   });
 });
 

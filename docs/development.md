@@ -71,10 +71,27 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | `pnpm protocol:swift [--check]` | 从 `packages/protocol` 重新生成 Swift 的协议类型（`apps/ios/AtriumKit/Sources/AtriumProtocol/Generated/Protocol.swift`），再写出往返测试的夹具；`--check` 只在内存里生成、和提交的文件比，不一致退出码 1（接在 `pnpm check` 里）。遇到生成器不支持的 schema 构造时报错，写明位置（[testing.md · Swift（手机端）](architecture/testing.md#swift手机端)） |
 | `pnpm ios:format` | 用 Xcode 自带的 `swift format` 改写 `apps/ios` 下的 Swift 文件（生成的除外） |
 | `pnpm ios:build [--simulator]` | 用 `xcodebuild` 构建 App：默认给真机（`generic/platform=iOS`，带 `-allowProvisioningUpdates`，用 Xcode 里登录的免费账号签名），`--simulator` 给模拟器。产物在 `apps/ios/.build/xcode/`（不进 git） |
+| `pnpm ios:shot [--dark]` | 在模拟器 "Atrium iPhone 16 Pro" 上构建、装好、打开 App，设成浅色或深色，3 秒后截图到 `apps/ios/.build/shots/home-<light\|dark>.png`（不进 git）并打出路径；看界面的标准手段（testing.md"Swift（手机端）"） |
 | `pnpm ios:install` | 先 `pnpm ios:build`，再用 `xcrun devicectl` 装到连着的 iPhone 上并打开。没有配对过的 iPhone、或 iPhone 没连上（`devicectl` 里是 unavailable）时，在构建之前就报错，写明设备名、上次连接的时间和怎么连上。免费账号签的 App 7 天后打不开，到时重跑一次 |
 | `pnpm mutation:nightly:install` | 装上每晚的全量变异测试（见下文）；加 `uninstall` 卸掉 |
 
 测试命令见 [testing.md · 命令](architecture/testing.md#命令)。
+
+### 手机端的确切命令
+
+2026-10-25 定（MP1）。agent 和人都直接用 `pnpm` 命令；下面是它们背后实际跑的（`scripts/ios.mjs`），写死在这里免得猜 scheme 和 destination。`<仓库>` 是仓库根目录，`<udid>` 是模拟器 "Atrium iPhone 16 Pro" 的 id（`xcrun simctl list devices available | grep "Atrium iPhone 16 Pro"`；没有时 `pnpm test:ios` 在最新的 iOS 运行时上用 `com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro` 建一个），`arch` 取本机的（Apple Silicon 是 `arm64`）。
+
+| pnpm 命令 | 实际跑的 |
+|---|---|
+| `pnpm test` 的 Swift 部分、`pnpm test:ios` 第一步 | `xcrun swift test --package-path <仓库>/apps/ios/AtriumKit --explicit-target-dependency-import-check error -Xswiftc -warnings-as-errors` |
+| `pnpm test:ios` 第二步 | `xcrun xcodebuild test -project <仓库>/apps/ios/Atrium.xcodeproj -scheme Atrium -destination id=<udid>,arch=arm64 -derivedDataPath <仓库>/apps/ios/.build/xcode -quiet` |
+| `pnpm ios:build` | `xcrun xcodebuild build -project <仓库>/apps/ios/Atrium.xcodeproj -scheme Atrium -configuration Debug -destination generic/platform=iOS -derivedDataPath <仓库>/apps/ios/.build/xcode -allowProvisioningUpdates -quiet`（`--simulator` 时 destination 是 `generic/platform=iOS Simulator`） |
+| `pnpm ios:install` | 先 `xcrun devicectl list devices --json-output <临时文件>` 找配对过、连得上的 iPhone，再跑上面的构建，然后 `xcrun devicectl device install app --device <手机 udid> <仓库>/apps/ios/.build/xcode/Build/Products/Debug-iphoneos/Atrium.app`、`xcrun devicectl device process launch --device <手机 udid> site.ktoon.atrium` |
+| `pnpm ios:shot` | 构建（destination `id=<udid>,arch=arm64`），`simctl boot`、`simctl ui <udid> appearance light\|dark`、`simctl install`、`simctl launch --terminate-running-process <udid> site.ktoon.atrium`，等 3 秒，`simctl io <udid> screenshot <文件>` |
+| `pnpm ios:check`（`pnpm check` 的最后一步） | `node scripts/protocol-swift.mjs --check`；有 Xcode 时再跑 `xcrun swift-format lint --strict --parallel --configuration <仓库>/apps/ios/.swift-format --recursive <AtriumKit 的 Package.swift、Sources、Tests，Atrium/，AtriumUITests/>` 和 `node scripts/swift-lint.mjs apps/ios` |
+| `pnpm ios:format` | 同上的 `swift-format format --in-place` |
+
+只跑一部分 Swift 测试：`swift test --package-path apps/ios/AtriumKit --filter <套件名或测试函数名>`（例：`--filter RoundTripTests`）。
 
 ## 夜间变异测试
 

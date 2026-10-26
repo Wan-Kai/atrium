@@ -21,6 +21,8 @@ const derivedData = join(ios, ".build", "xcode");
 const bundleId = "site.ktoon.atrium";
 const simulatorName = "Atrium iPhone 16 Pro";
 const simulatorType = "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro";
+/** A simulator runs both arm64 and x86_64 apps; naming this Mac's keeps `xcodebuild` from picking. */
+const simulatorArch = process.arch === "arm64" ? "arm64" : "x86_64";
 /** What `swift-format` reads; the generated file opts out with `swift-format-ignore-file`. */
 const swiftPaths = [
   join(kit, "Package.swift"),
@@ -273,7 +275,7 @@ function install() {
  * Runs the app's UI tests on the Atrium simulator.
  *
  * @remarks
- * By its id, so `xcodebuild` does not pick between the arm64 and x86_64 destinations of one name.
+ * By its id and this Mac's architecture, so `xcodebuild` has exactly one destination.
  *
  * @sideEffects Builds and runs the UI tests in the simulator.
  * @returns {number} The exit code.
@@ -288,7 +290,7 @@ function testApp() {
     "-scheme",
     "Atrium",
     "-destination",
-    `id=${udid}`,
+    `id=${udid},arch=${simulatorArch}`,
     "-derivedDataPath",
     derivedData,
     "-quiet",
@@ -342,7 +344,7 @@ function check() {
  */
 function shot() {
   const { udid, state } = simulator();
-  build(`id=${udid}`);
+  build(`id=${udid},arch=${simulatorArch}`);
   if (state !== "Booted") must(["simctl", "boot", udid]);
   must(["simctl", "bootstatus", udid, "-b"], { capture: true });
   const appearance = process.argv.includes("--dark") ? "dark" : "light";
