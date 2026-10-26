@@ -4,7 +4,7 @@ import pino from "pino";
 import { expect, onTestFinished } from "vitest";
 import { ResourceTracker } from "../../src/platform/resources";
 import { parseVault, type RemoteDocument, type VaultContents } from "../../src/remote/devices";
-import { RemoteService } from "../../src/remote/remote-service";
+import { RemoteService, type RemoteOptions } from "../../src/remote/remote-service";
 import type { VaultPort, VaultRead, VaultWrite } from "../../src/remote/vault";
 import type { ClientTransport, TransportOrigin } from "../../src/server/transport";
 import { FakePhone, type PhoneSession } from "./fake-phone";
@@ -126,7 +126,7 @@ export async function serviceFixture(relayOptions: { readonly newStreamsPerIpPer
   const events: Array<{ id: string; event: RemoteUpdatedEvent }> = [];
   const logs: Record<string, unknown>[] = [];
   const phones: FakePhone[] = [];
-  const service = new RemoteService({
+  const serviceOptions: RemoteOptions = {
     vault,
     clock,
     resources,
@@ -155,7 +155,8 @@ export async function serviceFixture(relayOptions: { readonly newStreamsPerIpPer
       });
       accepted.push(item);
     },
-  });
+  };
+  let service = new RemoteService(serviceOptions);
   onTestFinished(async () => {
     vault.release();
     await Promise.all(phones.map((phone) => phone.dispose()));
@@ -167,7 +168,26 @@ export async function serviceFixture(relayOptions: { readonly newStreamsPerIpPer
   await service.set(true, relay.line);
   await expect.poll(() => service.get("observer", undefined).relay?.status).toBe("connected");
   return {
-    service,
+    /**
+     * Returns the current service generation.
+     * @remarks Restart tests retain the same public fixture handle and persisted stores.
+     * @sideEffects none
+     * @returns The currently running service.
+     */
+    get service(): RemoteService {
+      return service;
+    },
+    /**
+     * Recreates the service from its saved switch and vault.
+     * @remarks Calls the production start path, never set(true), so lost persistence cannot be masked.
+     * @sideEffects Closes existing channels and starts a fresh service over the same stores.
+     * @returns Once the old service has drained and the new service has started loading.
+     */
+    async restart(): Promise<void> {
+      await service.close();
+      service = new RemoteService(serviceOptions);
+      service.start();
+    },
     relay,
     vault,
     clock,
