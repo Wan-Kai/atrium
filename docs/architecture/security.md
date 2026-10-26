@@ -116,7 +116,7 @@ MP3a，协议见 [SPEC-0005](../specs/0005-mobile-app-and-remote-access.md)。�
 **脚本怎么认**（按语法树，注释和正则字面量都不算）：
 
 - 地址：字符串、模板字符串（`${…}` 记成 `*`）、JSX 文字里 `http://`、`https://`、`ws://`、`wss://` 开头的地址，去掉句末标点。
-- 环境变量：环境对象（名字是 `env`、`environment` 或以 `Env` 结尾，如 `process.env`、`options.env`；`import.meta.env` 是 Vite 的构建常量，除外）上按名字取的和解构的；展开了环境对象、作为 `env` 选项或存进环境对象名下的对象字面量的键；全大写带下划线的字符串（以下划线结尾的是前缀，记成 `ATRIUM_*`）；全是全大写名字、至少一个带下划线的字符串数组的每一项。后两种不算 `ERR_` 开头的：那是 Node 的错误码（如 `ERR_STREAM_PREMATURE_CLOSE`），拿来和 `error.code` 比，不是环境变量（2026-10-23 审查后加）；在环境对象上按名字取的照样算。
+- 环境变量：环境对象（名字是 `env`、`environment` 或以 `Env` 结尾，如 `process.env`、`options.env`；`import.meta.env` 是 Vite 的构建常量，除外）上按名字取的和解构的；展开了环境对象、作为 `env` 选项或存进环境对象名下的对象字面量的键；全大写带下划线的字符串（以下划线结尾的是前缀，记成 `ATRIUM_*`）；全是全大写名字、至少一个带下划线的字符串数组的每一项。后两种不算 `ERR_` 开头的：那是 Node 的错误码（如 `ERR_STREAM_PREMATURE_CLOSE`），拿来和 `error.code` 比，不是环境变量（2026-10-23 审查后加）。MP3a 的 relay 诊断还精确排除这些 Node 错误码字符串：`CERT_HAS_EXPIRED`、`CERT_NOT_YET_VALID`、`CERT_SIGNATURE_FAILURE`、`DEPTH_ZERO_SELF_SIGNED_CERT`、`SELF_SIGNED_CERT_IN_CHAIN`、`UNABLE_TO_GET_ISSUER_CERT`、`UNABLE_TO_GET_ISSUER_CERT_LOCALLY`、`UNABLE_TO_VERIFY_LEAF_SIGNATURE`、`EAI_AGAIN`、`EAI_FAIL`，以及用于匹配 HTTP 解析错误的字面量 `HPE_`（原先会记成 `HPE_*`）；不按 `CERT_`、`EAI_` 或 `HPE_` 前缀豁免其他名字。在环境对象上按名字取、解构或作为环境对象字面量键的照样算，包括这些错误码名字。
 - 隐藏命令：`registerCommand(…)` 的第一个参数（字符串，或本文件、相对导入的文件里的字符串常量），记成 `/名字`。
 
 表格第一列反引号里的值和脚本找到的按原文精确比对，改表格的格式要同步改脚本。只看代码认不出来的边界（拼出来的地址、按变量名取的环境变量）照样要登记，靠审查发现。拼出来的地址在第一列反引号后面写 `（拼出）`，反引号里用 `<…>` 写出地址的根从哪来：脚本不拿这类行和代码比对，`--all` 也不把它们当成"登记了、代码里找不到"来提示（2026-10-23 审查后加）。
