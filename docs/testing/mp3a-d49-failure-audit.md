@@ -1,12 +1,48 @@
-# d49 变异失败审计：测试超时与附带错误
+# d49 变异失败审计：失败证据缺口、测试超时与附带错误
 
-对应冻结 `d49fbbb`、单次已结束运行；没有额外复跑、加时或修改测试。两路只读审计逐身份对照实际JSON、日志、源码与失败测试。70项Killed含真实Vitest Test/Hook timeout，另18项错误候选有16项重叠，共72个不同记录。以下不是Stryker Timeout名单；唯一fresh Stryker Timeout1754另见主报告。
+对应冻结 `d49fbbb`、单次已结束运行；没有额外复跑、加时或修改测试。原先本lane两路只读审计仅筛查70项Killed中的真实Vitest Test/Hook timeout及18项其他错误候选，16项重叠，共72个记录；这不是对全部Killed的失败证据完备性检查。父/Opus随后指出11项空计数输出，追加对全部1008个fresh Killed的只读核对，见下节。唯一fresh Stryker Timeout1754另见主报告。
 
-**证据限制**：源码能解释每项变异致错路径，但部分只有测试截止，具体等待点来自源码而不是现场挂起栈；次级hook卡点未全部定位，不能宣称完全无flaky。898的另一个host-connection缺warn日志门禁失败、1505的ENOTEMPTY清理错误原因未定，均保留且不拿来充当变异证据。878超时后继续执行的结果/资源断言不是独立的超时前证明。
+**审查归属**：原72候选由本lane两路只读审计；父/Opus限定复核固定范围120项、C区间7条依赖测试超时的记录，以及898/1505/1754，没有全量复核其余约60条测试超时。不得将本lane判断写成父或Opus逐项认可。
+
+**证据限制**：以下原72候选有源码支持的致错路径解释，但部分只有测试截止，具体等待点来自源码而不是现场挂起栈；次级hook卡点未全部定位，不能宣称完全无flaky。898的另一个host-connection缺warn日志门禁失败、1505的ENOTEMPTY清理错误原因未定，均保留且不拿来充当变异证据。878超时后继续执行的结果/资源断言不是独立的超时前证明。
 
 完整原文在 `reports/stryker-incremental-remote-d49fbbb.json` 的statusReason，以及 `/tmp/mp3a-d49-analysis/{killed-timeout-audit,other-killed-audit-candidates}.json`。表中只列前两项失败用例；不能据此认为没有其他失败。
 
 service守卫缩写：A为错误kind，B为request不存在，C为代次不同，D为remoteStatic空，E为handshakeHash空。
+
+## 追加：11个Killed缺少具体失败证据
+
+直接以权威报告的两个强制文件重新扫描全部 **1008个fresh Killed**，并与原fresh清单逐记录核对：997项均有FAIL记录、失败数量汇总及错误标题；另11项完全没有这些标记，也没有Unhandled段，正是下表11项，未发现其他同形空输出。该扫描只确认日志标记是否存在，**不代表已人工确认另外997项的全部因果**。这11项与原72候选不重叠，也不在四个固定区间及其并集内。
+
+11项原始`statusReason`均为233个字符：RUN头、空白行、`Test Files   (24)`、`Tests   (N)`、Start at、Duration及transform/import/worker百分比；通过/失败计数为空。括号中的数字不能解读为通过或已完成数量。均带`status: Killed`、`testsCompleted: 1`、`killedBy: ["0"]`；0是command runner唯一虚拟`All tests`，不是具体失败测试的证据。
+
+1375的完整reason形状（JSON转义原样，保留空白；其余仅下表时间、括号数字和耗时部分不同）：
+
+```json
+"\n\n RUN  v5.0.3 /Users/ktoon/Documents/MT/projects/atrium.worktrees/mp3a-host/.stryker-tmp/sandbox-G98NoC\n\n\n\n\n\n Test Files   (24)\n\n      Tests   (45)\n\n   Start at  04:56:08\n\n   Duration  710ms (transform 69%, import 30%, worker 1%)\n\n\n"
+```
+
+全部位于`remote-service.ts`；Start at保留reason原样，不推断时区。位置为原报告起点。
+
+| ID / 行:列 | 原报告替换 | Tests括号 | Start at | Duration / transform / import / worker |
+|---|---|---:|---|---|
+| 1375 / 385:9 | 条件→true | 45 | 04:56:08 | 710ms / 69% / 30% / 1% |
+| 1446 / 426:9 | `this.#vault === "ok"` | 45 | 05:01:25 | 509ms / 60% / 40% / 1% |
+| 1449 / 426:33 | `this.#contents !== null` | 45 | 05:01:44 | 510ms / 59% / 40% / 1% |
+| 1462 / 443:55 | 方法体→`{}` | 45 | 05:03:51 | 519ms / 59% / 40% / 1% |
+| 1465 / 444:9 | `this.#store !== null` | 45 | 05:04:11 | 518ms / 59% / 40% / 1% |
+| 1468 / 446:9 | `result.ok` | 45 | 05:04:29 | 507ms / 60% / 40% / 1% |
+| 1504 / 472:9 | 条件→true | 13 | 05:07:23 | 497ms / 57% / 42% / 1% |
+| 1513 / 480:32 | 对象→`{}` | 45 | 05:09:03 | 542ms / 61% / 39% / 1% |
+| 1530 / 506:5 | `probe.controller` | 45 | 05:11:51 | 521ms / 60% / 40% / 1% |
+| 1533 / 511:11 | `link.stop` | 45 | 05:12:11 | 522ms / 59% / 40% / 1% |
+| 1863 / 821:5 | `this.#cancelHandshakeNotice()` | 43 | 05:43:27 | 497ms / 60% / 40% / 1% |
+
+**无法据此确认是崩溃、bail、输出截断或具体断言失败**；这些字段没有提供对应的退出信号、异常栈、失败测试名或断言。不能凭某替换静态上可能抛错，就把它补写成现场证据。原JSON的Killed分类不改，不把11项另标Survived或ignore，也不追加运行强行找原因。
+
+保留全部分母，仅不给这11项检出信用的**敏感性计算**：fresh `(1008−11＋1)/1169＝85.37%`，service `(780−11＋1)/916＝84.06%`；连T也不计时分别`997/1169＝85.29%`、`769/916＝83.95%`。它们仍>80%，但不是新测试成绩，也不能替代原Stryker分类或证明这11项被行为断言检出。四个固定区间均无这11项，不调整那些分数。
+
+原始11条完整记录（不改reason）与扫描/计算附件：`reports/mp3a-d49-missing-failure-evidence.json`、`reports/mp3a-d49-evidence-sensitivity.json`；权威原报告及此前manifest未改。
 
 ## packages/host/src/remote/relay-link.ts
 
