@@ -179,6 +179,7 @@ protocol  ←──  pi  ←──  host
 | relay | ws、zod | 任何内部包（testkit 只作开发依赖，测试里用假时钟） | package.json 没声明；它部署在另一台机器上，Clock 和资源计数各写一份小的，不从宿主拿 |
 | testkit | protocol | 其他内部包；被生产代码依赖 | 避免和被测包形成循环依赖；knip、oxlint 检查 |
 
+- **RelayLink 的公开回调所有权**：`onState` 是同步公开回调，允许在终态通知中调用 `retryNow()` 或 `stop()`。旧连接尝试只能结算进入该终态时已有的等待者；回调中新建的 retry 必须等新连接的 ready/失败，不能被旧结果结算。回调已经启动新代或停止后，旧 close 不能再挂自动重试 timer；正常自动 backoff 保持。旧 live check 的迟到结果不覆盖停止后或新代的诊断，不额外发布通知。此约束来自真实 socket 的模块公开边界复现，不表示当前 Electron UI 已复现该重入路径。
 - **MP3a 远程边界**：`server/transport.ts`、`server/router.ts` 声明传输和管理命令接口；`remote/` 只依赖这些类型，不 import 服务器实现；`main.ts` 注入 `RunningServer.accept`、订阅表的定向发送、Clock、资源计数和 VaultPort。服务器不 import `remote/`，继续共用会话/工作区服务。主进程 `main/vault.ts` 只处理固定 vault 文件的加解密与有版本的 IPC，不 import 宿主代码。独立宿主不触碰 safeStorage，未启用时不自动读保险箱（显式配置、测试、重置除外）。
 - **回复翻译的边界（M1.11 自用后补充）**：`sessions/reply-translation.ts` 只管理按连接归属的一次性翻译及取消，不控制原会话运行；`SessionManager.replyTranslationSource` 同步提取当前分支已结束轮的正文和当前模型，`main.ts` 注入偏好语言及 pi 一次性调用。服务不依赖 server，router 传连接 id，WebSocket 断开和宿主关闭调用取消；无翻译索引或历史字段。UI 的 `chat/reply-translation.tsx` 只在回复组件内存中保存结果，客户端等待之前的取消清理后再发送新请求，不跨重连补发；设置只写 `translationLanguage`。
 - **回复增强的 UI 内部边界（2026-10-20）**：`chat/file-opener.ts` 只声明当前工作区的惰性打开能力，供工具胶囊与 Markdown 引用共同使用；不从 Markdown 反向 import 步骤组件。文件路径的工作区校验与打开仍由 ConversationArea 组装；`state/workspace-views.ts` 保存窗口内的一次性行范围导航，FileViewer 在读取和恢复滚动后按实际行元素消费，不增加宿主命令或持久索引字段。JSON 使用精确锁定的 `jsonc-parser@3.3.1` 的 scanner/AST（严格 JSON，不接受注释），通过源码位置展示数值和属性，CSV 用受限状态机；两者都不引入脚本执行或网络能力。

@@ -56,6 +56,17 @@ function paddedControl(type: string, bytes: number): string {
   return JSON.stringify({ ...value, padding: "x".repeat(bytes - Buffer.byteLength(JSON.stringify(value))) });
 }
 
+/** Selects the first public failure notification. @remarks Reentry scenarios act at a deterministic terminal transition, not while connecting. @sideEffects Calls the supplied action once. */
+function onFirstError(action: () => void): (state: LinkState) => void {
+  let called = false;
+  return (state) => {
+    if (state.status === "error" && !called) {
+      called = true;
+      action();
+    }
+  };
+}
+
 describe("RelayLink", () => {
   it("accepts a 70 KiB control frame but rejects one extra byte on the same socket", async () => {
     const f = await fixture();
@@ -154,6 +165,160 @@ describe("RelayLink", () => {
       token: "unknown",
       failure: null,
     });
+  });
+
+  it("keeps a retry requested synchronously by onState pending until its new socket authenticates", async () => {
+    const f = await fixture(false);
+    const retryResults: (string | null)[] = [];
+    const states: LinkState[] = [];
+    const evidence = {
+      kind: "connect",
+      checkedAt: 100,
+      network: "passed",
+      resolution: "not_applicable",
+      tls: "not_applicable",
+      token: "passed",
+      failure: null,
+    };
+    let reconnecting: Promise<string | null> | undefined;
+    const retryOnError = onFirstError(() => {
+      reconnecting = link.retryNow().then((result) => {
+        retryResults.push(result);
+        return result;
+      });
+    });
+    const link = new RelayLink({
+      endpoint: f.endpoint,
+      clock: f.clock,
+      resources: f.resources,
+      logger: pino({ level: "silent" }),
+      onState: (state) => {
+        states.push(state);
+        retryOnError(state);
+      },
+      onStream: (id) => f.streams.push(id),
+    });
+    cleanup.push(() => link.stop());
+    link.start();
+    await expect.poll(() => f.messages.length).toBe(1);
+    const oldSocket = f.sockets[0]!;
+    oldSocket.send('{"type":"ready"}');
+    await expect.poll(() => link.state.status).toBe("connected");
+    const ping = once(oldSocket, "ping");
+    const oldCheck = link.retryNow();
+    await ping;
+    expect(link.diagnostics).toStrictEqual(evidence);
+    f.clock.advance(1);
+    // The close notification starts the new generation before the old check's promise continuation.
+    oldSocket.close(4401);
+    expect(await oldCheck).toBe("relay_rejected");
+    await expect.poll(() => f.messages.length).toBe(2);
+    expect.soft(states).toStrictEqual([
+      { status: "connecting", error: null, lastConnectedAt: null },
+      { status: "connected", error: null, lastConnectedAt: 100 },
+      { status: "error", error: "relay_rejected", lastConnectedAt: 100 },
+      { status: "connecting", error: "relay_rejected", lastConnectedAt: 100 },
+    ]);
+    expect.soft(link.diagnostics).toStrictEqual(evidence);
+    expect.soft(retryResults).toStrictEqual([]);
+    expect.soft(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 1 });
+    f.sockets[1]!.send('{"type":"ready"}');
+    await expect.poll(() => link.state.status).toBe("connected");
+    await reconnecting;
+    expect.soft(retryResults).toStrictEqual([null]);
+    expect.soft(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 1 });
+    expect(link.diagnostics).toStrictEqual({ ...evidence, checkedAt: 101 });
+    expect(states).toHaveLength(5);
+    expect(states[4]).toStrictEqual({ status: "connected", error: null, lastConnectedAt: 101 });
+    // A subsequent frame proves duplicate ready was consumed without settling or notifying again.
+    f.sockets[1]!.send('{"type":"ready"}');
+    f.sockets[1]!.send(JSON.stringify({ type: "open", streamId: "e".repeat(32) }));
+    await expect.poll(() => f.streams).toStrictEqual(["e".repeat(32)]);
+    expect(retryResults).toStrictEqual([null]);
+    expect(states).toHaveLength(5);
+    expect(link.diagnostics).toStrictEqual({ ...evidence, checkedAt: 101 });
+    expect(f.clock.pendingTimers()).toBe(1);
+    await link.stop();
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+    await expect.poll(() => f.server.clients.size).toBe(0);
+    expect(f.clock.pendingTimers()).toBe(0);
+    expect(f.sockets.map((socket) => socket.readyState)).toStrictEqual([WebSocket.CLOSED, WebSocket.CLOSED]);
+  });
+
+  it("settles only the failed attempt's waiters before onState starts another retry", async () => {
+    const f = await fixture();
+    const outcomes: (string | null)[] = [];
+    let reconnecting: Promise<string | null> | undefined;
+    const link = new RelayLink({
+      endpoint: f.endpoint,
+      clock: f.clock,
+      resources: f.resources,
+      logger: pino({ level: "silent" }),
+      onState: onFirstError(() => {
+        reconnecting = link.retryNow().then((result) => {
+          outcomes.push(result);
+          return result;
+        });
+      }),
+      onStream: () => {},
+    });
+    cleanup.push(() => link.stop());
+    link.start();
+    await expect.poll(() => f.messages.length).toBe(1);
+    const oldRetry = link.retryNow();
+    f.sockets[0]!.close(4401);
+    expect(await oldRetry).toBe("relay_rejected");
+    await expect.poll(() => f.messages.length).toBe(2);
+    expect(outcomes).toStrictEqual([]);
+    expect(link.state).toStrictEqual({ status: "connecting", error: "relay_rejected", lastConnectedAt: null });
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 1 });
+    f.sockets[1]!.send('{"type":"ready"}');
+    await expect.poll(() => link.state.status).toBe("connected");
+    await reconnecting;
+    expect(outcomes).toStrictEqual([null]);
+    await link.stop();
+    await expect.poll(() => f.server.clients.size).toBe(0);
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+    expect(f.clock.pendingTimers()).toBe(0);
+  });
+
+  it("does not leave a retry timer when onState synchronously stops a failed attempt", async () => {
+    const f = await fixture(false);
+    const states: LinkState[] = [];
+    let stopping: Promise<void> | undefined;
+    const stopOnError = onFirstError(() => {
+      stopping = link.stop();
+    });
+    const link = new RelayLink({
+      endpoint: f.endpoint,
+      clock: f.clock,
+      resources: f.resources,
+      logger: pino({ level: "silent" }),
+      onState: (state) => {
+        states.push(state);
+        stopOnError(state);
+      },
+      onStream: () => {},
+    });
+    cleanup.push(() => link.stop());
+    link.start();
+    await expect.poll(() => f.messages.length).toBe(1);
+    const waiting = link.retryNow();
+    f.sockets[0]!.close(4401);
+    expect(await waiting).toBe("relay_rejected");
+    await stopping;
+    await expect.poll(() => f.server.clients.size).toBe(0);
+    expect(f.sockets[0]!.readyState).toBe(WebSocket.CLOSED);
+    expect(states).toStrictEqual([
+      { status: "connecting", error: null, lastConnectedAt: null },
+      { status: "error", error: "relay_rejected", lastConnectedAt: null },
+    ]);
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+    expect(f.clock.pendingTimers()).toBe(0);
+    f.clock.advance(LINK_PING_MS + READY_TIMEOUT_MS);
+    expect(f.sockets).toHaveLength(1);
+    expect(states).toHaveLength(2);
+    expect(await link.retryNow()).toBe("relay_unreachable");
   });
 
   it("keeps completed diagnostics and notifications unchanged when stop settles a pending live check", async () => {

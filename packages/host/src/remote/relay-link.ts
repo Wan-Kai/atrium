@@ -295,7 +295,6 @@ export class RelayLink {
       else diagnostics.dispose();
       logger.info({ host_id: endpoint.hostId, code, ready }, "relay connection closed");
       if (!this.#stopped) {
-        this.#setState({ status: "error", error, lastConnectedAt: this.#lastConnectedAt });
         const wait = this.#backoff;
         this.#backoff = Math.min(this.#backoff * 2, MAX_BACKOFF_MS);
         this.#cancelRetry = trackedTimeout(
@@ -307,6 +306,8 @@ export class RelayLink {
           },
           wait,
         );
+        // A synchronous retry or stop must be able to cancel this attempt's backoff.
+        this.#setState({ status: "error", error, lastConnectedAt: this.#lastConnectedAt });
       }
       closed.resolve();
     });
@@ -323,8 +324,9 @@ export class RelayLink {
    */
   #setState(state: LinkState): void {
     this.#state = state;
-    this.#options.onState(state);
+    // Settle this attempt before a public callback can register the next attempt's waiters.
     if (state.status !== "connecting") for (const waiter of this.#waiters.splice(0)) waiter(state);
+    this.#options.onState(state);
   }
 }
 

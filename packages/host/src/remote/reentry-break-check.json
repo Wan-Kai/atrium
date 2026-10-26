@@ -1,0 +1,23 @@
+[
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "if (state.status !== \"connecting\") for (const waiter of this.#waiters.splice(0)) waiter(state);\n    this.#options.onState(state);",
+    "to": "this.#options.onState(state);\n    if (state.status !== \"connecting\") for (const waiter of this.#waiters.splice(0)) waiter(state);",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "keeps a retry requested synchronously|settles only the failed attempt"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "if (!this.#stopped) {\n        const wait = this.#backoff;\n        this.#backoff = Math.min(this.#backoff * 2, MAX_BACKOFF_MS);\n        this.#cancelRetry = trackedTimeout(\n          clock,\n          resources,\n          () => {\n            this.#cancelRetry = null;\n            this.#connect();\n          },\n          wait,\n        );\n        // A synchronous retry or stop must be able to cancel this attempt's backoff.\n        this.#setState({ status: \"error\", error, lastConnectedAt: this.#lastConnectedAt });\n      }",
+    "to": "if (!this.#stopped) {\n        this.#setState({ status: \"error\", error, lastConnectedAt: this.#lastConnectedAt });\n        const wait = this.#backoff;\n        this.#backoff = Math.min(this.#backoff * 2, MAX_BACKOFF_MS);\n        this.#cancelRetry = trackedTimeout(\n          clock,\n          resources,\n          () => {\n            this.#cancelRetry = null;\n            this.#connect();\n          },\n          wait,\n        );\n      }",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "keeps a retry requested synchronously"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "if (!this.#stopped) {\n        const wait = this.#backoff;\n        this.#backoff = Math.min(this.#backoff * 2, MAX_BACKOFF_MS);\n        this.#cancelRetry = trackedTimeout(\n          clock,\n          resources,\n          () => {\n            this.#cancelRetry = null;\n            this.#connect();\n          },\n          wait,\n        );\n        // A synchronous retry or stop must be able to cancel this attempt's backoff.\n        this.#setState({ status: \"error\", error, lastConnectedAt: this.#lastConnectedAt });\n      }",
+    "to": "if (!this.#stopped) {\n        this.#setState({ status: \"error\", error, lastConnectedAt: this.#lastConnectedAt });\n        const wait = this.#backoff;\n        this.#backoff = Math.min(this.#backoff * 2, MAX_BACKOFF_MS);\n        this.#cancelRetry = trackedTimeout(\n          clock,\n          resources,\n          () => {\n            this.#cancelRetry = null;\n            this.#connect();\n          },\n          wait,\n        );\n      }",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "does not leave a retry timer when onState synchronously stops"
+  }
+]
