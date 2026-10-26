@@ -1,5 +1,26 @@
 [
   {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/MarkdownBlock.swift",
+    "from": "sourceLines == literalLines + 2",
+    "to": "sourceLines == literalLines + 1",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests/closingFenceIndentation"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/MarkdownBlock.swift",
+    "from": "min(endLine, enclosing.upperBound.line)",
+    "to": "max(endLine, enclosing.upperBound.line)",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests/fenceContainerBoundary"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/MarkdownBlock.swift",
+    "from": "sourceLines <= literalLines",
+    "to": "false",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests/fenceContainerBoundary"
+  },
+  {
     "file": "apps/ios/AtriumKit/Sources/AtriumRender/DiffLayout.swift",
     "from": "let missing = oldStart - nextOld",
     "to": "let missing = hunk.oldStart - nextOld",

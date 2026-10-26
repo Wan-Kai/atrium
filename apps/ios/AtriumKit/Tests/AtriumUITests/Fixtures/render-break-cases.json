@@ -141,8 +141,8 @@
   },
   {
     "file": "apps/ios/AtriumKit/Sources/AtriumRender/MarkdownBlock.swift",
-    "from": "last.count >= fenceLength",
-    "to": "last.count >= 3",
+    "from": "sourceLines == literalLines + 2",
+    "to": "sourceLines == literalLines + 1",
     "runner": "swift",
     "filter": "StreamingMarkdownTests"
   },

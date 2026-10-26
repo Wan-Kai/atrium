@@ -121,6 +121,40 @@ struct StreamingMarkdownTests {
     #expect(StreamingMarkdown.parse("    x") == [.code(language: nil, code: "x", closed: true)])
   }
 
+  @Test("closed fences accept independent zero-to-three-space indentation inside and outside quotes")
+  func closingFenceIndentation() {
+    for quoted in [false, true] {
+      for opening in 0...3 {
+        for closing in 0...3 {
+          let container = quoted ? "> " : ""
+          let source =
+            container + String(repeating: " ", count: opening) + "```swift\n"
+            + container + "x\n" + container + String(repeating: " ", count: closing) + "```"
+          let code = MarkdownBlock.code(language: "swift", code: "x", closed: true)
+          #expect(
+            StreamingMarkdown.parse(source) == (quoted ? [.quote([code])] : [code]),
+            "opening=\(opening), closing=\(closing), quote=\(quoted)")
+        }
+      }
+    }
+  }
+
+  @Test("a fence outside a quote does not close its code, and indented backticks remain literal")
+  func fenceContainerBoundary() {
+    #expect(
+      StreamingMarkdown.parse("> ```swift\n> x\n```") == [
+        .quote([.code(language: "swift", code: "x", closed: false)]),
+        .code(language: nil, code: "", closed: false),
+      ])
+    #expect(
+      StreamingMarkdown.parse("```swift\nliteral ```") == [.code(language: "swift", code: "literal ```", closed: false)]
+    )
+    #expect(
+      StreamingMarkdown.parse("    ```swift\n    x\n    ```") == [
+        .code(language: nil, code: "```swift\nx\n```", closed: true)
+      ])
+  }
+
   @Test("uses source for diagrams and preserves fence closing and inline formatting")
   func blocks() {
     #expect(

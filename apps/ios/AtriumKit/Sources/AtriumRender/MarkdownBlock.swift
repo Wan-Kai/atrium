@@ -122,8 +122,10 @@ public indirect enum MarkdownBlock: Equatable, Sendable {
 
   /// Whether a code block's closing fence has arrived.
   ///
-  /// - Remark: swift-markdown does not say; the block's last source line is checked for a run of
-  ///   at least three backticks or tildes and nothing else. An indented block counts as closed.
+  /// - Remark: A fenced block's parsed literal excludes the opener and, only when present, the
+  ///   closer. Compare its line count with the parser's source span instead of imposing the opener's
+  ///   indentation on the closer. Container bounds exclude a following line outside the quote/list.
+  ///   A literal covering the whole span is indented code, even when it begins with backticks.
   /// - SideEffects: none
   /// - Parameters:
   ///   - code: The block.
@@ -136,11 +138,15 @@ public indirect enum MarkdownBlock: Equatable, Sendable {
     let firstBytes = line(range.lowerBound.line, source, lineStarts).utf8.dropFirst(column)
     let first = String(decoding: firstBytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     guard first.hasPrefix("```") || first.hasPrefix("~~~") else { return true }
-    guard range.upperBound.line > range.lowerBound.line else { return false }
-    let lastBytes = line(range.upperBound.line, source, lineStarts).utf8.dropFirst(column)
-    let last = String(decoding: lastBytes, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-    let fenceLength = first.prefix { $0 == first.first }.count
-    return last.count >= fenceLength && last.allSatisfy { $0 == first.first }
+    var endLine = range.upperBound.line
+    var parent = code.parent
+    while let ancestor = parent {
+      if let enclosing = ancestor.range { endLine = min(endLine, enclosing.upperBound.line) }
+      parent = ancestor.parent
+    }
+    let sourceLines = endLine - range.lowerBound.line + 1
+    let literalLines = code.code.utf8.filter { $0 == 10 }.count
+    return sourceLines <= literalLines || sourceLines == literalLines + 2
   }
 
   /// One line of the source, 1-based.
