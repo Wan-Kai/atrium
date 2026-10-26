@@ -262,7 +262,7 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
   - `enabled`、`vault`（`ok` / `keychain_unavailable` / `corrupt`）；
   - `relay: { url, hostId, status: off | connecting | connected | error, error, lastConnectedAt }`；
   - `hostFingerprint`（宿主公钥 SHA-256 的前 8 字节，分组显示）；
-  - `devices: [{ deviceId, name, pairedAt, lastSeenAt, online, traffic: { down, up } }]`：`traffic` 是这台设备所有通道最近 2 秒的平均字节率（每秒），链路图按它画数据包的疏密；宿主每秒最多推一次，没有在看"手机"页的本机连接时不推。设备的颜色由界面按 `deviceId` 的哈希从一组固定色里取，不存；名字清空时恢复配对时手机报的 `deviceName`。
+  - `devices: [{ deviceId, name, pairedAt, lastSeenAt, online, traffic: { down, up } }]`：`traffic` 是这台设备所有通道最近 2 秒的平均字节率（每秒），界面用它显示真实速率数值，不据此改变包的数量、疏密或速度；链路图按用户定稿的固定 3900ms 顺序循环播放（见 design-language“设置 · 手机”），离线设备不参与；宿主每秒最多推一次，没有在看"手机"页的本机连接时不推。设备的颜色由界面按 `deviceId` 的哈希从一组固定色里取，不存；名字清空时恢复配对时手机报的 `deviceName`。
   - `pairing: { pairingId, qr, expiresAt, state, request: { deviceName, model, sas } | null, refused: number } | null`，`refused` 是这次配对里因为已有手机在确认而被拒的次数，界面记一行"另一台手机也扫了这个码，已拒绝"。
 - `set_remote({ enabled, relay?: string })`：`relay` 是那一行 `atrium-relay://…`；令牌只进不出，`remote_updated` 里不回传。
 - `test_relay`、`start_pairing`、`cancel_pairing`、`confirm_pairing({ pairingId, accept })`、`rename_device({ deviceId, name })`、`revoke_device({ deviceId })`、`reset_remote_identity`。
