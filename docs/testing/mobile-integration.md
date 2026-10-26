@@ -21,7 +21,8 @@
 
 - 渲染已在本整合分支合入（`828c32b`），后续测量证据在 `3309058`；与 `ace843a` 的冲突仅在追踪表顶部的并列新增章节，保留双方全文，没有改写 `main` 的翻译或排版代码。
 - 宿主 `e29e49a` 已合入（`910ee60`），协议 27 生成漂移检查通过。随后合入手机连接 `aeb7359`：四处冲突为 App 根入口、SwiftPM 测试依赖 / Fixtures、knip 清单和追踪表。根入口同时保留 DEBUG 钥匙串检查与 Gallery，只有普通首页接共享 HostStore 的 PairingHome；测试依赖与资源、外部脚本清单及两路验证记录均保留。尚未运行这次组合后的完整验证。
-- 桌面设置页 `bda5559` 合入时仅追踪表顶部并列新增章节冲突，保留宿主协议 27 与 MP3b 全部证据。宿主仍进行增量变异，当前只执行合并和轻量静态检查，不与其并发全量 / E2E / 模拟器性能。
+- 桌面设置页 `bda5559` 合入时仅追踪表顶部并列新增章节冲突，保留宿主协议 27 与 MP3b 全部证据。当时宿主进行增量变异，只执行合并和轻量静态检查；该轮变异已结束且新增范围未达门槛，结果见审查记录。
+- 后续已合入：`c4620ef` 探测超时不踢手机（整合 `b1aca30`）、`1399b0c` 手机拒绝映射（`26e6925`）、`cc61b01` 型号自报（`b9d347a`）、`d88c55b` 用户选定的设置窗口订阅（`78a1cbd`）。父会话在 `b9d347a` 实跑 `pnpm check` 通过，日志 `/tmp/atrium-mobile-review-fixes-check.log`，边界 14 / 41 / 4，未登记与非精确均 0；不等于后来提交已全量复验。
 - 仅渲染加 `ace843a` 的阶段，`pnpm protocol:swift --check`、`pnpm check` 通过；边界检查 URL 14、环境变量 41、隐藏命令 4，未登记 0、非精确 0。日志为 `/tmp/atrium-mobile-render-{protocol,check}.log`。
 - `swift test --package-path apps/ios/AtriumKit --jobs 2 --explicit-target-dependency-import-check error -Xswiftc -warnings-as-errors`：**98 项 / 21 suites 通过**，日志 `/tmp/atrium-mobile-render-swift.log`。该轮为 macOS 逻辑测试，附带的 Debug 渲染基准输出不是 iOS UI 或 50 ms 预算验收。
 - 手机连接合入后的首次 `pnpm ios:check` 发现 HostStore / HostStorageRecovery 的 12 个公开属性缺少文档；已在整合分支仅补属性说明，不修改逻辑、不放宽检查。这一失败保留于 `/tmp/atrium-mobile-combined-ios-check.log` 的首次运行记录（后续复验另存日志）。
@@ -29,7 +30,9 @@
 
 ## 桌面资源验证计划
 
-补最窄 `apps/desktop/e2e/phone.leak.spec.ts`：真实 Electron / 宿主、隔离的临时 home，远程访问保持默认关闭，不读写用户保险箱。预热后重复打开设置、切入手机 / 关于 / 手机并关闭，对比强制 GC 后的堆快照，检查 detached DOM 无增长；另临时保留真实 PhoneSection DOM 做负对照，确认同一断言会失败后恢复。异常路径仍关闭测试 App 并清理快照目录。此项只验证未配置页和设置生命周期，不冒称活跃配对、真实钥匙串或全部远程进程泄漏均已覆盖。当前尚未执行。
+补最窄 `apps/desktop/e2e/phone.leak.spec.ts`：真实 Electron / 宿主、隔离的临时 home，远程访问保持默认关闭，不读写用户保险箱。预热后重复打开设置、切入手机 / 关于 / 手机并关闭，对比强制 GC 后的堆快照，检查 detached DOM 无增长；另临时保留真实 PhoneSection DOM 做负对照，确认同一断言会失败后恢复。异常路径仍关闭测试 App 并清理快照目录。此项只验证未配置页和设置生命周期，不冒称活跃配对、真实钥匙串或全部远程进程泄漏均已覆盖。
+
+已在整合 `78a1cbd` 加该测试上执行：`pnpm build` 通过（保留 Vite 大 chunk 警告）；`pnpm --filter @atrium/desktop test:e2e phone.leak.spec.ts --workers=1` 正向 1/1 通过，临时保留真实 PhoneSection DOM 的负控在堆增长断言处失败（退出 1），按 SHA-256 核对源码完整恢复后再跑 1/1 通过。前两轮预热、20 轮设置开关，每轮两次进入手机页。日志为 `/tmp/atrium-phone-heap-{positive,negative,restored}.log`，build 日志 `/tmp/atrium-mobile-phone-heap-build.log`。初次脚本误用了已配置态标题 `relay`，在未配置页的选择器等待失败、尚未进入堆检查；改为真实标题“接上你的 relay”，没有修改产品代码或放宽断言，初次失败保留在 `/tmp/atrium-phone-heap-initial.log`。
 
 ## 尚未完成的验证
 
