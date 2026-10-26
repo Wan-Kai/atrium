@@ -144,11 +144,39 @@ describe("RelayLink", () => {
     expect(await check).toBeNull();
     expect(f.sockets).toHaveLength(1);
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 1 });
+    const silentPing = once(socket, "ping");
     const silent = f.link.retryNow();
+    const [silentPayload] = await silentPing;
     f.clock.advance(READY_TIMEOUT_MS);
     expect(await silent).toBe("relay_unreachable");
-    await expect.poll(() => f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 1 });
-    expect(f.link.state).toStrictEqual({ status: "error", error: "relay_unreachable", lastConnectedAt: 100 });
+    expect(f.link.state).toStrictEqual({ status: "connected", error: null, lastConnectedAt: 100 });
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 1 });
+    expect(f.link.diagnostics).toStrictEqual({
+      kind: "live",
+      checkedAt: 10100,
+      network: "unknown",
+      resolution: "not_applicable",
+      tls: "not_applicable",
+      token: "unknown",
+      failure: "timeout",
+    });
+    socket.send(JSON.stringify({ type: "open", streamId: "d".repeat(32) }));
+    await expect.poll(() => f.streams).toStrictEqual(["d".repeat(32)]);
+    const heartbeat = once(socket, "ping");
+    f.clock.advance(LINK_PING_MS - READY_TIMEOUT_MS);
+    const [heartbeatPayload] = await heartbeat;
+    expect(heartbeatPayload).toHaveLength(0);
+    socket.pong(heartbeatPayload);
+    const nextPing = once(socket, "ping");
+    const next = f.link.retryNow();
+    const [nextPayload] = await nextPing;
+    expect(nextPayload.equals(silentPayload)).toBe(false);
+    socket.pong(nextPayload);
+    expect(await next).toBeNull();
+    expect(f.sockets).toHaveLength(1);
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+    expect(f.link.state).toStrictEqual({ status: "connected", error: null, lastConnectedAt: 100 });
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 1 });
     await f.link.stop();
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
   });
@@ -437,7 +465,7 @@ describe("the correlated pong's resources", () => {
       failure: "token_rejected",
       expectedState: WebSocket.CLOSED,
     },
-    { ending: "timeout", rounds: 1, error: "relay_unreachable", failure: "timeout", expectedState: WebSocket.CLOSED },
+    { ending: "timeout", rounds: 1, error: "relay_unreachable", failure: "timeout", expectedState: WebSocket.OPEN },
   ])("releases listeners and deadlines after $ending", async ({ ending, rounds, error, failure, expectedState }) => {
     const f = await pongFixture();
     const { client, peer } = f;

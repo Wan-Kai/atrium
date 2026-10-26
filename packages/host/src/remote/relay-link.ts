@@ -156,7 +156,9 @@ export class RelayLink {
     return checkRelayPong(socket, this.#options, READY_TIMEOUT_MS).then((result) => {
       if (!this.#stopped && generation === this.#generation) {
         this.#diagnostics = liveDiagnostics(this.#options.endpoint.url, this.#options.clock, result.failure);
-        this.#setState(result.error === null ? this.#state : { ...this.#state, status: "error", error: result.error });
+        // Publish diagnostic evidence without turning a single missed probe into a lifecycle failure.
+        // Actual socket close and the normal heartbeat still own the control connection's state.
+        this.#setState(this.#state);
       }
       return result.error;
     });

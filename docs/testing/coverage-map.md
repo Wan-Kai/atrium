@@ -16,10 +16,11 @@
 | connect/live、关着时 probe、配置/身份/代次变化、probe 取消、旧结果不能覆盖新状态；重试保留已结束快照，重置不能把旧诊断与新指纹一起推送 | `remote-service.test.ts`、`projections.host.test.ts`；投影和重置破坏检查共 14/14 检出 |
 | 实际 TCP/地址解析/TLS/HTTP Upgrade/令牌认可证据；不把普通 reset 或总超时归因为无网；正常 CA 验证的 TLS 才通过 | `relay-diagnostics.test.ts` 16 项本地真实请求/服务器：可信测试 CA、未信任证书、主机名不匹配、拒绝连接、受控 resolver、静默 TLS、reset、503、畸形 101、HPE 解析错误、正常 open 后关闭；未访问 VPS，未放宽 TLS |
 | request/socket 的七个观测监听在成功、失败、取消后移除；必须履行 finishRequest 的 request.end 责任 | 同上真实 listener 引用核对；先复现 ws 请求错误处理会同步 close，改为 prepend 记录；畸形 101/HTTP 解析回归先红后绿，不重复实现 WebSocket 验证器 |
-| 当前控制 socket 的本次随机 16 字节 ping；空/错/旧/常规心跳 pong 不成功且不消耗监听；并发共享、正确 pong 成功、超时不悬空且物理连接关闭、stop/close/rejection 清理 | `relay-link.test.ts` 真实 socket；先复现任意 pong 提前成功；重复 12 轮核对真实 socket 的监听数与资源；`diagnostics-pong-break-check.json` 20/20 检出（最初两项测试名过滤不匹配，修正后全部复验）；旧三条移动锚点复验通过 |
+| 当前控制 socket 的本次随机 16 字节 ping；空/错/旧/常规心跳 pong 不成功且不消耗监听；并发共享、正确 pong 成功、超时不悬空、stop/close/rejection 清理（原测试错误要求探测超时关闭物理连接，审查修复见下行） | `relay-link.test.ts` 真实 socket；先复现任意 pong 提前成功；重复 12 轮核对真实 socket 的监听数与资源；`diagnostics-pong-break-check.json` 20/20 检出（最初两项测试名过滤不匹配，修正后全部复验）；旧三条移动锚点复验通过 |
+| 审查修复：单次匹配 pong 缺失不 terminate 控制、不伪造生命周期 error、不踢已认证手机；常规心跳仍能收到 pong，下一次新 payload 可成功，真实 close/4401 仍断手机 | `live-probe.host.test.ts` 本地选择性 pong 代理＋真实 relay＋真实 Noise 手机，先红后绿 3 项；`relay-link.test.ts` 的公开状态/控制消息/监听及计时断言同步纠正。定向单元 39、真实 relay 64 通过，原破坏清单调整后的 20 项＋恢复两处误断链的 2 项全部检出；未启动新变异 |
 | 错误码字面量不冒充环境变量；显式 env 读取/解构/对象键仍受检查，未知相似前缀不豁免 | `scripts/boundary.test.ts` 12 项、7 条破坏检查；只增 11 项精确例外，不新增虚假登记。`boundary --all` 14 URLs / 41 env / 4 commands，未登记 0 |
 
-阶段验证：协议协调阶段定向 200 项、协议类型检查和 Swift 16 项通过；行为补齐后定向协议/路由/远程单元 470 项、真实 relay 61 项通过，随后补强的协议/白名单 25 项再次通过；远程泄漏 2 项通过。最终源码 `pnpm check` 通过。变异仅对五个变更远程文件运行增量，原始报告 `reports/stryker-incremental-remote-close.json` 保留，v27 结果独立写到 `reports/stryker-incremental-remote-v27.json`；当前仍在执行，未提前称新源码达标。
+阶段验证：协议协调阶段定向 200 项、协议类型检查和 Swift 16 项通过；行为补齐后定向协议/路由/远程单元 470 项、真实 relay 61 项通过，随后补强的协议/白名单 25 项再次通过；远程泄漏 2 项通过。最终源码 `pnpm check` 通过。变异仅对五个变更远程文件运行增量，原始报告 `reports/stryker-incremental-remote-close.json` 保留，v27 结果独立写到 `reports/stryker-incremental-remote-v27.json`；`e29e49a` 的运行现已完成，但新执行 477 项仅 79.25%、diagnostics 单文件 75.11%，不能用混合总分 88.31%／宿主汇总 85.96%掩盖不足；之后又修了探测误断链，旧分数不代表修复后源码。详细并发、中断、缓存、失败及证据位置见 [协议 27 验证记录](mp3a-v27-validation.md)，新增变异等待主线安排窗口。
 
 边界与未完成项：完整桌面泄漏、既有 file-search 竞态、既有 Electron quit 重入问题仍按下节保留失败证据，未顺带修改。未做真实钥匙串授权、真机、用户 VPS、打包安装或跨分支人工验收；本轮不是三方正式审查。
 

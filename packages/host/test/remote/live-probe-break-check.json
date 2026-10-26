@@ -1,0 +1,18 @@
+[
+  {
+    "file": "packages/host/src/remote/relay-pong.ts",
+    "from": "finish({ error: \"relay_unreachable\", failure: \"timeout\" });",
+    "to": "finish({ error: \"relay_unreachable\", failure: \"timeout\" });\n        socket.terminate();",
+    "test": "packages/host/test/remote/live-probe.host.test.ts",
+    "name": "keeps the same authenticated phone after a probe timeout",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "this.#setState(this.#state);",
+    "to": "this.#setState(result.error === null ? this.#state : { ...this.#state, status: \"error\", error: result.error });",
+    "test": "packages/host/test/remote/live-probe.host.test.ts",
+    "name": "keeps the same authenticated phone after a probe timeout",
+    "project": "host"
+  }
+]
