@@ -37,7 +37,12 @@ let package = Package(
       resources: [.copy("Fixtures")],
       swiftSettings: shared
     ),
-    .testTarget(name: "AtriumNoiseTests", dependencies: ["AtriumNoise"], swiftSettings: shared),
+    .testTarget(
+      name: "AtriumNoiseTests",
+      dependencies: ["AtriumNoise"],
+      resources: [.copy("Fixtures")],
+      swiftSettings: shared
+    ),
     .testTarget(name: "AtriumRemoteTests", dependencies: ["AtriumRemote"], swiftSettings: shared),
     .testTarget(name: "AtriumSyncTests", dependencies: ["AtriumSync"], swiftSettings: shared),
     .testTarget(name: "AtriumRenderTests", dependencies: ["AtriumRender"], swiftSettings: shared),

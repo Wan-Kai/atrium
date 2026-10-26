@@ -1,0 +1,64 @@
+import Foundation
+
+/// The two transport cipher states after a handshake: one for sending, one for receiving.
+///
+/// - Remark: Nonces are the implicit Noise counters, starting at 0 in each direction; a lost,
+///   replayed or reordered message fails to decrypt (SPEC-0005 "传输"). Any failure invalidates both
+///   directions. No rekey (SPEC-0005: not used; the nonce limit is unreachable in practice).
+public final class NoiseTransport {
+  /// The largest plaintext that fits one Noise message with its 16-byte tag.
+  public static let maxPlaintextLength = NoiseHandshake.maxMessageLength - 16
+
+  var sendCipher: CipherState
+  var receiveCipher: CipherState
+  private var invalidated = false
+
+  /// Wraps the cipher states from `Split`.
+  ///
+  /// - Remark: Only ``NoiseHandshake/split()`` makes one.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - send: The cipher for our direction.
+  ///   - receive: The cipher for the peer's direction.
+  init(send: CipherState, receive: CipherState) {
+    sendCipher = send
+    receiveCipher = receive
+  }
+
+  /// Encrypts one outgoing transport message.
+  ///
+  /// - Remark: The associated data is empty (SPEC-0005 "传输").
+  /// - SideEffects: none
+  /// - Parameter plaintext: At most ``maxPlaintextLength`` bytes.
+  /// - Returns: Ciphertext with the tag, at most 65535 bytes, starting at index 0.
+  /// - Throws: ``NoiseError/payloadTooLong``, ``NoiseError/nonceExhausted`` or ``NoiseError/invalidated``.
+  public func encrypt(_ plaintext: Data) throws(NoiseError) -> Data {
+    guard !invalidated else { throw .invalidated }
+    do throws(NoiseError) {
+      guard plaintext.count <= Self.maxPlaintextLength else { throw NoiseError.payloadTooLong }
+      return try sendCipher.encryptWithAd(Data(), plaintext)
+    } catch {
+      invalidated = true
+      throw error
+    }
+  }
+
+  /// Decrypts one incoming transport message.
+  ///
+  /// - Remark: A failure invalidates both directions, so the caller must close the channel.
+  /// - SideEffects: none
+  /// - Parameter message: One WebSocket frame's bytes.
+  /// - Returns: The plaintext, starting at index 0.
+  /// - Throws: ``NoiseError/decryptFailed``, ``NoiseError/messageTooLong``,
+  ///   ``NoiseError/nonceExhausted`` or ``NoiseError/invalidated``.
+  public func decrypt(_ message: Data) throws(NoiseError) -> Data {
+    guard !invalidated else { throw .invalidated }
+    do throws(NoiseError) {
+      guard message.count <= NoiseHandshake.maxMessageLength else { throw NoiseError.messageTooLong }
+      return try receiveCipher.decryptWithAd(Data(), message)
+    } catch {
+      invalidated = true
+      throw error
+    }
+  }
+}
