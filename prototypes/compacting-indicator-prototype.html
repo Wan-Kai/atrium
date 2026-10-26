@@ -1,0 +1,930 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型："正在压缩上下文"提示</title>
+    <!--
+  原型（PROTOTYPE，用完即弃）：优化"正在压缩上下文…"的提示。现状是轨道上的静态刻痕 + 一行灰字、
+  对话区底部只有光秃秃一行字，扫光带窄、对比弱。比较四个方向（A 刻痕轻压 / B 点阵收拢 /
+  C 小猫受压 / D 分段条压缩），每个都画"过程轨道里"和"对话区底部"两处；另附扫光本身的三种强度。
+  2026-10-26 用户选定：C"小猫受压"，扫光用"加宽提亮"，.atrium-shimmer 全局一起换。
+  打开：双击；右上角切深色、关动效（看减弱动态效果时的静帧）。
+-->
+    <style>
+      :root {
+        --main: #fff;
+        --surface-2: #f2f2f4;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --hover: rgba(0, 0, 0, 0.035);
+        --tint: #2f6fed;
+        --ok: #1a7f37;
+        --danger: #d1242f;
+        --rail: rgba(0, 0, 0, 0.15);
+        --node: #c4c4c9;
+        --ctx-sys: #a1a1a7;
+        --ctx-tools: #8b5cf6;
+        --ctx-msgs: #2f6fed;
+        --page: #eef1f6;
+      }
+      :root[data-theme="dark"] {
+        --main: #151517;
+        --surface-2: #2c2c2e;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --hover: rgba(255, 255, 255, 0.05);
+        --tint: #7aaaff;
+        --ok: #4ac26b;
+        --danger: #ff7b72;
+        --rail: rgba(255, 255, 255, 0.15);
+        --node: #5d6067;
+        --ctx-sys: #9ca3af;
+        --ctx-tools: #a78bfa;
+        --ctx-msgs: #7aaaff;
+        --page: #0c0c0e;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--text);
+        font:
+          14px/1.5 -apple-system,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        padding: 24px 40px 60px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      p.lead {
+        margin: 0 0 18px;
+        color: var(--text-muted);
+        font-size: 13px;
+        max-width: 1080px;
+      }
+      h3 {
+        font-size: 15px;
+        margin: 30px 0 10px;
+      }
+      .tools {
+        position: fixed;
+        top: 14px;
+        right: 18px;
+        display: flex;
+        gap: 8px;
+        z-index: 9;
+      }
+      .tools button {
+        font: inherit;
+        font-size: 12px;
+        border: 0.5px solid var(--line);
+        background: var(--main);
+        color: var(--text-2);
+        border-radius: 8px;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+      }
+      .card {
+        background: var(--main);
+        border-radius: 16px;
+        padding: 18px 20px 20px;
+        box-shadow: 0 0 0 0.5px var(--line);
+      }
+      .card h2 {
+        font-size: 14px;
+        margin: 0 0 2px;
+      }
+      .card .why {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin: 0 0 6px;
+        min-height: 54px;
+      }
+      .cap {
+        font-size: 11px;
+        color: var(--text-dim);
+        margin: 12px 0 6px;
+      }
+
+      /* ---------- 扫光 ---------- */
+      @keyframes shim {
+        from {
+          background-position: 100% 0;
+        }
+        to {
+          background-position: -100% 0;
+        }
+      }
+      /* 现状：亮带 40%–60%，200% 宽，2.2s */
+      .sh0 {
+        background: linear-gradient(90deg, var(--text-muted) 40%, var(--text) 50%, var(--text-muted) 60%) 0 0 / 200%
+          100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        animation: shim 2.2s linear infinite;
+      }
+      /* 加宽提亮：32%–68% 渐入渐出，47%–53% 满亮平台，220% 宽，1.9s */
+      .sh1 {
+        background: linear-gradient(
+            100deg,
+            var(--text-muted) 32%,
+            var(--text) 47%,
+            var(--text) 53%,
+            var(--text-muted) 68%
+          )
+          0 0 / 220% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        animation: shim 1.9s linear infinite;
+      }
+      /* 带一点蓝：同 sh1，亮部掺 --tint */
+      .sh2 {
+        background: linear-gradient(
+            100deg,
+            var(--text-muted) 32%,
+            color-mix(in srgb, var(--tint) 58%, var(--text)) 47%,
+            color-mix(in srgb, var(--tint) 58%, var(--text)) 53%,
+            var(--text-muted) 68%
+          )
+          0 0 / 220% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        animation: shim 1.9s linear infinite;
+      }
+
+      /* ---------- 过程轨道（同 design-language"消息流 · 过程"的量） ---------- */
+      .rail {
+        position: relative;
+        padding-left: 30px;
+      }
+      .row {
+        position: relative;
+        margin-left: -30px;
+        padding-left: 30px;
+        min-height: 30px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--text-muted);
+      }
+      .row b {
+        font-weight: 400;
+        color: var(--text-2);
+      }
+      .row::before {
+        content: "";
+        position: absolute;
+        left: 10px;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: var(--rail);
+      }
+      .row.head::before {
+        display: none;
+      }
+      .row:first-child::before,
+      .row.head + .row::before {
+        top: 50%;
+      }
+      .row:last-child::before {
+        bottom: 50%;
+      }
+      .row .dot {
+        position: absolute;
+        left: 7.5px;
+        top: 50%;
+        width: 6px;
+        height: 6px;
+        margin-top: -3px;
+        border-radius: 50%;
+        background: var(--node);
+      }
+      .row .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 7px;
+        height: 22px;
+        border-radius: 999px;
+        background: var(--surface-2);
+        font-size: 12px;
+        color: var(--text-2);
+      }
+      .row .chip i {
+        font-style: normal;
+        color: var(--ok);
+      }
+      .row .chip u {
+        text-decoration: none;
+        color: var(--danger);
+      }
+      /* 运行中标题行：小猫 + 扫光"进行中 · 12s" */
+      .row.head {
+        color: var(--text-muted);
+        padding-left: 24px;
+      }
+      .row.head .cat {
+        position: absolute;
+        left: 0;
+        top: 50%;
+        width: 18px;
+        height: 18px;
+        margin-top: -9px;
+      }
+      .row.head .t {
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ---------- 刻痕节点（压缩步骤的符号） ---------- */
+      .tk {
+        position: absolute;
+        left: 4px;
+        top: 50%;
+        transform: translateY(-50%);
+        display: inline-flex;
+        flex-direction: column;
+        gap: 1.5px;
+        width: 13px;
+      }
+      .tk i {
+        display: block;
+        height: 1.5px;
+        border-radius: 1px;
+        background: var(--text-dim);
+      }
+      /* A：刻痕轻压——合上、缩短、染一点蓝、带微光，再松开过冲 */
+      .tk.squeeze i:first-child {
+        animation: tkTop 2.1s cubic-bezier(0.45, 0.05, 0.2, 1) infinite;
+      }
+      .tk.squeeze i:last-child {
+        animation: tkBot 2.1s cubic-bezier(0.45, 0.05, 0.2, 1) infinite;
+      }
+      @keyframes tkTop {
+        0%,
+        30% {
+          transform: none;
+          background: var(--text-dim);
+          box-shadow: none;
+        }
+        44%,
+        58% {
+          transform: translateY(0.5px) scaleX(0.86);
+          background: color-mix(in srgb, var(--tint) 52%, var(--text-dim));
+          box-shadow: 0 0 5px color-mix(in srgb, var(--tint) 40%, transparent);
+        }
+        72% {
+          transform: translateY(-0.3px) scaleX(1.02);
+          background: var(--text-dim);
+          box-shadow: none;
+        }
+        86%,
+        100% {
+          transform: none;
+          background: var(--text-dim);
+        }
+      }
+      @keyframes tkBot {
+        0%,
+        30% {
+          transform: none;
+          background: var(--text-dim);
+          box-shadow: none;
+        }
+        44%,
+        58% {
+          transform: translateY(-0.5px) scaleX(0.86);
+          background: color-mix(in srgb, var(--tint) 52%, var(--text-dim));
+          box-shadow: 0 0 5px color-mix(in srgb, var(--tint) 40%, transparent);
+        }
+        72% {
+          transform: translateY(0.3px) scaleX(1.02);
+          background: var(--text-dim);
+          box-shadow: none;
+        }
+        86%,
+        100% {
+          transform: none;
+          background: var(--text-dim);
+        }
+      }
+      /* 底部一行里的刻痕（内联，不做绝对定位） */
+      .tk.inline {
+        position: static;
+        transform: none;
+        flex: none;
+      }
+
+      /* ---------- B：点阵 ---------- */
+      /* 轨道节点：2×2 小点阵轻压（换掉刻痕） */
+      .dg {
+        position: absolute;
+        left: 5px;
+        top: 50%;
+        width: 11px;
+        height: 11px;
+        margin-top: -5.5px;
+      }
+      .dg i {
+        position: absolute;
+        width: 3.5px;
+        height: 3.5px;
+        border-radius: 1px;
+        background: var(--text-dim);
+      }
+      .dg i:nth-child(1) {
+        left: 0;
+        top: 0;
+        animation: dgL 2.1s cubic-bezier(0.45, 0.05, 0.2, 1) infinite;
+      }
+      .dg i:nth-child(2) {
+        right: 0;
+        top: 0;
+        animation: dgR 2.1s cubic-bezier(0.45, 0.05, 0.2, 1) infinite;
+      }
+      .dg i:nth-child(3) {
+        left: 0;
+        bottom: 0;
+        animation: dgL 2.1s cubic-bezier(0.45, 0.05, 0.2, 1) infinite;
+      }
+      .dg i:nth-child(4) {
+        right: 0;
+        bottom: 0;
+        animation: dgR 2.1s cubic-bezier(0.45, 0.05, 0.2, 1) infinite;
+      }
+      @keyframes dgL {
+        0%,
+        30% {
+          transform: none;
+          background: var(--text-dim);
+        }
+        44%,
+        58% {
+          transform: translateX(1.5px);
+          background: color-mix(in srgb, var(--tint) 55%, var(--text-dim));
+        }
+        72% {
+          transform: translateX(-0.4px);
+        }
+        86%,
+        100% {
+          transform: none;
+          background: var(--text-dim);
+        }
+      }
+      @keyframes dgR {
+        0%,
+        30% {
+          transform: none;
+          background: var(--text-dim);
+        }
+        44%,
+        58% {
+          transform: translateX(-1.5px);
+          background: color-mix(in srgb, var(--tint) 55%, var(--text-dim));
+        }
+        72% {
+          transform: translateX(0.4px);
+        }
+        86%,
+        100% {
+          transform: none;
+          background: var(--text-dim);
+        }
+      }
+      /* 底部：一排点被压进中心，亮一下，再弹开 */
+      .dts {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        flex: none;
+      }
+      .dts i {
+        width: 4px;
+        height: 4px;
+        border-radius: 1.2px;
+        background: var(--text-dim);
+        --d: 0px;
+        --o: 0ms;
+        animation: dIn 2.4s cubic-bezier(0.5, 0.02, 0.18, 1) infinite;
+        animation-delay: var(--o);
+      }
+      .dts i:nth-child(1) {
+        --d: 20px;
+      }
+      .dts i:nth-child(2) {
+        --d: 10px;
+        --o: 50ms;
+      }
+      .dts i:nth-child(3) {
+        animation-name: dCore;
+      }
+      .dts i:nth-child(4) {
+        --d: -10px;
+        --o: 50ms;
+      }
+      .dts i:nth-child(5) {
+        --d: -20px;
+      }
+      @keyframes dIn {
+        0%,
+        26% {
+          transform: translateX(0);
+          opacity: 1;
+        }
+        42%,
+        56% {
+          transform: translateX(var(--d)) scale(0.85);
+          opacity: 0;
+        }
+        72% {
+          transform: translateX(0) scale(1.12);
+          opacity: 1;
+        }
+        84%,
+        100% {
+          transform: translateX(0) scale(1);
+          opacity: 1;
+        }
+      }
+      @keyframes dCore {
+        0%,
+        36% {
+          transform: scale(1);
+          background: var(--text-dim);
+          box-shadow: none;
+        }
+        46%,
+        56% {
+          transform: scale(1.5);
+          background: var(--tint);
+          box-shadow: 0 0 7px color-mix(in srgb, var(--tint) 50%, transparent);
+        }
+        70% {
+          transform: scale(1.05);
+          background: var(--text-dim);
+          box-shadow: none;
+        }
+        82%,
+        100% {
+          transform: scale(1);
+          background: var(--text-dim);
+        }
+      }
+
+      /* ---------- C：小猫受压 ---------- */
+      .ct {
+        display: inline-flex;
+        width: 18px;
+        height: 18px;
+        flex: none;
+      }
+      .ct svg {
+        width: 100%;
+        height: 100%;
+        transform-origin: 50% 94%;
+        animation: ctSq 2.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) infinite;
+      }
+      @keyframes ctSq {
+        0%,
+        46% {
+          transform: none;
+        }
+        53% {
+          transform: scaleY(1.05) scaleX(0.985);
+        }
+        62%,
+        70% {
+          transform: scaleY(0.76) scaleX(1.1);
+        }
+        80% {
+          transform: scaleY(1.045) scaleX(0.99);
+        }
+        90%,
+        100% {
+          transform: none;
+        }
+      }
+      .ct .widen {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: ctWd 2.4s ease infinite;
+      }
+      @keyframes ctWd {
+        0%,
+        55% {
+          transform: none;
+        }
+        62%,
+        70% {
+          transform: scale(1.18);
+        }
+        82%,
+        100% {
+          transform: none;
+        }
+      }
+      .ct .blink {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: ctBk 2.6s infinite;
+      }
+      @keyframes ctBk {
+        0%,
+        92%,
+        100% {
+          transform: scaleY(1);
+        }
+        95% {
+          transform: scaleY(0.1);
+        }
+      }
+
+      /* ---------- D：上下文分段条 ---------- */
+      .cbar {
+        display: inline-flex;
+        width: 84px;
+        height: 5px;
+        border-radius: 999px;
+        overflow: hidden;
+        gap: 1px;
+        flex: none;
+        transform-origin: center;
+        animation: cbSq 2.3s cubic-bezier(0.45, 0.05, 0.2, 1) infinite;
+      }
+      .cbar.small {
+        width: 56px;
+      }
+      .cbar i {
+        display: block;
+        height: 100%;
+      }
+      .cbar .a {
+        width: 20%;
+        background: var(--ctx-sys);
+      }
+      .cbar .b {
+        width: 26%;
+        background: var(--ctx-tools);
+      }
+      .cbar .c {
+        width: 54%;
+        background: var(--ctx-msgs);
+      }
+      @keyframes cbSq {
+        0%,
+        32% {
+          transform: scaleX(1);
+          box-shadow: none;
+        }
+        50%,
+        60% {
+          transform: scaleX(0.36);
+          box-shadow: 0 0 8px color-mix(in srgb, var(--tint) 30%, transparent);
+        }
+        74% {
+          transform: scaleX(1.03);
+        }
+        86%,
+        100% {
+          transform: scaleX(1);
+        }
+      }
+
+      /* ---------- 对话区底部的演示环境 ---------- */
+      .bottom {
+        border-top: 0.5px solid var(--line);
+        padding-top: 10px;
+      }
+      .bubble {
+        margin-left: auto;
+        width: fit-content;
+        max-width: 80%;
+        background: var(--surface-2);
+        border-radius: 22px;
+        padding: 8px 13px;
+        font-size: 14px;
+        color: var(--text);
+      }
+      .cline {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 30px;
+        margin-top: 10px;
+        font-size: 13px;
+        color: var(--text-muted);
+      }
+      .composer {
+        margin-top: 10px;
+        height: 44px;
+        border-radius: 22px;
+        background: var(--surface-2);
+        display: flex;
+        align-items: center;
+        padding: 0 14px;
+        gap: 8px;
+        color: var(--text-dim);
+        font-size: 13px;
+      }
+      .composer .send {
+        margin-left: auto;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--text-dim) 35%, transparent);
+      }
+      .enter {
+        animation: enterRise 0.5s cubic-bezier(0.32, 0.72, 0, 1) 0.05s both;
+      }
+      @keyframes enterRise {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+      }
+
+      /* ---------- 减弱动态效果：停在有意义的静帧 ---------- */
+      html[data-motion="reduce"] * {
+        animation: none !important;
+        transition: none !important;
+      }
+      html[data-motion="reduce"] .sh0,
+      html[data-motion="reduce"] .sh1,
+      html[data-motion="reduce"] .sh2 {
+        background: none;
+        color: var(--text-muted);
+      }
+      html[data-motion="reduce"] .tk.squeeze i {
+        background: color-mix(in srgb, var(--tint) 45%, var(--text-dim));
+      }
+      html[data-motion="reduce"] .tk.squeeze i:first-child {
+        transform: translateY(0.5px) scaleX(0.86);
+      }
+      html[data-motion="reduce"] .tk.squeeze i:last-child {
+        transform: translateY(-0.5px) scaleX(0.86);
+      }
+      html[data-motion="reduce"] .dg i {
+        background: color-mix(in srgb, var(--tint) 45%, var(--text-dim));
+      }
+      html[data-motion="reduce"] .dg i:nth-child(odd) {
+        transform: translateX(1.5px);
+      }
+      html[data-motion="reduce"] .dg i:nth-child(even) {
+        transform: translateX(-1.5px);
+      }
+      html[data-motion="reduce"] .dts i:nth-child(3) {
+        background: var(--tint);
+        transform: scale(1.3);
+      }
+      html[data-motion="reduce"] .ct svg {
+        transform: scaleY(0.88) scaleX(1.05);
+      }
+      html[data-motion="reduce"] .cbar {
+        transform: scaleX(0.62);
+      }
+
+      /* ---------- 扫光对比 ---------- */
+      .shrow {
+        display: flex;
+        align-items: baseline;
+        gap: 14px;
+        min-height: 30px;
+        font-size: 13px;
+      }
+      .shrow .name {
+        width: 130px;
+        flex: none;
+        color: var(--text-dim);
+        font-size: 12px;
+      }
+      .notes {
+        font-size: 13px;
+        color: var(--text-2);
+        max-width: 1080px;
+      }
+      .notes li {
+        margin: 4px 0;
+      }
+      .notes code {
+        font-family: "SF Mono", ui-monospace, Menlo, monospace;
+        font-size: 12px;
+        background: var(--surface-2);
+        border-radius: 4px;
+        padding: 1px 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tools">
+      <button id="motion">关掉动效</button>
+      <button id="theme">深色</button>
+    </div>
+    <h1>"正在压缩上下文…"提示的四个方向</h1>
+    <p class="lead">
+      现状：轨道上是静态刻痕 + 一行灰字，对话区底部只有光秃秃一行字；扫光亮带窄（渐变的 20%）、对比弱（muted →
+      text），2.2 秒才过一遍，所以不显眼。下面一张现状卡对照，再是四个方向；每个方向都画"过程轨道里"（运行中压缩）
+      和"对话区底部"（/compact 或轮间压缩）两处。动画循环播放；右上角切深色，或关掉动效看减弱动态效果时的静帧。
+    </p>
+
+    <h3>现状（对照）</h3>
+    <div class="grid" style="grid-template-columns: 1fr">
+      <div class="card">
+        <h2>现在：静态刻痕 + 弱扫光</h2>
+        <p class="why">刻痕不动，扫光是现在的 atrium-shimmer。底部一行没有任何标记。</p>
+        <div class="cap">过程轨道 · 运行中压缩</div>
+        <div class="rail" id="rail0"></div>
+        <div class="cap">对话区底部</div>
+        <div class="bottom">
+          <div class="bubble">把缓存的过期时间改成 30 分钟</div>
+          <div class="cline enter"><span class="sh0">正在压缩上下文…</span></div>
+          <div class="composer">发消息…<span class="send"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <h3>四个方向</h3>
+    <div class="grid">
+      <div class="card">
+        <h2>A · 刻痕轻压</h2>
+        <p class="why">
+          沿用压缩步骤的"两道刻痕"，让它像液压机一样轻轻合上、缩短、染一点蓝，再松开过冲。改动最小，和完成态同形——压完，刻痕就留在轨道上。文字配加亮的扫光。
+        </p>
+        <div class="cap">过程轨道 · 节点就是动效</div>
+        <div class="rail" data-variant="A"></div>
+        <div class="cap">对话区底部 · 刻痕内联到行首</div>
+        <div class="bottom">
+          <div class="bubble">把缓存的过期时间改成 30 分钟</div>
+          <div class="cline enter">
+            <span class="tk inline squeeze" aria-hidden="true"><i></i><i></i></span>
+            <span class="sh1">正在压缩上下文…</span>
+          </div>
+          <div class="composer">发消息…<span class="send"></span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>B · 点阵收拢</h2>
+        <p class="why">
+          圆角方点是 Atrium 的标志元素。轨道上节点换成 2×2
+          小点阵轻压；底部是一排点被压进中心、亮一下、再弹开，把"压缩"直接演出来。文字用静的灰字，动效全交给点。
+        </p>
+        <div class="cap">过程轨道 · 节点是 2×2 点阵</div>
+        <div class="rail" data-variant="B"></div>
+        <div class="cap">对话区底部 · 一排点收拢</div>
+        <div class="bottom">
+          <div class="bubble">把缓存的过期时间改成 30 分钟</div>
+          <div class="cline enter">
+            <span class="dts" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+            <span>正在压缩上下文…</span>
+          </div>
+          <div class="composer">发消息…<span class="send"></span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>C · 小猫受压</h2>
+        <p class="why">
+          "进行中"的小猫被一只看不见的手轻轻压扁、眼睛睁大，再弹回来；眨眼照旧。最生动。轨道上保持安静（节点静态、只换加亮的扫光），小猫站对话区底部，和"进行中"的小猫一家人。
+        </p>
+        <div class="cap">过程轨道 · 静态刻痕 + 加亮扫光</div>
+        <div class="rail" data-variant="C"></div>
+        <div class="cap">对话区底部 · 小猫 + 扫光（同"进行中"的版式）</div>
+        <div class="bottom">
+          <div class="bubble">把缓存的过期时间改成 30 分钟</div>
+          <div class="cline enter" style="gap: 6px">
+            <span class="ct" aria-hidden="true">
+              <svg viewBox="0 0 1024 1024">
+                <rect width="1024" height="1024" rx="230" fill="#6c86cc" />
+                <g transform="translate(-50 20)">
+                  <path
+                    d="M190 1120 Q170 820 200 560 L262 250 L450 410 Q640 360 830 410 L1018 250 L1080 560 Q1110 820 1090 1120 Z"
+                    fill="#f6ede1"
+                    stroke="#f6ede1"
+                    stroke-width="120"
+                    stroke-linejoin="round"
+                  />
+                  <g class="widen">
+                    <g class="blink" fill="#1f2537">
+                      <ellipse cx="512" cy="730" rx="40" ry="58" />
+                      <ellipse cx="768" cy="730" rx="40" ry="58" />
+                    </g>
+                  </g>
+                </g>
+              </svg>
+            </span>
+            <span class="sh1">正在压缩上下文…</span>
+          </div>
+          <div class="composer">发消息…<span class="send"></span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>D · 分段条压缩</h2>
+        <p class="why">
+          把状态栏上下文卡片的分段条缩微搬过来：系统提示词、工具、对话消息三段，当着你的面压短、再松开。最"看得见内部"；颜色也最多，是离"克制"最远的一版。文字用静的灰字。
+        </p>
+        <div class="cap">过程轨道 · 静态刻痕，条跟在文字后</div>
+        <div class="rail" data-variant="D"></div>
+        <div class="cap">对话区底部 · 条在行首</div>
+        <div class="bottom">
+          <div class="bubble">把缓存的过期时间改成 30 分钟</div>
+          <div class="cline enter" style="gap: 10px">
+            <span class="cbar" aria-hidden="true"><i class="a"></i><i class="b"></i><i class="c"></i></span>
+            <span>正在压缩上下文…</span>
+          </div>
+          <div class="composer">发消息…<span class="send"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <h3>扫光本身（A、C 用得到；也可以只换扫光）</h3>
+    <div class="card">
+      <div class="shrow"><span class="name">现状（40–60%）</span><span class="sh0">正在压缩上下文…</span></div>
+      <div class="shrow"><span class="name">加宽提亮（32–68%）</span><span class="sh1">正在压缩上下文…</span></div>
+      <div class="shrow"><span class="name">带一点蓝</span><span class="sh2">正在压缩上下文…</span></div>
+    </div>
+
+    <h3>实现要点（选定后）</h3>
+    <ul class="notes">
+      <li>
+        改两处：<code>packages/ui/src/chat/steps.tsx</code> 的 <code>CompactingRow</code>（轨道）、<code
+          >transcript.tsx</code
+        >
+        的对话区底部一行；动效进 <code>styles.css</code>。
+      </li>
+      <li>底部一行补上和轨道新步一致的入场（下方 6px 淡入），<code>role="status"</code> 保留，读屏照旧。</li>
+      <li>
+        减弱动态效果：动画停掉，停在有意义的静帧（刻痕保持压着的蓝色、点阵中心亮、分段条停在压短的状态），就是"关掉动效"下看到的样子。
+      </li>
+      <li>完成后照旧换成"压缩了上下文 · 152K → 41K"的压缩步骤 / 提示条，不变。</li>
+      <li>扫光和"进行中"、运行中步骤共用 <code>.atrium-shimmer</code>：只换压缩的，还是一起换，另定。</li>
+    </ul>
+
+    <script>
+      const CAT =
+        '<svg viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="230" fill="#6c86cc"/><g transform="translate(-50 20)"><path d="M190 1120 Q170 820 200 560 L262 250 L450 410 Q640 360 830 410 L1018 250 L1080 560 Q1110 820 1090 1120 Z" fill="#f6ede1" stroke="#f6ede1" stroke-width="120" stroke-linejoin="round"/><g fill="#1f2537"><ellipse cx="512" cy="730" rx="40" ry="58"/><ellipse cx="768" cy="730" rx="40" ry="58"/></g></g></svg>';
+      const TICKS = '<span class="tk" aria-hidden="true"><i></i><i></i></span>';
+      const TICKS_SQ = '<span class="tk squeeze" aria-hidden="true"><i></i><i></i></span>';
+      const DOTGRID = '<span class="dg" aria-hidden="true"><i></i><i></i><i></i><i></i></span>';
+      const STEPS = [
+        "<b>思考了 3 秒</b> · 先看缓存怎么过期…",
+        '<b>读了</b> <span class="chip">api.ts</span>',
+        '<b>编辑了</b> <span class="chip">cache.ts <i>+15</i> <u>−6</u></span>',
+      ];
+      function rail(node, words, extra) {
+        return (
+          `<div class="row head"><span class="cat">${CAT}</span><span class="words"><span class="sh0">进行中</span><span class="t"> · 12s</span></span></div>` +
+          STEPS.map((s) => `<div class="row"><span class="dot"></span>${s}</div>`).join("") +
+          `<div class="row">${node}${words}${extra ?? ""}</div>`
+        );
+      }
+      document.getElementById("rail0").innerHTML = rail(TICKS, '<span class="sh0">正在压缩上下文…</span>');
+      document.querySelector('[data-variant="A"]').innerHTML = rail(
+        TICKS_SQ,
+        '<span class="sh1">正在压缩上下文…</span>',
+      );
+      document.querySelector('[data-variant="B"]').innerHTML = rail(DOTGRID, "<span>正在压缩上下文…</span>");
+      document.querySelector('[data-variant="C"]').innerHTML = rail(TICKS, '<span class="sh1">正在压缩上下文…</span>');
+      document.querySelector('[data-variant="D"]').innerHTML = rail(
+        TICKS,
+        "<span>正在压缩上下文…</span>",
+        '<span class="cbar small" aria-hidden="true" style="margin-left:4px"><i class="a"></i><i class="b"></i><i class="c"></i></span>',
+      );
+      document.getElementById("theme").onclick = (e) => {
+        const d = document.documentElement.dataset.theme === "dark";
+        document.documentElement.dataset.theme = d ? "" : "dark";
+        e.target.textContent = d ? "深色" : "浅色";
+      };
+      document.getElementById("motion").onclick = (e) => {
+        const r = document.documentElement.dataset.motion === "reduce";
+        document.documentElement.dataset.motion = r ? "" : "reduce";
+        e.target.textContent = r ? "关掉动效" : "打开动效";
+      };
+      if (new URLSearchParams(location.search).get("theme") === "dark") document.documentElement.dataset.theme = "dark";
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) document.documentElement.dataset.motion = "reduce";
+    </script>
+  </body>
+</html>

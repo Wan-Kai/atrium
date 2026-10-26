@@ -59,6 +59,46 @@ function RunCat() {
 }
 
 /**
+ * Atrium's cat pressed flat, before "正在压缩上下文…" at the conversation's bottom.
+ *
+ * @remarks
+ * The run's cat under a press: squashed every 2.4 s, its eyes widening at the press, the blink
+ * unchanged (design-language, "运行中压缩"); the stylesheet holds it slightly pressed under
+ * reduced motion. The same artwork as the run's cat, the widening group wrapping the blinking
+ * one so the two compose.
+ *
+ * @sideEffects none
+ * @returns The cat, hidden from assistive technology.
+ */
+export function CompactingCat() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 1024 1024"
+      className="atrium-compact-cat atrium-run-cat absolute top-1/2 left-0 -translate-y-1/2"
+      data-testid="compacting-cat"
+    >
+      <rect width="1024" height="1024" rx="230" fill="#6c86cc" />
+      <g transform="translate(-50 20)">
+        <path
+          d="M190 1120 Q170 820 200 560 L262 250 L450 410 Q640 360 830 410 L1018 250 L1080 560 Q1110 820 1090 1120 Z"
+          fill="#f6ede1"
+          stroke="#f6ede1"
+          strokeWidth="120"
+          strokeLinejoin="round"
+        />
+        <g className="atrium-compact-cat-eyes">
+          <g className="atrium-run-cat-eyes" fill="#1f2537">
+            <ellipse cx="512" cy="730" rx="40" ry="58" />
+            <ellipse cx="768" cy="730" rx="40" ry="58" />
+          </g>
+        </g>
+      </g>
+    </svg>
+  );
+}
+
+/**
  * "进行中 · 12s": the run in progress, with the blinking cat, a shimmer and a live timer.
  *
  * @remarks
