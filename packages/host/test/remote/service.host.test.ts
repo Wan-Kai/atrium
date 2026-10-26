@@ -383,6 +383,45 @@ describe("RemoteService through a real relay process", () => {
     expect(pending.channel.closed).toBe(true);
   });
 
+  it("lets a repeated committed revocation win a re-pair confirmation queued behind another device write", async () => {
+    const f = await serviceFixture();
+    const phone = f.phone();
+    const original = await pairDevice(f, phone);
+    const other = await pairDevice(f, f.phone({ deviceName: "Other phone" }));
+    const pairing = newPairing(f);
+    const pending = await phone.pair(pairing.qr);
+    await awaiting(f);
+    const revokeGate = f.vault.pause();
+    const firstRevoke = f.service.revokeDevice(original.deviceId);
+    await revokeGate.entered;
+    const renameGate = f.vault.pause();
+    const rename = f.service.renameDevice(other.deviceId, "Other renamed");
+    const confirmation = f.service.confirmPairing(pairing.pairingId, true);
+    revokeGate.release();
+    await firstRevoke;
+    await renameGate.entered;
+    expect(f.vault.contents().devices.map((device) => device.deviceId)).toStrictEqual([other.deviceId]);
+    const repeated = f.service.revokeDevice(original.deviceId).catch((error: unknown) => error);
+    renameGate.release();
+    const [result] = await Promise.all([repeated, rename, confirmation]);
+    expect({ result, persistedIds: f.vault.contents().devices.map((device) => device.deviceId) }).toStrictEqual({
+      result: {},
+      persistedIds: [other.deviceId],
+    });
+    expect(f.service.get("observer", undefined).devices.map((device) => device.deviceId)).toStrictEqual([
+      other.deviceId,
+    ]);
+    expect(f.accepted.map((item) => item.origin)).toStrictEqual([
+      { origin: "remote", deviceId: original.deviceId },
+      { origin: "remote", deviceId: other.deviceId },
+    ]);
+    expect(f.accepted[0]?.closed).toBe(true);
+    expect(f.accepted[1]?.closed).toBe(false);
+    await pending.closed;
+    expect(pending.channel.closed).toBe(true);
+    await expect(f.service.revokeDevice("unknown-device")).rejects.toMatchObject({ code: "device_not_found" });
+  });
+
   it("caps pending handshakes at four and releases them at the ten-second deadline", async () => {
     expect(HANDSHAKE_TIMEOUT_MS).toBe(10_000);
     const f = await serviceFixture();

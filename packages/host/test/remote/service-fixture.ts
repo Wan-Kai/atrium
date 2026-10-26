@@ -10,6 +10,13 @@ import type { ClientTransport, TransportOrigin } from "../../src/server/transpor
 import { FakePhone, type PhoneSession } from "./fake-phone";
 import { startTestRelay } from "./relay-process";
 
+/** One scheduled persistence barrier, held until its test releases it. */
+interface WriteGate {
+  readonly entered: () => void;
+  readonly wait: Promise<void>;
+  readonly release: () => void;
+}
+
 /**
  * Stores the vault contract in memory with explicit write failure and release gates.
  * @remarks Crypto and sockets stay real; only Electron's persistence boundary is replaced.
@@ -18,7 +25,8 @@ import { startTestRelay } from "./relay-process";
 export class MemoryVault implements VaultPort {
   #version = 0;
   #data: string | null = null;
-  #gate: { entered: () => void; wait: Promise<void>; release: () => void } | null = null;
+  readonly #gates: WriteGate[] = [];
+  #activeGate: WriteGate | null = null;
   failNext = false;
 
   /**
@@ -40,11 +48,12 @@ export class MemoryVault implements VaultPort {
    * @returns The persistence result.
    */
   async write(version: number, data: string): Promise<VaultWrite> {
-    const gate = this.#gate;
-    if (gate !== null) {
+    const gate = this.#gates.shift();
+    if (gate !== undefined) {
+      this.#activeGate = gate;
       gate.entered();
       await gate.wait;
-      this.#gate = null;
+      this.#activeGate = null;
     }
     if (this.failNext) {
       this.failNext = false;
@@ -57,16 +66,15 @@ export class MemoryVault implements VaultPort {
   }
 
   /**
-   * Pauses the next write until the test releases it.
-   * @remarks entered is the exact point where the service has accepted confirmation but not persisted it.
-   * @sideEffects Installs one pending write gate.
+   * Pauses the next unclaimed write until the test releases it.
+   * @remarks Gates are consumed FIFO, allowing a second write to wait after an earlier revocation commits.
+   * @sideEffects Appends one pending write gate.
    * @returns Gate arrival and release controls.
    */
   pause(): { entered: Promise<void>; release: () => void } {
-    if (this.#gate !== null) throw new Error("write already paused");
     const entered = Promise.withResolvers<void>();
     const wait = Promise.withResolvers<void>();
-    this.#gate = { entered: entered.resolve, wait: wait.promise, release: wait.resolve };
+    this.#gates.push({ entered: entered.resolve, wait: wait.promise, release: wait.resolve });
     return { entered: entered.promise, release: wait.resolve };
   }
 
@@ -76,7 +84,8 @@ export class MemoryVault implements VaultPort {
    * @sideEffects Resolves the held write gate.
    */
   release(): void {
-    this.#gate?.release();
+    this.#activeGate?.release();
+    for (const gate of this.#gates.splice(0)) gate.release();
   }
 
   /**
