@@ -153,6 +153,33 @@ export const ErrorCode = z.enum([
   "delivery_not_found",
   /** `remove_delivery`: the delivery was handed to pi already and can no longer be removed. */
   "delivery_sending",
+  /** A phone sent a command only the Mac may run (SPEC-0005, "远程客户端能用的命令"). */
+  "local_only",
+  /**
+   * Remote access cannot do it now: off, no relay line, the host runs without Electron, or the
+   * vault is not read yet; `params.vault` says where the vault stands.
+   */
+  "remote_unavailable",
+  /** `confirm_pairing`: no such pairing waits for an answer; it ended, expired or was replaced. */
+  "pairing_expired",
+  /** `start_pairing`: a phone waits for the Mac's answer to the pairing under way. */
+  "pairing_busy",
+  /** The `deviceId` names no paired phone. */
+  "device_not_found",
+  /** The relay could not be reached, or did not answer in time. */
+  "relay_unreachable",
+  /** The relay refused the host's id and token (4401). */
+  "relay_rejected",
+  /** The keychain refused, or the main process could not encrypt or write the vault. */
+  "keychain_unavailable",
+  /** The vault cannot be read; reset the remote identity to start over. */
+  "vault_corrupt",
+  /** The answer would pass what may be sent to the phone; `params.limit` is the limit in bytes. */
+  "response_too_large",
+  /** MP4: the same `requestId` came again with other content. */
+  "request_conflict",
+  /** MP4: the host cannot tell whether the message with this `requestId` was delivered. */
+  "outcome_unknown",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */
   "internal_error",
 ]);
