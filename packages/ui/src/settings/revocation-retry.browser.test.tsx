@@ -268,7 +268,7 @@ it("does not let old reset or closed-window callbacks alter newer retry targets"
   expect(host.revokedIds()).toStrictEqual([A.deviceId, B.deviceId, B.deviceId]);
 });
 
-it("clears targets on successful reset and relay save even after leaving Phone, but not on failed reset", async () => {
+it("clears targets on successful reset even after leaving Phone, but not on failed reset", async () => {
   const fixture = await setup();
   const { screen, host } = fixture;
   await failRevoke(fixture, A, [B]);
@@ -283,16 +283,45 @@ it("clears targets on successful reset and relay save even after leaving Phone, 
   host.answer("reset_remote_identity");
   await screen.getByRole("button", { name: /^手机/ }).click();
   await expect.element(screen.getByRole("button", { name: "重试撤销 Phone A", exact: true })).not.toBeInTheDocument();
-  await failRevoke(fixture, B, []);
-  await screen.getByRole("button", { name: /^relay/ }).click();
+  expect(host.revokedIds()).toStrictEqual([A.deviceId]);
+});
+
+it("preserves hidden revoke targets after failed relay saves and successful same-identity token replacement", async () => {
+  const fixture = await setup();
+  const { screen, host, client } = fixture;
+  await failRevoke(fixture, A, [B]);
   await screen.getByRole("button", { name: "替换", exact: true }).click();
   await screen
     .getByLabelText("relay 的那一行")
     .fill(`atrium-relay://hst_0123456789abcdef:${"a".repeat(43)}@relay.example.com`);
   await screen.getByRole("button", { name: "保存并连接" }).click();
+  host.fail("set_remote", "keychain_unavailable");
+  await expect.element(screen.getByRole("button", { name: "重试操作", exact: true })).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "重试撤销 Phone A", exact: true })).toBeVisible();
+  await screen
+    .getByLabelText("relay 的那一行")
+    .fill(`atrium-relay://hst_0123456789abcdef:${"b".repeat(43)}@relay.example.com`);
+  await screen.getByRole("button", { name: "保存并连接" }).click();
   await screen.getByRole("button", { name: "关于", exact: true }).click();
+  host.push({ ...READY, devices: [B] });
   host.answer("set_remote");
   await screen.getByRole("button", { name: /^手机/ }).click();
-  await expect.element(screen.getByRole("button", { name: "重试撤销 Phone B", exact: true })).not.toBeInTheDocument();
-  expect(host.revokedIds()).toStrictEqual([A.deviceId, B.deviceId]);
+  await screen.getByRole("button", { name: "重试撤销 Phone A", exact: true }).click();
+  expect(host.revokedIds()).toStrictEqual([A.deviceId, A.deviceId]);
+  host.answer("revoke_device");
+  await expect.element(screen.getByRole("button", { name: "重试撤销 Phone A", exact: true })).not.toBeInTheDocument();
+  expect(client.remote.getState().state?.devices).toStrictEqual([B]);
+});
+
+it.each([
+  { field: "URL", relay: { ...READY.relay!, url: "wss://new-relay.example.com" } },
+  { field: "hostId", relay: { ...READY.relay!, hostId: "hst_0000000000000001" } },
+])("clears targets when the public relay $field actually changes", async ({ relay }) => {
+  const fixture = await setup();
+  const { screen, host } = fixture;
+  await failRevoke(fixture, A, [B]);
+  await expect.element(screen.getByRole("button", { name: "重试撤销 Phone A", exact: true })).toBeVisible();
+  host.push({ ...READY, devices: [B], relay });
+  await expect.element(screen.getByRole("button", { name: "重试撤销 Phone A", exact: true })).not.toBeInTheDocument();
+  expect(host.revokedIds()).toStrictEqual([A.deviceId]);
 });

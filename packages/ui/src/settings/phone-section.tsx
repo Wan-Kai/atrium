@@ -154,11 +154,8 @@ export function PhoneSection({
   /** Saves a relay line without retaining the token after success. @remarks Replacing an address requires pairing again. @sideEffects Sends set_remote and clears the local secret field. */
   const saveRelay = (): void =>
     run({
-      perform: async () => {
-        const finish = revocations.beginIdentityChange();
-        await client.setRemote(true, relayLine.trim());
-        finish();
-      },
+      // Public identity changes invalidate retries via the window observer; token-only saves must not.
+      perform: () => client.setRemote(true, relayLine.trim()),
       success: "relay 已保存；地址或宿主 id 改变后，所有手机都要重新扫码配对",
       done: () => {
         setRelayLine("");
