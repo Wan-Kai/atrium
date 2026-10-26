@@ -10,15 +10,21 @@
 
 此项不冒充活跃配对 / QR 的 Electron 堆验证，也不代表全部桌面泄漏已通过；活跃状态目前仍只有浏览器资源回归。没有启用远程访问、填写 relay 凭据或操作真实钥匙串。
 
+## MP3a RelayLink 公开终态回调重入修复（独立授权C）
+
+真实socket、onState(error)同步retryNow/stop两项原生产红，确认旧close提前结算新waiter并多挂retry timer。仅两处重排：终态已有waiter先结算，再通知；backoff先安装，使通知内retry/stop可取消。公开回调所有权已写overview；不是Electron UI故障复现。
+
+relay-link32/32；复验远程宿主76、相关单元52、远程泄漏2全部通过（单worker）。738/740/742三个原本正确守卫精确负控＋三个真实修复逆转负控共6/6，资源/socket/client/FakeClock归零；原742阻塞解除，未伪造代次。定向格式/lint/host类型通过，首次lint问题已整改且无抑制。完整红绿、次序、重复ready与backoff观察见 [后续定向验证](mp3a-late-diagnostics-and-traffic.md)。未跑新Stryker或全量，不推算新分数；旧70%仍保留为冻结版历史。
+
 ## MP3a traffic 仅可见数值变化时推送（冻结版后，B）
 
 SPEC订阅边界同步为整个设置窗口、SettingsPanel唯一owner；仅采样timer按可见设备down/up实际差异推送，离线仍可见，blocked/删除计数不触发；保留2秒衰减、初始get及普通状态即时通知，无新增订阅/协议/暂停采样机制。
 
 idle原实现红（3次重复）、恢复旧推送路径使稳定速率断言红，中间隐藏设备3场景红后补可见性。新增宿主10、远程宿主总76、相关单元49、远程泄漏2均通过，单worker；新负控14/14＋既有unwatch负控1/1，定向格式/lint/host类型通过。旧空闲必推单测按新契约改断言，保留资源验证；初次lint条件断言问题已整改。独立只读审查无阻断。没有运行新Stryker、全量或UI，没有性能测量；结果与证据见 [后续定向验证](mp3a-late-diagnostics-and-traffic.md)。
 
-## MP3a 迟到诊断保护补测（冻结版后，A部分完成）
+## MP3a 迟到诊断保护补测（冻结版后，A阶段记录）
 
-真实socket与公开stop/retryNow边界新增停止后诊断不变/无迟到通知，强化当前代成功、失败、恢复仍更新；29/29，精确738/740负控2/2，socket/client/计时器/资源关闭归零，定向lint/格式/host类型通过，生产未改。742的公开新代测试发现真实onState(error)同步retryNow重入问题：旧close提前结算新retry并多起timer；按授权停下，未修实现、未伪造私有代次、未豁免742。证据与后续边界见 [迟到诊断与traffic记录](mp3a-late-diagnostics-and-traffic.md)。未启动新Stryker，不推算分数。
+真实socket与公开stop/retryNow边界新增停止后诊断不变/无迟到通知，强化当前代成功、失败、恢复仍更新；29/29，精确738/740负控2/2，socket/client/计时器/资源关闭归零，定向lint/格式/host类型通过，生产未改。742的公开新代测试发现真实onState(error)同步retryNow重入问题：旧close提前结算新retry并多起timer；当时按授权停下，未修实现、未伪造私有代次、未豁免742。后续独立授权C已修复并完成742负控（见上）。证据与后续边界见 [迟到诊断与traffic记录](mp3a-late-diagnostics-and-traffic.md)。未启动新Stryker，不推算分数。
 
 ## MP3a 审查后冻结版变异复核（7b88613，2026-10-26 UTC）
 

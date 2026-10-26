@@ -1,6 +1,6 @@
 # MP3a 迟到诊断与 traffic 推送：后续定向验证
 
-基线 `2cb7958`（生产源码与冻结 `7b88613` 相同）。父已批准分两个提交；尚未安排新 Stryker 窗口，不继承旧冻结版成绩。
+基线 `2cb7958`（生产源码与冻结 `7b88613` 相同）。父先批准A/B两个提交，后另行授权C真实重入窄修；尚未安排新 Stryker 窗口，不继承旧冻结版成绩。
 
 ## A：公开的迟到诊断保护
 
@@ -10,7 +10,7 @@
 
 正常实现基线28/28，新增stop及强化current成功/失败/恢复观察后29/29；精确738/740负控2/2均同时检出诊断覆盖与迟到通知，恢复后29/29。停止后真实socket/client、资源及计时器归零。定向格式/lint、host类型检查通过；不是生产先红，生产文件未改。
 
-**742仍阻塞，未施加/未豁免**：真实旧socket4401关闭时，在公开onState(error)同步调用retryNow，已进入新connecting，但新retry在新socket ready前收到旧relay_rejected，并多出一个重试timer（control1/timer2，新ready后仍timer2）。这是真实公开回调重入缺陷，不能为杀掉742而伪造private代次或掩盖旧close副作用。按父要求停止扩实现；失败复现及完整日志保留在 `/tmp/mp3a-late-pong-tests/reentry-reproduction.test.ts`、`.patch`、`reentry-investigation.log`，未把失败调查用例混入已绿回归。正常stop清理仍全部归零，后续修复等待单独授权。
+**A阶段742受阻（后续C已解决），该阶段未施加/未豁免**：真实旧socket4401关闭时，在公开onState(error)同步调用retryNow，已进入新connecting，但新retry在新socket ready前收到旧relay_rejected，并多出一个重试timer（control1/timer2，新ready后仍timer2）。这是真实公开回调重入缺陷，不能为杀掉742而伪造private代次或掩盖旧close副作用。按父要求停止扩实现；失败复现及完整日志保留在 `/tmp/mp3a-late-pong-tests/reentry-reproduction.test.ts`、`.patch`、`reentry-investigation.log`，未把失败调查用例混入已绿回归。正常stop清理仍全部归零；后续独立授权修复及742验证见C。
 
 未跑Stryker、全套或独立泄漏套件；旧70%保持历史事实，不能由两项负控推算新分数。
 
@@ -25,3 +25,15 @@
 最终：新增宿主10/10；远程宿主6文件76/76；remote-service与relay-link单元49/49；远程泄漏2/2，均单worker。14项精确负控全检出，另复验原last-unwatch守卫负控1/1；涵盖独立up/down、稳定不重复、离线半速/归零、移除即时通知、隐藏计数、2秒窗口、重复watch/multiwatch/同一时刻恢复订阅和timer清理。首轮相关单元1失败是旧测试要求空闲每tick必推，与新契约相反；更新为无重复事件，保留并加强timer和初始get断言，未删测试。首轮lint的条件断言规则失败已改为独立动作表与方向helper，最终定向lint/格式/host类型通过。
 
 独立只读审查无阻断：可见性与#view一致；未直接覆盖可见/隐藏设备同tick变化组合（当前changed只累积true，不被后续设备抹掉）。本worktree没有整合lane的SettingsPanel实现，未在此验证UI订阅owner；文档按父已定契约同步，无UI修改。不做性能测量/改善宣称，不沿用7b的变异成绩。完整红/绿/负控日志在 `/tmp/mp3a-traffic-notifications/`。
+
+## C：终态公开回调的重入所有权（父另行授权）
+
+父核对原真实红日志后单独批准最窄修。规范记录在 overview 的 RelayLink 公开回调所有权：同步 onState(error) 内调用 retryNow/stop 时，旧attempt只结算原有等待者，不给新代提前结算或遗留旧retry timer；不扩成状态机/epoch框架，不扩大其他未复现路径。
+
+原生产的retry与stop公开重入复现2项先红：新retry提前收到旧relay_rejected；新连接timer2；stop回调后遗留timer1。只做两处顺序调整：#setState先结算本次已有等待者再调用onState；旧close先挂本次backoff再通知error，使重入retryNow/stop可取消它。不引入字段/状态机/epoch框架，不改#checkPong守卫或非破坏probe。
+
+修复后relay-link整文件32/32；同一真实socket时序证明：旧check在新connecting之后结算但不覆盖证据/通知，新retry保持pending直到新ready，重复ready不重复结算/通知，原waiter仍收到旧失败；stop重入无遗留timer，全部clients/socket/资源/FakeClock归零。既有自动backoff增长、60s上限、ready后恢复，以及当前live成功/超时/恢复全部通过。
+
+738/740/742原本正确守卫的精确负控3/3；逆转等待者结算顺序及分别在retry/stop中逆转backoff顺序3/3，共6项，不把两批复跑重复计数。742现在由合法公开回调重入覆盖，不是篡改private代次。首次lint的条件动作回调/then返回问题整改后，定向格式/lint/host类型通过，无抑制；主代理复核两处重排及公开观察，并复验远程宿主76/76、相关单元52/52、远程泄漏2/2，均单worker。
+
+真实缺陷红绿与原本正确守卫的变异负控分别记账；没有声称Electron UI复现过。原红日志保持，最终证据在 `/tmp/mp3a-relay-reentry-fix/`。无新Stryker/全量/GUI验证，不据负控推算分数。下一窗口建议原测试集/门槛/超时不变，强制失效RelayLink及RemoteService整文件结果，涵盖完整10项守卫、完整采样/终态回调及受改断言影响的旧路径；父尚未释放窗口。

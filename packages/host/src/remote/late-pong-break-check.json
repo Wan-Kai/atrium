@@ -12,5 +12,12 @@
     "to": "if (!this.#stopped || generation === this.#generation) {",
     "test": "packages/host/src/remote/relay-link.test.ts",
     "name": "keeps completed diagnostics and notifications unchanged when stop settles a pending live check"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "if (!this.#stopped && generation === this.#generation) {",
+    "to": "if (!this.#stopped && true) {",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "keeps a retry requested synchronously by onState pending until its new socket authenticates"
   }
 ]
