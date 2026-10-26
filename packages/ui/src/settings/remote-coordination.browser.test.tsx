@@ -5,7 +5,8 @@ import { page } from "vitest/browser";
 import { ClockContext } from "../state/clock";
 import { remoteTestClock } from "../test/remote-clock";
 import { fakeClient } from "../test/fake-client";
-import { PhoneSection } from "./phone-section";
+// Keep these scenarios under the actual SettingsPanel subscription owner.
+import { PhoneSettings as PhoneSection } from "../test/phone-settings";
 import { SettingsPanel } from "./settings-panel";
 import "../styles.css";
 

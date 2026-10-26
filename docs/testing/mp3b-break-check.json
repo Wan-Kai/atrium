@@ -49,18 +49,18 @@
     "name": "remote access"
   },
   {
-    "file": "packages/ui/src/settings/phone-section.tsx",
-    "to": "void client.watchRemote(false);\n    return",
-    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
-    "name": "starts and stops watching",
+    "file": "packages/ui/src/settings/settings-panel.tsx",
+    "to": "",
+    "test": "packages/ui/src/settings/settings-remote-watch.browser.test.tsx",
+    "name": "watches for the whole real settings window",
     "project": "ui",
-    "from": "void client.watchRemote(true);\n    return"
+    "from": "refreshRemote();"
   },
   {
-    "file": "packages/ui/src/settings/phone-section.tsx",
+    "file": "packages/ui/src/settings/settings-panel.tsx",
     "to": "void Promise.resolve();",
-    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
-    "name": "starts and stops watching",
+    "test": "packages/ui/src/settings/settings-remote-watch.browser.test.tsx",
+    "name": "watches for the whole real settings window",
     "project": "ui",
     "from": "void client.watchRemote(false).catch(() => undefined);"
   },

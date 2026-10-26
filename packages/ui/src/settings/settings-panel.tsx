@@ -61,8 +61,8 @@ const APPEARANCES: readonly { readonly appearance: Appearance; readonly name: st
  * window closes it, back to where the user was. The pi part carries a blue dot while a newer pi is
  * out. Takes the focus when it opens, so Escape reaches it.
  *
- * @sideEffects Subscribes to the client's setup; listens for Escape on the window while shown;
- * moves the focus into the window; the sections send their commands.
+ * @sideEffects Watches remote state for this window's whole lifetime, clearing it on unmount;
+ * subscribes to setup; listens for Escape and moves focus; sections send their commands.
  * @param props - The client, the part shown, what choosing a part and closing do, how to open an
  * address, and how to show a path in the Finder (none outside the desktop app).
  * @returns The panel.
@@ -83,6 +83,22 @@ export function SettingsPanel({
   readonly reveal: ((path: string) => void) | undefined;
 }) {
   const dialog = useRef<HTMLDivElement>(null);
+  /**
+   * Reads remote state for the settings window, including an explicit retry from the Phone page.
+   * @remarks The window is the sole watch owner, so category changes cannot silence its indicators.
+   * @sideEffects Sends get_remote; failures land in the client's remote store.
+   */
+  const refreshRemote = useCallback((): void => {
+    // Fire and forget: read failures land in the remote view, where the Phone page offers retry.
+    void client.watchRemote(true);
+  }, [client]);
+  useEffect(() => {
+    refreshRemote();
+    return () => {
+      // Fire and forget: the client clears secret state synchronously; a lost connection also removes the host watch.
+      void client.watchRemote(false).catch(() => undefined);
+    };
+  }, [client, refreshRemote]);
   const [guard, setGuard] = useState<ConfigGuard>({ dirty: false, saving: false });
   const currentGuard = useRef(guard);
   /**
@@ -255,7 +271,7 @@ export function SettingsPanel({
                 />
               </>
             ) : null}
-            {section === "phone" ? <PhoneSection client={client} /> : null}
+            {section === "phone" ? <PhoneSection client={client} onRetryRemote={refreshRemote} /> : null}
             {section === "about" ? <AboutSection client={client} reveal={reveal} /> : null}
           </div>
         </div>

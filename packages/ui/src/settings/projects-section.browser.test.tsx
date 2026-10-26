@@ -61,6 +61,7 @@ describe("Settings · projects", () => {
     await expect.element(menu).toHaveTextContent("自动origin/HEAD：main");
     expect(calls).toStrictEqual([
       `listBranches ${PROJECT.id}`,
+      "watchRemote true",
       `setMainBranch ${PROJECT.id} develop`,
       `setMainBranch ${PROJECT.id} null`,
     ]);
@@ -75,7 +76,7 @@ describe("Settings · projects", () => {
     await menu.click();
     await expect.element(screen.getByRole("menuitemradio", { name: /^main/ })).toHaveAttribute("aria-checked", "true");
 
-    expect(calls).toStrictEqual([`listBranches ${PROJECT.id}`]);
+    expect(calls).toStrictEqual([`listBranches ${PROJECT.id}`, "watchRemote true"]);
   });
 
   it("sends nothing when automatic is chosen again", async () => {
@@ -85,7 +86,7 @@ describe("Settings · projects", () => {
     await screen.getByRole("menuitemradio", { name: /^自动/ }).click();
 
     await expect.element(screen.getByRole("menu")).not.toBeInTheDocument();
-    expect(calls).toStrictEqual([`listBranches ${PROJECT.id}`]);
+    expect(calls).toStrictEqual([`listBranches ${PROJECT.id}`, "watchRemote true"]);
   });
 
   it("warns that merge states are unknown while there is no main branch", async () => {
@@ -132,6 +133,6 @@ describe("Settings · projects", () => {
     const { screen, calls } = await projects({ projects: [] });
 
     await expect.element(screen.getByText("还没有项目，在侧栏里添加。")).toBeVisible();
-    expect(calls).toStrictEqual([]);
+    expect(calls).toStrictEqual(["watchRemote true"]);
   });
 });

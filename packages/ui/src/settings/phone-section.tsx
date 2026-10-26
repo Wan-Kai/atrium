@@ -21,15 +21,21 @@ interface RemoteAction {
 }
 
 /**
- * Shows the desktop Phone settings and manages the lifetime of its remote watch.
+ * Shows the desktop Phone settings using the enclosing settings window's remote watch.
  * @remarks SPEC-0005: all changes are authoritative host pushes; commands never optimistically
  * grant access. A failed revoke retains its id so retry remains possible after the host hides it.
- * @sideEffects Watches remote state while mounted; sends commands on user actions; copies only
- * the public fingerprint; clears notice timers and watch on unmount.
- * @param props - The desktop client.
+ * @sideEffects Subscribes to remote state; sends commands on user actions; copies only
+ * the public fingerprint; releases local timers and mounted guards on unmount, not the watch.
+ * @param props - The desktop client and the owner's explicit read-retry handler.
  * @returns The link map, node details, full device list and pairing sheet.
  */
-export function PhoneSection({ client }: { readonly client: AtriumClient }) {
+export function PhoneSection({
+  client,
+  onRetryRemote,
+}: {
+  readonly client: AtriumClient;
+  readonly onRetryRemote: () => void;
+}) {
   const view = useStore(client.remote);
   const connected = useStore(client.connection, (connection) => connection.status === "connected");
   const [selected, setSelected] = useState("relay");
@@ -49,14 +55,10 @@ export function PhoneSection({ client }: { readonly client: AtriumClient }) {
   const clock = useClock();
   useEffect(() => {
     mounted.current = true;
-    // Fire and forget: watch failures land in the remote view.
-    void client.watchRemote(true);
     return () => {
       mounted.current = false;
-      // Fire and forget: a closed page has no view to report to; the next watch replaces this one.
-      void client.watchRemote(false).catch(() => undefined);
     };
-  }, [client]);
+  }, []);
   useEffect(() => {
     if (!copied) return undefined;
     return clock.after(2000, () => setCopied(false));
@@ -185,13 +187,7 @@ export function PhoneSection({ client }: { readonly client: AtriumClient }) {
         {view.status === "failed" ? (
           <div role="alert">
             <p>{remoteError(view.error)}</p>
-            <button
-              type="button"
-              className={BUTTON}
-              onClick={() => {
-                void client.watchRemote(true);
-              }}
-            >
+            <button type="button" className={BUTTON} onClick={onRetryRemote}>
               重新读取
             </button>
           </div>
@@ -462,13 +458,7 @@ export function PhoneSection({ client }: { readonly client: AtriumClient }) {
       {view.status === "failed" ? (
         <p className="phone-error" role="alert">
           {remoteError(view.error)}
-          <button
-            type="button"
-            className={BUTTON}
-            onClick={() => {
-              void client.watchRemote(true);
-            }}
-          >
+          <button type="button" className={BUTTON} onClick={onRetryRemote}>
             重新读取
           </button>
         </p>

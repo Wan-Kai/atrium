@@ -1,5 +1,21 @@
 # MP3b 手机设置页实施记录
 
+## 用户选择：整个设置窗口订阅（本轮）
+
+审查后用户明确选择 SettingsPanel 为唯一 watch owner：挂载开启，实际卸载退订并清空；切换分类不重复订阅，未保存配置拦截关闭时维持订阅。PhoneSection 只管理自己的 mounted guard、动画和计时器；重试读取请求交给设置窗口，不持有 watch 生命周期。不全局常驻、不持久化二维码、不新增公网/手机连接、不自动确认或取消配对、不改变远程开关。
+
+原“仅手机分类订阅”是被替换的实施决定，下方旧验证结果按历史保留，不冒充本轮结果。撤销失败重试被其它动作覆盖的问题不在本轮修改范围。
+
+实现与窄验证：
+
+- SettingsPanel 的挂载 effect 开 watch，cleanup 关 watch；关闭请求被配置 guard 拦截时不会触发 cleanup。PhoneSection 删除生命周期中的 watch 调用，保留自身 mounted guard 和计时器释放，读取失败的重试经 owner 的 `onRetryRemote` 回调。
+- `settings-remote-watch.browser.test.tsx` 真实挂载/卸载生产 SettingsPanel；两项使用实际 `createAtriumClient`、协议 schema、脚本化 socket 和假时钟，另两项验证配置拦截与分类退出的局部资源。测试 harness 仅打开/关闭窗口和选分类，无自建 watch effect。
+- 红阶段：初始 3 项全红（`/tmp/mp3b/settings-watch-red.log`）；实现后 4 项通过。覆盖非手机入口的橙点/错误、手机切走继续更新与结束清标记、无重复 watch、关闭清空与迟到读/推送、重开与只对仍打开窗口重连订阅；socket 命令完整过滤断言确认没有 set_remote、确认/取消配对等额外动作，窗口反复开关不新增连接。
+- `pnpm test:ui src/settings --maxWorkers=1`：11 文件 / **145 项通过**（`settings-owner-green.log`），仅设置目录，不是全量 UI。初跑其它设置分类的命令数组多出一次 watch，按新契约精确更新期望，未删断言或过滤掉 watch。Phone 旧场景改为由真实 SettingsPanel 包住，保留 12 次窗口开关、8 次配对开关及动画/监听释放断言。
+- `pnpm break-check docs/testing/mp3b-settings-watch-break-check.json`：**8/8 检出**（`settings-owner-break.log`）：不订阅、不退订、分类依赖导致重订、关闭请求过早退订、偷偷取消配对、迟到读取复活、退订后推送复活、窗口关闭仍重连订阅。每 case 一个浏览器文件串行跑。原 `mp3b-break-check.json` 的两个旧 owner case 也更新为窗口入口，历史计数不重记。
+- 最终单文件 `pnpm test:ui settings-remote-watch --maxWorkers=1` 4 项通过（`settings-owner-final.log`）；UI/client 各自 typecheck、改动源文件/设置测试的类型感知 lint、格式及 diff 检查通过。
+- 未跑全量测试、e2e、变异、Xcode。Electron Phone heap spec 仍缺，应覆盖真实窗口关闭后的 QR/DOM 释放，以及只切分类时局部动画和对话框释放、窗口 watch 保留；最窄入口仍见文末。
+
 ## 三方审查后的型号标注修复
 
 只修确认弹层：`request.model.trim()` 非空时按原值显示，否则“未提供”；独立一行明确“手机自报，非硬件认证”，不把密钥确认误解为型号认证，也不从设备名推断。设备详情和协议不改。
@@ -8,7 +24,7 @@
 - `pnpm break-check docs/testing/mp3b-pairing-model-break-check.json`：删除自报声明、不 trim、回退到设备名三个破坏全部检出（`model-label-break.log`）。单文件串行，无全量、e2e、Xcode 或变异。
 - 改动 TSX 的格式、类型感知 lint 和 `git diff --check` 通过。历史全量超时记录保留。
 
-**watch 范围仍待用户决定，未修改。** 只读评估的最小方案：如选“整个设置窗口订阅”，把 watch true/false 的 effect 移到 `SettingsPanel`，仅挂载/卸载时运行；`PhoneSection` 保留本地 mounted/pending 生命周期保护，但移除 watch 调用。分类切换不再退订，关闭整个窗口才退订并清空含二维码的状态；不引入额外缓存或订阅 owner 参数。需要调整 PhoneSection 独立测试的初始 store 装载方式，并由 SettingsPanel 用例覆盖“外观页打开即订阅、切分类不重复订阅、关闭清空、迟到响应不能恢复、侧栏标记跟随推送”。若选“仅手机分类”，保留当前 owner，仅收窄提示的规格与验收范围。两种均须用户确认后再实现。
+**历史评估（当时未获决定、未修改；现已选择整个设置窗口订阅，见开头本轮）**。当时只读评估的最小方案：如选“整个设置窗口订阅”，把 watch true/false 的 effect 移到 `SettingsPanel`，仅挂载/卸载时运行；`PhoneSection` 保留本地 mounted/pending 生命周期保护，但移除 watch 调用。分类切换不再退订，关闭整个窗口才退订并清空含二维码的状态；不引入额外缓存或订阅 owner 参数。需要调整 PhoneSection 独立测试的初始 store 装载方式，并由 SettingsPanel 用例覆盖“外观页打开即订阅、切分类不重复订阅、关闭清空、迟到响应不能恢复、侧栏标记跟随推送”。若选“仅手机分类”，保留当前 owner，仅收窄提示的规格与验收范围。两种均须用户确认后再实现。
 
 ## 协议 27 协调补齐（历史轮次）
 
@@ -29,7 +45,7 @@
 
 范围：SPEC-0005 需求 1、配对流程、撤销、本机命令与事件；按 design-language「设置 · 手机」和定稿链路图原型实现。仅改 client、ui 及相关验证文档，不合并 main、不推送。
 
-## 可逆实现决定
+## 首次实现决定（历史，watch 范围已由用户选择替换）
 
 - client 只在手机分类挂载期间 watch；离开时清空带一次性密钥的状态，重连时仅对仍打开的页面恢复 watch。事件比未恢复的读取 Promise 新时保留事件。
 - 当前协议不含已配对设备的 `model`：详情显示「宿主未提供」，不从设备名猜型号。

@@ -378,7 +378,7 @@ export interface AtriumClient {
   readonly diff: StoreApi<DiffView>;
   /** Opens the changes panel on a target, or closes it with `null`, on this connection and every later one. */
   watchDiff(target: DiffTarget | null): Promise<void>;
-  /** The remote state while the "手机" page watches it (SPEC-0005); idle otherwise. */
+  /** The remote state while the settings window watches it; idle after that window closes. */
   readonly remote: StoreApi<RemoteView>;
   /**
    * Starts watching the remote state, on this connection and every later one, or stops; the
@@ -522,7 +522,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const setup = createStore<SetupView>(() => UNASKED_SETUP);
   const plans = createStore<Plans>(() => []);
   const remote = createStore<RemoteView>(() => UNWATCHED_REMOTE);
-  /** Whether the "手机" page watches the remote state, asked for again on each connection. */
+  /** Whether the settings window watches remote state, asked for again on each connection. */
   let watchingRemote = false;
   let remoteAsks = 0;
   let setupAsks = 0;

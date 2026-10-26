@@ -11,7 +11,8 @@ import type { RemoteState } from "@atrium/protocol";
 import { CommandError } from "@atrium/client";
 import "../styles.css";
 import { fakeClient } from "../test/fake-client";
-import { PhoneSection } from "./phone-section";
+// Phone scenarios now mount the actual settings-window watch owner, not a test-owned subscription.
+import { PhoneSettings as PhoneSection } from "../test/phone-settings";
 
 /** A connected host with a real-shaped phone and no secrets. */
 const STATE: RemoteState = {
@@ -385,14 +386,18 @@ function SettingsHarness({ client }: { readonly client: ReturnType<typeof fakeCl
   );
 }
 
-it("starts and stops watching with settings category navigation", async () => {
+it("keeps one watch through settings category navigation until the window unmounts", async () => {
   const fake = fakeClient({}, { remote: STATE });
   const screen = await render(<SettingsHarness client={fake.client} />);
-  expect(fake.calls).toStrictEqual([]);
+  expect(fake.calls).toStrictEqual(["watchRemote true"]);
   await screen.getByRole("button", { name: "手机", exact: true }).click();
   await expect.element(screen.getByRole("group", { name: "远程访问链路图" })).toBeVisible();
   await screen.getByRole("button", { name: "关于", exact: true }).click();
+  expect(fake.calls).toStrictEqual(["watchRemote true"]);
+  expect(fake.remote.getState().state).toStrictEqual(STATE);
+  await screen.unmount();
   expect(fake.calls).toStrictEqual(["watchRemote true", "watchRemote false"]);
+  expect(fake.remote.getState()).toStrictEqual({ status: "idle", state: null, error: null });
 });
 
 it("reports failures for rename, reset, starting and confirming pairing without optimistic access", async () => {

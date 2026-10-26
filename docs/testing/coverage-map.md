@@ -30,7 +30,7 @@ SPEC-0005 需求 1、配对和撤销；视觉按 design-language「设置 · 手
 
 | 行为 | 验证 |
 |---|---|
-| 页面挂载才 watch、切分类退订、断线重订、过期响应/失败不能恢复旧状态、较新的推送优先 | `packages/client/src/atrium-client.test.ts` 的 remote access 7 项；`phone-section.browser.test.tsx` 的 category navigation、failed reads |
+| 用户选择：整个设置窗口唯一 watch；非手机分类也接收橙点/relay 错误，切分类不重订，实际关闭清空，配置关闭拦截仍订阅，重开/重连及晚到读取/推送安全；普通导航不改变访问权限或取消配对 | `settings-remote-watch.browser.test.tsx` 4 项（真实 SettingsPanel + 实际 client + 脚本化 socket；配置拦截用 fakeClient）；`phone-section.browser.test.tsx` 的 category navigation 改为只在窗口卸载后退订；保留 client 的代次保护测试 |
 | 全部 9 个本机命令的字段、应答和错误传递 | 同上客户端命令用例；浏览器 rename/revoke/reset/relay/pairing 用例 |
 | 3900ms 上行汇合、relay 停留、下行分发、各段边界、锁闪烁、固定设备色与 S 曲线 | `remote-map.test.ts` 3 项；浏览器 fake-clock lock 用例 |
 | 减弱动态效果不启动动画时钟、静态箭头、最多四台加 +N、完整列表、车道/节点/行三向悬停 | `phone-section.browser.test.tsx` 的 replaces motion |
@@ -46,7 +46,9 @@ SPEC-0005 需求 1、配对和撤销；视觉按 design-language「设置 · 手
 | 重复打开关闭释放定时器、配对 Escape 监听、watch 与 DOM | 浏览器 frees timers 12 轮、releases pairing 8 轮；另做真实 Chromium CDP DOM 计数 25 轮及人为保留 DOM 的负对照 |
 | 明暗真实设置截图 | 浏览器 captures light and dark：`packages/ui/src/settings/.vitest/phone-settings-{light,dark}.png`（自动生成、不提交）；与原型对照记录见 MP3b 记录 |
 
-破坏检查：`pnpm break-check docs/testing/mp3b-break-check.json`，25 处检出（23+2 分两轮）。客户端增量变异（仅本次新增实现行）72/72 检出；链路动画纯逻辑初跑 102/103，唯一存活是两段三次曲线在 0.5 处相等，注明等价后 101/101。最终相关单元 151 项、界面 37 项通过；随后单 worker 全量界面 1030 项及 Swift 22 项通过。全量单元先前通过，最后单 worker 重跑仍遇其他 Git/boundary 测试超时并在 900 秒被中断，不能算通过，详见 MP3b 记录。
+整个窗口订阅本轮：新增生命周期测试起初 3 红，实现后含资源回归共 4 绿；设置目录定向单 worker 11 文件 / 145 项通过，`mp3b-settings-watch-break-check.json` 8/8 检出。Phone 场景通过真实 SettingsPanel 承载，不在测试里手写 watch owner；原 25-case 清单的两个 owner case 已迁移至窗口入口。
+
+历史验证（原 phone-only 实施阶段，未改写为本轮结果）：`pnpm break-check docs/testing/mp3b-break-check.json` 当时 25 处检出（23+2 分两轮）。客户端增量变异（仅本次新增实现行）72/72 检出；链路动画纯逻辑初跑 102/103，唯一存活是两段三次曲线在 0.5 处相等，注明等价后 101/101。最终相关单元 151 项、界面 37 项通过；随后单 worker 全量界面 1030 项及 Swift 22 项通过。全量单元先前通过，最后单 worker 重跑仍遇其他 Git/boundary 测试超时并在 900 秒被中断，不能算通过，详见 MP3b 记录。
 
 ## MP3a 宿主远程模块（2026-10-26）
 
