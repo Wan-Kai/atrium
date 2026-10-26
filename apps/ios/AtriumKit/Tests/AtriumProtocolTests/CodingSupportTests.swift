@@ -55,6 +55,15 @@ struct CodingSupportTests {
     }
   }
 
+  @Test("refuses to write an optional constant that is not its one value")
+  func optionalConstantEncoding() throws {
+    let encoder = JSONEncoder()
+    #expect(throws: EncodingError.self) { try encoder.encode(ForkSessionResult(sessionId: "s", noteSent: true)) }
+    let written = try JSONDecoder().decode(
+      JSONValue.self, from: encoder.encode(ForkSessionResult(sessionId: "s", noteSent: false)))
+    #expect(written == .object(["sessionId": .string("s"), "noteSent": .bool(false)]))
+  }
+
   @Test("reads a count or off, and nothing else, for the context reserve")
   func scalarUnion() throws {
     let decoder = JSONDecoder()

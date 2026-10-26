@@ -180,12 +180,12 @@ describe("generateSwift", () => {
     expect(source).toContain('    case `in`\n    case v1x = "1x"\n');
   });
 
-  it("keeps an optional constant as an optional value that must be the constant when present", () => {
+  it("keeps an optional constant as an optional value that must be the constant when present, read or written", () => {
     const source = swift({ Forked: strictObject({ noteSent: { type: "boolean", const: false } }, []) });
 
     expect(source).toContain("  public var noteSent: Bool?\n");
     expect(source).toContain('    self.noteSent = try container.decodeOmittableConstant(false, forKey: "noteSent")\n');
-    expect(source).toContain('    try container.encodeIfPresent(self.noteSent, forKey: "noteSent")\n');
+    expect(source).toContain('    try container.encodeOmittableConstant(self.noteSent, false, forKey: "noteSent")\n');
   });
 
   it("maps each command's type to the Swift type of its result", () => {

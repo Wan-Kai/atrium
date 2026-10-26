@@ -572,7 +572,8 @@ function singular(name) {
  *
  * @remarks
  * Required constant fields are checked when decoding and written when encoding, but not stored;
- * an optional one is stored as an optional value that must be the constant when present. Required,
+ * an optional one is stored as an optional value that must be the constant when present, both when
+ * decoding and when encoding. Required,
  * nullable and omittable fields each decode differently (`CodingSupport.swift`), so a host that
  * sends `null` where the schema forbids it is noticed.
  *
@@ -642,8 +643,10 @@ function declareStruct(ctx, name, schema, path, ancestors) {
       ? "    _ = encoder.container(keyedBy: AnyKey.self)"
       : "    var container = encoder.container(keyedBy: AnyKey.self)",
     ...constants.map(({ key, value }) => `    try container.encode(${value}, forKey: ${literal(key)})`),
-    ...fields.map(
-      (field) => `    try container.${encodeMethod(field)}(self.${field.name}, forKey: ${literal(field.key)})`,
+    ...fields.map((field) =>
+      field.constant === undefined
+        ? `    try container.${encodeMethod(field)}(self.${field.name}, forKey: ${literal(field.key)})`
+        : `    try container.encodeOmittableConstant(self.${field.name}, ${field.constant}, forKey: ${literal(field.key)})`,
     ),
     "  }",
     "}",

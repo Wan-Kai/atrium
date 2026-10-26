@@ -176,6 +176,27 @@ extension KeyedEncodingContainer where Key == AnyKey {
     if let value { try encode(value, forKey: key) } else { try encodeNil(forKey: key) }
   }
 
+  /// Writes an optional field that, when present, must hold the one value the schema allows.
+  ///
+  /// - Remark: The generated type keeps such a field as a plain optional (`noteSent: Bool?`), which
+  ///   can hold values the schema forbids; refusing them here keeps encoding as strict as decoding.
+  /// - SideEffects: Writes to the encoder.
+  /// - Parameters:
+  ///   - value: `nil` to leave the key out, else the value.
+  ///   - constant: The only allowed value.
+  ///   - key: The JSON key.
+  /// - Throws: `EncodingError.invalidValue` for any other value; whatever the encoder throws.
+  public mutating func encodeOmittableConstant<T: Encodable & Equatable>(
+    _ value: T?, _ constant: T, forKey key: AnyKey
+  ) throws {
+    guard let value else { return }
+    guard value == constant else {
+      throw EncodingError.invalidValue(
+        value, EncodingError.Context(codingPath: codingPath + [key], debugDescription: "only \(constant) is allowed"))
+    }
+    try encode(value, forKey: key)
+  }
+
   /// Writes a field that may be left out or `null`, as `Nullable` says.
   ///
   /// - Remark: See `Nullable`.

@@ -3415,7 +3415,7 @@ public struct ForkSessionResult: Codable, Sendable, Equatable {
   public func encode(to encoder: any Encoder) throws {
     var container = encoder.container(keyedBy: AnyKey.self)
     try container.encode(self.sessionId, forKey: "sessionId")
-    try container.encodeIfPresent(self.noteSent, forKey: "noteSent")
+    try container.encodeOmittableConstant(self.noteSent, false, forKey: "noteSent")
   }
 }
 
