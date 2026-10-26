@@ -37,7 +37,6 @@ Mac  ──wss──▶          同上
 
    另一种（网络好时）：在 Mac 上 `docker buildx build --platform linux/amd64 -t atrium-relay:$VERSION --load apps/relay`，再 `docker save atrium-relay:$VERSION | gzip | ssh <vps> 'gunzip | docker load'`。
 
-
    镜像约 80 MB（官方 `node:24.22.1-bookworm-slim` 加 1 MB 的 `relay.cjs`）。构建的第一阶段会在镜像的 Node 上跑一次 `add-host` / `list-hosts`，打包坏了构建就失败。
 
 2. **VPS 上准备目录**（镜像里以 uid 1000 的 `node` 用户运行）：
