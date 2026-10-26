@@ -156,6 +156,48 @@ describe("RelayLink", () => {
     });
   });
 
+  it("keeps completed diagnostics and notifications unchanged when stop settles a pending live check", async () => {
+    const f = await fixture(false);
+    f.link.start();
+    await expect.poll(() => f.messages.length).toBe(1);
+    const socket = f.sockets[0]!;
+    socket.send('{"type":"ready"}');
+    await expect.poll(() => f.link.state.status).toBe("connected");
+    const evidence = {
+      kind: "connect",
+      checkedAt: 100,
+      network: "passed",
+      resolution: "not_applicable",
+      tls: "not_applicable",
+      token: "passed",
+      failure: null,
+    };
+    const notifications = [
+      { status: "connecting", error: null, lastConnectedAt: null },
+      { status: "connected", error: null, lastConnectedAt: 100 },
+    ];
+    expect(f.link.diagnostics).toStrictEqual(evidence);
+    expect(f.states).toStrictEqual(notifications);
+    f.clock.advance(1);
+    const ping = once(socket, "ping");
+    const checking = f.link.retryNow();
+    const [payload] = await ping;
+    expect(payload).toHaveLength(16);
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 2 });
+    await f.link.stop();
+    expect(await checking).toBe("relay_unreachable");
+    expect.soft(f.link.diagnostics).toStrictEqual(evidence);
+    expect.soft(f.states).toStrictEqual(notifications);
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+    await expect.poll(() => f.server.clients.size).toBe(0);
+    expect(socket.readyState).toBe(WebSocket.CLOSED);
+    f.clock.advance(LINK_PING_MS + READY_TIMEOUT_MS);
+    expect(f.link.diagnostics).toStrictEqual(evidence);
+    expect(f.states).toStrictEqual(notifications);
+    expect(f.sockets).toHaveLength(1);
+    expect(f.clock.pendingTimers()).toBe(0);
+  });
+
   it("tests an already connected relay with a fresh pong and times out silence without replacing healthy sockets", async () => {
     const f = await fixture(false);
     f.link.start();
@@ -177,6 +219,11 @@ describe("RelayLink", () => {
     expect(checked).toBe(false);
     socket.pong(payload);
     expect(await check).toBeNull();
+    expect(f.states).toStrictEqual([
+      { status: "connecting", error: null, lastConnectedAt: null },
+      { status: "connected", error: null, lastConnectedAt: 100 },
+      { status: "connected", error: null, lastConnectedAt: 100 },
+    ]);
     expect(f.sockets).toHaveLength(1);
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 1 });
     const silentPing = once(socket, "ping");
@@ -184,6 +231,8 @@ describe("RelayLink", () => {
     const [silentPayload] = await silentPing;
     f.clock.advance(READY_TIMEOUT_MS);
     expect(await silent).toBe("relay_unreachable");
+    expect(f.states).toHaveLength(4);
+    expect(f.states[3]).toStrictEqual({ status: "connected", error: null, lastConnectedAt: 100 });
     expect(f.link.state).toStrictEqual({ status: "connected", error: null, lastConnectedAt: 100 });
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 1, timer: 1 });
     expect(f.link.diagnostics).toStrictEqual({
@@ -208,6 +257,17 @@ describe("RelayLink", () => {
     expect(nextPayload.equals(silentPayload)).toBe(false);
     socket.pong(nextPayload);
     expect(await next).toBeNull();
+    expect(f.link.diagnostics).toStrictEqual({
+      kind: "live",
+      checkedAt: 30100,
+      network: "passed",
+      resolution: "not_applicable",
+      tls: "not_applicable",
+      token: "unknown",
+      failure: null,
+    });
+    expect(f.states).toHaveLength(5);
+    expect(f.states[4]).toStrictEqual({ status: "connected", error: null, lastConnectedAt: 100 });
     expect(f.sockets).toHaveLength(1);
     expect(socket.readyState).toBe(WebSocket.OPEN);
     expect(f.link.state).toStrictEqual({ status: "connected", error: null, lastConnectedAt: 100 });
