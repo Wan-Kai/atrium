@@ -9,6 +9,7 @@ import type {
   ModelListView,
   SessionView,
   SetupView,
+  RemoteView,
 } from "@atrium/client";
 import {
   type Chat,
@@ -30,6 +31,7 @@ import {
   type Project,
   type SessionSummary,
   type SetupState,
+  type RemoteState,
   type Workspace,
   UNKNOWN_METRICS,
 } from "@atrium/protocol";
@@ -156,6 +158,8 @@ export const READY_SETUP: SetupState = {
 
 /** How the fake answers some commands; the rest succeed. */
 export interface FakeAnswers {
+  readonly remote?: RemoteState;
+  readonly remoteCommand?: () => Promise<void>;
   readonly createChat?: () => Promise<void>;
   readonly createSession?: () => Promise<void>;
   /** Answers opening a child conversation, empty or forked; opened at once in the list when left out. */
@@ -296,6 +300,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     installSeed: 1,
     logDir: "/Users/test/.atrium/logs",
   }));
+  const remote = createStore<RemoteView>(() => ({ status: "idle", state: null, error: null }));
   const setup = createStore<SetupView>(() => ({ status: "idle", state: null, error: null }));
   const loginState = createStore<LoginUpdatedEvent | null>(() => null);
   const installJob = createStore<InstallJob | null>(() => null);
@@ -804,6 +809,66 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       if (shown?.workspaceId === target?.workspaceId && shown?.mode === target?.mode) return;
       diff.setState({ target, status: target === null ? "idle" : "loading", files: [], tooLarge: false, error: null });
     },
+    remote,
+    async watchRemote(on: boolean) {
+      calls.push(`watchRemote ${on}`);
+      remote.setState(
+        on
+          ? {
+              status: "ready",
+              state: answers.remote ?? {
+                enabled: false,
+                vault: "unread",
+                relay: null,
+                hostFingerprint: null,
+                devices: [],
+                pairing: null,
+              },
+              error: null,
+            }
+          : { status: "idle", state: null, error: null },
+      );
+    },
+    async setRemote(enabled: boolean, relay?: string) {
+      calls.push(`setRemote ${enabled}${relay === undefined ? "" : " [redacted]"}`);
+      await answers.remoteCommand?.();
+      return {};
+    },
+    async testRelay() {
+      calls.push("testRelay");
+      await answers.remoteCommand?.();
+      return {};
+    },
+    async startPairing() {
+      calls.push("startPairing");
+      await answers.remoteCommand?.();
+      return { pairingId: "pair_0123456789abcdef" };
+    },
+    async cancelPairing() {
+      calls.push("cancelPairing");
+      await answers.remoteCommand?.();
+      return {};
+    },
+    async confirmPairing(pairingId: string, accept: boolean) {
+      calls.push(`confirmPairing ${pairingId} ${accept}`);
+      await answers.remoteCommand?.();
+      return {};
+    },
+    async renameDevice(deviceId: string, name: string) {
+      calls.push(`renameDevice ${deviceId} ${name}`);
+      await answers.remoteCommand?.();
+      return {};
+    },
+    async revokeDevice(deviceId: string) {
+      calls.push(`revokeDevice ${deviceId}`);
+      await answers.remoteCommand?.();
+      return {};
+    },
+    async resetRemoteIdentity() {
+      calls.push("resetRemoteIdentity");
+      await answers.remoteCommand?.();
+      return {};
+    },
     setup,
     async loadSetup(refresh = false) {
       calls.push(`loadSetup${refresh ? " refresh" : ""}`);
@@ -882,6 +947,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     views,
     index,
     connection,
+    remote,
     setup,
     loginState,
     installJob,

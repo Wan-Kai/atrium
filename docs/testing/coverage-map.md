@@ -4,6 +4,26 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## MP3b 桌面手机设置页（2026-10-26）
+
+SPEC-0005 需求 1、配对和撤销；视觉按 design-language「设置 · 手机」。实现决定、协议缺口及截图见 [MP3b 记录](mp3b-settings.md)。
+
+| 行为 | 验证 |
+|---|---|
+| 页面挂载才 watch、切分类退订、断线重订、过期响应/失败不能恢复旧状态、较新的推送优先 | `packages/client/src/atrium-client.test.ts` 的 remote access 7 项；`phone-section.browser.test.tsx` 的 category navigation、failed reads |
+| 全部 9 个本机命令的字段、应答和错误传递 | 同上客户端命令用例；浏览器 rename/revoke/reset/relay/pairing 用例 |
+| 3900ms 上行汇合、relay 停留、下行分发、各段边界、锁闪烁、固定设备色与 S 曲线 | `remote-map.test.ts` 3 项；浏览器 fake-clock lock 用例 |
+| 减弱动态效果不启动动画时钟、静态箭头、最多四台加 +N、完整列表、车道/节点/行三向悬停 | `phone-section.browser.test.tsx` 的 replaces motion |
+| 首次启用、钥匙串等待/不可用、保险箱损坏/无 Electron、行内重置确认 | 浏览器 renders vault 参数化用例及 requires inline confirmation |
+| relay 掩码替换及重新配对警告、测试连接、保守诊断清单 | 浏览器 saves relay、diagnostic checklist、retryable failures |
+| 原地改名与清空恢复、撤销确认、撤销写盘失败仍保留可重试目标 | 浏览器 watches only、saves relay、keeps revoke retry |
+| 真实二维码输入和矩阵、5 分钟过期、刷新、SAS、确认/拒绝、另一台手机被拒、完成/失败原因、Esc 不关外层设置 | 浏览器 counts down a real QR、declines a pairing、pairing failure 参数化用例 |
+| 断线时配对不能确认但仍可 Esc 关闭；同步重复点击只发一次；失败不乐观授予权限 | 浏览器 lets Escape dismiss、blocks duplicate commands、reports failures |
+| 重复打开关闭释放定时器、配对 Escape 监听、watch 与 DOM | 浏览器 frees timers 12 轮、releases pairing 8 轮；另做真实 Chromium CDP DOM 计数 25 轮及人为保留 DOM 的负对照 |
+| 明暗真实设置截图 | 浏览器 captures light and dark：`packages/ui/src/settings/.vitest/phone-settings-{light,dark}.png`（自动生成、不提交）；与原型对照记录见 MP3b 记录 |
+
+破坏检查：`pnpm break-check docs/testing/mp3b-break-check.json`，25 处检出（23+2 分两轮）。客户端增量变异（仅本次新增实现行）72/72 检出；链路动画纯逻辑初跑 102/103，唯一存活是两段三次曲线在 0.5 处相等，注明等价后 101/101。最终相关单元 151 项、界面 37 项通过；全量先前通过，最后重跑遇其他 Git/boundary 测试超时，不能算通过，详见 MP3b 记录。
+
 ## MP1 Swift 工程基础（手机端，2026-10-25～26）
 
 路线图 MP1：Swift 的规范、`apps/ios` 工程骨架、`pnpm protocol:swift` 和往返测试、Swift 进 `pnpm check` / `pnpm test`，破坏检查扩到 Swift（[testing.md · Swift（手机端）](../architecture/testing.md#swift手机端)、[overview.md · iOS 工程](../architecture/overview.md#ios-工程2026-10-25-定mp1)）。

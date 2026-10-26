@@ -1,0 +1,588 @@
+.phone-settings {
+  --phone-0: #0e9fb5;
+  --phone-1: #7c5ce6;
+  --phone-2: #d6409f;
+  --phone-3: #c98a12;
+  --phone-4: #4f6be0;
+  --map-bg: #f6f7f9;
+  --trunk: rgba(0, 0, 0, 0.16);
+  --lane-off: rgba(0, 0, 0, 0.14);
+  --node-bg: #fff;
+  font-size: var(--fs-meta);
+  min-width: 0;
+}
+.dark .phone-settings {
+  --phone-0: #3cc4d8;
+  --phone-1: #a78bfa;
+  --phone-2: #ee6bbd;
+  --phone-3: #e8b04a;
+  --phone-4: #8ea2ff;
+  --map-bg: #19191b;
+  --trunk: rgba(255, 255, 255, 0.2);
+  --lane-off: rgba(255, 255, 255, 0.16);
+  --node-bg: #2c2c2e;
+}
+.phone-settings button {
+  cursor: pointer;
+}
+.phone-settings button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.phone-settings button:focus-visible {
+  outline: 2px solid var(--tint);
+  outline-offset: 4px;
+}
+.phone-map {
+  position: relative;
+  height: 252px;
+  margin-bottom: 12px;
+  border-radius: var(--r-card);
+  background: var(--map-bg);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
+.phone-lanes {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  width: 100%;
+}
+.phone-lane {
+  fill: none;
+  stroke: var(--device-color, var(--text-muted));
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+.phone-trunk {
+  stroke: var(--trunk);
+}
+.phone-lane.offline {
+  stroke: var(--lane-off);
+  stroke-dasharray: 3 4;
+}
+.phone-lane.broken {
+  stroke: var(--danger);
+  stroke-dasharray: 4 4;
+}
+.phone-lane-hit {
+  stroke: transparent;
+  stroke-width: 14;
+  fill: none;
+  cursor: pointer;
+}
+.phone-packet-glow {
+  opacity: 0.32;
+  filter: blur(2.5px);
+}
+.phone-static-arrows {
+  fill: var(--device-color, var(--text-muted));
+  font-size: 16px;
+  dominant-baseline: middle;
+}
+.phone-map-node {
+  position: absolute;
+  top: 88px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.phone-map-tile {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--node-bg);
+  box-shadow:
+    0 0 0 0.5px var(--line-strong),
+    0 4px 12px -4px rgb(0 0 0 / 18%);
+}
+.phone-map-node[aria-pressed="true"] .phone-map-tile {
+  box-shadow:
+    0 0 0 0.5px var(--line-strong),
+    0 0 0 3px var(--map-bg),
+    0 0 0 4.5px var(--text-muted);
+}
+.phone-map-node small {
+  margin-top: -4px;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+.phone-lock {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--node-bg);
+  color: var(--text-muted);
+  box-shadow:
+    0 0 0 0.5px var(--line-strong),
+    0 0 0 2px var(--map-bg);
+  transition:
+    color 0.25s,
+    transform 0.25s;
+}
+.phone-lock[data-lit="true"] {
+  color: var(--tint);
+  transform: scale(1.15);
+  box-shadow: 0 0 10px 1px color-mix(in srgb, var(--tint) 45%, transparent);
+}
+.phone-map-phone {
+  position: absolute;
+  transform: translate(-15px, -50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  font-size: var(--fs-sm);
+  background: none;
+  max-width: 28%;
+}
+.phone-device-tile {
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--device-color);
+  background: color-mix(in srgb, var(--device-color) 16%, var(--node-bg));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--device-color) 55%, transparent);
+}
+.phone-map-phone > span:last-child {
+  min-width: 0;
+}
+.phone-map-phone b {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.phone-map-phone small {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.phone-map-phone.offline .phone-device-tile {
+  color: var(--text-dim);
+  background: var(--node-bg);
+  box-shadow: 0 0 0 1px var(--lane-off);
+}
+.phone-map-phone[aria-pressed="true"] .phone-device-tile {
+  outline: 1.5px solid var(--device-color);
+  outline-offset: 3px;
+}
+.phone-map-note {
+  position: absolute;
+  top: 48px;
+  left: 42.95%;
+  transform: translateX(-50%);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.phone-map-note.error {
+  left: 27%;
+  top: 72px;
+  color: var(--danger);
+}
+.phone-map-break {
+  position: absolute;
+  top: 105px;
+  left: 25.8%;
+  color: var(--danger);
+  background: var(--map-bg);
+}
+.phone-map-legend {
+  position: absolute;
+  bottom: 10px;
+  left: 14px;
+  display: flex;
+  gap: 12px;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+.phone-map-legend span {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+.phone-map-legend [data-active="true"] {
+  color: var(--text-2);
+}
+.phone-settings [data-device][data-dim="true"] {
+  opacity: 0.2;
+}
+.phone-device-row[data-dim="true"] {
+  opacity: 0.45;
+}
+.phone-settings [data-device] {
+  transition: opacity 0.2s;
+}
+.phone-settings[data-hover] [data-device][data-dim="false"] .phone-lane {
+  stroke-width: 2.5;
+}
+.phone-below-map {
+  position: relative;
+}
+.phone-details {
+  position: relative;
+  padding: 12px 16px 6px;
+  margin-bottom: 22px;
+  background: var(--surface-1);
+  border-radius: var(--r-card);
+  box-shadow: var(--card-shadow);
+}
+.dark .phone-details {
+  background: var(--surface-2);
+}
+.phone-details::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: var(--node-x);
+  height: 12px;
+  width: 12px;
+  transform: rotate(45deg);
+  background: inherit;
+  box-shadow: -0.5px -0.5px 0 var(--line);
+}
+.phone-details h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-weight: 600;
+}
+.phone-details > div {
+  margin-inline: -12px;
+}
+.phone-details code {
+  font-size: var(--fs-xs);
+}
+.phone-masked {
+  display: block;
+  max-width: 270px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.phone-icon {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  color: var(--text-muted);
+}
+.phone-icon:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.phone-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: var(--r-pill);
+  background: var(--line-strong);
+}
+.phone-switch::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 16px;
+  height: 16px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.3s;
+}
+.phone-switch[aria-checked="true"] {
+  background: var(--tint);
+}
+.phone-switch[aria-checked="true"]::after {
+  transform: translateX(14px);
+}
+.phone-relay-edit {
+  display: grid;
+  gap: 8px;
+  padding: 8px 12px;
+}
+.phone-warning {
+  color: var(--attn-text);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+.phone-confirm {
+  padding: 10px 12px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+}
+.phone-confirm p {
+  margin-bottom: 8px;
+}
+.phone-diagnostics {
+  padding: 10px 12px;
+}
+.phone-diagnostics p {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding-block: 4px;
+}
+.phone-diagnostics small {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+.phone-device-list h4 {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 600;
+}
+.phone-device-list h4 small {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+.phone-device-list h4 button {
+  margin-left: auto;
+}
+.phone-device-row {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  gap: 4px;
+  padding: 8px 10px;
+  margin-inline: -10px;
+  border-radius: var(--r-md);
+}
+.phone-device-row:hover {
+  background: var(--hover);
+}
+.phone-device-row + .phone-device-row {
+  box-shadow: 0 -0.5px 0 var(--line);
+}
+.phone-device-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+.phone-device-open > span:last-child {
+  min-width: 0;
+}
+.phone-device-open b {
+  display: block;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.phone-device-open small {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.phone-empty {
+  padding: 18px 0;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.phone-error,
+.phone-vault {
+  padding: 10px;
+  margin-bottom: 12px;
+  border-radius: var(--r);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+.phone-error {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.phone-error span {
+  flex: 1;
+}
+.phone-notice {
+  position: fixed;
+  top: 56px;
+  right: 12px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  max-width: min(620px, calc(100vw - 24px));
+  padding: 6px 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-meta);
+  color: var(--text-2);
+}
+.phone-notice > svg {
+  color: var(--ok-text);
+  flex: none;
+}
+.phone-notice button {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-sm);
+}
+.phone-notice button:hover {
+  background: var(--hover);
+}
+.phone-pair-overlay {
+  position: absolute;
+  top: 0;
+  inset-inline: -20px;
+  bottom: 0;
+  min-height: 330px;
+  z-index: 10;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: color-mix(in srgb, var(--main) 62%, transparent);
+  backdrop-filter: blur(6px);
+}
+.phone-pair-sheet {
+  width: min(490px, 100%);
+  padding: 16px 20px;
+  border-radius: var(--r-card);
+  background: var(--surface-1);
+  box-shadow:
+    var(--card-shadow),
+    0 24px 60px -20px rgb(0 0 0 / 35%);
+  outline: none;
+}
+.dark .phone-pair-sheet {
+  background: var(--surface-2);
+}
+.phone-pair-sheet h3 {
+  display: flex;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.phone-pair-sheet h3 button {
+  margin-left: auto;
+}
+.phone-pair-sheet p {
+  font-size: var(--fs-sm);
+  margin-block: 6px;
+  line-height: 1.55;
+}
+.phone-pair-sheet small {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+.phone-pair-sheet footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+.phone-pair-steps {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 12px;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+}
+.phone-pair-steps i {
+  height: 0.5px;
+  width: 14px;
+  background: var(--line-strong);
+}
+.phone-pair-steps [data-active="true"] {
+  color: var(--text);
+}
+.phone-pair-qr {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 16px;
+}
+.phone-pair-qr > svg {
+  width: 160px;
+  height: 160px;
+}
+.phone-countdown {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+.phone-pair-wait {
+  color: var(--text-muted);
+}
+.phone-pair-request {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--attn-soft);
+}
+.phone-pair-request b,
+.phone-pair-request small {
+  display: block;
+}
+.phone-pair-code {
+  display: flex;
+  gap: 5px;
+  margin-block: 8px;
+}
+.phone-pair-code span {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 42px;
+  background: var(--surface-3);
+  border-radius: var(--r);
+  font: 600 21px var(--font-mono);
+}
+.phone-pair-code .second-half {
+  margin-left: 8px;
+}
+.phone-refused {
+  color: var(--text-muted);
+}
+.phone-settings .arrived {
+  animation: phone-arrival 0.6s ease-out;
+}
+@keyframes phone-arrival {
+  from {
+    outline: 1px solid currentColor;
+    outline-offset: 0;
+  }
+  to {
+    outline: 1px solid transparent;
+    outline-offset: 9px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .phone-settings *,
+  .phone-settings *::before,
+  .phone-settings *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}

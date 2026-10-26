@@ -271,7 +271,7 @@ function SidebarToggle({ panes }: { readonly panes: StoreApi<Panes> }) {
 const SECTION_KEY = "atrium.settings.section";
 
 /** The settings' parts a stored value may name. */
-const SECTIONS: readonly SettingsSection[] = ["appearance", "accounts", "projects", "pi", "about"];
+const SECTIONS: readonly SettingsSection[] = ["appearance", "accounts", "projects", "pi", "phone", "about"];
 
 /**
  * The settings' part shown last time, or the first.

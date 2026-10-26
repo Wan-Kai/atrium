@@ -14,4 +14,37 @@
 
 ## 验证记录
 
-进行中，完成后补充命令、截图和未验证项目。
+### 已验证
+
+统一用 Node 22.19.0。日志保存在本机 `/tmp/mp3b/`，截图使用合成设备和地址、不含真实密钥。
+
+- `pnpm check`：最终通过（`check-last.log`）。boundary：URLs 14、环境变量 41、隐藏命令 4，未登记 0、不精确 0。
+- `pnpm test`：先前完整通过，203 文件 / 3799 项，随后 Swift 22 项通过（`test.log`）。后续补了 3 项纯逻辑测试；最终定向 `pnpm exec vitest run --project unit packages/client packages/ui/src/settings/remote-map.test.ts --maxWorkers=1` 为 4 文件 / 151 项通过。
+- `pnpm test:ui`：一次完整运行 50 文件 / 1028 项通过（`ui-all2.log`）。之后补了剪贴板、配对监听释放等测试；最终 `pnpm test:ui phone-section settings-panel --maxWorkers=1` 为 37 项通过（`ui-related-last.log`）。
+- 破坏检查 25 处全部检出：`docs/testing/mp3b-break-check.json`，前 23 处整批通过（`break.log`），新增的 Escape 监听与倒计时释放 2 处随后通过（`listener-break.log`）。最初漏掉的 map → list 悬停已补测试；client 的两处初始漏检，一处补拒绝参数测试，另一处是断线时提前 return 与 catch 相同结果的等价路径。
+- 客户端增量变异：`pnpm test:mutation shared '--mutate=packages/client/src/atrium-client.ts:931-944,packages/client/src/atrium-client.ts:1106-1115,packages/client/src/atrium-client.ts:1238-1238,packages/client/src/atrium-client.ts:1519-1546'`，72/72 检出、无超时、100%。初跑的非等价存活均补测（晚失败不能覆盖、退订时断线与宿主拒绝）；JSON 省略 undefined 字段的等价变异已注释。
+- 动画纯逻辑变异：`pnpm test:mutation ui --mutate=packages/ui/src/settings/remote-map.ts`，初跑 102/103，唯一存活为三次曲线在 0.5 的相等分界；注明等价后 101/101、100%，无超时。两份报告在 `reports/mutation/{shared,ui}.html`。
+- 自动资源回归：普通页面 12 次开关，每次时钟归零、DOM 移除、watch 关闭；配对页 8 次，每次倒计时归零，卸载后 Esc 不再发命令。
+- 真实 Chromium CDP：对真实 SettingsPanel + fake RemoteState，25 次打开/关闭后强制 GC；`Memory.getDOMCounters` 从 `{documents:2,nodes:405,jsEventListeners:277}` 到 `{documents:2,nodes:360,jsEventListeners:273}`，无增长。再故意保留 5 份已卸载 DOM，涨到 `{documents:2,nodes:1432,jsEventListeners:385}`，负对照成立。不是 Electron 堆快照分析的替代。
+- Impeccable 检测器对新增页面、CSS、地图、配对组件返回 `[]`；未做独立模型审查，留给 MP3 集成审查。
+
+### 失败与未复验的部分
+
+- 第一轮全量 UI 冷缓存触发 `react-dom/server` 优化后重载，Mermaid、滚动及 iframe 就绪失败。补齐 `react-dom/server` 与 `@atrium/protocol > zod` 的显式预构建；下一轮全量 1028 项通过。中间曾把 zod 写成顶层依赖名，Vite 提示无法解析，改成实际的协议包依赖路径后定向运行无此警告。
+- 最终重跑 `pnpm test`：3793 过、9 超时，4 文件（`scripts/boundary.test.ts`、testkit 的 git、宿主 workspace-archiver/workspace-service），日志 `test-final.log`。再用 `--maxWorkers=2` 仍出现 Git 场景超时，整次运行超出 300 秒工具限时。同期另两个 worktree 的变异测试在跑、机器 load 约 30；未终止别人进程，也未放宽测试期限。不能把本轮全量说成通过；父会话在机器空闲时应重跑。
+- 该轮全量 UI 因前序占用及整条工具命令 300 秒期限被中断，未得到完整结果（`ui-final.log`）；未删除或跳过测试，最新相关 37 项已重跑通过。
+- 尚无真实宿主端到端配对、真机扫码或钥匙串授权验证：本 worktree 依要求只合到 20169cc，宿主仍回 `remote_unavailable`。没有运行 Electron `test:leak` 的堆快照、打包、三方审查或用户验收。没有合并 main、推送或修改用户的剪贴板。
+
+### 截图和原型差异
+
+- 浏览器测试自动生成：`packages/ui/src/settings/.vitest/phone-settings-light.png`、`phone-settings-dark.png`，真实 900×640 SettingsPanel。已阅读两张图片。
+- Ego 浏览器人工查看（960px 窗口）另存 `/tmp/mp3b/real-{light,dark,qr}.png`；原型对照 `/tmp/mp3b/prototype-{light,dark,pair}.png`。实际组件来自临时 Vite 页面，截图后页面和服务器已删除/停止，任务浏览器已关闭。
+- 保留：地图布局、252px 高度、五色、S 车道、统一圆点、锁闪光、节点详情尖角、灰色离线、完整列表、图下配对层。
+- 差异：用仓库 Hugeicons（不是原型手绘近似图标）；颜色按 deviceId 哈希（不是原型按设备顺序分配）；Mac/relay 下写实际合计速率；日期含本地时分；真实二维码 160px 加静区；不放原型的模拟按钮、假的型号/RTT/诊断细分/握手中间态；测试连接文字明确可能重连，避免原型“不会影响已有连接”的错误承诺；成功提示只保留最新一条，错误常驻重试区。断线时没有模拟 Mac 发向断口的数据包（只显示红色断线与原因）。
+
+### 整合待办（父会话）
+
+1. UI 加入已有 MP0 使用的精确依赖 `uqr@0.1.3`。按子任务写入范围，没有改仓库根 `pnpm-lock.yaml`；本地用 `pnpm install --offline --lockfile=false` 验证。整合时请运行 `pnpm install --offline`，提交 UI importer 的锁文件变化，否则 frozen-lockfile 安装会拒绝。没有新引入未缓存的包。
+2. 请转宿主 lane：已配对设备缺 `model`；诊断只有 unreachable/rejected；没有握手中间事件，无法实现原型的独立握手阶段和一次灰色往返。当前采用文档开头的保守展示，未擅改协议。
+3. 机器空闲后重新跑全量 unit/UI，合真实宿主后做端到端与真机扫码，再按 MP3 安排三方审查及用户验收。
+4. Ego Lite 提示有更新；未升级，若需要请用户批准。
