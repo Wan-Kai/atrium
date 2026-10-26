@@ -53,7 +53,8 @@ const swiftPaths = [
  * @sideEffects Runs a process; with `capture` false its output goes to this terminal.
  * @param {string[]} args - The tool and its arguments.
  * @param {{ capture?: boolean }} [options] - Whether to collect the output instead of showing it.
- * @returns {{ status: number, stdout: string }} The exit code and, when captured, the output.
+ * @returns {{ status: number, stdout: string, stderr: string }} The exit code and, when captured,
+ *   the output and the errors.
  */
 function xcrun(args, options = {}) {
   const standIn = process.env["ATRIUM_IOS_XCRUN"];
@@ -63,7 +64,7 @@ function xcrun(args, options = {}) {
     stdio: options.capture === true ? ["ignore", "pipe", "pipe"] : "inherit",
     maxBuffer: 64 * 1024 * 1024,
   });
-  return { status: result.status ?? 1, stdout: result.stdout ?? "" };
+  return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
 
 /**
@@ -72,14 +73,22 @@ function xcrun(args, options = {}) {
  * @remarks
  * Each step of a build or install needs the one before it.
  *
- * @sideEffects Runs a process; exits with its code when it fails.
+ * @sideEffects Runs a process; when it fails, prints the command with its captured output and errors
+ * and exits with its code.
  * @param {string[]} args - The tool and its arguments.
  * @param {{ capture?: boolean }} [options] - Whether to collect the output instead of showing it.
  * @returns {string} The output when captured, else an empty string.
  */
 function must(args, options = {}) {
   const result = xcrun(args, options);
-  if (result.status !== 0) process.exit(result.status);
+  if (result.status !== 0) {
+    // Captured output would otherwise be lost with the reason the call failed.
+    if (options.capture === true) {
+      console.error(`xcrun ${args.join(" ")} failed with exit code ${result.status}`);
+      for (const text of [result.stdout, result.stderr]) if (text.trim() !== "") console.error(text.trimEnd());
+    }
+    process.exit(result.status);
+  }
   return result.stdout;
 }
 

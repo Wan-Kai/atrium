@@ -18,6 +18,8 @@ interface Answers {
   readonly simulators?: unknown;
   /** What `simctl list runtimes available -j` prints. */
   readonly runtimes?: unknown;
+  /** A call to fail: when the arguments start with `args`, print both texts and exit 1. */
+  readonly fail?: { readonly args: string; readonly stdout: string; readonly stderr: string };
 }
 
 /**
@@ -48,6 +50,7 @@ async function scene(answers: Answers) {
       'try { owner = JSON.parse(readFileSync(process.env.ATRIUM_IOS_LOCK + "/owner.json", "utf8")).pid; } catch {}',
       `appendFileSync(${JSON.stringify(join(dir, "locked.txt"))}, args.slice(0, 2).join(" ") + " | " + (owner === process.ppid ? "held" : "free") + "\\n");`,
       "const at = (word) => args.indexOf(word);",
+      'if (answers.fail && args.join(" ").startsWith(answers.fail.args)) { console.log(answers.fail.stdout); console.error(answers.fail.stderr); process.exit(1); }',
       'if (args[0] === "--find") process.exit(answers.xcode ?? 0);',
       'if (args[0] === "devicectl" && args[1] === "list") writeFileSync(args[at("--json-output") + 1], JSON.stringify(answers.devices ?? { result: { devices: [] } }));',
       'if (args[0] === "simctl" && args[2] === "devices") console.log(JSON.stringify(answers.simulators ?? { devices: {} }));',
@@ -233,6 +236,30 @@ describe("ios.mjs test", () => {
       "com.apple.CoreSimulator.SimRuntime.iOS-26-10",
     ]);
     expect(result.calls.at(-1)?.join(" ")).toContain("id=NEW-SIM-UDID,arch=");
+  });
+});
+
+describe("ios.mjs failures", () => {
+  it("prints the command, its output and its errors when a quiet Xcode call fails", async () => {
+    const fail = {
+      args: "simctl list devices",
+      stdout: "partial list",
+      stderr: "CoreSimulatorService connection became invalid",
+    };
+    const { xcrun, log } = await scene({ fail });
+    const result = await ios(xcrun, log, ["test"]);
+
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("xcrun simctl list devices available -j failed with exit code 1");
+    expect(result.output).toContain("partial list");
+    expect(result.output).toContain("CoreSimulatorService connection became invalid");
+  });
+
+  it("stays quiet when Xcode is only being looked for", async () => {
+    const { xcrun, log } = await scene({ xcode: 1 });
+    const result = await ios(xcrun, log, ["check"]);
+
+    expect(result.output).not.toContain("failed with exit code");
   });
 });
 
