@@ -117,7 +117,7 @@ function ArchiveConfirm({
         aria-modal
         aria-labelledby="archive-title"
         aria-describedby="archive-body"
-        className="relative w-[380px] rounded-[var(--r-card)] bg-[var(--main)] p-5 shadow-[var(--card-shadow)]"
+        className="relative max-h-[calc(100dvh-24px)] w-[min(380px,calc(100vw-24px))] overflow-y-auto rounded-[var(--r-card)] bg-[var(--main)] p-5 shadow-[var(--card-shadow)] [overflow-wrap:anywhere]"
       >
         <h2 id="archive-title" className="text-[15px] font-semibold">
           {title}

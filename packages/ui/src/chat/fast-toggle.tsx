@@ -1,6 +1,8 @@
 import type { CatalogModel } from "@atrium/protocol";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
+import { useFloatingLayer } from "../design/floating-layer";
 import { Lightning } from "../design/icons";
+import { useHoverPresence } from "./use-hover-presence";
 
 /**
  * The Fast button left of the model button, with its card on hover.
@@ -16,7 +18,7 @@ import { Lightning } from "../design/icons";
  * and that it applies from the next request; it shows as the status bar's cards do, on hover and
  * on keyboard focus. Only shown for a model with Fast, which its caller decides.
  *
- * @sideEffects none
+ * @sideEffects Follows the top-layer hint as the anchor and viewport change.
  * @param props - Whether Fast is on, what Fast does for the model, whether it is disabled, and
  * what pressing does.
  * @returns The button.
@@ -33,6 +35,10 @@ export function FastToggle({
   readonly onToggle: (enabled: boolean) => void;
 }) {
   const cardId = useId();
+  const trigger = useRef<HTMLButtonElement>(null);
+  const card = useRef<HTMLDivElement>(null);
+  const { present, ...hover } = useHoverPresence(250);
+  useFloatingLayer(trigger, card, { enabled: present, align: "center", flip: true });
   // Counts the switches to on seen while shown; each restarts the boost through its key. Adjusted
   // while rendering, as React suggests for state that follows a prop, so no frame shows the bolt
   // turned on without it.
@@ -44,8 +50,9 @@ export function FastToggle({
   }
   return (
     // Reaches into the gap before the model button, so the bolt sits close to it.
-    <div className="group/fast relative -mr-1.5">
+    <div {...hover} className="group/fast relative -mr-1.5">
       <button
+        ref={trigger}
         type="button"
         aria-label="Fast"
         aria-pressed={enabled}
@@ -68,9 +75,10 @@ export function FastToggle({
         </span>
       </button>
       <div
+        ref={card}
         role="tooltip"
         id={cardId}
-        className="invisible absolute bottom-full left-1/2 z-30 mb-2 w-[220px] -translate-x-1/2 rounded-[12px] bg-[var(--surface-1)] px-3 py-2.5 opacity-0 shadow-[var(--float-shadow)] transition-[opacity,visibility] delay-100 duration-150 group-has-[:focus-visible]/fast:visible group-has-[:focus-visible]/fast:opacity-100 group-hover/fast:visible group-hover/fast:opacity-100 group-hover/fast:delay-[120ms] dark:bg-[var(--surface-2)]"
+        className="invisible absolute bottom-full left-1/2 z-30 mb-2 w-[220px] -translate-x-1/2 overflow-auto rounded-[12px] bg-[var(--surface-1)] px-3 py-2.5 opacity-0 shadow-[var(--float-shadow)] transition-[opacity,visibility] delay-100 duration-150 group-has-[:focus-visible]/fast:visible group-has-[:focus-visible]/fast:opacity-100 group-hover/fast:visible group-hover/fast:opacity-100 group-hover/fast:delay-[120ms] dark:bg-[var(--surface-2)]"
       >
         <p className="text-[length:var(--fs-meta)] font-semibold text-[var(--text)]">
           {enabled ? "Fast 已开启" : "Fast 未开启"}

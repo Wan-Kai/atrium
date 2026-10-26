@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { CheckCircle, WarningCircle, X } from "../design/icons";
 import { useClock } from "../state/clock";
+import { useFloatingLayer } from "../design/floating-layer";
 
 /** How long a toast saying a worktree was archived stays. */
 const DONE_MS = 3000;
@@ -43,7 +44,8 @@ export function pushToast(toasts: readonly ArchiveToast[], toast: ArchiveToast):
  * design-language, "提示" (prototype `archive-toast-prototype.html`, A). Put on the page's body, as
  * the sidebar's blur would otherwise hold it inside the sidebar; it takes no room and no focus.
  *
- * @sideEffects none; each toast keeps its own time (see `Toast`).
+ * @sideEffects Follows a bounded top-layer stack, keeping it above nonmodal popovers;
+ * listens for other popovers opening until unmounted. Each toast keeps its own time (see `Toast`).
  * @param props - The toasts, newest first, and what to call once one has left.
  * @returns The toasts.
  */
@@ -54,12 +56,69 @@ export function ArchiveToasts({
   readonly toasts: readonly ArchiveToast[];
   readonly onGone: (id: number) => void;
 }) {
+  const anchor = useRef<HTMLSpanElement>(null);
+  const stack = useRef<HTMLDivElement>(null);
+  const showing = toasts.length > 0;
+  const [scrolling, setScrolling] = useState(false);
+  useFloatingLayer(anchor, stack, { enabled: showing, side: "bottom", align: "end", gap: 0 });
+  useLayoutEffect(() => {
+    const element = stack.current;
+    if (toasts.length === 0 || element === null) return undefined;
+    /**
+     * Clips only an actually overflowing stack, leaving normal shadows and motion intact.
+     * @remarks The native layer's geometry supplies the height ceiling; scrollbar ownership
+     * stays with the notifications, not with every floating consumer.
+     * @sideEffects Updates whether this stack needs internal scrolling.
+     */
+    const measure = (): void => setScrolling(element.scrollHeight > element.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [toasts.length]);
+  useEffect(() => {
+    if (!showing) return undefined;
+    /**
+     * Keeps archive results above a subsequently opened nonmodal surface.
+     * @remarks Top-layer paint order ignores z-index. The shared geometry hook suspends this
+     * stack under modals; an already focused close button retains its focus while raising.
+     * @sideEffects Reorders the stack in the native top layer and may restore its focused control.
+     * @param event - A native popover state change.
+     */
+    const raise = (event: Event): void => {
+      const element = stack.current;
+      if (
+        !(event instanceof ToggleEvent) ||
+        event.newState !== "open" ||
+        element === null ||
+        event.target === element ||
+        !element.matches(":popover-open")
+      )
+        return;
+      const focused = document.activeElement;
+      element.hidePopover();
+      element.showPopover();
+      if (focused instanceof HTMLElement && element.contains(focused)) focused.focus({ preventScroll: true });
+    };
+    document.addEventListener("toggle", raise, true);
+    return () => document.removeEventListener("toggle", raise, true);
+  }, [showing]);
   return createPortal(
-    <div className="pointer-events-none fixed top-14 right-3 z-40 flex flex-col items-end gap-2">
-      {toasts.map((toast) => (
-        <Toast key={toast.id} toast={toast} onGone={onGone} />
-      ))}
-    </div>,
+    <>
+      <span
+        ref={anchor}
+        aria-hidden
+        className="pointer-events-none fixed top-[min(56px,max(12px,calc(100dvh-46px)))] right-3 size-0"
+      />
+      <div
+        ref={stack}
+        className={`pointer-events-none fixed z-40 flex w-max flex-col items-end gap-2 ${scrolling ? "overflow-y-auto" : "overflow-visible"}`}
+      >
+        {toasts.map((toast) => (
+          <Toast key={toast.id} toast={toast} onGone={onGone} />
+        ))}
+      </div>
+    </>,
     document.body,
   );
 }
@@ -103,10 +162,10 @@ function Toast({ toast, onGone }: { readonly toast: ArchiveToast; readonly onGon
       onPointerLeave={() => setHeld(false)}
       onFocus={() => setHeld(true)}
       onBlur={() => setHeld(false)}
-      className={`atrium-toast group pointer-events-auto flex h-[34px] items-center gap-[7px] rounded-[var(--r-pill)] pr-1.5 pl-2.5 text-[length:var(--fs-meta)] whitespace-nowrap text-[var(--text-2)] ${leaving ? "atrium-toast-leave" : ""}`}
+      className={`atrium-toast group pointer-events-auto flex h-[34px] shrink-0 max-w-[calc(100vw-24px)] items-center gap-[7px] rounded-[var(--r-pill)] pr-1.5 pl-2.5 text-[length:var(--fs-meta)] whitespace-nowrap text-[var(--text-2)] ${leaving ? "atrium-toast-leave" : ""}`}
     >
-      <Icon size={15} className={failed ? "text-[var(--danger)]" : "text-[var(--ok-text)]"} />
-      <span>
+      <Icon size={15} className={`shrink-0 ${failed ? "text-[var(--danger)]" : "text-[var(--ok-text)]"}`} />
+      <span className="min-w-0 truncate" title={toast.reason}>
         {failed ? "没能归档「" : "已归档「"}
         <span className="inline-block max-w-[180px] truncate align-bottom font-medium text-[var(--text)]">
           {toast.name}
@@ -117,7 +176,7 @@ function Toast({ toast, onGone }: { readonly toast: ArchiveToast; readonly onGon
         type="button"
         aria-label="关闭提示"
         onClick={() => setLeaving(true)}
-        className="grid size-5 place-items-center rounded-[var(--r-sm)] text-[var(--text-dim)] opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:bg-[var(--hover)] hover:text-[var(--text-2)] focus-visible:opacity-100"
+        className="grid size-5 shrink-0 place-items-center rounded-[var(--r-sm)] text-[var(--text-dim)] opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:bg-[var(--hover)] hover:text-[var(--text-2)] focus-visible:opacity-100"
       >
         <X size={11} />
       </button>

@@ -1,0 +1,74 @@
+[
+  {
+    "file": "packages/ui/src/sidebar/archive-toasts.tsx",
+    "from": "document.addEventListener(\"toggle\", raise, true);",
+    "to": "",
+    "test": "packages/ui/src/test/popup-bounds.browser.test.tsx",
+    "name": "keeps archive notifications above an overlapping child list opened after them",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/sidebar/archive-toasts.tsx",
+    "from": "useFloatingLayer(anchor, stack, { enabled: showing, side: \"bottom\", align: \"end\", gap: 0 });",
+    "to": "useFloatingLayer(anchor, stack, { enabled: false, side: \"bottom\", align: \"end\", gap: 0 });",
+    "test": "packages/ui/src/test/popup-bounds.browser.test.tsx",
+    "name": "scrolls three archive notifications inside a very short window without shrinking their close buttons",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/sidebar/archive-toasts.tsx",
+    "from": "${scrolling ? \"overflow-y-auto\" : \"overflow-visible\"}",
+    "to": "overflow-y-auto",
+    "test": "packages/ui/src/test/popup-bounds.browser.test.tsx",
+    "name": "leaves normal archive toast shadows and entrance motion unclipped when no scrolling is needed",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/sidebar/archive-toasts.tsx",
+    "from": "pointer-events-none fixed z-40 flex w-max",
+    "to": "pointer-events-auto fixed z-40 flex w-max",
+    "test": "packages/ui/src/test/popup-bounds.browser.test.tsx",
+    "name": "lets clicks through the empty gap between archive notifications",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/children/new-child-dialog.tsx",
+    "from": "max-h-[calc(100dvh-24px)] w-[min(380px,calc(100vw-24px))] overflow-y-auto",
+    "to": "w-[380px]",
+    "test": "packages/ui/src/test/popup-bounds.browser.test.tsx",
+    "name": "keeps the new-child form and its long parent name inside a small window, with its submit reachable",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/sidebar/archive.tsx",
+    "from": "max-h-[calc(100dvh-24px)] w-[min(380px,calc(100vw-24px))] overflow-y-auto",
+    "to": "w-[380px]",
+    "test": "packages/ui/src/test/popup-bounds.browser.test.tsx",
+    "name": "contains a long archive name and keeps confirmation reachable after scrolling",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/settings-panel.tsx",
+    "from": "flex min-h-0 min-w-0 flex-col overflow-auto bg-[var(--nav-bg)]",
+    "to": "flex min-h-0 min-w-0 flex-col bg-[var(--nav-bg)]",
+    "test": "packages/ui/src/test/popup-bounds.browser.test.tsx",
+    "name": "lets the settings categories scroll in a short window and keeps close inside a narrow window",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/sidebar/archive-toasts.tsx",
+    "from": "max-w-[calc(100vw-24px)]",
+    "to": "",
+    "test": "packages/ui/src/test/popup-bounds.browser.test.tsx",
+    "name": "keeps a long archive failure and its close button inside a narrow window",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/sidebar/rename-field.tsx",
+    "from": "side: above ? \"top\" : \"bottom\", gap: 4, flip: true",
+    "to": "side: above ? \"top\" : \"bottom\", gap: 4, flip: false",
+    "test": "packages/ui/src/test/popup-bounds.browser.test.tsx",
+    "name": "keeps a rename hint visible at the bottom-right edge without moving input focus",
+    "project": "ui"
+  }
+]

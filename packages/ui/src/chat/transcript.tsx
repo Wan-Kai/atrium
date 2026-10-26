@@ -7,6 +7,8 @@ import type { LaunchInTurn } from "./launch-timeline";
 import type { Launch } from "../state/new-workspace";
 import { useFollowBottom } from "./follow-bottom";
 import { UserBubble } from "./messages";
+import { useFloatingLayer } from "../design/floating-layer";
+import { useHoverPresence } from "./use-hover-presence";
 import { LoadStepContext } from "./steps";
 import { OpenFileContext, type FileOpener } from "./file-opener";
 import { CompactingCat, RunStatus } from "./run-status";
@@ -167,29 +169,60 @@ function QuestionNav({
       className="absolute top-1/2 right-3 z-[3] hidden -translate-y-1/2 flex-col items-end py-1.5 lg:flex"
     >
       {turns.map((turn) => (
-        <button
-          key={turn.id}
-          type="button"
-          aria-label={typedMessage(turn.user)}
-          aria-current={turn.id === current}
-          onClick={() =>
-            scroller.current
-              ?.querySelector(`[data-turn-id="${CSS.escape(turn.id)}"]`)
-              ?.scrollIntoView({ block: "start", behavior: "smooth" })
-          }
-          className="group relative flex h-3 w-[34px] items-center justify-end"
-        >
-          <i
-            className={`block h-0.5 rounded-sm transition-all group-hover:h-[3px] group-hover:w-[26px] group-hover:bg-[var(--text)] ${
-              turn.id === current ? "w-[18px] bg-[var(--text-3)]" : "w-2.5 bg-[var(--line-strong)]"
-            }`}
-          />
-          <span className="pointer-events-none absolute top-1/2 right-10 w-60 -translate-y-1/2 rounded-[var(--r-md)] bg-[var(--surface-1)] px-3 py-2 text-left text-[length:var(--fs-sm)] leading-snug text-[var(--text-2)] opacity-0 shadow-[var(--float-shadow)] transition-opacity group-hover:opacity-100">
-            <span className="line-clamp-3">{typedMessage(turn.user)}</span>
-          </span>
-        </button>
+        <QuestionNavItem key={turn.id} turn={turn} current={turn.id === current} scroller={scroller} />
       ))}
     </nav>
+  );
+}
+
+/**
+ * One navigation mark and the question preview anchored beside it.
+ *
+ * @remarks
+ * The preview follows its own mark in the top layer, rather than the navigation's tall stack,
+ * so the first and last visible questions stay inside the viewport.
+ *
+ * @sideEffects Follows the preview within the viewport; scrolls to the turn when clicked.
+ * @param props - The turn, whether it is current, and the transcript's scroll element.
+ * @returns The mark and preview.
+ */
+function QuestionNavItem({
+  turn,
+  current,
+  scroller,
+}: {
+  readonly turn: Turn;
+  readonly current: boolean;
+  readonly scroller: RefObject<HTMLDivElement | null>;
+}) {
+  const anchor = useRef<HTMLButtonElement>(null);
+  const preview = useRef<HTMLSpanElement>(null);
+  const { present, ...hover } = useHoverPresence(150);
+  useFloatingLayer(anchor, preview, { enabled: present, side: "left", align: "center", gap: 6, flip: true });
+  return (
+    <button
+      ref={anchor}
+      type="button"
+      aria-label={typedMessage(turn.user)}
+      aria-current={current}
+      {...hover}
+      onClick={() =>
+        scroller.current
+          ?.querySelector(`[data-turn-id="${CSS.escape(turn.id)}"]`)
+          ?.scrollIntoView({ block: "start", behavior: "smooth" })
+      }
+      className="group relative flex h-3 w-[34px] items-center justify-end"
+    >
+      <i
+        className={`block h-0.5 rounded-sm transition-all group-hover:h-[3px] group-hover:w-[26px] group-hover:bg-[var(--text)] ${current ? "w-[18px] bg-[var(--text-3)]" : "w-2.5 bg-[var(--line-strong)]"}`}
+      />
+      <span
+        ref={preview}
+        className="pointer-events-none absolute top-1/2 right-10 w-60 -translate-y-1/2 overflow-auto rounded-[var(--r-md)] bg-[var(--surface-1)] px-3 py-2 text-left text-[length:var(--fs-sm)] leading-snug text-[var(--text-2)] opacity-0 shadow-[var(--float-shadow)] transition-opacity group-hover:opacity-100"
+      >
+        <span className="line-clamp-3">{typedMessage(turn.user)}</span>
+      </span>
+    </button>
   );
 }
 

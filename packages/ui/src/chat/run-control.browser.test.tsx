@@ -1,12 +1,16 @@
 import type { SessionView } from "@atrium/client";
+import { FakeClock } from "@atrium/testkit/clock";
+import { ClockContext, type UiClock } from "../state/clock";
 import { type Control, IDLE_CONTROL, type Interaction, type Turn, UNKNOWN_METRICS } from "@atrium/protocol";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { userEvent } from "vitest/browser";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { Composer } from "./composer";
 import { CapsuleUnit, ControlCards, ControlTrack, type RunActions } from "./run-control";
 import { Transcript } from "./transcript";
+
+beforeEach(() => page.viewport(1280, 820));
 
 /** Actions that record what was asked of them. */
 function recording() {
@@ -361,7 +365,7 @@ function scene(control: Control) {
   return (
     <div>
       <button type="button">外面</button>
-      <div style={{ position: "relative", marginTop: 400, width: 600 }}>
+      <div style={{ position: "relative", marginTop: 400, marginLeft: 32, width: 600 }}>
         <ControlTrack
           control={control}
           running
@@ -385,6 +389,37 @@ function scene(control: Control) {
 }
 
 describe("ControlTrack's panels on their capsules", () => {
+  it("limits a long panel to the actual space above a raised capsule and keeps its last row reachable", async () => {
+    await page.viewport(600, 400);
+    const screen = await render(
+      <div style={{ position: "fixed", left: 60, right: 60, top: 160, display: "flex" }}>
+        <CapsuleUnit
+          open
+          onToggle={() => undefined}
+          onClose={() => undefined}
+          label="长列表"
+          span="content"
+          capsule="列表"
+        >
+          {Array.from({ length: 24 }, (_, at) => (
+            <div key={at} data-panel-row style={{ height: 40 }}>
+              项目 {at}
+            </div>
+          ))}
+        </CapsuleUnit>
+      </div>,
+    );
+    const panel = screen.getByRole("dialog", { name: "长列表" }).element();
+    await expect.poll(() => panel.getBoundingClientRect().top).toBeGreaterThanOrEqual(12);
+    expect(Math.round(panel.getBoundingClientRect().bottom)).toBe(152);
+    expect(panel.scrollHeight).toBeGreaterThan(panel.clientHeight);
+    panel.scrollTop = panel.scrollHeight;
+    expect(panel.scrollTop).toBeGreaterThan(0);
+    await page.viewport(600, 300);
+    await expect.poll(() => panel.getBoundingClientRect().top).toBeGreaterThanOrEqual(12);
+    expect(panel.getBoundingClientRect().bottom).toBeLessThanOrEqual(288);
+    await page.viewport(1280, 820);
+  });
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -617,6 +652,66 @@ function view(fields: Partial<SessionView>): SessionView {
 }
 
 describe("Transcript after an interruption", () => {
+  it("keeps a question preview in its fixed place until its 150ms fade has finished", async () => {
+    await page.viewport(1280, 500);
+    const time = new FakeClock();
+    const clock: UiClock = {
+      now: () => time.now(),
+      after: (ms, run) => time.setTimeout(run, ms),
+      every: () => () => undefined,
+    };
+    const screen = await render(
+      <ClockContext value={clock}>
+        <button type="button">预览外面</button>
+        <div style={{ height: 400, display: "flex" }}>
+          <Transcript
+            view={view({ items: Array.from({ length: 40 }, (_, at) => turn(`fade-${at}`)) })}
+            onLoadOlder={() => undefined}
+            onLoadStep={() => undefined}
+          />
+        </div>
+      </ClockContext>,
+    );
+    const button = screen.getByRole("navigation", { name: "提问导航" }).getByRole("button").nth(4);
+    await button.hover();
+    const preview = button.element().querySelector("span")!;
+    await expect.poll(() => preview.matches(":popover-open")).toBe(true);
+    const before = preview.getBoundingClientRect();
+    await screen.getByRole("button", { name: "预览外面" }).hover();
+    expect(preview.matches(":popover-open")).toBe(true);
+    expect(preview.getBoundingClientRect().left).toBe(before.left);
+    expect(preview.getBoundingClientRect().top).toBe(before.top);
+    // Pointer travel may cross another marker; every retirement must still wait for its deadline.
+    const retiring = time.pendingTimers();
+    expect(retiring).toBeGreaterThan(0);
+    time.advance(149);
+    expect(time.pendingTimers()).toBe(retiring);
+    expect(preview.matches(":popover-open")).toBe(true);
+    time.advance(1);
+    await expect.poll(() => preview.matches(":popover-open")).toBe(false);
+    expect(time.pendingTimers()).toBe(0);
+  });
+
+  it("keeps a question preview inside the viewport near the navigation's top edge", async () => {
+    await page.viewport(1280, 500);
+    const screen = await render(
+      <div style={{ height: 400, display: "flex" }}>
+        <Transcript
+          view={view({ items: Array.from({ length: 40 }, (_, at) => turn(`preview-${at}`)) })}
+          onLoadOlder={() => undefined}
+          onLoadStep={() => undefined}
+        />
+      </div>,
+    );
+    const nav = screen.getByRole("navigation", { name: "提问导航" });
+    const button = nav.getByRole("button").nth(5);
+    await button.hover();
+    const preview = button.element().querySelector("span")!;
+    await expect.poll(() => Number(getComputedStyle(preview).opacity)).toBe(1);
+    expect(preview.getBoundingClientRect().top).toBeGreaterThanOrEqual(12);
+    expect(preview.getBoundingClientRect().right).toBeLessThanOrEqual(1268);
+    await page.viewport(1280, 820);
+  });
   it("offers 重试 on the last turn only when it failed and nothing runs", async () => {
     const retried: string[] = [];
     const failed = { outcome: "failed", error: "overloaded" } as const;
