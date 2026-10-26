@@ -28,6 +28,12 @@ describe("first frame and prologue", () => {
     expect(toHex(firstFrame("IK", message))).toBe("410101090807");
     expect(toHex(firstFrame("IKpsk2", message))).toBe("410102090807");
     expect(parseFirstFrame(firstFrame("IKpsk2", message))).toStrictEqual({ pattern: "IKpsk2", message });
+    expect(parseFirstFrame(firstFrame("IK", message))).toStrictEqual({ pattern: "IK", message });
+    // The header alone parses; the handshake then refuses the empty message 1.
+    expect(parseFirstFrame(Uint8Array.of(0x41, 0x01, 0x01))).toStrictEqual({
+      pattern: "IK",
+      message: new Uint8Array(0),
+    });
   });
 
   it("refuses other versions, modes and magic bytes without falling back", () => {
@@ -36,6 +42,7 @@ describe("first frame and prologue", () => {
     expect(failureOf(() => parseFirstFrame(Uint8Array.of(0x41, 0x01, 0x00, 0)))).toBe("unknown_mode");
     expect(failureOf(() => parseFirstFrame(Uint8Array.of(0x42, 0x01, 0x01, 0)))).toBe("bad_first_frame");
     expect(failureOf(() => parseFirstFrame(Uint8Array.of(0x41, 0x01)))).toBe("bad_first_frame");
+    expect(new ChannelError("unknown_mode").message).toBe("channel: unknown_mode");
   });
 
   it("builds the prologue as atrium-remote/1 NUL hostId NUL", () => {
@@ -43,6 +50,9 @@ describe("first frame and prologue", () => {
       "atrium-remote/1\0hst_0123456789abcdef\0",
     );
     expect(() => prologue("hst_\0")).toThrow("hostId must be printable ASCII");
+    expect(() => prologue("\0hst_0")).toThrow("hostId must be printable ASCII");
+    expect(() => prologue(" hst_0")).toThrow("hostId must be printable ASCII");
+    expect(() => prologue("")).toThrow("hostId must be printable ASCII");
   });
 });
 

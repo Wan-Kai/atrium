@@ -97,8 +97,12 @@ describe("framing", () => {
     reader.push(Uint8Array.of(0x01, 0x61));
     clock.advance(CHUNK_TIMEOUT_MS - 1);
     reader.push(Uint8Array.of(0x01, 0x62));
+    // One timer per message, not one per chunk.
+    expect(clock.pendingTimers()).toBe(1);
     expect(timedOut).toBe(0);
     clock.advance(1);
+    expect(timedOut).toBe(1);
+    clock.advance(CHUNK_TIMEOUT_MS);
     expect(timedOut).toBe(1);
   });
 
@@ -116,6 +120,11 @@ describe("framing", () => {
     const last = frames.pop()!;
     for (const frame of frames) reader.push(frame);
     expect(failureOf(() => reader.push(last))).toBe("message_too_large");
+
+    // Exactly the limit, counted across chunks, is fine.
+    const small = new FrameReader(3, new FakeClock(), () => {});
+    expect(small.push(Uint8Array.of(0x01, 0x61))).toBeNull();
+    expect(small.push(Uint8Array.of(0x00, 0x62, 0x63))).toStrictEqual({ kind: "message", text: "abc" });
   });
 
   it("refuses empty frames, unknown types, padded heartbeats, bad control and bad UTF-8", () => {
@@ -127,6 +136,10 @@ describe("framing", () => {
     expect(failureOf(() => freshReader().push(concat(Uint8Array.of(0x04), utf8("[1]"))))).toBe("bad_control");
     expect(failureOf(() => freshReader().push(concat(Uint8Array.of(0x04), utf8('{"kind":1}'))))).toBe("bad_control");
     expect(failureOf(() => freshReader().push(concat(Uint8Array.of(0x04), utf8("{"))))).toBe("bad_control");
+    expect(failureOf(() => freshReader().push(concat(Uint8Array.of(0x04), utf8("null"))))).toBe("bad_control");
+    expect(failureOf(() => freshReader().push(concat(Uint8Array.of(0x04), utf8("1"))))).toBe("bad_control");
+    expect(failureOf(() => freshReader().push(concat(Uint8Array.of(0x04), utf8('"kind"'))))).toBe("bad_control");
+    expect(failureOf(() => freshReader().push(Uint8Array.of(0x04, 0xc3)))).toBe("bad_control");
     expect(failureOf(() => freshReader().push(Uint8Array.of(0x00, 0xc3)))).toBe("bad_utf8");
   });
 });

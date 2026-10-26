@@ -4,6 +4,7 @@ import { present } from "@atrium/testkit";
 import { describe, expect, it } from "vitest";
 import { fromHex, toHex, utf8 } from "./bytes";
 import {
+  CipherState,
   decryptTransport,
   encryptTransport,
   generateKeyPair,
@@ -208,6 +209,83 @@ describe("cacophony vectors", () => {
   );
 });
 
+describe("cipher state", () => {
+  it("passes bytes through until it has a key, then encrypts and counts the nonce", () => {
+    const keyless = new CipherState();
+    expect(keyless.hasKey()).toBe(false);
+    expect(keyless.encryptWithAd(utf8("ad"), utf8("x"))).toStrictEqual(utf8("x"));
+    expect(keyless.decryptWithAd(utf8("ad"), utf8("y"))).toStrictEqual(utf8("y"));
+    expect(keyless.nonce).toBe(0n);
+
+    const key = new Uint8Array(32).fill(9);
+    const sender = new CipherState(key);
+    const receiver = new CipherState(key);
+    expect(sender.hasKey()).toBe(true);
+    const ciphertext = sender.encryptWithAd(utf8("ad"), utf8("x"));
+    expect(ciphertext).toHaveLength(17);
+    expect(sender.nonce).toBe(1n);
+    expect(receiver.decryptWithAd(utf8("ad"), ciphertext)).toStrictEqual(utf8("x"));
+    expect(receiver.nonce).toBe(1n);
+  });
+
+  it("names only the reason in the error message", () => {
+    expect(new NoiseError("decrypt_failed").message).toBe("noise: decrypt_failed");
+  });
+});
+
+describe("handshake state", () => {
+  it("needs a 32-byte PSK for IKpsk2 and none for IK", () => {
+    const staticKey = generateKeyPair();
+    expect(() => HandshakeState.responder({ pattern: "IKpsk2", prologue, staticKey })).toThrow("psk iff IKpsk2");
+    expect(() => HandshakeState.responder({ pattern: "IK", prologue, staticKey, psk: new Uint8Array(32) })).toThrow(
+      "psk iff IKpsk2",
+    );
+    expect(() => HandshakeState.responder({ pattern: "IKpsk2", prologue, staticKey, psk: new Uint8Array(31) })).toThrow(
+      "psk must be 32 bytes",
+    );
+    expect(() => HandshakeState.responder({ pattern: "IKpsk2", prologue, staticKey, psk: new Uint8Array(33) })).toThrow(
+      "psk must be 32 bytes",
+    );
+  });
+
+  it("shows the remote static key once known, and h only as copies", () => {
+    const { initiator, responder, phone, host } = pair("IK");
+    expect(initiator.remoteStatic).toStrictEqual(host.publicKey);
+    expect(responder.remoteStatic).toBeNull();
+    expect(toHex(responder.handshakeHash)).toBe(toHex(initiator.handshakeHash));
+    responder.readMessage(initiator.writeMessage(utf8("{}")));
+    expect(responder.remoteStatic).toStrictEqual(phone.publicKey);
+    initiator.readMessage(responder.writeMessage(utf8("{}")));
+
+    const h = toHex(initiator.handshakeHash);
+    initiator.handshakeHash.fill(0);
+    expect(toHex(initiator.handshakeHash)).toBe(h);
+    const transport = initiator.finish();
+    expect(toHex(transport.handshakeHash)).toBe(h);
+    transport.handshakeHash.fill(0);
+    expect(toHex(initiator.handshakeHash)).toBe(h);
+  });
+
+  it("accepts empty payloads: a 96-byte message 1 and a 48-byte message 2", () => {
+    const { initiator, responder } = pair("IK");
+    const message1 = initiator.writeMessage(new Uint8Array(0));
+    expect(message1).toHaveLength(96);
+    expect(responder.readMessage(message1)).toStrictEqual(new Uint8Array(0));
+    const message2 = responder.writeMessage(new Uint8Array(0));
+    expect(message2).toHaveLength(48);
+    expect(initiator.readMessage(message2)).toStrictEqual(new Uint8Array(0));
+  });
+
+  it("is dead after finish", () => {
+    const { initiator, responder } = pair("IK");
+    responder.readMessage(initiator.writeMessage(utf8("{}")));
+    initiator.readMessage(responder.writeMessage(utf8("{}")));
+    initiator.finish();
+    expect(failureOf(() => initiator.finish())).toBe("dead");
+    expect(failureOf(() => initiator.writeMessage(utf8("{}")))).toBe("dead");
+  });
+});
+
 describe("handshake failures", () => {
   it("refuses a tampered message 1 and is dead afterwards", () => {
     const { initiator, responder } = pair("IK");
@@ -259,6 +337,9 @@ describe("handshake failures", () => {
   it("refuses handshake messages over 65535 bytes and payloads over 1 KiB", () => {
     const tooLong = pair("IK");
     expect(failureOf(() => tooLong.responder.readMessage(new Uint8Array(MAX_MESSAGE + 1)))).toBe("message_too_long");
+    // Exactly 65535 bytes is a Noise message, but its payload is over 1 KiB.
+    const longest = pair("IK");
+    expect(failureOf(() => longest.responder.readMessage(new Uint8Array(MAX_MESSAGE)))).toBe("payload_too_long");
 
     const bigPayload = pair("IK");
     expect(failureOf(() => bigPayload.initiator.writeMessage(new Uint8Array(MAX_HANDSHAKE_PAYLOAD + 1)))).toBe(
@@ -283,10 +364,23 @@ describe("handshake failures", () => {
     expect(failureOf(() => responder.readMessage(new Uint8Array(95)))).toBe("message_too_short");
   });
 
+  it("refuses a message 2 too short to hold e and the tag", () => {
+    const { initiator, responder } = pair("IK");
+    responder.readMessage(initiator.writeMessage(utf8("{}")));
+    const message2 = responder.writeMessage(new Uint8Array(0));
+    expect(failureOf(() => initiator.readMessage(message2.subarray(0, 47)))).toBe("message_too_short");
+  });
+
   it("refuses calls out of turn", () => {
     const { initiator, responder } = pair("IK");
     expect(failureOf(() => responder.writeMessage(utf8("{}")))).toBe("wrong_turn");
     expect(failureOf(() => initiator.finish())).toBe("wrong_turn");
+    // A call out of turn kills the state: the call that was due fails too.
+    expect(failureOf(() => initiator.writeMessage(utf8("{}")))).toBe("dead");
+    const fresh = pair("IK");
+    const message1 = fresh.initiator.writeMessage(utf8("{}"));
+    expect(failureOf(() => fresh.responder.writeMessage(utf8("{}")))).toBe("wrong_turn");
+    expect(failureOf(() => fresh.responder.readMessage(message1))).toBe("dead");
   });
 
   it("fails when the prologues differ", () => {
@@ -345,6 +439,15 @@ describe("transport failures", () => {
     tampered[0]! ^= 1;
     expect(failureOf(() => decryptTransport(host.receive, tampered))).toBe("decrypt_failed");
     expect(failureOf(() => decryptTransport(host.receive, good))).toBe("dead");
+  });
+
+  it("carries an empty plaintext as a bare 16-byte tag", () => {
+    const { phone, host } = connected();
+    const tag = encryptTransport(phone.send, new Uint8Array(0));
+    expect(tag).toHaveLength(16);
+    expect(decryptTransport(host.receive, tag)).toStrictEqual(new Uint8Array(0));
+    expect(phone.send.nonce).toBe(1n);
+    expect(host.receive.nonce).toBe(1n);
   });
 
   it("refuses a replayed message", () => {

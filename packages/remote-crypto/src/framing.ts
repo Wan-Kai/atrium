@@ -194,7 +194,7 @@ function parseControl(body: Uint8Array): ControlMessage {
   let value: unknown;
   try {
     value = JSON.parse(fromUtf8(body));
-  } catch {
+  } /* Stryker disable next-line BlockStatement: equivalent, `value` stays undefined, which `isControl` refuses with the same error. */ catch {
     throw new ChannelError("bad_control");
   }
   if (!isControl(value)) throw new ChannelError("bad_control");
