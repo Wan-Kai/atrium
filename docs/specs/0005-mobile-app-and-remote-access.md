@@ -268,6 +268,28 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
 - `test_relay`、`start_pairing`、`cancel_pairing`、`confirm_pairing({ pairingId, accept })`、`rename_device({ deviceId, name })`、`revoke_device({ deviceId })`、`reset_remote_identity`。
 - 新错误码：`local_only`、`remote_unavailable`、`pairing_expired`、`pairing_busy`、`device_not_found`、`relay_unreachable`、`relay_rejected`、`keychain_unavailable`、`vault_corrupt`、`response_too_large`、`request_conflict`、`outcome_unknown`。
 
+#### MP3a 定的细节（2026-10-26）
+
+写宿主时上文没说到、由 MP3a 定下的（可逆，用户不在时子代理定的，交付时列给用户）：
+
+- **哪些存在保险箱、哪些不存**：保险箱里是宿主私钥、relay 那一行（地址、`hostId`、令牌）和设备列表（`deviceId`、公钥、手机报的名字和型号、你改的名字、配对时间）。"远程访问开着没有"和各设备的最后在线时间不是秘密，存在索引的 `remote.json`（domain-model §1"索引的存储"）。宿主只在远程访问开着时才读保险箱，所以没用手机端的人不会被钥匙串弹窗打扰；打开远程访问的那一刻才第一次读。
+- **保险箱的状态**（`remote_updated` 的 `vault`）在 SPEC 原有的三种之外再加三种：`unread`（远程访问关着，还没读）、`waiting`（已经问主进程要了，在等钥匙串授权，界面显示"等待钥匙串授权"）、`unavailable`（宿主不在 Electron 里单独运行，没有保险箱）。宿主启动不等它：本机功能照常起来，读到了再连 relay。
+- **进程交接的细节**：主进程把 `{ version, data }` 用 `safeStorage` 的异步接口（`encryptStringAsync` / `decryptStringAsync`，不阻塞主进程，等钥匙串授权时窗口照常能用）加密后写进 `vault.bin`；`vault_read` 的回答带上当前的 `version`（没有文件是 0、`data: null`）。主进程记着当前的 `version`，写入的 `version` 不比它大就拒绝（`error: "stale"`）；文件读不出（损坏）时当前 `version` 记为 0，好让"重置"能写进去。失败的 `error` 是 `keychain_unavailable`、`corrupt`、`stale`、`io` 之一，不带原文。主进程的写入也按到达顺序一个个来。
+- **`get_remote({ watch? })`**：回当前的整份状态（和 `remote_updated` 的 `remote` 同形）；`watch: true` 之后这个连接收 `remote_updated`，直到 `watch: false` 或断开。状态一变就推整份；只有 `traffic` 变了的，每秒最多推一次；没有连接在看时不算流量、不起定时器。`remote_updated` 只推给在看的本机连接。
+- **配对的结果留着**：配对结束（`committed`、`rejected`、`expired`）后，`pairing` 保持最后的状态，到下一次 `start_pairing` 或 `cancel_pairing` 才清成 `null`，界面能显示"配对成功"或原因。`pairing` 多一个 `reason`：`cancelled`（取消、出新码）、`declined`（在 Mac 上拒绝）、`timeout`（2 分钟没确认）、`disconnected`（确认前通道断开）、`vault_failed`（写保险箱失败），没结束或成功时是 `null`。
+- **确认之后不再打断**：点了确认、正在写保险箱时，取消、断开和超时都不再改配对，等写入的结果定成 `committed` 或 `rejected`（`vault_failed`）。写完时通道已经断了，`paired` 送不到，按上文第 6 步由日常连接补上。有手机在等确认（或正在写）时再点"配对新设备"，应答 `pairing_busy`。
+- **5 分钟过期只管 `available`**：手机已经进了 `awaiting_confirmation`，就按 2 分钟的确认时限算。握手第一条到时已过期，第二条回 `pairing_expired`；`pair_confirm` 到时已过期，回 `pair_rejected` 的 `pairing_expired`（不算进 `refused`），已被占用回 `pairing_busy`（算进 `refused`）。
+- **命令的结果**：`get_remote` 回状态；`start_pairing` 回 `{ pairingId }`；其余回 `{}`，变化经 `remote_updated` 到达（先推事件再回应答）。远程访问关着、保险箱不是 `ok` 或没填 relay 时，`start_pairing` 应答 `remote_unavailable`；保险箱 `keychain_unavailable`、`corrupt` 时要写保险箱的命令应答 `keychain_unavailable`、`vault_corrupt`（`reset_remote_identity` 除外，它就是用来从损坏里出来的）。`confirm_pairing` 的 `pairingId` 不是当前这次、或不在等确认，应答 `pairing_expired`。
+- **`rename_device`**：名字最长 64 个字符，空的恢复成手机报的名字；写进保险箱。
+- **撤销失败后重试**：写保险箱失败时设备留在内存的列表里、被拉黑，不显示、也连不上；再发一次 `revoke_device` 就是重试写入。同一台手机（按公钥）重新配对成功，拉黑解除、沿用原来的 `deviceId`。
+- **`reset_remote_identity`**：先写新的保险箱（新密钥对、空设备列表、relay 那一行不变），写成了才换上，再经每条通道发 `revoked` 并关闭；写失败什么都不变。
+- **`test_relay`**：远程访问开着时立刻重连控制连接（退避清零），等到 `ready` 或失败；关着时另开一条临时的控制连接，收到 `ready` 就关。成功回 `{}`，连不上应答 `relay_unreachable`，认证不过（4401）应答 `relay_rejected`，10 秒为限。
+- **relay 地址的协议**：那一行里的主机是 `127.0.0.1`、`localhost` 或 `[::1]` 时用 `ws://`（本机测试），其余一律 `wss://`。
+- **控制连接的存活**：宿主每 30 秒对控制连接发一次 WebSocket ping，上一次的没回应就断开重连（relay 自己也 20 秒 ping 一次宿主）。数据连接靠通道心跳。
+- **客户端传输**：`ClientTransport` 的 `checkAlive()` 在上一次探测没回应时自己断开对方并返回 `false`（本机是 `terminate()`，远程是关掉通道和数据连接），否则发一次探测返回 `true`；服务器每 `heartbeatMs` 调一次。远程的探测是通道心跳，30 秒没收到手机的任何东西才算没回应。
+- **超上限的快照**：会话事件超过 8 MiB 改发快照，快照本身也超时（MP4 加快照预算之前可能发生），丢掉这条并记一条 warn，手机会因为 `seq` 跳号自己重新订阅。
+- **流量**：`traffic.down` 是宿主发往手机的、`up` 是手机发来的，按数据连接上的密文字节算。
+
 ### 协议改动（协议版本 +1）
 
 1. **`hello.token` 改为可选**：本机 WebSocket 必须带，远程通道必须不带（带了按 `BadHandshake` 断开）；远程的 `clientId` 必须等于通道认出的 `deviceId`。
