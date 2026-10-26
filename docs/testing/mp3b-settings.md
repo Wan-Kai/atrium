@@ -45,7 +45,14 @@
 
 ### 整合待办（父会话）
 
-1. UI 加入已有 MP0 使用的精确依赖 `uqr@0.1.3`。按子任务写入范围，没有改仓库根 `pnpm-lock.yaml`；本地用 `pnpm install --offline --lockfile=false` 验证。整合时请运行 `pnpm install --offline`，提交 UI importer 的锁文件变化，否则 frozen-lockfile 安装会拒绝。没有新引入未缓存的包。
+1. **锁文件已完成（父会话授权后补）**：根 `pnpm-lock.yaml` 仅在 `packages/ui` importer 增加 `uqr` 的三行（specifier/version 都是 `0.1.3`），复用原有 MP0 的包条目，无其他解析变化。最初普通 offline 与 lockfile-only 安装因已存在的 node_modules 快速返回、没有修正根锁；用 `pnpm install --offline --frozen-lockfile` 实测拒绝，明确指出 UI 新增 uqr 未锁定。补齐这三行后，重新运行 **`pnpm install --offline` 和 `pnpm install --offline --frozen-lockfile` 均退出 0**，最终 diff 仍仅三行。交付路径不再依赖 `--lockfile=false`；日志为 `/tmp/mp3b/install-lock-final.log`、`install-frozen-final.log`。没有新引入未缓存的包。
 2. 请转宿主 lane：已配对设备缺 `model`；诊断只有 unreachable/rejected；没有握手中间事件，无法实现原型的独立握手阶段和一次灰色往返。当前采用文档开头的保守展示，未擅改协议。
 3. 机器空闲后重新跑全量 unit（全量 UI 已在单 worker 下通过），合真实宿主后做端到端与真机扫码，再按 MP3 安排三方审查及用户验收。
 4. Ego Lite 提示有更新；未升级，若需要请用户批准。
+
+### Electron 堆快照的最窄入口（仅核对，未执行）
+
+- 共用实现：`apps/desktop/e2e/heap.ts` 的 `takeHeapSnapshot(page, file)`（Electron renderer 的 CDP 会话，强制 GC、写 `.heapsnapshot`）、`findDetachedDomLeaks(baseline, final)`（按 V8 `detachedness` 统计脱离 DOM 的增长，预期空数组）。
+- 最小现有示范：`apps/desktop/e2e/appearance.leak.spec.ts`，使用 `launchApp()`、前后两份快照和重复操作。启动工具在 `apps/desktop/e2e/launch.ts`，隔离 `ATRIUM_HOME`；`apps/desktop/playwright.config.ts` 固定一个 worker。
+- 核验现有 Electron 快照链路的最窄命令：先 `pnpm build`，再 `pnpm --filter @atrium/desktop test:e2e appearance.leak.spec.ts --workers=1`。已有当前分支产物时可省去 build；不必运行会先跑所有 Node 泄漏测试的 `pnpm test:leak`。
+- Phone 当前测试是 `packages/ui/src/settings/phone-section.browser.test.tsx` 的页面 12 轮和配对 8 轮生命周期回归，以及上述人工 Chromium DOM 计数；**尚无 Phone 专用 Electron 堆快照 spec**。集成真实宿主后，最小新增是仿照 appearance 的单个 `phone.leak.spec.ts`：预热后关闭设置取 baseline；重复进入手机分类/打开并取消配对/关闭设置，每步等 DOM 状态落定；最终关闭后取快照，断言 `findDetachedDomLeaks` 为 `[]`，并注入保留 DOM 的负对照。届时定向命令为 `pnpm --filter @atrium/desktop test:e2e phone.leak.spec.ts --workers=1`（目前该文件不存在）。协议占位宿主只能测 `remote_unavailable` 页，不能宣称覆盖地图、二维码、动画与配对监听。
