@@ -4,6 +4,35 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## 手机端 MP2：relay（SPEC-0005，2026-10-25）
+
+`apps/relay`：SPEC-0005"部署 relay""relay 的线路协议"全部。集成测试起真实的 relay（假时钟、`127.0.0.1` 随机端口、前缀 `/atrium`），用真实 `ws` 客户端当宿主和手机（`apps/relay/test/peers.ts`），读得慢的手机是完成升级后暂停读取的原始 TCP 连接。
+
+| 行为 | 验证 |
+|---|---|
+| `GET <前缀>/healthz` 回 200 `ok`（不缓存的纯文本），别的路径、方法、根路径回 404；三个入口之外的升级回 404；没有前缀时挂在根上 | `apps/relay/src/relay.test.ts`"relay entry points" |
+| 宿主 `hello` 后回 `ready`；`open` 只带 `streamId`（128 位）和 `ipHash`；二进制帧两个方向原样、按顺序转发；接线前的帧先存、接上后按顺序先送；任一端关闭另一端 1000；手机或数据连接发文本帧 4400 关掉这一对 | 同上"relay pass-through" |
+| 认证：令牌错、宿主不存在、版本或类型不对、缺令牌、二进制或非 JSON 的 `hello`、数据连接缺或格式错的 `streamId` 都 4401；失败日志只在 `hostId` 像 `hst_<16hex>` 时记它，从不记令牌；5 秒内没 `hello` 4408，4999 毫秒到的照样认；计时器先到、`hello` 后到的不认；一个连接不论怎么结束只让出一个未认证名额 | 同上"relay authentication""relay hello deadline" |
+| 代数：新控制连接挤掉旧的（4409），旧连接的流 4409；旧连接的关闭不让新的下线；挤掉前宣布的流再来数据连接 4404 | 同上"relay control generations" |
+| 宿主离线：从没上线或不存在的 `hostId` 4404 `offline:0`，`host` 参数不对 4400；控制连接断了，它的流和之后的手机 4404 `offline:<断开时的秒>`；20 秒一次 ping，答着就不断，60 秒没回应断开并关掉它的流（日志 `unresponsive`）；宿主走后不留定时器 | 同上"relay offline hosts" |
+| 接线：10 秒没有数据连接 4408（9999 毫秒时还在），之后来的数据连接 4404；接上后不再超时；同一条流的第二条数据连接 4404；`refuse` 4403，不认识的 `refuse` 不理；控制连接发二进制（即使内容是 `refuse`）、非 JSON、不认识的类型 4400 并带下它的流；接线前 9 帧或超过 256 KiB 4507（正好 256 KiB 不关） | 同上"relay wiring a stream" |
+| 上限：70 KiB 的帧过、多 1 字节发的那端 1009、另一端 1000；每宿主 16 条流，第 17 条 4429；未认证 64 条，第 65 条 4429；每地址每分钟 30 条新流（只算建起来的），滑过 60 秒恢复；设成 0 不限；只信任的反代的 `X-Forwarded-For`；缓冲合计超了新手机 4507；读得慢的手机积压过 4 MiB 4507，同一宿主的另一台手机照常收到每一帧 | 同上"relay limits" |
+| 宿主表：删掉的宿主控制连接 4401、手机 4404、数据连接 4401，之后连不上；换令牌后旧令牌 4401、新令牌可用，日志代数 1 → 下线 `revoked` → 3；被切断的宿主的手机看到切断时刻，从没上线的仍是 `offline:0`；只改名不断，新宿主可用 | 同上"relay host table" |
+| 日志只有元数据：没有令牌、载荷（原文、hex、base64）、原始 IP、`hello`；每种事件的字段逐个核对 | 同上"relay log""relay log events" |
+| 关闭：所有连接 1001，计数和定时器归零；关闭中新来的升级 404，不回应关闭帧的连接 2 秒后切断；半截的请求和 keep-alive 连接不拖住关闭 | 同上"relay shutdown"、"does not wait for a half-sent request" |
+| 不压缩帧（客户端提出也不接受） | 同上"does not compress frames" |
+| 200 轮（上线挤掉上一代、收发、接线超时、拒绝、认证失败、`hello` 超时、宿主离线的手机）后资源计数、假时钟的定时器、Node 的 TCP 句柄和 `Timeout` 回到基线；连接还开着时关闭也全部释放 | `apps/relay/src/relay.leak.test.ts` |
+| 真实 IP：只在连接来自信任的反代时读 `X-Forwarded-For`（从右往左第一个不信任的）或 `X-Real-IP`，值不是地址时用连接地址，`::ffff:` 前缀去掉 | `apps/relay/src/client-address.test.ts` |
+| 每地址的滑动窗口：不算被拒的、过了窗口忘掉地址并停掉清理定时器、0 不限 | `apps/relay/src/rate-limit.test.ts` |
+| `relay.json`：默认值、全部字段、缺文件、不认识或不对的字段只报名字、前缀格式、非 JSON | `apps/relay/src/config.test.ts` |
+| `hosts.json`：0600 原子写入、目录 0700、坏表拒读、改名失败不留临时文件；轮询报告每次变化和坏表，没变不报，停了不再报（包括正在进行的那次） | `apps/relay/src/hosts.test.ts` |
+| 日志文件：按 UTC 日期一天一个、0600、过了午夜换文件、只删自己的超过 14 天的文件、关闭后不再开文件、打不开或列不出目录时报一次错码并接着跑 | `apps/relay/src/daily-log.test.ts` |
+| 命令行：`add-host` 只往标准输出打一次那一行、只存令牌的哈希；`rotate-host` 只换这一个宿主的令牌；`remove-host`、`list-hosts`（不含令牌）；名字、用法、缺或坏的 `relay.json`、坏的 `hosts.json`（不覆盖）；`serve` 记日志、按信号干净退出、2 秒内跟上 `rotate-host`（在线的 4401）、运行中加的宿主、坏表保留旧表、每分钟资源行、日志写不了时只在终端报错码、端口被占 | `apps/relay/src/cli.test.ts` |
+
+验证（2026-10-26）：`pnpm check` 通过；`pnpm test` 196 个文件 3741 项通过；relay 的单元和集成 160 项、泄漏 2 项通过；`pnpm test:stress --copies 8 --rounds 3 apps/relay` 24 次没有失败。`pnpm break-check` 25 处全部检出（认证、代数、离线原因、两种超时、接线缓冲的帧数和字节、积压、每宿主流数、未认证数、每地址速率、缓冲合计、信任的反代、ping 超时、换令牌、日志里的 `hostId`、文本帧、只存哈希、轮询生效、3 处泄漏、日志保留、关闭码 1001）。变异测试新加 `relay` 组：第一次 82.90%（189 个存活），补测试、删掉冗余代码（关闭时第二个代数判断、`onData` 里的代数判断、`stopPings`、日志的 `#broken`、没用的 `CliIo` 选项）后 958 个全部杀死、0 存活、0 超时，等价的在源码注明理由。
+
+本机 Docker（colima，arm64）：`docker build` 和 `--platform linux/amd64` 都成功，构建的检查阶段在镜像的 Node（v24.22.1）上跑通 `add-host` / `list-hosts`，打包坏了构建失败（截断 `relay.cjs` 实测）；按 `compose.yaml` 的设置（只读、去掉 capability、uid 1000）`docker run`，再起一个和它共用网络的 nginx 原样加载 `deploy/nginx-location.conf`：直连和经 nginx 的 `/atrium/healthz` 都是 `ok`，其他路径 404；`docker exec … add-host` 打印的一行交给 MP0 的假宿主，假手机经 nginx 配对（两边校验码一致）、IK 重连、`hello`/`welcome`、心跳都通过；`rotate-host` 后在线的宿主 2 秒内收到 4401，之后的手机 4404 `offline:<秒>`；`docker stop` 干净退出（日志最后是 `stopped`），日志里没有令牌。没在用户的 VPS 上验证（由主 agent 部署）。
+
 ## pi 1.3.0 契约夹具补齐（2026-10-23）
 
 本机 pi 1.3.0 此前只有 19 个场景的夹具，`pnpm test:pi` 56 过、33 失败，失败全是 `no fixture … for pi 1.3.0`（契约断言在录制比较之前跑，都通过了）。以 `RECORD_FIXTURES=1` 只跑这 33 个场景所在的 17 个契约文件录下 `pi-1.3.0/` 的 33 个新文件，同文件里已有的 `ask-steer`、`ask-abort` 重写后逐字节不变；再录一次逐字节相同。不改断言、规范化规则和产品代码，旧版本目录保留（testing.md"pi 夹具"）。和 1.1.0 的差异只有 `custom-idle` 是 pi 的变化（空闲时扩展 `sendMessage` 开的运行，`handled` 应答改在 `agent_start` 之前，系统消息带 `sections`），宿主两种先后都已处理，见 pi-internals"版本"。

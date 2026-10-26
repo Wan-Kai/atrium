@@ -49,7 +49,9 @@ const PLACEHOLDER = "\u0000";
  */
 function isProduction(path) {
   return (
-    /^(?:packages\/(?:protocol|pi|host|client|ui)|apps\/desktop)\/src\/.*\.(?:ts|tsx|mts|cts|mjs|cjs|js)$/.test(path) &&
+    /^(?:packages\/(?:protocol|pi|host|client|ui)|apps\/(?:desktop|relay))\/src\/.*\.(?:ts|tsx|mts|cts|mjs|cjs|js)$/.test(
+      path,
+    ) &&
     !/\.(?:test|bench)\.[^/]+$/.test(path) &&
     !/\/test\//.test(path) &&
     !path.startsWith("packages/pi/src/contract/")

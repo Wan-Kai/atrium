@@ -29,6 +29,7 @@ node fake-phone.ts pair '<atrium://pair?…>'  # 另一个终端：TS 假手机�
 - 链接里的 `relay` 默认取本机第一个局域网 IPv4（`ws://<IP>:8787`），真机在同一 Wi-Fi 下能连；模拟器也可以用 `--public-relay ws://127.0.0.1:8787`。spike 只走明文 `ws://`，正式的 relay 在 Caddy 后面走 `wss://`。
 - 也可以分开起：`node relay.ts --port 8787`（第一次生成一个宿主，存在 `.state/relay.json`，打印 `atrium-relay://…` 一行），再 `node fake-host.ts --relay 'atrium-relay://…' --pair`。
 - 假宿主的终端里：`pair` 出新码，`y` / `n` 确认，`devices` 列设备，`revoke <deviceId>` 撤销，`quit`。`--auto-confirm` 自动确认。密钥和设备存在 `ts/.state/host.json`（不进 git）。
+- 对正式的 relay（MP2，`apps/relay`）：`node fake-host.ts --relay 'atrium-relay://…@ktoon.site/atrium' --pair` 即可，那一行不带端口时假宿主改用 `wss://`，带端口（本机的 relay）仍是 `ws://`；路径前缀原样接在后面（2026-10-25 MP2 加）。
 - 链接的每个值用 `encodeURIComponent` 编码（空格是 `%20`，不是 `+`）；`key`、`psk` 是不带填充的 base64url。
 
 ## 发现与待定
