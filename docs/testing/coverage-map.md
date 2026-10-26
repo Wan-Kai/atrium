@@ -23,6 +23,29 @@
 
 边界与未完成项：完整桌面泄漏、既有 file-search 竞态、既有 Electron quit 重入问题仍按下节保留失败证据，未顺带修改。未做真实钥匙串授权、真机、用户 VPS、打包安装或跨分支人工验收；本轮不是三方正式审查。
 
+## MP3b 桌面手机设置页（2026-10-26）
+
+SPEC-0005 需求 1、配对和撤销；视觉按 design-language「设置 · 手机」。实现决定、协议 27 协调及截图见 [MP3b 记录](mp3b-settings.md)。
+
+| 行为 | 验证 |
+|---|---|
+| 页面挂载才 watch、切分类退订、断线重订、过期响应/失败不能恢复旧状态、较新的推送优先 | `packages/client/src/atrium-client.test.ts` 的 remote access 7 项；`phone-section.browser.test.tsx` 的 category navigation、failed reads |
+| 全部 9 个本机命令的字段、应答和错误传递 | 同上客户端命令用例；浏览器 rename/revoke/reset/relay/pairing 用例 |
+| 3900ms 上行汇合、relay 停留、下行分发、各段边界、锁闪烁、固定设备色与 S 曲线 | `remote-map.test.ts` 3 项；浏览器 fake-clock lock 用例 |
+| 减弱动态效果不启动动画时钟、静态箭头、最多四台加 +N、完整列表、车道/节点/行三向悬停 | `phone-section.browser.test.tsx` 的 replaces motion |
+| 首次启用、钥匙串等待/不可用、保险箱损坏/无 Electron、行内重置确认 | 浏览器 renders vault 参数化用例及 requires inline confirmation |
+| relay 掩码替换及重新配对警告、测试连接、保守诊断清单 | 浏览器 saves relay、diagnostic checklist、retryable failures |
+| 协议 27 自报型号 / null；connect/live、四类步骤证据、八种安全失败文案、上次检查时间、重试保留、配置清空、原地探测的有限成功承诺 | `remote-coordination.browser.test.tsx` 的 self-reported model、diagnostic evidence、live checks、safe wording 参数化用例 |
+| 协议 27 匿名握手：一次灰色往返、快速 true/false 立即清除、换 pairingId 重置、取消、原二维码期限、过期/拒绝/确认后忽略旧活动、Reduce Motion 无动画时钟 | 同上 handshaking、restarts、obsolete activity、unauthenticated request、static handshake 用例；四设备折叠仍由旧浏览器用例覆盖 |
+| 协议 27 全字段入 store；过期推送优先于旧读取；旧 socket 或退订后的活动不能复活 | `atrium-client.test.ts` 的 projects protocol 27 evidence（真实协议 schema 校验） |
+| 原地改名与清空恢复、撤销确认、撤销写盘失败仍保留可重试目标 | 浏览器 watches only、saves relay、keeps revoke retry |
+| 真实二维码输入和矩阵、5 分钟过期、刷新、SAS、确认/拒绝、另一台手机被拒、完成/失败原因、Esc 不关外层设置 | 浏览器 counts down a real QR、declines a pairing、pairing failure 参数化用例 |
+| 断线时配对不能确认但仍可 Esc 关闭；同步重复点击只发一次；失败不乐观授予权限 | 浏览器 lets Escape dismiss、blocks duplicate commands、reports failures |
+| 重复打开关闭释放定时器、配对 Escape 监听、watch 与 DOM | 浏览器 frees timers 12 轮、releases pairing 8 轮；另做真实 Chromium CDP DOM 计数 25 轮及人为保留 DOM 的负对照 |
+| 明暗真实设置截图 | 浏览器 captures light and dark：`packages/ui/src/settings/.vitest/phone-settings-{light,dark}.png`（自动生成、不提交）；与原型对照记录见 MP3b 记录 |
+
+破坏检查：`pnpm break-check docs/testing/mp3b-break-check.json`，25 处检出（23+2 分两轮）。客户端增量变异（仅本次新增实现行）72/72 检出；链路动画纯逻辑初跑 102/103，唯一存活是两段三次曲线在 0.5 处相等，注明等价后 101/101。最终相关单元 151 项、界面 37 项通过；随后单 worker 全量界面 1030 项及 Swift 22 项通过。全量单元先前通过，最后单 worker 重跑仍遇其他 Git/boundary 测试超时并在 900 秒被中断，不能算通过，详见 MP3b 记录。
+
 ## MP3a 宿主远程模块（2026-10-26）
 
 以下为历史快照 `c09b54d` 的实现与验证记录，不作为当前整合结果：协议 v27、模型、诊断与握手的协调整合仍待完成。

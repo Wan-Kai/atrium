@@ -1,0 +1,195 @@
+[
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "      if (!watchingRemote) return;",
+    "to": "\n",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "remote access"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "      if (ask === remoteAsks) remote.setState({ status: \"ready\", state, error: null });",
+    "to": "      remote.setState({ status: \"ready\", state, error: null });",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "remote access"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "      if (ask === remoteAsks) remote.setState({ status: \"failed\", error: failure });",
+    "to": "",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "remote access"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "        if (watchingRemote) void loadRemote();",
+    "to": "",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "remote access"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "      remote.setState(UNWATCHED_REMOTE, true);",
+    "to": "",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "remote access"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "request(\"confirm_pairing\", { pairingId, accept })",
+    "to": "request(\"confirm_pairing\", { pairingId, accept: true })",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "remote access"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "relay === undefined ? { enabled } : { enabled, relay }",
+    "to": "{ enabled }",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "remote access"
+  },
+  {
+    "file": "packages/ui/src/settings/phone-section.tsx",
+    "to": "void client.watchRemote(false);\n    return",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "starts and stops watching",
+    "project": "ui",
+    "from": "void client.watchRemote(true);\n    return"
+  },
+  {
+    "file": "packages/ui/src/settings/phone-section.tsx",
+    "to": "void Promise.resolve();",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "starts and stops watching",
+    "project": "ui",
+    "from": "void client.watchRemote(false).catch(() => undefined);"
+  },
+  {
+    "file": "packages/ui/src/settings/phone-section.tsx",
+    "to": "client.renameDevice(id, \"wrong\")",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "watches only while mounted",
+    "project": "ui",
+    "from": "client.renameDevice(id, name ?? \"\")"
+  },
+  {
+    "file": "packages/ui/src/settings/phone-section.tsx",
+    "to": "client.revokeDevice(\"dev_0000000000000000\")",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "watches only while mounted",
+    "project": "ui",
+    "from": "client.revokeDevice(device.deviceId)"
+  },
+  {
+    "file": "packages/ui/src/settings/phone-section.tsx",
+    "to": "client.confirmPairing(pairing.pairingId, false)",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "counts down a real QR",
+    "project": "ui",
+    "from": "client.confirmPairing(pairing.pairingId, accept)"
+  },
+  {
+    "file": "packages/ui/src/settings/phone-section.tsx",
+    "to": "client.testRelay()",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "requires inline confirmation",
+    "project": "ui",
+    "from": "client.resetRemoteIdentity()"
+  },
+  {
+    "file": "packages/ui/src/settings/phone-section.tsx",
+    "to": "client.testRelay()",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "saves relay credentials",
+    "project": "ui",
+    "from": "client.setRemote(true, relayLine.trim())"
+  },
+  {
+    "file": "packages/ui/src/settings/phone-section.tsx",
+    "to": "client.testRelay()",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "declines a pairing",
+    "project": "ui",
+    "from": "client.cancelPairing()"
+  },
+  {
+    "file": "packages/ui/src/settings/phone-section.tsx",
+    "to": "setFailure(null);",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "keeps failed actions visible",
+    "project": "ui",
+    "from": "setFailure({ text, action });"
+  },
+  {
+    "file": "packages/ui/src/settings/phone-section.tsx",
+    "to": "onHover={() => undefined}",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "replaces motion",
+    "project": "ui",
+    "from": "onHover={setHover}"
+  },
+  {
+    "file": "packages/ui/src/settings/remote-link-map.tsx",
+    "to": "devices.slice(0, 5)",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "replaces motion",
+    "project": "ui",
+    "from": "devices.slice(0, 4)"
+  },
+  {
+    "file": "packages/ui/src/settings/remote-link-map.tsx",
+    "to": "clock.every(16, () => setElapsed(clock.now() - start)); return undefined;",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "frees timers",
+    "project": "ui",
+    "from": "return clock.every(16, () => setElapsed(clock.now() - start));"
+  },
+  {
+    "file": "packages/ui/src/settings/remote-link-map.tsx",
+    "to": "if (!visible || !live || !online) return undefined;",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "replaces motion",
+    "project": "ui",
+    "from": "if (reduced || !visible || !live || !online) return undefined;"
+  },
+  {
+    "file": "packages/ui/src/settings/remote-pairing.tsx",
+    "to": "encode(\"wrong QR\", { ecc: \"M\", border: 4 })",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "counts down a real QR",
+    "project": "ui",
+    "from": "encode(value, { ecc: \"M\", border: 4 })"
+  },
+  {
+    "file": "packages/ui/src/settings/remote-pairing.tsx",
+    "to": "(pairing.expiresAt - 0) / 1000",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "counts down a real QR",
+    "project": "ui",
+    "from": "(pairing.expiresAt - now) / 1000"
+  },
+  {
+    "file": "packages/ui/src/settings/remote-pairing.tsx",
+    "to": "{false ? (",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "counts down a real QR",
+    "project": "ui",
+    "from": "{pairing.refused > 0 ? ("
+  },
+  {
+    "file": "packages/ui/src/settings/remote-pairing.tsx",
+    "from": "return () => window.removeEventListener(\"keydown\", escape, true);",
+    "to": "return () => undefined;",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "releases pairing countdowns",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/remote-pairing.tsx",
+    "from": "return clock.every(1000, () => setNow(clock.now()));",
+    "to": "clock.every(1000, () => setNow(clock.now())); return undefined;",
+    "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
+    "name": "releases pairing countdowns",
+    "project": "ui"
+  }
+]

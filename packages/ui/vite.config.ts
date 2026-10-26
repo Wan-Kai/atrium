@@ -20,6 +20,8 @@ export default defineConfig({
     include: [
       "react",
       "react-dom/client",
+      "react-dom/server",
+      "@atrium/protocol > zod",
       "zustand",
       "zustand/vanilla",
       "@hugeicons/react",
@@ -32,6 +34,7 @@ export default defineConfig({
       "@plantuml/core",
       "@xmldom/xmldom",
       "jsonc-parser",
+      "uqr",
       "shiki/core",
       "shiki/engine/javascript",
       "shiki/langs",
