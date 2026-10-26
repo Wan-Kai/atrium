@@ -19,12 +19,14 @@
 
 ## 整合中的检查记录
 
-- 渲染与 `ace843a` 的冲突仅在追踪表顶部的并列新增章节，保留双方全文；没有改写 `main` 的翻译或排版代码。
+- 渲染已在本整合分支合入（`828c32b`）。与 `ace843a` 的冲突仅在追踪表顶部的并列新增章节，保留双方全文；没有改写 `main` 的翻译或排版代码。手机连接和宿主尚未合入。
+- 整合后 `pnpm protocol:swift --check`、`pnpm check` 通过；边界检查 URL 14、环境变量 41、隐藏命令 4，未登记 0、非精确 0。日志为 `/tmp/atrium-mobile-render-{protocol,check}.log`。
+- `swift test --package-path apps/ios/AtriumKit --jobs 2 --explicit-target-dependency-import-check error -Xswiftc -warnings-as-errors`：**98 项 / 21 suites 通过**，日志 `/tmp/atrium-mobile-render-swift.log`。该轮为 macOS 逻辑测试，附带的 Debug 渲染基准输出不是 iOS UI 或 50 ms 预算验收。
 - `git diff --cached --check` 报第三方 `swift-markdown-NOTICE.txt` 原样副本末尾的空行，未通过；保留上游声明，不为消除格式提示修改第三方文件，也不将这次检查报告为通过。仓库格式 / lint 检查另行运行。
 
 ## 尚未完成的验证
 
-- 本整合分支尚未运行任何完整验证，单路通过不自动视为整合通过。
+- 本整合分支只验证了渲染加 `ace843a` 的生成检查、仓库检查和 Swift 逻辑；尚未跑整合后的 TypeScript 全量、Xcode / UI / 互通验证，单路通过不自动视为完整整合通过。
 - 手机时间线候选的真实 builder 次数、低负载耗时、Release 主线程 trace 和真机 50 ms 预算未验证。
 - 正式宿主与 Swift 客户端、真实扫码 / 权限 / 锁屏 / 续签尚未验证。
 - 配对系统默认样式只用于接线，非最终视觉验收；渲染零件尚缺的交互与视觉差异仍见 `docs/research/mobile-render.md`。
