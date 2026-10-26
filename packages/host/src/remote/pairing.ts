@@ -315,10 +315,10 @@ export class PairingMachine<Stream> {
   }
 
   /**
-   * Drops the pairing and its timer, when remote access goes off or the host closes.
+   * Drops the pairing and its timer after an explicit identity reset.
    *
    * @remarks
-   * A phone waiting is told it was cancelled.
+   * A successful reset supersedes confirmations queued behind it; a waiting phone is cancelled.
    *
    * @sideEffects Ends the pairing; stops its timer.
    */

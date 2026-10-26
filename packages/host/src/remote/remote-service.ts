@@ -236,6 +236,8 @@ export class RemoteService implements RemoteCommands {
     // Preserve the identity the user confirmed even if an earlier queued revoke removes its record.
     const acceptedDevice = this.#contents?.devices.find((device) => device.publicKey === claim.publicKey);
     return this.#serialize(async () => {
+      // A reset invalidates queued confirmations; never fail a newer pairing on their behalf.
+      if (this.#pairing.view()?.pairingId !== pairingId) throw new CommandError("pairing_expired");
       try {
         const current = this.#trusted();
         const previous = current.devices.find((device) => device.publicKey === claim.publicKey) ?? acceptedDevice;
@@ -333,7 +335,7 @@ export class RemoteService implements RemoteCommands {
         devices: [],
       });
       this.#blocked.clear();
-      this.#pairing.cancel();
+      this.#pairing.dispose();
       for (const stream of this.#streams) {
         stream.sendControl({ kind: "revoked" });
         stream.close("identity_reset");

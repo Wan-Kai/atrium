@@ -159,5 +159,19 @@
     "to": "if (keys.has(device.publicKey)) return null;",
     "test": "packages/host/src/remote/devices.test.ts",
     "name": "rejects a duplicate device id even when the public keys differ"
+  },
+  {
+    "file": "packages/host/src/remote/devices.ts",
+    "from": "devices: z.array(VaultDevice).max(256),",
+    "to": "devices: z.array(VaultDevice).max(257),",
+    "test": "packages/host/src/remote/devices.test.ts",
+    "name": "bounds decrypted device names, timestamps, format and device count"
+  },
+  {
+    "file": "packages/host/src/remote/devices.ts",
+    "from": "model: z.string().max(64),",
+    "to": "model: z.string().max(65),",
+    "test": "packages/host/src/remote/devices.test.ts",
+    "name": "bounds decrypted device names, timestamps, format and device count"
   }
 ]

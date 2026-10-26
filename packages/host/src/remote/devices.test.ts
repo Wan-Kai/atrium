@@ -32,6 +32,35 @@ it("rejects a duplicate device id even when the public keys differ", () => {
   expect(parseVault(JSON.stringify({ ...contents, devices: [device, other] }))).toBeNull();
 });
 
+it("bounds decrypted device names, timestamps, format and device count", () => {
+  for (const invalid of [
+    { ...contents, format: 2 },
+    { ...contents, extra: true },
+    { ...contents, relay: "r".repeat(513) },
+    { ...contents, devices: [{ ...device, extra: true }] },
+    { ...contents, devices: [{ ...device, reportedName: "" }] },
+    { ...contents, devices: [{ ...device, reportedName: "n".repeat(65) }] },
+    { ...contents, devices: [{ ...device, name: "" }] },
+    { ...contents, devices: [{ ...device, name: "n".repeat(65) }] },
+    { ...contents, devices: [{ ...device, model: "m".repeat(65) }] },
+    { ...contents, devices: [{ ...device, pairedAt: -1 }] },
+    { ...contents, devices: [{ ...device, pairedAt: 0.5 }] },
+  ])
+    expect(parseVault(JSON.stringify(invalid))).toBeNull();
+  const devices = Array.from({ length: 257 }, (_, i) => ({
+    ...device,
+    deviceId: `dev_${i.toString(16).padStart(16, "0")}`,
+    publicKey: Buffer.concat([Buffer.from([Math.floor(i / 256), i % 256]), Buffer.alloc(30)]).toString("base64url"),
+    name: "n".repeat(64),
+    model: "m".repeat(64),
+    reportedName: "r".repeat(64),
+    pairedAt: 0,
+  }));
+  expect(parseVault(JSON.stringify({ ...contents, devices }))).toBeNull();
+  const maximum = { ...contents, devices: devices.slice(0, 256) };
+  expect(parseVault(JSON.stringify(maximum))).toStrictEqual(maximum);
+});
+
 it("restores the reported name when a local override is cleared", () => {
   expect(nameOf(device)).toBe("iPhone");
   expect(nameOf({ ...device, name: "Mine" })).toBe("Mine");

@@ -272,7 +272,7 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
 
 写宿主时上文没说到、由 MP3a 定下的（可逆，用户不在时子代理定的，交付时列给用户）：
 
-- **哪些存在保险箱、哪些不存**：保险箱里是宿主私钥、relay 那一行（地址、`hostId`、令牌）和设备列表（`deviceId`、公钥、手机报的名字和型号、你改的名字、配对时间）。"远程访问开着没有"和各设备的最后在线时间不是秘密，存在索引的 `remote.json`（domain-model §1"索引的存储"）。宿主只在远程访问开着时才读保险箱，所以没用手机端的人不会被钥匙串弹窗打扰；打开远程访问的那一刻才第一次读。
+- **哪些存在保险箱、哪些不存**：保险箱里是宿主私钥、relay 那一行（地址、`hostId`、令牌）和设备列表（`deviceId`、公钥、手机报的名字和型号、你改的名字、配对时间）。"远程访问开着没有"和各设备的最后在线时间不是秘密，存在索引的 `remote.json`（domain-model §1"索引的存储"）。宿主在远程访问开着时才自动读保险箱，所以没用手机端的人不会被钥匙串弹窗打扰；被动的 `get_remote` 不触发读取。用户显式开启、填写 relay、测试连接或重置身份时也会读取，关着时的测试连接仍须先取凭据。
 - **保险箱的状态**（`remote_updated` 的 `vault`）在 SPEC 原有的三种之外再加三种：`unread`（远程访问关着，还没读）、`waiting`（已经问主进程要了，在等钥匙串授权，界面显示"等待钥匙串授权"）、`unavailable`（宿主不在 Electron 里单独运行，没有保险箱）。宿主启动不等它：本机功能照常起来，读到了再连 relay。
 - **进程交接的细节**：主进程把 `{ version, data }` 用 `safeStorage` 的异步接口（`encryptStringAsync` / `decryptStringAsync`，不阻塞主进程，等钥匙串授权时窗口照常能用）加密后写进 `vault.bin`；`vault_read` 的回答带上当前的 `version`（没有文件是 0、`data: null`）。主进程记着当前的 `version`，写入的 `version` 不比它大就拒绝（`error: "stale"`）；文件读不出（损坏）时当前 `version` 记为 0，好让"重置"能写进去。失败的 `error` 是 `keychain_unavailable`、`corrupt`、`stale`、`io` 之一，不带原文。主进程的写入也按到达顺序一个个来。
 - **`get_remote({ watch? })`**：回当前的整份状态（和 `remote_updated` 的 `remote` 同形）；`watch: true` 之后这个连接收 `remote_updated`，直到 `watch: false` 或断开。状态一变就推整份；只有 `traffic` 变了的，每秒最多推一次；没有连接在看时不算流量、不起定时器。`remote_updated` 只推给在看的本机连接。
@@ -282,7 +282,7 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
 - **命令的结果**：`get_remote` 回状态；`start_pairing` 回 `{ pairingId }`；其余回 `{}`，变化经 `remote_updated` 到达（先推事件再回应答）。远程访问关着、保险箱不是 `ok` 或没填 relay 时，`start_pairing` 应答 `remote_unavailable`；保险箱 `keychain_unavailable`、`corrupt` 时要写保险箱的命令应答 `keychain_unavailable`、`vault_corrupt`（`reset_remote_identity` 除外，它就是用来从损坏里出来的）。`confirm_pairing` 的 `pairingId` 不是当前这次、或不在等确认，应答 `pairing_expired`。
 - **`rename_device`**：名字最长 64 个字符，空的恢复成手机报的名字；写进保险箱。
 - **撤销失败后重试**：写保险箱失败时设备留在内存的列表里、被拉黑，不显示、也连不上；再发一次 `revoke_device` 就是重试写入。同一台手机（按公钥）重新配对成功，拉黑解除、沿用原来的 `deviceId`。
-- **`reset_remote_identity`**：先写新的保险箱（新密钥对、空设备列表、relay 那一行不变），写成了才换上，再经每条通道发 `revoked` 并关闭；写失败什么都不变。
+- **`reset_remote_identity`**：先写新的保险箱（新密钥对、空设备列表、已能读取的 relay 那一行不变），写成了才换上，再经每条通道发 `revoked` 并关闭；写失败什么都不变。损坏到无法读取时不能恢复 relay 凭据，重置后须重新填写，不从损坏内容里猜。成功重置也使旧二维码和排在重置之后的旧配对确认失效，不能再把旧手机写回新身份。
 - **`test_relay`**：远程访问开着时立刻重连控制连接（退避清零），等到 `ready` 或失败；关着时另开一条临时的控制连接，收到 `ready` 就关。成功回 `{}`，连不上应答 `relay_unreachable`，认证不过（4401）应答 `relay_rejected`，10 秒为限。
 - **relay 地址的协议**：那一行里的主机是 `127.0.0.1`、`localhost` 或 `[::1]` 时用 `ws://`（本机测试），其余一律 `wss://`。
 - **控制连接的存活**：宿主每 30 秒对控制连接发一次 WebSocket ping，上一次的没回应就断开重连（relay 自己也 20 秒 ping 一次宿主）。数据连接靠通道心跳。
