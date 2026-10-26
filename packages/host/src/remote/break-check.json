@@ -1,0 +1,121 @@
+[
+  {
+    "file": "packages/host/src/remote/vault.ts",
+    "from": "if (answer.version === undefined || answer.data === undefined) return { ok: false, error: \"corrupt\" };",
+    "to": "if (false) return { ok: false, error: \"corrupt\" };",
+    "test": "packages/host/src/remote/vault.test.ts",
+    "name": "rejects a successful read missing its version or data"
+  },
+  {
+    "file": "packages/host/src/remote/vault.ts",
+    "from": "if (data.length > 4 * 1024 * 1024) return { ok: false, error: \"io\" };",
+    "to": "if (false) return { ok: false, error: \"io\" };",
+    "test": "packages/host/src/remote/vault.test.ts",
+    "name": "terminates an oversized write before sending it over the port"
+  },
+  {
+    "file": "packages/host/src/remote/devices.ts",
+    "from": "    fromBase64Url(parsed.data.hostKey, 32);",
+    "to": "    void parsed.data.hostKey;",
+    "test": "packages/host/src/remote/devices.test.ts",
+    "name": "parses only canonical keys and unique device identities"
+  },
+  {
+    "file": "packages/host/src/remote/devices.ts",
+    "from": "return device.name ?? device.reportedName;",
+    "to": "return device.reportedName;",
+    "test": "packages/host/src/remote/devices.test.ts",
+    "name": "restores the reported name when a local override is cleared"
+  },
+  {
+    "file": "packages/host/src/remote/relay-line.ts",
+    "from": "if (!URL.canParse(url)) return null;",
+    "to": "if (false) return null;",
+    "test": "packages/host/src/remote/relay-line.test.ts",
+    "name": "rejects invalid relay line"
+  },
+  {
+    "file": "packages/host/src/remote/relay-line.ts",
+    "from": "LOOPBACK.has(name) ? \"ws\" : \"wss\"",
+    "to": "LOOPBACK.has(name) ? \"wss\" : \"ws\"",
+    "test": "packages/host/src/remote/relay-line.test.ts",
+    "name": "derives a credential-free endpoint"
+  },
+  {
+    "file": "packages/host/src/remote/pairing.ts",
+    "from": "expiresAt: this.#clock.now() + PAIRING_TTL_MS,",
+    "to": "expiresAt: this.#clock.now(),",
+    "test": "packages/host/src/remote/pairing.test.ts",
+    "name": "expires an unused code exactly at its deadline"
+  },
+  {
+    "file": "packages/host/src/remote/pairing.ts",
+    "from": "(pairing.state === \"available\" && this.#clock.now() >= pairing.expiresAt)",
+    "to": "(this.#clock.now() >= pairing.expiresAt)",
+    "test": "packages/host/src/remote/pairing.test.ts",
+    "name": "keeps an awaiting phone busy"
+  },
+  {
+    "file": "packages/host/src/remote/pairing.ts",
+    "from": "if (pairing === null || pairing.confirming) return;",
+    "to": "if (pairing === null) return;",
+    "test": "packages/host/src/remote/pairing.test.ts",
+    "name": "lets only the vault decide after acceptance"
+  },
+  {
+    "file": "packages/host/src/remote/pairing.ts",
+    "from": "if (reason !== null && pairing.claim !== null) this.#onEnded({ reason, stream: pairing.claim.stream });",
+    "to": "void reason;",
+    "test": "packages/host/src/remote/pairing.test.ts",
+    "name": "ends a claimed pairing"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (!this.#enabled || this.#closed) return;",
+    "to": "if (this.#closed) return;",
+    "test": "packages/host/src/remote/remote-service.test.ts",
+    "name": "leaves the vault unread while off"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#enabled = enabled;",
+    "to": "this.#enabled = true;",
+    "test": "packages/host/src/remote/remote-service.test.ts",
+    "name": "keeps local reads and disable responsive"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#vault = read.error === \"corrupt\" ? \"corrupt\" : \"keychain_unavailable\";",
+    "to": "this.#vault = \"unread\";",
+    "test": "packages/host/src/remote/remote-service.test.ts",
+    "name": "fails closed for"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "const STREAM_ID = /^[0-9a-f]{32}$/;",
+    "to": "const STREAM_ID = /^bad$/;",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "authenticates then admits only valid ready-bound"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "const error: RelayError = code === UNAUTHORIZED ? \"relay_rejected\" : \"relay_unreachable\";",
+    "to": "const error: RelayError = \"relay_unreachable\";",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "classifies rejection, retries with backoff"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "options.signal.addEventListener(\"abort\", abort, { once: true });",
+    "to": "void abort;",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "cancels a pending probe"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "resolve(error);",
+    "to": "resolve(\"relay_unreachable\");",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "closes and releases resources before returning success"
+  }
+]

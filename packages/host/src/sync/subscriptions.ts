@@ -9,6 +9,7 @@ import type {
   LoginUpdatedEvent,
   PiLatestEvent,
   PlansUpdatedEvent,
+  RemoteUpdatedEvent,
   SessionEvent,
 } from "@atrium/protocol";
 import type { ResourceTracker } from "../platform/resources";
@@ -23,6 +24,7 @@ type SinkEvent =
   | IndexChangesEvent
   | ChangesUpdatedEvent
   | DiffUpdatedEvent
+  | RemoteUpdatedEvent
   | BroadcastEvent;
 
 /** What goes to every connection, whatever it watches. */

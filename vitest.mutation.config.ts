@@ -34,7 +34,7 @@ function testsIn(place: string): string[] {
 export default defineConfig({
   resolve: {
     alias: Object.fromEntries(
-      ["protocol", "client", "testkit", "pi"].map((name) => [
+      ["protocol", "client", "testkit", "pi", "remote-crypto"].map((name) => [
         `@atrium/${name}`,
         join(root, "packages", name, "src", "index.ts"),
       ]),

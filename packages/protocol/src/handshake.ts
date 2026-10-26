@@ -24,12 +24,18 @@ export const CloseCode = {
   TooManyConnections: 4503,
 } as const;
 
-/** First message a client must send after the socket opens. */
+/**
+ * First message a client must send after the socket opens.
+ *
+ * @remarks
+ * The local WebSocket must carry `token`; a phone's channel must not, since Noise authenticated
+ * it already, and its `clientId` must be its `deviceId` (SPEC-0005, "协议改动" item 1).
+ */
 export const HelloMessage = z.object({
   type: z.literal("hello"),
   protocolVersion: z.number().int().positive(),
   clientId: z.string().min(1).max(128),
-  token: z.string().min(1).max(512),
+  token: z.string().min(1).max(512).optional(),
   traceparent: z.string().max(64),
 });
 export type HelloMessage = z.infer<typeof HelloMessage>;

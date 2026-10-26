@@ -1,0 +1,226 @@
+[
+  {
+    "file": "packages/remote-crypto/src/noise.ts",
+    "from": "if (this.#nonce >= MAX_NONCE) {",
+    "to": "if (this.#nonce > MAX_NONCE) {",
+    "test": "packages/remote-crypto/src/noise.test.ts",
+    "name": "closes when the nonce reaches"
+  },
+  {
+    "file": "packages/remote-crypto/src/noise.ts",
+    "from": "      this.#dead = true;\n      throw new NoiseError(\"decrypt_failed\");",
+    "to": "      throw new NoiseError(\"decrypt_failed\");",
+    "test": "packages/remote-crypto/src/noise.test.ts",
+    "name": "refuses a tampered message and stays dead"
+  },
+  {
+    "file": "packages/remote-crypto/src/noise.ts",
+    "from": "      this.#dead = true;\n      throw new NoiseError(\"wrong_turn\");",
+    "to": "      throw new NoiseError(\"wrong_turn\");",
+    "test": "packages/remote-crypto/src/noise.test.ts",
+    "name": "refuses calls out of turn"
+  },
+  {
+    "file": "packages/remote-crypto/src/noise.ts",
+    "from": "      this.#dead = true;\n      this.#psk = undefined;",
+    "to": "      this.#psk = undefined;",
+    "test": "packages/remote-crypto/src/noise.test.ts",
+    "name": "is dead after finish"
+  },
+  {
+    "file": "packages/remote-crypto/src/noise.ts",
+    "from": "if (this.#pattern === \"IKpsk2\") s.mixKey(remoteEphemeral);",
+    "to": "",
+    "test": "packages/remote-crypto/src/noise.test.ts",
+    "name": "matches"
+  },
+  {
+    "file": "packages/remote-crypto/src/noise.ts",
+    "from": "s.mixKey(dh(ephemeral.secretKey, known(this.#remoteStatic))); // se",
+    "to": "s.mixKey(dh(ephemeral.secretKey, remoteEphemeral)); // se",
+    "test": "packages/remote-crypto/src/noise.test.ts",
+    "name": "matches"
+  },
+  {
+    "file": "packages/remote-crypto/src/noise.ts",
+    "from": "  } catch {\n    throw new NoiseError(\"low_order_key\");",
+    "to": "  } catch {\n    throw new NoiseError(\"decrypt_failed\");",
+    "test": "packages/remote-crypto/src/noise.test.ts",
+    "name": "aborts on every low-order"
+  },
+  {
+    "file": "packages/remote-crypto/src/noise.ts",
+    "from": "if (message.length - fixed > MAX_HANDSHAKE_PAYLOAD)",
+    "to": "if (message.length - fixed > MAX_HANDSHAKE_PAYLOAD + 1)",
+    "test": "packages/remote-crypto/src/noise.test.ts",
+    "name": "refuses handshake messages over"
+  },
+  {
+    "file": "packages/remote-crypto/src/noise.ts",
+    "from": "const fixed = this.#initiator ? 32 + TAG_LENGTH :",
+    "to": "const fixed = this.#initiator ? 32 :",
+    "test": "packages/remote-crypto/src/noise.test.ts",
+    "name": "refuses a message 2 too short"
+  },
+  {
+    "file": "packages/remote-crypto/src/noise.ts",
+    "from": "    return this.#symmetric.hash.slice();",
+    "to": "    return this.#symmetric.hash;",
+    "test": "packages/remote-crypto/src/noise.test.ts",
+    "name": "shows the remote static key"
+  },
+  {
+    "file": "packages/remote-crypto/src/noise.ts",
+    "from": "ciphertext.length < TAG_LENGTH) {",
+    "to": "ciphertext.length <= TAG_LENGTH) {",
+    "test": "packages/remote-crypto/src/noise.test.ts",
+    "name": "carries an empty plaintext"
+  },
+  {
+    "file": "packages/remote-crypto/src/noise.ts",
+    "from": "    cipher.invalidate();\n    throw new NoiseError(\"message_too_long\");\n  }\n  return cipher.encryptWithAd",
+    "to": "    throw new NoiseError(\"message_too_long\");\n  }\n  return cipher.encryptWithAd",
+    "test": "packages/remote-crypto/src/noise.test.ts",
+    "name": "refuses sizes outside"
+  },
+  {
+    "file": "packages/remote-crypto/src/noise.ts",
+    "from": "    if (this.#key === null) return plaintext;",
+    "to": "",
+    "test": "packages/remote-crypto/src/noise.test.ts",
+    "name": "passes bytes through until it has a key"
+  },
+  {
+    "file": "packages/remote-crypto/src/noise.ts",
+    "from": "if (options.psk !== undefined && options.psk.length !== KEY_LENGTH)",
+    "to": "if (options.psk !== undefined && options.psk.length < KEY_LENGTH)",
+    "test": "packages/remote-crypto/src/noise.test.ts",
+    "name": "needs a 32-byte PSK"
+  },
+  {
+    "file": "packages/remote-crypto/src/wire.ts",
+    "from": "if (frame[1] !== WIRE_VERSION) throw",
+    "to": "if (frame[1] > WIRE_VERSION + 5) throw",
+    "test": "packages/remote-crypto/src/wire.test.ts",
+    "name": "refuses other versions"
+  },
+  {
+    "file": "packages/remote-crypto/src/wire.ts",
+    "from": "/^[\\x21-\\x7e]+$/",
+    "to": "/[\\x21-\\x7e]+$/",
+    "test": "packages/remote-crypto/src/wire.test.ts",
+    "name": "builds the prologue"
+  },
+  {
+    "file": "packages/remote-crypto/src/wire.ts",
+    "from": "getUint32(0, false)",
+    "to": "getUint32(0, true)",
+    "test": "packages/remote-crypto/src/wire.test.ts",
+    "name": "is the first 4 bytes"
+  },
+  {
+    "file": "packages/remote-crypto/src/wire.ts",
+    "from": "if (frame.length < 3 ||",
+    "to": "if (frame.length < 4 ||",
+    "test": "packages/remote-crypto/src/wire.test.ts",
+    "name": "prefixes message 1"
+  },
+  {
+    "file": "packages/remote-crypto/src/framing.ts",
+    "from": "this.#cancelTimer ??= this.#clock.setTimeout",
+    "to": "this.#cancelTimer = this.#clock.setTimeout",
+    "test": "packages/remote-crypto/src/framing.test.ts",
+    "name": "times out 30 seconds after the first"
+  },
+  {
+    "file": "packages/remote-crypto/src/framing.ts",
+    "from": "if (this.#size > this.#limit)",
+    "to": "if (this.#size >= this.#limit)",
+    "test": "packages/remote-crypto/src/framing.test.ts",
+    "name": "enforces 1 MiB"
+  },
+  {
+    "file": "packages/remote-crypto/src/framing.ts",
+    "from": "if (body.length !== 0) throw new ChannelError(\"bad_frame\");",
+    "to": "",
+    "test": "packages/remote-crypto/src/framing.test.ts",
+    "name": "refuses empty frames"
+  },
+  {
+    "file": "packages/remote-crypto/src/framing.ts",
+    "from": "if (bytes.length > limit)",
+    "to": "if (bytes.length > limit + 1)",
+    "test": "packages/remote-crypto/src/framing.test.ts",
+    "name": "enforces 1 MiB"
+  },
+  {
+    "file": "packages/remote-crypto/src/framing.ts",
+    "from": "    value !== null &&\n",
+    "to": "",
+    "test": "packages/remote-crypto/src/framing.test.ts",
+    "name": "refuses empty frames"
+  },
+  {
+    "file": "packages/remote-crypto/src/secure-channel.ts",
+    "from": "if (received.kind === \"ping\") this.#send(PONG);",
+    "to": "",
+    "test": "packages/remote-crypto/src/secure-channel.test.ts",
+    "name": "answers a heartbeat"
+  },
+  {
+    "file": "packages/remote-crypto/src/secure-channel.ts",
+    "from": "    this.#reader.dispose();",
+    "to": "",
+    "test": "packages/remote-crypto/src/secure-channel.test.ts",
+    "name": "closes once"
+  },
+  {
+    "file": "packages/remote-crypto/src/secure-channel.ts",
+    "from": "    this.#transport.receive.invalidate();",
+    "to": "",
+    "test": "packages/remote-crypto/src/secure-channel.test.ts",
+    "name": "closes once"
+  },
+  {
+    "file": "packages/remote-crypto/src/secure-channel.ts",
+    "from": "() => this.close(\"chunk_timeout\")",
+    "to": "() => undefined",
+    "test": "packages/remote-crypto/src/secure-channel.test.ts",
+    "name": "closes when a chunked message stays incomplete"
+  },
+  {
+    "file": "packages/remote-crypto/src/secure-channel.ts",
+    "from": "      ciphertext = encryptTransport(this.#transport.send, plaintext);\n    } catch (error) {\n      this.close(reasonOf(error));",
+    "to": "      ciphertext = encryptTransport(this.#transport.send, plaintext);\n    } catch (error) {\n      void error;",
+    "test": "packages/remote-crypto/src/secure-channel.test.ts",
+    "name": "closes with nonce_exhausted"
+  },
+  {
+    "file": "packages/remote-crypto/src/secure-channel.ts",
+    "from": ": \"error\";",
+    "to": ": \"failed\";",
+    "test": "packages/remote-crypto/src/secure-channel.test.ts",
+    "name": "closes with the reason error"
+  },
+  {
+    "file": "packages/remote-crypto/src/secure-channel.ts",
+    "from": "      received = this.#reader.push(decryptTransport(this.#transport.receive, ciphertext));\n    } catch (error) {\n      this.close(reasonOf(error));",
+    "to": "      received = this.#reader.push(decryptTransport(this.#transport.receive, ciphertext));\n    } catch (error) {\n      void error;",
+    "test": "packages/remote-crypto/src/secure-channel.test.ts",
+    "name": "closes on a tampered frame"
+  },
+  {
+    "file": "packages/remote-crypto/src/bytes.ts",
+    "from": "toBase64Url(bytes) !== text",
+    "to": "false",
+    "test": "packages/remote-crypto/src/bytes.test.ts",
+    "name": "refuses the wrong length"
+  },
+  {
+    "file": "packages/remote-crypto/src/bytes.ts",
+    "from": "(?:[0-9a-f]{2})*",
+    "to": "(?:[0-9a-f])*",
+    "test": "packages/remote-crypto/src/bytes.test.ts",
+    "name": "refuses odd lengths"
+  }
+]

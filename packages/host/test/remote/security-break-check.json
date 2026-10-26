@@ -1,0 +1,162 @@
+[
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "one.publicKey === publicKey && !this.#blocked.has(one.deviceId)",
+    "to": "!this.#blocked.has(one.deviceId)",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "rejects an unknown phone key even when another device is already trusted",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (answer.ok !== true) {",
+    "to": "if (false) {",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "closes a rejected known-device handshake even when the raw phone does not close itself",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "value.kind !== \"pair_confirm\" ||",
+    "to": "false ||",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "closes an authenticated pairing channel that sends a control other than pair_confirm",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "devices: current.devices.filter((device) => device.deviceId !== deviceId)",
+    "to": "devices: []",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "renames and revokes only the selected device while another remains persisted and connectable",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "device.deviceId === deviceId ? { ...device, name: name || null } : device",
+    "to": "true ? { ...device, name: name || null } : device",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "renames and revokes only the selected device while another remains persisted and connectable",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (!revokedAfterAcceptance) this.#blocked.delete(device.deviceId);",
+    "to": "void device;",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "successfully re-pairs an in-memory blocked device and permits its next daily connection",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "const previous = current.devices.find((device) => device.publicKey === claim.publicKey) ?? acceptedDevice;",
+    "to": "const previous = current.devices.find(() => true) ?? acceptedDevice;",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "re-pairs the matching key rather than the first device and preserves the unrelated record",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "const devices = current.devices.filter((one) => one.publicKey !== claim.publicKey);",
+    "to": "const devices = current.devices.filter(() => false);",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "re-pairs the matching key rather than the first device and preserves the unrelated record",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (!current.devices.some((device) => device.deviceId === deviceId) || this.#blocked.has(deviceId))",
+    "to": "if (false)",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "rejects rename of an unknown or blocked device without changing persisted records",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "return this.#options.index.save({ ...this.#options.index.read(), enabled: this.#enabled });",
+    "to": "return Promise.resolve();",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "restores the enabled switch, identity and devices through the real service startup path",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (!this.#enabled || this.#closed) return;",
+    "to": "if (true) return;",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "restores the enabled switch, identity and devices through the real service startup path",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (!this.#enabled || this.#closed) return;",
+    "to": "if (false) return;",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "persists disabled state without loading keys on restart and reconnects only when enabled again",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (!enabled) await this.#disconnect();",
+    "to": "await this.#disconnect();",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "leaves live channels and the original pairing unchanged when remote enable is repeated",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (relay !== undefined && parseRelayLine(relay) === null) throw new CommandError(\"relay_unreachable\");",
+    "to": "void relay;",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "projects the exact initial state and refuses invalid relay changes without modifying it",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "} else if (watch === false) this.unwatch(connectionId);",
+    "to": "} else if (watch === false) void connectionId;",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "keeps traffic subscriptions until the last watcher leaves and clears sampled rates on unwatch",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (this.#watchers.size !== 0) return;",
+    "to": "if (false) return;",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "keeps traffic subscriptions until the last watcher leaves and clears sampled rates on unwatch",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#traffic.clear();",
+    "to": "void this.#traffic;",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "keeps traffic subscriptions until the last watcher leaves and clears sampled rates on unwatch",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "online: [...this.#streams].some((stream) => stream.deviceId === device.deviceId)",
+    "to": "online: [...this.#streams].every((stream) => stream.deviceId === device.deviceId)",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "records last-seen and online state independently for disconnected and still-live devices",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (phone.deviceId !== null) this.#recordSeen(phone.deviceId);",
+    "to": "void phone;",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "records last-seen and online state independently for disconnected and still-live devices",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#streams.delete(phone);",
+    "to": "void phone;",
+    "test": "packages/host/test/remote/service-security.host.test.ts",
+    "name": "records last-seen and online state independently for disconnected and still-live devices",
+    "project": "host"
+  }
+]

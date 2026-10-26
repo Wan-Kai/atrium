@@ -4,6 +4,63 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## MP3a 协议 27 协调及设置页接缝（2026-10-26）
+
+协调提交 `c709daf` 合入固定 main `ace843a`（已核实祖先关系），解决双方都占用版本 26 却形状不兼容的问题；保留翻译和远程协议并集，新增型号、诊断和握手活动投影，统一为 27。Swift 类型、往返夹具与版本断言同步。以下是新增验证；下节 `c09b54d` 的全量/变异仍为历史记录，不冒充本轮结果。
+
+| 行为 | 证据 |
+|---|---|
+| 三项投影字段必填，未知型号为 null，诊断区分 unknown/not_applicable/failed，拒绝原始错误字段；保持翻译命令、语言偏好、错误；两翻译命令显式 local_only | `protocol/src/remote.test.ts`、`envelope.test.ts`、`translation.test.ts`、`server/remote-policy.test.ts`；Swift 协议 16 项；`protocol/src/coordination-break-check.json` 7/7 检出 |
+| 型号从已存自报值 trim，空白为 null，不猜硬件，不改保险箱格式 | `test/remote/projections.host.test.ts` 及 `service-security.host.test.ts` 的真实 relay 流程 |
+| 多候选、旧 QR、旧连接代次、过期、取消、关闭后灰包消失；不暴露 M1 候选身份，不改业务状态机；晚加入 watcher 得到当前事实，短握手不人为延长 | `projections.host.test.ts`；`remote/pairing.test.ts`、`remote-service.test.ts`；首次 RED 后 GREEN，候选激活通知 100ms 合并，终止清除立即发送 |
+| connect/live、关着时 probe、配置/身份/代次变化、probe 取消、旧结果不能覆盖新状态；重试保留已结束快照，重置不能把旧诊断与新指纹一起推送 | `remote-service.test.ts`、`projections.host.test.ts`；投影和重置破坏检查共 14/14 检出 |
+| 实际 TCP/地址解析/TLS/HTTP Upgrade/令牌认可证据；不把普通 reset 或总超时归因为无网；正常 CA 验证的 TLS 才通过 | `relay-diagnostics.test.ts` 16 项本地真实请求/服务器：可信测试 CA、未信任证书、主机名不匹配、拒绝连接、受控 resolver、静默 TLS、reset、503、畸形 101、HPE 解析错误、正常 open 后关闭；未访问 VPS，未放宽 TLS |
+| request/socket 的七个观测监听在成功、失败、取消后移除；必须履行 finishRequest 的 request.end 责任 | 同上真实 listener 引用核对；先复现 ws 请求错误处理会同步 close，改为 prepend 记录；畸形 101/HTTP 解析回归先红后绿，不重复实现 WebSocket 验证器 |
+| 当前控制 socket 的本次随机 16 字节 ping；空/错/旧/常规心跳 pong 不成功且不消耗监听；并发共享、正确 pong 成功、超时不悬空且物理连接关闭、stop/close/rejection 清理 | `relay-link.test.ts` 真实 socket；先复现任意 pong 提前成功；重复 12 轮核对真实 socket 的监听数与资源；`diagnostics-pong-break-check.json` 20/20 检出（最初两项测试名过滤不匹配，修正后全部复验）；旧三条移动锚点复验通过 |
+| 错误码字面量不冒充环境变量；显式 env 读取/解构/对象键仍受检查，未知相似前缀不豁免 | `scripts/boundary.test.ts` 12 项、7 条破坏检查；只增 11 项精确例外，不新增虚假登记。`boundary --all` 14 URLs / 41 env / 4 commands，未登记 0 |
+
+阶段验证：协议协调阶段定向 200 项、协议类型检查和 Swift 16 项通过；行为补齐后定向协议/路由/远程单元 470 项、真实 relay 61 项通过，随后补强的协议/白名单 25 项再次通过；远程泄漏 2 项通过。最终源码 `pnpm check` 通过。变异仅对五个变更远程文件运行增量，原始报告 `reports/stryker-incremental-remote-close.json` 保留，v27 结果独立写到 `reports/stryker-incremental-remote-v27.json`；当前仍在执行，未提前称新源码达标。
+
+边界与未完成项：完整桌面泄漏、既有 file-search 竞态、既有 Electron quit 重入问题仍按下节保留失败证据，未顺带修改。未做真实钥匙串授权、真机、用户 VPS、打包安装或跨分支人工验收；本轮不是三方正式审查。
+
+## MP3a 宿主远程模块（2026-10-26）
+
+以下为历史快照 `c09b54d` 的实现与验证记录，不作为当前整合结果：协议 v27、模型、诊断与握手的协调整合仍待完成。
+
+范围：SPEC-0005 的宿主、Noise、配对/日常连接/撤销、远程白名单与大小限制；不包含 MP3b 设置页和 MP4 的快照预算、续传、回执。协议独立提交 `20169cc`（26），后续未改形状。
+
+| 行为 | 验证 |
+|---|---|
+| IK/IKpsk2、低阶点、畸形密文、nonce、分帧/分块大小与期限、心跳、错误即关通道；TS/Swift 字节级互通 | `packages/remote-crypto/src/*.test.ts`、`test/interop.test.ts`、cacophony 向量与四份互通夹具；64 项 |
+| 成功读取必须有 version/data，IPC id 对应、超限写终结、post 失败、写队列拒绝后恢复且不消耗版本 | `host/src/remote/vault.test.ts`、`host/src/electron-port.test.ts` |
+| 主进程 safeStorage 异步可用性/加解密、损坏与缺文件分开、版本拒绝、原子文件、清理异常后继续 | `apps/desktop/src/main/vault.test.ts`（15 项；真实文件 ENOTDIR 复现清理失败，不 mock fs） |
+| 未启用的本机启动不自动读钥匙串；等待授权时仍能读状态和关闭开关；显式重置损坏；standalone 不可用；晚到读取不初始化已关服务 | `remote-service.test.ts`；`apps/desktop/e2e/remote-vault.spec.ts` 前两例经真实 utilityProcess IPC（不可用场景替换 safeStorage 的 availability，不触发真人授权） |
+| relay 地址只对 loopback 用 ws，端口合法；凭据不出状态；ready/ping、指数退避与手动重试、异常控制帧、可取消 probe | `relay-line.test.ts`、`relay-link.test.ts`；后者声明/行覆盖 100%、分支 94.23%（定向覆盖运行） |
+| 设备密钥 canonical base64url、id/公钥不重复、名字回退；QR 查询值用 `%20` 而非 `+`，兼容 Swift 百分号解码 | `devices.test.ts`；`service.host.test.ts` 元数据例先红后绿；实际 `xcrun swift -e` 对照 `URLComponents` 的两种输入 |
+| 可用码五分钟、确认两分钟、并发确认只能赢一个、到期码/取消/拒绝/确认前掉线/不正确 PSK/版本/保存失败 | `pairing.test.ts`；`test/remote/service.host.test.ts` 启真实本地 `apps/relay` 子进程 |
+| 保存成功但 paired 丢失后用 IK 补齐；未知设备拒绝；同公钥重配沿用身份和自定义名；重置先保存再撤销，并废弃排在重置之后的旧配对确认 | `test/remote/service.host.test.ts` |
+| 撤销立即断全部通道，保存失败仍拉黑、可重试；正在保存的确认不能解除后来撤销；撤销→排队确认→再次撤销不能绕成新 id | `service.host.test.ts` 三种 gated vault 撤销交错；后两种先复现再修复，分别以删除 `?? acceptedDevice` 和已撤销 id 的幂等门槛作负对照 |
+| 最多四个未完成握手、十秒期限；每设备两通道、三十秒静默；待确认配对同样主动探测，成功后移交服务器心跳；流量按真实密文字节、1 秒预热/2 秒窗口、离线历史自然归零 | `service.host.test.ts` 两个心跳用例先红后绿；精确计算 UTF-8＋帧类型＋Poly1305 标签及逐秒窗口；`relay-link.test.ts` 假时钟与真实 socket |
+| 手机 hello 无 token 且 clientId 等于 Noise deviceId；九个本地管理命令完整转交；手机管理请求 local_only；事件只推本机 watcher | `server/router.test.ts`、`server/remote-policy.test.ts`；`test/remote/host-connection.host.test.ts` 真实 startHost＋relay＋假手机 |
+| 命令/事件全集穷举分类，child 创建拒绝；8 MiB 应答转 response_too_large、事件转快照，仍超限告警丢弃 | `server/remote-policy.test.ts`、`server/connection.test.ts` |
+| 数据通道畸形帧、错误密文、分块超时、出站超限、CONNECTING 中止、关闭兜底、独立积压、done/资源真实关闭顺序 | `remote/channel.test.ts` 32 项真实 ws＋Noise；31 项阶段曾测行覆盖 99%、分支 95.65%，最终用整文件变异结果而非这次历史覆盖率验收 |
+| 对端发 Close 后保持 TCP 半关闭，宿主结束时仍在 1 秒内完成 done、释放资源 | `channel.test.ts` raw `allowHalfOpen` peer：核对 101、Close1000 回应及 host FIN；原实现 RED（done=false/data=1），修复后 GREEN，恢复 OPEN-only 判断的破坏检查 CAUGHT；不是通过改超时或 suppression 凑分 |
+| 已有 A 时未知 B 密钥仍拒；错误版本立即关；错误控制不能确认；撤销/改名 A 不碰 B；真实重建服务恢复 enabled/disabled；本地状态通知与元数据不含秘密 | `test/remote/service-security.host.test.ts` 18 项；`service.host.test.ts` 日志/流量例；不以空设备表下的拒绝代替身份匹配断言 |
+| 加密包也进入生产外部边界扫描，测试文件仍排除 | `scripts/boundary.test.ts` 新例先红后绿；定向删除 scope 中的 remote-crypto，破坏检查检出 |
+| 资源归零（40 轮配对/连接/撤销；20 轮四通道开关）、probe 挂起时关闭/启用不会晚到挤正式连接 | `test/remote/service.leak.test.ts` 两项；`service.host.test.ts` probe 用 SIGSTOP 控制真实 relay，finally 确保 SIGCONT |
+
+测试辅助实现也验证：`test/remote/harness.test.ts` 9 项；relay 经真实 CLI 子进程登记，强制 loopback。泄漏压力场景把测试 relay 的接入配额显式设为 1000，生产 30/分钟不变；宿主的四流/两通道上限不变。
+
+破坏检查（均已执行、全部 CAUGHT）：crypto 32（`packages/remote-crypto/test/break-check.json`，crypto 子代理）；早期服务器 8、vault 12（`/tmp/mp3a-break/`）；桌面异常修复 5（`apps/desktop/src/main/vault-break-check.json`）；辅助假手机/relay 9（`test/remote/break-check.json`）；远程单元 17＋25（`src/remote/{break-check,extra-break-check}.json`）；真实 relay 18（`test/remote/service-break-check.json`）；排队撤销 2、重置 2（`queued-{revocation,reset}-break-check.json`）；九条路由 9（`router-break-check.json`）；密文流量 3（`traffic-break-check.json`）；日志 14、活性/元数据/QR 5、状态/IPC边界 9、数据通道 34（`src/remote/{log,live-check,state,channel}-break-check.json`）；安全集成 20、配对心跳 3（`test/remote/{security,pair-heartbeat}-break-check.json`）；生产边界 1（`/tmp/mp3a-boundary-break.json`）；TCP 半关闭 1（`src/remote/half-open-break-check.json`）。Electron 前两例另把已构建宿主的 `vault: config2.vault` 改成 `undefined`，两项都失败，恢复后通过；没有用类型错误代替运行时负对照。
+
+**最终源复核（18:27～18:31）**：`pnpm check` 全过；`pnpm test` 单元 **4010**＋Swift **22** 全过；默认并行 `pnpm test:host` **205** 全过（含真实 relay **47** 项）；`vitest run --project leak` 的 Node 全量 **17** 项过；`pnpm build` 过；重建后的 Electron `app.spec.ts`＋`remote-vault.spec.ts` **14** 项过。protocol 与生成 Swift 自 `20169cc` 起无后续改动。
+
+**变异过程和最终口径**：首轮全组 **78.68% 未达标**（宿主远程 71.47%），没有用 crypto 抬平均。按存活项补测后第二轮 **90.09%**；配对等待心跳与 QR 编码修复后第三轮完整基线 **90.11%**，并把不确定的 relay 错误监听 Timeout 实际重测为 **Killed**。分析其中的存活项又复现了上述 CLOSING 原实现缺陷；修复后对 **channel 整文件强制重跑 164 个**，160 killed／4 survived／0 timeout，**97.56%**。Stryker 原生保留范围外的 2061 条真实既有状态（含 20 ignored），最终完整报告 `reports/stryker-incremental-remote-close.json` 的 13 份生产源码均与交付源码逐字一致：全组 **90.07%**（1977 killed、9 timeout、219 survived），宿主远程单独 **87.88%**，crypto **100%**，桌面保险箱 **85.65%**。`devices.ts` 单文件 79.49% 如实保留，门槛按组，未抑制真实覆盖缺口。
+
+219 个存活和 9 个缓存 Timeout 的逐项理由及对账见 [MP3a 变异存活分析](mp3a-mutation-survivors.md)。剩余 Timeout 是分块／心跳回环和设备队列忙循环，不冒称本轮全重跑；crypto 的 437 个检出来自先前独立运行（429 killed、8 timeout），18 ignored 原因在源码。破坏了清理的 Stryker 子测试曾留下 relay 子进程，已按本 worktree 的 sandbox 绝对路径和 PPID=1 精确清理，最终核对为 0；没有终止用户应用或服务器。
+
+**失败和限制如实保留**：一次 `pnpm test:host` 178/179，既有 `files/file-search.host.test.ts` 的“超过 1 MiB”失败：`runFd` 超限只 kill，但进程先退出 0 时仍接受此前 chunks，代码未在本任务修改。后一次与四 worker 变异并跑，178/182，四个既有 git 用例 15 秒超时；空载串行复核 203 项通过，最终默认并行全量 205 项也通过；未改该文件，不删用例或放宽期限。两次 `pnpm test:leak` 的 Node 17 项均过，桌面分别 5/7、6/7：首轮 ask-user 的脱离 DOM（42 个 SVGCircleElement、2 个运行中 span、2 个 SVG）、图片模态拦截下一次点击；次轮 PlantUML naturalWidth 5 秒未就绪。前两项单跑 2/2、PlantUML 单跑 1/1 均通过；尚未确认根因，未改 UI，不把整套桌面泄漏报绿。Electron 的“宿主退出后迟到的钥匙串回答”额外实验正文通过、清理阶段 Close context 超时；诊断确认原 `postMessage` 迟到时静默 no-op，没有未处理拒绝。挂起是既有 quit 重入：`will-quit` 阻止退出后，对已结束的 `host.stop()` 立即 `.finally(app.quit)` 的再次 quit 被忽略；仅延后到 `setImmediate` 的实验通过。未顺带修既有生命周期问题，撤回未提交的防御代码和实验测试，保留原两项已提交的 IPC e2e；详细复现 `/tmp/mp3a-late-vault-diagnosis.md`，恢复后的构建与两项再通过。未访问用户 VPS，未做真机、真实钥匙串授权弹窗或打包安装；MP3b/MP4 不由这些测试代验。
+
 ## M1.11 自用中改（2026-10-26）
 
 | 行为 | 测试 | 破坏检查 |

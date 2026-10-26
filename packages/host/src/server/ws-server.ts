@@ -21,6 +21,7 @@ import type { SessionCommands } from "../sessions/session-commands";
 import type { SubscriptionRegistry } from "../sync/subscriptions";
 import { tokensMatch } from "./auth";
 import { type Connection, createConnection } from "./connection";
+import type { ClientTransport, TransportOrigin } from "./transport";
 import type { ChangesService } from "../changes/changes-service";
 import type { AttachmentStore } from "./attachments";
 import { type Route, type RouterOptions, createRouter } from "./router";
@@ -62,6 +63,8 @@ export interface WsServerOptions {
   readonly logDir: string;
   /** Bytes that may wait to be sent to one client before it is dropped as too slow. */
   readonly maxBufferedBytes: number;
+  /** Largest encoded message to a phone (SPEC-0005, "Noise 通道 · 大小"). */
+  readonly maxPhoneMessageBytes: number;
   /** Where connections register to receive session events. */
   readonly subscriptions: SubscriptionRegistry;
   /** Handles session commands. */
@@ -84,6 +87,8 @@ export interface WsServerOptions {
   readonly catchUp: () => readonly (InstallUpdatedEvent | LoginUpdatedEvent | PlansUpdatedEvent)[];
   /** The latest pi. */
   readonly piLatest: RouterOptions["piLatest"];
+  /** Remote access, for the local "手机" page; a closed connection stops watching it. */
+  readonly remote: RouterOptions["remote"];
   /** Images uploaded ahead of their messages; a closed connection's go. */
   readonly attachments: AttachmentStore;
   /** Workspaces' git changes; a closed connection stops showing them. */
@@ -103,6 +108,12 @@ export interface RunningServer {
   readonly address: string;
   /** The host's own origin, `http://127.0.0.1:<port>`. */
   readonly origin: string;
+  /**
+   * Serves a phone's channel like a local connection, once its Noise handshake is done.
+   *
+   * @returns Whether it was taken; a full host closes it with 4503 and answers `false`.
+   */
+  readonly accept: (transport: ClientTransport, origin: TransportOrigin) => boolean;
   /** Stops accepting connections, disconnects every client and stops listening. */
   readonly close: () => Promise<void>;
 }
@@ -128,6 +139,9 @@ export interface RunningServer {
 export async function startWsServer(options: WsServerOptions): Promise<RunningServer> {
   const allowedOrigins = new Set<string>(options.extraOrigins);
   const sockets = new Set<WebSocket>();
+  /** Channels of phones, counted against the same connection limit (SPEC-0005, "客户端传输"). */
+  const channels = new Set<ClientTransport>();
+  let closing = false;
   const httpServer = createServer((request, response) => {
     if (options.uiDir === undefined) {
       response.writeHead(404).end();
@@ -151,6 +165,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     logins: options.logins,
     installs: options.installs,
     piLatest: options.piLatest,
+    remote: options.remote,
     attachments: options.attachments,
     changes: options.changes,
     files: options.files,
@@ -158,6 +173,36 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     logger: options.logger,
   });
   let nextConnectionId = 0;
+
+  /**
+   * Whether another connection fits, logging the refusal when it does not.
+   *
+   * @remarks
+   * Local sockets and phones' channels share the limit of 32.
+   *
+   * @sideEffects Logs a refusal.
+   * @returns Whether there is room.
+   */
+  function room(): boolean {
+    if (sockets.size + channels.size < options.limits.maxConnections) return true;
+    options.logger.warn({ limit: options.limits.maxConnections }, "client rejected: too many connections");
+    return false;
+  }
+
+  /**
+   * The next connection's opaque id.
+   *
+   * @remarks
+   * Unique within this host run.
+   *
+   * @sideEffects Advances the counter.
+   * @returns The id.
+   */
+  function nextId(): string {
+    // Stryker disable next-line AssignmentOperator: counting down gives unique ids just the same.
+    nextConnectionId += 1;
+    return `connection-${nextConnectionId}`;
+  }
 
   httpServer.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
     const origin = request.headers.origin;
@@ -167,16 +212,21 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
       return;
     }
     wss.handleUpgrade(request, socket, head, (ws) => {
-      if (sockets.size >= options.limits.maxConnections) {
-        options.logger.warn({ limit: options.limits.maxConnections }, "client rejected: too many connections");
+      if (!room()) {
         ws.close(CloseCode.TooManyConnections, "too many connections");
         return;
       }
       sockets.add(ws);
-      ws.once("close", () => sockets.delete(ws));
-      // Stryker disable next-line AssignmentOperator: counting down gives unique ids just the same.
-      nextConnectionId += 1;
-      acceptConnection(ws, `connection-${nextConnectionId}`, route, options);
+      const release = options.resources.acquire("ws.connection");
+      ws.once("close", () => {
+        sockets.delete(ws);
+        release();
+      });
+      let trace: Context = ROOT_CONTEXT;
+      const transport = localTransport(ws, options, () => trace);
+      serveTransport(transport, nextId(), { origin: "local" }, route, options, (accepted) => {
+        trace = accepted;
+      });
     });
   });
 
@@ -190,7 +240,19 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     port,
     address,
     origin,
+    accept: (transport, from) => {
+      if (closing || !room()) {
+        transport.close(CloseCode.TooManyConnections, "too many connections");
+        return false;
+      }
+      channels.add(transport);
+      transport.onClose(() => channels.delete(transport));
+      serveTransport(transport, nextId(), from, route, options);
+      return true;
+    },
     close: async () => {
+      closing = true;
+      for (const channel of channels) channel.close(1001, "host closing");
       const stopped = new Promise<void>((done, fail) => httpServer.close((error) => (error ? fail(error) : done())));
       httpServer.closeAllConnections();
       // Stryker disable next-line ArrowFunction,ArrayDeclaration: the close events currently arrive before wss.close returns anyway; waiting makes the order a guarantee, so no log is written after the log file closes.
@@ -229,51 +291,27 @@ function listen(server: Server, port: number): Promise<{ port: number; address: 
 }
 
 /**
- * Runs the handshake for one new socket, then serves it until it closes.
+ * Wraps an upgraded local socket as a transport, keeping the per-second limits on this path.
  *
  * @remarks
- * The first message must be `hello`, and it is decided synchronously, so a frame that arrives in
- * the same TCP read is already handled as an authenticated message. A rejected client is closed
- * and anything it still sends is ignored. Every message, before or after the handshake, counts
- * against the per-second limits. Once accepted, the socket becomes a `Connection` registered for
- * session events, each message goes to the router, and the host pings it every `heartbeatMs`: a
- * client that has not answered the previous ping by the next one is gone (asleep, or its network
- * dropped) and is terminated (SPEC-0001, "握手与心跳").
+ * Every message, before or after the handshake, counts against the per-second limits
+ * (security.md, "WebSocket 与鉴权"); a client past them is closed and anything it still sends is
+ * ignored. The probe is a WebSocket ping: browsers answer pings by themselves, so only a client
+ * that is really gone (asleep, or its network dropped) leaves one unanswered, and it is terminated
+ * without a closing handshake (SPEC-0001, "握手与心跳").
  *
- * @sideEffects Counts the connection, its handshake timer and its heartbeat timer as resources;
- * may close or terminate the socket; registers and unregisters the connection for session events;
- * logs the outcome.
+ * @sideEffects Listens on the socket; may close or terminate it; logs socket errors and rate-limit drops.
  * @param ws - The upgraded socket.
- * @param connectionId - Opaque id for the connection.
- * @param route - Handles each message after the handshake.
- * @param options - Server configuration and shared services.
+ * @param options - Limits, clock and logger.
+ * @param trace - The connection's trace once it has one, for its log lines.
+ * @returns The transport.
  */
-function acceptConnection(ws: WebSocket, connectionId: string, route: Route, options: WsServerOptions): void {
-  const releaseConnection = options.resources.acquire("ws.connection");
-  /** Set once the client was dropped or rejected; nothing it sends is handled after that. */
-  let closed = false;
-  /** Set once the hello is accepted. */
-  let connection: Connection | undefined;
-  /** Trace of the accepted handshake; the connection's log lines join it. */
-  let connectionTrace: Context = ROOT_CONTEXT;
-  let cancelHeartbeat: (() => void) | undefined;
-  /** Whether a pong arrived since the last ping; the first beat only pings. */
+function localTransport(ws: WebSocket, options: WsServerOptions, trace: () => Context): ClientTransport {
+  let limited = false;
   let answered = true;
   let windowStart = options.clock.now();
   let windowMessages = 0;
   let windowBytes = 0;
-  const cancelHandshakeTimer = trackedTimeout(
-    options.clock,
-    options.resources,
-    () => {
-      // Stryker disable next-line all: the timer is cancelled when the hello arrives, so it only fires while awaiting it.
-      if (connection !== undefined || closed) return;
-      closed = true;
-      options.logger.warn("client dropped: no hello before timeout");
-      ws.close(CloseCode.HandshakeTimeout, "handshake timeout");
-    },
-    options.handshakeTimeoutMs,
-  );
 
   /**
    * Counts one message against the current one-second window.
@@ -297,114 +335,208 @@ function acceptConnection(ws: WebSocket, connectionId: string, route: Route, opt
     return windowMessages <= options.limits.messagesPerSecond && windowBytes <= options.limits.bytesPerSecond;
   }
 
+  ws.on("pong", () => {
+    answered = true;
+  });
+  ws.on("error", (error) => options.logger.warn({ err: error }, "websocket error"));
+  return {
+    get bufferedAmount() {
+      return ws.bufferedAmount;
+    },
+    send: (text) => ws.send(text),
+    close: (code, reason) => ws.close(code, reason),
+    onMessage(listener) {
+      ws.on("message", (data: RawData, isBinary: boolean) => {
+        if (limited) return;
+        if (!withinLimits(rawLength(data))) {
+          limited = true;
+          context.with(trace(), () => options.logger.warn("client dropped: message rate limit exceeded"));
+          ws.close(CloseCode.RateLimited, "rate limited");
+          return;
+        }
+        listener(isBinary ? null : Buffer.concat(toBuffers(data)).toString());
+      });
+    },
+    onClose(listener) {
+      ws.once("close", (code: number) => listener(code));
+    },
+    checkAlive() {
+      if (!answered) {
+        ws.terminate();
+        return false;
+      }
+      answered = false;
+      ws.ping();
+      return true;
+    },
+  };
+}
+
+/**
+ * Runs the handshake for one new transport, then serves it until it closes.
+ *
+ * @remarks
+ * The first message must be `hello`, and it is decided synchronously, so a frame that arrives in
+ * the same read is already handled as an authenticated message. A rejected client is closed and
+ * anything it still sends is ignored. Once accepted, the transport becomes a `Connection`
+ * registered for session events, each message goes to the router, and the host probes it every
+ * `heartbeatMs`; a client that has not answered the previous probe by the next one is gone and is
+ * dropped by its transport (SPEC-0001, "握手与心跳"). Local and remote transports share all of
+ * this; who the transport belongs to comes from its own code, never from the client (SPEC-0005,
+ * "日常连接" item 4).
+ *
+ * @sideEffects Counts the handshake and heartbeat timers as resources; may close the transport;
+ * registers and unregisters the connection for session events; logs the outcome.
+ * @param transport - The transport.
+ * @param connectionId - Opaque id for the connection.
+ * @param origin - Who the transport belongs to.
+ * @param route - Handles each message after the handshake.
+ * @param options - Server configuration and shared services.
+ * @param onTrace - Told the accepted handshake's trace, for the transport's own log lines.
+ */
+function serveTransport(
+  transport: ClientTransport,
+  connectionId: string,
+  origin: TransportOrigin,
+  route: Route,
+  options: WsServerOptions,
+  onTrace: (trace: Context) => void = () => {},
+): void {
+  /** Set once the client was rejected; nothing it sends is handled after that. */
+  let closed = false;
+  /** Set once the hello is accepted. */
+  let connection: Connection | undefined;
+  /** Trace of the accepted handshake; the connection's log lines join it. */
+  let connectionTrace: Context = ROOT_CONTEXT;
+  let cancelHeartbeat: (() => void) | undefined;
+  const cancelHandshakeTimer = trackedTimeout(
+    options.clock,
+    options.resources,
+    () => {
+      // Stryker disable next-line all: the timer is cancelled when the hello arrives, so it only fires while awaiting it.
+      if (connection !== undefined || closed) return;
+      closed = true;
+      options.logger.warn("client dropped: no hello before timeout");
+      transport.close(CloseCode.HandshakeTimeout, "handshake timeout");
+    },
+    options.handshakeTimeoutMs,
+  );
+
   /**
-   * Pings the client, or terminates it if the previous ping went unanswered.
+   * Probes the client, or logs that it is gone when its transport dropped it.
    *
    * @remarks
-   * Browsers answer pings by themselves, so only a client that is really gone stays silent.
+   * The first beat only probes; see `serveTransport`.
    *
-   * @sideEffects Sends a ping or terminates the socket; schedules the next beat.
+   * @sideEffects Probes through the transport; schedules the next beat; logs a dropped client.
    */
   function beat(): void {
-    if (!answered) {
+    if (!transport.checkAlive()) {
       context.with(connectionTrace, () => options.logger.warn("client dropped: no pong before the next ping"));
-      ws.terminate();
       return;
     }
-    answered = false;
-    ws.ping();
     cancelHeartbeat = trackedTimeout(options.clock, options.resources, beat, options.heartbeatMs);
   }
 
-  ws.on("message", (data: RawData, isBinary: boolean) => {
+  transport.onMessage((text) => {
     if (closed) return;
-    const bytes = rawLength(data);
-    if (!withinLimits(bytes)) {
-      closed = true;
-      context.with(connectionTrace, () => options.logger.warn("client dropped: message rate limit exceeded"));
-      ws.close(CloseCode.RateLimited, "rate limited");
-      return;
-    }
     if (connection !== undefined) {
       // Fire and forget: the router answers every message itself and never rejects.
-      void route(connection, isBinary ? undefined : parseJson(data));
+      void route(connection, text === null ? undefined : parseJson(text));
       return;
     }
     cancelHandshakeTimer();
-    const accepted = handleHello(ws, data, isBinary, options);
+    const accepted = handleHello(transport, text, origin, options);
     if (accepted === null) {
       closed = true;
       return;
     }
     connectionTrace = accepted.trace;
-    connection = createConnection(ws, {
+    onTrace(accepted.trace);
+    connection = createConnection(transport, {
       id: connectionId,
       clientId: accepted.clientId,
       trace: accepted.trace,
       maxBufferedBytes: options.maxBufferedBytes,
       logger: options.logger,
+      ...(origin.origin === "remote"
+        ? {
+            remote: {
+              deviceId: origin.deviceId,
+              maxMessageBytes: options.maxPhoneMessageBytes,
+              snapshotOf: (sessionId: string) => options.sessions.currentSnapshot(sessionId),
+            },
+          }
+        : {}),
     });
     const open = connection;
     options.subscriptions.connect(connectionId, (event) => open.send(event), accepted.clientId);
     for (const event of options.catchUp()) open.send(event);
     beat();
   });
-  ws.on("pong", () => {
-    answered = true;
-  });
-  ws.on("error", (error) => options.logger.warn({ err: error }, "websocket error"));
-  ws.once("close", (code: number) => {
+  transport.onClose((code) => {
     cancelHandshakeTimer();
     cancelHeartbeat?.();
-    releaseConnection();
     if (connection === undefined) return;
     options.subscriptions.disconnect(connectionId);
     options.attachments.drop(connectionId);
     options.translations.disconnect(connectionId);
     options.changes.disconnect(connectionId);
+    options.remote.unwatch(connectionId);
     context.with(connectionTrace, () => options.logger.info({ code }, "client disconnected"));
   });
 }
 
 /**
- * Validates a `hello` message and either welcomes the client or closes the socket.
+ * Validates a `hello` message and either welcomes the client or closes the transport.
  *
  * @remarks
  * Runs inside a `ws.connect` span parented by the client's `traceparent`, so the client's action
  * and the host's acceptance or rejection share one trace (observability.md). Rejections use the
- * close codes the protocol defines so the client can explain them to the user.
+ * close codes the protocol defines so the client can explain them to the user. A local client must
+ * present the token; a phone, authenticated by its channel already, must not, and its `clientId`
+ * must be its `deviceId` (SPEC-0005, "协议改动" item 1).
  *
- * @sideEffects Sends `welcome` or closes the socket; starts and ends a span; logs the outcome.
- * @param ws - The socket that sent the message.
- * @param data - The raw first message.
- * @param isBinary - Whether the frame was binary; `hello` must be text.
+ * @sideEffects Sends `welcome` or closes the transport; starts and ends a span; logs the outcome.
+ * @param transport - The transport that sent the message.
+ * @param text - The first message, or `null` when it was not text; `hello` must be text.
+ * @param origin - Who the transport belongs to.
  * @param options - Server configuration and shared services.
  * @returns The client's id and the trace context of the accepted handshake, so later records of the
  * connection can join or link to the same trace; `null` when the client was rejected.
  */
 function handleHello(
-  ws: WebSocket,
-  data: RawData,
-  isBinary: boolean,
+  transport: ClientTransport,
+  text: string | null,
+  origin: TransportOrigin,
   options: WsServerOptions,
 ): { readonly clientId: string; readonly trace: Context } | null {
-  const hello = isBinary ? null : HelloMessage.safeParse(parseJson(data));
+  const hello = text === null ? null : HelloMessage.safeParse(parseJson(text));
   const parent = hello?.success === true ? contextFromTraceparent(hello.data.traceparent) : ROOT_CONTEXT;
   return inSyncSpan(options.tracer, "ws.connect", parent, (span) => {
-    if (hello?.success !== true) {
-      options.logger.warn("client rejected: malformed hello");
-      ws.close(CloseCode.BadHandshake, "bad handshake");
+    // The local socket must carry a token, and a phone's channel must not (SPEC-0005, "协议改动").
+    const wellFormed =
+      hello?.success === true &&
+      (origin.origin === "local"
+        ? hello.data.token !== undefined
+        : hello.data.token === undefined && hello.data.clientId === origin.deviceId);
+    if (hello?.success !== true || !wellFormed) {
+      options.logger.warn(
+        origin.origin === "local" ? {} : { device_id: origin.deviceId },
+        "client rejected: malformed hello",
+      );
+      transport.close(CloseCode.BadHandshake, "bad handshake");
       return null;
     }
     span.setAttribute("client.id", hello.data.clientId);
     if (hello.data.protocolVersion !== PROTOCOL_VERSION) {
       options.logger.warn({ client_version: hello.data.protocolVersion }, "client rejected: protocol version mismatch");
-      ws.close(CloseCode.VersionMismatch, "protocol version mismatch");
+      transport.close(CloseCode.VersionMismatch, "protocol version mismatch");
       return null;
     }
-    if (!tokensMatch(options.token, hello.data.token)) {
+    if (origin.origin === "local" && !tokensMatch(options.token, hello.data.token ?? "")) {
       options.logger.warn({ client_id: hello.data.clientId }, "client rejected: wrong token");
-      ws.close(CloseCode.Unauthorized, "unauthorized");
+      transport.close(CloseCode.Unauthorized, "unauthorized");
       return null;
     }
     const welcome: WelcomeMessage = {
@@ -416,26 +548,26 @@ function handleHello(
       installSeed: options.installSeed,
       logDir: options.logDir,
     };
-    ws.send(JSON.stringify(welcome));
-    options.logger.info({ client_id: hello.data.clientId }, "client connected");
+    transport.send(JSON.stringify(welcome));
+    options.logger.info({ client_id: hello.data.clientId, origin: origin.origin }, "client connected");
     return { clientId: hello.data.clientId, trace: context.active() };
   });
 }
 
 // Stryker disable BlockStatement: an emptied catch returns undefined, which the schema rejects exactly like null.
 /**
- * Parses a text frame as JSON.
+ * Parses a text message as JSON.
  *
  * @remarks
  * Malformed input from the network is expected, so it yields `null` instead of throwing.
  *
  * @sideEffects none
- * @param data - Raw frame payload.
+ * @param text - The message.
  * @returns The parsed value, or `null` if it is not valid JSON.
  */
-function parseJson(data: RawData): unknown {
+function parseJson(text: string): unknown {
   try {
-    return JSON.parse(Buffer.concat(toBuffers(data)).toString());
+    return JSON.parse(text);
   } catch {
     return null;
   }

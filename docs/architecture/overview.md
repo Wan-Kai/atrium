@@ -73,6 +73,7 @@ atrium/
 │   │       ├── sync.ts             generation+seq、epoch+seq、游标、快照或增量的信封
 │   │       ├── json-schema.ts      按导出名登记全部 schema，导出 JSON Schema（`pnpm protocol:swift` 用，ADR-0015）
 │   │       └── version.ts          协议版本，握手时用
+│   ├── remote-crypto/              独立 Noise IK/IKpsk2、分帧、SecureChannel；只有加密原语依赖，Clock 是结构接口
 │   ├── pi/                         pi 集成：pi 的格式和协议只出现在这里
 │   │   ├── src/
 │   │   │   ├── config/             普通配置的 pi 语法校验，以及与 pi 共用的 settings 文件锁（proper-lockfile）
@@ -98,7 +99,8 @@ atrium/
 │   │   │   ├── main.ts             startHost：组装依赖、启动；不依赖任何 Electron API
 │   │   │   ├── entry.ts            进程入口：在 Electron 子进程里从 parentPort 收配置，或单独运行时读环境变量
 │   │   │   ├── dev/                开发用命令：`pnpm pi:try`（用宿主的组件驱动真实 pi，终端里看流式输出）
-│   │   │   ├── server/             WsServer、Connection、鉴权、命令路由、上传图片的暂存（按连接）
+│   │   │   ├── server/             WsServer、ClientTransport、Connection、鉴权、命令路由、上传图片的暂存（按连接）；remote-policy 穷举手机命令和事件
+│   │   │   ├── remote/             RemoteService、relay 控制/数据连接、连接证据采集、配对状态机及候选活动投影、设备、保险箱端口；通过注入 accept/send 接服务器
 │   │   │   ├── store/              ~/.atrium：索引文件（原子写入、格式版本与迁移、损坏挪开）、各文件的格式、
 │   │   │   │                       宿主单实例锁、偏好、插话记录
 │   │   │   ├── projects/           ProjectService：项目与工作区的登记（projects.json）
@@ -169,13 +171,15 @@ protocol  ←──  pi  ←──  host
 |---|---|---|---|
 | protocol | zod | 任何内部包 | package.json 没声明，pnpm 就不让 import |
 | pi | protocol（只用对话记录相关的实体，不碰命令和同步信封） | DOM、其他内部包 | 唯一能 import `@earendil-works/*` 的包，其他包由 oxlint `no-restricted-imports` 禁止（例外见下文 testkit 的两个 faux extension） |
-| host | protocol、pi | DOM、client（生产代码）、ui、Electron | tsconfig 的 `lib` 不含 DOM；oxlint 禁止 `packages/host/src` import `@atrium/client`（client 只作第 4 层测试的开发依赖） |
+| remote-crypto | 精确版本的 @noble/ciphers、@noble/curves、@noble/hashes | 任何内部生产包、Electron、网络 | 时间通过结构接口注入；向量、互通夹具与变异测试 |
+| host | protocol、pi、remote-crypto | DOM、client（生产代码）、ui、Electron | tsconfig 的 `lib` 不含 DOM；oxlint 禁止 `packages/host/src` import `@atrium/client`（client 只作第 4 层测试的开发依赖） |
 | client | protocol、zustand | DOM、React | tsconfig 不含 DOM，oxlint 禁止 import react |
 | ui | client、protocol（只用类型） | host、pi | 没有声明依赖；oxlint 只许生产代码 `import type` protocol，要用的值（`CommandError`、`isChatId` 等）由 client 转出（测试不限） |
 | desktop | 不 import host 和 ui 的代码 | — | 只知道构建好的宿主入口路径，窗口经 `atrium://app/` 加载宿主提供的页面 |
 | relay | ws、zod | 任何内部包（testkit 只作开发依赖，测试里用假时钟） | package.json 没声明；它部署在另一台机器上，Clock 和资源计数各写一份小的，不从宿主拿 |
 | testkit | protocol | 其他内部包；被生产代码依赖 | 避免和被测包形成循环依赖；knip、oxlint 检查 |
 
+- **MP3a 远程边界**：`server/transport.ts`、`server/router.ts` 声明传输和管理命令接口；`remote/` 只依赖这些类型，不 import 服务器实现；`main.ts` 注入 `RunningServer.accept`、订阅表的定向发送、Clock、资源计数和 VaultPort。服务器不 import `remote/`，继续共用会话/工作区服务。主进程 `main/vault.ts` 只处理固定 vault 文件的加解密与有版本的 IPC，不 import 宿主代码。独立宿主不触碰 safeStorage，未启用时不自动读保险箱（显式配置、测试、重置除外）。
 - **回复翻译的边界（M1.11 自用后补充）**：`sessions/reply-translation.ts` 只管理按连接归属的一次性翻译及取消，不控制原会话运行；`SessionManager.replyTranslationSource` 同步提取当前分支已结束轮的正文和当前模型，`main.ts` 注入偏好语言及 pi 一次性调用。服务不依赖 server，router 传连接 id，WebSocket 断开和宿主关闭调用取消；无翻译索引或历史字段。UI 的 `chat/reply-translation.tsx` 只在回复组件内存中保存结果，客户端等待之前的取消清理后再发送新请求，不跨重连补发；设置只写 `translationLanguage`。
 - **回复增强的 UI 内部边界（2026-10-20）**：`chat/file-opener.ts` 只声明当前工作区的惰性打开能力，供工具胶囊与 Markdown 引用共同使用；不从 Markdown 反向 import 步骤组件。文件路径的工作区校验与打开仍由 ConversationArea 组装；`state/workspace-views.ts` 保存窗口内的一次性行范围导航，FileViewer 在读取和恢复滚动后按实际行元素消费，不增加宿主命令或持久索引字段。JSON 使用精确锁定的 `jsonc-parser@3.3.1` 的 scanner/AST（严格 JSON，不接受注释），通过源码位置展示数值和属性，CSV 用受限状态机；两者都不引入脚本执行或网络能力。
 - **faux extension 的例外**：`packages/testkit/src/faux/extension.ts` 可以 import `@earendil-works/pi-ai`。我们的代码从不加载它，它只作为文件路径交给 pi 进程（`--extension`），由 pi 自己加载执行，import 也由 pi 解析到它自带的 pi-ai；testkit 声明的同版本 pi-ai 开发依赖只用于类型检查。oxlint 只对这一个文件放开限制。放在 testkit 而不是 pi 包，是因为 pi 契约测试、宿主集成测试和端到端测试都要用它。
