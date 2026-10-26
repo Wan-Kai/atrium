@@ -32,6 +32,22 @@
 
 `pnpm check` 通过（含 `ios:check`）；`pnpm test` 单元 192 个文件 3613 项、Swift 19 项通过；`pnpm test:ios` 19 项 Swift 加 1 项模拟器 UI 测试通过；`pnpm ios:build` 真机构建签名通过（团队 `QGZ4G5UJ65`，bundle id `site.ktoon.atrium`）；`pnpm ios:shot` 浅色、深色截图看过。没验证：真机安装和打开（手机不在电脑旁边，只验证了没连时的报错），以及 lefthook 推送前跑 `pnpm test` 的耗时（多了约 10 秒的 `swift test`）。
 
+### 只读审查后补（GPT-6 Astra，2026-10-26）
+
+审查报中 5 条、低 2 条，没有高。每条先写见红的测试，再修，再做破坏检查，各自提交。
+
+| 发现 | 行为 | 验证 |
+|---|---|---|
+| 中 1 | 生成的文件带整份 JSON Schema（键排好序）的 SHA-256，只改长度、范围这类约束时 `--check` 也失败 | `scripts/swift-codegen.test.ts`"carries a fingerprint…"；破坏检查把 `SessionId` 的 `max(128)` 改成 `max(64)`，`protocol-swift.test.ts` 检出 |
+| 中 2 | 每条命令至少一个合法结果写成 `command-results.json`，Swift 按生成的 `commandResultType(_:)` 用各自的类型往返；宿主样例覆盖 `HostMessage` 的每种 `type`（补上了 `credentials_changed`） | `json-schema.test.ts`"names the result schema of every command…"；`swift-codegen.test.ts`"maps each command's type…"；`envelope.test.ts`"examples" 两例；Swift `RoundTripTests`"decodes and re-encodes every command's result…"、"knows no result type…" |
+| 中 3 | 文档注释和声明之间可以隔着豁免注释（`// Unchecked:` 等）；豁免注释写在文档注释上面时照样报 | `swift-lint.test.ts`"reads a doc comment above an exemption comment…" |
+| 中 4 | 真实时间在 App 本体以外都查（含 AtriumKit 的测试和 UI 测试），确实要时上一行写 `// Real time: <为什么>` | `swift-lint.test.ts`"refuses real time everywhere but the app…" |
+| 中 5 | `test:ios` 的模拟器部分和 `ios:shot` 从找模拟器到测完、截完拿着跨 worktree 的锁；别人拿着就等、超时报出是谁；进程不在（含进程号被重用）、或 30 秒没写主人的锁被接管；退出时放锁 | `scripts/ios.test.ts`"ios.mjs simulator lock" 七例；手工：两个 `ios:shot` 同时跑，第二个打出"waiting for the Atrium simulator: pid … is using it"，等第一个截完再截，两个都退出码 0，锁目录清空 |
+| 低 6 | 可省略的常量编码时也核对，不是那个值就抛 `EncodingError` | `swift-codegen.test.ts`"keeps an optional constant…"；Swift `CodingSupportTests`"refuses to write an optional constant…" |
+| 低 7 | 读输出的 Xcode 调用失败时打出命令、输出和错误；只是探 Xcode 在不在的那次照旧不出声 | `ios.test.ts`"ios.mjs failures" 两例 |
+
+`pnpm break-check` 共 31 处（TypeScript 26、Swift 5），全部检出：指纹 3、命令结果和宿主覆盖 7（含 2 处 Swift：把 `fetch_transcript` 的结果类型换成 `PingResult`、删掉 `noteSent` 的编码）、豁免注释 1、真实时间 3、模拟器锁 9、常量编码 3（2 处 Swift）、失败输出 3。锁的"超时退出"那处改坏后脚本会一直等，跑完查过没有留下 `ios.mjs` 进程。没有改核心模块，没跑变异测试；`json-schema.ts` 多了 `commandResults`，它的测试已覆盖。
+
 ## pi 1.3.0 契约夹具补齐（2026-10-23）
 
 本机 pi 1.3.0 此前只有 19 个场景的夹具，`pnpm test:pi` 56 过、33 失败，失败全是 `no fixture … for pi 1.3.0`（契约断言在录制比较之前跑，都通过了）。以 `RECORD_FIXTURES=1` 只跑这 33 个场景所在的 17 个契约文件录下 `pi-1.3.0/` 的 33 个新文件，同文件里已有的 `ask-steer`、`ask-abort` 重写后逐字节不变；再录一次逐字节相同。不改断言、规范化规则和产品代码，旧版本目录保留（testing.md"pi 夹具"）。和 1.1.0 的差异只有 `custom-idle` 是 pi 的变化（空闲时扩展 `sendMessage` 开的运行，`handled` 应答改在 `agent_start` 之前，系统消息带 `sections`），宿主两种先后都已处理，见 pi-internals"版本"。
