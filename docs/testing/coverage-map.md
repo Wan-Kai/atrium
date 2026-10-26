@@ -8,13 +8,19 @@
 
 `apps/desktop/e2e/launch-failure.spec.ts` 包装 Playwright 公共 launch，取得真实 App/ChildProcess 后注入 firstWindow 失败，不 mock launchApp。三个场景：自建 home 的进程退出且目录删除；existingHome 进程退出而 caller sentinel/目录保留；真实 close 完成后额外抛错，AggregateError 按顺序保留 ready/cleanup 两个原始错误。测试外层无论断言如何都调用已保存的原 close 并删除自己创建的目录，独占单 worker，不访问用户保险箱或钥匙串。
 
-旧实现 3 红（exit 1，`/tmp/mp3b/launch-red.log`）：自建场景同时证明进程仍活、home 仍存在；existing 场景进程仍活；第三项不存在 cleanup 错误聚合。修复后 3/3 通过（exit 0，`launch-green-final.log`），desktop typecheck/scoped lint/format 通过。中间一次验证因 Playwright close 后 app.process() handle 已销毁而失败（`launch-green.log`），改为关闭前保存真实 ChildProcess，未修改期望值。`pnpm build` exit 0（`qr-build.log`）。修复只覆盖已取得 App 后的 ready 阶段，不扩大到 electron.launch 自身拒绝；成功 close 流程不变，existingHome 不擅删，清理错误不吞掉。active QR 仍待独立验证，不由此声称通过。
+旧实现 3 红（exit 1，`/tmp/mp3b/launch-red.log`）：自建场景同时证明进程仍活、home 仍存在；existing 场景进程仍活；第三项不存在 cleanup 错误聚合。修复后 3/3 通过（exit 0，`launch-green-final.log`），desktop typecheck/scoped lint/format 通过。中间一次验证因 Playwright close 后 app.process() handle 已销毁而失败（`launch-green.log`），改为关闭前保存真实 ChildProcess，未修改期望值。`pnpm build` exit 0（`qr-build.log`）。修复只覆盖已取得 App 后的 ready 阶段，不扩大到 electron.launch 自身拒绝；成功 close 流程不变，existingHome 不擅删，清理错误不吞掉。active QR 的独立证据见下节，不由启动清理回归推导。
+
+## MP3b available QR · 真实 Electron（作者基线 8a0a936）
+
+`phone.leak.spec.ts` 在原未配置 case 外增加 available QR：正式 App/宿主、loopback 生产 relay、隔离 faux pi；测试进程动态 fake safeStorage 先验引用/往返，文件仅不透明合成标记，不触 native 加解密、不称 Keychain 实测。真实分类点击及 Meta+, 不自动取消/确认；CDP 仅记白名单元数据，逐次核对订阅/退订应答、原 pairingId/期限。2 轮预热＋20 轮后 detached DOM 无增长，原未配置 case 失败 trace 保留，只有 QR test type 关闭采集。
+
+正向通过；临时持有真实 QR DOM 在原堆断言检出 2→22 增长，临时丢弃 watch:false 在原协议断言检出缺少退订成功应答（两次 exit 1）。两次按原始字节恢复、SHA-256 一致后，完整该文件单 worker **2/2、exit 0**。App/faux/快照目录清理完成，relay 资源归零；所有收尾错误保留而不覆盖主错误。静态检查通过。初次 describe 内覆盖 worker 采集选项失败不计负控；改为 test.extend 独立配置，无产品修改。日志、精确恢复 hash、未测分支见 [MP3b 记录](mp3b-settings.md#electron-active-qr-与启动失败资源边界作者基线-8a0a936)。不覆盖 SAS/已配对手机在线/真实钥匙串/MP4，也不泛化到父会话后续组合树。
 
 ## 四路整合 · Mac 手机设置窗口资源（2026-10-26）
 
 `apps/desktop/e2e/phone.leak.spec.ts` 使用真实 Electron、打包的宿主 / UI 与隔离临时 home，远程访问保持默认关闭。两轮预热后取 GC 堆快照，再做 20 轮“打开设置 → 手机 → 关于 → 手机 → 关闭”，对比 detached DOM 无增长。正向 1/1 通过；临时在页面里保留真实 PhoneSection 节点后，同一堆断言真实失败（非启动或编译失败）；核对 SHA-256 恢复精确源码，再次 1/1 通过。所有已启动后的异常路径关闭测试 App、删除测试快照目录。首轮错误使用已配置页标题导致选择器失败，修成未配置页的真实标题；未修改产品或减弱堆断言。日志与边界见 [整合记录](mobile-integration.md#桌面资源验证计划)。
 
-此项不冒充活跃配对 / QR 的 Electron 堆验证，也不代表全部桌面泄漏已通过；活跃状态目前仍只有浏览器资源回归。没有启用远程访问、填写 relay 凭据或操作真实钥匙串。
+此项不冒充活跃配对 / QR 的 Electron 堆验证，也不代表全部桌面泄漏已通过；该次未配置页验证时，活跃状态仍只有浏览器资源回归，后补证据单独列于上节。该次没有启用远程访问、填写 relay 凭据或操作真实钥匙串。
 
 ## MP3a 审查后冻结版变异复核（7b88613，2026-10-26 UTC）
 

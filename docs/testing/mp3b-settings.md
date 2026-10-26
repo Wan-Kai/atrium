@@ -1,5 +1,26 @@
 # MP3b 手机设置页实施记录
 
+## Electron active QR 与启动失败资源边界（作者基线 8a0a936）
+
+本轮经父会话批准，只补 available QR，不扩 SAS/手机同步。现有未配置页泄漏用例保留。新增用例走正式 Electron、宿主与 loopback 生产 relay；新 ATRIUM_HOME、隔离 faux pi，远程启用前在测试 App 主进程替换 safeStorage 的异步可用性/加解密并自检，同步入口 fail-closed。合成文件只有不透明标记，映射只活在测试 App 内，直到退出不恢复原生入口；不访问用户 vault、钥匙串、剪贴板或 VPS，不称 Keychain 实测。
+
+真实操作为设置→手机→保存本机 relay→出码→点击分类→返回→Meta+, 关闭→Meta+, 重开；不用 Escape（会取消配对）、force 点击或直接调用组件回调。两次预热后比较二十轮关闭态堆快照；CDP 只保留命令类型、watch 标志/应答和非秘密配对元数据，检验分类不退订、关闭退订、重开恢复原配对期限。不取消、确认、撤销或重置；控制连接未重建不等于已配对手机在线存活验证。active QR 独立禁用 trace/截图，原未配置用例不变，堆文件 finally 删除。负控计划：暂时持有真实 QR DOM、丢弃仅 watch:false 帧；临时测试修改按原始字节/hash 恢复，测试 App 销毁，不改生产产物。
+
+启动失败小补单独提交 `9684735`：包装 Playwright 公共 launch/firstWindow，记录真实 Electron 后在 ready 阶段注入失败。旧实现三个场景见红（exit 1），修复后 3/3 通过（exit 0）：自建 home 进程退出/目录删除；调用者 home 进程退出但 sentinel/目录保留；真实 close 后额外错误与原始 ready 错误都在 AggregateError 中。中间一次测试误在 close 后调用已失效的 app.process()，改为事先保存 ChildProcess，期望值未改；完整记录见覆盖表。未扩大到 electron.launch 自身拒绝。
+
+### 本轮执行证据
+
+父会话独占授权后串行执行，生产构建来自 `8a0a936`（未在脏文件上合并后续整合）：
+
+- `pnpm build` exit 0，`/tmp/mp3b/qr-build.log`；launch 红/绿日志为 `launch-red.log`（exit 1）、`launch-green-final.log`（exit 0）。
+- QR 首轮是 Playwright describe 内不允许覆盖 worker 级 trace/screenshot/video 的测试配置失败（`qr-positive.log`），没有启动 App，不计泄漏检出；改为单独 `test.extend` 的 qrTest，保留原未配置 case 的失败采集设置。
+- `pnpm --filter @atrium/desktop test:e2e phone.leak.spec.ts --grep 'available QR lifecycle' --workers=1` 正向 1/1、exit 0（`qr-positive-2.log`、脱敏堆断言定稿后的 `qr-positive-final-source.log`）。fake 方法引用/合成往返及磁盘不透明标记均通过后才完成本机配对 UI 流程。没有访问 native encrypt/decrypt、真实手机或用户钥匙串。
+- **DOM 负控**：临时在每轮真实 QR 挂载时保留 `.phone-pair-qr` 节点。原 GC 后空增长断言失败，数项 native detached 计数从 2 到 22（`qr-dom-negative.log`，exit 1），不是 locator/startup/CDP 失败。只输出 before/after 数字，避免 native SVG 描述含 QR 路径。
+- **watch 负控**：临时在新 renderer 中丢弃且仅丢弃 `get_remote(watch:false)`。原真实协议断言缺少 `[false,true]`（退订与成功应答），`qr-watch-negative.log`、exit 1。没有改断言、取消配对、重配 relay 或调用生产测试 RPC。
+- 两次负控通过 shell EXIT trap 将测试文件恢复为备份的原始字节；之前、两次恢复后、最终验证后 SHA-256 都为 **`8f7ad1dd6a392fa09bf1f48474699c8a91c6778f960a7a3ca46c9e7c6d0bb532`**，对应 `apps/desktop/e2e/phone.leak.spec.ts`。记录在 `qr-source-hash.log`、`qr-dom-restored-hash.log`、`qr-watch-restored-hash.log`；没有修改生产源或构建产物。
+- 精确恢复后完整该文件串行 **2/2、exit 0**（`qr-restored-and-default.log`），包含 available QR 与原未配置 case。fake 持续到 App 关闭，CDP detach、App close、relay close/资源归零、faux 删除、堆目录删除完成；无额外清理错误。收尾收集错误，不覆盖原断言；Network.enable 失败路径先移除两监听再 detach，失败同时保留两错误（此故障分支只静态检查，未另注入）。
+- desktop typecheck、定向 lint/format、diff 检查通过。没有运行全量、性能、模拟器或 Stryker。没有任何已有手机在线，控制连接未重建不等于手机不中断；没有 SAS/确认阶段、真实 Keychain 或 MP4 同步证据。父会话将在后续组合树独立复跑，不把作者快照的结果泛化到后续合并。
+
 ## 撤销重试边界收紧：同身份换 token（本轮）
 
 父会话复核真实 host：set_remote 保存 relay 时不会滤掉仅内存 blocked 的设备，所以同 URL / hostId 换 token 成功不等于失败撤销已落盘。纠正 A 的过宽决定：relay 保存不再调用显式清理，依靠公开 hostFingerprint / relay URL / hostId 的 observer 判定真正身份变化；reset 成功的显式、代次安全清理仍保留。保存失败、仅 token 更换均保留目标；不存 token 作比较，不改断线/null 快照逻辑。
