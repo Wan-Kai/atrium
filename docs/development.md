@@ -115,3 +115,17 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 - 跑什么：launchd 运行 `main` 上的 `scripts/nightly-mutation.sh`，不管当前检出的是哪个分支。它在单独的 worktree（`~/.cache/atrium-mutation`）里检出 `main` 的最新提交，装依赖，用 `caffeinate` 保持唤醒跑 `pnpm test:mutation --force`。`main` 没变就不跑；上一次还没跑完就跳过。
 - 看结果：`~/Library/Logs/Atrium/mutation/latest.txt` 写着提交、起止时间、各组的分数，以及存活和超时的变异（变异测试分组见 testing.md）；当晚的完整输出在同目录的 `<日期>.log`。跑完会弹一条系统通知。早上先看它，存活的当天处理，超时要说得清为什么会卡住。
 - Mac 在 02:00 睡着时，launchd 在下次唤醒后补跑。想让它准点跑，可以自己用 `sudo pmset repeat wakeorpoweron MTWRFSU 01:55:00` 让 Mac 定时唤醒（需要管理员权限，脚本不替你设）。
+
+## MP4 手机连接核心验证（2026-10-26）
+
+`apps/ios/AtriumKit` 的 `AtriumRemote` 使用可替换的传输和注入时钟；`AtriumTestSupport` 提供内存 relay、秘密存储、手动时钟和真实 Noise 响应方，不连接用户服务器。
+
+- 快速验证：`xcrun swift test --package-path apps/ios/AtriumKit --filter AtriumRemoteTests -Xswiftc -warnings-as-errors`。
+- 回归破坏检查：`pnpm break-check apps/ios/Testing/remote-breaks.json`。包含协议 26 的无 token hello、配对记录恢复、倒计时、前后台、无网恢复、心跳和阻塞发送关闭。
+- `SecureChannel.close()` 给队列最多 2 秒排空（注入时钟），之后强制关闭底层传输；连接停止、换代、进入后台使用同步 `abort()`，不派无人持有的清理任务。
+- 配对本地倒计时按实际经过时间计算；本地超时或正式记录写入失败不能证明 Mac 没确认，因此保留 pending，供后续 IK 补确认。宿主认证的明确拒绝才清理对应 pending。
+- 实时互通：`node apps/ios/Integration/run.mjs`，真实relay绑定本机随机端口，与固定协议25的TS MP0假宿主交互，正式App默认仍是26。`--negative-control` 故意报错SAS，命令应失败。隔离与清理说明见 `apps/ios/Integration/README.md`。
+- `pnpm test:ios` 包含三项XCUITest：首页、真实App进程的钥匙串、配对页面粘贴/相机备用。模拟器不支持真正扫码，手机权限与扫码仍需真机。
+- DEBUG专用入口 `ATRIUM_PAIRING_KEYCHAIN_CHECK=1` 由XCUITest设置，仅执行固定CRUD/保护属性验收，service固定为 `site.ktoon.atrium.debug.pairing-keychain-check`、account每次随机，所有查询/清理都限定该项；不接受任意service/数据、不输出秘密、不编入Release。不能在XCUITest Runner内替代执行（Runner曾返回-34018）。App业务钥匙串和签名配置未改变。
+- 截图先用 `pnpm ios:shot` / `pnpm ios:shot --dark` 在模拟器锁内切换真实主题，再 `pnpm test:ios`；从xcresult导出 `PairingScreenTests/testPasteValidationAndCameraFallback()` 的 `pairing-entry` / `pairing-invalid` 附件。`-AppleInterfaceStyle` 启动参数未生效，不作为主题验证依据。
+- `PairingHome { HomeView() }` 只挂普通首页路径；整合时必须保留其他车道的Debug陈列/性能入口。它只是最小连接接线，未接同步层前保持“正在同步”，不伪装成完整MP4纵向切片。

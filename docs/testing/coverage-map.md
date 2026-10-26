@@ -1580,3 +1580,44 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 压扁与睁眼的动效、减弱动态效果的静帧 | 纯 CSS；浏览器测试切不了减弱动态效果（同空状态的光标） | 未测 |
 
 5 项 `pnpm break-check` 全部检出（去小猫、去入场类、去 `pl-6`、去扫光、改 testid）。改动不在变异分组（视图组件与 CSS），未跑变异测试。真实渲染明暗截图已看（一次性用例渲染真实 `Transcript`，用完即删）。
+
+## MP4 手机连接核心（SPEC-0005，2026-10-26，进行中）
+
+| 范围 | 用例与证据 |
+|---|---|
+| Noise IK / IKpsk2、SAS、分帧 | `AtriumNoiseTests`：cacophony 公开向量、TS/Swift 固定记录逐字节互通回放、负例与固定种子输入。篡改负例改为从 TS 记录重建响应方后直接断言 `.decryptFailed`，已删除 `withKnownIssue`，最终无 known issues；自实现固定种子 fuzz 不称为独立差分验证 |
+| 日常连接、同步边界 | `RemoteConnectionTests`：IK、生成的 protocol 26 `hello` 不带 token、clientId=deviceId、旧代发送和同步结果不能污染新连接、pending 用 IK 补确认、配对通道交接 |
+| 安全与连接状态 | Noise 内的 `device_unknown` / `revoked` 清理；外层 4401/4409 不删除；离线时间、版本不符、无网、relay 不通；1→30 秒退避与抖动、心跳、15 秒握手超时 |
+| 配对与存储 | `PairingFlowTests` / `HostStoreTests`：先存 pending、SAS 一致、确认后正式记录、拒绝理由、丢失确认答复恢复、全局设备密钥不随主机删除、旧正式记录不被新 pending 覆盖、损坏私钥不静默轮换 |
+| 通道 | `SecureChannelTests`：双向分块、自动心跳回复、篡改与未知帧关闭、超限、30 秒分块截止时间、关闭码；`ChannelCloseTests`：阻塞发送只能由 close 解开，优雅关闭在注入时钟 2 秒后强制释放 |
+| 审查后回归 | 只读审查发现的 4 类问题均先见测试失败：background→inactive→active 未恢复、短暂无网后卡住、关闭等待 writer 无界、确认写失败/本地超时丢 pending。另修按唤醒次数而非实际时间计配对倒计时 |
+
+连接核心阶段验证：全 Swift 111 项 / 17 suites 通过；当时篡改回放产生的 2 项 known issues 已由上述直接拒绝断言替换。`pnpm break-check apps/ios/Testing/remote-breaks.json` 最终13/13检出（核心11项，加UI即时交接与非法粘贴两项）。回归修复后 `pnpm check` 通过。全仓 `pnpm test` 首轮 3791 过、`scripts/boundary.test.ts` 1 项 5 秒超时；该文件单独重跑 8/8 通过，未修改其超时或断言。之后完整重跑：TypeScript 3792/3792、Swift 111/111 通过，保留首轮超时记录。
+
+### 配对界面、本机互通与平台验证补充
+
+- `AtriumUI/Pairing/`：系统样式测试接线，只有扫码/粘贴、SAS/倒计时、失败恢复与完成交接；协议状态仍唯一来自 `PairingFlow`。`PairingModelTests` 验证非法输入不联网、重复提交只连一次、取消后旧回调无效、通道只交接一次。审查发现成功后必须点击“完成”才交接的缺口，先复现成功后直接dismiss会abort，再改为成功回调立即交接，完成按钮只关闭页面；回归与限定复查通过。XCUITest 曾复现布尔 sheet 与可选 model 同帧设置导致空白，改成按 model 身份呈现后通过。
+- `node apps/ios/Integration/run.mjs`：真实本机 relay（路径前缀 `/atrium`）+ 不改动的 TS MP0 假宿主 + 正式 Swift WebSocket/Noise；连续三次通过配对/SAS、hello、IK重连、心跳ACK、撤销断链、旧密钥拒绝。`--negative-control` 错误SAS使指定断言失败；启动期/构建期SIGTERM正确清理，relay资源归零、临时目录无残留。**MP0协议25仅在测试显式覆盖，不是协议26生产宿主/faux-pi契约。** 普通Swift测试对此项明确skip，专用命令实际执行。
+- 平台钥匙串：最初在XCUITest Runner调用返回 `-34018`；测试target entitlement只进入bundle模拟段，实际Runner仍无权限。迁到真实App进程的DEBUG固定检查后通过，已撤掉旧Runner链接/entitlement配置。仅使用固定测试service与UUID account，所有读写与清理精确限定；验证生产KeychainStore插入、覆盖、读取、删除、缺失及实际 `AfterFirstUnlockThisDeviceOnly` 属性。把生产属性改成 `WhenUnlockedThisDeviceOnly` 的负对照使该用例失败，恢复后通过。Release构建通过且产物不含检查入口/命名空间标记。
+- 最后 `pnpm test:ios`：Swift报告115项/19 suites，无known issues（其中1项实时互通默认skip，另由专用runner实跑）；模拟器3项全部通过，xcresult `Test-Atrium-2026.10.26_16-33-59-+0800.xcresult` 明确记录首页、`PairingKeychainTests/testProductionKeychainRoundTripAndProtection()`、`PairingScreenTests/testPasteValidationAndCameraFallback()`。
+- 明暗真实截图：`apps/ios/.build/shots/pairing-light/`、`pairing-dark/`（manifest注明对应附件），已查看入口与非法链接/相机备用状态。初次用 `AppleInterfaceStyle` 启动参数未改变主题，两组实际都是深色，不算明暗验证；改由模拟器主题设置后重新拍摄。提交后收起键盘，错误不再被遮挡。
+
+最终 `pnpm check` 通过；已将两个互通脚本明确登记为knip入口、把系统Swift编译器列入外部二进制名单（不忽略源码）。UI交接修复后重新跑完整 `test:ios`，上述三项从最终xcresult再次核对为Passed。
+
+边界：系统样式只是测试接线，未验收为最终视觉；首页连接仍显示“正在同步”，不会替代同步层擅自标“已连接”。未测真机扫码/权限弹窗、锁屏首次解锁、实际备份迁移、七天续签、真实生产宿主/faux-pi、WAN/TLS故障代理。此节不标完整MP4完成。
+
+### MP4 冻结基线 323e7b7 后的审查修复
+
+- 测试资源：`ConnectionResourceScope` 对 `RemoteConnectionTests` 每个 case 注册连接，成功或抛错均 stop，并检查弱引用释放及手动时钟 sleeper 归零。原 pending IK / inactive / handover 三条成功路径先在新退出断言下失败；补 teardown 后26项通过。`teardownAfterThrow` 特意抛错验证失败路径；`Testing/resource-breaks.json` 删除 stop 的破坏检查1/1检出。假宿主会话由 Harness 显式持有，不再依赖遗留 writer 泄漏保持连接；无应答心跳测试在每个发送时点读取真实密文，避免把排队等同发送成功。
+- 存储所有权与恢复：`PairingFlowTests/cancelledConfirmationRecovers`、`PairingOwnershipTests`、`PairingRevocationTests`、`StorageRecoveryTests` 分别覆盖取消后 pending/IK、同内容新代与迟到成功/拒绝、配对期认证撤销及密钥范围、host/pending 各自删除失败/部分成功/前台和显式重试、旧清理不得使新 pending 的后续确认失权、同步不中断但确认写失败持续可见。App 注入同一个 HostStore，`MainThreadCheckingStore` 验证生产加载与配对路径不在 MainActor 做钥匙串 IO；持久格式不变。
+- 界面审查：`PairingRestorationTests` 实际将同 host 新 relay pending 接到新端点并用 IK 替换；`PairingPresentationTests` 验证离线绝对时间和非 pairing QR 不中断取景；`PairingStoragePresentationTests` 验证网络状态不变时存储问题仍刷新；`PairingModelTests` 验证成功交付前再核对 claim、配对持有的存储错误也在回前台时只重试一次，取消与 superseded 不复活。没有新增取消后自动 IK 或配对恢复按钮。
+- 本轮存储/界面定向 Swift 验证66项/10 suites 通过（warnings-as-errors），新行为先见红灯。`storage-review-breaks.json` 15/15、适配新实现后的原 `remote-breaks.json` 13/13、`resource-breaks.json` 1/1 全部检出。当前代码的只读所有权复查未发现破坏性路径；指出的 model 前台重试遗漏已补红绿测试。未跑本轮全量 check/test、Xcode/模拟器和真机验收；上述旧阶段的平台证据不冒充本次复验。
+- 累计缓冲：`BufferBudgetTests` 验证出站2 MiB含在途密文、精确边界/加1字节、很多小帧、真实发送完成才归还、迟到完成不减负、阻塞writer的abort/owner释放；入站16 MiB与1024条双限额、空消息、next归还、旧代隔离、取消/finish后计数与保留队列归零。`RemoteBufferIntegrationTests` 用实际Noise通道和RemoteConnection接收循环验证1025条空消息及16 MiB+1字节都会明确背压断线，旧队列清空，新代只交付新消息；两条8 MiB消息完整分帧/解密且nonce连续。没有用静默丢消息或离线重发规避压力。
+- 预算单独定向26项/5 suites 通过，`buffer-breaks.json` 12/12检出；最终把本轮相关存储、连接、界面和预算回归合跑，92项/15 suites 通过（warnings-as-errors）。Swift格式、Swift文档lint和diff检查通过；只读预算审查无高可信阻断项，未独立跑测试。当时尚未直接组合测RemoteConnection出站溢出后的完整重连，下节已补该缺口。仍未用分配器测Data释放；已有阻塞writer/计数/队列清空和连接溢出回归不能冒称整机内存或长期泄漏验收。
+
+### 2feea5b 后的收尾验证
+
+- `RemoteBufferIntegrationTests/outboundOverflowReconnects` 从真实配对通道 handover 进入 RemoteConnection，经公开 `send` 排入未确认标记消息；暂停旧 transport writer 后第二条触发2 MiB累计限制，调用方收到 `.backpressure`，旧 writer 结束、队列与预算归零。测试闸住旧 receive 的终止结果，确认公开 send 的失败处理自己进入退避；手动时钟推进后，新 transport 完成 IK/hello 并进入 syncing。此时才释放旧结果，核对旧 generation 的 send 被拒绝、旧收尾不伤新代、新端点只收到 fresh 标记且回显完整，没有重发旧未确认消息，最终 stop 后弱引用和 sleepers 归零。
+- 该生产路径在2feea5b已接好，本轮新增测试先绿；没有声称原实现先红。随后分别移除 send 中的 `failed(generation,error)`、发送代次守卫、失败回调代次守卫，三个破坏都产生真实测试失败。`buffer-breaks.json` 扩到15项，最终15/15检出。第一轮因新增测试的 actor 属性被 `||` autoclosure 隔离限制而 NOBUILD，不计检出；拆成局部 awaited 值后重跑全部实际检出。
+- 本轮新增 UI 测试局部使用 `PairingTestResources`：每 case 在 start 前注册连接、接受 responder 后注册通道；成功或抛错均 stop/abort 并检查弱引用和手动时钟归零。`PairingResourceTests/throwingBody` 覆盖 start 后、接受 responder 后故意抛错，缺少清理时实际失败；`resource-breaks.json` 扩到2项、2/2检出。新增 model 测试的 cancel defer 在 submit 前安装，不绕过 accept 抛错路径；仅检查本轮新增 UI/预算测试，没有扩成生产依赖或全仓资源框架。
+- 收尾相关定向 Swift 35项/6 suites 通过，开启 warnings-as-errors 和显式 target 依赖检查；出站组合回归另外连续5次通过。Swift格式、文档lint、diff检查通过。生产逻辑未改，仅把 PairingFlow.run 的过期取消注释改为关闭通道但保留不确定 pending。本轮未跑全量、Xcode/模拟器、真机或实时 TS 互通。

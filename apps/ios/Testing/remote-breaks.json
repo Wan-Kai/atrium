@@ -1,0 +1,106 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteHandshake.swift",
+    "from": "clientId: deviceId, token: nil, traceparent: traceparent",
+    "to": "clientId: deviceId, token: \"not-allowed\", traceparent: traceparent",
+    "name": "remote hello never carries a token",
+    "runner": "swift",
+    "filter": "RemoteConnectionTests/connectsAndSyncs"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/PairingFlow.swift",
+    "from": "case \"declined\": .declined",
+    "to": "case \"declined\": .busy",
+    "name": "authenticated refusal spelling",
+    "runner": "swift",
+    "filter": "PairingFlowTests/refuses"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/PairingFlow.swift",
+    "from": "return await end(.timedOut, report: report)",
+    "to": "try? store.removePending(link.hostId); return await end(.timedOut, report: report)",
+    "name": "timeout preserves recoverable pending",
+    "runner": "swift",
+    "filter": "PairingFlowTests/missingAnswer"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/PairingFlow.swift",
+    "from": "case .failed(let issue):\n        channel.abort()",
+    "to": "case .failed(let issue):\n        channel.abort(); try? store.removePending(link.hostId)",
+    "name": "failed confirmation preserves pending",
+    "runner": "swift",
+    "filter": "PairingFlowTests/confirmationWriteFailure"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/PairingFlow.swift",
+    "from": "let left = Int(remaining.seconds) + (remaining.attoseconds > 0 ? 1 : 0)",
+    "to": "let left = 119 + (remaining.attoseconds > 0 ? 1 : 0)",
+    "name": "elapsed countdown is not wakeup count",
+    "runner": "swift",
+    "filter": "PairingFlowTests/elapsedCountdown"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteConnection.swift",
+    "from": "guard phase != .inactive else { return }",
+    "to": "if phase == .inactive { appPhase = phase; return }",
+    "name": "background survives inactive transition",
+    "runner": "swift",
+    "filter": "RemoteConnectionTests/foregroundThroughInactive"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteConnection.swift",
+    "from": "if !available {\n      tearDown()\n      link = .parked",
+    "to": "if !available {\n      if case .waiting = link { tearDown(); link = .parked }",
+    "name": "network return recovers an open socket",
+    "runner": "swift",
+    "filter": "RemoteConnectionTests/networkReturnsWhileSocketIsOpen"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/HeartbeatTracker.swift",
+    "from": "interval: Duration = .seconds(10)",
+    "to": "interval: Duration = .seconds(11)",
+    "name": "heartbeat cadence",
+    "runner": "swift",
+    "filter": "HeartbeatTrackerTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/HeartbeatTracker.swift",
+    "from": "timeout: Duration = .seconds(15)",
+    "to": "timeout: Duration = .seconds(16)",
+    "name": "heartbeat timeout",
+    "runner": "swift",
+    "filter": "HeartbeatTrackerTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/HostStore.swift",
+    "from": "      try delete(\"pending.\\(record.hostId)\")\n      return record",
+    "to": "      try delete(\"other.\\(record.hostId)\")\n      return record",
+    "name": "confirmed record removes pending",
+    "runner": "swift",
+    "filter": "HostStoreTests/replacement"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/SecureChannel.swift",
+    "from": "group.addTask { try? await stopwatch.sleep(for: .seconds(2)) }",
+    "to": "group.addTask { try? await stopwatch.sleep(for: .seconds(3)) }",
+    "name": "blocked writer close deadline",
+    "runner": "swift",
+    "filter": "ChannelCloseTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Pairing/PairingModel.swift",
+    "from": "if case .paired = outcome.state { onPaired(outcome) }",
+    "to": "if case .paired = outcome.state { outcome.channel?.abort() }",
+    "name": "successful pairing hands over before dismissal",
+    "runner": "swift",
+    "filter": "PairingModelTests/handsOverOnce"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Pairing/PairingModel.swift",
+    "from": "invalidLink = true",
+    "to": "invalidLink = false",
+    "name": "invalid paste stays visible",
+    "runner": "swift",
+    "filter": "PairingModelTests/invalidInput"
+  }
+]

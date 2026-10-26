@@ -1,0 +1,122 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/SecureChannel.swift",
+    "from": "frame.count <= byteLimit - state.bytes",
+    "to": "frame.count < byteLimit - state.bytes",
+    "name": "outbound ciphertext boundary is inclusive",
+    "runner": "swift",
+    "filter": "BufferBudgetTests/ciphertextBoundary"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/SecureChannel.swift",
+    "from": "state.frames[state.head] = nil",
+    "to": "state.frames[state.head] = nil; state.bytes -= frame?.count ?? 0",
+    "name": "blocked in-flight send retains its reservation",
+    "runner": "swift",
+    "filter": "BufferBudgetTests/blockedWriterOverflow"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/SecureChannel.swift",
+    "from": "guard !state.aborted else { return }",
+    "to": "// broken: accept a late completion after abort",
+    "name": "late completion cannot make counts negative",
+    "runner": "swift",
+    "filter": "BufferBudgetTests/lateCompletion"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/SecureChannel.swift",
+    "from": "state.frames.removeAll()",
+    "to": "// broken: keep queued ciphertext after abort",
+    "name": "abort releases queued ciphertext immediately",
+    "runner": "swift",
+    "filter": "BufferBudgetTests/blockedWriterOverflow"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/SecureChannel.swift",
+    "from": "deinit {\n    writer.cancel()\n    outbox.abort()\n    transport.close()\n  }",
+    "to": "deinit {}",
+    "name": "dropping channel owner cancels blocked writer",
+    "runner": "swift",
+    "filter": "BufferBudgetTests/ownerCleanup"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteMessageBuffer.swift",
+    "from": "message.data.count <= byteLimit - state.bytes",
+    "to": "message.data.count < byteLimit - state.bytes",
+    "name": "two maximum incoming messages fit exactly sixteen MiB",
+    "runner": "swift",
+    "filter": "BufferBudgetTests/unreadBoundary"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteMessageBuffer.swift",
+    "from": "private static let messageLimit = 1024",
+    "to": "private static let messageLimit = 1025",
+    "name": "empty payloads still exhaust the finite item quota",
+    "runner": "swift",
+    "filter": "BufferBudgetTests/emptyMessagesAreBounded"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteMessageBuffer.swift",
+    "from": "state.bytes -= message?.data.count ?? 0",
+    "to": "_ = message",
+    "name": "next returns consumed byte budget",
+    "runner": "swift",
+    "filter": "BufferBudgetTests/unreadBoundary"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteMessageBuffer.swift",
+    "from": "message.generation != generation",
+    "to": "message.generation == generation",
+    "name": "old cleanup preserves newer unread data and counts",
+    "runner": "swift",
+    "filter": "BufferBudgetTests/generationCleanup"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteMessageBuffer.swift",
+    "from": "state.messages.removeAll()",
+    "to": "// broken: leave unread data retained through an iterator",
+    "name": "finish releases retained data even with a surviving iterator",
+    "runner": "swift",
+    "filter": "BufferBudgetTests/unreadBoundary"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteConnection.swift",
+    "from": "failed(generation, .backpressure)",
+    "to": "_ = generation",
+    "name": "receive overflow closes instead of silently dropping messages",
+    "runner": "swift",
+    "filter": "RemoteBufferIntegrationTests/unreadCountCloses"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteConnection.swift",
+    "from": "messageBuffer.clear(generation: generation)",
+    "to": "// broken: keep the disconnected generation queued",
+    "name": "teardown releases old messages before reconnect and never replays them",
+    "runner": "swift",
+    "filter": "RemoteBufferIntegrationTests/unreadCountCloses"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteConnection.swift",
+    "from": "failed(generation, error)\n      throw error",
+    "to": "throw error",
+    "name": "public outbound overflow schedules recovery before old receive completes",
+    "runner": "swift",
+    "filter": "RemoteBufferIntegrationTests/outboundOverflowReconnects"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteConnection.swift",
+    "from": "guard generation == self.generation, case .open(let channel) = link else { throw .closed }",
+    "to": "guard case .open(let channel) = link else { throw .closed }",
+    "name": "old-generation send cannot reach the new connection",
+    "runner": "swift",
+    "filter": "RemoteBufferIntegrationTests/outboundOverflowReconnects"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteConnection.swift",
+    "from": "guard generation == self.generation, !status.isTerminal, !isStopped else { return }",
+    "to": "guard !status.isTerminal, !isStopped else { return }",
+    "name": "late old transport failure cannot tear down the replacement connection",
+    "runner": "swift",
+    "filter": "RemoteBufferIntegrationTests/outboundOverflowReconnects"
+  }
+]

@@ -19,9 +19,11 @@
 
 ## 整合中的检查记录
 
-- 渲染已在本整合分支合入（`828c32b`）。与 `ace843a` 的冲突仅在追踪表顶部的并列新增章节，保留双方全文；没有改写 `main` 的翻译或排版代码。手机连接和宿主尚未合入。
+- 渲染已在本整合分支合入（`828c32b`），后续测量证据在 `3309058`；与 `ace843a` 的冲突仅在追踪表顶部的并列新增章节，保留双方全文，没有改写 `main` 的翻译或排版代码。
+- 宿主 `e29e49a` 已合入（`910ee60`），协议 27 生成漂移检查通过。随后合入手机连接 `aeb7359`：四处冲突为 App 根入口、SwiftPM 测试依赖 / Fixtures、knip 清单和追踪表。根入口同时保留 DEBUG 钥匙串检查与 Gallery，只有普通首页接共享 HostStore 的 PairingHome；测试依赖与资源、外部脚本清单及两路验证记录均保留。尚未运行这次组合后的完整验证。
 - 整合后 `pnpm protocol:swift --check`、`pnpm check` 通过；边界检查 URL 14、环境变量 41、隐藏命令 4，未登记 0、非精确 0。日志为 `/tmp/atrium-mobile-render-{protocol,check}.log`。
 - `swift test --package-path apps/ios/AtriumKit --jobs 2 --explicit-target-dependency-import-check error -Xswiftc -warnings-as-errors`：**98 项 / 21 suites 通过**，日志 `/tmp/atrium-mobile-render-swift.log`。该轮为 macOS 逻辑测试，附带的 Debug 渲染基准输出不是 iOS UI 或 50 ms 预算验收。
+- 手机连接合入后的首次 `pnpm ios:check` 发现 HostStore / HostStorageRecovery 的 12 个公开属性缺少文档；已在整合分支仅补属性说明，不修改逻辑、不放宽检查。这一失败保留于 `/tmp/atrium-mobile-combined-ios-check.log` 的首次运行记录（后续复验另存日志）。
 - `git diff --cached --check` 报第三方 `swift-markdown-NOTICE.txt` 原样副本末尾的空行，未通过；保留上游声明，不为消除格式提示修改第三方文件，也不将这次检查报告为通过。仓库格式 / lint 检查另行运行。
 
 ## 尚未完成的验证

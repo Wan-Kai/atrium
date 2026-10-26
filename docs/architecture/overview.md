@@ -286,3 +286,9 @@ main.ts 负责组装全部
 
 - UI 和客户端层**只依赖 Atrium 协议**，不直接依赖 pi 的类型。将来接入其他 harness 时，在 `pi` 包旁边新增一个适配器包，宿主改为依赖它；现在不为此预先定义通用接口。
 - 手机端的 SwiftUI App 不复用 `client` 和 `ui`；协议只在 `protocol` 里定义，Swift 的类型由它导出的 JSON Schema 生成（[ADR-0015](../adr/0015-native-ios-app-in-swiftui.md)，2026-10-24 定；原先设想原生 App 复用 `protocol` 和 `client`、只重写 UI）。
+
+### MP4 手机记录写入权威（2026-10-26 审查后补）
+
+App 只组装一个共享 `HostStore` 引用；配对投影、新 sheet 和 `RemoteConnection` 均注入该实例，不能各建 wrapper 后各自加锁却访问同一 service。HostStore 是进程内记录版本和同步钥匙串写入的唯一权威，host/pending 独立换代，旧异步任务凭原 claim 才能确认或清理；锁内没有 await/UI 回调。设备密钥首次创建同样串行，生产钥匙串工作从非 MainActor 执行。
+
+`storageIssue` 是独立的最新状态，不是无界事件日志：认证撤销决定网络状态，存储失败决定本地记录是否仍需清理，两者不混为成功。受控重试只保留当前内存操作，不引入持久队列或改动钥匙串格式。详细条件和重启限制见 SPEC-0005「MP4 审查后补：手机记录写入所有权与失败恢复」。
