@@ -36,7 +36,22 @@
 | 高度增长后跟随、历史位置不被追加打断 | `GalleryScreenshotTests.testTimelineUpdatesAndPreservesHistory`：末行增加30段后末端可见；读历史后追加，同一文本y位置差≤2pt且新尾不可见；回底可见新尾。强行在reading时滚到底部的手动负控确实失败，恢复后通过 |
 | 定向验证与资源协调 | `TimelineRowsTests|TimelineFollowTests` 9项通过；`timeline-break-cases.json` 8/8 CAUGHT；`pnpm ios:check`通过；非基准`pnpm test:ios` 88 Swift + 3 UI通过，截图矩阵和性能2项opt-in跳过。本轮未再跑全量TS |
 
-移除List `.id`的实验破坏了定位，已经恢复；停止AX轮询未消除长帧，也不认作根因。稳定引用候选**尚未复测真实builder计数/绝对耗时**；16:14～16:44机器load约19～25、其他路宿主变异进行中，按主代理要求停止耗时对比。低负载、记录load与构建模式的复验及真机/Release Instruments仍待做；入口 `AtriumApp.swift` 已交接 ios-connect，本批未改。
+移除List `.id`的实验破坏了定位，已经恢复；停止AX轮询未消除长帧，也不认作根因。稳定引用候选**在该轮功能回归时尚未复测真实builder计数/绝对耗时**；16:14～16:44机器load约19～25、其他路宿主变异进行中，按主代理要求停止耗时对比。后续单次窗口见下；真机/Release Instruments仍待做；入口 `AtriumApp.swift` 已交接 ios-connect，本批未改。
+
+### 较低负载单次窗口（2026-10-26 18:43，第四路87c7722）
+
+仅执行一次 `TEST_RUNNER_ATRIUM_TIMELINE_BENCH=1 pnpm test:ios`，实现与夹具不变。18:43:35开始load **3.39/5.04/6.17**，18:46:43结束 **3.26/4.21/5.59**；不是无竞争环境（结束仍有杀毒/Chromium/模拟器进程）。Debug、arm64、iPhone 16 Pro / iOS26.5模拟器。
+
+| 证据 | 结果与边界 |
+|---|---|
+| List三次实际builder/body | 各 **180000/180**；没有消除List构造扫描。先前180次Row通知/0集合通知不等于实际builder下降 |
+| Stack三次实际builder/body | **5376/180、5504/180、5504/180** |
+| 全部六次帧/awake | List max **68.58/63.18/73.05ms**，awakeMax **123.60/44.69/53.48ms**；Stack max **63.06/53.53/54.48ms**，awakeMax **54.99/49.17/45.11ms**；p95全部16.67ms，六次各有一个>50ms帧间隔。完整n/maxAt/次数见mobile-render，不挑最优 |
+| 80ms忙等待负控 | awakeMax **80.02ms**、最大帧99.14ms，≥75ms断言通过；awake并非单个任务/CPU采样 |
+| 功能与测试范围 | **98 Swift、4 UI通过，1项截图矩阵跳过**。七次基准尾行exists均过，但不是hittable；独立40行测试的末端可见/历史y≤2pt/回底断言通过 |
+| 结果归属核验 | 明确导出 **Test-Atrium-2026.10.26_18-43-39-+0800.xcresult**，summary及七附件时间全部落在本次启动结束区间；bundle副本、原始附件、命令日志与load在 `apps/ios/.build/timeline-window-87c7722/` |
+
+只提交证据，不改性能实现、不触碰integration worktree。未做同窗旧实现对照、全量TS/变异、截图矩阵；不能归因耗时改善或判定容器胜负。**剩余验证：Release Instruments主线程trace与真机50ms预算**；List进一步定位须另开有界任务。详见 [全部试次与限制](../research/mobile-render.md#较低负载的单次测量窗口2026-10-26-184387c7722)。
 
 ### 冻结基线280c087审查修复（第四路）
 
@@ -49,7 +64,7 @@
 | git零count表示前一行，首缺口与后续缺口完整旧/新坐标正确 | `DiffLayoutTests.zeroContextInsertion/zeroContextDeletion`，hunk头用真实零上下文git输出核实；首缺口、下一old、下一new三个错误分别被检出 |
 | 合法围栏的不同开闭缩进不能误报未闭合，仅metadata | `StreamingMarkdownTests.closingFenceIndentation` 32组合原12处红；`fenceContainerBoundary` 独立期望验证引用外新围栏不关闭旧代码、正文末反引号不误闭合、缩进代码反引号保持字面；三项负控全检出。UI尚未消费closed，不声称修了可见故障 |
 
-最终 **48项/8套定向Swift、`pnpm ios:check`通过**；`render-review-break-cases.json` **12/12**，既有render **24/24**、rail **11/11 CAUGHT**。红绿与崩溃记录见 [mobile-render.md](../research/mobile-render.md#冻结基线280c087的独立审查修复) 和本地 `.build/review-280c087/`。缺失上下文的版本匹配只澄清文档，由MP6接线保证；没有新增补读API/改base语义。本轮未跑全量TS、iOS UI、截图或性能；50ms预算与真实builder次数仍待低负载复验。
+最终 **48项/8套定向Swift、`pnpm ios:check`通过**；`render-review-break-cases.json` **12/12**，既有render **24/24**、rail **11/11 CAUGHT**。红绿与崩溃记录见 [mobile-render.md](../research/mobile-render.md#冻结基线280c087的独立审查修复) 和本地 `.build/review-280c087/`。缺失上下文的版本匹配只澄清文档，由MP6接线保证；没有新增补读API/改base语义。审查修复这轮未跑全量TS、iOS UI、截图或性能；后续真实builder与单次较低负载测量见上一节，50ms预算仍未证实通过。
 
 ## MP1 Swift 工程基础（手机端，2026-10-25～26）
 
