@@ -1,3 +1,4 @@
+import { present } from "@atrium/testkit";
 import { describe, expect, it, vi } from "vitest";
 import {
   type AppProcessMetrics,
@@ -6,6 +7,7 @@ import {
   type ParentPort,
   runUnderElectron,
 } from "./electron-port";
+import type { VaultPort } from "./remote/vault";
 
 const TOKEN = "a".repeat(43);
 
@@ -26,13 +28,15 @@ function fakePort() {
 /** A runtime whose host start the test finishes by hand. */
 function controlledRuntime() {
   const started: HostStartRequest[] = [];
+  const vaults: VaultPort[] = [];
   const exits: number[] = [];
   const closes: string[] = [];
   const metrics: (readonly AppProcessMetrics[])[] = [];
   const pending = Promise.withResolvers<Awaited<ReturnType<ElectronRuntime["start"]>>>();
   const runtime: ElectronRuntime = {
-    start: (request) => {
+    start: (request, vault) => {
       started.push(request);
+      vaults.push(vault);
       return pending.promise;
     },
     exit: (code) => exits.push(code),
@@ -45,6 +49,7 @@ function controlledRuntime() {
   return {
     runtime,
     started,
+    vaults,
     exits,
     closes,
     metrics,
@@ -248,5 +253,25 @@ describe("runUnderElectron", () => {
     send({ type: "app_metrics", processes: [] });
 
     expect(metrics).toStrictEqual([processes, []]);
+  });
+
+  it("gives the host a vault that asks the main process over the port and takes its answers", async () => {
+    const { port, posted, send } = fakePort();
+    const { runtime, vaults } = controlledRuntime();
+    runUnderElectron(port, runtime);
+    send({ type: "config", token: TOKEN });
+
+    const vault = present(vaults[0], "the vault");
+    const read = vault.read();
+    const written = vault.write(3, "{}");
+    send({ type: "vault_result", id: 2, ok: false, error: "stale" });
+    send({ type: "vault_result", id: 1, ok: true, version: 2, data: "{}" });
+
+    expect(posted).toStrictEqual([
+      { type: "vault_read", id: 1 },
+      { type: "vault_write", version: 3, data: "{}", id: 2 },
+    ]);
+    expect(await read).toStrictEqual({ ok: true, version: 2, data: "{}" });
+    expect(await written).toStrictEqual({ ok: false, error: "stale" });
   });
 });

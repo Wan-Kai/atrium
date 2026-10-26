@@ -41,6 +41,7 @@ import { createSetupService } from "./setup/setup-service";
 import { createPiConfig } from "./setup/pi-config";
 import { type HostTools, createToolbox, withProxySetting } from "./setup/toolbox";
 import { HOST_TO_PHONE_LIMIT } from "@atrium/remote-crypto";
+import type { VaultPort } from "./remote/vault";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
 import { discoverProjects } from "./projects/discovery";
@@ -102,6 +103,8 @@ export interface HostConfig {
   readonly homebrewPlaces?: readonly string[];
   /** Where to look up the latest pi; defaults to pi.dev, as pi does; `null` never looks (tests). */
   readonly piLatestUrl?: string | null;
+  /** The vault Electron's main process keeps; without it, as when run alone, remote access is unavailable. */
+  readonly vault?: VaultPort;
 }
 
 /** A running host. */
