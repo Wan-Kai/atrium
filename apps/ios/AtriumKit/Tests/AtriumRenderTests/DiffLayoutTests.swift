@@ -59,6 +59,39 @@ struct DiffLayoutTests {
     #expect(DiffLayout.segments([added]) == [.header("@@ -0,0 +1 @@", hunk: 0), .line(add(1), hunk: 0)])
   }
 
+  @Test("zero-context insertion starts after its old-line anchor and advances both gap coordinates")
+  func zeroContextInsertion() {
+    // Headers reproduced with real git -c diff.context=0 diff --no-index.
+    let inserted = DiffLine(kind: .add, oldNumber: nil, newNumber: 4, text: "inserted")
+    let oldEight = DiffLine(kind: .del, oldNumber: 8, newNumber: nil, text: "eight")
+    let newEight = DiffLine(kind: .add, oldNumber: nil, newNumber: 9, text: "EIGHT")
+    let first = DiffHunk(oldStart: 3, oldCount: 0, newStart: 4, newCount: 1, lines: [inserted])
+    let second = DiffHunk(oldStart: 8, oldCount: 1, newStart: 9, newCount: 1, lines: [oldEight, newEight])
+    #expect(
+      DiffLayout.segments([first, second]) == [
+        .gap(count: 3, oldStart: 1, newStart: 1),
+        .header("@@ -3,0 +4 @@", hunk: 0), .line(inserted, hunk: 0),
+        .gap(count: 4, oldStart: 4, newStart: 5),
+        .header("@@ -8 +9 @@", hunk: 1), .line(oldEight, hunk: 1), .line(newEight, hunk: 1),
+      ])
+  }
+
+  @Test("zero-context deletion advances past its new-line anchor before the next hunk")
+  func zeroContextDeletion() {
+    let removed = DiffLine(kind: .del, oldNumber: 4, newNumber: nil, text: "four")
+    let oldEight = DiffLine(kind: .del, oldNumber: 8, newNumber: nil, text: "eight")
+    let newEight = DiffLine(kind: .add, oldNumber: nil, newNumber: 7, text: "EIGHT")
+    let first = DiffHunk(oldStart: 4, oldCount: 1, newStart: 3, newCount: 0, lines: [removed])
+    let second = DiffHunk(oldStart: 8, oldCount: 1, newStart: 7, newCount: 1, lines: [oldEight, newEight])
+    #expect(
+      DiffLayout.segments([first, second]) == [
+        .gap(count: 3, oldStart: 1, newStart: 1),
+        .header("@@ -4 +3,0 @@", hunk: 0), .line(removed, hunk: 0),
+        .gap(count: 3, oldStart: 5, newStart: 4),
+        .header("@@ -8 +7 @@", hunk: 1), .line(oldEight, hunk: 1), .line(newEight, hunk: 1),
+      ])
+  }
+
   @Test("folds a long run of context inside a hunk, keeping three lines next to each change")
   func longContext() throws {
     let run = context(20, old: 2, new: 3)

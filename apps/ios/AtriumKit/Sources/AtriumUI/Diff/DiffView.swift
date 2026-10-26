@@ -7,7 +7,9 @@ import SwiftUI
 /// - Remark: SF Mono 11.5pt on 19pt lines, unwrapped by default; each hunk's header sticks to the
 ///   top of the scroll view while its lines pass under it (glassy page colour, a hairline below);
 ///   long unchanged stretches fold into "展开 N 行" (`DiffLayout`): those inside a hunk open in
-///   place, those between hunks ask the screen to read the file (`onOpenGap`). Added lines sit on
+///   place, those between hunks request version-matched context (`onOpenGap`). The caller must
+///   match the diff's old/new revisions, not read the working tree for a merge-base/HEAD diff.
+///   Added lines sit on
 ///   `--add-bg` with a 2pt green bar, deleted ones on `--del-bg` with a red bar and dimmed text;
 ///   the number column is 34pt, `--l3`, with "+" or "−" after it. Each hunk scrolls sideways on its
 ///   own so the sticky headers stay put (the prototype scrolls the whole file sideways; SwiftUI
@@ -144,7 +146,8 @@ struct DiffView: View {
 
   /// "展开 N 行" for lines between hunks.
   ///
-  /// - Remark: The lines are not here; the screen reads them.
+  /// - Remark: The lines are not here. MP6 must fetch the corresponding comparison versions;
+  ///   until then, no callback means an explicit unavailable state rather than fabricated context.
   /// - SideEffects: none
   /// - Parameters:
   ///   - gap: The count and where it starts.

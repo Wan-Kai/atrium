@@ -4,8 +4,10 @@ import AtriumProtocol
 ///
 /// - Remark: design-language "手机端 · 改动与 diff": a sticky header per hunk, and long unchanged
 ///   context folded into "展开 N 行". Two kinds of fold: lines between hunks (and before the first),
-///   which the host did not send, so opening them needs the file (the screen reads it with
-///   `read_file`); and a long run of context inside a hunk, whose lines are here and open in place.
+///   which the host did not send, so opening them needs context matching both comparison revisions;
+///   a working-tree `read_file` cannot supply merge-base/HEAD context for a base diff. MP6 must
+///   guarantee revision matching before offering that action. Context inside a hunk is already
+///   present and can open in place.
 ///   A run inside a hunk folds when it is longer than `foldOver`, keeping `keep` lines next to the
 ///   changes on each side. Pure; the view draws it.
 public enum DiffLayout {
@@ -41,15 +43,17 @@ public enum DiffLayout {
     var nextOld = 1
     var nextNew = 1
     for (index, hunk) in hunks.enumerated() {
-      // A hunk of an added file starts at old line 0; nothing is missing before it.
-      let missing = hunk.oldCount == 0 && hunk.oldStart == 0 ? 0 : hunk.oldStart - nextOld
+      // A zero-count range names the preceding line, not the first line after the gap.
+      let oldStart = hunk.oldStart + (hunk.oldCount == 0 ? 1 : 0)
+      let newStart = hunk.newStart + (hunk.newCount == 0 ? 1 : 0)
+      let missing = oldStart - nextOld
       if missing > 0 {
         segments.append(.gap(count: missing, oldStart: nextOld, newStart: nextNew))
       }
       segments.append(.header(header(hunk), hunk: index))
       segments += lines(hunk.lines, hunk: index)
-      nextOld = hunk.oldStart + hunk.oldCount
-      nextNew = hunk.newStart + hunk.newCount
+      nextOld = oldStart + hunk.oldCount
+      nextNew = newStart + hunk.newCount
     }
     return segments
   }

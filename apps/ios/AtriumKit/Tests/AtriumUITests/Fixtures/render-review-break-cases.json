@@ -1,5 +1,26 @@
 [
   {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/DiffLayout.swift",
+    "from": "let missing = oldStart - nextOld",
+    "to": "let missing = hunk.oldStart - nextOld",
+    "runner": "swift",
+    "filter": "DiffLayoutTests/zeroContextInsertion"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/DiffLayout.swift",
+    "from": "nextOld = oldStart + hunk.oldCount",
+    "to": "nextOld = hunk.oldStart + hunk.oldCount",
+    "runner": "swift",
+    "filter": "DiffLayoutTests/zeroContextInsertion"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/DiffLayout.swift",
+    "from": "nextNew = newStart + hunk.newCount",
+    "to": "nextNew = hunk.newStart + hunk.newCount",
+    "runner": "swift",
+    "filter": "DiffLayoutTests/zeroContextDeletion"
+  },
+  {
     "file": "apps/ios/AtriumKit/Sources/AtriumUI/ProcessRail/RailRows.swift",
     "from": "parts.append(write.content)",
     "to": "parts.append(write.path)",
