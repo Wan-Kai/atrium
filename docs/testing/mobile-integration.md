@@ -60,19 +60,51 @@
 
 父会话没有再跑该 58 分钟变异；独立核对了原日志的 dry run / 1835 生成 / 1140 复用 / 693 实测、退出码 0、JSON 中的整文件与 10 项 guard 统计，并以 `git show 7b88613` 核对六份嵌入源码全部一致。作者已开始下一批负控，不能用其活动工作树作冻结版比较目标。
 
-守卫补测另暴露公开 `onState(error)` 中同步 `retryNow()` 的真实 socket 重入缺陷：旧 close 提前结算新 waiter 且多挂 retry timer。父读失败日志及源码后批准独立最窄修，`d49fbbb` 两处次序调整已整合；作者相关单元 52、远程宿主 76、泄漏 2、守卫及逆转负控 6/6 通过，父只读复核生产差异和新断言；随后 `17dc6de...e70a68f` 的 Astra / Grok 4.7 / Claude Opus 5.5 限定复核两轴均无新增确定缺陷。不是 Electron UI 故障复现，新的变异分数与组合复跑仍待完成。`8591834` 的 stop / 当前代守卫补测与 `e6f6f48` 的流量去重已整合：父核对源码仅按可见 down/up 差异通知，离线仍衰减、隐藏旧计数不发；读过真实密文字节、稳定速率、归零、多 watcher 及恢复订阅断言。作者远程宿主 76、相关单元 49、远程泄漏 2 和 14＋1 负控通过，父尚未在组合版本独立复跑；不冒用上述冻结版成绩。
+守卫补测另暴露公开 `onState(error)` 中同步 `retryNow()` 的真实 socket 重入缺陷：旧 close 提前结算新 waiter 且多挂 retry timer。父读失败日志及源码后批准独立最窄修，`d49fbbb` 两处次序调整已整合；作者相关单元 52、远程宿主 76、泄漏 2、守卫及逆转负控 6/6 通过，父只读复核生产差异和新断言；随后 `17dc6de...e70a68f` 的 Astra / Grok 4.7 / Claude Opus 5.5 限定复核两轴均无新增确定缺陷。不是 Electron UI 故障复现；后续父组合复跑见下节，新变异成绩仍待回传。`8591834` 的 stop / 当前代守卫补测与 `e6f6f48` 的流量去重已整合：父核对源码仅按可见 down/up 差异通知，离线仍衰减、隐藏旧计数不发；读过真实密文字节、稳定速率、归零、多 watcher 及恢复订阅断言。作者远程宿主 76、相关单元 49、远程泄漏 2 和 14＋1 负控通过，父随后在 `376e1b5` 独立复跑相关 52 / 76 / 2 项通过；不冒用上述冻结版变异成绩。
 
 两项桌面失败只读诊断已完成，**还没有对照实验**：appearance 的登录查询与 RPC 退出是不同进程路径，先在不读取用户配置的隔离真实 pi 环境比较基线 / 整合及明确查询完成屏障；faux 只能另作 DOM 控制。ask-user 已有跳过预热但无显式回合终态屏障，先比较语义终态 / 完整预热，不增加固定 sleep 或抬高允许增长；仍增长时需解释保留路径，不能凭平台化认定无害。
 
-## 活跃二维码与启动失败资源回归（待父组合复跑）
+## 活跃二维码与启动失败资源回归（已父组合复跑）
 
 `9684735` / `455620a` 已整合，作者构建基于 `8a0a936`：真实 Electron 的启动 ready 失败三个场景先 3 红后 3 绿，分别验证自建 home 清理、调用者 home 保留及主错误 / 清理错误同时可见。available QR 用正式宿主 / loopback relay、测试 App 内经身份与往返自检的 fake safeStorage（文件仅不透明标记），不操作真实钥匙串。两轮预热加 20 轮分类 / Meta+, 开关，保持同一配对和期限、真实退订应答、无多余管理命令；正向过，真实 QR DOM 保留使原堆断言 2→22、丢弃 watch:false 使原协议断言失败，精确恢复后 QR 与未配置页 2/2。旧中间 handle / Playwright 配置错误另记，不算敏感性证据。
 
-父已读实现与回归。新 QR 测试初稿预设了未经单独批准的 120 秒覆盖（作者确认没有因运行失败或超时增加），整合时删除，接下来按仓库默认 **60 秒**复跑；没有调整轮数、堆断言或协议断言。作者原 SHA-256 与结果只对应其提交，不冒称是删除覆盖后的父树哈希。Network.enable 失败清理仍只有静态检查；真实 Keychain、SAS / 确认阶段、已有手机在线和 MP4 未覆盖。详见 [作者记录](mp3b-settings.md#electron-active-qr-与启动失败资源边界作者基线-8a0a936)。
+父已读实现与回归。新 QR 测试初稿预设了未经单独批准的 120 秒覆盖（作者确认没有因运行失败或超时增加），整合时删除，父在 `376e1b5` 已按仓库默认 **60 秒**完成相关 Electron 7/7（下表）；没有调整轮数、堆断言或协议断言。作者原 SHA-256 与结果只对应其提交，不冒称是删除覆盖后的父树哈希。Network.enable 失败清理仍只有静态检查；真实 Keychain、SAS / 确认阶段、已有手机在线和 MP4 未覆盖。详见 [作者记录](mp3b-settings.md#electron-active-qr-与启动失败资源边界作者基线-8a0a936)。
+
+## 父组合复验（376e1b5，2026-10-27）
+
+本节均由父独立执行，包含 A/B/C 宿主窄修与两项 Electron 提交；重型任务串行，未与 Stryker 并发。普通测试未增加超时、放松断言或重试到绿。日志前缀 `/tmp/atrium-mobile-postreview-`：
+
+| 检查 | 结果 | 日志后缀 |
+|---|---|---|
+| `pnpm check` / `pnpm build` | 均 exit 0；边界 14 URL / 41 env / 4 隐藏命令，未登记及非精确均 0；保留 Vite 大 chunk 警告 | `combined-check.log` / `build.log` |
+| remote 定向 unit / host / leak，单 worker | 52 / 76 / 2 全过 | `remote-unit.log` / `remote-host.log` / `remote-leak.log` |
+| 完整 unit，4 workers | **4186 过、1 失败 / 4187**；仍为 `testkit/src/git.test.ts` 的双 scene clone 测试，`Test timed out in 5000ms`；没有加时或忽略 | `full-unit.log` |
+| 完整 host / UI / Node leak，各单 worker | **240 / 1100 / 20 全过**，分别 21 / 57 / 9 文件 | `full-host.log` / `full-ui.log` / `full-node-leak.log` |
+| `launch-failure.spec.ts phone.leak.spec.ts remote-vault.spec.ts --workers=1` | **7/7**；3 启动失败＋2 手机页＋2 vault，QR 沿用默认 60 秒 | `electron.log` |
+| 完整非泄漏 Electron，隔离环境，单 worker | **67 过、1 失败 / 68**（runner 汇总含既有预期失败自检）；双子代理场景缺 audit 完成来源行 | `full-electron-unwrapped.log` |
+| 同隔离环境仅一次双子代理定向复现 | 1/1；不抹去上述整套失败，不据此判无回归 | `electron-children-recheck.log` |
+
+非泄漏 Electron 使用已构建产物，命令为 `pnpm --filter @atrium/desktop test:e2e --grep-invert '@leak|@perf|@package' --workers=1`。命令外层是新建临时 HOME / PI_CODING_AGENT_DIR、SHELL=/usr/bin/false、固定 Node 22.19.0 与真实 pi 所在 PATH、已存在的 Playwright 缓存；白名单环境不继承 API keys / 代理 / NODE_OPTIONS / SSH agent / 开发入口覆盖，禁版本查询。各用例的 faux.env 仍优先，真实 pi 包发现不换 wrapper；无真实账户 / 订阅或 VPS 操作。临时 home 已删除，事后 integration 路径下 Electron/host 可执行进程匹配为 0；不是全系统进程审计。本轮没有再跑 Swift/Xcode，旧结果只代表旧快照。
+
+### 隔离预检失败，不隐藏为功能成绩
+
+父先尝试进程级 macOS sandbox：最初 require-not 候选策略连 IPv4 loopback 都返回 EPERM；改用明确的 IP 出站 deny 加 localhost allow 后，Node 的 IPv4 / IPv6 loopback 通过，TEST-NET 192.0.2.1:9 返回 EPERM，未发送应用载荷。但这不能证明 Electron 兼容；父未先做单 App 预检就运行整套，结果 **61 失败 / 7 报告通过**，主要是 firstWindow/renderer 启动失败，另有旧 afterEach 在启动没返回时访问 undefined。既有 `log-gate` 使用 test.fail，启动错误也能被算成预期失败，不能从该 7 推导正常功能覆盖。
+
+原日志 `full-electron.log` 与证据 `/tmp/atrium-mobile-sandbox-electron-evidence.path` 指向的目录保留。随后仅去掉外层 sandbox、保留最小环境与 Electron 自身安全设置，单 App 控制用例 1/1（`electron-isolated-control.log`），再得上表 67/68；未禁用 Electron sandbox/contextIsolation 或放宽 CSP。**未包外层 sandbox 的运行不称硬阻断所有外网**；隔离环境与本机替身服务是实际边界。两个策略预检日志为 `/tmp/atrium-mobile-e2e-sandbox-probe{,-allowlist}.log`；命令和隔离环境键名清单在 `/tmp/atrium-mobile-isolated-e2e*-manifest.json`，没有用户凭据值。
+
+### 新发现的双子代理断言失败
+
+`children.spec.ts:155` 在固定 faux 回复“两个都做完了”已出现后，等 audit `source-line` 5 秒仍为 0；截图只有 tests 完成来源行，首轮“派出去了”前过程已折叠。该固定回复不能证明两份报告均已送达。原整套证据保存在 `/tmp/atrium-mobile-unwrapped-electron-evidence.Kh1oca/test-results/children-the-agent-opens-t-7d1bb-nt-is-told-and-sums-them-up/`；父仅统计 trace 事件类型，只有动作/错误，无 frame-snapshot，不能回放证明折叠内部。
+
+只读诊断（非实验）发现 SPEC-0002 允许运行中报告成为当前回合步骤，闲时才成为轮首来源；`session-transcript` 的 takesSteer 分支与 laned 事件不产出 source-line，故“audit 合法进入首轮过程而选择器漏掉”是优先候选。尚未排除未完成/未送达、实际遗漏、批量/投影丢项；即使展开也不一定成为 source-line。用例与相关投影/聊天呈现未改，但共享 client、host connection/ws-server/启动路径有改动，不能据未改文件判无整合回归。后续应以 faux gate 控制报告到达阶段并核对任务/送达/投影/DOM 的最小元数据，不用固定 sleep、加时或只追求绿色；目前未实施。
+
+### 新变异窗口
+
+父已独立运行 `/tmp/mp3a-next-mutation-d49fbbb/verify-frozen.mjs --before-run` 成功，并在以上运行结束后明确释放单次变异窗口。冻结 `d49fbbb`，两整文件 1142 项历史状态全失效，其余结果只算缓存；六文件、原测试集、1 runner×2 workers、30000ms＋1.5、80%不变。实际生成/执行数及各局部成绩尚未回传，不把离线映射数或负控当新成绩；dry-run 失败即停。
 
 ## 尚未完成的验证
 
-- 整套单元与桌面泄漏当前仍有上表失败；没有通过定向重跑抹去它们。`17dc6de` 三方限定复审已完成，订阅文档 / 无变化推送已窄修整合待复验；迟到守卫补测与公开重入窄修已整合，新增范围变异和组合复验尚待完成。全套非泄漏 Electron和用户验收尚未完成；available QR 已有上节作者实测，父组合树复跑待完成，SAS / 手机在线场景未覆盖。
+- 普通组合自查已执行，但整套 unit、非泄漏 Electron 与旧桌面泄漏仍有上述失败；不以定向绿代替整套绿。三方生产窄修和新增 E2e/harness 限定复审已完成；新变异成绩、受控失败诊断、SAS / 已配对手机在线与用户验收待完成。available QR 已有作者负控及父默认 60 秒组合正向，不再列为完全未测。
 - 手机时间线在独立渲染分支 `87c7722` 的低负载窗口已测（18:43–18:46；98 Swift + 4 UI 通过，截图矩阵按计划跳过）：List 三次仍各 180000 builder / 180 body，Stack 为 5376 / 5504 / 5504 builder。全部数据已随 `6871905` 合入本分支，见 `mobile-render.md`；不能把观察通知次数的改善当作 List 构造次数改善，也没有同窗旧实现对照可归因耗时变化。Release 主线程 trace 和真机 50 ms 预算仍未验证；上述 UI 结果不是本整合分支的运行结果。
 - 正式 RemoteService → Swift 的拒绝接缝已实测，仍不是 startHost / Electron / router / faux-pi 全契约；真实扫码 / 权限 / 锁屏 / 续签尚未验证。
 - 配对系统默认样式只用于接线，非最终视觉验收；渲染零件尚缺的交互与视觉差异仍见 `docs/research/mobile-render.md`。

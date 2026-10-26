@@ -10,7 +10,7 @@
 
 ### 本轮执行证据
 
-父会话独占授权后串行执行，生产构建来自 `8a0a936`（未在脏文件上合并后续整合）：
+父会话独占授权后串行执行，生产构建来自 `8a0a936`（未在脏文件上合并后续整合）。**以下作者 QR 正向、负控及恢复后 2/2 均使用初稿预设的 120 秒覆盖**，不是失败或超时后增加；文件与 hash 对应 `455620a`。父在 `376e1b5` 删除该覆盖，另按仓库默认 60 秒独立验证，不能混写两次预算与源码：
 
 - `pnpm build` exit 0，`/tmp/mp3b/qr-build.log`；launch 红/绿日志为 `launch-red.log`（exit 1）、`launch-green-final.log`（exit 0）。
 - QR 首轮是 Playwright describe 内不允许覆盖 worker 级 trace/screenshot/video 的测试配置失败（`qr-positive.log`），没有启动 App，不计泄漏检出；改为单独 `test.extend` 的 qrTest，保留原未配置 case 的失败采集设置。
@@ -19,7 +19,7 @@
 - **watch 负控**：临时在新 renderer 中丢弃且仅丢弃 `get_remote(watch:false)`。原真实协议断言缺少 `[false,true]`（退订与成功应答），`qr-watch-negative.log`、exit 1。没有改断言、取消配对、重配 relay 或调用生产测试 RPC。
 - 两次负控通过 shell EXIT trap 将测试文件恢复为备份的原始字节；之前、两次恢复后、最终验证后 SHA-256 都为 **`8f7ad1dd6a392fa09bf1f48474699c8a91c6778f960a7a3ca46c9e7c6d0bb532`**，对应 `apps/desktop/e2e/phone.leak.spec.ts`。记录在 `qr-source-hash.log`、`qr-dom-restored-hash.log`、`qr-watch-restored-hash.log`；没有修改生产源或构建产物。
 - 精确恢复后完整该文件串行 **2/2、exit 0**（`qr-restored-and-default.log`），包含 available QR 与原未配置 case。fake 持续到 App 关闭，CDP detach、App close、relay close/资源归零、faux 删除、堆目录删除完成；无额外清理错误。收尾收集错误，不覆盖原断言；Network.enable 失败路径先移除两监听再 detach，失败同时保留两错误（此故障分支只静态检查，未另注入）。
-- desktop typecheck、定向 lint/format、diff 检查通过。没有运行全量、性能、模拟器或 Stryker。没有任何已有手机在线，控制连接未重建不等于手机不中断；没有 SAS/确认阶段、真实 Keychain 或 MP4 同步证据。父会话将在后续组合树独立复跑，不把作者快照的结果泛化到后续合并。
+- desktop typecheck、定向 lint/format、diff 检查通过。没有运行全量、性能、模拟器或 Stryker。没有任何已有手机在线，控制连接未重建不等于手机不中断；没有 SAS/确认阶段、真实 Keychain 或 MP4 同步证据。父会话后续在 `376e1b5` 实际完成 check/build、默认 60 秒下本文件 2 项加启动失败 3 项 / vault 2 项共 7/7；日志 `/tmp/atrium-mobile-postreview-electron.log`。父没有重跑作者两项 QR 负控，不将作者 hash 或负控成绩改记为父结果；全套与其它失败见 [整合记录](mobile-integration.md)。
 
 ## 撤销重试边界收紧：同身份换 token（本轮）
 

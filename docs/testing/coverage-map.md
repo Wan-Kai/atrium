@@ -4,6 +4,12 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## 手机整合父复验（376e1b5，2026-10-27）
+
+父独立 check/build、远程 unit 52 / host 76 / leak 2、完整 host 240 / UI 1100 / Node leak 20 通过。新 QR 删除作者初稿的 120 秒覆盖后，按默认 60 秒与未配置页、启动失败、vault 串行 **7/7**；未重跑作者 QR 两项负控。
+
+完整 unit（4 workers）4186 过 / 1 个原 Git 场景 5 秒超时；最小环境隔离的完整非泄漏 Electron（1 worker）67 过 / 1 个双子代理来源行失败，同环境仅一次定向 1/1 不抹全套失败。外层 macOS sandbox 的另一次完整尝试因大量启动/renderer 失败报告 7 过 / 61 失败，不能混成产品成绩；没有放宽 Electron 自身安全设置。旧 appearance / ask-user 泄漏失败仍未解决。完整命令、隔离边界、原始日志与只读诊断见 [整合记录](mobile-integration.md)。`d49fbbb` 新变异冻结方案已由父核验并授权单次执行，结果尚未回传；旧局部 70% 不由负控或本轮普通测试改写。
+
 ## Electron ready 失败清理（作者基线 8a0a936）
 
 `apps/desktop/e2e/launch-failure.spec.ts` 包装 Playwright 公共 launch，取得真实 App/ChildProcess 后注入 firstWindow 失败，不 mock launchApp。三个场景：自建 home 的进程退出且目录删除；existingHome 进程退出而 caller sentinel/目录保留；真实 close 完成后额外抛错，AggregateError 按顺序保留 ready/cleanup 两个原始错误。测试外层无论断言如何都调用已保存的原 close 并删除自己创建的目录，独占单 worker，不访问用户保险箱或钥匙串。
@@ -14,7 +20,7 @@
 
 `phone.leak.spec.ts` 在原未配置 case 外增加 available QR：正式 App/宿主、loopback 生产 relay、隔离 faux pi；测试进程动态 fake safeStorage 先验引用/往返，文件仅不透明合成标记，不触 native 加解密、不称 Keychain 实测。真实分类点击及 Meta+, 不自动取消/确认；CDP 仅记白名单元数据，逐次核对订阅/退订应答、原 pairingId/期限。2 轮预热＋20 轮后 detached DOM 无增长，原未配置 case 失败 trace 保留，只有 QR test type 关闭采集。
 
-正向通过；临时持有真实 QR DOM 在原堆断言检出 2→22 增长，临时丢弃 watch:false 在原协议断言检出缺少退订成功应答（两次 exit 1）。两次按原始字节恢复、SHA-256 一致后，完整该文件单 worker **2/2、exit 0**。App/faux/快照目录清理完成，relay 资源归零；所有收尾错误保留而不覆盖主错误。静态检查通过。初次 describe 内覆盖 worker 采集选项失败不计负控；改为 test.extend 独立配置，无产品修改。日志、精确恢复 hash、未测分支见 [MP3b 记录](mp3b-settings.md#electron-active-qr-与启动失败资源边界作者基线-8a0a936)。不覆盖 SAS/已配对手机在线/真实钥匙串/MP4，也不泛化到父会话后续组合树。
+以下作者正向、负控与恢复后 2/2 对应 `455620a`，**含初稿预设的 120 秒 QR 覆盖**（没有因失败加时）；父默认 60 秒结果单独列于上节。正向通过；临时持有真实 QR DOM 在原堆断言检出 2→22 增长，临时丢弃 watch:false 在原协议断言检出缺少退订成功应答（两次 exit 1）。两次按原始字节恢复、SHA-256 一致后，完整该文件单 worker **2/2、exit 0**。App/faux/快照目录清理完成，relay 资源归零；所有收尾错误保留而不覆盖主错误。静态检查通过。初次 describe 内覆盖 worker 采集选项失败不计负控；改为 test.extend 独立配置，无产品修改。日志、精确恢复 hash、未测分支见 [MP3b 记录](mp3b-settings.md#electron-active-qr-与启动失败资源边界作者基线-8a0a936)。不覆盖 SAS/已配对手机在线/真实钥匙串/MP4，也不泛化到父会话后续组合树。
 
 ## 四路整合 · Mac 手机设置窗口资源（2026-10-26）
 
@@ -44,7 +50,7 @@ idle原实现红（3次重复）、恢复旧推送路径使稳定速率断言红
 
 **仍有局部未达标：预先固定的RelayLink.#checkPong审查区间7K/3S＝70%**；三个迟到结果守卫尚未证明等价，不以总分遮盖。pong100%、vault分类/版本保护区间89.52%。29个Killed含Vitest测试/清理超时，逐项对照源码及日志说明因果；9个Stryker Timeout全为旧缓存。16个本轮sandbox孤儿经精确核对后SIGTERM，剩余0。没有重试、扩大超时或新增豁免。
 
-完整成绩、原cohort账、局部缺口、失败审计和证据位置见 [冻结版变异报告](mp3a-postreview-mutation.md)。设置窗口订阅文案与traffic无变化仍推送的后续窄修尚未实施，不能声称被本次结果覆盖。没有运行全量/UI/Swift/真实钥匙串或用户VPS。
+完整成绩、原cohort账、局部缺口、失败审计和证据位置见 [冻结版变异报告](mp3a-postreview-mutation.md)。该冻结版本尚未包含设置窗口订阅文案与 traffic 无变化推送的后续窄修，不能声称被本次结果覆盖；后续已实施，另见上方 A/B/C 与父组合复验。没有运行全量/UI/Swift/真实钥匙串或用户VPS。
 
 ## MP3a 协议 27 存活项定向补测（2026-10-26）
 
