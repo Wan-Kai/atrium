@@ -120,7 +120,15 @@
 
 父及Opus单路只读核对39项封存、1121产物及执行源hash；父另以三处逆差分恢复C0旧helper，匹配其事后记录hash。未复跑；原始堆不可复核、事后runner版本与分析脚本来源边界见实验记录。原39项不覆盖，新附件6项另封存；连两份清单共47份已核hash归档到整合树私有忽略目录`reports/mobile-ui-controlled-c710d51/`。父核对脚本/日志 `/tmp/atrium-parent-controlled-verify.{py,log}`。
 
-下一步只针对children测试判据做红绿修正：精确任务报告及正确source/agent-step归属各一次，保留角色/worktree与真实导航；不是放宽locator或改产品，目前尚未实施。ask-user不因本次绿关闭。appearance另有四格任务授权，终态未回传；Git仍待受控验证。
+下一步只针对children测试判据做红绿修正：精确任务报告及正确source/agent-step归属各一次，保留角色/worktree与真实导航；不是放宽locator或改产品，目前尚未实施。ask-user不因本次绿关闭。appearance四格停在下述依赖准备，未实际执行；Git仍待受控验证。
+
+### Appearance四格准备阻断（16dfcbf）
+
+基线`ace843a`与当前`c710d51`计划各做原关闭/被动等待既有查询完成两格，同环境、真实pi、原录制及60秒预算；未新增查询或生产探针。基线独立worktree `appearance-baseline-ace843a` / 分支`agent/appearance-baseline-ace843a`已创建并保留。
+
+原生安装器的Electron生命周期不保证遵守`--offline`，故父另批准仅安装阶段的进程级IP网络限制；两个TEST-NET IPv4/IPv6探针均EPERM，不泛化到broker/XPC或产品测试。基线唯一一次离线frozen安装exit 1，供应链检查需要的`@babel/helper-module-transforms.jsonl`完整元数据缺失，锁前后hash一致；不是Electron缓存或产品失败。简略缓存虽有8.0.6及匹配integrity，但无发布时间；旧验证缓存的指纹/政策未证明匹配，不伪造full metadata、不复制历史忽略时间设置、不自动联网重试。
+
+**当前安装0次、两版build0次、四格0次；没有启动Electron或产生heap/trace。** 父只读核日志/manifest及CLI帮助/cache path，没有做联网view或补缓存。源码/缓存支持及后续待定边界见 [准备记录](appearance-first-layer.md)；8份已存在的安装/探针工件按字节核对归档到私有忽略目录`reports/appearance-preparation-ace843a/`，未复制用户配置或包缓存。此阻断不关闭旧appearance警告，重型窗口已释放。
 
 ## 尚未完成的验证
 
