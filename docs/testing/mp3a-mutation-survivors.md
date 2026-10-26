@@ -65,7 +65,7 @@
 | 406 | 45 | `!parsed.success` → `false` | **E**。safeParse 失败无 data，紧接着访问 hostKey 抛错，外层 catch 同样返回 null；成功路径不变。 |
 | 416 | 62 | `RemoteDocument` schema 属性 → `{}` | **G**。looseObject 空形状接受坏 enabled／lastSeen，索引读取不再按约定拒绝。缺真实 IndexFile 加载错误类型／负数 lastSeen，断言采用索引损坏处理而非把坏数据交给服务。 |
 | 418 | 71 | 索引名 `remote` → `""` | **G**。fixture 常直接传内存 index，无法发现读写到了错误文件。缺在真实 home 中保存、重启读回 `remote.json`，并断言没有创建错误名称文件。 |
-| 421 | 74 | empty.enabled `false` → `true` | **G**。缺真实缺失索引时构造服务、start 后不请求钥匙串／不连接 relay 且 enabled=false 的断言。fixture 自己提供 false 不能覆盖默认工厂。 |
+| 421 | 74 | empty.enabled `false` → `true` | **G（变异运行范围缺口，不是所有测试层都缺）**。本变异组缺真实缺失索引时构造服务、start 后不请求钥匙串／不连接 relay 且 enabled=false 的断言；fixture 自己提供 false 不能覆盖默认工厂。已提交的 `apps/desktop/e2e/remote-vault.spec.ts` 中 startup 用例通过真实 Electron 宿主断言 enabled=false、vault=unread、无身份，能区分该变异，但 Electron E2E 不在本次 mutation group 的运行范围；本文未执行该负对照。 |
 
 ## P：配对状态机 `packages/host/src/remote/pairing.ts`（12）
 
@@ -97,7 +97,7 @@
 | 711, 714 | 119 | 非 OPEN 门槛 → `false`；提前返回码 → `""` | **G**。connected 状态到 close 事件之间可处于 CLOSING；原实现立即返回 unreachable，变异走 ping 检查或错误码。缺对端启动关闭而本端 close 尚未分发的窗口内 retryNow，断言立即正确失败、不新增探测期限。 |
 | 713 | 119 | socket 可选链 → 直接访问 | **E**。state=connected 时 socket 不为 null；关闭回调置 null 后在同一同步回调中更新 error，stop 则被 retryNow 首项 stopped 拦住。CLOSING 非 null，不能据此把 711 也算等价。 |
 | 721, 723 | 126 | 成功判别 → `false`；`connected` → `""` | **E**。成功 state.error 本来就是 null；失败则返回实际 error，两个分支对消费者结果相同。 |
-| 731 | 130 | cancelRetry 可选调用 → 直接调用 | **E**。已 start、未 stopped、socket=null 的可调用窗口只在断线后等待 retry，此时已同步装好取消函数；retry 自己清空后同步创建 socket，没有外部可插入窗口。 |
+| 731 | 130 | cancelRetry 可选调用 → 直接调用 | **E（仅当前所有者不重入的调用约定）**。当前 RemoteService 的 onState 只关流／发布状态，不同步重入 retryNow；在这个约定下，外部再次调用 retryNow 时，断线回调已装好取消函数，或新 socket 已创建。但 #setState 会同步调用用户提供的 onState：任意 RelayLinkOptions 回调若在 error／connecting 通知中重入 retryNow，可以撞上 socket=null 且 cancelRetry=null 的窗口，原可选调用不会因此抛错，变异会。故不宣称“同步代码没有外部可插入窗口”，也不把此 E 推广到允许回调重入的通用 RelayLink 契约。 |
 | 739, 741 | 160, 161 | off 的 pong／close 事件名 → `""` | **G**。once 只自动移除触发的那个，另一监听器仍保留。缺在同一存活 socket 连续成功检查后 close 监听数回基线，以及失败检查后 pong 监听清理的资源断言；Promise 只 resolve 一次不能证明无泄漏。 |
 | 756, 759 | 189 | OPEN 条件 → `true`；socket 可选链 → 直接访问 | **G**。公开 refuse 在未 start／stop 后允许无操作，变异会空指针或对未 open socket 发消息。缺这些生命周期调用不抛、没有发送／新增资源的断言。 |
 | 770 | 210 | stop 通知 waiter 的 status → `""` | **E**。waiter 仅判断是否 connected，再返回 error；`"error"` 和空串都返回同一个 relay_unreachable。 |
