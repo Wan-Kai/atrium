@@ -74,6 +74,8 @@ export interface FauxScript {
    * branch"), as when the host names a new worktree's branch; without it, an error.
    */
   readonly branch?: string;
+  /** A separate print-mode translation reply; a structured reply can hold a cancellation gate. */
+  readonly translation?: string | FauxReply;
   /** More models after `FAUX_MODEL`, for switching models. */
   readonly models?: readonly FauxModel[];
   /**
@@ -154,7 +156,17 @@ export interface FauxPiLaunch {
   /** What each request carried so far: the tools declared and the messages (SPEC-0002 contract tests). */
   contexts(): Promise<FauxContext[]>;
   /** What the model was told by each pi in print mode so far. */
-  prints(): Promise<{ readonly systemPrompt: string }[]>;
+  prints(): Promise<
+    {
+      readonly systemPrompt: string;
+      readonly translation?: {
+        readonly model: string;
+        readonly tools: readonly string[];
+        readonly messages: readonly unknown[];
+        readonly pid: number;
+      };
+    }[]
+  >;
 }
 
 /**
@@ -194,8 +206,8 @@ export async function fauxPi(script: FauxScript, dir: string): Promise<FauxPiLau
         .filter((line) => line !== "")
         .map((line) => {
           const record: unknown = JSON.parse(line);
-          const told = typeof record === "object" && record !== null ? Reflect.get(record, "systemPrompt") : undefined;
-          return { systemPrompt: typeof told === "string" ? told : "" };
+          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the faux extension writes the exact print-context shape above.
+          return record as Awaited<ReturnType<FauxPiLaunch["prints"]>>[number];
         });
     },
     agentDir,

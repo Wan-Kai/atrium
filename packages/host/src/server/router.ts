@@ -14,6 +14,7 @@ import type { Logger } from "../platform/logger";
 import { contextFromTraceparent, inSpan } from "../platform/tracing";
 import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
+import type { ReplyTranslations } from "../sessions/reply-translation";
 import type { InstallService } from "../setup/install-service";
 import type { LoginService } from "../setup/login-service";
 import type { PiLatestService } from "../setup/pi-latest";
@@ -24,6 +25,8 @@ import type { Connection } from "./connection";
 /** What the router needs from the rest of the host. */
 export interface RouterOptions {
   readonly sessions: SessionCommands;
+  /** Independent reply translation, owned by the requesting connection. */
+  readonly translations: Pick<ReplyTranslations, "translate" | "cancel">;
   /** Images uploaded ahead of their messages. */
   readonly attachments: AttachmentStore;
   /** What each connection shows of workspaces' git changes. */
@@ -154,6 +157,11 @@ export function createRouter(options: RouterOptions): Route {
         return options.files.listDir(command.workspaceId, command.path);
       case "read_file":
         return options.files.readFile(command.workspaceId, command.path);
+      case "translate_reply":
+        return options.translations.translate(connection.id, command.translationId, command.sessionId, command.turnId);
+      case "cancel_translation":
+        await options.translations.cancel(connection.id, command.translationId);
+        return {};
       case "set_preferences":
         return options.index.setPreferences({
           ...(command.setupDone === undefined ? {} : { setupDone: command.setupDone }),
@@ -162,6 +170,7 @@ export function createRouter(options: RouterOptions): Route {
           ...(command.titleModel === undefined ? {} : { titleModel: command.titleModel }),
           ...(command.proxy === undefined ? {} : { proxy: command.proxy }),
           ...(command.inbox === undefined ? {} : { inbox: command.inbox }),
+          ...(command.translationLanguage === undefined ? {} : { translationLanguage: command.translationLanguage }),
         });
       case "subscribe_sessions":
         return options.sessions.subscribe(connection.id, command.sessionIds);

@@ -536,6 +536,7 @@ describe("Settings · models and accounts", () => {
       lastFast: false,
       statusBar: {},
       titleModel: { providerId: "openai", modelId: "gpt-5-mini" },
+      translationLanguage: "简体中文",
       proxy: null,
       inbox: true,
     };
@@ -562,6 +563,7 @@ describe("Settings · models and accounts", () => {
       lastFast: false,
       statusBar: {},
       titleModel: { providerId: "openrouter", modelId: "claude-haiku-4-5" },
+      translationLanguage: "简体中文",
       proxy: null,
       inbox: true,
     };
@@ -593,6 +595,7 @@ describe("Settings · models and accounts", () => {
       lastFast: false,
       statusBar: {},
       titleModel: { providerId: "openai", modelId: "gpt-5-mini" },
+      translationLanguage: "简体中文",
       proxy: null,
       inbox: true,
     };

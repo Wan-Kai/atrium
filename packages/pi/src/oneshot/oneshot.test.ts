@@ -1,7 +1,9 @@
-import { type ScriptedPiBehavior, createTempDir, writeScriptedPi } from "@atrium/testkit";
-import { readFile, realpath } from "node:fs/promises";
-import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
+import fs, { readFile, realpath, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PiDeps } from "../deps";
 import type { ProcessSystem } from "../process/kill-tree";
 import { ONESHOT_TIMEOUT_MS, OneShotError, runOneShot } from "./oneshot";
@@ -9,6 +11,8 @@ import { ONESHOT_TIMEOUT_MS, OneShotError, runOneShot } from "./oneshot";
 const cleanups: (() => Promise<void>)[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
+  syncBuiltinESMExports();
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
@@ -79,12 +83,19 @@ async function oneShot(
     readonly processSystem?: ProcessSystem;
     readonly piPath?: string;
     readonly input?: string;
+    readonly maxOutputBytes?: number;
+    readonly isolateTranslation?: boolean;
+    readonly beforeRun?: () => void;
+    readonly onStarted?: (seen: { readonly argv: readonly string[]; readonly pid: number }) => Promise<void>;
   } = {},
 ) {
   const dir = await createTempDir("oneshot");
   cleanups.push(dir.cleanup);
   const recordTo = join(dir.path, "seen.json");
-  const fake = await writeScriptedPi(dir.path, { print: { ...print, recordTo } });
+  const releasePath = join(dir.path, "release");
+  const fake = await writeScriptedPi(dir.path, {
+    print: { ...print, recordTo, ...(options.onStarted === undefined ? {} : { waitFor: releasePath }) },
+  });
   const logs: { readonly level: string; readonly fields: object; readonly message: string }[] = [];
   const record =
     (level: string) =>
@@ -116,7 +127,8 @@ async function oneShot(
     nextRequestId: () => "unused",
     env: { PATH: process.env["PATH"] ?? "", FROM_HOST: "yes" },
   };
-  const outcome = await runOneShot(
+  options.beforeRun?.();
+  const running = runOneShot(
     {
       piPath: options.piPath ?? fake.piPath,
       cwd: dir.path,
@@ -131,12 +143,320 @@ async function oneShot(
     (text) => ({ text }),
     (error: unknown) => ({ error }),
   );
+  let probeError: { readonly error: unknown } | undefined;
+  if (options.onStarted !== undefined) {
+    try {
+      const recorded = await vi.waitFor(
+        async () =>
+          JSON.parse(await readFile(recordTo, "utf8")) as { readonly argv: readonly string[]; readonly pid: number },
+      );
+      await options.onStarted(recorded);
+    } catch (error) {
+      probeError = { error };
+    }
+    await writeFile(releasePath, "");
+  }
+  const outcome = await running;
+  if (probeError !== undefined) throw probeError.error;
   /** What the fake pi was started with, once it read its stdin. */
   const seen = async (): Promise<unknown> => JSON.parse(await readFile(recordTo, "utf8"));
   return { outcome, seen, logs, open, timers: timers.size, dir: await realpath(dir.path) };
 }
 
+/**
+ * Gives guard preparation its own real temporary root.
+ * @remarks No filesystem adapter is added to production to inspect owned-file cleanup.
+ * @sideEffects Creates a directory, removed at test cleanup.
+ * @returns Its path.
+ */
+async function guardRoot(): Promise<string> {
+  const directory = await createTempDir("oneshot-guard-root");
+  cleanups.push(directory.cleanup);
+  return directory.path;
+}
+
+/**
+ * Directs os.tmpdir to the test's owned root until cleanup.
+ * @remarks Node reads TMPDIR on each call; the host's subprocess environment remains isolated.
+ * @sideEffects Changes and later restores this test worker's TMPDIR.
+ * @param root - The root, or a regular file when exercising ENOTDIR.
+ */
+function useGuardRoot(root: string): void {
+  const previous = process.env["TMPDIR"];
+  process.env["TMPDIR"] = root;
+  cleanups.push(async () => {
+    if (previous === undefined) delete process.env["TMPDIR"];
+    else process.env["TMPDIR"] = previous;
+  });
+}
+
+/**
+ * Inserts a failure or cancellation after the real guard write completes.
+ * @remarks Only this external OS boundary is intercepted: production still uses actual mkdir,
+ * write and cleanup. It deterministically exercises disk-full and cancellation races without a
+ * filesystem abstraction or elapsed-time guesses.
+ * @sideEffects Temporarily intercepts the next fs.writeFile; cleanup restores builtin ESM bindings.
+ * @param action - What the test triggers at the real write's completion.
+ */
+function afterGuardWrite(action: (path: string) => Promise<void>): void {
+  const original = fs.writeFile;
+  vi.spyOn(fs, "writeFile").mockImplementationOnce(async (...args) => {
+    await original(...args);
+    const path = args[0];
+    if (typeof path !== "string") throw new Error("the guard must be written through its owned path");
+    await action(path);
+  });
+  syncBuiltinESMExports();
+}
+
+/**
+ * Lists only the owned translation guard directories.
+ * @remarks Other fixture files are not part of the guard cleanup contract.
+ * @sideEffects Reads the owned root directory.
+ * @param root - The test's private temporary directory.
+ * @returns Guard directory names.
+ */
+async function guardsIn(root: string): Promise<string[]> {
+  return (await readdir(root)).filter((name) => name.startsWith("atrium-translation-guard-"));
+}
+
 describe("runOneShot", () => {
+  it("isolates translation resources with a private exact-model guard and removes it after the process closes", async () => {
+    const root = await guardRoot();
+    const { outcome, seen, open, timers } = await oneShot(
+      { lines: [reply("译文")] },
+      {
+        isolateTranslation: true,
+        beforeRun: () => useGuardRoot(root),
+        onStarted: async ({ argv }) => {
+          const guard = present(argv[argv.indexOf("--extension") + 1], "guard extension");
+          const source = await readFile(guard, "utf8");
+          expect(source).toContain("ctx.modelRegistry.find(expected.providerId, expected.modelId)");
+          expect(source).toContain("ctx.abort()");
+          expect(source).toContain('{"providerId":"anthropic","modelId":"claude-haiku-4-5"}');
+          expect([(await stat(guard)).mode & 0o777, (await stat(dirname(guard))).mode & 0o777]).toStrictEqual([
+            0o600, 0o700,
+          ]);
+        },
+      },
+    );
+    const { argv } = (await seen()) as { readonly argv: readonly string[] };
+    expect(outcome).toStrictEqual({ text: "译文" });
+    expect(argv).toContain("--no-skills");
+    expect(argv).toContain("--no-prompt-templates");
+    expect(argv[argv.indexOf("--append-system-prompt") + 1]).toBe("");
+    const guard = present(argv[argv.indexOf("--extension") + 1], "guard extension");
+    expect(guard).toMatch(/atrium-translation-guard-/);
+    expect([existsSync(guard), existsSync(dirname(guard))]).toStrictEqual([false, false]);
+    expect([open.get("pi-oneshot"), timers]).toStrictEqual([0, 0]);
+  });
+
+  it("reports guard-directory creation failure without starting a process or retaining a guard", async () => {
+    const root = await guardRoot();
+    const file = join(root, "not-a-directory");
+    await writeFile(file, "occupied");
+    const { outcome, open, timers } = await oneShot(
+      { lines: [reply("unexpected")] },
+      { isolateTranslation: true, beforeRun: () => useGuardRoot(file) },
+    );
+    expect(outcome).toStrictEqual({ error: new OneShotError("exited") });
+    expect([open.size, timers, await guardsIn(root)]).toStrictEqual([0, 0, []]);
+  });
+
+  it("cleans a partially written guard when its write fails", async () => {
+    const root = await guardRoot();
+    const { outcome, open, timers } = await oneShot(
+      { lines: [reply("unexpected")] },
+      {
+        isolateTranslation: true,
+        beforeRun: () => {
+          useGuardRoot(root);
+          afterGuardWrite(async () => {
+            throw new Error("private disk failure");
+          });
+        },
+      },
+    );
+    expect(outcome).toStrictEqual({ error: new OneShotError("exited") });
+    expect([open.size, timers, await guardsIn(root)]).toStrictEqual([0, 0, []]);
+  });
+
+  it("cancels after writing the guard but before starting pi and removes the guard", async () => {
+    const root = await guardRoot();
+    const controller = new AbortController();
+    const { outcome, open, timers } = await oneShot(
+      { lines: [reply("unexpected")] },
+      {
+        isolateTranslation: true,
+        signal: controller.signal,
+        beforeRun: () => {
+          useGuardRoot(root);
+          afterGuardWrite(async () => {
+            controller.abort();
+          });
+        },
+      },
+    );
+    expect(outcome).toStrictEqual({ error: new OneShotError("aborted") });
+    expect([open.size, timers, await guardsIn(root)]).toStrictEqual([0, 0, []]);
+  });
+
+  it("reports a failed guard cleanup during preparation cancellation", async () => {
+    const root = await guardRoot();
+    const controller = new AbortController();
+    const { outcome, open, timers } = await oneShot(
+      { lines: [reply("unexpected")] },
+      {
+        isolateTranslation: true,
+        signal: controller.signal,
+        beforeRun: () => {
+          useGuardRoot(root);
+          afterGuardWrite(async () => {
+            vi.spyOn(fs, "rm").mockRejectedValueOnce(new Error("cleanup denied"));
+            syncBuiltinESMExports();
+            controller.abort();
+          });
+        },
+      },
+    );
+    expect(outcome).toStrictEqual({ error: new OneShotError("exited") });
+    expect([open.size, timers, (await guardsIn(root)).length]).toStrictEqual([0, 0, 1]);
+  });
+
+  it("tolerates an already removed guard when cancelled during preparation", async () => {
+    const root = await guardRoot();
+    const controller = new AbortController();
+    const { outcome, open, timers } = await oneShot(
+      { lines: [reply("unexpected")] },
+      {
+        isolateTranslation: true,
+        signal: controller.signal,
+        beforeRun: () => {
+          useGuardRoot(root);
+          afterGuardWrite(async (path) => {
+            await rm(dirname(path), { recursive: true });
+            controller.abort();
+          });
+        },
+      },
+    );
+    expect(outcome).toStrictEqual({ error: new OneShotError("aborted") });
+    expect([open.size, timers, await guardsIn(root)]).toStrictEqual([0, 0, []]);
+  });
+
+  it.each([false, true])(
+    "cleans a synchronous spawn failure with translation isolation %s",
+    async (isolateTranslation) => {
+      const root = await guardRoot();
+      const { outcome, open, timers } = await oneShot(
+        {},
+        { piPath: "invalid\u0000pi", isolateTranslation, beforeRun: () => useGuardRoot(root) },
+      );
+      expect(outcome).toStrictEqual({ error: new OneShotError("exited") });
+      expect([open.size, timers, await guardsIn(root)]).toStrictEqual([0, 0, []]);
+    },
+  );
+
+  it("reports post-process cleanup failure and still releases process and timer counts", async () => {
+    const root = await guardRoot();
+    const { outcome, open, timers } = await oneShot(
+      { lines: [reply("unexpected")] },
+      {
+        isolateTranslation: true,
+        beforeRun: () => useGuardRoot(root),
+        onStarted: async () => {
+          vi.spyOn(fs, "rm").mockRejectedValueOnce(new Error("cleanup denied"));
+          syncBuiltinESMExports();
+        },
+      },
+    );
+    expect(outcome).toStrictEqual({ error: new OneShotError("exited") });
+    expect([open.get("pi-oneshot"), timers, (await guardsIn(root)).length]).toStrictEqual([0, 0, 1]);
+  });
+
+  it("tolerates an already removed guard after the process closes", async () => {
+    const root = await guardRoot();
+    const { outcome, open, timers } = await oneShot(
+      { lines: [reply("Title")] },
+      {
+        isolateTranslation: true,
+        beforeRun: () => useGuardRoot(root),
+        onStarted: async ({ argv }) => {
+          const path = present(argv[argv.indexOf("--extension") + 1], "guard extension");
+          await rm(dirname(path), { recursive: true });
+        },
+      },
+    );
+    expect(outcome).toStrictEqual({ text: "Title" });
+    expect([open.get("pi-oneshot"), timers, await guardsIn(root)]).toStrictEqual([0, 0, []]);
+  });
+
+  it("accepts a long valid escaped JSON record whose reply is within the output limit", async () => {
+    const text = "\u0000".repeat(20_000);
+    const { outcome, open, timers } = await oneShot({ lines: [reply(text)] }, { maxOutputBytes: 20_000 });
+    expect(outcome).toStrictEqual({ text });
+    expect([open.get("pi-oneshot"), timers]).toStrictEqual([0, 0]);
+  });
+
+  it("rejects an unfinished record exactly at the JSON safety boundary", async () => {
+    const { outcome, open, timers } = await oneShot(
+      { unterminated: "x".repeat(16_480), hang: true },
+      { maxOutputBytes: 16, timeoutMs: 300 },
+    );
+    expect(outcome).toStrictEqual({ error: new OneShotError("too_large") });
+    expect([open.get("pi-oneshot"), timers]).toStrictEqual([0, 0]);
+  });
+
+  it("starts one process-tree kill when a single stdout chunk contains several oversized replies", async () => {
+    let lists = 0;
+    const processSystem: ProcessSystem = {
+      listProcesses: async () => {
+        lists += 1;
+        return "";
+      },
+      kill: (target) => process.kill(target, "SIGKILL"),
+      ownPid: process.pid,
+    };
+    // One sub-PIPE_BUF write reaches the pipe atomically, exercising callbacks from the same chunk.
+    const records = `${JSON.stringify(reply("oversized-one"))}\n${JSON.stringify(reply("oversized-two"))}\n`;
+    const { outcome, open, timers } = await oneShot(
+      { unterminated: records, hang: true },
+      { maxOutputBytes: 8, processSystem },
+    );
+    expect(outcome).toStrictEqual({ error: new OneShotError("too_large") });
+    expect([lists, open.get("pi-oneshot"), timers]).toStrictEqual([1, 0, 0]);
+  });
+
+  it("skips non-reply records with an output limit instead of dereferencing an absent reply", async () => {
+    const { outcome, open, timers } = await oneShot(
+      { lines: [{ type: "session" }, { type: "message_end", message: { role: "user" } }, reply("Title")] },
+      { maxOutputBytes: 64 },
+    );
+    expect(outcome).toStrictEqual({ text: "Title" });
+    expect([open.get("pi-oneshot"), timers]).toStrictEqual([0, 0]);
+  });
+
+  it("bounds a standalone reply in UTF-8 bytes and releases the process and timers", async () => {
+    const { outcome, open, timers } = await oneShot({ lines: [reply("中文译文")] }, { maxOutputBytes: 11 });
+    expect(outcome).toStrictEqual({ error: new OneShotError("too_large") });
+    expect([open.get("pi-oneshot"), timers]).toStrictEqual([0, 0]);
+  });
+
+  it("allows a reply exactly at the UTF-8 byte limit", async () => {
+    const { outcome, open, timers } = await oneShot({ lines: [reply("中文译文")] }, { maxOutputBytes: 12 });
+    expect(outcome).toStrictEqual({ text: "中文译文" });
+    expect([open.get("pi-oneshot"), timers]).toStrictEqual([0, 0]);
+  });
+
+  it("bounds an unfinished JSON record even when pi never sends a complete reply", async () => {
+    const { outcome, open, timers } = await oneShot(
+      { unterminated: "x".repeat(17_000), hang: true },
+      { maxOutputBytes: 1 },
+    );
+    expect(outcome).toStrictEqual({ error: new OneShotError("too_large") });
+    expect([open.get("pi-oneshot"), timers]).toStrictEqual([0, 0]);
+  });
+
   it("runs pi once in print mode without a session or tools, the content on stdin, and answers its last reply's text", async () => {
     const { outcome, seen, open, timers, dir } = await oneShot({
       lines: [{ type: "session" }, reply("draft"), { type: "agent_end" }, reply("Login|fix")],

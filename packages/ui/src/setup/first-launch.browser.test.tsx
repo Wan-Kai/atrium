@@ -218,6 +218,7 @@ function listWith(setupDone: boolean): Parameters<typeof fakeClient>[0] {
       lastFast: false,
       statusBar: {},
       titleModel: null,
+      translationLanguage: "简体中文",
       proxy: null,
       inbox: true,
     },

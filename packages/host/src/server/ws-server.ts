@@ -66,6 +66,8 @@ export interface WsServerOptions {
   readonly subscriptions: SubscriptionRegistry;
   /** Handles session commands. */
   readonly sessions: SessionCommands;
+  /** A disconnected connection's translations are cancelled, never transferred to a reconnect. */
+  readonly translations: RouterOptions["translations"] & { disconnect(connectionId: string): void };
   readonly index: IndexCommands;
   /** First launch and the settings. */
   readonly setup: RouterOptions["setup"];
@@ -142,6 +144,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
   const wss = new WebSocketServer({ noServer: true, maxPayload: options.maxPayloadBytes });
   const route = createRouter({
     sessions: options.sessions,
+    translations: options.translations,
     index: options.index,
     setup: options.setup,
     piConfig: options.piConfig,
@@ -357,6 +360,7 @@ function acceptConnection(ws: WebSocket, connectionId: string, route: Route, opt
     if (connection === undefined) return;
     options.subscriptions.disconnect(connectionId);
     options.attachments.drop(connectionId);
+    options.translations.disconnect(connectionId);
     options.changes.disconnect(connectionId);
     context.with(connectionTrace, () => options.logger.info({ code }, "client disconnected"));
   });
