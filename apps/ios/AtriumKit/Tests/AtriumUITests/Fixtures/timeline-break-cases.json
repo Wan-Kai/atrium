@@ -1,0 +1,58 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Timeline/TimelineFollow.swift",
+    "from": "deferredLayout = deferredLayout || sizeChanged || mode == .placing",
+    "to": "deferredLayout = sizeChanged",
+    "runner": "swift",
+    "filter": "TimelineFollowTests/heldFinger"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Timeline/TimelineFollow.swift",
+    "from": "return laidOut(hasRows: hasRows, sizeChanged: true)",
+    "to": "return hasRows",
+    "runner": "swift",
+    "filter": "TimelineFollowTests/heldFinger"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Timeline/TimelineRows.swift",
+    "from": "rows.count == items.count && zip(rows, items).allSatisfy({ $0.id == $1.id })",
+    "to": "rows.count < items.count && zip(rows, items).allSatisfy({ $0.id == $1.id })",
+    "runner": "swift",
+    "filter": "TimelineRowsTests/tailGrowth"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Timeline/TimelineRows.swift",
+    "from": "for (incoming, row) in zip(rows, items) where row.value != incoming",
+    "to": "for (incoming, row) in zip(rows, items) where row.value == incoming",
+    "runner": "swift",
+    "filter": "TimelineRowsTests/tailGrowth"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Timeline/TimelineRows.swift",
+    "from": "zip(rows, items).allSatisfy({ $0.id == $1.id })",
+    "to": "zip(rows, items).allSatisfy({ _ in true })",
+    "runner": "swift",
+    "filter": "TimelineRowsTests/structure"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Timeline/TimelineRows.swift",
+    "from": "items = next",
+    "to": "items = next.isEmpty ? items : next",
+    "runner": "swift",
+    "filter": "TimelineRowsTests/release"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Timeline/TimelineFollow.swift",
+    "from": "guard hasRows else { return false }",
+    "to": "guard !hasRows else { return false }",
+    "runner": "swift",
+    "filter": "TimelineFollowTests/layoutTiming"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Timeline/TimelineFollow.swift",
+    "from": "return mode == .following && sizeChanged",
+    "to": "return mode == .following || sizeChanged",
+    "runner": "swift",
+    "filter": "TimelineFollowTests/layoutTiming"
+  }
+]

@@ -26,6 +26,18 @@
 
 **性能仍未达验收结论**：macOS Release 96KB解析+转换中位43.86ms，500行TS高亮+转换49.73ms；后台actor，不是主线程数值。模拟器第一轮两容器均有>50ms帧间隔（完整三次数字见调研），暂用List但未证明50ms主线程预算通过。没有真机、Release Instruments trace、长时间耗电/泄漏压力或完整手机连接/发送验收。
 
+### 时间线有界定位与候选（2026-10-26，第四路续）
+
+| 行为/证据 | 验证与边界 |
+|---|---|
+| 原实现1000行180次更新，每种容器180000次builder、约180次body | Debug `GalleryTimelineStats` 分开计数；峰值时间与主runloop awake区间一起记录，awake不是单个任务或CPU时间。高负载原始数据保留于 mobile-render.md，不用来评判容器优劣 |
+| 稳定行引用：内容更新不换整个集合 | `TimelineRowsTests`：先红后绿，180次更新仅180次Row通知/0次集合通知；相同快照无通知、同数重排/替换、移除对象释放。**仅证明观察通知，不等于已复测实际builder次数** |
+| 真正布局后才定位；等高更新不重复scrollTo；按住期间的布局在释放后处理 | `TimelineFollowTests`新增layoutTiming/heldFinger两例；指尖按住的原生回调时序未实证。小型UI先抓到Task.yield不足，修后初始/追加定位通过 |
+| 高度增长后跟随、历史位置不被追加打断 | `GalleryScreenshotTests.testTimelineUpdatesAndPreservesHistory`：末行增加30段后末端可见；读历史后追加，同一文本y位置差≤2pt且新尾不可见；回底可见新尾。强行在reading时滚到底部的手动负控确实失败，恢复后通过 |
+| 定向验证与资源协调 | `TimelineRowsTests|TimelineFollowTests` 9项通过；`timeline-break-cases.json` 8/8 CAUGHT；`pnpm ios:check`通过；非基准`pnpm test:ios` 88 Swift + 3 UI通过，截图矩阵和性能2项opt-in跳过。本轮未再跑全量TS |
+
+移除List `.id`的实验破坏了定位，已经恢复；停止AX轮询未消除长帧，也不认作根因。稳定引用候选**尚未复测真实builder计数/绝对耗时**；16:14～16:44机器load约19～25、其他路宿主变异进行中，按主代理要求停止耗时对比。低负载、记录load与构建模式的复验及真机/Release Instruments仍待做；入口 `AtriumApp.swift` 已交接 ios-connect，本批未改。
+
 ## MP1 Swift 工程基础（手机端，2026-10-25～26）
 
 路线图 MP1：Swift 的规范、`apps/ios` 工程骨架、`pnpm protocol:swift` 和往返测试、Swift 进 `pnpm check` / `pnpm test`，破坏检查扩到 Swift（[testing.md · Swift（手机端）](../architecture/testing.md#swift手机端)、[overview.md · iOS 工程](../architecture/overview.md#ios-工程2026-10-25-定mp1)）。

@@ -30,7 +30,9 @@
       forcedReduced = section.hasSuffix("-reduced")
       forcedSolid = section.hasSuffix("-solid")
       let base = forcedReduced ? String(section.dropLast(8)) : forcedSolid ? String(section.dropLast(6)) : section
-      self.section = (Self.sections + ["timeline-list", "timeline-stack"]).contains(base) ? base : "all"
+      self.section =
+        (Self.sections + ["timeline-list", "timeline-stack", "timeline-control", "timeline-check"]).contains(base)
+        ? base : "all"
     }
 
     /// The sections, scrolling.
@@ -43,8 +45,10 @@
     /// Chooses the gallery or the standalone benchmark container.
     @ViewBuilder private var content: some View {
       #if os(iOS)
-        if section.hasPrefix("timeline-") {
-          GalleryTimeline(stack: section == "timeline-stack")
+        if section == "timeline-check" {
+          GalleryTimelineInteraction()
+        } else if section.hasPrefix("timeline-") {
+          GalleryTimeline(stack: section == "timeline-stack", stallControl: section == "timeline-control")
         } else {
           gallery
         }

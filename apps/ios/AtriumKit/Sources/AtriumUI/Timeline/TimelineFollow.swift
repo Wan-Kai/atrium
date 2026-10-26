@@ -29,6 +29,8 @@ nonisolated struct TimelineFollow: Equatable, Sendable {
   private(set) var mode = Mode.placing
   /// Whether new content arrived while reading history; the "回到底部" button shows a dot.
   private(set) var unseen = false
+  /// A geometry change held until the current touch interaction ends.
+  private var deferredLayout = false
 
   /// Notes that the view placed itself at the end after opening.
   ///
@@ -36,6 +38,47 @@ nonisolated struct TimelineFollow: Equatable, Sendable {
   /// - SideEffects: Changes the state.
   mutating func placed() {
     if mode == .placing { mode = .following }
+  }
+
+  /// Decides whether completed layout needs a new bottom position.
+  ///
+  /// - Remark: A source update or Task.yield does not prove a new List row has a scroll target.
+  ///   Positioning waits for layout; later equal-size text updates need no scroll command.
+  /// - SideEffects: Completes initial placement once nonempty content has layout.
+  /// - Parameters:
+  ///   - hasRows: Whether the display projection contains rows.
+  ///   - sizeChanged: Whether content or viewport height changed.
+  /// - Returns: Whether to position at the bottom now.
+  mutating func laidOut(hasRows: Bool, sizeChanged: Bool) -> Bool {
+    guard hasRows else { return false }
+    if mode == .placing {
+      placed()
+      return true
+    }
+    return mode == .following && sizeChanged
+  }
+
+  /// Remembers layout changes without moving content under a held finger.
+  ///
+  /// - Remark: Tracking means touch-down, not necessarily scrolling. A later idle phase must not
+  ///   lose initial placement or a resize merely because no new geometry callback follows it.
+  /// - SideEffects: Retains a pending layout flag.
+  /// - Parameter sizeChanged: Whether content or viewport height changed.
+  mutating func deferLayout(sizeChanged: Bool) {
+    deferredLayout = deferredLayout || sizeChanged || mode == .placing
+  }
+
+  /// Processes layout deferred by a touch, without interrupting history reading.
+  ///
+  /// - Remark: Actual scrolling has already updated the follow mode; a touch without movement has
+  ///   not. With no observed layout, an idle callback alone must not complete initial placement.
+  /// - SideEffects: Clears the pending flag and may complete initial placement.
+  /// - Parameter hasRows: Whether row targets exist.
+  /// - Returns: Whether the view should now position at the end.
+  mutating func interactionEnded(hasRows: Bool) -> Bool {
+    guard deferredLayout else { return false }
+    deferredLayout = false
+    return laidOut(hasRows: hasRows, sizeChanged: true)
   }
 
   /// Notes where a scroll the person made ended.

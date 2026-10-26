@@ -1,5 +1,6 @@
 #if DEBUG && os(iOS)
   import AtriumRender
+  import CoreFoundation
   import SwiftUI
   import UIKit
 
@@ -11,6 +12,8 @@
   struct GalleryTimeline: View {
     /// Whether the comparison uses LazyVStack instead of List.
     let stack: Bool
+    /// Injects one known main-thread stall to prove the awake-interval probe can detect it.
+    var stallControl = false
     /// Rows supplied to both implementations.
     @State private var rows: [TimelineRow] = []
     /// Streaming revision.
@@ -18,7 +21,7 @@
     /// The final measurement, exposed to XCUITest.
     @State private var result = "running"
     /// The frame callback owner.
-    @State private var probe = GalleryFrameProbe()
+    @State private var probe = GalleryFrameProbe(clock: ContinuousClock())
 
     /// The timeline under test and a diagnostic text label.
     var body: some View {
@@ -39,6 +42,7 @@
           defer { probe.stop() }
           for tick in 0..<180 {
             try Task.checkCancellation()
+            if stallControl && tick == 60 { Self.injectStall(clock: clock) }
             let text =
               "持续输出 · \(tick)\n" + String(repeating: "中文 reply with **emphasis** and code. ", count: tick / 6 + 1)
             let blocks = await Self.parse(text)
@@ -46,12 +50,22 @@
             revision += 1
             try await clock.sleep(for: .seconds(1.0 / 60))
           }
-          result = probe.summary(prefix: stack ? "stack" : "list")
+          result = probe.summary(prefix: stallControl ? "control" : stack ? "stack" : "list")
         } catch {
           probe.stop()
         }
       }
       .onDisappear { probe.stop() }
+    }
+
+    /// Inserts a known 80ms busy interval into the control run.
+    ///
+    /// - Remark: Negative control for the measurement, never enabled in the normal fixture or Release.
+    /// - SideEffects: Deliberately blocks the main actor for 80ms.
+    /// - Parameter clock: Monotonic measurement clock.
+    private static func injectStall(clock: ContinuousClock) {
+      let end = clock.now.advanced(by: .milliseconds(80))
+      while clock.now < end {}
     }
 
     /// Prepares a thousand rows away from the main actor.
@@ -83,6 +97,31 @@
   /// - Remark: Owns and invalidates its link explicitly; samples are ordinary values and do not
   ///   invalidate the SwiftUI tree every frame. CADisplayLink supplies the timestamps.
   private final class GalleryFrameProbe: NSObject {
+    /// The injected monotonic clock for main-runloop interval measurements.
+    private let clock: ContinuousClock
+    /// Observer owned by this probe, registered only on the main runloop.
+    private var observer: CFRunLoopObserver?
+    /// Start of the current main-runloop awake interval.
+    private var activeSince: ContinuousClock.Instant?
+    /// Main-runloop awake intervals, not individual task durations.
+    private var activeSamples: [Double] = []
+    /// First display timestamp, for locating the worst frame within the experiment.
+    private var firstFrame: Double?
+    /// Time of the longest frame gap, relative to the first frame.
+    private var peakAt = 0.0
+    /// Longest observed frame gap.
+    private var peak = 0.0
+
+    /// Creates a probe with a monotonic clock.
+    ///
+    /// - Remark: The timeline supplies the real clock; measuring work must not use wall time.
+    /// - SideEffects: none
+    /// - Parameter clock: Clock used to measure awake intervals.
+    init(clock: ContinuousClock) {
+      self.clock = clock
+      super.init()
+    }
+
     /// The active callback, if sampling.
     private var link: CADisplayLink?
     /// Last supplied timestamp.
@@ -97,7 +136,19 @@
     func start() {
       stop()
       previous = nil
+      firstFrame = nil
+      peakAt = 0
+      peak = 0
       samples = []
+      activeSamples = []
+      activeSince = clock.now
+      GalleryTimelineStats.reset()
+      let activities = CFRunLoopActivity.afterWaiting.rawValue | CFRunLoopActivity.beforeWaiting.rawValue
+      observer = CFRunLoopObserverCreateWithHandler(nil, activities, true, Int.max) { [weak self] _, activity in
+        // This observer is registered exclusively on CFRunLoopGetMain().
+        MainActor.assumeIsolated { self?.observe(activity) }
+      }
+      if let observer { CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes) }
       let display = CADisplayLink(target: self, selector: #selector(tick(_:)))
       display.add(to: .main, forMode: .common)
       link = display
@@ -110,6 +161,25 @@
     func stop() {
       link?.invalidate()
       link = nil
+      if let observer { CFRunLoopObserverInvalidate(observer) }
+      observer = nil
+      activeSince = nil
+    }
+
+    /// Measures awake intervals around the main runloop's wait boundary.
+    ///
+    /// - Remark: These include multiple callbacks and framework work, and can include scheduler
+    ///   preemption; they are not CPU samples or a claim about any individual main-thread task.
+    /// - SideEffects: Updates interval samples.
+    /// - Parameter activity: Main-runloop observer activity.
+    private func observe(_ activity: CFRunLoopActivity) {
+      if activity == .afterWaiting {
+        activeSince = clock.now
+      } else if activity == .beforeWaiting, let activeSince {
+        let duration = activeSince.duration(to: clock.now).components
+        activeSamples.append(Double(duration.seconds) * 1000 + Double(duration.attoseconds) / 1e15)
+        self.activeSince = nil
+      }
     }
 
     /// Records one supplied frame timestamp.
@@ -118,7 +188,15 @@
     /// - SideEffects: Appends to the sample buffer.
     /// - Parameter display: The invoking display link.
     @objc private func tick(_ display: CADisplayLink) {
-      if let previous { samples.append((display.timestamp - previous) * 1000) }
+      if firstFrame == nil { firstFrame = display.timestamp }
+      if let previous {
+        let gap = (display.timestamp - previous) * 1000
+        samples.append(gap)
+        if gap > peak {
+          peak = gap
+          peakAt = display.timestamp - (firstFrame ?? display.timestamp)
+        }
+      }
       previous = display.timestamp
     }
 
@@ -133,8 +211,10 @@
       guard !sorted.isEmpty else { return "\(prefix) no frames" }
       let p95 = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
       return String(
-        format: "%@ n=%d p95=%.2f max=%.2f over50=%d", prefix, sorted.count, p95, sorted.last ?? 0,
-        sorted.filter { $0 > 50 }.count)
+        format: "%@ n=%d p95=%.2f max=%.2f over50=%d maxAt=%.3f awakeMax=%.2f awakeOver50=%d rows=%d builds=%d",
+        prefix, sorted.count, p95, sorted.last ?? 0, sorted.filter { $0 > 50 }.count, peakAt,
+        activeSamples.max() ?? 0, activeSamples.filter { $0 > 50 }.count,
+        GalleryTimelineStats.rowBodies, GalleryTimelineStats.rowBuilds)
     }
   }
 #endif

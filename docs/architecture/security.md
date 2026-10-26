@@ -197,6 +197,7 @@
 | `@highlightjs/cdn-assets@11.11.1` 的 `highlight.min.js` | 原版常用语言 bundle，BSD-3-Clause，来源/许可证随 AtriumRender 资源打包。SHA-256 `c4a399dd6f488bc97a3546e3476747b3e714c99c57b9473154c6fb8d259b9381`。JavaScriptCore actor 只执行这个受信任的本地脚本；用户代码作为字符串参数，不拼接执行；无网络/文件桥，不使用 WebView/HTML importer；超 128 KiB 保留无高亮原文 |
 | Markdown 链接与 HTML | 只让 http/https 链接成为可打开链接；javascript、file、data、自定义 scheme 只保留文字。HTML、图表源码不执行；图片仅 alt，不自动出网 |
 | `ATRIUM_GALLERY` | App 的 `#if DEBUG` 专用组件陈列页入口，值为陈列页名称；Release 不读。XCUITest 通过 `launchEnvironment` 设置，不承载用户数据 |
+| `TEST_RUNNER_ATRIUM_TIMELINE_BENCH` → `ATRIUM_TIMELINE_BENCH` | 测试 runner 的定向时间线基准开关，跳过图库截图矩阵；Debug只记录帧/runloop区间和行构建计数，不记录真实内容 |
 | `TEST_RUNNER_ATRIUM_GALLERY_SHOTS` → `ATRIUM_GALLERY_SHOTS` | 测试 runner 的截图/模拟器帧间隔基准开关；只作用于 XCUITest，不进生产行为 |
 
 选型与尚未验证的性能边界见 [mobile-render.md](../research/mobile-render.md)。

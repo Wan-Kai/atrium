@@ -26,8 +26,12 @@ struct ConversationTimeline: View {
   let revision: Int
   /// Whether to use the comparison container, only set by the Debug benchmark.
   var compareStack = false
+  /// Stable row references keep content growth from invalidating the whole collection.
+  @State private var projection = TimelineRows()
   /// Scroll policy.
   @State private var follow = TimelineFollow()
+  /// Whether a finger is held without having begun a scroll.
+  @State private var trackingTouch = false
   /// Whether a scroll gesture or its deceleration is in progress.
   @State private var scrollingByPerson = false
   /// Current colours.
@@ -40,12 +44,20 @@ struct ConversationTimeline: View {
         if compareStack {
           ScrollView {
             LazyVStack(spacing: 24) {
-              ForEach(rows) { row in TimelineRowView(row: row).equatable().id(row.id) }
+              ForEach(projection.items) { row in
+                #if DEBUG && os(iOS)
+                  let _ = GalleryTimelineStats.rowBuilt()
+                #endif
+                ObservedTimelineRow(row: row).id(row.id)
+              }
             }.padding(.horizontal, Metrics.page)
           }
         } else {
-          List(rows) { row in
-            TimelineRowView(row: row).equatable().id(row.id)
+          List(projection.items) { row in
+            #if DEBUG && os(iOS)
+              let _ = GalleryTimelineStats.rowBuilt()
+            #endif
+            ObservedTimelineRow(row: row).id(row.id)
               .listRowSeparator(.hidden).listRowBackground(Color.clear)
               .listRowInsets(EdgeInsets(top: 12, leading: Metrics.page, bottom: 12, trailing: Metrics.page))
           }
@@ -53,20 +65,30 @@ struct ConversationTimeline: View {
         }
       }
       .onScrollPhaseChange { _, phase in
-        scrollingByPerson = phase == .tracking || phase == .interacting || phase == .decelerating
+        trackingTouch = phase == .tracking
+        scrollingByPerson = phase == .interacting || phase == .decelerating
+        if phase == .idle, follow.interactionEnded(hasRows: !projection.items.isEmpty) {
+          proxy.scrollTo(projection.items.last?.id, anchor: .bottom)
+        }
       }
-      .onScrollGeometryChange(for: CGFloat.self) { geometry in
-        geometry.contentSize.height + geometry.contentInsets.bottom - geometry.visibleRect.maxY
-      } action: { _, distance in
-        if scrollingByPerson { follow.scrolledByPerson(distanceFromEnd: distance) }
+      .onScrollGeometryChange(for: Geometry.self) { geometry in
+        Geometry(
+          contentHeight: geometry.contentSize.height + geometry.contentInsets.bottom,
+          viewportHeight: geometry.visibleRect.height,
+          distanceFromEnd: geometry.contentSize.height + geometry.contentInsets.bottom - geometry.visibleRect.maxY)
+      } action: { old, new in
+        let resized = old.contentHeight != new.contentHeight || old.viewportHeight != new.viewportHeight
+        if trackingTouch || scrollingByPerson {
+          follow.deferLayout(sizeChanged: resized)
+          if scrollingByPerson { follow.scrolledByPerson(distanceFromEnd: new.distanceFromEnd) }
+        } else if follow.laidOut(hasRows: !projection.items.isEmpty, sizeChanged: resized) {
+          proxy.scrollTo(projection.items.last?.id, anchor: .bottom)
+        }
       }
-      .task {
-        await Task.yield()
-        proxy.scrollTo(rows.last?.id, anchor: .bottom)
-        follow.placed()
-      }
+      .onChange(of: rows, initial: true) { projection.apply(rows) }
       .onChange(of: revision) {
-        if follow.contentGrew() { proxy.scrollTo(rows.last?.id, anchor: .bottom) }
+        // Mark unseen content immediately; actual positioning waits for completed layout above.
+        _ = follow.contentGrew()
       }
       .overlay(alignment: .bottomTrailing) {
         if follow.mode == .reading {
@@ -79,6 +101,27 @@ struct ConversationTimeline: View {
     }
     .background(Palette(scheme: scheme).page)
   }
+
+  /// Only geometry that affects the follow policy.
+  ///
+  /// - Remark: Position-only callbacks from our own scrolling must not issue another scroll.
+  private struct Geometry: Equatable {
+    let contentHeight: CGFloat
+    let viewportHeight: CGFloat
+    let distanceFromEnd: CGFloat
+  }
+}
+
+/// Reads changing content inside the row graph, not in List's identity-building closure.
+///
+/// - Remark: Reading the observable value in the row builder makes the whole identity traversal
+///   depend on it. This boundary lets one row change without rebuilding all siblings.
+private struct ObservedTimelineRow: View {
+  /// The stable identity and independently observed value.
+  let row: TimelineRows.Row
+
+  /// Only this row observes its changing display content.
+  var body: some View { TimelineRowView(row: row.value).equatable() }
 }
 
 /// A stable, equatable transcript row that paints only when its model or environment changes.
@@ -102,6 +145,9 @@ private struct TimelineRowView: View, Equatable {
 
   /// The bubble followed by the response.
   var body: some View {
+    #if DEBUG && os(iOS)
+      let _ = GalleryTimelineStats.bodyEvaluated()
+    #endif
     VStack(alignment: .leading, spacing: 16) {
       if !row.user.isEmpty {
         HStack {

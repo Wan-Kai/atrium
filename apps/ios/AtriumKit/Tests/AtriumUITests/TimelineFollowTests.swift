@@ -4,6 +4,40 @@ import Testing
 
 @Suite("Timeline follow")
 struct TimelineFollowTests {
+  @Test("positions only after rows have layout, and follows size changes without interrupting history")
+  func layoutTiming() {
+    var follow = TimelineFollow()
+    let empty = follow.laidOut(hasRows: false, sizeChanged: true)
+    #expect(!empty && follow.mode == .placing)
+    let first = follow.laidOut(hasRows: true, sizeChanged: true)
+    #expect(first && follow.mode == .following)
+    let unchanged = follow.laidOut(hasRows: true, sizeChanged: false)
+    #expect(!unchanged)
+    let grew = follow.laidOut(hasRows: true, sizeChanged: true)
+    #expect(grew)
+    follow.scrolledByPerson(distanceFromEnd: 200)
+    let reading = follow.laidOut(hasRows: true, sizeChanged: true)
+    #expect(!reading && follow.mode == .reading)
+  }
+
+  @Test("a layout deferred while a finger is held is processed on release unless history was entered")
+  func heldFinger() {
+    var follow = TimelineFollow()
+    let beforeLayout = follow.interactionEnded(hasRows: true)
+    #expect(!beforeLayout && follow.mode == .placing)
+    follow.deferLayout(sizeChanged: true)
+    let released = follow.interactionEnded(hasRows: true)
+    #expect(released && follow.mode == .following)
+    follow.deferLayout(sizeChanged: true)
+    follow.deferLayout(sizeChanged: false)
+    let resize = follow.interactionEnded(hasRows: true)
+    #expect(resize)
+    follow.deferLayout(sizeChanged: true)
+    follow.scrolledByPerson(distanceFromEnd: 200)
+    let history = follow.interactionEnded(hasRows: true)
+    #expect(!history && follow.mode == .reading)
+  }
+
   @Test("places itself first, ignoring growth and scrolls until placed")
   func placing() {
     var follow = TimelineFollow()
