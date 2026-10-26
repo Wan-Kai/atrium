@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { once } from "node:events";
+import { createServer, type Socket } from "node:net";
 import {
   CHUNK_TIMEOUT_MS,
   ChannelError,
@@ -71,6 +73,65 @@ async function fixture(waitForOpen = true) {
     await once(sockets[0]!, "message");
   }
   return { server, endpoint, sockets, requests, incoming, clock, resources, frames, controls, closed, bytes, stream };
+}
+
+/** Opens a raw relay that keeps its writable TCP half open after receiving FIN. @remarks A normal ws server answers the closing handshake too promptly to exercise a peer stuck in CLOSING. @sideEffects Opens a loopback server and PhoneStream; cleanup destroys every owned socket even after assertion failure. */
+async function halfOpenFixture() {
+  const sockets: Socket[] = [];
+  const chunks: Buffer[] = [];
+  const server = createServer({ allowHalfOpen: true }, (socket) => {
+    sockets.push(socket);
+    let header = Buffer.alloc(0);
+    let upgraded = false;
+    socket.on("data", (chunk: Buffer) => {
+      if (upgraded) {
+        chunks.push(chunk);
+        return;
+      }
+      header = Buffer.concat([header, chunk]);
+      if (header.indexOf("\r\n\r\n") < 0) return;
+      const key = /^Sec-WebSocket-Key: (.+)$/im.exec(header.toString("utf8"))?.[1]?.trim();
+      if (key === undefined) throw new Error("missing websocket key");
+      const accept = createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
+      upgraded = true;
+      socket.write(
+        `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
+      );
+    });
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("unexpected socket address");
+  const clock = new FakeClock(100);
+  const resources = new ResourceTracker();
+  const reasons: string[] = [];
+  const stream = new PhoneStream(
+    "b".repeat(32),
+    {
+      url: `ws://127.0.0.1:${address.port}`,
+      hostId: "hst_0123456789abcdef",
+      token: "a".repeat(43),
+    },
+    {
+      clock,
+      resources,
+      events: {
+        onFirstFrame: () => {},
+        onControl: () => {},
+        onBytes: () => {},
+        onClosed: (_stream, reason) => reasons.push(reason),
+      },
+    },
+  );
+  cleanup.push(async () => {
+    for (const socket of sockets) socket.destroy();
+    stream.close("cleanup");
+    clock.advance(1000);
+    await stream.done;
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  });
+  return { sockets, chunks, stream, clock, resources, reasons };
 }
 
 /** Finishes a real Noise handshake for a phone and host. @remarks Direct framing tests use genuine cross-key ciphers rather than fake decryption. @sideEffects Reads cryptographic randomness. */
@@ -266,6 +327,42 @@ describe("PhoneStream", () => {
     await completion;
     expect(done).toBe(true);
     expect(notices).toHaveLength(2);
+  });
+
+  it("bounds shutdown when the relay starts a WebSocket close but leaves TCP half open", async () => {
+    const { sockets, chunks, stream, clock, resources, reasons } = await halfOpenFixture();
+    await expect.poll(() => chunks.length).toBeGreaterThan(0);
+    const peer = sockets[0]!;
+    const fin = once(peer, "end");
+    peer.write(Buffer.from([0x88, 0x02, 0x03, 0xe8]));
+    await fin;
+    const reply = Buffer.concat(chunks).subarray(-8);
+    expect(reply.subarray(0, 2)).toStrictEqual(Buffer.from([0x88, 0x82]));
+    expect(Buffer.from([reply[6]! ^ reply[2]!, reply[7]! ^ reply[3]!])).toStrictEqual(Buffer.from([0x03, 0xe8]));
+    expect(peer.readableEnded).toBe(true);
+    expect(peer.writableEnded).toBe(false);
+    expect(stream.closed).toBe(false);
+    expect(resources.snapshot()).toStrictEqual({ "remote.data": 1, timer: 1 });
+    let done = false;
+    const completion = stream.done.then(() => {
+      done = true;
+      return done;
+    });
+    stream.close("host_shutdown");
+    expect(reasons).toStrictEqual(["host_shutdown"]);
+    clock.advance(999);
+    expect(done).toBe(false);
+    clock.advance(1);
+    await expect
+      .poll(() => ({ done, resources: resources.snapshot() }))
+      .toStrictEqual({
+        done: true,
+        resources: { "remote.data": 0, timer: 0 },
+      });
+    expect(await completion).toBe(true);
+    expect(resources.snapshot()).toStrictEqual({ "remote.data": 0, timer: 0 });
+    expect(clock.pendingTimers()).toBe(0);
+    expect(reasons).toStrictEqual(["host_shutdown"]);
   });
 
   it("uses graceful close code 1000 and releases the fallback timer when the peer answers", async () => {
