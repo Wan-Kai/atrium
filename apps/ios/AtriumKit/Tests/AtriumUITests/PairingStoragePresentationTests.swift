@@ -5,7 +5,7 @@ import Testing
 
 @testable import AtriumUI
 
-@Suite("Pairing storage presentation")
+@Suite("Pairing storage presentation", PairingResourceScope())
 struct PairingStoragePresentationTests {
   @Test("home receives storage-only updates while revocation status stays unchanged")
   func observesStorageIndependently() async throws {
@@ -14,11 +14,13 @@ struct PairingStoragePresentationTests {
     let store = HostStore(secrets)
     try store.confirm(host.record, deviceId: host.deviceId)
     let relay = MemoryRelay()
-    let clock = Stopwatch(ManualClock())
+    let manualClock = ManualClock()
+    let clock = Stopwatch(manualClock)
     let environment = RemoteEnvironment(
       connect: { relay.connect($0) }, stopwatch: clock, jitter: { 0 }, appVersion: "1")
     let connection = try await PairingHome<EmptyView>.makeConnection(
       host: host.record, store: store, environment: environment)
+    PairingTestResources.current?.register(connection, clock: manualClock)
     var shown: RemoteStorageIssue?
     let observer = Task { await PairingHome<EmptyView>.observeStorageIssues(of: connection) { shown = $0 } }
     defer { observer.cancel() }
@@ -29,6 +31,7 @@ struct PairingStoragePresentationTests {
     let incoming = await relay.next()
     let side = try await host.accept(
       incoming.host, stopwatch: clock, answer: .reply(HandshakeReply(ok: false, reason: "device_unknown")))
+    PairingTestResources.current?.register(side.channel)
     defer { side.channel?.abort() }
     #expect(await statuses.next() == .revoked)
     try await waitUntil { shown?.error == .keychain(-1) }

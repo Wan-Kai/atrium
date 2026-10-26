@@ -1437,4 +1437,11 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 界面审查：`PairingRestorationTests` 实际将同 host 新 relay pending 接到新端点并用 IK 替换；`PairingPresentationTests` 验证离线绝对时间和非 pairing QR 不中断取景；`PairingStoragePresentationTests` 验证网络状态不变时存储问题仍刷新；`PairingModelTests` 验证成功交付前再核对 claim、配对持有的存储错误也在回前台时只重试一次，取消与 superseded 不复活。没有新增取消后自动 IK 或配对恢复按钮。
 - 本轮存储/界面定向 Swift 验证66项/10 suites 通过（warnings-as-errors），新行为先见红灯。`storage-review-breaks.json` 15/15、适配新实现后的原 `remote-breaks.json` 13/13、`resource-breaks.json` 1/1 全部检出。当前代码的只读所有权复查未发现破坏性路径；指出的 model 前台重试遗漏已补红绿测试。未跑本轮全量 check/test、Xcode/模拟器和真机验收；上述旧阶段的平台证据不冒充本次复验。
 - 累计缓冲：`BufferBudgetTests` 验证出站2 MiB含在途密文、精确边界/加1字节、很多小帧、真实发送完成才归还、迟到完成不减负、阻塞writer的abort/owner释放；入站16 MiB与1024条双限额、空消息、next归还、旧代隔离、取消/finish后计数与保留队列归零。`RemoteBufferIntegrationTests` 用实际Noise通道和RemoteConnection接收循环验证1025条空消息及16 MiB+1字节都会明确背压断线，旧队列清空，新代只交付新消息；两条8 MiB消息完整分帧/解密且nonce连续。没有用静默丢消息或离线重发规避压力。
-- 预算单独定向26项/5 suites 通过，`buffer-breaks.json` 12/12检出；最终把本轮相关存储、连接、界面和预算回归合跑，92项/15 suites 通过（warnings-as-errors）。Swift格式、Swift文档lint和diff检查通过；只读预算审查无高可信阻断项，未独立跑测试。尚未直接组合测RemoteConnection出站溢出后的完整重连，亦未用分配器测Data释放；已有阻塞writer/计数/队列清空和连接入站溢出回归不能冒称整机内存或长期泄漏验收。
+- 预算单独定向26项/5 suites 通过，`buffer-breaks.json` 12/12检出；最终把本轮相关存储、连接、界面和预算回归合跑，92项/15 suites 通过（warnings-as-errors）。Swift格式、Swift文档lint和diff检查通过；只读预算审查无高可信阻断项，未独立跑测试。当时尚未直接组合测RemoteConnection出站溢出后的完整重连，下节已补该缺口。仍未用分配器测Data释放；已有阻塞writer/计数/队列清空和连接溢出回归不能冒称整机内存或长期泄漏验收。
+
+### 2feea5b 后的收尾验证
+
+- `RemoteBufferIntegrationTests/outboundOverflowReconnects` 从真实配对通道 handover 进入 RemoteConnection，经公开 `send` 排入未确认标记消息；暂停旧 transport writer 后第二条触发2 MiB累计限制，调用方收到 `.backpressure`，旧 writer 结束、队列与预算归零。测试闸住旧 receive 的终止结果，确认公开 send 的失败处理自己进入退避；手动时钟推进后，新 transport 完成 IK/hello 并进入 syncing。此时才释放旧结果，核对旧 generation 的 send 被拒绝、旧收尾不伤新代、新端点只收到 fresh 标记且回显完整，没有重发旧未确认消息，最终 stop 后弱引用和 sleepers 归零。
+- 该生产路径在2feea5b已接好，本轮新增测试先绿；没有声称原实现先红。随后分别移除 send 中的 `failed(generation,error)`、发送代次守卫、失败回调代次守卫，三个破坏都产生真实测试失败。`buffer-breaks.json` 扩到15项，最终15/15检出。第一轮因新增测试的 actor 属性被 `||` autoclosure 隔离限制而 NOBUILD，不计检出；拆成局部 awaited 值后重跑全部实际检出。
+- 本轮新增 UI 测试局部使用 `PairingTestResources`：每 case 在 start 前注册连接、接受 responder 后注册通道；成功或抛错均 stop/abort 并检查弱引用和手动时钟归零。`PairingResourceTests/throwingBody` 覆盖 start 后、接受 responder 后故意抛错，缺少清理时实际失败；`resource-breaks.json` 扩到2项、2/2检出。新增 model 测试的 cancel defer 在 submit 前安装，不绕过 accept 抛错路径；仅检查本轮新增 UI/预算测试，没有扩成生产依赖或全仓资源框架。
+- 收尾相关定向 Swift 35项/6 suites 通过，开启 warnings-as-errors 和显式 target 依赖检查；出站组合回归另外连续5次通过。Swift格式、文档lint、diff检查通过。生产逻辑未改，仅把 PairingFlow.run 的过期取消注释改为关闭通道但保留不确定 pending。本轮未跑全量、Xcode/模拟器、真机或实时 TS 互通。

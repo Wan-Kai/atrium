@@ -69,9 +69,11 @@ struct PairingModelTests {
       environment: RemoteEnvironment(connect: { relay.connect($0) }, stopwatch: clock, jitter: { 0 }, appVersion: "1"),
       store: HostStore(secrets), device: DeviceInfo(deviceName: "P", model: "M", appVersion: "1"),
       onPaired: { $0.channel?.abort() })
+    defer { model.cancel() }
     model.submit(host.linkText)
     let incoming = await relay.next()
     let side = try await host.accept(incoming.host, stopwatch: clock)
+    defer { side.channel?.abort() }
     #expect(try await side.nextControl() == .pairConfirm)
     try await side.send(.paired(deviceId: host.deviceId, hostName: host.hostName))
     try await waitUntil { !model.isRunning }
@@ -130,9 +132,11 @@ struct PairingModelTests {
         connect: { relay.connect($0) }, stopwatch: stopwatch, jitter: { 0 }, appVersion: "1"),
       store: store, device: DeviceInfo(deviceName: "P", model: "M", appVersion: "1"),
       onPaired: { _ in Issue.record("cancelled confirmation transferred a channel") })
+    defer { model.cancel() }
     model.submit(host.linkText)
     let incoming = await relay.next()
     let side = try await host.accept(incoming.host, stopwatch: stopwatch)
+    defer { side.channel?.abort() }
     #expect(try await side.nextControl() == .pairConfirm)
     try await waitUntil { model.state == .confirming(code: side.code, secondsLeft: 120) }
     model.cancel()
@@ -157,9 +161,11 @@ struct PairingModelTests {
       environment: RemoteEnvironment(connect: { relay.connect($0) }, stopwatch: clock, jitter: { 0 }, appVersion: "1"),
       store: store, device: DeviceInfo(deviceName: "P", model: "M", appVersion: "1"),
       onPaired: { delivered.append($0) })
+    defer { model.cancel() }
     model.submit(host.linkText)
     let incoming = await relay.next()
     let side = try await host.accept(incoming.host, stopwatch: clock)
+    defer { side.channel?.abort() }
     #expect(try await side.nextControl() == .pairConfirm)
     secrets.failWrites(with: .keychain(-1))
     try await side.send(.paired(deviceId: host.deviceId, hostName: host.hostName))
@@ -198,9 +204,11 @@ struct PairingModelTests {
       environment: RemoteEnvironment(connect: { relay.connect($0) }, stopwatch: clock, jitter: { 0 }, appVersion: "1"),
       store: store, device: DeviceInfo(deviceName: "P", model: "M", appVersion: "1"),
       onPaired: { _ in Issue.record("revoked pairing transferred a channel") })
+    defer { model.cancel() }
     model.submit(host.linkText)
     let incoming = await relay.next()
     let side = try await host.accept(incoming.host, stopwatch: clock)
+    defer { side.channel?.abort() }
     #expect(try await side.nextControl() == .pairConfirm)
     secrets.failWrites(with: .keychain(-1))
     try await side.send(.revoked)
@@ -232,14 +240,17 @@ struct PairingModelTests {
     defer { attempt.cancel() }
     let incoming = await relay.next()
     let side = try await host.accept(incoming.host, stopwatch: clock)
+    defer { side.channel?.abort() }
     #expect(try await side.nextControl() == .pairConfirm)
     try await side.send(.paired(deviceId: host.deviceId, hostName: host.hostName))
     let outcome = await attempt.value
+    defer { outcome.channel?.abort() }
     #expect(outcome.state == .paired(host.record))
     // Reproduces replacement during the hop from the remote flow back to the main-actor consumer.
     try store.savePending(HostRecord(pending: link))
     var delivered = 0
     let model = PairingModel(environment: environment, store: store, device: device, onPaired: { _ in delivered += 1 })
+    defer { model.cancel() }
     model.finish(outcome)
     #expect(model.state == .failed(.superseded))
     #expect(delivered == 0)
@@ -259,9 +270,11 @@ struct PairingModelTests {
       environment: RemoteEnvironment(connect: { relay.connect($0) }, stopwatch: clock, jitter: { 0 }, appVersion: "1"),
       store: store, device: DeviceInfo(deviceName: "P", model: "M", appVersion: "1"),
       onPaired: { _ in delivered += 1 })
+    defer { model.cancel() }
     model.submit(host.linkText)
     let incoming = await relay.next()
     let side = try await host.accept(incoming.host, stopwatch: clock)
+    defer { side.channel?.abort() }
     #expect(try await side.nextControl() == .pairConfirm)
     secrets.failWrites(with: .keychain(-1))
     try await side.send(.paired(deviceId: host.deviceId, hostName: host.hostName))
@@ -294,9 +307,11 @@ struct PairingModelTests {
       environment: RemoteEnvironment(connect: { relay.connect($0) }, stopwatch: clock, jitter: { 0 }, appVersion: "1"),
       store: store, device: DeviceInfo(deviceName: "P", model: "M", appVersion: "1"),
       onPaired: { _ in delivered += 1 })
+    defer { model.cancel() }
     model.submit(host.linkText)
     let incoming = await relay.next()
     let side = try await host.accept(incoming.host, stopwatch: clock)
+    defer { side.channel?.abort() }
     #expect(try await side.nextControl() == .pairConfirm)
     secrets.failWrites(with: .keychain(-1))
     try await side.send(.paired(deviceId: host.deviceId, hostName: host.hostName))

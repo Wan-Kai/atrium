@@ -6,7 +6,7 @@ import Testing
 
 @testable import AtriumUI
 
-@Suite("Pairing home restoration")
+@Suite("Pairing home restoration", PairingResourceScope())
 struct PairingRestorationTests {
   @Test("same-host pending replacement connects to the new relay and promotes after IK")
   func replacementRelay() async throws {
@@ -21,17 +21,20 @@ struct PairingRestorationTests {
       await PairingHome<EmptyView>.loadRestorationHost(from: store))
     #expect(selected.record == pending)
     let relay = MemoryRelay()
-    let clock = Stopwatch(ManualClock())
+    let manualClock = ManualClock()
+    let clock = Stopwatch(manualClock)
     let environment = RemoteEnvironment(
       connect: { relay.connect($0) }, stopwatch: clock, jitter: { 0 }, appVersion: "1")
     let connection = try await PairingHome<EmptyView>.makeConnection(
       host: selected.record, store: store, environment: environment, ownership: selected.ownership)
     var statuses = connection.statuses.makeAsyncIterator()
     _ = await statuses.next()
+    PairingTestResources.current?.register(connection, clock: manualClock)
     await connection.start()
     let incoming = await relay.next()
     #expect(relay.requested.map(\.absoluteString) == ["wss://replacement.test/new-path/v1/client?host=\(host.hostId)"])
     let side = try await host.accept(incoming.host, stopwatch: clock)
+    PairingTestResources.current?.register(side.channel)
     #expect(side.mode == .ik)
     try await side.answerHello(protocolVersion: environment.protocolVersion)
     #expect(await statuses.next() == .syncing)
@@ -51,10 +54,12 @@ struct PairingRestorationTests {
     let store = HostStore(secrets)
     let selected = try #require(await PairingHome<EmptyView>.loadRestorationHost(from: store))
     let relay = MemoryRelay()
+    let manualClock = ManualClock()
     let environment = RemoteEnvironment(
-      connect: { relay.connect($0) }, stopwatch: Stopwatch(ManualClock()), jitter: { 0 }, appVersion: "1")
+      connect: { relay.connect($0) }, stopwatch: Stopwatch(manualClock), jitter: { 0 }, appVersion: "1")
     let connection = try await PairingHome<EmptyView>.makeConnection(
       host: selected.record, store: store, environment: environment, ownership: selected.ownership)
+    PairingTestResources.current?.register(connection, clock: manualClock)
     #expect(secrets.mainThreadAccesses.count == 0)
     #expect(relay.requested.isEmpty)
     await connection.stop()
@@ -69,10 +74,12 @@ struct PairingRestorationTests {
     try store.savePending(HostRecord(pending: PairingLink(host.linkText)))
     let relay = MemoryRelay()
     relay.failNext(with: .unreachable)
+    let manualClock = ManualClock()
     let environment = RemoteEnvironment(
-      connect: { relay.connect($0) }, stopwatch: Stopwatch(ManualClock()), jitter: { 0 }, appVersion: "1")
+      connect: { relay.connect($0) }, stopwatch: Stopwatch(manualClock), jitter: { 0 }, appVersion: "1")
     let connection = try await PairingHome<EmptyView>.makeConnection(
       host: selected.record, store: store, environment: environment, ownership: selected.ownership)
+    PairingTestResources.current?.register(connection, clock: manualClock)
     var statuses = connection.statuses.makeAsyncIterator()
     _ = await statuses.next()
     await connection.start()

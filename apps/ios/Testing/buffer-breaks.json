@@ -94,5 +94,29 @@
     "name": "teardown releases old messages before reconnect and never replays them",
     "runner": "swift",
     "filter": "RemoteBufferIntegrationTests/unreadCountCloses"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteConnection.swift",
+    "from": "failed(generation, error)\n      throw error",
+    "to": "throw error",
+    "name": "public outbound overflow schedules recovery before old receive completes",
+    "runner": "swift",
+    "filter": "RemoteBufferIntegrationTests/outboundOverflowReconnects"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteConnection.swift",
+    "from": "guard generation == self.generation, case .open(let channel) = link else { throw .closed }",
+    "to": "guard case .open(let channel) = link else { throw .closed }",
+    "name": "old-generation send cannot reach the new connection",
+    "runner": "swift",
+    "filter": "RemoteBufferIntegrationTests/outboundOverflowReconnects"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteConnection.swift",
+    "from": "guard generation == self.generation, !status.isTerminal, !isStopped else { return }",
+    "to": "guard !status.isTerminal, !isStopped else { return }",
+    "name": "late old transport failure cannot tear down the replacement connection",
+    "runner": "swift",
+    "filter": "RemoteBufferIntegrationTests/outboundOverflowReconnects"
   }
 ]

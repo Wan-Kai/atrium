@@ -123,7 +123,8 @@ public struct PairingFlow: Sendable {
 
   /// Pairs with the Mac in `link`, reporting each state.
   ///
-  /// - Remark: Cancelling the calling task closes the connection and drops the pending record.
+  /// - Remark: Cancelling closes the connection but preserves pending when the pairing outcome is
+  ///   uncertain; cancellation cannot prove the Mac did not persist its confirmation.
   /// - SideEffects: Writes and deletes keychain records; opens a connection; calls `report`.
   /// - Parameters:
   ///   - link: The scanned or pasted link.

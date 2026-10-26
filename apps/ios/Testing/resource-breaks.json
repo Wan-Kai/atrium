@@ -6,5 +6,13 @@
     "name": "remote test scope always stops resources even after throw",
     "runner": "swift",
     "filter": "RemoteConnectionTests/teardownAfterThrow"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Tests/AtriumUITests/PairingTestResources.swift",
+    "from": "for (connection, _) in connections { await connection.stop() }",
+    "to": "for (connection, _) in connections { _ = connection }",
+    "name": "new UI connection tests stop resources even when setup throws",
+    "runner": "swift",
+    "filter": "PairingResourceTests/throwingBody"
   }
 ]
