@@ -1,0 +1,20 @@
+{
+  "name": "@atrium/relay",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "ws": "8.22.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@atrium/testkit": "workspace:*",
+    "@types/node": "26.6.4",
+    "@types/ws": "8.18.2",
+    "esbuild": "0.28.2"
+  }
+}

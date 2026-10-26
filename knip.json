@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignore": ["spikes/**"],
   "ignoreBinaries": ["pi", "mkfifo", "screencapture", "sips"],
   "workspaces": {
     ".": {
@@ -8,6 +9,9 @@
     },
     "packages/host": {
       "entry": ["src/entry.ts", "test/**/*.ts", "src/dev/try-pi.ts"]
+    },
+    "apps/relay": {
+      "entry": ["src/entry.ts", "test/**/*.ts"]
     },
     "apps/desktop": {
       "entry": ["src/main/main.ts", "src/preload/preload.ts", "e2e/**/*.ts", "e2e/*.cjs"]

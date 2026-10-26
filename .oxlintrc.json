@@ -229,7 +229,14 @@
       }
     },
     {
-      "files": ["**/*.test.ts", "**/*.test.tsx", "**/*.bench.ts", "apps/desktop/e2e/**", "packages/*/test/**"],
+      "files": [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.bench.ts",
+        "apps/desktop/e2e/**",
+        "packages/*/test/**",
+        "apps/relay/test/**"
+      ],
       "rules": {
         "vitest/expect-expect": [
           "error",
@@ -276,6 +283,7 @@
     }
   ],
   "ignorePatterns": [
+    "spikes/**",
     "**/dist/**",
     "**/node_modules/**",
     "reports/**",

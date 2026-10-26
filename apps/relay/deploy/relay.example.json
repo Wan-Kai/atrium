@@ -1,0 +1,6 @@
+{
+  "publicHost": "ktoon.site",
+  "pathPrefix": "/atrium",
+  "trustedProxies": [],
+  "newStreamsPerIpPerMinute": 30
+}

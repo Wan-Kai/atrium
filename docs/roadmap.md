@@ -18,6 +18,14 @@
 
 **2026-10-26：MP1 Swift 工程基础实现完成，在 `agent/mp1-swift-base`（worktree `atrium.worktrees/mp1-swift-base`），未合并、未推送；同日真机装上、空 App 能打开，真机验收时修了 `ios:install` 的两处问题（见追踪表"真机验收时补"）。** coding-standards、testing 补了"Swift（手机端）"：Xcode 自带的 swift-format（`apps/ios/.swift-format`）、警告当错误、不加 SwiftLint，自写的 `scripts/swift-lint.mjs` 查文档注释（`- Remark:`、`- SideEffects:`）、不安全的并发、没人留着的 `Task` 和真实时间；Swift 6 严格并发、可注入的 `Clock`；Swift Testing，逻辑在 macOS 上 `swift test`、界面在模拟器上跑；`pnpm break-check` 支持 Swift 的 case，Swift 先不做变异测试。`apps/ios`：SwiftPM 包 `AtriumKit`（六个模块各一个最小实现加测试）、手写维护的 `Atrium.xcodeproj`（文件夹同步，设置在 xcconfig，不用 XcodeGen、Tuist，理由见 overview"iOS 工程"）、占位首页，bundle id `site.ktoon.atrium`、免费团队签名。`pnpm protocol:swift` 从 zod 经 JSON Schema 生成 Swift 的 `Codable` 类型，`envelope.test.ts` 的样例做往返夹具；`pnpm check` 比对生成的类型（没 Xcode 也比）、跑 Swift 的格式和 lint，`pnpm test` 加上 `swift test`；`pnpm test:ios`、`ios:build`、`ios:install`、`ios:shot`、`ios:format` 的确切命令写进 AGENTS.md、development.md。完成标准：生成的类型能编译、往返测试通过；协议改了没重新生成时 `pnpm check` 失败（实测）；空 App 装到真机还没验证（手机不在电脑旁，只验证了没连上时的报错）。验证见[追踪表](testing/coverage-map.md#mp1-swift-工程基础手机端2026-10-2526)。
 
+**2026-10-26 补：MP0 真机通过**（iPhone 16 Pro、iOS 26.6.1，经 `wss://ktoon.site/atrium`）：配对两边校验码一致、覆盖安装后钥匙串里的配对还在、蜂窝网络下也连上；发现的"无线数据"权限、4404 的提示、配对码过期留给 MP4（spike README"真机"）。扫码没测（spike 没有扫码，MP4 做）。
+
+**2026-10-26：relay 部署到用户的 VPS，`wss://ktoon.site/atrium`（Docker 容器 `atrium-relay`，镜像 `atrium-relay:2026.10.26`，只监听 `127.0.0.1:8787`，数据在 `/srv/atrium-relay/data`；nginx 在 xray 回落的 8080 和 8081 两个 server 里各加了 `location /atrium/`，改前的配置备份在 `/root/ktoon.site.ssl.conf.bak.20261026105017` 等）。** 主站和 demo 子域照常 200。实测：HTTP/1.1 和 HTTP/2 的 `/atrium/healthz` 都是 ok；MP0 的 TS 假宿主和假手机经它配对（两边校验码一致）、IK 重连、心跳通过；iOS 26.5 模拟器上的测试 App 经 `wss://ktoon.site/atrium` 配对、钥匙串、IK 通过，心跳往返约 535 ms（Mac → VPS → 手机再回来，在公司网络下）；日志里没有令牌；测试用的宿主已 `remove-host`。镜像改在 VPS 上构建（这边传镜像只有约 17 KB/s），README 已改。待用户验收；分支未合并。
+
+**2026-10-26：手机端 MP2 relay 实现完成，在 `agent/mp2-relay`（基于 `atrium/mp0-interop`），待部署到用户的 VPS 和用户验收，未合并。** `apps/relay` 按 SPEC-0005 做了全部线路协议、`add-host` / `rotate-host` / `remove-host` / `list-hosts`、按天的元数据日志和 `/healthz`，支持路径前缀；按用户的 VPS（443 由 xray 终止 TLS、回落到 nginx 8080）先改了 SPEC"部署 relay"：前面放"一个终止 TLS 的反代（Caddy 或已有的 nginx）"、Docker 部署、拿不到真实 IP 时按 IP 限速退化成全局的（已知限制），关闭码表写进 SPEC。镜像 `node:24.22.1-bookworm-slim`（固定 digest）加单文件 `relay.cjs`，非 root；`deploy/` 有 nginx 片段、`compose.yaml`、systemd unit。测试见[追踪表](testing/coverage-map.md#手机端-mp2relayspec-00052026-10-25)：relay 160 项、泄漏 2 项、破坏检查 25 处全部检出，变异组 `relay` 958 个全部杀死；本机 Docker 加 nginx 用 MP0 的假宿主、假手机走通配对和 IK 重连。MP0 的假宿主对不带端口的那一行改用 `wss://`，能连部署好的 relay。
+
+**2026-10-25：手机端 MP0 互通实验除真机外完成，在 `atrium/mp0-interop`（合了子代理 `agent/mp0-ts`、`agent/mp0-swift`），待用户验收，未合并。** Noise 两边都自己写只含 IK、IKpsk2 的状态机（TS 用 `@noble/*` 2.4.0，Electron 44 的 Node 没有 ChaCha20-Poly1305；Swift 用 CryptoKit，Torann 0.3.1 只在测试里做差分对照），都过 cacophony 向量，TS ↔ Swift 互相逐字节回放对方的确定性记录；最小 relay、假宿主、假手机经真实 `ws` 的端到端 13 个场景通过；iOS 26.5 模拟器上的测试 App 对 TS 假宿主走通配对（两边校验码一致）、钥匙串、重启后 IK、Mac 上拒绝、码被占用、撤销；打包的 `AtriumSpike.app` 实测 `safeStorage` 和钥匙串弹窗（重新签名后要点一次允许）。补进 SPEC-0005：码不是当前这次时直接关闭、发送三态和不确定时拦下一条、`.inactive` 不动连接、时间线倾向 `List`、验证清单加撤销断开已打开的通道和宿主重启后旧游标；读了 mimi-remote、cmux-iphone 源码（mobile-remote.md §7）。没做：真机扫码、本地网络权限弹窗、免费签名重装后钥匙串是否保留（用户回到电脑旁时补）。TS 侧 53 个、Swift 侧 53 个测试通过，破坏检查 TS 16 处抓到 14、Swift 32 处抓到 31（漏的是走不到的冗余检查和要在写盘失败时才生效的内存拉黑）。MP1 在 `agent/mp1-swift-base` 进行中。
+
 **2026-10-25：设计手机端的开发路线图，在 `atrium/plan-mobile-roadmap`，用户确认，已本地合并回 `main`，未推送。** 把"手机端"一节从 MP0–MP7 的列表扩成里程碑：顺序与依赖（MP0 互通实验先行，MP1 Swift 工程基础和 MP2 relay 并行，MP3 宿主远程模块拆成宿主和设置页，MP4 是第一个手机上能用的纵向切片），每步的目标、范围、完成标准和需要用户做的事，以及三方审查放在 MP3、MP4、MP7。
 
 **2026-10-25：手机端设计定稿，用户确认 SPEC-0005、开始开发，在 `atrium/research-mobile-app`（只改文档和原型），用户确认后已提交并本地合并回 `main`，未推送。** 手机 App 经三轮原型：第一轮选 A"系统原生"，细化后用户觉得像普通 iOS 配置页，参考 Claude Code、Codex、Cursor 重做视觉、选乙"Claude 式"（暖色底、衬线标题、无卡片无分隔线、悬浮玻璃按钮、无 tab bar），过程保留纵向时间轴，插图是点阵像素猫，新会话改成"空的对话页、发出时原地变成对话"；桌面"手机"设置页选链路图、改成顺序动画（上行汇合、下行分发）。规范写进 [design-language · 手机端](architecture/design-language.md#手机端)、"设置"的"手机"分类和 SPEC-0005"界面"；路线图加了"手机端"一节（MP0–MP7）。下一步：MP0 互通实验。
@@ -515,7 +523,7 @@ MP0 互通实验 ──┬── MP1 Swift 工程基础 ──┐
 ##### MP2 relay
 
 - **目标**：用户 VPS 上跑起只转发、看不到内容的 relay。
-- **范围**：`apps/relay`：控制连接和每台手机的数据连接、令牌认证、代数、接线缓冲、各项上限、日志、`/healthz`、`add-host` / `rotate-host` / `remove-host`；打包成单文件；`apps/relay/README.md`（Caddyfile、systemd unit、升级）。
+- **范围**：`apps/relay`：控制连接和每台手机的数据连接、令牌认证、代数、接线缓冲、各项上限、日志、`/healthz`、`add-host` / `rotate-host` / `remove-host`；打包成单文件和 Docker 镜像；`apps/relay/README.md`（nginx 片段、Docker、systemd unit、升级和回滚；2026-10-25 按用户的 VPS 把 Caddyfile 换成了已有的 nginx）。
 - **参考**：SPEC-0005"部署 relay""relay 的线路协议"。
 - **完成标准**：用真实 `ws` 的集成测试覆盖 SPEC-0005"验证 · relay"列的情况，泄漏测试通过，变异测试 ≥ 80%；部署到你的 VPS，`/healthz` 可达，`add-host` 打印的一行能在本机测试连接里用上。
 - **需要你准备的**：VPS 的登录方式、一个指向它的域名（relay 要正式证书）、开放 443 端口。

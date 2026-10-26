@@ -1,0 +1,30 @@
+# docker compose -f compose.yaml up -d   (from the directory holding this file)
+# The data directory ./data must exist, be owned by uid 1000 and hold relay.json (README "部署").
+services:
+  atrium-relay:
+    image: atrium-relay:${ATRIUM_RELAY_VERSION:?set ATRIUM_RELAY_VERSION, such as 2026.10.25}
+    container_name: atrium-relay
+    restart: unless-stopped
+    # Only the host's loopback: nginx on the same machine is the one way in.
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ./data:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 10s
+    mem_limit: 512m
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options: { max-size: "1m", max-file: "3" }
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8787/atrium/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
