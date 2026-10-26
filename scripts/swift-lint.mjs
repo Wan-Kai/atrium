@@ -18,6 +18,12 @@ const DECLARATION =
 /** Text holding only attributes, as above a declaration; arguments may nest parentheses. */
 const ATTRIBUTES = /^\s*(?:@[A-Za-z_]\w*(?:\(.*\))?\s*)+$/u;
 
+/**
+ * The comments that exempt the line below from a rule; they sit between a declaration and its doc
+ * comment, since each must be right above the line it exempts.
+ */
+const EXEMPTION = /^\/\/ (?:Unchecked|Fire and forget):/u;
+
 /** Declarations that run code, so they must say their side effects. */
 const RUNS_CODE = new Set(["func", "init", "subscript"]);
 
@@ -167,7 +173,8 @@ function attributeStart(code, end) {
  * Checks the doc comment above one declaration.
  *
  * @remarks
- * The comment must sit right above the declaration, with only attributes in between; the
+ * The comment must sit right above the declaration, with only attributes and exemption comments
+ * (`EXEMPTION`) in between; the
  * summary comes first, then `- Remark:`, and `- SideEffects:` for code that runs.
  *
  * @sideEffects none
@@ -181,7 +188,13 @@ function attributeStart(code, end) {
 function docProblem(raw, code, index, kind, xctest) {
   let above = index - 1;
   const attributes = [code[index] ?? ""];
-  for (let start = attributeStart(code, above); start !== null; start = attributeStart(code, above)) {
+  for (;;) {
+    if (EXEMPTION.test((raw[above] ?? "").trim())) {
+      above -= 1;
+      continue;
+    }
+    const start = attributeStart(code, above);
+    if (start === null) break;
     attributes.push(code.slice(start, above + 1).join("\n"));
     above = start - 1;
   }

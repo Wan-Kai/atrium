@@ -169,6 +169,29 @@ describe("swift-lint.mjs", () => {
     ]);
   });
 
+  it("reads a doc comment above an exemption comment as the declaration's, and wants the exemption right above it", async () => {
+    const doc = ["/// A box guarded by a lock.", "///", "/// - Remark: Why."];
+    const right = await lint({
+      "AtriumKit/Sources/A/A.swift": [
+        ...doc,
+        "// Unchecked: guarded by a lock.",
+        "final class Box: @unchecked Sendable {}",
+      ].join("\n"),
+    });
+    const wrong = await lint({
+      "AtriumKit/Sources/A/A.swift": [
+        "// Unchecked: guarded by a lock.",
+        ...doc,
+        "final class Box: @unchecked Sendable {}",
+      ].join("\n"),
+    });
+
+    expect(right).toStrictEqual({ problems: [], code: 0 });
+    expect(wrong.problems).toStrictEqual([
+      "AtriumKit/Sources/A/A.swift:5: @unchecked Sendable needs // Unchecked: <why> on the line above",
+    ]);
+  });
+
   it("refuses real time in AtriumKit's sources, but not in the app or the tests", async () => {
     const realTime = [
       "let a = Date()",
