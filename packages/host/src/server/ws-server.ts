@@ -387,7 +387,8 @@ function handleHello(
   const hello = isBinary ? null : HelloMessage.safeParse(parseJson(data));
   const parent = hello?.success === true ? contextFromTraceparent(hello.data.traceparent) : ROOT_CONTEXT;
   return inSyncSpan(options.tracer, "ws.connect", parent, (span) => {
-    if (hello?.success !== true) {
+    // The local socket must carry a token; only a phone's channel goes without (SPEC-0005, "协议改动").
+    if (hello?.success !== true || hello.data.token === undefined) {
       options.logger.warn("client rejected: malformed hello");
       ws.close(CloseCode.BadHandshake, "bad handshake");
       return null;

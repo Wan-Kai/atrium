@@ -1050,6 +1050,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       loginState.setState(message, true);
       return;
     }
+    // Only the desktop's "手机" page watches it, and it has no store yet (SPEC-0005, MP3b).
+    if (message.type === "remote_updated") return;
     if (message.type === "diff_updated") {
       const { target } = diff.getState();
       if (target?.workspaceId !== message.workspaceId || target.mode !== message.mode) return;

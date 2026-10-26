@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 25,
+    "protocolVersion": 26,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -2054,6 +2054,47 @@
   {
     "type": "plans_updated",
     "plans": []
+  },
+  {
+    "type": "remote_updated",
+    "remote": {
+      "enabled": true,
+      "vault": "ok",
+      "relay": {
+        "url": "wss://ktoon.site/atrium",
+        "hostId": "hst_0123456789abcdef",
+        "status": "connected",
+        "error": null,
+        "lastConnectedAt": 1760000000000
+      },
+      "hostFingerprint": "0123456789abcdef",
+      "devices": [
+        {
+          "deviceId": "dev_0123456789abcdef",
+          "name": "Ktoon 的 iPhone",
+          "pairedAt": 1760000000000,
+          "lastSeenAt": 1760000001000,
+          "online": true,
+          "traffic": {
+            "down": 2048.5,
+            "up": 120
+          }
+        }
+      ],
+      "pairing": {
+        "pairingId": "pair_0123456789abcdef",
+        "qr": "atrium://pair?v=1&relay=wss%3A%2F%2Fktoon.site%2Fatrium",
+        "expiresAt": 1760000300000,
+        "state": "awaiting_confirmation",
+        "reason": null,
+        "request": {
+          "deviceName": "iPhone",
+          "model": "iPhone17,1",
+          "sas": "012345"
+        },
+        "refused": 1
+      }
+    }
   },
   {
     "type": "index_snapshot",
@@ -6830,6 +6871,102 @@
     "ok": false,
     "error": {
       "code": "delivery_sending"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "local_only"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "remote_unavailable"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "pairing_expired"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "pairing_busy"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "device_not_found"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "relay_unreachable"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "relay_rejected"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "keychain_unavailable"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "vault_corrupt"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "response_too_large"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "request_conflict"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "outcome_unknown"
     }
   },
   {

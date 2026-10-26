@@ -11,6 +11,7 @@ import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
 import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
 import { PI_CONFIG_MAX_BYTES, PiConfigFile, PiConfigName, PiConfigRevision } from "./pi-config";
+import { DeviceId, PairingId, RelayLine, RemoteState } from "./remote";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
 export const RequestId = z.string().min(1).max(128);
@@ -778,6 +779,71 @@ export const SetMainBranchCommand = z.strictObject({
 });
 export type SetMainBranchCommand = z.infer<typeof SetMainBranchCommand>;
 
+/**
+ * Reads the remote state; with `watch` the connection gets `remote_updated` from then on, and
+ * `watch: false` stops it (SPEC-0005, "MP3a 定的细节"). Local connections only.
+ */
+export const GetRemoteCommand = z.strictObject({
+  type: z.literal("get_remote"),
+  ...commandFields,
+  watch: z.boolean().optional(),
+});
+export type GetRemoteCommand = z.infer<typeof GetRemoteCommand>;
+
+/** Turns remote access on or off, and sets the relay from the line `add-host` printed. */
+export const SetRemoteCommand = z.strictObject({
+  type: z.literal("set_remote"),
+  ...commandFields,
+  enabled: z.boolean(),
+  relay: RelayLine.optional(),
+});
+export type SetRemoteCommand = z.infer<typeof SetRemoteCommand>;
+
+/** Connects to the relay now and answers whether it accepted the host (SPEC-0005, "部署 relay" item 5). */
+export const TestRelayCommand = z.strictObject({ type: z.literal("test_relay"), ...commandFields });
+export type TestRelayCommand = z.infer<typeof TestRelayCommand>;
+
+/** Starts a pairing, with its QR code, replacing one no phone has claimed. */
+export const StartPairingCommand = z.strictObject({ type: z.literal("start_pairing"), ...commandFields });
+export type StartPairingCommand = z.infer<typeof StartPairingCommand>;
+
+/** Ends the pairing under way, or clears the last one's result. */
+export const CancelPairingCommand = z.strictObject({ type: z.literal("cancel_pairing"), ...commandFields });
+export type CancelPairingCommand = z.infer<typeof CancelPairingCommand>;
+
+/** The Mac's answer to the phone that asked to pair, after comparing the SAS. */
+export const ConfirmPairingCommand = z.strictObject({
+  type: z.literal("confirm_pairing"),
+  ...commandFields,
+  pairingId: PairingId,
+  accept: z.boolean(),
+});
+export type ConfirmPairingCommand = z.infer<typeof ConfirmPairingCommand>;
+
+/** Names a paired phone; an empty name goes back to the one the phone reported. */
+export const RenameDeviceCommand = z.strictObject({
+  type: z.literal("rename_device"),
+  ...commandFields,
+  deviceId: DeviceId,
+  name: z.string().max(64),
+});
+export type RenameDeviceCommand = z.infer<typeof RenameDeviceCommand>;
+
+/** Revokes a paired phone: it is cut off at once and can never connect again (SPEC-0005, "撤销"). */
+export const RevokeDeviceCommand = z.strictObject({
+  type: z.literal("revoke_device"),
+  ...commandFields,
+  deviceId: DeviceId,
+});
+export type RevokeDeviceCommand = z.infer<typeof RevokeDeviceCommand>;
+
+/** Revokes every phone and makes a new host key pair; every phone has to pair again. */
+export const ResetRemoteIdentityCommand = z.strictObject({
+  type: z.literal("reset_remote_identity"),
+  ...commandFields,
+});
+export type ResetRemoteIdentityCommand = z.infer<typeof ResetRemoteIdentityCommand>;
+
 /** Every command a client may send after the handshake. */
 export const Command = z.discriminatedUnion("type", [
   PingCommand,
@@ -855,6 +921,15 @@ export const Command = z.discriminatedUnion("type", [
   DiscoverProjectsCommand,
   ListBranchesCommand,
   SetMainBranchCommand,
+  GetRemoteCommand,
+  SetRemoteCommand,
+  TestRelayCommand,
+  StartPairingCommand,
+  CancelPairingCommand,
+  ConfirmPairingCommand,
+  RenameDeviceCommand,
+  RevokeDeviceCommand,
+  ResetRemoteIdentityCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -986,5 +1061,14 @@ export const CommandResult = {
   discover_projects: z.strictObject({ directories: z.array(DiscoveredDirectory) }),
   list_branches: z.strictObject({ branches: z.array(BranchName), head: BranchName.nullable() }),
   set_main_branch: z.strictObject({}),
+  get_remote: RemoteState,
+  set_remote: z.strictObject({}),
+  test_relay: z.strictObject({}),
+  start_pairing: z.strictObject({ pairingId: PairingId }),
+  cancel_pairing: z.strictObject({}),
+  confirm_pairing: z.strictObject({}),
+  rename_device: z.strictObject({}),
+  revoke_device: z.strictObject({}),
+  reset_remote_identity: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

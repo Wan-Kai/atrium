@@ -1,9 +1,15 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 25,
+    "protocolVersion": 26,
     "clientId": "c1",
     "token": "t",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "hello",
+    "protocolVersion": 26,
+    "clientId": "dev_0123456789abcdef",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
@@ -843,5 +849,69 @@
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
     "projectId": "prj_0123456789abcdef",
     "branch": null
+  },
+  {
+    "type": "get_remote",
+    "requestId": "r79",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "get_remote",
+    "requestId": "r80",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "watch": true
+  },
+  {
+    "type": "set_remote",
+    "requestId": "r81",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "enabled": true,
+    "relay": "atrium-relay://hst_0123456789abcdef:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA@ktoon.site/atrium"
+  },
+  {
+    "type": "set_remote",
+    "requestId": "r82",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "enabled": false
+  },
+  {
+    "type": "test_relay",
+    "requestId": "r83",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "start_pairing",
+    "requestId": "r84",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "cancel_pairing",
+    "requestId": "r85",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "confirm_pairing",
+    "requestId": "r86",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "pairingId": "pair_0123456789abcdef",
+    "accept": true
+  },
+  {
+    "type": "rename_device",
+    "requestId": "r87",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "deviceId": "dev_0123456789abcdef",
+    "name": ""
+  },
+  {
+    "type": "revoke_device",
+    "requestId": "r88",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "deviceId": "dev_0123456789abcdef"
+  },
+  {
+    "type": "reset_remote_identity",
+    "requestId": "r89",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   }
 ]

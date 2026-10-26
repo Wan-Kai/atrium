@@ -900,5 +900,79 @@
   ],
   "set_main_branch": [
     {}
+  ],
+  "get_remote": [
+    {
+      "enabled": true,
+      "vault": "ok",
+      "relay": {
+        "url": "wss://ktoon.site/atrium",
+        "hostId": "hst_0123456789abcdef",
+        "status": "connected",
+        "error": null,
+        "lastConnectedAt": 1760000000000
+      },
+      "hostFingerprint": "0123456789abcdef",
+      "devices": [
+        {
+          "deviceId": "dev_0123456789abcdef",
+          "name": "Ktoon 的 iPhone",
+          "pairedAt": 1760000000000,
+          "lastSeenAt": 1760000001000,
+          "online": true,
+          "traffic": {
+            "down": 2048.5,
+            "up": 120
+          }
+        }
+      ],
+      "pairing": {
+        "pairingId": "pair_0123456789abcdef",
+        "qr": "atrium://pair?v=1&relay=wss%3A%2F%2Fktoon.site%2Fatrium",
+        "expiresAt": 1760000300000,
+        "state": "awaiting_confirmation",
+        "reason": null,
+        "request": {
+          "deviceName": "iPhone",
+          "model": "iPhone17,1",
+          "sas": "012345"
+        },
+        "refused": 1
+      }
+    },
+    {
+      "enabled": false,
+      "vault": "unread",
+      "relay": null,
+      "hostFingerprint": null,
+      "devices": [],
+      "pairing": null
+    }
+  ],
+  "set_remote": [
+    {}
+  ],
+  "test_relay": [
+    {}
+  ],
+  "start_pairing": [
+    {
+      "pairingId": "pair_0123456789abcdef"
+    }
+  ],
+  "cancel_pairing": [
+    {}
+  ],
+  "confirm_pairing": [
+    {}
+  ],
+  "rename_device": [
+    {}
+  ],
+  "revoke_device": [
+    {}
+  ],
+  "reset_remote_identity": [
+    {}
   ]
 }

@@ -18,6 +18,9 @@ const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
 const PROJECT = "prj_0123456789abcdef";
 const WORKSPACE = "wks_0123456789abcdef";
 const CHAT = "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc";
+const DEVICE = "dev_0123456789abcdef";
+const PAIRING = "pair_0123456789abcdef";
+const RELAY_LINE = `atrium-relay://hst_0123456789abcdef:${"A".repeat(43)}@ktoon.site/atrium`;
 
 /** One valid example of every command. */
 const commands: Command[] = [
@@ -257,6 +260,17 @@ const commands: Command[] = [
   { type: "list_branches", requestId: "r76", traceparent, projectId: PROJECT },
   { type: "set_main_branch", requestId: "r77", traceparent, projectId: PROJECT, branch: "release/1.0" },
   { type: "set_main_branch", requestId: "r78", traceparent, projectId: PROJECT, branch: null },
+  { type: "get_remote", requestId: "r79", traceparent },
+  { type: "get_remote", requestId: "r80", traceparent, watch: true },
+  { type: "set_remote", requestId: "r81", traceparent, enabled: true, relay: RELAY_LINE },
+  { type: "set_remote", requestId: "r82", traceparent, enabled: false },
+  { type: "test_relay", requestId: "r83", traceparent },
+  { type: "start_pairing", requestId: "r84", traceparent },
+  { type: "cancel_pairing", requestId: "r85", traceparent },
+  { type: "confirm_pairing", requestId: "r86", traceparent, pairingId: PAIRING, accept: true },
+  { type: "rename_device", requestId: "r87", traceparent, deviceId: DEVICE, name: "" },
+  { type: "revoke_device", requestId: "r88", traceparent, deviceId: DEVICE },
+  { type: "reset_remote_identity", requestId: "r89", traceparent },
 ];
 
 /** An update waiting for two sessions to finish. */
@@ -790,12 +804,14 @@ describe("parseClientMessage", () => {
       "archive_workspace",
       "cancel_install",
       "cancel_login",
+      "cancel_pairing",
       "check_pi_update",
       "check_setup",
       "clear_attention",
       "clear_queue",
       "close_tab",
       "compact_session",
+      "confirm_pairing",
       "create_chat",
       "create_session",
       "create_workspace",
@@ -807,6 +823,7 @@ describe("parseClientMessage", () => {
       "fetch_step",
       "fetch_transcript",
       "fork_session",
+      "get_remote",
       "hand_off",
       "install_node",
       "install_pi",
@@ -827,15 +844,18 @@ describe("parseClientMessage", () => {
       "remove_project",
       "remove_queued",
       "rename_chat",
+      "rename_device",
       "rename_project",
       "rename_session",
       "rename_workspace",
       "report_client_issue",
+      "reset_remote_identity",
       "restore_chat",
       "restore_workspace",
       "resume_deliveries",
       "resume_queue",
       "retry_run",
+      "revoke_device",
       "save_pi_config",
       "search_files",
       "select_container",
@@ -843,13 +863,16 @@ describe("parseClientMessage", () => {
       "set_main_branch",
       "set_model",
       "set_preferences",
+      "set_remote",
       "set_thinking_level",
+      "start_pairing",
       "steer",
       "steer_queued",
       "stop",
       "subscribe_index",
       "subscribe_sessions",
       "take_back",
+      "test_relay",
       "update_pi",
       "update_queued",
       "upload_attachment",
@@ -1253,8 +1276,12 @@ describe("parseClientMessage", () => {
 describe("ClientMessage", () => {
   it("covers the handshake and every command", () => {
     const hello = { type: "hello", protocolVersion: PROTOCOL_VERSION, clientId: "c1", token: "t", traceparent };
+    // A phone's hello carries no token (SPEC-0005, "协议改动" item 1).
+    const phoneHello = { type: "hello", protocolVersion: PROTOCOL_VERSION, clientId: DEVICE, traceparent };
 
-    for (const message of [hello, ...commands]) expect(ClientMessage.parse(message)).toStrictEqual(message);
+    for (const message of [hello, phoneHello, ...commands]) {
+      expect(ClientMessage.parse(message)).toStrictEqual(message);
+    }
   });
 });
 
@@ -1678,6 +1705,39 @@ const changes: IndexChangesEvent = {
 };
 
 /** One valid example of every message the host sends, besides the variants below. */
+/** A remote state with a phone online and one waiting to be confirmed (SPEC-0005, "宿主"). */
+const remoteState = {
+  enabled: true,
+  vault: "ok",
+  relay: {
+    url: "wss://ktoon.site/atrium",
+    hostId: "hst_0123456789abcdef",
+    status: "connected",
+    error: null,
+    lastConnectedAt: 1_760_000_000_000,
+  },
+  hostFingerprint: "0123456789abcdef",
+  devices: [
+    {
+      deviceId: DEVICE,
+      name: "Ktoon 的 iPhone",
+      pairedAt: 1_760_000_000_000,
+      lastSeenAt: 1_760_000_001_000,
+      online: true,
+      traffic: { down: 2048.5, up: 120 },
+    },
+  ],
+  pairing: {
+    pairingId: PAIRING,
+    qr: "atrium://pair?v=1&relay=wss%3A%2F%2Fktoon.site%2Fatrium",
+    expiresAt: 1_760_000_300_000,
+    state: "awaiting_confirmation",
+    reason: null,
+    request: { deviceName: "iPhone", model: "iPhone17,1", sas: "012345" },
+    refused: 1,
+  },
+} as const;
+
 const hostMessages: unknown[] = [
   {
     type: "welcome",
@@ -1743,6 +1803,7 @@ const hostMessages: unknown[] = [
   { type: "credentials_changed" },
   { type: "plans_updated", plans: [plan, { provider: "anthropic", plan: null, windows: [], at: 0 }, grokPlan] },
   { type: "plans_updated", plans: [] },
+  { type: "remote_updated", remote: remoteState },
 ];
 
 const [local, worktree] = snapshot.workspaces;
@@ -1973,6 +2034,18 @@ const commandResultExamples = {
     { branches: [], head: null },
   ],
   set_main_branch: [{}],
+  get_remote: [
+    remoteState,
+    { ...remoteState, enabled: false, vault: "unread", relay: null, devices: [], pairing: null, hostFingerprint: null },
+  ],
+  set_remote: [{}],
+  test_relay: [{}],
+  start_pairing: [{ pairingId: PAIRING }],
+  cancel_pairing: [{}],
+  confirm_pairing: [{}],
+  rename_device: [{}],
+  revoke_device: [{}],
+  reset_remote_identity: [{}],
 } satisfies Record<CommandType, unknown[]>;
 
 /**
@@ -2069,7 +2142,11 @@ describe("Swift fixtures", () => {
   it.each([
     [
       "client-messages.json",
-      [{ type: "hello", protocolVersion: PROTOCOL_VERSION, clientId: "c1", token: "t", traceparent }, ...commands],
+      [
+        { type: "hello", protocolVersion: PROTOCOL_VERSION, clientId: "c1", token: "t", traceparent },
+        { type: "hello", protocolVersion: PROTOCOL_VERSION, clientId: DEVICE, traceparent },
+        ...commands,
+      ],
     ],
     ["host-messages.json", [...hostMessages, ...hostVariants]],
     ["command-results.json", commandResultExamples],
@@ -2207,6 +2284,18 @@ describe("HostMessage", () => {
       "command_reserved",
       "delivery_not_found",
       "delivery_sending",
+      "local_only",
+      "remote_unavailable",
+      "pairing_expired",
+      "pairing_busy",
+      "device_not_found",
+      "relay_unreachable",
+      "relay_rejected",
+      "keychain_unavailable",
+      "vault_corrupt",
+      "response_too_large",
+      "request_conflict",
+      "outcome_unknown",
       "internal_error",
     ]);
     expect(ThinkingLevel.options).toStrictEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);

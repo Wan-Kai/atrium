@@ -266,6 +266,17 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.listBranches(command.projectId);
       case "set_main_branch":
         return options.index.setMainBranch(command.projectId, command.branch);
+      // The remote module comes later in MP3a; until then remote access is not there to use.
+      case "get_remote":
+      case "set_remote":
+      case "test_relay":
+      case "start_pairing":
+      case "cancel_pairing":
+      case "confirm_pairing":
+      case "rename_device":
+      case "revoke_device":
+      case "reset_remote_identity":
+        throw new CommandError("remote_unavailable");
     }
     // Stryker disable next-line all: unreachable, since the switch covers every command type.
     throw new Error(`unrouted command ${String((command as { type: unknown }).type)}`);
