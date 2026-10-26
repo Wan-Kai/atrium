@@ -188,6 +188,33 @@ describe("generateSwift", () => {
     expect(source).toContain('    try container.encodeIfPresent(self.noteSent, forKey: "noteSent")\n');
   });
 
+  it("maps each command's type to the Swift type of its result", () => {
+    const schemas = {
+      PingResult: strictObject({}, []),
+      StopRunResult: strictObject({ confirmed: { type: "boolean" } }, ["confirmed"]),
+    };
+    const source = generateSwift({
+      protocolVersion: 1,
+      schemas,
+      commandResults: { stop_run: "StopRunResult", ping: "PingResult" },
+    });
+
+    expect(source).toContain(
+      [
+        "public func commandResultType(_ command: String) -> (any Codable.Type)? {",
+        "  switch command {",
+        '  case "ping": PingResult.self',
+        '  case "stop_run": StopRunResult.self',
+        "  default: nil",
+        "  }",
+        "}",
+      ].join("\n"),
+    );
+    expect(() => generateSwift({ protocolVersion: 1, schemas, commandResults: { ping: "Missing" } })).toThrow(
+      "#/commandResults/ping: unknown result type Missing",
+    );
+  });
+
   it("refuses what the protocol does not use, saying where", () => {
     expect(() => swift({ A: { allOf: [{ type: "string" }] } })).toThrow("#/A: unsupported schema (allOf)");
     expect(() => swift({ A: { type: "array", prefixItems: [{ type: "string" }] } })).toThrow(

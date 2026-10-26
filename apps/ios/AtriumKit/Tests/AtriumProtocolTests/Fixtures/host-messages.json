@@ -1994,6 +1994,9 @@
     "checkedAt": null
   },
   {
+    "type": "credentials_changed"
+  },
+  {
     "type": "plans_updated",
     "plans": [
       {

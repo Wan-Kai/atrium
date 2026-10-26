@@ -47,6 +47,24 @@ struct RoundTripTests {
     for message in messages { try expectRoundTrip(HostMessage.self, message) }
   }
 
+  @Test("decodes and re-encodes every command's result as the type of its own result, unchanged")
+  func commandResults() throws {
+    let url = try #require(
+      Bundle.module.url(forResource: "command-results", withExtension: "json", subdirectory: "Fixtures"))
+    let results = try JSONDecoder().decode([String: [JSONValue]].self, from: Data(contentsOf: url))
+    #expect(results.count > 70)
+    for (command, examples) in results {
+      let type = try #require(commandResultType(command), "no result type for \(command)")
+      #expect(!examples.isEmpty, "no example of \(command)'s result")
+      for example in examples { try expectRoundTrip(type, JSONEncoder().encode(example)) }
+    }
+  }
+
+  @Test("knows no result type for a command that does not exist")
+  func unknownCommand() {
+    #expect(commandResultType("pong") == nil)
+  }
+
   @Test("reads each message as the kind its type says")
   func dispatch() throws {
     let ping = try JSONDecoder().decode(

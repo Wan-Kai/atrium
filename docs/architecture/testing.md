@@ -321,7 +321,7 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 - **只管形状**：长度、范围、正则这些约束不在 Swift 里校验（宿主照旧用 zod 校验收到的命令）；解码时忽略不认识的键，协议的兼容由握手的 `PROTOCOL_VERSION` 守住。
 - **指纹**：生成的文件第二行起写着整份 JSON Schema（键排好序）的 SHA-256。只改长度、范围、正则这类约束时 Swift 代码本身不变，有了指纹，比对照样失败，逼人重新生成、看一眼夹具（2026-10-26 审查后加）。
 - **比对**：`pnpm check` 跑 `pnpm protocol:swift --check`，在内存里重新生成、和提交的文件逐字节比，不一致就失败、提示重新生成；只要 Node，不要 Xcode。`scripts/protocol-swift.test.ts` 在单元测试里做同一件事。
-- **往返测试**：`packages/protocol/src/envelope.test.ts` 里的合法样例（全部命令、握手、宿主发的每类消息和变体）也是 Swift 的夹具：`UPDATE_SWIFT_FIXTURES=1` 时由那里的测试写出 `apps/ios/AtriumKit/Tests/AtriumProtocolTests/Fixtures/{client,host}-messages.json`（`pnpm protocol:swift` 顺带做），平时比较、不一致就失败。超过 4096 个字符的字符串（测长度上限的样例，有 1 MB）在夹具里截成 64 个字符，Swift 不校验长度。Swift 测试逐条解码成 `ClientMessage` / `HostMessage`、再编码，和原 JSON 按 JSON 语义比较（键的顺序、`1` 和 `1.0` 不算差别）。它只证明编解码对得上；同步语义靠 MP4 的契约测试。
+- **往返测试**：`packages/protocol/src/envelope.test.ts` 里的合法样例（全部命令、握手、宿主发的每类消息和变体）也是 Swift 的夹具：`UPDATE_SWIFT_FIXTURES=1` 时由那里的测试写出 `apps/ios/AtriumKit/Tests/AtriumProtocolTests/Fixtures/{client,host}-messages.json`，以及每条命令至少一个合法结果的 `command-results.json`（2026-10-26 审查后加；`envelope.test.ts` 另核对宿主样例覆盖了 `HostMessage` 的每种 `type`）（`pnpm protocol:swift` 顺带做），平时比较、不一致就失败。超过 4096 个字符的字符串（测长度上限的样例，有 1 MB）在夹具里截成 64 个字符，Swift 不校验长度。Swift 测试逐条解码成 `ClientMessage` / `HostMessage`，命令的结果按生成的 `commandResultType(_:)` 查到各自的类型（`PromptResult`、`FetchTranscriptResult`……）解码，再编码，和原 JSON 按 JSON 语义比较（键的顺序、`1` 和 `1.0` 不算差别）。它只证明编解码对得上；同步语义靠 MP4 的契约测试。
 
 ### 破坏检查与变异测试
 

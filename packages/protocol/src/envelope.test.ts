@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { COMMAND_TYPES, type Command, CommandResult } from "./commands";
+import { COMMAND_TYPES, type Command, CommandResult, type CommandType } from "./commands";
 import { type Control, IDLE_CONTROL, type Interaction } from "./control";
 import { CommandError, ErrorCode } from "./errors";
 import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
@@ -10,6 +10,7 @@ import type { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { type CatalogModel, ThinkingLevel } from "./models";
 import { Step, Turn } from "./transcript";
 import { isChatId } from "./ids";
+import { protocolJsonSchema } from "./json-schema";
 import { PROTOCOL_VERSION } from "./version";
 
 const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
@@ -1739,6 +1740,7 @@ const hostMessages: unknown[] = [
   { type: "pi_latest", latest: "1.1.0", checkedAt: 1_760_000_000_000 },
   { type: "pi_latest", latest: "2.0.0-rc.1+build.5", checkedAt: 0 },
   { type: "pi_latest", latest: null, checkedAt: null },
+  { type: "credentials_changed" },
   { type: "plans_updated", plans: [plan, { provider: "anthropic", plan: null, windows: [], at: 0 }, grokPlan] },
   { type: "plans_updated", plans: [] },
 ];
@@ -1827,6 +1829,195 @@ const swiftFixtures = join(
   "Fixtures",
 );
 
+/** At least one valid result of every command, for the Swift test of the typed results. */
+const commandResultExamples = {
+  ping: [{}],
+  create_chat: [{ sessionId: "s1" }],
+  subscribe_sessions: [{}],
+  prompt: [{ disposition: "started" }, { disposition: "handled" }, { disposition: "queued", itemId: "q1" }],
+  edit_stopped_message: [{ disposition: "started" }],
+  fetch_transcript: [
+    { items: [turn], hasOlder: true },
+    { items: [], hasOlder: false },
+  ],
+  fetch_step: [{ step: bashStep }],
+  fetch_image: [{ mimeType: "image/webp", data: "eA==" }],
+  open_session: [{}],
+  subscribe_index: [{}],
+  add_project: [{ projectId: PROJECT }],
+  remove_project: [{}],
+  rename_project: [{}],
+  rename_workspace: [{}],
+  archive_workspace: [{}],
+  restore_workspace: [{}],
+  list_bases: [
+    { main: "refs/heads/main", current: "main", local: ["main", "atrium/a"], remote: ["origin/main"] },
+    { main: null, current: null, local: [], remote: [] },
+  ],
+  create_workspace: [{ workspaceId: WORKSPACE }],
+  name_branch: [{ branch: "atrium/fix-login" }],
+  rename_chat: [{}],
+  archive_chat: [{}],
+  restore_chat: [{}],
+  window_focused: [{}],
+  create_session: [{ sessionId: "s1" }],
+  close_tab: [{}],
+  select_container: [{}],
+  archive_session: [{}],
+  detach_session: [{}],
+  clear_attention: [{}],
+  hand_off: [{ file: "/pi/sessions/s1.jsonl", args: ["--tools", "read,ls"] }],
+  take_back: [{}],
+  rename_session: [{}],
+  set_preferences: [{}],
+  report_client_issue: [{}],
+  steer: [{ disposition: "started" }, { disposition: "queued" }, { disposition: "handled" }],
+  stop: [{ confirmed: true }, { confirmed: false }],
+  resume_queue: [{}],
+  clear_queue: [{}],
+  update_queued: [{}],
+  remove_queued: [{}],
+  remove_delivery: [{}],
+  resume_deliveries: [{}],
+  steer_queued: [{ disposition: "queued" }],
+  answer_interaction: [{}],
+  answer_question: [{}],
+  retry_run: [{}],
+  list_models: [
+    { models: [model, { ...model, fast: { speed: null, moreUsage: true } }], defaultModel: null },
+    { models: [], defaultModel: { providerId: "faux", modelId: "faux-1" } },
+  ],
+  set_model: [{}],
+  set_thinking_level: [{}],
+  set_fast: [{}],
+  compact_session: [{}],
+  export_session: [{ html: "<html></html>" }],
+  fork_session: [{ sessionId: "s2" }, { sessionId: "s2", noteSent: false }],
+  list_commands: [
+    {
+      commands: [
+        { name: "review", description: "Reviews the change", source: "prompt" },
+        { name: "skill:tdd", description: null, source: "skill" },
+      ],
+    },
+  ],
+  search_files: [{ files: [{ path: "src/sessions/", directory: true }] }],
+  upload_attachment: [{ attachmentId: "a1" }],
+  watch_changes: [{}],
+  watch_diff: [{}],
+  list_dir: [
+    {
+      entries: [
+        { name: "src", kind: "dir" },
+        { name: "a.ts", kind: "file" },
+        { name: "latest", kind: "link" },
+      ],
+      truncated: false,
+    },
+  ],
+  read_file: [
+    { size: 3, content: { kind: "text", text: "abc" } },
+    { size: 4, content: { kind: "image", mimeType: "image/png", data: "UklGRg==" } },
+    { size: 9, content: { kind: "too_large" } },
+  ],
+  read_pi_config: [
+    { path: "/Users/test/.pi/agent/settings.json", text: "{}\n", revision: "a".repeat(64) },
+    { path: "/Users/test/.pi/agent/mcp.json", text: "", revision: null },
+  ],
+  save_pi_config: [{ path: "/Users/test/.pi/agent/settings.json", text: "{}\n", revision: "b".repeat(64) }],
+  check_setup: [
+    {
+      pi: {
+        state: "broken",
+        path: "/opt/bin/pi",
+        version: null,
+        minimum: "1.0.1",
+        detail: "node: not found",
+        latest: "1.2.0-beta.1",
+        checkedAt: 1_760_000_000_000,
+      },
+      node: { state: "outdated", version: "20.11.0" },
+      homebrew: true,
+      fd: false,
+      login: {
+        state: "ready",
+        providers: [
+          {
+            providerId: "anthropic",
+            name: "Anthropic",
+            oauth: { label: "Anthropic (Claude Pro/Max)", subscription: true },
+            apiKey: true,
+            signedIn: { method: "oauth", stored: true },
+          },
+          { providerId: "deepseek", name: "DeepSeek", oauth: null, apiKey: true, signedIn: null },
+        ],
+      },
+      projects: 2,
+    },
+  ],
+  login: [{ loginId: "l1" }],
+  answer_login: [{}],
+  cancel_login: [{}],
+  logout: [{}],
+  install_pi: [{ jobId: "j1" }],
+  install_node: [{ jobId: "j2" }],
+  update_pi: [{ jobId: "j3" }],
+  cancel_install: [{}],
+  check_pi_update: [
+    { latest: "1.1.0", checkedAt: 5 },
+    { latest: null, checkedAt: null },
+  ],
+  discover_projects: [{ directories: [{ path: "/Users/me/work", sessions: 3, lastUsedAt: 1_700_000_000_000 }] }],
+  list_branches: [
+    { branches: ["main", "release/1.0"], head: "main" },
+    { branches: [], head: null },
+  ],
+  set_main_branch: [{}],
+} satisfies Record<CommandType, unknown[]>;
+
+/**
+ * Lists the `type` values a schema of the protocol's JSON Schema allows, through references and unions.
+ *
+ * @remarks
+ * Tells whether the host examples cover every kind of message the host can send.
+ *
+ * @sideEffects none
+ * @param schema - A schema of the bundle, or a reference to one by name.
+ * @param schemas - The bundle's schemas, to follow references.
+ * @returns The constant `type` values.
+ */
+function typeValues(schema: unknown, schemas: Readonly<Record<string, unknown>>): string[] {
+  const ref: unknown = Reflect.get(Object(schema), "$ref");
+  if (typeof ref === "string") return typeValues(schemas[ref], schemas);
+  const members: unknown = Reflect.get(Object(schema), "anyOf") ?? Reflect.get(Object(schema), "oneOf");
+  if (Array.isArray(members)) return members.flatMap((member: unknown) => typeValues(member, schemas));
+  const value: unknown = Reflect.get(
+    Object(Reflect.get(Object(Reflect.get(Object(schema), "properties")), "type")),
+    "const",
+  );
+  return typeof value === "string" ? [value] : [];
+}
+
+describe("examples", () => {
+  it("has valid results of every command", () => {
+    for (const [type, results] of Object.entries(commandResultExamples)) {
+      for (const result of results) {
+        expect([type, CommandResult[type as CommandType].parse(result)]).toStrictEqual([type, result]);
+      }
+    }
+    expect(Object.keys(commandResultExamples).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
+  });
+
+  it("covers every type of message the host sends", () => {
+    const { schemas } = protocolJsonSchema();
+    const sent = [...hostMessages, ...hostVariants].map((message) => String(Reflect.get(Object(message), "type")));
+
+    expect([...new Set(sent)].toSorted()).toStrictEqual(
+      [...new Set(typeValues({ $ref: "HostMessage" }, schemas))].toSorted(),
+    );
+  });
+});
+
 /**
  * Writes examples as the Swift fixtures hold them.
  *
@@ -1835,10 +2026,10 @@ const swiftFixtures = join(
  * they are cut to 64 characters to keep the fixtures small.
  *
  * @sideEffects none
- * @param examples - The messages.
+ * @param examples - The messages, or the results by command.
  * @returns The file's text.
  */
-function fixtureText(examples: unknown[]): string {
+function fixtureText(examples: unknown): string {
   return `${JSON.stringify(examples, shorten, 2)}\n`;
 }
 
@@ -1881,6 +2072,7 @@ describe("Swift fixtures", () => {
       [{ type: "hello", protocolVersion: PROTOCOL_VERSION, clientId: "c1", token: "t", traceparent }, ...commands],
     ],
     ["host-messages.json", [...hostMessages, ...hostVariants]],
+    ["command-results.json", commandResultExamples],
   ])("keeps %s the same as the examples here", (file, examples) => {
     const text = fixtureText(examples);
 

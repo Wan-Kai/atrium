@@ -143,8 +143,9 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/u;
  * types nested in the type that uses them. See testing.md for how each construct maps.
  *
  * @sideEffects none
- * @param {{ protocolVersion: number, schemas: Record<string, any> }} bundle - The protocol version
- *   and the schemas by name, as `protocolJsonSchema()` returns them.
+ * @param {{ protocolVersion: number, schemas: Record<string, any>, commandResults?: Record<string, string> }} bundle -
+ *   The protocol version, the schemas by name and each command's result schema, as
+ *   `protocolJsonSchema()` returns them.
  * @param {{ caseNames?: Record<string, Record<string, string>> }} [options] - `caseNames` names
  *   the cases of unions told apart by a boolean, by union and value (`{ true: "success" }`).
  * @returns {string} The Swift source.
@@ -168,8 +169,42 @@ export function generateSwift(bundle, options = {}) {
     `public let protocolVersion = ${bundle.protocolVersion}`,
     "",
     blocks.join("\n\n"),
+    ...resultLookup(ctx, bundle.commandResults ?? {}),
     "",
   ].join("\n");
+}
+
+/**
+ * Writes the function that gives the Swift type of each command's result.
+ *
+ * @remarks
+ * A response carries `result` as open JSON (SPEC-0001 "应答"); the client knows which command it
+ * sent, and this tells it which type to decode the result as. Commands in name order.
+ *
+ * @sideEffects none
+ * @param {any} ctx - The run.
+ * @param {Record<string, string>} results - The result schema's name, by command type.
+ * @returns {string[]} The lines, with a blank line before; none when there are no results.
+ * @throws {Error} When a result names a schema that is not in the bundle.
+ */
+function resultLookup(ctx, results) {
+  const commands = Object.keys(results).toSorted();
+  if (commands.length === 0) return [];
+  const cases = commands.map((command) => {
+    const name = results[command];
+    if (!ctx.top.has(name)) throw fail(`#/commandResults/${command}`, `unknown result type ${name}`);
+    return `  case ${literal(command)}: ${name}.self`;
+  });
+  return [
+    "",
+    "/// The Swift type of a command's result, by the command's `type`; `nil` for an unknown command.",
+    "public func commandResultType(_ command: String) -> (any Codable.Type)? {",
+    "  switch command {",
+    ...cases,
+    "  default: nil",
+    "  }",
+    "}",
+  ];
 }
 
 /**

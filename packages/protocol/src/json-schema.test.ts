@@ -38,6 +38,15 @@ describe("protocolJsonSchema", () => {
     expect(schemas["SessionId"]).toStrictEqual({ type: "string", minLength: 1, maxLength: 128 });
   });
 
+  it("names the result schema of every command, by the command's type", () => {
+    const { schemas, commandResults } = protocolJsonSchema();
+
+    expect(Object.keys(commandResults).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
+    expect(commandResults["prompt"]).toBe("PromptResult");
+    expect(commandResults["fetch_transcript"]).toBe("FetchTranscriptResult");
+    expect(Object.values(commandResults).filter((name) => schemas[name] === undefined)).toStrictEqual([]);
+  });
+
   it("refers to other schemas only by names in the bundle, and carries the protocol version", () => {
     const bundle = protocolJsonSchema();
     const names = new Set(Object.keys(bundle.schemas));
