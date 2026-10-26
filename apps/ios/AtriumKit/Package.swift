@@ -24,6 +24,7 @@ let package = Package(
     .target(name: "AtriumProtocol", swiftSettings: shared),
     .target(name: "AtriumNoise", swiftSettings: shared),
     .target(name: "AtriumRemote", dependencies: ["AtriumProtocol", "AtriumNoise"], swiftSettings: shared),
+    .target(name: "AtriumTestSupport", dependencies: ["AtriumNoise", "AtriumRemote"], swiftSettings: shared),
     .target(name: "AtriumSync", dependencies: ["AtriumProtocol"], swiftSettings: shared),
     .target(name: "AtriumRender", dependencies: ["AtriumProtocol"], swiftSettings: shared),
     .target(
@@ -43,7 +44,11 @@ let package = Package(
       resources: [.copy("Fixtures")],
       swiftSettings: shared
     ),
-    .testTarget(name: "AtriumRemoteTests", dependencies: ["AtriumRemote"], swiftSettings: shared),
+    .testTarget(
+      name: "AtriumRemoteTests",
+      dependencies: ["AtriumRemote", "AtriumNoise", "AtriumTestSupport", "AtriumProtocol"],
+      swiftSettings: shared
+    ),
     .testTarget(name: "AtriumSyncTests", dependencies: ["AtriumSync"], swiftSettings: shared),
     .testTarget(name: "AtriumRenderTests", dependencies: ["AtriumRender"], swiftSettings: shared),
     .testTarget(name: "AtriumUITests", dependencies: ["AtriumUI"], swiftSettings: mainActor),
