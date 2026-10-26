@@ -20,6 +20,7 @@ import type { PiLatestService } from "../setup/pi-latest";
 import type { SetupService } from "../setup/setup-service";
 import type { PiConfig } from "../setup/pi-config";
 import type { Connection } from "./connection";
+import { phoneMayRun } from "./remote-policy";
 
 /** What the router needs from the rest of the host. */
 export interface RouterOptions {
@@ -74,7 +75,7 @@ export function createRouter(options: RouterOptions): Route {
    *
    * @remarks
    * The `switch` is exhaustive over `Command`, so a new command type does not compile until it is
-   * routed.
+   * routed. A phone's command that is not on its allowlist is answered `local_only` first.
    *
    * @sideEffects Whatever the handler does.
    * @param connection - The connection that sent it.
@@ -82,6 +83,8 @@ export function createRouter(options: RouterOptions): Route {
    * @returns The command's result.
    */
   async function run(connection: Connection, command: Command): Promise<CommandResult<CommandType>> {
+    // A phone runs only what the allowlist gives it (SPEC-0005, "远程客户端能用的命令").
+    if (connection.origin === "remote" && !phoneMayRun(command)) throw new CommandError("local_only");
     switch (command.type) {
       case "ping":
         return {};

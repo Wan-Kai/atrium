@@ -1667,6 +1667,12 @@ export function createSessionManager(options: {
       inBackground("session scan", () => options.catalog.scan());
       return {};
     },
+    currentSnapshot(sessionId) {
+      const controller = sessions.get(sessionId)?.controller;
+      if (controller !== undefined) return controller.snapshot();
+      const entry = entryOf(sessionId);
+      return entry?.state === "draft" ? draftSnapshot(sessionId, fastOf(entry)) : null;
+    },
     async subscribe(connectionId, sessionIds) {
       await options.catalog.ready();
       const snapshots = new Map<string, SessionSnapshotEvent>();

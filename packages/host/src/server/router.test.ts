@@ -95,6 +95,7 @@ function fakeCommands() {
     forkSession: record("forkSession", { sessionId: "s2" }),
     listCommands: record("listCommands", { commands: [] }),
     searchFiles: record("searchFiles", { files: [] }),
+    currentSnapshot: () => null,
   };
   const index: IndexCommands = {
     subscribeIndex: record("subscribeIndex", {}),
@@ -297,6 +298,42 @@ describe("createRouter", () => {
       ),
     );
     expect(records.filter((record) => record["msg"] === "client issue")).toStrictEqual([]);
+  });
+
+  it("answers local_only to a phone for what only the Mac may do, and runs what it may", async () => {
+    const { route, sent, calls, logger } = setUp();
+    const phone = createConnection(
+      { bufferedAmount: 0, send: (data) => sent.push(JSON.parse(data) as HostMessage), close: () => undefined },
+      {
+        id: "c3",
+        clientId: "dev_0123456789abcdef",
+        trace: ROOT_CONTEXT,
+        maxBufferedBytes: 1024,
+        logger,
+        remote: { deviceId: "dev_0123456789abcdef", maxMessageBytes: 1024, snapshotOf: () => null },
+      },
+    );
+
+    await route(phone, withTrace({ type: "add_project", requestId: "r1", path: "/work" }));
+    await route(phone, withTrace({ type: "get_remote", requestId: "r2" }));
+    await route(
+      phone,
+      withTrace({
+        type: "create_session",
+        requestId: "r3",
+        containerId: WORKSPACE,
+        child: { parentSessionId: "s1", name: "child", place: "same" },
+      }),
+    );
+    await route(phone, withTrace({ type: "create_session", requestId: "r4", containerId: WORKSPACE }));
+
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: false, error: { code: "local_only" } },
+      { type: "response", requestId: "r2", ok: false, error: { code: "local_only" } },
+      { type: "response", requestId: "r3", ok: false, error: { code: "local_only" } },
+      { type: "response", requestId: "r4", ok: true, result: { sessionId: "s3" } },
+    ]);
+    expect(calls).toStrictEqual([["createSession", "dev_0123456789abcdef", WORKSPACE, true, undefined]]);
   });
 
   it("links a command to nothing when the connection has no trace", async () => {

@@ -40,6 +40,7 @@ import { LATEST_VERSION_URL, createPiLatest, fetchLatestPi } from "./setup/pi-la
 import { createSetupService } from "./setup/setup-service";
 import { createPiConfig } from "./setup/pi-config";
 import { type HostTools, createToolbox, withProxySetting } from "./setup/toolbox";
+import { HOST_TO_PHONE_LIMIT } from "@atrium/remote-crypto";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
 import { discoverProjects } from "./projects/discovery";
@@ -550,6 +551,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       installSeed,
       logDir: home.logs,
       maxBufferedBytes: MAX_BUFFERED_BYTES,
+      maxPhoneMessageBytes: HOST_TO_PHONE_LIMIT,
       subscriptions,
       sessions,
       index: indexCommands,
