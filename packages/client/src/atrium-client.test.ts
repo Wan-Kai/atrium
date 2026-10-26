@@ -2462,6 +2462,25 @@ describe("createAtriumClient: remote access", () => {
     expect(client.remote.getState()).toStrictEqual({ status: "idle", state: null, error: null });
   });
 
+  it("ignores stale watch failures and releases a watch whose stop loses the connection", async () => {
+    const { client, latest } = await connected();
+    const starting = client.watchRemote(true);
+    const stopping = client.watchRemote(false);
+    latest().fail("get_remote", "remote_unavailable", 0);
+    await starting;
+    expect(client.remote.getState()).toStrictEqual({ status: "idle", state: null, error: null });
+    latest().closeWith(1006);
+    await stopping;
+    expect(client.remote.getState()).toStrictEqual({ status: "idle", state: null, error: null });
+  });
+
+  it("reports a host refusal to stop watching rather than swallowing it", async () => {
+    const { client, latest } = await connected();
+    const stopping = client.watchRemote(false);
+    latest().fail("get_remote", "remote_unavailable");
+    await expect(stopping).rejects.toStrictEqual(new CommandError("remote_unavailable"));
+  });
+
   it("watches again on a new connection, and stops without asking when there is none", async () => {
     const { client, clock, sockets, latest } = await connected();
     const watching = client.watchRemote(true);

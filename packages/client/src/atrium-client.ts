@@ -1534,6 +1534,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         if (!(error instanceof ConnectionLostError)) throw error;
       }
     },
+    // Stryker disable next-line ConditionalExpression: JSON omits an undefined relay field either way.
     setRemote: (enabled, relay) => request("set_remote", relay === undefined ? { enabled } : { enabled, relay }),
     testRelay: () => request("test_relay", {}),
     startPairing: () => request("start_pairing", {}),
