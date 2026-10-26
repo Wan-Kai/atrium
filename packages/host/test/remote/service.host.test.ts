@@ -20,6 +20,50 @@ async function endPairing(fixture: ServiceFixture, id: string, action: "decline"
 }
 
 describe("RemoteService through a real relay process", () => {
+  it("correlates remote metadata without logging pairing or device secrets", async () => {
+    const f = await serviceFixture();
+    const paired = await pairDevice(f, f.phone({ deviceName: "private phone label", model: "private model label" }));
+    const qr = f.service.get("observer", undefined).pairing!.qr;
+    const psk = new URL(qr).searchParams.get("psk");
+    expect(psk).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    await paired.session.close();
+    await expect.poll(() => f.accepted[0]?.closed).toBe(true);
+    await f.service.close();
+    expect(f.logs.map((record) => record.msg)).toStrictEqual([
+      "relay connected",
+      "remote stream closed",
+      "relay connection closed",
+    ]);
+    const connected = f.logs[0]!;
+    expect(connected).toMatchObject({ host_id: f.relay.endpoint.hostId, level: 30 });
+    expect(connected.trace_id).toMatch(/^[0-9a-f]{32}$/);
+    expect(f.logs[1]).toMatchObject({
+      device_id: paired.deviceId,
+      reason: "socket_closed",
+      level: 30,
+      trace_id: connected.trace_id,
+    });
+    expect(f.logs[1]!.stream_id).toMatch(/^[0-9a-f]{32}$/);
+    expect(f.logs[2]).toMatchObject({
+      host_id: f.relay.endpoint.hostId,
+      code: 1006,
+      ready: true,
+      level: 30,
+      trace_id: connected.trace_id,
+    });
+    const text = JSON.stringify(f.logs);
+    for (const secret of [
+      f.relay.line,
+      f.relay.endpoint.token,
+      qr,
+      psk,
+      f.vault.contents().hostKey,
+      "private phone label",
+      "private model label",
+    ])
+      expect(text).not.toContain(secret);
+  });
+
   it("requires key confirmation, matches SAS, persists before accepting and publishes only to watchers", async () => {
     const f = await serviceFixture();
     f.service.get("watcher", true);
@@ -381,15 +425,37 @@ describe("RemoteService through a real relay process", () => {
     f.service.get("traffic-watcher", true);
     const paired = await pairDevice(f, f.phone());
     expect(f.service.get("observer", undefined).devices[0]?.lastSeenAt).toBe(f.clock.now());
-    paired.session.send({ type: "test-message", value: "phone payload" });
+    const upOne = { type: "test-message", value: "手机 payload 🐈" };
+    const downOne = { type: "test-event", value: "host payload" };
+    paired.session.send(upOne);
     await expect.poll(() => f.accepted[0]?.messages.length).toBe(1);
-    f.accepted[0]!.transport.send(JSON.stringify({ type: "test-event", value: "host payload" }));
-    expect(await paired.session.message()).toStrictEqual({ type: "test-event", value: "host payload" });
+    f.accepted[0]!.transport.send(JSON.stringify(downOne));
+    expect(await paired.session.message()).toStrictEqual(downOne);
     f.clock.advance(1_000);
-    const active = f.service.get("observer", undefined).devices[0]!.traffic;
-    expect(active.up).toBeGreaterThan(0);
-    expect(active.down).toBeGreaterThan(0);
-    f.clock.advance(2_000);
+    // Each short message has one frame-type byte and a 16-byte Poly1305 tag.
+    expect(f.service.get("observer", undefined).devices[0]!.traffic).toStrictEqual({
+      up: Buffer.byteLength(JSON.stringify(upOne)) + 17,
+      down: Buffer.byteLength(JSON.stringify(downOne)) + 17,
+    });
+    const upTwo = { type: "test-message", value: "second" };
+    const downTwo = { type: "test-event", value: "host two" };
+    paired.session.send(upTwo);
+    await expect.poll(() => f.accepted[0]?.messages.length).toBe(2);
+    f.accepted[0]!.transport.send(JSON.stringify(downTwo));
+    expect(await paired.session.message()).toStrictEqual(downTwo);
+    await paired.session.close();
+    await expect.poll(() => f.accepted[0]?.closed).toBe(true);
+    f.clock.advance(1_000);
+    expect(f.service.get("observer", undefined).devices[0]!.traffic).toStrictEqual({
+      up: (Buffer.byteLength(JSON.stringify(upOne)) + Buffer.byteLength(JSON.stringify(upTwo)) + 34) / 2,
+      down: (Buffer.byteLength(JSON.stringify(downOne)) + Buffer.byteLength(JSON.stringify(downTwo)) + 34) / 2,
+    });
+    f.clock.advance(1_000);
+    expect(f.service.get("observer", undefined).devices[0]!.traffic).toStrictEqual({
+      up: (Buffer.byteLength(JSON.stringify(upTwo)) + 17) / 2,
+      down: (Buffer.byteLength(JSON.stringify(downTwo)) + 17) / 2,
+    });
+    f.clock.advance(1_000);
     expect(f.service.get("observer", undefined).devices[0]?.traffic).toStrictEqual({ up: 0, down: 0 });
     f.service.unwatch("traffic-watcher");
     expect(f.clock.pendingTimers()).toBe(timerBaseline);

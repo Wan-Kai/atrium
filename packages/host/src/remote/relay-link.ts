@@ -61,6 +61,7 @@ export class RelayLink {
   #cancelRetry: (() => void) | null = null;
   #closed: Promise<void> = Promise.resolve();
   #waiters: ((state: LinkState) => void)[] = [];
+  #checking: Promise<RelayError | null> | null = null;
 
   /**
    * Makes a link; nothing connects until `start`.
@@ -107,14 +108,20 @@ export class RelayLink {
    *
    * @remarks
    * For `test_relay` while remote access is on (SPEC-0005, "MP3a 定的细节"). A link that is
-   * connected answers so at once.
+   * connected waits for a fresh pong on the same socket, without displacing any phone.
    *
    * @sideEffects May drop the waiting retry and connect now.
    * @returns `null` once connected, or why not.
    */
   retryNow(): Promise<RelayError | null> {
     if (this.#stopped) return Promise.resolve("relay_unreachable");
-    if (this.#state.status === "connected") return Promise.resolve(null);
+    if (this.#state.status === "connected") {
+      if (this.#socket?.readyState !== WebSocket.OPEN) return Promise.resolve("relay_unreachable");
+      this.#checking ??= this.#checkPong(this.#socket).finally(() => {
+        this.#checking = null;
+      });
+      return this.#checking;
+    }
     const settled = new Promise<RelayError | null>((resolve) => {
       this.#waiters.push((state) => resolve(state.status === "connected" ? null : state.error));
     });
@@ -125,6 +132,48 @@ export class RelayLink {
       this.#connect();
     }
     return settled;
+  }
+
+  /**
+   * Verifies a live control connection without dropping its data streams.
+   * @remarks Concurrent checks share a fresh ping; shutdown or the ten-second deadline settles them.
+   * @sideEffects Sends a ping and owns two listeners and a tracked deadline until settled.
+   * @param socket - The currently open control connection.
+   * @returns Null for a pong, otherwise a relay failure code.
+   */
+  #checkPong(socket: WebSocket): Promise<RelayError | null> {
+    return new Promise((resolve) => {
+      const cancel = trackedTimeout(
+        this.#options.clock,
+        this.#options.resources,
+        () => socket.terminate(),
+        READY_TIMEOUT_MS,
+      );
+      /**
+       * Releases the check before answering it.
+       * @remarks Both pong and close must remove the other's listener.
+       * @sideEffects Cancels the deadline and removes listeners.
+       * @param result - Verified success or close failure.
+       */
+      const finish = (result: RelayError | null): void => {
+        cancel();
+        socket.off("pong", pong);
+        socket.off("close", closed);
+        resolve(result);
+      };
+      /** Answers a successful check. @remarks A fresh pong proves the relay is reachable. @sideEffects Settles and cleans the check. */
+      const pong = (): void => finish(null);
+      /**
+       * Answers a closed check.
+       * @remarks Authentication rejection is distinct from network loss.
+       * @sideEffects Settles and cleans the check.
+       * @param code - Relay close code.
+       */
+      const closed = (code: number): void => finish(code === UNAUTHORIZED ? "relay_rejected" : "relay_unreachable");
+      socket.once("pong", pong);
+      socket.once("close", closed);
+      socket.ping();
+    });
   }
 
   /**

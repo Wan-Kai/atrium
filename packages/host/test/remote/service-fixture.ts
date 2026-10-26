@@ -115,13 +115,21 @@ export async function serviceFixture(relayOptions: { readonly newStreamsPerIpPer
   let document: RemoteDocument = { enabled: false, lastSeen: {} };
   const accepted: AcceptedPhone[] = [];
   const events: Array<{ id: string; event: RemoteUpdatedEvent }> = [];
+  const logs: Record<string, unknown>[] = [];
   const phones: FakePhone[] = [];
   const service = new RemoteService({
     vault,
     clock,
     resources,
     hostName: "Test Mac",
-    logger: pino({ enabled: false }),
+    logger: pino(
+      {},
+      {
+        write: (line: string) => {
+          logs.push(JSON.parse(line) as Record<string, unknown>);
+        },
+      },
+    ),
     index: {
       read: () => document,
       save: async (next) => {
@@ -157,6 +165,7 @@ export async function serviceFixture(relayOptions: { readonly newStreamsPerIpPer
     resources,
     accepted,
     events,
+    logs,
     /**
      * Creates a phone owned by this fixture.
      * @remarks Cleanup also covers phones whose handshake never completed.
