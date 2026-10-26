@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-26：手机端 MP2 relay 实现完成，在 `agent/mp2-relay`（基于 `atrium/mp0-interop`），待部署到用户的 VPS 和用户验收，未合并。** `apps/relay` 按 SPEC-0005 做了全部线路协议、`add-host` / `rotate-host` / `remove-host` / `list-hosts`、按天的元数据日志和 `/healthz`，支持路径前缀；按用户的 VPS（443 由 xray 终止 TLS、回落到 nginx 8080）先改了 SPEC"部署 relay"：前面放"一个终止 TLS 的反代（Caddy 或已有的 nginx）"、Docker 部署、拿不到真实 IP 时按 IP 限速退化成全局的（已知限制），关闭码表写进 SPEC。镜像 `node:24.22.1-bookworm-slim`（固定 digest）加单文件 `relay.cjs`，非 root；`deploy/` 有 nginx 片段、`compose.yaml`、systemd unit。测试见[追踪表](testing/coverage-map.md#手机端-mp2relayspec-00052026-10-25)：relay 160 项、泄漏 2 项、破坏检查 25 处全部检出，变异组 `relay` 958 个全部杀死；本机 Docker 加 nginx 用 MP0 的假宿主、假手机走通配对和 IK 重连。MP0 的假宿主对不带端口的那一行改用 `wss://`，能连部署好的 relay。
+
 **2026-10-25：手机端 MP0 互通实验除真机外完成，在 `atrium/mp0-interop`（合了子代理 `agent/mp0-ts`、`agent/mp0-swift`），待用户验收，未合并。** Noise 两边都自己写只含 IK、IKpsk2 的状态机（TS 用 `@noble/*` 2.4.0，Electron 44 的 Node 没有 ChaCha20-Poly1305；Swift 用 CryptoKit，Torann 0.3.1 只在测试里做差分对照），都过 cacophony 向量，TS ↔ Swift 互相逐字节回放对方的确定性记录；最小 relay、假宿主、假手机经真实 `ws` 的端到端 13 个场景通过；iOS 26.5 模拟器上的测试 App 对 TS 假宿主走通配对（两边校验码一致）、钥匙串、重启后 IK、Mac 上拒绝、码被占用、撤销；打包的 `AtriumSpike.app` 实测 `safeStorage` 和钥匙串弹窗（重新签名后要点一次允许）。补进 SPEC-0005：码不是当前这次时直接关闭、发送三态和不确定时拦下一条、`.inactive` 不动连接、时间线倾向 `List`、验证清单加撤销断开已打开的通道和宿主重启后旧游标；读了 mimi-remote、cmux-iphone 源码（mobile-remote.md §7）。没做：真机扫码、本地网络权限弹窗、免费签名重装后钥匙串是否保留（用户回到电脑旁时补）。TS 侧 53 个、Swift 侧 53 个测试通过，破坏检查 TS 16 处抓到 14、Swift 32 处抓到 31（漏的是走不到的冗余检查和要在写盘失败时才生效的内存拉黑）。MP1 在 `agent/mp1-swift-base` 进行中。
 
 **2026-10-25：设计手机端的开发路线图，在 `atrium/plan-mobile-roadmap`，用户确认，已本地合并回 `main`，未推送。** 把"手机端"一节从 MP0–MP7 的列表扩成里程碑：顺序与依赖（MP0 互通实验先行，MP1 Swift 工程基础和 MP2 relay 并行，MP3 宿主远程模块拆成宿主和设置页，MP4 是第一个手机上能用的纵向切片），每步的目标、范围、完成标准和需要用户做的事，以及三方审查放在 MP3、MP4、MP7。

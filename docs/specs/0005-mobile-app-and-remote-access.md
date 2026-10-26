@@ -73,7 +73,7 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
 
 2026-10-25 MP2 按用户的 VPS 改：原先写的是"前面放 Caddy 签证书"。用户的 VPS 上 443 已由 nginx stream 转给 xray，xray 用证书终止 TLS，不是代理的流量回落到 nginx 的 `127.0.0.1:8080`（HTTP/1.1），所以改成"前面放一个终止 TLS 的反代（Caddy 或已有的 nginx）"，并补上 Docker 的部署方式。
 
-1. **运行**：`atrium-relay` 是一个单文件 `relay.cjs`（Node 24），用 `node relay.cjs serve` 或 Docker 镜像（`apps/relay/Dockerfile`：官方 node 镜像，非 root 用户）运行。只监听本机地址：默认 `127.0.0.1:8787`（`--listen` 可改）；容器里监听 `0.0.0.0:8787`，端口只发布到宿主机的 `127.0.0.1`。数据目录（`--dir`，默认当前目录；容器里是挂进去的 `/data`）里有：
+1. **运行**：`atrium-relay` 是一个单文件 `relay.cjs`（Node 24），用 `node relay.cjs serve` 或 Docker 镜像（`apps/relay/Dockerfile`：官方 node 镜像，非 root 用户）运行。单文件在开发机上从锁定的依赖构建，镜像只是把它放进官方 node 镜像，在开发机上构建好再 `docker save | ssh … docker load` 传到 VPS（2026-10-25 MP2 实测：在 `docker build` 里装依赖要拉整个工作区的元数据和开发工具，很慢；VPS 上也没有 Node）。只监听本机地址：默认 `127.0.0.1:8787`（`--listen` 可改）；容器里监听 `0.0.0.0:8787`，端口只发布到宿主机的 `127.0.0.1`。数据目录（`--dir`，默认当前目录；容器里是挂进去的 `/data`）里有：
    - `relay.json`：手写的配置。`publicHost`（对外的域名，可带端口，必填）、`pathPrefix`（路径前缀，如 `/atrium`，默认空）、`trustedProxies`（信任哪些反代地址给的真实 IP 头，默认空）、`newStreamsPerIpPerMinute`（默认 30，0 表示不按 IP 限）。不认识的字段报错，免得拼错的配置悄悄不生效。
    - `hosts.json`：`add-host` 等命令维护的宿主表（0600），每个宿主只存 `hostId`、名字、令牌的 SHA-256 和创建时间。正在跑的 relay 每 2 秒看一次它变没变，变了就重读：删掉或换了令牌的宿主，控制连接以 4401 关掉，它的流一起关掉。读出来不合格时保留原来的表，记一条日志。
    - `logs/relay-<UTC 日期>.jsonl`：日志，一天一个文件，留 14 天。
