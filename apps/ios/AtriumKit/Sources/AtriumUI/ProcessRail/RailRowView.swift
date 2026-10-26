@@ -21,7 +21,7 @@ struct RailRowView: View {
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
   /// Whether Reduce Motion is on.
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.atriumReduceMotion) private var reduceMotion
   /// Whether the entrance has played (or did not need to).
   @State private var shown: Bool
   /// Whether this row's full plain-text content is open.
@@ -176,7 +176,7 @@ private struct RailMarks: View {
   /// The colours.
   let palette: Palette
   /// Whether Reduce Motion is on.
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.atriumReduceMotion) private var reduceMotion
 
   /// The marks.
   var body: some View {

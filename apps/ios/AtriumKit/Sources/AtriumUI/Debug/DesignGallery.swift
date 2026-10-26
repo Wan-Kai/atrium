@@ -9,10 +9,14 @@
   ///   (`TEST_RUNNER_ATRIUM_GALLERY_SHOTS=1 pnpm test:ios`). Sample words only, no real projects.
   public struct DesignGallery: View {
     /// The sections, in order; each name is what `ATRIUM_GALLERY` takes.
-    public static let sections = ["colors", "type", "glass", "status", "cats", "atoms", "rail"]
+    public static let sections = ["colors", "type", "glass", "status", "cats", "atoms", "rail", "markdown", "diff"]
 
     /// The section to show alone, or every section.
     let section: String
+    /// Forces a static accessibility sample without changing simulator-wide preferences.
+    let forcedReduced: Bool
+    /// Forces the solid-glass fallback for screenshot comparison.
+    let forcedSolid: Bool
 
     /// Light or dark.
     @Environment(\.colorScheme) private var scheme
@@ -23,11 +27,34 @@
     /// - SideEffects: none
     /// - Parameter section: A name from `sections`, or `all`.
     public init(section: String) {
-      self.section = Self.sections.contains(section) ? section : "all"
+      forcedReduced = section.hasSuffix("-reduced")
+      forcedSolid = section.hasSuffix("-solid")
+      let base = forcedReduced ? String(section.dropLast(8)) : forcedSolid ? String(section.dropLast(6)) : section
+      self.section = (Self.sections + ["timeline-list", "timeline-stack"]).contains(base) ? base : "all"
     }
 
     /// The sections, scrolling.
     public var body: some View {
+      content
+        .environment(
+          \.atriumAccessibilityReductions, AccessibilityReductions(motion: forcedReduced, transparency: forcedSolid))
+    }
+
+    /// Chooses the gallery or the standalone benchmark container.
+    @ViewBuilder private var content: some View {
+      #if os(iOS)
+        if section.hasPrefix("timeline-") {
+          GalleryTimeline(stack: section == "timeline-stack")
+        } else {
+          gallery
+        }
+      #else
+        gallery
+      #endif
+    }
+
+    /// Ordinary component sections, separate from the benchmark's own scroll container.
+    @ViewBuilder private var gallery: some View {
       let palette = Palette(scheme: scheme)
       ScrollView {
         VStack(alignment: .leading, spacing: Metrics.xl) {

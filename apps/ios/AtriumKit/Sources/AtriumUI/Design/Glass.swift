@@ -14,9 +14,9 @@ private struct GlassSurface<S: InsettableShape>: ViewModifier {
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
   /// Whether the person turned on Reduce Transparency.
-  @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+  @Environment(\.atriumReduceTransparency) private var reduceTransparency
   /// Disables spatial glass deformation when motion is reduced.
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.atriumReduceMotion) private var reduceMotion
 
   /// Draws the glass, or the solid fill, under the content and the ring over it.
   ///

@@ -26,7 +26,7 @@ struct ProcessRailView: View {
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
   /// Whether Reduce Motion is on.
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.atriumReduceMotion) private var reduceMotion
   /// The rail's measured height, for folding it.
   @State private var railHeight: CGFloat = 0
   /// The rows already there when the view appeared, which do not grow in.
@@ -139,7 +139,7 @@ private struct FoldStagger: ViewModifier {
   /// How many rows there are.
   let count: Int
   /// Whether Reduce Motion is on.
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.atriumReduceMotion) private var reduceMotion
 
   /// Applies the fade, the lift and their delay.
   ///

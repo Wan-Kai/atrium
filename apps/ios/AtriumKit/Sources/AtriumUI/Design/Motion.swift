@@ -111,7 +111,7 @@ private struct TokenAnimation<V: Equatable>: ViewModifier {
   /// The value whose changes animate.
   let value: V
   /// Whether Reduce Motion is on.
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.atriumReduceMotion) private var reduceMotion
 
   /// Adds the animation.
   ///

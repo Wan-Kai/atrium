@@ -60,12 +60,12 @@ struct DiffLayoutTests {
   }
 
   @Test("folds a long run of context inside a hunk, keeping three lines next to each change")
-  func longContext() {
+  func longContext() throws {
     let run = context(20, old: 2, new: 3)
     let hunk = DiffHunk(
       oldStart: 1, oldCount: 22, newStart: 1, newCount: 23, lines: [del(1), add(1), add(2)] + run + [add(23)])
     let segments = DiffLayout.segments([hunk])
-    #expect(segments.count == 1 + 3 + 3 + 1 + 3 + 1)
+    try #require(segments.count == 1 + 3 + 3 + 1 + 3 + 1)
     #expect(segments[7] == .folded(Array(run[3..<17]), hunk: 0))
     #expect(segments[6] == .line(run[2], hunk: 0))
     #expect(segments[8] == .line(run[17], hunk: 0))

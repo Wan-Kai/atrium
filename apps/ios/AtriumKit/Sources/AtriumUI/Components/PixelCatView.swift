@@ -17,7 +17,7 @@ struct PixelCatView: View {
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
   /// Whether Reduce Motion is on.
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.atriumReduceMotion) private var reduceMotion
 
   /// The cat, in its current pose.
   var body: some View {

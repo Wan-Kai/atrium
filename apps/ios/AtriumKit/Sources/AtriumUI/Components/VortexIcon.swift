@@ -13,7 +13,7 @@ struct VortexIcon: View {
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
   /// Whether Reduce Motion is on.
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.atriumReduceMotion) private var reduceMotion
 
   /// The vortex at the current moment.
   var body: some View {

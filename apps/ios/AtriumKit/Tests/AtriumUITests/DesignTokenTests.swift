@@ -60,6 +60,16 @@ struct DesignTokenTests {
     #expect(ColorToken.glassSolid.value(in: .dark).opacity == 1)
   }
 
+  @Test("gallery reductions preserve system preferences and can only add restrictions")
+  func accessibility() {
+    var environment = EnvironmentValues()
+    #expect(environment.atriumReduceMotion == environment.accessibilityReduceMotion)
+    #expect(environment.atriumReduceTransparency == environment.accessibilityReduceTransparency)
+    environment.atriumAccessibilityReductions = AccessibilityReductions(motion: true, transparency: true)
+    #expect(environment.atriumReduceMotion)
+    #expect(environment.atriumReduceTransparency)
+  }
+
   @Test("maps the three springs one to one")
   func springs() {
     let expected: [(MotionToken, Double, Double)] = [(.smooth, 0.42, 0), (.snappy, 0.30, 0.15), (.bouncy, 0.40, 0.26)]

@@ -10,7 +10,7 @@ struct RunningCat: View {
   /// The width and height, in points.
   var size: CGFloat = 18
   /// Whether Reduce Motion is on.
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.atriumReduceMotion) private var reduceMotion
 
   /// The cat.
   var body: some View {

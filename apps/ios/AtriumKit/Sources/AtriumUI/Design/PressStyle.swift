@@ -9,7 +9,7 @@ struct PressStyle: ButtonStyle {
   /// How small it gets while pressed.
   let scale: CGFloat
   /// Whether Reduce Motion is on.
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.atriumReduceMotion) private var reduceMotion
 
   /// Makes the style.
   ///

@@ -11,6 +11,8 @@
     @Environment(\.colorScheme) private var scheme
     /// Whether the motion sample is in its second state.
     @State private var flipped = false
+    /// The accessibility preference also applies to the interactive motion samples.
+    @Environment(\.atriumReduceMotion) private var reduceMotion
 
     /// The section's samples.
     var body: some View {
@@ -23,6 +25,8 @@
       case "cats": cats
       case "atoms": atoms(palette)
       case "rail": GalleryRail()
+      case "markdown": GalleryMarkdown()
+      case "diff": GalleryDiff()
       default: EmptyView()
       }
     }
@@ -132,7 +136,8 @@
             Circle()
               .fill(palette.tint)
               .frame(width: 18, height: 18)
-              .offset(y: flipped ? -14 : 0)
+              .offset(y: flipped && !reduceMotion ? -14 : 0)
+              .opacity(flipped && reduceMotion ? 0.5 : 1)
               .motion(token, value: flipped)
           }
           Button(flipped ? "回去" : "弹一下") { flipped.toggle() }

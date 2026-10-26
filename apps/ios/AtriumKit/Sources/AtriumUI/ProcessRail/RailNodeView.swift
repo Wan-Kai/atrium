@@ -15,7 +15,7 @@ struct RailNodeView: View {
   /// The colours.
   let palette: Palette
   /// Whether Reduce Motion is on.
-  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.atriumReduceMotion) private var reduceMotion
 
   /// The mark.
   var body: some View {
