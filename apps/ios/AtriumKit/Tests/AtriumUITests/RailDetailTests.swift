@@ -80,6 +80,45 @@
       #expect(row.detail?.contains("还有什么？") == true)
     }
 
+    @Test("write disclosure uses the protocol body after the host removes it from args")
+    func writeContent() throws {
+      let turn = SampleTurns.turn([
+        SampleTurns.tool(
+          "write", "write", details: #"{"tool":"write","path":"src/main.swift","content":"let value = 1\n// 中文\n\n"}"#)
+      ])
+      guard case .tool(let write) = try #require(turn.steps.first) else {
+        Issue.record("expected a protocol tool step")
+        return
+      }
+      #expect(write.args.isEmpty)
+      let row = try #require(RailRows.layout(turn).rows.first)
+      #expect(row.object == "src/main.swift")
+      #expect(row.detail == "let value = 1\n// 中文\n\n")
+    }
+
+    @Test(
+      "overflow changes only the title and keeps known token counts with the full summary", arguments: [false, true])
+    func overflowCounts(_ hasAfter: Bool) throws {
+      var turn = SampleTurns.turn([])
+      let after: Int? = hasAfter ? 41001 : nil
+      let summary = "完整摘要\n第二行\n"
+      turn.steps = [
+        .compaction(.init(id: "compact", tokensBefore: 152345, tokensAfter: after, summary: summary, reason: .overflow))
+      ]
+      let row = try #require(RailRows.layout(turn).rows.first)
+      let expected =
+        hasAfter
+        ? "压缩前 152345 tokens · 压缩后 41001 tokens\n\n完整摘要\n第二行\n"
+        : "压缩前 152345 tokens\n\n完整摘要\n第二行\n"
+      #expect(row.verb == "上下文超出窗口，已压缩")
+      #expect(row.detail == expected)
+      turn.steps = [
+        .compaction(
+          .init(id: "compact", tokensBefore: 152345, tokensAfter: after, summary: summary, reason: .threshold))
+      ]
+      #expect(RailRows.layout(turn).rows.first?.detail == expected)
+    }
+
     /// Makes a real tool step with the common protocol fields.
     ///
     /// - Remark: Each test supplies only the fields relevant to its regression.

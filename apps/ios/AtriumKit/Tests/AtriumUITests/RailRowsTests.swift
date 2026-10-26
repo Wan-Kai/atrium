@@ -29,7 +29,9 @@
             id: "s6", node: .dot, verb: "编辑了", object: "src/ttl.ts", end: "+9 −4",
             endTone: .counts(added: 9, removed: 4), detail: "+1 x"),
           RailRow(id: "s7", node: .dot, verb: "运行了", object: "pnpm test cache", objectIsCode: true, end: "通过"),
-          RailRow(id: "s8", node: .compaction, verb: "压缩了上下文", object: "152K → 41K", detail: "…"),
+          RailRow(
+            id: "s8", node: .compaction, verb: "压缩了上下文", object: "152K → 41K",
+            detail: "压缩前 152000 tokens · 压缩后 41000 tokens\n\n…"),
         ])
       #expect(rows.filter(\.isBranch).map(\.id) == ["s4", "s5"])
     }

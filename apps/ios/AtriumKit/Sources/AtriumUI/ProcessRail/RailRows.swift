@@ -99,12 +99,15 @@ nonisolated enum RailRows {
       let limit = retry.maxAttempts.map { " / \($0)" } ?? ""
       return [RailRow(id: retry.id, node: .dot, verb: "自动重试 · 第 \(retry.attempt)\(limit) 次", object: retry.error)]
     case .compaction(let compaction):
+      let after = compaction.tokensAfter.map { " · 压缩后 \($0) tokens" } ?? ""
+      let counts = "压缩前 \(compaction.tokensBefore) tokens" + after
+      let detail = counts + (compaction.summary.isEmpty ? "" : "\n\n" + compaction.summary)
       if compaction.reason == .overflow {
-        return [RailRow(id: compaction.id, node: .compaction, verb: "上下文超出窗口，已压缩", detail: compaction.summary)]
+        return [RailRow(id: compaction.id, node: .compaction, verb: "上下文超出窗口，已压缩", detail: detail)]
       }
       let before = formatTokens(compaction.tokensBefore)
       let object = compaction.tokensAfter.map { "\(before) → \(formatTokens($0))" } ?? "压缩前 \(before)"
-      return [RailRow(id: compaction.id, node: .compaction, verb: "压缩了上下文", object: object, detail: compaction.summary)]
+      return [RailRow(id: compaction.id, node: .compaction, verb: "压缩了上下文", object: object, detail: detail)]
     }
   }
 
@@ -123,6 +126,7 @@ nonisolated enum RailRows {
       if let data = try? encoder.encode(tool.args) { parts.append(String(decoding: data, as: UTF8.self)) }
     }
     if case .edit(let edit) = tool.details, let diff = edit.diff { parts.append(diff) }
+    if case .write(let write) = tool.details { parts.append(write.content) }
     if case .askUser(let ask) = tool.details {
       let answers: [QuestionAnswer]
       if tool.status == .done, case .answered(let answered) = ask.outcome {
