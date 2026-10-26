@@ -21,18 +21,24 @@ Mac  ──wss──▶          同上
 
 ## 部署（用户的 VPS：Debian 12、x86_64、Docker、已有 nginx 和 xray）
 
-镜像在 Mac 上构建，`docker save | ssh … docker load` 传上去（VPS 上没有 Node，在容器里装依赖也很慢，见 `Dockerfile` 开头）。
+`relay.cjs` 在 Mac 上构建，镜像在 VPS 上用同一个 Dockerfile 构建（2026-10-26 实际部署时改：从这边网络 `docker save | ssh … docker load` 传 80 MB 的镜像只有约 17 KB/s，超时；只传 1 MB 的 `relay.cjs` 要一分钟，VPS 自己拉官方 Node 镜像很快，拉到的 digest 和 Dockerfile 里写死的一致）。网络好的时候也可以照下面第 1 步的"另一种"在 Mac 上构建整个镜像再传。
 
-1. **Mac 上构建**（仓库根目录，依赖已装好）：
+1. **Mac 上构建 `relay.cjs`，传到 VPS 上构建镜像**（仓库根目录，依赖已装好）：
 
    ```sh
    VERSION=$(date +%Y.%m.%d)
    pnpm --filter @atrium/relay build
-   docker buildx build --platform linux/amd64 -t atrium-relay:$VERSION --load apps/relay
-   docker save atrium-relay:$VERSION | gzip | ssh <vps> 'gunzip | docker load'
+   ssh <vps> 'mkdir -p /root/atrium-relay-build/dist'
+   scp apps/relay/Dockerfile apps/relay/.dockerignore apps/relay/deploy/compose.yaml <vps>:/root/atrium-relay-build/
+   scp apps/relay/dist/relay.cjs <vps>:/root/atrium-relay-build/dist/
+   shasum -a 256 apps/relay/dist/relay.cjs; ssh <vps> sha256sum /root/atrium-relay-build/dist/relay.cjs   # 两边一致
+   ssh <vps> "cd /root/atrium-relay-build && docker build -q -t atrium-relay:$VERSION ."
    ```
 
-   约 80 MB（官方 `node:24.22.1-bookworm-slim` 加 1 MB 的 `relay.cjs`）。构建的第一阶段会在镜像的 Node 上跑一次 `add-host` / `list-hosts`，打包坏了构建就失败。
+   另一种（网络好时）：在 Mac 上 `docker buildx build --platform linux/amd64 -t atrium-relay:$VERSION --load apps/relay`，再 `docker save atrium-relay:$VERSION | gzip | ssh <vps> 'gunzip | docker load'`。
+
+
+   镜像约 80 MB（官方 `node:24.22.1-bookworm-slim` 加 1 MB 的 `relay.cjs`）。构建的第一阶段会在镜像的 Node 上跑一次 `add-host` / `list-hosts`，打包坏了构建就失败。
 
 2. **VPS 上准备目录**（镜像里以 uid 1000 的 `node` 用户运行）：
 
@@ -61,7 +67,7 @@ Mac  ──wss──▶          同上
      atrium-relay:$VERSION
    ```
 
-4. **nginx**：把 `deploy/nginx-location.conf` 的 `location /atrium/ { … }` 加进 xray 回落到的那个 `server { listen 127.0.0.1:8080; … }`，然后 `sudo nginx -t && sudo systemctl reload nginx`。`proxy_pass` 不带路径，前缀原样交给 relay（relay 自己认前缀）。验证：
+4. **nginx**：先备份 `/etc/nginx/conf.d/ktoon.site.ssl.conf`，把 `deploy/nginx-location.conf` 的 `location /atrium/ { … }` 加进 xray 回落到的那个 `server { listen 127.0.0.1:8080; … }`，然后 `sudo nginx -t && sudo systemctl reload nginx`。xray 按 ALPN 把 HTTP/2 回落到 `127.0.0.1:8081`（h2c），那个 server 里也加一个只做普通反代的 `location /atrium/`（`proxy_pass http://127.0.0.1:8787; proxy_http_version 1.1; proxy_set_header Host $host; proxy_buffering off;`），否则 HTTP/2 的客户端（浏览器、默认的 curl）访问 `/atrium/healthz` 是 404；WebSocket 都走 HTTP/1.1 升级（实测 Node `ws` 和 iOS 的 `URLSessionWebSocketTask` 都是），到 8080 那个。`proxy_pass` 不带路径，前缀原样交给 relay（relay 自己认前缀）。验证：
 
    ```sh
    curl -s https://ktoon.site/atrium/healthz        # ok
