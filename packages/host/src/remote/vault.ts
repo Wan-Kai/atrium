@@ -84,7 +84,12 @@ export function portVault(post: (message: unknown) => void): PortVault {
     const id = nextId;
     return new Promise((resolve) => {
       waiting.set(id, resolve);
-      post({ ...request, id });
+      try {
+        post({ ...request, id });
+      } catch {
+        waiting.delete(id);
+        resolve({ type: "vault_result", id, ok: false, error: "io" });
+      }
     });
   }
 
@@ -93,9 +98,11 @@ export function portVault(post: (message: unknown) => void): PortVault {
       read: async () => {
         const answer = await ask({ type: "vault_read" });
         if (!answer.ok) return { ok: false, error: answer.error };
-        return { ok: true, version: answer.version ?? 0, data: answer.data ?? null };
+        if (answer.version === undefined || answer.data === undefined) return { ok: false, error: "corrupt" };
+        return { ok: true, version: answer.version, data: answer.data };
       },
       write: async (version, data) => {
+        if (data.length > 4 * 1024 * 1024) return { ok: false, error: "io" };
         const answer = await ask({ type: "vault_write", version, data });
         return answer.ok ? { ok: true } : { ok: false, error: answer.error };
       },
@@ -166,7 +173,9 @@ export class VaultStore {
    */
   save(data: string): Promise<VaultWrite> {
     const written = this.#queue.then(async () => {
-      const result = await this.#port.write(this.#version + 1, data);
+      const result = await this.#port
+        .write(this.#version + 1, data)
+        .catch((): VaultWrite => ({ ok: false, error: "io" }));
       if (result.ok) this.#version += 1;
       return result;
     });

@@ -19,12 +19,12 @@ describe("portVault", () => {
     expect(await first).toStrictEqual({ ok: false, error: "keychain_unavailable" });
   });
 
-  it("reads a missing version and data as an empty vault", async () => {
+  it("rejects a successful read missing its version or data", async () => {
     const { vault, receive } = portVault(() => undefined);
     const read = vault.read();
     receive({ type: "vault_result", id: 1, ok: true });
 
-    expect(await read).toStrictEqual({ ok: true, version: 0, data: null });
+    expect(await read).toStrictEqual({ ok: false, error: "corrupt" });
   });
 
   it("passes on a write's success and failure", async () => {
@@ -67,6 +67,27 @@ function recordingPort(answers: VaultWrite[], read = { ok: true as const, versio
 }
 
 describe("VaultStore", () => {
+  it("recovers the save queue when the port rejects unexpectedly", async () => {
+    const write = vi
+      .fn<VaultPort["write"]>()
+      .mockRejectedValueOnce(new Error("port closed"))
+      .mockResolvedValue({ ok: true });
+    const store = new VaultStore({
+      read: async () => ({ ok: true, version: 0, data: null }),
+      write,
+    });
+    expect(await store.save("a")).toStrictEqual({ ok: false, error: "io" });
+    expect(await store.save("b")).toStrictEqual({ ok: true });
+    expect(write).toHaveBeenCalledTimes(2);
+  });
+
+  it("terminates an oversized write before sending it over the port", async () => {
+    const posted: unknown[] = [];
+    const { vault } = portVault((value) => posted.push(value));
+    const result = await vault.write(1, "a".repeat(4 * 1024 * 1024 + 1));
+    expect(result).toStrictEqual({ ok: false, error: "io" });
+    expect(posted).toStrictEqual([]);
+  });
   it("writes each save as the next version after the one it read", async () => {
     const { port, writes } = recordingPort([]);
     const store = new VaultStore(port);
