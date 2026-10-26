@@ -260,13 +260,23 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
 
 - `get_remote` / 事件 `remote_updated`：
   - `enabled`、`vault`（`ok` / `keychain_unavailable` / `corrupt`）；
-  - `relay: { url, hostId, status: off | connecting | connected | error, error, lastConnectedAt }`；
+  - `relay: { url, hostId, status: off | connecting | connected | error, error, lastConnectedAt, diagnostics }`；
   - `hostFingerprint`（宿主公钥 SHA-256 的前 8 字节，分组显示）；
-  - `devices: [{ deviceId, name, pairedAt, lastSeenAt, online, traffic: { down, up } }]`：`traffic` 是这台设备所有通道最近 2 秒的平均字节率（每秒），界面用它显示真实速率数值，不据此改变包的数量、疏密或速度；链路图按用户定稿的固定 3900ms 顺序循环播放（见 design-language“设置 · 手机”），离线设备不参与；宿主每秒最多推一次，没有在看"手机"页的本机连接时不推。设备的颜色由界面按 `deviceId` 的哈希从一组固定色里取，不存；名字清空时恢复配对时手机报的 `deviceName`。
-  - `pairing: { pairingId, qr, expiresAt, state, request: { deviceName, model, sas } | null, refused: number } | null`，`refused` 是这次配对里因为已有手机在确认而被拒的次数，界面记一行"另一台手机也扫了这个码，已拒绝"。
+  - `devices: [{ deviceId, name, model: string | null, pairedAt, lastSeenAt, online, traffic: { down, up } }]`：`traffic` 是这台设备所有通道最近 2 秒的平均字节率（每秒），界面用它显示真实速率数值，不据此改变包的数量、疏密或速度；链路图按用户定稿的固定 3900ms 顺序循环播放（见 design-language“设置 · 手机”），离线设备不参与；宿主每秒最多推一次，没有在看"手机"页的本机连接时不推。设备的颜色由界面按 `deviceId` 的哈希从一组固定色里取，不存；名字清空时恢复配对时手机报的 `deviceName`。
+  - `pairing: { pairingId, qr, expiresAt, state, handshaking: boolean, request: { deviceName, model, sas } | null, refused: number } | null`，`refused` 是这次配对里因为已有手机在确认而被拒的次数，界面记一行"另一台手机也扫了这个码，已拒绝"。
 - `set_remote({ enabled, relay?: string })`：`relay` 是那一行 `atrium-relay://…`；令牌只进不出，`remote_updated` 里不回传。
 - `test_relay`、`start_pairing`、`cancel_pairing`、`confirm_pairing({ pairingId, accept })`、`rename_device({ deviceId, name })`、`revoke_device({ deviceId })`、`reset_remote_identity`。
 - 新错误码：`local_only`、`remote_unavailable`、`pairing_expired`、`pairing_busy`、`device_not_found`、`relay_unreachable`、`relay_rejected`、`keychain_unavailable`、`vault_corrupt`、`response_too_large`、`request_conflict`、`outcome_unknown`。
+
+#### 协议 27 的桌面接缝（2026-10-26，按已定稿设计补齐）
+
+远程分支和 main 的回复翻译各自使用了协议 26，但形状不同；协调为 27，保留双方命令、偏好与错误，并重新生成 Swift 和夹具。手机白名单没有因此扩展：`translate_reply`、`cancel_translation` 明确只许本机调用；翻译没有独立新事件，偏好仍走既有 index 事件。
+
+- **已配对型号**：`RemoteDevice.model` 只投影保险箱已有的自报型号，去掉两端空白后为空则 `null`；不是硬件认证，不从名字猜，不改保险箱格式。未通过确认落盘的候选不进入设备列表。
+- **诊断快照**：`RemoteRelay.diagnostics` 初始为 `null`，表示没有已结束的检查；完成后含 `kind: connect | live`、注入 Clock 的 `checkedAt` 时间戳、`network/resolution/tls/token` 四项及 `failure`。每项为 `passed | failed | unknown | not_applicable`；`failure` 为 `resolution_failed | tcp_connect_failed | tls_failed | websocket_upgrade_failed | token_rejected | timeout | connection_closed | unknown | null`。只返回固定代码，不返回原始错误、令牌、证书文本或系统路径。重试时保留上次结束结果和时间；配置/代次变化清除，取消或旧代回调不得覆盖新结果。
+- **诊断证据**：网络项只表示“到中继的 TCP 连接”，不代表系统能否上互联网。解析由 lookup 结果确认，TCP 由 connect 确认，TLS 只有通过正常证书校验的 secureConnect 才通过；不放宽校验。只有收到 relay 的 ready 才确认认可令牌，4401 表示拒绝。IP 字面量的解析、允许的 loopback ws 的 TLS 为不适用。Upgrade 失败单列，不能归成令牌错误；普通断开、ECONNRESET、总超时不能硬归因无网或某一步失败，缺证据的步骤保持未知。使用 ws 公开 finishRequest 时必须调用 request.end，并释放所有观测监听和定时器。
+- **连接与活性分开**：connect 来自真实建连或临时 probe；live 来自已认证控制 socket 的本次匹配 pong。live 未重做解析、TLS 或令牌认证，这些项显示未知（本来不适用的仍为不适用），不能把旧认证当成刚刚重测。`test_relay` 仍成功回 `{}`、失败用原粗错误码，详细诊断只经本机状态/订阅提供。
+- **握手活动**：`RemotePairing.handshaking` 与业务状态正交，按当前 pairingId、连接代次的候选集合派生。仅 available 时，通过当前配对、结构及版本检查的 IKpsk2 M1 之后、等待加密 key-confirm 的阶段为真；M1 尚不能证明持有 PSK，不显示候选身份、不标在线、不授予设备权限。多个候选中一个退出不误清另一个；失败、断开、确认、取消、过期、换码或关闭使相应投影清除，旧流不能复活新配对。保留四条未完成握手及十秒上限、不可续期的二维码期限；握手专属通知合并限频，终止清除立即发送，不人为延长动画。
 
 #### MP3a 定的细节（2026-10-26）
 
@@ -283,7 +293,7 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
 - **`rename_device`**：名字最长 64 个字符，空的恢复成手机报的名字；写进保险箱。
 - **撤销失败后重试**：写保险箱失败时设备留在内存的列表里、被拉黑，不显示、也连不上；再发一次 `revoke_device` 就是重试写入。本次运行已经撤销过的 id 也接受幂等的再次撤销，使后来的撤销能压过正在排队、可能重新写回该 id 的配对确认；从未存在的 id 仍应答 `device_not_found`。同一台手机（按公钥）重新配对成功，拉黑解除、沿用原来的 `deviceId`。
 - **`reset_remote_identity`**：先写新的保险箱（新密钥对、空设备列表、已能读取的 relay 那一行不变），写成了才换上，再经每条通道发 `revoked` 并关闭；写失败什么都不变。损坏到无法读取时不能恢复 relay 凭据，重置后须重新填写，不从损坏内容里猜。成功重置也使旧二维码和排在重置之后的旧配对确认失效，不能再把旧手机写回新身份。
-- **`test_relay`**：远程访问开着但断线时立刻重连控制连接（退避清零），等到 `ready` 或失败；已经连上时在原控制连接发 ping、等新的 pong，不为测试挤掉已连接的手机，也不直接返回缓存成功；关着时另开一条临时的控制连接，收到 `ready` 就关。成功回 `{}`，连不上应答 `relay_unreachable`，认证不过（4401）应答 `relay_rejected`，10 秒为限。
+- **`test_relay`**：远程访问开着但断线时立刻重连控制连接（退避清零），等到 `ready` 或失败；已经连上时在原控制连接发带本次独有非秘密 payload 的 ping，只接受同 socket、同 payload 的 pong；空、错、旧或常规心跳的 pong 不消耗监听，写入回调不算成功；并发测试共享本次探测，关闭、停服和超时都释放等待、监听与定时器；这只承诺控制链路此刻可达，不承诺手机或 pi 已可用，不为测试挤掉已连接的手机，也不直接返回缓存成功；关着时另开一条临时的控制连接，收到 `ready` 就关。成功回 `{}`，连不上应答 `relay_unreachable`，认证不过（4401）应答 `relay_rejected`，10 秒为限。
 - **relay 地址的协议**：那一行里的主机是 `127.0.0.1`、`localhost` 或 `[::1]` 时用 `ws://`（本机测试），其余一律 `wss://`。
 - **控制连接的存活**：宿主每 30 秒对控制连接发一次 WebSocket ping，上一次的没回应就断开重连（relay 自己也 20 秒 ping 一次宿主）。数据连接靠通道心跳。
 - **客户端传输**：`ClientTransport` 的 `checkAlive()` 在上一次探测没回应时自己断开对方并返回 `false`（本机是 `terminate()`，远程是关掉通道和数据连接），否则发一次探测返回 `true`；服务器每 `heartbeatMs` 调一次。远程的探测是通道心跳，30 秒没收到手机的任何东西才算没回应。已完成密钥确认、还在等 Mac 确认的通道尚未交给服务器，由远程服务每 15 秒探测；配对成功时取消这个定时器，交给服务器统一探测，不重复计时。远程数据 socket 主动结束后最多再等 1 秒即强制关闭；已经收到对端 WebSocket Close、但 TCP 半关闭未结束的 `CLOSING` 状态也受这个期限约束，不能让 relay 拖住宿主关闭。
