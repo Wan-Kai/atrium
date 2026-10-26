@@ -24,7 +24,7 @@
     public var body: some View {
       Text(result)
         .accessibilityIdentifier("pairing.keychain.result")
-        .task { result = Self.check() }
+        .task { result = await Self.check() }
     }
 
     /// Executes equivalent CRUD and protection checks through the production KeychainStore.
@@ -32,7 +32,8 @@
     /// - Remark: Every query and cleanup is confined to a unique account in a fixed test service.
     /// - SideEffects: Creates, updates and deletes one test item; never reads the business service.
     /// - Returns: Passed or a non-secret failure category.
-    private static func check() -> String {
+    @concurrent
+    private static func check() async -> String {
       let service = "site.ktoon.atrium.debug.pairing-keychain-check"
       let account = "check.\(UUID().uuidString)"
       let store = KeychainStore(service: service)

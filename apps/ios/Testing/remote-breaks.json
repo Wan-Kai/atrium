@@ -18,15 +18,15 @@
   {
     "file": "apps/ios/AtriumKit/Sources/AtriumRemote/PairingFlow.swift",
     "from": "return await end(.timedOut, report: report)",
-    "to": "return await end(.timedOut, link: link, report: report)",
+    "to": "try? store.removePending(link.hostId); return await end(.timedOut, report: report)",
     "name": "timeout preserves recoverable pending",
     "runner": "swift",
     "filter": "PairingFlowTests/missingAnswer"
   },
   {
     "file": "apps/ios/AtriumKit/Sources/AtriumRemote/PairingFlow.swift",
-    "from": "await channel.close()\n        return await end(.keychainUnavailable, report: report)",
-    "to": "await channel.close()\n        return await end(.keychainUnavailable, link: link, report: report)",
+    "from": "case .failed(let issue):\n        channel.abort()",
+    "to": "case .failed(let issue):\n        channel.abort(); try? store.removePending(link.hostId)",
     "name": "failed confirmation preserves pending",
     "runner": "swift",
     "filter": "PairingFlowTests/confirmationWriteFailure"
@@ -73,8 +73,8 @@
   },
   {
     "file": "apps/ios/AtriumKit/Sources/AtriumRemote/HostStore.swift",
-    "from": "try secrets.delete(\"pending.\\(record.hostId)\")",
-    "to": "try secrets.delete(\"other.\\(record.hostId)\")",
+    "from": "      try delete(\"pending.\\(record.hostId)\")\n      return record",
+    "to": "      try delete(\"other.\\(record.hostId)\")\n      return record",
     "name": "confirmed record removes pending",
     "runner": "swift",
     "filter": "HostStoreTests/replacement"
@@ -89,8 +89,8 @@
   },
   {
     "file": "apps/ios/AtriumKit/Sources/AtriumUI/Pairing/PairingModel.swift",
-    "from": "if case .paired = result.state { self.onPaired(result) }",
-    "to": "if case .paired = result.state { result.channel?.abort() }",
+    "from": "if case .paired = outcome.state { onPaired(outcome) }",
+    "to": "if case .paired = outcome.state { outcome.channel?.abort() }",
     "name": "successful pairing hands over before dismissal",
     "runner": "swift",
     "filter": "PairingModelTests/handsOverOnce"

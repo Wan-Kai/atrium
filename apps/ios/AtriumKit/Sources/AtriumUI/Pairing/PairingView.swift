@@ -11,6 +11,7 @@ public struct PairingView: View {
   @State private var scanning = false
   @State private var cameraUnavailable = false
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.scenePhase) private var scenePhase
 
   /// Presents the injected remote flow projection.
   ///
@@ -57,6 +58,11 @@ public struct PairingView: View {
             Text("没有完成配对")
           }
         }
+        if let issue = model.storageIssue {
+          Section {
+            PairingStorageNotice(issue: issue, retrying: model.isRunning, retry: model.retryStorage)
+          }
+        }
       }
       .navigationTitle("连接 Mac")
       .toolbar {
@@ -65,6 +71,14 @@ public struct PairingView: View {
             model.cancel()
             dismiss()
           }
+        }
+      }
+      .onChange(of: scenePhase, initial: true) { _, phase in
+        switch phase {
+        case .active: model.setAppPhase(.active)
+        case .inactive: model.setAppPhase(.inactive)
+        case .background: model.setAppPhase(.background)
+        @unknown default: break
         }
       }
       .onDisappear { model.cancel() }
@@ -125,10 +139,17 @@ public struct PairingView: View {
   ///
   /// - Remark: The remote module emits states, never user-facing text.
   /// - SideEffects: none
-  /// - Parameter failure: The remote flow's failure.
+  /// - Parameters:
+  ///   - failure: The remote flow's failure.
+  ///   - locale: The timestamp's display locale.
+  ///   - timeZone: The timestamp's display time zone.
   /// - Returns: A recovery-oriented message.
-  public static func message(for failure: PairingFailure) -> String {
+  public static func message(
+    for failure: PairingFailure, locale: Locale = .current, timeZone: TimeZone = .current
+  ) -> String {
     switch failure {
+    case .superseded: "本次配对已被新的配对替代，请使用最新的配对。"
+    case .revoked: "这台手机已被撤销，请重新配对。"
     case .declined: "Mac 拒绝了配对，请在 Mac 上重新出码。"
     case .busy: "另一台手机正在配对，请稍后在 Mac 上重新出码。"
     case .expired: "二维码已失效，请在 Mac 上重新出码。"
@@ -136,7 +157,8 @@ public struct PairingView: View {
     case .cancelled: "Mac 已取消配对，请重新出码。"
     case .interrupted: "连接中断，已保留待确认记录，下次连接会尝试恢复。"
     case .noNetwork: "连不出去，请检查网络和系统设置中的「无线数据」权限。"
-    case .hostOffline: "Mac 不在线，请打开 Mac 上的 Atrium 并检查远程连接。"
+    case .hostOffline(let lastSeen):
+      "Mac 不在线，\(PairingLastSeen.message(lastSeen, locale: locale, timeZone: timeZone))。请打开 Mac 上的 Atrium 并检查远程连接。"
     case .relayUnreachable: "连不上中继服务器，请检查网络和 Mac 上的连接设置。"
     case .versionMismatch: "Mac 上的 Atrium 和 App 版本不一致，请更新后重试。"
     case .hostError: "Mac 没能保存配对，请在 Mac 上检查后重试。"

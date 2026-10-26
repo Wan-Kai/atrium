@@ -1,3 +1,4 @@
+import AtriumRemote
 import AtriumUI
 import SwiftUI
 
@@ -7,6 +8,8 @@ import SwiftUI
 ///   logic lives in AtriumKit, so it can be tested on macOS with `swift test`.
 @main
 struct AtriumApp: App {
+  @State private var hostStore = HostStore(KeychainStore())
+
   /// The single window.
   var body: some Scene {
     WindowGroup {
@@ -14,10 +17,10 @@ struct AtriumApp: App {
         if PairingKeychainCheck.isRequested {
           PairingKeychainCheck()
         } else {
-          PairingHome { HomeView() }
+          PairingHome(store: hostStore) { HomeView() }
         }
       #else
-        PairingHome { HomeView() }
+        PairingHome(store: hostStore) { HomeView() }
       #endif
     }
   }

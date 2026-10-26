@@ -52,7 +52,7 @@
     var onUnavailable: () -> Void
     private var scanner: DataScannerViewController?
     private var cameraTask: Task<Void, Never>?
-    private var delivered = false
+    private var capture = PairingCodeCapture()
 
     /// Stores callbacks before the camera is created.
     ///
@@ -126,7 +126,7 @@
       scanner?.stopScanning()
     }
 
-    /// Delivers the first QR payload only.
+    /// Delivers the first Atrium pairing candidate only.
     ///
     /// - Remark: Link validation remains in PairingModel; camera callbacks never connect directly.
     /// - SideEffects: Stops scanning and calls the screen callback.
@@ -137,10 +137,10 @@
     func dataScanner(
       _ dataScanner: DataScannerViewController, didAdd addedItems: [RecognizedItem], allItems: [RecognizedItem]
     ) {
-      guard !delivered else { return }
       for item in addedItems {
-        if case .barcode(let barcode) = item, let text = barcode.payloadStringValue {
-          delivered = true
+        if case .barcode(let barcode) = item, let payload = barcode.payloadStringValue,
+          let text = capture.accept(payload)
+        {
           stop()
           onCode(text)
           return

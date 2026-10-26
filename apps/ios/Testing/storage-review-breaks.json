@@ -1,0 +1,122 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/PairingFlow.swift",
+    "from": "case .failure(.closed)?:\n      return await end(.other(\"cancelled\"), report: report)",
+    "to": "case .failure(.closed)?:\n      try? store.removePending(link.hostId); return await end(.other(\"cancelled\"), report: report)",
+    "name": "cancelled confirmation keeps recoverable pending",
+    "runner": "swift",
+    "filter": "PairingFlowTests/cancelledConfirmationRecovers"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/HostStore.swift",
+    "from": "guard owner == claim(pending.hostId) else { return .superseded }",
+    "to": "// broken: accept an old confirmation",
+    "name": "old successful confirmation cannot claim newer pending",
+    "runner": "swift",
+    "filter": "PairingOwnershipTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/HostStore.swift",
+    "from": "guard plan.claim == claim(plan.claim.hostId) else { return .superseded }",
+    "to": "// broken: delete old host after newer pending intent",
+    "name": "new pending protects its original host version from old cleanup",
+    "runner": "swift",
+    "filter": "StorageRecoveryTests/supersededCleanup"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/HostStore.swift",
+    "from": "try secrets.write(account, data)\n    versions.withLock { $0[account] = UUID() }",
+    "to": "try secrets.write(account, data)",
+    "name": "identical record writes still acquire distinct generations",
+    "runner": "swift",
+    "filter": "PairingOwnershipTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteConnection.swift",
+    "from": "if let claim = recovery.currentClaim { ownership = claim }\n      setStorageIssue(issue)",
+    "to": "if let claim = recovery.currentClaim { ownership = claim }\n      setStorageIssue(nil)",
+    "name": "persistence failures are observable independently of network status",
+    "runner": "swift",
+    "filter": "StorageRecoveryTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/RemoteConnection.swift",
+    "from": "if previous == .background, phase == .active {\n      retryStorage()\n      resume()",
+    "to": "if previous == .background, phase == .active {\n      resume()",
+    "name": "foreground retries remaining cleanup once without networking",
+    "runner": "swift",
+    "filter": "StorageRecoveryTests/partialCleanup"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/HostStore.swift",
+    "from": "Removal(claim: claim(plan.claim.hostId), hostKey: plan.hostKey, kinds: remaining)",
+    "to": "Removal(claim: plan.claim, hostKey: plan.hostKey, kinds: remaining)",
+    "name": "partial cleanup retains updated ownership of remaining work",
+    "runner": "swift",
+    "filter": "StorageRecoveryTests/partialCleanup"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/HostStore.swift",
+    "from": "guard record.hostKey == plan.hostKey else { continue }",
+    "to": "_ = record.hostKey",
+    "name": "revocation never deletes a differently authenticated host",
+    "runner": "swift",
+    "filter": "PairingRevocationTests/keyScope"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRemote/PairingFlow.swift",
+    "from": "reason == \"revoked\" ? .revoked : Self.rejection(reason)",
+    "to": "Self.rejection(reason)",
+    "name": "pairing revocation cleans both scoped records and reports cleanup failures",
+    "runner": "swift",
+    "filter": "PairingRevocationTests/revoke"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Pairing/PairingHome.swift",
+    "from": "return pendingHosts.first(where: { $0.hostId == selected.hostId }) ?? selected",
+    "to": "return selected",
+    "name": "same-host new relay pending takes restoration priority",
+    "runner": "swift",
+    "filter": "PairingRestorationTests/replacementRelay"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Pairing/PairingModel.swift",
+    "from": "ownership != store.claim(host.hostId)",
+    "to": "false && ownership != store.claim(host.hostId)",
+    "name": "returned old success cannot transfer ownership after replacement",
+    "runner": "swift",
+    "filter": "PairingModelTests/staleOutcomeIsNotAdopted"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Pairing/PairingLastSeen.swift",
+    "from": "return \"上次在线：\\(date.formatted(style))\"",
+    "to": "return \"上次在线时间未知\" + String(date.formatted(style).prefix(0))",
+    "name": "offline status retains the actual last-seen timestamp",
+    "runner": "swift",
+    "filter": "PairingPresentationTests/offlineDate"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Pairing/PairingCodeCapture.swift",
+    "from": "url.scheme?.lowercased() == \"atrium\", url.host?.lowercased() == \"pair\"",
+    "to": "url.scheme != nil",
+    "name": "unrelated QR codes never end pairing capture",
+    "runner": "swift",
+    "filter": "PairingPresentationTests/scannerCandidates"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Pairing/PairingHome.swift",
+    "from": "receive(issue)",
+    "to": "_ = issue; receive(nil)",
+    "name": "UI observes persistence changes with unchanged connection status",
+    "runner": "swift",
+    "filter": "PairingStoragePresentationTests/observesStorageIndependently"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Pairing/PairingModel.swift",
+    "from": "if previous == .background, phase == .active { retryStorage() }",
+    "to": "if previous == .background, phase == .active {}",
+    "name": "pairing-owned persistence also retries on foreground once",
+    "runner": "swift",
+    "filter": "PairingModelTests/foregroundStorageRetry"
+  }
+]

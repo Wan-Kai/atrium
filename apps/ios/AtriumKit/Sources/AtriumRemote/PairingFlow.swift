@@ -21,6 +21,10 @@ public enum PairingState: Equatable, Sendable {
 /// - Remark: Refusals inside Noise give the exact reason; a closed connection before message 2 means
 ///   the code is not the Mac's current one (SPEC-0005 "配对流程" step 2, MP0).
 public enum PairingFailure: Equatable, Sendable {
+  /// A newer pairing owns these records; this attempt must not publish or mutate them.
+  case superseded
+  /// The authenticated host revoked this phone.
+  case revoked
   /// The user declined on the Mac.
   case declined
   /// Another phone got there first (`pairing_busy`).
@@ -59,6 +63,33 @@ public struct PairingOutcome: Sendable {
   public let state: PairingState
   /// The open channel after `paired`.
   public let channel: SecureChannel?
+  /// Persistence failure independent of the pairing or revocation fact.
+  public let storageIssue: RemoteStorageIssue?
+  /// Only the remaining version-owned operation, for explicit retry.
+  public let storageRecovery: HostStorageRecovery?
+  /// Confirmed record versions for a final consumer-side stale-result check.
+  public let ownership: HostStore.Claim?
+
+  /// Builds the pairing result without transferring any secret data to logs or UI text.
+  ///
+  /// - Remark: A storage retry can complete a record without an open handover channel.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - state: Final pairing state.
+  ///   - channel: Open authenticated channel on success.
+  ///   - storageIssue: Optional persistence failure.
+  ///   - storageRecovery: Remaining scoped operation.
+  ///   - ownership: Confirmed record versions, if successful.
+  public init(
+    state: PairingState, channel: SecureChannel?, storageIssue: RemoteStorageIssue? = nil,
+    storageRecovery: HostStorageRecovery? = nil, ownership: HostStore.Claim? = nil
+  ) {
+    self.state = state
+    self.channel = channel
+    self.storageIssue = storageIssue
+    self.storageRecovery = storageRecovery
+    self.ownership = ownership
+  }
 }
 
 /// The phone's side of pairing, from a scanned link to `paired` (SPEC-0005 "配对流程").
@@ -98,20 +129,22 @@ public struct PairingFlow: Sendable {
   ///   - link: The scanned or pasted link.
   ///   - report: Called with every state, including the final one.
   /// - Returns: The final state, with the channel on success.
-  public func run(_ link: PairingLink, report: @escaping @Sendable (PairingState) async -> Void) async
+  @concurrent public func run(_ link: PairingLink, report: @escaping @Sendable (PairingState) async -> Void) async
     -> PairingOutcome
   {
     await report(.connecting)
     let pending = HostRecord(pending: link)
     let deviceKey: Curve25519.KeyAgreement.PrivateKey
+    let owner: HostStore.Claim
     do {
       deviceKey = try store.deviceKey()
-      try store.savePending(pending)
+      guard let claim = try store.beginPairing(pending) else { return await end(.other("cancelled"), report: report) }
+      owner = claim
     } catch {
       return await end(.keychainUnavailable, report: report)
     }
     guard let endpoint = clientEndpoint(relay: link.relay, hostId: link.hostId) else {
-      return await end(.relayUnreachable, link: link, report: report)
+      return await end(.relayUnreachable, report: report)
     }
     let transport = environment.connect(endpoint)
     let environment = environment
@@ -126,11 +159,17 @@ public struct PairingFlow: Sendable {
     let pairing: PairingChannel
     switch opened {
     case .success(let value): pairing = value
-    case .failure(let error): return await end(Self.handshakeFailure(error), link: link, report: report)
+    case .failure(let error):
+      if owner != store.claim(link.hostId) { return await end(.superseded, report: report) }
+      if Task.isCancelled { return await end(.other("cancelled"), report: report) }
+      if case .rejected = error {
+        return await refuse(Self.handshakeFailure(error), link: link, owner: owner, report: report)
+      }
+      return await end(Self.handshakeFailure(error), report: report)
     }
-    if Task.isCancelled {
-      await pairing.channel.close()
-      return await end(.other("cancelled"), link: link, report: report)
+    if Task.isCancelled || owner != store.claim(link.hostId) {
+      pairing.channel.abort()
+      return await end(Task.isCancelled ? .other("cancelled") : .superseded, report: report)
     }
 
     let deadline = environment.stopwatch.now.advanced(by: .seconds(Self.confirmWindow))
@@ -169,16 +208,30 @@ public struct PairingFlow: Sendable {
     }
     switch answer {
     case .success(let paired)?:
-      guard let record = try? store.confirm(pending, deviceId: paired.deviceId, hostName: paired.hostName) else {
-        await channel.close()
-        return await end(.keychainUnavailable, report: report)
+      let recovery = HostStorageRecovery(
+        store: store, pending: pending, deviceId: paired.deviceId, hostName: paired.hostName, claim: owner)
+      switch await recovery.retry() {
+      case .saved(let record, let confirmedOwner):
+        await report(.paired(record))
+        guard confirmedOwner == store.claim(record.hostId) else {
+          channel.abort()
+          return await end(.superseded, report: report)
+        }
+        return PairingOutcome(state: .paired(record), channel: channel, ownership: confirmedOwner)
+      case .failed(let issue):
+        channel.abort()
+        await report(.failed(.keychainUnavailable))
+        return PairingOutcome(
+          state: .failed(.keychainUnavailable), channel: nil, storageIssue: issue, storageRecovery: recovery)
+      case .superseded, .removed:
+        channel.abort()
+        return await end(.superseded, report: report)
       }
-      await report(.paired(record))
-      return PairingOutcome(state: .paired(record), channel: channel)
     case .failure(.rejected(let reason, _))?:
-      return await end(Self.rejection(reason), link: link, report: report)
+      return await refuse(
+        reason == "revoked" ? .revoked : Self.rejection(reason), link: link, owner: owner, report: report)
     case .failure(.closed)?:
-      return await end(.other("cancelled"), link: link, report: report)
+      return await end(.other("cancelled"), report: report)
     case .failure?:
       // The Mac may have confirmed; keep the pending record for the next connection.
       return await end(.interrupted, report: report)
@@ -188,20 +241,46 @@ public struct PairingFlow: Sendable {
     }
   }
 
-  /// Reports and returns a failure, dropping the pending record when `link` is given.
+  /// Applies only authenticated, version-owned refusal cleanup.
+  ///
+  /// - Remark: Revocation covers matching-key host and pending records; other refusals cover pending.
+  ///   Failed cleanup remains observable and retryable without restarting the pairing.
+  /// - SideEffects: May delete scoped records; reports the final state.
+  /// - Parameters:
+  ///   - failure: Authenticated refusal.
+  ///   - link: The authenticated host identity.
+  ///   - owner: Original record versions.
+  ///   - report: State callback.
+  /// - Returns: Refusal, superseded, or refusal with remaining storage recovery.
+  private func refuse(
+    _ failure: PairingFailure, link: PairingLink, owner: HostStore.Claim, report: @Sendable (PairingState) async -> Void
+  ) async -> PairingOutcome {
+    let recovery = HostStorageRecovery(
+      store: store, removal: store.removal(owner: owner, hostKey: link.hostKey, pendingOnly: failure != .revoked),
+      operation: failure == .revoked ? .removeHost : .removePending)
+    switch await recovery.retry() {
+    case .superseded:
+      return await end(.superseded, report: report)
+    case .failed(let issue):
+      await report(.failed(failure))
+      return PairingOutcome(state: .failed(failure), channel: nil, storageIssue: issue, storageRecovery: recovery)
+    case .removed, .saved:
+      return await end(failure, report: report)
+    }
+  }
+
+  /// Reports and returns a failure without assuming an ambiguous outcome can delete records.
   ///
   /// - Remark: Ambiguous outcomes (interruption, local timeout, storage failure) preserve recovery
   ///   information; an authenticated refusal can remove it.
-  /// - SideEffects: May delete the pending record; calls `report`.
+  /// - SideEffects: Calls report.
   /// - Parameters:
   ///   - failure: Why.
-  ///   - link: The pairing whose pending record goes, or `nil` to keep it.
   ///   - report: The state callback.
   /// - Returns: The outcome.
   private func end(
-    _ failure: PairingFailure, link: PairingLink? = nil, report: @Sendable (PairingState) async -> Void
+    _ failure: PairingFailure, report: @Sendable (PairingState) async -> Void
   ) async -> PairingOutcome {
-    if let link { try? store.removePending(link.hostId) }
     await report(.failed(failure))
     return PairingOutcome(state: .failed(failure), channel: nil)
   }

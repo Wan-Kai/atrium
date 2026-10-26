@@ -1433,3 +1433,6 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 ### MP4 冻结基线 323e7b7 后的审查修复
 
 - 测试资源：`ConnectionResourceScope` 对 `RemoteConnectionTests` 每个 case 注册连接，成功或抛错均 stop，并检查弱引用释放及手动时钟 sleeper 归零。原 pending IK / inactive / handover 三条成功路径先在新退出断言下失败；补 teardown 后26项通过。`teardownAfterThrow` 特意抛错验证失败路径；`Testing/resource-breaks.json` 删除 stop 的破坏检查1/1检出。假宿主会话由 Harness 显式持有，不再依赖遗留 writer 泄漏保持连接；无应答心跳测试在每个发送时点读取真实密文，避免把排队等同发送成功。
+- 存储所有权与恢复：`PairingFlowTests/cancelledConfirmationRecovers`、`PairingOwnershipTests`、`PairingRevocationTests`、`StorageRecoveryTests` 分别覆盖取消后 pending/IK、同内容新代与迟到成功/拒绝、配对期认证撤销及密钥范围、host/pending 各自删除失败/部分成功/前台和显式重试、旧清理不得使新 pending 的后续确认失权、同步不中断但确认写失败持续可见。App 注入同一个 HostStore，`MainThreadCheckingStore` 验证生产加载与配对路径不在 MainActor 做钥匙串 IO；持久格式不变。
+- 界面审查：`PairingRestorationTests` 实际将同 host 新 relay pending 接到新端点并用 IK 替换；`PairingPresentationTests` 验证离线绝对时间和非 pairing QR 不中断取景；`PairingStoragePresentationTests` 验证网络状态不变时存储问题仍刷新；`PairingModelTests` 验证成功交付前再核对 claim、配对持有的存储错误也在回前台时只重试一次，取消与 superseded 不复活。没有新增取消后自动 IK 或配对恢复按钮。
+- 本轮存储/界面定向 Swift 验证66项/10 suites 通过（warnings-as-errors），新行为先见红灯。`storage-review-breaks.json` 15/15、适配新实现后的原 `remote-breaks.json` 13/13、`resource-breaks.json` 1/1 全部检出。当前代码的只读所有权复查未发现破坏性路径；指出的 model 前台重试遗漏已补红绿测试。未跑本轮全量 check/test、Xcode/模拟器和真机验收；上述旧阶段的平台证据不冒充本次复验。

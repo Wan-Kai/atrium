@@ -222,6 +222,9 @@ public final class MemoryRelay: Sendable {
     state.withLock { $0.plans.append(error) }
   }
 
+  /// Host connections still queued for a test consumer.
+  public var queued: Int { state.withLock { $0.queue.count } }
+
   /// Every endpoint asked for, failed ones included.
   public var requested: [URL] { state.withLock { $0.urls } }
 

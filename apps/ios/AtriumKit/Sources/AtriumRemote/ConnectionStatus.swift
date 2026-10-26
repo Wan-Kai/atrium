@@ -22,7 +22,9 @@ public enum ConnectionStatus: Equatable, Sendable {
   case noNetwork
   /// The Mac speaks another protocol version; no retries.
   case versionMismatch(hostProtocol: Int?)
-  /// The Mac revoked this phone, said so inside Noise; the pairing is deleted, no retries.
+  /// A newer pairing replaced this connection's record ownership; no retries.
+  case superseded
+  /// The Mac revoked this phone inside Noise; no retries. storageIssue reports unfinished deletion.
   case revoked
   /// A pairing the Mac never confirmed: the host does not know this phone; the pending record is deleted.
   case pairingIncomplete
@@ -30,7 +32,7 @@ public enum ConnectionStatus: Equatable, Sendable {
   /// Whether the connection has stopped for good.
   public var isTerminal: Bool {
     switch self {
-    case .versionMismatch, .revoked, .pairingIncomplete: true
+    case .versionMismatch, .revoked, .pairingIncomplete, .superseded: true
     default: false
     }
   }

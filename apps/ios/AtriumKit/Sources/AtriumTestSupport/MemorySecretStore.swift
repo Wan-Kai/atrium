@@ -14,6 +14,8 @@ public final class MemorySecretStore: SecretStore {
     var items: [String: Data] = [:]
     var failWrites: StoreError?
     var includingDeletes = true
+    var deleteFailures: [String: StoreError] = [:]
+    var deleteAttempts: [String: Int] = [:]
   }
 
   private let state = Mutex(State())
@@ -37,6 +39,20 @@ public final class MemorySecretStore: SecretStore {
       $0.includingDeletes = includingDeletes
     }
   }
+
+  /// Sets a failure for deletion of one exact account.
+  ///
+  /// - Remark: Models partial host/pending cleanup independently of writes.
+  /// - SideEffects: Changes failure injection.
+  /// - Parameters:
+  ///   - account: Exact account.
+  ///   - error: Failure, or nil to restore deletion.
+  public func failDelete(_ account: String, with error: StoreError?) {
+    state.withLock { $0.deleteFailures[account] = error }
+  }
+
+  /// Exact per-account deletion attempts, including failed attempts.
+  public var deletionAttempts: [String: Int] { state.withLock { $0.deleteAttempts } }
 
   /// The items, for assertions.
   public var items: [String: Data] { state.withLock { $0.items } }
@@ -77,6 +93,8 @@ public final class MemorySecretStore: SecretStore {
   /// - Throws: The planned failure.
   public func delete(_ account: String) throws(StoreError) {
     let failure: StoreError? = state.withLock { state in
+      state.deleteAttempts[account, default: 0] += 1
+      if let failure = state.deleteFailures[account] { return failure }
       if state.includingDeletes, let failure = state.failWrites { return failure }
       state.items[account] = nil
       return nil

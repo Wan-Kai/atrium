@@ -22,6 +22,10 @@ public actor RemoteConnection {
 
   /// Every change of ``status``, in order.
   public nonisolated let statuses: AsyncStream<ConnectionStatus>
+  /// Latest local persistence state, independent of connection status changes.
+  public nonisolated let storageIssues: AsyncStream<RemoteStorageIssue?>
+  /// A failed local confirmation or cleanup, retained until resolved or superseded.
+  public private(set) var storageIssue: RemoteStorageIssue?
   /// The host's Atrium messages, tagged with their connection.
   public nonisolated let messages: AsyncStream<RemoteMessage>
   /// What the connection line shows now.
@@ -52,6 +56,9 @@ public actor RemoteConnection {
   }
 
   private let statusSink: AsyncStream<ConnectionStatus>.Continuation
+  private let storageSink: AsyncStream<RemoteStorageIssue?>.Continuation
+  private var ownership: HostStore.Claim
+  private var storageRecovery: HostStorageRecovery?
   private let messageSink: AsyncStream<RemoteMessage>.Continuation
   private let deviceKey: Curve25519.KeyAgreement.PrivateKey
   private let store: HostStore
@@ -79,18 +86,23 @@ public actor RemoteConnection {
   ///   - store: Where the records live, for confirming and deleting.
   ///   - environment: Connections, clock and randomness.
   ///   - handover: An open channel from pairing, if any.
+  ///   - ownership: Original record versions captured by the caller's record load or pairing.
   public init(
     host: HostRecord,
     deviceKey: Curve25519.KeyAgreement.PrivateKey,
     store: HostStore,
     environment: RemoteEnvironment,
-    handover: SecureChannel? = nil
+    handover: SecureChannel? = nil,
+    ownership: HostStore.Claim? = nil
   ) {
     self.host = host
     self.deviceKey = deviceKey
     self.store = store
     self.environment = environment
     self.handover = handover
+    self.ownership = ownership ?? store.claim(host.hostId)
+    (storageIssues, storageSink) = AsyncStream.makeStream(bufferingPolicy: .bufferingNewest(1))
+    storageSink.yield(nil)
     (statuses, statusSink) = AsyncStream.makeStream()
     (messages, messageSink) = AsyncStream.makeStream()
     statusSink.yield(status)
@@ -113,7 +125,37 @@ public actor RemoteConnection {
     tearDown()
     link = .stopped
     statusSink.finish()
+    storageSink.finish()
+    storageRecovery = nil
     messageSink.finish()
+  }
+
+  /// Retries the remaining version-owned storage action once.
+  ///
+  /// - Remark: Never starts a network connection or installs a retry timer.
+  /// - SideEffects: May update keychain records and storageIssue.
+  public func retryStorage() {
+    guard !isStopped, let recovery = storageRecovery else { return }
+    switch recovery.perform() {
+    case .saved(let record, let claim):
+      host = record
+      ownership = claim
+      storageRecovery = nil
+      setStorageIssue(nil)
+    case .failed(let issue):
+      if let claim = recovery.currentClaim { ownership = claim }
+      setStorageIssue(issue)
+    case .removed:
+      storageRecovery = nil
+      setStorageIssue(nil)
+    case .superseded:
+      storageRecovery = nil
+      setStorageIssue(nil)
+      if recovery.operation == .confirmPairing {
+        tearDown()
+        finish(.superseded)
+      }
+    }
   }
 
   /// Sends one encoded Atrium message on the connection of `generation`.
@@ -154,7 +196,10 @@ public actor RemoteConnection {
     guard phase != .inactive else { return }
     let previous = appPhase
     appPhase = phase
-    if previous == .background, phase == .active { resume() }
+    if previous == .background, phase == .active {
+      retryStorage()
+      resume()
+    }
   }
 
   /// Closes the link because the app went to the background.
@@ -249,6 +294,11 @@ public actor RemoteConnection {
   /// - Remark: ``tearDown()`` moves to a new generation, which makes every callback of the old link stale.
   /// - SideEffects: Closes the old link; opens a connection; starts the attempt's task.
   private func beginAttempt() {
+    guard ownership == store.claim(host.hostId) else {
+      tearDown()
+      finish(.superseded)
+      return
+    }
     let handover = handover
     self.handover = nil
     tearDown()
@@ -364,10 +414,21 @@ public actor RemoteConnection {
   ///   - established: The device id and channel.
   ///   - generation: The attempt's generation.
   private func opened(_ established: Established, generation: Int) {
+    guard ownership == store.claim(host.hostId) else {
+      established.channel.abort()
+      tearDown()
+      finish(.superseded)
+      return
+    }
     if host.deviceId != established.deviceId {
-      var confirmed = host
-      confirmed.deviceId = established.deviceId
-      host = (try? store.confirm(host, deviceId: established.deviceId)) ?? confirmed
+      storageRecovery = HostStorageRecovery(
+        store: store, pending: host, deviceId: established.deviceId, claim: ownership)
+      host.deviceId = established.deviceId
+      retryStorage()
+      guard !status.isTerminal, generation == self.generation else {
+        established.channel.abort()
+        return
+      }
     }
     link = .open(established.channel)
     backoffStep = 0
@@ -460,11 +521,17 @@ public actor RemoteConnection {
     tearDown()
     switch error {
     case .rejected(reason: "device_unknown", _) where host.isPending:
-      try? store.removePending(host.hostId)
       finish(.pairingIncomplete)
+      storageRecovery = HostStorageRecovery(
+        store: store, removal: store.removal(owner: ownership, hostKey: host.hostKey, pendingOnly: true),
+        operation: .removePending)
+      retryStorage()
     case .rejected(reason: "device_unknown", _), .rejected(reason: "revoked", _):
-      try? store.removeHost(host.hostId)
       finish(.revoked)
+      storageRecovery = HostStorageRecovery(
+        store: store, removal: store.removal(owner: ownership, hostKey: host.hostKey, pendingOnly: false),
+        operation: .removeHost)
+      retryStorage()
     case .rejected(reason: "version_mismatch", let hostProtocol):
       finish(.versionMismatch(hostProtocol: hostProtocol))
     case .versionMismatch(let hostProtocol):
@@ -578,6 +645,17 @@ public actor RemoteConnection {
     handover = nil
     link = .idle
     generation += 1
+  }
+
+  /// Publishes changed local persistence state even when the network status is unchanged.
+  ///
+  /// - Remark: Latest-only state buffering is safe here; this is not a protocol message queue.
+  /// - SideEffects: Changes storageIssue and yields its state.
+  /// - Parameter issue: Failure or successful/superseded resolution.
+  private func setStorageIssue(_ issue: RemoteStorageIssue?) {
+    guard storageIssue != issue else { return }
+    storageIssue = issue
+    storageSink.yield(issue)
   }
 
   /// Publishes a new status.

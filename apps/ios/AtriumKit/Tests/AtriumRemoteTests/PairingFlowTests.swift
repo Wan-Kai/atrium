@@ -129,6 +129,38 @@ struct PairingFlowTests {
     #expect(incoming.host.isClosed)
   }
 
+  @Test("cancelling after Mac confirmation retains pending for recovery over IK")
+  func cancelledConfirmationRecovers() async throws {
+    let h = Harness()
+    let link = try PairingLink(h.host.linkText)
+    let flow = PairingFlow(
+      environment: h.environment, store: h.store,
+      device: DeviceInfo(deviceName: "P", model: "M", appVersion: "1"))
+    let task = Task { await flow.run(link) { _ in } }
+    defer { task.cancel() }
+    let incoming = await h.relay.next()
+    let side = try await h.host.accept(incoming.host, stopwatch: h.stopwatch)
+    #expect(try await side.nextControl() == .pairConfirm)
+    // The Mac has accepted this key, but its paired frame is withheld when the screen is cancelled.
+    let acceptedKey = side.deviceKey
+    task.cancel()
+    #expect(await task.value.state == .failed(.other("cancelled")))
+    let pending = try #require(h.store.pendingHosts().first)
+    #expect(pending == HostRecord(pending: link))
+    #expect(incoming.host.isClosed)
+
+    let connection = RemoteConnection(
+      host: pending, deviceKey: try h.store.deviceKey(), store: h.store, environment: h.environment)
+    await connection.start()
+    let recovered = try await h.open(connection)
+    #expect(recovered.mode == .ik)
+    #expect(recovered.deviceKey == acceptedKey)
+    #expect(try h.store.hosts() == [h.host.record])
+    #expect(try h.store.pendingHosts().isEmpty)
+    await connection.stop()
+    try await eventually { h.clock.sleeperCount == 0 }
+  }
+
   @Test("a missing paired answer times out without erasing the recoverable pending record")
   func missingAnswer() async throws {
     let h = Harness()
