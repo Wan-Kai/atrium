@@ -467,6 +467,16 @@ M1.11，2026-10-13 定，行为见 [SPEC-0001 · 模型与输入框](../specs/00
 
 **动效**：沿用"动效"的三种弹簧，SwiftUI 用 `.spring(duration:bounce:)` 一一对应（smooth 0.42/0、snappy 0.30/0.15、bouncy 0.40/0.26）。列表行进对话、改动列表进 diff 用放大过渡（`navigationTransition(.zoom)`），返回缩回原位；sheet 拉到大档时后面的页面缩小、加圆角、变暗；玻璃按钮按下时轻微放大、高光跟手。减弱动态效果时全部换成 0.18 秒交叉淡化。
 
+### 手机端零件实现备注（MP5 / MP6，2026-10-26）
+
+第四路提前实现，尚未接入完整手机流程：统一 token 在 `AtriumUI/Design`，组件与过程轨道在 `AtriumUI`；`AtriumRender` 只负责解析/揭示/高亮/diff 显示模型，不 import SwiftUI。选型与验证边界见 [mobile-render.md](../research/mobile-render.md)。
+
+- 衬线选择采取保守白名单：Latin 字母、数字、常见标点才用 New York；带 CJK、其他文字或 emoji 的整个标题回到系统半粗，不把非拉丁字符强塞进衬线。项目标题沿原型 23pt / 中文 19pt。
+- `--code`、`--g-ring`、语义浅底等补充数值取定稿原型。减弱透明度的玻璃实色采用浅 `#f6f4ee`、深 `#2e2c29`（可撤回的实现选择）；普通连接胶囊按原型是安静实色填充，不用玻璃，因为它在正文内而非悬浮。
+- 像素猫逐格迁移定稿原型的 32×32 采样；每只猫注入 seed，每次动作间隔 4–6 秒，约 2/3 眨眼，其余歪头/抖耳。调度仅在姿势切换时刷新，不让整个网格每帧重画。
+- 问号/感叹号和通用控件暂用 SF Symbols，形状语义不变；与桌面 Hugeicons 的具体线型不同，验收时需确认。
+- Markdown 用 swift-markdown 0.9.0 的块边界，加自己绘制的 SwiftUI；高亮用本地 highlight.js 11.11.1，经 JavaScriptCore actor 转成 scope，不用 WebView。表格、diff 工具条和完整时间线交互仍按上面的规格验收，不因调试零件暂未齐全而改变规格。
+
 ## 参考
 
 - 视觉：[DeepSeek Harness](https://www.deepseek.com/en/harness/)（按组件逐个实测）

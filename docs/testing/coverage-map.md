@@ -4,6 +4,28 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## MP5 / MP6 界面与渲染零件提前并行（2026-10-26）
+
+`agent/ios-ui-render`，仅交付零件与 Debug 陈列页，不标 MP5/MP6 完成。选型、实测与未完项见 [mobile-render.md](../research/mobile-render.md)。Swift 测试根目录为 `apps/ios/AtriumKit/Tests/`。
+
+| 行为 | 验证 |
+|---|---|
+| 暖色浅/深 token、拉丁衬线与中文回退、弹簧/0.18秒降级、预览不得撤销系统辅助设置 | `AtriumUITests/DesignTokenTests.swift`；陈列页 colors/type/glass/status 的浅深截图 |
+| 5×5、21点涡旋、三档亮度、1.65秒同相位、静态1.15秒 | `VortexPatternTests.swift`；多尺寸图标并排截图 |
+| 32×32像素猫、五场景/四姿势、4–6秒动作与精确绝对时间截止 | `PixelCatTests.swift` 与原型导出的17张网格逐格相等；`PixelCatIdleTests.swift`；猫图明暗与 reduced 截图 |
+| Turn/Step→过程行、空内容过滤、探索聚合、支线、回复拆分、最终回复前的思考不误标运行中 | `RailRowsTests.swift`（协议JSON夹具）；`RailDetailTests.swift`（全文/输出/探索失败详情/问答摘要不丢） |
+| 减弱动态无空间动画、恢复循环、折叠保留插话、等待提问标题 | `RailViewContractTests.swift` 3项为**源结构守卫**；截图不代替运行时动态切换/逐帧验收 |
+| 字素安全的150ms积压比例揭示、尾部结束、替换/停顿/组合emoji | `AtriumRenderTests/TextRevealTests.swift` |
+| 解析器尾块边界与全文一致、后置引用、缩进、CR/LF/CRLF、不执行HTML/危险scheme、图表源码降级 | `StreamingMarkdownTests.swift`，12组逐Character前缀差分与围栏/安全链接回归；缩进/混合换行/容器闭合均先红后绿 |
+| 本地 highlight.js 的常用19种语言名/别名、未知语言降级、嵌套span、转义与原文还原 | `CodeHighlighterTests.swift`，真实 JavaScriptCore 执行 |
+| hunk头/行号、前后缺失上下文、长上下文保留边缘并可展开 | `DiffLayoutTests.swift`；diff 明暗截图；缺失行回填交给上层，陈列页不伪造数据 |
+| 时间线初始定位/跟随/读历史、未读提示、回到底部 | `TimelineFollowTests.swift`；XCUITest 的1000行 List/LazyVStack基准核对真实尾行存在 |
+| 模拟器陈列页、截图、性能样本 | `apps/ios/AtriumUITests/GalleryScreenshotTests.swift`；`TEST_RUNNER_ATRIUM_GALLERY_SHOTS=1 pnpm test:ios`；截图在 `apps/ios/.build/gallery/`，原始附件在 Xcode xcresult |
+
+验证：`pnpm check` 通过；`pnpm test` 最终 **202文件/3792项 TS + 82项 Swift** 通过。首次全量 testkit/git 夹具构造超时1项，单独重跑3/3及第二次完整全量通过，没有改它。两份破坏检查 `Fixtures/{render-break-cases,rail-break-checks}.json` 分别 **24/24、11/11 CAUGHT**（其中3个UI接线守卫不是行为测试）。Swift 暂不接变异工具，遵循 MP1 约定。`TEST_RUNNER_ATRIUM_GALLERY_SHOTS=1 pnpm test:ios` 最终82 Swift + 4 XCUITest通过（0失败/0跳过），26张组件浅深/减弱动态/实色玻璃截图已导出到 `apps/ios/.build/gallery/`；标准 `pnpm ios:shot` 浅深各一次通过。
+
+**性能仍未达验收结论**：macOS Release 96KB解析+转换中位43.86ms，500行TS高亮+转换49.73ms；后台actor，不是主线程数值。模拟器第一轮两容器均有>50ms帧间隔（完整三次数字见调研），暂用List但未证明50ms主线程预算通过。没有真机、Release Instruments trace、长时间耗电/泄漏压力或完整手机连接/发送验收。
+
 ## MP1 Swift 工程基础（手机端，2026-10-25～26）
 
 路线图 MP1：Swift 的规范、`apps/ios` 工程骨架、`pnpm protocol:swift` 和往返测试、Swift 进 `pnpm check` / `pnpm test`，破坏检查扩到 Swift（[testing.md · Swift（手机端）](../architecture/testing.md#swift手机端)、[overview.md · iOS 工程](../architecture/overview.md#ios-工程2026-10-25-定mp1)）。

@@ -187,6 +187,20 @@
 
 隐藏命令都由 Atrium 自带的 pi 扩展注册，宿主确认扩展已加载后才发；`/atrium-` 开头的消息留给宿主（见上文"子进程与文件"）。
 
+### 手机端界面与渲染零件（MP5 / MP6，2026-10-26）
+
+此表补充 Swift 的边界；当前 `pnpm boundary` 只扫描 TS，不能代替对 Swift 的审查。
+
+| 边界 | 用途与约束 |
+|---|---|
+| `https://github.com/swiftlang/swift-markdown.git`，精确 `0.9.0` | 构建期下载的 Markdown 解析器，Apache-2.0 + Runtime Library Exception；swift-cmark `0.9.0`（BSD-2 / MIT）由 `apps/ios/AtriumKit/Package.resolved` 锁定。运行时不联网 |
+| `@highlightjs/cdn-assets@11.11.1` 的 `highlight.min.js` | 原版常用语言 bundle，BSD-3-Clause，来源/许可证随 AtriumRender 资源打包。SHA-256 `c4a399dd6f488bc97a3546e3476747b3e714c99c57b9473154c6fb8d259b9381`。JavaScriptCore actor 只执行这个受信任的本地脚本；用户代码作为字符串参数，不拼接执行；无网络/文件桥，不使用 WebView/HTML importer；超 128 KiB 保留无高亮原文 |
+| Markdown 链接与 HTML | 只让 http/https 链接成为可打开链接；javascript、file、data、自定义 scheme 只保留文字。HTML、图表源码不执行；图片仅 alt，不自动出网 |
+| `ATRIUM_GALLERY` | App 的 `#if DEBUG` 专用组件陈列页入口，值为陈列页名称；Release 不读。XCUITest 通过 `launchEnvironment` 设置，不承载用户数据 |
+| `TEST_RUNNER_ATRIUM_GALLERY_SHOTS` → `ATRIUM_GALLERY_SHOTS` | 测试 runner 的截图/模拟器帧间隔基准开关；只作用于 XCUITest，不进生产行为 |
+
+选型与尚未验证的性能边界见 [mobile-render.md](../research/mobile-render.md)。
+
 ## 测试
 
 每一条都要有测试证明：没有 token、token 错误、来源不对的连接被拒绝；渲染进程里拿不到 Node；导航和新窗口被拦截；日志里搜不到测试时用的 token 和 API Key；`@` 搜索不会返回工作区之外的文件。追踪表里单列"安全"一组。
