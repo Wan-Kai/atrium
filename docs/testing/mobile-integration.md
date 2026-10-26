@@ -8,7 +8,7 @@
 - 手机连接：`aeb7359`，原实现及审查修复；两轴限定复审未发现剩余阻断。
 - 手机渲染实现：`87c7722`，五项内容缺陷及围栏 metadata 修复；限定复审通过。父会话独立复跑相关 36 项 Swift 测试通过，日志 `/tmp/atrium-render-parent-review.log`。随后仅证据更新至 `6871905`，没有再次修改实现。
 - 桌面手机页：`bda5559`（由 `f6e6d1d` 更新，`e28d033` 合入协调契约）；型号、connect/live 证据和匿名握手已接线。作者定向 UI 57 项、client / 动画 119 项、破坏 16/16 通过；锁文件已补齐，真实宿主联调仍待完成。
-- 宿主远程：协调契约 `c709daf`（协议 27），行为实现 `e29e49a`（包含边界登记修复 `5d47db2`）。本轮增量变异已结束，但 fresh 79.25%、诊断文件 75.11%，未达新增范围门槛；审查修复后仍须重新验证，详见审查记录。
+- 宿主远程：协调契约 `c709daf`（协议 27），行为实现 `e29e49a`（包含边界登记修复 `5d47db2`）。该输入当时 fresh 79.25%、诊断文件 75.11%，未达新增范围门槛；后续冻结 `7b88613` 的重验见下节，旧成绩不与新成绩混算。
 
 ## 整合约束与顺序
 
@@ -50,13 +50,23 @@
 | `pnpm test:ios` | `97e5cc4` 通过；macOS Swift 汇总同上。xcresult 实际确认 **UI 5 过 / 2 跳过**：首页、Gallery、时间线位置、App 进程 Keychain 探针、粘贴与相机后备；默认未开截图矩阵 / 性能测量。`apps/ios/.build/xcode/Logs/Test/Test-Atrium-2026.10.26_23-54-20-+0800.xcresult`，摘要 / 用例 `/tmp/atrium-mobile-combined-ios-{summary,cases}.json`。Xcode 有 debugger version 诊断但退出 0，未据此删测试；不是“Executed 0 tests”的空 XCTest 汇总 |
 | 相关 Electron | `97e5cc4` 构建后 remote-vault 2 项＋Phone heap 1 项 **3/3**，日志 `/tmp/atrium-mobile-vault-phone-e2e.log`。前者只在测试 App 中将 availability 设为 false，不碰实际钥匙串拒绝流程 |
 | Node 泄漏，1 worker | `d910237` **20/20（9 文件）**，日志 `/tmp/atrium-mobile-review-node-leak.log` |
-| 桌面全部泄漏，1 worker | `d910237` **7 过 / 2 失败**；Phone 通过。appearance 失败在日志门禁（logins unavailable 两次、pi stdin 关闭后需 SIGTERM 一次），不是其 DOM 断言；ask-user 是已登记的同一增长：运行中 span 2 / SVGCircleElement 42 / SVGSVGElement 2。两项定向复验仍失败，未放宽断言或白名单，不能报全套绿。测试 / heap helper 相对 ace843a 未改，但未据此认定运行时归属。日志 `/tmp/atrium-mobile-review-{desktop-leak,leak-recheck}.log`，首轮截图和 trace 留 `/tmp/atrium-mobile-desktop-leak-evidence.skhYAr/` |
+| 桌面全部泄漏，1 worker | `d910237` **7 过 / 2 失败**；Phone 通过。appearance 失败在日志门禁（logins unavailable 两次、pi stdin 关闭后需 SIGTERM 一次），不是其 DOM 断言；ask-user 是已登记的同一增长：运行中 span 2 / SVGCircleElement 42 / SVGSVGElement 2。两项定向复验仍失败：appearance 只剩 SIGTERM 警告一次；ask-user 是 RunStatus / RunCat、shimmer 等另一组节点，不是重复上述指纹。未放宽断言或白名单，不能报全套绿。测试 / heap helper 相对 ace843a 未改，但未据此认定运行时归属。日志 `/tmp/atrium-mobile-review-{desktop-leak,leak-recheck}.log`，首轮截图和 trace 留 `/tmp/atrium-mobile-desktop-leak-evidence.skhYAr/` |
 
 父已查看 UI 作者的四张 `phone-{vault-confirm,keychain-error}-{light,dark}.png`（明暗、不可读与长确认），不是新设计或活跃手机联调的替代。变异采用独占重型窗口，以上验证没有与新一轮 Stryker 并行。
 
+## 冻结版修后变异与后续边界
+
+`2cb7958` 验证记录已随 `8a0a936` 整合。宿主对冻结 `7b88613` 单次执行 693 项，623K / 70S / 0T（89.90%）；原远程范围当前对应 472 项为 91.10%，diagnostics 整文件 93.78%，vault 整文件 87.33%。**`RelayLink.#checkPong` 审查小范围仍为 7K / 3S＝70%**，不能用含缓存总分 90.61% 遮盖。原 477 中 465 可一对一映射，另 12 改写不计杀死；29 个 Killed 含测试 / hook 超时的因果与 9 个旧缓存 Timeout 分别记录，见 [完整报告](mp3a-postreview-mutation.md)。
+
+父会话没有再跑该 58 分钟变异；独立核对了原日志的 dry run / 1835 生成 / 1140 复用 / 693 实测、退出码 0、JSON 中的整文件与 10 项 guard 统计，并以 `git show 7b88613` 核对六份嵌入源码全部一致。作者已开始下一批负控，不能用其活动工作树作冻结版比较目标。
+
+守卫补测另暴露公开 `onState(error)` 中同步 `retryNow()` 的真实 socket 重入缺陷：旧 close 提前结算新 waiter 且多挂 retry timer。父读失败日志及源码后批准独立最窄修；不声称 Electron UI 已复现。流量无变化推送也已另安排窄修。两者均不冒用上述冻结版成绩。
+
+两项桌面失败只读诊断已完成，**还没有对照实验**：appearance 的登录查询与 RPC 退出是不同进程路径，先在不读取用户配置的隔离真实 pi 环境比较基线 / 整合及明确查询完成屏障；faux 只能另作 DOM 控制。ask-user 已有跳过预热但无显式回合终态屏障，先比较语义终态 / 完整预热，不增加固定 sleep 或抬高允许增长；仍增长时需解释保留路径，不能凭平台化认定无害。
+
 ## 尚未完成的验证
 
-- 整套单元与桌面泄漏当前仍有上表失败；没有通过定向重跑抹去它们。修后固定范围变异已启动、尚无新结果；`17dc6de` 三方限定复审已完成，所报订阅文档遗漏及无变化重复推送待修后核对（见审查记录）。全套非泄漏 Electron、活跃配对 / QR 的 Electron 堆和用户验收尚未完成。
+- 整套单元与桌面泄漏当前仍有上表失败；没有通过定向重跑抹去它们。`17dc6de` 三方限定复审已完成，订阅文档 / 无变化推送、迟到守卫与公开重入的补测修复及新增范围变异尚待完成。全套非泄漏 Electron、活跃配对 / QR 的 Electron 堆和用户验收尚未完成；available QR 的安全方案已批准编写，尚未运行。
 - 手机时间线在独立渲染分支 `87c7722` 的低负载窗口已测（18:43–18:46；98 Swift + 4 UI 通过，截图矩阵按计划跳过）：List 三次仍各 180000 builder / 180 body，Stack 为 5376 / 5504 / 5504 builder。全部数据已随 `6871905` 合入本分支，见 `mobile-render.md`；不能把观察通知次数的改善当作 List 构造次数改善，也没有同窗旧实现对照可归因耗时变化。Release 主线程 trace 和真机 50 ms 预算仍未验证；上述 UI 结果不是本整合分支的运行结果。
 - 正式 RemoteService → Swift 的拒绝接缝已实测，仍不是 startHost / Electron / router / faux-pi 全契约；真实扫码 / 权限 / 锁屏 / 续签尚未验证。
 - 配对系统默认样式只用于接线，非最终视觉验收；渲染零件尚缺的交互与视觉差异仍见 `docs/research/mobile-render.md`。
