@@ -1,4 +1,11 @@
-import { CloseCode, CommandError, IDLE_CONTROL, PROTOCOL_VERSION, UNKNOWN_METRICS } from "@atrium/protocol";
+import {
+  CloseCode,
+  CommandError,
+  IDLE_CONTROL,
+  PROTOCOL_VERSION,
+  UNKNOWN_METRICS,
+  type RemoteState,
+} from "@atrium/protocol";
 import { FakeClock, present } from "@atrium/testkit";
 import { describe, expect, it, vi } from "vitest";
 import { type AtriumClient, ConnectionLostError, createAtriumClient } from "./atrium-client";
@@ -2522,6 +2529,7 @@ function remoteState(devices = 0) {
     enabled: true,
     vault: "ok",
     relay: {
+      diagnostics: null,
       url: "wss://relay.example.com",
       hostId: "hst_0123456789abcdef",
       status: "connected",
@@ -2532,6 +2540,7 @@ function remoteState(devices = 0) {
     devices: Array.from({ length: devices }, (_, at) => ({
       deviceId: `dev_${String(at).padStart(16, "0")}`,
       name: `iPhone ${at}`,
+      model: null,
       pairedAt: 1,
       lastSeenAt: null,
       online: false,
@@ -2559,6 +2568,80 @@ function remoteCommands(socket: ScriptedSocket) {
 }
 
 describe("createAtriumClient: remote access", () => {
+  it("projects protocol 27 evidence and prevents old reads or sockets reviving expired handshakes", async () => {
+    const { client, latest } = await connected();
+    const active: RemoteState = {
+      ...remoteState(1),
+      devices: remoteState(1).devices.map((device) => ({ ...device, model: "iPhone 16 Pro" })),
+      relay: {
+        ...remoteState().relay,
+        diagnostics: {
+          kind: "connect",
+          checkedAt: 100,
+          network: "failed",
+          resolution: "not_applicable",
+          tls: "unknown",
+          token: "unknown",
+          failure: "tcp_connect_failed",
+        },
+      },
+      pairing: {
+        pairingId: "pair_0123456789abcdef",
+        qr: "atrium://pair?v=1&psk=test",
+        expiresAt: 300000,
+        state: "available",
+        handshaking: true,
+        reason: null,
+        request: null,
+        refused: 0,
+      },
+    };
+    const read = client.watchRemote(true);
+    latest().answer("get_remote", active);
+    await read;
+    expect(client.remote.getState().state).toStrictEqual(active);
+    const expired: RemoteState = {
+      ...active,
+      pairing: { ...active.pairing!, state: "expired", handshaking: false, reason: "timeout" },
+    };
+    const refresh = client.watchRemote(true);
+    latest().receive(JSON.stringify({ type: "remote_updated", remote: expired }));
+    latest().answer("get_remote", active);
+    await refresh;
+    expect(client.remote.getState().state).toStrictEqual(expired);
+    const live: RemoteState = {
+      ...expired,
+      relay: {
+        ...active.relay!,
+        diagnostics: {
+          kind: "live",
+          checkedAt: 200,
+          network: "passed",
+          resolution: "unknown",
+          tls: "not_applicable",
+          token: "unknown",
+          failure: null,
+        },
+      },
+    };
+    latest().receive(JSON.stringify({ type: "remote_updated", remote: live }));
+    expect(client.remote.getState().state).toStrictEqual(live);
+    const oldSocket = latest();
+    const connecting = client.connect();
+    latest().open();
+    latest().receive(welcome());
+    await connecting;
+    const cleared: RemoteState = { ...active, pairing: null, relay: { ...active.relay!, diagnostics: null } };
+    latest().answer("get_remote", cleared);
+    await vi.waitFor(() => expect(client.remote.getState().state).toStrictEqual(cleared));
+    oldSocket.receive(JSON.stringify({ type: "remote_updated", remote: active }));
+    expect(client.remote.getState().state).toStrictEqual(cleared);
+    const stop = client.watchRemote(false);
+    latest().answer("get_remote", cleared);
+    await stop;
+    latest().receive(JSON.stringify({ type: "remote_updated", remote: active }));
+    expect(client.remote.getState()).toStrictEqual({ status: "idle", state: null, error: null });
+  });
   it("shows nothing until watched, then the answer, then each push, and stops when no longer watched", async () => {
     const { client, latest } = await connected();
     const before = client.remote.getState();

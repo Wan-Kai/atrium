@@ -23,12 +23,14 @@ const STATE: RemoteState = {
     status: "connected",
     error: null,
     lastConnectedAt: 1,
+    diagnostics: null,
   },
   hostFingerprint: "7f3a9c21e04b55d8",
   devices: [
     {
       deviceId: "dev_0123456789abcdef",
       name: "工作 iPhone",
+      model: null,
       pairedAt: 1,
       lastSeenAt: 2,
       online: true,
@@ -101,20 +103,18 @@ it("shows the first-use switch and requires inline confirmation to reset a corru
   expect(fake.calls).toStrictEqual(["watchRemote true", "setRemote true", "resetRemoteIdentity"]);
 });
 
-it.each([
-  { error: "relay_unreachable" as const, expected: ["未能确定", "未能确定", "未能确定", "未能确定"] },
-  { error: "relay_rejected" as const, expected: ["已通过", "已通过", "已通过", "令牌被拒"] },
-])("shows an honest diagnostic checklist for %s", async ({ error, expected }) => {
-  const fake = fakeClient({}, { remote: { ...STATE, relay: { ...STATE.relay!, status: "error", error } } });
-  const screen = await render(<PhoneSection client={fake.client} />);
-  await expect.element(screen.getByText("诊断", { exact: true })).toBeVisible();
-  expect(screen.container.querySelectorAll(".phone-diagnostics small").length).toBe(4);
-  expect(
-    [...screen.container.querySelectorAll(".phone-diagnostics small")].map((node) => node.textContent),
-  ).toStrictEqual(expected);
-  await screen.getByRole("button", { name: "重新粘贴" }).click();
-  await expect.element(screen.getByText(/换了 relay 地址或宿主 id/)).toBeVisible();
-});
+it.each(["relay_unreachable", "relay_rejected"] as const)(
+  "shows an honest diagnostic checklist for %s",
+  async (error) => {
+    const fake = fakeClient({}, { remote: { ...STATE, relay: { ...STATE.relay!, status: "error", error } } });
+    const screen = await render(<PhoneSection client={fake.client} />);
+    await expect.element(screen.getByText("诊断", { exact: true })).toBeVisible();
+    await expect.element(screen.getByText("尚无已完成的检查", { exact: true })).toBeVisible();
+    expect(screen.container.querySelectorAll(".phone-diagnostics small").length).toBe(0);
+    await screen.getByRole("button", { name: "重新粘贴" }).click();
+    await expect.element(screen.getByText(/换了 relay 地址或宿主 id/)).toBeVisible();
+  },
+);
 
 it("does not claim TLS was verified for the protocol's local ws test relay", async () => {
   const fake = fakeClient(
@@ -122,12 +122,27 @@ it("does not claim TLS was verified for the protocol's local ws test relay", asy
     {
       remote: {
         ...STATE,
-        relay: { ...STATE.relay!, url: "ws://localhost:8787", status: "error", error: "relay_rejected" },
+        relay: {
+          ...STATE.relay!,
+          url: "ws://localhost:8787",
+          status: "error",
+          error: "relay_rejected",
+          diagnostics: {
+            kind: "connect",
+            checkedAt: 1,
+            network: "passed",
+            resolution: "unknown",
+            tls: "not_applicable",
+            token: "failed",
+            failure: "token_rejected",
+          },
+        },
       },
     },
   );
   const screen = await render(<PhoneSection client={fake.client} />);
-  await expect.element(screen.getByText("本机测试未使用 TLS", { exact: true })).toBeVisible();
+  await expect.element(screen.getByText("不适用", { exact: true })).toBeVisible();
+  expect(screen.container.querySelector('[data-check="tls"]')?.getAttribute("data-result")).toBe("not_applicable");
 });
 
 it("saves relay credentials without echoing them and restores names on empty input", async () => {
@@ -175,6 +190,7 @@ const PAIR = {
   qr: "atrium://pair?v=1&psk=synthetic-test-secret",
   expiresAt: 300000,
   state: "available" as const,
+  handshaking: false,
   reason: null,
   request: null,
   refused: 0,
@@ -507,7 +523,7 @@ it("blocks duplicate commands before a render disables controls", async () => {
   await expect.element(screen.getByRole("button", { name: "正在处理…", exact: true })).toBeDisabled();
   expect(fake.calls).toStrictEqual(["watchRemote true", "testRelay"]);
   gate.resolve();
-  await expect.element(screen.getByRole("status")).toHaveTextContent("连得上，令牌也对");
+  await expect.element(screen.getByRole("status")).toHaveTextContent("relay 控制链路检查通过，不代表手机或 pi 可用");
 });
 
 it("captures light and dark real settings at the approved window size", async () => {

@@ -132,7 +132,8 @@
     color 0.25s,
     transform 0.25s;
 }
-.phone-lock[data-lit="true"] {
+.phone-lock[data-lit="true"],
+.phone-map:has(.phone-handshake[data-lock="true"]) .phone-lock {
   color: var(--tint);
   transform: scale(1.15);
   box-shadow: 0 0 10px 1px color-mix(in srgb, var(--tint) 45%, transparent);
@@ -345,6 +346,12 @@
   align-items: baseline;
   padding-block: 4px;
 }
+.phone-diagnostics [data-result="passed"] > span:first-child {
+  color: var(--ok-text);
+}
+.phone-diagnostics [data-result="failed"] > span:first-child {
+  color: var(--danger);
+}
 .phone-diagnostics small {
   margin-left: auto;
   color: var(--text-muted);
@@ -521,9 +528,25 @@
   grid-template-columns: 160px 1fr;
   gap: 16px;
 }
-.phone-pair-qr > svg {
+.phone-qr-frame {
+  position: relative;
   width: 160px;
   height: 160px;
+}
+.phone-qr-frame > svg {
+  width: 100%;
+  height: 100%;
+}
+.phone-qr-frame[data-handshaking="true"] > svg {
+  opacity: 0.12;
+}
+.phone-qr-frame > span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
 }
 .phone-countdown {
   font-variant-numeric: tabular-nums;

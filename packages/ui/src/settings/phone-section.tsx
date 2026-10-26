@@ -7,6 +7,7 @@ import { useClock } from "../state/clock";
 import { BUTTON, FIELD, GHOST_BUTTON, PRIMARY_BUTTON, Row } from "./parts";
 import { deviceStyle, RemoteLinkMap } from "./remote-link-map";
 import { RemotePairingDialog } from "./remote-pairing";
+import { RemoteDiagnostics } from "./remote-diagnostics";
 import { PhoneNotice } from "./phone-notice";
 import { deviceStatus, remoteDate, remoteError, remoteLive } from "./remote-words";
 import "./phone-section.css";
@@ -144,8 +145,9 @@ export function PhoneSection({ client }: { readonly client: AtriumClient }) {
     }
     run({ perform: () => client.renameDevice(id, name ?? ""), success: "设备名字已保存" });
   };
-  /** Tests the saved relay. @remarks This may reconnect existing control connections, per MP3a. @sideEffects Sends test_relay. */
-  const test = (): void => run({ perform: () => client.testRelay(), success: "连得上，令牌也对" });
+  /** Tests the saved relay. @remarks An established socket is probed in place; success promises only control-link reachability. @sideEffects Sends test_relay. */
+  const test = (): void =>
+    run({ perform: () => client.testRelay(), success: "relay 控制链路检查通过，不代表手机或 pi 可用" });
   /** Saves a relay line without retaining the token after success. @remarks Replacing an address requires pairing again. @sideEffects Sends set_remote and clears the local secret field. */
   const saveRelay = (): void =>
     run({
@@ -319,7 +321,7 @@ export function PhoneSection({ client }: { readonly client: AtriumClient }) {
           )}
         </h4>
         <Row compact label="状态" controls={deviceStatus(device, state)} />
-        <Row compact label="型号" controls="宿主未提供" />
+        <Row compact label="型号" detail="配对时由手机自报，不是硬件认证" controls={device.model ?? "宿主未提供"} />
         <Row compact label="配对时间" controls={remoteDate(device.pairedAt)} />
         <Row compact label="最后在线" controls={device.online && live ? "现在" : remoteDate(device.lastSeenAt)} />
         <Row
@@ -369,45 +371,14 @@ export function PhoneSection({ client }: { readonly client: AtriumClient }) {
             live ? "已连接" : !state.enabled ? "已关闭" : state.relay?.status === "connecting" ? "正在连接" : "未连接"
           }
         />
-        {state.relay?.error ? (
-          <div className="phone-diagnostics" aria-label="诊断清单">
-            <h5>诊断</h5>
-            {["这台 Mac 有网络", "解析 relay 地址", "建立加密连接（TLS）", "relay 认可宿主令牌"].map((step, index) => (
-              <p key={step}>
-                <span>
-                  {index === 2 && state.relay?.url.startsWith("ws://")
-                    ? "—"
-                    : state.relay?.error === "relay_rejected"
-                      ? index === 3
-                        ? "×"
-                        : "✓"
-                      : "—"}
-                </span>
-                {step}
-                <small>
-                  {index === 2 && state.relay?.url.startsWith("ws://")
-                    ? "本机测试未使用 TLS"
-                    : state.relay?.error === "relay_rejected"
-                      ? index === 3
-                        ? "令牌被拒"
-                        : "已通过"
-                      : "未能确定"}
-                </small>
-              </p>
-            ))}
-            <p>
-              {state.relay.error === "relay_rejected"
-                ? "粘贴 rotate-host 打印的新行。"
-                : "宿主未提供更细的失败阶段。检查网络、域名解析与证书后重试。"}
-            </p>
-            <button className={BUTTON} type="button" disabled={disabled} onClick={test}>
-              现在重试
-            </button>
-            <button className={GHOST_BUTTON} type="button" disabled={disabled} onClick={() => setEditingRelay(true)}>
-              重新粘贴
-            </button>
-          </div>
-        ) : null}
+        {state.relay === null ? null : (
+          <RemoteDiagnostics
+            relay={state.relay}
+            busy={disabled}
+            onRetry={test}
+            onReplace={() => setEditingRelay(true)}
+          />
+        )}
         {editingRelay || state.relay === null ? (
           <div className="phone-relay-edit">
             <label htmlFor="phone-relay-line">relay 的那一行</label>
@@ -472,7 +443,7 @@ export function PhoneSection({ client }: { readonly client: AtriumClient }) {
         <Row
           compact
           label="测试连接"
-          detail="使用已保存的设置，可能暂时重连现有连接"
+          detail="已连接时原地探测控制链路，不会为测试挤掉手机；断线时重新连接"
           controls={
             <button type="button" className={BUTTON} disabled={disabled || state.relay === null} onClick={test}>
               {busy ? "正在处理…" : "测试连接"}

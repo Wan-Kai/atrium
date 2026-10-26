@@ -1,5 +1,22 @@
 # MP3b 手机设置页实施记录
 
+## 协议 27 协调补齐（本轮）
+
+按 SPEC-0005「协议 27 的桌面接缝」：型号只显示 `model`（null 未知）；诊断只显示宿主的步骤证据、connect/live 区别和 `checkedAt`，重试不清旧证据、null 不沿用；network 文案为「到 relay 的 TCP 连接」，live 不声称重测认证/DNS/TLS；测试连接仅承诺 relay 控制链路。`available && handshaking` 才显示未认证的匿名握手阶段和一次灰色往返，false、结束、换码立即清除，不等动画播完；减弱动态效果使用静态箭头。旧的协议 26 缺字段说明保留为历史记录，本轮不再适用。
+
+验证限于 client/UI 定向测试（单 worker）、破坏检查及文件级类型/格式/lint；不跑全量、Xcode、重型 e2e 或变异。真实宿主行为由父会话合入后联调。
+
+本轮结果：
+
+- 契约合入：`e28d033` merge `c709daf`；coverage-map 冲突保留双方章节，uqr 锁合并保留。未另外修改 host、protocol 或 Swift 源码。
+- 红测试分步见到：型号显示失败 → 实现；诊断缺失失败 → 实现；匿名握手标题缺失失败 → 实现。测试按已知协议字段更新旧夹具，不再测试旧的错误码推断。
+- `pnpm test:ui remote-coordination phone-section settings-panel --maxWorkers=1`：**3 文件 / 57 项通过**（`/tmp/mp3b/p27-ui-final.log`）。其中新增协调文件 20 项，包含八种失败码、非 available 旧活动、快速清除和换码。
+- `pnpm exec vitest run --project unit packages/client/src/atrium-client.test.ts packages/ui/src/settings/remote-map.test.ts --maxWorkers=1`：**2 文件 / 119 项通过**（`p27-unit-final.log`）；客户端生产逻辑无需改动，已有整份快照及请求/连接代次保护能够承载新增字段。
+- `pnpm break-check docs/testing/mp3b-protocol27-break-check.json`：**16/16 检出**（`p27-break-final.log`），串行，每 case 只有一个定向文件。初次仅删除旧 socket 的第一道判断没有失败，因为后续 `live === current` 仍隔离旧连接；改为同时破坏这两道分发门禁，回归确实捕获旧推送复活。不是新增生产逻辑，也未降低断言。
+- UI/client 各自 typecheck 与改动文件的类型感知 oxlint 通过；未跑仓库全量检查（会触发 iOS 检查），未跑全量测试或变异。
+- 已查看四张真实 SettingsPanel 截图：`packages/ui/src/settings/.vitest/phone-diagnostics-{light,dark}.png`、`phone-handshake-{light,dark}.png`。沿用原型的图下弹层、灰包和匿名候选；诊断加证据类别/时间，详情较长时在既有设置滚动区滚动。
+- 待父会话合入 `e29e49a` / `5d47db2` 后验证实际同 socket ping/pong、真实网络阶段、候选活动即时清除与真机配对。仍未做 Electron 堆快照或用户验收；之前的全量超时记录不删除。
+
 范围：SPEC-0005 需求 1、配对流程、撤销、本机命令与事件；按 design-language「设置 · 手机」和定稿链路图原型实现。仅改 client、ui 及相关验证文档，不合并 main、不推送。
 
 ## 可逆实现决定
@@ -46,7 +63,7 @@
 ### 整合待办（父会话）
 
 1. **锁文件已完成（父会话授权后补）**：根 `pnpm-lock.yaml` 仅在 `packages/ui` importer 增加 `uqr` 的三行（specifier/version 都是 `0.1.3`），复用原有 MP0 的包条目，无其他解析变化。最初普通 offline 与 lockfile-only 安装因已存在的 node_modules 快速返回、没有修正根锁；用 `pnpm install --offline --frozen-lockfile` 实测拒绝，明确指出 UI 新增 uqr 未锁定。补齐这三行后，重新运行 **`pnpm install --offline` 和 `pnpm install --offline --frozen-lockfile` 均退出 0**，最终 diff 仍仅三行。交付路径不再依赖 `--lockfile=false`；日志为 `/tmp/mp3b/install-lock-final.log`、`install-frozen-final.log`。没有新引入未缓存的包。
-2. 请转宿主 lane：已配对设备缺 `model`；诊断只有 unreachable/rejected；没有握手中间事件，无法实现原型的独立握手阶段和一次灰色往返。当前采用文档开头的保守展示，未擅改协议。
+2. **协议缺项已补齐**：父会话提供 `c709daf` 的协议 27 接缝，UI 已消费 `model`、诊断证据及 `handshaking`，见文档开头本轮结果。未知仍只用于 null / unknown，不再把已有字段退化成占位；协议本身未由本 lane 修改。真实行为留集成阶段验证。
 3. 机器空闲后重新跑全量 unit（全量 UI 已在单 worker 下通过），合真实宿主后做端到端与真机扫码，再按 MP3 安排三方审查及用户验收。
 4. Ego Lite 提示有更新；未升级，若需要请用户批准。
 

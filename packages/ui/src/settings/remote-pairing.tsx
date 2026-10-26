@@ -83,9 +83,21 @@ export function RemotePairingDialog({
   }, [busy, onClose]);
   const seconds = Math.max(0, Math.ceil((pairing.expiresAt - now) / 1000));
   const expired = pairing.state === "expired" || (pairing.state === "available" && seconds === 0);
+  const handshaking = online && pairing.state === "available" && pairing.handshaking && !expired;
   const done = pairing.state === "committed";
   const request = pairing.request;
   const confirming = pairing.state === "awaiting_confirmation";
+  const title = handshaking
+    ? "等手机确认密钥"
+    : done
+      ? "已配对"
+      : confirming
+        ? "核对校验码"
+        : expired
+          ? "二维码已过期"
+          : pairing.state === "rejected"
+            ? "没能配对"
+            : "配对新设备";
   const reason = {
     cancelled: "这次配对已取消",
     declined: "你已拒绝这台手机",
@@ -122,22 +134,14 @@ export function RemotePairingDialog({
         }}
       >
         <div className="phone-pair-steps">
-          <span data-active={!confirming && !done}>1. 扫码</span>
+          <span data-active={!confirming && !done && !handshaking}>1. 扫码</span>
           <i />
-          <span data-active={confirming}>2. 核对校验码</span>
+          <span data-active={confirming || handshaking}>2. 核对校验码</span>
           <i />
           <span data-active={done}>3. 完成</span>
         </div>
-        <h3>
-          {done
-            ? "已配对"
-            : confirming
-              ? "核对校验码"
-              : expired
-                ? "二维码已过期"
-                : pairing.state === "rejected"
-                  ? "没能配对"
-                  : "配对新设备"}
+        <h3 aria-label={title}>
+          {title}
           <button type="button" aria-label="关闭配对" disabled={busy} onClick={onClose}>
             <X size={16} />
           </button>
@@ -171,14 +175,23 @@ export function RemotePairingDialog({
           <p>这个码已经作废。刷新后在 iPhone 上重新扫码。</p>
         ) : (
           <div className="phone-pair-qr">
-            <PairingQr value={pairing.qr} />
+            <div className="phone-qr-frame" data-handshaking={handshaking}>
+              <PairingQr value={pairing.qr} />
+              {handshaking ? <span>正在确认密钥</span> : null}
+            </div>
             <div>
               <p className="phone-countdown" role="timer">
                 {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")} 后过期
               </p>
-              <p>在 iPhone 上打开 Atrium，用它的扫码界面扫这个码。</p>
+              <p>
+                {handshaking
+                  ? "正在等待手机用握手后的密钥确认。此时还不能确认手机身份，也未授予访问权限。"
+                  : "在 iPhone 上打开 Atrium，用它的扫码界面扫这个码。"}
+              </p>
               <small>5 分钟内有效，只能用一次。码里有一次性密钥，别发给别人，也别截图分享。</small>
-              <p className="phone-pair-wait">等待手机扫码并确认密钥…</p>
+              <p className="phone-pair-wait">
+                {handshaking ? "确认通过后才会显示校验码；二维码原期限不变。" : "等待手机扫码并确认密钥…"}
+              </p>
             </div>
           </div>
         )}

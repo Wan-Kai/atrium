@@ -44,6 +44,57 @@ function Packet({
 }
 
 /**
+ * Shows one anonymous handshake round, never extending the host's activity lifetime.
+ * @remarks Mounted only for an active available pairing and keyed by pairingId; false or replacement
+ * unmounts packets immediately. A fast handshake is allowed to end before any frame is visible.
+ * @sideEffects Runs one cancellable animation timer, or none in reduced-motion mode.
+ * @param props - The candidate lane position and motion preference.
+ * @returns Grey packets or static arrows, with no candidate identity or online state.
+ */
+function HandshakePackets({ y, reduced }: { readonly y: number; readonly reduced: boolean }) {
+  const clock = useClock();
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (reduced) return undefined;
+    const began = clock.now();
+    const cancel = clock.every(16, () => {
+      const next = clock.now() - began;
+      setElapsed(next);
+      if (next >= 2900) cancel();
+    });
+    return cancel;
+  }, [clock, reduced]);
+  if (reduced)
+    return (
+      <g data-testid="handshake-arrows" className="phone-static-arrows">
+        <text x="137" y="112">
+          ‹
+        </text>
+        <text x="203" y="112">
+          ›
+        </text>
+        <text x="330" y={112 + (y - 112) * 0.3}>
+          ‹
+        </text>
+        <text x="387" y={112 + (y - 112) * 0.8}>
+          ›
+        </text>
+      </g>
+    );
+  const frame = packetFrame(elapsed);
+  return (
+    <g data-testid="handshake-packets" className="phone-handshake" data-lock={elapsed < 2900 && frame.lock}>
+      {elapsed < 2900 && frame.lane !== null ? (
+        <Packet {...lanePoint(y, frame.lane)} fraction={frame.lane} color="var(--text-muted)" />
+      ) : null}
+      {elapsed < 2900 && frame.trunk !== null ? (
+        <Packet x={72 + 196 * frame.trunk} y={112} fraction={frame.trunk} color="var(--text-muted)" />
+      ) : null}
+    </g>
+  );
+}
+
+/**
  * Draws the Mac—relay—phones link map.
  * @remarks Geometry and the 3900ms sequence follow mobile-pairing-linkmap-prototype; at most four
  * devices are drawn. Reduced motion uses static arrows and starts no animation clock.
@@ -73,6 +124,20 @@ export function RemoteLinkMap({
   const [elapsed, setElapsed] = useState(0);
   const live = remoteLive(state);
   const online = state.devices.some((device) => device.online);
+  const [expiredPair, setExpiredPair] = useState<string | null>(null);
+  const currentPair = state.pairing;
+  const handshaking =
+    live &&
+    currentPair?.state === "available" &&
+    currentPair.handshaking &&
+    currentPair.expiresAt > clock.now() &&
+    expiredPair !== currentPair.pairingId;
+  const pairId = currentPair?.pairingId;
+  const expiresAt = currentPair?.expiresAt;
+  useEffect(() => {
+    if (!handshaking || pairId === undefined || expiresAt === undefined) return undefined;
+    return clock.after(Math.max(0, expiresAt - clock.now()), () => setExpiredPair(pairId));
+  }, [clock, handshaking, pairId, expiresAt]);
   useEffect(() => {
     const media = matchMedia("(prefers-reduced-motion: reduce)");
     /** Updates the motion preference. @remarks Stops running animation clocks immediately. @sideEffects Updates React state. */
@@ -119,8 +184,16 @@ export function RemoteLinkMap({
       ? [
           {
             id: "pair",
-            name: state.pairing?.request?.deviceName || "配对中",
-            sub: state.pairing?.state === "awaiting_confirmation" ? "等你确认" : "等手机扫码",
+            name:
+              state.pairing?.state === "awaiting_confirmation"
+                ? state.pairing.request?.deviceName || "配对中"
+                : "配对中",
+            sub:
+              state.pairing?.state === "awaiting_confirmation"
+                ? "等你确认"
+                : handshaking
+                  ? "等手机确认密钥"
+                  : "等手机扫码",
             online: false,
             device: null,
           },
@@ -177,6 +250,13 @@ export function RemoteLinkMap({
             ) : null}
           </g>
         ))}
+        {handshaking && visible ? (
+          <HandshakePackets
+            key={currentPair.pairingId}
+            y={slots.find((slot) => slot.id === "pair")?.y ?? 112}
+            reduced={reduced}
+          />
+        ) : null}
         {moving && frame.trunk !== null ? (
           <Packet x={72 + 196 * frame.trunk} y={112} fraction={frame.trunk} color="var(--tint)" />
         ) : null}
