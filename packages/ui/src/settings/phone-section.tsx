@@ -10,7 +10,7 @@ import { RemotePairingDialog } from "./remote-pairing";
 import { RemoteDiagnostics } from "./remote-diagnostics";
 import { PhoneNotice } from "./phone-notice";
 import type { PendingRevocations } from "./pending-revocations";
-import { deviceStatus, remoteDate, remoteError, remoteLive } from "./remote-words";
+import { deviceStatus, remoteDate, remoteError, remoteLive, KEYCHAIN_HELP, VAULT_UNREADABLE } from "./remote-words";
 import "./phone-section.css";
 
 /** A replayable operation, retained for explicit retry, never automatically replayed. */
@@ -238,12 +238,13 @@ export function PhoneSection({
       .match(/.{1,4}/g)
       ?.join(" ") ?? "尚未生成";
   const live = remoteLive(state);
+  const vaultReadable = state.vault === "ok";
   const vaultWords = {
     unread: "打开远程访问后才读取保险箱",
     waiting: "等待钥匙串授权，请在 macOS 弹窗中允许 Atrium",
     ok: "",
-    keychain_unavailable: "钥匙串不可用，请允许 Atrium 访问钥匙串后重试",
-    corrupt: "保险箱损坏，需要重置宿主身份；所有手机都要重新配对",
+    keychain_unavailable: KEYCHAIN_HELP,
+    corrupt: `${VAULT_UNREADABLE}重置会替换原宿主身份，所有手机都要重新配对。`,
     unavailable: "宿主未在 Electron 中运行，远程访问不可用",
   };
   const details: ReactNode =
@@ -297,7 +298,11 @@ export function PhoneSection({
         />
         <Row
           label="撤销全部并重新生成宿主密钥"
-          detail="所有手机都要重新配对，relay 上的宿主令牌不变"
+          detail={
+            vaultReadable
+              ? "所有手机都要重新配对，relay 上的宿主令牌不变"
+              : "当前无法读取保险箱；无法恢复时需重新填写 relay 配置"
+          }
           controls={
             <button
               className={BUTTON}
@@ -313,7 +318,11 @@ export function PhoneSection({
         />
         {confirm === "reset" ? (
           <div className="phone-confirm">
-            <p>{state.devices.length} 台设备将断开，指纹会变。确认重新生成？</p>
+            <p>
+              {vaultReadable
+                ? `${state.devices.length} 台设备将断开，原宿主身份与设备记录将永久替换，所有手机都需要重新配对。确认重新生成？`
+                : "已配对设备数量未知。当前无法读取保险箱；继续会永久替换原宿主身份与设备记录，所有手机都需要重新配对。确认重置？"}
+            </p>
             <button type="button" className={GHOST_BUTTON} disabled={disabled} onClick={() => setConfirm(null)}>
               取消
             </button>
@@ -522,13 +531,8 @@ export function PhoneSection({
                   重置
                 </button>
               ) : state.vault === "keychain_unavailable" ? (
-                <button
-                  type="button"
-                  className={BUTTON}
-                  disabled={disabled}
-                  onClick={() => run({ perform: () => client.setRemote(true), success: "已重新请求钥匙串授权" })}
-                >
-                  重新授权
+                <button type="button" className={BUTTON} disabled={disabled} onClick={onRetryRemote}>
+                  刷新状态
                 </button>
               ) : null}
             </div>
@@ -538,7 +542,7 @@ export function PhoneSection({
           </section>
           <section ref={list} className="phone-device-list" aria-label="设备列表">
             <h4>
-              设备 <small>{state.devices.length} 台</small>
+              设备 <small>{vaultReadable ? `${state.devices.length} 台` : "数量未知"}</small>
               <button type="button" className={BUTTON} disabled={disabled || !live} onClick={start}>
                 <Plus size={13} />
                 配对新设备

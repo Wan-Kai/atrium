@@ -14,6 +14,9 @@ import { fakeClient } from "../test/fake-client";
 // Phone scenarios now mount the actual settings-window watch owner, not a test-owned subscription.
 import { PhoneSettings as PhoneSection } from "../test/phone-settings";
 
+/** Recovery wording, including the conditional restart after a denied prompt. */
+const KEYCHAIN_REPORT = "钥匙串暂时无法访问。请允许 Atrium 访问钥匙串；若此前拒绝授权，请重启 Atrium 后再试。";
+
 /** A connected host with a real-shaped phone and no secrets. */
 const STATE: RemoteState = {
   enabled: true,
@@ -81,8 +84,8 @@ it("keeps failed actions visible and retryable without printing host error text"
 
 it.each([
   ["waiting", "等待钥匙串授权，请在 macOS 弹窗中允许 Atrium"],
-  ["keychain_unavailable", "钥匙串不可用，请允许 Atrium 访问钥匙串后重试"],
-  ["corrupt", "保险箱损坏，需要重置宿主身份；所有手机都要重新配对"],
+  ["keychain_unavailable", KEYCHAIN_REPORT],
+  ["corrupt", "保险箱文件损坏或密钥不匹配，当前无法读取。重置会替换原宿主身份，所有手机都要重新配对。"],
   ["unavailable", "宿主未在 Electron 中运行，远程访问不可用"],
 ] as const)("renders vault %s without inventing a connected relay", async (vault, words) => {
   const fake = fakeClient({}, { remote: { ...STATE, vault } });
@@ -176,7 +179,9 @@ it("keeps revoke retry even after the host hides the device on a vault write fai
   fake.remote.setState({ state: { ...STATE, devices: [] } });
   await expect
     .element(screen.getByRole("alert"))
-    .toHaveTextContent("工作 iPhone：没能写入保险箱，重启 Atrium 后它会恢复。请重试。重试撤销");
+    .toHaveTextContent(
+      `工作 iPhone：没能写入保险箱，重启 Atrium 后它会恢复。${KEYCHAIN_REPORT}授权恢复后请重试撤销。重试撤销`,
+    );
   await screen.getByRole("button", { name: "重试撤销 工作 iPhone" }).click();
   expect(fake.calls).toStrictEqual([
     "watchRemote true",
@@ -409,16 +414,12 @@ it("reports failures for rename, reset, starting and confirming pairing without 
   await screen.getByRole("button", { name: "改名 工作 iPhone" }).click();
   await screen.getByRole("textbox", { name: "设备名字" }).fill("未保存");
   await userEvent.keyboard("{Enter}");
-  await expect
-    .element(screen.getByRole("alert"))
-    .toHaveTextContent("钥匙串不可用，请允许 Atrium 访问钥匙串后重试。重试操作");
+  await expect.element(screen.getByRole("alert")).toHaveTextContent(`${KEYCHAIN_REPORT}重试操作`);
   expect(fake.remote.getState().state?.devices[0]?.name).toBe("工作 iPhone");
   await screen.getByRole("button", { name: /这台 Mac/ }).click();
   await screen.getByRole("button", { name: "撤销全部…" }).click();
   await screen.getByRole("button", { name: "撤销全部并重新生成", exact: true }).click();
-  await expect
-    .element(screen.getByRole("alert"))
-    .toHaveTextContent("钥匙串不可用，请允许 Atrium 访问钥匙串后重试。重试操作");
+  await expect.element(screen.getByRole("alert")).toHaveTextContent(`${KEYCHAIN_REPORT}重试操作`);
   expect(fake.remote.getState().state?.devices).toStrictEqual(STATE.devices);
   await screen.getByRole("button", { name: "配对新设备", exact: true }).click();
   await expect.element(screen.getByRole("dialog", { name: "配对新设备" })).not.toBeInTheDocument();
@@ -435,7 +436,7 @@ it("reports failures for rename, reset, starting and confirming pairing without 
   await screen.getByRole("button", { name: "确认配对" }).click();
   await expect
     .element(screen.getByRole("dialog", { name: "配对新设备" }).getByRole("alert"))
-    .toHaveTextContent("钥匙串不可用，请允许 Atrium 访问钥匙串后重试。");
+    .toHaveTextContent(KEYCHAIN_REPORT);
   expect(fake.calls).toStrictEqual([
     "watchRemote true",
     "renameDevice dev_0123456789abcdef 未保存",

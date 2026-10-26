@@ -1,7 +1,7 @@
 import { type AtriumClient, CommandError } from "@atrium/client";
 import type { RemoteState } from "@atrium/protocol";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { remoteError } from "./remote-words";
+import { remoteError, KEYCHAIN_HELP } from "./remote-words";
 
 /** One failed revoke retained only by the open settings window. */
 interface PendingRevocation {
@@ -109,7 +109,7 @@ export function usePendingRevocations(client: AtriumClient): PendingRevocations 
         if (state.active && generation === state.generation && state.attempts.get(deviceId) === attempt) {
           const text =
             error instanceof CommandError && error.code === "keychain_unavailable"
-              ? "没能写入保险箱，重启 Atrium 后它会恢复。请重试。"
+              ? `没能写入保险箱，重启 Atrium 后它会恢复。${KEYCHAIN_HELP}授权恢复后请重试撤销。`
               : remoteError(error);
           state.failures.set(deviceId, { deviceId, name, error: text, pending: false });
           publish();
