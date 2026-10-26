@@ -1,0 +1,15 @@
+{
+  "originHash" : "e9b07c4fbbb492d0421fd5d87bf72c35c8c201a925bf9dc4b0e468a0eaa28c2a",
+  "pins" : [
+    {
+      "identity" : "torann",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/stonygrey/torann.git",
+      "state" : {
+        "revision" : "8697fdbf0100a17d5935c0f21ac65c5a01321b82",
+        "version" : "0.3.1"
+      }
+    }
+  ],
+  "version" : 3
+}

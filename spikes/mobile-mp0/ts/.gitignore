@@ -1,0 +1,2 @@
+# Keys and device lists the fake host and phone keep between runs.
+.state/
