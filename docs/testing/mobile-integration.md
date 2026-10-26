@@ -27,6 +27,10 @@
 - 手机连接合入后的首次 `pnpm ios:check` 发现 HostStore / HostStorageRecovery 的 12 个公开属性缺少文档；已在整合分支仅补属性说明，不修改逻辑、不放宽检查。这一失败保留于 `/tmp/atrium-mobile-combined-ios-check.log` 的首次运行记录（后续复验另存日志）。
 - `git diff --cached --check` 报第三方 `swift-markdown-NOTICE.txt` 原样副本末尾的空行，未通过；保留上游声明，不为消除格式提示修改第三方文件，也不将这次检查报告为通过。仓库格式 / lint 检查另行运行。
 
+## 桌面资源验证计划
+
+补最窄 `apps/desktop/e2e/phone.leak.spec.ts`：真实 Electron / 宿主、隔离的临时 home，远程访问保持默认关闭，不读写用户保险箱。预热后重复打开设置、切入手机 / 关于 / 手机并关闭，对比强制 GC 后的堆快照，检查 detached DOM 无增长；另临时保留真实 PhoneSection DOM 做负对照，确认同一断言会失败后恢复。异常路径仍关闭测试 App 并清理快照目录。此项只验证未配置页和设置生命周期，不冒称活跃配对、真实钥匙串或全部远程进程泄漏均已覆盖。当前尚未执行。
+
 ## 尚未完成的验证
 
 - 渲染加 `ace843a` 时的检查与 98 项 Swift 结果不是四路组合的结果；宿主 / 手机连接合入后另有生成检查和 `ios:check` 通过（复验日志 `/tmp/atrium-mobile-combined-ios-check-final.log`）。尚未跑四路整合后的全量检查、TypeScript、Swift / Xcode / UI / 互通验证，单路通过不自动视为完整整合通过。
