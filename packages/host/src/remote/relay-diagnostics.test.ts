@@ -229,16 +229,24 @@ describe("actual relay connection evidence", () => {
     expect(resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
   });
 
-  it("observes a resolver failure through a real request without querying external DNS", async () => {
+  it.each([
+    { label: "ENOTFOUND", error: Object.assign(new Error("private resolver text"), { code: "ENOTFOUND" }) },
+    { label: "unclassified error", error: new Error("private resolver text without a known code") },
+  ])("observes asynchronous lookup failure with $label before request fallback", async ({ error }) => {
     const diagnostics = new RelayDiagnostics("ws://unresolved.invalid", new FakeClock(30));
+    const lookups: (Error | null)[] = [];
     const req = request("http://unresolved.invalid", {
-      lookup: (_hostname, _options, callback) =>
-        callback(Object.assign(new Error("private resolver text"), { code: "ENOTFOUND" }), "", 4),
+      lookup: (_hostname, _options, callback) => {
+        setImmediate(() => callback(error, "", 4));
+      },
     });
     diagnostics.observe(req);
+    req.once("socket", (socket) => socket.on("lookup", (failure) => lookups.push(failure)));
+    const closed = new Promise<void>((resolve) => req.once("close", () => resolve()));
     const failed = once(req, "error");
     req.end();
     await failed;
+    expect(lookups).toStrictEqual([error]);
     expect(diagnostics.finish("relay_unreachable")).toStrictEqual({
       kind: "connect",
       checkedAt: 30,
@@ -247,6 +255,34 @@ describe("actual relay connection evidence", () => {
       tls: "not_applicable",
       token: "unknown",
       failure: "resolution_failed",
+    });
+    await closed;
+  });
+
+  it("does not reinterpret a later connect-shaped error after a real TCP connection", async () => {
+    const f = await fixture("silent");
+    const diagnostics = new RelayDiagnostics(f.endpoint.url, f.clock);
+    const req = request(f.endpoint.url.replace(/^ws/, "http"));
+    req.on("error", () => {});
+    diagnostics.observe(req);
+    const closed = new Promise<void>((resolve) => req.once("close", () => resolve()));
+    cleanup.push(async () => {
+      diagnostics.dispose();
+      req.destroy();
+      await closed;
+    });
+    req.end();
+    await f.bytes;
+    // Controlled classification input after an observed connection, not a claim that the OS produced this error here.
+    req.emit("error", Object.assign(new Error("late private detail"), { code: "ECONNREFUSED", syscall: "connect" }));
+    expect(diagnostics.finish("relay_unreachable")).toStrictEqual({
+      kind: "connect",
+      checkedAt: 100,
+      network: "passed",
+      resolution: "not_applicable",
+      tls: "not_applicable",
+      token: "unknown",
+      failure: "unknown",
     });
   });
 

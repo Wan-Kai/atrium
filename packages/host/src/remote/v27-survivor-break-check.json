@@ -1,0 +1,310 @@
+[
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"CERT_HAS_EXPIRED\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"CERT_NOT_YET_VALID\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"SELF_SIGNED_CERT_IN_CHAIN\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"UNABLE_TO_VERIFY_LEAF_SIGNATURE\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"UNABLE_TO_GET_ISSUER_CERT\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"UNABLE_TO_GET_ISSUER_CERT_LOCALLY\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"CERT_SIGNATURE_FAILURE\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"ERR_TLS_CERT_SIGNATURE_ALGORITHM_UNSUPPORTED\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"ECONNREFUSED\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"ENETUNREACH\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"EHOSTUNREACH\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"EACCES\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"EPERM\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "  #upgradeSeen = false;\n",
+    "to": "  #upgradeSeen = true;\n",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "isIP(this.#url.hostname.replace(/^\\[|\\]$/g, \"\")) === 0",
+    "to": "false",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "    this.#resolution = isIP(this.#url.hostname.replace(/^\\[|\\]$/g, \"\")) === 0 ? \"unknown\" : \"not_applicable\";\n",
+    "to": "    this.#resolution = isIP(this.#url.hostname.replace(/^\\[|\\]$/g, \"Stryker was here!\")) === 0 ? \"unknown\" : \"not_applicable\";\n",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "    this.#resolution = isIP(this.#url.hostname.replace(/^\\[|\\]$/g, \"\")) === 0 ? \"unknown\" : \"not_applicable\";\n",
+    "to": "    this.#resolution = isIP(this.#url.hostname.replace(/^\\[|\\]$/g, \"\")) === 0 ? \"\" : \"not_applicable\";\n",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "      this.#resolution = error === null ? \"passed\" : \"failed\";\n",
+    "to": "      this.#resolution = true ? \"passed\" : \"failed\";\n",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "observes asynchronous lookup"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "      this.#resolution = error === null ? \"passed\" : \"failed\";\n",
+    "to": "      this.#resolution = error === null ? \"passed\" : \"\";\n",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "observes asynchronous lookup"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "error !== null",
+    "to": "false",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "observes asynchronous lookup"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "      if (error !== null) this.#failure = \"resolution_failed\";\n",
+    "to": "      if (error !== null) this.#failure = \"\";\n",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "observes asynchronous lookup"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "this.#failure !== null",
+    "to": "false",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "code === \"EAI_AGAIN\"",
+    "to": "false",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"EAI_AGAIN\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "code === \"EAI_FAIL\"",
+    "to": "false",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"EAI_FAIL\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "\"errors\"",
+    "to": "\"\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "Array.isArray(errors) && errors.length > 0",
+    "to": "false",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "errors.length > 0",
+    "to": "errors.length <= 0",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "[error]",
+    "to": "[]",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "causes.every((cause) => {\n        if (!(cause instanceof Error)) return false;\n        const causeCode: unknown = Reflect.get(cause, \"code\");\n        return (\n          Reflect.get(cause, \"syscall\") === \"connect\" && typeof causeCode === \"string\" && CONNECT_ERRORS.has(causeCode)\n        );\n      })",
+    "to": "causes.some(cause => {\n  if (!(cause instanceof Error)) return false;\n  const causeCode: unknown = Reflect.get(cause, \"code\");\n  return Reflect.get(cause, \"syscall\") === \"connect\" && typeof causeCode === \"string\" && CONNECT_ERRORS.has(causeCode);\n})",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "Reflect.get(cause, \"syscall\") === \"connect\" && typeof causeCode === \"string\" && CONNECT_ERRORS.has(causeCode)",
+    "to": "true",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "Reflect.get(cause, \"syscall\") === \"connect\" && typeof causeCode === \"string\" && CONNECT_ERRORS.has(causeCode)",
+    "to": "Reflect.get(cause, \"syscall\") === \"connect\" && typeof causeCode === \"string\" || CONNECT_ERRORS.has(causeCode)",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "Reflect.get(cause, \"syscall\") === \"connect\" && typeof causeCode === \"string\"",
+    "to": "true",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "Reflect.get(cause, \"syscall\") === \"connect\" && typeof causeCode === \"string\"",
+    "to": "Reflect.get(cause, \"syscall\") === \"connect\" || typeof causeCode === \"string\"",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "Reflect.get(cause, \"syscall\") === \"connect\"",
+    "to": "true",
+    "test": "packages/host/src/remote/relay-diagnostics-classification.test.ts",
+    "name": "diagnostic evidence|error classification"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "this.#network !== \"passed\" && refused",
+    "to": "this.#network !== \"passed\" || refused",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "later connect-shaped error"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "this.#network !== \"passed\"",
+    "to": "true",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "later connect-shaped error"
+  },
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "      if (this.#network !== \"passed\" && refused) {\n",
+    "to": "      if (this.#network !== \"\" && refused) {\n",
+    "test": "packages/host/src/remote/relay-diagnostics.test.ts",
+    "name": "later connect-shaped error"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "    this.#setState({ status: \"connecting\", error: this.#state.error, lastConnectedAt: this.#lastConnectedAt });\n    const socket = new WebSocket(`${endpoint.url}/v1/host`, {\n      perMessageDeflate: false,\n      maxPayload: 70 * 1024,\n      finishRequest: (request) => {\n",
+    "to": "    this.#setState({ status: \"connecting\", error: this.#state.error, lastConnectedAt: this.#lastConnectedAt });\n    const socket = new WebSocket(`${endpoint.url}/v1/host`, {\n      perMessageDeflate: true,\n      maxPayload: 70 * 1024,\n      finishRequest: (request) => {\n",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "70 KiB|compression|valid control upgrade"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "    this.#setState({ status: \"connecting\", error: this.#state.error, lastConnectedAt: this.#lastConnectedAt });\n    const socket = new WebSocket(`${endpoint.url}/v1/host`, {\n      perMessageDeflate: false,\n      maxPayload: 70 * 1024,\n      finishRequest: (request) => {\n        diagnostics.observe(request);\n        request.end();\n",
+    "to": "    this.#setState({ status: \"connecting\", error: this.#state.error, lastConnectedAt: this.#lastConnectedAt });\n    const socket = new WebSocket(`${endpoint.url}/v1/host`, {\n      perMessageDeflate: false,\n      maxPayload: 70 / 1024,\n      finishRequest: (request) => {\n        diagnostics.observe(request);\n        request.end();\n",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "70 KiB|compression|valid control upgrade"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "        logger.warn({ host_id: endpoint.hostId }, \"relay did not say ready in time\");\n        diagnostics.timeout();\n        socket.terminate();\n",
+    "to": "        logger.warn({ host_id: endpoint.hostId }, \"relay did not say ready in time\");\n        ;\n        socket.terminate();\n",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "times out a silent relay"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "    const diagnostics = new RelayDiagnostics(endpoint.url, options.clock);\n    const socket = new WebSocket(`${endpoint.url}/v1/host`, {\n      perMessageDeflate: false,\n      maxPayload: 70 * 1024,\n      finishRequest: (request) => {\n",
+    "to": "    const diagnostics = new RelayDiagnostics(endpoint.url, options.clock);\n    const socket = new WebSocket(`${endpoint.url}/v1/host`, {\n      perMessageDeflate: true,\n      maxPayload: 70 * 1024,\n      finishRequest: (request) => {\n",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "70 KiB|compression|valid control upgrade"
+  },
+  {
+    "file": "packages/host/src/remote/relay-link.ts",
+    "from": "    const diagnostics = new RelayDiagnostics(endpoint.url, options.clock);\n    const socket = new WebSocket(`${endpoint.url}/v1/host`, {\n      perMessageDeflate: false,\n      maxPayload: 70 * 1024,\n      finishRequest: (request) => {\n        diagnostics.observe(request);\n        request.end();\n",
+    "to": "    const diagnostics = new RelayDiagnostics(endpoint.url, options.clock);\n    const socket = new WebSocket(`${endpoint.url}/v1/host`, {\n      perMessageDeflate: false,\n      maxPayload: 70 / 1024,\n      finishRequest: (request) => {\n        diagnostics.observe(request);\n        request.end();\n",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "70 KiB|compression|valid control upgrade"
+  }
+]

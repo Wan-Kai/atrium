@@ -275,7 +275,7 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
 - **已配对型号**：`RemoteDevice.model` 只投影保险箱已有的自报型号，去掉两端空白后为空则 `null`；不是硬件认证，不从名字猜，不改保险箱格式。未通过确认落盘的候选不进入设备列表。
 - **诊断快照**：`RemoteRelay.diagnostics` 初始为 `null`，表示没有已结束的检查；完成后含 `kind: connect | live`、注入 Clock 的 `checkedAt` 时间戳、`network/resolution/tls/token` 四项及 `failure`。每项为 `passed | failed | unknown | not_applicable`；`failure` 为 `resolution_failed | tcp_connect_failed | tls_failed | websocket_upgrade_failed | token_rejected | timeout | connection_closed | unknown | null`。只返回固定代码，不返回原始错误、令牌、证书文本或系统路径。重试时保留上次结束结果和时间；配置/代次变化清除，取消或旧代回调不得覆盖新结果。
 - **诊断证据**：网络项只表示“到中继的 TCP 连接”，不代表系统能否上互联网。解析由 lookup 结果确认，TCP 由 connect 确认，TLS 只有通过正常证书校验的 secureConnect 才通过；不放宽校验。只有收到 relay 的 ready 才确认认可令牌，4401 表示拒绝。IP 字面量的解析、允许的 loopback ws 的 TLS 为不适用。Upgrade 失败单列，不能归成令牌错误；普通断开、ECONNRESET、总超时不能硬归因无网或某一步失败，缺证据的步骤保持未知。使用 ws 公开 finishRequest 时必须调用 request.end，并释放所有观测监听和定时器。
-- **连接与活性分开**：connect 来自真实建连或临时 probe；live 来自已认证控制 socket 的本次匹配 pong。live 未重做解析、TLS 或令牌认证，这些项显示未知（本来不适用的仍为不适用），不能把旧认证当成刚刚重测。`test_relay` 仍成功回 `{}`、失败用原粗错误码，详细诊断只经本机状态/订阅提供。
+- **连接与活性分开**：connect 来自真实建连或临时 probe；live 来自已认证控制 socket 的本次匹配 pong。live 未重做解析、TLS 或令牌认证，这些项显示未知（本来不适用的仍为不适用），不能把旧认证当成刚刚重测。即使这次 live 检查期间收到真实 4401，仍是 `token: unknown`、`failure: token_rejected`：它记录连接被拒绝，不声称本次重做了令牌认证；后续真实 connect 收到 ready 才给出新的 `token: passed`。`test_relay` 仍成功回 `{}`、失败用原粗错误码，详细诊断只经本机状态/订阅提供。
 - **握手活动**：`RemotePairing.handshaking` 与业务状态正交，按当前 pairingId、连接代次的候选集合派生。仅 available 时，通过当前配对、结构及版本检查的 IKpsk2 M1 之后、等待加密 key-confirm 的阶段为真；M1 尚不能证明持有 PSK，不显示候选身份、不标在线、不授予设备权限。多个候选中一个退出不误清另一个；失败、断开、确认、取消、过期、换码或关闭使相应投影清除，旧流不能复活新配对。保留四条未完成握手及十秒上限、不可续期的二维码期限；握手专属通知合并限频，终止清除立即发送，不人为延长动画。
 
 #### MP3a 定的细节（2026-10-26）

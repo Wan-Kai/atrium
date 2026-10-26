@@ -107,10 +107,16 @@ describe("protocol 27 local remote projections", () => {
     expect(f.events).toStrictEqual([]);
     f.clock.advance(100);
     expect(f.events.map(({ event }) => event.remote.pairing)).toStrictEqual([{ ...pairing, handshaking: true }]);
+    const publishedTimers = f.clock.pendingTimers();
     await first.close();
-    await expect.poll(() => f.logs.filter((entry) => entry.msg === "remote stream closed").length).toBe(1);
+    await expect.poll(() => f.resources.snapshot()["remote.data"]).toBe(1);
     expect(f.service.get("local", undefined).pairing?.handshaking).toBe(true);
     expect(f.events).toHaveLength(1);
+    const remainingTimers = f.clock.pendingTimers();
+    f.clock.advance(100);
+    expect(f.events.map(({ event }) => event.remote.pairing)).toStrictEqual([{ ...pairing, handshaking: true }]);
+    expect(remainingTimers).toBe(publishedTimers - 1);
+    expect(f.clock.pendingTimers()).toBe(remainingTimers);
     second.channel.sendControl({ kind: "pair_confirm" });
     await awaiting(f);
     expect(f.events.at(-1)?.event.remote.pairing).toMatchObject({
@@ -122,6 +128,22 @@ describe("protocol 27 local remote projections", () => {
     expect(f.accepted).toStrictEqual([]);
   });
 
+  it("starts no handshake notice timer without watchers", async () => {
+    const f = await serviceFixture();
+    const pairing = newPairing(f);
+    const baselineTimers = f.clock.pendingTimers();
+    const baselineTrackedTimers = f.resources.snapshot().timer;
+    await f.phone().pair(pairing.qr, { confirm: false });
+    await f.phone().pair(pairing.qr, { confirm: false });
+    expect(f.service.get("local", undefined).pairing).toStrictEqual({ ...pairing, handshaking: true });
+    // Each candidate owns its handshake deadline; neither owns a 100 ms publication timer.
+    expect(f.clock.pendingTimers()).toBe(baselineTimers + 2);
+    expect(f.resources.snapshot().timer).toBe(baselineTrackedTimers! + 2);
+    f.clock.advance(100);
+    expect(f.clock.pendingTimers()).toBe(baselineTimers + 2);
+    expect(f.events).toStrictEqual([]);
+  }, 4_000);
+
   it("clears activity observed by a late watcher and releases its coalescing timer on unwatch", async () => {
     const f = await serviceFixture();
     const pairing = newPairing(f);
@@ -129,13 +151,55 @@ describe("protocol 27 local remote projections", () => {
     expect(f.service.get("late", true).pairing?.handshaking).toBe(true);
     await candidate.close();
     await expect.poll(() => f.events.at(-1)?.event.remote.pairing?.handshaking).toBe(false);
+    await expect.poll(() => f.resources.snapshot()["remote.data"]).toBe(0);
+    const unwatchedTimers = f.clock.pendingTimers() - 1;
     const next = await f.phone().pair(pairing.qr, { confirm: false });
+    expect(f.clock.pendingTimers()).toBe(unwatchedTimers + 3);
     f.service.unwatch("late");
+    expect(f.clock.pendingTimers()).toBe(unwatchedTimers + 1);
     const count = f.events.length;
     f.clock.advance(100);
     expect(f.events).toHaveLength(count);
     await next.close();
-  });
+    await expect.poll(() => f.resources.snapshot()["remote.data"]).toBe(0);
+    expect(f.clock.pendingTimers()).toBe(unwatchedTimers);
+    expect(f.service.get("new-watcher", true).pairing).toStrictEqual(pairing);
+    f.events.length = 0;
+    const current = await f.phone().pair(pairing.qr, { confirm: false });
+    expect(f.events).toStrictEqual([]);
+    f.clock.advance(100);
+    expect(f.events).toStrictEqual([
+      {
+        id: "new-watcher",
+        event: { type: "remote_updated", remote: f.service.get("local", undefined) },
+      },
+    ]);
+    expect(f.events[0]?.event.remote.pairing).toStrictEqual({ ...pairing, handshaking: true });
+    await current.close();
+    await expect.poll(() => f.events.at(-1)?.event.remote.pairing).toStrictEqual(pairing);
+    expect(f.events).toHaveLength(2);
+  }, 4_000);
+
+  it("publishes a paired phone offline immediately without waiting for traffic sampling", async () => {
+    const f = await serviceFixture();
+    const { session, deviceId } = await pairDevice(f, f.phone());
+    const before = f.service.get("watcher", true);
+    expect(before.devices[0]).toMatchObject({ deviceId, online: true });
+    const at = f.clock.now();
+    f.events.length = 0;
+    await session.close();
+    await expect.poll(() => f.resources.snapshot()["remote.data"]).toBe(0);
+    expect(f.clock.now()).toBe(at);
+    expect(f.events).toStrictEqual([
+      {
+        id: "watcher",
+        event: {
+          type: "remote_updated",
+          remote: { ...before, devices: before.devices.map((device) => ({ ...device, online: false })) },
+        },
+      },
+    ]);
+  }, 4_000);
 
   it("suppresses rapid candidate churn and unrelated unauthenticated closes", async () => {
     const f = await serviceFixture();

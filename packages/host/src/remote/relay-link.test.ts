@@ -13,8 +13,8 @@ afterEach(async () => {
 });
 
 /** Starts a controllable relay control endpoint. @remarks Used only for malformed and stalled relay behavior. @sideEffects Opens a loopback listener. */
-async function fixture(autoPong = true) {
-  const server = new WebSocketServer({ host: "127.0.0.1", port: 0, autoPong });
+async function fixture(autoPong = true, perMessageDeflate = false) {
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0, autoPong, perMessageDeflate });
   await once(server, "listening");
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("unexpected socket address");
@@ -50,7 +50,42 @@ async function fixture(autoPong = true) {
   return { server, endpoint, clock, resources, states, streams, link, sockets, messages, logs };
 }
 
+/** Creates an exact UTF-8 byte-sized control message. @remarks Payload limits apply to bytes, not the test's logical fields. @sideEffects none */
+function paddedControl(type: string, bytes: number): string {
+  const value = { type, streamId: "a".repeat(32), padding: "" };
+  return JSON.stringify({ ...value, padding: "x".repeat(bytes - Buffer.byteLength(JSON.stringify(value))) });
+}
+
 describe("RelayLink", () => {
+  it("accepts a 70 KiB control frame but rejects one extra byte on the same socket", async () => {
+    const f = await fixture();
+    f.link.start();
+    await expect.poll(() => f.messages.length).toBe(1);
+    const peer = f.sockets[0]!;
+    const ready = paddedControl("ready", 70 * 1024);
+    expect(Buffer.byteLength(ready)).toBe(70 * 1024);
+    peer.send(ready);
+    await expect.poll(() => f.link.state.status).toBe("connected");
+    const oversized = paddedControl("open", 70 * 1024 + 1);
+    expect(Buffer.byteLength(oversized)).toBe(70 * 1024 + 1);
+    peer.send(oversized);
+    await expect.poll(() => f.link.state.status).toBe("error");
+    expect(f.streams).toStrictEqual([]);
+    await f.link.stop();
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+  });
+
+  it("does not negotiate compression with a control endpoint that supports it", async () => {
+    const f = await fixture(true, true);
+    f.link.start();
+    await expect.poll(() => f.messages.length).toBe(1);
+    expect(f.sockets[0]!.extensions).toBe("");
+    f.sockets[0]!.send('{"type":"ready"}');
+    await expect.poll(() => f.link.state.status).toBe("connected");
+    await f.link.stop();
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+  });
+
   it("accepts only this check's pong and ignores empty, wrong, heartbeat and previous-check payloads", async () => {
     const f = await fixture(false);
     f.link.start();
@@ -190,10 +225,30 @@ describe("RelayLink", () => {
     const rejected = f.link.retryNow();
     f.sockets[0]!.close(4401);
     expect(await rejected).toBe("relay_rejected");
+    const rejectionEvidence = {
+      kind: "live",
+      checkedAt: 100,
+      network: "unknown",
+      resolution: "not_applicable",
+      tls: "not_applicable",
+      token: "unknown",
+      failure: "token_rejected",
+    };
+    expect(f.link.diagnostics).toStrictEqual(rejectionEvidence);
     const connecting = f.link.retryNow();
+    expect(f.link.diagnostics).toStrictEqual(rejectionEvidence);
     await expect.poll(() => f.sockets.length).toBe(2);
     f.sockets[1]!.send('{"type":"ready"}');
     expect(await connecting).toBeNull();
+    expect(f.link.diagnostics).toStrictEqual({
+      kind: "connect",
+      checkedAt: 100,
+      network: "passed",
+      resolution: "not_applicable",
+      tls: "not_applicable",
+      token: "passed",
+      failure: null,
+    });
     const stopped = f.link.retryNow();
     await f.link.stop();
     expect(await stopped).toBe("relay_unreachable");
@@ -411,10 +466,19 @@ describe("RelayLink", () => {
   it("times out a silent relay and settles pending callers on shutdown", async () => {
     const f = await fixture();
     f.link.start();
-    await expect.poll(() => f.sockets.length).toBe(1);
+    await expect.poll(() => f.messages.length).toBe(1);
     const attempt = f.link.retryNow();
     f.clock.advance(READY_TIMEOUT_MS);
     expect(await attempt).toBe("relay_unreachable");
+    expect(f.link.diagnostics).toStrictEqual({
+      kind: "connect",
+      checkedAt: 10100,
+      network: "passed",
+      resolution: "not_applicable",
+      tls: "not_applicable",
+      token: "unknown",
+      failure: "timeout",
+    });
     expect(f.logs).toStrictEqual([
       { level: "warn", host_id: f.endpoint.hostId, msg: "relay did not say ready in time" },
       { level: "info", host_id: f.endpoint.hostId, code: 1006, ready: false, msg: "relay connection closed" },
@@ -488,6 +552,30 @@ describe("the correlated pong's resources", () => {
 });
 
 describe("probeRelay", () => {
+  it.each([
+    { bytes: 70 * 1024, result: null },
+    { bytes: 70 * 1024 + 1, result: "relay_unreachable" },
+  ])("enforces the probe's 70 KiB limit at $bytes bytes", async ({ bytes, result }) => {
+    const f = await fixture();
+    const pending = probeRelay(f.endpoint, { ...f, signal: new AbortController().signal });
+    await expect.poll(() => f.messages.length).toBe(1);
+    const frame = paddedControl("ready", bytes);
+    expect(Buffer.byteLength(frame)).toBe(bytes);
+    f.sockets[0]!.send(frame);
+    expect(await pending).toBe(result);
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+  });
+
+  it("does not negotiate compression for an independent probe", async () => {
+    const f = await fixture(true, true);
+    const pending = probeRelay(f.endpoint, { ...f, signal: new AbortController().signal });
+    await expect.poll(() => f.messages.length).toBe(1);
+    expect(f.sockets[0]!.extensions).toBe("");
+    f.sockets[0]!.send('{"type":"ready"}');
+    expect(await pending).toBeNull();
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+  });
+
   it("handles abort before the HTTP upgrade without an uncaught socket error", async () => {
     const f = await fixture();
     const controller = new AbortController();
