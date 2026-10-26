@@ -826,20 +826,29 @@ export class RemoteService implements RemoteCommands {
     for (const id of this.#watchers) this.#options.send(id, event);
   }
 
-  /** Samples ciphertext counters only while watched. @remarks Two seconds of deltas are averaged, at most once a second. @sideEffects Schedules one tracked timer and publishes traffic. */
-  #sampleTraffic(): void {
-    if (this.#cancelTraffic !== null || this.#watchers.size === 0 || this.#closed) return;
+  /** Samples ciphertext counters only while watched. @remarks Two seconds of deltas are averaged; unchanged rates do not notify watchers. @sideEffects Schedules one tracked timer and updates sampled rates. @returns Whether rates of a visible device changed. */
+  #sampleTraffic(): boolean {
+    if (this.#cancelTraffic !== null || this.#watchers.size === 0 || this.#closed) return false;
     const at = this.#options.clock.now();
     const totals = new Map([...this.#totals].map(([id, count]) => [id, { ...count }]));
     const previous = this.#samples[0];
+    let changed = false;
     if (previous !== undefined && at > previous.at)
       for (const [id, count] of totals) {
         const before = previous.totals.get(id) ?? { down: 0, up: 0 };
         const seconds = (at - previous.at) / 1000;
-        this.#traffic.set(id, {
+        const rate = {
           down: Math.max(0, count.down - before.down) / seconds,
           up: Math.max(0, count.up - before.up) / seconds,
-        });
+        };
+        const current = this.#traffic.get(id);
+        if (
+          (rate.down !== (current?.down ?? 0) || rate.up !== (current?.up ?? 0)) &&
+          !this.#blocked.has(id) &&
+          this.#contents?.devices.some((device) => device.deviceId === id)
+        )
+          changed = true;
+        this.#traffic.set(id, rate);
       }
     this.#samples.push({ at, totals });
     this.#samples = this.#samples.filter((sample) => sample.at > at - 2000);
@@ -848,10 +857,10 @@ export class RemoteService implements RemoteCommands {
       this.#options.resources,
       () => {
         this.#cancelTraffic = null;
-        this.#sampleTraffic();
-        this.#changed();
+        if (this.#sampleTraffic()) this.#changed();
       },
       1000,
     );
+    return changed;
   }
 }

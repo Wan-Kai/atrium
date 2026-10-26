@@ -1,0 +1,114 @@
+[
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (this.#sampleTraffic()) this.#changed();",
+    "to": "this.#sampleTraffic(); this.#changed();",
+    "test": "packages/host/test/remote/traffic-notifications.host.test.ts",
+    "name": "publishes rate changes and offline decay but not an unchanged steady rate",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "rate.down !== (current?.down ?? 0) || rate.up !== (current?.up ?? 0)",
+    "to": "rate.down !== (current?.down ?? 0) && rate.up !== (current?.up ?? 0)",
+    "test": "packages/host/test/remote/traffic-notifications.host.test.ts",
+    "name": "publishes when only the",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "changed = true;",
+    "to": "changed = false;",
+    "test": "packages/host/test/remote/traffic-notifications.host.test.ts",
+    "name": "publishes when only the",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "changed = true;",
+    "to": "changed = rate.down !== 0 || rate.up !== 0;",
+    "test": "packages/host/test/remote/traffic-notifications.host.test.ts",
+    "name": "publishes rate changes and offline decay",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "!this.#blocked.has(id) &&",
+    "to": "true &&",
+    "test": "packages/host/test/remote/traffic-notifications.host.test.ts",
+    "name": "residual rates for a blocked device",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#contents?.devices.some((device) => device.deviceId === id)",
+    "to": "true",
+    "test": "packages/host/test/remote/traffic-notifications.host.test.ts",
+    "name": "residual rates for a reset device",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#contents?.devices.some((device) => device.deviceId === id)",
+    "to": "this.#contents?.devices.some((device) => device.deviceId === id) && [...this.#streams].some((stream) => stream.deviceId === id)",
+    "test": "packages/host/test/remote/traffic-notifications.host.test.ts",
+    "name": "publishes rate changes and offline decay",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#samples.filter((sample) => sample.at > at - 2000)",
+    "to": "this.#samples.filter((sample) => sample.at > at - 1000)",
+    "test": "packages/host/test/remote/traffic-notifications.host.test.ts",
+    "name": "publishes rate changes and offline decay",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (phone.deviceId !== null) this.#changed();\n          else this.#handshakeChanged();",
+    "to": "if (phone.deviceId === null) this.#handshakeChanged();",
+    "test": "packages/host/test/remote/traffic-notifications.host.test.ts",
+    "name": "publishes rate changes and offline decay",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "if (this.#watchers.size !== 0) return;",
+    "to": ";",
+    "test": "packages/host/test/remote/traffic-notifications.host.test.ts",
+    "name": "shares sampling across watchers",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#samples = [];",
+    "to": ";",
+    "test": "packages/host/test/remote/traffic-notifications.host.test.ts",
+    "name": "shares sampling across watchers",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#traffic.clear();",
+    "to": ";",
+    "test": "packages/host/test/remote/traffic-notifications.host.test.ts",
+    "name": "shares sampling across watchers",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#cancelTraffic?.();",
+    "to": ";",
+    "test": "packages/host/test/remote/traffic-notifications.host.test.ts",
+    "name": "shares sampling across watchers",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/remote/remote-service.ts",
+    "from": "this.#cancelTraffic !== null ||",
+    "to": "",
+    "test": "packages/host/test/remote/traffic-notifications.host.test.ts",
+    "name": "shares sampling across watchers",
+    "project": "host"
+  }
+]
