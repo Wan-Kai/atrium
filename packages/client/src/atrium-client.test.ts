@@ -2346,6 +2346,195 @@ describe("createAtriumClient: plans", () => {
   });
 });
 
+/**
+ * A remote state with remote access on, the relay connected and `devices` paired.
+ *
+ * @remarks
+ * What `get_remote` answers and `remote_updated` pushes; no pairing under way.
+ *
+ * @sideEffects none
+ * @param devices - How many phones are paired.
+ * @returns The state.
+ */
+function remoteState(devices = 0) {
+  return {
+    enabled: true,
+    vault: "ok",
+    relay: {
+      url: "wss://relay.example.com",
+      hostId: "hst_0123456789abcdef",
+      status: "connected",
+      error: null,
+      lastConnectedAt: 1,
+    },
+    hostFingerprint: "7f3a9c21e04b55d8",
+    devices: Array.from({ length: devices }, (_, at) => ({
+      deviceId: `dev_${String(at).padStart(16, "0")}`,
+      name: `iPhone ${at}`,
+      pairedAt: 1,
+      lastSeenAt: null,
+      online: false,
+      traffic: { down: 0, up: 0 },
+    })),
+    pairing: null,
+  } as const;
+}
+
+/**
+ * The commands a socket carried other than heartbeats, without their request ids.
+ *
+ * @remarks
+ * A welcome starts the heartbeat at once, so a ping goes before anything the test sends.
+ *
+ * @sideEffects none
+ * @param socket - The socket.
+ * @returns The commands.
+ */
+function remoteCommands(socket: ScriptedSocket) {
+  return socket
+    .commands()
+    .filter((command) => command["type"] !== "ping")
+    .map((command) => Object.fromEntries(Object.entries(command).filter(([key]) => key !== "requestId")));
+}
+
+describe("createAtriumClient: remote access", () => {
+  it("shows nothing until watched, then the answer, then each push, and stops when no longer watched", async () => {
+    const { client, latest } = await connected();
+    const before = client.remote.getState();
+    latest().receive(JSON.stringify({ type: "remote_updated", remote: remoteState(1) }));
+    const unwatchedPush = client.remote.getState();
+
+    const watching = client.watchRemote(true);
+    const loading = client.remote.getState();
+    latest().answer("get_remote", remoteState());
+    await watching;
+    const answered = client.remote.getState();
+    latest().receive(JSON.stringify({ type: "remote_updated", remote: remoteState(2) }));
+    const pushed = client.remote.getState();
+    const stopping = client.watchRemote(false);
+    const stopped = client.remote.getState();
+    latest().answer("get_remote", remoteState(2));
+    await stopping;
+    latest().receive(JSON.stringify({ type: "remote_updated", remote: remoteState(3) }));
+
+    expect([before, unwatchedPush, loading]).toStrictEqual([
+      { status: "idle", state: null, error: null },
+      { status: "idle", state: null, error: null },
+      { status: "loading", state: null, error: null },
+    ]);
+    expect(answered).toStrictEqual({ status: "ready", state: remoteState(), error: null });
+    expect(pushed).toStrictEqual({ status: "ready", state: remoteState(2), error: null });
+    expect([stopped, client.remote.getState()]).toStrictEqual([
+      { status: "idle", state: null, error: null },
+      { status: "idle", state: null, error: null },
+    ]);
+    expect(remoteCommands(latest())).toStrictEqual([
+      { type: "get_remote", watch: true },
+      { type: "get_remote", watch: false },
+    ]);
+  });
+
+  it("keeps a newer push when the read promise resumes afterwards", async () => {
+    const { client, latest } = await connected();
+    const read = client.watchRemote(true);
+    latest().answer("get_remote", remoteState());
+    latest().receive(JSON.stringify({ type: "remote_updated", remote: remoteState(2) }));
+    await read;
+    expect(client.remote.getState()).toStrictEqual({ status: "ready", state: remoteState(2), error: null });
+  });
+
+  it("lands a failed watch in the store, and a late answer after the page stopped watching not at all", async () => {
+    const { client, latest } = await connected();
+
+    const failing = client.watchRemote(true);
+    latest().fail("get_remote", "remote_unavailable");
+    await failing;
+    const failed = client.remote.getState();
+    const again = client.watchRemote(true);
+    const stopping = client.watchRemote(false);
+    answerAt(latest(), "get_remote", 1, remoteState(1));
+    await again;
+    latest().answer("get_remote", remoteState(1));
+    await stopping;
+
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toStrictEqual(new CommandError("remote_unavailable"));
+    expect(client.remote.getState()).toStrictEqual({ status: "idle", state: null, error: null });
+  });
+
+  it("watches again on a new connection, and stops without asking when there is none", async () => {
+    const { client, clock, sockets, latest } = await connected();
+    const watching = client.watchRemote(true);
+    latest().answer("get_remote", remoteState());
+    await watching;
+
+    latest().closeWith(1006);
+    const stillShown = client.remote.getState();
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome());
+    const reasked = remoteCommands(latest());
+    latest().answer("get_remote", remoteState(1));
+    await vi.waitFor(() => expect(client.remote.getState().state).toStrictEqual(remoteState(1)));
+    latest().closeWith(1006);
+    await client.watchRemote(false);
+
+    expect(sockets).toHaveLength(2);
+    expect(stillShown).toStrictEqual({ status: "ready", state: remoteState(), error: null });
+    expect(reasked).toStrictEqual([{ type: "get_remote", watch: true }]);
+    expect(remoteCommands(latest())).toStrictEqual(reasked);
+  });
+
+  it("sends each remote command with its fields, and passes the host's refusal on", async () => {
+    const { client, latest } = await connected();
+    const sent = [
+      client.setRemote(true),
+      client.setRemote(false, "atrium-relay://hst_0123456789abcdef:token@relay.example.com"),
+      client.testRelay(),
+      client.startPairing(),
+      client.cancelPairing(),
+      client.confirmPairing("pair_0123456789abcdef", false),
+      client.renameDevice("dev_0123456789abcdef", "工作 iPhone"),
+      client.revokeDevice("dev_0123456789abcdef"),
+      client.resetRemoteIdentity(),
+    ];
+    for (const type of ["set_remote", "test_relay", "cancel_pairing", "confirm_pairing", "rename_device"])
+      latest().answer(type);
+    answerAt(latest(), "set_remote", 0, {});
+    latest().answer("start_pairing", { pairingId: "pair_0123456789abcdef" });
+    latest().fail("revoke_device", "device_not_found");
+    latest().fail("reset_remote_identity", "vault_corrupt");
+    const results = await Promise.allSettled(sent);
+
+    expect(remoteCommands(latest())).toStrictEqual([
+      { type: "set_remote", enabled: true },
+      {
+        type: "set_remote",
+        enabled: false,
+        relay: "atrium-relay://hst_0123456789abcdef:token@relay.example.com",
+      },
+      { type: "test_relay" },
+      { type: "start_pairing" },
+      { type: "cancel_pairing" },
+      { type: "confirm_pairing", pairingId: "pair_0123456789abcdef", accept: false },
+      { type: "rename_device", deviceId: "dev_0123456789abcdef", name: "工作 iPhone" },
+      { type: "revoke_device", deviceId: "dev_0123456789abcdef" },
+      { type: "reset_remote_identity" },
+    ]);
+    expect(results).toStrictEqual([
+      { status: "fulfilled", value: {} },
+      { status: "fulfilled", value: {} },
+      { status: "fulfilled", value: {} },
+      { status: "fulfilled", value: { pairingId: "pair_0123456789abcdef" } },
+      { status: "fulfilled", value: {} },
+      { status: "fulfilled", value: {} },
+      { status: "fulfilled", value: {} },
+      { status: "rejected", reason: new CommandError("device_not_found") },
+      { status: "rejected", reason: new CommandError("vault_corrupt") },
+    ]);
+  });
+});
+
 describe("createAtriumClient: images", () => {
   it("uploads an image, and sends a message with it, shown pending with its count", async () => {
     const { client, latest } = await watchingWithModel(null);

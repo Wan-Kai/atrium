@@ -43,6 +43,7 @@ import {
 } from "./index-view";
 import { type ChangesView, type DiffView, diffViewOf } from "./changes-view";
 import { type ModelListView, UNASKED_MODELS } from "./model-list";
+import { type RemoteView, UNWATCHED_REMOTE } from "./remote-view";
 import { type SetupView, UNASKED_SETUP } from "./setup-view";
 import {
   type MessageTag,
@@ -373,6 +374,29 @@ export interface AtriumClient {
   readonly diff: StoreApi<DiffView>;
   /** Opens the changes panel on a target, or closes it with `null`, on this connection and every later one. */
   watchDiff(target: DiffTarget | null): Promise<void>;
+  /** The remote state while the "手机" page watches it (SPEC-0005); idle otherwise. */
+  readonly remote: StoreApi<RemoteView>;
+  /**
+   * Starts watching the remote state, on this connection and every later one, or stops; the
+   * host's answer and pushes land in {@link remote}, and so does a failure.
+   */
+  watchRemote(on: boolean): Promise<void>;
+  /** Turns remote access on or off, and with `relay` sets the line `atrium-relay add-host` printed. */
+  setRemote(enabled: boolean, relay?: string): Promise<CommandResult<"set_remote">>;
+  /** Connects to the relay now; rejects with `relay_unreachable` or `relay_rejected` when it cannot. */
+  testRelay(): Promise<CommandResult<"test_relay">>;
+  /** Starts a pairing, with its QR code, replacing one no phone has claimed. */
+  startPairing(): Promise<CommandResult<"start_pairing">>;
+  /** Ends the pairing under way, or clears the last one's result. */
+  cancelPairing(): Promise<CommandResult<"cancel_pairing">>;
+  /** Answers the phone that asked to pair, after the user compared the code. */
+  confirmPairing(pairingId: string, accept: boolean): Promise<CommandResult<"confirm_pairing">>;
+  /** Names a paired phone; an empty name goes back to the one it reported. */
+  renameDevice(deviceId: string, name: string): Promise<CommandResult<"rename_device">>;
+  /** Revokes a paired phone: it is cut off at once and never connects again. */
+  revokeDevice(deviceId: string): Promise<CommandResult<"revoke_device">>;
+  /** Revokes every phone and makes a new host key pair. */
+  resetRemoteIdentity(): Promise<CommandResult<"reset_remote_identity">>;
 }
 
 /**
@@ -493,6 +517,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const installJob = createStore<InstallJob | null>(() => null);
   const setup = createStore<SetupView>(() => UNASKED_SETUP);
   const plans = createStore<Plans>(() => []);
+  const remote = createStore<RemoteView>(() => UNWATCHED_REMOTE);
+  /** Whether the "手机" page watches the remote state, asked for again on each connection. */
+  let watchingRemote = false;
+  let remoteAsks = 0;
   let setupAsks = 0;
   /** The latest pi the host pushed, kept while no `check_setup` answer holds it. */
   // Stryker disable next-line ObjectLiteral: an empty one reads as never found, just as nulls do.
@@ -891,6 +919,31 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   }
 
   /**
+   * Asks for the remote state and to be told of its changes.
+   *
+   * @remarks
+   * Only the answer to the latest ask lands, and only while still watched, so a late answer does
+   * not bring back a page that has closed. A push invalidates pending reads too: the response's
+   * promise may resume after a newer event has already arrived.
+   *
+   * @sideEffects Sends `get_remote`; updates the remote store.
+   */
+  async function loadRemote(): Promise<void> {
+    // Stryker disable next-line AssignmentOperator: counting down numbers each ask apart just the same.
+    remoteAsks += 1;
+    const ask = remoteAsks;
+    remote.setState({ status: "loading", error: null });
+    try {
+      const state = await request("get_remote", { watch: true });
+      if (ask === remoteAsks) remote.setState({ status: "ready", state, error: null });
+    } catch (error) {
+      // Stryker disable next-line ConditionalExpression: commands only ever reject with errors.
+      const failure = error instanceof Error ? error : new Error(String(error));
+      if (ask === remoteAsks) remote.setState({ status: "failed", error: failure });
+    }
+  }
+
+  /**
    * Reloads every model list asked for, once the models pi can use may have changed.
    *
    * @remarks
@@ -1050,8 +1103,14 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       loginState.setState(message, true);
       return;
     }
-    // Only the desktop's "手机" page watches it, and it has no store yet (SPEC-0005, MP3b).
-    if (message.type === "remote_updated") return;
+    if (message.type === "remote_updated") {
+      // A push still on its way when the page stopped watching shows nothing.
+      if (!watchingRemote) return;
+      remoteAsks += 1;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      remote.setState({ status: "ready", state: message.remote, error: null }, true);
+      return;
+    }
     if (message.type === "diff_updated") {
       const { target } = diff.getState();
       if (target?.workspaceId !== message.workspaceId || target.mode !== message.mode) return;
@@ -1175,6 +1234,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         request("subscribe_index", cursor === undefined ? {} : { cursor }).catch(() => undefined);
         subscribeWatched().catch(() => undefined);
         watchShown().catch(() => undefined);
+        // Fire and forget: the failure lands in the store.
+        if (watchingRemote) void loadRemote();
         settle(connection.getState());
       });
       current.addEventListener("close", (event) => {
@@ -1454,5 +1515,32 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       if (!same) diff.setState(diffViewOf(target), true);
       if (live !== undefined) await request("watch_diff", { target });
     },
+    remote,
+    async watchRemote(on) {
+      watchingRemote = on;
+      if (on) {
+        await loadRemote();
+        return;
+      }
+      remoteAsks += 1;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      remote.setState(UNWATCHED_REMOTE, true);
+      // Stryker disable next-line ConditionalExpression: without a live socket the catch below ignores the same connection loss.
+      if (live === undefined) return;
+      try {
+        await request("get_remote", { watch: false });
+      } catch (error) {
+        // A connection gone takes the watch with it, so there is nothing left to stop.
+        if (!(error instanceof ConnectionLostError)) throw error;
+      }
+    },
+    setRemote: (enabled, relay) => request("set_remote", relay === undefined ? { enabled } : { enabled, relay }),
+    testRelay: () => request("test_relay", {}),
+    startPairing: () => request("start_pairing", {}),
+    cancelPairing: () => request("cancel_pairing", {}),
+    confirmPairing: (pairingId, accept) => request("confirm_pairing", { pairingId, accept }),
+    renameDevice: (deviceId, name) => request("rename_device", { deviceId, name }),
+    revokeDevice: (deviceId) => request("revoke_device", { deviceId }),
+    resetRemoteIdentity: () => request("reset_remote_identity", {}),
   };
 }
