@@ -209,6 +209,19 @@ describe("generateSwift", () => {
     expect(() => swift({ A: { $ref: "Missing" } })).toThrow("#/A: unknown reference Missing");
   });
 
+  it("carries a fingerprint of the schemas, so a change to a constraint alone changes the output", () => {
+    const wide = swift({ Id: { type: "string", minLength: 1, maxLength: 128 } });
+    const narrow = swift({ Id: { type: "string", minLength: 1, maxLength: 64 } });
+    const reordered = swift({ Id: { maxLength: 128, type: "string", minLength: 1 } });
+
+    expect(wide).toMatch(/^\/\/ Schema SHA-256: [0-9a-f]{64}$/mu);
+    expect(narrow).not.toBe(wide);
+    expect(reordered).toBe(wide);
+    expect(
+      generateSwift({ protocolVersion: 2, schemas: { Id: { type: "string", minLength: 1, maxLength: 128 } } }),
+    ).not.toBe(wide.replace("protocolVersion = 1", "protocolVersion = 2"));
+  });
+
   it("writes the same output for the same input, types in name order", () => {
     const schemas = { B: { type: "string" }, A: { type: "integer" } };
 
