@@ -1,10 +1,16 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "ignore": ["spikes/**"],
-  "ignoreBinaries": ["pi", "mkfifo", "screencapture", "sips"],
+  "ignoreBinaries": ["pi", "mkfifo", "screencapture", "sips", "swift"],
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.mjs", "scripts/lint/*.mjs", "vitest.mutation.config.ts"],
+      "entry": [
+        "scripts/*.mjs",
+        "scripts/lint/*.mjs",
+        "vitest.mutation.config.ts",
+        "apps/ios/Integration/run.mjs",
+        "apps/ios/Integration/fixture.ts"
+      ],
       "ignoreDependencies": ["@stryker-mutator/core", "@stryker-mutator/command-runner"]
     },
     "packages/host": {
