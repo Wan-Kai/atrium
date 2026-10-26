@@ -103,7 +103,9 @@ export function median(values: readonly number[]): number {
  * launch waits for the welcome page instead, which has no connection status. With
  * `options.executablePath` it launches a packaged app instead of the repository's. Closing it, or
  * cleaning up after quitting, checks the host log (`checkAndRemove`), with what a faux environment
- * makes the host write on purpose declared already (`fauxExpectedLogs`).
+ * makes the host write on purpose declared already (`fauxExpectedLogs`). If readiness fails after
+ * Electron was obtained, closes it and removes only a home created here; reports cleanup failures
+ * alongside the original ready error. A caller-supplied home is never removed on this failure path.
  *
  * @sideEffects Creates a temp directory unless given one, with the preferences in it; launches
  * Electron; waits for the page to connect.
@@ -143,9 +145,30 @@ export async function launchApp(
     // Playwright emulates a light scheme by default, which would hide the real system appearance.
     colorScheme: null,
   });
-  const window = await app.firstWindow();
-  if (firstLaunch) await expect(window.getByRole("button", { name: "开始设置" })).toBeVisible({ timeout: 15_000 });
-  else await expect(window.getByRole("status")).toHaveText(/已连接宿主/, { timeout: 15_000 });
+  let window: Page;
+  try {
+    window = await app.firstWindow();
+    if (firstLaunch) await expect(window.getByRole("button", { name: "开始设置" })).toBeVisible({ timeout: 15_000 });
+    else await expect(window.getByRole("status")).toHaveText(/已连接宿主/, { timeout: 15_000 });
+  } catch (error) {
+    // The caller cannot clean up an app it never received. Keep the ready error first, without hiding cleanup failures.
+    const errors = [error];
+    try {
+      await app.close();
+    } catch (closeError) {
+      errors.push(closeError);
+    }
+    if (existingHome === undefined) {
+      expectedByHome.delete(home);
+      try {
+        await rm(home, { recursive: true, force: true });
+      } catch (removeError) {
+        errors.push(removeError);
+      }
+    }
+    if (errors.length > 1) throw new AggregateError(errors, "Electron readiness and cleanup failed", { cause: error });
+    throw error;
+  }
   const connectedAfterMs = Date.now() - started;
   return {
     app,
