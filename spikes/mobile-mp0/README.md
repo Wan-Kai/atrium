@@ -72,3 +72,16 @@ node fake-host.ts --local-relay 8787 --pair --auto-confirm --public-relay ws://1
 - **模拟器上钥匙串可用**：自动签名、带 team id 时不需要描述文件；同一 bundle id 重装后钥匙串项还在。真机上的 7 天重签、重装后是否保留，要等真机验证。
 - 手机这边握手第 2 条之前连接被关（宿主对非当前 `pairingId` 直接关闭）或解不开第 2 条时，App 显示"二维码已失效"；WebSocket 关闭码是 4404 时显示"Mac 不在线"。关闭原因只用来显示，不触发删除（relay 能伪造）；只有经 Noise 认证的 `revoked` 和握手第 2 条的 `device_unknown` 才删掉主机记录。
 - 没做 / 没验证：真机（扫码用的 VisionKit、本地网络权限弹窗、免费签名）、"Mac 不在线"（4404）在 App 里的实际显示、`device_unknown` 在 App 里的端到端（只在 Swift 进程内测试和 TS 端到端里覆盖）、前后台切换和 `NWPathMonitor`、重连退避、"待确认"记录在下次日常连接时补成正式记录。
+
+## 真机（2026-10-26）
+
+iPhone 16 Pro（iOS 26.6.1），经部署在用户 VPS 上的 relay `wss://ktoon.site/atrium`（MP2），对 TS 假宿主：
+
+- 测试 App 用 Atrium 的 bundle id `site.ktoon.atrium` 构建（`PRODUCT_BUNDLE_IDENTIFIER=site.ktoon.atrium`）：命令行 `xcodebuild` 报"No Accounts"，拿不到 Xcode 里登录的免费账号，签不出 `site.ktoon.atrium.spike` 的描述文件；`site.ktoon.atrium` 的描述文件 MP1 时已经有了。测完重新装回 MP1 的空 App。
+- 链接经启动参数交给 App（`devicectl device process launch … -- -pairLink '<链接>' -autoPair YES`），spike 没有扫码，扫码在 MP4 做。
+- 结果：配对成功，Mac 这边的校验码 694 887，手机显示已连接；覆盖安装（同 bundle id、同签名团队，相当于 7 天后重签）后不用再扫，按钥匙串里的身份 IK 连上，仍是同一个 `deviceId`；关掉 Wi-Fi 走蜂窝网络也连上。
+- 发现：
+  - 中国大陆的 iPhone 第一次联网弹"允许使用无线数据"，允许之前连不出去，App 只显示"配对失败"。正式 App 要把"连不出去"和别的失败分开说（MP4）。
+  - relay 回 4404（宿主不在线）时，spike 显示的是"配对失败"，不是 SPEC 写的"Mac 不在线"——这次是用户从聊天里复制了一条已删宿主的旧链接；正式 App 按关闭码区分（MP4）。
+  - 配对码 5 分钟过期，手动操作时容易过期，界面上要显示倒计时（设置页原型已有）。
+  - 没测：Mac 上撤销后真机收到 `revoked`（模拟器已测）、扫码、本地网络权限弹窗（relay 在公网，这次用不到）。

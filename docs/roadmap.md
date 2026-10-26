@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-26 补：MP0 真机通过**（iPhone 16 Pro、iOS 26.6.1，经 `wss://ktoon.site/atrium`）：配对两边校验码一致、覆盖安装后钥匙串里的配对还在、蜂窝网络下也连上；发现的"无线数据"权限、4404 的提示、配对码过期留给 MP4（spike README"真机"）。扫码没测（spike 没有扫码，MP4 做）。
+
 **2026-10-26：relay 部署到用户的 VPS，`wss://ktoon.site/atrium`（Docker 容器 `atrium-relay`，镜像 `atrium-relay:2026.10.26`，只监听 `127.0.0.1:8787`，数据在 `/srv/atrium-relay/data`；nginx 在 xray 回落的 8080 和 8081 两个 server 里各加了 `location /atrium/`，改前的配置备份在 `/root/ktoon.site.ssl.conf.bak.20261026105017` 等）。** 主站和 demo 子域照常 200。实测：HTTP/1.1 和 HTTP/2 的 `/atrium/healthz` 都是 ok；MP0 的 TS 假宿主和假手机经它配对（两边校验码一致）、IK 重连、心跳通过；iOS 26.5 模拟器上的测试 App 经 `wss://ktoon.site/atrium` 配对、钥匙串、IK 通过，心跳往返约 535 ms（Mac → VPS → 手机再回来，在公司网络下）；日志里没有令牌；测试用的宿主已 `remove-host`。镜像改在 VPS 上构建（这边传镜像只有约 17 KB/s），README 已改。待用户验收；分支未合并。
 
 **2026-10-26：手机端 MP2 relay 实现完成，在 `agent/mp2-relay`（基于 `atrium/mp0-interop`），待部署到用户的 VPS 和用户验收，未合并。** `apps/relay` 按 SPEC-0005 做了全部线路协议、`add-host` / `rotate-host` / `remove-host` / `list-hosts`、按天的元数据日志和 `/healthz`，支持路径前缀；按用户的 VPS（443 由 xray 终止 TLS、回落到 nginx 8080）先改了 SPEC"部署 relay"：前面放"一个终止 TLS 的反代（Caddy 或已有的 nginx）"、Docker 部署、拿不到真实 IP 时按 IP 限速退化成全局的（已知限制），关闭码表写进 SPEC。镜像 `node:24.22.1-bookworm-slim`（固定 digest）加单文件 `relay.cjs`，非 root；`deploy/` 有 nginx 片段、`compose.yaml`、systemd unit。测试见[追踪表](testing/coverage-map.md#手机端-mp2relayspec-00052026-10-25)：relay 160 项、泄漏 2 项、破坏检查 25 处全部检出，变异组 `relay` 958 个全部杀死；本机 Docker 加 nginx 用 MP0 的假宿主、假手机走通配对和 IK 重连。MP0 的假宿主对不带端口的那一行改用 `wss://`，能连部署好的 relay。
