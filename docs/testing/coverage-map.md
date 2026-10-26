@@ -4,6 +4,14 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## MP3a d49冻结版两个整文件强制重测（2026-10-26 UTC）
+
+原六文件/remote测试集/1runner×2worker/30000+1.5/80%不变，仅一次exit0，dry-run通过、前后冻结校验无漂移。清除link+service全部1142历史结果；实际1169项1008K/160S/1T＝86.31%（不计T仍86.23%），RelayLink整文件90.12%、RemoteService85.26%。完整checkPong10/10＝100%，采样65/72＝90.28%，close30/31＝96.77%，setState7/7＝100%，C并集37/38＝97.37%；预先固定的独立范围均≥80，不拿累计91.09%遮盖。
+
+原1142中1127重新识别，13跨改写＋2无当前生成身份不计Killed，另42当前新/改写变异单列。1754已强制重测仍Timeout，源码可达空数组同步不终止循环；报告无现场栈，按实际分类＋静态因果披露。70个Killed含测试/hook截止，另2个独立错误候选逐ID审计；898附带缺warn门禁失败、1505附带ENOTEMPTY保持未解释，不用来充当检出证据。45个精确归属本轮sandbox孤儿SIGTERM后复核0，未动其他lane/cache。
+
+全部旧报告保留，无重试/加时/新豁免；160存活继续计入，直接修复范围8项逐条说明。详见 [d49分层报告](mp3a-d49-mutation.md) 与 [失败审计](mp3a-d49-failure-audit.md)。其他四文件分数仍为历史缓存，没有本轮全量/GUI/Swift/平台钥匙串验证或用户验收结论。
+
 ## MP3a RelayLink 公开终态回调重入修复（独立授权C）
 
 真实socket、onState(error)同步retryNow/stop两项原生产红，确认旧close提前结算新waiter并多挂retry timer。仅两处重排：终态已有waiter先结算，再通知；backoff先安装，使通知内retry/stop可取消。公开回调所有权已写overview；不是Electron UI故障复现。
