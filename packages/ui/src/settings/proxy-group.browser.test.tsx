@@ -65,6 +65,7 @@ describe("Settings · pi · 网络代理", () => {
 
     await expect.element(group.getByText("已设置")).toBeVisible();
     expect(calls).toStrictEqual([
+      "watchRemote true",
       'setPreferences {"proxy":{"url":"http://127.0.0.1:7897","noProxy":[".example.com","localhost",".local"]}}',
     ]);
     await expect
@@ -97,7 +98,7 @@ describe("Settings · pi · 网络代理", () => {
     await expect.element(address).toHaveValue("");
     await expect.element(group.getByRole("textbox", { name: "不走代理的地址" })).toHaveValue("");
     await expect.element(group.getByRole("button", { name: "不用代理" })).not.toBeInTheDocument();
-    expect(calls).toStrictEqual(['setPreferences {"proxy":null}']);
+    expect(calls).toStrictEqual(["watchRemote true", 'setPreferences {"proxy":null}']);
   });
 
   it("waits no more once saved, when the host keeps the address in the form it had", async () => {
@@ -108,7 +109,7 @@ describe("Settings · pi · 网络代理", () => {
 
     await expect
       .poll(() => calls)
-      .toStrictEqual(['setPreferences {"proxy":{"url":"HTTP://127.0.0.1:7897/","noProxy":[]}}']);
+      .toStrictEqual(["watchRemote true", 'setPreferences {"proxy":{"url":"HTTP://127.0.0.1:7897/","noProxy":[]}}']);
     await expect.element(group.getByRole("button", { name: "不用代理" })).toBeEnabled();
     await expect.element(group.getByRole("button", { name: "保存" })).toBeEnabled();
   });
