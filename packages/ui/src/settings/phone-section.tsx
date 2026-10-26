@@ -1,4 +1,4 @@
-import { type AtriumClient, CommandError } from "@atrium/client";
+import type { AtriumClient } from "@atrium/client";
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { Check, Copy, PencilSimple, Phone, Plus, Trash, WarningCircle } from "../design/icons";
@@ -9,6 +9,7 @@ import { deviceStyle, RemoteLinkMap } from "./remote-link-map";
 import { RemotePairingDialog } from "./remote-pairing";
 import { RemoteDiagnostics } from "./remote-diagnostics";
 import { PhoneNotice } from "./phone-notice";
+import type { PendingRevocations } from "./pending-revocations";
 import { deviceStatus, remoteDate, remoteError, remoteLive } from "./remote-words";
 import "./phone-section.css";
 
@@ -26,15 +27,17 @@ interface RemoteAction {
  * grant access. A failed revoke retains its id so retry remains possible after the host hides it.
  * @sideEffects Subscribes to remote state; sends commands on user actions; copies only
  * the public fingerprint; releases local timers and mounted guards on unmount, not the watch.
- * @param props - The desktop client and the owner's explicit read-retry handler.
+ * @param props - The client, read-retry handler and window-owned failed revocation targets.
  * @returns The link map, node details, full device list and pairing sheet.
  */
 export function PhoneSection({
   client,
   onRetryRemote,
+  revocations,
 }: {
   readonly client: AtriumClient;
   readonly onRetryRemote: () => void;
+  readonly revocations: PendingRevocations;
 }) {
   const view = useStore(client.remote);
   const connected = useStore(client.connection, (connection) => connection.status === "connected");
@@ -88,11 +91,9 @@ export function PhoneSection({
         },
         (error: unknown) => {
           if (!mounted.current) return;
-          const text =
-            action.revoke && error instanceof CommandError && error.code === "keychain_unavailable"
-              ? "没能写入保险箱，重启 Atrium 后它会恢复。请重试。"
-              : remoteError(error);
-          setFailure({ text, action });
+          // Revocation failures belong to the settings window, independently of this action's feedback.
+          if (action.revoke) return;
+          setFailure({ text: remoteError(error), action });
         },
       )
       .finally(() => {
@@ -153,7 +154,11 @@ export function PhoneSection({
   /** Saves a relay line without retaining the token after success. @remarks Replacing an address requires pairing again. @sideEffects Sends set_remote and clears the local secret field. */
   const saveRelay = (): void =>
     run({
-      perform: () => client.setRemote(true, relayLine.trim()),
+      perform: async () => {
+        const finish = revocations.beginIdentityChange();
+        await client.setRemote(true, relayLine.trim());
+        finish();
+      },
       success: "relay 已保存；地址或宿主 id 改变后，所有手机都要重新扫码配对",
       done: () => {
         setRelayLine("");
@@ -163,12 +168,39 @@ export function PhoneSection({
   /** Regenerates identity after explicit confirmation. @remarks Also recovers corrupt vaults; never automatic. @sideEffects Sends reset_remote_identity. */
   const reset = (): void =>
     run({
-      perform: () => client.resetRemoteIdentity(),
+      perform: async () => {
+        const finish = revocations.beginIdentityChange();
+        await client.resetRemoteIdentity();
+        finish();
+      },
       success: "已撤销全部设备，宿主密钥已重新生成",
       done: () => setConfirm(null),
     });
   const feedback = (
     <>
+      {revocations.entries.map((entry) => (
+        <div className="phone-error" role="alert" aria-label={`撤销 ${entry.name}`} key={entry.deviceId}>
+          <WarningCircle size={15} />
+          <span>
+            {entry.name}：{entry.error}
+          </span>
+          <button
+            type="button"
+            className={BUTTON}
+            aria-label={`重试撤销 ${entry.name}`}
+            disabled={disabled || entry.pending}
+            onClick={() =>
+              run({
+                perform: () => revocations.revoke(entry.deviceId, entry.name),
+                success: `已撤销「${entry.name}」`,
+                revoke: true,
+              })
+            }
+          >
+            {entry.pending ? "正在重试…" : "重试撤销"}
+          </button>
+        </div>
+      ))}
       {failure === null ? null : (
         <div className="phone-error" role="alert">
           <WarningCircle size={15} />
@@ -341,7 +373,7 @@ export function PhoneSection({
               disabled={disabled}
               onClick={() =>
                 run({
-                  perform: () => client.revokeDevice(device.deviceId),
+                  perform: () => revocations.revoke(device.deviceId, device.name),
                   success: `已撤销「${device.name}」`,
                   revoke: true,
                   done: () => {

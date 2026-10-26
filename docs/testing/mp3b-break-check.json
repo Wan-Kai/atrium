@@ -74,11 +74,11 @@
   },
   {
     "file": "packages/ui/src/settings/phone-section.tsx",
-    "to": "client.revokeDevice(\"dev_0000000000000000\")",
+    "to": "revocations.revoke(\"dev_0000000000000000\", device.name)",
     "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
     "name": "watches only while mounted",
     "project": "ui",
-    "from": "client.revokeDevice(device.deviceId)"
+    "from": "revocations.revoke(device.deviceId, device.name)"
   },
   {
     "file": "packages/ui/src/settings/phone-section.tsx",
@@ -118,7 +118,7 @@
     "test": "packages/ui/src/settings/phone-section.browser.test.tsx",
     "name": "keeps failed actions visible",
     "project": "ui",
-    "from": "setFailure({ text, action });"
+    "from": "setFailure({ text: remoteError(error), action });"
   },
   {
     "file": "packages/ui/src/settings/phone-section.tsx",

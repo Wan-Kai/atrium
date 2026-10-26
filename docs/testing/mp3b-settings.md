@@ -1,5 +1,11 @@
 # MP3b 手机设置页实施记录
 
+## 审查修复 A：失败撤销目标独立保留（本轮）
+
+设置窗口 owner 内按 deviceId 维护仅失败撤销的目标表，与 PhoneSection 通用 failure/notice 分开；无磁盘存储、自动重试或通用命令队列。成功重试只删除对应目标；实际卸载、可见身份/relay 配置变化清表并推进代次。保存 relay（包括只换令牌）及重置身份成功后的清表回调在操作开始时捕获代次，不依赖 PhoneSection 是否还挂载；失败不清表，旧回调不复活或清除新身份目标。宿主已隐藏/拉黑的设备不重新加入列表。原有其它历史验证不改写为本轮结果。
+
+A 验证：`revocation-retry.browser.test.tsx` 使用真实 SettingsPanel + 实际 client/协议解析 + 脚本化 socket；初始 4 项全红（`/tmp/mp3b/revoke-red.log`）。补入晚到 reset/关闭回调后共 5 项，连同 Phone 和窗口 watch 回归，`pnpm test:ui revocation-retry phone-section settings-remote-watch --maxWorkers=1` 为 37 项通过（`revoke-regression.log`）。`pnpm break-check docs/testing/mp3b-revocation-break-check.json` 7/7 检出（`revoke-break.log`）；UI typecheck 与改动文件类型感知 lint 通过。旧破坏清单的 revoke 与通用错误匹配点同步到当前代码，历史计数不重算。本轮未跑全量、e2e、变异、Xcode。
+
 ## 用户选择：整个设置窗口订阅（本轮）
 
 审查后用户明确选择 SettingsPanel 为唯一 watch owner：挂载开启，实际卸载退订并清空；切换分类不重复订阅，未保存配置拦截关闭时维持订阅。PhoneSection 只管理自己的 mounted guard、动画和计时器；重试读取请求交给设置窗口，不持有 watch 生命周期。不全局常驻、不持久化二维码、不新增公网/手机连接、不自动确认或取消配对、不改变远程开关。

@@ -176,8 +176,8 @@ it("keeps revoke retry even after the host hides the device on a vault write fai
   fake.remote.setState({ state: { ...STATE, devices: [] } });
   await expect
     .element(screen.getByRole("alert"))
-    .toHaveTextContent("没能写入保险箱，重启 Atrium 后它会恢复。请重试。重试操作");
-  await screen.getByRole("button", { name: "重试操作" }).click();
+    .toHaveTextContent("工作 iPhone：没能写入保险箱，重启 Atrium 后它会恢复。请重试。重试撤销");
+  await screen.getByRole("button", { name: "重试撤销 工作 iPhone" }).click();
   expect(fake.calls).toStrictEqual([
     "watchRemote true",
     "revokeDevice dev_0123456789abcdef",
