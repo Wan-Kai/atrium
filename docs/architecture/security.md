@@ -122,6 +122,7 @@
 | `ws://127.0.0.1:*` | 请求 | 桌面端主进程（`main/main.ts`）写进 CSP 的 `connect-src`；界面（`app/app.tsx`）把宿主地址的 `http` 换成 `ws` 连过去 | 页面只允许连本机宿主 | 本文"Electron" |
 | `http://localhost:*` | 比对 | 宿主（`server/ws-server.ts`） | `Origin` 白名单里的另一种写法 | 本文"WebSocket 与鉴权" |
 | `http://host.invalid` | 比对 | 宿主（`server/static-files.ts`） | 解析请求路径用的假基准地址，不会连 | — |
+| `http://relay.invalid` | 比对 | relay（`relay.ts`） | 解析请求路径和 `?host=` 用的假基准地址，不会连 | — |
 | `https://api.openai.com/auth` | 比对 | Atrium 的 pi 扩展（`pi/src/extension/credentials.ts`） | ChatGPT 访问令牌里账号 id 所在的声明名，不是请求地址 | ADR-0008 |
 | `https://pi.dev` | 显示 | 界面（欢迎页、设置） | pi 官网链接 | SPEC-0001 |
 | `https://nodejs.org/` | 显示 | 界面（`setup/install-step.tsx`） | 缺 Node 时给的下载链接 | SPEC-0001"第 1 步" |
@@ -139,6 +140,8 @@
 | `ATRIUM_DEV_URL` | 桌面端主进程 | 开发时页面来自 Vite 的地址 | development.md `pnpm dev` |
 | `ATRIUM_HOST_ENTRY` | 桌面端主进程 | 换一个宿主入口（测试用） | overview.md"桌面端怎么启动宿主" |
 | `ATRIUM_APP_METRICS_INTERVAL_MS` | 桌面端主进程 | 进程资源采样间隔（测试用） | testing.md"运行时监控" |
+| `ATRIUM_RELAY_DIR` | relay（`cli.ts`） | 数据目录（`relay.json`、`hosts.json`、`logs/`），默认当前目录；Docker 镜像里是 `/data`，`--dir` 优先 | SPEC-0005"部署 relay" |
+| `ATRIUM_RELAY_LISTEN` | relay（`cli.ts`） | 监听地址，默认 `127.0.0.1:8787`；Docker 镜像里是 `0.0.0.0:8787`（端口只发布到宿主机的 127.0.0.1），`--listen` 优先 | SPEC-0005"部署 relay"、本文"relay" |
 | `ATRIUM_*` | 宿主（`platform/login-shell.ts`）、`pi/src/env/pi-env.ts` | 这个前缀的变量不交给登录 shell 读出的工具环境和 pi | 本文"子进程与文件" |
 | `ELECTRON_*` | 同上 | 同上，例如 `ELECTRON_RUN_AS_NODE` | 本文"子进程与文件" |
 | `HOME` | 宿主、pi 包 | 登录 shell 启动时带上；找 pi 的配置目录和会话目录 | SPEC-0001"第 1 步" |

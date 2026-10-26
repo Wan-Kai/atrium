@@ -46,6 +46,7 @@ export default defineConfig({
     include: group === null ? [`${packages}/*.test.ts`] : group.tests.flatMap(testsIn),
     exclude: [
       `${packages}/*.{pi,leak,soak,browser}.test.ts`,
+      "apps/relay/src/**/*.leak.test.ts",
       "**/node_modules/**",
       ...(group === null ? [] : group.skip.flatMap(testsIn)),
     ],
