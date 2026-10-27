@@ -8,6 +8,8 @@ import Foundation
 ///   the root last as "根目录", or "按改动量排" without groups, the most changed first.
 struct ChangeList: Equatable {
   /// Which files the chips show.
+  ///
+  /// - Remark: A rename counts as a modification.
   enum Filter: CaseIterable, Equatable {
     /// Every file.
     case all
@@ -45,6 +47,8 @@ struct ChangeList: Equatable {
   }
 
   /// One directory's files.
+  ///
+  /// - Remark: The root's files are under "根目录".
   struct Group: Equatable, Identifiable {
     /// The directory, with its slash, or "根目录".
     let directory: String
