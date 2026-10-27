@@ -23,8 +23,12 @@ struct SessionPage: View {
   @Environment(\.colorScheme) private var scheme
   /// Whether the app is in front.
   @Environment(\.scenePhase) private var phase
-  /// Whether the queue sheet is open.
-  @State private var showingQueue = false
+  /// The sheet showing, if any.
+  @State private var sheet: PageSheet?
+  /// The questions and dialogs already shown by themselves, so closing one does not bring it back.
+  @State private var presented: Set<String> = []
+  /// The child conversation opened from the child list.
+  @State private var openChild: SessionId?
   /// The toast showing, if any.
   @State private var toast: String?
 
@@ -54,6 +58,9 @@ struct SessionPage: View {
         ForEach(sync?.core.outbox.filter { $0.sessionId == sessionId } ?? []) { message in
           PendingBubble(message: message) { sync?.resend(message.id) }
         }
+        if let question = state?.control?.question, sheet == nil {
+          QuestionCard(question: question) { sheet = .question(question) }
+        }
         if let failure = controls.failure {
           ErrorCard(text: failure, detail: nil) { retry() }
         }
@@ -78,15 +85,26 @@ struct SessionPage: View {
     .hidingNavigationBar()
     .safeAreaInset(edge: .bottom) {
       if let sync {
+        let children = HomeList.children(of: sessionId, in: sync.core.index)
         SessionDock(
-          sessionId: sessionId, sync: sync, showQueue: { showingQueue = true }, showChildren: nil,
-          children: 0, toast: { toast = $0 })
+          sessionId: sessionId, sync: sync, showQueue: { sheet = .queue },
+          showChildren: { sheet = .children(children) }, children: children.count, toast: { toast = $0 })
       }
     }
     .overlay(alignment: .top) { toastView(palette) }
-    .sheet(isPresented: $showingQueue) {
-      if let sync { QueueSheet(sessionId: sessionId, sync: sync) }
+    .sheet(item: $sheet) { shown in
+      if let sync {
+        switch shown {
+        case .queue: QueueSheet(sessionId: sessionId, sync: sync)
+        case .question(let question): QuestionSheet(sessionId: sessionId, sync: sync, question: question)
+        case .interaction(let interaction): InteractionSheet(sessionId: sessionId, sync: sync, interaction: interaction)
+        case .children(let children): ChildrenSheet(children: children) { openChild = $0 }
+        }
+      }
     }
+    .navigationDestination(item: $openChild) { SessionPage(sessionId: $0) }
+    .onChange(of: Self.waiting(state?.control), initial: true) { presentWaiting(state?.control) }
+    .onChange(of: sheet == nil) { presentWaiting(sync?.core.sessions[sessionId]?.control) }
     .onAppear {
       sync?.open(sessionId)
       sync?.clearAttention(sessionId)
@@ -104,6 +122,33 @@ struct SessionPage: View {
       try? await ContinuousClock().sleep(for: .seconds(1.9))
       if !Task.isCancelled { toast = nil }
     }
+  }
+
+  /// Opens a question or dialog by itself the first time it waits, when no other sheet is open.
+  ///
+  /// - Remark: SPEC-0005 "MP5 定的细节 · MP5c": the question first, then the oldest dialog. Closed,
+  ///   it stays closed; the question leaves a card in the conversation.
+  /// - SideEffects: May open a sheet.
+  /// - Parameter control: The session's run control.
+  private func presentWaiting(_ control: Control?) {
+    guard sheet == nil, let control else { return }
+    if let question = control.question, !presented.contains(question.id) {
+      presented.insert(question.id)
+      sheet = .question(question)
+    } else if let interaction = control.interactions.first, !presented.contains(interaction.id) {
+      presented.insert(interaction.id)
+      sheet = .interaction(interaction)
+    }
+  }
+
+  /// The ids of what waits for an answer, to notice when it changes.
+  ///
+  /// - Remark: The question's id, then the dialogs'.
+  /// - SideEffects: none
+  /// - Parameter control: The session's run control.
+  /// - Returns: The ids.
+  static func waiting(_ control: Control?) -> [String] {
+    [control?.question?.id].compactMap { $0 } + (control?.interactions.map(\.id) ?? [])
   }
 
   /// Retries the session's last run.

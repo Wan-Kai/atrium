@@ -37,6 +37,8 @@ public struct Outgoing: Sendable, Equatable, Identifiable {
   public internal(set) var state: State
   /// What it is sent as.
   public let kind: Kind
+  /// How many images go with it.
+  public let images: Int
 
   /// Makes a message.
   ///
@@ -48,12 +50,16 @@ public struct Outgoing: Sendable, Equatable, Identifiable {
   ///   - text: The text.
   ///   - state: Where it stands.
   ///   - kind: What it is sent as.
-  public init(id: RequestId, sessionId: SessionId, text: String, state: State, kind: Kind = .prompt) {
+  ///   - images: How many images go with it.
+  public init(
+    id: RequestId, sessionId: SessionId, text: String, state: State, kind: Kind = .prompt, images: Int = 0
+  ) {
     self.id = id
     self.sessionId = sessionId
     self.text = text
     self.state = state
     self.kind = kind
+    self.images = images
   }
 }
 
@@ -65,4 +71,26 @@ public enum SendProblem: Sendable, Equatable {
   case notSent
   /// The host refused it, with this code.
   case refused(ErrorCode)
+}
+
+/// An image ready to go with a message: encoded and small enough for `upload_attachment`.
+///
+/// - Remark: SPEC-0005 "MP5 定的细节 · MP5c": the app shrinks and encodes it before it gets here.
+public struct OutgoingImage: Sendable, Equatable {
+  /// Its format.
+  public let mimeType: UploadAttachmentCommand.MimeType
+  /// Its bytes in base64, at most 1,000,000 characters.
+  public let data: String
+
+  /// Makes an image.
+  ///
+  /// - Remark: The data is not checked here; the host refuses one too large.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - mimeType: Its format.
+  ///   - data: Its bytes in base64.
+  public init(mimeType: UploadAttachmentCommand.MimeType, data: String) {
+    self.mimeType = mimeType
+    self.data = data
+  }
 }

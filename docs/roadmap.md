@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-28 MP4 三方审查完成、MP5a/b/c 实现完成，待用户验收，未合并、未推送。** MP4 在 `atrium/mp4-sync`（`atrium.worktrees/mp4-sync`），三方审查（Claude 子代理、codex gpt-6-astra、grok grok-4.7）的发现已按测试先行修完（`605d46c`、`bc0b86d`、`6dfeecf`）；grok 报的"取消时 `AsyncStream` 卡住"经实测不成立，未改。MP5 在 `atrium/mp5-conversation`（`atrium.worktrees/mp5-conversation`，叠在 MP4 上并已合入其修复）：MP5a 对话本身（控制状态、轮次版式、过程轨道、Markdown 回复、顶栏）、MP5b 运行控制（插话、排队 sheet、停止、出错卡片、关注清除）、MP5c 提问 / 对话框 / 子对话 sheet 和发图片；代定的细节写在 SPEC-0005"MP5 定的细节"。契约覆盖排队、插话、停止后继续、对话框两端回答、带图发送。未做：真机性能（50 毫秒预算）、sheet 和菜单的截图与 UI 测试、`List` 与 `LazyVStack` 的取舍——交给用户验收；下一步 MP6。
+
 **2026-10-27 MP4a、MP4b、MP4c 实现完成，在 `atrium/mp4-sync`（worktree `atrium.worktrees/mp4-sync`），待 MP4 三方审查和用户验收，未合并、未推送。** 用户 2026-10-27 设目标"完成所有 MVP 内容，非单向门的决策先代决策"，代定的细节都写在 SPEC-0005 的 MP4a/b/c 小节。
 
 **2026-10-27 MP4a 只读同步开工，在 `atrium/mp4-sync`（worktree `atrium.worktrees/mp4-sync`），未合并。** MP4 拆成 MP4a 只读同步、MP4b 发送与回执、MP4c 续传与恢复；用户定协议一次升到 28，字段全在 MP4a 定下，宿主先只实现快照预算。细节见 [SPEC-0005 · MP4a 定的细节](specs/0005-mobile-app-and-remote-access.md#mp4a-定的细节2026-10-27)。

@@ -39,6 +39,8 @@ public struct SyncCore {
     case open(SessionId)
     /// A message's `prompt` or `steer`, by its own request id.
     case prompt
+    /// One of a message's images, by the message's id and the image's place.
+    case upload(RequestId, Int)
     /// An action on a session, whose failure is shown.
     case action(SessionId, SessionAction)
     /// `clear_attention` of a session.
@@ -64,6 +66,8 @@ public struct SyncCore {
   public private(set) var outbox: [Outgoing] = []
   /// What each session's input holds, kept here so a message that never left can come back to it.
   public private(set) var drafts: [SessionId: String] = [:]
+  /// The images each session's input holds.
+  public private(set) var draftImages: [SessionId: [OutgoingImage]] = [:]
   /// Why a session's last message did not go; cleared when its input changes.
   public private(set) var problems: [SessionId: SendProblem] = [:]
   /// The latest message of each session found in its transcript, by request id.
@@ -79,6 +83,10 @@ public struct SyncCore {
   private let now: () -> Duration
   /// When each message in the outbox was sent, and whether it was retried already.
   private var timing: [RequestId: (sentAt: Duration, retried: Bool)] = [:]
+  /// The images of each message in the outbox that has any.
+  private var images: [RequestId: [OutgoingImage]] = [:]
+  /// The attachment ids the host gave a message's images on this connection, in order.
+  private var attachments: [RequestId: [String?]] = [:]
 
   /// Makes a sync with nothing yet.
   ///
@@ -154,6 +162,8 @@ public struct SyncCore {
       switch requests.removeValue(forKey: success.requestId) {
       case .index?: listAnswered = true
       case .prompt?: answered(success.requestId, disposition: Self.disposition(success.result))
+      case .upload(let message, let place)?:
+        outputs += uploaded(message, place: place, attachmentId: Self.attachmentId(success.result))
       default: break
       }
     case .responseMessage(.failure(let failure)):
@@ -164,6 +174,7 @@ public struct SyncCore {
         for sessionId in failing { fail(sessionId, failure.error.code) }
       case .open(let sessionId): fail(sessionId, failure.error.code)
       case .prompt: refused(requestId, failure.error.code)
+      case .upload(let message, _): refused(message, failure.error.code)
       case .action(let sessionId, let action):
         actionProblems[sessionId] = ActionProblem(action: action, code: failure.error.code)
       case .clearing, .other: break
@@ -276,6 +287,18 @@ public struct SyncCore {
     problems[sessionId] = nil
   }
 
+  /// Changes the images a session's input holds.
+  ///
+  /// - Remark: Picking or removing an image clears why the last message did not go.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - images: The images.
+  ///   - sessionId: The session.
+  public mutating func setDraftImages(_ images: [OutgoingImage], for sessionId: SessionId) {
+    draftImages[sessionId] = images.isEmpty ? nil : images
+    problems[sessionId] = nil
+  }
+
   /// Sends a session's input as a message, if it may be sent.
   ///
   /// - Remark: A new random request id, which is also the message's `clientMessageId`; it shows as
@@ -287,12 +310,14 @@ public struct SyncCore {
   ///   - steer: Whether to send it as a steer.
   /// - Returns: The command to send.
   public mutating func send(_ sessionId: SessionId, steer: Bool = false) -> [SyncOutput] {
-    guard canSend(sessionId), let text = drafts[sessionId],
-      !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let text = drafts[sessionId] ?? ""
+    let pictures = draftImages[sessionId] ?? []
+    guard canSend(sessionId), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pictures.isEmpty
     else { return [] }
     drafts[sessionId] = nil
+    draftImages[sessionId] = nil
     problems[sessionId] = nil
-    return [post(text, to: sessionId, kind: steer ? .steer : .prompt)]
+    return post(text, to: sessionId, kind: steer ? .steer : .prompt, images: pictures)
   }
 
   /// Asks something of a session's run: stop it, act on its queue, retry, let deliveries go.
@@ -326,6 +351,14 @@ public struct SyncCore {
       case .resumeDeliveries:
         .resumeDeliveries(
           ResumeDeliveriesCommand(requestId: requestId, traceparent: trace, sessionId: sessionId, tree: false))
+      case .answerQuestion(let question, let reply):
+        .answerQuestion(
+          AnswerQuestionCommand(
+            requestId: requestId, traceparent: trace, sessionId: sessionId, questionId: question, answer: reply))
+      case .answerInteraction(let interaction, let answer):
+        .answerInteraction(
+          AnswerInteractionCommand(
+            requestId: requestId, traceparent: trace, sessionId: sessionId, interactionId: interaction, answer: answer))
       }
     return [send(command)]
   }
@@ -369,8 +402,9 @@ public struct SyncCore {
     guard synced, let message = outbox.first(where: { $0.id == requestId && $0.state == .uncertain }) else {
       return []
     }
+    let pictures = images[requestId] ?? []
     drop(requestId)
-    return [post(message.text, to: message.sessionId, kind: message.kind)]
+    return post(message.text, to: message.sessionId, kind: message.kind, images: pictures)
   }
 
   /// Takes back a message that never left: the connection was gone when it was to be written.
@@ -401,12 +435,54 @@ public struct SyncCore {
   ///   - text: The text.
   ///   - sessionId: The session.
   ///   - kind: What it is sent as.
-  /// - Returns: The output.
-  private mutating func post(_ text: String, to sessionId: SessionId, kind: Outgoing.Kind) -> SyncOutput {
+  ///   - pictures: Its images, uploaded first.
+  /// - Returns: The outputs.
+  private mutating func post(
+    _ text: String, to sessionId: SessionId, kind: Outgoing.Kind, images pictures: [OutgoingImage]
+  ) -> [SyncOutput] {
     let requestId = makeRequestId()
-    outbox.append(Outgoing(id: requestId, sessionId: sessionId, text: text, state: .sending, kind: kind))
+    outbox.append(
+      Outgoing(id: requestId, sessionId: sessionId, text: text, state: .sending, kind: kind, images: pictures.count))
     timing[requestId] = (now(), false)
-    return prompt(requestId)
+    guard !pictures.isEmpty else { return [prompt(requestId)] }
+    images[requestId] = pictures
+    return upload(requestId)
+  }
+
+  /// Uploads a message's images on this connection, forgetting ids an earlier one gave.
+  ///
+  /// - Remark: SPEC-0005 "MP5 定的细节 · MP5c": attachments belong to the connection they were
+  ///   uploaded on, so a retry uploads them again; the message goes once every id is back.
+  /// - SideEffects: none
+  /// - Parameter requestId: The message.
+  /// - Returns: The uploads.
+  private mutating func upload(_ requestId: RequestId) -> [SyncOutput] {
+    let pictures = images[requestId] ?? []
+    attachments[requestId] = Array(repeating: nil, count: pictures.count)
+    return pictures.enumerated().map { place, picture in
+      send(
+        .uploadAttachment(
+          UploadAttachmentCommand(
+            requestId: track(.upload(requestId, place)), traceparent: makeTraceparent(), mimeType: picture.mimeType,
+            data: picture.data)))
+    }
+  }
+
+  /// Takes the id the host gave one of a message's images, and sends the message once all are in.
+  ///
+  /// - Remark: An answer without an id cannot be used; the message then waits for the next sync.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - requestId: The message.
+  ///   - place: The image's place.
+  ///   - attachmentId: The id, if the answer had one.
+  /// - Returns: The message's command, once every image is in.
+  private mutating func uploaded(_ requestId: RequestId, place: Int, attachmentId: String?) -> [SyncOutput] {
+    guard outbox.contains(where: { $0.id == requestId }), var ids = attachments[requestId], ids.indices.contains(place)
+    else { return [] }
+    ids[place] = attachmentId
+    attachments[requestId] = ids
+    return ids.allSatisfy { $0 != nil } ? [prompt(requestId)] : []
   }
 
   /// The `prompt` or `steer` of a message in the outbox, for its first sending or its one retry.
@@ -420,12 +496,18 @@ public struct SyncCore {
     requests[requestId] = .prompt
     let sessionId = message?.sessionId ?? ""
     let text = message?.text ?? ""
+    let ids = attachments[requestId]?.compactMap { $0 }
     if message?.kind == .steer {
       return send(
-        .steer(SteerCommand(requestId: requestId, traceparent: makeTraceparent(), sessionId: sessionId, text: text)))
+        .steer(
+          SteerCommand(
+            requestId: requestId, traceparent: makeTraceparent(), sessionId: sessionId, text: text, attachmentIds: ids))
+      )
     }
     return send(
-      .prompt(PromptCommand(requestId: requestId, traceparent: makeTraceparent(), sessionId: sessionId, text: text)))
+      .prompt(
+        PromptCommand(
+          requestId: requestId, traceparent: makeTraceparent(), sessionId: sessionId, text: text, attachmentIds: ids)))
   }
 
   /// Takes the host's answer to a message.
@@ -461,8 +543,10 @@ public struct SyncCore {
       if delivered(message) { arrived(message) } else { outbox[index].state = .uncertain }
       return
     }
+    let pictures = images[requestId] ?? []
     drop(requestId)
     giveBack(message, .refused(code))
+    if !pictures.isEmpty { draftImages[message.sessionId] = pictures + (draftImages[message.sessionId] ?? []) }
   }
 
   /// Settles a session's messages whose turns are in its transcript.
@@ -498,7 +582,7 @@ public struct SyncCore {
       guard message.state == .sending, let sent = timing[message.id] else { continue }
       if !sent.retried, now() - sent.sentAt < Self.retryWindow {
         timing[message.id] = (sent.sentAt, true)
-        outputs.append(prompt(message.id))
+        outputs += images[message.id] == nil ? [prompt(message.id)] : upload(message.id)
       } else if let index = outbox.firstIndex(where: { $0.id == message.id }) {
         outbox[index].state = .uncertain
       }
@@ -537,6 +621,8 @@ public struct SyncCore {
   private mutating func drop(_ requestId: RequestId) {
     outbox.removeAll { $0.id == requestId }
     timing[requestId] = nil
+    images[requestId] = nil
+    attachments[requestId] = nil
   }
 
   /// Puts a message that did not go back in front of its session's input.
@@ -560,6 +646,17 @@ public struct SyncCore {
   /// - Returns: The disposition.
   private static func disposition(_ result: JSONValue?) -> String? {
     guard case .object(let fields)? = result, case .string(let value)? = fields["disposition"] else { return nil }
+    return value
+  }
+
+  /// The attachment id in an `upload_attachment` result.
+  ///
+  /// - Remark: `nil` for a result without one.
+  /// - SideEffects: none
+  /// - Parameter result: The result.
+  /// - Returns: The id.
+  private static func attachmentId(_ result: JSONValue?) -> String? {
+    guard case .object(let fields)? = result, case .string(let value)? = fields["attachmentId"] else { return nil }
     return value
   }
 

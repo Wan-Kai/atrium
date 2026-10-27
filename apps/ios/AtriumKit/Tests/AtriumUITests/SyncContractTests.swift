@@ -204,6 +204,44 @@ struct SyncContractTests {
       }
       #expect(model.core.actionProblems.isEmpty)
 
+      // MP5c: a dialog the Mac answers first goes from the phone ("已在 Mac 上处理"); one the phone
+      // answers is taken by the host.
+      for (run, macAnswers) in [(8, true), (9, false)] {
+        _ = try await control.request("prompt", body: ["sessionId": sessionId, "text": "ping"])
+        try await within(seconds: 30) {
+          model.core.sessions[sessionId]?.control?.interactions.map(\.id) == ["c\(run)"]
+        } else: {
+          "control \(String(describing: model.core.sessions[sessionId]?.control))"
+        }
+        if macAnswers {
+          _ = try await control.request("answer", body: ["sessionId": sessionId, "interactionId": "c\(run)"])
+        } else {
+          model.perform(.answerInteraction("c\(run)", .confirmed(.init(confirmed: true))), in: sessionId)
+        }
+        try await within(seconds: 30) { model.core.sessions[sessionId]?.control?.interactions.isEmpty == true }
+        #expect(model.core.actionProblems.isEmpty)
+        model.perform(.stop, in: sessionId)
+        try await within(seconds: 30) { model.core.sessions[sessionId]?.running == false }
+      }
+
+      // MP5c: a message with an image uploads it first, then goes with its id.
+      let jpeg = try #require(ImageShrinker.jpeg(from: try noisyPNG(width: 64, height: 48)))
+      let turnsBeforeImage = try #require(model.core.sessions[sessionId]).items.filter(isTurn).count
+      model.setDraft("看图", for: sessionId)
+      model.setDraftImages([OutgoingImage(mimeType: .imageJpeg, data: jpeg.base64EncodedString())], for: sessionId)
+      model.send(sessionId)
+      try await within(seconds: 30) {
+        let items = model.core.sessions[sessionId]?.items ?? []
+        return model.core.outbox.isEmpty && items.filter(isTurn).count == turnsBeforeImage + 1
+      } else: {
+        "outbox \(model.core.outbox) problems \(model.core.problems)"
+      }
+      // The host took the prompt with the attachment's id: an id it did not have would be refused
+      // (`attachment_missing`) and come back as a problem. The scripted pi does not echo images, so
+      // the turn itself does not count them.
+      #expect(model.core.problems.isEmpty)
+      #expect(model.core.draftImages.isEmpty)
+
     } catch {
       await cleanUp()
       throw error

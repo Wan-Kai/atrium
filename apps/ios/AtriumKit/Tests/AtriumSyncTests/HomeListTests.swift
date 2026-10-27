@@ -120,3 +120,23 @@ struct HomeListTests {
 private func createdAt(of json: String) -> String {
   json.contains(#""branch":"old""#) ? #""createdAt":1"# : #""createdAt":2"#
 }
+
+@Suite("Home list: children")
+struct HomeChildrenTests {
+  @Test("lists a session's child conversations, the latest updated first, and not archived ones")
+  func children() {
+    var state = IndexState()
+    let parent = #"{"sessionId":"p","by":"agent"}"#
+    apply(
+      &state,
+      indexSnapshotJSON(sessions: [
+        summaryJSON("p", in: "w1"),
+        summaryJSON("c1", in: "w1", extra: ["parent": parent, "updatedAt": "2"]),
+        summaryJSON("c2", in: "w1", extra: ["parent": parent, "updatedAt": "9"]),
+        summaryJSON("c3", in: "w1", extra: ["parent": parent, "archived": "true"]),
+        summaryJSON("x", in: "w1", extra: ["parent": #"{"sessionId":"other","by":"user"}"#]),
+      ]))
+    #expect(HomeList.children(of: "p", in: state).map(\.sessionId) == ["c2", "c1"])
+    #expect(HomeList.children(of: "c1", in: state).isEmpty)
+  }
+}

@@ -203,6 +203,17 @@ public final class SyncModel {
     }
   }
 
+  /// Changes the images a session's input holds.
+  ///
+  /// - Remark: See ``SyncCore/setDraftImages(_:for:)``. Kept in memory only.
+  /// - SideEffects: Updates the core.
+  /// - Parameters:
+  ///   - images: The images.
+  ///   - sessionId: The session.
+  public func setDraftImages(_ images: [OutgoingImage], for sessionId: SessionId) {
+    core.setDraftImages(images, for: sessionId)
+  }
+
   /// Sends a session's input.
   ///
   /// - Remark: See ``SyncCore/send(_:steer:)``.

@@ -95,6 +95,28 @@ struct SyncControlTests {
       ])
   }
 
+  @Test("answers a question and a dialog with what the sheet made")
+  func answers() {
+    var sync = syncedCore()
+    let reply = QuestionReply.answers(.init(answers: [QuestionAnswer(selected: [1], other: nil)]))
+    #expect(
+      sync.perform(.answerQuestion("qq", reply), in: "s1") == [
+        .send(
+          .answerQuestion(
+            AnswerQuestionCommand(
+              requestId: "r4", traceparent: traceparent, sessionId: "s1", questionId: "qq", answer: reply)),
+          generation: 1)
+      ])
+    #expect(
+      sync.perform(.answerInteraction("i1", .cancelled), in: "s1") == [
+        .send(
+          .answerInteraction(
+            AnswerInteractionCommand(
+              requestId: "r5", traceparent: traceparent, sessionId: "s1", interactionId: "i1", answer: .cancelled)),
+          generation: 1)
+      ])
+  }
+
   @Test("does nothing before the connection is synced or for a session not open")
   func noAction() {
     var sync = core()

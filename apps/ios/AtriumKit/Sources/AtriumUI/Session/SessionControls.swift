@@ -102,6 +102,8 @@ struct SessionControls: Equatable {
       case .updateQueued: "保存"
       case .retryRun: "重试"
       case .resumeDeliveries: "继续"
+      case .answerQuestion: "回答"
+      case .answerInteraction: "回答"
       }
     return "\(action)没成功（\(problem.code.rawValue)）"
   }

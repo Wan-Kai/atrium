@@ -171,6 +171,19 @@ public struct HomeList: Sendable, Equatable {
     return "\(project?.name ?? "") · \(name(of: workspace))"
   }
 
+  /// A session's child conversations, the latest updated first.
+  ///
+  /// - Remark: SPEC-0005 "MP5 定的细节 · MP5c": the sessions whose `parent` is it, archived ones left
+  ///   out, for the "子对话" pill and sheet.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - sessionId: The parent.
+  ///   - index: The list.
+  /// - Returns: The children.
+  public static func children(of sessionId: SessionId, in index: IndexState) -> [SessionSummary] {
+    newestFirst(index.sessions.filter { $0.parent?.sessionId == sessionId && !$0.archived })
+  }
+
   /// A project's workspaces in the sidebar's order.
   ///
   /// - Remark: As the desktop's `sortWorkspaces`: the local one first, then worktrees newest first,

@@ -1,5 +1,7 @@
 import AtriumProtocol
 import AtriumSync
+import ImageIO
+import PhotosUI
 import SwiftUI
 
 /// Everything at the bottom of a session page: the banner, the pills, and the input.
@@ -163,6 +165,10 @@ struct Composer: View {
   let toast: (String) -> Void
   /// Whether the long-press menu is open.
   @State private var menu = false
+  /// The photos just picked, until they are shrunk into the input.
+  @State private var picked: [PhotosPickerItem] = []
+  /// The most images one message takes.
+  static let maxImages = 4
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
 
@@ -171,7 +177,10 @@ struct Composer: View {
     let palette = Palette(scheme: scheme)
     let text = Binding(
       get: { sync.core.drafts[sessionId] ?? "" }, set: { sync.setDraft($0, for: sessionId) })
-    let empty = text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let images = sync.core.draftImages[sessionId] ?? []
+    // The picker's label is built off the main actor; it takes the colour as a value.
+    let plusColor = palette.text2
+    let empty = text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && images.isEmpty
     let ready = sync.canSend(sessionId) && !empty
     VStack(alignment: .trailing, spacing: Metrics.xxs) {
       if let problem = sync.core.problems[sessionId] {
@@ -189,24 +198,50 @@ struct Composer: View {
         .transition(.scale(scale: 0.3, anchor: .bottomTrailing).combined(with: .opacity))
       }
       HStack(alignment: .bottom, spacing: Metrics.xs) {
-        HStack(alignment: .bottom, spacing: 2) {
-          TextField(controls.placeholder, text: text, axis: .vertical)
-            .lineLimit(1...5)
-            .font(Typography.reply)
-            .focused(typing)
-            .padding(.vertical, 9)
-            .padding(.leading, 12)
-            .accessibilityIdentifier("session.input")
-          SendKey(palette: palette, on: ready) {
-            send(steer: false)
-          } hold: {
-            if ready, controls.canSteer {
-              withAnimation(MotionToken.bouncy.resolved(reduceMotion: false).animation) { menu = true }
+        VStack(alignment: .leading, spacing: 0) {
+          if !images.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+              HStack(spacing: Metrics.xs) {
+                ForEach(Array(images.enumerated()), id: \.offset) { place, image in
+                  Thumbnail(image: image, palette: palette) {
+                    var rest = images
+                    rest.remove(at: place)
+                    sync.setDraftImages(rest, for: sessionId)
+                  }
+                }
+              }
+              .padding([.horizontal, .top], Metrics.sm)
+            }
+            .transition(.scale(scale: 0.9).combined(with: .opacity))
+          }
+          HStack(alignment: .bottom, spacing: 2) {
+            PhotosPicker(
+              selection: $picked, maxSelectionCount: max(1, Self.maxImages - images.count), matching: .images
+            ) {
+              Image(systemName: "plus").font(.system(size: 20)).foregroundStyle(plusColor)
+                .frame(width: 40, height: 40).contentShape(Circle())
+            }
+            .disabled(images.count >= Self.maxImages)
+            .accessibilityLabel("添加图片")
+            .accessibilityIdentifier("session.addImage")
+            TextField(controls.placeholder, text: text, axis: .vertical)
+              .lineLimit(1...5)
+              .font(Typography.reply)
+              .focused(typing)
+              .padding(.vertical, 9)
+              .padding(.leading, 4)
+              .accessibilityIdentifier("session.input")
+            SendKey(palette: palette, on: ready) {
+              send(steer: false)
+            } hold: {
+              if ready, controls.canSteer {
+                withAnimation(MotionToken.bouncy.resolved(reduceMotion: false).animation) { menu = true }
+              }
             }
           }
+          .padding(6)
+          .frame(minHeight: 52)
         }
-        .padding(6)
-        .frame(minHeight: 52)
         .atriumGlass(in: RoundedRectangle(cornerRadius: 26))
         if controls.showsStop {
           StopKey(palette: palette, stopping: controls.stopping) {
@@ -217,6 +252,32 @@ struct Composer: View {
       }
     }
     .onChange(of: controls.canSteer) { if !controls.canSteer { menu = false } }
+    .task(id: picked) { await take(picked) }
+  }
+
+  /// Shrinks the photos just picked and adds them to the input.
+  ///
+  /// - Remark: SPEC-0005 "MP5 定的细节 · MP5c": one that cannot be made small enough is left out,
+  ///   saying "图片太大".
+  /// - SideEffects: Loads the photos; changes the input's images; may show a toast.
+  /// - Parameter items: The photos.
+  private func take(_ items: [PhotosPickerItem]) async {
+    guard !items.isEmpty else { return }
+    var added: [OutgoingImage] = []
+    var tooLarge = false
+    for item in items {
+      guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+      if let jpeg = ImageShrinker.jpeg(from: data) {
+        added.append(OutgoingImage(mimeType: .imageJpeg, data: jpeg.base64EncodedString()))
+      } else {
+        tooLarge = true
+      }
+    }
+    guard !Task.isCancelled else { return }
+    picked = []
+    let images = sync.core.draftImages[sessionId] ?? []
+    sync.setDraftImages(Array((images + added).prefix(Self.maxImages)), for: sessionId)
+    if tooLarge { toast("图片太大") }
   }
 
   /// Sends the input, saying so when it went into the queue.
@@ -363,5 +424,56 @@ private struct SteerMenu: View {
     }
     .buttonStyle(PressStyle())
     .accessibilityIdentifier(steer ? "session.steer" : "session.enqueue")
+  }
+}
+
+/// An image waiting in the input, with a key to take it out.
+///
+/// - Remark: The prototype's 56pt thumbnail, radius 12, with a small ink "×".
+private struct Thumbnail: View {
+  /// The image.
+  let image: OutgoingImage
+  /// The colours.
+  let palette: Palette
+  /// Takes it out.
+  let remove: () -> Void
+
+  /// The thumbnail.
+  var body: some View {
+    ZStack(alignment: .topTrailing) {
+      Group {
+        if let picture = Self.picture(image) {
+          Image(decorative: picture, scale: 1).resizable().scaledToFill()
+        } else {
+          palette.fill
+        }
+      }
+      .frame(width: 56, height: 56)
+      .clipShape(RoundedRectangle(cornerRadius: 12))
+      Button(action: remove) {
+        Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(palette.onInk)
+          .frame(width: 22, height: 22).background(palette.ink, in: Circle())
+      }
+      .buttonStyle(PressStyle())
+      .offset(x: 6, y: -6)
+      .accessibilityLabel("移除图片")
+    }
+    .padding(.top, 6)
+    .padding(.trailing, 6)
+  }
+
+  /// The image to draw, from its base64.
+  ///
+  /// - Remark: A small thumbnail, decoded by ImageIO.
+  /// - SideEffects: none
+  /// - Parameter image: The image.
+  /// - Returns: The picture, or `nil` if it does not decode.
+  private static func picture(_ image: OutgoingImage) -> CGImage? {
+    guard let data = Data(base64Encoded: image.data), let source = CGImageSourceCreateWithData(data as CFData, nil)
+    else { return nil }
+    let options: [CFString: Any] = [
+      kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 168,
+    ]
+    return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
   }
 }

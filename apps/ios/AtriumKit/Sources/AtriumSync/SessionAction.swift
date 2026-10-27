@@ -22,6 +22,10 @@ public enum SessionAction: Sendable, Equatable {
   case retryRun
   /// `resume_deliveries` of this session only: "继续".
   case resumeDeliveries
+  /// `answer_question`: the question sheet's answers, or skipping them.
+  case answerQuestion(String, QuestionReply)
+  /// `answer_interaction`: a dialog's answer.
+  case answerInteraction(String, InteractionAnswer)
 }
 
 /// Why the last action on a session failed.

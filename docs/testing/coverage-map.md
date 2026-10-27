@@ -1920,3 +1920,16 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 
 - 破坏检查：`apps/ios/Testing/mp5b-breaks.json`，全部抓到。
 - 未覆盖：排队 sheet、长按菜单、横幅、toast 的界面只在模拟器上编译通过，没有截图或 UI 测试（要真实数据），交给用户验收时逐项看。
+
+## MP5c 提问、对话框、子对话、图片（SPEC-0005"MP5 定的细节"，2026-10-28，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 提问的选择：单选替换并跳下一题、多选切换、"其他"有字才算答、全部答完才有回答、选项按序、其他去掉首尾空白 | `QuestionDraftTests` |
+| 回答提问和对话框发对应命令；子对话按父会话列出、最近更新在前、不含归档；对话框倒计时；子对话角色名和状态；等待回答的 id（提问在前） | `SyncControlTests/answers`、`HomeChildrenTests`、`SessionSheetsTests` |
+| 图片：逐张上传、全部拿到 id 再带 `attachmentIds` 发；只有图片也能发；上传被拒退回文字和图片；重连后重传再发、同一 `requestId` | `SyncImagesTests` |
+| 图片缩到长边 2048、JPEG 不超过 750,000 字节（base64 不超过 1,000,000 字符）、小图保持原尺寸、不是图片的放弃 | `ImageShrinkerTests` |
+| Swift 契约：对话框 Mac 先答，手机上随之消失；手机答的宿主接受；带一张图的消息经真实宿主上传后发出 | `run.mjs --sync-contract` |
+
+- 破坏检查：`apps/ios/Testing/mp5c-breaks.json`，全部抓到。
+- 未覆盖：提问 sheet、对话框 sheet、子对话 sheet、提问卡片、照片选择器只在 iOS 模拟器编译通过，没有截图或 UI 测试；ask_user 的"两端同时回答"在契约里用扩展对话框验证（同一机制：宿主先到先得、`control` 里那一项消失），ask_user 本身只有单元测试；契约的 pi 不回显图片，轮次里的图片数没有验证（宿主若不认附件 id 会拒绝，契约检查了没有拒绝）。
