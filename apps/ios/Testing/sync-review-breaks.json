@@ -62,5 +62,21 @@
     "name": "run end cancels save",
     "runner": "swift",
     "filter": "SyncModelTests/cache"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCache.swift",
+    "from": "    try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: sessionURL(sessionId).path)\n",
+    "to": "",
+    "name": "opening counts as use",
+    "runner": "swift",
+    "filter": "SyncCacheTests/pruneByOpening"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "        if let sent = timing[message.id], now() - sent.sentAt < Self.retryWindow { continue }\n",
+    "to": "",
+    "name": "accepted kept",
+    "runner": "swift",
+    "filter": "SyncOutboxTests/letGo"
   }
 ]

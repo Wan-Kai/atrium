@@ -61,5 +61,12 @@
     "to": ".catch(() => undefined);",
     "test": "packages/host/src/remote/receipts.test.ts",
     "name": "warns when it cannot write down"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "          if (!kept.success) throw new CommandError(\"outcome_unknown\");",
+    "to": "          if (!kept.success) throw new Error(\"bad\");",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "kept answer no longer reads"
   }
 ]

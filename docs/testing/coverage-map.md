@@ -1897,3 +1897,4 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 
 - 破坏检查：TS `packages/host/src/sync/mp4-review-break-check.json`、Swift `apps/ios/Testing/sync-review-breaks.json`，全部抓到。
 - 记为已知、未改：pi 崩溃重启时宿主重发了原消息、而旧 pi 的应答随后以 `pi_rejected` 失败，手机会把文字退回输入框（桌面同样的语义；转录里出现该 `clientMessageId` 后仍记为送到）。下行丢应答的契约里，重连后的快照 / 续传已包含这条轮次，手机按"已送到"收掉，不会走到同 id 重试；同 id 重试由回执应答的路径由宿主 e2e `phone-sync.host.test.ts` 覆盖。
+- 第三方（grok）审查后再补：打开会话算"用过"，淘汰按最久没打开（`SyncCacheTests/pruneByOpening`）；已接受但快照里还没有轮次的消息在 10 分钟内保留（`SyncOutboxTests/letGo`）；回执里读不出的成功应答回 `outcome_unknown`（`receipts.test.ts`）。grok 另报"取消 `.task` 时 `for await` 等 `AsyncStream` 会卡住、旧连接停不下来"，经实测 `AsyncStream` 在消费任务被取消时立即结束，`SyncModelTests/cache` 也覆盖取消后 `run()` 返回，判为不成立、未改。

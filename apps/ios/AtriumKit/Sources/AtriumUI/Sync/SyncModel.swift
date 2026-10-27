@@ -118,6 +118,7 @@ public final class SyncModel {
   /// - SideEffects: Queues commands.
   /// - Parameter sessionId: The session.
   public func open(_ sessionId: SessionId) {
+    writable?.markOpened(sessionId)
     enqueue(core.open(sessionId, cached: cache?.session(sessionId)))
   }
 

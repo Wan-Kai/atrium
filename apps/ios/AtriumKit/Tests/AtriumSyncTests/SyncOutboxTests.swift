@@ -224,14 +224,20 @@ struct SyncOutboxTests {
     #expect(sync.outbox.map(\.state) == [.uncertain])
   }
 
-  @Test("lets go of accepted messages at the next sync")
+  @Test("keeps an accepted message whose turn is not in the next snapshot yet, and lets it go after the retry window")
   func letGo() {
-    var sync = syncedCore()
+    let time = TestTime()
+    var sync = syncedCore { time.now }
     sync.setDraft("one", for: "s1")
     _ = sync.send("s1")
     _ = receive(&sync, generation: 1, promptOK("r4"))
     _ = sync.connected(generation: 2)
     _ = receive(&sync, generation: 2, ok("r5"), indexSnapshotJSON(), ok("r6"), ok("r7"), snapshotJSON("s1"))
+    #expect(sync.outbox.map(\.state) == [.accepted])
+
+    time.now = SyncCore.retryWindow
+    _ = sync.connected(generation: 3)
+    _ = receive(&sync, generation: 3, ok("r8"), indexSnapshotJSON(), ok("r9"), ok("r10"), snapshotJSON("s1"))
     #expect(sync.outbox.isEmpty)
   }
 }
