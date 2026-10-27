@@ -122,6 +122,14 @@
 
 下一步只针对children测试判据做红绿修正：精确任务报告及正确source/agent-step归属各一次，保留角色/worktree与真实导航；不是放宽locator或改产品，目前尚未实施。ask-user不因本次绿关闭。appearance四格停在下述依赖准备，未实际执行；Git仍待受控验证。
 
+### Children判据的单次红证据（ded285e，未修正交付）
+
+在独立设置页worktree准备3份测试/助手候选，原`children.spec.ts`与四旧诊断草稿不变；产品未改。先冻结源、runner、环境及原1121项构建，desktop typecheck exit0、精确列例exit0/恰一例，随后C1单次exit1（8.6秒），唯一失败在候选`children-delivery.spec.ts:225`的原audit来源行断言：Expected1 / Received0，仍为5秒断言、60秒用例预算。没有附带启动、夹具、日志门禁或清理错误，没有build/install/C2/全套/重试。
+
+父只读核20工件hash、8源码、1121产物及真实runner/命令/退出。冻结源码的顺序和唯一失败表明，之前的任务done/replyEntry、两报告落盘/投影各一次、四gate释放、两个父run completed及角色/worktree断言已通过；**完成凭据用了body-only附件，未生成独立JSON，父未独立读取具体session/task/turn值**，不把这一缺口写成已核。trace/截图/error-context仅作不透明工件保留并核hash，不提取正文。足以作为已证过强判据的目标红证据，不是原67/68历史时序或根因复现；新的合法DOM判据、双路导航和原旅程修正尚未交付。
+
+作者采样的35个本次进程身份（含App PID26984）与5个测试目录均消失，外层HOME已删；父按PID+启动时间及目录复核，不声称全系统/未采样进程/全部资源无泄漏。采样见git下的xcodebuild，未采argv，不能推断具体用途或称做过Xcode验证。原目录`/tmp/atrium-children-c1-red.ZoIOmx/`保持；23份文件（20工件、原hash清单、父核验脚本及日志）按字节归档到私有忽略目录`reports/mobile-children-c1-red-ded285e/`，父没有重跑。后续绿色验证将凭据直接写独立白名单JSON，不为补附件重跑本次红。
+
 ### Appearance四格准备阻断（16dfcbf）
 
 基线`ace843a`与当前`c710d51`计划各做原关闭/被动等待既有查询完成两格，同环境、真实pi、原录制及60秒预算；未新增查询或生产探针。基线独立worktree `appearance-baseline-ace843a` / 分支`agent/appearance-baseline-ace843a`已创建并保留。
