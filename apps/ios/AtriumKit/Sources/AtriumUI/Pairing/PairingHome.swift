@@ -19,6 +19,8 @@ public struct PairingHome<Content: View>: View {
   @State private var model: PairingModel?
   @State private var connection: RemoteConnection?
   @State private var sync: SyncModel?
+  /// The Mac the current connection is to, for forgetting it.
+  @State private var connectedHost: String?
   @State private var target: (host: HostRecord, handover: SecureChannel?, ownership: HostStore.Claim?)?
   @State private var revision = 0
   @State private var connectionRevision = 0
@@ -44,6 +46,7 @@ public struct PairingHome<Content: View>: View {
   public var body: some View {
     content
       .environment(sync)
+      .environment(\.forgetMac, forgetAction)
       .safeAreaInset(edge: .bottom) {
         VStack(alignment: .leading, spacing: 8) {
           HStack {
@@ -97,6 +100,7 @@ public struct PairingHome<Content: View>: View {
           cache: Self.cache(for: target.host.hostId), clock: environment.stopwatch.clock)
         self.connection = connection
         self.sync = sync
+        connectedHost = target.host.hostId
         storageRetryRequested = false
         connectionRevision += 1
         let syncing = Task { await sync.run() }
@@ -255,6 +259,34 @@ public struct PairingHome<Content: View>: View {
       return
     }
     connect(host, handover: outcome.channel, ownership: outcome.ownership)
+  }
+
+  /// What forgets the Mac, while there is a connection to one.
+  ///
+  /// - Remark: Handed to the drawer through the environment.
+  private var forgetAction: (@MainActor () -> Void)? {
+    guard sync != nil else { return nil }
+    return { forget() }
+  }
+
+  /// Forgets the Mac connected now: its keys, its cache and its drafts.
+  ///
+  /// - Remark: The drawer's "忘掉这台 Mac" (SPEC-0005 "MP6 定的细节 · MP6b"), the same clean-up as a
+  ///   revocation: the connection's task is cancelled (which stops it), and the host's keychain
+  ///   records and cached copy are deleted.
+  /// - SideEffects: Cancels the connection's tasks; deletes keychain items and files.
+  private func forget() {
+    let hostId = connectedHost
+    connection = nil
+    sync = nil
+    connectedHost = nil
+    target = nil
+    revision += 1
+    connectionRevision += 1
+    connectionText = "还没配对 Mac"
+    guard let hostId else { return }
+    try? store.removeHost(hostId)
+    try? Self.cache(for: hostId)?.removeAll()
   }
 
   /// Creates the connection observed by view tasks.

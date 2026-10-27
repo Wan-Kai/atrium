@@ -1,0 +1,50 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "      case .error?: 1\n",
+    "to": "      case .error?: 3\n",
+    "name": "errors before running",
+    "runner": "swift",
+    "filter": "HomeLayoutTests/three"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "          merged: workspace.merge?.verdict == .merged)",
+    "to": "          merged: false)",
+    "name": "merged",
+    "runner": "swift",
+    "filter": "HomeLayoutTests/merged"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "    index.sessions.filter { !$0.archived && $0.parent == nil }.max { $0.updatedAt < $1.updatedAt }?.containerId",
+    "to": "    index.sessions.first?.containerId",
+    "name": "recent container",
+    "runner": "swift",
+    "filter": "HomeLayoutTests/recent"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Home/HomeParts.swift",
+    "from": "    if merged { return \"已合并\" }\n",
+    "to": "",
+    "name": "merged tag",
+    "runner": "swift",
+    "filter": "WorkspaceTagTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Components/Signing.swift",
+    "from": "    return seconds < 0 ? -1 : Int(seconds / 86_400)",
+    "to": "    return Int(seconds / 86_400)",
+    "name": "expired",
+    "runner": "swift",
+    "filter": "SigningTests/words"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Components/Signing.swift",
+    "from": "    daysLeft(expiry: expiry, now: now) <= 1",
+    "to": "    daysLeft(expiry: expiry, now: now) < 1",
+    "name": "soon",
+    "runner": "swift",
+    "filter": "SigningTests/words"
+  }
+]

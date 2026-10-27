@@ -15,3 +15,18 @@ extension EnvironmentValues {
     set { self[ViewClockKey.self] = newValue }
   }
 }
+
+/// Forgets the Mac connected now, when there is one.
+///
+/// - Remark: Set by `PairingHome`, which owns the host store; the drawer's "忘掉这台 Mac" calls it.
+nonisolated private struct ForgetMacKey: EnvironmentKey {
+  static let defaultValue: (@MainActor () -> Void)? = nil
+}
+
+extension EnvironmentValues {
+  /// Forgets the Mac connected now; `nil` without a connection.
+  var forgetMac: (@MainActor () -> Void)? {
+    get { self[ForgetMacKey.self] }
+    set { self[ForgetMacKey.self] = newValue }
+  }
+}

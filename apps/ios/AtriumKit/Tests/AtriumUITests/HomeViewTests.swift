@@ -65,3 +65,33 @@ struct ComposerTests {
     #expect(Composer.problemLine(.refused(.sessionBusy)) == "没发出去（session_busy）")
   }
 }
+
+@Suite("Home: workspace tags")
+struct WorkspaceTagTests {
+  @Test("says uncommitted and how far ahead, merged over everything, and nothing for a clean branch")
+  func tags() {
+    #expect(WorkspaceHeader.tag(dirty: true, ahead: 3, merged: false) == "未提交 · ↑3")
+    #expect(WorkspaceHeader.tag(dirty: false, ahead: 1, merged: false) == "↑1")
+    #expect(WorkspaceHeader.tag(dirty: true, ahead: 0, merged: false) == "未提交")
+    #expect(WorkspaceHeader.tag(dirty: false, ahead: 0, merged: false) == nil)
+    #expect(WorkspaceHeader.tag(dirty: true, ahead: 2, merged: true) == "已合并")
+  }
+}
+
+@Suite("Home: drawer")
+struct DrawerTests {
+  @Test("follows the appearance chosen, or the system")
+  func appearance() {
+    #expect(HomeView.scheme("light") == .light)
+    #expect(HomeView.scheme("dark") == .dark)
+    #expect(HomeView.scheme("system") == nil)
+  }
+
+  @Test("words the host's status as the drawer does")
+  func status() {
+    #expect(Drawer.statusText(.connected) == "已连接")
+    #expect(Drawer.statusText(.syncing) == "正在同步…")
+    #expect(Drawer.statusText(.hostOffline(lastSeen: nil)) == "离线")
+    #expect(Drawer.statusText(.relayUnreachable) == "连不上 relay")
+  }
+}
