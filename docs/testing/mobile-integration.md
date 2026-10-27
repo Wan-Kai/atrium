@@ -132,6 +132,18 @@
 
 作者采样的35个本次进程身份（含App PID26984）与5个测试目录均消失，外层HOME已删；父按PID+启动时间及目录复核，不声称全系统/未采样进程/全部资源无泄漏。采样见git下的xcodebuild，未采argv，不能推断具体用途或称做过Xcode验证。原目录`/tmp/atrium-children-c1-red.ZoIOmx/`保持；23份文件（20工件、原hash清单、父核验脚本及日志）按字节归档到私有忽略目录`reports/mobile-children-c1-red-ded285e/`，父没有重跑。后续绿色验证将凭据直接写独立白名单JSON，不为补附件重跑本次红。
 
+### Children绿色候选首轮（三例通过，尚未交付）
+
+更早的实现中恢复快照`/tmp/atrium-children-green-interrupted-dwjitxv_/`写于2026-10-27 09:40（UTC+8），不是测试输入冻结。之后10:22的实际执行封存在`/tmp/atrium-children-green.jB5rvC/`；不能由代理任务的中断/恢复状态推断测试次数。该目录记录一次desktop typecheck exit0、一次精确列例（3例/2文件）exit0、一次worker1/retries0/max-failures1的三例首轮：**C1 7.0s、C2 5.5s、原旅程4.4s，3/3，17.4s**。本次恢复核终态及父核验均未重跑；没有新的build/install/负控/全套/`pnpm check`或正式门禁。
+
+五份测试/助手源码（含原旅程修正）尚未提交或合入整合分支，执行HEAD为`ded285e`；四份旧诊断草稿不变。原旅程保留spawn、角色/worktree/分支、任务与子回复显示，三段spawn后faux回复改为相同中性句，仅作显示断言，不再当送达屏障。默认采集/60秒、原隔离env及1121项旧构建保持；既有源快照与runner按执行前hash冻结，文档事后补报告另列addendum，不覆盖执行版。
+
+六份独立完成/导航JSON与六个路径附件副本均保存。父脚本`/tmp/atrium-parent-children-green-verify.py`逐项核41工件、9源码、1121产物、3阶段命令及退出，独立重算：C1 audit为初始turn的agent步骤、tests为新turn source，两持久record/两completed；C2一个record的两delivery/events、一个新turn的两source、stopped→completed；原旅程本次为分两次送达、两source轮/三completed，不能把它称作同批路径复验。六次导航的目标订阅、task快照、选中/返回标签及对应报告位置与各自真实child身份一致；完成与导航后身份不变。父未读对话正文；任务/回复文本的显示验证由冻结断言和通过日志支持。回执用fixture唯一名字与event桥接delivery，未独立重建未导出的早期queued记录或run_started历史，不把它们说成已逐条复核。
+
+112个采样PID/start与12个观测目录均已消失，外层HOME删除；不外推未知进程/每个资源。44份文件（41工件、原清单、父核验脚本及日志）按字节归档到私有忽略目录`reports/mobile-children-green-ded285e/`，没有提取trace/截图/原帧。旧红的body-only附件及同次DOM正向观察缺口仍保留。
+
+单路只读审查及补核（`t-2e229ac5-e601-4eb9-bd43-cab4750bea3a`、`t-6625cf54-26ab-4510-965f-d2002b95e250`）认可三过的窄结论，但定稿前还需补：①同一目标容器已查`count=1`，**跨容器/跨轮次多画一份仍漏查**；②新helper漏了原“完成”可见文案检查，source分支也尚未查DOM `data-event`，协议正确不能代替显示正确。两项均为静态审查发现的覆盖缺口，不是已复现的产品bug。正准备实际DOM违规负控及最小补强，未执行。另有5秒冷启动等待的潜在不稳：spawn返回只到task waiting，pi异步启动；旧90秒回复等待本来也受60秒用例上限约束。没有负载超时实测，不用总4.4秒推剩余裕量，不自行扩大预算/重试。展开helper的正常点击为清除linger并固定展开，未记录初始状态，不能称本次必然两次点击或删展开必红。当前不关闭历史67/68、ask-user或appearance问题，也不借用此前三方审查给新候选背书。
+
 ### Appearance四格准备阻断（16dfcbf）
 
 基线`ace843a`与当前`c710d51`计划各做原关闭/被动等待既有查询完成两格，同环境、真实pi、原录制及60秒预算；未新增查询或生产探针。基线独立worktree `appearance-baseline-ace843a` / 分支`agent/appearance-baseline-ace843a`已创建并保留。
