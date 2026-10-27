@@ -1,7 +1,9 @@
 import type { Plans, SessionMetrics, StatusBarChoices } from "@atrium/protocol";
 import { Coins, Database, Gauge, GearSix } from "../design/icons";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
+import { useFloatingLayer } from "../design/floating-layer";
 import { PlanSections } from "./plan-sections";
+import { useHoverPresence } from "./use-hover-presence";
 import {
   STATUS_GROUPS,
   cacheHit,
@@ -573,7 +575,7 @@ const DRAWINGS: Readonly<Record<string, GroupDrawing>> = {
  * The 8px between the group and the card belong to the card, so the pointer can cross to it and
  * use what is in it (SPEC-0001, "状态栏").
  *
- * @sideEffects none
+ * @sideEffects Follows the top-layer card as its anchor and viewport change.
  * @param props - The group's drawing, the figures and what its card can do.
  * @returns The group.
  */
@@ -587,24 +589,30 @@ function Group({
   readonly actions: CardActions;
 }) {
   const cardId = useId();
+  const trigger = useRef<HTMLButtonElement>(null);
+  const card = useRef<HTMLDivElement>(null);
+  const { present, ...hover } = useHoverPresence(250);
+  useFloatingLayer(trigger, card, { enabled: present, align: "center", gap: 0, maxHeight: "calc(100vh - 132px)" });
   // A warning colour stays on hover; only the plain grey brightens.
   const tone = drawing.tone?.(figures) || "text-[var(--text-muted)] group-hover/item:text-[var(--text-2)]";
   return (
-    <div className="group/item relative">
+    <div {...hover} className="group/item relative">
       <button
         type="button"
+        ref={trigger}
         aria-describedby={cardId}
         className={`inline-flex h-[26px] items-center gap-1.5 rounded-[var(--r-pill)] px-2.5 whitespace-nowrap group-has-[:focus-visible]/item:bg-[var(--hover)] group-hover/item:bg-[var(--hover)] ${tone}`}
       >
         {drawing.summary(figures)}
       </button>
       <div
+        ref={card}
         role="tooltip"
         id={cardId}
-        className={`invisible absolute bottom-full left-1/2 z-30 -translate-x-1/2 pb-2 opacity-0 transition-[opacity,visibility] delay-100 duration-150 group-has-[:focus-visible]/item:visible group-has-[:focus-visible]/item:opacity-100 group-hover/item:visible group-hover/item:opacity-100 group-hover/item:delay-[120ms] ${drawing.wide === true ? "w-[340px]" : "w-[300px]"}`}
+        className={`invisible absolute bottom-full left-1/2 z-30 flex -translate-x-1/2 flex-col pb-2 opacity-0 transition-[opacity,visibility] delay-100 duration-150 group-has-[:focus-visible]/item:visible group-has-[:focus-visible]/item:opacity-100 group-hover/item:visible group-hover/item:opacity-100 group-hover/item:delay-[120ms] ${drawing.wide === true ? "w-[340px]" : "w-[300px]"}`}
       >
         {/* Never past the window: a long list opened in it scrolls (design-language, "状态栏"). */}
-        <div className="max-h-[calc(100vh-140px)] overflow-y-auto rounded-[14px] bg-[var(--surface-1)] px-4 pt-3.5 pb-3 text-[length:var(--fs-meta)] text-[var(--text-muted)] shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]">
+        <div className="min-h-0 overflow-y-auto rounded-[14px] bg-[var(--surface-1)] px-4 pt-3.5 pb-3 text-[length:var(--fs-meta)] text-[var(--text-muted)] shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]">
           {drawing.card(figures, actions)}
         </div>
       </div>
@@ -619,25 +627,30 @@ function Group({
  * Each row is the group's name and what it shows, how it looks now, faded while off, and a switch;
  * "恢复默认" goes back to the defaults. The choice is global (SPEC-0001, "状态栏").
  *
- * @sideEffects none
+ * @sideEffects Follows the top-layer panel within the viewport.
  * @param props - The figures, the choices and where a change goes.
  * @returns The panel.
  */
 function Customizer({
+  anchor,
   figures,
   choices,
   onChoose,
 }: {
+  readonly anchor: RefObject<HTMLButtonElement | null>;
   readonly figures: StatusFigures;
   readonly choices: StatusBarChoices;
   readonly onChoose: (choices: StatusBarChoices) => void;
 }) {
   const shown = shownGroups(choices);
+  const panel = useRef<HTMLDivElement>(null);
+  useFloatingLayer(anchor, panel, { align: "end" });
   return (
     <div
+      ref={panel}
       role="dialog"
       aria-label="状态栏"
-      className="absolute right-0 bottom-full z-30 mb-2 w-[380px] rounded-[var(--r-card)] bg-[var(--surface-1)] p-2 text-[var(--text-2)] shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]"
+      className="absolute right-0 bottom-full z-30 mb-2 w-[380px] overflow-auto rounded-[var(--r-card)] bg-[var(--surface-1)] p-2 text-[var(--text-2)] shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]"
     >
       <div className="px-2 pt-1.5 pb-2.5">
         <b className="block text-[length:var(--fs-meta)] font-semibold text-[var(--text)]">状态栏</b>
@@ -722,6 +735,7 @@ export function StatusBar({
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const customizer = useRef<HTMLButtonElement>(null);
   const figures: StatusFigures = { ...metrics, plans, provider };
   useEffect(() => {
     if (!open) return undefined;
@@ -735,7 +749,8 @@ export function StatusBar({
      * @param event - The pointer event.
      */
     const close = (event: Event): void => {
-      if (!(event.target instanceof Node && root.current?.contains(event.target) === true)) setOpen(false);
+      if (root.current?.querySelector('[role="dialog"]')?.matches(":popover-open") !== true) return;
+      if (!(event.target instanceof Node && root.current.contains(event.target))) setOpen(false);
     };
     /**
      * Closes the panel on Escape, and keeps the Escape from the input box, which would stop a run.
@@ -747,7 +762,8 @@ export function StatusBar({
      * @param event - The key event.
      */
     const escape = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || root.current?.querySelector('[role="dialog"]')?.matches(":popover-open") !== true)
+        return;
       event.preventDefault();
       event.stopPropagation();
       setOpen(false);
@@ -775,6 +791,7 @@ export function StatusBar({
       <div className="relative">
         <button
           type="button"
+          ref={customizer}
           aria-label="自定义状态栏"
           aria-expanded={open}
           onClick={() => setOpen(!open)}
@@ -782,7 +799,7 @@ export function StatusBar({
         >
           <GearSix size={14} />
         </button>
-        {open ? <Customizer figures={figures} choices={choices} onChoose={onChoose} /> : null}
+        {open ? <Customizer anchor={customizer} figures={figures} choices={choices} onChoose={onChoose} /> : null}
       </div>
     </div>
   );

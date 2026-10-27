@@ -145,7 +145,7 @@ function ChildForm({ client, request }: { readonly client: AtriumClient; readonl
         role="dialog"
         aria-modal
         aria-labelledby="new-child-title"
-        className="relative w-[380px] rounded-[var(--r-card)] bg-[var(--main)] p-5 shadow-[var(--card-shadow)]"
+        className="relative max-h-[calc(100dvh-24px)] w-[min(380px,calc(100vw-24px))] overflow-y-auto rounded-[var(--r-card)] bg-[var(--main)] p-5 shadow-[var(--card-shadow)] [overflow-wrap:anywhere]"
         onSubmit={(event) => {
           event.preventDefault();
           // Fire and forget: `submit` shows its own failure.

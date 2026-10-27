@@ -1,7 +1,7 @@
 import type { ModelListView } from "@atrium/client";
 import { CommandError, type CatalogModel, type ModelRef, type SetupLogin, type ThinkingLevel } from "@atrium/protocol";
-import { describe, expect, it } from "vitest";
-import { userEvent } from "vitest/browser";
+import { beforeEach, describe, expect, it } from "vitest";
+import { page as browserPage, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import catpawLogo from "../design/brand/catpaw.webp";
 import fridayLogo from "../design/brand/friday.png";
@@ -10,6 +10,8 @@ import deepseekLogo from "../design/brand/deepseek.svg";
 import "../styles.css";
 import type { ShownModel } from "./model-choice";
 import { ModelPicker, type PickerRequest } from "./model-picker";
+
+beforeEach(() => browserPage.viewport(1280, 820));
 
 /** A model as the catalog lists it. */
 function model(providerId: string, modelId: string, name: string, fields: Partial<CatalogModel> = {}): CatalogModel {
@@ -99,6 +101,35 @@ async function picker(
 }
 
 describe("ModelPicker's button", () => {
+  it("keeps the model panel inside a narrow window when its input anchor is raised", async () => {
+    await browserPage.viewport(360, 350);
+    const screen = await render(
+      <div style={{ position: "fixed", top: 180, right: 8 }}>
+        <ModelPicker
+          shown={shown(SOL, "medium")}
+          list={READY}
+          login={null}
+          disabled={false}
+          onOpen={() => undefined}
+          onRefresh={() => undefined}
+          onChooseModel={() => undefined}
+          onChooseLevel={() => undefined}
+        />
+      </div>,
+    );
+    await screen.getByRole("button", { name: /模型与推理强度/ }).click();
+    const panel = screen.getByRole("dialog", { name: "模型与推理强度" }).element();
+    await expect.poll(() => panel.getBoundingClientRect().top).toBeGreaterThanOrEqual(12);
+    expect(panel.getBoundingClientRect().left).toBeGreaterThanOrEqual(12);
+    expect(panel.getBoundingClientRect().right).toBeLessThanOrEqual(348);
+    expect(panel.getBoundingClientRect().bottom).toBeLessThanOrEqual(172);
+    expect(panel.scrollHeight).toBeGreaterThan(panel.clientHeight);
+    await screen.getByRole("tab", { name: "Anthropic", exact: true }).hover();
+    const tooltip = screen.getByRole("tooltip").element();
+    await expect.poll(() => tooltip.getBoundingClientRect().left).toBeGreaterThanOrEqual(12);
+    expect(tooltip.getBoundingClientRect().right).toBeLessThanOrEqual(348);
+    await browserPage.viewport(1280, 820);
+  });
   it("shows the model's provider icon, its name and the level", async () => {
     const { chip } = await picker(shown(SOL, "medium"));
 
@@ -325,6 +356,43 @@ describe("ModelPicker's panel", () => {
       dot.top - tab.getBoundingClientRect().top,
       tab.getBoundingClientRect().right - dot.right,
     ]).toStrictEqual([6, 6, 7]);
+  });
+
+  it("wraps a 256-character provider name within its narrow tooltip without overflowing text", async () => {
+    await browserPage.viewport(360, 500);
+    const providerId = "p".repeat(256);
+    const custom = model(providerId, "custom", "Custom model");
+    const screen = await render(
+      <div style={{ position: "fixed", top: 430, right: 8 }}>
+        <ModelPicker
+          shown={shown(custom, "medium")}
+          list={{ ...READY, models: [custom] }}
+          login={null}
+          disabled={false}
+          onOpen={() => undefined}
+          onRefresh={() => undefined}
+          onChooseModel={() => undefined}
+          onChooseLevel={() => undefined}
+        />
+      </div>,
+    );
+    await screen.getByRole("button", { name: /模型与推理强度/ }).click();
+    await screen.getByRole("tab", { name: providerId, exact: true }).hover();
+    const tooltip = screen.getByRole("tooltip");
+    await expect.element(tooltip).toHaveTextContent(providerId);
+    const element = tooltip.element();
+    await expect.poll(() => element.scrollWidth).toBeLessThanOrEqual(element.clientWidth);
+    const bounds = element.getBoundingClientRect();
+    const text = document.createRange();
+    text.selectNodeContents(element);
+    const fragments = [...text.getClientRects()];
+    expect(fragments.length).toBeGreaterThan(1);
+    expect(Math.min(...fragments.map((fragment) => fragment.left))).toBeGreaterThanOrEqual(bounds.left + 7);
+    expect(Math.max(...fragments.map((fragment) => fragment.right))).toBeLessThanOrEqual(bounds.right - 7);
+    expect(Math.min(...fragments.map((fragment) => fragment.top))).toBeGreaterThanOrEqual(bounds.top);
+    expect(Math.max(...fragments.map((fragment) => fragment.bottom))).toBeLessThanOrEqual(bounds.bottom);
+    expect(bounds.left).toBeGreaterThanOrEqual(12);
+    expect(bounds.right).toBeLessThanOrEqual(348);
   });
 
   it("says a provider's name to the left of its icon while hovered or focused", async () => {

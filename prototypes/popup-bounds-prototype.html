@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>弹窗边界 · 交互原型</title>
+    <!-- Throwaway prototype: compare keeping direction, flipping, and a centered dialog. No real data. -->
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #e8ecf2;
+        --main: #fff;
+        --surface: #f2f2f4;
+        --text: #1d1d1f;
+        --muted: #6e6e74;
+        --line: #0002;
+        --shadow: 0 0 0 0.5px #0002, 0 12px 32px #0002;
+        --scrim: #1e26384d;
+        --tint: #2f6fed;
+      }
+      :root.dark {
+        color-scheme: dark;
+        --bg: #0d1016;
+        --main: #151517;
+        --surface: #2c2c2e;
+        --text: #f9fafb;
+        --muted: #b1b1b8;
+        --line: #fff3;
+        --shadow: 0 0 0 0.5px #fff3, 0 12px 32px #0007;
+        --scrim: #0007;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px -apple-system,
+          BlinkMacSystemFont,
+          "PingFang SC",
+          sans-serif;
+      }
+      main {
+        max-width: 1140px;
+        margin: auto;
+        padding: 24px 28px 100px;
+      }
+      h1 {
+        font-size: 24px;
+        margin: 0 0 8px;
+        font-weight: 600;
+      }
+      p {
+        color: var(--muted);
+        line-height: 1.6;
+        margin: 0 0 14px;
+      }
+      button,
+      select {
+        font: inherit;
+        color: inherit;
+        background: var(--main);
+        border: 0;
+        border-radius: 8px;
+        padding: 7px 11px;
+        box-shadow: 0 0 0 0.5px var(--line);
+        cursor: pointer;
+      }
+      button:hover {
+        background: var(--surface);
+      }
+      button:focus-visible,
+      select:focus-visible {
+        outline: 2px solid var(--tint);
+        outline-offset: 3px;
+      }
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin: 20px 0 14px;
+      }
+      .controls label {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      #frame {
+        height: 510px;
+        position: relative;
+        overflow: hidden;
+        background: var(--main);
+        border-radius: 14px;
+        box-shadow: var(--shadow);
+        isolation: isolate;
+      }
+      .bar {
+        height: 44px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 16px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--line);
+      }
+      .sidebar {
+        position: absolute;
+        top: 44px;
+        bottom: 0;
+        width: 150px;
+        background: var(--surface);
+        padding: 20px 14px;
+        color: var(--muted);
+        line-height: 2.8;
+        font-size: 12px;
+      }
+      .conversation {
+        position: absolute;
+        left: 180px;
+        right: 30px;
+        top: 70px;
+        color: var(--muted);
+        line-height: 2;
+      }
+      .ghost {
+        height: 8px;
+        margin: 15px 0;
+        background: var(--surface);
+        border-radius: 5px;
+        width: 75%;
+      }
+      .ghost:nth-child(2) {
+        width: 50%;
+      }
+      .ghost:nth-child(3) {
+        width: 65%;
+      }
+      #dock {
+        position: absolute;
+        left: 180px;
+        right: 30px;
+        bottom: 36px;
+      }
+      .input {
+        padding: 16px;
+        background: var(--main);
+        box-shadow:
+          0 0 0 0.5px var(--line),
+          0 8px 24px #29467a12;
+        border-radius: 22px;
+        height: 88px;
+        color: var(--muted);
+      }
+      .input small {
+        display: block;
+        text-align: right;
+        margin-top: 14px;
+      }
+      .capsule {
+        position: absolute;
+        bottom: calc(100% + 8px);
+        left: 4px;
+        font-size: 12px;
+        border-radius: 99px;
+        height: 28px;
+        padding: 5px 11px;
+        background: var(--surface);
+      }
+      #layer {
+        position: absolute;
+        inset: 44px 0 0;
+        pointer-events: none;
+        z-index: 2;
+      }
+      #panel {
+        position: absolute;
+        width: 400px;
+        max-width: calc(100% - 24px);
+        border-radius: 16px;
+        background: var(--main);
+        box-shadow: var(--shadow);
+        padding: 6px;
+        pointer-events: auto;
+        overflow: auto;
+      }
+      .head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 11px;
+        color: var(--muted);
+        padding: 6px 9px 9px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 10px;
+        min-height: 42px;
+        border-radius: 10px;
+        margin-top: 2px;
+      }
+      .row:hover {
+        background: var(--surface);
+      }
+      .row .name {
+        flex: 1;
+        min-width: 0;
+        font-size: 13px;
+      }
+      .row small {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 3px;
+      }
+      .row .when {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .row .status {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--muted);
+        flex: none;
+      }
+      .row button {
+        box-shadow: none;
+        padding: 3px 6px;
+        background: transparent;
+      }
+      .scrim {
+        position: absolute;
+        inset: 0;
+        background: var(--scrim);
+        pointer-events: auto;
+      }
+      #menu {
+        position: absolute;
+        z-index: 5;
+        width: 150px;
+        background: var(--main);
+        box-shadow: var(--shadow);
+        padding: 4px;
+        border-radius: 12px;
+        pointer-events: auto;
+      }
+      #menu button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        box-shadow: none;
+      }
+      .danger {
+        color: #d5313b;
+      }
+      .switcher {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--text);
+        color: var(--main);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border-radius: 99px;
+        padding: 7px;
+        z-index: 10;
+        box-shadow: 0 8px 24px #0003;
+        white-space: nowrap;
+      }
+      .switcher button {
+        box-shadow: none;
+        border-radius: 99px;
+        background: transparent;
+        color: inherit;
+      }
+      .switcher button:hover {
+        background: #8884;
+      }
+      #verdict {
+        font-size: 12px;
+        margin-top: 12px;
+        color: var(--muted);
+      }
+      #explain {
+        min-height: 46px;
+        max-width: 850px;
+      }
+      svg {
+        width: 14px;
+        height: 14px;
+        vertical-align: middle;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.5;
+      }
+      .caption {
+        margin-left: auto;
+      }
+      @media (max-width: 640px) {
+        main {
+          padding: 16px 12px 110px;
+        }
+        .sidebar {
+          display: none;
+        }
+        .conversation {
+          left: 20px;
+        }
+        #dock {
+          left: 20px;
+          right: 20px;
+        }
+        .controls {
+          gap: 10px;
+        }
+        #frame {
+          height: 480px;
+        }
+        .switcher {
+          font-size: 12px;
+          gap: 4px;
+        }
+        .head {
+          gap: 5px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>空间不够时，弹窗怎么放？</h1>
+      <p>仅比较边界处理，沿用 Atrium 现有样式。全是演示数据；下方箭头切换 A / B / C。</p>
+      <div class="controls">
+        <label
+          >子对话
+          <select id="count">
+            <option value="3">3 条</option>
+            <option value="24" selected>24 条</option>
+            <option value="60">60 条</option>
+          </select></label
+        >
+        <label
+          >输入框
+          <select id="position">
+            <option value="bottom">正常位置</option>
+            <option value="high" selected>被长输入／提问顶高</option>
+          </select></label
+        >
+        <label
+          >窗口
+          <select id="size">
+            <option value="normal">正常高度</option>
+            <option value="short">较矮</option>
+          </select></label
+        >
+        <button id="theme" type="button">切换明暗</button>
+      </div>
+      <p id="explain"></p>
+      <div id="frame">
+        <div class="bar">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span
+          ><span class="caption">Atrium · 演示窗口</span>
+        </div>
+        <div class="sidebar">项目<br />演示工作区<br />主对话<br />其他对话</div>
+        <div class="conversation">
+          已开出几个子对话，继续查看结果。
+          <div class="ghost"></div>
+          <div class="ghost"></div>
+          <div class="ghost"></div>
+        </div>
+        <div id="dock">
+          <button id="capsule" class="capsule" type="button">子对话 24</button>
+          <div class="input">给 agent 发消息…<small>模型 · 高　发送</small></div>
+        </div>
+        <div id="layer"></div>
+      </div>
+      <div id="verdict" aria-live="polite"></div>
+    </main>
+    <div class="switcher">
+      <button type="button" id="prev" aria-label="上一个方案">
+        <svg viewBox="0 0 20 20"><path d="m12 4-6 6 6 6" /></svg></button
+      ><span id="variant"></span
+      ><button type="button" id="next" aria-label="下一个方案">
+        <svg viewBox="0 0 20 20"><path d="m8 4 6 6-6 6" /></svg>
+      </button>
+    </div>
+    <script>
+      const variants = ["A", "B", "C"];
+      let variant = new URLSearchParams(location.search).get("variant") || "A";
+      if (!variants.includes(variant)) variant = "A";
+      let opened = true;
+      const descriptions = {
+        A: [
+          "原位限高 · 推荐",
+          "子对话、排队、模型等面板保持原来的展开方向，空间不足就缩短并滚动。短菜单单独避让边缘；居中对话框限宽限高。",
+        ],
+        B: [
+          "面板自动换边",
+          "所有锚点面板都先找空间更大的一侧：上面不够就到下面。能多显示几行，但同一个面板的位置和展开方向会变化。",
+        ],
+        C: [
+          "长列表改为对话框",
+          "较长的子对话列表改为居中弹窗，占用更多空间；加遮罩、关闭按钮，查看时会中断输入框的操作。其他短浮层仍靠原入口。",
+        ],
+      };
+      const frame = document.querySelector("#frame"),
+        dock = document.querySelector("#dock"),
+        layer = document.querySelector("#layer");
+      function draw() {
+        const count = Number(document.querySelector("#count").value),
+          short = document.querySelector("#size").value === "short";
+        frame.style.height = (short ? 360 : 510) + "px";
+        dock.style.bottom = document.querySelector("#position").value === "high" ? (short ? 95 : 195) + "px" : "36px";
+        document.querySelector("#capsule").textContent = "子对话 " + count;
+        document.querySelector("#variant").textContent = variant + "　" + descriptions[variant][0];
+        document.querySelector("#explain").textContent = descriptions[variant][1];
+        layer.replaceChildren();
+        const url = new URL(location.href);
+        url.searchParams.set("variant", variant);
+        history.replaceState(null, "", url);
+        if (!opened) {
+          document.querySelector("#verdict").textContent = "面板已关闭，点“子对话”重新展开。";
+          return;
+        }
+        const centered = variant === "C" && count > 6;
+        if (centered) {
+          const scrim = document.createElement("div");
+          scrim.className = "scrim";
+          scrim.onclick = () => {
+            opened = false;
+            draw();
+          };
+          layer.append(scrim);
+        }
+        const panel = document.createElement("div");
+        panel.id = "panel";
+        panel.setAttribute("role", "dialog");
+        panel.setAttribute("aria-label", "子对话");
+        panel.innerHTML =
+          '<div class="head"><span>子对话</span><span>' +
+          (centered ? '<button id="close" type="button">关闭</button>' : "最近更新的在前") +
+          "</span></div>";
+        for (let i = 0; i < count; i++) {
+          const row = document.createElement("div");
+          row.className = "row";
+          row.innerHTML =
+            '<span class="status"></span><span class="name">演示子对话 ' +
+            (i + 1) +
+            (i % 3 === 0 ? "<small>已完成检查，等待主对话汇总</small>" : "") +
+            '</span><span class="when">1 分钟前</span><button type="button" aria-label="子对话 ' +
+            (i + 1) +
+            ' 的操作">···</button>';
+          row.querySelector("button").onclick = (e) => showMenu(e.currentTarget);
+          panel.append(row);
+        }
+        layer.append(panel);
+        panel.style.maxHeight = "none";
+        const cap = document.querySelector("#capsule").getBoundingClientRect(),
+          bounds = layer.getBoundingClientRect();
+        const above = cap.top - bounds.top - 20,
+          below = bounds.bottom - cap.bottom - 20;
+        const direction = variant === "B" && panel.scrollHeight > above && below > above ? "below" : "above";
+        if (centered) {
+          panel.style.maxHeight = bounds.height - 24 + "px";
+          panel.style.left = "50%";
+          panel.style.top = "50%";
+          panel.style.transform = "translate(-50%,-50%)";
+          document.querySelector("#close").onclick = () => {
+            opened = false;
+            draw();
+          };
+        } else {
+          panel.style.left =
+            Math.max(12, Math.min(cap.left - bounds.left, bounds.width - panel.offsetWidth - 12)) + "px";
+          panel.style.maxHeight = Math.max(0, direction === "above" ? above : below) + "px";
+          if (direction === "above") panel.style.bottom = bounds.bottom - cap.top + 8 + "px";
+          else panel.style.top = cap.bottom - bounds.top + 8 + "px";
+        }
+        document.querySelector("#verdict").textContent =
+          "当前：" +
+          (centered ? "居中对话框" : direction === "above" ? "原入口上方" : "改到入口下方") +
+          "；面板 " +
+          Math.round(panel.getBoundingClientRect().height) +
+          "px；" +
+          (panel.scrollHeight > panel.clientHeight ? "超出内容可滚动，试试最后一行的“···”。" : "内容全部可见。");
+      }
+      function showMenu(button) {
+        document.querySelector("#menu")?.remove();
+        const menu = document.createElement("div");
+        menu.id = "menu";
+        menu.setAttribute("role", "menu");
+        menu.innerHTML =
+          '<button type="button">打开</button><button type="button">脱离</button><button type="button" class="danger">归档</button>';
+        layer.append(menu);
+        const b = button.getBoundingClientRect(),
+          l = layer.getBoundingClientRect();
+        menu.style.left =
+          Math.max(12, Math.min(b.right - l.left - menu.offsetWidth, l.width - menu.offsetWidth - 12)) + "px";
+        menu.style.top = Math.max(12, Math.min(b.bottom - l.top + 4, l.height - menu.offsetHeight - 12)) + "px";
+        menu.onclick = () => menu.remove();
+      }
+      function cycle(delta) {
+        variant = variants[(variants.indexOf(variant) + delta + 3) % 3];
+        opened = true;
+        draw();
+      }
+      document.querySelector("#prev").onclick = () => cycle(-1);
+      document.querySelector("#next").onclick = () => cycle(1);
+      document.querySelector("#theme").onclick = () => document.documentElement.classList.toggle("dark");
+      document.querySelector("#capsule").onclick = () => {
+        opened = !opened;
+        draw();
+      };
+      document.querySelectorAll("select").forEach(
+        (select) =>
+          (select.onchange = () => {
+            opened = true;
+            draw();
+          }),
+      );
+      window.addEventListener("resize", draw);
+      window.addEventListener("keydown", (event) => {
+        if (event.target.matches("input,textarea,select,[contenteditable]")) return;
+        if (event.key === "ArrowLeft") cycle(-1);
+        if (event.key === "ArrowRight") cycle(1);
+        if (event.key === "Escape") {
+          opened = false;
+          draw();
+        }
+      });
+      draw();
+    </script>
+  </body>
+</html>

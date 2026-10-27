@@ -1,0 +1,58 @@
+[
+  {
+    "file": "packages/ui/src/design/floating-layer.ts",
+    "from": "const scroll = options.flip === true ? { top: layer.scrollTop, left: layer.scrollLeft } : null;",
+    "to": "const scroll = null;",
+    "test": "packages/ui/src/design/floating-layer.browser.test.tsx",
+    "name": "preserves a flipped surface's scroll position across native scrolling and outside remeasurement",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/design/floating-layer.ts",
+    "from": "observer.observe(ancestor);",
+    "to": "",
+    "test": "packages/ui/src/design/floating-layer.browser.test.tsx",
+    "name": "follows ancestor resizing, captured scrolling and content changes without a React update",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/design/floating-layer.ts",
+    "from": "const EDGE = 12;",
+    "to": "const EDGE = 0;",
+    "test": "packages/ui/src/design/floating-layer.browser.test.tsx",
+    "name": "keeps a long panel above its anchor, inside every edge, with its first and last rows reachable",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/design/floating-layer.ts",
+    "from": "const bounded = vertical ? frame.height : frame.width;",
+    "to": "const bounded = vertical ? layer.scrollHeight : layer.scrollWidth;",
+    "test": "packages/ui/src/design/floating-layer.browser.test.tsx",
+    "name": "keeps the preferred side when its bounded frame fits even though its scrolling content does not",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/design/floating-layer.ts",
+    "from": " -webkit-app-region: no-drag;",
+    "to": "",
+    "test": "packages/ui/src/design/floating-layer.browser.test.tsx",
+    "name": "keeps floating surfaces out of native window drag regions",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/design/floating-layer.ts",
+    "from": "modalObserver.disconnect();",
+    "to": "",
+    "test": "packages/ui/src/design/floating-layer.browser.test.tsx",
+    "name": "releases",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/design/floating-layer.ts",
+    "from": "if (blockedByModal(anchor)) {",
+    "to": "if (false) {",
+    "test": "packages/ui/src/test/popup-bounds.browser.test.tsx",
+    "name": "suspends an open child list under settings and new-child modals, restoring it after each closes",
+    "project": "ui"
+  }
+]

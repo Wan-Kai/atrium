@@ -184,13 +184,13 @@ export function SettingsPanel({
         aria-modal
         aria-label="设置"
         tabIndex={-1}
-        className="relative grid h-[min(640px,calc(100vh-72px))] w-[min(900px,calc(100vw-80px))] grid-cols-[212px_1fr] grid-rows-[minmax(0,1fr)] overflow-hidden rounded-[14px] bg-[var(--main)] shadow-[0_0_0_0.5px_var(--line-strong),0_30px_80px_-10px_rgba(0,0,0,0.45)] outline-none"
+        className="relative grid h-[min(640px,calc(100vh-72px))] w-[min(900px,calc(100vw-80px))] grid-cols-[min(212px,35%)_minmax(0,1fr)] grid-rows-[minmax(0,1fr)] overflow-hidden rounded-[14px] bg-[var(--main)] shadow-[0_0_0_0.5px_var(--line-strong),0_30px_80px_-10px_rgba(0,0,0,0.45)] outline-none"
       >
         <nav
           aria-label="设置分类"
-          className="flex flex-col bg-[var(--nav-bg)] px-2.5 pb-3 shadow-[inset_-0.5px_0_0_var(--line)]"
+          className="flex min-h-0 min-w-0 flex-col overflow-auto bg-[var(--nav-bg)] px-2.5 pb-3 shadow-[inset_-0.5px_0_0_var(--line)]"
         >
-          <div className="h-[50px]" />
+          <div className="h-[50px] shrink-0" />
           {SECTIONS.map((entry) => (
             <button
               key={entry.id}
@@ -200,7 +200,7 @@ export function SettingsPanel({
               onClick={() => {
                 if (entry.id !== section) navigate(() => onSection(entry.id));
               }}
-              className={`my-px flex h-8 w-full items-center gap-2.5 rounded-[var(--r)] px-2.5 text-left text-[length:var(--fs-meta)] ${
+              className={`my-px flex h-8 w-full shrink-0 items-center gap-2.5 rounded-[var(--r)] px-2.5 text-left text-[length:var(--fs-meta)] ${
                 entry.id === section
                   ? "bg-[var(--selected)] text-[var(--text)]"
                   : "text-[var(--text-2)] hover:bg-[var(--hover)]"
@@ -209,7 +209,7 @@ export function SettingsPanel({
               <span className={entry.id === section ? "text-[var(--text-2)]" : "text-[var(--text-muted)]"}>
                 {entry.icon}
               </span>
-              <span className="flex-1">{entry.name}</span>
+              <span className="min-w-0 flex-1 truncate">{entry.name}</span>
               {entry.id === "pi" && update ? <UpdateDot /> : null}
               {entry.id === "phone" && remote?.pairing?.state === "awaiting_confirmation" ? (
                 <span role="img" aria-label="等你确认配对" className="size-1.5 rounded-full bg-[var(--attn)]" />

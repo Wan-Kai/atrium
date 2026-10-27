@@ -1,5 +1,5 @@
 import { CommandError } from "@atrium/protocol";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
@@ -15,6 +15,9 @@ import { NewChildDialog } from "./new-child-dialog";
 const W = "wks_000000000000000a";
 const OTHER = "wks_000000000000000b";
 const CHAT = "cht_c";
+
+// The width-preservation cases use a 680px bar; edge cases have their own small-window suite.
+beforeEach(() => page.viewport(1280, 820));
 
 afterEach(() => {
   pageNewChild().setState(null, true);

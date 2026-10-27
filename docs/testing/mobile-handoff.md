@@ -62,5 +62,13 @@
 ## 本次保存与合并验证
 
 - 保存前整合基点：`e668e15d25d8f4366fcc547b9fe38f6fce7caaa0`；当时最新 `main`：`86716f1c5c8bb171a155ecc7b2a9548242d7a7aa`（桌面弹层边界修复）。本次先将 `main` 合入整合分支，保留双方文档与设置窗口行为，再本地 `--no-ff` 合回。
-- 当前待执行：最终静态、单元与 UI 检查，以及实际本地合并。此项由收尾结果替换；不提前宣称通过。
-- 用户指定的延期问题保留，本次不重新启动完整 Electron、泄漏、变异或真机验收；本地合并不代表这些门禁通过。不推送。
+- 五个 children 候选及交接文档已保存为 `b62eeb6`。随后合入 `main` 只有 roadmap/coverage-map 文档冲突，按并集保留；设置窗口自动合并保留整窗 watch/撤销状态/配对焦点保护与 main 的窄窗布局/滚动修复。
+- 2026-10-27 20:32–20:37（UTC+8）在整合工作树串行验证一次，独立 HOME/pi agentDir，既有 Node22.19.0/pnpm12.9.1 与依赖；未安装或改依赖。冻结 2150 输入文件，各步前后不变；当时暂存树 `c44d359df3a9c2ec88ab345fe0f8ec50fa3e2afb`，后续仅补文档结果。
+  - `pnpm check` 通过：格式 1021 文件、lint 833 文件零警错、类型/knip、边界 14/41/4（未登记及非精确均 0）、Swift 静态检查。
+  - `pnpm test --maxWorkers=4`：TypeScript **4187/4187，225 文件**通过。该带参数命令按仓库脚本只跑 TS；未重复 Git 失败用例，历史超时没有在本次出现，不等于根因已修复。
+  - Swift 另以 `xcrun swift test`、jobs1、禁自动解析/更新、warnings-as-errors 和显式依赖检查跑一次：报告 **237 tests / 43 suites passed**，其中 `pairingReconnectHeartbeatAndRevocation`、`macRefusal` 两个 opt-in 互通测试默认跳过；不计为此次实际互通。`--skip-update` 弃用警告保留。没有重新构建/安装 iOS App 或运行 XCUITest。
+  - `pnpm test:ui --maxWorkers=1 --no-file-parallelism`：**1160/1160，62 文件**通过。
+- Astra 单路只读核对了设置窗口及双方文档保留，无高可信合并阻断；task `t-0728ee0e-1ced-4dcc-8b37-bcf2b5ea3330`。它没有运行测试，也不是重新做正式三方审查或新 children 动态验证。
+- 一次直接向 oxfmt 传入四份文档，因项目配置整体忽略 `docs/**` 而 exit2（无目标），未改文件；未绕开配置。文档另查 diff/链接，后续完整 `pnpm check` 按原配置通过。
+- 本次检查原始元数据、输入 hash、命令/环境与日志在私有 `reports/mobile-closeout-20261027/`；后续 Git 合并结果在收尾时补记。
+- 用户指定的延期问题保留，本次不重新启动完整 Electron、宿主/PI 契约、泄漏、变异、压力/性能、打包或真机验收；本地合并不代表这些门禁通过。不推送。

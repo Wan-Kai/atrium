@@ -800,6 +800,12 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 新增命令：`steer`、`stop`、`resume_queue`、`clear_queue`、`update_queued`、`remove_queued`、`steer_queued`、`answer_interaction`、`retry_run`。新增事件：`control_updated`、`prompt_handled`。新增错误码：`session_stopping`、`queue_item_not_found`、`interaction_closed`。`prompt` 的应答多了 `queued`（带 `itemId`）。
 
+### 桌面浮层的窗口边界（2026-10-26 自用后修复）
+
+原型 `prototypes/popup-bounds-prototype.html` 选 A“原位限高”。子对话、排队、模型与推理强度、命令/文件候选、状态栏详情和自定义面板保持原展开方向，按锚点到窗口边缘的实际空间限高，内容过长可内部滚动；宽度不超出窗口，四边留 12px。通用菜单（含侧栏、标签、设置选择器、面包屑、子对话行末操作）与非交互说明不足时可换边，不被父滚动容器裁剪。窗口缩放、滚动、输入框/提问卡片变高和内容变化时重算；默认位置、关闭方式、焦点和动效保持不变。
+
+居中对话框保留理想尺寸与居中，窗口不足时限宽限高，长无空格字符串换行，操作按钮可滚动触达。设置分类在矮窗口内可滚动，归档提示不能伸出窗口。详见 design-language“浮层边界”。这是视图布局修复，不改宿主、协议或持久化行为。
+
 ### 模型与输入框（M1.7，2026-10-10 定）
 
 模型列表照 Paseo 的做法（`paseo-architecture.md` §3），`@` 候选和 pi 的终端界面一样用 `fd`。产品层面的规则见上文"对话区"的"输入框"，这里写宿主和协议怎么做。

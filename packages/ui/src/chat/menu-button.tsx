@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useFloatingLayer } from "../design/floating-layer";
 
 /** The class of an item in a {@link MenuButton}'s menu. */
 export const MENU_ITEM =
@@ -11,7 +12,8 @@ export const MENU_ITEM =
  * Closes on choosing, on Escape and on a click elsewhere. Its Escape goes no further, so a panel
  * holding the menu stays open.
  *
- * @sideEffects Listens for clicks and keys on the document while open.
+ * @sideEffects Listens for clicks and keys on the document while open; measures and follows its
+ * top-layer menu within the viewport, outside clipping ancestors (`useFloatingLayer`).
  * @param props - The button's content, label, look, alignment and whether it can be pressed, and the
  * menu's items given a way to close it.
  * @returns The button and menu.
@@ -44,6 +46,16 @@ export function MenuButton({
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  useFloatingLayer(trigger, menu, {
+    enabled: open,
+    side: chip ? "top" : "bottom",
+    align,
+    gap: 4,
+    flip: true,
+    ...(field || chip ? { maxHeight: "360px" } : {}),
+  });
   useEffect(() => {
     if (!open) return undefined;
     /**
@@ -56,6 +68,7 @@ export function MenuButton({
      * @param event - The pointer event.
      */
     const close = (event: Event): void => {
+      if (menu.current?.matches(":popover-open") !== true) return;
       if (!(event.target instanceof Node && root.current?.contains(event.target) === true)) setOpen(false);
     };
     /**
@@ -68,7 +81,7 @@ export function MenuButton({
      * @param event - The key event.
      */
     const escape = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || menu.current?.matches(":popover-open") !== true) return;
       event.preventDefault();
       event.stopPropagation();
       setOpen(false);
@@ -83,6 +96,7 @@ export function MenuButton({
   return (
     <div ref={root} className="relative">
       <button
+        ref={trigger}
         type="button"
         aria-label={label}
         title={label}
@@ -103,12 +117,11 @@ export function MenuButton({
       </button>
       {open ? (
         <div
+          ref={menu}
           role="menu"
-          className={`absolute z-10 min-w-44 rounded-[var(--r-btn)] bg-[var(--surface-1)] p-1 shadow-[var(--float-shadow)] ${
+          className={`absolute z-10 w-min min-w-44 overflow-auto [overflow-wrap:anywhere] rounded-[var(--r-btn)] bg-[var(--surface-1)] p-1 shadow-[var(--float-shadow)] ${
             chip ? "bottom-full mb-1" : "top-full mt-1"
-          } ${align === "end" ? "right-0" : "left-0"} ${
-            field || chip ? "max-h-[360px] min-w-56 overflow-y-auto dark:bg-[var(--surface-2)]" : ""
-          }`}
+          } ${align === "end" ? "right-0" : "left-0"} ${field || chip ? "min-w-56 dark:bg-[var(--surface-2)]" : ""}`}
         >
           {children(() => setOpen(false))}
         </div>
