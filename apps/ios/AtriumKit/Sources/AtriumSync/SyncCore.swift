@@ -219,7 +219,8 @@ public struct SyncCore {
   ///
   /// - Remark: A connection still syncing may be synced once the session no longer counts. The
   ///   page's requests on their way no longer settle anything, so a late answer cannot touch the page
-  ///   if it is opened again; closing the tab lets the Mac reclaim the session's controller.
+  ///   if it is opened again; closing the tab lets the Mac reclaim the session's controller. Its
+  ///   unsettled messages stay in the outbox, still answered, retried and shown when it is opened again.
   /// - SideEffects: none
   /// - Parameter sessionId: The session.
   /// - Returns: The commands to send, and whether the connection is now synced.
@@ -227,8 +228,6 @@ public struct SyncCore {
     guard let position = openSessions.firstIndex(of: sessionId) else { return [] }
     openSessions.remove(at: position)
     sessions[sessionId] = nil
-    for message in outbox where message.sessionId == sessionId { timing[message.id] = nil }
-    outbox.removeAll { $0.sessionId == sessionId }
     for (requestId, request) in requests {
       switch request {
       case .open(let opened) where opened == sessionId: requests[requestId] = .other
@@ -253,7 +252,7 @@ public struct SyncCore {
   /// - Parameter sessionId: The session.
   /// - Returns: Whether the send button works.
   public func canSend(_ sessionId: SessionId) -> Bool {
-    guard synced, sessions[sessionId]?.status == .ready else { return false }
+    guard synced, let state = sessions[sessionId], state.status == .ready, state.settled else { return false }
     return !outbox.contains { $0.sessionId == sessionId && $0.state != .accepted }
   }
 
@@ -301,13 +300,21 @@ public struct SyncCore {
 
   /// Takes back a message that never left: the connection was gone when it was to be written.
   ///
-  /// - Remark: Its text goes back in front of what the input holds now; "没发出去".
+  /// - Remark: Its text goes back in front of what the input holds now; "没发出去". A retry that
+  ///   could not be written leaves the first sending, which may have run: it is uncertain instead.
   /// - SideEffects: none
   /// - Parameter requestId: The message.
   public mutating func notWritten(_ requestId: RequestId) {
-    guard let message = outbox.first(where: { $0.id == requestId }), message.state == .sending else { return }
-    drop(requestId)
+    guard let index = outbox.firstIndex(where: { $0.id == requestId }), outbox[index].state == .sending else {
+      return
+    }
     requests[requestId] = nil
+    if timing[requestId]?.retried == true {
+      outbox[index].state = .uncertain
+      return
+    }
+    let message = outbox[index]
+    drop(requestId)
     giveBack(message, .notSent)
   }
 

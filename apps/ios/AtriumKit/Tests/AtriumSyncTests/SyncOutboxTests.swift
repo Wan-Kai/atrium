@@ -224,7 +224,7 @@ struct SyncOutboxTests {
     #expect(sync.outbox.map(\.state) == [.uncertain])
   }
 
-  @Test("lets go of accepted messages at the next sync, and of a closed session's messages at once")
+  @Test("lets go of accepted messages at the next sync")
   func letGo() {
     var sync = syncedCore()
     sync.setDraft("one", for: "s1")
@@ -232,11 +232,6 @@ struct SyncOutboxTests {
     _ = receive(&sync, generation: 1, promptOK("r4"))
     _ = sync.connected(generation: 2)
     _ = receive(&sync, generation: 2, ok("r5"), indexSnapshotJSON(), ok("r6"), ok("r7"), snapshotJSON("s1"))
-    #expect(sync.outbox.isEmpty)
-
-    sync.setDraft("two", for: "s1")
-    _ = sync.send("s1")
-    _ = sync.close("s1")
     #expect(sync.outbox.isEmpty)
   }
 }

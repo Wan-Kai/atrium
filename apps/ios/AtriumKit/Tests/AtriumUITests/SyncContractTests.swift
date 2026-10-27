@@ -146,6 +146,26 @@ struct SyncContractTests {
           return false
         }.count == 1)
 
+      // A message the host ran whose answer is lost on the way down is not run again after the reconnect.
+      _ = try await control.request("deafen")
+      model.setDraft("ping", for: sessionId)
+      model.send(sessionId)
+      let unanswered = try #require(model.core.outbox.first)
+      _ = try await control.request("executed", body: ["clientMessageId": unanswered.id])
+      _ = try await control.request("cut")
+      _ = try await control.request("hear")
+      try await within(seconds: 30) {
+        model.core.lastDelivered[sessionId] == unanswered.id && model.core.outbox.isEmpty
+          && model.core.sessions[sessionId]?.running == false
+      }
+      let last = try #require(model.core.sessions[sessionId])
+      #expect(last.items.filter(isTurn).count == turnsBefore + 3)
+      #expect(
+        last.items.filter {
+          if case .turn(let turn) = $0 { return turn.user.clientMessageId == unanswered.id }
+          return false
+        }.count == 1)
+
     } catch {
       await cleanUp()
       throw error

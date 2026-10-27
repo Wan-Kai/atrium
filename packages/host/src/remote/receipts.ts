@@ -49,17 +49,20 @@ export interface ReceiptBook {
   /**
    * Runs the command unless its request was seen before, and answers as the first time did.
    *
-   * @throws `CommandError`: the command's own failure, or `request_conflict`, `outcome_unknown`,
-   * `internal_error` (the request could not be written down, so it was not run).
+   * @throws `CommandError`: the command's own failure, or `request_conflict`, `outcome_unknown`
+   * (also when the command crashed), `internal_error` (the request could not be written down, so it
+   * was not run).
    */
   run(deviceId: string, command: ReceiptCommand, execute: () => Promise<ReceiptResult>): Promise<ReceiptResult>;
   /** Waits for writes in progress; never rejects. */
   flush(): Promise<void>;
 }
 
-/** Ways to replace the file write, for tests. */
+/** Ways to replace the file write, for tests, and where to log. */
 export interface ReceiptOptions {
   readonly write?: (path: string, content: string) => Promise<void>;
+  /** Logs a crash of a command and a receipt that could not be written; no message content. */
+  readonly log?: (level: "warn" | "error", message: string, fields: Readonly<Record<string, unknown>>) => void;
 }
 
 /**
@@ -88,7 +91,7 @@ export async function openReceipts(
     clock.now(),
     ...(options.write === undefined ? [] : [options.write]),
   );
-  return createReceiptBook(file, clock);
+  return createReceiptBook(file, clock, options.log);
 }
 
 /**
@@ -100,20 +103,23 @@ export async function openReceipts(
  * @sideEffects none until used.
  * @param file - The receipts file.
  * @param clock - The host's clock.
+ * @param log - Where to log.
  * @returns The book.
  */
-function createReceiptBook(file: IndexFile<ReceiptsDocument>, clock: Clock): ReceiptBook {
+function createReceiptBook(file: IndexFile<ReceiptsDocument>, clock: Clock, log: ReceiptOptions["log"]): ReceiptBook {
   const receipts = new Map<string, Receipt>();
   // A receipt read back as `processing` did not finish as far as anyone can tell: without an
-  // answer, it answers `outcome_unknown` below like an `unknown` one.
+  // answer, it answers `outcome_unknown` below like an `unknown` one. Expired ones are never
+  // answered from and leave the file at its next write.
   for (const receipt of file.read().receipts) receipts.set(keyOf(receipt.deviceId, receipt.requestId), receipt);
-  const running = new Map<string, Promise<ReceiptResult>>();
+  // Requests under way, by key: they are joined by key and content whatever the kept history says.
+  const running = new Map<string, { readonly hash: string; readonly result: Promise<ReceiptResult> }>();
 
   /**
    * Drops expired receipts and those past each device's limit, then writes the rest.
    *
    * @remarks
-   * Oldest first when a device has too many.
+   * Oldest first when a device has too many; a request under way is never dropped.
    *
    * @sideEffects Changes the map; writes the file.
    * @returns When written; rejects when the write fails.
@@ -126,7 +132,7 @@ function createReceiptBook(file: IndexFile<ReceiptsDocument>, clock: Clock): Rec
         receipts.delete(key);
         continue;
       }
-      byDevice.set(receipt.deviceId, [...(byDevice.get(receipt.deviceId) ?? []), receipt]);
+      if (!running.has(key)) byDevice.set(receipt.deviceId, [...(byDevice.get(receipt.deviceId) ?? []), receipt]);
     }
     for (const kept of byDevice.values()) {
       const oldest = kept.toSorted((a, b) => a.at - b.at).slice(0, Math.max(0, kept.length - RECEIPTS_PER_DEVICE));
@@ -145,10 +151,16 @@ function createReceiptBook(file: IndexFile<ReceiptsDocument>, clock: Clock): Rec
    * @sideEffects Writes the file; runs `execute`.
    * @param key - The receipt's key.
    * @param receipt - The new receipt, `processing`.
+   * @param type - The command's type, for the log.
    * @param execute - Runs the command.
    * @returns The command's result.
    */
-  async function first(key: string, receipt: Receipt, execute: () => Promise<ReceiptResult>): Promise<ReceiptResult> {
+  async function first(
+    key: string,
+    receipt: Receipt,
+    type: ReceiptCommand["type"],
+    execute: () => Promise<ReceiptResult>,
+  ): Promise<ReceiptResult> {
     receipts.set(key, receipt);
     try {
       await save();
@@ -175,10 +187,13 @@ function createReceiptBook(file: IndexFile<ReceiptsDocument>, clock: Clock): Rec
             }
           : { ...receipt, state: "unknown" },
       );
-      throw error;
+      if (error instanceof CommandError) throw error;
+      // It may have run in part: the phone is told it cannot know, as it would be when asking again.
+      log?.("error", "remote command crashed", { err: error, command: type });
+      throw new CommandError("outcome_unknown");
     } finally {
       // The answer goes out even when it cannot be written; a restart then reads it as unknown.
-      await save().catch(() => undefined);
+      await save().catch((error: unknown) => log?.("warn", "receipt not written", { err: error }));
     }
   }
 
@@ -186,20 +201,23 @@ function createReceiptBook(file: IndexFile<ReceiptsDocument>, clock: Clock): Rec
     async run(deviceId, command, execute) {
       const key = keyOf(deviceId, command.requestId);
       const hash = hashOf(command);
+      const under = running.get(key);
+      if (under !== undefined) {
+        if (under.hash !== hash) throw new CommandError("request_conflict");
+        return under.result;
+      }
       const known = receipts.get(key);
       const expired = known !== undefined && clock.now() - known.at > RECEIPT_TTL_MS;
       if (known !== undefined && !expired) {
         if (known.hash !== hash) throw new CommandError("request_conflict");
-        const under = running.get(key);
-        if (under !== undefined) return under;
         // Only a finished request has its answer; one `processing` or `unknown` cannot tell.
         if (known.response === undefined) throw new CommandError("outcome_unknown");
         if (known.response.ok) return CommandResult[command.type].parse(known.response.result);
         throw new CommandError(known.response.code, known.response.params);
       }
       const receipt: Receipt = { deviceId, requestId: command.requestId, hash, at: clock.now(), state: "processing" };
-      const result = first(key, receipt, execute);
-      running.set(key, result);
+      const result = first(key, receipt, command.type, execute);
+      running.set(key, { hash, result });
       try {
         return await result;
       } finally {
@@ -238,6 +256,6 @@ function keyOf(deviceId: string, requestId: string): string {
  * @returns A hex SHA-256.
  */
 function hashOf(command: ReceiptCommand): string {
-  const fields = [command.type, command.sessionId, command.text ?? "", command.attachmentIds?.length ?? 0];
+  const fields = [command.type, command.sessionId, command.text, command.attachmentIds?.length ?? 0];
   return createHash("sha256").update(JSON.stringify(fields)).digest("hex");
 }

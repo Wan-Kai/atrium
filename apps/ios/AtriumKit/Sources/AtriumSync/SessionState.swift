@@ -114,12 +114,15 @@ public struct SessionState: Sendable, Equatable {
     resuming = false
   }
 
-  /// Marks a session still waiting for its snapshot as handed to a terminal.
+  /// Marks a session still waiting for its snapshot, or to resume, as handed to a terminal.
   ///
-  /// - Remark: It counts as settled for "已连接"; a snapshot, should one come, replaces it.
+  /// - Remark: It counts as settled for "已连接"; a snapshot, should one come, replaces it. The Mac
+  ///   starts no pi for it, so neither a snapshot nor `session_resumed` would come.
   /// - SideEffects: none
   public mutating func markHandedOff() {
-    if status == .loading { status = .handedOff }
+    guard status == .loading || resuming else { return }
+    status = .handedOff
+    resuming = false
   }
 
   /// Marks the session as one the host would not open or subscribe to.
@@ -129,6 +132,7 @@ public struct SessionState: Sendable, Equatable {
   /// - Parameter code: Why.
   public mutating func fail(_ code: ErrorCode) {
     status = .failed(code)
+    resuming = false
   }
 
   /// Applies one event from the host.
@@ -150,6 +154,8 @@ public struct SessionState: Sendable, Equatable {
       resuming = false
       return .applied
     }
+    // A channel back from the background may still deliver events the resume point already holds.
+    if resuming, event.position.epoch == epoch, event.position.seq <= seq { return .ignored }
     guard event.position.epoch == epoch, event.position.seq == seq + 1 else { return .resync }
     var next = self
     next.seq += 1

@@ -2,7 +2,7 @@ import { CommandError, type PromptCommand, type SteerCommand } from "@atrium/pro
 import { FakeClock, createTempDir } from "@atrium/testkit";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { RECEIPT_TTL_MS, RECEIPTS_PER_DEVICE, openReceipts } from "./receipts";
 
 const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
@@ -86,6 +86,9 @@ describe("openReceipts", () => {
     await receipts.run(DEVICE, prompt("r1", "look", ["a1", "a2"]), execute.run);
 
     expect(await receipts.run(DEVICE, prompt("r1", "look", ["b1", "b2"]), execute.run)).toStrictEqual(STARTED);
+    await expect(receipts.run(DEVICE, prompt("r1", "look", ["c1"]), execute.run)).rejects.toStrictEqual(
+      new CommandError("request_conflict"),
+    );
     expect(execute.count).toBe(1);
   });
 
@@ -125,9 +128,12 @@ describe("openReceipts", () => {
     expect(count).toBe(1);
   });
 
-  it("cannot tell the outcome of a request that threw something else, and says so after", async () => {
+  it("cannot tell the outcome of a request that threw something else, says so at once and after, and logs it", async () => {
     const { dir, clock } = await setUp();
-    const receipts = await openReceipts(dir, clock);
+    const logged: unknown[][] = [];
+    const receipts = await openReceipts(dir, clock, {
+      log: (level, message, fields) => logged.push([level, message, fields]),
+    });
     const bug = new Error("host bug");
     const execute = counting(STARTED);
 
@@ -135,7 +141,8 @@ describe("openReceipts", () => {
       receipts.run(DEVICE, prompt("r1"), async () => {
         throw bug;
       }),
-    ).rejects.toBe(bug);
+    ).rejects.toStrictEqual(new CommandError("outcome_unknown"));
+    expect(logged).toStrictEqual([["error", "remote command crashed", { err: bug, command: "prompt" }]]);
     await expect(receipts.run(DEVICE, prompt("r1"), execute.run)).rejects.toStrictEqual(
       new CommandError("outcome_unknown"),
     );
@@ -187,6 +194,65 @@ describe("openReceipts", () => {
     const execute = counting(STARTED);
     await expect(book.run(DEVICE, prompt("r1"), execute.run)).rejects.toStrictEqual(new CommandError("internal_error"));
     expect(execute.count).toBe(0);
+  });
+
+  it("warns when it cannot write down how a request ended, and still answers", async () => {
+    const { dir, clock } = await setUp();
+    const logged: unknown[][] = [];
+    const failure = new Error("disk full");
+    const receipts = await openReceipts(dir, clock, {
+      // The request is written down; how it ended is not.
+      write: vi
+        .fn<(path: string, content: string) => Promise<void>>()
+        .mockResolvedValueOnce()
+        .mockRejectedValue(failure),
+      log: (level, message, fields) => logged.push([level, message, fields]),
+    });
+    expect(await receipts.run(DEVICE, prompt("r1"), counting(STARTED).run)).toStrictEqual(STARTED);
+    expect(logged).toStrictEqual([["warn", "receipt not written", { err: failure }]]);
+  });
+
+  it("joins a request on its way even after newer requests pushed its receipt past the limit", async () => {
+    const { dir, clock } = await setUp();
+    let written = "";
+    const receipts = await openReceipts(dir, clock, {
+      write: async (_path, content) => {
+        written = content;
+      },
+    });
+    const gate = Promise.withResolvers<void>();
+    let count = 0;
+    const slow = async () => {
+      count += 1;
+      await gate.promise;
+      return STARTED;
+    };
+    const first = receipts.run(DEVICE, prompt("slow"), slow);
+    for (let index = 0; index < RECEIPTS_PER_DEVICE; index += 1) {
+      clock.advance(1);
+      await receipts.run(DEVICE, prompt(`n${index}`), counting(STARTED).run);
+    }
+    // Still written down, so a restart now would not run it again.
+    expect(written).toContain('"requestId": "slow"');
+
+    await expect(receipts.run(DEVICE, prompt("slow", "changed"), slow)).rejects.toStrictEqual(
+      new CommandError("request_conflict"),
+    );
+    const again = receipts.run(DEVICE, prompt("slow"), slow);
+    gate.resolve();
+    expect(await Promise.all([first, again])).toStrictEqual([STARTED, STARTED]);
+    expect(count).toBe(1);
+  });
+
+  it("keeps a receipt for exactly a day", async () => {
+    const { dir, clock } = await setUp();
+    const receipts = await openReceipts(dir, clock, { write: async () => undefined });
+    const execute = counting(STARTED);
+    expect(RECEIPT_TTL_MS).toBe(24 * 60 * 60 * 1000);
+    await receipts.run(DEVICE, prompt("r1"), execute.run);
+    clock.advance(RECEIPT_TTL_MS);
+    await receipts.run(DEVICE, prompt("r1"), execute.run);
+    expect(execute.count).toBe(1);
   });
 
   it("forgets receipts after a day, and keeps at most so many per device, dropping the oldest", async () => {

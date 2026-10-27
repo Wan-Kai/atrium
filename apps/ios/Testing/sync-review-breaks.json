@@ -1,0 +1,66 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "    resuming = false\n  }\n\n  /// Applies",
+    "to": "  }\n\n  /// Applies",
+    "name": "fail ends resuming",
+    "runner": "swift",
+    "filter": "SyncMP4ReviewTests/refusedWhileResuming"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "    guard status == .loading || resuming else { return }",
+    "to": "    guard status == .loading else { return }",
+    "name": "handed off while resuming",
+    "runner": "swift",
+    "filter": "SyncMP4ReviewTests/handedOffWhileResuming"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "    if resuming, event.position.epoch == epoch, event.position.seq <= seq { return .ignored }\n",
+    "to": "",
+    "name": "overlap while resuming",
+    "runner": "swift",
+    "filter": "SyncMP4ReviewTests/overlapWhileResuming"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "state.status == .ready, state.settled else",
+    "to": "state.status == .ready else",
+    "name": "no send while resuming",
+    "runner": "swift",
+    "filter": "SyncMP4ReviewTests/noSendWhileResuming"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    if timing[requestId]?.retried == true {",
+    "to": "    if false {",
+    "name": "retry not written",
+    "runner": "swift",
+    "filter": "SyncMP4ReviewTests/retryNotWritten"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Sync/SyncModel.swift",
+    "from": "    revoked = true\n",
+    "to": "",
+    "name": "revoke stops writes",
+    "runner": "swift",
+    "filter": "SyncModelTests/cache"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Sync/SyncModel.swift",
+    "from": "    enqueue(core.send(sessionId))\n    saveDrafts()",
+    "to": "    enqueue(core.send(sessionId))",
+    "name": "send saves drafts",
+    "runner": "swift",
+    "filter": "SyncModelTests/cache"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Sync/SyncModel.swift",
+    "from": "    }\n    saving?.cancel()\n    saving = nil\n  }",
+    "to": "    }\n  }",
+    "name": "run end cancels save",
+    "runner": "swift",
+    "filter": "SyncModelTests/cache"
+  }
+]

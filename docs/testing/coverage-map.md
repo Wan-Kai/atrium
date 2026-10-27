@@ -1884,3 +1884,16 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 破坏检查：TS `packages/host/src/sync/mp4c-break-check.json`；Swift 追加在 `apps/ios/Testing/sync-breaks.json`。注册表里"只有手机连接才从快照起记"的判断与环自己的"没手机看就不记"等价，已删掉。
 - 契约夹具发现一处宿主行为：pi 条目的 `usage` 缺 `cacheRead` / `cacheWrite` 时，宿主算出的 `branchTokens` 是 `NaN`，经 JSON 变成 `null`，违反协议。手机端严格解码，会把这条事件丢掉，之后那个会话卡住不动。真实 pi 总会写这两个字段，所以只改了夹具；宿主侧的防护和"一条解码失败的消息让会话卡住"记为已知风险，留到 MP7 自用时观察。
 - 未覆盖：真机、蜂窝 / Wi-Fi 切换、relay 在公网（交给用户验收）；回到前台的续传只在单元测试和同一条连接上覆盖，契约里没有真实的前后台切换。
+
+## MP4 三方审查后补（SPEC-0005，2026-10-27，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 续传中的会话被拒绝打开、或在列表里已交给终端，算同步完；续传中收到不超过自己位置的事件当作已有的忽略；续传中不能发；自动重试没写进通道标"不确定"；离开页面不丢未落定的消息 | `SyncMP4ReviewTests` |
+| 撤销后不再写缓存（改草稿、离开页面、进后台）；发出后磁盘上的草稿也清掉；停止运行时取消还在等的节流写入 | `SyncModelTests/cache` |
+| 回执：正在执行的请求按执行中的记录合并，不受 200 条上限挤掉影响、内容不同仍回冲突、仍写在文件里；执行抛非 `CommandError` 当次就回 `outcome_unknown` 并记 error；结束状态写盘失败记 warn；附件个数不同算冲突；恰好 24 小时仍有效 | `receipts.test.ts` |
+| 事件环：同 stream 新 epoch 或不同位置的快照重来；快照前不记；重新有人看后超过 10 分钟也不遗忘；Mac 断开不减手机的计数 | `event-ring.test.ts`、`subscriptions.test.ts` |
+| Swift 契约：宿主已执行（Mac 看到该 `clientMessageId` 的轮次）但应答在下行丢失，掐断重连后不再执行第二次 | `run.mjs --sync-contract` |
+
+- 破坏检查：TS `packages/host/src/sync/mp4-review-break-check.json`、Swift `apps/ios/Testing/sync-review-breaks.json`，全部抓到。
+- 记为已知、未改：pi 崩溃重启时宿主重发了原消息、而旧 pi 的应答随后以 `pi_rejected` 失败，手机会把文字退回输入框（桌面同样的语义；转录里出现该 `clientMessageId` 后仍记为送到）。下行丢应答的契约里，重连后的快照 / 续传已包含这条轮次，手机按"已送到"收掉，不会走到同 id 重试；同 id 重试由回执应答的路径由宿主 e2e `phone-sync.host.test.ts` 覆盖。

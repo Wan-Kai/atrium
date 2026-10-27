@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { type Server, type Socket, createConnection, createServer } from "node:net";
 import { CommandResult } from "../../../packages/protocol/src/commands";
+import { TurnStartedEvent } from "../../../packages/protocol/src/events";
 import { RemoteState } from "../../../packages/protocol/src/remote";
 import { createTempDir, writeScriptedPi } from "../../../packages/testkit/src/index";
 import { startTestHost, type TestHost } from "../../../packages/host/test/harness";
@@ -28,7 +29,7 @@ const HISTORY = Array.from({ length: HISTORY_TURNS }, (_, index) => ({
 }));
 
 /** How many runs the contract makes: pi's entries grow by one ping and pong each. */
-const RUNS = 4;
+const RUNS = 6;
 
 /**
  * What pi prints for run `run`: "ping" answered with "pong", at times of its own.
@@ -109,6 +110,8 @@ interface PhoneProxy {
   cut(): void;
   /** Stops passing what phones send, or passes it again; held bytes are dropped by a cut. */
   hold(held: boolean): void;
+  /** Drops what the relay sends phones, or passes it again: answers lost on the way down. */
+  deafen(deaf: boolean): void;
   close(): Promise<void>;
 }
 
@@ -123,6 +126,7 @@ interface PhoneProxy {
 async function startPhoneProxy(relayPort: number): Promise<PhoneProxy> {
   const phones = new Set<{ readonly phone: Socket; readonly relay: Socket; held: Buffer[] }>();
   let holding = false;
+  let deaf = false;
   const server: Server = createServer((phone) => {
     const relay = createConnection({ host: "127.0.0.1", port: relayPort });
     const link = { phone, relay, held: [] as Buffer[] };
@@ -144,7 +148,9 @@ async function startPhoneProxy(relayPort: number): Promise<PhoneProxy> {
       if (holding) link.held.push(chunk);
       else relay.write(chunk);
     });
-    relay.on("data", (chunk: Buffer) => phone.write(chunk));
+    relay.on("data", (chunk: Buffer) => {
+      if (!deaf) phone.write(chunk);
+    });
     phone.on("close", end);
     relay.on("close", end);
     phone.on("error", end);
@@ -173,6 +179,9 @@ async function startPhoneProxy(relayPort: number): Promise<PhoneProxy> {
         for (const chunk of link.held) link.relay.write(chunk);
         link.held = [];
       }
+    },
+    deafen(value) {
+      deaf = value;
     },
     close: () =>
       new Promise<void>((resolve) => {
@@ -345,6 +354,23 @@ export async function startFixture(signal: AbortSignal): Promise<LocalFixture> {
         case "/release":
           cutter.hold(false);
           return {};
+        case "/deafen":
+          cutter.deafen(true);
+          return {};
+        case "/hear":
+          cutter.deafen(false);
+          return {};
+        case "/executed": {
+          // The Mac watches the chat too, so the host's turn for the phone's message proves it ran.
+          assert.ok("clientMessageId" in body);
+          await bounded(
+            owner.next(
+              (value) => TurnStartedEvent.safeParse(value).data?.turn.user.clientMessageId === body.clientMessageId,
+            ),
+            requestSignal,
+          );
+          return {};
+        }
         case "/confirm": {
           const waiting = await remoteUntil(
             owner,
@@ -361,6 +387,7 @@ export async function startFixture(signal: AbortSignal): Promise<LocalFixture> {
           assert.equal(created.ok, true);
           const { sessionId } = CommandResult.create_chat.parse(created.result);
           assert.equal((await owner.request({ type: "open_session", sessionId })).ok, true);
+          assert.equal((await owner.request({ type: "subscribe_sessions", sessionIds: [sessionId] })).ok, true);
           return { sessionId, historyTurns: HISTORY_TURNS };
         }
         case "/prompt": {

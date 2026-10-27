@@ -209,6 +209,16 @@ describe("SubscriptionRegistry: the phones' event ring", () => {
     ]);
   });
 
+  it("keeps a phone's session when the Mac watching it too goes away", () => {
+    const { registry, clock } = withRing();
+    registry.subscribe("phone", ["s1"]);
+    registry.subscribe("mac", ["s1"]);
+    registry.sendTo("phone", snapshotOf("s1"));
+    registry.disconnect("mac");
+    clock.advance(600_000);
+    expect(registry.resume({ sessionId: "s1", stream: "st-1", epoch: 1, seq: 0 }, 0)).toStrictEqual([]);
+  });
+
   it("keeps nothing for a session only the Mac watches", () => {
     const { registry } = withRing();
     registry.subscribe("mac", ["s1"]);

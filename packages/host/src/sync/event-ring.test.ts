@@ -97,6 +97,30 @@ describe("EventRing", () => {
     expect(ring.resume({ sessionId: "s1", stream: "st-1", epoch: 1, seq: 0 }, 1)).toStrictEqual([delta(1, 1)]);
   });
 
+  it("keeps the events at a snapshot of where they end, and starts over at one of another epoch or position", () => {
+    const { ring } = setUp();
+    ring.watch("s1", 1);
+    ring.start(snapshot(1, 0));
+    ring.record(delta(1, 1));
+    ring.start(snapshot(1, 1));
+    expect(ring.resume({ sessionId: "s1", stream: "st-1", epoch: 1, seq: 0 }, 1)).toStrictEqual([delta(1, 1)]);
+
+    ring.start(snapshot(2, 1));
+    expect(ring.resume({ sessionId: "s1", stream: "st-1", epoch: 2, seq: 0 }, 1)).toBeNull();
+    expect(ring.resume({ sessionId: "s1", stream: "st-1", epoch: 2, seq: 1 }, 1)).toStrictEqual([]);
+    ring.record(delta(2, 2));
+    ring.start(snapshot(2, 5));
+    expect(ring.resume({ sessionId: "s1", stream: "st-1", epoch: 2, seq: 1 }, 5)).toBeNull();
+    expect(ring.resume({ sessionId: "s1", stream: "st-1", epoch: 2, seq: 5 }, 5)).toStrictEqual([]);
+  });
+
+  it("keeps nothing for a watched session before its first snapshot", () => {
+    const { ring } = setUp();
+    ring.watch("s1", 1);
+    ring.record(delta(1, 1));
+    expect(ring.resume({ sessionId: "s1", stream: "st-1", epoch: 1, seq: 0 }, 1)).toBeNull();
+  });
+
   it("keeps nothing for a session no phone watches", () => {
     const { ring } = setUp();
     ring.start(snapshot(1, 0));
@@ -151,7 +175,7 @@ describe("EventRing", () => {
     ring.watch("s1", -1);
     clock.advance(599_999);
     ring.watch("s1", 1);
-    clock.advance(10);
+    clock.advance(600_000);
     expect(ring.resume({ sessionId: "s1", stream: "st-1", epoch: 1, seq: 0 }, 1)).toHaveLength(1);
 
     ring.watch("s1", -1);

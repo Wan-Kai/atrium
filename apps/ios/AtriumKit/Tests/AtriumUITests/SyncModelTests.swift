@@ -203,14 +203,24 @@ struct SyncModelTests {
     }
     try await side.send(Data(sessionSnapshot.utf8))
     try await waitUntil { model.status == .connected }
+    // Sending clears the draft on disk too, not only in memory.
+    model.setDraft("go", for: "s1")
+    model.send("s1")
+    #expect(cache.drafts() == [:])
     model.setDraft("half", for: "s1")
-    model.saveNow()
 
     following.cancel()
     running.cancel()
     await running.value
     await following.value
     await connection.stop()
+    // A write still waiting when the run ended is dropped: a newer owner may have written since.
+    try cache.save(drafts: ["s1": "half"])
+    manualClock.advance(by: .seconds(2))
+    // Gives a woken write every chance to run before checking it did not.
+    for _ in 0..<100 { await Task.yield() }
+    #expect(cache.index() == nil)
+    model.saveNow()
 
     let next = SyncModel(
       connection: connection, hostName: host.hostName, traceparent: { traceparent }, now: { .zero },
@@ -223,6 +233,11 @@ struct SyncModelTests {
 
     await next.statusChanged(.revoked)
     #expect(cache.index() == nil)
+    // Nothing of the revoked host is written again: not the drafts, a page left, nor going to the background.
+    next.setDraft("more", for: "s1")
+    next.close("s1")
+    next.saveNow()
+    #expect(!FileManager.default.fileExists(atPath: cache.directory.deletingLastPathComponent().path))
   }
 
   /// Answers the phone's `subscribe_index` on a channel with an empty list.

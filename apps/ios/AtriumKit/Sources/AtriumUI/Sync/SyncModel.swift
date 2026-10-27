@@ -25,6 +25,10 @@ public final class SyncModel {
 
   @ObservationIgnored private let connection: RemoteConnection
   @ObservationIgnored private let cache: SyncCache?
+  /// Whether the host revoked this phone: its copy is deleted and never written again.
+  @ObservationIgnored private var revoked = false
+  /// The drafts as last written to the cache.
+  @ObservationIgnored private var savedDrafts: [SessionId: String] = [:]
   @ObservationIgnored private let clock: any Clock<Duration>
   /// The pending throttled write of the cache, if any.
   @ObservationIgnored private var saving: Task<Void, Never>?
@@ -54,7 +58,8 @@ public final class SyncModel {
     self.clock = clock
     core = SyncCore(requestId: requestId, traceparent: traceparent, now: now)
     (outputs, queue) = AsyncStream.makeStream(of: SyncOutput.self)
-    core.restore(index: cache?.index(), drafts: cache?.drafts() ?? [:])
+    savedDrafts = cache?.drafts() ?? [:]
+    core.restore(index: cache?.index(), drafts: savedDrafts)
   }
 
   /// What the home screen lists.
@@ -64,14 +69,17 @@ public final class SyncModel {
 
   /// Reads messages and carries out what the core asks, until cancelled.
   ///
-  /// - Remark: The two loops run side by side; cancelling the caller ends both.
-  /// - SideEffects: Sends on the connection; marks it synced.
+  /// - Remark: The loops run side by side; cancelling the caller ends them. A cache write still
+  ///   waiting then is dropped, so a model no longer run cannot overwrite a newer copy.
+  /// - SideEffects: Sends on the connection; marks it synced; cancels a pending cache write.
   public func run() async {
     await withTaskGroup(of: Void.self) { group in
       group.addTask { await self.carryOut() }
       group.addTask { await self.listen() }
       group.addTask { await self.followOpenings() }
     }
+    saving?.cancel()
+    saving = nil
   }
 
   /// Takes a status the connection reported.
@@ -85,6 +93,7 @@ public final class SyncModel {
     self.status = status
     // An authenticated revocation deletes the host's copy with its keys (SPEC-0005 "撤销").
     if status == .revoked {
+      revoked = true
       saving?.cancel()
       saving = nil
       try? cache?.removeAll()
@@ -118,7 +127,7 @@ public final class SyncModel {
   /// - SideEffects: Queues commands.
   /// - Parameter sessionId: The session.
   public func close(_ sessionId: SessionId) {
-    if let session = core.sessions[sessionId]?.cached { try? cache?.save(session) }
+    if let session = core.sessions[sessionId]?.cached { try? writable?.save(session) }
     enqueue(core.close(sessionId))
   }
 
@@ -130,7 +139,7 @@ public final class SyncModel {
   public func saveNow() {
     saving?.cancel()
     saving = nil
-    guard let cache else { return }
+    guard let cache = writable else { return }
     if let index = core.index.cached { try? cache.save(index) }
     for sessionId in core.openSessions {
       if let session = core.sessions[sessionId]?.cached { try? cache.save(session) }
@@ -141,14 +150,20 @@ public final class SyncModel {
   ///
   /// - Remark: Streaming changes the open session many times a second; one write a second is enough
   ///   for a copy that only has to be close (SPEC-0005 "MP4c 定的细节").
+  ///   The task holds the model weakly, so a model replaced meanwhile writes nothing stale.
   /// - SideEffects: Starts a task that sleeps on the injected clock.
   private func scheduleSave() {
-    guard cache != nil, saving == nil else { return }
-    saving = Task { [clock] in
+    guard writable != nil, saving == nil else { return }
+    saving = Task { [weak self, clock] in
       do { try await clock.sleep(for: .seconds(1)) } catch { return }
-      self.saveNow()
+      self?.saveNow()
     }
   }
+
+  /// The cache, while it may be written.
+  ///
+  /// - Remark: `nil` without one, or once the host revoked this phone (SPEC-0005 "MP4c 定的细节").
+  private var writable: SyncCache? { revoked ? nil : cache }
 
   /// Whether a session's input may be sent now.
   ///
@@ -169,7 +184,22 @@ public final class SyncModel {
   ///   - sessionId: The session.
   public func setDraft(_ text: String, for sessionId: SessionId) {
     core.setDraft(text, for: sessionId)
-    try? cache?.save(drafts: core.drafts)
+    saveDrafts()
+  }
+
+  /// Writes the drafts if the core changed them since the last write.
+  ///
+  /// - Remark: Typing, sending and a message given back all change them; each is written at once
+  ///   (SPEC-0005 "MP4c 定的细节").
+  /// - SideEffects: May write a file.
+  private func saveDrafts() {
+    guard let cache = writable, core.drafts != savedDrafts else { return }
+    do {
+      try cache.save(drafts: core.drafts)
+      savedDrafts = core.drafts
+    } catch {
+      // The old drafts stay on disk; the next change tries again.
+    }
   }
 
   /// Sends a session's input.
@@ -180,6 +210,7 @@ public final class SyncModel {
   public func send(_ sessionId: SessionId) {
     guard status == .connected else { return }
     enqueue(core.send(sessionId))
+    saveDrafts()
   }
 
   /// Sends an uncertain message again, as a new one.
@@ -202,6 +233,7 @@ public final class SyncModel {
     for await message in connection.messages {
       guard let decoded = try? decoder.decode(HostMessage.self, from: message.data) else { continue }
       enqueue(core.receive(decoded, generation: message.generation))
+      saveDrafts()
       scheduleSave()
     }
   }
@@ -220,7 +252,10 @@ public final class SyncModel {
           try await connection.send(data, generation: generation)
         } catch {
           // A message that never left goes back to its input (SPEC-0005 "MP4b 定的细节").
-          if case .prompt(let prompt) = command { core.notWritten(prompt.requestId) }
+          if case .prompt(let prompt) = command {
+            core.notWritten(prompt.requestId)
+            saveDrafts()
+          }
         }
       case .markSynced(let generation):
         await connection.markSynced(generation: generation)

@@ -195,7 +195,9 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     readInstallSeed(home.root, randomUUID),
     loadIndexFile(home.root, REMOTE_FILE, clock.now()),
     // A phone's message receipts (SPEC-0005, "MP4b 定的细节").
-    openReceipts(join(home.root, "remote"), clock),
+    openReceipts(join(home.root, "remote"), clock, {
+      log: (level, message, fields) => logger[level](fields, message),
+    }),
   ]).catch(async (error: unknown) => {
     logger.error({ err: error }, "host failed to start");
     releaseRejections();
