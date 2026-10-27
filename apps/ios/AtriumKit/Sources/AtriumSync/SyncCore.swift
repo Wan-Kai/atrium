@@ -174,7 +174,13 @@ public struct SyncCore {
         for sessionId in failing { fail(sessionId, failure.error.code) }
       case .open(let sessionId): fail(sessionId, failure.error.code)
       case .prompt: refused(requestId, failure.error.code)
-      case .upload(let message, _): refused(message, failure.error.code)
+      case .upload(let message, _):
+        // The retry's upload failing says nothing of the first sending, which may have run.
+        if timing[message]?.retried == true, let index = outbox.firstIndex(where: { $0.id == message }) {
+          outbox[index].state = .uncertain
+        } else {
+          refused(message, failure.error.code)
+        }
       case .action(let sessionId, let action):
         actionProblems[sessionId] = ActionProblem(action: action, code: failure.error.code)
       case .clearing, .other: break
@@ -250,6 +256,7 @@ public struct SyncCore {
     for (requestId, request) in requests {
       switch request {
       case .open(let opened) where opened == sessionId: requests[requestId] = .other
+      case .action(let acted, _) where acted == sessionId: requests[requestId] = .other
       case .sessions(let failing) where failing.contains(sessionId):
         requests[requestId] = .sessions(failing.filter { $0 != sessionId })
       default: break
@@ -303,7 +310,8 @@ public struct SyncCore {
   ///
   /// - Remark: A new random request id, which is also the message's `clientMessageId`; it shows as
   ///   sending until answered. As a `prompt` it is sent now when idle and queued on the host while
-  ///   a run goes on; as a `steer` ("立即插话") it reaches pi before its next step.
+  ///   a run goes on; as a `steer` ("立即插话") it reaches pi before its next step. While the agent
+  ///   asks a question it always goes as a steer, which answers the question.
   /// - SideEffects: none
   /// - Parameters:
   ///   - sessionId: The session.
@@ -317,7 +325,9 @@ public struct SyncCore {
     drafts[sessionId] = nil
     draftImages[sessionId] = nil
     problems[sessionId] = nil
-    return post(text, to: sessionId, kind: steer ? .steer : .prompt, images: pictures)
+    // A reply while the agent asks goes in as a steer and answers it (SPEC-0003, SPEC-0005 "MP5 定的细节").
+    let asking = sessions[sessionId]?.control?.question != nil
+    return post(text, to: sessionId, kind: steer || asking ? .steer : .prompt, images: pictures)
   }
 
   /// Asks something of a session's run: stop it, act on its queue, retry, let deliveries go.
@@ -412,8 +422,12 @@ public struct SyncCore {
   /// - Remark: Its text goes back in front of what the input holds now; "没发出去". A retry that
   ///   could not be written leaves the first sending, which may have run: it is uncertain instead.
   /// - SideEffects: none
-  /// - Parameter requestId: The message.
-  public mutating func notWritten(_ requestId: RequestId) {
+  /// - Parameter written: The message, or one of its uploads.
+  public mutating func notWritten(_ written: RequestId) {
+    // An upload that never left is its message never leaving.
+    var requestId = written
+    if case .upload(let message, _)? = requests[written] { requestId = message }
+    requests[written] = nil
     guard let index = outbox.firstIndex(where: { $0.id == requestId }), outbox[index].state == .sending else {
       return
     }
@@ -423,8 +437,9 @@ public struct SyncCore {
       return
     }
     let message = outbox[index]
+    let pictures = images[requestId] ?? []
     drop(requestId)
-    giveBack(message, .notSent)
+    giveBack(message, .notSent, images: pictures)
   }
 
   /// Records a message and makes its `prompt`.
@@ -545,8 +560,7 @@ public struct SyncCore {
     }
     let pictures = images[requestId] ?? []
     drop(requestId)
-    giveBack(message, .refused(code))
-    if !pictures.isEmpty { draftImages[message.sessionId] = pictures + (draftImages[message.sessionId] ?? []) }
+    giveBack(message, .refused(code), images: pictures)
   }
 
   /// Settles a session's messages whose turns are in its transcript.
@@ -632,10 +646,12 @@ public struct SyncCore {
   /// - Parameters:
   ///   - message: The message.
   ///   - problem: Why it did not go.
-  private mutating func giveBack(_ message: Outgoing, _ problem: SendProblem) {
+  ///   - pictures: Its images, which go in front of those the input holds.
+  private mutating func giveBack(_ message: Outgoing, _ problem: SendProblem, images pictures: [OutgoingImage] = []) {
     let typed = drafts[message.sessionId] ?? ""
     drafts[message.sessionId] = typed.isEmpty ? message.text : "\(message.text)\n\(typed)"
     problems[message.sessionId] = problem
+    if !pictures.isEmpty { draftImages[message.sessionId] = pictures + (draftImages[message.sessionId] ?? []) }
   }
 
   /// The disposition in a `prompt` result.

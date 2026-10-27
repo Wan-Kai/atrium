@@ -61,3 +61,36 @@ extension SessionSummary {
     return copy
   }
 }
+
+@Suite("Session page: what opens by itself")
+struct SessionPresentTests {
+  /// A dialog, as JSON.
+  static let dialog =
+    #"[{"id":"i1","kind":"confirm","title":"继续？","message":null,"options":null,"placeholder":null,"prefill":null,"deadline":null}]"#
+
+  @Test("opens the question first, then the oldest dialog, each once, and nothing before the sync")
+  func order() throws {
+    let question = String(decoding: try JSONEncoder().encode(try pendingQuestion(id: "q9")), as: UTF8.self)
+    let both = try control(["question": question, "interactions": Self.dialog])
+    #expect(SessionPage.nextToPresent(both, presented: [], synced: false) == nil)
+    #expect(SessionPage.nextToPresent(both, presented: [], synced: true)?.id == "question-q9")
+    #expect(SessionPage.nextToPresent(both, presented: ["q9"], synced: true)?.id == "interaction-i1")
+    #expect(SessionPage.nextToPresent(both, presented: ["q9", "i1"], synced: true) == nil)
+    #expect(SessionPage.nextToPresent(nil, presented: [], synced: true) == nil)
+  }
+
+  @Test("says a child page belongs to its parent instead of where it is")
+  func childSubtitle() {
+    #expect(SessionPage.subtitle(place: "proj · main", parentTitle: nil) == "proj · main")
+    #expect(SessionPage.subtitle(place: "proj · main", parentTitle: "修缓存") == "↳ 修缓存")
+  }
+
+  @Test("words a dialog or question the other end answered first")
+  func elsewhere() {
+    #expect(
+      SessionControls.problemText(.init(action: .answerQuestion("q", .skipped), code: .questionClosed)) == "已在别处回答")
+    #expect(
+      SessionControls.problemText(.init(action: .answerInteraction("i", .cancelled), code: .interactionClosed))
+        == "已在别处回答")
+  }
+}

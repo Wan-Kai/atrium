@@ -84,7 +84,7 @@ struct InteractionSheet: View {
           }
         case .input, .editor:
           TextField(interaction.placeholder ?? "", text: $text, axis: .vertical)
-            .lineLimit(interaction.kind == .editor ? 6...14 : 1...3)
+            .lineLimit(interaction.kind == .editor ? 6...14 : 1...1)
             .font(.system(size: 15.5, design: interaction.kind == .editor ? .monospaced : .default))
             .padding(Metrics.sm)
             .background(palette.page, in: RoundedRectangle(cornerRadius: 12))
@@ -101,6 +101,8 @@ struct InteractionSheet: View {
     .background(palette.surface)
     .presentationDetents(interaction.kind == .editor ? [.large] : [.medium, .large])
     .presentationDragIndicator(.visible)
+    // A dialog closed by a swipe could not be found again: it ends with "取消" or an answer.
+    .interactiveDismissDisabled(!elsewhere)
   }
 
   /// The buttons at the bottom.

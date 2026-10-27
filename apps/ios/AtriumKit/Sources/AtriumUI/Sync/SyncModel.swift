@@ -234,9 +234,13 @@ public final class SyncModel {
   /// - Parameters:
   ///   - action: The action.
   ///   - sessionId: The session.
-  public func perform(_ action: SessionAction, in sessionId: SessionId) {
-    guard status == .connected else { return }
-    enqueue(core.perform(action, in: sessionId))
+  /// - Returns: Whether it was sent: not while disconnected or before the sync.
+  @discardableResult
+  public func perform(_ action: SessionAction, in sessionId: SessionId) -> Bool {
+    guard status == .connected else { return false }
+    let outputs = core.perform(action, in: sessionId)
+    enqueue(outputs)
+    return !outputs.isEmpty
   }
 
   /// Forgets why the last action on a session failed.
@@ -310,7 +314,8 @@ public final class SyncModel {
 
   /// The message a command sends, if it sends one.
   ///
-  /// - Remark: `prompt` and `steer` carry the message's request id.
+  /// - Remark: `prompt` and `steer` carry the message's request id; an upload its own, which the
+  ///   core maps to its message.
   /// - SideEffects: none
   /// - Parameter command: The command.
   /// - Returns: The request id.
@@ -318,6 +323,7 @@ public final class SyncModel {
     switch command {
     case .prompt(let prompt): prompt.requestId
     case .steer(let steer): steer.requestId
+    case .uploadAttachment(let upload): upload.requestId
     default: nil
     }
   }

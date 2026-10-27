@@ -92,6 +92,8 @@ struct SessionControls: Equatable {
   /// - Parameter problem: The failure.
   /// - Returns: The toast's words.
   static func problemText(_ problem: ActionProblem) -> String {
+    // The other end answered first (SPEC-0005 "协议改动" 5).
+    if problem.code == .questionClosed || problem.code == .interactionClosed { return "已在别处回答" }
     let action =
       switch problem.action {
       case .stop: "停止"

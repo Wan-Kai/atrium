@@ -181,7 +181,9 @@ struct SyncContractTests {
       }
       model.setDraft("插话的", for: sessionId)
       model.send(sessionId, steer: true)
-      try await within(seconds: 30) { model.core.outbox.isEmpty }
+      try await within(seconds: 30) {
+        model.core.outbox.isEmpty && model.core.sessions[sessionId]?.control?.steers.map(\.text) == ["插话的"]
+      }
       model.perform(.stop, in: sessionId)
       try await within(seconds: 30) {
         let state = model.core.sessions[sessionId]
@@ -219,6 +221,12 @@ struct SyncContractTests {
           model.perform(.answerInteraction("c\(run)", .confirmed(.init(confirmed: true))), in: sessionId)
         }
         try await within(seconds: 30) { model.core.sessions[sessionId]?.control?.interactions.isEmpty == true }
+        if macAnswers {
+          // The phone's answer arriving after the Mac's is refused as answered elsewhere.
+          model.perform(.answerInteraction("c\(run)", .cancelled), in: sessionId)
+          try await within(seconds: 30) { model.core.actionProblems[sessionId]?.code == .interactionClosed }
+          model.dismissActionProblem(in: sessionId)
+        }
         #expect(model.core.actionProblems.isEmpty)
         model.perform(.stop, in: sessionId)
         try await within(seconds: 30) { model.core.sessions[sessionId]?.running == false }

@@ -244,9 +244,8 @@ struct Composer: View {
         }
         .atriumGlass(in: RoundedRectangle(cornerRadius: 26))
         if controls.showsStop {
-          StopKey(palette: palette, stopping: controls.stopping) {
-            sync.perform(.stop, in: sessionId)
-            toast("已停止")
+          StopKey(palette: palette, stopping: controls.stopping || sync.status != .connected) {
+            if sync.perform(.stop, in: sessionId) { toast("已停止") }
           }
         }
       }
@@ -267,7 +266,8 @@ struct Composer: View {
     var tooLarge = false
     for item in items {
       guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-      if let jpeg = ImageShrinker.jpeg(from: data) {
+      // Shrinking a photo takes long; off the main actor so the page keeps moving.
+      if let jpeg = await Task.detached(priority: .userInitiated, operation: { ImageShrinker.jpeg(from: data) }).value {
         added.append(OutgoingImage(mimeType: .imageJpeg, data: jpeg.base64EncodedString()))
       } else {
         tooLarge = true
@@ -287,8 +287,11 @@ struct Composer: View {
   /// - Parameter steer: Whether to send it as a steer.
   private func send(steer: Bool) {
     guard sync.canSend(sessionId) else { return }
+    let answering = sync.core.sessions[sessionId]?.control?.question != nil
     sync.send(sessionId, steer: steer)
-    if steer {
+    if answering {
+      toast("代替回答 · 下一步前送达")
+    } else if steer {
       toast("已插话 · 下一步前送达")
     } else if controls.canSteer {
       toast("已排队 · 共 \(controls.queued + 1) 条")
@@ -437,12 +440,14 @@ private struct Thumbnail: View {
   let palette: Palette
   /// Takes it out.
   let remove: () -> Void
+  /// The decoded thumbnail, once.
+  @State private var picture: CGImage?
 
   /// The thumbnail.
   var body: some View {
     ZStack(alignment: .topTrailing) {
       Group {
-        if let picture = Self.picture(image) {
+        if let picture {
           Image(decorative: picture, scale: 1).resizable().scaledToFill()
         } else {
           palette.fill
@@ -460,6 +465,8 @@ private struct Thumbnail: View {
     }
     .padding(.top, 6)
     .padding(.trailing, 6)
+    // Decoded once per image, not on every keystroke that redraws the input.
+    .task(id: image) { picture = Self.picture(image) }
   }
 
   /// The image to draw, from its base64.

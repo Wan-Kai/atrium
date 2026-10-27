@@ -16,6 +16,8 @@ struct TurnView: View {
   @State private var expanded: Bool
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
+  /// The clock the fold waits on.
+  @Environment(\.atriumClock) private var clock
 
   /// Shows a turn.
   ///
@@ -38,10 +40,17 @@ struct TurnView: View {
         UserBubble(text: layout.user, images: layout.images)
       }
       if layout.showsRail {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
+        // Only a running turn's time ticks; a finished one is drawn once.
+        if layout.running {
+          TimelineView(.periodic(from: .now, by: 1)) { context in
+            ProcessRailView(
+              rows: layout.rows, running: true,
+              duration: layout.headline(now: Int(context.date.timeIntervalSince1970 * 1000)), summary: layout.summary,
+              expanded: $expanded)
+          }
+        } else {
           ProcessRailView(
-            rows: layout.rows, running: layout.running,
-            duration: layout.headline(now: Int(context.date.timeIntervalSince1970 * 1000)), summary: layout.summary,
+            rows: layout.rows, running: false, duration: layout.headline(now: 0), summary: layout.summary,
             expanded: $expanded)
         }
       }
@@ -62,7 +71,7 @@ struct TurnView: View {
     .task(id: layout.running) {
       // Folds a second after the turn ends, so the last step can be seen settling.
       guard !layout.running, expanded else { return }
-      try? await ContinuousClock().sleep(for: .seconds(1))
+      try? await clock.sleep(for: .seconds(1))
       expanded = false
     }
   }

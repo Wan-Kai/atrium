@@ -18,6 +18,10 @@ struct QuestionSheet: View {
   @State private var draft: QuestionDraft
   /// The question shown.
   @State private var page = 0
+  /// The question to turn to after a single choice, once its pause is over.
+  @State private var turning: Int?
+  /// The clock the page turn waits on.
+  @Environment(\.atriumClock) private var clock
   /// Closes the sheet.
   @Environment(\.dismiss) private var dismiss
   /// Light or dark.
@@ -126,6 +130,14 @@ struct QuestionSheet: View {
     .background(palette.surface)
     .presentationDetents([.medium, .large])
     .presentationDragIndicator(.visible)
+    .task(id: turning) {
+      guard let next = turning else { return }
+      // A pause so the pick can be seen; a tab tapped meanwhile wins.
+      try? await clock.sleep(for: .seconds(0.22))
+      guard !Task.isCancelled, turning == next else { return }
+      turning = nil
+      withAnimation(reduceMotion ? nil : MotionToken.smooth.resolved(reduceMotion: false).animation) { page = next }
+    }
   }
 
   /// The tabs, one per question, with a dot that fills once answered.
@@ -138,6 +150,7 @@ struct QuestionSheet: View {
     HStack(spacing: 0) {
       ForEach(Array(draft.question.questions.enumerated()), id: \.offset) { index, asked in
         Button {
+          turning = nil
           withAnimation(reduceMotion ? nil : MotionToken.bouncy.resolved(reduceMotion: false).animation) {
             page = index
           }
@@ -252,15 +265,11 @@ struct QuestionSheet: View {
 
   /// Goes on to the next unanswered question, a moment after a single choice.
   ///
-  /// - Remark: 0.22 s so the pick can be seen (the prototype's timing).
-  /// - SideEffects: Starts a short task that changes the page.
+  /// - Remark: 0.22 s so the pick can be seen (the prototype's timing); the sheet's task waits.
+  /// - SideEffects: Sets the page to turn to.
   private func advance() {
     let count = draft.question.questions.count
-    guard let next = (1..<count).map({ (page + $0) % count }).first(where: { !draft.isAnswered($0) }) else { return }
-    // Fire and forget: a short pause before turning the page; a page closed meanwhile ignores it.
-    Task {
-      try? await ContinuousClock().sleep(for: .seconds(0.22))
-      withAnimation(reduceMotion ? nil : MotionToken.smooth.resolved(reduceMotion: false).animation) { page = next }
-    }
+    guard count > 1 else { return }
+    turning = (1..<count).map({ (page + $0) % count }).first(where: { !draft.isAnswered($0) })
   }
 }

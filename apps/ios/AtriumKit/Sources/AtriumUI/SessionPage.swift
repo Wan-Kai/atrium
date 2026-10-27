@@ -23,6 +23,8 @@ struct SessionPage: View {
   @Environment(\.colorScheme) private var scheme
   /// Whether the app is in front.
   @Environment(\.scenePhase) private var phase
+  /// The clock toasts and presentation wait on.
+  @Environment(\.atriumClock) private var clock
   /// The sheet showing, if any.
   @State private var sheet: PageSheet?
   /// The questions and dialogs already shown by themselves, so closing one does not bring it back.
@@ -64,6 +66,9 @@ struct SessionPage: View {
         if let failure = controls.failure {
           ErrorCard(text: failure, detail: nil) { retry() }
         }
+        if state?.control?.compacting == true {
+          Text("正在压缩上下文…").font(Typography.meta).foregroundStyle(palette.secondary)
+        }
         if controls.restarting {
           Text("正在重启 pi").font(Typography.meta).foregroundStyle(palette.secondary)
         }
@@ -103,13 +108,27 @@ struct SessionPage: View {
       }
     }
     .navigationDestination(item: $openChild) { SessionPage(sessionId: $0) }
-    .onChange(of: Self.waiting(state?.control), initial: true) { presentWaiting(state?.control) }
-    .onChange(of: sheet == nil) { presentWaiting(sync?.core.sessions[sessionId]?.control) }
+    .task(id: PresentKey(waiting: Self.waiting(state?.control), free: sheet == nil, synced: sync?.core.synced == true))
+    {
+      // After the push has settled, so the sheet is not dropped by the transition.
+      try? await clock.sleep(for: .seconds(0.45))
+      guard !Task.isCancelled,
+        let next = Self.nextToPresent(
+          sync?.core.sessions[sessionId]?.control, presented: presented, synced: sync?.core.synced == true),
+        sheet == nil
+      else { return }
+      sheet = next
+      presented.insert(Self.waitingId(next))
+    }
     .onAppear {
       sync?.open(sessionId)
       sync?.clearAttention(sessionId)
     }
-    .onDisappear { sync?.close(sessionId) }
+    // Opening a child keeps this page under it: still watched, so coming back finds it as it was.
+    .onDisappear { if openChild == nil { sync?.close(sessionId) } }
+    .onChange(of: sync?.core.index.sessions.first { $0.sessionId == sessionId }?.attention) {
+      sync?.clearAttention(sessionId)
+    }
     .onChange(of: phase) { if phase == .active { sync?.clearAttention(sessionId) } }
     .onChange(of: sync?.status) { sync?.clearAttention(sessionId) }
     .onChange(of: sync?.core.actionProblems[sessionId]) {
@@ -119,26 +138,64 @@ struct SessionPage: View {
     }
     .task(id: toast) {
       guard toast != nil else { return }
-      try? await ContinuousClock().sleep(for: .seconds(1.9))
+      try? await clock.sleep(for: .seconds(1.9))
       if !Task.isCancelled { toast = nil }
     }
   }
 
-  /// Opens a question or dialog by itself the first time it waits, when no other sheet is open.
+  /// What changes whether something should open by itself.
   ///
-  /// - Remark: SPEC-0005 "MP5 定的细节 · MP5c": the question first, then the oldest dialog. Closed,
-  ///   it stays closed; the question leaves a card in the conversation.
-  /// - SideEffects: May open a sheet.
-  /// - Parameter control: The session's run control.
-  private func presentWaiting(_ control: Control?) {
-    guard sheet == nil, let control else { return }
-    if let question = control.question, !presented.contains(question.id) {
-      presented.insert(question.id)
-      sheet = .question(question)
-    } else if let interaction = control.interactions.first, !presented.contains(interaction.id) {
-      presented.insert(interaction.id)
-      sheet = .interaction(interaction)
+  /// - Remark: The page waits for it to settle, then decides.
+  private struct PresentKey: Equatable {
+    let waiting: [String]
+    let free: Bool
+    let synced: Bool
+  }
+
+  /// The question or dialog to open by itself, if any.
+  ///
+  /// - Remark: SPEC-0005 "MP5 定的细节 · MP5c": the question first, then the oldest dialog, each the
+  ///   first time it waits; closed, it stays closed (the question leaves a card). Not before the
+  ///   connection's sync: a cached copy may hold one already answered, whose answer would be lost.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - control: The session's run control.
+  ///   - presented: The ids already opened by themselves.
+  ///   - synced: Whether the connection is synced.
+  /// - Returns: The sheet to open.
+  static func nextToPresent(_ control: Control?, presented: Set<String>, synced: Bool) -> PageSheet? {
+    guard synced, let control else { return nil }
+    if let question = control.question, !presented.contains(question.id) { return .question(question) }
+    if let interaction = control.interactions.first, !presented.contains(interaction.id) {
+      return .interaction(interaction)
     }
+    return nil
+  }
+
+  /// The id a sheet opened by itself is remembered by.
+  ///
+  /// - Remark: The question's or dialog's own id.
+  /// - SideEffects: none
+  /// - Parameter sheet: The sheet.
+  /// - Returns: The id.
+  private static func waitingId(_ sheet: PageSheet) -> String {
+    switch sheet {
+    case .question(let question): question.id
+    case .interaction(let interaction): interaction.id
+    case .queue, .children: ""
+    }
+  }
+
+  /// The top bar's second line: where the session is, or for a child the conversation it came from.
+  ///
+  /// - Remark: The prototype writes "↳ 父会话标题" on a child's page.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - place: "项目 · 分支".
+  ///   - parentTitle: The parent's title, for a child.
+  /// - Returns: The line.
+  static func subtitle(place: String, parentTitle: String?) -> String {
+    parentTitle.map { "↳ \($0)" } ?? place
   }
 
   /// The ids of what waits for an answer, to notice when it changes.
@@ -197,10 +254,14 @@ struct SessionPage: View {
           .lineLimit(1)
           .accessibilityIdentifier("session.title")
         if let summary, let index = sync?.core.index {
-          Text(HomeList.place(of: summary.containerId, in: index))
-            .font(.system(size: 11.5))
-            .foregroundStyle(palette.secondary)
-            .lineLimit(1)
+          let parent = summary.parent.flatMap { parent in index.sessions.first { $0.sessionId == parent.sessionId } }
+          Text(
+            Self.subtitle(
+              place: HomeList.place(of: summary.containerId, in: index), parentTitle: parent.map(HomeList.title(of:)))
+          )
+          .font(.system(size: 11.5))
+          .foregroundStyle(palette.secondary)
+          .lineLimit(1)
         }
       }
       .padding(.horizontal, Metrics.glassButton + Metrics.md + Metrics.xs)

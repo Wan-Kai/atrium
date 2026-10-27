@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// - Remark: SPEC-0005 "MP5 定的细节 · MP5c": the long side at most 2048, then lower JPEG quality
 ///   until it fits ``maxBytes`` (1,000,000 characters once in base64). ImageIO, so it runs on macOS
 ///   in tests as on the phone, and honours the photo's orientation.
-enum ImageShrinker {
+nonisolated enum ImageShrinker {
   /// The most bytes an image may have: its base64 is then at most 1,000,000 characters.
   static let maxBytes = 750_000
   /// The longest side kept, in pixels.

@@ -91,3 +91,74 @@ struct SyncImagesTests {
       ])
   }
 }
+
+@Suite("Sync core: MP5 review")
+struct SyncMP5ReviewTests {
+  @Test("sends the input as a steer while a question waits, so it answers it")
+  func answersByReply() {
+    var sync = core()
+    _ = sync.open("s1")
+    _ = sync.connected(generation: 1)
+    let question =
+      #"{"id":"qq","askedAt":1,"questions":[{"header":"位置","question":"放哪？","multiSelect":false,"options":[{"label":"a","description":"","preview":null,"recommended":false},{"label":"b","description":"","preview":null,"recommended":false}]}]}"#
+    let snapshot = snapshotJSON("s1").replacingOccurrences(of: #""question":null"#, with: #""question":\#(question)"#)
+    _ = receive(&sync, generation: 1, ok("r1"), indexSnapshotJSON(), ok("r2"), ok("r3"), snapshot)
+    sync.setDraft("放内存", for: "s1")
+    #expect(sync.send("s1") == [.send(steerCommand("r4", "放内存"), generation: 1)])
+  }
+
+  @Test("gives the images back with the text when the message after its uploads could not be written")
+  func imagesBackWhenNotWritten() {
+    var sync = syncedCore()
+    sync.setDraft("看图", for: "s1")
+    sync.setDraftImages([photo], for: "s1")
+    _ = sync.send("s1")
+    _ = receive(&sync, generation: 1, uploaded("r5", "a1"))
+    sync.notWritten("r4")
+    #expect(sync.drafts["s1"] == "看图")
+    #expect(sync.draftImages["s1"] == [photo])
+  }
+
+  @Test("takes an upload that could not be written as its message not written")
+  func uploadNotWritten() {
+    var sync = syncedCore()
+    sync.setDraftImages([photo], for: "s1")
+    _ = sync.send("s1")
+    sync.notWritten("r5")
+    #expect(sync.outbox.isEmpty)
+    #expect(sync.draftImages["s1"] == [photo])
+    #expect(sync.problems["s1"] == .notSent)
+  }
+
+  @Test("makes a message uncertain when an upload of its one retry is refused, as the first may have run")
+  func retryUploadRefused() {
+    var sync = syncedCore()
+    sync.setDraftImages([photo], for: "s1")
+    _ = sync.send("s1")
+    _ = sync.connected(generation: 2)
+    _ = receive(&sync, generation: 2, ok("r6"), indexSnapshotJSON(), ok("r7"), ok("r8"), snapshotJSON("s1"))
+    _ = receive(&sync, generation: 2, failed("r9", "attachment_limit"))
+    #expect(sync.outbox.map(\.state) == [.uncertain])
+    #expect(sync.draftImages["s1"] == nil)
+  }
+
+  @Test("sends an uncertain message with images again with its images")
+  func resendWithImages() {
+    var sync = syncedCore()
+    sync.setDraftImages([photo], for: "s1")
+    _ = sync.send("s1")
+    _ = receive(&sync, generation: 1, uploaded("r5", "a1"))
+    _ = receive(&sync, generation: 1, failed("r4", "outcome_unknown"))
+    #expect(sync.resend("r4") == [.send(uploadCommand("r7"), generation: 1)])
+  }
+
+  @Test("does not let a closed page's late action failure show when it is opened again")
+  func lateActionFailure() {
+    var sync = syncedCore()
+    _ = sync.perform(.stop, in: "s1")
+    _ = sync.close("s1")
+    _ = sync.open("s1")
+    _ = receive(&sync, generation: 1, failed("r4", "session_busy"))
+    #expect(sync.actionProblems["s1"] == nil)
+  }
+}
