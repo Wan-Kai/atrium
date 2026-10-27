@@ -142,7 +142,17 @@
 
 112个采样PID/start与12个观测目录均已消失，外层HOME删除；不外推未知进程/每个资源。44份文件（41工件、原清单、父核验脚本及日志）按字节归档到私有忽略目录`reports/mobile-children-green-ded285e/`，没有提取trace/截图/原帧。旧红的body-only附件及同次DOM正向观察缺口仍保留。
 
-单路只读审查及补核（`t-2e229ac5-e601-4eb9-bd43-cab4750bea3a`、`t-6625cf54-26ab-4510-965f-d2002b95e250`）认可三过的窄结论，但定稿前还需补：①同一目标容器已查`count=1`，**跨容器/跨轮次多画一份仍漏查**；②新helper漏了原“完成”可见文案检查，source分支也尚未查DOM `data-event`，协议正确不能代替显示正确。两项均为静态审查发现的覆盖缺口，不是已复现的产品bug。正准备实际DOM违规负控及最小补强，未执行。另有5秒冷启动等待的潜在不稳：spawn返回只到task waiting，pi异步启动；旧90秒回复等待本来也受60秒用例上限约束。没有负载超时实测，不用总4.4秒推剩余裕量，不自行扩大预算/重试。展开helper的正常点击为清除linger并固定展开，未记录初始状态，不能称本次必然两次点击或删展开必红。当前不关闭历史67/68、ask-user或appearance问题，也不借用此前三方审查给新候选背书。
+单路只读审查及补核（`t-2e229ac5-e601-4eb9-bd43-cab4750bea3a`、`t-6625cf54-26ab-4510-965f-d2002b95e250`）认可三过的窄结论，但定稿前还需补：①同一目标容器已查`count=1`，**跨容器/跨轮次多画一份仍漏查**；②新helper漏了原“完成”可见文案检查，source分支也尚未查DOM `data-event`，协议正确不能代替显示正确。两项起初均为静态审查发现；跨位置重复现已由下述阶段A暴露未检出，可见状态控制尚未执行。这不是已复现的自然产品bug。另有5秒冷启动等待的潜在不稳：spawn返回只到task waiting，pi异步启动；旧90秒回复等待本来也受60秒用例上限约束。没有负载超时实测，不用总4.4秒推剩余裕量，不自行扩大预算/重试。展开helper的正常点击为清除linger并固定展开，未记录初始状态，不能称本次必然两次点击或删展开必红。当前不关闭历史67/68、ask-user或appearance问题，也不借用此前三方审查给新候选背书。
+
+### Children跨位置重复控制A（B0有效未检出，已恢复）
+
+`/tmp/atrium-children-duplicate-A.Tqq5Kk/`封存一次typecheck/list/C1，退出均0；C1用例4.8s、Playwright汇总5.1s，无重试。唯一临时变化是在B0助手原局部`count/visible`断言之前包一层控制：将真实audit agent报告DOM克隆到不同tests turn的现有source容器，保留正确原行和原断言。克隆没有React点击回调，只点击原行；它是测试侧DOM呈现违规，不是生产源码变异、额外协议送达或SourceLines生成的新source。
+
+独立installed、capture、cleanup JSON及完成/导航两份JSON共五份，各有路径附件副本。注入前audit报告1；注入后及原按钮正常click的capture均实采原处1/另处1/全父2、两处CSS-visible，click为`isTrusted=true`、`originalButton=true`；不声称同屏可见。C1其余完成/两次真实导航通过。故结论为**有效SURVIVED：B0漏查跨位置副本**，绝不当作产品绿或负控检出。finally记录abort、marker0和控制槽删除；副本已随正常导航卸载。
+
+父全文核控制及执行/恢复脚本，并用`/tmp/atrium-parent-children-duplicate-a-verify.py`重算57工件、五JSON/五副本、变体精确逆差分、1121产物及真实导航身份；五B0源码和四旧草稿恢复一致，临时助手按hash删除，旧红20/绿色41工件不变。40个采样PID/start及五观测目录现不存，外层HOME删除；没有复跑、提取不透明工件或推断未知进程。60份文件（57工件、清单、父脚本/日志）按字节私有归档到`reports/mobile-children-duplicate-a-ded285e/`。
+
+已批准最小B1补强及使用完全相同控制的一次目标红窗口，尚无结果；恢复后的三例正向、其它控制、全套/正式门禁、提交与整合均另行安排。现有`break-check.mjs`仅支持Vitest/Swift，未伪装成Playwright支持、未扩工具；本阶段是显式记录的Playwright对照。未改等待预算、采集、安全设置或产品构建。
 
 ### Appearance四格准备阻断（16dfcbf）
 
