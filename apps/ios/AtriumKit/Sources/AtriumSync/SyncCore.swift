@@ -47,6 +47,8 @@ public struct SyncCore {
     case clearing(SessionId)
     /// `list_models`, whose answer is the catalog.
     case models
+    /// `create_session` or `create_chat` of a new session, and what to send once it is made.
+    case start(ContainerId?, String, [OutgoingImage])
     /// A command whose answer settles nothing.
     case other
   }
@@ -82,6 +84,14 @@ public struct SyncCore {
   public private(set) var changes: [WorkspaceId: ChangesUpdatedEvent] = [:]
   /// The diff the change list looks at; `nil` when none is open.
   public private(set) var diffTarget: DiffTarget?
+  /// Whether a new session is being made.
+  public private(set) var starting = false
+  /// The session the last start made; the new-session page turns into its page.
+  public private(set) var started: SessionId?
+  /// Why the last start failed, if it did.
+  public private(set) var startFailure: ErrorCode?
+  /// The workspaces the Mac could not find when a session was started in them, on this connection.
+  public private(set) var missingContainers: Set<ContainerId> = []
   /// The model catalog last listed, with the default model; `nil` before the first answer.
   public private(set) var models: ListModelsResult?
   /// The latest diff of ``diffTarget``.
@@ -132,6 +142,11 @@ public struct SyncCore {
     self.generation = generation
     synced = false
     requests = [:]
+    // A start whose answer was lost may or may not have made its session; the list will show it.
+    if starting {
+      starting = false
+      startFailure = .outcomeUnknown
+    }
     listAnswered = false
     listSnapshot = false
     // A session with a copy continues from it; one without waits for a snapshot (SPEC-0005 "MP4c 定的细节").
@@ -177,6 +192,12 @@ public struct SyncCore {
       switch requests.removeValue(forKey: success.requestId) {
       case .index?: listAnswered = true
       case .prompt?: answered(success.requestId, disposition: Self.disposition(success.result))
+      case .start(_, let text, let pictures)?:
+        starting = false
+        if case .object(let fields)? = success.result, case .string(let sessionId)? = fields["sessionId"] {
+          started = sessionId
+          outputs += open(sessionId) + post(text, to: sessionId, kind: .prompt, images: pictures)
+        }
       case .models?:
         if let result = success.result, let data = try? JSONEncoder().encode(result) {
           models = (try? JSONDecoder().decode(ListModelsResult.self, from: data)) ?? models
@@ -202,6 +223,13 @@ public struct SyncCore {
         }
       case .action(let sessionId, let action):
         actionProblems[sessionId] = ActionProblem(action: action, code: failure.error.code)
+      case .start(let container, _, _):
+        starting = false
+        startFailure = failure.error.code
+        // There is no field for a workspace's folder being gone; a start finds out (SPEC-0005 "MP6 定的细节 · MP6d").
+        if let container, failure.error.code == .workspaceNotFound || failure.error.code == .sessionCwdMissing {
+          missingContainers.insert(container)
+        }
       case .clearing, .models, .other: break
       }
     case .indexSnapshot(let snapshot):
@@ -405,6 +433,39 @@ public struct SyncCore {
             requestId: requestId, traceparent: trace, sessionId: sessionId, interactionId: interaction, answer: answer))
       }
     return [send(command)]
+  }
+
+  /// Starts a new session with its first message: in a workspace, or as a new chat.
+  ///
+  /// - Remark: SPEC-0005 "MP6 定的细节 · MP6d": `create_session` (or `create_chat`), then, once its
+  ///   id is back, the session is opened and the message sent with its receipt (images uploaded
+  ///   first). One start at a time, only once synced, and only with something to send.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - container: The workspace; ignored for a chat.
+  ///   - chat: Whether to start a new chat instead.
+  ///   - text: The first message.
+  ///   - pictures: Its images.
+  /// - Returns: The command to send.
+  public mutating func startSession(
+    in container: ContainerId?, chat: Bool, text: String, images pictures: [OutgoingImage]
+  ) -> [SyncOutput] {
+    guard synced, !starting, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pictures.isEmpty
+    else { return [] }
+    let place: ContainerId? = chat ? nil : container
+    guard chat || place != nil else { return [] }
+    starting = true
+    started = nil
+    startFailure = nil
+    let requestId = track(.start(place, text, pictures))
+    if let place {
+      return [
+        send(
+          .createSession(CreateSessionCommand(requestId: requestId, traceparent: makeTraceparent(), containerId: place))
+        )
+      ]
+    }
+    return [send(.createChat(CreateChatCommand(requestId: requestId, traceparent: makeTraceparent())))]
   }
 
   /// Asks for the models a workspace's sessions can use, or for a chat's with `nil`.

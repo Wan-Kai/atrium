@@ -34,8 +34,10 @@
       forcedSolid = section.hasSuffix("-solid")
       let base = forcedReduced ? String(section.dropLast(8)) : forcedSolid ? String(section.dropLast(6)) : section
       self.section =
-        (Self.sections + ["timeline-list", "timeline-stack", "timeline-control", "timeline-check", "diff-page"])
-          .contains(base)
+        (Self.sections + [
+          "timeline-list", "timeline-stack", "timeline-control", "timeline-check", "diff-page", "new-session",
+        ])
+        .contains(base)
         ? base : "all"
     }
 
@@ -51,6 +53,8 @@
       #if os(iOS)
         if section == "diff-page" {
           NavigationStack { DiffPage(route: GalleryDiff.route) }
+        } else if section == "new-session" {
+          NavigationStack { NewSessionPage(route: NewSessionRoute(container: nil)) }
         } else if section == "timeline-check" {
           GalleryTimelineInteraction()
         } else if section.hasPrefix("timeline-") {

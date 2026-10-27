@@ -204,4 +204,26 @@ struct HomeLayoutTests {
         ]))
     #expect(HomeList.recentContainer(in: two) == "w1")
   }
+
+  @Test("lists the three workspaces worked in last, each once, leaving chats and merged ones out")
+  func recentWorkspaces() {
+    var state = IndexState()
+    apply(
+      &state,
+      indexSnapshotJSON(
+        workspaces: (1...5).map { workspaceJSON("w\($0)", project: "p1", branch: "b\($0)") }
+          + [
+            workspaceJSON("w6", project: "p1", branch: "done").replacingOccurrences(
+              of: #""merge":null"#, with: #""merge":{"dirty":false,"ahead":0,"verdict":"merged","reason":null}"#)
+          ],
+        chats: [chatJSON("c1")],
+        sessions: [
+          summaryJSON("a", in: "w1", extra: ["updatedAt": "1"]), summaryJSON("b", in: "w2", extra: ["updatedAt": "5"]),
+          summaryJSON("c", in: "w2", extra: ["updatedAt": "6"]), summaryJSON("d", in: "c1", extra: ["updatedAt": "9"]),
+          summaryJSON("e", in: "w6", extra: ["updatedAt": "8"]), summaryJSON("f", in: "w3", extra: ["updatedAt": "4"]),
+          summaryJSON("g", in: "w4", extra: ["updatedAt": "3"]), summaryJSON("h", in: "w5", extra: ["updatedAt": "2"]),
+        ]))
+    #expect(HomeList.recentWorkspaces(in: state) == ["w2", "w3", "w4"])
+    #expect(HomeList.recentWorkspaces(in: IndexState()).isEmpty)
+  }
 }

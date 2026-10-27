@@ -167,6 +167,11 @@ struct WorkspacePage: View {
         if group?.rows.isEmpty ?? true {
           Text("这个工作区还没有会话").font(.system(size: 15)).foregroundStyle(palette.secondary)
             .frame(maxWidth: .infinity).padding(.top, Metrics.xl)
+          NavigationLink(value: NewSessionRoute(container: workspaceId)) {
+            Text("在这里新建会话").font(.system(size: 15)).foregroundStyle(palette.tint)
+          }
+          .buttonStyle(.plain)
+          .frame(maxWidth: .infinity).frame(minHeight: 42)
         }
         ForEach(group?.rows ?? []) { SessionRow(row: $0) }
       }
@@ -178,6 +183,7 @@ struct WorkspacePage: View {
     .overlay(alignment: .topLeading) {
       GlassCircleButton(systemImage: "chevron.left", label: "返回") { dismiss() }.padding(.leading, Metrics.md)
     }
+    .overlay(alignment: .bottomTrailing) { NewSessionKey(route: NewSessionRoute(container: workspaceId)) }
     .hidingNavigationBar()
   }
 }

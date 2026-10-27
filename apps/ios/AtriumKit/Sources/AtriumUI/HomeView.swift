@@ -72,8 +72,15 @@ public struct HomeView: View {
           .padding(.leading, Metrics.md)
           .accessibilityIdentifier("home.menu")
       }
+      .overlay(alignment: .bottomTrailing) {
+        if let sync, sync.core.index.ready {
+          NewSessionKey(
+            route: NewSessionRoute(container: HomeList.recentWorkspaces(in: sync.core.index, limit: 1).first))
+        }
+      }
       .hidingNavigationBar()
       .navigationDestination(for: SessionId.self) { SessionPage(sessionId: $0) }
+      .navigationDestination(for: NewSessionRoute.self) { NewSessionPage(route: $0) }
       .navigationDestination(for: ChangesRoute.self) { ChangesPage(workspaceId: $0.workspaceId) }
       .navigationDestination(for: WorkspaceRoute.self) { WorkspacePage(workspaceId: $0.workspaceId) }
       .task(id: sync?.home.projects.flatMap { $0.workspaces.map(\.id) }) {
@@ -172,7 +179,17 @@ public struct HomeView: View {
       }
     }
     if !home.chats.isEmpty {
-      groupTitle("对话", count: home.chats.count, palette: palette)
+      HStack(alignment: .lastTextBaseline) {
+        groupTitle("对话", count: home.chats.count, palette: palette)
+        Spacer()
+        NavigationLink(value: NewSessionRoute(container: nil)) {
+          Image(systemName: "plus").font(.system(size: 17)).foregroundStyle(palette.secondary)
+            .frame(width: 44, height: 36)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("新对话")
+        .padding(.bottom, 2)
+      }
       ForEach(allChats ? home.chats : home.shownChats) { SessionRow(row: $0) }
       if !allChats, home.chats.count > home.shownChats.count {
         Button("显示全部 \(home.chats.count) 个") { allChats = true }

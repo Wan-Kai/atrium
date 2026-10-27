@@ -214,6 +214,17 @@ public final class SyncModel {
     core.setDraftImages(images, for: sessionId)
   }
 
+  /// Makes a new session and sends its first message.
+  ///
+  /// - Remark: See ``SyncCore/startSession(in:chat:text:images:)``.
+  /// - SideEffects: Queues the command.
+  /// - Parameters:
+  ///   - container: The workspace, or `nil` for a chat.
+  ///   - text: The first message.
+  public func startSession(in container: ContainerId?, text: String) {
+    enqueue(core.startSession(in: container, chat: container == nil, text: text, images: []))
+  }
+
   /// Asks for the models a workspace's sessions can use.
   ///
   /// - Remark: See ``SyncCore/listModels(workspaceId:refresh:)``.

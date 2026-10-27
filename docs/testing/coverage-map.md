@@ -1980,3 +1980,15 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 服务商图标由 `scripts/ios-brand-icons.mjs` 从桌面的 `packages/ui/src/design/brand` 用 Chromium 画成 96px PNG 后提交；脚本要 Playwright 的浏览器，没有放进 `pnpm check`。
 - 破坏检查：`apps/ios/Testing/mp6c-breaks.json`，全部抓到。
 - 未覆盖：模型 sheet 整体没有截图（要真实同步数据），拖动的橡皮筋和弹簧吸附没有做（点或拖到哪一档就是哪一档）。
+
+## MP6d 新会话（SPEC-0005"MP6 定的细节"，2026-10-28，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 同步核心：同步后才新建、一次一个、先 `create_session` / `create_chat` 再订阅打开、发 `prompt` 带回执；`workspace_not_found` / `session_cwd_missing` 把工作区标成找不到；断线时结果不明 | `SyncStartTests` |
+| 提示句（分支、对话、找不到）；选位置 sheet 按项目列工作区、不列已合并的 | `NewSessionTests` |
+| 最近 3 个位置：按会话最近更新、每个工作区一次、不含对话和已合并的；首页 `+` 的默认位置取第一个 | `HomeLayoutTests/recentWorkspaces` |
+| 新会话页（猫、提示句、位置胶囊、输入框）的样子 | 截图 `pnpm ios:shot --gallery=new-session [--dark]` |
+
+- 破坏检查：`apps/ios/Testing/mp6d-breaks.json`，7 处全部抓到。
+- 未覆盖：新会话页第一版不带图片；发出后原地变成会话页、选位置 sheet、找不到工作区的橙色胶囊没有 UI 测试或截图（要真实同步数据），留给验收时在真机上看。

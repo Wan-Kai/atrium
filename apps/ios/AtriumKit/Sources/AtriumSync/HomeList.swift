@@ -165,6 +165,26 @@ public struct HomeList: Sendable, Equatable {
     index.sessions.filter { !$0.archived && $0.parent == nil }.max { $0.updatedAt < $1.updatedAt }?.containerId
   }
 
+  /// The workspaces worked in last, newest first, for the new session's place sheet.
+  ///
+  /// - Remark: SPEC-0005 "MP6 定的细节 · MP6d": "最近 3 个（按会话最近更新）"; chats, archived and
+  ///   merged workspaces are not places to pick.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - index: The list.
+  ///   - limit: How many.
+  /// - Returns: The workspaces.
+  public static func recentWorkspaces(in index: IndexState, limit: Int = 3) -> [WorkspaceId] {
+    let open = Set(index.workspaces.filter { $0.archivedAt == nil && $0.merge?.verdict != .merged }.map(\.id))
+    var seen: [WorkspaceId] = []
+    for session in index.sessions.sorted(by: { $0.updatedAt > $1.updatedAt })
+    where open.contains(session.containerId) && !seen.contains(session.containerId) {
+      seen.append(session.containerId)
+      if seen.count == limit { break }
+    }
+    return seen
+  }
+
   /// A session's row in a group.
   ///
   /// - Remark: Asking before an error not seen before running, as the sidebar's row.
