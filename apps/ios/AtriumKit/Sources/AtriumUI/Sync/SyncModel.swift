@@ -204,13 +204,46 @@ public final class SyncModel {
 
   /// Sends a session's input.
   ///
-  /// - Remark: See ``SyncCore/send(_:)``.
+  /// - Remark: See ``SyncCore/send(_:steer:)``.
+  /// - SideEffects: Queues the command.
+  /// - Parameters:
+  ///   - sessionId: The session.
+  ///   - steer: Whether to send it as a steer ("立即插话").
+  public func send(_ sessionId: SessionId, steer: Bool = false) {
+    guard status == .connected else { return }
+    enqueue(core.send(sessionId, steer: steer))
+    saveDrafts()
+  }
+
+  /// Asks something of a session's run.
+  ///
+  /// - Remark: See ``SyncCore/perform(_:in:)``.
+  /// - SideEffects: Queues the command.
+  /// - Parameters:
+  ///   - action: The action.
+  ///   - sessionId: The session.
+  public func perform(_ action: SessionAction, in sessionId: SessionId) {
+    guard status == .connected else { return }
+    enqueue(core.perform(action, in: sessionId))
+  }
+
+  /// Forgets why the last action on a session failed.
+  ///
+  /// - Remark: See ``SyncCore/dismissActionProblem(in:)``.
+  /// - SideEffects: Updates the core.
+  /// - Parameter sessionId: The session.
+  public func dismissActionProblem(in sessionId: SessionId) {
+    core.dismissActionProblem(in: sessionId)
+  }
+
+  /// Clears a session's error once its page shows it.
+  ///
+  /// - Remark: See ``SyncCore/clearAttention(_:)``.
   /// - SideEffects: Queues the command.
   /// - Parameter sessionId: The session.
-  public func send(_ sessionId: SessionId) {
+  public func clearAttention(_ sessionId: SessionId) {
     guard status == .connected else { return }
-    enqueue(core.send(sessionId))
-    saveDrafts()
+    enqueue(core.clearAttention(sessionId))
   }
 
   /// Sends an uncertain message again, as a new one.
@@ -252,14 +285,28 @@ public final class SyncModel {
           try await connection.send(data, generation: generation)
         } catch {
           // A message that never left goes back to its input (SPEC-0005 "MP4b 定的细节").
-          if case .prompt(let prompt) = command {
-            core.notWritten(prompt.requestId)
+          if let message = Self.messageId(of: command) {
+            core.notWritten(message)
             saveDrafts()
           }
         }
       case .markSynced(let generation):
         await connection.markSynced(generation: generation)
       }
+    }
+  }
+
+  /// The message a command sends, if it sends one.
+  ///
+  /// - Remark: `prompt` and `steer` carry the message's request id.
+  /// - SideEffects: none
+  /// - Parameter command: The command.
+  /// - Returns: The request id.
+  private static func messageId(of command: Command) -> RequestId? {
+    switch command {
+    case .prompt(let prompt): prompt.requestId
+    case .steer(let steer): steer.requestId
+    default: nil
     }
   }
 

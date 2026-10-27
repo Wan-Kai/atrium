@@ -37,8 +37,12 @@ public struct SyncCore {
     case sessions([SessionId])
     /// `open_session`; a failure fails the session.
     case open(SessionId)
-    /// A message's `prompt`, by its own request id.
+    /// A message's `prompt` or `steer`, by its own request id.
     case prompt
+    /// An action on a session, whose failure is shown.
+    case action(SessionId, SessionAction)
+    /// `clear_attention` of a session.
+    case clearing(SessionId)
     /// A command whose answer settles nothing.
     case other
   }
@@ -64,6 +68,8 @@ public struct SyncCore {
   public private(set) var problems: [SessionId: SendProblem] = [:]
   /// The latest message of each session found in its transcript, by request id.
   public private(set) var lastDelivered: [SessionId: RequestId] = [:]
+  /// Why the last action on a session failed.
+  public private(set) var actionProblems: [SessionId: ActionProblem] = [:]
 
   private var requests: [RequestId: Request] = [:]
   private var listAnswered = false
@@ -158,7 +164,9 @@ public struct SyncCore {
         for sessionId in failing { fail(sessionId, failure.error.code) }
       case .open(let sessionId): fail(sessionId, failure.error.code)
       case .prompt: refused(requestId, failure.error.code)
-      case .other: break
+      case .action(let sessionId, let action):
+        actionProblems[sessionId] = ActionProblem(action: action, code: failure.error.code)
+      case .clearing, .other: break
       }
     case .indexSnapshot(let snapshot):
       index.apply(snapshot)
@@ -271,17 +279,84 @@ public struct SyncCore {
   /// Sends a session's input as a message, if it may be sent.
   ///
   /// - Remark: A new random request id, which is also the message's `clientMessageId`; it shows as
-  ///   sending until answered.
+  ///   sending until answered. As a `prompt` it is sent now when idle and queued on the host while
+  ///   a run goes on; as a `steer` ("立即插话") it reaches pi before its next step.
   /// - SideEffects: none
-  /// - Parameter sessionId: The session.
+  /// - Parameters:
+  ///   - sessionId: The session.
+  ///   - steer: Whether to send it as a steer.
   /// - Returns: The command to send.
-  public mutating func send(_ sessionId: SessionId) -> [SyncOutput] {
+  public mutating func send(_ sessionId: SessionId, steer: Bool = false) -> [SyncOutput] {
     guard canSend(sessionId), let text = drafts[sessionId],
       !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     else { return [] }
     drafts[sessionId] = nil
     problems[sessionId] = nil
-    return [post(text, to: sessionId)]
+    return [post(text, to: sessionId, kind: steer ? .steer : .prompt)]
+  }
+
+  /// Asks something of a session's run: stop it, act on its queue, retry, let deliveries go.
+  ///
+  /// - Remark: Only once synced and with the session open. Taking an action clears why the last
+  ///   one failed; a failure is kept in ``actionProblems``.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - action: The action.
+  ///   - sessionId: The session.
+  /// - Returns: The command to send.
+  public mutating func perform(_ action: SessionAction, in sessionId: SessionId) -> [SyncOutput] {
+    guard synced, openSessions.contains(sessionId) else { return [] }
+    actionProblems[sessionId] = nil
+    let requestId = track(.action(sessionId, action))
+    let trace = makeTraceparent()
+    let command: Command =
+      switch action {
+      case .stop: .stop(StopCommand(requestId: requestId, traceparent: trace, sessionId: sessionId))
+      case .resumeQueue:
+        .resumeQueue(ResumeQueueCommand(requestId: requestId, traceparent: trace, sessionId: sessionId))
+      case .clearQueue: .clearQueue(ClearQueueCommand(requestId: requestId, traceparent: trace, sessionId: sessionId))
+      case .removeQueued(let item):
+        .removeQueued(RemoveQueuedCommand(requestId: requestId, traceparent: trace, sessionId: sessionId, itemId: item))
+      case .steerQueued(let item):
+        .steerQueued(SteerQueuedCommand(requestId: requestId, traceparent: trace, sessionId: sessionId, itemId: item))
+      case .updateQueued(let item, let text):
+        .updateQueued(
+          UpdateQueuedCommand(requestId: requestId, traceparent: trace, sessionId: sessionId, itemId: item, text: text))
+      case .retryRun: .retryRun(RetryRunCommand(requestId: requestId, traceparent: trace, sessionId: sessionId))
+      case .resumeDeliveries:
+        .resumeDeliveries(
+          ResumeDeliveriesCommand(requestId: requestId, traceparent: trace, sessionId: sessionId, tree: false))
+      }
+    return [send(command)]
+  }
+
+  /// Forgets why the last action on a session failed.
+  ///
+  /// - Remark: When its toast is dismissed.
+  /// - SideEffects: none
+  /// - Parameter sessionId: The session.
+  public mutating func dismissActionProblem(in sessionId: SessionId) {
+    actionProblems[sessionId] = nil
+  }
+
+  /// Clears a session's error once its page shows it, as the desktop does.
+  ///
+  /// - Remark: SPEC-0005 "MP5 定的细节 · MP5b": only an uncleared `error`, not `auth`, and once
+  ///   while a request for it is on its way.
+  /// - SideEffects: none
+  /// - Parameter sessionId: The session.
+  /// - Returns: The command to send, if any.
+  public mutating func clearAttention(_ sessionId: SessionId) -> [SyncOutput] {
+    guard synced, let summary = index.sessions.first(where: { $0.sessionId == sessionId }),
+      let attention = summary.attention, attention.reason == .error, !attention.cleared,
+      !requests.values.contains(where: { if case .clearing(sessionId) = $0 { true } else { false } })
+    else { return [] }
+    return [
+      send(
+        .clearAttention(
+          ClearAttentionCommand(
+            requestId: track(.clearing(sessionId)), traceparent: makeTraceparent(), sessionId: sessionId)))
+    ]
   }
 
   /// Sends an uncertain message again, as a new message.
@@ -295,7 +370,7 @@ public struct SyncCore {
       return []
     }
     drop(requestId)
-    return [post(message.text, to: message.sessionId)]
+    return [post(message.text, to: message.sessionId, kind: message.kind)]
   }
 
   /// Takes back a message that never left: the connection was gone when it was to be written.
@@ -325,15 +400,16 @@ public struct SyncCore {
   /// - Parameters:
   ///   - text: The text.
   ///   - sessionId: The session.
+  ///   - kind: What it is sent as.
   /// - Returns: The output.
-  private mutating func post(_ text: String, to sessionId: SessionId) -> SyncOutput {
+  private mutating func post(_ text: String, to sessionId: SessionId, kind: Outgoing.Kind) -> SyncOutput {
     let requestId = makeRequestId()
-    outbox.append(Outgoing(id: requestId, sessionId: sessionId, text: text, state: .sending))
+    outbox.append(Outgoing(id: requestId, sessionId: sessionId, text: text, state: .sending, kind: kind))
     timing[requestId] = (now(), false)
     return prompt(requestId)
   }
 
-  /// The `prompt` of a message in the outbox, for its first sending or its one retry.
+  /// The `prompt` or `steer` of a message in the outbox, for its first sending or its one retry.
   ///
   /// - Remark: The same request id both times (SPEC-0005 "协议改动" 4).
   /// - SideEffects: none
@@ -342,23 +418,27 @@ public struct SyncCore {
   private mutating func prompt(_ requestId: RequestId) -> SyncOutput {
     let message = outbox.first { $0.id == requestId }
     requests[requestId] = .prompt
+    let sessionId = message?.sessionId ?? ""
+    let text = message?.text ?? ""
+    if message?.kind == .steer {
+      return send(
+        .steer(SteerCommand(requestId: requestId, traceparent: makeTraceparent(), sessionId: sessionId, text: text)))
+    }
     return send(
-      .prompt(
-        PromptCommand(
-          requestId: requestId, traceparent: makeTraceparent(), sessionId: message?.sessionId ?? "",
-          text: message?.text ?? "")))
+      .prompt(PromptCommand(requestId: requestId, traceparent: makeTraceparent(), sessionId: sessionId, text: text)))
   }
 
   /// Takes the host's answer to a message.
   ///
-  /// - Remark: Started: kept until its turn shows. Handled or queued: settled.
+  /// - Remark: A prompt started is kept until its turn shows; handled or queued, settled. A steer
+  ///   has no turn of its own: settled once the host took it.
   /// - SideEffects: none
   /// - Parameters:
   ///   - requestId: The message.
   ///   - disposition: What the host did with it.
   private mutating func answered(_ requestId: RequestId, disposition: String?) {
     guard let index = outbox.firstIndex(where: { $0.id == requestId }) else { return }
-    if disposition == "started" {
+    if disposition == "started", outbox[index].kind == .prompt {
       outbox[index].state = .accepted
       settleDelivered(in: outbox[index].sessionId)
     } else {

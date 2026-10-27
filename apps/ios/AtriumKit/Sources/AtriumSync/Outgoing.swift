@@ -17,6 +17,16 @@ public struct Outgoing: Sendable, Equatable, Identifiable {
     case uncertain
   }
 
+  /// What the message is sent as.
+  ///
+  /// - Remark: Both go with a receipt (SPEC-0005 "协议改动" 4).
+  public enum Kind: Sendable, Equatable {
+    /// `prompt`: sent now when idle, queued on the host while a run goes on.
+    case prompt
+    /// `steer`: "立即插话", delivered before pi's next step.
+    case steer
+  }
+
   /// The request id.
   public let id: RequestId
   /// The session.
@@ -25,6 +35,8 @@ public struct Outgoing: Sendable, Equatable, Identifiable {
   public let text: String
   /// Where it stands.
   public internal(set) var state: State
+  /// What it is sent as.
+  public let kind: Kind
 
   /// Makes a message.
   ///
@@ -35,11 +47,13 @@ public struct Outgoing: Sendable, Equatable, Identifiable {
   ///   - sessionId: The session.
   ///   - text: The text.
   ///   - state: Where it stands.
-  public init(id: RequestId, sessionId: SessionId, text: String, state: State) {
+  ///   - kind: What it is sent as.
+  public init(id: RequestId, sessionId: SessionId, text: String, state: State, kind: Kind = .prompt) {
     self.id = id
     self.sessionId = sessionId
     self.text = text
     self.state = state
+    self.kind = kind
   }
 }
 
