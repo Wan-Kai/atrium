@@ -58,7 +58,8 @@ struct ModelSheet: View {
       .padding(.bottom, Metrics.xs)
       HStack(alignment: .top, spacing: 0) {
         ScrollView {
-          VStack(spacing: 6) {
+          // Room for a "套餐" badge hanging under an icon.
+          VStack(spacing: 14) {
             ForEach(groups) { group in
               Button {
                 provider = group.providerId

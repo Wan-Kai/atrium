@@ -82,7 +82,10 @@ struct NewSessionPage: View {
         PixelCatView(scene: .sit, size: 120)
         Text(
           Self.sentence(
-            branch: container == nil ? nil : (workspace?.branch ?? workspace?.alias ?? "这个工作区"), missing: missing)
+            branch: container == nil ? nil : (workspace?.branch ?? workspace?.alias ?? "这个工作区"), missing: missing
+          )
+          // The warning breaks after its comma rather than leaving one word on a line.
+          .replacingOccurrences(of: "，", with: "，\n")
         )
         .font(.system(size: missing ? 18 : 20, weight: .semibold))
         .foregroundStyle(missing ? palette.attnText : palette.text)

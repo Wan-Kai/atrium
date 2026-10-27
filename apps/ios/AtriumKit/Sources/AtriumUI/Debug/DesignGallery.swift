@@ -36,6 +36,7 @@
       self.section =
         (Self.sections + [
           "timeline-list", "timeline-stack", "timeline-control", "timeline-check", "diff-page", "new-session",
+          "location-sheet", "new-session-missing", "model-sheet", "drawer",
         ])
         .contains(base)
         ? base : "all"
@@ -55,6 +56,18 @@
           NavigationStack { DiffPage(route: GalleryDiff.route) }
         } else if section == "new-session" {
           NavigationStack { NewSessionPage(route: NewSessionRoute(container: nil)) }
+        } else if section == "location-sheet" {
+          LocationSheet(sync: GallerySync.model(missing: true), picked: "w2") { _ in }
+        } else if section == "new-session-missing" {
+          NavigationStack { NewSessionPage(route: NewSessionRoute(container: GallerySync.missingWorkspace)) }
+            .environment(GallerySync.model(missing: true, modelsFor: GallerySync.missingWorkspace))
+        } else if section == "model-sheet" {
+          ModelSheet(sessionId: GallerySync.openSession, sync: GallerySync.model(modelsFor: "w1"))
+        } else if section == "drawer" {
+          Drawer(sync: GallerySync.model()) {}
+            .environment(
+              \.pairingDetails,
+              PairingDetails(relay: "relay.example.net", deviceName: "Kai 的 iPhone", appVersion: "0.1.0"))
         } else if section == "timeline-check" {
           GalleryTimelineInteraction()
         } else if section.hasPrefix("timeline-") {

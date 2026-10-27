@@ -368,6 +368,21 @@ public final class SyncModel {
     }
   }
 
+  #if DEBUG
+    /// Replaces the core and the status with ready-made ones, for the design gallery.
+    ///
+    /// - Remark: Debug builds only. The gallery has no Mac to sync with, so it feeds a core the host
+    ///   JSON itself and puts it here; the connection is never started, so nothing is sent.
+    /// - SideEffects: Replaces the core and the status.
+    /// - Parameters:
+    ///   - core: The core, already synced.
+    ///   - status: How the connection stands.
+    func adopt(core: SyncCore, status: ConnectionStatus) {
+      self.core = core
+      self.status = status
+    }
+  #endif
+
   /// Queues outputs for ``carryOut()``.
   ///
   /// - Remark: The queue keeps every output; nothing is dropped.

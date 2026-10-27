@@ -2008,5 +2008,6 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 带描边的文件图标不画（会缺一块），退回通用图标 | `scripts/ios-file-icons.test.ts` |
 
 - 破坏检查：`apps/ios/Testing/mp6-review-breaks.json`，10 处全部抓到。
+- 用样例同步数据截图（经真的 `SyncCore.receive`）：`pnpm ios:shot --gallery=location-sheet|new-session-missing|model-sheet|drawer [--dark]`，已逐张看过。
 - 没有自动测试、靠验收看：抽屉里的 relay、手机名、版本和"重新配对"；忘掉 Mac 清理失败时的提示；新建进行中不能点"×"；新会话页的失败提示只显示本页发起的。
 - 审查里决定不改的：hunk 之间的上下文不展开（协议没有按版本取内容的命令，SPEC 已写明）；签名到期用 `Date.now`（按天显示，`Signing` 本身接受注入的时间，界面层不另做时钟）；`ios-brand-icons.mjs` 不进 `pnpm check`（要 Playwright 的浏览器）。
