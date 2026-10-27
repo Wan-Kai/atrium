@@ -26,6 +26,12 @@ public enum SessionAction: Sendable, Equatable {
   case answerQuestion(String, QuestionReply)
   /// `answer_interaction`: a dialog's answer.
   case answerInteraction(String, InteractionAnswer)
+  /// `set_model`: the model sheet's choice.
+  case setModel(ModelRef)
+  /// `set_thinking_level`: the model sheet's level.
+  case setThinkingLevel(ThinkingLevel)
+  /// `set_fast`: the model sheet's Fast switch.
+  case setFast(Bool)
 }
 
 /// Why the last action on a session failed.

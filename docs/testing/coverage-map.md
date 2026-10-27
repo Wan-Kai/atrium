@@ -1968,3 +1968,15 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 
 - 破坏检查：`apps/ios/Testing/mp6b-breaks.json`，全部抓到。
 - 未覆盖：首页、工作区页、抽屉、空状态的界面没有截图（要真实的配对和数据），"忘掉这台 Mac"的清理（钥匙串、缓存）没有自动测试，交给用户验收时逐项看。
+
+## MP6c 模型 sheet（SPEC-0005"MP6 定的细节"，2026-10-28，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 同步核心：同步后才 `list_models`、带工作区和刷新、保留目录和默认模型；`set_model` / `set_thinking_level` / `set_fast` | `SyncModelsTests` |
+| 档位名和说明同桌面（最高一档总是"最慢最贵"、只有关闭的"这个模型不推理"）、点阵覆盖、token 缩写、服务商名和图标文件、总走套餐的服务商、按服务商分组保持顺序、Fast 说明、模型胶囊文字、换模型后保留档位（没有就"高"，再没有就最高） | `ModelChoiceTests` |
+| 服务商图标、点阵推理强度框（中档、最高档的品牌渐变、只有一档时不可拖）的样子 | 截图 `pnpm ios:shot --gallery=models` |
+
+- 服务商图标由 `scripts/ios-brand-icons.mjs` 从桌面的 `packages/ui/src/design/brand` 用 Chromium 画成 96px PNG 后提交；脚本要 Playwright 的浏览器，没有放进 `pnpm check`。
+- 破坏检查：`apps/ios/Testing/mp6c-breaks.json`，全部抓到。
+- 未覆盖：模型 sheet 整体没有截图（要真实同步数据），拖动的橡皮筋和弹簧吸附没有做（点或拖到哪一档就是哪一档）。

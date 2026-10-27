@@ -106,6 +106,9 @@ struct SessionControls: Equatable {
       case .resumeDeliveries: "继续"
       case .answerQuestion: "回答"
       case .answerInteraction: "回答"
+      case .setModel: "换模型"
+      case .setThinkingLevel: "改推理强度"
+      case .setFast: "切换 Fast"
       }
     return "\(action)没成功（\(problem.code.rawValue)）"
   }

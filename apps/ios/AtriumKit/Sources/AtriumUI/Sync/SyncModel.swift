@@ -214,6 +214,17 @@ public final class SyncModel {
     core.setDraftImages(images, for: sessionId)
   }
 
+  /// Asks for the models a workspace's sessions can use.
+  ///
+  /// - Remark: See ``SyncCore/listModels(workspaceId:refresh:)``.
+  /// - SideEffects: Queues the command.
+  /// - Parameters:
+  ///   - workspaceId: The workspace, or `nil` for a chat.
+  ///   - refresh: Whether pi lists them again.
+  public func listModels(workspaceId: WorkspaceId?, refresh: Bool) {
+    enqueue(core.listModels(workspaceId: workspaceId, refresh: refresh))
+  }
+
   /// Watches the changes of the workspaces shown.
   ///
   /// - Remark: See ``SyncCore/watchChanges(_:)``.

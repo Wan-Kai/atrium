@@ -94,7 +94,8 @@ struct SessionPage: View {
         let children = HomeList.children(of: sessionId, in: sync.core.index)
         SessionDock(
           sessionId: sessionId, sync: sync, showQueue: { sheet = .queue },
-          showChildren: { sheet = .children(children) }, children: children.count, toast: { toast = $0 })
+          showChildren: { sheet = .children(children) }, children: children.count,
+          showModel: { sheet = .model }, toast: { toast = $0 })
       }
     }
     .overlay(alignment: .top) { toastView(palette) }
@@ -105,6 +106,7 @@ struct SessionPage: View {
         case .question(let question): QuestionSheet(sessionId: sessionId, sync: sync, question: question)
         case .interaction(let interaction): InteractionSheet(sessionId: sessionId, sync: sync, interaction: interaction)
         case .children(let children): ChildrenSheet(children: children) { openChild = $0 }
+        case .model: ModelSheet(sessionId: sessionId, sync: sync)
         }
       }
     }
@@ -183,7 +185,7 @@ struct SessionPage: View {
     switch sheet {
     case .question(let question): question.id
     case .interaction(let interaction): interaction.id
-    case .queue, .children: ""
+    case .queue, .children, .model: ""
     }
   }
 

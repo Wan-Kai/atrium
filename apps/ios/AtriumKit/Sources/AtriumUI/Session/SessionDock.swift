@@ -20,6 +20,8 @@ struct SessionDock: View {
   let showChildren: (() -> Void)?
   /// How many children the session has.
   let children: Int
+  /// Opens the model sheet.
+  let showModel: () -> Void
   /// Shows a toast.
   let toast: (String) -> Void
   /// Whether the input has the keyboard.
@@ -45,27 +47,47 @@ struct SessionDock: View {
             showQueue()
           }
         }
-        if controls.queued > 0 || children > 0 {
-          HStack(spacing: Metrics.xs) {
-            if controls.queued > 0 {
-              Pill(palette: palette, action: showQueue) {
-                Circle().fill(controls.banner == nil ? palette.tint : palette.attn).frame(width: 6, height: 6)
-                Text("排队 \(controls.queued)").monospacedDigit()
-              }
-              .accessibilityIdentifier("session.queue")
+        HStack(spacing: Metrics.xs) {
+          if controls.queued > 0 {
+            Pill(palette: palette, action: showQueue) {
+              Circle().fill(controls.banner == nil ? palette.tint : palette.attn).frame(width: 6, height: 6)
+              Text("排队 \(controls.queued)").monospacedDigit()
             }
-            if children > 0, let showChildren {
-              Pill(palette: palette, action: showChildren) { Text("子对话 \(children)").monospacedDigit() }
-            }
+            .accessibilityIdentifier("session.queue")
           }
-          .padding(.leading, 2)
-          .transition(.opacity)
+          if children > 0, let showChildren {
+            Pill(palette: palette, action: showChildren) { Text("子对话 \(children)").monospacedDigit() }
+          }
+          Spacer(minLength: 0)
+          if let model = state?.model {
+            Pill(palette: palette, action: showModel) {
+              ProviderIcon(providerId: model.providerId, size: 18)
+              Text(ModelChoice.pill(name: modelName(model), level: model.thinkingLevel, fast: state?.fast ?? false))
+                .lineLimit(1)
+            }
+            .accessibilityIdentifier("session.model")
+          }
         }
+        .padding(.leading, 2)
+        .transition(.opacity)
       }
       Composer(sessionId: sessionId, sync: sync, controls: controls, typing: $typing, toast: toast)
     }
     .padding(.horizontal, 14)
     .padding(.bottom, Metrics.xs)
+  }
+}
+
+extension SessionDock {
+  /// A model's name from the catalog, or its id when the catalog does not list it.
+  ///
+  /// - Remark: As the desktop's `shownModel`.
+  /// - SideEffects: none
+  /// - Parameter model: The session's model.
+  /// - Returns: The name.
+  func modelName(_ model: SessionModel) -> String {
+    sync.core.models?.models.first { $0.providerId == model.providerId && $0.modelId == model.modelId }?.name
+      ?? model.modelId
   }
 }
 

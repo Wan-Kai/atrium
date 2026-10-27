@@ -13,6 +13,8 @@ enum PageSheet: Identifiable {
   case interaction(Interaction)
   /// The child conversations.
   case children([SessionSummary])
+  /// The model, its level and Fast.
+  case model
 
   /// What tells sheets apart.
   var id: String {
@@ -21,6 +23,7 @@ enum PageSheet: Identifiable {
     case .question(let question): "question-\(question.id)"
     case .interaction(let interaction): "interaction-\(interaction.id)"
     case .children: "children"
+    case .model: "model"
     }
   }
 }

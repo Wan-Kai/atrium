@@ -11,6 +11,7 @@
     /// The sections, in order; each name is what `ATRIUM_GALLERY` takes.
     public static let sections = [
       "colors", "type", "glass", "status", "cats", "atoms", "rail", "markdown", "diff", "conversation", "files",
+      "models",
     ]
 
     /// The section to show alone, or every section.

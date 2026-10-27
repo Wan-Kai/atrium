@@ -27,6 +27,20 @@
       case "rail": GalleryRail()
       case "markdown": GalleryMarkdown()
       case "diff": GalleryDiff()
+      case "models":
+        VStack(alignment: .leading, spacing: Metrics.md) {
+          HStack(spacing: Metrics.sm) {
+            ForEach(
+              [
+                "anthropic", "openai-codex", "github-copilot", "openrouter", "xai", "moonshotai", "deepseek", "someone",
+              ],
+              id: \.self
+            ) { ProviderIcon(providerId: $0, size: 30) }
+          }
+          ThinkingBox(levels: [.low, .medium, .high, .xhigh], level: .medium) { _ in }
+          ThinkingBox(levels: [.low, .medium, .high, .xhigh], level: .xhigh) { _ in }
+          ThinkingBox(levels: [.off], level: .off) { _ in }
+        }
       case "files":
         VStack(alignment: .leading, spacing: 6) {
           ForEach(

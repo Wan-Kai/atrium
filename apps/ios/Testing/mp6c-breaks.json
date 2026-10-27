@@ -1,0 +1,42 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Models/ModelChoice.swift",
+    "from": "    if levels.last == level { return \"最慢最贵，留给最难的任务\" }\n",
+    "to": "",
+    "name": "top hint",
+    "runner": "swift",
+    "filter": "ModelChoiceTests/levels"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Models/ModelChoice.swift",
+    "from": "    guard let level, level != .off, let index = levels.firstIndex(of: level) else { return 0 }",
+    "to": "    guard let level, let index = levels.firstIndex(of: level) else { return 0 }",
+    "name": "off covers nothing",
+    "runner": "swift",
+    "filter": "ModelChoiceTests/coverage"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Models/ModelChoice.swift",
+    "from": "    if levels.contains(.high) { return .high }\n",
+    "to": "",
+    "name": "high after switch",
+    "runner": "swift",
+    "filter": "ModelChoiceTests/levelAfterSwitch"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Models/ModelChoice.swift",
+    "from": "    if let level, level != .off { parts.append(levelName(level)) }",
+    "to": "    if let level { parts.append(levelName(level)) }",
+    "name": "pill without off",
+    "runner": "swift",
+    "filter": "ModelChoiceTests/fastAndPill"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    guard synced else { return [] }\n    return [\n      send(\n        .listModels(",
+    "to": "    return [\n      send(\n        .listModels(",
+    "name": "models after sync",
+    "runner": "swift",
+    "filter": "SyncModelsTests/notYet"
+  }
+]

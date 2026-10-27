@@ -45,6 +45,8 @@ public struct SyncCore {
     case action(SessionId, SessionAction)
     /// `clear_attention` of a session.
     case clearing(SessionId)
+    /// `list_models`, whose answer is the catalog.
+    case models
     /// A command whose answer settles nothing.
     case other
   }
@@ -80,6 +82,8 @@ public struct SyncCore {
   public private(set) var changes: [WorkspaceId: ChangesUpdatedEvent] = [:]
   /// The diff the change list looks at; `nil` when none is open.
   public private(set) var diffTarget: DiffTarget?
+  /// The model catalog last listed, with the default model; `nil` before the first answer.
+  public private(set) var models: ListModelsResult?
   /// The latest diff of ``diffTarget``.
   public private(set) var diff: DiffUpdatedEvent?
 
@@ -173,6 +177,10 @@ public struct SyncCore {
       switch requests.removeValue(forKey: success.requestId) {
       case .index?: listAnswered = true
       case .prompt?: answered(success.requestId, disposition: Self.disposition(success.result))
+      case .models?:
+        if let result = success.result, let data = try? JSONEncoder().encode(result) {
+          models = (try? JSONDecoder().decode(ListModelsResult.self, from: data)) ?? models
+        }
       case .upload(let message, let place)?:
         outputs += uploaded(message, place: place, attachmentId: Self.attachmentId(success.result))
       default: break
@@ -194,7 +202,7 @@ public struct SyncCore {
         }
       case .action(let sessionId, let action):
         actionProblems[sessionId] = ActionProblem(action: action, code: failure.error.code)
-      case .clearing, .other: break
+      case .clearing, .models, .other: break
       }
     case .indexSnapshot(let snapshot):
       index.apply(snapshot)
@@ -381,12 +389,42 @@ public struct SyncCore {
         .answerQuestion(
           AnswerQuestionCommand(
             requestId: requestId, traceparent: trace, sessionId: sessionId, questionId: question, answer: reply))
+      case .setModel(let model):
+        .setModel(
+          SetModelCommand(
+            requestId: requestId, traceparent: trace, sessionId: sessionId, providerId: model.providerId,
+            modelId: model.modelId))
+      case .setThinkingLevel(let level):
+        .setThinkingLevel(
+          SetThinkingLevelCommand(requestId: requestId, traceparent: trace, sessionId: sessionId, level: level))
+      case .setFast(let enabled):
+        .setFast(SetFastCommand(requestId: requestId, traceparent: trace, sessionId: sessionId, enabled: enabled))
       case .answerInteraction(let interaction, let answer):
         .answerInteraction(
           AnswerInteractionCommand(
             requestId: requestId, traceparent: trace, sessionId: sessionId, interactionId: interaction, answer: answer))
       }
     return [send(command)]
+  }
+
+  /// Asks for the models a workspace's sessions can use, or for a chat's with `nil`.
+  ///
+  /// - Remark: The model sheet (SPEC-0005 "MP6 定的细节 · MP6c"); the answer replaces ``models``.
+  ///   Only once synced.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - workspaceId: The workspace, or `nil`.
+  ///   - refresh: Whether pi should list them again instead of answering from its cache.
+  /// - Returns: The command to send.
+  public mutating func listModels(workspaceId: WorkspaceId?, refresh: Bool) -> [SyncOutput] {
+    guard synced else { return [] }
+    return [
+      send(
+        .listModels(
+          ListModelsCommand(
+            requestId: track(.models), traceparent: makeTraceparent(), workspaceId: workspaceId,
+            refresh: refresh ? true : nil)))
+    ]
   }
 
   /// Watches the changes of the workspaces shown.
