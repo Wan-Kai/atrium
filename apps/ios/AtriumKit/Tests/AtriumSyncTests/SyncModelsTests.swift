@@ -33,6 +33,26 @@ struct SyncModelsTests {
     #expect(sync.models?.defaultModel == ModelRef(providerId: "openai", modelId: "sol"))
   }
 
+  @Test("keeps a catalog only for the place last asked about, dropping a late answer for another")
+  func place() {
+    var sync = syncedCore()
+    _ = sync.listModels(workspaceId: "w1", refresh: false)
+    _ = receive(&sync, generation: 1, modelsOK("r4"))
+    #expect(sync.modelsWorkspace == "w1")
+    _ = sync.listModels(workspaceId: "w1", refresh: true)
+    #expect(sync.models != nil)
+    _ = sync.listModels(workspaceId: "w2", refresh: false)
+    #expect(sync.models == nil)
+    #expect(sync.modelsWorkspace == "w2")
+    _ = receive(&sync, generation: 1, modelsOK("r5"))
+    #expect(sync.models == nil)
+    _ = receive(&sync, generation: 1, modelsOK("r6"))
+    #expect(sync.models?.models.count == 2)
+    _ = sync.listModels(workspaceId: nil, refresh: false)
+    #expect(sync.models == nil)
+    #expect(sync.modelsWorkspace == nil)
+  }
+
   @Test("does not ask for models before the sync")
   func notYet() {
     var sync = core()

@@ -71,9 +71,18 @@ struct ModelChoiceTests {
     #expect(ModelChoice.fastText(speed: 2, moreUsage: true) == "约 2 倍速度，额度消耗增加")
     #expect(ModelChoice.fastText(speed: 1.5, moreUsage: false) == "约 1.5 倍速度")
     #expect(ModelChoice.fastText(speed: nil, moreUsage: false) == "更快")
+    #expect(ModelChoice.fastText(speed: nil, moreUsage: true) == "更快，额度消耗增加")
     #expect(ModelChoice.pill(name: "Sol", level: .high, fast: true) == "Sol · 高 · ⚡")
     #expect(ModelChoice.pill(name: "Sol", level: .off, fast: false) == "Sol")
     #expect(ModelChoice.pill(name: "Sol", level: nil, fast: false) == "Sol")
+  }
+
+  @Test("tells apart rows of the same model id from two providers")
+  func rowIds() throws {
+    let a = try catalogModel("openai", "gpt")
+    let b = try catalogModel("openai-codex", "gpt")
+    #expect(a.rowId != b.rowId)
+    #expect(a.rowId == (try catalogModel("openai", "gpt")).rowId)
   }
 
   @Test("keeps the level a new model also has, else high, else its top")

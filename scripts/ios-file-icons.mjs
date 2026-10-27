@@ -22,7 +22,8 @@ const output = join(root, "apps/ios/AtriumKit/Sources/AtriumUI/Resources/file-ic
  *
  * @remarks
  * Only `<svg>` and `<path>` elements; a path's `fill` (else the `<svg>`'s, else black), `fill-rule`
- * and `opacity` are kept, and a path filled with `none` is left out.
+ * and `opacity` are kept, and a path filled with `none` is left out. An icon with a visible stroke is
+ * not drawable: leaving the stroked parts out would draw a different icon.
  *
  * @sideEffects none
  * @param {string} svg - The icon's SVG.
@@ -39,6 +40,9 @@ function parse(svg) {
   if (box === undefined || box.length !== 4 || box.some((value) => !Number.isFinite(value))) return null;
   // A path without its own fill takes the <svg>'s, black when neither says.
   const inherited = /<svg\b[^>]*?\sfill="([^"]*)"/.exec(svg)?.[1] ?? "#000";
+  // Strokes are not drawn, so an icon with any would come out with parts missing.
+  const strokes = [...svg.matchAll(/\sstroke="([^"]*)"/g)].some((match) => match[1] !== "none");
+  if (strokes) return null;
   const paths = [];
   for (const [, attributes] of svg.matchAll(/<path\b([^>]*?)\/?>/g)) {
     /**

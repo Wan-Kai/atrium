@@ -31,6 +31,8 @@ struct SessionPage: View {
   @State private var presented: Set<String> = []
   /// The child conversation opened from the child list.
   @State private var openChild: SessionId?
+  /// The change list pushed over this page, if any.
+  @State private var openChanges: ChangesRoute?
   /// The toast showing, if any.
   @State private var toast: String?
 
@@ -52,8 +54,11 @@ struct SessionPage: View {
         ForEach(state?.items ?? [], id: \.id) { item in
           switch item {
           case .turn(let turn):
-            TurnView(layout: TurnLayout(turn), retry: turn.id == lastTurn ? { retry() } : nil, changes: changesRoute)
-              .id(turn.id)
+            TurnView(
+              layout: TurnLayout(turn), retry: turn.id == lastTurn ? { retry() } : nil,
+              openChanges: changesRoute.map { route in { openChanges = route } }
+            )
+            .id(turn.id)
           case .notice(let notice):
             Text(Self.label(notice)).font(Typography.meta).foregroundStyle(palette.tertiary)
           }
@@ -111,6 +116,7 @@ struct SessionPage: View {
       }
     }
     .navigationDestination(item: $openChild) { SessionPage(sessionId: $0) }
+    .navigationDestination(item: $openChanges) { ChangesPage(workspaceId: $0.workspaceId) }
     .task(id: PresentKey(waiting: Self.waiting(state?.control), free: sheet == nil, synced: sync?.core.synced == true))
     {
       // After the push has settled, so the sheet is not dropped by the transition.
@@ -127,8 +133,7 @@ struct SessionPage: View {
       sync?.open(sessionId)
       sync?.clearAttention(sessionId)
     }
-    // Opening a child keeps this page under it: still watched, so coming back finds it as it was.
-    .onDisappear { if openChild == nil { sync?.close(sessionId) } }
+    .onDisappear { if Self.closes(child: openChild, changes: openChanges) { sync?.close(sessionId) } }
     .onChange(of: sync?.core.index.sessions.first { $0.sessionId == sessionId }?.attention) {
       sync?.clearAttention(sessionId)
     }
@@ -209,6 +214,19 @@ struct SessionPage: View {
   /// - Returns: The ids.
   static func waiting(_ control: Control?) -> [String] {
     [control?.question?.id].compactMap { $0 } + (control?.interactions.map(\.id) ?? [])
+  }
+
+  /// Whether leaving the screen closes the session.
+  ///
+  /// - Remark: A push fires `onDisappear` too; a child or the change list pushed over the page keeps
+  ///   it under them, still watched, so coming back finds it as it was (the MP6 review).
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - child: The child pushed over it.
+  ///   - changes: The change list pushed over it.
+  /// - Returns: Whether it closes.
+  static func closes(child: SessionId?, changes: ChangesRoute?) -> Bool {
+    child == nil && changes == nil
   }
 
   /// Where a turn's "改了 N 个文件" goes: the change list of the session's workspace.

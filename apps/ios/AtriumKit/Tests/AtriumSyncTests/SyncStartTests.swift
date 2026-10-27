@@ -35,6 +35,17 @@ struct SyncStartTests {
     #expect(sync.outbox.map(\.sessionId) == ["s9"])
   }
 
+  @Test("gives the first message back to the new session's input when its prompt is refused")
+  func promptRefused() {
+    var sync = syncedCore()
+    _ = sync.startSession(in: "w1", chat: false, text: "修缓存", images: [])
+    _ = receive(&sync, generation: 1, createdOK("r4", "s9"))
+    _ = receive(&sync, generation: 1, failed("r7", "session_busy"))
+    #expect(sync.started == "s9")
+    #expect(sync.outbox.isEmpty)
+    #expect(sync.drafts["s9"] == "修缓存")
+  }
+
   @Test("creates a chat with create_chat")
   func chat() {
     var sync = syncedCore()
@@ -61,6 +72,19 @@ struct SyncStartTests {
     _ = receive(&sync, generation: 1, failed("r6", "session_busy"))
     #expect(sync.missingContainers == ["w1", "w2"])
     #expect(sync.startFailure == .sessionBusy)
+  }
+
+  @Test("forgets the missing workspaces and the last failure on a new connection, not on the same one")
+  func reconnect() {
+    var sync = syncedCore()
+    _ = sync.startSession(in: "w1", chat: false, text: "修缓存", images: [])
+    _ = receive(&sync, generation: 1, failed("r4", "workspace_not_found"))
+    _ = sync.connected(generation: 1)
+    #expect(sync.missingContainers == ["w1"])
+    #expect(sync.startFailure == .workspaceNotFound)
+    _ = sync.connected(generation: 2)
+    #expect(sync.missingContainers.isEmpty)
+    #expect(sync.startFailure == nil)
   }
 
   @Test("cannot tell whether a start went when the connection drops before its answer")

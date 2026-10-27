@@ -191,3 +191,11 @@ enum ModelChoice {
     return levels.last
   }
 }
+
+extension CatalogModel {
+  /// What tells a model's row apart: its provider and its id.
+  ///
+  /// - Remark: Search lists every provider's models together, and two providers can list the same id
+  ///   (the MP6 review).
+  var rowId: String { "\(providerId)\u{0}\(modelId)" }
+}

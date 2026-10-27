@@ -28,10 +28,11 @@ struct ModelSheet: View {
   var body: some View {
     let palette = Palette(scheme: scheme)
     let state = sync.core.sessions[sessionId]
-    let catalog = sync.core.models?.models ?? []
+    let listed = sync.core.modelsWorkspace == workspaceId ? sync.core.models : nil
+    let catalog = listed?.models ?? []
     let current =
       state?.model.map { ModelRef(providerId: $0.providerId, modelId: $0.modelId) }
-      ?? sync.core.models?.defaultModel
+      ?? listed?.defaultModel
     let groups = ModelChoice.groups(catalog)
     let picked = provider ?? current?.providerId ?? groups.first?.providerId
     let currentModel = catalog.first { $0.providerId == current?.providerId && $0.modelId == current?.modelId }
@@ -109,7 +110,7 @@ struct ModelSheet: View {
               Text(catalog.isEmpty ? "正在读取模型…" : "没有匹配的模型").font(.system(size: 14)).foregroundStyle(palette.secondary)
                 .padding(Metrics.sm)
             }
-            ForEach(shown, id: \.modelId) { model in
+            ForEach(shown, id: \.rowId) { model in
               modelRow(
                 model, current: model.providerId == current?.providerId && model.modelId == current?.modelId,
                 palette: palette)
@@ -145,7 +146,7 @@ struct ModelSheet: View {
     .background(palette.surface)
     .presentationDetents([.large])
     .presentationDragIndicator(.visible)
-    .task { sync.listModels(workspaceId: workspaceId, refresh: false) }
+    .task(id: sync.core.synced) { sync.listModels(workspaceId: workspaceId, refresh: false) }
   }
 
   /// The session's workspace, whose models are listed; `nil` for a chat.

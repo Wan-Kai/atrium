@@ -165,6 +165,27 @@ public struct HomeList: Sendable, Equatable {
     index.sessions.filter { !$0.archived && $0.parent == nil }.max { $0.updatedAt < $1.updatedAt }?.containerId
   }
 
+  /// Where the home's "+" starts a new session: the workspace of the latest session.
+  ///
+  /// - Remark: SPEC-0005 "MP6 定的细节 · MP6d": `nil`, a new chat, when that session is in a chat or
+  ///   there is none; an archived or merged workspace is not a place either.
+  /// - SideEffects: none
+  /// - Parameter index: The list.
+  /// - Returns: The workspace, or `nil`.
+  public static func newSessionPlace(in index: IndexState) -> WorkspaceId? {
+    recentContainer(in: index).flatMap { openWorkspaces(in: index).contains($0) ? $0 : nil }
+  }
+
+  /// The workspaces a new session can go in.
+  ///
+  /// - Remark: Not archived and not merged.
+  /// - SideEffects: none
+  /// - Parameter index: The list.
+  /// - Returns: Their ids.
+  private static func openWorkspaces(in index: IndexState) -> Set<WorkspaceId> {
+    Set(index.workspaces.filter { $0.archivedAt == nil && $0.merge?.verdict != .merged }.map(\.id))
+  }
+
   /// The workspaces worked in last, newest first, for the new session's place sheet.
   ///
   /// - Remark: SPEC-0005 "MP6 定的细节 · MP6d": "最近 3 个（按会话最近更新）"; chats, archived and
@@ -175,9 +196,11 @@ public struct HomeList: Sendable, Equatable {
   ///   - limit: How many.
   /// - Returns: The workspaces.
   public static func recentWorkspaces(in index: IndexState, limit: Int = 3) -> [WorkspaceId] {
-    let open = Set(index.workspaces.filter { $0.archivedAt == nil && $0.merge?.verdict != .merged }.map(\.id))
+    let open = openWorkspaces(in: index)
     var seen: [WorkspaceId] = []
-    for session in index.sessions.sorted(by: { $0.updatedAt > $1.updatedAt })
+    for session in index.sessions.filter({ !$0.archived && $0.parent == nil }).sorted(by: {
+      $0.updatedAt > $1.updatedAt
+    })
     where open.contains(session.containerId) && !seen.contains(session.containerId) {
       seen.append(session.containerId)
       if seen.count == limit { break }

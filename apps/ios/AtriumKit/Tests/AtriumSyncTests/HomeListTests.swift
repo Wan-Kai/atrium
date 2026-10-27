@@ -222,8 +222,23 @@ struct HomeLayoutTests {
           summaryJSON("c", in: "w2", extra: ["updatedAt": "6"]), summaryJSON("d", in: "c1", extra: ["updatedAt": "9"]),
           summaryJSON("e", in: "w6", extra: ["updatedAt": "8"]), summaryJSON("f", in: "w3", extra: ["updatedAt": "4"]),
           summaryJSON("g", in: "w4", extra: ["updatedAt": "3"]), summaryJSON("h", in: "w5", extra: ["updatedAt": "2"]),
+          summaryJSON("i", in: "w5", extra: ["updatedAt": "7", "archived": "true"]),
         ]))
     #expect(HomeList.recentWorkspaces(in: state) == ["w2", "w3", "w4"])
     #expect(HomeList.recentWorkspaces(in: IndexState()).isEmpty)
+    // The latest session is in a chat, so the home's "+" starts a new chat.
+    #expect(HomeList.newSessionPlace(in: state) == nil)
+    var worked = IndexState()
+    apply(
+      &worked,
+      indexSnapshotJSON(
+        workspaces: [workspaceJSON("w1", project: "p1"), workspaceJSON("w2", project: "p1", branch: "b")],
+        chats: [chatJSON("c1")],
+        sessions: [
+          summaryJSON("a", in: "c1", extra: ["updatedAt": "1"]), summaryJSON("b", in: "w2", extra: ["updatedAt": "5"]),
+          summaryJSON("c", in: "w1", extra: ["updatedAt": "9", "archived": "true"]),
+        ]))
+    #expect(HomeList.newSessionPlace(in: worked) == "w2")
+    #expect(HomeList.newSessionPlace(in: IndexState()) == nil)
   }
 }

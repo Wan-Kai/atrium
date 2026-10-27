@@ -27,5 +27,7 @@ describe("ios-file-icons.mjs", () => {
     expect(Object.values(table.icons).filter((icon) => icon.paths.length === 0)).toStrictEqual([]);
     // The <svg>'s own fill="none" is inherited: readme's background square is not drawn black.
     expect(table.icons["readme"]?.paths.map((path) => path.fill)).toStrictEqual(["#42a5f5"]);
+    // windicss is a stroked wind shape and one filled square: not half drawn, left to the generic icon.
+    expect(table.icons["windicss"]).toBeUndefined();
   });
 });

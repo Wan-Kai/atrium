@@ -75,7 +75,7 @@ public struct HomeView: View {
       .overlay(alignment: .bottomTrailing) {
         if let sync, sync.core.index.ready {
           NewSessionKey(
-            route: NewSessionRoute(container: HomeList.recentWorkspaces(in: sync.core.index, limit: 1).first))
+            route: NewSessionRoute(container: HomeList.newSessionPlace(in: sync.core.index)))
         }
       }
       .hidingNavigationBar()

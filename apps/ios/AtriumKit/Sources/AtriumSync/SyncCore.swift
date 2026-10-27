@@ -92,8 +92,12 @@ public struct SyncCore {
   public private(set) var startFailure: ErrorCode?
   /// The workspaces the Mac could not find when a session was started in them, on this connection.
   public private(set) var missingContainers: Set<ContainerId> = []
-  /// The model catalog last listed, with the default model; `nil` before the first answer.
+  /// The model catalog of ``modelsWorkspace``, with the default model; `nil` until its answer.
   public private(set) var models: ListModelsResult?
+  /// The workspace the catalog is for (`nil` for a chat's), the one last asked about.
+  public private(set) var modelsWorkspace: WorkspaceId?
+  /// The latest `list_models`; an older answer is dropped.
+  private var modelsRequest: RequestId?
   /// The latest diff of ``diffTarget``.
   public private(set) var diff: DiffUpdatedEvent?
 
@@ -142,6 +146,11 @@ public struct SyncCore {
     self.generation = generation
     synced = false
     requests = [:]
+    // The mark lasts for one connection: the folder may be back (SPEC-0005 "MP6 定的细节 · MP6d").
+    if !again {
+      missingContainers = []
+      startFailure = nil
+    }
     // A start whose answer was lost may or may not have made its session; the list will show it.
     if starting {
       starting = false
@@ -198,7 +207,7 @@ public struct SyncCore {
           started = sessionId
           outputs += open(sessionId) + post(text, to: sessionId, kind: .prompt, images: pictures)
         }
-      case .models?:
+      case .models? where success.requestId == modelsRequest:
         if let result = success.result, let data = try? JSONEncoder().encode(result) {
           models = (try? JSONDecoder().decode(ListModelsResult.self, from: data)) ?? models
         }
@@ -471,7 +480,8 @@ public struct SyncCore {
   /// Asks for the models a workspace's sessions can use, or for a chat's with `nil`.
   ///
   /// - Remark: The model sheet (SPEC-0005 "MP6 定的细节 · MP6c"); the answer replaces ``models``.
-  ///   Only once synced.
+  ///   Only once synced. Asking about another place drops the catalog at once, and only the latest
+  ///   ask's answer is kept, so a catalog is never shown for the wrong place (the MP6 review).
   /// - SideEffects: none
   /// - Parameters:
   ///   - workspaceId: The workspace, or `nil`.
@@ -479,11 +489,15 @@ public struct SyncCore {
   /// - Returns: The command to send.
   public mutating func listModels(workspaceId: WorkspaceId?, refresh: Bool) -> [SyncOutput] {
     guard synced else { return [] }
+    if workspaceId != modelsWorkspace { models = nil }
+    modelsWorkspace = workspaceId
+    let requestId = track(.models)
+    modelsRequest = requestId
     return [
       send(
         .listModels(
           ListModelsCommand(
-            requestId: track(.models), traceparent: makeTraceparent(), workspaceId: workspaceId,
+            requestId: requestId, traceparent: makeTraceparent(), workspaceId: workspaceId,
             refresh: refresh ? true : nil)))
     ]
   }

@@ -143,7 +143,7 @@ struct WorkspacePage: View {
             Image(systemName: "plusminus").font(.system(size: 17)).frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
               Text("改动").font(.system(size: 16))
-              Text(changes?.dirty == true ? "未提交" : "没有未提交的改动").font(.system(size: 13.5))
+              Text(Self.changesLine(dirty: changes?.dirty)).font(.system(size: 13.5))
                 .foregroundStyle(palette.secondary)
             }
             Spacer()
@@ -188,6 +188,23 @@ struct WorkspacePage: View {
   }
 }
 
+extension WorkspacePage {
+  /// The changes row's second line.
+  ///
+  /// - Remark: Before the first `changes_updated` nothing is known, so it does not claim the
+  ///   workspace is clean (the MP6 review).
+  /// - SideEffects: none
+  /// - Parameter dirty: Whether there are uncommitted changes, `nil` before the first answer.
+  /// - Returns: The words.
+  static func changesLine(dirty: Bool?) -> String {
+    switch dirty {
+    case nil: "正在读取改动…"
+    case true?: "未提交"
+    case false?: "没有未提交的改动"
+    }
+  }
+}
+
 /// The drawer the menu key opens: the Mac, this phone, the appearance and about.
 ///
 /// - Remark: The prototype's drawer (SPEC-0005 "MP6 定的细节 · MP6b"): glass, 318pt wide, sliding in
@@ -202,6 +219,10 @@ struct Drawer: View {
   @AppStorage("appearance") private var appearance = "system"
   /// Whether "忘掉这台 Mac" is being confirmed.
   @State private var forgetting = false
+  /// Whether "重新配对" is being confirmed.
+  @State private var repairing = false
+  /// The relay, this phone and the App's version.
+  @Environment(\.pairingDetails) private var details
   /// Forgets the Mac.
   @Environment(\.forgetMac) private var forgetMac
   /// Whether the drawer has slid in.
@@ -237,6 +258,8 @@ struct Drawer: View {
           }
           .foregroundStyle(palette.text)
           .padding(.horizontal, 24)
+          if let details { row("relay", details.relay, palette) }
+          if let details { row("这台手机", details.deviceName, palette) }
           row("加密", "端到端", palette)
           if let expiry = Signing.appExpiry() {
             VStack(alignment: .leading, spacing: 4) {
@@ -248,6 +271,7 @@ struct Drawer: View {
             .padding(.horizontal, 24).padding(.top, Metrics.xs)
           }
           HStack(spacing: 22) {
+            Button("重新配对") { repairing = true }.foregroundStyle(palette.tint)
             Button("忘掉这台 Mac") { forgetting = true }.foregroundStyle(palette.danger)
           }
           .font(.system(size: 14.5, weight: .medium))
@@ -264,6 +288,7 @@ struct Drawer: View {
           Text("减弱动态效果跟随系统设置。").font(.system(size: 13)).foregroundStyle(palette.secondary)
             .padding(.horizontal, 24).padding(.top, 6)
           section("关于", palette)
+          if let details { row("版本", details.appVersion, palette) }
           row("协议", "\(protocolVersion)", palette)
           Text("经你自己的 relay 连回 Mac，中间看不到内容。没有推送：回到 App 时先告诉你谁在等你。")
             .font(.system(size: 13)).foregroundStyle(palette.secondary).padding(.horizontal, 24).padding(.top, 6)
@@ -290,6 +315,14 @@ struct Drawer: View {
       }
     } message: {
       Text("手机上的密钥、缓存和草稿都会删掉。")
+    }
+    .confirmationDialog("重新配对？", isPresented: $repairing, titleVisibility: .visible) {
+      Button("重新配对", role: .destructive) {
+        close()
+        forgetMac?()
+      }
+    } message: {
+      Text("会先忘掉这台 Mac，手机上的密钥、缓存和草稿都会删掉，然后扫 Mac 上新的配对码。")
     }
   }
 

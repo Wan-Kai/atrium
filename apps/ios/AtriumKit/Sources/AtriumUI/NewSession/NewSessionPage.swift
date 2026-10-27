@@ -34,6 +34,8 @@ struct NewSessionPage: View {
   @State private var made: SessionId?
   /// Whether this page asked for the start under way.
   @State private var asked = false
+  /// Whether this page has asked for a start, so a failure shown is its own.
+  @State private var tried = false
   /// Whether the place sheet is open.
   @State private var choosing = false
   /// Whether the input has the keyboard.
@@ -86,7 +88,7 @@ struct NewSessionPage: View {
         .foregroundStyle(missing ? palette.attnText : palette.text)
         .multilineTextAlignment(.center)
         .frame(maxWidth: 320)
-        if let failure = sync?.core.startFailure, !missing, !asked {
+        if tried, let failure = sync?.core.startFailure, !missing, !asked {
           Text(failure == .outcomeUnknown ? "没能确认是否新建好，看看首页有没有它" : "没能新建（\(failure.rawValue)）")
             .font(Typography.meta).foregroundStyle(palette.danger)
         }
@@ -114,11 +116,11 @@ struct NewSessionPage: View {
           .buttonStyle(PressStyle())
           .accessibilityIdentifier("new.place")
           Spacer(minLength: 0)
-          if let model = sync?.core.models?.defaultModel {
+          if let sync, sync.core.modelsWorkspace == container, let model = sync.core.models?.defaultModel {
             HStack(spacing: 6) {
               ProviderIcon(providerId: model.providerId, size: 18)
               Text(
-                sync?.core.models?.models.first { $0.providerId == model.providerId && $0.modelId == model.modelId }?
+                sync.core.models?.models.first { $0.providerId == model.providerId && $0.modelId == model.modelId }?
                   .name
                   ?? model.modelId)
             }
@@ -139,6 +141,7 @@ struct NewSessionPage: View {
             .accessibilityIdentifier("new.input")
           Button {
             asked = true
+            tried = true
             sync?.startSession(in: container, text: text)
           } label: {
             Image(systemName: "arrow.up").font(.system(size: 18, weight: .semibold))
@@ -160,7 +163,9 @@ struct NewSessionPage: View {
     }
     .background(palette.page.ignoresSafeArea())
     .overlay(alignment: .topLeading) {
+      // Not while its start is under way: the session it makes would be opened with no page to close it.
       GlassCircleButton(systemImage: "xmark", label: "关闭") { dismiss() }.padding(.leading, Metrics.md)
+        .disabled(asked && sync?.core.starting == true)
     }
     .hidingNavigationBar()
     .sheet(isPresented: $choosing) {
@@ -171,7 +176,9 @@ struct NewSessionPage: View {
         }
       }
     }
-    .task { sync?.listModels(workspaceId: container, refresh: false) }
+    .task(id: ModelsKey(container: container, synced: sync?.core.synced == true)) {
+      sync?.listModels(workspaceId: container, refresh: false)
+    }
   }
 
   /// The page's question.
@@ -188,6 +195,16 @@ struct NewSessionPage: View {
     guard let branch else { return "要聊点什么？" }
     return "在 \(branch) 里要做什么？"
   }
+}
+
+/// What the draft's model list is for: the place, and whether it can be asked yet.
+///
+/// - Remark: The list is asked again when the place changes or the sync finishes (the MP6 review).
+private struct ModelsKey: Hashable {
+  /// The place.
+  let container: ContainerId?
+  /// Whether synced.
+  let synced: Bool
 }
 
 /// The sheet that picks where a new session goes.

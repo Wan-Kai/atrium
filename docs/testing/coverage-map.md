@@ -1992,3 +1992,21 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 
 - 破坏检查：`apps/ios/Testing/mp6d-breaks.json`，7 处全部抓到。
 - 未覆盖：新会话页第一版不带图片；发出后原地变成会话页、选位置 sheet、找不到工作区的橙色胶囊没有 UI 测试或截图（要真实同步数据），留给验收时在真机上看。
+
+## MP6 审查（codex gpt-6-astra、grok grok-4.7，2026-10-28）
+
+| 行为 | 测试 |
+|---|---|
+| 从会话页的"改了 N 个文件"推出改动列表时，会话页不关闭、不退订（同打开子对话） | `SessionPresentTests/staysUnderPush` |
+| 模型目录只属于最后问的那个位置：换位置立刻清空，旧位置迟到的应答丢掉；页面在同步完成后再问一次 | `SyncModelsTests/place` |
+| "在 Mac 上找不到"标记和上次新建失败只活一个连接：新连接清掉，回到前台（同一连接）不清 | `SyncStartTests/reconnect` |
+| 新会话第一条消息被拒：会话留下，文字退回这个会话的输入框 | `SyncStartTests/promptRefused` |
+| 首页 `+` 的位置：最近更新的会话所在工作区，那个会话在对话里就是新对话；最近位置不算归档的会话 | `HomeLayoutTests/recentWorkspaces` |
+| 模型搜索结果按服务商 + 模型 id 区分行 | `ModelChoiceTests/rowIds` |
+| Fast 说明没有倍数时也带"，额度消耗增加"（同桌面） | `ModelChoiceTests/fastAndPill` |
+| 改动行在第一次 `changes_updated` 之前写"正在读取改动…"，不说没有改动 | `HomeViewTests` |
+| 带描边的文件图标不画（会缺一块），退回通用图标 | `scripts/ios-file-icons.test.ts` |
+
+- 破坏检查：`apps/ios/Testing/mp6-review-breaks.json`，10 处全部抓到。
+- 没有自动测试、靠验收看：抽屉里的 relay、手机名、版本和"重新配对"；忘掉 Mac 清理失败时的提示；新建进行中不能点"×"；新会话页的失败提示只显示本页发起的。
+- 审查里决定不改的：hunk 之间的上下文不展开（协议没有按版本取内容的命令，SPEC 已写明）；签名到期用 `Date.now`（按天显示，`Signing` 本身接受注入的时间，界面层不另做时钟）；`ios-brand-icons.mjs` 不进 `pnpm check`（要 Playwright 的浏览器）。

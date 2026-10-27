@@ -93,4 +93,11 @@ struct SessionPresentTests {
       SessionControls.problemText(.init(action: .answerInteraction("i", .cancelled), code: .interactionClosed))
         == "已在别处回答")
   }
+
+  @Test("keeps the session watched under a child or the change list pushed over it")
+  func staysUnderPush() {
+    #expect(SessionPage.closes(child: nil, changes: nil))
+    #expect(!SessionPage.closes(child: "c1", changes: nil))
+    #expect(!SessionPage.closes(child: nil, changes: ChangesRoute(workspaceId: "w1")))
+  }
 }

@@ -30,3 +30,31 @@ extension EnvironmentValues {
     set { self[ForgetMacKey.self] = newValue }
   }
 }
+
+/// What the drawer says about this pairing: the relay, this phone and the App.
+///
+/// - Remark: SPEC-0005 "MP6 定的细节 · MP6b"; set by `PairingHome`, which knows the stored host and
+///   the device.
+struct PairingDetails: Equatable, Sendable {
+  /// The relay's host name.
+  let relay: String
+  /// This phone's name.
+  let deviceName: String
+  /// The App's version.
+  let appVersion: String
+}
+
+/// The pairing's details for the drawer, when connected.
+///
+/// - Remark: See ``PairingDetails``.
+nonisolated private struct PairingDetailsKey: EnvironmentKey {
+  static let defaultValue: PairingDetails? = nil
+}
+
+extension EnvironmentValues {
+  /// The pairing's details; `nil` without a connection.
+  var pairingDetails: PairingDetails? {
+    get { self[PairingDetailsKey.self] }
+    set { self[PairingDetailsKey.self] = newValue }
+  }
+}

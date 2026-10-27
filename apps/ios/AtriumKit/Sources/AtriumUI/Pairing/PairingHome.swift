@@ -47,6 +47,7 @@ public struct PairingHome<Content: View>: View {
     content
       .environment(sync)
       .environment(\.forgetMac, forgetAction)
+      .environment(\.pairingDetails, pairingDetails)
       .safeAreaInset(edge: .bottom) {
         VStack(alignment: .leading, spacing: 8) {
           HStack {
@@ -239,6 +240,16 @@ public struct PairingHome<Content: View>: View {
     return pendingHosts.first(where: { $0.hostId == selected.hostId }) ?? selected
   }
 
+  /// What the drawer shows about the connected pairing.
+  ///
+  /// - Remark: SPEC-0005 "MP6 定的细节 · MP6b"; only while connected.
+  private var pairingDetails: PairingDetails? {
+    guard sync != nil, let host = target?.host else { return nil }
+    return PairingDetails(
+      relay: host.relay.host() ?? host.relay.absoluteString, deviceName: deviceInfo.deviceName,
+      appVersion: environment.appVersion)
+  }
+
   /// Metadata announced by the phone when pairing.
   private var deviceInfo: DeviceInfo {
     #if os(iOS)
@@ -285,8 +296,13 @@ public struct PairingHome<Content: View>: View {
     connectionRevision += 1
     connectionText = "还没配对 Mac"
     guard let hostId else { return }
-    try? store.removeHost(hostId)
-    try? Self.cache(for: hostId)?.removeAll()
+    // A failure is said, not hidden: the Mac's keys or its copy of the conversations would stay (the MP6 review).
+    do {
+      try store.removeHost(hostId)
+      try Self.cache(for: hostId)?.removeAll()
+    } catch {
+      connectionText = "没能删干净这台 Mac 的记录，解锁手机、重新打开 App 后再忘掉一次"
+    }
   }
 
   /// Creates the connection observed by view tasks.

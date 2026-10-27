@@ -73,6 +73,9 @@ struct WorkspaceTagTests {
     #expect(WorkspaceHeader.tag(dirty: true, ahead: 3, merged: false) == "未提交 · ↑3")
     #expect(WorkspaceHeader.tag(dirty: false, ahead: 1, merged: false) == "↑1")
     #expect(WorkspaceHeader.tag(dirty: true, ahead: 0, merged: false) == "未提交")
+    #expect(WorkspacePage.changesLine(dirty: nil) == "正在读取改动…")
+    #expect(WorkspacePage.changesLine(dirty: true) == "未提交")
+    #expect(WorkspacePage.changesLine(dirty: false) == "没有未提交的改动")
     #expect(WorkspaceHeader.tag(dirty: false, ahead: 0, merged: false) == nil)
     #expect(WorkspaceHeader.tag(dirty: true, ahead: 2, merged: true) == "已合并")
   }
