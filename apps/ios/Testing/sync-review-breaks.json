@@ -65,7 +65,7 @@
   },
   {
     "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCache.swift",
-    "from": "    try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: sessionURL(sessionId).path)\n",
+    "from": "    try? FileManager.default.setAttributes([.modificationDate: newest.addingTimeInterval(1)], ofItemAtPath: file.path)\n",
     "to": "",
     "name": "opening counts as use",
     "runner": "swift",
