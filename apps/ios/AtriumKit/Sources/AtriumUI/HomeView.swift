@@ -58,6 +58,7 @@ public struct HomeView: View {
       .background(palette.page.ignoresSafeArea())
       .hidingNavigationBar()
       .navigationDestination(for: SessionId.self) { SessionPage(sessionId: $0) }
+      .navigationDestination(for: ChangesRoute.self) { ChangesPage(workspaceId: $0.workspaceId) }
     }
   }
 

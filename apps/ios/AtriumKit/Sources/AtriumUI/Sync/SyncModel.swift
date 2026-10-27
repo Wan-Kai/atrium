@@ -214,6 +214,24 @@ public final class SyncModel {
     core.setDraftImages(images, for: sessionId)
   }
 
+  /// Watches the changes of the workspaces shown.
+  ///
+  /// - Remark: See ``SyncCore/watchChanges(_:)``.
+  /// - SideEffects: Queues the command.
+  /// - Parameter workspaceIds: The workspaces.
+  public func watchChanges(_ workspaceIds: [WorkspaceId]) {
+    enqueue(core.watchChanges(workspaceIds))
+  }
+
+  /// Opens the change list's diff, or closes it.
+  ///
+  /// - Remark: See ``SyncCore/watchDiff(_:)``.
+  /// - SideEffects: Queues the command.
+  /// - Parameter target: The workspace and mode, or `nil`.
+  public func watchDiff(_ target: DiffTarget?) {
+    enqueue(core.watchDiff(target))
+  }
+
   /// Sends a session's input.
   ///
   /// - Remark: See ``SyncCore/send(_:steer:)``.

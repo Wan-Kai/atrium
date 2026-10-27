@@ -1944,3 +1944,15 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 
 - 破坏检查：`apps/ios/Testing/mp5-review-breaks.json`，全部抓到。
 - 记为已知、未改：排队时的"+1"浮字；"正在重启 pi"放在对话末尾而不是标题行；动作失败的 toast 在打开的 sheet 下面看不到；提问卡片重新打开时之前的选择不保留；子对话 sheet 打开期间不随列表更新；倒计时和计时用手机时钟对宿主时间戳；没有提问的 `ask_user` 契约（扩展对话框走同一机制）。
+
+## MP6a 改动列表和 diff（SPEC-0005"MP6 定的细节"，2026-10-28，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 同步核心：看得见的工作区 `watch_changes`（整组发、相同不重发、只收看着的）、一次一个 `watch_diff`（只收对应的、换目标清掉旧的、`null` 关掉）、重连后重发 | `SyncChangesTests` |
+| 改动列表：按种类计数（改名算修改）、合计行数、按目录分组（根目录在最后）、按改动量排、筛选、"2.2k"缩写、改名写"旧 → 新" | `ChangeListTests` |
+| 文件图标：同桌面的查找（全名、最长扩展名、浅色变体、找不到用通用图标）、表里每个图标都能画、SVG 路径（直线、曲线、平滑曲线、二次、圆弧和连写的标志、读不了的放弃） | `FileIconTests`、`SVGPathTests` |
+| 图标资源和桌面的表一致（`--check`）、继承 `<svg>` 的 `fill="none"` | `scripts/ios-file-icons.test.ts`，并在 `pnpm check`（`ios:check`）里 |
+| diff 页和文件图标的样子 | 截图 `pnpm ios:shot --gallery=diff-page`、`--gallery=files` |
+
+- 未覆盖：改动列表页本身没有截图（要真实同步数据）；hunk 跳转后的那一下闪色没做；契约没有覆盖 `watch_diff`（宿主侧已有测试）。

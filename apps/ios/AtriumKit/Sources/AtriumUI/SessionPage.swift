@@ -52,7 +52,8 @@ struct SessionPage: View {
         ForEach(state?.items ?? [], id: \.id) { item in
           switch item {
           case .turn(let turn):
-            TurnView(layout: TurnLayout(turn), retry: turn.id == lastTurn ? { retry() } : nil).id(turn.id)
+            TurnView(layout: TurnLayout(turn), retry: turn.id == lastTurn ? { retry() } : nil, changes: changesRoute)
+              .id(turn.id)
           case .notice(let notice):
             Text(Self.label(notice)).font(Typography.meta).foregroundStyle(palette.tertiary)
           }
@@ -206,6 +207,16 @@ struct SessionPage: View {
   /// - Returns: The ids.
   static func waiting(_ control: Control?) -> [String] {
     [control?.question?.id].compactMap { $0 } + (control?.interactions.map(\.id) ?? [])
+  }
+
+  /// Where a turn's "改了 N 个文件" goes: the change list of the session's workspace.
+  ///
+  /// - Remark: `nil` for a session in a chat, which has no workspace.
+  private var changesRoute: ChangesRoute? {
+    guard let sync, let summary = sync.core.index.sessions.first(where: { $0.sessionId == sessionId }),
+      sync.core.index.workspaces.contains(where: { $0.id == summary.containerId })
+    else { return nil }
+    return ChangesRoute(workspaceId: summary.containerId)
   }
 
   /// Retries the session's last run.

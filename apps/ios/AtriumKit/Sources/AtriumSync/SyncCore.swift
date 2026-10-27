@@ -74,6 +74,14 @@ public struct SyncCore {
   public private(set) var lastDelivered: [SessionId: RequestId] = [:]
   /// Why the last action on a session failed.
   public private(set) var actionProblems: [SessionId: ActionProblem] = [:]
+  /// The workspaces whose changes are watched, as last asked.
+  public private(set) var watchedChanges: [WorkspaceId] = []
+  /// The latest changes of each watched workspace.
+  public private(set) var changes: [WorkspaceId: ChangesUpdatedEvent] = [:]
+  /// The diff the change list looks at; `nil` when none is open.
+  public private(set) var diffTarget: DiffTarget?
+  /// The latest diff of ``diffTarget``.
+  public private(set) var diff: DiffUpdatedEvent?
 
   private var requests: [RequestId: Request] = [:]
   private var listAnswered = false
@@ -143,6 +151,9 @@ public struct SyncCore {
       outputs.append(subscribe(openSessions, failing: openSessions, resume: points))
       for sessionId in openSessions { outputs.append(open(sessionId)) }
     }
+    // The host forgets a connection's watches with it (SPEC-0005 "MP6 定的细节 · MP6a").
+    if let diffTarget { outputs.append(watchDiffCommand(diffTarget)) }
+    if !watchedChanges.isEmpty { outputs.append(watchChangesCommand(watchedChanges)) }
     return outputs
   }
 
@@ -196,6 +207,11 @@ public struct SyncCore {
       noteHandedOff()
     case .sessionEvent(let event):
       outputs += take(event)
+    case .changesUpdated(let updated) where watchedChanges.contains(updated.workspaceId):
+      changes[updated.workspaceId] = updated
+    case .diffUpdated(let updated)
+    where diffTarget == DiffTarget(workspaceId: updated.workspaceId, mode: updated.mode):
+      diff = updated
     default: break
     }
     return outputs + checkSynced()
@@ -371,6 +387,56 @@ public struct SyncCore {
             requestId: requestId, traceparent: trace, sessionId: sessionId, interactionId: interaction, answer: answer))
       }
     return [send(command)]
+  }
+
+  /// Watches the changes of the workspaces shown.
+  ///
+  /// - Remark: SPEC-0005 "MP6 定的细节 · MP6a": the whole set each time, as the command replaces
+  ///   the last; the same set again sends nothing. Without a connection it is only recorded.
+  /// - SideEffects: none
+  /// - Parameter workspaceIds: The workspaces, at most 64.
+  /// - Returns: The command to send.
+  public mutating func watchChanges(_ workspaceIds: [WorkspaceId]) -> [SyncOutput] {
+    let wanted = Array(workspaceIds.prefix(64))
+    guard Set(wanted) != Set(watchedChanges) else { return [] }
+    watchedChanges = wanted
+    changes = changes.filter { wanted.contains($0.key) }
+    return generation == nil ? [] : [watchChangesCommand(wanted)]
+  }
+
+  /// Opens the change list's diff, or closes it with `nil`.
+  ///
+  /// - Remark: One at a time; a new target drops the diff shown until its own comes.
+  /// - SideEffects: none
+  /// - Parameter target: The workspace and mode, or `nil`.
+  /// - Returns: The command to send.
+  public mutating func watchDiff(_ target: DiffTarget?) -> [SyncOutput] {
+    guard target != diffTarget else { return [] }
+    diffTarget = target
+    diff = nil
+    return generation == nil ? [] : [watchDiffCommand(target)]
+  }
+
+  /// `watch_changes`.
+  ///
+  /// - Remark: Its answer settles nothing.
+  /// - SideEffects: none
+  /// - Parameter workspaceIds: The workspaces.
+  /// - Returns: The output.
+  private mutating func watchChangesCommand(_ workspaceIds: [WorkspaceId]) -> SyncOutput {
+    send(
+      .watchChanges(
+        WatchChangesCommand(requestId: track(.other), traceparent: makeTraceparent(), workspaceIds: workspaceIds)))
+  }
+
+  /// `watch_diff`.
+  ///
+  /// - Remark: Its answer settles nothing.
+  /// - SideEffects: none
+  /// - Parameter target: The target, or `nil`.
+  /// - Returns: The output.
+  private mutating func watchDiffCommand(_ target: DiffTarget?) -> SyncOutput {
+    send(.watchDiff(WatchDiffCommand(requestId: track(.other), traceparent: makeTraceparent(), target: target)))
   }
 
   /// Forgets why the last action on a session failed.

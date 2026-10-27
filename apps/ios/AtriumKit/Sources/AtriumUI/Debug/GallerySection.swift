@@ -27,6 +27,18 @@
       case "rail": GalleryRail()
       case "markdown": GalleryMarkdown()
       case "diff": GalleryDiff()
+      case "files":
+        VStack(alignment: .leading, spacing: 6) {
+          ForEach(
+            ["ttl.ts", "App.tsx", "package.json", "README.md", "style.css", "Main.swift", "x.unknown"], id: \.self
+          ) {
+            name in
+            HStack(spacing: 10) {
+              FileIconView(path: name)
+              Text(name).font(.system(size: 14.5))
+            }
+          }
+        }
       case "conversation":
         VStack(alignment: .leading, spacing: Metrics.md) {
           TurnView(layout: TurnLayout(SampleTurns.finished))

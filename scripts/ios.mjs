@@ -512,11 +512,12 @@ function testApp() {
  * Runs the Swift checks of `pnpm check`.
  *
  * @remarks
- * The generated protocol types are compared first, with Node only, so a protocol change that was
- * not regenerated fails `pnpm check` on any machine. The Swift lints need Xcode and are skipped,
+ * The generated protocol types and the file icons built from the desktop's are compared first,
+ * with Node only, so a protocol change or icon table that was not regenerated fails `pnpm check`
+ * on any machine. The Swift lints need Xcode and are skipped,
  * saying so, without it.
  *
- * @sideEffects Runs the protocol check, `swift-format lint` and `scripts/swift-lint.mjs`; prints.
+ * @sideEffects Runs the protocol and icon checks, `swift-format lint` and `scripts/swift-lint.mjs`; prints.
  * @returns {number} 0 when everything passed.
  */
 function check() {
@@ -524,6 +525,11 @@ function check() {
     stdio: "inherit",
   });
   let status = generated.status ?? 1;
+  // The phone's file icons are built from the desktop's table and must not drift from it.
+  const icons = spawnSync(process.execPath, [join(root, "scripts", "ios-file-icons.mjs"), "--check"], {
+    stdio: "inherit",
+  });
+  if (icons.status !== 0) status = icons.status ?? 1;
   if (!hasXcode()) {
     console.log("Swift checks skipped: Xcode not found (xcrun could not find xcodebuild)");
     return status;

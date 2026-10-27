@@ -10,7 +10,7 @@
   public struct DesignGallery: View {
     /// The sections, in order; each name is what `ATRIUM_GALLERY` takes.
     public static let sections = [
-      "colors", "type", "glass", "status", "cats", "atoms", "rail", "markdown", "diff", "conversation",
+      "colors", "type", "glass", "status", "cats", "atoms", "rail", "markdown", "diff", "conversation", "files",
     ]
 
     /// The section to show alone, or every section.
@@ -33,7 +33,8 @@
       forcedSolid = section.hasSuffix("-solid")
       let base = forcedReduced ? String(section.dropLast(8)) : forcedSolid ? String(section.dropLast(6)) : section
       self.section =
-        (Self.sections + ["timeline-list", "timeline-stack", "timeline-control", "timeline-check"]).contains(base)
+        (Self.sections + ["timeline-list", "timeline-stack", "timeline-control", "timeline-check", "diff-page"])
+          .contains(base)
         ? base : "all"
     }
 
@@ -47,7 +48,9 @@
     /// Chooses the gallery or the standalone benchmark container.
     @ViewBuilder private var content: some View {
       #if os(iOS)
-        if section == "timeline-check" {
+        if section == "diff-page" {
+          NavigationStack { DiffPage(route: GalleryDiff.route) }
+        } else if section == "timeline-check" {
           GalleryTimelineInteraction()
         } else if section.hasPrefix("timeline-") {
           GalleryTimeline(stack: section == "timeline-stack", stallControl: section == "timeline-control")

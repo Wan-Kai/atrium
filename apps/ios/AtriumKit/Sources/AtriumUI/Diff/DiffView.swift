@@ -45,6 +45,8 @@ struct DiffView: View {
           } header: {
             hunkHeader(header, palette)
           }
+          // The toolbar's "上一处 / 下一处" scroll to a hunk by its place.
+          .id(group.id)
         }
       }
     }

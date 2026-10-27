@@ -12,6 +12,8 @@ struct TurnView: View {
   let layout: TurnLayout
   /// Retries the run, for the latest turn only.
   let retry: (() -> Void)?
+  /// Where "改了 N 个文件" goes; `nil` for a session that is not in a workspace.
+  var changes: ChangesRoute?
   /// Whether the rail is open.
   @State private var expanded: Bool
   /// Light or dark.
@@ -26,9 +28,11 @@ struct TurnView: View {
   /// - Parameters:
   ///   - layout: The turn's layout.
   ///   - retry: Retries the run; `nil` for an older turn.
-  init(layout: TurnLayout, retry: (() -> Void)? = nil) {
+  ///   - changes: Where "改了 N 个文件" goes, if anywhere.
+  init(layout: TurnLayout, retry: (() -> Void)? = nil, changes: ChangesRoute? = nil) {
     self.layout = layout
     self.retry = retry
+    self.changes = changes
     _expanded = State(initialValue: layout.running)
   }
 
@@ -64,8 +68,12 @@ struct TurnView: View {
         // pi's text goes only into the details: the card's words are the app's (AGENTS.md).
         ErrorCard(text: "这一轮出错了", detail: failure, retry: retry)
       }
-      if let changes = layout.changes {
-        ChangesLine(changes: changes, palette: palette)
+      if let changed = layout.changes {
+        if let changes {
+          NavigationLink(value: changes) { ChangesLine(changes: changed, palette: palette) }.buttonStyle(PressStyle())
+        } else {
+          ChangesLine(changes: changed, palette: palette)
+        }
       }
     }
     .task(id: layout.running) {
