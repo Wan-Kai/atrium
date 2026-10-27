@@ -1897,3 +1897,13 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 
 - 破坏检查：TS `packages/host/src/sync/mp4-review-break-check.json`、Swift `apps/ios/Testing/sync-review-breaks.json`，全部抓到。
 - 记为已知、未改：pi 崩溃重启时宿主重发了原消息、而旧 pi 的应答随后以 `pi_rejected` 失败，手机会把文字退回输入框（桌面同样的语义；转录里出现该 `clientMessageId` 后仍记为送到）。下行丢应答的契约里，重连后的快照 / 续传已包含这条轮次，手机按"已送到"收掉，不会走到同 id 重试；同 id 重试由回执应答的路径由宿主 e2e `phone-sync.host.test.ts` 覆盖。
+
+## MP5a 对话本身（SPEC-0005"MP5 定的细节"，2026-10-28，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 会话状态记下快照和事件里的 `control`、`model`、`fast`、`metrics`、运行开始时间，`run_settled` / 退出清掉；缓存副本带上它们，旧副本照样能读 | `SessionStateControlTests`、`SyncCacheTests` |
+| 一轮的版式：气泡（宿主代发的不显示）、过程行、回复、摘要；运行中按开始时间计时（`m:ss` / `h:mm:ss`）；停止 / 出错的标题；pi 的错误原文；改动的文件数和增删行 | `TurnLayoutTests` |
+| 会话页用 `TurnView`（轨道运行中展开、结束 1 秒后收起、Markdown 流式回复、长按复制、改动行）和顶栏"项目 · 分支" | 截图 `pnpm ios:shot --gallery=conversation`（模拟器）；真机性能和逐项视觉对照交给用户验收 |
+
+- 未覆盖：时间线仍是 `LazyVStack`，`List` 与 `LazyVStack` 的取舍要等真机性能数据；50 毫秒卡顿预算未测。

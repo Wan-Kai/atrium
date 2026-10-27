@@ -56,6 +56,7 @@ async function scene(answers: Answers) {
       'if (args[0] === "simctl" && args[2] === "devices") console.log(JSON.stringify(answers.simulators ?? { devices: {} }));',
       'if (args[0] === "simctl" && args[2] === "runtimes") console.log(JSON.stringify(answers.runtimes ?? { runtimes: [] }));',
       'if (args[0] === "simctl" && args[1] === "create") console.log("NEW-SIM-UDID");',
+      `if (args[1] === "launch") appendFileSync(${JSON.stringify(join(dir, "launched.txt"))}, (process.env.SIMCTL_CHILD_ATRIUM_GALLERY ?? "home") + "\\n");`,
     ].join("\n"),
   );
   return { dir, xcrun, log };
@@ -392,6 +393,17 @@ describe("ios.mjs simulator lock", () => {
     expect(seen.at(1)).toBe("simctl list | held");
     expect(seen.at(-1)).toBe("simctl io | held");
     await expect(stat(join(dir, "sim.lock"))).rejects.toThrow("ENOENT");
+  });
+
+  it("opens a design gallery section for the screenshot when asked, and names the picture after it", async () => {
+    const { dir, xcrun, log } = await scene({ simulators: atrium });
+    const home = await ios(xcrun, log, ["shot"]);
+    const gallery = await ios(xcrun, log, ["shot", "--gallery=conversation", "--dark"]);
+
+    expect([home.code, gallery.code]).toStrictEqual([0, 0]);
+    expect(home.output.trim().endsWith(join(".build", "shots", "home-light.png"))).toBe(true);
+    expect(gallery.output.trim().endsWith(join(".build", "shots", "gallery-conversation-dark.png"))).toBe(true);
+    expect(await readFile(join(dir, "launched.txt"), "utf8")).toBe("home\nconversation\n");
   });
 
   it("waits for a lock a running process holds, then gives up naming it, and leaves the lock alone", async () => {

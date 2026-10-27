@@ -9,7 +9,9 @@
   ///   (`TEST_RUNNER_ATRIUM_GALLERY_SHOTS=1 pnpm test:ios`). Sample words only, no real projects.
   public struct DesignGallery: View {
     /// The sections, in order; each name is what `ATRIUM_GALLERY` takes.
-    public static let sections = ["colors", "type", "glass", "status", "cats", "atoms", "rail", "markdown", "diff"]
+    public static let sections = [
+      "colors", "type", "glass", "status", "cats", "atoms", "rail", "markdown", "diff", "conversation",
+    ]
 
     /// The section to show alone, or every section.
     let section: String

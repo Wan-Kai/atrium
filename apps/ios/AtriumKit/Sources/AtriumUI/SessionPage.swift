@@ -2,13 +2,13 @@ import AtriumProtocol
 import AtriumSync
 import SwiftUI
 
-/// One session, read-only: its messages and replies as they come.
+/// One session: its turns as they come, and the input that sends to it.
 ///
-/// - Remark: MP4a's plainest page (SPEC-0005 "MP4a 定的细节 · 界面"): your messages in bubbles,
-///   replies as plain text, every other step one line of its kind and name, notices one grey line.
-///   Opening the page opens the session on the Mac and subscribes to it; leaving closes it. At the
-///   bottom an input sends text with its receipt (MP4b): unsettled messages show as bubbles marked
-///   "发送中" or "没能确认是否送到 · 重发". Markdown, the process rail and the cat come in MP5.
+/// - Remark: SPEC-0005 "MP5 定的细节 · MP5a": each turn is a ``TurnView`` (your bubble, the process
+///   rail, the Markdown reply, what it changed); notices are one grey line. A floating top bar holds
+///   the back button, the title and "项目 · 分支". Opening the page opens the session on the Mac and
+///   subscribes to it; leaving closes it. At the bottom an input sends text with its receipt (MP4b):
+///   unsettled messages show as bubbles marked "发送中" or "没能确认是否送到 · 重发".
 struct SessionPage: View {
   /// The session.
   let sessionId: SessionId
@@ -25,11 +25,6 @@ struct SessionPage: View {
     let state = sync?.core.sessions[sessionId]
     ScrollView {
       LazyVStack(alignment: .leading, spacing: Metrics.md) {
-        Text(title)
-          .font(.system(size: 22, weight: .semibold))
-          .foregroundStyle(palette.text)
-          .padding(.top, Metrics.glassButton + Metrics.sm)
-          .accessibilityIdentifier("session.title")
         if sync?.core.stale == true {
           Text("不是最新").font(Typography.meta).foregroundStyle(palette.tertiary)
         }
@@ -37,7 +32,11 @@ struct SessionPage: View {
           Text("更早的在 Mac 上看").font(Typography.meta).foregroundStyle(palette.tertiary)
         }
         ForEach(state?.items ?? [], id: \.id) { item in
-          ItemView(item: item)
+          switch item {
+          case .turn(let turn): TurnView(layout: TurnLayout(turn)).id(turn.id)
+          case .notice(let notice):
+            Text(Self.label(notice)).font(Typography.meta).foregroundStyle(palette.tertiary)
+          }
         }
         ForEach(sync?.core.outbox.filter { $0.sessionId == sessionId } ?? []) { message in
           PendingBubble(message: message) { sync?.resend(message.id) }
@@ -51,15 +50,12 @@ struct SessionPage: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.horizontal, Metrics.page)
+      .padding(.top, Metrics.glassButton + Metrics.lg)
       .padding(.bottom, Metrics.xl)
     }
     .defaultScrollAnchor(.bottom)
     .background(palette.page.ignoresSafeArea())
-    .overlay(alignment: .topLeading) {
-      GlassCircleButton(systemImage: "chevron.left", label: "返回") { dismiss() }
-        .padding(.leading, Metrics.md)
-        .accessibilityIdentifier("session.back")
-    }
+    .overlay(alignment: .top) { topBar(palette) }
     .hidingNavigationBar()
     .safeAreaInset(edge: .bottom) {
       if let sync { Composer(sessionId: sessionId, sync: sync) }
@@ -68,12 +64,43 @@ struct SessionPage: View {
     .onDisappear { sync?.close(sessionId) }
   }
 
-  /// The session's title, from the list.
+  /// The floating bar at the top: back, the title and where the session is.
   ///
-  /// - Remark: As the home's rows; a session the list does not have yet has none.
-  private var title: String {
-    guard let summary = sync?.core.index.sessions.first(where: { $0.sessionId == sessionId }) else { return "" }
-    return HomeList.title(of: summary)
+  /// - Remark: The prototype's top bar: a 44pt glass back button, the title (15pt semibold) and
+  ///   "项目 · 分支" (11.5pt) centred, over a fade of the page colour.
+  /// - SideEffects: none
+  /// - Parameter palette: The colours.
+  /// - Returns: The bar.
+  private func topBar(_ palette: Palette) -> some View {
+    let summary = sync?.core.index.sessions.first { $0.sessionId == sessionId }
+    return ZStack {
+      VStack(spacing: 1) {
+        Text(summary.map(HomeList.title(of:)) ?? "")
+          .font(.system(size: 15, weight: .semibold))
+          .foregroundStyle(palette.text)
+          .lineLimit(1)
+          .accessibilityIdentifier("session.title")
+        if let summary, let index = sync?.core.index {
+          Text(HomeList.place(of: summary.containerId, in: index))
+            .font(.system(size: 11.5))
+            .foregroundStyle(palette.secondary)
+            .lineLimit(1)
+        }
+      }
+      .padding(.horizontal, Metrics.glassButton + Metrics.md + Metrics.xs)
+      GlassCircleButton(systemImage: "chevron.left", label: "返回") { dismiss() }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, Metrics.md)
+        .accessibilityIdentifier("session.back")
+    }
+    .frame(height: 56)
+    .background(
+      LinearGradient(
+        stops: [.init(color: palette.page, location: 0.8), .init(color: palette.page.opacity(0), location: 1)],
+        startPoint: .top, endPoint: .bottom
+      )
+      .padding(.bottom, -Metrics.md)
+      .ignoresSafeArea(edges: .top))
   }
 
   /// The line under the items for where the session stands.
@@ -90,78 +117,6 @@ struct SessionPage: View {
     case .exited: "pi 已退出"
     case .failed(let code): "打不开这个会话（\(code.rawValue)）"
     case .handedOff: "这个会话交给终端里的 pi 了"
-    }
-  }
-}
-
-/// One item of a session: a turn or a notice.
-///
-/// - Remark: See ``SessionPage``.
-struct ItemView: View {
-  /// The item.
-  let item: TranscriptItem
-  /// Light or dark.
-  @Environment(\.colorScheme) private var scheme
-
-  /// The item.
-  var body: some View {
-    let palette = Palette(scheme: scheme)
-    switch item {
-    case .notice(let notice):
-      Text(Self.label(notice)).font(Typography.meta).foregroundStyle(palette.tertiary)
-    case .turn(let turn):
-      VStack(alignment: .leading, spacing: Metrics.sm) {
-        Text(Self.userText(turn.user))
-          .font(Typography.reply)
-          .foregroundStyle(palette.text)
-          .padding(.horizontal, Metrics.md)
-          .padding(.vertical, Metrics.sm)
-          .background(palette.surface, in: RoundedRectangle(cornerRadius: Metrics.radiusBubble))
-          .frame(maxWidth: .infinity, alignment: .trailing)
-        ForEach(turn.steps, id: \.id) { step in
-          if case .text(let text) = step {
-            Text(text.text)
-              .font(Typography.reply)
-              .lineSpacing(5)
-              .foregroundStyle(palette.text)
-              .textSelection(.enabled)
-          } else {
-            Text(Self.label(step)).font(Typography.step).foregroundStyle(palette.secondary)
-          }
-        }
-        if let error = turn.error {
-          Text(error).font(Typography.step).foregroundStyle(palette.danger)
-        }
-      }
-    }
-  }
-
-  /// What a user message shows: its text, and how many images came with it.
-  ///
-  /// - Remark: Images are not fetched in MP4a.
-  /// - SideEffects: none
-  /// - Parameter user: The message.
-  /// - Returns: The text.
-  static func userText(_ user: Turn.User) -> String {
-    let images = user.images > 0 ? "［\(user.images) 张图片］" : ""
-    return [user.text, images].filter { !$0.isEmpty }.joined(separator: " ")
-  }
-
-  /// One line for a step that is not reply text: its kind, and its name when it has one.
-  ///
-  /// - Remark: "过程只列步骤" (roadmap MP4).
-  /// - SideEffects: none
-  /// - Parameter step: The step.
-  /// - Returns: The line.
-  static func label(_ step: Step) -> String {
-    switch step {
-    case .thinking: "思考"
-    case .text: "回复"
-    case .tool(let tool): "工具 · \(tool.tool)"
-    case .steer: "插话"
-    case .agent: "子代理"
-    case .retry: "重试"
-    case .compaction: "压缩上下文"
     }
   }
 

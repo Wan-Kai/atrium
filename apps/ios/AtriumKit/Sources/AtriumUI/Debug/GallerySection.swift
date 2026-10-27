@@ -27,6 +27,11 @@
       case "rail": GalleryRail()
       case "markdown": GalleryMarkdown()
       case "diff": GalleryDiff()
+      case "conversation":
+        VStack(alignment: .leading, spacing: Metrics.md) {
+          TurnView(layout: TurnLayout(SampleTurns.finished))
+          TurnView(layout: TurnLayout(SampleTurns.running))
+        }
       default: EmptyView()
       }
     }

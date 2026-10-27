@@ -52,7 +52,7 @@ const swiftPaths = [
  *
  * @sideEffects Runs a process; with `capture` false its output goes to this terminal.
  * @param {string[]} args - The tool and its arguments.
- * @param {{ capture?: boolean }} [options] - Whether to collect the output instead of showing it.
+ * @param {{ capture?: boolean, env?: NodeJS.ProcessEnv }} [options] - Whether to collect the output instead of showing it, and the environment to run it in.
  * @returns {{ status: number, stdout: string, stderr: string }} The exit code and, when captured,
  *   the output and the errors.
  */
@@ -63,6 +63,7 @@ function xcrun(args, options = {}) {
     encoding: "utf8",
     stdio: options.capture === true ? ["ignore", "pipe", "pipe"] : "inherit",
     maxBuffer: 64 * 1024 * 1024,
+    ...(options.env === undefined ? {} : { env: options.env }),
   });
   return { status: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
@@ -76,7 +77,7 @@ function xcrun(args, options = {}) {
  * @sideEffects Runs a process; when it fails, prints the command with its captured output and errors
  * and exits with its code.
  * @param {string[]} args - The tool and its arguments.
- * @param {{ capture?: boolean }} [options] - Whether to collect the output instead of showing it.
+ * @param {{ capture?: boolean, env?: NodeJS.ProcessEnv }} [options] - Whether to collect the output instead of showing it, and the environment to run it in.
  * @returns {string} The output when captured, else an empty string.
  */
 function must(args, options = {}) {
@@ -546,11 +547,12 @@ function check() {
  * Takes a screenshot of the app in the Atrium simulator.
  *
  * @remarks
- * `pnpm ios:shot [--dark]`, how a person or an agent looks at the interface (acceptance.md). The
- * app gets three seconds to draw after launching. The caller holds the simulator lock.
+ * `pnpm ios:shot [--dark] [--gallery=<section>]`, how a person or an agent looks at the interface
+ * (acceptance.md). With `--gallery` the Debug build opens that design gallery section instead of
+ * the home. The app gets three seconds to draw after launching. The caller holds the simulator lock.
  *
  * @sideEffects Builds, boots the simulator, sets its appearance, installs and launches the app,
- * writes `apps/ios/.build/shots/home-<light|dark>.png`; prints its path.
+ * writes `apps/ios/.build/shots/<home|gallery-section>-<light|dark>.png`; prints its path.
  */
 function shot() {
   const { udid, state } = simulator();
@@ -560,11 +562,14 @@ function shot() {
   const appearance = process.argv.includes("--dark") ? "dark" : "light";
   must(["simctl", "ui", udid, "appearance", appearance]);
   must(["simctl", "install", udid, join(derivedData, "Build", "Products", "Debug-iphonesimulator", "Atrium.app")]);
-  must(["simctl", "launch", "--terminate-running-process", udid, bundleId], { capture: true });
+  const gallery = process.argv.find((arg) => arg.startsWith("--gallery="))?.slice("--gallery=".length);
+  // simctl passes SIMCTL_CHILD_ variables to the launched app without the prefix.
+  const env = gallery === undefined ? process.env : { ...process.env, SIMCTL_CHILD_ATRIUM_GALLERY: gallery };
+  must(["simctl", "launch", "--terminate-running-process", udid, bundleId], { capture: true, env });
   sleep(shotDelayMs);
   const dir = join(ios, ".build", "shots");
   mkdirSync(dir, { recursive: true });
-  const file = join(dir, `home-${appearance}.png`);
+  const file = join(dir, `${gallery === undefined ? "home" : `gallery-${gallery}`}-${appearance}.png`);
   must(["simctl", "io", udid, "screenshot", file], { capture: true });
   console.log(file);
 }

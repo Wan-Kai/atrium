@@ -159,7 +159,7 @@ public struct HomeList: Sendable, Equatable {
   ///   - containerId: The session's container.
   ///   - index: The list.
   /// - Returns: The place; empty for a container the list does not have.
-  private static func place(of containerId: ContainerId, in index: IndexState) -> String {
+  public static func place(of containerId: ContainerId, in index: IndexState) -> String {
     if let chat = index.chats.first(where: { $0.id == containerId }) {
       if let alias = chat.alias { return "对话 · \(alias)" }
       let first = index.sessions.first { $0.sessionId == chat.firstSessionId }

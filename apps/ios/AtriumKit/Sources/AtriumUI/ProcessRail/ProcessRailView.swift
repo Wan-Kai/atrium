@@ -17,7 +17,8 @@ struct ProcessRailView: View {
   let rows: [RailRow]
   /// Whether the turn still runs.
   let running: Bool
-  /// How long it took, or has taken so far: "48 秒", "1:12".
+  /// The time so far while it runs ("1:12"); after, how it ended and took ("用时 48 秒",
+  /// "已停止，用时 1 分 40 秒").
   let duration: String
   /// What the process did, shown when folded.
   let summary: [String]
@@ -102,7 +103,7 @@ struct ProcessRailView: View {
             .font(.system(size: 11, weight: .semibold))
             .rotationEffect(.degrees(expanded ? 90 : 0))
             .animation(reduceMotion ? nil : MotionToken.snappy.resolved(reduceMotion: false).animation, value: expanded)
-          Text("用时 \(duration)")
+          Text(duration)
           if !summary.isEmpty {
             Text("· " + summary.joined(separator: " · "))
               .lineLimit(1)
@@ -124,7 +125,7 @@ struct ProcessRailView: View {
     }
     .buttonStyle(PressStyle(scale: 0.985))
     .disabled(running)
-    .accessibilityLabel(Text(waiting ? "等你回答 \(duration)" : running ? "进行中 \(duration)" : "用时 \(duration)"))
+    .accessibilityLabel(Text(waiting ? "等你回答 \(duration)" : running ? "进行中 \(duration)" : duration))
   }
 }
 
