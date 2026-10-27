@@ -164,7 +164,17 @@ B1仅修改测试助手和本lane文档，未注入源码SHA为`b110bb5af2983e67
 
 **资源不写零残留**：即时尾采31个PID/start中node78614仍在；作者后来一次和父当前检查均无对应进程。采样关系显示它是Electron及fixture Git的父进程，未采argv，不能断言角色、退出原因/时刻或用“短暂”代替测量。五目录和外层HOME删除，无kill/等待重跑；这不是完整资源门禁通过。已精确恢复B1、删除临时助手，旧红20/绿41/A57工件未变。67份文件私有归档到`reports/mobile-children-b1-red-ded285e/`，不透明工件仅按字节复制/核hash，未解码。
 
-恢复后B1的三例正向已另给一次有界窗口，当前尚无结果；尤其C2/原旅程、第二子导航和返回后的新增清点不得借本次目标红记为通过。未增加超时、重试、构建/安装或正式门禁，测试代码仍未提交/整合。状态/丢来源/错导航等其它控制尚未执行，历史整套失败不关闭。
+恢复后B1的三例正向当时另给一次有界窗口，结果见下；C2/原旅程、第二子导航和返回后的新增清点只能依据该次正向，不借本次目标红记为通过。未增加超时、重试、构建/安装或正式门禁，测试代码仍未提交/整合。状态/丢来源/错导航等其它控制尚未执行，历史整套失败不关闭。
+
+### Children恢复B1三例正向（3/3，未交付）
+
+`/tmp/atrium-children-B1-positive.QqqyaD/`固定未注入B1（`b110bb5a…`），一次typecheck/list/三例命令均exit0，worker1/retries0/max-failures1：**C1 7.2s、C2 6.7s、原旅程5.4s，3/3，Playwright汇总19.7s**。未改测试代码、未重试/构建/安装；只追加了执行前文档说明并单独冻结。C1为audit初始turn agent合流＋tests后续source、两completed；C2为单record两delivery/events、同一新turn两source、stopped→completed；**原旅程本次自然走混合路径**，audit初始agent＋tests新source、两completed，不是B0首轮的两source/三completed。它没有添加C1的受控read边界，但仍不能回填历史67/68的具体根因或旧红DOM缺口。
+
+18份独立JSON及18路径附件副本覆盖六次实际子导航，以及12个导航前/返回后的inventory：均audit1/tests1/total2，真实位置、finished属性和可见完成短语通过；两子会话的订阅/task快照、选中/返回父标签和身份链相符。父`/tmp/atrium-parent-children-b1-positive-verify.py`核62项、所有凭据、9执行源/草稿、1121产物及旧20/41/57/64封存，未重跑。源码未漂移、临时控制助手不存在；本轮新增流程的正向实际走过，不再以静态字段或旧B0绿代替。
+
+即时尾采107个PID/start无相符残留，12观测目录及外层HOME删除、monitor无错；父当前只读核对同样不存在。不外推完整资源门禁，**B1负控的78614尾部备注照留**。65文件（62工件、清单、父脚本/日志）按字节私有归档`reports/mobile-children-b1-positive-ded285e/`。
+
+下一步只批准可见完成文案错误的一次控制：协议/属性不变，将C1 tests source的实际可见“完成”改“出错”，验证文字断言，不碰产品或expected；当前尚无结果。C2丢来源、错导航等控制、正式静态/动态门禁、测试提交/整合仍待；不关闭其它历史整套失败，不合main或推送。
 
 ### Appearance四格准备阻断（16dfcbf）
 
