@@ -110,6 +110,8 @@ nonisolated struct FileIcons: Sendable {
   }
 
   /// The resource as stored.
+  ///
+  /// - Remark: Decoded from `file-icons.json`.
   private struct Table: Decodable {
     let file: String
     let fileNames: [String: String]
@@ -119,18 +121,24 @@ nonisolated struct FileIcons: Sendable {
   }
 
   /// The light appearance's lookups.
+  ///
+  /// - Remark: The theme's light variants.
   private struct Light: Decodable {
     let fileNames: [String: String]
     let fileExtensions: [String: String]
   }
 
   /// One icon as stored.
+  ///
+  /// - Remark: Its view box and paths, before the paths are read.
   fileprivate struct RawIcon: Decodable, Sendable {
     let box: [Double]
     let paths: [RawPath]
   }
 
   /// One path as stored.
+  ///
+  /// - Remark: The SVG's attributes, as the script kept them.
   fileprivate struct RawPath: Decodable, Sendable {
     let d: String
     let fill: String
