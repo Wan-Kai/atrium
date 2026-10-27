@@ -108,13 +108,25 @@ public struct SyncCore {
     requests = [:]
     listAnswered = false
     listSnapshot = false
-    for sessionId in openSessions { sessions[sessionId]?.reload() }
+    // A session with a copy continues from it; one without waits for a snapshot (SPEC-0005 "MP4c 定的细节").
+    var points: [ResumePoint] = []
+    for sessionId in openSessions {
+      if let point = sessions[sessionId]?.resumePoint {
+        points.append(point)
+        sessions[sessionId]?.beginResume()
+      } else {
+        sessions[sessionId]?.reload()
+      }
+    }
+    let cursor = index.ready ? SubscribeIndexCommand.Cursor(generation: index.generation, seq: index.seq) : nil
     var outputs = [
-      send(.subscribeIndex(SubscribeIndexCommand(requestId: track(.index), traceparent: makeTraceparent())))
+      send(
+        .subscribeIndex(
+          SubscribeIndexCommand(requestId: track(.index), traceparent: makeTraceparent(), cursor: cursor)))
     ]
     if !openSessions.isEmpty {
       if again { outputs.append(subscribe([], failing: [])) }
-      outputs.append(subscribe(openSessions, failing: openSessions))
+      outputs.append(subscribe(openSessions, failing: openSessions, resume: points))
       for sessionId in openSessions { outputs.append(open(sessionId)) }
     }
     return outputs
@@ -154,6 +166,8 @@ public struct SyncCore {
       noteHandedOff()
     case .indexChanges(let changes):
       index.apply(changes)
+      // With a cursor the host answers with changes, maybe none, instead of a snapshot.
+      listSnapshot = true
       noteHandedOff()
     case .sessionEvent(let event):
       outputs += take(event)
@@ -164,18 +178,42 @@ public struct SyncCore {
 
   /// Opens a session's page.
   ///
-  /// - Remark: It waits for its own snapshot; a connection already synced stays so (SPEC-0005
-  ///   "MP4a 定的细节" 5). Without a connection it is only recorded, and the next one opens it.
+  /// - Remark: It waits for its own snapshot, or, from a cached copy, resumes from it; a connection
+  ///   already synced stays so (SPEC-0005 "MP4a 定的细节" 5, "MP4c 定的细节"). Without a connection
+  ///   it is only recorded, and the next one opens it.
   /// - SideEffects: none
-  /// - Parameter sessionId: The session.
+  /// - Parameters:
+  ///   - sessionId: The session.
+  ///   - cached: Its copy from the last launch, if any.
   /// - Returns: The commands to send.
-  public mutating func open(_ sessionId: SessionId) -> [SyncOutput] {
+  public mutating func open(_ sessionId: SessionId, cached: CachedSession? = nil) -> [SyncOutput] {
     guard !openSessions.contains(sessionId) else { return [] }
     openSessions.append(sessionId)
-    sessions[sessionId] = SessionState(sessionId: sessionId)
-    guard generation != nil else { return [] }
-    return [subscribe(openSessions, failing: [sessionId]), open(sessionId)]
+    var state = cached.map(SessionState.init(cached:)) ?? SessionState(sessionId: sessionId)
+    guard generation != nil else {
+      sessions[sessionId] = state
+      return []
+    }
+    let points = state.resumePoint.map { [$0] } ?? []
+    state.beginResume()
+    sessions[sessionId] = state
+    return [subscribe(openSessions, failing: [sessionId], resume: points), open(sessionId)]
   }
+
+  /// Takes the list and drafts cached at the last launch.
+  ///
+  /// - Remark: Before any connection; the list shows as "不是最新" until synced.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - cached: The cached list, if any.
+  ///   - drafts: The cached inputs.
+  public mutating func restore(index cached: CachedIndex?, drafts: [SessionId: String]) {
+    if let cached, !index.ready { index = IndexState(cached: cached) }
+    for (sessionId, text) in drafts where self.drafts[sessionId] == nil { self.drafts[sessionId] = text }
+  }
+
+  /// Whether what is shown may be out of date: there is a list, and this connection has not synced.
+  public var stale: Bool { index.ready && !synced }
 
   /// Closes a session's page: stops watching it, closes the phone's tab of it and forgets its state.
   ///
@@ -488,7 +526,7 @@ public struct SyncCore {
   /// - Returns: `markSynced` once, else nothing.
   private mutating func checkSynced() -> [SyncOutput] {
     guard let generation, !synced, listAnswered, listSnapshot else { return [] }
-    guard openSessions.allSatisfy({ sessions[$0]?.status != .loading }) else { return [] }
+    guard openSessions.allSatisfy({ sessions[$0]?.settled == true }) else { return [] }
     synced = true
     return [.markSynced(generation: generation)] + settleAfterSync()
   }
@@ -500,13 +538,16 @@ public struct SyncCore {
   /// - Parameters:
   ///   - sessionIds: Every session to watch.
   ///   - failing: The sessions a failure of it fails.
+  ///   - resume: Where open sessions' copies end, to continue from.
   /// - Returns: The output.
-  private mutating func subscribe(_ sessionIds: [SessionId], failing: [SessionId]) -> SyncOutput {
+  private mutating func subscribe(
+    _ sessionIds: [SessionId], failing: [SessionId], resume: [ResumePoint] = []
+  ) -> SyncOutput {
     send(
       .subscribeSessions(
         SubscribeSessionsCommand(
           requestId: track(.sessions(failing)), traceparent: makeTraceparent(), sessionIds: sessionIds,
-          snapshot: Self.snapshotBudget)))
+          snapshot: Self.snapshotBudget, resume: resume.isEmpty ? nil : resume)))
   }
 
   /// `open_session`.

@@ -53,6 +53,17 @@ public struct SessionState: Sendable, Equatable {
   public private(set) var hasOlder = false
   /// Whether a run is in progress.
   public private(set) var running = false
+  /// Whether it asked to continue from its copy and waits for `session_resumed` or a snapshot.
+  public private(set) var resuming = false
+
+  /// Whether it is up to date as far as a sync can tell: settled, and not waiting to resume.
+  public var settled: Bool { status != .loading && !resuming }
+
+  /// Where its copy ends, to continue from; `nil` without a snapshot to continue.
+  public var resumePoint: ResumePoint? {
+    guard let stream, status == .ready || status == .exited else { return nil }
+    return ResumePoint(sessionId: sessionId, stream: stream, epoch: epoch, seq: seq)
+  }
 
   /// A session waiting for its first snapshot.
   ///
@@ -63,12 +74,44 @@ public struct SessionState: Sendable, Equatable {
     self.sessionId = sessionId
   }
 
+  /// A session as last cached, at the position its items stand at.
+  ///
+  /// - Remark: Ready, or exited, with a resume point: the next sync continues from it.
+  /// - SideEffects: none
+  /// - Parameter cached: The cached session.
+  public init(cached: CachedSession) {
+    sessionId = cached.sessionId
+    status = cached.exited ? .exited : .ready
+    epoch = cached.epoch
+    seq = cached.seq
+    stream = cached.stream
+    items = cached.items
+    hasOlder = cached.hasOlder
+  }
+
+  /// The session to cache; `nil` without a snapshot.
+  public var cached: CachedSession? {
+    guard let point = resumePoint else { return nil }
+    return CachedSession(
+      sessionId: sessionId, stream: point.stream, epoch: point.epoch, seq: point.seq, items: items,
+      hasOlder: hasOlder, exited: status == .exited)
+  }
+
+  /// Asks to continue from its copy: it keeps taking events, and waits for `session_resumed`.
+  ///
+  /// - Remark: SPEC-0005 "MP4c 定的细节"; only with a ``resumePoint``.
+  /// - SideEffects: none
+  public mutating func beginResume() {
+    if resumePoint != nil { resuming = true }
+  }
+
   /// Waits for a fresh snapshot again, keeping what is shown.
   ///
   /// - Remark: For a resync, or a new connection; events until the snapshot are part of it.
   /// - SideEffects: none
   public mutating func reload() {
     status = .loading
+    resuming = false
   }
 
   /// Marks a session still waiting for its snapshot as handed to a terminal.
@@ -102,7 +145,10 @@ public struct SessionState: Sendable, Equatable {
     }
     guard status == .ready || status == .exited else { return .ignored }
     if case .sessionResumed(let resumed) = event {
-      return resumed.epoch == epoch && resumed.seq == seq ? .ignored : .resync
+      guard resumed.epoch == epoch, resumed.seq == seq else { return .resync }
+      guard resuming else { return .ignored }
+      resuming = false
+      return .applied
     }
     guard event.position.epoch == epoch, event.position.seq == seq + 1 else { return .resync }
     var next = self
@@ -119,6 +165,7 @@ public struct SessionState: Sendable, Equatable {
   /// - Parameter snapshot: The snapshot.
   private mutating func take(_ snapshot: SessionSnapshotEvent) {
     status = snapshot.exited ? .exited : .ready
+    resuming = false
     epoch = snapshot.epoch
     seq = snapshot.seq
     stream = snapshot.stream

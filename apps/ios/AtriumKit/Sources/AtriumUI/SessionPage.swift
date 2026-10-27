@@ -30,6 +30,9 @@ struct SessionPage: View {
           .foregroundStyle(palette.text)
           .padding(.top, Metrics.glassButton + Metrics.sm)
           .accessibilityIdentifier("session.title")
+        if sync?.core.stale == true {
+          Text("不是最新").font(Typography.meta).foregroundStyle(palette.tertiary)
+        }
         if state?.hasOlder == true {
           Text("更早的在 Mac 上看").font(Typography.meta).foregroundStyle(palette.tertiary)
         }

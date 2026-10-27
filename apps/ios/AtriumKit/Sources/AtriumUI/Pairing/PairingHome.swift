@@ -1,4 +1,5 @@
 import AtriumRemote
+import AtriumSync
 import Network
 import SwiftUI
 
@@ -92,7 +93,8 @@ public struct PairingHome<Content: View>: View {
         let sync = SyncModel(
           connection: connection, hostName: target.host.hostName, traceparent: environment.traceparent,
           now: { [stopwatch = environment.stopwatch] in stopwatch.now.offset },
-          requestId: { UUID().uuidString.lowercased() })
+          requestId: { UUID().uuidString.lowercased() },
+          cache: Self.cache(for: target.host.hostId), clock: environment.stopwatch.clock)
         self.connection = connection
         self.sync = sync
         storageRetryRequested = false
@@ -144,6 +146,7 @@ public struct PairingHome<Content: View>: View {
           #if os(iOS)
             let background = UIApplication.shared.beginBackgroundTask(withName: "Close remote connection")
           #endif
+          sync?.saveNow()
           await connection.setAppPhase(.background)
           await connection.closeForBackground()
           #if os(iOS)
@@ -152,6 +155,19 @@ public struct PairingHome<Content: View>: View {
         @unknown default: break
         }
       }
+  }
+
+  /// The cache of a Mac's list and sessions, in the app's Application Support folder.
+  ///
+  /// - Remark: SPEC-0005 "iOS App · 存储": per host, versioned, excluded from backups.
+  /// - SideEffects: none
+  /// - Parameter hostId: The Mac.
+  /// - Returns: The cache, or `nil` when the folder cannot be found.
+  static func cache(for hostId: String) -> SyncCache? {
+    guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+      return nil
+    }
+    return SyncCache(root: support.appendingPathComponent("Atrium/hosts", isDirectory: true), hostId: hostId)
   }
 
   /// Observes persistence separately from network status, including unchanged terminal statuses.

@@ -382,5 +382,141 @@
     "name": "unwritten message goes back",
     "runner": "swift",
     "filter": "SyncModelTests/notWritten"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "      guard resuming else { return .ignored }\n",
+    "to": "",
+    "name": "resumption settles",
+    "runner": "swift",
+    "filter": "SessionStateTests/resumed"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "      resuming = false\n      return .applied",
+    "to": "      return .applied",
+    "name": "resumption clears the flag",
+    "runner": "swift",
+    "filter": "SessionStateResumeTests/resumes"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "    if resumePoint != nil { resuming = true }",
+    "to": "    resuming = true",
+    "name": "no resume without a copy",
+    "runner": "swift",
+    "filter": "SessionStateResumeTests/snapshotInstead"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "    guard let stream, status == .ready || status == .exited else { return nil }",
+    "to": "    guard let stream else { return nil }",
+    "name": "no point while loading",
+    "runner": "swift",
+    "filter": "SessionStateResumeTests/point"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "      if let point = sessions[sessionId]?.resumePoint {",
+    "to": "      if let point = Optional<ResumePoint>.none {",
+    "name": "sessions resume on reconnect",
+    "runner": "swift",
+    "filter": "SyncCoreTests/reconnect"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    let cursor = index.ready ? SubscribeIndexCommand.Cursor(generation: index.generation, seq: index.seq) : nil",
+    "to": "    let cursor: SubscribeIndexCommand.Cursor? = nil",
+    "name": "list cursor",
+    "runner": "swift",
+    "filter": "SyncCoreTests/reconnect"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "      // With a cursor the host answers with changes, maybe none, instead of a snapshot.\n      listSnapshot = true\n",
+    "to": "",
+    "name": "changes complete the list",
+    "runner": "swift",
+    "filter": "SyncCoreCacheTests/restores"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    guard openSessions.allSatisfy({ sessions[$0]?.settled == true }) else { return [] }",
+    "to": "    guard openSessions.allSatisfy({ sessions[$0]?.status != .loading }) else { return [] }",
+    "name": "resuming sessions are not settled",
+    "runner": "swift",
+    "filter": "SyncCoreTests/reconnect"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    let points = state.resumePoint.map { [$0] } ?? []",
+    "to": "    let points: [ResumePoint] = []",
+    "name": "cached open resumes",
+    "runner": "swift",
+    "filter": "SyncCoreCacheTests/opensCached"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    if let cached, !index.ready { index = IndexState(cached: cached) }",
+    "to": "    _ = cached",
+    "name": "restore list",
+    "runner": "swift",
+    "filter": "SyncCoreCacheTests/restores"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCache.swift",
+    "from": "    guard files.count > Self.maxSessions else { return }",
+    "to": "    guard files.count > Self.maxSessions + 1 else { return }",
+    "name": "keep twenty",
+    "runner": "swift",
+    "filter": "SyncCacheTests/prune"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCache.swift",
+    "from": "    for (file, _) in dated.sorted(by: { $0.1 > $1.1 }).dropFirst(Self.maxSessions) {",
+    "to": "    for (file, _) in dated.sorted(by: { $0.1 < $1.1 }).dropFirst(Self.maxSessions) {",
+    "name": "drop the oldest",
+    "runner": "swift",
+    "filter": "SyncCacheTests/prune"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCache.swift",
+    "from": "    values.isExcludedFromBackup = true",
+    "to": "    values.isExcludedFromBackup = false",
+    "name": "excluded from backup",
+    "runner": "swift",
+    "filter": "SyncCacheTests/roundTrip"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Sync/SyncModel.swift",
+    "from": "    core.restore(index: cache?.index(), drafts: cache?.drafts() ?? [:])",
+    "to": "    _ = cache",
+    "name": "model restores",
+    "runner": "swift",
+    "filter": "SyncModelTests/cache"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Sync/SyncModel.swift",
+    "from": "    enqueue(core.open(sessionId, cached: cache?.session(sessionId)))",
+    "to": "    enqueue(core.open(sessionId))",
+    "name": "open from cache",
+    "runner": "swift",
+    "filter": "SyncModelTests/cache"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Sync/SyncModel.swift",
+    "from": "      try? cache?.removeAll()",
+    "to": "      _ = cache",
+    "name": "revocation deletes cache",
+    "runner": "swift",
+    "filter": "SyncModelTests/cache"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Sync/SyncModel.swift",
+    "from": "    try? cache?.save(drafts: core.drafts)",
+    "to": "    _ = cache",
+    "name": "drafts saved",
+    "runner": "swift",
+    "filter": "SyncModelTests/cache"
   }
 ]

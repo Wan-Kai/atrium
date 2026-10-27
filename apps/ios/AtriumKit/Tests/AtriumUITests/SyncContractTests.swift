@@ -99,9 +99,52 @@ struct SyncContractTests {
       try await within(seconds: 30) {
         model.core.lastDelivered[sessionId] == sent.id && model.core.outbox.isEmpty
           && model.core.sessions[sessionId]?.running == false
+      } else: {
+        let state = model.core.sessions[sessionId]
+        return "outbox \(model.core.outbox) last \(String(describing: model.core.lastDelivered[sessionId])) "
+          + "problems \(model.core.problems) running \(String(describing: state?.running)) status \(model.status) "
+          + "turns \(state?.items.count ?? -1) seq \(state?.seq ?? -1) epoch \(state?.epoch ?? -1)"
       }
       #expect(model.core.drafts[sessionId] == nil)
       #expect(model.canSend(sessionId))
+
+      // MP4c: the connection goes; a message sent on the Mac meanwhile arrives by resuming, not a snapshot.
+      let before = try #require(model.core.sessions[sessionId])
+      let turnsBefore = before.items.filter(isTurn).count
+      _ = try await control.request("cut")
+      _ = try await control.request("prompt", body: ["sessionId": sessionId, "text": "ping"])
+      try await within(seconds: 30) {
+        guard model.status == .connected, let state = model.core.sessions[sessionId] else { return false }
+        return state.settled && !state.running && state.items.filter(isTurn).count == turnsBefore + 1
+      } else: {
+        let state = model.core.sessions[sessionId]
+        return
+          "status \(model.status) settled \(String(describing: state?.settled)) running \(String(describing: state?.running)) "
+          + "turns \(state?.items.filter(isTurn).count ?? -1) before \(turnsBefore) seq \(state?.seq ?? -1) epoch \(state?.epoch ?? -1)"
+      }
+      let resumed = try #require(model.core.sessions[sessionId])
+      #expect(resumed.stream == before.stream)
+      #expect(resumed.epoch == before.epoch)
+      #expect(resumed.seq > before.seq)
+
+      // A message lost on its way up is sent again once with its own id after the reconnect, and runs once.
+      _ = try await control.request("hold")
+      model.setDraft("ping", for: sessionId)
+      model.send(sessionId)
+      let lost = try #require(model.core.outbox.first)
+      _ = try await control.request("cut")
+      _ = try await control.request("release")
+      try await within(seconds: 30) {
+        model.core.lastDelivered[sessionId] == lost.id && model.core.outbox.isEmpty
+          && model.core.sessions[sessionId]?.running == false
+      }
+      let after = try #require(model.core.sessions[sessionId])
+      #expect(after.items.filter(isTurn).count == turnsBefore + 2)
+      #expect(
+        after.items.filter {
+          if case .turn(let turn) = $0 { return turn.user.clientMessageId == lost.id }
+          return false
+        }.count == 1)
 
     } catch {
       await cleanUp()
@@ -127,9 +170,13 @@ struct SyncContractTests {
   /// - SideEffects: Sleeps.
   /// - Parameters:
   ///   - seconds: The bound.
+  ///   - line: Where the wait is, for the report.
   ///   - condition: What to wait for.
+  ///   - describe: What to report when it never holds.
   /// - Throws: When it never holds.
-  private func within(seconds: Int, _ condition: () -> Bool) async throws {
+  private func within(
+    seconds: Int, line: Int = #line, _ condition: () -> Bool, else describe: () -> String = { "" }
+  ) async throws {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: .seconds(seconds))
     while clock.now < deadline {
@@ -137,7 +184,7 @@ struct SyncContractTests {
       // Real time: the fixture's host answers on its own clock.
       try await Task.sleep(for: .milliseconds(20))
     }
-    Issue.record("condition never held within \(seconds) s")
+    Issue.record("condition at line \(line) never held within \(seconds) s: \(describe())")
     throw CancellationError()
   }
 }

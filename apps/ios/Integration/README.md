@@ -137,6 +137,14 @@ the SAS against the host's own pairing request, then accepts), `chat` (creates a
 - the session's snapshot cut to the phone's budget (6 of 8 turns, `hasOlder`), with a `stream`;
 - a reply sent from the Mac arriving live, in order, ending with the turn done.
 
+MP4b/MP4c extend it: the phone sends a message with its receipt; a loopback proxy between the phone and
+the relay (only connections upgrading `/atrium/v1/client`; the host's own control line stays direct) is
+cut while the Mac sends a message, and the phone must catch up by resuming, not by a budget-cut
+snapshot; then the phone's upstream is held, a message is sent, the connection is cut and released, and
+the message must be retried once with its request id and run once. The fixture's pi entries grow with
+each run (each with its own timestamps and full usage), so the host's rebuild after a run keeps the
+epoch. `ATRIUM_CONTRACT_DEBUG=1` prints the host's non-debug log at fixture shutdown.
+
 It uses real time (the host and relay run on the system clock). The temporary pi and host home are
 removed and the relay's resource counts must return to zero. It is not network fault injection, a
 real device, or receipts: those are MP4b and MP4c.

@@ -19,6 +19,7 @@ import { type Clock, systemClock } from "../platform/clock";
 import { loadIndexFile } from "../store/index-file";
 import { type ChatRecords, createChatRecords } from "../store/chat-records";
 import { CHATS_FILE, layoutsFile, SESSIONS_FILE } from "../store/index-schema";
+import { EventRing } from "../sync/event-ring";
 import { SubscriptionRegistry } from "../sync/subscriptions";
 import { createLayouts } from "./layouts";
 import { type SessionCatalog, createSessionCatalog } from "./session-catalog";
@@ -144,7 +145,8 @@ async function manage(
     const found = tools === null || "pi" in tools ? tools : await scriptedTools(at, tools);
     detected = () => Promise.resolve(found);
   }
-  const subscriptions = new SubscriptionRegistry(recording.resources);
+  // Phones' sessions keep their recent events (SPEC-0005, "MP4c 定的细节"); the Mac's keep none.
+  const subscriptions = new SubscriptionRegistry(recording.resources, new EventRing(systemClock, recording.resources));
   const received: SessionEvent[] = [];
   subscriptions.connect("c1", (event) => received.push(event as SessionEvent), "client-1");
   const index = join(at.home, "index");
@@ -1793,12 +1795,17 @@ describe("SessionManager tabs", () => {
 
 describe("SessionManager archiving and renaming", () => {
   it("archives a session: stops its pi, closes its tabs everywhere and lets go of its controller", async () => {
-    const { manager, catalog, layouts, received, resources } = await manage({ rules: SESSION_ONE });
+    const { manager, catalog, layouts, received, resources, subscriptions } = await manage({ rules: SESSION_ONE });
     const { sessionId } = await started(manager, manager.createSession("client-1", WORKSPACE));
     await manager.subscribe("c1", [sessionId]);
+    subscriptions.connect("p1", () => undefined, "dev_0123456789abcdef", true);
+    await manager.subscribe("p1", [sessionId]);
     expect(resources.snapshot()["session.controller"]).toBe(1);
+    expect(resources.snapshot()["sync.ring"]).toBe(1);
 
     await manager.archiveSession(sessionId);
+    // A new controller would start a new stream: what the phones' ring kept goes with the old one.
+    expect(resources.snapshot()["sync.ring"]).toBe(0);
 
     expect(catalog.find(sessionId)?.archived).toBe(true);
     expect(layouts.isOpen(sessionId)).toBe(false);
@@ -5417,5 +5424,45 @@ describe("SessionManager snapshot budgets (SPEC-0005, MP4a)", () => {
     expect(whole.items.map((item) => item.id)).toStrictEqual(["pi-session-1:u0", "pi-session-1:u1", "pi-session-1:u2"]);
     expect(phone).toStrictEqual({ ...whole, items: whole.items.slice(2), hasOlder: true });
     expect(phone.stream).toBe("st-1");
+  });
+});
+
+describe("SessionManager resuming a phone (SPEC-0005, MP4c)", () => {
+  it("replays what a phone missed and says it resumed, or sends a snapshot when it cannot", async () => {
+    const managed = await manage({
+      rules: {
+        get_state: { data: { sessionId: "pi-session-1" } },
+        get_entries: getEntries,
+        get_session_stats: { silent: true },
+        prompt: { data: { disposition: "started" }, events: turn },
+      },
+    });
+    const { sessionId } = await started(managed.manager, managed.manager.createSession("client-1", WORKSPACE));
+    const phone: SessionEvent[] = [];
+    managed.subscriptions.connect("p1", (event) => phone.push(event as SessionEvent), "dev_0123456789abcdef", true);
+    await managed.manager.subscribe("p1", [sessionId]);
+    const first = present(
+      phone.find((event) => event.type === "session_snapshot"),
+      "the phone's snapshot",
+    );
+    managed.subscriptions.disconnect("p1");
+    await managed.manager.subscribe("c1", [sessionId]);
+    await managed.manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
+    await vi.waitFor(() => expect(managed.received.map((event) => event.type)).toContain("run_settled"));
+    const missed = managed.received
+      .filter((event) => event.type !== "session_snapshot")
+      .filter((event) => event.seq > first.seq);
+
+    const back: SessionEvent[] = [];
+    managed.subscriptions.connect("p2", (event) => back.push(event as SessionEvent), "dev_0123456789abcdef", true);
+    const point = { sessionId, stream: first.stream, epoch: first.epoch, seq: first.seq };
+    await managed.manager.subscribe("p2", [sessionId], undefined, [point]);
+    const newest = present(missed.at(-1), "a missed event").seq;
+    expect(back).toStrictEqual([...missed, { type: "session_resumed", sessionId, epoch: first.epoch, seq: newest }]);
+
+    const stale: SessionEvent[] = [];
+    managed.subscriptions.connect("p3", (event) => stale.push(event as SessionEvent), "dev_0123456789abcdef", true);
+    await managed.manager.subscribe("p3", [sessionId], undefined, [{ ...point, stream: "another" }]);
+    expect(stale.map((event) => event.type)).toStrictEqual(["session_snapshot"]);
   });
 });

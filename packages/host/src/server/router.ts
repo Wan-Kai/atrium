@@ -205,7 +205,7 @@ export function createRouter(options: RouterOptions): Route {
           ...(command.translationLanguage === undefined ? {} : { translationLanguage: command.translationLanguage }),
         });
       case "subscribe_sessions":
-        return options.sessions.subscribe(connection.id, command.sessionIds, command.snapshot);
+        return options.sessions.subscribe(connection.id, command.sessionIds, command.snapshot, command.resume);
       case "prompt":
         return once(options.receipts, connection, command, () =>
           options.attachments.use(connection.id, command.attachmentIds ?? [], (images) =>

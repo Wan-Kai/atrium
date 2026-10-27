@@ -1310,6 +1310,8 @@ export function createSessionManager(options: {
     held.get(sessionId)?.();
     held.delete(sessionId);
     sessions.delete(sessionId);
+    // A new controller starts a new stream; what the phones' ring kept cannot be resumed from.
+    options.subscriptions.forget(sessionId);
     // Stryker disable next-line all: only frees memory; holding the session again sets it first.
     lastActive.delete(sessionId);
   }
@@ -1680,7 +1682,7 @@ export function createSessionManager(options: {
       const entry = entryOf(sessionId);
       return entry?.state === "draft" ? draftSnapshot(sessionId, fastOf(entry), options.newStream()) : null;
     },
-    async subscribe(connectionId, sessionIds, budget) {
+    async subscribe(connectionId, sessionIds, budget, resume = []) {
       await options.catalog.ready();
       const snapshots = new Map<string, SessionSnapshotEvent>();
       for (const sessionId of sessionIds) {
@@ -1696,7 +1698,21 @@ export function createSessionManager(options: {
       }
       for (const sessionId of options.subscriptions.subscribe(connectionId, sessionIds, budget)) {
         const snapshot = snapshots.get(sessionId);
-        if (snapshot !== undefined) options.subscriptions.sendTo(connectionId, snapshot);
+        if (snapshot === undefined) continue;
+        // A phone continues from its copy when the ring has every event since (SPEC-0005, "协议改动" 3).
+        const point = resume.find((candidate) => candidate.sessionId === sessionId);
+        const missed = point === undefined ? null : options.subscriptions.resume(point, snapshot.seq);
+        if (missed === null) {
+          options.subscriptions.sendTo(connectionId, snapshot);
+          continue;
+        }
+        for (const event of missed) options.subscriptions.sendTo(connectionId, event);
+        options.subscriptions.sendTo(connectionId, {
+          type: "session_resumed",
+          sessionId,
+          epoch: snapshot.epoch,
+          seq: snapshot.seq,
+        });
       }
       return {};
     },

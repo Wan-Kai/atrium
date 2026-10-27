@@ -38,6 +38,11 @@ public struct HomeView: View {
             ConnectionPill(state: Self.pill(for: sync.status), hostName: sync.hostName)
               .padding(.top, Metrics.xs)
               .accessibilityIdentifier("home.connection")
+            if sync.core.stale {
+              Text("不是最新").font(Typography.meta).foregroundStyle(palette.tertiary)
+                .padding(.top, Metrics.xxs)
+                .accessibilityIdentifier("home.stale")
+            }
             sections(sync.home, ready: sync.core.index.ready, palette: palette)
           } else {
             Text("还没连上 Mac")

@@ -24,6 +24,10 @@ public final class SyncModel {
   public let hostName: String
 
   @ObservationIgnored private let connection: RemoteConnection
+  @ObservationIgnored private let cache: SyncCache?
+  @ObservationIgnored private let clock: any Clock<Duration>
+  /// The pending throttled write of the cache, if any.
+  @ObservationIgnored private var saving: Task<Void, Never>?
   @ObservationIgnored private let outputs: AsyncStream<SyncOutput>
   @ObservationIgnored private let queue: AsyncStream<SyncOutput>.Continuation
 
@@ -37,14 +41,20 @@ public final class SyncModel {
   ///   - traceparent: Makes a command's traceparent.
   ///   - now: The time since some fixed origin, for the retry window.
   ///   - requestId: Makes a request id; random UUIDs in the app (SPEC-0005 "协议改动" 4).
+  ///   - cache: The host's cache, read now and written as things change; `nil` keeps nothing.
+  ///   - clock: The clock the cache's writes are throttled on.
   public init(
     connection: RemoteConnection, hostName: String, traceparent: @escaping @Sendable () -> String,
-    now: @escaping @Sendable () -> Duration, requestId: @escaping () -> String
+    now: @escaping @Sendable () -> Duration, requestId: @escaping () -> String, cache: SyncCache? = nil,
+    clock: any Clock<Duration> = ContinuousClock()
   ) {
     self.connection = connection
     self.hostName = hostName
+    self.cache = cache
+    self.clock = clock
     core = SyncCore(requestId: requestId, traceparent: traceparent, now: now)
     (outputs, queue) = AsyncStream.makeStream(of: SyncOutput.self)
+    core.restore(index: cache?.index(), drafts: cache?.drafts() ?? [:])
   }
 
   /// What the home screen lists.
@@ -73,6 +83,12 @@ public final class SyncModel {
   /// - Parameter status: The status.
   public func statusChanged(_ status: ConnectionStatus) async {
     self.status = status
+    // An authenticated revocation deletes the host's copy with its keys (SPEC-0005 "撤销").
+    if status == .revoked {
+      saving?.cancel()
+      saving = nil
+      try? cache?.removeAll()
+    }
     guard status == .syncing, let generation = await connection.openGeneration else { return }
     enqueue(core.connected(generation: generation))
   }
@@ -93,7 +109,7 @@ public final class SyncModel {
   /// - SideEffects: Queues commands.
   /// - Parameter sessionId: The session.
   public func open(_ sessionId: SessionId) {
-    enqueue(core.open(sessionId))
+    enqueue(core.open(sessionId, cached: cache?.session(sessionId)))
   }
 
   /// Closes a session's page.
@@ -102,7 +118,36 @@ public final class SyncModel {
   /// - SideEffects: Queues commands.
   /// - Parameter sessionId: The session.
   public func close(_ sessionId: SessionId) {
+    if let session = core.sessions[sessionId]?.cached { try? cache?.save(session) }
     enqueue(core.close(sessionId))
+  }
+
+  /// Writes the cache now: the list and the open sessions.
+  ///
+  /// - Remark: When the app goes to the background, and at the end of each throttled wait. A write
+  ///   that fails leaves the old copy, which the next launch still resumes from or replaces.
+  /// - SideEffects: Writes files; cancels a pending write.
+  public func saveNow() {
+    saving?.cancel()
+    saving = nil
+    guard let cache else { return }
+    if let index = core.index.cached { try? cache.save(index) }
+    for sessionId in core.openSessions {
+      if let session = core.sessions[sessionId]?.cached { try? cache.save(session) }
+    }
+  }
+
+  /// Writes the cache a second from now, unless a write is already waiting.
+  ///
+  /// - Remark: Streaming changes the open session many times a second; one write a second is enough
+  ///   for a copy that only has to be close (SPEC-0005 "MP4c 定的细节").
+  /// - SideEffects: Starts a task that sleeps on the injected clock.
+  private func scheduleSave() {
+    guard cache != nil, saving == nil else { return }
+    saving = Task { [clock] in
+      do { try await clock.sleep(for: .seconds(1)) } catch { return }
+      self.saveNow()
+    }
   }
 
   /// Whether a session's input may be sent now.
@@ -124,6 +169,7 @@ public final class SyncModel {
   ///   - sessionId: The session.
   public func setDraft(_ text: String, for sessionId: SessionId) {
     core.setDraft(text, for: sessionId)
+    try? cache?.save(drafts: core.drafts)
   }
 
   /// Sends a session's input.
@@ -156,6 +202,7 @@ public final class SyncModel {
     for await message in connection.messages {
       guard let decoded = try? decoder.decode(HostMessage.self, from: message.data) else { continue }
       enqueue(core.receive(decoded, generation: message.generation))
+      scheduleSave()
     }
   }
 

@@ -43,14 +43,16 @@ func failed(_ requestId: String, _ code: String) -> String {
   #"{"type":"response","requestId":"\#(requestId)","ok":false,"error":{"code":"\#(code)"}}"#
 }
 
-/// `subscribe_index` without a cursor.
+/// `subscribe_index`.
 ///
-/// - Remark: What every new connection sends first in MP4a.
+/// - Remark: What every new connection sends first; with a cursor once the list has come.
 /// - SideEffects: none
-/// - Parameter id: Its request id.
+/// - Parameters:
+///   - id: Its request id.
+///   - cursor: Where the list the phone has ends.
 /// - Returns: The command.
-func subscribeIndex(_ id: String) -> Command {
-  .subscribeIndex(SubscribeIndexCommand(requestId: id, traceparent: traceparent))
+func subscribeIndex(_ id: String, cursor: SubscribeIndexCommand.Cursor? = nil) -> Command {
+  .subscribeIndex(SubscribeIndexCommand(requestId: id, traceparent: traceparent, cursor: cursor))
 }
 
 /// `subscribe_sessions` with the phone's budget.
@@ -60,12 +62,13 @@ func subscribeIndex(_ id: String) -> Command {
 /// - Parameters:
 ///   - id: Its request id.
 ///   - sessions: The sessions.
+///   - resume: Where open sessions' copies end.
 /// - Returns: The command.
-func subscribeSessions(_ id: String, _ sessions: [String]) -> Command {
+func subscribeSessions(_ id: String, _ sessions: [String], resume: [ResumePoint]? = nil) -> Command {
   .subscribeSessions(
     SubscribeSessionsCommand(
       requestId: id, traceparent: traceparent, sessionIds: sessions,
-      snapshot: SnapshotBudget(turns: 6, bytes: 524_288)))
+      snapshot: SnapshotBudget(turns: 6, bytes: 524_288), resume: resume))
 }
 
 /// `open_session`.
@@ -182,27 +185,35 @@ struct SyncCoreTests {
     #expect(receive(&sync, generation: 2, snapshotJSON("s1")) == [.markSynced(generation: 2)])
   }
 
-  @Test("starts over on a new connection, keeping what it shows until fresh snapshots replace it")
+  @Test("continues on a new connection from what it has: the list from its cursor, the session from its copy")
   func reconnect() {
     var sync = core()
     _ = sync.open("s1")
     _ = sync.connected(generation: 1)
     _ = receive(
-      &sync, generation: 1, ok("r1"), indexSnapshotJSON(sessions: [summaryJSON("s1", in: "w1")]), ok("r2"), ok("r3"),
-      snapshotJSON("s1", items: [turnJSON("t1")]))
+      &sync, generation: 1, ok("r1"), indexSnapshotJSON(seq: 3, sessions: [summaryJSON("s1", in: "w1")]), ok("r2"),
+      ok("r3"), snapshotJSON("s1", seq: 2, items: [turnJSON("t1")]))
     #expect(sync.synced)
 
     #expect(
       sync.connected(generation: 2) == [
-        .send(subscribeIndex("r4"), generation: 2),
-        .send(subscribeSessions("r5", ["s1"]), generation: 2),
+        .send(subscribeIndex("r4", cursor: .init(generation: "h1", seq: 3)), generation: 2),
+        .send(
+          subscribeSessions("r5", ["s1"], resume: [ResumePoint(sessionId: "s1", stream: "st-1", epoch: 1, seq: 2)]),
+          generation: 2),
         .send(openSession("r6", "s1"), generation: 2),
       ])
     #expect(!sync.synced)
-    #expect(sync.index.sessions.map(\.sessionId) == ["s1"])
-    #expect(sync.sessions["s1"]?.status == .loading)
+    #expect(sync.sessions["s1"]?.status == .ready)
+    #expect(sync.sessions["s1"]?.resuming == true)
     #expect(sync.sessions["s1"]?.items.map(\.id) == ["t1"])
-    #expect(sync.connected(generation: 2) == [])
+    let missed = #"{"type":"fast_updated","sessionId":"s1","epoch":1,"seq":3,"traceId":null,"fast":true}"#
+    #expect(receive(&sync, generation: 2, ok("r4"), indexChangesJSON(seq: 3), ok("r5"), ok("r6"), missed) == [])
+    #expect(
+      receive(&sync, generation: 2, #"{"type":"session_resumed","sessionId":"s1","epoch":1,"seq":3}"#)
+        == [.markSynced(generation: 2)])
+    #expect(sync.sessions["s1"]?.resuming == false)
+    #expect(sync.sessions["s1"]?.seq == 3)
     #expect(sync.connected(generation: 1) == [])
   }
 
@@ -293,14 +304,16 @@ struct SyncCoreResumeTests {
 
     #expect(
       sync.connected(generation: 1) == [
-        .send(subscribeIndex("r4"), generation: 1),
+        .send(subscribeIndex("r4", cursor: .init(generation: "h1", seq: 0)), generation: 1),
         .send(subscribeSessions("r5", []), generation: 1),
-        .send(subscribeSessions("r6", ["s1"]), generation: 1),
+        .send(
+          subscribeSessions("r6", ["s1"], resume: [ResumePoint(sessionId: "s1", stream: "st-1", epoch: 1, seq: 0)]),
+          generation: 1),
         .send(openSession("r7", "s1"), generation: 1),
       ])
     #expect(!sync.synced)
-    #expect(sync.sessions["s1"]?.status == .loading)
-    #expect(receive(&sync, generation: 1, ok("r1"), ok("r2"), indexSnapshotJSON(), snapshotJSON("s1")) == [])
+    #expect(sync.sessions["s1"]?.resuming == true)
+    #expect(receive(&sync, generation: 1, ok("r1"), ok("r2"), indexChangesJSON(seq: 0), snapshotJSON("s1")) == [])
     #expect(receive(&sync, generation: 1, ok("r4")) == [.markSynced(generation: 1)])
   }
 

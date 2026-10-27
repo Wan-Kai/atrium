@@ -476,7 +476,12 @@ function serveTransport(
         : {}),
     });
     const open = connection;
-    options.subscriptions.connect(connectionId, (event) => open.send(event), accepted.clientId);
+    options.subscriptions.connect(
+      connectionId,
+      (event) => open.send(event),
+      accepted.clientId,
+      origin.origin === "remote",
+    );
     for (const event of options.catchUp()) open.send(event);
     beat();
   });

@@ -194,3 +194,38 @@ struct SessionStateTests {
     #expect(state.status == .failed(.sessionNotFound))
   }
 }
+
+@Suite("Session state: resuming")
+struct SessionStateResumeTests {
+  @Test("has a resume point once it has a snapshot, and none before")
+  func point() {
+    #expect(SessionState(sessionId: "s1").resumePoint == nil)
+    var state = readyState(seq: 4, items: [])
+    #expect(state.resumePoint == ResumePoint(sessionId: "s1", stream: "st-1", epoch: 1, seq: 4))
+    state.reload()
+    #expect(state.resumePoint == nil)
+  }
+
+  @Test("keeps taking events while it resumes, and is settled at session_resumed of its position")
+  func resumes() {
+    var state = readyState(seq: 4, items: [])
+    state.beginResume()
+    #expect(!state.settled)
+    let missed = #"{"type":"fast_updated","sessionId":"s1","epoch":1,"seq":5,"traceId":null,"fast":true}"#
+    #expect(state.apply(event(missed)) == .applied)
+    #expect(state.apply(event(#"{"type":"session_resumed","sessionId":"s1","epoch":1,"seq":5}"#)) == .applied)
+    #expect(state.settled)
+  }
+
+  @Test("is settled by a snapshot instead, and cannot resume without a copy")
+  func snapshotInstead() {
+    var state = readyState(seq: 4, items: [])
+    state.beginResume()
+    _ = state.apply(event(snapshotJSON(epoch: 2, seq: 0)))
+    #expect(state.settled)
+
+    var empty = SessionState(sessionId: "s1")
+    empty.beginResume()
+    #expect(!empty.resuming)
+  }
+}

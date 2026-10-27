@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-27 MP4a、MP4b、MP4c 实现完成，在 `atrium/mp4-sync`（worktree `atrium.worktrees/mp4-sync`），待 MP4 三方审查和用户验收，未合并、未推送。** 用户 2026-10-27 设目标"完成所有 MVP 内容，非单向门的决策先代决策"，代定的细节都写在 SPEC-0005 的 MP4a/b/c 小节。
+
 **2026-10-27 MP4a 只读同步开工，在 `atrium/mp4-sync`（worktree `atrium.worktrees/mp4-sync`），未合并。** MP4 拆成 MP4a 只读同步、MP4b 发送与回执、MP4c 续传与恢复；用户定协议一次升到 28，字段全在 MP4a 定下，宿主先只实现快照预算。细节见 [SPEC-0005 · MP4a 定的细节](specs/0005-mobile-app-and-remote-access.md#mp4a-定的细节2026-10-27)。
 
 **2026-10-27 手机端阶段收口：用户已反馈隔离环境手测通过，当前检查点已本地合回 `main`（`bbbbaf9`），未推送。** 宿主远程模块、Mac 手机设置页与 Swift 配对/连接底座已实现；模拟器测试包的签名权限问题已修复，专用钥匙串检查由 `-34018` 变为 `passed`，用户配对后进入“正在同步”。该状态不是同步功能完成：**下一步是 MP4 只读列表与会话同步，再做发送回执和断线恢复**。Git/chat/appearance/ask-user 等自动化异常按用户决定暂缓，原因保留待查，不改写为误报或全绿；children 新候选随检查点保存，但新 hash 的动态门禁与正式复审仍待。新对话先读[手机端阶段交接](testing/mobile-handoff.md)，其中列明已完成、未完成、手测边界、保留现场及本次实际合并/检查结果；不标 MP3–MP6 全部完成。

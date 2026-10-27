@@ -1,7 +1,9 @@
 import type { LoginUpdatedEvent, SessionEvent, SessionSnapshotEvent, Turn } from "@atrium/protocol";
 import { IDLE_CONTROL, UNKNOWN_METRICS } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
+import { FakeClock } from "@atrium/testkit";
 import { ResourceTracker } from "../platform/resources";
+import { EventRing } from "./event-ring";
 import { type EventSink, SubscriptionRegistry } from "./subscriptions";
 
 /** An event of a session. */
@@ -179,5 +181,63 @@ describe("SubscriptionRegistry: snapshot budgets", () => {
     expect(registry.budgeted("b", snapshotOf("s1"))).toStrictEqual(snapshotOf("s1"));
     registry.disconnect("a");
     expect(registry.budgeted("a", snapshotOf("s1"))).toStrictEqual(snapshotOf("s1"));
+  });
+});
+
+/** A registry with a ring, a phone connection and a Mac connection. */
+function withRing() {
+  const clock = new FakeClock(0);
+  const resources = new ResourceTracker();
+  const ring = new EventRing(clock, resources);
+  const registry = new SubscriptionRegistry(resources, ring);
+  registry.connect("phone", () => undefined, "dev_0123456789abcdef", true);
+  registry.connect("mac", () => undefined, "client-1");
+  return { clock, registry, resources };
+}
+
+describe("SubscriptionRegistry: the phones' event ring", () => {
+  it("keeps the events of a session a phone watches from its snapshot on, and resumes from them", () => {
+    const { registry } = withRing();
+    registry.subscribe("phone", ["s1"]);
+    registry.sendTo("phone", snapshotOf("s1"));
+    registry.publish(eventOf("s1", 1));
+    registry.publish(eventOf("s1", 2));
+
+    expect(registry.resume({ sessionId: "s1", stream: "st-1", epoch: 1, seq: 0 }, 2)).toStrictEqual([
+      eventOf("s1", 1),
+      eventOf("s1", 2),
+    ]);
+  });
+
+  it("keeps nothing for a session only the Mac watches", () => {
+    const { registry } = withRing();
+    registry.subscribe("mac", ["s1"]);
+    registry.sendTo("mac", snapshotOf("s1"));
+    registry.publish(eventOf("s1", 1));
+    expect(registry.resume({ sessionId: "s1", stream: "st-1", epoch: 1, seq: 0 }, 1)).toBeNull();
+  });
+
+  it("keeps a session's events ten minutes after its phone went, and forgets one on request", () => {
+    const { registry, clock, resources } = withRing();
+    registry.subscribe("phone", ["s1", "s2"]);
+    registry.sendTo("phone", snapshotOf("s1"));
+    registry.sendTo("phone", snapshotOf("s2"));
+    registry.disconnect("phone");
+    registry.forget("s2");
+    clock.advance(599_999);
+    expect(registry.resume({ sessionId: "s1", stream: "st-1", epoch: 1, seq: 0 }, 0)).toStrictEqual([]);
+    expect(registry.resume({ sessionId: "s2", stream: "st-1", epoch: 1, seq: 0 }, 0)).toBeNull();
+    clock.advance(1);
+    expect(registry.resume({ sessionId: "s1", stream: "st-1", epoch: 1, seq: 0 }, 0)).toBeNull();
+    expect(resources.snapshot()["sync.ring"]).toBe(0);
+  });
+
+  it("stops counting a phone for a session it no longer watches", () => {
+    const { registry, clock } = withRing();
+    registry.subscribe("phone", ["s1"]);
+    registry.sendTo("phone", snapshotOf("s1"));
+    registry.subscribe("phone", []);
+    clock.advance(600_000);
+    expect(registry.resume({ sessionId: "s1", stream: "st-1", epoch: 1, seq: 0 }, 0)).toBeNull();
   });
 });

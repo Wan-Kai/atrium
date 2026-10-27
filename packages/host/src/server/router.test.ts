@@ -499,7 +499,7 @@ describe("createRouter", () => {
 
     await route(connection, withTrace({ type: "subscribe_sessions", requestId: "r1", sessionIds: ["s1"], snapshot }));
 
-    expect(calls).toStrictEqual([["subscribe", "connection-7", ["s1"], snapshot]]);
+    expect(calls).toStrictEqual([["subscribe", "connection-7", ["s1"], snapshot, undefined]]);
   });
 
   it("hands session commands to the session layer, with the client for layout changes, and returns their results", async () => {
@@ -538,7 +538,7 @@ describe("createRouter", () => {
 
     expect(calls).toStrictEqual([
       ["createChat", "client-1"],
-      ["subscribe", "connection-7", ["s1"], undefined],
+      ["subscribe", "connection-7", ["s1"], undefined, undefined],
       ["prompt", "s1", "hi"],
       ["fetchTranscript", "s1", 2, "t9", 50],
       ["fetchStep", "s1", 2, "t9", "3"],

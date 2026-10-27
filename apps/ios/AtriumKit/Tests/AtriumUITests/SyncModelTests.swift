@@ -18,6 +18,15 @@ nonisolated private let emptyList = """
   "titleModel":null,"proxy":null,"inbox":true,"translationLanguage":"简体中文"},"resets":[]}
   """
 
+/// An empty snapshot of session `s1`, as the host sends it.
+nonisolated private let sessionSnapshot = """
+  {"type":"session_snapshot","sessionId":"s1","epoch":1,"seq":0,"traceId":null,"stream":"st","items":[],\
+  "hasOlder":false,"run":null,"exited":false,"control":{"queue":[],"deliveries":[],"deliveriesHeld":null,\
+  "paused":null,"steers":[],"stopping":false,"restarting":false,"compacting":false,"interactions":[],\
+  "question":null,"failure":null},"model":null,"fast":false,"metrics":{"turns":null,"steps":null,\
+  "tokens":null,"cost":null,"reasoning":null,"branchTokens":0,"context":null,"timing":null,"children":null}}
+  """
+
 @Suite("Sync model", PairingResourceScope())
 struct SyncModelTests {
   @Test("subscribes once the channel is up and turns the connection connected only when the list has come")
@@ -140,14 +149,7 @@ struct SyncModelTests {
     for requestId in answered {
       try await side.send(Data(#"{"type":"response","requestId":"\#(requestId)","ok":true,"result":{}}"#.utf8))
     }
-    let snapshot = """
-      {"type":"session_snapshot","sessionId":"s1","epoch":1,"seq":0,"traceId":null,"stream":"st","items":[],\
-      "hasOlder":false,"run":null,"exited":false,"control":{"queue":[],"deliveries":[],"deliveriesHeld":null,\
-      "paused":null,"steers":[],"stopping":false,"restarting":false,"compacting":false,"interactions":[],\
-      "question":null,"failure":null},"model":null,"fast":false,"metrics":{"turns":null,"steps":null,\
-      "tokens":null,"cost":null,"reasoning":null,"branchTokens":0,"context":null,"timing":null,"children":null}}
-      """
-    try await side.send(Data(snapshot.utf8))
+    try await side.send(Data(sessionSnapshot.utf8))
     try await waitUntil { model.status == .connected && model.canSend("s1") }
 
     // The connection goes before the message is written; the model still shows it connected.
@@ -162,6 +164,65 @@ struct SyncModelTests {
 
     running.cancel()
     await running.value
+  }
+
+  @Test("writes the list, open sessions and drafts to the cache, and starts the next launch from them")
+  func cache() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("atrium-model-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let host = TestHost()
+    let cache = SyncCache(root: root, hostId: host.hostId)
+    let store = HostStore(MemorySecretStore())
+    try store.confirm(host.record, deviceId: host.deviceId)
+    let relay = MemoryRelay()
+    let manualClock = ManualClock()
+    let clock = Stopwatch(manualClock)
+    let environment = RemoteEnvironment(
+      connect: { relay.connect($0) }, stopwatch: clock, jitter: { 0 }, appVersion: "1")
+    let connection = RemoteConnection(
+      host: host.record, deviceKey: try store.deviceKey(), store: store, environment: environment)
+    PairingTestResources.current?.register(connection, clock: manualClock)
+    let model = SyncModel(
+      connection: connection, hostName: host.hostName, traceparent: { traceparent }, now: { .zero },
+      requestId: { UUID().uuidString.lowercased() }, cache: cache, clock: manualClock)
+    model.open("s1")
+    let running = Task { await model.run() }
+    let following = Task { for await status in connection.statuses { await model.statusChanged(status) } }
+    await connection.start()
+    let side = try await host.accept((await relay.next()).host, stopwatch: clock)
+    PairingTestResources.current?.register(side.channel)
+    _ = try await side.answerHello(protocolVersion: protocolVersion)
+    var asked: [String] = []
+    for _ in 0..<3 {
+      let message = try JSONSerialization.jsonObject(with: try await firstMessage(of: side)) as? [String: Any]
+      asked.append(try #require(message?["requestId"] as? String))
+    }
+    try await side.send(Data(emptyList.utf8))
+    for requestId in asked {
+      try await side.send(Data(#"{"type":"response","requestId":"\#(requestId)","ok":true,"result":{}}"#.utf8))
+    }
+    try await side.send(Data(sessionSnapshot.utf8))
+    try await waitUntil { model.status == .connected }
+    model.setDraft("half", for: "s1")
+    model.saveNow()
+
+    following.cancel()
+    running.cancel()
+    await running.value
+    await following.value
+    await connection.stop()
+
+    let next = SyncModel(
+      connection: connection, hostName: host.hostName, traceparent: { traceparent }, now: { .zero },
+      requestId: { UUID().uuidString.lowercased() }, cache: cache, clock: manualClock)
+    #expect(next.core.stale)
+    #expect(next.core.drafts["s1"] == "half")
+    next.open("s1")
+    #expect(next.core.sessions["s1"]?.status == .ready)
+    #expect(next.core.sessions["s1"]?.resumePoint?.stream == "st")
+
+    await next.statusChanged(.revoked)
+    #expect(cache.index() == nil)
   }
 
   /// Answers the phone's `subscribe_index` on a channel with an empty list.

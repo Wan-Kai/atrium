@@ -28,6 +28,28 @@ public struct IndexState: Sendable, Equatable {
   /// - SideEffects: none
   public init() {}
 
+  /// The list as last cached, taken as if a snapshot of it had come.
+  ///
+  /// - Remark: Shown as "不是最新" until the first sync (SPEC-0005 "MP4c 定的细节").
+  /// - SideEffects: none
+  /// - Parameter cached: The cached list.
+  public init(cached: CachedIndex) {
+    ready = true
+    generation = cached.generation
+    seq = cached.seq
+    projects = cached.projects
+    workspaces = cached.workspaces
+    chats = cached.chats
+    sessions = cached.sessions
+  }
+
+  /// The list to cache, with its cursor; `nil` before the first snapshot.
+  public var cached: CachedIndex? {
+    guard ready else { return nil }
+    return CachedIndex(
+      generation: generation, seq: seq, projects: projects, workspaces: workspaces, chats: chats, sessions: sessions)
+  }
+
   /// Takes in a snapshot.
   ///
   /// - Remark: A snapshot replaces everything (SPEC-0001 "项目、工作区与会话").
