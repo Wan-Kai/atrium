@@ -23,8 +23,8 @@ nonisolated struct FileIcons: Sendable {
   /// One filled path of an icon.
   ///
   /// - Remark: `opacity` 1 unless the SVG says otherwise.
+  // Unchecked: a CGPath is immutable once made.
   struct Shape: @unchecked Sendable {
-    // Unchecked: a CGPath is immutable once made.
     /// The path.
     let path: CGPath
     /// Its fill, as `#rgb` or `#rrggbb`.
