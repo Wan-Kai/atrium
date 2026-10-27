@@ -1,0 +1,66 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    if message?.kind == .steer {",
+    "to": "    if false {",
+    "name": "steer sent as steer",
+    "runner": "swift",
+    "filter": "SyncControlTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    if disposition == \"started\", outbox[index].kind == .prompt {",
+    "to": "    if disposition == \"started\" {",
+    "name": "steer settles on start",
+    "runner": "swift",
+    "filter": "SyncControlTests/steer"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    guard synced, openSessions.contains(sessionId) else { return [] }\n    actionProblems[sessionId] = nil",
+    "to": "    actionProblems[sessionId] = nil",
+    "name": "no action before sync",
+    "runner": "swift",
+    "filter": "SyncControlTests/noAction"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "      let attention = summary.attention, attention.reason == .error, !attention.cleared,",
+    "to": "      let attention = summary.attention, !attention.cleared,",
+    "name": "auth not cleared",
+    "runner": "swift",
+    "filter": "SyncControlTests/clearAttention"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "        actionProblems[sessionId] = ActionProblem(action: action, code: failure.error.code)\n",
+    "to": "        _ = (sessionId, action)\n",
+    "name": "action problem kept",
+    "runner": "swift",
+    "filter": "SyncControlTests/actionProblem"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Session/SessionControls.swift",
+    "from": "      case .stopped? where queue > 0: .stopped(queued: queue)",
+    "to": "      case .stopped?: .stopped(queued: queue)",
+    "name": "no banner for empty queue",
+    "runner": "swift",
+    "filter": "SessionControlsTests/banners"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Session/SessionControls.swift",
+    "from": "    showsStop = running || stopping",
+    "to": "    showsStop = running",
+    "name": "stop key while stopping",
+    "runner": "swift",
+    "filter": "SessionControlsTests/stop"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Session/SessionControls.swift",
+    "from": "if control?.question != nil { \"直接回复也行：发出后代替回答\" }",
+    "to": "if false { \"直接回复也行：发出后代替回答\" }",
+    "name": "question placeholder",
+    "runner": "swift",
+    "filter": "SessionControlsTests/placeholder"
+  }
+]

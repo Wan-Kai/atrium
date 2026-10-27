@@ -31,6 +31,8 @@
         VStack(alignment: .leading, spacing: Metrics.md) {
           TurnView(layout: TurnLayout(SampleTurns.finished))
           TurnView(layout: TurnLayout(SampleTurns.running))
+          ErrorCard(text: "这一轮出错了", detail: "HTTP 529 overloaded", retry: {})
+          ErrorCard(text: SessionControls.failureText(attempts: 3), detail: nil, retry: {})
         }
       default: EmptyView()
       }

@@ -157,6 +157,10 @@ struct SyncContractTests {
       try await within(seconds: 30) {
         model.core.lastDelivered[sessionId] == unanswered.id && model.core.outbox.isEmpty
           && model.core.sessions[sessionId]?.running == false
+      } else: {
+        let state = model.core.sessions[sessionId]
+        return "outbox \(model.core.outbox) last \(String(describing: model.core.lastDelivered[sessionId])) "
+          + "running \(String(describing: state?.running)) status \(model.status) settled \(String(describing: state?.settled))"
       }
       let last = try #require(model.core.sessions[sessionId])
       #expect(last.items.filter(isTurn).count == turnsBefore + 3)
@@ -165,6 +169,40 @@ struct SyncContractTests {
           if case .turn(let turn) = $0 { return turn.user.clientMessageId == unanswered.id }
           return false
         }.count == 1)
+
+      // MP5b: while a run goes on, a message waits in the host's queue and a steer goes to pi; a stop
+      // holds the queue until "继续发送" lets it go.
+      _ = try await control.request("prompt", body: ["sessionId": sessionId, "text": "ping"])
+      try await within(seconds: 30) { model.core.sessions[sessionId]?.running == true && model.canSend(sessionId) }
+      model.setDraft("排队的", for: sessionId)
+      model.send(sessionId)
+      try await within(seconds: 30) {
+        model.core.outbox.isEmpty && model.core.sessions[sessionId]?.control?.queue.map(\.text) == ["排队的"]
+      }
+      model.setDraft("插话的", for: sessionId)
+      model.send(sessionId, steer: true)
+      try await within(seconds: 30) { model.core.outbox.isEmpty }
+      model.perform(.stop, in: sessionId)
+      try await within(seconds: 30) {
+        let state = model.core.sessions[sessionId]
+        return state?.running == false && state?.control?.paused == .stopped && state?.control?.queue.count == 1
+      } else: {
+        let state = model.core.sessions[sessionId]
+        return "running \(String(describing: state?.running)) control \(String(describing: state?.control))"
+      }
+      let held = try #require(model.core.sessions[sessionId]).items.filter(isTurn).count
+      model.perform(.resumeQueue, in: sessionId)
+      try await within(seconds: 30) {
+        let state = model.core.sessions[sessionId]
+        return state?.control?.queue.isEmpty == true && state?.running == false
+          && (state?.items.filter(isTurn).count ?? 0) == held + 1
+      } else: {
+        let state = model.core.sessions[sessionId]
+        return
+          "running \(String(describing: state?.running)) turns \(state?.items.filter(isTurn).count ?? -1) held \(held) "
+          + "control \(String(describing: state?.control))"
+      }
+      #expect(model.core.actionProblems.isEmpty)
 
     } catch {
       await cleanUp()

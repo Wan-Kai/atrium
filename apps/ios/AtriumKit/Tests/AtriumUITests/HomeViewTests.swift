@@ -59,12 +59,6 @@ struct SessionPageTests {
 
 @Suite("Composer")
 struct ComposerTests {
-  @Test("says to write now and send later while the connection is down")
-  func placeholder() {
-    #expect(Composer.placeholder(connected: true) == "发消息")
-    #expect(Composer.placeholder(connected: false) == "先写着，连上后再发")
-  }
-
   @Test("says a message did not go, with the host's code when it refused it")
   func problem() {
     #expect(Composer.problemLine(.notSent) == "没发出去")

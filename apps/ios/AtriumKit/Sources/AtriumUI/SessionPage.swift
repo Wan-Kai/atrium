@@ -7,8 +7,11 @@ import SwiftUI
 /// - Remark: SPEC-0005 "MP5 定的细节 · MP5a": each turn is a ``TurnView`` (your bubble, the process
 ///   rail, the Markdown reply, what it changed); notices are one grey line. A floating top bar holds
 ///   the back button, the title and "项目 · 分支". Opening the page opens the session on the Mac and
-///   subscribes to it; leaving closes it. At the bottom an input sends text with its receipt (MP4b):
-///   unsettled messages show as bubbles marked "发送中" or "没能确认是否送到 · 重发".
+///   subscribes to it; leaving closes it. At the bottom the ``SessionDock`` sends with a receipt
+///   (MP4b), queues, steers and stops (MP5b): unsettled messages show as bubbles marked "发送中" or
+///   "没能确认是否送到 · 重发". Showing the page clears its error (`clear_attention`), and again
+///   when the app comes back to the foreground. Short notes ("已停止", a failed action) show as a
+///   toast for 1.9 s.
 struct SessionPage: View {
   /// The session.
   let sessionId: SessionId
@@ -18,11 +21,20 @@ struct SessionPage: View {
   @Environment(\.dismiss) private var dismiss
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
+  /// Whether the app is in front.
+  @Environment(\.scenePhase) private var phase
+  /// Whether the queue sheet is open.
+  @State private var showingQueue = false
+  /// The toast showing, if any.
+  @State private var toast: String?
 
   /// The page.
   var body: some View {
     let palette = Palette(scheme: scheme)
     let state = sync?.core.sessions[sessionId]
+    let controls = SessionControls(
+      control: state?.control, running: state?.running ?? false, connected: sync?.status == .connected)
+    let lastTurn = state?.items.last { if case .turn = $0 { true } else { false } }?.id
     ScrollView {
       LazyVStack(alignment: .leading, spacing: Metrics.md) {
         if sync?.core.stale == true {
@@ -33,13 +45,20 @@ struct SessionPage: View {
         }
         ForEach(state?.items ?? [], id: \.id) { item in
           switch item {
-          case .turn(let turn): TurnView(layout: TurnLayout(turn)).id(turn.id)
+          case .turn(let turn):
+            TurnView(layout: TurnLayout(turn), retry: turn.id == lastTurn ? { retry() } : nil).id(turn.id)
           case .notice(let notice):
             Text(Self.label(notice)).font(Typography.meta).foregroundStyle(palette.tertiary)
           }
         }
         ForEach(sync?.core.outbox.filter { $0.sessionId == sessionId } ?? []) { message in
           PendingBubble(message: message) { sync?.resend(message.id) }
+        }
+        if let failure = controls.failure {
+          ErrorCard(text: failure, detail: nil) { retry() }
+        }
+        if controls.restarting {
+          Text("正在重启 pi").font(Typography.meta).foregroundStyle(palette.secondary)
         }
         if let line = Self.statusLine(state?.status) {
           Text(line)
@@ -58,10 +77,62 @@ struct SessionPage: View {
     .overlay(alignment: .top) { topBar(palette) }
     .hidingNavigationBar()
     .safeAreaInset(edge: .bottom) {
-      if let sync { Composer(sessionId: sessionId, sync: sync) }
+      if let sync {
+        SessionDock(
+          sessionId: sessionId, sync: sync, showQueue: { showingQueue = true }, showChildren: nil,
+          children: 0, toast: { toast = $0 })
+      }
     }
-    .onAppear { sync?.open(sessionId) }
+    .overlay(alignment: .top) { toastView(palette) }
+    .sheet(isPresented: $showingQueue) {
+      if let sync { QueueSheet(sessionId: sessionId, sync: sync) }
+    }
+    .onAppear {
+      sync?.open(sessionId)
+      sync?.clearAttention(sessionId)
+    }
     .onDisappear { sync?.close(sessionId) }
+    .onChange(of: phase) { if phase == .active { sync?.clearAttention(sessionId) } }
+    .onChange(of: sync?.status) { sync?.clearAttention(sessionId) }
+    .onChange(of: sync?.core.actionProblems[sessionId]) {
+      guard let problem = sync?.core.actionProblems[sessionId] else { return }
+      toast = SessionControls.problemText(problem)
+      sync?.dismissActionProblem(in: sessionId)
+    }
+    .task(id: toast) {
+      guard toast != nil else { return }
+      try? await ContinuousClock().sleep(for: .seconds(1.9))
+      if !Task.isCancelled { toast = nil }
+    }
+  }
+
+  /// Retries the session's last run.
+  ///
+  /// - Remark: The error card's "重试".
+  /// - SideEffects: Queues `retry_run`.
+  private func retry() {
+    sync?.perform(.retryRun, in: sessionId)
+  }
+
+  /// The toast at the top, if one shows.
+  ///
+  /// - Remark: The prototype's toast: glass, 38pt high, 13.5pt, under the top bar.
+  /// - SideEffects: none
+  /// - Parameter palette: The colours.
+  /// - Returns: The toast.
+  @ViewBuilder
+  private func toastView(_ palette: Palette) -> some View {
+    if let toast {
+      Text(toast)
+        .font(.system(size: 13.5))
+        .foregroundStyle(palette.text)
+        .padding(.horizontal, Metrics.md)
+        .frame(height: 38)
+        .atriumGlass(in: Capsule())
+        .padding(.top, 62)
+        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+        .accessibilityIdentifier("session.toast")
+    }
   }
 
   /// The floating bar at the top: back, the title and where the session is.
@@ -171,78 +242,5 @@ struct PendingBubble: View {
       }
     }
     .frame(maxWidth: .infinity, alignment: .trailing)
-  }
-}
-
-/// The input at the bottom of a session: one line of text and the send button.
-///
-/// - Remark: SPEC-0005 "MP4b 定的细节": sending only when connected, synced and nothing of the
-///   session still unsettled; while disconnected the placeholder says "先写着，连上后再发". A
-///   message that did not go comes back here with why.
-struct Composer: View {
-  /// The session.
-  let sessionId: SessionId
-  /// The connection's sync.
-  let sync: SyncModel
-  /// Light or dark.
-  @Environment(\.colorScheme) private var scheme
-
-  /// The input.
-  var body: some View {
-    let palette = Palette(scheme: scheme)
-    let text = Binding(
-      get: { sync.core.drafts[sessionId] ?? "" }, set: { sync.setDraft($0, for: sessionId) })
-    let empty = text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    let ready = sync.canSend(sessionId)
-    VStack(alignment: .leading, spacing: Metrics.xxs) {
-      if let problem = sync.core.problems[sessionId] {
-        Text(Self.problemLine(problem))
-          .font(Typography.meta)
-          .foregroundStyle(palette.danger)
-          .accessibilityIdentifier("session.problem")
-      }
-      HStack(alignment: .bottom, spacing: Metrics.sm) {
-        TextField(Self.placeholder(connected: sync.status == .connected), text: text, axis: .vertical)
-          .lineLimit(1...5)
-          .font(Typography.reply)
-          .accessibilityIdentifier("session.input")
-        Button {
-          sync.send(sessionId)
-        } label: {
-          Image(systemName: "arrow.up.circle.fill").font(.system(size: 30))
-        }
-        .disabled(!ready || empty)
-        .accessibilityLabel("发送")
-        .accessibilityIdentifier("session.send")
-      }
-      .padding(.horizontal, Metrics.md)
-      .padding(.vertical, Metrics.sm)
-      .atriumGlass(in: RoundedRectangle(cornerRadius: Metrics.radiusBubble), interactive: false)
-    }
-    .padding(.horizontal, Metrics.md)
-    .padding(.bottom, Metrics.xs)
-  }
-
-  /// The input's placeholder.
-  ///
-  /// - Remark: design-language "手机端 · 对话": while the connection is down, write now, send later.
-  /// - SideEffects: none
-  /// - Parameter connected: Whether the connection is up and synced.
-  /// - Returns: The placeholder.
-  static func placeholder(connected: Bool) -> String {
-    connected ? "发消息" : "先写着，连上后再发"
-  }
-
-  /// Why the last message did not go, in words.
-  ///
-  /// - Remark: The host's refusal shows only as its code (AGENTS.md: the host sends no words).
-  /// - SideEffects: none
-  /// - Parameter problem: Why.
-  /// - Returns: The line.
-  static func problemLine(_ problem: SendProblem) -> String {
-    switch problem {
-    case .notSent: "没发出去"
-    case .refused(let code): "没发出去（\(code.rawValue)）"
-    }
   }
 }

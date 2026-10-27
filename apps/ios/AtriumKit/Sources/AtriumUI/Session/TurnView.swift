@@ -10,6 +10,8 @@ import SwiftUI
 struct TurnView: View {
   /// The turn's layout.
   let layout: TurnLayout
+  /// Retries the run, for the latest turn only.
+  let retry: (() -> Void)?
   /// Whether the rail is open.
   @State private var expanded: Bool
   /// Light or dark.
@@ -19,9 +21,12 @@ struct TurnView: View {
   ///
   /// - Remark: A running turn starts with its rail open.
   /// - SideEffects: none
-  /// - Parameter layout: The turn's layout.
-  init(layout: TurnLayout) {
+  /// - Parameters:
+  ///   - layout: The turn's layout.
+  ///   - retry: Retries the run; `nil` for an older turn.
+  init(layout: TurnLayout, retry: (() -> Void)? = nil) {
     self.layout = layout
+    self.retry = retry
     _expanded = State(initialValue: layout.running)
   }
 
@@ -45,6 +50,10 @@ struct TurnView: View {
           .contextMenu {
             Button("复制", systemImage: "doc.on.doc") { Pasteboard.copy(reply) }
           }
+      }
+      if let failure = layout.failure {
+        // pi's text goes only into the details: the card's words are the app's (AGENTS.md).
+        ErrorCard(text: "这一轮出错了", detail: failure, retry: retry)
       }
       if let changes = layout.changes {
         ChangesLine(changes: changes, palette: palette)
