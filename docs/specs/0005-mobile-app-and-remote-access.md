@@ -89,7 +89,7 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
 
 1. **出码**：桌面点"配对新设备"，宿主建一次配对（状态 `available`），二维码内容：
    `atrium://pair?v=1&relay=<wss 地址>&host=<hostId>&key=<宿主公钥 b64url>&pairing=<pairingId>&psk=<PSK b64url>&name=<Mac 名字>`
-   App 只用自己的扫码界面读它，不注册给系统相机。过期、取消或刷新后，旧码作废。
+   查询参数的值按 UTF-8 百分号编码（沿用 MP0；空格是 `%20`，不是表单编码的 `+`，兼容 Swift `URLComponents`）。App 只用自己的扫码界面读它，不注册给系统相机。过期、取消或刷新后，旧码作废。
 2. **握手**：手机在钥匙串里生成自己的 X25519 密钥对（`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`），先把这台主机记成"待确认"，再连 relay，握手：
    - 第一条（`e, es, s, ss`）的载荷：`{ kind: "pair", pairingId, deviceName, model, appVersion, protocolVersion }`。`deviceName` 默认取 `UIDevice.current.name`。
    - 宿主核对 `pairingId` 是当前这次、状态 `available`、没过期，回第二条（`e, ee, se, psk`），载荷 `{ ok: true }`。这一步**不改**配对状态。
@@ -260,13 +260,46 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
 
 - `get_remote` / 事件 `remote_updated`：
   - `enabled`、`vault`（`ok` / `keychain_unavailable` / `corrupt`）；
-  - `relay: { url, hostId, status: off | connecting | connected | error, error, lastConnectedAt }`；
+  - `relay: { url, hostId, status: off | connecting | connected | error, error, lastConnectedAt, diagnostics }`；
   - `hostFingerprint`（宿主公钥 SHA-256 的前 8 字节，分组显示）；
-  - `devices: [{ deviceId, name, pairedAt, lastSeenAt, online, traffic: { down, up } }]`：`traffic` 是这台设备所有通道最近 2 秒的平均字节率（每秒），链路图按它画数据包的疏密；宿主每秒最多推一次，没有在看"手机"页的本机连接时不推。设备的颜色由界面按 `deviceId` 的哈希从一组固定色里取，不存；名字清空时恢复配对时手机报的 `deviceName`。
-  - `pairing: { pairingId, qr, expiresAt, state, request: { deviceName, model, sas } | null, refused: number } | null`，`refused` 是这次配对里因为已有手机在确认而被拒的次数，界面记一行"另一台手机也扫了这个码，已拒绝"。
+  - `devices: [{ deviceId, name, model: string | null, pairedAt, lastSeenAt, online, traffic: { down, up } }]`：`traffic` 是这台设备所有通道最近 2 秒的平均字节率（每秒），界面用它显示真实速率数值，不据此改变包的数量、疏密或速度；链路图按用户定稿的固定 3900ms 顺序循环播放（见 design-language“设置 · 手机”），离线设备不参与；仅流量数值变化引起的推送每秒最多一次；整个设置窗口打开时由 SettingsPanel 唯一拥有订阅，切换设置分类不另起订阅，不退回仅在"手机"页订阅。没有订阅的本机连接时不推。设备的颜色由界面按 `deviceId` 的哈希从一组固定色里取，不存；名字清空时恢复配对时手机报的 `deviceName`。
+  - `pairing: { pairingId, qr, expiresAt, state, handshaking: boolean, request: { deviceName, model, sas } | null, refused: number } | null`，`refused` 是这次配对里因为已有手机在确认而被拒的次数，界面记一行"另一台手机也扫了这个码，已拒绝"。
 - `set_remote({ enabled, relay?: string })`：`relay` 是那一行 `atrium-relay://…`；令牌只进不出，`remote_updated` 里不回传。
 - `test_relay`、`start_pairing`、`cancel_pairing`、`confirm_pairing({ pairingId, accept })`、`rename_device({ deviceId, name })`、`revoke_device({ deviceId })`、`reset_remote_identity`。
 - 新错误码：`local_only`、`remote_unavailable`、`pairing_expired`、`pairing_busy`、`device_not_found`、`relay_unreachable`、`relay_rejected`、`keychain_unavailable`、`vault_corrupt`、`response_too_large`、`request_conflict`、`outcome_unknown`。
+
+#### 协议 27 的桌面接缝（2026-10-26，按已定稿设计补齐）
+
+远程分支和 main 的回复翻译各自使用了协议 26，但形状不同；协调为 27，保留双方命令、偏好与错误，并重新生成 Swift 和夹具。手机白名单没有因此扩展：`translate_reply`、`cancel_translation` 明确只许本机调用；翻译没有独立新事件，偏好仍走既有 index 事件。
+
+- **已配对型号**：`RemoteDevice.model` 只投影保险箱已有的自报型号，去掉两端空白后为空则 `null`；不是硬件认证，不从名字猜，不改保险箱格式。未通过确认落盘的候选不进入设备列表。
+- **诊断快照**：`RemoteRelay.diagnostics` 初始为 `null`，表示没有已结束的检查；完成后含 `kind: connect | live`、注入 Clock 的 `checkedAt` 时间戳、`network/resolution/tls/token` 四项及 `failure`。每项为 `passed | failed | unknown | not_applicable`；`failure` 为 `resolution_failed | tcp_connect_failed | tls_failed | websocket_upgrade_failed | token_rejected | timeout | connection_closed | unknown | null`。只返回固定代码，不返回原始错误、令牌、证书文本或系统路径。重试时保留上次结束结果和时间；配置/代次变化清除，取消或旧代回调不得覆盖新结果。
+- **诊断证据**：网络项只表示“到中继的 TCP 连接”，不代表系统能否上互联网。解析由 lookup 结果确认，TCP 由 connect 确认，TLS 只有通过正常证书校验的 secureConnect 才通过；不放宽校验。只有收到 relay 的 ready 才确认认可令牌，4401 表示拒绝。IP 字面量的解析、允许的 loopback ws 的 TLS 为不适用。Upgrade 失败单列，不能归成令牌错误；普通断开、ECONNRESET、总超时不能硬归因无网或某一步失败，缺证据的步骤保持未知。使用 ws 公开 finishRequest 时必须调用 request.end，并释放所有观测监听和定时器。
+- **连接与活性分开**：connect 来自真实建连或临时 probe；live 来自已认证控制 socket 的本次匹配 pong。live 未重做解析、TLS 或令牌认证，这些项显示未知（本来不适用的仍为不适用），不能把旧认证当成刚刚重测。即使这次 live 检查期间收到真实 4401，仍是 `token: unknown`、`failure: token_rejected`：它记录连接被拒绝，不声称本次重做了令牌认证；后续真实 connect 收到 ready 才给出新的 `token: passed`。`test_relay` 仍成功回 `{}`、失败用原粗错误码，详细诊断只经本机状态/订阅提供。
+- **握手活动**：`RemotePairing.handshaking` 与业务状态正交，按当前 pairingId、连接代次的候选集合派生。仅 available 时，通过当前配对、结构及版本检查的 IKpsk2 M1 之后、等待加密 key-confirm 的阶段为真；M1 尚不能证明持有 PSK，不显示候选身份、不标在线、不授予设备权限。多个候选中一个退出不误清另一个；失败、断开、确认、取消、过期、换码或关闭使相应投影清除，旧流不能复活新配对。保留四条未完成握手及十秒上限、不可续期的二维码期限；握手专属通知合并限频，终止清除立即发送，不人为延长动画。
+
+#### MP3a 定的细节（2026-10-26）
+
+写宿主时上文没说到、由 MP3a 定下的（可逆，用户不在时子代理定的，交付时列给用户）：
+
+- **哪些存在保险箱、哪些不存**：保险箱里是宿主私钥、relay 那一行（地址、`hostId`、令牌）和设备列表（`deviceId`、公钥、手机报的名字和型号、你改的名字、配对时间）。"远程访问开着没有"和各设备的最后在线时间不是秘密，存在索引的 `remote.json`（domain-model §1"索引的存储"）。宿主在远程访问开着时才自动读保险箱，所以没用手机端的人不会被钥匙串弹窗打扰；被动的 `get_remote` 不触发读取。用户显式开启、填写 relay、测试连接或重置身份时也会读取，关着时的测试连接仍须先取凭据。
+- **保险箱的状态**（`remote_updated` 的 `vault`）在 SPEC 原有的三种之外再加三种：`unread`（远程访问关着，还没读）、`waiting`（已经问主进程要了，在等钥匙串授权，界面显示"等待钥匙串授权"）、`unavailable`（宿主不在 Electron 里单独运行，没有保险箱）。宿主启动不等它：本机功能照常起来，读到了再连 relay。
+- **进程交接的细节**：主进程把 `{ version, data }` 用 `safeStorage` 的异步接口（`encryptStringAsync` / `decryptStringAsync`，不阻塞主进程，等钥匙串授权时窗口照常能用）加密后写进 `vault.bin`；`vault_read` 的回答带上当前的 `version`（没有文件是 0、`data: null`）。主进程记着当前的 `version`，写入的 `version` 不比它大就拒绝（`error: "stale"`）；仅明确归为 `corrupt` 时当前 `version` 记为 0，好让用户确认的"重置"能写进去；暂时不可用或不认识的解密异常把当前版本留在/退回 `null`，后续写入必须重新读取，读取仍失败就不替换原文件。失败的 `error` 是 `keychain_unavailable`、`corrupt`、`stale`、`io` 之一，不带原文。主进程的写入也按到达顺序一个个来。
+- **`get_remote({ watch? })`**：回当前的整份状态（和 `remote_updated` 的 `remote` 同形）；`watch: true` 之后这个连接收 `remote_updated`，直到 `watch: false` 或断开。业务状态、配对、relay 的既有通知路径保持不变；采样 timer 仅在可见设备的 `traffic.down/up` 数值确有变化时推整份，每秒最多一次，空闲或稳定速率不重复推送。可见包括仍在列表中的离线设备，继续按两秒窗口衰减到零；已撤销/隐藏设备的遗留计数变化不触发推送。首次 `get_remote` 始终返回完整当前状态，多个 watcher 共用采样窗口与 timer；最后一个 watcher 离开才清除采样 timer、计数和历史，恢复订阅从新窗口开始。订阅期间不另增空闲暂停采样机制；没有连接订阅时不算流量、不起定时器。`remote_updated` 只推给订阅的本机连接。
+- **配对的结果留着**：配对结束（`committed`、`rejected`、`expired`）后，`pairing` 保持最后的状态，到下一次 `start_pairing` 或 `cancel_pairing` 才清成 `null`，界面能显示"配对成功"或原因。`pairing` 多一个 `reason`：`cancelled`（取消、出新码）、`declined`（在 Mac 上拒绝）、`timeout`（2 分钟没确认）、`disconnected`（确认前通道断开）、`vault_failed`（写保险箱失败），没结束或成功时是 `null`。这里的本机状态投影 `declined` 不等于通道里的原因：Mac 拒绝时手机收到的既有控制消息是 `{ kind: "pair_rejected", reason: "rejected" }`（与 MP0 FakeHost 一致）；不把线上 `rejected` 改成 `declined`。
+- **保险箱解密失败的保守分类（Electron 44.5.1）**：`isAsyncEncryptionAvailable()` 返回 true 不代表钥匙串提供者此刻可用。先区分 decrypt Promise 拒绝与成功解密后的格式校验：只有确切消息 `Error while decrypting the ciphertext provided to safeStorage.decryptStringAsync.` 的 Error，以及成功解密后格式无效，归为既有 `corrupt`。它表示数据损坏/密钥不匹配等造成的“无法读取”，不是确定物理损坏。`safeStorage.decryptStringAsync is temporarily unavailable. Please try again.` 以及其他未知拒绝都归为 `keychain_unavailable`，不降版本、不探测额外加密、不外传或记录错误原文。固定 Electron 版本与原生消息的关联有测试；升级时必须重新核对原生实现。此结论来自精确版本源码，假 crypto 回归不等于平台实测，也未证明一次授权拒绝实际覆盖过文件；不新增线上字段、备份或重置意图协议。
+- **确认之后不再打断**：点了确认、正在写保险箱时，取消、断开和超时都不再改配对，等写入的结果定成 `committed` 或 `rejected`（`vault_failed`）。写完时通道已经断了，`paired` 送不到，按上文第 6 步由日常连接补上。有手机在等确认（或正在写）时再点"配对新设备"，应答 `pairing_busy`。
+- **5 分钟过期只管 `available`**：手机已经进了 `awaiting_confirmation`，就按 2 分钟的确认时限算。握手第一条到时已过期，第二条回 `pairing_expired`；`pair_confirm` 到时已过期，回 `pair_rejected` 的 `pairing_expired`（不算进 `refused`），已被占用回 `pairing_busy`（算进 `refused`）。
+- **命令的结果**：`get_remote` 回状态；`start_pairing` 回 `{ pairingId }`；其余回 `{}`，变化经 `remote_updated` 到达（先推事件再回应答）。远程访问关着、保险箱不是 `ok` 或没填 relay 时，`start_pairing` 应答 `remote_unavailable`；保险箱 `keychain_unavailable`、`corrupt` 时要写保险箱的命令应答 `keychain_unavailable`、`vault_corrupt`（`reset_remote_identity` 除外，它就是用来从损坏里出来的）。`confirm_pairing` 的 `pairingId` 不是当前这次、或不在等确认，应答 `pairing_expired`。
+- **`rename_device`**：名字最长 64 个字符，空的恢复成手机报的名字；写进保险箱。
+- **撤销失败后重试**：写保险箱失败时设备留在内存的列表里、被拉黑，不显示、也连不上；再发一次 `revoke_device` 就是重试写入。本次运行已经撤销过的 id 也接受幂等的再次撤销，使后来的撤销能压过正在排队、可能重新写回该 id 的配对确认；从未存在的 id 仍应答 `device_not_found`。同一台手机（按公钥）重新配对成功，拉黑解除、沿用原来的 `deviceId`。
+- **`reset_remote_identity`**：先写新的保险箱（新密钥对、空设备列表、已能读取的 relay 那一行不变），写成了才换上，再经每条通道发 `revoked` 并关闭；写失败什么都不变。损坏到无法读取时不能恢复 relay 凭据，重置后须重新填写，不从损坏内容里猜。成功重置也使旧二维码和排在重置之后的旧配对确认失效，不能再把旧手机写回新身份。
+- **`test_relay`**：远程访问开着但断线时立刻重连控制连接（退避清零），等到 `ready` 或失败；已经连上时在原控制连接发带本次独有非秘密 payload 的 ping，只接受同 socket、同 payload 的 pong；空、错、旧或常规心跳的 pong 不消耗监听，写入回调不算成功；并发测试共享本次探测，关闭、停服和超时都释放等待、监听与定时器；这只承诺控制链路此刻可达，不承诺手机或 pi 已可用，不为测试挤掉已连接的手机，也不直接返回缓存成功；关着时另开一条临时的控制连接，收到 `ready` 就关。成功回 `{}`，连不上应答 `relay_unreachable`，认证不过（4401）应答 `relay_rejected`，10 秒为限。已认证控制连接上的单次匹配 pong 超时，只结算这次失败和 live 诊断，释放探测自己的监听/定时器，不 terminate 控制连接、不把探测失败置成控制生命周期 error、不关闭手机数据流；下次检查仍发新 payload。relay 真正 close/4401、宿主 stop、常规心跳独立判死仍照原生命周期断链。
+- **relay 地址的协议**：那一行里的主机是 `127.0.0.1`、`localhost` 或 `[::1]` 时用 `ws://`（本机测试），其余一律 `wss://`。
+- **控制连接的存活**：宿主每 30 秒对控制连接发一次 WebSocket ping，上一次的没回应就断开重连（relay 自己也 20 秒 ping 一次宿主）。数据连接靠通道心跳。
+- **客户端传输**：`ClientTransport` 的 `checkAlive()` 在上一次探测没回应时自己断开对方并返回 `false`（本机是 `terminate()`，远程是关掉通道和数据连接），否则发一次探测返回 `true`；服务器每 `heartbeatMs` 调一次。远程的探测是通道心跳，30 秒没收到手机的任何东西才算没回应。已完成密钥确认、还在等 Mac 确认的通道尚未交给服务器，由远程服务每 15 秒探测；配对成功时取消这个定时器，交给服务器统一探测，不重复计时。远程数据 socket 主动结束后最多再等 1 秒即强制关闭；已经收到对端 WebSocket Close、但 TCP 半关闭未结束的 `CLOSING` 状态也受这个期限约束，不能让 relay 拖住宿主关闭。
+- **超上限的快照**：会话事件超过 8 MiB 改发快照，快照本身也超时（MP4 加快照预算之前可能发生），丢掉这条并记一条 warn，手机会因为 `seq` 跳号自己重新订阅。
+- **流量**：`traffic.down` 是宿主发往手机的、`up` 是手机发来的，按已认出设备的数据连接上的密文字节算（含帧类型及认证标签）。开始观看的首秒按已经观测的一秒计算，之后是两秒窗口；关闭通道后窗口里的历史流量仍保留到自然归零。
 
 ### 协议改动（协议版本 +1）
 
@@ -415,3 +448,17 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
   - 少量 XCUITest：配对、发消息、回答提问；
   - 网络故障：在 relay 和手机之间放一个能丢包、加延迟、断开的代理。
 - **追踪表**：新行为都登记进 `docs/testing/coverage-map.md`。
+
+### MP4 审查后补：手机记录写入所有权与失败恢复（2026-10-26）
+
+- App 组装一个进程内共享 `HostStore`，所有配对页面、连接和恢复任务注入同一个写入权威。host 和 pending 各有仅内存的写入代次；每次写入都换代，即使内容相同。claim 核对与必要同步钥匙串操作在同一短临界区完成，不跨 await、不调用 UI 回调；钥匙串调用不占 MainActor，首次设备密钥生成也受同一保护。
+- 配对开始取得原 host/pending 的版本 claim。旧成功确认、拒绝清理及存储重试必须核对各自原始版本；新配对使旧任务失权后，旧任务以 superseded 收尾，不覆盖新记录、删除新 pending 或发布过期成功。新 pending 的确认也依赖其原 host 版本，所以旧清理在任一版本变化后整体失权，不能只保住 pending 却删除其原 host、让新确认失败；清理自身部分成功则更新剩余操作的 claim。不改变持久记录格式。
+- 用户取消、连接中断、本地超时都不能证明 Mac 没有保存设备；保留 pending，供下一次明确连接或冷启动用 IK 确认，不因取消擅自自动重连。冷启动选中某主机时，它的新 pending 优先于同主机旧正式记录，不因此切换到另一台主机。经 Noise 认证的 `device_unknown` 仍清理对应 pending。
+- 经认证的撤销立即关闭通道并停止网络重试；若本地删除失败，连接事实仍为撤销，另以最新状态 `storageIssue` 暴露保存/清理失败，界面只显示通用原因和重试，不展示秘密或原始 NSError。记录仅当前未完成操作及原始版本；显式重试和后台回前台各尝试一次，不设存储重试定时器或持久队列。host/pending 部分删除成功后只重试剩余项；新配对替代的项不再删除或反复提示错误。共享 device-key 不删除。
+- pending 补确认写失败时可继续当前同步，但保存问题持续可见，直到受控重试成功或被新配对取代。内存 claim 不跨进程保存撤销：未删掉的记录在重启后可能再次读到，之后的认证拒绝必须重新清理，不能声称本地已持久删除。
+
+### MP4 审查后补：客户端累计缓冲预算（2026-10-26）
+
+- SecureChannel 待发送密文累计最多 2 MiB，包括 writer 已取出、但 send 尚未完成的帧；只有实际写入完成、失败或取消才释放该帧占用。
+- RemoteConnection 尚未由消费者取走的消息同时受 16 MiB payload 和 1024 条消息限制；条数是私有实现常量，不是新增可配置配额。空消息合法且 payload 为 0，但仍占一个消息名额，不能用零字节绕过累计内存保护。仅在消费者 next 取出时归还字节和条数，清理旧代同样只归还它自己的占用。正常 8 MiB 消息及两条最大消息仍可完整通过；任一限额溢出都按同一背压路径关闭。
+- 这是可逆的客户端本地缓冲预算，不是 Noise 单消息大小或新协议字段，也不是整个 App 总内存上限。超预算明确报背压错误、关闭当前代并释放旧队列，按正常断线重新同步；不通过丢帧/丢消息腾位置，不自动重发命令，不引入离线发件箱。排入队列不等于宿主已接受，发送回执语义仍按本规格处理。

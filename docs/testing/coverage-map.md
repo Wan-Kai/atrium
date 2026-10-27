@@ -4,6 +4,172 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## UI受控诊断（c710d51；不是正式回归或旧失败结案）
+
+Q0/Q1/Q2/C0/C1/C2各一次通过，前置Q0选例错误未执行主体，原记录保留。C1/C2按精确身份链证明运行中步骤与闲时来源行/同批两项均为合法呈现，原“必须两个source-line”判据过强；原children测试尚未修，历史67/68根因不能直接归入此例。Q均无增长但没有红绿对照，且录制、环境有差异，不抹旧ask-user失败。父核hash/最小元数据，未复跑或重算已删原堆；Opus单路只读审计的来源边界已补。诊断代码未纳入默认收集，不登记为新增正式用例，见 [实验记录](ui-controlled-diagnostics.md)。
+
+## 手机整合父复验（376e1b5，2026-10-27）
+
+父独立 check/build、远程 unit 52 / host 76 / leak 2、完整 host 240 / UI 1100 / Node leak 20 通过。新 QR 删除作者初稿的 120 秒覆盖后，按默认 60 秒与未配置页、启动失败、vault 串行 **7/7**；未重跑作者 QR 两项负控。
+
+完整 unit（4 workers）4186 过 / 1 个原 Git 场景 5 秒超时；最小环境隔离的完整非泄漏 Electron（1 worker）67 过 / 1 个双子代理来源行失败，同环境仅一次定向 1/1 不抹全套失败。外层 macOS sandbox 的另一次完整尝试因大量启动/renderer 失败报告 7 过 / 61 失败，不能混成产品成绩；没有放宽 Electron 自身安全设置。旧 appearance / ask-user 泄漏失败仍未解决。完整命令、隔离边界、原始日志与只读诊断见 [整合记录](mobile-integration.md)。`d49fbbb` 新变异已单次完成并经父独立核数，详见下节；旧局部 70% 保留为 `7b88613` 历史，当前完整守卫10项均检出，不由普通测试推算。
+
+## Electron ready 失败清理（作者基线 8a0a936）
+
+`apps/desktop/e2e/launch-failure.spec.ts` 包装 Playwright 公共 launch，取得真实 App/ChildProcess 后注入 firstWindow 失败，不 mock launchApp。三个场景：自建 home 的进程退出且目录删除；existingHome 进程退出而 caller sentinel/目录保留；真实 close 完成后额外抛错，AggregateError 按顺序保留 ready/cleanup 两个原始错误。测试外层无论断言如何都调用已保存的原 close 并删除自己创建的目录，独占单 worker，不访问用户保险箱或钥匙串。
+
+旧实现 3 红（exit 1，`/tmp/mp3b/launch-red.log`）：自建场景同时证明进程仍活、home 仍存在；existing 场景进程仍活；第三项不存在 cleanup 错误聚合。修复后 3/3 通过（exit 0，`launch-green-final.log`），desktop typecheck/scoped lint/format 通过。中间一次验证因 Playwright close 后 app.process() handle 已销毁而失败（`launch-green.log`），改为关闭前保存真实 ChildProcess，未修改期望值。`pnpm build` exit 0（`qr-build.log`）。修复只覆盖已取得 App 后的 ready 阶段，不扩大到 electron.launch 自身拒绝；成功 close 流程不变，existingHome 不擅删，清理错误不吞掉。active QR 的独立证据见下节，不由启动清理回归推导。
+
+## MP3b available QR · 真实 Electron（作者基线 8a0a936）
+
+`phone.leak.spec.ts` 在原未配置 case 外增加 available QR：正式 App/宿主、loopback 生产 relay、隔离 faux pi；测试进程动态 fake safeStorage 先验引用/往返，文件仅不透明合成标记，不触 native 加解密、不称 Keychain 实测。真实分类点击及 Meta+, 不自动取消/确认；CDP 仅记白名单元数据，逐次核对订阅/退订应答、原 pairingId/期限。2 轮预热＋20 轮后 detached DOM 无增长，原未配置 case 失败 trace 保留，只有 QR test type 关闭采集。
+
+以下作者正向、负控与恢复后 2/2 对应 `455620a`，**含初稿预设的 120 秒 QR 覆盖**（没有因失败加时）；父默认 60 秒结果单独列于上节。正向通过；临时持有真实 QR DOM 在原堆断言检出 2→22 增长，临时丢弃 watch:false 在原协议断言检出缺少退订成功应答（两次 exit 1）。两次按原始字节恢复、SHA-256 一致后，完整该文件单 worker **2/2、exit 0**。App/faux/快照目录清理完成，relay 资源归零；所有收尾错误保留而不覆盖主错误。静态检查通过。初次 describe 内覆盖 worker 采集选项失败不计负控；改为 test.extend 独立配置，无产品修改。日志、精确恢复 hash、未测分支见 [MP3b 记录](mp3b-settings.md#electron-active-qr-与启动失败资源边界作者基线-8a0a936)。不覆盖 SAS/已配对手机在线/真实钥匙串/MP4，也不泛化到父会话后续组合树。
+
+## 四路整合 · Mac 手机设置窗口资源（2026-10-26）
+
+`apps/desktop/e2e/phone.leak.spec.ts` 使用真实 Electron、打包的宿主 / UI 与隔离临时 home，远程访问保持默认关闭。两轮预热后取 GC 堆快照，再做 20 轮“打开设置 → 手机 → 关于 → 手机 → 关闭”，对比 detached DOM 无增长。正向 1/1 通过；临时在页面里保留真实 PhoneSection 节点后，同一堆断言真实失败（非启动或编译失败）；核对 SHA-256 恢复精确源码，再次 1/1 通过。所有已启动后的异常路径关闭测试 App、删除测试快照目录。首轮错误使用已配置页标题导致选择器失败，修成未配置页的真实标题；未修改产品或减弱堆断言。日志与边界见 [整合记录](mobile-integration.md#桌面资源验证计划)。
+
+此项不冒充活跃配对 / QR 的 Electron 堆验证，也不代表全部桌面泄漏已通过；该次未配置页验证时，活跃状态仍只有浏览器资源回归，后补证据单独列于上节。该次没有启用远程访问、填写 relay 凭据或操作真实钥匙串。
+## MP3a d49冻结版两个整文件强制重测（2026-10-26 UTC）
+
+原六文件/remote测试集/1runner×2worker/30000+1.5/80%不变，仅一次exit0，dry-run通过、前后冻结校验无漂移。清除link+service全部1142历史结果；实际1169项的Stryker分类为1008K/160S/1T＝86.31%（不计T仍86.23%），RelayLink整文件90.12%、RemoteService85.26%；这些分类不等于每项都有完整失败证据。完整checkPong10/10＝100%，采样65/72＝90.28%，close30/31＝96.77%，setState7/7＝100%，C并集37/38＝97.37%；预先固定的独立范围均≥80，不拿累计91.09%遮盖。
+
+原1142中1127重新识别，13跨改写＋2无当前生成身份不计Killed，另42当前新/改写变异单列。1754已强制重测仍Timeout，其变体可达空数组同步不终止循环；报告无现场栈，按实际分类＋静态因果披露。70个Killed含测试/hook截止，另2个独立错误候选逐ID审计；898附带缺warn门禁失败、1505附带ENOTEMPTY保持未解释，不用来充当检出证据。45个精确归属本轮sandbox孤儿SIGTERM后复核0，未动其他lane/cache。
+
+追加只读核对全部1008个fresh K：997项有FAIL/失败汇总/错误标题，恰有11项service K只有空计数输出，无法确认崩溃/bail/截断/断言失败，不由静态可抛错补造现场因果。保留全分母、仅不计这11项检出的敏感性计算：fresh85.37%、service84.06%；连T也不计为85.29%/83.95%。不是新测试成绩或改判，原JSON不变、不增加Survived/ignore；11项不在四个固定区间。父独立核对哈希、计数、身份映射和证据缺口；Opus只读核对固定120项状态，并核C区间7条测试超时及898/1505/1754的因果，不代表父或Opus逐项认可全部70条测试超时。
+
+全部旧报告保留，无重试/加时/新豁免；160存活继续计入，直接修复范围8项逐条说明。详见 [d49分层报告](mp3a-d49-mutation.md) 与 [失败审计](mp3a-d49-failure-audit.md)。其他四文件分数仍为历史缓存，没有本轮全量/GUI/Swift/平台钥匙串验证或用户验收结论。
+
+## MP3a RelayLink 公开终态回调重入修复（独立授权C）
+
+真实socket、onState(error)同步retryNow/stop两项原生产红，确认旧close提前结算新waiter并多挂retry timer。仅两处重排：终态已有waiter先结算，再通知；backoff先安装，使通知内retry/stop可取消。公开回调所有权已写overview；不是Electron UI故障复现。
+
+relay-link32/32；复验远程宿主76、相关单元52、远程泄漏2全部通过（单worker）。738/740/742三个原本正确守卫精确负控＋三个真实修复逆转负控共6/6，资源/socket/client/FakeClock归零；原742阻塞解除，未伪造代次。定向格式/lint/host类型通过，首次lint问题已整改且无抑制。完整红绿、次序、重复ready与backoff观察见 [后续定向验证](mp3a-late-diagnostics-and-traffic.md)。未跑新Stryker或全量，不推算新分数；旧70%仍保留为冻结版历史。
+
+## MP3a traffic 仅可见数值变化时推送（冻结版后，B）
+
+SPEC订阅边界同步为整个设置窗口、SettingsPanel唯一owner；仅采样timer按可见设备down/up实际差异推送，离线仍可见，blocked/删除计数不触发；保留2秒衰减、初始get及普通状态即时通知，无新增订阅/协议/暂停采样机制。
+
+idle原实现红（3次重复）、恢复旧推送路径使稳定速率断言红，中间隐藏设备3场景红后补可见性。新增宿主10、远程宿主总76、相关单元49、远程泄漏2均通过，单worker；新负控14/14＋既有unwatch负控1/1，定向格式/lint/host类型通过。旧空闲必推单测按新契约改断言，保留资源验证；初次lint条件断言问题已整改。独立只读审查无阻断。没有运行新Stryker、全量或UI，没有性能测量；结果与证据见 [后续定向验证](mp3a-late-diagnostics-and-traffic.md)。
+
+## MP3a 迟到诊断保护补测（冻结版后，A阶段记录）
+
+真实socket与公开stop/retryNow边界新增停止后诊断不变/无迟到通知，强化当前代成功、失败、恢复仍更新；29/29，精确738/740负控2/2，socket/client/计时器/资源关闭归零，定向lint/格式/host类型通过，生产未改。742的公开新代测试发现真实onState(error)同步retryNow重入问题：旧close提前结算新retry并多起timer；当时按授权停下，未修实现、未伪造私有代次、未豁免742。后续独立授权C已修复并完成742负控（见上）。证据与后续边界见 [迟到诊断与traffic记录](mp3a-late-diagnostics-and-traffic.md)。未启动新Stryker，不推算分数。
+
+## MP3a 审查后冻结版变异复核（7b88613，2026-10-26 UTC）
+
+保持原范围/测试集/超时/80%，单runner×双worker只执行一次，exit 0、dry-run通过。强制失效原477全体及vault整文件缓存；实际693项623K/70S/0T＝89.90%，原远程范围当前472项430K/42S＝91.10%，诊断整文件93.78%、vault整文件87.33%。原477逐身份映射465项，另12项改写不计Killed；原1638现在明确Killed。含缓存总分90.61%只作背景。
+
+**仍有局部未达标：预先固定的RelayLink.#checkPong审查区间7K/3S＝70%**；三个迟到结果守卫尚未证明等价，不以总分遮盖。pong100%、vault分类/版本保护区间89.52%。29个Killed含Vitest测试/清理超时，逐项对照源码及日志说明因果；9个Stryker Timeout全为旧缓存。16个本轮sandbox孤儿经精确核对后SIGTERM，剩余0。没有重试、扩大超时或新增豁免。
+
+完整成绩、原cohort账、局部缺口、失败审计和证据位置见 [冻结版变异报告](mp3a-postreview-mutation.md)。该冻结版本尚未包含设置窗口订阅文案与 traffic 无变化推送的后续窄修，不能声称被本次结果覆盖；后续已实施，另见上方 A/B/C 与父组合复验。没有运行全量/UI/Swift/真实钥匙串或用户VPS。
+
+## MP3a 协议 27 存活项定向补测（2026-10-26）
+
+不改生产代码，不跑 Stryker/全量。诊断分类、初态、异步 lookup、首个失败及 AggregateError、真实 TCP/70KiB/压缩边界、watch 通知与真实手机 offline 均补了观察；live+4401 明确 token unknown，只有后续 connect ready 才取得新认证结果。纯受控分类与真实 socket 证据分开，没有把人工错误事件说成平台故障。
+
+定向单元 77、宿主 19 全过（单 worker）；精确原变异负控检出旧 99S 中 51 项、旧 Timeout 1638，另 1 条新语义负控通过，共 53 项。3 项旧错误状态分支已被先前修复替代，余 45 项未逐条消除／复验；不推算新百分比、不新增 ignore。1638 受控失败是额外 timer／重复通知，清理约 24ms/11ms、资源归零，未证明历史 Timeout 根因或循环。完整 ID、证据分层和剩余表见 [定向补测记录](mp3a-v27-gap-followup.md)。
+
+## MP3a 保险箱解密错误分类（2026-10-26，审查修复）
+
+固定 Electron 44.5.1／Chromium 152.0.7977.130 静态源码证明：async availability 为 true 也可能缺少可用钥匙串密钥；拒绝只带消息，不带结构化 code。不是平台实测，也没有据此声称真实授权拒绝已覆盖用户文件。
+
+| 行为 | 证据 |
+|---|---|
+| available=true 但 decrypt temporarily-unavailable 或未知异常，不误报 corrupt；已知高版本退回未知状态，重试写前重读，不允许 version1 或更高新版本绕过失败覆盖原文件 | `apps/desktop/src/main/vault.test.ts` 先 6 红，后 24 项全部通过；假 crypto 刻意保持 encrypt 可用以验证守卫，不伪称系统实际覆盖；同时核对原文件字节、版本、无临时文件、无额外 encrypt |
+| 仅精确 native ciphertext 消息及成功解密后的无效 JSON／格式允许显式 reset；近似消息、普通对象 rejection 都保守 unavailable | 同文件表驱动测试，`vault-classification-break-check.json` 8/8 检出；既有 `vault-break-check.json` 5/5 再通过 |
+| Electron 升级必须复核消息合同，不依赖错误文本的 includes，不回传原文 | 测试独立写出确切消息，并断言 desktop 依赖仍为 44.5.1；静态依据和升级要求见 security.md |
+| 自己的 Electron 测试不再把 hello 写死为 26 | `remote-vault.spec.ts` 从公开 `@atrium/protocol` 引入 `PROTOCOL_VERSION`；只运行类型/lint检查，未启动 Electron。先前两例失败与 `fast tiers unavailable` 仍保留，不报已修复后通过 |
+
+仅改保险箱分类和测试协议引用；无 UI、wire 字段或版本变更，无备份／额外加密探测，无真实钥匙串操作。单 worker 定向验证、desktop 类型及 scoped lint/格式通过；未启动新 Stryker 或全量验证。
+
+## MP3a 协议 27 协调及设置页接缝（2026-10-26）
+
+协调提交 `c709daf` 合入固定 main `ace843a`（已核实祖先关系），解决双方都占用版本 26 却形状不兼容的问题；保留翻译和远程协议并集，新增型号、诊断和握手活动投影，统一为 27。Swift 类型、往返夹具与版本断言同步。以下是新增验证；下节 `c09b54d` 的全量/变异仍为历史记录，不冒充本轮结果。
+
+| 行为 | 证据 |
+|---|---|
+| 三项投影字段必填，未知型号为 null，诊断区分 unknown/not_applicable/failed，拒绝原始错误字段；保持翻译命令、语言偏好、错误；两翻译命令显式 local_only | `protocol/src/remote.test.ts`、`envelope.test.ts`、`translation.test.ts`、`server/remote-policy.test.ts`；Swift 协议 16 项；`protocol/src/coordination-break-check.json` 7/7 检出 |
+| 型号从已存自报值 trim，空白为 null，不猜硬件，不改保险箱格式 | `test/remote/projections.host.test.ts` 及 `service-security.host.test.ts` 的真实 relay 流程 |
+| 多候选、旧 QR、旧连接代次、过期、取消、关闭后灰包消失；不暴露 M1 候选身份，不改业务状态机；晚加入 watcher 得到当前事实，短握手不人为延长 | `projections.host.test.ts`；`remote/pairing.test.ts`、`remote-service.test.ts`；首次 RED 后 GREEN，候选激活通知 100ms 合并，终止清除立即发送 |
+| connect/live、关着时 probe、配置/身份/代次变化、probe 取消、旧结果不能覆盖新状态；重试保留已结束快照，重置不能把旧诊断与新指纹一起推送 | `remote-service.test.ts`、`projections.host.test.ts`；投影和重置破坏检查共 14/14 检出 |
+| 实际 TCP/地址解析/TLS/HTTP Upgrade/令牌认可证据；不把普通 reset 或总超时归因为无网；正常 CA 验证的 TLS 才通过 | `relay-diagnostics.test.ts` 16 项本地真实请求/服务器：可信测试 CA、未信任证书、主机名不匹配、拒绝连接、受控 resolver、静默 TLS、reset、503、畸形 101、HPE 解析错误、正常 open 后关闭；未访问 VPS，未放宽 TLS |
+| request/socket 的七个观测监听在成功、失败、取消后移除；必须履行 finishRequest 的 request.end 责任 | 同上真实 listener 引用核对；先复现 ws 请求错误处理会同步 close，改为 prepend 记录；畸形 101/HTTP 解析回归先红后绿，不重复实现 WebSocket 验证器 |
+| 当前控制 socket 的本次随机 16 字节 ping；空/错/旧/常规心跳 pong 不成功且不消耗监听；并发共享、正确 pong 成功、超时不悬空、stop/close/rejection 清理（原测试错误要求探测超时关闭物理连接，审查修复见下行） | `relay-link.test.ts` 真实 socket；先复现任意 pong 提前成功；重复 12 轮核对真实 socket 的监听数与资源；`diagnostics-pong-break-check.json` 20/20 检出（最初两项测试名过滤不匹配，修正后全部复验）；旧三条移动锚点复验通过 |
+| 审查修复：单次匹配 pong 缺失不 terminate 控制、不伪造生命周期 error、不踢已认证手机；常规心跳仍能收到 pong，下一次新 payload 可成功，真实 close/4401 仍断手机 | `live-probe.host.test.ts` 本地选择性 pong 代理＋真实 relay＋真实 Noise 手机，先红后绿 3 项；`relay-link.test.ts` 的公开状态/控制消息/监听及计时断言同步纠正。定向单元 39、真实 relay 64 通过，原破坏清单调整后的 20 项＋恢复两处误断链的 2 项全部检出；未启动新变异 |
+| 错误码字面量不冒充环境变量；显式 env 读取/解构/对象键仍受检查，未知相似前缀不豁免 | `scripts/boundary.test.ts` 12 项、7 条破坏检查；只增 11 项精确例外，不新增虚假登记。`boundary --all` 14 URLs / 41 env / 4 commands，未登记 0 |
+
+阶段验证：协议协调阶段定向 200 项、协议类型检查和 Swift 16 项通过；行为补齐后定向协议/路由/远程单元 470 项、真实 relay 61 项通过，随后补强的协议/白名单 25 项再次通过；远程泄漏 2 项通过。最终源码 `pnpm check` 通过。变异仅对五个变更远程文件运行增量，原始报告 `reports/stryker-incremental-remote-close.json` 保留，v27 结果独立写到 `reports/stryker-incremental-remote-v27.json`；`e29e49a` 的运行现已完成，但新执行 477 项仅 79.25%、diagnostics 单文件 75.11%，不能用混合总分 88.31%／宿主汇总 85.96%掩盖不足；之后又修了探测误断链，旧分数不代表修复后源码。详细并发、中断、缓存、失败及证据位置见 [协议 27 验证记录](mp3a-v27-validation.md)，新增变异等待主线安排窗口。
+
+边界与未完成项：完整桌面泄漏、既有 file-search 竞态、既有 Electron quit 重入问题仍按下节保留失败证据，未顺带修改。未做真实钥匙串授权、真机、用户 VPS、打包安装或跨分支人工验收；本轮不是三方正式审查。
+
+## MP3b 桌面手机设置页（2026-10-26）
+
+SPEC-0005 需求 1、配对和撤销；视觉按 design-language「设置 · 手机」。实现决定、协议 27 协调及截图见 [MP3b 记录](mp3b-settings.md)。
+
+| 行为 | 验证 |
+|---|---|
+| 用户选择：整个设置窗口唯一 watch；非手机分类也接收橙点/relay 错误，切分类不重订，实际关闭清空，配置关闭拦截仍订阅，重开/重连及晚到读取/推送安全；普通导航不改变访问权限或取消配对 | `settings-remote-watch.browser.test.tsx` 4 项（真实 SettingsPanel + 实际 client + 脚本化 socket；配置拦截用 fakeClient）；`phone-section.browser.test.tsx` 的 category navigation 改为只在窗口卸载后退订；保留 client 的代次保护测试 |
+| 全部 9 个本机命令的字段、应答和错误传递 | 同上客户端命令用例；浏览器 rename/revoke/reset/relay/pairing 用例 |
+| 3900ms 上行汇合、relay 停留、下行分发、各段边界、锁闪烁、固定设备色与 S 曲线 | `remote-map.test.ts` 3 项；浏览器 fake-clock lock 用例 |
+| 减弱动态效果不启动动画时钟、静态箭头、最多四台加 +N、完整列表、车道/节点/行三向悬停 | `phone-section.browser.test.tsx` 的 replaces motion |
+| 首次启用、钥匙串等待/不可用、保险箱损坏/无 Electron、行内重置确认 | 浏览器 renders vault 参数化用例及 requires inline confirmation |
+| relay 掩码替换及重新配对警告、测试连接、保守诊断清单 | 浏览器 saves relay、diagnostic checklist、retryable failures |
+| 协议 27 自报型号 / null；connect/live、四类步骤证据、八种安全失败文案、上次检查时间、重试保留、配置清空、原地探测的有限成功承诺 | `remote-coordination.browser.test.tsx` 的 self-reported model、diagnostic evidence、live checks、safe wording 参数化用例 |
+| 协议 27 匿名握手：一次灰色往返、快速 true/false 立即清除、换 pairingId 重置、取消、原二维码期限、过期/拒绝/确认后忽略旧活动、Reduce Motion 无动画时钟 | 同上 handshaking、restarts、obsolete activity、unauthenticated request、static handshake 用例；四设备折叠仍由旧浏览器用例覆盖 |
+| 审查修复：配对确认弹层型号标注“手机自报，非硬件认证”；空字符串/空白写“未提供”，不从设备名推断 | `remote-pairing.browser.test.tsx` 参数化 3 项，修改前 3 红、修改后 3 绿；`mp3b-pairing-model-break-check.json` 3 处检出 |
+| 协议 27 全字段入 store；过期推送优先于旧读取；旧 socket 或退订后的活动不能复活 | `atrium-client.test.ts` 的 projects protocol 27 evidence（真实协议 schema 校验） |
+| 审查修复 B：keychain 暂不可用、拒绝后需重启；corrupt 为损坏或密钥不匹配导致不可读；刷新仅被动读取；未知/已知设备数量与两步不可逆 reset 提示 | `vault-guidance.browser.test.tsx` 8 红→8 绿；相关 45 项通过，`mp3b-vault-guidance-break-check.json` 6/6 检出；浅/深色错误与长确认截图见 MP3b 记录 |
+| 审查修复 A 及边界纠正：撤销失败目标归设置窗口、按 deviceId 独立；其它动作与分类切换不覆盖；成功仅清本项；关闭、成功 reset 或公开指纹/relay URL/hostId 变化清旧项；同身份换 token 成功或保存失败不清项；旧回调不能复活或清新目标 | `revocation-retry.browser.test.tsx` 当前 8 项（真实 SettingsPanel/client）；新增 token-only 回归先红后绿，`mp3b-token-revocation-break-check.json` 4/4 检出；原 A 的 5 项与 7/7 破坏检查作为历史记录保留于 MP3b 记录 |
+| 原地改名与清空恢复、撤销确认、撤销写盘失败仍保留可重试目标 | 浏览器 watches only、saves relay、keeps revoke retry |
+| 真实二维码输入和矩阵、5 分钟过期、刷新、SAS、确认/拒绝、另一台手机被拒、完成/失败原因、Esc 不关外层设置 | 浏览器 counts down a real QR、declines a pairing、pairing failure 参数化用例 |
+| 断线时配对不能确认但仍可 Esc 关闭；同步重复点击只发一次；失败不乐观授予权限 | 浏览器 lets Escape dismiss、blocks duplicate commands、reports failures |
+| 重复打开关闭释放定时器、配对 Escape 监听、watch 与 DOM | 浏览器 frees timers 12 轮、releases pairing 8 轮；另做真实 Chromium CDP DOM 计数 25 轮及人为保留 DOM 的负对照 |
+| 明暗真实设置截图 | 浏览器 captures light and dark：`packages/ui/src/settings/.vitest/phone-settings-{light,dark}.png`（自动生成、不提交）；与原型对照记录见 MP3b 记录 |
+
+整个窗口订阅本轮：新增生命周期测试起初 3 红，实现后含资源回归共 4 绿；设置目录定向单 worker 11 文件 / 145 项通过，`mp3b-settings-watch-break-check.json` 8/8 检出。Phone 场景通过真实 SettingsPanel 承载，不在测试里手写 watch owner；原 25-case 清单的两个 owner case 已迁移至窗口入口。
+
+历史验证（原 phone-only 实施阶段，未改写为本轮结果）：`pnpm break-check docs/testing/mp3b-break-check.json` 当时 25 处检出（23+2 分两轮）。客户端增量变异（仅本次新增实现行）72/72 检出；链路动画纯逻辑初跑 102/103，唯一存活是两段三次曲线在 0.5 处相等，注明等价后 101/101。最终相关单元 151 项、界面 37 项通过；随后单 worker 全量界面 1030 项及 Swift 22 项通过。全量单元先前通过，最后单 worker 重跑仍遇其他 Git/boundary 测试超时并在 900 秒被中断，不能算通过，详见 MP3b 记录。
+
+## MP3a 宿主远程模块（2026-10-26）
+
+以下为历史快照 `c09b54d` 的实现与验证记录，不作为当前整合结果：协议 v27、模型、诊断与握手的协调整合仍待完成。
+
+范围：SPEC-0005 的宿主、Noise、配对/日常连接/撤销、远程白名单与大小限制；不包含 MP3b 设置页和 MP4 的快照预算、续传、回执。协议独立提交 `20169cc`（26），后续未改形状。
+
+| 行为 | 验证 |
+|---|---|
+| IK/IKpsk2、低阶点、畸形密文、nonce、分帧/分块大小与期限、心跳、错误即关通道；TS/Swift 字节级互通 | `packages/remote-crypto/src/*.test.ts`、`test/interop.test.ts`、cacophony 向量与四份互通夹具；64 项 |
+| 成功读取必须有 version/data，IPC id 对应、超限写终结、post 失败、写队列拒绝后恢复且不消耗版本 | `host/src/remote/vault.test.ts`、`host/src/electron-port.test.ts` |
+| 主进程 safeStorage 异步可用性/加解密、损坏与缺文件分开、版本拒绝、原子文件、清理异常后继续 | `apps/desktop/src/main/vault.test.ts`（15 项；真实文件 ENOTDIR 复现清理失败，不 mock fs） |
+| 未启用的本机启动不自动读钥匙串；等待授权时仍能读状态和关闭开关；显式重置损坏；standalone 不可用；晚到读取不初始化已关服务 | `remote-service.test.ts`；`apps/desktop/e2e/remote-vault.spec.ts` 前两例经真实 utilityProcess IPC（不可用场景替换 safeStorage 的 availability，不触发真人授权） |
+| relay 地址只对 loopback 用 ws，端口合法；凭据不出状态；ready/ping、指数退避与手动重试、异常控制帧、可取消 probe | `relay-line.test.ts`、`relay-link.test.ts`；后者声明/行覆盖 100%、分支 94.23%（定向覆盖运行） |
+| 设备密钥 canonical base64url、id/公钥不重复、名字回退；QR 查询值用 `%20` 而非 `+`，兼容 Swift 百分号解码 | `devices.test.ts`；`service.host.test.ts` 元数据例先红后绿；实际 `xcrun swift -e` 对照 `URLComponents` 的两种输入 |
+| 可用码五分钟、确认两分钟、并发确认只能赢一个、到期码/取消/拒绝/确认前掉线/不正确 PSK/版本/保存失败 | `pairing.test.ts`；`test/remote/service.host.test.ts` 启真实本地 `apps/relay` 子进程 |
+| 保存成功但 paired 丢失后用 IK 补齐；未知设备拒绝；同公钥重配沿用身份和自定义名；重置先保存再撤销，并废弃排在重置之后的旧配对确认 | `test/remote/service.host.test.ts` |
+| 撤销立即断全部通道，保存失败仍拉黑、可重试；正在保存的确认不能解除后来撤销；撤销→排队确认→再次撤销不能绕成新 id | `service.host.test.ts` 三种 gated vault 撤销交错；后两种先复现再修复，分别以删除 `?? acceptedDevice` 和已撤销 id 的幂等门槛作负对照 |
+| 最多四个未完成握手、十秒期限；每设备两通道、三十秒静默；待确认配对同样主动探测，成功后移交服务器心跳；流量按真实密文字节、1 秒预热/2 秒窗口、离线历史自然归零 | `service.host.test.ts` 两个心跳用例先红后绿；精确计算 UTF-8＋帧类型＋Poly1305 标签及逐秒窗口；`relay-link.test.ts` 假时钟与真实 socket |
+| 手机 hello 无 token 且 clientId 等于 Noise deviceId；九个本地管理命令完整转交；手机管理请求 local_only；事件只推本机 watcher | `server/router.test.ts`、`server/remote-policy.test.ts`；`test/remote/host-connection.host.test.ts` 真实 startHost＋relay＋假手机 |
+| 命令/事件全集穷举分类，child 创建拒绝；8 MiB 应答转 response_too_large、事件转快照，仍超限告警丢弃 | `server/remote-policy.test.ts`、`server/connection.test.ts` |
+| 数据通道畸形帧、错误密文、分块超时、出站超限、CONNECTING 中止、关闭兜底、独立积压、done/资源真实关闭顺序 | `remote/channel.test.ts` 32 项真实 ws＋Noise；31 项阶段曾测行覆盖 99%、分支 95.65%，最终用整文件变异结果而非这次历史覆盖率验收 |
+| 对端发 Close 后保持 TCP 半关闭，宿主结束时仍在 1 秒内完成 done、释放资源 | `channel.test.ts` raw `allowHalfOpen` peer：核对 101、Close1000 回应及 host FIN；原实现 RED（done=false/data=1），修复后 GREEN，恢复 OPEN-only 判断的破坏检查 CAUGHT；不是通过改超时或 suppression 凑分 |
+| 已有 A 时未知 B 密钥仍拒；错误版本立即关；错误控制不能确认；撤销/改名 A 不碰 B；真实重建服务恢复 enabled/disabled；本地状态通知与元数据不含秘密 | `test/remote/service-security.host.test.ts` 18 项；`service.host.test.ts` 日志/流量例；不以空设备表下的拒绝代替身份匹配断言 |
+| 加密包也进入生产外部边界扫描，测试文件仍排除 | `scripts/boundary.test.ts` 新例先红后绿；定向删除 scope 中的 remote-crypto，破坏检查检出 |
+| 资源归零（40 轮配对/连接/撤销；20 轮四通道开关）、probe 挂起时关闭/启用不会晚到挤正式连接 | `test/remote/service.leak.test.ts` 两项；`service.host.test.ts` probe 用 SIGSTOP 控制真实 relay，finally 确保 SIGCONT |
+
+测试辅助实现也验证：`test/remote/harness.test.ts` 9 项；relay 经真实 CLI 子进程登记，强制 loopback。泄漏压力场景把测试 relay 的接入配额显式设为 1000，生产 30/分钟不变；宿主的四流/两通道上限不变。
+
+破坏检查（均已执行、全部 CAUGHT）：crypto 32（`packages/remote-crypto/test/break-check.json`，crypto 子代理）；早期服务器 8、vault 12（`/tmp/mp3a-break/`）；桌面异常修复 5（`apps/desktop/src/main/vault-break-check.json`）；辅助假手机/relay 9（`test/remote/break-check.json`）；远程单元 17＋25（`src/remote/{break-check,extra-break-check}.json`）；真实 relay 18（`test/remote/service-break-check.json`）；排队撤销 2、重置 2（`queued-{revocation,reset}-break-check.json`）；九条路由 9（`router-break-check.json`）；密文流量 3（`traffic-break-check.json`）；日志 14、活性/元数据/QR 5、状态/IPC边界 9、数据通道 34（`src/remote/{log,live-check,state,channel}-break-check.json`）；安全集成 20、配对心跳 3（`test/remote/{security,pair-heartbeat}-break-check.json`）；生产边界 1（`/tmp/mp3a-boundary-break.json`）；TCP 半关闭 1（`src/remote/half-open-break-check.json`）。Electron 前两例另把已构建宿主的 `vault: config2.vault` 改成 `undefined`，两项都失败，恢复后通过；没有用类型错误代替运行时负对照。
+
+**最终源复核（18:27～18:31）**：`pnpm check` 全过；`pnpm test` 单元 **4010**＋Swift **22** 全过；默认并行 `pnpm test:host` **205** 全过（含真实 relay **47** 项）；`vitest run --project leak` 的 Node 全量 **17** 项过；`pnpm build` 过；重建后的 Electron `app.spec.ts`＋`remote-vault.spec.ts` **14** 项过。protocol 与生成 Swift 自 `20169cc` 起无后续改动。
+
+**变异过程和最终口径**：首轮全组 **78.68% 未达标**（宿主远程 71.47%），没有用 crypto 抬平均。按存活项补测后第二轮 **90.09%**；配对等待心跳与 QR 编码修复后第三轮完整基线 **90.11%**，并把不确定的 relay 错误监听 Timeout 实际重测为 **Killed**。分析其中的存活项又复现了上述 CLOSING 原实现缺陷；修复后对 **channel 整文件强制重跑 164 个**，160 killed／4 survived／0 timeout，**97.56%**。Stryker 原生保留范围外的 2061 条真实既有状态（含 20 ignored），最终完整报告 `reports/stryker-incremental-remote-close.json` 的 13 份生产源码均与交付源码逐字一致：全组 **90.07%**（1977 killed、9 timeout、219 survived），宿主远程单独 **87.88%**，crypto **100%**，桌面保险箱 **85.65%**。`devices.ts` 单文件 79.49% 如实保留，门槛按组，未抑制真实覆盖缺口。
+
+219 个存活和 9 个缓存 Timeout 的逐项理由及对账见 [MP3a 变异存活分析](mp3a-mutation-survivors.md)。剩余 Timeout 是分块／心跳回环和设备队列忙循环，不冒称本轮全重跑；crypto 的 437 个检出来自先前独立运行（429 killed、8 timeout），18 ignored 原因在源码。破坏了清理的 Stryker 子测试曾留下 relay 子进程，已按本 worktree 的 sandbox 绝对路径和 PPID=1 精确清理，最终核对为 0；没有终止用户应用或服务器。
+
+**失败和限制如实保留**：一次 `pnpm test:host` 178/179，既有 `files/file-search.host.test.ts` 的“超过 1 MiB”失败：`runFd` 超限只 kill，但进程先退出 0 时仍接受此前 chunks，代码未在本任务修改。后一次与四 worker 变异并跑，178/182，四个既有 git 用例 15 秒超时；空载串行复核 203 项通过，最终默认并行全量 205 项也通过；未改该文件，不删用例或放宽期限。两次 `pnpm test:leak` 的 Node 17 项均过，桌面分别 5/7、6/7：首轮 ask-user 的脱离 DOM（42 个 SVGCircleElement、2 个运行中 span、2 个 SVG）、图片模态拦截下一次点击；次轮 PlantUML naturalWidth 5 秒未就绪。前两项单跑 2/2、PlantUML 单跑 1/1 均通过；尚未确认根因，未改 UI，不把整套桌面泄漏报绿。Electron 的“宿主退出后迟到的钥匙串回答”额外实验正文通过、清理阶段 Close context 超时；诊断确认原 `postMessage` 迟到时静默 no-op，没有未处理拒绝。挂起是既有 quit 重入：`will-quit` 阻止退出后，对已结束的 `host.stop()` 立即 `.finally(app.quit)` 的再次 quit 被忽略；仅延后到 `setImmediate` 的实验通过。未顺带修既有生命周期问题，撤回未提交的防御代码和实验测试，保留原两项已提交的 IPC e2e；详细复现 `/tmp/mp3a-late-vault-diagnosis.md`，恢复后的构建与两项再通过。未访问用户 VPS，未做真机、真实钥匙串授权弹窗或打包安装；MP3b/MP4 不由这些测试代验。
+
 ## M1.11 自用中改（2026-10-26）
 
 | 行为 | 测试 | 破坏检查 |
@@ -48,6 +214,68 @@
 同步 `main` 的 `1679b01`（MP0/MP1/MP2 和压缩提示的小猫样式）。只冲突路线图和追踪表的新增段落，保留双方内容；桌面生产代码无冲突。沿用新加入的 Swift 协议投影门禁，为两个新命令补齐结果样例（完整性测试先见红），重新生成 Swift 类型与三份往返夹具。Swift 往返测试把协议版本仍写死为 25，先看到 `26 != 25` 失败，再随本次版本升级明确改为 26；不删除断言、不绕过生成检查。
 
 合并前复验：`pnpm check`（含 Swift 格式/lint 与生成类型比较）通过；串行 Node 单元 **3854**、界面 **1028**、Swift **22** 及模拟器 UI 测试通过；重新构建后的全套桌面端到端 **63/63** 通过（日志门禁的 `test.fail()` 是预期失败，Playwright 汇总仍是 63 passed）。没有手机端翻译入口的新增设计，只同步协议投影；未安装到真机、未替换或重启用户现用 Atrium。按用户要求本地合并并安全删除任务 worktree，不推送。
+
+## MP5 / MP6 界面与渲染零件提前并行（2026-10-26）
+
+`agent/ios-ui-render`，仅交付零件与 Debug 陈列页，不标 MP5/MP6 完成。选型、实测与未完项见 [mobile-render.md](../research/mobile-render.md)。Swift 测试根目录为 `apps/ios/AtriumKit/Tests/`。
+
+| 行为 | 验证 |
+|---|---|
+| 暖色浅/深 token、拉丁衬线与中文回退、弹簧/0.18秒降级、预览不得撤销系统辅助设置 | `AtriumUITests/DesignTokenTests.swift`；陈列页 colors/type/glass/status 的浅深截图 |
+| 5×5、21点涡旋、三档亮度、1.65秒同相位、静态1.15秒 | `VortexPatternTests.swift`；多尺寸图标并排截图 |
+| 32×32像素猫、五场景/四姿势、4–6秒动作与精确绝对时间截止 | `PixelCatTests.swift` 与原型导出的17张网格逐格相等；`PixelCatIdleTests.swift`；猫图明暗与 reduced 截图 |
+| Turn/Step→过程行、空内容过滤、探索聚合、支线、回复拆分、最终回复前的思考不误标运行中 | `RailRowsTests.swift`（协议JSON夹具）；`RailDetailTests.swift`（全文/输出/探索失败详情/问答摘要不丢） |
+| 减弱动态无空间动画、恢复循环、折叠保留插话、等待提问标题 | `RailViewContractTests.swift` 3项为**源结构守卫**；截图不代替运行时动态切换/逐帧验收 |
+| 字素安全的150ms积压比例揭示、尾部结束、替换/停顿/组合emoji | `AtriumRenderTests/TextRevealTests.swift` |
+| 解析器尾块边界与全文一致、后置引用、缩进、CR/LF/CRLF、不执行HTML/危险scheme、图表源码降级 | `StreamingMarkdownTests.swift`，12组逐Character前缀差分与围栏/安全链接回归；缩进/混合换行/容器闭合均先红后绿 |
+| 本地 highlight.js 的常用19种语言名/别名、未知语言降级、嵌套span、转义与原文还原 | `CodeHighlighterTests.swift`，真实 JavaScriptCore 执行 |
+| hunk头/行号、前后缺失上下文、长上下文保留边缘并可展开 | `DiffLayoutTests.swift`；diff 明暗截图；缺失行回填交给上层，陈列页不伪造数据 |
+| 时间线初始定位/跟随/读历史、未读提示、回到底部 | `TimelineFollowTests.swift`；XCUITest 的1000行 List/LazyVStack基准核对真实尾行存在 |
+| 模拟器陈列页、截图、性能样本 | `apps/ios/AtriumUITests/GalleryScreenshotTests.swift`；`TEST_RUNNER_ATRIUM_GALLERY_SHOTS=1 pnpm test:ios`；截图在 `apps/ios/.build/gallery/`，原始附件在 Xcode xcresult |
+
+验证：`pnpm check` 通过；`pnpm test` 最终 **202文件/3792项 TS + 82项 Swift** 通过。首次全量 testkit/git 夹具构造超时1项，单独重跑3/3及第二次完整全量通过，没有改它。两份破坏检查 `Fixtures/{render-break-cases,rail-break-checks}.json` 分别 **24/24、11/11 CAUGHT**（其中3个UI接线守卫不是行为测试）。Swift 暂不接变异工具，遵循 MP1 约定。`TEST_RUNNER_ATRIUM_GALLERY_SHOTS=1 pnpm test:ios` 最终82 Swift + 4 XCUITest通过（0失败/0跳过），26张组件浅深/减弱动态/实色玻璃截图已导出到 `apps/ios/.build/gallery/`；标准 `pnpm ios:shot` 浅深各一次通过。
+
+**性能仍未达验收结论**：macOS Release 96KB解析+转换中位43.86ms，500行TS高亮+转换49.73ms；后台actor，不是主线程数值。模拟器第一轮两容器均有>50ms帧间隔（完整三次数字见调研），暂用List但未证明50ms主线程预算通过。没有真机、Release Instruments trace、长时间耗电/泄漏压力或完整手机连接/发送验收。
+
+### 时间线有界定位与候选（2026-10-26，第四路续）
+
+| 行为/证据 | 验证与边界 |
+|---|---|
+| 原实现1000行180次更新，每种容器180000次builder、约180次body | Debug `GalleryTimelineStats` 分开计数；峰值时间与主runloop awake区间一起记录，awake不是单个任务或CPU时间。高负载原始数据保留于 mobile-render.md，不用来评判容器优劣 |
+| 稳定行引用：内容更新不换整个集合 | `TimelineRowsTests`：先红后绿，180次更新仅180次Row通知/0次集合通知；相同快照无通知、同数重排/替换、移除对象释放。**仅证明观察通知，不等于已复测实际builder次数** |
+| 真正布局后才定位；等高更新不重复scrollTo；按住期间的布局在释放后处理 | `TimelineFollowTests`新增layoutTiming/heldFinger两例；指尖按住的原生回调时序未实证。小型UI先抓到Task.yield不足，修后初始/追加定位通过 |
+| 高度增长后跟随、历史位置不被追加打断 | `GalleryScreenshotTests.testTimelineUpdatesAndPreservesHistory`：末行增加30段后末端可见；读历史后追加，同一文本y位置差≤2pt且新尾不可见；回底可见新尾。强行在reading时滚到底部的手动负控确实失败，恢复后通过 |
+| 定向验证与资源协调 | `TimelineRowsTests|TimelineFollowTests` 9项通过；`timeline-break-cases.json` 8/8 CAUGHT；`pnpm ios:check`通过；非基准`pnpm test:ios` 88 Swift + 3 UI通过，截图矩阵和性能2项opt-in跳过。本轮未再跑全量TS |
+
+移除List `.id`的实验破坏了定位，已经恢复；停止AX轮询未消除长帧，也不认作根因。稳定引用候选**在该轮功能回归时尚未复测真实builder计数/绝对耗时**；16:14～16:44机器load约19～25、其他路宿主变异进行中，按主代理要求停止耗时对比。后续单次窗口见下；真机/Release Instruments仍待做；入口 `AtriumApp.swift` 已交接 ios-connect，本批未改。
+
+### 较低负载单次窗口（2026-10-26 18:43，第四路87c7722）
+
+仅执行一次 `TEST_RUNNER_ATRIUM_TIMELINE_BENCH=1 pnpm test:ios`，实现与夹具不变。18:43:35开始load **3.39/5.04/6.17**，18:46:43结束 **3.26/4.21/5.59**；不是无竞争环境（结束仍有杀毒/Chromium/模拟器进程）。Debug、arm64、iPhone 16 Pro / iOS26.5模拟器。
+
+| 证据 | 结果与边界 |
+|---|---|
+| List三次实际builder/body | 各 **180000/180**；没有消除List构造扫描。先前180次Row通知/0集合通知不等于实际builder下降 |
+| Stack三次实际builder/body | **5376/180、5504/180、5504/180** |
+| 全部六次帧/awake | List max **68.58/63.18/73.05ms**，awakeMax **123.60/44.69/53.48ms**；Stack max **63.06/53.53/54.48ms**，awakeMax **54.99/49.17/45.11ms**；p95全部16.67ms，六次各有一个>50ms帧间隔。完整n/maxAt/次数见mobile-render，不挑最优 |
+| 80ms忙等待负控 | awakeMax **80.02ms**、最大帧99.14ms，≥75ms断言通过；awake并非单个任务/CPU采样 |
+| 功能与测试范围 | **98 Swift、4 UI通过，1项截图矩阵跳过**。七次基准尾行exists均过，但不是hittable；独立40行测试的末端可见/历史y≤2pt/回底断言通过 |
+| 结果归属核验 | 明确导出 **Test-Atrium-2026.10.26_18-43-39-+0800.xcresult**，summary及七附件时间全部落在本次启动结束区间；bundle副本、原始附件、命令日志与load在 `apps/ios/.build/timeline-window-87c7722/` |
+
+只提交证据，不改性能实现、不触碰integration worktree。未做同窗旧实现对照、全量TS/变异、截图矩阵；不能归因耗时改善或判定容器胜负。**剩余验证：Release Instruments主线程trace与真机50ms预算**；List进一步定位须另开有界任务。详见 [全部试次与限制](../research/mobile-render.md#较低负载的单次测量窗口2026-10-26-184387c7722)。
+
+### 冻结基线280c087审查修复（第四路）
+
+| 行为 | 真实回归与负控 |
+|---|---|
+| Markdown只缓存精确UTF-8前缀，规范等价替换不复用旧偏移 | `StreamingMarkdownTests.canonicalReplacements/shorterCanonicalReplacement/appendedCombiningMark`；双向NFD/NFC按字节核对，原短输入实际signal 5崩溃；恢复String前缀判断被检出 |
+| 原版高亮入口无损还原实体旁组合符、variation selector、emoji和嵌套span | `CodeHighlighterTests.unicodeRoundTrip` 8组全部先红后绿；实体/结束span各恢复Character语义均被检出 |
+| write正文只在协议details时仍完整可展开 | `RailDetailTests.writeContent`，真实JSON args为空、保留末尾空行；错取path而非content被检出 |
+| overflow与正常压缩都保留精确token和完整摘要，未知after不捏造 | `RailDetailTests.overflowCounts` 已知/未知两组；丢计数、未知填0均被检出 |
+| git零count表示前一行，首缺口与后续缺口完整旧/新坐标正确 | `DiffLayoutTests.zeroContextInsertion/zeroContextDeletion`，hunk头用真实零上下文git输出核实；首缺口、下一old、下一new三个错误分别被检出 |
+| 合法围栏的不同开闭缩进不能误报未闭合，仅metadata | `StreamingMarkdownTests.closingFenceIndentation` 32组合原12处红；`fenceContainerBoundary` 独立期望验证引用外新围栏不关闭旧代码、正文末反引号不误闭合、缩进代码反引号保持字面；三项负控全检出。UI尚未消费closed，不声称修了可见故障 |
+
+最终 **48项/8套定向Swift、`pnpm ios:check`通过**；`render-review-break-cases.json` **12/12**，既有render **24/24**、rail **11/11 CAUGHT**。红绿与崩溃记录见 [mobile-render.md](../research/mobile-render.md#冻结基线280c087的独立审查修复) 和本地 `.build/review-280c087/`。缺失上下文的版本匹配只澄清文档，由MP6接线保证；没有新增补读API/改base语义。审查修复这轮未跑全量TS、iOS UI、截图或性能；后续真实builder与单次较低负载测量见上一节，50ms预算仍未证实通过。
 
 ## MP1 Swift 工程基础（手机端，2026-10-25～26）
 
@@ -1461,6 +1689,88 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 压扁与睁眼的动效、减弱动态效果的静帧 | 纯 CSS；浏览器测试切不了减弱动态效果（同空状态的光标） | 未测 |
 
 5 项 `pnpm break-check` 全部检出（去小猫、去入场类、去 `pl-6`、去扫光、改 testid）。改动不在变异分组（视图组件与 CSS），未跑变异测试。真实渲染明暗截图已看（一次性用例渲染真实 `Transcript`，用完即删）。
+
+## MP4 手机连接核心（SPEC-0005，2026-10-26，进行中）
+
+| 范围 | 用例与证据 |
+|---|---|
+| Noise IK / IKpsk2、SAS、分帧 | `AtriumNoiseTests`：cacophony 公开向量、TS/Swift 固定记录逐字节互通回放、负例与固定种子输入。篡改负例改为从 TS 记录重建响应方后直接断言 `.decryptFailed`，已删除 `withKnownIssue`，最终无 known issues；自实现固定种子 fuzz 不称为独立差分验证 |
+| 日常连接、同步边界 | `RemoteConnectionTests`：IK、生成的 protocol 26 `hello` 不带 token、clientId=deviceId、旧代发送和同步结果不能污染新连接、pending 用 IK 补确认、配对通道交接 |
+| 安全与连接状态 | Noise 内的 `device_unknown` / `revoked` 清理；外层 4401/4409 不删除；离线时间、版本不符、无网、relay 不通；1→30 秒退避与抖动、心跳、15 秒握手超时 |
+| 配对与存储 | `PairingFlowTests` / `HostStoreTests`：先存 pending、SAS 一致、确认后正式记录、拒绝理由、丢失确认答复恢复、全局设备密钥不随主机删除、旧正式记录不被新 pending 覆盖、损坏私钥不静默轮换 |
+| 通道 | `SecureChannelTests`：双向分块、自动心跳回复、篡改与未知帧关闭、超限、30 秒分块截止时间、关闭码；`ChannelCloseTests`：阻塞发送只能由 close 解开，优雅关闭在注入时钟 2 秒后强制释放 |
+| 审查后回归 | 只读审查发现的 4 类问题均先见测试失败：background→inactive→active 未恢复、短暂无网后卡住、关闭等待 writer 无界、确认写失败/本地超时丢 pending。另修按唤醒次数而非实际时间计配对倒计时 |
+
+连接核心阶段验证：全 Swift 111 项 / 17 suites 通过；当时篡改回放产生的 2 项 known issues 已由上述直接拒绝断言替换。`pnpm break-check apps/ios/Testing/remote-breaks.json` 最终13/13检出（核心11项，加UI即时交接与非法粘贴两项）。回归修复后 `pnpm check` 通过。全仓 `pnpm test` 首轮 3791 过、`scripts/boundary.test.ts` 1 项 5 秒超时；该文件单独重跑 8/8 通过，未修改其超时或断言。之后完整重跑：TypeScript 3792/3792、Swift 111/111 通过，保留首轮超时记录。
+
+### 配对界面、本机互通与平台验证补充
+
+- `AtriumUI/Pairing/`：系统样式测试接线，只有扫码/粘贴、SAS/倒计时、失败恢复与完成交接；协议状态仍唯一来自 `PairingFlow`。`PairingModelTests` 验证非法输入不联网、重复提交只连一次、取消后旧回调无效、通道只交接一次。审查发现成功后必须点击“完成”才交接的缺口，先复现成功后直接dismiss会abort，再改为成功回调立即交接，完成按钮只关闭页面；回归与限定复查通过。XCUITest 曾复现布尔 sheet 与可选 model 同帧设置导致空白，改成按 model 身份呈现后通过。
+- `node apps/ios/Integration/run.mjs`：真实本机 relay（路径前缀 `/atrium`）+ 不改动的 TS MP0 假宿主 + 正式 Swift WebSocket/Noise；连续三次通过配对/SAS、hello、IK重连、心跳ACK、撤销断链、旧密钥拒绝。`--negative-control` 错误SAS使指定断言失败；启动期/构建期SIGTERM正确清理，relay资源归零、临时目录无残留。**MP0协议25仅在测试显式覆盖，不是协议26生产宿主/faux-pi契约。** 普通Swift测试对此项明确skip，专用命令实际执行。
+- 平台钥匙串：最初在XCUITest Runner调用返回 `-34018`；测试target entitlement只进入bundle模拟段，实际Runner仍无权限。迁到真实App进程的DEBUG固定检查后通过，已撤掉旧Runner链接/entitlement配置。仅使用固定测试service与UUID account，所有读写与清理精确限定；验证生产KeychainStore插入、覆盖、读取、删除、缺失及实际 `AfterFirstUnlockThisDeviceOnly` 属性。把生产属性改成 `WhenUnlockedThisDeviceOnly` 的负对照使该用例失败，恢复后通过。Release构建通过且产物不含检查入口/命名空间标记。
+- 最后 `pnpm test:ios`：Swift报告115项/19 suites，无known issues（其中1项实时互通默认skip，另由专用runner实跑）；模拟器3项全部通过，xcresult `Test-Atrium-2026.10.26_16-33-59-+0800.xcresult` 明确记录首页、`PairingKeychainTests/testProductionKeychainRoundTripAndProtection()`、`PairingScreenTests/testPasteValidationAndCameraFallback()`。
+- 明暗真实截图：`apps/ios/.build/shots/pairing-light/`、`pairing-dark/`（manifest注明对应附件），已查看入口与非法链接/相机备用状态。初次用 `AppleInterfaceStyle` 启动参数未改变主题，两组实际都是深色，不算明暗验证；改由模拟器主题设置后重新拍摄。提交后收起键盘，错误不再被遮挡。
+
+最终 `pnpm check` 通过；已将两个互通脚本明确登记为knip入口、把系统Swift编译器列入外部二进制名单（不忽略源码）。UI交接修复后重新跑完整 `test:ios`，上述三项从最终xcresult再次核对为Passed。
+
+边界：系统样式只是测试接线，未验收为最终视觉；首页连接仍显示“正在同步”，不会替代同步层擅自标“已连接”。未测真机扫码/权限弹窗、锁屏首次解锁、实际备份迁移、七天续签、真实生产宿主/faux-pi、WAN/TLS故障代理。此节不标完整MP4完成。
+
+### MP4 冻结基线 323e7b7 后的审查修复
+
+- 测试资源：`ConnectionResourceScope` 对 `RemoteConnectionTests` 每个 case 注册连接，成功或抛错均 stop，并检查弱引用释放及手动时钟 sleeper 归零。原 pending IK / inactive / handover 三条成功路径先在新退出断言下失败；补 teardown 后26项通过。`teardownAfterThrow` 特意抛错验证失败路径；`Testing/resource-breaks.json` 删除 stop 的破坏检查1/1检出。假宿主会话由 Harness 显式持有，不再依赖遗留 writer 泄漏保持连接；无应答心跳测试在每个发送时点读取真实密文，避免把排队等同发送成功。
+- 存储所有权与恢复：`PairingFlowTests/cancelledConfirmationRecovers`、`PairingOwnershipTests`、`PairingRevocationTests`、`StorageRecoveryTests` 分别覆盖取消后 pending/IK、同内容新代与迟到成功/拒绝、配对期认证撤销及密钥范围、host/pending 各自删除失败/部分成功/前台和显式重试、旧清理不得使新 pending 的后续确认失权、同步不中断但确认写失败持续可见。App 注入同一个 HostStore，`MainThreadCheckingStore` 验证生产加载与配对路径不在 MainActor 做钥匙串 IO；持久格式不变。
+- 界面审查：`PairingRestorationTests` 实际将同 host 新 relay pending 接到新端点并用 IK 替换；`PairingPresentationTests` 验证离线绝对时间和非 pairing QR 不中断取景；`PairingStoragePresentationTests` 验证网络状态不变时存储问题仍刷新；`PairingModelTests` 验证成功交付前再核对 claim、配对持有的存储错误也在回前台时只重试一次，取消与 superseded 不复活。没有新增取消后自动 IK 或配对恢复按钮。
+- 本轮存储/界面定向 Swift 验证66项/10 suites 通过（warnings-as-errors），新行为先见红灯。`storage-review-breaks.json` 15/15、适配新实现后的原 `remote-breaks.json` 13/13、`resource-breaks.json` 1/1 全部检出。当前代码的只读所有权复查未发现破坏性路径；指出的 model 前台重试遗漏已补红绿测试。未跑本轮全量 check/test、Xcode/模拟器和真机验收；上述旧阶段的平台证据不冒充本次复验。
+- 累计缓冲：`BufferBudgetTests` 验证出站2 MiB含在途密文、精确边界/加1字节、很多小帧、真实发送完成才归还、迟到完成不减负、阻塞writer的abort/owner释放；入站16 MiB与1024条双限额、空消息、next归还、旧代隔离、取消/finish后计数与保留队列归零。`RemoteBufferIntegrationTests` 用实际Noise通道和RemoteConnection接收循环验证1025条空消息及16 MiB+1字节都会明确背压断线，旧队列清空，新代只交付新消息；两条8 MiB消息完整分帧/解密且nonce连续。没有用静默丢消息或离线重发规避压力。
+- 预算单独定向26项/5 suites 通过，`buffer-breaks.json` 12/12检出；最终把本轮相关存储、连接、界面和预算回归合跑，92项/15 suites 通过（warnings-as-errors）。Swift格式、Swift文档lint和diff检查通过；只读预算审查无高可信阻断项，未独立跑测试。当时尚未直接组合测RemoteConnection出站溢出后的完整重连，下节已补该缺口。仍未用分配器测Data释放；已有阻塞writer/计数/队列清空和连接溢出回归不能冒称整机内存或长期泄漏验收。
+
+### 2feea5b 后的收尾验证
+
+- `RemoteBufferIntegrationTests/outboundOverflowReconnects` 从真实配对通道 handover 进入 RemoteConnection，经公开 `send` 排入未确认标记消息；暂停旧 transport writer 后第二条触发2 MiB累计限制，调用方收到 `.backpressure`，旧 writer 结束、队列与预算归零。测试闸住旧 receive 的终止结果，确认公开 send 的失败处理自己进入退避；手动时钟推进后，新 transport 完成 IK/hello 并进入 syncing。此时才释放旧结果，核对旧 generation 的 send 被拒绝、旧收尾不伤新代、新端点只收到 fresh 标记且回显完整，没有重发旧未确认消息，最终 stop 后弱引用和 sleepers 归零。
+- 该生产路径在2feea5b已接好，本轮新增测试先绿；没有声称原实现先红。随后分别移除 send 中的 `failed(generation,error)`、发送代次守卫、失败回调代次守卫，三个破坏都产生真实测试失败。`buffer-breaks.json` 扩到15项，最终15/15检出。第一轮因新增测试的 actor 属性被 `||` autoclosure 隔离限制而 NOBUILD，不计检出；拆成局部 awaited 值后重跑全部实际检出。
+- 本轮新增 UI 测试局部使用 `PairingTestResources`：每 case 在 start 前注册连接、接受 responder 后注册通道；成功或抛错均 stop/abort 并检查弱引用和手动时钟归零。`PairingResourceTests/throwingBody` 覆盖 start 后、接受 responder 后故意抛错，缺少清理时实际失败；`resource-breaks.json` 扩到2项、2/2检出。新增 model 测试的 cancel defer 在 submit 前安装，不绕过 accept 抛错路径；仅检查本轮新增 UI/预算测试，没有扩成生产依赖或全仓资源框架。
+- 收尾相关定向 Swift 35项/6 suites 通过，开启 warnings-as-errors 和显式 target 依赖检查；出站组合回归另外连续5次通过。Swift格式、文档lint、diff检查通过。生产逻辑未改，仅把 PairingFlow.run 的过期取消注释改为关闭通道但保留不确定 pending。本轮未跑全量、Xcode/模拟器、真机或实时 TS 互通。
+
+### 正式线路拒绝原因接缝修复
+
+- 正式 RemoteService 的本机投影 reason 为 `declined`，其 `onEnded` 发给手机的 `pair_rejected.reason` 为 `rejected`；MP0 拒绝也发 `rejected`。Swift 现在把两者映射为 `.declined`，真正未知的 `future_refusal` 仍为 `.other`。仅改错误投影，不改权限、清理或协议定义。
+- `PairingFlowTests/refuses` 的真实 Noise 参数化交换覆盖8种理由，包含正式线路值、已有 declined 和未知值；断言 pending 清掉、旧正式记录保留。`PairingPresentationTests/wireRejectionMessage` 从同一真实 Noise 拒绝结果检查明确的“Mac 拒绝了配对”文案，而非网络错误。两条测试以结构化 task group 持有 flow，异常退出也取消并等待，transport/channel 的 defer 覆盖抛错路径。
+- 先改测试时，旧实现对 `rejected` 的状态及 UI 文案共3处断言失败；补一行映射后，`--jobs 1` 定向 PairingFlow/PairingPresentation 共11项、2 suites 通过。缓存只增量编译修改文件，未引入 renderer/Markdown 编译。`rejection-breaks.json` 移除 rejected 映射的单项破坏实际检出；本次通过仅向真实 xcrun 追加 `--jobs 1` 和现有缓存检查参数的临时适配器执行，没有使用伪造测试输出。
+- 红/绿/破坏日志分别为 `/tmp/ios-connect-rejected-red.log`、`/tmp/ios-connect-rejected-green.log`、`/tmp/ios-connect-rejected-break.log`。既有 `remote-breaks.json` 的理由分支匹配同步到双值分支，未在本轮重跑整组。格式、Swift文档lint、diff检查通过；未跑全量、Xcode/模拟器或动态 TS 互通。真实 RemoteService + relay → Swift 拒绝方案记录在 `apps/ios/Integration/README.md`，本轮只提方案，不冒称 startHost/faux-pi 或正式宿主动态契约已通过。
+
+## 正式 RemoteService → Swift 拒绝互通（连接切片，2026-10-26）
+
+- 在 `1399b0c` 后仅合固定 host `e29e49a`（merge `e03bc76`），协调生成协议27，文档冲突保留双方；未合 renderer/整合分支。本轮没有修改 host/protocol 生产源码，也不标完整 MP4 完成。
+- `node apps/ios/Integration/run.mjs --production-rejection` 使用实际生产 RemoteService、relay 和 Swift WebSocket/Noise/PairingFlow。vault/index 只有最小内存端口，不 import Vitest fixture，不启动 startHost/Electron/router/faux-pi。HTTP 控制复用 bearer、loopback、限长/超时和清理，只等待真实 awaiting_confirmation、核对 SAS、调用真实 `confirmPairing(false)`，不构造拒绝帧。
+- `ProductionRejectionInteropTests/macRefusal` 不覆盖版本，Swift 默认生成版本与 TS 当前27一致；断言真正加密线路的 `.failed(.declined)`、无成功通道、pending 清空、旧本地正式记录与共享设备密钥保留、无存储问题。旧记录是客户端内存夹具，不声称曾与此服务实际配对。TS 同时验证本地 reason=declined、devices/accept=0、vault 字符串未改变；cleanup 再查没有授权、host/relay counters=0、所有控制请求/listener 关闭。
+- 安全保存映射原件后，暂时仅移除 Swift `rejected` 分支，实跑新正式互通 **exit 1，仅 Mac 拒绝状态一处断言失败**（实际 `.other("rejected")`）；恢复并逐字节比对原件后同场景 **exit 0、1 test/1 suite 通过**。第一次因协议27与新测试增量编译12.09秒，无 Markdown/renderer 新编译；恢复后1.38秒。红灯 `/tmp/ios-connect-production-rejection-red.log`，首次绿灯 `...-green.log`，最终当前源码绿灯 `/tmp/ios-connect-production-rejection-final.log`。
+- `node apps/ios/Integration/run.mjs --production-rejection --hold-confirmation` 在真实匹配 SAS/awaiting_confirmation 后输出 held 信标。外部验证器此时 SIGTERM runner，实测 **exit 1**；host/relay counters归零、control请求与listener关闭、已捕获的 Swift 后代进程组全部消失、临时 bundle 目录移除。日志 `/tmp/ios-connect-production-rejection-cancel.log`。负对照断言失败也完成相同 fixture 清理；最终扫描无残留 `atrium-local-interop-*` 目录。
+- 原 MP0 命令仍通过（exit 0，1 test）；`--negative-control` 仍只在错误 SAS 断言失败（exit 1），并清理资源，再跑普通 MP0 通过。最终日志 `/tmp/ios-connect-mp0-production-final.log`，负对照 `/tmp/ios-connect-mp0-negative-after-production.log`。新增 CLI/env 仅测试可见，登记于 Integration README/development，入口登记 knip。
+- `swift test --jobs 1 --filter 'PairingFlowTests|PairingPresentationTests|RoundTripTests'`（warnings-as-errors、显式 target 依赖检查）**18项/3 suites通过**，含 declined 兼容、未知理由、UI 文案和生成协议往返，日志 `/tmp/ios-connect-production-swift-targeted.log`。定向 oxlint、包含现有 host ambient declaration/MP0 TS-extension 设置的临时 tsc 配置通过；初次 lint 的文档参数/不安全类型断言已修，初次类型检查遗漏声明和配置不计通过，未放宽类型规则或修改生产/spike源码。误用不存在的 eslint 命令失败后改用仓库 oxlint。只读审查无高可信阻断，审查者未另跑测试。
+- 未跑全量 check/test/knip、Xcode/模拟器、真机、WAN/TLS、长期整机泄漏或完整 MP4 同步。这个新增证据只覆盖正式服务拒绝接缝，不把它升级为 startHost/faux-pi 契约。
+
+## Children来源判据与真实导航校正（MP3整合回归，2026-10-27，待完整门禁）
+
+对应SPEC-0002“显示”及MP3本机行为保持：同轮送达可落在agent步骤，闲时送达可成为新轮source，不能仅接受source-line。这里只改测试判据与夹具，不改生产或协议。候选五文件位于`apps/desktop/e2e/`；原旅程其它检查及其它旅程保持。
+
+| 场景/不变量 | 用例/助手 | 已有验证及边界 |
+|---|---|---|
+| 运行中audit合流、tests闲时新source，完整session/task/event与落盘归属 | `children-delivery.spec.ts` C1、`child-delivery-fixture.ts`、`child-delivery-observation.ts` | 旧source-only判据已见一次目标红；固定B1正向通过。旧红无同次DOM正向附件，不回填历史67/68根因 |
+| 停止父后两报告waiting，再一次送入同一record/新turn | 同文件C2 | B1正向通过；实际删除tests source，原count2以2/1失败，协议/持久记录保持。该控制未执行到新增全局清点 |
+| 原两孩子/worktree旅程与双导航 | `children.spec.ts`指定原旅程、`child-delivery-assertions.ts` | B1三例共六次真实导航与返回、18独立凭据通过；原旅程本次自然为混合位置，不是旧B0的两source路径 |
+| 当前完整小夹具中每个报告全局一次、正确turn/slot/finished及可见完成文案 | `child-delivery-assertions.ts` | 跨位置真实DOM副本：B0有效SURVIVED→B1目标计数红→恢复B1三例绿；实际source文字错误仅使completionVisible红。未知实体也计总数，不声称覆盖任意无testid副本或agent文字负控 |
+| 打开报告必须去实际目标孩子 | 同助手的真实订阅/task快照/标签与返回检查 | 实际audit点击转发到真实tests按钮，只有tests订阅/任务/选中标签，原audit订阅5秒红；不是按钮无响应，也不是后续每道导航检查的独立敏感性证明 |
+
+以上动态证据归属固定B1 assertions SHA `b110bb5a…`。随后13条lint诊断作最小修订，新SHA `7008dc50…`：非变异排序保重复/null及原顺序，visible仍在浏览器回调内，双失败保两原错并补cause。四文件格式化、五文件格式检查/lint和desktop typecheck各一次退出0，父核43封存/436旧证据/1121产物；**修订后children路径尚无动态验证；父在未提交整合树一次完整check已过（11.788s，boundary14/41/4，未登记0/非精确0）。随后唯一list为70例/33文件、一次构建通过，完整Electron选择集16过/1败/53未执行：chat.spec.ts:35点击超时，C1/C2/原两孩子旅程均未执行，无新增18份回执。已父核48工件及输入未漂移，首失败后未重跑。随后获准一次受限trace解析：所读流无frame-snapshot，解析器未匹配click结构、未取得动作时间，不据此说没有click；材料不足已停，chat根因未定，不能称门禁通过**。旧诊断四草稿仅保留在MP3b lane及私有快照，不迁入整合候选、不加ignore规则；整体check不冒称检查过这些草稿。
+
+既有`pnpm break-check`只支持Vitest/Swift，本次明确使用有界Playwright控制，不伪装调用该命令或扩通用harness。资源尾采node78614、1322及后来单次观测不在分别记账，不称完整资源门禁；原unit/Git、appearance、ask-user失败不由这批结果关闭。详细冻结、正负控制与父核验见[整合记录](mobile-integration.md)；上述验证阶段未提交候选代码、未合main或推送。后续用户授权阶段保存与合并，当前状态见[手机端阶段交接](mobile-handoff.md)，不因此新增动态通过记录。
+
+## 手机端手测、模拟器签名修复与阶段保存（2026-10-27）
+
+- 用户在隔离 Mac/新 iPhone 模拟器中完成配对，报告手机停在“正在同步”；对后续可测的连接管理项目整体反馈通过。没有逐项操作回执，不将所有拒绝/超时/撤销分支都列成独立实测通过。Mac 新建对话的展开思考交互，用户手动未复现旧自动化点击超时。
+- 测试包此前误用关闭签名的构建方式，既有真实 App 内固定 Keychain 检查一次显示 `failed:keychain:-34018`。另获授权后一次离线 simulator ad-hoc 构建、一次覆盖安装，实际可执行文件包含正确的模拟器 App 身份；唯一修后固定检查显示 `passed`，已恢复普通首页。源码、工程和锁文件未因修复改变。没有卸载/擦除，数据容器路径变化及元数据读取脚本问题如实保留，不宣称逐字节数据保留已验证。
+- 本机证据在 `/tmp/atrium-ios-manual.jtM5X0/` 及其 `signing-repair/`；证据性质、现场归属和限制见[阶段交接](mobile-handoff.md)。Mac 使用进程内保险箱替身，故不覆盖真实 Mac Keychain 或 Mac 重启持久性；手机同步/列表/发送仍未实现。
+- 用户明确将此前列出的自动化异常暂缓，并要求保存当前状态、本地合回 `main`。本次合并检查结果记在交接末尾；这是阶段检查点，不是把旧完整 unit/Electron/泄漏失败改绿，也不代表 MP3–MP6 全部完成。
 
 ## 桌面弹窗不超出窗口（M1.11 自用后修复，2026-10-26）
 

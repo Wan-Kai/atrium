@@ -1,0 +1,66 @@
+[
+  {
+    "file": "packages/ui/src/settings/settings-panel.tsx",
+    "from": "refreshRemote();",
+    "to": "",
+    "test": "packages/ui/src/settings/settings-remote-watch.browser.test.tsx",
+    "name": "watches for the whole real settings window",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/settings-panel.tsx",
+    "from": "void client.watchRemote(false).catch(() => undefined);",
+    "to": "void Promise.resolve();",
+    "test": "packages/ui/src/settings/settings-remote-watch.browser.test.tsx",
+    "name": "watches for the whole real settings window",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/settings-panel.tsx",
+    "from": "}, [client, refreshRemote]);",
+    "to": "}, [client, refreshRemote, section]);",
+    "test": "packages/ui/src/settings/settings-remote-watch.browser.test.tsx",
+    "name": "releases Phone timers on category exit",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/settings-panel.tsx",
+    "from": "const close = useCallback(() => navigate(onClose), [navigate, onClose]);",
+    "to": "const close = useCallback(() => { void client.watchRemote(false); navigate(onClose); }, [client, navigate, onClose]);",
+    "test": "packages/ui/src/settings/settings-remote-watch.browser.test.tsx",
+    "name": "keeps the watch while a dirty config",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/settings-panel.tsx",
+    "from": "void client.watchRemote(true);",
+    "to": "void client.watchRemote(true); void client.cancelPairing().catch(() => undefined);",
+    "test": "packages/ui/src/settings/settings-remote-watch.browser.test.tsx",
+    "name": "watches for the whole real settings window",
+    "project": "ui"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "if (ask === remoteAsks) remote.setState({ status: \"ready\", state, error: null });",
+    "to": "remote.setState({ status: \"ready\", state, error: null });",
+    "test": "packages/ui/src/settings/settings-remote-watch.browser.test.tsx",
+    "name": "does not revive closed-window QR state",
+    "project": "ui"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "if (!watchingRemote) return;",
+    "to": "",
+    "test": "packages/ui/src/settings/settings-remote-watch.browser.test.tsx",
+    "name": "watches for the whole real settings window",
+    "project": "ui"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "if (watchingRemote) void loadRemote();",
+    "to": "void loadRemote();",
+    "test": "packages/ui/src/settings/settings-remote-watch.browser.test.tsx",
+    "name": "does not revive closed-window QR state",
+    "project": "ui"
+  }
+]

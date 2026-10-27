@@ -114,7 +114,7 @@ describe("Settings · pi", () => {
     await expect.element(screen.getByRole("button", { name: "正在检查" })).toBeDisabled();
     gate.resolve();
     await expect.element(screen.getByRole("button", { name: "检查更新" })).toBeEnabled();
-    expect(calls).toStrictEqual(["checkPiUpdate"]);
+    expect(calls).toStrictEqual(["watchRemote true", "checkPiUpdate"]);
   });
 
   it("offers a newer pi and updates it: waiting for sessions, its output while running, and the version reached", async () => {
@@ -153,7 +153,7 @@ describe("Settings · pi", () => {
     await expect.element(screen.getByRole("log", { name: "更新 pi" })).toHaveTextContent("更新 piadded 1 package");
     await screen.getByRole("button", { name: "收起日志" }).click();
     await expect.element(screen.getByRole("log")).not.toBeInTheDocument();
-    expect(calls).toStrictEqual(["updatePi", "cancelInstall j1"]);
+    expect(calls).toStrictEqual(["watchRemote true", "updatePi", "cancelInstall j1"]);
   });
 
   it("offers the update again once a newer pi is found after one was done", async () => {
@@ -191,7 +191,7 @@ describe("Settings · pi", () => {
     installJob.setState(job({ jobId: "j7", state: "waiting", running: 1 }), true);
     await screen.getByRole("button", { name: "取消" }).click();
 
-    expect(calls).toStrictEqual(["cancelInstall j7"]);
+    expect(calls).toStrictEqual(["watchRemote true", "cancelInstall j7"]);
   });
 
   it("shows a failed update's whole output with 重试, and the manual way open", async () => {
@@ -210,7 +210,7 @@ describe("Settings · pi", () => {
     await manual.click();
     await expect.element(manual).toHaveAttribute("aria-expanded", "false");
     await expect.element(screen.getByRole("button", { name: "我更新好了，重新检测" })).not.toBeInTheDocument();
-    expect(calls).toStrictEqual(["loadSetup refresh", "updatePi"]);
+    expect(calls).toStrictEqual(["watchRemote true", "loadSetup refresh", "updatePi"]);
   });
 
   it("says how an update failed that ended without an exit code or did not start", async () => {

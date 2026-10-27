@@ -217,6 +217,9 @@ importers:
 
   apps/desktop:
     devDependencies:
+      '@atrium/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@atrium/testkit':
         specifier: workspace:*
         version: link:../../packages/testkit
@@ -282,6 +285,9 @@ importers:
       '@atrium/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@atrium/remote-crypto':
+        specifier: workspace:*
+        version: link:../remote-crypto
       '@opentelemetry/api':
         specifier: 1.9.1
         version: 1.9.1
@@ -370,6 +376,25 @@ importers:
         specifier: 26.6.4
         version: 26.6.4
 
+  packages/remote-crypto:
+    dependencies:
+      '@noble/ciphers':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@noble/curves':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
+    devDependencies:
+      '@atrium/testkit':
+        specifier: workspace:*
+        version: link:../testkit
+      '@types/node':
+        specifier: 26.6.4
+        version: 26.6.4
+
   packages/testkit:
     devDependencies:
       '@earendil-works/pi-ai':
@@ -432,6 +457,9 @@ importers:
       streamdown:
         specifier: 2.7.0
         version: 2.7.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(supports-color@7.2.0)
+      uqr:
+        specifier: 0.1.3
+        version: 0.1.3
       zustand:
         specifier: 5.0.15
         version: 5.0.15(@types/react@19.3.0)(react@19.3.0)

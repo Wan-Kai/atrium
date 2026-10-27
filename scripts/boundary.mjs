@@ -32,6 +32,20 @@ const CONSTANT_PREFIX = /^[A-Z][A-Z0-9]*_$/;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** Node's error codes (`ERR_STREAM_PREMATURE_CLOSE`) are spelled like variables but compared with `error.code`. */
 const ERROR_CODE = /^ERR_/;
+/** Exact native error literals used by relay diagnostics; never applied to explicit environment access. */
+const NATIVE_ERROR_CODES = new Set([
+  "CERT_HAS_EXPIRED",
+  "CERT_NOT_YET_VALID",
+  "CERT_SIGNATURE_FAILURE",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "EAI_AGAIN",
+  "EAI_FAIL",
+  "HPE_",
+]);
 /** Marks a registry row whose address is put together at run time, so code never holds it whole. */
 const COMPOSED = "（拼出）";
 const PLACEHOLDER = "\u0000";
@@ -49,7 +63,7 @@ const PLACEHOLDER = "\u0000";
  */
 function isProduction(path) {
   return (
-    /^(?:packages\/(?:protocol|pi|host|client|ui)|apps\/(?:desktop|relay))\/src\/.*\.(?:ts|tsx|mts|cts|mjs|cjs|js)$/.test(
+    /^(?:packages\/(?:protocol|pi|host|client|ui|remote-crypto)|apps\/(?:desktop|relay))\/src\/.*\.(?:ts|tsx|mts|cts|mjs|cjs|js)$/.test(
       path,
     ) &&
     !/\.(?:test|bench)\.[^/]+$/.test(path) &&
@@ -310,7 +324,7 @@ function scan(files) {
      * @param {any} node - Where it is.
      */
     const addConstant = (value, node) => {
-      if (ERROR_CODE.test(value)) return;
+      if (ERROR_CODE.test(value) || NATIVE_ERROR_CODES.has(value)) return;
       if (CONSTANT_CASE.test(value)) add("env", value, node);
       else if (CONSTANT_PREFIX.test(value)) add("env", `${value}*`, node);
     };
@@ -383,7 +397,11 @@ function scan(files) {
             names.some((name) => name.includes("_"))
           ) {
             node.elements.forEach((element, index) => {
-              if (!CONSTANT_CASE.test(names[index]) && !ERROR_CODE.test(names[index]))
+              if (
+                !CONSTANT_CASE.test(names[index]) &&
+                !ERROR_CODE.test(names[index]) &&
+                !NATIVE_ERROR_CODES.has(names[index])
+              )
                 add("env", names[index], element);
             });
           }

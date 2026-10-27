@@ -1,0 +1,34 @@
+[
+  {
+    "file": "packages/ui/src/settings/phone-section.tsx",
+    "from": "perform: () => client.setRemote(true, relayLine.trim()),",
+    "to": "perform: async () => { const finish = revocations.beginIdentityChange(); await client.setRemote(true, relayLine.trim()); finish(); },",
+    "test": "packages/ui/src/settings/revocation-retry.browser.test.tsx",
+    "name": "preserves hidden revoke targets",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/phone-section.tsx",
+    "from": "perform: () => client.setRemote(true, relayLine.trim()),",
+    "to": "perform: () => client.setRemote(true, relayLine.trim()).finally(revocations.beginIdentityChange()),",
+    "test": "packages/ui/src/settings/revocation-retry.browser.test.tsx",
+    "name": "preserves hidden revoke targets",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/pending-revocations.ts",
+    "from": "state?.relay?.url ?? null",
+    "to": "null",
+    "test": "packages/ui/src/settings/revocation-retry.browser.test.tsx",
+    "name": "clears targets when the public relay URL actually changes",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/pending-revocations.ts",
+    "from": "state?.relay?.hostId ?? null",
+    "to": "null",
+    "test": "packages/ui/src/settings/revocation-retry.browser.test.tsx",
+    "name": "clears targets when the public relay hostId actually changes",
+    "project": "ui"
+  }
+]

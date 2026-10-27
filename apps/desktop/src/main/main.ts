@@ -8,6 +8,7 @@ import {
   net,
   protocol,
   session,
+  safeStorage,
   shell,
   utilityProcess,
 } from "electron";
@@ -16,6 +17,7 @@ import { lstat, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { allowsPermission, isPageUrl } from "./permissions";
+import { type VaultKeeper, createVaultKeeper } from "./vault";
 
 /** Where the host's bundle and the built UI live, and how often the app's processes are sampled. */
 interface Paths {
@@ -90,17 +92,20 @@ const HOST_STARTUP_TIMEOUT_MS = 15_000;
  * startup promise. Timers here use the platform directly: the main process is the composition
  * root and is covered by end-to-end tests, not unit tests with a fake clock. Once the host is
  * ready it gets a sample of the app's processes at every interval, until it stops or exits
- * (testing.md, "运行时监控").
+ * (testing.md, "运行时监控"). The host's vault requests go to the keeper, which answers over the
+ * same port (SPEC-0005, "保险箱的进程交接").
  *
  * @sideEffects Forks a utility process and posts the config to it; posts app metrics at every
- * interval while the host runs; logs to stderr if the host later exits unexpectedly.
- * @param options - Host bundle path, token, UI directory, extra allowed origins and the interval
- * between samples of the app's processes.
+ * interval while the host runs; reads and writes the vault when the host asks; logs to stderr if
+ * the host later exits unexpectedly.
+ * @param options - Host bundle path, the vault's keeper, token, UI directory, extra allowed
+ * origins and the interval between samples of the app's processes.
  * @returns The host's port and a function that stops it.
  * @throws {Error} When the host reports a failure, exits early, or does not start in time.
  */
 function startHost(options: {
   readonly hostEntry: string;
+  readonly vault: VaultKeeper;
   readonly token: string;
   readonly uiDir: string | undefined;
   readonly extraOrigins: readonly string[];
@@ -141,6 +146,11 @@ function startHost(options: {
       if (!stopping) console.error(`atrium: host exited unexpectedly with code ${code}`);
     });
     child.on("message", (message: { type?: string; port?: number; message?: string }) => {
+      // Fire and forget: the keeper answers every request itself and never rejects.
+      void options.vault.handle(message).then((answer) => {
+        if (answer !== null) child.postMessage(answer);
+        return answer;
+      });
       if (message.type === "ready" && typeof message.port === "number") {
         clearTimeout(timer);
         metricsTimer = setInterval(
@@ -277,7 +287,7 @@ function restrictNavigation(window: BrowserWindow, pageUrl: string): void {
  * host has shut down cleanly. In development the Vite page gets its own CSP header. Opening the
  * app again focuses this window.
  *
- * @sideEffects Generates the session token; starts the host; registers IPC handlers (bootstrap,
+ * @sideEffects Generates the session token; starts the host, which may ask for the vault; registers IPC handlers (bootstrap,
  * choosing a folder, appearance); sets the app menu; creates a window; adds a CSP header to dev pages; delays quitting until the host has stopped; focuses
  * the window when the app is opened again.
  */
@@ -289,8 +299,19 @@ async function main(): Promise<void> {
   const paths = resolvePaths();
   const devUrl = process.env["ATRIUM_DEV_URL"];
   const token = randomBytes(32).toString("base64url");
+  const home = process.env["ATRIUM_HOME"] ?? join(app.getPath("home"), ".atrium");
   const host = await startHost({
     hostEntry: paths.hostEntry,
+    // Encrypted with the key "Atrium Safe Storage" in the keychain; async, so a keychain prompt
+    // does not freeze the window (SPEC-0005, "MP3a 定的细节").
+    vault: createVaultKeeper({
+      path: join(home, "remote", "vault.bin"),
+      crypto: {
+        available: () => safeStorage.isAsyncEncryptionAvailable(),
+        encrypt: (text) => safeStorage.encryptStringAsync(text),
+        decrypt: async (data) => (await safeStorage.decryptStringAsync(data)).result,
+      },
+    }),
     token,
     uiDir: devUrl === undefined ? paths.uiDir : undefined,
     extraOrigins: [devUrl === undefined ? APP_ORIGIN : new URL(devUrl).origin],

@@ -1,0 +1,26 @@
+[
+  {
+    "file": "packages/ui/src/settings/remote-pairing.tsx",
+    "from": "（手机自报，非硬件认证）",
+    "to": "",
+    "test": "packages/ui/src/settings/remote-pairing.browser.test.tsx",
+    "name": "labels the confirmation model",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/remote-pairing.tsx",
+    "from": "request.model.trim() || \"未提供\"",
+    "to": "request.model || \"未提供\"",
+    "test": "packages/ui/src/settings/remote-pairing.browser.test.tsx",
+    "name": "labels the confirmation model",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/settings/remote-pairing.tsx",
+    "from": "request.model.trim() || \"未提供\"",
+    "to": "request.model.trim() || request.deviceName",
+    "test": "packages/ui/src/settings/remote-pairing.browser.test.tsx",
+    "name": "labels the confirmation model",
+    "project": "ui"
+  }
+]

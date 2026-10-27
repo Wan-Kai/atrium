@@ -199,7 +199,7 @@ describe("Settings · models and accounts", () => {
     await screen.getByRole("button", { name: "打开授权页" }).click();
     expect(opened).toStrictEqual([authUrl.url, again.url]);
     await screen.getByRole("button", { name: "取消" }).click();
-    expect(calls).toStrictEqual(["login openai oauth", "cancelLogin l1"]);
+    expect(calls).toStrictEqual(["watchRemote true", "login openai oauth", "cancelLogin l1"]);
   });
 
   it("shows a login another window started without opening its page", async () => {
@@ -267,6 +267,7 @@ describe("Settings · models and accounts", () => {
     expect(written).toStrictEqual(["WXYZ-1234"]);
     expect(opened).toStrictEqual(["https://github.com/login/device"]);
     expect(calls).toStrictEqual([
+      "watchRemote true",
       "login openai oauth",
       "answerLogin l1 1 team",
       "answerLogin l1 2 acme.dev",
@@ -313,7 +314,7 @@ describe("Settings · models and accounts", () => {
     await expect.element(subscriptions.getByRole("button", { name: "退出 ChatGPT" })).not.toBeInTheDocument();
     await screen.getByRole("region", { name: "API Key" }).getByRole("button", { name: "删除 OpenAI" }).click();
 
-    expect(calls).toStrictEqual(["logout openai"]);
+    expect(calls).toStrictEqual(["watchRemote true", "logout openai"]);
   });
 
   it("shows no login trouble on a row already signed in", async () => {
@@ -341,7 +342,7 @@ describe("Settings · models and accounts", () => {
     await screen.getByRole("button", { name: "退出 Claude" }).click();
 
     await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
-    expect(calls).toStrictEqual(["logout anthropic"]);
+    expect(calls).toStrictEqual(["watchRemote true", "logout anthropic"]);
   });
 
   it("asks before the last credential goes, and lets it go or stay", async () => {
@@ -352,12 +353,12 @@ describe("Settings · models and accounts", () => {
     await expect.element(screen.getByRole("alert")).toHaveTextContent("退出后没有能用的模型，新会话没法开始");
     await screen.getByRole("button", { name: "取消" }).click();
     await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
-    expect(calls).toStrictEqual([]);
+    expect(calls).toStrictEqual(["watchRemote true"]);
     await out.click();
     await screen.getByRole("button", { name: "仍要退出" }).click();
 
     await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
-    expect(calls).toStrictEqual(["logout anthropic"]);
+    expect(calls).toStrictEqual(["watchRemote true", "logout anthropic"]);
   });
 
   it("says when pi could not log out", async () => {
@@ -387,7 +388,7 @@ describe("Settings · models and accounts", () => {
     await expect.element(group.getByRole("button", { name: "删除 Google" })).not.toBeInTheDocument();
     await group.getByRole("button", { name: "删除 DeepSeek" }).click();
 
-    expect(calls).toStrictEqual(["logout deepseek"]);
+    expect(calls).toStrictEqual(["watchRemote true", "logout deepseek"]);
   });
 
   it("asks before deleting the last key", async () => {
@@ -398,7 +399,7 @@ describe("Settings · models and accounts", () => {
     await expect.element(screen.getByRole("alert")).toHaveTextContent("删除后没有能用的模型，新会话没法开始");
     await screen.getByRole("button", { name: "仍要删除" }).click();
 
-    expect(calls).toStrictEqual(["logout deepseek"]);
+    expect(calls).toStrictEqual(["watchRemote true", "logout deepseek"]);
   });
 
   it("adds a key: asks for one first, logs in with it, and closes once saved", async () => {
@@ -415,7 +416,7 @@ describe("Settings · models and accounts", () => {
     await screen.getByRole("textbox", { name: "API Key" }).fill("   ");
     await screen.getByRole("button", { name: "保存" }).click();
     await expect.element(screen.getByText("先粘贴 Key 再保存")).toBeVisible();
-    expect(calls).toStrictEqual([]);
+    expect(calls).toStrictEqual(["watchRemote true"]);
 
     await providers.selectOptions("OpenAI");
     await screen.getByRole("textbox", { name: "API Key" }).fill("  sk-test  ");
@@ -429,7 +430,7 @@ describe("Settings · models and accounts", () => {
 
     await expect.element(screen.getByRole("button", { name: "添加 API Key" })).toBeVisible();
     await expect.element(screen.getByRole("textbox", { name: "API Key" })).not.toBeInTheDocument();
-    expect(calls).toStrictEqual(["login openai api_key sk-test"]);
+    expect(calls).toStrictEqual(["watchRemote true", "login openai api_key sk-test"]);
   });
 
   it("keeps the key form open with pi's reason when the key is refused", async () => {
@@ -522,6 +523,7 @@ describe("Settings · models and accounts", () => {
 
     expect(modelCalls).toStrictEqual(["loadModels null"]);
     expect(calls).toStrictEqual([
+      "watchRemote true",
       'setPreferences {"titleModel":{"providerId":"openai","modelId":"gpt-6-mini"}}',
       'setPreferences {"titleModel":null}',
     ]);

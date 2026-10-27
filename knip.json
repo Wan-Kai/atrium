@@ -1,14 +1,24 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignore": ["spikes/**"],
-  "ignoreBinaries": ["pi", "mkfifo", "screencapture", "sips"],
+  "ignore": ["spikes/**", "apps/ios/AtriumKit/Sources/AtriumRender/Resources/highlight.min.js"],
+  "ignoreBinaries": ["pi", "mkfifo", "screencapture", "sips", "swift"],
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.mjs", "scripts/lint/*.mjs", "vitest.mutation.config.ts"],
+      "entry": [
+        "scripts/*.mjs",
+        "scripts/lint/*.mjs",
+        "vitest.mutation.config.ts",
+        "apps/ios/Integration/run.mjs",
+        "apps/ios/Integration/fixture.ts",
+        "apps/ios/Integration/production-rejection.ts"
+      ],
       "ignoreDependencies": ["@stryker-mutator/core", "@stryker-mutator/command-runner"]
     },
     "packages/host": {
       "entry": ["src/entry.ts", "test/**/*.ts", "src/dev/try-pi.ts"]
+    },
+    "packages/remote-crypto": {
+      "entry": ["test/**/*.ts"]
     },
     "apps/relay": {
       "entry": ["src/entry.ts", "test/**/*.ts"]

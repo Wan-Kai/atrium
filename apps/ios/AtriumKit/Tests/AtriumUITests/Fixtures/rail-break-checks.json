@@ -1,0 +1,79 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Components/PixelCatIdle.swift",
+    "from": "case .blink where time < begin + 0.15:",
+    "to": "case .blink where time - begin < 0.15:",
+    "runner": "swift",
+    "filter": "PixelCatIdleTests/absoluteDeadlines"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/ProcessRail/RailRows.swift",
+    "from": "let lastStep = turn.steps.last, stepID(lastStep) == rows[last].id, isThought(lastStep)",
+    "to": "let lastStep = visible.last(where: { stepID($0) == rows[last].id }), isThought(lastStep)",
+    "runner": "swift",
+    "filter": "RailRowsTests/thinkingBeforeReply"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/ProcessRail/RailRows.swift",
+    "from": "detail: row.detail)",
+    "to": "detail: nil)",
+    "runner": "swift",
+    "filter": "RailDetailTests/prose"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/ProcessRail/RailRows.swift",
+    "from": "if let output = tool.output, !output.isEmpty { parts.append(output) }",
+    "to": "if let output = tool.output, !output.isEmpty { _ = output }",
+    "runner": "swift",
+    "filter": "RailDetailTests/prose"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/ProcessRail/RailRows.swift",
+    "from": "let row = toolRow(tool)",
+    "to": "let row = toolSummary(tool)",
+    "runner": "swift",
+    "filter": "RailDetailTests/exploration"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/ProcessRail/RailRows.swift",
+    "from": "answers = answered.answers",
+    "to": "answers = []",
+    "runner": "swift",
+    "filter": "RailDetailTests/questions"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/ProcessRail/ProcessRailView.swift",
+    "from": "reduceMotion ? nil : Motion.fold(reduceMotion: false).animation",
+    "to": "Motion.fold(reduceMotion: reduceMotion).animation",
+    "runner": "swift",
+    "filter": "RailViewContractTests/reducedMotion"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/ProcessRail/RailNodeView.swift",
+    "from": "reduceMotion ? .opacity : .scale(scale: 0.4).combined(with: .opacity)",
+    "to": ".scale(scale: 0.4).combined(with: .opacity)",
+    "runner": "swift",
+    "filter": "RailViewContractTests/reducedMotion"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/ProcessRail/ProcessRailView.swift",
+    "from": "TimelineView(.animation(paused: still))",
+    "to": "TimelineView(.animation(paused: true))",
+    "runner": "swift",
+    "filter": "RailViewContractTests/continuousEffects"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/ProcessRail/ProcessRailView.swift",
+    "from": "if !expanded {",
+    "to": "if expanded {",
+    "runner": "swift",
+    "filter": "RailViewContractTests/retainedContent"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/ProcessRail/ProcessRailView.swift",
+    "from": "running && rows.contains { $0.node == .asking }",
+    "to": "running && rows.contains { $0.node == .live }",
+    "runner": "swift",
+    "filter": "RailViewContractTests/retainedContent"
+  }
+]

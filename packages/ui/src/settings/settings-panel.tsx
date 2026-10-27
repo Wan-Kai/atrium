@@ -1,6 +1,6 @@
 import type { AtriumClient } from "@atrium/client";
 import type { Appearance } from "@atrium/protocol";
-import { Folder, Info, Monitor, Moon, Palette, Sun, Terminal, User, X } from "../design/icons";
+import { Folder, Info, Monitor, Moon, Palette, Phone, Sun, Terminal, User, WarningCircle, X } from "../design/icons";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { describeConnection } from "../app/connection-status";
@@ -11,9 +11,11 @@ import { PiSection } from "./pi-section";
 import { type ConfigGuard, PiConfigGroup } from "./pi-config-group";
 import { ProxyGroup } from "./proxy-group";
 import { ProjectsSection } from "./projects-section";
+import { PhoneSection } from "./phone-section";
+import { usePendingRevocations } from "./pending-revocations";
 
 /** A part of the settings. */
-export type SettingsSection = "appearance" | "accounts" | "projects" | "pi" | "about";
+export type SettingsSection = "appearance" | "accounts" | "projects" | "pi" | "phone" | "about";
 
 /** The settings' parts, in order, with their names, icons and what each is for. */
 const SECTIONS: readonly {
@@ -36,6 +38,12 @@ const SECTIONS: readonly {
     icon: <Terminal size={16} />,
     lead: "Atrium 用的就是你装的 pi：位置、版本、更新、网络代理和配置文件。",
   },
+  {
+    id: "phone",
+    name: "手机",
+    icon: <Phone size={16} />,
+    lead: "用 iPhone 经你自己的 relay 连回这台 Mac。内容端到端加密，relay 只转发、看不到。点图上的节点看它的设置。",
+  },
   { id: "about", name: "关于", icon: <Info size={16} />, lead: "版本与日志。" },
 ];
 
@@ -54,8 +62,8 @@ const APPEARANCES: readonly { readonly appearance: Appearance; readonly name: st
  * window closes it, back to where the user was. The pi part carries a blue dot while a newer pi is
  * out. Takes the focus when it opens, so Escape reaches it.
  *
- * @sideEffects Subscribes to the client's setup; listens for Escape on the window while shown;
- * moves the focus into the window; the sections send their commands.
+ * @sideEffects Watches remote state for this window's whole lifetime, clearing it on unmount;
+ * subscribes to setup; listens for Escape and moves focus; sections send their commands.
  * @param props - The client, the part shown, what choosing a part and closing do, how to open an
  * address, and how to show a path in the Finder (none outside the desktop app).
  * @returns The panel.
@@ -76,6 +84,23 @@ export function SettingsPanel({
   readonly reveal: ((path: string) => void) | undefined;
 }) {
   const dialog = useRef<HTMLDivElement>(null);
+  const revocations = usePendingRevocations(client);
+  /**
+   * Reads remote state for the settings window, including an explicit retry from the Phone page.
+   * @remarks The window is the sole watch owner, so category changes cannot silence its indicators.
+   * @sideEffects Sends get_remote; failures land in the client's remote store.
+   */
+  const refreshRemote = useCallback((): void => {
+    // Fire and forget: read failures land in the remote view, where the Phone page offers retry.
+    void client.watchRemote(true);
+  }, [client]);
+  useEffect(() => {
+    refreshRemote();
+    return () => {
+      // Fire and forget: the client clears secret state synchronously; a lost connection also removes the host watch.
+      void client.watchRemote(false).catch(() => undefined);
+    };
+  }, [client, refreshRemote]);
   const [guard, setGuard] = useState<ConfigGuard>({ dirty: false, saving: false });
   const currentGuard = useRef(guard);
   /**
@@ -107,9 +132,11 @@ export function SettingsPanel({
    */
   const close = useCallback(() => navigate(onClose), [navigate, onClose]);
   const update = useStore(client.setup, (setup) => setup.state !== null && piUpdateAvailable(setup.state.pi));
+  const remote = useStore(client.remote, (view) => view.state);
   const shown = SECTIONS.find((entry) => entry.id === section) ?? SECTIONS[0];
   useEffect(() => {
-    dialog.current?.focus();
+    // A pairing sheet may already have taken focus during this mount.
+    if (!dialog.current?.contains(document.activeElement)) dialog.current?.focus();
   }, []);
   useEffect(() => {
     /**
@@ -184,6 +211,11 @@ export function SettingsPanel({
               </span>
               <span className="min-w-0 flex-1 truncate">{entry.name}</span>
               {entry.id === "pi" && update ? <UpdateDot /> : null}
+              {entry.id === "phone" && remote?.pairing?.state === "awaiting_confirmation" ? (
+                <span role="img" aria-label="等你确认配对" className="size-1.5 rounded-full bg-[var(--attn)]" />
+              ) : entry.id === "phone" && remote?.enabled && remote.relay?.error ? (
+                <WarningCircle size={14} aria-label="连不上 relay" className="text-[var(--danger)]" />
+              ) : null}
             </button>
           ))}
         </nav>
@@ -240,6 +272,9 @@ export function SettingsPanel({
                   pending={pending !== null}
                 />
               </>
+            ) : null}
+            {section === "phone" ? (
+              <PhoneSection client={client} onRetryRemote={refreshRemote} revocations={revocations} />
             ) : null}
             {section === "about" ? <AboutSection client={client} reveal={reveal} /> : null}
           </div>

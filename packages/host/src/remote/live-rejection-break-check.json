@@ -1,0 +1,9 @@
+[
+  {
+    "file": "packages/host/src/remote/relay-diagnostics.ts",
+    "from": "token: \"unknown\",",
+    "to": "token: failure === \"token_rejected\" ? \"failed\" : \"unknown\",",
+    "test": "packages/host/src/remote/relay-link.test.ts",
+    "name": "settles a live connection check on rejection and on host shutdown"
+  }
+]

@@ -22,6 +22,10 @@ import {
   Coins01Icon,
   CommandLineIcon,
   ComputerIcon,
+  CloudIcon,
+  LaptopIcon,
+  SmartPhone01Icon,
+  SquareLock01Icon,
   ComputerTerminal01Icon,
   Copy01Icon,
   CornerDownRightIcon,
@@ -224,6 +228,10 @@ export const MagnifyingGlassPlus = drawn(SearchAddIcon);
 export const MetaLogo = drawn(META);
 export const MinusSquare = drawn(MinusSignSquareIcon);
 export const Monitor = drawn(ComputerIcon);
+export const Cloud = drawn(CloudIcon);
+export const Laptop = drawn(LaptopIcon);
+export const Phone = drawn(SmartPhone01Icon);
+export const Lock = drawn(SquareLock01Icon);
 export const Moon = drawn(Moon02Icon);
 export const Palette = drawn(PaintBoardIcon);
 export const PencilSimple = drawn(PencilEdit01Icon);

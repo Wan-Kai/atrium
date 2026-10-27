@@ -91,7 +91,7 @@ if (parentPort === undefined) {
   });
 } else {
   runUnderElectron(parentPort, {
-    start: (request) => startHost(configFor(request.token, request.uiDir, request.extraOrigins)),
+    start: (request, vault) => startHost({ ...configFor(request.token, request.uiDir, request.extraOrigins), vault }),
     exit: (code) => process.exit(code),
   });
 }

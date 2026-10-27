@@ -8,6 +8,7 @@
     "docs/**",
     "**/test-results/**",
     ".bench/**",
-    "apps/ios/AtriumKit/Tests/AtriumProtocolTests/Fixtures/**"
+    "apps/ios/AtriumKit/Tests/AtriumProtocolTests/Fixtures/**",
+    "apps/ios/AtriumKit/Sources/AtriumRender/Resources/*.min.js"
   ]
 }

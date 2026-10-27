@@ -136,6 +136,9 @@ classDiagram
 ├── sessions.json             Atrium 记录的会话：所属容器、工作目录、草稿、归档、关注状态、已交给终端（M1.9）、Fast（M1.11）
 ├── layouts.json              按客户端的布局：每个容器打开的标签页、当前标签；只留最近用过的 10 个客户端
 ├── preferences.json          全局偏好：外观、状态栏、网络代理……
+├── remote.json               远程访问开着没有、各设备的最后在线时间（SPEC-0005"MP3a 定的细节"，2026-10-26 加）；
+│                             不是秘密，秘密在 remote/vault.bin
+├── remote/vault.bin          手机端的保险箱：Electron 主进程用 safeStorage 加密后写的，宿主只经主进程读写（SPEC-0005"宿主"）
 ├── turns/<会话 id>.json      插话记录：宿主当场看到的用户消息开启了新一轮还是插话（SPEC-0001"对话记录"），
 │                             以及运行中看到的压缩和原因（SPEC-0001 `compaction`，2026-10-20）；
 │                             随会话变长，单独放，不拖累其他文件

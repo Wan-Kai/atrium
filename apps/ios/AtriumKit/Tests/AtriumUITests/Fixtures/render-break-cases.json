@@ -1,0 +1,170 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/StreamingMarkdown.swift",
+    "from": "location.line >= 2, location.line < starts.count",
+    "to": "location.line >= 2, location.line <= starts.count",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/StreamingMarkdown.swift",
+    "from": "return (index, starts[location.line - 1])",
+    "to": "return (index, starts[location.line - 1] + location.column - 1)",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/StreamingMarkdown.swift",
+    "from": "} else if byte == 13, index + 1 == bytes.endIndex || bytes[index + 1] != 10 {",
+    "to": "} else if byte == 0, index + 1 == bytes.endIndex || bytes[index + 1] != 10 {",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Design/ColorToken.swift",
+    "from": "case .tint: RGBA(0x8fb0ff)",
+    "to": "case .tint: RGBA(0xffffff)",
+    "runner": "swift",
+    "filter": "DesignTokenTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Design/ColorToken.swift",
+    "from": "case .rail: RGBA(0x3c321e, 0.14)",
+    "to": "case .rail: RGBA(0x3c321e, 0.4)",
+    "runner": "swift",
+    "filter": "DesignTokenTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Design/Typography.swift",
+    "from": "case 0x0000...0x024F, 0x1E00...0x1EFF, 0x2000...0x206F: true",
+    "to": "case 0x0000...0x9FFF: true",
+    "runner": "swift",
+    "filter": "DesignTokenTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Design/Motion.swift",
+    "from": "static let reducedDuration = 0.18",
+    "to": "static let reducedDuration = 0.42",
+    "runner": "swift",
+    "filter": "DesignTokenTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Design/Motion.swift",
+    "from": "allowsScale: false,",
+    "to": "allowsScale: true,",
+    "runner": "swift",
+    "filter": "DesignTokenTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Components/VortexPattern.swift",
+    "from": "static let period = 1.65",
+    "to": "static let period = 2.6",
+    "runner": "swift",
+    "filter": "VortexPatternTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Components/VortexPattern.swift",
+    "from": "if wave > 0.6 { return 1 }",
+    "to": "if wave > 0.8 { return 1 }",
+    "runner": "swift",
+    "filter": "VortexPatternTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Components/PixelCat.swift",
+    "from": "for eyeColumn in [11, 19]",
+    "to": "for eyeColumn in [10, 20]",
+    "runner": "swift",
+    "filter": "PixelCatTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Timeline/TimelineFollow.swift",
+    "from": "distanceFromEnd <= Self.nearEnd",
+    "to": "distanceFromEnd < Self.nearEnd",
+    "runner": "swift",
+    "filter": "TimelineFollowTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Timeline/TimelineFollow.swift",
+    "from": "if mode == .placing { mode = .following }",
+    "to": "mode = .following",
+    "runner": "swift",
+    "filter": "TimelineFollowTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/TextReveal.swift",
+    "from": "public static let horizon = 0.150",
+    "to": "public static let horizon = 0.300",
+    "runner": "swift",
+    "filter": "TextRevealTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/TextReveal.swift",
+    "from": "return joiner || halfFlag ? String(target.dropLast()) : target",
+    "to": "return joiner && halfFlag ? String(target.dropLast()) : target",
+    "runner": "swift",
+    "filter": "TextRevealTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/DiffLayout.swift",
+    "from": "public static let keep = 3",
+    "to": "public static let keep = 1",
+    "runner": "swift",
+    "filter": "DiffLayoutTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/DiffLayout.swift",
+    "from": "if run.count > foldOver {",
+    "to": "if run.count >= foldOver {",
+    "runner": "swift",
+    "filter": "DiffLayoutTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/DiffLayout.swift",
+    "from": "newStart: nextNew",
+    "to": "newStart: nextOld",
+    "runner": "swift",
+    "filter": "DiffLayoutTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/StreamingMarkdown.swift",
+    "from": "let hasReferences = text.contains(\"[\")",
+    "to": "let hasReferences = false",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/StreamingMarkdown.swift",
+    "from": "let tail = bytes[frozenByteCount...]",
+    "to": "let tail = bytes[0...]",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/MarkdownBlock.swift",
+    "from": "sourceLines == literalLines + 2",
+    "to": "sourceLines == literalLines + 1",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/MarkdownBlock.swift",
+    "from": "[\"https\", \"http\"].contains(url.scheme?.lowercased() ?? \"\")",
+    "to": "[\"https\", \"http\", \"javascript\", \"file\", \"data\", \"atrium\"].contains(url.scheme?.lowercased() ?? \"\")",
+    "runner": "swift",
+    "filter": "StreamingMarkdownTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/CodeHighlighter.swift",
+    "from": "\"&amp;\": \"&\"",
+    "to": "\"&amp;\": \"and\"",
+    "runner": "swift",
+    "filter": "CodeHighlighterTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumRender/CodeHighlighter.swift",
+    "from": "case \"title\", \"type\", \"class\", \"function\": return .title",
+    "to": "case \"title\", \"type\", \"class\", \"function\": return .keyword",
+    "runner": "swift",
+    "filter": "CodeHighlighterTests"
+  }
+]
