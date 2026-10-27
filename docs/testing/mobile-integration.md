@@ -152,7 +152,19 @@
 
 父全文核控制及执行/恢复脚本，并用`/tmp/atrium-parent-children-duplicate-a-verify.py`重算57工件、五JSON/五副本、变体精确逆差分、1121产物及真实导航身份；五B0源码和四旧草稿恢复一致，临时助手按hash删除，旧红20/绿色41工件不变。40个采样PID/start及五观测目录现不存，外层HOME删除；没有复跑、提取不透明工件或推断未知进程。60份文件（57工件、清单、父脚本/日志）按字节私有归档到`reports/mobile-children-duplicate-a-ded285e/`。
 
-已批准最小B1补强及使用完全相同控制的一次目标红窗口，尚无结果；恢复后的三例正向、其它控制、全套/正式门禁、提交与整合均另行安排。现有`break-check.mjs`仅支持Vitest/Swift，未伪装成Playwright支持、未扩工具；本阶段是显式记录的Playwright对照。未改等待预算、采集、安全设置或产品构建。
+当时批准最小B1补强及使用完全相同控制的一次目标红窗口，结果见下；其它控制、全套/正式门禁、提交与整合仍待。现有`break-check.mjs`仅支持Vitest/Swift，未伪装成Playwright支持、未扩工具；本阶段是显式记录的Playwright对照。未改等待预算、采集、安全设置或产品构建。
+
+### Children B1同故障目标红（正向尚待）
+
+B1仅修改测试助手和本lane文档，未注入源码SHA为`b110bb5af2983e67482b2561536a4ace76feb2be776b27debbbdd27c36e1d28b`。它正常展开完整小夹具的已加载过程，全父清点event行和非内嵌source-line：排除spawn、非laned NoticeLine不双计数，未知名字/错误状态的实体不丢弃；先验全局数量，后验turn/位置、finished属性和可见完成短语。DOM只有名字关联，身份仍靠唯一夹具映射、完整协议身份及真实导航，不称DOM直接提供taskId。每次返回父后重新取投影/清点；只承诺当前2–3轮夹具，不泛化未加载历史或任意无testid呈现结构。
+
+`/tmp/atrium-children-B1-duplicate.BZKrf9/`封存64项。B1加**与A完全相同字节**的控制（`b03b5cbc…`）后，一次typecheck/list退出0，一次C1退出1、用例9.4s：唯一测试断言为`parent visible report counts: exactly one per child`，audit期望1实2、total期望2实3，原5000ms预算。实际inventory含旧turn正确audit、另一turn的invalid audit副本、正确tests source；四份独立JSON及副本保存complete/installed/inventory/cleanup。失败发生在位置/文案细验及导航之前，不能把已观察到的true字段称作后续断言已执行。无点击/capture为null符合预定红，finally移除marker **1→0**、abort、删除控制槽。
+
+父核64项/四JSON及副本、同控制、恢复逆差分、源码和1121产物；`/tmp/atrium-parent-children-b1-red-verify.py`通过，未重跑。单路只读复核`t-21cae4fa-d2cb-4760-a14a-45ae5af06466`认可目标红，未见高可信假绿问题，不是新正式三方。日志另有“1 error was not a part of any test”：安装Playwright 1.63执行后读取的源码hash及父/审查者复核，明确`max-failures=1`的合成停止通知走`onError`计入`_fatalErrors`；不是另一个产品/夹具调用栈。
+
+**资源不写零残留**：即时尾采31个PID/start中node78614仍在；作者后来一次和父当前检查均无对应进程。采样关系显示它是Electron及fixture Git的父进程，未采argv，不能断言角色、退出原因/时刻或用“短暂”代替测量。五目录和外层HOME删除，无kill/等待重跑；这不是完整资源门禁通过。已精确恢复B1、删除临时助手，旧红20/绿41/A57工件未变。67份文件私有归档到`reports/mobile-children-b1-red-ded285e/`，不透明工件仅按字节复制/核hash，未解码。
+
+恢复后B1的三例正向已另给一次有界窗口，当前尚无结果；尤其C2/原旅程、第二子导航和返回后的新增清点不得借本次目标红记为通过。未增加超时、重试、构建/安装或正式门禁，测试代码仍未提交/整合。状态/丢来源/错导航等其它控制尚未执行，历史整套失败不关闭。
 
 ### Appearance四格准备阻断（16dfcbf）
 
