@@ -6,6 +6,15 @@ import { type FauxPiEnvironment, fauxPiEnvironment } from "./faux-pi";
 import { launchApp } from "./launch";
 import { send } from "./messages";
 import { addProject } from "./projects";
+import { childIdentity, type ChildDeliveryContext } from "./child-delivery-fixture";
+import { observeChildDelivery } from "./child-delivery-observation";
+import {
+  completedReports,
+  openReportChild,
+  parentIdle,
+  rolesAndWorktree,
+  writeChildReceipt,
+} from "./child-delivery-assertions";
 
 /**
  * Starts a session in the project's local workspace and sends it a first message.
@@ -118,61 +127,97 @@ test("forks a child into a new worktree, which is told where it works, and archi
   }
 });
 
-test("the agent opens two children, one writing in a worktree of its own; both finish, and the parent is told and sums them up", async () => {
-  const pi = await fauxPiEnvironment({
-    replies: [
-      {
-        blocks: [
-          { type: "toolCall", id: "spawn-1", name: "agent_spawn", arguments: { name: "audit", task: "查一遍登录" } },
-          {
-            type: "toolCall",
-            id: "spawn-2",
-            name: "agent_spawn",
-            arguments: { name: "tests", task: "补登录的测试", role: "work" },
-          },
-        ],
-      },
-      { blocks: [{ type: "text", text: "派出去了" }] },
-      // The two notices come as one, or one after the other: either way the parent sums up.
-      { blocks: [{ type: "text", text: "两个都做完了" }] },
-      { blocks: [{ type: "text", text: "两个都做完了" }] },
-    ],
-    childReplies: [{ blocks: [{ type: "text", text: "查完了" }] }],
-  });
-  const scene = await createGitScene("e2e-agent-children");
-  const repo = await realpath(scene.repo);
-  const launched = await launchApp(pi.env);
+/** Runs the original ungated two-child journey with exact delivery barriers. @remarks A neutral repeated faux reply tests display without claiming either report arrived; this is not a replay of the historical timing. @sideEffects Launches real sessions, reads test-owned identity metadata and navigates both children, then releases all resources. */
+async function twoChildrenJourney(): Promise<void> {
+  const errors: unknown[] = [];
+  const cleanups: Array<() => Promise<void>> = [];
+  const reply = "继续处理登录检查。";
   try {
+    const pi = await fauxPiEnvironment({
+      replies: [
+        {
+          blocks: [
+            { type: "toolCall", id: "spawn-1", name: "agent_spawn", arguments: { name: "audit", task: "查一遍登录" } },
+            {
+              type: "toolCall",
+              id: "spawn-2",
+              name: "agent_spawn",
+              arguments: { name: "tests", task: "补登录的测试", role: "work" },
+            },
+          ],
+        },
+        { blocks: [{ type: "text", text: reply }] },
+        { blocks: [{ type: "text", text: reply }] },
+        { blocks: [{ type: "text", text: reply }] },
+      ],
+      childReplies: [{ blocks: [{ type: "text", text: "查完了" }] }],
+    });
+    cleanups.unshift(() => pi.cleanup());
+    const scene = await createGitScene("e2e-agent-children");
+    cleanups.unshift(() => scene.cleanup());
+    const repo = await realpath(scene.repo);
+    const launched = await launchApp(pi.env);
+    cleanups.unshift(() => launched.close());
     const { window, app } = launched;
+    const probe = await observeChildDelivery(window);
+    cleanups.unshift(() => probe.close());
     await addProject(app, window, repo);
     await window.getByTestId("workspace-row").click({ timeout: 30_000 });
     await window.keyboard.press("Meta+T");
     await expect(window.getByRole("tab")).toHaveText(["新会话"], { timeout: 30_000 });
     await send(window, "查一下登录");
-
-    await expect(window.getByTestId("reply").last()).toHaveText("两个都做完了", { timeout: 90_000 });
-    const sources = window.getByTestId("source-line");
-    await expect(sources.filter({ hasText: "来自子对话「audit」· 完成" })).toHaveCount(1);
-    await expect(sources.filter({ hasText: "来自子对话「tests」· 完成" })).toHaveCount(1);
+    await expect.poll(() => probe.runs.some((run) => run.type === "run_started")).toBe(true);
+    const parentId = probe.runs[0]?.sessionId;
+    if (parentId === undefined) throw new Error("parent run identity missing");
+    await expect
+      .poll(() =>
+        [...probe.turns.values()]
+          .filter((turn) => turn.sessionId === parentId)
+          .flatMap((turn) => turn.steps)
+          .flatMap((step) => (step.spawned === null ? [] : [step.spawned.name]))
+          .toSorted(),
+      )
+      .toStrictEqual(["audit", "tests"]);
+    const context: ChildDeliveryContext = {
+      app: launched,
+      agentDir: pi.agentDir,
+      scene,
+      repo,
+      probe,
+      parentId,
+      parentTitle: "查一下登录",
+      audit: childIdentity(probe, parentId, "audit"),
+      tests: childIdentity(probe, parentId, "tests"),
+    };
+    await completedReports(context);
+    await parentIdle(context);
+    // Display remains checked, but this text is no longer the delivery/completion oracle.
+    await expect(window.getByTestId("reply").last()).toHaveText(reply);
     await expect(window.getByRole("tab")).toHaveText(["查一下登录"]);
-    await window.getByRole("button", { name: /^子对话 2/ }).click();
-    const rows = window.getByRole("dialog", { name: "子对话" }).getByTestId("child-row");
-    await expect(rows.filter({ hasText: /^audit只读/ })).toHaveCount(1);
-    await expect(rows.filter({ hasText: /^tests可写/ })).toHaveCount(1);
-    // A work child has a worktree of its own, on a branch named after its handle.
-    const dir = join(dirname(repo), "repo.worktrees", "tests");
-    expect(await scene.git(dir, "branch", "--show-current")).toBe("agent/tests");
-    await window.keyboard.press("Escape");
-
-    await sources.filter({ hasText: "「audit」" }).getByRole("button", { name: "打开子对话「audit」" }).click();
-    await expect(window.getByRole("tab")).toHaveText(["查一下登录", "audit"], { timeout: 30_000 });
-    await expect(window.getByTestId("task-text")).toHaveText("查一遍登录", { timeout: 30_000 });
-    await expect(window.getByTestId("reply")).toHaveText(["查完了"]);
+    await rolesAndWorktree(context);
+    await writeChildReceipt(context, "complete", []);
+    const navigation = [await openReportChild(context, context.audit, "查一遍登录", "查完了")];
+    navigation.push(await openReportChild(context, context.tests, "补登录的测试", "查完了"));
+    await completedReports(context);
+    await parentIdle(context);
+    await writeChildReceipt(context, "navigated", navigation);
+  } catch (error) {
+    errors.push(error);
   } finally {
-    await launched.close();
-    await pi.cleanup();
-    await scene.cleanup();
+    for (const cleanup of cleanups) {
+      try {
+        await cleanup();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
   }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors, "two-child journey and cleanup failed");
+}
+
+test("the agent opens two children, one writing in a worktree of its own; both finish, and the parent is told and sums them up", async () => {
+  await twoChildrenJourney();
 });
 
 test("the agent's words for a child at work go into the task in hand at its next tool batch's end, not a task after it", async () => {

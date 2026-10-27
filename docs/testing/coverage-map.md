@@ -1748,3 +1748,26 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 原 MP0 命令仍通过（exit 0，1 test）；`--negative-control` 仍只在错误 SAS 断言失败（exit 1），并清理资源，再跑普通 MP0 通过。最终日志 `/tmp/ios-connect-mp0-production-final.log`，负对照 `/tmp/ios-connect-mp0-negative-after-production.log`。新增 CLI/env 仅测试可见，登记于 Integration README/development，入口登记 knip。
 - `swift test --jobs 1 --filter 'PairingFlowTests|PairingPresentationTests|RoundTripTests'`（warnings-as-errors、显式 target 依赖检查）**18项/3 suites通过**，含 declined 兼容、未知理由、UI 文案和生成协议往返，日志 `/tmp/ios-connect-production-swift-targeted.log`。定向 oxlint、包含现有 host ambient declaration/MP0 TS-extension 设置的临时 tsc 配置通过；初次 lint 的文档参数/不安全类型断言已修，初次类型检查遗漏声明和配置不计通过，未放宽类型规则或修改生产/spike源码。误用不存在的 eslint 命令失败后改用仓库 oxlint。只读审查无高可信阻断，审查者未另跑测试。
 - 未跑全量 check/test/knip、Xcode/模拟器、真机、WAN/TLS、长期整机泄漏或完整 MP4 同步。这个新增证据只覆盖正式服务拒绝接缝，不把它升级为 startHost/faux-pi 契约。
+
+## Children来源判据与真实导航校正（MP3整合回归，2026-10-27，待完整门禁）
+
+对应SPEC-0002“显示”及MP3本机行为保持：同轮送达可落在agent步骤，闲时送达可成为新轮source，不能仅接受source-line。这里只改测试判据与夹具，不改生产或协议。候选五文件位于`apps/desktop/e2e/`；原旅程其它检查及其它旅程保持。
+
+| 场景/不变量 | 用例/助手 | 已有验证及边界 |
+|---|---|---|
+| 运行中audit合流、tests闲时新source，完整session/task/event与落盘归属 | `children-delivery.spec.ts` C1、`child-delivery-fixture.ts`、`child-delivery-observation.ts` | 旧source-only判据已见一次目标红；固定B1正向通过。旧红无同次DOM正向附件，不回填历史67/68根因 |
+| 停止父后两报告waiting，再一次送入同一record/新turn | 同文件C2 | B1正向通过；实际删除tests source，原count2以2/1失败，协议/持久记录保持。该控制未执行到新增全局清点 |
+| 原两孩子/worktree旅程与双导航 | `children.spec.ts`指定原旅程、`child-delivery-assertions.ts` | B1三例共六次真实导航与返回、18独立凭据通过；原旅程本次自然为混合位置，不是旧B0的两source路径 |
+| 当前完整小夹具中每个报告全局一次、正确turn/slot/finished及可见完成文案 | `child-delivery-assertions.ts` | 跨位置真实DOM副本：B0有效SURVIVED→B1目标计数红→恢复B1三例绿；实际source文字错误仅使completionVisible红。未知实体也计总数，不声称覆盖任意无testid副本或agent文字负控 |
+| 打开报告必须去实际目标孩子 | 同助手的真实订阅/task快照/标签与返回检查 | 实际audit点击转发到真实tests按钮，只有tests订阅/任务/选中标签，原audit订阅5秒红；不是按钮无响应，也不是后续每道导航检查的独立敏感性证明 |
+
+以上动态证据归属固定B1 assertions SHA `b110bb5a…`。随后13条lint诊断作最小修订，新SHA `7008dc50…`：非变异排序保重复/null及原顺序，visible仍在浏览器回调内，双失败保两原错并补cause。四文件格式化、五文件格式检查/lint和desktop typecheck各一次退出0，父核43封存/436旧证据/1121产物；**修订后children路径尚无动态验证；父在未提交整合树一次完整check已过（11.788s，boundary14/41/4，未登记0/非精确0）。随后唯一list为70例/33文件、一次构建通过，完整Electron选择集16过/1败/53未执行：chat.spec.ts:35点击超时，C1/C2/原两孩子旅程均未执行，无新增18份回执。已父核48工件及输入未漂移，首失败后未重跑。随后获准一次受限trace解析：所读流无frame-snapshot，解析器未匹配click结构、未取得动作时间，不据此说没有click；材料不足已停，chat根因未定，不能称门禁通过**。旧诊断四草稿仅保留在MP3b lane及私有快照，不迁入整合候选、不加ignore规则；整体check不冒称检查过这些草稿。
+
+既有`pnpm break-check`只支持Vitest/Swift，本次明确使用有界Playwright控制，不伪装调用该命令或扩通用harness。资源尾采node78614、1322及后来单次观测不在分别记账，不称完整资源门禁；原unit/Git、appearance、ask-user失败不由这批结果关闭。详细冻结、正负控制与父核验见[整合记录](mobile-integration.md)；上述验证阶段未提交候选代码、未合main或推送。后续用户授权阶段保存与合并，当前状态见[手机端阶段交接](mobile-handoff.md)，不因此新增动态通过记录。
+
+## 手机端手测、模拟器签名修复与阶段保存（2026-10-27）
+
+- 用户在隔离 Mac/新 iPhone 模拟器中完成配对，报告手机停在“正在同步”；对后续可测的连接管理项目整体反馈通过。没有逐项操作回执，不将所有拒绝/超时/撤销分支都列成独立实测通过。Mac 新建对话的展开思考交互，用户手动未复现旧自动化点击超时。
+- 测试包此前误用关闭签名的构建方式，既有真实 App 内固定 Keychain 检查一次显示 `failed:keychain:-34018`。另获授权后一次离线 simulator ad-hoc 构建、一次覆盖安装，实际可执行文件包含正确的模拟器 App 身份；唯一修后固定检查显示 `passed`，已恢复普通首页。源码、工程和锁文件未因修复改变。没有卸载/擦除，数据容器路径变化及元数据读取脚本问题如实保留，不宣称逐字节数据保留已验证。
+- 本机证据在 `/tmp/atrium-ios-manual.jtM5X0/` 及其 `signing-repair/`；证据性质、现场归属和限制见[阶段交接](mobile-handoff.md)。Mac 使用进程内保险箱替身，故不覆盖真实 Mac Keychain 或 Mac 重启持久性；手机同步/列表/发送仍未实现。
+- 用户明确将此前列出的自动化异常暂缓，并要求保存当前状态、本地合回 `main`。本次合并检查结果记在交接末尾；这是阶段检查点，不是把旧完整 unit/Electron/泄漏失败改绿，也不代表 MP3–MP6 全部完成。

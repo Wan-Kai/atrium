@@ -174,7 +174,55 @@ B1仅修改测试助手和本lane文档，未注入源码SHA为`b110bb5af2983e67
 
 即时尾采107个PID/start无相符残留，12观测目录及外层HOME删除、monitor无错；父当前只读核对同样不存在。不外推完整资源门禁，**B1负控的78614尾部备注照留**。65文件（62工件、清单、父脚本/日志）按字节私有归档`reports/mobile-children-b1-positive-ded285e/`。
 
-下一步只批准可见完成文案错误的一次控制：协议/属性不变，将C1 tests source的实际可见“完成”改“出错”，验证文字断言，不碰产品或expected；当前尚无结果。C2丢来源、错导航等控制、正式静态/动态门禁、测试提交/整合仍待；不关闭其它历史整套失败，不合main或推送。
+当时下一步仅批准可见完成文案错误的一次控制；随后另批C2丢来源、错导航两个有界控制，结果见下。正式静态/动态门禁、测试提交/整合仍待；不关闭其它历史整套失败，不合main或推送。
+
+### Children其余三个既定控制（目标红，测试尚未交付）
+
+三项都固定B1（`b110bb5a…`），只增加测试侧临时import/wrapper和助手，原断言逐字保留，不改产品、协议、observer或expected。各一次desktop typecheck、精确list及单主体，退出码均为0/0/1；worker1/retries0/max-failures1、原5秒断言和60秒用例上限、原录制及隔离环境不变。无构建/安装、正向复跑或新增控制。
+
+| 控制 | 实际故障和目标断言 | 证据及边界 |
+|---|---|---|
+| C1可见完成文案 | tests真实source行唯一可见文本节点“完成”→“出错”；6.1s，仅`completionVisible`期望true实false（assertions:395） | 协议/落盘/tasks前后相同，数量仍1/1/2、turn/slot/finished属性正确；audit已返回父并重新清点，tests尚未导航。摘要守卫确认仍为本次故障文本才恢复1节点，标记/槽删除。仅覆盖source文字，不声称agent文字负控也跑过 |
+| C2丢一条来源 | 同批正确source中仅remove真实tests行，保留audit及source容器；10.4s，原`toHaveCount(2)`期望2实1（spec:176），5秒内14次观测为1 | 独立回执保存同一record、两delivery、两session/task/event、done/replyEntry及stopped→completed；前后完全相同。只清标记，不重插DOM，由该次真实App关闭释放。失败早于原complete回执、B1清点和两次导航，只证明既有C2局部count敏感 |
+| C1跳到错误孩子 | 真实audit点击被capture拦截，再native click真实tests按钮；9.7s，原audit订阅轮询5秒期望true实false（assertions:443） | 原点击isTrusted、按钮/turn匹配，转发计数1且无dispatchError；实际订阅仅tests、快照仅tests task、tests标签选中，不是按钮无响应。abort监听、删槽/标记，不回父掩盖故障。第二次点击不是用户手势，也不是生产导航代码变异；后续原导航断言与父返回未执行 |
+
+原始目录分别为`/tmp/atrium-children-status-control.hnjcfI/`（62工件、6独立JSON/6副本）、`/tmp/atrium-children-remove-source.AozVR8/`（54、2/2）、`/tmp/atrium-children-wrong-navigation.wowzoL/`（60、5/5）。父`/tmp/atrium-parent-children-status-verify.py`、`/tmp/atrium-parent-children-final-controls-verify.py`独立重算身份/位置/数量与附件副本、核实际helper/runner/变体逆差分/源码恢复及1121产物，均exit0；未重跑测试。每次精确恢复B1五源/四草稿，临时助手按hash删除，旧20/41/57/64/62及后续封存未变。三个私有归档`reports/mobile-children-{status,remove-source,wrong-navigation}-ded285e/`分别65/57/63文件，含原清单和父脚本/日志；不透明工件只复制字节、核hash，没读trace/截图/error-context，不能把cleanup后的截图当故障仍在场的证明。
+
+单路只读复核`t-b02cc336-2931-4df0-9cf8-6215a3b4b213`确认三项目标红有效，未见高可信阻断，不是新正式三方；未覆盖agent状态文字、C2的新增全局清点、其它导航断言的独立敏感性，不继续无限追加控制。相同max-failures合成脚注单列，不当第二个产品异常，也不抹真正的附带错误。
+
+**资源备注保留**：文案/删除两次即时尾采分别35/38个PID-start无残留；错误导航的41个样本中node1322仍在（PPID1296，start `Tue Oct 27 14:13:43 2026`）。父于`2026-10-27T06:23:16.907890+00:00`仅一次只读观测，38/41个对应PID-start均已不在；这不是退出时间，不能推断node1322角色、退出原因、全程零残留或完整资源门禁通过。每次五观测目录及外HOME已删、monitor无错；没有等待/循环ps/kill/重跑清洗结果，旧node78614备注也保留。正式门禁及候选代码提交/整合尚未启动；后续计划只为计划，不抵销历史失败。
+
+### Children局部静态预检（格式过，lint未过）
+
+`/tmp/atrium-children-static.4mHL8C/`只对五候选TS显式路径执行一次`oxfmt --check`（exit0），随后一次原参数type-aware `oxlint`（exit1，0 warnings / 13 errors）：9处`no-array-sort`、2处nullable数组缺比较器、1处浏览器回调内`visible`的函数作用域、1处AggregateError缺cause。诊断全部在候选范围，未涉及四旧草稿。按首失败停，没修复/重跑/typecheck/起App/全套；源码九文件、HEAD/改动清单及420份旧封存不变，临时HOME/pi已清理，沿用批准白名单环境。工具版本来自本地包元数据（oxfmt0.71.0、oxlint1.86.0）；Node仅记录固定22.19.0路径，未另跑版本探针。
+
+父核16封存项、原runner/命令/环境和13条定位，`/tmp/atrium-parent-children-static-verify.py`通过，19份文件私有归档`reports/mobile-children-static-ded285e/`，不是再次运行静态命令。随后仅批准最小修正：用非变异排序保原顺序/重复/null，浏览器函数仍在序列化回调内依赖该realm，AggregateError保两原错并补cause；不关规则、不移到Node作用域、不碰四草稿或产品。修正后的限定静态链结果见下；旧动态红绿仍属于B1原hash，不回写为新修订的动态通过。
+
+### Children最小lint修订与待验整合
+
+`/tmp/atrium-children-lint-revision.LswE9J/`仅四候选TS及lane文档变化：9处sort改toSorted；两处nullable turnId仍保null、按String后的UTF-16顺序；visible仍在序列化浏览器回调中，依赖本realm的window；AggregateError仍含两原错误，只补cause。四改文件格式化→五候选格式检查→五候选type-aware lint→desktop typecheck各一次exit0，lint 0 warnings / 0 errors；没有App、动态测试、构建/安装或整体门禁。修订后assertions SHA `7008dc508352a76029defe2b0745857e9c8bf059d8a5c443c878ab1ec8e6767d`，不是B1原hash。
+
+父读精确diff并以`/tmp/atrium-parent-children-lint-revision-verify.py`核43工件、前后/格式化前九源、四阶段命令和隔离环境、436旧封存及1121产物，未重跑命令。observer和四草稿不变，临时HOME/pi已清理；46文件私有归档`reports/mobile-children-lint-revision-ded285e/`。新hash的浏览器路径仍需动态验证，未把旧负控或正向结果回写成新修订实测。
+
+五候选的冻结字节已直接放入整合工作树，保持未提交；复制前核原children文件hash和四新文件不存在，转移凭据在`reports/mobile-children-integration-candidate-e668e15/`。追踪表已更新；随后父只执行一次整合树`pnpm check`，结果见下。为避免对四旧诊断草稿的静默排除或改写，它们完整留在原lane/快照，不复制进候选、也不新增ignore；此次完整检查只针对整合树。lane的过程文档留原处，整合状态由本节和追踪表承接。当时仅批准check，不执行build/test/list；通过后另给下述动态窗口。该动态窗口未批准Stryker、安装、提交或main合并；后续保存与合并授权另见[阶段交接](mobile-handoff.md)。
+
+`/tmp/atrium-children-integration-check.vi43qf_j/`：父一次`pnpm check` **exit0，11.788s**。格式检查1012文件，lint825文件0 warnings / 0 errors，全workspace及根类型检查、knip、boundary与Swift静态检查均通过；边界仍为**URLs14 / env41 / hidden4，未登记0 / 非精确0**。执行前冻结2136文件、0 symlink和五候选hash，执行后源码、HEAD和状态不变，本批临时HOME/pi已删。10工件及清单共11文件私有归档`reports/mobile-children-integration-check-e668e15/`。没有启动App，不是Swift动态测试、Electron或资源门禁。
+
+随后有界窗口只批准一次完整非泄漏选择集`--list`、一次正常build和一次完整选择集Electron运行（worker1/retries0/max-failures1）；失败后不追跑。保原录制、预算、faux.env优先、临时HOME/pi、白名单env/完整PATH/LANG、无外层sandbox；不加控制、探针、报告器或生产属性。实际首失败停在chat，见下；旧67/68、Git/appearance/ask-user及资源尾采备注不关闭。
+
+### 修订候选的完整Electron选择集（首失败停，children未执行）
+
+`/tmp/atrium-children-integration-full.r8Ktpv/`固定整合HEAD `e668e15`及未提交五候选（assertions `7008dc50…`）。一次list **exit0，70例/33文件，0.964s**，与原68例加C1/C2的完整标题集合一致；一次根`pnpm build` **exit0，2.340s**，保留500 kB chunk告警。随后唯一完整选择集命令 **exit1，64.228s：16 passed / 1 failed / 53 did not run**。没有重试、定向复跑或额外门禁。
+
+唯一失败是第17例`chat.spec.ts:5`（32.7s），第35行step按钮的`locator.click`达到30秒动作预算；60秒用例上限未改。原日志依次记有reply子树和`aria-expanded=true`的process-header拦截、多次不稳定、节点detached。**C1、C2及原两孩子旅程均未执行，没有新的18份完成/导航/清点回执**；不能把全量命令启动过记作新hash的children路径已验证。max-failures合成停止提示对应“1 error was not a part of any test”，没有第二产品调用栈。
+
+父`/tmp/atrium-parent-children-full-verify.py`独立核48封存项、2136输入、完整选例及实际逐例账、命令/env/runner、新旧构建与489份历史封存，exit0；另核当前Git输入集合/HEAD/状态一致。构建前后整合1121产物字节相同，但本次确实重新构建并在主体前冻结，不冒称复用了MP3b旧批次；MP3b九源和旧1121产物保持。原test-results一文件先归档，本次22文件按字节封存；trace、PNG、error-context均未解码。52文件（48工件、清单、父脚本/日志及Git元数据）私有归档`reports/mobile-children-integration-full-e668e15/`，清单SHA `98994f01687fb11106b438b34033f9bd6db7891796b63249f2a2e39fb2b0b989`。
+
+即时尾采list/build/full分别4/13/208个PID-start样本，均无匹配残留或monitor错误；49个有归属依据的目录及本批HOME已删。父在`2026-10-27T08:09:21.045049+00:00`一次当前观察同样无匹配；不证明未采样进程、全程资源零增长或退出时序，不冲销旧node78614/1322备注。无等待归零、kill、源码修复、提交或合并。
+
+单路只读复核`t-0361de34…`及更正`t-17ca4bf1…`未确立根因：重新挂载丢展开状态、再次toggle、按钮位置/节点变化均只是待证伪候选。call log没有逐事件时间戳和超时瞬间DOM清点，不能从detached及缺少后续resolved日志推断按钮持续整个预算都不存在。静态launch key或Playwright命中机制也不是本次现场证明；复核未检查初始launch路径、follow-bottom细节及相关单测，不是正式三方。重型窗口结束；当时停在另定取证范围，不重跑或扩修chat，不称已知偶发或children回归。新候选动态门禁、正式复审及提交仍待。
+
+随后用户只批准**一次现有trace的离线白名单解析，材料不足即停**。读取一份根`.trace`成员共17725字节/48记录：context-options1、before23、after23、error1，所读流无frame-snapshot或log记录；未读取network/resource/image成员或error-context，未导出正文。原trace SHA `8ff3c0b157b1c06e0c7de4c8337d5f5fd075d012df545bd1a1fe6f4baec615b4`不变。解析器只按`method=click`或`apiName=locator.click`匹配，结果0；**这是未识别动作结构的限制，不能说没有click，亦未取得动作时间**。本次未取得可重建DOM或定位detached时刻的证据，根因仍不明；未校准重读、启动App或重跑测试。原件范围与解析器限制完整保存在`reports/chat-trace-metadata-e668e15/`（4工件加清单），先前52文件原归档保持；其余不透明附件仍未解码。
 
 ### Appearance四格准备阻断（16dfcbf）
 
@@ -186,8 +234,14 @@ B1仅修改测试助手和本lane文档，未注入源码SHA为`b110bb5af2983e67
 
 ## 尚未完成的验证
 
-- 普通组合自查已执行，但整套 unit、非泄漏 Electron 与旧桌面泄漏仍有上述失败；不以定向绿代替整套绿。三方生产窄修和新增 E2e/harness 限定复审已完成；新变异门槛已有上述证据，但剩余失败的修正/诊断、SAS / 已配对手机在线与用户验收仍待完成。available QR 已有作者负控及父默认 60 秒组合正向，不再列为完全未测。
+- 普通组合自查已执行，但整套 unit、非泄漏 Electron 与旧桌面泄漏仍有上述失败；不以定向绿代替整套绿。三方生产窄修和新增 E2e/harness 限定复审已完成；新变异门槛已有上述证据，用户已对隔离环境的配对及连接管理手测反馈通过，旧失败诊断按用户决定暂缓；范围与限制见[阶段交接](mobile-handoff.md)。available QR 已有作者负控及父默认 60 秒组合正向，不再列为完全未测。
 - 手机时间线在独立渲染分支 `87c7722` 的低负载窗口已测（18:43–18:46；98 Swift + 4 UI 通过，截图矩阵按计划跳过）：List 三次仍各 180000 builder / 180 body，Stack 为 5376 / 5504 / 5504 builder。全部数据已随 `6871905` 合入本分支，见 `mobile-render.md`；不能把观察通知次数的改善当作 List 构造次数改善，也没有同窗旧实现对照可归因耗时变化。Release 主线程 trace 和真机 50 ms 预算仍未验证；上述 UI 结果不是本整合分支的运行结果。
 - 正式 RemoteService → Swift 的拒绝接缝已实测，仍不是 startHost / Electron / router / faux-pi 全契约；真实扫码 / 权限 / 锁屏 / 续签尚未验证。
 - 配对系统默认样式只用于接线，非最终视觉验收；渲染零件尚缺的交互与视觉差异仍见 `docs/research/mobile-render.md`。
 - MP4 的同步层、续传和发送回执尚未实现，连接后保持“正在同步”是当前切片的边界，不标为可发送的完整手机产品。
+
+## 用户手测与阶段交接（2026-10-27）
+
+用户已完成本地 Mac + 新 iPhone 模拟器的手动配对，手机进入“正在同步”；Mac 新建对话未复现旧 chat 点击超时，对列出的连接管理可测项整体反馈通过。未收到逐项步骤/次数回执，不把未点名分支全部算作独立验证。模拟器包的签名准备错误经既有 App 内 Keychain 检查确认 `-34018`，一次离线 ad-hoc 重构建/覆盖安装后唯一复核为 `passed`，普通首页已恢复；未改产品源码、未使用个人签名证书、未卸载/擦除。
+
+用户决定将此前列出的自动化异常先暂缓，并明确要求保存当前状态、本地合回 `main`，在新对话继续 MP4。旧结果仍如上保留，不宣布测试误报或已修复。功能状态、签名/数据容器校验边界、当前运行现场、候选测试缺口及本次实际合并检查结果统一见[手机端阶段交接](mobile-handoff.md)；下一条交付为宿主数据驱动的只读列表和会话同步，不继续在未实现的“正在同步”状态上等待。
