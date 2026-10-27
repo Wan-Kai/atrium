@@ -77,6 +77,23 @@ struct SyncCacheTests {
     #expect(cache.session("s1") != nil)
   }
 
+  @Test("counts opening a session as using it, so the least recently opened goes first")
+  func pruneByOpening() throws {
+    let (cache, root) = temporaryCache()
+    defer { try? FileManager.default.removeItem(at: root) }
+    for number in 0..<SyncCache.maxSessions {
+      try cache.save(cachedSession("s\(number)"))
+      let file = cache.directory.appendingPathComponent("sessions/s\(number).json")
+      try FileManager.default.setAttributes(
+        [.modificationDate: Date(timeIntervalSince1970: TimeInterval(1_000 + number))], ofItemAtPath: file.path)
+    }
+    cache.markOpened("s0")
+    try cache.save(cachedSession("new"))
+    #expect(cache.session("s0") != nil)
+    #expect(cache.session("s1") == nil)
+    cache.markOpened("missing")
+  }
+
   @Test("removes everything of the host")
   func removeAll() throws {
     let (cache, root) = temporaryCache()

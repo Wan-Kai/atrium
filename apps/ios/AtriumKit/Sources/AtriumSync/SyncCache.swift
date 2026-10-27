@@ -166,6 +166,27 @@ public struct SyncCache: Sendable {
     read([SessionId: String].self, at: directory.appendingPathComponent("drafts.json")) ?? [:]
   }
 
+  /// Counts a session as just used, so it is the last to go when there are too many.
+  ///
+  /// - Remark: SPEC-0005 "MP4c 定的细节": the least recently opened go first. Opening only reads
+  ///   the file, so its date is moved past the newest session file's, without reading the clock; a
+  ///   session not cached is left alone.
+  /// - SideEffects: Changes the file's modification date.
+  /// - Parameter sessionId: The session.
+  public func markOpened(_ sessionId: SessionId) {
+    let file = sessionURL(sessionId)
+    guard FileManager.default.fileExists(atPath: file.path) else { return }
+    let folder = directory.appendingPathComponent("sessions", isDirectory: true)
+    let files =
+      (try? FileManager.default.contentsOfDirectory(
+        at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+    let newest = files.compactMap {
+      try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+    }.max()
+    guard let newest else { return }
+    try? FileManager.default.setAttributes([.modificationDate: newest.addingTimeInterval(1)], ofItemAtPath: file.path)
+  }
+
   /// Writes the list.
   ///
   /// - Remark: Atomically.

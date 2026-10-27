@@ -212,7 +212,12 @@ function createReceiptBook(file: IndexFile<ReceiptsDocument>, clock: Clock, log:
         if (known.hash !== hash) throw new CommandError("request_conflict");
         // Only a finished request has its answer; one `processing` or `unknown` cannot tell.
         if (known.response === undefined) throw new CommandError("outcome_unknown");
-        if (known.response.ok) return CommandResult[command.type].parse(known.response.result);
+        if (known.response.ok) {
+          // An answer kept by an older host that no longer reads cannot say what happened either.
+          const kept = CommandResult[command.type].safeParse(known.response.result);
+          if (!kept.success) throw new CommandError("outcome_unknown");
+          return kept.data;
+        }
         throw new CommandError(known.response.code, known.response.params);
       }
       const receipt: Receipt = { deviceId, requestId: command.requestId, hash, at: clock.now(), state: "processing" };

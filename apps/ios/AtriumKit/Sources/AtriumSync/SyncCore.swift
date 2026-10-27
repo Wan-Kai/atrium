@@ -476,7 +476,8 @@ public struct SyncCore {
 
   /// Settles the outbox after a connection's sync: retries once what the last one left unanswered.
   ///
-  /// - Remark: SPEC-0005 "MP4b 定的细节": accepted messages are settled; one still sending is in the
+  /// - Remark: SPEC-0005 "MP4b 定的细节": accepted messages are settled once their turn shows, or
+  ///   let go after ``retryWindow`` if it never does; one still sending is in the
   ///   new snapshot, or retried with its own id if it was sent less than ``retryWindow`` ago and
   ///   never retried, or uncertain.
   /// - SideEffects: none
@@ -489,6 +490,8 @@ public struct SyncCore {
         continue
       }
       if message.state == .accepted {
+        // pi may answer before its turn reaches the snapshot; the turn comes as a live event.
+        if let sent = timing[message.id], now() - sent.sentAt < Self.retryWindow { continue }
         drop(message.id)
         continue
       }

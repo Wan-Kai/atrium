@@ -184,6 +184,22 @@ describe("openReceipts", () => {
     expect(execute.count).toBe(0);
   });
 
+  it("cannot tell the outcome of a finished request whose kept answer no longer reads, and does not run it", async () => {
+    const { dir, clock } = await setUp();
+    const receipts = await openReceipts(dir, clock);
+    await receipts.run(DEVICE, prompt("r1"), async () => STARTED);
+    await receipts.flush();
+    const file = join(dir, "receipts.json");
+    await writeFile(file, (await readFile(file, "utf8")).replace('"disposition": "started"', '"disposition": "gone"'));
+
+    const restarted = await openReceipts(dir, clock);
+    const execute = counting(STARTED);
+    await expect(restarted.run(DEVICE, prompt("r1"), execute.run)).rejects.toStrictEqual(
+      new CommandError("outcome_unknown"),
+    );
+    expect(execute.count).toBe(0);
+  });
+
   it("does not run a request it could not write down first", async () => {
     const unwritable = await setUp();
     const book = await openReceipts(unwritable.dir, unwritable.clock, {
