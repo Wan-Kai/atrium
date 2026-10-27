@@ -1816,3 +1816,53 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 ### 用户确认后的合并前复验
 
 修复已提交为 `858916a`（`Keep desktop popovers within window bounds`），再以 `e68cacd` 合入最新 `main` `ace843a`，无冲突。保留主干上已验收的回复底部间距和其新增测试，不改本次弹窗交互。合并后独立串行复验：`pnpm check`、单元 **3854**、UI **1089 / 56 文件**全部通过。此次同步后没有重跑桌面、压力或破坏检查，前述对应结果来自同步前修复版；不冒称这些检查又跑过。
+
+## MP4a 只读同步（SPEC-0005，2026-10-27，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 协议 28：`subscribe_sessions.snapshot` / `resume`、`session_snapshot.stream`、`session_resumed`、`fetch_transcript.maxBytes` 的形状和边界（轮数 1–20、字节 64 KiB–4 MiB、`resume` ≤ 64、`stream` 1–128 字符、`session_resumed` 不带 trace） | `envelope.test.ts`（样例与拒绝用例）、`remote.test.ts`（版本 28）；Swift `RoundTripTests`（重新生成的夹具） |
+| 快照按预算截：数到一轮为止、按编码字节、至少一条、`hasOlder`、放得下或没预算原样返回 | `sync/snapshot-budget.test.ts` |
+| 预算记在连接上，每次订阅重设，没带回默认；发给它的每个快照（订阅、换 epoch 的发布、`sendTo`）都截；断开即忘 | `sync/subscriptions.test.ts` "snapshot budgets" |
+| 路由把 `snapshot` 交给会话层；会话管理器把它交给注册表；同一控制器给两个连接的快照 `stream` 相同 | `router.test.ts`、`session-manager.test.ts` "snapshot budgets" |
+| `stream`：控制器的跨 epoch 不变；草稿快照每次新取；由注入的 `newStream` 生成 | `session-controller.test.ts`（快照、换 branch 后的两个 epoch）、`session-manager.test.ts`（草稿） |
+| `fetch_transcript.maxBytes` 与条数一起限，至少一条 | `session-transcript.test.ts`、`session-controller.test.ts` |
+| `session_resumed` 推给手机；桌面客户端收到同位置不变、别处重新订阅、快照前忽略 | `remote-policy.test.ts`、`client/session-view.test.ts` |
+| 经真实 relay：手机快照是桌面快照的末尾一段（同 epoch/seq/stream），之后的实时事件 seq 连续 | `test/remote/phone-sync.host.test.ts`（真实宿主 + 脚本 pi + relay 子进程 + TS 假手机） |
+| Swift 列表状态：快照整体替换、增量原地更新/新增在后/删除、快照前与别的实例的增量忽略 | `IndexStateTests` |
+| Swift 会话状态：快照前忽略、下一条才接、各类事件、接不上要重订、`session_resumed`、重新加载与失败 | `SessionStateTests` |
+| 初始同步：先列表（无游标）再会话（预算 6 轮/512 KiB）再 `open_session`；列表应答+快照+每个打开会话有快照或失败才 `markSynced`，只一次；旧代消息和不认识的应答丢弃；新代作废旧请求；同一代回到前台从头再同步；已连接后打开不回到同步中；重订、关闭 | `SyncCoreTests`、`SyncCoreResumeTests` |
+| 首页分组：收件箱挑选与排序同桌面 `inboxOf`；工作区命名与排序同 `workspaceName` / `sortWorkspaces`；标题兜底；不含归档与子对话；"N 在跑" | `HomeListTests` |
+| 驱动：通道建好后发订阅，列表来了才把连接标成"已连接"；请求 id 是 UUID | `SyncModelTests`（真实 `RemoteConnection` + `TestHost`） |
+| 胶囊映射、行图标、会话页状态行与步骤/通知文字 | `HomeViewTests`、`SessionPageTests` |
+| Swift 契约：真实宿主 + 脚本 pi + 进程内真实 relay，正式 Swift 配对后 `SyncModel` 同步列表和打开的会话（8 轮里拿 6 轮、`hasOlder`、有 `stream`），"已连接"之后 Mac 上发的消息实时到达 | `node apps/ios/Integration/run.mjs --sync-contract`（`SyncContractTests`，普通 `swift test` 跳过） |
+
+- 破坏检查：TS `packages/host/src/sync/mp4a-break-check.json`、Swift `apps/ios/Testing/sync-breaks.json`。结果与变异测试见本节"验证"。
+- 已知缺口：手机通道上"事件超过 8 MiB 改发快照"的预算接线（`ws-server.ts` 的 `snapshotOf` 走 `budgeted`）没有测试经过——造一个 8 MiB 的事件成本高，`connection.test.ts` 只测了替换本身；列表快照超过 8 MiB 的情况按 SPEC 记为 MP4a 限制；Mac 新开对话后的 `prompt` 只在契约里经桌面发，手机发送是 MP4b。
+
+### MP4a 审查后补（gpt-6-astra 单路只读，2026-10-27）
+
+| 行为 | 测试 |
+|---|---|
+| 同步由通道打开（`RemoteConnection.openings`）触发；回到前台时新连接握手晚于"正在同步"也能同步完成 | `SyncModelTests/foregroundReconnect`（修前复现：一直停在"正在同步"） |
+| 离开会话页发 `close_tab`；这个页面还在路上的请求作废，迟到的失败不落到重新打开的页面 | `SyncCoreReviewTests/closesTab`、`lateFailureAfterReopen` |
+| 交给终端的会话算已同步、显示原因；已是最新的会话不被改成"交给终端" | `SyncCoreReviewTests/handedOff`、`SessionPageTests` |
+| 契约夹具的轮询随等待结束而停；契约测试失败时也停任务、关连接 | `sync-contract.ts` `remoteUntil`、`SyncContractTests`（结构上保证，未专门制造失败） |
+| `SyncModel` 的请求 id 由组装处注入 | `SyncModelTests` |
+
+审查提的测试缺口仍保留：超大事件改发快照按预算的接线（`ws-server.ts`）、`stream` 在控制器复用 / 回收重建 / 连续草稿快照之间的生命周期、按预算截与真实转写截在多字节和工具记录上的直接对照。
+
+## MP4b 发送与回执（SPEC-0005，2026-10-27，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 回执：同一请求只跑一次、同 id 不同内容 `request_conflict`、哈希算附件个数不算附件 id、正在跑的接上同一次、失败原样再答、非 `CommandError` 记为不确定、执行前先写盘且写不了就不执行、重启后未完成的答 `outcome_unknown`、做完的答案跨重启保留、24 小时过期（读写都清）、每设备 200 条丢最早、坏文件挪开重来 | `remote/receipts.test.ts` |
+| 只有手机的 `prompt` / `steer` 经过回执，桌面直接执行 | `router.test.ts` |
+| 经真实 relay：同一 `requestId` 发两次只起一次 run，内容不同 `request_conflict` | `test/remote/phone-sync.host.test.ts` |
+| App 发件：草稿发出生成新 id、"发送中"时拦下一条、空输入不发、没写进通道就退回输入框（排在已输入的前面）并写"没发出去"、宿主拒绝写错误码、`started` 等轮次出现、`handled`/`queued` 直接收掉、`outcome_unknown` 先找对话记录再标不确定、"重发"用新 id、断线后下一次同步完成时找记录 / 同 id 重试一次 / 超过 10 分钟或已重试标不确定、关页面丢掉该会话的发件、记住最近送达的消息 | `SyncOutboxTests` |
+| 驱动：连接已断时发出的消息退回输入框 | `SyncModelTests/notWritten` |
+| 输入框占位与"没发出去"文字 | `ComposerTests` |
+| Swift 契约：手机经回执发消息，实时看到它的轮次后收掉，之后又能发 | `run.mjs --sync-contract` |
+
+- 破坏检查：TS `packages/host/src/remote/mp4b-break-check.json`；Swift 追加在 `apps/ios/Testing/sync-breaks.json`。等价改写已直接删掉而不是豁免：重启时 `processing → unknown` 的转换、`state !== "done"` 的判断，二者都由"没有答案就是不确定"覆盖。
+- 未覆盖：故障代理下的丢包 / 断开 / 延迟（MP4c）；契约夹具的 pi 总报同样的条目，跑完后宿主的重建会用新 epoch 盖掉实时轮次，所以契约用 `lastDelivered` 检查实时看到的轮次。

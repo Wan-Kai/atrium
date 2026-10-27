@@ -109,6 +109,7 @@ async function assemble() {
     logger: recording.logger,
     newId: () => `id${(next += 1)}`,
     newSessionId: () => "pi-session-1",
+    newStream: () => "st-1",
   });
   onTestFinished(() => sessions.close());
   const commands = createIndexCommands({

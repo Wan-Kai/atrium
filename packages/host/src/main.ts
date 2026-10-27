@@ -47,6 +47,7 @@ import { REMOTE_FILE } from "./remote/devices";
 import { loadIndexFile } from "./store/index-file";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
+import { openReceipts } from "./remote/receipts";
 import { discoverProjects } from "./projects/discovery";
 import { createIndexCommands } from "./sessions/index-commands";
 import { createFileSearch } from "./files/file-search";
@@ -186,10 +187,12 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const plans = createPlanUsage({ clock, logger });
   plans.subscribe((found) => subscriptions.broadcast({ type: "plans_updated", plans: found }));
   const hostInstanceId = randomBytes(8).toString("hex");
-  const [index, installSeed, remoteIndex] = await Promise.all([
+  const [index, installSeed, remoteIndex, receipts] = await Promise.all([
     loadIndex(home.root, clock.now(), logger),
     readInstallSeed(home.root, randomUUID),
     loadIndexFile(home.root, REMOTE_FILE, clock.now()),
+    // A phone's message receipts (SPEC-0005, "MP4b 定的细节").
+    openReceipts(join(home.root, "remote"), clock),
   ]).catch(async (error: unknown) => {
     logger.error({ err: error }, "host failed to start");
     releaseRejections();
@@ -350,6 +353,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
     newId: () => randomUUID(),
     newSessionId: () => randomUUID(),
+    newStream: () => randomUUID(),
     files: createFileSearch({
       findFd: async () => {
         const found = await toolbox.current();
@@ -611,6 +615,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       ],
       piLatest,
       remote,
+      receipts,
       translations,
       attachments,
       changes,

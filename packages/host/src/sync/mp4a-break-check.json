@@ -1,0 +1,150 @@
+[
+  {
+    "file": "packages/host/src/sync/snapshot-budget.ts",
+    "from": "if (turns >= budget.turns) break;",
+    "to": "if (false) break;",
+    "test": "packages/host/src/sync/snapshot-budget.test.ts",
+    "name": "keeps the latest turns"
+  },
+  {
+    "file": "packages/host/src/sync/snapshot-budget.ts",
+    "from": "if (taken.length > 0 && bytes + size > budget.bytes) break;",
+    "to": "if (false) break;",
+    "test": "packages/host/src/sync/snapshot-budget.test.ts",
+    "name": "stops before the item that would pass the bytes"
+  },
+  {
+    "file": "packages/host/src/sync/snapshot-budget.ts",
+    "from": "if (taken.length > 0 && bytes + size > budget.bytes) break;",
+    "to": "if (bytes + size > budget.bytes) break;",
+    "test": "packages/host/src/sync/snapshot-budget.test.ts",
+    "name": "keeps the last item even when it alone passes the bytes"
+  },
+  {
+    "file": "packages/host/src/sync/snapshot-budget.ts",
+    "from": "if (item.kind === \"turn\") turns += 1;",
+    "to": "turns += 1;",
+    "test": "packages/host/src/sync/snapshot-budget.test.ts",
+    "name": "keeps the latest turns"
+  },
+  {
+    "file": "packages/host/src/sync/snapshot-budget.ts",
+    "from": "return { ...snapshot, items: taken, hasOlder: true };",
+    "to": "return { ...snapshot, items: taken };",
+    "test": "packages/host/src/sync/snapshot-budget.test.ts",
+    "name": "keeps the latest turns"
+  },
+  {
+    "file": "packages/host/src/sync/snapshot-budget.ts",
+    "from": "if (taken.length === snapshot.items.length) return snapshot;",
+    "to": "if (false) return snapshot;",
+    "test": "packages/host/src/sync/snapshot-budget.test.ts",
+    "name": "leaves a snapshot that fits as it is"
+  },
+  {
+    "file": "packages/host/src/sync/snapshot-budget.ts",
+    "from": "if (budget === undefined) return snapshot;",
+    "to": "if (budget === undefined) return { ...snapshot };",
+    "test": "packages/host/src/sync/snapshot-budget.test.ts",
+    "name": "leaves a snapshot without a budget as it is"
+  },
+  {
+    "file": "packages/host/src/sync/subscriptions.ts",
+    "from": "    this.#budgets.set(connectionId, budget);",
+    "to": "    if (budget !== undefined) this.#budgets.set(connectionId, budget);",
+    "test": "packages/host/src/sync/subscriptions.test.ts",
+    "name": "goes back to the default when a subscription comes without a budget"
+  },
+  {
+    "file": "packages/host/src/sync/subscriptions.ts",
+    "from": "?.sink(event.type === \"session_snapshot\" ? this.budgeted(connectionId, event) : event);",
+    "to": "?.sink(event);",
+    "test": "packages/host/src/sync/subscriptions.test.ts",
+    "name": "cuts the snapshots each connection gets"
+  },
+  {
+    "file": "packages/host/src/sync/subscriptions.ts",
+    "from": "    this.#indexSubscribers.delete(connectionId);\n    this.#budgets.delete(connectionId);",
+    "to": "    this.#indexSubscribers.delete(connectionId);",
+    "test": "packages/host/src/sync/subscriptions.test.ts",
+    "name": "forgets the budget when the connection goes"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "command.sessionIds, command.snapshot)",
+    "to": "command.sessionIds)",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "hands a subscription's snapshot budget"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "options.subscriptions.subscribe(connectionId, sessionIds, budget)",
+    "to": "options.subscriptions.subscribe(connectionId, sessionIds)",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "cuts the snapshot to a subscription's budget"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "stream: options.newStream(),",
+    "to": "stream: \"fixed\",",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "cuts the snapshot to a subscription's budget"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "snapshots.set(sessionId, draftSnapshot(sessionId, fastOf(entry), options.newStream()));",
+    "to": "snapshots.set(sessionId, draftSnapshot(sessionId, fastOf(entry), \"draft\"));",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "restores a draft without starting pi"
+  },
+  {
+    "file": "packages/host/src/transcript/session-transcript.ts",
+    "from": "if (taken.length > 0 && bytes + size > maxBytes) break;",
+    "to": "if (taken.length > 0 && bytes + size > PAGE_BYTES) break;",
+    "test": "packages/host/src/transcript/session-transcript.test.ts",
+    "name": "pages back within a byte limit"
+  },
+  {
+    "file": "packages/host/src/sessions/session-controller.ts",
+    "from": "transcript.before(command.before, command.limit, command.maxBytes)",
+    "to": "transcript.before(command.before, command.limit)",
+    "test": "packages/host/src/sessions/session-controller.test.ts",
+    "name": "pages back within the bytes a phone asks for"
+  },
+  {
+    "file": "packages/host/src/sessions/session-controller.ts",
+    "from": "      stream: options.stream,\n",
+    "to": "      stream: \"other\",\n",
+    "test": "packages/host/src/sessions/session-controller.test.ts",
+    "name": "snapshots the turn running and the run in progress"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "  session_resumed: true,",
+    "to": "  session_resumed: false,",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "holds back sign-in"
+  },
+  {
+    "file": "packages/client/src/session-view.ts",
+    "from": "return event.epoch === view.epoch && event.seq === view.seq ? view : \"resync\";",
+    "to": "return view;",
+    "test": "packages/client/src/session-view.test.ts",
+    "name": "a resumption past what it has"
+  },
+  {
+    "file": "packages/client/src/session-view.ts",
+    "from": "return event.epoch === view.epoch && event.seq === view.seq ? view : \"resync\";",
+    "to": "return \"resync\";",
+    "test": "packages/client/src/session-view.test.ts",
+    "name": "takes a resumption at the position it has"
+  },
+  {
+    "file": "packages/host/src/sync/subscriptions.ts",
+    "from": "?.sink(event.type === \"session_snapshot\" ? this.budgeted(connectionId, event) : event);",
+    "to": "?.sink(event);",
+    "test": "packages/host/test/remote/phone-sync.host.test.ts",
+    "name": "gets snapshots cut to its budget",
+    "project": "host"
+  }
+]

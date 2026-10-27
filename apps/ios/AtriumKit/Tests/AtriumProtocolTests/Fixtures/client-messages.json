@@ -1,14 +1,14 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 27,
+    "protocolVersion": 28,
     "clientId": "c1",
     "token": "t",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
     "type": "hello",
-    "protocolVersion": 27,
+    "protocolVersion": 28,
     "clientId": "dev_0123456789abcdef",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
@@ -29,6 +29,26 @@
     "sessionIds": [
       "s1",
       "s2"
+    ]
+  },
+  {
+    "type": "subscribe_sessions",
+    "requestId": "r3b",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionIds": [
+      "s1"
+    ],
+    "snapshot": {
+      "turns": 6,
+      "bytes": 524288
+    },
+    "resume": [
+      {
+        "sessionId": "s1",
+        "stream": "st-1",
+        "epoch": 2,
+        "seq": 40
+      }
     ]
   },
   {
@@ -77,6 +97,16 @@
     "epoch": 2,
     "before": "s1:e7",
     "limit": 100
+  },
+  {
+    "type": "fetch_transcript",
+    "requestId": "r8b",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "epoch": 2,
+    "before": "s1:e7",
+    "limit": 20,
+    "maxBytes": 524288
   },
   {
     "type": "fetch_step",

@@ -1,0 +1,386 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/IndexState.swift",
+    "from": "guard ready, changes.generation == generation else { return }",
+    "to": "guard ready else { return }",
+    "name": "list changes of another instance",
+    "runner": "swift",
+    "filter": "IndexStateTests/ignored"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/IndexState.swift",
+    "from": "result.append(changed.removeValue(forKey: id(item)) ?? item)",
+    "to": "result.append(item)",
+    "name": "changed item replaced in place",
+    "runner": "swift",
+    "filter": "IndexStateTests/changes"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/IndexState.swift",
+    "from": "for item in items where !removed.contains(id(item)) {",
+    "to": "for item in items {",
+    "name": "removed item dropped",
+    "runner": "swift",
+    "filter": "IndexStateTests/changes"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "guard event.position.epoch == epoch, event.position.seq == seq + 1 else { return .resync }",
+    "to": "guard event.position.epoch == epoch else { return .resync }",
+    "name": "event must be the next seq",
+    "runner": "swift",
+    "filter": "SessionStateTests/resync"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "return resumed.epoch == epoch && resumed.seq == seq ? .ignored : .resync",
+    "to": "return .ignored",
+    "name": "resumption elsewhere resyncs",
+    "runner": "swift",
+    "filter": "SessionStateTests/resync"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "guard status == .ready || status == .exited else { return .ignored }",
+    "to": "guard status != .exited || status == .exited else { return .ignored }",
+    "name": "events before the snapshot ignored",
+    "runner": "swift",
+    "filter": "SessionStateTests/snapshot"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "          text.text += delta.delta",
+    "to": "          text.text = delta.delta",
+    "name": "text delta appends",
+    "runner": "swift",
+    "filter": "SessionStateTests/run"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "      items.insert(.notice(added.notice), at: index)",
+    "to": "      items.append(.notice(added.notice))",
+    "name": "notice before an item",
+    "runner": "swift",
+    "filter": "SessionStateTests/run"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "        turn.outcome = Turn.Outcome(rawValue: finished.outcome.rawValue) ?? turn.outcome\n",
+    "to": "",
+    "name": "turn finished outcome",
+    "runner": "swift",
+    "filter": "SessionStateTests/run"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "        default: return false\n",
+    "to": "        default: return true\n",
+    "name": "delta on a tool step resyncs",
+    "runner": "swift",
+    "filter": "SessionStateTests/resync"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "    case .runSettled: running = false",
+    "to": "    case .runSettled: break",
+    "name": "run settled stops running",
+    "runner": "swift",
+    "filter": "SessionStateTests/run"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    guard openSessions.allSatisfy({ sessions[$0]?.status != .loading }) else { return [] }\n",
+    "to": "",
+    "name": "synced waits for open sessions",
+    "runner": "swift",
+    "filter": "SyncCoreTests/sessionsSynced"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "guard let generation, !synced, listAnswered, listSnapshot else { return [] }",
+    "to": "guard let generation, !synced, listSnapshot else { return [] }",
+    "name": "synced needs the list answered",
+    "runner": "swift",
+    "filter": "SyncCoreTests/listFailed"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "guard let generation, !synced, listAnswered, listSnapshot else { return [] }",
+    "to": "guard let generation, listAnswered, listSnapshot else { return [] }",
+    "name": "markSynced only once",
+    "runner": "swift",
+    "filter": "SyncCoreTests/listSynced"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    guard generation == self.generation else { return [] }\n    var outputs",
+    "to": "    var outputs",
+    "name": "older connection messages dropped",
+    "runner": "swift",
+    "filter": "SyncCoreTests/oldGeneration"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    requests = [:]\n",
+    "to": "",
+    "name": "new connection voids old requests",
+    "runner": "swift",
+    "filter": "SyncCoreVoidTests/voided"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "SnapshotBudget(turns: 6, bytes: 512 * 1024)",
+    "to": "SnapshotBudget(turns: 20, bytes: 512 * 1024)",
+    "name": "phone budget",
+    "runner": "swift",
+    "filter": "SyncCoreTests/subscribes"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "      if again { outputs.append(subscribe([], failing: [])) }\n",
+    "to": "",
+    "name": "same connection drops before re-adding",
+    "runner": "swift",
+    "filter": "SyncCoreResumeTests/againOnSameConnection"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "generation < current || (generation == current && !synced)",
+    "to": "generation < current",
+    "name": "no restart during first sync",
+    "runner": "swift",
+    "filter": "SyncCoreResumeTests/notWhileSyncing"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "      case .open(let sessionId): fail(sessionId, failure.error.code)",
+    "to": "      case .open: break",
+    "name": "open failure settles the session",
+    "runner": "swift",
+    "filter": "SyncCoreTests/sessionFailed"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "      subscribe(openSessions.filter { $0 != sessionId }, failing: []),\n",
+    "to": "",
+    "name": "resync drops then re-adds",
+    "runner": "swift",
+    "filter": "SyncCoreTests/resync"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    sessions[sessionId] = nil\n",
+    "to": "",
+    "name": "close forgets the state",
+    "runner": "swift",
+    "filter": "SyncCoreTests/close"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    guard generation != nil else { return [] }\n    return [subscribe(openSessions, failing: [sessionId]), open(sessionId)]",
+    "to": "    return [subscribe(openSessions, failing: [sessionId]), open(sessionId)]",
+    "name": "open before any connection sends nothing",
+    "runner": "swift",
+    "filter": "SyncCoreTests/openOffline"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "guard let attention = session.attention, !(attention.reason == .error && attention.cleared) else { return nil }",
+    "to": "guard let attention = session.attention else { return nil }",
+    "name": "seen errors leave the inbox",
+    "runner": "swift",
+    "filter": "HomeListTests/inbox"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "let listed = index.sessions.filter { !$0.archived && $0.parent == nil }",
+    "to": "let listed = index.sessions.filter { !$0.archived }",
+    "name": "children left out",
+    "runner": "swift",
+    "filter": "HomeListTests/groups"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "let newest: (Workspace, Workspace) -> Bool = { ($0.createdAt ?? 0) > ($1.createdAt ?? 0) }",
+    "to": "let newest: (Workspace, Workspace) -> Bool = { ($0.createdAt ?? 0) < ($1.createdAt ?? 0) }",
+    "name": "worktrees newest first",
+    "runner": "swift",
+    "filter": "HomeListTests/groups"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "return (session, attention.reason == .auth ? 1 : 2, attention.at)",
+    "to": "return (session, 2, attention.at)",
+    "name": "sign-in before errors",
+    "runner": "swift",
+    "filter": "HomeListTests/inbox"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "session.asking != nil ? .asking : failed ? .error : session.running ? .running : nil",
+    "to": "session.asking != nil ? .asking : session.running ? .running : nil",
+    "name": "failed rows marked",
+    "runner": "swift",
+    "filter": "HomeListTests/statuses"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Sync/SyncModel.swift",
+    "from": "    enqueue(core.connected(generation: generation))",
+    "to": "    _ = core.connected(generation: generation)",
+    "name": "model subscribes when syncing",
+    "runner": "swift",
+    "filter": "SyncModelTests/syncsThenConnected"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Sync/SyncModel.swift",
+    "from": "        await connection.markSynced(generation: generation)",
+    "to": "        break",
+    "name": "model marks synced",
+    "runner": "swift",
+    "filter": "SyncModelTests/syncsThenConnected"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/HomeView.swift",
+    "from": "    case .connected: .connected\n    case .connecting, .syncing: .syncing",
+    "to": "    case .connected, .connecting, .syncing: .syncing",
+    "name": "pill connected only when synced",
+    "runner": "swift",
+    "filter": "HomeViewTests/pill"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    return !outbox.contains { $0.sessionId == sessionId && $0.state != .accepted }",
+    "to": "    return true",
+    "name": "one unsettled message at a time",
+    "runner": "swift",
+    "filter": "SyncOutboxTests/sends"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "      !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty\n",
+    "to": "      true\n",
+    "name": "empty input not sent",
+    "runner": "swift",
+    "filter": "SyncOutboxTests/cannotSend"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    drafts[sessionId] = nil\n    problems[sessionId] = nil\n    return [post(text, to: sessionId)]",
+    "to": "    problems[sessionId] = nil\n    return [post(text, to: sessionId)]",
+    "name": "draft cleared on send",
+    "runner": "swift",
+    "filter": "SyncOutboxTests/sends"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    drafts[message.sessionId] = typed.isEmpty ? message.text : \"\\(message.text)\\n\\(typed)\"",
+    "to": "    drafts[message.sessionId] = message.text",
+    "name": "text goes back in front",
+    "runner": "swift",
+    "filter": "SyncOutboxTests/notWritten"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    if disposition == \"started\" {",
+    "to": "    if disposition != nil {",
+    "name": "handled or queued settle at once",
+    "runner": "swift",
+    "filter": "SyncOutboxTests/handledOrQueued"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    if code == .outcomeUnknown || code == .requestConflict {",
+    "to": "    if code == .requestConflict {",
+    "name": "outcome_unknown is uncertain",
+    "runner": "swift",
+    "filter": "SyncOutboxTests/unknown"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "      if !sent.retried, now() - sent.sentAt < Self.retryWindow {",
+    "to": "      if now() - sent.sentAt < Self.retryWindow {",
+    "name": "retry only once",
+    "runner": "swift",
+    "filter": "SyncOutboxTests/retryOnce"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "      if !sent.retried, now() - sent.sentAt < Self.retryWindow {",
+    "to": "      if !sent.retried {",
+    "name": "ten-minute window",
+    "runner": "swift",
+    "filter": "SyncOutboxTests/tooOld"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    return [.markSynced(generation: generation)] + settleAfterSync()",
+    "to": "    return [.markSynced(generation: generation)]",
+    "name": "settle after sync",
+    "runner": "swift",
+    "filter": "SyncOutboxTests/retryOnce"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    lastDelivered[message.sessionId] = message.id\n",
+    "to": "",
+    "name": "last delivered remembered",
+    "runner": "swift",
+    "filter": "SyncOutboxTests/accepted"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "      case .open(let opened) where opened == sessionId: requests[requestId] = .other",
+    "to": "      case .open(let opened) where opened == sessionId: break",
+    "name": "closed page requests void",
+    "runner": "swift",
+    "filter": "SyncCoreReviewTests/lateFailureAfterReopen"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    return [watching, tab] + checkSynced()",
+    "to": "    return [watching] + checkSynced()",
+    "name": "close tab on leaving",
+    "runner": "swift",
+    "filter": "SyncCoreReviewTests/closesTab"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    for summary in index.sessions where summary.handedOff && openSessions.contains(summary.sessionId) {",
+    "to": "    for summary in index.sessions where false {",
+    "name": "handed-off settles",
+    "runner": "swift",
+    "filter": "SyncCoreReviewTests/handedOff"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Sync/SyncModel.swift",
+    "from": "    guard status == .syncing, let generation = await connection.openGeneration else { return }",
+    "to": "    guard status == .syncing else { return }\n    let generation = await connection.generation",
+    "name": "sync waits for an open channel",
+    "runner": "swift",
+    "filter": "SyncModelTests/foregroundReconnect"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Sync/SyncModel.swift",
+    "from": "      group.addTask { await self.followOpenings() }\n",
+    "to": "",
+    "name": "sync starts on opening",
+    "runner": "swift",
+    "filter": "SyncModelTests/foregroundReconnect"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "    if status == .loading { status = .handedOff }",
+    "to": "    status = .handedOff",
+    "name": "only a waiting session becomes handed off",
+    "runner": "swift",
+    "filter": "SyncCoreReviewTests/handedOff"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Sync/SyncModel.swift",
+    "from": "          if case .prompt(let prompt) = command { core.notWritten(prompt.requestId) }",
+    "to": "          _ = command",
+    "name": "unwritten message goes back",
+    "runner": "swift",
+    "filter": "SyncModelTests/notWritten"
+  }
+]

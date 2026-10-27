@@ -11,6 +11,15 @@ const TraceId = z.string().regex(/^[0-9a-f]{32}$/);
 /** How many turns a snapshot carries; older ones come through `fetch_transcript` (SPEC-0001, "快照与分页"). */
 export const SNAPSHOT_TURNS = 20;
 
+/**
+ * Which run of a session's state a snapshot and the events after it belong to.
+ *
+ * @remarks
+ * Opaque, and new whenever the host starts or rebuilds the session's controller, since `epoch`
+ * starts again from 1 in a new controller (SPEC-0005, "协议改动" 3).
+ */
+export const SnapshotStream = z.string().min(1).max(128);
+
 /** A position in a session's event stream (SPEC-0001, "事件"). */
 const sessionEventFields = {
   sessionId: SessionId,
@@ -38,6 +47,8 @@ const RunInfo = z.strictObject({ runId: z.string().min(1), startedAt: Timestamp 
 export const SessionSnapshotEvent = z.strictObject({
   type: z.literal("session_snapshot"),
   ...sessionEventFields,
+  /** Where `epoch` and `seq` count from, for continuing later (SPEC-0005, "协议改动" 3). */
+  stream: SnapshotStream,
   /** The latest turns, up to `SNAPSHOT_TURNS`, with the notices among and after them; a running turn as far as it has come. */
   items: z.array(TranscriptItem),
   /** Whether earlier items exist, for `fetch_transcript`. */
@@ -180,9 +191,26 @@ export const SessionExitedEvent = z.strictObject({
 });
 export type SessionExitedEvent = z.infer<typeof SessionExitedEvent>;
 
+/**
+ * A subscription continued from the client's copy: the events it missed came before this, and the
+ * client is up to date at `seq`.
+ *
+ * @remarks
+ * Sent instead of a snapshot when the client's resume point is still in the host's memory
+ * (SPEC-0005, "协议改动" 3); it takes no `seq` of its own and carries no trace.
+ */
+export const SessionResumedEvent = z.strictObject({
+  type: z.literal("session_resumed"),
+  sessionId: SessionId,
+  epoch: z.number().int().nonnegative(),
+  seq: z.number().int().nonnegative(),
+});
+export type SessionResumedEvent = z.infer<typeof SessionResumedEvent>;
+
 /** Every event about one session. */
 export const SessionEvent = z.discriminatedUnion("type", [
   SessionSnapshotEvent,
+  SessionResumedEvent,
   RunStartedEvent,
   RunSettledEvent,
   TurnStartedEvent,

@@ -96,6 +96,7 @@ describe("applySessionEvent", () => {
     const after = applySessionEvent(loading, {
       type: "session_snapshot",
       ...envelope,
+      stream: "st-1",
       seq: 4,
       items: [notice("n1"), confirming("t1", "q1")],
       hasOlder: true,
@@ -267,6 +268,9 @@ describe("applySessionEvent", () => {
         changes: [],
       },
     ],
+    ["a resumption past what it has", { type: "session_resumed", sessionId: "s1", epoch: 1, seq: 2 }],
+    ["a resumption behind what it has", { type: "session_resumed", sessionId: "s1", epoch: 1, seq: 0 }],
+    ["a resumption in another epoch", { type: "session_resumed", sessionId: "s1", epoch: 2, seq: 1 }],
   ] as [string, SessionEvent][])("asks for a resync on %s", (_case, event) => {
     const view = ready(1, {
       items: [
@@ -293,6 +297,14 @@ describe("applySessionEvent", () => {
     expect(applySessionEvent(view, event)).toBe("resync");
   });
 
+  it("takes a resumption at the position it has as nothing new, and ignores one before the first snapshot", () => {
+    const view = ready(4, { items: [turn("t1")] });
+    const loading = loadingView("s1");
+
+    expect(applySessionEvent(view, { type: "session_resumed", sessionId: "s1", epoch: 1, seq: 4 })).toBe(view);
+    expect(applySessionEvent(loading, { type: "session_resumed", sessionId: "s1", epoch: 1, seq: 4 })).toBe(loading);
+  });
+
   it("takes a snapshot of a session whose pi has exited as exited, and a new epoch's snapshot whole", () => {
     const view = ready(7, { items: [turn("old")], hasOlder: false });
 
@@ -300,6 +312,7 @@ describe("applySessionEvent", () => {
       applySessionEvent(view, {
         type: "session_snapshot",
         ...envelope,
+        stream: "st-1",
         epoch: 2,
         seq: 0,
         items: [turn("new")],

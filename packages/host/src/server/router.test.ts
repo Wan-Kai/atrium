@@ -188,6 +188,13 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
     },
   };
   const route = createRouter({
+    receipts: {
+      run: async (deviceId, command, execute) => {
+        calls.push(["receipt", deviceId, command.type, command.requestId]);
+        return execute();
+      },
+      flush: async () => undefined,
+    },
     remote: {
       get: (id, watch) => {
         calls.push(["getRemote", id, watch]);
@@ -409,6 +416,33 @@ describe("createRouter", () => {
     expect(records.filter((record) => record["msg"] === "client issue")).toStrictEqual([]);
   });
 
+  it("runs a phone's prompt and steer through its receipts, and the Mac's straight", async () => {
+    const { route, connection, calls, logger, sent } = setUp();
+    const phone = createConnection(
+      { bufferedAmount: 0, send: (data) => sent.push(JSON.parse(data) as HostMessage), close: () => undefined },
+      {
+        id: "c3",
+        clientId: "dev_0123456789abcdef",
+        trace: ROOT_CONTEXT,
+        maxBufferedBytes: 1024,
+        logger,
+        remote: { deviceId: "dev_0123456789abcdef", maxMessageBytes: 1024, snapshotOf: () => null },
+      },
+    );
+
+    await route(phone, withTrace({ type: "prompt", requestId: "p1", sessionId: "s1", text: "hi" }));
+    await route(phone, withTrace({ type: "steer", requestId: "p2", sessionId: "s1", text: "and" }));
+    await route(connection, withTrace({ type: "prompt", requestId: "d1", sessionId: "s1", text: "hi" }));
+
+    expect(calls.filter(([name]) => ["receipt", "prompt", "steer"].includes(String(name)))).toStrictEqual([
+      ["receipt", "dev_0123456789abcdef", "prompt", "p1"],
+      ["prompt", "s1", "hi"],
+      ["receipt", "dev_0123456789abcdef", "steer", "p2"],
+      ["steer", "s1", "and"],
+      ["prompt", "s1", "hi"],
+    ]);
+  });
+
   it("answers local_only to a phone for what only the Mac may do, and runs what it may", async () => {
     const { route, sent, calls, logger } = setUp();
     const phone = createConnection(
@@ -459,6 +493,15 @@ describe("createRouter", () => {
     );
   });
 
+  it("hands a subscription's snapshot budget to the session layer with the connection", async () => {
+    const { route, connection, calls } = setUp();
+    const snapshot = { turns: 6, bytes: 524_288 };
+
+    await route(connection, withTrace({ type: "subscribe_sessions", requestId: "r1", sessionIds: ["s1"], snapshot }));
+
+    expect(calls).toStrictEqual([["subscribe", "connection-7", ["s1"], snapshot]]);
+  });
+
   it("hands session commands to the session layer, with the client for layout changes, and returns their results", async () => {
     const { route, connection, sent, calls } = setUp();
 
@@ -495,7 +538,7 @@ describe("createRouter", () => {
 
     expect(calls).toStrictEqual([
       ["createChat", "client-1"],
-      ["subscribe", "connection-7", ["s1"]],
+      ["subscribe", "connection-7", ["s1"], undefined],
       ["prompt", "s1", "hi"],
       ["fetchTranscript", "s1", 2, "t9", 50],
       ["fetchStep", "s1", 2, "t9", "3"],

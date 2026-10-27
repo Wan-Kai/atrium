@@ -1,4 +1,5 @@
-import type { LoginUpdatedEvent, SessionEvent } from "@atrium/protocol";
+import type { LoginUpdatedEvent, SessionEvent, SessionSnapshotEvent, Turn } from "@atrium/protocol";
+import { IDLE_CONTROL, UNKNOWN_METRICS } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { ResourceTracker } from "../platform/resources";
 import { type EventSink, SubscriptionRegistry } from "./subscriptions";
@@ -107,5 +108,76 @@ describe("SubscriptionRegistry list subscribers", () => {
 
     registry.disconnect("b");
     expect(registry.indexSubscribers()).toStrictEqual([{ connectionId: "a", clientId: "client-a" }]);
+  });
+});
+
+/** A finished turn without steps. */
+function turn(id: string): Turn {
+  return {
+    kind: "turn",
+    id,
+    source: null,
+    user: { text: "q", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 1 },
+    steps: [],
+    outcome: "done",
+    error: null,
+    startedAt: 1,
+    durationMs: 1,
+    usage: null,
+    changes: [],
+  };
+}
+
+/** A snapshot of a session with three turns. */
+function snapshotOf(sessionId: string): SessionSnapshotEvent {
+  return {
+    type: "session_snapshot",
+    sessionId,
+    epoch: 1,
+    seq: 0,
+    traceId: null,
+    stream: "st-1",
+    items: [turn("t1"), turn("t2"), turn("t3")],
+    hasOlder: false,
+    run: null,
+    exited: false,
+    control: IDLE_CONTROL,
+    model: null,
+    fast: false,
+    metrics: UNKNOWN_METRICS,
+  };
+}
+
+describe("SubscriptionRegistry: snapshot budgets", () => {
+  it("cuts the snapshots each connection gets to the budget of its latest subscription", () => {
+    const { registry, received } = twoConnections();
+    registry.subscribe("a", ["s1"], { turns: 1, bytes: 65_536 });
+    registry.subscribe("b", ["s1"]);
+
+    registry.publish(snapshotOf("s1"));
+    registry.sendTo("a", snapshotOf("s1"));
+
+    const cut = { ...snapshotOf("s1"), items: snapshotOf("s1").items.slice(2), hasOlder: true };
+    expect(received).toStrictEqual({ a: [cut, cut], b: [snapshotOf("s1")] });
+  });
+
+  it("goes back to the default when a subscription comes without a budget, and leaves other events alone", () => {
+    const { registry, received } = twoConnections();
+    registry.subscribe("a", ["s1"], { turns: 1, bytes: 65_536 });
+    registry.publish(eventOf("s1", 1));
+    registry.subscribe("a", ["s1"]);
+    registry.publish(snapshotOf("s1"));
+
+    expect(received["a"]).toStrictEqual([eventOf("s1", 1), snapshotOf("s1")]);
+  });
+
+  it("cuts a snapshot it is handed for a connection, and forgets the budget when the connection goes", () => {
+    const { registry } = twoConnections();
+    registry.subscribe("a", ["s1"], { turns: 2, bytes: 65_536 });
+
+    expect(registry.budgeted("a", snapshotOf("s1")).items.map((item) => item.id)).toStrictEqual(["t2", "t3"]);
+    expect(registry.budgeted("b", snapshotOf("s1"))).toStrictEqual(snapshotOf("s1"));
+    registry.disconnect("a");
+    expect(registry.budgeted("a", snapshotOf("s1"))).toStrictEqual(snapshotOf("s1"));
   });
 });

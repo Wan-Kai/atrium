@@ -11,8 +11,11 @@ import type {
   PlansUpdatedEvent,
   RemoteUpdatedEvent,
   SessionEvent,
+  SessionSnapshotEvent,
+  SnapshotBudget,
 } from "@atrium/protocol";
 import type { ResourceTracker } from "../platform/resources";
+import { withinBudget } from "./snapshot-budget";
 
 /** Delivers events to one connection. */
 export type EventSink = (event: SinkEvent) => void;
@@ -63,6 +66,8 @@ export class SubscriptionRegistry {
   /** Each connection's sessions, each with the release of its count. */
   readonly #subscriptions = new Map<string, Map<string, () => void>>();
   readonly #indexSubscribers = new Set<string>();
+  /** Each connection's snapshot budget, as its latest subscription set it; `undefined` for the default. */
+  readonly #budgets = new Map<string, SnapshotBudget | undefined>();
 
   /**
    * Creates an empty registry.
@@ -108,6 +113,7 @@ export class SubscriptionRegistry {
     for (const release of this.#subscriptions.get(connectionId)?.values() ?? []) release();
     this.#subscriptions.delete(connectionId);
     this.#indexSubscribers.delete(connectionId);
+    this.#budgets.delete(connectionId);
   }
 
   /**
@@ -150,14 +156,19 @@ export class SubscriptionRegistry {
    * The caller sends a snapshot of each newly added session before any later event, so the
    * client always starts from a snapshot (domain-model §7).
    *
-   * @sideEffects Updates the connection's subscriptions and their resource counts.
+   * Each subscription also sets the budget of the snapshots the connection gets from then on, or
+   * goes back to the default without one (SPEC-0005, "MP4a 定的细节").
+   *
+   * @sideEffects Updates the connection's subscriptions, their resource counts and its budget.
    * @param connectionId - The connection's id.
    * @param sessionIds - Every session it now watches.
+   * @param budget - How much its snapshots may carry; `undefined` for the default.
    * @returns The sessions it did not watch before, in the given order; empty for an unknown connection.
    */
-  subscribe(connectionId: string, sessionIds: readonly string[]): string[] {
+  subscribe(connectionId: string, sessionIds: readonly string[], budget?: SnapshotBudget): string[] {
     const watched = this.#subscriptions.get(connectionId);
     if (watched === undefined) return [];
+    this.#budgets.set(connectionId, budget);
     const after = new Set(sessionIds);
     for (const [sessionId, release] of watched) {
       if (after.has(sessionId)) continue;
@@ -202,14 +213,31 @@ export class SubscriptionRegistry {
    * Delivers an event to one connection, if it is still registered.
    *
    * @remarks
-   * Used for snapshots, which only the subscribing connection needs.
+   * Used for snapshots, which only the subscribing connection needs. Every snapshot, sent here or
+   * published, is cut to the connection's budget on the way.
    *
    * @sideEffects Calls the connection's sink.
    * @param connectionId - The connection.
    * @param event - The event.
    */
   sendTo(connectionId: string, event: SinkEvent): void {
-    this.#sinks.get(connectionId)?.sink(event);
+    this.#sinks.get(connectionId)?.sink(event.type === "session_snapshot" ? this.budgeted(connectionId, event) : event);
+  }
+
+  /**
+   * Cuts a snapshot to a connection's budget.
+   *
+   * @remarks
+   * For a snapshot that goes out some other way, as in place of an event too large for a phone
+   * (SPEC-0005, "Noise 通道 · 大小").
+   *
+   * @sideEffects none
+   * @param connectionId - The connection.
+   * @param snapshot - The default snapshot.
+   * @returns The snapshot as the connection may get it.
+   */
+  budgeted(connectionId: string, snapshot: SessionSnapshotEvent): SessionSnapshotEvent {
+    return withinBudget(snapshot, this.#budgets.get(connectionId));
   }
 
   /**

@@ -10,16 +10,20 @@ const require = createRequire(import.meta.url);
 const { build } = createRequire(require.resolve("vite"))("esbuild");
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const production = process.argv.includes("--production-rejection");
+const syncContract = process.argv.includes("--sync-contract");
 const holdConfirmation = process.argv.includes("--hold-confirmation");
 const negativeControl = process.argv.includes("--negative-control");
 assert.ok(
   process.argv
     .slice(2)
-    .every((arg) => ["--negative-control", "--production-rejection", "--hold-confirmation"].includes(arg)),
+    .every((arg) =>
+      ["--negative-control", "--production-rejection", "--hold-confirmation", "--sync-contract"].includes(arg),
+    ),
   "unknown argument",
 );
 assert.ok(!production || !negativeControl, "negative-control belongs to MP0 only");
 assert.ok(!holdConfirmation || production, "hold-confirmation requires production-rejection");
+assert.ok(!syncContract || (!production && !negativeControl), "sync-contract runs on its own");
 const temporary = await mkdtemp(join(tmpdir(), "atrium-local-interop-"));
 let fixture;
 const interruption = new AbortController();
@@ -39,7 +43,13 @@ process.on("SIGTERM", interrupt);
 try {
   const bundle = join(temporary, "fixture.mjs");
   await build({
-    entryPoints: [join(root, "apps/ios/Integration", production ? "production-rejection.ts" : "fixture.ts")],
+    entryPoints: [
+      join(
+        root,
+        "apps/ios/Integration",
+        syncContract ? "sync-contract.ts" : production ? "production-rejection.ts" : "fixture.ts",
+      ),
+    ],
     outfile: bundle,
     bundle: true,
     platform: "node",
@@ -55,9 +65,11 @@ try {
     logLevel: "warning",
   });
   const { startFixture } = await import(pathToFileURL(bundle).href);
-  fixture = production
-    ? await startFixture(interruption.signal, holdConfirmation)
-    : await startFixture(negativeControl);
+  fixture = syncContract
+    ? await startFixture(interruption.signal)
+    : production
+      ? await startFixture(interruption.signal, holdConfirmation)
+      : await startFixture(negativeControl);
   process.exitCode = await runSwift(fixture, interruption.signal);
 } finally {
   try {
@@ -91,7 +103,7 @@ async function runSwift(local, signal) {
       "--package-path",
       "apps/ios/AtriumKit",
       "--filter",
-      production ? "ProductionRejectionInteropTests" : "LocalRelayInteropTests",
+      syncContract ? "SyncContractTests" : production ? "ProductionRejectionInteropTests" : "LocalRelayInteropTests",
       "-Xswiftc",
       "-warnings-as-errors",
     ],
@@ -103,7 +115,7 @@ async function runSwift(local, signal) {
         ...process.env,
         ATRIUM_LOCAL_INTEROP_CONTROL: local.origin,
         ATRIUM_LOCAL_INTEROP_TOKEN: local.token,
-        ATRIUM_LOCAL_INTEROP_SCENARIO: production ? "production-rejection" : "mp0",
+        ATRIUM_LOCAL_INTEROP_SCENARIO: syncContract ? "sync" : production ? "production-rejection" : "mp0",
       },
     },
   );

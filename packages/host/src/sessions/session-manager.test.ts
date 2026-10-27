@@ -166,6 +166,7 @@ async function manage(
   let changes = 0;
   let next = 0;
   let sessionsMade = more.sessionsTaken ?? 0;
+  let streamsMade = 0;
   const manager = createSessionManager({
     chatsRoot: join(at.home, "chats"),
     tools: detected,
@@ -184,6 +185,7 @@ async function manage(
     logger: recording.logger,
     newId: () => `id${++next}`,
     newSessionId: () => `pi-session-${++sessionsMade}`,
+    newStream: () => `st-${++streamsMade}`,
     ...(turnStarts === undefined ? {} : { turnStarts }),
     ...(models === undefined ? {} : { models }),
     ...(files === undefined ? {} : { files }),
@@ -1591,6 +1593,7 @@ describe("SessionManager opening sessions", () => {
         epoch: 0,
         seq: 0,
         traceId: null,
+        stream: "st-1",
         items: [],
         hasOlder: false,
         run: null,
@@ -5369,5 +5372,50 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
     await vi.waitFor(() => expect(children()).toStrictEqual({ tokens: 120, cost: 0.75 }));
     await manager.detachSession(child);
     await vi.waitFor(() => expect(children()).toBeNull());
+  });
+});
+
+describe("SessionManager snapshot budgets (SPEC-0005, MP4a)", () => {
+  it("cuts the snapshot to a subscription's budget, and both connections share the controller's stream", async () => {
+    const at = await place();
+    const file = await terminalSession(at, "pi-session-1", at.workspace);
+    const entries = [
+      ["u0", null, "one"],
+      ["u1", "u0", "two"],
+      ["u2", "u1", "three"],
+    ].map(([id, parentId, text]) => ({
+      type: "message",
+      id,
+      parentId,
+      timestamp: "1970-01-01T00:00:00.000Z",
+      message: { role: "user", content: text, timestamp: 0 },
+    }));
+    const managed = await manage(
+      {
+        rules: {
+          get_state: { data: { sessionId: "pi-session-1", sessionFile: file } },
+          get_entries: { data: { entries, leafId: "u2" } },
+        },
+      },
+      at,
+    );
+    await managed.catalog.scan();
+    await managed.manager.openSession("client-1", "pi-session-1");
+    await managed.manager.subscribe("c1", ["pi-session-1"], { turns: 1, bytes: 65_536 });
+    const phone = present(
+      managed.received.findLast((event) => event.type === "session_snapshot"),
+      "the phone's snapshot",
+    );
+    const desktop: SessionEvent[] = [];
+    managed.subscriptions.connect("c2", (event) => desktop.push(event as SessionEvent), "client-2");
+    await managed.manager.subscribe("c2", ["pi-session-1"]);
+    const whole = present(
+      desktop.find((event) => event.type === "session_snapshot"),
+      "the desktop's snapshot",
+    );
+
+    expect(whole.items.map((item) => item.id)).toStrictEqual(["pi-session-1:u0", "pi-session-1:u1", "pi-session-1:u2"]);
+    expect(phone).toStrictEqual({ ...whole, items: whole.items.slice(2), hasOlder: true });
+    expect(phone.stream).toBe("st-1");
   });
 });

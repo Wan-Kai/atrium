@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 27,
+    "protocolVersion": 28,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -46,6 +46,7 @@
     "epoch": 1,
     "seq": 7,
     "traceId": null,
+    "stream": "st-1",
     "items": [
       {
         "kind": "turn",
@@ -860,6 +861,12 @@
       "timestamp": 6
     },
     "before": null
+  },
+  {
+    "type": "session_resumed",
+    "sessionId": "s1",
+    "epoch": 2,
+    "seq": 40
   },
   {
     "type": "model_updated",

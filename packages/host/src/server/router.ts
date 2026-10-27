@@ -7,6 +7,8 @@ import {
   type CommandResult,
   type CommandType,
   type ErrorInfo,
+  type PromptCommand,
+  type SteerCommand,
   parseClientMessage,
 } from "@atrium/protocol";
 import { type Tracer, context, trace } from "@opentelemetry/api";
@@ -22,6 +24,7 @@ import type { SetupService } from "../setup/setup-service";
 import type { PiConfig } from "../setup/pi-config";
 import type { Connection } from "./connection";
 import { phoneMayRun } from "./remote-policy";
+import type { ReceiptBook } from "../remote/receipts";
 
 /**
  * The remote-access commands of the desktop's "手机" page (SPEC-0005, "给本机界面的命令和事件").
@@ -69,6 +72,8 @@ export interface RouterOptions {
   readonly piLatest: Pick<PiLatestService, "check">;
   /** Remote access, for the local "手机" page. */
   readonly remote: RemoteCommands;
+  /** A phone's `prompt` and `steer` run at most once per request id (SPEC-0005, "MP4b 定的细节"). */
+  readonly receipts: ReceiptBook;
   readonly tracer: Tracer;
   readonly logger: Logger;
 }
@@ -200,10 +205,12 @@ export function createRouter(options: RouterOptions): Route {
           ...(command.translationLanguage === undefined ? {} : { translationLanguage: command.translationLanguage }),
         });
       case "subscribe_sessions":
-        return options.sessions.subscribe(connection.id, command.sessionIds);
+        return options.sessions.subscribe(connection.id, command.sessionIds, command.snapshot);
       case "prompt":
-        return options.attachments.use(connection.id, command.attachmentIds ?? [], (images) =>
-          options.sessions.prompt(command, images),
+        return once(options.receipts, connection, command, () =>
+          options.attachments.use(connection.id, command.attachmentIds ?? [], (images) =>
+            options.sessions.prompt(command, images),
+          ),
         );
       case "edit_stopped_message":
         return options.attachments.use(connection.id, command.attachmentIds ?? [], (images) =>
@@ -218,8 +225,10 @@ export function createRouter(options: RouterOptions): Route {
       case "open_session":
         return options.sessions.openSession(connection.clientId, command.sessionId);
       case "steer":
-        return options.attachments.use(connection.id, command.attachmentIds ?? [], (images) =>
-          options.sessions.steer(command, images),
+        return once(options.receipts, connection, command, () =>
+          options.attachments.use(connection.id, command.attachmentIds ?? [], (images) =>
+            options.sessions.steer(command, images),
+          ),
         );
       case "stop":
         return options.sessions.stop(command.sessionId);
@@ -395,4 +404,26 @@ export function createRouter(options: RouterOptions): Route {
       connectionSpan === undefined ? [] : [{ context: connectionSpan }],
     );
   };
+}
+
+/**
+ * Runs a message command, through the phone's receipts when a phone sent it.
+ *
+ * @remarks
+ * The Mac's `requestId` is not random, so the Mac takes no receipt (SPEC-0005, "协议改动" 4).
+ *
+ * @sideEffects Whatever `execute` does; a phone's also writes its receipt.
+ * @param receipts - The phones' receipts.
+ * @param sender - The connection.
+ * @param message - The `prompt` or `steer`.
+ * @param execute - Runs it.
+ * @returns Its result.
+ */
+function once(
+  receipts: ReceiptBook,
+  sender: Connection,
+  message: PromptCommand | SteerCommand,
+  execute: () => Promise<CommandResult<"prompt"> | CommandResult<"steer">>,
+): Promise<CommandResult<"prompt"> | CommandResult<"steer">> {
+  return sender.deviceId === null ? execute() : receipts.run(sender.deviceId, message, execute);
 }

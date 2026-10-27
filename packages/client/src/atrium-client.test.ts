@@ -153,6 +153,7 @@ function event(seq: number, fields: Record<string, unknown>): string {
 function snapshot(seq: number, items: unknown[] = [], hasOlder = false): string {
   return event(seq, {
     type: "session_snapshot",
+    stream: "st-1",
     items,
     hasOlder,
     run: null,
@@ -855,6 +856,7 @@ describe("createAtriumClient: sessions", () => {
     latest().receive(
       event(3, {
         type: "session_snapshot",
+        stream: "st-1",
         items: [turn("t1")],
         hasOlder: false,
         run: { runId: "r1", startedAt: 1 },
@@ -1289,6 +1291,7 @@ async function watchingWithModel(model: unknown, fast = false) {
   setup.latest().receive(
     event(1, {
       type: "session_snapshot",
+      stream: "st-1",
       items: [],
       hasOlder: false,
       run: null,
@@ -1484,6 +1487,7 @@ describe("createAtriumClient: models", () => {
     latest().receive(
       event(3, {
         type: "session_snapshot",
+        stream: "st-1",
         items: [],
         hasOlder: false,
         run: null,
@@ -1726,6 +1730,7 @@ describe("createAtriumClient: editing a stopped message", () => {
     latest().receive(
       event(0, {
         type: "session_snapshot",
+        stream: "st-1",
         epoch: 2,
         items: [],
         hasOlder: false,
