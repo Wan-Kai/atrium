@@ -135,3 +135,17 @@ DiffLayout 接协议 DiffHunk，不自行解析 git 文本。hunk 内连续上�
 Debug `ATRIUM_GALLERY` 支持 colors/type/glass/status/cats/atoms/rail/markdown/diff，`timeline-list` / `timeline-stack` 是独立基准屏；`-reduced` / `-solid` 后缀只追加辅助功能降级，不改变系统偏好。正式 Release 没有入口。截图由 XCUITest 的 per-launch environment 产生；不要在尚未启动模拟器时用 `SIMCTL_CHILD_ATRIUM_GALLERY=... pnpm ios:shot`，这会把变量带入模拟器 launchd，后续启动仍继承旧值。
 
 尚未齐全、不能宣称与定稿完全一致的部分：表格暂以 12 行收起，不是实测 640pt/贴底收起；行内代码是 attributed background，尚非 6pt 圆角；diff 每 hunk 横滑，尚非每文件统一横滑，协议缺失的上下文需上层读取回填；完整 diff 工具条/新步骤的逐帧自动验收/子代理车道未做。超 128 KiB 代码只保留无高亮原文，图片仅 alt、公式原文。当前组件不是完整对话页面，不实现连接与发送，也不标 MP5 / MP6 完成。
+
+### iPhone 16 Pro 真机（2026-10-28）
+
+iPhone 16 Pro、iOS 26.6.1，Debug 构建（未开优化，Release 只会更快），`TEST_RUNNER_ATRIUM_TIMELINE_BENCH=1 xcodebuild test -destination id=<手机> -only-testing:AtriumUITests/GalleryScreenshotTests/testTimelineComparison`，1000 行夹具、180 次每 1/60 秒的流式增长，同一窗口连续跑：
+
+| 容器 | 帧 p95 (ms) | 帧 max (ms) | >50ms 帧 | 主 runloop 最长忙段 awakeMax (ms) | builder |
+| --- | --- | --- | --- | --- | --- |
+| List ×3 | 16.67 / 16.67 / 16.67 | 16.67 / 38.59 / 16.67 | 0 / 0 / 0 | 17.35 / 24.04 / 18.23 | 180000 |
+| LazyVStack ×3 | 16.67 / 16.67 / 16.67 | 51.81 / 44.16 / 48.37 | 1 / 0 / 0 | 38.75 / 35.05 / 33.15 | 5376–5504 |
+| 负控（注入 80ms） | 16.67 | 94.67 | 1 | 80.01 | 180000 |
+
+**结论**：负控在真机上抓到注入的 80ms（awakeMax 80.01），探针有效；`List` 三次都没有超过 50ms 的帧间隔或主 runloop 忙段，最长 24ms，满足 50 毫秒预算；`LazyVStack` 虽然 builder 少得多，忙段和最长帧反而更长，且有一次 51.81ms 的帧。模拟器上的长帧是模拟器调度所致，真机不复现。**定下继续用 `List`。** 限制照旧：awakeMax 是 runloop 区间，不是单个主线程任务的 CPU 时间；未跑 Release Instruments trace；夹具是合成回复，长时间真实会话的观感留给 MP7 自用。
+
+这台 Mac 上 `xcrun devicectl` 一启动就被系统杀掉（退出码 137，重启 `CoreDeviceService` 无效，原因未查明），所以 `pnpm ios:install` 用不了；`xcodebuild test -destination id=<手机>` 和 Xcode 的 Run 不经 `devicectl`，能装上。
