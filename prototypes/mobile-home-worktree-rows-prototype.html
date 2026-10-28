@@ -160,12 +160,12 @@ h3.t { font: 600 34px/0.9 "New York", "Iowan Old Style", Georgia, serif; letter-
 .one.ask  { background: #f7dfb8; color: #3a2610; }
 .one.low  { background: #dfe0cf; color: #262a17; }
 .one.err  { background: #f4cdc4; color: #3d1913; }
-:root[data-theme="dark"] .one { box-shadow: 0 14px 18px -12px rgba(0,0,0,.75); }
-:root[data-theme="dark"] .one.ask  { background: #3f3221; color: #f4dfbd; }
-:root[data-theme="dark"] .one.low  { background: #33342a; color: #e4e5d2; }
-:root[data-theme="dark"] .one.err  { background: #402723; color: #f6d2ca; }
+:root[data-theme="dark"] .one { box-shadow: 0 1px 1px rgba(0,0,0,.3), 0 16px 22px -12px rgba(0,0,0,.9); }
+:root[data-theme="dark"] .one.ask  { background: #c4a77c; color: #24180a; }
+:root[data-theme="dark"] .one.low  { background: #a8aa95; color: #1d2012; }
+:root[data-theme="dark"] .one.err  { background: #c2948a; color: #2a110d; }
 .one .tape { position: absolute; top: -8px; left: var(--tx); translate: -50% 0; width: 50px; height: 16px; background: rgba(255,255,255,.5); rotate: var(--ta); }
-:root[data-theme="dark"] .one .tape { background: rgba(255,255,255,.14); }
+:root[data-theme="dark"] .one .tape { background: rgba(255,255,255,.28); }
 .one .kind { font-size: 12px; font-weight: 700; display: flex; justify-content: space-between; opacity: .85; }
 .one .kind span:last-child { font-weight: 500; opacity: .8; font-variant-numeric: tabular-nums; }
 .one b { margin-top: 6px; font-size: 15.5px; font-weight: 700; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -223,7 +223,7 @@ h3.t { font: italic var(--brand-weight) var(--brand-size)/0.9 var(--brand), "Iow
 .gh small { font-size: 12px; color: var(--tint); font-weight: 600; } .gh small.q { color: var(--l2); font-weight: 500; }
 .fold { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--l2); }
 .fold b { font-weight: 500; color: var(--tint); }
-.chat-add { width: 22px; height: 22px; border-radius: 11px; display: grid; place-items: center; color: var(--tint); background: var(--tint-soft); }
+.chat-add { width: 30px; height: 30px; display: grid; place-items: center; color: var(--tint); margin-right: -4px; }
 
 /* A: two lines, 46pt — branch on top, the session that matters under it */
 .vA .grp { margin-top: 20px; } .vA .gh { height: 34px; }
@@ -368,6 +368,7 @@ const WT = [
   ] },
   { name: "dotfiles", sum: "空闲", q: true, rows: [ { br: "main", st: "new", ti: "整理 zsh 启动脚本", tm: "3 小时" } ] },
 ];
+const NEW_CHAT = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.2A2.7 2.7 0 0 1 6.7 3.5h8.6A2.7 2.7 0 0 1 18 6.2v6.1a2.7 2.7 0 0 1-2.7 2.7H10l-3.6 3c-.4.3-.9 0-.9-.4V15h0A2.7 2.7 0 0 1 4 12.3z"/><path d="M11 6.6v5.3M8.35 9.25h5.3"/></svg>`;
 const CH = [["new", "Swift 并发怎么理解", "周一"], ["", "帮我起个分支名", "上周"], ["", "读一下这篇论文", "上周"]];
 const mk2 = st => `<span class="mk2">${{ run: `<span class="spin"></span>`, new: `<span class="u"></span>`, ask: `<span class="ask"></span>`, err: `<span class="err"></span>` }[st] || `<span class="idle"></span>`}</span>`;
 const tg = r => r.tg ? `<span class="tg">${r.tg}</span>` : "";
@@ -380,7 +381,7 @@ const ROW = {
 };
 function dense(v) {
   const groups = WT.map(p => `<div class="grp"><div class="gh"><span class="chev">${CHEV}</span><h4>${p.name}</h4><small class="${p.q ? "q" : ""}">${p.sum}</small></div><div class="gb">${p.rows.map(ROW[v]).join("")}${p.merged ? `<div class="fold">另外 ${p.merged} 个已合并 <b>›</b></div>` : ""}</div></div>`).join("");
-  const chats = `<div class="grp"><div class="gh"><span class="chev">${CHEV}</span><h4>对话</h4><span class="chat-add">${SMALL_PLUS}</span></div><div class="gb">${CH.map(([k, t, tm]) => `<div class="ch">${v === "C" ? "" : mk2(k)}<span class="ell">${t}</span><span class="tm2">${tm}</span></div>`).join("")}</div></div>`;
+  const chats = `<div class="grp"><div class="gh"><span class="chev">${CHEV}</span><h4>对话</h4><span class="chat-add" aria-label="新对话">${NEW_CHAT}</span></div><div class="gb">${CH.map(([k, t, tm]) => `<div class="ch">${v === "C" ? "" : mk2(k)}<span class="ell">${t}</span><span class="tm2">${tm}</span></div>`).join("")}</div></div>`;
   return `<div class="v${v}">${groups}${chats}</div>`;
 }
 function phone(el) {
