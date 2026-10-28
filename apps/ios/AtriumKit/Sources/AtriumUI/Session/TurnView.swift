@@ -41,7 +41,9 @@ struct TurnView: View {
     let palette = Palette(scheme: scheme)
     VStack(alignment: .leading, spacing: Metrics.xs) {
       if layout.showsBubble {
-        UserBubble(text: layout.user, images: layout.images)
+        UserBubble(text: layout.user, images: layout.images) {
+          Text(TurnLayout.clock(layout.sentAt)).monospacedDigit()
+        }
       }
       if layout.showsRail {
         // Only a running turn's time ticks; a finished one is drawn once.
@@ -85,39 +87,50 @@ struct TurnView: View {
   }
 }
 
-/// Your message, as a bubble on the right.
+/// Your message, as a slip of paper on the right, with a line under it.
 ///
-/// - Remark: The prototype's `.ub`: at most 82% wide, padding 10/16, radius 20, the fill colour.
-///   Images are a small tag; MP5c brings them back from the host.
-struct UserBubble: View {
+/// - Remark: design-language "手机端 · 对话页": a `--note` slip (radius 18, 4 at the bottom right, a
+///   hairline and a faint shadow) holding only the words, at most 82% wide; under it, right-aligned,
+///   the time, or "发送中" / "没能确认是否送到 · 重发" while it is not settled. Images are a small tag.
+struct UserBubble<Under: View>: View {
   /// The text.
   let text: String
   /// How many images came with it.
   let images: Int
+  /// The line under the bubble.
+  @ViewBuilder let under: Under
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
 
   /// The bubble.
   var body: some View {
     let palette = Palette(scheme: scheme)
-    VStack(alignment: .trailing, spacing: Metrics.xxs) {
+    let slip = UnevenRoundedRectangle(
+      cornerRadii: RectangleCornerRadii(topLeading: 18, bottomLeading: 18, bottomTrailing: 4, topTrailing: 18))
+    VStack(alignment: .trailing, spacing: 4) {
       if images > 0 {
         MonoTag(text: "\(images) 张图")
       }
       if !text.isEmpty {
         Text(text)
-          .font(Typography.reply)
-          .lineSpacing(4)
+          .font(.system(size: 15.5))
+          .lineSpacing(3)
           .foregroundStyle(palette.text)
           .textSelection(.enabled)
-          .padding(.horizontal, Metrics.md)
+          .padding(.horizontal, 14)
           .padding(.vertical, 10)
-          .background(palette.fill, in: RoundedRectangle(cornerRadius: Metrics.radiusBubble))
+          .background(palette.note, in: slip)
+          .overlay(slip.strokeBorder(palette.line, lineWidth: 0.5))
+          .shadow(color: Color(red: 0.24, green: 0.16, blue: 0.04).opacity(scheme == .dark ? 0 : 0.08), radius: 5, y: 3)
       }
+      under
+        .font(.system(size: 11.5))
+        .foregroundStyle(palette.secondary)
+        .padding(.trailing, 4)
     }
     .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.82 }
     .frame(maxWidth: .infinity, alignment: .trailing)
-    .padding(.top, 10)
+    .padding(.top, 14)
   }
 }
 

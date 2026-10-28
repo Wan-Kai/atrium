@@ -116,15 +116,27 @@
     }
 
     /// The open session's snapshot: idle, on a model with a thinking level and Fast on.
-    private static let snapshot = """
-      {"type":"session_snapshot","sessionId":"s1","epoch":1,"seq":0,"traceId":null,"stream":"st-1","items":[],\
-      "hasOlder":false,"run":null,"exited":false,"control":{"queue":[],"deliveries":[],"deliveriesHeld":null,\
+    private static var snapshot: String {
+      """
+      {"type":"session_snapshot","sessionId":"s1","epoch":1,"seq":0,"traceId":null,"stream":"st-1","items":[\
+      {"kind":"turn","id":"t1","source":null,"user":{"text":"先把雷达图的配色列出来，看看现在用了几种颜色。","images":0,\
+      "clientMessageId":null,"auto":false,"command":null,"timestamp":\(now - 600_000)},"steps":[\
+      \(SampleTurns.read("1", "src/radar.ts")),\(SampleTurns.read("2", "src/RadarChart.tsx")),\
+      {"kind":"text","id":"3","text":"现在用了五种不相干的颜色：品牌渐变的蓝、青、桃、紫，加一个粉。建议改成从 `--tint` 派生的五级深米。"}],\
+      "outcome":"done","error":null,"startedAt":\(now - 600_000),"durationMs":48000,"usage":null,"changes":[]},\
+      {"kind":"turn","id":"t2","source":null,"user":{"text":"好，就这么改，图例挪到右上角。","images":0,\
+      "clientMessageId":null,"auto":false,"command":null,"timestamp":\(now - 192_000)},"steps":[\
+      \(SampleTurns.read("4", "src/radar.ts")),\(SampleTurns.edit("5", "src/radar.ts", added: 18, removed: 9)),\
+      \(SampleTurns.bash("6", "pnpm test:ui radar", "running"))],\
+      "outcome":"running","error":null,"startedAt":\(now - 192_000),"durationMs":null,"usage":null,"changes":[]}],\
+      "hasOlder":false,"run":{"runId":"r-gallery","startedAt":\(now - 192_000)},"exited":false,"control":{"queue":[],"deliveries":[],"deliveriesHeld":null,\
       "paused":null,"steers":[],"stopping":false,"restarting":false,"compacting":false,"interactions":[],\
       "question":null,"failure":null},\
       "model":{"providerId":"openai-codex","modelId":"gpt-6","thinkingLevel":"high"},"fast":true,\
       "metrics":{"turns":null,"steps":null,"tokens":null,"cost":null,"reasoning":null,"branchTokens":0,\
       "context":null,"timing":null,"children":null}}
       """
+    }
 
     /// One catalog model, as JSON.
     ///

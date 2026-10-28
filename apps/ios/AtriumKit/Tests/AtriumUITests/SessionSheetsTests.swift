@@ -81,8 +81,8 @@ struct SessionPresentTests {
 
   @Test("says a child page belongs to its parent instead of where it is")
   func childSubtitle() {
-    #expect(SessionPage.subtitle(place: "proj · main", parentTitle: nil) == "proj · main")
-    #expect(SessionPage.subtitle(place: "proj · main", parentTitle: "修缓存") == "↳ 修缓存")
+    #expect(SessionPage.subtitle(parentTitle: nil) == nil)
+    #expect(SessionPage.subtitle(parentTitle: "修缓存") == "↳ 修缓存")
   }
 
   @Test("words a dialog or question the other end answered first")

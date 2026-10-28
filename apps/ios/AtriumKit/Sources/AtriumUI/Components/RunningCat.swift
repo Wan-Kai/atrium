@@ -4,21 +4,24 @@ import SwiftUI
 ///
 /// - Remark: design-language "标志": an 18pt rounded square with the brand cat's ears and eyes,
 ///   flat colours, the eyes squashing to 12% and back over the last 8% of each 2.6 s cycle (the
-///   desktop's keyframes). It does not blink with Reduce Motion on. The colours are the brand's,
-///   the same in light and dark.
+///   desktop's keyframes). It does not blink with Reduce Motion on. The paper redesign (design-
+///   language "手机端 · 对话页") keeps the desktop's cat and only puts it on the deep beige tint.
 struct RunningCat: View {
   /// The width and height, in points.
   var size: CGFloat = 18
   /// Whether Reduce Motion is on.
   @Environment(\.atriumReduceMotion) private var reduceMotion
+  /// Light or dark.
+  @Environment(\.colorScheme) private var scheme
 
   /// The cat.
   var body: some View {
+    let tint = Palette(scheme: scheme).tint
     Canvas { graphics, canvasSize in
       let unit = canvasSize.width / 18
       graphics.scaleBy(x: unit, y: unit)
       let tile = Path(roundedRect: CGRect(x: 0, y: 0, width: 18, height: 18), cornerRadius: 5)
-      graphics.fill(tile, with: .color(BrandColor.blue.color))
+      graphics.fill(tile, with: .color(tint))
       graphics.clip(to: tile)
       graphics.fill(Self.head, with: .color(BrandColor.cream.color))
     }
@@ -69,12 +72,11 @@ struct RunningCat: View {
   }()
 }
 
-/// The brand cat's three colours (design-language "标志").
+/// The brand cat's face colours (design-language "标志").
 ///
-/// - Remark: The same in light and dark, as the brand is; the pixel cat has its own palette.
+/// - Remark: The same in light and dark, as the brand is; its tile takes the theme's tint (the
+///   paper redesign); the pixel cat has its own palette.
 enum BrandColor {
-  /// The grey-blue background, `#6c86cc`.
-  static let blue = RGBA(0x6c86cc)
   /// The cream body, `#fbf5ec`.
   static let cream = RGBA(0xfbf5ec)
   /// The ink of the features, `#1f2537`.

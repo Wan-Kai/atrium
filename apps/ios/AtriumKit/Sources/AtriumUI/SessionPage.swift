@@ -102,7 +102,11 @@ struct SessionPage: View {
         SessionDock(
           sessionId: sessionId, sync: sync, showQueue: { sheet = .queue },
           showChildren: { sheet = .children(children) }, children: children.count,
-          showModel: { sheet = .model }, toast: { toast = $0 })
+          showModel: { sheet = .model }, toast: { toast = $0 }
+        )
+        .background(alignment: .bottom) {
+          GlassEdge(edge: .bottom).frame(height: 190).ignoresSafeArea(edges: .bottom).offset(y: 34)
+        }
       }
     }
     .overlay(alignment: .top) { toastView(palette) }
@@ -196,16 +200,16 @@ struct SessionPage: View {
     }
   }
 
-  /// The top bar's second line: where the session is, or for a child the conversation it came from.
+  /// The top bar's second line, only on a child's page: the conversation it came from.
   ///
-  /// - Remark: The prototype writes "↳ 父会话标题" on a child's page.
+  /// - Remark: The paper redesign drops "项目 · 分支" and the run's state from the top bar
+  ///   (design-language "手机端 · 对话页"); a child still says "↳ 父会话标题", as the desktop's
+  ///   breadcrumb does.
   /// - SideEffects: none
-  /// - Parameters:
-  ///   - place: "项目 · 分支".
-  ///   - parentTitle: The parent's title, for a child.
-  /// - Returns: The line.
-  static func subtitle(place: String, parentTitle: String?) -> String {
-    parentTitle.map { "↳ \($0)" } ?? place
+  /// - Parameter parentTitle: The parent's title, for a child.
+  /// - Returns: The line, or `nil` for an ordinary conversation.
+  static func subtitle(parentTitle: String?) -> String? {
+    parentTitle.map { "↳ \($0)" }
   }
 
   /// The ids of what waits for an answer, to notice when it changes.
@@ -270,53 +274,53 @@ struct SessionPage: View {
     }
   }
 
-  /// The floating bar at the top: back, the title and where the session is.
+  /// The floating bar at the top: back, the centred title, settings, and how the link is.
   ///
-  /// - Remark: The prototype's top bar: a 44pt glass back button, the title (15pt semibold) and
-  ///   "项目 · 分支" (11.5pt) centred, over a fade of the page colour.
+  /// - Remark: design-language "手机端 · 对话页": 44pt glass keys on both sides, the title centred
+  ///   between them (16pt semibold, one line), nothing about the branch or the run; a child's page
+  ///   adds "↳ 父会话标题". Content passing under it is frosted (`GlassEdge`). When the link is down,
+  ///   a glass strip floats under the title (`LinkStrip`).
   /// - SideEffects: none
   /// - Parameter palette: The colours.
   /// - Returns: The bar.
   private func topBar(_ palette: Palette) -> some View {
     let summary = sync?.core.index.sessions.first { $0.sessionId == sessionId }
-    return ZStack {
-      VStack(spacing: 1) {
-        Text(summary.map(HomeList.title(of:)) ?? "")
-          .font(.system(size: 15, weight: .semibold))
-          .foregroundStyle(palette.text)
-          .lineLimit(1)
-          .accessibilityIdentifier("session.title")
-        if let summary, let index = sync?.core.index {
-          let parent = summary.parent.flatMap { parent in index.sessions.first { $0.sessionId == parent.sessionId } }
-          Text(
-            Self.subtitle(
-              place: HomeList.place(of: summary.containerId, in: index), parentTitle: parent.map(HomeList.title(of:)))
-          )
-          .font(.system(size: 11.5))
-          .foregroundStyle(palette.secondary)
-          .lineLimit(1)
+    let parent = summary?.parent.flatMap { parent in
+      sync?.core.index.sessions.first { $0.sessionId == parent.sessionId }
+    }
+    return VStack(spacing: 8) {
+      ZStack {
+        VStack(spacing: 1) {
+          Text(summary.map(HomeList.title(of:)) ?? "")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(palette.text)
+            .lineLimit(1)
+            .accessibilityIdentifier("session.title")
+          if let line = Self.subtitle(parentTitle: parent.map(HomeList.title(of:))) {
+            Text(line).font(.system(size: 11.5)).foregroundStyle(palette.secondary).lineLimit(1)
+          }
+        }
+        .padding(.horizontal, Metrics.glassButton + Metrics.md + Metrics.xs)
+        GlassCircleButton(systemImage: "chevron.left", label: "返回") { dismiss() }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.leading, Metrics.md)
+          .accessibilityIdentifier("session.back")
+        if let openSettings {
+          GlassCircleButton(systemImage: "ellipsis", label: "设置") { openSettings(sessionId) }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.trailing, Metrics.md)
+            .accessibilityIdentifier("session.settings")
         }
       }
-      .padding(.horizontal, Metrics.glassButton + Metrics.md + Metrics.xs)
-      GlassCircleButton(systemImage: "chevron.left", label: "返回") { dismiss() }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, Metrics.md)
-        .accessibilityIdentifier("session.back")
-      if let openSettings {
-        GlassCircleButton(systemImage: "ellipsis", label: "设置") { openSettings(sessionId) }
-          .frame(maxWidth: .infinity, alignment: .trailing)
-          .padding(.trailing, Metrics.md)
-          .accessibilityIdentifier("session.settings")
+      .frame(height: 50)
+      if let sync, let state = LinkStrip.state(HomeView.pill(for: sync.status)) {
+        LinkStrip(state: state)
+          .transition(.opacity.combined(with: .offset(y: -6)))
       }
     }
-    .frame(height: 56)
-    .background(
-      LinearGradient(
-        stops: [.init(color: palette.page, location: 0.8), .init(color: palette.page.opacity(0), location: 1)],
-        startPoint: .top, endPoint: .bottom
-      )
-      .padding(.bottom, -Metrics.md)
-      .ignoresSafeArea(edges: .top))
+    .background(alignment: .top) {
+      GlassEdge(edge: .top).frame(height: 128).ignoresSafeArea(edges: .top).offset(y: -60)
+    }
   }
 
   /// The line under the items for where the session stands.
@@ -366,26 +370,98 @@ struct PendingBubble: View {
   /// The bubble.
   var body: some View {
     let palette = Palette(scheme: scheme)
-    VStack(alignment: .trailing, spacing: Metrics.xxs) {
-      Text(message.text)
-        .font(Typography.reply)
-        .foregroundStyle(palette.text)
-        .padding(.horizontal, Metrics.md)
-        .padding(.vertical, Metrics.sm)
-        .background(palette.surface, in: RoundedRectangle(cornerRadius: Metrics.radiusBubble))
+    UserBubble(text: message.text, images: 0) {
       switch message.state {
       case .sending:
-        Text("发送中").font(Typography.meta).foregroundStyle(palette.tertiary)
+        Text("发送中")
       case .accepted:
         EmptyView()
       case .uncertain:
         Button(action: resend) {
-          Text("没能确认是否送到 · 重发").font(Typography.meta).foregroundStyle(palette.attnText)
+          Text("没能确认是否送到 · 重发").foregroundStyle(palette.attn)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("session.resend")
       }
     }
-    .frame(maxWidth: .infinity, alignment: .trailing)
+  }
+}
+
+/// The glass strip under a conversation's title while the link is down.
+///
+/// - Remark: design-language "手机端 · 对话页": a floating glass capsule with a spinner and
+///   "正在重连" and an ink "重试"; when the person must act, an orange dot and the reason. Hidden
+///   while connected or catching up.
+struct LinkStrip: View {
+  /// What the strip says.
+  enum State: Equatable {
+    /// Trying again by itself.
+    case reconnecting
+    /// The Mac does not answer.
+    case offline
+    /// The relay cannot be reached.
+    case relayUnreachable
+    /// The versions differ; nothing to retry.
+    case versionMismatch
+  }
+
+  /// What it says.
+  let state: State
+  /// Tries the connection again now.
+  @Environment(\.reconnectNow) private var reconnectNow
+  /// Light or dark.
+  @Environment(\.colorScheme) private var scheme
+
+  /// The strip.
+  var body: some View {
+    let palette = Palette(scheme: scheme)
+    HStack(spacing: 8) {
+      switch state {
+      case .reconnecting:
+        Spinner(size: 12, line: 1.8)
+        Text("正在重连").foregroundStyle(palette.text)
+      case .offline:
+        Circle().fill(palette.tertiary).frame(width: 7, height: 7)
+        Text("Mac 离线").foregroundStyle(palette.text)
+      case .relayUnreachable:
+        Circle().fill(palette.attn).frame(width: 7, height: 7)
+        Text("连不上 relay").foregroundStyle(palette.text)
+      case .versionMismatch:
+        Circle().fill(palette.attn).frame(width: 7, height: 7)
+        Text("版本不一致").foregroundStyle(palette.text)
+      }
+      if state != .versionMismatch, let reconnectNow {
+        Button("重试") { reconnectNow() }
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(palette.onInk)
+          .padding(.horizontal, 10)
+          .frame(height: 24)
+          .background(palette.ink, in: Capsule())
+          .buttonStyle(PressStyle())
+          .accessibilityIdentifier("session.reconnect")
+      }
+    }
+    .font(.system(size: 13))
+    .padding(.leading, 12)
+    .padding(.trailing, state == .versionMismatch || reconnectNow == nil ? 12 : 6)
+    .frame(height: 34)
+    .atriumGlass(in: Capsule())
+    .accessibilityElement(children: .combine)
+  }
+
+  /// The strip's state for how the phone is connected, or `nil` when there is nothing to say.
+  ///
+  /// - Remark: Connected and catching up say nothing.
+  /// - SideEffects: none
+  /// - Parameter pill: How the phone is connected.
+  /// - Returns: The state, or `nil`.
+  static func state(_ pill: ConnectionPill.State) -> State? {
+    switch pill {
+    case .connected, .syncing: nil
+    case .reconnecting: .reconnecting
+    case .offline: .offline
+    case .relayUnreachable: .relayUnreachable
+    case .versionMismatch: .versionMismatch
+    }
   }
 }

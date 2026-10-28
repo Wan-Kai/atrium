@@ -52,6 +52,16 @@ struct TurnLayoutTests {
     #expect(layout.failure == nil)
   }
 
+  @Test("puts the time you sent it under the bubble, as hours and minutes where the phone is")
+  func sentTime() throws {
+    let layout = TurnLayout(try layoutTurn())
+    #expect(layout.sentAt == 1)
+    let shanghai = try #require(TimeZone(identifier: "Asia/Shanghai"))
+    // 2026-10-28 01:31 UTC is 9:31 in Shanghai.
+    #expect(TurnLayout.clock(1_793_151_060_000, in: shanghai) == "9:31")
+    #expect(TurnLayout.clock(1_793_183_400_000, in: shanghai) == "18:30")
+  }
+
   @Test("counts the time so far of a running turn from when it started")
   func running() throws {
     let layout = TurnLayout(try layoutTurn(outcome: "running", steps: [bashStep], durationMs: nil))

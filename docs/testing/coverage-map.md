@@ -2031,3 +2031,5 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 外观一个按钮轮换：跟随系统 → 浅色 → 深色 → 跟随系统，按钮字和图标 | Swift `SettingsPageTests` |
 | 签名的值："还剩 N 天"、"今天到期"、"已过期" | Swift `SigningTests`"counts whole days left…" |
 | 设置页整屏（对话组、Mac、这台手机、忘掉、页脚，浅深两色） | 截图 `pnpm ios:shot --gallery=settings [--dark]`，已看过；切换对话、忘掉确认框、连不上的样子靠验收 |
+| 气泡下面的时间（"9:31"，按手机的时区）；子对话页的顶栏副标题"↳ 父会话"，普通对话没有副标题 | Swift `TurnLayoutTests`"puts the time you sent it under the bubble…"、`SessionSheetsTests`"says a child page belongs to its parent…" |
+| 对话页整屏（居中标题、纸条气泡和时间、桌面小猫换深米、扫光、两层输入框、模型按钮带 ⚡、墨色停止键，浅深两色） | 截图 `pnpm ios:shot --gallery=conversation [--dark]`，已看过；断线浮条、出错淡红块、排队和子对话数字靠验收 |
