@@ -60,6 +60,18 @@ public struct CachedSession: Codable, Sendable, Equatable {
   public var hasOlder: Bool
   /// Whether pi had exited.
   public var exited: Bool
+  /// When the run in progress started; `nil` when none was.
+  ///
+  /// The fields from here on are optional so copies written before MP5 still read.
+  public var runStartedAt: Int?
+  /// The run control.
+  public var control: Control?
+  /// The model.
+  public var model: SessionModel?
+  /// Whether fast mode was on.
+  public var fast: Bool?
+  /// The status bar's figures.
+  public var metrics: SessionMetrics?
 
   /// Makes a cached session.
   ///
@@ -73,9 +85,15 @@ public struct CachedSession: Codable, Sendable, Equatable {
   ///   - items: The items.
   ///   - hasOlder: Whether older items exist.
   ///   - exited: Whether pi had exited.
+  ///   - runStartedAt: When the run in progress started.
+  ///   - control: The run control.
+  ///   - model: The model.
+  ///   - fast: Whether fast mode was on.
+  ///   - metrics: The status bar's figures.
   public init(
     sessionId: SessionId, stream: String, epoch: Int, seq: Int, items: [TranscriptItem], hasOlder: Bool,
-    exited: Bool
+    exited: Bool, runStartedAt: Int? = nil, control: Control? = nil, model: SessionModel? = nil, fast: Bool? = nil,
+    metrics: SessionMetrics? = nil
   ) {
     self.sessionId = sessionId
     self.stream = stream
@@ -84,6 +102,11 @@ public struct CachedSession: Codable, Sendable, Equatable {
     self.items = items
     self.hasOlder = hasOlder
     self.exited = exited
+    self.runStartedAt = runStartedAt
+    self.control = control
+    self.model = model
+    self.fast = fast
+    self.metrics = metrics
   }
 }
 

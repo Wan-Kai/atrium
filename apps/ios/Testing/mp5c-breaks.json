@@ -1,0 +1,74 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Session/QuestionDraft.swift",
+    "from": "    if otherOn[index], Self.trimmed(others[index]).isEmpty { return false }\n",
+    "to": "",
+    "name": "blank other",
+    "runner": "swift",
+    "filter": "QuestionDraftTests/other"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Session/QuestionDraft.swift",
+    "from": "    selected[index] = [option]\n    otherOn[index] = false\n    return true",
+    "to": "    selected[index].insert(option)\n    otherOn[index] = false\n    return true",
+    "name": "single replaces",
+    "runner": "swift",
+    "filter": "QuestionDraftTests/single"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Session/QuestionDraft.swift",
+    "from": "QuestionAnswer(selected: selected[index].sorted(),",
+    "to": "QuestionAnswer(selected: Array(selected[index]),",
+    "name": "choices in order",
+    "runner": "swift",
+    "filter": "QuestionDraftTests/reply"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "$0.parent?.sessionId == sessionId && !$0.archived",
+    "to": "$0.parent?.sessionId == sessionId",
+    "name": "archived children",
+    "runner": "swift",
+    "filter": "HomeChildrenTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    return ids.allSatisfy { $0 != nil } ? [prompt(requestId)] : []",
+    "to": "    return [prompt(requestId)]",
+    "name": "wait for every upload",
+    "runner": "swift",
+    "filter": "SyncImagesTests/uploadsThenSends"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "        outputs += images[message.id] == nil ? [prompt(message.id)] : upload(message.id)",
+    "to": "        outputs.append(prompt(message.id))",
+    "name": "reupload on reconnect",
+    "runner": "swift",
+    "filter": "SyncImagesTests/reuploadAfterReconnect"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    if !pictures.isEmpty { draftImages[message.sessionId] = pictures + (draftImages[message.sessionId] ?? []) }\n",
+    "to": "",
+    "name": "images given back",
+    "runner": "swift",
+    "filter": "SyncImagesTests/uploadRefused"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Session/InteractionSheet.swift",
+    "from": "    let seconds = max(0, (deadline - now + 999) / 1000)",
+    "to": "    let seconds = (deadline - now) / 1000",
+    "name": "countdown",
+    "runner": "swift",
+    "filter": "SessionSheetsTests/countdown"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Session/ImageShrinker.swift",
+    "from": "      if output.length <= maxBytes { return output as Data }",
+    "to": "      return output as Data",
+    "name": "fits the limit",
+    "runner": "swift",
+    "filter": "ImageShrinkerTests/shrinks"
+  }
+]

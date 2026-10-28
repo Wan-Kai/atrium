@@ -29,7 +29,57 @@ const HISTORY = Array.from({ length: HISTORY_TURNS }, (_, index) => ({
 }));
 
 /** How many runs the contract makes: pi's entries grow by one ping and pong each. */
-const RUNS = 6;
+const RUNS = 10;
+
+/** The run that does not end on its own, so the phone can queue, steer and stop during it (MP5b). */
+const OPEN_RUN = 6;
+
+/**
+ * What pi prints for a run that goes on until it is stopped: the user message and a reply begun.
+ * @remarks `abort` then ends it (`ABORT`).
+ * @sideEffects none
+ * @param run - The run, from 1.
+ * @returns The events.
+ */
+function openTurn(run: number): object[] {
+  return pongTurn(run).slice(0, 4);
+}
+
+/** The runs that wait on a confirm dialog: the Mac answers the first, the phone the second (MP5c). */
+const DIALOG_RUNS = [8, 9];
+
+/**
+ * What pi prints for a run that asks a confirm dialog and goes on until it is stopped.
+ * @remarks The dialog's id is `c<run>`; pi ignores the answer here, as the contract only checks
+ * that both ends see it answered.
+ * @sideEffects none
+ * @param run - The run, from 1.
+ * @returns The events.
+ */
+function dialogTurn(run: number): object[] {
+  return [
+    ...openTurn(run),
+    { type: "extension_ui_request", id: `c${run}`, method: "confirm", title: "继续吗？", message: "contract" },
+  ];
+}
+
+/** pi's answer to `abort` during the open run: the reply ends aborted and the run settles. */
+const ABORT = {
+  data: {},
+  events: [
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "aborted",
+        usage: { input: 3, output: 0, cacheRead: 0, cacheWrite: 0 },
+        timestamp: OPEN_RUN * 10 + 2,
+      },
+    },
+    { type: "agent_settled", aborted: true },
+  ],
+};
 
 /**
  * What pi prints for run `run`: "ping" answered with "pong", at times of its own.
@@ -98,7 +148,10 @@ function growingRuns() {
       },
     );
     pages.push({ data: { entries: [...entries], leafId: `a${run}` } });
-    prompts.push({ data: { disposition: "started" }, events: pongTurn(run) });
+    prompts.push({
+      data: { disposition: "started" },
+      events: run === OPEN_RUN ? openTurn(run) : DIALOG_RUNS.includes(run) ? dialogTurn(run) : pongTurn(run),
+    });
   }
   return { entries: { sequence: pages }, prompt: { sequence: prompts } };
 }
@@ -310,6 +363,8 @@ export async function startFixture(signal: AbortSignal): Promise<LocalFixture> {
           get_entries: runs.entries,
           get_session_stats: UNANSWERED_STATS,
           prompt: runs.prompt,
+          steer: { data: {} },
+          abort: ABORT,
         },
       },
       "pi",
@@ -389,6 +444,17 @@ export async function startFixture(signal: AbortSignal): Promise<LocalFixture> {
           assert.equal((await owner.request({ type: "open_session", sessionId })).ok, true);
           assert.equal((await owner.request({ type: "subscribe_sessions", sessionIds: [sessionId] })).ok, true);
           return { sessionId, historyTurns: HISTORY_TURNS };
+        }
+        case "/answer": {
+          assert.ok("sessionId" in body && "interactionId" in body);
+          const answered = await owner.request({
+            type: "answer_interaction",
+            sessionId: body.sessionId,
+            interactionId: body.interactionId,
+            answer: { confirmed: true },
+          });
+          assert.equal(answered.ok, true);
+          return {};
         }
         case "/prompt": {
           assert.ok("sessionId" in body && "text" in body);

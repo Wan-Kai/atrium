@@ -25,7 +25,8 @@ func cachedSession(_ id: String, seq: Int = 3) -> CachedSession {
   guard let item = try? JSONDecoder().decode(TranscriptItem.self, from: Data(turnJSON("t1").utf8)) else {
     fatalError("fixture does not decode")
   }
-  return CachedSession(sessionId: id, stream: "st-1", epoch: 1, seq: seq, items: [item], hasOlder: true, exited: false)
+  return CachedSession(
+    sessionId: id, stream: "st-1", epoch: 1, seq: seq, items: [item], hasOlder: true, exited: false, fast: false)
 }
 
 @Suite("Sync cache")

@@ -203,15 +203,103 @@ public final class SyncModel {
     }
   }
 
+  /// Changes the images a session's input holds.
+  ///
+  /// - Remark: See ``SyncCore/setDraftImages(_:for:)``. Kept in memory only.
+  /// - SideEffects: Updates the core.
+  /// - Parameters:
+  ///   - images: The images.
+  ///   - sessionId: The session.
+  public func setDraftImages(_ images: [OutgoingImage], for sessionId: SessionId) {
+    core.setDraftImages(images, for: sessionId)
+  }
+
+  /// Makes a new session and sends its first message.
+  ///
+  /// - Remark: See ``SyncCore/startSession(in:chat:text:images:)``.
+  /// - SideEffects: Queues the command.
+  /// - Parameters:
+  ///   - container: The workspace, or `nil` for a chat.
+  ///   - text: The first message.
+  public func startSession(in container: ContainerId?, text: String) {
+    enqueue(core.startSession(in: container, chat: container == nil, text: text, images: []))
+  }
+
+  /// Asks for the models a workspace's sessions can use.
+  ///
+  /// - Remark: See ``SyncCore/listModels(workspaceId:refresh:)``.
+  /// - SideEffects: Queues the command.
+  /// - Parameters:
+  ///   - workspaceId: The workspace, or `nil` for a chat.
+  ///   - refresh: Whether pi lists them again.
+  public func listModels(workspaceId: WorkspaceId?, refresh: Bool) {
+    enqueue(core.listModels(workspaceId: workspaceId, refresh: refresh))
+  }
+
+  /// Watches the changes of the workspaces shown.
+  ///
+  /// - Remark: See ``SyncCore/watchChanges(_:)``.
+  /// - SideEffects: Queues the command.
+  /// - Parameter workspaceIds: The workspaces.
+  public func watchChanges(_ workspaceIds: [WorkspaceId]) {
+    enqueue(core.watchChanges(workspaceIds))
+  }
+
+  /// Opens the change list's diff, or closes it.
+  ///
+  /// - Remark: See ``SyncCore/watchDiff(_:)``.
+  /// - SideEffects: Queues the command.
+  /// - Parameter target: The workspace and mode, or `nil`.
+  public func watchDiff(_ target: DiffTarget?) {
+    enqueue(core.watchDiff(target))
+  }
+
   /// Sends a session's input.
   ///
-  /// - Remark: See ``SyncCore/send(_:)``.
+  /// - Remark: See ``SyncCore/send(_:steer:)``.
+  /// - SideEffects: Queues the command.
+  /// - Parameters:
+  ///   - sessionId: The session.
+  ///   - steer: Whether to send it as a steer ("立即插话").
+  public func send(_ sessionId: SessionId, steer: Bool = false) {
+    guard status == .connected else { return }
+    enqueue(core.send(sessionId, steer: steer))
+    saveDrafts()
+  }
+
+  /// Asks something of a session's run.
+  ///
+  /// - Remark: See ``SyncCore/perform(_:in:)``.
+  /// - SideEffects: Queues the command.
+  /// - Parameters:
+  ///   - action: The action.
+  ///   - sessionId: The session.
+  /// - Returns: Whether it was sent: not while disconnected or before the sync.
+  @discardableResult
+  public func perform(_ action: SessionAction, in sessionId: SessionId) -> Bool {
+    guard status == .connected else { return false }
+    let outputs = core.perform(action, in: sessionId)
+    enqueue(outputs)
+    return !outputs.isEmpty
+  }
+
+  /// Forgets why the last action on a session failed.
+  ///
+  /// - Remark: See ``SyncCore/dismissActionProblem(in:)``.
+  /// - SideEffects: Updates the core.
+  /// - Parameter sessionId: The session.
+  public func dismissActionProblem(in sessionId: SessionId) {
+    core.dismissActionProblem(in: sessionId)
+  }
+
+  /// Clears a session's error once its page shows it.
+  ///
+  /// - Remark: See ``SyncCore/clearAttention(_:)``.
   /// - SideEffects: Queues the command.
   /// - Parameter sessionId: The session.
-  public func send(_ sessionId: SessionId) {
+  public func clearAttention(_ sessionId: SessionId) {
     guard status == .connected else { return }
-    enqueue(core.send(sessionId))
-    saveDrafts()
+    enqueue(core.clearAttention(sessionId))
   }
 
   /// Sends an uncertain message again, as a new one.
@@ -253,8 +341,8 @@ public final class SyncModel {
           try await connection.send(data, generation: generation)
         } catch {
           // A message that never left goes back to its input (SPEC-0005 "MP4b 定的细节").
-          if case .prompt(let prompt) = command {
-            core.notWritten(prompt.requestId)
+          if let message = Self.messageId(of: command) {
+            core.notWritten(message)
             saveDrafts()
           }
         }
@@ -263,6 +351,37 @@ public final class SyncModel {
       }
     }
   }
+
+  /// The message a command sends, if it sends one.
+  ///
+  /// - Remark: `prompt` and `steer` carry the message's request id; an upload its own, which the
+  ///   core maps to its message.
+  /// - SideEffects: none
+  /// - Parameter command: The command.
+  /// - Returns: The request id.
+  private static func messageId(of command: Command) -> RequestId? {
+    switch command {
+    case .prompt(let prompt): prompt.requestId
+    case .steer(let steer): steer.requestId
+    case .uploadAttachment(let upload): upload.requestId
+    default: nil
+    }
+  }
+
+  #if DEBUG
+    /// Replaces the core and the status with ready-made ones, for the design gallery.
+    ///
+    /// - Remark: Debug builds only. The gallery has no Mac to sync with, so it feeds a core the host
+    ///   JSON itself and puts it here; the connection is never started, so nothing is sent.
+    /// - SideEffects: Replaces the core and the status.
+    /// - Parameters:
+    ///   - core: The core, already synced.
+    ///   - status: How the connection stands.
+    func adopt(core: SyncCore, status: ConnectionStatus) {
+      self.core = core
+      self.status = status
+    }
+  #endif
 
   /// Queues outputs for ``carryOut()``.
   ///

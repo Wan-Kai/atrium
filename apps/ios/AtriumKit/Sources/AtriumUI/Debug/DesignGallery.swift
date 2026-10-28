@@ -9,7 +9,10 @@
   ///   (`TEST_RUNNER_ATRIUM_GALLERY_SHOTS=1 pnpm test:ios`). Sample words only, no real projects.
   public struct DesignGallery: View {
     /// The sections, in order; each name is what `ATRIUM_GALLERY` takes.
-    public static let sections = ["colors", "type", "glass", "status", "cats", "atoms", "rail", "markdown", "diff"]
+    public static let sections = [
+      "colors", "type", "glass", "status", "cats", "atoms", "rail", "markdown", "diff", "conversation", "files",
+      "models",
+    ]
 
     /// The section to show alone, or every section.
     let section: String
@@ -31,7 +34,11 @@
       forcedSolid = section.hasSuffix("-solid")
       let base = forcedReduced ? String(section.dropLast(8)) : forcedSolid ? String(section.dropLast(6)) : section
       self.section =
-        (Self.sections + ["timeline-list", "timeline-stack", "timeline-control", "timeline-check"]).contains(base)
+        (Self.sections + [
+          "timeline-list", "timeline-stack", "timeline-control", "timeline-check", "diff-page", "new-session",
+          "location-sheet", "new-session-missing", "model-sheet", "drawer",
+        ])
+        .contains(base)
         ? base : "all"
     }
 
@@ -45,7 +52,23 @@
     /// Chooses the gallery or the standalone benchmark container.
     @ViewBuilder private var content: some View {
       #if os(iOS)
-        if section == "timeline-check" {
+        if section == "diff-page" {
+          NavigationStack { DiffPage(route: GalleryDiff.route) }
+        } else if section == "new-session" {
+          NavigationStack { NewSessionPage(route: NewSessionRoute(container: nil)) }
+        } else if section == "location-sheet" {
+          LocationSheet(sync: GallerySync.model(missing: true), picked: "w2") { _ in }
+        } else if section == "new-session-missing" {
+          NavigationStack { NewSessionPage(route: NewSessionRoute(container: GallerySync.missingWorkspace)) }
+            .environment(GallerySync.model(missing: true, modelsFor: GallerySync.missingWorkspace))
+        } else if section == "model-sheet" {
+          ModelSheet(sessionId: GallerySync.openSession, sync: GallerySync.model(modelsFor: "w1"))
+        } else if section == "drawer" {
+          Drawer(sync: GallerySync.model()) {}
+            .environment(
+              \.pairingDetails,
+              PairingDetails(relay: "relay.example.net", deviceName: "Kai 的 iPhone", appVersion: "0.1.0"))
+        } else if section == "timeline-check" {
           GalleryTimelineInteraction()
         } else if section.hasPrefix("timeline-") {
           GalleryTimeline(stack: section == "timeline-stack", stallControl: section == "timeline-control")

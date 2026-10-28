@@ -10,6 +10,16 @@
     /// Whether lines wrap.
     @State private var wrap = false
 
+    /// The page sample: the prototype's change, a renamed file and a binary one.
+    static var route: DiffRoute {
+      let file = { (path: String, content: DiffFile.Content, hunks: [DiffHunk]) in
+        DiffFile(
+          path: path, oldPath: nil, status: .modified, added: 13, removed: 6, content: content, hunks: hunks)
+      }
+      return DiffRoute(
+        files: [file("src/cache/ttl.ts", .text, hunks), file("assets/radar.png", .binary, [])], place: 0)
+    }
+
     /// The diff.
     var body: some View {
       VStack(alignment: .leading, spacing: Metrics.sm) {

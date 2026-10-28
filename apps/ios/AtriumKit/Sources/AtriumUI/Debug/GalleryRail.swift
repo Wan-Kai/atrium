@@ -23,9 +23,9 @@
       let summary = RailRows.summary(SampleTurns.finished)
       VStack(alignment: .leading, spacing: Metrics.lg) {
         ProcessRailView(
-          rows: finished.rows, running: false, duration: "48 秒", summary: summary, expanded: $open)
+          rows: finished.rows, running: false, duration: "用时 48 秒", summary: summary, expanded: $open)
         ProcessRailView(
-          rows: finished.rows, running: false, duration: "48 秒", summary: summary, expanded: $folded)
+          rows: finished.rows, running: false, duration: "用时 48 秒", summary: summary, expanded: $folded)
         ProcessRailView(
           rows: runningRows, running: true, duration: "1:12", summary: [], expanded: $runningOpen)
         Button("加一步") { added += 1 }

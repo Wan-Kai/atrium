@@ -39,6 +39,7 @@ let package = Package(
     .target(
       name: "AtriumUI",
       dependencies: ["AtriumProtocol", "AtriumRemote", "AtriumSync", "AtriumRender"],
+      resources: [.copy("Resources/file-icons.json"), .copy("Resources/brand")],
       swiftSettings: mainActor
     ),
     .testTarget(

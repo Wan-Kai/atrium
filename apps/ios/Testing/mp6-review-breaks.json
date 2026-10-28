@@ -1,0 +1,81 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/SessionPage.swift",
+    "from": "    child == nil && changes == nil",
+    "to": "    child == nil",
+    "name": "change list push closes the session",
+    "runner": "swift",
+    "filter": "SessionPresentTests/staysUnderPush"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    if workspaceId != modelsWorkspace { models = nil }\n",
+    "to": "",
+    "name": "catalog kept across places",
+    "runner": "swift",
+    "filter": "SyncModelsTests/place"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "      case .models? where success.requestId == modelsRequest:",
+    "to": "      case .models?:",
+    "name": "late catalog answer kept",
+    "runner": "swift",
+    "filter": "SyncModelsTests/place"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "      missingContainers = []\n",
+    "to": "",
+    "name": "missing mark outlives connection",
+    "runner": "swift",
+    "filter": "SyncStartTests/reconnect"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    if !again {",
+    "to": "    if true {",
+    "name": "missing mark dropped on foreground",
+    "runner": "swift",
+    "filter": "SyncStartTests/reconnect"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "    recentContainer(in: index).flatMap { openWorkspaces(in: index).contains($0) ? $0 : nil }",
+    "to": "    recentWorkspaces(in: index, limit: 1).first",
+    "name": "home plus skips a latest chat",
+    "runner": "swift",
+    "filter": "HomeLayoutTests/recentWorkspaces"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "index.sessions.filter({ !$0.archived && $0.parent == nil })",
+    "to": "index.sessions",
+    "name": "archived sessions count as recent",
+    "runner": "swift",
+    "filter": "HomeLayoutTests/recentWorkspaces"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Models/ModelChoice.swift",
+    "from": "  var rowId: String { \"\\(providerId)\\u{0}\\(modelId)\" }",
+    "to": "  var rowId: String { modelId }",
+    "name": "row id ignores provider",
+    "runner": "swift",
+    "filter": "ModelChoiceTests/rowIds"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Home/HomeParts.swift",
+    "from": "    case nil: \"正在读取改动…\"",
+    "to": "    case nil: \"没有未提交的改动\"",
+    "name": "unknown changes read as clean",
+    "runner": "swift",
+    "filter": "HomeViewTests"
+  },
+  {
+    "file": "scripts/ios-file-icons.mjs",
+    "from": "  if (strokes) return null;\n",
+    "to": "",
+    "test": "scripts/ios-file-icons.test.ts",
+    "name": "keeps the committed icons in step"
+  }
+]

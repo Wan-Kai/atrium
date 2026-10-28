@@ -1898,3 +1898,116 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 破坏检查：TS `packages/host/src/sync/mp4-review-break-check.json`、Swift `apps/ios/Testing/sync-review-breaks.json`，全部抓到。
 - 记为已知、未改：pi 崩溃重启时宿主重发了原消息、而旧 pi 的应答随后以 `pi_rejected` 失败，手机会把文字退回输入框（桌面同样的语义；转录里出现该 `clientMessageId` 后仍记为送到）。下行丢应答的契约里，重连后的快照 / 续传已包含这条轮次，手机按"已送到"收掉，不会走到同 id 重试；同 id 重试由回执应答的路径由宿主 e2e `phone-sync.host.test.ts` 覆盖。
 - 第三方（grok）审查后再补：打开会话算"用过"，淘汰按最久没打开（`SyncCacheTests/pruneByOpening`）；已接受但快照里还没有轮次的消息在 10 分钟内保留（`SyncOutboxTests/letGo`）；回执里读不出的成功应答回 `outcome_unknown`（`receipts.test.ts`）。grok 另报"取消 `.task` 时 `for await` 等 `AsyncStream` 会卡住、旧连接停不下来"，经实测 `AsyncStream` 在消费任务被取消时立即结束，`SyncModelTests/cache` 也覆盖取消后 `run()` 返回，判为不成立、未改。
+
+## MP5a 对话本身（SPEC-0005"MP5 定的细节"，2026-10-28，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 会话状态记下快照和事件里的 `control`、`model`、`fast`、`metrics`、运行开始时间，`run_settled` / 退出清掉；缓存副本带上它们，旧副本照样能读 | `SessionStateControlTests`、`SyncCacheTests` |
+| 一轮的版式：气泡（宿主代发的不显示）、过程行、回复、摘要；运行中按开始时间计时（`m:ss` / `h:mm:ss`）；停止 / 出错的标题；pi 的错误原文；改动的文件数和增删行 | `TurnLayoutTests` |
+| 会话页用 `TurnView`（轨道运行中展开、结束 1 秒后收起、Markdown 流式回复、长按复制、改动行）和顶栏"项目 · 分支" | 截图 `pnpm ios:shot --gallery=conversation`（模拟器）；真机性能和逐项视觉对照交给用户验收 |
+
+- 未覆盖：时间线仍是 `LazyVStack`，`List` 与 `LazyVStack` 的取舍要等真机性能数据；50 毫秒卡顿预算未测。
+
+## MP5b 运行控制（SPEC-0005"MP5 定的细节"，2026-10-28，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 插话走回执、以 `steer` 发、宿主接了就收掉、断线后以 `steer` 重试一次；停止 / 继续发送 / 清空 / 删除 / 改成插话 / 编辑 / 重试 / 继续送达各发对应命令且带上条目和文字；没同步或会话没开不发；动作失败记下原因直到关掉或下一次动作；页面显示时清除未清的 `error` 关注（`auth`、已清的不发，请求在路上不重发） | `SyncControlTests` |
+| 输入框占位（离线 / 提问中 / 运行中 / 空闲）、停止键（运行中或停止在路上，停止在路上时转圈）、长按插话只在运行中、横幅（停止 / 崩溃且排队非空、送达暂停）、排队数、崩溃失败文案、正在重启、动作失败的文字 | `SessionControlsTests` |
+| Swift 契约：Mac 开着一次不结束的运行，手机发的消息进宿主排队、插话交给 pi、停止后排队暂停、"继续发送"放出排队那条并跑完 | `run.mjs --sync-contract` |
+| 出错卡片（这一轮出错 / pi 连续崩溃）的样子，浅色和深色 | 截图 `pnpm ios:shot --gallery=conversation [--dark]` |
+
+- 破坏检查：`apps/ios/Testing/mp5b-breaks.json`，全部抓到。
+- 未覆盖：排队 sheet、长按菜单、横幅、toast 的界面只在模拟器上编译通过，没有截图或 UI 测试（要真实数据），交给用户验收时逐项看。
+
+## MP5c 提问、对话框、子对话、图片（SPEC-0005"MP5 定的细节"，2026-10-28，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 提问的选择：单选替换并跳下一题、多选切换、"其他"有字才算答、全部答完才有回答、选项按序、其他去掉首尾空白 | `QuestionDraftTests` |
+| 回答提问和对话框发对应命令；子对话按父会话列出、最近更新在前、不含归档；对话框倒计时；子对话角色名和状态；等待回答的 id（提问在前） | `SyncControlTests/answers`、`HomeChildrenTests`、`SessionSheetsTests` |
+| 图片：逐张上传、全部拿到 id 再带 `attachmentIds` 发；只有图片也能发；上传被拒退回文字和图片；重连后重传再发、同一 `requestId` | `SyncImagesTests` |
+| 图片缩到长边 2048、JPEG 不超过 750,000 字节（base64 不超过 1,000,000 字符）、小图保持原尺寸、不是图片的放弃 | `ImageShrinkerTests` |
+| Swift 契约：对话框 Mac 先答，手机上随之消失；手机答的宿主接受；带一张图的消息经真实宿主上传后发出 | `run.mjs --sync-contract` |
+
+- 破坏检查：`apps/ios/Testing/mp5c-breaks.json`，全部抓到。
+- 未覆盖：提问 sheet、对话框 sheet、子对话 sheet、提问卡片、照片选择器只在 iOS 模拟器编译通过，没有截图或 UI 测试；ask_user 的"两端同时回答"在契约里用扩展对话框验证（同一机制：宿主先到先得、`control` 里那一项消失），ask_user 本身只有单元测试；契约的 pi 不回显图片，轮次里的图片数没有验证（宿主若不认附件 id 会拒绝，契约检查了没有拒绝）。
+
+## MP5 只读审查后补（2026-10-28）
+
+| 行为 | 测试 |
+|---|---|
+| 有提问时输入框发出走 `steer`；上传后消息没写出 / 上传没写出，文字和图片一起退回；自动重试的上传被拒标"不确定"；不确定的带图消息重发时重新上传；关闭页面后迟到的动作失败不再显示 | `SyncMP5ReviewTests` |
+| 自动弹出：提问先、再最早的对话框，各一次，同步完成前不弹；子对话副标题；"已在别处回答" | `SessionPresentTests` |
+| Swift 契约：插话进了宿主的 `control.steers`；Mac 先答之后手机再答，宿主回 `interaction_closed` | `run.mjs --sync-contract` |
+
+- 破坏检查：`apps/ios/Testing/mp5-review-breaks.json`，全部抓到。
+- 记为已知、未改：排队时的"+1"浮字；"正在重启 pi"放在对话末尾而不是标题行；动作失败的 toast 在打开的 sheet 下面看不到；提问卡片重新打开时之前的选择不保留；子对话 sheet 打开期间不随列表更新；倒计时和计时用手机时钟对宿主时间戳；没有提问的 `ask_user` 契约（扩展对话框走同一机制）。
+
+## MP6a 改动列表和 diff（SPEC-0005"MP6 定的细节"，2026-10-28，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 同步核心：看得见的工作区 `watch_changes`（整组发、相同不重发、只收看着的）、一次一个 `watch_diff`（只收对应的、换目标清掉旧的、`null` 关掉）、重连后重发 | `SyncChangesTests` |
+| 改动列表：按种类计数（改名算修改）、合计行数、按目录分组（根目录在最后）、按改动量排、筛选、"2.2k"缩写、改名写"旧 → 新" | `ChangeListTests` |
+| 文件图标：同桌面的查找（全名、最长扩展名、浅色变体、找不到用通用图标）、表里每个图标都能画、SVG 路径（直线、曲线、平滑曲线、二次、圆弧和连写的标志、读不了的放弃） | `FileIconTests`、`SVGPathTests` |
+| 图标资源和桌面的表一致（`--check`）、继承 `<svg>` 的 `fill="none"` | `scripts/ios-file-icons.test.ts`，并在 `pnpm check`（`ios:check`）里 |
+| diff 页和文件图标的样子 | 截图 `pnpm ios:shot --gallery=diff-page`、`--gallery=files` |
+
+- 未覆盖：改动列表页本身没有截图（要真实同步数据）；hunk 跳转后的那一下闪色没做；契约没有覆盖 `watch_diff`（宿主侧已有测试）。
+
+## MP6b 首页、工作区页、抽屉、空状态、签名（SPEC-0005"MP6 定的细节"，2026-10-28，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 每个工作区首页显示 3 个（问你 > 出错 > 运行 > 其余，同级按新到旧）和"还有 N 个"；本地 / worktree；已合并；对话最多 5 个；最近更新的会话所在位置（不算归档和子对话） | `HomeLayoutTests` |
+| 工作区小签（已合并优先；未提交 · ↑N） | `WorkspaceTagTests` |
+| 签名到期：从描述文件的签名外壳里读出 `ExpirationDate`、读不出时没有；剩几天、今天到期、已过期；剩 1 天及以内提醒 | `SigningTests` |
+| 抽屉：外观跟随所选或系统；主机状态文案 | `DrawerTests` |
+
+- 破坏检查：`apps/ios/Testing/mp6b-breaks.json`，全部抓到。
+- 未覆盖：首页、工作区页、抽屉、空状态的界面没有截图（要真实的配对和数据），"忘掉这台 Mac"的清理（钥匙串、缓存）没有自动测试，交给用户验收时逐项看。
+
+## MP6c 模型 sheet（SPEC-0005"MP6 定的细节"，2026-10-28，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 同步核心：同步后才 `list_models`、带工作区和刷新、保留目录和默认模型；`set_model` / `set_thinking_level` / `set_fast` | `SyncModelsTests` |
+| 档位名和说明同桌面（最高一档总是"最慢最贵"、只有关闭的"这个模型不推理"）、点阵覆盖、token 缩写、服务商名和图标文件、总走套餐的服务商、按服务商分组保持顺序、Fast 说明、模型胶囊文字、换模型后保留档位（没有就"高"，再没有就最高） | `ModelChoiceTests` |
+| 服务商图标、点阵推理强度框（中档、最高档的品牌渐变、只有一档时不可拖）的样子 | 截图 `pnpm ios:shot --gallery=models` |
+
+- 服务商图标由 `scripts/ios-brand-icons.mjs` 从桌面的 `packages/ui/src/design/brand` 用 Chromium 画成 96px PNG 后提交；脚本要 Playwright 的浏览器，没有放进 `pnpm check`。
+- 破坏检查：`apps/ios/Testing/mp6c-breaks.json`，全部抓到。
+- 未覆盖：模型 sheet 整体没有截图（要真实同步数据），拖动的橡皮筋和弹簧吸附没有做（点或拖到哪一档就是哪一档）。
+
+## MP6d 新会话（SPEC-0005"MP6 定的细节"，2026-10-28，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 同步核心：同步后才新建、一次一个、先 `create_session` / `create_chat` 再订阅打开、发 `prompt` 带回执；`workspace_not_found` / `session_cwd_missing` 把工作区标成找不到；断线时结果不明 | `SyncStartTests` |
+| 提示句（分支、对话、找不到）；选位置 sheet 按项目列工作区、不列已合并的 | `NewSessionTests` |
+| 最近 3 个位置：按会话最近更新、每个工作区一次、不含对话和已合并的；首页 `+` 的默认位置取第一个 | `HomeLayoutTests/recentWorkspaces` |
+| 新会话页（猫、提示句、位置胶囊、输入框）的样子 | 截图 `pnpm ios:shot --gallery=new-session [--dark]` |
+
+- 破坏检查：`apps/ios/Testing/mp6d-breaks.json`，7 处全部抓到。
+- 未覆盖：新会话页第一版不带图片；发出后原地变成会话页、选位置 sheet、找不到工作区的橙色胶囊没有 UI 测试或截图（要真实同步数据），留给验收时在真机上看。
+
+## MP6 审查（codex gpt-6-astra、grok grok-4.7，2026-10-28）
+
+| 行为 | 测试 |
+|---|---|
+| 从会话页的"改了 N 个文件"推出改动列表时，会话页不关闭、不退订（同打开子对话） | `SessionPresentTests/staysUnderPush` |
+| 模型目录只属于最后问的那个位置：换位置立刻清空，旧位置迟到的应答丢掉；页面在同步完成后再问一次 | `SyncModelsTests/place` |
+| "在 Mac 上找不到"标记和上次新建失败只活一个连接：新连接清掉，回到前台（同一连接）不清 | `SyncStartTests/reconnect` |
+| 新会话第一条消息被拒：会话留下，文字退回这个会话的输入框 | `SyncStartTests/promptRefused` |
+| 首页 `+` 的位置：最近更新的会话所在工作区，那个会话在对话里就是新对话；最近位置不算归档的会话 | `HomeLayoutTests/recentWorkspaces` |
+| 模型搜索结果按服务商 + 模型 id 区分行 | `ModelChoiceTests/rowIds` |
+| Fast 说明没有倍数时也带"，额度消耗增加"（同桌面） | `ModelChoiceTests/fastAndPill` |
+| 改动行在第一次 `changes_updated` 之前写"正在读取改动…"，不说没有改动 | `HomeViewTests` |
+| 带描边的文件图标不画（会缺一块），退回通用图标 | `scripts/ios-file-icons.test.ts` |
+
+- 破坏检查：`apps/ios/Testing/mp6-review-breaks.json`，10 处全部抓到。
+- 用样例同步数据截图（经真的 `SyncCore.receive`）：`pnpm ios:shot --gallery=location-sheet|new-session-missing|model-sheet|drawer [--dark]`，已逐张看过。
+- 没有自动测试、靠验收看：抽屉里的 relay、手机名、版本和"重新配对"；忘掉 Mac 清理失败时的提示；新建进行中不能点"×"；新会话页的失败提示只显示本页发起的。
+- 审查里决定不改的：hunk 之间的上下文不展开（协议没有按版本取内容的命令，SPEC 已写明）；签名到期用 `Date.now`（按天显示，`Signing` 本身接受注入的时间，界面层不另做时钟）；`ios-brand-icons.mjs` 不进 `pnpm check`（要 Playwright 的浏览器）。

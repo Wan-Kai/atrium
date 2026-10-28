@@ -229,3 +229,76 @@ struct SessionStateResumeTests {
     #expect(!empty.resuming)
   }
 }
+
+@Suite("Session state: run control")
+struct SessionStateControlTests {
+  /// The run control with one queued message, as JSON.
+  static let queuedControlJSON = controlJSON.replacingOccurrences(
+    of: #""queue":[]"#, with: #""queue":[{"id":"q1","text":"next","createdAt":5,"images":0}]"#)
+
+  @Test("takes control, model, fast, metrics and the run from a snapshot")
+  func fromSnapshot() {
+    let json = snapshotJSON(seq: 2)
+      .replacingOccurrences(of: controlJSON, with: Self.queuedControlJSON)
+      .replacingOccurrences(of: #""run":null"#, with: #""run":{"runId":"run1","startedAt":40}"#)
+      .replacingOccurrences(
+        of: #""model":null,"fast":false"#,
+        with: #""model":{"providerId":"openai","modelId":"gpt-6","thinkingLevel":"high"},"fast":true"#)
+    var state = SessionState(sessionId: "s1")
+    #expect(state.control == nil)
+    #expect(state.apply(event(json)) == .applied)
+    #expect(state.control?.queue.map(\.id) == ["q1"])
+    #expect(state.model?.modelId == "gpt-6")
+    #expect(state.fast)
+    #expect(state.metrics?.branchTokens == 0)
+    #expect(state.runStartedAt == 40)
+    #expect(state.running)
+  }
+
+  @Test("follows control, model, fast, metrics and runs as they change")
+  func updates() {
+    var state = readyState(seq: 0, items: [])
+    let control =
+      #"{"type":"control_updated","sessionId":"s1","epoch":1,"seq":1,"traceId":null,"control":\#(Self.queuedControlJSON)}"#
+    #expect(state.apply(event(control)) == .applied)
+    #expect(state.control?.queue.count == 1)
+    let model =
+      #"{"type":"model_updated","sessionId":"s1","epoch":1,"seq":2,"traceId":null,"model":{"providerId":"openai","modelId":"gpt-6","thinkingLevel":"low"}}"#
+    #expect(state.apply(event(model)) == .applied)
+    #expect(state.model?.thinkingLevel == .low)
+    #expect(
+      state.apply(event(#"{"type":"fast_updated","sessionId":"s1","epoch":1,"seq":3,"traceId":null,"fast":true}"#))
+        == .applied)
+    #expect(state.fast)
+    let metrics =
+      #"{"type":"metrics_updated","sessionId":"s1","epoch":1,"seq":4,"traceId":null,"metrics":\#(metricsJSON.replacingOccurrences(of: #""branchTokens":0"#, with: #""branchTokens":7"#))}"#
+    #expect(state.apply(event(metrics)) == .applied)
+    #expect(state.metrics?.branchTokens == 7)
+    #expect(
+      state.apply(
+        event(#"{"type":"run_started","sessionId":"s1","epoch":1,"seq":5,"traceId":null,"runId":"r","startedAt":90}"#))
+        == .applied)
+    #expect(state.runStartedAt == 90)
+    #expect(
+      state.apply(
+        event(
+          #"{"type":"run_settled","sessionId":"s1","epoch":1,"seq":6,"traceId":null,"runId":"r","outcome":"completed","settledAt":99}"#
+        )) == .applied)
+    #expect(state.runStartedAt == nil)
+    #expect(!state.running)
+  }
+
+  @Test("keeps control, model, fast, metrics and the run in its cached copy")
+  func cached() throws {
+    let json = snapshotJSON(seq: 2).replacingOccurrences(of: controlJSON, with: Self.queuedControlJSON)
+      .replacingOccurrences(of: #""run":null"#, with: #""run":{"runId":"run1","startedAt":40}"#)
+    var state = SessionState(sessionId: "s1")
+    _ = state.apply(event(json))
+    let copy = try #require(state.cached)
+    let restored = SessionState(cached: copy)
+    #expect(restored.control == state.control)
+    #expect(restored.metrics == state.metrics)
+    #expect(restored.runStartedAt == 40)
+    #expect(restored.running)
+  }
+}

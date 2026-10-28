@@ -5,10 +5,11 @@ import SwiftUI
 
 /// The first screen: the serif title, the connection pill, and the sessions to open.
 ///
-/// - Remark: MP4a's simple rows (SPEC-0005 "MP4a 定的细节 · 界面"): "等你处理", then each project's
-///   workspaces with their sessions, then the chats' sessions. The full layout, folding and
-///   "还有 N 个" come in MP6. Without a connection yet it says so. Colours and the serif title
-///   follow design-language "手机端".
+/// - Remark: SPEC-0005 "MP6 定的细节 · MP6b" after the final prototype: the menu key (which opens the
+///   drawer), the 40pt serif title and the connection pill; "等你处理"; each project under its
+///   serif title, folding, with "N 在跑"; its workspaces under small titles with their tags, three
+///   sessions each and "还有 N 个"; the chats, five and "显示全部 N 个"; the pixel cat when there is
+///   nothing. Without a connection yet it says so. The workspaces shown are watched for changes.
 public struct HomeView: View {
   /// The title shown at the top.
   public static let title = "Atrium"
@@ -17,6 +18,14 @@ public struct HomeView: View {
   @Environment(SyncModel.self) private var sync: SyncModel?
   /// Whether the screen is light or dark, which picks the colours.
   @Environment(\.colorScheme) private var scheme
+  /// The projects folded away.
+  @State private var folded: Set<ProjectId> = []
+  /// Whether every chat shows.
+  @State private var allChats = false
+  /// Whether the drawer is open.
+  @State private var drawer = false
+  /// The appearance chosen in the drawer: "system", "light" or "dark".
+  @AppStorage("appearance") private var appearance = "system"
 
   /// Makes the screen.
   ///
@@ -31,8 +40,10 @@ public struct HomeView: View {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 0) {
           Text(Self.title)
-            .font(.system(size: 34, weight: .semibold, design: .serif))
+            .font(.system(size: 40, design: .serif))
+            .tracking(-0.3)
             .foregroundStyle(palette.text)
+            .padding(.top, Metrics.glassButton + Metrics.xs)
             .accessibilityIdentifier("home.title")
           if let sync {
             ConnectionPill(state: Self.pill(for: sync.status), hostName: sync.hostName)
@@ -56,9 +67,56 @@ public struct HomeView: View {
         .padding(.top, Metrics.lg)
       }
       .background(palette.page.ignoresSafeArea())
+      .overlay(alignment: .topLeading) {
+        GlassCircleButton(systemImage: "line.3.horizontal", label: "菜单", badge: Self.warns(sync)) { drawer = true }
+          .padding(.leading, Metrics.md)
+          .accessibilityIdentifier("home.menu")
+      }
+      .overlay(alignment: .bottomTrailing) {
+        if let sync, sync.core.index.ready {
+          NewSessionKey(
+            route: NewSessionRoute(container: HomeList.newSessionPlace(in: sync.core.index)))
+        }
+      }
       .hidingNavigationBar()
       .navigationDestination(for: SessionId.self) { SessionPage(sessionId: $0) }
+      .navigationDestination(for: NewSessionRoute.self) { NewSessionPage(route: $0) }
+      .navigationDestination(for: ChangesRoute.self) { ChangesPage(workspaceId: $0.workspaceId) }
+      .navigationDestination(for: WorkspaceRoute.self) { WorkspacePage(workspaceId: $0.workspaceId) }
+      .task(id: sync?.home.projects.flatMap { $0.workspaces.map(\.id) }) {
+        sync?.watchChanges(sync?.home.projects.flatMap { $0.workspaces.map(\.id) } ?? [])
+      }
     }
+    .overlay {
+      if drawer, let sync { Drawer(sync: sync) { drawer = false } }
+    }
+    .preferredColorScheme(Self.scheme(appearance))
+  }
+
+  /// The colour scheme for the appearance chosen in the drawer.
+  ///
+  /// - Remark: "跟随系统" leaves it to the system.
+  /// - SideEffects: none
+  /// - Parameter appearance: "system", "light" or "dark".
+  /// - Returns: The scheme, or `nil` to follow the system.
+  static func scheme(_ appearance: String) -> ColorScheme? {
+    switch appearance {
+    case "light": .light
+    case "dark": .dark
+    default: nil
+    }
+  }
+
+  /// Whether the menu key carries a dot: the connection has trouble, or the signature runs out soon.
+  ///
+  /// - Remark: The prototype's `bdot`, and SPEC-0005 "MP6 定的细节 · MP6b" for the signature.
+  /// - SideEffects: Reads the App's profile.
+  /// - Parameter sync: The connection's sync.
+  /// - Returns: Whether it does.
+  static func warns(_ sync: SyncModel?) -> Bool {
+    let trouble = sync.map { pill(for: $0.status) != .connected && pill(for: $0.status) != .syncing } ?? false
+    let expiring = Signing.appExpiry().map { Signing.soon(expiry: $0, now: .now) } ?? false
+    return trouble || expiring
   }
 
   /// The groups of the list.
@@ -72,52 +130,90 @@ public struct HomeView: View {
   /// - Returns: The groups.
   @ViewBuilder
   private func sections(_ home: HomeList, ready: Bool, palette: Palette) -> some View {
-    if ready && home.isEmpty {
-      Text("Mac 上还没有项目和对话")
-        .font(Typography.meta)
-        .foregroundStyle(palette.secondary)
-        .padding(.top, Metrics.lg)
+    if ready && home.projects.isEmpty {
+      EmptyHome(hasChats: !home.chats.isEmpty)
     }
     if !home.inbox.isEmpty {
-      groupTitle("等你处理", palette: palette)
+      groupTitle("等你处理", count: home.inbox.count, palette: palette)
       ForEach(home.inbox) { SessionRow(row: $0) }
     }
     ForEach(home.projects) { project in
-      HStack(alignment: .firstTextBaseline) {
-        Text(project.name)
-          .font(Typography.display(for: project.name, size: 23, cjkSize: 19))
-          .foregroundStyle(palette.text)
-        Spacer()
-        if project.running > 0 {
-          Text("\(project.running) 在跑").font(Typography.meta).foregroundStyle(palette.secondary)
+      Button {
+        withAnimation(MotionToken.smooth.resolved(reduceMotion: false).animation) {
+          if folded.contains(project.id) { folded.remove(project.id) } else { folded.insert(project.id) }
         }
+      } label: {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+          Text(project.name)
+            .font(Typography.display(for: project.name, size: 23, cjkSize: 19))
+            .foregroundStyle(palette.text)
+          Image(systemName: "chevron.down").font(.system(size: 13, weight: .semibold)).foregroundStyle(palette.tertiary)
+            .rotationEffect(.degrees(folded.contains(project.id) ? -90 : 0))
+          Spacer()
+          if project.running > 0 {
+            Text("\(project.running) 在跑").font(Typography.meta).foregroundStyle(palette.secondary)
+          }
+        }
+        .contentShape(Rectangle())
       }
-      .padding(.top, Metrics.xl)
-      ForEach(project.workspaces) { workspace in
-        groupTitle(workspace.name, palette: palette)
-        ForEach(workspace.rows) { SessionRow(row: $0) }
+      .buttonStyle(.plain)
+      .padding(.top, 38)
+      .padding(.bottom, 2)
+      if !folded.contains(project.id) {
+        ForEach(project.workspaces) { workspace in
+          WorkspaceHeader(workspace: workspace, changes: sync?.core.changes[workspace.id])
+          if workspace.rows.isEmpty {
+            Text("还没有会话").font(.system(size: 14)).foregroundStyle(palette.secondary).padding(.leading, 44)
+              .padding(.vertical, Metrics.xs)
+          }
+          ForEach(workspace.shown) { SessionRow(row: $0) }
+            .opacity(workspace.merged ? 0.55 : 1)
+          if workspace.more > 0 {
+            NavigationLink(value: WorkspaceRoute(workspaceId: workspace.id)) {
+              Text("还有 \(workspace.more) 个").font(.system(size: 15)).foregroundStyle(palette.tint)
+                .padding(.leading, 28).frame(minHeight: 42)
+            }
+            .buttonStyle(.plain)
+          }
+        }
       }
     }
     if !home.chats.isEmpty {
-      groupTitle("对话", palette: palette)
-      ForEach(home.chats) { SessionRow(row: $0) }
+      HStack(alignment: .lastTextBaseline) {
+        groupTitle("对话", count: home.chats.count, palette: palette)
+        Spacer()
+        NavigationLink(value: NewSessionRoute(container: nil)) {
+          Image(systemName: "plus").font(.system(size: 17)).foregroundStyle(palette.secondary)
+            .frame(width: 44, height: 36)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("新对话")
+        .padding(.bottom, 2)
+      }
+      ForEach(allChats ? home.chats : home.shownChats) { SessionRow(row: $0) }
+      if !allChats, home.chats.count > home.shownChats.count {
+        Button("显示全部 \(home.chats.count) 个") { allChats = true }
+          .font(.system(size: 15)).foregroundStyle(palette.tint).frame(minHeight: 42).buttonStyle(.plain)
+      }
     }
   }
 
-  /// A group's small title.
+  /// A group's small title with its count.
   ///
-  /// - Remark: 13pt in the meta grey (design-language "手机端 · 字体").
+  /// - Remark: The prototype's `.gl`: 14pt grey, the count tabular.
   /// - SideEffects: none
   /// - Parameters:
   ///   - text: The title.
+  ///   - count: How many it has.
   ///   - palette: The colours.
   /// - Returns: The title.
-  private func groupTitle(_ text: String, palette: Palette) -> some View {
-    Text(text)
-      .font(Typography.meta)
+  private func groupTitle(_ text: String, count: Int, palette: Palette) -> some View {
+    Text("\(text) \(count)")
+      .font(.system(size: 14))
+      .monospacedDigit()
       .foregroundStyle(palette.secondary)
-      .padding(.top, Metrics.lg)
-      .padding(.bottom, Metrics.xxs)
+      .padding(.top, 30)
+      .padding(.bottom, 6)
   }
 
   /// What the pill shows for a connection status.

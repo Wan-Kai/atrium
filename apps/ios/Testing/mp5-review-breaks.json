@@ -1,0 +1,58 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    let asking = sessions[sessionId]?.control?.question != nil\n",
+    "to": "    let asking = false\n",
+    "name": "reply answers question",
+    "runner": "swift",
+    "filter": "SyncMP5ReviewTests/answersByReply"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    if case .upload(let message, _)? = requests[written] { requestId = message }\n",
+    "to": "",
+    "name": "upload not written",
+    "runner": "swift",
+    "filter": "SyncMP5ReviewTests/uploadNotWritten"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    giveBack(message, .notSent, images: pictures)",
+    "to": "    giveBack(message, .notSent)",
+    "name": "images back not written",
+    "runner": "swift",
+    "filter": "SyncMP5ReviewTests/imagesBackWhenNotWritten"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "        if timing[message]?.retried == true, let index = outbox.firstIndex(where: { $0.id == message }) {",
+    "to": "        if false, let index = outbox.firstIndex(where: { $0.id == message }) {",
+    "name": "retry upload uncertain",
+    "runner": "swift",
+    "filter": "SyncMP5ReviewTests/retryUploadRefused"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "      case .action(let acted, _) where acted == sessionId: requests[requestId] = .other\n",
+    "to": "",
+    "name": "close voids actions",
+    "runner": "swift",
+    "filter": "SyncMP5ReviewTests/lateActionFailure"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/SessionPage.swift",
+    "from": "    guard synced, let control else { return nil }",
+    "to": "    guard let control else { return nil }",
+    "name": "not before sync",
+    "runner": "swift",
+    "filter": "SessionPresentTests/order"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Session/SessionControls.swift",
+    "from": "    if problem.code == .questionClosed || problem.code == .interactionClosed { return \"已在别处回答\" }\n",
+    "to": "",
+    "name": "answered elsewhere words",
+    "runner": "swift",
+    "filter": "SessionPresentTests/elsewhere"
+  }
+]

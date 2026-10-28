@@ -1,0 +1,49 @@
+[
+  {
+    "file": "scripts/ios.mjs",
+    "from": "  const env = gallery === undefined ? process.env : { ...process.env, SIMCTL_CHILD_ATRIUM_GALLERY: gallery };",
+    "to": "  const env = process.env;",
+    "test": "scripts/ios.test.ts",
+    "name": "opens a design gallery section"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "    case .controlUpdated(let updated): control = updated.control\n",
+    "to": "    case .controlUpdated: break\n",
+    "name": "control updates",
+    "runner": "swift",
+    "filter": "SessionStateControlTests/updates"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
+    "from": "    runStartedAt = cached.runStartedAt\n",
+    "to": "",
+    "name": "cached run",
+    "runner": "swift",
+    "filter": "SessionStateControlTests/cached"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Session/TurnLayout.swift",
+    "from": "    showsBubble = !turn.user.auto",
+    "to": "    showsBubble = true",
+    "name": "auto bubble",
+    "runner": "swift",
+    "filter": "TurnLayoutTests/plain"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Session/TurnLayout.swift",
+    "from": "    case .stopped: return \"已停止，\" + took",
+    "to": "    case .stopped: return took",
+    "name": "stopped headline",
+    "runner": "swift",
+    "filter": "TurnLayoutTests/ended"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Session/TurnLayout.swift",
+    "from": "    if running { return Self.elapsed(max(0, now - startedAt)) }",
+    "to": "    if running { return Self.elapsed(now - startedAt) }",
+    "name": "negative elapsed",
+    "runner": "swift",
+    "filter": "TurnLayoutTests/running"
+  }
+]

@@ -1,0 +1,58 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/NewSession/NewSessionPage.swift",
+    "from": "    if missing { return \"这个工作区在 Mac 上找不到了，换一个位置\" }\n",
+    "to": "",
+    "name": "missing workspace sentence",
+    "runner": "swift",
+    "filter": "NewSessionTests/sentence"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/NewSession/NewSessionPage.swift",
+    "from": "$0.projectId == project.id && $0.archivedAt == nil && $0.merge?.verdict != .merged",
+    "to": "$0.projectId == project.id && $0.archivedAt == nil",
+    "name": "merged workspaces listed",
+    "runner": "swift",
+    "filter": "NewSessionTests/places"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "    where open.contains(session.containerId) && !seen.contains(session.containerId) {",
+    "to": "    where open.contains(session.containerId) {",
+    "name": "recent places repeat",
+    "runner": "swift",
+    "filter": "HomeLayoutTests/recentWorkspaces"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "      if seen.count == limit { break }\n",
+    "to": "",
+    "name": "recent places unlimited",
+    "runner": "swift",
+    "filter": "HomeLayoutTests/recentWorkspaces"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "          missingContainers.insert(container)\n",
+    "to": "",
+    "name": "missing workspace not marked",
+    "runner": "swift",
+    "filter": "SyncStartTests/missing"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "      starting = false\n      startFailure = .outcomeUnknown\n",
+    "to": "      startFailure = .outcomeUnknown\n",
+    "name": "dropped start stays starting",
+    "runner": "swift",
+    "filter": "SyncStartTests/dropped"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "    guard synced, !starting, ",
+    "to": "    guard synced, ",
+    "name": "two starts at once",
+    "runner": "swift",
+    "filter": "SyncStartTests"
+  }
+]

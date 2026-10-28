@@ -157,6 +157,10 @@ struct SyncContractTests {
       try await within(seconds: 30) {
         model.core.lastDelivered[sessionId] == unanswered.id && model.core.outbox.isEmpty
           && model.core.sessions[sessionId]?.running == false
+      } else: {
+        let state = model.core.sessions[sessionId]
+        return "outbox \(model.core.outbox) last \(String(describing: model.core.lastDelivered[sessionId])) "
+          + "running \(String(describing: state?.running)) status \(model.status) settled \(String(describing: state?.settled))"
       }
       let last = try #require(model.core.sessions[sessionId])
       #expect(last.items.filter(isTurn).count == turnsBefore + 3)
@@ -165,6 +169,86 @@ struct SyncContractTests {
           if case .turn(let turn) = $0 { return turn.user.clientMessageId == unanswered.id }
           return false
         }.count == 1)
+
+      // MP5b: while a run goes on, a message waits in the host's queue and a steer goes to pi; a stop
+      // holds the queue until "继续发送" lets it go.
+      _ = try await control.request("prompt", body: ["sessionId": sessionId, "text": "ping"])
+      try await within(seconds: 30) { model.core.sessions[sessionId]?.running == true && model.canSend(sessionId) }
+      model.setDraft("排队的", for: sessionId)
+      model.send(sessionId)
+      try await within(seconds: 30) {
+        model.core.outbox.isEmpty && model.core.sessions[sessionId]?.control?.queue.map(\.text) == ["排队的"]
+      }
+      model.setDraft("插话的", for: sessionId)
+      model.send(sessionId, steer: true)
+      try await within(seconds: 30) {
+        model.core.outbox.isEmpty && model.core.sessions[sessionId]?.control?.steers.map(\.text) == ["插话的"]
+      }
+      model.perform(.stop, in: sessionId)
+      try await within(seconds: 30) {
+        let state = model.core.sessions[sessionId]
+        return state?.running == false && state?.control?.paused == .stopped && state?.control?.queue.count == 1
+      } else: {
+        let state = model.core.sessions[sessionId]
+        return "running \(String(describing: state?.running)) control \(String(describing: state?.control))"
+      }
+      let held = try #require(model.core.sessions[sessionId]).items.filter(isTurn).count
+      model.perform(.resumeQueue, in: sessionId)
+      try await within(seconds: 30) {
+        let state = model.core.sessions[sessionId]
+        return state?.control?.queue.isEmpty == true && state?.running == false
+          && (state?.items.filter(isTurn).count ?? 0) == held + 1
+      } else: {
+        let state = model.core.sessions[sessionId]
+        return
+          "running \(String(describing: state?.running)) turns \(state?.items.filter(isTurn).count ?? -1) held \(held) "
+          + "control \(String(describing: state?.control))"
+      }
+      #expect(model.core.actionProblems.isEmpty)
+
+      // MP5c: a dialog the Mac answers first goes from the phone ("已在 Mac 上处理"); one the phone
+      // answers is taken by the host.
+      for (run, macAnswers) in [(8, true), (9, false)] {
+        _ = try await control.request("prompt", body: ["sessionId": sessionId, "text": "ping"])
+        try await within(seconds: 30) {
+          model.core.sessions[sessionId]?.control?.interactions.map(\.id) == ["c\(run)"]
+        } else: {
+          "control \(String(describing: model.core.sessions[sessionId]?.control))"
+        }
+        if macAnswers {
+          _ = try await control.request("answer", body: ["sessionId": sessionId, "interactionId": "c\(run)"])
+        } else {
+          model.perform(.answerInteraction("c\(run)", .confirmed(.init(confirmed: true))), in: sessionId)
+        }
+        try await within(seconds: 30) { model.core.sessions[sessionId]?.control?.interactions.isEmpty == true }
+        if macAnswers {
+          // The phone's answer arriving after the Mac's is refused as answered elsewhere.
+          model.perform(.answerInteraction("c\(run)", .cancelled), in: sessionId)
+          try await within(seconds: 30) { model.core.actionProblems[sessionId]?.code == .interactionClosed }
+          model.dismissActionProblem(in: sessionId)
+        }
+        #expect(model.core.actionProblems.isEmpty)
+        model.perform(.stop, in: sessionId)
+        try await within(seconds: 30) { model.core.sessions[sessionId]?.running == false }
+      }
+
+      // MP5c: a message with an image uploads it first, then goes with its id.
+      let jpeg = try #require(ImageShrinker.jpeg(from: try noisyPNG(width: 64, height: 48)))
+      let turnsBeforeImage = try #require(model.core.sessions[sessionId]).items.filter(isTurn).count
+      model.setDraft("看图", for: sessionId)
+      model.setDraftImages([OutgoingImage(mimeType: .imageJpeg, data: jpeg.base64EncodedString())], for: sessionId)
+      model.send(sessionId)
+      try await within(seconds: 30) {
+        let items = model.core.sessions[sessionId]?.items ?? []
+        return model.core.outbox.isEmpty && items.filter(isTurn).count == turnsBeforeImage + 1
+      } else: {
+        "outbox \(model.core.outbox) problems \(model.core.problems)"
+      }
+      // The host took the prompt with the attachment's id: an id it did not have would be refused
+      // (`attachment_missing`) and come back as a problem. The scripted pi does not echo images, so
+      // the turn itself does not count them.
+      #expect(model.core.problems.isEmpty)
+      #expect(model.core.draftImages.isEmpty)
 
     } catch {
       await cleanUp()

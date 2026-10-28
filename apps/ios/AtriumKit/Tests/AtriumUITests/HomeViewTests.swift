@@ -48,45 +48,53 @@ struct SessionPageTests {
     #expect(SessionPage.statusLine(.failed(.sessionCwdMissing)) == "打不开这个会话（session_cwd_missing）")
   }
 
-  @Test("writes a step that is not reply text as its kind and name, and a notice as its kind")
-  func labels() throws {
-    let steps = try JSONDecoder().decode(
-      [Step].self,
-      from: Data(
-        #"""
-        [{"kind":"thinking","id":"0","text":"","durationMs":null},
-         {"kind":"tool","id":"1","callId":"c","tool":"bash","args":{},"status":"done","output":null,"details":null,"partial":false},
-         {"kind":"retry","id":"2","attempt":1,"error":"x","maxAttempts":null}]
-        """#.utf8))
-    #expect(steps.map(ItemView.label) == ["思考", "工具 · bash", "重试"])
+  @Test("writes a notice as one line of its kind")
+  func noticeLabel() throws {
     let notice = try JSONDecoder().decode(
       Notice.self,
       from: Data(#"{"kind":"notice","id":"n","notice":"restarted","attempt":1,"timestamp":0}"#.utf8))
-    #expect(ItemView.label(notice) == "pi 重启了")
-  }
-
-  @Test("shows a message's images as a count after its text")
-  func userText() {
-    let user = { (text: String, images: Int) in
-      Turn.User(text: text, images: images, clientMessageId: nil, auto: false, command: nil, timestamp: 0)
-    }
-    #expect(ItemView.userText(user("看看", 0)) == "看看")
-    #expect(ItemView.userText(user("看看", 2)) == "看看 ［2 张图片］")
-    #expect(ItemView.userText(user("", 1)) == "［1 张图片］")
+    #expect(SessionPage.label(notice) == "pi 重启了")
   }
 }
 
 @Suite("Composer")
 struct ComposerTests {
-  @Test("says to write now and send later while the connection is down")
-  func placeholder() {
-    #expect(Composer.placeholder(connected: true) == "发消息")
-    #expect(Composer.placeholder(connected: false) == "先写着，连上后再发")
-  }
-
   @Test("says a message did not go, with the host's code when it refused it")
   func problem() {
     #expect(Composer.problemLine(.notSent) == "没发出去")
     #expect(Composer.problemLine(.refused(.sessionBusy)) == "没发出去（session_busy）")
+  }
+}
+
+@Suite("Home: workspace tags")
+struct WorkspaceTagTests {
+  @Test("says uncommitted and how far ahead, merged over everything, and nothing for a clean branch")
+  func tags() {
+    #expect(WorkspaceHeader.tag(dirty: true, ahead: 3, merged: false) == "未提交 · ↑3")
+    #expect(WorkspaceHeader.tag(dirty: false, ahead: 1, merged: false) == "↑1")
+    #expect(WorkspaceHeader.tag(dirty: true, ahead: 0, merged: false) == "未提交")
+    #expect(WorkspacePage.changesLine(dirty: nil) == "正在读取改动…")
+    #expect(WorkspacePage.changesLine(dirty: true) == "未提交")
+    #expect(WorkspacePage.changesLine(dirty: false) == "没有未提交的改动")
+    #expect(WorkspaceHeader.tag(dirty: false, ahead: 0, merged: false) == nil)
+    #expect(WorkspaceHeader.tag(dirty: true, ahead: 2, merged: true) == "已合并")
+  }
+}
+
+@Suite("Home: drawer")
+struct DrawerTests {
+  @Test("follows the appearance chosen, or the system")
+  func appearance() {
+    #expect(HomeView.scheme("light") == .light)
+    #expect(HomeView.scheme("dark") == .dark)
+    #expect(HomeView.scheme("system") == nil)
+  }
+
+  @Test("words the host's status as the drawer does")
+  func status() {
+    #expect(Drawer.statusText(.connected) == "已连接")
+    #expect(Drawer.statusText(.syncing) == "正在同步…")
+    #expect(Drawer.statusText(.hostOffline(lastSeen: nil)) == "离线")
+    #expect(Drawer.statusText(.relayUnreachable) == "连不上 relay")
   }
 }

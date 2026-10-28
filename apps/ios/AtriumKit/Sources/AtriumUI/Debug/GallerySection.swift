@@ -27,6 +27,39 @@
       case "rail": GalleryRail()
       case "markdown": GalleryMarkdown()
       case "diff": GalleryDiff()
+      case "models":
+        VStack(alignment: .leading, spacing: Metrics.md) {
+          HStack(spacing: Metrics.sm) {
+            ForEach(
+              [
+                "anthropic", "openai-codex", "github-copilot", "openrouter", "xai", "moonshotai", "deepseek", "someone",
+              ],
+              id: \.self
+            ) { ProviderIcon(providerId: $0, size: 30) }
+          }
+          ThinkingBox(levels: [.low, .medium, .high, .xhigh], level: .medium) { _ in }
+          ThinkingBox(levels: [.low, .medium, .high, .xhigh], level: .xhigh) { _ in }
+          ThinkingBox(levels: [.off], level: .off) { _ in }
+        }
+      case "files":
+        VStack(alignment: .leading, spacing: 6) {
+          ForEach(
+            ["ttl.ts", "App.tsx", "package.json", "README.md", "style.css", "Main.swift", "x.unknown"], id: \.self
+          ) {
+            name in
+            HStack(spacing: 10) {
+              FileIconView(path: name)
+              Text(name).font(.system(size: 14.5))
+            }
+          }
+        }
+      case "conversation":
+        VStack(alignment: .leading, spacing: Metrics.md) {
+          TurnView(layout: TurnLayout(SampleTurns.finished))
+          TurnView(layout: TurnLayout(SampleTurns.running))
+          ErrorCard(text: "这一轮出错了", detail: "HTTP 529 overloaded", retry: {})
+          ErrorCard(text: SessionControls.failureText(attempts: 3), detail: nil, retry: {})
+        }
       default: EmptyView()
       }
     }

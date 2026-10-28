@@ -2,13 +2,16 @@ import AtriumProtocol
 import AtriumSync
 import SwiftUI
 
-/// One session, read-only: its messages and replies as they come.
+/// One session: its turns as they come, and the input that sends to it.
 ///
-/// - Remark: MP4a's plainest page (SPEC-0005 "MP4a 定的细节 · 界面"): your messages in bubbles,
-///   replies as plain text, every other step one line of its kind and name, notices one grey line.
-///   Opening the page opens the session on the Mac and subscribes to it; leaving closes it. At the
-///   bottom an input sends text with its receipt (MP4b): unsettled messages show as bubbles marked
-///   "发送中" or "没能确认是否送到 · 重发". Markdown, the process rail and the cat come in MP5.
+/// - Remark: SPEC-0005 "MP5 定的细节 · MP5a": each turn is a ``TurnView`` (your bubble, the process
+///   rail, the Markdown reply, what it changed); notices are one grey line. A floating top bar holds
+///   the back button, the title and "项目 · 分支". Opening the page opens the session on the Mac and
+///   subscribes to it; leaving closes it. At the bottom the ``SessionDock`` sends with a receipt
+///   (MP4b), queues, steers and stops (MP5b): unsettled messages show as bubbles marked "发送中" or
+///   "没能确认是否送到 · 重发". Showing the page clears its error (`clear_attention`), and again
+///   when the app comes back to the foreground. Short notes ("已停止", a failed action) show as a
+///   toast for 1.9 s.
 struct SessionPage: View {
   /// The session.
   let sessionId: SessionId
@@ -18,18 +21,30 @@ struct SessionPage: View {
   @Environment(\.dismiss) private var dismiss
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
+  /// Whether the app is in front.
+  @Environment(\.scenePhase) private var phase
+  /// The clock toasts and presentation wait on.
+  @Environment(\.atriumClock) private var clock
+  /// The sheet showing, if any.
+  @State private var sheet: PageSheet?
+  /// The questions and dialogs already shown by themselves, so closing one does not bring it back.
+  @State private var presented: Set<String> = []
+  /// The child conversation opened from the child list.
+  @State private var openChild: SessionId?
+  /// The change list pushed over this page, if any.
+  @State private var openChanges: ChangesRoute?
+  /// The toast showing, if any.
+  @State private var toast: String?
 
   /// The page.
   var body: some View {
     let palette = Palette(scheme: scheme)
     let state = sync?.core.sessions[sessionId]
+    let controls = SessionControls(
+      control: state?.control, running: state?.running ?? false, connected: sync?.status == .connected)
+    let lastTurn = state?.items.last { if case .turn = $0 { true } else { false } }?.id
     ScrollView {
       LazyVStack(alignment: .leading, spacing: Metrics.md) {
-        Text(title)
-          .font(.system(size: 22, weight: .semibold))
-          .foregroundStyle(palette.text)
-          .padding(.top, Metrics.glassButton + Metrics.sm)
-          .accessibilityIdentifier("session.title")
         if sync?.core.stale == true {
           Text("不是最新").font(Typography.meta).foregroundStyle(palette.tertiary)
         }
@@ -37,10 +52,31 @@ struct SessionPage: View {
           Text("更早的在 Mac 上看").font(Typography.meta).foregroundStyle(palette.tertiary)
         }
         ForEach(state?.items ?? [], id: \.id) { item in
-          ItemView(item: item)
+          switch item {
+          case .turn(let turn):
+            TurnView(
+              layout: TurnLayout(turn), retry: turn.id == lastTurn ? { retry() } : nil,
+              openChanges: changesRoute.map { route in { openChanges = route } }
+            )
+            .id(turn.id)
+          case .notice(let notice):
+            Text(Self.label(notice)).font(Typography.meta).foregroundStyle(palette.tertiary)
+          }
         }
         ForEach(sync?.core.outbox.filter { $0.sessionId == sessionId } ?? []) { message in
           PendingBubble(message: message) { sync?.resend(message.id) }
+        }
+        if let question = state?.control?.question, sheet == nil {
+          QuestionCard(question: question) { sheet = .question(question) }
+        }
+        if let failure = controls.failure {
+          ErrorCard(text: failure, detail: nil) { retry() }
+        }
+        if state?.control?.compacting == true {
+          Text("正在压缩上下文…").font(Typography.meta).foregroundStyle(palette.secondary)
+        }
+        if controls.restarting {
+          Text("正在重启 pi").font(Typography.meta).foregroundStyle(palette.secondary)
         }
         if let line = Self.statusLine(state?.status) {
           Text(line)
@@ -51,29 +87,228 @@ struct SessionPage: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.horizontal, Metrics.page)
+      .padding(.top, Metrics.glassButton + Metrics.lg)
       .padding(.bottom, Metrics.xl)
     }
     .defaultScrollAnchor(.bottom)
     .background(palette.page.ignoresSafeArea())
-    .overlay(alignment: .topLeading) {
+    .overlay(alignment: .top) { topBar(palette) }
+    .hidingNavigationBar()
+    .safeAreaInset(edge: .bottom) {
+      if let sync {
+        let children = HomeList.children(of: sessionId, in: sync.core.index)
+        SessionDock(
+          sessionId: sessionId, sync: sync, showQueue: { sheet = .queue },
+          showChildren: { sheet = .children(children) }, children: children.count,
+          showModel: { sheet = .model }, toast: { toast = $0 })
+      }
+    }
+    .overlay(alignment: .top) { toastView(palette) }
+    .sheet(item: $sheet) { shown in
+      if let sync {
+        switch shown {
+        case .queue: QueueSheet(sessionId: sessionId, sync: sync)
+        case .question(let question): QuestionSheet(sessionId: sessionId, sync: sync, question: question)
+        case .interaction(let interaction): InteractionSheet(sessionId: sessionId, sync: sync, interaction: interaction)
+        case .children(let children): ChildrenSheet(children: children) { openChild = $0 }
+        case .model: ModelSheet(sessionId: sessionId, sync: sync)
+        }
+      }
+    }
+    .navigationDestination(item: $openChild) { SessionPage(sessionId: $0) }
+    .navigationDestination(item: $openChanges) { ChangesPage(workspaceId: $0.workspaceId) }
+    .task(id: PresentKey(waiting: Self.waiting(state?.control), free: sheet == nil, synced: sync?.core.synced == true))
+    {
+      // After the push has settled, so the sheet is not dropped by the transition.
+      try? await clock.sleep(for: .seconds(0.45))
+      guard !Task.isCancelled,
+        let next = Self.nextToPresent(
+          sync?.core.sessions[sessionId]?.control, presented: presented, synced: sync?.core.synced == true),
+        sheet == nil
+      else { return }
+      sheet = next
+      presented.insert(Self.waitingId(next))
+    }
+    .onAppear {
+      sync?.open(sessionId)
+      sync?.clearAttention(sessionId)
+    }
+    .onDisappear { if Self.closes(child: openChild, changes: openChanges) { sync?.close(sessionId) } }
+    .onChange(of: sync?.core.index.sessions.first { $0.sessionId == sessionId }?.attention) {
+      sync?.clearAttention(sessionId)
+    }
+    .onChange(of: phase) { if phase == .active { sync?.clearAttention(sessionId) } }
+    .onChange(of: sync?.status) { sync?.clearAttention(sessionId) }
+    .onChange(of: sync?.core.actionProblems[sessionId]) {
+      guard let problem = sync?.core.actionProblems[sessionId] else { return }
+      toast = SessionControls.problemText(problem)
+      sync?.dismissActionProblem(in: sessionId)
+    }
+    .task(id: toast) {
+      guard toast != nil else { return }
+      try? await clock.sleep(for: .seconds(1.9))
+      if !Task.isCancelled { toast = nil }
+    }
+  }
+
+  /// What changes whether something should open by itself.
+  ///
+  /// - Remark: The page waits for it to settle, then decides.
+  private struct PresentKey: Equatable {
+    let waiting: [String]
+    let free: Bool
+    let synced: Bool
+  }
+
+  /// The question or dialog to open by itself, if any.
+  ///
+  /// - Remark: SPEC-0005 "MP5 定的细节 · MP5c": the question first, then the oldest dialog, each the
+  ///   first time it waits; closed, it stays closed (the question leaves a card). Not before the
+  ///   connection's sync: a cached copy may hold one already answered, whose answer would be lost.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - control: The session's run control.
+  ///   - presented: The ids already opened by themselves.
+  ///   - synced: Whether the connection is synced.
+  /// - Returns: The sheet to open.
+  static func nextToPresent(_ control: Control?, presented: Set<String>, synced: Bool) -> PageSheet? {
+    guard synced, let control else { return nil }
+    if let question = control.question, !presented.contains(question.id) { return .question(question) }
+    if let interaction = control.interactions.first, !presented.contains(interaction.id) {
+      return .interaction(interaction)
+    }
+    return nil
+  }
+
+  /// The id a sheet opened by itself is remembered by.
+  ///
+  /// - Remark: The question's or dialog's own id.
+  /// - SideEffects: none
+  /// - Parameter sheet: The sheet.
+  /// - Returns: The id.
+  private static func waitingId(_ sheet: PageSheet) -> String {
+    switch sheet {
+    case .question(let question): question.id
+    case .interaction(let interaction): interaction.id
+    case .queue, .children, .model: ""
+    }
+  }
+
+  /// The top bar's second line: where the session is, or for a child the conversation it came from.
+  ///
+  /// - Remark: The prototype writes "↳ 父会话标题" on a child's page.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - place: "项目 · 分支".
+  ///   - parentTitle: The parent's title, for a child.
+  /// - Returns: The line.
+  static func subtitle(place: String, parentTitle: String?) -> String {
+    parentTitle.map { "↳ \($0)" } ?? place
+  }
+
+  /// The ids of what waits for an answer, to notice when it changes.
+  ///
+  /// - Remark: The question's id, then the dialogs'.
+  /// - SideEffects: none
+  /// - Parameter control: The session's run control.
+  /// - Returns: The ids.
+  static func waiting(_ control: Control?) -> [String] {
+    [control?.question?.id].compactMap { $0 } + (control?.interactions.map(\.id) ?? [])
+  }
+
+  /// Whether leaving the screen closes the session.
+  ///
+  /// - Remark: A push fires `onDisappear` too; a child or the change list pushed over the page keeps
+  ///   it under them, still watched, so coming back finds it as it was (the MP6 review).
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - child: The child pushed over it.
+  ///   - changes: The change list pushed over it.
+  /// - Returns: Whether it closes.
+  static func closes(child: SessionId?, changes: ChangesRoute?) -> Bool {
+    child == nil && changes == nil
+  }
+
+  /// Where a turn's "改了 N 个文件" goes: the change list of the session's workspace.
+  ///
+  /// - Remark: `nil` for a session in a chat, which has no workspace.
+  private var changesRoute: ChangesRoute? {
+    guard let sync, let summary = sync.core.index.sessions.first(where: { $0.sessionId == sessionId }),
+      sync.core.index.workspaces.contains(where: { $0.id == summary.containerId })
+    else { return nil }
+    return ChangesRoute(workspaceId: summary.containerId)
+  }
+
+  /// Retries the session's last run.
+  ///
+  /// - Remark: The error card's "重试".
+  /// - SideEffects: Queues `retry_run`.
+  private func retry() {
+    sync?.perform(.retryRun, in: sessionId)
+  }
+
+  /// The toast at the top, if one shows.
+  ///
+  /// - Remark: The prototype's toast: glass, 38pt high, 13.5pt, under the top bar.
+  /// - SideEffects: none
+  /// - Parameter palette: The colours.
+  /// - Returns: The toast.
+  @ViewBuilder
+  private func toastView(_ palette: Palette) -> some View {
+    if let toast {
+      Text(toast)
+        .font(.system(size: 13.5))
+        .foregroundStyle(palette.text)
+        .padding(.horizontal, Metrics.md)
+        .frame(height: 38)
+        .atriumGlass(in: Capsule())
+        .padding(.top, 62)
+        .transition(.opacity.combined(with: .scale(scale: 0.92)))
+        .accessibilityIdentifier("session.toast")
+    }
+  }
+
+  /// The floating bar at the top: back, the title and where the session is.
+  ///
+  /// - Remark: The prototype's top bar: a 44pt glass back button, the title (15pt semibold) and
+  ///   "项目 · 分支" (11.5pt) centred, over a fade of the page colour.
+  /// - SideEffects: none
+  /// - Parameter palette: The colours.
+  /// - Returns: The bar.
+  private func topBar(_ palette: Palette) -> some View {
+    let summary = sync?.core.index.sessions.first { $0.sessionId == sessionId }
+    return ZStack {
+      VStack(spacing: 1) {
+        Text(summary.map(HomeList.title(of:)) ?? "")
+          .font(.system(size: 15, weight: .semibold))
+          .foregroundStyle(palette.text)
+          .lineLimit(1)
+          .accessibilityIdentifier("session.title")
+        if let summary, let index = sync?.core.index {
+          let parent = summary.parent.flatMap { parent in index.sessions.first { $0.sessionId == parent.sessionId } }
+          Text(
+            Self.subtitle(
+              place: HomeList.place(of: summary.containerId, in: index), parentTitle: parent.map(HomeList.title(of:)))
+          )
+          .font(.system(size: 11.5))
+          .foregroundStyle(palette.secondary)
+          .lineLimit(1)
+        }
+      }
+      .padding(.horizontal, Metrics.glassButton + Metrics.md + Metrics.xs)
       GlassCircleButton(systemImage: "chevron.left", label: "返回") { dismiss() }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, Metrics.md)
         .accessibilityIdentifier("session.back")
     }
-    .hidingNavigationBar()
-    .safeAreaInset(edge: .bottom) {
-      if let sync { Composer(sessionId: sessionId, sync: sync) }
-    }
-    .onAppear { sync?.open(sessionId) }
-    .onDisappear { sync?.close(sessionId) }
-  }
-
-  /// The session's title, from the list.
-  ///
-  /// - Remark: As the home's rows; a session the list does not have yet has none.
-  private var title: String {
-    guard let summary = sync?.core.index.sessions.first(where: { $0.sessionId == sessionId }) else { return "" }
-    return HomeList.title(of: summary)
+    .frame(height: 56)
+    .background(
+      LinearGradient(
+        stops: [.init(color: palette.page, location: 0.8), .init(color: palette.page.opacity(0), location: 1)],
+        startPoint: .top, endPoint: .bottom
+      )
+      .padding(.bottom, -Metrics.md)
+      .ignoresSafeArea(edges: .top))
   }
 
   /// The line under the items for where the session stands.
@@ -90,78 +325,6 @@ struct SessionPage: View {
     case .exited: "pi 已退出"
     case .failed(let code): "打不开这个会话（\(code.rawValue)）"
     case .handedOff: "这个会话交给终端里的 pi 了"
-    }
-  }
-}
-
-/// One item of a session: a turn or a notice.
-///
-/// - Remark: See ``SessionPage``.
-struct ItemView: View {
-  /// The item.
-  let item: TranscriptItem
-  /// Light or dark.
-  @Environment(\.colorScheme) private var scheme
-
-  /// The item.
-  var body: some View {
-    let palette = Palette(scheme: scheme)
-    switch item {
-    case .notice(let notice):
-      Text(Self.label(notice)).font(Typography.meta).foregroundStyle(palette.tertiary)
-    case .turn(let turn):
-      VStack(alignment: .leading, spacing: Metrics.sm) {
-        Text(Self.userText(turn.user))
-          .font(Typography.reply)
-          .foregroundStyle(palette.text)
-          .padding(.horizontal, Metrics.md)
-          .padding(.vertical, Metrics.sm)
-          .background(palette.surface, in: RoundedRectangle(cornerRadius: Metrics.radiusBubble))
-          .frame(maxWidth: .infinity, alignment: .trailing)
-        ForEach(turn.steps, id: \.id) { step in
-          if case .text(let text) = step {
-            Text(text.text)
-              .font(Typography.reply)
-              .lineSpacing(5)
-              .foregroundStyle(palette.text)
-              .textSelection(.enabled)
-          } else {
-            Text(Self.label(step)).font(Typography.step).foregroundStyle(palette.secondary)
-          }
-        }
-        if let error = turn.error {
-          Text(error).font(Typography.step).foregroundStyle(palette.danger)
-        }
-      }
-    }
-  }
-
-  /// What a user message shows: its text, and how many images came with it.
-  ///
-  /// - Remark: Images are not fetched in MP4a.
-  /// - SideEffects: none
-  /// - Parameter user: The message.
-  /// - Returns: The text.
-  static func userText(_ user: Turn.User) -> String {
-    let images = user.images > 0 ? "［\(user.images) 张图片］" : ""
-    return [user.text, images].filter { !$0.isEmpty }.joined(separator: " ")
-  }
-
-  /// One line for a step that is not reply text: its kind, and its name when it has one.
-  ///
-  /// - Remark: "过程只列步骤" (roadmap MP4).
-  /// - SideEffects: none
-  /// - Parameter step: The step.
-  /// - Returns: The line.
-  static func label(_ step: Step) -> String {
-    switch step {
-    case .thinking: "思考"
-    case .text: "回复"
-    case .tool(let tool): "工具 · \(tool.tool)"
-    case .steer: "插话"
-    case .agent: "子代理"
-    case .retry: "重试"
-    case .compaction: "压缩上下文"
     }
   }
 
@@ -216,78 +379,5 @@ struct PendingBubble: View {
       }
     }
     .frame(maxWidth: .infinity, alignment: .trailing)
-  }
-}
-
-/// The input at the bottom of a session: one line of text and the send button.
-///
-/// - Remark: SPEC-0005 "MP4b 定的细节": sending only when connected, synced and nothing of the
-///   session still unsettled; while disconnected the placeholder says "先写着，连上后再发". A
-///   message that did not go comes back here with why.
-struct Composer: View {
-  /// The session.
-  let sessionId: SessionId
-  /// The connection's sync.
-  let sync: SyncModel
-  /// Light or dark.
-  @Environment(\.colorScheme) private var scheme
-
-  /// The input.
-  var body: some View {
-    let palette = Palette(scheme: scheme)
-    let text = Binding(
-      get: { sync.core.drafts[sessionId] ?? "" }, set: { sync.setDraft($0, for: sessionId) })
-    let empty = text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    let ready = sync.canSend(sessionId)
-    VStack(alignment: .leading, spacing: Metrics.xxs) {
-      if let problem = sync.core.problems[sessionId] {
-        Text(Self.problemLine(problem))
-          .font(Typography.meta)
-          .foregroundStyle(palette.danger)
-          .accessibilityIdentifier("session.problem")
-      }
-      HStack(alignment: .bottom, spacing: Metrics.sm) {
-        TextField(Self.placeholder(connected: sync.status == .connected), text: text, axis: .vertical)
-          .lineLimit(1...5)
-          .font(Typography.reply)
-          .accessibilityIdentifier("session.input")
-        Button {
-          sync.send(sessionId)
-        } label: {
-          Image(systemName: "arrow.up.circle.fill").font(.system(size: 30))
-        }
-        .disabled(!ready || empty)
-        .accessibilityLabel("发送")
-        .accessibilityIdentifier("session.send")
-      }
-      .padding(.horizontal, Metrics.md)
-      .padding(.vertical, Metrics.sm)
-      .atriumGlass(in: RoundedRectangle(cornerRadius: Metrics.radiusBubble), interactive: false)
-    }
-    .padding(.horizontal, Metrics.md)
-    .padding(.bottom, Metrics.xs)
-  }
-
-  /// The input's placeholder.
-  ///
-  /// - Remark: design-language "手机端 · 对话": while the connection is down, write now, send later.
-  /// - SideEffects: none
-  /// - Parameter connected: Whether the connection is up and synced.
-  /// - Returns: The placeholder.
-  static func placeholder(connected: Bool) -> String {
-    connected ? "发消息" : "先写着，连上后再发"
-  }
-
-  /// Why the last message did not go, in words.
-  ///
-  /// - Remark: The host's refusal shows only as its code (AGENTS.md: the host sends no words).
-  /// - SideEffects: none
-  /// - Parameter problem: Why.
-  /// - Returns: The line.
-  static func problemLine(_ problem: SendProblem) -> String {
-    switch problem {
-    case .notSent: "没发出去"
-    case .refused(let code): "没发出去（\(code.rawValue)）"
-    }
   }
 }

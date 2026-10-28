@@ -16,6 +16,10 @@
 
 ## 当前状态
 
+**2026-10-28 MP6a–d 实现完成并经两方审查修完；同日用户在 iPhone 16 Pro 上验收通过，`atrium/mp4-sync`、`atrium/mp5-conversation` 已本地合并回 `main`，未推送。下一步 MP7 自用。** 都在 `atrium/mp5-conversation`（`atrium.worktrees/mp5-conversation`）：MP6a 改动列表和 diff 页（`22fb87d`）、MP6b 首页 / 工作区页 / 抽屉 / 签名天数（`98e5d79`）、MP6c 模型 sheet（`1cc1f93`）、MP6d 新会话（`12e5287`）；codex gpt-6-astra 和 grok grok-4.7 只读审查的发现在 `ea48157` 修完（改动列表推出时会话不再关闭、模型目录按位置、"找不到"标记只活一个连接、首页 `+` 的位置、抽屉补 relay / 手机名 / 版本 / 重新配对等），决定不改的三条写在追踪表"MP6 审查"。Swift 402 个测试、`pnpm check`、模拟器构建通过。真机性能已测（iPhone 16 Pro，`List` 无超过 50 毫秒的帧和主线程忙段，最长 24 毫秒，负控抓到注入的 80 毫秒；定下继续用 `List`，见 mobile-render.md"iPhone 16 Pro 真机"）。未做、交给验收：需要真实同步数据的整屏截图（模型 sheet、选位置 sheet、找不到工作区、抽屉）、hunk 之间的上下文展开（协议没有按版本取内容的命令，SPEC 已写明第一版不做）。MVP 手机端剩 MP7 自用，要用户本人用一周。
+
+**2026-10-28 MP4 三方审查完成、MP5a/b/c 实现完成（同日验收通过并合并，见上条）。** MP4 在 `atrium/mp4-sync`（`atrium.worktrees/mp4-sync`），三方审查（Claude 子代理、codex gpt-6-astra、grok grok-4.7）的发现已按测试先行修完（`605d46c`、`bc0b86d`、`6dfeecf`）；grok 报的"取消时 `AsyncStream` 卡住"经实测不成立，未改。MP5 在 `atrium/mp5-conversation`（`atrium.worktrees/mp5-conversation`，叠在 MP4 上并已合入其修复）：MP5a 对话本身（控制状态、轮次版式、过程轨道、Markdown 回复、顶栏）、MP5b 运行控制（插话、排队 sheet、停止、出错卡片、关注清除）、MP5c 提问 / 对话框 / 子对话 sheet 和发图片；代定的细节写在 SPEC-0005"MP5 定的细节"。契约覆盖排队、插话、停止后继续、对话框两端回答、带图发送。未做：真机性能（50 毫秒预算）、sheet 和菜单的截图与 UI 测试、`List` 与 `LazyVStack` 的取舍——交给用户验收；下一步 MP6。
+
 **2026-10-27 MP4a、MP4b、MP4c 实现完成，在 `atrium/mp4-sync`（worktree `atrium.worktrees/mp4-sync`），待 MP4 三方审查和用户验收，未合并、未推送。** 用户 2026-10-27 设目标"完成所有 MVP 内容，非单向门的决策先代决策"，代定的细节都写在 SPEC-0005 的 MP4a/b/c 小节。
 
 **2026-10-27 MP4a 只读同步开工，在 `atrium/mp4-sync`（worktree `atrium.worktrees/mp4-sync`），未合并。** MP4 拆成 MP4a 只读同步、MP4b 发送与回执、MP4c 续传与恢复；用户定协议一次升到 28，字段全在 MP4a 定下，宿主先只实现快照预算。细节见 [SPEC-0005 · MP4a 定的细节](specs/0005-mobile-app-and-remote-access.md#mp4a-定的细节2026-10-27)。
@@ -564,12 +568,16 @@ MP0 互通实验 ──┬── MP1 Swift 工程基础 ──┐
 
 ##### MP5 对话
 
+- **分三片**（2026-10-28 定，细节见 SPEC-0005"MP5 定的细节"）：MP5a 对话本身（控制状态、Markdown、过程轨道、小猫）；MP5b 运行控制（排队、插话、停止、出错卡片、关注）；MP5c 提问、对话框、子对话、图片。
+
 - **范围**：Markdown 流式渲染（`swift-markdown`、按块缓存、平滑揭示）、代码高亮（比较后选定）、过程轨道（暖色、动效）、眨眼小猫、运行中发送进排队和长按插话、排队 sheet、停止和"继续发送"、出错卡片和详情、提问 sheet 自动弹出和"已在别处回答"、对话框、子对话列表、关注状态的清除、发图片。
 - **完成标准**：契约测试覆盖两端同时回答、排队和插话；性能预算（长回复、大代码块在 iPhone 16 Pro 上主线程没有超过 50 毫秒的卡顿）；明暗、减弱动态效果的截图对照原型。
 
 **第四路零件提前并行（2026-10-26，`agent/ios-ui-render`）**：设计 token、玻璃/状态图标/像素猫、过程轨道、Markdown 尾块解析与原生块视图、highlight.js 11.11.1 的本地 JavaScriptCore 高亮、diff 切分/折叠和 List 时间线已做成 Debug 陈列页零件。不是完整 MP5/MP6：未接手机同步和发送，模拟器 List / LazyVStack 对比两者都有长帧，50ms 主线程性能预算尚未证实通过，真机与部分视觉细节待验收；详见 [mobile-render.md](research/mobile-render.md)。不合并、不推送。
 
 ##### MP6 改动、新建与其余各屏
+
+- **分四片**（2026-10-28 定，细节见 SPEC-0005"MP6 定的细节"）：MP6a 改动列表和 diff；MP6b 首页、工作区页、抽屉、空状态、签名天数；MP6c 模型 sheet；MP6d 新会话。
 
 - **范围**：改动列表（单行分组、按改动量排、筛选）和 diff（不换行、折叠上下文、工具条）、新会话页（入口、位置和模型胶囊、选位置 sheet、发出时原地变成对话、回首页插入、找不到的工作区）、模型 sheet（图标栏、点阵推理强度框、Fast）、首页的完整视觉（衬线标题、工作区小标题、"还有 N 个"、工作区页）、左上角抽屉、像素猫插图和空状态、"签名还剩 N 天"。
 - **完成标准**：同 MP5；各屏截图对照定稿原型逐项核对。

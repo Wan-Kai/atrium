@@ -7,7 +7,9 @@ import AtriumProtocol
 ///   (`packages/ui/src/sidebar/names.ts`, `status.ts`): the inbox picks and orders as `inboxOf`,
 ///   workspaces are named and ordered as `workspaceName` and `sortWorkspaces`, sessions are titled
 ///   as `sessionTitle`. Archived sessions, archived workspaces and chats, and child conversations
-///   are left out of the groups. The full layout (three per workspace, "还有 N 个") comes in MP6.
+///   are left out of the groups. MP6 (SPEC-0005 "MP6 定的细节 · MP6b") shows three sessions a
+///   workspace, asking first, then errors, then running, then the newest, with "还有 N 个", and at
+///   most five chats with "显示全部 N 个".
 public struct HomeList: Sendable, Equatable {
   /// How a row is marked.
   ///
@@ -45,7 +47,20 @@ public struct HomeList: Sendable, Equatable {
     public let name: String
     /// Its sessions, newest first.
     public let rows: [Row]
+    /// The local checkout or a worktree.
+    public let kind: Workspace.Kind
+    /// Whether its branch was merged.
+    public let merged: Bool
+    /// The sessions the home shows: at most three, the ones waiting for you first.
+    public var shown: [Row] { Array(HomeList.byUrgency(rows).prefix(HomeList.perWorkspace)) }
+    /// How many more it has, for "还有 N 个".
+    public var more: Int { max(0, rows.count - HomeList.perWorkspace) }
   }
+
+  /// The most sessions a workspace shows on the home.
+  public static let perWorkspace = 3
+  /// The most chats the home shows.
+  public static let chatsShown = 5
 
   /// A project and its workspaces.
   ///
@@ -67,6 +82,8 @@ public struct HomeList: Sendable, Equatable {
   public let projects: [ProjectGroup]
   /// The sessions of chats, newest first.
   public let chats: [Row]
+  /// The chats the home shows, before "显示全部 N 个".
+  public var shownChats: [Row] { Array(chats.prefix(Self.chatsShown)) }
 
   /// Whether there is nothing to list at all.
   public var isEmpty: Bool { inbox.isEmpty && projects.isEmpty && chats.isEmpty }
@@ -84,7 +101,9 @@ public struct HomeList: Sendable, Equatable {
       let workspaces = Self.sorted(index.workspaces.filter { $0.projectId == project.id && $0.archivedAt == nil })
       let sessions = workspaces.map { workspace in Self.newestFirst(listed.filter { $0.containerId == workspace.id }) }
       let groups = zip(workspaces, sessions).map { workspace, sessions in
-        WorkspaceGroup(id: workspace.id, name: Self.name(of: workspace), rows: sessions.map(Self.row))
+        WorkspaceGroup(
+          id: workspace.id, name: Self.name(of: workspace), rows: sessions.map(Self.row), kind: workspace.kind,
+          merged: workspace.merge?.verdict == .merged)
       }
       return ProjectGroup(
         id: project.id, name: project.name, running: sessions.joined().filter(\.running).count, workspaces: groups)
@@ -115,6 +134,78 @@ public struct HomeList: Sendable, Equatable {
           id: entry.session.sessionId, title: title(of: entry.session),
           detail: "\(word) · \(place(of: entry.session.containerId, in: index))", status: status)
       }
+  }
+
+  /// Rows in the order the home shows a workspace's: asking, errors, running, then the rest.
+  ///
+  /// - Remark: Stable, so within each the newest stays first.
+  /// - SideEffects: none
+  /// - Parameter rows: The rows, newest first.
+  /// - Returns: The rows.
+  static func byUrgency(_ rows: [Row]) -> [Row] {
+    let rank = { (row: Row) -> Int in
+      switch row.status {
+      case .asking?: 0
+      case .error?: 1
+      case .running?: 2
+      case nil: 3
+      }
+    }
+    return stable(rows) { rank($0) < rank($1) }
+  }
+
+  /// Where the latest updated session is, for a new session to start in.
+  ///
+  /// - Remark: SPEC-0005 "MP6 定的细节 · MP6d": the home's `+` starts there; archived sessions and
+  ///   children are left out; `nil` with none.
+  /// - SideEffects: none
+  /// - Parameter index: The list.
+  /// - Returns: The workspace or chat.
+  public static func recentContainer(in index: IndexState) -> ContainerId? {
+    index.sessions.filter { !$0.archived && $0.parent == nil }.max { $0.updatedAt < $1.updatedAt }?.containerId
+  }
+
+  /// Where the home's "+" starts a new session: the workspace of the latest session.
+  ///
+  /// - Remark: SPEC-0005 "MP6 定的细节 · MP6d": `nil`, a new chat, when that session is in a chat or
+  ///   there is none; an archived or merged workspace is not a place either.
+  /// - SideEffects: none
+  /// - Parameter index: The list.
+  /// - Returns: The workspace, or `nil`.
+  public static func newSessionPlace(in index: IndexState) -> WorkspaceId? {
+    recentContainer(in: index).flatMap { openWorkspaces(in: index).contains($0) ? $0 : nil }
+  }
+
+  /// The workspaces a new session can go in.
+  ///
+  /// - Remark: Not archived and not merged.
+  /// - SideEffects: none
+  /// - Parameter index: The list.
+  /// - Returns: Their ids.
+  private static func openWorkspaces(in index: IndexState) -> Set<WorkspaceId> {
+    Set(index.workspaces.filter { $0.archivedAt == nil && $0.merge?.verdict != .merged }.map(\.id))
+  }
+
+  /// The workspaces worked in last, newest first, for the new session's place sheet.
+  ///
+  /// - Remark: SPEC-0005 "MP6 定的细节 · MP6d": "最近 3 个（按会话最近更新）"; chats, archived and
+  ///   merged workspaces are not places to pick.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - index: The list.
+  ///   - limit: How many.
+  /// - Returns: The workspaces.
+  public static func recentWorkspaces(in index: IndexState, limit: Int = 3) -> [WorkspaceId] {
+    let open = openWorkspaces(in: index)
+    var seen: [WorkspaceId] = []
+    for session in index.sessions.filter({ !$0.archived && $0.parent == nil }).sorted(by: {
+      $0.updatedAt > $1.updatedAt
+    })
+    where open.contains(session.containerId) && !seen.contains(session.containerId) {
+      seen.append(session.containerId)
+      if seen.count == limit { break }
+    }
+    return seen
   }
 
   /// A session's row in a group.
@@ -159,7 +250,7 @@ public struct HomeList: Sendable, Equatable {
   ///   - containerId: The session's container.
   ///   - index: The list.
   /// - Returns: The place; empty for a container the list does not have.
-  private static func place(of containerId: ContainerId, in index: IndexState) -> String {
+  public static func place(of containerId: ContainerId, in index: IndexState) -> String {
     if let chat = index.chats.first(where: { $0.id == containerId }) {
       if let alias = chat.alias { return "对话 · \(alias)" }
       let first = index.sessions.first { $0.sessionId == chat.firstSessionId }
@@ -169,6 +260,19 @@ public struct HomeList: Sendable, Equatable {
     guard let workspace = index.workspaces.first(where: { $0.id == containerId }) else { return "" }
     let project = index.projects.first { $0.id == workspace.projectId }
     return "\(project?.name ?? "") · \(name(of: workspace))"
+  }
+
+  /// A session's child conversations, the latest updated first.
+  ///
+  /// - Remark: SPEC-0005 "MP5 定的细节 · MP5c": the sessions whose `parent` is it, archived ones left
+  ///   out, for the "子对话" pill and sheet.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - sessionId: The parent.
+  ///   - index: The list.
+  /// - Returns: The children.
+  public static func children(of sessionId: SessionId, in index: IndexState) -> [SessionSummary] {
+    newestFirst(index.sessions.filter { $0.parent?.sessionId == sessionId && !$0.archived })
   }
 
   /// A project's workspaces in the sidebar's order.

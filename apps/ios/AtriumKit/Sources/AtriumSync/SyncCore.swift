@@ -37,8 +37,18 @@ public struct SyncCore {
     case sessions([SessionId])
     /// `open_session`; a failure fails the session.
     case open(SessionId)
-    /// A message's `prompt`, by its own request id.
+    /// A message's `prompt` or `steer`, by its own request id.
     case prompt
+    /// One of a message's images, by the message's id and the image's place.
+    case upload(RequestId, Int)
+    /// An action on a session, whose failure is shown.
+    case action(SessionId, SessionAction)
+    /// `clear_attention` of a session.
+    case clearing(SessionId)
+    /// `list_models`, whose answer is the catalog.
+    case models
+    /// `create_session` or `create_chat` of a new session, and what to send once it is made.
+    case start(ContainerId?, String, [OutgoingImage])
     /// A command whose answer settles nothing.
     case other
   }
@@ -60,10 +70,36 @@ public struct SyncCore {
   public private(set) var outbox: [Outgoing] = []
   /// What each session's input holds, kept here so a message that never left can come back to it.
   public private(set) var drafts: [SessionId: String] = [:]
+  /// The images each session's input holds.
+  public private(set) var draftImages: [SessionId: [OutgoingImage]] = [:]
   /// Why a session's last message did not go; cleared when its input changes.
   public private(set) var problems: [SessionId: SendProblem] = [:]
   /// The latest message of each session found in its transcript, by request id.
   public private(set) var lastDelivered: [SessionId: RequestId] = [:]
+  /// Why the last action on a session failed.
+  public private(set) var actionProblems: [SessionId: ActionProblem] = [:]
+  /// The workspaces whose changes are watched, as last asked.
+  public private(set) var watchedChanges: [WorkspaceId] = []
+  /// The latest changes of each watched workspace.
+  public private(set) var changes: [WorkspaceId: ChangesUpdatedEvent] = [:]
+  /// The diff the change list looks at; `nil` when none is open.
+  public private(set) var diffTarget: DiffTarget?
+  /// Whether a new session is being made.
+  public private(set) var starting = false
+  /// The session the last start made; the new-session page turns into its page.
+  public private(set) var started: SessionId?
+  /// Why the last start failed, if it did.
+  public private(set) var startFailure: ErrorCode?
+  /// The workspaces the Mac could not find when a session was started in them, on this connection.
+  public private(set) var missingContainers: Set<ContainerId> = []
+  /// The model catalog of ``modelsWorkspace``, with the default model; `nil` until its answer.
+  public private(set) var models: ListModelsResult?
+  /// The workspace the catalog is for (`nil` for a chat's), the one last asked about.
+  public private(set) var modelsWorkspace: WorkspaceId?
+  /// The latest `list_models`; an older answer is dropped.
+  private var modelsRequest: RequestId?
+  /// The latest diff of ``diffTarget``.
+  public private(set) var diff: DiffUpdatedEvent?
 
   private var requests: [RequestId: Request] = [:]
   private var listAnswered = false
@@ -73,6 +109,10 @@ public struct SyncCore {
   private let now: () -> Duration
   /// When each message in the outbox was sent, and whether it was retried already.
   private var timing: [RequestId: (sentAt: Duration, retried: Bool)] = [:]
+  /// The images of each message in the outbox that has any.
+  private var images: [RequestId: [OutgoingImage]] = [:]
+  /// The attachment ids the host gave a message's images on this connection, in order.
+  private var attachments: [RequestId: [String?]] = [:]
 
   /// Makes a sync with nothing yet.
   ///
@@ -106,6 +146,16 @@ public struct SyncCore {
     self.generation = generation
     synced = false
     requests = [:]
+    // The mark lasts for one connection: the folder may be back (SPEC-0005 "MP6 定的细节 · MP6d").
+    if !again {
+      missingContainers = []
+      startFailure = nil
+    }
+    // A start whose answer was lost may or may not have made its session; the list will show it.
+    if starting {
+      starting = false
+      startFailure = .outcomeUnknown
+    }
     listAnswered = false
     listSnapshot = false
     // A session with a copy continues from it; one without waits for a snapshot (SPEC-0005 "MP4c 定的细节").
@@ -129,6 +179,9 @@ public struct SyncCore {
       outputs.append(subscribe(openSessions, failing: openSessions, resume: points))
       for sessionId in openSessions { outputs.append(open(sessionId)) }
     }
+    // The host forgets a connection's watches with it (SPEC-0005 "MP6 定的细节 · MP6a").
+    if let diffTarget { outputs.append(watchDiffCommand(diffTarget)) }
+    if !watchedChanges.isEmpty { outputs.append(watchChangesCommand(watchedChanges)) }
     return outputs
   }
 
@@ -148,6 +201,18 @@ public struct SyncCore {
       switch requests.removeValue(forKey: success.requestId) {
       case .index?: listAnswered = true
       case .prompt?: answered(success.requestId, disposition: Self.disposition(success.result))
+      case .start(_, let text, let pictures)?:
+        starting = false
+        if case .object(let fields)? = success.result, case .string(let sessionId)? = fields["sessionId"] {
+          started = sessionId
+          outputs += open(sessionId) + post(text, to: sessionId, kind: .prompt, images: pictures)
+        }
+      case .models? where success.requestId == modelsRequest:
+        if let result = success.result, let data = try? JSONEncoder().encode(result) {
+          models = (try? JSONDecoder().decode(ListModelsResult.self, from: data)) ?? models
+        }
+      case .upload(let message, let place)?:
+        outputs += uploaded(message, place: place, attachmentId: Self.attachmentId(success.result))
       default: break
       }
     case .responseMessage(.failure(let failure)):
@@ -158,7 +223,23 @@ public struct SyncCore {
         for sessionId in failing { fail(sessionId, failure.error.code) }
       case .open(let sessionId): fail(sessionId, failure.error.code)
       case .prompt: refused(requestId, failure.error.code)
-      case .other: break
+      case .upload(let message, _):
+        // The retry's upload failing says nothing of the first sending, which may have run.
+        if timing[message]?.retried == true, let index = outbox.firstIndex(where: { $0.id == message }) {
+          outbox[index].state = .uncertain
+        } else {
+          refused(message, failure.error.code)
+        }
+      case .action(let sessionId, let action):
+        actionProblems[sessionId] = ActionProblem(action: action, code: failure.error.code)
+      case .start(let container, _, _):
+        starting = false
+        startFailure = failure.error.code
+        // There is no field for a workspace's folder being gone; a start finds out (SPEC-0005 "MP6 定的细节 · MP6d").
+        if let container, failure.error.code == .workspaceNotFound || failure.error.code == .sessionCwdMissing {
+          missingContainers.insert(container)
+        }
+      case .clearing, .models, .other: break
       }
     case .indexSnapshot(let snapshot):
       index.apply(snapshot)
@@ -171,6 +252,11 @@ public struct SyncCore {
       noteHandedOff()
     case .sessionEvent(let event):
       outputs += take(event)
+    case .changesUpdated(let updated) where watchedChanges.contains(updated.workspaceId):
+      changes[updated.workspaceId] = updated
+    case .diffUpdated(let updated)
+    where diffTarget == DiffTarget(workspaceId: updated.workspaceId, mode: updated.mode):
+      diff = updated
     default: break
     }
     return outputs + checkSynced()
@@ -231,6 +317,7 @@ public struct SyncCore {
     for (requestId, request) in requests {
       switch request {
       case .open(let opened) where opened == sessionId: requests[requestId] = .other
+      case .action(let acted, _) where acted == sessionId: requests[requestId] = .other
       case .sessions(let failing) where failing.contains(sessionId):
         requests[requestId] = .sessions(failing.filter { $0 != sessionId })
       default: break
@@ -268,20 +355,230 @@ public struct SyncCore {
     problems[sessionId] = nil
   }
 
+  /// Changes the images a session's input holds.
+  ///
+  /// - Remark: Picking or removing an image clears why the last message did not go.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - images: The images.
+  ///   - sessionId: The session.
+  public mutating func setDraftImages(_ images: [OutgoingImage], for sessionId: SessionId) {
+    draftImages[sessionId] = images.isEmpty ? nil : images
+    problems[sessionId] = nil
+  }
+
   /// Sends a session's input as a message, if it may be sent.
   ///
   /// - Remark: A new random request id, which is also the message's `clientMessageId`; it shows as
-  ///   sending until answered.
+  ///   sending until answered. As a `prompt` it is sent now when idle and queued on the host while
+  ///   a run goes on; as a `steer` ("立即插话") it reaches pi before its next step. While the agent
+  ///   asks a question it always goes as a steer, which answers the question.
   /// - SideEffects: none
-  /// - Parameter sessionId: The session.
+  /// - Parameters:
+  ///   - sessionId: The session.
+  ///   - steer: Whether to send it as a steer.
   /// - Returns: The command to send.
-  public mutating func send(_ sessionId: SessionId) -> [SyncOutput] {
-    guard canSend(sessionId), let text = drafts[sessionId],
-      !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  public mutating func send(_ sessionId: SessionId, steer: Bool = false) -> [SyncOutput] {
+    let text = drafts[sessionId] ?? ""
+    let pictures = draftImages[sessionId] ?? []
+    guard canSend(sessionId), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pictures.isEmpty
     else { return [] }
     drafts[sessionId] = nil
+    draftImages[sessionId] = nil
     problems[sessionId] = nil
-    return [post(text, to: sessionId)]
+    // A reply while the agent asks goes in as a steer and answers it (SPEC-0003, SPEC-0005 "MP5 定的细节").
+    let asking = sessions[sessionId]?.control?.question != nil
+    return post(text, to: sessionId, kind: steer || asking ? .steer : .prompt, images: pictures)
+  }
+
+  /// Asks something of a session's run: stop it, act on its queue, retry, let deliveries go.
+  ///
+  /// - Remark: Only once synced and with the session open. Taking an action clears why the last
+  ///   one failed; a failure is kept in ``actionProblems``.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - action: The action.
+  ///   - sessionId: The session.
+  /// - Returns: The command to send.
+  public mutating func perform(_ action: SessionAction, in sessionId: SessionId) -> [SyncOutput] {
+    guard synced, openSessions.contains(sessionId) else { return [] }
+    actionProblems[sessionId] = nil
+    let requestId = track(.action(sessionId, action))
+    let trace = makeTraceparent()
+    let command: Command =
+      switch action {
+      case .stop: .stop(StopCommand(requestId: requestId, traceparent: trace, sessionId: sessionId))
+      case .resumeQueue:
+        .resumeQueue(ResumeQueueCommand(requestId: requestId, traceparent: trace, sessionId: sessionId))
+      case .clearQueue: .clearQueue(ClearQueueCommand(requestId: requestId, traceparent: trace, sessionId: sessionId))
+      case .removeQueued(let item):
+        .removeQueued(RemoveQueuedCommand(requestId: requestId, traceparent: trace, sessionId: sessionId, itemId: item))
+      case .steerQueued(let item):
+        .steerQueued(SteerQueuedCommand(requestId: requestId, traceparent: trace, sessionId: sessionId, itemId: item))
+      case .updateQueued(let item, let text):
+        .updateQueued(
+          UpdateQueuedCommand(requestId: requestId, traceparent: trace, sessionId: sessionId, itemId: item, text: text))
+      case .retryRun: .retryRun(RetryRunCommand(requestId: requestId, traceparent: trace, sessionId: sessionId))
+      case .resumeDeliveries:
+        .resumeDeliveries(
+          ResumeDeliveriesCommand(requestId: requestId, traceparent: trace, sessionId: sessionId, tree: false))
+      case .answerQuestion(let question, let reply):
+        .answerQuestion(
+          AnswerQuestionCommand(
+            requestId: requestId, traceparent: trace, sessionId: sessionId, questionId: question, answer: reply))
+      case .setModel(let model):
+        .setModel(
+          SetModelCommand(
+            requestId: requestId, traceparent: trace, sessionId: sessionId, providerId: model.providerId,
+            modelId: model.modelId))
+      case .setThinkingLevel(let level):
+        .setThinkingLevel(
+          SetThinkingLevelCommand(requestId: requestId, traceparent: trace, sessionId: sessionId, level: level))
+      case .setFast(let enabled):
+        .setFast(SetFastCommand(requestId: requestId, traceparent: trace, sessionId: sessionId, enabled: enabled))
+      case .answerInteraction(let interaction, let answer):
+        .answerInteraction(
+          AnswerInteractionCommand(
+            requestId: requestId, traceparent: trace, sessionId: sessionId, interactionId: interaction, answer: answer))
+      }
+    return [send(command)]
+  }
+
+  /// Starts a new session with its first message: in a workspace, or as a new chat.
+  ///
+  /// - Remark: SPEC-0005 "MP6 定的细节 · MP6d": `create_session` (or `create_chat`), then, once its
+  ///   id is back, the session is opened and the message sent with its receipt (images uploaded
+  ///   first). One start at a time, only once synced, and only with something to send.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - container: The workspace; ignored for a chat.
+  ///   - chat: Whether to start a new chat instead.
+  ///   - text: The first message.
+  ///   - pictures: Its images.
+  /// - Returns: The command to send.
+  public mutating func startSession(
+    in container: ContainerId?, chat: Bool, text: String, images pictures: [OutgoingImage]
+  ) -> [SyncOutput] {
+    guard synced, !starting, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pictures.isEmpty
+    else { return [] }
+    let place: ContainerId? = chat ? nil : container
+    guard chat || place != nil else { return [] }
+    starting = true
+    started = nil
+    startFailure = nil
+    let requestId = track(.start(place, text, pictures))
+    if let place {
+      return [
+        send(
+          .createSession(CreateSessionCommand(requestId: requestId, traceparent: makeTraceparent(), containerId: place))
+        )
+      ]
+    }
+    return [send(.createChat(CreateChatCommand(requestId: requestId, traceparent: makeTraceparent())))]
+  }
+
+  /// Asks for the models a workspace's sessions can use, or for a chat's with `nil`.
+  ///
+  /// - Remark: The model sheet (SPEC-0005 "MP6 定的细节 · MP6c"); the answer replaces ``models``.
+  ///   Only once synced. Asking about another place drops the catalog at once, and only the latest
+  ///   ask's answer is kept, so a catalog is never shown for the wrong place (the MP6 review).
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - workspaceId: The workspace, or `nil`.
+  ///   - refresh: Whether pi should list them again instead of answering from its cache.
+  /// - Returns: The command to send.
+  public mutating func listModels(workspaceId: WorkspaceId?, refresh: Bool) -> [SyncOutput] {
+    guard synced else { return [] }
+    if workspaceId != modelsWorkspace { models = nil }
+    modelsWorkspace = workspaceId
+    let requestId = track(.models)
+    modelsRequest = requestId
+    return [
+      send(
+        .listModels(
+          ListModelsCommand(
+            requestId: requestId, traceparent: makeTraceparent(), workspaceId: workspaceId,
+            refresh: refresh ? true : nil)))
+    ]
+  }
+
+  /// Watches the changes of the workspaces shown.
+  ///
+  /// - Remark: SPEC-0005 "MP6 定的细节 · MP6a": the whole set each time, as the command replaces
+  ///   the last; the same set again sends nothing. Without a connection it is only recorded.
+  /// - SideEffects: none
+  /// - Parameter workspaceIds: The workspaces, at most 64.
+  /// - Returns: The command to send.
+  public mutating func watchChanges(_ workspaceIds: [WorkspaceId]) -> [SyncOutput] {
+    let wanted = Array(workspaceIds.prefix(64))
+    guard Set(wanted) != Set(watchedChanges) else { return [] }
+    watchedChanges = wanted
+    changes = changes.filter { wanted.contains($0.key) }
+    return generation == nil ? [] : [watchChangesCommand(wanted)]
+  }
+
+  /// Opens the change list's diff, or closes it with `nil`.
+  ///
+  /// - Remark: One at a time; a new target drops the diff shown until its own comes.
+  /// - SideEffects: none
+  /// - Parameter target: The workspace and mode, or `nil`.
+  /// - Returns: The command to send.
+  public mutating func watchDiff(_ target: DiffTarget?) -> [SyncOutput] {
+    guard target != diffTarget else { return [] }
+    diffTarget = target
+    diff = nil
+    return generation == nil ? [] : [watchDiffCommand(target)]
+  }
+
+  /// `watch_changes`.
+  ///
+  /// - Remark: Its answer settles nothing.
+  /// - SideEffects: none
+  /// - Parameter workspaceIds: The workspaces.
+  /// - Returns: The output.
+  private mutating func watchChangesCommand(_ workspaceIds: [WorkspaceId]) -> SyncOutput {
+    send(
+      .watchChanges(
+        WatchChangesCommand(requestId: track(.other), traceparent: makeTraceparent(), workspaceIds: workspaceIds)))
+  }
+
+  /// `watch_diff`.
+  ///
+  /// - Remark: Its answer settles nothing.
+  /// - SideEffects: none
+  /// - Parameter target: The target, or `nil`.
+  /// - Returns: The output.
+  private mutating func watchDiffCommand(_ target: DiffTarget?) -> SyncOutput {
+    send(.watchDiff(WatchDiffCommand(requestId: track(.other), traceparent: makeTraceparent(), target: target)))
+  }
+
+  /// Forgets why the last action on a session failed.
+  ///
+  /// - Remark: When its toast is dismissed.
+  /// - SideEffects: none
+  /// - Parameter sessionId: The session.
+  public mutating func dismissActionProblem(in sessionId: SessionId) {
+    actionProblems[sessionId] = nil
+  }
+
+  /// Clears a session's error once its page shows it, as the desktop does.
+  ///
+  /// - Remark: SPEC-0005 "MP5 定的细节 · MP5b": only an uncleared `error`, not `auth`, and once
+  ///   while a request for it is on its way.
+  /// - SideEffects: none
+  /// - Parameter sessionId: The session.
+  /// - Returns: The command to send, if any.
+  public mutating func clearAttention(_ sessionId: SessionId) -> [SyncOutput] {
+    guard synced, let summary = index.sessions.first(where: { $0.sessionId == sessionId }),
+      let attention = summary.attention, attention.reason == .error, !attention.cleared,
+      !requests.values.contains(where: { if case .clearing(sessionId) = $0 { true } else { false } })
+    else { return [] }
+    return [
+      send(
+        .clearAttention(
+          ClearAttentionCommand(
+            requestId: track(.clearing(sessionId)), traceparent: makeTraceparent(), sessionId: sessionId)))
+    ]
   }
 
   /// Sends an uncertain message again, as a new message.
@@ -294,8 +591,9 @@ public struct SyncCore {
     guard synced, let message = outbox.first(where: { $0.id == requestId && $0.state == .uncertain }) else {
       return []
     }
+    let pictures = images[requestId] ?? []
     drop(requestId)
-    return [post(message.text, to: message.sessionId)]
+    return post(message.text, to: message.sessionId, kind: message.kind, images: pictures)
   }
 
   /// Takes back a message that never left: the connection was gone when it was to be written.
@@ -303,8 +601,12 @@ public struct SyncCore {
   /// - Remark: Its text goes back in front of what the input holds now; "没发出去". A retry that
   ///   could not be written leaves the first sending, which may have run: it is uncertain instead.
   /// - SideEffects: none
-  /// - Parameter requestId: The message.
-  public mutating func notWritten(_ requestId: RequestId) {
+  /// - Parameter written: The message, or one of its uploads.
+  public mutating func notWritten(_ written: RequestId) {
+    // An upload that never left is its message never leaving.
+    var requestId = written
+    if case .upload(let message, _)? = requests[written] { requestId = message }
+    requests[written] = nil
     guard let index = outbox.firstIndex(where: { $0.id == requestId }), outbox[index].state == .sending else {
       return
     }
@@ -314,8 +616,9 @@ public struct SyncCore {
       return
     }
     let message = outbox[index]
+    let pictures = images[requestId] ?? []
     drop(requestId)
-    giveBack(message, .notSent)
+    giveBack(message, .notSent, images: pictures)
   }
 
   /// Records a message and makes its `prompt`.
@@ -325,15 +628,58 @@ public struct SyncCore {
   /// - Parameters:
   ///   - text: The text.
   ///   - sessionId: The session.
-  /// - Returns: The output.
-  private mutating func post(_ text: String, to sessionId: SessionId) -> SyncOutput {
+  ///   - kind: What it is sent as.
+  ///   - pictures: Its images, uploaded first.
+  /// - Returns: The outputs.
+  private mutating func post(
+    _ text: String, to sessionId: SessionId, kind: Outgoing.Kind, images pictures: [OutgoingImage]
+  ) -> [SyncOutput] {
     let requestId = makeRequestId()
-    outbox.append(Outgoing(id: requestId, sessionId: sessionId, text: text, state: .sending))
+    outbox.append(
+      Outgoing(id: requestId, sessionId: sessionId, text: text, state: .sending, kind: kind, images: pictures.count))
     timing[requestId] = (now(), false)
-    return prompt(requestId)
+    guard !pictures.isEmpty else { return [prompt(requestId)] }
+    images[requestId] = pictures
+    return upload(requestId)
   }
 
-  /// The `prompt` of a message in the outbox, for its first sending or its one retry.
+  /// Uploads a message's images on this connection, forgetting ids an earlier one gave.
+  ///
+  /// - Remark: SPEC-0005 "MP5 定的细节 · MP5c": attachments belong to the connection they were
+  ///   uploaded on, so a retry uploads them again; the message goes once every id is back.
+  /// - SideEffects: none
+  /// - Parameter requestId: The message.
+  /// - Returns: The uploads.
+  private mutating func upload(_ requestId: RequestId) -> [SyncOutput] {
+    let pictures = images[requestId] ?? []
+    attachments[requestId] = Array(repeating: nil, count: pictures.count)
+    return pictures.enumerated().map { place, picture in
+      send(
+        .uploadAttachment(
+          UploadAttachmentCommand(
+            requestId: track(.upload(requestId, place)), traceparent: makeTraceparent(), mimeType: picture.mimeType,
+            data: picture.data)))
+    }
+  }
+
+  /// Takes the id the host gave one of a message's images, and sends the message once all are in.
+  ///
+  /// - Remark: An answer without an id cannot be used; the message then waits for the next sync.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - requestId: The message.
+  ///   - place: The image's place.
+  ///   - attachmentId: The id, if the answer had one.
+  /// - Returns: The message's command, once every image is in.
+  private mutating func uploaded(_ requestId: RequestId, place: Int, attachmentId: String?) -> [SyncOutput] {
+    guard outbox.contains(where: { $0.id == requestId }), var ids = attachments[requestId], ids.indices.contains(place)
+    else { return [] }
+    ids[place] = attachmentId
+    attachments[requestId] = ids
+    return ids.allSatisfy { $0 != nil } ? [prompt(requestId)] : []
+  }
+
+  /// The `prompt` or `steer` of a message in the outbox, for its first sending or its one retry.
   ///
   /// - Remark: The same request id both times (SPEC-0005 "协议改动" 4).
   /// - SideEffects: none
@@ -342,23 +688,33 @@ public struct SyncCore {
   private mutating func prompt(_ requestId: RequestId) -> SyncOutput {
     let message = outbox.first { $0.id == requestId }
     requests[requestId] = .prompt
+    let sessionId = message?.sessionId ?? ""
+    let text = message?.text ?? ""
+    let ids = attachments[requestId]?.compactMap { $0 }
+    if message?.kind == .steer {
+      return send(
+        .steer(
+          SteerCommand(
+            requestId: requestId, traceparent: makeTraceparent(), sessionId: sessionId, text: text, attachmentIds: ids))
+      )
+    }
     return send(
       .prompt(
         PromptCommand(
-          requestId: requestId, traceparent: makeTraceparent(), sessionId: message?.sessionId ?? "",
-          text: message?.text ?? "")))
+          requestId: requestId, traceparent: makeTraceparent(), sessionId: sessionId, text: text, attachmentIds: ids)))
   }
 
   /// Takes the host's answer to a message.
   ///
-  /// - Remark: Started: kept until its turn shows. Handled or queued: settled.
+  /// - Remark: A prompt started is kept until its turn shows; handled or queued, settled. A steer
+  ///   has no turn of its own: settled once the host took it.
   /// - SideEffects: none
   /// - Parameters:
   ///   - requestId: The message.
   ///   - disposition: What the host did with it.
   private mutating func answered(_ requestId: RequestId, disposition: String?) {
     guard let index = outbox.firstIndex(where: { $0.id == requestId }) else { return }
-    if disposition == "started" {
+    if disposition == "started", outbox[index].kind == .prompt {
       outbox[index].state = .accepted
       settleDelivered(in: outbox[index].sessionId)
     } else {
@@ -381,8 +737,9 @@ public struct SyncCore {
       if delivered(message) { arrived(message) } else { outbox[index].state = .uncertain }
       return
     }
+    let pictures = images[requestId] ?? []
     drop(requestId)
-    giveBack(message, .refused(code))
+    giveBack(message, .refused(code), images: pictures)
   }
 
   /// Settles a session's messages whose turns are in its transcript.
@@ -418,7 +775,7 @@ public struct SyncCore {
       guard message.state == .sending, let sent = timing[message.id] else { continue }
       if !sent.retried, now() - sent.sentAt < Self.retryWindow {
         timing[message.id] = (sent.sentAt, true)
-        outputs.append(prompt(message.id))
+        outputs += images[message.id] == nil ? [prompt(message.id)] : upload(message.id)
       } else if let index = outbox.firstIndex(where: { $0.id == message.id }) {
         outbox[index].state = .uncertain
       }
@@ -457,6 +814,8 @@ public struct SyncCore {
   private mutating func drop(_ requestId: RequestId) {
     outbox.removeAll { $0.id == requestId }
     timing[requestId] = nil
+    images[requestId] = nil
+    attachments[requestId] = nil
   }
 
   /// Puts a message that did not go back in front of its session's input.
@@ -466,10 +825,12 @@ public struct SyncCore {
   /// - Parameters:
   ///   - message: The message.
   ///   - problem: Why it did not go.
-  private mutating func giveBack(_ message: Outgoing, _ problem: SendProblem) {
+  ///   - pictures: Its images, which go in front of those the input holds.
+  private mutating func giveBack(_ message: Outgoing, _ problem: SendProblem, images pictures: [OutgoingImage] = []) {
     let typed = drafts[message.sessionId] ?? ""
     drafts[message.sessionId] = typed.isEmpty ? message.text : "\(message.text)\n\(typed)"
     problems[message.sessionId] = problem
+    if !pictures.isEmpty { draftImages[message.sessionId] = pictures + (draftImages[message.sessionId] ?? []) }
   }
 
   /// The disposition in a `prompt` result.
@@ -480,6 +841,17 @@ public struct SyncCore {
   /// - Returns: The disposition.
   private static func disposition(_ result: JSONValue?) -> String? {
     guard case .object(let fields)? = result, case .string(let value)? = fields["disposition"] else { return nil }
+    return value
+  }
+
+  /// The attachment id in an `upload_attachment` result.
+  ///
+  /// - Remark: `nil` for a result without one.
+  /// - SideEffects: none
+  /// - Parameter result: The result.
+  /// - Returns: The id.
+  private static func attachmentId(_ result: JSONValue?) -> String? {
+    guard case .object(let fields)? = result, case .string(let value)? = fields["attachmentId"] else { return nil }
     return value
   }
 

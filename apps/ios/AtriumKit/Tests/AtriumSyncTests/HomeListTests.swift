@@ -120,3 +120,125 @@ struct HomeListTests {
 private func createdAt(of json: String) -> String {
   json.contains(#""branch":"old""#) ? #""createdAt":1"# : #""createdAt":2"#
 }
+
+@Suite("Home list: children")
+struct HomeChildrenTests {
+  @Test("lists a session's child conversations, the latest updated first, and not archived ones")
+  func children() {
+    var state = IndexState()
+    let parent = #"{"sessionId":"p","by":"agent"}"#
+    apply(
+      &state,
+      indexSnapshotJSON(sessions: [
+        summaryJSON("p", in: "w1"),
+        summaryJSON("c1", in: "w1", extra: ["parent": parent, "updatedAt": "2"]),
+        summaryJSON("c2", in: "w1", extra: ["parent": parent, "updatedAt": "9"]),
+        summaryJSON("c3", in: "w1", extra: ["parent": parent, "archived": "true"]),
+        summaryJSON("x", in: "w1", extra: ["parent": #"{"sessionId":"other","by":"user"}"#]),
+      ]))
+    #expect(HomeList.children(of: "p", in: state).map(\.sessionId) == ["c2", "c1"])
+    #expect(HomeList.children(of: "c1", in: state).isEmpty)
+  }
+}
+
+@Suite("Home list: full layout")
+struct HomeLayoutTests {
+  /// A list with one workspace of five sessions in different states.
+  static let busy = indexSnapshotJSON(
+    projects: [projectJSON("p1", name: "weather-app")],
+    workspaces: [workspaceJSON("w1", project: "p1", branch: "fix/cache")],
+    sessions: [
+      summaryJSON("s1", in: "w1", name: "old", extra: ["updatedAt": "1"]),
+      summaryJSON("s2", in: "w1", name: "new", extra: ["updatedAt": "9"]),
+      summaryJSON("s3", in: "w1", name: "run", extra: ["updatedAt": "2", "running": "true"]),
+      summaryJSON("s4", in: "w1", name: "ask", extra: ["updatedAt": "3", "asking": "5"]),
+      summaryJSON(
+        "s5", in: "w1", name: "err",
+        extra: ["updatedAt": "4", "attention": #"{"reason":"error","at":1,"cleared":false}"#]),
+    ])
+
+  @Test("shows three sessions a workspace, asking before errors before running before the rest, and how many more")
+  func three() {
+    let workspace = home(Self.busy).projects[0].workspaces[0]
+    #expect(workspace.shown.map(\.id) == ["s4", "s5", "s3"])
+    #expect(workspace.more == 2)
+    #expect(workspace.rows.count == 5)
+    #expect(workspace.kind == .worktree)
+    #expect(!workspace.merged)
+  }
+
+  @Test("marks a merged workspace")
+  func merged() {
+    let json = indexSnapshotJSON(
+      projects: [projectJSON("p1", name: "p")],
+      workspaces: [
+        workspaceJSON("w1", project: "p1", branch: "done").replacingOccurrences(
+          of: #""merge":null"#, with: #""merge":{"dirty":false,"ahead":0,"verdict":"merged","reason":null}"#)
+      ])
+    #expect(home(json).projects[0].workspaces[0].merged)
+  }
+
+  @Test("shows at most five chats and how many there are")
+  func chats() {
+    let chats = (0..<7).map { chatJSON("c\($0)") }
+    let sessions = (0..<7).map { summaryJSON("t\($0)", in: "c\($0)", extra: ["updatedAt": "\($0)"]) }
+    let list = home(indexSnapshotJSON(chats: chats, sessions: sessions))
+    #expect(list.chats.count == 7)
+    #expect(list.shownChats.map(\.id) == ["t6", "t5", "t4", "t3", "t2"])
+  }
+
+  @Test("knows where the latest session is, for a new session to start there")
+  func recent() {
+    var state = IndexState()
+    apply(&state, Self.busy)
+    #expect(HomeList.recentContainer(in: state) == "w1")
+    #expect(HomeList.recentContainer(in: IndexState()) == nil)
+    var two = IndexState()
+    apply(
+      &two,
+      indexSnapshotJSON(
+        workspaces: [workspaceJSON("w1", project: "p1"), workspaceJSON("w2", project: "p1", branch: "b")],
+        sessions: [
+          summaryJSON("a", in: "w2", extra: ["updatedAt": "1"]), summaryJSON("b", in: "w1", extra: ["updatedAt": "9"]),
+          summaryJSON("c", in: "w2", extra: ["updatedAt": "20", "archived": "true"]),
+        ]))
+    #expect(HomeList.recentContainer(in: two) == "w1")
+  }
+
+  @Test("lists the three workspaces worked in last, each once, leaving chats and merged ones out")
+  func recentWorkspaces() {
+    var state = IndexState()
+    apply(
+      &state,
+      indexSnapshotJSON(
+        workspaces: (1...5).map { workspaceJSON("w\($0)", project: "p1", branch: "b\($0)") }
+          + [
+            workspaceJSON("w6", project: "p1", branch: "done").replacingOccurrences(
+              of: #""merge":null"#, with: #""merge":{"dirty":false,"ahead":0,"verdict":"merged","reason":null}"#)
+          ],
+        chats: [chatJSON("c1")],
+        sessions: [
+          summaryJSON("a", in: "w1", extra: ["updatedAt": "1"]), summaryJSON("b", in: "w2", extra: ["updatedAt": "5"]),
+          summaryJSON("c", in: "w2", extra: ["updatedAt": "6"]), summaryJSON("d", in: "c1", extra: ["updatedAt": "9"]),
+          summaryJSON("e", in: "w6", extra: ["updatedAt": "8"]), summaryJSON("f", in: "w3", extra: ["updatedAt": "4"]),
+          summaryJSON("g", in: "w4", extra: ["updatedAt": "3"]), summaryJSON("h", in: "w5", extra: ["updatedAt": "2"]),
+          summaryJSON("i", in: "w5", extra: ["updatedAt": "7", "archived": "true"]),
+        ]))
+    #expect(HomeList.recentWorkspaces(in: state) == ["w2", "w3", "w4"])
+    #expect(HomeList.recentWorkspaces(in: IndexState()).isEmpty)
+    // The latest session is in a chat, so the home's "+" starts a new chat.
+    #expect(HomeList.newSessionPlace(in: state) == nil)
+    var worked = IndexState()
+    apply(
+      &worked,
+      indexSnapshotJSON(
+        workspaces: [workspaceJSON("w1", project: "p1"), workspaceJSON("w2", project: "p1", branch: "b")],
+        chats: [chatJSON("c1")],
+        sessions: [
+          summaryJSON("a", in: "c1", extra: ["updatedAt": "1"]), summaryJSON("b", in: "w2", extra: ["updatedAt": "5"]),
+          summaryJSON("c", in: "w1", extra: ["updatedAt": "9", "archived": "true"]),
+        ]))
+    #expect(HomeList.newSessionPlace(in: worked) == "w2")
+    #expect(HomeList.newSessionPlace(in: IndexState()) == nil)
+  }
+}

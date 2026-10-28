@@ -52,7 +52,17 @@ public struct SessionState: Sendable, Equatable {
   /// Whether older items exist on the host.
   public private(set) var hasOlder = false
   /// Whether a run is in progress.
-  public private(set) var running = false
+  public var running: Bool { runStartedAt != nil }
+  /// When the run in progress started, on the host's clock; `nil` when none is.
+  public private(set) var runStartedAt: Int?
+  /// The run control (queue, steers, stop, questions, failure); `nil` before a snapshot.
+  public private(set) var control: Control?
+  /// The model and thinking level; `nil` when pi has not said.
+  public private(set) var model: SessionModel?
+  /// Whether fast mode is on.
+  public private(set) var fast = false
+  /// The status bar's figures; `nil` before a snapshot.
+  public private(set) var metrics: SessionMetrics?
   /// Whether it asked to continue from its copy and waits for `session_resumed` or a snapshot.
   public private(set) var resuming = false
 
@@ -87,6 +97,11 @@ public struct SessionState: Sendable, Equatable {
     stream = cached.stream
     items = cached.items
     hasOlder = cached.hasOlder
+    runStartedAt = cached.runStartedAt
+    control = cached.control
+    model = cached.model
+    fast = cached.fast ?? false
+    metrics = cached.metrics
   }
 
   /// The session to cache; `nil` without a snapshot.
@@ -94,7 +109,8 @@ public struct SessionState: Sendable, Equatable {
     guard let point = resumePoint else { return nil }
     return CachedSession(
       sessionId: sessionId, stream: point.stream, epoch: point.epoch, seq: point.seq, items: items,
-      hasOlder: hasOlder, exited: status == .exited)
+      hasOlder: hasOlder, exited: status == .exited, runStartedAt: runStartedAt, control: control, model: model,
+      fast: fast, metrics: metrics)
   }
 
   /// Asks to continue from its copy: it keeps taking events, and waits for `session_resumed`.
@@ -177,7 +193,11 @@ public struct SessionState: Sendable, Equatable {
     stream = snapshot.stream
     items = snapshot.items
     hasOlder = snapshot.hasOlder
-    running = snapshot.run != nil
+    runStartedAt = snapshot.run?.startedAt
+    control = snapshot.control
+    model = snapshot.model
+    fast = snapshot.fast
+    metrics = snapshot.metrics
   }
 
   /// Applies an event that follows on.
@@ -188,8 +208,8 @@ public struct SessionState: Sendable, Equatable {
   /// - Returns: Whether the turn, step or item it names was there.
   private mutating func take(_ event: SessionEvent) -> Bool {
     switch event {
-    case .runStarted: running = true
-    case .runSettled: running = false
+    case .runStarted(let started): runStartedAt = started.startedAt
+    case .runSettled: runStartedAt = nil
     case .turnStarted(let started): items.append(.turn(started.turn))
     case .stepAdded(let added):
       return changeTurn(added.turnId) { $0.steps.append(added.step) }
@@ -230,8 +250,12 @@ public struct SessionState: Sendable, Equatable {
       items.insert(.notice(added.notice), at: index)
     case .sessionExited:
       status = .exited
-      running = false
-    case .controlUpdated, .promptHandled, .modelUpdated, .fastUpdated, .metricsUpdated: break
+      runStartedAt = nil
+    case .controlUpdated(let updated): control = updated.control
+    case .modelUpdated(let updated): model = updated.model
+    case .fastUpdated(let updated): fast = updated.fast
+    case .metricsUpdated(let updated): metrics = updated.metrics
+    case .promptHandled: break
     case .sessionSnapshot, .sessionResumed: return false
     }
     return true
