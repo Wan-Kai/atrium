@@ -445,7 +445,7 @@ function Choices({
             <button
               type="button"
               aria-label="分支名"
-              title={choice.branch === null ? "发出后，AI 按第一条消息起分支名；点这里自己写" : "分支名"}
+              title={choice.branch === null ? "发出后，AI 按第一条消息起中文名和分支名；点这里自己写分支名" : "分支名"}
               disabled={held}
               onClick={() => setEditing(true)}
               className="flex h-[26px] max-w-[240px] items-center gap-1.5 whitespace-nowrap rounded-[var(--r-btn)] px-2 text-[length:var(--fs-meta)] text-[var(--text-2)] enabled:hover:bg-[var(--hover)] disabled:text-[var(--text-dim)]"

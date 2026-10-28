@@ -166,8 +166,8 @@ export interface FakeAnswers {
   readonly child?: () => Promise<void>;
   /** A project's bases; `origin/main` and a local `main` when left out. */
   readonly bases?: (projectId: string) => Promise<CommandResult<"list_bases">>;
-  /** Answers naming a branch with the name; `atrium/fix-login` at once when left out. */
-  readonly nameBranch?: () => Promise<string>;
+  /** Answers both worktree names; a fixed branch is kept, with alias `修复登录` by default. */
+  readonly nameBranch?: () => Promise<CommandResult<"name_branch">>;
   /** Answers creating a workspace, which then shows in the list as a worktree; created at once when left out. */
   readonly createWorkspace?: () => Promise<void>;
   readonly renameChat?: () => Promise<void>;
@@ -461,11 +461,14 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
         }
       );
     },
-    async nameBranch(projectId: string, text: string, model: ModelRef | null) {
-      calls.push(`nameBranch ${projectId} ${text} ${model === null ? "null" : `${model.providerId}/${model.modelId}`}`);
-      return { branch: (await answers.nameBranch?.()) ?? "atrium/fix-login" };
+    async nameBranch(projectId: string, text: string, model: ModelRef | null, branch?: string) {
+      calls.push(
+        `nameBranch ${projectId} ${text} ${model === null ? "null" : `${model.providerId}/${model.modelId}`}${branch === undefined ? "" : ` ${branch}`}`,
+      );
+      const named = (await answers.nameBranch?.()) ?? { branch: "atrium/fix-login", alias: "修复登录" };
+      return { ...named, branch: branch ?? named.branch };
     },
-    async createWorkspace(projectId: string, branch: string, base: string) {
+    async createWorkspace(projectId: string, branch: string, base: string, alias?: string | null) {
       calls.push(`createWorkspace ${projectId} ${branch} ${base}`);
       await answers.createWorkspace?.();
       created += 1;
@@ -479,6 +482,8 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
             kind: "worktree",
             dir: `/work/made${created}`,
             branch,
+            alias: alias ?? null,
+            external: false,
             createdAt: Date.now(),
           }),
         ],

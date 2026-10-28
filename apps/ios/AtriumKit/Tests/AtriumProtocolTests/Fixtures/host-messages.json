@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 28,
+    "protocolVersion": 29,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,

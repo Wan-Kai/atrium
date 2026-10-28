@@ -4,6 +4,34 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## 新建 worktree 同时生成中文名（M1.11 自用后补充，2026-10-28）
+
+用户确认全部新增入口，显示选 `prototypes/worktree-chinese-name-prototype.html` 的 A“中文单行”：英文分支/目录不改，中文名只存工作区 `alias`，已有 worktree 不回填。协议 29；手机类型和往返夹具已重新生成。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 一次 AI 调用生成中英文名；固定分支不被模型改写；JSON/fence/旧英文回复；独立清理中文、16 码点、汉字和控制字符 | `workspaces/branch-namer.test.ts`，新增测试先红后绿；素材以固定前缀 JSON 走 stdin；超时参数 15 秒沿用 OneShot |
+| 模型优先级、错误不带内容、取消后不再起 pi、close 中止并等待清理 | `branch-namer.test.ts`；真实 pi 超时/进程管理沿用既有 `pi/src/oneshot` 测试，不声称新增真实模型测试 |
+| 两个创建入口单次登记别名；扫描抢先记录不覆盖非空手动名 | `worktree-creator.test.ts`、`projects/project-service.test.ts`，三文件最终 98 项通过 |
+| 字段跨协议 / client / router / index 不丢；固定分支保留 | `protocol/worktree-names.test.ts`、`envelope.test.ts`、`client/atrium-client.test.ts`、`server/router.test.ts`、`sessions/index-commands.test.ts`，新增接缝均见红 |
+| 手动空/带上下文子对话传名称和父模型；agent 传首任务及选定模型 | `session-manager.test.ts`、`agent-relay.test.ts`；Electron `children.spec.ts` 验证 fork 和 agent 新 worktree 的中文侧栏、英文悬停及真实分支 |
+| 自动分支 / 手填 / 仅图片均命名一次；重试保存 alias（包含 null），跨项目 / 手改分支丢旧名 | `ui/state/new-workspace.test.ts` 48 项通过；新增关键行为见红并做破坏验证 |
+| 侧栏 34px 单行中文，悬停英文；手填分支命名失败不误说随机 | `app/new-workspace.browser.test.tsx` 31 项通过，新增浏览器测试见红；原型明暗、长名、失败截图已查 |
+| 冷模型查询不能拖住关闭；子对话命名在途关闭不创建分支、不误记崩溃；资源归零 | `worktree-names.host.test.ts` 两例先红后绿：不推进 120 秒期限先断言关闭完成；第二例挂住一次性命名，复现 DOMException 被记 error 后改为预期 CommandError。均无意外 warn/error，不把失败后的清理推进当通过依据 |
+| 创建后重启中文名保留，英文分支/目录不变 | `apps/desktop/e2e/new-workspace.spec.ts` 两旅程；连同 `children.spec.ts` 共 8 项通过 |
+
+最终验证：`pnpm check`、构建通过；单元 4301 项通过；宿主全量 243/243。宿主首轮 241/242，其中未改动的 `changes/checkout.host.test.ts` 15 秒超时，单文件 36/36 后，含两项新关闭回归的全量 243 项通过，保留首轮失败记录。UI 两次全量均 1162/1163，既有状态栏“opens a row…”失败，单文件各自 28/28 通过，不报整套 UI 全绿；本功能浏览器 31/31 通过。Node 泄漏 20/20；`pnpm test:ios` 的 Swift 402 项及模拟器 UI 测试通过（首次因 RoundTripTests 的旧版本 28 断言失败，改为 29 后复验）。Xcode 输出 debugger-version 诊断但退出码 0。破坏检查最终复跑宿主核心 18＋接线 9＋UI 3，30 处全部检出。另将 Electron 自动命名夹具的 alias 改成 null，准确在中文侧栏断言见红，恢复原文件后 1/1 通过（hash `2815e1c4` 前后一致）；最终正向两文件 8/8 通过。
+
+改动行变异（未改阈值、配置或添加 suppress）：UI 100%（70 Killed / 0 Survived / 0 Timeout；57 缓存、13 本轮执行）；shared 87.50%（14 Killed / 2 Survived / 0 Timeout，存活为 JSON.stringify 会省掉的 undefined 字段）；host 2/2 Killed，命名箭头删掉的首轮被无关 session-manager 不稳抢先检出，独立重测后确实在新增冷查询回归中因没有命名进程失败，保留两轮证据。
+
+Git 组首轮 158 Killed / 8 Timeout / 24 Survived，补测后 180 / 5 / 5，围栏定向复测再检出 3 项。父按文件、精确位置、mutator 和 replacement 独立合并第二轮与末轮原始 JSON，得到 183 Killed / 4 Timeout / 3 Survived（另 8 个既有 Ignored，不进分母）。末轮 `retrySurvivors` 删掉三个范围外存活，不能引用最新 HTML 的 100%；完整口径保留它们。三项存活为 split 空项兜底和两处被后续/真实 GitRunner 覆盖的取消守卫；四项 Timeout 未确认根因、不计检出。仅 Killed 为 183/190＝96.32%；父进一步查出其中一项 Killed 是删除 `closing.abort()` 后在取消等待处测试超时，虽有直接因果，仍保守不给超时信用，采用 **182/190＝95.79%**。所有 Killed 有失败输出，未以无日志状态补造因果。原始证据保留 `/tmp/atrium-worktree-names-git-mutation{,-second,-fence}.log`、`-second.json` 及 `-summary.json`；原报告不改判、不删存活。
+
+审查按用户决定只跑 GPT-6 Astra / Grok 4.7，Claude 已由用户停止、无审查结论。冷模型查询关闭等待、子对话取消误报 error 已先红后修，两方限定复核无阻断；接口表、领域模型、关闭副作用文档已补齐，旧重试沿用快照已明确并补测试。相邻既有“在途 agent 模型查询被主动取消后仍可能记 error”不纳入本功能修复，保留为边界。
+
+`pnpm boundary`：依赖、URL、环境变量、隐藏命令无新增；协议 28 → 29；未登记 0、非精确依赖 0、改动副作用矛盾 0。无本 worktree 的开发/测试/Stryker 进程、`.tmp` 或 `.stryker-tmp` 残留。
+
+未运行整套桌面 / 全套桌面泄漏、真实模型套餐冒烟、打包安装；不访问真实项目数据、`~/.atrium`、凭据或剪贴板。原型仅在独立浏览器任务空间打开。2026-10-28 用户要求“合并并提交”，按验收通过处理并授权本地收尾；不安装、不推送。
+
 ## UI受控诊断（c710d51；不是正式回归或旧失败结案）
 
 Q0/Q1/Q2/C0/C1/C2各一次通过，前置Q0选例错误未执行主体，原记录保留。C1/C2按精确身份链证明运行中步骤与闲时来源行/同批两项均为合法呈现，原“必须两个source-line”判据过强；原children测试尚未修，历史67/68根因不能直接归入此例。Q均无增长但没有红绿对照，且录制、环境有差异，不抹旧ask-user失败。父核hash/最小元数据，未复跑或重算已删原堆；Opus单路只读审计的来源边界已补。诊断代码未纳入默认收集，不登记为新增正式用例，见 [实验记录](ui-controlled-diagnostics.md)。

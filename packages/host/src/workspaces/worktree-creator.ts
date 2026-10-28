@@ -17,8 +17,8 @@ export interface WorktreeCreator {
    * its local workspace's branch, and every branch.
    */
   bases(projectId: string): Promise<CommandResult<"list_bases">>;
-  /** Creates a worktree on a new branch from a base, next to the project's repository; returns its workspace. */
-  create(projectId: string, branch: string, base: string): Promise<string>;
+  /** Creates a worktree on a new branch from a base, records its generated alias, and returns its workspace. */
+  create(projectId: string, branch: string, base: string, alias?: string | null): Promise<string>;
   /**
    * Creates a worktree for a child conversation, from where a workspace is now (SPEC-0002, "概念 ·
    * 新 worktree 的起点"), on a branch named after `wanted` under `prefix` (`atrium/` by default,
@@ -28,6 +28,7 @@ export interface WorktreeCreator {
     workspaceId: string,
     wanted: string,
     prefix?: string,
+    alias?: string | null,
   ): Promise<{ readonly workspaceId: string; readonly dir: string; readonly branch: string }>;
 }
 
@@ -259,7 +260,7 @@ export function createWorktreeCreator(options: {
         remote: listed,
       };
     },
-    create: (projectId, branch, base) =>
+    create: (projectId, branch, base, alias) =>
       options.queue.run(async () => {
         const project = projectOf(projectId);
         const { dir, start } = await add(project, branch, base).catch((error: unknown) => {
@@ -268,12 +269,12 @@ export function createWorktreeCreator(options: {
           options.logger.warn({ projectId, reason: error.reason }, "worktree add failed");
           throw new CommandError("worktree_create_failed");
         });
-        const workspaceId = await options.projects.addWorktree(projectId, dir, start);
+        const workspaceId = await options.projects.addWorktree(projectId, dir, start, alias);
         options.logger.info({ projectId, workspaceId }, "worktree created");
         options.refresh(workspaceId);
         return workspaceId;
       }),
-    createFrom: (workspaceId, wanted, prefix = CHILD_PREFIX) =>
+    createFrom: (workspaceId, wanted, prefix = CHILD_PREFIX, alias) =>
       options.queue.run(async () => {
         const workspace = options.projects.workspaces().find((candidate) => candidate.id === workspaceId);
         const project = options.projects.projects().find((candidate) => candidate.id === workspace?.projectId);
@@ -316,7 +317,7 @@ export function createWorktreeCreator(options: {
           options.logger.warn({ projectId, reason: error.reason }, "worktree add failed");
           throw new CommandError("worktree_create_failed");
         });
-        const created = await options.projects.addWorktree(projectId, dir, start);
+        const created = await options.projects.addWorktree(projectId, dir, start, alias);
         options.logger.info({ projectId, workspaceId: created }, "worktree created");
         options.refresh(created);
         return { workspaceId: created, dir, branch };

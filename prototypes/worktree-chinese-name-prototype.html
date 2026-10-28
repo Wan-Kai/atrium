@@ -1,0 +1,539 @@
+<!doctype html>
+<!-- PROTOTYPE ONLY — Three sidebar naming treatments in the existing Atrium shell.
+     A: Chinese alias only, branch on hover (existing layout).
+     B: Chinese alias above an always-visible branch.
+     C: Compact Chinese alias, with branch in the conversation header.
+     No AI calls, Git operations, persistence, or production code. -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>原型 · worktree 中文名</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --page: #eef1f6;
+        --main: #fff;
+        --sidebar: #e0e5eb;
+        --surface: #f2f2f4;
+        --text: #1d1d1f;
+        --secondary: #48484e;
+        --muted: #6e6e74;
+        --line: rgba(0, 0, 0, 0.08);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --attn: #b75b08;
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --page: #0d1016;
+        --main: #151517;
+        --sidebar: #262b33;
+        --surface: #2c2c2e;
+        --text: #f9fafb;
+        --secondary: #cfd3d6;
+        --muted: #adb2b8;
+        --line: rgba(255, 255, 255, 0.1);
+        --selected: rgba(255, 255, 255, 0.08);
+        --tint: #7aaaff;
+        --attn: #f0a24e;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 32px 28px 110px;
+        background: var(--page);
+        color: var(--text);
+        font:
+          14px/1.55 -apple-system,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 22px;
+        font-weight: 600;
+      }
+      p {
+        margin: 0;
+      }
+      .intro,
+      .stage,
+      .explanation {
+        max-width: 1120px;
+        margin-inline: auto;
+      }
+      .intro p {
+        color: var(--muted);
+      }
+      .stage {
+        margin-top: 24px;
+        height: 490px;
+        display: flex;
+        overflow: hidden;
+        border-radius: 14px;
+        background: var(--main);
+        box-shadow:
+          0 0 0 0.5px var(--line),
+          0 16px 40px rgba(0, 0, 0, 0.1);
+      }
+      .sidebar {
+        width: 270px;
+        flex-shrink: 0;
+        background: var(--sidebar);
+        padding: 20px 12px;
+      }
+      .traffic {
+        display: flex;
+        gap: 8px;
+        margin: 0 0 28px 8px;
+      }
+      .traffic i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #fc625d;
+      }
+      .traffic i:nth-child(2) {
+        background: #fdbc40;
+      }
+      .traffic i:nth-child(3) {
+        background: #34c84a;
+      }
+      .search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        padding: 5px 10px;
+        margin-bottom: 24px;
+      }
+      .project {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding-inline: 10px;
+        font-weight: 500;
+      }
+      .project span {
+        flex: 1;
+      }
+      svg {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.75;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        margin: 2px 0;
+        padding: 0 10px 0 34px;
+        border-radius: 8px;
+        color: var(--secondary);
+      }
+      .row.active {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .label {
+        min-width: 0;
+        flex: 1;
+      }
+      .name {
+        display: block;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .branch {
+        display: none;
+        color: var(--muted);
+        font:
+          11px/1.7 "SF Mono",
+          ui-monospace,
+          Menlo,
+          monospace;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .meta {
+        font-size: 12px;
+        color: var(--attn);
+        white-space: nowrap;
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--tint);
+      }
+      [data-variant="B"] .row:not(.local) {
+        height: 54px;
+      }
+      [data-variant="B"] .row .branch {
+        display: block;
+      }
+      .main {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+      .tabs {
+        display: flex;
+        align-items: center;
+        height: 48px;
+        padding: 0 24px;
+        box-shadow: inset 0 -0.5px var(--line);
+        font-size: 13px;
+        color: var(--secondary);
+      }
+      .tabs span {
+        padding: 5px 12px;
+        border-radius: 7px;
+        background: var(--surface);
+      }
+      .workspace-context {
+        display: none;
+        padding: 13px 24px;
+        gap: 12px;
+        align-items: center;
+        box-shadow: inset 0 -0.5px var(--line);
+        font-size: 13px;
+      }
+      .workspace-context code {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      [data-variant="C"] .workspace-context {
+        display: flex;
+      }
+      .conversation {
+        flex: 1;
+        padding: 28px 28px 20px;
+        width: 100%;
+        max-width: 720px;
+        margin-inline: auto;
+      }
+      .bubble {
+        margin-left: auto;
+        max-width: 90%;
+        width: max-content;
+        padding: 12px 18px;
+        background: var(--surface);
+        border-radius: 22px;
+      }
+      .summary {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin: 24px 0 14px;
+        color: var(--muted);
+        font-size: 13px;
+        flex-wrap: wrap;
+      }
+      .summary svg {
+        width: 14px;
+        height: 14px;
+        color: var(--tint);
+      }
+      .reply {
+        line-height: 1.75;
+        color: var(--secondary);
+      }
+      .composer {
+        margin-top: 48px;
+        background: var(--surface);
+        border-radius: 22px;
+        padding: 15px 18px;
+        color: var(--muted);
+        min-height: 100px;
+      }
+      .composer-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 18px;
+        font-size: 12px;
+      }
+      .send {
+        padding: 4px;
+        border-radius: 50%;
+        background: var(--main);
+      }
+      .status {
+        height: 36px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-inline: 28px;
+        color: var(--muted);
+        font:
+          12px "SF Mono",
+          ui-monospace,
+          Menlo,
+          monospace;
+      }
+      .explanation {
+        margin-top: 20px;
+        color: var(--secondary);
+      }
+      .explanation strong {
+        color: var(--text);
+      }
+      .state {
+        display: block;
+        font-size: 12px;
+        margin-top: 8px;
+        color: var(--muted);
+        overflow-wrap: anywhere;
+      }
+      .controls {
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px;
+        border-radius: 14px;
+        background: var(--main);
+        box-shadow:
+          0 0 0 0.5px var(--line),
+          0 10px 32px rgba(0, 0, 0, 0.18);
+        white-space: nowrap;
+      }
+      button,
+      select {
+        color: var(--text);
+        font: inherit;
+        background: transparent;
+        border: 0;
+        padding: 7px 10px;
+        border-radius: 7px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: var(--selected);
+      }
+      button:focus-visible,
+      select:focus-visible {
+        outline: 2px solid var(--tint);
+        outline-offset: 2px;
+      }
+      .controls .current {
+        min-width: 150px;
+        text-align: center;
+        font-size: 13px;
+      }
+      .separator {
+        height: 20px;
+        width: 0.5px;
+        background: var(--line);
+        margin-inline: 5px;
+      }
+      @media (max-width: 760px) {
+        body {
+          padding: 20px 12px 110px;
+        }
+        .stage {
+          height: 540px;
+        }
+        .sidebar {
+          width: 245px;
+        }
+        .main {
+          min-width: 180px;
+        }
+        .conversation {
+          padding-inline: 18px;
+        }
+        .controls {
+          flex-wrap: wrap;
+          justify-content: center;
+          width: max-content;
+          max-width: calc(100vw - 24px);
+        }
+        .composer {
+          margin-top: 24px;
+        }
+        .workspace-context {
+          flex-wrap: wrap;
+          gap: 3px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg style="display: none" aria-hidden="true">
+      <defs>
+        <symbol id="folder" viewBox="0 0 24 24">
+          <path d="M3 7a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+        </symbol>
+        <symbol id="search" viewBox="0 0 24 24">
+          <circle cx="10" cy="10" r="6.5" />
+          <path d="m15 15 5 5" />
+        </symbol>
+        <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+        <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></symbol>
+        <symbol id="chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" /></symbol>
+        <symbol id="arrow" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6" /></symbol>
+      </defs>
+    </svg>
+    <header class="intro">
+      <h1>worktree 用中文名字，Git 仍用英文分支</h1>
+      <p>仅比较名字的显示方式，沿用 Atrium 现有界面。全部是演示数据，不会创建目录或调用 AI。</p>
+    </header>
+    <section class="stage" aria-label="Atrium 界面预览">
+      <aside class="sidebar">
+        <div class="traffic" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="search">
+          <svg><use href="#search" /></svg>搜索
+        </div>
+        <div class="project">
+          <svg><use href="#folder" /></svg><span>weather-app</span><svg><use href="#plus" /></svg>
+        </div>
+        <div class="row local"><span class="label">main</span></div>
+        <div class="row active" id="primary-row" title="分支 atrium/fix-login-timeout；worktree">
+          <span class="label"
+            ><span class="name" id="primary-name">修复登录超时</span
+            ><span class="branch">atrium/fix-login-timeout</span></span
+          ><span class="meta">↑2</span><span class="dot"></span>
+        </div>
+        <div class="row" title="分支 agent/add-cache-tests；worktree">
+          <span class="label"
+            ><span class="name">补充缓存测试</span><span class="branch">agent/add-cache-tests</span></span
+          >
+        </div>
+        <div class="row" title="分支 atrium/review-search；worktree">
+          <span class="label"
+            ><span class="name">检查搜索结果</span><span class="branch">atrium/review-search</span></span
+          >
+        </div>
+      </aside>
+      <main class="main">
+        <div class="tabs"><span>修复登录超时</span></div>
+        <div class="workspace-context">
+          <strong id="header-name">修复登录超时</strong><code>atrium/fix-login-timeout</code>
+        </div>
+        <div class="conversation">
+          <div class="bubble">登录接口偶尔超时，帮我找到原因并修复。</div>
+          <div class="summary">
+            <svg><use href="#chevron" /></svg><svg><use href="#check" /></svg
+            ><span id="launch-summary">在 atrium/fix-login-timeout 建好工作区 · 基于 main · 用时 3 秒</span>
+          </div>
+          <div class="reply">我会先复现登录超时，再检查请求链路，修复后补上回归测试。</div>
+          <div class="composer">
+            继续这个任务…
+            <div class="composer-footer">
+              <span>当前模型</span><svg class="send"><use href="#arrow" /></svg>
+            </div>
+          </div>
+        </div>
+        <div class="status">
+          <svg style="width: 13px; height: 13px"><use href="#folder" /></svg><span>fix-login-timeout</span>
+        </div>
+      </main>
+    </section>
+    <section class="explanation" aria-live="polite">
+      <strong id="variant-heading"></strong>
+      <p id="variant-description"></p>
+      <code class="state" id="state"></code>
+    </section>
+    <nav class="controls" aria-label="原型选项">
+      <button id="prev" aria-label="上一方案">
+        <svg style="transform: rotate(180deg)"><use href="#chevron" /></svg>
+      </button>
+      <span class="current" id="variant-label"></span>
+      <button id="next" aria-label="下一方案">
+        <svg><use href="#chevron" /></svg>
+      </button>
+      <span class="separator"></span>
+      <button id="theme">切换深色</button>
+      <span class="separator"></span>
+      <select id="scenario" aria-label="名字情形">
+        <option value="normal">正常中文名</option>
+        <option value="long">长中文名</option>
+        <option value="failed">AI 生成失败</option>
+      </select>
+    </nav>
+    <script>
+      const variants = {
+        A: [
+          "A · 中文名，悬停看分支",
+          "保留现有单行侧栏（推荐）",
+          "中文名替代侧栏里的英文分支；悬停仍可查看完整分支。行高、过程摘要和状态栏都不变。",
+        ],
+        B: [
+          "B · 中文与分支双行",
+          "侧栏同时显示两个名字",
+          "上面是中文任务名，下面常显英文分支。无需悬停，代价是每个 worktree 多占一行。",
+        ],
+        C: [
+          "C · 中文侧栏，顶栏分支",
+          "侧栏简洁，分支在当前对话上方",
+          "侧栏只留中文名；当前工作区的中文名和英文分支放在标签栏下方。分支随时可见，但对话区多一条横栏。",
+        ],
+      };
+      const params = new URLSearchParams(location.search);
+      let variant = variants[params.get("variant")] ? params.get("variant") : "A";
+      let theme = params.get("theme") === "dark" ? "dark" : "light";
+      function render() {
+        document.documentElement.dataset.variant = variant;
+        document.documentElement.dataset.theme = theme;
+        document.querySelector("#variant-label").textContent = variants[variant][0];
+        document.querySelector("#variant-heading").textContent = variants[variant][1];
+        document.querySelector("#variant-description").textContent = variants[variant][2];
+        document.querySelector("#theme").textContent = theme === "dark" ? "切换浅色" : "切换深色";
+        const scenario = document.querySelector("#scenario").value;
+        const alias =
+          scenario === "failed"
+            ? null
+            : scenario === "long"
+              ? "修复弱网环境下登录请求重试导致的超时问题"
+              : "修复登录超时";
+        const branch = "atrium/fix-login-timeout";
+        document.querySelector("#primary-name").textContent = alias ?? branch;
+        document.querySelector("#header-name").textContent = alias ?? "";
+        document.querySelector("#header-name").hidden = alias === null;
+        document.querySelector("#primary-row").title = `分支 ${branch}；worktree`;
+        document.querySelector("#state").textContent =
+          `演示状态：alias = ${JSON.stringify(alias)} · branch = ${JSON.stringify(branch)} · 目录名 = fix-login-timeout`;
+        params.set("variant", variant);
+        params.set("theme", theme);
+        history.replaceState(null, "", `${location.pathname}?${params}`);
+      }
+      function cycle(direction) {
+        variant = ["A", "B", "C"][(["A", "B", "C"].indexOf(variant) + direction + 3) % 3];
+        render();
+      }
+      document.querySelector("#prev").onclick = () => cycle(-1);
+      document.querySelector("#next").onclick = () => cycle(1);
+      document.querySelector("#theme").onclick = () => {
+        theme = theme === "dark" ? "light" : "dark";
+        render();
+      };
+      document.querySelector("#scenario").onchange = render;
+      document.addEventListener("keydown", (event) => {
+        if (event.target.matches("input,textarea,select,[contenteditable]")) return;
+        if (event.key === "ArrowLeft") cycle(-1);
+        if (event.key === "ArrowRight") cycle(1);
+      });
+      render();
+    </script>
+  </body>
+</html>

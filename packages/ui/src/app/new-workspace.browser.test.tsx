@@ -488,7 +488,9 @@ describe("The new-workspace page (M1.11)", () => {
     const { screen } = await newWorkspacePage();
 
     const button = choice(screen, "分支名");
-    await expect.element(button).toHaveAttribute("title", "发出后，AI 按第一条消息起分支名；点这里自己写");
+    await expect
+      .element(button)
+      .toHaveAttribute("title", "发出后，AI 按第一条消息起中文名和分支名；点这里自己写分支名");
     expect(getComputedStyle(firstIcon(button.element())).color).toBe("rgb(47, 111, 237)");
     await button.click();
     const field = screen.getByRole("textbox", { name: "分支名" });
@@ -529,7 +531,7 @@ describe("The new-workspace page (M1.11)", () => {
     await expect.element(choice(screen, "分支名")).toHaveTextContent("自动起名");
   });
 
-  it("goes without naming a branch written, saying the branch on its worktree's step", async () => {
+  it("names the Chinese alias of a written branch without changing the branch", async () => {
     const made = Promise.withResolvers<void>();
     const { screen, calls } = await newWorkspacePage({ createWorkspace: () => made.promise });
     await choice(screen, "分支名").click();
@@ -539,9 +541,53 @@ describe("The new-workspace page (M1.11)", () => {
     await send(screen, "修复登录");
 
     await vi.waitFor(() =>
-      expect(steps(screen)).toStrictEqual([["live", "创建 worktreefix/login · 基于 origin/main"]]),
+      expect(steps(screen)).toStrictEqual([
+        ["dot", "起名fix/login"],
+        ["live", "创建 worktree基于 origin/main"],
+      ]),
     );
-    expect(calls.filter((call) => call.startsWith("nameBranch"))).toStrictEqual([]);
+    expect(calls.filter((call) => call.startsWith("nameBranch"))).toStrictEqual([
+      `nameBranch ${PROJECT.id} 修复登录 null fix/login`,
+    ]);
+    expect(calls).toContain(`createWorkspace ${PROJECT.id} fix/login refs/remotes/origin/main`);
+    made.resolve();
+  });
+
+  it("shows the new Chinese alias on the existing single-line sidebar and keeps the English branch on hover", async () => {
+    const { screen, index } = await newWorkspacePage();
+    await send(screen, "修复登录");
+    await expect.element(screen.getByTestId("launch-summary")).toBeVisible();
+
+    expect(index.getState().workspaces.find((one) => one.id === "wks_made1")).toMatchObject({
+      alias: "修复登录",
+      branch: "atrium/fix-login",
+    });
+    const row = screen.getByTestId("workspace-row").filter({ hasText: "修复登录" });
+    await expect.element(row).toHaveTextContent("修复登录");
+    await expect.element(row).not.toHaveTextContent("atrium/fix-login");
+    await expect.element(row).toHaveAttribute("title", "分支 atrium/fix-login；worktree");
+    expect(row.element().getBoundingClientRect().height).toBe(34);
+  });
+
+  it("keeps a written branch when Chinese naming fails and never calls it random", async () => {
+    const made = Promise.withResolvers<void>();
+    const { screen, calls } = await newWorkspacePage({
+      nameBranch: () => Promise.reject(new CommandError("branch_name_failed", { reason: "failed" })),
+      createWorkspace: () => made.promise,
+    });
+    await choice(screen, "分支名").click();
+    await userEvent.fill(screen.getByRole("textbox", { name: "分支名" }), "fix/login");
+    await userEvent.keyboard("{Enter}");
+    await send(screen, "修复登录");
+
+    await vi.waitFor(() =>
+      expect(steps(screen)).toStrictEqual([
+        ["dot", "起名没起成，保留分支名 fix/login"],
+        ["live", "创建 worktreefix/login · 基于 origin/main"],
+      ]),
+    );
+    expect(calls).toContain(`createWorkspace ${PROJECT.id} fix/login refs/remotes/origin/main`);
+    await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
     made.resolve();
   });
 
@@ -565,7 +611,7 @@ describe("The new-workspace page (M1.11)", () => {
   });
 
   it("names the branch, creates the worktree and the session, then sends, step by step, holding the box back till the message goes", async () => {
-    const named = Promise.withResolvers<string>();
+    const named = Promise.withResolvers<CommandResult<"name_branch">>();
     const made = Promise.withResolvers<void>();
     const sent = Promise.withResolvers<void>();
     const { screen, calls } = await newWorkspacePage({
@@ -581,7 +627,7 @@ describe("The new-workspace page (M1.11)", () => {
 
     await vi.waitFor(() => expect(steps(screen)).toStrictEqual([["live", "起名按第一条消息"]]));
     expect(calls).toContain(`nameBranch ${PROJECT.id} 修复登录 null`);
-    named.resolve("atrium/fix-login");
+    named.resolve({ branch: "atrium/fix-login", alias: "修复登录" });
     await vi.waitFor(() =>
       expect(steps(screen)).toStrictEqual([
         ["dot", "起名atrium/fix-login"],
@@ -621,7 +667,7 @@ describe("The new-workspace page (M1.11)", () => {
         .map((one) => one.textContent),
     ).toStrictEqual(["准备工作区"]);
     await expect
-      .element(screen.getByTestId("workspace-row").filter({ hasText: "atrium/fix-login" }))
+      .element(screen.getByTestId("workspace-row").filter({ hasText: "修复登录" }))
       .toHaveAttribute("aria-current", "true");
     await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("下一条");
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
@@ -679,7 +725,7 @@ describe("The new-workspace page (M1.11)", () => {
       .element(screen.getByTestId("workspace-row").filter({ hasText: "feat/sidebar" }))
       .toHaveAttribute("aria-current", "true");
     await expect
-      .element(screen.getByTestId("workspace-row").filter({ hasText: "atrium/fix-login" }))
+      .element(screen.getByTestId("workspace-row").filter({ hasText: "修复登录" }))
       .toHaveAttribute("aria-current", "false");
   });
 
@@ -872,7 +918,7 @@ describe("The new-workspace page (M1.11)", () => {
 
 describe("The new-workspace page's launch, in its turn (2026-10-20)", () => {
   it("keeps the message and the steps where the turn is, the same nodes, from sending till the turn runs", async () => {
-    const named = Promise.withResolvers<string>();
+    const named = Promise.withResolvers<CommandResult<"name_branch">>();
     const made = Promise.withResolvers<void>();
     const sent = Promise.withResolvers<void>();
     const { screen, views } = await newWorkspacePage({
@@ -893,7 +939,7 @@ describe("The new-workspace page's launch, in its turn (2026-10-20)", () => {
     const places = [placeOf(bubble), placeOf(header)];
     const entered = [first.classList.contains("atrium-step-enter")];
 
-    named.resolve("atrium/fix-login");
+    named.resolve({ branch: "atrium/fix-login", alias: "修复登录" });
     await vi.waitFor(() => expect(steps(screen)).toHaveLength(2));
     places.push(placeOf(bubble), placeOf(header));
     made.resolve();
@@ -1074,7 +1120,7 @@ describe("The new-workspace page's launch, in its turn (2026-10-20)", () => {
     made.resolve();
     await vi.waitFor(() => expect(calls).toContain("prompt new2 修复登录"));
 
-    await screen.getByTestId("workspace-row").filter({ hasText: "atrium/fix-login" }).click();
+    await screen.getByTestId("workspace-row").filter({ hasText: "修复登录" }).click();
     await vi.waitFor(() => expect(steps(screen).at(-1)).toStrictEqual(["live", "发出消息"]));
 
     expect(

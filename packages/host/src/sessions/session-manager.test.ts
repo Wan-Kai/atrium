@@ -4725,6 +4725,7 @@ async function withWorktrees(
   await terminalSession(at, "pi-session-1", at.workspace);
   const workspaces: { id: string; dir: string }[] = [];
   const asked: string[] = [];
+  const naming: unknown[] = [];
   const tempRoot = join(at.root, "tmp");
   await mkdir(tempRoot);
   const managed = await manage(
@@ -4741,8 +4742,9 @@ async function withWorktrees(
       workspaces,
       tempRoot,
       sessionsTaken: 1,
-      childWorktree: async (workspaceId, wanted) => {
+      childWorktree: async (workspaceId, wanted, _prefix, names, signal) => {
         asked.push(`${workspaceId} ${wanted}`);
+        naming.push({ names, aborted: signal?.aborted });
         await held;
         const dir = join(at.root, "app.worktrees", "tests");
         if (!missing) await mkdir(dir, { recursive: true });
@@ -4753,7 +4755,7 @@ async function withWorktrees(
   );
   await managed.catalog.scan();
   await managed.manager.openSession("client-1", "pi-session-1");
-  return { ...managed, asked, tempRoot, worktree: join(at.root, "app.worktrees", "tests") };
+  return { ...managed, asked, naming, tempRoot, worktree: join(at.root, "app.worktrees", "tests") };
 }
 
 /**
@@ -4923,7 +4925,11 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
   });
 
   it("puts an empty child in a new worktree from the parent's workspace and opens it there", async () => {
-    const { manager, catalog, layouts, asked, worktree } = await withWorktrees();
+    const { manager, catalog, layouts, asked, naming, worktree } = await withWorktrees({
+      get_state: {
+        data: { sessionId: "pi-session-1", model: { provider: "faux", id: "naming-parent" }, thinkingLevel: "high" },
+      },
+    });
 
     const { sessionId } = await manager.createSession("client-1", WORKSPACE, true, {
       ...CHILD,
@@ -4932,6 +4938,9 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
     });
 
     expect(asked).toStrictEqual([`${WORKSPACE} atrium/tests`]);
+    expect(naming).toStrictEqual([
+      { names: { text: CHILD.name, model: { providerId: "faux", modelId: "naming-parent" } }, aborted: false },
+    ]);
     expect(catalog.find(sessionId)).toMatchObject({
       containerId: NEW_WORKSPACE,
       cwd: worktree,
@@ -4968,7 +4977,7 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
   });
 
   it("forks a child into a new worktree: the fork goes to a temporary directory, the child's pi starts there with --fork, and is told where it works", async () => {
-    const { manager, catalog, layouts, starts, piReceived, tempRoot, worktree } = await withWorktrees({
+    const { manager, catalog, layouts, starts, piReceived, naming, tempRoot, worktree } = await withWorktrees({
       fork: {
         switchesTo: {
           sessionId: "pi-session-x",
@@ -4985,6 +4994,7 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
       name: "查日志",
       child: { place: "worktree", branch: "atrium/logs" },
     });
+    expect(naming).toStrictEqual([{ names: { text: "查日志", model: null }, aborted: false }]);
 
     const launched = starts().filter((line) => "argv" in line);
     const forkStart = present(

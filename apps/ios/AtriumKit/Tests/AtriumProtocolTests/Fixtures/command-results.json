@@ -503,7 +503,12 @@
   ],
   "name_branch": [
     {
-      "branch": "atrium/fix-login"
+      "branch": "atrium/fix-login",
+      "alias": "修复登录"
+    },
+    {
+      "branch": "atrium/fix-login",
+      "alias": null
     }
   ],
   "translate_reply": [

@@ -324,6 +324,7 @@ export const CreateWorkspaceCommand = z.strictObject({
   projectId: ProjectId,
   branch: BranchName,
   base: BranchName,
+  alias: z.string().min(1).max(256).nullable().optional(),
 });
 export type CreateWorkspaceCommand = z.infer<typeof CreateWorkspaceCommand>;
 
@@ -337,6 +338,7 @@ export const NameBranchCommand = z.strictObject({
   projectId: ProjectId,
   text: MessageText,
   model: ModelRef.nullable(),
+  branch: BranchName.optional(),
 });
 export type NameBranchCommand = z.infer<typeof NameBranchCommand>;
 
@@ -1041,7 +1043,7 @@ export const CommandResult = {
     remote: z.array(BranchName),
   }),
   create_workspace: z.strictObject({ workspaceId: WorkspaceId }),
-  name_branch: z.strictObject({ branch: BranchName }),
+  name_branch: z.strictObject({ branch: BranchName, alias: z.string().min(1).max(256).nullable() }),
   translate_reply: z.strictObject({
     text: z
       .string()

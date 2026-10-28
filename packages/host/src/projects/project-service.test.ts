@@ -458,6 +458,31 @@ describe("ProjectService.recordWorktrees", () => {
   });
 });
 
+describe("ProjectService.addWorktree", () => {
+  it("persists generated aliases at registration and preserves an alias set after a scan", async () => {
+    const { projects, index } = await service(null);
+    const work = await tempDir("work");
+    const projectId = await projects.add(await folder(work, "app"));
+    const fresh = await projects.addWorktree(projectId, join(work, "fresh"), "abc123", "修复登录超时");
+    await projects.recordWorktrees(projectId, [join(work, "scanned"), join(work, "renamed")]);
+    const renamed = present(
+      projects.workspaces().find((workspace) => workspace.dir === join(work, "renamed")),
+      "renamed workspace",
+    );
+    await projects.renameWorkspace(renamed.id, "我自己的名字");
+    const scanned = await projects.addWorktree(projectId, join(work, "scanned"), "def456", "补充缓存测试");
+    await projects.addWorktree(projectId, join(work, "renamed"), "789abc", "不覆盖手动名字");
+
+    expect(projects.workspaces().filter((workspace) => workspace.kind === "worktree")).toMatchObject([
+      { id: fresh, alias: "修复登录超时", baseCommit: "abc123", external: false },
+      { id: scanned, alias: "补充缓存测试", baseCommit: "def456", external: false },
+      { id: renamed.id, alias: "我自己的名字", baseCommit: "789abc", external: false },
+    ]);
+    const written = JSON.parse(await readFile(join(index, "projects.json"), "utf8")) as { workspaces: unknown[] };
+    expect(written.workspaces).toStrictEqual(projects.workspaces());
+  });
+});
+
 describe("ProjectService.onChange", () => {
   it("stops calling a listener that unsubscribed", async () => {
     const { projects } = await service(null);

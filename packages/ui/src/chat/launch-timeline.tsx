@@ -68,7 +68,8 @@ function stepDetail(launch: Launch, step: LaunchStep): string | null {
   if (worktree === null) return null;
   const { branch } = worktree;
   if (step === "name") {
-    if (named === null || branch === null) return "按第一条消息";
+    if (named === null || branch === null) return launch.text.trim() === "" ? "按分支名" : "按第一条消息";
+    if (named === "kept") return `没起成，保留分支名 ${branch}`;
     return named === "model" ? branch : `没起成，用随机名 ${branch}`;
   }
   if (step !== "worktree" || branch === null) return null;

@@ -522,6 +522,7 @@ describe("agent relay: opening a child", () => {
     expect(created).toStrictEqual([
       {
         parentId: "main",
+        task: "look at auth",
         agent: {
           handle: "audit",
           role: "advise",
