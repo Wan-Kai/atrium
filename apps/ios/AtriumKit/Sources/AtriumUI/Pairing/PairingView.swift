@@ -12,6 +12,8 @@ public struct PairingView: View {
   @State private var cameraUnavailable = false
   @Environment(\.dismiss) private var dismiss
   @Environment(\.scenePhase) private var scenePhase
+  /// Light or dark.
+  @Environment(\.colorScheme) private var colorScheme
 
   /// Presents the injected remote flow projection.
   ///
@@ -47,7 +49,12 @@ public struct PairingView: View {
           }
         case .paired(let host):
           Section {
-            Label("已配对 \(host.hostName)", systemImage: "checkmark.circle")
+            // A Form row's icon takes the accent colour, not the tint: set the deep beige here.
+            Label {
+              Text("已配对 \(host.hostName)")
+            } icon: {
+              Image(systemName: "checkmark.circle").foregroundStyle(Palette(scheme: colorScheme).tint)
+            }
             Button("完成") { dismiss() }
               .accessibilityIdentifier("pairing.done")
           }
