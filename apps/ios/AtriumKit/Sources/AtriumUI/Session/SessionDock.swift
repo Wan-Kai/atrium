@@ -247,6 +247,8 @@ struct Composer: View {
             .accessibilityLabel("添加图片")
             .accessibilityIdentifier("session.addImage")
             TextField(controls.placeholder, text: text, axis: .vertical)
+              // Messages name files, branches and commands; autocorrect would rewrite them.
+              .autocorrectionDisabled()
               .lineLimit(1...5)
               .font(Typography.reply)
               .focused(typing)

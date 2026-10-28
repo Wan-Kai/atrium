@@ -136,6 +136,8 @@ struct NewSessionPage: View {
         }
         HStack(alignment: .bottom, spacing: 2) {
           TextField("写下第一条消息", text: $text, axis: .vertical)
+            // Messages name files, branches and commands; autocorrect would rewrite them.
+            .autocorrectionDisabled()
             .lineLimit(1...5)
             .font(Typography.reply)
             .focused($typing)
