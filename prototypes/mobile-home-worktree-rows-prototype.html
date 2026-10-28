@@ -77,7 +77,7 @@ figcaption p { font-size: 13px; color: var(--page-dim); margin-top: 3px; }
 .btn { position: absolute; width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center; z-index: 30; border: 0; cursor: pointer; color: var(--text);
   background: color-mix(in srgb, var(--note) 78%, transparent); backdrop-filter: blur(14px) saturate(1.2);
   box-shadow: inset 0 0 0 0.5px var(--rule), 0 4px 12px -6px rgba(50,35,10,.28); }
-.menu { top: 58px; left: 18px; }
+.menu { top: 58px; right: 18px; }
 .menu .pip { position: absolute; top: 9px; right: 9px; width: 8px; height: 8px; border-radius: 4px; background: var(--attn); box-shadow: 0 0 0 2px var(--note); }
 .fab { width: 58px; height: 58px; border-radius: 29px; right: 20px; bottom: 34px; background: var(--tint); color: var(--on-tint); backdrop-filter: none;
   box-shadow: 0 10px 20px -10px rgba(60,40,10,.55), inset 0 0.5px 0 rgba(255,255,255,.25); }
@@ -92,10 +92,10 @@ figcaption p { font-size: 13px; color: var(--page-dim); margin-top: 3px; }
 .ghost { border-radius: 6px; background: var(--tint-soft); animation: breathe 1.8s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 
-/* header: menu on the left, the title and host on the right of the same row */
+/* header: the title and host on the left, the settings button on the right (settings slide in from the right) */
 .inner { padding: 104px 22px 150px; }
 /* the header stays put above the scroll-edge blur; content blurs as it slides beneath it */
-.masthead { position: absolute; top: 56px; right: 22px; left: 82px; height: 48px; z-index: 31; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; }
+.masthead { position: absolute; top: 56px; left: 22px; right: 82px; height: 48px; z-index: 31; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; }
 h3.t { font: 600 34px/0.9 "New York", "Iowan Old Style", Georgia, serif; letter-spacing: -0.02em; }
 .host { margin-top: 1px; display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--l2); }
 .host .dot { width: 6px; height: 6px; border-radius: 3px; background: var(--tint); }
@@ -272,7 +272,7 @@ h3.t { font: italic var(--brand-weight) var(--brand-size)/0.9 var(--brand), "Iow
 THESIS: 等你处理是一排便签，一事一张，贴在纸面首页上；在问你是杏色、要登录是灰绿、出错是浅红；多了就横着滑。
 OWN-WORLD: 纸 #f6f2e9 / 墨 #26221c / 深米 #8a7352；便签杏 #f7dfb8、灰绿 #dfe0cf、浅红 #f4cdc4（深色 #3f3221 / #33342a / #402723）。
 STORY: 打开就看到几张便签，最急的在最左；处理掉一张，它被撕下，后面的补上来。
-FIRST VIEWPORT: 右上 Atrium，下面「等你处理 N 件」和一排便签，再下面是项目。
+FIRST VIEWPORT: 左上 Atrium、右上设置钮，下面「等你处理 N 件」和一排便签，再下面是项目。
 FORM: 用户选定 D「一事一张」，本页定生成规则。
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
 -->
@@ -297,7 +297,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 <script>
 const root = document.documentElement;
 const ICONS = `<span class="icons"><svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5" width="3" height="7" rx="1" fill="currentColor"/><rect x="10" y="2" width="3" height="10" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg><svg width="26" height="12" viewBox="0 0 26 12"><rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor"/></svg></span>`;
-const MENU = `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3.5 6h13M3.5 10h9M3.5 14h13"/></svg>`;
+const MENU = `<svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><circle cx="4.5" cy="10" r="1.6"/><circle cx="10" cy="10" r="1.6"/><circle cx="15.5" cy="10" r="1.6"/></svg>`;
 const PLUS = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg>`;
 const BRANCH = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="5.5" r="1.8"/><path d="M4.5 5.3v5.4M11.5 7.3c0 2.5-2.2 3.4-6.2 3.6"/></svg>`;
 const SMALL_PLUS = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M7 2.5v9M2.5 7h9"/></svg>`;
@@ -392,7 +392,7 @@ function phone(el) {
   el.innerHTML = `<div class="island"></div><div class="status"><span>9:41</span>${ICONS}</div>
     <div class="scroll"><div class="inner ${state === "trouble" ? "stale" : ""}">${explain}${strip(list)}${el.dataset.v ? dense(el.dataset.v) : projs()}</div></div>
     <div class="edge top"><i></i><i></i><i></i></div><div class="masthead"><h3 class="t">Atrium</h3>${host}</div><div class="edge bot"><i></i><i></i><i></i></div>
-    <button class="btn menu" aria-label="菜单">${MENU}${state === "trouble" ? `<span class="pip"></span>` : ""}</button>
+    <button class="btn menu" aria-label="设置">${MENU}${state === "trouble" ? `<span class="pip"></span>` : ""}</button>
     <button class="btn fab" aria-label="新建会话">${PLUS}</button><div class="home-ind"></div>`;
   const s = el.querySelector(".strip");
   if (s && el.dataset.at) s.scrollLeft = el.dataset.at === "end" ? s.scrollWidth : +el.dataset.at;
