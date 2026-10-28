@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>手机首页第二轮</title>
+<style>
+:root { --page: #e9e8e4; --page-text: #26262a; --page-dim: #74737a; --page-line: #d4d3cf;
+  --brand: #4a5fd0; --brand-soft: #e7eafb; }
+:root[data-theme="dark"] { --page: #0e0e10; --page-text: #ececee; --page-dim: #8c8c92; --page-line: #2a2a2e; }
+:root[data-brand="cat"] { --brand: #4a5fd0; --brand-soft: #e7eafb; }
+:root[data-brand="pine"] { --brand: #1d7a62; --brand-soft: #e2f1ec; }
+:root[data-brand="amber"] { --brand: #c46a10; --brand-soft: #f8ecdd; }
+:root[data-brand="ink"] { --brand: #2b2b30; --brand-soft: #ebebee; }
+:root[data-theme="dark"][data-brand="cat"] { --brand: #93a4f6; --brand-soft: #23284a; }
+:root[data-theme="dark"][data-brand="pine"] { --brand: #5ccfae; --brand-soft: #16302a; }
+:root[data-theme="dark"][data-brand="amber"] { --brand: #f2a24c; --brand-soft: #3a2a17; }
+:root[data-theme="dark"][data-brand="ink"] { --brand: #f2f2f4; --brand-soft: #2b2b30; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--page); color: var(--page-text); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; padding: 28px 16px 64px; }
+header.page { max-width: 1760px; margin: 0 auto 26px; display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap; justify-content: space-between; }
+header.page h1 { font-size: 22px; font-weight: 650; }
+header.page p { color: var(--page-dim); font-size: 13.5px; max-width: 72ch; margin-top: 4px; }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.seg { display: inline-flex; background: var(--page-line); border-radius: 10px; padding: 3px; }
+.seg button { border: 0; background: transparent; color: var(--page-text); font: inherit; font-size: 13px; padding: 6px 11px; border-radius: 8px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.seg button[aria-pressed="true"] { background: var(--page); box-shadow: 0 1px 2px rgba(0,0,0,.12); font-weight: 600; }
+.seg button i { width: 11px; height: 11px; border-radius: 6px; display: inline-block; }
+.grid { max-width: 1760px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(390px, 1fr)); gap: 36px 24px; justify-items: center; }
+figure { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 390px; max-width: 100%; }
+figcaption { width: 100%; }
+figcaption h2 { font-size: 16px; font-weight: 650; }
+figcaption h2 span { color: var(--page-dim); font-weight: 500; margin-left: 6px; }
+figcaption p { font-size: 13px; color: var(--page-dim); margin-top: 3px; }
+
+.phone { width: 390px; height: 844px; border-radius: 54px; position: relative; overflow: hidden; flex: none; isolation: isolate;
+  box-shadow: 0 0 0 10px #1b1b1d, 0 0 0 11px #3a3a3d, 0 30px 60px -20px rgba(0,0,0,.45); background: var(--bg); color: var(--text); }
+.island { position: absolute; top: 11px; left: 50%; translate: -50% 0; width: 124px; height: 36px; background: #000; border-radius: 20px; z-index: 40; }
+.status { position: absolute; top: 0; left: 0; right: 0; height: 54px; display: flex; justify-content: space-between; align-items: center; padding: 6px 34px 0 46px; font: 600 16px/1 -apple-system; z-index: 35; pointer-events: none; }
+.status .icons { display: flex; gap: 6px; }
+.home-ind { position: absolute; bottom: 8px; left: 50%; translate: -50% 0; width: 136px; height: 5px; border-radius: 3px; z-index: 40; background: var(--text); }
+.scroll { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.scroll::-webkit-scrollbar { display: none; }
+.btn { position: absolute; width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center; z-index: 30; border: 0; color: var(--text); cursor: pointer; }
+.fab { width: 58px; height: 58px; border-radius: 29px; right: 20px; bottom: 34px; }
+.tn { font-variant-numeric: tabular-nums; }
+.mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+@keyframes spin { to { rotate: 360deg } }
+@keyframes breathe { 0%,100% { opacity: .35 } 50% { opacity: 1 } }
+@keyframes sweep { from { translate: -100% 0 } to { translate: 260% 0 } }
+.state-sync .when-ready { display: none !important; }
+.state-ready .when-sync { display: none !important; }
+/* the loading spinner every direction shares: always the brand color */
+.spin { width: 15px; height: 15px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--brand) 22%, transparent); border-top-color: var(--brand); animation: spin .9s linear infinite; flex: none; }
+.bar { height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--brand) 16%, transparent); overflow: hidden; position: relative; }
+.bar::after { content: ""; position: absolute; inset: 0; width: 38%; border-radius: 2px; background: var(--brand); animation: sweep 1.3s cubic-bezier(.3,0,.2,1) infinite; }
+.ghost { height: 18px; border-radius: 6px; background: color-mix(in srgb, var(--text) 8%, transparent); animation: breathe 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+
+/* progressive edge blur: three stacked layers, each masked to a shorter band, so text blurs more the closer it gets to the edge */
+.edge { position: absolute; left: 0; right: 0; z-index: 20; pointer-events: none; }
+.edge i { position: absolute; inset: 0; display: block; }
+.edge.top { top: 0; height: var(--edge-top, 110px); }
+.edge.bot { bottom: 0; height: 120px; }
+.edge.top i:nth-child(1) { backdrop-filter: blur(2px); mask: linear-gradient(#000 55%, transparent); }
+.edge.top i:nth-child(2) { backdrop-filter: blur(6px); mask: linear-gradient(#000 40%, transparent 75%); }
+.edge.top i:nth-child(3) { backdrop-filter: blur(14px); mask: linear-gradient(#000 25%, transparent 55%); }
+.edge.bot i:nth-child(1) { backdrop-filter: blur(2px); mask: linear-gradient(transparent, #000 45%); }
+.edge.bot i:nth-child(2) { backdrop-filter: blur(6px); mask: linear-gradient(transparent 25%, #000 60%); }
+.edge.bot i:nth-child(3) { backdrop-filter: blur(14px); mask: linear-gradient(transparent 45%, #000 75%); }
+.edge::after { content: ""; position: absolute; inset: 0; }
+.edge.top::after { background: linear-gradient(var(--edge-tint), transparent); }
+.edge.bot::after { background: linear-gradient(transparent, var(--edge-tint)); }
+
+/* ===== P · 纸面 ===== */
+.P { --bg: #f7f4ec; --text: #22201c; --text2: #4a463f; --l2: #8a847a; --l3: #d6cfc2; --rule: rgba(60,48,30,.12);
+  --attn: #c4661a; --danger: #c43d33; --ok: #2f7d45; --note: #fffdf7; --edge-tint: rgba(247,244,236,.55); }
+:root[data-theme="dark"] .P { --bg: #1b1a17; --text: #efebe2; --text2: #cfc9bd; --l2: #8f897e; --l3: #4a463f; --rule: rgba(239,235,226,.1);
+  --attn: #e79446; --danger: #ef6a5e; --ok: #6cc184; --note: #24221e; --edge-tint: rgba(27,26,23,.55); }
+.P .btn { background: color-mix(in srgb, var(--note) 82%, transparent); box-shadow: 0 0 0 0.5px var(--rule), 0 4px 12px -6px rgba(40,30,10,.25); backdrop-filter: blur(12px); }
+.P .menu { top: 58px; left: 18px; }
+.P .fab { background: var(--text); color: var(--bg); box-shadow: 0 8px 18px -8px rgba(40,30,10,.45); backdrop-filter: none; }
+.P .inner { padding: 116px 24px 140px; }
+.P h3.t { font: 600 38px/1 "New York", "Iowan Old Style", Georgia, serif; letter-spacing: -0.02em; }
+.P .conn { margin-top: 10px; display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--text2); }
+.P .conn .dot { width: 7px; height: 7px; border-radius: 4px; background: var(--brand); }
+.P .notes { margin-top: 24px; background: var(--note); border-radius: 16px; box-shadow: 0 0 0 0.5px var(--rule), 0 1px 2px rgba(40,30,10,.06); }
+.P .note { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 13px 16px; align-items: center; }
+.P .note + .note { border-top: 0.5px solid var(--rule); }
+.P .note b { display: block; font-size: 16px; font-weight: 600; line-height: 1.35; }
+.P .note small { font-size: 13px; color: var(--l2); }
+.P .note small em { font-style: normal; font-weight: 600; }
+.P .ask { color: var(--attn); } .P .err { color: var(--danger); }
+.P .note .go { font-size: 13px; font-weight: 600; color: var(--brand); }
+.P .proj { margin-top: 30px; }
+.P .proj h4 { font: 600 22px/1.2 "New York", "Iowan Old Style", Georgia, serif; display: flex; justify-content: space-between; align-items: baseline; }
+.P .proj h4 small { font: 500 13px -apple-system; color: var(--brand); }
+.P .proj h4 small.q { color: var(--l2); }
+.P .ws { margin: 14px 0 4px; display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--l2); }
+.P .ws .br { font: 500 12.5px "SF Mono", ui-monospace, monospace; color: var(--text2); }
+.P .ws .tag { font: 500 11px "SF Mono", ui-monospace, monospace; color: var(--attn); }
+.P .ws .tag.ok { color: var(--ok); }
+.P .s { display: grid; grid-template-columns: 20px 1fr auto; gap: 8px; align-items: center; min-height: 48px; }
+.P .s b { font-size: 15.5px; font-weight: 500; }
+.P .s .tm { font-size: 13px; color: var(--l2); }
+.P .s .u { width: 7px; height: 7px; border-radius: 4px; background: var(--brand); margin-left: 4px; }
+.P .chats h4 { font: 600 22px/1.2 "New York", Georgia, serif; margin-top: 30px; }
+
+/* ===== G · 玻璃 ===== */
+.G { --bg: #f4f5f8; --text: #0f1115; --text2: #3b3f47; --l2: #7b8089; --l3: #c8ccd3; --rule: rgba(15,17,21,.08);
+  --attn: #d9731f; --danger: #e04538; --ok: #2e9455; --pane: rgba(255,255,255,.55); --pane-ring: rgba(255,255,255,.9); --edge-tint: rgba(244,245,248,.35); }
+:root[data-theme="dark"] .G { --bg: #07080a; --text: #f4f5f7; --text2: #c9ccd2; --l2: #8a8f98; --l3: #3a3e45; --rule: rgba(255,255,255,.08);
+  --attn: #f09a4a; --danger: #ff6b5e; --ok: #5ccf86; --pane: rgba(40,42,48,.42); --pane-ring: rgba(255,255,255,.14); --edge-tint: rgba(7,8,10,.35); }
+.G .field { position: absolute; inset: 0; z-index: 0;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--brand) 26%, var(--bg)) 0%, var(--bg) 34%, var(--bg) 66%, color-mix(in srgb, var(--brand) 14%, var(--bg)) 100%); }
+.G .scroll { z-index: 1; }
+.G .btn { background: var(--pane); box-shadow: inset 0 0 0 0.5px var(--pane-ring), 0 6px 18px -10px rgba(0,0,0,.35); backdrop-filter: blur(20px) saturate(1.8); }
+.G .menu { top: 58px; left: 18px; }
+.G .fab { background: var(--pane); color: var(--brand); }
+.G .inner { padding: 120px 22px 150px; }
+.G h3.t { font: 700 44px/1 -apple-system, "SF Pro Display"; letter-spacing: -0.035em; }
+.G .conn { margin-top: 10px; display: inline-flex; gap: 8px; align-items: center; font-size: 13.5px; color: var(--text2); padding: 6px 11px; border-radius: 20px; background: var(--pane); box-shadow: inset 0 0 0 0.5px var(--pane-ring); backdrop-filter: blur(16px); }
+.G .conn .dot { width: 7px; height: 7px; border-radius: 4px; background: var(--brand); }
+.G .panel { margin-top: 26px; border-radius: 24px; background: var(--pane); box-shadow: inset 0 0 0 0.5px var(--pane-ring), 0 10px 30px -18px rgba(0,0,0,.35); backdrop-filter: blur(24px) saturate(1.8); overflow: hidden; }
+.G .pn { display: grid; grid-template-columns: 10px 1fr auto; gap: 12px; padding: 14px 18px; align-items: center; }
+.G .pn + .pn { border-top: 0.5px solid var(--rule); }
+.G .pn .mk { width: 8px; height: 8px; border-radius: 4px; }
+.G .pn b { display: block; font-size: 16.5px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; }
+.G .pn small { font-size: 13px; color: var(--l2); }
+.G .pn .tm { font-size: 13px; color: var(--l2); }
+.G .grp { margin-top: 34px; }
+.G .grp h4 { font-size: 13px; font-weight: 600; color: var(--l2); display: flex; justify-content: space-between; }
+.G .grp h4 span { color: var(--brand); }
+.G .pj { font: 700 24px/1.15 -apple-system, "SF Pro Display"; letter-spacing: -0.02em; margin-top: 6px; }
+.G .ws { margin: 14px 0 2px; font: 500 12.5px "SF Mono", ui-monospace, monospace; color: var(--l2); display: flex; gap: 8px; }
+.G .ws em { font-style: normal; color: var(--attn); }
+.G .ws em.ok { color: var(--ok); }
+.G .s { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; min-height: 50px; }
+.G .s b { font-size: 16px; font-weight: 500; letter-spacing: -0.005em; }
+.G .s .tm { font-size: 13px; color: var(--l2); }
+.G .s .u { width: 8px; height: 8px; border-radius: 4px; background: var(--brand); margin-left: 3px; }
+
+/* ===== L · 实时活动 ===== */
+.L { --bg: #f2f2f7; --text: #0b0b0f; --text2: #3c3c43; --l2: #8a8a90; --l3: #c7c7cc; --rule: rgba(60,60,67,.12); --card: #fff;
+  --attn: #e67e22; --danger: #e5484d; --ok: #30a46c; --live: #111114; --live-text: #f5f5f7; --live-dim: #9a9aa2; --edge-tint: rgba(242,242,247,.5); }
+:root[data-theme="dark"] .L { --bg: #000; --text: #f5f5f7; --text2: #d1d1d6; --l2: #8d8d93; --l3: #3a3a3c; --rule: rgba(84,84,88,.35); --card: #1c1c1e;
+  --attn: #ff9f43; --danger: #ff6369; --ok: #4cc38a; --live: #1c1c1e; --live-text: #f5f5f7; --live-dim: #8d8d93; --edge-tint: rgba(0,0,0,.5); }
+.L .btn { background: color-mix(in srgb, var(--card) 80%, transparent); box-shadow: 0 0 0 0.5px var(--rule); backdrop-filter: blur(20px); }
+.L .menu { top: 58px; left: 18px; }
+.L .fab { background: var(--brand); color: var(--bg); }
+:root[data-theme="dark"][data-brand="ink"] .L .fab { color: #111; }
+.L .inner { padding: 116px 16px 140px; }
+.L h3.t { font: 700 34px/1 -apple-system, "SF Pro Display"; letter-spacing: -0.02em; padding: 0 4px; }
+.L .sub { padding: 6px 4px 0; font-size: 14px; color: var(--l2); display: flex; gap: 8px; align-items: center; }
+.L .live { margin-top: 12px; background: var(--live); color: var(--live-text); border-radius: 26px; padding: 14px 16px; display: grid; grid-template-columns: 40px 1fr auto; gap: 12px; align-items: center; }
+.L .live .ic { width: 40px; height: 40px; border-radius: 20px; display: grid; place-items: center; font: 800 18px -apple-system; color: #fff; }
+.L .live b { display: block; font-size: 16px; font-weight: 600; line-height: 1.3; }
+.L .live small { font-size: 12.5px; color: var(--live-dim); }
+.L .live .act { font-size: 13px; font-weight: 650; padding: 7px 12px; border-radius: 16px; background: rgba(255,255,255,.14); }
+.L .live.run { grid-template-columns: 40px 1fr auto; }
+.L .live .prog { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: rgba(255,255,255,.12); overflow: hidden; position: relative; }
+.L .live .prog::after { content: ""; position: absolute; inset: 0; width: var(--p, 40%); background: var(--brand); border-radius: 2px; }
+:root[data-brand="ink"] .L .live .prog::after { background: #f2f2f4; }
+.L .live .tm { font: 600 15px -apple-system; font-variant-numeric: tabular-nums; }
+.L .hd { margin: 26px 4px 8px; font-size: 13px; font-weight: 600; color: var(--l2); display: flex; justify-content: space-between; }
+.L .card { background: var(--card); border-radius: 20px; padding: 4px 16px; }
+.L .card + .card { margin-top: 10px; }
+.L .ch { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 0 2px; }
+.L .ch b { font-size: 17px; font-weight: 650; }
+.L .ch small { font: 500 12px "SF Mono", ui-monospace, monospace; color: var(--l2); }
+.L .ch small em { font-style: normal; color: var(--attn); }
+.L .s { display: grid; grid-template-columns: 20px 1fr auto; gap: 8px; align-items: center; min-height: 46px; border-top: 0.5px solid var(--rule); }
+.L .ch + .s { border-top: 0; }
+.L .s b { font-size: 15.5px; font-weight: 500; }
+.L .s .tm { font-size: 13px; color: var(--l2); }
+.L .s .u { width: 8px; height: 8px; border-radius: 4px; background: var(--brand); margin-left: 3px; }
+.L .s .r { width: 8px; height: 8px; border-radius: 4px; background: var(--brand); animation: breathe 1.4s infinite; margin-left: 3px; }
+
+/* ===== M · 点阵屏 ===== */
+.M { --bg: #f1f0ec; --text: #17171a; --text2: #3f3f44; --l2: #85858b; --l3: #cfcfd2; --rule: rgba(23,23,26,.1);
+  --attn: #d36b15; --danger: #d43b31; --ok: #2e8a4c; --screen: #17171a; --dot-off: rgba(255,255,255,.07); --edge-tint: rgba(241,240,236,.5); }
+:root[data-theme="dark"] .M { --bg: #0c0c0e; --text: #f0f0f2; --text2: #cfcfd4; --l2: #8b8b92; --l3: #38383d; --rule: rgba(255,255,255,.08);
+  --attn: #f19a46; --danger: #ff6a60; --ok: #5bc67f; --screen: #161619; --dot-off: rgba(255,255,255,.06); --edge-tint: rgba(12,12,14,.5); }
+.M .btn { background: color-mix(in srgb, var(--bg) 80%, transparent); box-shadow: 0 0 0 0.5px var(--rule); backdrop-filter: blur(16px); }
+.M .menu { top: 58px; left: 18px; }
+.M .fab { background: var(--screen); color: var(--brand); box-shadow: 0 8px 18px -8px rgba(0,0,0,.45); }
+:root[data-brand="ink"] .M .fab { color: #f2f2f4; }
+.M .inner { padding: 112px 18px 140px; }
+.M .screen { background: var(--screen); border-radius: 22px; padding: 16px 18px 14px; color: #f2f2f4; position: relative; overflow: hidden;
+  background-image: radial-gradient(circle, var(--dot-off) 1px, transparent 1.3px); background-size: 6px 6px; }
+.M .screen .row1 { display: flex; justify-content: space-between; align-items: center; font: 600 12px "SF Mono", ui-monospace, monospace; color: #a3a3aa; }
+.M .screen .row1 .on { color: var(--brand); display: inline-flex; gap: 6px; align-items: center; }
+:root[data-brand="ink"] .M .screen .row1 .on { color: #f2f2f4; }
+.M .digits { display: flex; gap: 18px; margin-top: 14px; align-items: flex-end; }
+.M .digit { display: flex; flex-direction: column; gap: 6px; }
+.M .digit .lab { font-size: 12px; color: #a3a3aa; }
+.M .dm { display: grid; grid-template-columns: repeat(5, 5px); grid-auto-rows: 5px; gap: 1.5px; }
+.M .dm + .dm { margin-left: 4px; }
+.M .dmw { display: flex; }
+.M .dm i { border-radius: 50%; background: rgba(255,255,255,.08); }
+.M .dm i.on { background: var(--c, #f2f2f4); box-shadow: 0 0 0 0.5px var(--c, #f2f2f4); }
+.M .cat { position: absolute; right: 16px; bottom: 12px; }
+.M .list { margin-top: 18px; }
+.M .w { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center; padding: 12px 2px; border-bottom: 0.5px solid var(--rule); }
+.M .w .k { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; color: #fff; font: 800 13px -apple-system; }
+.M .w b { display: block; font-size: 16px; font-weight: 600; }
+.M .w small { font-size: 12.5px; color: var(--l2); }
+.M .w .tm { font: 500 12px "SF Mono", ui-monospace, monospace; color: var(--l2); }
+.M .pj { margin-top: 28px; display: flex; justify-content: space-between; align-items: baseline; }
+.M .pj b { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.M .pj small { font: 600 12px "SF Mono", ui-monospace, monospace; color: var(--brand); }
+:root[data-brand="ink"] .M .pj small { color: var(--text); }
+.M .pj small.q { color: var(--l2); }
+.M .ws { margin: 12px 0 2px; font: 500 12px "SF Mono", ui-monospace, monospace; color: var(--l2); display: flex; gap: 8px; }
+.M .ws em { font-style: normal; color: var(--attn); }
+.M .ws em.ok { color: var(--ok); }
+.M .s { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; min-height: 46px; }
+.M .s b { font-size: 15.5px; font-weight: 500; }
+.M .s .tm { font: 500 12px "SF Mono", ui-monospace, monospace; color: var(--l2); }
+.M .s .dots { display: grid; grid-template-columns: repeat(3, 4px); gap: 2px; }
+.M .s .dots i { width: 4px; height: 4px; border-radius: 2px; background: var(--brand); animation: breathe 1.2s infinite; }
+.M .s .dots i:nth-child(2) { animation-delay: .2s } .M .s .dots i:nth-child(3) { animation-delay: .4s }
+.M .s .dots i:nth-child(4) { animation-delay: .6s } .M .s .dots i:nth-child(5) { animation-delay: .8s } .M .s .dots i:nth-child(6) { animation-delay: 1s }
+.M .s .u { width: 7px; height: 7px; border-radius: 2px; background: var(--brand); margin-left: 4px; }
+:root[data-brand="ink"] .M .s .dots i, :root[data-brand="ink"] .M .s .u { background: var(--text); }
+</style>
+</head>
+<body>
+<!--
+THESIS: 第二轮。用户点名纸面（梳理现有）和透明玻璃（滚动边缘渐进模糊）两个方向，另加实时活动、点阵屏两个新思路；结构和品牌色分开选。
+OWN-WORLD: P 暖纸、衬线标题、便签条；G 浅底淡彩光场、大号无衬线、玻璃面板、上下渐进模糊；L iOS 实时活动胶囊；M 黑色点阵小屏加像素猫。
+STORY: 先看到等你处理的，再看各项目在跑什么；加载用品牌色。
+FIRST VIEWPORT: 左上菜单、标题与连接、等你处理、项目分组、右下角新建。
+FORM: 四个结构并排，品牌色四选一可切；seed 112ef995 的上一轮已被用户否决，本轮按用户指定的方向做。
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+-->
+<header class="page">
+  <div>
+    <h1>手机首页 · 第二轮</h1>
+    <p>示例数据是虚构的。每个手机都能滚动：把内容滑到顶部和底部，看文字怎么变模糊（玻璃那版最明显）。品牌色和结构分开选，切颜色时"同步中"的加载也跟着变。</p>
+  </div>
+  <div class="controls">
+    <div class="seg" role="group" aria-label="品牌色">
+      <button type="button" data-brand-set="cat" aria-pressed="true"><i style="background:#4a5fd0"></i>猫蓝</button>
+      <button type="button" data-brand-set="pine" aria-pressed="false"><i style="background:#1d7a62"></i>松绿</button>
+      <button type="button" data-brand-set="amber" aria-pressed="false"><i style="background:#c46a10"></i>琥珀</button>
+      <button type="button" data-brand-set="ink" aria-pressed="false"><i style="background:#2b2b30"></i>墨黑</button>
+    </div>
+    <div class="seg" role="group" aria-label="外观">
+      <button type="button" data-theme-set="light" aria-pressed="true">浅色</button>
+      <button type="button" data-theme-set="dark" aria-pressed="false">深色</button>
+    </div>
+    <div class="seg" role="group" aria-label="状态">
+      <button type="button" data-state-set="ready" aria-pressed="true">正常</button>
+      <button type="button" data-state-set="sync" aria-pressed="false">同步中</button>
+    </div>
+  </div>
+</header>
+
+<main class="grid state-ready" id="grid">
+  <figure><div class="phone P" data-kind="P"></div><figcaption><h2>P 纸面<span>梳理现有</span></h2>
+    <p>保留暖纸底和衬线标题，去掉杂乱：等你处理收进一张便签，状态只用颜色字和小点，每行最多三项信息。新建按钮是墨色实心，和纸面最搭。</p></figcaption></figure>
+  <figure><div class="phone G" data-kind="G"></div><figcaption><h2>G 透明玻璃<span>现代极简</span></h2>
+    <p>底下是一层很淡的品牌色光，内容和按钮浮在玻璃上。滚动时文字滑到顶部和底部会逐渐模糊，越靠边越糊（三层渐进模糊）。没有分隔卡片，只有大字和留白。</p></figcaption></figure>
+  <figure><div class="phone L" data-kind="L"></div><figcaption><h2>L 实时活动<span>新思路</span></h2>
+    <p>借 iOS 灵动岛和锁屏"实时活动"的样子：在问你、出错、在跑的会话各是一条深色胶囊，带进度和计时，可以直接点"回答"。下面才是按项目的普通列表。</p></figcaption></figure>
+  <figure><div class="phone M" data-kind="M"></div><figcaption><h2>M 点阵屏<span>新思路</span></h2>
+    <p>从品牌的点阵小猫延伸：顶部一块黑色点阵小屏，用点阵数字显示"在问你 / 出错 / 在跑"的数量，小猫坐在角上。运行中用跳动的小点表示，其余部分很素。</p></figcaption></figure>
+</main>
+
+<script>
+const ICONS = `<span class="icons"><svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5" width="3" height="7" rx="1" fill="currentColor"/><rect x="10" y="2" width="3" height="10" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg><svg width="26" height="12" viewBox="0 0 26 12"><rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor"/></svg></span>`;
+const MENU = `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h14M3 10h10M3 14h14"/></svg>`;
+const PLUS = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`;
+const WAIT = [
+  { k: "ask", title: "OAuth 回调地址用哪个？", where: "atrium · feat/oauth", since: "6 分钟" },
+  { k: "err", title: "修复首页闪烁", where: "atrium · main", since: "2 分钟" },
+];
+const PROJECTS = [
+  { name: "atrium", running: 2, ws: [
+    { br: "feat/radar-map", tag: "未提交 · ↑3", s: [["run", "雷达图配色调整", "3:12", 62], ["new", "补齐变异测试", "12 分钟"], ["", "整理过程轨道动效", "1 小时"]] },
+    { br: "main", s: [["run", "升级 pi 到 1.3.1", "0:48", 25], ["", "拆分 SyncCore", "昨天"]] },
+    { br: "feat/ios-redesign", tag: "未提交", s: [["", "首页第二轮方向", "2 小时"]] } ] },
+  { name: "blog", running: 0, ws: [
+    { br: "main", tag: "已合并", ok: true, s: [["", "写十月周报草稿", "昨天"], ["", "迁移到 Astro 5", "周一"]] } ] },
+  { name: "dotfiles", running: 0, ws: [ { br: "main", s: [["new", "整理 zsh 启动脚本", "3 小时"]] } ] },
+];
+const CHATS = [["", "Swift 并发怎么理解", "周一"], ["", "帮我起个分支名", "上周"]];
+const RUNS = PROJECTS.flatMap(p => p.ws.flatMap(w => w.s.filter(s => s[0] === "run").map(s => ({ title: s[1], tm: s[2], p: s[3], where: `${p.name} · ${w.br}` }))));
+
+const edges = `<div class="edge top"><i></i><i></i><i></i></div><div class="edge bot"><i></i><i></i><i></i></div>`;
+const shell = (inner, extra = "") => `<div class="island"></div><div class="status"><span>9:41</span>${ICONS}</div>${extra}
+  <div class="scroll"><div class="inner">${inner}</div></div>${edges}
+  <button class="btn menu" aria-label="菜单">${MENU}</button><button class="btn fab" aria-label="新建会话">${PLUS}</button><div class="home-ind"></div>`;
+
+function mark(kind, cls) {
+  if (kind === "run") return `<span class="spin" style="width:13px;height:13px"></span>`;
+  if (kind === "new") return `<span class="u"></span>`;
+  return `<span></span>`;
+}
+function sessions(list, markFn = mark) { return list.map(([k, t, tm]) => `<div class="s">${markFn(k)}<b>${t}</b><span class="tm tn">${tm}</span></div>`).join(""); }
+const syncBlock = (label) => `<div class="when-sync" style="margin-top:26px"><div style="display:flex;gap:10px;align-items:center;font-size:14px;color:var(--text2)"><span class="spin"></span>${label}</div>
+  <div class="bar" style="margin-top:16px"></div><div style="display:grid;gap:14px;margin-top:22px"><div class="ghost" style="width:72%"></div><div class="ghost" style="width:90%"></div><div class="ghost" style="width:58%"></div><div class="ghost" style="width:80%"></div></div></div>`;
+
+function P() {
+  const notes = WAIT.map(w => `<div class="note"><div><b>${w.title}</b><small><em class="${w.k}">${w.k === "ask" ? "在问你" : "出错"}</em> · ${w.where}</small></div><span class="go">${w.k === "ask" ? "回答" : "查看"}</span></div>`).join("");
+  const projs = PROJECTS.map(p => `<div class="proj"><h4>${p.name}<small class="${p.running ? "" : "q"}">${p.running ? p.running + " 在跑" : "空闲"}</small></h4>${p.ws.map(w => `<div class="ws"><span class="br">${w.br}</span>${w.tag ? `<span class="tag ${w.ok ? "ok" : ""}">${w.tag}</span>` : ""}</div>${sessions(w.s)}`).join("")}</div>`).join("");
+  return shell(`<h3 class="t">Atrium</h3>
+    <div class="conn when-ready"><span class="dot"></span>MacBook Pro · 已连接</div>
+    <div class="when-ready"><div class="notes">${notes}</div>${projs}<div class="chats"><h4>对话</h4>${sessions(CHATS)}</div></div>
+    ${syncBlock("正在同步 MacBook Pro…")}`);
+}
+function G() {
+  const pane = WAIT.map(w => `<div class="pn"><span class="mk" style="background:var(--${w.k === "ask" ? "attn" : "danger"})"></span><div><b>${w.title}</b><small>${w.k === "ask" ? "在问你" : "出错"} · ${w.where}</small></div><span class="tm">${w.since}</span></div>`).join("");
+  const projs = PROJECTS.map(p => `<div class="grp"><h4><span style="color:var(--l2)">项目</span>${p.running ? `<span>${p.running} 在跑</span>` : ""}</h4><div class="pj">${p.name}</div>${p.ws.map(w => `<div class="ws">${w.br}${w.tag ? `<em class="${w.ok ? "ok" : ""}">${w.tag}</em>` : ""}</div>${sessions(w.s)}`).join("")}</div>`).join("");
+  return shell(`<h3 class="t">Atrium</h3>
+    <div class="when-ready"><div class="conn"><span class="dot"></span>MacBook Pro</div><div class="panel">${pane}</div>${projs}<div class="grp"><h4>对话</h4>${sessions(CHATS)}</div></div>
+    <div class="when-sync"><div class="conn" style="margin-top:10px"><span class="spin" style="width:12px;height:12px"></span>正在同步</div>${syncBlock("从 MacBook Pro 接收项目和会话").replace('class="when-sync"', 'class=""')}</div>`, `<div class="field"></div>`);
+}
+function L() {
+  const live = WAIT.map(w => `<div class="live"><span class="ic" style="background:var(--${w.k === "ask" ? "attn" : "danger"})">${w.k === "ask" ? "?" : "!"}</span><div><b>${w.title}</b><small>${w.where} · ${w.since}</small></div><span class="act">${w.k === "ask" ? "回答" : "查看"}</span></div>`).join("")
+    + RUNS.map(r => `<div class="live run"><span class="ic" style="background:rgba(255,255,255,.12)"><span class="spin" style="width:16px;height:16px"></span></span><div><b>${r.title}</b><small>${r.where}</small></div><span class="tm">${r.tm}</span><div class="prog" style="--p:${r.p}%"></div></div>`).join("");
+  const cards = PROJECTS.map(p => `<div class="card">${p.ws.map((w, i) => `<div class="ch"><b style="${i ? "font-size:0" : ""}">${p.name}</b><small>${w.br}${w.tag ? ` · <em>${w.tag}</em>` : ""}</small></div>${sessions(w.s.filter(s => s[0] !== "run"), k => k === "new" ? `<span class="u"></span>` : `<span></span>`)}`).join("")}</div>`).join("");
+  return shell(`<h3 class="t">Atrium</h3>
+    <div class="sub when-ready"><span style="width:7px;height:7px;border-radius:4px;background:var(--brand)"></span>MacBook Pro · 4 件事在进行</div>
+    <div class="when-ready">${live}<div class="hd"><span>项目</span></div>${cards}<div class="hd"><span>对话</span></div><div class="card">${sessions(CHATS)}</div></div>
+    ${syncBlock("正在同步 MacBook Pro…")}`);
+}
+// 5×7 dot-matrix digits
+const FONT = { 0: ["01110","10001","10011","10101","11001","10001","01110"], 1: ["00100","01100","00100","00100","00100","00100","01110"], 2: ["01110","10001","00001","00010","00100","01000","11111"], 3: ["11110","00001","00001","01110","00001","00001","11110"], 4: ["00010","00110","01010","10010","11111","00010","00010"], 5: ["11111","10000","11110","00001","00001","10001","01110"] };
+const dm = (n, c) => `<div class="dmw">${String(n).split("").map(d => `<div class="dm" style="--c:${c}">${FONT[d].join("").split("").map(b => `<i class="${b === "1" ? "on" : ""}"></i>`).join("")}</div>`).join("")}</div>`;
+// a sitting cat: ears, round head with two eyes and pink cheeks, body, two front paws
+const CAT = (() => { const rows = ["0100000100","0110001100","0111111100","0121112100","0311111300","0011111000","0111111100","0111111110","0110110110"];
+  const fill = { 1: "#f4ead8", 2: "#1f2537", 3: "#f0aea6" };
+  return `<svg class="cat" width="40" height="36" viewBox="0 0 40 36">${rows.map((r, y) => r.split("").map((b, x) => b !== "0" ? `<circle cx="${x*4+2}" cy="${y*4+2}" r="1.6" fill="${fill[b]}"/>` : "").join("")).join("")}</svg>`; })();
+function M() {
+  const w = WAIT.map(x => `<div class="w"><span class="k" style="background:var(--${x.k === "ask" ? "attn" : "danger"})">${x.k === "ask" ? "?" : "!"}</span><div><b>${x.title}</b><small>${x.k === "ask" ? "在问你" : "出错"} · ${x.where}</small></div><span class="tm">${x.since}</span></div>`).join("");
+  const dots = `<span class="dots"><i></i><i></i><i></i><i></i><i></i><i></i></span>`;
+  const projs = PROJECTS.map(p => `<div class="pj"><b>${p.name}</b><small class="${p.running ? "" : "q"}">${p.running ? p.running + " RUN" : "IDLE"}</small></div>${p.ws.map(w => `<div class="ws">${w.br}${w.tag ? `<em class="${w.ok ? "ok" : ""}">${w.tag}</em>` : ""}</div>${sessions(w.s, k => k === "run" ? dots : k === "new" ? `<span class="u"></span>` : `<span></span>`)}`).join("")}`).join("");
+  const screen = (ready) => `<div class="screen"><div class="row1"><span>MACBOOK PRO</span><span class="on">${ready ? "● ONLINE" : `<span class="spin" style="width:11px;height:11px"></span> SYNC`}</span></div>
+    <div class="digits">${ready ? `<div class="digit">${dm(1, "var(--attn)")}<span class="lab">在问你</span></div><div class="digit">${dm(1, "var(--danger)")}<span class="lab">出错</span></div><div class="digit">${dm(2, "var(--brand)")}<span class="lab">在跑</span></div>`
+      : `<div class="digit"><div style="height:56px;display:flex;align-items:center;gap:6px">${"<i style='width:8px;height:8px;border-radius:4px;background:var(--brand);display:block;animation:breathe 1s infinite'></i>".repeat(5)}</div><span class="lab">正在接收 Mac 的状态</span></div>`}</div>${CAT}</div>`;
+  return shell(`<div class="when-ready">${screen(true)}<div class="list">${w}</div>${projs}<div class="pj"><b>对话</b></div>${sessions(CHATS)}</div>
+    <div class="when-sync">${screen(false)}${syncBlock("").replace(/<div style="display:flex;gap:10px[^]*?<\/div>/, "")}</div>`);
+}
+const R = { P, G, L, M };
+document.querySelectorAll(".phone").forEach(el => { el.innerHTML = R[el.dataset.kind](); });
+
+const root = document.documentElement, grid = document.getElementById("grid");
+root.dataset.brand = "cat";
+const press = (attr, v) => document.querySelectorAll(`[${attr}]`).forEach(b => b.setAttribute("aria-pressed", String(b.getAttribute(attr) === v)));
+document.querySelectorAll("[data-theme-set]").forEach(b => b.onclick = () => { root.dataset.theme = b.dataset.themeSet; press("data-theme-set", b.dataset.themeSet); });
+document.querySelectorAll("[data-state-set]").forEach(b => b.onclick = () => { grid.className = `grid state-${b.dataset.stateSet}`; press("data-state-set", b.dataset.stateSet); });
+document.querySelectorAll("[data-brand-set]").forEach(b => b.onclick = () => { root.dataset.brand = b.dataset.brandSet; press("data-brand-set", b.dataset.brandSet); });
+</script>
+</body>
+</html>
