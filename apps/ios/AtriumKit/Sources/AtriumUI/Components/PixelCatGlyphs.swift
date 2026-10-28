@@ -1,14 +1,11 @@
 /// The pixel cat drawn in characters instead of dots, after ascii-sharks (design-language "像素猫插图").
 ///
-/// - Remark: The same grids as the dots, so the cat keeps its shape; only a cell's mark changes.
-///   As ascii-sharks shades its sharks, every body and tile cell has a light: the light from the
-///   top left falls on the cream body, which runs from nearly white to deep brown in the bottom
-///   right, with per-cell noise so it reads as fur; the view colours the cell's block by it, and
-///   the character follows it too, sparse glyphs where it is lit and dense ones in shadow. The rim
-///   of the body is a little lighter and takes edge glyphs; features keep fixed glyphs and their
-///   own colours. The shimmer flips a few cells to a neighbouring glyph each tick, picked by a hash
-///   of the cell and the tick, so a tick always looks the same and nothing is stored. The head tilt
-///   is left out: one row shifted sideways reads as a broken head in characters. Pure, so it is
+/// - Remark: The same grids and poses as the dots, so the cat keeps its shape and its moves; only a
+///   cell's mark changes. The body is shaded by density, as ascii-sharks shades its sharks: sparse
+///   glyphs where the light from the top left falls, dense ones in shadow, with a little per-cell
+///   noise so it reads as fur; the rim of the body takes light edge glyphs; features keep fixed
+///   ones. The shimmer flips a few cells to a neighbouring glyph each tick, picked by a hash of
+///   the cell and the tick, so a tick always looks the same and nothing is stored. Pure, so it is
 ///   tested on macOS; `PixelCatView` draws it.
 nonisolated enum PixelCatGlyphs {
   /// The body's shading ramp, lit to shaded (ascii-sharks' skin ramp).
@@ -49,64 +46,6 @@ nonisolated enum PixelCatGlyphs {
     hash(row, column, 100 + UInt64(truncatingIfNeeded: tick))
   }
 
-  /// The pose the character cat takes for the idle cat's pose: the same without the head tilt.
-  ///
-  /// - Remark: See the type.
-  /// - SideEffects: none
-  /// - Parameter pose: The idle cat's pose.
-  /// - Returns: The pose to draw.
-  static func pose(_ pose: PixelCat.Pose) -> PixelCat.Pose {
-    var drawn = pose
-    drawn.tilt = false
-    return drawn
-  }
-
-  /// How lit a body or tile cell is, from 0 (deep shadow) to 1 (full light), in eight steps.
-  ///
-  /// - Remark: See the type. Light falls from the top left: the body loses it fast downwards and a
-  ///   little to the right, its rim catches a little more, and ±0.12 of noise breaks it into fur;
-  ///   the tile and folder are shaded the same way, more gently. Stepped so a drawing uses a few
-  ///   colours. `nil` for every other cell.
-  /// - SideEffects: none
-  /// - Parameters:
-  ///   - grid: The cat's cells.
-  ///   - row: The cell's row.
-  ///   - column: The cell's column.
-  /// - Returns: The light, or `nil`.
-  static func light(in grid: [[PixelCat.Cell]], row: Int, column: Int) -> Double? {
-    let size = Double(PixelCat.size)
-    let down = Double(row) / size
-    let across = Double(column) / size
-    let noise = Double(hash(row, column, 3) % 1000) / 1000 * 0.24 - 0.12
-    let raw: Double
-    switch grid[row][column] {
-    case .body:
-      raw = 1.25 - 1.15 * down - 0.35 * across + noise + (onRim(grid, row, column) ? 0.1 : 0)
-    case .tile, .tab:
-      raw = 0.8 - 0.45 * down - 0.2 * across + noise * 0.8
-    default:
-      return nil
-    }
-    return (min(max(raw, 0), 1) * 7).rounded() / 7
-  }
-
-  /// Tells whether a body cell touches something that is not the cat.
-  ///
-  /// - Remark: Its four neighbours, and the edge of the grid.
-  /// - SideEffects: none
-  /// - Parameters:
-  ///   - grid: The cells.
-  ///   - row: The row.
-  ///   - column: The column.
-  /// - Returns: Whether it is on the rim.
-  private static func onRim(_ grid: [[PixelCat.Cell]], _ row: Int, _ column: Int) -> Bool {
-    let size = PixelCat.size
-    let notCat = { (r: Int, c: Int) in
-      r < 0 || c < 0 || r >= size || c >= size || notCatCells.contains(grid[r][c])
-    }
-    return notCat(row - 1, column) || notCat(row + 1, column) || notCat(row, column - 1) || notCat(row, column + 1)
-  }
-
   /// The character for one cell, or `nil` when nothing is drawn there.
   ///
   /// - Remark: See the type. A body cell is on the rim when one of its four neighbours is not cat.
@@ -118,6 +57,7 @@ nonisolated enum PixelCatGlyphs {
   ///   - tick: The shimmer's tick, or `nil` for a still cat.
   /// - Returns: The character.
   static func glyph(in grid: [[PixelCat.Cell]], row: Int, column: Int, tick: Int?) -> Character? {
+    let size = PixelCat.size
     switch grid[row][column] {
     case .outside: return nil
     case .empty, .outline: return "."
@@ -133,9 +73,15 @@ nonisolated enum PixelCatGlyphs {
     case .tile:
       return pick(weave, at: Int(hash(row, column, 1) % UInt64(weave.count)), row: row, column: column, tick: tick)
     case .body:
-      if onRim(grid, row, column) { return edges[Int(hash(row, column, 2) % UInt64(edges.count))] }
-      let shade = 1 - (light(in: grid, row: row, column: column) ?? 1)
-      let level = Int((shade * Double(ramp.count - 1)).rounded())
+      let notCat = { (r: Int, c: Int) in
+        r < 0 || c < 0 || r >= size || c >= size || notCatCells.contains(grid[r][c])
+      }
+      let onRim =
+        notCat(row - 1, column) || notCat(row + 1, column) || notCat(row, column - 1) || notCat(row, column + 1)
+      if onRim { return edges[Int(hash(row, column, 2) % UInt64(edges.count))] }
+      let light = 1 - 0.75 * Double(row) / Double(size) - 0.2 * Double(column) / Double(size)
+      let noise = Int(hash(row, column, 3) % 3) - 1
+      let level = Int(((1 - light) * Double(ramp.count - 1)).rounded()) + noise
       return pick(ramp, at: min(max(level, 0), ramp.count - 1), row: row, column: column, tick: tick)
     }
   }

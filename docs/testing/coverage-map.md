@@ -2040,4 +2040,3 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 调试启动钩子：Debug 版从启动环境 `ATRIUM_PAIR_LINK` 取配对链接（去首尾空白，空的不算），模拟器走查时链接不经过任何人眼 | Swift `PairingLaunchLinkTests`（去掉 trim 后失败，已见过） |
 | 全 App 的系统控件（配对完成的勾、底栏按钮）用深米，不是系统蓝；"还没有项目"的猫按 128pt 画，不压标题 | 模拟器走查截图（真 host + 脚本 pi + 本机 relay），已看过；没有布局单测 |
 | 字符猫（试验）：身体上亮下暗选字、边缘用边缘字、眼鼻用固定字、身体外不画；闪烁每拍改少数格、同一拍结果相同、不给节拍不闪 | Swift `PixelCatGlyphsTests`（关掉闪烁、明暗反过来、去掉边缘、改鼻子四种破坏都能抓到，已见过）；画面靠截图 `pnpm ios:shot --gallery=cats [--dark]` 和首页空状态，已看过；开销用临时的 `ImageRenderer` 计时测过（数字见 design-language），没有留成常驻测试 |
-| 字符猫明暗与姿势：身体和底块有明暗值（只有它们有），身体从左上亮到右下暗、跨度够大；字符猫不歪头，眨眼和抖耳照旧 | Swift `PixelCatGlyphsTests`（把明暗压平、把歪头留下两种破坏都能抓到，已见过）；色块和字的配色靠截图 `pnpm ios:shot --gallery=cats [--dark]`，已看过 |
