@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>标题字体候选</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<style>
+:root { --page: #e8e5dd; --page-text: #2a2722; --page-dim: #7a756b; --page-line: #d5d0c5;
+  --bg: #f6f2e9; --text: #26221c; --l2: #8b8477; --tint: #8a7352; --note: #fffcf5; --rule: rgba(70,55,30,.11); }
+:root[data-theme="dark"] { --page: #0f0e0c; --page-text: #ece8df; --page-dim: #8c867b; --page-line: #2b2925;
+  --bg: #1c1a16; --text: #eee9df; --l2: #8f887b; --tint: #c9b28c; --note: #25221d; --rule: rgba(238,233,223,.09); }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--page); color: var(--page-text); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; padding: 28px 16px 64px; }
+header.page { max-width: 1640px; margin: 0 auto 22px; display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap; justify-content: space-between; }
+header.page h1 { font-size: 22px; font-weight: 650; }
+header.page p { color: var(--page-dim); font-size: 13.5px; max-width: 80ch; margin-top: 4px; }
+.seg { display: inline-flex; background: var(--page-line); border-radius: 10px; padding: 3px; }
+.seg button { border: 0; background: transparent; color: var(--page-text); font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--page); box-shadow: 0 1px 2px rgba(0,0,0,.12); font-weight: 600; }
+h2.group { max-width: 1640px; margin: 30px auto 12px; font-size: 16px; font-weight: 650; }
+h2.group small { font-weight: 400; color: var(--page-dim); font-size: 13px; margin-left: 8px; }
+.grid { max-width: 1640px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+/* a card is the phone's top bar: the menu button on the left, the title and host on the right */
+.card { background: var(--bg); color: var(--text); border-radius: 18px; padding: 16px 18px 12px; box-shadow: inset 0 0 0 .5px var(--rule); }
+.bar { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+.menu { width: 40px; height: 40px; border-radius: 20px; background: var(--note); box-shadow: inset 0 0 0 .5px var(--rule); display: grid; place-items: center; color: var(--text); flex: none; }
+.mast { display: flex; flex-direction: column; align-items: flex-end; }
+.mast .t { font-size: 38px; line-height: .95; font-size-adjust: cap-height .68; white-space: nowrap; }
+.mast .h { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--l2); margin-top: 2px; }
+.mast .h i { width: 6px; height: 6px; border-radius: 3px; background: var(--tint); }
+.meta { display: flex; justify-content: space-between; align-items: baseline; margin-top: 10px; padding-top: 8px; border-top: .5px solid var(--rule); font-size: 12.5px; }
+.meta b { font-weight: 650; }
+.meta b em { font-style: normal; color: var(--tint); margin-right: 6px; font-variant-numeric: tabular-nums; }
+.meta span { color: var(--l2); font-size: 12px; text-align: right; }
+</style>
+</head>
+<body>
+<header class="page">
+  <div>
+    <h1>Atrium 标题字体 · 全部候选</h1>
+    <p>每张卡片是手机首页的右上角，字号已按大写字母高度对齐。说编号就行，比如"14"或"A3"。上次看过的六种（Fraunces、Instrument Serif、Playfair Display、Cormorant Garamond、Newsreader、DM Serif Display）不再列出。免费字体都可以打包进 App；iOS 自带的不用打包。</p>
+  </div>
+  <div class="seg" role="group" aria-label="外观">
+    <button type="button" data-theme-set="light" aria-pressed="true">浅色</button>
+    <button type="button" data-theme-set="dark" aria-pressed="false">深色</button>
+  </div>
+</header>
+<main id="out"></main>
+<script>
+/* [name, google query (null for a system font), weight, style, note] */
+const GROUPS = [
+  { title: "古典 · 书籍", hint: "老派、文气", prefix: "", fonts: [
+    ["EB Garamond", "EB+Garamond:wght@600", 600, "normal", "加拉蒙，最经典的书籍字"],
+    ["Cormorant", "Cormorant:wght@600", 600, "normal", "比 Cormorant Garamond 更尖细"],
+    ["Sorts Mill Goudy", "Sorts+Mill+Goudy", 400, "normal", "古迪体，温和、有手工感"],
+    ["Libre Baskerville", "Libre+Baskerville:wght@700", 700, "normal", "巴斯克维尔，端正"],
+    ["Ibarra Real Nova", "Ibarra+Real+Nova:wght@600", 600, "normal", "西班牙老印刷体，带点倔"],
+    ["Rufina", "Rufina:wght@700", 700, "normal", "楔形衬线，锐利"],
+    ["Crimson Pro", "Crimson+Pro:wght@600", 600, "normal", "旧式书籍正文体"],
+    ["Imbue", "Imbue:wght@600", 600, "normal", "窄、高，像老海报"],
+  ]},
+  { title: "高对比 · 报头", hint: "粗细反差大，像杂志、报纸刊头", prefix: "", fonts: [
+    ["Bodoni Moda", "Bodoni+Moda:opsz,wght@96,600", 600, "normal", "迪多体，时尚杂志"],
+    ["Libre Bodoni", "Libre+Bodoni:wght@600", 600, "normal", "博多尼，稍温和"],
+    ["Libre Caslon Display", "Libre+Caslon+Display", 400, "normal", "卡斯隆展示体，细而雅"],
+    ["Gloock", "Gloock", 400, "normal", "粗重、高反差，很有分量"],
+    ["Abril Fatface", "Abril+Fatface", 400, "normal", "超粗报头体，最醒目"],
+    ["Noto Serif Display", "Noto+Serif+Display:wght@600", 600, "normal", "规整的高对比"],
+    ["Gilda Display", "Gilda+Display", 400, "normal", "细，克制"],
+    ["Prata", "Prata", 400, "normal", "圆润的迪多体"],
+    ["Rozha One", "Rozha+One", 400, "normal", "很粗，强烈"],
+    ["Old Standard TT", "Old+Standard+TT:wght@700", 700, "normal", "19 世纪教科书"],
+  ]},
+  { title: "现代 · 温和", hint: "当代衬线，稳、易读", prefix: "", fonts: [
+    ["Young Serif", "Young+Serif", 400, "normal", "敦实、亲切"],
+    ["Lora", "Lora:wght@600", 600, "normal", "柔和的书法感"],
+    ["Spectral", "Spectral:wght@600", 600, "normal", "细长、安静"],
+    ["Source Serif 4", "Source+Serif+4:opsz,wght@60,600", 600, "normal", "Adobe 出品，工整"],
+    ["Literata", "Literata:opsz,wght@72,600", 600, "normal", "电子书字体，温暖"],
+    ["Petrona", "Petrona:wght@600", 600, "normal", "宽松、平和"],
+    ["Besley", "Besley:wght@600", 600, "normal", "克拉伦登风，厚实"],
+    ["Castoro", "Castoro", 400, "normal", "荷兰老式，细腻"],
+    ["Brygada 1918", "Brygada+1918:wght@600", 600, "normal", "波兰复刻体，有个性"],
+  ]},
+  { title: "雕刻 · 大写感", hint: "像刻在石头、招牌上", prefix: "", fonts: [
+    ["Cinzel", "Cinzel:wght@600", 600, "normal", "罗马碑刻，只有大写形"],
+    ["Marcellus", "Marcellus", 400, "normal", "碑刻感但有小写"],
+    ["Italiana", "Italiana", 400, "normal", "极细，很优雅"],
+    ["Bellefair", "Bellefair", 400, "normal", "细高，希伯来书法来源"],
+  ]},
+  { title: "斜体", hint: "标题用斜体，更像签名", prefix: "", fonts: [
+    ["Instrument Serif", "Instrument+Serif:ital@1", 400, "italic", "窄斜体，轻盈"],
+    ["Cormorant", "Cormorant:ital,wght@1,600", 600, "italic", "书法味最浓"],
+    ["EB Garamond", "EB+Garamond:ital,wght@1,600", 600, "italic", "经典斜体"],
+    ["Playfair Display", "Playfair+Display:ital,wght@1,600", 600, "italic", "高对比斜体"],
+    ["Fraunces", "Fraunces:ital,opsz,wght@1,72,560", 560, "italic", "圆润斜体"],
+    ["Libre Caslon Display", null, 400, "italic", "（无斜体，跳过）"],
+  ].filter(f => f[1]) },
+  { title: "iOS 自带", hint: "不用打包，手机上直接有", prefix: "A", fonts: [
+    ["New York", null, 600, "normal", "现在用的", "NY"],
+    ["Charter", null, 700, "normal", "清楚、略方"],
+    ["Iowan Old Style", null, 600, "normal", "温和的老式衬线"],
+    ["Baskerville", null, 600, "normal", "端正，英式"],
+    ["Didot", null, 400, "normal", "高对比，时装杂志"],
+    ["Bodoni 72", null, 400, "normal", "博多尼"],
+    ["Cochin", null, 400, "normal", "法式，带点古怪"],
+    ["Palatino", null, 700, "normal", "书法感，人文"],
+    ["Georgia", null, 700, "normal", "网页常见，稳"],
+    ["Superclarendon", null, 700, "normal", "粗厚、复古招牌"],
+    ["Times New Roman", null, 700, "normal", "报纸正文"],
+  ]},
+];
+const MENU = `<svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3.5 6h13M3.5 10h9M3.5 14h13"/></svg>`;
+const NY = `<style>@font-face { font-family: "NY"; src: url("file:///System/Library/Fonts/NewYork.ttf"); }</style>`;
+document.head.insertAdjacentHTML("beforeend", NY);
+let n = 0, html = "";
+for (const g of GROUPS) {
+  html += `<h2 class="group">${g.title}<small>${g.hint}${g.prefix ? " · 编号 A1…" : " · 免费，可打包"}</small></h2><div class="grid">`;
+  g.fonts.forEach(([name, q, w, style, note, family], i) => {
+    if (q) document.head.insertAdjacentHTML("beforeend", `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=${q}&display=block">`);
+    const id = g.prefix ? `${g.prefix}${i + 1}` : String(++n);
+    const fam = family || name;
+    html += `<div class="card"><div class="bar"><span class="menu">${MENU}</span><div class="mast"><span class="t" style="font-family:'${fam}',serif;font-weight:${w};font-style:${style}">Atrium</span><span class="h"><i></i>MacBook Pro</span></div></div>
+      <div class="meta"><b><em>${id}</em>${name}${style === "italic" ? " 斜体" : ""}</b><span>${note}</span></div></div>`;
+  });
+  html += `</div>`;
+}
+document.getElementById("out").innerHTML = html;
+const root = document.documentElement;
+document.querySelectorAll("[data-theme-set]").forEach(b => b.onclick = () => {
+  root.dataset.theme = b.dataset.themeSet;
+  document.querySelectorAll("[data-theme-set]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+});
+</script>
+</body>
+</html>
