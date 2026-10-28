@@ -5,11 +5,13 @@ import SwiftUI
 
 /// The model sheet: the provider bar, the models, the thinking box and Fast.
 ///
-/// - Remark: The final prototype's model sheet (SPEC-0005 "MP6 定的细节 · MP6c"): "模型" with
-///   "从下一条消息开始生效" and a refresh key; a search field; a 64pt bar of provider icons (the
-///   current one dotted, "套餐" on those always on a plan) beside the models of the provider picked,
-///   each with its context, output and ⚡; the dotted thinking box, dragged or tapped to a level, its
-///   name and what it suits; Fast where the model has it. Picking does not close the sheet.
+/// - Remark: The desktop's model panel in the phone's colours (design-language "手机端 · 模型 sheet",
+///   SPEC-0005 "界面" 2026-10-28): "模型" with "从下一条消息开始生效" and a refresh key; no search,
+///   as on the desktop; a bar of provider icons (48×44, the current one dotted, "套餐" on those always
+///   on a plan), a hairline, and the models of the provider picked, each with its context, output and
+///   ⚡; the deep beige dotted thinking box, dragged or tapped to a level; then the Fast switch where
+///   the model has it, since the input's model key carries ⚡ instead of a key of its own. Picking does
+///   not close the sheet.
 struct ModelSheet: View {
   /// The session.
   let sessionId: SessionId
@@ -17,8 +19,6 @@ struct ModelSheet: View {
   let sync: SyncModel
   /// The provider whose models show.
   @State private var provider: String?
-  /// What the search field holds.
-  @State private var query = ""
   /// Closes the sheet.
   @Environment(\.dismiss) private var dismiss
   /// Light or dark.
@@ -38,24 +38,6 @@ struct ModelSheet: View {
     let currentModel = catalog.first { $0.providerId == current?.providerId && $0.modelId == current?.modelId }
     VStack(alignment: .leading, spacing: 0) {
       header(palette)
-      HStack(spacing: Metrics.xs) {
-        Image(systemName: "magnifyingglass").foregroundStyle(palette.secondary)
-        TextField("搜索模型", text: $query).font(.system(size: 15))
-        if !query.isEmpty {
-          Button {
-            query = ""
-          } label: {
-            Image(systemName: "xmark.circle.fill").foregroundStyle(palette.tertiary)
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("清除")
-        }
-      }
-      .padding(.horizontal, Metrics.sm)
-      .frame(height: 38)
-      .background(palette.fill, in: RoundedRectangle(cornerRadius: 12))
-      .padding(.horizontal, Metrics.md)
-      .padding(.bottom, Metrics.xs)
       HStack(alignment: .top, spacing: 0) {
         ScrollView {
           // Room for a "套餐" badge hanging under an icon.
@@ -63,22 +45,24 @@ struct ModelSheet: View {
             ForEach(groups) { group in
               Button {
                 provider = group.providerId
-                query = ""
               } label: {
-                ProviderIcon(providerId: group.providerId, size: 26)
-                  .frame(width: 48, height: 48)
+                ProviderIcon(providerId: group.providerId, size: 24)
+                  .frame(width: 48, height: 44)
                   .background(
-                    picked == group.providerId ? palette.fill : .clear, in: RoundedRectangle(cornerRadius: 14)
+                    picked == group.providerId ? palette.surface : .clear, in: RoundedRectangle(cornerRadius: 12)
                   )
                   .overlay(alignment: .topTrailing) {
                     if current?.providerId == group.providerId {
-                      Circle().fill(palette.tint).frame(width: 7, height: 7).padding(5)
+                      Circle().fill(palette.tint).frame(width: 6, height: 6)
+                        .background(Circle().fill(palette.note).padding(-1.5))
+                        .padding(.top, 6).padding(.trailing, 7)
                     }
                   }
                   .overlay(alignment: .bottomTrailing) {
                     if ModelChoice.onPlan(group.providerId) {
-                      Text("套餐").font(.system(size: 8.5, weight: .semibold)).foregroundStyle(.white)
-                        .padding(.horizontal, 2).background(palette.tint, in: RoundedRectangle(cornerRadius: 4))
+                      Text("套餐").font(.system(size: 8.5, weight: .bold)).foregroundStyle(palette.tint)
+                        .padding(.horizontal, 2).background(palette.note, in: RoundedRectangle(cornerRadius: 3))
+                        .padding(.trailing, 1).padding(.bottom, 2)
                     }
                   }
               }
@@ -87,18 +71,15 @@ struct ModelSheet: View {
             }
           }
         }
-        .frame(width: 64)
-        .opacity(query.isEmpty ? 1 : 0.5)
+        .frame(width: 60)
+        Rectangle().fill(palette.line).frame(width: 0.5).padding(.trailing, 6)
         ScrollView {
           VStack(alignment: .leading, spacing: 0) {
-            let shown =
-              query.isEmpty
-              ? (groups.first { $0.providerId == picked }?.models ?? [])
-              : catalog.filter { $0.name.localizedCaseInsensitiveContains(query) || $0.modelId.contains(query) }
+            let shown = groups.first { $0.providerId == picked }?.models ?? []
             HStack {
-              Text(query.isEmpty ? ModelChoice.providerName(picked ?? "") : "搜索结果")
-                .font(.system(size: 13, weight: .semibold))
-              if query.isEmpty, let picked, ModelChoice.onPlan(picked) {
+              Text(ModelChoice.providerName(picked ?? ""))
+                .font(.system(size: 13, weight: .medium))
+              if let picked, ModelChoice.onPlan(picked) {
                 Text("套餐").font(.system(size: 12)).foregroundStyle(palette.tint)
               }
               Spacer()
@@ -108,8 +89,10 @@ struct ModelSheet: View {
             .padding(.horizontal, Metrics.sm)
             .frame(height: 36)
             if shown.isEmpty {
-              Text(catalog.isEmpty ? "正在读取模型…" : "没有匹配的模型").font(.system(size: 14)).foregroundStyle(palette.secondary)
-                .padding(Metrics.sm)
+              Text(catalog.isEmpty ? "正在读取模型…" : "这个服务商没有可用的模型").font(.system(size: 14)).foregroundStyle(
+                palette.secondary
+              )
+              .padding(Metrics.sm)
             }
             ForEach(shown, id: \.rowId) { model in
               modelRow(
@@ -132,19 +115,23 @@ struct ModelSheet: View {
             isOn: Binding(get: { state?.fast ?? false }, set: { sync.perform(.setFast($0), in: sessionId) })
           ) {
             VStack(alignment: .leading, spacing: 2) {
-              Text("⚡ Fast").font(.system(size: 16))
-              Text(ModelChoice.fastText(speed: fast.speed, moreUsage: fast.moreUsage)).font(.system(size: 13))
+              HStack(spacing: 4) {
+                Image(systemName: "bolt.fill").font(.system(size: 12)).foregroundStyle(palette.tint)
+                Text("Fast").font(.system(size: 15))
+              }
+              Text(ModelChoice.fastText(speed: fast.speed, moreUsage: fast.moreUsage) + " · 下一次请求起生效")
+                .font(.system(size: 12))
                 .foregroundStyle(palette.secondary)
             }
           }
-          .tint(palette.ok)
+          .tint(palette.tint)
           .padding(.horizontal, Metrics.md)
           .padding(.top, Metrics.sm)
         }
       }
       Spacer(minLength: 0)
     }
-    .background(palette.surface)
+    .background(palette.note)
     .presentationDetents([.large])
     .presentationDragIndicator(.visible)
     .task(id: sync.core.synced) { sync.listModels(workspaceId: workspaceId, refresh: false) }
@@ -203,7 +190,10 @@ struct ModelSheet: View {
         VStack(alignment: .leading, spacing: 2) {
           HStack(spacing: 4) {
             Text(model.name).font(.system(size: 15.5, weight: .medium)).foregroundStyle(palette.text)
-            if model.fast != nil { Text("⚡").font(.system(size: 12)).foregroundStyle(palette.tint) }
+            if model.fast != nil {
+              Image(systemName: "bolt.fill").font(.system(size: 11)).foregroundStyle(palette.tint)
+                .accessibilityLabel("支持 Fast")
+            }
           }
           Text(
             [
@@ -272,9 +262,9 @@ struct ProviderIcon: View {
 
 /// The dotted thinking box: dots filling from the left up to the level, its name and what it suits.
 ///
-/// - Remark: The prototype's `efbox`: 3pt rounded dots 5pt apart, ink up to the level's share; at the
-///   top level the brand gradient. A tap or a drag picks the level under the finger. A model with one
-///   level cannot be changed.
+/// - Remark: The prototype's `efbox`: 3pt rounded dots 5pt apart, deep beige up to the level's share
+///   (the paper redesign; the desktop's ink and its top-level gradient are the desktop theme's). A tap
+///   or a drag picks the level under the finger. A model with one level cannot be changed.
 struct ThinkingBox: View {
   /// The model's levels.
   let levels: [ThinkingLevel]
@@ -292,7 +282,7 @@ struct ThinkingBox: View {
     let top = level != nil && level == levels.last && levels.count > 1
     VStack(alignment: .leading, spacing: 6) {
       HStack {
-        Text("推理强度").font(.system(size: 13.5)).foregroundStyle(palette.secondary)
+        Text(levels.count > 1 ? "推理强度 · 按住左右拖动" : "推理强度").font(.system(size: 12)).foregroundStyle(palette.secondary)
         Spacer()
         if levels.count <= 1 { Text("这个模型不支持").font(.system(size: 12.5)).foregroundStyle(palette.tertiary) }
       }
@@ -306,16 +296,15 @@ struct ThinkingBox: View {
               let rect = CGRect(x: Double(column) * 5 + 1, y: Double(row) * 5 + 1, width: 3, height: 3)
               let color: Color =
                 lit
-                ? (top ? Self.brand(Double(column) / Double(columns)) : palette.ink).opacity(
-                  0.4 + Self.noise(column, row) * 0.5)
-                : palette.ink.opacity(0.04)
+                ? palette.tint.opacity(0.4 + Self.noise(column, row) * 0.5)
+                : palette.text.opacity(0.06)
               context.fill(Path(roundedRect: rect, cornerRadius: 0.8), with: .color(color))
             }
           }
         }
         HStack {
           Text(level.map(ModelChoice.levelName) ?? "—").font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(top ? Color(red: 0.30, green: 0.45, blue: 0.91) : palette.text)
+            .foregroundStyle(top ? palette.tint : palette.text)
           Spacer()
           if let level, let index = levels.firstIndex(of: level) {
             Text("\(index + 1) / \(levels.count)").font(.system(size: 12.5)).monospacedDigit().foregroundStyle(
@@ -367,20 +356,5 @@ struct ThinkingBox: View {
   static func noise(_ column: Int, _ row: Int) -> Double {
     (sin(Double(column) * 0.7 + Double(row) * 1.3) * 0.5 + sin(Double(column) * 0.23 - Double(row) * 0.9) * 0.5) * 0.5
       + 0.5
-  }
-
-  /// The brand gradient at a point: blue, to cyan, to peach.
-  ///
-  /// - Remark: The prototype's `#5e84ff → #78d6d6 → #ffaa78`.
-  /// - SideEffects: none
-  /// - Parameter position: Where along it, 0 to 1.
-  /// - Returns: The colour.
-  static func brand(_ position: Double) -> Color {
-    let stops: [(Double, Double, Double)] = [(0.37, 0.52, 1), (0.47, 0.84, 0.84), (1, 0.67, 0.47)]
-    let scaled = min(1.999, max(0, position * 2))
-    let index = Int(scaled)
-    let t = scaled - Double(index)
-    let (a, b) = (stops[index], stops[index + 1])
-    return Color(red: a.0 + (b.0 - a.0) * t, green: a.1 + (b.1 - a.1) * t, blue: a.2 + (b.2 - a.2) * t)
   }
 }
