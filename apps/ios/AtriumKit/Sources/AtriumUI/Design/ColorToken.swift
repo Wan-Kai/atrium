@@ -36,13 +36,16 @@ struct RGBA: Equatable, Sendable {
 
 /// The phone's colours, each with its light and dark value (design-language "手机端 · 颜色").
 ///
-/// - Remark: The table in design-language lists the main ones; the rest (lines, fills, glass, diff
-///   rows) come from the final prototype `mobile-app-final-prototype.html`, whose CSS variable each
-///   case names. Warm throughout: dark is a warm dark grey, not black.
+/// - Remark: The paper redesign (2026-10-28): the table in design-language lists the main ones and
+///   the sticky notes; the rest (fills, glass, diff rows) come from the paper prototypes
+///   (`mobile-conversation-paper-prototype.html`), whose CSS variable each case names. Warm
+///   throughout: dark is a dim warm paper, not black.
 enum ColorToken: CaseIterable, Sendable {
   /// `--bg`: the page.
   case page
-  /// `--surf`: the user's bubble.
+  /// `--note`: a lighter sheet on the page: the user's bubble, sheets.
+  case note
+  /// `--surf`: a quiet ground on the paper: code, the chosen row, button grounds.
   case surface
   /// `--text`: body text and titles.
   case text
@@ -62,8 +65,10 @@ enum ColorToken: CaseIterable, Sendable {
   case ink
   /// `--on-ink`: what sits on `ink`.
   case onInk
-  /// `--tint`: accent, unread, running.
+  /// `--tint`: the deep beige theme colour: accent, unread, running, chosen.
   case tint
+  /// `--tint-soft`: a faint ground of the theme colour.
+  case tintSoft
   /// `--attn`: asking you.
   case attn
   /// `--attn-text`: words that ask you.
@@ -98,6 +103,18 @@ enum ColorToken: CaseIterable, Sendable {
   case branch
   /// `--node`: a finished step's dot.
   case node
+  /// A sticky note for something stuck (an error, a sign-in).
+  case stickyStuck
+  /// The words on a stuck note.
+  case stickyStuckInk
+  /// A sticky note for something waiting on you (a question).
+  case stickyWaiting
+  /// The words on a waiting note.
+  case stickyWaitingInk
+  /// A sticky note for a reminder.
+  case stickyReminder
+  /// The words on a reminder note.
+  case stickyReminderInk
 
   /// The value in an appearance.
   ///
@@ -112,70 +129,86 @@ enum ColorToken: CaseIterable, Sendable {
   /// The light value.
   private var light: RGBA {
     switch self {
-    case .page: RGBA(0xfaf9f5)
-    case .surface: RGBA(0xf3f1eb)
-    case .text: RGBA(0x1f1e1c)
-    case .text2: RGBA(0x3d3b37)
-    case .secondary: RGBA(0x86827a)
-    case .tertiary: RGBA(0xcbc6bc)
-    case .line: RGBA(0x3c321e, 0.1)
-    case .fill: RGBA(0x3c321e, 0.055)
-    case .fill2: RGBA(0x3c321e, 0.035)
-    case .ink: RGBA(0x1f1e1c)
-    case .onInk: RGBA(0xfaf9f5)
-    case .tint: RGBA(0x2f6fed)
-    case .attn: RGBA(0xd97a1e)
-    case .attnText: RGBA(0xb3600b)
-    case .attnSoft: RGBA(0xd97a1e, 0.11)
-    case .danger: RGBA(0xd4463d)
-    case .dangerSoft: RGBA(0xd4463d, 0.09)
-    case .ok: RGBA(0x2f8a46)
-    case .okText: RGBA(0x2c7a3e)
-    case .code: RGBA(0xf2efe8)
-    case .addBackground: RGBA(0x2f8a46, 0.1)
-    case .deleteBackground: RGBA(0xd4463d, 0.085)
-    case .glassBackground: RGBA(0xfcfbf7, 0.7)
-    case .glassSolid: RGBA(0xf6f4ee)
-    case .glassRing: RGBA(0x3c321e, 0.07)
-    case .glassShadow: RGBA(0x463214, 0.14)
+    case .page: RGBA(0xf6f2e9)
+    case .note: RGBA(0xfffcf5)
+    case .surface: RGBA(0xefe9dc)
+    case .text: RGBA(0x26221c)
+    case .text2: RGBA(0x4d473d)
+    case .secondary: RGBA(0x8b8477)
+    case .tertiary: RGBA(0xd3cbbb)
+    case .line: RGBA(0x46371e, 0.11)
+    case .fill: RGBA(0x26221c, 0.06)
+    case .fill2: RGBA(0x26221c, 0.035)
+    case .ink: RGBA(0x26221c)
+    case .onInk: RGBA(0xf6f2e9)
+    case .tint: RGBA(0x8a7352)
+    case .tintSoft: RGBA(0x8a7352, 0.14)
+    case .attn: RGBA(0xc0651c)
+    case .attnText: RGBA(0xa9561a)
+    case .attnSoft: RGBA(0xc0651c, 0.12)
+    case .danger: RGBA(0xc13f35)
+    case .dangerSoft: RGBA(0xc13f35, 0.1)
+    case .ok: RGBA(0x3d7a4a)
+    case .okText: RGBA(0x3d7a4a)
+    case .code: RGBA(0xefe9dc)
+    case .addBackground: RGBA(0x3d7a4a, 0.12)
+    case .deleteBackground: RGBA(0xc13f35, 0.11)
+    case .glassBackground: RGBA(0xfffcf5, 0.72)
+    case .glassSolid: RGBA(0xfbf7ee)
+    case .glassRing: RGBA(0x46371e, 0.11)
+    case .glassShadow: RGBA(0x32230a, 0.18)
     case .rail: RGBA(0x3c321e, 0.14)
     case .branch: RGBA(0x3c321e, 0.26)
     case .node: RGBA(0xcbc3b4)
+    case .stickyStuck: RGBA(0xf4cdc4)
+    case .stickyStuckInk: RGBA(0x3d1913)
+    case .stickyWaiting: RGBA(0xf7dfb8)
+    case .stickyWaitingInk: RGBA(0x3a2610)
+    case .stickyReminder: RGBA(0xdfe0cf)
+    case .stickyReminderInk: RGBA(0x262a17)
     }
   }
 
   /// The dark value.
   private var dark: RGBA {
     switch self {
-    case .page: RGBA(0x1c1b19)
-    case .surface: RGBA(0x252421)
-    case .text: RGBA(0xf2efe8)
-    case .text2: RGBA(0xd9d5cc)
-    case .secondary: RGBA(0x9b968c)
-    case .tertiary: RGBA(0x504c46)
-    case .line: RGBA(0xfff0dc, 0.09)
-    case .fill: RGBA(0xfff5e1, 0.07)
-    case .fill2: RGBA(0xfff5e1, 0.045)
-    case .ink: RGBA(0xf2efe8)
-    case .onInk: RGBA(0x1c1b19)
-    case .tint: RGBA(0x8fb0ff)
-    case .attn: RGBA(0xe08a35)
+    case .page: RGBA(0x1c1a16)
+    case .note: RGBA(0x25221d)
+    case .surface: RGBA(0x2b2822)
+    case .text: RGBA(0xeee9df)
+    case .text2: RGBA(0xcec7b9)
+    case .secondary: RGBA(0x8f887b)
+    case .tertiary: RGBA(0x4a453c)
+    case .line: RGBA(0xeee9df, 0.09)
+    case .fill: RGBA(0xeee9df, 0.07)
+    case .fill2: RGBA(0xeee9df, 0.045)
+    case .ink: RGBA(0xeee9df)
+    case .onInk: RGBA(0x1c1a16)
+    case .tint: RGBA(0xc9b28c)
+    case .tintSoft: RGBA(0xc9b28c, 0.16)
+    case .attn: RGBA(0xe6944a)
     case .attnText: RGBA(0xeda25a)
-    case .attnSoft: RGBA(0xe08a35, 0.15)
-    case .danger: RGBA(0xef6b5f)
-    case .dangerSoft: RGBA(0xef6b5f, 0.13)
-    case .ok: RGBA(0x4caf68)
-    case .okText: RGBA(0x74c98a)
-    case .code: RGBA(0x24231f)
-    case .addBackground: RGBA(0x4caf68, 0.13)
-    case .deleteBackground: RGBA(0xef6b5f, 0.12)
-    case .glassBackground: RGBA(0x383632, 0.62)
-    case .glassSolid: RGBA(0x2e2c29)
-    case .glassRing: RGBA(0xfff5e6, 0.08)
+    case .attnSoft: RGBA(0xe6944a, 0.16)
+    case .danger: RGBA(0xec6a5e)
+    case .dangerSoft: RGBA(0xec6a5e, 0.14)
+    case .ok: RGBA(0x7bbf8a)
+    case .okText: RGBA(0x7bbf8a)
+    case .code: RGBA(0x2b2822)
+    case .addBackground: RGBA(0x7bbf8a, 0.13)
+    case .deleteBackground: RGBA(0xec6a5e, 0.13)
+    case .glassBackground: RGBA(0x25221d, 0.66)
+    case .glassSolid: RGBA(0x2b2822)
+    case .glassRing: RGBA(0xeee9df, 0.14)
     case .glassShadow: RGBA(0x000000, 0.5)
     case .rail: RGBA(0xfff0dc, 0.13)
     case .branch: RGBA(0xfff0dc, 0.26)
     case .node: RGBA(0x5f5951)
+    case .stickyStuck: RGBA(0xc2948a)
+    case .stickyStuckInk: RGBA(0x2a110d)
+    case .stickyWaiting: RGBA(0xc4a77c)
+    case .stickyWaitingInk: RGBA(0x24180a)
+    case .stickyReminder: RGBA(0xa8aa95)
+    case .stickyReminderInk: RGBA(0x1d2012)
     }
   }
 }
