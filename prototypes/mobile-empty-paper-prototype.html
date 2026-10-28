@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>空状态纸张方案</title>
+    <style>
+      :root {
+        --page: #e8e5dd;
+        --page-text: #2a2722;
+        --page-dim: #7a756b;
+        --page-line: #d5d0c5;
+      }
+      :root[data-theme="dark"] {
+        --page: #0f0e0c;
+        --page-text: #ece8df;
+        --page-dim: #8c867b;
+        --page-line: #2b2925;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--page-text);
+        font:
+          14px/1.5 -apple-system,
+          "PingFang SC",
+          system-ui,
+          sans-serif;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 14px 24px;
+        background: var(--page);
+        border-bottom: 1px solid var(--page-line);
+      }
+      header h1 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+      }
+      header p {
+        margin: 0;
+        color: var(--page-dim);
+        font-size: 13px;
+        flex: 1;
+      }
+      header button {
+        border: 1px solid var(--page-line);
+        background: transparent;
+        color: var(--page-text);
+        border-radius: 999px;
+        padding: 5px 14px;
+        font: inherit;
+        cursor: pointer;
+      }
+      main {
+        padding: 24px;
+        display: grid;
+        gap: 40px;
+      }
+      section h2 {
+        margin: 0 0 4px;
+        font-size: 15px;
+      }
+      section > p {
+        margin: 0 0 14px;
+        color: var(--page-dim);
+        font-size: 13px;
+        max-width: 760px;
+      }
+      .row {
+        display: flex;
+        gap: 24px;
+        flex-wrap: wrap;
+      }
+
+      /* The phone, in the app's own tokens (Palette.swift). */
+      .phone {
+        --bg: #f6f2e9;
+        --note: #fffcf5;
+        --surface: #efe9dc;
+        --text: #26221c;
+        --text2: #4d473d;
+        --l2: #8b8477;
+        --l3: #d3cbbb;
+        --rule: rgba(70, 55, 30, 0.11);
+        --tint: #8a7352;
+        --tint-soft: rgba(138, 115, 82, 0.14);
+        --shadow: rgba(60, 45, 20, 0.12);
+        --tape: rgba(255, 255, 255, 0.55);
+        width: 340px;
+        height: 620px;
+        border-radius: 36px;
+        background: var(--bg);
+        color: var(--text);
+        overflow: hidden;
+        position: relative;
+        box-shadow: 0 1px 0 var(--page-line);
+        border: 1px solid var(--page-line);
+      }
+      :root[data-theme="dark"] .phone {
+        --bg: #1c1a16;
+        --note: #25221d;
+        --surface: #2a2620;
+        --text: #eee9df;
+        --text2: #cec7b9;
+        --l2: #8f887b;
+        --l3: #4a453c;
+        --rule: rgba(238, 233, 223, 0.09);
+        --tint: #c9b28c;
+        --tint-soft: rgba(201, 178, 140, 0.16);
+        --shadow: rgba(0, 0, 0, 0.45);
+        --tape: rgba(255, 255, 255, 0.16);
+      }
+      .phone .top {
+        padding: 46px 20px 0;
+      }
+      .brand {
+        font:
+          italic 600 34px/1 "Iowan Old Style",
+          "Palatino",
+          Georgia,
+          serif;
+        letter-spacing: -0.5px;
+      }
+      .host {
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--l2);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .host i {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--tint);
+      }
+      .empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: 30px 28px 0;
+      }
+      .empty svg {
+        width: 132px;
+        height: 108px;
+        overflow: visible;
+      }
+      .empty h3 {
+        margin: 14px 0 6px;
+        font-size: 17px;
+        font-weight: 600;
+      }
+      .empty p {
+        margin: 0;
+        color: var(--l2);
+        font-size: 13.5px;
+        line-height: 1.5;
+        max-width: 250px;
+      }
+      .tag {
+        margin-top: 12px;
+        font:
+          11px/1 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        color: var(--l2);
+        background: var(--surface);
+        border-radius: 6px;
+        padding: 5px 8px;
+      }
+      .chats {
+        padding: 26px 20px 0;
+      }
+      .chats h4 {
+        margin: 0 0 4px;
+        font-size: 17px;
+        display: flex;
+        justify-content: space-between;
+      }
+      .chats h4 span {
+        color: var(--tint);
+        font-size: 15px;
+      }
+      .chat {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        height: 42px;
+        border-top: 0.5px solid var(--rule);
+        font-size: 15px;
+      }
+      .chat:first-of-type {
+        border-top: 0;
+      }
+      .chat i {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--l3);
+        margin-left: 4px;
+      }
+      .chat em {
+        margin-left: auto;
+        font-style: normal;
+        color: var(--l2);
+        font-size: 12.5px;
+      }
+      .fab {
+        position: absolute;
+        right: 18px;
+        bottom: 22px;
+        width: 50px;
+        height: 50px;
+        border-radius: 50%;
+        background: var(--note);
+        box-shadow: 0 6px 18px var(--shadow);
+        display: grid;
+        place-items: center;
+        font-size: 26px;
+        font-weight: 300;
+      }
+      .caption {
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--page-dim);
+        text-align: center;
+      }
+
+      /* A gentle settle when the page appears, as a sheet laid down; none under Reduce Motion. */
+      .settle {
+        animation: settle 700ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        transform-origin: 50% 90%;
+      }
+      @keyframes settle {
+        from {
+          opacity: 0;
+          transform: translateY(-8px) rotate(-2deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .settle {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>首页空状态 · 纸张方案</h1>
+      <p>去掉吉祥物，改用空的纸张来表示"还没有东西"。每个方案都给出首页的两种空：有对话没项目、什么都没有。</p>
+      <button id="theme">切到深色</button>
+      <button id="replay">重放出现动画</button>
+    </header>
+    <main id="main"></main>
+
+    <template id="art-envelope">
+      <!-- An open envelope, flap up, nothing inside. -->
+      <svg viewBox="0 0 132 108" aria-hidden="true">
+        <ellipse cx="66" cy="101" rx="50" ry="4" fill="var(--shadow)" />
+        <path
+          d="M14 42 L66 8 L118 42 Z"
+          fill="var(--surface)"
+          stroke="var(--l3)"
+          stroke-width="1.2"
+          stroke-linejoin="round"
+        />
+        <rect
+          x="14"
+          y="40"
+          width="104"
+          height="58"
+          rx="4"
+          fill="var(--surface)"
+          stroke="var(--l3)"
+          stroke-width="1.2"
+        />
+        <path
+          d="M14 98 L14 44 L66 74 L118 44 L118 98 Z"
+          fill="var(--note)"
+          stroke="var(--l3)"
+          stroke-width="1.2"
+          stroke-linejoin="round"
+        />
+        <path d="M15 97 L58 68 M117 97 L74 68" stroke="var(--l3)" stroke-width="1.2" stroke-linecap="round" />
+      </svg>
+    </template>
+
+    <template id="art-note">
+      <!-- A blank sticky note, taped, a little turned: the home's notes with nothing on them. -->
+      <svg viewBox="0 0 132 108" aria-hidden="true">
+        <g transform="rotate(-3 66 56)">
+          <path d="M28 14 H104 V86 Q104 94 96 94 H28 Z" fill="var(--note)" filter="url(#lift)" />
+          <path d="M40 40 H92 M40 54 H92 M40 68 H76" stroke="var(--rule)" stroke-width="1.4" stroke-linecap="round" />
+          <rect x="52" y="6" width="30" height="13" fill="var(--tape)" transform="rotate(4 67 12)" />
+        </g>
+        <defs>
+          <filter id="lift" x="-30%" y="-30%" width="160%" height="170%">
+            <feDropShadow dx="0" dy="6" stdDeviation="5" flood-color="var(--shadow)" flood-opacity="1" />
+          </filter>
+        </defs>
+      </svg>
+    </template>
+
+    <template id="art-folder">
+      <!-- An open folder in the deep beige, empty. -->
+      <svg viewBox="0 0 132 108" aria-hidden="true">
+        <ellipse cx="66" cy="101" rx="52" ry="4" fill="var(--shadow)" />
+        <path
+          d="M14 26 Q14 20 20 20 H50 L58 28 H112 Q118 28 118 34 V94 Q118 98 114 98 H18 Q14 98 14 94 Z"
+          fill="var(--tint)"
+          opacity="0.55"
+        />
+        <path d="M10 44 Q9 40 13 40 H119 Q123 40 122 44 L116 94 Q115 98 111 98 H21 Q17 98 16 94 Z" fill="var(--tint)" />
+        <path d="M24 52 H108" stroke="var(--bg)" stroke-opacity="0.25" stroke-width="1.2" stroke-linecap="round" />
+      </svg>
+    </template>
+
+    <template id="art-stack">
+      <!-- A small stack of blank sheets, the top one with a turned-down corner. -->
+      <svg viewBox="0 0 132 108" aria-hidden="true">
+        <ellipse cx="66" cy="101" rx="46" ry="4" fill="var(--shadow)" />
+        <rect
+          x="30"
+          y="14"
+          width="72"
+          height="84"
+          rx="2"
+          fill="var(--surface)"
+          stroke="var(--l3)"
+          stroke-width="1"
+          transform="rotate(-6 66 56)"
+        />
+        <rect
+          x="30"
+          y="14"
+          width="72"
+          height="84"
+          rx="2"
+          fill="var(--surface)"
+          stroke="var(--l3)"
+          stroke-width="1"
+          transform="rotate(4 66 56)"
+        />
+        <path
+          d="M30 12 H102 V78 L84 96 H30 Z"
+          fill="var(--note)"
+          stroke="var(--l3)"
+          stroke-width="1"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M102 78 L86 80 Q84 80 84 82 L84 96 Z"
+          fill="var(--surface)"
+          stroke="var(--l3)"
+          stroke-width="1"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </template>
+
+    <script>
+      const options = [
+        {
+          id: "envelope",
+          name: "A · 空信封",
+          note: "信封口朝上打开，里面什么都没有。最直接的“没有东西”。米白信封身、浅灰描边，深色模式下是暗纸色。",
+        },
+        {
+          id: "note",
+          name: "B · 空白便签",
+          note: "和首页“等你处理”的便签同一种纸：贴着胶带、微微倾斜，只有几道淡格线。和首页的便签呼应最紧。",
+        },
+        {
+          id: "folder",
+          name: "C · 空文件夹",
+          note: "深米色的文件夹，打开着，里面空的。“还没有项目”说的就是项目夹，语义最贴；颜色最重，存在感也最强。",
+        },
+        {
+          id: "stack",
+          name: "D · 一叠白纸",
+          note: "两三张白纸叠着，最上面一张折了角。最安静，几乎不抢文字。",
+        },
+      ];
+      const states = [
+        {
+          title: "还没有项目",
+          body: "项目在 Mac 上添加。加好后，这里按项目和工作区列出会话。",
+          chats: true,
+        },
+        {
+          title: "这里还是空的",
+          body: "在 Mac 上添加项目，或者点右下角的 + 开一个不绑定项目的对话。",
+          chats: false,
+        },
+      ];
+      const main = document.getElementById("main");
+      for (const option of options) {
+        const section = document.createElement("section");
+        section.innerHTML = `<h2>${option.name}</h2><p>${option.note}</p><div class="row"></div>`;
+        const row = section.querySelector(".row");
+        for (const state of states) {
+          const cell = document.createElement("div");
+          cell.innerHTML = `
+            <div class="phone">
+              <div class="top"><div class="brand">Atrium</div><div class="host"><i></i>MacBook-Pro.local</div></div>
+              <div class="empty">
+                <div class="settle">${document.getElementById(`art-${option.id}`).innerHTML}</div>
+                <h3>${state.title}</h3>
+                <p>${state.body}</p>
+                <div class="tag">Mac 上的 Atrium › 侧栏 › 项目 +</div>
+              </div>
+              ${
+                state.chats
+                  ? `<div class="chats"><h4>对话<span>＋</span></h4>
+                     <div class="chat"><i></i>新会话<em>刚刚</em></div>
+                     <div class="chat"><i></i>新会话<em>4 分钟</em></div></div>`
+                  : ""
+              }
+              <div class="fab">+</div>
+            </div>
+            <div class="caption">${state.chats ? "有对话、没项目" : "什么都没有"}</div>`;
+          row.appendChild(cell);
+        }
+        main.appendChild(section);
+      }
+      // The note's shadow filter needs a unique id per copy.
+      document.querySelectorAll("svg").forEach((svg, index) => {
+        const filter = svg.querySelector("filter");
+        if (!filter) return;
+        filter.id = `lift-${index}`;
+        svg.querySelector("[filter]").setAttribute("filter", `url(#lift-${index})`);
+      });
+      const theme = document.getElementById("theme");
+      theme.addEventListener("click", () => {
+        const dark = document.documentElement.dataset.theme === "dark";
+        document.documentElement.dataset.theme = dark ? "light" : "dark";
+        theme.textContent = dark ? "切到深色" : "切到浅色";
+      });
+      document.getElementById("replay").addEventListener("click", () => {
+        document.querySelectorAll(".settle").forEach((node) => {
+          node.style.animation = "none";
+          void node.offsetWidth;
+          node.style.animation = "";
+        });
+      });
+    </script>
+  </body>
+</html>
