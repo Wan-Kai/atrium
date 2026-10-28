@@ -281,6 +281,23 @@ struct RemoteConnectionTests {
     #expect(h.relay.requested.count == 6)
   }
 
+  @Test("retrying now while waiting tries at once and starts the waits at 1 s again; without a network it waits")
+  func retryNowSkipsTheWait() async throws {
+    let h = Harness()
+    for _ in 0..<4 { h.relay.failNext(with: .unreachable) }
+    let connection = try h.connection()
+    await connection.start()
+    try await waitForRetry(h, attempts: 1, delay: .seconds(1))
+    h.clock.advance(by: .seconds(1))
+    try await waitForRetry(h, attempts: 2, delay: .seconds(2))
+    await connection.retryNow()
+    try await waitForRetry(h, attempts: 3, delay: .seconds(1))
+    await connection.networkChanged(available: false)
+    await connection.retryNow()
+    h.clock.advance(by: .seconds(60))
+    #expect(h.relay.requested.count == 3)
+  }
+
   @Test("two unanswered heartbeats in a row end the link after 35 seconds")
   func unansweredHeartbeatsReconnect() async throws {
     let h = Harness()

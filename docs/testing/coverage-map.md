@@ -2022,3 +2022,8 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 失败标记带 pi 的报错原文，截到 300 字符；崩溃的标记没有原文；看过之后原文保留 | `session-manager.test.ts`"SessionManager attention"（登录、其他失败、"keeps pi's failure text…"） |
 | 旧索引里没有 `text` 的标记读成 `null` | `index-schema.test.ts`"reads a mark kept before protocol 29…" |
 | 列表里最早一个没答的提问 / 对话框的名字：提问取第一题的第一行作标题、其余作说明，对话框取标题和 message；分别截到 200、300 字符；答完变 `null` | `session-manager.test.ts`"says since when…"（两条）、"names the first question…"、"names a confirmation…" |
+| 首页便签：卡住在等你前面、同级新的在前；标题和正文取报错原文或提问的 `question`，没有时用会话标题；报错正文用等宽；"项目 · 分支"；最多 8 张，其余算进"还有 N 件" | Swift `HomeListTests`"makes a note of each thing…"、"shows eight notes…" |
+| 一个 worktree 一行：按"问你 > 出错 > 运行 > 最新"选领头的会话，"等 N 个在跑"数其余在跑的，空 worktree 没有领头，已合并的收成一个数 | Swift `HomeListTests`"gives each open worktree one line…" |
+| 时间的说法：刚刚 / N 分钟 / N 小时 / 昨天 / 周几 / 几月几日（注入的时区和现在） | Swift `HomeListTests`"says how long ago…" |
+| "重试"立即重连：退避从 1 秒重新开始；没有网络时不试 | Swift `RemoteConnectionTests`"retrying now while waiting…" |
+| 首页整屏（便签、worktree 行、已合并折叠、对话组、浅深两色） | 没有自动测试，靠截图：`pnpm ios:shot --gallery=home [--dark]`，已看过 |

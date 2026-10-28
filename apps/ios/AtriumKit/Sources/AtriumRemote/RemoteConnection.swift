@@ -235,6 +235,22 @@ public actor RemoteConnection {
     link = .parked
   }
 
+  /// Tries again now, as the "重试" next to "正在重连" asks.
+  ///
+  /// - Remark: Like a network change (SPEC-0005 "重连"): the backoff starts over and a waiting link
+  ///   tries at once. Without a network it keeps waiting for one; after a final status it does
+  ///   nothing.
+  /// - SideEffects: May cancel a retry and open a connection.
+  public func retryNow() {
+    guard networkAvailable, !status.isTerminal, !isStopped else { return }
+    backoffStep = 0
+    switch link {
+    case .waiting, .parked:
+      if appPhase != .background { beginAttempt() }
+    default: break
+    }
+  }
+
   /// Follows the network path: `NWPathMonitor` updates.
   ///
   /// - Remark: Any change resets the backoff and retries a waiting link at once (SPEC-0005 "重连");

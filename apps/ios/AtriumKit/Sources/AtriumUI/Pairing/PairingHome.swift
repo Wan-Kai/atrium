@@ -47,22 +47,27 @@ public struct PairingHome<Content: View>: View {
     content
       .environment(sync)
       .environment(\.forgetMac, forgetAction)
+      .environment(\.reconnectNow, reconnectAction)
       .environment(\.pairingDetails, pairingDetails)
       .safeAreaInset(edge: .bottom) {
-        VStack(alignment: .leading, spacing: 8) {
-          HStack {
-            Text(connectionText).font(.footnote).foregroundStyle(.secondary)
-            Spacer()
-            Button("连接 Mac", systemImage: "qrcode") {
-              model = PairingModel(environment: environment, store: store, device: deviceInfo, onPaired: paired)
+        // Only while there is no Mac to show, or the keychain needs help: once connected, the
+        // home's own masthead says how it is, and settings forgets the Mac (the paper redesign).
+        if sync == nil || storageIssue != nil {
+          VStack(alignment: .leading, spacing: 8) {
+            HStack {
+              Text(connectionText).font(.footnote).foregroundStyle(.secondary)
+              Spacer()
+              Button("连接 Mac", systemImage: "qrcode") {
+                model = PairingModel(environment: environment, store: store, device: deviceInfo, onPaired: paired)
+              }
+              .accessibilityIdentifier("pairing.open")
             }
-            .accessibilityIdentifier("pairing.open")
+            if let issue = storageIssue {
+              PairingStorageNotice(issue: issue, retrying: storageRetryRequested) { storageRetryRequested = true }
+            }
           }
-          if let issue = storageIssue {
-            PairingStorageNotice(issue: issue, retrying: storageRetryRequested) { storageRetryRequested = true }
-          }
+          .padding()
         }
-        .padding()
       }
       .sheet(item: $model) { model in
         PairingView(model: model)
@@ -278,6 +283,12 @@ public struct PairingHome<Content: View>: View {
   private var forgetAction: (@MainActor () -> Void)? {
     guard sync != nil else { return nil }
     return { forget() }
+  }
+
+  /// Tries the connection again now, for "重试" next to "正在重连"; `nil` without one.
+  private var reconnectAction: (@MainActor () -> Void)? {
+    guard let connection else { return nil }
+    return { Task { await connection.retryNow() } }
   }
 
   /// Forgets the Mac connected now: its keys, its cache and its drafts.

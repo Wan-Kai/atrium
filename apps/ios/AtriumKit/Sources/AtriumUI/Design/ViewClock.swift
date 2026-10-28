@@ -31,6 +31,21 @@ extension EnvironmentValues {
   }
 }
 
+/// Tries the connection again now.
+///
+/// - Remark: Set by `PairingHome`, which owns the connection; the home's and settings' "重试" call it.
+nonisolated private struct ReconnectNowKey: EnvironmentKey {
+  static let defaultValue: (@MainActor () -> Void)? = nil
+}
+
+extension EnvironmentValues {
+  /// Tries the connection again now; `nil` without a connection.
+  var reconnectNow: (@MainActor () -> Void)? {
+    get { self[ReconnectNowKey.self] }
+    set { self[ReconnectNowKey.self] = newValue }
+  }
+}
+
 /// What the drawer says about this pairing: the relay, this phone and the App.
 ///
 /// - Remark: SPEC-0005 "MP6 定的细节 · MP6b"; set by `PairingHome`, which knows the stored host and

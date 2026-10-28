@@ -1,5 +1,6 @@
 import AtriumProtocol
 import AtriumSync
+import Foundation
 import Testing
 
 /// The home list of a list snapshot.
@@ -57,8 +58,10 @@ struct HomeListTests {
         ],
         sessions: [
           summaryJSON("s1", in: "w1", name: "a", extra: ["asking": "4", "running": "true"]),
-          summaryJSON("s2", in: "w1", name: "b", extra: ["attention": #"{"reason":"error","at":2,"cleared":false,"text":null}"#]),
-          summaryJSON("s3", in: "w1", name: "c", extra: ["attention": #"{"reason":"error","at":2,"cleared":true,"text":null}"#]),
+          summaryJSON(
+            "s2", in: "w1", name: "b", extra: ["attention": #"{"reason":"error","at":2,"cleared":false,"text":null}"#]),
+          summaryJSON(
+            "s3", in: "w1", name: "c", extra: ["attention": #"{"reason":"error","at":2,"cleared":true,"text":null}"#]),
           summaryJSON("s4", in: "w1", name: "d", extra: ["running": "true"]),
           summaryJSON("s5", in: "w2", name: "e", extra: ["running": "true"]),
         ]))
@@ -70,24 +73,91 @@ struct HomeListTests {
     #expect(list.projects[0].running == 2)
   }
 
-  @Test("puts what waits for you first, asking before signing in before errors, newest first, with where it is")
-  func inbox() {
+  @Test("makes a note of each thing waiting on you: stuck before waiting, newest first, named by its own words")
+  func notes() {
     let list = home(
       indexSnapshotJSON(
         projects: [projectJSON("p1", name: "app")], workspaces: [workspaceJSON("w1", project: "p1", branch: "main")],
         chats: [chatJSON("cht_1")],
         sessions: [
-          summaryJSON("s1", in: "w1", name: "旧错", extra: ["attention": #"{"reason":"error","at":1,"cleared":false,"text":null}"#]),
-          summaryJSON("s2", in: "w1", name: "新错", extra: ["attention": #"{"reason":"error","at":9,"cleared":false,"text":null}"#]),
-          summaryJSON("s3", in: "w1", name: "登录", extra: ["attention": #"{"reason":"auth","at":1,"cleared":true,"text":null}"#]),
-          summaryJSON("s4", in: "cht_1", name: "问", extra: ["asking": "2"]),
-          summaryJSON("s5", in: "w1", name: "看过", extra: ["attention": #"{"reason":"error","at":5,"cleared":true,"text":null}"#]),
+          summaryJSON(
+            "s1", in: "w1", name: "旧错",
+            extra: ["attention": #"{"reason":"error","at":1,"cleared":false,"text":"TypeError: x\nat y"}"#]),
+          summaryJSON(
+            "s2", in: "w1", name: "新错", extra: ["attention": #"{"reason":"error","at":9,"cleared":false,"text":null}"#]),
+          summaryJSON(
+            "s3", in: "w1", name: "登录", extra: ["attention": #"{"reason":"auth","at":1,"cleared":true,"text":null}"#]),
+          summaryJSON(
+            "s4", in: "cht_1", name: "问",
+            extra: ["asking": "2", "question": #"{"title":"回调用哪个？","detail":"两个都能跑通"}"#]),
+          summaryJSON(
+            "s5", in: "w1", name: "看过", extra: ["attention": #"{"reason":"error","at":5,"cleared":true,"text":null}"#]),
           summaryJSON("s6", in: "w1", name: "归档", extra: ["asking": "3", "archived": "true"]),
+          summaryJSON("s7", in: "w1", name: "没说问什么", extra: ["asking": "4"]),
         ]))
 
-    #expect(list.inbox.map(\.id) == ["s4", "s3", "s2", "s1"])
-    #expect(list.inbox.map(\.detail) == ["在问你 · 对话 · 新对话", "出错 · app · main", "出错 · app · main", "出错 · app · main"])
-    #expect(list.inbox.map(\.status) == [.asking, .error, .error, .error])
+    #expect(list.notes.map(\.id) == ["s2", "s1", "s3", "s7", "s4"])
+    #expect(list.notes.map(\.level) == [.stuck, .stuck, .stuck, .waiting, .waiting])
+    #expect(list.notes.map(\.title) == ["新错", "TypeError: x", "登录", "没说问什么", "回调用哪个？"])
+    #expect(list.notes.map(\.body) == [nil, "at y", nil, nil, "两个都能跑通"])
+    #expect(list.notes.map(\.code) == [false, true, false, false, false])
+    #expect(list.notes.map(\.place) == ["app · main", "app · main", "app · main", "app · main", "对话 · 新对话"])
+    #expect(list.notes.map(\.since) == [9, 1, 1, 4, 2])
+  }
+
+  @Test("shows eight notes and counts the rest for the pile")
+  func notePile() {
+    let list = home(
+      indexSnapshotJSON(
+        chats: [chatJSON("cht_1")],
+        sessions: (1...10).map { summaryJSON("s\($0)", in: "cht_1", name: "\($0)", extra: ["asking": "\($0)"]) }))
+
+    #expect(list.shownNotes.map(\.id) == (3...10).reversed().map { "s\($0)" })
+    #expect(list.pile == 2)
+    #expect(home(indexSnapshotJSON()).pile == 0)
+  }
+
+  @Test("gives each open worktree one line, led by its most urgent session, and folds the merged ones")
+  func worktreeLines() {
+    let merged = workspaceJSON("w2", project: "p1", branch: "done").replacingOccurrences(
+      of: #""merge":null"#, with: #""merge":{"dirty":false,"ahead":0,"verdict":"merged","reason":null}"#)
+    let list = home(
+      indexSnapshotJSON(
+        projects: [projectJSON("p1", name: "app")],
+        workspaces: [
+          workspaceJSON("w1", project: "p1", branch: "radar"), merged,
+          workspaceJSON("w3", project: "p1", branch: "empty"),
+        ],
+        sessions: [
+          summaryJSON("s1", in: "w1", name: "雷达", extra: ["running": "true", "updatedAt": "5"]),
+          summaryJSON("s2", in: "w1", name: "b", extra: ["running": "true", "updatedAt": "3"]),
+          summaryJSON("s3", in: "w1", name: "c", extra: ["running": "true", "updatedAt": "1"]),
+          summaryJSON("s4", in: "w1", name: "空闲", extra: ["updatedAt": "9"]),
+          summaryJSON("s5", in: "w2", name: "合了"),
+        ]))
+
+    let project = list.projects[0]
+    #expect(project.lines.map(\.id) == ["w1", "w3"])
+    #expect(project.lines[0].lead?.id == "s1")
+    #expect(project.lines[0].lead?.updatedAt == 5)
+    #expect(project.lines[0].alsoRunning == 2)
+    #expect(project.lines[1].lead == nil)
+    #expect(project.lines[1].alsoRunning == 0)
+    #expect(project.merged == 1)
+  }
+
+  @Test(
+    "says how long ago in the phone's short words",
+    arguments: [
+      (30_000, "刚刚"), (6 * 60_000, "6 分钟"), (2 * 3_600_000, "2 小时"), (20 * 3_600_000, "昨天"),
+      (3 * 86_400_000, "周日"), (10 * 86_400_000, "10月18日"),
+    ])
+  func ago(_ back: Int, _ words: String) {
+    // 2026-10-28 12:00 in Shanghai, a Wednesday.
+    let now = 1_793_160_000_000
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+    #expect(HomeList.ago(now - back, now: now, calendar: calendar) == words)
   }
 
   @Test("lists the sessions of chats last, newest first, without archived chats")

@@ -67,16 +67,24 @@
     ///
     /// - Remark: Part of the gallery sample; see the type.
     /// - SideEffects: none
-    private static func session(_ id: String, in container: String, prompt: String, updated: Int) -> String {
+    private static func session(
+      _ id: String, in container: String, prompt: String, updated: Int, running: Bool = false,
+      attention: String = "null", asking: String = "null", question: String = "null"
+    ) -> String {
       """
       {"sessionId":"\(id)","containerId":"\(container)","name":null,"prompt":"\(prompt)","file":null,\
-      "state":"persisted","updatedAt":\(updated),"archived":false,"running":false,"attention":null,"asking":null,"question":null,\
+      "state":"persisted","updatedAt":\(updated),"archived":false,"running":\(running),"attention":\(attention),\
+      "asking":\(asking),"question":\(question),\
       "handedOff":false,"model":null,"parent":null,"agent":null,"heldDeliveries":0}
       """
     }
 
+    /// Now, in milliseconds, so the sample's times read as minutes and hours ago.
+    private static var now: Int { Int(Date().timeIntervalSince1970 * 1000) }
+
     /// The list: two projects, five workspaces (one merged), recent sessions.
-    private static let index = """
+    private static var index: String {
+      """
       {"type":"index_snapshot","generation":"h1","seq":0,"reason":"no_cursor",\
       "projects":[{"id":"p1","path":"/work/weather-app","name":"weather-app","mainBranch":"main"},\
       {"id":"p2","path":"/work/atrium","name":"atrium","mainBranch":"main"}],\
@@ -85,13 +93,25 @@
       \(workspace("w3", "p1", branch: "feat/old-radar", merged: true)),\
       \(workspace("w4", "p2", branch: "feat/radar-layer")),\
       \(workspace("w5", "p2", branch: "main", local: true))],\
-      "chats":[],"sessions":[\(session("s1", in: "w1", prompt: "修一下缓存过期", updated: 50)),\
-      \(session("s2", in: "w2", prompt: "把 TTL 改成可配置", updated: 40)),\
-      \(session("s3", in: "w5", prompt: "整理 README", updated: 30))],\
+      "chats":[{"id":"cht_1","dir":"/chats/cht_1","alias":null,"firstSessionId":"s8","archivedAt":null}],\
+      "sessions":[\(session("s1", in: "w1", prompt: "修一下缓存过期", updated: now - 7_200_000)),\
+      \(session("s2", in: "w2", prompt: "把 TTL 改成可配置", updated: now - 3_000_000)),\
+      \(session("s3", in: "w5", prompt: "整理 README", updated: now - 90_000_000)),\
+      \(session("s4", in: "w4", prompt: "雷达图配色调整", updated: now - 60_000, running: true)),\
+      \(session("s5", in: "w4", prompt: "接上 GitHub 登录", updated: now - 400_000,
+        asking: "\(now - 360_000)",
+        question: #"{"title":"OAuth 回调地址用哪个？","detail":"回调用 /auth/callback 还是 /oauth/cb？换了要同步改 Nginx"}"#)),\
+      \(session("s6", in: "w2", prompt: "生成文件图标", updated: now - 900_000,
+        attention: #"{"reason":"error","at":\#(now - 840_000),"cleared":false,"text":"TypeError: Cannot read properties of undefined\nat HomeList.render (HomeList.tsx:48)"}"#)),\
+      \(session("s7", in: "w5", prompt: "清理旧的状态存储", updated: now - 1_000_000,
+        asking: "\(now - 840_000)",
+        question: #"{"title":"清理旧的状态存储","detail":"新 Store 已经接好。要不要顺便删掉旧的？"}"#)),\
+      \(session("s8", in: "cht_1", prompt: "Swift 并发怎么理解", updated: now - 200_000_000))],\
       "layout":{"container":null,"tabs":{}},"preferences":{"setupDone":true,"appearance":"system","lastModel":null,\
       "thinkingByModel":{},"lastFast":false,"statusBar":{},"titleModel":null,"proxy":null,"inbox":true,\
       "translationLanguage":"简体中文"},"resets":[]}
       """
+    }
 
     /// The open session's snapshot: idle, on a model with a thinking level and Fast on.
     private static let snapshot = """

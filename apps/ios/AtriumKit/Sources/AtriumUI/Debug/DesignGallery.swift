@@ -36,7 +36,7 @@
       self.section =
         (Self.sections + [
           "timeline-list", "timeline-stack", "timeline-control", "timeline-check", "diff-page", "new-session",
-          "location-sheet", "new-session-missing", "model-sheet", "drawer",
+          "location-sheet", "new-session-missing", "model-sheet", "drawer", "home",
         ])
         .contains(base)
         ? base : "all"
@@ -63,6 +63,8 @@
             .environment(GallerySync.model(missing: true, modelsFor: GallerySync.missingWorkspace))
         } else if section == "model-sheet" {
           ModelSheet(sessionId: GallerySync.openSession, sync: GallerySync.model(modelsFor: "w1"))
+        } else if section == "home" {
+          HomeView().environment(GallerySync.model())
         } else if section == "drawer" {
           Drawer(sync: GallerySync.model()) {}
             .environment(
