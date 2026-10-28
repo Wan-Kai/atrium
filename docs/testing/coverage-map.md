@@ -2027,3 +2027,7 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 时间的说法：刚刚 / N 分钟 / N 小时 / 昨天 / 周几 / 几月几日（注入的时区和现在） | Swift `HomeListTests`"says how long ago…" |
 | "重试"立即重连：退避从 1 秒重新开始；没有网络时不试 | Swift `RemoteConnectionTests`"retrying now while waiting…" |
 | 首页整屏（便签、worktree 行、已合并折叠、对话组、浅深两色） | 没有自动测试，靠截图：`pnpm ios:shot --gallery=home [--dark]`，已看过 |
+| 设置页列出当前会话所在 worktree 的主对话（不含子对话、归档，新的在前；子对话打开时列父会话那一组） | Swift `HomeListTests`"lists a session's worktree's own conversations…" |
+| 外观一个按钮轮换：跟随系统 → 浅色 → 深色 → 跟随系统，按钮字和图标 | Swift `SettingsPageTests` |
+| 签名的值："还剩 N 天"、"今天到期"、"已过期" | Swift `SigningTests`"counts whole days left…" |
+| 设置页整屏（对话组、Mac、这台手机、忘掉、页脚，浅深两色） | 截图 `pnpm ios:shot --gallery=settings [--dark]`，已看过；切换对话、忘掉确认框、连不上的样子靠验收 |

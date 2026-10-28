@@ -81,20 +81,12 @@ struct WorkspaceTagTests {
   }
 }
 
-@Suite("Home: drawer")
-struct DrawerTests {
+@Suite("Home: appearance")
+struct AppearanceTests {
   @Test("follows the appearance chosen, or the system")
   func appearance() {
     #expect(HomeView.scheme("light") == .light)
     #expect(HomeView.scheme("dark") == .dark)
     #expect(HomeView.scheme("system") == nil)
-  }
-
-  @Test("words the host's status as the drawer does")
-  func status() {
-    #expect(Drawer.statusText(.connected) == "已连接")
-    #expect(Drawer.statusText(.syncing) == "正在同步…")
-    #expect(Drawer.statusText(.hostOffline(lastSeen: nil)) == "离线")
-    #expect(Drawer.statusText(.relayUnreachable) == "连不上 relay")
   }
 }

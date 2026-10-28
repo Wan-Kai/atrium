@@ -106,7 +106,9 @@
       \(session("s7", in: "w5", prompt: "清理旧的状态存储", updated: now - 1_000_000,
         asking: "\(now - 840_000)",
         question: #"{"title":"清理旧的状态存储","detail":"新 Store 已经接好。要不要顺便删掉旧的？"}"#)),\
-      \(session("s8", in: "cht_1", prompt: "Swift 并发怎么理解", updated: now - 200_000_000))],\
+      \(session("s8", in: "cht_1", prompt: "Swift 并发怎么理解", updated: now - 200_000_000)),\
+      \(session("s9", in: "w1", prompt: "缓存命中率统计", updated: now - 120_000, running: true)),\
+      \(session("s10", in: "w1", prompt: "过期时间写进文档", updated: now - 86_400_000))],\
       "layout":{"container":null,"tabs":{}},"preferences":{"setupDone":true,"appearance":"system","lastModel":null,\
       "thinkingByModel":{},"lastFast":false,"statusBar":{},"titleModel":null,"proxy":null,"inbox":true,\
       "translationLanguage":"简体中文"},"resets":[]}

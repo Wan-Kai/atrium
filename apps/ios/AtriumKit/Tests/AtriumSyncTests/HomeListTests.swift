@@ -160,6 +160,27 @@ struct HomeListTests {
     #expect(HomeList.ago(now - back, now: now, calendar: calendar) == words)
   }
 
+  @Test("lists a session's worktree's own conversations for settings, newest first, without children or archived ones")
+  func siblings() {
+    var state = IndexState()
+    apply(
+      &state,
+      indexSnapshotJSON(
+        projects: [projectJSON("p1", name: "app")],
+        workspaces: [workspaceJSON("w1", project: "p1"), workspaceJSON("w2", project: "p1", branch: "b")],
+        sessions: [
+          summaryJSON("s1", in: "w1", name: "a", extra: ["updatedAt": "1"]),
+          summaryJSON("s2", in: "w1", name: "b", extra: ["updatedAt": "5"]),
+          summaryJSON("s3", in: "w1", name: "子", extra: ["parent": #"{"sessionId":"s1","by":"user"}"#]),
+          summaryJSON("s4", in: "w1", name: "旧", extra: ["archived": "true"]),
+          summaryJSON("s5", in: "w2", name: "别处"),
+        ]))
+
+    #expect(HomeList.siblings(of: "s1", in: state).map(\.sessionId) == ["s2", "s1"])
+    #expect(HomeList.siblings(of: "s3", in: state).map(\.sessionId) == ["s2", "s1"])
+    #expect(HomeList.siblings(of: "nope", in: state).isEmpty)
+  }
+
   @Test("lists the sessions of chats last, newest first, without archived chats")
   func chats() {
     let list = home(

@@ -25,8 +25,8 @@ public struct HomeView: View {
   @State private var openMerged: Set<ProjectId> = []
   /// Whether every chat shows.
   @State private var allChats = false
-  /// Whether the settings page is open.
-  @State private var settings = false
+  /// The pages pushed over the home.
+  @State private var path = NavigationPath()
   /// The appearance chosen in settings: "system", "light" or "dark".
   @AppStorage("appearance") private var appearance = "system"
 
@@ -39,7 +39,7 @@ public struct HomeView: View {
   /// The home, with session pages pushed on top.
   public var body: some View {
     let palette = Palette(scheme: scheme)
-    NavigationStack {
+    NavigationStack(path: $path) {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 0) {
           masthead(palette)
@@ -63,9 +63,11 @@ public struct HomeView: View {
       }
       .background(palette.page.ignoresSafeArea())
       .overlay(alignment: .topTrailing) {
-        GlassCircleButton(systemImage: "ellipsis", label: "设置", badge: Self.warns(sync)) { settings = true }
-          .padding(.trailing, Metrics.md)
-          .accessibilityIdentifier("home.menu")
+        GlassCircleButton(systemImage: "ellipsis", label: "设置", badge: Self.warns(sync)) {
+          path.append(SettingsRoute(from: nil))
+        }
+        .padding(.trailing, Metrics.md)
+        .accessibilityIdentifier("home.menu")
       }
       .overlay(alignment: .bottomTrailing) {
         if let sync, sync.core.index.ready {
@@ -78,12 +80,15 @@ public struct HomeView: View {
       .navigationDestination(for: NewSessionRoute.self) { NewSessionPage(route: $0) }
       .navigationDestination(for: ChangesRoute.self) { ChangesPage(workspaceId: $0.workspaceId) }
       .navigationDestination(for: WorkspaceRoute.self) { WorkspacePage(workspaceId: $0.workspaceId) }
+      .navigationDestination(for: SettingsRoute.self) { SettingsPage(route: $0) }
       .task(id: sync?.home.projects.flatMap { $0.workspaces.map(\.id) }) {
         sync?.watchChanges(sync?.home.projects.flatMap { $0.workspaces.map(\.id) } ?? [])
       }
     }
-    .overlay {
-      if settings, let sync { Drawer(sync: sync) { settings = false } }
+    .environment(\.openSettings) { path.append(SettingsRoute(from: $0)) }
+    .environment(\.switchConversation) { sessionId in
+      path.removeLast(min(2, path.count))
+      path.append(sessionId)
     }
     .preferredColorScheme(Self.scheme(appearance))
   }

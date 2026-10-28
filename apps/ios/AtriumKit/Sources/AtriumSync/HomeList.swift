@@ -149,6 +149,22 @@ public struct HomeList: Sendable, Equatable {
     return WorktreeLine(id: group.id, name: group.name, kind: group.kind, lead: lead, alsoRunning: running)
   }
 
+  /// The conversations of a session's workspace or chat, for settings to switch between.
+  ///
+  /// - Remark: SPEC-0005 "界面" (2026-10-28): settings opened from a conversation lists its
+  ///   worktree's own conversations, not their children, not archived, newest first; a child's
+  ///   list is its parent's.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - sessionId: The conversation open now.
+  ///   - index: The list.
+  /// - Returns: The conversations, or none for a session not on the list.
+  public static func siblings(of sessionId: SessionId, in index: IndexState) -> [SessionSummary] {
+    guard let session = index.sessions.first(where: { $0.sessionId == sessionId }) else { return [] }
+    return newestFirst(
+      index.sessions.filter { $0.containerId == session.containerId && $0.parent == nil && !$0.archived })
+  }
+
   /// The most notes the strip shows before the pile.
   public static let notesShown = 8
 

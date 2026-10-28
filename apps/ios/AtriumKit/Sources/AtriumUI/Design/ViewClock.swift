@@ -1,3 +1,4 @@
+import AtriumProtocol
 import SwiftUI
 
 /// The clock views wait on: a toast's stay, a rail's fold, a question's page turn.
@@ -43,6 +44,35 @@ extension EnvironmentValues {
   var reconnectNow: (@MainActor () -> Void)? {
     get { self[ReconnectNowKey.self] }
     set { self[ReconnectNowKey.self] = newValue }
+  }
+}
+
+/// Opens the settings page, from a conversation or (with `nil`) from the home.
+///
+/// - Remark: Set by `HomeView`, which owns the navigation path.
+nonisolated private struct OpenSettingsKey: EnvironmentKey {
+  static let defaultValue: (@MainActor (SessionId?) -> Void)? = nil
+}
+
+/// Opens another conversation in place of the one settings was opened from.
+///
+/// - Remark: Set by `HomeView`: settings and the conversation under it come off the path, the other
+///   conversation goes on (SPEC-0005 "界面": switching does not leave the worktree).
+nonisolated private struct SwitchConversationKey: EnvironmentKey {
+  static let defaultValue: (@MainActor (SessionId) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+  /// Opens the settings page; `nil` outside the home's navigation.
+  var openSettings: (@MainActor (SessionId?) -> Void)? {
+    get { self[OpenSettingsKey.self] }
+    set { self[OpenSettingsKey.self] = newValue }
+  }
+
+  /// Opens another conversation in place of the current one; `nil` outside the home's navigation.
+  var switchConversation: (@MainActor (SessionId) -> Void)? {
+    get { self[SwitchConversationKey.self] }
+    set { self[SwitchConversationKey.self] = newValue }
   }
 }
 

@@ -36,7 +36,7 @@
       self.section =
         (Self.sections + [
           "timeline-list", "timeline-stack", "timeline-control", "timeline-check", "diff-page", "new-session",
-          "location-sheet", "new-session-missing", "model-sheet", "drawer", "home",
+          "location-sheet", "new-session-missing", "model-sheet", "settings", "home",
         ])
         .contains(base)
         ? base : "all"
@@ -65,8 +65,9 @@
           ModelSheet(sessionId: GallerySync.openSession, sync: GallerySync.model(modelsFor: "w1"))
         } else if section == "home" {
           HomeView().environment(GallerySync.model())
-        } else if section == "drawer" {
-          Drawer(sync: GallerySync.model()) {}
+        } else if section == "settings" {
+          NavigationStack { SettingsPage(route: SettingsRoute(from: GallerySync.openSession)) }
+            .environment(GallerySync.model())
             .environment(
               \.pairingDetails,
               PairingDetails(relay: "relay.example.net", deviceName: "Kai 的 iPhone", appVersion: "0.1.0"))

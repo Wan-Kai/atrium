@@ -19,6 +19,8 @@ struct SessionPage: View {
   @Environment(SyncModel.self) private var sync: SyncModel?
   /// Goes back to the home.
   @Environment(\.dismiss) private var dismiss
+  /// Opens the settings page.
+  @Environment(\.openSettings) private var openSettings
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
   /// Whether the app is in front.
@@ -300,6 +302,12 @@ struct SessionPage: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, Metrics.md)
         .accessibilityIdentifier("session.back")
+      if let openSettings {
+        GlassCircleButton(systemImage: "ellipsis", label: "设置") { openSettings(sessionId) }
+          .frame(maxWidth: .infinity, alignment: .trailing)
+          .padding(.trailing, Metrics.md)
+          .accessibilityIdentifier("session.settings")
+      }
     }
     .frame(height: 56)
     .background(
