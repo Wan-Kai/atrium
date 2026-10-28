@@ -84,9 +84,9 @@ figcaption p { font-size: 13px; color: var(--page-dim); margin-top: 3px; }
 .ttl { font-size: 21px; font-weight: 650; line-height: 1.3; letter-spacing: -0.01em; }
 .sub { margin-top: 4px; font-size: 12.5px; color: var(--l2); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .sub .live { color: var(--tint); font-weight: 600; display: inline-flex; gap: 5px; align-items: center; }
-.me { margin: 22px 0 6px auto; max-width: 82%; width: fit-content; background: var(--note); border-radius: 18px 18px 4px 18px; padding: 10px 14px; font-size: 15.5px; line-height: 1.5;
+.me { margin: 22px 0 0 auto; max-width: 82%; width: fit-content; background: var(--note); border-radius: 18px 18px 4px 18px; padding: 10px 14px; font-size: 15.5px; line-height: 1.5;
   box-shadow: inset 0 0 0 .5px var(--rule), 0 4px 10px -8px rgba(60,40,10,.3); }
-.me small { display: block; text-align: right; font-size: 11.5px; color: var(--l2); margin-top: 2px; }
+.mt { text-align: right; font-size: 11.5px; color: var(--l2); margin: 4px 4px 6px; font-variant-numeric: tabular-nums; }
 .reply { font-size: 16px; line-height: 1.65; color: var(--text); }
 .reply p { margin: 8px 0 12px; }
 .reply code { font: 14px var(--mono); padding: 1px 5px; border-radius: 5px; background: var(--surf); }
@@ -302,10 +302,16 @@ figcaption p { font-size: 13px; color: var(--page-dim); margin-top: 3px; }
 .reply2 { font-size: 16px; line-height: 1.65; margin: 10px 0 6px; }
 .reply2 code { font: 14px var(--mono); padding: 1px 5px; border-radius: 5px; background: var(--surf); }
 .foot { display: flex; gap: 14px; font-size: 12px; color: var(--l2); margin-bottom: 18px; }
-.going { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; height: 30px; font-size: 13.5px; }
-.going .v { background: linear-gradient(90deg, var(--text2) 30%, var(--tint) 50%, var(--text2) 70%) 0 0 / 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: sweep2 2.2s linear infinite; font-weight: 600; }
-.going .t { color: var(--l2); font-variant-numeric: tabular-nums; }
-.going.ask .v { animation: none; background: none; color: var(--attn); }
+/* the desktop's run line: its cat, 18px at the left, the text from 24px with the shimmer */
+.going { position: relative; display: flex; align-items: center; min-height: 30px; padding-left: 24px; margin-top: 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.going .rc, .going .qc { position: absolute; left: 0; top: 50%; translate: 0 -50%; width: 18px; height: 18px; }
+.going .qc { color: var(--attn); }
+.rc .eyes { transform-box: fill-box; transform-origin: center; animation: catblink 2.6s infinite; }
+@keyframes catblink { 0%, 92%, 100% { transform: scaleY(1) } 95% { transform: scaleY(.1) } }
+.going .v { background: linear-gradient(100deg, var(--l2) 32%, var(--text) 47%, var(--text) 53%, var(--l2) 68%) 0 0 / 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shim 1.9s linear infinite; }
+@keyframes shim { from { background-position: 100% 0 } to { background-position: -100% 0 } }
+.going .t { color: var(--l2); }
+.going.ask .v { animation: none; background: none; color: var(--attn); font-weight: 500; }
 
 /* the model pill names the model with its provider's mark */
 .pill .pv { border-radius: 50%; }
@@ -355,105 +361,80 @@ figcaption p { font-size: 13px; color: var(--page-dim); margin-top: 3px; }
 .qbtns .go.off { background: var(--surf); color: var(--l2); }
 .qbtns .nx { height: 46px; padding: 0 18px; border-radius: 23px; display: grid; place-items: center; font-size: 15px; font-weight: 600; box-shadow: inset 0 0 0 1px var(--rule); }
 
-/* ---------- model sheet ---------- */
-.msearch { height: 38px; border-radius: 12px; background: var(--surf); display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 14px; color: var(--l2); }
-.mcols { margin-top: 12px; display: grid; grid-template-columns: 52px 1fr; gap: 8px; }
-.prov { display: grid; gap: 4px; align-content: start; }
-.prov span { position: relative; width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; }
+/* ---------- model sheet: the desktop's panel, in the phone's colors ---------- */
+.mhead { display: flex; justify-content: space-between; align-items: center; padding: 2px 4px 8px; font-size: 12px; color: var(--l2); }
+.mhead .rf { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; }
+.mcols { display: grid; grid-template-columns: 48px 1fr; column-gap: 13px; position: relative; }
+.mcols::before { content: ""; position: absolute; left: 54px; top: 0; bottom: 0; width: .5px; background: var(--rule); }
+.prov { display: grid; gap: 2px; align-content: start; }
+.prov span { position: relative; width: 48px; height: 44px; border-radius: 12px; display: grid; place-items: center; }
 .prov span.on { background: var(--surf); }
-.prov span i { width: 26px; height: 26px; border-radius: 7px; display: block; }
-.prov span.on::after { content: ""; position: absolute; right: 6px; top: 6px; width: 6px; height: 6px; border-radius: 3px; background: var(--tint); }
-.prov small { position: absolute; bottom: 2px; left: 50%; translate: -50% 0; font-size: 8.5px; font-weight: 700; color: var(--tint); white-space: nowrap; }
-.mlist { display: grid; }
-.mrow { display: grid; grid-template-columns: 1fr 22px; align-items: center; padding: 8px 10px; border-radius: 12px; }
+.prov span i { width: 24px; height: 24px; border-radius: 6px; display: block; }
+.prov span.cur::after { content: ""; position: absolute; right: 7px; top: 6px; width: 6px; height: 6px; border-radius: 3px; background: var(--tint); box-shadow: 0 0 0 1.5px var(--note); }
+.prov span.on.cur::after { box-shadow: 0 0 0 1.5px var(--surf); }
+.prov .plan { position: absolute; right: 1px; bottom: 2px; font-size: 8.5px; font-weight: 700; line-height: 11px; padding: 0 2px; border-radius: 3px; color: var(--tint); background: var(--note); }
+.mlist { height: 296px; overflow: hidden; }
+.mlh { display: flex; align-items: baseline; gap: 6px; padding: 4px 10px 6px; font-size: 13px; font-weight: 500; color: var(--text2); }
+.mlh .pl { color: var(--tint); margin-left: -2px; }
+.mlh small { font-size: 11.5px; font-weight: 400; color: var(--l2); }
+.mrow { display: grid; grid-template-columns: 1fr 20px; align-items: center; padding: 8px 10px; border-radius: 12px; }
 .mrow.on { background: var(--surf); }
-.mrow b { font-size: 15px; font-weight: 600; }
-.mrow b .fast { color: var(--tint); font-size: 12px; margin-left: 4px; }
-.mrow small { display: block; font-size: 12px; color: var(--l2); margin-top: 1px; }
-.mrow .ck { color: var(--tint); }
-.effort { margin-top: 14px; padding-top: 12px; border-top: .5px solid var(--rule); }
-.effort .row { display: flex; justify-content: space-between; align-items: baseline; font-size: 13.5px; }
-.effort .row b { font-weight: 650; }
-.effort .row span { color: var(--l2); font-size: 12.5px; }
-.dots { margin-top: 10px; height: 34px; border-radius: 10px; background: var(--surf); position: relative; overflow: hidden;
-  background-image: radial-gradient(circle, var(--l3) 1.5px, transparent 1.7px); background-size: 8px 8px; background-position: 4px 1px; }
-.dots i { position: absolute; inset: 0 32% 0 0; background-image: radial-gradient(circle, var(--ink) 1.5px, transparent 1.7px); background-size: 8px 8px; background-position: 4px 1px; }
-.dots u { position: absolute; top: 4px; bottom: 4px; left: calc(68% - 2px); width: 4px; border-radius: 2px; background: var(--ink); }
-.ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--l2); margin-top: 5px; padding: 0 2px; }
-.ticks b { color: var(--text); font-weight: 650; }
-.fastrow { margin-top: 14px; display: flex; align-items: center; justify-content: space-between; font-size: 14px; }
-.fastrow small { display: block; font-size: 12px; color: var(--l2); }
-.tog { width: 50px; height: 30px; border-radius: 15px; background: var(--l3); position: relative; }
-.tog::after { content: ""; position: absolute; top: 2px; left: 2px; width: 26px; height: 26px; border-radius: 13px; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,.2); }
-.tog.on { background: var(--tint); } .tog.on::after { left: 22px; }
+.mrow b { font-size: 14.5px; font-weight: 500; }
+.mrow .bolt { color: var(--tint); margin-left: 4px; vertical-align: -1px; }
+.mrow small { display: block; font-size: 11.5px; color: var(--l2); margin-top: 1px; }
+.msep { height: .5px; background: var(--rule); margin: 10px 4px 2px; }
+.ehead { display: flex; justify-content: space-between; padding: 6px 4px 7px; font-size: 12px; color: var(--l2); }
+.ebox { position: relative; margin: 0 auto; width: 280px; height: 38px; border-radius: 12px; background: var(--surf); overflow: hidden; }
+.ebox .all, .ebox .on { position: absolute; top: 0; bottom: 0; left: 0; background-image: radial-gradient(circle, currentColor 1.25px, transparent 1.45px); background-size: 6px 6px; background-position: 1px 1px; }
+.ebox .all { right: 0; color: var(--l3); }
+.ebox .on { width: 80%; color: var(--tint); opacity: .62; }
+.ebox .dv { position: absolute; top: 10px; bottom: 10px; width: 1px; translate: -50% 0; background: var(--l3); }
+.ebox .nm { position: absolute; left: 12px; top: 0; bottom: 0; display: flex; align-items: center; font-size: 13.5px; font-weight: 650; text-shadow: 0 0 6px var(--surf), 0 0 2px var(--surf); }
+.ebox .ct { position: absolute; right: 12px; top: 0; bottom: 0; display: flex; align-items: center; font-size: 11.5px; color: var(--l2); font-variant-numeric: tabular-nums; }
+.ehint { text-align: center; font-size: 11.5px; color: var(--l2); padding: 8px 0 0; }
+/* Fast stays a bolt beside the model pill, as on the desktop */
+.pill.fastp { margin-left: auto; width: 32px; padding: 0; justify-content: center; color: var(--tint); }
+.pill.fastp + .pill.model { margin-left: 0; }
 
-/* ---------- drawer, round two ---------- */
-.drawer2 { position: absolute; top: 0; bottom: 0; left: 0; width: 304px; z-index: 46; background: var(--bg); display: flex; flex-direction: column; padding: 64px 20px 30px; box-shadow: 10px 0 30px -14px rgba(40,25,5,.35); }
-.dw-brand { display: flex; align-items: center; gap: 10px; height: 44px; }
-.dw-brand .brand { font-size: 30px; }
-.dw-brand small { margin-left: auto; font-size: 11.5px; color: var(--l2); font-variant-numeric: tabular-nums; }
-.dw-host { margin-top: 18px; padding: 14px; border-radius: 18px; background: var(--note); box-shadow: inset 0 0 0 .5px var(--rule), 0 8px 18px -14px rgba(60,40,10,.4); }
-.dw-host .hr { display: flex; align-items: center; gap: 10px; }
-.dw-host .mac { width: 40px; height: 40px; border-radius: 11px; background: var(--surf); display: grid; place-items: center; color: var(--text2); }
-.dw-host b { display: block; font-size: 17px; font-weight: 650; }
-.dw-host .hst { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--tint); font-weight: 600; }
-.dw-host .hst i { width: 6px; height: 6px; border-radius: 3px; background: var(--tint); }
-.dw-host .facts { margin-top: 12px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.dw-host .facts div { padding: 7px 8px; border-radius: 10px; background: var(--bg); }
-.dw-host .facts small { display: block; font-size: 10.5px; color: var(--l2); }
-.dw-host .facts span { display: block; font-size: 12.5px; font-weight: 600; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dw-host .relink { margin-top: 10px; height: 36px; border-radius: 18px; display: grid; place-items: center; font-size: 13.5px; font-weight: 600; box-shadow: inset 0 0 0 1px var(--rule); }
-.dw-sec { margin-top: 20px; font-size: 12px; font-weight: 600; color: var(--l2); }
-.dw-row { display: flex; align-items: center; gap: 10px; height: 42px; font-size: 14.5px; }
-.dw-row + .dw-row { border-top: .5px solid var(--rule); }
-.dw-row .ic { width: 28px; height: 28px; border-radius: 8px; background: var(--surf); display: grid; place-items: center; color: var(--text2); flex: none; }
-.dw-row .val { margin-left: auto; font-size: 13px; color: var(--l2); }
-.dw-row .val.warn { color: var(--attn); font-weight: 600; }
-.dw-seg { display: flex; background: var(--surf); border-radius: 10px; padding: 3px; font-size: 12.5px; margin-left: auto; }
-.dw-seg span { padding: 0 9px; height: 26px; display: grid; place-items: center; border-radius: 8px; }
-.dw-seg span.on { background: var(--note); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.1); }
-.dw-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
-.dw-foot .bad { color: var(--danger); font-weight: 500; }
-.dw-foot .v { color: var(--l2); font-size: 11.5px; }
-.behind { position: absolute; inset: 0; transform: translateX(262px) scale(.88); transform-origin: left center; border-radius: 40px; overflow: hidden; filter: brightness(.86) saturate(.9); background: var(--bg); }
+/* ---------- settings: full screen, in from the right ---------- */
+.set { position: absolute; inset: 0; z-index: 46; background: var(--bg); }
+.set .inner { padding: 112px 22px 60px; }
+.sgh { display: flex; align-items: baseline; gap: 8px; margin-top: 28px; padding-bottom: 2px; font-size: 12.5px; font-weight: 600; color: var(--l2); }
+.sgh:first-child { margin-top: 0; }
+.sgh .mono { font-size: 11.5px; font-weight: 400; }
+.srow { display: flex; align-items: center; gap: 10px; min-height: 46px; font-size: 15px; border-bottom: .5px solid var(--rule); }
+.srow:last-of-type, .srow.end { border-bottom: 0; }
+.srow .v { margin-left: auto; font-size: 14.5px; color: var(--l2); font-variant-numeric: tabular-nums; }
+.srow .v.tint { color: var(--tint); font-weight: 500; }
+.srow .v.warn { color: var(--attn); font-weight: 500; }
+.srow.act { color: var(--tint); font-weight: 500; }
+.srow.bad { color: var(--danger); }
+.crow { display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; align-items: center; min-height: 52px; border-bottom: .5px solid var(--rule); }
+.crow .st { display: grid; place-items: center; color: var(--tint); }
+.crow b { display: block; font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crow small { display: block; font-size: 12px; color: var(--l2); margin-top: 1px; }
+.crow small.ask { color: var(--attn); font-weight: 500; }
+.crow .tm { font-size: 12.5px; color: var(--l2); font-variant-numeric: tabular-nums; }
+.crow.cur b { font-weight: 650; }
+.crow.cur .tm { color: var(--tint); font-weight: 600; }
+.crow .q { width: 7px; height: 7px; border-radius: 4px; background: var(--attn); }
+.cyc { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px; border-radius: 16px; background: var(--surf); font-size: 14px; font-weight: 500; }
+.sfoot { margin-top: 26px; text-align: center; font-size: 11.5px; color: var(--l2); font-variant-numeric: tabular-nums; }
 
-/* ---------- cats ---------- */
-.catsheet { position: absolute; inset: 104px 18px 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-content: start; }
-.cc { background: var(--note); border-radius: 18px; padding: 14px 10px 10px; text-align: center; box-shadow: inset 0 0 0 .5px var(--rule); }
-.cc svg { display: block; margin: 0 auto; overflow: visible; }
-.cc b { display: block; margin-top: 8px; font-size: 13.5px; font-weight: 650; }
-.cc small { display: block; font-size: 11.5px; color: var(--l2); line-height: 1.4; margin-top: 2px; }
-.cc.wide { grid-column: 1 / -1; text-align: left; display: grid; gap: 6px; padding: 12px 14px; }
-.cc.wide .inrow { display: grid; gap: 6px; }
-.cc.wide .going { margin: 0; }
-.going svg { margin: 0 !important; display: block; flex: none; }
-/* cat motion */
-.kitty .ring rect { fill: rgba(122,92,50,.42); }
-:root[data-theme="dark"] .kitty .ring { display: none; }
-.kitty .blink { animation: blink 3.2s infinite; transform-box: fill-box; transform-origin: center; }
-@keyframes blink { 0%, 92%, 100% { scale: 1 1 } 95% { scale: 1 .12 } }
-.kitty .tail { animation: wag 1.4s ease-in-out infinite; transform-box: fill-box; transform-origin: 0% 100%; }
-@keyframes wag { 0%, 100% { rotate: -8deg } 50% { rotate: 10deg } }
-.kitty .pawL { animation: tap .5s ease-in-out infinite; } .kitty .pawR { animation: tap .5s .25s ease-in-out infinite; }
-@keyframes tap { 0%, 100% { translate: 0 0 } 50% { translate: 0 -1.2px } }
-.kitty.tilt { animation: tilt 2.4s ease-in-out infinite; transform-origin: 50% 80%; }
-@keyframes tilt { 0%, 100% { rotate: 0deg } 30%, 70% { rotate: -9deg } }
-.kitty .zz { animation: zz 2.6s ease-in-out infinite; }
-@keyframes zz { 0% { opacity: 0; translate: 0 2px } 30%, 70% { opacity: 1 } 100% { opacity: 0; translate: 3px -6px } }
-.kitty .qm { animation: hop 1.8s infinite; }
-.kitty .breath { animation: breath 3.6s ease-in-out infinite; transform-box: fill-box; transform-origin: 50% 100%; }
-@keyframes breath { 0%, 100% { scale: 1 1 } 50% { scale: 1.02 .97 } }
+/* ---------- desktop's running mark, for a running conversation in the list ---------- */
+.rdots circle { animation: rdot 1.65s linear infinite; }
+@keyframes rdot { 0%, 14.75% { opacity: 1 } 14.76%, 24.99% { opacity: .55 } 25%, 74.99% { opacity: .2 } 75%, 85.24% { opacity: .55 } 85.25%, 100% { opacity: 1 } }
 </style>
 </head>
 <body>
 <!--
-THESIS: 对话页按用户第二轮意见重做：标题居中在顶部，内容在玻璃下变模糊仍透出纸；过程同桌面轨道换手机主题；提问 sheet 学桌面卡片，agent 字母跳动；状态浮层是玻璃；出错只是淡红底；抽屉重排；一只更可爱的猫。
-OWN-WORLD: 纸 #f6f2e9 / 便签纸 #fffcf5 / 墨 #26221c / 深米 #8a7352 / 杏 #c0651c；猫奶油 #f6ead2、墨蓝 #1f2537、粉 #f0aea6。
+THESIS: 对话页第三轮：时间移出气泡；运行中的小猫、模型面板照搬桌面只换深米主题；设置页从右边滑入、全屏、只写数字，最上面切换同一 worktree 的对话；外观单按钮轮换；不画新猫。
+OWN-WORLD: 纸 #f6f2e9 / 便签纸 #fffcf5 / 墨 #26221c / 深米 #8a7352 / 杏 #c0651c；桌面小猫的脸 #f6ede1、眼 #1f2537。
 -->
 <header class="page">
   <div>
-    <h1>对话页 · 第二轮</h1>
-    <p>按你的五点改：标题居中、不写分支和状态；内容滑到标题和输入框下面变模糊，但仍透出纸色；过程同桌面的轨道（放大镜、文件胶囊、进行中扫光），换成深米主题、每步更短；提问学桌面卡片，agent 字母依次跳动、选项无边框、标出单选 / 多选；重连是标题下的玻璃浮层，出错只是淡红底；抽屉重排；最后一页是猫。</p>
+    <h1>对话页 · 第三轮</h1>
+    <p>按你的八点改：气泡里不放时间，挪到气泡下面；"进行中"用桌面的小猫和扫光，只换成深米；模型面板照桌面，只换主题色；提问顶行去掉问号；左侧抽屉改成从右边滑进来的全屏设置页，数据只写数字、不套底色；设置页最上面切换这个 worktree 里的对话；外观一个按钮轮换；先不画猫。</p>
   </div>
   <div class="seg" role="group" aria-label="外观">
     <button type="button" data-theme-set="light" aria-pressed="true">浅色</button>
@@ -491,118 +472,101 @@ const WARN = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke
 const FI = (c, x) => `<span class="fi" data-x="${x}" style="background:${c}"></span>`;
 const tbar = t => `<div class="tbar"><b>${t}</b></div>`;
 
-/* ---------- the cat: a chubby 16×16 kitten — round head wider than its body, big eyes, pink cheeks, ω mouth ---------- */
-const GRID = [
-  "...c........c...",
-  "..cpc......cpc..",
-  ".cppccccccccppc.",
-  ".cccccccccccccc.",
-  "cccccccccccccccc",
-  "ccEEccccccccEEcc",
-  "ccEEccccccccEEcc",
-  "ccEEcccnncccEEcc",
-  "cppcccmccmcccppc",
-  ".ccccccmmcccccc.",
-  "..cccccccccccc..",
-  "...cccccccccc...",
-  "..cccccccccccc..",
-  "..scccccccccccs.",
-  "..ssLLccccRRss..",
-  "................",
-];
-/* eyes per mood: rows 5–7, a 2×3 eye at columns 2–3 and 12–13; the highlight sits top-right in both */
-const EYES = {
-  open:  [["k", "w"], ["k", "k"], ["k", "k"]],
-  happy: [[".", "."], ["k", "k"], [".", "."]],
-  shut:  [[".", "."], [".", "."], ["k", "k"]],
-  dizzy: [["k", "."], [".", "k"], ["k", "."]],
-};
-const TAIL = [[14, 12], [15, 11], [15, 10], [14, 9]];
-function kitty(size, mood = "open", { cls = "", extra = "", tail = true, paws = "" } = {}) {
-  const cell = size / 16, d = cell * .86, o = (cell - d) / 2, r = d * .3;
-  const col = { c: "var(--cat-body)", s: "var(--cat-shade)", p: "#f0aea6", n: "#e58a80", m: "#1f2537", k: "#1f2537", w: "#ffffff", L: "var(--cat-paw)", R: "var(--cat-paw)" };
-  const dot = (x, y, ch) => `<rect x="${x * cell + o}" y="${y * cell + o}" width="${d}" height="${d}" rx="${r}" fill="${col[ch] || col.c}"/>`;
-  const filled = new Set();
-  let base = "", eyes = "", pawL = "", pawR = "";
-  GRID.forEach((row, y) => [...row].forEach((ch, x) => {
-    if (ch === ".") return;
-    filled.add(x + "," + y);
-    if (ch === "E") {
-      base += dot(x, y, "c");
-      const e = EYES[mood][y - 5][x < 8 ? x - 2 : x - 12];
-      if (e !== ".") eyes += dot(x, y, e);
-    } else if (ch === "L") pawL += dot(x, y, "L");
-    else if (ch === "R") pawR += dot(x, y, "R");
-    else base += dot(x, y, ch);
-  }));
-  let tl = "";
-  if (tail) TAIL.forEach(([x, y]) => { filled.add(x + "," + y); tl += dot(x, y, "c"); });
-  /* outline: the empty cells touching the cat, drawn only on light paper */
-  let ring = "";
-  for (let y = -1; y <= 16; y++) for (let x = -1; x <= 16; x++)
-    if (!filled.has(x + "," + y) && [[1,0],[-1,0],[0,1],[0,-1]].some(([dx, dy]) => filled.has((x + dx) + "," + (y + dy)))) ring += dot(x, y, "o");
-  const pw = paws === "type" ? `<g class="pawL">${pawL}</g><g class="pawR">${pawR}</g>` : pawL + pawR;
-  return `<svg class="kitty ${cls}" width="${size}" height="${size}" viewBox="${-cell} ${-cell} ${size + 2 * cell} ${size + 2 * cell}" style="--cat-body:#f6e6c6;--cat-shade:#ead2a6;--cat-paw:#fffaf0">
-    <g class="breath"><g class="ring">${ring}</g><g class="tail">${tl}</g>${base}${pw}<g class="head"></g><g class="${mood === "open" ? "blink" : ""}">${eyes}</g></g>${extra}</svg>`;
-}
-const QM = (size, x, y) => { const c = size / 16; const pts = [[1,0],[2,0],[0,1],[3,1],[3,2],[2,3],[1,4],[1,6]]; return `<g class="qm">${pts.map(([a, b]) => `<rect x="${x + a * c * .8}" y="${y + b * c * .8}" width="${c * .6}" height="${c * .6}" rx="${c * .2}" fill="var(--attn)"/>`).join("")}</g>`; };
-const ZZ = (size, x, y) => `<g class="zz"><text x="${x}" y="${y}" font-size="${size * .2}" font-weight="700" fill="var(--l2)" font-family="Syne, sans-serif">z</text><text x="${x + size * .12}" y="${y - size * .14}" font-size="${size * .14}" font-weight="700" fill="var(--l2)" font-family="Syne, sans-serif">z</text></g>`;
-
-/* desktop's brand dot question mark, 5×7 */
-const DOTQ = (() => { const g = [".###.", "#...#", "....#", "...#.", "..#..", ".....", "..#.."]; let s = ""; g.forEach((row, y) => [...row].forEach((ch, x) => { if (ch === "#") s += `<rect x="${x * 3}" y="${y * 3}" width="2" height="2" rx=".6" fill="currentColor"/>`; })); return `<svg class="dotq" width="15" height="21" viewBox="0 0 15 21">${s}</svg>`; })();
+/* the desktop's run cat (run-status.tsx), the blue square swapped for the deep beige */
+const RUNCAT = `<svg class="rc" viewBox="0 0 1024 1024" aria-hidden="true"><rect width="1024" height="1024" rx="230" fill="var(--tint)"/><g transform="translate(-50 20)"><path d="M190 1120 Q170 820 200 560 L262 250 L450 410 Q640 360 830 410 L1018 250 L1080 560 Q1110 820 1090 1120 Z" fill="#f6ede1" stroke="#f6ede1" stroke-width="120" stroke-linejoin="round"/><g class="eyes" fill="#1f2537"><ellipse cx="512" cy="730" rx="40" ry="58"/><ellipse cx="768" cy="730" rx="40" ry="58"/></g></g></svg>`;
+const QCIRCLE = `<svg class="qc" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="7"/><path d="M7 7.1a2 2 0 0 1 3.9.6c0 1.3-1.9 1.7-1.9 2.9"/><circle cx="9" cy="12.9" r=".5" fill="currentColor"/></svg>`;
+const going = t => `<div class="going">${RUNCAT}<span class="v">进行中</span><span class="t">&nbsp;· ${t}</span></div>`;
+/* the desktop's running mark (running-dots.tsx): 21 dots of a 5×5 grid, a spiral arm sweeping round */
+const RUNDOTS = size => { let s = ""; for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) { const dx = c - 2, dy = r - 2, out = Math.hypot(dx, dy); if (out > 2.3) continue; const a = ((out / 2) * 4.4 - Math.atan2(dy, dx)) / (2 * Math.PI); s += `<circle cx="${c + .5}" cy="${r + .5}" r=".38" style="animation-delay:${(-(a - Math.floor(a)) * 1650).toFixed(0)}ms"/>`; } return `<svg class="rdots" width="${size}" height="${size}" viewBox="0 0 5 5" fill="currentColor">${s}</svg>`; };
+const BOLT = (s = 11) => `<svg class="bolt" width="${s}" height="${s}" viewBox="0 0 12 12" fill="currentColor"><path d="M7 .8 2.2 7h3.3l-.7 4.2L9.8 5H6.4z"/></svg>`;
+const REFRESH = `<svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.6 7A4.6 4.6 0 1 1 10.2 3.7"/><path d="M11.4 1.6v2.6H8.8"/></svg>`;
+const NEW_CHAT = `<svg width="18" height="18" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.2A2.7 2.7 0 0 1 6.7 3.5h8.6A2.7 2.7 0 0 1 18 6.2v6.1a2.7 2.7 0 0 1-2.7 2.7H10l-3.6 3c-.4.3-.9 0-.9-.4V15h0A2.7 2.7 0 0 1 4 12.3z"/><path d="M11 6.6v5.3M8.35 9.25h5.3"/></svg>`;
+const SYS = `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" fill="currentColor"/></svg>`;
+const MOON = `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6z"/></svg>`;
 const agentWord = `<span class="agent">${[..."agent"].map(c => `<span>${c}</span>`).join("")}</span>`;
+/* a sent message: the bubble holds only the words; its time sits under it */
+const me = (text, time, first = false) => `<div class="me"${first ? ` style="margin-top:6px"` : ""}>${text}</div><div class="mt">${time}</div>`;
 
 const frame2 = (inner, chrome, cls = "conv") => `<div class="island"></div><div class="status"><span>9:41</span>${ICONS}</div>
   <div class="scroll"><div class="inner ${cls}">${inner}</div></div>
   <div class="edge top"><i></i><i></i><i></i></div><div class="edge bot"><i></i><i></i><i></i></div>${chrome}<div class="home-ind"></div>`;
-const PROVIDER = { anthropic: "#d97757", openai: "#1f1f1f", google: "#4f8df5", deepseek: "#4d6bfe" };
+const PROVIDER = { anthropic: "#d97757", openai: "#1f1f1f", google: "#4f8df5", deepseek: "#4d6bfe", zai: "#2d2d6e" };
 const dock2 = ({ ph = "发送进排队 · 长按插话", send = "stop", banner = "", pills = true } = {}) => `<div class="dock">${banner}${pills ? `<div class="pills">
-  <span class="pill glass">${I.queue}排队 <b>2</b></span><span class="pill glass">${I.child}子对话 <b>1</b></span><span class="pill glass model"><span class="pv" style="background:${PROVIDER.anthropic}"></span>Opus 5.5 · 高</span></div>` : ""}
+  <span class="pill glass">${I.queue}排队 <b>2</b></span><span class="pill glass">${I.child}子对话 <b>1</b></span><span class="pill glass fastp" aria-label="Fast 已开启">${BOLT(14)}</span><span class="pill glass model"><span class="pv" style="background:${PROVIDER.anthropic}"></span>Opus 5.5 · 高</span></div>` : ""}
   <div class="input glass"><span class="att">${I.clip}</span><span class="ph">${ph}</span><span class="send ${send}">${send === "stop" ? I.stop : I.up}</span></div></div>`;
 
 const RUNNING_BODY = `
-  <div class="me" style="margin-top:6px">先把雷达图的配色列出来，看看现在用了几种颜色。<small>9:31</small></div>
+  ${me("先把雷达图的配色列出来，看看现在用了几种颜色。", "9:31", true)}
   <div class="sum">${ARROW}已完成，用时 48 秒 · 读了 3 个 · 改了 0 个</div>
   <div class="reply2">现在用了五种不相干的颜色：品牌渐变的蓝、青、桃、紫，加一个粉。建议改成从 <code>--tint</code> 派生的五级深米。</div>
   <div class="foot"><span>复制</span><span>9:32</span></div>
-  <div class="me">好，就这么改，图例挪到右上角。<small>9:38</small></div>
+  ${me("好，就这么改，图例挪到右上角。", "9:38")}
   <div class="rail2">
     <div class="r2 mag">${MAG}<span class="v">探索</span><span class="o">读了 3 个文件，搜了 1 次</span></div>
     <div class="r2"><span class="v">编辑</span><div class="chips"><span class="chip">${FI("#3178c6", "TS")}radar.ts <span class="a">+18</span><span class="d">−9</span></span></div></div>
     <div class="r2"><span class="v">编辑</span><div class="chips"><span class="chip">${FI("#3d8fd6", "TSX")}RadarChart.tsx <span class="a">+6</span><span class="d">−11</span></span></div></div>
     <div class="r2 cur"><span class="v">运行测试</span> <span class="cmd">pnpm test:ui radar</span></div>
   </div>
-  <div class="going">${kitty(22, "open", { paws: "type" })}<span class="v">进行中</span><span class="t">· 3:12</span></div>`;
+  ${going("3m 12s")}`;
+
+const CONV_CHROME = (t = "雷达图配色调整") => btn("l", I.back, "返回") + tbar(t) + btn("r", I.more, "设置");
+
+/* the settings page; `convs` is the conversations of the worktree it was opened from, none from the home page */
+const SETTINGS = ({ convs = true, theme = { icon: SYS, label: "跟随系统" }, scrolled = false } = {}) => `<div class="set">
+  <div class="scroll"><div class="inner${scrolled ? " scrolled" : ""}">
+    ${convs ? `<div class="sgh">这个 worktree 的对话<span class="mono">feat/radar-colors</span></div>
+    <div class="crow cur"><span class="st">${RUNDOTS(14)}</span><div><b>雷达图配色调整</b><small>进行中 · Opus 5.5</small></div><span class="tm">当前</span></div>
+    <div class="crow"><span class="st"><i class="q"></i></span><div><b>图例位置和字号</b><small class="ask">等你回答</small></div><span class="tm">9:12</span></div>
+    <div class="crow"><span class="st"></span><div><b>深色下的对比度检查</b><small>GPT-6.1 Sol</small></div><span class="tm">昨天</span></div>
+    <div class="srow act end">${NEW_CHAT}在这里新开一个对话</div>` : ""}
+    <div class="sgh">Mac</div>
+    <div class="srow">MacBook Pro<span class="v tint">已连接</span></div>
+    <div class="srow">延迟<span class="v">38 ms</span></div>
+    <div class="srow">加密<span class="v">端到端</span></div>
+    <div class="srow">上次同步<span class="v">刚刚</span></div>
+    <div class="srow act end">重新配对</div>
+    <div class="sgh">这台手机</div>
+    <div class="srow">iPhone 16 Pro<span class="v">ktoon.site</span></div>
+    <div class="srow">签名<span class="v warn">还剩 2 天</span></div>
+    <div class="srow">等你处理时通知<span class="v">开</span></div>
+    <div class="srow end">外观<span class="cyc">${theme.icon}${theme.label}</span></div>
+    <div class="sgh"></div>
+    <div class="srow bad end">忘掉这台 Mac</div>
+    <div class="sfoot">Atrium 0.9.2 · 协议 14</div>
+  </div></div>
+  <div class="edge top"><i></i><i></i><i></i></div>
+  ${btn("l", I.back, "返回")}${tbar("设置")}</div>`;
 
 const SCREENS = [
-  { h: "对话 · 运行中", p: "标题居中在两个按钮之间，不写分支和状态。过程同桌面轨道：放大镜是探索、文件是胶囊、进行中扫光；每步只留一行。轮末是猫和\"进行中 · 3:12\"。上下玻璃边：内容滑进去变模糊，但仍透出纸色（不再盖一层实色）。", html: () => frame2(RUNNING_BODY,
-    btn("l", I.back, "返回") + tbar("雷达图配色调整") + btn("r", I.more, "更多") + dock2()) },
+  { h: "对话 · 运行中", p: "气泡里只有文字，时间在气泡下面靠右。轮末是桌面同款\"进行中\"：18pt 的小猫（桌面 logo 的耳朵和眼睛，每 2.6 秒眨一次），蓝底换成深米；文字扫光同桌面，计时\"3m 12s\"。输入框上方模型胶囊左边是桌面同款的 ⚡（Fast 开着时深米）。", html: () => frame2(RUNNING_BODY, CONV_CHROME() + dock2()) },
 
-  { h: "对话 · 滑到玻璃下", p: "同一页往上滑了一段：上面的消息从标题下面穿过、渐渐模糊；下面最后几行在输入框后面也是模糊的纸，不是一块实色。", html: () => frame2(`<div class="me" style="margin-top:6px">雷达图在深色下看不清，先看看是哪几个颜色的问题。<small>9:20</small></div><div class="sum">${ARROW}已完成，用时 1 分 4 秒 · 读了 4 个 · 改了 0 个</div><div class="reply2">深色下桃色和粉色的描边对比度不到 2:1，紫色填充和底色太接近。改配色时一起处理。</div><div class="foot"><span>复制</span><span>9:21</span></div>` + RUNNING_BODY,
-    btn("l", I.back, "返回") + tbar("雷达图配色调整") + btn("r", I.more, "更多") + dock2(), "conv scrolled") },
+  { h: "对话 · 滑到玻璃下", p: "同一页往上滑了一段：上面的消息从标题下面穿过、渐渐模糊；下面最后几行在输入框后面也是模糊的纸，不是一块实色。", html: () => frame2(`${me("雷达图在深色下看不清，先看看是哪几个颜色的问题。", "9:20", true)}<div class="sum">${ARROW}已完成，用时 1 分 4 秒 · 读了 4 个 · 改了 0 个</div><div class="reply2">深色下桃色和粉色的描边对比度不到 2:1，紫色填充和底色太接近。改配色时一起处理。</div><div class="foot"><span>复制</span><span>9:21</span></div>` + RUNNING_BODY,
+    CONV_CHROME() + dock2(), "conv scrolled") },
 
-  { h: "模型", p: "点输入框上方的模型胶囊弹出。顶上搜索；左列服务商图标（实现用官方图标，这里是色块），当前的带深米小点，走套餐的写\"套餐\"；右列模型名和\"上下文 · 输出 · 图片\"，⚡ 是有 Fast。下面推理强度是墨色细点格，拖到哪是哪档；Fast 开关只在有 Fast 的模型出现。选完不关。", html: () => frame2(RUNNING_BODY,
-    btn("l", I.back, "返回") + tbar("雷达图配色调整") + btn("r", I.more, "更多") + `<div class="dim"></div>
+  { h: "模型", p: "照桌面的模型面板，只换主题色：顶上\"模型\"和刷新；左列服务商图标（实现用官方图标，这里是色块），当前模型所在的带深米小点，走套餐的角上写\"套餐\"；竖线右边是服务商名、\"N 个模型\"和模型行，当前的浅底加勾，有 Fast 的名字后面一个 ⚡。下面是推理强度框：点阵从左往右填到当前档，名字在左、\"4 / 5\"在右，按住左右拖。Fast 不在这里，是输入框上方的 ⚡。", html: () => frame2(RUNNING_BODY,
+    CONV_CHROME() + `<div class="dim"></div>
     <div class="sheet"><div class="grab"></div>
-      <div class="msearch">${SEARCH}搜索模型</div>
+      <div class="mhead"><span>模型</span><span class="rf">${REFRESH}</span></div>
       <div class="mcols">
-        <div class="prov"><span class="on"><i style="background:${PROVIDER.anthropic}"></i><small>套餐</small></span><span><i style="background:${PROVIDER.openai}"></i></span><span><i style="background:${PROVIDER.google}"></i></span><span><i style="background:${PROVIDER.deepseek}"></i></span></div>
+        <div class="prov"><span class="on cur"><i style="background:${PROVIDER.anthropic}"></i><small class="plan">套餐</small></span><span><i style="background:${PROVIDER.openai}"></i></span><span><i style="background:${PROVIDER.google}"></i></span><span><i style="background:${PROVIDER.deepseek}"></i></span><span><i style="background:${PROVIDER.zai}"></i></span></div>
         <div class="mlist">
-          <div class="mrow on"><div><b>Opus 5.5<span class="fast">⚡</span></b><small>1M · 128K · 图片</small></div><span class="ck">${CHECK}</span></div>
-          <div class="mrow"><div><b>Sonnet 5.5<span class="fast">⚡</span></b><small>1M · 64K · 图片</small></div></div>
-          <div class="mrow"><div><b>Haiku 5.5</b><small>200K · 64K · 图片</small></div></div>
-          <div class="mrow"><div><b>Fable 5.1</b><small>1M · 128K · 图片</small></div></div>
+          <div class="mlh">Anthropic<span class="pl">套餐</span><small>4 个模型</small></div>
+          <div class="mrow on"><div><b>Opus 5.5${BOLT()}</b><small>1M 上下文 · 128K 输出 · 图片</small></div><span>${CHECK}</span></div>
+          <div class="mrow"><div><b>Sonnet 5.5${BOLT()}</b><small>1M 上下文 · 64K 输出 · 图片</small></div></div>
+          <div class="mrow"><div><b>Haiku 5.5</b><small>200K 上下文 · 64K 输出 · 图片</small></div></div>
+          <div class="mrow"><div><b>Fable 5.1</b><small>1M 上下文 · 128K 输出 · 图片</small></div></div>
         </div>
       </div>
-      <div class="effort"><div class="row"><b>推理强度</b><span>想得越久越准，也越慢</span></div>
-        <div class="dots"><i></i><u></u></div><div class="ticks"><span>关</span><span>低</span><span>中</span><b>高</b><span>最高</span></div></div>
-      <div class="fastrow"><div>Fast<small>同一个模型，出字更快，额度用得更多</small></div><span class="tog"></span></div>
+      <div class="msep"></div>
+      <div class="ehead"><span>推理强度 · 按住左右拖动</span></div>
+      <div class="ebox"><span class="all"></span><span class="on"></span>${[20, 40, 60, 80].map(x => `<span class="dv" style="left:${x}%"></span>`).join("")}<span class="nm">高</span><span class="ct">4 / 5</span></div>
+      <div class="ehint">想得更久，答得更稳，也更慢、更费额度</div>
     </div>`) },
 
-  { h: "提问 · 单选", p: "学桌面的提问卡片：顶行品牌点阵问号、agent 五个字母依次跳一下、\"/ 在问你\"、已答 0 / 2，右边题名胶囊。问题后面标\"单选\"。选项不加边框直接列出：左边圆形序号，选中整块深米、换成勾；推荐的带小签。单选选完自动到下一题。", html: () => frame2(RUNNING_BODY.replace("运行测试", "运行测试"),
-    btn("l", I.back, "返回") + tbar("接上 GitHub 登录") + btn("r", I.more, "更多") + `<div class="dim"></div>
+  { h: "提问 · 单选", p: "顶行去掉了问号：agent 五个字母依次跳一下、\"/ 在问你\"、已答 0 / 2，下面一行题名。问题后面标\"单选\"。选项不加边框直接列出：左边圆形序号，选中的换成深米底和勾；推荐的带小签。单选选完自动到下一题。", html: () => frame2(RUNNING_BODY,
+    CONV_CHROME("接上 GitHub 登录") + `<div class="dim"></div>
     <div class="sheet"><div class="grab"></div>
-      <div class="qtop"><span style="color:var(--text)">${DOTQ}</span>${agentWord}<span class="slash">/</span><span class="asking">在问你</span><span class="done-n">已答 0 / 2</span>
+      <div class="qtop">${agentWord}<span class="slash">/</span><span class="asking">在问你</span><span class="done-n">已答 0 / 2</span>
         <span class="qtabs2"><span class="on"><i></i>回调</span><span><i></i>权限</span></span></div>
       <div class="q2">回调地址用哪个？<span class="qtype">单选</span></div>
       <div class="qd2">两个都能跑通，换了要同步改 Nginx 和 GitHub 应用设置。</div>
@@ -614,10 +578,10 @@ const SCREENS = [
       <div class="qbtns"><span class="skip">跳过</span><span class="nx">下一题 ›</span><span class="go off">提交回答</span></div>
     </div>`) },
 
-  { h: "提问 · 多选", p: "第二题是多选：标签是深米色\"多选 · 已选 2\"，序号换成圆角方块，可以选好几个。两题都答了，\"提交回答\"变成墨色。题名胶囊里答完的换成绿勾。", html: () => frame2(RUNNING_BODY,
-    btn("l", I.back, "返回") + tbar("接上 GitHub 登录") + btn("r", I.more, "更多") + `<div class="dim"></div>
+  { h: "提问 · 多选", p: "第二题是多选：标签是深米色\"多选 · 已选 2\"，序号换成圆角方块，可以选好几个。两题都答了，\"提交回答\"变成墨色。题名里答完的换成绿勾。", html: () => frame2(RUNNING_BODY,
+    CONV_CHROME("接上 GitHub 登录") + `<div class="dim"></div>
     <div class="sheet"><div class="grab"></div>
-      <div class="qtop"><span style="color:var(--text)">${DOTQ}</span>${agentWord}<span class="slash">/</span><span class="asking">在问你</span><span class="done-n">已答 2 / 2</span>
+      <div class="qtop">${agentWord}<span class="slash">/</span><span class="asking">在问你</span><span class="done-n">已答 2 / 2</span>
         <span class="qtabs2"><span><span class="ok">${SMALLCHECK}</span>回调</span><span class="on"><span class="ok">${SMALLCHECK}</span>权限</span></span></div>
       <div class="q2">要申请哪些 GitHub 权限？<span class="qtype multi">多选 · 已选 2</span></div>
       <div class="opts2">
@@ -629,52 +593,20 @@ const SCREENS = [
       <div class="qbtns"><span class="skip">跳过</span><span class="go">提交回答</span></div>
     </div>`) },
 
-  { h: "对话 · 出错、断线", p: "断线时标题下面浮一条玻璃：转圈、\"正在重连 · 上次同步 9:32\"、墨色\"重试\"；内容从它下面滑过也会模糊。运行出错就是一块淡红底：标题行红字、下面报错原文，\"详情\"\"重新运行\"。输入框占位换成\"先写着，连上后再发\"，发送变灰。", html: () => frame2(`
-    <div class="me" style="margin-top:6px">首页切换项目时会闪一下白，查一下。<small>9:12</small></div>
+  { h: "对话 · 出错、断线", p: "断线时标题下面浮一条玻璃：转圈、\"正在重连 · 上次同步 9:32\"、墨色\"重试\"；内容从它下面滑过也会模糊。运行出错就是一块淡红底：标题行红字、下面报错原文，\"详情\"\"重新运行\"。同桌面，出错的一轮末尾不再有\"进行中\"那一行。输入框占位换成\"先写着，连上后再发\"，发送变灰。", html: () => frame2(`
+    ${me("首页切换项目时会闪一下白，查一下。", "9:12", true)}
     <div class="rail2"><div class="r2 mag">${MAG}<span class="v">探索</span><span class="o">读了 2 个文件</span></div>
       <div class="r2"><span class="v">运行</span> <span class="cmd">pnpm test:ui home</span><span class="res">失败</span></div></div>
-    <div class="errbox"><div class="k">${WARN}运行出错 · 2 分钟前</div><p>TypeError: Cannot read properties of undefined (reading 'rows') at HomeList.render (HomeList.tsx:48)</p><div class="acts"><span>详情</span><span>重新运行</span></div></div>
-    <div class="going">${kitty(22, "dizzy", { tail: false })}<span class="v" style="animation:none;background:none;color:var(--l2);font-weight:500">停在这里了</span></div>`,
-    btn("l", I.back, "返回") + tbar("修复首页闪烁") + btn("r", I.more, "更多") + `<div class="float glass"><span class="spin"></span>正在重连<span class="sub2">· 上次同步 9:32</span><b>重试</b></div>` +
+    <div class="errbox"><div class="k">${WARN}运行出错 · 2 分钟前</div><p>TypeError: Cannot read properties of undefined (reading 'rows') at HomeList.render (HomeList.tsx:48)</p><div class="acts"><span>详情</span><span>重新运行</span></div></div>`,
+    CONV_CHROME("修复首页闪烁") + `<div class="float glass"><span class="spin"></span>正在重连<span class="sub2">· 上次同步 9:32</span><b>重试</b></div>` +
     dock2({ ph: "先写着，连上后再发", send: "off", banner: `<div class="banner glass"><span>已停止 · 排队的 2 条已暂停</span><b>继续发送</b></div>` })) },
 
-  { h: "左侧抽屉", p: "从上到下：品牌（小猫、Fraunces 斜体 Atrium、版本）；主机卡片（名字、状态、三格：延迟 / 加密 / 上次同步，\"重新配对\"）；\"跳到\"一组（各项目和对话，点了首页滚到那里）；\"这台手机\"一组（设备、签名剩几天——快到期变橙、通知）；\"外观\"一行三段；最下面贴底：\"忘掉这台 Mac\"红字和协议版本。首页往右让开、缩小压暗。", html: () => `<div class="island"></div><div class="status"><span>9:41</span>${ICONS}</div>
-    <div class="behind"><div style="padding:104px 22px 0 22px"><div style="display:flex;justify-content:flex-end"><span class="brand">Atrium</span></div>
-      <div style="margin-top:22px;font-weight:700">等你处理</div><div style="display:flex;gap:12px;margin-top:14px"><div style="width:158px;height:150px;background:#f7dfb8;rotate:-1.4deg"></div><div style="width:158px;height:150px;background:#f4cdc4;rotate:1deg"></div></div></div></div>
-    <div class="drawer2">
-      <div class="dw-brand">${kitty(30, "open", { tail: false })}<span class="brand">Atrium</span><small>0.9.2</small></div>
-      <div class="dw-host"><div class="hr"><span class="mac">${I.mac}</span><div><b>MacBook Pro</b><span class="hst"><i></i>已连接</span></div></div>
-        <div class="facts"><div><small>延迟</small><span>38 ms</span></div><div><small>加密</small><span>端到端</span></div><div><small>同步</small><span>刚刚</span></div></div>
-        <div class="relink">重新配对</div></div>
-      <div class="dw-sec">跳到</div>
-      <div class="dw-row"><span class="ic" style="font:600 13px 'New York',Georgia,serif">a</span>atrium<span class="val" style="color:var(--tint);font-weight:600">2 在跑</span></div>
-      <div class="dw-row"><span class="ic" style="font:600 13px 'New York',Georgia,serif">b</span>blog<span class="val">空闲</span></div>
-      <div class="dw-row"><span class="ic" style="font:600 13px 'New York',Georgia,serif">d</span>dotfiles<span class="val">空闲</span></div>
-      <div class="dw-row"><span class="ic">${I.chat}</span>对话<span class="val">3</span></div>
-      <div class="dw-sec">这台手机</div>
-      <div class="dw-row"><span class="ic"><svg width="14" height="16" viewBox="0 0 14 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="1" width="10" height="14" rx="2.2"/></svg></span>iPhone 16 Pro<span class="val">ktoon.site</span></div>
-      <div class="dw-row"><span class="ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2 1.5"/></svg></span>签名<span class="val warn">还剩 2 天</span></div>
-      <div class="dw-row"><span class="ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M4 11V7.5a4 4 0 0 1 8 0V11l1 1.5H3z"/><path d="M6.5 14h3"/></svg></span>等你处理时通知<span class="val">开</span></div>
-      <div class="dw-sec">外观</div>
-      <div class="dw-row" style="border:0"><span class="ic"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" fill="currentColor"/></svg></span><span class="dw-seg"><span class="on">系统</span><span>浅色</span><span>深色</span></span></div>
-      <div class="dw-foot"><span class="bad">忘掉这台 Mac</span><span class="v">协议 14</span></div>
-    </div><div class="home-ind"></div>` },
+  { h: "对话 · 等你回答（收起提问后）", p: "把提问收起来时，轮末同桌面：橙色问号圆圈换掉小猫，\"等你回答\"不扫光，计时接着走。点这一行重新打开提问。", html: () => frame2(RUNNING_BODY.replace(going("3m 12s"), `<div class="going ask">${QCIRCLE}<span class="v">等你回答</span><span class="t">&nbsp;· 6m 05s</span></div>`).replace(`<div class="r2 cur"><span class="v">运行测试</span> <span class="cmd">pnpm test:ui radar</span></div>`, `<div class="r2 ask"><span class="v">正在问你 · 2 个问题</span></div>`),
+    CONV_CHROME("接上 GitHub 登录") + dock2()) },
 
-  { h: "猫", p: "一只更圆的小奶猫：大头小身子、2×3 的大眼睛带高光、粉耳朵和腮红、:3 的嘴、白爪子、会摇的尾巴。对话里是 22pt，跟在\"进行中\"前面；不同时候换表情和动作。", html: () => `<div class="island"></div><div class="status"><span>9:41</span>${ICONS}</div>
-    ${btn("l", I.back, "返回")}${tbar("猫")}
-    <div class="catsheet">
-      <div class="cc">${kitty(96, "open", { paws: "type" })}<b>进行中</b><small>爪子轮流敲、尾巴摇、3 秒眨一次眼</small></div>
-      <div class="cc">${kitty(96, "open", { cls: "tilt", extra: QM(96, 84, -8) })}<b>在问你</b><small>歪头，头顶一个橙色点阵问号在跳</small></div>
-      <div class="cc">${kitty(96, "happy")}<b>完成</b><small>眯眼笑，尾巴慢慢摇</small></div>
-      <div class="cc">${kitty(96, "dizzy", { tail: false })}<b>出错</b><small>× 眼，不动</small></div>
-      <div class="cc">${kitty(96, "shut", { tail: false, extra: ZZ(96, 82, 18) })}<b>断线 · 睡着</b><small>闭眼，飘两个 z</small></div>
-      <div class="cc">${kitty(96, "open")}<b>新会话 · 空闲</b><small>坐着，偶尔眨眼</small></div>
-      <div class="cc wide"><div class="inrow">
-        <div class="going">${kitty(22, "open", { paws: "type" })}<span class="v">进行中</span><span class="t">· 3:12</span></div>
-        <div class="going ask">${kitty(22, "open", { cls: "tilt" })}<span class="v">等你回答</span><span class="t">· 6:05</span></div>
-        <div class="going">${kitty(22, "dizzy", { tail: false })}<span class="v" style="animation:none;background:none;color:var(--l2);font-weight:500">停在这里了</span></div>
-      </div><small style="text-align:left;margin:0">对话里的实际大小：22pt，跟在一轮的末尾。减少动态效果时全都静止。</small></div>
-    </div><div class="home-ind"></div>` },
+  { h: "设置 · 从对话打开", p: "点对话页右上角，设置页从右边滑进来、占满全屏。最上面是这个 worktree 里的对话，点一个就换过去，不换 worktree；当前的写\"当前\"，在跑的是桌面同款点阵涡旋，等你的是橙点；最后一行在这里新开一个对话。下面是 Mac、这台手机：一行一个，左边名字、右边就是数字或状态，不套卡片、不加底色。", html: () => `<div class="island"></div><div class="status"><span>9:41</span>${ICONS}</div>${SETTINGS()}<div class="home-ind"></div>` },
+
+  { h: "设置 · 往下滑", p: "\"外观\"只有一个按钮，点一下换一种：跟随系统 → 浅色 → 深色 → 跟随系统，按钮上写着现在是哪种。最下面\"忘掉这台 Mac\"红字，再下面一行版本和协议号。从首页打开时没有最上面的对话那一组，直接从 Mac 开始。", html: () => `<div class="island"></div><div class="status"><span>9:41</span>${ICONS}</div>${SETTINGS({ theme: { icon: MOON, label: "深色" }, scrolled: true })}<div class="home-ind"></div>` },
 ];
 document.getElementById("out").innerHTML = SCREENS.map(s => `<figure><div class="phone">${s.html()}</div><figcaption><h2>${s.h}</h2><p>${s.p}</p></figcaption></figure>`).join("");
 document.querySelectorAll(".phone").forEach(ph => { const sc = ph.querySelector(".inner.scrolled"); if (sc) sc.parentElement.scrollTop = 9999; });
