@@ -424,6 +424,26 @@ figcaption p { font-size: 13px; color: var(--page-dim); margin-top: 3px; }
 /* ---------- desktop's running mark, for a running conversation in the list ---------- */
 .rdots circle { animation: rdot 1.65s linear infinite; }
 @keyframes rdot { 0%, 14.75% { opacity: 1 } 14.76%, 24.99% { opacity: .55 } 25%, 74.99% { opacity: .2 } 75%, 85.24% { opacity: .55 } 85.25%, 100% { opacity: 1 } }
+
+/* the dock: one card, words on top, the controls in a row under them (as the desktop's input) */
+.mchip { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 10px 0 8px; border-radius: 15px; background: color-mix(in srgb, var(--text) 6%, transparent); font-size: 13px; font-weight: 500; white-space: nowrap; color: var(--text); }
+.mchip .pv { width: 14px; height: 14px; border-radius: 50%; display: inline-block; flex: none; }
+.mchip .bolt { color: var(--tint); }
+.mchip .cv { color: var(--l2); margin-left: -1px; }
+.cnt { display: inline-flex; align-items: center; gap: 3px; height: 30px; padding: 0 5px; font-size: 13px; color: var(--l2); font-variant-numeric: tabular-nums; }
+.cnt b { color: var(--tint); font-weight: 650; }
+.input2 { border-radius: 24px; padding: 12px 6px 6px 16px; }
+.input2 .ph { display: block; font-size: 15px; color: var(--l2); padding: 2px 0 10px; }
+.input2 .row { display: flex; align-items: center; gap: 4px; }
+.input2 .att { width: 30px; height: 30px; display: grid; place-items: center; color: var(--l2); margin-left: -8px; }
+.input2 .sp { flex: 1; }
+.input2 .send { width: 36px; height: 36px; }
+.mfast { display: flex; align-items: center; justify-content: space-between; padding: 12px 4px 0; font-size: 14px; }
+.mfast .bolt { color: var(--tint); vertical-align: -1px; margin-right: 4px; }
+.mfast small { display: block; font-size: 11.5px; color: var(--l2); margin-top: 1px; }
+.tog { width: 46px; height: 28px; border-radius: 14px; background: var(--l3); position: relative; flex: none; }
+.tog::after { content: ""; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px; border-radius: 12px; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,.2); }
+.tog.on { background: var(--tint); } .tog.on::after { left: 20px; }
 </style>
 </head>
 <body>
@@ -491,9 +511,10 @@ const frame2 = (inner, chrome, cls = "conv") => `<div class="island"></div><div 
   <div class="scroll"><div class="inner ${cls}">${inner}</div></div>
   <div class="edge top"><i></i><i></i><i></i></div><div class="edge bot"><i></i><i></i><i></i></div>${chrome}<div class="home-ind"></div>`;
 const PROVIDER = { anthropic: "#d97757", openai: "#1f1f1f", google: "#4f8df5", deepseek: "#4d6bfe", zai: "#2d2d6e" };
-const dock2 = ({ ph = "发送进排队 · 长按插话", send = "stop", banner = "", pills = true } = {}) => `<div class="dock">${banner}${pills ? `<div class="pills">
-  <span class="pill glass">${I.queue}排队 <b>2</b></span><span class="pill glass">${I.child}子对话 <b>1</b></span><span class="pill glass fastp" aria-label="Fast 已开启">${BOLT(14)}</span><span class="pill glass model"><span class="pv" style="background:${PROVIDER.anthropic}"></span>Opus 5.5 · 高</span></div>` : ""}
-  <div class="input glass"><span class="att">${I.clip}</span><span class="ph">${ph}</span><span class="send ${send}">${send === "stop" ? I.stop : I.up}</span></div></div>`;
+const CHEV = `<svg class="cv" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m2.5 4 2.5 2.5L7.5 4"/></svg>`;
+/* the dock: nothing above the input but a banner when there is one; the model button (⚡ inside when Fast is on), the queue and child counts (only when not 0) and send sit in the input's bottom row */
+const dock2 = ({ ph = "发送进排队 · 长按插话", send = "stop", banner = "", q = 2, c = 1 } = {}) => `<div class="dock">${banner}<div class="input2 glass"><span class="ph">${ph}</span>
+  <div class="row"><span class="att">${I.clip}</span><span class="mchip"><span class="pv" style="background:${PROVIDER.anthropic}"></span>Opus 5.5 · 高${BOLT(11)}${CHEV}</span><span class="sp"></span>${q ? `<span class="cnt">${I.queue}<b>${q}</b></span>` : ""}${c ? `<span class="cnt">${I.child}<b>${c}</b></span>` : ""}<span class="send ${send}">${send === "stop" ? I.stop : I.up}</span></div></div></div>`;
 
 const RUNNING_BODY = `
   ${me("先把雷达图的配色列出来，看看现在用了几种颜色。", "9:31", true)}
@@ -538,12 +559,12 @@ const SETTINGS = ({ convs = true, theme = { icon: SYS, label: "跟随系统" }, 
   ${btn("l", I.back, "返回")}${tbar("设置")}</div>`;
 
 const SCREENS = [
-  { h: "对话 · 运行中", p: "气泡里只有文字，时间在气泡下面靠右。轮末是桌面同款\"进行中\"：18pt 的小猫（桌面 logo 的耳朵和眼睛，每 2.6 秒眨一次），蓝底换成深米；文字扫光同桌面，计时\"3m 12s\"。输入框上方模型胶囊左边是桌面同款的 ⚡（Fast 开着时深米）。", html: () => frame2(RUNNING_BODY, CONV_CHROME() + dock2()) },
+  { h: "对话 · 运行中", p: "气泡里只有文字，时间在气泡下面靠右。轮末是桌面同款\"进行中\"：18pt 的小猫（桌面 logo 的耳朵和眼睛，每 2.6 秒眨一次），蓝底换成深米；文字扫光同桌面，计时\"3m 12s\"。输入框上面不再放胶囊：输入框分两层，同桌面——上面写字，下面一排是 +、模型按钮（Fast 开着时名字后面一个深米 ⚡）、排队和子对话的数字（为 0 时不出现）、发送。", html: () => frame2(RUNNING_BODY, CONV_CHROME() + dock2()) },
 
   { h: "对话 · 滑到玻璃下", p: "同一页往上滑了一段：上面的消息从标题下面穿过、渐渐模糊；下面最后几行在输入框后面也是模糊的纸，不是一块实色。", html: () => frame2(`${me("雷达图在深色下看不清，先看看是哪几个颜色的问题。", "9:20", true)}<div class="sum">${ARROW}已完成，用时 1 分 4 秒 · 读了 4 个 · 改了 0 个</div><div class="reply2">深色下桃色和粉色的描边对比度不到 2:1，紫色填充和底色太接近。改配色时一起处理。</div><div class="foot"><span>复制</span><span>9:21</span></div>` + RUNNING_BODY,
     CONV_CHROME() + dock2(), "conv scrolled") },
 
-  { h: "模型", p: "照桌面的模型面板，只换主题色：顶上\"模型\"和刷新；左列服务商图标（实现用官方图标，这里是色块），当前模型所在的带深米小点，走套餐的角上写\"套餐\"；竖线右边是服务商名、\"N 个模型\"和模型行，当前的浅底加勾，有 Fast 的名字后面一个 ⚡。下面是推理强度框：点阵从左往右填到当前档，名字在左、\"4 / 5\"在右，按住左右拖。Fast 不在这里，是输入框上方的 ⚡。", html: () => frame2(RUNNING_BODY,
+  { h: "模型", p: "照桌面的模型面板，只换主题色：顶上\"模型\"和刷新；左列服务商图标（实现用官方图标，这里是色块），当前模型所在的带深米小点，走套餐的角上写\"套餐\"；竖线右边是服务商名、\"N 个模型\"和模型行，当前的浅底加勾，有 Fast 的名字后面一个 ⚡。下面是推理强度框：点阵从左往右填到当前档，名字在左、\"4 / 5\"在右，按住左右拖。最下面是 Fast 开关（只在支持的模型出现）：⚡ 并进了输入框里的模型按钮，开关就放在这里。", html: () => frame2(RUNNING_BODY,
     CONV_CHROME() + `<div class="dim"></div>
     <div class="sheet"><div class="grab"></div>
       <div class="mhead"><span>模型</span><span class="rf">${REFRESH}</span></div>
@@ -561,6 +582,8 @@ const SCREENS = [
       <div class="ehead"><span>推理强度 · 按住左右拖动</span></div>
       <div class="ebox"><span class="all"></span><span class="on"></span>${[20, 40, 60, 80].map(x => `<span class="dv" style="left:${x}%"></span>`).join("")}<span class="nm">高</span><span class="ct">4 / 5</span></div>
       <div class="ehint">想得更久，答得更稳，也更慢、更费额度</div>
+      <div class="msep"></div>
+      <div class="mfast"><div>${BOLT(12)}Fast<small>约 2 倍速度，额度消耗增加 · 下一次请求起生效</small></div><span class="tog on"></span></div>
     </div>`) },
 
   { h: "提问 · 单选", p: "顶行去掉了问号：agent 五个字母依次跳一下、\"/ 在问你\"、已答 0 / 2，下面一行题名。问题后面标\"单选\"。选项不加边框直接列出：左边圆形序号，选中的换成深米底和勾；推荐的带小签。单选选完自动到下一题。", html: () => frame2(RUNNING_BODY,
@@ -599,7 +622,7 @@ const SCREENS = [
       <div class="r2"><span class="v">运行</span> <span class="cmd">pnpm test:ui home</span><span class="res">失败</span></div></div>
     <div class="errbox"><div class="k">${WARN}运行出错 · 2 分钟前</div><p>TypeError: Cannot read properties of undefined (reading 'rows') at HomeList.render (HomeList.tsx:48)</p><div class="acts"><span>详情</span><span>重新运行</span></div></div>`,
     CONV_CHROME("修复首页闪烁") + `<div class="float glass"><span class="spin"></span>正在重连<span class="sub2">· 上次同步 9:32</span><b>重试</b></div>` +
-    dock2({ ph: "先写着，连上后再发", send: "off", banner: `<div class="banner glass"><span>已停止 · 排队的 2 条已暂停</span><b>继续发送</b></div>` })) },
+    dock2({ ph: "先写着，连上后再发", send: "off", q: 2, c: 0, banner: `<div class="banner glass"><span>已停止 · 排队的 2 条已暂停</span><b>继续发送</b></div>` })) },
 
   { h: "对话 · 等你回答（收起提问后）", p: "把提问收起来时，轮末同桌面：橙色问号圆圈换掉小猫，\"等你回答\"不扫光，计时接着走。点这一行重新打开提问。", html: () => frame2(RUNNING_BODY.replace(going("3m 12s"), `<div class="going ask">${QCIRCLE}<span class="v">等你回答</span><span class="t">&nbsp;· 6m 05s</span></div>`).replace(`<div class="r2 cur"><span class="v">运行测试</span> <span class="cmd">pnpm test:ui radar</span></div>`, `<div class="r2 ask"><span class="v">正在问你 · 2 个问题</span></div>`),
     CONV_CHROME("接上 GitHub 登录") + dock2()) },
