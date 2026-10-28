@@ -57,8 +57,8 @@ struct HomeListTests {
         ],
         sessions: [
           summaryJSON("s1", in: "w1", name: "a", extra: ["asking": "4", "running": "true"]),
-          summaryJSON("s2", in: "w1", name: "b", extra: ["attention": #"{"reason":"error","at":2,"cleared":false}"#]),
-          summaryJSON("s3", in: "w1", name: "c", extra: ["attention": #"{"reason":"error","at":2,"cleared":true}"#]),
+          summaryJSON("s2", in: "w1", name: "b", extra: ["attention": #"{"reason":"error","at":2,"cleared":false,"text":null}"#]),
+          summaryJSON("s3", in: "w1", name: "c", extra: ["attention": #"{"reason":"error","at":2,"cleared":true,"text":null}"#]),
           summaryJSON("s4", in: "w1", name: "d", extra: ["running": "true"]),
           summaryJSON("s5", in: "w2", name: "e", extra: ["running": "true"]),
         ]))
@@ -77,11 +77,11 @@ struct HomeListTests {
         projects: [projectJSON("p1", name: "app")], workspaces: [workspaceJSON("w1", project: "p1", branch: "main")],
         chats: [chatJSON("cht_1")],
         sessions: [
-          summaryJSON("s1", in: "w1", name: "旧错", extra: ["attention": #"{"reason":"error","at":1,"cleared":false}"#]),
-          summaryJSON("s2", in: "w1", name: "新错", extra: ["attention": #"{"reason":"error","at":9,"cleared":false}"#]),
-          summaryJSON("s3", in: "w1", name: "登录", extra: ["attention": #"{"reason":"auth","at":1,"cleared":true}"#]),
+          summaryJSON("s1", in: "w1", name: "旧错", extra: ["attention": #"{"reason":"error","at":1,"cleared":false,"text":null}"#]),
+          summaryJSON("s2", in: "w1", name: "新错", extra: ["attention": #"{"reason":"error","at":9,"cleared":false,"text":null}"#]),
+          summaryJSON("s3", in: "w1", name: "登录", extra: ["attention": #"{"reason":"auth","at":1,"cleared":true,"text":null}"#]),
           summaryJSON("s4", in: "cht_1", name: "问", extra: ["asking": "2"]),
-          summaryJSON("s5", in: "w1", name: "看过", extra: ["attention": #"{"reason":"error","at":5,"cleared":true}"#]),
+          summaryJSON("s5", in: "w1", name: "看过", extra: ["attention": #"{"reason":"error","at":5,"cleared":true,"text":null}"#]),
           summaryJSON("s6", in: "w1", name: "归档", extra: ["asking": "3", "archived": "true"]),
         ]))
 
@@ -154,7 +154,7 @@ struct HomeLayoutTests {
       summaryJSON("s4", in: "w1", name: "ask", extra: ["updatedAt": "3", "asking": "5"]),
       summaryJSON(
         "s5", in: "w1", name: "err",
-        extra: ["updatedAt": "4", "attention": #"{"reason":"error","at":1,"cleared":false}"#]),
+        extra: ["updatedAt": "4", "attention": #"{"reason":"error","at":1,"cleared":false,"text":null}"#]),
     ])
 
   @Test("shows three sessions a workspace, asking before errors before running before the rest, and how many more")

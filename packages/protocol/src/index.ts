@@ -177,6 +177,7 @@ export { ChatId, ContainerId, isChatId, ProjectId, SessionId, WorkspaceId } from
 export {
   Appearance,
   TranslationLanguage,
+  AskingName,
   Attention,
   Chat,
   ContainerTabs,

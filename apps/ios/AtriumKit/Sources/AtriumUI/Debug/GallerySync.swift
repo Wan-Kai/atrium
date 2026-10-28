@@ -70,7 +70,7 @@
     private static func session(_ id: String, in container: String, prompt: String, updated: Int) -> String {
       """
       {"sessionId":"\(id)","containerId":"\(container)","name":null,"prompt":"\(prompt)","file":null,\
-      "state":"persisted","updatedAt":\(updated),"archived":false,"running":false,"attention":null,"asking":null,\
+      "state":"persisted","updatedAt":\(updated),"archived":false,"running":false,"attention":null,"asking":null,"question":null,\
       "handedOff":false,"model":null,"parent":null,"agent":null,"heldDeliveries":0}
       """
     }

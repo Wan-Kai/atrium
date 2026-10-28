@@ -37,7 +37,7 @@ function list() {
         sessionId: "s3",
         containerId: FEATURE,
         name: "实现侧栏",
-        attention: { reason: "auth", at: 1, cleared: false },
+        attention: { reason: "auth", at: 1, cleared: false, text: null },
       }),
       session({ sessionId: "c1", containerId: CHAT, prompt: "解释 merge-tree" }),
     ],
@@ -310,7 +310,9 @@ function failsOnce(error: Error) {
  */
 function failedS1<T extends { readonly sessionId: string }>(sessions: readonly T[]): T[] {
   return sessions.map((one) =>
-    one.sessionId === "s1" ? { ...one, attention: { reason: "error" as const, at: 2, cleared: false } } : one,
+    one.sessionId === "s1"
+      ? { ...one, attention: { reason: "error" as const, at: 2, cleared: false, text: null } }
+      : one,
   );
 }
 

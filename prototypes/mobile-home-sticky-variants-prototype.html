@@ -1,222 +1,998 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>便签的几版</title>
-<style>
-:root { --page: #e8e5dd; --page-text: #2a2722; --page-dim: #7a756b; --page-line: #d5d0c5; }
-:root[data-theme="dark"] { --page: #0f0e0c; --page-text: #ece8df; --page-dim: #8c867b; --page-line: #2b2925; }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: var(--page); color: var(--page-text); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; padding: 28px 16px 64px; }
-header.page { max-width: 2060px; margin: 0 auto 26px; display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap; justify-content: space-between; }
-header.page h1 { font-size: 22px; font-weight: 650; }
-header.page p { color: var(--page-dim); font-size: 13.5px; max-width: 74ch; margin-top: 4px; }
-.seg { display: inline-flex; background: var(--page-line); border-radius: 10px; padding: 3px; }
-.seg button { border: 0; background: transparent; color: var(--page-text); font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
-.seg button[aria-pressed="true"] { background: var(--page); box-shadow: 0 1px 2px rgba(0,0,0,.12); font-weight: 600; }
-.grid { max-width: 2060px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(390px, 1fr)); gap: 36px 24px; justify-items: center; }
-figure { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 390px; max-width: 100%; }
-figcaption { width: 100%; }
-figcaption h2 { font-size: 16px; font-weight: 650; }
-figcaption p { font-size: 13px; color: var(--page-dim); margin-top: 3px; }
-.tokens { max-width: 1340px; margin: 40px auto 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.tok { display: flex; gap: 10px; align-items: center; font-size: 12.5px; }
-.tok i { width: 34px; height: 34px; border-radius: 9px; box-shadow: inset 0 0 0 0.5px rgba(0,0,0,.18); flex: none; }
-.tok b { display: block; font-weight: 600; }
-.tok span { color: var(--page-dim); font-family: "SF Mono", ui-monospace, monospace; font-size: 11.5px; }
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>便签的几版</title>
+    <style>
+      :root {
+        --page: #e8e5dd;
+        --page-text: #2a2722;
+        --page-dim: #7a756b;
+        --page-line: #d5d0c5;
+      }
+      :root[data-theme="dark"] {
+        --page: #0f0e0c;
+        --page-text: #ece8df;
+        --page-dim: #8c867b;
+        --page-line: #2b2925;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--page);
+        color: var(--page-text);
+        font:
+          15px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        padding: 28px 16px 64px;
+      }
+      header.page {
+        max-width: 2060px;
+        margin: 0 auto 26px;
+        display: flex;
+        gap: 20px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+        justify-content: space-between;
+      }
+      header.page h1 {
+        font-size: 22px;
+        font-weight: 650;
+      }
+      header.page p {
+        color: var(--page-dim);
+        font-size: 13.5px;
+        max-width: 74ch;
+        margin-top: 4px;
+      }
+      .seg {
+        display: inline-flex;
+        background: var(--page-line);
+        border-radius: 10px;
+        padding: 3px;
+      }
+      .seg button {
+        border: 0;
+        background: transparent;
+        color: var(--page-text);
+        font: inherit;
+        font-size: 13px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .seg button[aria-pressed="true"] {
+        background: var(--page);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+        font-weight: 600;
+      }
+      .grid {
+        max-width: 2060px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(390px, 1fr));
+        gap: 36px 24px;
+        justify-items: center;
+      }
+      figure {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        width: 390px;
+        max-width: 100%;
+      }
+      figcaption {
+        width: 100%;
+      }
+      figcaption h2 {
+        font-size: 16px;
+        font-weight: 650;
+      }
+      figcaption p {
+        font-size: 13px;
+        color: var(--page-dim);
+        margin-top: 3px;
+      }
+      .tokens {
+        max-width: 1340px;
+        margin: 40px auto 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 12px;
+      }
+      .tok {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        font-size: 12.5px;
+      }
+      .tok i {
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+        box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.18);
+        flex: none;
+      }
+      .tok b {
+        display: block;
+        font-weight: 600;
+      }
+      .tok span {
+        color: var(--page-dim);
+        font-family: "SF Mono", ui-monospace, monospace;
+        font-size: 11.5px;
+      }
 
-/* ---------- paper tokens ---------- */
-.phone {
-  --bg: #f6f2e9;          /* page paper */
-  --note: #fffcf5;        /* the note card, a lighter sheet on the page */
-  --text: #26221c; --text2: #4d473d; --l2: #8b8477; --l3: #d3cbbb;
-  --rule: rgba(70,55,30,.11);
-  --tint: #8a7352;        /* deep beige: the theme color */
-  --tint-soft: rgba(138,115,82,.14);
-  --on-tint: #fbf8f1;
-  --attn: #c0651c; --danger: #c13f35; --ok: #3d7a4a;
-  --edge: rgba(246,242,233,.88);
-}
-:root[data-theme="dark"] .phone {
-  --bg: #1c1a16; --note: #25221d;
-  --text: #eee9df; --text2: #cec7b9; --l2: #8f887b; --l3: #4a453c;
-  --rule: rgba(238,233,223,.09);
-  --tint: #c9b28c; --tint-soft: rgba(201,178,140,.16); --on-tint: #1c1a16;
-  --attn: #e6944a; --danger: #ec6a5e; --ok: #7bbf8a;
-  --edge: rgba(28,26,22,.88);
-}
-.phone { width: 390px; height: 844px; border-radius: 54px; position: relative; overflow: hidden; flex: none; isolation: isolate;
-  box-shadow: 0 0 0 10px #1c1b19, 0 0 0 11px #3b3934, 0 30px 60px -20px rgba(0,0,0,.45); background: var(--bg); color: var(--text); }
-.island { position: absolute; top: 11px; left: 50%; translate: -50% 0; width: 124px; height: 36px; background: #000; border-radius: 20px; z-index: 40; }
-.status { position: absolute; top: 0; left: 0; right: 0; height: 54px; display: flex; justify-content: space-between; align-items: center; padding: 6px 34px 0 46px; font: 600 16px/1 -apple-system; z-index: 35; pointer-events: none; }
-.status .icons { display: flex; gap: 6px; }
-.home-ind { position: absolute; bottom: 8px; left: 50%; translate: -50% 0; width: 136px; height: 5px; border-radius: 3px; z-index: 40; background: var(--text); }
-.scroll { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
-.scroll::-webkit-scrollbar { display: none; }
-.inner { padding: 112px 24px 150px; }
+      /* ---------- paper tokens ---------- */
+      .phone {
+        --bg: #f6f2e9; /* page paper */
+        --note: #fffcf5; /* the note card, a lighter sheet on the page */
+        --text: #26221c;
+        --text2: #4d473d;
+        --l2: #8b8477;
+        --l3: #d3cbbb;
+        --rule: rgba(70, 55, 30, 0.11);
+        --tint: #8a7352; /* deep beige: the theme color */
+        --tint-soft: rgba(138, 115, 82, 0.14);
+        --on-tint: #fbf8f1;
+        --attn: #c0651c;
+        --danger: #c13f35;
+        --ok: #3d7a4a;
+        --edge: rgba(246, 242, 233, 0.88);
+      }
+      :root[data-theme="dark"] .phone {
+        --bg: #1c1a16;
+        --note: #25221d;
+        --text: #eee9df;
+        --text2: #cec7b9;
+        --l2: #8f887b;
+        --l3: #4a453c;
+        --rule: rgba(238, 233, 223, 0.09);
+        --tint: #c9b28c;
+        --tint-soft: rgba(201, 178, 140, 0.16);
+        --on-tint: #1c1a16;
+        --attn: #e6944a;
+        --danger: #ec6a5e;
+        --ok: #7bbf8a;
+        --edge: rgba(28, 26, 22, 0.88);
+      }
+      .phone {
+        width: 390px;
+        height: 844px;
+        border-radius: 54px;
+        position: relative;
+        overflow: hidden;
+        flex: none;
+        isolation: isolate;
+        box-shadow:
+          0 0 0 10px #1c1b19,
+          0 0 0 11px #3b3934,
+          0 30px 60px -20px rgba(0, 0, 0, 0.45);
+        background: var(--bg);
+        color: var(--text);
+      }
+      .island {
+        position: absolute;
+        top: 11px;
+        left: 50%;
+        translate: -50% 0;
+        width: 124px;
+        height: 36px;
+        background: #000;
+        border-radius: 20px;
+        z-index: 40;
+      }
+      .status {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 54px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 34px 0 46px;
+        font: 600 16px/1 -apple-system;
+        z-index: 35;
+        pointer-events: none;
+      }
+      .status .icons {
+        display: flex;
+        gap: 6px;
+      }
+      .home-ind {
+        position: absolute;
+        bottom: 8px;
+        left: 50%;
+        translate: -50% 0;
+        width: 136px;
+        height: 5px;
+        border-radius: 3px;
+        z-index: 40;
+        background: var(--text);
+      }
+      .scroll {
+        position: absolute;
+        inset: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: none;
+      }
+      .scroll::-webkit-scrollbar {
+        display: none;
+      }
+      .inner {
+        padding: 112px 24px 150px;
+      }
 
-/* scroll-edge blur, three layers so text softens progressively toward the edge */
-.edge { position: absolute; left: 0; right: 0; z-index: 20; pointer-events: none; }
-.edge i { position: absolute; inset: 0; display: block; }
-.edge.top { top: 0; height: 118px; } .edge.bot { bottom: 0; height: 124px; }
-.edge.top i:nth-child(1) { backdrop-filter: blur(1.5px); mask: linear-gradient(#000 60%, transparent); }
-.edge.top i:nth-child(2) { backdrop-filter: blur(5px); mask: linear-gradient(#000 42%, transparent 78%); }
-.edge.top i:nth-child(3) { backdrop-filter: blur(12px); mask: linear-gradient(#000 26%, transparent 58%); }
-.edge.bot i:nth-child(1) { backdrop-filter: blur(1.5px); mask: linear-gradient(transparent, #000 40%); }
-.edge.bot i:nth-child(2) { backdrop-filter: blur(5px); mask: linear-gradient(transparent 22%, #000 58%); }
-.edge.bot i:nth-child(3) { backdrop-filter: blur(12px); mask: linear-gradient(transparent 42%, #000 74%); }
-.edge.top::after, .edge.bot::after { content: ""; position: absolute; inset: 0; }
-.edge.top::after { background: linear-gradient(var(--edge) 55%, transparent); }
-.edge.bot::after { background: linear-gradient(transparent, var(--edge)); }
+      /* scroll-edge blur, three layers so text softens progressively toward the edge */
+      .edge {
+        position: absolute;
+        left: 0;
+        right: 0;
+        z-index: 20;
+        pointer-events: none;
+      }
+      .edge i {
+        position: absolute;
+        inset: 0;
+        display: block;
+      }
+      .edge.top {
+        top: 0;
+        height: 118px;
+      }
+      .edge.bot {
+        bottom: 0;
+        height: 124px;
+      }
+      .edge.top i:nth-child(1) {
+        backdrop-filter: blur(1.5px);
+        mask: linear-gradient(#000 60%, transparent);
+      }
+      .edge.top i:nth-child(2) {
+        backdrop-filter: blur(5px);
+        mask: linear-gradient(#000 42%, transparent 78%);
+      }
+      .edge.top i:nth-child(3) {
+        backdrop-filter: blur(12px);
+        mask: linear-gradient(#000 26%, transparent 58%);
+      }
+      .edge.bot i:nth-child(1) {
+        backdrop-filter: blur(1.5px);
+        mask: linear-gradient(transparent, #000 40%);
+      }
+      .edge.bot i:nth-child(2) {
+        backdrop-filter: blur(5px);
+        mask: linear-gradient(transparent 22%, #000 58%);
+      }
+      .edge.bot i:nth-child(3) {
+        backdrop-filter: blur(12px);
+        mask: linear-gradient(transparent 42%, #000 74%);
+      }
+      .edge.top::after,
+      .edge.bot::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+      }
+      .edge.top::after {
+        background: linear-gradient(var(--edge) 55%, transparent);
+      }
+      .edge.bot::after {
+        background: linear-gradient(transparent, var(--edge));
+      }
 
-/* floating controls: paper-glass round buttons and a solid deep-beige + */
-.btn { position: absolute; width: 44px; height: 44px; border-radius: 22px; display: grid; place-items: center; z-index: 30; border: 0; cursor: pointer; color: var(--text);
-  background: color-mix(in srgb, var(--note) 78%, transparent); backdrop-filter: blur(14px) saturate(1.2);
-  box-shadow: inset 0 0 0 0.5px var(--rule), 0 4px 12px -6px rgba(50,35,10,.28); }
-.menu { top: 58px; left: 18px; }
-.menu .pip { position: absolute; top: 9px; right: 9px; width: 8px; height: 8px; border-radius: 4px; background: var(--attn); box-shadow: 0 0 0 2px var(--note); }
-.fab { width: 58px; height: 58px; border-radius: 29px; right: 20px; bottom: 34px; background: var(--tint); color: var(--on-tint); backdrop-filter: none;
-  box-shadow: 0 10px 20px -10px rgba(60,40,10,.55), inset 0 0.5px 0 rgba(255,255,255,.25); }
+      /* floating controls: paper-glass round buttons and a solid deep-beige + */
+      .btn {
+        position: absolute;
+        width: 44px;
+        height: 44px;
+        border-radius: 22px;
+        display: grid;
+        place-items: center;
+        z-index: 30;
+        border: 0;
+        cursor: pointer;
+        color: var(--text);
+        background: color-mix(in srgb, var(--note) 78%, transparent);
+        backdrop-filter: blur(14px) saturate(1.2);
+        box-shadow:
+          inset 0 0 0 0.5px var(--rule),
+          0 4px 12px -6px rgba(50, 35, 10, 0.28);
+      }
+      .menu {
+        top: 58px;
+        left: 18px;
+      }
+      .menu .pip {
+        position: absolute;
+        top: 9px;
+        right: 9px;
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: var(--attn);
+        box-shadow: 0 0 0 2px var(--note);
+      }
+      .fab {
+        width: 58px;
+        height: 58px;
+        border-radius: 29px;
+        right: 20px;
+        bottom: 34px;
+        background: var(--tint);
+        color: var(--on-tint);
+        backdrop-filter: none;
+        box-shadow:
+          0 10px 20px -10px rgba(60, 40, 10, 0.55),
+          inset 0 0.5px 0 rgba(255, 255, 255, 0.25);
+      }
 
-/* loading, every instance in the theme color */
-@keyframes spin { to { rotate: 360deg } }
-@keyframes sweep { from { translate: -100% 0 } to { translate: 270% 0 } }
-@keyframes breathe { 0%,100% { opacity: .45 } 50% { opacity: 1 } }
-.spin { width: 14px; height: 14px; border-radius: 50%; flex: none; border: 2px solid var(--tint-soft); border-top-color: var(--tint); animation: spin .95s linear infinite; }
-.bar { height: 2px; border-radius: 1px; background: var(--tint-soft); overflow: hidden; position: relative; }
-.bar::after { content: ""; position: absolute; inset: 0; width: 36%; border-radius: 1px; background: var(--tint); animation: sweep 1.4s cubic-bezier(.3,0,.2,1) infinite; }
-.ghost { border-radius: 6px; background: var(--tint-soft); animation: breathe 1.8s ease-in-out infinite; }
-@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+      /* loading, every instance in the theme color */
+      @keyframes spin {
+        to {
+          rotate: 360deg;
+        }
+      }
+      @keyframes sweep {
+        from {
+          translate: -100% 0;
+        }
+        to {
+          translate: 270% 0;
+        }
+      }
+      @keyframes breathe {
+        0%,
+        100% {
+          opacity: 0.45;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+      .spin {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        flex: none;
+        border: 2px solid var(--tint-soft);
+        border-top-color: var(--tint);
+        animation: spin 0.95s linear infinite;
+      }
+      .bar {
+        height: 2px;
+        border-radius: 1px;
+        background: var(--tint-soft);
+        overflow: hidden;
+        position: relative;
+      }
+      .bar::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        width: 36%;
+        border-radius: 1px;
+        background: var(--tint);
+        animation: sweep 1.4s cubic-bezier(0.3, 0, 0.2, 1) infinite;
+      }
+      .ghost {
+        border-radius: 6px;
+        background: var(--tint-soft);
+        animation: breathe 1.8s ease-in-out infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation: none !important;
+        }
+      }
 
-/* header: menu on the left, the title and host on the right of the same row */
-.inner { padding: 104px 22px 150px; }
-/* the header stays put above the scroll-edge blur; content blurs as it slides beneath it */
-.masthead { position: absolute; top: 56px; right: 22px; left: 82px; height: 48px; z-index: 31; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; }
-h3.t { font: 600 34px/0.9 "New York", "Iowan Old Style", Georgia, serif; letter-spacing: -0.02em; }
-.host { margin-top: 1px; display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--l2); }
-.host .dot { width: 6px; height: 6px; border-radius: 3px; background: var(--tint); }
-.host .spin { width: 11px; height: 11px; border-width: 1.6px; }
-.host .act { color: var(--tint); font-weight: 600; }
-.explain { margin-top: 4px; font-size: 13px; line-height: 1.5; color: var(--l2); }
+      /* header: menu on the left, the title and host on the right of the same row */
+      .inner {
+        padding: 104px 22px 150px;
+      }
+      /* the header stays put above the scroll-edge blur; content blurs as it slides beneath it */
+      .masthead {
+        position: absolute;
+        top: 56px;
+        right: 22px;
+        left: 82px;
+        height: 48px;
+        z-index: 31;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: center;
+      }
+      h3.t {
+        font:
+          600 34px/0.9 "New York",
+          "Iowan Old Style",
+          Georgia,
+          serif;
+        letter-spacing: -0.02em;
+      }
+      .host {
+        margin-top: 1px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        font-size: 12.5px;
+        color: var(--l2);
+      }
+      .host .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: var(--tint);
+      }
+      .host .spin {
+        width: 11px;
+        height: 11px;
+        border-width: 1.6px;
+      }
+      .host .act {
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .explain {
+        margin-top: 4px;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--l2);
+      }
 
-/* what needs you, set like a front-page box: heavy double rule, a dateline, headlines with a lede */
-.desk { margin-top: 14px; }
-.desk .mast { border-top: 2px solid var(--text); padding-top: 2px; }
-.desk .mast::before { content: ""; display: block; border-top: 0.5px solid var(--text); }
-.desk .line1 { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0 7px; border-bottom: 0.5px solid var(--rule); }
-.desk .line1 b { font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
-.desk .line1 span { font-size: 12px; color: var(--l2); font-variant-numeric: tabular-nums; }
-.story { display: grid; grid-template-columns: 30px 1fr; gap: 10px; padding: 13px 0 14px; }
-.story + .story { border-top: 0.5px solid var(--rule); }
-.story .ic { padding-top: 1px; }
-.story h5 { font-size: 18px; font-weight: 700; line-height: 1.3; letter-spacing: -0.01em; }
-.story .lede { margin-top: 4px; font-size: 14px; line-height: 1.5; color: var(--text2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.story .lede.code { font: 12.5px/1.5 "SF Mono", ui-monospace, monospace; color: var(--danger); }
-.story .dl { margin-top: 6px; font-size: 12px; color: var(--l2); }
-.story .dl em { font-style: normal; font-weight: 700; }
-.story .dl em.ask { color: var(--attn); } .story .dl em.err { color: var(--danger); }
-.desk .foot { border-top: 1px solid var(--text); }
+      /* what needs you, set like a front-page box: heavy double rule, a dateline, headlines with a lede */
+      .desk {
+        margin-top: 14px;
+      }
+      .desk .mast {
+        border-top: 2px solid var(--text);
+        padding-top: 2px;
+      }
+      .desk .mast::before {
+        content: "";
+        display: block;
+        border-top: 0.5px solid var(--text);
+      }
+      .desk .line1 {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding: 8px 0 7px;
+        border-bottom: 0.5px solid var(--rule);
+      }
+      .desk .line1 b {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+      .desk .line1 span {
+        font-size: 12px;
+        color: var(--l2);
+        font-variant-numeric: tabular-nums;
+      }
+      .story {
+        display: grid;
+        grid-template-columns: 30px 1fr;
+        gap: 10px;
+        padding: 13px 0 14px;
+      }
+      .story + .story {
+        border-top: 0.5px solid var(--rule);
+      }
+      .story .ic {
+        padding-top: 1px;
+      }
+      .story h5 {
+        font-size: 18px;
+        font-weight: 700;
+        line-height: 1.3;
+        letter-spacing: -0.01em;
+      }
+      .story .lede {
+        margin-top: 4px;
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--text2);
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .story .lede.code {
+        font:
+          12.5px/1.5 "SF Mono",
+          ui-monospace,
+          monospace;
+        color: var(--danger);
+      }
+      .story .dl {
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--l2);
+      }
+      .story .dl em {
+        font-style: normal;
+        font-weight: 700;
+      }
+      .story .dl em.ask {
+        color: var(--attn);
+      }
+      .story .dl em.err {
+        color: var(--danger);
+      }
+      .desk .foot {
+        border-top: 1px solid var(--text);
+      }
 
-/* projects: an explicit disclosure chevron, tight rows */
-.proj { margin-top: 22px; }
-.ph { display: flex; align-items: center; gap: 6px; height: 36px; cursor: pointer; }
-.ph .chev { width: 20px; height: 20px; display: grid; place-items: center; color: var(--l2); transition: rotate .25s; margin-left: -3px; }
-.proj.closed .ph .chev { rotate: -90deg; }
-.ph h4 { font: 600 21px/1 "New York", "Iowan Old Style", Georgia, serif; letter-spacing: -0.01em; flex: 1; }
-.ph small { font-size: 12.5px; color: var(--tint); font-weight: 600; }
-.ph small.q { color: var(--l2); font-weight: 500; }
-.proj.closed .body { display: none; }
-.ws { margin: 6px 0 0 23px; display: flex; gap: 6px; align-items: center; height: 24px; }
-.ws svg { color: var(--l2); flex: none; }
-.ws .br { font: 500 12px "SF Mono", ui-monospace, monospace; color: var(--text2); }
-.ws .tag { font: 500 10.5px "SF Mono", ui-monospace, monospace; color: var(--attn); }
-.ws .tag.ok { color: var(--ok); }
-.s { display: grid; grid-template-columns: 22px 1fr auto; gap: 6px; align-items: center; height: 40px; margin-left: 23px; }
-.s b { font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.s .tm { font-size: 12.5px; color: var(--l2); font-variant-numeric: tabular-nums; }
-.s .tm.live { color: var(--tint); font-weight: 600; }
-.s .u { width: 7px; height: 7px; border-radius: 4px; background: var(--tint); margin-left: 4px; }
-.s .spin { width: 12px; height: 12px; }
-.more { display: block; margin-left: 45px; height: 30px; line-height: 30px; font-size: 13px; color: var(--tint); font-weight: 500; }
-.chats .add { width: 26px; height: 26px; border-radius: 13px; display: grid; place-items: center; color: var(--tint); background: var(--tint-soft); }
-.chats .s { grid-template-columns: 1fr auto; }
+      /* projects: an explicit disclosure chevron, tight rows */
+      .proj {
+        margin-top: 22px;
+      }
+      .ph {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 36px;
+        cursor: pointer;
+      }
+      .ph .chev {
+        width: 20px;
+        height: 20px;
+        display: grid;
+        place-items: center;
+        color: var(--l2);
+        transition: rotate 0.25s;
+        margin-left: -3px;
+      }
+      .proj.closed .ph .chev {
+        rotate: -90deg;
+      }
+      .ph h4 {
+        font:
+          600 21px/1 "New York",
+          "Iowan Old Style",
+          Georgia,
+          serif;
+        letter-spacing: -0.01em;
+        flex: 1;
+      }
+      .ph small {
+        font-size: 12.5px;
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .ph small.q {
+        color: var(--l2);
+        font-weight: 500;
+      }
+      .proj.closed .body {
+        display: none;
+      }
+      .ws {
+        margin: 6px 0 0 23px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        height: 24px;
+      }
+      .ws svg {
+        color: var(--l2);
+        flex: none;
+      }
+      .ws .br {
+        font:
+          500 12px "SF Mono",
+          ui-monospace,
+          monospace;
+        color: var(--text2);
+      }
+      .ws .tag {
+        font:
+          500 10.5px "SF Mono",
+          ui-monospace,
+          monospace;
+        color: var(--attn);
+      }
+      .ws .tag.ok {
+        color: var(--ok);
+      }
+      .s {
+        display: grid;
+        grid-template-columns: 22px 1fr auto;
+        gap: 6px;
+        align-items: center;
+        height: 40px;
+        margin-left: 23px;
+      }
+      .s b {
+        font-size: 15px;
+        font-weight: 500;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .s .tm {
+        font-size: 12.5px;
+        color: var(--l2);
+        font-variant-numeric: tabular-nums;
+      }
+      .s .tm.live {
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .s .u {
+        width: 7px;
+        height: 7px;
+        border-radius: 4px;
+        background: var(--tint);
+        margin-left: 4px;
+      }
+      .s .spin {
+        width: 12px;
+        height: 12px;
+      }
+      .more {
+        display: block;
+        margin-left: 45px;
+        height: 30px;
+        line-height: 30px;
+        font-size: 13px;
+        color: var(--tint);
+        font-weight: 500;
+      }
+      .chats .add {
+        width: 26px;
+        height: 26px;
+        border-radius: 13px;
+        display: grid;
+        place-items: center;
+        color: var(--tint);
+        background: var(--tint-soft);
+      }
+      .chats .s {
+        grid-template-columns: 1fr auto;
+      }
 
+      /* shared sticky bits */
+      .nt {
+        position: relative;
+        margin: 26px 2px 8px;
+      }
+      .nt .ln {
+        display: grid;
+        grid-template-columns: 20px 1fr auto;
+        gap: 9px;
+        align-items: start;
+        padding: 9px 0;
+      }
+      .nt .ln > div {
+        min-width: 0;
+      }
+      .nt .ln b {
+        display: block;
+        font-size: 16px;
+        font-weight: 650;
+        line-height: 1.3;
+      }
+      .nt .ln small {
+        display: block;
+        margin-top: 2px;
+        font-size: 12.5px;
+        opacity: 0.72;
+      }
+      .nt .ln .tm {
+        font-size: 12px;
+        opacity: 0.6;
+        padding-top: 2px;
+        font-variant-numeric: tabular-nums;
+      }
+      .nt .mk {
+        width: 13px;
+        height: 13px;
+        border-radius: 50% 46% 52% 48%;
+        border: 2px solid;
+        margin-top: 4px;
+        rotate: 12deg;
+      }
+      .nt .mk.ask {
+        color: var(--attn);
+      }
+      .nt .mk.err {
+        color: var(--danger);
+      }
 
-/* shared sticky bits */
-.nt { position: relative; margin: 26px 2px 8px; }
-.nt .ln { display: grid; grid-template-columns: 20px 1fr auto; gap: 9px; align-items: start; padding: 9px 0; }
-.nt .ln > div { min-width: 0; }
-.nt .ln b { display: block; font-size: 16px; font-weight: 650; line-height: 1.3; }
-.nt .ln small { display: block; margin-top: 2px; font-size: 12.5px; opacity: .72; }
-.nt .ln .tm { font-size: 12px; opacity: .6; padding-top: 2px; font-variant-numeric: tabular-nums; }
-.nt .mk { width: 13px; height: 13px; border-radius: 50% 46% 52% 48%; border: 2px solid; margin-top: 4px; rotate: 12deg; }
-.nt .mk.ask { color: var(--attn); } .nt .mk.err { color: var(--danger); }
+      /* A 经典黄 */
+      .nA {
+        background: #f5e7b6;
+        color: #2b2416;
+        border-radius: 2px 2px 12px 2px;
+        padding: 18px 16px 8px;
+        rotate: -0.8deg;
+        box-shadow:
+          0 1px 1px rgba(60, 40, 0, 0.08),
+          0 16px 22px -16px rgba(60, 40, 0, 0.5);
+        background-image: linear-gradient(
+          transparent 30px,
+          rgba(120, 90, 20, 0.15) 30px,
+          rgba(120, 90, 20, 0.15) 31px,
+          transparent 31px
+        );
+        background-size: 100% 31px;
+        background-position: 0 24px;
+      }
+      :root[data-theme="dark"] .nA {
+        background-color: #3b3423;
+        color: #f2e8c8;
+        background-image: linear-gradient(
+          transparent 30px,
+          rgba(242, 232, 200, 0.08) 30px,
+          rgba(242, 232, 200, 0.08) 31px,
+          transparent 31px
+        );
+      }
+      .nA .tape {
+        position: absolute;
+        top: -10px;
+        left: 50%;
+        translate: -50% 0;
+        rotate: 2deg;
+        width: 84px;
+        height: 22px;
+        background: rgba(255, 255, 255, 0.55);
+        box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.05);
+      }
+      :root[data-theme="dark"] .nA .tape {
+        background: rgba(255, 255, 255, 0.16);
+      }
 
-/* A 经典黄 */
-.nA { background: #f5e7b6; color: #2b2416; border-radius: 2px 2px 12px 2px; padding: 18px 16px 8px; rotate: -0.8deg;
-  box-shadow: 0 1px 1px rgba(60,40,0,.08), 0 16px 22px -16px rgba(60,40,0,.5);
-  background-image: linear-gradient(transparent 30px, rgba(120,90,20,.15) 30px, rgba(120,90,20,.15) 31px, transparent 31px); background-size: 100% 31px; background-position: 0 24px; }
-:root[data-theme="dark"] .nA { background-color: #3b3423; color: #f2e8c8; background-image: linear-gradient(transparent 30px, rgba(242,232,200,.08) 30px, rgba(242,232,200,.08) 31px, transparent 31px); }
-.nA .tape { position: absolute; top: -10px; left: 50%; translate: -50% 0; rotate: 2deg; width: 84px; height: 22px; background: rgba(255,255,255,.55); box-shadow: 0 0 0 .5px rgba(0,0,0,.05); }
-:root[data-theme="dark"] .nA .tape { background: rgba(255,255,255,.16); }
+      /* B 牛皮米 + 图钉 */
+      .nB {
+        background: #e9dcc3;
+        color: #2a2318;
+        border-radius: 4px;
+        padding: 20px 16px 8px;
+        rotate: 0.6deg;
+        box-shadow:
+          inset 0 0 0 0.5px rgba(90, 65, 25, 0.18),
+          0 14px 20px -16px rgba(60, 40, 10, 0.55);
+      }
+      :root[data-theme="dark"] .nB {
+        background: #3a3326;
+        color: #efe4cc;
+        box-shadow:
+          inset 0 0 0 0.5px rgba(239, 228, 204, 0.08),
+          0 14px 20px -16px rgba(0, 0, 0, 0.8);
+      }
+      .nB .pin {
+        position: absolute;
+        top: -7px;
+        left: 50%;
+        translate: -50% 0;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: radial-gradient(circle at 35% 35%, #d9c19a, var(--tint) 60%, #5e4c33);
+        box-shadow: 0 3px 4px -1px rgba(0, 0, 0, 0.4);
+      }
+      .nB .ln + .ln {
+        border-top: 0.5px dashed rgba(90, 65, 25, 0.3);
+      }
+      :root[data-theme="dark"] .nB .ln + .ln {
+        border-top-color: rgba(239, 228, 204, 0.15);
+      }
 
-/* B 牛皮米 + 图钉 */
-.nB { background: #e9dcc3; color: #2a2318; border-radius: 4px; padding: 20px 16px 8px; rotate: 0.6deg;
-  box-shadow: inset 0 0 0 .5px rgba(90,65,25,.18), 0 14px 20px -16px rgba(60,40,10,.55); }
-:root[data-theme="dark"] .nB { background: #3a3326; color: #efe4cc; box-shadow: inset 0 0 0 .5px rgba(239,228,204,.08), 0 14px 20px -16px rgba(0,0,0,.8); }
-.nB .pin { position: absolute; top: -7px; left: 50%; translate: -50% 0; width: 16px; height: 16px; border-radius: 8px;
-  background: radial-gradient(circle at 35% 35%, #d9c19a, var(--tint) 60%, #5e4c33); box-shadow: 0 3px 4px -1px rgba(0,0,0,.4); }
-.nB .ln + .ln { border-top: .5px dashed rgba(90,65,25,.3); }
-:root[data-theme="dark"] .nB .ln + .ln { border-top-color: rgba(239,228,204,.15); }
+      /* C 撕页便签本 */
+      .nC {
+        background: #fbf6e3;
+        color: #2a2418;
+        padding: 18px 16px 8px;
+        border-radius: 0 0 6px 6px;
+        box-shadow:
+          0 0 0 0.5px var(--rule),
+          0 12px 20px -16px rgba(60, 40, 10, 0.45);
+        mask: radial-gradient(5px at 50% 0, transparent 98%, #000) 0 0 / 12px 100% repeat-x;
+        margin-top: 22px;
+      }
+      :root[data-theme="dark"] .nC {
+        background: #2e2a20;
+        color: #efe6cb;
+      }
+      .nC .hd {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding: 0 0 6px;
+        border-bottom: 1.5px solid #d27766;
+      }
+      .nC .hd b {
+        font:
+          600 17px/1.2 "New York",
+          Georgia,
+          serif;
+      }
+      .nC .hd span {
+        font-size: 12px;
+        opacity: 0.6;
+      }
 
-/* C 撕页便签本 */
-.nC { background: #fbf6e3; color: #2a2418; padding: 18px 16px 8px; border-radius: 0 0 6px 6px;
-  box-shadow: 0 0 0 .5px var(--rule), 0 12px 20px -16px rgba(60,40,10,.45);
-  mask: radial-gradient(5px at 50% 0, transparent 98%, #000) 0 0 / 12px 100% repeat-x; margin-top: 22px; }
-:root[data-theme="dark"] .nC { background: #2e2a20; color: #efe6cb; }
-.nC .hd { display: flex; justify-content: space-between; align-items: baseline; padding: 0 0 6px; border-bottom: 1.5px solid #d27766; }
-.nC .hd b { font: 600 17px/1.2 "New York", Georgia, serif; }
-.nC .hd span { font-size: 12px; opacity: .6; }
+      /* D 一事一张 */
+      .nD {
+        margin: 24px 0 10px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .nD .one {
+        position: relative;
+        padding: 14px 13px 12px;
+        border-radius: 2px 2px 10px 2px;
+        min-height: 138px;
+        display: flex;
+        flex-direction: column;
+        box-shadow:
+          0 1px 1px rgba(60, 40, 0, 0.08),
+          0 14px 18px -14px rgba(60, 40, 0, 0.5);
+      }
+      .nD .one.ask {
+        background: #f7dfb8;
+        color: #3a2610;
+        rotate: -1.6deg;
+      }
+      .nD .one.err {
+        background: #f4cdc4;
+        color: #3d1913;
+        rotate: 1.2deg;
+        margin-top: 8px;
+      }
+      :root[data-theme="dark"] .nD .one.ask {
+        background: #3f3221;
+        color: #f4dfbd;
+      }
+      :root[data-theme="dark"] .nD .one.err {
+        background: #402723;
+        color: #f6d2ca;
+      }
+      .nD .one .kind {
+        font-size: 12px;
+        font-weight: 700;
+        display: flex;
+        justify-content: space-between;
+        opacity: 0.85;
+      }
+      .nD .one b {
+        margin-top: 6px;
+        font-size: 15.5px;
+        font-weight: 700;
+        line-height: 1.3;
+      }
+      .nD .one p {
+        margin-top: 5px;
+        font-size: 12.5px;
+        line-height: 1.45;
+        opacity: 0.75;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .nD .one p.code {
+        font:
+          11px/1.4 "SF Mono",
+          ui-monospace,
+          monospace;
+      }
+      .nD .one small {
+        margin-top: auto;
+        padding-top: 6px;
+        font-size: 11.5px;
+        opacity: 0.6;
+      }
+      .nD .tape {
+        position: absolute;
+        top: -8px;
+        left: 50%;
+        translate: -50% 0;
+        width: 50px;
+        height: 16px;
+        background: rgba(255, 255, 255, 0.5);
+        rotate: -3deg;
+      }
+      :root[data-theme="dark"] .nD .tape {
+        background: rgba(255, 255, 255, 0.14);
+      }
 
-/* D 一事一张 */
-.nD { margin: 24px 0 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.nD .one { position: relative; padding: 14px 13px 12px; border-radius: 2px 2px 10px 2px; min-height: 138px; display: flex; flex-direction: column;
-  box-shadow: 0 1px 1px rgba(60,40,0,.08), 0 14px 18px -14px rgba(60,40,0,.5); }
-.nD .one.ask { background: #f7dfb8; color: #3a2610; rotate: -1.6deg; }
-.nD .one.err { background: #f4cdc4; color: #3d1913; rotate: 1.2deg; margin-top: 8px; }
-:root[data-theme="dark"] .nD .one.ask { background: #3f3221; color: #f4dfbd; }
-:root[data-theme="dark"] .nD .one.err { background: #402723; color: #f6d2ca; }
-.nD .one .kind { font-size: 12px; font-weight: 700; display: flex; justify-content: space-between; opacity: .85; }
-.nD .one b { margin-top: 6px; font-size: 15.5px; font-weight: 700; line-height: 1.3; }
-.nD .one p { margin-top: 5px; font-size: 12.5px; line-height: 1.45; opacity: .75; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.nD .one p.code { font: 11px/1.4 "SF Mono", ui-monospace, monospace; }
-.nD .one small { margin-top: auto; padding-top: 6px; font-size: 11.5px; opacity: .6; }
-.nD .tape { position: absolute; top: -8px; left: 50%; translate: -50% 0; width: 50px; height: 16px; background: rgba(255,255,255,.5); rotate: -3deg; }
-:root[data-theme="dark"] .nD .tape { background: rgba(255,255,255,.14); }
+      /* E 卷角 */
+      .nE {
+        background: #f8ecc4;
+        color: #2b2416;
+        padding: 16px 16px 8px;
+        rotate: -0.4deg;
+        border-radius: 3px;
+        clip-path: polygon(0 0, 100% 0, 100% calc(100% - 30px), calc(100% - 30px) 100%, 0 100%);
+        filter: drop-shadow(0 10px 10px rgba(60, 40, 0, 0.18));
+      }
+      :root[data-theme="dark"] .nE {
+        background: #3d3624;
+        color: #f2e8c6;
+      }
+      .nE .curl {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        width: 30px;
+        height: 30px;
+        background: linear-gradient(315deg, transparent 50%, #e2d098 50%, #f1e3b0 100%);
+        border-radius: 0 0 0 6px;
+      }
+      :root[data-theme="dark"] .nE .curl {
+        background: linear-gradient(315deg, transparent 50%, #2c2719 50%, #4b4330 100%);
+      }
+      .nE .hd {
+        font-size: 12.5px;
+        font-weight: 700;
+        opacity: 0.7;
+        display: flex;
+        justify-content: space-between;
+        padding-bottom: 2px;
+      }
+      .nE .ln p {
+        margin-top: 3px;
+        font-size: 13px;
+        line-height: 1.45;
+        opacity: 0.78;
+        display: -webkit-box;
+        -webkit-line-clamp: 1;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .nE .ln p.code {
+        font:
+          11.5px "SF Mono",
+          ui-monospace,
+          monospace;
+      }
+      .nE .ln + .ln {
+        border-top: 0.5px solid rgba(110, 85, 20, 0.18);
+      }
+      :root[data-theme="dark"] .nE .ln + .ln {
+        border-top-color: rgba(242, 232, 198, 0.1);
+      }
 
-/* E 卷角 */
-.nE { background: #f8ecc4; color: #2b2416; padding: 16px 16px 8px; rotate: -0.4deg; border-radius: 3px;
-  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 30px), calc(100% - 30px) 100%, 0 100%);
-  filter: drop-shadow(0 10px 10px rgba(60,40,0,.18)); }
-:root[data-theme="dark"] .nE { background: #3d3624; color: #f2e8c6; }
-.nE .curl { position: absolute; right: 0; bottom: 0; width: 30px; height: 30px; background: linear-gradient(315deg, transparent 50%, #e2d098 50%, #f1e3b0 100%); border-radius: 0 0 0 6px; }
-:root[data-theme="dark"] .nE .curl { background: linear-gradient(315deg, transparent 50%, #2c2719 50%, #4b4330 100%); }
-.nE .hd { font-size: 12.5px; font-weight: 700; opacity: .7; display: flex; justify-content: space-between; padding-bottom: 2px; }
-.nE .ln p { margin-top: 3px; font-size: 13px; line-height: 1.45; opacity: .78; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
-.nE .ln p.code { font: 11.5px "SF Mono", ui-monospace, monospace; }
-.nE .ln + .ln { border-top: .5px solid rgba(110,85,20,.18); }
-:root[data-theme="dark"] .nE .ln + .ln { border-top-color: rgba(242,232,198,.1); }
-
-/* sync skeleton */
-.sk { margin-top: 26px; }
-.sk .bar { margin-bottom: 26px; }
-.sk .desk-sk { border-top: 2px solid var(--tint-soft); padding: 14px 0; display: grid; gap: 10px; border-bottom: 1px solid var(--tint-soft); }
-.sk-proj { margin-top: 26px; display: grid; gap: 12px; }
-</style>
-</head>
-<body>
-<!--
+      /* sync skeleton */
+      .sk {
+        margin-top: 26px;
+      }
+      .sk .bar {
+        margin-bottom: 26px;
+      }
+      .sk .desk-sk {
+        border-top: 2px solid var(--tint-soft);
+        padding: 14px 0;
+        display: grid;
+        gap: 10px;
+        border-bottom: 1px solid var(--tint-soft);
+      }
+      .sk-proj {
+        margin-top: 26px;
+        display: grid;
+        gap: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
 THESIS: 纸面首页精修：暖纸底、衬线标题、等你处理收在一张便签里；主题色是深米色，所有加载、在跑、未读、可点的字都用它。
 OWN-WORLD: 纸 #f6f2e9 / 便签 #fffcf5 / 墨 #26221c / 深米 #8a7352（深色 #1c1a16 / #25221d / #eee9df / #c9b28c）；纽约体只给标题和项目名。
 STORY: 一眼看到在问你和出错，像读报纸要闻，点整条进去；往下看各项目在跑什么；连接有问题时一句话说明。
@@ -224,89 +1000,206 @@ FIRST VIEWPORT: 左上菜单（主机有问题带橙点）、右上衬线 Atrium
 FORM: 第二轮 P 方向，用户选定后精修。
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
 -->
-<header class="page">
-  <div>
-    <h1>「等你处理」便签 · 五个版本</h1>
-    <p>同一个纸面首页，只换便签这一块。示例数据是虚构的：1 个在问你、1 个出错。点整条进入，没有单独的按钮；浅色、深色都看一下。</p>
-  </div>
-  <div class="seg" role="group" aria-label="外观">
-    <button type="button" data-theme-set="light" aria-pressed="true">浅色</button>
-    <button type="button" data-theme-set="dark" aria-pressed="false">深色</button>
-  </div>
-</header>
+    <header class="page">
+      <div>
+        <h1>「等你处理」便签 · 五个版本</h1>
+        <p>
+          同一个纸面首页，只换便签这一块。示例数据是虚构的：1 个在问你、1
+          个出错。点整条进入，没有单独的按钮；浅色、深色都看一下。
+        </p>
+      </div>
+      <div class="seg" role="group" aria-label="外观">
+        <button type="button" data-theme-set="light" aria-pressed="true">浅色</button>
+        <button type="button" data-theme-set="dark" aria-pressed="false">深色</button>
+      </div>
+    </header>
 
-<main class="grid"><figure><div class="phone" data-state="ready" data-variant="a"></div><figcaption><h2>A 经典黄</h2><p>浅黄便签、顶上半透明胶带、淡横线，略微歪一点。每件事一行：手画小圈（橙=在问你，红=出错）、标题、位置，右边等了多久。</p></figcaption></figure><figure><div class="phone" data-state="ready" data-variant="b"></div><figcaption><h2>B 牛皮米 · 图钉</h2><p>颜色换成和主题色同系的牛皮米，顶上一枚深米色图钉，两件事之间是虚线。和整页最统一，不像外来的黄。</p></figcaption></figure><figure><div class="phone" data-state="ready" data-variant="c"></div><figcaption><h2>C 撕页便签本</h2><p>像从便签本上撕下的一页：顶边是撕口，抬头写「等你处理」和日期，下面一道红线。比单张便签更"正式"一点。</p></figcaption></figure><figure><div class="phone" data-state="ready" data-variant="d"></div><figcaption><h2>D 一事一张</h2><p>每件事贴一张：在问你是杏色便签、出错是浅红便签，并排、各自歪一点，各带一小条胶带。能多放一行原话，状态靠颜色一眼区分。</p></figcaption></figure><figure><div class="phone" data-state="ready" data-variant="e"></div><figcaption><h2>E 卷角</h2><p>一张便签，右下角卷起来；每件事多一行原话（出错显示报错）。没有胶带和图钉，最简洁。</p></figcaption></figure></main>
+    <main class="grid">
+      <figure>
+        <div class="phone" data-state="ready" data-variant="a"></div>
+        <figcaption>
+          <h2>A 经典黄</h2>
+          <p>
+            浅黄便签、顶上半透明胶带、淡横线，略微歪一点。每件事一行：手画小圈（橙=在问你，红=出错）、标题、位置，右边等了多久。
+          </p>
+        </figcaption>
+      </figure>
+      <figure>
+        <div class="phone" data-state="ready" data-variant="b"></div>
+        <figcaption>
+          <h2>B 牛皮米 · 图钉</h2>
+          <p>颜色换成和主题色同系的牛皮米，顶上一枚深米色图钉，两件事之间是虚线。和整页最统一，不像外来的黄。</p>
+        </figcaption>
+      </figure>
+      <figure>
+        <div class="phone" data-state="ready" data-variant="c"></div>
+        <figcaption>
+          <h2>C 撕页便签本</h2>
+          <p>像从便签本上撕下的一页：顶边是撕口，抬头写「等你处理」和日期，下面一道红线。比单张便签更"正式"一点。</p>
+        </figcaption>
+      </figure>
+      <figure>
+        <div class="phone" data-state="ready" data-variant="d"></div>
+        <figcaption>
+          <h2>D 一事一张</h2>
+          <p>
+            每件事贴一张：在问你是杏色便签、出错是浅红便签，并排、各自歪一点，各带一小条胶带。能多放一行原话，状态靠颜色一眼区分。
+          </p>
+        </figcaption>
+      </figure>
+      <figure>
+        <div class="phone" data-state="ready" data-variant="e"></div>
+        <figcaption>
+          <h2>E 卷角</h2>
+          <p>一张便签，右下角卷起来；每件事多一行原话（出错显示报错）。没有胶带和图钉，最简洁。</p>
+        </figcaption>
+      </figure>
+    </main>
 
+    <script>
+      const ICONS = `<span class="icons"><svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5" width="3" height="7" rx="1" fill="currentColor"/><rect x="10" y="2" width="3" height="10" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg><svg width="26" height="12" viewBox="0 0 26 12"><rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor"/></svg></span>`;
+      const MENU = `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3.5 6h13M3.5 10h9M3.5 14h13"/></svg>`;
+      const PLUS = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg>`;
+      const BRANCH = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="5.5" r="1.8"/><path d="M4.5 5.3v5.4M11.5 7.3c0 2.5-2.2 3.4-6.2 3.6"/></svg>`;
+      const SMALL_PLUS = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M7 2.5v9M2.5 7h9"/></svg>`;
 
+      const ASK = `<svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6.5A3.5 3.5 0 0 1 8.5 3h9A3.5 3.5 0 0 1 21 6.5v7a3.5 3.5 0 0 1-3.5 3.5H12l-4.6 3.7c-.4.3-.9 0-.9-.4V17A3.5 3.5 0 0 1 5 13.5z"/><path d="M10.6 8.2a2.4 2.4 0 1 1 3.3 2.3c-.6.3-.9.8-.9 1.4"/><circle cx="13" cy="14.3" r=".4" fill="currentColor"/></svg>`;
+      const ERR = `<svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 4.6a2 2 0 0 1 3.4 0l8 13.7a2 2 0 0 1-1.7 3H5a2 2 0 0 1-1.7-3z"/><path d="M13 10v4.6"/><circle cx="13" cy="17.6" r=".5" fill="currentColor"/></svg>`;
+      const CHEV = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5.5 7 9l3.5-3.5"/></svg>`;
+      const WAIT = [
+        {
+          k: "ask",
+          title: "OAuth 回调地址用哪个？",
+          lede: "回调用 /auth/callback 还是 /oauth/cb？两个都能跑通，但换了要同步改 Nginx 和 GitHub 应用设置。",
+          where: "atrium · feat/oauth",
+          since: "6 分钟前",
+        },
+        {
+          k: "err",
+          title: "修复首页闪烁",
+          lede: "TypeError: Cannot read properties of undefined (reading 'rows') at HomeList.render",
+          code: true,
+          where: "atrium · main",
+          since: "2 分钟前",
+        },
+      ];
+      const PROJECTS = [
+        {
+          name: "atrium",
+          running: 2,
+          ws: [
+            {
+              br: "feat/radar-map",
+              tag: "未提交 · ↑3",
+              s: [
+                ["run", "雷达图配色调整", "3:12"],
+                ["new", "补齐变异测试", "12 分钟"],
+                ["", "整理过程轨道动效", "1 小时"],
+              ],
+              more: 2,
+            },
+            {
+              br: "main",
+              s: [
+                ["run", "升级 pi 到 1.3.1", "0:48"],
+                ["", "拆分 SyncCore", "昨天"],
+              ],
+            },
+            { br: "feat/ios-redesign", tag: "未提交", s: [["", "纸面首页精修", "2 小时"]] },
+          ],
+        },
+        {
+          name: "blog",
+          running: 0,
+          closed: true,
+          summary: "2 个会话 · 已合并",
+          ws: [
+            {
+              br: "main",
+              tag: "已合并",
+              ok: true,
+              s: [
+                ["", "写十月周报草稿", "昨天"],
+                ["", "迁移到 Astro 5", "周一"],
+              ],
+            },
+          ],
+        },
+        { name: "dotfiles", running: 0, ws: [{ br: "main", s: [["new", "整理 zsh 启动脚本", "3 小时"]] }] },
+      ];
+      const CHATS = [
+        ["new", "Swift 并发怎么理解", "周一"],
+        ["", "帮我起个分支名", "上周"],
+      ];
 
-<script>
-const ICONS = `<span class="icons"><svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5" width="3" height="7" rx="1" fill="currentColor"/><rect x="10" y="2" width="3" height="10" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg><svg width="26" height="12" viewBox="0 0 26 12"><rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor"/></svg></span>`;
-const MENU = `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3.5 6h13M3.5 10h9M3.5 14h13"/></svg>`;
-const PLUS = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg>`;
-const BRANCH = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="5.5" r="1.8"/><path d="M4.5 5.3v5.4M11.5 7.3c0 2.5-2.2 3.4-6.2 3.6"/></svg>`;
-const SMALL_PLUS = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M7 2.5v9M2.5 7h9"/></svg>`;
+      const mark = (k) =>
+        k === "run" ? `<span class="spin"></span>` : k === "new" ? `<span class="u"></span>` : `<span></span>`;
+      const rows = (list) =>
+        list
+          .map(
+            ([k, t, tm]) =>
+              `<div class="s">${mark(k)}<b>${t}</b><span class="tm ${k === "run" ? "live" : ""}">${tm}</span></div>`,
+          )
+          .join("");
 
-const ASK = `<svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6.5A3.5 3.5 0 0 1 8.5 3h9A3.5 3.5 0 0 1 21 6.5v7a3.5 3.5 0 0 1-3.5 3.5H12l-4.6 3.7c-.4.3-.9 0-.9-.4V17A3.5 3.5 0 0 1 5 13.5z"/><path d="M10.6 8.2a2.4 2.4 0 1 1 3.3 2.3c-.6.3-.9.8-.9 1.4"/><circle cx="13" cy="14.3" r=".4" fill="currentColor"/></svg>`;
-const ERR = `<svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 4.6a2 2 0 0 1 3.4 0l8 13.7a2 2 0 0 1-1.7 3H5a2 2 0 0 1-1.7-3z"/><path d="M13 10v4.6"/><circle cx="13" cy="17.6" r=".5" fill="currentColor"/></svg>`;
-const CHEV = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5.5 7 9l3.5-3.5"/></svg>`;
-const WAIT = [
-  { k: "ask", title: "OAuth 回调地址用哪个？", lede: "回调用 /auth/callback 还是 /oauth/cb？两个都能跑通，但换了要同步改 Nginx 和 GitHub 应用设置。", where: "atrium · feat/oauth", since: "6 分钟前" },
-  { k: "err", title: "修复首页闪烁", lede: "TypeError: Cannot read properties of undefined (reading 'rows') at HomeList.render", code: true, where: "atrium · main", since: "2 分钟前" },
-];
-const PROJECTS = [
-  { name: "atrium", running: 2, ws: [
-    { br: "feat/radar-map", tag: "未提交 · ↑3", s: [["run", "雷达图配色调整", "3:12"], ["new", "补齐变异测试", "12 分钟"], ["", "整理过程轨道动效", "1 小时"]], more: 2 },
-    { br: "main", s: [["run", "升级 pi 到 1.3.1", "0:48"], ["", "拆分 SyncCore", "昨天"]] },
-    { br: "feat/ios-redesign", tag: "未提交", s: [["", "纸面首页精修", "2 小时"]] } ] },
-  { name: "blog", running: 0, closed: true, summary: "2 个会话 · 已合并", ws: [ { br: "main", tag: "已合并", ok: true, s: [["", "写十月周报草稿", "昨天"], ["", "迁移到 Astro 5", "周一"]] } ] },
-  { name: "dotfiles", running: 0, ws: [ { br: "main", s: [["new", "整理 zsh 启动脚本", "3 小时"]] } ] },
-];
-const CHATS = [["new", "Swift 并发怎么理解", "周一"], ["", "帮我起个分支名", "上周"]];
-
-const mark = k => k === "run" ? `<span class="spin"></span>` : k === "new" ? `<span class="u"></span>` : `<span></span>`;
-const rows = list => list.map(([k, t, tm]) => `<div class="s">${mark(k)}<b>${t}</b><span class="tm ${k === "run" ? "live" : ""}">${tm}</span></div>`).join("");
-
-
-const line = (w, extra = "") => `<div class="ln"><span class="mk ${w.k}"></span><div><b>${w.title}</b>${extra}<small>${w.k === "ask" ? "在问你" : "出错"} · ${w.where}</small></div><span class="tm">${w.since.replace("前", "")}</span></div>`;
-const V = {
-  a: () => `<section class="nt nA"><span class="tape"></span>${WAIT.map(w => line(w)).join("")}</section>`,
-  b: () => `<section class="nt nB"><span class="pin"></span>${WAIT.map(w => line(w)).join("")}</section>`,
-  c: () => `<section class="nt nC"><div class="hd"><b>等你处理</b><span>10月28日 · 9:41</span></div>${WAIT.map(w => line(w)).join("")}</section>`,
-  d: () => `<section class="nD">${WAIT.map(w => `<div class="one ${w.k}"><span class="tape"></span><span class="kind"><span>${w.k === "ask" ? "在问你" : "出错"}</span><span>${w.since.replace("前", "")}</span></span><b>${w.title}</b><p class="${w.code ? "code" : ""}">${w.lede}</p><small>${w.where}</small></div>`).join("")}</section>`,
-  e: () => `<section class="nt nE"><div class="hd"><span>等你处理</span><span>2</span></div>${WAIT.map(w => line(w, `<p class="${w.code ? "code" : ""}">${w.lede}</p>`)).join("")}<span class="curl"></span></section>`,
-};
-function content(variant) {
-  const desk = `<section class="desk"><div class="mast"></div><div class="line1"><b>等你处理</b><span>2 件 · 9:41 更新</span></div>${WAIT.map(w => `<article class="story"><span class="ic" style="color:var(--${w.k === "ask" ? "attn" : "danger"})">${w.k === "ask" ? ASK : ERR}</span><div><h5>${w.title}</h5><p class="lede ${w.code ? "code" : ""}">${w.lede}</p><p class="dl"><em class="${w.k}">${w.k === "ask" ? "在问你" : "出错"}</em> · ${w.where} · ${w.since}</p></div></article>`).join("")}<div class="foot"></div></section>`;
-  const projs = PROJECTS.map(p => `<div class="proj ${p.closed ? "closed" : ""}"><div class="ph"><span class="chev">${CHEV}</span><h4>${p.name}</h4>${p.closed ? `<small class="q">${p.summary}</small>` : p.running ? `<small>${p.running} 在跑</small>` : `<small class="q">空闲</small>`}</div><div class="body">${p.ws.map(w => `<div class="ws">${BRANCH}<span class="br">${w.br}</span>${w.tag ? `<span class="tag ${w.ok ? "ok" : ""}">${w.tag}</span>` : ""}</div>${rows(w.s)}${w.more ? `<a class="more">还有 ${w.more} 个 ›</a>` : ""}`).join("")}</div></div>`).join("");
-  const chats = `<div class="proj chats"><div class="ph"><span class="chev">${CHEV}</span><h4>对话</h4><span class="add">${SMALL_PLUS}</span></div><div class="body">${CHATS.map(([k, t, tm]) => `<div class="s"><b>${t}</b><span style="display:flex;align-items:center;gap:8px">${k === "new" ? `<span class="u" style="margin:0"></span>` : ""}<span class="tm">${tm}</span></span></div>`).join("")}</div></div>`;
-  return (variant ? V[variant]() : desk) + projs + chats;
-}
-function skeleton() {
-  const g = (w, h = 14) => `<div class="ghost" style="width:${w}%;height:${h}px"></div>`;
-  return `<div class="sk"><div class="bar"></div><div class="desk-sk">${g(30, 13)}${g(72, 18)}${g(92)}${g(48, 11)}</div>
+      const line = (w, extra = "") =>
+        `<div class="ln"><span class="mk ${w.k}"></span><div><b>${w.title}</b>${extra}<small>${w.k === "ask" ? "在问你" : "出错"} · ${w.where}</small></div><span class="tm">${w.since.replace("前", "")}</span></div>`;
+      const V = {
+        a: () => `<section class="nt nA"><span class="tape"></span>${WAIT.map((w) => line(w)).join("")}</section>`,
+        b: () => `<section class="nt nB"><span class="pin"></span>${WAIT.map((w) => line(w)).join("")}</section>`,
+        c: () =>
+          `<section class="nt nC"><div class="hd"><b>等你处理</b><span>10月28日 · 9:41</span></div>${WAIT.map((w) => line(w)).join("")}</section>`,
+        d: () =>
+          `<section class="nD">${WAIT.map((w) => `<div class="one ${w.k}"><span class="tape"></span><span class="kind"><span>${w.k === "ask" ? "在问你" : "出错"}</span><span>${w.since.replace("前", "")}</span></span><b>${w.title}</b><p class="${w.code ? "code" : ""}">${w.lede}</p><small>${w.where}</small></div>`).join("")}</section>`,
+        e: () =>
+          `<section class="nt nE"><div class="hd"><span>等你处理</span><span>2</span></div>${WAIT.map((w) => line(w, `<p class="${w.code ? "code" : ""}">${w.lede}</p>`)).join("")}<span class="curl"></span></section>`,
+      };
+      function content(variant) {
+        const desk = `<section class="desk"><div class="mast"></div><div class="line1"><b>等你处理</b><span>2 件 · 9:41 更新</span></div>${WAIT.map((w) => `<article class="story"><span class="ic" style="color:var(--${w.k === "ask" ? "attn" : "danger"})">${w.k === "ask" ? ASK : ERR}</span><div><h5>${w.title}</h5><p class="lede ${w.code ? "code" : ""}">${w.lede}</p><p class="dl"><em class="${w.k}">${w.k === "ask" ? "在问你" : "出错"}</em> · ${w.where} · ${w.since}</p></div></article>`).join("")}<div class="foot"></div></section>`;
+        const projs = PROJECTS.map(
+          (p) =>
+            `<div class="proj ${p.closed ? "closed" : ""}"><div class="ph"><span class="chev">${CHEV}</span><h4>${p.name}</h4>${p.closed ? `<small class="q">${p.summary}</small>` : p.running ? `<small>${p.running} 在跑</small>` : `<small class="q">空闲</small>`}</div><div class="body">${p.ws.map((w) => `<div class="ws">${BRANCH}<span class="br">${w.br}</span>${w.tag ? `<span class="tag ${w.ok ? "ok" : ""}">${w.tag}</span>` : ""}</div>${rows(w.s)}${w.more ? `<a class="more">还有 ${w.more} 个 ›</a>` : ""}`).join("")}</div></div>`,
+        ).join("");
+        const chats = `<div class="proj chats"><div class="ph"><span class="chev">${CHEV}</span><h4>对话</h4><span class="add">${SMALL_PLUS}</span></div><div class="body">${CHATS.map(([k, t, tm]) => `<div class="s"><b>${t}</b><span style="display:flex;align-items:center;gap:8px">${k === "new" ? `<span class="u" style="margin:0"></span>` : ""}<span class="tm">${tm}</span></span></div>`).join("")}</div></div>`;
+        return (variant ? V[variant]() : desk) + projs + chats;
+      }
+      function skeleton() {
+        const g = (w, h = 14) => `<div class="ghost" style="width:${w}%;height:${h}px"></div>`;
+        return `<div class="sk"><div class="bar"></div><div class="desk-sk">${g(30, 13)}${g(72, 18)}${g(92)}${g(48, 11)}</div>
     <div class="sk-proj">${g(34, 20)}${g(40, 11)}${g(76)}${g(64)}${g(70)}</div><div class="sk-proj">${g(26, 20)}${g(58)}</div></div>`;
-}
-function phone(state, variant) {
-  const host = {
-    ready: `<div class="host"><span class="dot"></span>MacBook Pro</div>`,
-    sync: `<div class="host"><span class="spin"></span>正在同步…</div>`,
-    trouble: `<div class="host"><span class="spin"></span>正在重连 · <span class="act">重试</span></div>`,
-  }[state];
-  const explain = state === "trouble" ? `<p class="explain">MacBook Pro 上次在线是 9:32，下面是那时的状态。</p>` : "";
-  const body = content(variant);
-  return `<div class="island"></div><div class="status"><span>9:41</span>${ICONS}</div>
+      }
+      function phone(state, variant) {
+        const host = {
+          ready: `<div class="host"><span class="dot"></span>MacBook Pro</div>`,
+          sync: `<div class="host"><span class="spin"></span>正在同步…</div>`,
+          trouble: `<div class="host"><span class="spin"></span>正在重连 · <span class="act">重试</span></div>`,
+        }[state];
+        const explain =
+          state === "trouble" ? `<p class="explain">MacBook Pro 上次在线是 9:32，下面是那时的状态。</p>` : "";
+        const body = content(variant);
+        return `<div class="island"></div><div class="status"><span>9:41</span>${ICONS}</div>
     <div class="scroll"><div class="inner">${explain}${body}</div></div>
     <div class="edge top"><i></i><i></i><i></i></div><div class="masthead"><h3 class="t">Atrium</h3>${host}</div><div class="edge bot"><i></i><i></i><i></i></div>
     <button class="btn menu" aria-label="菜单">${MENU}${state === "trouble" ? `<span class="pip"></span>` : ""}</button>
     <button class="btn fab" aria-label="新建会话">${PLUS}</button><div class="home-ind"></div>`;
-}
-document.querySelectorAll(".phone").forEach(el => { el.innerHTML = phone(el.dataset.state, el.dataset.variant); });
-document.addEventListener("click", e => { const h = e.target.closest(".ph"); if (h && !e.target.closest(".add")) h.parentElement.classList.toggle("closed"); });
-const root = document.documentElement;
-document.querySelectorAll("[data-theme-set]").forEach(b => b.onclick = () => {
-  root.dataset.theme = b.dataset.themeSet;
-  document.querySelectorAll("[data-theme-set]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
-});
-</script>
-</body>
+      }
+      document.querySelectorAll(".phone").forEach((el) => {
+        el.innerHTML = phone(el.dataset.state, el.dataset.variant);
+      });
+      document.addEventListener("click", (e) => {
+        const h = e.target.closest(".ph");
+        if (h && !e.target.closest(".add")) h.parentElement.classList.toggle("closed");
+      });
+      const root = document.documentElement;
+      document.querySelectorAll("[data-theme-set]").forEach(
+        (b) =>
+          (b.onclick = () => {
+            root.dataset.theme = b.dataset.themeSet;
+            document
+              .querySelectorAll("[data-theme-set]")
+              .forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+          }),
+      );
+    </script>
+  </body>
 </html>

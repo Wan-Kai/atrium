@@ -94,8 +94,26 @@ export const Attention = z.strictObject({
   /** When it was set. */
   at: Timestamp,
   cleared: z.boolean(),
+  /**
+   * pi's text of the failure, cut to 300 characters; `null` for pi crashing, and for a mark an index
+   * from before protocol 29 kept (SPEC-0005, "协议改动" 6).
+   */
+  text: z.string().max(300).nullable(),
 });
 export type Attention = z.infer<typeof Attention>;
+
+/**
+ * What a session waits on you for, as the phone's note names it (SPEC-0005, "协议改动" 6).
+ *
+ * @remarks
+ * The agent's or the extension's own words, only cut: the first line of the first question (or a
+ * dialog's title) and the rest (or the dialog's message).
+ */
+export const AskingName = z.strictObject({
+  title: z.string().max(200),
+  detail: z.string().max(300).nullable(),
+});
+export type AskingName = z.infer<typeof AskingName>;
 
 /** pi's texts of a failure that comes from credentials (pi-internals.md §3, "一次性调用"). */
 const AUTH_FAILURE = /no api key|oauth|\b401\b|unauthorized|authentication|invalid[ _]api[ _]key|\/login/i;
@@ -144,6 +162,8 @@ export const SessionSummary = z.strictObject({
   attention: Attention.nullable(),
   /** Since when the oldest unanswered dialog has waited; `null` without one. */
   asking: Timestamp.nullable(),
+  /** What the oldest unanswered dialog asks; `null` without one (SPEC-0005, "协议改动" 6). */
+  question: AskingName.nullable(),
   /** Handed to pi in a terminal; Atrium starts no pi for it until taken back. */
   handedOff: z.boolean(),
   /**

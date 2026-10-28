@@ -24,7 +24,7 @@ struct SessionSheetsTests {
         from: Data(
           """
           {"sessionId":"c","containerId":"w","name":null,"prompt":null,"file":null,"state":"persisted","updatedAt":1,\
-          "archived":false,"running":false,"attention":null,"asking":null,"handedOff":false,"model":null,\
+          "archived":false,"running":false,"attention":null,"asking":null,"question":null,"handedOff":false,"model":null,\
           "parent":null,"agent":null,"heldDeliveries":0}
           """.utf8))
     }

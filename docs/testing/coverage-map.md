@@ -2011,3 +2011,14 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 用样例同步数据截图（经真的 `SyncCore.receive`）：`pnpm ios:shot --gallery=location-sheet|new-session-missing|model-sheet|drawer [--dark]`，已逐张看过。
 - 没有自动测试、靠验收看：抽屉里的 relay、手机名、版本和"重新配对"；忘掉 Mac 清理失败时的提示；新建进行中不能点"×"；新会话页的失败提示只显示本页发起的。
 - 审查里决定不改的：hunk 之间的上下文不展开（协议没有按版本取内容的命令，SPEC 已写明）；签名到期用 `Date.now`（按天显示，`Signing` 本身接受注入的时间，界面层不另做时钟）；`ios-brand-icons.mjs` 不进 `pnpm check`（要 Playwright 的浏览器）。
+
+## MP6e 纸面改版（SPEC-0005，2026-10-28，进行中）
+
+| 行为 | 测试 |
+|---|---|
+| 手机纸面配色：纸、便签纸、浅底、正文、元信息、细线、深米色及浅底、墨色按钮、在问你、出错、通过、轨道；便签三级（卡住 / 等你 / 提醒）的纸色和字色，浅深两套 | Swift `DesignTokenTests`"takes the paper colour table of design-language" |
+| 打包的 Fraunces 斜体（"Atrium" 和 0–9）、Syne（"agent"）按自己的 PostScript 名注册，字形齐全；重复注册无害 | Swift `BrandFontTests`（关掉注册时三条都失败） |
+| 协议 29：`Attention.text` 必填、最多 300 字符；`SessionSummary.question` 的形状；版本 29 | `listing.test.ts`"Attention (protocol 29)"、`envelope.test.ts`（样例）、`remote.test.ts`（版本 29）；Swift `RoundTripTests`（重新生成的夹具、版本 29） |
+| 失败标记带 pi 的报错原文，截到 300 字符；崩溃的标记没有原文；看过之后原文保留 | `session-manager.test.ts`"SessionManager attention"（登录、其他失败、"keeps pi's failure text…"） |
+| 旧索引里没有 `text` 的标记读成 `null` | `index-schema.test.ts`"reads a mark kept before protocol 29…" |
+| 列表里最早一个没答的提问 / 对话框的名字：提问取第一题的第一行作标题、其余作说明，对话框取标题和 message；分别截到 200、300 字符；答完变 `null` | `session-manager.test.ts`"says since when…"（两条）、"names the first question…"、"names a confirmation…" |

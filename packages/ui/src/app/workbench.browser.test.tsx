@@ -83,7 +83,7 @@ function needing() {
   const minute = 60_000;
   /** An error not seen yet, set `minutesAgo`. */
   const error = (minutesAgo: number) => ({
-    attention: { reason: "error" as const, at: Date.now() - minutesAgo * minute, cleared: false },
+    attention: { reason: "error" as const, at: Date.now() - minutesAgo * minute, cleared: false, text: null },
   });
   return {
     ...initial,
@@ -105,7 +105,7 @@ function needing() {
         sessionId: "k1",
         containerId: CHAT,
         name: "钥一",
-        attention: { reason: "auth", at: 0, cleared: false },
+        attention: { reason: "auth", at: 0, cleared: false, text: null },
       }),
     ],
   };
@@ -505,9 +505,17 @@ describe("Workbench sidebar", () => {
       initial: {
         ...initial,
         sessions: [
-          session({ sessionId: "s1", containerId: LOCAL, attention: { reason: "error", at: 1, cleared: true } }),
+          session({
+            sessionId: "s1",
+            containerId: LOCAL,
+            attention: { reason: "error", at: 1, cleared: true, text: null },
+          }),
           ...initial.sessions.slice(1),
-          session({ sessionId: "s4", containerId: FEATURE, attention: { reason: "auth", at: 1, cleared: false } }),
+          session({
+            sessionId: "s4",
+            containerId: FEATURE,
+            attention: { reason: "auth", at: 1, cleared: false, text: null },
+          }),
           session({ sessionId: "s5", containerId: MERGED, asking: 1, archived: true }),
         ],
       },
@@ -2109,7 +2117,7 @@ async function viewing() {
  * @param index - The list's store.
  */
 function failS1(index: StoreApi<IndexView>): void {
-  const error = { reason: "error" as const, at: Date.now(), cleared: false };
+  const error = { reason: "error" as const, at: Date.now(), cleared: false, text: null };
   index.setState({
     sessions: index.getState().sessions.map((each) => (each.sessionId === "s1" ? { ...each, attention: error } : each)),
   });
@@ -2485,8 +2493,16 @@ describe("Workbench attention and hand-off (M1.9)", () => {
       initial: {
         ...initial,
         sessions: [
-          session({ sessionId: "s1", containerId: LOCAL, attention: { reason: "error", at: 1, cleared: false } }),
-          session({ sessionId: "s2", containerId: LOCAL, attention: { reason: "auth", at: 1, cleared: false } }),
+          session({
+            sessionId: "s1",
+            containerId: LOCAL,
+            attention: { reason: "error", at: 1, cleared: false, text: null },
+          }),
+          session({
+            sessionId: "s2",
+            containerId: LOCAL,
+            attention: { reason: "auth", at: 1, cleared: false, text: null },
+          }),
         ],
       },
     });
@@ -2498,7 +2514,12 @@ describe("Workbench attention and hand-off (M1.9)", () => {
 
     await vi.waitFor(() => expect(calls.filter((call) => call.startsWith("windowFocused"))).toHaveLength(2));
     expect(calls.filter((call) => call.startsWith("clearAttention"))).toStrictEqual(["clearAttention s1"]);
-    expect(index.getState().sessions[0]?.attention).toStrictEqual({ reason: "error", at: 1, cleared: true });
+    expect(index.getState().sessions[0]?.attention).toStrictEqual({
+      reason: "error",
+      at: 1,
+      cleared: true,
+      text: null,
+    });
   });
 
   it("hands the active session to a terminal, then shows only how to go on there, until taken back", async () => {

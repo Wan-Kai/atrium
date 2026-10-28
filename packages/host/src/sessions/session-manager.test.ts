@@ -2160,6 +2160,7 @@ describe("SessionManager workspaces", () => {
         running: false,
         attention: null,
         asking: null,
+        question: null,
         handedOff: false,
         model: null,
         parent: null,
@@ -3529,7 +3530,7 @@ function confirmation(id: string): object {
 
 /** The one session's summary fields this suite looks at. */
 const marks = (manager: Manager) =>
-  manager.summaries().map(({ attention, asking, handedOff }) => ({ attention, asking, handedOff }));
+  manager.summaries().map(({ attention, asking, question, handedOff }) => ({ attention, asking, question, handedOff }));
 
 describe("SessionManager message images (M1.11)", () => {
   it("reads a turn's image from the session file, and answers image_unavailable for one that is not there", async () => {
@@ -3617,11 +3618,21 @@ describe("SessionManager attention (M1.9)", () => {
     await run();
 
     expect(marked).toStrictEqual([
-      { attention: { reason: "auth", at: expect.any(Number), cleared: false }, asking: null, handedOff: false },
+      {
+        attention: {
+          reason: "auth",
+          at: expect.any(Number),
+          cleared: false,
+          text: "No API key found for anthropic. Use /login to sign in.",
+        },
+        asking: null,
+        question: null,
+        handedOff: false,
+      },
     ]);
     expect(marked[0]?.attention?.at).toBeGreaterThanOrEqual(before);
     expect(looked).toStrictEqual(marked);
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null, handedOff: false }]);
     expect(catalog.find("pi-session-1")?.attention).toBeNull();
     expect(changes()).toBeGreaterThan(changed);
   });
@@ -3646,10 +3657,19 @@ describe("SessionManager attention (M1.9)", () => {
     await run();
     const marked = marks(manager)[0]?.attention;
 
-    expect(marked).toStrictEqual({ reason: "error", at: expect.any(Number), cleared: false });
+    expect(marked).toStrictEqual({ reason: "error", at: expect.any(Number), cleared: false, text: "overloaded" });
     expect(await manager.clearAttention("pi-session-1")).toStrictEqual({});
     expect(marks(manager)[0]?.attention).toStrictEqual({ ...marked, cleared: true });
     expect(catalog.find("pi-session-1")?.attention).toStrictEqual({ ...marked, cleared: true });
+  });
+
+  it("keeps pi's failure text with the mark, cut to 300 characters (SPEC-0005, 协议 29)", async () => {
+    const long = `overloaded\n${"x".repeat(400)}`;
+    const { manager, run } = await opened([failingTurn(long)]);
+
+    await run();
+
+    expect(marks(manager)[0]?.attention?.text).toBe(long.slice(0, 300));
   });
 
   it("does not mark a run that was stopped or completed, nor clear a session that needs no look", async () => {
@@ -3658,7 +3678,7 @@ describe("SessionManager attention (M1.9)", () => {
     await run();
     await manager.clearAttention("pi-session-1");
 
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null, handedOff: false }]);
     await expect(manager.clearAttention("nope")).rejects.toStrictEqual(
       new CommandError("session_not_found", { sessionId: "nope" }),
     );
@@ -3687,7 +3707,7 @@ describe("SessionManager attention (M1.9)", () => {
       { outcome: last },
     ]);
     expect(received.find((event) => event.type === "run_settled")).toMatchObject({ outcome });
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null, handedOff: false }]);
   });
 
   it("says since when a session waits for an answer, until it has none", async () => {
@@ -3700,10 +3720,12 @@ describe("SessionManager attention (M1.9)", () => {
 
     await manager.answerInteraction("pi-session-1", "d1", { value: "a" });
 
-    expect(asking).toStrictEqual([{ attention: null, asking: expect.any(Number), handedOff: false }]);
+    expect(asking).toStrictEqual([
+      { attention: null, asking: expect.any(Number), question: { title: "Pick", detail: null }, handedOff: false },
+    ]);
     expect(asking[0]?.asking).toBeGreaterThanOrEqual(before);
     expect(received.at(-1)).toMatchObject({ type: "control_updated", control: { interactions: [] } });
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null, handedOff: false }]);
   });
 
   it("says since when a session waits for the questions its agent asked with ask_user, until you answer them (SPEC-0003)", async () => {
@@ -3734,11 +3756,50 @@ describe("SessionManager attention (M1.9)", () => {
 
     await manager.answerQuestion("pi-session-1", "call-1", { skipped: true });
 
-    expect(asking).toStrictEqual([{ attention: null, asking: expect.any(Number), handedOff: false }]);
+    expect(asking).toStrictEqual([
+      { attention: null, asking: expect.any(Number), question: { title: "改到哪？", detail: null }, handedOff: false },
+    ]);
     expect(asking[0]?.asking).toBeGreaterThanOrEqual(before);
     expect(shown).toMatchObject({ control: { question: { id: "call-1", questions } } });
     expect(received.at(-1)).toMatchObject({ type: "control_updated", control: { question: null } });
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null, handedOff: false }]);
+  });
+
+  it("names the first question by its first line, the rest as its detail, cut to 200 and 300 characters (SPEC-0005, 协议 29)", async () => {
+    const questions = [
+      {
+        header: "回调",
+        question: `${"回".repeat(250)}\n两个都能跑通，\n${"换".repeat(400)}`,
+        multiSelect: false,
+        options: [
+          { label: "/auth/callback", description: "", preview: null, recommended: true },
+          { label: "/oauth/cb", description: "", preview: null, recommended: false },
+        ],
+      },
+    ];
+    const asked = {
+      type: "extension_ui_request",
+      id: "u1",
+      method: "setStatus",
+      statusKey: "atrium-agent:call-1",
+      statusText: JSON.stringify({ v: 1, id: "call-1", kind: "call", op: "ask_user", args: { questions } }),
+    };
+    const { manager } = await opened([[{ type: "agent_start" }, asked]]);
+    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
+    await vi.waitFor(() => expect(manager.summaries()[0]?.question).not.toBeNull());
+
+    expect(manager.summaries()[0]?.question).toStrictEqual({
+      title: "回".repeat(200),
+      detail: `两个都能跑通，\n${"换".repeat(400)}`.slice(0, 300),
+    });
+  });
+
+  it("names a confirmation by its title and message", async () => {
+    const { manager } = await opened([[{ type: "agent_start" }, confirmation("d1")]]);
+    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
+    await vi.waitFor(() => expect(manager.summaries()[0]?.question).not.toBeNull());
+
+    expect(manager.summaries()[0]?.question).toStrictEqual({ title: "d1", detail: "?" });
   });
 
   it("keeps since when the questions wait through a direct reply pi refused, which brings them back (SPEC-0003)", async () => {
@@ -3818,7 +3879,7 @@ describe("SessionManager handing off (M1.9)", () => {
     await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited", reason: "requested" }));
     await manager.openSession("client-1", "pi-session-1");
 
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: true }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null, handedOff: true }]);
     expect(catalog.find("pi-session-1")?.handedOff).toBe(true);
     for (const refused of await Promise.allSettled(writes(manager))) {
       expect(refused).toStrictEqual({
@@ -3832,7 +3893,7 @@ describe("SessionManager handing off (M1.9)", () => {
     await manager.close();
     const again = await manage({ argvToStderr: true, rules: SESSION_ONE }, at);
     await again.manager.openSession("client-1", "pi-session-1");
-    expect(marks(again.manager)).toStrictEqual([{ attention: null, asking: null, handedOff: true }]);
+    expect(marks(again.manager)).toStrictEqual([{ attention: null, asking: null, question: null, handedOff: true }]);
     expect(again.starts()).toStrictEqual([]);
   });
 
@@ -3845,7 +3906,7 @@ describe("SessionManager handing off (M1.9)", () => {
     await expect(manager.handOff("nope")).rejects.toStrictEqual(
       new CommandError("session_not_found", { sessionId: "nope" }),
     );
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null, handedOff: false }]);
   });
 
   it("refuses to hand off a session with messages in the host's queue, which only Atrium would send", async () => {
@@ -3884,7 +3945,7 @@ describe("SessionManager handing off (M1.9)", () => {
 
     await expect(manager.handOff("pi-session-1")).rejects.toStrictEqual(new CommandError("session_busy"));
     expect(manager.summaries()[0]?.running).toBe(false);
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null, handedOff: false }]);
   });
 
   it("refuses to hand off a session while pi starts again after a crash", async () => {
@@ -4004,7 +4065,7 @@ describe("SessionManager handing off (M1.9)", () => {
     const { sessionId } = await manager.createSession("client-1", WORKSPACE);
 
     await expect(manager.handOff(sessionId)).rejects.toStrictEqual(new CommandError("session_is_draft", { sessionId }));
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null, handedOff: false }]);
   });
 
   it("takes a session back: clears the mark and starts pi on its file in a new epoch", async () => {
@@ -4014,7 +4075,7 @@ describe("SessionManager handing off (M1.9)", () => {
 
     expect(await manager.takeBack("pi-session-1")).toStrictEqual({});
 
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null, handedOff: false }]);
     expect(starts()).toStrictEqual([
       { argv: ["--mode", "rpc", "--session", file], cwd: at.workspace },
       { argv: ["--mode", "rpc", "--session", file], cwd: at.workspace },
@@ -4031,7 +4092,7 @@ describe("SessionManager handing off (M1.9)", () => {
     await handing;
     expect(await taking).toStrictEqual({});
 
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null, handedOff: false }]);
     expect(starts()).toHaveLength(2);
     expect(received.at(-1)).toMatchObject({ type: "session_snapshot", epoch: 2, exited: false });
   });

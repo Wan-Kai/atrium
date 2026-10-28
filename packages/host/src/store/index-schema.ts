@@ -102,8 +102,13 @@ const SessionRecord = z.looseObject({
   draft: z.boolean(),
   archived: z.boolean(),
   createdAt: z.number(),
-  /** Why it needs a look, until its next run starts (SPEC-0001, "会话状态"); added in M1.9. */
-  attention: Attention.nullable().optional(),
+  /**
+   * Why it needs a look, until its next run starts (SPEC-0001, "会话状态"); added in M1.9. A mark
+   * kept before protocol 29 has no failure text, read as none (SPEC-0005, "协议改动" 6).
+   */
+  attention: Attention.extend({ text: z.string().max(300).nullable().default(null) })
+    .nullable()
+    .optional(),
   /** It was handed to pi in a terminal (SPEC-0001, "交给终端"); added in M1.9. */
   handedOff: z.boolean().optional(),
   /** Fast as last switched in it (SPEC-0001, "Fast"); added in M1.11. */
