@@ -480,7 +480,11 @@ figcaption p { font-size: 13px; color: var(--page-dim); margin-top: 3px; }
 .cr .tm { font-size: 12.5px; color: var(--l2); font-variant-numeric: tabular-nums; }
 .cr.cur b { font-weight: 650; }
 .cr.cur .tm { color: var(--tint); font-weight: 600; }
-.cr .q { width: 7px; height: 7px; border-radius: 4px; background: var(--attn); }
+/* the same marks as the home page's conversation rows */
+.cr .cst .spin { width: 12px; height: 12px; border-width: 2px; }
+.cr .cst .ask { width: 9px; height: 9px; border-radius: 5px; border: 2px solid var(--attn); }
+.cr .cst .idle { width: 5px; height: 5px; border-radius: 3px; background: var(--l3); }
+.r.newc { justify-content: center; gap: 6px; border: 0; }
 .cyc2 { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px 0 10px; border-radius: 16px; background: var(--surf); font-size: 14px; font-weight: 500; color: var(--text); }
 .foot2 { margin-top: 30px; text-align: center; font-size: 11.5px; color: var(--l3); font-variant-numeric: tabular-nums; }
 :root[data-theme="dark"] .foot2 { color: var(--l2); }
@@ -610,10 +614,10 @@ const STATUS = {
 const SET2 = ({ convs = true, status = "ok", macNote = "", sign = `<span class="v">还剩 5 天</span>`, signNote = "", theme = { icon: SYS, label: "跟随系统" }, forgetNote = "" } = {}) => `<div class="sp2">
   <div class="scroll"><div class="inner">
     ${convs ? `<div class="g2"><div class="gh">对话<span class="mono">feat/radar-colors</span></div>
-      <div class="cr cur"><span class="cst">${RUNDOTS(14)}</span><div><b>雷达图配色调整</b><small>进行中</small></div><span class="tm">当前</span></div>
-      <div class="cr"><span class="cst"><i class="q"></i></span><div><b>图例位置和字号</b><small class="ask">等你回答</small></div><span class="tm">9:12</span></div>
-      <div class="cr"><span class="cst"></span><div><b>深色下的对比度检查</b><small>完成</small></div><span class="tm">昨天</span></div>
-      <div class="r act" style="border:0"><span class="lead" style="color:var(--tint)">${NEW_CHAT}</span>新对话</div></div>` : ""}
+      <div class="cr cur"><span class="cst"><span class="spin"></span></span><div><b>雷达图配色调整</b><small>进行中</small></div><span class="tm">当前</span></div>
+      <div class="cr"><span class="cst"><span class="ask"></span></span><div><b>图例位置和字号</b><small class="ask">等你回答</small></div><span class="tm">9:12</span></div>
+      <div class="cr"><span class="cst"><span class="idle"></span></span><div><b>深色下的对比度检查</b><small>完成</small></div><span class="tm">昨天</span></div>
+      <div class="r act newc"><span class="lead" style="color:var(--tint)">${NEW_CHAT}</span>新对话</div></div>` : ""}
     <div class="g2"><div class="gh">Mac</div>
       <div class="r" style="border:0"><span class="lead">${MACI}</span>MacBook Pro${STATUS[status]}</div>
       <div class="note">${macNote || `经 <span class="mono">relay.ktoon.site</span> · ${LOCK} 端到端加密，relay 看不到内容`}</div></div>
@@ -630,7 +634,7 @@ const SET2 = ({ convs = true, status = "ok", macNote = "", sign = `<span class="
 const shell = inner => `<div class="island"></div><div class="status"><span>9:41</span>${ICONS}</div>${inner}<div class="home-ind"></div>`;
 
 const SCREENS = [
-  { h: "从对话打开", p: "对话页右上角点开，从右边滑进来、占满全屏，左上角返回（右滑也能关）。最上面是这个 worktree 里的对话（只列主对话，子对话还从输入框里的数字进），点一行就换过去；当前的写\"当前\"，最后一行在这里新开一个对话。下面依次是 Mac、这台手机、忘掉这台 Mac，一屏放得下。", html: () => shell(SET2()) },
+  { h: "从对话打开", p: "对话页右上角点开，从右边滑进来、占满全屏，左上角返回（右滑也能关）。最上面是这个 worktree 里的对话（只列主对话，子对话还从输入框里的数字进），点一行就换过去；当前的写\"当前\"，状态标记同首页的对话行（转圈、橙色空心圈、灰点）；最后一行居中的\"新对话\"在这里新开一个。下面依次是 Mac、这台手机、忘掉这台 Mac，一屏放得下。", html: () => shell(SET2()) },
   { h: "从首页打开", p: "首页菜单钮打开同一页，没有\"对话\"那一组。Mac 一行：名字 + 状态（深米小点\"已连接\"）；下面一行小字写经哪个 relay、端到端加密，代替原来单独的\"relay\"\"加密\"两行。", html: () => shell(SET2({ convs: false })) },
   { h: "签名快到期 · 外观换过", p: "签名只剩 1 天及以内时变橙，下面多一行怎么办；外观只有一个按钮，点一下按 跟随系统 → 浅色 → 深色 轮换，按钮写着现在是哪种。", html: () => shell(SET2({ convs: false, sign: `<span class="v warn">今天到期</span>`, signNote: `<div class="note" style="padding:0 0 12px;border-bottom:.5px solid var(--rule)">到期后 App 打不开，在 Mac 上跑 <span class="mono">pnpm ios:install</span> 重装，配对会留着。</div>`, theme: { icon: SUN, label: "浅色" } })) },
   { h: "连不上", p: "状态直接写在 Mac 那一行：重连中是转圈\"正在重连\"；连不上 relay、版本不一致这类要你动手的用橙色，小字说原因，后面一个\"重试\"。延迟、上次同步第一版不显示。", html: () => shell(SET2({ convs: false, status: "relay", macNote: `<span class="mono">relay.ktoon.site</span> 连不上：手机没网，或 relay 没开<b>重试</b>` })) },
