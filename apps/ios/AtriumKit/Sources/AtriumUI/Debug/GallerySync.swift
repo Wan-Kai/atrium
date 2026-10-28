@@ -46,6 +46,20 @@
     static let missingWorkspace = "w4"
     /// The open session the model sheet is for.
     static let openSession = "s1"
+    /// A question with two parts, the first a single choice with a recommended option.
+    static var question: PendingQuestion? {
+      let json = #"""
+        {"id":"call-1","askedAt":1,"questions":[\
+        {"header":"回调","question":"回调地址用哪个？","multiSelect":false,"options":[\
+        {"label":"/auth/callback","description":"和现有的 /auth/* 路由放在一起","preview":null,"recommended":true},\
+        {"label":"/oauth/cb","description":"GitHub 应用里已经填的是这个","preview":null,"recommended":false}]},\
+        {"header":"权限","question":"要申请哪些 GitHub 权限？","multiSelect":true,"options":[\
+        {"label":"read:user","description":"读用户名和头像，登录必须","preview":null,"recommended":false},\
+        {"label":"user:email","description":"拿到邮箱，用来认出同一个人","preview":null,"recommended":false}]}]}
+        """#
+      return try? JSONDecoder().decode(
+        PendingQuestion.self, from: Data(json.replacingOccurrences(of: "\\\n", with: "").utf8))
+    }
 
     /// A workspace, as JSON.
     ///
