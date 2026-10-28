@@ -121,8 +121,6 @@ private struct PixelCatGlyphCanvas: View, Equatable {
   var onlyFlipped = false
 
   /// A character in a colour, laid out once a draw.
-  ///
-  /// - Remark: Laying out text is the costly part of a draw; the cat uses a few dozen of these.
   private struct Key: Hashable {
     /// The character.
     let glyph: Character
