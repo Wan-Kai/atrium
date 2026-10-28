@@ -61,7 +61,7 @@ struct PixelCatView: View {
       if shimmer && !still {
         TimelineView(.animation(minimumInterval: 1 / Self.shimmerRate)) { context in
           let time = context.date.timeIntervalSinceReferenceDate
-          let grid = PixelCat.grid(scene, pose: PixelCatIdle.pose(at: time, seed: seed))
+          let grid = PixelCat.grid(scene, pose: PixelCatGlyphs.pose(PixelCatIdle.pose(at: time, seed: seed)))
           // The still cat repaints only when the pose changes; each tick redraws only the cells it flips.
           ZStack {
             PixelCatGlyphCanvas(grid: grid, colors: colors, sitting: scene == .sit, tick: nil).equatable()
@@ -74,7 +74,8 @@ struct PixelCatView: View {
           let pose =
             still ? .rest : PixelCatIdle.pose(at: context.date.timeIntervalSinceReferenceDate, seed: seed)
           PixelCatGlyphCanvas(
-            grid: PixelCat.grid(scene, pose: pose), colors: colors, sitting: scene == .sit, tick: nil)
+            grid: PixelCat.grid(scene, pose: PixelCatGlyphs.pose(pose)), colors: colors, sitting: scene == .sit,
+            tick: nil)
         }
       }
     }
@@ -103,11 +104,12 @@ struct PixelCatView: View {
 
 /// Draws one grid of the pixel cat in characters.
 ///
-/// - Remark: Each cell is a solid block in its colour with `PixelCatGlyphs`' character on top in a
-///   low-contrast ink (see `PixelCatColors.glyphBlock` and `glyphInk`); one monospaced semibold
-///   face a little taller than a cell. Each distinct character and colour is laid out once per draw
-///   and reused for every cell that shares it; the ink steps every four rows for that. Equatable,
-///   so an unchanged tick does not repaint.
+/// - Remark: Each cell is a block shaded by its light, with a thin gap round it so the grid shows,
+///   and `PixelCatGlyphs`' character on top in an ink that flips against the block, dark on lit
+///   blocks and cream on shaded ones (see `PixelCatColors.glyphBlock` and `glyphInk`); one
+///   monospaced semibold face a little taller than a cell. Each distinct character and ink is laid
+///   out once per draw and reused for every cell that shares it. Equatable, so an unchanged pose
+///   does not repaint; with the shimmer a second one on top draws only the cells the tick flips.
 private struct PixelCatGlyphCanvas: View, Equatable {
   /// The cells.
   let grid: [[PixelCat.Cell]]
@@ -136,27 +138,29 @@ private struct PixelCatGlyphCanvas: View, Equatable {
       let pitch = canvasSize.width / CGFloat(PixelCat.size)
       let font = Font.system(size: pitch * 1.18, weight: .semibold, design: .monospaced)
       var laidOut: [Key: GraphicsContext.ResolvedText] = [:]
+      let gap = pitch * 0.07
+      // A copy: the context draws into the same canvas, and a closure cannot capture the inout one.
+      let canvas = graphics
+      let block = { (row: Int, column: Int, color: Color) in
+        let cell = CGRect(x: CGFloat(column) * pitch, y: CGFloat(row) * pitch, width: pitch, height: pitch)
+        canvas.fill(
+          Path(roundedRect: cell.insetBy(dx: gap, dy: gap), cornerRadius: pitch * 0.12), with: .color(color))
+      }
       for (row, cells) in grid.enumerated() {
         for (column, cell) in cells.enumerated() {
           if onlyFlipped, let tick, !PixelCatGlyphs.mayFlip(row: row, column: column, tick: tick) { continue }
-          let band = row / 4 * 4
+          let light = PixelCatGlyphs.light(in: grid, row: row, column: column)
           // The background only inside the circle, and not at all when sitting, as the dots.
           if cell == .empty && (sitting || hypot(Double(column) - 15.5, Double(row) - 15.5) > 15.6) { continue }
-          if !onlyFlipped, let block = colors.glyphBlock(of: cell, row: row) {
-            graphics.fill(
-              Path(CGRect(x: CGFloat(column) * pitch, y: CGFloat(row) * pitch, width: pitch, height: pitch)),
-              with: .color(block))
+          if !onlyFlipped, let color = colors.glyphBlock(of: cell, row: row, light: light) {
+            block(row, column, color)
           }
           guard let glyph = PixelCatGlyphs.glyph(in: grid, row: row, column: column, tick: tick),
-            let color = colors.glyphInk(of: cell, row: band)
+            let color = colors.glyphInk(of: cell, light: light)
           else { continue }
           if onlyFlipped {
             guard glyph != PixelCatGlyphs.glyph(in: grid, row: row, column: column, tick: nil) else { continue }
-            if let block = colors.glyphBlock(of: cell, row: row) {
-              graphics.fill(
-                Path(CGRect(x: CGFloat(column) * pitch, y: CGFloat(row) * pitch, width: pitch, height: pitch)),
-                with: .color(block))
-            }
+            if let color = colors.glyphBlock(of: cell, row: row, light: light) { block(row, column, color) }
           }
           let key = Key(glyph: glyph, color: color)
           let text = laidOut[key] ?? graphics.resolve(Text(String(glyph)).font(font).foregroundColor(color))
@@ -247,40 +251,53 @@ struct PixelCatColors: Equatable {
 
   /// The block under a cell drawn as a character, or `nil` for a cell with none.
   ///
-  /// - Remark: As ascii-sharks draws its sharks: a solid block in the cell's colour, so the cat
-  ///   keeps a clear shape on the paper, with the character on top as texture. The background and
-  ///   the light-mode ring have no block, only a faint character.
+  /// - Remark: As ascii-sharks draws its sharks, the block carries the light and shade: the body
+  ///   from the lit cream through a warm tan to a brown, curved so light dominates and the shade
+  ///   gathers at the bottom right; the tile and folder from a light to a darker deep beige over a
+  ///   narrower range, so the cat's shade does not run into them; by `PixelCatGlyphs.light`. Asleep, the body runs between the dots' greys and the tile keeps
+  ///   its faint dot colour. Features keep the dots' colours; the background and the light-mode
+  ///   ring have no block, only a faint character.
   /// - SideEffects: none
   /// - Parameters:
   ///   - cell: The cell.
-  ///   - row: Its row, for the shading.
+  ///   - row: Its row, for the features' colours.
+  ///   - light: The cell's light, for the body and the tile.
   /// - Returns: The colour.
-  func glyphBlock(of cell: PixelCat.Cell, row: Int) -> Color? {
-    switch cell {
-    case .empty, .outline, .outside: nil
-    default: color(of: cell, row: row)
+  func glyphBlock(of cell: PixelCat.Cell, row: Int, light: Double?) -> Color? {
+    let dark = scheme == .dark
+    switch (cell, light) {
+    case (.empty, _), (.outline, _), (.outside, _): return nil
+    case (.body, let light?):
+      // Curved, so most of the body stays lit and the shade gathers at the bottom right.
+      let shadow = pow(1 - light, 1.5)
+      if asleep { return Self.mix(dark ? 0x6e685f : 0xc8bfaf, dark ? 0x3a3631 : 0x8a8275, shadow) }
+      // Through a warm tan, so the half-lit cells stay warm instead of turning grey.
+      return shadow < 0.5
+        ? Self.mix(0xfbf3e6, 0xdcc5a2, shadow * 2) : Self.mix(0xdcc5a2, 0x6e5539, (shadow - 0.5) * 2)
+    case (.tile, let light?) where !asleep, (.tab, let light?) where !asleep:
+      return Self.mix(dark ? 0x8c7656 : 0xa48a62, dark ? 0x56462f : 0x6e5839, 1 - light)
+    default: return color(of: cell, row: row)
     }
   }
 
   /// The character's colour on a cell, or `nil` for a cell whose character is not drawn.
   ///
-  /// - Remark: Low-contrast ink, so the characters read as fur and weave, not as text: warm brown
-  ///   on the cream body, darkening downwards with the shading; cream on the deep beige tile; the
-  ///   background and ring as faint as the dots'. Features (eyes, nose, blush, ears, badge) stay
-  ///   solid blocks. Asleep, everything is fainter.
+  /// - Remark: The ink flips against its block, as in ascii-sharks: dark on a lit block, cream on
+  ///   a shaded one, half see-through so the characters read as texture. The background and ring
+  ///   are as faint as the dots'. Features stay solid blocks. Asleep, everything is fainter.
   /// - SideEffects: none
   /// - Parameters:
   ///   - cell: The cell.
-  ///   - row: Its row, for the shading.
+  ///   - light: The cell's light, for the body and the tile.
   /// - Returns: The colour.
-  func glyphInk(of cell: PixelCat.Cell, row: Int) -> Color? {
+  func glyphInk(of cell: PixelCat.Cell, light: Double?) -> Color? {
     let fade = asleep ? 0.5 : 1
     let dark = scheme == .dark
-    switch cell {
-    case .body: return RGBA(0x5c4630, (0.22 + 0.3 * Double(row) / Double(PixelCat.size)) * fade).color
-    case .tile, .tab: return RGBA(0xfbf3e6, (dark ? 0.22 : 0.3) * fade).color
-    case .empty: return dark ? RGBA(0xfff0dc, 0.1).color : RGBA(0x3c321e, 0.12).color
-    case .outline: return dark ? nil : RGBA(0x46371e, 0.35).color
+    switch (cell, light) {
+    case (.body, let light?), (.tile, let light?), (.tab, let light?):
+      return light >= 0.5 ? RGBA(0x2c2218, 0.32 * fade).color : RGBA(0xfbf3e6, 0.5 * fade).color
+    case (.empty, _): return dark ? RGBA(0xfff0dc, 0.1).color : RGBA(0x3c321e, 0.12).color
+    case (.outline, _): return dark ? nil : RGBA(0x46371e, 0.35).color
     default: return nil
     }
   }

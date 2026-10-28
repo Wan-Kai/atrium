@@ -89,4 +89,45 @@ struct PixelCatGlyphsTests {
     }
     #expect(changedEver.count > cells / 4)
   }
+
+  @Test("the shading spans light to dark: lit cream at the top left, deep shadow at the bottom right")
+  func strongShading() throws {
+    let lights = innerBody(sitting).compactMap { PixelCatGlyphs.light(in: sitting, row: $0.row, column: $0.column) }
+    #expect(lights.count == innerBody(sitting).count)
+    #expect(try #require(lights.max()) >= 0.8)
+    #expect(try #require(lights.min()) <= 0.3)
+    let rows = innerBody(sitting).map(\.row)
+    let span = Double(try #require(rows.max()) - rows.min()!)
+    let band = { (from: Double, to: Double) -> Double in
+      let picked = self.innerBody(self.sitting).filter {
+        let at = Double($0.row - rows.min()!) / span
+        return at >= from && at <= to
+      }
+      let values = picked.compactMap { PixelCatGlyphs.light(in: self.sitting, row: $0.row, column: $0.column) }
+      return values.reduce(0, +) / Double(values.count)
+    }
+    #expect(band(0, 0.25) - band(0.75, 1) >= 0.35)
+    #expect(
+      PixelCatGlyphs.light(in: sitting, row: 0, column: 0) == PixelCatGlyphs.light(in: sitting, row: 0, column: 0))
+  }
+
+  @Test("the shade is light only for the body and the tile; features keep their own colour")
+  func lightOnlyForSurfaces() {
+    for row in 0..<PixelCat.size {
+      for column in 0..<PixelCat.size {
+        let light = PixelCatGlyphs.light(in: sitting, row: row, column: column)
+        switch sitting[row][column] {
+        case .body, .tile, .tab: #expect(light.map { (0...1).contains($0) } == true)
+        default: #expect(light == nil)
+        }
+      }
+    }
+  }
+
+  @Test("the character cat blinks and flicks an ear but does not tilt its head")
+  func noTilt() {
+    #expect(PixelCatGlyphs.pose(PixelCat.Pose(tilt: true)) == .rest)
+    #expect(PixelCatGlyphs.pose(PixelCat.Pose(blink: true)) == PixelCat.Pose(blink: true))
+    #expect(PixelCatGlyphs.pose(PixelCat.Pose(flick: true)) == PixelCat.Pose(flick: true))
+  }
 }
