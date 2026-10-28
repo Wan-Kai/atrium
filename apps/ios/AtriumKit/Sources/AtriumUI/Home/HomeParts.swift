@@ -78,8 +78,7 @@ struct EmptyHome: View {
   var body: some View {
     let palette = Palette(scheme: scheme)
     VStack(spacing: Metrics.sm) {
-      PixelCatView(scene: hasChats ? .peek : .tile)
-        .frame(width: hasChats ? 128 : 160, height: hasChats ? 128 : 160)
+      PixelCatView(scene: hasChats ? .peek : .tile, size: hasChats ? 128 : 160)
       Text(hasChats ? "还没有项目" : "这里还是空的").font(.system(size: 18, weight: .semibold)).foregroundStyle(palette.text)
       Text(
         hasChats

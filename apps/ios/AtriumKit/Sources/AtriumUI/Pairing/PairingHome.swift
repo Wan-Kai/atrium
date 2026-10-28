@@ -18,6 +18,8 @@ public struct PairingHome<Content: View>: View {
   private let environment: RemoteEnvironment
   @State private var model: PairingModel?
   @State private var connection: RemoteConnection?
+  /// Light or dark, for the theme colour of the pairing controls.
+  @Environment(\.colorScheme) private var scheme
   @State private var sync: SyncModel?
   /// The Mac the current connection is to, for forgetting it.
   @State private var connectedHost: String?
@@ -69,8 +71,10 @@ public struct PairingHome<Content: View>: View {
           .padding()
         }
       }
+      // System controls (checkmarks, links, the bar's button) take the deep beige, not system blue.
+      .tint(Palette(scheme: scheme).tint)
       .sheet(item: $model) { model in
-        PairingView(model: model)
+        PairingView(model: model).tint(Palette(scheme: scheme).tint)
       }
       .task {
         guard connection == nil else { return }
@@ -79,6 +83,14 @@ public struct PairingHome<Content: View>: View {
             revision == 0, model == nil
           {
             connect(host.record, handover: nil, ownership: host.ownership)
+          } else {
+            #if DEBUG
+              if model == nil, let link = Self.launchLink(ProcessInfo.processInfo.environment) {
+                let opened = PairingModel(environment: environment, store: store, device: deviceInfo, onPaired: paired)
+                model = opened
+                opened.submit(link)
+              }
+            #endif
           }
         } catch { connectionText = "钥匙串暂不可用，请解锁后重试" }
       }
@@ -364,4 +376,20 @@ public struct PairingHome<Content: View>: View {
     case .pairingIncomplete: "上次配对未完成，请重新扫码"
     }
   }
+
+  #if DEBUG
+    /// A pairing link handed in at launch, for a simulator walk-through against a local test host.
+    ///
+    /// - Remark: Debug builds only. A simulator cannot scan the Mac's QR code, and the link is a
+    ///   credential, so the shell passes it from a private file straight into the app's launch
+    ///   environment (`SIMCTL_CHILD_ATRIUM_PAIR_LINK`) instead of anyone typing or pasting it. Used
+    ///   only when no Mac is stored yet; the pairing then runs as from a pasted link.
+    /// - SideEffects: none
+    /// - Parameter environment: The process's environment.
+    /// - Returns: The trimmed link, or `nil` when absent or blank.
+    static func launchLink(_ environment: [String: String]) -> String? {
+      let link = environment["ATRIUM_PAIR_LINK"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      return link.isEmpty ? nil : link
+    }
+  #endif
 }
