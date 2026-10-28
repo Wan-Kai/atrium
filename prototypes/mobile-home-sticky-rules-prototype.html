@@ -4,7 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>便签规则</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560&family=Instrument+Serif&family=Playfair+Display:wght@600&family=Cormorant+Garamond:wght@600&family=Newsreader:opsz,wght@6..72,560&family=DM+Serif+Display&display=swap" rel="stylesheet">
 <style>
+@font-face { font-family: "NY"; src: url("file:///System/Library/Fonts/NewYork.ttf"); }
+:root { --brand-weight: 560; --brand: "Fraunces"; --brand-size: 36px; --brand-ls: -0.02em; }
 :root { --page: #e8e5dd; --page-text: #2a2722; --page-dim: #7a756b; --page-line: #d5d0c5; }
 :root[data-theme="dark"] { --page: #0f0e0c; --page-text: #ece8df; --page-dim: #8c867b; --page-line: #2b2925; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -155,11 +159,11 @@ h3.t { font: 600 34px/0.9 "New York", "Iowan Old Style", Georgia, serif; letter-
   display: flex; flex-direction: column; rotate: var(--r); translate: 0 var(--y); cursor: pointer; text-decoration: none;
   box-shadow: 0 1px 1px rgba(60,40,0,.08), 0 14px 18px -14px rgba(60,40,0,.5); }
 .one.ask  { background: #f7dfb8; color: #3a2610; }
-.one.auth { background: #dfe0cf; color: #262a17; }
+.one.low  { background: #dfe0cf; color: #262a17; }
 .one.err  { background: #f4cdc4; color: #3d1913; }
 :root[data-theme="dark"] .one { box-shadow: 0 14px 18px -12px rgba(0,0,0,.75); }
 :root[data-theme="dark"] .one.ask  { background: #3f3221; color: #f4dfbd; }
-:root[data-theme="dark"] .one.auth { background: #33342a; color: #e4e5d2; }
+:root[data-theme="dark"] .one.low  { background: #33342a; color: #e4e5d2; }
 :root[data-theme="dark"] .one.err  { background: #402723; color: #f6d2ca; }
 .one .tape { position: absolute; top: -8px; left: var(--tx); translate: -50% 0; width: 50px; height: 16px; background: rgba(255,255,255,.5); rotate: var(--ta); }
 :root[data-theme="dark"] .one .tape { background: rgba(255,255,255,.14); }
@@ -187,6 +191,28 @@ h3.t { font: 600 34px/0.9 "New York", "Iowan Old Style", Georgia, serif; letter-
 .one.out { animation: peel .26s ease-in both, close .22s .24s ease-in-out forwards; overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .one { rotate: 0deg; } }
 
+
+/* the brand title, in the serif picked below */
+h3.t { font: var(--brand-weight) var(--brand-size)/0.9 var(--brand), "Iowan Old Style", Georgia, serif; letter-spacing: var(--brand-ls); font-variation-settings: "SOFT" 50, "WONK" 0; }
+.specimen { max-width: 2060px; margin: 0 auto 30px; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.spec { background: #f6f2e9; color: #26221c; border-radius: 16px; padding: 18px 20px 14px; cursor: pointer; border: 0; text-align: left; font: inherit; box-shadow: inset 0 0 0 .5px rgba(70,55,30,.15); }
+:root[data-theme="dark"] .spec { background: #1c1a16; color: #eee9df; box-shadow: inset 0 0 0 .5px rgba(238,233,223,.1); }
+.spec[aria-pressed="true"] { box-shadow: inset 0 0 0 2px #8a7352; }
+:root[data-theme="dark"] .spec[aria-pressed="true"] { box-shadow: inset 0 0 0 2px #c9b28c; }
+.spec .w { display: block; text-align: right; line-height: .95; }
+.spec .h { display: block; text-align: right; font-size: 12.5px; opacity: .55; margin-top: 2px; }
+.spec .n { display: block; margin-top: 12px; font-size: 12.5px; font-weight: 600; }
+.spec .d { display: block; font-size: 12px; opacity: .6; }
+/* + is the same paper glass as the menu, only larger */
+.fab { background: color-mix(in srgb, var(--note) 62%, transparent); color: var(--text); backdrop-filter: blur(18px) saturate(1.4);
+  box-shadow: inset 0 0 0 .5px var(--rule), inset 0 1px 0 rgba(255,255,255,.55), 0 10px 22px -12px rgba(50,35,10,.4); }
+:root[data-theme="dark"] .fab { background: color-mix(in srgb, var(--note) 58%, transparent); box-shadow: inset 0 0 0 .5px rgba(238,233,223,.14), inset 0 1px 0 rgba(255,255,255,.08), 0 10px 22px -12px rgba(0,0,0,.7); }
+/* the top-left corner names the kind of thing; for now every note is a conversation */
+.one .kind > span:first-child { display: inline-flex; align-items: center; gap: 4px; }
+.one .kind svg { opacity: .8; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+.legend i { width: 18px; height: 14px; border-radius: 2px 2px 5px 2px; box-shadow: 0 0 0 .5px rgba(0,0,0,.12); }
 /* rule sheet beside the phones */
 .rules { max-width: 1340px; margin: 44px auto 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px 32px; font-size: 13.5px; }
 .rules h3 { font-size: 15px; font-weight: 650; margin-bottom: 6px; }
@@ -209,13 +235,22 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 <header class="page">
   <div>
     <h1>「等你处理」便签 · 生成规则</h1>
-    <p>D「一事一张」定稿前的规则样张：0、1、2、5、12 件，Mac 断开时，以及贴上、撕下的动效。示例数据是虚构的。便签里第二行的原话（问题、报错）现在首页拿不到，见页尾「待你定」。</p>
+    <p>D「一事一张」的规则样张。这一版：左上角改成分类（先统一"对话"），颜色只表示关注等级；右下角 + 换成纸面玻璃；上面一排是标题字体，点一个，下面的手机跟着换：0、1、2、5、12 件，Mac 断开时，以及贴上、撕下的动效。示例数据是虚构的。便签里第二行的原话（问题、报错）现在首页拿不到，见页尾「待你定」。</p>
   </div>
   <div class="seg" role="group" aria-label="外观">
     <button type="button" data-theme-set="light" aria-pressed="true">浅色</button>
     <button type="button" data-theme-set="dark" aria-pressed="false">深色</button>
   </div>
 </header>
+<section class="specimen" aria-label="标题字体">
+  <button class="spec" type="button" data-font="Fraunces" data-weight="560" data-size="36px" data-ls="-0.02em" aria-pressed="true"><span class="w" style="font:560 36px/0.95 Fraunces;letter-spacing:-.02em;font-variation-settings:'SOFT' 50">Atrium</span><span class="h">● MacBook Pro</span><span class="n">Fraunces（推荐）</span><span class="d">软角的老派衬线，暖、和纸面最搭</span></button>
+  <button class="spec" type="button" data-font="Instrument Serif" data-weight="400" data-size="42px" data-ls="-0.01em"><span class="w" style="font:400 42px/0.95 'Instrument Serif';letter-spacing:-.01em">Atrium</span><span class="h">● MacBook Pro</span><span class="n">Instrument Serif</span><span class="d">窄而细，杂志封面感，最精致</span></button>
+  <button class="spec" type="button" data-font="Playfair Display" data-weight="600" data-size="34px" data-ls="-0.015em"><span class="w" style="font:600 34px/0.95 'Playfair Display';letter-spacing:-.015em">Atrium</span><span class="h">● MacBook Pro</span><span class="n">Playfair Display</span><span class="d">粗细对比强，像报头</span></button>
+  <button class="spec" type="button" data-font="Cormorant Garamond" data-weight="600" data-size="40px" data-ls="-0.01em"><span class="w" style="font:600 40px/0.95 'Cormorant Garamond';letter-spacing:-.01em">Atrium</span><span class="h">● MacBook Pro</span><span class="n">Cormorant Garamond</span><span class="d">古典书籍感，最文气</span></button>
+  <button class="spec" type="button" data-font="Newsreader" data-weight="560" data-size="36px" data-ls="-0.02em"><span class="w" style="font:560 36px/0.95 Newsreader;letter-spacing:-.02em">Atrium</span><span class="h">● MacBook Pro</span><span class="n">Newsreader</span><span class="d">报纸正文衬线，稳</span></button>
+  <button class="spec" type="button" data-font="DM Serif Display" data-weight="400" data-size="36px" data-ls="-0.01em"><span class="w" style="font:400 36px/0.95 'DM Serif Display';letter-spacing:-.01em">Atrium</span><span class="h">● MacBook Pro</span><span class="n">DM Serif Display</span><span class="d">粗壮圆润，存在感最强</span></button>
+  <button class="spec" type="button" data-font="NY" data-weight="600" data-size="34px" data-ls="-0.02em"><span class="w" style="font:600 34px/0.95 NY;letter-spacing:-.02em">Atrium</span><span class="h">● MacBook Pro</span><span class="n">New York（现在）</span><span class="d">iOS 自带，手机上现在用的</span></button>
+</section>
 
 <main class="grid">
   <figure><div class="phone" data-n="0"></div><figcaption><h2>0 件</h2><p>整块不出现，项目直接上来。不写"没有要处理的"。</p></figcaption></figure>
@@ -233,7 +268,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     <h3>选哪些、怎么排</h3>
     <ol>
       <li>同桌面收件箱 <code>inboxOf</code>：未归档；有没答的问题算"在问你"，否则没看过的出错算"出错"，要登录的一直算"要登录"直到下次运行。</li>
-      <li>排序：在问你 → 要登录 → 出错；同类里最新的在前（同桌面）。</li>
+      <li>排序：先按关注等级（卡住 → 等你 → 提醒），同级里最新的在前。</li>
       <li>最多贴 8 张；再多，第 9 个位置是"还有 N 件"的一叠，点开是完整列表页。</li>
       <li>0 件整块不显示。</li>
     </ol>
@@ -241,7 +276,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   <div>
     <h3>一张便签写什么</h3>
     <ol>
-      <li>顶行：状态词（在问你 / 要登录 / 出错）＋ 等了多久（"6 分钟""1 小时""昨天"）。</li>
+      <li>左上角是分类，不写状态：现在只有"对话"（气泡图标＋字）；以后加"待确认""TODO""收件箱"等。右上角等了多久。</li>
       <li>标题：会话名，没有取第一句话，最多 2 行。</li>
       <li>原话，最多 2 行：在问你写问题第一句；出错写报错第一行（等宽）；要登录写"<i>Anthropic</i> 登录过期，到 Mac 上重新登录"。</li>
       <li>底行：项目 · 工作区；对话写"对话"。一行，超出省略。</li>
@@ -251,7 +286,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   <div>
     <h3>长什么样</h3>
     <ol>
-      <li>颜色只看状态：杏色＝在问你，灰绿＝要登录，浅红＝出错。深色模式用同色相的暗纸。</li>
+      <li>颜色是关注等级，和分类无关：<span class="legend"><span><i style="background:#f4cdc4"></i>卡住（出错、要登录）</span><span><i style="background:#f7dfb8"></i>等你（在问你、待确认）</span><span><i style="background:#dfe0cf"></i>提醒（TODO、收件箱，先留着）</span></span>状态词不写在便签上，读屏时念出来（"在问你""出错"）。</li>
       <li>尺寸固定 158 × 164；2 张正好一屏，第 3 张露出 28pt。只有 1 张时占满一行。</li>
       <li>歪的角度、胶带位置由会话 id 算出来：同一张便签每次打开都一样，不会刷新就抖。相邻两张一左一右歪，单数张下沉 6pt。</li>
       <li>角度 ±0.8°～±2.2°，胶带左右 40%～60%、转 ±4°。"减少动态效果"打开时全部摆正。</li>
@@ -270,7 +305,6 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
     <h3 class="q">待你定</h3>
     <ol>
       <li>原话那一行要宿主在会话列表里多带"问题第一句 / 报错第一行"（截短到 120 字），协议升一版；不加的话便签只有标题和位置。</li>
-      <li>"要登录"单独一种颜色（灰绿），还是和现在一样算"出错"。</li>
       <li>写不写等了多久（SPEC-0005 现在写"不写时间"）。</li>
       <li>只有 1 张时占满一行，还是和其他时候一样宽。</li>
     </ol>
@@ -278,6 +312,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 </section>
 
 <script>
+const root = document.documentElement;
 const ICONS = `<span class="icons"><svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5" width="3" height="7" rx="1" fill="currentColor"/><rect x="10" y="2" width="3" height="10" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg><svg width="26" height="12" viewBox="0 0 26 12"><rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor"/></svg></span>`;
 const MENU = `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3.5 6h13M3.5 10h9M3.5 14h13"/></svg>`;
 const PLUS = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg>`;
@@ -302,8 +337,9 @@ const POOL = [
   { id: "s-ci", k: "err", title: "夜间变异测试", lede: "Stryker: 3 mutants timed out", code: true, where: "atrium · main", since: "上周" },
 ];
 const EXTRA = { id: "s-new", k: "ask", title: "雷达图的图例放哪？", lede: "放右上角会挡住第三个轴，放底下要多 24pt。", where: "atrium · feat/radar-map", since: "刚刚" };
-const RANK = { ask: 0, auth: 1, err: 2 };
-const WORD = { ask: "在问你", auth: "要登录", err: "出错" };
+const LEVEL = { err: "err", auth: "err", ask: "ask", low: "low" };
+const RANK = { err: 0, ask: 1, low: 2 };
+const CHAT = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M2 3.2A1.7 1.7 0 0 1 3.7 1.5h4.6A1.7 1.7 0 0 1 10 3.2v3.1A1.7 1.7 0 0 1 8.3 8H5.4L3 10V8h0A1.7 1.7 0 0 1 2 6.3z"/></svg>`;
 const MAX = 8;
 
 /* a stable 0..1 from a session id, so a note keeps its tilt and tape between visits */
@@ -312,8 +348,8 @@ const look = (w, i) => {
   const mag = 0.8 + hash(w.id, 1) * 1.4, sign = i % 2 ? 1 : -1;
   return `--r:${(sign * mag).toFixed(2)}deg;--y:${i % 2 ? 6 : 0}px;--tx:${(40 + hash(w.id, 2) * 20).toFixed(0)}%;--ta:${((hash(w.id, 3) - .5) * 8).toFixed(1)}deg`;
 };
-const note = (w, i, solo) => `<a class="one ${w.k}" data-id="${w.id}" style="${solo ? "" : look(w, i)}"><span class="tape"></span><span class="kind"><span>${WORD[w.k]}</span><span>${w.since}</span></span><b>${w.title}</b><p class="${w.code ? "code" : ""}">${w.lede}</p><small>${w.where}</small></a>`;
-const sorted = list => list.map((w, i) => [w, i]).sort((a, b) => RANK[a[0].k] - RANK[b[0].k] || a[1] - b[1]).map(x => x[0]);
+const note = (w, i, solo) => `<a class="one ${LEVEL[w.k]}" data-id="${w.id}" aria-label="${{ask: "在问你", auth: "要登录", err: "出错"}[w.k]}" style="${solo ? "" : look(w, i)}"><span class="tape"></span><span class="kind"><span>${CHAT}对话</span><span>${w.since}</span></span><b>${w.title}</b><p class="${w.code ? "code" : ""}">${w.lede}</p><small>${w.where}</small></a>`;
+const sorted = list => list.map((w, i) => [w, i]).sort((a, b) => RANK[LEVEL[a[0].k]] - RANK[LEVEL[b[0].k]] || a[1] - b[1]).map(x => x[0]);
 function strip(list) {
   if (!list.length) return "";
   const shown = sorted(list).slice(0, list.length > MAX ? MAX : list.length);
@@ -368,8 +404,11 @@ document.querySelector("[data-do=done]").onclick = () => {
   n.addEventListener("animationend", e => { if (e.animationName === "close") { n.remove(); relook(); } });
 };
 
+document.querySelectorAll(".spec").forEach(b => b.onclick = () => {
+  root.style.setProperty("--brand", `"${b.dataset.font}"`); root.style.setProperty("--brand-size", b.dataset.size); root.style.setProperty("--brand-ls", b.dataset.ls); root.style.setProperty("--brand-weight", b.dataset.weight);
+  document.querySelectorAll(".spec").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+});
 document.addEventListener("click", e => { const h = e.target.closest(".ph"); if (h) h.parentElement.classList.toggle("closed"); });
-const root = document.documentElement;
 document.querySelectorAll("[data-theme-set]").forEach(b => b.onclick = () => {
   root.dataset.theme = b.dataset.themeSet;
   document.querySelectorAll("[data-theme-set]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
