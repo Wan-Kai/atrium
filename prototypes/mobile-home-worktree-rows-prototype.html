@@ -226,14 +226,14 @@ h3.t { font: italic var(--brand-weight) var(--brand-size)/0.9 var(--brand), "Iow
 .chat-add { width: 22px; height: 22px; border-radius: 11px; display: grid; place-items: center; color: var(--tint); background: var(--tint-soft); }
 
 /* A: two lines, 46pt — branch on top, the session that matters under it */
-.vA .grp { margin-top: 16px; } .vA .gh { height: 30px; }
-.vA .wt { display: grid; grid-template-columns: 16px 1fr auto; column-gap: 8px; align-items: center; height: 46px; padding-left: 2px; }
+.vA .grp { margin-top: 20px; } .vA .gh { height: 34px; }
+.vA .wt { display: grid; grid-template-columns: 16px 1fr auto; column-gap: 8px; align-items: center; height: 50px; padding-left: 2px; }
 .vA .wt .l1 { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
 .vA .wt .br { font: 500 13.5px "SF Mono", ui-monospace, monospace; color: var(--text); }
-.vA .wt .l2 { font-size: 13px; color: var(--l2); margin-top: 1px; }
+.vA .wt .l2 { font-size: 13px; color: var(--l2); margin-top: 3px; }
 .vA .wt + .wt { border-top: .5px solid var(--rule); }
-.vA .fold { height: 30px; padding-left: 26px; }
-.vA .ch { display: grid; grid-template-columns: 16px 1fr auto; column-gap: 8px; align-items: center; height: 38px; padding-left: 2px; font-size: 14.5px; }
+.vA .fold { height: 34px; padding-left: 26px; }
+.vA .ch { display: grid; grid-template-columns: 16px 1fr auto; column-gap: 8px; align-items: center; height: 42px; padding-left: 2px; font-size: 14.5px; }
 .vA .ch + .ch { border-top: .5px solid var(--rule); }
 
 /* B: one line, 36pt — branch, then the session's title, then its time */
@@ -288,7 +288,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 </header>
 
 <main class="grid">
-  <figure><div class="phone" data-n="2" data-v="A"></div><figcaption><h2>A 两行 · 46pt</h2><p>上行分支和状态（未提交、↑3），下行是那个会话的标题；右边状态和时间。worktree 之间细线。</p></figcaption></figure>
+  <figure><div class="phone" data-n="2" data-v="A"></div><figcaption><h2>A 两行 · 50pt（选定）</h2><p>上行分支和状态（未提交、↑3），下行是那个会话的标题；右边状态和时间。worktree 之间细线。</p></figcaption></figure>
   <figure><div class="phone" data-n="2" data-v="B"></div><figcaption><h2>B 单行 · 36pt</h2><p>分支、会话标题、时间挤在一行，最密；分支太长会截断，会话标题只剩半行。</p></figcaption></figure>
   <figure><div class="phone" data-n="2" data-v="C"></div><figcaption><h2>C 每个项目一张纸 · 44pt</h2><p>同 A 的两行，但每个项目放在一张浅色纸上，项目之间分得清；收起时只剩标题条。</p></figcaption></figure>
   <figure><div class="phone" data-n="2"></div><figcaption><h2>现在</h2><p>每个 worktree 列 3 个会话、每行 40pt，作对比。</p></figcaption></figure>
