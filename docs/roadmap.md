@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-28 MP6e 纸面改版：设计定稿，开始实现。** 在 `atrium/mobile-redesign`（`atrium.worktrees/mobile-redesign`）：原型逐页由用户选定（首页、便签规则、对话、输入框、设置页），规范写进 design-language"手机端"和 SPEC-0005"界面"（含协议 29）。下一步：协议与宿主、Swift 各屏、测试、真机验收。
+
 **2026-10-28 MP6a–d 实现完成并经两方审查修完；同日用户在 iPhone 16 Pro 上验收通过，`atrium/mp4-sync`、`atrium/mp5-conversation` 已本地合并回 `main`，未推送。下一步 MP7 自用。** 都在 `atrium/mp5-conversation`（`atrium.worktrees/mp5-conversation`）：MP6a 改动列表和 diff 页（`22fb87d`）、MP6b 首页 / 工作区页 / 抽屉 / 签名天数（`98e5d79`）、MP6c 模型 sheet（`1cc1f93`）、MP6d 新会话（`12e5287`）；codex gpt-6-astra 和 grok grok-4.7 只读审查的发现在 `ea48157` 修完（改动列表推出时会话不再关闭、模型目录按位置、"找不到"标记只活一个连接、首页 `+` 的位置、抽屉补 relay / 手机名 / 版本 / 重新配对等），决定不改的三条写在追踪表"MP6 审查"。Swift 402 个测试、`pnpm check`、模拟器构建通过。真机性能已测（iPhone 16 Pro，`List` 无超过 50 毫秒的帧和主线程忙段，最长 24 毫秒，负控抓到注入的 80 毫秒；定下继续用 `List`，见 mobile-render.md"iPhone 16 Pro 真机"）。未做、交给验收：需要真实同步数据的整屏截图（模型 sheet、选位置 sheet、找不到工作区、抽屉）、hunk 之间的上下文展开（协议没有按版本取内容的命令，SPEC 已写明第一版不做）。MVP 手机端剩 MP7 自用，要用户本人用一周。
 
 **2026-10-28 MP4 三方审查完成、MP5a/b/c 实现完成（同日验收通过并合并，见上条）。** MP4 在 `atrium/mp4-sync`（`atrium.worktrees/mp4-sync`），三方审查（Claude 子代理、codex gpt-6-astra、grok grok-4.7）的发现已按测试先行修完（`605d46c`、`bc0b86d`、`6dfeecf`）；grok 报的"取消时 `AsyncStream` 卡住"经实测不成立，未改。MP5 在 `atrium/mp5-conversation`（`atrium.worktrees/mp5-conversation`，叠在 MP4 上并已合入其修复）：MP5a 对话本身（控制状态、轮次版式、过程轨道、Markdown 回复、顶栏）、MP5b 运行控制（插话、排队 sheet、停止、出错卡片、关注清除）、MP5c 提问 / 对话框 / 子对话 sheet 和发图片；代定的细节写在 SPEC-0005"MP5 定的细节"。契约覆盖排队、插话、停止后继续、对话框两端回答、带图发送。未做：真机性能（50 毫秒预算）、sheet 和菜单的截图与 UI 测试、`List` 与 `LazyVStack` 的取舍——交给用户验收；下一步 MP6。
@@ -581,6 +583,12 @@ MP0 互通实验 ──┬── MP1 Swift 工程基础 ──┐
 
 - **范围**：改动列表（单行分组、按改动量排、筛选）和 diff（不换行、折叠上下文、工具条）、新会话页（入口、位置和模型胶囊、选位置 sheet、发出时原地变成对话、回首页插入、找不到的工作区）、模型 sheet（图标栏、点阵推理强度框、Fast）、首页的完整视觉（衬线标题、工作区小标题、"还有 N 个"、工作区页）、左上角抽屉、像素猫插图和空状态、"签名还剩 N 天"。
 - **完成标准**：同 MP5；各屏截图对照定稿原型逐项核对。
+
+##### MP6e 纸面改版（2026-10-28 定稿，进行中）
+
+- **为什么**：自用前用户要把手机端整体换成"纸面"风格、深米色主题，并精简首页、输入框和抽屉（SPEC-0005"界面"2026-10-28 条，design-language"手机端"）。
+- **范围**：手机端 token 和字体（Fraunces 斜体标题子集）；首页（便签式"等你处理"、一个 worktree 一行、右上设置钮）；对话页（居中标题、玻璃上下边、桌面小猫、气泡外时间、两层输入框、出错与重连浮条）；提问 sheet；模型 sheet（照桌面、加 Fast 开关）；全屏设置页（切换同 worktree 的对话）；工作区页、改动、diff、新会话、配对换新配色；协议 29（`Attention.text`、`SessionSummary.question`）和宿主填这两个字段。
+- **完成标准**：同 MP5；各屏截图对照定稿原型逐项核对；设计稿没覆盖、照桌面做的地方交付时列给用户。
 
 ##### MP7 自用
 
