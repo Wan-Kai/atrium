@@ -2036,3 +2036,4 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 提问 sheet："agent" 的字母依次跳（1.8 秒一轮，14% 处最高 4pt，40% 后停） | Swift `AgentWordTests`；整页靠截图 `pnpm ios:shot --gallery=question-sheet [--dark]`（样例是"已在 Mac 上回答"的状态） |
 | 模型 sheet 整屏（无搜索、服务商栏和竖线、深米点阵、深米 Fast 开关，浅深两色） | 截图 `pnpm ios:shot --gallery=model-sheet [--dark]`，已看过 |
 | 工作区页（改动卡片：Fraunces 行数、比例条）、新会话（无猫、两层输入框带位置）、diff 的 hunk 头深米、配对校验码纸卡、像素猫底块深米 | 截图 `pnpm ios:shot --gallery=new-session|diff-page`，已看过；工作区页和配对校验码靠验收 |
+| 变异测试：`pnpm test:mutation host --mutate=packages/host/src/store/index-schema.ts` 96.64%（存活 5 个都在这次没改的行）；补了"保留短的报错原文"一条杀掉 `max(300)→min(300)` | `index-schema.test.ts` |
