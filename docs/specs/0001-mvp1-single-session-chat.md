@@ -741,8 +741,8 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - `rename_workspace(workspaceId, name | null)`：`null` 恢复为分支名。
 - `rename_chat(chatId, name | null)`：`null` 恢复为第一个会话的标题；对话不存在应答 `chat_not_found`（2026-10-12 加）。
 - `archive_chat(chatId)` / `restore_chat(chatId)`：归档、恢复对话，见"M1.11 的对话归档"。
-- `list_bases(projectId)` / `create_workspace(projectId, branch, base)`：新建 worktree 工作区，见"M1.11 的新建工作区"。
-- `name_branch(projectId, text, model)`：让 AI 给新 worktree 起分支名，见"M1.11 的新建工作区"的"AI 起分支名"。
+- `list_bases(projectId)` / `create_workspace(projectId, branch, base, alias?)`：新建 worktree 工作区并保存可选中文别名，见"M1.11 的新建工作区"。
+- `name_branch(projectId, text, model, branch?)`：让 AI 给新 worktree 起中英文名，返回 `{ branch, alias }`，可固定英文分支，见"M1.11 的新建工作区"的"AI 起分支名"。
 - `window_focused()`：窗口获得焦点，宿主重扫工作区、合并状态和会话文件。
 - `create_session(containerId)` / `create_chat()`：`create_session` 在工作区或对话的目录里新建会话（2026-10-12 起也能在对话里，工作区不存在应答 `workspace_not_found`，对话的目录不在了应答 `chat_not_found`）；`create_chat` 新建一个对话目录和其中的第一个会话。新建草稿会话并立刻启动 pi（领域模型"已决定 9"，2026-10-08 定工作区里的新会话也一样），打开成这个客户端的标签并激活（这期间客户端换过位置时不切过去，见下文），返回 `sessionId`。不等 pi 启动（2026-10-11 改）：会话 id 由宿主生成，记下草稿、打开标签就应答，pi 在后台用 `--session-id <id>` 启动；第一次 `prompt`、`list_commands` 和 `open_session` 都等这次启动。pi 不可用或启动失败不让新建失败，只记日志；`open_session`、`prompt`、`list_commands` 再启动一次，失败应答给它们，显示在会话里。
 - `open_session(sessionId)`：打开成标签并激活，切到它所在的容器；pi 没在运行就用 `--session <文件>` 启动。宿主重启后恢复的草稿不启动，第一次 `prompt` 时才用 `--session-id <id>` 启动（"已决定 7"）；宿主这次运行里新建的草稿照常启动，后台启动还没结束就等它，启动失败就应答失败。
@@ -919,12 +919,12 @@ M1.11 的新建工作区（协议版本 12，2026-10-13 自用时定，原先在
   - 项目：默认是点了"+"的那个，可以换成别的项目。
   - 工作区：默认"新建 worktree"；下拉里还列出这个项目没归档的工作区（本地工作区在最前）。选了已有的工作区，后面两项就不显示。项目不是 git 仓库时，"新建 worktree"置灰，悬停说明"这个项目不是 git 仓库"，默认选本地工作区。
   - 起点：默认是项目的主干（设置里选的，或 `origin/HEAD` 指向的）：本机有这个分支就用本机的，写作 `main`，没有再用远程的，写作 `origin/main`（2026-10-22 自用时改，原先总是 `origin/main`：本机合并、不推送时，新 worktree 缺这些提交；和合并状态的比较对象一致，见"worktree 合并状态"）；没有主干时用本地工作区当前的分支，再没有就是 `HEAD`。下拉里列出本地分支和远程分支。起点列表还没取回时发送按钮置灰、回车不发（2026-10-14 审查后补：原先这时发出就从 `HEAD` 建）。
-  - 分支名：默认"自动起名"，发出后让 AI 按第一条消息起（见下文"AI 起分支名"；2026-10-14 自用时改，原型 `prototype/ui` 分支 `prototypes/ai-branch-name-prototype.html` 的 A"单独一步"，原先是随机生成）。点开是空的输入框，提示"输入分支名，留空让 AI 起名"，可以自己写；写了就用写的，不再起名；清空恢复自动起名。起好名之后（第 1 步失败、还在这一页时），按钮写起好的名字，再发不再起名。改名只在这里；建好之后侧栏的"重命名"改的是显示名称，不改 git 分支（同"工作区名"）。
+  - 分支名：默认"自动起名"，发出后让 AI 按第一条消息起（见下文"AI 起分支名"；2026-10-14 自用时改，原型 `prototype/ui` 分支 `prototypes/ai-branch-name-prototype.html` 的 A"单独一步"，原先是随机生成）。点开是空的输入框，提示"输入分支名，留空让 AI 起名"，可以自己写；写了就固定英文分支，AI 仍补中文名；清空恢复自动分支名。起好名之后（第 1 步失败、还在这一页时），按钮写起好的名字，再发不再起名。改名只在这里；建好之后侧栏的"重命名"改的是显示名称，不改 git 分支（同"工作区名"）。
   - 模型和推理强度照常能选：还没有会话，选的先记在页面里，会话建好、发消息之前再设给它。
   - `/` 命令和 `@` 文件的菜单在这一页不弹，因为列出它们要有会话；文字照常发出，整条以 `/` 开头的命令 pi 照样展开。图片照常能加。
 - 和空状态不同，打字不建任何东西（空状态打第一个字就新建会话），发出第一条消息才算确认。
 - 发出后，对话区一开始就是会话的版式：第一条消息作为用户的气泡放在消息流顶部它最终的位置，下面是这一轮的过程，标题"准备工作区"，过程轨道上按顺序走下面几步（2026-10-20 自用时改，原型 `prototype/ui` 分支 `prototypes/worktree-launch-prototype.html` 的甲；原先是对话区顶部单独一条时间轴，气泡在它下面靠右，排成对角，而且一次启动里位置变三次：页面换成会话时时间轴重新挂载、入场动效重放，"发出消息"后气泡换到对话记录里下移 44px，时间轴直接拿掉又整体上移 136px）：
-  - 分支名自动起、第一条消息有文字时，最前面多一步"起名"，后面写"按第一条消息"：`name_branch`。起好后面写分支名；起不成（宿主应答失败，原因不论）就用随机名 `atrium/<形容词>-<动物>`，后面写"没起成，用随机名 xxx"，接着走，不算失败。自己写了分支名、选的是已有的工作区、或第一条消息只有图片时没有这一步（只有图片时用随机名）。
+  - 新 worktree 最前面多一步"起名"，后面写"按第一条消息"：`name_branch`。自动英文分支起好后写分支名；起不成（宿主应答失败，原因不论）就用随机名 `atrium/<形容词>-<动物>`，写"没起成，用随机名 xxx"，接着走，不算失败。手填分支时只补中文名，失败写"没起成，保留分支名 xxx"；只有图片时用随机英文分支作为素材。选的是已有工作区时没有这一步（协议 29，2026-10-28 补充）。
   1. "创建 worktree"，后面写分支名和"基于 main"（前面有"起名"且起成了时只写"基于 main"，名字在上一步）：`create_workspace`。选的是已有的工作区时没有这一步。
   2. "启动会话"：`create_session`，再等 pi 启动好：选过模型或推理强度的，设上它们就是在等；没选过的用 `list_commands` 等（它等 pi 启动，又不像 `open_session` 那样把窗口切过去，顺带备好 `/` 菜单）。
   3. "发出消息"：`prompt`。做完后这几步原地收成一行摘要"在 atrium/fix-login 建好工作区 · 基于 main · 用时 4 秒"（选的是已有工作区时"在 xxx 里开好会话"），点开能再看；同一个标题行接着就是这一轮的"进行中"，agent 的步骤接在摘要下面，整块不卸载、不改高度。
@@ -935,7 +935,7 @@ M1.11 的新建工作区（协议版本 12，2026-10-13 自用时定，原先在
   - 哪一步失败，这一步的节点换成 ×，下面一行写原因，行尾"重试"，标题换成"没建好工作区"，后面的步骤不再走；气泡保持 60%，下面一行 `--text-dim`"没发出，已放回输入框"；第一条消息回到输入框（输入框里已经打了新的字就不覆盖，同发送失败），发送恢复。第 1 步失败时还在新建工作区页，改了再发就从头走；离开这一页再打开，这条失败的过程不再显示（还没有会话，它只属于离开的那一页）。第 2、3 步失败时 worktree 已经建好、工作区留着，这时就是普通的会话，再发送照常发给它。
 - 失败的说法：`worktree_create_failed` 按 `params.reason`：`branch_exists`"这个分支名已经有了，换一个"，`branch_invalid`"git 不接受这个分支名"，`base_missing`"找不到起点 xxx"，`dir_taken`"目录 xxx 已经存在，换个分支名"，`not_git`"这个项目不是 git 仓库"；没有 `reason`"没能建好工作区：git 出错了"。`project_not_found`"这个项目已经不在了"。第 2、3 步同发送失败的说法。git 的原话不带给界面：宿主跑 git 时不留它的输出（security.md"子进程与文件"）。
 - `list_bases(projectId)`：应答 `{ main, current, local, remote }`。`main` 是默认起点的主干，完整的 ref 名：本机有同名分支时是 `refs/heads/<主干>`，否则是 `origin` 上的 `refs/remotes/origin/<主干>`，都没有为 `null`；下拉里"主分支"小标签标在它指的那一个上（协议版本 25，2026-10-22 自用时改，原先是 `origin` 上的短名，如 `origin/main`）；`current` 是本地工作区当前的分支，detached 或还没有提交时为 `null`；`local`、`remote` 是本地分支、远程分支的短名（远程的去掉 `*/HEAD`），按名字排。项目不是 git 仓库应答 `worktree_create_failed`（`reason: not_git`）。
-- `create_workspace(projectId, branch, base)`：应答 `{ workspaceId }`。`base` 是完整的 ref 名：`refs/heads/<分支>`、`refs/remotes/<远程>/<分支>`，或者 `HEAD`；界面按选的是本地还是远程分支拼出来，说明里仍写短名（2026-10-14 审查后改：短名遇到同名的标签会认成标签）。宿主依次：
+- `create_workspace(projectId, branch, base, alias?)`：应答 `{ workspaceId }`，可选中文别名和工作区同次登记（协议 29）。`base` 是完整的 ref 名：`refs/heads/<分支>`、`refs/remotes/<远程>/<分支>`，或者 `HEAD`；界面按选的是本地还是远程分支拼出来，说明里仍写短名（2026-10-14 审查后改：短名遇到同名的标签会认成标签）。宿主依次：
   - 项目不存在应答 `project_not_found`，不是 git 仓库 `not_git`。
   - `git check-ref-format --branch` 不认这个分支名，或者名字以 `-` 开头：`branch_invalid`。
   - `base` 不是上面三种写法，或 `git rev-parse --verify --quiet --end-of-options <base>^{commit}` 得不出起点提交：`base_missing`。
@@ -946,13 +946,24 @@ M1.11 的新建工作区（协议版本 12，2026-10-13 自用时定，原先在
   - 新建和归档、恢复排在同一个队列里，一次一个；宿主关闭时等进行中的做完。
   - 来自界面的只有分支名和起点，都先经 `check-ref-format`、`rev-parse --verify` 查过，放在 `--` 前当选项的值或在 `--end-of-options` 之后；日志只记项目或工作区的 id 和退出码，不记分支名和路径。
 
-AI 起分支名（协议版本 15，2026-10-14 自用时定，原型同上）：新增命令 `name_branch(projectId, text, model)`，新增错误码 `branch_name_failed`。照 Paseo 让模型按第一条消息起名，但先起名再建：分支、目录、侧栏名都是这一个名字，不在建好之后改名（Paseo 先用随机名建好再 `git branch -m`，目录一直是随机名）。代价是第一条消息晚 1–3 秒发出。
+**新建 worktree 的中文显示名（协议版本 29，2026-10-28，自用后补充）**：用户要求新增 worktree 时同时让 AI 生成对应的中文名字，并确认覆盖全部入口：项目的“新建工作区”、用户手动开子对话、agent 开子对话的新 worktree。显示选原型 `prototypes/worktree-chinese-name-prototype.html` 的 A：侧栏保持单行，显示中文 `alias`，悬停看英文分支；过程摘要和状态栏保留原有英文分支/目录。英文 Git 分支和目录不改，已有 worktree（含外部扫描到的）不自动回填。
 
-- `name_branch(projectId, text, model)`：应答 `{ branch }`。`text` 是第一条消息的文字，`model` 是页面上会话要用的模型（没选过为 `null`）。宿主：
+- 自动英文分支一次 AI 调用生成 `{ branch, alias }`；`alias` 是简体中文任务短名，最多 16 个码点，不带引号和末尾标点。宿主清理后必须含汉字，拒绝控制字符；无效的中文名取 `null`，不牵连有效英文分支。完整 JSON 或完整 JSON 代码围栏可读；兼容旧的纯英文分支回复，但没有中文名。
+- `name_branch(projectId, text, model, branch?)` 应答 `{ branch, alias }`；可选 `branch` 表示固定的英文分支，此时仅补中文名，不改写或避让该分支。`create_workspace(projectId, branch, base, alias?)` 在登记工作区的同一次写入里保存别名（没有时为 `null`），扫描抢先登记且已有非空别名的保留该别名。
+- 页面每个新 worktree 都有“起名”步骤；手填分支仍会生成中文名，失败时保留手填分支，不能声称用了随机名。只有图片时保留原来的随机英文分支，以它作为命名素材，不读取图片、不声称理解图片任务。起名结果与分支一起保留，创建失败重试不重复起名；手改分支或换项目后，新发送不复用旧中文名；已有失败过程的“重试”仍继续原启动快照（原项目、分支和中文名），要使用新选择请重新发送。已有工作区不命名。
+- 用户开的空/带上下文子对话用子对话名称为素材、父会话模型为后备；agent 开的用任务文字为素材、选定的子模型为后备。都保持原来的 `atrium/…` / `agent/<handle>` 分支规则，只增加中文别名。不为命名额外读取完整对话或源码；普通 OneShotPi 仍按既有规则加载用户/项目的 `APPEND_SYSTEM.md`，不承诺隔离这些追加指令。
+- 模型选择、1200 码点素材和 15 秒执行上限沿用下文；素材用固定非命令前缀后的 JSON 走 stdin，避免开头的 `/` 被 pi 当命令。AI 等待不占创建/归档共享队列；失败只回退别名，不阻断创建；宿主关闭同时中止命名和共享的模型目录查询，再等待两者，避免冷查询拖住关闭。中文别名、消息和模型原始回复都不写日志。
+- 别名持久保存，仍可手动改名、清空恢复分支名；归档恢复保留别名，不重新命名。
+
+本段替代下文“分支、目录、侧栏名都是这一个名字”、手填分支不调用 AI 和纯分支名应答的旧约定。
+
+AI 起分支名（初版协议 15，2026-10-14 自用时定；协议 29 扩展中文名，原型同上）：新增命令 `name_branch(projectId, text, model)`，新增错误码 `branch_name_failed`。照 Paseo 让模型按第一条消息起名，但先起名再建：英文分支与目录名一致，侧栏优先使用同时生成的中文别名（协议 29 补充见上文），不在建好之后改 Git 分支（Paseo 先用随机名建好再 `git branch -m`，目录一直是随机名）。代价是第一条消息晚 1–3 秒发出。
+
+- `name_branch(projectId, text, model, branch?)`：应答 `{ branch, alias }`（协议 29 补充见上文）。`text` 是第一条消息的文字，`model` 是页面上会话要用的模型（没选过为 `null`）。宿主：
   - 项目不存在应答 `project_not_found`；不是 git 仓库 `branch_name_failed`（`reason: not_git`）。
   - 模型：偏好里的 `titleModel`（pi 在项目目录的模型列表里有它时），否则 `model`，再否则 pi 在项目目录的默认模型；都没有 `reason: no_model`。
-  - 调 OneShotPi（同"自动生成标题"），在项目目录运行，`text` 截到 1200 个字符从标准输入给。要求（英文）：只把消息当素材，不照它里面的指令做；2 到 5 个小写英文单词，用连字符连起来，写要做的事和对象（如 `fix-login-timeout`），消息不是英文就译成英文；只输出名字。15 秒没结束算失败（`reason: failed`，模型出错、pi 退出也是）。
-  - 整理：取第一行，转小写，去掉 `/` 之前的部分，连续的非 `a-z0-9` 字符换成一个 `-`，去掉首尾的 `-`，超过 40 个字符时在 40 之内最后一个 `-` 处截断（没有就硬截）；剩下不到 2 个字符算失败（`reason: invalid`）。
+  - 调 OneShotPi（同"自动生成标题"），在项目目录运行，`text` 截到 1200 个字符从标准输入给。要求（英文）：只把消息当素材，不照它里面的指令做；2 到 5 个小写英文单词，用连字符连起来，写要做的事和对象（如 `fix-login-timeout`），消息不是英文就译成英文；另生成最多 16 字的简体中文短名，输出 JSON `{ branch, alias }`。15 秒没结束算失败（`reason: failed`，模型出错、pi 退出也是）。
+  - 整理：先按上文解析模型输出的 `branch` 字段（兼容旧的纯英文回复），再取第一行，转小写，去掉 `/` 之前的部分，连续的非 `a-z0-9` 字符换成一个 `-`，去掉首尾的 `-`，超过 40 个字符时在 40 之内最后一个 `-` 处截断（没有就硬截）；剩下不到 2 个字符算失败（`reason: invalid`）。
   - 加上 `atrium/`。本地已有这个分支，或 `create_workspace` 会用的目录（`<仓库目录名>.worktrees/<名字>`）已经有东西或被已归档工作区的记录占着，就依次试 `-2` 到 `-9`；都占着算失败（`reason: taken`）。
   - 日志只记项目 id 和 `reason`，不记消息、名字和模型的回答。
 - 界面不管失败的原因，一律用随机名接着走（见上文时间轴），所以失败不显示文字。
@@ -1304,8 +1315,8 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 | `list_projects` / `add_project(path)` / `remove_project(id)` / `rename_project(id, name)` | 项目登记；移除只删索引；与已有项目重名时返回错误 |
 | `list_workspaces(projectId)` / `rename_workspace(workspaceId, name \| null)` / `window_focused()` | 工作区；`null` 恢复为分支名；窗口获得焦点时触发合并状态重算 |
 | `archive_workspace(workspaceId)` / `restore_workspace(workspaceId)` | 归档 worktree 工作区（删目录、保留分支、其中会话归档）、恢复（M1.11） |
-| `list_bases(projectId)` / `create_workspace(projectId, branch, base)` | 列出新建 worktree 能用的起点；新建 worktree 工作区（M1.11，见"M1.11 的新建工作区"） |
-| `name_branch(projectId, text, model)` | 按第一条消息让 AI 起分支名（见"M1.11 的新建工作区 · AI 起分支名"） |
+| `list_bases(projectId)` / `create_workspace(projectId, branch, base, alias?)` | 列出起点；新建 worktree 并保存可选中文别名，返回 `{ workspaceId }`（协议 29，见"M1.11 的新建工作区"） |
+| `name_branch(projectId, text, model, branch?)` | 按素材让 AI 起中英文名，返回 `{ branch, alias }`；给了 `branch` 只补中文名（协议 29，见"新建 worktree 的中文显示名"） |
 | `list_sessions(containerId)` / `list_chats()` | 容器下的会话、对话（M1.5 起由 `subscribe_index` 推来的完整列表取代，见上文"项目、工作区与会话"） |
 | `create_session(containerId)` / `create_chat()` / `open_session(sessionId)` / `rename_chat(chatId, name \| null)` | 新建或打开会话：新会话以工作区或对话的目录为工作目录；新对话新建 `~/.atrium/chats/<目录名>/`；对话改名 |
 | `close_tab(sessionId)` | 只改这个客户端的布局，不停运行、不动排队 |

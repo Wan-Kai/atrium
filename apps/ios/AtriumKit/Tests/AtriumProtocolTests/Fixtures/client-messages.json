@@ -1,14 +1,14 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 28,
+    "protocolVersion": 29,
     "clientId": "c1",
     "token": "t",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
     "type": "hello",
-    "protocolVersion": 28,
+    "protocolVersion": 29,
     "clientId": "dev_0123456789abcdef",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
@@ -202,7 +202,8 @@
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
     "projectId": "prj_0123456789abcdef",
     "branch": "atrium/brave-otter",
-    "base": "origin/main"
+    "base": "origin/main",
+    "alias": "修复登录超时"
   },
   {
     "type": "name_branch",
@@ -221,7 +222,8 @@
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
     "projectId": "prj_0123456789abcdef",
     "text": "fix it",
-    "model": null
+    "model": null,
+    "branch": "feature/login"
   },
   {
     "type": "translate_reply",

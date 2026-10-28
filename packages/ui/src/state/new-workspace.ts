@@ -13,6 +13,8 @@ type WorkspaceChoice =
       readonly kind: "new";
       /** The branch's name; `null` for one a model gives it by the first message (SPEC-0001, "AI 起分支名"). */
       readonly branch: string | null;
+      /** The Chinese display name; absent before naming, `null` when naming gave none. */
+      readonly alias?: string | null;
       /** The base chosen; `null` for the default, once the bases are known (`defaultBase`). */
       readonly base: string | null;
     }
@@ -53,9 +55,14 @@ export interface Launch {
    * The new worktree's branch and base, for the steps' words; `null` into a workspace already
    * there. The branch is `null` until named.
    */
-  readonly worktree: { readonly branch: string | null; readonly base: string } | null;
-  /** How the `name` step named the branch: by the model, or randomly when it could not; `null` until then. */
-  readonly named: "model" | "random" | null;
+  readonly worktree: {
+    readonly branch: string | null;
+    readonly base: string;
+    /** `undefined` means naming has not been attempted; `null` means it gave no alias. */
+    readonly alias?: string | null | undefined;
+  } | null;
+  /** How naming ended: the model answered, a random branch was needed, or a written branch was kept. */
+  readonly named: "model" | "random" | "kept" | null;
   readonly steps: readonly LaunchStep[];
   /** How many steps are done. */
   readonly done: number;
@@ -284,7 +291,15 @@ export function choose(
   const { page } = store.getState();
   if (page === null) return;
   if (change.projectId === undefined || change.projectId === page.projectId) {
-    store.setState({ page: { ...page, ...change } });
+    const choice = change.choice;
+    if (choice?.kind === "new" && page.choice.kind === "new" && choice.branch !== page.choice.branch) {
+      // A hand-edited branch is new naming material, even when the caller spread the old choice.
+      store.setState({
+        page: { ...page, ...change, choice: { kind: "new", branch: choice.branch, base: choice.base } },
+      });
+    } else {
+      store.setState({ page: { ...page, ...change } });
+    }
     return;
   }
   const branch = page.choice.kind === "new" ? page.choice.branch : null;
@@ -388,14 +403,16 @@ export async function launch(
   if (page === null) return;
   const { projectId, choice, model } = page;
   const id = newId();
-  // Stryker disable next-line ConditionalExpression: only a new worktree has a branch, so the next check holds too.
-  const naming = choice.kind === "new" && choice.branch === null && message.text.trim() !== "";
   const worktree =
     choice.kind === "new"
-      ? { branch: naming ? null : (choice.branch ?? suggestBranch(context.random)), base: choice.base ?? "HEAD" }
+      ? {
+          branch: choice.branch ?? (message.text.trim() === "" ? suggestBranch(context.random) : null),
+          base: choice.base ?? "HEAD",
+          alias: choice.alias,
+        }
       : null;
   let steps: LaunchStep[] = ["session", "message"];
-  if (worktree !== null) steps = naming ? ["name", "worktree", ...steps] : ["worktree", ...steps];
+  if (worktree !== null) steps = worktree.alias === undefined ? ["name", "worktree", ...steps] : ["worktree", ...steps];
   const started: Launch = {
     id,
     projectId,
@@ -495,10 +512,11 @@ function fail(
  * the session, then sends.
  *
  * @remarks
- * SPEC-0001 ("M1.11 的新建工作区"). A branch left to the model is named by the message's text on
- * the page's model (SPEC-0001, "AI 起分支名"); when that fails, for whatever reason, the name is
- * random, and the launch goes on. While the user is on the page, its button then shows the name,
- * so sending again names no more. Once the worktree is there, the page goes into it, so sending
+ * SPEC-0001 ("M1.11 的新建工作区"). One naming call supplies the Chinese alias and, unless the
+ * branch was written or there is only an image, the English branch. An image-only message gives
+ * the random branch as naming material. A failure keeps a written branch or picks a random one,
+ * with no alias, and the launch goes on. Both names stay with the page and launch so a retry
+ * names no more. Once the worktree is there, the page goes into it, so sending
  * again does not make a second one. Once the session is there, what was typed since moves into its
  * box, and the page closes, as the host shows the session; a user who left the page stays where
  * they went (`go: false`). pi's start is waited for by setting the model chosen, or else by
@@ -547,21 +565,32 @@ async function proceed(store: StoreApi<NewWorkspaceState>, context: LaunchContex
     let { workspaceId, sessionId } = first;
     // Stryker disable next-line ConditionalExpression: a launch into a workspace already there has its id from the start.
     if (workspaceId === null && worktree !== null) {
-      let { branch } = worktree;
-      if (branch === null) {
-        const named = await client.nameBranch(projectId, text, model.ref).then(
-          (answer) => ({ branch: answer.branch, named: "model" as const }),
-          () => ({ branch: suggestBranch(random), named: "random" as const }),
+      let { branch, alias } = worktree;
+      if (alias === undefined) {
+        const fixedBranch = branch;
+        const naming =
+          fixedBranch === null
+            ? client.nameBranch(projectId, text, model.ref)
+            : client.nameBranch(projectId, text.trim() === "" ? fixedBranch : text, model.ref, fixedBranch);
+        const named = await naming.then(
+          (answer) => ({ branch: fixedBranch ?? answer.branch, alias: answer.alias, named: "model" as const }),
+          () => ({
+            branch: fixedBranch ?? suggestBranch(random),
+            alias: null,
+            named: fixedBranch === null ? ("random" as const) : ("kept" as const),
+          }),
         );
-        ({ branch } = named);
+        ({ branch, alias } = named);
         const page = store.getState().page;
         // Stryker disable next-line ConditionalExpression: the choices are held while naming, so it is still a new worktree.
         if (page?.launchId === id && page.choice.kind === "new") {
-          store.setState({ page: { ...page, choice: { ...page.choice, branch } } });
+          store.setState({ page: { ...page, choice: { ...page.choice, branch, alias } } });
         }
-        update({ worktree: { ...worktree, branch }, named: named.named, done: 1 });
+        update({ worktree: { ...worktree, branch, alias }, named: named.named, done: steps.indexOf("name") + 1 });
       }
-      workspaceId = (await client.createWorkspace(projectId, branch, worktree.base)).workspaceId;
+      // A remembered alias belongs to a branch already chosen by the page or a previous attempt.
+      workspaceId = (await client.createWorkspace(projectId, branch ?? suggestBranch(random), worktree.base, alias))
+        .workspaceId;
       const page = store.getState().page;
       if (page?.launchId === id) store.setState({ page: { ...page, choice: { kind: "existing", workspaceId } } });
       update({ workspaceId, done: steps.indexOf("worktree") + 1 });

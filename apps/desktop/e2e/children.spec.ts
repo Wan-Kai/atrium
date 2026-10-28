@@ -74,7 +74,10 @@ test("opens a child from a reply carrying the conversation, which shows in its p
 });
 
 test("forks a child into a new worktree, which is told where it works, and archiving the parent archives a child beside it and detaches that one", async () => {
-  const pi = await fauxPiEnvironment({ replies: [{ blocks: [{ type: "text", text: "好的" }] }] });
+  const pi = await fauxPiEnvironment({
+    replies: [{ blocks: [{ type: "text", text: "好的" }] }],
+    branch: JSON.stringify({ branch: "ignored-child-branch", alias: "补充回归测试" }),
+  });
   const scene = await createGitScene("e2e-child-worktree");
   const repo = await realpath(scene.repo);
   const launched = await launchApp(pi.env);
@@ -90,7 +93,8 @@ test("forks a child into a new worktree, which is told where it works, and archi
     await dialog.getByRole("textbox", { name: "分支" }).fill("atrium/e2e-child");
     await dialog.getByRole("button", { name: "开子对话" }).click();
 
-    await expect(window.getByTestId("workspace-row")).toHaveText(["main", "atrium/e2e-child"], { timeout: 60_000 });
+    await expect(window.getByTestId("workspace-row")).toHaveText(["main", "补充回归测试"], { timeout: 60_000 });
+    await expect(window.getByTestId("workspace-row").nth(1)).toHaveAttribute("title", /分支 atrium\/e2e-child；/);
     await expect(window.getByTestId("workspace-row").nth(1)).toHaveAttribute("aria-current", "true");
     const dir = join(dirname(repo), "repo.worktrees", "e2e-child");
     expect(await scene.git(dir, "branch", "--show-current")).toBe("atrium/e2e-child");
@@ -151,6 +155,7 @@ async function twoChildrenJourney(): Promise<void> {
         { blocks: [{ type: "text", text: reply }] },
       ],
       childReplies: [{ blocks: [{ type: "text", text: "查完了" }] }],
+      branch: JSON.stringify({ branch: "ignored-agent-branch", alias: "补充登录测试" }),
     });
     cleanups.unshift(() => pi.cleanup());
     const scene = await createGitScene("e2e-agent-children");
@@ -195,6 +200,8 @@ async function twoChildrenJourney(): Promise<void> {
     await expect(window.getByTestId("reply").last()).toHaveText(reply);
     await expect(window.getByRole("tab")).toHaveText(["查一下登录"]);
     await rolesAndWorktree(context);
+    await expect(window.getByTestId("workspace-row")).toHaveText(["main", "补充登录测试"]);
+    await expect(window.getByTestId("workspace-row").nth(1)).toHaveAttribute("title", /分支 agent\/tests；/);
     await writeChildReceipt(context, "complete", []);
     const navigation = [await openReportChild(context, context.audit, "查一遍登录", "查完了")];
     navigation.push(await openReportChild(context, context.tests, "补登录的测试", "查完了"));

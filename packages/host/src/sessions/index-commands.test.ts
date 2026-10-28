@@ -128,16 +128,17 @@ async function assemble() {
         archiving.push(`bases ${projectId}`);
         return { main: "refs/heads/main", current: "main", local: ["main"], remote: ["origin/main"] };
       },
-      create: async (projectId, branch, base) => {
-        archiving.push(`create ${projectId} ${branch} ${base}`);
+      create: async (projectId, branch, base, alias) => {
+        archiving.push(`create ${projectId} ${branch} ${base}${alias === undefined ? "" : ` ${alias}`}`);
         return "wks_new";
       },
     },
     namer: {
-      name: async (projectId, text, model) => {
-        archiving.push(`name ${projectId} ${text} ${JSON.stringify(model)}`);
-        return "atrium/fix-it";
+      name: async (projectId, text, model, branch) => {
+        archiving.push(`name ${projectId} ${text} ${JSON.stringify(model)}${branch === undefined ? "" : ` ${branch}`}`);
+        return { branch: branch ?? "atrium/fix-it", alias: "修复登录" };
       },
+      close: async () => undefined,
     },
     preferences,
     chats: () => catalog.chats(),
@@ -339,8 +340,26 @@ describe("IndexCommands.archiveWorkspace", () => {
 
     const model = { providerId: "faux", modelId: "m" };
 
-    expect(await commands.nameBranch("prj_1", "Fix it", model)).toStrictEqual({ branch: "atrium/fix-it" });
+    expect(await commands.nameBranch("prj_1", "Fix it", model)).toStrictEqual({
+      branch: "atrium/fix-it",
+      alias: "修复登录",
+    });
     expect(archiving).toStrictEqual([`name prj_1 Fix it ${JSON.stringify(model)}`]);
+  });
+
+  it("passes fixed branches and Chinese aliases through without a second naming call", async () => {
+    const { commands, archiving } = await assemble();
+    expect(await commands.nameBranch("prj_1", "Fix it", null, "feature/fixed")).toStrictEqual({
+      branch: "feature/fixed",
+      alias: "修复登录",
+    });
+    expect(await commands.createWorkspace("prj_1", "feature/fixed", "HEAD", "修复登录")).toStrictEqual({
+      workspaceId: "wks_new",
+    });
+    expect(archiving).toStrictEqual([
+      "name prj_1 Fix it null feature/fixed",
+      "create prj_1 feature/fixed HEAD 修复登录",
+    ]);
   });
 
   it("hands listing bases and creating a workspace to the creator", async () => {

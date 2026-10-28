@@ -308,6 +308,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     // As the model lister asks for chats.
     chatsDir: home.root,
   });
+  // Naming must stop before shutdown can fall back to creating a child worktree.
+  const worktreeNaming = new AbortController();
   // Who else wants to know the sessions changed: an update waits for running sessions to finish.
   const sessionListeners = new Set<() => void>();
   const sessions = createSessionManager({
@@ -335,7 +337,21 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     },
     // A child conversation's new worktree, made as a new workspace is (SPEC-0002); the creator comes below.
     // An agent's child goes on an `agent/` branch.
-    childWorktree: (workspaceId, wanted, prefix) => creator.createFrom(workspaceId, wanted, prefix),
+    childWorktree: async (workspaceId, wanted, prefix, naming, signal) => {
+      const lifetime = signal === undefined ? worktreeNaming.signal : AbortSignal.any([signal, worktreeNaming.signal]);
+      if (lifetime.aborted) throw new CommandError("worktree_create_failed");
+      const projectId = projects.workspaces().find((workspace) => workspace.id === workspaceId)?.projectId;
+      const alias =
+        naming === undefined || projectId === undefined
+          ? null
+          : await namer.name(projectId, naming.text, naming.model, wanted, lifetime).then(
+              (answer) => answer.alias,
+              () => null,
+            );
+      // Shutdown is an expected failure, not a DOMException for the router to log as a crash.
+      if (lifetime.aborted) throw new CommandError("worktree_create_failed");
+      return creator.createFrom(workspaceId, wanted, prefix, alias);
+    },
     // The models an agent may give its children (SPEC-0002, `agent_spawn`, `agent_models`).
     modelCatalog: models,
     // This host's own, so a start of another (a second ATRIUM_HOME) leaves its forks alone (SPEC-0002).
@@ -455,7 +471,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     git,
     titleModel,
     models: (dir) => models.list(dir, false),
-    oneShot: async ({ timeoutMs, ...request }) => {
+    oneShot: async ({ timeoutMs, ...request }, signal) => {
       const found = await toolbox.current();
       if (found?.pi.status !== "ready") {
         throw new CommandError("pi_unavailable", { status: found?.pi.status ?? "unknown" });
@@ -463,7 +479,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       return runOneShot(
         { piPath: found.pi.piPath, ...request },
         createPiDeps({ clock, resources, logger, env: found.env }),
-        { timeoutMs },
+        { timeoutMs, ...(signal === undefined ? {} : { signal }) },
       );
     },
     logger,
@@ -744,17 +760,22 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    * `RunningHost.close` runs this once and hands every later caller the same promise, so closing
    * twice (a test's own call plus its cleanup) waits for the first close instead of failing.
    *
-   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; waits for the
-   * archive or restore under way; cancels the login, the install job and the update check under way; stops login checks, scans,
+   * @sideEffects Cancels the report timer; aborts tool detection, worktree naming and shared model
+   * discovery; closes the server; waits for naming cleanup and the archive or restore under way; cancels the login, the install job and the update check under way; stops login checks, scans,
    * fetches and every session's pi; finishes writing the index; flushes spans; stops logging stray
    * rejections; flushes logs; closes the log file; releases the host lock.
    */
   async function close(): Promise<void> {
+    worktreeNaming.abort();
     cancelReport();
     await toolbox.close();
     await remote.close();
     await server.close();
     await translations.close();
+    // Naming may be waiting on a shared cold model query: abort both before awaiting either.
+    const namingClosed = namer.close();
+    await models.close();
+    await namingClosed;
     // Before the sessions and the index, which a worktree being created, archived or restored still uses.
     await worktreeQueue.idle();
     await loginService.close();
@@ -765,7 +786,6 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await changes.close();
     await workspaces.close();
     await sessions.close();
-    await models.close();
     await catalog.close();
     // After the sessions, whose stopping still reports changes.
     feed.close();

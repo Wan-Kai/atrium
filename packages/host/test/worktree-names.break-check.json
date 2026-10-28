@@ -1,0 +1,128 @@
+[
+  {
+    "file": "packages/host/src/workspaces/branch-namer.ts",
+    "from": "alias: cleanAlias(result.data.alias),",
+    "to": "alias: null,",
+    "test": "packages/host/src/workspaces/branch-namer.test.ts",
+    "name": "asks the model in the project's directory"
+  },
+  {
+    "file": "packages/host/src/workspaces/branch-namer.ts",
+    "from": "if (branch !== undefined) return { branch, alias: result.alias };",
+    "to": "if (branch !== undefined) return { branch: 'atrium/wrong', alias: result.alias };",
+    "test": "packages/host/src/workspaces/branch-namer.test.ts",
+    "name": "keeps a supplied branch exactly"
+  },
+  {
+    "file": "packages/host/src/workspaces/branch-namer.ts",
+    "from": "const ALIAS_LIMIT = 16;",
+    "to": "const ALIAS_LIMIT = 17;",
+    "test": "packages/host/src/workspaces/branch-namer.test.ts",
+    "name": "cleans a Chinese alias independently"
+  },
+  {
+    "file": "packages/host/src/workspaces/branch-namer.ts",
+    "from": "return /\\p{Script=Han}/u.test(alias) ? alias : null;",
+    "to": "return alias;",
+    "test": "packages/host/src/workspaces/branch-namer.test.ts",
+    "name": "cleans a Chinese alias independently"
+  },
+  {
+    "file": "packages/host/src/workspaces/branch-namer.ts",
+    "from": "if (/[\\p{Cc}\\p{Cf}]/u.test(line)) return null;",
+    "to": "if (false) return null;",
+    "test": "packages/host/src/workspaces/branch-namer.test.ts",
+    "name": "cleans a Chinese alias independently"
+  },
+  {
+    "file": "packages/host/src/workspaces/branch-namer.ts",
+    "from": "const line = raw.trim().split(/\\r?\\n/u, 1)[0] ?? \"\";",
+    "to": "const line = raw.trim();",
+    "test": "packages/host/src/workspaces/branch-namer.test.ts",
+    "name": "cleans a Chinese alias independently"
+  },
+  {
+    "file": "packages/host/src/workspaces/branch-namer.ts",
+    "from": "branch: typeof result.data.branch === \"string\" ? result.data.branch : null,",
+    "to": "branch: String(result.data.branch),",
+    "test": "packages/host/src/workspaces/branch-namer.test.ts",
+    "name": "rejects a malformed or non-string branch"
+  },
+  {
+    "file": "packages/host/src/workspaces/branch-namer.ts",
+    "from": "return { branch: legacy ? raw : null, alias: null };",
+    "to": "return { branch: raw, alias: null };",
+    "test": "packages/host/src/workspaces/branch-namer.test.ts",
+    "name": "rejects a malformed or non-string branch"
+  },
+  {
+    "file": "packages/host/src/workspaces/branch-namer.ts",
+    "from": "Worktree naming material:",
+    "to": "",
+    "test": "packages/host/src/workspaces/branch-namer.test.ts",
+    "name": "asks the model in the project's directory"
+  },
+  {
+    "file": "packages/host/src/workspaces/branch-namer.ts",
+    "from": "const preferred = await options.titleModel(cwd).catch(() => null);\n    signal.throwIfAborted();\n    const chosen =\n      preferred ??\n      model ??\n      (await options.models(cwd).then(\n        (list) => list.defaultModel,\n        () => null,\n      ));\n    signal.throwIfAborted();",
+    "to": "const preferred = await options.titleModel(cwd).catch(() => null);\n    const chosen =\n      preferred ??\n      model ??\n      (await options.models(cwd).then(\n        (list) => list.defaultModel,\n        () => null,\n      ));",
+    "test": "packages/host/src/workspaces/branch-namer.test.ts",
+    "name": "does not start a model after cancellation during model lookup"
+  },
+  {
+    "file": "packages/host/src/workspaces/branch-namer.ts",
+    "from": "const active = signal === undefined ? closing.signal : AbortSignal.any([closing.signal, signal]);",
+    "to": "const active = closing.signal;",
+    "test": "packages/host/src/workspaces/branch-namer.test.ts",
+    "name": "does not start a model after cancellation during model lookup"
+  },
+  {
+    "file": "packages/host/src/workspaces/branch-namer.ts",
+    "from": "closing.abort();",
+    "to": "/* cancellation intentionally broken */",
+    "test": "packages/host/src/workspaces/branch-namer.test.ts",
+    "name": "aborts active model calls and waits for cleanup on close"
+  },
+  {
+    "file": "packages/host/src/workspaces/branch-namer.ts",
+    "from": "await Promise.allSettled(making);",
+    "to": "return;",
+    "test": "packages/host/src/workspaces/branch-namer.test.ts",
+    "name": "aborts active model calls and waits for cleanup on close"
+  },
+  {
+    "file": "packages/host/src/projects/project-service.ts",
+    "from": "const named = scanned?.alias ?? alias;",
+    "to": "const named = alias;",
+    "test": "packages/host/src/projects/project-service.test.ts",
+    "name": "persists generated aliases at registration"
+  },
+  {
+    "file": "packages/host/src/projects/project-service.ts",
+    "from": "const record = { id, projectId, kind: \"worktree\" as const, dir, alias: named, baseCommit, external: false };",
+    "to": "const record = { id, projectId, kind: \"worktree\" as const, dir, alias: null, baseCommit, external: false };",
+    "test": "packages/host/src/projects/project-service.test.ts",
+    "name": "persists generated aliases at registration"
+  },
+  {
+    "file": "packages/host/src/projects/project-service.ts",
+    "from": "workspace.id === id ? { ...workspace, alias: named, baseCommit, external: false } : workspace,",
+    "to": "workspace.id === id ? { ...workspace, baseCommit, external: false } : workspace,",
+    "test": "packages/host/src/projects/project-service.test.ts",
+    "name": "persists generated aliases at registration"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-creator.ts",
+    "from": "const workspaceId = await options.projects.addWorktree(projectId, dir, start, alias);",
+    "to": "const workspaceId = await options.projects.addWorktree(projectId, dir, start);",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "records it as Atrium"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-creator.ts",
+    "from": "const created = await options.projects.addWorktree(projectId, dir, start, alias);",
+    "to": "const created = await options.projects.addWorktree(projectId, dir, start);",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "agent opens"
+  }
+]

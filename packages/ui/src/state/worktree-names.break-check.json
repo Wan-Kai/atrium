@@ -1,0 +1,23 @@
+[
+  {
+    "file": "packages/ui/src/state/new-workspace.ts",
+    "from": "choice.branch !== page.choice.branch",
+    "to": "false",
+    "test": "packages/ui/src/state/new-workspace.test.ts",
+    "name": "forgets a Chinese alias"
+  },
+  {
+    "file": "packages/ui/src/state/new-workspace.ts",
+    "from": "if (alias === undefined)",
+    "to": "if (alias == null)",
+    "test": "packages/ui/src/state/new-workspace.test.ts",
+    "name": "does not retry failed Chinese naming"
+  },
+  {
+    "file": "packages/ui/src/state/new-workspace.ts",
+    "from": "await proceed(store, context, { ...failed, ...going });",
+    "to": "await proceed(store, context, { ...failed, ...going, projectId: store.getState().page?.projectId ?? failed.projectId });",
+    "test": "packages/ui/src/state/new-workspace.test.ts",
+    "name": "retries the original named worktree"
+  }
+]

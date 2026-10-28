@@ -86,6 +86,7 @@ const commands: Command[] = [
     projectId: PROJECT,
     branch: "atrium/brave-otter",
     base: "origin/main",
+    alias: "修复登录超时",
   },
   {
     type: "name_branch",
@@ -95,7 +96,15 @@ const commands: Command[] = [
     text: "登录接口偶尔超时",
     model: { providerId: "anthropic", modelId: "claude-opus-5-5" },
   },
-  { type: "name_branch", requestId: "r17f", traceparent, projectId: PROJECT, text: "fix it", model: null },
+  {
+    type: "name_branch",
+    requestId: "r17f",
+    traceparent,
+    projectId: PROJECT,
+    text: "fix it",
+    model: null,
+    branch: "feature/login",
+  },
   { type: "translate_reply", requestId: "r17g", traceparent, sessionId: "s1", turnId: "s1:u1", translationId: "tr-1" },
   { type: "cancel_translation", requestId: "r17h", traceparent, translationId: "tr-1" },
   { type: "window_focused", requestId: "r18", traceparent },
@@ -1558,8 +1567,9 @@ describe("CommandResult", () => {
     expect(CommandResult.list_bases.safeParse({ main: null, local: [], remote: [] }).success).toBe(false);
     expect(CommandResult.create_workspace.parse({ workspaceId: WORKSPACE })).toStrictEqual({ workspaceId: WORKSPACE });
     expect(CommandResult.create_workspace.safeParse({ workspaceId: PROJECT }).success).toBe(false);
-    expect(CommandResult.name_branch.parse({ branch: "atrium/fix-login" })).toStrictEqual({
+    expect(CommandResult.name_branch.parse({ branch: "atrium/fix-login", alias: "修复登录" })).toStrictEqual({
       branch: "atrium/fix-login",
+      alias: "修复登录",
     });
     expect(CommandResult.name_branch.safeParse({ branch: "" }).success).toBe(false);
     for (const wrong of [
@@ -2046,7 +2056,10 @@ const commandResultExamples = {
     { main: null, current: null, local: [], remote: [] },
   ],
   create_workspace: [{ workspaceId: WORKSPACE }],
-  name_branch: [{ branch: "atrium/fix-login" }],
+  name_branch: [
+    { branch: "atrium/fix-login", alias: "修复登录" },
+    { branch: "atrium/fix-login", alias: null },
+  ],
   translate_reply: [{ text: "译文", language: "简体中文", model: { providerId: "faux", modelId: "faux-1" } }],
   cancel_translation: [{}],
   rename_chat: [{}],

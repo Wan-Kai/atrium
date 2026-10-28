@@ -105,7 +105,7 @@ classDiagram
 
 - **Project**、**Workspace** 的 id 是随机生成的不透明 id（`prj_…`、`wks_…`，参照 Paseo），路径只是一个可变字段，不当 id 用。
 - **Project** 拥有的是登记记录：从侧栏移除项目只删 `~/.atrium/` 里的记录，不碰磁盘。路径规范化后唯一，已经是某个项目的 worktree 的目录不能再登记成项目。主干分支只存用户的覆盖值，显示时取 `mainBranchOverride ?? origin/HEAD`。
-- **Workspace** 与目录一一对应。每个项目恰好一个 `local`（`dir == Project.path`），其余是 `worktree`。分支、创建时间是扫描结果，不进索引。
+- **Workspace** 与目录一一对应。每个项目恰好一个 `local`（`dir == Project.path`），其余是 `worktree`。分支、创建时间是扫描结果，不进索引。2026-10-28 自用后补充：所有 Atrium 新建的 worktree 由 AI 同时生成中文显示名，存在既有 `alias`，不新增名称字段或迁移；英文分支/目录与显示名分开。创建登记一次写入别名，保留扫描抢先登记后的非空手动别名；已有与外部 worktree 不回填，归档恢复不重起名。
 - **Chat** 是不绑定项目的"对话"，和工作区并列的容器，一个对话一个目录 `~/.atrium/chats/<目录名>/`，只是没有 git（[ADR-0007](../adr/0007-each-chat-is-its-own-container.md)，2026-10-12 改，取代原来全局一个的 ChatSpace）：
   - id 是 `cht_<目录名>`。目录由 Atrium 新建、名字随机（UUID），和会话 id 无关；宿主扫描 `~/.atrium/chats/` 的子目录得到对话列表，名字不合 id 格式的目录不算。用户删掉目录，对话就没了。
   - 对话里可以有多个会话，都以对话的目录为工作目录。终端里在对话目录开的 pi 会话按 `cwd` 归到这个对话。
@@ -663,7 +663,7 @@ classDiagram
 - **SessionCatalog** 在宿主里：用 SessionFiles 的扫描结果，按索引里记录的容器、或文件头的 `cwd` 把会话归到容器，按 id 去重并报告冲突。归类是 Atrium 的业务规则，所以不放进 pi 包。
 - **Connection** 属于 `server/`，持有一个客户端的 socket、clientId 和发送方法。客户端订阅了哪些会话（打开着或可见的）记在 `sync/` 的 **SubscriptionRegistry**，以不透明的 connectionId 作键：业务模块（SessionManager）通过它知道"谁在看哪个会话"，又不必依赖 `server/`（overview.md，"宿主内部的依赖"）。宿主只给订阅者推送对话记录的增量（参照 Paseo）；客户端打开会话时清除它的关注状态。
 - **TitleGenerator** 负责标题的提示词、截断和写回规则，调 OneShotPi 单独起一次性进程，不借正在运行的会话。
-- **BranchNamer**（`workspaces/`，2026-10-14 加）按新建工作区页的第一条消息给新 worktree 起分支名：选模型同 TitleGenerator（再退到 pi 的默认模型），调 OneShotPi，整理成 `atrium/<名字>`，避开已有的分支和 worktree 目录（SPEC-0001"AI 起分支名"）。它不知道 OneShotPi 和偏好在哪，由 `main.ts` 注入。
+- **BranchNamer**（`workspaces/`，2026-10-14 加，2026-10-28 扩展中文名）按新建页第一条消息一次生成英文分支和中文工作区别名；给了固定分支时不改分支，只按子对话名称或 agent 首件任务补中文别名。选模型同 TitleGenerator（再退到 pi 的默认模型），调 OneShotPi；自动分支整理为 `atrium/<名字>` 并避开已有分支/目录。命名在共享 Git 队列之外，失败不阻断创建；关闭时先中止自身和共享模型查询，再等待清理（SPEC-0001“新建 worktree 的中文显示名”）。它不知道 OneShotPi 和偏好在哪，由 `main.ts` 注入。
 - **WorkspaceService** 负责调度后台 `git fetch` 和窗口聚焦后的重算；**MergeInspector** 只做判定。`git merge-tree --write-tree` 不改工作区和 index，但会创建 git 对象，所以它"不改工作区"，不是"只读"。
 - **FileSearch** 在会话的工作目录里调 `fd`，参数和排序照 pi 的终端界面，git 仓库和普通目录一样（2026-10-10 定，原先打算 git 仓库用 `git ls-files`、其他目录自己遍历）。
 - **ChangesService**（`changes/`）给有连接在看的工作区算 git 改动：胶囊上的合计和改动面板的逐文件 diff，照抄 Paseo（SPEC-0001"工作区改动"，2026-10-10 定）。它按连接记下谁在看哪些工作区、谁开着哪个面板，只为有人看的工作区监听文件，没人看了就停；git 命令走 WorkspaceService 用的同一个 GitRunner（同时最多 4 个）。主干按"已决定 15"：项目设置（ProjectService）或 `origin/HEAD`，和 WorkspaceService 一样先比本机的主干分支，没有再比 `origin/<主干>`（2026-10-22 自用时改，原先照 Paseo 先比 `origin/<主干>`）。后台 fetch 和运行结束时 WorkspaceService 的变化也让它重算。

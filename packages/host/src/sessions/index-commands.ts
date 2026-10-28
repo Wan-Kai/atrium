@@ -31,9 +31,19 @@ export interface IndexCommands {
   /** Where a new worktree of a project may start. */
   listBases(projectId: string): Promise<CommandResult<"list_bases">>;
   /** Creates a worktree workspace on a new branch from a base. */
-  createWorkspace(projectId: string, branch: string, base: string): Promise<CommandResult<"create_workspace">>;
+  createWorkspace(
+    projectId: string,
+    branch: string,
+    base: string,
+    alias?: string | null,
+  ): Promise<CommandResult<"create_workspace">>;
   /** Asks a model for a new worktree's branch name by the first message. */
-  nameBranch(projectId: string, text: string, model: ModelRef | null): Promise<CommandResult<"name_branch">>;
+  nameBranch(
+    projectId: string,
+    text: string,
+    model: ModelRef | null,
+    branch?: string,
+  ): Promise<CommandResult<"name_branch">>;
   /** Names a chat, or with `null` goes back to its first session's title. */
   renameChat(chatId: string, name: string | null): Promise<CommandResult<"rename_chat">>;
   windowFocused(): Promise<CommandResult<"window_focused">>;
@@ -121,12 +131,10 @@ export function createIndexCommands(options: {
       return {};
     },
     listBases: (projectId) => options.creator.bases(projectId),
-    async createWorkspace(projectId, branch, base) {
-      return { workspaceId: await options.creator.create(projectId, branch, base) };
+    async createWorkspace(projectId, branch, base, alias) {
+      return { workspaceId: await options.creator.create(projectId, branch, base, alias) };
     },
-    async nameBranch(projectId, text, model) {
-      return { branch: await options.namer.name(projectId, text, model) };
-    },
+    nameBranch: (projectId, text, model, branch) => options.namer.name(projectId, text, model, branch),
     async renameChat(chatId, name) {
       if (!options.chats().some((chat) => chat.id === chatId)) throw new CommandError("chat_not_found", { chatId });
       await options.chatRecords.rename(chatId, name);
