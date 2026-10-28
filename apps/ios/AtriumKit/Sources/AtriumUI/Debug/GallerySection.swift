@@ -181,14 +181,16 @@
       }
     }
 
-    /// The pixel cat in every scene.
+    /// The pixel cat in every scene, in dots on the left and in characters on the right.
+    ///
+    /// - Remark: The characters are the ascii-sharks trial; the shimmer is on, as on the home.
     private var cats: some View {
       LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-        PixelCatView(scene: .tile, size: 150, seed: 1)
-        PixelCatView(scene: .peek, size: 150, seed: 2)
-        PixelCatView(scene: .sit, size: 150, seed: 3)
-        PixelCatView(scene: .paired, size: 150, seed: 4)
-        PixelCatView(scene: .asleep, size: 150)
+        ForEach(Array([PixelCat.Scene.tile, .peek, .sit, .paired, .asleep].enumerated()), id: \.offset) {
+          index, scene in
+          PixelCatView(scene: scene, size: 150, seed: UInt64(index + 1))
+          PixelCatView(scene: scene, size: 150, seed: UInt64(index + 1), style: .glyphs(shimmer: true))
+        }
       }
     }
 
