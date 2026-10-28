@@ -25,6 +25,29 @@ enum Typography {
   /// Small mono tags such as "未提交 · ↑3": 11.5pt medium.
   static let tag = Font.system(size: 11.5, weight: .medium, design: .monospaced)
 
+  /// The title "Atrium" and the big digits: Fraunces italic.
+  ///
+  /// - Remark: design-language "手机端 · 字体": only "Atrium" and 0–9 are in the bundled cut, so
+  ///   anything else must not use it. A fixed size: the title does not follow Dynamic Type.
+  /// - SideEffects: Registers the bundled fonts on first use.
+  /// - Parameter size: The size in points.
+  /// - Returns: The font.
+  static func brand(size: CGFloat) -> Font {
+    BrandFonts.register()
+    return .custom(BrandFonts.title, fixedSize: size)
+  }
+
+  /// "agent" on the question card: Syne 700, as on the desktop.
+  ///
+  /// - Remark: Only the letters of "agent" are in the bundled cut.
+  /// - SideEffects: Registers the bundled fonts on first use.
+  /// - Parameter size: The size in points.
+  /// - Returns: The font.
+  static func agent(size: CGFloat) -> Font {
+    BrandFonts.register()
+    return .custom(BrandFonts.agent, fixedSize: size)
+  }
+
   /// The font for a name shown large, by what it is written in.
   ///
   /// - Remark: New York only goes on Latin text and numbers ("Atrium", English project names,
