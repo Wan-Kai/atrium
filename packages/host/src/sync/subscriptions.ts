@@ -11,8 +11,13 @@ import type {
   PlansUpdatedEvent,
   RemoteUpdatedEvent,
   SessionEvent,
+  SessionSnapshotEvent,
+  ResumePoint,
+  SnapshotBudget,
 } from "@atrium/protocol";
 import type { ResourceTracker } from "../platform/resources";
+import type { EventRing } from "./event-ring";
+import { withinBudget } from "./snapshot-budget";
 
 /** Delivers events to one connection. */
 export type EventSink = (event: SinkEvent) => void;
@@ -56,25 +61,31 @@ export interface IndexSubscriber {
  */
 export class SubscriptionRegistry {
   readonly #resources: ResourceTracker;
+  readonly #ring: EventRing | undefined;
   readonly #sinks = new Map<
     string,
-    { readonly sink: EventSink; readonly clientId: string; readonly release: () => void }
+    { readonly sink: EventSink; readonly clientId: string; readonly remote: boolean; readonly release: () => void }
   >();
   /** Each connection's sessions, each with the release of its count. */
   readonly #subscriptions = new Map<string, Map<string, () => void>>();
   readonly #indexSubscribers = new Set<string>();
+  /** Each connection's snapshot budget, as its latest subscription set it; `undefined` for the default. */
+  readonly #budgets = new Map<string, SnapshotBudget | undefined>();
 
   /**
    * Creates an empty registry.
    *
    * @remarks
-   * Keeps the tracker registered connections are counted in.
+   * Keeps the tracker registered connections are counted in, and the ring that keeps what phones
+   * watch for them to continue from (SPEC-0005, "MP4c 定的细节").
    *
    * @sideEffects none
    * @param resources - Where connections are counted.
+   * @param ring - The phones' event ring; without it nothing is kept.
    */
-  constructor(resources: ResourceTracker) {
+  constructor(resources: ResourceTracker, ring?: EventRing) {
     this.#resources = resources;
+    this.#ring = ring;
   }
 
   /**
@@ -87,9 +98,15 @@ export class SubscriptionRegistry {
    * @param connectionId - The connection's opaque id.
    * @param sink - Sends one event over the connection.
    * @param clientId - The client behind it, whose layout its list carries.
+   * @param remote - Whether it is a phone's, whose sessions' events the ring keeps.
    */
-  connect(connectionId: string, sink: EventSink, clientId: string): void {
-    this.#sinks.set(connectionId, { sink, clientId, release: this.#resources.acquire("sync.connection") });
+  connect(connectionId: string, sink: EventSink, clientId: string, remote = false): void {
+    this.#sinks.set(connectionId, {
+      sink,
+      clientId,
+      remote,
+      release: this.#resources.acquire("sync.connection"),
+    });
     this.#subscriptions.set(connectionId, new Map());
   }
 
@@ -103,11 +120,15 @@ export class SubscriptionRegistry {
    * @param connectionId - The connection's id.
    */
   disconnect(connectionId: string): void {
+    if (this.#sinks.get(connectionId)?.remote === true) {
+      for (const sessionId of this.#subscriptions.get(connectionId)?.keys() ?? []) this.#ring?.watch(sessionId, -1);
+    }
     this.#sinks.get(connectionId)?.release();
     this.#sinks.delete(connectionId);
     for (const release of this.#subscriptions.get(connectionId)?.values() ?? []) release();
     this.#subscriptions.delete(connectionId);
     this.#indexSubscribers.delete(connectionId);
+    this.#budgets.delete(connectionId);
   }
 
   /**
@@ -150,22 +171,32 @@ export class SubscriptionRegistry {
    * The caller sends a snapshot of each newly added session before any later event, so the
    * client always starts from a snapshot (domain-model §7).
    *
-   * @sideEffects Updates the connection's subscriptions and their resource counts.
+   * Each subscription also sets the budget of the snapshots the connection gets from then on, or
+   * goes back to the default without one (SPEC-0005, "MP4a 定的细节").
+   *
+   * @sideEffects Updates the connection's subscriptions, their resource counts and its budget.
    * @param connectionId - The connection's id.
    * @param sessionIds - Every session it now watches.
+   * @param budget - How much its snapshots may carry; `undefined` for the default.
    * @returns The sessions it did not watch before, in the given order; empty for an unknown connection.
    */
-  subscribe(connectionId: string, sessionIds: readonly string[]): string[] {
+  subscribe(connectionId: string, sessionIds: readonly string[], budget?: SnapshotBudget): string[] {
     const watched = this.#subscriptions.get(connectionId);
     if (watched === undefined) return [];
+    this.#budgets.set(connectionId, budget);
     const after = new Set(sessionIds);
+    const remote = this.#sinks.get(connectionId)?.remote === true;
     for (const [sessionId, release] of watched) {
       if (after.has(sessionId)) continue;
       release();
       watched.delete(sessionId);
+      if (remote) this.#ring?.watch(sessionId, -1);
     }
     const added = [...after].filter((sessionId) => !watched.has(sessionId));
-    for (const sessionId of added) watched.set(sessionId, this.#resources.acquire("sync.subscription"));
+    for (const sessionId of added) {
+      watched.set(sessionId, this.#resources.acquire("sync.subscription"));
+      if (remote) this.#ring?.watch(sessionId, 1);
+    }
     return added;
   }
 
@@ -195,21 +226,75 @@ export class SubscriptionRegistry {
    * @param event - The event.
    */
   publish(event: SessionEvent): void {
+    this.#ring?.record(event);
     for (const connectionId of this.viewers(event.sessionId)) this.sendTo(connectionId, event);
+  }
+
+  /**
+   * The events a phone missed after its resume point, if the ring has them all.
+   *
+   * @remarks
+   * See `EventRing.resume`; `null` means the phone gets a snapshot.
+   *
+   * @sideEffects Marks the session's kept events as used.
+   * @param point - Where the phone's copy ends.
+   * @param newest - The session's latest seq.
+   * @returns The events to send before `session_resumed`, or `null`.
+   */
+  resume(point: ResumePoint, newest: number): SessionEvent[] | null {
+    return this.#ring?.resume(point, newest) ?? null;
+  }
+
+  /**
+   * Forgets the kept events of a session whose controller went.
+   *
+   * @remarks
+   * A new controller starts a new stream, so they could not be resumed from anyway.
+   *
+   * @sideEffects Drops the session's kept events.
+   * @param sessionId - The session.
+   */
+  forget(sessionId: string): void {
+    this.#ring?.drop(sessionId);
   }
 
   /**
    * Delivers an event to one connection, if it is still registered.
    *
    * @remarks
-   * Used for snapshots, which only the subscribing connection needs.
+   * Used for snapshots, which only the subscribing connection needs. Every snapshot, sent here or
+   * published, is cut to the connection's budget on the way.
    *
    * @sideEffects Calls the connection's sink.
    * @param connectionId - The connection.
    * @param event - The event.
    */
   sendTo(connectionId: string, event: SinkEvent): void {
-    this.#sinks.get(connectionId)?.sink(event);
+    const found = this.#sinks.get(connectionId);
+    if (found === undefined) return;
+    if (event.type !== "session_snapshot") {
+      found.sink(event);
+      return;
+    }
+    // A snapshot is where the ring starts keeping the session's events; it keeps none no phone watches.
+    this.#ring?.start(event);
+    found.sink(this.budgeted(connectionId, event));
+  }
+
+  /**
+   * Cuts a snapshot to a connection's budget.
+   *
+   * @remarks
+   * For a snapshot that goes out some other way, as in place of an event too large for a phone
+   * (SPEC-0005, "Noise 通道 · 大小").
+   *
+   * @sideEffects none
+   * @param connectionId - The connection.
+   * @param snapshot - The default snapshot.
+   * @returns The snapshot as the connection may get it.
+   */
+  budgeted(connectionId: string, snapshot: SessionSnapshotEvent): SessionSnapshotEvent {
+    return withinBudget(snapshot, this.#budgets.get(connectionId));
   }
 
   /**

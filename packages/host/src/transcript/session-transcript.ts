@@ -112,8 +112,11 @@ export interface SessionTranscript {
   rebuild(page: EntriesPage, reset: boolean): RebuildResult;
   /** The latest turns, with the notices among and after them, as they travel. */
   latest(): TranscriptPage;
-  /** Up to `limit` items before the one with id `before`, as they travel; `null` if there is no such item. */
-  before(before: string, limit: number): TranscriptPage | null;
+  /**
+   * Up to `limit` items, and `maxBytes` of them when given, before the one with id `before`, as
+   * they travel; `null` if there is no such item.
+   */
+  before(before: string, limit: number, maxBytes?: number): TranscriptPage | null;
   /** One step, whole; `null` if there is no such step. */
   step(turnId: string, stepId: string): Step | null;
   /**
@@ -576,13 +579,17 @@ export function createSessionTranscript(options: {
     },
     latest() {
       const all = this.items();
-      return takeFromEnd(all, (taken) => taken.filter((item) => item.kind === "turn").length >= SNAPSHOT_TURNS);
+      return takeFromEnd(
+        all,
+        (taken) => taken.filter((item) => item.kind === "turn").length >= SNAPSHOT_TURNS,
+        PAGE_BYTES,
+      );
     },
-    before(id, limit) {
+    before(id, limit, maxBytes = PAGE_BYTES) {
       const all = this.items();
       const end = all.findIndex((item) => item.id === id);
       if (end === -1) return null;
-      return takeFromEnd(all.slice(0, end), (taken) => taken.length >= limit);
+      return takeFromEnd(all.slice(0, end), (taken) => taken.length >= limit, maxBytes);
     },
     step(turnId, stepId) {
       const turn = this.items().findLast((item) => item.id === turnId);
@@ -642,11 +649,13 @@ function withHostNotices(
  * @sideEffects none
  * @param from - The items to take from, whole.
  * @param enough - Whether the items taken so far are enough.
+ * @param maxBytes - The most bytes of items, encoded, past which no further item is taken.
  * @returns The items taken, in order, and whether earlier ones remain.
  */
 function takeFromEnd(
   from: readonly TranscriptItem[],
   enough: (taken: readonly TranscriptItem[]) => boolean,
+  maxBytes: number,
 ): TranscriptPage {
   const taken: TranscriptItem[] = [];
   let bytes = 0;
@@ -656,7 +665,7 @@ function takeFromEnd(
     // Stryker disable next-line StringLiteral: an empty encoding is UTF-8.
     const size = Buffer.byteLength(JSON.stringify(item), "utf8");
     // Stryker disable next-line EqualityOperator: exactly at the limit is within it by one byte either way.
-    if (taken.length > 0 && bytes + size > PAGE_BYTES) break;
+    if (taken.length > 0 && bytes + size > maxBytes) break;
     taken.unshift(item);
     bytes += size;
   }

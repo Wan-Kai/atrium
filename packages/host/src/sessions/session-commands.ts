@@ -12,6 +12,8 @@ import type {
   PromptCommand,
   QuestionReply,
   SessionSnapshotEvent,
+  ResumePoint,
+  SnapshotBudget,
   SteerCommand,
   ThinkingLevel,
 } from "@atrium/protocol";
@@ -66,8 +68,17 @@ export interface SessionCommands {
    * (SPEC-0005, "大小"); `null` for a session without one.
    */
   currentSnapshot(sessionId: string): SessionSnapshotEvent | null;
-  /** Replaces the sessions a connection watches, sending a snapshot of each new one first. */
-  subscribe(connectionId: string, sessionIds: readonly string[]): Promise<CommandResult<"subscribe_sessions">>;
+  /**
+   * Replaces the sessions a connection watches, sending a snapshot of each new one first, cut to
+   * the budget the connection now has (SPEC-0005, "MP4a 定的细节"), or, for a phone's session it can
+   * resume, the events it missed and `session_resumed` (SPEC-0005, "MP4c 定的细节").
+   */
+  subscribe(
+    connectionId: string,
+    sessionIds: readonly string[],
+    budget?: SnapshotBudget,
+    resume?: readonly ResumePoint[],
+  ): Promise<CommandResult<"subscribe_sessions">>;
   /** Sends a message with its images to a session, starting a restored draft's pi first. */
   prompt(command: PromptCommand, images?: readonly PromptImage[]): Promise<CommandResult<"prompt">>;
   /** Replaces the final stopped user message, preserving the old branch. */

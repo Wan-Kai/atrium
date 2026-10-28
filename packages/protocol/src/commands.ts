@@ -3,6 +3,7 @@ import { parseTraceparent } from "./trace";
 import { DiffTarget } from "./changes";
 import { FileCandidate, SlashCommand } from "./composer";
 import { DirEntry, FILE_LIMITS, FileContent, WorkspacePath } from "./files";
+import { SNAPSHOT_TURNS, SnapshotStream } from "./events";
 import { InteractionAnswer } from "./control";
 import { QuestionReply } from "./question";
 import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
@@ -69,6 +70,29 @@ export type PingCommand = z.infer<typeof PingCommand>;
 export const CreateChatCommand = z.strictObject({ type: z.literal("create_chat"), ...commandFields });
 export type CreateChatCommand = z.infer<typeof CreateChatCommand>;
 
+/** The fewest and most bytes a phone's snapshot or page may be limited to (SPEC-0005, "协议改动" 2). */
+const BudgetBytes = z
+  .number()
+  .int()
+  .min(64 * 1024)
+  .max(4 * 1024 * 1024);
+
+/** A smaller snapshot than the default, for a phone: at most so many turns and bytes of items. */
+export const SnapshotBudget = z.strictObject({
+  turns: z.number().int().min(1).max(SNAPSHOT_TURNS),
+  bytes: BudgetBytes,
+});
+export type SnapshotBudget = z.infer<typeof SnapshotBudget>;
+
+/** The last event of a session a client has, by the snapshot's `stream`, its epoch and seq. */
+export const ResumePoint = z.strictObject({
+  sessionId: SessionId,
+  stream: SnapshotStream,
+  epoch: z.number().int().nonnegative(),
+  seq: z.number().int().nonnegative(),
+});
+export type ResumePoint = z.infer<typeof ResumePoint>;
+
 /**
  * Sets which sessions this client receives live events for, replacing the previous set.
  *
@@ -80,6 +104,13 @@ export const SubscribeSessionsCommand = z.strictObject({
   type: z.literal("subscribe_sessions"),
   ...commandFields,
   sessionIds: z.array(SessionId).max(64),
+  /**
+   * How much the snapshots this connection gets may carry, until its next subscription; the
+   * default without it (SPEC-0005, "MP4a 定的细节").
+   */
+  snapshot: SnapshotBudget.optional(),
+  /** Where the client's copies of sessions end, to continue from instead of a snapshot (SPEC-0005, "协议改动" 3). */
+  resume: z.array(ResumePoint).max(64).optional(),
 });
 export type SubscribeSessionsCommand = z.infer<typeof SubscribeSessionsCommand>;
 
@@ -635,6 +666,8 @@ export const FetchTranscriptCommand = z.strictObject({
   /** The id of the earliest item the client has. */
   before: z.string().min(1).max(256),
   limit: z.number().int().min(1).max(FETCH_TRANSCRIPT_LIMIT),
+  /** The most bytes of items, encoded, besides the count; at least one item comes regardless. */
+  maxBytes: BudgetBytes.optional(),
 });
 export type FetchTranscriptCommand = z.infer<typeof FetchTranscriptCommand>;
 

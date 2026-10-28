@@ -26,6 +26,11 @@ public actor RemoteConnection {
   public nonisolated let storageIssues: AsyncStream<RemoteStorageIssue?>
   /// A failed local confirmation or cleanup, retained until resolved or superseded.
   public private(set) var storageIssue: RemoteStorageIssue?
+  /// The generation of each channel as it opens, the handed-over pairing channel's included.
+  ///
+  /// - Remark: "正在同步" is shown before a new channel exists (coming back to the foreground), so the
+  ///   sync starts on this, not on the status (SPEC-0005 "MP4a 定的细节" 5).
+  public nonisolated let openings: AsyncStream<Int>
   /// The host's Atrium messages, tagged with their connection.
   public nonisolated var messages: some AsyncSequence<RemoteMessage, Never> & Sendable { messageBuffer }
   /// Most recent failure on this actor, used by deterministic connection diagnostics.
@@ -37,6 +42,11 @@ public actor RemoteConnection {
   public private(set) var status = ConnectionStatus.connecting
   /// The current connection attempt; bumped by each new one.
   public private(set) var generation = 0
+  /// The generation of the channel open now; `nil` while there is none.
+  public var openGeneration: Int? {
+    if case .open = link { return generation }
+    return nil
+  }
   /// The host record, completed once a pending pairing is confirmed.
   public private(set) var host: HostRecord
 
@@ -61,6 +71,7 @@ public actor RemoteConnection {
   }
 
   private let statusSink: AsyncStream<ConnectionStatus>.Continuation
+  private let openingSink: AsyncStream<Int>.Continuation
   private let storageSink: AsyncStream<RemoteStorageIssue?>.Continuation
   private var ownership: HostStore.Claim
   private var storageRecovery: HostStorageRecovery?
@@ -110,6 +121,7 @@ public actor RemoteConnection {
     storageSink.yield(nil)
     (statuses, statusSink) = AsyncStream.makeStream()
     statusSink.yield(status)
+    (openings, openingSink) = AsyncStream.makeStream()
   }
 
   /// Starts connecting.
@@ -129,6 +141,7 @@ public actor RemoteConnection {
     tearDown()
     link = .stopped
     statusSink.finish()
+    openingSink.finish()
     storageSink.finish()
     storageRecovery = nil
     messageBuffer.finish()
@@ -445,6 +458,7 @@ public actor RemoteConnection {
     heartbeatsAnswered = 0
     lastHeard = environment.stopwatch.now
     setStatus(.syncing)
+    openingSink.yield(generation)
     let channel = established.channel
     let receiveTask = Task { await self.receiveLoop(channel, generation: generation) }
     let heartbeatTask = Task { await self.heartbeatLoop(channel, generation: generation) }

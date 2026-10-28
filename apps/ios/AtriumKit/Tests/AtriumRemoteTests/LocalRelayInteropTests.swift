@@ -16,7 +16,7 @@ struct LocalRelayInteropTests {
   @Test(
     .enabled(
       if: ProcessInfo.processInfo.environment["ATRIUM_LOCAL_INTEROP_CONTROL"] != nil
-        && ProcessInfo.processInfo.environment["ATRIUM_LOCAL_INTEROP_SCENARIO"] != "production-rejection"))
+        && ProcessInfo.processInfo.environment["ATRIUM_LOCAL_INTEROP_SCENARIO"] == "mp0"))
   func pairingReconnectHeartbeatAndRevocation() async throws {
     let control = try LocalInteropControl()
     let setup = try await control.request("setup")

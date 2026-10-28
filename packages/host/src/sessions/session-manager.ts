@@ -330,6 +330,8 @@ export function createSessionManager(options: {
   readonly newId: () => string;
   /** Makes a new session's id, which pi takes with `--session-id` (pi-internals §1). */
   readonly newSessionId: () => string;
+  /** Makes the `stream` of a new controller or a draft's snapshot (SPEC-0005, "协议改动" 3). */
+  readonly newStream: () => string;
   /** Loads a session's turn starts (`turns/<session id>.json`); without it they live in memory. */
   readonly turnStarts?: (sessionId: string) => Promise<TurnStarts>;
   /** The model new sessions start with; without it pi picks its own and choices go nowhere. */
@@ -1051,6 +1053,7 @@ export function createSessionManager(options: {
       },
       clock: timers,
       newId: options.newId,
+      stream: options.newStream(),
       // A read cut short by stopping pi is what Atrium asked for (observability.md, "日志格式").
       onRefreshFailed: (error) =>
         options.logger[error instanceof PiRequestError && error.reason === "stopped" ? "info" : "warn"](
@@ -1307,6 +1310,8 @@ export function createSessionManager(options: {
     held.get(sessionId)?.();
     held.delete(sessionId);
     sessions.delete(sessionId);
+    // A new controller starts a new stream; what the phones' ring kept cannot be resumed from.
+    options.subscriptions.forget(sessionId);
     // Stryker disable next-line all: only frees memory; holding the session again sets it first.
     lastActive.delete(sessionId);
   }
@@ -1675,9 +1680,9 @@ export function createSessionManager(options: {
       const controller = sessions.get(sessionId)?.controller;
       if (controller !== undefined) return controller.snapshot();
       const entry = entryOf(sessionId);
-      return entry?.state === "draft" ? draftSnapshot(sessionId, fastOf(entry)) : null;
+      return entry?.state === "draft" ? draftSnapshot(sessionId, fastOf(entry), options.newStream()) : null;
     },
-    async subscribe(connectionId, sessionIds) {
+    async subscribe(connectionId, sessionIds, budget, resume = []) {
       await options.catalog.ready();
       const snapshots = new Map<string, SessionSnapshotEvent>();
       for (const sessionId of sessionIds) {
@@ -1686,14 +1691,28 @@ export function createSessionManager(options: {
         if (controller !== undefined) {
           snapshots.set(sessionId, controller.snapshot());
         } else if (entry?.state === "draft") {
-          snapshots.set(sessionId, draftSnapshot(sessionId, fastOf(entry)));
+          snapshots.set(sessionId, draftSnapshot(sessionId, fastOf(entry), options.newStream()));
         }
         // A session on file whose pi has not started yet is watched already; its snapshot follows
         // once `open_session` or a message starts it (SPEC-0001, "项目、工作区与会话").
       }
-      for (const sessionId of options.subscriptions.subscribe(connectionId, sessionIds)) {
+      for (const sessionId of options.subscriptions.subscribe(connectionId, sessionIds, budget)) {
         const snapshot = snapshots.get(sessionId);
-        if (snapshot !== undefined) options.subscriptions.sendTo(connectionId, snapshot);
+        if (snapshot === undefined) continue;
+        // A phone continues from its copy when the ring has every event since (SPEC-0005, "协议改动" 3).
+        const point = resume.find((candidate) => candidate.sessionId === sessionId);
+        const missed = point === undefined ? null : options.subscriptions.resume(point, snapshot.seq);
+        if (missed === null) {
+          options.subscriptions.sendTo(connectionId, snapshot);
+          continue;
+        }
+        for (const event of missed) options.subscriptions.sendTo(connectionId, event);
+        options.subscriptions.sendTo(connectionId, {
+          type: "session_resumed",
+          sessionId,
+          epoch: snapshot.epoch,
+          seq: snapshot.seq,
+        });
       }
       return {};
     },
@@ -2668,20 +2687,23 @@ function piImages(images: readonly PromptImage[]): {
  * The snapshot of a draft whose pi has not started.
  *
  * @remarks
- * Epoch 0, so the snapshot sent once pi starts (epoch 1) replaces it.
+ * Epoch 0, so the snapshot sent once pi starts (epoch 1) replaces it. No event follows it, so its
+ * `stream` is new each time: a client resuming from it gets a snapshot again (SPEC-0005, "MP4a 定的细节").
  *
  * @sideEffects none
  * @param sessionId - The draft.
  * @param fast - Its Fast.
+ * @param stream - A new stream id.
  * @returns An empty snapshot.
  */
-function draftSnapshot(sessionId: string, fast: boolean): SessionSnapshotEvent {
+function draftSnapshot(sessionId: string, fast: boolean, stream: string): SessionSnapshotEvent {
   return {
     type: "session_snapshot",
     sessionId,
     epoch: 0,
     seq: 0,
     traceId: null,
+    stream,
     items: [],
     hasOlder: false,
     run: null,

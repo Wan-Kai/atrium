@@ -47,6 +47,7 @@ import { REMOTE_FILE } from "./remote/devices";
 import { loadIndexFile } from "./store/index-file";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
+import { openReceipts } from "./remote/receipts";
 import { discoverProjects } from "./projects/discovery";
 import { createIndexCommands } from "./sessions/index-commands";
 import { createFileSearch } from "./files/file-search";
@@ -65,6 +66,7 @@ import { createChatRecords, listChats } from "./store/chat-records";
 import { createPreferenceStore } from "./store/preferences";
 import { loadTurnStarts } from "./store/turn-starts";
 import { createIndexFeed } from "./sync/index-feed";
+import { EventRing } from "./sync/event-ring";
 import { SubscriptionRegistry } from "./sync/subscriptions";
 import { createMergeInspector, parseGitVersion } from "./workspaces/merge-inspector";
 import { createBranchNamer } from "./workspaces/branch-namer";
@@ -181,15 +183,21 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger.warn({ directory }, "atrium directory is readable by other users; expected mode 0700");
   }
   const tracing = setupTracing({ logger, resources, version: packageJson.version });
-  const subscriptions = new SubscriptionRegistry(resources);
+  // The phones' sessions keep their recent events, to continue from after a reconnect (SPEC-0005, "MP4c 定的细节").
+  const ring = new EventRing(clock, resources);
+  const subscriptions = new SubscriptionRegistry(resources, ring);
   // The host's one usage of the subscriptions, sent to every window as it changes (ADR-0011).
   const plans = createPlanUsage({ clock, logger });
   plans.subscribe((found) => subscriptions.broadcast({ type: "plans_updated", plans: found }));
   const hostInstanceId = randomBytes(8).toString("hex");
-  const [index, installSeed, remoteIndex] = await Promise.all([
+  const [index, installSeed, remoteIndex, receipts] = await Promise.all([
     loadIndex(home.root, clock.now(), logger),
     readInstallSeed(home.root, randomUUID),
     loadIndexFile(home.root, REMOTE_FILE, clock.now()),
+    // A phone's message receipts (SPEC-0005, "MP4b 定的细节").
+    openReceipts(join(home.root, "remote"), clock, {
+      log: (level, message, fields) => logger[level](fields, message),
+    }),
   ]).catch(async (error: unknown) => {
     logger.error({ err: error }, "host failed to start");
     releaseRejections();
@@ -350,6 +358,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
     newId: () => randomUUID(),
     newSessionId: () => randomUUID(),
+    newStream: () => randomUUID(),
     files: createFileSearch({
       findFd: async () => {
         const found = await toolbox.current();
@@ -611,6 +620,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       ],
       piLatest,
       remote,
+      receipts,
       translations,
       attachments,
       changes,
@@ -759,6 +769,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await catalog.close();
     // After the sessions, whose stopping still reports changes.
     feed.close();
+    ring.close();
+    await receipts.flush();
     await index.flush();
     await tracing.shutdown();
     // Before the log closes, which it writes to.

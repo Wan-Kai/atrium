@@ -1,0 +1,72 @@
+[
+  {
+    "file": "packages/host/src/sync/subscriptions.ts",
+    "from": "    if (this.#sinks.get(connectionId)?.remote === true) {",
+    "to": "    if (true) {",
+    "test": "packages/host/src/sync/subscriptions.test.ts",
+    "name": "keeps a phone's session when the Mac"
+  },
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "    if (ring.watchers === 0) {",
+    "to": "    if (true) {",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "forgets a session ten minutes"
+  },
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "ring.position.epoch === snapshot.epoch;",
+    "to": "true;",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "keeps the events at a snapshot of where they end"
+  },
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "    if (same && ring.base + ring.events.length === snapshot.seq) return;",
+    "to": "    if (same) return;",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "keeps the events at a snapshot of where they end"
+  },
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "    if (ring === undefined || ring.position === null) return;",
+    "to": "    if (ring === undefined) return;",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "keeps nothing for a watched session before"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "      if (under !== undefined) {",
+    "to": "      if (false) {",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "joins a request on its way"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "      if (!running.has(key)) byDevice.set(",
+    "to": "      if (true) byDevice.set(",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "even after newer requests pushed"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "      if (error instanceof CommandError) throw error;",
+    "to": "      throw error;",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "cannot tell the outcome of a request that threw"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": ".catch((error: unknown) => log?.(\"warn\", \"receipt not written\", { err: error }));",
+    "to": ".catch(() => undefined);",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "warns when it cannot write down"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "          if (!kept.success) throw new CommandError(\"outcome_unknown\");",
+    "to": "          if (!kept.success) throw new Error(\"bad\");",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "kept answer no longer reads"
+  }
+]

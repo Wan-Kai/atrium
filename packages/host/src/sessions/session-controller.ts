@@ -20,6 +20,7 @@ import {
   type QuestionReply,
   type RunSettledEvent,
   type SessionEvent,
+  type SessionResumedEvent,
   type SessionMetrics,
   type SessionModel,
   type SessionSnapshotEvent,
@@ -267,7 +268,7 @@ interface OpenQuestion {
 
 /** A session event before the controller numbers it. */
 type Unnumbered = SessionEvent extends infer E
-  ? E extends SessionEvent
+  ? E extends Exclude<SessionEvent, SessionResumedEvent>
     ? Omit<E, "sessionId" | "epoch" | "seq" | "traceId">
     : never
   : never;
@@ -520,6 +521,11 @@ export function createSessionController(options: {
   readonly publish: (event: SessionEvent) => void;
   readonly clock: Clock;
   readonly newId: () => string;
+  /**
+   * Which run of the session's state its snapshots belong to: new for every controller, kept
+   * across its epochs (SPEC-0005, "协议改动" 3).
+   */
+  readonly stream: string;
   readonly onRefreshFailed: (error: unknown) => void;
   /** Where the controller's log lines go: extension notifications and failed restarts. */
   readonly log?: (level: "info" | "warn" | "error", message: string, fields: Readonly<Record<string, unknown>>) => void;
@@ -838,6 +844,7 @@ export function createSessionController(options: {
       epoch,
       seq,
       traceId: run?.traceId ?? null,
+      stream: options.stream,
       ...transcript.latest(),
       run: run === null ? null : { runId: run.runId, startedAt: run.startedAt },
       exited,
@@ -2490,7 +2497,7 @@ export function createSessionController(options: {
       return {};
     },
     fetchTranscript(command) {
-      const page = command.epoch === epoch ? transcript.before(command.before, command.limit) : null;
+      const page = command.epoch === epoch ? transcript.before(command.before, command.limit, command.maxBytes) : null;
       if (page === null) throw new CommandError("transcript_changed");
       return page;
     },

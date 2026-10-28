@@ -1,0 +1,121 @@
+[
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "    if (event.epoch !== ring.position.epoch || event.seq !== last + 1) {",
+    "to": "    if (event.epoch !== ring.position.epoch) {",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "starts again at a new snapshot"
+  },
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "    while (ring.events.length > this.#limits.events || ring.bytes > this.#limits.bytes) this.#dropOldest(ring);",
+    "to": "    while (ring.events.length > this.#limits.events) this.#dropOldest(ring);",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "drops the oldest events past the count or the bytes"
+  },
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "    if (last !== newest || point.seq < ring.base || point.seq > last) return null;",
+    "to": "    if (point.seq < ring.base || point.seq > last) return null;",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "cannot resume another stream"
+  },
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "    if (last !== newest || point.seq < ring.base || point.seq > last) return null;",
+    "to": "    if (last !== newest || point.seq > last) return null;",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "cannot resume another stream"
+  },
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "    if (ring.position.stream !== point.stream || ring.position.epoch !== point.epoch) return null;",
+    "to": "    if (ring.position.epoch !== point.epoch) return null;",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "cannot resume another stream"
+  },
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "    if (same && ring.base + ring.events.length === snapshot.seq) return;",
+    "to": "    void same;",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "keeps its events when a snapshot of the same position"
+  },
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "    if (ring.watchers === 0) {",
+    "to": "    if (false) {",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "forgets a session ten minutes after"
+  },
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "    ring.cancelIdle?.();\n    ring.cancelIdle = null;\n    if (ring.watchers === 0) {",
+    "to": "    if (ring.watchers === 0) {",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "forgets a session ten minutes after"
+  },
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "      if (total <= this.#limits.totalBytes) return;",
+    "to": "      if (true) return;",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "drops the least recently used"
+  },
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "    const others = [...this.#sessions.values()].filter((ring) => ring !== current).toSorted((a, b) => a.used - b.used);",
+    "to": "    const others = [...this.#sessions.values()].filter((ring) => ring !== current).toSorted((a, b) => b.used - a.used);",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "drops the least recently used"
+  },
+  {
+    "file": "packages/host/src/sync/event-ring.ts",
+    "from": "      if (change < 0) return;\n",
+    "to": "",
+    "test": "packages/host/src/sync/event-ring.test.ts",
+    "name": "drops a session on request"
+  },
+  {
+    "file": "packages/host/src/sync/subscriptions.ts",
+    "from": "    this.#ring?.record(event);\n",
+    "to": "",
+    "test": "packages/host/src/sync/subscriptions.test.ts",
+    "name": "keeps the events of a session a phone watches"
+  },
+  {
+    "file": "packages/host/src/sync/subscriptions.ts",
+    "from": "      if (remote) this.#ring?.watch(sessionId, -1);",
+    "to": "      void remote;",
+    "test": "packages/host/src/sync/subscriptions.test.ts",
+    "name": "stops counting a phone"
+  },
+  {
+    "file": "packages/host/src/sync/subscriptions.ts",
+    "from": "      for (const sessionId of this.#subscriptions.get(connectionId)?.keys() ?? []) this.#ring?.watch(sessionId, -1);",
+    "to": "      void connectionId;",
+    "test": "packages/host/src/sync/subscriptions.test.ts",
+    "name": "keeps a session's events ten minutes after its phone went"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "        const missed = point === undefined ? null : options.subscriptions.resume(point, snapshot.seq);",
+    "to": "        const missed = null;",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "replays what a phone missed"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "    options.subscriptions.forget(sessionId);\n",
+    "to": "",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "archives a session: stops its pi"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "command.snapshot, command.resume)",
+    "to": "command.snapshot)",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "hands a subscription's snapshot budget"
+  }
+]

@@ -114,3 +114,37 @@ Actual results belong in the coverage map, not inferred from this recipe.
 Not covered: complete production host/startHost, UI/scanning, real keychain persistence,
 automatic reconnect/backoff or heartbeat scheduling, background/foreground transitions, physical
 iPhone, TLS, WAN failure injection, full repository checks or mutation testing.
+
+## MP4a sync contract
+
+```sh
+node apps/ios/Integration/run.mjs --sync-contract
+```
+
+Runs only `SyncContractTests` (SPEC-0005 "MP4a 定的细节", "验证 · App · 契约测试"). Unlike the two checks
+above, the host here is the **real host server** (`startHost` through `packages/host/test/harness.ts`)
+with remote access on, a scripted pi on its tool `PATH` (eight earlier user messages; a prompt answers
+"pong"), the vault in memory (`MemoryVault`) and the production relay in process on `/atrium`. The
+Swift side is the shipping `PairingLink` / `RemoteHandshake` / `RemoteConnection` and the app's own
+`SyncModel` driving `SyncCore`.
+
+The control endpoint only does what the Mac's user would: `setup` (the pairing link), `confirm` (checks
+the SAS against the host's own pairing request, then accepts), `chat` (creates and opens a chat) and
+`prompt` (sends a message from the Mac). The test checks:
+
+- pairing over IKpsk2 and the hand-over of the pairing channel to the daily connection;
+- "已连接" only after the list answered with its snapshot and the open session has its snapshot;
+- the session's snapshot cut to the phone's budget (6 of 8 turns, `hasOlder`), with a `stream`;
+- a reply sent from the Mac arriving live, in order, ending with the turn done.
+
+MP4b/MP4c extend it: the phone sends a message with its receipt; a loopback proxy between the phone and
+the relay (only connections upgrading `/atrium/v1/client`; the host's own control line stays direct) is
+cut while the Mac sends a message, and the phone must catch up by resuming, not by a budget-cut
+snapshot; then the phone's upstream is held, a message is sent, the connection is cut and released, and
+the message must be retried once with its request id and run once. The fixture's pi entries grow with
+each run (each with its own timestamps and full usage), so the host's rebuild after a run keeps the
+epoch. `ATRIUM_CONTRACT_DEBUG=1` prints the host's non-debug log at fixture shutdown.
+
+It uses real time (the host and relay run on the system clock). The temporary pi and host home are
+removed and the relay's resource counts must return to zero. It is not network fault injection, a
+real device, or receipts: those are MP4b and MP4c.

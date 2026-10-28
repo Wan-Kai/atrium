@@ -172,7 +172,8 @@ function withItems(view: SessionView, items: TranscriptItem[] | null): SessionVi
  * event must be the next one: from the same epoch with the next sequence number. Anything else, or
  * an event about a turn or step the view does not have, means the client missed something, and it
  * asks for a fresh snapshot instead of guessing (domain-model §7). Events that arrive before the
- * first snapshot are already part of it and are ignored.
+ * first snapshot are already part of it and are ignored. A `session_resumed` changes nothing when it
+ * names the position the view is at, and asks for a resync otherwise (SPEC-0005, "MP4a 定的细节").
  *
  * @sideEffects none
  * @param view - The current view.
@@ -197,6 +198,8 @@ export function applySessionEvent(view: SessionView, event: SessionEvent): Sessi
     };
   }
   if (view.status === "loading") return view;
+  // A resumption takes no seq of its own: it says the view is already where the host is.
+  if (event.type === "session_resumed") return event.epoch === view.epoch && event.seq === view.seq ? view : "resync";
   if (event.epoch !== view.epoch || event.seq !== view.seq + 1) return "resync";
   const next = { ...view, seq: event.seq };
   switch (event.type) {

@@ -140,6 +140,7 @@ export const PUSHED_TO_PHONE = {
   welcome: true,
   response: true,
   session_snapshot: true,
+  session_resumed: true,
   run_started: true,
   run_settled: true,
   turn_started: true,

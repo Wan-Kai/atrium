@@ -1,0 +1,87 @@
+[
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "if (known.hash !== hash) throw new CommandError(\"request_conflict\");",
+    "to": "void hash;",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "refuses the same request id with other content"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "const fields = [command.type, command.sessionId, command.text ?? \"\", command.attachmentIds?.length ?? 0];",
+    "to": "const fields = [command.type, command.sessionId, command.text ?? \"\", command.attachmentIds ?? []];",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "counts attachments but not their ids"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "const fields = [command.type, command.sessionId, command.text ?? \"\", command.attachmentIds?.length ?? 0];",
+    "to": "const fields = [command.sessionId, command.text ?? \"\", command.attachmentIds?.length ?? 0];",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "refuses the same request id with other content"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "        if (under !== undefined) return under;",
+    "to": "        void under;",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "joins a request on its way"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "      receipts.delete(key);\n      throw new CommandError(\"internal_error\");",
+    "to": "      receipts.delete(key);",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "does not run a request it could not write down first"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "          : { ...receipt, state: \"unknown\" },",
+    "to": "          : { ...receipt, state: \"done\", response: { ok: true, result: {} } },",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "cannot tell the outcome of a request that threw something else"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "      if (now - receipt.at > RECEIPT_TTL_MS) {",
+    "to": "      if (false) {",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "leaves expired receipts out of the file"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "Math.max(0, kept.length - RECEIPTS_PER_DEVICE)",
+    "to": "0",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "forgets receipts after a day"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "const expired = known !== undefined && clock.now() - known.at > RECEIPT_TTL_MS;",
+    "to": "const expired = false;",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "forgets receipts after a day"
+  },
+  {
+    "file": "packages/host/src/remote/receipts.ts",
+    "from": "throw new CommandError(known.response.code, known.response.params);",
+    "to": "throw new CommandError(known.response.code);",
+    "test": "packages/host/src/remote/receipts.test.ts",
+    "name": "answers the same failure again"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "      return sender.deviceId === null ? execute() : options.receipts.run(sender.deviceId, message, execute);",
+    "to": "      return execute();",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "runs a phone's prompt and steer through its receipts"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "      return sender.deviceId === null ? execute() : options.receipts.run(sender.deviceId, message, execute);",
+    "to": "      return execute();",
+    "test": "packages/host/test/remote/phone-sync.host.test.ts",
+    "name": "gets snapshots cut to its budget",
+    "project": "host"
+  }
+]

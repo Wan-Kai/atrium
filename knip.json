@@ -10,7 +10,8 @@
         "vitest.mutation.config.ts",
         "apps/ios/Integration/run.mjs",
         "apps/ios/Integration/fixture.ts",
-        "apps/ios/Integration/production-rejection.ts"
+        "apps/ios/Integration/production-rejection.ts",
+        "apps/ios/Integration/sync-contract.ts"
       ],
       "ignoreDependencies": ["@stryker-mutator/core", "@stryker-mutator/command-runner"]
     },

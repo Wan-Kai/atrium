@@ -1146,6 +1146,20 @@ describe("createSessionTranscript pages", () => {
     expect(ids(huge.latest().items)).toStrictEqual(["s:h1"]);
   });
 
+  it("pages back within a byte limit as well as a count, always taking at least one item", () => {
+    const { transcript: session } = transcript();
+    const big = "y".repeat(40_000);
+    session.rebuild({ entries: userChain([big, big, big, big]), leafId: "u3" }, false);
+
+    expect(ids(present(session.before("s:u3", 10, 100_000), "a page").items)).toStrictEqual(["s:u1", "s:u2"]);
+    expect(present(session.before("s:u3", 10, 65_536), "a page")).toMatchObject({
+      items: [{ id: "s:u2" }],
+      hasOlder: true,
+    });
+    expect(ids(present(session.before("s:u3", 1, 4_194_304), "a page").items)).toStrictEqual(["s:u2"]);
+    expect(ids(present(session.before("s:u1", 10, 1), "a page").items)).toStrictEqual(["s:u0"]);
+  });
+
   it("pages back from an item, and knows no item it does not have", () => {
     const session = longSession(5);
 

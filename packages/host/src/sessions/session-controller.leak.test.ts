@@ -93,6 +93,7 @@ describe("session controller resources", () => {
       publish: () => undefined,
       clock,
       newId: () => `id${++next}`,
+      stream: "st-1",
       onRefreshFailed: () => undefined,
       log: () => undefined,
       respawn: async () => {
@@ -154,6 +155,7 @@ describe("session controller resources", () => {
       publish: () => undefined,
       clock,
       newId: () => "id",
+      stream: "st-1",
       onRefreshFailed: () => undefined,
       log: () => undefined,
       respawn: () => Promise.reject(new Error("pi lives on")),
@@ -217,6 +219,7 @@ describe("session controller resources", () => {
       publish: () => undefined,
       clock: new FakeClock(1000),
       newId: () => "id",
+      stream: "st-1",
       onRefreshFailed: () => undefined,
       log: () => undefined,
       respawn: () => Promise.reject(new Error("pi lives on")),

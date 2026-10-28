@@ -682,6 +682,7 @@ function control(
     publish: (event) => events.push(event),
     clock,
     newId: () => `id${++next}`,
+    stream: "st-1",
     onRefreshFailed: (error) => failures.push(error),
     log: (level, message, fields) => logged.push([level, message, fields]),
     ...extra,
@@ -1007,10 +1008,35 @@ describe("createSessionController on a recorded session", () => {
     expect(events.filter((event) => event.type === "notice_added")).toStrictEqual([
       expect.objectContaining({ notice: expect.objectContaining({ id: "s1:e18" }), epoch: 1, traceId: null }),
     ]);
-    expect(events[toBranch]).toMatchObject({ type: "session_snapshot", epoch: 2, seq: 0, run: null });
-    expect(events[back]).toMatchObject({ type: "session_snapshot", epoch: 3, seq: 0, hasOlder: false, run: null });
+    expect(events[toBranch]).toMatchObject({ type: "session_snapshot", epoch: 2, seq: 0, run: null, stream: "st-1" });
+    expect(events[back]).toMatchObject({
+      type: "session_snapshot",
+      epoch: 3,
+      seq: 0,
+      hasOlder: false,
+      run: null,
+      stream: "st-1",
+    });
     // Back on the first branch, its turns have the ids they had live.
     expect(controller.snapshot().items.map((item) => item.id)).toStrictEqual(["id2", "id4", "s1:e18", "id6", "id10"]);
+  });
+
+  it("pages back within the bytes a phone asks for, always taking at least one item", async () => {
+    const big = "y".repeat(40_000);
+    const entries = [userEntry("u0", null, big), userEntry("u1", "u0", big), userEntry("u2", "u1", big)];
+    const { controller } = control(manualPi().pi, { entries, leafId: "u2" });
+    await settle();
+
+    expect(controller.fetchTranscript(fetch(1, "s1:u2")).items.map((item) => item.id)).toStrictEqual([
+      "s1:u0",
+      "s1:u1",
+    ]);
+    expect(controller.fetchTranscript({ ...fetch(1, "s1:u2"), maxBytes: 65_536 })).toMatchObject({
+      items: [{ id: "s1:u1" }],
+      hasOlder: true,
+    });
+    expect(controller.fetchTranscript({ ...fetch(1, "s1:u1"), maxBytes: 65_536 }).items).toHaveLength(1);
+    await controller.shutdown();
   });
 
   it("pages back through the transcript, and refuses a page from an epoch that has passed", async () => {
@@ -1088,6 +1114,7 @@ describe("createSessionController on cases the fixtures do not show", () => {
     expect(controller.snapshot()).toStrictEqual({
       type: "session_snapshot",
       ...at(5),
+      stream: "st-1",
       items: [
         {
           kind: "turn",
@@ -1123,6 +1150,7 @@ describe("createSessionController on cases the fixtures do not show", () => {
       publish: (event) => events.push(event),
       clock: new FakeClock(1000),
       newId: () => "id1",
+      stream: "st-1",
       onRefreshFailed: () => undefined,
       epoch: 4,
     });

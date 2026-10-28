@@ -89,6 +89,8 @@ export interface WsServerOptions {
   readonly piLatest: RouterOptions["piLatest"];
   /** Remote access, for the local "手机" page; a closed connection stops watching it. */
   readonly remote: RouterOptions["remote"];
+  /** A phone's `prompt` and `steer` receipts. */
+  readonly receipts: RouterOptions["receipts"];
   /** Images uploaded ahead of their messages; a closed connection's go. */
   readonly attachments: AttachmentStore;
   /** Workspaces' git changes; a closed connection stops showing them. */
@@ -166,6 +168,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     installs: options.installs,
     piLatest: options.piLatest,
     remote: options.remote,
+    receipts: options.receipts,
     attachments: options.attachments,
     changes: options.changes,
     files: options.files,
@@ -464,13 +467,21 @@ function serveTransport(
             remote: {
               deviceId: origin.deviceId,
               maxMessageBytes: options.maxPhoneMessageBytes,
-              snapshotOf: (sessionId: string) => options.sessions.currentSnapshot(sessionId),
+              snapshotOf: (sessionId: string) => {
+                const snapshot = options.sessions.currentSnapshot(sessionId);
+                return snapshot === null ? null : options.subscriptions.budgeted(connectionId, snapshot);
+              },
             },
           }
         : {}),
     });
     const open = connection;
-    options.subscriptions.connect(connectionId, (event) => open.send(event), accepted.clientId);
+    options.subscriptions.connect(
+      connectionId,
+      (event) => open.send(event),
+      accepted.clientId,
+      origin.origin === "remote",
+    );
     for (const event of options.catchUp()) open.send(event);
     beat();
   });

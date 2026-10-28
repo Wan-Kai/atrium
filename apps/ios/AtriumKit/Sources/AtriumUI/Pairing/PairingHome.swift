@@ -1,4 +1,5 @@
 import AtriumRemote
+import AtriumSync
 import Network
 import SwiftUI
 
@@ -8,14 +9,16 @@ import SwiftUI
 
 /// Adds minimal pairing and connection wiring to the ordinary home, without changing debug galleries.
 ///
-/// - Remark: MP4 test wiring only. The future sync owner must call markSynced; this wrapper never
-///   calls a merely encrypted connection fully connected.
+/// - Remark: Each connection gets its own ``SyncModel``, put in the content's environment; the model
+///   alone calls `markSynced`, so a merely encrypted connection is never shown as connected
+///   (SPEC-0005 "MP4a 定的细节"). The pairing controls stay test wiring until MP6.
 public struct PairingHome<Content: View>: View {
   private let content: Content
   private let store: HostStore
   private let environment: RemoteEnvironment
   @State private var model: PairingModel?
   @State private var connection: RemoteConnection?
+  @State private var sync: SyncModel?
   @State private var target: (host: HostRecord, handover: SecureChannel?, ownership: HostStore.Claim?)?
   @State private var revision = 0
   @State private var connectionRevision = 0
@@ -40,6 +43,7 @@ public struct PairingHome<Content: View>: View {
   /// Home content with an explicit pairing sheet and scoped connection tasks.
   public var body: some View {
     content
+      .environment(sync)
       .safeAreaInset(edge: .bottom) {
         VStack(alignment: .leading, spacing: 8) {
           HStack {
@@ -86,14 +90,24 @@ public struct PairingHome<Content: View>: View {
           await connection.stop()
           return
         }
+        let sync = SyncModel(
+          connection: connection, hostName: target.host.hostName, traceparent: environment.traceparent,
+          now: { [stopwatch = environment.stopwatch] in stopwatch.now.offset },
+          requestId: { UUID().uuidString.lowercased() },
+          cache: Self.cache(for: target.host.hostId), clock: environment.stopwatch.clock)
         self.connection = connection
+        self.sync = sync
         storageRetryRequested = false
         connectionRevision += 1
+        let syncing = Task { await sync.run() }
         await connection.start()
         for await status in connection.statuses {
           guard !Task.isCancelled else { break }
           connectionText = Self.message(for: status)
+          await sync.statusChanged(status)
         }
+        syncing.cancel()
+        await syncing.value
         await connection.stop()
       }
       .task(id: connectionRevision) {
@@ -132,6 +146,7 @@ public struct PairingHome<Content: View>: View {
           #if os(iOS)
             let background = UIApplication.shared.beginBackgroundTask(withName: "Close remote connection")
           #endif
+          sync?.saveNow()
           await connection.setAppPhase(.background)
           await connection.closeForBackground()
           #if os(iOS)
@@ -140,6 +155,19 @@ public struct PairingHome<Content: View>: View {
         @unknown default: break
         }
       }
+  }
+
+  /// The cache of a Mac's list and sessions, in the app's Application Support folder.
+  ///
+  /// - Remark: SPEC-0005 "iOS App · 存储": per host, versioned, excluded from backups.
+  /// - SideEffects: none
+  /// - Parameter hostId: The Mac.
+  /// - Returns: The cache, or `nil` when the folder cannot be found.
+  static func cache(for hostId: String) -> SyncCache? {
+    guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+      return nil
+    }
+    return SyncCache(root: support.appendingPathComponent("Atrium/hosts", isDirectory: true), hostId: hostId)
   }
 
   /// Observes persistence separately from network status, including unchanged terminal statuses.
@@ -241,6 +269,7 @@ public struct PairingHome<Content: View>: View {
     target?.handover?.abort()
     target = (host, handover, ownership)
     connection = nil
+    sync = nil
     storageRetryRequested = false
     connectionRevision += 1
     revision += 1
@@ -248,7 +277,7 @@ public struct PairingHome<Content: View>: View {
 
   /// Explains connection state without displaying untrusted transport text.
   ///
-  /// - Remark: Sending stays outside this test wrapper until the sync layer is assembled.
+  /// - Remark: The bottom line under the home; the home's pill says the same in fewer words.
   /// - SideEffects: none
   /// - Parameters:
   ///   - status: The remote connection status.
