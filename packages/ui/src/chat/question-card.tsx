@@ -1,8 +1,7 @@
 import { QUESTION_LIMITS } from "@atrium/client";
 import type { AskedQuestion, PendingQuestion, QuestionReply } from "@atrium/protocol";
-import { type KeyboardEvent, type RefObject, memo, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type RefObject, useEffect, useRef, useState } from "react";
 import { CaretRight, Check } from "../design/icons";
-import { paintQuestionDots, questionDotsSize } from "../design/dots";
 import { useClock } from "../state/clock";
 import {
   type QuestionDraft,
@@ -26,43 +25,34 @@ const BUTTON =
 const KEY =
   "rounded-[4px] px-1 font-[family-name:var(--font-mono)] text-[length:var(--fs-xs)] text-[var(--text-muted)] shadow-[inset_0_0_0_0.5px_var(--line-strong)]";
 
+/** The letters of "agent", each its own span so each can rise on its own. */
+const AGENT_LETTERS = ["a", "g", "e", "n", "t"] as const;
+
 /**
- * The dot-matrix question mark on the card's top row (design-language, "提问卡片", 2026-10-26).
+ * The word "agent" leading the card's top row, its letters rising one after another.
  *
  * @remarks
- * A static canvas glyph in `--text`: painted once on mount and again when the appearance flips,
- * since canvas does not follow CSS variables by itself.
+ * Design-language ("提问卡片", 2026-10-28, 乙一 字母波浪): no glyph, the word itself moves so
+ * the card reads as waiting on you. The stylesheet staggers the letters by their place; the word
+ * is named as one so the letters are not read one by one.
  *
- * @sideEffects Paints the canvas; subscribes to the colour-scheme media query while mounted.
- * @returns The glyph.
+ * @sideEffects none
+ * @returns The word.
  */
-const DotQuestion = memo(function DotQuestion() {
-  const canvas = useRef<HTMLCanvasElement | null>(null);
-  useEffect(() => {
-    const node = canvas.current;
-    if (node === null) return undefined;
-    const context = node.getContext("2d");
-    if (context === null) return undefined;
-    /** Paints one still frame at the current appearance and pixel ratio.
-     * @remarks Canvas does not follow CSS variables or resolution changes by itself.
-     * @sideEffects Sizes the backing store and paints it. */
-    const paint = (): void => {
-      const { width, height } = questionDotsSize();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      node.style.width = `${width}px`;
-      node.style.height = `${height}px`;
-      node.width = width * dpr;
-      node.height = height * dpr;
-      context.setTransform(dpr, 0, 0, dpr, 0, 0);
-      paintQuestionDots(context, getComputedStyle(node).getPropertyValue("--text").trim());
-    };
-    paint();
-    const dark = matchMedia("(prefers-color-scheme: dark)");
-    dark.addEventListener("change", paint);
-    return (): void => dark.removeEventListener("change", paint);
-  }, []);
-  return <canvas ref={canvas} role="img" aria-label="问" className="flex-none" />;
-});
+function WavingAgent() {
+  return (
+    <span
+      aria-label="agent"
+      className="atrium-question-agent inline-flex font-[family-name:Syne] text-[length:var(--fs-meta)] font-bold text-[var(--attn-text)]"
+    >
+      {AGENT_LETTERS.map((letter) => (
+        <span key={letter} aria-hidden>
+          {letter}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 /**
  * One option of a question, or the other answer, with the box to write it in once picked.
@@ -436,10 +426,7 @@ export function QuestionCard({
     >
       <div className="flex flex-none flex-wrap items-center gap-2.5">
         <span className="flex items-center gap-1.5">
-          <DotQuestion />
-          <span className="font-[family-name:Syne] text-[length:var(--fs-meta)] font-bold text-[var(--attn-text)]">
-            agent
-          </span>
+          <WavingAgent />
           <span aria-hidden className="-ml-1 text-[length:var(--fs-sm)] text-[var(--attn-text)]">
             /
           </span>

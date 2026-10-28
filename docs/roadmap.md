@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-28：提问卡片顶行去掉点阵大问号，用户验收通过，已本地合并回 `main`，未推送。** 用户嫌 5×7 点阵问号突兀；原型三轮（`question-card-header-v2/v3/v4-prototype.html`），选 v4 的乙一"字母波浪"：不放图标，`agent` 五个字母依次跳起 3px（2.4 秒一轮、错开 80ms，减弱动效时不动）。design-language、SPEC-0003 已同步，`dots.ts` 的点阵问号删掉。`pnpm check`、界面 1160/1161 通过（状态栏一项单跑通过，已登记不稳），破坏检查 6 处全检出，详见[追踪表](testing/coverage-map.md)。
+
 **2026-10-28 MP6a–d 实现完成并经两方审查修完；同日用户在 iPhone 16 Pro 上验收通过，`atrium/mp4-sync`、`atrium/mp5-conversation` 已本地合并回 `main`，未推送。下一步 MP7 自用。** 都在 `atrium/mp5-conversation`（`atrium.worktrees/mp5-conversation`）：MP6a 改动列表和 diff 页（`22fb87d`）、MP6b 首页 / 工作区页 / 抽屉 / 签名天数（`98e5d79`）、MP6c 模型 sheet（`1cc1f93`）、MP6d 新会话（`12e5287`）；codex gpt-6-astra 和 grok grok-4.7 只读审查的发现在 `ea48157` 修完（改动列表推出时会话不再关闭、模型目录按位置、"找不到"标记只活一个连接、首页 `+` 的位置、抽屉补 relay / 手机名 / 版本 / 重新配对等），决定不改的三条写在追踪表"MP6 审查"。Swift 402 个测试、`pnpm check`、模拟器构建通过。真机性能已测（iPhone 16 Pro，`List` 无超过 50 毫秒的帧和主线程忙段，最长 24 毫秒，负控抓到注入的 80 毫秒；定下继续用 `List`，见 mobile-render.md"iPhone 16 Pro 真机"）。未做、交给验收：需要真实同步数据的整屏截图（模型 sheet、选位置 sheet、找不到工作区、抽屉）、hunk 之间的上下文展开（协议没有按版本取内容的命令，SPEC 已写明第一版不做）。MVP 手机端剩 MP7 自用，要用户本人用一周。
 
 **2026-10-28 MP4 三方审查完成、MP5a/b/c 实现完成（同日验收通过并合并，见上条）。** MP4 在 `atrium/mp4-sync`（`atrium.worktrees/mp4-sync`），三方审查（Claude 子代理、codex gpt-6-astra、grok grok-4.7）的发现已按测试先行修完（`605d46c`、`bc0b86d`、`6dfeecf`）；grok 报的"取消时 `AsyncStream` 卡住"经实测不成立，未改。MP5 在 `atrium/mp5-conversation`（`atrium.worktrees/mp5-conversation`，叠在 MP4 上并已合入其修复）：MP5a 对话本身（控制状态、轮次版式、过程轨道、Markdown 回复、顶栏）、MP5b 运行控制（插话、排队 sheet、停止、出错卡片、关注清除）、MP5c 提问 / 对话框 / 子对话 sheet 和发图片；代定的细节写在 SPEC-0005"MP5 定的细节"。契约覆盖排队、插话、停止后继续、对话框两端回答、带图发送。未做：真机性能（50 毫秒预算）、sheet 和菜单的截图与 UI 测试、`List` 与 `LazyVStack` 的取舍——交给用户验收；下一步 MP6。
