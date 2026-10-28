@@ -121,59 +121,40 @@ struct WorkspacePage: View {
     let changes = sync?.core.changes[workspaceId]
     ScrollView {
       VStack(alignment: .leading, spacing: 4) {
-        Text(project?.name ?? "").font(Typography.display(for: project?.name ?? "", size: 17, cjkSize: 15))
+        Text(project?.name ?? "").font(Typography.display(for: project?.name ?? "", size: 16, cjkSize: 14))
           .foregroundStyle(palette.secondary)
-        HStack(spacing: Metrics.xs) {
-          Image(systemName: workspace?.kind == .local ? "laptopcomputer" : "arrow.triangle.branch").font(
-            .system(size: 20))
-          Text(group?.name ?? "").font(.system(size: 25, weight: .semibold)).lineLimit(2)
-        }
-        .foregroundStyle(palette.text)
-        HStack(spacing: 6) {
-          Text(workspace?.kind == .local ? "本地工作区" : "worktree").font(.system(size: 13.5))
+        Text(group?.name ?? "").font(.system(size: 22, weight: .semibold, design: .monospaced))
+          .foregroundStyle(palette.text).lineLimit(2)
+        HStack(spacing: 8) {
+          Text(workspace?.kind == .local ? "本地工作区" : "worktree").font(.system(size: 12.5))
             .foregroundStyle(palette.secondary)
           if let tag = WorkspaceHeader.tag(
             dirty: changes?.dirty ?? false, ahead: changes?.ahead ?? 0, merged: group?.merged ?? false)
           {
-            MonoTag(text: tag, tone: group?.merged == true ? .merged : .attention)
+            Text(tag).font(.system(size: 11, weight: .medium, design: .monospaced))
+              .foregroundStyle(group?.merged == true ? palette.ok : palette.attn)
           }
         }
         NavigationLink(value: ChangesRoute(workspaceId: workspaceId)) {
-          HStack(spacing: Metrics.sm) {
-            Image(systemName: "plusminus").font(.system(size: 17)).frame(width: 24)
-            VStack(alignment: .leading, spacing: 2) {
-              Text("改动").font(.system(size: 16))
-              Text(Self.changesLine(dirty: changes?.dirty)).font(.system(size: 13.5))
-                .foregroundStyle(palette.secondary)
-            }
-            Spacer()
-            if let stat = changes?.stat {
-              Text("+\(ChangeList.short(stat.added))").foregroundStyle(palette.okText)
-              Text("−\(ChangeList.short(stat.removed))").foregroundStyle(palette.danger)
-            }
-            Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(palette.tertiary)
-          }
-          .font(.system(size: 13, design: .monospaced))
-          .foregroundStyle(palette.text)
-          .frame(minHeight: 56)
-          .contentShape(Rectangle())
+          ChangesCard(changes: changes)
         }
-        .buttonStyle(.plain)
-        .padding(.top, 20)
-        Text("会话 \(group?.rows.count ?? 0)").font(.system(size: 14)).monospacedDigit().foregroundStyle(
-          palette.secondary
-        )
-        .padding(.top, 30).padding(.bottom, 6)
+        .buttonStyle(PressStyle(scale: 0.985))
+        .padding(.top, 18)
+        Text("会话 \(group?.rows.count ?? 0)").font(.system(size: 12.5, weight: .semibold)).monospacedDigit()
+          .foregroundStyle(palette.secondary)
+          .padding(.top, 26).padding(.bottom, 2)
         if group?.rows.isEmpty ?? true {
           Text("这个工作区还没有会话").font(.system(size: 15)).foregroundStyle(palette.secondary)
             .frame(maxWidth: .infinity).padding(.top, Metrics.xl)
           NavigationLink(value: NewSessionRoute(container: workspaceId)) {
-            Text("在这里新建会话").font(.system(size: 15)).foregroundStyle(palette.tint)
+            Text("在这里新建会话").font(.system(size: 15, weight: .medium)).foregroundStyle(palette.tint)
           }
           .buttonStyle(.plain)
           .frame(maxWidth: .infinity).frame(minHeight: 42)
         }
-        ForEach(group?.rows ?? []) { SessionRow(row: $0) }
+        ForEach(Array((group?.rows ?? []).enumerated()), id: \.element.id) { place, row in
+          SessionRow(row: row, divided: place > 0)
+        }
       }
       .padding(.horizontal, Metrics.page)
       .padding(.top, Metrics.glassButton + Metrics.lg)
@@ -202,5 +183,53 @@ extension WorkspacePage {
     case true?: "未提交"
     case false?: "没有未提交的改动"
     }
+  }
+}
+
+/// The workspace page's changes, as a card into the change list.
+///
+/// - Remark: design-language "手机端 · 工作区页": a `--note` card with the lines changed in Fraunces
+///   italic, "+A −D" and whether anything is uncommitted, and a bar of added against removed. The
+///   host sends line counts, not files, so the big number is lines (listed for acceptance).
+struct ChangesCard: View {
+  /// The workspace's changes, once watched.
+  let changes: ChangesUpdatedEvent?
+  /// Light or dark.
+  @Environment(\.colorScheme) private var scheme
+
+  /// The card.
+  var body: some View {
+    let palette = Palette(scheme: scheme)
+    let added = changes?.stat?.added ?? 0
+    let removed = changes?.stat?.removed ?? 0
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text("\(added + removed)").font(Typography.brand(size: 40)).foregroundStyle(palette.text)
+        Text("行改动").font(.system(size: 13)).foregroundStyle(palette.secondary)
+        Spacer()
+        Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(palette.tertiary)
+      }
+      GeometryReader { proxy in
+        let total = max(1, added + removed)
+        HStack(spacing: 2) {
+          Capsule().fill(palette.ok).frame(width: proxy.size.width * CGFloat(added) / CGFloat(total))
+          Capsule().fill(palette.danger).frame(width: proxy.size.width * CGFloat(removed) / CGFloat(total))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Capsule().fill(palette.surface))
+      }
+      .frame(height: 4)
+      HStack(spacing: 8) {
+        Text("+\(ChangeList.short(added))").foregroundStyle(palette.ok)
+        Text("−\(ChangeList.short(removed))").foregroundStyle(palette.danger)
+        Text(WorkspacePage.changesLine(dirty: changes?.dirty)).foregroundStyle(palette.secondary)
+      }
+      .font(.system(size: 12.5, design: .monospaced))
+    }
+    .padding(16)
+    .background(palette.note, in: RoundedRectangle(cornerRadius: 18))
+    .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(palette.line, lineWidth: 0.5))
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("改动：\(added + removed) 行，\(WorkspacePage.changesLine(dirty: changes?.dirty))")
   }
 }

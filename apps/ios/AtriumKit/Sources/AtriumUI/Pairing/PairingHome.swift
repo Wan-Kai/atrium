@@ -288,7 +288,10 @@ public struct PairingHome<Content: View>: View {
   /// Tries the connection again now, for "重试" next to "正在重连"; `nil` without one.
   private var reconnectAction: (@MainActor () -> Void)? {
     guard let connection else { return nil }
-    return { Task { await connection.retryNow() } }
+    return {
+      // Fire and forget: the connection reports what happens through its status, which the page shows.
+      Task { await connection.retryNow() }
+    }
   }
 
   /// Forgets the Mac connected now: its keys, its cache and its drafts.

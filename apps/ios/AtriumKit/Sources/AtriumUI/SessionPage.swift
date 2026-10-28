@@ -394,6 +394,8 @@ struct PendingBubble: View {
 ///   while connected or catching up.
 struct LinkStrip: View {
   /// What the strip says.
+  ///
+  /// - Remark: The link states worth a strip; see `state(_:)`.
   enum State: Equatable {
     /// Trying again by itself.
     case reconnecting

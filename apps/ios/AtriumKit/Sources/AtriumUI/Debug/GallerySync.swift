@@ -94,7 +94,10 @@
     }
 
     /// Now, in milliseconds, so the sample's times read as minutes and hours ago.
-    private static var now: Int { Int(Date().timeIntervalSince1970 * 1000) }
+    private static var now: Int {
+      // Real time: the gallery's sample is laid out around the moment it is shown.
+      Int(Date().timeIntervalSince1970 * 1000)
+    }
 
     /// The list: two projects, five workspaces (one merged), recent sessions.
     private static var index: String {

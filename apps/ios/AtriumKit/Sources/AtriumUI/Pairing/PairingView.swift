@@ -34,8 +34,10 @@ public struct PairingView: View {
         case .confirming(let code, let left):
           Section {
             Text("请核对两边的校验码，在 Mac 上确认")
-            Text(code.prefix(3) + " " + code.suffix(3))
-              .font(.largeTitle.monospacedDigit())
+            CodeCards(code: code)
+              .frame(maxWidth: .infinity)
+              .padding(.vertical, 6)
+              .accessibilityElement(children: .ignore)
               .accessibilityLabel("校验码 \(code.map(String.init).joined(separator: " "))")
               .accessibilityIdentifier("pairing.code")
             Text("还剩 \(left) 秒")
@@ -164,6 +166,33 @@ public struct PairingView: View {
     case .hostError: "Mac 没能保存配对，请在 Mac 上检查后重试。"
     case .keychainUnavailable: "钥匙串暂不可用，请解锁手机后重试。"
     case .other: "没有完成配对，请检查连接后重新出码。"
+    }
+  }
+}
+
+/// The six-digit check code, one paper card a digit, in Fraunces italic.
+///
+/// - Remark: design-language "手机端 · 配对": 46×62pt `--note` cards, 6pt apart with a wider gap after
+///   the third, the digits 36pt. The bundled Fraunces cut has the digits.
+struct CodeCards: View {
+  /// The code.
+  let code: String
+  /// Light or dark.
+  @Environment(\.colorScheme) private var scheme
+
+  /// The cards.
+  var body: some View {
+    let palette = Palette(scheme: scheme)
+    HStack(spacing: 6) {
+      ForEach(Array(code.enumerated()), id: \.offset) { place, digit in
+        Text(String(digit))
+          .font(Typography.brand(size: 36))
+          .foregroundStyle(palette.text)
+          .frame(width: 46, height: 62)
+          .background(palette.note, in: RoundedRectangle(cornerRadius: 12))
+          .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(palette.line, lineWidth: 0.5))
+          .padding(.leading, place == 3 ? 10 : 0)
+      }
     }
   }
 }

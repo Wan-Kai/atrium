@@ -12,9 +12,10 @@ struct NewSessionRoute: Hashable {
 
 /// A new session: an empty page that turns into the session's page once its first message is sent.
 ///
-/// - Remark: The final prototype's new session (SPEC-0005 "MP6 定的细节 · MP6d"): "×" at the top, the
-///   sitting cat and "在 <分支> 里要做什么？" (or "要聊点什么？"), and at the bottom the place and model
-///   pills over the input. Sending makes the session (`create_session` or `create_chat`) and sends
+/// - Remark: The final prototype's new session (SPEC-0005 "MP6 定的细节 · MP6d"), in the paper
+///   redesign (design-language "手机端 · 新会话"): "×" at the top, "在 <分支> 里要做什么？" (the branch
+///   deep beige and mono) or "要聊点什么？", no cat for now; at the bottom the conversation page's
+///   two-row input, with the place and the model in its bottom row. Sending makes the session (`create_session` or `create_chat`) and sends
 ///   the message; the page then becomes that session's page in place. A workspace the Mac cannot
 ///   find is marked and cannot be sent to.
 struct NewSessionPage: View {
@@ -79,16 +80,20 @@ struct NewSessionPage: View {
     return VStack(spacing: 0) {
       Spacer()
       VStack(spacing: 14) {
-        PixelCatView(scene: .sit, size: 120)
-        Text(
-          Self.sentence(
-            branch: container == nil ? nil : (workspace?.branch ?? workspace?.alias ?? "这个工作区"), missing: missing
-          )
-          // The warning breaks after its comma rather than leaving one word on a line.
-          .replacingOccurrences(of: "，", with: "，\n")
-        )
-        .font(.system(size: missing ? 18 : 20, weight: .semibold))
-        .foregroundStyle(missing ? palette.attnText : palette.text)
+        Group {
+          if !missing, container != nil {
+            Text("在 ")
+              + Text(workspace?.branch ?? workspace?.alias ?? "这个工作区").font(
+                .system(size: 19, weight: .medium, design: .monospaced)
+              )
+              .foregroundColor(palette.tint)
+              + Text(" 里要做什么？")
+          } else {
+            Text(Self.sentence(branch: nil, missing: missing).replacingOccurrences(of: "，", with: "，\n"))
+          }
+        }
+        .font(.system(size: missing ? 18 : 21, weight: .semibold))
+        .foregroundStyle(missing ? palette.attn : palette.text)
         .multilineTextAlignment(.center)
         .frame(maxWidth: 320)
         if tried, let failure = sync?.core.startFailure, !missing, !asked {
@@ -97,61 +102,63 @@ struct NewSessionPage: View {
         }
       }
       Spacer()
-      VStack(alignment: .leading, spacing: Metrics.xs) {
-        HStack(spacing: Metrics.xs) {
+      VStack(alignment: .leading, spacing: 0) {
+        TextField("写下第一条消息", text: $text, axis: .vertical)
+          // Messages name files, branches and commands; autocorrect would rewrite them.
+          .autocorrectionDisabled()
+          .lineLimit(1...5)
+          .font(.system(size: 15.5))
+          .focused($typing)
+          .padding(.horizontal, 16)
+          .padding(.top, 12)
+          .padding(.bottom, 8)
+          .accessibilityIdentifier("new.input")
+        HStack(spacing: 6) {
           Button {
             typing = false
             choosing = true
           } label: {
-            HStack(spacing: 6) {
-              if missing { Text("!").font(.system(size: 14, weight: .bold)).foregroundStyle(palette.attn) }
-              Image(systemName: container == nil ? "bubble.left" : "arrow.triangle.branch").font(.system(size: 13))
+            HStack(spacing: 5) {
+              if missing { Text("!").font(.system(size: 13, weight: .bold)).foregroundStyle(palette.attn) }
+              Image(systemName: container == nil ? "bubble.left" : "arrow.triangle.branch").font(.system(size: 11))
               Text(place).lineLimit(1).truncationMode(.middle)
-              Image(systemName: "chevron.down").font(.system(size: 11))
+              Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(
+                palette.secondary)
             }
-            .font(.system(size: 13.5))
-            .foregroundStyle(missing ? palette.attnText : palette.text2)
-            .padding(.horizontal, 13)
-            .frame(height: 34)
-            .atriumGlass(in: Capsule(), interactive: true)
-            .overlay(Capsule().strokeBorder(missing ? palette.attn : .clear, lineWidth: 1.5))
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(missing ? palette.attn : palette.text)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background(palette.fill, in: Capsule())
+            .overlay(Capsule().strokeBorder(missing ? palette.attn : .clear, lineWidth: 1.2))
           }
           .buttonStyle(PressStyle())
           .accessibilityIdentifier("new.place")
-          Spacer(minLength: 0)
           if let sync, sync.core.modelsWorkspace == container, let model = sync.core.models?.defaultModel {
-            HStack(spacing: 6) {
-              ProviderIcon(providerId: model.providerId, size: 18)
+            HStack(spacing: 5) {
+              ProviderIcon(providerId: model.providerId, size: 15)
               Text(
                 sync.core.models?.models.first { $0.providerId == model.providerId && $0.modelId == model.modelId }?
                   .name
-                  ?? model.modelId)
+                  ?? model.modelId
+              )
+              .lineLimit(1)
             }
-            .font(.system(size: 13.5))
-            .foregroundStyle(palette.text2)
-            .padding(.horizontal, 13)
-            .frame(height: 34)
-            .atriumGlass(in: Capsule())
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(palette.text)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background(palette.fill, in: Capsule())
           }
-        }
-        HStack(alignment: .bottom, spacing: 2) {
-          TextField("写下第一条消息", text: $text, axis: .vertical)
-            // Messages name files, branches and commands; autocorrect would rewrite them.
-            .autocorrectionDisabled()
-            .lineLimit(1...5)
-            .font(Typography.reply)
-            .focused($typing)
-            .padding(.vertical, 9)
-            .padding(.leading, 12)
-            .accessibilityIdentifier("new.input")
+          Spacer(minLength: 4)
           Button {
             asked = true
             tried = true
             sync?.startSession(in: container, text: text)
           } label: {
-            Image(systemName: "arrow.up").font(.system(size: 18, weight: .semibold))
-              .foregroundStyle(ready ? palette.onInk : palette.tertiary)
-              .frame(width: 40, height: 40)
+            Image(systemName: "arrow.up").font(.system(size: 16, weight: .semibold))
+              .foregroundStyle(ready ? palette.onInk : palette.secondary)
+              .frame(width: 36, height: 36)
               .background(ready ? palette.ink : palette.fill, in: Circle())
           }
           .buttonStyle(PressStyle())
@@ -159,10 +166,11 @@ struct NewSessionPage: View {
           .accessibilityLabel("发送")
           .accessibilityIdentifier("new.send")
         }
-        .padding(6)
-        .frame(minHeight: 52)
-        .atriumGlass(in: RoundedRectangle(cornerRadius: 26))
+        .padding(.leading, 8)
+        .padding(.trailing, 6)
+        .padding(.bottom, 6)
       }
+      .atriumGlass(in: RoundedRectangle(cornerRadius: 24))
       .padding(.horizontal, 14)
       .padding(.bottom, Metrics.xs)
     }

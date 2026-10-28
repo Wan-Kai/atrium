@@ -2035,3 +2035,4 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 对话页整屏（居中标题、纸条气泡和时间、桌面小猫换深米、扫光、两层输入框、模型按钮带 ⚡、墨色停止键，浅深两色） | 截图 `pnpm ios:shot --gallery=conversation [--dark]`，已看过；断线浮条、出错淡红块、排队和子对话数字靠验收 |
 | 提问 sheet："agent" 的字母依次跳（1.8 秒一轮，14% 处最高 4pt，40% 后停） | Swift `AgentWordTests`；整页靠截图 `pnpm ios:shot --gallery=question-sheet [--dark]`（样例是"已在 Mac 上回答"的状态） |
 | 模型 sheet 整屏（无搜索、服务商栏和竖线、深米点阵、深米 Fast 开关，浅深两色） | 截图 `pnpm ios:shot --gallery=model-sheet [--dark]`，已看过 |
+| 工作区页（改动卡片：Fraunces 行数、比例条）、新会话（无猫、两层输入框带位置）、diff 的 hunk 头深米、配对校验码纸卡、像素猫底块深米 | 截图 `pnpm ios:shot --gallery=new-session|diff-page`，已看过；工作区页和配对校验码靠验收 |

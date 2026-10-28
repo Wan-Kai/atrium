@@ -43,7 +43,9 @@ public struct HomeList: Sendable, Equatable {
     public let updatedAt: Int
   }
 
-  /// How urgent a note is, which its paper's colour shows (design-language "手机端 · 首页").
+  /// How urgent a note is, which its paper's colour shows.
+  ///
+  /// - Remark: design-language "手机端 · 首页": stuck, waiting, then reminders, in that order.
   public enum NoteLevel: Sendable, Equatable {
     /// Stuck: a run failed, or a sign-in is needed.
     case stuck
@@ -69,7 +71,7 @@ public struct HomeList: Sendable, Equatable {
     public let body: String?
     /// Whether the body is pi's error text, set in mono.
     public let code: Bool
-    /// "项目 · 分支", or "对话 · 名字".
+    /// Where it is: the project and branch, or the chat's name.
     public let place: String
     /// Since when it waits, in milliseconds since the epoch.
     public let since: Int
