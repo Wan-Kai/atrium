@@ -389,6 +389,7 @@ struct NewSessionKey: View {
         .foregroundStyle(palette.text)
         .frame(width: 58, height: 58)
         .atriumGlass(in: Circle(), interactive: true)
+        .contentShape(Circle())
     }
     .buttonStyle(PressStyle())
     .accessibilityLabel("新建会话")

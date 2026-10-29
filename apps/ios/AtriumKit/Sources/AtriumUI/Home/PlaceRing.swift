@@ -320,6 +320,9 @@ struct PlaceRingKey: View {
         )
         .frame(width: Metrics.floatingAdd, height: Metrics.floatingAdd)
         .atriumGlass(in: Circle(), interactive: true)
+        // The glass does not take touches on a device; without this only the glyph does, and a tap
+        // on the rest of the circle falls through to the row under it.
+        .contentShape(Circle())
     }
     .buttonStyle(PressStyle())
     .accessibilityLabel(open ? "收起" : "新建会话")
