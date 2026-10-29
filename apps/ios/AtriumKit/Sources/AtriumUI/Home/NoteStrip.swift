@@ -38,6 +38,9 @@ struct NoteStrip: View {
               NoteCard(note: note, place: place, wide: alone)
             }
             .buttonStyle(PressStyle())
+            // A sideways scroll view offers no width, so a lone note takes the row's: the screen less
+            // the page margins (the scroll view spans the screen).
+            .containerRelativeFrame(.horizontal) { width, _ in alone ? width - Metrics.page * 2 : 158 }
             .accessibilityIdentifier("home.note.\(note.id)")
             .transition(reduceMotion ? .opacity : Self.paste)
           }
@@ -53,6 +56,8 @@ struct NoteStrip: View {
       }
       .scrollTargetBehavior(.viewAligned)
       .scrollIndicators(.hidden)
+      // The notes' shadows reach past the row; clipping them left a hard edge under it.
+      .scrollClipDisabled()
       .padding(.horizontal, -Metrics.page)
       .saturation(stale ? 0.35 : 1)
       .opacity(stale ? 0.78 : 1)
@@ -121,8 +126,7 @@ struct NoteCard: View {
       .multilineTextAlignment(.leading)
       .foregroundStyle(palette(colours.ink))
       .padding(EdgeInsets(top: 14, leading: 13, bottom: 11, trailing: 13))
-      .frame(width: wide ? nil : 158, height: 164, alignment: .topLeading)
-      .frame(maxWidth: wide ? .infinity : nil, alignment: .leading)
+      .frame(maxWidth: .infinity, minHeight: 164, maxHeight: 164, alignment: .topLeading)
       .background(palette(colours.paper), in: UnevenRoundedRectangle(cornerRadii: Self.corners))
       .shadow(color: .black.opacity(scheme == .dark ? 0.45 : 0.12), radius: 9, y: 9)
       .overlay(alignment: .top) {
