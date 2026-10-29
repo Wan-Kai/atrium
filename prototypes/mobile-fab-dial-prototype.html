@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>首页 + 转盘</title>
+    <title>首页 + 卡片圆环</title>
     <style>
       :root {
         --page: #f6f2e9;
@@ -14,27 +14,27 @@
         --l3: #d3cbbb;
         --tint: #8a7352;
         --rule: rgba(70, 55, 30, 0.11);
-        --band: rgba(255, 252, 245, 0.78);
-        --band-edge: rgba(138, 115, 82, 0.18);
+        --glass: rgba(255, 252, 245, 0.78);
         --ring: rgba(255, 255, 255, 0.75);
         --shadow: rgba(60, 45, 20, 0.16);
-        --scrim: rgba(246, 242, 233, 0.5);
+        --tape: rgba(222, 208, 180, 0.62);
+        --scrim: rgba(246, 242, 233, 0.52);
         --desk: #e4ddcf;
       }
       :root[data-theme="dark"] {
         --page: #1c1a16;
-        --note: #25221d;
+        --note: #2a2722;
         --surface: #2a2620;
         --text: #eee9df;
         --l2: #8f887b;
         --l3: #4a453c;
         --tint: #c9b28c;
         --rule: rgba(255, 240, 220, 0.08);
-        --band: rgba(46, 44, 41, 0.82);
-        --band-edge: rgba(201, 178, 140, 0.2);
+        --glass: rgba(46, 44, 41, 0.82);
         --ring: rgba(255, 255, 255, 0.1);
         --shadow: rgba(0, 0, 0, 0.5);
-        --scrim: rgba(28, 26, 22, 0.5);
+        --tape: rgba(201, 178, 140, 0.22);
+        --scrim: rgba(28, 26, 22, 0.55);
         --desk: #121110;
       }
       * {
@@ -146,8 +146,8 @@
         position: absolute;
         inset: 0;
         background: var(--scrim);
-        backdrop-filter: blur(7px);
-        -webkit-backdrop-filter: blur(7px);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
         opacity: 0;
         pointer-events: none;
         transition: opacity 0.3s;
@@ -157,100 +157,87 @@
         pointer-events: auto;
       }
 
-      /* The dial: a band of paper glass around the +, centred on the + itself. */
-      .dial {
+      /* The ring: cards on a circle centred on the +, running off the right and bottom edges. */
+      .ring {
         position: absolute;
         left: var(--cx);
         top: var(--cy);
         width: 0;
         height: 0;
-        pointer-events: none;
+        z-index: 2;
       }
-      .band {
-        position: absolute;
-        left: calc(var(--outer) * -1);
-        top: calc(var(--outer) * -1);
-        width: calc(var(--outer) * 2);
-        height: calc(var(--outer) * 2);
-        transform: scale(0.35) rotate(-24deg);
-        opacity: 0;
-        transition:
-          transform 0.46s cubic-bezier(0.3, 1.3, 0.5, 1),
-          opacity 0.22s;
-      }
-      .open .band {
-        transform: none;
-        opacity: 1;
-        pointer-events: auto;
-      }
-      .band svg {
-        position: absolute;
-        inset: 0;
-        overflow: visible;
-        filter: drop-shadow(0 8px 20px var(--shadow));
-      }
-      .token {
+      .card {
         position: absolute;
         left: 0;
         top: 0;
         width: 0;
         height: 0;
+        pointer-events: none;
+      }
+      .card .paper {
+        position: absolute;
+        left: -66px;
+        top: -38px;
+        width: 132px;
+        height: 76px;
+        padding: 14px 12px 10px;
+        border-radius: 3px 3px 12px 3px;
+        background: var(--note);
+        box-shadow:
+          0 1px 0 var(--rule),
+          0 8px 20px var(--shadow);
         pointer-events: auto;
         cursor: pointer;
+        transform: scale(var(--s, 1));
+        transition: transform 0.16s;
       }
-      .token .disc {
+      .card .paper::before {
+        content: "";
         position: absolute;
-        left: -22px;
-        top: -22px;
-        width: 44px;
-        height: 44px;
-        border-radius: 50%;
-        background: var(--note);
-        border: 0.5px solid var(--l3);
-        display: grid;
-        place-items: center;
+        top: -7px;
+        left: var(--tape-x, 40px);
+        width: 46px;
+        height: 14px;
+        background: var(--tape);
+        transform: rotate(var(--tape-r, -3deg));
+      }
+      .card.pressed .paper {
+        --s: 0.94;
+      }
+      .card .title {
         font:
-          600 18px "New York",
+          600 16px/1.15 "New York",
           Georgia,
+          "PingFang SC",
           serif;
-        color: var(--tint);
-        box-shadow: 0 2px 6px var(--shadow);
-        transition: transform 0.18s;
-      }
-      .token.chat .disc {
-        background: var(--text);
-        color: var(--page);
-        border-color: transparent;
-      }
-      .token .disc i {
-        position: absolute;
-        right: -1px;
-        top: -1px;
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        background: var(--tint);
-        border: 2px solid var(--note);
-      }
-      .token .name {
-        position: absolute;
-        top: 25px;
-        left: 0;
-        transform: translateX(-50%);
         white-space: nowrap;
-        max-width: 76px;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+      .card .meta {
+        margin-top: 6px;
         font-size: 11.5px;
-        font-weight: 600;
-        text-align: center;
+        color: var(--l2);
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        white-space: nowrap;
       }
-      .token.pressed .disc {
-        transform: scale(0.9);
+      .card .meta i {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--tint);
       }
-      .ticks {
-        position: absolute;
-        pointer-events: none;
+      .card.chat .paper {
+        background: var(--text);
+        color: var(--page);
+      }
+      .card.chat .meta {
+        color: var(--l3);
+      }
+      .card.chat .paper::before {
+        background: rgba(255, 255, 255, 0.14);
       }
       .fab {
         position: absolute;
@@ -260,7 +247,7 @@
         height: 58px;
         border-radius: 50%;
         border: 0.5px solid var(--ring);
-        background: var(--band);
+        background: var(--glass);
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
         box-shadow: 0 8px 22px var(--shadow);
@@ -296,21 +283,15 @@
         opacity: 1;
         transform: translate(-50%, 0);
       }
-      @media (prefers-reduced-motion: reduce) {
-        .band,
-        .fab svg {
-          transition: opacity 0.18s !important;
-          transform: none !important;
-        }
-      }
     </style>
   </head>
   <body>
     <header>
-      <h1>首页右下 + · 半扇形转盘</h1>
+      <h1>首页右下 + · 卡片圆环</h1>
       <p>
         点 + 后，以 +
-        为圆心展开一道半扇形的纸面玻璃环，环上一圈圆片。"新对话"永远在最上面那一格；用手指沿着环转，后面的项目一个个转进来。点哪一片就在哪里新建。
+        为圆心排开一圈便签卡片，圆环大到从屏幕右边进、从底边出。"新对话"每次都在固定的位置；在屏幕任意处沿着圆环拖，卡片绕着
+        + 转，别的项目从右边转进来。点卡片就在那里新建。
       </p>
       <button id="theme">切到深色</button>
     </header>
@@ -329,11 +310,7 @@
           <div class="row"><b>main</b><span>写一篇 Noise 的笔记</span></div>
         </div>
         <div class="scrim" id="scrim"></div>
-        <div class="dial" id="dial">
-          <div class="band" id="band">
-            <svg id="bandSvg"></svg>
-          </div>
-        </div>
+        <div class="ring" id="ring"></div>
         <div class="fab" id="fab">
           <svg width="22" height="22" viewBox="0 0 22 22">
             <path d="M11 4v14M4 11h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
@@ -344,99 +321,81 @@
       <div class="side">
         <p><b>怎么玩</b></p>
         <ul>
-          <li>点右下 + 展开；点空白处或再点 + 收起。</li>
-          <li>在环上按住拖，环跟着手指转；松手会带一点惯性，然后吸到最近的一格。</li>
-          <li>"新对话"固定在最上面一格（紧挨着 + 的正上方），转到头时有橡皮筋回弹。</li>
-          <li>项目按最近活动排；有在跑的会话时，圆片右上一个深米点。</li>
-          <li>两端的圆片和名字渐隐，提示还能转。环外缘的小刻度是位置指示。</li>
-          <li>减弱动态效果时：只淡入淡出，没有弹开和惯性。</li>
+          <li>点右下 + 展开：卡片从 + 里沿圆环一张张甩出来，落到各自的位置。</li>
+          <li>在卡片上或空白处按住，沿着绕 + 的方向拖，整圈卡片跟着手指转；松手带惯性，再吸到最近的一格。</li>
+          <li>
+            "新对话"每次展开都在同一个位置（圆环从右边进来的第一格，就在 + 的正上方偏左），往回转到头有橡皮筋回弹。
+          </li>
+          <li>卡片沿着圆环微微倾斜，越往两头斜得越多，转起来像一个轮子；字一直可读。</li>
+          <li>项目卡片写名字和"N 在跑 · 几分钟前"，按最近活动排。</li>
+          <li>点卡片新建；点 + 或单点空白处收起。</li>
+          <li>减弱动态效果时：不甩出、没有惯性，直接出现、直接吸附。</li>
           <li>电脑上也可以用触控板 / 滚轮转。</li>
         </ul>
       </div>
     </main>
     <script>
       const items = [
-        { name: "新对话", chat: true },
-        { name: "atrium", running: true },
-        { name: "radar-map", running: true },
-        { name: "blog" },
-        { name: "weather-app" },
-        { name: "dotfiles" },
-        { name: "notes" },
-        { name: "pi-bridge" },
+        { name: "新对话", meta: "不绑定项目", chat: true },
+        { name: "atrium", meta: "2 在跑 · 刚刚", running: true },
+        { name: "radar-map", meta: "1 在跑 · 6 分钟", running: true },
+        { name: "blog", meta: "1 小时前" },
+        { name: "weather-app", meta: "昨天" },
+        { name: "dotfiles", meta: "周一" },
+        { name: "notes", meta: "10月20日" },
+        { name: "pi-bridge", meta: "10月12日" },
       ];
       const phone = document.getElementById("phone");
-      const band = document.getElementById("band");
-      const svg = document.getElementById("bandSvg");
-      const dial = document.getElementById("dial");
+      const ring = document.getElementById("ring");
       const toast = document.getElementById("toast");
       const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-      // Geometry, in the phone's points. The dial is centred on the +.
+      // Geometry, in the phone's points. The ring is centred on the + and big enough that its
+      // visible arc runs from the right edge to the bottom edge.
       const cx = 360 - 18 - 29;
       const cy = 700 - 28 - 29;
-      const inner = 92;
-      const outer = 196;
-      const radius = (inner + outer) / 2;
-      const step = 30; // degrees between slots
-      const first = -92; // the first slot, just left of straight up
-      const end = -190; // the visible arc ends a little past straight left
-      dial.style.setProperty("--cx", `${cx}px`);
-      dial.style.setProperty("--cy", `${cy}px`);
-      band.style.setProperty("--outer", `${outer}px`);
-      const maxOffset = (items.length - 4) * step; // the last four items fill the arc
+      const radius = 270;
+      const step = 31; // degrees between cards, about 146pt of arc
+      const home = -100; // where 新对话 sits: the first slot in from the right edge
+      ring.style.setProperty("--cx", `${cx}px`);
+      ring.style.setProperty("--cy", `${cy}px`);
+      // Turned all the way, the last card sits in 新对话's slot.
+      const maxOffset = (items.length - 1) * step;
 
-      /** A point on a circle around the +, for an angle in degrees. */
-      const at = (deg, r) => [outer + r * Math.cos((deg * Math.PI) / 180), outer + r * Math.sin((deg * Math.PI) / 180)];
-      /** The band: an annulus sector from just right of up to a little past left. */
-      const from = -78;
-      const to = -202;
-      const [ox1, oy1] = at(from, outer);
-      const [ox2, oy2] = at(to, outer);
-      const [ix2, iy2] = at(to, inner);
-      const [ix1, iy1] = at(from, inner);
-      svg.setAttribute("viewBox", `0 0 ${outer * 2} ${outer * 2}`);
-      svg.innerHTML = `
-        <path d="M${ox1} ${oy1} A${outer} ${outer} 0 0 0 ${ox2} ${oy2} L${ix2} ${iy2} A${inner} ${inner} 0 0 1 ${ix1} ${iy1} Z"
-          fill="var(--band)" stroke="var(--band-edge)" stroke-width="1" />
-        <g id="ticks"></g>`;
-      const ticks = svg.querySelector("#ticks");
-
-      const tokens = items.map((item, index) => {
+      const cards = items.map((item, index) => {
         const node = document.createElement("div");
-        node.className = `token${item.chat ? " chat" : ""}`;
-        const glyph = item.chat ? "+" : item.name[0].toUpperCase();
-        node.innerHTML = `<div class="disc">${glyph}${item.running ? "<i></i>" : ""}</div><div class="name">${item.name}</div>`;
-        band.appendChild(node);
+        node.className = `card${item.chat ? " chat" : ""}`;
+        const seed = (index * 37) % 11;
+        node.innerHTML = `<div class="paper" style="--tape-x:${30 + seed * 4}px;--tape-r:${seed % 2 ? 3 : -3}deg">
+          <div class="title">${item.name}</div>
+          <div class="meta">${item.running ? "<i></i>" : ""}${item.meta}</div></div>`;
+        ring.appendChild(node);
         return node;
       });
 
-      let offset = 0; // degrees the ring has turned; 0 puts 新对话 in the top slot
+      let offset = 0; // degrees the ring has turned; 0 puts 新对话 in its slot
       let velocity = 0;
       let animation = 0;
+      let opened = 0; // 0 closed … 1 open, for the fling-out on open
 
-      /** Lays every token out for the current offset, fading the ones past the ends. */
+      /** Lays every card out for the current offset and opening progress. */
       function layout() {
-        tokens.forEach((node, index) => {
-          const deg = first - index * step + offset;
-          const [x, y] = at(deg, radius);
-          const fadeTop = Math.min(1, Math.max(0, (first + 18 - deg) / 18));
-          const fadeEnd = Math.min(1, Math.max(0, (deg - end) / 22));
-          const alpha = Math.min(fadeTop, fadeEnd);
-          node.style.transform = `translate(${x}px, ${y}px) scale(${0.82 + 0.18 * alpha})`;
-          node.style.opacity = alpha.toFixed(3);
-          node.style.pointerEvents = alpha > 0.5 ? "auto" : "none";
+        cards.forEach((node, index) => {
+          // Each card flies out from the + along the ring, a little after the one before it.
+          const delay = Math.min(0.4, index * 0.07);
+          const local = Math.min(1, Math.max(0, (opened - delay) / (1 - delay)));
+          const ease = 1 - Math.pow(1 - local, 3);
+          const deg = home - index * step + offset;
+          const r = radius * (0.25 + 0.75 * ease);
+          const rad = (deg * Math.PI) / 180;
+          const x = r * Math.cos(rad);
+          const y = r * Math.sin(rad);
+          // Lean with the ring: upright at straight up, leaning as the card moves round.
+          const lean = (deg + 90) * 0.3;
+          node.style.transform = `translate(${x}px, ${y}px) rotate(${lean}deg) scale(${0.6 + 0.4 * ease})`;
+          node.style.opacity = ease.toFixed(3);
+          node.style.zIndex = String(100 - index);
         });
-        // Position ticks: one per item along the outer edge, the visible ones darker.
-        ticks.innerHTML = items
-          .map((_, index) => {
-            const deg = -84 - index * (100 / (items.length - 1));
-            const [x, y] = at(deg, outer - 7);
-            const first = Math.round(offset / step);
-            const shown = index >= first && index < first + 4;
-            return `<circle cx="${x}" cy="${y}" r="${shown ? 2.2 : 1.6}" fill="var(--tint)" opacity="${shown ? 0.85 : 0.25}" />`;
-          })
-          .join("");
       }
 
       /** Keeps the offset in range, with a rubber band past either end. */
@@ -446,10 +405,10 @@
         return value;
       }
 
-      /** Springs to the nearest slot, carrying the release velocity. */
+      /** Springs to the nearest card, carrying the release velocity. */
       function settle() {
         cancelAnimationFrame(animation);
-        const projected = offset + (reduce ? 0 : velocity * 9);
+        const projected = offset + (reduce ? 0 : velocity * 10);
         const target = Math.min(maxOffset, Math.max(0, Math.round(projected / step) * step));
         if (reduce) {
           offset = target;
@@ -458,8 +417,7 @@
         }
         let speed = velocity;
         const tick = () => {
-          const force = (target - offset) * 0.12;
-          speed = (speed + force) * 0.74;
+          speed = (speed + (target - offset) * 0.11) * 0.75;
           offset += speed;
           layout();
           if (Math.abs(target - offset) > 0.05 || Math.abs(speed) > 0.05) animation = requestAnimationFrame(tick);
@@ -477,56 +435,60 @@
         return (Math.atan2(event.clientY - rect.top - cy, event.clientX - rect.left - cx) * 180) / Math.PI;
       }
 
+      // Drag anywhere while open: the scrim and the cards both turn the ring.
       let drag = null;
-      band.addEventListener("pointerdown", (event) => {
+      phone.addEventListener("pointerdown", (event) => {
+        if (!phone.classList.contains("open") || event.target.closest(".fab")) return;
         cancelAnimationFrame(animation);
-        drag = { last: angleOf(event), moved: 0, raw: offset, token: event.target.closest(".token") };
-        drag.token?.classList.add("pressed");
-        band.setPointerCapture(event.pointerId);
+        const card = event.target.closest(".card");
+        drag = { last: angleOf(event), moved: 0, raw: offset, card };
+        card?.classList.add("pressed");
+        phone.setPointerCapture(event.pointerId);
         velocity = 0;
       });
-      band.addEventListener("pointermove", (event) => {
+      phone.addEventListener("pointermove", (event) => {
         if (!drag) return;
-        let now = angleOf(event);
+        const now = angleOf(event);
         let delta = now - drag.last;
         if (delta > 180) delta -= 360;
         if (delta < -180) delta += 360;
         drag.last = now;
         drag.moved += Math.abs(delta);
-        // Turning the ring clockwise (towards up) brings later items in from the left end.
         drag.raw += delta;
         const next = bounded(drag.raw);
         velocity = next - offset;
         offset = next;
-        if (drag.moved > 3) drag.token?.classList.remove("pressed");
+        if (drag.moved > 2) drag.card?.classList.remove("pressed");
         layout();
       });
-      band.addEventListener("pointerup", () => {
+      phone.addEventListener("pointerup", () => {
         if (!drag) return;
-        const { token, moved } = drag;
-        token?.classList.remove("pressed");
+        const { card, moved } = drag;
+        card?.classList.remove("pressed");
         drag = null;
-        if (moved <= 3 && token) {
-          pick(tokens.indexOf(token));
+        if (moved <= 2) {
+          if (card) pick(cards.indexOf(card));
+          else setOpen(false);
           return;
         }
         settle();
       });
-      band.addEventListener(
+      phone.addEventListener(
         "wheel",
         (event) => {
+          if (!phone.classList.contains("open")) return;
           event.preventDefault();
           cancelAnimationFrame(animation);
           offset = Math.min(maxOffset, Math.max(0, offset + event.deltaY * 0.12));
           velocity = 0;
           layout();
-          clearTimeout(band.wheelTimer);
-          band.wheelTimer = setTimeout(settle, 120);
+          clearTimeout(phone.wheelTimer);
+          phone.wheelTimer = setTimeout(settle, 120);
         },
         { passive: false },
       );
 
-      /** Picks an item: says where the new session goes, then closes. */
+      /** Picks a card: says where the new session goes, then closes. */
       function pick(index) {
         const item = items[index];
         toast.textContent = item.chat ? "新对话（不绑定项目）" : `在 ${item.name} 里新建`;
@@ -535,23 +497,37 @@
         setOpen(false);
       }
 
-      /** Opens or closes the dial; opening always starts with 新对话 in the top slot. */
+      /** Animates the opening progress towards open or closed. */
+      function animateOpen(target) {
+        const start = performance.now();
+        const from = opened;
+        const duration = reduce ? 1 : target ? 560 : 260;
+        const run = (now) => {
+          const t = Math.min(1, (now - start) / duration);
+          opened = from + (target - from) * t;
+          layout();
+          if (t < 1) requestAnimationFrame(run);
+        };
+        requestAnimationFrame(run);
+      }
+
+      /** Opens or closes the ring; opening always puts 新对话 back in its slot. */
       function setOpen(open) {
         if (open) {
           cancelAnimationFrame(animation);
           offset = 0;
-          layout();
         }
         phone.classList.toggle("open", open);
+        animateOpen(open ? 1 : 0);
       }
       document.getElementById("fab").addEventListener("click", () => setOpen(!phone.classList.contains("open")));
-      document.getElementById("scrim").addEventListener("click", () => setOpen(false));
       layout();
 
-      // "#open" opens the dial on load, "#open=N" also turns it N slots, "-dark" after it goes dark; for screenshots.
+      // "#open" opens on load, "#open=N" also turns it N cards, "-dark" goes dark; for screenshots.
       const match = location.hash.match(/^#open(?:=(\d+))?/);
       if (match) {
-        setOpen(true);
+        phone.classList.add("open");
+        opened = 1;
         offset = Math.min(maxOffset, Number(match[1] || 0) * step);
         layout();
       }
