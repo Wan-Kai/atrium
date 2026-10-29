@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>首页 + 转盘</title>
+    <style>
+      :root {
+        --page: #f6f2e9;
+        --note: #fffcf5;
+        --surface: #efe9dc;
+        --text: #26221c;
+        --l2: #8b8477;
+        --l3: #d3cbbb;
+        --tint: #8a7352;
+        --rule: rgba(70, 55, 30, 0.11);
+        --band: rgba(255, 252, 245, 0.78);
+        --band-edge: rgba(138, 115, 82, 0.18);
+        --ring: rgba(255, 255, 255, 0.75);
+        --shadow: rgba(60, 45, 20, 0.16);
+        --scrim: rgba(246, 242, 233, 0.5);
+        --desk: #e4ddcf;
+      }
+      :root[data-theme="dark"] {
+        --page: #1c1a16;
+        --note: #25221d;
+        --surface: #2a2620;
+        --text: #eee9df;
+        --l2: #8f887b;
+        --l3: #4a453c;
+        --tint: #c9b28c;
+        --rule: rgba(255, 240, 220, 0.08);
+        --band: rgba(46, 44, 41, 0.82);
+        --band-edge: rgba(201, 178, 140, 0.2);
+        --ring: rgba(255, 255, 255, 0.1);
+        --shadow: rgba(0, 0, 0, 0.5);
+        --scrim: rgba(28, 26, 22, 0.5);
+        --desk: #121110;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--desk);
+        color: var(--text);
+        font:
+          15px/1.45 -apple-system,
+          "PingFang SC",
+          sans-serif;
+      }
+      header {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 28px 16px 8px;
+      }
+      header h1 {
+        margin: 0 0 6px;
+        font-size: 20px;
+      }
+      header p {
+        margin: 0 0 12px;
+        color: var(--l2);
+        max-width: 720px;
+      }
+      header button {
+        font: inherit;
+        font-size: 13px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        border: 0.5px solid var(--l3);
+        background: var(--note);
+        color: var(--text);
+      }
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 12px 16px 48px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 32px;
+        align-items: flex-start;
+      }
+      .side {
+        max-width: 380px;
+        color: var(--l2);
+        font-size: 13.5px;
+      }
+      .side b {
+        color: var(--text);
+      }
+      .side li {
+        margin-bottom: 6px;
+      }
+      .phone {
+        position: relative;
+        width: 360px;
+        height: 700px;
+        border-radius: 42px;
+        background: var(--page);
+        overflow: hidden;
+        box-shadow: 0 10px 30px var(--shadow);
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+      }
+      .content {
+        padding: 58px 20px 0;
+      }
+      .brand {
+        font:
+          italic 560 34px/1 "Fraunces",
+          Georgia,
+          serif;
+      }
+      .host {
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--l2);
+      }
+      .proj {
+        margin-top: 24px;
+        font:
+          600 17px/1.2 "New York",
+          Georgia,
+          serif;
+      }
+      .row {
+        height: 48px;
+        border-bottom: 0.5px solid var(--rule);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .row b {
+        font:
+          500 12.5px ui-monospace,
+          Menlo,
+          monospace;
+      }
+      .row span {
+        color: var(--l2);
+        font-size: 12px;
+      }
+      .scrim {
+        position: absolute;
+        inset: 0;
+        background: var(--scrim);
+        backdrop-filter: blur(7px);
+        -webkit-backdrop-filter: blur(7px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s;
+      }
+      .open .scrim {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      /* The dial: a band of paper glass around the +, centred on the + itself. */
+      .dial {
+        position: absolute;
+        left: var(--cx);
+        top: var(--cy);
+        width: 0;
+        height: 0;
+        pointer-events: none;
+      }
+      .band {
+        position: absolute;
+        left: calc(var(--outer) * -1);
+        top: calc(var(--outer) * -1);
+        width: calc(var(--outer) * 2);
+        height: calc(var(--outer) * 2);
+        transform: scale(0.35) rotate(-24deg);
+        opacity: 0;
+        transition:
+          transform 0.46s cubic-bezier(0.3, 1.3, 0.5, 1),
+          opacity 0.22s;
+      }
+      .open .band {
+        transform: none;
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .band svg {
+        position: absolute;
+        inset: 0;
+        overflow: visible;
+        filter: drop-shadow(0 8px 20px var(--shadow));
+      }
+      .token {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 0;
+        height: 0;
+        pointer-events: auto;
+        cursor: pointer;
+      }
+      .token .disc {
+        position: absolute;
+        left: -22px;
+        top: -22px;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        background: var(--note);
+        border: 0.5px solid var(--l3);
+        display: grid;
+        place-items: center;
+        font:
+          600 18px "New York",
+          Georgia,
+          serif;
+        color: var(--tint);
+        box-shadow: 0 2px 6px var(--shadow);
+        transition: transform 0.18s;
+      }
+      .token.chat .disc {
+        background: var(--text);
+        color: var(--page);
+        border-color: transparent;
+      }
+      .token .disc i {
+        position: absolute;
+        right: -1px;
+        top: -1px;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--tint);
+        border: 2px solid var(--note);
+      }
+      .token .name {
+        position: absolute;
+        top: 25px;
+        left: 0;
+        transform: translateX(-50%);
+        white-space: nowrap;
+        max-width: 76px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 11.5px;
+        font-weight: 600;
+        text-align: center;
+      }
+      .token.pressed .disc {
+        transform: scale(0.9);
+      }
+      .ticks {
+        position: absolute;
+        pointer-events: none;
+      }
+      .fab {
+        position: absolute;
+        right: 18px;
+        bottom: 28px;
+        width: 58px;
+        height: 58px;
+        border-radius: 50%;
+        border: 0.5px solid var(--ring);
+        background: var(--band);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        box-shadow: 0 8px 22px var(--shadow);
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        z-index: 3;
+      }
+      .fab svg {
+        transition: transform 0.4s cubic-bezier(0.3, 1.4, 0.5, 1);
+      }
+      .open .fab svg {
+        transform: rotate(45deg);
+      }
+      .toast {
+        position: absolute;
+        left: 50%;
+        top: 120px;
+        transform: translate(-50%, -8px);
+        background: var(--text);
+        color: var(--page);
+        font-size: 13px;
+        padding: 8px 14px;
+        border-radius: 18px;
+        opacity: 0;
+        transition:
+          opacity 0.2s,
+          transform 0.2s;
+        z-index: 4;
+        white-space: nowrap;
+      }
+      .toast.show {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .band,
+        .fab svg {
+          transition: opacity 0.18s !important;
+          transform: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>首页右下 + · 半扇形转盘</h1>
+      <p>
+        点 + 后，以 +
+        为圆心展开一道半扇形的纸面玻璃环，环上一圈圆片。"新对话"永远在最上面那一格；用手指沿着环转，后面的项目一个个转进来。点哪一片就在哪里新建。
+      </p>
+      <button id="theme">切到深色</button>
+    </header>
+    <main>
+      <div class="phone" id="phone">
+        <div class="content">
+          <div class="brand">Atrium</div>
+          <div class="host">● MacBook Pro</div>
+          <div class="proj">atrium</div>
+          <div class="row"><b>feat/mobile-redesign</b><span>首页空状态换成纸</span></div>
+          <div class="row"><b>main</b><span>夜间变异测试结果</span></div>
+          <div class="proj">radar-map</div>
+          <div class="row"><b>feat/radar-map</b><span>雷达图缩放</span></div>
+          <div class="row"><b>fix/legend</b><span>图例错位</span></div>
+          <div class="proj">blog</div>
+          <div class="row"><b>main</b><span>写一篇 Noise 的笔记</span></div>
+        </div>
+        <div class="scrim" id="scrim"></div>
+        <div class="dial" id="dial">
+          <div class="band" id="band">
+            <svg id="bandSvg"></svg>
+          </div>
+        </div>
+        <div class="fab" id="fab">
+          <svg width="22" height="22" viewBox="0 0 22 22">
+            <path d="M11 4v14M4 11h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          </svg>
+        </div>
+        <div class="toast" id="toast"></div>
+      </div>
+      <div class="side">
+        <p><b>怎么玩</b></p>
+        <ul>
+          <li>点右下 + 展开；点空白处或再点 + 收起。</li>
+          <li>在环上按住拖，环跟着手指转；松手会带一点惯性，然后吸到最近的一格。</li>
+          <li>"新对话"固定在最上面一格（紧挨着 + 的正上方），转到头时有橡皮筋回弹。</li>
+          <li>项目按最近活动排；有在跑的会话时，圆片右上一个深米点。</li>
+          <li>两端的圆片和名字渐隐，提示还能转。环外缘的小刻度是位置指示。</li>
+          <li>减弱动态效果时：只淡入淡出，没有弹开和惯性。</li>
+          <li>电脑上也可以用触控板 / 滚轮转。</li>
+        </ul>
+      </div>
+    </main>
+    <script>
+      const items = [
+        { name: "新对话", chat: true },
+        { name: "atrium", running: true },
+        { name: "radar-map", running: true },
+        { name: "blog" },
+        { name: "weather-app" },
+        { name: "dotfiles" },
+        { name: "notes" },
+        { name: "pi-bridge" },
+      ];
+      const phone = document.getElementById("phone");
+      const band = document.getElementById("band");
+      const svg = document.getElementById("bandSvg");
+      const dial = document.getElementById("dial");
+      const toast = document.getElementById("toast");
+      const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      // Geometry, in the phone's points. The dial is centred on the +.
+      const cx = 360 - 18 - 29;
+      const cy = 700 - 28 - 29;
+      const inner = 92;
+      const outer = 196;
+      const radius = (inner + outer) / 2;
+      const step = 30; // degrees between slots
+      const first = -92; // the first slot, just left of straight up
+      const end = -190; // the visible arc ends a little past straight left
+      dial.style.setProperty("--cx", `${cx}px`);
+      dial.style.setProperty("--cy", `${cy}px`);
+      band.style.setProperty("--outer", `${outer}px`);
+      const maxOffset = (items.length - 4) * step; // the last four items fill the arc
+
+      /** A point on a circle around the +, for an angle in degrees. */
+      const at = (deg, r) => [outer + r * Math.cos((deg * Math.PI) / 180), outer + r * Math.sin((deg * Math.PI) / 180)];
+      /** The band: an annulus sector from just right of up to a little past left. */
+      const from = -78;
+      const to = -202;
+      const [ox1, oy1] = at(from, outer);
+      const [ox2, oy2] = at(to, outer);
+      const [ix2, iy2] = at(to, inner);
+      const [ix1, iy1] = at(from, inner);
+      svg.setAttribute("viewBox", `0 0 ${outer * 2} ${outer * 2}`);
+      svg.innerHTML = `
+        <path d="M${ox1} ${oy1} A${outer} ${outer} 0 0 0 ${ox2} ${oy2} L${ix2} ${iy2} A${inner} ${inner} 0 0 1 ${ix1} ${iy1} Z"
+          fill="var(--band)" stroke="var(--band-edge)" stroke-width="1" />
+        <g id="ticks"></g>`;
+      const ticks = svg.querySelector("#ticks");
+
+      const tokens = items.map((item, index) => {
+        const node = document.createElement("div");
+        node.className = `token${item.chat ? " chat" : ""}`;
+        const glyph = item.chat ? "+" : item.name[0].toUpperCase();
+        node.innerHTML = `<div class="disc">${glyph}${item.running ? "<i></i>" : ""}</div><div class="name">${item.name}</div>`;
+        band.appendChild(node);
+        return node;
+      });
+
+      let offset = 0; // degrees the ring has turned; 0 puts 新对话 in the top slot
+      let velocity = 0;
+      let animation = 0;
+
+      /** Lays every token out for the current offset, fading the ones past the ends. */
+      function layout() {
+        tokens.forEach((node, index) => {
+          const deg = first - index * step + offset;
+          const [x, y] = at(deg, radius);
+          const fadeTop = Math.min(1, Math.max(0, (first + 18 - deg) / 18));
+          const fadeEnd = Math.min(1, Math.max(0, (deg - end) / 22));
+          const alpha = Math.min(fadeTop, fadeEnd);
+          node.style.transform = `translate(${x}px, ${y}px) scale(${0.82 + 0.18 * alpha})`;
+          node.style.opacity = alpha.toFixed(3);
+          node.style.pointerEvents = alpha > 0.5 ? "auto" : "none";
+        });
+        // Position ticks: one per item along the outer edge, the visible ones darker.
+        ticks.innerHTML = items
+          .map((_, index) => {
+            const deg = -84 - index * (100 / (items.length - 1));
+            const [x, y] = at(deg, outer - 7);
+            const first = Math.round(offset / step);
+            const shown = index >= first && index < first + 4;
+            return `<circle cx="${x}" cy="${y}" r="${shown ? 2.2 : 1.6}" fill="var(--tint)" opacity="${shown ? 0.85 : 0.25}" />`;
+          })
+          .join("");
+      }
+
+      /** Keeps the offset in range, with a rubber band past either end. */
+      function bounded(value) {
+        if (value < 0) return value * 0.35;
+        if (value > maxOffset) return maxOffset + (value - maxOffset) * 0.35;
+        return value;
+      }
+
+      /** Springs to the nearest slot, carrying the release velocity. */
+      function settle() {
+        cancelAnimationFrame(animation);
+        const projected = offset + (reduce ? 0 : velocity * 9);
+        const target = Math.min(maxOffset, Math.max(0, Math.round(projected / step) * step));
+        if (reduce) {
+          offset = target;
+          layout();
+          return;
+        }
+        let speed = velocity;
+        const tick = () => {
+          const force = (target - offset) * 0.12;
+          speed = (speed + force) * 0.74;
+          offset += speed;
+          layout();
+          if (Math.abs(target - offset) > 0.05 || Math.abs(speed) > 0.05) animation = requestAnimationFrame(tick);
+          else {
+            offset = target;
+            layout();
+          }
+        };
+        animation = requestAnimationFrame(tick);
+      }
+
+      /** The angle of a pointer around the +, in degrees. */
+      function angleOf(event) {
+        const rect = phone.getBoundingClientRect();
+        return (Math.atan2(event.clientY - rect.top - cy, event.clientX - rect.left - cx) * 180) / Math.PI;
+      }
+
+      let drag = null;
+      band.addEventListener("pointerdown", (event) => {
+        cancelAnimationFrame(animation);
+        drag = { last: angleOf(event), moved: 0, raw: offset, token: event.target.closest(".token") };
+        drag.token?.classList.add("pressed");
+        band.setPointerCapture(event.pointerId);
+        velocity = 0;
+      });
+      band.addEventListener("pointermove", (event) => {
+        if (!drag) return;
+        let now = angleOf(event);
+        let delta = now - drag.last;
+        if (delta > 180) delta -= 360;
+        if (delta < -180) delta += 360;
+        drag.last = now;
+        drag.moved += Math.abs(delta);
+        // Turning the ring clockwise (towards up) brings later items in from the left end.
+        drag.raw += delta;
+        const next = bounded(drag.raw);
+        velocity = next - offset;
+        offset = next;
+        if (drag.moved > 3) drag.token?.classList.remove("pressed");
+        layout();
+      });
+      band.addEventListener("pointerup", () => {
+        if (!drag) return;
+        const { token, moved } = drag;
+        token?.classList.remove("pressed");
+        drag = null;
+        if (moved <= 3 && token) {
+          pick(tokens.indexOf(token));
+          return;
+        }
+        settle();
+      });
+      band.addEventListener(
+        "wheel",
+        (event) => {
+          event.preventDefault();
+          cancelAnimationFrame(animation);
+          offset = Math.min(maxOffset, Math.max(0, offset + event.deltaY * 0.12));
+          velocity = 0;
+          layout();
+          clearTimeout(band.wheelTimer);
+          band.wheelTimer = setTimeout(settle, 120);
+        },
+        { passive: false },
+      );
+
+      /** Picks an item: says where the new session goes, then closes. */
+      function pick(index) {
+        const item = items[index];
+        toast.textContent = item.chat ? "新对话（不绑定项目）" : `在 ${item.name} 里新建`;
+        toast.classList.add("show");
+        setTimeout(() => toast.classList.remove("show"), 1200);
+        setOpen(false);
+      }
+
+      /** Opens or closes the dial; opening always starts with 新对话 in the top slot. */
+      function setOpen(open) {
+        if (open) {
+          cancelAnimationFrame(animation);
+          offset = 0;
+          layout();
+        }
+        phone.classList.toggle("open", open);
+      }
+      document.getElementById("fab").addEventListener("click", () => setOpen(!phone.classList.contains("open")));
+      document.getElementById("scrim").addEventListener("click", () => setOpen(false));
+      layout();
+
+      // "#open" opens the dial on load, "#open=N" also turns it N slots, "-dark" after it goes dark; for screenshots.
+      const match = location.hash.match(/^#open(?:=(\d+))?/);
+      if (match) {
+        setOpen(true);
+        offset = Math.min(maxOffset, Number(match[1] || 0) * step);
+        layout();
+      }
+      const theme = document.getElementById("theme");
+      theme.addEventListener("click", () => {
+        const dark = document.documentElement.dataset.theme === "dark";
+        document.documentElement.dataset.theme = dark ? "light" : "dark";
+        theme.textContent = dark ? "切到深色" : "切到浅色";
+      });
+      if (location.hash.includes("dark")) theme.click();
+    </script>
+  </body>
+</html>
