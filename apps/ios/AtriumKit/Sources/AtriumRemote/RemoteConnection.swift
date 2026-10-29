@@ -91,6 +91,17 @@ public actor RemoteConnection {
   /// Heartbeat answers read on the current link; tests wait on it.
   private(set) var heartbeatsAnswered = 0
 
+  /// When the open link's channel last heard the host, finished message or not; tests wait on it.
+  ///
+  /// - Remark: `nil` without an open link.
+  /// - SideEffects: none
+  var channelHeard: Elapsed? {
+    get async {
+      guard case .open(let channel) = link else { return nil }
+      return await channel.lastHeard
+    }
+  }
+
   /// Prepares a link to `host`; nothing happens until ``start()``.
   ///
   /// - Remark: After pairing, the pairing channel is handed over and goes straight on to `hello`
@@ -521,7 +532,8 @@ public actor RemoteConnection {
 
   /// Sends heartbeats on schedule; two misses end the link.
   ///
-  /// - Remark: Sleeps until the tracker's next check, so the manual clock in tests drives it.
+  /// - Remark: Sleeps until the tracker's next check, so the manual clock in tests drives it. Any
+  ///   frame the channel heard counts as an answer, so a long message still arriving is no miss.
   /// - SideEffects: Sends on the channel; may end the link.
   /// - Parameters:
   ///   - channel: The channel.
@@ -529,6 +541,7 @@ public actor RemoteConnection {
   private func heartbeatLoop(_ channel: SecureChannel, generation: Int) async {
     let stopwatch = environment.stopwatch
     while generation == self.generation {
+      if let heard = await channel.lastHeard { tracker.heard(at: heard) }
       switch tracker.tick(at: stopwatch.now) {
       case .wait: break
       case .send:

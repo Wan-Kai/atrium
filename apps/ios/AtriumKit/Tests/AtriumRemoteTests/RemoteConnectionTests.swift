@@ -347,6 +347,31 @@ struct RemoteConnectionTests {
     serving.cancel()
   }
 
+  @Test("a long message still arriving keeps the link though no heartbeat is answered")
+  func arrivingChunksKeepTheLink() async throws {
+    let h = Harness()
+    let connection = try h.connection()
+    await connection.start()
+    let side = try await h.open(connection)
+    let channel = try #require(side.channel)
+    var open = false
+    for second in 0..<60 {
+      if second % 5 == 0 {
+        open = second % 30 != 25
+        try await channel.send(.chunk(Data("part".utf8), isLast: !open))
+        let now = Elapsed(offset: .seconds(second))
+        try await eventually { await connection.channelHeard == now }
+      }
+      // Both loops asleep: the heartbeat's, and while a message is open the chunk deadline's.
+      let sleepers = open ? 2 : 1
+      try await eventually { h.clock.sleeperCount == sleepers }
+      h.clock.advance(by: .seconds(1))
+    }
+    #expect(await connection.status == .syncing)
+    #expect(h.relay.requested.count == 1)
+    await connection.stop()
+  }
+
   @Test("a handshake the host never answers times out after 15 seconds")
   func handshakeTimeout() async throws {
     let h = Harness()
