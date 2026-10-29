@@ -341,6 +341,40 @@ public struct HomeList: Sendable, Equatable {
     Set(index.workspaces.filter { $0.archivedAt == nil && $0.merge?.verdict != .merged }.map(\.id))
   }
 
+  /// One project on the home plus key's ring, where a new session in it starts.
+  ///
+  /// - Remark: design-language "手机端 · 首页" (2026-10-29): a key a project.
+  public struct RingPlace: Sendable, Equatable, Identifiable {
+    /// The project.
+    public let id: ProjectId
+    /// Its name.
+    public let name: String
+    /// Its open workspace with the latest activity, where the session goes.
+    public let workspace: WorkspaceId
+    /// How many of its sessions run, for the dot.
+    public let running: Int
+  }
+
+  /// The projects on the home plus key's ring, the latest activity first.
+  ///
+  /// - Remark: design-language "手机端 · 首页" (2026-10-29): each project goes to its open
+  ///   workspace with the latest activity; a project with only merged workspaces is not a place.
+  ///   Ties keep the sidebar's order.
+  /// - SideEffects: none
+  /// - Parameter projects: The home's projects.
+  /// - Returns: The places.
+  public static func ringPlaces(_ projects: [ProjectGroup]) -> [RingPlace] {
+    let latest = projects.compactMap { project -> (RingPlace, Int)? in
+      guard let workspace = stable(project.workspaces.filter { !$0.merged }, by: { $0.active > $1.active }).first
+      else { return nil }
+      return (
+        RingPlace(id: project.id, name: project.name, workspace: workspace.id, running: project.running),
+        workspace.active
+      )
+    }
+    return stable(latest) { $0.1 > $1.1 }.map(\.0)
+  }
+
   /// The workspaces worked in last, newest first, for the new session's place sheet.
   ///
   /// - Remark: SPEC-0005 "MP6 定的细节 · MP6d": "最近 3 个（按会话最近更新）"; chats, archived and

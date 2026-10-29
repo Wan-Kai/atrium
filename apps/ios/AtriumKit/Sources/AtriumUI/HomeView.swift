@@ -64,10 +64,9 @@ public struct HomeView: View {
       }
       .background(palette.page.ignoresSafeArea())
       .safeAreaInset(edge: .top, spacing: 0) { topBar(palette) }
-      .overlay(alignment: .bottomTrailing) {
+      .overlay {
         if let sync, sync.core.index.ready {
-          NewSessionKey(
-            route: NewSessionRoute(container: HomeList.newSessionPlace(in: sync.core.index)))
+          PlaceRingKey(places: HomeList.ringPlaces(sync.home.projects)) { path.append($0) }
         }
       }
       .hidingNavigationBar()

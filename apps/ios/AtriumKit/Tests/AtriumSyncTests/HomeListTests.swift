@@ -170,6 +170,28 @@ struct HomeListTests {
     #expect(home(indexSnapshotJSON(projects: [projectJSON("p1", name: "app")])).projects[0].moreLines == 0)
   }
 
+  @Test("lists one ring place a project, at its latest open workspace, the latest project first")
+  func ringPlaces() {
+    let created = { (id: String, project: String, at: Int) in
+      workspaceJSON(id, project: project, branch: id).replacingOccurrences(
+        of: #""createdAt":null"#, with: #""createdAt":\#(at)"#)
+    }
+    // p1's latest open workspace is w2 (its session at 70); p2's is w3 (made at 80, no sessions);
+    // p3 has only a merged workspace, so it is not a place.
+    let merged = created("w4", "p3", 99).replacingOccurrences(
+      of: #""merge":null"#, with: #""merge":{"dirty":false,"ahead":0,"verdict":"merged","reason":null}"#)
+    let list = home(
+      indexSnapshotJSON(
+        projects: [projectJSON("p1", name: "app"), projectJSON("p2", name: "blog"), projectJSON("p3", name: "old")],
+        workspaces: [created("w1", "p1", 10), created("w2", "p1", 20), created("w3", "p2", 80), merged],
+        sessions: [summaryJSON("s1", in: "w2", name: "a", extra: ["updatedAt": "70", "running": "true"])]))
+
+    let places = HomeList.ringPlaces(list.projects)
+    #expect(places.map(\.name) == ["blog", "app"])
+    #expect(places.map(\.workspace) == ["w3", "w2"])
+    #expect(places.map(\.running) == [0, 1])
+  }
+
   @Test(
     "says how long ago in the phone's short words",
     arguments: [
