@@ -124,4 +124,24 @@ import Testing
     #expect(abs(PlaceRing.delay(order: 3) - 0.084) < 0.0001)
     #expect(abs(PlaceRing.labelDelay(order: 3) - 0.284) < 0.0001)
   }
+
+  /// Checks the keys exist only while the ring opens, shows or closes, and show only once mounted.
+  ///
+  /// - Remark: Closed keys still carried glass and shadows: 6 offscreen passes a frame on the
+  ///   phone's home (2026-10-29). Opening mounts them first, so they ripple out of the "+".
+  /// - SideEffects: none
+  @Test func mountsKeysOnlyWhileUsed() {
+    #expect(!RingStage.closed.mounted)
+    #expect(RingStage.closed.tapped() == .opening)
+    #expect(RingStage.opening.mounted && !RingStage.opening.shown)
+    #expect(RingStage.opening.settled() == .open)
+    #expect(RingStage.open.shown)
+    #expect(RingStage.open.tapped() == .closing)
+    #expect(RingStage.open.closed() == .closing)
+    #expect(RingStage.closing.mounted && !RingStage.closing.shown)
+    #expect(RingStage.closing.settled() == .closed)
+    #expect(RingStage.closing.tapped() == .opening)
+    #expect(RingStage.closed.closed() == .closed)
+    #expect(RingStage.open.settled() == .open)
+  }
 }

@@ -127,8 +127,13 @@ struct NoteCard: View {
       .foregroundStyle(palette(colours.ink))
       .padding(EdgeInsets(top: 14, leading: 13, bottom: 11, trailing: 13))
       .frame(maxWidth: .infinity, minHeight: 164, maxHeight: 164, alignment: .topLeading)
-      .background(palette(colours.paper), in: UnevenRoundedRectangle(cornerRadii: Self.corners))
-      .shadow(color: .black.opacity(scheme == .dark ? 0.45 : 0.12), radius: 9, y: 9)
+      .background {
+        // The shadow is cast by the paper alone: cast by the whole note it rendered the text and
+        // tape offscreen each frame (53 of 83 offscreen passes on the phone's home, 2026-10-29).
+        UnevenRoundedRectangle(cornerRadii: Self.corners)
+          .fill(palette(colours.paper))
+          .shadow(color: .black.opacity(scheme == .dark ? 0.45 : 0.12), radius: 9, y: 9)
+      }
       .overlay(alignment: .top) {
         Rectangle()
           .fill(.white.opacity(scheme == .dark ? 0.28 : 0.5))

@@ -158,6 +158,59 @@ enum PlaceRing {
   }
 }
 
+/// Where the ring is between closed and open, for mounting its keys only while they are used.
+///
+/// - Remark: Closed keys with no opacity still carried their glass and shadows: 6 offscreen passes
+///   a frame on the phone's home (2026-10-29). Opening mounts the keys a frame before showing them,
+///   so they ripple out of the "+"; closing keeps them until they have gone back in.
+enum RingStage: Equatable {
+  /// Only the "+".
+  case closed
+  /// Keys mounted at the "+", about to ripple out.
+  case opening
+  /// Keys out.
+  case open
+  /// Keys going back into the "+".
+  case closing
+
+  /// Whether the keys and the frost exist.
+  var mounted: Bool { self != .closed }
+  /// Whether the keys are out.
+  var shown: Bool { self == .open }
+
+  /// After a tap on the "+".
+  ///
+  /// - Remark: Toggles; a tap mid-way turns back.
+  /// - SideEffects: none
+  /// - Returns: The next stage.
+  func tapped() -> RingStage {
+    switch self {
+    case .closed, .closing: .opening
+    case .opening, .open: .closing
+    }
+  }
+
+  /// After something closes the ring: a pick, a tap outside the keys, leaving the page.
+  ///
+  /// - Remark: Already closed stays closed.
+  /// - SideEffects: none
+  /// - Returns: The next stage.
+  func closed() -> RingStage { self == .closed ? .closed : .closing }
+
+  /// After the mount or the closing animation has finished.
+  ///
+  /// - Remark: Open and closed are already settled.
+  /// - SideEffects: none
+  /// - Returns: The next stage.
+  func settled() -> RingStage {
+    switch self {
+    case .opening: .open
+    case .closing: .closed
+    case .closed, .open: self
+    }
+  }
+}
+
 /// The home's "+" and the ring of places it opens (design-language "手机端 · 首页", 2026-10-29).
 ///
 /// - Remark: Closed, only the "+" shows. Open, a frosted layer grows out of the "+", the "+" turns
@@ -169,8 +222,12 @@ struct PlaceRingKey: View {
   let places: [HomeList.RingPlace]
   /// Starts a new session at a place.
   let go: (NewSessionRoute) -> Void
-  /// Whether the ring is open.
-  @State private var open = false
+  /// Where the ring is between closed and open.
+  @State private var stage = RingStage.closed
+  /// Whether the keys are out.
+  private var open: Bool { stage.shown }
+  /// The clock the closing waits on.
+  @Environment(\.atriumClock) private var clock
   /// How far the ring has turned, in slots.
   @State private var scroll: Double = 0
   /// The drag going on, if any.
@@ -188,16 +245,26 @@ struct PlaceRingKey: View {
         x: proxy.size.width - Metrics.page - Metrics.floatingAdd / 2,
         y: proxy.size.height - Metrics.xs - Metrics.floatingAdd / 2)
       ZStack(alignment: .topLeading) {
-        backdrop.position(centre)
-        ForEach(Array(keys.enumerated()), id: \.offset) { index, key in
-          keyView(key, index: index)
-            .position(centre)
+        if stage.mounted {
+          backdrop.position(centre)
+          ForEach(Array(keys.enumerated()), id: \.offset) { index, key in
+            keyView(key, index: index)
+              .position(centre)
+          }
         }
         plus.position(centre)
       }
     }
     // Touches outside the pad reach the page, which may push another page over the ring.
-    .onDisappear { open = false }
+    .onDisappear { stage = stage.closed() }
+    .task(id: stage) {
+      // Opening: the keys are mounted at the "+" by now, so showing them animates them out.
+      // Closing: they are unmounted once back in (0.2 s, staggered) and the frost has shrunk.
+      if stage == .closing {
+        do { try await clock.sleep(for: .seconds(0.45)) } catch { return }
+      }
+      stage = stage.settled()
+    }
   }
 
   /// The keys: 新对话, then the projects.
@@ -316,8 +383,8 @@ struct PlaceRingKey: View {
   private var plus: some View {
     let palette = Palette(scheme: scheme)
     return Button {
-      if !open { scroll = 0 }
-      open.toggle()
+      if !stage.mounted { scroll = 0 }
+      stage = stage.tapped()
     } label: {
       Image(systemName: "plus")
         .font(.system(size: 22, weight: .medium))
@@ -368,7 +435,7 @@ struct PlaceRingKey: View {
           if let index = PlaceRing.key(at: at, count: keys.count, scroll: scroll) {
             pick(keys[index])
           } else {
-            open = false
+            stage = stage.closed()
           }
           return
         }
@@ -384,7 +451,7 @@ struct PlaceRingKey: View {
   /// - SideEffects: Pushes the new session page.
   /// - Parameter key: The key.
   private func pick(_ key: RingKey) {
-    open = false
+    stage = stage.closed()
     go(key.route)
   }
 }

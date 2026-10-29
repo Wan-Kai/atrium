@@ -122,9 +122,13 @@ struct UserBubble<Under: View>: View {
           .textSelection(.enabled)
           .padding(.horizontal, 14)
           .padding(.vertical, 10)
-          .background(palette.note, in: slip)
+          .background {
+            // Cast by the slip alone, not its text, so it needs no offscreen pass of the words.
+            slip.fill(palette.note)
+              .shadow(
+                color: Color(red: 0.24, green: 0.16, blue: 0.04).opacity(scheme == .dark ? 0 : 0.08), radius: 5, y: 3)
+          }
           .overlay(slip.strokeBorder(palette.line, lineWidth: 0.5))
-          .shadow(color: Color(red: 0.24, green: 0.16, blue: 0.04).opacity(scheme == .dark ? 0 : 0.08), radius: 5, y: 3)
       }
       under
         .font(.system(size: 11.5))

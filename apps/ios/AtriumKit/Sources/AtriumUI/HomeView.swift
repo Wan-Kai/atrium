@@ -45,12 +45,12 @@ public struct HomeView: View {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 0) {
           if let sync {
-            if sync.core.stale {
+            if sync.stale {
               Text("下面是 \(sync.hostName) 上次在线时的状态。").font(.system(size: 13)).foregroundStyle(palette.secondary)
                 .padding(.top, 4)
                 .accessibilityIdentifier("home.stale")
             }
-            sections(sync.home, ready: sync.core.index.ready, stale: sync.core.stale, palette: palette)
+            sections(sync.home, ready: sync.indexReady, stale: sync.stale, palette: palette)
           } else {
             Text("还没连上 Mac")
               .font(.system(size: 15))
@@ -65,7 +65,7 @@ public struct HomeView: View {
       .background(palette.page.ignoresSafeArea())
       .safeAreaInset(edge: .top, spacing: 0) { topBar(palette) }
       .overlay {
-        if let sync, sync.core.index.ready {
+        if let sync, sync.indexReady {
           PlaceRingKey(places: HomeList.ringPlaces(sync.home.projects)) { path.append($0) }
         }
       }
@@ -193,7 +193,7 @@ public struct HomeView: View {
       if !folded.contains(project.id) {
         let lines = openMore.contains(project.id) ? project.lines : project.shownLines
         ForEach(Array(lines.enumerated()), id: \.element.id) { place, line in
-          WorktreeRow(line: line, changes: sync?.core.changes[line.id], merged: false, divided: place > 0)
+          WorktreeRow(line: line, changes: sync?.changes[line.id], merged: false, divided: place > 0)
         }
         if !openMore.contains(project.id), project.moreLines > 0 {
           Button {
@@ -235,7 +235,7 @@ public struct HomeView: View {
           .buttonStyle(.plain)
           if openMerged.contains(project.id) {
             ForEach(project.mergedLines) { line in
-              WorktreeRow(line: line, changes: sync?.core.changes[line.id], merged: true, divided: true)
+              WorktreeRow(line: line, changes: sync?.changes[line.id], merged: true, divided: true)
             }
           }
         }

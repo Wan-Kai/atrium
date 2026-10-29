@@ -203,6 +203,10 @@ struct SyncModelTests {
     }
     try await side.send(Data(sessionSnapshot.utf8))
     try await waitUntil { model.status == .connected }
+    // The throttled write lands a second after the messages, encoded away from the main actor.
+    manualClock.advance(by: .seconds(1))
+    try await waitUntil { cache.index() != nil && cache.session("s1") != nil }
+    try cache.removeAll()
     // Sending clears the draft on disk too, not only in memory.
     model.setDraft("go", for: "s1")
     model.send("s1")

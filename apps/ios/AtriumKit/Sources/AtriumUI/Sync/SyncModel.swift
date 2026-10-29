@@ -17,7 +17,24 @@ import Observation
 @Observable
 public final class SyncModel {
   /// The list and the open sessions.
-  public private(set) var core: SyncCore
+  public private(set) var core: SyncCore {
+    didSet { mirror(from: oldValue) }
+  }
+  /// What the home screen lists, rebuilt only when the list changes.
+  ///
+  /// - Remark: The home stays under every pushed page; read from `core`, each streamed fragment
+  ///   rebuilt its list (~10% of the main thread in the phone's trace, 2026-10-29).
+  public private(set) var home: HomeList
+  /// Whether what is shown is what the Mac last said, not live; see ``SyncCore/stale``.
+  public private(set) var stale = false
+  /// Whether the first list has come.
+  public private(set) var indexReady = false
+  /// The workspaces' uncommitted changes; see ``SyncCore/changes``.
+  public private(set) var changes: [WorkspaceId: ChangesUpdatedEvent] = [:]
+  #if DEBUG
+    /// How many times the home list was built, for the tests.
+    @ObservationIgnored private(set) var homeBuilds = 0
+  #endif
   /// How the connection stands, as it last said.
   public private(set) var status = ConnectionStatus.connecting
   /// The Mac's name, for the connection pill.
@@ -56,16 +73,36 @@ public final class SyncModel {
     self.hostName = hostName
     self.cache = cache
     self.clock = clock
-    core = SyncCore(requestId: requestId, traceparent: traceparent, now: now)
     (outputs, queue) = AsyncStream.makeStream(of: SyncOutput.self)
-    savedDrafts = cache?.drafts() ?? [:]
-    core.restore(index: cache?.index(), drafts: savedDrafts)
+    let drafts = cache?.drafts() ?? [:]
+    var restored = SyncCore(requestId: requestId, traceparent: traceparent, now: now)
+    restored.restore(index: cache?.index(), drafts: drafts)
+    home = HomeList(restored.index)
+    core = restored
+    savedDrafts = drafts
+    stale = restored.stale
+    indexReady = restored.index.ready
+    changes = restored.changes
   }
 
-  /// What the home screen lists.
+  /// Updates what the home reads from the core, each only when it changed.
   ///
-  /// - Remark: Worked out from the list each time it changes.
-  public var home: HomeList { HomeList(core.index) }
+  /// - Remark: Building the list is the cost (sorting, grouping, placing the notes), so it is built
+  ///   only when the list changed; the list compares cheaply when untouched, its arrays sharing
+  ///   storage. The others are compared too, so an unchanged value is not even assigned.
+  /// - SideEffects: May set `home`, `stale`, `indexReady` and `changes`.
+  /// - Parameter old: The core before.
+  private func mirror(from old: SyncCore) {
+    if core.index != old.index {
+      home = HomeList(core.index)
+      #if DEBUG
+        homeBuilds += 1
+      #endif
+    }
+    if core.stale != stale { stale = core.stale }
+    if core.index.ready != indexReady { indexReady = core.index.ready }
+    if core.changes != changes { changes = core.changes }
+  }
 
   /// Reads messages and carries out what the core asks, until cancelled.
   ///
@@ -87,15 +124,18 @@ public final class SyncModel {
   /// - Remark: "正在同步" on a channel already open is the foreground probe of that channel: the
   ///   core syncs it again. "正在同步" without an open channel waits for one: ``followOpenings()``
   ///   starts its sync once it is up, never before (SPEC-0005 "MP4a 定的细节" 5).
-  /// - SideEffects: Reads the connection's open generation; queues commands.
+  /// - SideEffects: Reads the connection's open generation; queues commands; on revocation waits for a write in progress, then deletes the cache.
   /// - Parameter status: The status.
   public func statusChanged(_ status: ConnectionStatus) async {
     self.status = status
     // An authenticated revocation deletes the host's copy with its keys (SPEC-0005 "撤销").
     if status == .revoked {
       revoked = true
-      saving?.cancel()
+      let pending = saving
+      pending?.cancel()
       saving = nil
+      // A write already encoding off the main actor finishes first, so it cannot recreate the files.
+      await pending?.value
       try? cache?.removeAll()
     }
     guard status == .syncing, let generation = await connection.openGeneration else { return }
@@ -151,13 +191,28 @@ public final class SyncModel {
   ///
   /// - Remark: Streaming changes the open session many times a second; one write a second is enough
   ///   for a copy that only has to be close (SPEC-0005 "MP4c 定的细节").
-  ///   The task holds the model weakly, so a model replaced meanwhile writes nothing stale.
-  /// - SideEffects: Starts a task that sleeps on the injected clock.
+  ///   The task holds the model weakly, so a model replaced meanwhile writes nothing stale. The
+  ///   copies are taken on the main actor and encoded and written off it (the phone's trace,
+  ///   2026-10-29); a ``saveNow()`` meanwhile may be overwritten by this older copy, which is
+  ///   still a valid resume point.
+  /// - SideEffects: Starts a task that sleeps on the injected clock, then writes files off the
+  ///   main actor.
   private func scheduleSave() {
     guard writable != nil, saving == nil else { return }
     saving = Task { [weak self, clock] in
       do { try await clock.sleep(for: .seconds(1)) } catch { return }
-      self?.saveNow()
+      guard let self, let cache = self.writable else { return }
+      // The copies share storage with the core, so taking them here is cheap; encoding a transcript
+      // of up to 512 KiB and writing it is not, and blocked the main thread once a second.
+      let index = self.core.index.cached
+      let sessions = self.core.openSessions.compactMap { self.core.sessions[$0]?.cached }
+      let write = Task.detached(priority: .utility) {
+        if let index { try? cache.save(index) }
+        for session in sessions { try? cache.save(session) }
+      }
+      await write.value
+      // Kept until written, so a revocation waits for it; one cancelled was replaced or dropped.
+      if !Task.isCancelled { self.saving = nil }
     }
   }
 

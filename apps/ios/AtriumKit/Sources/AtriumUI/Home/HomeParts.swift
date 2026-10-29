@@ -115,10 +115,10 @@ struct WorkspacePage: View {
   /// The page.
   var body: some View {
     let palette = Palette(scheme: scheme)
-    let group = sync?.home.projects.flatMap(\.workspaces).first { $0.id == workspaceId }
-    let workspace = sync?.core.index.workspaces.first { $0.id == workspaceId }
-    let project = sync?.core.index.projects.first { $0.id == workspace?.projectId }
-    let changes = sync?.core.changes[workspaceId]
+    // From the mirrored list, not the core: this page can sit under a streaming conversation.
+    let project = sync?.home.projects.first { $0.workspaces.contains { $0.id == workspaceId } }
+    let group = project?.workspaces.first { $0.id == workspaceId }
+    let changes = sync?.changes[workspaceId]
     ScrollView {
       VStack(alignment: .leading, spacing: 4) {
         Text(project?.name ?? "").font(Typography.display(for: project?.name ?? "", size: 16, cjkSize: 14))
@@ -126,7 +126,7 @@ struct WorkspacePage: View {
         Text(group?.name ?? "").font(.system(size: 22, weight: .semibold, design: .monospaced))
           .foregroundStyle(palette.text).lineLimit(2)
         HStack(spacing: 8) {
-          Text(workspace?.kind == .local ? "本地工作区" : "worktree").font(.system(size: 12.5))
+          Text(group?.kind == .local ? "本地工作区" : "worktree").font(.system(size: 12.5))
             .foregroundStyle(palette.secondary)
           if let tag = WorkspaceHeader.tag(
             dirty: changes?.dirty ?? false, ahead: changes?.ahead ?? 0, merged: group?.merged ?? false)
