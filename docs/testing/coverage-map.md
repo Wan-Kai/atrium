@@ -2056,3 +2056,5 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 节流的缓存写入在主线程外编码和写盘；撤销时先等正在写的那次写完再删缓存 | Swift `SyncModelTests.cache`（推进 1 秒后列表和会话都写到盘上）；撤销等待没有单独的并发测试 |
 | 便签、用户气泡的阴影由纸张形状投，不由整块内容投 | 模拟器新旧截图对比外观不变；真机首页离屏渲染 83 → 27 次、超时帧 436/908 → 12/597，对话测速页 31 → 23 次 |
 | + 圆环收起时不挂圆钮和毛玻璃圆：`RingStage` 关→开启中（先挂上）→开→收起中（0.45 秒后卸下） | Swift `PlaceRingTests.mountsKeysOnlyWhileUsed`（类型不存在时失败，已见过）；模拟器上展开涟漪、收起都看过；真机首页离屏渲染再少 6 次 |
+| 心跳发出后收到宿主的任何一帧（含没收齐的消息块）都算回应，同一时刻或更早的不算；没有心跳回应、但长消息一直在到时不重连 | Swift `HeartbeatTrackerTests.anyFrameAnswers`、`SecureChannelTests.chunkIsHeard`、`RemoteConnectionTests.arrivingChunksKeepTheLink`（60 秒里每 5 秒一块、从不回心跳）；先红后绿；`>=` 的写法让已有的"两次没回应 35 秒重连"挂住，改为严格晚于；破坏检查 4/4 CAUGHT |
+| 发给手机的列表不带已归档的会话、工作区、对话，会话 `file` 一律 `null`；变更里归档的条目改成删除，原有删除保留；本机客户端照旧拿完整列表 | `remote-policy.test.ts`"the list as the phone gets it"3 项、`connection.test.ts`"sends the list without archived sessions"；先红后绿；破坏检查 9/9 CAUGHT |

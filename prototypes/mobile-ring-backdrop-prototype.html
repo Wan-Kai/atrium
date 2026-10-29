@@ -20,7 +20,10 @@
         margin: 0;
         background: var(--desk);
         color: var(--text);
-        font: 14px/1.5 -apple-system, "PingFang SC", sans-serif;
+        font:
+          14px/1.5 -apple-system,
+          "PingFang SC",
+          sans-serif;
       }
       header {
         padding: 24px 32px 8px;
@@ -95,13 +98,18 @@
         background: rgba(255, 252, 245, 0.82);
         border: 0.5px solid rgba(70, 55, 30, 0.1);
         box-shadow: 0 6px 16px rgba(60, 45, 20, 0.14);
-        font: 600 18px/1 "Iowan Old Style", Georgia, serif;
+        font:
+          600 18px/1 "Iowan Old Style",
+          Georgia,
+          serif;
         color: var(--tint);
       }
       .key.ink {
         background: var(--text);
         color: var(--page);
-        font: 300 26px/1 -apple-system, sans-serif;
+        font:
+          300 26px/1 -apple-system,
+          sans-serif;
       }
       .key .dot {
         position: absolute;
@@ -119,7 +127,9 @@
         left: 50%;
         transform: translateX(-50%);
         white-space: nowrap;
-        font: 600 11.5px/1.2 -apple-system, sans-serif;
+        font:
+          600 11.5px/1.2 -apple-system,
+          sans-serif;
         color: var(--text);
       }
       .plus {
@@ -134,7 +144,9 @@
         background: rgba(255, 252, 245, 0.85);
         border: 0.5px solid rgba(70, 55, 30, 0.1);
         box-shadow: 0 8px 20px rgba(60, 45, 20, 0.14);
-        font: 300 30px/1 -apple-system, sans-serif;
+        font:
+          300 30px/1 -apple-system,
+          sans-serif;
         color: var(--text);
       }
       .plus::before {
@@ -144,8 +156,7 @@
       .a .pad {
         -webkit-backdrop-filter: blur(16px) saturate(0.55) brightness(0.97);
         backdrop-filter: blur(16px) saturate(0.55) brightness(0.97);
-        background: linear-gradient(rgba(214, 214, 214, 0.32), rgba(214, 214, 214, 0.32)),
-          rgba(246, 242, 233, 0.36);
+        background: linear-gradient(rgba(214, 214, 214, 0.32), rgba(214, 214, 214, 0.32)), rgba(246, 242, 233, 0.36);
       }
       /* B: paper mist — no system material; the page colour at 72% over a blur. */
       .b .pad {
@@ -163,8 +174,7 @@
       .d .pad {
         -webkit-backdrop-filter: blur(14px) saturate(1.1);
         backdrop-filter: blur(14px) saturate(1.1);
-        background: linear-gradient(rgba(138, 115, 82, 0.1), rgba(138, 115, 82, 0.1)),
-          rgba(246, 242, 233, 0.66);
+        background: linear-gradient(rgba(138, 115, 82, 0.1), rgba(138, 115, 82, 0.1)), rgba(246, 242, 233, 0.66);
       }
       /* E: fog without blur — the paper colour alone, thick in the middle; text fades, not smears. */
       .e .pad {
@@ -213,3 +223,4 @@
       }
     </script>
   </body>
+</html>

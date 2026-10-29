@@ -1,4 +1,4 @@
-import type { Command, CommandType, HostMessage } from "@atrium/protocol";
+import type { Command, CommandType, HostMessage, SessionSummary } from "@atrium/protocol";
 
 /** Whether a phone may send a command, or only the Mac. */
 type Reach = "phone" | "local_only";
@@ -180,4 +180,82 @@ export const PUSHED_TO_PHONE = {
  */
 export function pushedToPhone(message: HostMessage): boolean {
   return PUSHED_TO_PHONE[message.type];
+}
+
+/**
+ * A host message as a phone gets it: the list without what the phone never shows.
+ *
+ * @remarks
+ * The phone only ever shows sessions, workspaces and chats that are not archived, and has no use
+ * for session file paths, so the list leaves them out: a snapshot drops them, and a change that
+ * archived one becomes its removal. An upsert that takes an item out of the archive brings it back
+ * whole (SPEC-0005, "给手机推什么"). Every other message is the same object.
+ *
+ * @sideEffects none
+ * @param message - The message.
+ * @returns The message for the phone.
+ */
+export function forPhone(message: HostMessage): HostMessage {
+  if (message.type === "index_snapshot") {
+    return {
+      ...message,
+      workspaces: message.workspaces.filter((workspace) => workspace.archivedAt === null),
+      chats: message.chats.filter((chat) => chat.archivedAt === null),
+      sessions: message.sessions.filter((session) => !session.archived).map(withoutFile),
+    };
+  }
+  if (message.type !== "index_changes") return message;
+  const workspaces = split(
+    message.workspaces,
+    (workspace) => workspace.archivedAt !== null,
+    (item) => item.id,
+  );
+  const chats = split(
+    message.chats,
+    (chat) => chat.archivedAt !== null,
+    (item) => item.id,
+  );
+  const sessions = split(
+    message.sessions,
+    (session) => session.archived,
+    (item) => item.sessionId,
+  );
+  return { ...message, workspaces, chats, sessions: { ...sessions, upsert: sessions.upsert.map(withoutFile) } };
+}
+
+/**
+ * One collection's changes with its archived upserts turned into removals.
+ *
+ * @remarks
+ * Removals the change already had come first, in their order.
+ *
+ * @sideEffects none
+ * @param changes - The collection's changes.
+ * @param archived - Whether an item is archived.
+ * @param id - An item's id.
+ * @returns The changes for the phone.
+ */
+function split<T>(
+  changes: { readonly upsert: readonly T[]; readonly remove: readonly string[] },
+  archived: (item: T) => boolean,
+  id: (item: T) => string,
+): { upsert: T[]; remove: string[] } {
+  return {
+    upsert: changes.upsert.filter((item) => !archived(item)),
+    remove: [...changes.remove, ...changes.upsert.filter(archived).map(id)],
+  };
+}
+
+/**
+ * A session summary without its file path.
+ *
+ * @remarks
+ * `state` still says whether the file exists.
+ *
+ * @sideEffects none
+ * @param session - The summary.
+ * @returns The same summary with `file` null.
+ */
+function withoutFile(session: SessionSummary): SessionSummary {
+  return { ...session, file: null };
 }
