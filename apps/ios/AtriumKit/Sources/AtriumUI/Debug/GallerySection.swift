@@ -181,7 +181,7 @@
       }
     }
 
-    /// The pixel cat in every scene.
+    /// The pixel cat in every scene, and the home empty state's paper stack.
     private var cats: some View {
       LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
         PixelCatView(scene: .tile, size: 150, seed: 1)
@@ -189,6 +189,7 @@
         PixelCatView(scene: .sit, size: 150, seed: 3)
         PixelCatView(scene: .paired, size: 150, seed: 4)
         PixelCatView(scene: .asleep, size: 150)
+        PaperStack()
       }
     }
 

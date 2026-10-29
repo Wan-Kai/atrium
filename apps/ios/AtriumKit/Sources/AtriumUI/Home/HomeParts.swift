@@ -66,8 +66,9 @@ struct WorkspaceHeader: View {
 
 /// What the home shows when there is no project.
 ///
-/// - Remark: The prototype's empty states: the cat peeking over a folder when chats exist but no
-///   project ("还没有项目"), on its tile when there is nothing at all ("这里还是空的").
+/// - Remark: The prototype's empty states, "还没有项目" when chats exist but no project and "这里还是
+///   空的" when there is nothing at all, both over the stack of blank sheets (design-language
+///   "首页空状态插图"; the cat was dropped).
 struct EmptyHome: View {
   /// Whether there are chats below.
   let hasChats: Bool
@@ -78,7 +79,7 @@ struct EmptyHome: View {
   var body: some View {
     let palette = Palette(scheme: scheme)
     VStack(spacing: Metrics.sm) {
-      PixelCatView(scene: hasChats ? .peek : .tile, size: hasChats ? 128 : 160)
+      PaperStack()
       Text(hasChats ? "还没有项目" : "这里还是空的").font(.system(size: 18, weight: .semibold)).foregroundStyle(palette.text)
       Text(
         hasChats

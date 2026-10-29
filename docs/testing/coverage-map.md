@@ -2038,4 +2038,5 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 工作区页（改动卡片：Fraunces 行数、比例条）、新会话（无猫、两层输入框带位置）、diff 的 hunk 头深米、配对校验码纸卡、像素猫底块深米 | 截图 `pnpm ios:shot --gallery=new-session|diff-page`，已看过；工作区页和配对校验码靠验收 |
 | 变异测试：`pnpm test:mutation host --mutate=packages/host/src/store/index-schema.ts` 96.64%（存活 5 个都在这次没改的行）；补了"保留短的报错原文"一条杀掉 `max(300)→min(300)` | `index-schema.test.ts` |
 | 调试启动钩子：Debug 版从启动环境 `ATRIUM_PAIR_LINK` 取配对链接（去首尾空白，空的不算），模拟器走查时链接不经过任何人眼 | Swift `PairingLaunchLinkTests`（去掉 trim 后失败，已见过） |
-| 全 App 的系统控件（配对完成的勾、底栏按钮）用深米，不是系统蓝；"还没有项目"的猫按 128pt 画，不压标题 | 模拟器走查截图（真 host + 脚本 pi + 本机 relay），已看过；没有布局单测 |
+| 全 App 的系统控件（配对完成的勾、底栏按钮）用深米，不是系统蓝 | 模拟器走查截图（真 host + 脚本 pi + 本机 relay），已看过；没有布局单测 |
+| 首页两种空状态放一叠白纸，不放猫（方案 D）：纸边浅色用三级文字色、深色用二级文字色的 55%；阴影浅色暖棕、深色黑；出现时落定，减弱动态效果时不动 | Swift `PaperStackTests`（深色纸边改回三级文字色后失败，已见过）；样子靠截图 `pnpm ios:shot --gallery=cats [--dark]`；落定动画靠验收 |
