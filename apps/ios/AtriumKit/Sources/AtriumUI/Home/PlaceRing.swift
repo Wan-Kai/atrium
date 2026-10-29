@@ -22,6 +22,11 @@ enum PlaceRing {
   static let size: CGFloat = 52
   /// How far a tap may land from a key's centre and still hit it.
   static let reach: CGFloat = 32
+  /// The radius of the frosted pad behind the ring, the part that takes touches: the keys shown
+  /// and their names, with a little room.
+  static let pad: CGFloat = 146
+  /// How far past the pad its frost fades out.
+  static let feather: CGFloat = 40
 
   /// Where a key sits on the ring.
   ///
@@ -182,15 +187,8 @@ struct PlaceRingKey: View {
       let centre = CGPoint(
         x: proxy.size.width - Metrics.page - Metrics.floatingAdd / 2,
         y: proxy.size.height - Metrics.xs - Metrics.floatingAdd / 2)
-      let global = proxy.frame(in: .global).origin
       ZStack(alignment: .topLeading) {
-        GeometryReader { full in
-          // The frost covers the whole screen, so the "+"'s centre moves into its frame.
-          let origin = full.frame(in: .global).origin
-          let inFrost = CGPoint(x: centre.x + global.x - origin.x, y: centre.y + global.y - origin.y)
-          scrim(centre: inFrost, span: hypot(full.size.width, full.size.height) * 2 + 40)
-        }
-        .ignoresSafeArea()
+        backdrop.position(centre)
         ForEach(Array(keys.enumerated()), id: \.offset) { index, key in
           keyView(key, index: index)
             .position(centre)
@@ -198,6 +196,8 @@ struct PlaceRingKey: View {
         plus.position(centre)
       }
     }
+    // Touches outside the pad reach the page, which may push another page over the ring.
+    .onDisappear { open = false }
   }
 
   /// The keys: 新对话, then the projects.
@@ -210,33 +210,36 @@ struct PlaceRingKey: View {
       }
   }
 
-  /// The frosted layer that grows out of the "+" and takes the drags and taps while open.
+  /// The frosted pad that grows out of the "+" behind the ring and takes its drags and taps.
   ///
-  /// - Remark: A circle from the "+"'s centre masks it, so it opens as a ripple; with Reduce Motion
-  ///   it only fades.
+  /// - Remark: Only the "+" and the ring get a backdrop; the rest of the page stays as it is and
+  ///   still takes touches. Its edge fades out over `feather`. It opens as a ripple from the "+";
+  ///   with Reduce Motion it only fades.
   /// - SideEffects: none
-  /// - Parameters:
-  ///   - centre: The "+"'s centre.
-  ///   - span: A circle wide enough to cover the screen from there.
-  /// - Returns: The layer.
-  private func scrim(centre: CGPoint, span: CGFloat) -> some View {
+  private var backdrop: some View {
     let palette = Palette(scheme: scheme)
+    let outer = PlaceRing.pad + PlaceRing.feather
     let grown = open || reduceMotion
-    return Rectangle()
+    return Circle()
       .fill(.ultraThinMaterial)
-      .overlay(palette.page.opacity(0.36))
+      .overlay(Circle().fill(palette.page.opacity(0.36)))
       .mask {
-        Circle()
-          .frame(width: grown ? span : 0, height: grown ? span : 0)
-          .position(centre)
+        RadialGradient(
+          stops: [
+            .init(color: .black, location: 0), .init(color: .black, location: PlaceRing.pad / outer),
+            .init(color: .clear, location: 1),
+          ],
+          center: .center, startRadius: 0, endRadius: outer)
       }
+      .frame(width: outer * 2, height: outer * 2)
+      .scaleEffect(grown ? 1 : 0.01)
       .opacity(reduceMotion ? (open ? 1 : 0) : 1)
       .animation(
         reduceMotion ? .easeInOut(duration: Motion.reducedDuration) : .easeOut(duration: open ? 0.32 : 0.24),
         value: open
       )
-      .contentShape(Rectangle())
-      .gesture(turning(centre: centre))
+      .contentShape(Circle().inset(by: PlaceRing.feather))
+      .gesture(turning(centre: CGPoint(x: outer, y: outer)))
       .allowsHitTesting(open)
       .accessibilityHidden(true)
   }
@@ -323,7 +326,9 @@ struct PlaceRingKey: View {
           value: open
         )
         .frame(width: Metrics.floatingAdd, height: Metrics.floatingAdd)
-        .atriumGlass(in: Circle(), interactive: true)
+        // Not interactive: the system's press bounce swells the glass but not its ring, which then
+        // jumps out of step; `PressStyle` shrinks both together.
+        .atriumGlass(in: Circle())
         // The glass does not take touches on a device; without this only the glyph does, and a tap
         // on the rest of the circle falls through to the row under it.
         .contentShape(Circle())

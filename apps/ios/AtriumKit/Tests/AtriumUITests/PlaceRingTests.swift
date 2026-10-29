@@ -28,6 +28,20 @@ import Testing
     #expect(hypot(first.x - second.x, first.y - second.y) > PlaceRing.size + 20)
   }
 
+  /// Checks the frosted pad behind the ring covers the keys shown and their names, and no more.
+  ///
+  /// - Remark: design-language "手机端 · 首页": only the "+" and the ring get a backdrop and take
+  ///   touches; a name hangs about 22pt under its key. The pad stays well inside a 390pt screen.
+  /// - SideEffects: none
+  @Test func padsOnlyTheRing() {
+    for index in 0..<PlaceRing.shown {
+      let key = PlaceRing.point(angle: PlaceRing.angle(index: index, scroll: 0))
+      #expect(hypot(key.x, key.y + 22) + PlaceRing.size / 2 <= PlaceRing.pad)
+    }
+    #expect(PlaceRing.pad <= 160)
+    #expect(PlaceRing.feather > 0)
+  }
+
   /// Checks how far the ring turns: none with a screenful, the overflow otherwise.
   ///
   /// - Remark: Three keys fit; the last one turns no further than the third slot.
