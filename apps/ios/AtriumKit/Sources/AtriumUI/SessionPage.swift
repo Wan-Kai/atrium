@@ -45,6 +45,7 @@ struct SessionPage: View {
     let controls = SessionControls(
       control: state?.control, running: state?.running ?? false, connected: sync?.status == .connected)
     let lastTurn = state?.items.last { if case .turn = $0 { true } else { false } }?.id
+    let changes = changesRoute
     ScrollView {
       LazyVStack(alignment: .leading, spacing: Metrics.md) {
         if sync?.core.stale == true {
@@ -56,10 +57,11 @@ struct SessionPage: View {
         ForEach(state?.items ?? [], id: \.id) { item in
           switch item {
           case .turn(let turn):
-            TurnView(
-              layout: TurnLayout(turn), retry: turn.id == lastTurn ? { retry() } : nil,
-              openChanges: changesRoute.map { route in { openChanges = route } }
+            TurnItem(
+              turn: turn, latest: turn.id == lastTurn, changes: changes, retry: { retry() },
+              openChanges: { openChanges = $0 }
             )
+            .equatable()
             .id(turn.id)
           case .notice(let notice):
             Text(Self.label(notice)).font(Typography.meta).foregroundStyle(palette.tertiary)

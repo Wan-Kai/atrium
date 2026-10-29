@@ -132,27 +132,53 @@
       """
     }
 
+    /// A finished turn whose reply is the Markdown sample, as JSON.
+    ///
+    /// - Remark: History for the streaming benchmark, so a long page is redrawn as the tail grows.
+    /// - SideEffects: none
+    /// - Parameter index: Which one; names its ids.
+    /// - Returns: The JSON.
+    private static func historyTurn(_ index: Int) -> String {
+      let reply = String(
+        decoding: (try? JSONEncoder().encode(GalleryMarkdown.sample)) ?? Data("\"\"".utf8), as: UTF8.self)
+      return """
+        {"kind":"turn","id":"h\(index)","source":null,"user":{"text":"第 \(index) 个问题：缓存为什么会过期？","images":0,\
+        "clientMessageId":null,"auto":false,"command":null,"timestamp":\(now - 900_000)},"steps":[\
+        \(SampleTurns.read("h\(index)-1", "src/cache.ts")),{"kind":"text","id":"h\(index)-2","text":\(reply)}],\
+        "outcome":"done","error":null,"startedAt":\(now - 900_000),"durationMs":31000,"usage":null,"changes":[]},
+        """
+    }
+
     /// The open session's snapshot: idle, on a model with a thinking level and Fast on.
-    private static var snapshot: String {
-      """
-      {"type":"session_snapshot","sessionId":"s1","epoch":1,"seq":0,"traceId":null,"stream":"st-1","items":[\
-      {"kind":"turn","id":"t1","source":null,"user":{"text":"先把雷达图的配色列出来，看看现在用了几种颜色。","images":0,\
-      "clientMessageId":null,"auto":false,"command":null,"timestamp":\(now - 600_000)},"steps":[\
-      \(SampleTurns.read("1", "src/radar.ts")),\(SampleTurns.read("2", "src/RadarChart.tsx")),\
-      {"kind":"text","id":"3","text":"现在用了五种不相干的颜色：品牌渐变的蓝、青、桃、紫，加一个粉。建议改成从 `--tint` 派生的五级深米。"}],\
-      "outcome":"done","error":null,"startedAt":\(now - 600_000),"durationMs":48000,"usage":null,"changes":[]},\
-      {"kind":"turn","id":"t2","source":null,"user":{"text":"好，就这么改，图例挪到右上角。","images":0,\
-      "clientMessageId":null,"auto":false,"command":null,"timestamp":\(now - 192_000)},"steps":[\
-      \(SampleTurns.read("4", "src/radar.ts")),\(SampleTurns.edit("5", "src/radar.ts", added: 18, removed: 9)),\
-      \(SampleTurns.bash("6", "pnpm test:ui radar", "running"))],\
-      "outcome":"running","error":null,"startedAt":\(now - 192_000),"durationMs":null,"usage":null,"changes":[]}],\
-      "hasOlder":false,"run":{"runId":"r-gallery","startedAt":\(now - 192_000)},"exited":false,"control":{"queue":[],"deliveries":[],"deliveriesHeld":null,\
-      "paused":null,"steers":[],"stopping":false,"restarting":false,"compacting":false,"interactions":[],\
-      "question":null,"failure":null},\
-      "model":{"providerId":"openai-codex","modelId":"gpt-6","thinkingLevel":"high"},"fast":true,\
-      "metrics":{"turns":null,"steps":null,"tokens":null,"cost":null,"reasoning":null,"branchTokens":0,\
-      "context":null,"timing":null,"children":null}}
-      """
+    private static var snapshot: String { snapshot(history: 0) }
+
+    /// The open session's snapshot, after some finished turns.
+    ///
+    /// - Remark: See `historyTurn(_:)`.
+    /// - SideEffects: none
+    /// - Parameter history: How many finished turns come first.
+    /// - Returns: The JSON.
+    private static func snapshot(history: Int) -> String {
+      let earlier = (0..<history).map(historyTurn).joined()
+      return """
+        {"type":"session_snapshot","sessionId":"s1","epoch":1,"seq":0,"traceId":null,"stream":"st-1","items":[\(earlier)\
+        {"kind":"turn","id":"t1","source":null,"user":{"text":"先把雷达图的配色列出来，看看现在用了几种颜色。","images":0,\
+        "clientMessageId":null,"auto":false,"command":null,"timestamp":\(now - 600_000)},"steps":[\
+        \(SampleTurns.read("1", "src/radar.ts")),\(SampleTurns.read("2", "src/RadarChart.tsx")),\
+        {"kind":"text","id":"3","text":"现在用了五种不相干的颜色：品牌渐变的蓝、青、桃、紫，加一个粉。建议改成从 `--tint` 派生的五级深米。"}],\
+        "outcome":"done","error":null,"startedAt":\(now - 600_000),"durationMs":48000,"usage":null,"changes":[]},\
+        {"kind":"turn","id":"t2","source":null,"user":{"text":"好，就这么改，图例挪到右上角。","images":0,\
+        "clientMessageId":null,"auto":false,"command":null,"timestamp":\(now - 192_000)},"steps":[\
+        \(SampleTurns.read("4", "src/radar.ts")),\(SampleTurns.edit("5", "src/radar.ts", added: 18, removed: 9)),\
+        \(SampleTurns.bash("6", "pnpm test:ui radar", "running"))],\
+        "outcome":"running","error":null,"startedAt":\(now - 192_000),"durationMs":null,"usage":null,"changes":[]}],\
+        "hasOlder":false,"run":{"runId":"r-gallery","startedAt":\(now - 192_000)},"exited":false,"control":{"queue":[],"deliveries":[],"deliveriesHeld":null,\
+        "paused":null,"steers":[],"stopping":false,"restarting":false,"compacting":false,"interactions":[],\
+        "question":null,"failure":null},\
+        "model":{"providerId":"openai-codex","modelId":"gpt-6","thinkingLevel":"high"},"fast":true,\
+        "metrics":{"turns":null,"steps":null,"tokens":null,"cost":null,"reasoning":null,"branchTokens":0,\
+        "context":null,"timing":null,"children":null}}
+        """
     }
 
     /// One catalog model, as JSON.
@@ -222,8 +248,9 @@
     /// - Parameters:
     ///   - missing: Whether `w4` is marked as not found.
     ///   - modelsFor: The workspace whose models are answered.
+    ///   - history: How many finished turns the open session has before its two.
     /// - Returns: The model, status connected.
-    static func model(missing: Bool = false, modelsFor: String? = nil) -> SyncModel {
+    static func model(missing: Bool = false, modelsFor: String? = nil, history: Int = 0) -> SyncModel {
       var next = 0
       var core = SyncCore(
         requestId: {
@@ -234,7 +261,7 @@
       _ = core.open(openSession)
       _ = core.connected(generation: 1)
       let ok = { (id: String) in #"{"type":"response","requestId":"\#(id)","ok":true,"result":{}}"# }
-      for json in [ok("r1"), index, ok("r2"), ok("r3"), snapshot] {
+      for json in [ok("r1"), index, ok("r2"), ok("r3"), snapshot(history: history)] {
         _ = core.receive(host(json), generation: 1)
       }
       if missing {

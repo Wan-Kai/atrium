@@ -42,6 +42,9 @@ private struct MarkdownBlockView: View, Equatable {
 
   /// The block's native view.
   var body: some View {
+    #if DEBUG && os(iOS)
+      let _ = GalleryTimelineStats.blockEvaluated()
+    #endif
     let palette = Palette(scheme: scheme)
     switch block {
     case .paragraph(let text): inline(text)

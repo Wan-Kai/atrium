@@ -37,7 +37,7 @@
         (Self.sections + [
           "timeline-list", "timeline-stack", "timeline-control", "timeline-check", "diff-page", "new-session",
           "location-sheet", "new-session-missing", "model-sheet", "settings", "home", "conversation", "question-sheet",
-          "children-sheet", "queue-sheet",
+          "children-sheet", "queue-sheet", "conversation-stream",
         ])
         .contains(base)
         ? base : "all"
@@ -68,6 +68,8 @@
           GalleryPanel(queue: section == "queue-sheet")
         } else if section == "question-sheet", let question = GallerySync.question {
           QuestionSheet(sessionId: GallerySync.openSession, sync: GallerySync.model(), question: question)
+        } else if section == "conversation-stream" {
+          GalleryStream()
         } else if section == "conversation" {
           NavigationStack { SessionPage(sessionId: GallerySync.openSession) }.environment(GallerySync.model())
         } else if section == "home" {

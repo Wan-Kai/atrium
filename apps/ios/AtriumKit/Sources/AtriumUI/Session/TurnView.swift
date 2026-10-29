@@ -38,6 +38,9 @@ struct TurnView: View {
 
   /// The turn.
   var body: some View {
+    #if DEBUG && os(iOS)
+      let _ = GalleryTimelineStats.turnEvaluated()
+    #endif
     let palette = Palette(scheme: scheme)
     VStack(alignment: .leading, spacing: Metrics.xs) {
       if layout.showsBubble {
