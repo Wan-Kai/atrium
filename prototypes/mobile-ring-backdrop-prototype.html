@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>首页 + 圆环底色</title>
+    <style>
+      :root {
+        --page: #f6f2e9;
+        --note: #fffcf5;
+        --text: #26221c;
+        --l2: #8b8477;
+        --tint: #8a7352;
+        --desk: #e4ddcf;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--desk);
+        color: var(--text);
+        font: 14px/1.5 -apple-system, "PingFang SC", sans-serif;
+      }
+      header {
+        padding: 24px 32px 8px;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 20px;
+      }
+      header p {
+        margin: 0;
+        color: var(--l2);
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 28px;
+        padding: 20px 32px 40px;
+      }
+      figure {
+        margin: 0;
+        width: 300px;
+      }
+      figcaption {
+        margin-top: 10px;
+      }
+      figcaption b {
+        display: block;
+        font-size: 15px;
+      }
+      figcaption span {
+        color: var(--l2);
+        font-size: 12.5px;
+      }
+      /* The phone, drawn at 402×874pt and scaled down. */
+      .phone {
+        width: 300px;
+        height: 652px;
+        border-radius: 40px;
+        overflow: hidden;
+        position: relative;
+        box-shadow: 0 10px 30px rgba(60, 45, 20, 0.18);
+      }
+      .screen {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 402px;
+        height: 874px;
+        transform: scale(0.7463);
+        transform-origin: 0 0;
+        background: url("assets/mobile-home-ring-backdrop-bg.png") 0 0 / 402px 874px;
+      }
+      /* The frosted disc: 146pt solid, fading out over 40pt, centred on the plus. */
+      .pad {
+        position: absolute;
+        left: calc(353px - 186px);
+        top: calc(803px - 186px);
+        width: 372px;
+        height: 372px;
+        border-radius: 50%;
+        -webkit-mask: radial-gradient(circle, #000 0, #000 146px, transparent 186px);
+        mask: radial-gradient(circle, #000 0, #000 146px, transparent 186px);
+      }
+      .key {
+        position: absolute;
+        width: 52px;
+        height: 52px;
+        margin: -26px 0 0 -26px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: rgba(255, 252, 245, 0.82);
+        border: 0.5px solid rgba(70, 55, 30, 0.1);
+        box-shadow: 0 6px 16px rgba(60, 45, 20, 0.14);
+        font: 600 18px/1 "Iowan Old Style", Georgia, serif;
+        color: var(--tint);
+      }
+      .key.ink {
+        background: var(--text);
+        color: var(--page);
+        font: 300 26px/1 -apple-system, sans-serif;
+      }
+      .key .dot {
+        position: absolute;
+        right: -2px;
+        top: 0;
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: var(--tint);
+        border: 2px solid var(--page);
+      }
+      .key .name {
+        position: absolute;
+        top: 56px;
+        left: 50%;
+        transform: translateX(-50%);
+        white-space: nowrap;
+        font: 600 11.5px/1.2 -apple-system, sans-serif;
+        color: var(--text);
+      }
+      .plus {
+        position: absolute;
+        left: 324px;
+        top: 774px;
+        width: 58px;
+        height: 58px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: rgba(255, 252, 245, 0.85);
+        border: 0.5px solid rgba(70, 55, 30, 0.1);
+        box-shadow: 0 8px 20px rgba(60, 45, 20, 0.14);
+        font: 300 30px/1 -apple-system, sans-serif;
+        color: var(--text);
+      }
+      .plus::before {
+        content: "×";
+      }
+      /* A: what is on the phone now — the system's thin material plus 36% paper; it reads grey. */
+      .a .pad {
+        -webkit-backdrop-filter: blur(16px) saturate(0.55) brightness(0.97);
+        backdrop-filter: blur(16px) saturate(0.55) brightness(0.97);
+        background: linear-gradient(rgba(214, 214, 214, 0.32), rgba(214, 214, 214, 0.32)),
+          rgba(246, 242, 233, 0.36);
+      }
+      /* B: paper mist — no system material; the page colour at 72% over a blur. */
+      .b .pad {
+        -webkit-backdrop-filter: blur(14px);
+        backdrop-filter: blur(14px);
+        background: rgba(246, 242, 233, 0.72);
+      }
+      /* C: note paper — the lighter sheet colour, brighter than the page, the keys sit on a sheet. */
+      .c .pad {
+        -webkit-backdrop-filter: blur(14px);
+        backdrop-filter: blur(14px);
+        background: rgba(255, 252, 245, 0.8);
+      }
+      /* D: beige wash — paper with a touch of the theme beige, warmer than the page. */
+      .d .pad {
+        -webkit-backdrop-filter: blur(14px) saturate(1.1);
+        backdrop-filter: blur(14px) saturate(1.1);
+        background: linear-gradient(rgba(138, 115, 82, 0.1), rgba(138, 115, 82, 0.1)),
+          rgba(246, 242, 233, 0.66);
+      }
+      /* E: fog without blur — the paper colour alone, thick in the middle; text fades, not smears. */
+      .e .pad {
+        background: rgba(246, 242, 233, 0.88);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>首页 + 展开后的底色</h1>
+      <p>同一张首页截图、同一块 146pt 圆（边缘 40pt 渐隐），只换底色。A 是手机上现在的样子。</p>
+    </header>
+    <div class="row" id="row"></div>
+    <script>
+      const options = [
+        ["a", "A 现在", "系统薄材质 + 36% 纸色：材质本身偏冷灰"],
+        ["b", "B 纸雾", "不用系统材质；纸色 72% + 模糊 14pt，和页面同色"],
+        ["c", "C 便签纸", "便签白 #fffcf5 80% + 模糊：比页面亮一档，圆钮像放在一张纸上"],
+        ["d", "D 米色晕", "纸色 66% 叠 10% 主题深米 + 模糊：偏暖"],
+        ["e", "E 只淡不糊", "纸色 88%、不模糊：下面的字直接淡掉，不晕开"],
+      ];
+      // Where the keys sit: 92pt round the plus, from -84° every 48°.
+      const centre = [353, 803];
+      const keys = [
+        { glyph: "+", ink: true, name: "新对话" },
+        { glyph: "A", dot: true, name: "atrium" },
+        { glyph: "W", dot: true, name: "weather-app" },
+      ];
+      const row = document.getElementById("row");
+      for (const [id, title, note] of options) {
+        const fig = document.createElement("figure");
+        fig.className = id;
+        const keyHtml = keys
+          .map((key, index) => {
+            const angle = ((-84 - index * 48) * Math.PI) / 180;
+            const x = centre[0] + 92 * Math.cos(angle);
+            const y = centre[1] + 92 * Math.sin(angle);
+            return `<div class="key${key.ink ? " ink" : ""}" style="left:${x}px;top:${y}px">${key.glyph}${
+              key.dot ? '<i class="dot"></i>' : ""
+            }<span class="name">${key.name}</span></div>`;
+          })
+          .join("");
+        fig.innerHTML = `<div class="phone"><div class="screen"><div class="pad"></div>${keyHtml}<div class="plus"></div></div></div>
+          <figcaption><b>${title}</b><span>${note}</span></figcaption>`;
+        row.append(fig);
+      }
+    </script>
+  </body>

@@ -222,7 +222,9 @@ struct PlaceRingKey: View {
     let grown = open || reduceMotion
     return Circle()
       .fill(.ultraThinMaterial)
-      .overlay(Circle().fill(palette.page.opacity(0.36)))
+      // Paper mist (prototypes/mobile-ring-backdrop-prototype.html, B): the material only blurs; 72%
+      // paper over it hides its cool grey.
+      .overlay(Circle().fill(palette.page.opacity(0.72)))
       .mask {
         RadialGradient(
           stops: [
