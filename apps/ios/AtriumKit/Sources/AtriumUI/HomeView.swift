@@ -113,7 +113,7 @@ public struct HomeView: View {
         GlassEdge(edge: .top)
         GlassEdge(edge: .top)
       }
-      .frame(height: 200).ignoresSafeArea(edges: .top).offset(y: -66)
+      .frame(height: 180).ignoresSafeArea(edges: .top).offset(y: -66)
     }
   }
 

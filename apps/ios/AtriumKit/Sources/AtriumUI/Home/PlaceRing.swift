@@ -3,19 +3,21 @@ import SwiftUI
 
 /// Where the home "+"'s keys sit and how they move (design-language "手机端 · 首页", 2026-10-29).
 ///
-/// - Remark: One ring centred on the "+": 220pt out, keys 21° apart from -88° (just left of straight
-///   up) round towards the bottom edge; five fit, the rest come in as the ring turns. Angles are in
+/// - Remark: One ring centred on the "+": 92pt out, keys 48° apart from -84° (just right of straight
+///   up) round to its left; three fit, the rest come in as the ring turns. Angles are in
 ///   degrees, screen-wise (y down), so a turn clockwise raises them. Kept free of views so the maths
 ///   is tested on its own.
 enum PlaceRing {
   /// How far the keys sit from the plus key's centre, in points.
-  static let radius: CGFloat = 220
-  /// The degrees between two keys, about 80pt of arc.
-  static let slot: Double = 21
+  static let radius: CGFloat = 92
+  /// The degrees between two keys, about 75pt between centres.
+  static let slot: Double = 48
   /// Where the first key sits.
-  static let first: Double = -88
+  static let first: Double = -84
   /// How many keys fit before the ring has to turn.
-  static let shown = 5
+  static let shown = 3
+  /// Where the last key that fits sits: straight left of the "+".
+  static let last: Double = first - Double(shown - 1) * slot
   /// A key's diameter.
   static let size: CGFloat = 52
   /// How far a tap may land from a key's centre and still hit it.
@@ -100,12 +102,14 @@ enum PlaceRing {
 
   /// How much of a key shows at an angle.
   ///
-  /// - Remark: Keys turned past the first slot fade out over 60% of a slot, towards the right edge.
+  /// - Remark: Keys turned past the first slot or not yet up to the last fade out over 60% of a slot,
+  ///   so the ones waiting do not show under the "+".
   /// - SideEffects: none
   /// - Parameter angle: The key's angle.
   /// - Returns: From 0 to 1.
   static func fade(angle: Double) -> Double {
-    min(1, max(0, 1 - (angle - first) / (slot * 0.6)))
+    let past = max(angle - first, last - angle, 0)
+    return max(0, 1 - past / (slot * 0.6))
   }
 
   /// The key under a tap, if any.

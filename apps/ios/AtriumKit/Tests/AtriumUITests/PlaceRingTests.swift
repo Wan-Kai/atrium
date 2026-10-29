@@ -1,28 +1,41 @@
 import CoreGraphics
+import Foundation
 import Testing
 
 @testable import AtriumUI
 
 /// The home "+"'s ring of places (design-language "手机端 · 首页", 2026-10-29).
 @Suite struct PlaceRingTests {
-  /// Checks the keys sit 21° apart from -88°, and turning moves them along.
+  /// Checks the keys sit 48° apart from -84°, and turning moves them along.
   ///
   /// - Remark: Turning by one slot puts the second key where the first was.
   /// - SideEffects: none
   @Test func placesKeysAlongTheRing() {
-    #expect(PlaceRing.angle(index: 0, scroll: 0) == -88)
-    #expect(PlaceRing.angle(index: 2, scroll: 0) == -130)
-    #expect(PlaceRing.angle(index: 1, scroll: 1) == -88)
+    #expect(PlaceRing.angle(index: 0, scroll: 0) == -84)
+    #expect(PlaceRing.angle(index: 2, scroll: 0) == -180)
+    #expect(PlaceRing.angle(index: 1, scroll: 1) == -84)
+  }
+
+  /// Checks the keys sit close round the "+" without touching it or each other.
+  ///
+  /// - Remark: design-language "手机端 · 首页": 92pt out, so a key's edge is about 37pt from the
+  ///   "+"'s; neighbours keep room for a name between them.
+  /// - SideEffects: none
+  @Test func keepsKeysCloseToThePlus() {
+    #expect(PlaceRing.radius == 92)
+    let first = PlaceRing.point(angle: PlaceRing.angle(index: 0, scroll: 0))
+    let second = PlaceRing.point(angle: PlaceRing.angle(index: 1, scroll: 0))
+    #expect(hypot(first.x - second.x, first.y - second.y) > PlaceRing.size + 20)
   }
 
   /// Checks how far the ring turns: none with a screenful, the overflow otherwise.
   ///
-  /// - Remark: Five keys fit; the last one turns no further than the fifth slot.
+  /// - Remark: Three keys fit; the last one turns no further than the third slot.
   /// - SideEffects: none
   @Test func turnsOnlyAsFarAsTheOverflow() {
+    #expect(PlaceRing.maxScroll(count: 2) == 0)
     #expect(PlaceRing.maxScroll(count: 3) == 0)
-    #expect(PlaceRing.maxScroll(count: 5) == 0)
-    #expect(PlaceRing.maxScroll(count: 9) == 4)
+    #expect(PlaceRing.maxScroll(count: 9) == 6)
   }
 
   /// Checks the rubber band past either end gives a third of the pull.
@@ -57,15 +70,18 @@ import Testing
     #expect(PlaceRing.step(from: -100, to: -90) == 10)
   }
 
-  /// Checks keys turned past the first slot fade out over most of a slot.
+  /// Checks keys outside the three slots fade out over most of a slot, at either end.
   ///
-  /// - Remark: Fully shown at -88° and below, gone 60% of a slot past it.
+  /// - Remark: Fully shown from -84° to -180°, gone 60% of a slot past either.
   /// - SideEffects: none
-  @Test func fadesKeysPastTheFirstSlot() {
+  @Test func fadesKeysOutsideTheSlots() {
     #expect(PlaceRing.fade(angle: -120) == 1)
-    #expect(PlaceRing.fade(angle: -88) == 1)
-    #expect(abs(PlaceRing.fade(angle: -88 + 6.3) - 0.5) < 0.001)
-    #expect(PlaceRing.fade(angle: -60) == 0)
+    #expect(PlaceRing.fade(angle: -84) == 1)
+    #expect(PlaceRing.fade(angle: -180) == 1)
+    #expect(abs(PlaceRing.fade(angle: -84 + 14.4) - 0.5) < 0.001)
+    #expect(abs(PlaceRing.fade(angle: -180 - 14.4) - 0.5) < 0.001)
+    #expect(PlaceRing.fade(angle: -50) == 0)
+    #expect(PlaceRing.fade(angle: -228) == 0)
   }
 
   /// Checks a tap finds the key under it, and nothing between keys or past the fade.
@@ -81,6 +97,8 @@ import Testing
     #expect(PlaceRing.key(at: between, count: 6, scroll: 0) == nil)
     let gone = PlaceRing.point(angle: PlaceRing.angle(index: 0, scroll: 2))
     #expect(PlaceRing.key(at: gone, count: 6, scroll: 2) == nil)
+    let waiting = PlaceRing.point(angle: PlaceRing.angle(index: 3, scroll: 0))
+    #expect(PlaceRing.key(at: waiting, count: 6, scroll: 0) == nil)
   }
 
   /// Checks the ripple: each key a little after the one before, its name after it lands.

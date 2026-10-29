@@ -51,12 +51,12 @@ struct NoteStrip: View {
         .scrollTargetLayout()
         .padding(.horizontal, Metrics.page)
         .padding(.top, 16)
-        .padding(.bottom, 20)
         .animation(reduceMotion ? nil : MotionToken.bouncy.resolved(reduceMotion: false).animation, value: home.notes)
       }
       .scrollTargetBehavior(.viewAligned)
       .scrollIndicators(.hidden)
-      // The notes' shadows reach past the row; clipping them left a hard edge under it.
+      // The notes' shadows reach past the row, into the next title's top margin; clipping them left a
+      // hard edge under it.
       .scrollClipDisabled()
       .padding(.horizontal, -Metrics.page)
       .saturation(stale ? 0.35 : 1)
