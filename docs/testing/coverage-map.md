@@ -2040,3 +2040,8 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 调试启动钩子：Debug 版从启动环境 `ATRIUM_PAIR_LINK` 取配对链接（去首尾空白，空的不算），模拟器走查时链接不经过任何人眼 | Swift `PairingLaunchLinkTests`（去掉 trim 后失败，已见过） |
 | 全 App 的系统控件（配对完成的勾、底栏按钮）用深米，不是系统蓝 | 模拟器走查截图（真 host + 脚本 pi + 本机 relay），已看过；没有布局单测 |
 | 首页两种空状态放一叠白纸，不放猫（方案 D）：纸边浅色用三级文字色、深色用二级文字色的 55%；阴影浅色暖棕、深色黑；出现时落定，减弱动态效果时不动 | Swift `PaperStackTests`（深色纸边改回三级文字色后失败，已见过）；样子靠截图 `pnpm ios:shot --gallery=cats [--dark]`；落定动画靠验收 |
+| 对话页：会话加载中时标题下浮一条纸面玻璃胶囊（转圈、"正在加载…"、无"重试"），加载完收起；断线时只显示重连胶囊；列表里不再写"正在加载…"灰字。对话正文小一号：回复 15.5pt、行高 1.5，气泡 14.5pt，过程步骤 12pt / 等宽 11.5pt，代码 12pt，行内代码 13pt | Swift `SessionPageTests`"floats one capsule under the title…"（函数不存在时失败，已见过）、`DesignTokenTests`"sets the conversation one size down…"（改回 16.5pt / 1.65 后失败，已见过）；样子靠截图 `pnpm ios:shot --gallery=conversation [--dark]`，加载胶囊靠验收 |
+| 模型 sheet 照桌面（2026-10-29）：⚡ 用桌面的 Hugeicons Flash（开时实心、关时线框）；推理强度框照 `effort-box.tsx`（点阵与 `paintDots` 逐点一致，拖动跟手、两端橡皮筋、松手吸附、点格直跳，只把顶档的渐变换成深米）；服务商列间距收窄、"套餐"小签放在图标右下内侧、滚出边缘先半透明模糊再消失；关闭、刷新用 44pt 纸面玻璃圆按钮 | Swift `ModelSheetDesktopTests`（点阵值来自在 Node 里跑桌面的 `paintDots`；改羽化、橡皮筋系数、模糊系数、闪电路径、取整方式各自失败，已见过）；样子靠截图 `pnpm ios:shot --gallery=model-sheet [--dark]`，已看过；拖动手感靠验收 |
+| 首页 worktree 按最近活动（最新会话的更新时间，没有会话按创建时间）从新到旧排，本地工作区不再固定在最前；先列 8 个，再多时"显示更多 N 个"原地展开 | Swift `HomeListTests`"orders open worktrees by their latest activity…"（只加上限、没排序时失败，已见过；上限改成 9 也失败）；展开的样子靠验收 |
+| 首页顶栏（"Atrium"、主机行、⋯）固定，列表从下面滑过时被两层纸面玻璃边模糊 | 模拟器上滑动截图，已看过；没有布局单测 |
+| 子对话、排队改成横向占满屏幕的底部面板（iOS 26 系统 sheet 在 large 以下两边留空，没有接口能贴边）：后面压暗、点空白或下拉关闭，标题靠左，子对话不写"最近更新的在前"和底部说明 | 截图 `pnpm ios:shot --gallery=children-sheet\|queue-sheet [--dark]`，已看过；对话页里的接线、拖动关闭、减弱动态效果时淡入淡出靠验收 |

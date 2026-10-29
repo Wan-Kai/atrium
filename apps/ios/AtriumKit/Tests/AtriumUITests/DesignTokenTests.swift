@@ -99,4 +99,15 @@ struct DesignTokenTests {
     #expect(Motion.fold(reduceMotion: true) == .reduced)
     #expect(Motion.fold(reduceMotion: false).animation == .timingCurve(0.45, 0, 0.15, 1, duration: 0.4))
   }
+
+  @Test("sets the conversation one size down from the first cut, with tighter lines")
+  func conversationScale() {
+    #expect(Typography.reply == .system(size: 15.5))
+    #expect(abs(Typography.replyLineSpacing - 7.75) < 0.001)
+    #expect(Typography.bubble == .system(size: 14.5))
+    #expect(Typography.step == .system(size: 12))
+    #expect(Typography.stepMono == .system(size: 11.5, design: .monospaced))
+    #expect(Typography.code == .system(size: 12, design: .monospaced))
+    #expect(Typography.inlineCode == .system(size: 13, design: .monospaced))
+  }
 }

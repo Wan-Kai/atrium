@@ -113,8 +113,8 @@ struct UserBubble<Under: View>: View {
       }
       if !text.isEmpty {
         Text(text)
-          .font(.system(size: 15.5))
-          .lineSpacing(3)
+          .font(Typography.bubble)
+          .lineSpacing(2)
           .foregroundStyle(palette.text)
           .textSelection(.enabled)
           .padding(.horizontal, 14)

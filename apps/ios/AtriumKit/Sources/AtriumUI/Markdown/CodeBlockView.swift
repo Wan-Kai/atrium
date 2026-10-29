@@ -22,7 +22,7 @@ struct CodeBlockView: View {
     let palette = Palette(scheme: scheme)
     ScrollView(.horizontal) {
       Text(rendered)
-        .font(Typography.code).lineSpacing(7.5)
+        .font(Typography.code).lineSpacing(6)
         .fixedSize(horizontal: true, vertical: true)
         .padding(.vertical, 12).padding(.horizontal, 14)
         .textSelection(.enabled)

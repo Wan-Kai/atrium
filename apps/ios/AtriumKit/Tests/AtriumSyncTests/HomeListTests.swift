@@ -146,6 +146,30 @@ struct HomeListTests {
     #expect(project.merged == 1)
   }
 
+  @Test("orders open worktrees by their latest activity, shows eight and counts the rest")
+  func worktreeOrder() {
+    let created = { (id: String, at: Int) in
+      workspaceJSON(id, project: "p1", branch: id).replacingOccurrences(
+        of: #""createdAt":null"#, with: #""createdAt":\#(at)"#)
+    }
+    // w1…w10 created in order; w3 and w7 have sessions, w7's the latest; the local w0 has one too.
+    let list = home(
+      indexSnapshotJSON(
+        projects: [projectJSON("p1", name: "app")],
+        workspaces: [workspaceJSON("w0", project: "p1")] + (1...10).map { created("w\($0)", $0) },
+        sessions: [
+          summaryJSON("s1", in: "w3", name: "a", extra: ["updatedAt": "50"]),
+          summaryJSON("s2", in: "w7", name: "b", extra: ["updatedAt": "90"]),
+          summaryJSON("s3", in: "w0", name: "c", extra: ["updatedAt": "40"]),
+        ]))
+
+    let project = list.projects[0]
+    #expect(project.lines.map(\.id) == ["w7", "w3", "w0", "w10", "w9", "w8", "w6", "w5", "w4", "w2", "w1"])
+    #expect(project.shownLines.map(\.id) == ["w7", "w3", "w0", "w10", "w9", "w8", "w6", "w5"])
+    #expect(project.moreLines == 3)
+    #expect(home(indexSnapshotJSON(projects: [projectJSON("p1", name: "app")])).projects[0].moreLines == 0)
+  }
+
   @Test(
     "says how long ago in the phone's short words",
     arguments: [

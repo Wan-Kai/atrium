@@ -39,13 +39,24 @@ struct HomeViewTests {
 
 @Suite("Session page")
 struct SessionPageTests {
-  @Test("says it is loading, that pi exited, or which code refused it, and nothing when up to date")
+  @Test("says that pi exited or which code refused it, and nothing while loading or up to date")
   func statusLine() {
-    #expect(SessionPage.statusLine(nil) == "正在加载…")
-    #expect(SessionPage.statusLine(.loading) == "正在加载…")
+    #expect(SessionPage.statusLine(nil) == nil)
+    #expect(SessionPage.statusLine(.loading) == nil)
     #expect(SessionPage.statusLine(.ready) == nil)
     #expect(SessionPage.statusLine(.exited) == "pi 已退出")
     #expect(SessionPage.statusLine(.failed(.sessionCwdMissing)) == "打不开这个会话（session_cwd_missing）")
+  }
+
+  @Test("floats one capsule under the title: the link when it is down, else loading, else none")
+  func strip() {
+    #expect(SessionPage.strip(pill: .connected, status: nil) == .loading)
+    #expect(SessionPage.strip(pill: .syncing, status: .loading) == .loading)
+    #expect(SessionPage.strip(pill: .reconnecting, status: .loading) == .reconnecting)
+    #expect(SessionPage.strip(pill: .offline, status: nil) == .offline)
+    #expect(SessionPage.strip(pill: .connected, status: .ready) == nil)
+    #expect(SessionPage.strip(pill: .connected, status: .exited) == nil)
+    #expect(SessionPage.strip(pill: .relayUnreachable, status: .ready) == .relayUnreachable)
   }
 
   @Test("writes a notice as one line of its kind")

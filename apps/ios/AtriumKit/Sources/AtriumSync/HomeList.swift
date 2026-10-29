@@ -108,6 +108,8 @@ public struct HomeList: Sendable, Equatable {
     public let kind: Workspace.Kind
     /// Whether its branch was merged.
     public let merged: Bool
+    /// When it last saw activity: its latest session's change, else when it was made, in milliseconds.
+    public let active: Int
     /// The sessions the home shows: at most three, the ones waiting for you first.
     public var shown: [Row] { Array(HomeList.byUrgency(rows).prefix(HomeList.perWorkspace)) }
     /// How many more it has, for "还有 N 个".
@@ -116,6 +118,8 @@ public struct HomeList: Sendable, Equatable {
 
   /// The most sessions a workspace shows on the home.
   public static let perWorkspace = 3
+  /// The most worktree lines a project shows before "显示更多 N 个".
+  public static let worktreesShown = 8
   /// The most chats the home shows.
   public static let chatsShown = 5
 
@@ -131,12 +135,18 @@ public struct HomeList: Sendable, Equatable {
     public let running: Int
     /// Its workspaces, in the sidebar's order.
     public let workspaces: [WorkspaceGroup]
-    /// One line a workspace not merged, in the same order.
-    public var lines: [WorktreeLine] { workspaces.filter { !$0.merged }.map(HomeList.line) }
+    /// One line a workspace not merged, the latest activity first (design-language "手机端 · 首页").
+    public var lines: [WorktreeLine] {
+      HomeList.stable(workspaces.filter { !$0.merged }) { $0.active > $1.active }.map(HomeList.line)
+    }
     /// The merged workspaces' lines, shown when "另外 N 个已合并" is opened.
     public var mergedLines: [WorktreeLine] { workspaces.filter(\.merged).map(HomeList.line) }
     /// How many of its workspaces were merged, for "另外 N 个已合并".
     public var merged: Int { workspaces.filter(\.merged).count }
+    /// The lines shown before "显示更多 N 个".
+    public var shownLines: [WorktreeLine] { Array(lines.prefix(HomeList.worktreesShown)) }
+    /// How many lines "显示更多 N 个" hides; 0 for none.
+    public var moreLines: Int { max(0, lines.count - HomeList.worktreesShown) }
   }
 
   /// A workspace's line: its most urgent session and how many others run.
@@ -201,7 +211,8 @@ public struct HomeList: Sendable, Equatable {
       let groups = zip(workspaces, sessions).map { workspace, sessions in
         WorkspaceGroup(
           id: workspace.id, name: Self.name(of: workspace), rows: sessions.map(Self.row), kind: workspace.kind,
-          merged: workspace.merge?.verdict == .merged)
+          merged: workspace.merge?.verdict == .merged,
+          active: sessions.map(\.updatedAt).max() ?? workspace.createdAt ?? 0)
       }
       return ProjectGroup(
         id: project.id, name: project.name, running: sessions.joined().filter(\.running).count, workspaces: groups)
@@ -453,7 +464,7 @@ public struct HomeList: Sendable, Equatable {
   ///   - items: The items.
   ///   - before: Whether one goes before another.
   /// - Returns: The sorted items.
-  private static func stable<Item>(_ items: [Item], by before: (Item, Item) -> Bool) -> [Item] {
+  static func stable<Item>(_ items: [Item], by before: (Item, Item) -> Bool) -> [Item] {
     items.enumerated()
       .sorted { a, b in before(a.element, b.element) || (!before(b.element, a.element) && a.offset < b.offset) }
       .map(\.element)

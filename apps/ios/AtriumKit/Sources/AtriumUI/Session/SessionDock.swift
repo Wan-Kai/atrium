@@ -248,8 +248,8 @@ struct Composer: View {
                 ProviderIcon(providerId: model.providerId, size: 15)
                 Text(model.words).lineLimit(1)
                 if row.fast {
-                  Image(systemName: "bolt.fill").font(.system(size: 10)).foregroundStyle(palette.tint)
-                    .accessibilityLabel("Fast")
+                  FastBolt(size: 12).foregroundStyle(palette.tint)
+                    .accessibilityElement().accessibilityLabel("Fast")
                 }
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
                   .foregroundStyle(palette.secondary)

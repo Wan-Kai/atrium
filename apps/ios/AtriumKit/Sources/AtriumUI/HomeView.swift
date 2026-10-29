@@ -23,6 +23,8 @@ public struct HomeView: View {
   @State private var folded: Set<ProjectId> = []
   /// The projects whose merged worktrees are opened.
   @State private var openMerged: Set<ProjectId> = []
+  /// The projects whose worktrees past the first eight are opened.
+  @State private var openMore: Set<ProjectId> = []
   /// Whether every chat shows.
   @State private var allChats = false
   /// The pages pushed over the home.
@@ -42,7 +44,6 @@ public struct HomeView: View {
     NavigationStack(path: $path) {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: 0) {
-          masthead(palette)
           if let sync {
             if sync.core.stale {
               Text("下面是 \(sync.hostName) 上次在线时的状态。").font(.system(size: 13)).foregroundStyle(palette.secondary)
@@ -62,13 +63,7 @@ public struct HomeView: View {
         .padding(.bottom, 120)
       }
       .background(palette.page.ignoresSafeArea())
-      .overlay(alignment: .topTrailing) {
-        GlassCircleButton(systemImage: "ellipsis", label: "设置", badge: Self.warns(sync)) {
-          path.append(SettingsRoute(from: nil))
-        }
-        .padding(.trailing, Metrics.md)
-        .accessibilityIdentifier("home.menu")
-      }
+      .safeAreaInset(edge: .top, spacing: 0) { topBar(palette) }
       .overlay(alignment: .bottomTrailing) {
         if let sync, sync.core.index.ready {
           NewSessionKey(
@@ -91,6 +86,36 @@ public struct HomeView: View {
       path.append(sessionId)
     }
     .preferredColorScheme(Self.scheme(appearance))
+  }
+
+  /// The bar at the top: the masthead and the "⋯" settings key, fixed while the list scrolls.
+  ///
+  /// - Remark: design-language "手机端 · 首页 · 顶栏" (2026-10-29): the list passes under it frosted
+  ///   (`GlassEdge`), as under the conversation page's top bar.
+  /// - SideEffects: none
+  /// - Parameter palette: The colours.
+  /// - Returns: The bar.
+  private func topBar(_ palette: Palette) -> some View {
+    ZStack(alignment: .topTrailing) {
+      masthead(palette)
+        .padding(.horizontal, Metrics.page)
+        .frame(maxWidth: .infinity, alignment: .leading)
+      GlassCircleButton(systemImage: "ellipsis", label: "设置", badge: Self.warns(sync)) {
+        path.append(SettingsRoute(from: nil))
+      }
+      .padding(.trailing, Metrics.md)
+      .accessibilityIdentifier("home.menu")
+    }
+    .padding(.bottom, Metrics.xs)
+    .background(alignment: .top) {
+      // The bar is taller than the conversation page's, so the frost is doubled and its solid part
+      // reaches below the host line before it fades.
+      ZStack {
+        GlassEdge(edge: .top)
+        GlassEdge(edge: .top)
+      }
+      .frame(height: 200).ignoresSafeArea(edges: .top).offset(y: -66)
+    }
   }
 
   /// The top left: "Atrium" and the Mac under it.
@@ -167,8 +192,24 @@ public struct HomeView: View {
         }
       }
       if !folded.contains(project.id) {
-        ForEach(Array(project.lines.enumerated()), id: \.element.id) { place, line in
+        let lines = openMore.contains(project.id) ? project.lines : project.shownLines
+        ForEach(Array(lines.enumerated()), id: \.element.id) { place, line in
           WorktreeRow(line: line, changes: sync?.core.changes[line.id], merged: false, divided: place > 0)
+        }
+        if !openMore.contains(project.id), project.moreLines > 0 {
+          Button {
+            _ = withAnimation(MotionToken.smooth.resolved(reduceMotion: false).animation) {
+              openMore.insert(project.id)
+            }
+          } label: {
+            Text("显示更多 \(project.moreLines) 个")
+              .font(.system(size: 13)).foregroundStyle(palette.tint)
+              .padding(.leading, 26)
+              .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+              .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("home.moreWorktrees")
         }
         if project.merged > 0 {
           Button {

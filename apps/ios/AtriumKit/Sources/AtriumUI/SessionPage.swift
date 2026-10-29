@@ -110,14 +110,23 @@ struct SessionPage: View {
       }
     }
     .overlay(alignment: .top) { toastView(palette) }
-    .sheet(item: $sheet) { shown in
+    .sheet(item: Binding(get: { sheet?.isPanel == false ? sheet : nil }, set: { sheet = $0 })) { shown in
+      if let sync {
+        switch shown {
+        case .question(let question): QuestionSheet(sessionId: sessionId, sync: sync, question: question)
+        case .interaction(let interaction): InteractionSheet(sessionId: sessionId, sync: sync, interaction: interaction)
+        case .model: ModelSheet(sessionId: sessionId, sync: sync)
+        case .queue, .children: EmptyView()
+        }
+      }
+    }
+    // The queue and the children span the full width, which an iOS 26 sheet below large does not.
+    .bottomPanel(item: Binding(get: { sheet?.isPanel == true ? sheet : nil }, set: { sheet = $0 })) { shown in
       if let sync {
         switch shown {
         case .queue: QueueSheet(sessionId: sessionId, sync: sync)
-        case .question(let question): QuestionSheet(sessionId: sessionId, sync: sync, question: question)
-        case .interaction(let interaction): InteractionSheet(sessionId: sessionId, sync: sync, interaction: interaction)
         case .children(let children): ChildrenSheet(children: children) { openChild = $0 }
-        case .model: ModelSheet(sessionId: sessionId, sync: sync)
+        default: EmptyView()
         }
       }
     }
@@ -279,7 +288,8 @@ struct SessionPage: View {
   /// - Remark: design-language "手机端 · 对话页": 44pt glass keys on both sides, the title centred
   ///   between them (16pt semibold, one line), nothing about the branch or the run; a child's page
   ///   adds "↳ 父会话标题". Content passing under it is frosted (`GlassEdge`). When the link is down,
-  ///   a glass strip floats under the title (`LinkStrip`).
+  ///   a glass strip floats under the title (`LinkStrip`); while the session loads, the same strip
+  ///   says so.
   /// - SideEffects: none
   /// - Parameter palette: The colours.
   /// - Returns: The bar.
@@ -313,8 +323,10 @@ struct SessionPage: View {
         }
       }
       .frame(height: 50)
-      if let sync, let state = LinkStrip.state(HomeView.pill(for: sync.status)) {
-        LinkStrip(state: state)
+      if let sync,
+        let strip = Self.strip(pill: HomeView.pill(for: sync.status), status: sync.core.sessions[sessionId]?.status)
+      {
+        LinkStrip(state: strip)
           .transition(.opacity.combined(with: .offset(y: -6)))
       }
     }
@@ -323,17 +335,35 @@ struct SessionPage: View {
     }
   }
 
+  /// The capsule under the title, or `nil` for none.
+  ///
+  /// - Remark: design-language "手机端 · 对话页": one capsule at a time. A link that is down wins,
+  ///   since nothing loads without it; otherwise a session still loading (or not yet opened) says
+  ///   "正在加载…" there instead of a grey line in the list.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - pill: How the phone is connected.
+  ///   - status: The session's status, `nil` before the page opened it.
+  /// - Returns: The capsule's state, or `nil`.
+  static func strip(pill: ConnectionPill.State, status: SessionState.Status?) -> LinkStrip.State? {
+    if let link = LinkStrip.state(pill) { return link }
+    switch status {
+    case nil, .loading: return .loading
+    default: return nil
+    }
+  }
+
   /// The line under the items for where the session stands.
   ///
-  /// - Remark: Loading, exited or refused; nothing when up to date. A refusal shows only its code:
-  ///   the host sends no words of its own (AGENTS.md).
+  /// - Remark: Exited or refused; nothing while loading (the capsule under the title says that, see
+  ///   `strip(pill:status:)`) or when up to date. A refusal shows only its code: the host sends no
+  ///   words of its own (AGENTS.md).
   /// - SideEffects: none
   /// - Parameter status: The session's status, `nil` before the page opened it.
   /// - Returns: The line, if any.
   static func statusLine(_ status: SessionState.Status?) -> String? {
     switch status {
-    case nil, .loading: "正在加载…"
-    case .ready: nil
+    case nil, .loading, .ready: nil
     case .exited: "pi 已退出"
     case .failed(let code): "打不开这个会话（\(code.rawValue)）"
     case .handedOff: "这个会话交给终端里的 pi 了"
@@ -405,6 +435,8 @@ struct LinkStrip: View {
     case relayUnreachable
     /// The versions differ; nothing to retry.
     case versionMismatch
+    /// The session is still loading; nothing to retry.
+    case loading
   }
 
   /// What it says.
@@ -431,8 +463,11 @@ struct LinkStrip: View {
       case .versionMismatch:
         Circle().fill(palette.attn).frame(width: 7, height: 7)
         Text("版本不一致").foregroundStyle(palette.text)
+      case .loading:
+        Spinner(size: 12, line: 1.8)
+        Text("正在加载…").foregroundStyle(palette.text)
       }
-      if state != .versionMismatch, let reconnectNow {
+      if Self.retries(state), let reconnectNow {
         Button("重试") { reconnectNow() }
           .font(.system(size: 12, weight: .semibold))
           .foregroundStyle(palette.onInk)
@@ -445,10 +480,23 @@ struct LinkStrip: View {
     }
     .font(.system(size: 13))
     .padding(.leading, 12)
-    .padding(.trailing, state == .versionMismatch || reconnectNow == nil ? 12 : 6)
+    .padding(.trailing, !Self.retries(state) || reconnectNow == nil ? 12 : 6)
     .frame(height: 34)
     .atriumGlass(in: Capsule())
     .accessibilityElement(children: .combine)
+  }
+
+  /// Tells whether this state offers "重试".
+  ///
+  /// - Remark: Only a link that is down can be retried; mismatched versions and loading cannot.
+  /// - SideEffects: none
+  /// - Parameter state: The state.
+  /// - Returns: Whether it retries.
+  private static func retries(_ state: State) -> Bool {
+    switch state {
+    case .reconnecting, .offline, .relayUnreachable: true
+    case .versionMismatch, .loading: false
+    }
   }
 
   /// The strip's state for how the phone is connected, or `nil` when there is nothing to say.

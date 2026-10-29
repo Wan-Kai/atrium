@@ -152,7 +152,7 @@ private struct TimelineRowView: View, Equatable {
       if !row.user.isEmpty {
         HStack {
           Spacer(minLength: 40)
-          Text(row.user).font(Typography.reply).padding(14)
+          Text(row.user).font(Typography.bubble).padding(14)
             .background(Palette(scheme: scheme).surface, in: RoundedRectangle(cornerRadius: Metrics.radiusBubble))
         }
       }
