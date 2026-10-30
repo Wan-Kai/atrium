@@ -24,8 +24,15 @@ public enum SyncOutput: Sendable, Equatable {
 ///   another connection, and answers to requests it does not know, are dropped. What is shown stays
 ///   until fresh snapshots replace it.
 public struct SyncCore {
-  /// The phone's snapshot budget: 6 turns, 512 KiB (SPEC-0005 "协议改动" 2).
-  public static let snapshotBudget = SnapshotBudget(turns: 6, bytes: 512 * 1024)
+  /// The phone's snapshot budget: 3 turns, 256 KiB; older ones come on scrolling up (SPEC-0005
+  /// "MP4a 定的细节" 9).
+  public static let snapshotBudget = SnapshotBudget(turns: 3, bytes: 256 * 1024)
+
+  /// How many items, and bytes at most, one scroll to the top fetches (SPEC-0005 "MP4a 定的细节" 9).
+  public static let olderBatch = (items: 3, bytes: 256 * 1024)
+
+  /// The sessions with a `fetch_transcript` for older items on its way.
+  public private(set) var loadingOlder: Set<SessionId> = []
 
   /// A request on its way, and what its answer settles.
   ///
@@ -49,6 +56,8 @@ public struct SyncCore {
     case models
     /// `create_session` or `create_chat` of a new session, and what to send once it is made.
     case start(ContainerId?, String, [OutgoingImage])
+    /// `fetch_transcript` for the items before `before`, from `epoch`.
+    case older(SessionId, epoch: Int, before: String)
     /// A command whose answer settles nothing.
     case other
   }
@@ -146,6 +155,7 @@ public struct SyncCore {
     self.generation = generation
     synced = false
     requests = [:]
+    loadingOlder = []
     // The mark lasts for one connection: the folder may be back (SPEC-0005 "MP6 定的细节 · MP6d").
     if !again {
       missingContainers = []
@@ -213,6 +223,13 @@ public struct SyncCore {
         }
       case .upload(let message, let place)?:
         outputs += uploaded(message, place: place, attachmentId: Self.attachmentId(success.result))
+      case .older(let sessionId, let epoch, let before)?:
+        loadingOlder.remove(sessionId)
+        if let result = success.result, let data = try? JSONEncoder().encode(result),
+          let older = try? JSONDecoder().decode(FetchTranscriptResult.self, from: data)
+        {
+          sessions[sessionId]?.prependOlder(older.items, hasOlder: older.hasOlder, epoch: epoch, before: before)
+        }
       default: break
       }
     case .responseMessage(.failure(let failure)):
@@ -239,6 +256,7 @@ public struct SyncCore {
         if let container, failure.error.code == .workspaceNotFound || failure.error.code == .sessionCwdMissing {
           missingContainers.insert(container)
         }
+      case .older(let sessionId, _, _): loadingOlder.remove(sessionId)
       case .clearing, .models, .other: break
       }
     case .indexSnapshot(let snapshot):
@@ -314,10 +332,12 @@ public struct SyncCore {
     guard let position = openSessions.firstIndex(of: sessionId) else { return [] }
     openSessions.remove(at: position)
     sessions[sessionId] = nil
+    loadingOlder.remove(sessionId)
     for (requestId, request) in requests {
       switch request {
       case .open(let opened) where opened == sessionId: requests[requestId] = .other
       case .action(let acted, _) where acted == sessionId: requests[requestId] = .other
+      case .older(let loading, _, _) where loading == sessionId: requests[requestId] = .other
       case .sessions(let failing) where failing.contains(sessionId):
         requests[requestId] = .sessions(failing.filter { $0 != sessionId })
       default: break
@@ -499,6 +519,28 @@ public struct SyncCore {
           ListModelsCommand(
             requestId: requestId, traceparent: makeTraceparent(), workspaceId: workspaceId,
             refresh: refresh ? true : nil)))
+    ]
+  }
+
+  /// Asks the Mac for the items before the earliest one an open session has.
+  ///
+  /// - Remark: SPEC-0005 "MP4a 定的细节" 9: when the page's top row shows, only after the sync, only
+  ///   when older items exist, one at a time per session.
+  /// - SideEffects: none
+  /// - Parameter sessionId: The session.
+  /// - Returns: The command to send, or nothing.
+  public mutating func loadOlder(_ sessionId: SessionId) -> [SyncOutput] {
+    guard synced, !loadingOlder.contains(sessionId), let state = sessions[sessionId], state.hasOlder,
+      let before = state.items.first?.id
+    else { return [] }
+    loadingOlder.insert(sessionId)
+    let requestId = track(.older(sessionId, epoch: state.epoch, before: before))
+    return [
+      send(
+        .fetchTranscript(
+          FetchTranscriptCommand(
+            requestId: requestId, traceparent: makeTraceparent(), sessionId: sessionId, epoch: state.epoch,
+            before: before, limit: Self.olderBatch.items, maxBytes: Self.olderBatch.bytes)))
     ]
   }
 

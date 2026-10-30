@@ -52,7 +52,9 @@ struct SessionPage: View {
           Text("不是最新").font(Typography.meta).foregroundStyle(palette.tertiary)
         }
         if state?.hasOlder == true {
-          Text("更早的在 Mac 上看").font(Typography.meta).foregroundStyle(palette.tertiary)
+          // Fetches when it shows, and again once the turns it brought are in, or once connected.
+          OlderRow(loading: sync?.core.loadingOlder.contains(sessionId) == true)
+            .task(id: "\(state?.items.first?.id ?? "")|\(sync?.status == .connected)") { sync?.loadOlder(sessionId) }
         }
         ForEach(state?.items ?? [], id: \.id) { item in
           switch item {

@@ -180,6 +180,22 @@ public struct SessionState: Sendable, Equatable {
     return .applied
   }
 
+  /// Puts items fetched from the Mac before the earliest one.
+  ///
+  /// - Remark: Only while the items still come from `epoch` and start at `before`, the item they were
+  ///   fetched before; a snapshot since may have replaced them (SPEC-0005 "MP4a 定的细节" 9).
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - older: The items, oldest first.
+  ///   - hasOlder: Whether still older ones exist.
+  ///   - epoch: The epoch they were fetched for.
+  ///   - before: The item they were fetched before.
+  mutating func prependOlder(_ older: [TranscriptItem], hasOlder: Bool, epoch: Int, before: String) {
+    guard epoch == self.epoch, items.first?.id == before else { return }
+    items.insert(contentsOf: older, at: 0)
+    self.hasOlder = hasOlder
+  }
+
   /// Takes a snapshot whole.
   ///
   /// - Remark: See ``apply(_:)``.

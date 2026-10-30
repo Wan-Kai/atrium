@@ -291,6 +291,15 @@ public final class SyncModel {
     enqueue(core.listModels(workspaceId: workspaceId, refresh: refresh))
   }
 
+  /// Fetches the turns before the earliest an open session has.
+  ///
+  /// - Remark: See ``SyncCore/loadOlder(_:)``; the page calls it when its top row shows.
+  /// - SideEffects: Queues the command.
+  /// - Parameter sessionId: The session.
+  public func loadOlder(_ sessionId: SessionId) {
+    enqueue(core.loadOlder(sessionId))
+  }
+
   /// Watches the changes of the workspaces shown.
   ///
   /// - Remark: See ``SyncCore/watchChanges(_:)``.
