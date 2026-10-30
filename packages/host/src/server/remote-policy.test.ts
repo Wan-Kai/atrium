@@ -16,7 +16,6 @@ import {
   PHONE_STEP_TEXT_LIMIT,
   PUSHED_TO_PHONE,
   forPhone,
-  pageForPhone,
   phoneMayRun,
   pushedToPhone,
 } from "./remote-policy";
@@ -342,14 +341,5 @@ describe("conversations as the phone gets them", () => {
   it("cuts to 512 bytes, as the phone shows one line until a step is opened", () => {
     expect(PHONE_STEP_TEXT_LIMIT).toBe(512);
     expect(forPhone(HostMessage.parse(stepEvent(LONG)))).toMatchObject({ step: { output: LONG.slice(-512) } });
-  });
-
-  it("cuts a page of older turns the same way, and leaves short steps as they are", () => {
-    const short = turnWith("ok");
-
-    expect(pageForPhone({ items: [turnWith(LONG), short], hasOlder: true })).toStrictEqual({
-      items: [turnWith(preview, true), short],
-      hasOlder: true,
-    });
   });
 });

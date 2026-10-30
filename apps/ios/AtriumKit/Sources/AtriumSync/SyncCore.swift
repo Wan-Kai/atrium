@@ -28,8 +28,9 @@ public struct SyncCore {
   /// "MP4a 定的细节" 9).
   public static let snapshotBudget = SnapshotBudget(turns: 3, bytes: 256 * 1024)
 
-  /// How many items, and bytes at most, one scroll to the top fetches (SPEC-0005 "MP4a 定的细节" 9).
-  public static let olderBatch = (items: 3, bytes: 256 * 1024)
+  /// How many items, and bytes at most, one scroll to the top fetches (SPEC-0005 "MP4a 定的细节" 9):
+  /// tool steps come as 512-byte previews, so three turns fit unless one has hundreds of calls.
+  public static let olderBatch = (items: 3, bytes: 1024 * 1024)
 
   /// The sessions with a `fetch_transcript` for older items on its way.
   public private(set) var loadingOlder: Set<SessionId> = []

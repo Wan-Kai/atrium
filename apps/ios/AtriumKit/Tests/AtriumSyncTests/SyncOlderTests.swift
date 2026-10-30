@@ -34,7 +34,7 @@ func olderOK(_ requestId: String, _ turns: [String], hasOlder: Bool) -> String {
 
 /// The `fetch_transcript` the phone sends for older turns.
 ///
-/// - Remark: 3 items and 256 KiB at most (SPEC-0005 "MP4a 定的细节" 9).
+/// - Remark: 3 items and 1 MiB at most (SPEC-0005 "MP4a 定的细节" 9).
 /// - SideEffects: none
 /// - Parameters:
 ///   - requestId: Its request id.
@@ -46,7 +46,7 @@ func fetchOlder(_ requestId: String, epoch: Int, before: String) -> SyncOutput {
     .fetchTranscript(
       FetchTranscriptCommand(
         requestId: requestId, traceparent: traceparent, sessionId: "s1", epoch: epoch, before: before, limit: 3,
-        maxBytes: 262_144)),
+        maxBytes: 1_048_576)),
     generation: 1)
 }
 

@@ -1990,8 +1990,8 @@ export function createSessionManager(options: {
       if (image === null) throw new CommandError("image_unavailable");
       return image;
     },
-    async fetchTranscript(command) {
-      return controllerOf(command.sessionId).fetchTranscript(command);
+    async fetchTranscript(command, stepLimit) {
+      return controllerOf(command.sessionId).fetchTranscript(command, stepLimit);
     },
     async clearAttention(sessionId) {
       await options.catalog.ready();

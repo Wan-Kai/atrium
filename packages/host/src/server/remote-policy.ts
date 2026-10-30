@@ -1,4 +1,4 @@
-import type { Command, CommandResult, CommandType, HostMessage, SessionSummary } from "@atrium/protocol";
+import type { Command, CommandType, HostMessage, SessionSummary } from "@atrium/protocol";
 import { forTransport, itemForTransport } from "../transcript/rules";
 
 /** The longest text of a tool step that travels whole to a phone (SPEC-0005, "给手机推什么"). */
@@ -271,19 +271,4 @@ function split<T>(
  */
 function withoutFile(session: SessionSummary): SessionSummary {
   return { ...session, file: null };
-}
-
-/**
- * A page of older turns as a phone gets it.
- *
- * @remarks
- * Tool steps cut to `PHONE_STEP_TEXT_LIMIT`, as in `forPhone`. A response does not say which
- * command it answers, so the router calls this for a phone's `fetch_transcript`.
- *
- * @sideEffects none
- * @param page - The page.
- * @returns The page for the phone.
- */
-export function pageForPhone(page: CommandResult<"fetch_transcript">): CommandResult<"fetch_transcript"> {
-  return { ...page, items: page.items.map((item) => itemForTransport(item, PHONE_STEP_TEXT_LIMIT)) };
 }
