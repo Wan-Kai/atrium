@@ -19,13 +19,13 @@ struct TitleFog: View {
   }
 
   /// How far down the fog reaches from the top of the screen.
-  static let height: CGFloat = 190
+  static let height: CGFloat = 160
   /// The blur layers, thinnest and longest first.
-  static let layers = [Layer(solid: 120, clear: 190), Layer(solid: 110, clear: 160), Layer(solid: 100, clear: 130)]
+  static let layers = [Layer(solid: 104, clear: 160), Layer(solid: 96, clear: 136), Layer(solid: 88, clear: 112)]
   /// The paper veil's opacity at the top, and at ``paperFrom``, after which it fades to nothing.
-  static let paper: (top: Double, held: Double) = (0.82, 0.78)
+  static let paper: (top: Double, held: Double) = (0.62, 0.52)
   /// Where the paper veil starts to fade.
-  static let paperFrom: CGFloat = 110
+  static let paperFrom: CGFloat = 100
   /// How far the page scrolls before the fog shows: at the top nothing is under the title yet, and
   /// the fog would only veil the first lines and the "older turns" row.
   static let from: CGFloat = 16
