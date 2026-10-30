@@ -1,3 +1,4 @@
+import AtriumSync
 import SwiftUI
 
 /// One row of the process rail: its piece of the line, its node, and its words.
@@ -26,6 +27,12 @@ struct RailRowView: View {
   @State private var shown: Bool
   /// Whether this row's full plain-text content is open.
   @State private var detailExpanded = false
+  /// The sync, to fetch a step whole; `nil` in previews.
+  @Environment(SyncModel.self) private var sync: SyncModel?
+  /// The session shown, for the same.
+  @Environment(\.conversationId) private var conversationId
+  /// The turn of this rail, for the same.
+  @Environment(\.railTurnId) private var turnId
 
   /// Makes the row.
   ///
@@ -52,6 +59,7 @@ struct RailRowView: View {
       if let detail = row.detail, !detail.isEmpty {
         Button {
           detailExpanded.toggle()
+          if detailExpanded { fetchWhole() }
         } label: {
           HStack(spacing: 4) {
             words(palette)
@@ -71,6 +79,11 @@ struct RailRowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(10)
             .background(palette.code, in: RoundedRectangle(cornerRadius: 8))
+          if let whole = wholeStep {
+            WholeStepLine(
+              fetching: sync?.core.fetchingSteps.contains(whole) == true,
+              failed: sync?.core.failedSteps.contains(whole) == true, retry: fetchWhole)
+          }
         }
       } else {
         words(palette)
@@ -98,6 +111,22 @@ struct RailRowView: View {
       withAnimation(motion.animation.delay(reduceMotion ? 0 : 0.06)) { shown = true }
     }
     .accessibilityElement(children: .contain)
+  }
+
+  /// The step this row fetches whole, while it shows a preview.
+  ///
+  /// - Remark: Read only while open, so a closed row does not redraw with every change of the sync.
+  private var wholeStep: StepRef? {
+    guard let stepId = row.partialStep, let conversationId, let turnId else { return nil }
+    return StepRef(sessionId: conversationId, turnId: turnId, stepId: stepId)
+  }
+
+  /// Asks for the step whole, if the row shows a preview.
+  ///
+  /// - Remark: The sync sends nothing for a step already on its way or no longer partial.
+  /// - SideEffects: Queues a command.
+  private func fetchWhole() {
+    if let wholeStep { sync?.fetchStep(wholeStep) }
   }
 
   /// The verb, the object and the end, on one line.
@@ -234,6 +263,36 @@ private struct RailMarks: View {
         path.addCurve(to: CGPoint(x: 10.5, y: 33), control1: CGPoint(x: 19.5, y: 27), control2: CGPoint(x: 10.5, y: 25))
       }
       .stroke(palette.branch, lineWidth: 1)
+    }
+  }
+}
+
+/// Under an opened preview: "正在取完整内容…" while the whole step comes, or a retry when it did not.
+///
+/// - Remark: SPEC-0005 "给手机推什么"; the same small spinner and grey line as loading older turns.
+private struct WholeStepLine: View {
+  /// Whether the whole step is on its way.
+  let fetching: Bool
+  /// Whether the last try failed.
+  let failed: Bool
+  /// Tries again.
+  let retry: () -> Void
+  @Environment(\.colorScheme) private var scheme
+
+  /// The line, or nothing.
+  ///
+  /// - Remark: Nothing once the whole step is in: the row then has no preview.
+  /// - SideEffects: none
+  var body: some View {
+    let palette = Palette(scheme: scheme)
+    if fetching {
+      HStack(spacing: 6) {
+        ProgressView().controlSize(.mini).frame(width: 12, height: 12)
+        Text("正在取完整内容…").font(Typography.meta).foregroundStyle(palette.tertiary)
+      }
+    } else if failed {
+      Button("没取到完整内容 · 重试", action: retry).font(Typography.meta).foregroundStyle(palette.secondary)
+        .buttonStyle(.plain)
     }
   }
 }

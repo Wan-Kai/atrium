@@ -47,6 +47,16 @@
       #expect(rows.first?.object == "README.md")
     }
 
+    /// Checks a tool step that came cut to a preview names itself for fetching whole, and others do not.
+    /// - Remark: SPEC-0005 "给手机推什么": the row fetches it when opened.
+    /// - SideEffects: none
+    @Test("a preview row names its step to fetch whole")
+    func partialStep() {
+      let partial = SampleTurns.bash("p", "ls").replacingOccurrences(of: #""partial":false"#, with: #""partial":true"#)
+      let (rows, _) = RailRows.layout(SampleTurns.turn([partial, SampleTurns.bash("w", "pwd")]))
+      #expect(rows.map(\.partialStep) == ["p", nil])
+    }
+
     /// Checks live tool and thinking nodes.
     /// - Remark: Finished steps remain quiet.
     /// - SideEffects: none

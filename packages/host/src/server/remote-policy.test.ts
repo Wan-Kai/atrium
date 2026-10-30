@@ -1,7 +1,25 @@
-import { type Chat, COMMAND_TYPES, HostMessage, type SessionSummary, type Workspace } from "@atrium/protocol";
+import {
+  type Chat,
+  COMMAND_TYPES,
+  HostMessage,
+  IDLE_CONTROL,
+  type SessionSummary,
+  type Step,
+  type Turn,
+  UNKNOWN_METRICS,
+  type Workspace,
+} from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
-import { COMMAND_REACH, PUSHED_TO_PHONE, forPhone, phoneMayRun, pushedToPhone } from "./remote-policy";
+import {
+  COMMAND_REACH,
+  PHONE_STEP_TEXT_LIMIT,
+  PUSHED_TO_PHONE,
+  forPhone,
+  pageForPhone,
+  phoneMayRun,
+  pushedToPhone,
+} from "./remote-policy";
 
 /**
  * Every `type` a host message schema allows, through its unions.
@@ -213,5 +231,106 @@ describe("the list as the phone gets it", () => {
     const message = HostMessage.parse({ type: "response", requestId: "r1", ok: true, result: {} });
 
     expect(forPhone(message)).toBe(message);
+  });
+});
+
+/** A command's output four times as long as a phone's preview. */
+const LONG = `${"a".repeat(10)}${"m".repeat(PHONE_STEP_TEXT_LIMIT * 4)}${"z".repeat(10)}`;
+
+/**
+ * A finished tool step with an output.
+ *
+ * @remarks
+ * `bash`, so a preview keeps the end.
+ *
+ * @sideEffects none
+ * @param output - What it printed.
+ * @param partial - Whether it is already a preview.
+ * @returns The step.
+ */
+function toolStep(output: string, partial = false): Step {
+  return {
+    kind: "tool",
+    id: "1",
+    callId: "c1",
+    tool: "bash",
+    args: { command: "ls" },
+    status: "done",
+    output,
+    details: { tool: "bash", command: "ls" },
+    partial,
+  };
+}
+
+/**
+ * A finished turn with a reply and a long command output.
+ *
+ * @remarks
+ * The reply is long too: only tool steps are cut.
+ *
+ * @sideEffects none
+ * @param output - The command's output.
+ * @param partial - Whether that output is already a preview.
+ * @returns The turn.
+ */
+function turnWith(output: string, partial = false): Turn {
+  return {
+    kind: "turn",
+    id: "t1",
+    source: null,
+    user: { text: "q", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 1 },
+    steps: [{ kind: "text", id: "0", text: LONG }, toolStep(output, partial)],
+    outcome: "done",
+    error: null,
+    startedAt: 1,
+    durationMs: 1,
+    usage: null,
+    changes: [],
+  };
+}
+
+describe("conversations as the phone gets them", () => {
+  const preview = LONG.slice(-PHONE_STEP_TEXT_LIMIT);
+
+  it("sends tool steps of snapshots and step events as 2 KB previews, marked partial", () => {
+    const snapshot = HostMessage.parse({
+      type: "session_snapshot",
+      sessionId: "s1",
+      epoch: 1,
+      seq: 0,
+      traceId: null,
+      stream: "st",
+      items: [turnWith(LONG)],
+      hasOlder: false,
+      run: null,
+      exited: false,
+      control: IDLE_CONTROL,
+      model: null,
+      fast: false,
+      metrics: UNKNOWN_METRICS,
+    });
+    const added = HostMessage.parse({
+      type: "step_added",
+      sessionId: "s1",
+      epoch: 1,
+      seq: 1,
+      traceId: null,
+      turnId: "t1",
+      step: toolStep(LONG),
+    });
+    const updated = HostMessage.parse({ ...added, type: "step_updated", seq: 2 });
+
+    expect(forPhone(snapshot)).toStrictEqual({ ...snapshot, items: [turnWith(preview, true)] });
+    expect(forPhone(added)).toStrictEqual({ ...added, step: toolStep(preview, true) });
+    expect(forPhone(updated)).toStrictEqual({ ...updated, step: toolStep(preview, true) });
+  });
+
+  it("cuts a page of older turns the same way, and leaves short steps as they are", () => {
+    const short = turnWith("ok");
+
+    expect(pageForPhone({ items: [turnWith(LONG), short], hasOlder: true })).toStrictEqual({
+      items: [turnWith(preview, true), short],
+      hasOlder: true,
+    });
   });
 });

@@ -200,6 +200,40 @@ public struct SessionState: Sendable, Equatable {
     self.hasOlder = hasOlder
   }
 
+  /// Whether a tool step of a turn is there and came cut to a preview.
+  ///
+  /// - Remark: Only those are fetched whole.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - stepId: The step.
+  ///   - turnId: Its turn.
+  /// - Returns: Whether it is a partial tool step.
+  public func isPartial(_ stepId: String, in turnId: String) -> Bool {
+    for item in items {
+      guard case .turn(let turn) = item, turn.id == turnId else { continue }
+      return turn.steps.contains { step in
+        if case .tool(let tool) = step { return tool.id == stepId && tool.partial }
+        return false
+      }
+    }
+    return false
+  }
+
+  /// Puts a step fetched whole in place of its preview.
+  ///
+  /// - Remark: Only while the items still come from `epoch`; a snapshot since may have replaced them.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - step: The whole step.
+  ///   - turnId: Its turn.
+  ///   - epoch: The epoch it was fetched for.
+  mutating func replaceStep(_ step: Step, in turnId: String, epoch: Int) {
+    guard epoch == self.epoch else { return }
+    _ = changeTurn(turnId) { turn in
+      if let index = turn.steps.firstIndex(where: { $0.id == step.id }) { turn.steps[index] = step }
+    }
+  }
+
   /// Takes a snapshot whole.
   ///
   /// - Remark: See ``apply(_:)``.

@@ -153,6 +153,7 @@ nonisolated enum RailRows {
     }
     if let output = tool.output, !output.isEmpty { parts.append(output) }
     row.detail = parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+    row.partialStep = tool.partial ? tool.id : nil
     return row
   }
 

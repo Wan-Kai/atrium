@@ -23,7 +23,7 @@ import type { PiLatestService } from "../setup/pi-latest";
 import type { SetupService } from "../setup/setup-service";
 import type { PiConfig } from "../setup/pi-config";
 import type { Connection } from "./connection";
-import { phoneMayRun } from "./remote-policy";
+import { pageForPhone, phoneMayRun } from "./remote-policy";
 import type { ReceiptBook } from "../remote/receipts";
 
 /**
@@ -216,8 +216,10 @@ export function createRouter(options: RouterOptions): Route {
         return options.attachments.use(connection.id, command.attachmentIds ?? [], (images) =>
           options.sessions.editStoppedMessage(command, images),
         );
-      case "fetch_transcript":
-        return options.sessions.fetchTranscript(command);
+      case "fetch_transcript": {
+        const page = await options.sessions.fetchTranscript(command);
+        return connection.origin === "remote" ? pageForPhone(page) : page;
+      }
       case "fetch_step":
         return options.sessions.fetchStep(command);
       case "fetch_image":

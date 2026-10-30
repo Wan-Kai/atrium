@@ -148,6 +148,7 @@ struct SessionPage: View {
       .padding(.bottom, Metrics.xl)
     }
     .scrollPosition($position)
+    .environment(\.conversationId, sessionId)
     // Leading, not centre: content briefly wider than the screen while it lays out must not move it
     // sideways. While older turns are held in place, growth is not anchored to the bottom, or the two
     // would pull against each other.

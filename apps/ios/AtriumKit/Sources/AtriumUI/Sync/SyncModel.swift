@@ -301,6 +301,15 @@ public final class SyncModel {
     enqueue(core.loadOlder(sessionId))
   }
 
+  /// Fetches a step whole that came cut to a preview.
+  ///
+  /// - Remark: See ``SyncCore/fetchStep(_:)``; a rail row calls it when opened.
+  /// - SideEffects: Queues the command.
+  /// - Parameter ref: The step.
+  public func fetchStep(_ ref: StepRef) {
+    enqueue(core.fetchStep(ref))
+  }
+
   /// Watches the changes of the workspaces shown.
   ///
   /// - Remark: See ``SyncCore/watchChanges(_:)``.

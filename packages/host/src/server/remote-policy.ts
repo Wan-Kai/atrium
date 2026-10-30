@@ -1,4 +1,8 @@
-import type { Command, CommandType, HostMessage, SessionSummary } from "@atrium/protocol";
+import type { Command, CommandResult, CommandType, HostMessage, SessionSummary } from "@atrium/protocol";
+import { forTransport, itemForTransport } from "../transcript/rules";
+
+/** The longest text of a tool step that travels whole to a phone (SPEC-0005, "给手机推什么"). */
+export const PHONE_STEP_TEXT_LIMIT = 2 * 1024;
 
 /** Whether a phone may send a command, or only the Mac. */
 type Reach = "phone" | "local_only";
@@ -183,9 +187,12 @@ export function pushedToPhone(message: HostMessage): boolean {
 }
 
 /**
- * A host message as a phone gets it: the list without what the phone never shows.
+ * A host message as a phone gets it: the list without what the phone never shows, and tool steps
+ * as short previews.
  *
  * @remarks
+ * Tool steps of snapshots and step events are cut to `PHONE_STEP_TEXT_LIMIT`; the phone fetches
+ * one whole when it is opened (SPEC-0005, "给手机推什么").
  * The phone only ever shows sessions, workspaces and chats that are not archived, and has no use
  * for session file paths, so the list leaves them out: a snapshot drops them, and a change that
  * archived one becomes its removal. An upsert that takes an item out of the archive brings it back
@@ -196,6 +203,12 @@ export function pushedToPhone(message: HostMessage): boolean {
  * @returns The message for the phone.
  */
 export function forPhone(message: HostMessage): HostMessage {
+  if (message.type === "session_snapshot") {
+    return { ...message, items: message.items.map((item) => itemForTransport(item, PHONE_STEP_TEXT_LIMIT)) };
+  }
+  if (message.type === "step_added" || message.type === "step_updated") {
+    return { ...message, step: forTransport(message.step, PHONE_STEP_TEXT_LIMIT) };
+  }
   if (message.type === "index_snapshot") {
     return {
       ...message,
@@ -258,4 +271,19 @@ function split<T>(
  */
 function withoutFile(session: SessionSummary): SessionSummary {
   return { ...session, file: null };
+}
+
+/**
+ * A page of older turns as a phone gets it.
+ *
+ * @remarks
+ * Tool steps cut to `PHONE_STEP_TEXT_LIMIT`, as in `forPhone`. A response does not say which
+ * command it answers, so the router calls this for a phone's `fetch_transcript`.
+ *
+ * @sideEffects none
+ * @param page - The page.
+ * @returns The page for the phone.
+ */
+export function pageForPhone(page: CommandResult<"fetch_transcript">): CommandResult<"fetch_transcript"> {
+  return { ...page, items: page.items.map((item) => itemForTransport(item, PHONE_STEP_TEXT_LIMIT)) };
 }

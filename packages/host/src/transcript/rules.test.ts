@@ -154,6 +154,24 @@ describe("forTransport", () => {
     );
   });
 
+  it("previews against a smaller limit, the same from the whole text as from a 16 KB preview", () => {
+    const small = 2048;
+    const whole = `${"a".repeat(10)}${"m".repeat(STEP_TEXT_LIMIT * 2)}${"z".repeat(10)}`;
+
+    expect(forTransport(tool({ output: whole }), small)).toStrictEqual(
+      tool({ output: whole.slice(-small), partial: true }),
+    );
+    expect(forTransport(tool({ tool: "read", output: whole }), small)).toStrictEqual(
+      tool({ tool: "read", output: whole.slice(0, small), partial: true }),
+    );
+    for (const name of ["bash", "read"]) {
+      const step = tool({ tool: name, output: whole });
+      expect(forTransport(forTransport(step), small)).toStrictEqual(forTransport(step, small));
+    }
+    const exact = tool({ output: "x".repeat(small) });
+    expect(forTransport(exact, small)).toBe(exact);
+  });
+
   it("previews a long write content, edit diff and long strings anywhere in the arguments", () => {
     const head = long.slice(0, STEP_TEXT_LIMIT);
 

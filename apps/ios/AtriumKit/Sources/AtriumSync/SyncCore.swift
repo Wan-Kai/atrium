@@ -33,6 +33,10 @@ public struct SyncCore {
 
   /// The sessions with a `fetch_transcript` for older items on its way.
   public private(set) var loadingOlder: Set<SessionId> = []
+  /// Steps cut to a preview whose whole is on its way (SPEC-0005 "给手机推什么").
+  public private(set) var fetchingSteps: Set<StepRef> = []
+  /// Steps whose whole could not be fetched, until the next try.
+  public private(set) var failedSteps: Set<StepRef> = []
 
   /// A request on its way, and what its answer settles.
   ///
@@ -58,6 +62,8 @@ public struct SyncCore {
     case start(ContainerId?, String, [OutgoingImage])
     /// `fetch_transcript` for the items before `before`, from `epoch`.
     case older(SessionId, epoch: Int, before: String)
+    /// `fetch_step` for a step cut to a preview, from `epoch`.
+    case step(StepRef, epoch: Int)
     /// A command whose answer settles nothing.
     case other
   }
@@ -156,6 +162,7 @@ public struct SyncCore {
     synced = false
     requests = [:]
     loadingOlder = []
+    fetchingSteps = []
     // The mark lasts for one connection: the folder may be back (SPEC-0005 "MP6 定的细节 · MP6d").
     if !again {
       missingContainers = []
@@ -223,6 +230,13 @@ public struct SyncCore {
         }
       case .upload(let message, let place)?:
         outputs += uploaded(message, place: place, attachmentId: Self.attachmentId(success.result))
+      case .step(let ref, let epoch)?:
+        fetchingSteps.remove(ref)
+        if let result = success.result, let data = try? JSONEncoder().encode(result),
+          let fetched = try? JSONDecoder().decode(FetchStepResult.self, from: data)
+        {
+          sessions[ref.sessionId]?.replaceStep(fetched.step, in: ref.turnId, epoch: epoch)
+        }
       case .older(let sessionId, let epoch, let before)?:
         loadingOlder.remove(sessionId)
         if let result = success.result, let data = try? JSONEncoder().encode(result),
@@ -257,6 +271,9 @@ public struct SyncCore {
           missingContainers.insert(container)
         }
       case .older(let sessionId, _, _): loadingOlder.remove(sessionId)
+      case .step(let ref, _):
+        fetchingSteps.remove(ref)
+        failedSteps.insert(ref)
       case .clearing, .models, .other: break
       }
     case .indexSnapshot(let snapshot):
@@ -333,11 +350,14 @@ public struct SyncCore {
     openSessions.remove(at: position)
     sessions[sessionId] = nil
     loadingOlder.remove(sessionId)
+    fetchingSteps = fetchingSteps.filter { $0.sessionId != sessionId }
+    failedSteps = failedSteps.filter { $0.sessionId != sessionId }
     for (requestId, request) in requests {
       switch request {
       case .open(let opened) where opened == sessionId: requests[requestId] = .other
       case .action(let acted, _) where acted == sessionId: requests[requestId] = .other
       case .older(let loading, _, _) where loading == sessionId: requests[requestId] = .other
+      case .step(let ref, _) where ref.sessionId == sessionId: requests[requestId] = .other
       case .sessions(let failing) where failing.contains(sessionId):
         requests[requestId] = .sessions(failing.filter { $0 != sessionId })
       default: break
@@ -541,6 +561,29 @@ public struct SyncCore {
           FetchTranscriptCommand(
             requestId: requestId, traceparent: makeTraceparent(), sessionId: sessionId, epoch: state.epoch,
             before: before, limit: Self.olderBatch.items, maxBytes: Self.olderBatch.bytes)))
+    ]
+  }
+
+  /// Asks the Mac for a step whole that came cut to a preview.
+  ///
+  /// - Remark: SPEC-0005 "给手机推什么": when its row is opened, only after the sync, only for a
+  ///   step that is there and marked partial, one at a time per step. A try clears an earlier failure.
+  /// - SideEffects: none
+  /// - Parameter ref: The step.
+  /// - Returns: The command to send, or nothing.
+  public mutating func fetchStep(_ ref: StepRef) -> [SyncOutput] {
+    guard synced, !fetchingSteps.contains(ref), let state = sessions[ref.sessionId],
+      state.isPartial(ref.stepId, in: ref.turnId)
+    else { return [] }
+    fetchingSteps.insert(ref)
+    failedSteps.remove(ref)
+    let requestId = track(.step(ref, epoch: state.epoch))
+    return [
+      send(
+        .fetchStep(
+          FetchStepCommand(
+            requestId: requestId, traceparent: makeTraceparent(), sessionId: ref.sessionId, epoch: state.epoch,
+            turnId: ref.turnId, stepId: ref.stepId)))
     ]
   }
 
@@ -1020,5 +1063,31 @@ public struct SyncCore {
   /// - Returns: The output.
   private func send(_ command: Command) -> SyncOutput {
     .send(command, generation: generation ?? 0)
+  }
+}
+
+/// One step of a session's turn.
+///
+/// - Remark: What a whole-step fetch is about (SPEC-0005 "给手机推什么").
+public struct StepRef: Hashable, Sendable {
+  /// The session.
+  public let sessionId: SessionId
+  /// The turn.
+  public let turnId: String
+  /// The step.
+  public let stepId: String
+
+  /// Names a step.
+  ///
+  /// - Remark: Memberwise.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - sessionId: The session.
+  ///   - turnId: The turn.
+  ///   - stepId: The step.
+  public init(sessionId: SessionId, turnId: String, stepId: String) {
+    self.sessionId = sessionId
+    self.turnId = turnId
+    self.stepId = stepId
   }
 }

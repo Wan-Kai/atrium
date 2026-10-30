@@ -35,6 +35,8 @@ struct TurnItem: View, Equatable {
   var body: some View {
     TurnView(
       layout: TurnLayout(turn), retry: latest ? retry : nil,
-      openChanges: changes.map { route in { openChanges(route) } })
+      openChanges: changes.map { route in { openChanges(route) } }
+    )
+    .environment(\.railTurnId, turn.id)
   }
 }

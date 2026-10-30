@@ -5,6 +5,7 @@ import {
   type HostMessage,
   type PromptCommand,
   type SetupState,
+  type Turn,
 } from "@atrium/protocol";
 import { ROOT_CONTEXT, trace } from "@opentelemetry/api";
 import { FakeClock } from "@atrium/testkit";
@@ -14,6 +15,7 @@ import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
 import { type Connection, createConnection } from "./connection";
 import { createAttachmentStore } from "./attachments";
+import { PHONE_STEP_TEXT_LIMIT, pageForPhone } from "./remote-policy";
 import { createRouter } from "./router";
 
 const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -70,7 +72,7 @@ function fakeCommands() {
     },
     fetchTranscript: async (command) => {
       calls.push(["fetchTranscript", command.sessionId, command.epoch, command.before, command.limit]);
-      return { items: [], hasOlder: true };
+      return command.before === "big" ? { items: [bigTurn()], hasOlder: false } : { items: [], hasOlder: true };
     },
     steer: async (command, images = []) => {
       calls.push(["steer", command.sessionId, command.text, ...images.map((image) => image.data)]);
@@ -414,6 +416,32 @@ describe("createRouter", () => {
       ),
     );
     expect(records.filter((record) => record["msg"] === "client issue")).toStrictEqual([]);
+  });
+
+  it("answers a phone's page of older turns with 2 KB tool previews, and the Mac's as it is", async () => {
+    const { route, connection, logger, sent } = setUp();
+    const phone = createConnection(
+      { bufferedAmount: 0, send: (data) => sent.push(JSON.parse(data) as HostMessage), close: () => undefined },
+      {
+        id: "c3",
+        clientId: "dev_0123456789abcdef",
+        trace: ROOT_CONTEXT,
+        maxBufferedBytes: 1_000_000,
+        logger,
+        remote: { deviceId: "dev_0123456789abcdef", maxMessageBytes: 1_000_000, snapshotOf: () => null },
+      },
+    );
+    const fetch = { type: "fetch_transcript", sessionId: "s1", epoch: 1, before: "big", limit: 3 } as const;
+
+    await route(phone, withTrace({ ...fetch, requestId: "p1" }));
+    await route(connection, withTrace({ ...fetch, requestId: "d1" }));
+
+    const pages = sent.filter((message) => message.type === "response");
+    expect(pages).toStrictEqual([
+      { type: "response", requestId: "p1", ok: true, result: pageForPhone({ items: [bigTurn()], hasOlder: false }) },
+      { type: "response", requestId: "d1", ok: true, result: { items: [bigTurn()], hasOlder: false } },
+    ]);
+    expect(JSON.stringify(pages[0]).length).toBeLessThan(JSON.stringify(pages[1]).length / 3);
   });
 
   it("runs a phone's prompt and steer through its receipts, and the Mac's straight", async () => {
@@ -1128,3 +1156,40 @@ describe("createRouter's attachments", () => {
     ]);
   });
 });
+
+/**
+ * A turn with a command output four times a phone's preview, as the session layer pages it.
+ *
+ * @remarks
+ * For the router's phone shaping.
+ *
+ * @sideEffects none
+ * @returns The turn.
+ */
+function bigTurn(): Turn {
+  return {
+    kind: "turn",
+    id: "t0",
+    source: null,
+    user: { text: "q", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 1 },
+    steps: [
+      {
+        kind: "tool",
+        id: "0",
+        callId: "c1",
+        tool: "bash",
+        args: { command: "ls" },
+        status: "done",
+        output: "o".repeat(PHONE_STEP_TEXT_LIMIT * 4),
+        details: { tool: "bash", command: "ls" },
+        partial: false,
+      },
+    ],
+    outcome: "done",
+    error: null,
+    startedAt: 1,
+    durationMs: 1,
+    usage: null,
+    changes: [],
+  };
+}

@@ -57,6 +57,8 @@ nonisolated struct RailRow: Identifiable, Equatable, Sendable {
 
   /// Full plain-text content, revealed by opening this row.
   var detail: String?
+  /// The step to fetch whole when the row is opened: one that came cut to a preview; `nil` otherwise.
+  var partialStep: String?
   /// Each question and its answer, always visible while the rail is open.
   var answers: [String] = []
 
