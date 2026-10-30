@@ -41,15 +41,28 @@ struct OlderPlaceTests {
     #expect(OlderLayout(items: all, batches: [0, 2]).blocks.isEmpty)
   }
 
-  /// Checks a fetch starts when the top row comes on screen while connected, not otherwise.
+  /// Checks a fetch starts when the top row comes on screen while connected and up to date.
   ///
   /// - Remark: The end of a fetch is no reason to fetch again.
   /// - SideEffects: none
-  @Test("fetches when the top row shows while connected")
+  @Test("fetches when the top row shows while connected and up to date")
   func fetchesWhenTheRowShows() {
-    #expect(OlderWant(visible: true, connected: true).fetches)
-    #expect(!OlderWant(visible: false, connected: true).fetches)
-    #expect(!OlderWant(visible: true, connected: false).fetches)
+    #expect(OlderWant(visible: true, connected: true, settled: true, epoch: 1).fetches)
+    #expect(!OlderWant(visible: false, connected: true, settled: true, epoch: 1).fetches)
+    #expect(!OlderWant(visible: true, connected: false, settled: true, epoch: 1).fetches)
+    #expect(!OlderWant(visible: true, connected: true, settled: false, epoch: 1).fetches)
+  }
+
+  /// Checks a fresh copy of the conversation is a new reason to fetch while the row shows.
+  ///
+  /// - Remark: A fetch sent from the phone's cached copy is refused once the Mac's snapshot
+  ///   replaces it; the row stays on screen, so only the change of copy can ask again.
+  /// - SideEffects: none
+  @Test("a new snapshot or settling is a change that fetches again")
+  func newCopyFetches() {
+    let cached = OlderWant(visible: true, connected: true, settled: true, epoch: 1)
+    #expect(cached != OlderWant(visible: true, connected: true, settled: true, epoch: 2))
+    #expect(cached != OlderWant(visible: true, connected: true, settled: false, epoch: 1))
   }
 
   /// Checks the first item is held where it was once a batch comes in front of it, and followed

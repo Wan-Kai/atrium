@@ -28,17 +28,24 @@ struct OlderRow: View {
   }
 }
 
-/// When the page fetches older turns: the top row shows while connected.
+/// When the page fetches older turns: the top row shows while connected and up to date.
 ///
-/// - Remark: Changes of either start a fetch; the end of a fetch does not, so turns that came in
-///   front and pushed the row off screen are not followed by another fetch at once.
+/// - Remark: A change of any field starts a fetch when it `fetches`. The end of a fetch does not,
+///   so turns that came in front and pushed the row off screen are not followed by another fetch at
+///   once. A new copy of the conversation does: a fetch sent from the phone's cached copy is
+///   refused once the Mac's snapshot replaces it, and the row is still on screen (SPEC-0005 "MP4a
+///   定的细节" 9).
 struct OlderWant: Equatable {
   /// Whether the top row is on screen.
   let visible: Bool
   /// Whether the phone is connected.
   let connected: Bool
+  /// Whether the conversation is up to date: not loading, not waiting to resume.
+  let settled: Bool
+  /// The epoch of the copy the phone has; `nil` before one.
+  let epoch: Int?
   /// Whether to fetch.
-  var fetches: Bool { visible && connected }
+  var fetches: Bool { visible && connected && settled }
 }
 
 /// Keeps the conversation's first item in place on screen when older turns are put in front of it.

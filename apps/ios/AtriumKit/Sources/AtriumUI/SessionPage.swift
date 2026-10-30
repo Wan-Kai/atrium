@@ -167,7 +167,11 @@ struct SessionPage: View {
           y: geometry.contentOffset.y + geometry.contentInsets.top)
       }
     ) { _, offset in place.offset = offset }
-    .onChange(of: OlderWant(visible: olderVisible, connected: sync?.status == .connected)) { _, want in
+    .onChange(
+      of: OlderWant(
+        visible: olderVisible, connected: sync?.status == .connected, settled: state?.settled == true,
+        epoch: state?.epoch)
+    ) { _, want in
       if want.fetches { sync?.loadOlder(sessionId) }
     }
     .background(palette.page.ignoresSafeArea())
