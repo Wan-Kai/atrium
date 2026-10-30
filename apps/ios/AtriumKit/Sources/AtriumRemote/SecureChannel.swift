@@ -44,6 +44,7 @@ public actor SecureChannel {
   ///   - receiveLimit: Largest incoming message.
   ///   - sendLimit: Largest outgoing message.
   ///   - chunkTimeout: How long an incoming chunked message may stay open.
+  ///   - inflates: Whether deflated messages are accepted: the daily `connect` asked for them.
   public init(
     transport: any RemoteTransport,
     noise: sending NoiseTransport,
@@ -51,14 +52,15 @@ public actor SecureChannel {
     stopwatch: Stopwatch,
     receiveLimit: Int = ChannelLimits.hostToPhone,
     sendLimit: Int = ChannelLimits.phoneToHost,
-    chunkTimeout: Duration = ChannelLimits.chunkTimeout
+    chunkTimeout: Duration = ChannelLimits.chunkTimeout,
+    inflates: Bool = false
   ) {
     self.transport = transport
     self.noise = noise
     self.handshakeHash = handshakeHash
     self.sendLimit = sendLimit
     self.stopwatch = stopwatch
-    reassembler = FrameReassembler(limit: receiveLimit, timeout: chunkTimeout)
+    reassembler = FrameReassembler(limit: receiveLimit, timeout: chunkTimeout, inflates: inflates)
     let outbox = CiphertextBuffer()
     self.outbox = outbox
     writer = Task {

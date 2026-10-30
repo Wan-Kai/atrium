@@ -2,6 +2,7 @@ import AtriumNoise
 import AtriumProtocol
 import AtriumTestSupport
 import Foundation
+import Synchronization
 import Testing
 
 @testable import AtriumRemote
@@ -65,6 +66,28 @@ struct RemoteConnectionTests {
     #expect(h.relay.requested.map(\.absoluteString) == ["wss://relay.test/atrium/v1/client?host=hst_0123456789abcdef"])
     await connection.stop()
     #expect(await statuses.next() == nil)
+  }
+
+  @Test("asks the Mac to deflate, and a deflated message arrives as the plain message")
+  func deflatedMessages() async throws {
+    let h = Harness()
+    let connection = try h.connection()
+    await connection.start()
+    let side = try await h.open(connection)
+    let payload = try #require(try JSONSerialization.jsonObject(with: side.request) as? [String: Any])
+    #expect(payload["compression"] as? [String] == ["deflate"])
+    let received = Mutex<[Data]>([])
+    let reader = Task { for await message in connection.messages { received.withLock { $0.append(message.data) } } }
+    // `{"type":"index_snapshot"}` as the host's Node deflates it.
+    let deflated = try #require(Data(base64Encoded: "q1YqqSxIVbJSysxLSa2IL85LLCjOyC9RqgUA"))
+    try await #require(side.channel).send(.deflatedChunk(deflated, isLast: true))
+    // Not blocking on the message: a phone that refuses the frame drops the link instead, and the
+    // test fails rather than waiting for ever.
+    try await eventually { await connection.status != .syncing || received.withLock { !$0.isEmpty } }
+    #expect(received.withLock { $0 } == [Data(#"{"type":"index_snapshot"}"#.utf8)])
+    #expect(await connection.status == .syncing)
+    await connection.stop()
+    reader.cancel()
   }
 
   @Test("device_unknown in message 2 deletes the Mac's records and stops for good")

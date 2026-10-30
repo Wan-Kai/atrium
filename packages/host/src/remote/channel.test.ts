@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { once } from "node:events";
+import { inflateRawSync } from "node:zlib";
 import { createServer, type Socket } from "node:net";
 import {
   CHUNK_TIMEOUT_MS,
@@ -9,6 +10,7 @@ import {
   encodeMessage,
   encryptTransport,
   firstFrame,
+  fromUtf8,
   generateKeyPair,
   HandshakeState,
   HOST_TO_PHONE_LIMIT,
@@ -151,6 +153,30 @@ function transports() {
   const second = host.writeMessage(utf8('{"ok":true}'));
   phone.readMessage(second);
   return { first, second, phoneKey, phone: phone.finish(), host: host.finish() };
+}
+
+/** A list of about 114 KB that deflates well. */
+const BIG = JSON.stringify(Array.from({ length: 3000 }, (_, index) => ({ sessionId: `s${index}`, archived: false })));
+
+/**
+ * What a stream sends for `BIG` then `"small"`, decrypted.
+ *
+ * @remarks
+ * Waits for the last frame, the short one for `"small"`.
+ *
+ * @sideEffects Opens a stream over a local socket.
+ * @param compress - Whether the phone asked for deflated messages.
+ * @returns The plaintexts after the handshake reply.
+ */
+async function sent(compress: boolean): Promise<Uint8Array[]> {
+  const f = await fixture();
+  const pair = transports();
+  f.stream.secure(pair.host, compress);
+  f.stream.settle();
+  f.stream.transport().send(BIG);
+  f.stream.transport().send("small");
+  await expect.poll(() => f.incoming.at(-1)?.bytes.length ?? 0).toBeLessThan(100);
+  return f.incoming.slice(1).map((frame) => decryptTransport(pair.phone.receive, frame.bytes));
 }
 
 /** Waits for actual socket closure and checks the owner-facing result. @remarks Notification alone must not release the live socket resource. @sideEffects Waits for network close callbacks. */
@@ -451,6 +477,21 @@ describe("PhoneStream", () => {
       ...ciphertexts.map((frame) => ({ stream: f.stream, direction: "up", bytes: frame.length })),
       { stream: f.stream, direction: "down", bytes: f.incoming[1]!.bytes.length },
       { stream: f.stream, direction: "down", bytes: f.incoming[2]!.bytes.length },
+    ]);
+  });
+
+  it("deflates a large message for a phone that asked, and sends a small one as it is", async () => {
+    const plaintexts = await sent(true);
+    expect(plaintexts).toHaveLength(2);
+    expect(plaintexts[0]![0]).toBe(0x05);
+    expect(fromUtf8(inflateRawSync(plaintexts[0]!.subarray(1)))).toBe(BIG);
+    expect(plaintexts[1]).toStrictEqual(encodeMessage("small", HOST_TO_PHONE_LIMIT)[0]);
+  });
+
+  it("sends everything as it is to a phone that did not ask", async () => {
+    expect(await sent(false)).toStrictEqual([
+      ...encodeMessage(BIG, HOST_TO_PHONE_LIMIT),
+      ...encodeMessage("small", HOST_TO_PHONE_LIMIT),
     ]);
   });
 

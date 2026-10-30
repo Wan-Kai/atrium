@@ -18,6 +18,7 @@ import {
   utf8,
 } from "@atrium/remote-crypto";
 import { randomBytes, randomUUID } from "node:crypto";
+import { inflateRawSync } from "node:zlib";
 import { WebSocket, type RawData } from "ws";
 import { systemClock } from "../../src/platform/clock";
 import { Inbox, type WaitOptions } from "./inbox";
@@ -82,6 +83,8 @@ function traceparent(): string {
 export class PhoneSession {
   readonly channel: SecureChannel;
   readonly sas: string;
+  /** Deflated messages read so far; only a session that asked for compression can read any. */
+  deflated = 0;
   readonly deviceId: string | null;
   readonly closed: Promise<{ code: number; reason: string }>;
   readonly #socket: WebSocket;
@@ -95,6 +98,7 @@ export class PhoneSession {
    * @param socket - Connected local relay socket.
    * @param handshake - Completed Noise handshake.
    * @param deviceId - Authenticated daily connection identity, or null while pairing.
+   * @param compressed - Whether `connect` asked the host for deflated messages.
    * @param clock - Deadline and chunk timer clock.
    * @param onControl - Updates in-memory host records after authenticated controls.
    */
@@ -104,6 +108,7 @@ export class PhoneSession {
     deviceId: string | null,
     clock: Clock,
     onControl: (value: ControlMessage) => void,
+    compressed = false,
   ) {
     this.#socket = socket;
     this.#clock = clock;
@@ -111,6 +116,14 @@ export class PhoneSession {
     this.#inbox = new Inbox(clock);
     this.channel = new SecureChannel(handshake.finish(), {
       clock,
+      ...(compressed
+        ? {
+            inflate: (deflated: Uint8Array, limit: number) => {
+              this.deflated += 1;
+              return inflateRawSync(deflated, { maxOutputLength: limit });
+            },
+          }
+        : {}),
       sendLimit: PHONE_TO_HOST_LIMIT,
       receiveLimit: HOST_TO_PHONE_LIMIT,
       write: (frame) => socket.send(frame),
@@ -428,13 +441,20 @@ export class FakePhone {
         const deviceId = pattern === "IK" && typeof answer.deviceId === "string" ? answer.deviceId : null;
         if (pattern === "IK" && deviceId === null) throw new Error("missing deviceId");
         if (deviceId !== null) this.#hosts.set(host.hostId, { ...host, deviceId });
-        session = new PhoneSession(socket, handshake, deviceId, this.#clock, (control) => {
-          if (control.kind === "revoked" || (control.kind === "pair_rejected" && host.deviceId === null)) {
-            this.#hosts.delete(host.hostId);
-          }
-          if (control.kind === "paired" && typeof control.deviceId === "string")
-            this.#hosts.set(host.hostId, { ...host, deviceId: control.deviceId });
-        });
+        session = new PhoneSession(
+          socket,
+          handshake,
+          deviceId,
+          this.#clock,
+          (control) => {
+            if (control.kind === "revoked" || (control.kind === "pair_rejected" && host.deviceId === null)) {
+              this.#hosts.delete(host.hostId);
+            }
+            if (control.kind === "paired" && typeof control.deviceId === "string")
+              this.#hosts.set(host.hostId, { ...host, deviceId: control.deviceId });
+          },
+          Array.isArray(payload.compression) && payload.compression.includes("deflate"),
+        );
         established.push(session);
       } catch (error) {
         established.fail(error instanceof Error ? error : new Error("bad handshake"));

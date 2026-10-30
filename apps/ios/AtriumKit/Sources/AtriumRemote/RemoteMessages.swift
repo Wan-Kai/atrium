@@ -46,6 +46,9 @@ public struct ConnectRequest: Codable, Equatable, Sendable {
   public var appVersion: String
   /// The Atrium protocol version the app speaks.
   public var protocolVersion: Int
+  /// What the app can decompress: the host deflates large messages only when asked, and an older
+  /// host ignores the field (SPEC-0005 "Noise 通道 · 压缩").
+  public var compression = ["deflate"]
 
   /// Builds the payload.
   ///

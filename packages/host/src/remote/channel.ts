@@ -1,3 +1,4 @@
+import { deflateRawSync } from "node:zlib";
 import {
   type ControlMessage,
   HOST_TO_PHONE_LIMIT,
@@ -197,14 +198,17 @@ export class PhoneStream {
    * Starts the encrypted channel after the handshake.
    *
    * @remarks
-   * The handshake's time limit runs on until `settle`.
+   * The handshake's time limit runs on until `settle`. Large messages go deflated only to a phone
+   * that asked for it in `connect` (SPEC-0005, "Noise 通道 · 压缩").
    *
    * @sideEffects none until messages flow.
    * @param transport - From the finished handshake.
+   * @param compress - Whether the phone asked for deflated messages.
    */
-  secure(transport: Transport): void {
+  secure(transport: Transport, compress = false): void {
     if (this.#closed) return;
     this.#channel = new SecureChannel(transport, {
+      ...(compress ? { deflate } : {}),
       write: (bytes) => this.#write(bytes),
       sendLimit: HOST_TO_PHONE_LIMIT,
       receiveLimit: PHONE_TO_HOST_LIMIT,
@@ -398,4 +402,18 @@ function toBytes(data: RawData): Uint8Array {
 export function reasonOf(error: unknown): string {
   const reason: unknown = typeof error === "object" && error !== null ? Reflect.get(error, "reason") : undefined;
   return typeof reason === "string" ? reason : "handshake_failed";
+}
+
+/**
+ * Raw deflate at level 6, for messages to a phone that asked.
+ *
+ * @remarks
+ * About 3 ms for a 577 KB list, which it shrinks about 7 times (SPEC-0005, "Noise 通道 · 压缩").
+ *
+ * @sideEffects none
+ * @param bytes - The encoded message.
+ * @returns The compressed bytes.
+ */
+function deflate(bytes: Uint8Array): Uint8Array {
+  return deflateRawSync(bytes, { level: 6 });
 }
