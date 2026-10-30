@@ -1,5 +1,6 @@
 import AtriumProtocol
 import AtriumRemote
+import AtriumRender
 import AtriumSync
 import AtriumTestSupport
 import Foundation
@@ -166,7 +167,7 @@ struct SyncModelTests {
     await running.value
   }
 
-  @Test("puts older turns in front only once the page's scroll rests, or after three seconds")
+  @Test("parses a snapshot's replies before it goes in; puts older turns in only once the scroll rests, or after 3 s")
   func olderWaitsForRest() async throws {
     let host = TestHost()
     let store = HostStore(MemorySecretStore())
@@ -199,10 +200,15 @@ struct SyncModelTests {
     for requestId in answered {
       try await side.send(Data(#"{"type":"response","requestId":"\#(requestId)","ok":true,"result":{}}"#.utf8))
     }
-    let older = sessionSnapshot.replacingOccurrences(of: #""items":[]"#, with: #""items":[\#(turn("t9"))]"#)
-      .replacingOccurrences(of: #""hasOlder":false"#, with: #""hasOlder":true"#)
+    let reply = "已读 \(UUID().uuidString)"
+    let older = sessionSnapshot.replacingOccurrences(
+      of: #""items":[]"#, with: #""items":[\#(turn("t9", reply: reply))]"#
+    )
+    .replacingOccurrences(of: #""hasOlder":false"#, with: #""hasOlder":true"#)
     try await side.send(Data(older.utf8))
     try await waitUntil { model.status == .connected && model.core.sessions["s1"]?.hasOlder == true }
+    // So a reply shows whole the first time it comes on screen.
+    #expect(MarkdownCache.shared.blocks(for: reply) != nil)
 
     // Scrolling: the page comes back but waits, and so does what comes after it.
     model.rest.moving = true
@@ -254,14 +260,18 @@ struct SyncModelTests {
           .utf8))
   }
 
-  /// A finished turn with no steps, as the host sends it.
+  /// A finished turn, as the host sends it: no steps, or one reply.
   ///
   /// - Remark: For the older-turns test.
   /// - SideEffects: none
-  /// - Parameter id: The turn's id.
+  /// - Parameters:
+  ///   - id: The turn's id.
+  ///   - reply: Its reply, if any.
   /// - Returns: The JSON.
-  private func turn(_ id: String) -> String {
-    #"{"kind":"turn","id":"\#(id)","source":null,"user":{"text":"hi","images":0,"clientMessageId":null,"auto":false,"command":null,"timestamp":0},"steps":[],"outcome":"done","error":null,"startedAt":0,"durationMs":1,"usage":null,"changes":[]}"#
+  private func turn(_ id: String, reply: String? = nil) -> String {
+    let steps = reply.map { #"{"kind":"text","id":"\#(id)-r","text":"\#($0)"}"# } ?? ""
+    return
+      #"{"kind":"turn","id":"\#(id)","source":null,"user":{"text":"hi","images":0,"clientMessageId":null,"auto":false,"command":null,"timestamp":0},"steps":[\#(steps)],"outcome":"done","error":null,"startedAt":0,"durationMs":1,"usage":null,"changes":[]}"#
   }
 
   @Test("writes the list, open sessions and drafts to the cache, and starts the next launch from them")

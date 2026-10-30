@@ -36,6 +36,16 @@ struct CodeHighlighterTests {
     #expect(CodeHighlighter.tokens(fromHTML: "") == [])
   }
 
+  @Test("keeps what it highlighted, so a block shown again is coloured from its first frame")
+  func cached() async throws {
+    let code = "const kept = \(UUID().uuidString.debugDescription);"
+    #expect(CodeHighlighter.shared.cached(code, language: "ts") == nil)
+    let tokens = try #require(await CodeHighlighter.shared.highlight(code, language: "ts"))
+    #expect(CodeHighlighter.shared.cached(code, language: "ts") == tokens)
+    #expect(CodeHighlighter.shared.cached(code, language: "js") == nil)
+    #expect(CodeHighlighter.shared.cached(code + " ", language: "ts") == nil)
+  }
+
   @Test("highlights TypeScript with the bundled highlight.js, the text unchanged")
   func typescript() async throws {
     let code = "export function put(key: string): number {\n  return 42; // done\n}\n"

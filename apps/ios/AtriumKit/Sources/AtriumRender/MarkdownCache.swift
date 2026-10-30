@@ -2,12 +2,13 @@ import Synchronization
 
 /// Parsed replies by their text, so a reply parsed ahead lays out whole the moment it shows.
 ///
-/// - Remark: Older turns fetched on scrolling up are parsed here before they are put in front of
-///   the conversation; otherwise their replies show empty and grow a frame later, moving what you
-///   read (SPEC-0005 "MP4a 定的细节" 9). Bounded: the oldest text goes past `limit`.
+/// - Remark: Older turns fetched on scrolling up, and a snapshot's turns, are parsed here before
+///   they go in; otherwise their replies show empty and grow a frame later, moving what you read
+///   (SPEC-0005 "MP4a 定的细节" 9). A finished reply parsed on screen is kept too, so one scrolled
+///   off and back shows whole at once. Bounded: the oldest text goes past `limit`.
 public final class MarkdownCache: Sendable {
   /// The one the app uses.
-  public static let shared = MarkdownCache(limit: 64)
+  public static let shared = MarkdownCache(limit: 256)
   /// The most texts kept.
   public let limit: Int
   /// Texts in the order stored, and their blocks.

@@ -177,7 +177,10 @@ struct SessionPage: View {
     ) { _, offset in place.offset = offset }
     .onScrollGeometryChange(
       for: Bool.self, of: { $0.contentOffset.y + $0.contentInsets.top > TitleFog.from },
-      action: { _, under in withAnimation(.easeOut(duration: 0.2)) { scrolledUnder = under } }
+      action: { _, under in
+        // On at once, so nothing shows through for a frame; off gently.
+        if under { scrolledUnder = true } else { withAnimation(.easeOut(duration: 0.2)) { scrolledUnder = false } }
+      }
     )
     .onChange(
       of: OlderWant(
@@ -187,8 +190,12 @@ struct SessionPage: View {
       if want.fetches { sync?.loadOlder(sessionId) }
     }
     .background(palette.page.ignoresSafeArea())
-    // From the top of the screen, under the title and its buttons.
-    .overlay(alignment: .top) { TitleFog().opacity(scrolledUnder ? 1 : 0).ignoresSafeArea(edges: .top) }
+    // From the top of the screen, under the title and its buttons; also on while older turns load,
+    // so a batch coming in at the top is already under it.
+    .overlay(alignment: .top) {
+      TitleFog().opacity(scrolledUnder || holding || sync?.core.loadingOlder.contains(sessionId) == true ? 1 : 0)
+        .ignoresSafeArea(edges: .top)
+    }
     .overlay(alignment: .top) { topBar(palette) }
     .hidingNavigationBar()
     .safeAreaInset(edge: .bottom) {

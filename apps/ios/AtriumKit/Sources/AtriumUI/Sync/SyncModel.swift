@@ -403,6 +403,10 @@ public final class SyncModel {
         await MarkdownCache.shared.warm(Self.replies(older))
         await rest.wait(on: clock)
       }
+      // A snapshot's replies too, so each lays out whole the first time it comes on screen.
+      if case .sessionEvent(.sessionSnapshot(let snapshot)) = decoded {
+        await MarkdownCache.shared.warm(Self.replies(snapshot.items))
+      }
       enqueue(core.receive(decoded, generation: message.generation))
       saveDrafts()
       scheduleSave()

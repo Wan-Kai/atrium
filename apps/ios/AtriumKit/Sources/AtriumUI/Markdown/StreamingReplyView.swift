@@ -19,6 +19,8 @@ struct StreamingReplyView<C: Clock>: View where C.Duration == Duration {
   @State private var reveal: TextReveal?
   /// Converted visible blocks.
   @State private var blocks: [MarkdownBlock] = []
+  /// The finished text `blocks` show whole, so showing it again does not parse and redraw it.
+  @State private var whole: String?
   /// This view's cache-owning worker.
   @State private var worker = MarkdownWorker()
   /// Whether animations should be reduced.
@@ -27,7 +29,9 @@ struct StreamingReplyView<C: Clock>: View where C.Duration == Duration {
   /// Shows a reply, whole at once when it was parsed ahead.
   ///
   /// - Remark: A finished reply in `MarkdownCache` starts with its blocks, so it has its full
-  ///   height from the first frame; any other starts empty and fills in from its worker.
+  ///   height from the first frame, and is not parsed again; any other starts empty and fills in
+  ///   from its worker. A reply scrolled off and back is a new view, so without this every return
+  ///   drew it twice and, on a miss, grew it from nothing (2026-10-30, felt as jank on the phone).
   /// - SideEffects: none
   /// - Parameters:
   ///   - source: The text so far.
@@ -37,13 +41,23 @@ struct StreamingReplyView<C: Clock>: View where C.Duration == Duration {
     self.source = source
     self.streaming = streaming
     self.clock = clock
-    _blocks = State(initialValue: streaming ? [] : MarkdownCache.shared.blocks(for: source) ?? [])
+    let cached = streaming ? nil : MarkdownCache.shared.blocks(for: source)
+    _blocks = State(initialValue: cached ?? [])
+    _whole = State(initialValue: cached == nil ? nil : source)
   }
 
   /// The rendered prefix.
   var body: some View {
     MarkdownView(blocks: blocks)
       .task(id: Request(source: source, streaming: streaming, reduced: reduceMotion)) {
+        if !streaming {
+          if whole == source { return }
+          if let cached = MarkdownCache.shared.blocks(for: source) {
+            blocks = cached
+            whole = source
+            return
+          }
+        }
         var progress = reveal ?? TextReveal(source)
         progress.retarget(source)
         if !streaming || reduceMotion { progress = TextReveal(source) }
@@ -60,7 +74,13 @@ struct StreamingReplyView<C: Clock>: View where C.Duration == Duration {
             blocks = parsed
             reveal = progress
             lastFrame = clock.now
-            if progress.isSettled { break }
+            if progress.isSettled {
+              if !streaming {
+                MarkdownCache.shared.store(parsed, for: source)
+                whole = source
+              }
+              break
+            }
           } while true
         } catch is CancellationError {
           // The next task owns the newer target; the last published prefix stays visible.
