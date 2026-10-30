@@ -1,11 +1,13 @@
 import AtriumProtocol
 import SwiftUI
 
-/// The top row of a conversation that has older turns on the Mac: a small spinner and "正在载入更早的"
-/// while they load, empty otherwise.
+/// The top row of a conversation that has older turns on the Mac: while they load, two thin rules
+/// around a small spinner and "正在载入更早的"; empty otherwise.
 ///
-/// - Remark: SPEC-0005 "MP4a 定的细节" 9 (prototype A). The page fetches when this row shows, so it
-///   keeps its height when empty and the content does not jump when the spinner comes.
+/// - Remark: SPEC-0005 "MP4a 定的细节" 9; design-language "对话页 · 往上翻载入更早的" (prototype C,
+///   2026-10-30, after the centred spinner looked lost in the space around it). The page fetches
+///   when this row shows, so it keeps its height when empty and the content does not jump when the
+///   rules come.
 struct OlderRow: View {
   /// Whether older turns are on their way.
   let loading: Bool
@@ -13,14 +15,19 @@ struct OlderRow: View {
 
   /// The row.
   ///
-  /// - Remark: Centred, in the meta size, like the page's other notices.
+  /// - Remark: In the meta size, like the page's other notices.
   /// - SideEffects: none
   var body: some View {
     let palette = Palette(scheme: scheme)
-    HStack(spacing: 6) {
+    HStack(spacing: 10) {
       if loading {
-        ProgressView().controlSize(.mini).frame(width: 12, height: 12)
-        Text("正在载入更早的").font(Typography.meta).foregroundStyle(palette.tertiary)
+        Rectangle().fill(palette.line).frame(height: 0.5)
+        HStack(spacing: 6) {
+          ProgressView().controlSize(.mini).frame(width: 12, height: 12)
+          Text("正在载入更早的").font(Typography.meta).foregroundStyle(palette.secondary)
+        }
+        .fixedSize()
+        Rectangle().fill(palette.line).frame(height: 0.5)
       }
     }
     .frame(maxWidth: .infinity, minHeight: 18)

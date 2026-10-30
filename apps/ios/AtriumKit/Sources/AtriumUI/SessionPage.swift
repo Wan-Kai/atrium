@@ -47,6 +47,8 @@ struct SessionPage: View {
   @State private var holding = false
   /// How many times the scroll came to rest; one with the top row showing fetches (see `OlderWant`).
   @State private var rests = 0
+  /// Whether anything has scrolled under the title; at the top there is nothing for the fog to cover.
+  @State private var scrolledUnder = false
 
   /// One item of the conversation: a turn, or a notice line.
   ///
@@ -173,6 +175,10 @@ struct SessionPage: View {
           y: geometry.contentOffset.y + geometry.contentInsets.top)
       }
     ) { _, offset in place.offset = offset }
+    .onScrollGeometryChange(
+      for: Bool.self, of: { $0.contentOffset.y + $0.contentInsets.top > TitleFog.from },
+      action: { _, under in withAnimation(.easeOut(duration: 0.2)) { scrolledUnder = under } }
+    )
     .onChange(
       of: OlderWant(
         visible: olderVisible, connected: sync?.status == .connected, settled: state?.settled == true,
@@ -181,6 +187,8 @@ struct SessionPage: View {
       if want.fetches { sync?.loadOlder(sessionId) }
     }
     .background(palette.page.ignoresSafeArea())
+    // From the top of the screen, under the title and its buttons.
+    .overlay(alignment: .top) { TitleFog().opacity(scrolledUnder ? 1 : 0).ignoresSafeArea(edges: .top) }
     .overlay(alignment: .top) { topBar(palette) }
     .hidingNavigationBar()
     .safeAreaInset(edge: .bottom) {
@@ -420,9 +428,6 @@ struct SessionPage: View {
         LinkStrip(state: strip)
           .transition(.opacity.combined(with: .offset(y: -6)))
       }
-    }
-    .background(alignment: .top) {
-      GlassEdge(edge: .top).frame(height: 128).ignoresSafeArea(edges: .top).offset(y: -60)
     }
   }
 
