@@ -53,7 +53,10 @@
         fatalError("older sample does not decode: \(error)")
       }
       // As `SyncModel` takes it: replies parsed before the turns go in.
-      if let older = sync.core.olderItems(in: message) { await MarkdownCache.shared.warm(SyncModel.replies(older)) }
+      if let older = sync.core.olderItems(in: message) {
+        await MarkdownCache.shared.warm(SyncModel.replies(older))
+        await sync.rest.wait(on: clock)
+      }
       var core = sync.core
       _ = core.receive(message, generation: 1)
       sync.adopt(core: core, status: .connected)

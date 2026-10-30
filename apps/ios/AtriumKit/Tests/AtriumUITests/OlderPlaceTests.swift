@@ -47,10 +47,10 @@ struct OlderPlaceTests {
   /// - SideEffects: none
   @Test("fetches when the top row shows while connected and up to date")
   func fetchesWhenTheRowShows() {
-    #expect(OlderWant(visible: true, connected: true, settled: true, epoch: 1).fetches)
-    #expect(!OlderWant(visible: false, connected: true, settled: true, epoch: 1).fetches)
-    #expect(!OlderWant(visible: true, connected: false, settled: true, epoch: 1).fetches)
-    #expect(!OlderWant(visible: true, connected: true, settled: false, epoch: 1).fetches)
+    #expect(OlderWant(visible: true, connected: true, settled: true, epoch: 1, rests: 0).fetches)
+    #expect(!OlderWant(visible: false, connected: true, settled: true, epoch: 1, rests: 0).fetches)
+    #expect(!OlderWant(visible: true, connected: false, settled: true, epoch: 1, rests: 0).fetches)
+    #expect(!OlderWant(visible: true, connected: true, settled: false, epoch: 1, rests: 0).fetches)
   }
 
   /// Checks a fresh copy of the conversation is a new reason to fetch while the row shows.
@@ -60,9 +60,22 @@ struct OlderPlaceTests {
   /// - SideEffects: none
   @Test("a new snapshot or settling is a change that fetches again")
   func newCopyFetches() {
-    let cached = OlderWant(visible: true, connected: true, settled: true, epoch: 1)
-    #expect(cached != OlderWant(visible: true, connected: true, settled: true, epoch: 2))
-    #expect(cached != OlderWant(visible: true, connected: true, settled: false, epoch: 1))
+    let cached = OlderWant(visible: true, connected: true, settled: true, epoch: 1, rests: 0)
+    #expect(cached != OlderWant(visible: true, connected: true, settled: true, epoch: 2, rests: 0))
+    #expect(cached != OlderWant(visible: true, connected: true, settled: false, epoch: 1, rests: 0))
+  }
+
+  /// Checks a scroll coming to rest with the row on screen fetches again.
+  ///
+  /// - Remark: A batch too short to push the row off screen, or one put in while a finger was
+  ///   down, leaves the row showing with nothing else changing (SPEC-0005 "MP4a 定的细节" 9).
+  /// - SideEffects: none
+  @Test("a scroll coming to rest is a change that fetches again")
+  func restFetches() {
+    let shown = OlderWant(visible: true, connected: true, settled: true, epoch: 1, rests: 0)
+    let rested = OlderWant(visible: true, connected: true, settled: true, epoch: 1, rests: 1)
+    #expect(shown != rested)
+    #expect(rested.fetches)
   }
 
   /// Checks the first item is held where it was once a batch comes in front of it, and followed

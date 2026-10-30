@@ -34,7 +34,8 @@ struct OlderRow: View {
 ///   so turns that came in front and pushed the row off screen are not followed by another fetch at
 ///   once. A new copy of the conversation does: a fetch sent from the phone's cached copy is
 ///   refused once the Mac's snapshot replaces it, and the row is still on screen (SPEC-0005 "MP4a
-///   定的细节" 9).
+///   定的细节" 9). So does a scroll coming to rest while the row shows: a batch too short to push
+///   it off screen leaves it there with nothing else changing.
 struct OlderWant: Equatable {
   /// Whether the top row is on screen.
   let visible: Bool
@@ -44,6 +45,8 @@ struct OlderWant: Equatable {
   let settled: Bool
   /// The epoch of the copy the phone has; `nil` before one.
   let epoch: Int?
+  /// How many times the page's scroll came to rest.
+  let rests: Int
   /// Whether to fetch.
   var fetches: Bool { visible && connected && settled }
 }

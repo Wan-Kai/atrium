@@ -48,6 +48,8 @@ public final class SyncModel {
   /// The drafts as last written to the cache.
   @ObservationIgnored private var savedDrafts: [SessionId: String] = [:]
   @ObservationIgnored private let clock: any Clock<Duration>
+  /// Whether the open page is scrolling; older turns wait for it (see ``ScrollRest``).
+  @ObservationIgnored public let rest = ScrollRest()
   /// The pending throttled write of the cache, if any.
   @ObservationIgnored private var saving: Task<Void, Never>?
   @ObservationIgnored private let outputs: AsyncStream<SyncOutput>
@@ -64,7 +66,7 @@ public final class SyncModel {
   ///   - now: The time since some fixed origin, for the retry window.
   ///   - requestId: Makes a request id; random UUIDs in the app (SPEC-0005 "协议改动" 4).
   ///   - cache: The host's cache, read now and written as things change; `nil` keeps nothing.
-  ///   - clock: The clock the cache's writes are throttled on.
+  ///   - clock: The clock the cache's writes are throttled on, and older turns wait on.
   public init(
     connection: RemoteConnection, hostName: String, traceparent: @escaping @Sendable () -> String,
     now: @escaping @Sendable () -> Duration, requestId: @escaping () -> String, cache: SyncCache? = nil,
@@ -395,8 +397,12 @@ public final class SyncModel {
     let decoder = JSONDecoder()
     for await message in connection.messages {
       guard let decoded = try? decoder.decode(HostMessage.self, from: message.data) else { continue }
-      // Older turns are parsed before they go in front, so they lay out whole and what you read stays put.
-      if let older = core.olderItems(in: decoded) { await MarkdownCache.shared.warm(Self.replies(older)) }
+      // Older turns are parsed before they go in front, so they lay out whole and what you read stays put;
+      // they go in once the page rests, as laying them out stalls a frame (what follows waits with them).
+      if let older = core.olderItems(in: decoded) {
+        await MarkdownCache.shared.warm(Self.replies(older))
+        await rest.wait(on: clock)
+      }
       enqueue(core.receive(decoded, generation: message.generation))
       saveDrafts()
       scheduleSave()

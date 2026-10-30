@@ -45,6 +45,8 @@ struct SessionPage: View {
   @State private var place = PlaceKeeper()
   /// Whether an item is held in place after older turns came; the bottom anchor then stays out.
   @State private var holding = false
+  /// How many times the scroll came to rest; one with the top row showing fetches (see `OlderWant`).
+  @State private var rests = 0
 
   /// One item of the conversation: a turn, or a notice line.
   ///
@@ -158,6 +160,9 @@ struct SessionPage: View {
       // A finger on the screen; turns that come while a fling slows down are still held in place.
       place.userScrolling = phase == .tracking || phase == .interacting
       if holding != place.holding { holding = place.holding }
+      // Older turns wait for the page to rest before going in (see `ScrollRest`).
+      sync?.rest.moving = phase != .idle
+      if phase == .idle { rests += 1 }
     }
     .onScrollGeometryChange(
       for: CGPoint.self,
@@ -171,7 +176,7 @@ struct SessionPage: View {
     .onChange(
       of: OlderWant(
         visible: olderVisible, connected: sync?.status == .connected, settled: state?.settled == true,
-        epoch: state?.epoch)
+        epoch: state?.epoch, rests: rests)
     ) { _, want in
       if want.fetches { sync?.loadOlder(sessionId) }
     }
@@ -230,7 +235,11 @@ struct SessionPage: View {
       sync?.open(sessionId)
       sync?.clearAttention(sessionId)
     }
-    .onDisappear { if Self.closes(child: openChild, changes: openChanges) { sync?.close(sessionId) } }
+    .onDisappear {
+      // A page left mid-scroll reports no rest; its older turns need not wait.
+      sync?.rest.moving = false
+      if Self.closes(child: openChild, changes: openChanges) { sync?.close(sessionId) }
+    }
     .onChange(of: sync?.core.index.sessions.first { $0.sessionId == sessionId }?.attention) {
       sync?.clearAttention(sessionId)
     }

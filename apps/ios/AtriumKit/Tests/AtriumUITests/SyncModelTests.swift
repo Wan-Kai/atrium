@@ -166,6 +166,104 @@ struct SyncModelTests {
     await running.value
   }
 
+  @Test("puts older turns in front only once the page's scroll rests, or after three seconds")
+  func olderWaitsForRest() async throws {
+    let host = TestHost()
+    let store = HostStore(MemorySecretStore())
+    try store.confirm(host.record, deviceId: host.deviceId)
+    let relay = MemoryRelay()
+    let manualClock = ManualClock()
+    let clock = Stopwatch(manualClock)
+    let environment = RemoteEnvironment(
+      connect: { relay.connect($0) }, stopwatch: clock, jitter: { 0 }, appVersion: "1")
+    let connection = RemoteConnection(
+      host: host.record, deviceKey: try store.deviceKey(), store: store, environment: environment)
+    PairingTestResources.current?.register(connection, clock: manualClock)
+    let restClock = ManualClock()
+    let model = SyncModel(
+      connection: connection, hostName: host.hostName, traceparent: { traceparent }, now: { .zero },
+      requestId: { UUID().uuidString.lowercased() }, clock: restClock)
+    model.open("s1")
+    let running = Task { await model.run() }
+    let following = Task { for await status in connection.statuses { await model.statusChanged(status) } }
+    await connection.start()
+    let side = try await host.accept((await relay.next()).host, stopwatch: clock)
+    PairingTestResources.current?.register(side.channel)
+    _ = try await side.answerHello(protocolVersion: protocolVersion)
+    var answered: [String] = []
+    for _ in 0..<3 {
+      let message = try JSONSerialization.jsonObject(with: try await firstMessage(of: side)) as? [String: Any]
+      answered.append(try #require(message?["requestId"] as? String))
+    }
+    try await side.send(Data(emptyList.utf8))
+    for requestId in answered {
+      try await side.send(Data(#"{"type":"response","requestId":"\#(requestId)","ok":true,"result":{}}"#.utf8))
+    }
+    let older = sessionSnapshot.replacingOccurrences(of: #""items":[]"#, with: #""items":[\#(turn("t9"))]"#)
+      .replacingOccurrences(of: #""hasOlder":false"#, with: #""hasOlder":true"#)
+    try await side.send(Data(older.utf8))
+    try await waitUntil { model.status == .connected && model.core.sessions["s1"]?.hasOlder == true }
+
+    // Scrolling: the page comes back but waits, and so does what comes after it.
+    model.rest.moving = true
+    try await answerOlder(side, model: model, with: "t8", hasOlder: true)
+    try await side.send(Data(#"{"type":"response","requestId":"none","ok":true,"result":{}}"#.utf8))
+    try await waitUntil { restClock.sleeperCount == 1 }
+    #expect(model.core.sessions["s1"]?.items.map(\.id) == ["t9"])
+    model.rest.moving = false
+    restClock.advance(by: ScrollRest.step)
+    try await waitUntil { model.core.sessions["s1"]?.items.map(\.id) == ["t8", "t9"] }
+
+    // Still scrolling after three seconds: it goes in anyway.
+    model.rest.moving = true
+    try await answerOlder(side, model: model, with: "t7", hasOlder: false)
+    var waited = Duration.zero
+    while waited < ScrollRest.longest {
+      try await waitUntil { restClock.sleeperCount == 1 }
+      #expect(model.core.sessions["s1"]?.items.count == 2)
+      restClock.advance(by: ScrollRest.step)
+      waited += ScrollRest.step
+    }
+    try await waitUntil { model.core.sessions["s1"]?.items.map(\.id) == ["t7", "t8", "t9"] }
+
+    following.cancel()
+    running.cancel()
+    await running.value
+    await following.value
+    await connection.stop()
+  }
+
+  /// Asks for older turns and answers with one.
+  ///
+  /// - Remark: For ``olderWaitsForRest()``.
+  /// - SideEffects: Queues a fetch; reads from and writes to the host side.
+  /// - Parameters:
+  ///   - side: The host's side.
+  ///   - model: The model.
+  ///   - id: The older turn's id.
+  ///   - hasOlder: Whether more are left.
+  /// - Throws: When the phone sends no fetch.
+  private func answerOlder(_ side: HostSide, model: SyncModel, with id: String, hasOlder: Bool) async throws {
+    model.loadOlder("s1")
+    let fetch = try JSONSerialization.jsonObject(with: try await firstMessage(of: side)) as? [String: Any]
+    #expect(fetch?["type"] as? String == "fetch_transcript")
+    let requestId = try #require(fetch?["requestId"] as? String)
+    try await side.send(
+      Data(
+        #"{"type":"response","requestId":"\#(requestId)","ok":true,"result":{"items":[\#(turn(id))],"hasOlder":\#(hasOlder)}}"#
+          .utf8))
+  }
+
+  /// A finished turn with no steps, as the host sends it.
+  ///
+  /// - Remark: For the older-turns test.
+  /// - SideEffects: none
+  /// - Parameter id: The turn's id.
+  /// - Returns: The JSON.
+  private func turn(_ id: String) -> String {
+    #"{"kind":"turn","id":"\#(id)","source":null,"user":{"text":"hi","images":0,"clientMessageId":null,"auto":false,"command":null,"timestamp":0},"steps":[],"outcome":"done","error":null,"startedAt":0,"durationMs":1,"usage":null,"changes":[]}"#
+  }
+
   @Test("writes the list, open sessions and drafts to the cache, and starts the next launch from them")
   func cache() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("atrium-model-\(UUID().uuidString)")
