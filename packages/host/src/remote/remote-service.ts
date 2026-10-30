@@ -31,6 +31,7 @@ import { nameOf, parseVault, type RemoteDocument, type VaultContents } from "./d
 import { PairingMachine } from "./pairing";
 import { parseRelayLine, type RelayEndpoint } from "./relay-line";
 import { RelayLink, probeRelay } from "./relay-link";
+import type { RelayRoute } from "./relay-route";
 import { VaultStore, type VaultPort } from "./vault";
 
 /** The bounded authenticated payload shared by both handshakes. */
@@ -59,6 +60,8 @@ export interface RemoteOptions {
   readonly resources: ResourceTracker;
   readonly logger: Logger;
   readonly hostName: string;
+  /** Through the proxy setting or direct (SPEC-0005, "连 relay 走代理"); direct when absent. */
+  readonly route?: RelayRoute;
   readonly send: (connectionId: string, event: RemoteUpdatedEvent) => void;
   readonly accept: (transport: ClientTransport, origin: TransportOrigin) => void;
 }

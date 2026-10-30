@@ -14,6 +14,7 @@ import { type Clock, trackedTimeout } from "../platform/clock";
 import type { ResourceTracker } from "../platform/resources";
 import type { ClientTransport } from "../server/transport";
 import type { RelayEndpoint } from "./relay-line";
+import { type RelayRoute, socketAgent } from "./relay-route";
 
 /** A stream that has not finished its Noise handshake this long after it opened is closed (SPEC-0005). */
 export const HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -80,7 +81,13 @@ export class PhoneStream {
   constructor(
     streamId: string,
     endpoint: RelayEndpoint,
-    options: { readonly clock: Clock; readonly resources: ResourceTracker; readonly events: StreamEvents },
+    options: {
+      readonly clock: Clock;
+      readonly resources: ResourceTracker;
+      readonly events: StreamEvents;
+      /** The way the control connection's latest attempt went (SPEC-0005, "连 relay 走代理"). */
+      readonly route?: RelayRoute;
+    },
   ) {
     this.streamId = streamId;
     this.#clock = options.clock;
@@ -88,7 +95,12 @@ export class PhoneStream {
     this.#events = options.events;
     this.#lastHeard = options.clock.now();
     this.#releaseData = options.resources.acquire("remote.data");
-    this.#socket = new WebSocket(`${endpoint.url}/v1/host/stream`, { perMessageDeflate: false, maxPayload: 70 * 1024 });
+    // The way the control connection went (SPEC-0005, "连 relay 走代理").
+    this.#socket = new WebSocket(`${endpoint.url}/v1/host/stream`, {
+      ...socketAgent(options.route),
+      perMessageDeflate: false,
+      maxPayload: 70 * 1024,
+    });
     this.done = new Promise((resolve) => {
       this.#socket.once("close", () => {
         this.close("socket_closed");

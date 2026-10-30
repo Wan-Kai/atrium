@@ -24,7 +24,9 @@ import {
 import { FakeClock } from "@atrium/testkit";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
+import { startConnectProxy } from "../../test/connect-proxy";
 import { ResourceTracker } from "../platform/resources";
+import { RelayRoute } from "./relay-route";
 import { HANDSHAKE_TIMEOUT_MS, PhoneStream, reasonOf, SILENCE_MS } from "./channel";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -33,7 +35,7 @@ afterEach(async () => {
 });
 
 /** Opens a real relay data endpoint and records stream callbacks. @remarks The peer can stall or corrupt frames without replacing production sockets. @sideEffects Opens a loopback listener and a PhoneStream; registers cleanup. */
-async function fixture(waitForOpen = true) {
+async function fixture(waitForOpen = true, route?: RelayRoute) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0, perMessageDeflate: true });
   await once(server, "listening");
   const address = server.address();
@@ -56,6 +58,7 @@ async function fixture(waitForOpen = true) {
   const stream = new PhoneStream("b".repeat(32), endpoint, {
     clock,
     resources,
+    ...(route === undefined ? {} : { route }),
     events: {
       onFirstFrame: (phone, pattern, message) => frames.push({ stream: phone, pattern, message }),
       onControl: (phone, value) => controls.push({ stream: phone, value }),
@@ -189,6 +192,16 @@ async function expectClosed(f: Awaited<ReturnType<typeof fixture>>, reason: stri
 }
 
 describe("PhoneStream", () => {
+  it("opens the data connection the way the link's route chose: through the proxy", async () => {
+    const proxy = await startConnectProxy();
+    cleanup.push(proxy.close);
+    const route = new RelayRoute(() => ({ url: proxy.url, noProxy: [] }));
+    route.begin("ws://127.0.0.1");
+    const f = await fixture(true, route);
+    expect(proxy.targets).toStrictEqual([new URL(f.endpoint.url).host]);
+    expect(f.requests[0]?.url).toBe("/v1/host/stream");
+  });
+
   it("authenticates its own data socket without negotiating compression", async () => {
     const f = await fixture();
     expect(f.requests).toStrictEqual([{ url: "/v1/host/stream", extensions: undefined }]);

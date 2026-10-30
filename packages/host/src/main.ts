@@ -43,6 +43,7 @@ import { type HostTools, createToolbox, withProxySetting } from "./setup/toolbox
 import { HOST_TO_PHONE_LIMIT } from "@atrium/remote-crypto";
 import type { VaultPort } from "./remote/vault";
 import { RemoteService } from "./remote/remote-service";
+import { RelayRoute, relayProxy } from "./remote/relay-route";
 import { REMOTE_FILE } from "./remote/devices";
 import { loadIndexFile } from "./store/index-file";
 import { createAttachmentStore } from "./server/attachments";
@@ -574,6 +575,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     resources,
     logger,
     hostName: hostname(),
+    // The proxy setting, read afresh at every attempt (SPEC-0005, "连 relay 走代理").
+    route: new RelayRoute(() => relayProxy(preferences.read().proxy)),
     send: (id, event) => subscriptions.sendTo(id, event),
     accept: (transport, origin) => server.accept(transport, origin),
   });
