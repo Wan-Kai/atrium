@@ -138,7 +138,7 @@
     /// - SideEffects: none
     /// - Parameter index: Which one; names its ids.
     /// - Returns: The JSON.
-    private static func historyTurn(_ index: Int) -> String {
+    static func historyTurn(_ index: Int) -> String {
       let reply = String(
         decoding: (try? JSONEncoder().encode(GalleryMarkdown.sample)) ?? Data("\"\"".utf8), as: UTF8.self)
       return """
@@ -156,9 +156,11 @@
     ///
     /// - Remark: See `historyTurn(_:)`.
     /// - SideEffects: none
-    /// - Parameter history: How many finished turns come first.
+    /// - Parameters:
+    ///   - history: How many finished turns come first.
+    ///   - older: Whether older turns are on the Mac.
     /// - Returns: The JSON.
-    private static func snapshot(history: Int) -> String {
+    private static func snapshot(history: Int, older: Bool = false) -> String {
       let earlier = (0..<history).map(historyTurn).joined()
       return """
         {"type":"session_snapshot","sessionId":"s1","epoch":1,"seq":0,"traceId":null,"stream":"st-1","items":[\(earlier)\
@@ -172,7 +174,7 @@
         \(SampleTurns.read("4", "src/radar.ts")),\(SampleTurns.edit("5", "src/radar.ts", added: 18, removed: 9)),\
         \(SampleTurns.bash("6", "pnpm test:ui radar", "running"))],\
         "outcome":"running","error":null,"startedAt":\(now - 192_000),"durationMs":null,"usage":null,"changes":[]}],\
-        "hasOlder":false,"run":{"runId":"r-gallery","startedAt":\(now - 192_000)},"exited":false,"control":{"queue":[],"deliveries":[],"deliveriesHeld":null,\
+        "hasOlder":\(older),"run":{"runId":"r-gallery","startedAt":\(now - 192_000)},"exited":false,"control":{"queue":[],"deliveries":[],"deliveriesHeld":null,\
         "paused":null,"steers":[],"stopping":false,"restarting":false,"compacting":false,"interactions":[],\
         "question":null,"failure":null},\
         "model":{"providerId":"openai-codex","modelId":"gpt-6","thinkingLevel":"high"},"fast":true,\
@@ -249,19 +251,25 @@
     ///   - missing: Whether `w4` is marked as not found.
     ///   - modelsFor: The workspace whose models are answered.
     ///   - history: How many finished turns the open session has before its two.
+    ///   - older: Whether older turns are on the Mac.
+    ///   - issued: Told every request id the core makes, so a sample can answer it.
     /// - Returns: The model, status connected.
-    static func model(missing: Bool = false, modelsFor: String? = nil, history: Int = 0) -> SyncModel {
+    static func model(
+      missing: Bool = false, modelsFor: String? = nil, history: Int = 0, older: Bool = false,
+      issued: @escaping (String) -> Void = { _ in }
+    ) -> SyncModel {
       var next = 0
       var core = SyncCore(
         requestId: {
           next += 1
+          issued("r\(next)")
           return "r\(next)"
         },
         traceparent: { "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01" }, now: { .zero })
       _ = core.open(openSession)
       _ = core.connected(generation: 1)
       let ok = { (id: String) in #"{"type":"response","requestId":"\#(id)","ok":true,"result":{}}"# }
-      for json in [ok("r1"), index, ok("r2"), ok("r3"), snapshot(history: history)] {
+      for json in [ok("r1"), index, ok("r2"), ok("r3"), snapshot(history: history, older: older)] {
         _ = core.receive(host(json), generation: 1)
       }
       if missing {

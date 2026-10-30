@@ -37,6 +37,57 @@ struct SessionPage: View {
   @State private var openChanges: ChangesRoute?
   /// The toast showing, if any.
   @State private var toast: String?
+  /// Where the conversation is scrolled to; moved only to keep the reading place when older turns come.
+  @State private var position = ScrollPosition(idType: String.self)
+  /// Whether the "older turns" row is on screen, so reaching the top fetches them.
+  @State private var olderVisible = false
+  /// Where the first turn sits, to keep it in place when older turns are put in front of it.
+  @State private var place = PlaceKeeper()
+  /// Whether an item is held in place after older turns came; the bottom anchor then stays out.
+  @State private var holding = false
+
+  /// One item of the conversation: a turn, or a notice line.
+  ///
+  /// - Remark: Each reports its top, so the first can be kept in place (see `keepPlace`).
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - item: The item.
+  ///   - lastTurn: The latest turn's id.
+  ///   - changes: Where the change list opens from.
+  ///   - palette: The colours.
+  /// - Returns: The row.
+  @ViewBuilder
+  private func row(_ item: TranscriptItem, lastTurn: String?, changes: ChangesRoute?, palette: Palette) -> some View {
+    switch item {
+    case .turn(let turn):
+      TurnItem(
+        turn: turn, latest: turn.id == lastTurn, changes: changes, retry: { retry() },
+        openChanges: { openChanges = $0 }
+      )
+      .equatable()
+      .id(turn.id)
+      .onGeometryChange(
+        for: CGFloat.self, of: { $0.frame(in: .scrollView).minY }, action: { keepPlace(item.id, top: $0) })
+    case .notice(let notice):
+      Text(Self.label(notice)).font(Typography.meta).foregroundStyle(palette.tertiary)
+        .onGeometryChange(
+          for: CGFloat.self, of: { $0.frame(in: .scrollView).minY }, action: { keepPlace(item.id, top: $0) })
+    }
+  }
+
+  /// Keeps the first item in place when older turns come in front of it.
+  ///
+  /// - Remark: See ``PlaceKeeper``.
+  /// - SideEffects: May scroll.
+  /// - Parameters:
+  ///   - id: The item measured.
+  ///   - top: Its top in the scroll view.
+  private func keepPlace(_ id: String, top: CGFloat) {
+    let items = sync?.core.sessions[sessionId]?.items ?? []
+    let target = place.moved(id, top: top, items: items)
+    if holding != place.holding { holding = place.holding }
+    if let target { position.scrollTo(point: target) }
+  }
 
   /// The page.
   var body: some View {
@@ -47,48 +98,48 @@ struct SessionPage: View {
     let lastTurn = state?.items.last { if case .turn = $0 { true } else { false } }?.id
     let changes = changesRoute
     ScrollView {
-      LazyVStack(alignment: .leading, spacing: Metrics.md) {
+      // The lines above the turns are outside the lazy stack, so they are always measured: an
+      // estimated height there would move the turns while older ones are held in place.
+      VStack(alignment: .leading, spacing: Metrics.md) {
         if sync?.core.stale == true {
           Text("不是最新").font(Typography.meta).foregroundStyle(palette.tertiary)
         }
         if state?.hasOlder == true {
-          // Fetches when it shows, and again once the turns it brought are in, or once connected.
+          // Fetches when it comes on screen, or on connecting while it is (see `OlderWant`).
           OlderRow(loading: sync?.core.loadingOlder.contains(sessionId) == true)
-            .task(id: "\(state?.items.first?.id ?? "")|\(sync?.status == .connected)") { sync?.loadOlder(sessionId) }
+            .onScrollVisibilityChange(threshold: 0.01) { olderVisible = $0 }
         }
-        ForEach(state?.items ?? [], id: \.id) { item in
-          switch item {
-          case .turn(let turn):
-            TurnItem(
-              turn: turn, latest: turn.id == lastTurn, changes: changes, retry: { retry() },
-              openChanges: { openChanges = $0 }
-            )
-            .equatable()
-            .id(turn.id)
-          case .notice(let notice):
-            Text(Self.label(notice)).font(Typography.meta).foregroundStyle(palette.tertiary)
+        LazyVStack(alignment: .leading, spacing: Metrics.md) {
+          let layout = OlderLayout(items: state?.items ?? [], batches: state?.olderBatches ?? [])
+          // Each fetched batch is laid out whole: it comes in at the top, on screen, so its height is
+          // exact at once and the place can be kept (see `PlaceKeeper`).
+          ForEach(layout.blocks, id: \.first?.id) { block in
+            VStack(alignment: .leading, spacing: Metrics.md) {
+              ForEach(block, id: \.id) { item in row(item, lastTurn: lastTurn, changes: changes, palette: palette) }
+            }
           }
-        }
-        ForEach(sync?.core.outbox.filter { $0.sessionId == sessionId } ?? []) { message in
-          PendingBubble(message: message) { sync?.resend(message.id) }
-        }
-        if let question = state?.control?.question, sheet == nil {
-          QuestionCard(question: question) { sheet = .question(question) }
-        }
-        if let failure = controls.failure {
-          ErrorCard(text: failure, detail: nil) { retry() }
-        }
-        if state?.control?.compacting == true {
-          Text("正在压缩上下文…").font(Typography.meta).foregroundStyle(palette.secondary)
-        }
-        if controls.restarting {
-          Text("正在重启 pi").font(Typography.meta).foregroundStyle(palette.secondary)
-        }
-        if let line = Self.statusLine(state?.status) {
-          Text(line)
-            .font(Typography.meta)
-            .foregroundStyle(palette.secondary)
-            .accessibilityIdentifier("session.status")
+          ForEach(layout.rest, id: \.id) { item in row(item, lastTurn: lastTurn, changes: changes, palette: palette) }
+          ForEach(sync?.core.outbox.filter { $0.sessionId == sessionId } ?? []) { message in
+            PendingBubble(message: message) { sync?.resend(message.id) }
+          }
+          if let question = state?.control?.question, sheet == nil {
+            QuestionCard(question: question) { sheet = .question(question) }
+          }
+          if let failure = controls.failure {
+            ErrorCard(text: failure, detail: nil) { retry() }
+          }
+          if state?.control?.compacting == true {
+            Text("正在压缩上下文…").font(Typography.meta).foregroundStyle(palette.secondary)
+          }
+          if controls.restarting {
+            Text("正在重启 pi").font(Typography.meta).foregroundStyle(palette.secondary)
+          }
+          if let line = Self.statusLine(state?.status) {
+            Text(line)
+              .font(Typography.meta)
+              .foregroundStyle(palette.secondary)
+              .accessibilityIdentifier("session.status")
+          }
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -96,7 +147,29 @@ struct SessionPage: View {
       .padding(.top, Metrics.glassButton + Metrics.lg)
       .padding(.bottom, Metrics.xl)
     }
-    .defaultScrollAnchor(.bottom)
+    .scrollPosition($position)
+    // Leading, not centre: content briefly wider than the screen while it lays out must not move it
+    // sideways. While older turns are held in place, growth is not anchored to the bottom, or the two
+    // would pull against each other.
+    .defaultScrollAnchor(.bottomLeading, for: .initialOffset)
+    .defaultScrollAnchor(holding ? nil : .bottomLeading, for: .sizeChanges)
+    .onScrollPhaseChange { _, phase in
+      // A finger on the screen; turns that come while a fling slows down are still held in place.
+      place.userScrolling = phase == .tracking || phase == .interacting
+      if holding != place.holding { holding = place.holding }
+    }
+    .onScrollGeometryChange(
+      for: CGPoint.self,
+      of: { geometry in
+        // A scroll position's point leaves the insets out; the content offset counts them.
+        CGPoint(
+          x: geometry.contentOffset.x + geometry.contentInsets.leading,
+          y: geometry.contentOffset.y + geometry.contentInsets.top)
+      }
+    ) { _, offset in place.offset = offset }
+    .onChange(of: OlderWant(visible: olderVisible, connected: sync?.status == .connected)) { _, want in
+      if want.fetches { sync?.loadOlder(sessionId) }
+    }
     .background(palette.page.ignoresSafeArea())
     .overlay(alignment: .top) { topBar(palette) }
     .hidingNavigationBar()

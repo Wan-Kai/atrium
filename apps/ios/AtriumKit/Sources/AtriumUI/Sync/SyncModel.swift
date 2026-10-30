@@ -1,5 +1,6 @@
 import AtriumProtocol
 import AtriumRemote
+import AtriumRender
 import AtriumSync
 import Foundation
 import Observation
@@ -385,9 +386,24 @@ public final class SyncModel {
     let decoder = JSONDecoder()
     for await message in connection.messages {
       guard let decoded = try? decoder.decode(HostMessage.self, from: message.data) else { continue }
+      // Older turns are parsed before they go in front, so they lay out whole and what you read stays put.
+      if let older = core.olderItems(in: decoded) { await MarkdownCache.shared.warm(Self.replies(older)) }
       enqueue(core.receive(decoded, generation: message.generation))
       saveDrafts()
       scheduleSave()
+    }
+  }
+
+  /// The reply texts of some items, as their turns show them.
+  ///
+  /// - Remark: See `TurnLayout.reply`.
+  /// - SideEffects: none
+  /// - Parameter items: Transcript items.
+  /// - Returns: The replies.
+  static func replies(_ items: [TranscriptItem]) -> [String] {
+    items.compactMap { item in
+      guard case .turn(let turn) = item else { return nil }
+      return TurnLayout(turn).reply
     }
   }
 

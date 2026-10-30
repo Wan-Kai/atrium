@@ -24,6 +24,22 @@ struct StreamingReplyView<C: Clock>: View where C.Duration == Duration {
   /// Whether animations should be reduced.
   @Environment(\.atriumReduceMotion) private var reduceMotion
 
+  /// Shows a reply, whole at once when it was parsed ahead.
+  ///
+  /// - Remark: A finished reply in `MarkdownCache` starts with its blocks, so it has its full
+  ///   height from the first frame; any other starts empty and fills in from its worker.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - source: The text so far.
+  ///   - streaming: Whether it is still coming.
+  ///   - clock: The frame clock.
+  init(source: String, streaming: Bool, clock: C) {
+    self.source = source
+    self.streaming = streaming
+    self.clock = clock
+    _blocks = State(initialValue: streaming ? [] : MarkdownCache.shared.blocks(for: source) ?? [])
+  }
+
   /// The rendered prefix.
   var body: some View {
     MarkdownView(blocks: blocks)

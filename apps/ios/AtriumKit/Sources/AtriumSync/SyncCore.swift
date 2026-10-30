@@ -544,6 +544,20 @@ public struct SyncCore {
     ]
   }
 
+  /// The items an answer to a fetch of older ones brings, without taking it.
+  ///
+  /// - Remark: So the app can get them ready to draw before they are put in front (SPEC-0005
+  ///   "MP4a 定的细节" 9). Changes nothing.
+  /// - SideEffects: none
+  /// - Parameter message: A message from the Mac.
+  /// - Returns: The items, or `nil` for any other message.
+  public func olderItems(in message: HostMessage) -> [TranscriptItem]? {
+    guard case .responseMessage(.success(let success)) = message, case .older? = requests[success.requestId],
+      let result = success.result, let data = try? JSONEncoder().encode(result)
+    else { return nil }
+    return (try? JSONDecoder().decode(FetchTranscriptResult.self, from: data))?.items
+  }
+
   /// Watches the changes of the workspaces shown.
   ///
   /// - Remark: SPEC-0005 "MP6 定的细节 · MP6a": the whole set each time, as the command replaces

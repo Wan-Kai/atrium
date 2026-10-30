@@ -66,8 +66,23 @@ struct SyncOlderTests {
     _ = receive(&sync, generation: 1, olderOK("r4", ["t1", "t2"], hasOlder: false))
     #expect(sync.sessions["s1"]?.items.map(\.id) == ["t1", "t2", "t3", "t4"])
     #expect(sync.sessions["s1"]?.hasOlder == false)
+    #expect(sync.sessions["s1"]?.olderBatches == [2])
     #expect(sync.loadingOlder == [])
     #expect(sync.loadOlder("s1") == [])
+  }
+
+  @Test("remembers each batch's size, newest batch first, until a snapshot replaces them")
+  func batches() {
+    var sync = olderCore()
+    #expect(sync.sessions["s1"]?.olderBatches == [])
+    _ = sync.loadOlder("s1")
+    _ = receive(&sync, generation: 1, olderOK("r4", ["t1", "t2"], hasOlder: true))
+    _ = sync.loadOlder("s1")
+    _ = receive(&sync, generation: 1, olderOK("r5", ["t0"], hasOlder: false))
+    #expect(sync.sessions["s1"]?.items.map(\.id) == ["t0", "t1", "t2", "t3", "t4"])
+    #expect(sync.sessions["s1"]?.olderBatches == [1, 2])
+    _ = receive(&sync, generation: 1, snapshotJSON("s1", epoch: 2, items: [turnJSON("t4")], hasOlder: true))
+    #expect(sync.sessions["s1"]?.olderBatches == [])
   }
 
   @Test("drops an answer a new snapshot has overtaken, and a failure only ends the loading")
@@ -117,6 +132,17 @@ struct SyncOlderTests {
     var none = syncedCore()
     #expect(none.loadOlder("s1") == [])
     #expect(none.loadOlder("s9") == [])
+  }
+
+  @Test("tells the items an answer to its older fetch brings before taking it, and nothing for others")
+  func peeks() {
+    var sync = olderCore()
+    _ = sync.loadOlder("s1")
+    #expect(sync.olderItems(in: host(olderOK("r4", ["t1", "t2"], hasOlder: true)))?.map(\.id) == ["t1", "t2"])
+    #expect(sync.olderItems(in: host(olderOK("r9", ["t1"], hasOlder: true))) == nil)
+    #expect(sync.olderItems(in: host(ok("r4"))) == nil)
+    #expect(sync.olderItems(in: host(snapshotJSON("s1"))) == nil)
+    #expect(sync.loadingOlder == ["s1"])
   }
 
   @Test("closing the page forgets its loading")

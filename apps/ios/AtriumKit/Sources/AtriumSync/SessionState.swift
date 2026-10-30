@@ -51,6 +51,9 @@ public struct SessionState: Sendable, Equatable {
   public private(set) var items: [TranscriptItem] = []
   /// Whether older items exist on the host.
   public private(set) var hasOlder = false
+  /// How many items each fetch of older ones put in front, the latest fetch first; `items` starts
+  /// with them in this order (SPEC-0005 "MP4a 定的细节" 9).
+  public private(set) var olderBatches: [Int] = []
   /// Whether a run is in progress.
   public var running: Bool { runStartedAt != nil }
   /// When the run in progress started, on the host's clock; `nil` when none is.
@@ -193,6 +196,7 @@ public struct SessionState: Sendable, Equatable {
   mutating func prependOlder(_ older: [TranscriptItem], hasOlder: Bool, epoch: Int, before: String) {
     guard epoch == self.epoch, items.first?.id == before else { return }
     items.insert(contentsOf: older, at: 0)
+    olderBatches.insert(older.count, at: 0)
     self.hasOlder = hasOlder
   }
 
@@ -208,6 +212,7 @@ public struct SessionState: Sendable, Equatable {
     seq = snapshot.seq
     stream = snapshot.stream
     items = snapshot.items
+    olderBatches = []
     hasOlder = snapshot.hasOlder
     runStartedAt = snapshot.run?.startedAt
     control = snapshot.control
