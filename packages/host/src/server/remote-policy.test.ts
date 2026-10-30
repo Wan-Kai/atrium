@@ -289,10 +289,24 @@ function turnWith(output: string, partial = false): Turn {
   };
 }
 
+/**
+ * A `step_added` event for a command step with an output.
+ *
+ * @remarks
+ * Turn `t1` of `s1`.
+ *
+ * @sideEffects none
+ * @param output - What it printed.
+ * @returns The event, unparsed.
+ */
+function stepEvent(output: string) {
+  return { type: "step_added", sessionId: "s1", epoch: 1, seq: 1, traceId: null, turnId: "t1", step: toolStep(output) };
+}
+
 describe("conversations as the phone gets them", () => {
   const preview = LONG.slice(-PHONE_STEP_TEXT_LIMIT);
 
-  it("sends tool steps of snapshots and step events as 2 KB previews, marked partial", () => {
+  it("sends tool steps of snapshots and step events as short previews, marked partial", () => {
     const snapshot = HostMessage.parse({
       type: "session_snapshot",
       sessionId: "s1",
@@ -323,6 +337,11 @@ describe("conversations as the phone gets them", () => {
     expect(forPhone(snapshot)).toStrictEqual({ ...snapshot, items: [turnWith(preview, true)] });
     expect(forPhone(added)).toStrictEqual({ ...added, step: toolStep(preview, true) });
     expect(forPhone(updated)).toStrictEqual({ ...updated, step: toolStep(preview, true) });
+  });
+
+  it("cuts to 512 bytes, as the phone shows one line until a step is opened", () => {
+    expect(PHONE_STEP_TEXT_LIMIT).toBe(512);
+    expect(forPhone(HostMessage.parse(stepEvent(LONG)))).toMatchObject({ step: { output: LONG.slice(-512) } });
   });
 
   it("cuts a page of older turns the same way, and leaves short steps as they are", () => {

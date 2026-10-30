@@ -79,10 +79,10 @@ struct RailRowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(10)
             .background(palette.code, in: RoundedRectangle(cornerRadius: 8))
-          if let whole = wholeStep {
+          if !wholeSteps.isEmpty {
             WholeStepLine(
-              fetching: sync?.core.fetchingSteps.contains(whole) == true,
-              failed: sync?.core.failedSteps.contains(whole) == true, retry: fetchWhole)
+              fetching: wholeSteps.contains { sync?.core.fetchingSteps.contains($0) == true },
+              failed: wholeSteps.contains { sync?.core.failedSteps.contains($0) == true }, retry: fetchWhole)
           }
         }
       } else {
@@ -113,20 +113,20 @@ struct RailRowView: View {
     .accessibilityElement(children: .contain)
   }
 
-  /// The step this row fetches whole, while it shows a preview.
+  /// The steps this row fetches whole, while it shows previews.
   ///
   /// - Remark: Read only while open, so a closed row does not redraw with every change of the sync.
-  private var wholeStep: StepRef? {
-    guard let stepId = row.partialStep, let conversationId, let turnId else { return nil }
-    return StepRef(sessionId: conversationId, turnId: turnId, stepId: stepId)
+  private var wholeSteps: [StepRef] {
+    guard let conversationId, let turnId else { return [] }
+    return row.partialSteps.map { StepRef(sessionId: conversationId, turnId: turnId, stepId: $0) }
   }
 
-  /// Asks for the step whole, if the row shows a preview.
+  /// Asks for each step whole that the row shows as a preview.
   ///
   /// - Remark: The sync sends nothing for a step already on its way or no longer partial.
-  /// - SideEffects: Queues a command.
+  /// - SideEffects: Queues commands.
   private func fetchWhole() {
-    if let wholeStep { sync?.fetchStep(wholeStep) }
+    for step in wholeSteps { sync?.fetchStep(step) }
   }
 
   /// The verb, the object and the end, on one line.

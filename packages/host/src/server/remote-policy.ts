@@ -2,7 +2,7 @@ import type { Command, CommandResult, CommandType, HostMessage, SessionSummary }
 import { forTransport, itemForTransport } from "../transcript/rules";
 
 /** The longest text of a tool step that travels whole to a phone (SPEC-0005, "给手机推什么"). */
-export const PHONE_STEP_TEXT_LIMIT = 2 * 1024;
+export const PHONE_STEP_TEXT_LIMIT = 512;
 
 /** Whether a phone may send a command, or only the Mac. */
 type Reach = "phone" | "local_only";

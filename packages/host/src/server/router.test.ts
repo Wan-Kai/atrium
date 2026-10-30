@@ -15,7 +15,7 @@ import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
 import { type Connection, createConnection } from "./connection";
 import { createAttachmentStore } from "./attachments";
-import { PHONE_STEP_TEXT_LIMIT, pageForPhone } from "./remote-policy";
+import { pageForPhone } from "./remote-policy";
 import { createRouter } from "./router";
 
 const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -418,7 +418,7 @@ describe("createRouter", () => {
     expect(records.filter((record) => record["msg"] === "client issue")).toStrictEqual([]);
   });
 
-  it("answers a phone's page of older turns with 2 KB tool previews, and the Mac's as it is", async () => {
+  it("answers a phone's page of older turns with short tool previews, and the Mac's as it is", async () => {
     const { route, connection, logger, sent } = setUp();
     const phone = createConnection(
       { bufferedAmount: 0, send: (data) => sent.push(JSON.parse(data) as HostMessage), close: () => undefined },
@@ -1158,7 +1158,7 @@ describe("createRouter's attachments", () => {
 });
 
 /**
- * A turn with a command output four times a phone's preview, as the session layer pages it.
+ * A turn with an 8 KB command output, as the session layer pages it.
  *
  * @remarks
  * For the router's phone shaping.
@@ -1180,7 +1180,7 @@ function bigTurn(): Turn {
         tool: "bash",
         args: { command: "ls" },
         status: "done",
-        output: "o".repeat(PHONE_STEP_TEXT_LIMIT * 4),
+        output: "o".repeat(8 * 1024),
         details: { tool: "bash", command: "ls" },
         partial: false,
       },
