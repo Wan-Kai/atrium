@@ -275,8 +275,9 @@ export function windowShare(tokens: number, window: number): string {
   return `${((tokens / window) * 100).toFixed(1)}%`;
 }
 
-/** A week, in seconds. */
+/** A week and a month, in seconds: OpenCode Go's windows (ADR-0017). */
 const WEEK = 604_800;
+const MONTH = 2_592_000;
 
 /** A minute, an hour and a day, in milliseconds. */
 const MINUTE = 60_000;
@@ -291,6 +292,7 @@ const PROVIDER_NAMES: Readonly<Record<Plan["provider"], string>> = {
   "openai-codex": "ChatGPT",
   anthropic: "Claude",
   xai: "Grok",
+  "opencode-go": "OpenCode Go",
 };
 
 /**
@@ -413,8 +415,9 @@ export function partName(name: string): string {
  * A window's name by its length, and the model it counts alone.
  *
  * @remarks
- * A week is "每周"; any other length in hours under two days ("5 小时窗口"), else in days; an
- * unknown length "额度". A model's window adds "· 模型名".
+ * A week is "每周", the month OpenCode Go uses (2592000 seconds) "每月"; any other length in hours
+ * under two days ("5 小时窗口"), else in days; an unknown length "额度". A model's window adds
+ * "· 模型名".
  *
  * @sideEffects none
  * @param window - The window's length and model.
@@ -424,6 +427,7 @@ export function windowName(window: Pick<Plan["windows"][number], "seconds" | "mo
   const { seconds, model } = window;
   let name = "额度";
   if (seconds === WEEK) name = "每周";
+  else if (seconds === MONTH) name = "每月";
   else if (seconds !== null) {
     name =
       seconds < 2 * 86_400

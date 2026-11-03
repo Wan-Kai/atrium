@@ -4,6 +4,41 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## OpenCode Go 的套餐用量（2026-11-02）
+
+OpenCode Go 的 5 小时、每周、每月额度来自写死的 `https://opencode.ai/zen/go/v1/usage`，用 pi 里的 Go API Key 查（ADR-0017；接口和字段出自 OpenCode 官方客户端的源码，实测可用）。协议 30 把 `opencode-go` 加进 `PlanProvider`。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 回答里的 `usage.rolling` / `weekly` / `monthly` 变成 18000 / 604800 / 2592000 秒三个窗口，`percent` 和 ISO 的 `resetsAt` 读对；缺一项跳过，全缺算 `unknown_shape`；不认识的形状不崩 | `packages/pi/src/plan/plan.test.ts` 的 `opencodeUsage` 用例（先见红后绿，由下面的破坏检查证明抓得住） |
+| 用 Go 的 API Key 查固定地址，只带 `authorization` 和 `accept`，不带 pi 给模型的其他头；没有 Key 报 `no_login`；403 / 不是用量分别报 `http_403` / `unknown_shape`。`not_json` 和 15 秒超时没有 OpenCode 专属用例，由共用的 `askFor` 与 ChatGPT 的 `not_json` 用例覆盖，超时只做了静态检查 | `packages/pi/src/plan/extension.test.ts` 两个 OpenCode 用例，用本地替身服务 |
+| 协议：`PlanProvider` 加 `opencode-go`，`plans` 最多四份；四份合法、五份拒绝；`plans_updated` 的样例带 Go 的三窗口 | `packages/protocol/src/envelope.test.ts`；`packages/protocol/src/remote.test.ts` 的版本断言改到 30；Swift 类型和往返夹具重新生成 |
+| 卡片写"OpenCode Go"，2592000 秒写"每月"，当前模型是 Go 时该段标"当前"，摘要取它的最大窗口 | `packages/ui/src/chat/status-figures.test.ts`（先见红后绿）；`packages/ui/src/chat/status-bar.browser.test.tsx` 新增一段卡片的用例，断言分段名、三段窗口和正文 |
+| 宿主经每个会话的 pi 问四家 | `packages/host/src/sessions/session-controller.test.ts` 的 `EVERY_PLAN` 改成四家 |
+| 新地址在外部边界登记里 | `docs/architecture/security.md` 出网地址表；`pnpm boundary` 的 URL 由 14 变 15，未登记 0 |
+
+- 破坏检查：`docs/testing/opencode-plan.break-check.json` 8 处，全部检出。
+- 改动行变异：pi 组 `extension.ts` 100%（138 Killed）、`plan.ts` 100%（432 Killed；首轮 3 个既有存活在 `codexUsage` 和 `planReplyOf` 的旧分支上，重跑后不进最终分数）；ui 组 `status-figures.ts` 100%（309 Killed）。
+- 验证：`pnpm check`；单元 4308；宿主 243；`pnpm test:ios` 的 Swift 402 项和模拟器 UI 测试通过（先改掉 `RoundTripTests` 里写死的协议版本）；Electron `plan.spec.ts` 1/1、`models.spec.ts` 6/6。界面并行跑时两次不通过：既有的 `status-bar`「opens a row…」和 `question-card` 一处 61.99998 ≥ 62 的浮点断言，两个文件单跑 50/50 通过，根因未查，不当作已修；合并前单 worker 全量 1164/1164，完整非泄漏端到端 72/72。
+- **`pnpm test:pi` 未通过**：本机 pi 已升到 1.5.0，仓库里没有 `pi-1.5.0` 的契约夹具，52 项报 "no fixture"（和本改动无关，升级 pi 后要单独 `pnpm fixtures:record` 并审查 diff）。这条要在下次动 `packages/pi` 前先补。
+- 未覆盖：OpenCode Go 用量请求本身没有端到端测试（地址写死，测试不能连真网；替身只能注入扩展参数，宿主加载扩展时不可改），真实额度要用户用已登录的 Key 看；卡片没有截图。
+
+## OpenCode Go 服务商（2026-11-02）
+
+用户买了 OpenCode Go 会员（pi 的 `opencode-go`，只有 API Key 登录，和按量计费的 `opencode`/OpenCode Zen 共用一把 Key）。Atrium 不另配模型：服务商和模型来自用户装的 pi，宿主把每个模型的上下文、最大输出、是否支持图片原样交给界面（本机 pi 1.3.0 实测 `opencode-go` 29 个模型，如 Kimi K3 1M 上下文、Grok 4.7 500K、DeepSeek V4 Pro 1M 纯文本）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 桌面模型按钮和面板把 `opencode-go` 显示为“OpenCode Go”、`opencode` 显示为“OpenCode Zen”，用官方图标，Go 带“套餐”签；模型行写出 pi 给的上下文、输出和图片支持 | `ui/chat/model-choice.test.ts` 的服务商名和 `onPlan` 用例（先见红后绿）；`apps/desktop/e2e/models.spec.ts` 新增旅程，用 faux pi 的 `opencode-go` 断言按钮和左侧列表的图标、套餐签、`上下文 128K · 输出 16.4K · 支持图片`，并截浅色、深色两张 |
+| 列表里有 Go 的模型时隐藏按量计费的 Zen 模型，避免误选；只有 Zen 的凭据时照常列出 | `host/sessions/model-rules.test.ts`：清单加了 `opencode`/`opencode-go` 两个模型，新增“without opencode-go”用例 |
+| 手机模型 sheet 和桌面一致（名字、图标、套餐签） | `apps/ios/AtriumKit/Tests/AtriumUITests/ModelChoiceTests.swift` 的 providers 用例 |
+
+- 图标：`packages/ui/src/design/brand/opencode.svg` 取自 OpenCode 官方品牌资源（`opencode.ai/brand` 背后的 GitHub 品牌包）的 `opencode-logo-light-square.svg`，按 design-language 的“白底圆角小方块”补一层白底，浅色、深色共用一份（审查后改：原先按 `prefers-color-scheme` 换深色配色，会和手机生成的不一致，也和 Atrium 手动选的主题对不上）；来源写在 `SOURCES.md`；手机用 `scripts/ios-brand-icons.mjs` 生成的 `opencode.png`。
+- 破坏检查：`docs/testing/opencode-models.break-check.json` 5 处、`apps/ios/Testing/opencode-breaks.json` 2 处，全部检出。
+- 最终验证：`pnpm check`；单元 4302；宿主 243；Electron `models.spec.ts` 6/6；`pnpm test:ios` 的 Swift 402 项和模拟器 UI 测试通过。界面全量共跑 7 次：4 次 1163/1163 全过、3 次 1162/1163；其中第 3 次失败抓到了用例名，是既有的 `status-bar.browser.test.tsx`「opens a row to its files, tools or servers, and closes it again」，单文件 28/28 通过（与路线图登记的既有不稳一致，根因仍未查明），前两次失败没留下列名，不当作已解决。改动行变异：ui 组 `model-choice.ts` 100%（176 Killed / 0 Survived）；host 组 `model-rules.ts` 93.40%（99 Killed / 7 Survived，存活全是 `reason` 字符串，源码已写明它只作文档、不参与过滤）。没跑全量 e2e、泄漏和打包。
+- 截图：Electron 测试产物 `apps/desktop/test-results/…/opencode-go-{light,dark}.png`（不进 git）；请 GPT-6 Astra 看过，固定白底的小方块在浅色、深色下都清楚（深色下确认是白底 + 深色标志），标题和模型行排版正常；两次都对上的“中”是既有设计里套餐签压在图标右下角、盖住标志下半块（所有带签的服务商都如此，见 design-language“走套餐的签”），没改。
+- 未覆盖、留给验收：真实 OpenCode Go 的登录和一次回复要用户自己粘 API Key（不进入测试，也不碰 `~/.pi`）；手机只断言了 `logo("opencode-go")` 的文件名，没有在 Swift 测试里从 `Bundle.module` 解码这张 PNG，手机模型 sheet 也没有截图（gallery 里没有 Go 的样例数据）。
+
 ## 新建 worktree 同时生成中文名（M1.11 自用后补充，2026-10-28）
 
 用户确认全部新增入口，显示选 `prototypes/worktree-chinese-name-prototype.html` 的 A“中文单行”：英文分支/目录不改，中文名只存工作区 `alias`，已有 worktree 不回填。协议 29；手机类型和往返夹具已重新生成。
@@ -1258,7 +1293,7 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 宿主的用量服务全宿主一份：按 `openai-codex`、`anthropic`、`xai` 的顺序列出，不管谁先查到；监听者每次听到所有服务商的；同一服务商连续同样的失败只记一次日志，换了原因或中间查到过用量再记，各服务商分开；没查到过的服务商报 `no_login` 不算变化 | `packages/host/src/sessions/plan-usage.test.ts` | 已覆盖 |
 | 会话问所有订阅：pi 启动后和每次运行结束后经自己的 pi 问三家，不管当前模型，换模型不问，没有模型也问；宿主停掉后重新启动再问；停 pi 途中 pi 最后的事件不再问；会话指标里没有 `plan` | `packages/host/src/sessions/session-controller.test.ts` "plan usage" | 已覆盖 |
 | 推给所有连接：每个连接握手后紧跟 `welcome` 推一次 `plans_updated`（新宿主是空列表）；之后变了就推 | `packages/host/src/server/ws-server.host.test.ts` "right after its welcome"、`packages/host/src/chat.host.test.ts`（握手等到它） | 已覆盖 |
-| 协议 17：`plans_updated` 的格式（三家、空列表、带产品的窗口）；超过 100%、9 个窗口、不认识的服务商、4 份、窗口缺 `parts`、产品超过 100%、没名字、名字超过 64 个字、17 个产品都拒绝；会话指标再带 `plan` 拒绝 | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| 协议 17：`plans_updated` 的格式（三家、空列表、带产品的窗口）；超过 100%、9 个窗口、不认识的服务商、4 份、窗口缺 `parts`、产品超过 100%、没名字、名字超过 64 个字、17 个产品都拒绝；会话指标再带 `plan` 拒绝（2026-11-02 协议 30 加 `opencode-go`：四份合法、五份才拒绝，见下文"OpenCode Go 的套餐用量"） | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
 | 客户端：推来之前是空列表，之后每次整份换，格式不对的不要；不为它发命令 | `packages/client/src/atrium-client.test.ts` "plans" | 已覆盖 |
 | 状态栏"套餐"：有任何一家就出现；摘要取当前模型那家用得最多的窗口，≥ 80% 变橙；当前模型不是查到的订阅时只写"套餐"、不变色；那家没有窗口时写"套餐 —"；卡片标题"套餐用量"，每家一段（当前那家在前、标"当前"），Grok 的每周下面列各产品（名字拆开、没有自己的进度条）；时间每分钟随时钟走；调节面板的说明 | `packages/ui/src/chat/status-bar.browser.test.tsx` "StatusBar's plan group"；`status-figures.test.ts` "names a subscription"、"lists it first"、"run-together name"、"the status bar's groups" | 已覆盖 |
 | 设置 · 模型与账户的"套餐用量"：在订阅登录和 API Key 之间，每家一段、不标"当前"；还没有时写怎么来的；Atrium 加载不了 pi 的登录时也显示 | `packages/ui/src/settings/accounts-section.browser.test.tsx` "usage" | 已覆盖 |

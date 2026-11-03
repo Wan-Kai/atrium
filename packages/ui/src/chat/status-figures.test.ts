@@ -243,7 +243,8 @@ describe("the plan's figures", () => {
       planName({ provider: "openai-codex", plan: "pro" }),
       planName({ provider: "anthropic", plan: null }),
       planName({ provider: "xai", plan: null }),
-    ]).toStrictEqual(["ChatGPT Plus", "ChatGPT Pro", "Claude", "Grok"]);
+      planName({ provider: "opencode-go", plan: null }),
+    ]).toStrictEqual(["ChatGPT Plus", "ChatGPT Pro", "Claude", "Grok", "OpenCode Go"]);
   });
 
   it("finds the session's subscription, and lists it first, the rest as the host listed them", () => {
@@ -296,13 +297,24 @@ describe("the plan's figures", () => {
         window(1),
         window(1, 604_800),
         window(1, 604_800, "Fable"),
+        window(1, 2_592_000),
         window(1, 3600),
         window(1, 172_799),
         window(1, 172_800),
         window(1, null),
         window(1, null, "Opus"),
       ].map(windowName),
-    ).toStrictEqual(["5 小时窗口", "每周", "每周 · Fable", "1 小时窗口", "48 小时窗口", "2 天", "额度", "额度 · Opus"]);
+    ).toStrictEqual([
+      "5 小时窗口",
+      "每周",
+      "每周 · Fable",
+      "每月",
+      "1 小时窗口",
+      "48 小时窗口",
+      "2 天",
+      "额度",
+      "额度 · Opus",
+    ]);
   });
 
   it("says when a window resets: how long within a day, the day and time further off", () => {
