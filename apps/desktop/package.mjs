@@ -34,13 +34,35 @@ async function stageApp() {
 }
 
 /**
- * Packages Atrium.app for this machine and signs it ad hoc.
+ * Signs the app and says which identity it used.
+ *
+ * @remarks
+ * Ad hoc (`--sign -`) records a designated requirement made of the bundle's cdhash, which changes
+ * with every build: macOS then treats the next install as a different app and asks again for the
+ * "files and folders" permissions it was granted, once per protected folder (development.md, "本机
+ * 打包"). Signing with a certificate puts the bundle id and that certificate in the requirement
+ * instead, so one grant outlives rebuilds. `ATRIUM_CODESIGN_IDENTITY` names one of
+ * `security find-identity -v -p codesigning`; unset or empty keeps the ad hoc behaviour.
+ *
+ * @sideEffects Runs `codesign` over the bundle, including its nested helpers.
+ * @param bundle - The app to sign.
+ * @returns What it signed with, for the line on stderr.
+ * @throws When `codesign` fails, which includes an identity the keychain does not have.
+ */
+async function sign(bundle) {
+  const identity = process.env.ATRIUM_CODESIGN_IDENTITY?.trim() ?? "";
+  await run("codesign", ["--force", "--deep", "--sign", identity === "" ? "-" : identity, bundle]);
+  return identity === "" ? "ad hoc" : identity;
+}
+
+/**
+ * Packages Atrium.app for this machine and signs it.
  *
  * @remarks
  * For use on this Mac only (overview.md, "桌面端怎么启动宿主"): Apple Silicon runs only signed
  * code, and changing the bundle's name and plist breaks Electron's own signature, so the whole app
- * is signed again ad hoc; it is not notarized. No asar: the system Node runs the login program,
- * and it cannot read one. The icon is Atrium's cat (design-language.md, "标志").
+ * is signed again; it is not notarized. No asar: the system Node runs the login program, and it
+ * cannot read one. The icon is Atrium's cat (design-language.md, "标志").
  *
  * @sideEffects Replaces `out/Atrium-darwin-<arch>`; runs `codesign`; prints the app's path.
  */
@@ -63,7 +85,7 @@ async function packageApp() {
       quiet: true,
     });
     const bundle = join(outDir, "Atrium.app");
-    await run("codesign", ["--force", "--deep", "--sign", "-", bundle]);
+    console.error(`signed with ${await sign(bundle)}`);
     console.log(bundle);
   } finally {
     await rm(stage, { recursive: true, force: true });

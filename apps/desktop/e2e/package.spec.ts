@@ -26,6 +26,22 @@ async function sha256(path: string): Promise<string> {
     .digest("hex");
 }
 
+/** The code-signing identity `pnpm package` was told to use, if any. */
+const identity = process.env.ATRIUM_CODESIGN_IDENTITY?.trim() ?? "";
+
+test.describe("signed with a certificate", () => {
+  test.skip(identity === "", "no signing identity set, so the app is signed ad hoc");
+
+  test("@package signs with ATRIUM_CODESIGN_IDENTITY, so macOS keeps its permissions across rebuilds", async () => {
+    // Which stream `codesign -d` writes to has varied between releases, so read both.
+    const { stdout, stderr } = await run("codesign", ["-d", "-r-", bundle]);
+    const requirement = stdout + stderr;
+    expect(requirement).toContain('identifier "dev.atrium.app"');
+    expect(requirement).toContain("certificate leaf");
+    expect(requirement).not.toContain("cdhash");
+  });
+});
+
 test("@package runs from the packaged app, with the host, login program, UI and Atrium's icon inside it", async () => {
   await run("codesign", ["--verify", "--deep", "--strict", bundle]);
   const plist = JSON.parse(
