@@ -115,6 +115,29 @@ describe("visibleModels, without opencode-go", () => {
   });
 });
 
+describe("visibleModels, OpenCode Go's withdrawn or unreachable models", () => {
+  it("drops those by exact id within their provider, keeping the rest and the same ids elsewhere", () => {
+    const listed = [
+      model("opencode-go", "deepseek-v4.1-flash"),
+      model("opencode-go", "mimo-v2.5"),
+      model("opencode-go", "mimo-v2.5-pro"),
+      model("opencode-go", "beam-free"),
+      model("opencode-go", "gpt-6-luna"),
+      model("opencode-go", "muse-spark-1.2-contributor"),
+      model("opencode-go", "muse-spark-1.3-contributor"),
+      model("opencode-go", "iceman-contributor-free"),
+      model("opencode-go", "hy3"),
+      model("example", "mimo-v2.5"),
+    ];
+
+    expect(ids(visibleModels(listed, null))).toStrictEqual([
+      "opencode-go/deepseek-v4.1-flash",
+      "opencode-go/hy3",
+      "example/mimo-v2.5",
+    ]);
+  });
+});
+
 /**
  * pi's login state with nothing signed in to `openai`.
  *
