@@ -4,6 +4,7 @@ import {
   codexUsage,
   grokUsage,
   isPlanProvider,
+  opencodeUsage,
   isPlanQuery,
   planReplyOf,
   readPlanReport,
@@ -185,6 +186,15 @@ describe("claudeUsage", () => {
   });
 });
 
+/** OpenCode Go's answer to `/zen/go/v1/usage` (ADR-0017). */
+const OPENCODE_ANSWER = {
+  usage: {
+    rolling: { status: "ok", percent: 0, resetsAt: "2026-11-03T07:01:46.000Z" },
+    weekly: { status: "ok", percent: 15, resetsAt: "2026-11-09T00:00:00.000Z" },
+    monthly: { status: "rate-limited", percent: 100, resetsAt: "2026-11-30T00:00:00.000Z" },
+  },
+};
+
 /** The products Grok's answer with these `productUsage` is read to have. */
 function grokParts(productUsage: unknown) {
   return grokUsage({ config: { creditUsagePercent: 5, productUsage } })?.[0]?.parts;
@@ -266,6 +276,58 @@ describe("grokUsage", () => {
         { config: { creditUsagePercent: "5" } },
       ].map(grokUsage),
     ).toStrictEqual([null, null, null, null, null, null]);
+  });
+});
+
+describe("opencodeUsage", () => {
+  it("reads the 5-hour, weekly and monthly windows, each resetting when it says", () => {
+    expect(opencodeUsage(OPENCODE_ANSWER)).toStrictEqual([
+      {
+        seconds: 18_000,
+        model: null,
+        usedPercent: 0,
+        resetsAt: Date.parse("2026-11-03T07:01:46.000Z"),
+        parts: [],
+      },
+      {
+        seconds: 604_800,
+        model: null,
+        usedPercent: 15,
+        resetsAt: Date.parse("2026-11-09T00:00:00.000Z"),
+        parts: [],
+      },
+      {
+        seconds: 2_592_000,
+        model: null,
+        usedPercent: 100,
+        resetsAt: Date.parse("2026-11-30T00:00:00.000Z"),
+        parts: [],
+      },
+    ]);
+  });
+
+  it("leaves out a window without a percentage, and knows no reset time it cannot parse", () => {
+    expect(
+      opencodeUsage({
+        usage: {
+          rolling: { status: "ok", percent: 3, resetsAt: "soon" },
+          weekly: { status: "ok" },
+          monthly: { percent: "7", resetsAt: "2026-11-30T00:00:00.000Z" },
+        },
+      }),
+    ).toStrictEqual([{ seconds: 18_000, model: null, usedPercent: 3, resetsAt: null, parts: [] }]);
+  });
+
+  it("finds no usage when none of the three windows has a percentage", () => {
+    expect(
+      [
+        null,
+        {},
+        { usage: null },
+        { usage: {} },
+        { usage: { rolling: { status: "ok" }, weekly: null, monthly: {} } },
+      ].map(opencodeUsage),
+    ).toStrictEqual([null, null, null, null, null]);
   });
 });
 
@@ -415,7 +477,7 @@ describe("readPlanReport", () => {
 });
 
 describe("isPlanQuery, isPlanProvider", () => {
-  it("knows Atrium's plan query by name and source, and the three providers Atrium asks", () => {
+  it("knows Atrium's plan query by name and source, and the four providers Atrium asks", () => {
     const commands: Parameters<typeof isPlanQuery>[0][] = [
       { name: "atrium-plan", source: "extension" },
       { name: "atrium-plan", source: "skill" },
@@ -423,7 +485,8 @@ describe("isPlanQuery, isPlanProvider", () => {
     ];
 
     expect(commands.map(isPlanQuery)).toStrictEqual([true, false, false]);
-    expect(["openai-codex", "anthropic", "xai", "openai", null].map(isPlanProvider)).toStrictEqual([
+    expect(["openai-codex", "anthropic", "xai", "opencode-go", "openai", null].map(isPlanProvider)).toStrictEqual([
+      true,
       true,
       true,
       true,

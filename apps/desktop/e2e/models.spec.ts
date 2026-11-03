@@ -137,6 +137,49 @@ test("renders the supplied CatPaw icon in the model button and provider list", a
   }
 });
 
+test("marks OpenCode Go as a plan with its own icon and pi's context and image support", async () => {
+  const testInfo = test.info();
+  const pi = await fauxPiEnvironment({
+    provider: "opencode-go",
+    replies: [],
+    models: [{ id: "kimi-k3", name: "Kimi K3", reasoning: true, input: ["text", "image"] }],
+  });
+  const launched = await launchApp(pi.env);
+  try {
+    const { window } = launched;
+    const chip = window.getByRole("button", { name: /^模型与推理强度/ });
+    await expect(chip).toHaveText("套餐faux-1", { timeout: 30_000 });
+    await expect(chip.locator("img")).toHaveAttribute("src", /211e1e/);
+    await expect(chip.getByRole("img", { name: "走套餐" })).toBeVisible();
+    await expect
+      .poll(() =>
+        chip
+          .locator("img")
+          .first()
+          .evaluate((image: HTMLImageElement) => image.naturalWidth),
+      )
+      .toBe(300);
+    await chip.click();
+    const tab = window.getByRole("tab", { name: "OpenCode Go", exact: true });
+    await expect(tab).toHaveAttribute("aria-selected", "true");
+    await expect(tab.locator("img")).toHaveAttribute("src", /211e1e/);
+    await expect(tab.getByRole("img", { name: "走套餐" })).toBeVisible();
+    const panel = window.getByRole("tabpanel", { name: "OpenCode Go" });
+    await expect(panel.getByText("OpenCode Go", { exact: true })).toBeVisible();
+    await expect(panel.getByText("套餐", { exact: true })).toBeVisible();
+    await expect(panel.getByRole("menuitemradio", { name: /Kimi K3/ })).toContainText(
+      "上下文 128K · 输出 16.4K · 支持图片",
+    );
+    for (const colorScheme of ["light", "dark"] as const) {
+      await window.emulateMedia({ colorScheme });
+      await window.screenshot({ path: testInfo.outputPath(`opencode-go-${colorScheme}.png`) });
+    }
+  } finally {
+    await launched.close();
+    await pi.cleanup();
+  }
+});
+
 test("lists pi's commands as / is typed, and runs the one chosen", async () => {
   const pi = await fauxPiEnvironment({ replies: [] });
   const launched = await launchApp(pi.env);

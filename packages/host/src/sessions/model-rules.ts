@@ -5,7 +5,8 @@ type Reason = "paid" | "duplicate";
 
 /**
  * When a rule leaves its models out: always; unless its provider is signed in this way; or
- * while the list has models of another provider, which reaches the same subscription.
+ * while the list has models of another provider that covers the same need (the same subscription,
+ * or a plan beside a metered route to it).
  */
 type Condition =
   | { readonly kind: "always" }
@@ -25,9 +26,10 @@ interface ModelRule {
  * The models the host's list leaves out.
  *
  * @remarks
- * SPEC-0001 ("输入框 · 模型选择"): non-plan Claude, paid OpenAI and OpenRouter routes, and a
- * second way to the same ChatGPT subscription. Native `anthropic` is metered even with OAuth;
- * `claude-bridge` stays as the plan route. Adding or dropping a rule is a line here.
+ * SPEC-0001 ("输入框 · 模型选择"): non-plan Claude, paid OpenAI and OpenRouter routes, OpenCode Zen
+ * beside the Go plan, and a second way to the same ChatGPT subscription. Native `anthropic` is
+ * metered even with OAuth; `claude-bridge` stays as the plan route. Adding or dropping a rule is a
+ * line here.
  */
 const MODEL_RULES: readonly ModelRule[] = [
   // `reason` documents the rule but is not read by filtering; changing only that string is equivalent.
@@ -36,6 +38,8 @@ const MODEL_RULES: readonly ModelRule[] = [
   { providerId: "openai", when: { kind: "unless_signed_in", method: "oauth" }, reason: "paid" },
   // pi 1.1's "Sign in with ChatGPT": the same plan as `openai-codex`, which also shows its usage and has Fast.
   { providerId: "openai", when: { kind: "beside", providerId: "openai-codex" }, reason: "duplicate" },
+  // OpenCode Go is the subscription; Zen bills each request, and one key reaches both.
+  { providerId: "opencode", when: { kind: "beside", providerId: "opencode-go" }, reason: "paid" },
   { providerId: "openrouter", modelPrefix: "anthropic/", when: { kind: "always" }, reason: "paid" },
   { providerId: "openrouter", modelPrefix: "openai/", when: { kind: "always" }, reason: "paid" },
 ];

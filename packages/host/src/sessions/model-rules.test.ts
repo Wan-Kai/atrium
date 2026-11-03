@@ -65,6 +65,8 @@ const LISTED = [
   model("openrouter", "deepseek/openai/compat"),
   model("deepseek", "deepseek-v4"),
   model("github-copilot", "claude-opus-5.5"),
+  model("opencode", "claude-opus-5-5"),
+  model("opencode-go", "kimi-k3"),
   model("xai", "grok-4.7"),
   model("groq", "openai/gpt-oss-120b"),
 ];
@@ -77,6 +79,7 @@ const KEPT = [
   "openrouter/deepseek/openai/compat",
   "deepseek/deepseek-v4",
   "github-copilot/claude-opus-5.5",
+  "opencode-go/kimi-k3",
   "xai/grok-4.7",
   "groq/openai/gpt-oss-120b",
 ];
@@ -90,6 +93,25 @@ describe("visibleModels", () => {
       ids(visibleModels(LISTED, { state: "unavailable" })),
       ids(visibleModels(LISTED, null)),
     ]).toStrictEqual([KEPT, KEPT, KEPT, KEPT, KEPT]);
+  });
+});
+
+describe("visibleModels, without opencode-go", () => {
+  it("keeps OpenCode Zen's models only while no OpenCode Go model is listed, so its metered route is not a second choice", () => {
+    const withoutGo = LISTED.filter((one) => one.providerId !== "opencode-go");
+    const kept = [
+      "claude-bridge/claude-opus-5-5",
+      "openai-codex/gpt-6-astra",
+      "openrouter/moonshotai/kimi-k3",
+      "openrouter/deepseek/openai/compat",
+      "deepseek/deepseek-v4",
+      "github-copilot/claude-opus-5.5",
+      "opencode/claude-opus-5-5",
+      "xai/grok-4.7",
+      "groq/openai/gpt-oss-120b",
+    ];
+
+    expect([ids(visibleModels(withoutGo, null)), ids(visibleModels(LISTED, null))]).toStrictEqual([kept, KEPT]);
   });
 });
 

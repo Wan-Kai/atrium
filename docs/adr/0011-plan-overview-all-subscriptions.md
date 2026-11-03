@@ -1,6 +1,6 @@
 # ADR-0011：套餐总览——经任一会话的 pi 查所有订阅，Grok 的用量接口是唯一的例外地址
 
-- **状态**：已接受
+- **状态**：已接受（"API key 的订阅不查"和"唯一例外地址"两点被 [ADR-0017](0017-opencode-go-plan-usage.md) 补充）
 - **日期**：2026-10-16
 - **相关**：[ADR-0010](0010-plan-usage-through-atrium-extension.md)（第 1、3 条被本文取代）、[SPEC-0001](../specs/0001-mvp1-single-session-chat.md)"M1.14 的套餐总览"、[security.md](../architecture/security.md)"Atrium 自带的 pi 扩展"、[pi-internals](../research/pi-internals.md) §5
 
