@@ -4,6 +4,19 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## 打包签名用证书，TCC 授权跨重装保留（2026-11-03）
+
+`pnpm package` 原来写死 ad-hoc 签名（`codesign --sign -`）。ad-hoc 的 designated requirement 是二进制的 cdhash，每打一次包就变，macOS 因此把每次换装当成另一个 app，重新问"文稿"等受保护目录的访问权（development.md 第 7 步记的正是这个坑）。现在设了 `ATRIUM_CODESIGN_IDENTITY`（`security find-identity -v -p codesigning` 里的一条）就用那张证书签，requirement 变成 bundle id 加证书，一次授权跨重装有效；不设时行为和以前一样。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 设了环境变量时签出来的确实是证书签名：requirement 含 `identifier "dev.atrium.app"` 和 `certificate leaf`、不含 `cdhash` | `apps/desktop/e2e/package.spec.ts` 新增 `@package signs with ATRIUM_CODESIGN_IDENTITY…`；`ATRIUM_CODESIGN_IDENTITY="Apple Development: …" pnpm test:package` 两项通过，没设时该用例 skip |
+| 不设时不破坏原有打包：签名有效、应用能启动、宿主和界面都在包里 | 同文件的 `@package runs from the packaged app…`，历次 `pnpm test:package` 覆盖；本次用证书签的产物跑过 |
+
+- 先见红：同一组断言对 `/Applications/Atrium.app`（ad-hoc 产物）跑，`identifier`、`certificate leaf`、`!cdhash` 三项全为假；对证书签的产物三项全为真。
+- 验证：`pnpm check` 通过；`ATRIUM_CODESIGN_IDENTITY="Apple Development: …" pnpm package` 打印 `signed with Apple Development: …`，`codesign --verify --deep --strict` 通过，`codesign -d -r-` 给出上面的证书 requirement。
+- 未覆盖：换装后 macOS 是不是真的不再问"文稿"授权，要装上用一阵才知道（本次没装）；证书一年后过期，续签要重新授权一次，没有自动化。
+
 ## OpenCode Go 的套餐用量（2026-11-02）
 
 OpenCode Go 的 5 小时、每周、每月额度来自写死的 `https://opencode.ai/zen/go/v1/usage`，用 pi 里的 Go API Key 查（ADR-0017；接口和字段出自 OpenCode 官方客户端的源码，实测可用）。协议 30 把 `opencode-go` 加进 `PlanProvider`。
