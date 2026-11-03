@@ -1,7 +1,7 @@
 import type { CatalogModel, ModelRef, SetupLogin } from "@atrium/protocol";
 
 /** Why a rule leaves models out (SPEC-0001, "输入框 · 模型选择"). */
-type Reason = "paid" | "duplicate";
+type Reason = "paid" | "duplicate" | "unavailable";
 
 /**
  * When a rule leaves its models out: always; unless its provider is signed in this way; or
@@ -18,6 +18,8 @@ interface ModelRule {
   readonly providerId: string;
   /** Only models whose ids start with this, such as OpenRouter's `anthropic/`. */
   readonly modelPrefix?: string;
+  /** Only these models, by exact id, for a provider whose catalogue outlives the models in it. */
+  readonly modelIds?: readonly string[];
   readonly when: Condition;
   readonly reason: Reason;
 }
@@ -27,9 +29,9 @@ interface ModelRule {
  *
  * @remarks
  * SPEC-0001 ("输入框 · 模型选择"): non-plan Claude, paid OpenAI and OpenRouter routes, OpenCode Zen
- * beside the Go plan, and a second way to the same ChatGPT subscription. Native `anthropic` is
- * metered even with OAuth; `claude-bridge` stays as the plan route. Adding or dropping a rule is a
- * line here.
+ * beside the Go plan, a second way to the same ChatGPT subscription, and OpenCode Go models the
+ * provider withdraws or this workspace cannot reach. Native `anthropic` is metered even with OAuth;
+ * `claude-bridge` stays as the plan route. Adding or dropping a rule is a line here.
  */
 const MODEL_RULES: readonly ModelRule[] = [
   // `reason` documents the rule but is not read by filtering; changing only that string is equivalent.
@@ -42,6 +44,26 @@ const MODEL_RULES: readonly ModelRule[] = [
   { providerId: "opencode", when: { kind: "beside", providerId: "opencode-go" }, reason: "paid" },
   { providerId: "openrouter", modelPrefix: "anthropic/", when: { kind: "always" }, reason: "paid" },
   { providerId: "openrouter", modelPrefix: "openai/", when: { kind: "always" }, reason: "paid" },
+  // OpenCode Go models the provider has withdrawn or this workspace cannot reach, probed with its
+  // key 2026-11-03 (DeepSeek V4 needed Workspace Privacy → Regions `Global`, set that day):
+  // `mimo-v2.5` and `mimo-v2.5-pro` answer 410 deprecated; `beam-free`, `gpt-6-luna` and
+  // `muse-spark-*-contributor` answer 403 for this country; `iceman-contributor-free` wants the
+  // workspace's "paid endpoints that train on request data" switch on. pi lists all of them, so
+  // they fail only once chosen. Drop a line here when pi's catalogue loses one or the switch is on.
+  {
+    providerId: "opencode-go",
+    modelIds: [
+      "mimo-v2.5",
+      "mimo-v2.5-pro",
+      "beam-free",
+      "gpt-6-luna",
+      "muse-spark-1.2-contributor",
+      "muse-spark-1.3-contributor",
+      "iceman-contributor-free",
+    ],
+    when: { kind: "always" },
+    reason: "unavailable",
+  },
 ];
 
 /**
@@ -98,7 +120,8 @@ export function visibleModels(models: readonly CatalogModel[], login: SetupLogin
       !hiding.some(
         (rule) =>
           rule.providerId === model.providerId &&
-          (rule.modelPrefix === undefined || model.modelId.startsWith(rule.modelPrefix)),
+          (rule.modelPrefix === undefined || model.modelId.startsWith(rule.modelPrefix)) &&
+          (rule.modelIds === undefined || rule.modelIds.includes(model.modelId)),
       ),
   );
 }
