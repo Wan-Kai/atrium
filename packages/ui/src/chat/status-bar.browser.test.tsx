@@ -571,6 +571,18 @@ const GROK: PlanUsage = {
   at: NOON - 5 * 60_000,
 };
 
+/** OpenCode Go's usage found two minutes before noon: its 5-hour, weekly and monthly windows. */
+const OPENCODE: PlanUsage = {
+  provider: "opencode-go",
+  plan: null,
+  windows: [
+    { seconds: 18_000, model: null, usedPercent: 0, resetsAt: NOON + 5 * 60 * 60_000, parts: [] },
+    { seconds: 604_800, model: null, usedPercent: 15, resetsAt: new Date(2026, 9, 19, 20, 0).getTime(), parts: [] },
+    { seconds: 2_592_000, model: null, usedPercent: 7, resetsAt: new Date(2026, 10, 1, 20, 0).getTime(), parts: [] },
+  ],
+  at: NOON - 2 * 60_000,
+};
+
 /** ChatGPT's section of the card at noon. */
 const CHATGPT_AT_NOON = "ChatGPT Plus5 分钟前5 小时窗口4 小时 16 分后重置39%每周周日 08:00 重置52%";
 
@@ -664,6 +676,36 @@ describe("StatusBar's plan group", () => {
     // The products are parts of the week: one bar, the week's, in Grok's section.
     expect(card.getByRole("region", { name: "Grok" }).element().querySelectorAll("i")).toHaveLength(1);
     expect(card.element().getBoundingClientRect().width).toBe(300);
+  });
+
+  it("names OpenCode Go and its three windows, the monthly one as a month", async () => {
+    const screen = await render(
+      <ClockContext value={STOPPED}>
+        <div style={{ display: "flex", height: 700, flexDirection: "column", justifyContent: "flex-end" }}>
+          <StatusBar
+            metrics={KNOWN}
+            plans={[PLAN, OPENCODE]}
+            provider="opencode-go"
+            choices={{}}
+            onChoose={() => undefined}
+          />
+        </div>
+      </ClockContext>,
+    );
+
+    await userEvent.hover(screen.getByRole("button", { name: "套餐 15%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "套餐用量" });
+
+    await expect.element(card).toBeVisible();
+    expect(card.element().textContent).toBe(
+      `套餐用量OpenCode Go当前2 分钟前5 小时窗口5 小时 0 分后重置0%每周周一 20:00 重置15%每月周日 20:00 重置7%${CHATGPT_AT_NOON}`,
+    );
+    expect(
+      card
+        .getByRole("region")
+        .elements()
+        .map((section) => section.getAttribute("aria-label")),
+    ).toStrictEqual(["OpenCode Go", "ChatGPT Plus"]);
   });
 
   it("keeps its card's times going with the clock, a minute at a time, with no new usage", async () => {

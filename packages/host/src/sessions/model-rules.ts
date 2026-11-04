@@ -1,11 +1,12 @@
 import type { CatalogModel, ModelRef, SetupLogin } from "@atrium/protocol";
 
 /** Why a rule leaves models out (SPEC-0001, "输入框 · 模型选择"). */
-type Reason = "paid" | "duplicate";
+type Reason = "paid" | "duplicate" | "unavailable";
 
 /**
  * When a rule leaves its models out: always; unless its provider is signed in this way; or
- * while the list has models of another provider, which reaches the same subscription.
+ * while the list has models of another provider that covers the same need (the same subscription,
+ * or a plan beside a metered route to it).
  */
 type Condition =
   | { readonly kind: "always" }
@@ -17,6 +18,8 @@ interface ModelRule {
   readonly providerId: string;
   /** Only models whose ids start with this, such as OpenRouter's `anthropic/`. */
   readonly modelPrefix?: string;
+  /** Only these models, by exact id, for a provider whose catalogue outlives the models in it. */
+  readonly modelIds?: readonly string[];
   readonly when: Condition;
   readonly reason: Reason;
 }
@@ -25,8 +28,9 @@ interface ModelRule {
  * The models the host's list leaves out.
  *
  * @remarks
- * SPEC-0001 ("输入框 · 模型选择"): non-plan Claude, paid OpenAI and OpenRouter routes, and a
- * second way to the same ChatGPT subscription. Native `anthropic` is metered even with OAuth;
+ * SPEC-0001 ("输入框 · 模型选择"): non-plan Claude, paid OpenAI and OpenRouter routes, OpenCode Zen
+ * beside the Go plan, a second way to the same ChatGPT subscription, and OpenCode Go models the
+ * provider withdraws or this workspace cannot reach. Native `anthropic` is metered even with OAuth;
  * `claude-bridge` stays as the plan route. Adding or dropping a rule is a line here.
  */
 const MODEL_RULES: readonly ModelRule[] = [
@@ -36,8 +40,30 @@ const MODEL_RULES: readonly ModelRule[] = [
   { providerId: "openai", when: { kind: "unless_signed_in", method: "oauth" }, reason: "paid" },
   // pi 1.1's "Sign in with ChatGPT": the same plan as `openai-codex`, which also shows its usage and has Fast.
   { providerId: "openai", when: { kind: "beside", providerId: "openai-codex" }, reason: "duplicate" },
+  // OpenCode Go is the subscription; Zen bills each request, and one key reaches both.
+  { providerId: "opencode", when: { kind: "beside", providerId: "opencode-go" }, reason: "paid" },
   { providerId: "openrouter", modelPrefix: "anthropic/", when: { kind: "always" }, reason: "paid" },
   { providerId: "openrouter", modelPrefix: "openai/", when: { kind: "always" }, reason: "paid" },
+  // OpenCode Go models the provider has withdrawn or this workspace cannot reach, probed with its
+  // key 2026-11-03 (DeepSeek V4 needed Workspace Privacy → Regions `Global`, set that day):
+  // `mimo-v2.5` and `mimo-v2.5-pro` answer 410 deprecated; `beam-free`, `gpt-6-luna` and
+  // `muse-spark-*-contributor` answer 403 for this country; `iceman-contributor-free` wants the
+  // workspace's "paid endpoints that train on request data" switch on. pi lists all of them, so
+  // they fail only once chosen. Drop a line here when pi's catalogue loses one or the switch is on.
+  {
+    providerId: "opencode-go",
+    modelIds: [
+      "mimo-v2.5",
+      "mimo-v2.5-pro",
+      "beam-free",
+      "gpt-6-luna",
+      "muse-spark-1.2-contributor",
+      "muse-spark-1.3-contributor",
+      "iceman-contributor-free",
+    ],
+    when: { kind: "always" },
+    reason: "unavailable",
+  },
 ];
 
 /**
@@ -94,7 +120,8 @@ export function visibleModels(models: readonly CatalogModel[], login: SetupLogin
       !hiding.some(
         (rule) =>
           rule.providerId === model.providerId &&
-          (rule.modelPrefix === undefined || model.modelId.startsWith(rule.modelPrefix)),
+          (rule.modelPrefix === undefined || model.modelId.startsWith(rule.modelPrefix)) &&
+          (rule.modelIds === undefined || rule.modelIds.includes(model.modelId)),
       ),
   );
 }

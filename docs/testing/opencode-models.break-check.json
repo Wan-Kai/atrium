@@ -1,0 +1,37 @@
+[
+  {
+    "file": "packages/host/src/sessions/model-rules.ts",
+    "from": "{ providerId: \"opencode\", when: { kind: \"beside\", providerId: \"opencode-go\" }, reason: \"paid\" },",
+    "to": "{ providerId: \"opencode\", when: { kind: \"always\" }, reason: \"paid\" },",
+    "test": "packages/host/src/sessions/model-rules.test.ts",
+    "name": "keeps OpenCode Zen's models only while no OpenCode Go model is listed"
+  },
+  {
+    "file": "packages/host/src/sessions/model-rules.ts",
+    "from": "{ providerId: \"opencode\", when: { kind: \"beside\", providerId: \"opencode-go\" }, reason: \"paid\" },",
+    "to": "{ providerId: \"opencode-go\", when: { kind: \"always\" }, reason: \"paid\" },",
+    "test": "packages/host/src/sessions/model-rules.test.ts",
+    "name": "drops non-plan Claude, other paid routes and duplicate OpenAI models however signed in"
+  },
+  {
+    "file": "packages/ui/src/chat/model-choice.ts",
+    "from": ", \"opencode-go\"]",
+    "to": "]",
+    "test": "packages/ui/src/chat/model-choice.test.ts",
+    "name": "counts claude-bridge, openai-codex, github-copilot and opencode-go as on a plan whatever the login state"
+  },
+  {
+    "file": "packages/ui/src/chat/model-choice.ts",
+    "from": "opencode: { name: \"OpenCode Zen\", logo: opencodeLogo },",
+    "to": "opencode: { name: \"opencode\", logo: opencodeLogo },",
+    "test": "packages/ui/src/chat/model-choice.test.ts",
+    "name": "names the providers it knows, with their icon, and others by their id"
+  },
+  {
+    "file": "packages/ui/src/chat/model-choice.ts",
+    "from": "opencode: { name: \"OpenCode Zen\", logo: opencodeLogo },",
+    "to": "opencode: { name: \"OpenCode Zen\", logo: openaiLogo },",
+    "test": "packages/ui/src/chat/model-choice.test.ts",
+    "name": "names the providers it knows, with their icon, and others by their id"
+  }
+]

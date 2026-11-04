@@ -3989,7 +3989,7 @@ function statusEvent(statusKey: string, statusText: string): PiEvent {
 }
 
 /** Every subscription, in the order the controller asks them. */
-const EVERY_PLAN = ["openai-codex", "anthropic", "xai"];
+const EVERY_PLAN = ["openai-codex", "anthropic", "xai", "opencode-go"];
 
 describe("createSessionController's plan usage", () => {
   it("asks for every subscription through its pi after pi starts and each run, whatever the model", async () => {

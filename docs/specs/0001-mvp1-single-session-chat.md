@@ -23,6 +23,7 @@ Atrium 的第一个可用版本。它要回答一个问题：**在 Atrium 里用
 - 打包、签名、自动更新；手机端和 PWA；多窗口
 - 文件系统相关：审查面板、文件路径操作（用编辑器打开、在 Finder 中显示等）
 - 系统通知
+- 外部终端的产品级管理：2026-11-04 自用后补充，仅用官方 cmux / cmux-workspace skill 和已有 Bash 操作明确目标，cmux 和用户负责生命周期；不内嵌、不绑定工作区、不在退出或归档时主动关闭任务，**不保证归档前终端任务全部停止**。配置、安全边界及验收见 [外部终端最小接入](../architecture/external-terminal.md)。
 
 ## 需求
 
@@ -425,11 +426,11 @@ Electron 主进程
 
 - 模型选择按钮：胶囊形，服务商品牌图标 + 模型名 + 档位字。2026-10-22 用户指定：思考档位为 `off` 时不展示按钮上的"关闭"文字，也不保留档位字的占位；其他档位照常显示。仅调整按钮可见文字，悬停说明、辅助功能名称及面板里的档位显示、选择保持不变，不改实际思考设置。2026-10-22 自用：用户指定 `catpaw-cli` 的按钮与服务商列表图标使用其提供的绿色双猫爪图，名称、尺寸和交互不变；来源见 `packages/ui/src/design/brand/SOURCES.md`。2026-10-22 用户指定：`sankuai-openai` 显示名改为 `Friday`，使用 friday.sankuai.com 官网 favicon 的本地图标；内部 provider ID、模型选择和套餐判断不变。档位由 pi 按模型给出（pi 共有 off / minimal / low / medium / high / xhigh / max，各模型支持的不同），界面按实际档位数画格子，常见的四档显示为低 / 中 / 高 / 极高。推理强度由整个按钮的"点阵密度"表达：按钮里铺一层圆角方点（间距 6px），档位越高从左往右铺得越满、越亮，切换时平滑过渡。
   - 拉满（极高）时有专属效果：点阵变成蓝 → 青 → 桃的彩色，带随机明暗（种子与"开始设置"按钮相同，每人不同）和轻微闪烁；每 3.6 秒有一道"\"方向的光从左扫过（约 0.9 秒，先加速后减速）；按钮外圈泛出淡蓝光，档位字变成渐变色。减弱动态效果时只保留静态彩色点阵。
-  - 点开在上方弹出面板：上半部分是模型列表，分两列（2026-10-14 自用时改，原先所有服务商的模型分组平铺成一列）：左边一列很窄，只放已登录服务商的官方图标，按 pi 列出的顺序，悬停或聚焦时说出名字；右边一列是选中的那个服务商的全部模型，顶上写服务商名和模型数。打开时选中当前模型的服务商（没有当前模型时是第一个），点另一个服务商的图标才换过去（悬停不换）；当前模型所在的服务商图标上有个小点。走订阅套餐（用量算在套餐里、不按量计费）的服务商，图标右下角固定一个蓝底小签"套餐"，右栏顶上服务商名后面也写"套餐"，输入框的模型按钮里的图标同样带这个签；算走套餐的：`claude-bridge`（经 Claude Code 用 Claude 套餐，显示名"Claude 订阅"、Claude 的图标）、`openai-codex`、`github-copilot` 总算，`openai`、`xai` 用订阅登录（OAuth）时算；pi 自己的 `anthropic` 登录不算（它走 Extra Usage，按量计费），其余服务商和 API Key 都不算（2026-10-19 自用时加，原型 `prototype/ui` 分支 `prototypes/model-plan-badge-prototype.html` 的 F）。模型每行只写模型名和基础数据（上下文、最大输出、是否支持图片），不写介绍；当前模型带对勾，选中即关闭。下半部分是推理强度：一个横向的框（高 38px，每档约 56px 宽，档位多时框跟着变长），框的背景就是点阵，覆盖到第几格就是第几档；框内用细竖线分出档位数，左侧写当前档位名，右侧写"3 / 4"。框在面板里水平居中，下方说明文字也居中。按住框左右拖动，覆盖边缘跟手移动，拉过两端有橡皮筋阻尼；松手后按弹簧动画（response 0.38s、阻尼 0.72，略带回弹）吸附到最近一档；直接点某一格会弹到那一格；←→ 每次一档，到头再按会轻轻顶一下。档位名切换时新字沿拖动方向滑入。拉满时框内变成彩色点阵、带扫光和外圈淡蓝光。下面一句说明当前档位适合什么。调整不关闭面板，按钮上的点阵同步变化。
+  - 点开在上方弹出面板：上半部分是模型列表，分两列（2026-10-14 自用时改，原先所有服务商的模型分组平铺成一列）：左边一列很窄，只放已登录服务商的官方图标，按 pi 列出的顺序，悬停或聚焦时说出名字；右边一列是选中的那个服务商的全部模型，顶上写服务商名和模型数。打开时选中当前模型的服务商（没有当前模型时是第一个），点另一个服务商的图标才换过去（悬停不换）；当前模型所在的服务商图标上有个小点。走订阅套餐（用量算在套餐里、不按量计费）的服务商，图标右下角固定一个蓝底小签"套餐"，右栏顶上服务商名后面也写"套餐"，输入框的模型按钮里的图标同样带这个签；算走套餐的：`claude-bridge`（经 Claude Code 用 Claude 套餐，显示名"Claude 订阅"、Claude 的图标）、`openai-codex`、`github-copilot`、`opencode-go`（OpenCode Go 会员，显示名"OpenCode Go"）总算，`openai`、`xai` 用订阅登录（OAuth）时算；pi 自己的 `anthropic` 登录不算（它走 Extra Usage，按量计费），`opencode`（OpenCode Zen，按量计费，显示名"OpenCode Zen"）也不算，其余服务商和 API Key 都不算（2026-10-19 自用时加，原型 `prototype/ui` 分支 `prototypes/model-plan-badge-prototype.html` 的 F；2026-11-02 加 `opencode-go`）。模型每行只写模型名和基础数据（上下文、最大输出、是否支持图片），不写介绍；当前模型带对勾，选中即关闭。下半部分是推理强度：一个横向的框（高 38px，每档约 56px 宽，档位多时框跟着变长），框的背景就是点阵，覆盖到第几格就是第几档；框内用细竖线分出档位数，左侧写当前档位名，右侧写"3 / 4"。框在面板里水平居中，下方说明文字也居中。按住框左右拖动，覆盖边缘跟手移动，拉过两端有橡皮筋阻尼；松手后按弹簧动画（response 0.38s、阻尼 0.72，略带回弹）吸附到最近一档；直接点某一格会弹到那一格；←→ 每次一档，到头再按会轻轻顶一下。档位名切换时新字沿拖动方向滑入。拉满时框内变成彩色点阵、带扫光和外圈淡蓝光。下面一句说明当前档位适合什么。调整不关闭面板，按钮上的点阵同步变化。
   - 模型来自 pi 的 `get_available_models`（宿主短启一个 pi 查询，按目录缓存），档位按模型的元数据算出，模型不支持的档位不显示（见下文"模型与输入框"）。
-  - 模型列表过滤（2026-10-19 自用时定；2026-10-22 先恢复 pi 原生 Claude，后按用户要求重新隐藏非套餐 Claude）：宿主隐藏 pi 自己的 `anthropic` 模型，无论 OAuth 或 API Key 登录，避免误选按量计费的 Claude；`claude-bridge` 的可见性与套餐标签不变。不删除凭据，不改变登录入口。宿主仍去掉 `azure-openai-responses`、不是用 ChatGPT 订阅登录（OAuth）的 `openai`（查不到登录状态时也去掉），以及 `openrouter` 里 `anthropic/`、`openai/` 开头的模型。宿主只有这一份模型列表，模型面板、标题模型的设置和 agent 的 `agent_models`、`agent_spawn` 都用它；仍被过滤的模型都看不到、选不了，pi 的默认模型是被去掉的那种时当作没有默认，已经在用这些模型的会话照旧。
+  - 模型列表过滤（2026-10-19 自用时定；2026-10-22 先恢复 pi 原生 Claude，后按用户要求重新隐藏非套餐 Claude）：宿主隐藏 pi 自己的 `anthropic` 模型，无论 OAuth 或 API Key 登录，避免误选按量计费的 Claude；`claude-bridge` 的可见性与套餐标签不变。不删除凭据，不改变登录入口。宿主仍去掉 `azure-openai-responses`、不是用 ChatGPT 订阅登录（OAuth）的 `openai`（查不到登录状态时也去掉），以及 `openrouter` 里 `anthropic/`、`openai/` 开头的模型。2026-11-02 按用户买 OpenCode Go 会员时定：列表里有 `opencode-go` 的模型时，`opencode`（OpenCode Zen）的模型也去掉，免得误选按量计费的 Zen；两者用的是同一把 API Key，只有 Zen 的凭据（或环境变量 `OPENCODE_API_KEY` 只解出 Zen）时照常列出。模型名、上下文、最大输出和是否支持图片都由 pi 的模型目录给出，Atrium 不另配。宿主只有这一份模型列表，模型面板、标题模型的设置和 agent 的 `agent_models`、`agent_spawn` 都用它；仍被过滤的模型都看不到、选不了，pi 的默认模型是被去掉的那种时当作没有默认，已经在用这些模型的会话照旧。2026-11-03 自用：用 OpenCode Go 的 Key 逐个实测后，把服务商已下线（`mimo-v2.5`、`mimo-v2.5-pro` 报 410）和这把 Key 所在工作区用不了的模型（`beam-free`、`gpt-6-luna`、`muse-spark-1.2-contributor`、`muse-spark-1.3-contributor` 按国家 403，`iceman-contributor-free` 要开工作区的“允许用训练数据的付费端点”开关）也隐藏，这是账号和地区相关的临时清单，查到能用了就删掉对应那一行；同一批里 `deepseek-v4.1-flash`、`deepseek-v4-pro` 用不了是工作区的“隐私 → 地区”没选 `Global`，在 OpenCode 控制台改设置后恢复，Atrium 不为它加规则。
   - 同一个订阅有两条路时只列一条（2026-10-19 自用时定，免得选择过多）：ChatGPT 订阅既能经旧的 `openai-codex`（"ChatGPT 订阅"，Codex 的后端，查得到套餐用量、能开 Fast），也能经 pi 1.1 新的 `openai` 用 ChatGPT 登录（`api.openai.com` 直连，查不到用量、不能开 Fast、另有每应用的每周上限）；列表里有 `openai-codex` 的模型时，`openai` 的模型不列，只有新的登录时照常列出。
-  - 这些规则在宿主里是一张表（`sessions/model-rules.ts`），每条写服务商、可选的模型 id 前缀、条件（总是 / 不是某种登录方式时 / 列表里有某个服务商的模型时）和原因（按量计费 / 和别的服务商重复），加减规则只改表。
+  - 这些规则在宿主里是一张表（`sessions/model-rules.ts`），每条写服务商、可选的模型 id 前缀或确切 id、条件（总是 / 不是某种登录方式时 / 列表里有某个服务商的模型时）和原因（按量计费 / 和别的服务商重复 / 服务商已下线或此工作区用不了），加减规则只改表。
 
 - 回车发送，Shift+回车换行。输入法正在组字时（`isComposing`）按回车只是选词，不发送。
 - 运行中按钮固定为"停止"；输入框里有字时按回车加入排队；按 Esc 也能停止。
@@ -505,7 +506,7 @@ Electron 主进程
   - 浏览器在别的机器上：一个默认收起的"粘贴回调地址"输入框（pi 的 `manual_code`），和本机的回调同时等，哪个先到用哪个。
   - 设备码（`device_code`）：显示码、"复制"和"打开验证页"。
   - pi 的其他提问（如 GitHub Copilot 的企业域名）：按 pi 给的文字显示一个输入框或选择框；文字是 pi 的原文（英文），宿主不翻译。
-- API Key：选择服务商、粘贴 Key、保存，附"去哪里获取 API Key"链接；说明 Key 只写在本机的 `~/.pi/agent/auth.json`。服务商列表、保存走 pi 的 API Key 登录（同上，pi 还要问别的，比如账户 id，就接着问）。
+- API Key：选择服务商、粘贴 Key、保存，附"去哪里获取 API Key"链接；说明 Key 只写在本机的 `~/.pi/agent/auth.json`。服务商列表、保存走 pi 的 API Key 登录（同上，pi 还要问别的，比如账户 id，就接着问）。OpenCode Go 会员只有 API Key 登录（pi 的 `opencode-go`，pi 里没有它的 OAuth），在这张“使用 API Key”的表里选“OpenCode Go”，不在订阅列表里。
 - 凭据写在 pi 里，终端里的 pi 也能用。pi 的 RPC 没有登录命令，没有可用模型时 RPC 模式只给一个占位模型（2026-10-10 实测）。**登录调用用户装的 pi**（2026-10-10 验证并定，见 [pi-internals](../research/pi-internals.md) §4"从外部调用 pi 的登录"）：宿主用系统 Node（pi 用的那个）运行 `packages/pi` 里的登录程序，它 `import` 用户装的 pi 包里的 `ModelRuntime`，查各家的登录状态、走 OAuth 和 API Key 登录、退出，凭据由 pi 在锁下写进 `auth.json`；和宿主之间按行传 JSON，Key 走标准输入。OpenAI 要的设备 ID 用 pi 自己的（`~/.pi/agent/settings.json` 的 `deviceId`），和终端里的 pi 是同一台设备。版本和终端里的 pi 一致，Atrium 不另带一份 pi。取消登录时停掉登录程序，回调端口随之释放。
 - 登录程序加载不了 pi（例如 Nix 装的、pi 的接口变了）：这一步显示"在终端运行 `pi`，输入 `/login`"（命令可复制）和"我登录好了，重新检测"。这时 Atrium 判断不了终端里是否登录成功，"继续"始终可用（2026-10-11 定）。
 - 图标一律用各家官方资源，来源记录在 `prototypes/brand/SOURCES.md`；发布前按各家品牌规范核对用法。
@@ -913,7 +914,7 @@ M1.11 的对话归档（协议版本 11，2026-10-12 定）：新增命令 `arch
 - 归档的对话不出现在侧栏的对话列表、搜索和收件箱里（它的会话都归档了）；不能在里面新建会话（`create_session` 应答 `chat_not_found`）。
 - 界面：悬停对话行时"···"左边有归档图标（悬停说明"归档"，2026-10-13 自用时改，原先在"···"菜单里）。其中有会话在运行时先弹确认框（同工作区归档的确认框）："归档对话「名称」？"，正文"其中 N 个会话正在运行，归档会停止它们；之后可以在"已归档的对话"里恢复"，按钮"取消""归档"；没有会话在运行时直接归档。失败在侧栏的问题行说明：`chat_not_found`"这个对话已经不在了"，其他"没能归档这个对话"、"没能恢复这个对话"。"已归档的对话"是"对话"分区末尾的一行，只在有归档的对话时出现；点开在原地展开成列表：名称（同侧栏的取名规则）、归档时间（写法同最近活动时间），行尾"恢复"，按归档时间新到旧，最多 8 行高、再多在列表内滚动；再点收起。
 
-**对话的置顶与顺序（协议版本 30，2026-10-28 定，自用时反馈：跑着的对话不浮上来、不能置顶；原型 `prototypes/conversation-pin-and-order-prototype.html` 选甲"名字前的图钉"、「···」菜单入口、A"让位滑行 + 落位高亮"）**：新增命令 `pin_chat(chatId)`、`unpin_chat(chatId)`，对话多了 `pinnedAt`；`chats.json` 的记录多一个 `pinnedAt`，旧文件照读（没有就是不置顶）。置顶只做对话，工作区行不动（"位置稳定"那条照旧）。
+**对话的置顶与顺序（协议版本 31，2026-10-28 定，自用时反馈：跑着的对话不浮上来、不能置顶；原型 `prototypes/conversation-pin-and-order-prototype.html` 选甲"名字前的图钉"、「···」菜单入口、A"让位滑行 + 落位高亮"）**：新增命令 `pin_chat(chatId)`、`unpin_chat(chatId)`，对话多了 `pinnedAt`；`chats.json` 的记录多一个 `pinnedAt`，旧文件照读（没有就是不置顶）。置顶只做对话，工作区行不动（"位置稳定"那条照旧）。
 
 - 顺序：**置顶 → 进行中 → 最近活动**。"进行中"是指其中任一未归档会话的状态图标亮着（`sessionStatus` 非空：运行中、待回答、待授权、出错），不另设运行中分区（同收件箱"不单独设运行中分区"）。每一档里再按最近活动（其中会话 `updatedAt` 的最大值）倒序；置顶里的也按最近活动，所以钉住的对话跑起来照样会动，只是不会掉出置顶档。
 - 置顶行：名字前一枚 13px 的图钉（Hugeicons `Pin02Icon`，`--tint`），名字因此比其余行右移约 18px；行尾照旧是最近活动时间和状态图标。不分组、不加标题、不占时间的位置（原型里另外三种比较过：行尾图钉、单独"置顶"一节、时间处写"置顶"）。
@@ -1160,15 +1161,15 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 
 **套餐用量**
 
-- 只查两家：`openai-codex`（ChatGPT 订阅）和 `anthropic` 的订阅登录（ADR-0010）。宿主在会话的 pi 启动后、每次运行结束后、换模型之后，当前模型是这两家之一、并且 pi 的 `get_commands` 里有 `atrium-plan` 时，经这个会话的 pi 发 `/atrium-plan <服务商>`；同一服务商 60 秒内最多问一次、正在问时不再问。`atrium-plan` 和 `atrium-fast` 一样不出现在 `/` 菜单里。（M1.14 改：三家都查，不看当前模型，换模型不再触发，见"M1.14 的套餐总览"。）
+- 只查两家：`openai-codex`（ChatGPT 订阅）和 `anthropic` 的订阅登录（ADR-0010）。宿主在会话的 pi 启动后、每次运行结束后、换模型之后，当前模型是这两家之一、并且 pi 的 `get_commands` 里有 `atrium-plan` 时，经这个会话的 pi 发 `/atrium-plan <服务商>`；同一服务商 60 秒内最多问一次、正在问时不再问。`atrium-plan` 和 `atrium-fast` 一样不出现在 `/` 菜单里。（M1.14 改：四家都查，不看当前模型，换模型不再触发，见"M1.14 的套餐总览"；2026-11-02 加 OpenCode Go，见 ADR-0017。）
 - 扩展用 `setStatus("atrium-plan", …)` 报 `{ provider, plan, windows }` 或 `{ provider, failure }`：
   - `plan`：ChatGPT 是 `plan_type`（如 `plus`、`pro`），Claude 为 `null`；
   - `windows`：每个窗口 `{ seconds, model, usedPercent, resetsAt }`。`seconds` 是窗口长度（5 小时是 18000，一周是 604800，不知道时为 `null`），`model` 是按模型的窗口的模型名（Claude 的 `weekly_scoped`），其余为 `null`；`usedPercent` 是 0–100 的数；`resetsAt` 是毫秒时间戳或 `null`。
   - ChatGPT：`rate_limit.primary_window`、`secondary_window`，`reset_at` 是秒。Claude：有 `limits[]` 时用它（`session`、`weekly_all` 各一个窗口，`weekly_scoped` 每个模型一个），没有时用 `five_hour`、`seven_day`、`seven_day_opus`、`seven_day_sonnet` 里不为 `null` 的。
-  - `failure` 是原因代码：`no_login`（这家没登录或是 API key）、`unreachable`、`http_<状态码>`、`not_json`、`unknown_shape`。
+  - `failure` 是原因代码：`no_login`（这家没登录，或是 API key 而没有订阅额度——`opencode-go` 的订阅本来就是 API key，不受这条限制，见 ADR-0017）、`unreachable`、`http_<状态码>`、`not_json`、`unknown_shape`。
 - 宿主按格式校验（服务商是这两家之一，窗口最多 8 个（Claude 按模型分的窗口多于 8 个时扩展只报前 8 个），时长和重置时间是安全整数，百分比夹到 0–100，模型名最多 64 个字），按服务商记最近一次成功的结果和查到的时间；失败只记日志（服务商和原因代码）；`no_login` 立即丢掉之前的结果，别的失败（含超时、没有查到结果、查询出错）只在之前的结果已经查到满 10 分钟时丢掉。之后没有再查时结果留着，卡片右上角的"N 分钟前"说明它有多旧，随时间走（2026-10-16 审查后定）。
 - 协议：`metrics.plan` 为 `null` 或 `{ provider, plan, windows, at }`，是这个会话当前模型的服务商的结果（`at` 是查到的时间）。别的会话查到同一家的新结果时，这个会话也推 `metrics_updated`。（M1.14 去掉 `metrics.plan`，改成全宿主一份的 `plans_updated`；什么时候问、问哪几家也改了，见"M1.14 的套餐总览"。）
-- 状态栏的"套餐"一组：摘要是圆环和"套餐 N%"，N 是各窗口里最大的已用百分比，取整；≥ 80% 时圆环和数字用 `--attn`。卡片：标题"ChatGPT Plus 用量"（服务商名：`openai-codex` 是 ChatGPT，`anthropic` 是 Claude；后面跟套餐名，首字母大写），右上角是查到的时间（"刚刚""N 分钟前"）；每个窗口一行：名称（18000 秒是"5 小时窗口"，604800 秒是"每周"，其余按小时或天，有模型名时加"· 模型名"）、重置时间（一天内写"N 小时 N 分后重置"，再远写"周几 HH:MM 重置"，没有时不写）、百分比和进度条（≥ 80% 用 `--attn`）。`metrics.plan` 为 `null` 或没有窗口时整组不显示。（M1.14 改：卡片列出所有订阅、按服务商分段，摘要取当前模型那家，见"M1.14 的套餐总览"。）
+- 状态栏的"套餐"一组：摘要是圆环和"套餐 N%"，N 是各窗口里最大的已用百分比，取整；≥ 80% 时圆环和数字用 `--attn`。卡片：标题"ChatGPT Plus 用量"（服务商名：`openai-codex` 是 ChatGPT，`anthropic` 是 Claude，`xai` 是 Grok，`opencode-go` 是 OpenCode Go；后面跟套餐名，首字母大写），右上角是查到的时间（"刚刚""N 分钟前"）；每个窗口一行：名称（18000 秒是"5 小时窗口"，604800 秒是"每周"，2592000 秒是"每月"，其余按小时或天，有模型名时加"· 模型名"）、重置时间（一天内写"N 小时 N 分后重置"，再远写"周几 HH:MM 重置"，没有时不写）、百分比和进度条（≥ 80% 用 `--attn`）。`metrics.plan` 为 `null` 或没有窗口时整组不显示。（M1.14 改：卡片列出所有订阅、按服务商分段，摘要取当前模型那家，见"M1.14 的套餐总览"。）
 
 新增：`metrics.plan`、`context.parts`、`context.reserve`；去掉 `context.system`、`context.tools`。协议版本 16。
 
@@ -1178,9 +1179,9 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 
 **查哪几家、什么时候查**
 
-- 三家：`openai-codex`（ChatGPT 订阅）、`anthropic`（Claude 订阅）、`xai`（Grok：SuperGrok、X Premium 订阅）。后两家只查订阅登录，API key 的报 `no_login`。
-- 宿主在每个会话的 pi 启动后和每次运行结束后（`agent_settled`），pi 的 `get_commands` 里有 `atrium-plan` 时，经这个会话的 pi 把三家都问一遍（`/atrium-plan <服务商>`），不再看会话当前的模型，换模型不再触发。同一服务商 60 秒内最多问一次、正在问时不再问，全宿主共用。
-- 结果的去留同 M1.13：`no_login` 立即丢掉这一家；别的失败（含超时、没有报告、查询出错）只在之前的结果查到满 10 分钟时丢掉。同一服务商连续报同一个原因时日志只记第一次（三家每分钟都问，没登录的那家不该每分钟记一条）；查询出错（pi 没答、拒绝、退出）也算一种原因（pi 的命令加原因代码），和扩展报的失败一起去重（2026-10-17 三方审查后补）。
+- 四家（2026-11-02 加第四家，ADR-0017）：`openai-codex`（ChatGPT 订阅）、`anthropic`（Claude 订阅）、`xai`（Grok：SuperGrok、X Premium 订阅）、`opencode-go`（OpenCode Go 会员）。`anthropic`、`xai` 只查订阅登录，API key 的报 `no_login`；`opencode-go` 相反，它的订阅凭证就是 API key，带 key 就查。
+- 宿主在每个会话的 pi 启动后和每次运行结束后（`agent_settled`），pi 的 `get_commands` 里有 `atrium-plan` 时，经这个会话的 pi 把四家都问一遍（`/atrium-plan <服务商>`），不再看会话当前的模型，换模型不再触发。同一服务商 60 秒内最多问一次、正在问时不再问，全宿主共用。
+- 结果的去留同 M1.13：`no_login` 立即丢掉这一家；别的失败（含超时、没有报告、查询出错）只在之前的结果查到满 10 分钟时丢掉。同一服务商连续报同一个原因时日志只记第一次（四家每分钟都问，没登录的那家不该每分钟记一条）；查询出错（pi 没答、拒绝、退出）也算一种原因（pi 的命令加原因代码），和扩展报的失败一起去重（2026-10-17 三方审查后补）。
 - 一个会话都没开时不查，留着上次的结果；宿主重启后要等第一个会话的 pi 起来才有数。
 
 **Grok 的用量**
@@ -1193,6 +1194,16 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
   - `parts` 是 `productUsage` 每一项 `{ name: product, usedPercent: usagePercent }`，没有 `usagePercent` 的按 0、有却不是数的整份报 `unknown_shape`，没有产品名的不要；是窗口用量按产品的拆分，加起来约等于窗口的百分比，不是各自的上限。
   - `plan` 为 `null`（套餐档次要另请求 `/v1/settings`，不做）。
 - `config` 不是对象、`currentPeriod` 和 `creditUsagePercent` 都没有时报 `unknown_shape`。其余字段（按需付费、预付余额、计费周期）不读。
+
+**OpenCode Go 的用量（2026-11-02 加，ADR-0017）**
+
+- 扩展在 `opencode-go` 有 API Key 时发往写死的 `https://opencode.ai/zen/go/v1/usage`，带 `authorization: Bearer <API Key>`、`accept: application/json`，不带 pi 给 `opencode-go` 模型的其他头，也不带工作区 id（ADR-0017；其余同别家：走 pi 的 `fetch`、15 秒为限、不跟随重定向）。没有 Key 时报 `no_login`。
+- 回答是 `{ usage: { rolling: { status, percent, resetsAt }, weekly: {…}, monthly: {…} } }`（2026-11-02 用用户的 Key 实测，见 ADR-0017）。报成三个窗口：
+  - `rolling` 是 18000 秒（5 小时）、`weekly` 是 604800 秒（每周）、`monthly` 是 2592000 秒（每月，显示"每月"）；
+  - `usedPercent` 是 `percent`，夹到 0–100；`resetsAt` 是 `resetsAt` 的 ISO 时间换成毫秒，解析不了为 `null`；
+  - `model` 为 `null`，`parts` 为空；`status`（`ok` / `rate-limited`）只表示是否已被限额，不另记；`plan` 为 `null`（接口不分 Go / Go Plus）。
+  - 某一项没有 `percent` 或不是数就跳过那一项；三项都跳掉时整份报 `unknown_shape`。工作区没订阅 Go 时是 `http_403`。
+- 不支持指定工作区：pi 里只有 Key，没有工作区 id；多工作区账号拿到的是这把 Key 的默认工作区（ADR-0017，重新评估的条件）。
 
 **Claude 的用量也从回复读（ADR-0012，2026-10-17 加）**
 
@@ -1210,13 +1221,14 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 
 - `PlanProvider` 加 `xai`。窗口加 `parts`：`[{ name, usedPercent }]`，最多 16 项，名字 1–64 个字（扩展报的截断），百分比夹到 0–100；ChatGPT、Claude 的窗口为空数组。扩展报的窗口没有 `parts` 时按空数组，`parts` 不是数组、超过 16 项、有一项不合格时整份报告不要。
 - 去掉 `metrics.plan`。
-- 新事件 `plans_updated { plans }`：任何一家的结果变了时整份推给所有连接；每个连接握手后也紧跟 `welcome` 推一次（和安装、登录的补发一起，同"首次启动 · 接口"），没查到任何一家时是空列表，所以连到重启过的宿主或断线期间用量没了的，都会换成新的。`plans` 是查到的订阅，每家 `{ provider, plan, windows, at }`，按 `openai-codex`、`anthropic`、`xai` 的顺序，没有查到的不列。客户端不发命令去要，只跟着事件换。
+- 新事件 `plans_updated { plans }`：任何一家的结果变了时整份推给所有连接；每个连接握手后也紧跟 `welcome` 推一次（和安装、登录的补发一起，同"首次启动 · 接口"），没查到任何一家时是空列表，所以连到重启过的宿主或断线期间用量没了的，都会换成新的。`plans` 是查到的订阅，每家 `{ provider, plan, windows, at }`，按 `openai-codex`、`anthropic`、`xai`、`opencode-go` 的顺序，没有查到的不列。客户端不发命令去要，只跟着事件换。
 - 协议版本 17。
+- 协议版本 30（2026-11-02）：`PlanProvider` 加 `opencode-go`（ADR-0017），其余不变。
 
 **界面**
 
 - 状态栏的"套餐"一组：`plans` 不为空时出现。摘要的圆环和"套餐 N%"取**当前会话模型的服务商**那一份（规则同 M1.13）；当前模型不是查到的订阅（如 GLM）时，圆环是空的，只写"套餐"，颜色不变橙。已知限制（2026-10-17 三方审查后定，以后再改）：界面只按服务商名判断，不知道会话用的是订阅登录还是 API key，所以用 API key 的 `anthropic`、`openai` 会话（而另有这家的订阅用量）也会把那家订阅标成"当前"、摘要显示它的百分比；要做对，得由宿主告诉界面会话的登录是不是订阅（pi 的 `isUsingOAuth`），协议要改。
-- 卡片（宽 300px）：标题"套餐用量"。查到的每家一段，当前模型那家在前，其余按协议的顺序；段与段之间一条 0.5px `--line`。每段第一行是服务商和套餐名（同 M1.13 的写法，去掉"用量"二字：`openai-codex` 是 ChatGPT，`anthropic` 是 Claude，`xai` 是 Grok），当前模型那家后面加"当前"（`--text-dim`），右边是这一家查到的时间；下面是它的窗口，同 M1.13。窗口有 `parts` 时，进度条下面每个产品一行：缩进、产品名（按大写字母拆开，`GrokBuild` 写"Grok Build"）、百分比，不画进度条。
+- 卡片（宽 300px）：标题"套餐用量"。查到的每家一段，当前模型那家在前，其余按协议的顺序；段与段之间一条 0.5px `--line`。每段第一行是服务商和套餐名（同 M1.13 的写法，去掉"用量"二字：`openai-codex` 是 ChatGPT，`anthropic` 是 Claude，`xai` 是 Grok，`opencode-go` 是 OpenCode Go），当前模型那家后面加"当前"（`--text-dim`），右边是这一家查到的时间；下面是它的窗口，同 M1.13。窗口有 `parts` 时，进度条下面每个产品一行：缩进、产品名（按大写字母拆开，`GrokBuild` 写"Grok Build"）、百分比，不画进度条。
 - 设置 · 模型与账户：在"订阅登录"下面加一组"套餐用量"，说明"各订阅还剩多少、什么时候重置，借 pi 的登录查，每分钟最多一次。"，内容和卡片的各段一样（没有卡片标题；设置不属于哪个会话，所以不标"当前"，按协议的顺序）；`plans` 为空时写"打开会话后，Atrium 会借 pi 的登录查各订阅的用量"。用量是会话的 pi 查的，不经登录程序，所以 Atrium 加载不了 pi 的登录、只显示"登录"那一句说明时，这一组照样显示。
 - 状态栏调节面板里"套餐"一组的说明改为"当前订阅的用量，悬停看所有订阅和重置时间"（原先"订阅的 5 小时、每周用量，悬停看重置时间"）。
 
@@ -1328,7 +1340,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 | `list_bases(projectId)` / `create_workspace(projectId, branch, base, alias?)` | 列出起点；新建 worktree 并保存可选中文别名，返回 `{ workspaceId }`（协议 29，见"M1.11 的新建工作区"） |
 | `name_branch(projectId, text, model, branch?)` | 按素材让 AI 起中英文名，返回 `{ branch, alias }`；给了 `branch` 只补中文名（协议 29，见"新建 worktree 的中文显示名"） |
 | `list_sessions(containerId)` / `list_chats()` | 容器下的会话、对话（M1.5 起由 `subscribe_index` 推来的完整列表取代，见上文"项目、工作区与会话"） |
-| `create_session(containerId)` / `create_chat()` / `open_session(sessionId)` / `rename_chat(chatId, name \| null)` / `pin_chat(chatId)` / `unpin_chat(chatId)` | 新建或打开会话：新会话以工作区或对话的目录为工作目录；新对话新建 `~/.atrium/chats/<目录名>/`；对话改名；对话置顶、取消置顶（协议 30，见"对话的置顶与顺序"） |
+| `create_session(containerId)` / `create_chat()` / `open_session(sessionId)` / `rename_chat(chatId, name \| null)` / `pin_chat(chatId)` / `unpin_chat(chatId)` | 新建或打开会话：新会话以工作区或对话的目录为工作目录；新对话新建 `~/.atrium/chats/<目录名>/`；对话改名；对话置顶、取消置顶（协议 31，见"对话的置顶与顺序"） |
 | `close_tab(sessionId)` | 只改这个客户端的布局，不停运行、不动排队 |
 | `subscribe_index(cursor?)` / `subscribe_sessions(sessionIds)` / `fetch_transcript(sessionId, epoch, before, limit)` | 订阅列表（带游标时回增量）；订阅要实时增量的会话；往上翻拉更早的对话记录 |
 | `clear_attention(sessionId)` | 打开会话时清除关注状态（出错、待授权），移出收件箱 |

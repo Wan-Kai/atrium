@@ -93,6 +93,7 @@ enum ModelChoice {
   private static let providers: [String: (name: String, logo: String)] = [
     "anthropic": ("Anthropic", "claude.png"), "claude-bridge": ("Claude 订阅", "claude.png"),
     "openai": ("OpenAI", "openai.png"), "openai-codex": ("ChatGPT 订阅", "openai.png"),
+    "opencode": ("OpenCode Zen", "opencode.png"), "opencode-go": ("OpenCode Go", "opencode.png"),
     "azure-openai-responses": ("Azure OpenAI", "openai.png"), "github-copilot": ("GitHub Copilot", "copilot.png"),
     "openrouter": ("OpenRouter", "openrouter.png"), "xai": ("xAI", "xai.png"), "moonshotai": ("Kimi", "kimi.png"),
     "moonshotai-cn": ("Kimi", "kimi.png"), "kimi-coding": ("Kimi Coding", "kimi.png"),
@@ -128,7 +129,7 @@ enum ModelChoice {
   /// - Parameter providerId: The provider.
   /// - Returns: Whether it is.
   static func onPlan(_ providerId: String) -> Bool {
-    ["claude-bridge", "openai-codex", "github-copilot"].contains(providerId)
+    ["claude-bridge", "openai-codex", "github-copilot", "opencode-go"].contains(providerId)
   }
 
   /// The models by provider, in the order pi lists them.

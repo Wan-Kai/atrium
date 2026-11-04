@@ -686,6 +686,18 @@ const grokPlan = {
   at: 0,
 } as const;
 
+/** OpenCode Go's usage: its 5-hour, weekly and monthly windows (ADR-0017). */
+const opencodePlan = {
+  provider: "opencode-go",
+  plan: null,
+  windows: [
+    { seconds: 18_000, model: null, usedPercent: 0, resetsAt: 1_760_010_106_000, parts: [] },
+    { seconds: 604_800, model: null, usedPercent: 15, resetsAt: 1_760_500_000_000, parts: [] },
+    { seconds: 2_592_000, model: null, usedPercent: 7, resetsAt: 1_764_600_000_000, parts: [] },
+  ],
+  at: 1_759_990_000_000,
+} as const;
+
 /** A push of Grok's usage with its window's products replaced by `parts`. */
 function grokWithParts(parts: unknown) {
   return { type: "plans_updated", plans: [{ ...grokPlan, windows: [{ ...grokPlan.windows[0], parts }] }] };
@@ -1947,7 +1959,10 @@ const hostMessages: unknown[] = [
   { type: "pi_latest", latest: "2.0.0-rc.1+build.5", checkedAt: 0 },
   { type: "pi_latest", latest: null, checkedAt: null },
   { type: "credentials_changed" },
-  { type: "plans_updated", plans: [plan, { provider: "anthropic", plan: null, windows: [], at: 0 }, grokPlan] },
+  {
+    type: "plans_updated",
+    plans: [plan, { provider: "anthropic", plan: null, windows: [], at: 0 }, grokPlan, opencodePlan],
+  },
   { type: "plans_updated", plans: [] },
   { type: "remote_updated", remote: remoteState },
 ];
@@ -2651,7 +2666,7 @@ describe("HostMessage", () => {
       "a plan of a provider Atrium does not ask",
       { type: "plans_updated", plans: [{ ...plan, provider: "github-copilot" }] },
     ],
-    ["four plans", { type: "plans_updated", plans: [plan, plan, plan, plan] }],
+    ["five plans", { type: "plans_updated", plans: [plan, plan, plan, plan, plan] }],
     [
       "a window without its parts",
       { type: "plans_updated", plans: [{ ...plan, windows: [{ ...plan.windows[0], parts: undefined }] }] },

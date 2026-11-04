@@ -31,9 +31,10 @@
 | [0008](0008-atrium-own-pi-extension-for-fast.md) | 用 Atrium 自带的 pi 扩展实现 Fast | 已接受 | 2026-10-12 |
 | [0009](0009-browser-stays-external.md) | 浏览器操作放在外部浏览器，定制功能做成浏览器插件 | 已接受 | 2026-10-12 |
 | [0010](0010-plan-usage-through-atrium-extension.md) | 套餐用量经 Atrium 自带的 pi 扩展查询 | 已接受（第 1、3 条被 0011 取代） | 2026-10-15 |
-| [0011](0011-plan-overview-all-subscriptions.md) | 套餐总览：经任一会话的 pi 查所有订阅，Grok 的用量接口是唯一的例外地址 | 已接受 | 2026-10-16 |
+| [0011](0011-plan-overview-all-subscriptions.md) | 套餐总览：经任一会话的 pi 查所有订阅，Grok 的用量接口是唯一的例外地址 | 已接受（"API key 的订阅不查"和"唯一例外地址"两点被 0017 补充） | 2026-10-16 |
 | [0012](0012-claude-usage-from-replies-and-openai-mapping.md) | Claude 的用量也从回复的响应头读，经 claude-bridge 和 pi 新的 ChatGPT 登录的会话算到对应的订阅 | 已接受 | 2026-10-17 |
 | [0013](0013-agent-channel-status-and-hidden-command.md) | 扩展与宿主有来有回的通道用"状态加隐藏命令" | 已接受 | 2026-10-17 |
 | [0014](0014-web-search-and-fetch-through-deepseek.md) | 联网搜索和网页抓取经 Atrium 自带的 pi 扩展，用 DeepSeek 的 Search / Fetch API | 已接受 | 2026-10-20 |
 | [0015](0015-native-ios-app-in-swiftui.md) | 手机端做 SwiftUI 原生 iOS App，先不做推送 | 已接受 | 2026-10-24 |
 | [0016](0016-remote-access-through-own-relay-with-noise.md) | 手机经自建 relay 连回宿主，用 Noise 端到端加密 | 已接受 | 2026-10-24 |
+| [0017](0017-opencode-go-plan-usage.md) | OpenCode Go 的套餐用量用 API Key 查固定地址 | 已接受 | 2026-11-02 |

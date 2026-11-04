@@ -8,6 +8,7 @@ import {
   codexUsage,
   grokUsage,
   isPlanProvider,
+  opencodeUsage,
   repliesWithClaudeUsage,
   replyUsage,
 } from "./plan";
@@ -47,6 +48,13 @@ const CLAUDE_OAUTH_BETA = "oauth-2025-04-20";
  * does not use (ADR-0011; security.md, "Atrium 自带的 pi 扩展"). Fixed, never from a model or a login.
  */
 export const GROK_USAGE_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
+
+/**
+ * Where OpenCode Go's usage is: the address of OpenCode's own client, on the server pi already
+ * sends models to (ADR-0017; security.md, "Atrium 自带的 pi 扩展"). Fixed, never from a model or a
+ * login.
+ */
+export const OPENCODE_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
 
 /**
  * Asks a provider for its usage with pi's login, and reads the answer.
@@ -118,7 +126,8 @@ function grokHeaders(login: Login): Record<string, string> {
  * @remarks
  * ADR-0010: ChatGPT's `wham/usage` at the root of where pi sends Codex's requests; Claude's
  * `api/oauth/usage` at the model's base address, only with a subscription's login. ADR-0011:
- * Grok's billing at its fixed address, only with a subscription's login. A provider without a
+ * Grok's billing at its fixed address, only with a subscription's login. ADR-0017: OpenCode Go's
+ * usage at its fixed address, with the API key its subscription runs on. A provider without a
  * login, or Claude or Grok with an API key, is `no_login`; an answer that is not usage is
  * `unknown_shape`. It never rejects.
  *
@@ -126,12 +135,19 @@ function grokHeaders(login: Login): Record<string, string> {
  * @param ctx - The command's context.
  * @param provider - The provider, as the host named it.
  * @param grokUrl - Where Grok's usage is.
+ * @param opencodeUrl - Where OpenCode Go's usage is.
  * @returns The report, or `null` for a provider Atrium does not ask.
  */
-async function askPlan(ctx: PlanContext, provider: string, grokUrl: string): Promise<PlanReport | null> {
+async function askPlan(
+  ctx: PlanContext,
+  provider: string,
+  grokUrl: string,
+  opencodeUrl: string,
+): Promise<PlanReport | null> {
   if (!isPlanProvider(provider)) return null;
   const login = await loginFor(ctx.modelRegistry, provider);
-  if (login === null || (provider !== "openai-codex" && !login.oauth)) return { provider, failure: "no_login" };
+  const oauthNotRequired = provider === "openai-codex" || provider === "opencode-go";
+  if (login === null || (!oauthNotRequired && !login.oauth)) return { provider, failure: "no_login" };
   if (provider === "openai-codex") {
     const answer = await askFor(`${backendRoot(login.baseUrl)}/wham/usage`, chatgptHeaders(login));
     if ("failure" in answer) return { provider, failure: answer.failure };
@@ -142,6 +158,16 @@ async function askPlan(ctx: PlanContext, provider: string, grokUrl: string): Pro
     const answer = await askFor(grokUrl, grokHeaders(login));
     if ("failure" in answer) return { provider, failure: answer.failure };
     const windows = grokUsage(answer.body);
+    return windows === null ? { provider, failure: "unknown_shape" } : { provider, plan: null, windows };
+  }
+  if (provider === "opencode-go") {
+    // Its own headers are for the model's address; this path takes the bearer alone.
+    const answer = await askFor(opencodeUrl, {
+      accept: "application/json",
+      authorization: `Bearer ${login.apiKey}`,
+    });
+    if ("failure" in answer) return { provider, failure: answer.failure };
+    const windows = opencodeUsage(answer.body);
     return windows === null ? { provider, failure: "unknown_shape" } : { provider, plan: null, windows };
   }
   const answer = await askFor(`${login.baseUrl.replace(/\/+$/u, "")}/api/oauth/usage`, claudeHeaders(login));
@@ -164,14 +190,16 @@ async function askPlan(ctx: PlanContext, provider: string, grokUrl: string): Pro
  * @sideEffects Registers a command and a hook with pi; asks providers for usage when the command
  * runs; reports the usage replies bring.
  * @param pi - pi's extension API.
- * @param grokUrl - Where Grok's usage is: {@link GROK_USAGE_URL}, which tests alone change. Atrium's
- *   one extension calls this with pi's API only, so nothing pi passes can change it.
+ * @param grokUrl - Where Grok's usage is: {@link GROK_USAGE_URL}, which tests alone change.
+ * @param opencodeUrl - Where OpenCode Go's usage is: {@link OPENCODE_USAGE_URL}, which tests alone
+ *   change. Atrium's one extension calls this with pi's API only, so nothing pi passes can change
+ *   either.
  */
-export default function atriumPlan(pi: PlanApi, grokUrl = GROK_USAGE_URL): void {
+export default function atriumPlan(pi: PlanApi, grokUrl = GROK_USAGE_URL, opencodeUrl = OPENCODE_USAGE_URL): void {
   pi.registerCommand(PLAN_COMMAND, {
     description: "Atrium's plan usage query, sent by Atrium's host",
     handler: async (args, ctx) => {
-      const report = await askPlan(ctx, args.trim(), grokUrl);
+      const report = await askPlan(ctx, args.trim(), grokUrl, opencodeUrl);
       if (report !== null) ctx.ui.setStatus(PLAN_STATUS, JSON.stringify(report));
     },
   });

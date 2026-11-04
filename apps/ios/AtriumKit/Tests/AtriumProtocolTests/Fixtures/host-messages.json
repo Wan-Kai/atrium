@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 30,
+    "protocolVersion": 31,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -2061,6 +2061,34 @@
           }
         ],
         "at": 0
+      },
+      {
+        "provider": "opencode-go",
+        "plan": null,
+        "windows": [
+          {
+            "seconds": 18000,
+            "model": null,
+            "usedPercent": 0,
+            "resetsAt": 1760010106000,
+            "parts": []
+          },
+          {
+            "seconds": 604800,
+            "model": null,
+            "usedPercent": 15,
+            "resetsAt": 1760500000000,
+            "parts": []
+          },
+          {
+            "seconds": 2592000,
+            "model": null,
+            "usedPercent": 7,
+            "resetsAt": 1764600000000,
+            "parts": []
+          }
+        ],
+        "at": 1759990000000
       }
     ]
   },

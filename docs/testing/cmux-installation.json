@@ -1,0 +1,39 @@
+{
+  "date": "2026-11-04",
+  "upstream": "https://github.com/manaflow-ai/cmux",
+  "ref": "v0.65.2.2",
+  "commit": "12023d89feb5425c766ba05e8d8e4cfc176e3991",
+  "caskVersion": "0.65.2.2",
+  "cliVersion": "cmux 0.65.2 (113) [12023d89f]",
+  "piVersion": "1.5.0",
+  "app": "/Applications/cmux.app",
+  "cli": "/opt/homebrew/bin/cmux",
+  "skillDirectory": "~/.pi/agent/skills",
+  "socket": "~/.local/state/cmux/cmux.sock",
+  "accessMode": "password",
+  "config": "~/.config/cmux/cmux.json",
+  "configBackup": "~/.config/cmux/cmux.json.bak.atrium-20261104-161454",
+  "localPatch": "docs/research/cmux-skills.patch",
+  "filesSha256": {
+    "cmux/SKILL.md": "5247f4302954d22e14cb8d224d97cc1841fb2aad5cf2abedd90043a461774baf",
+    "cmux/agents/openai.yaml": "7efa5af3c070a391d7477d065f150aaf8305dd2e18994cbe5e54b0fae83a7681",
+    "cmux/references/handles-and-identify.md": "0080ba162cb3c1d679492842ad664417798eea43eb3cbbcf6010a98152162b8f",
+    "cmux/references/panes-surfaces.md": "214d10abb518bceb89db95a31e2a6590d3ff54acd527812f1e552fd235cdb954",
+    "cmux/references/trigger-flash-and-health.md": "7cdc5ca0bacac1427df343e84c92a542b5d9d8724b58da608f7fcf51f2d9972f",
+    "cmux/references/windows-workspaces.md": "7dc432a1f5d600a241faeff534a4b9183d2a5c968655b7ac2365ae3f8d6df54b",
+    "cmux-workspace/SKILL.md": "7e4f5c9cc4d0b354895a2a054ed1be2b3b7f82c5f104e6350d54dd694f539243",
+    "cmux-workspace/agents/openai.yaml": "fb505a3163fb9f9aba2fb4a8f14e5b5956f9ba927f3a2fb51b23585eed5c7d80",
+    "cmux-workspace/references/commands.md": "2ca1394fdc8a8835b1d9c9d4bc7595944812ea0e81f0d0840a9548906ca7249d"
+  },
+  "acceptance": {
+    "app": "/Applications/Atrium.app",
+    "model": "openai-codex/gpt-6.1-sol",
+    "primarySessionId": "0efd15cc-9db6-4229-ab31-b1a77d593d56",
+    "finalInstallationProbeSessionId": "a045593b-8860-4ca8-a9ce-cd8e71326d9b",
+    "followupSessionIds": [
+      "18d2d674-d09b-4394-89f7-517e0f793d2e",
+      "bf2c5a3e-2e40-4cd7-bd2e-0f156922c958"
+    ],
+    "summary": "docs/testing/coverage-map.md#外部-cmux-终端最小接入2026-11-04"
+  }
+}

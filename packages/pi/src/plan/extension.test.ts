@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ServerResponse } from "node:http";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import atrium from "../extension/atrium";
-import atriumPlan, { GROK_USAGE_URL, type PlanApi } from "./extension";
+import atriumPlan, { GROK_USAGE_URL, OPENCODE_USAGE_URL, type PlanApi } from "./extension";
 
 /** A command's context, as pi gives it. */
 type Context = Parameters<Parameters<PlanApi["registerCommand"]>[1]["handler"]>[1];
@@ -29,6 +29,15 @@ const GROK_ANSWER = {
     currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", start: "2026-10-12T09:56:20Z", end: "2026-10-19T09:56:20Z" },
     creditUsagePercent: 34,
     productUsage: [{ product: "GrokBuild", usagePercent: 33 }],
+  },
+};
+
+/** OpenCode Go's answer to `/zen/go/v1/usage` (ADR-0017). */
+const OPENCODE_ANSWER = {
+  usage: {
+    rolling: { status: "ok", percent: 0, resetsAt: "2026-11-03T07:01:46.000Z" },
+    weekly: { status: "ok", percent: 15, resetsAt: "2026-11-09T00:00:00.000Z" },
+    monthly: { status: "ok", percent: 7, resetsAt: "2026-12-02T14:36:47.000Z" },
   },
 };
 
@@ -107,6 +116,7 @@ function stand(
  * @param args - What follows the command's name.
  * @param ctx - The context.
  * @param grokUrl - Where Grok's usage is asked; nowhere real (testing.md).
+ * @param opencodeUrl - Where OpenCode Go's usage is asked; nowhere real too.
  * @returns The command's name and description.
  * @throws {Error} When it registered no command.
  */
@@ -114,6 +124,7 @@ async function run(
   args: string,
   ctx: Context,
   grokUrl = "http://127.0.0.1:9/v1/billing?format=credits",
+  opencodeUrl = "http://127.0.0.1:9/zen/go/v1/usage",
 ): Promise<{ name: string; description: string }> {
   let registered:
     | { name: string; description: string; handler: (args: string, ctx: Context) => Promise<void> }
@@ -126,6 +137,7 @@ async function run(
       on: () => () => undefined,
     },
     grokUrl,
+    opencodeUrl,
   );
   if (registered === undefined) throw new Error("the extension registered no command");
   await registered.handler(args, ctx);
@@ -149,6 +161,9 @@ const GROK = [{ provider: "xai", id: "grok-4.3", baseUrl: "https://api.x.ai/v1" 
 function claude(baseUrl: string) {
   return [{ provider: "anthropic", id: "claude-opus-5-5", baseUrl }];
 }
+
+/** OpenCode Go's one model, at pi's address for it, which the usage does not use. */
+const OPENCODE = [{ provider: "opencode-go", id: "kimi-k3", baseUrl: "https://opencode.ai/inference/go/v1" }];
 
 describe("atriumPlan", () => {
   // oxlint-disable-next-line vitest/expect-expect -- a type check: typecheck fails it, not the run.
@@ -293,6 +308,78 @@ describe("atriumPlan", () => {
 
   it("asks Grok at the one address ADR-0011 allows", () => {
     expect(GROK_USAGE_URL).toBe("https://cli-chat-proxy.grok.com/v1/billing?format=credits");
+  });
+
+  it("asks OpenCode Go's usage at its own address with the API key alone, keyed or not", async () => {
+    const server = await usageServer(json(OPENCODE_ANSWER));
+    const keyed = stand(OPENCODE, { oauth: false });
+    const opencodeUrl = `${server.baseUrl}/zen/go/v1/usage`;
+
+    await run("opencode-go", keyed.ctx, undefined, opencodeUrl);
+
+    expect(server.requests.map(({ url, headers }) => [url, headers])).toStrictEqual([
+      [
+        "/backend-api/zen/go/v1/usage",
+        expect.objectContaining({ authorization: `Bearer ${TOKEN}`, accept: "application/json" }),
+      ],
+    ]);
+    // pi's own headers are for the model's address.
+    expect(server.requests[0]?.headers["x-pi"]).toBeUndefined();
+    expect(reports(keyed.statuses)).toStrictEqual([
+      [
+        "atrium-plan",
+        {
+          provider: "opencode-go",
+          plan: null,
+          windows: [
+            {
+              seconds: 18_000,
+              model: null,
+              usedPercent: 0,
+              resetsAt: Date.parse("2026-11-03T07:01:46.000Z"),
+              parts: [],
+            },
+            {
+              seconds: 604_800,
+              model: null,
+              usedPercent: 15,
+              resetsAt: Date.parse("2026-11-09T00:00:00.000Z"),
+              parts: [],
+            },
+            {
+              seconds: 2_592_000,
+              model: null,
+              usedPercent: 7,
+              resetsAt: Date.parse("2026-12-02T14:36:47.000Z"),
+              parts: [],
+            },
+          ],
+        },
+      ],
+    ]);
+  });
+
+  it("reports why OpenCode Go has no usage: no key, an HTTP error, or an answer that is not usage", async () => {
+    const failing = await usageServer((response) => response.writeHead(403).end("secret"));
+    const odd = await usageServer(json({ hello: "world" }));
+    const cases = [
+      stand(OPENCODE, { auth: { ok: false } }),
+      stand(OPENCODE, { oauth: false }),
+      stand(OPENCODE, { oauth: false }),
+    ] as const;
+    const urls = ["http://127.0.0.1:9/zen/go/v1/usage", failing.baseUrl, odd.baseUrl];
+
+    for (const [at, { ctx }] of cases.entries()) await run("opencode-go", ctx, undefined, urls[at]);
+
+    expect(cases.flatMap(({ statuses }) => reports(statuses).map(([, report]) => report))).toStrictEqual([
+      { provider: "opencode-go", failure: "no_login" },
+      { provider: "opencode-go", failure: "http_403" },
+      { provider: "opencode-go", failure: "unknown_shape" },
+    ]);
+  });
+
+  it("asks OpenCode Go at the one address ADR-0017 allows", () => {
+    expect(OPENCODE_USAGE_URL).toBe("https://opencode.ai/zen/go/v1/usage");
   });
 
   it("reports why there is no usage: no login, a failed lookup, unreachable, an HTTP error, not JSON, not usage", async () => {

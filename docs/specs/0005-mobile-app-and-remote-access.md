@@ -471,7 +471,7 @@ MP4 拆成三片，各自验收：**MP4a** 只读同步（列表、打开会话�
 
 **MP6c 模型 sheet**：
 
-- 照原型：图标栏、模型列、搜索、点阵推理强度框、Fast；选完不关。档位名和说明用桌面的（`model-choice.ts` 的 `LEVEL_NAMES`、`levelHint`：关闭 / 最低 / 低 / 中 / 高 / 极高 / 最高）。服务商图标用各家官方图标，同桌面的一份。"套餐"签：总是走套餐的服务商（`claude-bridge`、`openai-codex`、`github-copilot`，同桌面 `onPlan`）显示；`openai`、`xai` 要看登录状态，宿主不推给手机，第一版不显示。
+- 照原型：图标栏、模型列、搜索、点阵推理强度框、Fast；选完不关。档位名和说明用桌面的（`model-choice.ts` 的 `LEVEL_NAMES`、`levelHint`：关闭 / 最低 / 低 / 中 / 高 / 极高 / 最高）。服务商图标用各家官方图标，同桌面的一份。"套餐"签：总是走套餐的服务商（`claude-bridge`、`openai-codex`、`github-copilot`、`opencode-go`，同桌面 `onPlan`；2026-11-02 加 OpenCode Go）显示；`openai`、`xai` 要看登录状态，宿主不推给手机，第一版不显示。
 - Fast 的说明：`speed` 有值写"约 N 倍速度"，为空写"更快"；`moreUsage` 为真时两种都加"，额度消耗增加"（同桌面 `fast-toggle.tsx`）。
 - 模型胶囊在输入框上方右侧："模型名 · 档位 · ⚡"（档位为关闭时不写，没开 Fast 不写 ⚡）。
 
