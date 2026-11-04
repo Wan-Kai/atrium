@@ -11,9 +11,10 @@ export type ReplyImageSource =
  * @sideEffects none
  * @param source - The Markdown address, before the renderer's default URL filtering.
  * @param workspaceDir - The current workspace root, or null for an unbound chat.
+ * @param basePath - A trusted workspace-relative document directory, including its trailing slash.
  * @returns The permitted remote address or workspace-relative path.
  */
-export function replyImageSource(source: string, workspaceDir: string | null): ReplyImageSource {
+export function replyImageSource(source: string, workspaceDir: string | null, basePath = ""): ReplyImageSource {
   if (/\p{Cc}|\\/u.test(source)) return { kind: "blocked" };
   if (/^https?:\/\//iu.test(source)) {
     try {
@@ -40,12 +41,13 @@ export function replyImageSource(source: string, workspaceDir: string | null): R
     return { kind: "blocked" };
   }
   if (/\p{Cc}|\\/u.test(path) || path.startsWith("~") || path.split("/").includes("..")) return { kind: "blocked" };
-  if (path.startsWith("/")) {
+  const absolute = path.startsWith("/");
+  if (absolute) {
     const root = workspaceDir.replace(/\/+$/u, "");
     if (!path.startsWith(`${root}/`)) return { kind: "blocked" };
     path = path.slice(root.length + 1);
   }
   const parts = path.split("/").filter((part) => part !== "" && part !== ".");
   if (parts.length === 0 || path.length > 4096) return { kind: "blocked" };
-  return { kind: "local", path: parts.join("/") };
+  return { kind: "local", path: `${absolute ? "" : basePath}${parts.join("/")}` };
 }

@@ -735,7 +735,7 @@ classDiagram
 
 **客户端的状态**：IndexView、每个 SessionView 和布局各是一个 Zustand vanilla store（`zustand/vanilla`，不依赖 DOM），SessionView 在订阅时创建、退订时释放；UI 通过选择器订阅，不直接碰 WebSocket。
 
-**ViewState** 在 `packages/ui/src/state/`，保存草稿、展开的过程、滚动位置，存 localStorage；右栏选的标签、文件树展开了哪些、更改树和"改动"标签收起了哪些也在这里（M1.12）。查看标签只在内存里（"已决定 19"）。client 的布局 store 只镜像宿主上按客户端记录的标签页和当前容器。
+**ViewState** 在 `packages/ui/src/state/`，保存草稿、展开的过程、滚动位置，存 localStorage；右栏选的标签、文件树展开了哪些、更改树和"改动"标签收起了哪些也在这里（M1.12）。查看标签只在内存里（"已决定 19"）；Markdown 文件的源码/预览模式和各自的纵向滚动位置也按标签记，关闭标签就忘记，带行号的显式定位切回源码（2026-11-04）。client 的布局 store 只镜像宿主上按客户端记录的标签页和当前容器。
 
 **多客户端**
 

@@ -60,11 +60,26 @@ export async function takeHeapSnapshot(page: Page, file: string): Promise<void> 
  * @returns One entry per node kind that grew, empty when nothing leaked.
  */
 export async function findDetachedDomLeaks(baselineFile: string, finalFile: string): Promise<DetachedGrowth[]> {
-  const before = countDetached(await readSnapshot(baselineFile));
-  const after = countDetached(await readSnapshot(finalFile));
+  const before = await readDetachedDomCounts(baselineFile);
+  const after = await readDetachedDomCounts(finalFile);
   return [...after.entries()]
     .filter(([name, count]) => count > (before.get(name) ?? 0))
     .map(([name, count]) => ({ name, before: before.get(name) ?? 0, after: count }));
+}
+
+/**
+ * Reads the number of detached DOM nodes of each kind in one snapshot.
+ *
+ * @remarks
+ * A warmed baseline can already contain a leak. Callers checking disposable resources such as
+ * Mermaid's drawing containers need an absolute zero check as well as the growth comparison.
+ *
+ * @sideEffects Reads the snapshot file.
+ * @param file - Heap snapshot to inspect.
+ * @returns Counts keyed by Chromium's DOM node description.
+ */
+export async function readDetachedDomCounts(file: string): Promise<Map<string, number>> {
+  return countDetached(await readSnapshot(file));
 }
 
 /**

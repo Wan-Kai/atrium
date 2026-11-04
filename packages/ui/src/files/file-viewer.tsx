@@ -3,13 +3,14 @@ import type { DiffFile, FileContent } from "@atrium/protocol";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { splitPath } from "../chat/changes";
-import { ArrowUpRight, TextWrap } from "../design/icons";
+import { ArrowUpRight, Code, Eye, TextWrap } from "../design/icons";
+import { MarkdownFilePreview } from "./markdown-file-preview";
 import { CodeLines } from "./code-lines";
 import { CenterNote, DiffCounts } from "./diff-parts";
 import { formatSize, highlightable, linesOf } from "./file-facts";
 import { FileIcon } from "./file-icon";
 import { type TokenLines, highlight } from "./highlight";
-import { type WorkspaceViews, fileRevealed, viewOf } from "../state/workspace-views";
+import { type WorkspaceViews, fileRevealed, keepPlace, placeOf, viewOf } from "../state/workspace-views";
 import { useRunEnds } from "./use-diff";
 import { useViewerPlace } from "./viewer-place";
 
@@ -146,10 +147,12 @@ function useOpenShortcut(open: (() => void) | null): void {
  * top row has its counts and "查看改动", to the 改动 tab. Its scroll and wrapping are kept by tab
  * (`useViewerPlace`). An HTML file the host read has "在浏览器打开", also on ⌘O while the tab
  * shows, where the desktop shell can open it: the host's read keeps to the workspace and refuses a
- * way through a link, which the desktop shell cannot tell.
+ * way through a link, which the desktop shell cannot tell. Markdown files can switch to the
+ * shared safe renderer. Source stays laid out but invisible and inert while previewing, so its
+ * real scroll is preserved; the preview owns a separate position and unmounts on return.
  *
  * @sideEffects Reads the file; asks the highlighting worker; reads and writes the views; listens
- * for ⌘O while an HTML file shows; the handlers act.
+ * for ⌘O while an HTML file shows; preview may load renderer plugins and approved images; the handlers act.
  * @param props - The client, the workspace, the views, the file, its diff if it has one, what
  * "查看改动" does, and how to open the file in the browser, where it can be.
  * @returns The tab's content.
@@ -183,6 +186,9 @@ export function FileViewer({
   useOpenShortcut(openInBrowser);
   const { wrap, switchWrap, body: scrolled } = useViewerPlace(views, workspaceId, `file:${path}`, reading !== null);
   const text = reading?.kind === "read" && reading.content.kind === "text" ? reading.content.text : null;
+  const preview = useStore(views, (state) => placeOf(viewOf(state, workspaceId), `file:${path}`).markdownPreview);
+  const canPreview = /\.(?:md|markdown)$/iu.test(path) && text !== null;
+  const previewing = canPreview && preview === true;
   const [lines, setLines] = useState<{ readonly text: string | null; readonly lines: readonly string[] }>({
     text: null,
     lines: [],
@@ -274,26 +280,49 @@ export function FileViewer({
             <ArrowUpRight size={14} />
           </button>
         )}
-        <button
-          type="button"
-          aria-label="换行"
-          title="换行"
-          aria-pressed={wrap}
-          onClick={switchWrap}
-          className={VIEWER_BUTTON}
-        >
-          <TextWrap size={14} />
-        </button>
+        {canPreview ? (
+          <button
+            type="button"
+            aria-pressed={previewing}
+            onClick={() => keepPlace(views, workspaceId, `file:${path}`, { markdownPreview: !previewing })}
+            className="atrium-press inline-flex h-[26px] flex-none items-center gap-1.5 rounded-[var(--r)] px-2 text-[length:var(--fs-sm)] text-[var(--text-muted)] hover:bg-[var(--hover)] aria-pressed:bg-[var(--selected)]"
+          >
+            {previewing ? <Code size={14} /> : <Eye size={14} />}
+            {previewing ? "查看源码" : "预览"}
+          </button>
+        ) : null}
+        {previewing ? null : (
+          <button
+            type="button"
+            aria-label="换行"
+            title="换行"
+            aria-pressed={wrap}
+            onClick={switchWrap}
+            className={VIEWER_BUTTON}
+          >
+            <TextWrap size={14} />
+          </button>
+        )}
       </header>
-      {range !== null && reading !== null ? (
+      {range !== null && reading !== null && !previewing ? (
         <div role="status" className="flex-none px-3.5 py-1 text-[length:var(--fs-sm)] text-[var(--text-muted)]">
           {highlighted === undefined
             ? "文件没有可定位的文本行"
             : `${highlighted.start === highlighted.end ? `第 ${highlighted.start} 行` : `第 ${highlighted.start}–${highlighted.end} 行`}${range.end > lineCount ? "（请求超出文件范围）" : ""}`}
         </div>
       ) : null}
-      <div ref={scrolled} data-testid="viewer-body" className="min-h-0 flex-1 overflow-auto [contain:strict]">
-        {body}
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scrolled}
+          data-testid="viewer-body"
+          inert={previewing}
+          className={`absolute inset-0 overflow-auto [contain:strict]${previewing ? " invisible" : ""}`}
+        >
+          {body}
+        </div>
+        {previewing ? (
+          <MarkdownFilePreview client={client} views={views} workspaceId={workspaceId} path={path} text={text} />
+        ) : null}
       </div>
     </section>
   );

@@ -159,6 +159,8 @@ MVP 2 的内置 pi extension 以后放在根目录的 `extensions/`，现在不�
 
 2026-10-21 回复图表 B 细化：`chat/plantuml-theme.ts` 只给 worker 生成本地默认皮肤行，原始代码仍由展示/复制组件保管，输出继续经过原尺寸/UTF-8 字节校验并只作 Blob 图片。`chat/mermaid-zoom.tsx` 是锁定 Streamdown 版本的窄 DOM 适配：库只公开 `panZoom` 开关、没有控制器/比例回调，所以由 B 工具条激活当前内联图的原生按钮，并用一个可回收 MutationObserver 读取其真实 transform/disabled；不另写缩放算法、不移动第三方 React 的节点或改 SVG。选择器仅限当前图，排除 body 全屏 portal；真实渲染、Tab 顺序、滚轮、边界、换源/主题、缩放尺寸与回收测试守住此版本契约。
 
+2026-11-04 Markdown 预览合并前发现 Mermaid 11.17.2 的共用布局渲染器只在下一次布局前清空节点、边标签、分组缓存，模块级 Map 因而留住已移除的绘图 DOM。用户选择先修复再合并：用 `patches/mermaid@11.17.2.patch` 和 pnpm 的 `patchedDependencies` 固定局部修复，在共用布局函数的 `finally` 清理同一组缓存，成功和异常都释放；不升级依赖、不在 UI 导入 Mermaid 私有路径，也不改变 SVG、交互和按需加载。补丁适用于应用所用 ESM 入口的共用布局实现；升级 Mermaid 时重新核对补丁和真实绘图/泄漏测试，不把其他图种的资源回收一并视为已证明。
+
 2026-10-26 桌面浮层边界修复：`ui/src/design/floating-layer.ts` 仅负责锚点浮层的视口几何、manual popover top layer 与观察/监听的释放，不拥有业务开关、焦点策略或内容。各组件保留打开/关闭与理想尺寸；top layer 保持 DOM 归属，解决滚动、filter/transform 祖先裁剪而不改变父面板的外点判断。居中对话框用自身 CSS 限宽限高，不接入这个锚点模块。行为见 SPEC-0001“桌面浮层的窗口边界”、design-language“浮层边界”；决策比较和入口盘点见 `research/popup-bounds.md`。
 
 ### 包之间的依赖
@@ -184,6 +186,7 @@ protocol  ←──  pi  ←──  host
 - **RelayLink 的公开回调所有权**：`onState` 是同步公开回调，允许在终态通知中调用 `retryNow()` 或 `stop()`。旧连接尝试只能结算进入该终态时已有的等待者；回调中新建的 retry 必须等新连接的 ready/失败，不能被旧结果结算。回调已经启动新代或停止后，旧 close 不能再挂自动重试 timer；正常自动 backoff 保持。旧 live check 的迟到结果不覆盖停止后或新代的诊断，不额外发布通知。此约束来自真实 socket 的模块公开边界复现，不表示当前 Electron UI 已复现该重入路径。
 - **MP3a 远程边界**：`server/transport.ts`、`server/router.ts` 声明传输和管理命令接口；`remote/` 只依赖这些类型，不 import 服务器实现；`main.ts` 注入 `RunningServer.accept`、订阅表的定向发送、Clock、资源计数和 VaultPort。服务器不 import `remote/`，继续共用会话/工作区服务。主进程 `main/vault.ts` 只处理固定 vault 文件的加解密与有版本的 IPC，不 import 宿主代码。独立宿主不触碰 safeStorage，未启用时不自动读保险箱（显式配置、测试、重置除外）。
 - **回复翻译的边界（M1.11 自用后补充）**：`sessions/reply-translation.ts` 只管理按连接归属的一次性翻译及取消，不控制原会话运行；`SessionManager.replyTranslationSource` 同步提取当前分支已结束轮的正文和当前模型，`main.ts` 注入偏好语言及 pi 一次性调用。服务不依赖 server，router 传连接 id，WebSocket 断开和宿主关闭调用取消；无翻译索引或历史字段。UI 的 `chat/reply-translation.tsx` 只在回复组件内存中保存结果，客户端等待之前的取消清理后再发送新请求，不跨重连补发；设置只写 `translationLanguage`。
+- **文件 Markdown 预览（2026-11-04）**：`files/markdown-file-preview.tsx` 只组装已有的 `chat/Markdown`、受控图片读取和文件打开能力；相对引用以文档目录为基准，安全检查和渲染仍由既有组件负责。`FileViewer` 拥有显示切换，模式和两套纵向滚动位置只存窗口的 `ViewerPlace`，不新增宿主协议或依赖。
 - **回复增强的 UI 内部边界（2026-10-20）**：`chat/file-opener.ts` 只声明当前工作区的惰性打开能力，供工具胶囊与 Markdown 引用共同使用；不从 Markdown 反向 import 步骤组件。文件路径的工作区校验与打开仍由 ConversationArea 组装；`state/workspace-views.ts` 保存窗口内的一次性行范围导航，FileViewer 在读取和恢复滚动后按实际行元素消费，不增加宿主命令或持久索引字段。JSON 使用精确锁定的 `jsonc-parser@3.3.1` 的 scanner/AST（严格 JSON，不接受注释），通过源码位置展示数值和属性，CSV 用受限状态机；两者都不引入脚本执行或网络能力。
 - **faux extension 的例外**：`packages/testkit/src/faux/extension.ts` 可以 import `@earendil-works/pi-ai`。我们的代码从不加载它，它只作为文件路径交给 pi 进程（`--extension`），由 pi 自己加载执行，import 也由 pi 解析到它自带的 pi-ai；testkit 声明的同版本 pi-ai 开发依赖只用于类型检查。oxlint 只对这一个文件放开限制。放在 testkit 而不是 pi 包，是因为 pi 契约测试、宿主集成测试和端到端测试都要用它。
 - 同理，`packages/testkit/src/faux/readme-extension.ts`（README 截图用，`pnpm readme:shots`，见 development.md"命令"）在一个 pi 里用真实的服务商名注册几个 faux 服务商，同样只作为文件路径交给 pi、由 pi 自己加载，oxlint 对它也放开（2026-10-20 截图脚本收进仓库时加）。

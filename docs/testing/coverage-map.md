@@ -4,6 +4,34 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## Markdown 文件预览（M1.12 自用后补充，2026-11-04）
+
+用户选 `prototypes/markdown-preview-prototype.html` 的 A“单按钮原位切换”，并要求一起支持本地图片和相对文件链接。复用既有 Markdown 渲染和文件安全边界；模式与两套滚动位置仅存在窗口内，不改协议。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| `.md` / `.markdown` 大小写、空文件、原位切换、隐藏源码与换行、只读、HTML 不执行、切换不重读文件 | `packages/ui/src/files/markdown-preview.browser.test.tsx`；真实 Streamdown、Chromium 和文件协议替身 |
+| 非 Markdown、读取中、消失、失败、二进制、符号链接、太大时没有预览；重读更新预览或退回错误说明 | 同文件的逐项用例 |
+| 模式和两种滚动位置跨标签保留；关闭忘记；明确的行定位退出预览 | 同文件；`state/workspace-views.test.ts` 的 `keeps Markdown mode…` |
+| 图片、链接按文档目录解析；绝对路径不重加目录；禁止工作区外和 `..`；文件仅点击时打开，行范围保留 | 同浏览器文件的 `reads local images…`；`chat/reply-image-source.test.ts` 的 `resolves document-relative images…`；原回复图片测试回归 |
+| 桌面真实文件树 → 键盘预览 → 本地图片 → 相对链接行定位 → 回原标签；浅色/深色、空文档和缺失文件 | `apps/desktop/e2e/markdown-preview.spec.ts`；截图 `markdown-light/dark/empty/missing.png` 已查看。Electron 页面截图不包含原生侧栏材质，不据此判断系统材质 |
+| 反复开关/关闭预览释放 Markdown、Mermaid 和监听/订阅 | `apps/desktop/e2e/viewers.leak.spec.ts`：热身后 15 轮，两次预览切换加源码/diff 标签，脱离文档 DOM 增量为空，且临时 `dmermaid-*` 容器绝对数量为零（不容许热身基线掩盖一次残留） |
+| Mermaid 共用布局在完成和各阶段拒绝后释放内部缓存，绘图期间保留引用，原异常不变 | `packages/ui/src/chat/mermaid-layout.test.ts`：真实锁定的依赖模块、6 个确定性生命周期用例；布局阶段用可控函数，不把它当 DOM 绘图测试，真实渲染由上述 Electron 和 `rendering.spec.ts` 守住 |
+
+验证记录：
+
+- 功能、滚动/模式、行定位和图片路径的新增测试均先在未实现版本见到对应失败；其他入口/错误分支经破坏检查见红。`pnpm break-check packages/ui/src/files/markdown-preview-break-check.json` 12 处全部检出。Electron 另把 `previewing` 写死为 `false`、重新构建，新增旅程在预期的“没有 Markdown 标题”处失败；已恢复源码并重新构建、复验。
+- `pnpm check` 通过；单元 4311/4311；单 worker 完整 UI 1182/1182（新增文件 18 项）；相关 Electron `changes.spec.ts`、`markdown-preview.spec.ts`、`viewers.leak.spec.ts` 3/3；补拍空/错状态后的 Markdown 旅程再通过。首轮 Electron 用 `.first()` 在子目录尚未读回时误点了根 README，明确等两个同名文件出现后通过，未用重试或弱化断言。
+- 改动行变异：`reply-image-source.ts`（参数与路径分支）45/45 Killed，`workspace-views.ts`（带行定位退出预览）9/9 Killed，总分 100%；无缓存信用、存活或超时。TSX 与 hook 不在核心变异分组，用上述破坏检查和真实浏览器/泄漏测试验证。
+- `pnpm boundary`：无新增依赖、URL、环境变量或隐藏命令，协议仍为 30，未登记与非精确版本均为 0。源码差异自查覆盖权限、重读、状态清理和资源释放；未做外部模型审查。
+- 实现交付时未跑：全套 Electron、宿主集成、pi 契约、Swift 动态测试、打包和专门的大文件性能测试（合并前补跑 Swift 逻辑测试，见下）。本次不改这些后端/平台模块，也未安装或重启用户应用。源码在预览期间保持不可见且不可交互，以保留真实滚动几何；不额外虚拟化 Markdown。继承的限制：含 `..` 的引用、本地 SVG、普通跨文件标题锚点不支持。
+- 用户验收通过并要求本地合回 `main`；不安装、不推送。分支 `atrium/add-markdown-preview-button` 和 worktree 因当前会话仍在使用而保留，不强删。合并前复验记录见下。
+- 合并前同步 `main` 的 `e9b4368`（外部 cmux 接入，只改文档）：路线图和追踪表的首段追加冲突保留双方内容，功能源码与验收版本一致。`pnpm check`、完整 UI 单 worker 1182/1182 通过。首轮同时运行检查、单元与界面时，单元 4306 过 / 5 败：`scripts/boundary.test.ts` 两项 5 秒超时，`oneshot.test.ts` 一项预期 `too_large` 得 `timed_out`、两项读 `seen.json` 报 ENOENT；这些文件及其实现与 main 相同。两文件单 worker 48/48 通过，随后不并跑其他本任务命令的完整 `pnpm test` 4311/4311、Swift 402/402 通过。未改断言或超时，未确认首轮失败根因，不宣称已修复；保留失败记录。合并同步只有文档变化，未重跑此前通过的 3 项 Electron 和变异测试。文档合并提交的格式钩子选中了上游 `docs/testing/cmux-installation.json`，但 `docs/**` 被 oxfmt 忽略，因无匹配文件退出 2；完整格式检查通过后，仅该提交用 `LEFTHOOK_EXCLUDE=format` 跳过空检查，不改钩子或忽略规则。上游 skill patch 的合法空白上下文原样保留，变更空白检查以 `main` 为基准通过。
+
+- 第二次同步 `main` 的 `4678388`（对话置顶/排序、协议 31），保留两份文档的双方追加；串行 `pnpm check`、单元 4319、Swift 406、UI 1185、构建通过。Electron 的 Markdown 和改动旅程通过，但查看器泄漏检查失败，单独重跑一过一败，等待两帧后仍残留。堆快照反向引用链为临时 `dmermaid-*` 容器 ← SVG 后代 ← D3 selection ← 模块级 `edgeLabels` Map；Mermaid 11.17.2 共用布局只在开头清缓存。用户明确选择先修复再合并，当时暂停合入 main。补强关闭后的绝对零绘图容器断言，未修复时命中一个残留容器；6 个布局生命周期用例也全在缓存非空断言见红。给 Mermaid 11.17.2 ESM 的共用布局加 `finally` 清理，pnpm 精确补丁记录在 `patches/mermaid@11.17.2.patch`，不升级依赖。Node 契约只覆盖此共用布局，不声称所有 Mermaid 图种都已验证回收。
+- 修复后最终复验：`pnpm check`、单元 4325/4325、Swift 406/406、完整 UI 单 worker 1185/1185、构建通过；加强后的查看器泄漏连续 3 次通过，随后相关 Electron 5/5（Markdown、改动、图表明暗/缩放/全屏、PlantUML/图片资源回收、查看器泄漏）通过。负控 `pnpm break-check /tmp/atrium-mermaid-break-check.json` 去掉依赖的最终清理，检出；先以复制/替换方式隔离本 worktree 的安装文件，避免写 pnpm store 硬链接，检查后逐字节核对已恢复。诊断日志和堆快照只留 `/tmp`，源内探针已移除。
+- 新测试首轮加载失败是 `@streamdown/mermaid` 只导出 ESM、不能用 CommonJS 入口解析；改为从 UI 实际依赖的 package 路径解析 Mermaid。首轮检查分别检出测试内条件和测试放在根 scripts 造成的未声明依赖，已消除条件并把契约放到拥有该依赖的 UI 包，未加豁免。锁文件变化后完整 UI 通过。依赖补丁不在 Stryker 分组，用上述负控及真实堆快照验证；未跑全套 Electron、宿主集成、pi 契约、Swift 模拟器、打包和专门大文件性能测试。只读自查了补丁的清理时机（最后的 afterPaint 之后）、异常传播、依赖锁定与上游变更保留，未做外部模型审查。
+
 ## 对话的置顶与顺序（2026-10-28，自用反馈）
 
 用户定：顺序是"置顶 → 进行中 → 最近活动"，"进行中"含运行中、待回答、待授权、出错；置顶只做对话；桌面和手机同一套顺序，手机上也能置顶。原型 `prototypes/conversation-pin-and-order-prototype.html` 选甲"名字前的图钉"（Hugeicons `Pin02Icon`，13px）、「···」菜单入口、"让位滑行 + 落位高亮"。协议 31。
@@ -21,6 +49,7 @@
 | 客户端：`pinChat` / `unpinChat` 发出正确的命令和 id | `atrium-client.test.ts`"pins and unpins a chat with its id" |
 
 最终验证：`pnpm check` 全链通过（格式、lint 含 JSDoc、递归＋根 typecheck、knip、boundary `unregistered 0 / not exact 0`、iOS 格式与 lint）；合进 `main` 后单元 4317 项、宿主 243 项、Swift 406 项通过；界面全量 1167/1167 通过（合并前的并行跑曾出现既有 `status-bar.browser.test.tsx`"opens a row…"与 `question-card.browser.test.tsx` 各一处失败，单文件 28/28、21/21 通过，合并后整套干净）。破坏检查 10 处全部检出（宿主 3、UI 4、客户端 1、Swift 2）。改动行变异：`sidebar/names.ts` 99.04%（207 Killed / 2 Survived，两处存活都在未改动的合并状态代码，逐处保留）；`sessions/index-commands.ts` 97.70%（85 Killed / 2 Survived，存活仍是既有的 `projects.workspaces()` 与 `windowFocused` 重扫，新增冷路径全杀）。首轮该文件 94.25% 时新增的 `chats().some → every` 存活，补第二个对话后复测死亡。未跑：Electron 端到端、桌面泄漏、模拟器 UI 测试（Swift 逻辑与 UI 文案在 macOS 上跑过）；未在真机上验证手机端置顶。
+
 ## 外部 cmux 终端最小接入（2026-11-04）
 
 方案见 [external-terminal.md](../architecture/external-terminal.md)，精确安装版本、文件校验值和验收会话标识见 [cmux-installation.json](cmux-installation.json)。本次不改 Atrium 业务代码、协议或 UI；只安装两个官方 skill 并应用本地调用规则、配置 cmux password 授权、补文档。主代理独立完成，没有启动子代理。

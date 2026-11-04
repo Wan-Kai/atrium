@@ -4,6 +4,32 @@ import { replyImageSource } from "./reply-image-source";
 const root = "/work/example";
 
 describe("reply image paths", () => {
+  it("resolves document-relative images without rebasing absolute paths or relaxing traversal checks", () => {
+    expect(
+      [
+        "./images/a.png",
+        "/work/example/assets/a.png",
+        "file:///work/example/assets/a.png",
+        "../secret.png",
+        "%2e%2e/secret.png",
+        "/outside/a.png",
+        "",
+        ".",
+        "https://example.com/a.png",
+      ].map((source) => replyImageSource(source, root, "docs/")),
+    ).toStrictEqual([
+      { kind: "local", path: "docs/images/a.png" },
+      { kind: "local", path: "assets/a.png" },
+      { kind: "local", path: "assets/a.png" },
+      { kind: "blocked" },
+      { kind: "blocked" },
+      { kind: "blocked" },
+      { kind: "blocked" },
+      { kind: "blocked" },
+      { kind: "remote", src: "https://example.com/a.png" },
+    ]);
+  });
+
   it("resolves relative, absolute and file paths only inside the workspace", () => {
     expect(
       ["./images/a.png", "images/a.png", "/work/example/images/a.png", "file:///work/example/images/a.png"].map(
