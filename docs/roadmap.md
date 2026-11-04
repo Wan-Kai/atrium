@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-11-04：对话的置顶与顺序实现完成，用户验收通过并要求合回 `main`，未推送。** 用户指出跑着的对话不浮上来、不能把非项目下的对话置顶；定下顺序"置顶 → 进行中 → 最近活动"（进行中含运行中、待回答、待授权、出错）、置顶只做对话、桌面与手机同一套顺序且手机也能置顶。原型 `prototypes/conversation-pin-and-order-prototype.html` 选甲"名字前的图钉"（13px，Hugeicons `Pin02Icon`）、「···」菜单入口、A"让位滑行 + 落位高亮"；第一版手绘的图钉被用户否掉，换成仓库里现成的图标。协议 **31**（`30` 已被 OpenCode Go 的 `PlanProvider` 占用，合并 `main` 时顺延）：`Chat.pinnedAt`、`pin_chat` / `unpin_chat`（对手机开放）；`chats.json` 的记录多一个 `pinnedAt`，重复置顶保留首次时间。手机首页对话行按同一规则排并显示图钉，对话页顶栏新加「···」（只在对话里出现）。合进 `main` 后复查：`pnpm check`、单元 4317、宿主 243、Swift 406、界面全量 1167/1167 通过（合并前那次界面并行跑曾有两处失败，单文件各自通过，合并后整套干净）。破坏检查 10 处全检出；改动行变异 names.ts 99.04%、index-commands.ts 97.70%（存活均是未改动代码）。详见[追踪表](testing/coverage-map.md#对话的置顶与顺序2026-10-28自用反馈)。
+
 **2026-11-04：外部 cmux 终端最小接入经用户验收通过并授权本地合并，未推送。原 worktree 仍被当前会话的 pi 使用，先保留，不为清理结束会话。** 不改 Atrium 业务代码、协议或 UI。用户授权通过 Homebrew 安装正式 cmux（cask 0.65.2.2，App/CLI 0.65.2 build 113），两个官方 skill 固定到 release commit 并装入实际 pi 用户目录，仅加外部调用规则、覆盖焦点回退；用户另行明确授权 password 模式，密码不进提示词、参数或终端环境。以已安装 Atrium 的独立测试数据实例、真实 pi 1.5.0 与 GPT-6.1 Sol 跑通 skill 发现/读取、明确目标、A/B 中文输出和不串输入、非焦点寻址、Enter/Ctrl+C、缺目标先询问、测试 App 退出后 cmux 任务继续；用户正在使用的 App 未退出，专用 cmux 测试窗口保留。`pnpm check`、边界检查及 9 个安装文件的 patch 重建/校验通过；合并前同步 main（无新增提交），单元 4309、Swift 402、单 worker UI 1164 全部通过。环境探针和一次性汇总脚本的失败、补测与尚未注入的响应丢失场景照实记在[追踪表](testing/coverage-map.md#外部-cmux-终端最小接入2026-11-04)。Skill 不是权限沙箱，不提供归档前所有终端任务已停止的保证。方案与使用见[外部终端最小接入](architecture/external-terminal.md)。
 
 **2026-11-03：OpenCode Go 的 DeepSeek V4 用不了，查明是工作区的地区设置；顺手隐藏了 Go 上确实用不了的模型，用户验收通过并要求合并，已本地合回 `main`，未推送。** 在 `atrium/debug-deepseek-flash-access`（worktree 同名）里：①`deepseek-v4.1-flash`、`deepseek-v4-pro` 请求报 400 "This Go model requires Global regions"——OpenCode 控制台 Workspace → Privacy → Regions 原是 Europe & United States，改成 Global 后两个模型实测 200、pi 端到端回复正常，Atrium 不为它加规则；②用 `temperature: 5` 的不计费探针把 Go 的每个模型试了一遍，把 7 个确实用不了的写进宿主规则表按确切 id 隐藏（`mimo-v2.5`、`mimo-v2.5-pro` 已下线报 410；`beam-free`、`gpt-6-luna`、`muse-spark-1.2-contributor`、`muse-spark-1.3-contributor` 按国家报 403；`iceman-contributor-free` 要开工作区的训练数据开关），`ModelRule` 因此支持可选的 `modelIds`。验证：单元 4309 全过；`pnpm check` 通过；破坏检查 1 处检出；`model-rules.ts` 变异 92.8%（116 检出、9 个存活全是源码里注明不参与过滤的 `reason` 字符串）。只改宿主规则和文档，没跑界面、端到端、泄漏和打包。原 worktree 与分支因当前会话还以它为工作目录先保留。
@@ -643,4 +645,4 @@ Atrium 区别于宿主层方案的核心，按学习价值和实现难度排序�
 - 浏览器插件：ego lite 做不到的、或和 Atrium 相关的浏览器功能（例如把当前页面送进会话），自用中真遇到时再做；连宿主的鉴权、只操作"Atrium"标签组等规则见 [ADR-0009](adr/0009-browser-stays-external.md)。不内置浏览器（原先的"内嵌浏览器面板"，2026-10-12 改）
 - 手机端的推送、局域网直连、Android：见 SPEC-0005"非目标"（手机端本身已排进上文"手机端"，2026-10-25）
 - 空闲进程回收、文件区、forge（PR）状态
-- SPEC-0001 里标为"以后"的：侧聊、agent 提出的任务建议卡片、全文搜索、置顶、一个目录多个工作区、把对话移到项目、收藏模型、语音输入、长会话虚拟列表、extension 单向通知的显示
+- SPEC-0001 里标为"以后"的：侧聊、agent 提出的任务建议卡片、全文搜索、一个目录多个工作区、把对话移到项目、收藏模型、语音输入、长会话虚拟列表、extension 单向通知的显示（置顶 2026-10-28 已做）

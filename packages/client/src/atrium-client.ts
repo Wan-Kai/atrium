@@ -207,6 +207,10 @@ export interface AtriumClient {
   ): Promise<CommandResult<"name_branch">>;
   /** Names a chat, or with `null` goes back to its first session's title. */
   renameChat(chatId: string, name: string | null): Promise<CommandResult<"rename_chat">>;
+  /** Pins a chat to the top of the sidebar (SPEC-0001, "对话的置顶与顺序"). */
+  pinChat(chatId: string): Promise<CommandResult<"pin_chat">>;
+  /** Unpins a chat, letting it fall back to activity order. */
+  unpinChat(chatId: string): Promise<CommandResult<"unpin_chat">>;
   /** Archives a chat with its sessions, stopping those that run. */
   archiveChat(chatId: string): Promise<CommandResult<"archive_chat">>;
   /** Brings an archived chat back with the sessions archived with it. */
@@ -1434,6 +1438,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     nameBranch: (projectId, text, model, branch) =>
       request("name_branch", { projectId, text, model, ...(branch === undefined ? {} : { branch }) }),
     renameChat: (chatId, name) => request("rename_chat", { chatId, name }),
+    pinChat: (chatId) => request("pin_chat", { chatId }),
+    unpinChat: (chatId) => request("unpin_chat", { chatId }),
     archiveChat: (chatId) => request("archive_chat", { chatId }),
     restoreChat: (chatId) => request("restore_chat", { chatId }),
     windowFocused: () => request("window_focused", {}),

@@ -138,10 +138,43 @@ describe("ChatRecords", () => {
     expect([records.alias("cht_a"), records.archived("cht_a")]).toStrictEqual(["合并原理", null]);
   });
 
+  it("keeps when a chat was pinned, leaving an already pinned chat's time alone", async () => {
+    const index = await indexDirectory();
+    const records = createChatRecords((await loadIndexFile(index, CHATS_FILE, 0)).file);
+    expect(records.pinned("cht_a")).toBeNull();
+
+    await records.pin("cht_a", 1_700_000_000_000);
+    expect(records.pinned("cht_a")).toBe(1_700_000_000_000);
+    const pinned = JSON.parse(await readFile(join(index, "chats.json"), "utf8"));
+    expect(pinned).toStrictEqual({ version: 2, chats: [{ id: "cht_a", pinnedAt: 1_700_000_000_000 }] });
+
+    // Pinning again keeps the first time, so the chat does not move around its band.
+    await records.pin("cht_a", 1_700_000_900_000);
+    expect(records.pinned("cht_a")).toBe(1_700_000_000_000);
+    expect(JSON.parse(await readFile(join(index, "chats.json"), "utf8"))).toStrictEqual(pinned);
+
+    const reloaded = createChatRecords((await loadIndexFile(index, CHATS_FILE, 0)).file);
+    expect(reloaded.pinned("cht_a")).toBe(1_700_000_000_000);
+
+    await reloaded.unpin("cht_a");
+    expect(reloaded.pinned("cht_a")).toBeNull();
+    // A chat with nothing left in its record drops out of the file.
+    expect(JSON.parse(await readFile(join(index, "chats.json"), "utf8"))).toStrictEqual({ version: 2, chats: [] });
+  });
+
+  it("writes nothing when the pin stays as it is", async () => {
+    const index = await indexDirectory();
+    const records = createChatRecords((await loadIndexFile(index, CHATS_FILE, 0)).file);
+
+    await records.unpin("cht_a");
+    await expect(stat(join(index, "chats.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("lists chats with their names and archives, an archived chat keeping the first session it had", async () => {
     const index = await indexDirectory();
     const records = createChatRecords((await loadIndexFile(index, CHATS_FILE, 0)).file);
     await records.rename("cht_a", "合并原理");
+    await records.pin("cht_a", 9);
     await records.setArchived("cht_b", { at: 7, sessions: ["s2", "s3"], first: "s2" });
 
     expect(
@@ -153,8 +186,8 @@ describe("ChatRecords", () => {
         records,
       ),
     ).toStrictEqual([
-      { id: "cht_a", dir: "/chats/a", alias: "合并原理", firstSessionId: "s1", archivedAt: null },
-      { id: "cht_b", dir: "/chats/b", alias: null, firstSessionId: "s2", archivedAt: 7 },
+      { id: "cht_a", dir: "/chats/a", alias: "合并原理", firstSessionId: "s1", archivedAt: null, pinnedAt: 9 },
+      { id: "cht_b", dir: "/chats/b", alias: null, firstSessionId: "s2", archivedAt: 7, pinnedAt: null },
     ]);
   });
 });

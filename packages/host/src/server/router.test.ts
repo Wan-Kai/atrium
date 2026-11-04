@@ -109,6 +109,8 @@ function fakeCommands() {
     createWorkspace: record("createWorkspace", { workspaceId: WORKSPACE }),
     nameBranch: record("nameBranch", { branch: "atrium/fix-it", alias: "修复登录" }),
     renameChat: record("renameChat", {}),
+    pinChat: record("pinChat", {}),
+    unpinChat: record("unpinChat", {}),
     windowFocused: record("windowFocused", {}),
     setPreferences: record("setPreferences", {}),
     listModels: record("listModels", { models: [], defaultModel: null }),
@@ -749,6 +751,8 @@ describe("createRouter", () => {
         branch: "feature/fixed",
       }),
     );
+    await route(connection, withTrace({ type: "pin_chat", requestId: "r21", chatId: CHAT }));
+    await route(connection, withTrace({ type: "unpin_chat", requestId: "r22", chatId: CHAT }));
 
     expect(calls).toStrictEqual([
       ["subscribeIndex", "connection-7", undefined],
@@ -772,6 +776,12 @@ describe("createRouter", () => {
       ["listBases", PROJECT],
       ["createWorkspace", PROJECT, "atrium/a", "main", "修复登录"],
       ["nameBranch", PROJECT, "Fix it", MODEL, "feature/fixed"],
+      ["pinChat", CHAT],
+      ["unpinChat", CHAT],
+    ]);
+    expect([sent[21], sent[22]]).toStrictEqual([
+      { type: "response", requestId: "r21", ok: true, result: {} },
+      { type: "response", requestId: "r22", ok: true, result: {} },
     ]);
     expect(sent[20]).toStrictEqual({
       type: "response",

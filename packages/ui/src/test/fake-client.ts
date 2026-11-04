@@ -74,7 +74,7 @@ export function workspace(fields: Partial<Workspace> & Pick<Workspace, "id">): W
  * @returns The chat.
  */
 export function chat(fields: Partial<Chat> & Pick<Chat, "id" | "firstSessionId">): Chat {
-  return { dir: `/home/chats/${fields.id}`, alias: null, archivedAt: null, ...fields };
+  return { dir: `/home/chats/${fields.id}`, alias: null, archivedAt: null, pinnedAt: null, ...fields };
 }
 
 /**
@@ -171,6 +171,8 @@ export interface FakeAnswers {
   /** Answers creating a workspace, which then shows in the list as a worktree; created at once when left out. */
   readonly createWorkspace?: () => Promise<void>;
   readonly renameChat?: () => Promise<void>;
+  /** Answers pinning or unpinning a chat; pinned at once when left out. */
+  readonly pinChat?: () => Promise<void>;
   /** Answers renaming a session; renamed at once when left out. */
   readonly renameSession?: () => Promise<void>;
   /** Answers archiving a chat, which is then archived in the list; archived at once when left out. */
@@ -423,6 +425,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
             alias: null,
             firstSessionId: `new${created + 1}`,
             archivedAt: null,
+            pinnedAt: null,
           },
         ],
       });
@@ -598,6 +601,20 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
             : one,
         ),
       });
+      return {};
+    },
+    async pinChat(chatId: string) {
+      calls.push(`pinChat ${chatId}`);
+      await answers.pinChat?.();
+      const { chats } = index.getState();
+      index.setState({ chats: chats.map((one) => (one.id === chatId ? { ...one, pinnedAt: Date.now() } : one)) });
+      return {};
+    },
+    async unpinChat(chatId: string) {
+      calls.push(`unpinChat ${chatId}`);
+      await answers.pinChat?.();
+      const { chats } = index.getState();
+      index.setState({ chats: chats.map((one) => (one.id === chatId ? { ...one, pinnedAt: null } : one)) });
       return {};
     },
     async renameChat(chatId: string, name: string | null) {

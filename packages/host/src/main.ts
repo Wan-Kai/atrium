@@ -503,6 +503,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     preferences,
     chats: () => catalog.chats(),
     chatRecords,
+    clock,
     feed,
     listModels: createModelLister({
       catalog: models,

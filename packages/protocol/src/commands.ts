@@ -384,6 +384,22 @@ export const RestoreChatCommand = z.strictObject({
 });
 export type RestoreChatCommand = z.infer<typeof RestoreChatCommand>;
 
+/** Pins a chat to the top of the sidebar (SPEC-0001, "对话的置顶与顺序"). */
+export const PinChatCommand = z.strictObject({
+  type: z.literal("pin_chat"),
+  ...commandFields,
+  chatId: ChatId,
+});
+export type PinChatCommand = z.infer<typeof PinChatCommand>;
+
+/** Unpins a chat, letting it fall back to activity order. */
+export const UnpinChatCommand = z.strictObject({
+  type: z.literal("unpin_chat"),
+  ...commandFields,
+  chatId: ChatId,
+});
+export type UnpinChatCommand = z.infer<typeof UnpinChatCommand>;
+
 /** The window gained focus: the host scans workspaces, merge states and session files again. */
 export const WindowFocusedCommand = z.strictObject({ type: z.literal("window_focused"), ...commandFields });
 export type WindowFocusedCommand = z.infer<typeof WindowFocusedCommand>;
@@ -923,6 +939,8 @@ export const Command = z.discriminatedUnion("type", [
   RenameChatCommand,
   ArchiveChatCommand,
   RestoreChatCommand,
+  PinChatCommand,
+  UnpinChatCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -1056,6 +1074,8 @@ export const CommandResult = {
   rename_chat: z.strictObject({}),
   archive_chat: z.strictObject({}),
   restore_chat: z.strictObject({}),
+  pin_chat: z.strictObject({}),
+  unpin_chat: z.strictObject({}),
   window_focused: z.strictObject({}),
   create_session: z.strictObject({ sessionId: SessionId }),
   close_tab: z.strictObject({}),

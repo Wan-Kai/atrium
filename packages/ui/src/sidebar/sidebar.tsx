@@ -13,6 +13,7 @@ import {
   Monitor,
   Moon,
   GearSix,
+  Pin,
   Plus,
   Sun,
   Trash,
@@ -34,12 +35,14 @@ import {
   describeRestoreError,
 } from "./archive";
 import {
+  chatBand,
   chatName,
   isDone,
   isPending,
   mergeLabels,
   placeOf,
   sessionTitle,
+  sortChats,
   sortWorkspaces,
   timeAgo,
   workspaceName,
@@ -47,6 +50,7 @@ import {
 import { type ArchiveToast, ArchiveToasts, pushToast } from "./archive-toasts";
 import { MORE_ROW } from "./more-row";
 import { RenameField } from "./rename-field";
+import { useReorderRows } from "./reorder";
 import { INBOX_SHOWN, type RowStatus, inboxOf, sessionStatus, topStatus } from "./status";
 import { StatusIcon } from "./status-icon";
 
@@ -453,33 +457,42 @@ interface ListedChat {
   readonly sessions: readonly SessionSummary[];
   readonly at: number;
   readonly status: RowStatus;
+  /** When the user pinned it; `null` when not (SPEC-0001, "对话的置顶与顺序"). */
+  readonly pinnedAt: number | null;
+  /** A session in it is running or shows a status icon, which brings the chat up the list. */
+  readonly busy: boolean;
 }
 
 /**
- * The chats the sidebar lists, latest activity first.
+ * The chats the sidebar lists, in the order it shows them.
  *
  * @remarks
  * An archived chat, or one whose sessions are all archived, is left out; its activity is its
- * sessions' latest, its status their highest (SPEC-0001, "对话", "M1.11 的对话归档").
+ * sessions' latest, its status their highest (SPEC-0001, "对话", "M1.11 的对话归档"). Pinned
+ * first, then the ones with a status icon, then the rest by activity (SPEC-0001,
+ * "对话的置顶与顺序").
  *
  * @sideEffects none
  * @param index - The list.
  * @returns The chats.
  */
 function listedChats(index: Pick<IndexView, "chats" | "sessions">): ListedChat[] {
-  return index.chats
+  const listed = index.chats
     .filter((chat) => chat.archivedAt === null)
     .map((chat) => {
       const sessions = index.sessions.filter((session) => session.containerId === chat.id && !session.archived);
+      const status = topStatus(sessions.map(sessionStatus));
       return {
         chat,
         sessions,
         at: Math.max(...sessions.map((session) => session.updatedAt)),
-        status: topStatus(sessions.map(sessionStatus)),
+        status,
+        pinnedAt: chat.pinnedAt,
+        busy: status !== null,
       };
     })
-    .filter((listed) => listed.sessions.length > 0)
-    .toSorted((a, b) => b.at - a.at);
+    .filter((each) => each.sessions.length > 0);
+  return sortChats(listed);
 }
 
 /**
@@ -553,6 +566,7 @@ function ChatRows({
       (error) => describeChatArchiveError(error, "没能归档这个对话"),
     );
   const shown = expanded ? chats : chats.slice(0, RECENT_CHATS);
+  const rows = useReorderRows(chats.map((listed) => ({ key: listed.chat.id, band: chatBand(listed) })));
   const leave = use(LeavePage);
   return (
     <section aria-label="对话">
@@ -562,82 +576,108 @@ function ChatRows({
           <ChatAdd size={17} />
         </button>
       </div>
-      {shown.map((listed) => {
-        const { chat } = listed;
-        const name = chatName(chat, index.sessions);
-        return (
-          <div
-            key={chat.id}
-            role="button"
-            tabIndex={0}
-            aria-current={index.layout.container === chat.id}
-            onClick={() => {
-              leave();
-              run(() => selectChat(client, listed));
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter") return;
-              leave();
-              run(() => selectChat(client, listed));
-            }}
-            className={`${ROW} aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
-            data-testid="chat-row"
-          >
-            {renaming === chat.id ? (
-              <RenameField
-                initial={name}
-                label="对话名称"
-                restores="清空恢复为第一个会话的标题"
-                onDone={(alias) => {
-                  setRenaming(null);
-                  if (alias !== undefined && alias !== chat.alias) run(() => client.renameChat(chat.id, alias));
-                }}
-              />
-            ) : (
-              <span className="min-w-0 flex-1 truncate">{name}</span>
-            )}
-            <span className="shrink-0 text-[length:var(--fs-sm)] text-[var(--text-dim)] group-hover:hidden">
-              {timeAgo(listed.at, now)}
-            </span>
-            <StatusIcon status={listed.status} />
-            <span
-              className="hidden gap-1 group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
-              // The menu belongs to the row but must not select it.
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
+      <div ref={rows}>
+        {shown.map((listed) => {
+          const { chat } = listed;
+          const name = chatName(chat, index.sessions);
+          return (
+            <div
+              key={chat.id}
+              data-row-key={chat.id}
+              role="button"
+              tabIndex={0}
+              aria-current={index.layout.container === chat.id}
+              onClick={() => {
+                leave();
+                run(() => selectChat(client, listed));
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                leave();
+                run(() => selectChat(client, listed));
+              }}
+              className={`${ROW} aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
+              data-testid="chat-row"
             >
-              <button
-                type="button"
-                aria-label={`归档对话 ${name}`}
-                title="归档"
-                onClick={() => {
-                  const running = listed.sessions.filter((session) => session.running).length;
-                  if (running > 0) setArchiving({ chat, running });
-                  else archive(chat.id);
-                }}
-                className={ROW_ARCHIVE}
+              {listed.pinnedAt === null ? null : (
+                <span
+                  role="img"
+                  aria-label="已置顶"
+                  title="已置顶"
+                  className="-mr-1 inline-flex shrink-0 text-[var(--tint)]"
+                >
+                  <Pin size={13} />
+                </span>
+              )}
+              {renaming === chat.id ? (
+                <RenameField
+                  initial={name}
+                  label="对话名称"
+                  restores="清空恢复为第一个会话的标题"
+                  onDone={(alias) => {
+                    setRenaming(null);
+                    if (alias !== undefined && alias !== chat.alias) run(() => client.renameChat(chat.id, alias));
+                  }}
+                />
+              ) : (
+                <span className="min-w-0 flex-1 truncate">{name}</span>
+              )}
+              <span className="shrink-0 text-[length:var(--fs-sm)] text-[var(--text-dim)] group-hover:hidden">
+                {timeAgo(listed.at, now)}
+              </span>
+              <StatusIcon status={listed.status} />
+              <span
+                className="hidden gap-1 group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
+                // The menu belongs to the row but must not select it.
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
               >
-                <Trash size={14} />
-              </button>
-              <MenuButton label={`对话 ${name}`} compact content={<DotsThree size={14} weight="bold" />}>
-                {(close) => (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={MENU_ITEM}
-                    onClick={() => {
-                      close();
-                      setRenaming(chat.id);
-                    }}
-                  >
-                    重命名
-                  </button>
-                )}
-              </MenuButton>
-            </span>
-          </div>
-        );
-      })}
+                <button
+                  type="button"
+                  aria-label={`归档对话 ${name}`}
+                  title="归档"
+                  onClick={() => {
+                    const running = listed.sessions.filter((session) => session.running).length;
+                    if (running > 0) setArchiving({ chat, running });
+                    else archive(chat.id);
+                  }}
+                  className={ROW_ARCHIVE}
+                >
+                  <Trash size={14} />
+                </button>
+                <MenuButton label={`对话 ${name}`} compact content={<DotsThree size={14} weight="bold" />}>
+                  {(close) => (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={MENU_ITEM}
+                        onClick={() => {
+                          close();
+                          run(() => (listed.pinnedAt === null ? client.pinChat(chat.id) : client.unpinChat(chat.id)));
+                        }}
+                      >
+                        {listed.pinnedAt === null ? "置顶" : "取消置顶"}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={MENU_ITEM}
+                        onClick={() => {
+                          close();
+                          setRenaming(chat.id);
+                        }}
+                      >
+                        重命名
+                      </button>
+                    </>
+                  )}
+                </MenuButton>
+              </span>
+            </div>
+          );
+        })}
+      </div>
       {chats.length > RECENT_CHATS ? (
         <button type="button" onClick={() => setExpanded(!expanded)} className={MORE_ROW}>
           {expanded ? "收起" : `显示全部 ${chats.length} 个`}

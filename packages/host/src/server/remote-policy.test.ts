@@ -25,9 +25,9 @@ function typesOf(schema: z.ZodType): string[] {
 }
 
 describe("the phone's allowlist", () => {
-  it("classifies every command there is, 39 for the phone and the rest for the Mac", () => {
+  it("classifies every command there is, 41 for the phone and the rest for the Mac", () => {
     expect(Object.keys(COMMAND_REACH).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
-    expect(Object.values(COMMAND_REACH).filter((reach) => reach === "phone")).toHaveLength(39);
+    expect(Object.values(COMMAND_REACH).filter((reach) => reach === "phone")).toHaveLength(41);
   });
 
   it("refuses a new child conversation, and the remote commands, to a phone", () => {

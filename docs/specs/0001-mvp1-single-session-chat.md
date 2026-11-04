@@ -182,7 +182,7 @@ Electron 主进程
 每个对话和工作区一样是一个容器（2026-10-12 改，[ADR-0007](../adr/0007-each-chat-is-its-own-container.md)）：
 
 - "对话"分区始终显示：标题右侧是"新建对话"图标（⌘N），同"项目"标题右侧的搜索和添加项目（2026-10-13 自用时改；之前是标题下的第一行，再之前是侧栏最上方的一个大按钮）。没有对话时只有标题。
-- 侧栏底部的"对话"分区像工作区一样逐行列出对话：名称、最近活动时间（其中会话最近的一次）、会话的最高优先级状态（空闲时不显示），按最近活动排列。显示最近 5 个，其余的点"显示全部 N 个"在原地展开，展开后末尾是"收起"。所有会话都归档了的对话不列出。
+- 侧栏底部的"对话"分区像工作区一样逐行列出对话：名称、最近活动时间（其中会话最近的一次）、会话的最高优先级状态（空闲时不显示），按"置顶 → 进行中 → 最近活动"排列（2026-10-28 加，见"对话的置顶与顺序"）。显示最近 5 个，其余的点"显示全部 N 个"在原地展开，展开后末尾是"收起"；置顶的对话先占名额、一定在这 5 个里。所有会话都归档了的对话不列出。
 - 点击对话：切过去，恢复它上次激活的标签页；没有打开着的标签页时打开它最近的会话（对话不像工作区那样常有空状态，点进去应当看到内容）。对话行在所在的对话被选中时高亮，和工作区行一样。
 - 选中对话时，对话区顶部的标签页是这个对话打开着的会话，"历史"列出这个对话的全部会话；标签栏的"+"（⌘T）在这个对话里新建会话，以对话的目录为工作目录。新对话用侧栏的"新建对话"或 ⌘N。
 - 标签栏的"+"在当前所在的地方新建：在工作区里就是这个工作区的会话，在对话里就是这个对话的会话，哪里都不在时新建对话。
@@ -244,7 +244,7 @@ Electron 主进程
 |---|---|
 | 添加项目、从侧栏移除项目（不删除文件）；新建 worktree 工作区（项目行的"+"，M1.11） | 在已有的分支上新建 worktree |
 | 新建对话："对话"标题右侧的图标、⌘N，不绑定工作区；新建会话：标签栏的"+"，在当前工作区或对话；归档 worktree 工作区（删掉目录、保留分支）和恢复、归档对话和恢复（M1.11） | 已合并时一键"清理"（阶段 1 第 3 步） |
-| 重命名、归档会话（标签栏右侧"···"）：归档只在 Atrium 里隐藏，不删除 pi 的会话文件；重命名工作区（工作区"···"）、对话（对话"···"）、项目 | 一个目录多个工作区、置顶、彻底删除、全文搜索 |
+| 重命名、归档会话（标签栏右侧"···"）：归档只在 Atrium 里隐藏，不删除 pi 的会话文件；重命名工作区（工作区"···"）、对话（对话"···"）、项目；置顶对话（对话"···"，2026-10-28） | 一个目录多个工作区、彻底删除、全文搜索 |
 | 搜索工作区和会话（"项目"标题右侧的搜索按钮） | 分叉关系的展示、把对话移到项目里 |
 
 ### 对话区
@@ -726,7 +726,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - **项目** `Project`：`id`（`prj_…`）、`path`（解析过符号链接的真实路径）、`name`。
 - **工作区** `Workspace`：`id`（`wks_…`）、`projectId`、`kind`（`local` / `worktree`）、`dir`、`alias`（自定义名称，没有为空）、`branch`（检出的分支；detached HEAD 或不是 git 仓库时为空）、`head`（detached 时的短 commit 号）、`external`（不是 Atrium 建的 worktree）、`createdAt`（worktree 的创建时间，本地工作区为空）、`merge`（合并状态，本地工作区和非 git 项目为空）、`archivedAt`（归档的时间，没归档为空；M1.11 加）。归档的工作区 `branch`、`head` 是归档时的，`merge` 为空。名称由界面按 `alias ?? branch ?? 目录名` 得出。
 - **合并状态** `MergeState`：`dirty`、`ahead`、`verdict`（`noChange` / `pending` / `merged` / `removed` / `unknown`）、`reason`（`unknown` 的原因：`git_too_old`、`no_main_branch`、`git_failed`、`base_unknown`）。主干的名字只认项目的覆盖值或 `origin/HEAD`，没有就是 `unknown`（`no_main_branch`），不猜本地的 main / master（2026-10-08 定）；有了名字，比较时先用本机的同名分支，没有再用 `origin/<主干>`（2026-10-22 自用时改，见"worktree 合并状态"）。
-- **对话** `Chat`（2026-10-12 加，ADR-0007）：`id`（`cht_<目录名>`）、`dir`、`alias`（自定义名称，没有为空）、`firstSessionId`（没归档的会话里最早建的，没有为空）。名称由界面按 `alias ?? 第一个会话的标题` 得出。宿主扫描 `~/.atrium/chats/` 的子目录得出对话列表，自定义名称存在 `chats.json`。
+- **对话** `Chat`（2026-10-12 加，ADR-0007）：`id`（`cht_<目录名>`）、`dir`、`alias`（自定义名称，没有为空）、`firstSessionId`（没归档的会话里最早建的，没有为空）、`pinnedAt`（置顶的时间，没置顶为空；2026-10-28 加）。名称由界面按 `alias ?? 第一个会话的标题` 得出。宿主扫描 `~/.atrium/chats/` 的子目录得出对话列表，自定义名称和置顶存在 `chats.json`。
 - **会话摘要** `SessionSummary`：`sessionId`、`containerId`（工作区或对话的 id；2026-10-12 前对话都是 `chats`）、`name`（pi 的会话名）、`prompt`（第一条用户消息的第一行，去掉 Markdown 符号和首尾空白，最多 200 个字符；没有文字为空）、`file`（会话文件路径，还没写出时为空）、`state`（`draft` / `persisted` / `missing`）、`updatedAt`、`archived`、`running`。标题由界面按 `name ?? prompt` 得出，都为空时草稿显示"新会话"，否则显示"图片"。
 - **布局** `Layout`（只给这个客户端自己的）：`container`（当前所在的工作区或对话，没有为空）、`tabs`（每个容器打开着的会话和当前标签）。
 - **偏好** `Preferences`：`appearance`（`system` / `light` / `dark`）。原先还有 `displayMode`（摘要 / 思考 / 详细），2026-10-12 随显示模式一起去掉（协议版本 10）。
@@ -741,6 +741,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - `remove_project(projectId)` / `rename_project(projectId, name)`：移除只删索引，同时停掉其中会话的 pi、从各客户端的布局里去掉；改成已有项目的名字应答 `name_taken`。
 - `rename_workspace(workspaceId, name | null)`：`null` 恢复为分支名。
 - `rename_chat(chatId, name | null)`：`null` 恢复为第一个会话的标题；对话不存在应答 `chat_not_found`（2026-10-12 加）。
+- `pin_chat(chatId)` / `unpin_chat(chatId)`：置顶、取消置顶，都应答 `{}`；对话不存在应答 `chat_not_found`，重复置顶或重复取消也照常应答（见"对话的置顶与顺序"）。
 - `archive_chat(chatId)` / `restore_chat(chatId)`：归档、恢复对话，见"M1.11 的对话归档"。
 - `list_bases(projectId)` / `create_workspace(projectId, branch, base, alias?)`：新建 worktree 工作区并保存可选中文别名，见"M1.11 的新建工作区"。
 - `name_branch(projectId, text, model, branch?)`：让 AI 给新 worktree 起中英文名，返回 `{ branch, alias }`，可固定英文分支，见"M1.11 的新建工作区"的"AI 起分支名"。
@@ -913,8 +914,17 @@ M1.11 的对话归档（协议版本 11，2026-10-12 定）：新增命令 `arch
 - 归档的对话不出现在侧栏的对话列表、搜索和收件箱里（它的会话都归档了）；不能在里面新建会话（`create_session` 应答 `chat_not_found`）。
 - 界面：悬停对话行时"···"左边有归档图标（悬停说明"归档"，2026-10-13 自用时改，原先在"···"菜单里）。其中有会话在运行时先弹确认框（同工作区归档的确认框）："归档对话「名称」？"，正文"其中 N 个会话正在运行，归档会停止它们；之后可以在"已归档的对话"里恢复"，按钮"取消""归档"；没有会话在运行时直接归档。失败在侧栏的问题行说明：`chat_not_found`"这个对话已经不在了"，其他"没能归档这个对话"、"没能恢复这个对话"。"已归档的对话"是"对话"分区末尾的一行，只在有归档的对话时出现；点开在原地展开成列表：名称（同侧栏的取名规则）、归档时间（写法同最近活动时间），行尾"恢复"，按归档时间新到旧，最多 8 行高、再多在列表内滚动；再点收起。
 
-M1.11 的新建工作区（协议版本 12，2026-10-13 自用时定，原先在阶段 1 第 3 步）：新增命令 `list_bases(projectId)`、`create_workspace(projectId, branch, base)`，`create_session` 多一个可选的 `go`，新增错误码 `worktree_create_failed`。照 Paseo 的新建工作区：先选好在哪里做，发出第一条消息时才建。
+**对话的置顶与顺序（协议版本 31，2026-10-28 定，自用时反馈：跑着的对话不浮上来、不能置顶；原型 `prototypes/conversation-pin-and-order-prototype.html` 选甲"名字前的图钉"、「···」菜单入口、A"让位滑行 + 落位高亮"）**：新增命令 `pin_chat(chatId)`、`unpin_chat(chatId)`，对话多了 `pinnedAt`；`chats.json` 的记录多一个 `pinnedAt`，旧文件照读（没有就是不置顶）。置顶只做对话，工作区行不动（"位置稳定"那条照旧）。
 
+- 顺序：**置顶 → 进行中 → 最近活动**。"进行中"是指其中任一未归档会话的状态图标亮着（`sessionStatus` 非空：运行中、待回答、待授权、出错），不另设运行中分区（同收件箱"不单独设运行中分区"）。每一档里再按最近活动（其中会话 `updatedAt` 的最大值）倒序；置顶里的也按最近活动，所以钉住的对话跑起来照样会动，只是不会掉出置顶档。
+- 置顶行：名字前一枚 13px 的图钉（Hugeicons `Pin02Icon`，`--tint`），名字因此比其余行右移约 18px；行尾照旧是最近活动时间和状态图标。不分组、不加标题、不占时间的位置（原型里另外三种比较过：行尾图钉、单独"置顶"一节、时间处写"置顶"）。
+- 入口：对话行悬停显示的"···"菜单第一项是"置顶"，已置顶的写"取消置顶"（悬停的归档图标不动）。不新增悬停图钉按钮，也没有右键菜单。
+- 名额：显示最近 5 个，置顶的先占名额，其余的按顺序补满；当前展开着的照旧"显示全部 N 个" / "收起"。
+- 动效：顺序变化按 design-language"对话顺序变化"（280ms 平移 + 落位高亮 700ms，减弱动态效果 1ms）；只是新增/移除时的进出场沿用"新内容从下方 6–10px 淡入"。
+- 命令：`pin_chat` 把 `pinnedAt` 写成当时的时间，已经置顶的再置顶不改时间（幂等）；`unpin_chat` 清掉它。对话不存在应答 `chat_not_found`；写盘失败照 `rename_chat` 一样在侧栏的问题行写"宿主出错了，没有完成"。归档的对话的 `pinnedAt` 保留，恢复后照样置顶。
+- 手机端（SPEC-0005 "MP6b"）：首页"对话"里的行按同一条规则排（置顶对话的会话在前），对话页顶栏的"···"菜单里可以置顶、取消置顶；`pin_chat`、`unpin_chat` 对手机开放，不像改名、归档那样只限本机。
+
+M1.11 的新建工作区（协议版本 12，2026-10-13 自用时定，原先在阶段 1 第 3 步）：新增命令 `list_bases(projectId)`、`create_workspace(projectId, branch, base)`，`create_session` 多一个可选的 `go`，新增错误码 `worktree_create_failed`。照 Paseo 的新建工作区：先选好在哪里做，发出第一条消息时才建。
 - 入口：项目行悬停出现的"+"，打开这个项目的"新建工作区"页。这一页只在这个窗口里，不进宿主的布局：标签栏的位置空着（仍可拖动窗口），侧栏的项目行带选中底色；点侧栏里的工作区、对话、会话、搜索结果、"新建对话"，或者按 ⌘N、⌘T，就离开这一页；⌘W、⌘1–9、⌘⇧[ ] 在这一页不起作用（没有标签）。项目被移除时这一页关上。在这一页上，背后那个会话的错误不算看过。刷新后回到原来的位置。
 - 页面：布局同空状态，居中写"新建工作区"，下面是输入框。输入框上方一排选择：
   - 项目：默认是点了"+"的那个，可以换成别的项目。
@@ -1330,7 +1340,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 | `list_bases(projectId)` / `create_workspace(projectId, branch, base, alias?)` | 列出起点；新建 worktree 并保存可选中文别名，返回 `{ workspaceId }`（协议 29，见"M1.11 的新建工作区"） |
 | `name_branch(projectId, text, model, branch?)` | 按素材让 AI 起中英文名，返回 `{ branch, alias }`；给了 `branch` 只补中文名（协议 29，见"新建 worktree 的中文显示名"） |
 | `list_sessions(containerId)` / `list_chats()` | 容器下的会话、对话（M1.5 起由 `subscribe_index` 推来的完整列表取代，见上文"项目、工作区与会话"） |
-| `create_session(containerId)` / `create_chat()` / `open_session(sessionId)` / `rename_chat(chatId, name \| null)` | 新建或打开会话：新会话以工作区或对话的目录为工作目录；新对话新建 `~/.atrium/chats/<目录名>/`；对话改名 |
+| `create_session(containerId)` / `create_chat()` / `open_session(sessionId)` / `rename_chat(chatId, name \| null)` / `pin_chat(chatId)` / `unpin_chat(chatId)` | 新建或打开会话：新会话以工作区或对话的目录为工作目录；新对话新建 `~/.atrium/chats/<目录名>/`；对话改名；对话置顶、取消置顶（协议 31，见"对话的置顶与顺序"） |
 | `close_tab(sessionId)` | 只改这个客户端的布局，不停运行、不动排队 |
 | `subscribe_index(cursor?)` / `subscribe_sessions(sessionIds)` / `fetch_transcript(sessionId, epoch, before, limit)` | 订阅列表（带游标时回增量）；订阅要实时增量的会话；往上翻拉更早的对话记录 |
 | `clear_attention(sessionId)` | 打开会话时清除关注状态（出错、待授权），移出收件箱 |

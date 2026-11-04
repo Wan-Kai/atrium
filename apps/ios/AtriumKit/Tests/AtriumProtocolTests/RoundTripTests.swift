@@ -93,6 +93,6 @@ struct RoundTripTests {
 
   @Test("carries the protocol version the types were generated from")
   func version() {
-    #expect(protocolVersion == 30)
+    #expect(protocolVersion == 31)
   }
 }
