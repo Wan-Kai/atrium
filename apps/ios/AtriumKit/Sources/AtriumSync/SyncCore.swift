@@ -57,6 +57,8 @@ public struct SyncCore {
     case action(SessionId, SessionAction)
     /// `clear_attention` of a session.
     case clearing(SessionId)
+    /// `pin_chat` or `unpin_chat` of a chat, whose failure is kept for its page.
+    case chat(ChatId)
     /// `list_models`, whose answer is the catalog.
     case models
     /// `create_session` or `create_chat` of a new session, and what to send once it is made.
@@ -94,6 +96,8 @@ public struct SyncCore {
   public private(set) var lastDelivered: [SessionId: RequestId] = [:]
   /// Why the last action on a session failed.
   public private(set) var actionProblems: [SessionId: ActionProblem] = [:]
+  /// Why pinning a chat last failed, until dismissed (SPEC-0001, "对话的置顶与顺序").
+  public private(set) var chatProblems: [ChatId: ErrorCode] = [:]
   /// The workspaces whose changes are watched, as last asked.
   public private(set) var watchedChanges: [WorkspaceId] = []
   /// The latest changes of each watched workspace.
@@ -275,6 +279,8 @@ public struct SyncCore {
       case .step(let ref, _):
         fetchingSteps.remove(ref)
         failedSteps.insert(ref)
+      case .chat(let chatId):
+        chatProblems[chatId] = failure.error.code
       case .clearing, .models, .other: break
       }
     case .indexSnapshot(let snapshot):
@@ -659,6 +665,37 @@ public struct SyncCore {
   /// - Parameter sessionId: The session.
   public mutating func dismissActionProblem(in sessionId: SessionId) {
     actionProblems[sessionId] = nil
+  }
+
+  /// Pins a chat, or unpins it: the conversation page's "···" item (SPEC-0001, "对话的置顶与顺序").
+  ///
+  /// - Remark: Not through a receipt. Sending it again is harmless — the host keeps a pinned chat's
+  ///   first time — and the list carries the result; a failure is kept by chat for the page to show.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - chatId: The chat.
+  ///   - pinned: Whether to pin it or unpin it.
+  /// - Returns: The command to send.
+  public mutating func setChatPinned(_ chatId: ChatId, _ pinned: Bool) -> [SyncOutput] {
+    guard synced else { return [] }
+    chatProblems[chatId] = nil
+    let requestId = track(.chat(chatId))
+    let traceparent = makeTraceparent()
+    return [
+      send(
+        pinned
+          ? .pinChat(PinChatCommand(requestId: requestId, traceparent: traceparent, chatId: chatId))
+          : .unpinChat(UnpinChatCommand(requestId: requestId, traceparent: traceparent, chatId: chatId)))
+    ]
+  }
+
+  /// Forgets what pinning a chat last failed with.
+  ///
+  /// - Remark: See ``chatProblems``.
+  /// - SideEffects: none
+  /// - Parameter chatId: The chat.
+  public mutating func dismissChatProblem(_ chatId: ChatId) {
+    chatProblems[chatId] = nil
   }
 
   /// Clears a session's error once its page shows it, as the desktop does.

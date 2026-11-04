@@ -7,7 +7,10 @@ import { launchApp } from "./launch";
 import { addProject } from "./projects";
 
 test("creates a worktree from a project's new-workspace page with the first message, and sends it there", async () => {
-  const pi = await fauxPiEnvironment({ replies: [{ blocks: [{ type: "text", text: "好的" }] }] });
+  const pi = await fauxPiEnvironment({
+    replies: [{ blocks: [{ type: "text", text: "好的" }] }],
+    branch: JSON.stringify({ branch: "ignored-model-branch", alias: "修复请求超时" }),
+  });
   const scene = await createGitScene("e2e-new-workspace");
   const repo = await realpath(scene.repo);
   // The local main moves past origin's, merged here and not pushed, so starting from it shows.
@@ -36,7 +39,8 @@ test("creates a worktree from a project's new-workspace page with the first mess
     await expect(window.getByTestId("turn").getByTestId("launch-summary")).toHaveText(
       /^在 atrium\/e2e-otter 建好工作区 · 基于 main · 用时 \d+ 秒$/,
     );
-    await expect(window.getByTestId("workspace-row")).toHaveText(["main", "atrium/e2e-otter"]);
+    await expect(window.getByTestId("workspace-row")).toHaveText(["main", "修复请求超时"]);
+    await expect(window.getByTestId("workspace-row").nth(1)).toHaveAttribute("title", /分支 atrium\/e2e-otter；/);
     await expect(window.getByTestId("workspace-row").nth(1)).toHaveAttribute("aria-current", "true");
     const dir = join(dirname(repo), "repo.worktrees", "e2e-otter");
     expect(await scene.git(dir, "branch", "--show-current")).toBe("atrium/e2e-otter");
@@ -49,15 +53,15 @@ test("creates a worktree from a project's new-workspace page with the first mess
   }
 });
 
-test("names the new worktree's branch by the first message through pi, when no name was written", async () => {
+test("names the new worktree in Chinese and English through one pi call and keeps the alias after restart", async () => {
   const pi = await fauxPiEnvironment({
     replies: [{ blocks: [{ type: "text", text: "好的" }] }],
-    branch: "Fix the login timeout",
+    branch: JSON.stringify({ branch: "Fix the login timeout", alias: "修复登录超时" }),
     title: "登录超时",
   });
   const scene = await createGitScene("e2e-name-branch");
   const repo = await realpath(scene.repo);
-  const launched = await launchApp(pi.env);
+  let launched = await launchApp(pi.env);
   try {
     const { window } = launched;
     await addProject(launched.app, window, repo);
@@ -73,9 +77,23 @@ test("names the new worktree's branch by the first message through pi, when no n
     await window.getByRole("textbox", { name: "消息" }).press("Enter");
 
     await expect(window.getByTestId("reply")).toHaveText("好的", { timeout: 60_000 });
-    await expect(window.getByTestId("workspace-row")).toHaveText(["main", "atrium/fix-the-login-timeout"]);
+    await expect(window.getByTestId("workspace-row")).toHaveText(["main", "修复登录超时"]);
+    await expect(window.getByTestId("workspace-row").nth(1)).toHaveAttribute(
+      "title",
+      /分支 atrium\/fix-the-login-timeout；/,
+    );
     const dir = join(dirname(repo), "repo.worktrees", "fix-the-login-timeout");
     expect(await scene.git(dir, "branch", "--show-current")).toBe("atrium/fix-the-login-timeout");
+    const home = launched.home;
+    await launched.quit();
+    launched = await launchApp(pi.env, home);
+    await expect(launched.window.getByTestId("workspace-row")).toHaveText(["main", "修复登录超时"], {
+      timeout: 30_000,
+    });
+    await expect(launched.window.getByTestId("workspace-row").nth(1)).toHaveAttribute(
+      "title",
+      /分支 atrium\/fix-the-login-timeout；/,
+    );
   } finally {
     await launched.close();
     await pi.cleanup();

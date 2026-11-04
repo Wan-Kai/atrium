@@ -347,6 +347,12 @@ struct ChatRow: View {
       HStack(spacing: 8) {
         StatusIcon(kind: SessionRow.kind(row.status))
         Text(row.title).font(.system(size: 14.5)).foregroundStyle(palette.text).lineLimit(1)
+        if row.pinned {
+          Image(systemName: "pin.fill")
+            .font(.system(size: 11))
+            .foregroundStyle(palette.tint)
+            .accessibilityLabel("已置顶")
+        }
         Spacer(minLength: 6)
         RowTime(row: row)
       }

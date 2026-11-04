@@ -1,0 +1,65 @@
+[
+  {
+    "file": "packages/protocol/src/commands.ts",
+    "from": "alias: z.string().min(1).max(256).nullable().optional(),",
+    "to": "alias: z.string().min(1).max(256).optional(),",
+    "test": "packages/protocol/src/worktree-names.test.ts",
+    "name": "registers an optional alias"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "...(alias === undefined ? {} : { alias })",
+    "to": "...{}",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "keeps a fixed branch and passes"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "...(branch === undefined ? {} : { branch })",
+    "to": "...{}",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "keeps a fixed branch and passes"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "return options.index.createWorkspace(command.projectId, command.branch, command.base, command.alias);",
+    "to": "return options.index.createWorkspace(command.projectId, command.branch, command.base);",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "hands list commands to the index commands"
+  },
+  {
+    "file": "packages/host/src/sessions/index-commands.ts",
+    "from": "options.creator.create(projectId, branch, base, alias)",
+    "to": "options.creator.create(projectId, branch, base)",
+    "test": "packages/host/src/sessions/index-commands.test.ts",
+    "name": "passes fixed branches and Chinese aliases"
+  },
+  {
+    "file": "packages/host/src/sessions/agent-relay.ts",
+    "from": "task: args.task,",
+    "to": "task: args.name,",
+    "test": "packages/host/src/sessions/agent-relay.test.ts",
+    "name": "records the handle, opens the child"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "worktreeFor(parent, branch, record.name ?? branch)",
+    "to": "worktreeFor(parent, branch, branch)",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "puts an empty child in a new worktree"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "worktreeFor(parent, branch, name)",
+    "to": "worktreeFor(parent, branch, branch)",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "forks a child into a new worktree:"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "model: chosen === null ? null : { providerId: chosen.providerId, modelId: chosen.modelId },",
+    "to": "model: null,",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "puts an empty child in a new worktree"
+  }
+]

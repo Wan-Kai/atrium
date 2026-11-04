@@ -74,7 +74,7 @@ function fakeClient(held: readonly Method[] = [], failing: Partial<Record<Method
     return result;
   }
   const client: LaunchClient = {
-    nameBranch: (...args) => answer("nameBranch", args, { branch: "atrium/fix-login" }),
+    nameBranch: (...args) => answer("nameBranch", args, { branch: args[3] ?? "atrium/fix-login", alias: "修复登录" }),
     createWorkspace: (...args) => answer("createWorkspace", args, { workspaceId: "wks_new" }),
     createSession: (...args) => answer("createSession", args, { sessionId: "s1" }),
     listCommands: (...args) => answer("listCommands", args, { commands: [] }),
@@ -268,6 +268,33 @@ describe("the page", () => {
     expect(store.getState().page?.choice).toStrictEqual({ kind: "existing", workspaceId: "w1" });
   });
 
+  it("forgets a Chinese alias when its branch is edited or the project changes, but not when only the base changes", () => {
+    const store = pageOpen();
+    choose(store, { choice: { kind: "new", branch: "atrium/brave-badger", base: "origin/main", alias: "旧中文名" } });
+    choose(store, { choice: { kind: "new", branch: "atrium/brave-badger", base: "HEAD", alias: "旧中文名" } });
+    expect(store.getState().page?.choice).toStrictEqual({
+      kind: "new",
+      branch: "atrium/brave-badger",
+      base: "HEAD",
+      alias: "旧中文名",
+    });
+    choose(store, { choice: { kind: "new", branch: "atrium/other", base: "HEAD", alias: "旧中文名" } });
+    expect(store.getState().page?.choice).toStrictEqual({ kind: "new", branch: "atrium/other", base: "HEAD" });
+
+    choose(store, { choice: { kind: "new", branch: "atrium/other", base: "HEAD", alias: "新的中文名" } });
+    choose(store, { projectId: "p2" });
+    expect(store.getState().page?.choice).toStrictEqual({ kind: "new", branch: "atrium/other", base: null });
+
+    choose(store, { choice: { kind: "existing", workspaceId: "w2" } });
+    choose(store, { choice: { kind: "new", branch: "atrium/other", base: "HEAD", alias: "新的中文名" } });
+    expect(store.getState().page?.choice).toStrictEqual({
+      kind: "new",
+      branch: "atrium/other",
+      base: "HEAD",
+      alias: "新的中文名",
+    });
+  });
+
   it("changes nothing without a page", () => {
     const store = createNewWorkspaceStore();
     choose(store, { projectId: "p1" });
@@ -276,6 +303,104 @@ describe("the page", () => {
 });
 
 describe("launch", () => {
+  it("keeps the Chinese alias from one naming call through creation and a failed-worktree retry", async () => {
+    const store = pageOpen();
+    choose(store, { choice: { kind: "new", branch: null, base: "origin/main" } });
+    const refused = new CommandError("worktree_create_failed");
+    const first = fakeClient([], { createWorkspace: refused });
+    await launch(store, context(first.client, memoryDrafts()), MESSAGE, () => "l1");
+
+    expect(store.getState().page?.choice).toStrictEqual({
+      kind: "new",
+      branch: "atrium/fix-login",
+      base: "origin/main",
+      alias: "修复登录",
+    });
+    expect(onlyLaunch(store.getState())).toMatchObject({
+      worktree: { branch: "atrium/fix-login", alias: "修复登录" },
+      failure: refused,
+    });
+    expect(first.calls.slice(0, 2)).toStrictEqual([
+      ["nameBranch", "p1", "hi", null],
+      ["createWorkspace", "p1", "atrium/fix-login", "origin/main", "修复登录"],
+    ]);
+
+    const again = fakeClient();
+    await retryLaunch(store, context(again.client, memoryDrafts()), "l1");
+    expect(again.calls[0]).toStrictEqual(["createWorkspace", "p1", "atrium/fix-login", "origin/main", "修复登录"]);
+    expect(again.calls.filter(([method]) => method === "nameBranch")).toStrictEqual([]);
+  });
+
+  it("asks for a Chinese alias while preserving a branch the user wrote", async () => {
+    const store = pageOpen();
+    const chosen = { providerId: "x", modelId: "y" };
+    choose(store, { model: { ref: chosen, level: null } });
+    const { client, calls } = fakeClient();
+    await launch(store, context(client, memoryDrafts()), MESSAGE, () => "l1");
+
+    expect(calls.slice(0, 2)).toStrictEqual([
+      ["nameBranch", "p1", "hi", chosen, "atrium/brave-badger"],
+      ["createWorkspace", "p1", "atrium/brave-badger", "origin/main", "修复登录"],
+    ]);
+    expect(onlyLaunch(store.getState())).toMatchObject({
+      worktree: { branch: "atrium/brave-badger", alias: "修复登录" },
+      steps: ["name", "worktree", "session", "message"],
+      named: "model",
+    });
+  });
+
+  it("keeps the written branch when Chinese naming fails rather than describing a random fallback", async () => {
+    const store = pageOpen();
+    const { client, calls } = fakeClient([], { nameBranch: new CommandError("branch_name_failed") });
+    await launch(
+      store,
+      context(client, memoryDrafts(), () => 0.5),
+      MESSAGE,
+      () => "l1",
+    );
+
+    expect(calls.slice(0, 2)).toStrictEqual([
+      ["nameBranch", "p1", "hi", null, "atrium/brave-badger"],
+      ["createWorkspace", "p1", "atrium/brave-badger", "origin/main", null],
+    ]);
+    expect(onlyLaunch(store.getState())).toMatchObject({
+      named: "kept",
+      worktree: { branch: "atrium/brave-badger", alias: null },
+      failure: undefined,
+    });
+  });
+
+  it("does not retry failed Chinese naming when the user sends again after creation failed", async () => {
+    const store = pageOpen();
+    const refused = new CommandError("worktree_create_failed");
+    const first = fakeClient([], { nameBranch: new CommandError("branch_name_failed"), createWorkspace: refused });
+    await launch(store, context(first.client, memoryDrafts()), MESSAGE, () => "l1");
+    expect(store.getState().page?.choice).toStrictEqual({
+      kind: "new",
+      branch: "atrium/brave-badger",
+      base: "origin/main",
+      alias: null,
+    });
+
+    const again = fakeClient();
+    await launch(store, context(again.client, memoryDrafts()), MESSAGE, () => "l2");
+    expect(again.calls[0]).toStrictEqual(["createWorkspace", "p1", "atrium/brave-badger", "origin/main", null]);
+    expect(again.calls.filter(([method]) => method === "nameBranch")).toStrictEqual([]);
+  });
+
+  it("uses the random English branch as Chinese naming material for an image-only first message", async () => {
+    const store = pageOpen();
+    choose(store, { choice: { kind: "new", branch: null, base: "origin/main" } });
+    const { client, calls } = fakeClient();
+    await launch(store, context(client, memoryDrafts()), { text: " ", images: [IMAGE] }, () => "l1");
+
+    expect(calls.slice(0, 2)).toStrictEqual([
+      ["nameBranch", "p1", "atrium/brave-badger", null, "atrium/brave-badger"],
+      ["createWorkspace", "p1", "atrium/brave-badger", "origin/main", "修复登录"],
+    ]);
+    expect(calls.at(-1)).toStrictEqual(["prompt", "s1", " ", ["a1"], ["data:p"]]);
+  });
+
   it("creates the worktree, the session, waits for pi and sends, step by step, then stays for its turn", async () => {
     const store = pageOpen();
     const drafts = memoryDrafts();
@@ -286,7 +411,7 @@ describe("launch", () => {
     expect(store.getState()).toStrictEqual({
       page: {
         projectId: "p1",
-        choice: { kind: "new", branch: "atrium/brave-badger", base: "origin/main" },
+        choice: { kind: "new", branch: "atrium/brave-badger", base: "origin/main", alias: "修复登录" },
         model: { ref: null, level: null },
         launchId: "l1",
       },
@@ -295,10 +420,10 @@ describe("launch", () => {
           id: "l1",
           projectId: "p1",
           model: { ref: null, level: null },
-          worktree: { branch: "atrium/brave-badger", base: "origin/main" },
-          named: null,
-          steps: ["worktree", "session", "message"],
-          done: 0,
+          worktree: { branch: "atrium/brave-badger", base: "origin/main", alias: "修复登录" },
+          named: "model",
+          steps: ["name", "worktree", "session", "message"],
+          done: 1,
           failure: undefined,
           text: "fix it",
           images: [IMAGE],
@@ -317,12 +442,12 @@ describe("launch", () => {
     release("createWorkspace");
     await settle();
     expect(store.getState().page?.choice).toStrictEqual({ kind: "existing", workspaceId: "wks_new" });
-    expect(onlyLaunch(store.getState())).toMatchObject({ done: 1, workspaceId: "wks_new", sessionId: null });
+    expect(onlyLaunch(store.getState())).toMatchObject({ done: 2, workspaceId: "wks_new", sessionId: null });
 
     release("createSession");
     await settle();
     expect(store.getState().page).toBeNull();
-    expect(onlyLaunch(store.getState())).toMatchObject({ done: 1, sessionId: "s1" });
+    expect(onlyLaunch(store.getState())).toMatchObject({ done: 2, sessionId: "s1" });
     expect(launchOver(store.getState(), "s1")?.id).toBe("l1");
     expect(holdsBack(launchOver(store.getState(), "s1"))).toBe(true);
     expect(drafts.read("s1").text).toBe("next");
@@ -330,16 +455,17 @@ describe("launch", () => {
 
     release("listCommands");
     await settle();
-    expect(onlyLaunch(store.getState())).toMatchObject({ done: 2, sentAt: null });
+    expect(onlyLaunch(store.getState())).toMatchObject({ done: 3, sentAt: null });
     expect(holdsBack(launchOver(store.getState(), "s1"))).toBe(true);
 
     release("prompt");
     await going;
-    expect(onlyLaunch(store.getState())).toMatchObject({ done: 3, failure: undefined, startedAt: 1000, sentAt: 2000 });
+    expect(onlyLaunch(store.getState())).toMatchObject({ done: 4, failure: undefined, startedAt: 1000, sentAt: 2000 });
     expect(holdsBack(launchOver(store.getState(), "s1"))).toBe(false);
     expect(pageLaunch(store.getState())).toBeUndefined();
     expect(calls).toStrictEqual([
-      ["createWorkspace", "p1", "atrium/brave-badger", "origin/main"],
+      ["nameBranch", "p1", "fix it", null, "atrium/brave-badger"],
+      ["createWorkspace", "p1", "atrium/brave-badger", "origin/main", "修复登录"],
       ["createSession", "wks_new", true],
       ["listCommands", "s1"],
       ["prompt", "s1", "fix it", ["a1"], ["data:p"]],
@@ -372,6 +498,7 @@ describe("launch", () => {
       kind: "new",
       branch: "atrium/fix-login",
       base: "origin/main",
+      alias: "修复登录",
     });
 
     release("createWorkspace");
@@ -382,7 +509,7 @@ describe("launch", () => {
     await going;
     expect(calls.slice(0, 2)).toStrictEqual([
       ["nameBranch", "p1", "fix the login", chosen],
-      ["createWorkspace", "p1", "atrium/fix-login", "origin/main"],
+      ["createWorkspace", "p1", "atrium/fix-login", "origin/main", "修复登录"],
     ]);
   });
 
@@ -410,12 +537,12 @@ describe("launch", () => {
     await going;
     expect(calls.slice(0, 2)).toStrictEqual([
       ["nameBranch", "p1", "hi", null],
-      ["createWorkspace", "p1", "atrium/merry-otter", "origin/main"],
+      ["createWorkspace", "p1", "atrium/merry-otter", "origin/main", null],
     ]);
     expect(onlyLaunch(store.getState())).toMatchObject({ done: 4, failure: undefined });
   });
 
-  it("names a branch randomly, without the step, for a message with no text", async () => {
+  it("names only the Chinese alias of a random branch for a message with no text", async () => {
     const store = pageOpen();
     choose(store, { choice: { kind: "new", branch: null, base: "origin/main" } });
     const { client, calls } = fakeClient(["createWorkspace"]);
@@ -429,11 +556,14 @@ describe("launch", () => {
     await settle();
 
     expect(onlyLaunch(store.getState())).toMatchObject({
-      worktree: { branch: "atrium/brave-badger", base: "origin/main" },
-      named: null,
-      steps: ["worktree", "session", "message"],
+      worktree: { branch: "atrium/brave-badger", base: "origin/main", alias: "修复登录" },
+      named: "model",
+      steps: ["name", "worktree", "session", "message"],
     });
-    expect(calls).toStrictEqual([["createWorkspace", "p1", "atrium/brave-badger", "origin/main"]]);
+    expect(calls).toStrictEqual([
+      ["nameBranch", "p1", "atrium/brave-badger", null, "atrium/brave-badger"],
+      ["createWorkspace", "p1", "atrium/brave-badger", "origin/main", "修复登录"],
+    ]);
   });
 
   it("names no more when the worktree failed after naming, and leaves a page the user went to alone", async () => {
@@ -446,7 +576,12 @@ describe("launch", () => {
 
     const again = fakeClient();
     await launch(store, context(again.client, memoryDrafts()), MESSAGE, () => "l2");
-    expect(again.calls[0]).toStrictEqual(["createWorkspace", "p1", "atrium/fix-login", "origin/main"]);
+    expect(again.calls[0]).toStrictEqual(["createWorkspace", "p1", "atrium/fix-login", "origin/main", "修复登录"]);
+    expect(onlyLaunch(store.getState())).toMatchObject({
+      steps: ["worktree", "session", "message"],
+      named: null,
+      worktree: { branch: "atrium/fix-login", base: "origin/main", alias: "修复登录" },
+    });
 
     openPage(store, "p1");
     const held = fakeClient(["nameBranch"]);
@@ -470,7 +605,7 @@ describe("launch", () => {
     release("nameBranch");
     await going;
 
-    expect(calls[1]).toStrictEqual(["createWorkspace", "p1", "atrium/fix-login", "origin/main"]);
+    expect(calls[1]).toStrictEqual(["createWorkspace", "p1", "atrium/fix-login", "origin/main", "修复登录"]);
     expect(store.getState().page).toBeNull();
   });
 
@@ -529,7 +664,8 @@ describe("launch", () => {
     await launch(store, context(client, memoryDrafts()), { text: "hi", images: [] }, () => "l1");
 
     expect(calls).toStrictEqual([
-      ["createWorkspace", "p1", "a", "HEAD"],
+      ["nameBranch", "p1", "hi", null, "a"],
+      ["createWorkspace", "p1", "a", "HEAD", "修复登录"],
       ["createSession", "wks_new", true],
       ["setThinkingLevel", "s1", "low"],
       ["prompt", "s1", "hi", [], []],
@@ -547,7 +683,7 @@ describe("launch", () => {
     release("createWorkspace");
     await going;
 
-    expect(calls[1]).toStrictEqual(["createSession", "wks_new", false]);
+    expect(calls[2]).toStrictEqual(["createSession", "wks_new", false]);
     expect(store.getState().page).toMatchObject({ projectId: "p2", choice: { kind: "new" }, launchId: null });
   });
 
@@ -564,7 +700,7 @@ describe("launch", () => {
     await going;
 
     expect([drafts.read(pageDraftKey("p1")).text, drafts.read("s1").text]).toStrictEqual(["next", ""]);
-    expect(calls.slice(1)).toStrictEqual([
+    expect(calls.slice(2)).toStrictEqual([
       ["createSession", "wks_new", false],
       ["listCommands", "s1"],
       ["prompt", "s1", "hi", [], []],
@@ -580,10 +716,10 @@ describe("launch", () => {
 
     await launch(store, context(client, drafts), { text: "fix it", images: [IMAGE] }, () => "l1");
 
-    expect(onlyLaunch(store.getState())).toMatchObject({ done: 0, failure: refused, sessionId: null });
+    expect(onlyLaunch(store.getState())).toMatchObject({ done: 1, failure: refused, sessionId: null });
     expect(store.getState().page).toMatchObject({ choice: { kind: "new" }, launchId: "l1" });
     expect(drafts.read(pageDraftKey("p1"))).toMatchObject({ text: "fix it", images: [IMAGE] });
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
 
     const again = fakeClient();
     await launch(store, context(again.client, drafts), { text: "fix it", images: [] }, () => "l2");
@@ -615,7 +751,7 @@ describe("launch", () => {
     await launch(store, context(client, drafts), { text: "fix it", images: [] }, () => "l1");
 
     const failed = launchOver(store.getState(), "s1");
-    expect(failed).toMatchObject({ done: 2, failure: busy });
+    expect(failed).toMatchObject({ done: 3, failure: busy });
     expect(holdsBack(failed)).toBe(false);
     expect(drafts.read("s1").text).toBe("fix it");
 
@@ -715,6 +851,34 @@ describe("pageLaunch", () => {
 });
 
 describe("retryLaunch", () => {
+  it("retries the original named worktree rather than the different project and branch now chosen on the page", async () => {
+    const store = pageOpen();
+    choose(store, { choice: { kind: "new", branch: null, base: "origin/main" } });
+    const drafts = memoryDrafts();
+    const failed = fakeClient([], { createWorkspace: new CommandError("worktree_create_failed") });
+    await launch(store, context(failed.client, drafts), MESSAGE, () => "l1");
+    expect(onlyLaunch(store.getState())).toMatchObject({
+      projectId: "p1",
+      worktree: { branch: "atrium/fix-login", base: "origin/main", alias: "修复登录" },
+    });
+
+    choose(store, { projectId: "p2" });
+    choose(store, { choice: { kind: "new", branch: "atrium/next-task", base: "HEAD" } });
+    expect(store.getState().page).toMatchObject({
+      projectId: "p2",
+      choice: { kind: "new", branch: "atrium/next-task", base: "HEAD" },
+    });
+    const again = fakeClient();
+    await retryLaunch(store, context(again.client, drafts), "l1");
+
+    expect(again.calls[0]).toStrictEqual(["createWorkspace", "p1", "atrium/fix-login", "origin/main", "修复登录"]);
+    expect(again.calls.filter(([method]) => method === "nameBranch")).toStrictEqual([]);
+    expect(onlyLaunch(store.getState())).toMatchObject({
+      projectId: "p1",
+      worktree: { branch: "atrium/fix-login", base: "origin/main", alias: "修复登录" },
+    });
+  });
+
   it("goes on from the failed step, taking the message back out of the box, not counting the time it stood failed", async () => {
     const store = pageOpen();
     const drafts = memoryDrafts();
@@ -747,9 +911,9 @@ describe("retryLaunch", () => {
     again.release("createWorkspace");
     await going;
 
-    expect(onlyLaunch(store.getState())).toMatchObject({ done: 3, sessionId: "s1", startedAt: 2000, sentAt: 4000 });
+    expect(onlyLaunch(store.getState())).toMatchObject({ done: 4, sessionId: "s1", startedAt: 2000, sentAt: 4000 });
     expect(again.calls).toStrictEqual([
-      ["createWorkspace", "p1", "atrium/brave-badger", "origin/main"],
+      ["createWorkspace", "p1", "atrium/brave-badger", "origin/main", "修复登录"],
       ["createSession", "wks_new", true],
       ["listCommands", "s1"],
       ["prompt", "s1", "fix it", ["a1"], ["data:p"]],
@@ -765,7 +929,7 @@ describe("retryLaunch", () => {
       MESSAGE,
       () => "l1",
     );
-    expect(onlyLaunch(store.getState())).toMatchObject({ done: 1, sessionId: "s1" });
+    expect(onlyLaunch(store.getState())).toMatchObject({ done: 2, sessionId: "s1" });
     drafts.update("s1", (draft) => ({ ...draft, text: "other" }));
 
     const again = fakeClient();

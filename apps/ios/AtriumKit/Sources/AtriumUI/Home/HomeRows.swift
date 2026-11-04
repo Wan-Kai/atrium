@@ -149,8 +149,8 @@ struct WorktreeRow: View {
           }
           Group {
             if let lead = line.lead {
-              Text(lead.title).foregroundColor(palette.secondary)
-                + Text(line.alsoRunning > 0 ? " 等 \(line.alsoRunning) 个在跑" : "").foregroundColor(palette.tint)
+              let also = Text(line.alsoRunning > 0 ? " 等 \(line.alsoRunning) 个在跑" : "").foregroundColor(palette.tint)
+              Text("\(Text(lead.title).foregroundColor(palette.secondary))\(also)")
             } else {
               Text("还没有会话").foregroundColor(palette.tertiary)
             }

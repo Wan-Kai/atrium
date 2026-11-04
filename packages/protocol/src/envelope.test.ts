@@ -86,6 +86,7 @@ const commands: Command[] = [
     projectId: PROJECT,
     branch: "atrium/brave-otter",
     base: "origin/main",
+    alias: "修复登录超时",
   },
   {
     type: "name_branch",
@@ -95,7 +96,15 @@ const commands: Command[] = [
     text: "登录接口偶尔超时",
     model: { providerId: "anthropic", modelId: "claude-opus-5-5" },
   },
-  { type: "name_branch", requestId: "r17f", traceparent, projectId: PROJECT, text: "fix it", model: null },
+  {
+    type: "name_branch",
+    requestId: "r17f",
+    traceparent,
+    projectId: PROJECT,
+    text: "fix it",
+    model: null,
+    branch: "feature/login",
+  },
   { type: "translate_reply", requestId: "r17g", traceparent, sessionId: "s1", turnId: "s1:u1", translationId: "tr-1" },
   { type: "cancel_translation", requestId: "r17h", traceparent, translationId: "tr-1" },
   { type: "window_focused", requestId: "r18", traceparent },
@@ -121,6 +130,8 @@ const commands: Command[] = [
   { type: "rename_chat", requestId: "r19", traceparent, chatId: CHAT, name: null },
   { type: "archive_chat", requestId: "r19a", traceparent, chatId: CHAT },
   { type: "restore_chat", requestId: "r19b", traceparent, chatId: CHAT },
+  { type: "pin_chat", requestId: "r19c", traceparent, chatId: CHAT },
+  { type: "unpin_chat", requestId: "r19d", traceparent, chatId: CHAT },
   { type: "close_tab", requestId: "r20", traceparent, sessionId: "s1" },
   { type: "select_container", requestId: "r21", traceparent, containerId: WORKSPACE },
   { type: "select_container", requestId: "r22", traceparent, containerId: CHAT },
@@ -675,6 +686,18 @@ const grokPlan = {
   at: 0,
 } as const;
 
+/** OpenCode Go's usage: its 5-hour, weekly and monthly windows (ADR-0017). */
+const opencodePlan = {
+  provider: "opencode-go",
+  plan: null,
+  windows: [
+    { seconds: 18_000, model: null, usedPercent: 0, resetsAt: 1_760_010_106_000, parts: [] },
+    { seconds: 604_800, model: null, usedPercent: 15, resetsAt: 1_760_500_000_000, parts: [] },
+    { seconds: 2_592_000, model: null, usedPercent: 7, resetsAt: 1_764_600_000_000, parts: [] },
+  ],
+  at: 1_759_990_000_000,
+} as const;
+
 /** A push of Grok's usage with its window's products replaced by `parts`. */
 function grokWithParts(parts: unknown) {
   return { type: "plans_updated", plans: [{ ...grokPlan, windows: [{ ...grokPlan.windows[0], parts }] }] };
@@ -859,6 +882,7 @@ describe("parseClientMessage", () => {
       "logout",
       "name_branch",
       "open_session",
+      "pin_chat",
       "ping",
       "prompt",
       "read_file",
@@ -897,6 +921,7 @@ describe("parseClientMessage", () => {
       "take_back",
       "test_relay",
       "translate_reply",
+      "unpin_chat",
       "update_pi",
       "update_queued",
       "upload_attachment",
@@ -1558,8 +1583,9 @@ describe("CommandResult", () => {
     expect(CommandResult.list_bases.safeParse({ main: null, local: [], remote: [] }).success).toBe(false);
     expect(CommandResult.create_workspace.parse({ workspaceId: WORKSPACE })).toStrictEqual({ workspaceId: WORKSPACE });
     expect(CommandResult.create_workspace.safeParse({ workspaceId: PROJECT }).success).toBe(false);
-    expect(CommandResult.name_branch.parse({ branch: "atrium/fix-login" })).toStrictEqual({
+    expect(CommandResult.name_branch.parse({ branch: "atrium/fix-login", alias: "修复登录" })).toStrictEqual({
       branch: "atrium/fix-login",
+      alias: "修复登录",
     });
     expect(CommandResult.name_branch.safeParse({ branch: "" }).success).toBe(false);
     for (const wrong of [
@@ -1713,6 +1739,7 @@ const snapshot: IndexSnapshotEvent = {
       alias: null,
       firstSessionId: "s2",
       archivedAt: null,
+      pinnedAt: 1_700_000_300_000,
     },
     {
       id: "cht_x",
@@ -1720,6 +1747,7 @@ const snapshot: IndexSnapshotEvent = {
       alias: "合并原理",
       firstSessionId: null,
       archivedAt: 1_700_000_200_000,
+      pinnedAt: null,
     },
   ],
   sessions: [
@@ -1934,7 +1962,10 @@ const hostMessages: unknown[] = [
   { type: "pi_latest", latest: "2.0.0-rc.1+build.5", checkedAt: 0 },
   { type: "pi_latest", latest: null, checkedAt: null },
   { type: "credentials_changed" },
-  { type: "plans_updated", plans: [plan, { provider: "anthropic", plan: null, windows: [], at: 0 }, grokPlan] },
+  {
+    type: "plans_updated",
+    plans: [plan, { provider: "anthropic", plan: null, windows: [], at: 0 }, grokPlan, opencodePlan],
+  },
   { type: "plans_updated", plans: [] },
   { type: "remote_updated", remote: remoteState },
 ];
@@ -2049,12 +2080,17 @@ const commandResultExamples = {
     { main: null, current: null, local: [], remote: [] },
   ],
   create_workspace: [{ workspaceId: WORKSPACE }],
-  name_branch: [{ branch: "atrium/fix-login" }],
+  name_branch: [
+    { branch: "atrium/fix-login", alias: "修复登录" },
+    { branch: "atrium/fix-login", alias: null },
+  ],
   translate_reply: [{ text: "译文", language: "简体中文", model: { providerId: "faux", modelId: "faux-1" } }],
   cancel_translation: [{}],
   rename_chat: [{}],
   archive_chat: [{}],
   restore_chat: [{}],
+  pin_chat: [{}],
+  unpin_chat: [{}],
   window_focused: [{}],
   create_session: [{ sessionId: "s1" }],
   close_tab: [{}],
@@ -2633,7 +2669,7 @@ describe("HostMessage", () => {
       "a plan of a provider Atrium does not ask",
       { type: "plans_updated", plans: [{ ...plan, provider: "github-copilot" }] },
     ],
-    ["four plans", { type: "plans_updated", plans: [plan, plan, plan, plan] }],
+    ["five plans", { type: "plans_updated", plans: [plan, plan, plan, plan, plan] }],
     [
       "a window without its parts",
       { type: "plans_updated", plans: [{ ...plan, windows: [{ ...plan.windows[0], parts: undefined }] }] },

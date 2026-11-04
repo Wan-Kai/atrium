@@ -359,6 +359,27 @@ public final class SyncModel {
     return !outputs.isEmpty
   }
 
+  /// Pins a chat, or unpins it, from its conversation page.
+  ///
+  /// - Remark: See ``SyncCore/setChatPinned(_:_:)``.
+  /// - SideEffects: Queues the command.
+  /// - Parameters:
+  ///   - chatId: The chat.
+  ///   - pinned: Whether to pin it or unpin it.
+  public func setChatPinned(_ chatId: ChatId, _ pinned: Bool) {
+    guard status == .connected else { return }
+    enqueue(core.setChatPinned(chatId, pinned))
+  }
+
+  /// Forgets why pinning a chat last failed.
+  ///
+  /// - Remark: See ``SyncCore/dismissChatProblem(_:)``.
+  /// - SideEffects: Updates the core.
+  /// - Parameter chatId: The chat.
+  public func dismissChatProblem(_ chatId: ChatId) {
+    core.dismissChatProblem(chatId)
+  }
+
   /// Forgets why the last action on a session failed.
   ///
   /// - Remark: See ``SyncCore/dismissActionProblem(in:)``.

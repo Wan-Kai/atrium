@@ -12,7 +12,7 @@ enum Inflate {
 
   /// Inflates `data`, giving at most `limit` bytes.
   ///
-  /// - Remark: Truncated input is corrupt, not short: the stream must reach its end.
+  /// - Remark: Truncated input is corrupt, not short: the stream must reach its end; so is empty input.
   /// - SideEffects: none
   /// - Parameters:
   ///   - data: The deflated bytes.
@@ -29,7 +29,9 @@ enum Inflate {
     var output = Data()
     var buffer = [UInt8](repeating: 0, count: step)
     return try input.withUnsafeBufferPointer { (source) throws(WireError) -> Data in
-      stream.pointee.src_ptr = source.baseAddress ?? UnsafePointer(buffer)
+      // Raw deflate always has a block: nothing at all is corrupt (and has no pointer to read from).
+      guard let base = source.baseAddress else { throw .badFrame }
+      stream.pointee.src_ptr = base
       stream.pointee.src_size = source.count
       while true {
         let status = buffer.withUnsafeMutableBufferPointer { target in

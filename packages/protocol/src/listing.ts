@@ -79,6 +79,14 @@ export const Chat = z.strictObject({
   firstSessionId: SessionId.nullable(),
   /** When it was archived; `null` when it is not (SPEC-0001, "M1.11 的对话归档"). */
   archivedAt: Timestamp.nullable(),
+  /**
+   * When the user pinned it; `null` when not pinned.
+   *
+   * @remarks
+   * Pinned chats come first in the sidebar, then the ones a run or a question makes busy, then the
+   * rest by activity (SPEC-0001, "对话的置顶与顺序"); an archived chat keeps it.
+   */
+  pinnedAt: Timestamp.nullable(),
 });
 export type Chat = z.infer<typeof Chat>;
 
@@ -96,7 +104,7 @@ export const Attention = z.strictObject({
   cleared: z.boolean(),
   /**
    * pi's text of the failure, cut to 300 characters; `null` for pi crashing, and for a mark an index
-   * from before protocol 29 kept (SPEC-0005, "协议改动" 6).
+   * from before protocol 32 kept (SPEC-0005, "协议改动" 6).
    */
   text: z.string().max(300).nullable(),
 });

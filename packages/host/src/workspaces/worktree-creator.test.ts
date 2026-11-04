@@ -135,7 +135,12 @@ describe("createWorktreeCreator: create", () => {
     await repo.commit(repo.repo, "local.txt", "local\n");
     const { create, projects, projectId, refreshed, records } = await creator(repo);
 
-    const workspaceId = await create.create(projectId, "atrium/brave-otter", "refs/remotes/origin/main");
+    const workspaceId = await create.create(
+      projectId,
+      "atrium/brave-otter",
+      "refs/remotes/origin/main",
+      "修复登录超时",
+    );
 
     const dir = join(repo.root, "repo.worktrees", "brave-otter");
     expect(projects.workspaces().find((record) => record.id === workspaceId)).toStrictEqual({
@@ -143,7 +148,7 @@ describe("createWorktreeCreator: create", () => {
       projectId,
       kind: "worktree",
       dir,
-      alias: null,
+      alias: "修复登录超时",
       baseCommit: upstream,
       external: false,
     });
@@ -155,7 +160,7 @@ describe("createWorktreeCreator: create", () => {
     expect(records.filter((record) => record["msg"] === "worktree created")).toMatchObject([
       { projectId, workspaceId },
     ]);
-    expect(JSON.stringify(records)).not.toContain("brave-otter");
+    expect(JSON.stringify(records)).not.toMatch(/brave-otter|修复登录超时/);
   });
 
   it("gives git as long to add the worktree as to remove one, and its usual time to everything else", async () => {
@@ -437,11 +442,12 @@ describe("createWorktreeCreator: createFrom", () => {
     const repo = await scene();
     const { create, projects, projectId } = await creator(repo);
 
-    const made = await create.createFrom(localOf(projects, projectId), "audit", "agent/");
+    const made = await create.createFrom(localOf(projects, projectId), "audit", "agent/", "审查登录逻辑");
 
     const dir = join(repo.root, "repo.worktrees", "audit");
     expect(made).toStrictEqual({ workspaceId: expect.any(String), dir, branch: "agent/audit" });
     expect(await repo.git(dir, "branch", "--show-current")).toBe("agent/audit");
+    expect(projects.workspaces().find((workspace) => workspace.id === made.workspaceId)?.alias).toBe("审查登录逻辑");
   });
 
   it("adds a child's worktree from where the workspace is now, on a tidied atrium/ branch, without what it has not committed", async () => {

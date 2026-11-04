@@ -58,12 +58,14 @@ export const PROJECTS_FILE: IndexFileSpec<ProjectsDocument> = {
 };
 
 /**
- * What `chats.json` keeps of a chat: its name and whether it is archived; a chat with neither has
- * no record (ADR-0007; SPEC-0001, "M1.11 的对话归档").
+ * What `chats.json` keeps of a chat: its name, whether it is pinned and whether it is archived; a
+ * chat with none of them has no record (ADR-0007; SPEC-0001, "M1.11 的对话归档", "对话的置顶与顺序").
  */
 const ChatRecord = z.looseObject({
   id: z.string(),
   alias: z.string().optional(),
+  /** When it was pinned (SPEC-0001, "对话的置顶与顺序"). */
+  pinnedAt: z.number().int().nonnegative().optional(),
   archived: z
     .looseObject({
       at: z.number().int().nonnegative(),
@@ -76,7 +78,7 @@ const ChatRecord = z.looseObject({
 const ChatsDocument = z.looseObject({ chats: z.array(ChatRecord) });
 export type ChatsDocument = z.infer<typeof ChatsDocument>;
 
-/** `chats.json`: the names given to chats and which are archived (domain-model §1, "索引的存储"). */
+/** `chats.json`: the names given to chats, which are pinned and which are archived (domain-model §1, "索引的存储"). */
 export const CHATS_FILE: IndexFileSpec<ChatsDocument> = {
   name: "chats",
   version: 2,
@@ -104,7 +106,7 @@ const SessionRecord = z.looseObject({
   createdAt: z.number(),
   /**
    * Why it needs a look, until its next run starts (SPEC-0001, "会话状态"); added in M1.9. A mark
-   * kept before protocol 29 has no failure text, read as none (SPEC-0005, "协议改动" 6).
+   * kept before protocol 32 has no failure text, read as none (SPEC-0005, "协议改动" 6).
    */
   attention: Attention.extend({ text: z.string().max(300).nullable().default(null) })
     .nullable()

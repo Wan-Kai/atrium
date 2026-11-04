@@ -80,6 +80,8 @@ export interface SessionState {
 /** A child the agent asked for, as the manager creates it. */
 export interface ChildRequest {
   readonly parentId: string;
+  /** The first task, used only as material for the new worktree's Chinese display name. */
+  readonly task: string;
   readonly agent: AgentRecord;
   /** A worktree of its own, or the parent's container. */
   readonly worktree: boolean;
@@ -1178,6 +1180,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
       try {
         created = await host.createChild({
           parentId: callerId,
+          task: args.task,
           agent,
           worktree,
           branchFile: forked ? (args.branch ?? null) : null,

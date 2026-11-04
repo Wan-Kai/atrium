@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>提问卡片顶行 · 第四轮（agent 自己动）</title>
+    <style>
+      @font-face {
+        font-family: "Syne";
+        font-weight: 700;
+        font-display: swap;
+        src: url("./fonts/syne-700-latin.woff2") format("woff2");
+      }
+      /* tokens 同 packages/ui/src/design/tokens.css */
+      :root {
+        --main: #ffffff;
+        --surface-1: #ffffff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --linked: rgba(47, 111, 237, 0.1);
+        --tint: #2f6fed;
+        --attn: #d97a1e;
+        --attn-text: #b3600b;
+        --attn-soft: rgba(217, 122, 30, 0.11);
+        --ok-text: #1e8e3e;
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --r-sm: 6px;
+        --r-md: 10px;
+        --r-card: 16px;
+        --r-pill: 999px;
+        --page: #f7f8fa;
+      }
+      :root[data-theme="dark"] {
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --surface-3: #353638;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --linked: rgba(122, 170, 255, 0.14);
+        --tint: #7aaaff;
+        --attn: #e08a35;
+        --attn-text: #eda25a;
+        --attn-soft: rgba(224, 138, 53, 0.15);
+        --ok-text: #4ade80;
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
+        --page: #0d1016;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: 0;
+        cursor: pointer;
+      }
+      body {
+        background: var(--page);
+        color: var(--text);
+        font: var(--fs) / 1.5 var(--font-sans);
+      }
+      .bar {
+        position: sticky;
+        top: 0;
+        z-index: 9;
+        background: var(--page);
+        padding: 18px 0 12px;
+      }
+      .bar-in,
+      main {
+        width: 720px;
+        margin: 0 auto;
+      }
+      .bar-in {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .bar h1 {
+        font-size: var(--fs-meta);
+        font-weight: 600;
+      }
+      .bar .tip {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .sp {
+        flex: 1;
+      }
+      .sw {
+        display: inline-flex;
+        gap: 2px;
+        background: var(--surface-2);
+        border-radius: var(--r-pill);
+        padding: 2px;
+      }
+      .sw button {
+        height: 22px;
+        padding: 0 10px;
+        border-radius: var(--r-pill);
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+      }
+      .sw button.on {
+        background: var(--surface-1);
+        color: var(--text);
+        font-weight: 500;
+        box-shadow:
+          0 0 0 0.5px var(--line),
+          0 1px 2px rgba(0, 0, 0, 0.06);
+      }
+      main {
+        padding: 8px 0 60px;
+      }
+      .variant {
+        margin-top: 30px;
+      }
+      .vlab {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin: 0 2px 8px;
+      }
+      .vlab b {
+        font-size: var(--fs-meta);
+        font-weight: 600;
+      }
+      .vlab i {
+        font-style: normal;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+
+      /* ——— 卡片（除顶行外同现状）——— */
+      .qcard {
+        background: var(--surface-1);
+        border-radius: var(--r-card);
+        box-shadow: var(--card-shadow);
+        padding: 12px 14px;
+        overflow: hidden;
+      }
+      :root[data-theme="dark"] .qcard {
+        background: var(--surface-2);
+      }
+      .hd {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 26px;
+      }
+      .tabs {
+        margin-left: auto;
+        display: flex;
+        gap: 2px;
+      }
+      .tab {
+        height: 26px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 0 9px;
+        border-radius: var(--r-pill);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .tab:hover {
+        background: var(--hover);
+      }
+      .tab.on {
+        background: var(--selected);
+        color: var(--text);
+        font-weight: 500;
+      }
+      .tab .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px var(--text-dim);
+      }
+      .tab .ok {
+        color: var(--ok-text);
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .qtext {
+        font-size: var(--fs);
+        font-weight: 500;
+        margin: 10px 2px 8px;
+      }
+      .qkind {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 0 6px;
+        border-radius: var(--r-sm);
+        font-size: var(--fs-xs);
+        font-weight: 400;
+        line-height: 18px;
+        background: var(--surface-2);
+        color: var(--text-muted);
+        vertical-align: 1px;
+      }
+      :root[data-theme="dark"] .qkind {
+        background: var(--surface-3);
+      }
+      .opts {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .opt {
+        display: flex;
+        gap: 10px;
+        padding: 8px 10px;
+        border-radius: var(--r-md);
+      }
+      .opt:hover {
+        background: var(--hover);
+      }
+      .idx {
+        flex: none;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: var(--surface-2);
+        display: grid;
+        place-items: center;
+        font-size: var(--fs-sm);
+        font-weight: 600;
+        color: var(--text-muted);
+        font-variant-numeric: tabular-nums;
+      }
+      :root[data-theme="dark"] .idx {
+        background: var(--surface-3);
+      }
+      .lab {
+        display: block;
+        font-size: var(--fs-meta);
+        font-weight: 500;
+        line-height: 20px;
+      }
+      .rec {
+        display: inline-block;
+        margin-left: 5px;
+        padding: 0 5px;
+        border-radius: var(--r-sm);
+        line-height: 17px;
+        font-size: var(--fs-xs);
+        font-weight: 500;
+        color: var(--tint);
+        background: var(--linked);
+        vertical-align: 1px;
+      }
+      .sub {
+        display: block;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .foot {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 10px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .kbd {
+        font: var(--fs-xs) / 1 var(--font-mono);
+        padding: 2px 4px;
+        border-radius: 4px;
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        color: var(--text-muted);
+      }
+      .btn {
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 12px;
+        border-radius: var(--r-pill);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .btn.ghost:hover {
+        background: var(--hover);
+      }
+      .btn.primary[disabled] {
+        background: var(--surface-3);
+        color: var(--text-dim);
+        cursor: default;
+      }
+      .syne {
+        font-family: "Syne", var(--font-sans);
+        font-weight: 700;
+      }
+      .cnt {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ——— 顶行：agent / 在问你，没有图标，agent 自己动 ——— */
+      .who {
+        display: inline-flex;
+        font-size: var(--fs-meta);
+        color: var(--attn-text);
+      }
+      .who b {
+        display: inline-block;
+        font-weight: inherit;
+      }
+      .slash {
+        color: var(--attn-text);
+        font-size: var(--fs-sm);
+        margin: 0 -3px;
+      }
+      .what {
+        font-size: var(--fs-meta);
+        font-weight: 500;
+      }
+
+      /* 乙一 · 字母波浪：a-g-e-n-t 依次跳起 3px，一轮 2.4 秒 */
+      .m-wave b {
+        animation: wave 2.4s ease-in-out infinite;
+        animation-delay: calc(var(--i) * 80ms);
+      }
+      @keyframes wave {
+        0%,
+        40%,
+        62%,
+        100% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-3px);
+        }
+      }
+      /* 乙二 · 整词跳一下：压扁蓄力、跳 3px、落地再压一下 */
+      .m-hop {
+        transform-origin: 50% 100%;
+        animation: hop 2.4s cubic-bezier(0.3, 0, 0.3, 1) infinite;
+      }
+      @keyframes hop {
+        0%,
+        52%,
+        100% {
+          transform: translateY(0) scale(1, 1);
+        }
+        58% {
+          transform: translateY(0) scale(1.06, 0.88);
+        }
+        70% {
+          transform: translateY(-3px) scale(0.97, 1.06);
+        }
+        82% {
+          transform: translateY(0) scale(1.05, 0.92);
+        }
+        90% {
+          transform: translateY(0) scale(0.99, 1.01);
+        }
+      }
+      /* 乙三 · 整词晃：绕底边中点左右摆几度 */
+      .m-tilt {
+        transform-origin: 50% 90%;
+        animation: tilt 2.6s ease-in-out infinite;
+      }
+      @keyframes tilt {
+        0%,
+        40%,
+        100% {
+          transform: rotate(0);
+        }
+        50% {
+          transform: rotate(-6deg);
+        }
+        62% {
+          transform: rotate(4deg);
+        }
+        72% {
+          transform: rotate(-2deg);
+        }
+        80% {
+          transform: rotate(0);
+        }
+      }
+      /* 乙四 · 字母弹跳：每个字母各自跳并压扁，像一串小球 */
+      .m-bounce b {
+        transform-origin: 50% 100%;
+        animation: bounce 2.6s cubic-bezier(0.3, 0, 0.3, 1) infinite;
+        animation-delay: calc(var(--i) * 110ms);
+      }
+      @keyframes bounce {
+        0%,
+        36%,
+        70%,
+        100% {
+          transform: translateY(0) scale(1, 1);
+        }
+        40% {
+          transform: translateY(0) scale(1.12, 0.85);
+        }
+        50% {
+          transform: translateY(-4px) scale(0.94, 1.08);
+        }
+        60% {
+          transform: translateY(0) scale(1.08, 0.9);
+        }
+        66% {
+          transform: translateY(0) scale(1, 1);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .who,
+        .who b {
+          animation: none !important;
+        }
+      }
+      body.still .who,
+      body.still .who b {
+        animation: none !important;
+      }
+
+      .notes {
+        margin: 8px 2px 0;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        line-height: 1.6;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <div class="bar-in">
+        <h1>提问卡片顶行 · 第四轮</h1>
+        <span class="tip">在甲的基础上去掉问号，让 agent 这个词自己动；减弱动效时都静止</span>
+        <span class="sp"></span>
+        <div class="sw" id="count">
+          <button data-v="1" class="on">一个问题</button><button data-v="2">两个问题</button>
+        </div>
+        <div class="sw" id="motion"><button data-v="on" class="on">动</button><button data-v="off">静止</button></div>
+        <div class="sw" id="theme">
+          <button data-v="light" class="on">浅色</button><button data-v="dark">深色</button>
+        </div>
+      </div>
+    </div>
+    <main id="out"></main>
+    <script>
+      const Q = {
+        text: "页面刷新后，当前工作区已经运行的终端应该怎样处理？这不改变已定样式，只决定生命周期。",
+        opts: [
+          [
+            "保留并重新附着",
+            "刷新与短暂断线一样，不重启 shell；重连现有标签并恢复有界输出。只有宿主/App 重启才从空终端开始，不恢复磁盘历史。",
+            true,
+          ],
+          [
+            "另开全新终端",
+            "刷新后不自动回到旧终端，首次进入再开新 shell；旧 shell 仍留在宿主的标签列表，需手动切回或关闭，避免影响其他窗口。",
+          ],
+          ["其他", "都不合适？写你自己的回答"],
+        ],
+      };
+      // 3×5 的问号
+      const MINI = ["111", "001", "011", "000", "010"];
+      const mini = () =>
+        `<span class="mini" aria-hidden>${MINI.join("")
+          .split("")
+          .map((c) => `<i class="${c === "1" ? "on" : ""}"></i>`)
+          .join("")}</span>`;
+      const tabs = (n) =>
+        n < 2
+          ? ""
+          : `<div class="tabs"><button class="tab"><span class="ok">✓</span>样式</button><button class="tab on"><span class="dot"></span>生命周期</button></div>`;
+      const cnt = (n) => (n < 2 ? "" : `<span class="cnt">已答 1 / 2</span>`);
+
+      const word = (cls) =>
+        `<span class="syne who ${cls}" aria-label="agent">${[..."agent"].map((c, i) => `<b style="--i:${i}" aria-hidden>${c}</b>`).join("")}</span>`;
+      const head = (cls) => (n) =>
+        `<div class="hd">${word(cls)}<span class="slash">/</span><span class="what">在问你</span>${cnt(n)}${tabs(n)}</div>`;
+      const V = [
+        {
+          id: "b1",
+          name: "乙一 · 字母波浪",
+          sub: "a → g → e → n → t 依次跳起 3px，像一道波从左走到右",
+          hd: head("m-wave"),
+          note: "一轮 2.4 秒，波走完约 0.6 秒，其余时间静止。",
+        },
+        {
+          id: "b2",
+          name: "乙二 · 整词跳一下",
+          sub: "agent 整个词压扁蓄力、跳 3px、落地再压一下",
+          hd: head("m-hop"),
+          note: "最像一个小角色在招呼你；形变幅度比问号版小，字不会糊。",
+        },
+        {
+          id: "b3",
+          name: "乙三 · 整词晃",
+          sub: "agent 绕底边左右摆（−6° → 4° → −2°）再回正",
+          hd: head("m-tilt"),
+          note: "最轻的一种，像歪头等你。",
+        },
+        {
+          id: "b4",
+          name: "乙四 · 字母弹跳",
+          sub: "每个字母各自跳 4px 并落地压扁，依次错开，像一串小球",
+          hd: head("m-bounce"),
+          note: "最活泼；动作最多，适合想让人一眼注意到时。",
+        },
+      ];
+
+      function card(v, n) {
+        const opts = Q.opts
+          .map(
+            ([l, s, r], i) =>
+              `<div class="opt"><span class="idx">${i + 1}</span><span><span class="lab">${l}${r ? '<span class="rec">推荐</span>' : ""}</span><span class="sub">${s}</span></span></div>`,
+          )
+          .join("");
+        return `<div class="qcard">${v.hd(n)}<div class="qtext">${Q.text}<span class="qkind">单选</span></div><div class="opts">${opts}</div><div class="foot"><span class="kbd">1–3</span> 选择 <span class="kbd">⏎</span> 确定<span class="sp"></span><button class="btn ghost">跳过</button>${n > 1 ? '<button class="btn ghost" style="box-shadow:inset 0 0 0 .5px var(--line-strong)">下一题 ›</button>' : ""}<button class="btn primary" disabled>提交回答</button></div></div>`;
+      }
+      let n = 1;
+      function render() {
+        document.getElementById("out").innerHTML = V.map(
+          (v) =>
+            `<section class="variant v-${v.id}"><div class="vlab"><b>${v.name}</b><i>${v.sub}</i></div>${card(v, n)}<p class="notes">${v.note}</p></section>`,
+        ).join("");
+      }
+      function seg(id, fn) {
+        const el = document.getElementById(id);
+        el.addEventListener("click", (e) => {
+          const b = e.target.closest("button");
+          if (!b) return;
+          el.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+          fn(b.dataset.v);
+        });
+      }
+      seg("count", (v) => {
+        n = Number(v);
+        render();
+      });
+      seg("theme", (v) => (document.documentElement.dataset.theme = v));
+      seg("motion", (v) => document.body.classList.toggle("still", v === "off"));
+      render();
+    </script>
+  </body>
+</html>

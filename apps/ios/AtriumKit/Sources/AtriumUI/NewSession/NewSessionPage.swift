@@ -82,12 +82,10 @@ struct NewSessionPage: View {
       VStack(spacing: 14) {
         Group {
           if !missing, container != nil {
-            Text("在 ")
-              + Text(workspace?.branch ?? workspace?.alias ?? "这个工作区").font(
-                .system(size: 19, weight: .medium, design: .monospaced)
-              )
+            let place = Text(workspace?.branch ?? workspace?.alias ?? "这个工作区")
+              .font(.system(size: 19, weight: .medium, design: .monospaced))
               .foregroundColor(palette.tint)
-              + Text(" 里要做什么？")
+            Text("在 \(place) 里要做什么？")
           } else {
             Text(Self.sentence(branch: nil, missing: missing).replacingOccurrences(of: "，", with: "，\n"))
           }

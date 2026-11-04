@@ -407,6 +407,8 @@ export function createSessionManager(options: {
     workspaceId: string,
     wanted: string,
     prefix?: string,
+    naming?: { readonly text: string; readonly model: ModelRef | null },
+    signal?: AbortSignal,
   ) => Promise<{ readonly workspaceId: string; readonly dir: string; readonly branch: string }>;
   /** The models a directory can use, for the agent's children (SPEC-0002, `agent_models`); none without it. */
   readonly modelCatalog?: Pick<ModelCatalog, "list">;
@@ -2315,7 +2317,7 @@ export function createSessionManager(options: {
       if (file === undefined) throw new CommandError("fork_failed");
       const intermediate = join(temp, file);
       const usageAfter = await lastEntryId(intermediate);
-      const place = await worktreeFor(parent, branch);
+      const place = await worktreeFor(parent, branch, name);
       const sessionId = options.newSessionId();
       await options.catalog.record({
         sessionId,
@@ -2417,7 +2419,7 @@ export function createSessionManager(options: {
     let place: { readonly workspaceId: string; readonly dir: string; readonly branch: string } | null = null;
     if (request.worktree) {
       try {
-        place = await agentWorktree(parent, request.agent.handle);
+        place = await worktreeFor(parent, request.agent.handle, request.task, "agent/", request.agent.startOn);
       } catch (error) {
         if (!request.fallback || !(error instanceof CommandError && error.code === "child_place_invalid")) throw error;
       }
@@ -2447,25 +2449,6 @@ export function createSessionManager(options: {
   }
 
   /**
-   * Creates the new worktree a child the agent opens goes to.
-   *
-   * @remarks
-   * As `worktreeFor`, on a branch `agent/<handle>` (SPEC-0002, "角色与限制 · 新建 worktree").
-   *
-   * @sideEffects Creates a worktree.
-   * @param parent - The parent.
-   * @param handle - The child's handle.
-   * @returns The new workspace, its directory and branch.
-   * @throws {CommandError} `child_place_invalid`, `worktree_create_failed`.
-   */
-  async function agentWorktree(parent: CatalogEntry, handle: string) {
-    if (isChatId(parent.containerId) || options.childWorktree === undefined) {
-      throw new CommandError("child_place_invalid");
-    }
-    return options.childWorktree(parent.containerId, handle, "agent/");
-  }
-
-  /**
    * Creates the new worktree a child conversation goes to.
    *
    * @remarks
@@ -2474,15 +2457,34 @@ export function createSessionManager(options: {
    *
    * @sideEffects Creates a worktree.
    * @param parent - The parent.
-   * @param branch - The branch name the user wanted.
+   * @param branch - The branch name the user or agent wanted.
+   * @param text - The child name or first task, for its workspace's Chinese alias.
+   * @param prefix - The existing branch namespace, unchanged by naming.
+   * @param model - The chosen child model; otherwise the parent's current or recorded model.
    * @returns The new workspace and its directory.
    * @throws {CommandError} `child_place_invalid`, `worktree_create_failed`.
    */
-  async function worktreeFor(parent: CatalogEntry, branch: string) {
+  async function worktreeFor(
+    parent: CatalogEntry,
+    branch: string,
+    text: string,
+    prefix = "atrium/",
+    model?: ModelRef | null,
+  ) {
     if (isChatId(parent.containerId) || options.childWorktree === undefined) {
       throw new CommandError("child_place_invalid");
     }
-    return options.childWorktree(parent.containerId, branch);
+    const chosen = model ?? sessions.get(parent.sessionId)?.controller.model() ?? parent.model;
+    return options.childWorktree(
+      parent.containerId,
+      branch,
+      prefix,
+      {
+        text,
+        model: chosen === null ? null : { providerId: chosen.providerId, modelId: chosen.modelId },
+      },
+      closing.signal,
+    );
   }
 
   /**
@@ -2508,7 +2510,7 @@ export function createSessionManager(options: {
     go: boolean,
     record: Pick<NewRecord, "parent" | "name">,
   ): Promise<string> {
-    const place = await worktreeFor(parent, branch);
+    const place = await worktreeFor(parent, branch, record.name ?? branch);
     return create(clientId, place.workspaceId, place.dir, go, record);
   }
 

@@ -162,6 +162,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  mermaid@11.17.2: 36c92935187f03feed80e0ec0576ac3784fb1746cd10c7b4b4bd386ef72730d4
+
 importers:
 
   .:
@@ -5976,7 +5979,7 @@ snapshots:
 
   '@streamdown/mermaid@1.0.3(react@19.3.0)':
     dependencies:
-      mermaid: 11.17.2
+      mermaid: 11.17.2(patch_hash=36c92935187f03feed80e0ec0576ac3784fb1746cd10c7b4b4bd386ef72730d4)
       react: 19.3.0
 
   '@stryker-mutator/api@10.0.0':
@@ -7696,7 +7699,7 @@ snapshots:
     dependencies:
       '@types/mdast': 4.0.4
 
-  mermaid@11.17.2:
+  mermaid@11.17.2(patch_hash=36c92935187f03feed80e0ec0576ac3784fb1746cd10c7b4b4bd386ef72730d4):
     dependencies:
       '@braintree/sanitize-url': 7.1.2
       '@iconify/utils': 3.1.7

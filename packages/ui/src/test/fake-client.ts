@@ -74,7 +74,7 @@ export function workspace(fields: Partial<Workspace> & Pick<Workspace, "id">): W
  * @returns The chat.
  */
 export function chat(fields: Partial<Chat> & Pick<Chat, "id" | "firstSessionId">): Chat {
-  return { dir: `/home/chats/${fields.id}`, alias: null, archivedAt: null, ...fields };
+  return { dir: `/home/chats/${fields.id}`, alias: null, archivedAt: null, pinnedAt: null, ...fields };
 }
 
 /**
@@ -167,11 +167,13 @@ export interface FakeAnswers {
   readonly child?: () => Promise<void>;
   /** A project's bases; `origin/main` and a local `main` when left out. */
   readonly bases?: (projectId: string) => Promise<CommandResult<"list_bases">>;
-  /** Answers naming a branch with the name; `atrium/fix-login` at once when left out. */
-  readonly nameBranch?: () => Promise<string>;
+  /** Answers both worktree names; a fixed branch is kept, with alias `修复登录` by default. */
+  readonly nameBranch?: () => Promise<CommandResult<"name_branch">>;
   /** Answers creating a workspace, which then shows in the list as a worktree; created at once when left out. */
   readonly createWorkspace?: () => Promise<void>;
   readonly renameChat?: () => Promise<void>;
+  /** Answers pinning or unpinning a chat; pinned at once when left out. */
+  readonly pinChat?: () => Promise<void>;
   /** Answers renaming a session; renamed at once when left out. */
   readonly renameSession?: () => Promise<void>;
   /** Answers archiving a chat, which is then archived in the list; archived at once when left out. */
@@ -424,6 +426,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
             alias: null,
             firstSessionId: `new${created + 1}`,
             archivedAt: null,
+            pinnedAt: null,
           },
         ],
       });
@@ -462,11 +465,14 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
         }
       );
     },
-    async nameBranch(projectId: string, text: string, model: ModelRef | null) {
-      calls.push(`nameBranch ${projectId} ${text} ${model === null ? "null" : `${model.providerId}/${model.modelId}`}`);
-      return { branch: (await answers.nameBranch?.()) ?? "atrium/fix-login" };
+    async nameBranch(projectId: string, text: string, model: ModelRef | null, branch?: string) {
+      calls.push(
+        `nameBranch ${projectId} ${text} ${model === null ? "null" : `${model.providerId}/${model.modelId}`}${branch === undefined ? "" : ` ${branch}`}`,
+      );
+      const named = (await answers.nameBranch?.()) ?? { branch: "atrium/fix-login", alias: "修复登录" };
+      return { ...named, branch: branch ?? named.branch };
     },
-    async createWorkspace(projectId: string, branch: string, base: string) {
+    async createWorkspace(projectId: string, branch: string, base: string, alias?: string | null) {
       calls.push(`createWorkspace ${projectId} ${branch} ${base}`);
       await answers.createWorkspace?.();
       created += 1;
@@ -480,6 +486,8 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
             kind: "worktree",
             dir: `/work/made${created}`,
             branch,
+            alias: alias ?? null,
+            external: false,
             createdAt: Date.now(),
           }),
         ],
@@ -594,6 +602,20 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
             : one,
         ),
       });
+      return {};
+    },
+    async pinChat(chatId: string) {
+      calls.push(`pinChat ${chatId}`);
+      await answers.pinChat?.();
+      const { chats } = index.getState();
+      index.setState({ chats: chats.map((one) => (one.id === chatId ? { ...one, pinnedAt: Date.now() } : one)) });
+      return {};
+    },
+    async unpinChat(chatId: string) {
+      calls.push(`unpinChat ${chatId}`);
+      await answers.pinChat?.();
+      const { chats } = index.getState();
+      index.setState({ chats: chats.map((one) => (one.id === chatId ? { ...one, pinnedAt: null } : one)) });
       return {};
     },
     async renameChat(chatId: string, name: string | null) {

@@ -95,7 +95,7 @@ struct ProviderColumn: View {
   /// - SideEffects: none
   /// - Parameter value: The transition's phase value.
   /// - Returns: The opacity and blur.
-  static func edge(_ value: Double) -> Edge {
+  nonisolated static func edge(_ value: Double) -> Edge {
     let out = min(1, abs(value))
     return Edge(opacity: 1 - out, blur: 4 * out)
   }

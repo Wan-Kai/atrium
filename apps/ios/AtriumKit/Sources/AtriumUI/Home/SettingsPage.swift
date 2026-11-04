@@ -141,6 +141,9 @@ struct SettingsPage: View {
     let parent = current?.parent?.sessionId ?? from
     let workspace = sync.core.index.workspaces.first { $0.id == current?.containerId }
     groupTitle("对话", note: workspace?.branch, mono: true, first: true, palette: palette)
+    if let chat = sync.core.index.chats.first(where: { $0.id == current?.containerId }) {
+      pinRow(chat, sync: sync, palette: palette)
+    }
     ForEach(siblings, id: \.sessionId) { session in
       Button {
         if session.sessionId != parent { switchConversation?(session.sessionId) }
@@ -162,6 +165,47 @@ struct SettingsPage: View {
     }
     .buttonStyle(.plain)
     .accessibilityIdentifier("settings.new")
+  }
+
+  /// Pins the chat the conversation lives in, or unpins it: the first row of "对话".
+  ///
+  /// - Remark: SPEC-0005 "对话的置顶与顺序" (2026-11-04, when the redesign met pinning): the
+  ///   conversation page's "⋯" opens this page instead of a menu, so pinning moved here. Only for a
+  ///   chat, as pinning is a chat's; the row says which way it will go, and the home's list moves.
+  /// - SideEffects: Sends `pin_chat` or `unpin_chat` when tapped.
+  /// - Parameters:
+  ///   - chat: The chat.
+  ///   - sync: The connection's sync.
+  ///   - palette: The colours.
+  /// - Returns: The row.
+  private func pinRow(_ chat: Chat, sync: SyncModel, palette: Palette) -> some View {
+    let pinned = chat.pinnedAt != nil
+    return Button {
+      sync.setChatPinned(chat.id, !pinned)
+    } label: {
+      HStack(spacing: 10) {
+        Image(systemName: pinned ? "pin.slash" : "pin").font(.system(size: 15)).frame(width: 20)
+        Text(Self.pinLabel(pinned: pinned)).fontWeight(.medium)
+        Spacer()
+      }
+      .font(.system(size: 15.5))
+      .foregroundStyle(palette.tint)
+      .frame(minHeight: 48)
+      .overlay(alignment: .bottom) { Rectangle().fill(palette.line).frame(height: 0.5) }
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityIdentifier("settings.pin")
+  }
+
+  /// What the pinning row says: which way a tap will go.
+  ///
+  /// - Remark: The same words as the desktop's "···" item, from the chat's side.
+  /// - SideEffects: none
+  /// - Parameter pinned: Whether the chat is pinned now.
+  /// - Returns: The label.
+  static func pinLabel(pinned: Bool) -> String {
+    pinned ? "取消置顶" : "置顶这个对话"
   }
 
   /// The Mac: its name and how it is, and one line on the relay and the encryption.
@@ -189,15 +233,15 @@ struct SettingsPage: View {
     Group {
       switch state {
       case .relayUnreachable:
-        (Text("\(details?.relay ?? "relay") ").font(.system(size: 11.5, design: .monospaced))
-          + Text("连不上：手机没网，或 relay 没开"))
+        let relay = Text("\(details?.relay ?? "relay") ").font(.system(size: 11.5, design: .monospaced))
+        Text("\(relay)连不上：手机没网，或 relay 没开")
       case .offline:
         Text("Mac 没有应答：可能睡着了，或 Atrium 没开")
       case .versionMismatch:
         Text("手机和 Mac 上的 Atrium 版本不一致，两边都升到最新")
       default:
-        (Text("经 ") + Text(details?.relay ?? "relay").font(.system(size: 11.5, design: .monospaced))
-          + Text(" · ") + Text(Image(systemName: "lock")) + Text(" 端到端加密，relay 看不到内容"))
+        let relay = Text(details?.relay ?? "relay").font(.system(size: 11.5, design: .monospaced))
+        Text("经 \(relay) · \(Image(systemName: "lock")) 端到端加密，relay 看不到内容")
       }
     }
     .font(.system(size: 12.5))

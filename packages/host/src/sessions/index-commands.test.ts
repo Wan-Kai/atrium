@@ -128,20 +128,22 @@ async function assemble() {
         archiving.push(`bases ${projectId}`);
         return { main: "refs/heads/main", current: "main", local: ["main"], remote: ["origin/main"] };
       },
-      create: async (projectId, branch, base) => {
-        archiving.push(`create ${projectId} ${branch} ${base}`);
+      create: async (projectId, branch, base, alias) => {
+        archiving.push(`create ${projectId} ${branch} ${base}${alias === undefined ? "" : ` ${alias}`}`);
         return "wks_new";
       },
     },
     namer: {
-      name: async (projectId, text, model) => {
-        archiving.push(`name ${projectId} ${text} ${JSON.stringify(model)}`);
-        return "atrium/fix-it";
+      name: async (projectId, text, model, branch) => {
+        archiving.push(`name ${projectId} ${text} ${JSON.stringify(model)}${branch === undefined ? "" : ` ${branch}`}`);
+        return { branch: branch ?? "atrium/fix-it", alias: "修复登录" };
       },
+      close: async () => undefined,
     },
     preferences,
     chats: () => catalog.chats(),
     chatRecords,
+    clock: systemClock,
     feed,
     listModels: async (workspaceId, refresh) => {
       listed.push([workspaceId, refresh]);
@@ -281,6 +283,47 @@ describe("IndexCommands.renameChat", () => {
   });
 });
 
+describe("IndexCommands.pinChat", () => {
+  it("pins a chat, telling the list, and unpins it again", async () => {
+    const { commands, sessions, chatRecords, received } = await assemble();
+    await sessions.createChat("client-1");
+    // Another chat is there too, so finding the one to pin is not just finding any.
+    await sessions.createChat("client-1");
+    const chatId = "cht_id1";
+    await commands.subscribeIndex("c1");
+
+    await expect(commands.pinChat(chatId)).resolves.toStrictEqual({});
+    commands.answering("c1");
+    const pinned = chatRecords.pinned(chatId);
+    expect(typeof pinned).toBe("number");
+    expect(received.at(-1)).toMatchObject({
+      type: "index_changes",
+      chats: { upsert: [{ id: chatId, pinnedAt: pinned }], remove: [] },
+    });
+
+    // Pinning again keeps the time it was first pinned at, so it holds its place.
+    await commands.pinChat(chatId);
+    expect(chatRecords.pinned(chatId)).toBe(pinned);
+
+    await expect(commands.unpinChat(chatId)).resolves.toStrictEqual({});
+    expect(chatRecords.pinned(chatId)).toBeNull();
+  });
+
+  it("refuses a chat whose directory is not there", async () => {
+    const { commands, sessions, chatRecords } = await assemble();
+    // Another chat is there.
+    await sessions.createChat("client-1");
+
+    await expect(commands.pinChat("cht_gone")).rejects.toStrictEqual(
+      new CommandError("chat_not_found", { chatId: "cht_gone" }),
+    );
+    expect(chatRecords.pinned("cht_gone")).toBeNull();
+    await expect(commands.unpinChat("cht_gone")).rejects.toStrictEqual(
+      new CommandError("chat_not_found", { chatId: "cht_gone" }),
+    );
+  });
+});
+
 describe("IndexCommands.discoverProjects", () => {
   it("looks for directories that are not a project or one of its workspaces yet", async () => {
     const { commands, discovered, root } = await assemble();
@@ -339,8 +382,26 @@ describe("IndexCommands.archiveWorkspace", () => {
 
     const model = { providerId: "faux", modelId: "m" };
 
-    expect(await commands.nameBranch("prj_1", "Fix it", model)).toStrictEqual({ branch: "atrium/fix-it" });
+    expect(await commands.nameBranch("prj_1", "Fix it", model)).toStrictEqual({
+      branch: "atrium/fix-it",
+      alias: "修复登录",
+    });
     expect(archiving).toStrictEqual([`name prj_1 Fix it ${JSON.stringify(model)}`]);
+  });
+
+  it("passes fixed branches and Chinese aliases through without a second naming call", async () => {
+    const { commands, archiving } = await assemble();
+    expect(await commands.nameBranch("prj_1", "Fix it", null, "feature/fixed")).toStrictEqual({
+      branch: "feature/fixed",
+      alias: "修复登录",
+    });
+    expect(await commands.createWorkspace("prj_1", "feature/fixed", "HEAD", "修复登录")).toStrictEqual({
+      workspaceId: "wks_new",
+    });
+    expect(archiving).toStrictEqual([
+      "name prj_1 Fix it null feature/fixed",
+      "create prj_1 feature/fixed HEAD 修复登录",
+    ]);
   });
 
   it("hands listing bases and creating a workspace to the creator", async () => {

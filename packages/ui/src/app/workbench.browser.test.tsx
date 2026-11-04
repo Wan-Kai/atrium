@@ -1617,6 +1617,82 @@ describe("Workbench workspace archiving (M1.11)", () => {
   });
 });
 
+describe("Workbench sidebar: pinned chats", () => {
+  const minute = 60_000;
+
+  it("puts pinned chats first, then the ones a run makes busy, then the rest by activity", async () => {
+    const now = Date.now();
+    const { screen } = await workbench({
+      initial: {
+        ...list(),
+        sessions: [
+          session({ sessionId: "c1", containerId: CHAT, prompt: "钉住的老对话", updatedAt: now - 3 * minute }),
+          session({
+            sessionId: "c2",
+            containerId: "cht_run",
+            prompt: "正在跑",
+            running: true,
+            updatedAt: now - 2 * minute,
+          }),
+          session({ sessionId: "c3", containerId: "cht_new", prompt: "刚说过", updatedAt: now - minute }),
+        ],
+        chats: [
+          chat({ id: CHAT, firstSessionId: "c1", pinnedAt: now - 10 * minute }),
+          chat({ id: "cht_run", firstSessionId: "c2" }),
+          chat({ id: "cht_new", firstSessionId: "c3" }),
+        ],
+      },
+    });
+    const section = screen.getByRole("region", { name: "对话" });
+    const rows = section.getByTestId("chat-row");
+
+    expect([
+      rows.nth(0).getByText("钉住的老对话").elements(),
+      rows.nth(1).getByText("正在跑").elements(),
+      rows.nth(2).getByText("刚说过").elements(),
+    ]).toStrictEqual([[expect.anything()], [expect.anything()], [expect.anything()]]);
+    // The pin sits in front of the name, in the tint the sidebar lights runs with.
+    const pin = rows.nth(0).getByRole("img", { name: "已置顶" });
+    await expect.element(pin).toHaveAttribute("title", "已置顶");
+    expect(getComputedStyle(pin.element()).color).toBe(computedColor("var(--tint)"));
+    expect(rows.nth(1).getByRole("img", { name: "已置顶" }).elements()).toHaveLength(0);
+  });
+
+  it("flashes the row that climbed when a chat is pinned", async () => {
+    const { screen } = await workbench();
+    const rows = screen.getByRole("region", { name: "对话" }).getByTestId("chat-row");
+
+    await chatMenu(screen, "解释 merge-tree");
+    await screen.getByRole("menuitem", { name: "置顶" }).click();
+
+    // design-language, "动效 · 对话顺序变化": it lands lit, then fades back.
+    await vi.waitFor(() => expect(rows.first().element().getAnimations().length).toBeGreaterThan(0));
+  });
+
+  it("pins a chat from its ··· menu, which then offers to unpin it", async () => {
+    const { screen, calls } = await workbench();
+    const section = screen.getByRole("region", { name: "对话" });
+
+    await chatMenu(screen, "解释 merge-tree");
+    await screen.getByRole("menuitem", { name: "置顶" }).click();
+
+    await vi.waitFor(() => expect(calls).toContain(`pinChat ${CHAT}`));
+    await expect.element(section.getByRole("img", { name: "已置顶" })).toBeVisible();
+
+    await chatMenu(screen, "解释 merge-tree");
+    expect(
+      screen
+        .getByRole("menuitem")
+        .elements()
+        .map((item) => item.textContent),
+    ).toStrictEqual(["取消置顶", "重命名"]);
+    await screen.getByRole("menuitem", { name: "取消置顶" }).click();
+
+    await vi.waitFor(() => expect(calls).toContain(`unpinChat ${CHAT}`));
+    await expect.element(section.getByRole("img", { name: "已置顶" })).not.toBeInTheDocument();
+  });
+});
+
 describe("Workbench sidebar: archived chats", () => {
   it("archives a chat none of whose sessions runs at once, and lists it under 已归档的对话, opened and closed in place", async () => {
     const { screen, calls } = await workbench();
@@ -1628,7 +1704,7 @@ describe("Workbench sidebar: archived chats", () => {
         .getByRole("menuitem")
         .elements()
         .map((item) => item.textContent),
-    ).toStrictEqual(["重命名"]);
+    ).toStrictEqual(["置顶", "重命名"]);
     await userEvent.keyboard("{Escape}");
     const archive = section.getByRole("button", { name: "归档对话 解释 merge-tree" });
     await expect.element(archive).toHaveAttribute("title", "归档");

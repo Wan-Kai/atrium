@@ -728,6 +728,47 @@ body {
   animation: atrium-question-tick 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.05);
 }
 
+/* The word "agent" on the card's top row: each letter rises 3px and settles in turn, 80ms after
+   the one before, a wave every 2.4 s; still when motion is reduced (design-language, "提问卡片"). */
+@keyframes atrium-question-wave {
+  0%,
+  40%,
+  62%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+.atrium-question-agent > span {
+  display: inline-block;
+  animation: atrium-question-wave 2.4s ease-in-out infinite;
+}
+
+.atrium-question-agent > span:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.atrium-question-agent > span:nth-child(3) {
+  animation-delay: 160ms;
+}
+
+.atrium-question-agent > span:nth-child(4) {
+  animation-delay: 240ms;
+}
+
+.atrium-question-agent > span:nth-child(5) {
+  animation-delay: 320ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atrium-question-agent > span {
+    animation: none;
+  }
+}
+
 /* The toasts at the window's top right (design-language, "提示"): glass on the surface of a
    floating layer, dropping 8px from 0.96 as it fades in (0.3 s snappy), rising 4px to 0.98 as it
    fades out (0.2 s). */

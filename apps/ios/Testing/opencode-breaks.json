@@ -1,0 +1,18 @@
+[
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Models/ModelChoice.swift",
+    "from": "[\"claude-bridge\", \"openai-codex\", \"github-copilot\", \"opencode-go\"]",
+    "to": "[\"claude-bridge\", \"openai-codex\", \"github-copilot\"]",
+    "name": "opencode-go plan",
+    "runner": "swift",
+    "filter": "ModelChoiceTests/providers"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumUI/Models/ModelChoice.swift",
+    "from": "\"opencode-go\": (\"OpenCode Go\", \"opencode.png\"),",
+    "to": "\"opencode-go\": (\"opencode-go\", \"opencode.png\"),",
+    "name": "opencode-go name",
+    "runner": "swift",
+    "filter": "ModelChoiceTests/providers"
+  }
+]

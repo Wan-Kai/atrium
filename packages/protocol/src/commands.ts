@@ -324,6 +324,7 @@ export const CreateWorkspaceCommand = z.strictObject({
   projectId: ProjectId,
   branch: BranchName,
   base: BranchName,
+  alias: z.string().min(1).max(256).nullable().optional(),
 });
 export type CreateWorkspaceCommand = z.infer<typeof CreateWorkspaceCommand>;
 
@@ -337,6 +338,7 @@ export const NameBranchCommand = z.strictObject({
   projectId: ProjectId,
   text: MessageText,
   model: ModelRef.nullable(),
+  branch: BranchName.optional(),
 });
 export type NameBranchCommand = z.infer<typeof NameBranchCommand>;
 
@@ -381,6 +383,22 @@ export const RestoreChatCommand = z.strictObject({
   chatId: ChatId,
 });
 export type RestoreChatCommand = z.infer<typeof RestoreChatCommand>;
+
+/** Pins a chat to the top of the sidebar (SPEC-0001, "对话的置顶与顺序"). */
+export const PinChatCommand = z.strictObject({
+  type: z.literal("pin_chat"),
+  ...commandFields,
+  chatId: ChatId,
+});
+export type PinChatCommand = z.infer<typeof PinChatCommand>;
+
+/** Unpins a chat, letting it fall back to activity order. */
+export const UnpinChatCommand = z.strictObject({
+  type: z.literal("unpin_chat"),
+  ...commandFields,
+  chatId: ChatId,
+});
+export type UnpinChatCommand = z.infer<typeof UnpinChatCommand>;
 
 /** The window gained focus: the host scans workspaces, merge states and session files again. */
 export const WindowFocusedCommand = z.strictObject({ type: z.literal("window_focused"), ...commandFields });
@@ -921,6 +939,8 @@ export const Command = z.discriminatedUnion("type", [
   RenameChatCommand,
   ArchiveChatCommand,
   RestoreChatCommand,
+  PinChatCommand,
+  UnpinChatCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -1041,7 +1061,7 @@ export const CommandResult = {
     remote: z.array(BranchName),
   }),
   create_workspace: z.strictObject({ workspaceId: WorkspaceId }),
-  name_branch: z.strictObject({ branch: BranchName }),
+  name_branch: z.strictObject({ branch: BranchName, alias: z.string().min(1).max(256).nullable() }),
   translate_reply: z.strictObject({
     text: z
       .string()
@@ -1054,6 +1074,8 @@ export const CommandResult = {
   rename_chat: z.strictObject({}),
   archive_chat: z.strictObject({}),
   restore_chat: z.strictObject({}),
+  pin_chat: z.strictObject({}),
+  unpin_chat: z.strictObject({}),
   window_focused: z.strictObject({}),
   create_session: z.strictObject({ sessionId: SessionId }),
   close_tab: z.strictObject({}),

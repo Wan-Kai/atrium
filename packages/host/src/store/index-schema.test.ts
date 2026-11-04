@@ -55,7 +55,7 @@ describe("the index's file specs", () => {
     ).toStrictEqual([true, true, false]);
   });
 
-  it("reads a mark kept before protocol 29 as having no failure text (SPEC-0005)", () => {
+  it("reads a mark kept before protocol 32 as having no failure text (SPEC-0005)", () => {
     const doc = {
       ...SESSIONS_FILE.empty(),
       sessions: [

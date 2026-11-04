@@ -192,11 +192,25 @@ export interface AtriumClient {
   /** Where a new worktree of a project may start: its main branch, its local workspace's branch, every branch. */
   listBases(projectId: string): Promise<CommandResult<"list_bases">>;
   /** Creates a worktree workspace on a new branch from a base. */
-  createWorkspace(projectId: string, branch: string, base: string): Promise<CommandResult<"create_workspace">>;
+  createWorkspace(
+    projectId: string,
+    branch: string,
+    base: string,
+    alias?: string | null,
+  ): Promise<CommandResult<"create_workspace">>;
   /** Asks a model for a new worktree's branch name by the first message, on the page's model or `null`. */
-  nameBranch(projectId: string, text: string, model: ModelRef | null): Promise<CommandResult<"name_branch">>;
+  nameBranch(
+    projectId: string,
+    text: string,
+    model: ModelRef | null,
+    branch?: string,
+  ): Promise<CommandResult<"name_branch">>;
   /** Names a chat, or with `null` goes back to its first session's title. */
   renameChat(chatId: string, name: string | null): Promise<CommandResult<"rename_chat">>;
+  /** Pins a chat to the top of the sidebar (SPEC-0001, "对话的置顶与顺序"). */
+  pinChat(chatId: string): Promise<CommandResult<"pin_chat">>;
+  /** Unpins a chat, letting it fall back to activity order. */
+  unpinChat(chatId: string): Promise<CommandResult<"unpin_chat">>;
   /** Archives a chat with its sessions, stopping those that run. */
   archiveChat(chatId: string): Promise<CommandResult<"archive_chat">>;
   /** Brings an archived chat back with the sessions archived with it. */
@@ -1419,9 +1433,13 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     archiveWorkspace: (workspaceId) => request("archive_workspace", { workspaceId }),
     restoreWorkspace: (workspaceId) => request("restore_workspace", { workspaceId }),
     listBases: (projectId) => request("list_bases", { projectId }),
-    createWorkspace: (projectId, branch, base) => request("create_workspace", { projectId, branch, base }),
-    nameBranch: (projectId, text, model) => request("name_branch", { projectId, text, model }),
+    createWorkspace: (projectId, branch, base, alias) =>
+      request("create_workspace", { projectId, branch, base, ...(alias === undefined ? {} : { alias }) }),
+    nameBranch: (projectId, text, model, branch) =>
+      request("name_branch", { projectId, text, model, ...(branch === undefined ? {} : { branch }) }),
     renameChat: (chatId, name) => request("rename_chat", { chatId, name }),
+    pinChat: (chatId) => request("pin_chat", { chatId }),
+    unpinChat: (chatId) => request("unpin_chat", { chatId }),
     archiveChat: (chatId) => request("archive_chat", { chatId }),
     restoreChat: (chatId) => request("restore_chat", { chatId }),
     windowFocused: () => request("window_focused", {}),

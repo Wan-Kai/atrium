@@ -93,6 +93,18 @@ struct SessionPage: View {
     if let target { position.scrollTo(point: target) }
   }
 
+  /// The chat the session lives in, if it lives in one.
+  ///
+  /// - Remark: Pinning is a chat's, so the page offers it only there (SPEC-0001, "对话的置顶与顺序").
+  private var chat: Chat? {
+    guard let index = sync?.core.index, let summary = index.sessions.first(where: { $0.sessionId == sessionId })
+    else { return nil }
+    return index.chats.first { $0.id == summary.containerId }
+  }
+
+  /// Why pinning this session's chat last failed, if it did.
+  private var chatProblem: ErrorCode? { chat.flatMap { sync?.core.chatProblems[$0.id] } }
+
   /// The page.
   var body: some View {
     let palette = Palette(scheme: scheme)
@@ -101,7 +113,7 @@ struct SessionPage: View {
       control: state?.control, running: state?.running ?? false, connected: sync?.status == .connected)
     let lastTurn = state?.items.last { if case .turn = $0 { true } else { false } }?.id
     let changes = changesRoute
-    ScrollView {
+    let page = ScrollView {
       // The lines above the turns are outside the lazy stack, so they are always measured: an
       // estimated height there would move the turns while older ones are held in place.
       VStack(alignment: .leading, spacing: Metrics.md) {
@@ -260,16 +272,33 @@ struct SessionPage: View {
     }
     .onChange(of: phase) { if phase == .active { sync?.clearAttention(sessionId) } }
     .onChange(of: sync?.status) { sync?.clearAttention(sessionId) }
-    .onChange(of: sync?.core.actionProblems[sessionId]) {
-      guard let problem = sync?.core.actionProblems[sessionId] else { return }
-      toast = SessionControls.problemText(problem)
-      sync?.dismissActionProblem(in: sessionId)
-    }
-    .task(id: toast) {
-      guard toast != nil else { return }
-      try? await clock.sleep(for: .seconds(1.9))
-      if !Task.isCancelled { toast = nil }
-    }
+    return toastingProblems(page)
+  }
+
+  /// Shows a failed action or pinning as the toast, and hides the toast after a while.
+  ///
+  /// - Remark: Split out of ``body`` so the compiler can type-check its chain of modifiers. A
+  ///   pinning from the settings page fails here too, as this page stays under it.
+  /// - SideEffects: Sets ``toast``; dismisses the problem it shows from the sync.
+  /// - Parameter content: The page.
+  /// - Returns: The page with the toast's handling.
+  private func toastingProblems(_ content: some View) -> some View {
+    content
+      .onChange(of: sync?.core.actionProblems[sessionId]) {
+        guard let problem = sync?.core.actionProblems[sessionId] else { return }
+        toast = SessionControls.problemText(problem)
+        sync?.dismissActionProblem(in: sessionId)
+      }
+      .onChange(of: chatProblem) {
+        guard let code = chatProblem, let chat else { return }
+        toast = Self.chatProblemText(code)
+        sync?.dismissChatProblem(chat.id)
+      }
+      .task(id: toast) {
+        guard toast != nil else { return }
+        try? await clock.sleep(for: .seconds(1.9))
+        if !Task.isCancelled { toast = nil }
+      }
   }
 
   /// What changes whether something should open by itself.
@@ -454,6 +483,16 @@ struct SessionPage: View {
     case nil, .loading: return .loading
     default: return nil
     }
+  }
+
+  /// What a failed pinning reads as.
+  ///
+  /// - Remark: The host's code only, as it sends no words of its own (AGENTS.md).
+  /// - SideEffects: none
+  /// - Parameter code: The host's code.
+  /// - Returns: The line.
+  static func chatProblemText(_ code: ErrorCode) -> String {
+    "没能置顶（\(code.rawValue)）"
   }
 
   /// The line under the items for where the session stands.

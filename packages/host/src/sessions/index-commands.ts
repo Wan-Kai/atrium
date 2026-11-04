@@ -5,6 +5,7 @@ import {
   type ModelRef,
   type Preferences,
 } from "@atrium/protocol";
+import type { Clock } from "../platform/clock";
 import { checkProxy } from "../platform/proxy";
 import type { ProjectService } from "../projects/project-service";
 import type { ChatRecords } from "../store/chat-records";
@@ -31,11 +32,25 @@ export interface IndexCommands {
   /** Where a new worktree of a project may start. */
   listBases(projectId: string): Promise<CommandResult<"list_bases">>;
   /** Creates a worktree workspace on a new branch from a base. */
-  createWorkspace(projectId: string, branch: string, base: string): Promise<CommandResult<"create_workspace">>;
+  createWorkspace(
+    projectId: string,
+    branch: string,
+    base: string,
+    alias?: string | null,
+  ): Promise<CommandResult<"create_workspace">>;
   /** Asks a model for a new worktree's branch name by the first message. */
-  nameBranch(projectId: string, text: string, model: ModelRef | null): Promise<CommandResult<"name_branch">>;
+  nameBranch(
+    projectId: string,
+    text: string,
+    model: ModelRef | null,
+    branch?: string,
+  ): Promise<CommandResult<"name_branch">>;
   /** Names a chat, or with `null` goes back to its first session's title. */
   renameChat(chatId: string, name: string | null): Promise<CommandResult<"rename_chat">>;
+  /** Pins a chat to the top of the sidebar (SPEC-0001, "对话的置顶与顺序"). */
+  pinChat(chatId: string): Promise<CommandResult<"pin_chat">>;
+  /** Unpins a chat, letting it fall back to activity order. */
+  unpinChat(chatId: string): Promise<CommandResult<"unpin_chat">>;
   windowFocused(): Promise<CommandResult<"window_focused">>;
   setPreferences(changes: Partial<Preferences>): Promise<CommandResult<"set_preferences">>;
   /** The models pi can use in a workspace's directory, or with `null` outside any; `refresh` asks pi again. */
@@ -77,13 +92,32 @@ export function createIndexCommands(options: {
   readonly preferences: PreferenceStore;
   /** The chats there are (`SessionCatalog.chats`). */
   readonly chats: () => readonly ContainerDir[];
-  readonly chatRecords: Pick<ChatRecords, "rename">;
+  readonly chatRecords: Pick<ChatRecords, "rename" | "pin" | "unpin">;
+  /** The host's clock, for when a chat was pinned. */
+  readonly clock: Pick<Clock, "now">;
   readonly feed: IndexFeed;
   /** Lists a workspace's models, or those outside any (`createModelLister`). */
   readonly listModels: IndexCommands["listModels"];
   /** Finds pi's working directories, leaving out those inside `taken` (`discoverProjects`). */
   readonly discover: (taken: readonly string[]) => Promise<DiscoveredDirectory[]>;
 }): IndexCommands {
+  /**
+   * Pins or unpins a chat, telling the clients.
+   *
+   * @remarks
+   * A chat is found by its directory, so one whose directory went is `chat_not_found`.
+   *
+   * @sideEffects Writes `chats.json` when it changes; tells the feed.
+   * @param chatId - The chat.
+   * @param pinned - Whether to pin it or unpin it.
+   */
+  async function setPinned(chatId: string, pinned: boolean): Promise<void> {
+    if (!options.chats().some((chat) => chat.id === chatId)) throw new CommandError("chat_not_found", { chatId });
+    if (pinned) await options.chatRecords.pin(chatId, options.clock.now());
+    else await options.chatRecords.unpin(chatId);
+    options.feed.changed();
+  }
+
   return {
     async subscribeIndex(connectionId, cursor) {
       options.feed.subscribe(connectionId, cursor);
@@ -121,16 +155,22 @@ export function createIndexCommands(options: {
       return {};
     },
     listBases: (projectId) => options.creator.bases(projectId),
-    async createWorkspace(projectId, branch, base) {
-      return { workspaceId: await options.creator.create(projectId, branch, base) };
+    async createWorkspace(projectId, branch, base, alias) {
+      return { workspaceId: await options.creator.create(projectId, branch, base, alias) };
     },
-    async nameBranch(projectId, text, model) {
-      return { branch: await options.namer.name(projectId, text, model) };
-    },
+    nameBranch: (projectId, text, model, branch) => options.namer.name(projectId, text, model, branch),
     async renameChat(chatId, name) {
       if (!options.chats().some((chat) => chat.id === chatId)) throw new CommandError("chat_not_found", { chatId });
       await options.chatRecords.rename(chatId, name);
       options.feed.changed();
+      return {};
+    },
+    async pinChat(chatId) {
+      await setPinned(chatId, true);
+      return {};
+    },
+    async unpinChat(chatId) {
+      await setPinned(chatId, false);
       return {};
     },
     async windowFocused() {

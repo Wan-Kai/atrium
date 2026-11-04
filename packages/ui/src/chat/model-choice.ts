@@ -7,6 +7,7 @@ import copilotLogo from "../design/brand/copilot.svg";
 import deepseekLogo from "../design/brand/deepseek.svg";
 import kimiLogo from "../design/brand/kimi.png";
 import openaiLogo from "../design/brand/openai.svg";
+import opencodeLogo from "../design/brand/opencode.svg";
 import openrouterLogo from "../design/brand/openrouter.svg";
 import xaiLogo from "../design/brand/xai.png";
 
@@ -159,6 +160,8 @@ const PROVIDERS: Readonly<Record<string, { readonly name: string; readonly logo:
   "claude-bridge": { name: "Claude 订阅", logo: claudeLogo },
   openai: { name: "OpenAI", logo: openaiLogo },
   "openai-codex": { name: "ChatGPT 订阅", logo: openaiLogo },
+  opencode: { name: "OpenCode Zen", logo: opencodeLogo },
+  "opencode-go": { name: "OpenCode Go", logo: opencodeLogo },
   "azure-openai-responses": { name: "Azure OpenAI", logo: openaiLogo },
   "github-copilot": { name: "GitHub Copilot", logo: copilotLogo },
   openrouter: { name: "OpenRouter", logo: openrouterLogo },
@@ -187,7 +190,7 @@ export function providerOf(providerId: string): { readonly name: string; readonl
 }
 
 /** Providers whose use always counts against a subscription plan. */
-const ALWAYS_ON_PLAN: ReadonlySet<string> = new Set(["claude-bridge", "openai-codex", "github-copilot"]);
+const ALWAYS_ON_PLAN: ReadonlySet<string> = new Set(["claude-bridge", "openai-codex", "github-copilot", "opencode-go"]);
 
 /** Providers on a plan only while signed in through OAuth, with a subscription. */
 const ON_PLAN_BY_OAUTH: ReadonlySet<string> = new Set(["openai", "xai"]);
@@ -197,11 +200,13 @@ const ON_PLAN_BY_OAUTH: ReadonlySet<string> = new Set(["openai", "xai"]);
  *
  * @remarks
  * The model panel and button tag these with "套餐" (SPEC-0001, "输入框"; design-language,
- * "走套餐的签"). `claude-bridge` goes through Claude Code on the Claude plan, `openai-codex` and
- * `github-copilot` are subscriptions by nature; `openai` and `xai` are only when signed in through
- * OAuth, which only the setup's login state tells. pi's own `anthropic` login is billed as Extra
- * Usage, so it never counts, nor does any other provider or an API key. While the login state is
- * unknown or pi cannot sign in, only the ones that always count do.
+ * "走套餐的签"). `claude-bridge` goes through Claude Code on the Claude plan; `openai-codex`,
+ * `github-copilot` and `opencode-go` are subscriptions by nature, the last reached by a stored
+ * API key, so a key alone does not rule a plan out; `openai` and `xai` are only when signed in
+ * through OAuth, which only the setup's login state tells. pi's own `anthropic` login is billed as
+ * Extra Usage, as is OpenCode Zen (`opencode`), so neither counts, nor does any other provider or
+ * a key that bills by use. While the login state is unknown or pi cannot sign in, only the ones
+ * that always count do.
  *
  * @sideEffects none
  * @param providerId - pi's id for the provider.

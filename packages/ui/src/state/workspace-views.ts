@@ -26,6 +26,10 @@ export type ViewerTab =
 export interface ViewerPlace {
   readonly scrollTop: number;
   readonly wrap: boolean;
+  /** Markdown display mode; absent means source. */
+  readonly markdownPreview?: boolean;
+  /** The Markdown preview's own vertical scroll, separate from source. */
+  readonly previewScrollTop?: number;
 }
 
 /** A viewer tab not left anywhere yet. */
@@ -186,7 +190,12 @@ export function openFile(
       ...view,
       tabs,
       active: key,
-      places: placesOf(tabs, view.places),
+      places: placesOf(
+        tabs,
+        range !== undefined && view.places[key]?.markdownPreview
+          ? { ...view.places, [key]: { ...view.places[key], markdownPreview: false } }
+          : view.places,
+      ),
       fileReveal: range === undefined ? null : { path, range, count: (view.fileReveal?.count ?? 0) + 1, done: false },
     };
   });

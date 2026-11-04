@@ -26,8 +26,8 @@ export interface ProjectService {
   setMainBranch(projectId: string, branch: string | null): Promise<void>;
   /** Registers worktrees found in a project that have no record yet, as external. */
   recordWorktrees(projectId: string, dirs: readonly string[]): Promise<void>;
-  /** Registers a worktree Atrium just created, with the commit it started at; returns its workspace. */
-  addWorktree(projectId: string, dir: string, baseCommit: string): Promise<WorkspaceId>;
+  /** Registers a new worktree with its starting commit and generated alias, preserving an existing alias. */
+  addWorktree(projectId: string, dir: string, baseCommit: string, alias?: string | null): Promise<WorkspaceId>;
   /** Calls `listener` after every change; returns a function that stops it. */
   onChange(listener: () => void): () => void;
 }
@@ -279,19 +279,20 @@ export function createProjectService(options: {
         ],
       });
     },
-    async addWorktree(projectId, dir, baseCommit) {
+    async addWorktree(projectId, dir, baseCommit, alias = null) {
       projectOf(projectId);
       const document = options.file.read();
       const scanned = document.workspaces.find((workspace) => workspace.dir === dir);
       const id = scanned?.id ?? options.newId("wks");
-      const record = { id, projectId, kind: "worktree" as const, dir, alias: null, baseCommit, external: false };
+      const named = scanned?.alias ?? alias;
+      const record = { id, projectId, kind: "worktree" as const, dir, alias: named, baseCommit, external: false };
       await save({
         ...document,
         workspaces:
           scanned === undefined
             ? [...document.workspaces, record]
             : document.workspaces.map((workspace) =>
-                workspace.id === id ? { ...workspace, baseCommit, external: false } : workspace,
+                workspace.id === id ? { ...workspace, alias: named, baseCommit, external: false } : workspace,
               ),
       });
       return id;

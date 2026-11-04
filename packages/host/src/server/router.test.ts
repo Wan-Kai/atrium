@@ -108,8 +108,10 @@ function fakeCommands() {
     restoreWorkspace: record("restoreWorkspace", {}),
     listBases: record("listBases", { main: null, current: "main", local: ["main"], remote: [] }),
     createWorkspace: record("createWorkspace", { workspaceId: WORKSPACE }),
-    nameBranch: record("nameBranch", { branch: "atrium/fix-it" }),
+    nameBranch: record("nameBranch", { branch: "atrium/fix-it", alias: "修复登录" }),
     renameChat: record("renameChat", {}),
+    pinChat: record("pinChat", {}),
+    unpinChat: record("unpinChat", {}),
     windowFocused: record("windowFocused", {}),
     setPreferences: record("setPreferences", {}),
     listModels: record("listModels", { models: [], defaultModel: null }),
@@ -754,12 +756,28 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "list_bases", requestId: "r18", projectId: PROJECT }));
     await route(
       connection,
-      withTrace({ type: "create_workspace", requestId: "r19", projectId: PROJECT, branch: "atrium/a", base: "main" }),
+      withTrace({
+        type: "create_workspace",
+        requestId: "r19",
+        projectId: PROJECT,
+        branch: "atrium/a",
+        base: "main",
+        alias: "修复登录",
+      }),
     );
     await route(
       connection,
-      withTrace({ type: "name_branch", requestId: "r20", projectId: PROJECT, text: "Fix it", model: MODEL }),
+      withTrace({
+        type: "name_branch",
+        requestId: "r20",
+        projectId: PROJECT,
+        text: "Fix it",
+        model: MODEL,
+        branch: "feature/fixed",
+      }),
     );
+    await route(connection, withTrace({ type: "pin_chat", requestId: "r21", chatId: CHAT }));
+    await route(connection, withTrace({ type: "unpin_chat", requestId: "r22", chatId: CHAT }));
 
     expect(calls).toStrictEqual([
       ["subscribeIndex", "connection-7", undefined],
@@ -781,14 +799,20 @@ describe("createRouter", () => {
       ["archiveWorkspace", WORKSPACE],
       ["restoreWorkspace", WORKSPACE],
       ["listBases", PROJECT],
-      ["createWorkspace", PROJECT, "atrium/a", "main"],
-      ["nameBranch", PROJECT, "Fix it", MODEL],
+      ["createWorkspace", PROJECT, "atrium/a", "main", "修复登录"],
+      ["nameBranch", PROJECT, "Fix it", MODEL, "feature/fixed"],
+      ["pinChat", CHAT],
+      ["unpinChat", CHAT],
+    ]);
+    expect([sent[21], sent[22]]).toStrictEqual([
+      { type: "response", requestId: "r21", ok: true, result: {} },
+      { type: "response", requestId: "r22", ok: true, result: {} },
     ]);
     expect(sent[20]).toStrictEqual({
       type: "response",
       requestId: "r20",
       ok: true,
-      result: { branch: "atrium/fix-it" },
+      result: { branch: "atrium/fix-it", alias: "修复登录" },
     });
     expect(sent[19]).toStrictEqual({
       type: "response",

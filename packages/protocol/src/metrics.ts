@@ -38,8 +38,8 @@ export type ContextParts = z.infer<typeof ContextParts>;
 export const ContextReserve = z.union([Count, z.literal("off")]).nullable();
 export type ContextReserve = z.infer<typeof ContextReserve>;
 
-/** The subscriptions whose usage Atrium asks for, in the order they are listed (ADR-0010, ADR-0011). */
-export const PlanProvider = z.enum(["openai-codex", "anthropic", "xai"]);
+/** The subscriptions whose usage Atrium asks for, in the order they are listed (ADR-0010, ADR-0011, ADR-0017). */
+export const PlanProvider = z.enum(["openai-codex", "anthropic", "xai", "opencode-go"]);
 export type PlanProvider = z.infer<typeof PlanProvider>;
 
 /**

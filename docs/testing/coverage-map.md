@@ -4,6 +4,167 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## Markdown 文件预览（M1.12 自用后补充，2026-11-04）
+
+用户选 `prototypes/markdown-preview-prototype.html` 的 A“单按钮原位切换”，并要求一起支持本地图片和相对文件链接。复用既有 Markdown 渲染和文件安全边界；模式与两套滚动位置仅存在窗口内，不改协议。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| `.md` / `.markdown` 大小写、空文件、原位切换、隐藏源码与换行、只读、HTML 不执行、切换不重读文件 | `packages/ui/src/files/markdown-preview.browser.test.tsx`；真实 Streamdown、Chromium 和文件协议替身 |
+| 非 Markdown、读取中、消失、失败、二进制、符号链接、太大时没有预览；重读更新预览或退回错误说明 | 同文件的逐项用例 |
+| 模式和两种滚动位置跨标签保留；关闭忘记；明确的行定位退出预览 | 同文件；`state/workspace-views.test.ts` 的 `keeps Markdown mode…` |
+| 图片、链接按文档目录解析；绝对路径不重加目录；禁止工作区外和 `..`；文件仅点击时打开，行范围保留 | 同浏览器文件的 `reads local images…`；`chat/reply-image-source.test.ts` 的 `resolves document-relative images…`；原回复图片测试回归 |
+| 桌面真实文件树 → 键盘预览 → 本地图片 → 相对链接行定位 → 回原标签；浅色/深色、空文档和缺失文件 | `apps/desktop/e2e/markdown-preview.spec.ts`；截图 `markdown-light/dark/empty/missing.png` 已查看。Electron 页面截图不包含原生侧栏材质，不据此判断系统材质 |
+| 反复开关/关闭预览释放 Markdown、Mermaid 和监听/订阅 | `apps/desktop/e2e/viewers.leak.spec.ts`：热身后 15 轮，两次预览切换加源码/diff 标签，脱离文档 DOM 增量为空，且临时 `dmermaid-*` 容器绝对数量为零（不容许热身基线掩盖一次残留） |
+| Mermaid 共用布局在完成和各阶段拒绝后释放内部缓存，绘图期间保留引用，原异常不变 | `packages/ui/src/chat/mermaid-layout.test.ts`：真实锁定的依赖模块、6 个确定性生命周期用例；布局阶段用可控函数，不把它当 DOM 绘图测试，真实渲染由上述 Electron 和 `rendering.spec.ts` 守住 |
+
+验证记录：
+
+- 功能、滚动/模式、行定位和图片路径的新增测试均先在未实现版本见到对应失败；其他入口/错误分支经破坏检查见红。`pnpm break-check packages/ui/src/files/markdown-preview-break-check.json` 12 处全部检出。Electron 另把 `previewing` 写死为 `false`、重新构建，新增旅程在预期的“没有 Markdown 标题”处失败；已恢复源码并重新构建、复验。
+- `pnpm check` 通过；单元 4311/4311；单 worker 完整 UI 1182/1182（新增文件 18 项）；相关 Electron `changes.spec.ts`、`markdown-preview.spec.ts`、`viewers.leak.spec.ts` 3/3；补拍空/错状态后的 Markdown 旅程再通过。首轮 Electron 用 `.first()` 在子目录尚未读回时误点了根 README，明确等两个同名文件出现后通过，未用重试或弱化断言。
+- 改动行变异：`reply-image-source.ts`（参数与路径分支）45/45 Killed，`workspace-views.ts`（带行定位退出预览）9/9 Killed，总分 100%；无缓存信用、存活或超时。TSX 与 hook 不在核心变异分组，用上述破坏检查和真实浏览器/泄漏测试验证。
+- `pnpm boundary`：无新增依赖、URL、环境变量或隐藏命令，协议仍为 30，未登记与非精确版本均为 0。源码差异自查覆盖权限、重读、状态清理和资源释放；未做外部模型审查。
+- 实现交付时未跑：全套 Electron、宿主集成、pi 契约、Swift 动态测试、打包和专门的大文件性能测试（合并前补跑 Swift 逻辑测试，见下）。本次不改这些后端/平台模块，也未安装或重启用户应用。源码在预览期间保持不可见且不可交互，以保留真实滚动几何；不额外虚拟化 Markdown。继承的限制：含 `..` 的引用、本地 SVG、普通跨文件标题锚点不支持。
+- 用户验收通过并要求本地合回 `main`；不安装、不推送。分支 `atrium/add-markdown-preview-button` 和 worktree 因当前会话仍在使用而保留，不强删。合并前复验记录见下。
+- 合并前同步 `main` 的 `e9b4368`（外部 cmux 接入，只改文档）：路线图和追踪表的首段追加冲突保留双方内容，功能源码与验收版本一致。`pnpm check`、完整 UI 单 worker 1182/1182 通过。首轮同时运行检查、单元与界面时，单元 4306 过 / 5 败：`scripts/boundary.test.ts` 两项 5 秒超时，`oneshot.test.ts` 一项预期 `too_large` 得 `timed_out`、两项读 `seen.json` 报 ENOENT；这些文件及其实现与 main 相同。两文件单 worker 48/48 通过，随后不并跑其他本任务命令的完整 `pnpm test` 4311/4311、Swift 402/402 通过。未改断言或超时，未确认首轮失败根因，不宣称已修复；保留失败记录。合并同步只有文档变化，未重跑此前通过的 3 项 Electron 和变异测试。文档合并提交的格式钩子选中了上游 `docs/testing/cmux-installation.json`，但 `docs/**` 被 oxfmt 忽略，因无匹配文件退出 2；完整格式检查通过后，仅该提交用 `LEFTHOOK_EXCLUDE=format` 跳过空检查，不改钩子或忽略规则。上游 skill patch 的合法空白上下文原样保留，变更空白检查以 `main` 为基准通过。
+
+- 第二次同步 `main` 的 `4678388`（对话置顶/排序、协议 31），保留两份文档的双方追加；串行 `pnpm check`、单元 4319、Swift 406、UI 1185、构建通过。Electron 的 Markdown 和改动旅程通过，但查看器泄漏检查失败，单独重跑一过一败，等待两帧后仍残留。堆快照反向引用链为临时 `dmermaid-*` 容器 ← SVG 后代 ← D3 selection ← 模块级 `edgeLabels` Map；Mermaid 11.17.2 共用布局只在开头清缓存。用户明确选择先修复再合并，当时暂停合入 main。补强关闭后的绝对零绘图容器断言，未修复时命中一个残留容器；6 个布局生命周期用例也全在缓存非空断言见红。给 Mermaid 11.17.2 ESM 的共用布局加 `finally` 清理，pnpm 精确补丁记录在 `patches/mermaid@11.17.2.patch`，不升级依赖。Node 契约只覆盖此共用布局，不声称所有 Mermaid 图种都已验证回收。
+- 修复后最终复验：`pnpm check`、单元 4325/4325、Swift 406/406、完整 UI 单 worker 1185/1185、构建通过；加强后的查看器泄漏连续 3 次通过，随后相关 Electron 5/5（Markdown、改动、图表明暗/缩放/全屏、PlantUML/图片资源回收、查看器泄漏）通过。负控 `pnpm break-check /tmp/atrium-mermaid-break-check.json` 去掉依赖的最终清理，检出；先以复制/替换方式隔离本 worktree 的安装文件，避免写 pnpm store 硬链接，检查后逐字节核对已恢复。诊断日志和堆快照只留 `/tmp`，源内探针已移除。
+- 新测试首轮加载失败是 `@streamdown/mermaid` 只导出 ESM、不能用 CommonJS 入口解析；改为从 UI 实际依赖的 package 路径解析 Mermaid。首轮检查分别检出测试内条件和测试放在根 scripts 造成的未声明依赖，已消除条件并把契约放到拥有该依赖的 UI 包，未加豁免。锁文件变化后完整 UI 通过。依赖补丁不在 Stryker 分组，用上述负控及真实堆快照验证；未跑全套 Electron、宿主集成、pi 契约、Swift 模拟器、打包和专门大文件性能测试。只读自查了补丁的清理时机（最后的 afterPaint 之后）、异常传播、依赖锁定与上游变更保留，未做外部模型审查。
+
+## 对话的置顶与顺序（2026-10-28，自用反馈）
+
+用户定：顺序是"置顶 → 进行中 → 最近活动"，"进行中"含运行中、待回答、待授权、出错；置顶只做对话；桌面和手机同一套顺序，手机上也能置顶。原型 `prototypes/conversation-pin-and-order-prototype.html` 选甲"名字前的图钉"（Hugeicons `Pin02Icon`，13px）、「···」菜单入口、"让位滑行 + 落位高亮"。协议 31。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 排序：置顶先、进行中次之、其余按最近活动；置顶的跑起来也在置顶档内按活动排 | `sidebar/names.test.ts` 的 `sortChats` 两例与 `chatBand` 一例，先红后绿 |
+| 行上：置顶行名字前 13px 图钉（`--tint`）、悬停仍是归档和「···」、其余行不带图钉 | `app/workbench.browser.test.tsx`"puts pinned chats first…"，含颜色与缺席断言 |
+| 入口：「···」第一项是"置顶"，已置顶写"取消置顶"，点了发 `pin_chat` / `unpin_chat` | 同文件"pins a chat from its ··· menu…"；既有归档对话用例改成 `["置顶","重命名"]` |
+| 顺序变化动效：升了一档的行闪一下（减弱动态效果时 1ms） | 同文件"flashes the row that climbed…"（`getAnimations` 非空） |
+| 协议：`Chat.pinnedAt`、`pin_chat` / `unpin_chat`、命令类型清单、Swift 生成类型与往返夹具 | `protocol/envelope.test.ts`（命令清单、往返夹具）、`remote.test.ts` 版本 30；`RoundTripTests.swift` 版本断言 30 |
+| 宿主：`pinnedAt` 写进 `chats.json`，重复置顶保留首次时间，取消置顶清掉并删空记录；对话不存在 `chat_not_found`；列表推送一次 | `store/chat-records.test.ts` 两例、`sessions/index-commands.test.ts` 两例（其中一例放第二个对话，抓 `some → every`）、`server/router.test.ts` 两条命令 |
+| 手机可用：`pin_chat` / `unpin_chat` 对手机开放 | `server/remote-policy.test.ts`（41 条 phone） |
+| 手机：首页对话行按同一规则排，钉住的会话带图钉；对话页「···」置顶、失败按宿主码提示 | `HomeListTests.swift`"pinnedChats"、`SyncControlTests.swift`"pinChat"/"pinBeforeSync"、`HomeViewTests.swift` 的 `chatProblemText` |
+| 手机纸面改版合回 main（2026-11-04，用户定）：置顶入口从对话页「···」菜单挪到设置页"对话"组第一行，只在对话里打开时出现，字样按当前状态写"置顶这个对话"/"取消置顶"；首页对话行（`ChatRow`）名字后带图钉 | `SettingsPageTests.swift`"the pinning row says which way a tap goes"；行与图钉只有编译和手看，未写视图快照 |
+| 客户端：`pinChat` / `unpinChat` 发出正确的命令和 id | `atrium-client.test.ts`"pins and unpins a chat with its id" |
+
+最终验证：`pnpm check` 全链通过（格式、lint 含 JSDoc、递归＋根 typecheck、knip、boundary `unregistered 0 / not exact 0`、iOS 格式与 lint）；合进 `main` 后单元 4317 项、宿主 243 项、Swift 406 项通过；界面全量 1167/1167 通过（合并前的并行跑曾出现既有 `status-bar.browser.test.tsx`"opens a row…"与 `question-card.browser.test.tsx` 各一处失败，单文件 28/28、21/21 通过，合并后整套干净）。破坏检查 10 处全部检出（宿主 3、UI 4、客户端 1、Swift 2）。改动行变异：`sidebar/names.ts` 99.04%（207 Killed / 2 Survived，两处存活都在未改动的合并状态代码，逐处保留）；`sessions/index-commands.ts` 97.70%（85 Killed / 2 Survived，存活仍是既有的 `projects.workspaces()` 与 `windowFocused` 重扫，新增冷路径全杀）。首轮该文件 94.25% 时新增的 `chats().some → every` 存活，补第二个对话后复测死亡。未跑：Electron 端到端、桌面泄漏、模拟器 UI 测试（Swift 逻辑与 UI 文案在 macOS 上跑过）；未在真机上验证手机端置顶。
+
+## 外部 cmux 终端最小接入（2026-11-04）
+
+方案见 [external-terminal.md](../architecture/external-terminal.md)，精确安装版本、文件校验值和验收会话标识见 [cmux-installation.json](cmux-installation.json)。本次不改 Atrium 业务代码、协议或 UI；只安装两个官方 skill 并应用本地调用规则、配置 cmux password 授权、补文档。主代理独立完成，没有启动子代理。
+
+### 真实 App 验收
+
+启动已安装的 `/Applications/Atrium.app`，仅以新的 `ATRIUM_HOME` 分开测试数据和单实例锁；HOME、pi 配置与真实模型不替换，不注入 faux、代理工具或终端包装层。通过实际 UI 的消息框发给 `openai-codex/gpt-6.1-sol`，实际 pi 为 1.5.0。创建 cmux 专用测试窗口和 A/B 两个 terminal surface，操作目标全部来自本次创建结果。测试 App 已退出，用户原本运行的 Atrium 未退出，cmux 测试窗口保留。
+
+| 需求 / 风险 | 实际结果 |
+|---|---|
+| Skill 确实被 Atrium 发现和读取 | 实际 App 的 `/` 列表含 `/skill:cmux`、`/skill:cmux-workspace`；pi 会话记录含对 `~/.pi/agent/skills/` 下两个 `SKILL.md` 的真实 `read` 调用，并按需读取官方 reference |
+| Bash、版本与无调用方目标 | 实际 Bash 找到 `/opt/homebrew/bin/cmux`、pi 1.5.0；补测确认 workspace/surface/password 变量均未设置。初次检查错误见下文，不以模型自述代替工具结果 |
+| 外部认证 | 改配置前明确 socket 调用被 `cmuxOnly` 拒绝；用户另行明确授权后，JSONC 语法/语义校验通过，`capabilities` 报 `access_mode=password`，`ping` 为 `PONG` |
+| 普通命令和中文 | Agent 通过 Bash → 官方 CLI 在 A/B 分别执行 printf；独立读屏核对单独输出行 `A_c3c7e43dd345_中文成功` 和 `B_c3c7e43dd345_你好世界`，不只匹配输入回显 |
+| 两终端不串输入 / 非焦点寻址 | A 无 B 标记、B 无 A 标记。为实验明确授权聚焦本次 B 一次，然后定向 A 执行，A 单独输出 `A_c3c7e43dd345_非焦点命中`；没有通过切焦点修复寻址错误 |
+| Enter 与 Ctrl+C | 文本与 Enter 为分开的 CLI 请求；A 的 `sleep 25` 收到 `send-key ctrl+c` 后读到 `^C`，后续 printf 输出 `A_c3c7e43dd345_中断后可用` |
+| 缺少目标 | 新的独立任务明确不授权旧目标，也不允许新建。Agent 只读取两个 skill，询问 socket/window/workspace/surface，没有发出 Bash 输入或创建动作 |
+| 不存在的目标 | 独立只读检查向本轮 workspace 的随机不存在 surface 读屏，CLI 非零并报 `invalid_params: Surface is not a terminal`；未回退焦点。该错误文案不精确，未因此扩展 Atrium 实现 |
+| 终端 HOME / 凭据传播 | B 中真实 Python 输出 `{"HOME": "/Users/ktoon", "control_password_present": false}`；实际 pi Bash 中也无 password 环境变量。未以私有 HOME 声称隔离；同用户仍可能读取密码文件 |
+| 退出 Atrium 不关闭外部任务 | Agent 在 A 启动最多等待 120 秒的任务，先输出 `LIFE_c3c7e43dd345_BEFORE`，等测试控制器的 release 文件。仅退出自有测试 App，确认退出后才写 release；cmux 读屏随后出现独立输出行 `LIFE_c3c7e43dd345_AFTER`，任务正常结束。这是因果受控实测，不是只读源码推断，也没有退出用户 App |
+| 凭据与日志 | 在本机内存中对照密码内容检查本次真实 pi 会话和测试 App 日志，无匹配；未向模型或工具输出密码。有效测试实例的宿主日志未发现 warn/error/fatal。检查不覆盖所有历史日志或同用户恶意 Bash |
+| 安装可复现 | 9 个官方文件，仅两个 `SKILL.md` 有本地差异；固定 commit 的原文加仓库 patch 重建后与安装文件逐字节比对，结果在本节检查记录中登记 |
+| Skill 中的安装路径能直接使用 | 自查发现 release skill 的 `/tmp/cmux.sock` 示例与正式 CLI 不符，修正 Socket access 后再开真实 App 新会话，提示词不提供 CLI/socket 路径，只授权读取 skill 并只读探测；agent 从最终 skill 取 `/opt/homebrew/bin/cmux` 与 state socket，显式传 `--socket` 得到 `PONG` 和 password capabilities |
+
+最终安装路径冒烟 pi 会话：`a045593b-8860-4ca8-a9ce-cd8e71326d9b`。主验收 pi 会话：`0efd15cc-9db6-4229-ab31-b1a77d593d56`；补测与缺目标会话：`18d2d674-d09b-4394-89f7-517e0f793d2e`、`bf2c5a3e-2e40-4cd7-bd2e-0f156922c958`。终端工作区名为 `Atrium cmux acceptance c3c7e43dd345`；这些标识只用于本次证据核对，不作为未来寻址或运行依赖。
+
+### 失败记录与未验证项
+
+- 首次真实 agent 环境探针用了 `/bin/bash` 不支持的 `[[ -v ]]`，命令退出 2；模型却回复准备完成。检查原始工具结果后，另用 POSIX 参数展开补测，确认三个变量均未设置，并对被控 shell 单独读回 JSON。不把初次探针说成通过。
+- 一次性验收脚本汇总 pi 会话时假定 `message.content` 总是数组，遇到字符串报错；此前的终端和退出保活断言已经通过。随后直接核对原始会话并补上完整检查。没有为汇总报错重发终端输入。
+- 首次补测脚本误把恢复中的旧轮次当成新回复，过早关闭自有测试 App；原始记录确认新消息尚无任何 assistant 工具调用。改为新的独立测试数据目录并按消息标记定位，补测成功。随后汇总检查又过度要求 `absent` 文本，而实际 POSIX 检查合法地输出空串；按原始工具结果的含义核验，不重跑命令。
+- “输入结果未知不自动重发”是已安装 skill 的明确约定；本轮未注入“服务端收到输入但响应丢失”故障，不声称技术上的 exactly-once 或强制拦截。
+- 没有修改或证明归档时任务已停止；本方案明确不承担这个保证。无沙箱、自动工作区绑定或跨实例自动恢复保证。
+- 实现交付时未跑全套单元或 UI；用户确认验收并要求合并后，已同步 main（无新增提交）并复验 `pnpm check`、单元 4309/4309、Swift 402/402、单 worker UI 1164/1164，均通过。未跑完整 pi 契约、Electron e2e、性能、泄漏、打包或变异测试；不改相应实现，不扩展到终端内核工程。既有 pi 1.5.0 缺夹具问题未顺带重录。
+- 一次性验收控制脚本只辅助本次操作，不是部署或运行组件；持久交付是方案、精确 skill patch、版本校验清单和本文证据摘要，不依赖临时脚本、临时路径或历史 PID。
+
+检查记录：固定上游副本应用 `docs/research/cmux-skills.patch` 后，9 个文件与已安装内容逐字节一致，SHA-256 全部匹配；`git diff --check`、`pnpm check` 通过。`pnpm boundary`：依赖 / URL / 环境变量 / 隐藏命令无生产代码增删，协议仍为 30，未登记 0、非精确 0；`boundary --all` 为 URL 15、环境变量 41、隐藏命令 4，未登记 0、非精确 0。尝试对文档单独运行 oxfmt 时因仓库明确忽略 `docs/**` 而报无匹配文件；没有修改忽略规则，完整 `pnpm check` 的格式检查通过。用户已确认验收并要求本地合并、删除 worktree；合并前复验结果如上，未推送。当前会话的 pi 仍以本 worktree 为工作目录，因此先保留分支和 worktree，不为清理终止用户会话。
+
+## 打包签名用证书，TCC 授权跨重装保留（2026-11-03）
+
+`pnpm package` 原来写死 ad-hoc 签名（`codesign --sign -`）。ad-hoc 的 designated requirement 是二进制的 cdhash，每打一次包就变，macOS 因此把每次换装当成另一个 app，重新问"文稿"等受保护目录的访问权（development.md 第 7 步记的正是这个坑）。现在设了 `ATRIUM_CODESIGN_IDENTITY`（`security find-identity -v -p codesigning` 里的一条）就用那张证书签，requirement 变成 bundle id 加证书，一次授权跨重装有效；不设时行为和以前一样。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 设了环境变量时签出来的确实是证书签名：requirement 含 `identifier "dev.atrium.app"` 和 `certificate leaf`、不含 `cdhash` | `apps/desktop/e2e/package.spec.ts` 新增 `@package signs with ATRIUM_CODESIGN_IDENTITY…`；`ATRIUM_CODESIGN_IDENTITY="Apple Development: …" pnpm test:package` 两项通过，没设时该用例 skip |
+| 不设时不破坏原有打包：签名有效、应用能启动、宿主和界面都在包里 | 同文件的 `@package runs from the packaged app…`，历次 `pnpm test:package` 覆盖；本次用证书签的产物跑过 |
+
+- 先见红：同一组断言对 `/Applications/Atrium.app`（ad-hoc 产物）跑，`identifier`、`certificate leaf`、`!cdhash` 三项全为假；对证书签的产物三项全为真。
+- 验证：`pnpm check` 通过；`ATRIUM_CODESIGN_IDENTITY="Apple Development: …" pnpm package` 打印 `signed with Apple Development: …`，`codesign --verify --deep --strict` 通过，`codesign -d -r-` 给出上面的证书 requirement。
+- 未覆盖：换装后 macOS 是不是真的不再问"文稿"授权，要装上用一阵才知道（本次没装）；证书一年后过期，续签要重新授权一次，没有自动化。
+
+## OpenCode Go 的套餐用量（2026-11-02）
+
+OpenCode Go 的 5 小时、每周、每月额度来自写死的 `https://opencode.ai/zen/go/v1/usage`，用 pi 里的 Go API Key 查（ADR-0017；接口和字段出自 OpenCode 官方客户端的源码，实测可用）。协议 30 把 `opencode-go` 加进 `PlanProvider`。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 回答里的 `usage.rolling` / `weekly` / `monthly` 变成 18000 / 604800 / 2592000 秒三个窗口，`percent` 和 ISO 的 `resetsAt` 读对；缺一项跳过，全缺算 `unknown_shape`；不认识的形状不崩 | `packages/pi/src/plan/plan.test.ts` 的 `opencodeUsage` 用例（先见红后绿，由下面的破坏检查证明抓得住） |
+| 用 Go 的 API Key 查固定地址，只带 `authorization` 和 `accept`，不带 pi 给模型的其他头；没有 Key 报 `no_login`；403 / 不是用量分别报 `http_403` / `unknown_shape`。`not_json` 和 15 秒超时没有 OpenCode 专属用例，由共用的 `askFor` 与 ChatGPT 的 `not_json` 用例覆盖，超时只做了静态检查 | `packages/pi/src/plan/extension.test.ts` 两个 OpenCode 用例，用本地替身服务 |
+| 协议：`PlanProvider` 加 `opencode-go`，`plans` 最多四份；四份合法、五份拒绝；`plans_updated` 的样例带 Go 的三窗口 | `packages/protocol/src/envelope.test.ts`；`packages/protocol/src/remote.test.ts` 的版本断言改到 30；Swift 类型和往返夹具重新生成 |
+| 卡片写"OpenCode Go"，2592000 秒写"每月"，当前模型是 Go 时该段标"当前"，摘要取它的最大窗口 | `packages/ui/src/chat/status-figures.test.ts`（先见红后绿）；`packages/ui/src/chat/status-bar.browser.test.tsx` 新增一段卡片的用例，断言分段名、三段窗口和正文 |
+| 宿主经每个会话的 pi 问四家 | `packages/host/src/sessions/session-controller.test.ts` 的 `EVERY_PLAN` 改成四家 |
+| 新地址在外部边界登记里 | `docs/architecture/security.md` 出网地址表；`pnpm boundary` 的 URL 由 14 变 15，未登记 0 |
+
+- 破坏检查：`docs/testing/opencode-plan.break-check.json` 8 处，全部检出。
+- 改动行变异：pi 组 `extension.ts` 100%（138 Killed）、`plan.ts` 100%（432 Killed；首轮 3 个既有存活在 `codexUsage` 和 `planReplyOf` 的旧分支上，重跑后不进最终分数）；ui 组 `status-figures.ts` 100%（309 Killed）。
+- 验证：`pnpm check`；单元 4308；宿主 243；`pnpm test:ios` 的 Swift 402 项和模拟器 UI 测试通过（先改掉 `RoundTripTests` 里写死的协议版本）；Electron `plan.spec.ts` 1/1、`models.spec.ts` 6/6。界面并行跑时两次不通过：既有的 `status-bar`「opens a row…」和 `question-card` 一处 61.99998 ≥ 62 的浮点断言，两个文件单跑 50/50 通过，根因未查，不当作已修；合并前单 worker 全量 1164/1164，完整非泄漏端到端 72/72。
+- **`pnpm test:pi` 未通过**：本机 pi 已升到 1.5.0，仓库里没有 `pi-1.5.0` 的契约夹具，52 项报 "no fixture"（和本改动无关，升级 pi 后要单独 `pnpm fixtures:record` 并审查 diff）。这条要在下次动 `packages/pi` 前先补。
+- 未覆盖：OpenCode Go 用量请求本身没有端到端测试（地址写死，测试不能连真网；替身只能注入扩展参数，宿主加载扩展时不可改），真实额度要用户用已登录的 Key 看；卡片没有截图。
+
+## OpenCode Go 服务商（2026-11-02）
+
+用户买了 OpenCode Go 会员（pi 的 `opencode-go`，只有 API Key 登录，和按量计费的 `opencode`/OpenCode Zen 共用一把 Key）。Atrium 不另配模型：服务商和模型来自用户装的 pi，宿主把每个模型的上下文、最大输出、是否支持图片原样交给界面（本机 pi 1.3.0 实测 `opencode-go` 29 个模型，如 Kimi K3 1M 上下文、Grok 4.7 500K、DeepSeek V4 Pro 1M 纯文本）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 桌面模型按钮和面板把 `opencode-go` 显示为“OpenCode Go”、`opencode` 显示为“OpenCode Zen”，用官方图标，Go 带“套餐”签；模型行写出 pi 给的上下文、输出和图片支持 | `ui/chat/model-choice.test.ts` 的服务商名和 `onPlan` 用例（先见红后绿）；`apps/desktop/e2e/models.spec.ts` 新增旅程，用 faux pi 的 `opencode-go` 断言按钮和左侧列表的图标、套餐签、`上下文 128K · 输出 16.4K · 支持图片`，并截浅色、深色两张 |
+| 列表里有 Go 的模型时隐藏按量计费的 Zen 模型，避免误选；只有 Zen 的凭据时照常列出 | `host/sessions/model-rules.test.ts`：清单加了 `opencode`/`opencode-go` 两个模型，新增“without opencode-go”用例 |
+| 手机模型 sheet 和桌面一致（名字、图标、套餐签） | `apps/ios/AtriumKit/Tests/AtriumUITests/ModelChoiceTests.swift` 的 providers 用例 |
+
+- 图标：`packages/ui/src/design/brand/opencode.svg` 取自 OpenCode 官方品牌资源（`opencode.ai/brand` 背后的 GitHub 品牌包）的 `opencode-logo-light-square.svg`，按 design-language 的“白底圆角小方块”补一层白底，浅色、深色共用一份（审查后改：原先按 `prefers-color-scheme` 换深色配色，会和手机生成的不一致，也和 Atrium 手动选的主题对不上）；来源写在 `SOURCES.md`；手机用 `scripts/ios-brand-icons.mjs` 生成的 `opencode.png`。
+- 破坏检查：`docs/testing/opencode-models.break-check.json` 5 处、`apps/ios/Testing/opencode-breaks.json` 2 处，全部检出。
+- 最终验证：`pnpm check`；单元 4302；宿主 243；Electron `models.spec.ts` 6/6；`pnpm test:ios` 的 Swift 402 项和模拟器 UI 测试通过。界面全量共跑 7 次：4 次 1163/1163 全过、3 次 1162/1163；其中第 3 次失败抓到了用例名，是既有的 `status-bar.browser.test.tsx`「opens a row to its files, tools or servers, and closes it again」，单文件 28/28 通过（与路线图登记的既有不稳一致，根因仍未查明），前两次失败没留下列名，不当作已解决。改动行变异：ui 组 `model-choice.ts` 100%（176 Killed / 0 Survived）；host 组 `model-rules.ts` 93.40%（99 Killed / 7 Survived，存活全是 `reason` 字符串，源码已写明它只作文档、不参与过滤）。没跑全量 e2e、泄漏和打包。
+- 截图：Electron 测试产物 `apps/desktop/test-results/…/opencode-go-{light,dark}.png`（不进 git）；请 GPT-6 Astra 看过，固定白底的小方块在浅色、深色下都清楚（深色下确认是白底 + 深色标志），标题和模型行排版正常；两次都对上的“中”是既有设计里套餐签压在图标右下角、盖住标志下半块（所有带签的服务商都如此，见 design-language“走套餐的签”），没改。
+- 未覆盖、留给验收：真实 OpenCode Go 的登录和一次回复要用户自己粘 API Key（不进入测试，也不碰 `~/.pi`）；手机只断言了 `logo("opencode-go")` 的文件名，没有在 Swift 测试里从 `Bundle.module` 解码这张 PNG，手机模型 sheet 也没有截图（gallery 里没有 Go 的样例数据）。
+
+## 新建 worktree 同时生成中文名（M1.11 自用后补充，2026-10-28）
+
+用户确认全部新增入口，显示选 `prototypes/worktree-chinese-name-prototype.html` 的 A“中文单行”：英文分支/目录不改，中文名只存工作区 `alias`，已有 worktree 不回填。协议 29；手机类型和往返夹具已重新生成。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 一次 AI 调用生成中英文名；固定分支不被模型改写；JSON/fence/旧英文回复；独立清理中文、16 码点、汉字和控制字符 | `workspaces/branch-namer.test.ts`，新增测试先红后绿；素材以固定前缀 JSON 走 stdin；超时参数 15 秒沿用 OneShot |
+| 模型优先级、错误不带内容、取消后不再起 pi、close 中止并等待清理 | `branch-namer.test.ts`；真实 pi 超时/进程管理沿用既有 `pi/src/oneshot` 测试，不声称新增真实模型测试 |
+| 两个创建入口单次登记别名；扫描抢先记录不覆盖非空手动名 | `worktree-creator.test.ts`、`projects/project-service.test.ts`，三文件最终 98 项通过 |
+| 字段跨协议 / client / router / index 不丢；固定分支保留 | `protocol/worktree-names.test.ts`、`envelope.test.ts`、`client/atrium-client.test.ts`、`server/router.test.ts`、`sessions/index-commands.test.ts`，新增接缝均见红 |
+| 手动空/带上下文子对话传名称和父模型；agent 传首任务及选定模型 | `session-manager.test.ts`、`agent-relay.test.ts`；Electron `children.spec.ts` 验证 fork 和 agent 新 worktree 的中文侧栏、英文悬停及真实分支 |
+| 自动分支 / 手填 / 仅图片均命名一次；重试保存 alias（包含 null），跨项目 / 手改分支丢旧名 | `ui/state/new-workspace.test.ts` 48 项通过；新增关键行为见红并做破坏验证 |
+| 侧栏 34px 单行中文，悬停英文；手填分支命名失败不误说随机 | `app/new-workspace.browser.test.tsx` 31 项通过，新增浏览器测试见红；原型明暗、长名、失败截图已查 |
+| 冷模型查询不能拖住关闭；子对话命名在途关闭不创建分支、不误记崩溃；资源归零 | `worktree-names.host.test.ts` 两例先红后绿：不推进 120 秒期限先断言关闭完成；第二例挂住一次性命名，复现 DOMException 被记 error 后改为预期 CommandError。均无意外 warn/error，不把失败后的清理推进当通过依据 |
+| 创建后重启中文名保留，英文分支/目录不变 | `apps/desktop/e2e/new-workspace.spec.ts` 两旅程；连同 `children.spec.ts` 共 8 项通过 |
+
+最终验证：`pnpm check`、构建通过；单元 4301 项通过；宿主全量 243/243。宿主首轮 241/242，其中未改动的 `changes/checkout.host.test.ts` 15 秒超时，单文件 36/36 后，含两项新关闭回归的全量 243 项通过，保留首轮失败记录。UI 两次全量均 1162/1163，既有状态栏“opens a row…”失败，单文件各自 28/28 通过，不报整套 UI 全绿；本功能浏览器 31/31 通过。Node 泄漏 20/20；`pnpm test:ios` 的 Swift 402 项及模拟器 UI 测试通过（首次因 RoundTripTests 的旧版本 28 断言失败，改为 29 后复验）。Xcode 输出 debugger-version 诊断但退出码 0。破坏检查最终复跑宿主核心 18＋接线 9＋UI 3，30 处全部检出。另将 Electron 自动命名夹具的 alias 改成 null，准确在中文侧栏断言见红，恢复原文件后 1/1 通过（hash `2815e1c4` 前后一致）；最终正向两文件 8/8 通过。
+
+改动行变异（未改阈值、配置或添加 suppress）：UI 100%（70 Killed / 0 Survived / 0 Timeout；57 缓存、13 本轮执行）；shared 87.50%（14 Killed / 2 Survived / 0 Timeout，存活为 JSON.stringify 会省掉的 undefined 字段）；host 2/2 Killed，命名箭头删掉的首轮被无关 session-manager 不稳抢先检出，独立重测后确实在新增冷查询回归中因没有命名进程失败，保留两轮证据。
+
+Git 组首轮 158 Killed / 8 Timeout / 24 Survived，补测后 180 / 5 / 5，围栏定向复测再检出 3 项。父按文件、精确位置、mutator 和 replacement 独立合并第二轮与末轮原始 JSON，得到 183 Killed / 4 Timeout / 3 Survived（另 8 个既有 Ignored，不进分母）。末轮 `retrySurvivors` 删掉三个范围外存活，不能引用最新 HTML 的 100%；完整口径保留它们。三项存活为 split 空项兜底和两处被后续/真实 GitRunner 覆盖的取消守卫；四项 Timeout 未确认根因、不计检出。仅 Killed 为 183/190＝96.32%；父进一步查出其中一项 Killed 是删除 `closing.abort()` 后在取消等待处测试超时，虽有直接因果，仍保守不给超时信用，采用 **182/190＝95.79%**。所有 Killed 有失败输出，未以无日志状态补造因果。原始证据保留 `/tmp/atrium-worktree-names-git-mutation{,-second,-fence}.log`、`-second.json` 及 `-summary.json`；原报告不改判、不删存活。
+
+审查按用户决定只跑 GPT-6 Astra / Grok 4.7，Claude 已由用户停止、无审查结论。冷模型查询关闭等待、子对话取消误报 error 已先红后修，两方限定复核无阻断；接口表、领域模型、关闭副作用文档已补齐，旧重试沿用快照已明确并补测试。相邻既有“在途 agent 模型查询被主动取消后仍可能记 error”不纳入本功能修复，保留为边界。
+
+`pnpm boundary`：依赖、URL、环境变量、隐藏命令无新增；协议 28 → 29；未登记 0、非精确依赖 0、改动副作用矛盾 0。无本 worktree 的开发/测试/Stryker 进程、`.tmp` 或 `.stryker-tmp` 残留。
+
+未运行整套桌面 / 全套桌面泄漏、真实模型套餐冒烟、打包安装；不访问真实项目数据、`~/.atrium`、凭据或剪贴板。原型仅在独立浏览器任务空间打开。2026-10-28 用户要求“合并并提交”，按验收通过处理；功能提交 `7e1a87f` 已本地合回 `main`，不安装、不推送。合并前 `main` 没有前进，分支同步应答 Already up to date；重新通过 `pnpm check`、单元 4301、完整 UI（`--maxWorkers=1`）1163/1163，以及完整非泄漏 Electron 套件 71 项（其中 `log-gate.spec.ts` 是 `test.fail()` 声明的预期失败自检，整套退出码 0）。这不抹去此前默认并行 UI 的状态栏失败或证明其根因已解决。原分支/worktree 仍有当前会话的 pi 和 Xcode DTServiceHub 以它为 cwd，故安全保留，不终止用户进程、不强删。
+
 ## UI受控诊断（c710d51；不是正式回归或旧失败结案）
 
 Q0/Q1/Q2/C0/C1/C2各一次通过，前置Q0选例错误未执行主体，原记录保留。C1/C2按精确身份链证明运行中步骤与闲时来源行/同批两项均为合法呈现，原“必须两个source-line”判据过强；原children测试尚未修，历史67/68根因不能直接归入此例。Q均无增长但没有红绿对照，且录制、环境有差异，不抹旧ask-user失败。父核hash/最小元数据，未复跑或重算已删原堆；Opus单路只读审计的来源边界已补。诊断代码未纳入默认收集，不登记为新增正式用例，见 [实验记录](ui-controlled-diagnostics.md)。
@@ -992,6 +1153,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 点空白处（面板、胶囊和输入框以外的地方）、按 Esc 收起面板（排队面板和子对话列表都是）；点面板里的东西（如行的"···"菜单）、点输入框和它里面的按钮（打字、停止）不收起；收起编辑的 Esc、输入框拿去停止运行的 Esc 不收起面板；点另一个胶囊换成那个的面板；收起后不再监听 | `run-control.browser.test.tsx` "closes the queue on a press outside it"、"keeps the queue open on a press in the input box or on its stop button"、"closes the queue on Escape, but not on the one that gives up an edit"、"switches to the other capsule's panel"；`children.browser.test.tsx` "closes its list on a press outside it and on Escape" | 已覆盖（输入框停止运行的 Esc 未单独测；监听的释放未单独测） |
 | 面板的动效：展开时从底边往上长（`clip-path`，0.28 秒 `cubic-bezier(.45, 0, .15, 1)`，裁剪留出阴影的位置），各行从下 6px 淡入（0.22 秒，第一行晚 60ms，之后每行再晚 30ms）；收起不做动画、面板直接消失（2026-10-21 自用时改）；减少动态效果时直接出现、消失 | `run-control.browser.test.tsx` "grows the panel from its bottom edge"（含收起时面板立刻没有）、"closes the queue on a press outside it, the panel going at once"、"opens and closes at once when less motion is asked for" | 已覆盖 |
 | 模型列表的规则表：恢复 pi 自己的 `anthropic` 和它的默认模型（2026-10-22 用户要求，OAuth / API Key 都可见，界面不加套餐签）；仍去掉 `azure-openai-responses`、不是 ChatGPT 登录的 `openai`（登录状态读不出时也去掉）、OpenRouter 里 `anthropic/`、`openai/` 开头的，别家 `openai/` 开头的不算；同一订阅两条路时列表里有 `openai-codex` 的模型就不列 `openai` 的，没有时 ChatGPT 登录的 `openai` 照常列；pi 的默认模型被去掉、不在列表里或没有时没有默认 | `packages/host/src/sessions/model-rules.test.ts` | 已覆盖 |
+| OpenCode Go 上服务商已下线或这把 Key 所在工作区用不了的模型按确切 id 隐藏（2026-11-03 实测：`mimo-v2.5`、`mimo-v2.5-pro` 报 410；`beam-free`、`gpt-6-luna`、`muse-spark-1.2-contributor`、`muse-spark-1.3-contributor` 按国家 403；`iceman-contributor-free` 要开工作区的训练数据开关）；只在这个服务商内按 id 匹配，别家同名的不动，没列进去的 Go 模型和 DeepSeek 照常可见 | `model-rules.test.ts` "drops those by exact id within their provider"；去掉这条规则的 `providerId` 后该用例见红 | 已覆盖 |
 
 ## M1.11 自用中改（2026-10-20）
 
@@ -1230,7 +1392,7 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 宿主的用量服务全宿主一份：按 `openai-codex`、`anthropic`、`xai` 的顺序列出，不管谁先查到；监听者每次听到所有服务商的；同一服务商连续同样的失败只记一次日志，换了原因或中间查到过用量再记，各服务商分开；没查到过的服务商报 `no_login` 不算变化 | `packages/host/src/sessions/plan-usage.test.ts` | 已覆盖 |
 | 会话问所有订阅：pi 启动后和每次运行结束后经自己的 pi 问三家，不管当前模型，换模型不问，没有模型也问；宿主停掉后重新启动再问；停 pi 途中 pi 最后的事件不再问；会话指标里没有 `plan` | `packages/host/src/sessions/session-controller.test.ts` "plan usage" | 已覆盖 |
 | 推给所有连接：每个连接握手后紧跟 `welcome` 推一次 `plans_updated`（新宿主是空列表）；之后变了就推 | `packages/host/src/server/ws-server.host.test.ts` "right after its welcome"、`packages/host/src/chat.host.test.ts`（握手等到它） | 已覆盖 |
-| 协议 17：`plans_updated` 的格式（三家、空列表、带产品的窗口）；超过 100%、9 个窗口、不认识的服务商、4 份、窗口缺 `parts`、产品超过 100%、没名字、名字超过 64 个字、17 个产品都拒绝；会话指标再带 `plan` 拒绝 | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| 协议 17：`plans_updated` 的格式（三家、空列表、带产品的窗口）；超过 100%、9 个窗口、不认识的服务商、4 份、窗口缺 `parts`、产品超过 100%、没名字、名字超过 64 个字、17 个产品都拒绝；会话指标再带 `plan` 拒绝（2026-11-02 协议 30 加 `opencode-go`：四份合法、五份才拒绝，见下文"OpenCode Go 的套餐用量"） | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
 | 客户端：推来之前是空列表，之后每次整份换，格式不对的不要；不为它发命令 | `packages/client/src/atrium-client.test.ts` "plans" | 已覆盖 |
 | 状态栏"套餐"：有任何一家就出现；摘要取当前模型那家用得最多的窗口，≥ 80% 变橙；当前模型不是查到的订阅时只写"套餐"、不变色；那家没有窗口时写"套餐 —"；卡片标题"套餐用量"，每家一段（当前那家在前、标"当前"），Grok 的每周下面列各产品（名字拆开、没有自己的进度条）；时间每分钟随时钟走；调节面板的说明 | `packages/ui/src/chat/status-bar.browser.test.tsx` "StatusBar's plan group"；`status-figures.test.ts` "names a subscription"、"lists it first"、"run-together name"、"the status bar's groups" | 已覆盖 |
 | 设置 · 模型与账户的"套餐用量"：在订阅登录和 API Key 之间，每家一段、不标"当前"；还没有时写怎么来的；Atrium 加载不了 pi 的登录时也显示 | `packages/ui/src/settings/accounts-section.browser.test.tsx` "usage" | 已覆盖 |
@@ -1602,7 +1764,7 @@ UI 默认测试端口 63315 被其它 worktree 的测试占用，未终止对方
 | 宿主：会话"待回答"算上问题，回答后清掉；路由转 `answer_question` | `session-manager.test.ts` "waits for the questions its agent asked"、`router.test.ts` | 已覆盖 |
 | 客户端：`answerQuestion` 发出命令 | `packages/client/src/atrium-client.test.ts` | 已覆盖 |
 | 界面状态：单选 / 多选 / "其他"的选取、算不算答了、下一道没答的题、拼出答案、按会话保存草稿（换问题、题数不对时重来） | `packages/ui/src/chat/question-state.test.ts` | 已覆盖 |
-| 提问卡片：点阵问号与顶行（`agent` Syne 橙 / `/` / `在问你` / `已答 N / M`）、题名标签、单选 / 多选标签与"已选 N"、序号即控件（圆 / 圆角方、选中蓝底勾）、推荐标记、单选 0.2 秒后到下一题、多选勾选计数、没答完不能提交、"其他"多行框（铺满整行、聚焦、长高、⏎ 确定、⇧⏎ 换行）、数字键不进输入框、↑↓ 移动、← → 换题、跳过、草稿保留、预览跟着指向的选项、只有问题时卡片区也显示、在对话框下面 | `packages/ui/src/chat/question-card.browser.test.tsx` | 已覆盖 |
+| 提问卡片：顶行（没有图标，`agent` 字母依次跳动、减弱动效时不动，`agent` Syne 橙 / `/` / `在问你` / `已答 N / M`）、题名标签、单选 / 多选标签与"已选 N"、序号即控件（圆 / 圆角方、选中蓝底勾）、推荐标记、单选 0.2 秒后到下一题、多选勾选计数、没答完不能提交、"其他"多行框（铺满整行、聚焦、长高、⏎ 确定、⇧⏎ 换行）、数字键不进输入框、↑↓ 移动、← → 换题、跳过、草稿保留、预览跟着指向的选项、只有问题时卡片区也显示、在对话框下面 | `packages/ui/src/chat/question-card.browser.test.tsx` | 已覆盖 |
 | 输入框：有问题时占位文字换掉，回车和 ⌘回车都按插话发 | `composer.browser.test.tsx` "while the agent's questions wait" | 已覆盖 |
 | 过程轨道：文字（正在问你 / 问了你 / 跳过 / 直接回复 / 已取消）、折叠摘要"问了你 N 个问题"、记录行、Markdown；等你时问号标题行"等你回答"和光环节点、答完橙点和常显记录、点开看全部选项、停止后灰点不是死路 | `turn-layout.test.ts` "the agent's questions on the rail"、`turn.browser.test.tsx` "the agent's questions" | 已覆盖 |
 | 端到端：真实 Electron + pi + faux 模型，agent 问两题，卡片点选提交，模型同一轮读到答案、标签"待回答"起止、过程记录；有问题时在输入框发消息，卡片消失、模型同一轮先读到"直接回复"再读到你的话 | `apps/desktop/e2e/ask-user.spec.ts` | 已覆盖（负对照：去掉"有问题时回车按插话发"后第二条变红） |
@@ -1611,6 +1773,8 @@ UI 默认测试端口 63315 被其它 worktree 的测试占用，未终止对方
 破坏检查（2026-10-22）：新行为的 50 个改坏点全部检出；第一次没检出的 4 处，3 处补了测试，1 处是多余的守卫，已删掉。
 
 破坏检查（2026-10-26，顶行改版）：4 个改坏点（`agent` 写回一行纯文字、`在问你` 改名、计数加回`· `、点阵全部跳过不画）全部检出。改动只涉及 `question-card.tsx`（浏览器测试覆盖）和 `design/dots.ts`（纯绘制，不在变异分组），不跑变异测试。
+
+破坏检查（2026-10-28，顶行去掉点阵问号、改成 `agent` 字母波浪，原型 `question-card-header-v4-prototype.html` 的乙一）：6 个改坏点（去掉逐字母的错开、波浪只播一次、减弱动效时照样动、整词的辅助功能名称改掉、`agent` 改回正文色、行首加回问号图形）全部检出。`dots.ts` 里画点阵问号的函数随之删掉。改动只涉及 `question-card.tsx`、`styles.css`（浏览器测试覆盖），不在变异分组，不跑变异测试。
 
 变异测试（只变异改动的行，2026-10-22）：协议 `question.ts` 100%（76）；pi `ask-user.ts`、扩展的 `ask_user` 部分、`history/tools.ts` 100%（255），`ask-user.ts` 里 5 处为类型写的判断与一处空白预览后的上限参数注明等价；宿主控制器、中转、启动参数的改动 100%（控制器 100、中转 28、启动参数 5 个变异；过程中补了"插话被拒后重新发布问题""停止后不恢复""回复途中不收新问题""pi 已不在时放弃"四个测试，删掉了两处多余代码）；界面 `question-state.ts`、`turn-layout.ts` 的改动 100%（175），为类型写的判断注明等价。`question-state.ts` 加进了界面的变异分组。
 
@@ -2018,9 +2182,9 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 |---|---|
 | 手机纸面配色：纸、便签纸、浅底、正文、元信息、细线、深米色及浅底、墨色按钮、在问你、出错、通过、轨道；便签三级（卡住 / 等你 / 提醒）的纸色和字色，浅深两套 | Swift `DesignTokenTests`"takes the paper colour table of design-language" |
 | 打包的 Fraunces 斜体（"Atrium" 和 0–9）、Syne（"agent"）按自己的 PostScript 名注册，字形齐全；重复注册无害 | Swift `BrandFontTests`（关掉注册时三条都失败） |
-| 协议 29：`Attention.text` 必填、最多 300 字符；`SessionSummary.question` 的形状；版本 29 | `listing.test.ts`"Attention (protocol 29)"、`envelope.test.ts`（样例）、`remote.test.ts`（版本 29）；Swift `RoundTripTests`（重新生成的夹具、版本 29） |
+| 协议 32：`Attention.text` 必填、最多 300 字符；`SessionSummary.question` 的形状；版本 32 | `listing.test.ts`"Attention (protocol 32)"、`envelope.test.ts`（样例）、`remote.test.ts`（版本 32）；Swift `RoundTripTests`（重新生成的夹具、版本 32） |
 | 失败标记带 pi 的报错原文，截到 300 字符；崩溃的标记没有原文；看过之后原文保留 | `session-manager.test.ts`"SessionManager attention"（登录、其他失败、"keeps pi's failure text…"） |
-| 旧索引里没有 `text` 的标记读成 `null` | `index-schema.test.ts`"reads a mark kept before protocol 29…" |
+| 旧索引里没有 `text` 的标记读成 `null` | `index-schema.test.ts`"reads a mark kept before protocol 32…" |
 | 列表里最早一个没答的提问 / 对话框的名字：提问取第一题的第一行作标题、其余作说明，对话框取标题和 message；分别截到 200、300 字符；答完变 `null` | `session-manager.test.ts`"says since when…"（两条）、"names the first question…"、"names a confirmation…" |
 | 首页便签：卡住在等你前面、同级新的在前；标题和正文取报错原文或提问的 `question`，没有时用会话标题；报错正文用等宽；"项目 · 分支"；最多 8 张，其余算进"还有 N 件" | Swift `HomeListTests`"makes a note of each thing…"、"shows eight notes…" |
 | 一个 worktree 一行：按"问你 > 出错 > 运行 > 最新"选领头的会话，"等 N 个在跑"数其余在跑的，空 worktree 没有领头，已合并的收成一个数 | Swift `HomeListTests`"gives each open worktree one line…" |
@@ -2058,7 +2222,7 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | + 圆环收起时不挂圆钮和毛玻璃圆：`RingStage` 关→开启中（先挂上）→开→收起中（0.45 秒后卸下） | Swift `PlaceRingTests.mountsKeysOnlyWhileUsed`（类型不存在时失败，已见过）；模拟器上展开涟漪、收起都看过；真机首页离屏渲染再少 6 次 |
 | 心跳发出后收到宿主的任何一帧（含没收齐的消息块）都算回应，同一时刻或更早的不算；没有心跳回应、但长消息一直在到时不重连 | Swift `HeartbeatTrackerTests.anyFrameAnswers`、`SecureChannelTests.chunkIsHeard`、`RemoteConnectionTests.arrivingChunksKeepTheLink`（60 秒里每 5 秒一块、从不回心跳）；先红后绿；`>=` 的写法让已有的"两次没回应 35 秒重连"挂住，改为严格晚于；破坏检查 4/4 CAUGHT |
 | 发给手机的列表不带已归档的会话、工作区、对话，会话 `file` 一律 `null`；变更里归档的条目改成删除，原有删除保留；本机客户端照旧拿完整列表 | `remote-policy.test.ts`"the list as the phone gets it"3 项、`connection.test.ts`"sends the list without archived sessions"；先红后绿；破坏检查 9/9 CAUGHT |
-| 宿主发给手机的消息：手机在 `connect` 里要了 `deflate` 才压；不小于 1 KiB 且压完更小才压，`0x06`…`0x05` 分块；没要过就收到压缩块、同一条消息混用两类块、损坏、解压超过上限都关通道；Node 压的 Swift 能解 | TS `framing.test.ts`"compression"5 项、`channel.test.ts`"deflates large messages only for a phone that asked"、`phone-sync.host.test.ts`"reads the list deflated…"（真 relay、真宿主）；Swift `DeflateTests` 3 项（Node 生成的 raw deflate 夹具）、`RemoteConnectionTests.deflatedMessages`；破坏检查 12/12 CAUGHT（第一次跑时接线用例在破坏后挂住而非失败，已把接线测试改为"消息到了或连接断了"二选一等待，复验抓到） |
+| 宿主发给手机的消息：手机在 `connect` 里要了 `deflate` 才压；不小于 1 KiB 且压完更小才压，`0x06`…`0x05` 分块；没要过就收到压缩块、同一条消息混用两类块、损坏、解压超过上限都关通道；Node 压的 Swift 能解 | TS `framing.test.ts`"compression"5 项、`channel.test.ts`"deflates large messages only for a phone that asked"、`phone-sync.host.test.ts`"reads the list deflated…"（真 relay、真宿主）；Swift `DeflateTests` 3 项（Node 生成的 raw deflate 夹具；2026-11-04 合回 main 时补：空输入按损坏处理，原先回退到临时数组指针，严格构建报悬空指针）、`RemoteConnectionTests.deflatedMessages`；破坏检查 12/12 CAUGHT（第一次跑时接线用例在破坏后挂住而非失败，已把接线测试改为"消息到了或连接断了"二选一等待，复验抓到） |
 | 手机打开会话只要 3 轮、256 KiB；会话页顶行出现时自动取更早的（`fetch_transcript` 3 条、256 KiB，同一会话一次一个），取到接在最前面并换上 `hasOlder`；`epoch` 变了或最早一条变了就丢掉应答；失败只结束"正在载入"；换代、关页作废 | Swift `SyncOlderTests` 7 项；先红后绿；破坏检查 7/7 CAUGHT（第一次漏了"同一最早条目、不同 epoch"，补测试后抓到）。顶行转圈和插入后视口不跳只编译和 lint 过，没在模拟器或真机上看过 |
 | 往上翻载入更早的不跳、不连取：顶行滚进屏幕才取（取完不算触发）；每批整块排版；插入前先把回复 Markdown 解析进缓存；最上面一条被推下多少就滚多少，跟住到手指再碰屏幕、最多 30 次；替换快照、手指在滚时不动 | Swift `OlderPlaceTests` 5 项、`SyncOlderTests` 增"批次大小""先看应答里的条目"2 项、`MarkdownCacheTests` 2 项；模拟器 `conversation-older` 图库（真实 `SyncCore`，0.8 秒后答 3 轮）：修前一次滑动连取 4 批、内容换成新插入的；修后只取 1 批、第 0 轮停在原处（top 102→1968→102），60 帧录屏插入时无变化帧；对照上一提交，`conversation-stream` 打开不在底部是原有现象，不是这次引入；破坏检查 12/12 CAUGHT（第一次 7 项因测试没有显示名、脚本认不出失败行而报 MISSED，手工复验确实能抓到，补上显示名后复验） |
 | 顶行在屏幕上时，会话同步好或换了新快照（`epoch` 变）也会再取；会话还在加载或等续传时不取 | Swift `OlderPlaceTests` 增"连上且同步好才取""新快照或同步好算一次变化"；真机探针日志确认打开时先用缓存那份发出请求；Mac 日志 03:38:15 一次 `transcript_changed` |

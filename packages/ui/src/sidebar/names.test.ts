@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  chatBand,
   chatName,
   isDone,
   isPending,
   mergeLabels,
   placeOf,
   sessionTitle,
+  sortChats,
   sortWorkspaces,
   timeAgo,
   workspaceName,
@@ -93,6 +95,43 @@ const worktree = (id: string, createdAt: number | null, verdict = "noChange") =>
   kind: "worktree" as const,
   createdAt,
   ...merge({ verdict }),
+});
+
+describe("sortChats", () => {
+  it("puts pinned chats first, then the ones a run makes busy, then the rest by latest activity", () => {
+    const quiet = { pinnedAt: null, busy: false, at: 50 };
+    const pinned = { pinnedAt: 1, busy: false, at: 10 };
+    const running = { pinnedAt: null, busy: true, at: 30 };
+    const question = { pinnedAt: null, busy: true, at: 40 };
+    const older = { pinnedAt: null, busy: false, at: 5 };
+
+    expect(sortChats([quiet, pinned, running, question, older])).toStrictEqual([
+      pinned,
+      question,
+      running,
+      quiet,
+      older,
+    ]);
+  });
+
+  it("keeps a pinned chat in front even while it runs, ordering the pinned ones by activity", () => {
+    const pinnedAndRunning = { pinnedAt: 1, busy: true, at: 60 };
+    const pinnedQuiet = { pinnedAt: 2, busy: false, at: 20 };
+    const idle = { pinnedAt: null, busy: false, at: 999 };
+
+    expect(sortChats([idle, pinnedQuiet, pinnedAndRunning])).toStrictEqual([pinnedAndRunning, pinnedQuiet, idle]);
+  });
+});
+
+describe("chatBand", () => {
+  it("counts the bands from the top: pinned, busy, the rest", () => {
+    expect([
+      chatBand({ pinnedAt: 1, busy: true }),
+      chatBand({ pinnedAt: null, busy: true }),
+      chatBand({ pinnedAt: null, busy: false }),
+    ]).toStrictEqual([0, 1, 2]);
+    expect(chatBand({ pinnedAt: 0, busy: false })).toBe(0);
+  });
 });
 
 describe("sortWorkspaces", () => {

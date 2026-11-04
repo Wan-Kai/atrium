@@ -23,7 +23,7 @@ describe("isAuthFailure", () => {
   );
 });
 
-describe("Attention (protocol 29)", () => {
+describe("Attention (protocol 32)", () => {
   it("refuses a text longer than 300 characters, and a mark without its text", () => {
     expect(Attention.safeParse({ reason: "error", at: 1, cleared: false, text: "x".repeat(301) }).success).toBe(false);
     expect(Attention.safeParse({ reason: "error", at: 1, cleared: false }).success).toBe(false);

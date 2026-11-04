@@ -64,6 +64,8 @@ struct DeflateTests {
     #expect(throws: WireError.badFrame) {
       try truncated.receive(.deflatedChunk(fromNode.prefix(100), isLast: true), at: instant(0))
     }
+    // Raw deflate always has a block, so nothing at all is corrupt too.
+    #expect(throws: WireError.badFrame) { try Inflate.raw(Data(), limit: 2258) }
     var small = FrameReassembler<ContinuousClock.Instant>(limit: 2257, inflates: true)
     #expect(throws: WireError.messageTooLarge(limit: 2257)) {
       try small.receive(.deflatedChunk(fromNode, isLast: true), at: instant(0))

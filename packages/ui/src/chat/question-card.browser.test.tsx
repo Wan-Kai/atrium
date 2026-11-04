@@ -1,6 +1,6 @@
 import { IDLE_CONTROL, type AskedQuestion, type PendingQuestion, type QuestionReply } from "@atrium/protocol";
 import { afterEach, describe, expect, it } from "vitest";
-import { userEvent } from "vitest/browser";
+import { cdp, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { ClockContext, type UiClock } from "../state/clock";
@@ -145,16 +145,46 @@ describe("QuestionCard", () => {
     expect(screen.getByRole("radio").elements()).toHaveLength(0);
   });
 
-  it("draws the question mark in the brand's dots, not as text", async () => {
+  it("starts the top row with the word agent, its letters rising one after another, and no glyph", async () => {
     const { screen } = await card(asked(scope));
 
-    const glyph = screen.getByRole("img", { name: "问" });
-    await expect.element(glyph).toBeVisible();
-    const canvas = glyph.element() as HTMLCanvasElement;
-    expect(canvas.width).toBeGreaterThan(0);
-    const pixels = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
-    const alphas = [...pixels].filter((_, i) => i % 4 === 3);
-    expect(Math.max(...alphas)).toBeGreaterThan(0);
+    const word = screen.getByLabelText("agent", { exact: true }).element();
+    const letters = [...word.children].map((letter) => getComputedStyle(letter));
+    expect([
+      word.parentElement?.firstElementChild === word,
+      screen.getByRole("img").elements().length,
+      word.textContent,
+      letters.map((letter) => letter.animationName),
+      letters.map((letter) => letter.animationDuration),
+      letters.map((letter) => letter.animationDelay),
+      letters.map((letter) => letter.animationIterationCount),
+      getComputedStyle(word).fontFamily,
+      getComputedStyle(word).color,
+    ]).toStrictEqual([
+      true,
+      0,
+      "agent",
+      Array.from({ length: 5 }, () => "atrium-question-wave"),
+      Array.from({ length: 5 }, () => "2.4s"),
+      ["0s", "0.08s", "0.16s", "0.24s", "0.32s"],
+      Array.from({ length: 5 }, () => "infinite"),
+      expect.stringMatching(/^Syne\b/),
+      colorOf("var(--attn-text)"),
+    ]);
+  });
+
+  it("holds the word agent still when less motion is asked for", async () => {
+    await cdp().send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+    try {
+      const { screen } = await card(asked(scope));
+
+      const word = screen.getByLabelText("agent", { exact: true }).element();
+      expect([...word.children].map((letter) => getComputedStyle(letter).animationName)).toStrictEqual(
+        Array.from({ length: 5 }, () => "none"),
+      );
+    } finally {
+      await cdp().send("Emulation.setEmulatedMedia", { features: [] });
+    }
   });
 
   it("draws the numbers as the control: circles for one choice, rounded squares for several, a tick once picked", async () => {

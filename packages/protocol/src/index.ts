@@ -37,6 +37,8 @@ export {
   RenameChatCommand,
   ArchiveChatCommand,
   RestoreChatCommand,
+  PinChatCommand,
+  UnpinChatCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,

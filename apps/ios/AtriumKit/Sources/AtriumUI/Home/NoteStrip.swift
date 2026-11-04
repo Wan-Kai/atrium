@@ -25,9 +25,10 @@ struct NoteStrip: View {
       HStack(alignment: .firstTextBaseline) {
         Text("等你处理").font(.system(size: 15, weight: .bold)).foregroundStyle(palette.text)
         Spacer()
-        (Text("\(home.notes.count)").fontWeight(.bold).foregroundColor(palette.attn)
-          + Text(" 件").foregroundColor(palette.secondary))
-          .font(.system(size: 12.5)).monospacedDigit()
+        Text(
+          "\(Text("\(home.notes.count)").fontWeight(.bold).foregroundColor(palette.attn))\(Text(" 件").foregroundColor(palette.secondary))"
+        )
+        .font(.system(size: 12.5)).monospacedDigit()
       }
       .accessibilityElement(children: .combine)
       ScrollView(.horizontal) {

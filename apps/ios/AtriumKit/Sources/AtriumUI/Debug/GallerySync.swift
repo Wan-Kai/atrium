@@ -110,7 +110,7 @@
       \(workspace("w3", "p1", branch: "feat/old-radar", merged: true)),\
       \(workspace("w4", "p2", branch: "feat/radar-layer")),\
       \(workspace("w5", "p2", branch: "main", local: true))],\
-      "chats":[{"id":"cht_1","dir":"/chats/cht_1","alias":null,"firstSessionId":"s8","archivedAt":null}],\
+      "chats":[{"id":"cht_1","dir":"/chats/cht_1","alias":null,"firstSessionId":"s8","archivedAt":null,"pinnedAt":null}],\
       "sessions":[\(session("s1", in: "w1", prompt: "修一下缓存过期", updated: now - 7_200_000)),\
       \(session("s2", in: "w2", prompt: "把 TTL 改成可配置", updated: now - 3_000_000)),\
       \(session("s3", in: "w5", prompt: "整理 README", updated: now - 90_000_000)),\

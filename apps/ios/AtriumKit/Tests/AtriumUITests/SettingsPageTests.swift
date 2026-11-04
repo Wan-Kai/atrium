@@ -14,4 +14,10 @@ struct SettingsPageTests {
     #expect(SettingsPage.label("light") == "浅色")
     #expect(SettingsPage.label("dark") == "深色")
   }
+
+  @Test("the pinning row says which way a tap goes")
+  func pinLabel() {
+    #expect(SettingsPage.pinLabel(pinned: false) == "置顶这个对话")
+    #expect(SettingsPage.pinLabel(pinned: true) == "取消置顶")
+  }
 }

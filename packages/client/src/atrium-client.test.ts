@@ -422,6 +422,38 @@ describe("createAtriumClient: commands", () => {
     expect(latest().sent.at(-1)).toStrictEqual({ type: "create_chat", requestId: "client-1-3", traceparent });
   });
 
+  it("keeps a fixed branch and passes its generated Chinese alias into workspace creation", async () => {
+    const { client, latest } = await connected();
+    const naming = client.nameBranch("prj_0123456789abcdef", "修复登录", null, "feature/login");
+    latest().answer("name_branch", { branch: "feature/login", alias: "修复登录" });
+    const names = await naming;
+    const creating = client.createWorkspace("prj_0123456789abcdef", names.branch, "HEAD", names.alias);
+    latest().answer("create_workspace", { workspaceId: "wks_00000000000000aa" });
+    expect(await creating).toStrictEqual({ workspaceId: "wks_00000000000000aa" });
+    expect(names).toStrictEqual({ branch: "feature/login", alias: "修复登录" });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => ["name_branch", "create_workspace"].includes(String(command["type"])))
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      {
+        type: "name_branch",
+        projectId: "prj_0123456789abcdef",
+        text: "修复登录",
+        model: null,
+        branch: "feature/login",
+      },
+      {
+        type: "create_workspace",
+        projectId: "prj_0123456789abcdef",
+        branch: "feature/login",
+        base: "HEAD",
+        alias: "修复登录",
+      },
+    ]);
+  });
+
   it("sends the session, project, workspace, chat and preference commands with their fields", async () => {
     const { client, latest } = await connected();
     const calls = [
@@ -452,7 +484,7 @@ describe("createAtriumClient: commands", () => {
     latest().answer("hand_off", { file: "/pi/s1.jsonl", args: [] });
     latest().answer("list_bases", { main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] });
     latest().answer("create_workspace", { workspaceId: "wks_00000000000000aa" });
-    latest().answer("name_branch", { branch: "atrium/fix-it" });
+    latest().answer("name_branch", { branch: "atrium/fix-it", alias: null });
     for (const type of [
       "archive_session",
       "rename_session",
@@ -484,7 +516,7 @@ describe("createAtriumClient: commands", () => {
       {},
       { main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] },
       { workspaceId: "wks_00000000000000aa" },
-      { branch: "atrium/fix-it" },
+      { branch: "atrium/fix-it", alias: null },
       {},
       {},
       {},
@@ -524,6 +556,25 @@ describe("createAtriumClient: commands", () => {
       { type: "clear_attention", sessionId: "s1" },
       { type: "hand_off", sessionId: "s1" },
       { type: "take_back", sessionId: "s1" },
+    ]);
+  });
+
+  it("pins and unpins a chat with its id", async () => {
+    const { client, latest } = await connected();
+    const pinned = client.pinChat(CHAT);
+    const unpinned = client.unpinChat(CHAT);
+    latest().answer("pin_chat");
+    latest().answer("unpin_chat");
+
+    expect([await pinned, await unpinned]).toStrictEqual([{}, {}]);
+    expect(
+      latest()
+        .commands()
+        .slice(-2)
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "pin_chat", chatId: CHAT },
+      { type: "unpin_chat", chatId: CHAT },
     ]);
   });
 
