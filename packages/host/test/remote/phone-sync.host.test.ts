@@ -31,6 +31,24 @@ async function remoteState(client: LocalClient) {
 }
 
 /**
+ * Says hello, subscribes to the list and counts its sessions.
+ *
+ * @remarks
+ * For the compression test: the list is the large message.
+ *
+ * @sideEffects Sends hello and subscribe_index.
+ * @param session - A connected phone.
+ * @param deviceId - Its device id.
+ * @returns How many sessions the list has.
+ */
+async function listOf(session: PhoneSession, deviceId: string): Promise<number> {
+  await session.hello(deviceId);
+  expect(await session.request({ type: "subscribe_index" })).toMatchObject({ ok: true });
+  const [list] = (await until(session, "index_snapshot")).slice(-1);
+  return (list!.sessions as unknown[]).length;
+}
+
+/**
  * Collects what a phone receives until a message of the given type.
  * @remarks Every message in order, the last one included.
  * @sideEffects Consumes the session's messages.
@@ -59,6 +77,56 @@ function turnsOf(snapshot: Record<string, unknown>): number {
 }
 
 describe("a phone's session sync through the real relay (SPEC-0005, MP4a)", () => {
+  it("reads the list deflated when it asks for compression in connect, and plain when it does not", async () => {
+    const relay = await startTestRelay();
+    onTestFinished(relay.cleanup);
+    const bin = await createTempDir("phone-deflate-bin");
+    onTestFinished(bin.cleanup);
+    const scripted = await writeScriptedPi(
+      bin.path,
+      {
+        rules: {
+          get_state: { data: { sessionId: "pi-session-1" } },
+          get_entries: { data: { entries: HISTORY, leafId: "h2" } },
+          get_session_stats: UNANSWERED_STATS,
+        },
+      },
+      "pi",
+    );
+    const host = await startTestHost({
+      vault: new MemoryVault(),
+      toolEnv: { PATH: `${bin.path}:/usr/bin:/bin`, ...scripted.env },
+    });
+    onTestFinished(host.dispose);
+    await host.host.tools;
+    const desktop = new LocalClient(host.url, host.token);
+    onTestFinished(() => desktop.close());
+    await desktop.next((value) => value.type === "welcome");
+    expect(await desktop.request({ type: "set_remote", enabled: true, relay: relay.line })).toMatchObject({ ok: true });
+    await expect.poll(async () => (await remoteState(desktop)).relay?.status).toBe("connected");
+    await desktop.request({ type: "start_pairing" });
+    const pairing = (await remoteState(desktop)).pairing;
+    const phone = new FakePhone({ clock: new FakeClock() });
+    onTestFinished(() => phone.dispose());
+    const paired = await phone.pair(pairing!.qr);
+    await expect.poll(async () => (await remoteState(desktop)).pairing?.state).toBe("awaiting_confirmation");
+    await desktop.request({ type: "confirm_pairing", pairingId: pairing!.pairingId, accept: true });
+    const deviceId = String((await paired.control(["paired"])).deviceId);
+    await paired.close();
+    for (let index = 0; index < 30; index += 1) {
+      expect(await desktop.request({ type: "create_chat" })).toMatchObject({ ok: true });
+    }
+
+    const asked = await phone.connect(undefined, { payload: { compression: ["deflate"] } });
+    expect(await listOf(asked, deviceId)).toBe(30);
+    expect(asked.deflated).toBeGreaterThan(0);
+    await asked.close();
+    const plain = await phone.connect();
+    expect(await listOf(plain, deviceId)).toBe(30);
+    expect(plain.deflated).toBe(0);
+    await plain.close();
+  });
+
   it("gets snapshots cut to its budget with the desktop's stream, and the live events after them", async () => {
     const relay = await startTestRelay();
     onTestFinished(relay.cleanup);

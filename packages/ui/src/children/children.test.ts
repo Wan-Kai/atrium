@@ -86,7 +86,7 @@ describe("rowStatus and tabStatus", () => {
     expect(tabStatus([at("main", null), running], at("main", null))).toBeNull();
     expect(
       tabStatus(
-        [at("main", null), at("e", "main", { attention: { reason: "auth", at: 1, cleared: false } })],
+        [at("main", null), at("e", "main", { attention: { reason: "auth", at: 1, cleared: false, text: null } })],
         at("main", null, { running: true }),
       ),
     ).toBe("auth");
@@ -109,7 +109,7 @@ describe("a child asking its parent's agent", () => {
   });
 
   it("shows in its row as a question, below an error, and does not raise the tab", () => {
-    const failed = at("w", "main", { ...waiting, attention: { reason: "error", at: 1, cleared: false } });
+    const failed = at("w", "main", { ...waiting, attention: { reason: "error", at: 1, cleared: false, text: null } });
 
     expect([
       rowStatus([at("main", null), waiting], waiting),

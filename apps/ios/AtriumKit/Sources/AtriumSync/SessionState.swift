@@ -51,6 +51,9 @@ public struct SessionState: Sendable, Equatable {
   public private(set) var items: [TranscriptItem] = []
   /// Whether older items exist on the host.
   public private(set) var hasOlder = false
+  /// How many items each fetch of older ones put in front, the latest fetch first; `items` starts
+  /// with them in this order (SPEC-0005 "MP4a 定的细节" 9).
+  public private(set) var olderBatches: [Int] = []
   /// Whether a run is in progress.
   public var running: Bool { runStartedAt != nil }
   /// When the run in progress started, on the host's clock; `nil` when none is.
@@ -180,6 +183,57 @@ public struct SessionState: Sendable, Equatable {
     return .applied
   }
 
+  /// Puts items fetched from the Mac before the earliest one.
+  ///
+  /// - Remark: Only while the items still come from `epoch` and start at `before`, the item they were
+  ///   fetched before; a snapshot since may have replaced them (SPEC-0005 "MP4a 定的细节" 9).
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - older: The items, oldest first.
+  ///   - hasOlder: Whether still older ones exist.
+  ///   - epoch: The epoch they were fetched for.
+  ///   - before: The item they were fetched before.
+  mutating func prependOlder(_ older: [TranscriptItem], hasOlder: Bool, epoch: Int, before: String) {
+    guard epoch == self.epoch, items.first?.id == before else { return }
+    items.insert(contentsOf: older, at: 0)
+    olderBatches.insert(older.count, at: 0)
+    self.hasOlder = hasOlder
+  }
+
+  /// Whether a tool step of a turn is there and came cut to a preview.
+  ///
+  /// - Remark: Only those are fetched whole.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - stepId: The step.
+  ///   - turnId: Its turn.
+  /// - Returns: Whether it is a partial tool step.
+  public func isPartial(_ stepId: String, in turnId: String) -> Bool {
+    for item in items {
+      guard case .turn(let turn) = item, turn.id == turnId else { continue }
+      return turn.steps.contains { step in
+        if case .tool(let tool) = step { return tool.id == stepId && tool.partial }
+        return false
+      }
+    }
+    return false
+  }
+
+  /// Puts a step fetched whole in place of its preview.
+  ///
+  /// - Remark: Only while the items still come from `epoch`; a snapshot since may have replaced them.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - step: The whole step.
+  ///   - turnId: Its turn.
+  ///   - epoch: The epoch it was fetched for.
+  mutating func replaceStep(_ step: Step, in turnId: String, epoch: Int) {
+    guard epoch == self.epoch else { return }
+    _ = changeTurn(turnId) { turn in
+      if let index = turn.steps.firstIndex(where: { $0.id == step.id }) { turn.steps[index] = step }
+    }
+  }
+
   /// Takes a snapshot whole.
   ///
   /// - Remark: See ``apply(_:)``.
@@ -192,6 +246,7 @@ public struct SessionState: Sendable, Equatable {
     seq = snapshot.seq
     stream = snapshot.stream
     items = snapshot.items
+    olderBatches = []
     hasOlder = snapshot.hasOlder
     runStartedAt = snapshot.run?.startedAt
     control = snapshot.control

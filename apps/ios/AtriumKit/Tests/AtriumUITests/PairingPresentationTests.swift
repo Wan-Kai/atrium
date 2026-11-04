@@ -80,3 +80,15 @@ struct PairingPresentationTests {
     #expect(PairingView.message(for: .hostOffline(lastSeen: nil), locale: locale, timeZone: zone).contains("上次在线时间未知"))
   }
 }
+
+#if DEBUG
+  @Suite("Pairing: debug launch link")
+  struct PairingLaunchLinkTests {
+    @Test("takes a pairing link from the launch environment for a simulator walk-through, trimmed; none when blank")
+    func launchLink() {
+      #expect(PairingHome<EmptyView>.launchLink(["ATRIUM_PAIR_LINK": "  atrium://pair?x=1\n"]) == "atrium://pair?x=1")
+      #expect(PairingHome<EmptyView>.launchLink(["ATRIUM_PAIR_LINK": "  \n"]) == nil)
+      #expect(PairingHome<EmptyView>.launchLink([:]) == nil)
+    }
+  }
+#endif

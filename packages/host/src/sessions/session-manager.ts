@@ -23,8 +23,10 @@ import {
   toSlashCommand,
 } from "@atrium/pi";
 import {
+  type AskingName,
   type Attention,
   type ChildPlacement,
+  type Control,
   CommandError,
   IDLE_CONTROL,
   type ModelRef,
@@ -235,6 +237,53 @@ function notReserved(text: string): void {
 }
 
 /**
+ * Names what a dialog or a question asks, as the phone's note shows it.
+ *
+ * @remarks
+ * SPEC-0005 ("协议改动" 6): the words are the agent's or the extension's, only cut. A text's first
+ * line is its title and the rest its detail, for a question; a dialog's title and message.
+ *
+ * @sideEffects none
+ * @param title - The question, or the dialog's title.
+ * @param detail - The dialog's message; `undefined` to take the rest of `title`.
+ * @returns The name.
+ */
+function askingName(title: string, detail?: string | null): AskingName {
+  const at = title.indexOf("\n");
+  const first = at === -1 ? title : title.slice(0, at);
+  const rest = detail === undefined ? (at === -1 ? "" : title.slice(at + 1)) : (detail ?? "");
+  return { title: first.slice(0, 200), detail: rest === "" ? null : rest.slice(0, 300) };
+}
+
+/**
+ * Names the oldest of a session's dialogs and questions still waiting for you.
+ *
+ * @remarks
+ * By when each began waiting, as `asking` keeps it; the question goes by its first question.
+ *
+ * @sideEffects none
+ * @param control - The session's run control.
+ * @param since - When each waiting one began, by id.
+ * @returns The name, or `null` with nothing waiting.
+ */
+function oldestAsking(control: Control, since: ReadonlyMap<string, number>): AskingName | null {
+  const waiting = [
+    ...control.interactions.map((dialog) => ({
+      at: since.get(dialog.id) ?? Number.POSITIVE_INFINITY,
+      name: () => askingName(dialog.title, dialog.message),
+    })),
+    ...(control.question === null
+      ? []
+      : [{ at: control.question.askedAt, name: () => askingName(control.question?.questions[0]?.question ?? "") }]),
+  ];
+  const oldest = waiting.reduce<(typeof waiting)[number] | null>(
+    (found, item) => (found === null || item.at < found.at ? item : found),
+    null,
+  );
+  return oldest === null ? null : oldest.name();
+}
+
+/**
  * Tells a child forked into a new worktree where it works now.
  *
  * @remarks
@@ -394,6 +443,8 @@ export function createSessionManager(options: {
   const renamed = new Set<string>();
   /** When each of a session's unanswered dialogs appeared, as the host saw it, by dialog id. */
   const asking = new Map<string, ReadonlyMap<string, number>>();
+  /** What the oldest of each session's unanswered dialogs asks (SPEC-0005, "协议改动" 6). */
+  const askingNames = new Map<string, AskingName>();
   /** `prompt`s on their way, by session, so a draft is not discarded under one. */
   const prompting = new Map<string, number>();
   /** Drafts being discarded, which a message or an open waits for (SPEC-0001, "close_tab"). */
@@ -768,9 +819,10 @@ export function createSessionManager(options: {
     } else if (event.type === "control_updated") {
       if (event.control.failure !== null && !marked.has(sessionId)) {
         marked.add(sessionId);
-        attend(sessionId, { reason: "error", at: options.clock.now(), cleared: false });
+        attend(sessionId, { reason: "error", at: options.clock.now(), cleared: false, text: null });
       }
       const shown = askingSince(sessionId);
+      const named = askingNames.get(sessionId) ?? null;
       const seen = asking.get(sessionId);
       // Dialogs and the agent's questions alike wait for you; questions since they were asked, which
       // holds through a direct reply pi refused (SPEC-0003, "生命周期").
@@ -781,9 +833,12 @@ export function createSessionManager(options: {
       ]);
       if (open.size > 0) asking.set(sessionId, open);
       else asking.delete(sessionId);
+      const name = oldestAsking(event.control, open);
+      if (name === null) askingNames.delete(sessionId);
+      else askingNames.set(sessionId, name);
       // A child the agent opened waiting for you tells its parent's agent (SPEC-0002, `needs_you`).
       relay.asking(sessionId, open.size > 0);
-      if (askingSince(sessionId) !== shown) options.onChange();
+      if (askingSince(sessionId) !== shown || JSON.stringify(name) !== JSON.stringify(named)) options.onChange();
     } else if (event.type === "run_settled" || event.type === "session_exited") {
       const ran = busy.delete(sessionId);
       const failure = failures.get(sessionId);
@@ -798,8 +853,10 @@ export function createSessionManager(options: {
           reason: isAuthFailure(failure) ? "auth" : "error",
           at: options.clock.now(),
           cleared: false,
+          text: failure.slice(0, 300),
         });
       }
+      if (event.type === "session_exited") askingNames.delete(sessionId);
       if (event.type === "session_exited" && asking.delete(sessionId)) options.onChange();
       if (ran || event.type === "run_settled") options.onChange();
       if (event.type === "run_settled") {
@@ -1935,8 +1992,8 @@ export function createSessionManager(options: {
       if (image === null) throw new CommandError("image_unavailable");
       return image;
     },
-    async fetchTranscript(command) {
-      return controllerOf(command.sessionId).fetchTranscript(command);
+    async fetchTranscript(command, stepLimit) {
+      return controllerOf(command.sessionId).fetchTranscript(command, stepLimit);
     },
     async clearAttention(sessionId) {
       await options.catalog.ready();
@@ -2007,6 +2064,7 @@ export function createSessionManager(options: {
             ...entry,
             running: busy.has(entry.sessionId),
             asking: askingSince(entry.sessionId),
+            question: askingNames.get(entry.sessionId) ?? null,
             ...relay.summary(entry.sessionId),
           }),
         );

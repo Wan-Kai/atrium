@@ -131,8 +131,8 @@ export interface SessionCommands {
   searchFiles(sessionId: string, query: string): Promise<CommandResult<"search_files">>;
   /** The error card's "重试", starting the session's pi first if it has none. */
   retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
-  /** Items of a session's transcript before one the client has. */
-  fetchTranscript(command: FetchTranscriptCommand): Promise<CommandResult<"fetch_transcript">>;
+  /** Items of a session's transcript before one the client has; a phone gives a smaller step limit. */
+  fetchTranscript(command: FetchTranscriptCommand, stepLimit?: number): Promise<CommandResult<"fetch_transcript">>;
   /** One step of a session's transcript, whole. */
   fetchStep(command: FetchStepCommand): Promise<CommandResult<"fetch_step">>;
   /** One image of a turn's user message, read from the session file (SPEC-0001, "M1.11 的消息图片"). */

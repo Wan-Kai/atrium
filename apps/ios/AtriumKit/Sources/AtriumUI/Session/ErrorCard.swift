@@ -1,10 +1,11 @@
 import SwiftUI
 
-/// The card under a failed turn, or for pi that gave up after crashing.
+/// The block under a failed turn, or for pi that gave up after crashing.
 ///
-/// - Remark: The final prototype's `.ecard` (SPEC-0005 "MP5 定的细节 · MP5b"): a red warning, the
-///   words, a solid "重试" and, when there is pi's own text to show, "详情". pi's text is never the
-///   card's words: the card's words are the app's.
+/// - Remark: The paper redesign (design-language "手机端 · 对话页"): just a pale red ground (the
+///   danger colour at 10% on the paper), the app's words in red with a warning sign, pi's own text
+///   under them in mono (three lines at most), then "详情" and "重新运行". pi's text is never the
+///   block's own words: those are the app's.
 struct ErrorCard: View {
   /// The card's words.
   let text: String
@@ -17,30 +18,34 @@ struct ErrorCard: View {
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
 
-  /// The card.
+  /// The block.
   var body: some View {
     let palette = Palette(scheme: scheme)
-    HStack(spacing: Metrics.xs) {
-      Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 16)).foregroundStyle(palette.danger)
-      Text(text).font(.system(size: 14.5)).foregroundStyle(palette.text2).frame(
-        maxWidth: .infinity, alignment: .leading)
-      if let retry {
-        Button(action: retry) {
-          Text("重试").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(.white)
-            .padding(.horizontal, 14).frame(height: 32).background(palette.danger, in: Capsule())
-        }
-        .buttonStyle(PressStyle())
-        .accessibilityIdentifier("session.retry")
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(spacing: 6) {
+        Image(systemName: "exclamationmark.triangle").font(.system(size: 12.5, weight: .semibold))
+        Text(text).font(.system(size: 13, weight: .semibold))
       }
+      .foregroundStyle(palette.danger)
       if let detail, !detail.isEmpty {
-        Button("详情") { showing = true }.font(.system(size: 13.5)).foregroundStyle(palette.secondary)
-          .buttonStyle(.plain)
+        Text(detail).font(.system(size: 12, design: .monospaced)).lineSpacing(2).lineLimit(3)
+          .foregroundStyle(palette.text2)
       }
+      HStack(spacing: 16) {
+        if let detail, !detail.isEmpty {
+          Button("详情") { showing = true }.buttonStyle(.plain)
+        }
+        if let retry {
+          Button("重新运行", action: retry).buttonStyle(.plain).accessibilityIdentifier("session.retry")
+        }
+      }
+      .font(.system(size: 13, weight: .semibold))
+      .foregroundStyle(palette.text)
+      .padding(.top, 4)
     }
-    .padding(.leading, 14)
-    .padding(.trailing, Metrics.xs)
-    .padding(.vertical, Metrics.xs)
-    .background(palette.dangerSoft, in: RoundedRectangle(cornerRadius: 18))
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(EdgeInsets(top: 10, leading: 12, bottom: 12, trailing: 12))
+    .background(palette.dangerSoft, in: RoundedRectangle(cornerRadius: 12))
     .padding(.vertical, 6)
     .sheet(isPresented: $showing) {
       ErrorDetail(text: text, detail: detail ?? "", retry: retry)

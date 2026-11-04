@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>对话页 · 往上翻载入更早的</title>
+    <style>
+      :root {
+        --page: #f6f2e9;
+        --note: #fffcf5;
+        --text: #26221c;
+        --l2: #8b8477;
+        --l3: #b3ab9c;
+        --tint: #8a7352;
+        --desk: #e4ddcf;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--desk);
+        color: var(--text);
+        font:
+          14px/1.5 -apple-system,
+          "PingFang SC",
+          sans-serif;
+      }
+      header {
+        padding: 24px 32px 8px;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 20px;
+      }
+      header p {
+        margin: 0;
+        color: var(--l2);
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 28px;
+        padding: 20px 32px 40px;
+      }
+      figure {
+        margin: 0;
+        width: 320px;
+      }
+      figcaption {
+        margin-top: 10px;
+      }
+      figcaption b {
+        display: block;
+        font-size: 15px;
+      }
+      figcaption span {
+        color: var(--l2);
+        font-size: 12.5px;
+      }
+      .phone {
+        width: 320px;
+        height: 640px;
+        border-radius: 40px;
+        overflow: hidden;
+        position: relative;
+        background: var(--page);
+        box-shadow: 0 10px 30px rgba(60, 45, 20, 0.18);
+      }
+      .bar {
+        position: absolute;
+        inset: 0 0 auto 0;
+        height: 92px;
+        padding: 52px 20px 0;
+        font:
+          600 17px/1.2 "Iowan Old Style",
+          Georgia,
+          serif;
+        background: linear-gradient(var(--page) 70%, transparent);
+        z-index: 2;
+      }
+      .scroll {
+        position: absolute;
+        inset: 0;
+        overflow-y: auto;
+        padding: 96px 18px 40px;
+        scrollbar-width: none;
+      }
+      .scroll::-webkit-scrollbar {
+        display: none;
+      }
+      .meta {
+        color: var(--l3);
+        font-size: 12px;
+        text-align: center;
+        margin: 4px 0 14px;
+      }
+      .turn {
+        margin-bottom: 22px;
+      }
+      .bubble {
+        margin-left: auto;
+        width: fit-content;
+        max-width: 80%;
+        background: var(--note);
+        border-radius: 16px 16px 4px 16px;
+        padding: 9px 13px;
+        box-shadow: 0 3px 10px rgba(60, 45, 20, 0.08);
+        margin-bottom: 10px;
+      }
+      .reply {
+        color: var(--text);
+      }
+      .step {
+        color: var(--l2);
+        font-size: 12.5px;
+        margin: 4px 0;
+      }
+      .new {
+        animation: fade 0.4s ease;
+      }
+      @keyframes fade {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+      .spin {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border: 1.5px solid var(--l3);
+        border-top-color: transparent;
+        border-radius: 50%;
+        vertical-align: -2px;
+        animation: rot 0.8s linear infinite;
+      }
+      @keyframes rot {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .link {
+        display: block;
+        margin: 4px auto 14px;
+        border: 0;
+        background: none;
+        color: var(--tint);
+        font:
+          500 12.5px/1 -apple-system,
+          sans-serif;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>对话页：先只带 3 轮，往上翻再从 Mac 取更早的</h1>
+      <p>每个手机都可以上下滑。打开时停在最底下，往上滑到顶看效果（取一次假装要 0.8 秒，每次 3 轮）。</p>
+    </header>
+    <div class="row" id="row"></div>
+    <script>
+      const options = [
+        [
+          "a",
+          "A 滑到顶自动载入",
+          "快到顶就开始取，顶上一行小转圈 + 灰字「正在载入更早的」；取到后插在上面，眼前的内容不跳",
+        ],
+        ["b", "B 顶上一行可点的字", "顶上是浅棕色「载入更早的对话」，点了才取；不点就不花流量"],
+        ["c", "C 自动载入、只有转圈", "同 A，但只有一个小转圈，没有字；最早一轮到顶后写「这是这个会话的开头」"],
+      ];
+      const asks = [
+        "看看首页的毛玻璃为什么卡",
+        "把 + 号的圆环靠近一点",
+        "背景只盖住圆环附近",
+        "换一个不那么灰的底色",
+        "查一下网络为什么慢",
+        "心跳为什么会超时",
+        "列表能不能小一点",
+      ];
+      let counter = 0;
+      function turn() {
+        const n = counter++;
+        const el = document.createElement("div");
+        el.className = "turn";
+        el.innerHTML = `<div class="bubble">${asks[n % asks.length]}</div>
+          <div class="step">读取 · HomeView.swift</div><div class="step">运行 · swift test</div>
+          <div class="reply">好的，我先看了相关代码，问题出在第 ${n + 3} 处。已经改好并跑过测试，结果都通过了。</div>`;
+        return el;
+      }
+      const row = document.getElementById("row");
+      for (const [id, title, note] of options) {
+        const fig = document.createElement("figure");
+        fig.innerHTML = `<div class="phone"><div class="bar">查一下网络</div><div class="scroll"><div class="top"></div><div class="items"></div></div></div>
+          <figcaption><b>${title}</b><span>${note}</span></figcaption>`;
+        row.append(fig);
+        const scroll = fig.querySelector(".scroll");
+        const top = fig.querySelector(".top");
+        const items = fig.querySelector(".items");
+        let left = 9;
+        let loading = false;
+        for (let i = 0; i < 3; i++) items.append(turn());
+        function idle() {
+          if (left === 0) {
+            top.innerHTML = `<div class="meta">${id === "c" ? "这是这个会话的开头" : ""}</div>`;
+          } else if (id === "b") {
+            top.innerHTML = `<button class="link">载入更早的对话</button>`;
+            top.querySelector("button").onclick = load;
+          } else {
+            top.innerHTML = `<div class="meta">&nbsp;</div>`;
+          }
+        }
+        function load() {
+          if (loading || left === 0) return;
+          loading = true;
+          top.innerHTML = `<div class="meta"><span class="spin"></span>${id === "c" ? "" : " 正在载入更早的"}</div>`;
+          setTimeout(() => {
+            const before = scroll.scrollHeight;
+            const batch = [];
+            for (let i = 0; i < 3; i++) batch.push(turn());
+            for (const el of batch) el.classList.add("new");
+            items.prepend(...batch);
+            left -= 3;
+            loading = false;
+            idle();
+            scroll.scrollTop += scroll.scrollHeight - before;
+          }, 800);
+        }
+        idle();
+        requestAnimationFrame(() => (scroll.scrollTop = scroll.scrollHeight));
+        if (id !== "b") scroll.addEventListener("scroll", () => scroll.scrollTop < 120 && load());
+      }
+    </script>
+  </body>
+</html>

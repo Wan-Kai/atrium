@@ -1118,6 +1118,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
         running: false,
         attention: null,
         asking: null,
+        question: null,
         handedOff: false,
         model: null,
         parent: null,

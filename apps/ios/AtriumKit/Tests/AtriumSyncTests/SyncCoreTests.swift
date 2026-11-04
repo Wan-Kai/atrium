@@ -68,7 +68,7 @@ func subscribeSessions(_ id: String, _ sessions: [String], resume: [ResumePoint]
   .subscribeSessions(
     SubscribeSessionsCommand(
       requestId: id, traceparent: traceparent, sessionIds: sessions,
-      snapshot: SnapshotBudget(turns: 6, bytes: 524_288), resume: resume))
+      snapshot: SnapshotBudget(turns: 3, bytes: 262_144), resume: resume))
 }
 
 /// `open_session`.

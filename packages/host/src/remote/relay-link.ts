@@ -6,6 +6,7 @@ import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
 import type { RelayEndpoint } from "./relay-line";
+import { type RelayRoute, socketAgent } from "./relay-route";
 
 /** Why the last attempt to reach the relay failed. */
 export type RelayError = "relay_unreachable" | "relay_rejected";
@@ -23,6 +24,8 @@ export interface RelayLinkOptions {
   readonly clock: Clock;
   readonly resources: ResourceTracker;
   readonly logger: Logger;
+  /** Through the proxy or direct (SPEC-0005, "连 relay 走代理"); direct when absent. */
+  readonly route?: RelayRoute;
   /** Told every change of the link's state. */
   readonly onState: (state: LinkState) => void;
   /** Told each phone the relay announces. */
@@ -211,7 +214,10 @@ export class RelayLink {
     this.#generation++;
     const diagnostics = new RelayDiagnostics(endpoint.url, clock);
     this.#setState({ status: "connecting", error: this.#state.error, lastConnectedAt: this.#lastConnectedAt });
+    const route = this.#options.route;
+    const via = route?.begin(endpoint.url) ?? "direct";
     const socket = new WebSocket(`${endpoint.url}/v1/host`, {
+      ...socketAgent(route),
       perMessageDeflate: false,
       maxPayload: 70 * 1024,
       finishRequest: (request) => {
@@ -271,7 +277,8 @@ export class RelayLink {
         this.#backoff = FIRST_BACKOFF_MS;
         this.#lastConnectedAt = clock.now();
         this.#diagnostics = diagnostics.finish(null);
-        logger.info({ host_id: endpoint.hostId }, "relay connected");
+        // Which way only: the proxy's address stays out of the log (security.md).
+        logger.info({ host_id: endpoint.hostId, via }, "relay connected");
         this.#setState({ status: "connected", error: null, lastConnectedAt: this.#lastConnectedAt });
         cancelPing = trackedTimeout(clock, resources, ping, LINK_PING_MS);
       } else if (
@@ -293,7 +300,9 @@ export class RelayLink {
       const error: RelayError = code === UNAUTHORIZED ? "relay_rejected" : "relay_unreachable";
       if (!ready && !this.#stopped) this.#diagnostics = diagnostics.finish(error);
       else diagnostics.dispose();
-      logger.info({ host_id: endpoint.hostId, code, ready }, "relay connection closed");
+      // The next attempt goes direct if this one never got through the proxy.
+      if (!ready) route?.failed();
+      logger.info({ host_id: endpoint.hostId, code, ready, via }, "relay connection closed");
       if (!this.#stopped) {
         const wait = this.#backoff;
         this.#backoff = Math.min(this.#backoff * 2, MAX_BACKOFF_MS);
@@ -369,12 +378,16 @@ export function probeRelay(
     readonly resources: ResourceTracker;
     readonly signal: AbortSignal;
     readonly onDiagnostics?: (value: RemoteRelayDiagnostics) => void;
+    /** Through the proxy or direct, as the control connection would go. */
+    readonly route?: RelayRoute;
   },
 ): Promise<RelayError | null> {
   if (options.signal.aborted) return Promise.resolve("relay_unreachable");
   return new Promise((resolve) => {
     const diagnostics = new RelayDiagnostics(endpoint.url, options.clock);
+    options.route?.begin(endpoint.url);
     const socket = new WebSocket(`${endpoint.url}/v1/host`, {
+      ...socketAgent(options.route),
       perMessageDeflate: false,
       maxPayload: 70 * 1024,
       finishRequest: (request) => {
@@ -411,6 +424,7 @@ export function probeRelay(
       options.signal.removeEventListener("abort", abort);
       release();
       const error = result === null ? null : code === UNAUTHORIZED ? "relay_rejected" : "relay_unreachable";
+      if (error !== null) options.route?.failed();
       if (!options.signal.aborted) options.onDiagnostics?.(diagnostics.finish(error));
       diagnostics.dispose();
       resolve(error);

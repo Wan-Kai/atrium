@@ -46,6 +46,7 @@
 | 宿主：`pinnedAt` 写进 `chats.json`，重复置顶保留首次时间，取消置顶清掉并删空记录；对话不存在 `chat_not_found`；列表推送一次 | `store/chat-records.test.ts` 两例、`sessions/index-commands.test.ts` 两例（其中一例放第二个对话，抓 `some → every`）、`server/router.test.ts` 两条命令 |
 | 手机可用：`pin_chat` / `unpin_chat` 对手机开放 | `server/remote-policy.test.ts`（41 条 phone） |
 | 手机：首页对话行按同一规则排，钉住的会话带图钉；对话页「···」置顶、失败按宿主码提示 | `HomeListTests.swift`"pinnedChats"、`SyncControlTests.swift`"pinChat"/"pinBeforeSync"、`HomeViewTests.swift` 的 `chatProblemText` |
+| 手机纸面改版合回 main（2026-11-04，用户定）：置顶入口从对话页「···」菜单挪到设置页"对话"组第一行，只在对话里打开时出现，字样按当前状态写"置顶这个对话"/"取消置顶"；首页对话行（`ChatRow`）名字后带图钉 | `SettingsPageTests.swift`"the pinning row says which way a tap goes"；行与图钉只有编译和手看，未写视图快照 |
 | 客户端：`pinChat` / `unpinChat` 发出正确的命令和 id | `atrium-client.test.ts`"pins and unpins a chat with its id" |
 
 最终验证：`pnpm check` 全链通过（格式、lint 含 JSDoc、递归＋根 typecheck、knip、boundary `unregistered 0 / not exact 0`、iOS 格式与 lint）；合进 `main` 后单元 4317 项、宿主 243 项、Swift 406 项通过；界面全量 1167/1167 通过（合并前的并行跑曾出现既有 `status-bar.browser.test.tsx`"opens a row…"与 `question-card.browser.test.tsx` 各一处失败，单文件 28/28、21/21 通过，合并后整套干净）。破坏检查 10 处全部检出（宿主 3、UI 4、客户端 1、Swift 2）。改动行变异：`sidebar/names.ts` 99.04%（207 Killed / 2 Survived，两处存活都在未改动的合并状态代码，逐处保留）；`sessions/index-commands.ts` 97.70%（85 Killed / 2 Survived，存活仍是既有的 `projects.workspaces()` 与 `windowFocused` 重扫，新增冷路径全杀）。首轮该文件 94.25% 时新增的 `chats().some → every` 存活，补第二个对话后复测死亡。未跑：Electron 端到端、桌面泄漏、模拟器 UI 测试（Swift 逻辑与 UI 文案在 macOS 上跑过）；未在真机上验证手机端置顶。
@@ -2174,3 +2175,61 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 用样例同步数据截图（经真的 `SyncCore.receive`）：`pnpm ios:shot --gallery=location-sheet|new-session-missing|model-sheet|drawer [--dark]`，已逐张看过。
 - 没有自动测试、靠验收看：抽屉里的 relay、手机名、版本和"重新配对"；忘掉 Mac 清理失败时的提示；新建进行中不能点"×"；新会话页的失败提示只显示本页发起的。
 - 审查里决定不改的：hunk 之间的上下文不展开（协议没有按版本取内容的命令，SPEC 已写明）；签名到期用 `Date.now`（按天显示，`Signing` 本身接受注入的时间，界面层不另做时钟）；`ios-brand-icons.mjs` 不进 `pnpm check`（要 Playwright 的浏览器）。
+
+## MP6e 纸面改版（SPEC-0005，2026-10-28，进行中）
+
+| 行为 | 测试 |
+|---|---|
+| 手机纸面配色：纸、便签纸、浅底、正文、元信息、细线、深米色及浅底、墨色按钮、在问你、出错、通过、轨道；便签三级（卡住 / 等你 / 提醒）的纸色和字色，浅深两套 | Swift `DesignTokenTests`"takes the paper colour table of design-language" |
+| 打包的 Fraunces 斜体（"Atrium" 和 0–9）、Syne（"agent"）按自己的 PostScript 名注册，字形齐全；重复注册无害 | Swift `BrandFontTests`（关掉注册时三条都失败） |
+| 协议 32：`Attention.text` 必填、最多 300 字符；`SessionSummary.question` 的形状；版本 32 | `listing.test.ts`"Attention (protocol 32)"、`envelope.test.ts`（样例）、`remote.test.ts`（版本 32）；Swift `RoundTripTests`（重新生成的夹具、版本 32） |
+| 失败标记带 pi 的报错原文，截到 300 字符；崩溃的标记没有原文；看过之后原文保留 | `session-manager.test.ts`"SessionManager attention"（登录、其他失败、"keeps pi's failure text…"） |
+| 旧索引里没有 `text` 的标记读成 `null` | `index-schema.test.ts`"reads a mark kept before protocol 32…" |
+| 列表里最早一个没答的提问 / 对话框的名字：提问取第一题的第一行作标题、其余作说明，对话框取标题和 message；分别截到 200、300 字符；答完变 `null` | `session-manager.test.ts`"says since when…"（两条）、"names the first question…"、"names a confirmation…" |
+| 首页便签：卡住在等你前面、同级新的在前；标题和正文取报错原文或提问的 `question`，没有时用会话标题；报错正文用等宽；"项目 · 分支"；最多 8 张，其余算进"还有 N 件" | Swift `HomeListTests`"makes a note of each thing…"、"shows eight notes…" |
+| 一个 worktree 一行：按"问你 > 出错 > 运行 > 最新"选领头的会话，"等 N 个在跑"数其余在跑的，空 worktree 没有领头，已合并的收成一个数 | Swift `HomeListTests`"gives each open worktree one line…" |
+| 时间的说法：刚刚 / N 分钟 / N 小时 / 昨天 / 周几 / 几月几日（注入的时区和现在） | Swift `HomeListTests`"says how long ago…" |
+| "重试"立即重连：退避从 1 秒重新开始；没有网络时不试 | Swift `RemoteConnectionTests`"retrying now while waiting…" |
+| 首页整屏（便签、worktree 行、已合并折叠、对话组、浅深两色） | 没有自动测试，靠截图：`pnpm ios:shot --gallery=home [--dark]`，已看过 |
+| 设置页列出当前会话所在 worktree 的主对话（不含子对话、归档，新的在前；子对话打开时列父会话那一组） | Swift `HomeListTests`"lists a session's worktree's own conversations…" |
+| 外观一个按钮轮换：跟随系统 → 浅色 → 深色 → 跟随系统，按钮字和图标 | Swift `SettingsPageTests` |
+| 签名的值："还剩 N 天"、"今天到期"、"已过期" | Swift `SigningTests`"counts whole days left…" |
+| 设置页整屏（对话组、Mac、这台手机、忘掉、页脚，浅深两色） | 截图 `pnpm ios:shot --gallery=settings [--dark]`，已看过；切换对话、忘掉确认框、连不上的样子靠验收 |
+| 气泡下面的时间（"9:31"，按手机的时区）；子对话页的顶栏副标题"↳ 父会话"，普通对话没有副标题 | Swift `TurnLayoutTests`"puts the time you sent it under the bubble…"、`SessionSheetsTests`"says a child page belongs to its parent…" |
+| 对话页整屏（居中标题、纸条气泡和时间、桌面小猫换深米、扫光、两层输入框、模型按钮带 ⚡、墨色停止键，浅深两色） | 截图 `pnpm ios:shot --gallery=conversation [--dark]`，已看过；断线浮条、出错淡红块、排队和子对话数字靠验收 |
+| 提问 sheet："agent" 的字母依次跳（1.8 秒一轮，14% 处最高 4pt，40% 后停） | Swift `AgentWordTests`；整页靠截图 `pnpm ios:shot --gallery=question-sheet [--dark]`（样例是"已在 Mac 上回答"的状态） |
+| 模型 sheet 整屏（无搜索、服务商栏和竖线、深米点阵、深米 Fast 开关，浅深两色） | 截图 `pnpm ios:shot --gallery=model-sheet [--dark]`，已看过 |
+| 工作区页（改动卡片：Fraunces 行数、比例条）、新会话（无猫、两层输入框带位置）、diff 的 hunk 头深米、配对校验码纸卡、像素猫底块深米 | 截图 `pnpm ios:shot --gallery=new-session|diff-page`，已看过；工作区页和配对校验码靠验收 |
+| 变异测试：`pnpm test:mutation host --mutate=packages/host/src/store/index-schema.ts` 96.64%（存活 5 个都在这次没改的行）；补了"保留短的报错原文"一条杀掉 `max(300)→min(300)` | `index-schema.test.ts` |
+| 调试启动钩子：Debug 版从启动环境 `ATRIUM_PAIR_LINK` 取配对链接（去首尾空白，空的不算），模拟器走查时链接不经过任何人眼 | Swift `PairingLaunchLinkTests`（去掉 trim 后失败，已见过） |
+| 全 App 的系统控件（配对完成的勾、底栏按钮）用深米，不是系统蓝 | 模拟器走查截图（真 host + 脚本 pi + 本机 relay），已看过；没有布局单测 |
+| 首页两种空状态放一叠白纸，不放猫（方案 D）：纸边浅色用三级文字色、深色用二级文字色的 55%；阴影浅色暖棕、深色黑；出现时落定，减弱动态效果时不动 | Swift `PaperStackTests`（深色纸边改回三级文字色后失败，已见过）；样子靠截图 `pnpm ios:shot --gallery=cats [--dark]`；落定动画靠验收 |
+| 对话页：会话加载中时标题下浮一条纸面玻璃胶囊（转圈、"正在加载…"、无"重试"），加载完收起；断线时只显示重连胶囊；列表里不再写"正在加载…"灰字。对话正文小一号：回复 15.5pt、行高 1.5，气泡 14.5pt，过程步骤 12pt / 等宽 11.5pt，代码 12pt，行内代码 13pt | Swift `SessionPageTests`"floats one capsule under the title…"（函数不存在时失败，已见过）、`DesignTokenTests`"sets the conversation one size down…"（改回 16.5pt / 1.65 后失败，已见过）；样子靠截图 `pnpm ios:shot --gallery=conversation [--dark]`，加载胶囊靠验收 |
+| 模型 sheet 照桌面（2026-10-29）：⚡ 用桌面的 Hugeicons Flash（开时实心、关时线框）；推理强度框照 `effort-box.tsx`（点阵与 `paintDots` 逐点一致，拖动跟手、两端橡皮筋、松手吸附、点格直跳，只把顶档的渐变换成深米）；服务商列间距收窄、"套餐"小签放在图标右下内侧、滚出边缘先半透明模糊再消失；关闭、刷新用 44pt 纸面玻璃圆按钮 | Swift `ModelSheetDesktopTests`（点阵值来自在 Node 里跑桌面的 `paintDots`；改羽化、橡皮筋系数、模糊系数、闪电路径、取整方式各自失败，已见过）；样子靠截图 `pnpm ios:shot --gallery=model-sheet [--dark]`，已看过；拖动手感靠验收 |
+| 首页 worktree 按最近活动（最新会话的更新时间，没有会话按创建时间）从新到旧排，本地工作区不再固定在最前；先列 8 个，再多时"显示更多 N 个"原地展开 | Swift `HomeListTests`"orders open worktrees by their latest activity…"（只加上限、没排序时失败，已见过；上限改成 9 也失败）；展开的样子靠验收 |
+| 首页顶栏（"Atrium"、主机行、⋯）固定，列表从下面滑过时被两层纸面玻璃边模糊 | 模拟器上滑动截图，已看过；没有布局单测 |
+| 子对话、排队改成横向占满屏幕的底部面板（iOS 26 系统 sheet 在 large 以下两边留空，没有接口能贴边）：后面压暗、点空白或下拉关闭，标题靠左，子对话不写"最近更新的在前"和底部说明 | 截图 `pnpm ios:shot --gallery=children-sheet\|queue-sheet [--dark]`，已看过；对话页里的接线、拖动关闭、减弱动态效果时淡入淡出靠验收 |
+| 首页右下 +：点开以 + 为圆心的一圈玻璃圆钮（新对话在第一格，后面每个项目一个，按最近活动；项目进它最近活动的没合并的工作区）；超出一屏绕 + 拖动转，橡皮筋、惯性吸附、过第一格渐隐；点圆钮以外收起；涟漪弹出（每个晚 0.028 秒，名字晚 0.2 秒），毛玻璃从 + 圆形扩开 | Swift `PlaceRingTests`（角度、可转范围、橡皮筋、吸附、跨 ±180° 的角度差、渐隐、点中哪个、涟漪延迟；类型不存在时失败，已见过；渐隐在第一格浮点不等于 1 也抓到过）、`HomeListTests`"lists one ring place a project…"（函数不存在时失败，已见过）；模拟器上点开截图（浅色）已看过；转动手感、深色、减弱动态效果靠验收 |
+| 首页 + 和工作区页 + 整个圆都能点（`.contentShape(Circle())`）：真机 iOS 26.6.1 上玻璃本身不接触摸，原先只有 + 字形能点，点在圆的其余部分会穿透到下面的行（模拟器 26.5 上复现不出） | 没有自动测试（命中区域只有真机上不同）；靠真机验收 |
+| 等你处理：只有一张便签时宽度是屏宽减两边页边距（横向滚动里不能用 maxWidth .infinity，否则按标题一行的长度撑出屏幕）；便签的阴影不被横向滚动区裁掉 | 模拟器截图（三张、强制一张两种）已看过；没有布局单测 |
+| 首页 + 的圆环贴近 +：半径 92pt、隔 48°、一屏 3 个（-84° 到 -180°），两端外的圆钮都渐隐、点不中；等你处理下面不留边距；顶栏模糊区降到 180pt | Swift `PlaceRingTests`（`keepsKeysCloseToThePlus`、`fadesKeysOutsideTheSlots`、`findsTheKeyUnderATap` 的第四个圆钮，改常量前已见过失败）；间距和模糊区靠模拟器截图，已看过 |
+| 首页 + 展开时只在 + 和圆环后面铺一块半径 146pt、边缘 40pt 渐隐的毛玻璃圆，只有这块圆接触摸，页面其余地方照常能点；离开首页时收起；+ 按下不用系统玻璃鼓起 | Swift `PlaceRingTests.padsOnlyTheRing`（毛玻璃圆盖住三个圆钮和名字、不超过 160pt；加常量前已见过失败）；渐隐边缘、穿透和按压靠模拟器截图与点按，已看过 |
+| 首页 + 圆环的毛玻璃圆底色是"纸雾"（模糊上盖 72% 纸色），不发灰 | 颜色没有自动测试；模拟器截图和原型 B 对比过 |
+| 对话页每次更新只重画变了的那一轮：`TurnItem` 按轮次内容、是不是最新一轮、改动入口比较，不比较每次新建的闭包（原先流式输出时每个片段都让所有轮重画，约 345 次/秒） | Swift `TurnItemTests`（类型不存在时失败，已见过）；调试画廊 `conversation-stream`（4 轮历史 + 每 33ms 一个片段）实测轮次重画 1720 → 143 次/5 秒 |
+| 首页读的列表、"不是最新"、就绪、改动由 `SyncModel` 单独保存，只在列表变了时重建首页列表；对话流式输出时首页（压在对话页下面）既不重建也不收到变化通知 | Swift `SyncModelMirrorTests`（重建条件改成恒真、恒假都会失败，已见过）；真机录制里首页重建原先占我们代码采样约 10% |
+| 节流的缓存写入在主线程外编码和写盘；撤销时先等正在写的那次写完再删缓存 | Swift `SyncModelTests.cache`（推进 1 秒后列表和会话都写到盘上）；撤销等待没有单独的并发测试 |
+| 便签、用户气泡的阴影由纸张形状投，不由整块内容投 | 模拟器新旧截图对比外观不变；真机首页离屏渲染 83 → 27 次、超时帧 436/908 → 12/597，对话测速页 31 → 23 次 |
+| + 圆环收起时不挂圆钮和毛玻璃圆：`RingStage` 关→开启中（先挂上）→开→收起中（0.45 秒后卸下） | Swift `PlaceRingTests.mountsKeysOnlyWhileUsed`（类型不存在时失败，已见过）；模拟器上展开涟漪、收起都看过；真机首页离屏渲染再少 6 次 |
+| 心跳发出后收到宿主的任何一帧（含没收齐的消息块）都算回应，同一时刻或更早的不算；没有心跳回应、但长消息一直在到时不重连 | Swift `HeartbeatTrackerTests.anyFrameAnswers`、`SecureChannelTests.chunkIsHeard`、`RemoteConnectionTests.arrivingChunksKeepTheLink`（60 秒里每 5 秒一块、从不回心跳）；先红后绿；`>=` 的写法让已有的"两次没回应 35 秒重连"挂住，改为严格晚于；破坏检查 4/4 CAUGHT |
+| 发给手机的列表不带已归档的会话、工作区、对话，会话 `file` 一律 `null`；变更里归档的条目改成删除，原有删除保留；本机客户端照旧拿完整列表 | `remote-policy.test.ts`"the list as the phone gets it"3 项、`connection.test.ts`"sends the list without archived sessions"；先红后绿；破坏检查 9/9 CAUGHT |
+| 宿主发给手机的消息：手机在 `connect` 里要了 `deflate` 才压；不小于 1 KiB 且压完更小才压，`0x06`…`0x05` 分块；没要过就收到压缩块、同一条消息混用两类块、损坏、解压超过上限都关通道；Node 压的 Swift 能解 | TS `framing.test.ts`"compression"5 项、`channel.test.ts`"deflates large messages only for a phone that asked"、`phone-sync.host.test.ts`"reads the list deflated…"（真 relay、真宿主）；Swift `DeflateTests` 3 项（Node 生成的 raw deflate 夹具；2026-11-04 合回 main 时补：空输入按损坏处理，原先回退到临时数组指针，严格构建报悬空指针）、`RemoteConnectionTests.deflatedMessages`；破坏检查 12/12 CAUGHT（第一次跑时接线用例在破坏后挂住而非失败，已把接线测试改为"消息到了或连接断了"二选一等待，复验抓到） |
+| 手机打开会话只要 3 轮、256 KiB；会话页顶行出现时自动取更早的（`fetch_transcript` 3 条、256 KiB，同一会话一次一个），取到接在最前面并换上 `hasOlder`；`epoch` 变了或最早一条变了就丢掉应答；失败只结束"正在载入"；换代、关页作废 | Swift `SyncOlderTests` 7 项；先红后绿；破坏检查 7/7 CAUGHT（第一次漏了"同一最早条目、不同 epoch"，补测试后抓到）。顶行转圈和插入后视口不跳只编译和 lint 过，没在模拟器或真机上看过 |
+| 往上翻载入更早的不跳、不连取：顶行滚进屏幕才取（取完不算触发）；每批整块排版；插入前先把回复 Markdown 解析进缓存；最上面一条被推下多少就滚多少，跟住到手指再碰屏幕、最多 30 次；替换快照、手指在滚时不动 | Swift `OlderPlaceTests` 5 项、`SyncOlderTests` 增"批次大小""先看应答里的条目"2 项、`MarkdownCacheTests` 2 项；模拟器 `conversation-older` 图库（真实 `SyncCore`，0.8 秒后答 3 轮）：修前一次滑动连取 4 批、内容换成新插入的；修后只取 1 批、第 0 轮停在原处（top 102→1968→102），60 帧录屏插入时无变化帧；对照上一提交，`conversation-stream` 打开不在底部是原有现象，不是这次引入；破坏检查 12/12 CAUGHT（第一次 7 项因测试没有显示名、脚本认不出失败行而报 MISSED，手工复验确实能抓到，补上显示名后复验） |
+| 顶行在屏幕上时，会话同步好或换了新快照（`epoch` 变）也会再取；会话还在加载或等续传时不取 | Swift `OlderPlaceTests` 增"连上且同步好才取""新快照或同步好算一次变化"；真机探针日志确认打开时先用缓存那份发出请求；Mac 日志 03:38:15 一次 `transcript_changed` |
+| 给手机的工具步骤只发 512 字节预览（先 2 KB，实测仍大后改；快照、`step_added`、`step_updated`、手机的 `fetch_transcript` 应答），`bash` 取结尾、其余取开头，标 `partial`；对 16 KB 预览再缩和直接从原文缩一样；桌面照旧 | `rules.test.ts`"previews against a smaller limit…"、`remote-policy.test.ts`"conversations as the phone gets them"3 项（含"cuts to 512 bytes"）、`router.test.ts`"answers a phone's page of older turns…"；先红后绿 |
+| 手机展开 `partial` 的工具步骤时取完整步骤：只在同步后、只对在场的 partial 步骤、同一步一次一个；取回后整步换上（`epoch` 对得上才换），失败记下可重试；换代、关页作废；展开处"正在取完整内容…"/"没取到完整内容 · 重试" | Swift `SyncStepTests` 3 项、`RailRowsTests.partialStep`（含"探索了代码库"合并行列出其中每个预览步骤）；先红后绿。界面这两行没在模拟器或真机看过 |
+| 手机往上翻一页按 512 字节预览的大小算字节预算（宿主 `before(…, stepLimit)`，路由给手机传 512、给桌面不传），手机一页上限 1 MiB；一次三轮 | `session-transcript.test.ts`"counts a page's bytes with steps cut to a smaller limit…"（同样 30 KB 预算：桌面 1 轮、手机 3 轮）、`router.test.ts`"pages a phone's older turns with its short step limit…"、`session-controller.test.ts`"cuts a page's steps to the step limit it is given"、Swift `SyncOlderTests`（1 MiB）；先红后绿，破坏检查 5 处全抓到。`session-manager` 只转手，没单独测 |
+| 往上翻取到的一批等会话页滚动停下（手指离开、惯性停住）才插进去，最多等 3 秒；后面来的消息排在它后面。滚动停下时最上面一行在屏幕上也算一次触发 | Swift `SyncModelTests`"puts older turns in front only once the page's scroll rests, or after three seconds"、`OlderPlaceTests`"a scroll coming to rest is a change that fetches again"；先红后绿，破坏检查 4 处全抓到。会话页把滚动阶段写给 `ScrollRest`、停下时计数这两处接线没有单测，在模拟器 `conversation-older`（临时加重的样例轮次、帧计时探针）里看过：两批都在停下后插入、位置跟住，第二批自己取了；插入那一帧仍有 190～230 ms，只是不再落在滑动当中 |
+| 对话页标题下的雾换成渐进模糊（三层材质叠加、纸色 62%→52%→透明，到 160pt（真机看后从 82%、190pt 调淡）），停在最顶上时不显示、滚过 16pt 淡入；"正在载入更早的"换成两条细线夹转圈和字 | 视觉改动，没有单测：模拟器 `conversation-older`（临时把应答延到 30 秒）浅色停在顶上载入中、浅色往下滚、深色往下滚三张截图看过：标题清楚、标题后只剩隐约的字，细线一行在雾外面能看清。真机没看过 |
+| 手机对话页滑回来的回复不重排：快照的回复先解析进 `MarkdownCache`；屏幕上解析好的完成回复存进缓存（上限 256）；缓存命中就不再解析；代码高亮按语言和代码留 128 块，代码块一出来就上好色。标题的雾在载入更早的、跟住位置时也开着，滚过 16pt 立刻出现 | Swift `SyncModelTests`"parses a snapshot's replies before it goes in…"、`CodeHighlighterTests`"keeps what it highlighted…"；先红后绿，破坏检查 3 处全抓到。`StreamingReplyView` 命中缓存不再解析、解析后存缓存，和雾的开关没有单测：真机探针日志定位（滑动中的慢帧里本页和轮次都没重建、没有消息，滚动条长度在变），模拟器看过载入中雾下细线仍清楚；2026-10-30 用户在真机上确认"对话内 HTML 渲染调研"滑动顺了、插入时不再闪 |
+| 宿主连 relay 优先经设置里的代理（HTTP `CONNECT` 隧道，TLS 端到端）：控制连接、每台手机的数据连接、"测试连接"都经代理；上一次经代理在 `ready` 前失败，下一次直连，之后回到代理；relay 在本机或主机名在"不走代理"里的直连；日志只记"经代理/直连" | `relay-route.test.ts` 6 项、`relay-link.test.ts`"connects through the proxy…""goes direct after the proxy refused…""tests the relay through the proxy…"、`channel.test.ts`"opens the data connection the way the link's route chose…"（测试里起真的本地 CONNECT 代理 `test/connect-proxy.ts`）；先红后绿，破坏检查 9 处全抓到。`main.ts` 里把设置接给 `RelayRoute` 一处没有单测，打包后看宿主日志"relay connected"的 `via` 确认 |

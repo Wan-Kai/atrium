@@ -153,6 +153,7 @@ nonisolated enum RailRows {
     }
     if let output = tool.output, !output.isEmpty { parts.append(output) }
     row.detail = parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+    row.partialSteps = tool.partial ? [tool.id] : []
     return row
   }
 
@@ -255,7 +256,7 @@ nonisolated enum RailRows {
     let searches = tools.count - reads
     let parts = [reads > 0 ? "读了 \(reads) 个文件" : nil, searches > 0 ? "搜索了 \(searches) 次" : nil]
     let live = tools.contains { $0.status == .running }
-    return RailRow(
+    var row = RailRow(
       id: id, node: .search, verb: live ? "正在探索代码库" : "探索了代码库",
       object: parts.compactMap(\.self).joined(separator: "，"),
       detail: tools.map { tool in
@@ -263,6 +264,8 @@ nonisolated enum RailRows {
         let title = [row.verb, row.object, row.end].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: " · ")
         return [title, row.detail].compactMap(\.self).joined(separator: "\n")
       }.joined(separator: "\n\n"))
+    row.partialSteps = tools.filter(\.partial).map(\.id)
+    return row
   }
 
   /// Rows for the events a child's tool call brought back.

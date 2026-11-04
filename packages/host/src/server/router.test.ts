@@ -14,6 +14,7 @@ import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
 import { type Connection, createConnection } from "./connection";
 import { createAttachmentStore } from "./attachments";
+import { PHONE_STEP_TEXT_LIMIT } from "./remote-policy";
 import { createRouter } from "./router";
 
 const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -68,8 +69,8 @@ function fakeCommands() {
       calls.push(["fetchImage", command.sessionId, command.turnId, command.index]);
       return { mimeType: "image/png", data: "eA==" };
     },
-    fetchTranscript: async (command) => {
-      calls.push(["fetchTranscript", command.sessionId, command.epoch, command.before, command.limit]);
+    fetchTranscript: async (command, stepLimit) => {
+      calls.push(["fetchTranscript", command.sessionId, command.epoch, command.before, command.limit, stepLimit]);
       return { items: [], hasOlder: true };
     },
     steer: async (command, images = []) => {
@@ -418,6 +419,30 @@ describe("createRouter", () => {
     expect(records.filter((record) => record["msg"] === "client issue")).toStrictEqual([]);
   });
 
+  it("pages a phone's older turns with its short step limit, and the Mac's with the usual one", async () => {
+    const { route, connection, calls, logger, sent } = setUp();
+    const phone = createConnection(
+      { bufferedAmount: 0, send: (data) => sent.push(JSON.parse(data) as HostMessage), close: () => undefined },
+      {
+        id: "c3",
+        clientId: "dev_0123456789abcdef",
+        trace: ROOT_CONTEXT,
+        maxBufferedBytes: 1_000_000,
+        logger,
+        remote: { deviceId: "dev_0123456789abcdef", maxMessageBytes: 1_000_000, snapshotOf: () => null },
+      },
+    );
+    const fetch = { type: "fetch_transcript", sessionId: "s1", epoch: 1, before: "t9", limit: 3 } as const;
+
+    await route(phone, withTrace({ ...fetch, requestId: "p1" }));
+    await route(connection, withTrace({ ...fetch, requestId: "d1" }));
+
+    expect(calls.filter(([name]) => name === "fetchTranscript")).toStrictEqual([
+      ["fetchTranscript", "s1", 1, "t9", 3, PHONE_STEP_TEXT_LIMIT],
+      ["fetchTranscript", "s1", 1, "t9", 3, undefined],
+    ]);
+  });
+
   it("runs a phone's prompt and steer through its receipts, and the Mac's straight", async () => {
     const { route, connection, calls, logger, sent } = setUp();
     const phone = createConnection(
@@ -542,7 +567,7 @@ describe("createRouter", () => {
       ["createChat", "client-1"],
       ["subscribe", "connection-7", ["s1"], undefined, undefined],
       ["prompt", "s1", "hi"],
-      ["fetchTranscript", "s1", 2, "t9", 50],
+      ["fetchTranscript", "s1", 2, "t9", 50, undefined],
       ["fetchStep", "s1", 2, "t9", "3"],
       ["openSession", "client-1", "s2"],
       ["createSession", "client-1", WORKSPACE, true, undefined],

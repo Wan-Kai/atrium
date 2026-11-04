@@ -19,6 +19,8 @@ public actor SecureChannel {
   private let outbox: CiphertextBuffer
   private let writer: Task<Void, Never>
   private var closed = false
+  /// When the last frame came from the host, finished message or not; `nil` before the first.
+  public private(set) var lastHeard: Elapsed?
   nonisolated var bufferedByteCount: Int { outbox.bufferedByteCount }
   nonisolated var bufferedFrameCount: Int { outbox.bufferedFrameCount }
 
@@ -42,6 +44,7 @@ public actor SecureChannel {
   ///   - receiveLimit: Largest incoming message.
   ///   - sendLimit: Largest outgoing message.
   ///   - chunkTimeout: How long an incoming chunked message may stay open.
+  ///   - inflates: Whether deflated messages are accepted: the daily `connect` asked for them.
   public init(
     transport: any RemoteTransport,
     noise: sending NoiseTransport,
@@ -49,14 +52,15 @@ public actor SecureChannel {
     stopwatch: Stopwatch,
     receiveLimit: Int = ChannelLimits.hostToPhone,
     sendLimit: Int = ChannelLimits.phoneToHost,
-    chunkTimeout: Duration = ChannelLimits.chunkTimeout
+    chunkTimeout: Duration = ChannelLimits.chunkTimeout,
+    inflates: Bool = false
   ) {
     self.transport = transport
     self.noise = noise
     self.handshakeHash = handshakeHash
     self.sendLimit = sendLimit
     self.stopwatch = stopwatch
-    reassembler = FrameReassembler(limit: receiveLimit, timeout: chunkTimeout)
+    reassembler = FrameReassembler(limit: receiveLimit, timeout: chunkTimeout, inflates: inflates)
     let outbox = CiphertextBuffer()
     self.outbox = outbox
     writer = Task {
@@ -134,6 +138,7 @@ public actor SecureChannel {
     while true {
       guard !closed, !writer.isCancelled else { throw .closed }
       let ciphertext = try await receiveFrame()
+      lastHeard = stopwatch.now
       guard !closed, !writer.isCancelled else { throw .closed }
       do throws(RemoteError) {
         let plaintext: Data
@@ -191,11 +196,12 @@ public actor SecureChannel {
 
   /// Encrypts one frame and queues it.
   ///
-  /// - Remark: Encrypting here, in call order, is what keeps nonces in order on the wire.
+  /// - Remark: Encrypting here, in call order, is what keeps nonces in order on the wire. Internal,
+  ///   not private, so tests playing the host can send a single chunk.
   /// - SideEffects: Queues a frame; closes the channel when encryption or the byte budget fails.
   /// - Parameter frame: The frame.
   /// - Throws: ``RemoteError/noise(_:)``, ``RemoteError/backpressure`` or ``RemoteError/closed``.
-  private func send(_ frame: ChannelFrame) throws(RemoteError) {
+  func send(_ frame: ChannelFrame) throws(RemoteError) {
     guard !closed, !writer.isCancelled, !outbox.isAborted else { throw .closed }
     let ciphertext: Data
     do {

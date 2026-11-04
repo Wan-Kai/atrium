@@ -37,6 +37,7 @@ const session = (sessionId: string, containerId: string) => ({
   running: false,
   attention: null,
   asking: null,
+  question: null,
   handedOff: false,
   model: null,
   parent: null,

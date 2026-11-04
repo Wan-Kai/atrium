@@ -60,10 +60,22 @@ nonisolated enum Signing {
   ///   - now: The time now.
   /// - Returns: The words.
   static func text(expiry: Date, now: Date) -> String {
+    "签名" + value(expiry: expiry, now: now)
+  }
+
+  /// The settings row's value, after "签名": "还剩 N 天", "今天到期" or "已过期".
+  ///
+  /// - Remark: design-language "手机端 · 设置页".
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - expiry: When it runs out.
+  ///   - now: The time now.
+  /// - Returns: The words.
+  static func value(expiry: Date, now: Date) -> String {
     switch daysLeft(expiry: expiry, now: now) {
-    case ..<0: "签名已过期"
-    case 0: "签名今天到期"
-    case let days: "签名还剩 \(days) 天"
+    case ..<0: "已过期"
+    case 0: "今天到期"
+    case let days: "还剩 \(days) 天"
     }
   }
 

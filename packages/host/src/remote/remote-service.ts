@@ -31,6 +31,7 @@ import { nameOf, parseVault, type RemoteDocument, type VaultContents } from "./d
 import { PairingMachine } from "./pairing";
 import { parseRelayLine, type RelayEndpoint } from "./relay-line";
 import { RelayLink, probeRelay } from "./relay-link";
+import type { RelayRoute } from "./relay-route";
 import { VaultStore, type VaultPort } from "./vault";
 
 /** The bounded authenticated payload shared by both handshakes. */
@@ -38,6 +39,8 @@ const ConnectPayload = z.object({
   kind: z.literal("connect"),
   appVersion: z.string().max(128),
   protocolVersion: z.number().int(),
+  /** What the phone can decompress; only `deflate` is known (SPEC-0005, "Noise 通道 · 压缩"). */
+  compression: z.array(z.string().max(32)).max(8).optional(),
 });
 const PairPayload = z.object({
   kind: z.literal("pair"),
@@ -57,6 +60,8 @@ export interface RemoteOptions {
   readonly resources: ResourceTracker;
   readonly logger: Logger;
   readonly hostName: string;
+  /** Through the proxy setting or direct (SPEC-0005, "连 relay 走代理"); direct when absent. */
+  readonly route?: RelayRoute;
   readonly send: (connectionId: string, event: RemoteUpdatedEvent) => void;
   readonly accept: (transport: ClientTransport, origin: TransportOrigin) => void;
 }
@@ -597,6 +602,7 @@ export class RemoteService implements RemoteCommands {
       const payload: unknown = JSON.parse(fromUtf8(handshake.readMessage(message)));
       let answer: Record<string, unknown>;
       let deviceId: string | null = null;
+      let compress = false;
       if (pattern === "IKpsk2") {
         const request = PairPayload.parse(payload);
         if (pairing === null || request.pairingId !== pairing.pairingId) {
@@ -622,13 +628,14 @@ export class RemoteService implements RemoteCommands {
               ? { ok: false, reason: "version_mismatch", hostProtocol: PROTOCOL_VERSION }
               : { ok: true, deviceId: device.deviceId };
         if (answer.ok === true && device !== undefined) deviceId = device.deviceId;
+        compress = request.compression?.includes("deflate") === true;
       }
       stream.sendRaw(handshake.writeMessage(utf8(JSON.stringify(answer))));
       if (answer.ok !== true) {
         stream.close("handshake_rejected");
         return;
       }
-      stream.secure(handshake.finish());
+      stream.secure(handshake.finish(), compress);
       if (deviceId !== null) this.#session(stream, deviceId);
       else this.#handshakeChanged();
     } catch (error) {

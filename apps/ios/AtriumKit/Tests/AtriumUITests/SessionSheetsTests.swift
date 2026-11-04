@@ -24,7 +24,7 @@ struct SessionSheetsTests {
         from: Data(
           """
           {"sessionId":"c","containerId":"w","name":null,"prompt":null,"file":null,"state":"persisted","updatedAt":1,\
-          "archived":false,"running":false,"attention":null,"asking":null,"handedOff":false,"model":null,\
+          "archived":false,"running":false,"attention":null,"asking":null,"question":null,"handedOff":false,"model":null,\
           "parent":null,"agent":null,"heldDeliveries":0}
           """.utf8))
     }
@@ -81,8 +81,8 @@ struct SessionPresentTests {
 
   @Test("says a child page belongs to its parent instead of where it is")
   func childSubtitle() {
-    #expect(SessionPage.subtitle(place: "proj · main", parentTitle: nil) == "proj · main")
-    #expect(SessionPage.subtitle(place: "proj · main", parentTitle: "修缓存") == "↳ 修缓存")
+    #expect(SessionPage.subtitle(parentTitle: nil) == nil)
+    #expect(SessionPage.subtitle(parentTitle: "修缓存") == "↳ 修缓存")
   }
 
   @Test("words a dialog or question the other end answered first")

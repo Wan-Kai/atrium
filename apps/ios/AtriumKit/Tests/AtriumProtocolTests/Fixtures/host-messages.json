@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 31,
+    "protocolVersion": 32,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -1139,6 +1139,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -1158,9 +1159,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -1422,6 +1428,7 @@
           "running": true,
           "attention": null,
           "asking": null,
+          "question": null,
           "handedOff": false,
           "model": null,
           "parent": null,
@@ -1441,9 +1448,14 @@
           "attention": {
             "reason": "error",
             "at": 7,
-            "cleared": false
+            "cleared": false,
+            "text": "overloaded"
           },
           "asking": 8,
+          "question": {
+            "title": "回调地址用哪个？",
+            "detail": "换了要同步改 Nginx"
+          },
           "handedOff": true,
           "model": {
             "providerId": "faux",
@@ -1477,6 +1489,7 @@
           "running": false,
           "attention": null,
           "asking": null,
+          "question": null,
           "handedOff": false,
           "model": null,
           "parent": {
@@ -2212,6 +2225,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -2231,9 +2245,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -2467,6 +2486,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -2486,9 +2506,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -2722,6 +2747,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -2741,9 +2767,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -2977,6 +3008,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -2996,9 +3028,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -3232,6 +3269,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -3251,9 +3289,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -3487,6 +3530,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -3506,9 +3550,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -3742,6 +3791,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -3761,9 +3811,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -4010,6 +4065,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -4241,6 +4297,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -4260,9 +4317,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -4509,6 +4571,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -4528,9 +4591,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -4777,6 +4845,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -4796,9 +4865,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -5046,9 +5120,11 @@
         "attention": {
           "reason": "auth",
           "at": 0,
-          "cleared": true
+          "cleared": true,
+          "text": null
         },
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -5280,6 +5356,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -5299,9 +5376,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -5548,6 +5630,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -5567,9 +5650,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -5816,6 +5904,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -5835,9 +5924,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -6076,6 +6170,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -6095,9 +6190,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",
@@ -6297,6 +6397,7 @@
         "running": true,
         "attention": null,
         "asking": null,
+        "question": null,
         "handedOff": false,
         "model": null,
         "parent": null,
@@ -6316,9 +6417,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "handedOff": true,
         "model": {
           "providerId": "faux",

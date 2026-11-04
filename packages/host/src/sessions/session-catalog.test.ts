@@ -290,14 +290,14 @@ describe("SessionCatalog", () => {
     await sessions.scan();
     const before = changes();
 
-    await sessions.mark("terminal", { attention: { reason: "auth", at: 7, cleared: false } });
+    await sessions.mark("terminal", { attention: { reason: "auth", at: 7, cleared: false, text: null } });
     await sessions.mark("ours", { handedOff: true });
     await sessions.mark("ours", { handedOff: true });
-    await sessions.mark("terminal", { attention: { reason: "auth", at: 7, cleared: false } });
+    await sessions.mark("terminal", { attention: { reason: "auth", at: 7, cleared: false, text: null } });
     await sessions.mark("unknown", { handedOff: true });
 
     expect(sessions.list().map((entry) => [entry.sessionId, entry.attention, entry.handedOff])).toStrictEqual([
-      ["terminal", { reason: "auth", at: 7, cleared: false }, false],
+      ["terminal", { reason: "auth", at: 7, cleared: false, text: null }, false],
       ["ours", null, true],
     ]);
     expect(file.read().sessions).toStrictEqual([
@@ -317,7 +317,7 @@ describe("SessionCatalog", () => {
         draft: false,
         archived: false,
         createdAt: 5_000,
-        attention: { reason: "auth", at: 7, cleared: false },
+        attention: { reason: "auth", at: 7, cleared: false, text: null },
       },
     ]);
     expect(changes() - before).toBe(2);

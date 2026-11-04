@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>首页 + 卡片圆环</title>
+    <style>
+      :root {
+        --page: #f6f2e9;
+        --note: #fffcf5;
+        --surface: #efe9dc;
+        --text: #26221c;
+        --l2: #8b8477;
+        --l3: #d3cbbb;
+        --tint: #8a7352;
+        --rule: rgba(70, 55, 30, 0.11);
+        --glass: rgba(255, 252, 245, 0.78);
+        --ring: rgba(255, 255, 255, 0.75);
+        --shadow: rgba(60, 45, 20, 0.16);
+        --tape: rgba(222, 208, 180, 0.62);
+        --scrim: rgba(246, 242, 233, 0.52);
+        --desk: #e4ddcf;
+      }
+      :root[data-theme="dark"] {
+        --page: #1c1a16;
+        --note: #2a2722;
+        --surface: #2a2620;
+        --text: #eee9df;
+        --l2: #8f887b;
+        --l3: #4a453c;
+        --tint: #c9b28c;
+        --rule: rgba(255, 240, 220, 0.08);
+        --glass: rgba(46, 44, 41, 0.82);
+        --ring: rgba(255, 255, 255, 0.1);
+        --shadow: rgba(0, 0, 0, 0.5);
+        --tape: rgba(201, 178, 140, 0.22);
+        --scrim: rgba(28, 26, 22, 0.55);
+        --desk: #121110;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--desk);
+        color: var(--text);
+        font:
+          15px/1.45 -apple-system,
+          "PingFang SC",
+          sans-serif;
+      }
+      header {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 28px 16px 8px;
+      }
+      header h1 {
+        margin: 0 0 6px;
+        font-size: 20px;
+      }
+      header p {
+        margin: 0 0 12px;
+        color: var(--l2);
+        max-width: 720px;
+      }
+      header button {
+        font: inherit;
+        font-size: 13px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        border: 0.5px solid var(--l3);
+        background: var(--note);
+        color: var(--text);
+      }
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 12px 16px 48px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 32px;
+        align-items: flex-start;
+      }
+      .side {
+        max-width: 380px;
+        color: var(--l2);
+        font-size: 13.5px;
+      }
+      .side b {
+        color: var(--text);
+      }
+      .side li {
+        margin-bottom: 6px;
+      }
+      .phone {
+        position: relative;
+        width: 360px;
+        height: 700px;
+        border-radius: 42px;
+        background: var(--page);
+        overflow: hidden;
+        box-shadow: 0 10px 30px var(--shadow);
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+      }
+      .content {
+        padding: 58px 20px 0;
+      }
+      .brand {
+        font:
+          italic 560 34px/1 "Fraunces",
+          Georgia,
+          serif;
+      }
+      .host {
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--l2);
+      }
+      .proj {
+        margin-top: 24px;
+        font:
+          600 17px/1.2 "New York",
+          Georgia,
+          serif;
+      }
+      .row {
+        height: 48px;
+        border-bottom: 0.5px solid var(--rule);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .row b {
+        font:
+          500 12.5px ui-monospace,
+          Menlo,
+          monospace;
+      }
+      .row span {
+        color: var(--l2);
+        font-size: 12px;
+      }
+      .scrim {
+        position: absolute;
+        inset: 0;
+        background: var(--scrim);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s;
+      }
+      .open .scrim {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      /* The ring: cards on a circle centred on the +, running off the right and bottom edges. */
+      .ring {
+        position: absolute;
+        left: var(--cx);
+        top: var(--cy);
+        width: 0;
+        height: 0;
+        z-index: 2;
+      }
+      .card {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+      }
+      .card .paper {
+        position: absolute;
+        left: -66px;
+        top: -38px;
+        width: 132px;
+        height: 76px;
+        padding: 14px 12px 10px;
+        border-radius: 3px 3px 12px 3px;
+        background: var(--note);
+        box-shadow:
+          0 1px 0 var(--rule),
+          0 8px 20px var(--shadow);
+        pointer-events: auto;
+        cursor: pointer;
+        transform: scale(var(--s, 1));
+        transition: transform 0.16s;
+      }
+      .card .paper::before {
+        content: "";
+        position: absolute;
+        top: -7px;
+        left: var(--tape-x, 40px);
+        width: 46px;
+        height: 14px;
+        background: var(--tape);
+        transform: rotate(var(--tape-r, -3deg));
+      }
+      .card.pressed .paper {
+        --s: 0.94;
+      }
+      .card .title {
+        font:
+          600 16px/1.15 "New York",
+          Georgia,
+          "PingFang SC",
+          serif;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .card .meta {
+        margin-top: 6px;
+        font-size: 11.5px;
+        color: var(--l2);
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        white-space: nowrap;
+      }
+      .card .meta i {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--tint);
+      }
+      .card.chat .paper {
+        background: var(--text);
+        color: var(--page);
+      }
+      .card.chat .meta {
+        color: var(--l3);
+      }
+      .card.chat .paper::before {
+        background: rgba(255, 255, 255, 0.14);
+      }
+      .fab {
+        position: absolute;
+        right: 18px;
+        bottom: 28px;
+        width: 58px;
+        height: 58px;
+        border-radius: 50%;
+        border: 0.5px solid var(--ring);
+        background: var(--glass);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        box-shadow: 0 8px 22px var(--shadow);
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        z-index: 3;
+      }
+      .fab svg {
+        transition: transform 0.4s cubic-bezier(0.3, 1.4, 0.5, 1);
+      }
+      .open .fab svg {
+        transform: rotate(45deg);
+      }
+      .toast {
+        position: absolute;
+        left: 50%;
+        top: 120px;
+        transform: translate(-50%, -8px);
+        background: var(--text);
+        color: var(--page);
+        font-size: 13px;
+        padding: 8px 14px;
+        border-radius: 18px;
+        opacity: 0;
+        transition:
+          opacity 0.2s,
+          transform 0.2s;
+        z-index: 4;
+        white-space: nowrap;
+      }
+      .toast.show {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>首页右下 + · 卡片圆环</h1>
+      <p>
+        点 + 后，以 +
+        为圆心排开一圈便签卡片，圆环大到从屏幕右边进、从底边出。"新对话"每次都在固定的位置；在屏幕任意处沿着圆环拖，卡片绕着
+        + 转，别的项目从右边转进来。点卡片就在那里新建。
+      </p>
+      <button id="theme">切到深色</button>
+    </header>
+    <main>
+      <div class="phone" id="phone">
+        <div class="content">
+          <div class="brand">Atrium</div>
+          <div class="host">● MacBook Pro</div>
+          <div class="proj">atrium</div>
+          <div class="row"><b>feat/mobile-redesign</b><span>首页空状态换成纸</span></div>
+          <div class="row"><b>main</b><span>夜间变异测试结果</span></div>
+          <div class="proj">radar-map</div>
+          <div class="row"><b>feat/radar-map</b><span>雷达图缩放</span></div>
+          <div class="row"><b>fix/legend</b><span>图例错位</span></div>
+          <div class="proj">blog</div>
+          <div class="row"><b>main</b><span>写一篇 Noise 的笔记</span></div>
+        </div>
+        <div class="scrim" id="scrim"></div>
+        <div class="ring" id="ring"></div>
+        <div class="fab" id="fab">
+          <svg width="22" height="22" viewBox="0 0 22 22">
+            <path d="M11 4v14M4 11h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+          </svg>
+        </div>
+        <div class="toast" id="toast"></div>
+      </div>
+      <div class="side">
+        <p><b>怎么玩</b></p>
+        <ul>
+          <li>点右下 + 展开：卡片从 + 里沿圆环一张张甩出来，落到各自的位置。</li>
+          <li>在卡片上或空白处按住，沿着绕 + 的方向拖，整圈卡片跟着手指转；松手带惯性，再吸到最近的一格。</li>
+          <li>
+            "新对话"每次展开都在同一个位置（圆环从右边进来的第一格，就在 + 的正上方偏左），往回转到头有橡皮筋回弹。
+          </li>
+          <li>卡片沿着圆环微微倾斜，越往两头斜得越多，转起来像一个轮子；字一直可读。</li>
+          <li>项目卡片写名字和"N 在跑 · 几分钟前"，按最近活动排。</li>
+          <li>点卡片新建；点 + 或单点空白处收起。</li>
+          <li>减弱动态效果时：不甩出、没有惯性，直接出现、直接吸附。</li>
+          <li>电脑上也可以用触控板 / 滚轮转。</li>
+        </ul>
+      </div>
+    </main>
+    <script>
+      const items = [
+        { name: "新对话", meta: "不绑定项目", chat: true },
+        { name: "atrium", meta: "2 在跑 · 刚刚", running: true },
+        { name: "radar-map", meta: "1 在跑 · 6 分钟", running: true },
+        { name: "blog", meta: "1 小时前" },
+        { name: "weather-app", meta: "昨天" },
+        { name: "dotfiles", meta: "周一" },
+        { name: "notes", meta: "10月20日" },
+        { name: "pi-bridge", meta: "10月12日" },
+      ];
+      const phone = document.getElementById("phone");
+      const ring = document.getElementById("ring");
+      const toast = document.getElementById("toast");
+      const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      // Geometry, in the phone's points. The ring is centred on the + and big enough that its
+      // visible arc runs from the right edge to the bottom edge.
+      const cx = 360 - 18 - 29;
+      const cy = 700 - 28 - 29;
+      const radius = 270;
+      const step = 31; // degrees between cards, about 146pt of arc
+      const home = -100; // where 新对话 sits: the first slot in from the right edge
+      ring.style.setProperty("--cx", `${cx}px`);
+      ring.style.setProperty("--cy", `${cy}px`);
+      // Turned all the way, the last card sits in 新对话's slot.
+      const maxOffset = (items.length - 1) * step;
+
+      const cards = items.map((item, index) => {
+        const node = document.createElement("div");
+        node.className = `card${item.chat ? " chat" : ""}`;
+        const seed = (index * 37) % 11;
+        node.innerHTML = `<div class="paper" style="--tape-x:${30 + seed * 4}px;--tape-r:${seed % 2 ? 3 : -3}deg">
+          <div class="title">${item.name}</div>
+          <div class="meta">${item.running ? "<i></i>" : ""}${item.meta}</div></div>`;
+        ring.appendChild(node);
+        return node;
+      });
+
+      let offset = 0; // degrees the ring has turned; 0 puts 新对话 in its slot
+      let velocity = 0;
+      let animation = 0;
+      let opened = 0; // 0 closed … 1 open, for the fling-out on open
+
+      /** Lays every card out for the current offset and opening progress. */
+      function layout() {
+        cards.forEach((node, index) => {
+          // Each card flies out from the + along the ring, a little after the one before it.
+          const delay = Math.min(0.4, index * 0.07);
+          const local = Math.min(1, Math.max(0, (opened - delay) / (1 - delay)));
+          const ease = 1 - Math.pow(1 - local, 3);
+          const deg = home - index * step + offset;
+          const r = radius * (0.25 + 0.75 * ease);
+          const rad = (deg * Math.PI) / 180;
+          const x = r * Math.cos(rad);
+          const y = r * Math.sin(rad);
+          // Lean with the ring: upright at straight up, leaning as the card moves round.
+          const lean = (deg + 90) * 0.3;
+          node.style.transform = `translate(${x}px, ${y}px) rotate(${lean}deg) scale(${0.6 + 0.4 * ease})`;
+          node.style.opacity = ease.toFixed(3);
+          node.style.zIndex = String(100 - index);
+        });
+      }
+
+      /** Keeps the offset in range, with a rubber band past either end. */
+      function bounded(value) {
+        if (value < 0) return value * 0.35;
+        if (value > maxOffset) return maxOffset + (value - maxOffset) * 0.35;
+        return value;
+      }
+
+      /** Springs to the nearest card, carrying the release velocity. */
+      function settle() {
+        cancelAnimationFrame(animation);
+        const projected = offset + (reduce ? 0 : velocity * 10);
+        const target = Math.min(maxOffset, Math.max(0, Math.round(projected / step) * step));
+        if (reduce) {
+          offset = target;
+          layout();
+          return;
+        }
+        let speed = velocity;
+        const tick = () => {
+          speed = (speed + (target - offset) * 0.11) * 0.75;
+          offset += speed;
+          layout();
+          if (Math.abs(target - offset) > 0.05 || Math.abs(speed) > 0.05) animation = requestAnimationFrame(tick);
+          else {
+            offset = target;
+            layout();
+          }
+        };
+        animation = requestAnimationFrame(tick);
+      }
+
+      /** The angle of a pointer around the +, in degrees. */
+      function angleOf(event) {
+        const rect = phone.getBoundingClientRect();
+        return (Math.atan2(event.clientY - rect.top - cy, event.clientX - rect.left - cx) * 180) / Math.PI;
+      }
+
+      // Drag anywhere while open: the scrim and the cards both turn the ring.
+      let drag = null;
+      phone.addEventListener("pointerdown", (event) => {
+        if (!phone.classList.contains("open") || event.target.closest(".fab")) return;
+        cancelAnimationFrame(animation);
+        const card = event.target.closest(".card");
+        drag = { last: angleOf(event), moved: 0, raw: offset, card };
+        card?.classList.add("pressed");
+        phone.setPointerCapture(event.pointerId);
+        velocity = 0;
+      });
+      phone.addEventListener("pointermove", (event) => {
+        if (!drag) return;
+        const now = angleOf(event);
+        let delta = now - drag.last;
+        if (delta > 180) delta -= 360;
+        if (delta < -180) delta += 360;
+        drag.last = now;
+        drag.moved += Math.abs(delta);
+        drag.raw += delta;
+        const next = bounded(drag.raw);
+        velocity = next - offset;
+        offset = next;
+        if (drag.moved > 2) drag.card?.classList.remove("pressed");
+        layout();
+      });
+      phone.addEventListener("pointerup", () => {
+        if (!drag) return;
+        const { card, moved } = drag;
+        card?.classList.remove("pressed");
+        drag = null;
+        if (moved <= 2) {
+          if (card) pick(cards.indexOf(card));
+          else setOpen(false);
+          return;
+        }
+        settle();
+      });
+      phone.addEventListener(
+        "wheel",
+        (event) => {
+          if (!phone.classList.contains("open")) return;
+          event.preventDefault();
+          cancelAnimationFrame(animation);
+          offset = Math.min(maxOffset, Math.max(0, offset + event.deltaY * 0.12));
+          velocity = 0;
+          layout();
+          clearTimeout(phone.wheelTimer);
+          phone.wheelTimer = setTimeout(settle, 120);
+        },
+        { passive: false },
+      );
+
+      /** Picks a card: says where the new session goes, then closes. */
+      function pick(index) {
+        const item = items[index];
+        toast.textContent = item.chat ? "新对话（不绑定项目）" : `在 ${item.name} 里新建`;
+        toast.classList.add("show");
+        setTimeout(() => toast.classList.remove("show"), 1200);
+        setOpen(false);
+      }
+
+      /** Animates the opening progress towards open or closed. */
+      function animateOpen(target) {
+        const start = performance.now();
+        const from = opened;
+        const duration = reduce ? 1 : target ? 560 : 260;
+        const run = (now) => {
+          const t = Math.min(1, (now - start) / duration);
+          opened = from + (target - from) * t;
+          layout();
+          if (t < 1) requestAnimationFrame(run);
+        };
+        requestAnimationFrame(run);
+      }
+
+      /** Opens or closes the ring; opening always puts 新对话 back in its slot. */
+      function setOpen(open) {
+        if (open) {
+          cancelAnimationFrame(animation);
+          offset = 0;
+        }
+        phone.classList.toggle("open", open);
+        animateOpen(open ? 1 : 0);
+      }
+      document.getElementById("fab").addEventListener("click", () => setOpen(!phone.classList.contains("open")));
+      layout();
+
+      // "#open" opens on load, "#open=N" also turns it N cards, "-dark" goes dark; for screenshots.
+      const match = location.hash.match(/^#open(?:=(\d+))?/);
+      if (match) {
+        phone.classList.add("open");
+        opened = 1;
+        offset = Math.min(maxOffset, Number(match[1] || 0) * step);
+        layout();
+      }
+      const theme = document.getElementById("theme");
+      theme.addEventListener("click", () => {
+        const dark = document.documentElement.dataset.theme === "dark";
+        document.documentElement.dataset.theme = dark ? "light" : "dark";
+        theme.textContent = dark ? "切到深色" : "切到浅色";
+      });
+      if (location.hash.includes("dark")) theme.click();
+    </script>
+  </body>
+</html>
