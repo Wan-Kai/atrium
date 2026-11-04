@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Markdown 预览 · Atrium 交互原型</title>
+    <!-- 仅作设计参考，不接入生产构建。比较文件查看标签中的三种预览入口。 -->
+    <style>
+      :root {
+        color-scheme: light;
+        --main: #fff;
+        --window: #e8ecf2;
+        --sidebar: #dde2eb;
+        --text: #1d1d1f;
+        --muted: #6e6e74;
+        --line: rgba(0, 0, 0, 0.08);
+        --selected: rgba(0, 0, 0, 0.06);
+        --code: #f6f6f8;
+        --tint: #2f6fed;
+        --green: #1e8e3e;
+      }
+      :root.dark {
+        color-scheme: dark;
+        --main: #151517;
+        --window: #0d1016;
+        --sidebar: #252932;
+        --text: #f9fafb;
+        --muted: #adb2b8;
+        --line: rgba(255, 255, 255, 0.1);
+        --selected: rgba(255, 255, 255, 0.08);
+        --code: #19191b;
+        --tint: #7aaaff;
+        --green: #4ade80;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--window);
+        color: var(--text);
+        font:
+          14px -apple-system,
+          BlinkMacSystemFont,
+          "PingFang SC",
+          sans-serif;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+        background: none;
+        border: 0;
+        border-radius: 8px;
+        padding: 5px 10px;
+      }
+      button:hover {
+        background: var(--selected);
+      }
+      button:focus-visible {
+        outline: 2px solid var(--tint);
+        outline-offset: 2px;
+      }
+      button[aria-pressed="true"] {
+        background: var(--selected);
+      }
+      .intro {
+        max-width: 1320px;
+        margin: 24px auto 18px;
+        padding: 0 24px;
+        display: flex;
+        align-items: center;
+        gap: 20px;
+      }
+      .intro h1 {
+        font-size: 18px;
+        margin: 0 0 6px;
+      }
+      .intro p {
+        color: var(--muted);
+        font-size: 13px;
+        margin: 0;
+      }
+      .intro button {
+        margin-left: auto;
+        flex: none;
+        box-shadow: inset 0 0 0 0.5px var(--line);
+      }
+      .app {
+        display: flex;
+        height: calc(100vh - 190px);
+        min-height: 400px;
+        max-width: 1272px;
+        margin: 0 auto;
+        background: var(--main);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow:
+          0 12px 44px #00000014,
+          0 0 0 0.5px var(--line);
+      }
+      .sidebar {
+        width: 208px;
+        flex: none;
+        background: var(--sidebar);
+        padding: 18px 12px;
+      }
+      .lights {
+        display: flex;
+        gap: 8px;
+        margin: 0 0 30px 8px;
+      }
+      .lights i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #ff6058;
+      }
+      .lights i:nth-child(2) {
+        background: #ffbd2e;
+      }
+      .lights i:nth-child(3) {
+        background: #28c840;
+      }
+      .side-title {
+        padding: 10px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .side-row {
+        padding: 9px 10px;
+        border-radius: 8px;
+      }
+      .side-row.active {
+        background: var(--selected);
+      }
+      .side-row.sub {
+        padding-left: 25px;
+        font-size: 13px;
+      }
+      .work {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .tabs {
+        height: 48px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 14px;
+        box-shadow: inset 0 -0.5px var(--line);
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .tab {
+        padding: 7px 12px;
+      }
+      .tab.active {
+        border-radius: 8px;
+        background: var(--selected);
+        color: var(--text);
+      }
+      .filehead {
+        height: 40px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 8px 0 14px;
+        box-shadow: inset 0 -0.5px var(--line);
+        font-size: 13px;
+      }
+      .md-icon {
+        color: var(--tint);
+        font:
+          bold 12px ui-monospace,
+          monospace;
+      }
+      .meta {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .spacer {
+        flex: 1;
+      }
+      .actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex: none;
+      }
+      .actions button {
+        height: 26px;
+        font-size: 12px;
+        padding: 3px 8px;
+      }
+      .segmented {
+        display: flex;
+        gap: 2px;
+        background: var(--code);
+        border-radius: 8px;
+        padding: 2px;
+      }
+      .viewer {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+        min-width: 0;
+      }
+      .pane {
+        flex: 1;
+        min-width: 0;
+        overflow: auto;
+      }
+      .source {
+        padding: 12px 16px 24px 0;
+        font:
+          12px/1.7 "SF Mono",
+          Menlo,
+          monospace;
+        counter-reset: line;
+      }
+      .line {
+        display: flex;
+        white-space: pre;
+      }
+      .line::before {
+        counter-increment: line;
+        content: counter(line);
+        width: 48px;
+        padding-right: 12px;
+        text-align: right;
+        flex: none;
+        color: var(--muted);
+        user-select: none;
+      }
+      .line.title {
+        color: var(--tint);
+      }
+      .rendered {
+        max-width: 800px;
+        padding: 30px 36px 80px;
+        margin: auto;
+        font-size: 14.5px;
+        line-height: 1.55;
+      }
+      .rendered h1 {
+        font-size: 26px;
+        letter-spacing: -0.6px;
+        margin: 0 0 16px;
+      }
+      .rendered h2 {
+        font-size: 18px;
+        margin: 26px 0 12px;
+      }
+      .rendered p {
+        margin: 12px 0;
+      }
+      .rendered li {
+        margin: 4px 0;
+      }
+      .rendered ul {
+        padding-left: 22px;
+      }
+      .rendered code {
+        font:
+          12.5px "SF Mono",
+          Menlo,
+          monospace;
+        background: var(--code);
+        padding: 2px 5px;
+        border-radius: 4px;
+      }
+      .rendered pre {
+        padding: 14px;
+        background: var(--code);
+        border-radius: 8px;
+        overflow: auto;
+      }
+      .rendered pre code {
+        padding: 0;
+      }
+      .rendered table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      .rendered th,
+      .rendered td {
+        text-align: left;
+        padding: 9px 12px;
+        box-shadow: inset 0 -0.5px var(--line);
+      }
+      .rendered th {
+        background: var(--code);
+      }
+      .rendered blockquote {
+        margin: 20px 0;
+        padding-left: 16px;
+        border-left: 2px solid var(--tint);
+        color: var(--muted);
+      }
+      .split .pane + .pane {
+        box-shadow: inset 0.5px 0 var(--line);
+      }
+      .split .rendered {
+        padding: 24px;
+      }
+      .right {
+        width: 205px;
+        flex: none;
+        box-shadow: inset 0.5px 0 var(--line);
+        font-size: 13px;
+      }
+      .right-head {
+        height: 48px;
+        padding: 16px;
+        color: var(--muted);
+      }
+      .tree {
+        padding: 6px 10px;
+      }
+      .tree div {
+        padding: 7px 10px;
+        border-radius: 6px;
+      }
+      .tree .indent {
+        padding-left: 24px;
+      }
+      .tree .selected {
+        background: var(--selected);
+      }
+      .switcher {
+        position: fixed;
+        bottom: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px;
+        background: var(--text);
+        color: var(--main);
+        border-radius: 14px;
+        box-shadow: 0 8px 24px #0002;
+        white-space: nowrap;
+      }
+      .switcher button:hover {
+        background: #8883;
+      }
+      .switcher button[aria-pressed="true"] {
+        background: #8884;
+      }
+      .state {
+        min-width: 105px;
+        font-size: 11px;
+        opacity: 0.7;
+        padding: 0 8px;
+      }
+      .hidden {
+        display: none !important;
+      }
+      @media (max-width: 1000px) {
+        .sidebar {
+          width: 166px;
+        }
+        .right {
+          display: none;
+        }
+        .app {
+          margin: 0 16px;
+        }
+      }
+      @media (max-width: 650px) {
+        .sidebar {
+          display: none;
+        }
+        .meta {
+          display: none;
+        }
+        .intro {
+          padding: 0 16px;
+        }
+        .intro p {
+          font-size: 12px;
+        }
+        .switcher {
+          gap: 2px;
+          padding: 6px;
+        }
+        .switcher button {
+          padding: 6px;
+          font-size: 12px;
+        }
+        .state {
+          display: none;
+        }
+        .rendered {
+          padding: 24px;
+        }
+        .split {
+          flex-direction: column;
+        }
+        .split .pane {
+          min-height: 140px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="intro">
+      <div>
+        <h1 id="heading">A · 单按钮原位切换</h1>
+        <p id="description">在文件头点“预览”，正文切为排版结果；再点“查看源码”返回。</p>
+      </div>
+      <button id="theme" aria-pressed="false">深色外观</button>
+    </div>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <div class="side-title">项目</div>
+        <div class="side-row">⌄ &nbsp; Atrium</div>
+        <div class="side-row sub active">⌁ &nbsp; Markdown 文件预览</div>
+        <div class="side-row sub">⌁ &nbsp; main</div>
+        <div class="side-title" style="margin-top: 24px">对话</div>
+        <div class="side-row">文件与更改</div>
+      </aside>
+      <main class="work">
+        <div class="tabs">
+          <div class="tab">添加 Markdown 预览</div>
+          <div class="tab active"><span class="md-icon">M↓</span> &nbsp; README.md &nbsp; ×</div>
+        </div>
+        <header class="filehead">
+          <span class="md-icon">M↓</span><strong>README.md</strong><span class="meta">docs/</span
+          ><span class="meta" id="facts"></span><span class="spacer"></span>
+          <div class="actions" id="actions"></div>
+        </header>
+        <div class="viewer" id="viewer">
+          <div class="pane" id="source-pane"><div class="source" id="source"></div></div>
+          <div class="pane hidden" id="preview-pane">
+            <article class="rendered">
+              <h1>Atrium</h1>
+              <p>以 pi 为唯一内核的 macOS 桌面 coding agent。</p>
+              <p>把对话、文件和改动放在同一个工作区。<strong>专注当前任务，需要时看见过程。</strong></p>
+              <h2>开始开发</h2>
+              <pre><code>pnpm install --offline
+pnpm dev</code></pre>
+              <h2>工作区里有什么</h2>
+              <ul>
+                <li><strong>对话</strong>：提问、插话、查看执行过程。</li>
+                <li><strong>文件</strong>：浏览目录，打开并查看源码。</li>
+                <li><strong>更改</strong>：按文件检查本次修改。</li>
+              </ul>
+              <h2>常用命令</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>命令</th>
+                    <th>用途</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><code>pnpm dev</code></td>
+                    <td>启动开发版</td>
+                  </tr>
+                  <tr>
+                    <td><code>pnpm check</code></td>
+                    <td>检查格式、类型与依赖</td>
+                  </tr>
+                  <tr>
+                    <td><code>pnpm test</code></td>
+                    <td>运行测试</td>
+                  </tr>
+                </tbody>
+              </table>
+              <blockquote>文件查看保持只读。预览只改变显示方式，不修改 Markdown 文件。</blockquote>
+            </article>
+          </div>
+        </div>
+      </main>
+      <aside class="right">
+        <div class="right-head">文件 &nbsp;&nbsp;&nbsp; 更改 <span style="color: var(--green)">2</span></div>
+        <div class="tree">
+          <div>⌄ &nbsp; docs</div>
+          <div class="indent selected"><span class="md-icon">M↓</span> &nbsp; README.md</div>
+          <div class="indent">M↓ &nbsp; roadmap.md</div>
+          <div>› &nbsp; packages</div>
+          <div>› &nbsp; apps</div>
+          <div>&nbsp; package.json</div>
+        </div>
+      </aside>
+    </div>
+    <nav class="switcher" aria-label="原型方案">
+      <button id="previous" aria-label="上一个方案">←</button><button data-variant="A">A 单按钮</button
+      ><button data-variant="B">B 双段切换</button><button data-variant="C">C 左右对照</button
+      ><button id="next" aria-label="下一个方案">→</button><span class="state" id="state" aria-live="polite"></span>
+    </nav>
+    <script>
+      const markdown =
+        "# Atrium\n\n以 pi 为唯一内核的 macOS 桌面 coding agent。\n\n把对话、文件和改动放在同一个工作区。\n**专注当前任务，需要时看见过程。**\n\n## 开始开发\n\n```sh\npnpm install --offline\npnpm dev\n```\n\n## 工作区里有什么\n\n- **对话**：提问、插话、查看执行过程。\n- **文件**：浏览目录，打开并查看源码。\n- **更改**：按文件检查本次修改。\n\n## 常用命令\n\n| 命令 | 用途 |\n| --- | --- |\n| `pnpm dev` | 启动开发版 |\n| `pnpm check` | 检查格式、类型与依赖 |\n| `pnpm test` | 运行测试 |\n\n> 文件查看保持只读。预览只改变显示方式，\n> 不修改 Markdown 文件。";
+      const variants = ["A", "B", "C"];
+      let variant = new URLSearchParams(location.search).get("variant") || "A";
+      if (!variants.includes(variant)) variant = "A";
+      let preview = false;
+      const headings = { A: "A · 单按钮原位切换", B: "B · 源码 / 预览双段切换", C: "C · 源码与预览左右对照" };
+      const descriptions = {
+        A: "在文件头点“预览”，正文切为排版结果；再点“查看源码”返回。",
+        B: "两个模式始终可见，选中项标出当前显示方式；同一时间只看一种。",
+        C: "点“并排预览”保留源码，在右半边看排版结果；关闭后回到源码。",
+      };
+      for (const text of markdown.split("\n")) {
+        const row = document.createElement("div");
+        row.className = "line" + (text.startsWith("#") ? " title" : "");
+        row.append(document.createTextNode(text || " "));
+        document.querySelector("#source").append(row);
+      }
+      document.querySelector("#facts").textContent =
+        new TextEncoder().encode(markdown).length + " B · " + markdown.split("\n").length + " 行";
+      /** Renders prototype controls and panes. @remarks In-memory design comparison only. @sideEffects Updates the prototype DOM. */
+      function render() {
+        document.querySelector("#heading").textContent = headings[variant];
+        document.querySelector("#description").textContent = descriptions[variant];
+        const actions = document.querySelector("#actions");
+        actions.replaceChildren();
+        if (variant === "B") {
+          const group = document.createElement("div");
+          group.className = "segmented";
+          for (const [label, value] of [
+            ["源码", false],
+            ["预览", true],
+          ]) {
+            const button = document.createElement("button");
+            button.textContent = label;
+            button.setAttribute("aria-pressed", String(preview === value));
+            button.onclick = () => {
+              preview = value;
+              render();
+            };
+            group.append(button);
+          }
+          actions.append(group);
+        } else {
+          const button = document.createElement("button");
+          button.id = "preview-toggle";
+          button.textContent =
+            variant === "C" ? (preview ? "关闭预览" : "并排预览") : preview ? "‹ › 查看源码" : "◉ 预览";
+          button.setAttribute("aria-pressed", String(preview));
+          button.onclick = () => {
+            preview = !preview;
+            render();
+          };
+          actions.append(button);
+        }
+        document.querySelector("#source-pane").classList.toggle("hidden", preview && variant !== "C");
+        document.querySelector("#preview-pane").classList.toggle("hidden", !preview);
+        document.querySelector("#viewer").classList.toggle("split", preview && variant === "C");
+        document
+          .querySelectorAll("[data-variant]")
+          .forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.variant === variant)));
+        document.querySelector("#state").textContent = preview
+          ? variant === "C"
+            ? "源码 + 预览 · 只读"
+            : "预览 · 只读"
+          : "源码 · 只读";
+      }
+      /** Selects a comparison variant. @remarks Each starts at the current product's source view. @sideEffects Updates URL and DOM state. */
+      function select(value) {
+        variant = value;
+        preview = false;
+        const url = new URL(location.href);
+        url.searchParams.set("variant", variant);
+        history.replaceState(null, "", url);
+        render();
+      }
+      document
+        .querySelectorAll("[data-variant]")
+        .forEach((button) => (button.onclick = () => select(button.dataset.variant)));
+      document.querySelector("#previous").onclick = () => select(variants[(variants.indexOf(variant) + 2) % 3]);
+      document.querySelector("#next").onclick = () => select(variants[(variants.indexOf(variant) + 1) % 3]);
+      document.addEventListener("keydown", (event) => {
+        if (event.target.closest("input,textarea,[contenteditable]")) return;
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault();
+          select(variants[(variants.indexOf(variant) + (event.key === "ArrowRight" ? 1 : 2)) % 3]);
+        }
+      });
+      document.querySelector("#theme").onclick = () => {
+        const dark = document.documentElement.classList.toggle("dark");
+        document.querySelector("#theme").textContent = dark ? "浅色外观" : "深色外观";
+        document.querySelector("#theme").setAttribute("aria-pressed", String(dark));
+      };
+      if (matchMedia("(prefers-color-scheme: dark)").matches) document.querySelector("#theme").click();
+      render();
+    </script>
+  </body>
+</html>

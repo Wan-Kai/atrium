@@ -17,6 +17,7 @@ import { type WorkspaceViews, keepPlace, placeOf, viewOf } from "../state/worksp
  * @param containerId - The workspace.
  * @param key - The tab's key.
  * @param ready - Whether the content is there to scroll.
+ * @param scrollField - Source/diff position, or the Markdown preview's independent position.
  * @returns Whether it wraps, how to switch that, and the ref for the scroll area.
  */
 export function useViewerPlace(
@@ -24,6 +25,7 @@ export function useViewerPlace(
   containerId: string,
   key: string,
   ready: boolean,
+  scrollField: "scrollTop" | "previewScrollTop" = "scrollTop",
 ): { readonly wrap: boolean; readonly switchWrap: () => void; readonly body: RefObject<HTMLDivElement | null> } {
   const wrap = useStore(views, (state) => placeOf(viewOf(state, containerId), key).wrap);
   const body = useRef<HTMLDivElement>(null);
@@ -31,14 +33,14 @@ export function useViewerPlace(
   useLayoutEffect(() => {
     if (placed.current || !ready || body.current === null) return;
     placed.current = true;
-    body.current.scrollTop = placeOf(viewOf(views.getState(), containerId), key).scrollTop;
-  }, [ready, views, containerId, key]);
+    body.current.scrollTop = placeOf(viewOf(views.getState(), containerId), key)[scrollField] ?? 0;
+  }, [ready, views, containerId, key, scrollField]);
   useLayoutEffect(() => {
     const element = body.current;
     return () => {
       // Before the content is placed, its scroll says nothing of where the tab was left.
-      if (element !== null && placed.current) keepPlace(views, containerId, key, { scrollTop: element.scrollTop });
+      if (element !== null && placed.current) keepPlace(views, containerId, key, { [scrollField]: element.scrollTop });
     };
-  }, [views, containerId, key]);
+  }, [views, containerId, key, scrollField]);
   return { wrap, switchWrap: () => keepPlace(views, containerId, key, { wrap: !wrap }), body };
 }

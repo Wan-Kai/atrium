@@ -4,6 +4,28 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## Markdown 文件预览（M1.12 自用后补充，2026-11-04）
+
+用户选 `prototypes/markdown-preview-prototype.html` 的 A“单按钮原位切换”，并要求一起支持本地图片和相对文件链接。复用既有 Markdown 渲染和文件安全边界；模式与两套滚动位置仅存在窗口内，不改协议。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| `.md` / `.markdown` 大小写、空文件、原位切换、隐藏源码与换行、只读、HTML 不执行、切换不重读文件 | `packages/ui/src/files/markdown-preview.browser.test.tsx`；真实 Streamdown、Chromium 和文件协议替身 |
+| 非 Markdown、读取中、消失、失败、二进制、符号链接、太大时没有预览；重读更新预览或退回错误说明 | 同文件的逐项用例 |
+| 模式和两种滚动位置跨标签保留；关闭忘记；明确的行定位退出预览 | 同文件；`state/workspace-views.test.ts` 的 `keeps Markdown mode…` |
+| 图片、链接按文档目录解析；绝对路径不重加目录；禁止工作区外和 `..`；文件仅点击时打开，行范围保留 | 同浏览器文件的 `reads local images…`；`chat/reply-image-source.test.ts` 的 `resolves document-relative images…`；原回复图片测试回归 |
+| 桌面真实文件树 → 键盘预览 → 本地图片 → 相对链接行定位 → 回原标签；浅色/深色、空文档和缺失文件 | `apps/desktop/e2e/markdown-preview.spec.ts`；截图 `markdown-light/dark/empty/missing.png` 已查看。Electron 页面截图不包含原生侧栏材质，不据此判断系统材质 |
+| 反复开关/关闭预览释放 Markdown、Mermaid 和监听/订阅 | `apps/desktop/e2e/viewers.leak.spec.ts`：热身后 15 轮，两次预览切换加源码/diff 标签，脱离文档 DOM 增量为空 |
+
+验证记录：
+
+- 功能、滚动/模式、行定位和图片路径的新增测试均先在未实现版本见到对应失败；其他入口/错误分支经破坏检查见红。`pnpm break-check packages/ui/src/files/markdown-preview-break-check.json` 12 处全部检出。Electron 另把 `previewing` 写死为 `false`、重新构建，新增旅程在预期的“没有 Markdown 标题”处失败；已恢复源码并重新构建、复验。
+- `pnpm check` 通过；单元 4311/4311；单 worker 完整 UI 1182/1182（新增文件 18 项）；相关 Electron `changes.spec.ts`、`markdown-preview.spec.ts`、`viewers.leak.spec.ts` 3/3；补拍空/错状态后的 Markdown 旅程再通过。首轮 Electron 用 `.first()` 在子目录尚未读回时误点了根 README，明确等两个同名文件出现后通过，未用重试或弱化断言。
+- 改动行变异：`reply-image-source.ts`（参数与路径分支）45/45 Killed，`workspace-views.ts`（带行定位退出预览）9/9 Killed，总分 100%；无缓存信用、存活或超时。TSX 与 hook 不在核心变异分组，用上述破坏检查和真实浏览器/泄漏测试验证。
+- `pnpm boundary`：无新增依赖、URL、环境变量或隐藏命令，协议仍为 30，未登记与非精确版本均为 0。源码差异自查覆盖权限、重读、状态清理和资源释放；未做外部模型审查。
+- 未跑：全套 Electron、宿主集成、pi 契约、Swift 动态测试、打包和专门的大文件性能测试。本次不改这些后端/平台模块，也未安装或重启用户应用。源码在预览期间保持不可见且不可交互，以保留真实滚动几何；不额外虚拟化 Markdown。继承的限制：含 `..` 的引用、本地 SVG、普通跨文件标题锚点不支持。
+- 用户验收通过并要求本地合回 `main`；不安装、不推送。分支 `atrium/add-markdown-preview-button` 和 worktree 因当前会话仍在使用而保留，不强删。合并前复验记录见下。
+
 ## 打包签名用证书，TCC 授权跨重装保留（2026-11-03）
 
 `pnpm package` 原来写死 ad-hoc 签名（`codesign --sign -`）。ad-hoc 的 designated requirement 是二进制的 cdhash，每打一次包就变，macOS 因此把每次换装当成另一个 app，重新问"文稿"等受保护目录的访问权（development.md 第 7 步记的正是这个坑）。现在设了 `ATRIUM_CODESIGN_IDENTITY`（`security find-identity -v -p codesigning` 里的一条）就用那张证书签，requirement 变成 bundle id 加证书，一次授权跨重装有效；不设时行为和以前一样。

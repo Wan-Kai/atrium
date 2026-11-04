@@ -39,6 +39,28 @@ function views() {
 }
 
 describe("viewer tabs", () => {
+  it("keeps Markdown mode on ordinary opens but selects source for explicit line navigation", () => {
+    const { store, view } = views();
+    openFile(store, W, "guide.md", true);
+    keepPlace(store, W, "file:guide.md", { markdownPreview: true, previewScrollTop: 240, scrollTop: 80 });
+    openFile(store, W, "guide.md", true);
+    expect(placeOf(view(), "file:guide.md")).toStrictEqual({
+      wrap: false,
+      scrollTop: 80,
+      markdownPreview: true,
+      previewScrollTop: 240,
+    });
+    openFile(store, W, "guide.md", true, { start: 3, end: 5 });
+    expect(placeOf(view(), "file:guide.md")).toStrictEqual({
+      wrap: false,
+      scrollTop: 80,
+      markdownPreview: false,
+      previewScrollTop: 240,
+    });
+    closeViewer(store, W, "file:guide.md", []);
+    expect(view().places).toStrictEqual({});
+  });
+
   it("opens a file as a preview, which the next preview takes the place of, in place", () => {
     const { store, view } = views();
 
