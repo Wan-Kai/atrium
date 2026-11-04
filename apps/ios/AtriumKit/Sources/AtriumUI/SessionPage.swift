@@ -36,6 +36,18 @@ struct SessionPage: View {
   /// The toast showing, if any.
   @State private var toast: String?
 
+  /// The chat the session lives in, if it lives in one.
+  ///
+  /// - Remark: Pinning is a chat's, so the page offers it only there (SPEC-0001, "对话的置顶与顺序").
+  private var chat: Chat? {
+    guard let index = sync?.core.index, let summary = index.sessions.first(where: { $0.sessionId == sessionId })
+    else { return nil }
+    return index.chats.first { $0.id == summary.containerId }
+  }
+
+  /// Why pinning this session's chat last failed, if it did.
+  private var chatProblem: ErrorCode? { chat.flatMap { sync?.core.chatProblems[$0.id] } }
+
   /// The page.
   var body: some View {
     let palette = Palette(scheme: scheme)
@@ -143,6 +155,11 @@ struct SessionPage: View {
       guard let problem = sync?.core.actionProblems[sessionId] else { return }
       toast = SessionControls.problemText(problem)
       sync?.dismissActionProblem(in: sessionId)
+    }
+    .onChange(of: chatProblem) {
+      guard let code = chatProblem, let chat else { return }
+      toast = Self.chatProblemText(code)
+      sync?.dismissChatProblem(chat.id)
     }
     .task(id: toast) {
       guard toast != nil else { return }
@@ -300,6 +317,7 @@ struct SessionPage: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, Metrics.md)
         .accessibilityIdentifier("session.back")
+      if let chat { chatMenu(chat, palette) }
     }
     .frame(height: 56)
     .background(
@@ -309,6 +327,44 @@ struct SessionPage: View {
       )
       .padding(.bottom, -Metrics.md)
       .ignoresSafeArea(edges: .top))
+  }
+
+  /// The conversation page's "···": pinning the chat the session lives in.
+  ///
+  /// - Remark: SPEC-0001 "对话的置顶与顺序": pinning is a chat's, from its conversation page. The
+  ///   item says which way it will go; the list then moves the chat and its sessions to the top.
+  /// - SideEffects: Sends `pin_chat` or `unpin_chat` when chosen.
+  /// - Parameters:
+  ///   - chat: The chat.
+  ///   - palette: The colours.
+  /// - Returns: The button.
+  private func chatMenu(_ chat: Chat, _ palette: Palette) -> some View {
+    let pinned = chat.pinnedAt != nil
+    return Menu {
+      Button(pinned ? "取消置顶" : "置顶这个对话") { sync?.setChatPinned(chat.id, !pinned) }
+    } label: {
+      Image(systemName: "ellipsis")
+        .font(.system(size: 18, weight: .medium))
+        .foregroundStyle(palette.text)
+        .frame(width: Metrics.glassButton, height: Metrics.glassButton)
+        .atriumGlass(in: Circle(), interactive: true)
+        .contentShape(Circle())
+    }
+    .buttonStyle(.plain)
+    .frame(maxWidth: .infinity, alignment: .trailing)
+    .padding(.trailing, Metrics.md)
+    .accessibilityLabel("更多")
+    .accessibilityIdentifier("session.more")
+  }
+
+  /// What a failed pinning reads as.
+  ///
+  /// - Remark: The host's code only, as it sends no words of its own (AGENTS.md).
+  /// - SideEffects: none
+  /// - Parameter code: The host's code.
+  /// - Returns: The line.
+  static func chatProblemText(_ code: ErrorCode) -> String {
+    "没能置顶（\(code.rawValue)）"
   }
 
   /// The line under the items for where the session stands.

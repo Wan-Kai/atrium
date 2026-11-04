@@ -159,6 +159,8 @@ MVP 2 的内置 pi extension 以后放在根目录的 `extensions/`，现在不�
 
 2026-10-21 回复图表 B 细化：`chat/plantuml-theme.ts` 只给 worker 生成本地默认皮肤行，原始代码仍由展示/复制组件保管，输出继续经过原尺寸/UTF-8 字节校验并只作 Blob 图片。`chat/mermaid-zoom.tsx` 是锁定 Streamdown 版本的窄 DOM 适配：库只公开 `panZoom` 开关、没有控制器/比例回调，所以由 B 工具条激活当前内联图的原生按钮，并用一个可回收 MutationObserver 读取其真实 transform/disabled；不另写缩放算法、不移动第三方 React 的节点或改 SVG。选择器仅限当前图，排除 body 全屏 portal；真实渲染、Tab 顺序、滚轮、边界、换源/主题、缩放尺寸与回收测试守住此版本契约。
 
+2026-11-04 Markdown 预览合并前发现 Mermaid 11.17.2 的共用布局渲染器只在下一次布局前清空节点、边标签、分组缓存，模块级 Map 因而留住已移除的绘图 DOM。用户选择先修复再合并：用 `patches/mermaid@11.17.2.patch` 和 pnpm 的 `patchedDependencies` 固定局部修复，在共用布局函数的 `finally` 清理同一组缓存，成功和异常都释放；不升级依赖、不在 UI 导入 Mermaid 私有路径，也不改变 SVG、交互和按需加载。补丁适用于应用所用 ESM 入口的共用布局实现；升级 Mermaid 时重新核对补丁和真实绘图/泄漏测试，不把其他图种的资源回收一并视为已证明。
+
 2026-10-26 桌面浮层边界修复：`ui/src/design/floating-layer.ts` 仅负责锚点浮层的视口几何、manual popover top layer 与观察/监听的释放，不拥有业务开关、焦点策略或内容。各组件保留打开/关闭与理想尺寸；top layer 保持 DOM 归属，解决滚动、filter/transform 祖先裁剪而不改变父面板的外点判断。居中对话框用自身 CSS 限宽限高，不接入这个锚点模块。行为见 SPEC-0001“桌面浮层的窗口边界”、design-language“浮层边界”；决策比较和入口盘点见 `research/popup-bounds.md`。
 
 ### 包之间的依赖

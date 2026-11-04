@@ -143,6 +143,7 @@ async function assemble() {
     preferences,
     chats: () => catalog.chats(),
     chatRecords,
+    clock: systemClock,
     feed,
     listModels: async (workspaceId, refresh) => {
       listed.push([workspaceId, refresh]);
@@ -279,6 +280,47 @@ describe("IndexCommands.renameChat", () => {
       new CommandError("chat_not_found", { chatId: "cht_gone" }),
     );
     expect(chatRecords.alias("cht_gone")).toBeNull();
+  });
+});
+
+describe("IndexCommands.pinChat", () => {
+  it("pins a chat, telling the list, and unpins it again", async () => {
+    const { commands, sessions, chatRecords, received } = await assemble();
+    await sessions.createChat("client-1");
+    // Another chat is there too, so finding the one to pin is not just finding any.
+    await sessions.createChat("client-1");
+    const chatId = "cht_id1";
+    await commands.subscribeIndex("c1");
+
+    await expect(commands.pinChat(chatId)).resolves.toStrictEqual({});
+    commands.answering("c1");
+    const pinned = chatRecords.pinned(chatId);
+    expect(typeof pinned).toBe("number");
+    expect(received.at(-1)).toMatchObject({
+      type: "index_changes",
+      chats: { upsert: [{ id: chatId, pinnedAt: pinned }], remove: [] },
+    });
+
+    // Pinning again keeps the time it was first pinned at, so it holds its place.
+    await commands.pinChat(chatId);
+    expect(chatRecords.pinned(chatId)).toBe(pinned);
+
+    await expect(commands.unpinChat(chatId)).resolves.toStrictEqual({});
+    expect(chatRecords.pinned(chatId)).toBeNull();
+  });
+
+  it("refuses a chat whose directory is not there", async () => {
+    const { commands, sessions, chatRecords } = await assemble();
+    // Another chat is there.
+    await sessions.createChat("client-1");
+
+    await expect(commands.pinChat("cht_gone")).rejects.toStrictEqual(
+      new CommandError("chat_not_found", { chatId: "cht_gone" }),
+    );
+    expect(chatRecords.pinned("cht_gone")).toBeNull();
+    await expect(commands.unpinChat("cht_gone")).rejects.toStrictEqual(
+      new CommandError("chat_not_found", { chatId: "cht_gone" }),
+    );
   });
 });
 

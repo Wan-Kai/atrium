@@ -35,6 +35,8 @@ public struct HomeList: Sendable, Equatable {
     public let detail: String?
     /// Its mark, if any.
     public let status: Status?
+    /// Whether its chat is pinned (SPEC-0001, "对话的置顶与顺序"); drawn in front of the title.
+    public let pinned: Bool
   }
 
   /// A workspace and its sessions.
@@ -102,13 +104,15 @@ public struct HomeList: Sendable, Equatable {
       let sessions = workspaces.map { workspace in Self.newestFirst(listed.filter { $0.containerId == workspace.id }) }
       let groups = zip(workspaces, sessions).map { workspace, sessions in
         WorkspaceGroup(
-          id: workspace.id, name: Self.name(of: workspace), rows: sessions.map(Self.row), kind: workspace.kind,
+          id: workspace.id, name: Self.name(of: workspace), rows: sessions.map { Self.row($0) }, kind: workspace.kind,
           merged: workspace.merge?.verdict == .merged)
       }
       return ProjectGroup(
         id: project.id, name: project.name, running: sessions.joined().filter(\.running).count, workspaces: groups)
     }
-    chats = Self.newestFirst(listed.filter { liveChats.contains($0.containerId) }).map(Self.row)
+    let pinnedChats = Set(index.chats.filter { $0.pinnedAt != nil }.map(\.id))
+    chats = Self.chatSessions(listed.filter { liveChats.contains($0.containerId) }, pinned: pinnedChats)
+      .map { Self.row($0, pinned: pinnedChats.contains($0.containerId)) }
   }
 
   /// The sessions that wait for you, in order.
@@ -132,7 +136,7 @@ public struct HomeList: Sendable, Equatable {
         let word = status == .asking ? "在问你" : "出错"
         return Row(
           id: entry.session.sessionId, title: title(of: entry.session),
-          detail: "\(word) · \(place(of: entry.session.containerId, in: index))", status: status)
+          detail: "\(word) · \(place(of: entry.session.containerId, in: index))", status: status, pinned: false)
       }
   }
 
@@ -212,13 +216,15 @@ public struct HomeList: Sendable, Equatable {
   ///
   /// - Remark: Asking before an error not seen before running, as the sidebar's row.
   /// - SideEffects: none
-  /// - Parameter session: The session.
+  /// - Parameters:
+  ///   - session: The session.
+  ///   - pinned: Whether its chat is pinned.
   /// - Returns: The row.
-  private static func row(_ session: SessionSummary) -> Row {
+  private static func row(_ session: SessionSummary, pinned: Bool = false) -> Row {
     let failed = session.attention.map { !($0.reason == .error && $0.cleared) } ?? false
     let status: Status? =
       session.asking != nil ? .asking : failed ? .error : session.running ? .running : nil
-    return Row(id: session.sessionId, title: title(of: session), detail: nil, status: status)
+    return Row(id: session.sessionId, title: title(of: session), detail: nil, status: status, pinned: pinned)
   }
 
   /// A session's title.
@@ -260,6 +266,27 @@ public struct HomeList: Sendable, Equatable {
     guard let workspace = index.workspaces.first(where: { $0.id == containerId }) else { return "" }
     let project = index.projects.first { $0.id == workspace.projectId }
     return "\(project?.name ?? "") · \(name(of: workspace))"
+  }
+
+  /// The sessions of chats in the order the home lists them.
+  ///
+  /// - Remark: As the desktop's `sortChats` (SPEC-0001 "对话的置顶与顺序"): a pinned chat's sessions
+  ///   first, then the ones a run or a question marks, then the rest, each newest first. Pinning a
+  ///   chat is on the chat, so all of its sessions come along.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - sessions: The sessions of chats.
+  ///   - pinned: The chats that are pinned.
+  /// - Returns: The sorted sessions.
+  private static func chatSessions(_ sessions: [SessionSummary], pinned: Set<ChatId>) -> [SessionSummary] {
+    let band = { (session: SessionSummary) -> Int in
+      if pinned.contains(session.containerId) { return 0 }
+      return row(session).status == nil ? 2 : 1
+    }
+    return stable(sessions) { a, b in
+      let (first, second) = (band(a), band(b))
+      return first != second ? first < second : a.updatedAt > b.updatedAt
+    }
   }
 
   /// A session's child conversations, the latest updated first.

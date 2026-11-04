@@ -533,6 +533,12 @@
   "restore_chat": [
     {}
   ],
+  "pin_chat": [
+    {}
+  ],
+  "unpin_chat": [
+    {}
+  ],
   "window_focused": [
     {}
   ],

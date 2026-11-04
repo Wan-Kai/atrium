@@ -73,6 +73,9 @@ export const COMMAND_REACH = {
   cancel_translation: "local_only",
   rename_workspace: "local_only",
   rename_chat: "local_only",
+  // Pinning is offered on the phone too (SPEC-0005, "MP6b").
+  pin_chat: "phone",
+  unpin_chat: "phone",
   // Signing in and installing.
   login: "local_only",
   answer_login: "local_only",

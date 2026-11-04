@@ -181,12 +181,14 @@ func workspaceJSON(_ id: String, project: String, branch: String? = nil, alias: 
 
 /// A chat, as JSON.
 ///
-/// - Remark: Not archived.
+/// - Remark: Not archived, not pinned.
 /// - SideEffects: none
-/// - Parameter id: Its id.
+/// - Parameters:
+///   - id: Its id.
+///   - pinnedAt: When it was pinned, for the ordering by pinning.
 /// - Returns: The JSON.
-func chatJSON(_ id: String) -> String {
-  #"{"id":"\#(id)","dir":"/chats/\#(id)","alias":null,"firstSessionId":null,"archivedAt":null}"#
+func chatJSON(_ id: String, pinnedAt: Int? = nil) -> String {
+  #"{"id":"\#(id)","dir":"/chats/\#(id)","alias":null,"firstSessionId":null,"archivedAt":null,"pinnedAt":\#(pinnedAt.map(String.init) ?? "null")}"#
 }
 
 /// A session summary on the list, as JSON.

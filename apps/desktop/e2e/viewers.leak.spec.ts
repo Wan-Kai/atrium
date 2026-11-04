@@ -4,7 +4,7 @@ import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxPiEnvironment } from "./faux-pi";
-import { findDetachedDomLeaks, takeHeapSnapshot } from "./heap";
+import { findDetachedDomLeaks, readDetachedDomCounts, takeHeapSnapshot } from "./heap";
 import { launchApp } from "./launch";
 import { addProject } from "./projects";
 
@@ -60,6 +60,9 @@ test("@leak opening and closing viewer tabs back and forth leaks no DOM", async 
     await takeHeapSnapshot(window, join(dir, "baseline.heapsnapshot"));
     for (let again = 0; again < 15; again++) await round();
     await takeHeapSnapshot(window, join(dir, "final.heapsnapshot"));
+    // Even one retained drawing container is a leak, including one already in the warm baseline.
+    const detached = await readDetachedDomCounts(join(dir, "final.heapsnapshot"));
+    expect([...detached.entries()].filter(([name]) => name.startsWith('<div id="dmermaid-'))).toStrictEqual([]);
 
     expect(
       await findDetachedDomLeaks(join(dir, "baseline.heapsnapshot"), join(dir, "final.heapsnapshot")),
