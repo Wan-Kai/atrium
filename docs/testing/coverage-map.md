@@ -23,8 +23,47 @@
 - `pnpm check` 通过；单元 4311/4311；单 worker 完整 UI 1182/1182（新增文件 18 项）；相关 Electron `changes.spec.ts`、`markdown-preview.spec.ts`、`viewers.leak.spec.ts` 3/3；补拍空/错状态后的 Markdown 旅程再通过。首轮 Electron 用 `.first()` 在子目录尚未读回时误点了根 README，明确等两个同名文件出现后通过，未用重试或弱化断言。
 - 改动行变异：`reply-image-source.ts`（参数与路径分支）45/45 Killed，`workspace-views.ts`（带行定位退出预览）9/9 Killed，总分 100%；无缓存信用、存活或超时。TSX 与 hook 不在核心变异分组，用上述破坏检查和真实浏览器/泄漏测试验证。
 - `pnpm boundary`：无新增依赖、URL、环境变量或隐藏命令，协议仍为 30，未登记与非精确版本均为 0。源码差异自查覆盖权限、重读、状态清理和资源释放；未做外部模型审查。
-- 未跑：全套 Electron、宿主集成、pi 契约、Swift 动态测试、打包和专门的大文件性能测试。本次不改这些后端/平台模块，也未安装或重启用户应用。源码在预览期间保持不可见且不可交互，以保留真实滚动几何；不额外虚拟化 Markdown。继承的限制：含 `..` 的引用、本地 SVG、普通跨文件标题锚点不支持。
+- 实现交付时未跑：全套 Electron、宿主集成、pi 契约、Swift 动态测试、打包和专门的大文件性能测试（合并前补跑 Swift 逻辑测试，见下）。本次不改这些后端/平台模块，也未安装或重启用户应用。源码在预览期间保持不可见且不可交互，以保留真实滚动几何；不额外虚拟化 Markdown。继承的限制：含 `..` 的引用、本地 SVG、普通跨文件标题锚点不支持。
 - 用户验收通过并要求本地合回 `main`；不安装、不推送。分支 `atrium/add-markdown-preview-button` 和 worktree 因当前会话仍在使用而保留，不强删。合并前复验记录见下。
+- 合并前同步 `main` 的 `e9b4368`（外部 cmux 接入，只改文档）：路线图和追踪表的首段追加冲突保留双方内容，功能源码与验收版本一致。`pnpm check`、完整 UI 单 worker 1182/1182 通过。首轮同时运行检查、单元与界面时，单元 4306 过 / 5 败：`scripts/boundary.test.ts` 两项 5 秒超时，`oneshot.test.ts` 一项预期 `too_large` 得 `timed_out`、两项读 `seen.json` 报 ENOENT；这些文件及其实现与 main 相同。两文件单 worker 48/48 通过，随后不并跑其他本任务命令的完整 `pnpm test` 4311/4311、Swift 402/402 通过。未改断言或超时，未确认首轮失败根因，不宣称已修复；保留失败记录。合并同步只有文档变化，未重跑此前通过的 3 项 Electron 和变异测试。文档合并提交的格式钩子选中了上游 `docs/testing/cmux-installation.json`，但 `docs/**` 被 oxfmt 忽略，因无匹配文件退出 2；完整格式检查通过后，仅该提交用 `LEFTHOOK_EXCLUDE=format` 跳过空检查，不改钩子或忽略规则。上游 skill patch 的合法空白上下文原样保留，变更空白检查以 `main` 为基准通过。
+
+## 外部 cmux 终端最小接入（2026-11-04）
+
+方案见 [external-terminal.md](../architecture/external-terminal.md)，精确安装版本、文件校验值和验收会话标识见 [cmux-installation.json](cmux-installation.json)。本次不改 Atrium 业务代码、协议或 UI；只安装两个官方 skill 并应用本地调用规则、配置 cmux password 授权、补文档。主代理独立完成，没有启动子代理。
+
+### 真实 App 验收
+
+启动已安装的 `/Applications/Atrium.app`，仅以新的 `ATRIUM_HOME` 分开测试数据和单实例锁；HOME、pi 配置与真实模型不替换，不注入 faux、代理工具或终端包装层。通过实际 UI 的消息框发给 `openai-codex/gpt-6.1-sol`，实际 pi 为 1.5.0。创建 cmux 专用测试窗口和 A/B 两个 terminal surface，操作目标全部来自本次创建结果。测试 App 已退出，用户原本运行的 Atrium 未退出，cmux 测试窗口保留。
+
+| 需求 / 风险 | 实际结果 |
+|---|---|
+| Skill 确实被 Atrium 发现和读取 | 实际 App 的 `/` 列表含 `/skill:cmux`、`/skill:cmux-workspace`；pi 会话记录含对 `~/.pi/agent/skills/` 下两个 `SKILL.md` 的真实 `read` 调用，并按需读取官方 reference |
+| Bash、版本与无调用方目标 | 实际 Bash 找到 `/opt/homebrew/bin/cmux`、pi 1.5.0；补测确认 workspace/surface/password 变量均未设置。初次检查错误见下文，不以模型自述代替工具结果 |
+| 外部认证 | 改配置前明确 socket 调用被 `cmuxOnly` 拒绝；用户另行明确授权后，JSONC 语法/语义校验通过，`capabilities` 报 `access_mode=password`，`ping` 为 `PONG` |
+| 普通命令和中文 | Agent 通过 Bash → 官方 CLI 在 A/B 分别执行 printf；独立读屏核对单独输出行 `A_c3c7e43dd345_中文成功` 和 `B_c3c7e43dd345_你好世界`，不只匹配输入回显 |
+| 两终端不串输入 / 非焦点寻址 | A 无 B 标记、B 无 A 标记。为实验明确授权聚焦本次 B 一次，然后定向 A 执行，A 单独输出 `A_c3c7e43dd345_非焦点命中`；没有通过切焦点修复寻址错误 |
+| Enter 与 Ctrl+C | 文本与 Enter 为分开的 CLI 请求；A 的 `sleep 25` 收到 `send-key ctrl+c` 后读到 `^C`，后续 printf 输出 `A_c3c7e43dd345_中断后可用` |
+| 缺少目标 | 新的独立任务明确不授权旧目标，也不允许新建。Agent 只读取两个 skill，询问 socket/window/workspace/surface，没有发出 Bash 输入或创建动作 |
+| 不存在的目标 | 独立只读检查向本轮 workspace 的随机不存在 surface 读屏，CLI 非零并报 `invalid_params: Surface is not a terminal`；未回退焦点。该错误文案不精确，未因此扩展 Atrium 实现 |
+| 终端 HOME / 凭据传播 | B 中真实 Python 输出 `{"HOME": "/Users/ktoon", "control_password_present": false}`；实际 pi Bash 中也无 password 环境变量。未以私有 HOME 声称隔离；同用户仍可能读取密码文件 |
+| 退出 Atrium 不关闭外部任务 | Agent 在 A 启动最多等待 120 秒的任务，先输出 `LIFE_c3c7e43dd345_BEFORE`，等测试控制器的 release 文件。仅退出自有测试 App，确认退出后才写 release；cmux 读屏随后出现独立输出行 `LIFE_c3c7e43dd345_AFTER`，任务正常结束。这是因果受控实测，不是只读源码推断，也没有退出用户 App |
+| 凭据与日志 | 在本机内存中对照密码内容检查本次真实 pi 会话和测试 App 日志，无匹配；未向模型或工具输出密码。有效测试实例的宿主日志未发现 warn/error/fatal。检查不覆盖所有历史日志或同用户恶意 Bash |
+| 安装可复现 | 9 个官方文件，仅两个 `SKILL.md` 有本地差异；固定 commit 的原文加仓库 patch 重建后与安装文件逐字节比对，结果在本节检查记录中登记 |
+| Skill 中的安装路径能直接使用 | 自查发现 release skill 的 `/tmp/cmux.sock` 示例与正式 CLI 不符，修正 Socket access 后再开真实 App 新会话，提示词不提供 CLI/socket 路径，只授权读取 skill 并只读探测；agent 从最终 skill 取 `/opt/homebrew/bin/cmux` 与 state socket，显式传 `--socket` 得到 `PONG` 和 password capabilities |
+
+最终安装路径冒烟 pi 会话：`a045593b-8860-4ca8-a9ce-cd8e71326d9b`。主验收 pi 会话：`0efd15cc-9db6-4229-ab31-b1a77d593d56`；补测与缺目标会话：`18d2d674-d09b-4394-89f7-517e0f793d2e`、`bf2c5a3e-2e40-4cd7-bd2e-0f156922c958`。终端工作区名为 `Atrium cmux acceptance c3c7e43dd345`；这些标识只用于本次证据核对，不作为未来寻址或运行依赖。
+
+### 失败记录与未验证项
+
+- 首次真实 agent 环境探针用了 `/bin/bash` 不支持的 `[[ -v ]]`，命令退出 2；模型却回复准备完成。检查原始工具结果后，另用 POSIX 参数展开补测，确认三个变量均未设置，并对被控 shell 单独读回 JSON。不把初次探针说成通过。
+- 一次性验收脚本汇总 pi 会话时假定 `message.content` 总是数组，遇到字符串报错；此前的终端和退出保活断言已经通过。随后直接核对原始会话并补上完整检查。没有为汇总报错重发终端输入。
+- 首次补测脚本误把恢复中的旧轮次当成新回复，过早关闭自有测试 App；原始记录确认新消息尚无任何 assistant 工具调用。改为新的独立测试数据目录并按消息标记定位，补测成功。随后汇总检查又过度要求 `absent` 文本，而实际 POSIX 检查合法地输出空串；按原始工具结果的含义核验，不重跑命令。
+- “输入结果未知不自动重发”是已安装 skill 的明确约定；本轮未注入“服务端收到输入但响应丢失”故障，不声称技术上的 exactly-once 或强制拦截。
+- 没有修改或证明归档时任务已停止；本方案明确不承担这个保证。无沙箱、自动工作区绑定或跨实例自动恢复保证。
+- 实现交付时未跑全套单元或 UI；用户确认验收并要求合并后，已同步 main（无新增提交）并复验 `pnpm check`、单元 4309/4309、Swift 402/402、单 worker UI 1164/1164，均通过。未跑完整 pi 契约、Electron e2e、性能、泄漏、打包或变异测试；不改相应实现，不扩展到终端内核工程。既有 pi 1.5.0 缺夹具问题未顺带重录。
+- 一次性验收控制脚本只辅助本次操作，不是部署或运行组件；持久交付是方案、精确 skill patch、版本校验清单和本文证据摘要，不依赖临时脚本、临时路径或历史 PID。
+
+检查记录：固定上游副本应用 `docs/research/cmux-skills.patch` 后，9 个文件与已安装内容逐字节一致，SHA-256 全部匹配；`git diff --check`、`pnpm check` 通过。`pnpm boundary`：依赖 / URL / 环境变量 / 隐藏命令无生产代码增删，协议仍为 30，未登记 0、非精确 0；`boundary --all` 为 URL 15、环境变量 41、隐藏命令 4，未登记 0、非精确 0。尝试对文档单独运行 oxfmt 时因仓库明确忽略 `docs/**` 而报无匹配文件；没有修改忽略规则，完整 `pnpm check` 的格式检查通过。用户已确认验收并要求本地合并、删除 worktree；合并前复验结果如上，未推送。当前会话的 pi 仍以本 worktree 为工作目录，因此先保留分支和 worktree，不为清理终止用户会话。
 
 ## 打包签名用证书，TCC 授权跨重装保留（2026-11-03）
 
