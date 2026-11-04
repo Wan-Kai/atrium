@@ -57,6 +57,7 @@ import {
   MoreHorizontalIcon,
   PaintBoardIcon,
   PencilEdit01Icon,
+  Pin02Icon,
   PuzzleIcon,
   RefreshIcon,
   ReloadIcon,
@@ -238,6 +239,7 @@ export const PencilSimple = drawn(PencilEdit01Icon);
 export const Plus = drawn(Add01Icon);
 export const Trash = drawn(Delete02Icon);
 export const ChatAdd = drawn(BubbleChatAddIcon);
+export const Pin = drawn(Pin02Icon);
 export const PlusSquare = drawn(AddSquareIcon);
 export const Question = drawn(HelpCircleIcon);
 export const Puzzle = drawn(PuzzleIcon);

@@ -51,6 +51,7 @@ classDiagram
       dir  ~/.atrium/chats/<目录名>  [扫描]
       alias?
       archived?  at + sessions + first，M1.11
+      pinnedAt?  置顶的时间，2026-10-28
       firstSessionId?  [扫描]
       name()  alias 或第一个会话的标题
     }
@@ -110,6 +111,7 @@ classDiagram
   - id 是 `cht_<目录名>`。目录由 Atrium 新建、名字随机（UUID），和会话 id 无关；宿主扫描 `~/.atrium/chats/` 的子目录得到对话列表，名字不合 id 格式的目录不算。用户删掉目录，对话就没了。
   - 对话里可以有多个会话，都以对话的目录为工作目录。终端里在对话目录开的 pi 会话按 `cwd` 归到这个对话。
   - `alias` 是自定义名称，存在 `chats.json`；`firstSessionId` 是对话里没归档的会话中最早建的一个（按索引记录的创建时间，没有记录的按文件修改时间），名称由界面按 `alias ?? 第一个会话的标题` 得出。
+  - `pinnedAt` 是置顶的时间（2026-10-28 加），也存在 `chats.json`；列表顺序是置顶 → 进行中 → 最近活动（SPEC-0001"对话的置顶与顺序"），归档不妨碍它保留。
   - 所有会话都归档了的对话不在侧栏列出。
   - 归档对话（M1.11，2026-10-12 加）：`chats.json` 里记下归档时间、这次归档了哪些会话和当时的第一个会话（`archived: { at, sessions, first }`），恢复时只放回这些会话；协议里的对话只带 `archivedAt`。归档后对话里没有没归档的会话，`firstSessionId` 就用记下的 `first`，名称和归档前一样。
 - **SessionContainer** 只表达"会话放在哪、怎么列、新会话在哪个目录建"。工作区和对话都对其中所有会话给同一个目录；新建对话时新建一个目录。标签页不在接口上，在 **ClientLayout**。
@@ -747,7 +749,7 @@ classDiagram
 | `list_workspaces` / `rename_workspace` / `window_focused` | WorkspaceService |
 | `archive_workspace` / `restore_workspace` | WorkspaceArchiver（git 的部分）→ SessionManager（停 pi、归档会话）→ ProjectService（记录）（M1.11） |
 | `list_bases` / `create_workspace` | WorktreeCreator（git 的部分，和 WorkspaceArchiver 排同一个队）→ ProjectService（记录，带起点提交）→ WorkspaceService（重扫）（M1.11） |
-| `rename_chat` | ChatRecords（`chats.json`） |
+| `rename_chat` / `pin_chat` / `unpin_chat` | ChatRecords（`chats.json`）；置顶的两个也走 IndexFeed 推一次（2026-10-28） |
 | `archive_chat` / `restore_chat` | SessionManager（停 pi、归档或放回会话）→ ChatRecords（记录）（M1.11） |
 | `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `hand_off` / `take_back` / `clear_attention` / `detach_session` | SessionManager；`create_session` 带 `child` 时开子对话，新 worktree 的经 WorktreeCreator 从父工作区当前的提交建（M1.15） |
 | `remove_delivery` / `resume_deliveries` | SessionManager → AgentRelay：删掉一条待送的，或放开宿主重启后暂停的（`tree` 时连同子树），再交给收件会话的 SessionController（M1.15） |

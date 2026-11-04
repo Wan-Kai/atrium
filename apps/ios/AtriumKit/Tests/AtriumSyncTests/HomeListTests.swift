@@ -109,6 +109,21 @@ struct HomeListTests {
     #expect(list.isEmpty == false)
     #expect(home(indexSnapshotJSON()).isEmpty)
   }
+
+  @Test("puts a pinned chat's sessions first and marks them, then the ones a run marks, then the rest")
+  func pinnedChats() {
+    let list = home(
+      indexSnapshotJSON(
+        chats: [chatJSON("cht_pinned", pinnedAt: 9), chatJSON("cht_idle"), chatJSON("cht_busy")],
+        sessions: [
+          summaryJSON("s1", in: "cht_idle", name: "最新的", extra: ["updatedAt": "9"]),
+          summaryJSON("s2", in: "cht_pinned", name: "钉住的", extra: ["updatedAt": "2"]),
+          summaryJSON("s3", in: "cht_busy", name: "在跑", extra: ["updatedAt": "3", "running": "true"]),
+        ]))
+
+    #expect(list.chats.map(\.id) == ["s2", "s3", "s1"])
+    #expect(list.chats.map(\.pinned) == [true, false, false])
+  }
 }
 
 /// A creation time for a workspace by its branch, so the test's order is clear.

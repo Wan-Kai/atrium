@@ -41,8 +41,8 @@ const pairing = {
 };
 
 describe("the coordinated remote contract", () => {
-  it("uses version 28, which fixes the MP4 sync fields", () => {
-    expect(PROTOCOL_VERSION).toBe(29);
+  it("uses version 30, which adds pinning a chat", () => {
+    expect(PROTOCOL_VERSION).toBe(30);
   });
 
   it.each([

@@ -559,6 +559,25 @@ describe("createAtriumClient: commands", () => {
     ]);
   });
 
+  it("pins and unpins a chat with its id", async () => {
+    const { client, latest } = await connected();
+    const pinned = client.pinChat(CHAT);
+    const unpinned = client.unpinChat(CHAT);
+    latest().answer("pin_chat");
+    latest().answer("unpin_chat");
+
+    expect([await pinned, await unpinned]).toStrictEqual([{}, {}]);
+    expect(
+      latest()
+        .commands()
+        .slice(-2)
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "pin_chat", chatId: CHAT },
+      { type: "unpin_chat", chatId: CHAT },
+    ]);
+  });
+
   it("rejects with the host's error code, and with the schema's error for a malformed result", async () => {
     const { client, latest } = await connected();
 

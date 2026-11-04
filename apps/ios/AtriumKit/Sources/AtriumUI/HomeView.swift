@@ -253,10 +253,18 @@ struct SessionRow: View {
         StatusIcon(kind: Self.kind(row.status))
           .frame(width: 18)
         VStack(alignment: .leading, spacing: 2) {
-          Text(row.title)
-            .font(Typography.rowTitle)
-            .foregroundStyle(palette.text)
-            .lineLimit(1)
+          HStack(spacing: 5) {
+            Text(row.title)
+              .font(Typography.rowTitle)
+              .foregroundStyle(palette.text)
+              .lineLimit(1)
+            if row.pinned {
+              Image(systemName: "pin.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(palette.tint)
+                .accessibilityLabel("已置顶")
+            }
+          }
           if let detail = row.detail {
             Text(detail).font(Typography.meta).foregroundStyle(palette.secondary).lineLimit(1)
           }

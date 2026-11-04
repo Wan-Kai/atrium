@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 29,
+    "protocolVersion": 30,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -1114,14 +1114,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -1390,14 +1392,16 @@
           "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
           "alias": null,
           "firstSessionId": "s2",
-          "archivedAt": null
+          "archivedAt": null,
+          "pinnedAt": 1700000300000
         },
         {
           "id": "cht_x",
           "dir": "/Users/test/.atrium/chats/x",
           "alias": "合并原理",
           "firstSessionId": null,
-          "archivedAt": 1700000200000
+          "archivedAt": 1700000200000,
+          "pinnedAt": null
         }
       ],
       "remove": [
@@ -2155,14 +2159,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -2408,14 +2414,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -2661,14 +2669,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -2914,14 +2924,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -3167,14 +3179,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -3420,14 +3434,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -3673,14 +3689,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -3939,14 +3957,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -4168,14 +4188,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -4434,14 +4456,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -4700,14 +4724,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -4966,14 +4992,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -5199,14 +5227,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -5465,14 +5495,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -5731,14 +5763,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -5989,14 +6023,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [
@@ -6208,14 +6244,16 @@
         "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
         "alias": null,
         "firstSessionId": "s2",
-        "archivedAt": null
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
       },
       {
         "id": "cht_x",
         "dir": "/Users/test/.atrium/chats/x",
         "alias": "合并原理",
         "firstSessionId": null,
-        "archivedAt": 1700000200000
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
       }
     ],
     "sessions": [

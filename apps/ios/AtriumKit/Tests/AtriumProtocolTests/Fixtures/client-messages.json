@@ -1,14 +1,14 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 29,
+    "protocolVersion": 30,
     "clientId": "c1",
     "token": "t",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
     "type": "hello",
-    "protocolVersion": 29,
+    "protocolVersion": 30,
     "clientId": "dev_0123456789abcdef",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
@@ -315,6 +315,18 @@
   {
     "type": "restore_chat",
     "requestId": "r19b",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "chatId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc"
+  },
+  {
+    "type": "pin_chat",
+    "requestId": "r19c",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "chatId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc"
+  },
+  {
+    "type": "unpin_chat",
+    "requestId": "r19d",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
     "chatId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc"
   },

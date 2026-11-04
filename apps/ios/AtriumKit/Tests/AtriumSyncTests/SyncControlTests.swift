@@ -139,6 +139,35 @@ struct SyncControlTests {
     #expect(sync.actionProblems["s1"] == nil)
   }
 
+  @Test("pins a chat and unpins it, remembering why until dismissed")
+  func pinChat() {
+    var sync = syncedCore()
+    #expect(
+      sync.setChatPinned("cht_1", true) == [
+        .send(.pinChat(PinChatCommand(requestId: "r4", traceparent: traceparent, chatId: "cht_1")), generation: 1)
+      ])
+    #expect(
+      sync.setChatPinned("cht_1", false) == [
+        .send(.unpinChat(UnpinChatCommand(requestId: "r5", traceparent: traceparent, chatId: "cht_1")), generation: 1)
+      ])
+
+    _ = sync.setChatPinned("cht_1", true)
+    _ = receive(&sync, generation: 1, failed("r6", "chat_not_found"))
+    #expect(sync.chatProblems["cht_1"] == .chatNotFound)
+    // Trying again drops the old problem.
+    _ = sync.setChatPinned("cht_1", true)
+    #expect(sync.chatProblems["cht_1"] == nil)
+    _ = receive(&sync, generation: 1, failed("r8", "chat_not_found"))
+    sync.dismissChatProblem("cht_1")
+    #expect(sync.chatProblems["cht_1"] == nil)
+  }
+
+  @Test("does not pin before the connection is synced")
+  func pinBeforeSync() {
+    var sync = core()
+    #expect(sync.setChatPinned("cht_1", true) == [])
+  }
+
   @Test("clears an error the page shows once, and not an auth one, nor one already cleared")
   func clearAttention() {
     var sync = attentiveCore(#"{"reason":"error","at":1,"cleared":false}"#)

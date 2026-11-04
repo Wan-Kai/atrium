@@ -4,6 +4,24 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## 对话的置顶与顺序（2026-10-28，自用反馈）
+
+用户定：顺序是"置顶 → 进行中 → 最近活动"，"进行中"含运行中、待回答、待授权、出错；置顶只做对话；桌面和手机同一套顺序，手机上也能置顶。原型 `prototypes/conversation-pin-and-order-prototype.html` 选甲"名字前的图钉"（Hugeicons `Pin02Icon`，13px）、「···」菜单入口、"让位滑行 + 落位高亮"。协议 30。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 排序：置顶先、进行中次之、其余按最近活动；置顶的跑起来也在置顶档内按活动排 | `sidebar/names.test.ts` 的 `sortChats` 两例与 `chatBand` 一例，先红后绿 |
+| 行上：置顶行名字前 13px 图钉（`--tint`）、悬停仍是归档和「···」、其余行不带图钉 | `app/workbench.browser.test.tsx`"puts pinned chats first…"，含颜色与缺席断言 |
+| 入口：「···」第一项是"置顶"，已置顶写"取消置顶"，点了发 `pin_chat` / `unpin_chat` | 同文件"pins a chat from its ··· menu…"；既有归档对话用例改成 `["置顶","重命名"]` |
+| 顺序变化动效：升了一档的行闪一下（减弱动态效果时 1ms） | 同文件"flashes the row that climbed…"（`getAnimations` 非空） |
+| 协议：`Chat.pinnedAt`、`pin_chat` / `unpin_chat`、命令类型清单、Swift 生成类型与往返夹具 | `protocol/envelope.test.ts`（命令清单、往返夹具）、`remote.test.ts` 版本 30；`RoundTripTests.swift` 版本断言 30 |
+| 宿主：`pinnedAt` 写进 `chats.json`，重复置顶保留首次时间，取消置顶清掉并删空记录；对话不存在 `chat_not_found`；列表推送一次 | `store/chat-records.test.ts` 两例、`sessions/index-commands.test.ts` 两例（其中一例放第二个对话，抓 `some → every`）、`server/router.test.ts` 两条命令 |
+| 手机可用：`pin_chat` / `unpin_chat` 对手机开放 | `server/remote-policy.test.ts`（41 条 phone） |
+| 手机：首页对话行按同一规则排，钉住的会话带图钉；对话页「···」置顶、失败按宿主码提示 | `HomeListTests.swift`"pinnedChats"、`SyncControlTests.swift`"pinChat"/"pinBeforeSync"、`HomeViewTests.swift` 的 `chatProblemText` |
+| 客户端：`pinChat` / `unpinChat` 发出正确的命令和 id | `atrium-client.test.ts`"pins and unpins a chat with its id" |
+
+最终验证：`pnpm check` 全链通过（格式、lint 含 JSDoc、递归＋根 typecheck、knip、boundary `unregistered 0 / not exact 0`、iOS 格式与 lint）；单元 4309 项、宿主 243 项、Swift 406 项通过。UI 全量 1164/1166，两处失败均单文件复跑通过：既有 `status-bar.browser.test.tsx`"opens a row…"（已登记不稳）与 `question-card.browser.test.tsx` 一处（单文件 21/21），不报整套 UI 全绿。破坏检查 10 处全部检出（宿主 3、UI 4、客户端 1、Swift 2）。改动行变异：`sidebar/names.ts` 99.04%（207 Killed / 2 Survived，两处存活都在未改动的合并状态代码，逐处保留）；`sessions/index-commands.ts` 97.70%（85 Killed / 2 Survived，存活仍是既有的 `projects.workspaces()` 与 `windowFocused` 重扫，新增冷路径全杀）。首轮该文件 94.25% 时新增的 `chats().some → every` 存活，补第二个对话后复测死亡。未跑：Electron 端到端、桌面泄漏、模拟器 UI 测试（Swift 逻辑与 UI 文案在 macOS 上跑过）；未在真机上验证手机端置顶。
+
 ## 新建 worktree 同时生成中文名（M1.11 自用后补充，2026-10-28）
 
 用户确认全部新增入口，显示选 `prototypes/worktree-chinese-name-prototype.html` 的 A“中文单行”：英文分支/目录不改，中文名只存工作区 `alias`，已有 worktree 不回填。协议 29；手机类型和往返夹具已重新生成。

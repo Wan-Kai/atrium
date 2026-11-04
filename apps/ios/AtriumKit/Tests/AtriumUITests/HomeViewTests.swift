@@ -48,6 +48,11 @@ struct SessionPageTests {
     #expect(SessionPage.statusLine(.failed(.sessionCwdMissing)) == "打不开这个会话（session_cwd_missing）")
   }
 
+  @Test("says a failed pinning with the host's code only")
+  func chatProblem() {
+    #expect(SessionPage.chatProblemText(.chatNotFound) == "没能置顶（chat_not_found）")
+  }
+
   @Test("writes a notice as one line of its kind")
   func noticeLabel() throws {
     let notice = try JSONDecoder().decode(

@@ -151,6 +151,48 @@ export function sortWorkspaces<T extends Pick<Workspace, "kind" | "createdAt" | 
   ];
 }
 
+/** A chat as the sidebar orders it: when it was pinned, whether it waits on a run, and when it last changed. */
+export interface ChatOrder {
+  /** When the user pinned it; `null` when not (SPEC-0001, "对话的置顶与顺序"). */
+  readonly pinnedAt: number | null;
+  /** A session in it is running or shows a status icon, so the row is lit. */
+  readonly busy: boolean;
+  /** Its latest activity, milliseconds since the epoch. */
+  readonly at: number;
+}
+
+/**
+ * Which band of the sidebar's order a chat falls in, counted from the top.
+ *
+ * @remarks
+ * Pinned chats first, then the ones a run or a question makes busy, then the rest
+ * (SPEC-0001, "对话的置顶与顺序"). The row that climbs a band flashes when the list moves it.
+ *
+ * @sideEffects none
+ * @param chat - The chat.
+ * @returns 0, 1 or 2.
+ */
+export function chatBand(chat: Pick<ChatOrder, "pinnedAt" | "busy">): number {
+  if (chat.pinnedAt !== null) return 0;
+  return chat.busy ? 1 : 2;
+}
+
+/**
+ * The chats in the order the sidebar shows them.
+ *
+ * @remarks
+ * By band, then latest activity first; pinned chats are newest activity first among themselves too,
+ * so a pinned chat keeps moving as it is used without ever falling out of the top
+ * (SPEC-0001, "对话的置顶与顺序").
+ *
+ * @sideEffects none
+ * @param chats - The chats.
+ * @returns The sorted chats.
+ */
+export function sortChats<T extends ChatOrder>(chats: readonly T[]): T[] {
+  return chats.toSorted((a, b) => chatBand(a) - chatBand(b) || b.at - a.at);
+}
+
 /**
  * Where a session lives, in words: "项目 · 工作区", or "对话 · 对话名".
  *

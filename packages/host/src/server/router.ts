@@ -177,6 +177,10 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.nameBranch(command.projectId, command.text, command.model, command.branch);
       case "rename_chat":
         return options.index.renameChat(command.chatId, command.name);
+      case "pin_chat":
+        return options.index.pinChat(command.chatId);
+      case "unpin_chat":
+        return options.index.unpinChat(command.chatId);
       case "window_focused":
         return options.index.windowFocused();
       case "watch_changes":
