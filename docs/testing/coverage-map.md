@@ -2233,3 +2233,13 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 对话页标题下的雾换成渐进模糊（三层材质叠加、纸色 62%→52%→透明，到 160pt（真机看后从 82%、190pt 调淡）），停在最顶上时不显示、滚过 16pt 淡入；"正在载入更早的"换成两条细线夹转圈和字 | 视觉改动，没有单测：模拟器 `conversation-older`（临时把应答延到 30 秒）浅色停在顶上载入中、浅色往下滚、深色往下滚三张截图看过：标题清楚、标题后只剩隐约的字，细线一行在雾外面能看清。真机没看过 |
 | 手机对话页滑回来的回复不重排：快照的回复先解析进 `MarkdownCache`；屏幕上解析好的完成回复存进缓存（上限 256）；缓存命中就不再解析；代码高亮按语言和代码留 128 块，代码块一出来就上好色。标题的雾在载入更早的、跟住位置时也开着，滚过 16pt 立刻出现 | Swift `SyncModelTests`"parses a snapshot's replies before it goes in…"、`CodeHighlighterTests`"keeps what it highlighted…"；先红后绿，破坏检查 3 处全抓到。`StreamingReplyView` 命中缓存不再解析、解析后存缓存，和雾的开关没有单测：真机探针日志定位（滑动中的慢帧里本页和轮次都没重建、没有消息，滚动条长度在变），模拟器看过载入中雾下细线仍清楚；2026-10-30 用户在真机上确认"对话内 HTML 渲染调研"滑动顺了、插入时不再闪 |
 | 宿主连 relay 优先经设置里的代理（HTTP `CONNECT` 隧道，TLS 端到端）：控制连接、每台手机的数据连接、"测试连接"都经代理；上一次经代理在 `ready` 前失败，下一次直连，之后回到代理；relay 在本机或主机名在"不走代理"里的直连；日志只记"经代理/直连" | `relay-route.test.ts` 6 项、`relay-link.test.ts`"connects through the proxy…""goes direct after the proxy refused…""tests the relay through the proxy…"、`channel.test.ts`"opens the data connection the way the link's route chose…"（测试里起真的本地 CONNECT 代理 `test/connect-proxy.ts`）；先红后绿，破坏检查 9 处全抓到。`main.ts` 里把设置接给 `RelayRoute` 一处没有单测，打包后看宿主日志"relay connected"的 `via` 确认 |
+
+## Google 服务商图标（2026-11-05，待验收）
+
+用户 2026-11-05 要求把 pi 的 `google`（Gemini API，按量计费）在 Atrium 里显示成“Google”并换上官方的四色 G 图标。模型的名字、上下文、最大输出、是否收图照旧来自 pi 的目录，Atrium 不另配；没有新增服务商、没有新增查询。
+
+| 行为 | 验证 |
+| --- | --- |
+| 桌面模型按钮、服务商列表把 `google` 显示为“Google”并带官方图标，其他未知服务商仍显示 id 和首字母 | `packages/ui/src/chat/model-choice.test.ts`“names the providers it knows, with their icon, and others by their id”（先红后绿：去掉映射后该用例挂在 `{ name: "google", logo: null }`） |
+| 手机同一张映射表：`providerName("google")` 为“Google”、`logo("google")` 为 `google.png` | Swift `ModelChoiceTests.providers`（先红后绿：去掉映射后两个断言分别得到 `"google"` 和 `nil`） |
+| 图标是官方资源：`packages/ui/src/design/brand/google.png` 取自 Google 官方 gstatic 的 `googleg_standard_color_128dp.png`（128×128 透明底 PNG，原图不缩放），来源记在 `SOURCES.md`；手机那份由 `scripts/ios-brand-icons.mjs` 复制（该脚本对非 SVG 原样拷贝），重跑后只有 `google.png` 新增，其余图标无变动 | 目视 `SOURCES.md` 与 `git status`；未启动应用看实际渲染，也没有新增桌面 e2e 截图 |

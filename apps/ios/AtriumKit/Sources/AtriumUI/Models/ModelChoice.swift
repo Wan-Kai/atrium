@@ -97,7 +97,8 @@ enum ModelChoice {
     "azure-openai-responses": ("Azure OpenAI", "openai.png"), "github-copilot": ("GitHub Copilot", "copilot.png"),
     "openrouter": ("OpenRouter", "openrouter.png"), "xai": ("xAI", "xai.png"), "moonshotai": ("Kimi", "kimi.png"),
     "moonshotai-cn": ("Kimi", "kimi.png"), "kimi-coding": ("Kimi Coding", "kimi.png"),
-    "deepseek": ("DeepSeek", "deepseek.png"), "catpaw-cli": ("catpaw-cli", "catpaw.webp"),
+    "deepseek": ("DeepSeek", "deepseek.png"), "google": ("Google", "google.png"),
+    "catpaw-cli": ("catpaw-cli", "catpaw.webp"),
     "sankuai-openai": ("Friday", "friday.png"),
   ]
 
