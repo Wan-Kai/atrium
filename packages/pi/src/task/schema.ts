@@ -50,6 +50,9 @@ export const TASK_TEXT_LIMITS = {
   progress: 2000,
 } as const;
 
+/** The tools only a node's session has, and its model calls to end its step or ask for a new graph. */
+export const NODE_TOOLS = ["node_done", "request_graph_change"] as const;
+
 /** The role of a node (SPEC-0006, "节点"); what its session may use follows from it. */
 export const NodeRole = z.enum(["explore", "work", "check", "advise"]);
 export type NodeRole = z.infer<typeof NodeRole>;

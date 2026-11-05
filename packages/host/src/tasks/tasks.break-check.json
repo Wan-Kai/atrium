@@ -222,5 +222,26 @@
     "to": "queue = run;",
     "test": "packages/host/src/tasks/task-store.test.ts",
     "name": "keeps the order of events recorded without waiting"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (event.type !== \"committed\" || !onCommitted(draft, event)) return { task, actions: [] };",
+    "to": "return { task, actions: [] };",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "still records the commit of a writing end node after the task is done"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (event.type !== \"committed\" || !onCommitted(draft, event)) return { task, actions: [] };",
+    "to": "if (!apply(draft)) return { task, actions: [] };",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "still records the commit of a writing end node after the task is done"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (task.cancelled) return { task, actions: [] };",
+    "to": "if (false) return { task, actions: [] };",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "drops a commit that arrives after the task was cancelled"
   }
 ]

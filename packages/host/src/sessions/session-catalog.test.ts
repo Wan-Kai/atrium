@@ -130,6 +130,7 @@ describe("SessionCatalog", () => {
         usageAfter: null,
         agent: null,
         usedHandles: [],
+        task: null,
         deliveries: [],
       },
       expect.objectContaining({ sessionId: "s2", containerId: B, prompt: "hello", updatedAt: 200_000 }),
@@ -220,6 +221,7 @@ describe("SessionCatalog", () => {
         usageAfter: null,
         agent: null,
         usedHandles: [],
+        task: null,
         deliveries: [],
       },
     ]);
@@ -664,6 +666,38 @@ describe("SessionCatalog before its first scan", () => {
 
     expect(sessions.find("c1")).toMatchObject({ agent, usedHandles: [], deliveries: [] });
     expect(sessions.find("s1")).toMatchObject({ agent: null, usedHandles: ["audit", "tests"], deliveries: [delivery] });
+  });
+
+  it("keeps a task session's record, and reads a broken one as no task (SPEC-0006)", async () => {
+    const { sessions, dirs, file } = await catalog();
+    const task = {
+      taskId: "tsk_1",
+      role: "node",
+      node: "N1",
+      attempt: 1,
+      nodeRole: "work",
+      startOn: { providerId: "p", modelId: "m", thinkingLevel: null },
+    } as const;
+    await sessions.record({ sessionId: "n1", containerId: A, cwd: dirs.a, name: "N1 · look", task });
+    await file.save({
+      ...file.read(),
+      sessions: [
+        ...file.read().sessions,
+        {
+          sessionId: "bad",
+          containerId: A,
+          cwd: dirs.a,
+          draft: true,
+          archived: false,
+          createdAt: 1,
+          task: { taskId: 7 },
+        },
+      ],
+    });
+
+    expect(sessions.find("n1")).toMatchObject({ task, agent: null, parent: null });
+    expect(file.read().sessions[0]).toMatchObject({ sessionId: "n1", task });
+    expect(sessions.find("bad")?.task).toBeNull();
   });
 
   it("changes a session's agent fields, records a session from the terminal, and writes nothing that is the same", async () => {

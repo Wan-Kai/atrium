@@ -2,7 +2,7 @@ import { encodeArgument } from "@atrium/pi";
 import type { AgentRole } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import type { AgentRecord } from "../store/agent-records";
-import { agentLaunchFlags, agentSelf, toolFlags } from "./agent-launch";
+import { agentLaunchFlags, agentSelf, taskLaunchFlags, toolFlags } from "./agent-launch";
 import { agentDepth } from "./child-tree";
 
 /** The main agent's tools, as pi's flags list them. */
@@ -239,5 +239,87 @@ describe("agentLaunchFlags", () => {
       "--tools",
       `read,bash,ffgrep,fffind,ls,report_progress,ask_parent,${PARENT}`,
     ]);
+  });
+});
+
+/**
+ * A node's session, as the launch rules read it.
+ *
+ * @remarks
+ * Without a role, the record of a node whose role is unknown.
+ *
+ * @sideEffects none
+ * @param nodeRole - The node's role.
+ * @returns The entry.
+ */
+function node(nodeRole?: "explore" | "work" | "check" | "advise") {
+  return {
+    ...entry("node"),
+    task: {
+      taskId: "tsk_1",
+      role: "node" as const,
+      node: "N1",
+      attempt: 1,
+      ...(nodeRole === undefined ? {} : { nodeRole }),
+      startOn: null,
+    },
+  };
+}
+
+/**
+ * Who the flags say the session is.
+ *
+ * @remarks
+ * Decodes the `--atrium-task` value, as the extension does.
+ *
+ * @sideEffects none
+ * @param flags - The launch flags.
+ * @returns The decoded value.
+ */
+function selfOf(flags: string[] | null): unknown {
+  return JSON.parse(Buffer.from((flags?.[0] ?? "").slice("--atrium-task=".length), "base64url").toString());
+}
+
+describe('taskLaunchFlags (SPEC-0006, "一个 agent 节点怎么跑 · 起")', () => {
+  it.each(["explore", "advise", "check"] as const)(
+    "limits a %s node to the read-only white list and its three tools",
+    (role) => {
+      const flags = taskLaunchFlags(node(role));
+
+      expect(flags?.slice(1)).toStrictEqual([
+        "--tools",
+        "read,bash,ffgrep,fffind,ls,node_done,request_graph_change,ask_user",
+      ]);
+      expect(selfOf(flags)).toStrictEqual({ v: 1, kind: "node", role });
+    },
+  );
+
+  it("gives a work node every tool but the legacy search and the agent's", () => {
+    const flags = taskLaunchFlags(node("work"));
+
+    expect(flags?.slice(1)).toStrictEqual(["--exclude-tools", `grep,find,${PARENT},report_progress,ask_parent`]);
+    expect(selfOf(flags)).toStrictEqual({ v: 1, kind: "node", role: "work" });
+  });
+
+  it("never carries the agent's flag, so the node is no child of SPEC-0002", () => {
+    for (const role of ["explore", "work", "check", "advise"] as const) {
+      expect(taskLaunchFlags(node(role))?.some((flag) => flag.startsWith("--atrium-agent"))).toBe(false);
+    }
+  });
+
+  it("is none for a session of no node: an ordinary session, a child, a task conversation, a node without a role", () => {
+    expect(taskLaunchFlags(entry("main"))).toBeNull();
+    expect(taskLaunchFlags(entry("child", ["main", "agent"], ["work", "flags"]))).toBeNull();
+    expect(
+      taskLaunchFlags({ ...entry("t"), task: { taskId: "tsk_1", role: "conversation", startOn: null } }),
+    ).toBeNull();
+    expect(taskLaunchFlags(node())).toBeNull();
+    expect(taskLaunchFlags(undefined)).toBeNull();
+  });
+
+  it("leaves a node out of the agent's tree: it is no one's child and has depth 0", () => {
+    const entries = [entry("main"), node("work")];
+
+    expect(agentSelf(entries, "node")).toMatchObject({ child: false, depth: 0 });
   });
 });

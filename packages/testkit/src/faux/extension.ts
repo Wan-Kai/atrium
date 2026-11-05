@@ -261,6 +261,29 @@ function newestUserText(context: { readonly messages?: readonly unknown[] }): st
     .join("");
 }
 
+/** The most requests one pi serves from `byConversation` replies. */
+const CONVERSATION_REQUESTS = 64;
+
+/**
+ * The text of a request's first user message.
+ *
+ * @remarks
+ * Names the conversation (`FauxScript.byConversation`).
+ *
+ * @sideEffects none
+ * @param context - The request.
+ * @returns The text, empty when there is no user message.
+ */
+function firstUserText(context: { readonly messages?: readonly unknown[] }): string {
+  const message = (context.messages ?? []).find((one) => Reflect.get(Object(one), "role") === "user");
+  const content: unknown = Reflect.get(Object(message), "content");
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block: unknown) => (Reflect.get(Object(block), "type") === "text" ? Reflect.get(Object(block), "text") : ""))
+    .filter((text): text is string => typeof text === "string")
+    .join("");
+}
+
 /**
  * pi extension that registers pi-ai's faux provider and answers from a script file.
  *
@@ -356,6 +379,10 @@ export default function fauxExtension(pi: ExtensionApi): void {
   const childAnswers = childList.map((reply) => answerWith(reply));
   const noMoreReplies = answerWith({ blocks: [], error: "faux script has no more child replies" });
   const byPrompt = (script.byPrompt ?? []).map(({ startsWith, reply }) => ({ startsWith, answer: answerWith(reply) }));
+  const conversations = (script.byConversation ?? []).map(({ startsWith, replies }) => ({
+    startsWith,
+    answers: replies.map((reply) => answerWith(reply)),
+  }));
   /**
    * Answers with the reply the prompt picks, if one does, or else with `answer`.
    *
@@ -369,6 +396,10 @@ export default function fauxExtension(pi: ExtensionApi): void {
   const orByPrompt =
     (answer: FauxResponseFactory): FauxResponseFactory =>
     (context, options, state, model) => {
+      const conversation = firstUserText(context);
+      const talk = conversations.find((entry) => conversation.startsWith(entry.startsWith));
+      if (talk !== undefined)
+        return (talk.answers[repliesIn(context)] ?? noMoreReplies)(context, options, state, model);
       const text = newestUserText(context);
       const picked = byPrompt.find((entry) => text.startsWith(entry.startsWith))?.answer ?? answer;
       return picked(context, options, state, model);
@@ -407,7 +438,16 @@ export default function fauxExtension(pi: ExtensionApi): void {
           },
         ]
       : depth === null
-        ? script.replies.map((reply) => orByPrompt(answerWith(reply)))
+        ? // As many requests as the longest conversation asks for, so a conversation never runs out of factories.
+          Array.from(
+            {
+              length:
+                conversations.length === 0
+                  ? script.replies.length
+                  : Math.max(script.replies.length, CONVERSATION_REQUESTS),
+            },
+            (_, at) => orByPrompt(script.replies[at] === undefined ? noMoreReplies : answerWith(script.replies[at])),
+          )
         : // A child picks by the conversation; as many as it may ask for.
           childAnswers.map(() =>
             orByPrompt((context, options, state, model) => {

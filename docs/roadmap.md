@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-11-04：任务与任务图设计定稿，在 `atrium/design-agent-task-board`（worktree `atrium.worktrees/design-agent-task-board`），只改文档和原型，未提交、未合并。** 设计稿 `prototypes/agent-task-board-design.html` 经 5 轮审查定下界面：只从对话 `/task` 创建任务；任务和对话是两个入口、两种视图；任务区有固定的"任务""定时"标签；任务标签是图加任务对话。执行方案经讨论定下 Q1–Q14（[task-graph-execution.md](research/task-graph-execution.md)），worktree 的做法参考了 Claude Code 和 8 个 pi 扩展（[worktree-practices.md](research/worktree-practices.md)）。合成 [SPEC-0006](specs/0006-tasks-and-task-graph.md)，用户确认；domain-model §9、overview、security 已同步。开发拆成 T0–T11 和 TP（见"阶段 · 任务与任务图"），每步单独验收；T0 pi 契约 2026-11-04 用户验收通过：6 条行为在 1.0.2、1.3.0、1.5.0 上都成立（`task.pi.test.ts` 9 项、破坏检查 14/14）。T1–T3 由三个子代理并行做完，2026-11-05 用户让继续 T4（未逐项手验）；T3 补出的 32 处 SPEC 细节已写回 SPEC-0006。本机 pi 1.5.0 与 1.3.0 夹具不一致导致 `test:pi` 61 项、宿主 `edit-stopped` / `reply-translation` 11 项失败，是既有问题，用户定后面单独处理。下一步 T4。
+**2026-11-04：任务与任务图设计定稿，在 `atrium/design-agent-task-board`（worktree `atrium.worktrees/design-agent-task-board`），只改文档和原型，未提交、未合并。** 设计稿 `prototypes/agent-task-board-design.html` 经 5 轮审查定下界面：只从对话 `/task` 创建任务；任务和对话是两个入口、两种视图；任务区有固定的"任务""定时"标签；任务标签是图加任务对话。执行方案经讨论定下 Q1–Q14（[task-graph-execution.md](research/task-graph-execution.md)），worktree 的做法参考了 Claude Code 和 8 个 pi 扩展（[worktree-practices.md](research/worktree-practices.md)）。合成 [SPEC-0006](specs/0006-tasks-and-task-graph.md)，用户确认；domain-model §9、overview、security 已同步。开发拆成 T0–T11 和 TP（见"阶段 · 任务与任务图"），每步单独验收；T0 pi 契约 2026-11-04 用户验收通过：6 条行为在 1.0.2、1.3.0、1.5.0 上都成立（`task.pi.test.ts` 9 项、破坏检查 14/14）。T1–T3 由三个子代理并行做完，2026-11-05 用户让继续 T4（未逐项手验）；T3 补出的 32 处 SPEC 细节已写回 SPEC-0006。本机测试环境有两件既有问题，用户定后面单独处理：cmux 终端放在 PATH 最前面的 `pi` 垫片会让宿主 `edit-stopped` / `reply-translation` 11 项挂住（把 `cmux-cli-shims` 移出 PATH 就过）；`test:pi` 52 项失败是缺 pi 1.5.0 的录制夹具。T4 分两段：T4a（pi 侧工具与通道）已提交；T4b（宿主侧 TaskRunner、提交、`pnpm task:try`）2026-11-05 做完，真实模型跑通三节点示例图、Ctrl-C 后重跑不重复提交；变异测试中 Stryker 改掉 `cwd` 让测试在仓库里真提交过一次，已撤销并让测试的 git 运行器缺 `cwd` 就抛错。用户确认两处 SPEC 冲突：`done` 之后照常记 `committed`；工作区标记记在任务目录的 `workspace.json`，崩溃窗口留给 T9。下一步 T4 三方审查，再请用户验收。
 
 **2026-10-28：新建 worktree 同时生成中文名用户验收通过，已本地提交并合回 `main`（功能提交 `7e1a87f`），未安装或推送。原分支和 worktree 仍被当前会话及 Xcode 使用，保留、不强删。** 用户确认全部新增入口（新建工作区、手动子对话、agent 子对话），选原型 `worktree-chinese-name-prototype.html` 的 A“中文单行”：英文分支和目录不改，中文名保存为工作区 `alias`，悬停查看英文分支，已有 worktree 不回填。自动英文分支一次调用产出双名；固定分支只补中文名，失败保留原有兜底，创建重试不重复调用。协议 29，Swift 投影和往返夹具已同步。按用户要求只做 GPT-6 Astra / Grok 4.7 审查，修了冷模型查询拖住关闭及主动取消误记崩溃，限定复核无阻断。检查、单元 4301、宿主 243、Node 泄漏 20、Swift 402 和模拟器测试通过；合并前单 worker 完整 UI 1163/1163、非泄漏 Electron 套件 71 项通过（其中日志门禁一项为预期失败自检）。此前默认 UI 两次 1162/1163，既有状态栏失败、单文件各 28/28，历史失败保留，不视为已修复。30 项破坏检查全部检出，另有 Electron 中文别名负控；改动行变异 UI 100%、shared 87.50%、host 100%、git 保守不计所有超时信用 95.79%。详细口径与首轮失败见[追踪表](testing/coverage-map.md#新建-worktree-同时生成中文名m111-自用后补充2026-10-28)。
 
@@ -729,8 +729,8 @@ TP 补原型（只改原型，随时可做）───────────�
   - `check` 角色；节点接上 T2 的路径隔离；
   - 可写节点结束时提交；
   - 五种失败的判定；节点能用 `ask_user`；
-  - bash 里 `git -C` / `--git-dir` / `--work-tree` / `GIT_DIR=` / `GIT_WORK_TREE=` 指向工作目录外时拦下（T2 只做了 `edit` / `write`）；
-  - `start_node` 幂等：会话起不来后重跑，同一个 attempt 会再发一次 `start_node`；重启时先送 `node_settled` 再送 `host_restarted`；
+  - ✅ bash 里 `git -C` / `--git-dir` / `--work-tree` / `GIT_DIR=` / `GIT_WORK_TREE=` 指向工作目录外时拦下（T4a 做完）；
+  - `start_node` 幂等：会话起不来后重跑，同一个 attempt 会再发一次 `start_node`；T4 的 `recover` 只做"重做丢失的动作 + `host_restarted`"，"`node_done` 那一轮已结束 → 先送 `node_settled`"留给 T9；
   - 同时改 SPEC-0003（节点能用 `ask_user`）。
   - 开发用的 `pnpm task:try <图.json> [--repo <目录>]`：
     - 用真实模型跑一张图，打印事件流；
@@ -863,7 +863,10 @@ TP 补原型（只改原型，随时可做）───────────�
   - 待结算的 `node_done` 照常结算；
   - 没回答的问题作废；
   - 清掉已结束任务的锁；
-  - 重放后重新执行的动作能认出已做过的。
+  - 重放后重新执行的动作能认出已做过的；
+  - `node_done` 那一轮在重启前已结束（会话文件里最后是 `terminate` 的工具结果）→ 先送 `node_settled` 再送 `host_restarted`（T4 的 `recover` 没做这一条）；
+  - 补上 `ensure_workspace` 的崩溃窗口：建完 worktree、还没写任务目录的 `workspace.json` 时崩溃，留下的 worktree 要能认回来；
+  - `request_graph_change` 的理由和建议现在只在内存里，重启后丢，要落盘。
 - **依赖**：T8。
 - **完成标准**：
   - 宿主层测试在每个动作"做完了、事件还没写"的时刻杀掉宿主再起，结果都不重复（不重复提交、不重复合并、不重复建 worktree）；

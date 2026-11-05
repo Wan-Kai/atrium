@@ -16,7 +16,7 @@
       "ignoreDependencies": ["@stryker-mutator/core", "@stryker-mutator/command-runner"]
     },
     "packages/host": {
-      "entry": ["src/entry.ts", "test/**/*.ts", "src/dev/try-pi.ts", "src/dev/task-replay.ts"]
+      "entry": ["src/entry.ts", "test/**/*.ts", "src/dev/try-pi.ts", "src/dev/task-replay.ts", "src/dev/task-try.ts"]
     },
     "packages/remote-crypto": {
       "entry": ["test/**/*.ts"]

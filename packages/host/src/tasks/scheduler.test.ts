@@ -105,6 +105,28 @@ describe("step: designing and starting", () => {
     expect(sim.send({ type: "cancelled" })).toStrictEqual([]);
     expect(sim.task).toBe(before);
   });
+
+  it("still records the commit of a writing end node after the task is done, and nothing else", () => {
+    const sim = started(new Sim(newTask([agent("N1", "work")], [], { workspaceState: "ready" })));
+    expect(kinds(finish(sim, "N1"))).toStrictEqual(["commit_node:N1", "unlock_workspace", "ask_archive"]);
+    expect(sim.status()).toBe("done");
+    expect(sim.send({ type: "committed", node: "N1", attempt: 1, commit: "deadbeef" })).toStrictEqual([]);
+    expect(sim.task.runs[0]?.commit).toBe("deadbeef");
+    expect(sim.status()).toBe("done");
+    const after = sim.task;
+    expect(sim.send({ type: "committed", node: "N1", attempt: 1, commit: "deadbeef" })).toStrictEqual([]);
+    expect(sim.task).toBe(after);
+    expect(sim.send({ type: "paused" })).toStrictEqual([]);
+    expect(sim.task).toBe(after);
+  });
+
+  it("drops a commit that arrives after the task was cancelled", () => {
+    const sim = started(new Sim(newTask([agent("N1", "work")], [], { workspaceState: "ready" })));
+    finish(sim, "N1");
+    const cancelled = { ...sim.task, cancelled: true };
+    const result = step(cancelled, { type: "committed", node: "N1", attempt: 1, commit: "x", seq: 99, at: 1 });
+    expect(result.task).toBe(cancelled);
+  });
 });
 
 describe("step: a node's turn ends", () => {

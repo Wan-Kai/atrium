@@ -3,15 +3,19 @@ import {
   ASK_USER_TOOL,
   type AgentSelf,
   CHILD_TOOLS,
+  NODE_TOOLS,
   PARENT_TOOLS,
   READ_ONLY_TOOLS,
+  TASK_FLAG,
+  type TaskSelf,
   encodeArgument,
 } from "@atrium/pi";
 import type { CatalogEntry } from "./session-catalog";
 import { agentDepth } from "./child-tree";
 
 /** What the launch rules read of a session. */
-type LaunchEntry = Pick<CatalogEntry, "sessionId" | "containerId" | "parent" | "archived" | "agent">;
+type LaunchEntry = Pick<CatalogEntry, "sessionId" | "containerId" | "parent" | "archived" | "agent"> &
+  Partial<Pick<CatalogEntry, "task">>;
 
 /** The agent depth at which a session has none of the main agent's tools (SPEC-0002, "概念 · 层数"). */
 const MAX_DEPTH = 2;
@@ -135,4 +139,31 @@ function withChildTools(flags: readonly string[]): string[] {
  */
 export function agentLaunchFlags(entries: readonly LaunchEntry[], sessionId: string): string[] {
   return [`--${AGENT_FLAG}=${encodeArgument(agentSelf(entries, sessionId))}`, ...toolFlags(entries, sessionId)];
+}
+
+/**
+ * pi's flags for a session of a task's node: who it is, and its tools (SPEC-0006, "一个 agent 节点怎么跑 · 起").
+ *
+ * @remarks
+ * `--atrium-task=<base64url JSON>` says the session is a node and which role; it is no identity, the host
+ * knows the caller by the pi process (SPEC-0006, "调用方由宿主认定"). There is no `--atrium-agent`: a node
+ * is not a child conversation of SPEC-0002, so it has none of `agent_*`, `report_progress` or `ask_parent`
+ * and keeps `ask_user` (SPEC-0003). The read-only roles (`explore`, `advise`, `check`) get the white list
+ * of SPEC-0002's read-only roles plus the node's three tools; `check` keeps `bash` unrestricted by the
+ * white list as every role does, since tests and builds run there. A `work` node has every built-in tool but
+ * the legacy `grep` / `find`, and none of the agent's. The extension's guards are on for every node.
+ *
+ * @sideEffects none
+ * @param entry - The node's session.
+ * @returns The flags, or `null` for a session that is not a node's.
+ */
+export function taskLaunchFlags(entry: LaunchEntry | undefined): string[] | null {
+  const task = entry?.task;
+  if (task?.role !== "node" || task.nodeRole === undefined) return null;
+  const self: TaskSelf = { v: 1, kind: "node", role: task.nodeRole };
+  const flag = `--${TASK_FLAG}=${encodeArgument(self)}`;
+  if (task.nodeRole === "work") {
+    return [flag, "--exclude-tools", [...CHILD_SEARCH_EXCLUSIONS, ...PARENT_TOOLS, ...CHILD_TOOLS].join(",")];
+  }
+  return [flag, "--tools", [...READ_ONLY_TOOLS, ...NODE_TOOLS, ASK_USER_TOOL].join(",")];
 }

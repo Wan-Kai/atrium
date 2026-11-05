@@ -85,8 +85,15 @@ export const MUTATION_GROUPS = {
       "!packages/host/src/tasks/test-support.ts",
       "!packages/host/src/tasks/scheduler-model.ts",
       "!packages/host/src/tasks/types.ts",
+      // T4b: these need a real pi and real git; the host-layer tests (`node-run.host.test.ts`) cover them.
+      "!packages/host/src/tasks/{runner,task-service,task-workspaces,new-task,node-ports}.ts",
+      "!packages/host/src/tasks/*.break-check.json",
     ],
-    tests: ["packages/host/src/tasks", "packages/host/src/dev/task-replay.test.ts"],
+    tests: [
+      "packages/host/src/tasks",
+      "packages/host/src/dev/task-replay.test.ts",
+      "packages/host/src/dev/task-try.test.ts",
+    ],
     skip: [],
   },
   ui: {

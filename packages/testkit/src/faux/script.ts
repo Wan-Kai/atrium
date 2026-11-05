@@ -53,6 +53,14 @@ export interface FauxScript {
    */
   readonly byPrompt?: readonly { readonly startsWith: string; readonly reply: FauxReply }[];
   /**
+   * Replies picked by the conversation: one whose first user message starts with an entry's
+   * `startsWith` is answered with that entry's `replies`, the next one for each reply the model
+   * already gave in it. So the conversations of several sessions (each node of a task has its own pi)
+   * can be scripted from one file, and a pi stopped and started again on the same conversation goes on
+   * where it was, as `childReplies` do for children.
+   */
+  readonly byConversation?: readonly { readonly startsWith: string; readonly replies: readonly FauxReply[] }[];
+  /**
    * What a pi Atrium started as a child the agent opened says instead, told by the flag the host
    * gives it (`--atrium-agent=…` with `child: true`; SPEC-0002), so a parent and its children can
    * answer differently from one script.

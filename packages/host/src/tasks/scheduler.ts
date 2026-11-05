@@ -886,8 +886,9 @@ function apply(draft: Draft): boolean {
  * SPEC-0006, "调度器". Pure: the task passed in is not touched, time comes from the event, nothing
  * is read or written. State changes when an action is sent, not when its result arrives, so a second
  * event arriving before the result cannot send it again. An event that does not fit is ignored and the
- * same task comes back with no actions. A finished task (done or cancelled) takes no more events.
- * After an event applies, the task is advanced (resume held nodes, open human nodes, start ready
+ * same task comes back with no actions. A finished task (done or cancelled) takes no more events,
+ * except that a done task still records `committed`: the last writing node is committed in the same
+ * step that ends the task, so its commit can only arrive afterwards. After an event applies, the task is advanced (resume held nodes, open human nodes, start ready
  * ones) and finished if every end node has passed.
  *
  * @sideEffects none
@@ -896,8 +897,12 @@ function apply(draft: Draft): boolean {
  * @returns The task after the event and the actions, in the order they must be carried out.
  */
 export function step(task: Task, event: TaskEvent): StepResult {
-  if (task.cancelled || task.endedAt !== null) return { task, actions: [] };
+  if (task.cancelled) return { task, actions: [] };
   const draft: Draft = { task: structuredClone(task), actions: [], event, lines: 0 };
+  if (task.endedAt !== null) {
+    if (event.type !== "committed" || !onCommitted(draft, event)) return { task, actions: [] };
+    return { task: draft.task, actions: [] };
+  }
   if (!apply(draft)) return { task, actions: [] };
   advance(draft);
   return { task: draft.task, actions: draft.actions };

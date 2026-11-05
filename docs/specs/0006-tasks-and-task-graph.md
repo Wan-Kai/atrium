@@ -178,7 +178,7 @@ pending ──上游全过──▶ running ──node_done 结算通过──�
   - 你亲手停的节点不挡申请改图的节点继续，但任务在 `stopped` 时不起新节点；
   - 暂停期间"重跑这个节点"不生效；
   - 取消任务：`running` 和 `waiting(question)` 的节点立即停下（`stop_node(now)`），节点状态保留原样；
-  - 任务到了 `done` / `cancelled` 或被放弃后，之后的事件一律忽略。
+  - 任务到了 `done` / `cancelled` 或被放弃后，之后的事件一律忽略；唯一例外：`done` 之后照常记 `committed`。最后一个可写节点的 `commit_node` 和任务结束是同一步发出的，它的提交只能在结束之后回来（2026-11-05 用户确认）。
 - **human 节点**：
   - 到了就 `waiting`（`waitingFor: "human"`），你点"通过"后 `passed`；
   - 打回时它自己也新开一条 `pending`；
@@ -246,7 +246,7 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 
 | 动作 | 怎么认出"已经做过" |
 |---|---|
-| `ensure_workspace` | 索引里已有记着"由任务 X 创建"的工作区 → 直接回 `workspace_created` |
+| `ensure_workspace` | 任务目录的 `workspace.json` 已记着这个任务建的工作区 → 直接回 `workspace_created`（已知缺口：建完 worktree、还没写 `workspace.json` 时宿主崩溃，会留下一个没人认的 worktree；T9 处理） |
 | `start_node` | 索引里已有 `task: { taskId, node, attempt }` 相同的会话 → 接回它，不新开 |
 | `commit_node` | worktree 的 HEAD 已经是带 `Atrium-Task: <taskId>/<node>/<attempt>` 尾注的提交 → 记下它，不再提交 |
 | `merge` | MergeInspector 判定分支已合并 → 直接回 `merged` |
@@ -441,7 +441,7 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
    - 单个文件超过 10 MiB 跳过；总量上限 64 MiB、500 个文件，放不下的那个跳过，后面更小的照样复制；
    - 复制失败不让新建失败；
    - 跳过的只记一条不带路径的 warn 日志。
-7. **登记**：登记工作区，记起点提交和"由任务 X 创建"；`workspace_created` → `step`。
+7. **登记**：登记工作区，记起点提交；"由任务 X 创建"记在任务目录的 `workspace.json`（不在工作区索引，2026-11-05 定）；`workspace_created` → `step`。
 
 失败 → 等着它的节点 `failed(workspace)`，任务停下。
 
@@ -740,6 +740,15 @@ type ScheduleRule = {
   - **待结算由宿主按 pi 的事件判定**，扩展不额外上报：宿主回答 ok 时记为待结算；之后的 `turn_start` 作废；`agent_end` 的最后一条助手消息 `stopReason: "error"` 作废；`agent_settled` 带 `aborted: true` 作废（停下时 pi 也会补一个 `turn_start` 和 error，要先看 `aborted`）；`agent_settled` 时还在就结算，没有且不是停下或出错 → `no_done`；
   - 节点的 `--tools` 白名单要带 `node_done`、`request_graph_change`、`ask_user`；节点不带 `--atrium-agent`；扩展的 `tool_call` 钩子按角色再查一遍；
   - 路径隔离和 git 拦截对四种角色的节点都默认打开（只读角色也能在 bash 里 `git -C`），`--atrium-task` 里 `isolated: false` 才关。
+- **T4b 定下的细节**（2026-11-05，宿主侧，代码在 `packages/host/src/tasks/`）：
+  - 只提交 `role = work` 的节点；`check` 等节点留下的改动不提交，由后面 work 节点的 `git add -A` 一起带走；
+  - "没改动不提交"按 `git add -A` 之后暂存区是否为空判断；节点自己提交过、树是干净的 → 不提交，也不发 `committed`；
+  - `stop_node(after_turn)` 时 pi 恰好空闲（包括第一轮还没开始）→ 立即 `node_held`；被要求 hold 的节点这一轮里 `node_done` 已生效 → 照常通过，不进 `held`；
+  - `crashed` = 会话起不来，或控制器重启 3 次都失败（沿用 SPEC-0001）；`model_error` = pi 不再重试的出错，重试成功不算；
+  - 批准改图后的 `resume` 文字只带新图和新的"不归你做的"，不重发本节点的"做什么 / 怎样算完成"；
+  - 契约的"任务目标"只放目标和已定结论；节点名和"做什么"只转义，需求摘要、交接摘要、打回原因才包 `<atrium-quoted>`；
+  - `request_graph_change` 的理由和建议目前只在内存里（给 T6 唤醒任务对话用），落盘见 T9；
+  - 来源对话在目录里找不到时，退回按 `sourceDir` 找所在的工作区。
 - `/atrium-task` 和别的 `/atrium-` 隐藏命令一样受 `command_reserved` 保护：你打的、粘贴的以它开头的消息不发给 pi。
 
 ### 协议（给 UI）

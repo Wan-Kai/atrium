@@ -77,6 +77,7 @@ await Promise.all([
   bundle("src/entry.ts", "dist/entry.cjs"),
   bundle("src/dev/try-pi.ts", "dist/try-pi.cjs"),
   bundle("src/dev/task-replay.ts", "dist/task-replay.cjs"),
+  bundle("src/dev/task-try.ts", "dist/task-try.cjs"),
   loginWorker(),
   atriumExtension(),
 ]);

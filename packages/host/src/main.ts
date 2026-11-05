@@ -29,7 +29,7 @@ import { closeLogFile, createLogger, drainLogFile, openLogFile } from "./platfor
 import { catchStrayRejections } from "./platform/stray-rejections";
 import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
-import { createProjectService } from "./projects/project-service";
+import { type ProjectService, createProjectService } from "./projects/project-service";
 import { findHomebrew, withHomebrewOnPath } from "./setup/homebrew";
 import { createLoginService } from "./setup/login-service";
 import { runJob } from "./setup/install-job";
@@ -58,6 +58,9 @@ import { withModelRules } from "./sessions/model-rules";
 import { createSessionCatalog } from "./sessions/session-catalog";
 import { createPlanUsage } from "./sessions/plan-usage";
 import { createSessionManager } from "./sessions/session-manager";
+import { createTaskRunner } from "./tasks/runner";
+import { type TaskService, createTaskService } from "./tasks/task-service";
+import { createTaskWorkspaces } from "./tasks/task-workspaces";
 import { createReplyTranslations, TRANSLATION_OUTPUT_BYTES } from "./sessions/reply-translation";
 import { titleModelLookup } from "./sessions/titles";
 import { acquireHostLock, processStartedAt } from "./store/host-lock";
@@ -121,6 +124,10 @@ export interface RunningHost {
   readonly address: string;
   /** Live resource counts, for leak tests and diagnostics. */
   readonly resources: ResourceTracker;
+  /** The tasks (SPEC-0006): no protocol commands yet, the handle tests and `task:try` use. */
+  readonly tasks: TaskService;
+  /** The projects, for the dev tools that set a host up without a client (`pnpm task:try`). */
+  readonly projects: Pick<ProjectService, "add" | "projects" | "workspaces">;
   /** Resolves once PATH is known and the tools have been looked for; `null` if the host closed first or detection failed. */
   readonly tools: Promise<HostTools | null>;
   /** Path that always points at the log file being written. */
@@ -465,6 +472,26 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     queue: worktreeQueue,
   });
   const creator = createWorktreeCreator({ projects, git, queue: worktreeQueue, refresh: rescanWorkspace, logger });
+  // Tasks (SPEC-0006): the runner carries out the scheduler's actions on node sessions and worktrees.
+  const taskRunner = createTaskRunner({
+    sessions: sessions.taskSessions,
+    workspaces: createTaskWorkspaces({
+      creator,
+      projects,
+      git,
+      root: join(home.root, "tasks"),
+      // The conversation the task was made from, else the workspace whose directory it started in.
+      sourceContainer: (task) =>
+        (task.origin.kind === "chat" ? catalog.find(task.origin.sessionId)?.containerId : undefined) ??
+        workspaces.list().find((workspace) => workspace.dir === task.sourceDir)?.id,
+      dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
+    }),
+    git,
+    clock,
+    logger,
+    resources,
+  });
+  const tasks: TaskService = createTaskService({ runner: taskRunner, root: join(home.root, "tasks"), clock, logger });
   // Names a new worktree's branch by the first message (SPEC-0001, "AI 起分支名").
   const namer = createBranchNamer({
     projects,
@@ -785,6 +812,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     attachments.close();
     await changes.close();
     await workspaces.close();
+    // Before the sessions, whose stopping the runner would otherwise answer with events.
+    await tasks.close();
     await sessions.close();
     await catalog.close();
     // After the sessions, whose stopping still reports changes.
@@ -803,6 +832,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   return {
     port: server.port,
     origin: server.origin,
+    tasks,
+    projects,
     address: server.address,
     resources,
     tools,

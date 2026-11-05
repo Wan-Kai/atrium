@@ -2120,3 +2120,33 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 破坏检查：`packages/pi/src/task/node.break-check.json`，59 处全部抓到（扩展 24、words 5、schema 3、git-guard 27）。
 - 变异测试：见汇报（`pnpm test:mutation pi --mutate=<文件>`）。
 - 没做：宿主一侧（T4b）：`TaskRunner`、调用方核对、待结算的真实判定、`--atrium-task` 的下发；任务对话的 `task_*` 工具（T6，`schema.ts` 里留了扩展位）。拦不住的 bash 写法见 security.md 路径隔离一条。
+
+## T4b 节点运行的宿主一侧（SPEC-0006"一个 agent 节点怎么跑""调度器""工作区"，SPEC-0003"哪些会话有这个工具"，2026-11-05，待验收）
+
+`packages/host/src/tasks/`：`runner.ts`（TaskRunner：每任务一个串行队列，执行 T4 范围内的动作）、`judge.ts`（按 pi 事件判待结算）、`channel.ts`（调用方核对、参数校验、回答）、`contract.ts` + `quote.ts`（契约拼装、外壳转义）、`commit.ts`（节点提交）、`task-workspaces.ts`（`ensure_workspace` 与加锁，用 T1 的创建器）、`task-service.ts`、`new-task.ts`；`sessions/task-sessions.ts` 与 `session-manager.ts` 的 `taskSessions`（节点会话的单独启动路径）、`agent-launch.ts` 的 `taskLaunchFlags`；`store/task-session-record.ts`（会话记录的 `task` 字段）；`dev/task-try.ts`（`pnpm task:try`）。测试用 `packages/testkit` faux 的新字段 `byConversation`（按对话的第一条用户消息挑回复，一个文件脚本化每个节点各自的 pi）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 三节点图 `explore → work → check` 跑到最后一个 agent 节点通过；可写节点的改动提交，提交带 `Atrium-Task: <taskId>/<node>/<attempt>`；check 的交接摘要记着它跑了什么；任务建的 worktree 起锁、结束解锁 | `node-run.host.test.ts` "runs explore, work and check" |
+| 按角色的工具：`explore` / `check` 只读白名单 + 三个节点工具，`work` 全部（无 `agent_*`）；节点不带 `--atrium-agent`、不是 agent 子对话 | `agent-launch.test.ts` `taskLaunchFlags`；`node-run.host.test.ts` "gives each node its own tools" |
+| 契约：做什么、怎样算完成、整张图（✓ / ← / 下一步 / 之后 / 由用户决定）、不归你做的（从图算）、上游最新一次 passed 的摘要（被打回重置的旁支不传旧摘要）、新 worktree 的环境提示、被打回的原因与上一次的摘要和提交、下一步名字；模型来源的文字（目标、结论、摘要、原因）套 `<atrium-quoted>`，外壳标签被转义，名字和"做什么"也转义 | `contract.test.ts`、`quote.test.ts`；`node-run.host.test.ts` "hands the upstream summary…as quoted data"、"puts the earlier summary and the reason into the contract of a node that was sent back" |
+| 批准改图后的新契约（`图已改…` + 新图 + 新的"不归你做的"） | `contract.test.ts` `graphChangedText`；`node-run.host.test.ts` "waits for a graph change…" |
+| 待结算由 pi 事件判定：`turn_start` 作废、`agent_end` 末条出错作废、`agent_settled` 带 `aborted` 作废（先看 `aborted`）、`auto_retry_end` 失败；结算为 done / graph_change / none / stopped / error | `judge.test.ts` |
+| `node_done` 与别的工具同批 → 作废（`node_done_void`），之后重新调用生效；不调 `node_done` → 提醒一次（`nudged`），再不调 → `failed(no_done)`；提醒只在这一轮结束后发 | `node-run.host.test.ts` "does not count a node_done that other tools…"、"reminds a node that did not call node_done once…" |
+| 调用方由宿主认定：别的会话、旧 attempt、节点不在 `running`（停了、等待、已结束）、已取消或结束的任务 → `task_caller_invalid`；空 summary / reason / suggestion → `task_args_invalid`（`params.field`）；任务不存在 → `task_not_found` | `channel.test.ts`；`node-run.host.test.ts` "refuses node_done from a session that is not the node's running one"（真 pi：模型读到拒绝，不记待结算） |
+| `request_graph_change`：这一轮结束不提醒、不提交、停 pi，节点 `waiting(graph_change)`；批准后在原会话里接着跑并提交 | `node-run.host.test.ts` "waits for a graph change without reminding or committing…" |
+| 节点用 `ask_user`：走 SPEC-0003 的问题卡，节点 `waiting(question)`，答了回 `running` 接着跑（节点不被"agent 子对话不能问"拒掉） | `node-run.host.test.ts` "lets a node ask the user with ask_user…" |
+| 兄弟失败：在跑的节点这一轮结束后 `held`（pi 停掉），重跑失败节点后 `held` 的自动在原会话接着跑；`gave_up`（`node_done({ ok: false })`）、`model_error`（pi 不重试的出错）、`crashed`（会话起不来）、`workspace`（worktree 建不出） | `node-run.host.test.ts` "fails a node that gives up, holds its sibling…"、"fails a node whose model call ends in an error…"、"starts the same attempt again after its session could not start…"、"fails a work node when the task's worktree cannot be made" |
+| 打回（直接喂 `human_sent_back`）后新 attempt 开新会话，契约里有上次的原因、摘要和提交 | `node-run.host.test.ts` "puts the earlier summary and the reason…" |
+| `start_node` 幂等：同一 attempt 会话起不来后重跑，接回已记录的会话，不开第二个 | `node-run.host.test.ts` "starts the same attempt again after its session could not start, without a second session"（读索引里该节点该 attempt 的记录数为 1） |
+| `commit_node` 幂等与不重复提交：HEAD 已带同样尾注就记下它；没改动不提交；另一 attempt 另提；提交走 `runSafeGit`（钩子、过滤器、fsmonitor 不跑，含读 HEAD 和 `diff`）、不签名、仓库没有作者时用 Atrium 的 | `commit.test.ts`；`node-run.host.test.ts` "finds the commit again after a replay that lost its event…" |
+| 宿主重启后接着跑：`recover` 重做丢了的动作（建 worktree、起节点、缺的提交），再送 `host_restarted`；跑着的节点收到"宿主重启了…"接着做 | `node-run.host.test.ts` "carries on after the host restarts…" |
+| 最后一个可写节点的提交在任务 `done` 之后照常记下（`run.commit`），别的事件仍忽略；任务取消后的 `committed` 丢掉 | `scheduler.test.ts` "still records the commit of a writing end node after the task is done"、"drops a commit that arrives after the task was cancelled"；`tasks.break-check.json` 3 条 |
+| 节点会话不在用户的会话列表里 | `node-run.host.test.ts` "leaves no node session in the list the user sees" |
+| 泄漏：反复起停节点后 pi 进程、控制器、监听、定时器回到基线；宿主在节点跑着时关闭，runner 与所有 pi 都释放 | `node-run.leak.test.ts` |
+| `pnpm task:try`：参数、模型、图文件校验、任务 id 稳定、事件的输出、停下的条件与退出码；示例图合法 | `dev/task-try.test.ts` |
+| faux 新字段 `byConversation`：按对话的第一条用户消息挑回复、按对话里已有的助手消息数挑第几条（pi 重启后接着走） | `packages/testkit/src/faux/faux.pi.test.ts` |
+
+- 破坏检查：`packages/host/src/tasks/node-run.break-check.json` 34 条（补测试后只重跑了 contract 的 4 条）；`done` 后记 `committed` 的 3 条在 `tasks.break-check.json`，全部检出。
+- 变异测试：`pnpm test:mutation tasks`，见汇报；`runner.ts`、`task-workspaces.ts`、`task-service.ts`、`new-task.ts` 需要真实的 pi 和 git，由宿主层测试覆盖，没放进变异层（变异测试跑的是不带 `.host` 的单元测试）。
+- 没做（留给后面的步骤）：`merge`、`ask_archive`、`progress_line`、`wake_task_conversation`、`notify` 只记一条 debug 日志不执行（T5、T6、T7）；`node_done` 那一轮在宿主重启前已结束、会话文件里能看到 `terminate` 结果的结算（T9 的完整重启流程）；节点对话里用户亲手停下、插话的宿主层用例（需要 T8 的界面命令，判定本身由 `judge.test.ts` 覆盖）。

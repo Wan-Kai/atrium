@@ -7,6 +7,7 @@ import type { Logger } from "../platform/logger";
 import type { IndexFile } from "../store/index-file";
 import { type AgentRecord, type DeliveryRecord, agentFieldsOf } from "../store/agent-records";
 import type { SessionRecord, SessionsDocument } from "../store/index-schema";
+import { type TaskSessionRecord, taskFieldOf } from "../store/task-session-record";
 import { promptLine } from "./prompt-line";
 
 /** A directory sessions are filed under: a workspace's, or one chat's. */
@@ -40,6 +41,8 @@ export type CatalogEntry = Omit<SessionSummary, "running" | "asking" | "agent" |
     readonly fast: boolean | null;
     /** A child's usage baseline; `null` to count all of it (SPEC-0002, "用量合计"). */
     readonly usageAfter: string | null;
+    /** For a session of a task's node or conversation (SPEC-0006); `null` for any other. */
+    readonly task: TaskSessionRecord | null;
   };
 
 /** A new session's record: where it is, and for a child conversation its parent, name and baseline. */
@@ -54,6 +57,8 @@ export interface NewRecord {
   readonly persisted?: boolean;
   /** A child the agent opens (SPEC-0002, "第二步"). */
   readonly agent?: AgentRecord;
+  /** A session of a task's node or conversation (SPEC-0006). */
+  readonly task?: TaskSessionRecord;
 }
 
 /** Finds the sessions of the registered containers and keeps Atrium's records of them. */
@@ -264,6 +269,7 @@ export function createSessionCatalog(options: {
         parent: parentOf(record),
         usageAfter: record?.usageAfter ?? null,
         ...agentFieldsOf(record ?? {}),
+        task: record === undefined ? null : taskFieldOf(record),
       });
     }
     for (const record of records.values()) {
@@ -288,6 +294,7 @@ export function createSessionCatalog(options: {
         parent: parentOf(record),
         usageAfter: record.usageAfter ?? null,
         ...agentFieldsOf(record),
+        task: taskFieldOf(record),
       });
     }
     return entries;
@@ -466,6 +473,7 @@ export function createSessionCatalog(options: {
           ...(session.name === undefined ? {} : { name: session.name }),
           ...(session.usageAfter === undefined ? {} : { usageAfter: session.usageAfter }),
           ...(session.agent === undefined ? {} : { agent: session.agent }),
+          ...(session.task === undefined ? {} : { task: session.task }),
         },
       ]);
     },

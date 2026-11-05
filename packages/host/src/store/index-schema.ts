@@ -126,6 +126,8 @@ const SessionRecord = z.looseObject({
   usedHandles: z.unknown().optional(),
   /** What waits to go to this session's pi (SPEC-0002, "送达"); added in M1.15. */
   deliveries: z.unknown().optional(),
+  /** The task a node's or task conversation's session belongs to (SPEC-0006); read by `taskFieldOf`; added in T4. */
+  task: z.unknown().optional(),
 });
 export type SessionRecord = z.infer<typeof SessionRecord>;
 
