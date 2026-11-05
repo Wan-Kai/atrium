@@ -118,6 +118,12 @@ export const ErrorCode = z.enum([
   "task_state_invalid",
   /** The back edge has already been used twice (SPEC-0006, "错误码"). */
   "task_back_limit",
+  /** The graph breaks a rule; `params.code` is the first problem's code, `params.node` the node when one is meant (SPEC-0006, "错误码"). */
+  "task_graph_invalid",
+  /** The conversation has a task already; `params.taskId` says which, to open it (SPEC-0006, "/task 与创建"). */
+  "task_already_converted",
+  /** A task outside any project has a `work` or `check` node, or a node in a worktree (SPEC-0006, "错误码"). */
+  "task_no_project_for_work",
   /**
    * No branch name came of `name_branch`; `params.reason` is `not_git`, `no_model`, `failed`,
    * `invalid` or `taken` (SPEC-0001, "AI 起分支名").

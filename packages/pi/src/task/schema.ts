@@ -1,3 +1,4 @@
+import { ThinkingLevel } from "@atrium/protocol";
 import { z } from "zod";
 import { ENVELOPE_LIMIT } from "../agent/channel";
 import { decodeArgument } from "../agent/agent";
@@ -53,6 +54,35 @@ export const TASK_TEXT_LIMITS = {
 /** The tools only a node's session has, and its model calls to end its step or ask for a new graph. */
 export const NODE_TOOLS = ["node_done", "request_graph_change"] as const;
 
+/**
+ * The tools only the task conversation has (SPEC-0006, "任务对话").
+ *
+ * @remarks
+ * Eight, not SPEC-0006's nine: `task_set_schedule` comes with schedules (T10), and a tool that records a
+ * schedule nothing runs would promise the user something that does not happen (SPEC-0006, "T6 定下的细节").
+ */
+export const CONVERSATION_TOOLS = [
+  "task_read_source",
+  "task_set_summary",
+  "task_set_meta",
+  "task_status",
+  "task_read_node",
+  "task_diff",
+  "task_propose_graph",
+  "task_send_to_node",
+] as const;
+
+/**
+ * The ids of the four guides the task conversation chooses from (SPEC-0006, "附录：引导词").
+ *
+ * @remarks
+ * The texts are the host's (`packages/host/src/tasks/guides.ts`); the id is what `task_propose_graph`
+ * names and the task records.
+ */
+export const GUIDE_IDS = ["feature", "fix", "scheduled_fix", "research"] as const;
+export const GuideId = z.enum(GUIDE_IDS);
+export type GuideId = z.infer<typeof GuideId>;
+
 /** The role of a node (SPEC-0006, "节点"); what its session may use follows from it. */
 export const NodeRole = z.enum(["explore", "work", "check", "advise"]);
 export type NodeRole = z.infer<typeof NodeRole>;
@@ -64,8 +94,8 @@ export type NodeRole = z.infer<typeof NodeRole>;
  * Only the kind of session and its role, never an identity: the host knows who is calling from the
  * pi process the request came from, and does not read this (SPEC-0006, "调用方由宿主认定"). Without the
  * flag (or with one that does not read) the session is neither, and the task part registers
- * nothing. The `conversation` kind is the task conversation (T6): its `task_*` tools join this
- * union's calls later; today it only takes the hidden commands.
+ * nothing. The `conversation` kind is the task conversation (T6): it gets the `task_*` tools
+ * ({@link CONVERSATION_TOOLS}) and takes the hidden commands.
  */
 export const TaskSelf = z.discriminatedUnion("kind", [
   z.strictObject({
@@ -129,17 +159,79 @@ export const GraphChangeArgs = z.strictObject({
 });
 export type GraphChangeArgs = z.infer<typeof GraphChangeArgs>;
 
+/** The longest the parts of a requirement summary may be (the conversation writes them; SPEC-0002's sizes). */
+const SUMMARY_LIMITS = { goal: 8000, item: 2000, items: 50 } as const;
+
+/** A list of short statements of a requirement summary. */
+const SummaryList = z.array(z.string().max(SUMMARY_LIMITS.item)).max(SUMMARY_LIMITS.items);
+
+/** The requirement summary, as the task conversation writes it (SPEC-0006, "数据 · task.json"). */
+export const SummaryArgs = z.strictObject({
+  goal: z.string().min(1).max(SUMMARY_LIMITS.goal),
+  decisions: SummaryList,
+  constraints: SummaryList,
+  nonGoals: SummaryList,
+  openQuestions: SummaryList,
+  acceptance: SummaryList,
+});
+export type SummaryArgs = z.infer<typeof SummaryArgs>;
+
+/** A page number of a long text, from 1. */
+const PageNumber = z.number().int().min(1).max(10_000).optional();
+
+/** The most nodes and edges a proposed graph may carry through the channel (the host's rules are narrower). */
+const GRAPH_LIMITS = { nodes: 40, edges: 200 } as const;
+
 /** What each call carries: its tool's parameters, after the extension has read them. */
-const CallArgs = {
+export const CallArgs = {
   /** The node says its step is finished, or that it gives up. */
   node_done: NodeDoneArgs,
   /** The node asks for the graph to change. */
   request_graph_change: GraphChangeArgs,
-  // T6 adds the task conversation's `task_*` calls here, one entry each; nothing else changes.
+  /** The task conversation reads the conversation the task was made from. */
+  task_read_source: z.strictObject({ page: PageNumber }),
+  /** It writes the requirement summary. */
+  task_set_summary: z.strictObject({ summary: SummaryArgs }),
+  /** It renames the task or changes its model. */
+  task_set_meta: z.strictObject({
+    name: z.string().min(1).max(200).optional(),
+    model: z
+      .strictObject({
+        providerId: z.string().min(1).max(200),
+        modelId: z.string().min(1).max(200),
+        thinking: ThinkingLevel.optional(),
+      })
+      .optional(),
+  }),
+  /** It asks how the task stands. */
+  task_status: z.strictObject({}),
+  /** It reads a node's contract, hand-over summary or conversation. */
+  task_read_node: z.strictObject({
+    id: z.string().min(1).max(64),
+    what: z.enum(["contract", "summary", "transcript"]),
+    page: PageNumber,
+  }),
+  /** It reads the worktree's changes. */
+  task_diff: z.strictObject({ since: z.string().min(1).max(64).optional() }),
+  /** It proposes a graph; the host checks the nodes and edges with its own schema. */
+  task_propose_graph: z.strictObject({
+    nodes: z.array(z.unknown()).min(1).max(GRAPH_LIMITS.nodes),
+    edges: z.array(z.unknown()).max(GRAPH_LIMITS.edges),
+    note: z.string().max(TASK_TEXT_LIMITS.reason),
+    guide: GuideId.optional(),
+  }),
+  /** It passes a word on to a running node. */
+  task_send_to_node: z.strictObject({
+    id: z.string().min(1).max(64),
+    text: z.string().min(1).max(TASK_TEXT_LIMITS.resume),
+  }),
 } as const;
 
 /** The calls the extension makes. */
 export type TaskCallOp = keyof typeof CallArgs;
+
+/** The calls of a node's session. */
+export type NodeOp = (typeof NODE_TOOLS)[number];
 
 /** What the extension sends the host that wants no answer (ADR-0013, points 6–8). */
 const NoteArgs = {
@@ -235,6 +327,9 @@ export function writeRequest(request: TaskRequest): string {
   return JSON.stringify({ v: 1, ...request });
 }
 
+/** The tools the task conversation calls, by name. */
+export type ConversationOp = (typeof CONVERSATION_TOOLS)[number];
+
 /**
  * The error codes the host answers a call with; the extension words them for the model.
  *
@@ -245,10 +340,13 @@ export function writeRequest(request: TaskRequest): string {
  * codes for it): `task_args_invalid` for what the host's validation refused (`params.field` names
  * `summary`, `reason` or `suggestion`), `task_text_too_long` (`params.param`, `params.limit`; the
  * extension answers it itself), `task_bad_request` for an envelope the host could not read, and
- * `task_failed` for anything else that went wrong on the host's side.
+ * `task_failed` for anything else that went wrong on the host's side. `task_graph_invalid` is SPEC-0006's,
+ * for a proposed graph the validator refused (`params.code` is the first problem's code, `params.node` the node
+ * it is about when there is one).
  */
 export const TaskErrorCode = z.enum([
   "task_caller_invalid",
+  "task_graph_invalid",
   "task_not_found",
   "task_state_invalid",
   "task_args_invalid",
@@ -269,6 +367,14 @@ export type TaskErrorCode = z.infer<typeof TaskErrorCode>;
 export const TaskCallResults = {
   node_done: z.strictObject({ recorded: z.literal(true) }),
   request_graph_change: z.strictObject({ recorded: z.literal(true) }),
+  task_read_source: z.strictObject({ text: z.string(), page: z.number().int(), pages: z.number().int() }),
+  task_set_summary: z.strictObject({ recorded: z.literal(true) }),
+  task_set_meta: z.strictObject({ recorded: z.literal(true) }),
+  task_status: z.strictObject({ text: z.string() }),
+  task_read_node: z.strictObject({ text: z.string(), page: z.number().int(), pages: z.number().int() }),
+  task_diff: z.strictObject({ text: z.string() }),
+  task_propose_graph: z.strictObject({ version: z.number().int(), pending: z.boolean() }),
+  task_send_to_node: z.strictObject({ recorded: z.literal(true) }),
 } as const satisfies Record<TaskCallOp, z.ZodType>;
 
 /** The host's answer to a call (ADR-0013, point 2, `reply`). */
@@ -353,8 +459,30 @@ export const ProgressCommand = z.strictObject({
   at: z.number().int().nonnegative(),
   /** The line, as the transcript shows it; the host composes it, the model never sees it as an instruction. */
   text: z.string().min(1).max(TASK_TEXT_LIMITS.progress),
+  /** What happened, as the scheduler names it (`node_started`, `merged`…), for the UI to word. */
+  what: z.string().min(1).max(64).optional(),
+  /** The node it is about, if any. */
+  node: z.string().min(1).max(64).optional(),
 });
 export type ProgressCommand = z.infer<typeof ProgressCommand>;
+
+/**
+ * What `/atrium-task mark` carries: a line for the conversation a task was made from (SPEC-0006, "/task 与创建").
+ *
+ * @remarks
+ * The source conversation is an ordinary session without the task flag, so this is the one action every
+ * session takes. `converted` says the conversation became task `taskId`; `abandoned` that the task was dropped
+ * while designing. A session file only grows, so the second line does not replace the first: the UI shows the
+ * latest line for the task id. It never calls the model.
+ */
+export const MarkCommand = z.strictObject({
+  v: z.literal(1),
+  id: RequestId,
+  at: z.number().int().nonnegative(),
+  taskId: z.string().min(1).max(128),
+  state: z.enum(["converted", "abandoned"]),
+});
+export type MarkCommand = z.infer<typeof MarkCommand>;
 
 /** What the `details` of a `atrium-task` custom message keep, for the transcript and for the host's checks. */
 export const TaskMessageDetails = z.discriminatedUnion("kind", [
@@ -366,6 +494,16 @@ export const TaskMessageDetails = z.discriminatedUnion("kind", [
     id: RequestId,
     at: z.number().int().nonnegative(),
     text: z.string(),
+    what: z.string().optional(),
+    node: z.string().optional(),
+  }),
+  z.strictObject({
+    v: z.literal(1),
+    kind: z.literal("converted"),
+    id: RequestId,
+    at: z.number().int().nonnegative(),
+    taskId: z.string(),
+    state: z.enum(["converted", "abandoned"]),
   }),
 ]);
 export type TaskMessageDetails = z.infer<typeof TaskMessageDetails>;
@@ -376,6 +514,7 @@ export const TASK_COMMANDS = {
   nudge: NudgeCommand,
   resume: ResumeCommand,
   progress: ProgressCommand,
+  mark: MarkCommand,
 } as const;
 
 /** An action of `/atrium-task`. */

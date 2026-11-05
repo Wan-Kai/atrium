@@ -65,10 +65,15 @@ export {
 export { ASK_USER_TOOL, type AskUserResult } from "./agent/ask-user";
 export { CHILD_TOOLS, PARENT_TOOLS, READ_ONLY_TOOLS } from "./agent/words";
 export {
+  CONVERSATION_TOOLS,
+  type ConversationOp,
+  GUIDE_IDS,
+  type GuideId,
   NODE_TOOLS,
   type NodeRole as TaskNodeRole,
   type ReplyCommand as TaskReplyCommand,
   type ResumeKind,
+  type SummaryArgs,
   TASK_FLAG,
   TASK_STATUS,
   TASK_TEXT_LIMITS,

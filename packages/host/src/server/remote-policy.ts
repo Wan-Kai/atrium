@@ -114,6 +114,11 @@ export const COMMAND_REACH = {
   // (SPEC-0006, "协议（给 UI）").
   list_tasks: "phone",
   open_task: "phone",
+  create_task: "local_only",
+  start_task: "local_only",
+  abandon_task: "local_only",
+  approve_graph: "local_only",
+  reject_graph: "local_only",
   answer_human: "local_only",
   rerun_node: "local_only",
   continue_node: "local_only",

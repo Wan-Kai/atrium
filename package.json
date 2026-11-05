@@ -40,6 +40,7 @@
     "postinstall": "pnpm --filter @atrium/desktop exec install-electron",
     "pi:try": "pnpm --silent --filter @atrium/host build && node packages/host/dist/try-pi.cjs",
     "task:try": "pnpm --silent --filter @atrium/host build && node packages/host/dist/task-try.cjs",
+    "task:design": "pnpm --silent --filter @atrium/host build && node packages/host/dist/task-design.cjs",
     "task:replay": "pnpm --silent --filter @atrium/host build && node packages/host/dist/task-replay.cjs",
     "fixtures:record": "node scripts/record-fixtures.mjs",
     "readme:shots": "pnpm build && pnpm --filter @atrium/desktop readme:shots"

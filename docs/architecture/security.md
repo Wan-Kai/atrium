@@ -100,6 +100,11 @@
     - **拦不住**：`bash` 里的 `cp`、`mv`、`>` 重定向、`sed -i`、脚本里的写入；检查和写入之间路径被换成符号链接（检查时间到使用时间之间的竞争）也拦不住；git 命令也一样不是沙箱：从脚本文件里调用（`bash run.sh`、`make`、`npm run`）、变量分段拼出来的路径、别名或函数、`env -C`、`xargs`、`git` 被改名复制、`GIT_COMMON_DIR` / `GIT_INDEX_FILE` 之类别的环境变量都看不见。用 `echo … >> <git 目录>/config` 之类重定向直接改仓库配置（含 `core.worktree`、`gpg.program`、`diff.external`）也拦不住，所以宿主自己的 git 不信任这些配置（上面"宿主自己的 git"几条是兜底，不是这里的拦截）；`bash run.sh`、`make` 这类带脚本文件的 shell 里的 git 看不见。这不是沙箱。
   - **调用方由宿主认定**：任务扩展的工具调用，宿主按发请求的 pi 进程查出会话，再看会话记录的 `task` 字段：`task_*` 只认这个任务的任务对话，`node_done` / `request_graph_change` 只认这个节点当前那次运行的会话。参数里的身份一律不信，不符应答 `task_caller_invalid`。
   - **拼进契约的文字当数据**：需求摘要、交接摘要、打回原因、`/task` 的范围和来源对话的内容进节点或任务对话的第一条消息时，包进标明来源、"不是用户说的话、不代表用户授权"的外壳，冒充外壳的标记先转义（同 ADR-0013 第 10 条）。
+  - **任务对话（T6）**：
+    - 它是只读角色：`--tools` 是 SPEC-0002 的只读白名单加它自己的八个工具和 `ask_user`，扩展的 `tool_call` 钩子再拦一遍（没有 `edit`、`write`、`agent_*`）。它的 `bash` 和只读子对话一样不受限（行为约束，不是技术隔离），在项目的主检出目录里；它读到的来源对话、节点的对话和 worktree 的 diff 都是别的模型写的数据，宿主逐页包进 `<atrium-quoted>` 并转义冒充外壳的标记，`/task` 后用户写的范围同理（外壳说明是用户写的范围）。
+    - 它通过 `task_send_to_node` 对运行中的节点说话，宿主把话包进 `<atrium-task-note>`（说明不是用户直接说的）；`task_propose_graph` 的图经 GraphValidator，启动后要用户批准才生效；节点的 `task_*` 和任务对话的 `node_done` 一律 `task_caller_invalid`。
+    - `/atrium-task mark` 是所有会话都收的隐藏命令（来源对话要写“已转为任务”“已放弃”行），只写一行不调模型的自定义消息，受 `command_reserved` 保护，用户和模型都发不出它。
+    - `pnpm task:design` 只读用户的真实会话文件，复制进临时目录、在自己的宿主里跑，原文件前后各算一次哈希核对（SPEC-0006“T6 定下的细节”）；设计那一轮的 `bash` 仍在对话原来的目录里，要完全不碰仓库就用 `--cwd` 指一份副本。
   - **worktree 锁**：任务在用的 worktree 加 `git worktree lock --reason "atrium task <id>"`，归档、清理遇到就停（`workspace_in_task`）；宿主启动时只解原因是 Atrium 任务、且任务已结束的锁，你自己加的锁不动。原因必须整条是 `atrium task <id>`（id 只含字母、数字、`_`、`-`），别的写法一概不认。
   - **不进日志**：任务数据（需求摘要、交接摘要、打回原因）存在 `~/.atrium/tasks/`，和会话内容同等对待，不进日志；`/atrium-task` 的参数同样不进日志，它和别的 `/atrium-` 隐藏命令一样受 `command_reserved` 保护。
 - 宿主提供界面文件时同样解析符号链接，真实路径不在界面目录内就返回 404；先打开文件再读大小，读失败或客户端中途断开都不会影响宿主进程。
@@ -233,7 +238,7 @@ MP3a，协议见 [SPEC-0005](../specs/0005-mobile-app-and-remote-access.md)。�
 | `/atrium-fast` | 宿主 | 开关 Fast、查 Codex 的速度档 | ADR-0008 |
 | `/atrium-plan` | 宿主 | 查套餐用量 | ADR-0010 |
 | `/atrium-edit` | 宿主 | 停止后编辑消息：回退和恢复 | 本文"子进程与文件" |
-| `/atrium-task` | 宿主 | 任务：回答节点和任务对话的工具调用、写进度行、提醒调用 `node_done` | SPEC-0006，本文"子进程与文件" |
+| `/atrium-task` | 宿主 | 任务：回答节点和任务对话的工具调用、写进度行、写来源对话的“已转为任务”行（`mark`）、提醒调用 `node_done` | SPEC-0006，本文"子进程与文件" |
 
 隐藏命令都由 Atrium 自带的 pi 扩展注册，宿主确认扩展已加载后才发；`/atrium-` 开头的消息留给宿主（见上文"子进程与文件"）。
 

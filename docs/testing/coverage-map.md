@@ -2201,3 +2201,27 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 没有测试保护的：`TaskWorkspaces.merge` 里主干名取自项目的覆盖值（测试里的主干都是 `main`）；`opened.get(...) === taskId` 的守卫（连接中途换了任务时不推旧任务）。
 - 真实模型：`pnpm task:try` 跑 `explore-work-check-merge.json`（claude-bridge/claude-haiku-4-5）：打回一次（第二次的契约带上次的摘要和原因）、主目录切到 `side` 时通过被挡（`merge_main_not_trunk`）、切回后合并成功、origin 未动、回答"归档"后 worktree 目录被清理。
 
+
+## T6 任务对话与 /task（SPEC-0006"任务对话""/task 与创建""改图""扩展与通道"、附录，2026-11-05，待验收）
+
+任务对话用真的 pi + faux 模型（`byConversation` 按第一条消息 `<atrium-task-design>` 认它）；来源对话、任务对话、节点都是真会话。读 diff 用真的 git 仓库（testkit `createGitScene`）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 八个工具的参数和结果（往返、缺字段、页码 0、不存在的引导词、空图、多余参数）；`task_set_schedule` 不是一个已知调用；四个引导词 id；`mark` 命令；进度行和转换行的 `details` | `pi/task/schema.test.ts` |
+| 扩展：对话会话注册八个工具（顺序执行）、没有 `task_set_schedule`；节点只注册两个；没有标记的会话只注册命令；读结果的文字和页脚（一页没有页脚）；写结果的文字；超长 / 读不了的参数自己答 `task_text_too_long` / `task_bad_request`；`task_graph_invalid` 带码和节点；结果不对当 `task_bad_request`；停下的调用发 `cancel`；`edit` / `write` / `agent_*` / `node_done` 被钩子拦；`mark` 对没有任务标记的会话写 `converted` / `abandoned` 行、不开轮次、按 id 去重、读不了的忽略；进度行带 `what` 和 `node` | `pi/task/extension.test.ts`、`words.test.ts` |
+| 调用方由宿主认定：对话会话 / 另一个会话 / 另一个任务 / 节点；`task_not_found`；应答带结果或错误码；节点发 `task_*`、对话发 `node_done` 都 `task_caller_invalid` 且什么也没执行；同一调用 id 只答一次、被撤回的丢掉、旧的 pi 代次丢掉 | `tasks/channel.test.ts`、`tasks/runner.test.ts`（假会话层） |
+| 工具对任务的作用：状态 JSON（每个节点的全部字段、没有图、作废读作 pending、待批准的图）；摘要和名字和模型的记录、启动后拒绝摘要、结束 / 取消后四个改的工具拒绝而读的照常；提图的各种拒绝（环、缺字段、不属于项目、改了已跑的节点、多余字段）、设计中立即生效并记引导词、启动后进待批准且忽略引导词；读来源（分页、外壳、转义冒充的标记、超页、不是对话来的任务）；读节点的摘要 / 契约 / 对话；带话给运行中的节点（外壳、转义、不在跑的拒绝）；diff（范围、`since`、外壳、没有改动、截断、git 失败、仓库配的外部 diff 不跑、没有 worktree） | `tasks/conversation.test.ts`、`tasks/transcript-text.test.ts` |
+| 调度器：`summary_set` 只在设计中；`graph_proposed` 的引导词只在设计中记 | `tasks/scheduler-resources.test.ts` |
+| 设计消息：来源 id、范围包外壳并转义、四套引导词全文、项目 / 无项目的说明、五步指令的顺序；引导词：四个 id 与版本、每套写明自己的名字、写代码的三套把实现和验证分开并以带合并的 human 节点收尾、调研一套没有 work | `tasks/design.test.ts`、`tasks/guides.test.ts` |
+| 进度行和唤醒：节点开始 / 通过写进度行（带 `what`、`node`、按行 id）；手工造的任务不写；改图申请唤醒任务对话（`kind: wake`，理由和建议包节点的外壳并转义） | `tasks/runner.test.ts`（假会话层）、`tasks/design.host.test.ts` |
+| **宿主层（真宿主 + faux pi）**：`/task`（`createFromChat`）→ 读来源 → 写摘要 → 起名 → 按引导词提图 → 启动 → 三个节点跑到 `done`，来源对话文件里有 `converted` 行、任务对话文件里有进度行、任务对话的工具里没有 `write` / `agent_*`；节点申请改图 → 唤醒任务对话 → 它提新图 → 批准 → 节点接着跑、任务 `done`；拒绝后节点按原图做；已转过的再 `/task` 答 `task_already_converted`（带任务 id）；放弃：记录和目录没了、任务对话归档、来源对话第二行 `abandoned`、能重新 `/task`；已启动（取消）的仍答 `task_already_converted`；崩溃留下的半删记录不挡；不认识的会话 `session_not_found`；启动检查（无图、有环、不属于项目的 work）；批准 / 拒绝的状态错误；批准前再校验；放弃时推送的连接收到空列表且不记警告 | `tasks/design.host.test.ts`（11 项） |
+| 协议：五个命令的往返、答复、路由（含参数完整）、手机不能发；三个新错误码；协议号 31；Swift 投影和往返夹具 | `protocol/envelope.test.ts`、`protocol/remote.test.ts`、`server/router.test.ts`、`server/remote-policy.test.ts`；`pnpm protocol:swift --check` |
+| 任务对话的启动参数：只读白名单 + 八个工具 + `ask_user`、标记里是 `conversation`、没有 `--atrium-agent` | `sessions/agent-launch.test.ts` |
+| `pnpm task:design`：参数解析、按会话 id 找文件并读 cwd（只读）、提醒（实现节点后没有 `check`、没有 human 节点）、打印的摘要和图、读任务对话最后说的话 | `dev/task-design.test.ts` |
+| 泄漏：反复建任务再放弃后资源、子进程、句柄、定时器回到原样；设计中关宿主时运行器和任务对话的 pi 都释放 | `tasks/node-run.leak.test.ts`（新增 2 项） |
+
+- 破坏检查：`packages/host/src/tasks/t6.break-check.json`（35 处，pi、协议、宿主单元）和 `t6-host.break-check.json`（11 处，`project: host`），共 46 处全部抓到。第一次跑时漏了两处，补测后抓到：一页的文字不该有页脚（`pageFooter`）；放弃时没归档任务对话（原先只断言了“不在侧栏”，任务对话本来就不在侧栏，断言恒真，改读索引里的 `archived`）。
+- 变异测试：`pnpm test:mutation tasks --mutate=<文件>` 会让每个变异都跑 `tasks` 组里的全部宿主层测试（几分钟一个），所以这次用了只含单元测试的临时分组（`mutation-groups.mjs` 里加过 `t6` / `t6pi`，跑完已还原、没有提交），命令同 `pnpm test:mutation <组> --force --mutate=<文件>`。结果：`conversation.ts` 90.64%、`channel.ts` 99.13%、`design.ts` 100%、`transcript-text.ts` 96.81%；pi 侧 `extension.ts` 89.64%、`words.ts` 94.25%、`schema.ts` 94.35%。`dev/task-design.ts` 的纯函数（解析、找文件、提醒、打印、读最后一句）变异全部抓到；`runTaskDesign` 和 `main` 要真模型，不在变异组里（同 `task-try.ts`），整文件 54.22% 主要是它们。conversation.ts 第一次只有 81.87%，补了状态 JSON 的逐字段断言、diff 的空 / 截断 / git 失败、对话里的工具调用、契约和对话的来源标签、带话的整段文字，抓到了大部分。没跑：`runner.ts`、`task-service.ts`、`new-task.ts`（`tasks` 组按说明不含这三个，由宿主层测试覆盖）、`scheduler.ts` 本次新增的两处（表驱动测试加破坏检查，没单独跑变异：另一个变异测试在跑它）、`agent-launch.ts`、`session-manager.ts`、协议文件（各有测试和破坏检查）。
+- 没有测试保护的：`task_send_to_node` 经真宿主送进真 pi 的 `streamingBehavior: "steer"`（宿主层没有这一条：单元测试只验证调用 `deliver` 时带着外壳的话）；`pnpm task:design` 的 `runTaskDesign` 本身（要真模型，已手跑，见下）；任务对话的 `bash` 不受只读约束（SPEC 里已写明）。
+- 真实模型：`pnpm task:design --from <id> --model claude-bridge/claude-haiku-4-5` 在一段现造的需求对话上跑通，选了 `feature`、写出摘要和四节点图（explore → work → check → human 合并，human 可打回 work），原文件前后哈希相同；输出见 T6 的验收报告。

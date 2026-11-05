@@ -193,4 +193,43 @@ describe('running tasks leaves nothing behind (testing.md, "泄漏测试")', () 
       { timeout: 10_000 },
     );
   });
+
+  it("makes and abandons many tasks from a conversation with no pi, controller, listener or timer left over (SPEC-0006, T6)", async () => {
+    const design = [{ blocks: [{ type: "text" as const, text: "Waiting for you." }] }];
+    const harness = await startTaskHost({}, { design });
+    await harness.discuss();
+    const { before, handles, processes } = await baseline(harness);
+
+    for (let round = 0; round < 3; round += 1) {
+      const { taskId } = await harness.host.host.tasks.createFromChat(harness.origin, undefined);
+      // The conversation's pi is up and has its first turn.
+      expect(harness.host.host.resources.snapshot()["pi-process"]).toBe(2);
+      await harness.host.host.tasks.abandon(taskId);
+    }
+
+    await vi.waitFor(() => expect(harness.host.host.resources.snapshot()).toStrictEqual(before), { timeout: 10_000 });
+    await vi.waitFor(() => expect(children()).toStrictEqual(processes), { timeout: 10_000 });
+    await vi.waitFor(
+      () => {
+        const after = liveHandles();
+        expect({ ...after, Timeout: Math.min(after.Timeout, handles.Timeout) }).toStrictEqual(handles);
+      },
+      { timeout: 10_000 },
+    );
+  });
+
+  it("releases the runner and the task conversation's pi when the host closes while a task is being designed", async () => {
+    const harness = await startTaskHost({}, { design: [{ blocks: [{ type: "text" as const, text: "Hello." }] }] });
+    await harness.discuss();
+    await baseline(harness);
+    await harness.host.host.tasks.createFromChat(harness.origin, undefined);
+    expect(harness.host.host.resources.snapshot()["pi-process"]).toBe(2);
+
+    await harness.host.dispose();
+
+    const after = harness.host.host.resources.snapshot();
+    expect(countOf(after, "task.runner")).toBe(0);
+    expect(countOf(after, "pi-process")).toBe(0);
+    await vi.waitFor(() => expect(children()).toStrictEqual([]), { timeout: 10_000 });
+  });
 });

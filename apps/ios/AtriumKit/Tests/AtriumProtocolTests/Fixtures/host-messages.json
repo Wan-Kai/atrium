@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 30,
+    "protocolVersion": 31,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -6935,6 +6935,30 @@
     "ok": false,
     "error": {
       "code": "task_back_limit"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "task_graph_invalid"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "task_already_converted"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "task_no_project_for_work"
     }
   },
   {

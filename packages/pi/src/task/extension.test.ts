@@ -3,8 +3,16 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import { encodeArgument } from "../agent/agent";
 import atriumTask, { type TaskApi, flagValue } from "./extension";
 import { outsideReason } from "./path-guard";
-import { type TaskRequest, readRequest, TASK_TEXT_LIMITS } from "./schema";
-import { NODE_DONE_TAKEN, GRAPH_CHANGE_TAKEN, TASK_STOPPED, errorText, nudgeText, resumeText } from "./words";
+import { CONVERSATION_TOOLS, type TaskRequest, readRequest, TASK_TEXT_LIMITS } from "./schema";
+import {
+  NODE_DONE_TAKEN,
+  GRAPH_CHANGE_TAKEN,
+  TASK_STOPPED,
+  errorText,
+  graphTaken,
+  nudgeText,
+  resumeText,
+} from "./words";
 
 /** One of the tools the extension registered, as pi would call it. */
 type Tool = Parameters<TaskApi["registerTool"]>[0];
@@ -152,12 +160,13 @@ describe("atriumTask: what a session gets by what the flag says", () => {
     expect(true).toBe(true);
   });
 
-  it("registers only the flag and the two guards without a readable flag", () => {
+  it("registers no tool, only the flag, the two guards and the command, without a readable flag", () => {
     for (const argv of [[], ["--atrium-task="], ["--atrium-task=%%%"], [arg({ v: 1, kind: "node", role: "boss" })]]) {
       const s = stand({ argv });
 
       expect([...s.tools.keys()]).toStrictEqual([]);
-      expect(s.commands).toStrictEqual([]);
+      // Every session takes `mark`, so the conversation a task is made from can be told.
+      expect(s.commands).toHaveLength(1);
       expect(s.hooks).toBe(2);
       expect(s.flags).toHaveLength(1);
     }
@@ -169,13 +178,19 @@ describe("atriumTask: what a session gets by what the flag says", () => {
     expect([...s.tools.keys()]).toStrictEqual([]);
   });
 
-  it("gives the task conversation the command but no tools, and no tool limits", () => {
+  it("gives the task conversation the command and its eight tools, one at a time in a batch", () => {
     const s = stand({ argv: [arg({ v: 1, kind: "conversation" })] });
 
-    expect([...s.tools.keys()]).toStrictEqual([]);
+    expect([...s.tools.keys()]).toStrictEqual([...CONVERSATION_TOOLS]);
+    expect([...s.tools.keys()]).not.toContain("task_set_schedule");
+    for (const tool of s.tools.values()) {
+      expect(tool.executionMode).toBe("sequential");
+      expect(tool.parameters["additionalProperties"]).toBe(false);
+      expect(tool.description.length).toBeGreaterThan(40);
+    }
+    expect(s.tools.get("task_propose_graph")?.parameters["required"]).toStrictEqual(["nodes", "edges", "note"]);
     expect(s.commands).toStrictEqual(["atrium-task: Atrium's tasks, sent by Atrium's host"]);
-    expect(s.hooks).toBe(2);
-    expect(s.hook("agent_spawn", {})).toBeUndefined();
+    expect(s.hooks).toBe(3);
   });
 
   it("gives a node node_done and request_graph_change, one at a time in a batch, and the command", () => {
@@ -577,9 +592,379 @@ describe("the hooks of a node", () => {
     expect(plain.hook("bash", { command: "git -C / log" }, "/w")).toBeUndefined();
   });
 
-  it("does not isolate the task conversation unless the agent part says so", () => {
+  it("lets the task conversation read and use its own tools, and changes no file nor starts a sub-agent", () => {
     const s = stand({ argv: [arg({ v: 1, kind: "conversation" })] });
 
-    expect(s.hook("write", { path: "../x" }, "/w")).toBeUndefined();
+    for (const tool of ["read", "bash", "ffgrep", "fffind", "ls", "ask_user", ...CONVERSATION_TOOLS]) {
+      expect(s.hook(tool, {}, "/w")).toBeUndefined();
+    }
+    for (const tool of ["write", "edit", "agent_spawn", "node_done", "task_set_schedule"]) {
+      expect(s.hook(tool, { path: "x" }, "/w")).toMatchObject({ block: true });
+    }
+  });
+});
+
+/** The task conversation, as the host's flag says it. */
+const conversation = () => arg({ v: 1, kind: "conversation" });
+
+describe("the task conversation's tools (SPEC-0006, T6)", () => {
+  it("asks the host with the call's id and gives the model the host's page, with a footer when there are more", async () => {
+    const s = stand({ argv: [conversation()] });
+
+    const result = s.call("task_read_source", "c1", { page: 2 });
+    await Promise.resolve();
+    expect(requests(s.statuses)).toStrictEqual([{ kind: "call", id: "c1", op: "task_read_source", args: { page: 2 } }]);
+    await s.command("reply", { v: 1, id: "c1", ok: true, result: { text: "the words", page: 2, pages: 3 } });
+
+    expect(await result).toStrictEqual({
+      content: [{ type: "text", text: "the words\n[page 2 of 3; ask for the next page to read on]" }],
+      details: { v: 1, tool: "task_read_source" },
+    });
+  });
+
+  it("adds no footer to a text of one page", async () => {
+    const s = stand({ argv: [conversation()] });
+
+    const result = s.call("task_read_node", "c1", { id: "N1", what: "summary" });
+    await Promise.resolve();
+    await s.command("reply", { v: 1, id: "c1", ok: true, result: { text: "all of it", page: 1, pages: 1 } });
+
+    expect(await result).toStrictEqual({
+      content: [{ type: "text", text: "all of it" }],
+      details: { v: 1, tool: "task_read_node" },
+    });
+  });
+
+  it("ends no turn, and words what the host recorded", async () => {
+    const s = stand({ argv: [conversation()] });
+    const answer = async (tool: string, params: Record<string, unknown>, result: unknown) => {
+      const pending = s.call(tool, "c1", params);
+      await Promise.resolve();
+      await s.command("reply", { v: 1, id: "c1", ok: true, result });
+      return pending;
+    };
+
+    expect(await answer("task_set_summary", { summary: SUMMARY }, { recorded: true })).toStrictEqual({
+      content: [{ type: "text", text: "Recorded." }],
+      details: { v: 1, tool: "task_set_summary" },
+    });
+    expect(await answer("task_status", {}, { text: "{}" })).toMatchObject({ content: [{ text: "{}" }] });
+    expect(
+      await answer(
+        "task_propose_graph",
+        { nodes: [{ id: "N1" }], edges: [], note: "n" },
+        { version: 2, pending: true },
+      ),
+    ).toMatchObject({ content: [{ text: graphTaken(2, true) }] });
+    expect(await answer("task_send_to_node", { id: "N1", text: "hi" }, { recorded: true })).toMatchObject({
+      content: [{ text: expect.stringContaining("Sent") }],
+    });
+  });
+
+  it("answers task_text_too_long and task_bad_request itself, without asking the host", async () => {
+    const s = stand({ argv: [conversation()] });
+
+    expect(
+      await s.call("task_send_to_node", "c1", { id: "N1", text: "x".repeat(TASK_TEXT_LIMITS.resume + 1) }),
+    ).toMatchObject({ isError: true, details: { error: "task_text_too_long" } });
+    expect(await s.call("task_set_summary", "c2", { summary: { goal: "g" } })).toMatchObject({
+      isError: true,
+      details: { error: "task_bad_request" },
+    });
+    expect(await s.call("task_read_node", "c3", { id: "N1", what: "feelings" })).toMatchObject({
+      isError: true,
+      details: { error: "task_bad_request" },
+    });
+    expect(s.statuses).toStrictEqual([]);
+  });
+
+  it("tells the model why a graph was refused, with the host's code and node", async () => {
+    const s = stand({ argv: [conversation()] });
+
+    const result = s.call("task_propose_graph", "c1", { nodes: [{}], edges: [], note: "" });
+    await Promise.resolve();
+    await s.command("reply", {
+      v: 1,
+      id: "c1",
+      ok: false,
+      code: "task_graph_invalid",
+      params: { code: "seq_cycle", node: "N2" },
+    });
+
+    expect(await result).toStrictEqual({
+      content: [{ type: "text", text: errorText("task_graph_invalid", { code: "seq_cycle", node: "N2" }) }],
+      details: { v: 1, error: "task_graph_invalid" },
+      isError: true,
+    });
+    expect(errorText("task_graph_invalid", { code: "seq_cycle", node: "N2" })).toContain("seq_cycle (node N2)");
+  });
+
+  it("does not trust a result that is not what the tool reads, and gives a stopped call up", async () => {
+    const s = stand({ argv: [conversation()] });
+    const controller = new AbortController();
+
+    const wrong = s.call("task_status", "c1", {});
+    await Promise.resolve();
+    await s.command("reply", { v: 1, id: "c1", ok: true, result: { recorded: true } });
+    expect(await wrong).toMatchObject({ isError: true, details: { error: "task_bad_request" } });
+
+    const stopped = s.call("task_status", "c2", {}, controller.signal);
+    await Promise.resolve();
+    controller.abort();
+    await expect(stopped).rejects.toThrow(TASK_STOPPED);
+    expect(requests(s.statuses).at(-1)).toMatchObject({ kind: "note", op: "cancel", args: { id: "c2" } });
+  });
+});
+
+/** A requirement summary with every part. */
+const SUMMARY = {
+  goal: "g",
+  decisions: [],
+  constraints: [],
+  nonGoals: [],
+  openQuestions: [],
+  acceptance: [],
+};
+
+describe("/atrium-task mark and progress details (SPEC-0006, T6)", () => {
+  const mark = { v: 1, id: "m1", at: 5, taskId: "tsk_a", state: "converted" };
+
+  it("writes the converted line into any session, even one with no task flag, without a turn, once", async () => {
+    const s = stand({});
+
+    await s.command("mark", mark);
+    await s.command("mark", mark);
+
+    expect(s.sent).toHaveLength(1);
+    expect(s.sent[0]).toMatchObject([
+      {
+        customType: "atrium-task",
+        display: true,
+        details: { v: 1, kind: "converted", id: "m1", at: 5, taskId: "tsk_a", state: "converted" },
+      },
+      { triggerTurn: false },
+    ]);
+  });
+
+  it("writes the abandoned line as a second line, and ignores a mark it cannot read", async () => {
+    const s = stand({});
+
+    await s.command("mark", mark);
+    await s.command("mark", { ...mark, id: "m2", state: "abandoned" });
+    await s.command("mark", { ...mark, id: "m3", state: "gone" });
+    await s.command("mark");
+
+    expect(
+      s.sent.map(([message]) => Reflect.get(Object(Reflect.get(Object(message), "details")), "state")),
+    ).toStrictEqual(["converted", "abandoned"]);
+  });
+
+  it("does nothing for the other actions in a session with no task flag", async () => {
+    const s = stand({});
+
+    await s.command("progress", { v: 1, id: "p", at: 1, text: "t" });
+    await s.command("resume", { v: 1, id: "r", kind: "wake", text: "t" });
+    await s.command("nudge", { v: 1, id: "n" });
+
+    expect(s.sent).toStrictEqual([]);
+  });
+
+  it("keeps what happened and the node in a progress line's details", async () => {
+    const s = stand({ argv: [conversation()] });
+
+    await s.command("progress", {
+      v: 1,
+      id: "p1",
+      at: 7,
+      text: "Atrium task event: merged N5",
+      what: "merged",
+      node: "N5",
+    });
+
+    expect(s.sent[0]).toMatchObject([
+      { details: { v: 1, kind: "progress", id: "p1", at: 7, what: "merged", node: "N5" } },
+      { triggerTurn: false },
+    ]);
+  });
+});
+
+/** A JSON Schema, as the tools declare their parameters. */
+interface Schema {
+  type?: string;
+  description?: string;
+  enum?: unknown[];
+  minimum?: number;
+  required?: string[];
+  properties?: Record<string, Schema>;
+  items?: Schema;
+  additionalProperties?: boolean;
+}
+
+/**
+ * Every property of a schema, with its path, depth first.
+ *
+ * @remarks
+ * Goes into object properties and into the items of a list.
+ *
+ * @sideEffects none
+ * @param schema - The schema.
+ * @param path - The path so far.
+ * @returns The properties.
+ */
+function propertiesOf(schema: Schema, path = ""): [string, Schema][] {
+  return Object.entries(schema.properties ?? {}).flatMap(([name, property]): [string, Schema][] => [
+    [`${path}${name}`, property],
+    ...propertiesOf(property, `${path}${name}.`),
+    ...(property.items === undefined ? [] : propertiesOf(property.items, `${path}${name}[].`)),
+  ]);
+}
+
+/**
+ * Whether a text explains something: a word or two does not.
+ *
+ * @sideEffects none
+ * @param text - The text, if there is one.
+ * @returns Whether it has more than eight characters.
+ */
+function long(text: string | undefined): boolean {
+  return (text ?? "").length > 8;
+}
+
+/**
+ * What a tool does not explain to the model: its label, its prompt snippet, or any parameter.
+ *
+ * @remarks
+ * A word or two is not an explanation, so the test asks for more than eight characters of each.
+ *
+ * @sideEffects none
+ * @param tool - The tool.
+ * @returns The names of what is missing or too short.
+ */
+function undescribed(tool: Tool): string[] {
+  return [
+    ...(long(tool.label) ? [] : ["label"]),
+    ...(long(tool.promptSnippet) ? [] : ["promptSnippet"]),
+    ...propertiesOf(tool.parameters as Schema).flatMap(([path, property]) =>
+      long(property.description) ? [] : [path],
+    ),
+  ];
+}
+
+/**
+ * The names a schema's object declares.
+ *
+ * @sideEffects none
+ * @param schema - The schema.
+ * @returns Its property names.
+ */
+function namesOf(schema: Schema | undefined): string[] {
+  return Object.keys(schema?.properties ?? {});
+}
+
+/**
+ * The names a schema's object requires.
+ *
+ * @sideEffects none
+ * @param schema - The schema.
+ * @returns Its required names.
+ */
+function requiredOf(schema: Schema | undefined): string[] {
+  return schema?.required ?? [];
+}
+
+/**
+ * The parameters the task conversation's tools declare, by tool.
+ *
+ * @sideEffects none
+ * @returns The schemas.
+ */
+function declared(): Record<string, Schema> {
+  const s = stand({ argv: [conversation()] });
+  return Object.fromEntries([...s.tools].map(([name, tool]) => [name, tool.parameters as Schema]));
+}
+
+describe("what the conversation's tools declare (SPEC-0006, T6)", () => {
+  it("names each tool's parameters and which of them are required", () => {
+    const shape = Object.fromEntries(
+      Object.entries(declared()).map(([name, schema]) => [name, [namesOf(schema), requiredOf(schema)]]),
+    );
+
+    expect(shape).toStrictEqual({
+      task_read_source: [["page"], []],
+      task_set_summary: [["summary"], ["summary"]],
+      task_set_meta: [["name", "model"], []],
+      task_status: [[], []],
+      task_read_node: [
+        ["id", "what", "page"],
+        ["id", "what"],
+      ],
+      task_diff: [["since"], []],
+      task_propose_graph: [
+        ["nodes", "edges", "note", "guide"],
+        ["nodes", "edges", "note"],
+      ],
+      task_send_to_node: [
+        ["id", "text"],
+        ["id", "text"],
+      ],
+    });
+  });
+
+  it("spells out the summary, the model, the node and the edge, with their required parts and allowed values", () => {
+    const tools = declared();
+    const summary = tools["task_set_summary"]?.properties?.["summary"];
+    const model = tools["task_set_meta"]?.properties?.["model"];
+    const nodes = tools["task_propose_graph"]?.properties?.["nodes"]?.items;
+    const edges = tools["task_propose_graph"]?.properties?.["edges"]?.items;
+
+    expect([namesOf(summary), requiredOf(summary)]).toStrictEqual([
+      ["goal", "decisions", "constraints", "nonGoals", "openQuestions", "acceptance"],
+      ["goal", "decisions", "constraints", "nonGoals", "openQuestions", "acceptance"],
+    ]);
+    expect([namesOf(model), requiredOf(model)]).toStrictEqual([
+      ["providerId", "modelId", "thinking"],
+      ["providerId", "modelId"],
+    ]);
+    expect([namesOf(nodes), requiredOf(nodes)]).toStrictEqual([
+      ["id", "name", "kind", "job", "done", "role", "model", "place", "inputs", "merge"],
+      ["id", "name", "kind", "job", "done"],
+    ]);
+    expect(nodes?.properties?.["kind"]?.enum).toStrictEqual(["agent", "human"]);
+    expect(nodes?.properties?.["role"]?.enum).toStrictEqual(["explore", "work", "check", "advise"]);
+    expect(nodes?.properties?.["place"]?.enum).toStrictEqual(["workspace", "readonly"]);
+    expect(nodes?.properties?.["merge"]?.enum).toStrictEqual([true]);
+    expect([namesOf(edges), requiredOf(edges)]).toStrictEqual([
+      ["from", "to", "kind"],
+      ["from", "to", "kind"],
+    ]);
+    expect(edges?.properties?.["kind"]?.enum).toStrictEqual(["seq", "back"]);
+    expect(tools["task_propose_graph"]?.properties?.["guide"]?.enum).toStrictEqual([
+      "feature",
+      "fix",
+      "scheduled_fix",
+      "research",
+    ]);
+    expect(tools["task_read_node"]?.properties?.["what"]?.enum).toStrictEqual(["contract", "summary", "transcript"]);
+    expect([
+      tools["task_read_source"]?.properties?.["page"]?.minimum,
+      tools["task_read_node"]?.properties?.["page"]?.minimum,
+    ]).toStrictEqual([1, 1]);
+  });
+
+  it("explains every tool and every parameter to the model", () => {
+    const s = stand({ argv: [conversation()] });
+
+    for (const tool of s.tools.values()) {
+      expect(undescribed(tool)).toStrictEqual([]);
+      expect(tool.description.length).toBeGreaterThan(60);
+    }
+  });
+
+  it("explains the node tools' parameters too", () => {
+    const s = stand({ argv: [node("work")] });
+
+    for (const tool of s.tools.values()) {
+      expect(undescribed(tool)).toStrictEqual([]);
+    }
   });
 });

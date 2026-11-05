@@ -1,5 +1,5 @@
 import { READ_ONLY_TOOLS } from "../agent/words";
-import { type NodeRole, type ResumeKind, TASK_TEXT_LIMITS, type TaskErrorCode } from "./schema";
+import { CONVERSATION_TOOLS, type NodeRole, type ResumeKind, TASK_TEXT_LIMITS, type TaskErrorCode } from "./schema";
 
 /** The tools every node has beside its role's (SPEC-0006, "起"). */
 export const NODE_TOOLS = ["node_done", "request_graph_change"] as const;
@@ -8,7 +8,9 @@ export const NODE_TOOLS = ["node_done", "request_graph_change"] as const;
 export const TASK_STOPPED = "The call was stopped.";
 
 /** What the codes without parameters tell the model. */
-const FIXED_ERRORS: Readonly<Record<Exclude<TaskErrorCode, "task_args_invalid" | "task_text_too_long">, string>> = {
+const FIXED_ERRORS: Readonly<
+  Record<Exclude<TaskErrorCode, "task_args_invalid" | "task_text_too_long" | "task_graph_invalid">, string>
+> = {
   task_caller_invalid:
     "Atrium does not accept this call from this conversation: this conversation is not the one that runs this step right now. Do not retry; end your turn.",
   task_not_found: "Atrium does not know this task any more. Do not retry; end your turn.",
@@ -49,6 +51,10 @@ export function errorText(code: TaskErrorCode, params: Readonly<Record<string, u
   if (code === "task_args_invalid") {
     return `Atrium refused the call: "${named(params, "field")}" is missing or empty. Fix it and call again.`;
   }
+  if (code === "task_graph_invalid") {
+    const node = typeof params["node"] === "string" ? ` (node ${params["node"]})` : "";
+    return `Atrium refused the graph: ${named(params, "code")}${node}. Fix the graph and call task_propose_graph again.`;
+  }
   if (code === "task_text_too_long") {
     const limit = typeof params["limit"] === "number" ? String(params["limit"]) : "?";
     return `"${named(params, "param")}" is too long: write at most ${limit} characters, and call again.`;
@@ -87,6 +93,28 @@ export function tooLong(
     if (typeof value === "string" && value.length > limit) return { param, limit };
   }
   return null;
+}
+
+/**
+ * What a refused or unreadable argument of a conversation tool tells the model.
+ *
+ * @remarks
+ * Generic: the tools' parameters are checked by their schema, which names the parameter that is too long or wrong.
+ *
+ * @sideEffects none
+ * @param issue - The schema's first issue.
+ * @returns The code and its parameters.
+ */
+export function argumentFault(issue: {
+  readonly code: string;
+  readonly path: readonly PropertyKey[];
+  readonly maximum?: unknown;
+}): { readonly code: TaskErrorCode; readonly params?: Readonly<Record<string, unknown>> } {
+  const param = typeof issue.path[0] === "string" ? issue.path[0] : "?";
+  if (issue.code === "too_big" && typeof issue.maximum === "number") {
+    return { code: "task_text_too_long", params: { param, limit: issue.maximum } };
+  }
+  return { code: "task_bad_request" };
 }
 
 /** What `node_done` tells the model once the host took it. */
@@ -151,6 +179,64 @@ export function resumeText(kind: ResumeKind, text: string): string {
     text.replaceAll(SHELL_TAG, "&lt;$1"),
     "</atrium-task-resume>",
   ].join("\n");
+}
+
+/**
+ * What the task conversation may use.
+ *
+ * @remarks
+ * SPEC-0006, "起": SPEC-0002's read-only list, the task conversation's tools and `ask_user`; no `edit`,
+ * `write` or `agent_*`. The host's `--tools` list is the first check, this the second.
+ *
+ * @sideEffects none
+ * @param tool - The tool.
+ * @returns Why not, or `null` when it may.
+ */
+export function conversationToolRefusal(tool: string): string | null {
+  const allowed = [...READ_ONLY_TOOLS, ...CONVERSATION_TOOLS, "ask_user"] as readonly string[];
+  return allowed.includes(tool)
+    ? null
+    : `The task conversation can only use ${allowed.join(", ")}; it changes no files.`;
+}
+
+/**
+ * The page a long read ends with, so the model knows whether to ask for the next.
+ *
+ * @remarks
+ * A text of one page has no footer.
+ *
+ * @sideEffects none
+ * @param page - The page shown.
+ * @param pages - How many there are.
+ * @returns The line, empty for a text of one page.
+ */
+export function pageFooter(page: number, pages: number): string {
+  return pages <= 1
+    ? ""
+    : `\n[page ${String(page)} of ${String(pages)}${page < pages ? "; ask for the next page to read on" : ""}]`;
+}
+
+/** What `task_set_summary` and `task_set_meta` tell the model once the host took them. */
+export const RECORDED = "Recorded.";
+
+/** What `task_send_to_node` tells the model once the host took it. */
+export const SENT_TO_NODE = "Sent. The node reads it at its next turn boundary.";
+
+/**
+ * What `task_propose_graph` tells the model once the host took the graph.
+ *
+ * @remarks
+ * Says whether the graph is in force or waits for the user, since the model's next words to the user depend on it.
+ *
+ * @sideEffects none
+ * @param version - The graph's version.
+ * @param pending - Whether it waits for the user's approval (the task already started).
+ * @returns The text.
+ */
+export function graphTaken(version: number, pending: boolean): string {
+  return pending
+    ? `Graph version ${String(version)} recorded. It takes effect only when the user approves it; tell the user what changed and why.`
+    : `Graph version ${String(version)} recorded and in force. The user can still ask for changes before starting the task.`;
 }
 
 /**

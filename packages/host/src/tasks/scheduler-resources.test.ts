@@ -252,6 +252,49 @@ describe("step: cancel, abandon, restart and the rest", () => {
     expect(sim.task).toBe(before);
   });
 
+  it("takes the requirement summary only while the task is being designed", () => {
+    const summary = {
+      goal: "g",
+      decisions: ["d"],
+      constraints: [],
+      nonGoals: [],
+      openQuestions: [],
+      acceptance: ["a"],
+    };
+    const sim = new Sim(newTask([agent("N1")], []));
+
+    expect(sim.send({ type: "summary_set", summary })).toStrictEqual([]);
+    expect(sim.task.summary).toStrictEqual(summary);
+    started(sim);
+    const before = sim.task;
+    sim.send({ type: "summary_set", summary: { ...summary, goal: "changed after the start" } });
+
+    expect(sim.task).toBe(before);
+    expect(sim.task.summary.goal).toBe("g");
+  });
+
+  it("records the guide a graph follows while the task is being designed, and not after it started", () => {
+    const sim = new Sim(newTask([agent("N1")], []));
+    const nodes = [agent("N1")];
+
+    sim.send({ type: "graph_proposed", author: "agent", note: "", nodes, edges: [], guide: { id: "fix", version: 2 } });
+    expect(sim.task.guide).toStrictEqual({ id: "fix", version: 2 });
+    sim.send({ type: "graph_proposed", author: "agent", note: "no guide named", nodes, edges: [] });
+    expect(sim.task.guide).toStrictEqual({ id: "fix", version: 2 });
+    started(sim);
+    sim.send({
+      type: "graph_proposed",
+      author: "agent",
+      note: "",
+      nodes,
+      edges: [],
+      guide: { id: "research", version: 1 },
+    });
+
+    expect(sim.task.guide).toStrictEqual({ id: "fix", version: 2 });
+    expect(sim.task.pendingGraph).toBe(4);
+  });
+
   it("does not change the task or the input it was given", () => {
     const task = deepFreeze(newTask([agent("N1")], []));
     const event = { type: "started", seq: 1, at: 5 } as const;

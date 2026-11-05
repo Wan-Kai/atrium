@@ -2103,6 +2103,44 @@ export function createSessionManager(options: {
         const found = await commanded(sessionId);
         await found.pi.request({ type: "prompt", message: text }, signal ? { signal } : {});
       },
+      source(sessionId) {
+        const entry = options.catalog.find(sessionId);
+        if (entry === undefined || entry.task !== null || entry.archived) return undefined;
+        const model = sessions.get(sessionId)?.controller.snapshot().model ?? entry.model;
+        return {
+          containerId: entry.containerId,
+          cwd: entry.cwd,
+          name: entry.name,
+          model:
+            model === null
+              ? null
+              : { providerId: model.providerId, modelId: model.modelId, thinking: model.thinkingLevel },
+          file: entry.file,
+        };
+      },
+      async transcript(sessionId) {
+        await options.catalog.ready();
+        const file = options.catalog.find(sessionId)?.file ?? null;
+        return file === null ? [] : readEntries(file);
+      },
+      async deliver(sessionId, text, signal) {
+        const found = await commanded(sessionId);
+        // A running pi queues it for its next turn boundary; an idle one starts a turn with it.
+        await found.pi.request(
+          { type: "prompt", message: text, streamingBehavior: "steer" },
+          { timeoutMs: null, ...(signal ? { signal } : {}) },
+        );
+      },
+      async retire(sessionId) {
+        await options.catalog.ready();
+        entryOf(sessionId);
+        await whileArchivingAll([sessionId], async () => {
+          await stopEnding(sessionId);
+          forget(sessionId);
+          await options.catalog.archive(sessionId);
+        });
+        options.onChange();
+      },
       alive: (sessionId) => live(sessionId) !== undefined,
       async stop(sessionId) {
         await stopSession(sessionId);

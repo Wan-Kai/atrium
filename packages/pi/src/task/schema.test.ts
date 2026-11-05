@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { decodeArgument } from "../agent/agent";
 import {
+  CONVERSATION_TOOLS,
+  GUIDE_IDS,
   GraphChangeArgs,
+  MarkCommand,
   NodeDoneArgs,
   NudgeCommand,
   ProgressCommand,
@@ -9,7 +12,9 @@ import {
   ResumeCommand,
   TASK_COMMANDS,
   TASK_TEXT_LIMITS,
+  TaskCallResults,
   TaskMessageDetails,
+  type TaskRequest,
   commandText,
   readRequest,
   readSelf,
@@ -83,7 +88,24 @@ describe("requests on the status line", () => {
       "a",
       "call",
     ],
-    ["an unknown call", JSON.stringify({ v: 1, id: "a", kind: "call", op: "task_status", args: {} }), "a", "call"],
+    [
+      "an unknown call (the schedule tool waits for T10)",
+      JSON.stringify({ v: 1, id: "a", kind: "call", op: "task_set_schedule", args: {} }),
+      "a",
+      "call",
+    ],
+    [
+      "a conversation call with bad arguments",
+      JSON.stringify({ v: 1, id: "a", kind: "call", op: "task_read_node", args: { id: "N1", what: "everything" } }),
+      "a",
+      "call",
+    ],
+    [
+      "a conversation call with an extra argument",
+      JSON.stringify({ v: 1, id: "a", kind: "call", op: "task_status", args: { who: "me" } }),
+      "a",
+      "call",
+    ],
     [
       "a note named as a call",
       JSON.stringify({ v: 1, id: "a", kind: "call", op: "cancel", args: { id: "x" } }),
@@ -180,7 +202,7 @@ describe("the host's commands", () => {
     expect(slash).toBe("/atrium-task");
     expect(action).toBe("nudge");
     expect(decodeArgument(String(argument))).toStrictEqual({ v: 1, id: "n-1" });
-    expect(Object.keys(TASK_COMMANDS).toSorted()).toStrictEqual(["nudge", "progress", "reply", "resume"]);
+    expect(Object.keys(TASK_COMMANDS).toSorted()).toStrictEqual(["mark", "nudge", "progress", "reply", "resume"]);
   });
 
   it("describes the custom messages the extension writes", () => {
@@ -188,5 +210,70 @@ describe("the host's commands", () => {
     expect(TaskMessageDetails.safeParse({ v: 1, kind: "resume", id: "a", reason: "wake" }).success).toBe(true);
     expect(TaskMessageDetails.safeParse({ v: 1, kind: "progress", id: "a", at: 1, text: "t" }).success).toBe(true);
     expect(TaskMessageDetails.safeParse({ v: 1, kind: "other", id: "a" }).success).toBe(false);
+    expect(
+      TaskMessageDetails.safeParse({ v: 1, kind: "converted", id: "m", at: 1, taskId: "tsk_a", state: "abandoned" })
+        .success,
+    ).toBe(true);
+    expect(
+      TaskMessageDetails.safeParse({ v: 1, kind: "progress", id: "a", at: 1, text: "t", what: "merged", node: "N2" })
+        .success,
+    ).toBe(true);
+  });
+});
+
+/** Reads a call as the host does. */
+const read = (op: string, args: unknown) => readRequest(JSON.stringify({ v: 1, id: "a", kind: "call", op, args }));
+
+describe("the task conversation's calls (SPEC-0006, T6)", () => {
+  /** A summary with every part. */
+  const summary = {
+    goal: "ship it",
+    decisions: ["use a queue"],
+    constraints: [],
+    nonGoals: [],
+    openQuestions: ["which queue?"],
+    acceptance: ["it ships"],
+  };
+  /** A call of each conversation tool with arguments that hold. */
+  const calls = [
+    ["task_read_source", { page: 2 }],
+    ["task_set_summary", { summary }],
+    ["task_set_meta", { name: "A task", model: { providerId: "p", modelId: "m", thinking: "high" } }],
+    ["task_status", {}],
+    ["task_read_node", { id: "N1", what: "transcript", page: 1 }],
+    ["task_diff", { since: "N2" }],
+    ["task_propose_graph", { nodes: [{ id: "N1" }], edges: [], note: "first", guide: "feature" }],
+    ["task_send_to_node", { id: "N1", text: "use the other port" }],
+  ] as const;
+
+  it("names eight tools, each with a result schema, and each round-trips through the status line", () => {
+    expect(CONVERSATION_TOOLS).toHaveLength(8);
+    expect(Object.keys(TaskCallResults).toSorted()).toStrictEqual(
+      ["node_done", "request_graph_change", ...CONVERSATION_TOOLS].toSorted(),
+    );
+    expect(calls.map(([op]) => op).toSorted()).toStrictEqual([...CONVERSATION_TOOLS].toSorted());
+    for (const [op, args] of calls) {
+      const request = { kind: "call", id: `c-${op}`, op, args } as TaskRequest;
+      expect(readRequest(writeRequest(request))).toStrictEqual({ request });
+    }
+  });
+
+  it("names the four guides the host's texts stand for", () => {
+    expect(GUIDE_IDS).toStrictEqual(["feature", "fix", "scheduled_fix", "research"]);
+  });
+
+  it("refuses a summary missing a part, a page of 0, a guide that does not exist and an empty graph", () => {
+    expect(read("task_set_summary", { summary: { goal: "g" } })).toStrictEqual({ bad: "a", kind: "call" });
+    expect(read("task_read_source", { page: 0 })).toStrictEqual({ bad: "a", kind: "call" });
+    expect(read("task_propose_graph", { nodes: [{}], edges: [], note: "", guide: "party" })).toStrictEqual({
+      bad: "a",
+      kind: "call",
+    });
+    expect(read("task_propose_graph", { nodes: [], edges: [], note: "" })).toStrictEqual({ bad: "a", kind: "call" });
+  });
+
+  it("reads the mark a source conversation is given", () => {
+    expect(MarkCommand.safeParse({ v: 1, id: "m", at: 5, taskId: "tsk_a", state: "converted" }).success).toBe(true);
+    expect(MarkCommand.safeParse({ v: 1, id: "m", at: 5, taskId: "tsk_a", state: "deleted" }).success).toBe(false);
   });
 });

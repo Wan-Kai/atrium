@@ -917,6 +917,51 @@ export const OpenTaskCommand = z.strictObject({ type: z.literal("open_task"), ..
 export type OpenTaskCommand = z.infer<typeof OpenTaskCommand>;
 
 /**
+ * Makes a task of a conversation: the `/task` of the input box (SPEC-0006, "/task 与创建").
+ *
+ * @remarks
+ * Answers the new task's id. Fails with `task_already_converted` (`params.taskId`) when the conversation has a
+ * task already, and with `session_not_found` when it is unknown. `scope` is what the user typed after `/task`.
+ */
+export const CreateTaskCommand = z.strictObject({
+  type: z.literal("create_task"),
+  ...commandFields,
+  sessionId: SessionId,
+  scope: z.string().min(1).max(4000).optional(),
+});
+export type CreateTaskCommand = z.infer<typeof CreateTaskCommand>;
+
+/**
+ * Confirms a task's initial graph and starts it: "确认并启动". The host checks the graph once more and fails with
+ * `task_graph_invalid` (`params.code`, and `params.node` when one is meant) or `task_no_project_for_work`.
+ */
+export const StartTaskCommand = z.strictObject({ type: z.literal("start_task"), ...commandFields, taskId: TaskId });
+export type StartTaskCommand = z.infer<typeof StartTaskCommand>;
+
+/**
+ * Gives up a task that has not started: its record and conversation go, and the conversation it was made from can
+ * be turned into a task again (SPEC-0006, "放弃任务").
+ */
+export const AbandonTaskCommand = z.strictObject({ type: z.literal("abandon_task"), ...commandFields, taskId: TaskId });
+export type AbandonTaskCommand = z.infer<typeof AbandonTaskCommand>;
+
+/** Approves the graph a started task is waiting for (SPEC-0006, "改图"); checked again, `task_graph_invalid` if it no longer fits. */
+export const ApproveGraphCommand = z.strictObject({
+  type: z.literal("approve_graph"),
+  ...commandFields,
+  taskId: TaskId,
+});
+export type ApproveGraphCommand = z.infer<typeof ApproveGraphCommand>;
+
+/** Refuses the graph a started task is waiting for; the nodes that asked go on with the old one. */
+export const RejectGraphCommand = z.strictObject({
+  type: z.literal("reject_graph"),
+  ...commandFields,
+  taskId: TaskId,
+});
+export type RejectGraphCommand = z.infer<typeof RejectGraphCommand>;
+
+/**
  * Answers a human node that is waiting: pass it, or send the task back to one of the nodes its back edges
  * lead to, with a reason (SPEC-0006, "human 节点"). Passing a node whose merge is blocked tries the merge again.
  * Fails with `task_not_found`, `task_state_invalid` or, for the third use of a back edge, `task_back_limit`.
@@ -1062,6 +1107,11 @@ export const Command = z.discriminatedUnion("type", [
   ResetRemoteIdentityCommand,
   ListTasksCommand,
   OpenTaskCommand,
+  CreateTaskCommand,
+  StartTaskCommand,
+  AbandonTaskCommand,
+  ApproveGraphCommand,
+  RejectGraphCommand,
   AnswerHumanCommand,
   RerunNodeCommand,
   ContinueNodeCommand,
@@ -1220,6 +1270,11 @@ export const CommandResult = {
   reset_remote_identity: z.strictObject({}),
   list_tasks: z.strictObject({ tasks: z.array(TaskSummary).max(10_000) }),
   open_task: z.strictObject({ task: TaskView }),
+  create_task: z.strictObject({ taskId: TaskId }),
+  start_task: z.strictObject({}),
+  abandon_task: z.strictObject({}),
+  approve_graph: z.strictObject({}),
+  reject_graph: z.strictObject({}),
   answer_human: z.strictObject({}),
   rerun_node: z.strictObject({}),
   continue_node: z.strictObject({}),

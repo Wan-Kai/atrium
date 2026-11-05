@@ -1,3 +1,4 @@
+import { UNCHOSEN_GUIDE } from "./guides";
 import type { GraphEdge, GraphNode, Task } from "./types";
 
 /** What a new task record is made from. */
@@ -24,8 +25,8 @@ export interface NewTaskInput {
  *
  * @remarks
  * SPEC-0006, "任务记录": starting it (the `started` event) approves the graph. The worktree is made when the
- * first node that needs it is ready, and belongs to the task. T6 makes tasks from `/task`; until then
- * `task:try` and the host's tests make them here.
+ * first node that needs it is ready, and belongs to the task. `task:try` and the host's tests make tasks here;
+ * `/task` makes them with `newDesignTask`.
  *
  * @sideEffects none
  * @param input - The task's parts.
@@ -42,7 +43,7 @@ export function newTaskRecord(input: NewTaskInput): Task {
     ownsWorkspace: true,
     baseCommit: null,
     model: input.model,
-    guide: { id: "default", version: 1 },
+    guide: { ...UNCHOSEN_GUIDE },
     summary: { goal: input.goal, decisions: [], constraints: [], nonGoals: [], openQuestions: [], acceptance: [] },
     origin: { kind: "chat", sessionId: input.originSessionId },
     scheduleDraft: null,
@@ -66,5 +67,68 @@ export function newTaskRecord(input: NewTaskInput): Task {
     createdAt: input.now,
     startedAt: null,
     endedAt: null,
+  };
+}
+
+/** What a task made from `/task` is built from. */
+export interface DesignTaskInput {
+  readonly id: string;
+  /** The first name: the source conversation's, until the task conversation names the task. */
+  readonly name: string;
+  /** The project the source conversation is in; `null` for none. */
+  readonly projectId: string | null;
+  /** The directory the source conversation runs in. */
+  readonly sourceDir: string;
+  /** The conversation the task is made from. */
+  readonly originSessionId: string;
+  /** The task conversation's session. */
+  readonly taskSessionId: string;
+  /** The source conversation's current model. */
+  readonly model: Task["model"];
+  /** The worktree the source conversation is in, if it is in one the task did not make. */
+  readonly borrowed: { readonly workspaceId: string; readonly baseCommit: string | null } | null;
+  readonly now: number;
+}
+
+/**
+ * A new task made from a conversation: designing, with no graph yet.
+ *
+ * @remarks
+ * SPEC-0006, "/task 与创建": the task conversation writes the summary and proposes the graph, so both start
+ * empty and no guide is chosen (`activeGraph` is 0). A source conversation in a worktree lends it: the task
+ * records the workspace as ready and does not own it, so it is neither made nor archived by the task; one in
+ * the project's own directory makes a worktree when the first node needs it.
+ *
+ * @sideEffects none
+ * @param input - The task's parts.
+ * @returns The task.
+ */
+export function newDesignTask(input: DesignTaskInput): Task {
+  const base = newTaskRecord({
+    id: input.id,
+    name: input.name,
+    projectId: input.projectId,
+    sourceDir: input.sourceDir,
+    originSessionId: input.originSessionId,
+    taskSessionId: input.taskSessionId,
+    model: input.model,
+    goal: "",
+    nodes: [],
+    edges: [],
+    now: input.now,
+  });
+  return {
+    ...base,
+    guide: { ...UNCHOSEN_GUIDE },
+    graphs: [],
+    activeGraph: 0,
+    ...(input.borrowed === null
+      ? {}
+      : {
+          workspaceId: input.borrowed.workspaceId,
+          workspaceState: "ready" as const,
+          ownsWorkspace: false,
+          baseCommit: input.borrowed.baseCommit,
+        }),
   };
 }

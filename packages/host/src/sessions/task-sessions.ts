@@ -1,5 +1,5 @@
-import type { PiEvent } from "@atrium/pi";
-import type { SessionEvent } from "@atrium/protocol";
+import type { LogEntry, PiEvent } from "@atrium/pi";
+import type { SessionEvent, ThinkingLevel } from "@atrium/protocol";
 import type { TaskSessionRecord } from "../store/task-session-record";
 
 /**
@@ -13,6 +13,23 @@ export type TaskSessionSignal =
   | { readonly kind: "request"; readonly epoch: number; readonly text: string }
   | { readonly kind: "pi"; readonly epoch: number; readonly event: PiEvent }
   | { readonly kind: "session"; readonly epoch: number; readonly event: SessionEvent };
+
+/**
+ * What the catalog knows of a conversation a task can be made from (SPEC-0006, "/task 与创建").
+ *
+ * @remarks
+ * `model` is the one the conversation uses now: the running pi's if it runs, else the one its file records.
+ */
+interface TaskSource {
+  readonly containerId: string;
+  /** The directory pi was started in: the task's `sourceDir`. */
+  readonly cwd: string;
+  /** The session's name, `null` when it has none. */
+  readonly name: string | null;
+  readonly model: { readonly providerId: string; readonly modelId: string; readonly thinking: ThinkingLevel } | null;
+  /** The session file; `null` before pi has written it. */
+  readonly file: string | null;
+}
 
 /** A new node session to record and start. */
 interface NewTaskSession {
@@ -50,6 +67,17 @@ export interface TaskSessions {
   prompt(sessionId: string, text: string, signal?: AbortSignal): Promise<void>;
   /** Sends one of Atrium's hidden commands, which pi runs at once (ADR-0013, point 2); see `prompt` for `signal`. */
   command(sessionId: string, text: string, signal?: AbortSignal): Promise<void>;
+  /** The conversation a task can be made from; `undefined` for an unknown, archived or task session. */
+  source(sessionId: string): TaskSource | undefined;
+  /** The entries of the session's file, in file order, read without its pi (`[]` for a draft). */
+  transcript(sessionId: string): Promise<LogEntry[]>;
+  /**
+   * Sends a message into a node's conversation as the user could: queued for its next turn boundary while it
+   * runs, a new turn if it is idle (SPEC-0006, `task_send_to_node`).
+   */
+  deliver(sessionId: string, text: string, signal?: AbortSignal): Promise<void>;
+  /** Lets go of a session nobody will open again: stops its pi and archives its record. */
+  retire(sessionId: string): Promise<void>;
   /** Whether the session has a pi that runs. */
   alive(sessionId: string): boolean;
   /** Stops the session's pi and lets go of what the host keeps for it; the record stays. */

@@ -1,9 +1,15 @@
+import { taskCommandText } from "@atrium/pi";
 import { CommandError, type ArchiveAnswer, type HumanAnswer, type TaskView } from "@atrium/protocol";
-import { readdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { Clock } from "../platform/clock";
 import type { Logger } from "../platform/logger";
+import type { TaskSessions } from "../sessions/task-sessions";
+import { buildDesignPrompt } from "./design";
 import { BACK_LIMIT, activeGraphOf, liveRun } from "./graph";
+import { type GraphProblem, validateGraph } from "./graph-validator";
+import { newDesignTask } from "./new-task";
 import type { TaskRunner } from "./runner";
 import { backUses } from "./scheduler";
 import { deriveStatus } from "./status";
@@ -35,7 +41,7 @@ export interface TaskService {
    * restart is `recover`'s, which T9 calls for the tasks that were running.
    */
   list(): Promise<Task[]>;
-  /** The tasks taken up so far, in the order they were. */
+  /** The tasks taken up so far, in the order they were; one abandoned while designing is not among them. */
   held(): readonly Task[];
   /**
    * The task as the board shows it, with the archive question's facts while it is open.
@@ -64,6 +70,37 @@ export interface TaskService {
    * worked, so a refusal leaves the question open.
    */
   answerArchive(taskId: string, answer: ArchiveAnswer): Promise<void>;
+  /**
+   * Makes a task of a conversation: its record (`designing`), its conversation with the design message, and the
+   * "converted" line in the source conversation.
+   *
+   * @remarks
+   * SPEC-0006, "/task 与创建". One conversation has one task: another `/task` fails with `task_already_converted`
+   * (`params.taskId`), except after the task was abandoned. Fails with `session_not_found` for a conversation that
+   * is unknown or archived and `task_state_invalid` for one with no model yet.
+   */
+  createFromChat(
+    sessionId: string,
+    scope: string | undefined,
+    options?: { readonly model?: Task["model"] },
+  ): Promise<{ taskId: string }>;
+  /**
+   * Confirms the initial graph and starts the task.
+   *
+   * @remarks
+   * The graph is checked again; `task_graph_invalid` or `task_no_project_for_work` if it breaks a rule,
+   * `task_state_invalid` unless the task is being designed and has a graph.
+   */
+  start(taskId: string): Promise<void>;
+  /**
+   * Gives up a task that has not started: deletes its record, archives its conversation, marks the source
+   * conversation, and lets it be made into a task again.
+   */
+  abandon(taskId: string): Promise<void>;
+  /** Approves the graph a started task waits for; checked again, so it can still be `task_graph_invalid`. */
+  approveGraph(taskId: string): Promise<void>;
+  /** Refuses the graph a started task waits for. */
+  rejectGraph(taskId: string): Promise<void>;
   /** Calls `listener` after every event is recorded; returns a function that stops it. */
   onEvent: TaskRunner["onEvent"];
   /** Resolves once every task's queue is done. */
@@ -90,6 +127,65 @@ function runOf(task: Task, node: NodeId): NodeRun | undefined {
 }
 
 /**
+ * What the service needs to make a task of a conversation.
+ *
+ * @remarks
+ * The service knows no projects or catalog; the wiring answers (`main.ts`).
+ */
+export interface TaskDesignPorts {
+  /** The sessions: the source conversation's facts, the task conversation, and the lines written to both. */
+  readonly sessions: Pick<TaskSessions, "source" | "create" | "open" | "prompt" | "command" | "retire">;
+  /**
+   * Where a container is: its project, and the worktree to borrow when it is one Atrium (or git) made.
+   *
+   * @remarks
+   * A chat is no project (`projectId: null`); the project's own directory borrows nothing.
+   */
+  readonly placement: (containerId: string) => {
+    readonly projectId: string | null;
+    readonly borrowed: { readonly workspaceId: string; readonly baseCommit: string | null } | null;
+  };
+  /** A fresh task id; `tsk_` and a name. */
+  readonly newId?: () => string;
+}
+
+/**
+ * Whether a task was abandoned while designing: its record is on its way out.
+ *
+ * @remarks
+ * `abandoned` marks it cancelled and never started; the record is deleted right after, so one found on disk is
+ * what a crash between the two left. It counts for nothing: not listed, and the conversation can be made into a task again.
+ *
+ * @sideEffects none
+ * @param task - The task.
+ * @returns Whether it is.
+ */
+function isAbandoned(task: Task): boolean {
+  return task.cancelled && task.startedAt === null;
+}
+
+/**
+ * The command error for the first problem of a graph.
+ *
+ * @remarks
+ * `no_project_for_work` has its own code (SPEC-0006, "错误码"); any other is `task_graph_invalid` with the problem's code.
+ *
+ * @sideEffects none
+ * @param problem - The problem.
+ * @returns The error to throw.
+ */
+function graphError(problem: GraphProblem): CommandError {
+  if (problem.code === "no_project_for_work") return new CommandError("task_no_project_for_work");
+  return new CommandError("task_graph_invalid", {
+    code: problem.code,
+    ...(problem.node === undefined ? {} : { node: problem.node }),
+  });
+}
+
+/** The longest a task's first name may be. */
+const NAME_CHARS = 120;
+
+/**
  * Creates the task service.
  *
  * @remarks
@@ -108,8 +204,13 @@ export function createTaskService(options: {
   readonly clock: Clock;
   readonly logger: Logger;
   readonly archiving: TaskArchiving;
+  readonly design: TaskDesignPorts;
 }): TaskService {
   const { runner } = options;
+  const stopping = new AbortController();
+  /** `createFromChat` goes one at a time, so two `/task` of one conversation cannot both pass the check. */
+  let converting: Promise<unknown> = Promise.resolve();
+  const newId = options.design.newId ?? ((): string => `tsk_${randomUUID().replaceAll("-", "").slice(0, 16)}`);
 
   /**
    * Finds a task, taking it up from disk if it is there and not held.
@@ -131,6 +232,115 @@ export function createTaskService(options: {
     });
   }
 
+  /**
+   * Writes the "converted" or "abandoned" line into the conversation a task was made from.
+   *
+   * @remarks
+   * The hidden command `mark` (SPEC-0006, "/task 与创建"); the source is an ordinary session, so its pi is
+   * started if it has none. A failure is logged: the task stands without the line.
+   *
+   * @sideEffects Starts the source conversation's pi if needed; writes a custom message in its file.
+   * @param sessionId - The source conversation.
+   * @param taskId - The task.
+   * @param state - What happened to it.
+   */
+  async function markSource(sessionId: string, taskId: string, state: "converted" | "abandoned"): Promise<void> {
+    try {
+      const { sessions } = options.design;
+      await sessions.open(sessionId);
+      await sessions.command(
+        sessionId,
+        taskCommandText("mark", { v: 1, id: `m.${taskId}.${state}`, at: options.clock.now(), taskId, state }),
+        stopping.signal,
+      );
+    } catch (error) {
+      options.logger.warn(
+        { err: error instanceof Error ? error.name : "unknown", state },
+        "source conversation not marked",
+      );
+    }
+  }
+
+  /**
+   * Makes the task of a conversation.
+   *
+   * @remarks
+   * See `TaskService.createFromChat`. The task conversation starts first (a session that cannot start fails the
+   * command before anything is recorded); then the record, the design message and the line in the source. If the
+   * design message does not go, the task is taken back out, so the user is not left with a conversation that
+   * was never told what to do.
+   *
+   * @sideEffects Starts a pi; writes the task's files and a line in the source conversation.
+   * @param sessionId - The source conversation.
+   * @param scope - What the user typed after `/task`.
+   * @param chosen - A model to use in place of the source conversation's.
+   * @returns The new task's id.
+   * @throws {CommandError} `task_already_converted`, `session_not_found`, `task_state_invalid`.
+   */
+  async function convert(
+    sessionId: string,
+    scope: string | undefined,
+    chosen: Task["model"] | undefined,
+  ): Promise<{ taskId: string }> {
+    const known = (await service.list()).find(
+      (task) => task.origin.kind === "chat" && task.origin.sessionId === sessionId,
+    );
+    if (known !== undefined) throw new CommandError("task_already_converted", { taskId: known.id });
+    const { sessions } = options.design;
+    const source = sessions.source(sessionId);
+    if (source === undefined) throw new CommandError("session_not_found", { sessionId });
+    // A model asked for (the dev tool's `--model`) stands in for the source conversation's own.
+    const model = chosen ?? source.model;
+    if (model === null) throw new CommandError("task_state_invalid");
+    const place = options.design.placement(source.containerId);
+    const taskId = newId();
+    const conversation = await sessions.create({
+      containerId: source.containerId,
+      cwd: source.cwd,
+      name: taskId,
+      task: {
+        taskId,
+        role: "conversation",
+        startOn: {
+          providerId: model.providerId,
+          modelId: model.modelId,
+          thinkingLevel: model.thinking,
+        },
+      },
+    });
+    const task = newDesignTask({
+      id: taskId,
+      name: (source.name ?? "").slice(0, NAME_CHARS),
+      projectId: place.projectId,
+      sourceDir: source.cwd,
+      originSessionId: sessionId,
+      taskSessionId: conversation,
+      model,
+      borrowed: place.borrowed,
+      now: options.clock.now(),
+    });
+    await service.create(task);
+    try {
+      await sessions.prompt(
+        conversation,
+        buildDesignPrompt({
+          sourceSessionId: sessionId,
+          scope: scope ?? null,
+          projectless: place.projectId === null,
+        }),
+        stopping.signal,
+      );
+    } catch (error) {
+      await runner.submit(taskId, { type: "abandoned" });
+      await runner.detach(taskId);
+      await rm(join(options.root, taskId), { recursive: true, force: true });
+      await sessions.retire(conversation).catch(() => undefined);
+      throw error;
+    }
+    await markSource(sessionId, taskId, "converted");
+    return { taskId };
+  }
+
   const service: TaskService = {
     async create(task) {
       const store = await openTaskStore(join(options.root, task.id), options.clock);
@@ -148,7 +358,7 @@ export function createTaskService(options: {
     submit: (taskId, input) => runner.submit(taskId, input),
     task: (taskId) => runner.task(taskId),
     recover: (taskId) => runner.recover(taskId),
-    held: () => runner.all(),
+    held: () => runner.all().filter((task) => !isAbandoned(task)),
     async list() {
       const names = await readdir(options.root).catch(() => [] as string[]);
       for (const name of names.filter((one) => TASK_DIRECTORY.test(one))) {
@@ -158,13 +368,60 @@ export function createTaskService(options: {
           });
         }
       }
-      return names.flatMap((name) => runner.task(name) ?? []);
+      return names.flatMap((name) => runner.task(name) ?? []).filter((task) => !isAbandoned(task));
     },
     async view(taskId, signal) {
       const task = await need(taskId);
       const asked = task.archive === "asked" || task.archive === "kept";
       const facts = asked ? await options.archiving.facts(task, signal).catch(() => null) : null;
       return viewOf(task, facts);
+    },
+    createFromChat(sessionId, scope, extra = {}) {
+      const made = converting.then(() => convert(sessionId, scope, extra.model));
+      converting = made.catch(() => undefined);
+      return made;
+    },
+    async start(taskId) {
+      const task = await need(taskId);
+      const graph = activeGraphOf(task);
+      if (task.startedAt !== null || task.cancelled || graph === undefined)
+        throw new CommandError("task_state_invalid");
+      const problem = validateGraph(graph, { projectless: task.projectId === null, localReadonly: false })[0];
+      if (problem !== undefined) throw graphError(problem);
+      await runner.submit(taskId, { type: "started" });
+    },
+    async abandon(taskId) {
+      const task = await need(taskId);
+      if (task.startedAt !== null || task.cancelled) throw new CommandError("task_state_invalid");
+      await runner.submit(taskId, { type: "abandoned" });
+      await runner.detach(taskId);
+      await rm(join(options.root, taskId), { recursive: true, force: true });
+      options.logger.info({ taskId }, "task abandoned");
+      await options.design.sessions.retire(task.taskSessionId).catch((error: unknown) => {
+        options.logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "task conversation not archived");
+      });
+      if (task.origin.kind === "chat") await markSource(task.origin.sessionId, taskId, "abandoned");
+    },
+    async approveGraph(taskId) {
+      const task = await need(taskId);
+      const pending = task.graphs.find((graph) => graph.version === task.pendingGraph);
+      if (pending === undefined || task.startedAt === null || task.endedAt !== null) {
+        throw new CommandError("task_state_invalid");
+      }
+      const problem = validateGraph(pending, {
+        projectless: task.projectId === null,
+        localReadonly: false,
+        started: task,
+      })[0];
+      if (problem !== undefined) throw graphError(problem);
+      await runner.submit(taskId, { type: "graph_approved" });
+    },
+    async rejectGraph(taskId) {
+      const task = await need(taskId);
+      if (task.pendingGraph === null || task.startedAt === null || task.endedAt !== null) {
+        throw new CommandError("task_state_invalid");
+      }
+      await runner.submit(taskId, { type: "graph_rejected" });
     },
     async answerHuman(taskId, node, answer) {
       const task = await need(taskId);
@@ -223,7 +480,10 @@ export function createTaskService(options: {
     },
     onEvent: (listener) => runner.onEvent(listener),
     idle: () => runner.idle(),
-    close: () => runner.close(),
+    async close() {
+      stopping.abort();
+      await runner.close();
+    },
   };
   return service;
 }

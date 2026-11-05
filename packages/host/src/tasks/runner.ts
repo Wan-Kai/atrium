@@ -1,11 +1,13 @@
 import { type PiEvent, type ResumeKind, readTaskRequest, taskCommandText } from "@atrium/pi";
+import { quoted } from "./quote";
 import type { Clock } from "../platform/clock";
 import type { GitRunner } from "../platform/git";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
 import { CommandError, type SessionEvent } from "@atrium/protocol";
 import type { TaskSessionSignal, TaskSessions } from "../sessions/task-sessions";
-import { type Caller, checkCall, replyText } from "./channel";
+import { type Caller, checkCall, checkConversationCall, replyText } from "./channel";
+import { type Answer, type ConversationCall, answerConversation, isConversationCall } from "./conversation";
 import { commitSubject, commitWork, trailerValue } from "./commit";
 import { buildContract, graphChangedText } from "./contract";
 import type { MergeOutcome } from "./merge";
@@ -14,7 +16,7 @@ import { type Ending, JUDGE_START, type JudgeState, judge } from "./judge";
 import type { TaskWorkspaces } from "./node-ports";
 import { CONTINUE_NODE, RESUME_GRAPH_APPROVED, RESUME_GRAPH_REJECTED, RESUME_RESTARTED } from "./texts";
 import type { TaskStore } from "./task-store";
-import type { Action, GraphNode, NodeId, NodeRun, Task, TaskEvent, TaskEventInput } from "./types";
+import type { Action, GraphNode, NodeId, NodeRun, ProgressLine, Task, TaskEvent, TaskEventInput } from "./types";
 
 /** What the runner is made of. */
 export interface TaskRunnerOptions {
@@ -62,6 +64,13 @@ export interface TaskRunner {
    * Fails with `task_state_invalid` when the node is not `stopped` or has no session.
    */
   continueNode(taskId: string, node: NodeId): Promise<void>;
+  /**
+   * Forgets a task whose record was deleted (a design that was abandoned), once its queue is done.
+   *
+   * @remarks
+   * Nothing of it is written after this; the files are the caller's to remove.
+   */
+  detach(taskId: string): Promise<void>;
   /** Calls `listener` after every event is recorded; returns a function that stops it. */
   onEvent(listener: (task: Task, event: TaskEvent, actions: readonly Action[]) => void): () => void;
   /** Resolves once every task's queue and every reply under way is done. */
@@ -102,10 +111,41 @@ const STARTING_MS = 15_000;
 /** The pi events the judge reads. */
 const JUDGED = new Set(["agent_start", "turn_start", "auto_retry_end", "agent_end", "agent_settled"]);
 
+/** What the runner remembers of a task conversation's session. */
+interface ConversationContext {
+  readonly sessionId: string;
+  readonly taskId: string;
+  /** Which start of pi the newest request came from; an older one is dropped. */
+  epoch: number;
+  /** The call ids already answered; the same id again is not answered twice. */
+  readonly answered: Set<string>;
+  /** The calls the extension gave up on. */
+  readonly cancelled: Set<string>;
+}
+
 /** One task the runner looks after. */
 interface TaskEntry {
   readonly store: TaskStore;
   queue: Promise<unknown>;
+  /** The lines and wake-ups for the task conversation, one after the other, apart from the task's queue. */
+  lines: Promise<unknown>;
+}
+
+/** The longest a node's suggestion for a graph change may be in the note that wakes the task conversation. */
+const WAKE_SUGGESTION_CHARS = 12_000;
+
+/**
+ * The words of a progress line, for the model that reads the task conversation's context.
+ *
+ * @remarks
+ * The user sees what the UI draws from the line's `what` and `node`; this is plain.
+ *
+ * @sideEffects none
+ * @param line - The line.
+ * @returns The text.
+ */
+function progressText(line: ProgressLine): string {
+  return `Atrium task event: ${line.kind}${line.node === undefined ? "" : ` ${line.node}`}`;
 }
 
 /**
@@ -188,8 +228,9 @@ function freshWorktreeFor(task: Task, node: GraphNode, run: NodeRun): boolean {
  * SPEC-0006, "调度器" and "一个 agent 节点怎么跑": every task has a serial queue; `step` (inside the store's
  * `record`) is pure and this carries out its actions, each recognising work done before (a session by its
  * record, a commit by its trailer, a worktree by the workspace port), and turns what happens into events
- * that go back through the queue. Of the actions, `progress_line`, `notify`, `wake_task_conversation` and
- * `ask_archive` (a state of the task, `archive`) belong to later steps (T6) or to the UI: they are only logged. A node's session is read
+ * that go back through the queue. Of the actions, `progress_line` and `wake_task_conversation` go to the task
+ * conversation (T6); `notify` belongs to the UI (T7) and `ask_archive` is a state of the task (`archive`): they are
+ * only logged. The calls of the task conversation's tools are answered here too (`conversation.ts`). A node's session is read
  * through the judge (`judge.ts`), which decides from pi's events whether a `node_done` stands.
  *
  * @sideEffects none until a task is attached; then it listens to the sessions of tasks, starts and stops
@@ -201,6 +242,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
   const { sessions, workspaces, logger } = options;
   const tasks = new Map<string, TaskEntry>();
   const contexts = new Map<string, NodeContext>();
+  const conversations = new Map<string, ConversationContext>();
   const background = new Set<Promise<unknown>>();
   const closing = new AbortController();
   const release = options.resources.acquire("task.runner");
@@ -435,11 +477,12 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       case "merge":
         return mergeNode(entry, action.node);
       case "progress_line":
+        return writeProgress(entry, action.line);
       case "wake_task_conversation":
+        return wakeConversation(entry, action.text, seq);
       case "ask_archive":
       case "notify":
-        // The question about archiving is the task's own state (`archive`, T5); the task conversation
-        // (T6) and the UI (notify) take the rest.
+        // The question about archiving is the task's own state (`archive`, T5); the UI (T7) takes `notify`.
         logger.debug({ action: action.kind }, "task action left to a later step");
     }
   }
@@ -810,6 +853,132 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
   }
 
   /**
+   * The task conversation's session, when the task has one the host started.
+   *
+   * @remarks
+   * A task made by hand (a test, `task:try`) names a session that does not exist; nothing is written to it.
+   *
+   * @sideEffects none
+   * @param task - The task.
+   * @returns The session id, or `undefined`.
+   */
+  function conversationOf(task: Task): string | undefined {
+    const record = sessions.recordOf(task.taskSessionId);
+    return record?.role === "conversation" && record.taskId === task.id ? task.taskSessionId : undefined;
+  }
+
+  /**
+   * Puts something for the task conversation on the task's line, apart from its queue.
+   *
+   * @remarks
+   * One after the other so progress lines keep their order, but never inside the task's queue: opening a pi may
+   * take seconds and must not hold up the scheduler. A failure is logged.
+   *
+   * @sideEffects Runs `work` later.
+   * @param entry - The task.
+   * @param what - What it is, for the log.
+   * @param work - What to do.
+   */
+  function onLine(entry: TaskEntry, what: string, work: () => Promise<void>): void {
+    /**
+     * Does the work, unless the host is closing.
+     *
+     * @remarks
+     * A host that is closing calls off the command under way; that is no failure to log.
+     *
+     * @sideEffects As `work`.
+     */
+    const attempt = async (): Promise<void> => {
+      if (closing.signal.aborted) return;
+      try {
+        await work();
+      } catch (error) {
+        if (!closing.signal.aborted) throw error;
+      }
+    };
+    const turn = entry.lines.then(attempt);
+    entry.lines = turn.catch(() => undefined);
+    track(turn, what);
+  }
+
+  /**
+   * Writes a progress line into the task conversation, without a model call.
+   *
+   * @remarks
+   * SPEC-0006, "任务对话 · 进度行": the hidden command `progress`, which the extension writes as a custom message
+   * and drops when it has the line's id already.
+   *
+   * @sideEffects Opens the conversation's pi if it is not running; sends the command.
+   * @param entry - The task.
+   * @param line - The line.
+   */
+  function writeProgress(entry: TaskEntry, line: ProgressLine): void {
+    const task = entry.store.current();
+    const sessionId = task === null ? undefined : conversationOf(task);
+    if (sessionId === undefined) return;
+    onLine(entry, "progress line", async () => {
+      await sessions.open(sessionId);
+      await sessions.command(
+        sessionId,
+        taskCommandText("progress", {
+          v: 1,
+          id: line.id,
+          at: options.clock.now(),
+          text: progressText(line),
+          what: line.kind,
+          ...(line.node === undefined ? {} : { node: line.node }),
+        }),
+        closing.signal,
+      );
+    });
+  }
+
+  /**
+   * Wakes the task conversation after a node asked for the graph to change.
+   *
+   * @remarks
+   * SPEC-0006, "中途": the one system input that makes the conversation's model run. The note names every node
+   * waiting for a graph change and, from what the runner holds in memory (persisting it is T9), its reason and
+   * suggestion, quoted as the node's words.
+   *
+   * @sideEffects Opens the conversation's pi if it is not running; sends the command.
+   * @param entry - The task.
+   * @param text - What the scheduler says.
+   * @param seq - The `seq` of the event that asked, which makes the command's id.
+   */
+  function wakeConversation(entry: TaskEntry, text: string, seq: number): void {
+    const task = entry.store.current();
+    const sessionId = task === null ? undefined : conversationOf(task);
+    if (task === null || sessionId === undefined) return;
+    const asking = (activeGraphOf(task)?.nodes ?? []).flatMap((node) => {
+      const run = liveRun(task, node.id);
+      if (run?.state !== "waiting" || run.waitingFor !== "graph_change") return [];
+      const request = run.sessionId === null ? undefined : contexts.get(run.sessionId)?.graphRequest;
+      const label = `${node.id} · ${node.name}`;
+      return request === undefined || request === null
+        ? [`节点 ${node.id} 申请改图。`]
+        : [
+            `节点 ${node.id} 申请改图。`,
+            `理由：${quoted(label, request.reason)}`,
+            `它的建议：${quoted(label, request.suggestion.slice(0, WAKE_SUGGESTION_CHARS))}`,
+          ];
+    });
+    const words = [
+      text,
+      ...asking,
+      "先用 task_status 看现状，想清楚新图，再用 task_propose_graph 提交。新图要等用户批准才生效；提交后用一两句话告诉用户改了什么、为什么。",
+    ].join("\n");
+    onLine(entry, "wake of the task conversation", async () => {
+      await sessions.open(sessionId);
+      await sessions.command(
+        sessionId,
+        taskCommandText("resume", { v: 1, id: `w${String(seq)}`, kind: "wake", text: words }),
+        closing.signal,
+      );
+    });
+  }
+
+  /**
    * Puts work on a task's queue.
    *
    * @remarks
@@ -859,6 +1028,12 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
     if (context.answered.has(request.id)) return;
     context.answered.add(request.id);
     if (context.cancelled.has(request.id)) return;
+    if (isConversationCall(request)) {
+      // The task conversation's tools are not a node's, whatever the node's session says it is.
+      logger.info({ op: request.op, code: "task_caller_invalid" }, "task call refused");
+      send(context.sessionId, replyText(request.id, { ok: false, code: "task_caller_invalid" }));
+      return;
+    }
     const verdict = checkCall(entry.store.current() ?? undefined, context, request);
     if (!verdict.ok) {
       logger.info({ op: request.op, code: verdict.code }, "task call refused");
@@ -895,6 +1070,126 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       logger.warn({ op: request.op, err: error instanceof Error ? error.name : "unknown" }, "task call failed");
       send(context.sessionId, replyText(request.id, { ok: false, code: "task_failed" }));
     }
+  }
+
+  /**
+   * The context of a task conversation's session, made from its record the first time.
+   *
+   * @remarks
+   * The caller is found by the session, never by what a request says.
+   *
+   * @sideEffects Remembers the context.
+   * @param sessionId - The session.
+   * @returns The context, or `undefined` for a session that is not a task conversation.
+   */
+  function conversationContext(sessionId: string): ConversationContext | undefined {
+    const known = conversations.get(sessionId);
+    if (known !== undefined) return known;
+    const record = sessions.recordOf(sessionId);
+    if (record?.role !== "conversation") return undefined;
+    const made: ConversationContext = {
+      sessionId,
+      taskId: record.taskId,
+      epoch: 0,
+      answered: new Set(),
+      cancelled: new Set(),
+    };
+    conversations.set(sessionId, made);
+    return made;
+  }
+
+  /**
+   * Sends the answer to a call of the task conversation.
+   *
+   * @remarks
+   * An accepted call carries the result the tool reads; a refused one its code and parameters.
+   *
+   * @sideEffects Sends the command.
+   * @param context - The conversation.
+   * @param id - The call's id.
+   * @param answer - The answer.
+   */
+  function answerTo(context: ConversationContext, id: string, answer: Answer): void {
+    send(
+      context.sessionId,
+      answer.ok
+        ? replyText(id, { ok: true }, answer.result)
+        : replyText(id, {
+            ok: false,
+            code: answer.code,
+            ...(answer.params === undefined ? {} : { params: answer.params }),
+          }),
+    );
+  }
+
+  /**
+   * Takes a request the task conversation made on its status line.
+   *
+   * @remarks
+   * SPEC-0006, "扩展与通道" and "任务对话": runs inside the task's queue. Only the session whose record says
+   * `conversation` and that is this task's `taskSessionId` may call (`task_caller_invalid`), and a node's tool
+   * from here is refused the same way. Then `answerConversation` reads or records. A call the extension gave up
+   * on is dropped; the same call id is answered once. Logs name the operation only.
+   *
+   * @sideEffects Records events; reads files and git; sends the reply.
+   * @param entry - The task.
+   * @param context - The session it came from.
+   * @param text - The status text.
+   */
+  async function handleConversationRequest(
+    entry: TaskEntry,
+    context: ConversationContext,
+    text: string,
+  ): Promise<void> {
+    const read = readTaskRequest(text);
+    if ("bad" in read) {
+      if (read.bad !== null && read.kind === "call" && !context.answered.has(read.bad)) {
+        context.answered.add(read.bad);
+        answerTo(context, read.bad, { ok: false, code: "task_bad_request" });
+      }
+      return;
+    }
+    const { request } = read;
+    if (request.kind === "note") {
+      context.cancelled.add(request.args.id);
+      return;
+    }
+    if (context.answered.has(request.id)) return;
+    context.answered.add(request.id);
+    if (context.cancelled.has(request.id)) return;
+    const task = entry.store.current() ?? undefined;
+    const verdict = checkConversationCall(task, {
+      sessionId: context.sessionId,
+      taskId: context.taskId,
+      role: "conversation",
+    });
+    if (!verdict.ok || task === undefined || !isConversationCall(request)) {
+      const code = verdict.ok ? "task_caller_invalid" : verdict.code;
+      logger.info({ op: request.op, code }, "task call refused");
+      answerTo(context, request.id, { ok: false, code });
+      return;
+    }
+    let answer: Answer;
+    try {
+      answer = await answerConversation({
+        task,
+        call: request satisfies ConversationCall,
+        ports: {
+          transcript: (sessionId) => sessions.transcript(sessionId),
+          deliver: (sessionId, words, signal) => sessions.deliver(sessionId, words, signal),
+          git: () => options.git,
+          dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
+        },
+        signal: closing.signal,
+        submit: (input) => dispatch(entry, input),
+      });
+    } catch (error) {
+      logger.warn({ op: request.op, err: error instanceof Error ? error.name : "unknown" }, "task call failed");
+      answer = { ok: false, code: "task_failed" };
+    }
+    if (context.cancelled.has(request.id)) return;
+    if (!answer.ok) logger.info({ op: request.op, code: answer.code }, "task call refused");
+    answerTo(context, request.id, answer);
   }
 
   /**
@@ -1039,6 +1334,22 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
    * @param signal - What it told.
    */
   function onSignal(sessionId: string, signal: TaskSessionSignal): void {
+    const conversation = signal.kind === "request" ? conversationContext(sessionId) : undefined;
+    if (conversation !== undefined && signal.kind === "request") {
+      const home = tasks.get(conversation.taskId);
+      if (home === undefined || signal.epoch < conversation.epoch) return;
+      conversation.epoch = signal.epoch;
+      const read = readTaskRequest(signal.text);
+      if (!("bad" in read) && read.request.kind === "note") {
+        conversation.cancelled.add(read.request.args.id);
+        return;
+      }
+      track(
+        enqueue(home, () => handleConversationRequest(home, conversation, signal.text)),
+        "conversation request",
+      );
+      return;
+    }
     const context = contextOf(sessionId);
     const entry = context === undefined ? undefined : tasks.get(context.taskId);
     if (context === undefined || entry === undefined) return;
@@ -1072,7 +1383,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
 
   return {
     attach(taskId, store) {
-      if (!tasks.has(taskId)) tasks.set(taskId, { store, queue: Promise.resolve() });
+      if (!tasks.has(taskId)) tasks.set(taskId, { store, queue: Promise.resolve(), lines: Promise.resolve() });
     },
     submit(taskId, input) {
       const entry = tasks.get(taskId);
@@ -1120,6 +1431,14 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
         await sessions.prompt(run.sessionId, CONTINUE_NODE, closing.signal);
       });
     },
+    async detach(taskId) {
+      const entry = tasks.get(taskId);
+      if (entry === undefined) return;
+      await entry.queue;
+      await entry.lines;
+      tasks.delete(taskId);
+      for (const [sessionId, context] of conversations) if (context.taskId === taskId) conversations.delete(sessionId);
+    },
     onEvent(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -1136,6 +1455,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       await Promise.all([...tasks.values()].map((entry) => entry.queue));
       await Promise.all(background);
       contexts.clear();
+      conversations.clear();
       release();
     },
   };

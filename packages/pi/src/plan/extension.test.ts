@@ -376,7 +376,7 @@ describe("atriumPlan", () => {
     });
 
     expect([commands, hooks, tools.length, tools.slice(-2), flags]).toStrictEqual([
-      ["atrium-fast", "atrium-plan", "atrium-agent", "atrium-edit"],
+      ["atrium-fast", "atrium-plan", "atrium-agent", "atrium-task", "atrium-edit"],
       [
         "before_provider_request",
         "after_provider_response",

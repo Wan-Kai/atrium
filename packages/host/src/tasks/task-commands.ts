@@ -1,4 +1,10 @@
-import { type CommandResult, type HumanAnswer, type TaskUpdatedEvent, type TasksUpdatedEvent } from "@atrium/protocol";
+import {
+  CommandError,
+  type CommandResult,
+  type HumanAnswer,
+  type TaskUpdatedEvent,
+  type TasksUpdatedEvent,
+} from "@atrium/protocol";
 import type { Logger } from "../platform/logger";
 import type { TaskService } from "./task-service";
 import { summaryOf } from "./task-view";
@@ -15,6 +21,12 @@ export interface TaskCommands {
   list(connectionId: string, watch: boolean | undefined): Promise<CommandResult<"list_tasks">>;
   /** One task whole; the connection gets `task_updated` for it from then on, instead of for the one it had open. */
   open(connectionId: string, taskId: string): Promise<CommandResult<"open_task">>;
+  /** Makes a task of a conversation, answering its id; see the protocol's `create_task`. */
+  create(sessionId: string, scope: string | undefined): Promise<CommandResult<"create_task">>;
+  start(taskId: string): Promise<CommandResult<"start_task">>;
+  abandon(taskId: string): Promise<CommandResult<"abandon_task">>;
+  approveGraph(taskId: string): Promise<CommandResult<"approve_graph">>;
+  rejectGraph(taskId: string): Promise<CommandResult<"reject_graph">>;
   answerHuman(taskId: string, node: string, answer: HumanAnswer): Promise<CommandResult<"answer_human">>;
   rerunNode(taskId: string, node: string): Promise<CommandResult<"rerun_node">>;
   continueNode(taskId: string, node: string): Promise<CommandResult<"continue_node">>;
@@ -91,6 +103,8 @@ export function createTaskCommands(options: {
         if (opened.get(connectionId) === taskId) options.send(connectionId, { type: "task_updated", task });
       }
     } catch (error) {
+      // A task that was abandoned is gone on purpose; the list went out above, and there is nothing to push for it.
+      if (error instanceof CommandError && error.code === "task_not_found") return;
       options.logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "task push failed");
     }
   }
@@ -110,6 +124,23 @@ export function createTaskCommands(options: {
       const task = await service.view(taskId, stopping.signal);
       opened.set(connectionId, taskId);
       return { task };
+    },
+    create: (sessionId, scope) => service.createFromChat(sessionId, scope),
+    async start(taskId) {
+      await service.start(taskId);
+      return {};
+    },
+    async abandon(taskId) {
+      await service.abandon(taskId);
+      return {};
+    },
+    async approveGraph(taskId) {
+      await service.approveGraph(taskId);
+      return {};
+    },
+    async rejectGraph(taskId) {
+      await service.rejectGraph(taskId);
+      return {};
     },
     async answerHuman(taskId, node, answer) {
       await service.answerHuman(taskId, node, answer);

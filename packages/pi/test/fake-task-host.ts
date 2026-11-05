@@ -203,10 +203,9 @@ export class FakeTaskHost {
    */
   private reply(request: SeenCall, answer: FakeAnswer): void {
     if (answer.ok) {
-      this.pending =
-        request.op === "node_done"
-          ? { kind: "node_done", args: request.args }
-          : { kind: "request_graph_change", args: request.args };
+      if (request.op === "node_done") this.pending = { kind: "node_done", args: request.args };
+      else if (request.op === "request_graph_change")
+        this.pending = { kind: "request_graph_change", args: request.args };
     }
     const body = answer.ok
       ? { v: 1, id: request.id, ok: true, result: { recorded: true } }

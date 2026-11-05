@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { PARENT_TOOLS, READ_ONLY_TOOLS } from "../agent/words";
 import { TASK_TEXT_LIMITS, TaskErrorCode } from "./schema";
-import { NODE_TOOLS, errorText, nodeToolRefusal, nudgeText, resumeText, tooLong } from "./words";
+import {
+  NODE_TOOLS,
+  argumentFault,
+  conversationToolRefusal,
+  errorText,
+  graphTaken,
+  nodeToolRefusal,
+  nudgeText,
+  pageFooter,
+  resumeText,
+  tooLong,
+} from "./words";
 
 describe("errorText", () => {
   it("has words for every code, none of them the code itself", () => {
@@ -146,6 +157,54 @@ describe("nodeToolRefusal: the tools a node's role has", () => {
       for (const tool of agentTools) {
         expect(nodeToolRefusal(role, tool, agentTools)).toBe("A task node cannot start or talk to sub-agents.");
       }
+    }
+  });
+});
+
+describe("the words of the task conversation's tools (SPEC-0006, T6)", () => {
+  it("tells the model the graph was refused with the code and the node, and shows a missing code as ?", () => {
+    expect(errorText("task_graph_invalid", { code: "seq_cycle", node: "N2" })).toBe(
+      "Atrium refused the graph: seq_cycle (node N2). Fix the graph and call task_propose_graph again.",
+    );
+    expect(errorText("task_graph_invalid", { code: "no_sink" })).toBe(
+      "Atrium refused the graph: no_sink. Fix the graph and call task_propose_graph again.",
+    );
+    expect(errorText("task_graph_invalid", { node: 7 })).toContain("graph: ?.");
+  });
+
+  it("reads a schema issue as a limit passed or a parameter it cannot read", () => {
+    expect(argumentFault({ code: "too_big", path: ["text"], maximum: 32_000 })).toStrictEqual({
+      code: "task_text_too_long",
+      params: { param: "text", limit: 32_000 },
+    });
+    expect(argumentFault({ code: "too_big", path: [0], maximum: 5 })).toStrictEqual({
+      code: "task_text_too_long",
+      params: { param: "?", limit: 5 },
+    });
+    expect(argumentFault({ code: "too_big", path: ["text"] })).toStrictEqual({ code: "task_bad_request" });
+    expect(argumentFault({ code: "invalid_type", path: ["page"], maximum: 3 })).toStrictEqual({
+      code: "task_bad_request",
+    });
+  });
+
+  it("ends a page with where it is, only when there is more than one", () => {
+    expect(pageFooter(1, 1)).toBe("");
+    expect(pageFooter(1, 3)).toBe("\n[page 1 of 3; ask for the next page to read on]");
+    expect(pageFooter(3, 3)).toBe("\n[page 3 of 3]");
+  });
+
+  it("says whether a proposed graph is in force or waits for the user", () => {
+    expect(graphTaken(2, true)).toContain("only when the user approves");
+    expect(graphTaken(2, false)).toContain("in force");
+    expect(graphTaken(4, false)).toContain("version 4");
+  });
+
+  it("lets the task conversation use the read-only tools, its own and ask_user, and nothing that changes files", () => {
+    for (const tool of ["read", "bash", "ls", "task_status", "task_propose_graph", "ask_user"]) {
+      expect(conversationToolRefusal(tool)).toBeNull();
+    }
+    for (const tool of ["write", "edit", "agent_spawn", "node_done", "request_graph_change", "task_set_schedule"]) {
+      expect(conversationToolRefusal(tool)).toContain("The task conversation can only use");
     }
   });
 });

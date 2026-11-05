@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Caller, type TaskCall, checkCall, replyText } from "./channel";
+import { type Caller, type TaskCall, checkCall, checkConversationCall, replyText } from "./channel";
 import { Sim, agent, edges, need, newTask } from "./test-support";
 import type { Task } from "./types";
 
@@ -129,6 +129,43 @@ describe("replyText", () => {
       id: "c1",
       ok: false,
       code: "task_caller_invalid",
+    });
+  });
+});
+
+/** A task whose conversation is `ses_task`. */
+const task = (): Task => newTask([agent("N1")], []);
+
+describe('checkConversationCall: who may call the task conversation\'s tools (SPEC-0006, "调用方由宿主认定")', () => {
+  const conversation = { sessionId: "ses_task", taskId: "tsk_1", role: "conversation" as const };
+
+  it("takes the session whose record says conversation and that is this task's taskSessionId", () => {
+    expect(checkConversationCall(task(), conversation)).toStrictEqual({ ok: true });
+  });
+
+  it.each([
+    ["a node's session", { ...conversation, role: "node" as const }],
+    ["a conversation that is another session of the task", { ...conversation, sessionId: "ses_other" }],
+    ["a conversation of another task", { ...conversation, taskId: "tsk_2" }],
+  ])("refuses %s with task_caller_invalid", (_name, who) => {
+    expect(checkConversationCall(task(), who)).toStrictEqual({ ok: false, code: "task_caller_invalid" });
+  });
+
+  it("does not know a task that is gone", () => {
+    expect(checkConversationCall(undefined, conversation)).toStrictEqual({ ok: false, code: "task_not_found" });
+  });
+
+  it("answers a call with a result the tool reads, and a refusal with its code and parameters", () => {
+    const answered = body(replyText("c1", { ok: true }, { text: "t", page: 1, pages: 1 }));
+    const refused = body(replyText("c2", { ok: false, code: "task_graph_invalid", params: { code: "seq_cycle" } }));
+
+    expect(answered).toStrictEqual({ v: 1, id: "c1", ok: true, result: { text: "t", page: 1, pages: 1 } });
+    expect(refused).toStrictEqual({
+      v: 1,
+      id: "c2",
+      ok: false,
+      code: "task_graph_invalid",
+      params: { code: "seq_cycle" },
     });
   });
 });

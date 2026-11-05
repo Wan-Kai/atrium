@@ -307,12 +307,20 @@ describe('taskLaunchFlags (SPEC-0006, "一个 agent 节点怎么跑 · 起")', (
     }
   });
 
-  it("is none for a session of no node: an ordinary session, a child, a task conversation, a node without a role", () => {
+  it("gives the task conversation the read-only list, its eight tools and ask_user; no edit, write or agent tool", () => {
+    const flags = taskLaunchFlags({ ...entry("t"), task: { taskId: "tsk_1", role: "conversation", startOn: null } });
+
+    expect(selfOf(flags)).toStrictEqual({ v: 1, kind: "conversation" });
+    expect(flags?.slice(1)).toStrictEqual([
+      "--tools",
+      "read,bash,ffgrep,fffind,ls,task_read_source,task_set_summary,task_set_meta,task_status,task_read_node,task_diff,task_propose_graph,task_send_to_node,ask_user",
+    ]);
+    expect(flags?.some((flag) => flag.startsWith("--atrium-agent"))).toBe(false);
+  });
+
+  it("is none for a session of no node: an ordinary session, a child, a node without a role", () => {
     expect(taskLaunchFlags(entry("main"))).toBeNull();
     expect(taskLaunchFlags(entry("child", ["main", "agent"], ["work", "flags"]))).toBeNull();
-    expect(
-      taskLaunchFlags({ ...entry("t"), task: { taskId: "tsk_1", role: "conversation", startOn: null } }),
-    ).toBeNull();
     expect(taskLaunchFlags(node())).toBeNull();
     expect(taskLaunchFlags(undefined)).toBeNull();
   });
@@ -330,9 +338,9 @@ describe("sessionLaunchFlags: a session of a task never gets the agent's flags",
     expect(sessionLaunchFlags([entry("main")], "main")).toStrictEqual(agentLaunchFlags([entry("main")], "main"));
   });
 
-  it("refuses a node without a role and a task conversation instead of starting them with every tool", () => {
+  it("refuses a node without a role instead of starting it with every tool, and starts a task conversation read-only", () => {
     expect(() => sessionLaunchFlags([node()], "node")).toThrow("a task session without a launch path");
     const conversation = { ...entry("t"), task: { taskId: "tsk_1", role: "conversation" as const, startOn: null } };
-    expect(() => sessionLaunchFlags([conversation], "t")).toThrow("a task session without a launch path");
+    expect(sessionLaunchFlags([conversation], "t")).toStrictEqual(taskLaunchFlags(conversation));
   });
 });

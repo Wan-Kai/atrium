@@ -1,14 +1,14 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 30,
+    "protocolVersion": 31,
     "clientId": "c1",
     "token": "t",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
     "type": "hello",
-    "protocolVersion": 30,
+    "protocolVersion": 31,
     "clientId": "dev_0123456789abcdef",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
@@ -1044,5 +1044,42 @@
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
     "taskId": "tsk_0123456789abcdef",
     "answer": "keep"
+  },
+  {
+    "type": "create_task",
+    "requestId": "r102",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "ses_src"
+  },
+  {
+    "type": "create_task",
+    "requestId": "r103",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "ses_src",
+    "scope": "only the login flow"
+  },
+  {
+    "type": "start_task",
+    "requestId": "r104",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
+  },
+  {
+    "type": "abandon_task",
+    "requestId": "r105",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
+  },
+  {
+    "type": "approve_graph",
+    "requestId": "r106",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
+  },
+  {
+    "type": "reject_graph",
+    "requestId": "r107",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
   }
 ]

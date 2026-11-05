@@ -7,8 +7,8 @@ import type { NodeId, Task } from "./types";
  * arguments hold, and how the answer goes back.
  */
 
-/** A call from the extension. */
-export type TaskCall = Extract<TaskRequest, { kind: "call" }>;
+/** A call from a node's extension. */
+export type TaskCall = Extract<TaskRequest, { kind: "call"; op: "node_done" | "request_graph_change" }>;
 
 /** The session a call came from, as the host knows it (never from the call's own words). */
 export interface Caller {
@@ -93,22 +93,54 @@ export function checkCall(task: Task | undefined, caller: Caller, call: TaskCall
   return said(call.args.suggestion) ? { ok: true } : invalid("suggestion");
 }
 
+/** Who is calling a tool of the task conversation, as the host knows it from the session's record. */
+export interface ConversationCaller {
+  readonly sessionId: string;
+  /** The task the session's record belongs to. */
+  readonly taskId: string;
+  readonly role: "node" | "conversation";
+}
+
+/**
+ * Decides whether the host takes a call of the task conversation's tools.
+ *
+ * @remarks
+ * SPEC-0006, "扩展与通道": `task_*` come only from the session whose record says `role: "conversation"` and
+ * that is this task's `taskSessionId`; anything else, a node most of all, is `task_caller_invalid` and nothing is
+ * executed. The caller is the session the request came from, never what the arguments say. A task that is gone is
+ * `task_not_found`.
+ *
+ * @sideEffects none
+ * @param task - The task, or `undefined` when it is not known.
+ * @param caller - The session the call came from.
+ * @returns The verdict.
+ */
+export function checkConversationCall(task: Task | undefined, caller: ConversationCaller): CallVerdict {
+  if (task === undefined) return { ok: false, code: "task_not_found" };
+  if (caller.role !== "conversation" || caller.taskId !== task.id || task.taskSessionId !== caller.sessionId) {
+    return { ok: false, code: "task_caller_invalid" };
+  }
+  return { ok: true };
+}
+
 /**
  * The hidden command that answers a call.
  *
  * @remarks
- * `/atrium-task reply <base64url>` (ADR-0013, point 2). An accepted call is answered `{ recorded: true }`.
+ * `/atrium-task reply <base64url>` (ADR-0013, point 2). An accepted call is answered `{ recorded: true }`,
+ * or with the result a tool of the task conversation reads.
  *
  * @sideEffects none
  * @param id - The call's id.
  * @param verdict - The verdict.
+ * @param result - What an accepted call answers with.
  * @returns The text to send pi as a prompt.
  */
-export function replyText(id: string, verdict: CallVerdict): string {
+export function replyText(id: string, verdict: CallVerdict, result: unknown = { recorded: true }): string {
   return taskCommandText(
     "reply",
     verdict.ok
-      ? { v: 1, id, ok: true, result: { recorded: true } }
+      ? { v: 1, id, ok: true, result }
       : {
           v: 1,
           id,

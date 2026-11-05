@@ -136,10 +136,29 @@ function onGraphProposed(draft: Draft, event: Of<"graph_proposed">): boolean {
   });
   if (task.startedAt === null) {
     task.activeGraph = version;
+    if (event.guide !== undefined) task.guide = { ...event.guide };
   } else {
     task.pendingGraph = version;
     notify(draft, { kind: "graph_approval" });
   }
+  return true;
+}
+
+/**
+ * Applies `summary_set`: the requirement summary the task conversation wrote.
+ *
+ * @remarks
+ * SPEC-0006, "任务对话": only while the task is being designed; the service answers `task_state_invalid` to
+ * the tool after it started (a changed summary then would be a changed graph), and the event is ignored here.
+ *
+ * @sideEffects Changes the draft's task.
+ * @param draft - The step.
+ * @param event - The event.
+ * @returns Whether it applied.
+ */
+function onSummarySet(draft: Draft, event: Of<"summary_set">): boolean {
+  if (draft.task.startedAt !== null) return false;
+  draft.task.summary = event.summary;
   return true;
 }
 
@@ -915,6 +934,8 @@ function apply(draft: Draft): boolean {
   switch (event.type) {
     case "graph_proposed":
       return onGraphProposed(draft, event);
+    case "summary_set":
+      return onSummarySet(draft, event);
     case "started":
       return onStarted(draft);
     case "abandoned":

@@ -1,7 +1,7 @@
 import type { AtriumClient } from "@atrium/client";
 import { type FauxReply, GIT_SCENE_ENV, createGitScene, createTempDir, fauxPi, present } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
-import { access, chmod, mkdir, realpath, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, onTestFinished, vi } from "vitest";
@@ -82,8 +82,28 @@ async function realPi(): Promise<string> {
   throw new Error("pi is not on PATH; the task tests need it installed");
 }
 
+/** What the first message of the conversation tasks are made from starts with, which names it in a faux script. */
+export const SOURCE_PROMPT = "Let's plan the out.txt task";
+
+/** What the first message of a task conversation starts with (SPEC-0006, "/task 与创建"). */
+export const DESIGN_START = "<atrium-task-design>";
+
+/** The replies of the conversations besides the nodes'. */
+export interface TaskHostScripts {
+  /** What the task conversation says, in order across its turns (the design turn, then any wake). */
+  readonly design?: readonly FauxReply[];
+  /** What the source conversation answers to `SOURCE_PROMPT`. */
+  readonly source?: readonly FauxReply[];
+}
+
 /** A host with a project, a conversation to make tasks from, and a faux model that scripts every node. */
 export interface TaskHost {
+  /** The conversation tasks are made from. */
+  readonly origin: string;
+  /** Says `SOURCE_PROMPT` in the source conversation and waits for its reply to end. */
+  discuss(): Promise<void>;
+  /** The text of a session's file, found by the session's id among the files pi wrote. */
+  fileText(sessionId: string): Promise<string>;
   readonly host: TestHost;
   readonly client: AtriumClient;
   /** The project's repository. */
@@ -122,7 +142,10 @@ export interface TaskHost {
  * @param conversations - The replies of each node, by node id.
  * @returns The harness.
  */
-export async function startTaskHost(conversations: Readonly<Record<string, readonly FauxReply[]>>): Promise<TaskHost> {
+export async function startTaskHost(
+  conversations: Readonly<Record<string, readonly FauxReply[]>>,
+  scripts: TaskHostScripts = {},
+): Promise<TaskHost> {
   const dir = await createTempDir("task-host");
   onTestFinished(dir.cleanup);
   const scene = await createGitScene("task-host-repo");
@@ -130,10 +153,16 @@ export async function startTaskHost(conversations: Readonly<Record<string, reado
   const launch = await fauxPi(
     {
       replies: [],
-      byConversation: Object.entries(conversations).map(([node, replies]) => ({
-        startsWith: contractStart(node),
-        replies,
-      })),
+      // The title the host asks for after the source conversation's first exchange.
+      title: "A title",
+      byConversation: [
+        ...Object.entries(conversations).map(([node, replies]) => ({
+          startsWith: contractStart(node),
+          replies,
+        })),
+        ...(scripts.design === undefined ? [] : [{ startsWith: DESIGN_START, replies: scripts.design }]),
+        { startsWith: SOURCE_PROMPT, replies: scripts.source ?? [{ blocks: [{ type: "text", text: "Understood." }] }] },
+      ],
     },
     dir.path,
   );
@@ -185,6 +214,24 @@ export async function startTaskHost(conversations: Readonly<Record<string, reado
   const { sessionId: origin } = await first.client.createSession(workspaceId);
   const current = { ...first };
   const harness: TaskHost = {
+    origin,
+    async fileText(sessionId) {
+      const found = (await readdir(dir.path, { recursive: true })).find((name) => name.endsWith(`_${sessionId}.jsonl`));
+      if (found === undefined) throw new Error(`no session file for ${sessionId}`);
+      return readFile(join(dir.path, found), "utf8");
+    },
+    async discuss() {
+      await current.client.prompt(origin, SOURCE_PROMPT);
+      await vi.waitFor(
+        () => {
+          const found = current.client.index.getState().sessions.find((one) => one.sessionId === origin);
+          // pi writes the file with the first reply, so a persisted, idle session has the exchange on file.
+          if (found?.state !== "persisted" || found.running)
+            throw new Error("the source conversation is not on file yet");
+        },
+        { timeout: 30_000, interval: 50 },
+      );
+    },
     get host() {
       return current.host;
     },

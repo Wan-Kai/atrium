@@ -1561,6 +1561,23 @@
       }
     }
   ],
+  "create_task": [
+    {
+      "taskId": "tsk_0123456789abcdef"
+    }
+  ],
+  "start_task": [
+    {}
+  ],
+  "abandon_task": [
+    {}
+  ],
+  "approve_graph": [
+    {}
+  ],
+  "reject_graph": [
+    {}
+  ],
   "answer_human": [
     {}
   ],

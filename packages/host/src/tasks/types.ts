@@ -258,7 +258,11 @@ export const TaskEvent = z.discriminatedUnion("type", [
     note: z.string(),
     nodes: z.array(GraphNode),
     edges: z.array(GraphEdge),
+    /** The guide the graph follows (T6); taken while the task is being designed, ignored after it started. */
+    guide: z.strictObject({ id: z.string().min(1), version: z.number().int().min(1) }).optional(),
   }),
+  /** The requirement summary was written (T6); taken only while the task is being designed. */
+  event("summary_set", { summary: RequirementSummary }),
   event("graph_approved", {}),
   event("graph_rejected", {}),
   event("started", {}),

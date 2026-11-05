@@ -501,6 +501,20 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     clock,
     logger,
     archiving: createTaskArchiving({ projects, git, inspector, archiver }),
+    design: {
+      sessions: sessions.taskSessions,
+      // A worktree the source conversation is in is lent to the task; a chat belongs to no project.
+      placement: (containerId) => {
+        const workspace = projects.workspaces().find((candidate) => candidate.id === containerId);
+        return {
+          projectId: workspace?.projectId ?? null,
+          borrowed:
+            workspace?.kind === "worktree"
+              ? { workspaceId: workspace.id, baseCommit: workspace.baseCommit ?? null }
+              : null,
+        };
+      },
+    },
   });
   const taskCommands = createTaskCommands({
     service: tasks,

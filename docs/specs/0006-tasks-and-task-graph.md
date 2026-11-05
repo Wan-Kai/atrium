@@ -2,7 +2,7 @@
 
 - **状态**：已确认（2026-11-04 用户确认执行方案）
 - **创建**：2026-11-04
-- **更新**：2026-11-04（同日按外部审查修订：节点会话与 SPEC-0002 分开、`held` 与 `stopped` 分开、提醒改用 `triggerTurn`、路径隔离按 pi 的解析规则、建 worktree 关掉钩子、合并前的检查、动作幂等）
+- **更新**：2026-11-04（同日按外部审查修订：节点会话与 SPEC-0002 分开、`held` 与 `stopped` 分开、提醒改用 `triggerTurn`、路径隔离按 pi 的解析规则、建 worktree 关掉钩子、合并前的检查、动作幂等）；2026-11-05（T6：任务对话的工具、`/task`、引导词，见“T6 定下的细节”和附录）
 - **相关**：
   - 子对话与扩展通道：SPEC-0002、ADR-0013
   - 问用户：SPEC-0003
@@ -547,7 +547,7 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 | 工具 | 做什么 |
 |---|---|
 | `task_read_source({ page? })` | 分页读来源对话（只读；创建时用） |
-| `task_set_summary({ summary })` | 写需求摘要（`designing` 时；启动后改摘要算改图） |
+| `task_set_summary({ summary })` | 写需求摘要（`designing` 时；启动后改摘要算改图；T6 起 `summary` 是六个字段的对象，启动后一律拒绝，见“T6 定下的细节”） |
 | `task_set_meta({ name?, model? })` | 改任务名、任务模型（任务模型只影响还没开始的、继承任务模型的节点） |
 | `task_status()` | 当前图、每个节点的状态与用时、任务状态、待批准的图 |
 | `task_read_node({ id, what: "contract" \| "summary" \| "transcript" })` | 读某个节点的契约、交接摘要或对话全文（截断到 4000 字，分页） |
@@ -743,7 +743,7 @@ type ScheduleRule = {
 
 ### 扩展与通道
 
-- 任务扩展在 `packages/pi/src/task/`，由 `packages/pi/src/extension/atrium.ts` 注册。它按启动参数 `--atrium-task=<base64url JSON>` 决定这个会话是节点、任务对话，还是都不是（都不是时什么也不注册）。参数只说会话的种类和角色，不用来认身份。
+- 任务扩展在 `packages/pi/src/task/`，由 `packages/pi/src/extension/atrium.ts` 注册。它按启动参数 `--atrium-task=<base64url JSON>` 决定这个会话是节点、任务对话，还是都不是（都不是时不注册工具，只注册隐藏命令里的 `mark`，T6 起）。参数只说会话的种类和角色，不用来认身份。
 - 工具调用经 ADR-0013 的通道：
   - 扩展 `setStatus("atrium-task:<id>", JSON)` 发请求、挂着等；
   - 宿主用隐藏命令 `/atrium-task reply <id> <base64url>` 回答；
@@ -813,6 +813,8 @@ type ScheduleRule = {
   - 协议里的枚举（节点状态、失败原因含 `commit`、`merge_blocked` 的原因含 `merge_git_failed`、`waitingFor`、任务状态）是宿主类型的镜像，宿主的单元测试比对两边。
   - 列表行的 `attention`：`failed` > `merge_blocked` > `human` > `question` > `graph_change`，都不是则 `null`（T5 自己定的，分组仍按 `status`）。
 
+- **T6 做了什么**（2026-11-05，协议号 30 → 31；合回 `main` 时取当时的下一个号并重新生成 Swift 投影）：命令 `create_task`（答 `{ taskId }`）、`start_task`、`abandon_task`、`approve_graph`、`reject_graph`，全是 `local_only`（手机只读）；错误码 `task_graph_invalid`（`params.code`、`params.node`）、`task_already_converted`（`params.taskId`）、`task_no_project_for_work` 进协议。`TaskView` 没加字段（需求摘要、来源会话 id、引导词给界面用，T7 再加）。`start_task` 在规则模板上是“确认并保存规则”属 T10。
+
 ### 错误码
 
 | 错误码 | 什么时候 |
@@ -828,7 +830,7 @@ type ScheduleRule = {
 | `workspace_in_task` | 归档或删除一个被任务锁着的 worktree（`params.taskId`）；只认锁的原因正好是 `atrium task <id>` 的，你自己加的锁照旧报 `worktree_remove_failed` |
 | `schedule_not_found` | 规则不存在 |
 
-T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协议（`packages/protocol/src/errors.ts`）；其余（`task_graph_invalid`、`task_already_converted`、`task_no_project_for_work`、`task_caller_invalid` 的命令侧、`schedule_not_found`）随 T6、T10。`task_state_invalid` 在 T5 里是：对不在等的 human 节点答、对没失败的节点"重跑"、对没停下的节点"继续"、暂停已暂停的、恢复没暂停的、取消没启动或已结束的、对已结束的任务答 human、回答不存在的打回边、对没有开着的归档提问答归档。`worktree_config_unsafe` 的 `params.reason` 多一个 `driver_name`。界面的说法留给 T7（现在没有界面用到这些码，加了没人调的导出会被 knip 拦）：`task_not_found` →"这个任务已经不在了"；`task_state_invalid` →"任务的状态变了，刷新后再试"；`task_back_limit` →"这条打回边已经用了两次"；`merge_git_failed` →"git 出错了，没有合并，主目录没动"。
+T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协议（`packages/protocol/src/errors.ts`），T6 加了 `task_graph_invalid`、`task_already_converted`、`task_no_project_for_work`；`task_caller_invalid` 只在扩展通道里（工具调用的应答），不是命令的错误；`schedule_not_found` 随 T10。`task_state_invalid` 在 T5 里是：对不在等的 human 节点答、对没失败的节点"重跑"、对没停下的节点"继续"、暂停已暂停的、恢复没暂停的、取消没启动或已结束的、对已结束的任务答 human、回答不存在的打回边、对没有开着的归档提问答归档。`worktree_config_unsafe` 的 `params.reason` 多一个 `driver_name`。界面的说法留给 T7（现在没有界面用到这些码，加了没人调的导出会被 knip 拦）：`task_not_found` →"这个任务已经不在了"；`task_state_invalid` →"任务的状态变了，刷新后再试"；`task_back_limit` →"这条打回边已经用了两次"；`merge_git_failed` →"git 出错了，没有合并，主目录没动"。
 
 合并被挡住不是命令的错误，是节点的 `blocked` 原因：
 
@@ -851,9 +853,61 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 - **`continue_node` 就是在节点自己的对话里发一条"继续"**（`CONTINUE_NODE`，和你亲手在那里发消息一样）：节点上的那次运行开始，宿主据此记 `node_resumed`；不另设事件。节点的会话没起着时先 `open`。
 - **`list_tasks` 读磁盘上还没取用的任务**（只读文件，不 `recover`）；重启后把在跑的任务接起来仍是 T9，所以 T5 之后、T9 之前重启宿主，在跑的任务会出现在列表里，但不会接着跑。
 - **`tasks_updated` 每次发整张列表，`task_updated` 发整个任务**；一条连接一次只开一个任务。推送在任务的每个事件之后、按事件顺序、一个一个算（归档事实要跑 git）；算不出来的只记日志，不拦下一个。
-- **`notify`、`progress_line`、`wake_task_conversation` 仍只记调试日志**：前两个是界面（T7）的事，第三个是任务对话（T6）的事。`attention` 是列表行自己从节点状态算的，不依赖 `notify`。
+- **`notify` 仍只记调试日志**（界面 T7 的事）；`progress_line` 和 `wake_task_conversation` 在 T6 接上了（见“T6 定下的细节”）。`attention` 是列表行自己从节点状态算的，不依赖 `notify`。
 - **`pnpm task:try`**：有 stdin 时，human 节点等你时打出它的做什么 / 怎样算完成 / 上游摘要 / `git diff --shortstat` / 合并被挡的原因和文件 / 选项，读一行回答（`p` 通过；`b <节点> [原因]` 打回，没写原因就再问；`q` 退出）；合并被挡后同样的提示，再 `p` 就是重试；任务结束时问归档（`a` / `k` / `q`），归档被拒（未提交的改动）会说明并再问。没有 stdin（读到末尾）就和以前一样停在 human 节点。示例图 `packages/host/examples/explore-work-check-merge.json`（explore → work → check → human(`merge`)，human ⇢ work）。
 - **没做 / 留给后面**：`TaskView` 不带改动统计（界面用 `watch_changes`，T7）；没有 `notify` 的界面（T7）；`task_graph_invalid` 等 T6 的命令和错误码；重启后的接续（T9）；界面的说法（T7）；`request_graph_change` 的理由落盘（T9）。
+
+### T6 定下的细节
+
+2026-11-05，T6（任务对话与 `/task`）实现时定下。SPEC 原文没答的，都取保守的一边。
+
+**任务对话的工具**
+
+- **八个，不是九个**：`task_set_schedule` 不注册。它的消费者是定时（T10）：现在注册了，任务对话会向用户许诺一条不会有人跑的规则，`scheduleDraft` 也没有“确认并保存规则”可接。T10 一起加（含事件和按钮）。表里保留这一行。
+- **选引导词**：`task_propose_graph` 多一个可选的 `guide`（`feature` / `fix` / `scheduled_fix` / `research`）。设计中提交时，宿主把 `{ id, version }` 记进 `task.guide`（事件 `graph_proposed` 带 `guide`）；启动后提的图忽略它；一直不填，`guide` 保持 `{ id: "default", version: 1 }`，意思是“还没选”。没放进 `task_set_meta`：提图是必经的一步，不会忘。
+- **`task_set_summary`**：`summary` 是对象，六个字段：`goal`（必填）、`decisions`、`constraints`、`nonGoals`、`openQuestions`、`acceptance`（各至多 50 条、每条至多 2 000 字），整体替换（事件 `summary_set`）。启动后一律 `task_state_invalid`：SPEC 原文是“启动后改摘要算改图”，但摘要不是图，批准流程里没有它的位置；保守做法是启动后不开这个口子，要改的话提新图，在 `note` 里说明。
+- **`task_set_meta`**：名字至多 200 字、去首尾空白；`model` 不写 `thinking` 就沿用任务现在的档位；至少要给 `name` 或 `model` 之一（`task_args_invalid`，`field: "name"`）。宿主**不核对模型是否存在**（那要问模型清单，T6 不加端口）：写错的模型会让还没开始的节点 `failed(crashed)`，见风险。
+- **读工具**：
+  - 分页，每页 12 000 字符，`page` 从 1 起，超出末页 `task_args_invalid`（`field: "page"`）；
+  - 内容是别的会话或节点写的，宿主把每页包进 `<atrium-quoted from="来源对话 | N2 · 名字 | worktree diff">`，先转义冒充外壳的标记（ADR-0013 第 10 条）；
+  - `task_read_source` 读来源对话当前所在的分支（从最后一条沿父节点往根走），只含用户和助手的话（不含思考、工具），压缩过的显示摘要；
+  - `task_read_node` 的 `contract` 是节点现在会（或已经）收到的契约（只给 agent 节点，human 节点 `task_args_invalid`）；`summary` 是最新一条 NodeRun 的交接摘要；`transcript` 带工具调用（参数截 300 字）和结果（截 800 字）；只认当前生效的图里的节点；
+  - `task_diff` 是 worktree 相对起点（或 `since` 节点最新一条 NodeRun 的提交）的 `git diff --stat --patch`，走 `runSafeGit`（关掉钩子、过滤器、外部 diff、textconv）并钉死 `--work-tree`，超过 20 000 字截断；`since` 的节点没有提交 → `task_args_invalid`（`field: "since"`）；没有 worktree 或起点 → `task_state_invalid`；
+  - `task_status` 给 JSON：任务状态、模型、引导词、生效的图和每个节点的状态、待批准的图（整份）；不含节点写的交接摘要和理由（那些经 `task_read_node` 读，带外壳）。
+- **读不受限、改受限**：任务结束（`done` / `cancelled`）后 `task_set_summary`、`task_set_meta`、`task_propose_graph`、`task_send_to_node` 都是 `task_state_invalid`；`task_status`、`task_read_*`、`task_diff` 一直能用，任务对话可以回答“到哪一步了、结果如何”。
+- **`task_send_to_node`**：节点最新一条 NodeRun 在 `running`、有会话、不在等提交才行，否则 `task_state_invalid`；节点 id 不在生效的图里 → `task_args_invalid`（`field: "id"`）。发出的是 `<atrium-task-note from="任务对话">` 包着的话（说明这不是用户直接说的，做不做以契约为准），用 `prompt` 加 `streamingBehavior: "steer"`：pi 在跑就排到下一个轮次边界，空闲就开新的一轮。它和用户插话一样会让待结算的 `node_done` 作废。
+- **`task_propose_graph` 的校验**：节点和边先用宿主自己的 schema 读（多余字段、类型不对 → `task_args_invalid`，`field: "nodes"` / `"edges"`），再过 GraphValidator（启动后带上任务）；第一条问题 → `task_graph_invalid`（`params.code`、`params.node`）。`no_project_for_work` 在通道里也报成 `task_graph_invalid`；`start_task` 里才用 `task_no_project_for_work`。
+- **调用方**：任务对话的请求在任务队列里按事件的顺序处理（`TaskRunner.handleConversationRequest`）。`task_*` 只认记录里 `role: "conversation"`、且正是这个任务 `taskSessionId` 的会话（`checkConversationCall`）；节点的会话发 `task_*`、任务对话发 `node_done` / `request_graph_change`，一律 `task_caller_invalid`，什么也不执行。节点的 pi 本来就没注册 `task_*` 工具（扩展按启动参数），宿主的核对是第二道。
+- **启动**：`--tools` 是 SPEC-0002 的只读白名单（`read, bash, ffgrep, fffind, ls`）+ 八个工具 + `ask_user`；扩展的 `tool_call` 钩子再拦一遍（`edit`、`write`、`agent_*`、`node_done` 被拦）。不加路径隔离和 git 拦截（它没有 `edit` / `write`）；它的 `bash` 在 `sourceDir`（项目的主检出目录）里，信任度同 SPEC-0002 的 `explore` 子对话。模型 = 来源对话当前的模型（运行着的 pi 的，否则会话文件里最后记的）。
+
+**进度行与唤醒**
+
+- 进度行是 `/atrium-task progress`，多两个可选字段：`what`（调度器的 `ProgressLine.kind`，如 `node_started`）和 `node`，写进 `details`，让界面（T7）自己拼话；正文是英文一行 `Atrium task event: node_started N2`（宿主不产出给用户看的文字；任务对话的模型也读得到，不调模型）。行 id 是调度器给的（事件 `seq` 加行号），扩展按 id 去重，重放不写两次。
+- 写进度行和唤醒走每个任务自己的一条链（`TaskEntry.lines`），不占任务队列：打开任务对话的 pi 要几秒，不能拖住调度。宿主关闭时在途的命令被取消，不记失败。任务的 `taskSessionId` 不是宿主起的任务对话（手工造的任务、`task:try`）就什么也不写。
+- **唤醒**（`wake_task_conversation`）是 `/atrium-task resume`（`kind: "wake"`，命令 id `w<seq>`）：事件给的话，加上每个正在 `waiting(graph_change)` 的节点的理由和建议（节点写的，包 `<atrium-quoted from="N2 · 名字">`，建议截 12 000 字，来自内存），加一句指示（先 `task_status`，再 `task_propose_graph`；新图要等批准；说一两句）。理由和建议仍只在内存里，落盘属 T9：宿主重启后的再唤醒只有“N2 申请改图”。
+- 批准或拒绝改图后，任务对话不会收到专门的消息（调度器没有这个动作）；它用 `task_status` 看；节点按 T4 收到 `resume`。
+
+**`/task` 与创建**
+
+- 命令：`create_task(sessionId, scope?)`。一次只处理一个（串行），所以同一对话的两个 `/task` 不会都过检查。顺序：
+  1. 已经有任务（含 `done`、`cancelled`、已启动的）→ `task_already_converted`（`params.taskId`）。放弃的不算：放弃后记录就删了，崩溃留下的半删记录（`cancelled` 且没启动）不列出、也不挡重新 `/task`；
+  2. 来源对话不存在、已归档、是任务的会话 → `session_not_found`；还没有模型（一次都没跑过的草稿）→ `task_state_invalid`；
+  3. 起任务对话（目录 `sourceDir` = 来源对话的目录，模型同来源，记录 `task: { role: "conversation", startOn }`），再写 `created`：`designing`、没有图（`graphs: []`、`activeGraph: 0`）、引导词“还没选”、任务名先取来源对话的名字（截 120 字，没有则空，设计消息要求任务对话用 `task_set_meta` 起名）；
+  4. 发 `<atrium-task-design>`（正文见附录）；发不出去就把任务撤回（按放弃的做法）并把错误抛给调用方，不留一个没人交代的任务对话；
+  5. 来源对话写 `converted` 行；写失败只记日志，任务照样在。
+- 来源对话在 worktree 里：借用它，`ownsWorkspace = false`、`workspaceState = "ready"`、`workspaceId` = 它，`baseCommit` 取工作区记的（没有就 `null`）；在项目本地目录：第一个要 worktree 的节点开跑前建；不属于项目（聊天）：`projectId = null`。
+- **来源对话的行**用 `/atrium-task mark`（`converted` / `abandoned`，命令 id `m.<任务 id>.<状态>`）。来源对话是普通会话、没有任务标记，所以 `mark` 是所有会话都收的一个动作（扩展不再对“都不是”的会话什么都不注册：工具仍不注册，命令注册，除 `mark` 外的动作对它们无效）。会话文件只增不改，所以“改成任务已放弃”是**再写一行**，界面（T7/T8）按任务 id 取最后一行；`details: { kind: "converted", taskId, state }`，正文是一句英文，说明这是 Atrium 的记号。这些行在对话记录里怎么画是 T7 的事（T6 不改 `toLogEntry`）。
+- **放弃**（`abandon_task`）：只在 `designing` 且未取消，否则 `task_state_invalid`。顺序：`abandoned` 事件 → 运行器放手（等队列清完）→ 删任务目录 → 归档任务对话（停 pi、标记归档）→ 来源对话写 `abandoned` 行。
+- **启动**（`start_task`）：要 `designing` 且有生效的图（没有图 → `task_state_invalid`）；再过一次 GraphValidator（不属于项目则 `projectless`）：第一条问题是 `no_project_for_work` → `task_no_project_for_work`，其他 → `task_graph_invalid`（`params.code`、`params.node`）。
+- **批准 / 拒绝**（`approve_graph` / `reject_graph`）：要已启动、没结束、有待批准的图，否则 `task_state_invalid`。批准前用任务现在的状态再校验一次待批准的图（`started: task`），不通过 → `task_graph_invalid`，用户可以拒绝让节点按原图做。“等着的 human 节点多了没通过的上游就回到 `pending`”是调度器 T3 已做的（`onGraphApproved`），T6 的主机层测试覆盖了批准后接着跑。
+
+**`pnpm task:design`**
+
+- `pnpm task:design --from <会话 id> [--scope <文字>] [--model <provider/model[:thinking]>] [--home <目录>] [--sessions <目录>] [--cwd <目录>] [--timeout <秒>] [--keep]`：用真实模型对一段已有对话跑任务对话的设计那一轮，打印需求摘要、初始图、选了哪套引导词、任务对话最后对用户说的话，以及几条提醒（实现节点后面没有 `check` 节点、图没有 human 节点）。不启动任务。
+- **怎么保证不碰真实对话**：它只读两样——`--sessions`（默认 pi 自己的会话目录）里那一个会话文件，和（`--home` 默认 `~/.atrium`）；把那个文件**复制**进一个新建的临时目录，在那里起一个自己的宿主（自己的 Atrium home、自己的 pi 会话目录）并对**副本**跑 `createFromChat`，所以 `converted` 行写进副本；真实的 home 和会话目录从不传给宿主。每次先后各算一次原文件的内容哈希和修改时间并打印，不一致就退出码 1；临时目录在真实的 home 或会话目录里就拒绝运行。设计这一轮用的是对话的目录（或 `--cwd`）当工作目录，工具只读，但 `bash` 不受只读约束；想完全不碰仓库，用 `--cwd` 指一份仓库的副本。`--model` 只换任务对话用的模型（默认同来源对话）；`--timeout`（默认 300 秒）从任务建好算起，等宿主认出副本另有 120 秒。
+- 退出码：0 提出了图，1 没有图或出错或原文件变了，2 用法错，130 被打断。
+
+**没做、留给后面**：`task_set_schedule` 与 `scheduleDraft`（T10）；`TaskView` 的摘要、引导词、来源会话字段和“已转为任务”“进度行”在对话记录里的画法（T7）；宿主重启后接回任务对话（T9）；`request_graph_change` 的理由落盘（T9）；核对任务和节点的模型是否存在；`/task` 在输入框里的拦截（T8）。
 
 ## 备选方案
 
@@ -889,6 +943,9 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 - [ ] **宿主自己的提交不跑项目的钩子**：为了不执行 agent 放进 `.git/hooks` 的东西。lefthook 之类的检查要靠 `check` 节点。
 - [ ] **路径隔离不是沙箱**：`cp`、重定向、脚本里的写入拦不住。
 - [ ] **引导词写死**：效果全靠这四段说明，调优只能改代码发版；先接受，等用出经验再做设置页。
+- [ ] **引导词的效果**（T6）：四段话全靠它们让任务对话拆出合理的图；定稿前要用真实对话反复试（`pnpm task:design`），改了文字就加版本号。小改动倾向于选 `feature` 而不是 `fix`（`fix` 偏“一个已知的小问题”），定时修复的图是固定的、没有条件分支，所以没坏的那天也会走到最后一个 human 节点。
+- [ ] **模型不核对**（T6）：`task_set_meta` 写了不存在的模型，宿主不拦，还没开始的节点会 `failed(crashed)`；以后有模型清单的端口再核对。
+- [ ] **任务对话的 `bash` 在主检出目录**（T6）：它是只读角色，但 `bash` 本身不受限，同 SPEC-0002 的 `explore` 子对话；见 security.md。
 
 ## 实施计划
 
@@ -954,3 +1011,88 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 - **泄漏**：任务跑完、取消、宿主关闭后，没有残留的 pi 进程、监听和定时器（`pnpm test:leak`）。
 - **端到端**：从对话 `/task`，确认启动，在列表里答一个多选，验收合并，归档时选"归档"。
 - 每条新行为登记到 `docs/testing/coverage-map.md`。
+
+## 附录：引导词（T6）
+
+四套引导词和任务对话的第一条消息写死在代码里（`packages/host/src/tasks/guides.ts`、`design.ts`），这里是全文，验收时照这里调：改了文字就同时改代码，并把对应引导词的 `version` 加一（任务记着自己用的是哪个版本）。每套是写给任务对话 agent 的一段话，定了常用的节点顺序和每个节点的默认角色、默认位置；agent 按需求选一套（提图时 `guide` 填 id）、按需增减。共同的底线：**实现的节点不验证自己**，验证一定是单独的 `check` 节点，审查是单独的 `advise` 节点。
+
+### 第一条消息（`<atrium-task-design>`）
+
+```
+<atrium-task-design>
+用户把一段需求对话转成了任务。你是这个任务的任务对话：先整理需求，再按下面的引导词设计任务图，之后用户会在这里和你商量怎么改图。
+【来源对话】{会话 id}（用 task_read_source 读）
+【范围】{用户在 /task 后写的范围，包 <atrium-quoted>；没写则“用户没有限定范围，整段对话都算。”}
+【项目】{属于项目 / 不属于项目的说明}
+
+【你要做的】
+1. 用 task_read_source 读来源对话，分页读到最后一页。
+2. 用 task_set_summary 写需求摘要：目标、已定结论、约束、不做、未决问题、验收要点。只写对话里说过的；没定的放进未决问题，不要替用户定。范围里限定了的，只整理范围内的。
+3. 用 task_set_meta 给任务起一个简短的名字（几个字到一句话，说清做什么）。
+4. 从下面四套引导词里选最合适的一套，按它拆图，用 task_propose_graph 提交（guide 填它的 id）。图被拒绝时会带原因，改了再提交。
+5. 最后用一两句话告诉用户：选了哪套引导词、图长什么样、还有什么未决问题。不要启动任务：启动由用户确认。
+拿不准的地方用 ask_user 问用户，不要猜。
+
+【图的规则】
+节点：id 用 N1、N2……（只含字母、数字、_、-，最长 32）；kind 是 agent（模型做）或 human（用户做）。
+agent 节点要有 name、job（做什么）、done（怎样算完成，逐条）、role；human 节点只有 name、job、done，没有 role、model、place。
+role：explore 和 advise 只读（读代码、跑只读命令），check 能跑任意命令但不能改文件，work 能改文件，在任务自己的 worktree 里。
+place：work 和 check 默认 workspace（任务的 worktree），explore 和 advise 默认 readonly；一般不用写。
+边：seq 是先后顺序，不能成环；back 只能从 human 节点指回它上游的节点，表示用户可以打回到那里。
+至少一个起点和一个终点；节点不超过 20 个；model、inputs 不用写，除非有理由。
+实现的节点不验证自己：验证一定放进单独的 check 节点，审查放进单独的 advise 节点。
+每个节点的 job 只写它自己这一步，后面节点的事不要写进去；done 要让别人能核对。
+merge=true 只能放在没有后继的 human 节点上，且任务要有 worktree。
+
+【四套引导词】
+{下面四段}
+</atrium-task-design>
+```
+
+### feature · Agent 特性
+
+```
+【引导词 feature · Agent 特性】适用：要加或改一个功能，会动代码，值得走完整流程。
+节点顺序（按需求增减，但实现与验证一定分开）：
+1. 调研（explore，place=readonly）：读相关代码和文档，列出要改的文件、要遵守的约定、风险。小需求可以省略。
+2. 设计（advise，place=readonly）：需求里有看得见的界面改动、或有多个可行方案时加。给出方案和取舍，不写代码。
+3. 方案确认（human）：设计节点给出多个方案、要用户选时加；它的打回边（back）指向设计节点。
+4. 实现（work，place=workspace）：先写会失败的测试，再实现到测试通过。它不做最终验证。
+5. 检查（check，place=workspace）：跑测试、类型检查、代码检查，必要时跑破坏检查；只读代码，不改。必须是单独的节点，不能由实现节点代做。
+6. 审查（advise，place=readonly）：读 diff，对照需求逐条找问题；可以拆成几个并行的审查节点，各看一个角度。
+7. 验收合并（human，merge=true）：最后一个节点，只有它能带 merge；它的打回边指向实现节点。
+```
+
+### fix · 零碎修复
+
+```
+【引导词 fix · 零碎修复】适用：一个小问题，改动范围明确，不需要设计。
+节点顺序：
+1. 复现（explore，place=readonly）：找到问题所在，写下复现步骤和可疑的位置。
+2. 修复（work，place=workspace）：先写一个能复现问题的测试，让它先失败，再改到通过。
+3. 检查（check，place=workspace）：跑相关测试和项目的检查；只读代码，不改。必须是单独的节点，不能由修复节点代做。
+4. 验收合并（human，merge=true）：最后一个节点；它的打回边指向修复节点。
+```
+
+### scheduled_fix · 定时修复
+
+```
+【引导词 scheduled_fix · 定时修复】适用：每隔一段时间自动跑一遍的检查与修复，多数时候什么都没坏。
+节点顺序：
+1. 探查（check，place=workspace）：运行约定的检查命令，把失败的项和原因写进交接摘要；全部通过就写“无异常”。
+2. 修复（work，place=workspace）：只修探查节点报告的失败；探查写了“无异常”就什么都不改，直接 node_done，摘要写“无需修复”。
+3. 检查（check，place=workspace）：再跑同样的检查，确认失败项都好了；没有改动就写“无改动”。必须是单独的节点。
+4. 验收合并（human，merge=true）：最后一个节点，它的 done 里写明“没有改动时点通过即可，不会合并任何东西”；它的打回边指向修复节点。
+图是固定的，没有条件分支，所以没坏的那一天也会走到最后一个节点；写 done 时把这一点说清楚。
+```
+
+### research · 调研报告
+
+```
+【引导词 research · 调研报告】适用：要弄清一件事、比较方案、出一份报告，不改代码。
+节点顺序：
+1. 调查（explore 或 advise，place=readonly）：把问题按方面拆成几个并行的节点（如代码现状、文档、已有做法），各管一个方面，互相不依赖。
+2. 汇总（advise，place=readonly）：读所有调查节点的交接摘要，写出结论、依据、没弄清的地方；报告就写在它的交接摘要里。
+3. 确认（human）：用户读报告；它没有 merge，打回边指向汇总节点。
+不要 work 节点和 check 节点，也不要 place=workspace：这类任务不建 worktree，不属于项目的对话也能用。
+```

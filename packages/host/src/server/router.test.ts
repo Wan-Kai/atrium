@@ -243,6 +243,26 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
         calls.push(["openTask", id, taskId]);
         return Promise.reject(new CommandError("task_not_found"));
       },
+      create: async (sessionId, scope) => {
+        calls.push(["createTask", sessionId, scope]);
+        return { taskId: "tsk_new" };
+      },
+      start: async (taskId) => {
+        calls.push(["startTask", taskId]);
+        return {};
+      },
+      abandon: async (taskId) => {
+        calls.push(["abandonTask", taskId]);
+        return {};
+      },
+      approveGraph: async (taskId) => {
+        calls.push(["approveGraph", taskId]);
+        return {};
+      },
+      rejectGraph: async (taskId) => {
+        calls.push(["rejectGraph", taskId]);
+        return {};
+      },
       answerHuman: async (taskId, node, answer) => {
         calls.push(["answerHuman", taskId, node, answer]);
         return {};
@@ -409,6 +429,20 @@ describe("createRouter", () => {
     { command: { type: "list_tasks", watch: true }, call: ["listTasks", "connection-7", true], result: { tasks: [] } },
     { command: { type: "list_tasks" }, call: ["listTasks", "connection-7", undefined], result: { tasks: [] } },
     {
+      command: { type: "create_task", sessionId: "ses_src", scope: "just the auth part" },
+      call: ["createTask", "ses_src", "just the auth part"],
+      result: { taskId: "tsk_new" },
+    },
+    {
+      command: { type: "create_task", sessionId: "ses_src" },
+      call: ["createTask", "ses_src", undefined],
+      result: { taskId: "tsk_new" },
+    },
+    { command: { type: "start_task", taskId: "tsk_a" }, call: ["startTask", "tsk_a"], result: {} },
+    { command: { type: "abandon_task", taskId: "tsk_a" }, call: ["abandonTask", "tsk_a"], result: {} },
+    { command: { type: "approve_graph", taskId: "tsk_a" }, call: ["approveGraph", "tsk_a"], result: {} },
+    { command: { type: "reject_graph", taskId: "tsk_a" }, call: ["rejectGraph", "tsk_a"], result: {} },
+    {
       command: { type: "answer_human", taskId: "tsk_a", node: "N3", answer: { kind: "pass" } },
       call: ["answerHuman", "tsk_a", "N3", { kind: "pass" }],
       result: {},
@@ -453,7 +487,7 @@ describe("createRouter", () => {
     expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: false, error: { code: "task_not_found" } }]);
   });
 
-  it("lets a phone list and open tasks but not answer, rerun, pause, resume, cancel or archive them", async () => {
+  it("lets a phone list and open tasks but not create, start, abandon, approve, answer, rerun, pause, resume, cancel or archive them", async () => {
     const { route, sent, calls, logger } = setUp();
     const phone = createConnection(
       { bufferedAmount: 0, send: (data) => sent.push(JSON.parse(data) as HostMessage), close: () => undefined },
@@ -467,6 +501,11 @@ describe("createRouter", () => {
       },
     );
     const forbidden = [
+      { type: "create_task", sessionId: "ses_src" },
+      { type: "start_task", taskId: "tsk_a" },
+      { type: "abandon_task", taskId: "tsk_a" },
+      { type: "approve_graph", taskId: "tsk_a" },
+      { type: "reject_graph", taskId: "tsk_a" },
       { type: "answer_human", taskId: "tsk_a", node: "N3", answer: { kind: "pass" } },
       { type: "rerun_node", taskId: "tsk_a", node: "N2" },
       { type: "continue_node", taskId: "tsk_a", node: "N2" },

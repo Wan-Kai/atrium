@@ -318,6 +318,16 @@ export function createRouter(options: RouterOptions): Route {
         return options.tasks.list(connection.id, command.watch);
       case "open_task":
         return options.tasks.open(connection.id, command.taskId);
+      case "create_task":
+        return options.tasks.create(command.sessionId, command.scope);
+      case "start_task":
+        return options.tasks.start(command.taskId);
+      case "abandon_task":
+        return options.tasks.abandon(command.taskId);
+      case "approve_graph":
+        return options.tasks.approveGraph(command.taskId);
+      case "reject_graph":
+        return options.tasks.rejectGraph(command.taskId);
       case "answer_human":
         return options.tasks.answerHuman(command.taskId, command.node, command.answer);
       case "rerun_node":

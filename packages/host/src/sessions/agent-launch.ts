@@ -3,6 +3,7 @@ import {
   ASK_USER_TOOL,
   type AgentSelf,
   CHILD_TOOLS,
+  CONVERSATION_TOOLS,
   NODE_TOOLS,
   PARENT_TOOLS,
   READ_ONLY_TOOLS,
@@ -142,7 +143,8 @@ export function agentLaunchFlags(entries: readonly LaunchEntry[], sessionId: str
 }
 
 /**
- * pi's flags for a session of a task's node: who it is, and its tools (SPEC-0006, "一个 agent 节点怎么跑 · 起").
+ * pi's flags for a session of a task's node or of its conversation: who it is, and its tools (SPEC-0006,
+ * "一个 agent 节点怎么跑 · 起").
  *
  * @remarks
  * `--atrium-task=<base64url JSON>` says the session is a node and which role; it is no identity, the host
@@ -159,6 +161,15 @@ export function agentLaunchFlags(entries: readonly LaunchEntry[], sessionId: str
  */
 export function taskLaunchFlags(entry: LaunchEntry | undefined): string[] | null {
   const task = entry?.task;
+  if (task?.role === "conversation") {
+    // The task conversation: SPEC-0002's read-only list, its own tools and `ask_user`; it edits nothing.
+    const self: TaskSelf = { v: 1, kind: "conversation" };
+    return [
+      `--${TASK_FLAG}=${encodeArgument(self)}`,
+      "--tools",
+      [...READ_ONLY_TOOLS, ...CONVERSATION_TOOLS, ASK_USER_TOOL].join(","),
+    ];
+  }
   if (task?.role !== "node" || task.nodeRole === undefined) return null;
   const self: TaskSelf = { v: 1, kind: "node", role: task.nodeRole };
   const flag = `--${TASK_FLAG}=${encodeArgument(self)}`;
@@ -172,8 +183,8 @@ export function taskLaunchFlags(entry: LaunchEntry | undefined): string[] | null
  * pi's flags for a session of any kind: a node's, or else an agent's.
  *
  * @remarks
- * A session with a `task` field never gets the agent's flags (all tools, no isolation): a node without a role,
- * or a task conversation, which has no launch path yet, is refused instead (SPEC-0006, "一个 agent 节点怎么跑 · 起").
+ * A session with a `task` field never gets the agent's flags (all tools, no isolation): a node without a role
+ * is refused instead (SPEC-0006, "一个 agent 节点怎么跑 · 起"). The task conversation has its own flags.
  *
  * @sideEffects none
  * @param entries - The catalogued sessions.
