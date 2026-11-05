@@ -1,0 +1,226 @@
+[
+  {
+    "file": "packages/host/src/tasks/advance.ts",
+    "from": "if (node.role === \"work\" ? busy.length > 0 : busy.some((other) => other.role === \"work\")) return;",
+    "to": "if (node.role === \"work\" ? false : busy.some((other) => other.role === \"work\")) return;",
+    "test": "packages/host/src/tasks/scheduler.prop.test.ts",
+    "name": "keeps every invariant on any valid graph"
+  },
+  {
+    "file": "packages/host/src/tasks/advance.ts",
+    "from": "if (node.role === \"work\" ? busy.length > 0 : busy.some((other) => other.role === \"work\")) return;",
+    "to": "if (node.role === \"work\" ? busy.length > 0 : false) return;",
+    "test": "packages/host/src/tasks/scheduler.prop.test.ts",
+    "name": "keeps every invariant on any valid graph"
+  },
+  {
+    "file": "packages/host/src/tasks/advance.ts",
+    "from": "if (graph === undefined || (status !== \"running\" && status !== \"waiting\")) return;",
+    "to": "if (graph === undefined) return;",
+    "test": "packages/host/src/tasks/scheduler.prop.test.ts",
+    "name": "keeps every invariant on any valid graph"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (edge === undefined || backUses(task, event.node, event.to) >= BACK_LIMIT) return false;",
+    "to": "if (edge === undefined) return false;",
+    "test": "packages/host/src/tasks/scheduler.prop.test.ts",
+    "name": "closing human node that can send back"
+  },
+  {
+    "file": "packages/host/src/tasks/advance.ts",
+    "from": "task.runs.push(freshRun(task, node.id, attempt, \"running\", at));",
+    "to": "task.runs.push(freshRun(task, node.id, attempt, \"pending\", at));",
+    "test": "packages/host/src/tasks/scheduler.prop.test.ts",
+    "name": "keeps every invariant on any valid graph"
+  },
+  {
+    "file": "packages/host/src/tasks/advance.ts",
+    "from": "      task.workspaceState = \"creating\";\n",
+    "to": "",
+    "test": "packages/host/src/tasks/scheduler.prop.test.ts",
+    "name": "keeps every invariant on any valid graph"
+  },
+  {
+    "file": "packages/host/src/tasks/status.ts",
+    "from": "if (states.includes(\"waiting\")) return \"waiting\";",
+    "to": "if (states.includes(\"waiting\")) return \"running\";",
+    "test": "packages/host/src/tasks/scheduler.prop.test.ts",
+    "name": "keeps every invariant on any valid graph"
+  },
+  {
+    "file": "packages/host/src/tasks/status.ts",
+    "from": "if (task.paused || states.includes(\"failed\") || states.includes(\"stopped\")) return \"stopped\";",
+    "to": "if (states.includes(\"failed\") || states.includes(\"stopped\")) return \"stopped\";",
+    "test": "packages/host/src/tasks/scheduler.prop.test.ts",
+    "name": "keeps every invariant on any valid graph"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "draft.task.paused = false;",
+    "to": "draft.task.paused = draft.task.paused;",
+    "test": "packages/host/src/tasks/scheduler.prop.test.ts",
+    "name": "keeps every invariant on any valid graph"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "  if (run?.state !== \"failed\" || task.paused) return false;",
+    "to": "  if (run?.state !== \"failed\" || true) return false;",
+    "test": "packages/host/src/tasks/scheduler.prop.test.ts",
+    "name": "keeps every invariant on any valid graph"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "task: structuredClone(task), actions: []",
+    "to": "task: task, actions: []",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "starts the first node on `started`"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "  holdRunning(draft);\n  notify(draft, { kind: \"failed\"",
+    "to": "  notify(draft, { kind: \"failed\"",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "holds the running siblings when a node fails"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "const reset = reachableFrom(graph, event.to);",
+    "to": "const reset = new Set([event.to, event.node]);",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "resets everything reachable from the target"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "      run.nudged = true;\n",
+    "to": "",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "reminds a node that ended without"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "run.void = true;",
+    "to": "run.state = run.state;",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "after a merge conflict, a graph change"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (answered && isHeldBack(draft.task)) emit(",
+    "to": "if (false) emit(",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "deals with a third node failing"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "  if (isHeldBack(draft.task)) {\n    run.state = \"held\";",
+    "to": "  if (false) {\n    run.state = \"held\";",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "leaves a node that waited for a graph change held"
+  },
+  {
+    "file": "packages/host/src/tasks/advance.ts",
+    "from": "    if (run?.state !== \"held\") continue;",
+    "to": "    if (run?.state !== \"held\" || true) continue;",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "holds the running siblings when a node fails"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "  if (graphNode?.role === \"work\") emit(draft, { kind: \"commit_node\"",
+    "to": "  if (graphNode?.role === \"check\") emit(draft, { kind: \"commit_node\"",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "commits a writing node before the next node starts"
+  },
+  {
+    "file": "packages/host/src/tasks/advance.ts",
+    "from": "if (busy.length >= NODE_SLOTS) return;",
+    "to": "if (busy.length >= NODE_SLOTS + 1) return;",
+    "test": "packages/host/src/tasks/scheduler-resources.test.ts",
+    "name": "runs at most six agent nodes"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "    if (state === \"running\" || (state === \"waiting\" && run.waitingFor === \"question\")) {\n      emit(draft, { kind: \"stop_node\", node: node.id, when: \"now\" });",
+    "to": "    if (state === \"running\") {\n      emit(draft, { kind: \"stop_node\", node: node.id, when: \"now\" });",
+    "test": "packages/host/src/tasks/scheduler-resources.test.ts",
+    "name": "cancels: stops running nodes at once"
+  },
+  {
+    "file": "packages/host/src/tasks/graph-validator.ts",
+    "from": "if (graph.nodes.length > MAX_NODES)",
+    "to": "if (graph.nodes.length > MAX_NODES + 1)",
+    "test": "packages/host/src/tasks/graph-validator.test.ts",
+    "name": "accepts 20 nodes and refuses 21"
+  },
+  {
+    "file": "packages/host/src/tasks/graph-validator.ts",
+    "from": "} else if (edge.from === edge.to || !reachableFrom(graph, edge.to).has(edge.from)) {",
+    "to": "} else if (edge.from === edge.to) {",
+    "test": "packages/host/src/tasks/graph-validator.test.ts",
+    "name": "refuses a back edge to a node that is not an ancestor"
+  },
+  {
+    "file": "packages/host/src/tasks/graph-validator.ts",
+    "from": "if (node.merge === true) {",
+    "to": "if (node.merge === undefined) {",
+    "test": "packages/host/src/tasks/graph-validator.test.ts",
+    "name": "refuses `merge` on an agent node"
+  },
+  {
+    "file": "packages/host/src/tasks/graph-validator.ts",
+    "from": "const locked = state === \"running\" || state === \"held\" || state === \"stopped\" || state === \"passed\";",
+    "to": "const locked = state === \"running\" || state === \"held\" || state === \"stopped\";",
+    "test": "packages/host/src/tasks/graph-validator.test.ts",
+    "name": "held, stopped, waiting or passed node"
+  },
+  {
+    "file": "packages/host/src/tasks/graph-validator.ts",
+    "from": "if (canonical(next) !== canonical(old))",
+    "to": "if (false)",
+    "test": "packages/host/src/tasks/graph-validator.test.ts",
+    "name": "changing its fields"
+  },
+  {
+    "file": "packages/host/src/tasks/task-store.ts",
+    "from": "if (parsed.droppedTail) await truncate(eventsPath, parsed.goodBytes);",
+    "to": "if (parsed.droppedTail) await truncate(eventsPath, parsed.goodBytes + 1);",
+    "test": "packages/host/src/tasks/task-store.test.ts",
+    "name": "drops a last line that was cut short"
+  },
+  {
+    "file": "packages/host/src/tasks/task-store.ts",
+    "from": "else if (snapshot.data.seq !== lastSeq) state = \"stale\";",
+    "to": "else if (false) state = \"stale\";",
+    "test": "packages/host/src/tasks/task-store.test.ts",
+    "name": "rebuilds task.json from the events"
+  },
+  {
+    "file": "packages/host/src/tasks/task-store.ts",
+    "from": "if (!snapshot.success) state = \"damaged\";",
+    "to": "if (false) state = \"damaged\";",
+    "test": "packages/host/src/tasks/task-store.test.ts",
+    "name": "rebuilds task.json from the events"
+  },
+  {
+    "file": "packages/host/src/tasks/task-store.ts",
+    "from": "      if (last || lines.slice(index + 1).every((rest) => rest === \"\")) {",
+    "to": "      if (true) {",
+    "test": "packages/host/src/tasks/task-store.test.ts",
+    "name": "refuses a log damaged anywhere but the last line"
+  },
+  {
+    "file": "packages/host/src/tasks/task-store.ts",
+    "from": "const event = TaskEvent.parse({ ...input, seq: lastEventSeq() + 1, at: clock.now() });",
+    "to": "const event = TaskEvent.parse({ ...input, seq: lastEventSeq() + 1, at: 0 });",
+    "test": "packages/host/src/tasks/task-store.test.ts",
+    "name": "gives each event its seq and the clock"
+  },
+  {
+    "file": "packages/host/src/tasks/task-store.ts",
+    "from": "queue = run.catch(() => undefined);",
+    "to": "queue = run;",
+    "test": "packages/host/src/tasks/task-store.test.ts",
+    "name": "keeps the order of events recorded without waiting"
+  }
+]

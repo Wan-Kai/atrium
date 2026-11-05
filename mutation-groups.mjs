@@ -28,6 +28,7 @@ export const MUTATION_GROUPS = {
       "packages/pi/src/plan/*.ts",
       "packages/pi/src/extension/*.ts",
       "packages/pi/src/agent/*.ts",
+      "packages/pi/src/task/*.ts",
       "packages/pi/src/stats/*.ts",
       "packages/pi/src/oneshot/oneshot.ts",
       "packages/pi/src/auth/login.ts",
@@ -49,6 +50,8 @@ export const MUTATION_GROUPS = {
     ],
     tests: ["packages/host"],
     skip: [
+      "packages/host/src/tasks",
+      "packages/host/src/dev/task-replay.test.ts",
       "packages/host/src/workspaces",
       "packages/host/src/changes",
       "packages/host/src/projects",
@@ -71,6 +74,19 @@ export const MUTATION_GROUPS = {
       "packages/host/src/changes.host.test.ts",
       "packages/host/src/index.host.test.ts",
     ],
+    skip: [],
+  },
+  // The task core (SPEC-0006, T3): the scheduler's pure `step`, the graph validator and the store. The
+  // files that only describe data or help tests are left out.
+  tasks: {
+    mutate: [
+      "packages/host/src/tasks/*.ts",
+      "!packages/host/src/tasks/*.test.ts",
+      "!packages/host/src/tasks/test-support.ts",
+      "!packages/host/src/tasks/scheduler-model.ts",
+      "!packages/host/src/tasks/types.ts",
+    ],
+    tests: ["packages/host/src/tasks", "packages/host/src/dev/task-replay.test.ts"],
     skip: [],
   },
   ui: {

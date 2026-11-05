@@ -4,6 +4,45 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## T1 worktree 加固（SPEC-0006"工作区"，2026-11-04，待验收）
+
+真的 git、真的仓库（testkit `createGitScene`），仓库里埋真的钩子、过滤器和 fsmonitor（`plantTraps`，每个被执行就留一个标记文件；`testkit/git.test.ts` 先证明裸 git 会触发它们，所以"没出现标记"不是陷阱本来就没响）。
+
+| 行为 / 风险 | 验证 |
+|---|---|
+| 新建工作区、新建子对话的 worktree 不跑 `post-checkout` 钩子、smudge/clean 过滤器、`process` 过滤器、`core.fsmonitor`；只有用户全局配置里定义的过滤器也不跑 | `workspaces/worktree-creator.test.ts` "hooks, filters and fsmonitor" |
+| 宿主的 `git commit`、`git merge` 同一组参数，不跑 `pre-commit`、`post-commit`、`post-merge`、过滤器；对照：裸 git 会跑 | `workspaces/safe-git.test.ts` |
+| 配置遍历：每个过滤器（含名字带点的）四条命令；没有名字的 `filter.smudge` 不算；git 不在仓库里时报错 | `safe-git.test.ts` `safeGitOptions` |
+| 有 `include.path`、`includeIf`、`config.worktree` 里的 include、名字带 `=` 的过滤器时拒绝，不建分支不建目录；子对话也拒；无 include 或只有用户全局的 include 照建 | `worktree-creator.test.ts` "a repository that includes other configuration" |
+| 起点固定：起点分支（或父工作区的 HEAD）在 `worktree add` 前被移动，仍从核对时的提交建；建完 HEAD 不等于起点报 `head_mismatch`、留目录、不登记 | `worktree-creator.test.ts` "the start" |
+| `.worktreeinclude`：只复制被忽略、未跟踪、列出的文件；不跟随链接；`node_modules` 跳过；不覆盖；不写出新 worktree 的链接；`.worktreeinclude` 是链接时不用；10 MiB 边界、64 MiB 总量、500 个文件；跳过只记个数不记路径 | `workspaces/worktree-include.test.ts` |
+| 新建工作区和子对话都带上 `.worktreeinclude` 的文件；子对话读的是父工作区的目录 | `worktree-creator.test.ts` ".worktreeinclude" |
+| 任务锁：加锁、同任务重复加锁、解锁、不动别的任务或用户的锁、`git worktree list` 的锁原因解析、启动时只清已结束任务的锁 | `workspaces/worktree-lock.test.ts`、`worktree-list.test.ts` |
+| 归档遇到任务锁：`workspace_in_task`（带任务 id），目录和会话都不动；用户自己的锁仍由 git 拒绝（`worktree_remove_failed`） | `workspace-archiver.test.ts` |
+| 恢复归档的 worktree 同样不跑钩子、过滤器、fsmonitor；仓库配置有 `include` 时拒绝，标记保留 | `workspace-archiver.test.ts` |
+| 界面说法：`worktree_config_unsafe`、`head_mismatch`、`workspace_in_task`；错误码进协议和 Swift 投影 | `ui/state/new-workspace.test.ts`、`ui/app/workbench.browser.test.tsx`、`protocol/envelope.test.ts` |
+
+- 破坏检查：`docs/testing/t1-worktree-break-check.json`。
+- 没做：加锁、解锁、启动清锁还没接到任何流程上（T1 里没有任务）；不关 `merge.<名>.driver`、`diff.<名>.textconv`（见 security.md）。
+
+## T3 任务核心（SPEC-0006"状态机""调度器""改图"，2026-11-04，待验收）
+
+`packages/host/src/tasks/`：类型、`GraphValidator`、`Scheduler.step`、`TaskStore`；开发入口 `pnpm task:replay`。全是纯函数加文件，不起 pi。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 状态机每条转移、调度器每条规则：就绪与汇合、`node_done` 结算与提交顺序、`no_done` 提醒一次再失败、五种失败、`held` 与 `stopped` 分开、暂停恢复、重跑沿用 attempt、打回（旁支一起重置、attempt+1、`backFrom`、上限 2）、取消、放弃、问题 / 改图等待、批准 / 拒绝、human 节点与合并（`merging`、`merge_blocked`、再点通过重试）、工作区 `none→creating→ready` 与失败、`work` 独占、6 个名额、宿主重启 | `tasks/scheduler.test.ts`、`scheduler-resources.test.ts`（表驱动 85 项） |
+| SPEC 列的六种交错：兄弟失败后重跑、暂停后恢复、合并冲突后改图加节点使 human 回到 `pending`、打回时旁支重置、一个 running 一个 waiting 时第三个失败、`stopped` 期间批准改图 | 同上，用例名里带原文 |
+| 性质（随机图 + 随机事件序列，含同一事件送两次、迟到的旧 attempt）：`work` 在跑时没有别的节点在跑；`stopped` 的任务不起新节点；打回不超过 2 次；同一 attempt 不重复 `start_node`（重跑后除外）、`creating` 时不重发 `ensure_workspace`；任务状态与节点状态一致（另写一份状态表对照）；任何状态下合作式操作都能走到 done；另有名额、依赖、`endedAt` | `tasks/scheduler.prop.test.ts`（fast-check，400 + 500 次游走；`scheduler-model.ts` 放生成器和不变量；另有固定种子的"覆盖"测试，保证游走真的走到打回、保持、合并等动作） |
+| `step` 纯：不改传入的任务（测试里深度冻结）、同一输入同一输出、不适用的事件原样返回 | `scheduler-resources.test.ts`、`scheduler.prop.test.ts` |
+| `GraphValidator` 每条规则一个通过、一个不通过：结构（20 个上限、重复 id、未知节点、环、打回边、起点终点）、字段（agent / human / `merge`）、不属于项目、只读规则、启动后（不能删、不能改、入边锁定） | `tasks/graph-validator.test.ts`（27 项） |
+| `TaskStore`：追加事件、`task.json` 快照、重开读回；截断的最后一行丢弃并补齐换行；中间坏行报错；`task.json` 缺失 / 损坏 / 落后 / 超前时从事件重建；事件串行；无效事件不写入；重放得到同样的动作（动作带 node + attempt，供 T4 认"已做过"） | `tasks/task-store.test.ts`（23 项） |
+| 三个示例事件文件重放结果 | `tasks/fixtures.test.ts`；`dev/task-replay.test.ts`（输出格式、目录 / 文件、截断行、错误码） |
+
+- 破坏检查：`packages/host/src/tasks/tasks.break-check.json`，32 处全部抓到（六条性质各至少一处，另有表驱动、`GraphValidator`、`TaskStore` 的）。
+- 变异测试：`pnpm test:mutation tasks --force`（新组 `tasks`，`types.ts`、`test-support.ts`、`scheduler-model.ts` 不算）：scheduler.ts 84.90%（单独跑 86.04%）、graph-validator.ts 89.67%、task-store.ts 85.31%、advance.ts 93.45%、status.ts 90.20%、graph.ts 80.42%、draft.ts 80.00%、replay.ts 92.59%、texts.ts 90.91%。`dev/task-replay.ts` 不在变异组里（构建入口，测试直接调 `main`）。
+- 没做：`TaskRunner` / `TaskService` / 动作幂等的真实认出（T4）；`archive_*` 事件在 `Task` 里无处记（T5）；冲突文件列表不在事件里。
+
 ## 新建 worktree 同时生成中文名（M1.11 自用后补充，2026-10-28）
 
 用户确认全部新增入口，显示选 `prototypes/worktree-chinese-name-prototype.html` 的 A“中文单行”：英文分支/目录不改，中文名只存工作区 `alias`，已有 worktree 不回填。协议 29；手机类型和往返夹具已重新生成。
@@ -2041,3 +2080,20 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 用样例同步数据截图（经真的 `SyncCore.receive`）：`pnpm ios:shot --gallery=location-sheet|new-session-missing|model-sheet|drawer [--dark]`，已逐张看过。
 - 没有自动测试、靠验收看：抽屉里的 relay、手机名、版本和"重新配对"；忘掉 Mac 清理失败时的提示；新建进行中不能点"×"；新会话页的失败提示只显示本页发起的。
 - 审查里决定不改的：hunk 之间的上下文不展开（协议没有按版本取内容的命令，SPEC 已写明）；签名到期用 `Date.now`（按天显示，`Signing` 本身接受注入的时间，界面层不另做时钟）；`ios-brand-icons.mjs` 不进 `pnpm check`（要 Playwright 的浏览器）。
+
+## T2 路径隔离（SPEC-0006"路径隔离"、SPEC-0002"路径隔离"，2026-11-04，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 第一步按 pi `resolveToCwd` 解析：相对路径、`..`、绝对路径、开头的 `@`（只去一个）、`~` / `~/`（`~name` 不展开）、`file://`（含百分号转义）、各种 Unicode 空格 | `path-guard.test.ts` `resolveWritten` |
+| 第二步求真实路径：存在的穿链接、不存在的多级目录取最深存在的祖先、悬空链接按目标（含相对链接）、成环和无权限当算不出来 | `path-guard.test.ts` `realLocation` |
+| 第三步判定：放行 `./ok.txt`、`.github`、`.gitignore`、深处的 `x/.git/y`；拦 `..`、`@/tmp/x`、`~/x`、`file:///tmp/x`、名字以 cwd 开头的兄弟目录、经外部目录链接写新文件（任意深）、指向外部的文件链接和悬空链接、cwd 本身是链接、`.git`（目录、文件、不存在、大小写、经链接）、算不出来的路径 | `path-guard.test.ts` `checkWrite` |
+| 钩子：拦 `edit` / `write`、统一原因、不看 `read` / `bash` 和没有文本路径的调用、开关为假时不动；和 pi 的扩展接口对得上 | `path-guard.test.ts` `guardPaths` |
+| 真实 pi 加 faux 模型：被拦 `../outside-…`、`@<外部>/…`、`~/…`（HOME 设在目录外）、`file://…`、经外部目录链接写新文件、`.git/config`；模型读到原因；放行 `./ok.txt`；`.git/config` 内容不变 | `path-guard.pi.test.ts` "blocks a work child's writes…"、"keeps .git/config" |
+| 终端里的 pi（没有宿主的参数）、手动开的子对话（`isolated: false`）、没有这个字段的旧参数：钩子不动作，同样的写入全部落地 | `path-guard.pi.test.ts` "does nothing in …" |
+| 宿主算 `isolated`：agent 开的 `work`（含带上下文的、孙）为真；手动开的、带 `work` 记录的用户会话、`explore`、`advise`、主对话为假；写进 `--atrium-agent` | `agent-launch.test.ts` `agentSelf, isolated` |
+| 宿主层：用宿主算出的参数起真 pi，agent 开的 `work` 子对话写目录外被拦、目录内写成；手动开的都写成 | `agent-isolation.host.test.ts` |
+
+- 破坏检查：`packages/pi/src/task/path-guard.break-check.json`，31 处全部抓到（解析 6、真实路径 5、判定 6、钩子 5、扩展接线 5、宿主 5）。
+- 变异测试：`pnpm test:mutation pi --mutate=packages/pi/src/task/path-guard.ts`：92.93%（92 杀、7 活；活下来的是等价或只影响退出条件的变异，原因文字的一个随后补了字面断言）。
+- 没做：`bash` 里 `git -C` 等的拦截（SPEC-0006 要，留给 T4）；终端 pi 的"钩子不生效"由 `path-guard.pi.test.ts` 覆盖，没有另做 `fixtures` 录制（`unrecorded`，断言文件结果不断言 pi 流量）。
