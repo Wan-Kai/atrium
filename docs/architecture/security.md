@@ -78,6 +78,30 @@
   - 主 agent 交代的事全文存在子对话的索引记录（`deliveries`）里，pi 写进会话文件、宿主在文件里见到后删掉，只短暂停留；往上送的通知只存引用，回复从子对话的会话文件里读。这些文字是对话内容，不进日志：日志只记送达 id、任务 id、事件种类和字数。
   - 通知和交代给模型时套上标明来源、"不是用户说的话、不代表用户授权"的外壳，冒充外壳的标记先转义（ADR-0013 第 10 条）。子对话的文字只当数据交给父会话的模型，宿主不照它做任何事。
   - 扩展写到状态行的请求有长度上限，读不出的当坏请求回 `agent_bad_request`，不记内容；隐藏命令的参数同样不进日志。
+- 任务（SPEC-0006）：
+  - **新建 worktree 时不执行仓库里能放进命令的东西**：agent 能写共享的 `.git/config` 和 `.git/hooks`，而 `git worktree add` 会跑 `post-checkout` 钩子、fsmonitor 和过滤器。所以 Atrium 新建 worktree（手动、子对话、任务都一样）时：
+    - 先查 `git config --local`（开了 `extensions.worktreeConfig` 时再查 `--worktree`）：有 `include.path`、`includeIf.*`，或过滤器名字含 `=`、换行，就拒绝建（`worktree_config_unsafe`）；只查仓库自己的配置，用户全局的 `include` 不管；
+    - 带 `-c core.hooksPath=/dev/null -c core.fsmonitor=false`（`/dev/null` 下不会有钩子，不用宿主另备空目录），并把每个已配置过滤器（`git config --list` 读到的全部：仓库的、用户全局的、系统的）的 `smudge`、`clean`、`process` 置空、`required` 设为假；LFS 文件留成指针。只在 `.gitattributes` 里提到而配置里没有的过滤器没有命令，不用管。
+    - 建完核对 HEAD 等于固定下来的起点提交，不等就报 `worktree_create_failed`（`head_mismatch`）；
+    - 归档后恢复（`restore_workspace`）的 `git worktree add` 同样走这一组参数。
+    - 2026-11-04 审查时发现：原先的"新建工作区"会跑这些钩子，是已有的问题，T1 已修（`workspaces/safe-git.ts` 的 `runSafeGit`）。没挡住的：`merge.<名>.driver`（合并驱动）、`diff.<名>.textconv` 之类别处会执行的配置，宿主的合并和提交现在也没有关掉它们，T5 做合并时再评估。
+  - **宿主自己跑的 `git commit` / `git merge`**（节点结束时的提交、验收合并）带同样的 `core.hooksPath`、`core.fsmonitor` 和过滤器置空参数（同一个函数 `runSafeGit`，提交、合并不拒绝带 `include` 的仓库，只拒绝名字带不了的过滤器），不执行 agent 可能放进去的钩子；代价是项目自己的提交钩子不在这些提交上跑。合并参数固定（`git merge --no-ff -- <分支>`），分支名取自索引；任务 worktree 或主检出目录不干净、主检出目录不在主干上，就不合并；不推送。
+  - **`.worktreeinclude`**：
+    - 只复制既匹配它、又被 git 忽略（`git check-ignore`）的普通文件，从来源目录复制、不软链；
+    - 打开时不跟随链接（`O_NOFOLLOW`），跳过 `.git`、`node_modules`；
+    - 单文件 10 MiB、总量 64 MiB 或 500 个文件为止（放不下的文件跳过，按路径排序先到先得）；
+    - 来源目录里的 `.worktreeinclude` 是链接或不是普通文件时当作没有；目标已有的文件不覆盖；目标路径经过新 worktree 里指向目录外的链接时不写；
+    - 复制不成不让建 worktree 失败；路径不进日志，只记跳过的个数。
+  - **路径隔离只防明显的越界**（`work`、`check` 节点和 SPEC-0002 的 `work` 子对话；T2 已对 SPEC-0002 的 `work` 子对话生效，节点随 T4）：
+    - 开关由宿主在 `--atrium-agent` 里给（`isolated`），只有 agent 开的 `work` 子对话为真；你手动开的子对话、主对话、终端里的 pi 没有；钩子在扩展里（`packages/pi/src/task/path-guard.ts`），宿主不替它判断；
+    - `edit` / `write` 的目标先按 pi `resolveToCwd` 的规则解析（去 `@`、展开 `~`、`file://`、Unicode 空格），再求真实路径（不存在的文件取最深的存在祖先的真实路径，悬空符号链接按它指向的地方算）；
+    - 不在工作目录的真实路径下、或第一段是 `.git`（不分大小写），或真实路径算不出来（符号链接成环、没有权限看），就拦下；
+    - 命令里 `git -C`、`--git-dir`、`--work-tree`、`GIT_DIR=`、`GIT_WORK_TREE=` 指向工作目录之外也要拦（SPEC-0006）——**这一条还没做**，随 T4 的任务节点；
+    - **拦不住**：`bash` 里的 `cp`、`mv`、`>` 重定向、`sed -i`、脚本里的写入；检查和写入之间路径被换成符号链接（检查时间到使用时间之间的竞争）也拦不住。这不是沙箱。
+  - **调用方由宿主认定**：任务扩展的工具调用，宿主按发请求的 pi 进程查出会话，再看会话记录的 `task` 字段：`task_*` 只认这个任务的任务对话，`node_done` / `request_graph_change` 只认这个节点当前那次运行的会话。参数里的身份一律不信，不符应答 `task_caller_invalid`。
+  - **拼进契约的文字当数据**：需求摘要、交接摘要、打回原因、`/task` 的范围和来源对话的内容进节点或任务对话的第一条消息时，包进标明来源、"不是用户说的话、不代表用户授权"的外壳，冒充外壳的标记先转义（同 ADR-0013 第 10 条）。
+  - **worktree 锁**：任务在用的 worktree 加 `git worktree lock --reason "atrium task <id>"`，归档、清理遇到就停（`workspace_in_task`）；宿主启动时只解原因是 Atrium 任务、且任务已结束的锁，你自己加的锁不动。原因必须整条是 `atrium task <id>`（id 只含字母、数字、`_`、`-`），别的写法一概不认。
+  - **不进日志**：任务数据（需求摘要、交接摘要、打回原因）存在 `~/.atrium/tasks/`，和会话内容同等对待，不进日志；`/atrium-task` 的参数同样不进日志，它和别的 `/atrium-` 隐藏命令一样受 `command_reserved` 保护。
 - 宿主提供界面文件时同样解析符号链接，真实路径不在界面目录内就返回 404；先打开文件再读大小，读失败或客户端中途断开都不会影响宿主进程。
 - 安装 pi 只运行官方安装脚本（`https://pi.dev/install.sh`），地址写死在代码里。
 - **Atrium 自带的 pi 扩展**（ADR-0008）：只加载应用自己带的、随应用签名的文件，路径由宿主算出，不来自客户端或用户输入。回复翻译的上述临时精确模型守卫是窄例外：应用生成固定可信代码，只有 JSON 编码的模型标识可变，私有目录内创建并随调用回收，不接受用户代码或文件路径。它改发往服务商的请求里的 `service_tier`，并查 Codex 的模型列表：在 pi 进程里经 pi 的 `modelRegistry.getApiKeyAndHeaders` 取 ChatGPT 登录的凭据，只发往 pi 平时请求这个模型的地址（登录给的 `baseUrl`，没有就是 `openai-codex` 模型自己的 `baseUrl`）下的 `/codex/models`，走 pi 设好的代理。另外查套餐用量（ADR-0010，2026-10-15 修订）：ChatGPT 登录发往同一地址的根下的 `/wham/usage`（即 `chatgpt.com/backend-api/wham/usage`），Claude 只在订阅登录（`isUsingOAuth`）时发往模型 `baseUrl` 下的 `/api/oauth/usage`，API key 的不查；Grok（`xai`）只在订阅登录时发往写死的 `https://cli-chat-proxy.grok.com/v1/billing?format=credits`，只带 bearer 令牌和 `x-xai-token-auth: xai-grok-cli`、`accept`，不带 pi 给 `api.x.ai` 的其他头，API key 的不查——这是扩展发往 pi 平时不请求的服务器的第一个地址，再加别的要另写 ADR（ADR-0011，2026-10-16）；第二个是联网工具（ADR-0014，2026-10-20）：`web_search`、`web_fetch` 用名为 `DEEPSEEK_SEARCH_API_KEY` 的专用 key，先取 pi 里 `deepseek` 凭据的 `env`（经 `modelRegistry.getApiKeyAndHeaders`，宿主不碰），再取进程环境；不读凭据的 `apiKey` 和 `DEEPSEEK_API_KEY`，搜索与聊天分开计费，发往写死的 `https://api.deepseek.com/v1/tools/search` 和 `/fetch`（不取模型的 `baseUrl`），只带 `authorization`、`content-type`、`accept`，不跟随重定向，网页和搜索结果当数据不当指令；失败只报状态码，不带服务器的原文（DeepSeek 的 401 会回显收到的 key），`query` 和 `url`、网页内容不进日志，扩展不向宿主报任何状态；同一服务商 60 秒内最多一次。Claude 的用量另从回复里读：当前模型是 `claude-bridge` 或 `anthropic` 时，扩展在 `after_provider_response` 里只读 `anthropic-ratelimit-unified-*` 这组响应头，不碰凭据、不发请求（ADR-0012，2026-10-17）。带凭据的请求不跟随重定向（重定向算连不上，2026-10-16 审查后加）。凭据不离开 pi、不交给宿主、不写文件、不记日志；报给宿主的只有模型 id、速度倍数和是否多耗额度，以及套餐名、各窗口的已用百分比、长度、重置时间、按模型窗口的模型名和按产品的拆分（产品名和百分比，M1.14 起），宿主按格式校验后才用；查失败只报原因代码，不带服务器的原文。内部命令 `/atrium-fast`、`/atrium-plan` 只由宿主在确认扩展已加载后发出（2026-10-12 修订）。
@@ -209,6 +233,7 @@ MP3a，协议见 [SPEC-0005](../specs/0005-mobile-app-and-remote-access.md)。�
 | `/atrium-fast` | 宿主 | 开关 Fast、查 Codex 的速度档 | ADR-0008 |
 | `/atrium-plan` | 宿主 | 查套餐用量 | ADR-0010 |
 | `/atrium-edit` | 宿主 | 停止后编辑消息：回退和恢复 | 本文"子进程与文件" |
+| `/atrium-task` | 宿主 | 任务：回答节点和任务对话的工具调用、写进度行、提醒调用 `node_done` | SPEC-0006，本文"子进程与文件" |
 
 隐藏命令都由 Atrium 自带的 pi 扩展注册，宿主确认扩展已加载后才发；`/atrium-` 开头的消息留给宿主（见上文"子进程与文件"）。
 

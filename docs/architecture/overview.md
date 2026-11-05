@@ -68,7 +68,7 @@ atrium/
 │   │       ├── ids.ts              prj_ / wks_ / 会话 id 的品牌类型
 │   │       ├── entities/           线上实体：项目、工作区、会话摘要，对话记录的轮、步骤、系统事件，
 │   │       │                       待交互，指标，上下文分段
-│   │       ├── commands/           按领域分文件：projects、workspaces、sessions、run、catalog、setup
+│   │       ├── commands/           按领域分文件：projects、workspaces、sessions、run、catalog、setup、tasks（SPEC-0006）
 │   │       ├── events/             同上
 │   │       ├── sync.ts             generation+seq、epoch+seq、游标、快照或增量的信封
 │   │       ├── json-schema.ts      按导出名登记全部 schema，导出 JSON Schema（`pnpm protocol:swift` 用，ADR-0015）
@@ -89,6 +89,8 @@ atrium/
 │   │   │   │                       和宿主这边的调用（登录状态、OAuth、API Key、退出）
 │   │   │   ├── edit/               停止消息编辑：受保护的同会话无摘要导航、失败恢复与隐藏命令编码
 │   │   │   ├── fast/               Fast：哪些模型支持的规则，和交给 pi 加载的扩展（ADR-0008）
+│   │   │   ├── task/               任务扩展（SPEC-0006）：节点工具 node_done / request_graph_change、任务对话的工具、路径隔离的 tool_call 钩子、
+│   │   │   │                       隐藏命令 `/atrium-task` 的参数和 schema；走 ADR-0013 的通道
 │   │   │   ├── agent/              子对话：隐藏命令 `/atrium-agent` 的参数、给模型的说明，扩展的这一部分（SPEC-0002、ADR-0013）
 │   │   │   ├── stats/              会话统计；UsageReader 增量读会话文件里的用量（子对话的"含子对话"，SPEC-0002）
 │   │   │   └── locate/             找到 pi 和它用的 Node、检查版本；找到 `@` 用的 fd
@@ -116,6 +118,8 @@ atrium/
 │   │   │   ├── setup/              Toolbox（找到的工具，可重新检测）、SetupService、安装和登录任务；PiConfig（固定白名单的普通配置读取、版本检查与原子保存）
 │   │   │   ├── titles/             TitleGenerator：标题的提示词、截断和写回规则
 │   │   │   ├── files/              FileSearch（`@` 引用的候选文件：调 fd，按 pi 终端界面的规则打分）；WorkspaceFiles（M1.12：右栏文件树的目录内容、查看标签的文件内容，只读工作区里的、不跟随链接）
+│   │   │   ├── tasks/              任务（SPEC-0006）：TaskService、Scheduler（纯函数 step）、TaskRunner、TaskStore（事件日志与重放）、
+│   │   │   │                       GraphValidator、ScheduleService；用 sessions/、workspaces/、store/、platform/，反过来不用
 │   │   │   ├── changes/            ChangesService（工作区的 git 改动：胶囊上的合计、右栏"更改"和"改动"标签的 diff，监听有人看的工作区）
 │   │   │   └── platform/           登录 shell 的环境、Clock、日志、子进程工具、git 调用（并发上限 4）
 │   │   └── test/harness.ts         第 4 层测试用的宿主：起真实宿主，用 client 连上去
@@ -133,6 +137,7 @@ atrium/
 │   │       ├── design/             设计变量（CSS）、外观、弹簧曲线、点阵、图标封装、字体、服务商官方图标（brand/）
 │   │       ├── sidebar/            侧栏、搜索、项目与工作区、对话分区（收件箱在 M1.9）
 │   │       ├── tabs/               标签栏、历史和会话菜单
+│   │       ├── tasks/              任务区（SPEC-0006）：固定的"任务""定时"标签、任务列表、任务标签（图 + 任务对话）
 │   │       ├── children/           子对话：子对话条、面包屑、开子对话的对话框和它们的规则（SPEC-0002）
 │   │       ├── chat/               对话区：消息流、过程、步骤、diff、Streamdown、平滑揭示、提问导航条、输入框；PlantUML 的有界本地 worker、工作区回复图片和全屏预览；受控文件引用与有界 JSON/CSV 查看（2026-10-20）；reply-translation 的临时回复译文
 │   │       ├── test/               浏览器测试用的假客户端
@@ -190,7 +195,7 @@ protocol  ←──  pi  ←──  host
 
 - **登录程序的例外**（2026-10-10 定）：`packages/pi/src/auth/` 里的登录程序由宿主交给系统 Node 运行，不被我们的进程加载。它按绝对路径 `import` 用户装的 pi 包（`dist/index.js`），用的是 pi 自带的依赖；只从 `@earendil-works/pi-coding-agent` 取类型（pi 包的开发依赖）。它只用 Node 能直接运行的写法（能被去掉的类型注解，不用 enum 等），因为系统 Node 直接运行源文件。
 
-- **Atrium 自带的 pi 扩展**（2026-10-12 定，ADR-0008；2026-10-15 加套餐用量，ADR-0010）：`packages/pi/src/extension/atrium.ts` 是入口，注册 `packages/pi/src/fast/` 的 Fast、`packages/pi/src/plan/` 的套餐用量、`packages/pi/src/agent/` 的子对话工具、`packages/pi/src/edit/` 的停止消息编辑隐藏命令和 `packages/pi/src/search/` 的联网搜索与抓取（ADR-0014）；由 pi 加载（`--extension`），不被我们的进程加载。构建时连同它用到的规则打成一个文件 `atrium-extension.mjs`（原名 `fast-extension.mjs`），放在宿主旁边（和登录程序一样，所以应用不用 asar）；测试里直接加载源文件。它只从 `@earendil-works/pi-coding-agent` 取类型，运行时不 import pi 的任何东西。
+- **Atrium 自带的 pi 扩展**（2026-10-12 定，ADR-0008；2026-10-15 加套餐用量，ADR-0010）：`packages/pi/src/extension/atrium.ts` 是入口，注册 `packages/pi/src/fast/` 的 Fast、`packages/pi/src/plan/` 的套餐用量、`packages/pi/src/agent/` 的子对话工具、`packages/pi/src/task/` 的任务工具与路径隔离钩子（SPEC-0006）、`packages/pi/src/edit/` 的停止消息编辑隐藏命令和 `packages/pi/src/search/` 的联网搜索与抓取（ADR-0014）；由 pi 加载（`--extension`），不被我们的进程加载。构建时连同它用到的规则打成一个文件 `atrium-extension.mjs`（原名 `fast-extension.mjs`），放在宿主旁边（和登录程序一样，所以应用不用 asar）；测试里直接加载源文件。它只从 `@earendil-works/pi-coding-agent` 取类型，运行时不 import pi 的任何东西。
 
 - **pi 包的边界**：怎么调 pi、pi 的事件和条目长什么样、pi 的回放语义，都在 pi 包里；Atrium 的业务规则（会话归哪个容器、标题怎么起、上下文分段怎么展示）在 host。pi 包对外输出两类东西：协议里的对话记录实体，以及它自己定义的 LogEntry（只在宿主内部用，不上线）。
 - **线上实体与宿主内部模型分开**：SessionRuntime 等运行时模型在 host 里，快照和事件由 SessionController 映射成 protocol 的实体。

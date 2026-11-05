@@ -10,6 +10,7 @@
 |---|---|---|---|
 | **pi** | `~/.pi/agent/sessions/` 下的会话文件、`~/.pi/agent/auth.json` | pi | 会话条目（对话、工具结果、系统消息、压缩检查点）、会话名、凭据 |
 | **Atrium 索引** | `~/.atrium/`（宿主持有，文件布局见 §1"索引的存储"） | 宿主 | 项目和工作区登记、Atrium 建的会话属于哪个容器、工作区别名与起点提交、归档、关注状态、每个客户端的布局、偏好、插话记录 |
+| **任务**（SPEC-0006） | `~/.atrium/tasks/<id>/`（`task.json` 快照 + `events.jsonl` 只追加）、`~/.atrium/schedules.json` | 宿主 | 任务、图的各版本、每次节点运行（状态、交接摘要、结束时的提交）、需求摘要、定时规则 |
 | **运行时** | 宿主内存 | 宿主 | pi 进程、排队、待交互请求、运行状态、当场计时、合并状态缓存 |
 | **扫描结果** | 宿主内存（可随时重算） | 宿主 | 分支名、是否 git 仓库、worktree 创建时间、会话文件位置、第一条用户消息 |
 | **视图** | 各客户端自己 | UI | 展开的过程、滚动位置、草稿 |
@@ -142,6 +143,8 @@ classDiagram
 ├── turns/<会话 id>.json      插话记录：宿主当场看到的用户消息开启了新一轮还是插话（SPEC-0001"对话记录"），
 │                             以及运行中看到的压缩和原因（SPEC-0001 `compaction`，2026-10-20）；
 │                             随会话变长，单独放，不拖累其他文件
+├── tasks/<任务 id>/          任务（SPEC-0006）：task.json 当前状态快照、events.jsonl 只追加的事件日志（快照坏了从它重放）
+├── schedules.json            定时规则（SPEC-0006）
 ├── chats/<目录名>/           每个对话的工作目录，对话 id 由目录名得出
 └── logs/
 ```
@@ -762,6 +765,8 @@ classDiagram
 | `fork_session` | SessionManager → SessionForker：由轮找到下一轮开头的用户消息条目，另起临时 pi 做 pi 的 `fork`（最后一轮用 `clone`）、设上界面给的名字，读出新会话后停掉它，复制轮的记录，重扫容器并打开新会话（M1.11）。带 `child` 时同时写下子对话的记录；放到新 worktree 的，临时 pi 写到宿主临时目录，子对话的 pi 在新目录以 `--fork` 起，收到路径说明（M1.15） |
 | `fetch_image(sessionId, turnId, index)` | SessionManager → SessionController 找出轮的用户消息条目，pi 包的 SessionFiles 从会话文件里读出图片（M1.11） |
 | `upload_attachment` | AttachmentStore：按客户端暂存压缩后的图片，被 `prompt` / `steer` 用掉或连接断开时释放（M1.7） |
+| `create_task` / `list_tasks` / `open_task` / `start_task` / `abandon_task` / `approve_graph` / `reject_graph` / `answer_human` / `rerun_node` / `continue_node` / `pause_task` / `resume_task` / `cancel_task` / `answer_archive` | TaskService：把操作变成事件，按任务串行交给 Scheduler 的 `step`，TaskRunner 执行动作（SPEC-0006） |
+| `list_schedules` / `pause_schedule` / `resume_schedule` / `run_schedule_now` / `delete_schedule` / `edit_schedule` | ScheduleService（SPEC-0006） |
 | `ping` / `report_client_issue` | Router 直接处理：应答心跳；把界面的问题写进日志 |
 | `check_setup` / `install_*` / `update_pi` / `cancel_install` / `login` / `cancel_login` / `set_api_key` | SetupService |
 
@@ -773,6 +778,26 @@ classDiagram
 | `changes_updated` / `diff_updated`（整份最新状态，不带序号） | ChangesService |
 | `queue_updated` / `metrics_updated` | SessionController |
 | `install_*` / `login_*` | SetupService |
+| `tasks_updated`（带 `generation + seq`）/ `task_updated` / `schedules_updated` | TaskService、ScheduleService（SPEC-0006） |
+
+## 9. 任务（SPEC-0006）
+
+```
+Task ──1:1── 任务对话（一个会话，只读角色，带任务对话的工具）
+  │  ──0..1─ 需求对话（来源对话，只记会话 id）
+  │  ──0..1─ 工作区（任务的 worktree；要写才建，或者就是来源对话所在的 worktree）
+  │  ──1:n── GraphVersion（只增不改）── Node、Edge
+  │  ──1:n── NodeRun（节点每跑一次一条）──0..1── 节点对话（一个会话；human 节点没有）
+  └─ ──0..1─ ScheduleRule（定时触发出来的任务才有）
+```
+
+- **Task** 属于一个项目，或不属于项目（那时不能有改代码的节点）。任务状态由节点状态推出，不另存；只有"暂停""取消"是标记。
+- **GraphVersion**：改图就是加一个版本；启动前直接生效，启动后要你批准。节点 id（N1、N2…）跨版本认同一个节点。
+- **NodeRun**：节点的当前状态取它最新的一条；没有 NodeRun 就是 `pending`；改图作废的（`void`）仍是最新的一条，读作 `pending`。打回开新的一条（`attempt + 1`、新会话），重跑沿用原来那条（`attempt` 不变、同一会话）。状态：`pending`、`running`、`waiting`（带 `waitingFor`：问题、改图、等你、合并被挡住）、`held`（调度器连带挂起，任务恢复就接着跑）、`stopped`（你亲手停的）、`passed`、`failed`。下游只读每个上游最新一次通过的交接摘要。
+- **节点对话、任务对话不是 SPEC-0002 的 agent 子对话**：会话记录带 `task: { taskId, role: "conversation" | "node", node?, attempt? }`，没有 `agent`。它们走单独的启动路径，只借用 SPEC-0002 起停 pi 和送达的做法；不给任务对话自动回报、不占 SPEC-0002 的名额、重启时不暂停送达；节点能用 `ask_user`。SessionCatalog 按 `task` 字段把它们排除在项目目录、侧栏之外，只在任务区出现。
+- **调度**：宿主里的纯函数 `step(任务, 事件) → (新任务, 动作[])`，发出动作时状态当场变（防重复）；每个任务一个串行队列；动作都能认出"已经做过"（重放后不重复提交、建 worktree、合并）。事件写进 `events.jsonl`（节点相关的带 `attempt`，旧会话迟到的事件丢掉），`task.json`（`{ version, seq, task }`）可以从事件重放出来。
+- **工作区**：任务建的 worktree 记"由任务 X 创建"；任务在用时对它 `git worktree lock`。任务结束时，任务建的 worktree 由你决定归档还是留着；来源对话本来就在的 worktree，任务只解锁，不问、不删。
+- **数据归属**：任务数据里有交接摘要和你写的打回原因，它们和会话内容一样不进宿主日志；日志只记任务 id、节点 id、事件种类。
 
 ## 已决定
 
