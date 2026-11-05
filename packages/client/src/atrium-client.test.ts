@@ -2715,6 +2715,46 @@ describe("createAtriumClient: remote access", () => {
     ]);
   });
 
+  it("lets the task list and an open task's state go by until the board exists, without a session event or an error", async () => {
+    const { client, latest } = await connected();
+    const connection = client.connection.getState();
+    const index = client.index.getState();
+    const sent = latest().commands().length;
+    const task = {
+      id: "tsk_0123456789abcdef",
+      name: "t",
+      status: "running",
+      projectId: null,
+      workspaceId: null,
+      paused: false,
+      createdAt: 1,
+      startedAt: 1,
+      endedAt: null,
+      attention: null,
+      archive: null,
+    };
+
+    latest().receive(JSON.stringify({ type: "tasks_updated", seq: 1, tasks: [task] }));
+    latest().receive(
+      JSON.stringify({
+        type: "task_updated",
+        task: {
+          ...task,
+          taskSessionId: "s0",
+          graphVersion: 1,
+          pendingGraph: false,
+          nodes: [],
+          edges: [],
+          archiveFacts: null,
+        },
+      }),
+    );
+
+    expect(client.connection.getState()).toStrictEqual(connection);
+    expect(client.index.getState()).toBe(index);
+    expect(latest().commands()).toHaveLength(sent);
+  });
+
   it("keeps a newer push when the read promise resumes afterwards", async () => {
     const { client, latest } = await connected();
     const read = client.watchRemote(true);

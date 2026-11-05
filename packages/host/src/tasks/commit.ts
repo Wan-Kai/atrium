@@ -80,14 +80,15 @@ async function headWithTrailer(git: GitRunner, cwd: string, value: string): Prom
  * @remarks
  * A node can write `core.worktree` into the repository's or the worktree's configuration (with
  * `extensions.worktreeConfig`), which makes git in the worktree work on a tree elsewhere; the commit would
- * follow it (security.md, "任务"). Asked without the pin that the commands themselves carry.
+ * follow it (security.md, "任务"). The merge checks the main checkout the same way. Asked without the pin
+ * that the commands themselves carry.
  *
  * @sideEffects Runs git; reads the real path of the directory.
  * @param git - git.
  * @param cwd - The worktree.
  * @throws {Error} When git's top level is not the worktree.
  */
-async function assertOwnTree(git: GitRunner, cwd: string): Promise<void> {
+export async function assertOwnTree(git: GitRunner, cwd: string): Promise<void> {
   const top = await runSafeGit(
     git,
     ["rev-parse", "--show-toplevel"],
@@ -98,6 +99,26 @@ async function assertOwnTree(git: GitRunner, cwd: string): Promise<void> {
   if (top.code !== 0 || (await realpath(top.stdout.trim()).catch(() => "")) !== expected) {
     throw new Error("git's work tree is not the task's worktree");
   }
+}
+
+/**
+ * The `-c` options that give a commit an author when the repository names none.
+ *
+ * @remarks
+ * A commit or merge commit without `user.email` would fail; Atrium's own identity stands in. It does not
+ * replace one the user set.
+ *
+ * @sideEffects Runs git.
+ * @param git - git.
+ * @param cwd - The directory.
+ * @param timeoutMs - How long git may take.
+ * @returns The options, empty when an author is configured.
+ */
+export async function authorOptions(git: GitRunner, cwd: string, timeoutMs: number): Promise<string[]> {
+  const named = await git.run(["config", "user.email"], { cwd, timeoutMs });
+  return named.code === 0 && named.stdout.trim() !== ""
+    ? []
+    : ["-c", "user.name=Atrium", "-c", "user.email=atrium@localhost"];
 }
 
 /**
@@ -144,11 +165,7 @@ export async function commitWork(
   );
   if (staged.code === 0) return { kind: "nothing" };
   if (staged.code !== 1) throw new Error("git diff failed");
-  const named = await git.run(["config", "user.email"], { cwd, timeoutMs });
-  const author =
-    named.code === 0 && named.stdout.trim() !== ""
-      ? []
-      : ["-c", "user.name=Atrium", "-c", "user.email=atrium@localhost"];
+  const author = await authorOptions(git, cwd, timeoutMs);
   const committed = await runSafeGit(
     git,
     [...author, pin, "commit", "--quiet", "-m", message.subject, "-m", `${TRAILER_KEY}: ${message.trailer}`],

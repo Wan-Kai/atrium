@@ -3,15 +3,16 @@ import type { Clock } from "../platform/clock";
 import type { GitRunner } from "../platform/git";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
-import type { SessionEvent } from "@atrium/protocol";
+import { CommandError, type SessionEvent } from "@atrium/protocol";
 import type { TaskSessionSignal, TaskSessions } from "../sessions/task-sessions";
 import { type Caller, checkCall, replyText } from "./channel";
 import { commitSubject, commitWork, trailerValue } from "./commit";
 import { buildContract, graphChangedText } from "./contract";
+import type { MergeOutcome } from "./merge";
 import { activeGraphOf, liveRun, placeOf, runAt } from "./graph";
 import { type Ending, JUDGE_START, type JudgeState, judge } from "./judge";
 import type { TaskWorkspaces } from "./node-ports";
-import { RESUME_GRAPH_APPROVED, RESUME_GRAPH_REJECTED, RESUME_RESTARTED } from "./texts";
+import { CONTINUE_NODE, RESUME_GRAPH_APPROVED, RESUME_GRAPH_REJECTED, RESUME_RESTARTED } from "./texts";
 import type { TaskStore } from "./task-store";
 import type { Action, GraphNode, NodeId, NodeRun, Task, TaskEvent, TaskEventInput } from "./types";
 
@@ -39,6 +40,8 @@ export interface TaskRunner {
   submit(taskId: string, input: TaskEventInput): Promise<Task>;
   /** The task as it is. */
   task(taskId: string): Task | undefined;
+  /** Every task looked after, in the order they were attached. */
+  all(): Task[];
   /**
    * Picks a task up after the host restarted, doing again what was lost and telling the scheduler.
    *
@@ -51,6 +54,14 @@ export interface TaskRunner {
    * `node_done` again.
    */
   recover(taskId: string): Promise<void>;
+  /**
+   * Lets a node the user stopped go on: a message in its own conversation, as the user could send (SPEC-0006,
+   * "节点"). The run it starts is what puts the node back to `running`.
+   *
+   * @remarks
+   * Fails with `task_state_invalid` when the node is not `stopped` or has no session.
+   */
+  continueNode(taskId: string, node: NodeId): Promise<void>;
   /** Calls `listener` after every event is recorded; returns a function that stops it. */
   onEvent(listener: (task: Task, event: TaskEvent, actions: readonly Action[]) => void): () => void;
   /** Resolves once every task's queue and every reply under way is done. */
@@ -177,8 +188,8 @@ function freshWorktreeFor(task: Task, node: GraphNode, run: NodeRun): boolean {
  * SPEC-0006, "调度器" and "一个 agent 节点怎么跑": every task has a serial queue; `step` (inside the store's
  * `record`) is pure and this carries out its actions, each recognising work done before (a session by its
  * record, a commit by its trailer, a worktree by the workspace port), and turns what happens into events
- * that go back through the queue. Of the actions, `merge`, `ask_archive`, `progress_line`, `notify` and
- * `wake_task_conversation` belong to later steps (T5, T6): they are only logged. A node's session is read
+ * that go back through the queue. Of the actions, `progress_line`, `notify`, `wake_task_conversation` and
+ * `ask_archive` (a state of the task, `archive`) belong to later steps (T6) or to the UI: they are only logged. A node's session is read
  * through the judge (`judge.ts`), which decides from pi's events whether a `node_done` stands.
  *
  * @sideEffects none until a task is attached; then it listens to the sessions of tasks, starts and stops
@@ -397,7 +408,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
    * Carries out one action.
    *
    * @remarks
-   * SPEC-0006, "调度器": the actions of T4. The rest are logged with their kind only.
+   * SPEC-0006, "调度器": the actions of T4 and the merge (T5). The rest are logged with their kind only.
    *
    * @sideEffects Whatever the action does.
    * @param entry - The task.
@@ -421,12 +432,14 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
         return nudgeNode(entry, action.node, seq);
       case "commit_node":
         return commitNode(entry, action.node, action.attempt);
+      case "merge":
+        return mergeNode(entry, action.node);
       case "progress_line":
       case "wake_task_conversation":
-      case "merge":
       case "ask_archive":
       case "notify":
-        // Later steps (T5: merge, archive; T6: the task conversation) and the UI (notify) take these.
+        // The question about archiving is the task's own state (`archive`, T5); the task conversation
+        // (T6) and the UI (notify) take the rest.
         logger.debug({ action: action.kind }, "task action left to a later step");
     }
   }
@@ -758,6 +771,45 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
   }
 
   /**
+   * Merges the task's branch for a closing human node that was passed.
+   *
+   * @remarks
+   * SPEC-0006, "合并": the worktree port does the checks and the merge; `merged` passes the node, anything
+   * blocking it is `merge_blocked` with the reason (and the conflicting files), and the node waits for another
+   * "pass". A merge that throws (no worktree, no git) is `merge_git_failed`, so the node is never left
+   * merging. A host that is closing records nothing: the node is still `merging`, and `host_restarted` sends the
+   * merge again, which recognises one that was done.
+   *
+   * @sideEffects Runs git in the main checkout; records `merged` or `merge_blocked`.
+   * @param entry - The task.
+   * @param nodeId - The human node.
+   */
+  async function mergeNode(entry: TaskEntry, nodeId: NodeId): Promise<void> {
+    const task = entry.store.current();
+    if (task === null || liveRun(task, nodeId)?.merging !== true) return;
+    let outcome: MergeOutcome;
+    try {
+      outcome = await workspaces.merge(task, closing.signal);
+    } catch (error) {
+      if (closing.signal.aborted) return;
+      logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "task merge could not be made");
+      outcome = { kind: "blocked", reason: "merge_git_failed" };
+    }
+    if (outcome.kind === "merged") {
+      logger.info("task branch merged");
+      await dispatch(entry, { type: "merged", node: nodeId });
+      return;
+    }
+    logger.info({ reason: outcome.reason }, "task merge blocked");
+    await dispatch(entry, {
+      type: "merge_blocked",
+      node: nodeId,
+      reason: outcome.reason,
+      ...(outcome.files === undefined ? {} : { files: [...outcome.files] }),
+    });
+  }
+
+  /**
    * Puts work on a task's queue.
    *
    * @remarks
@@ -1028,6 +1080,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       return enqueue(entry, () => dispatch(entry, input));
     },
     task: (taskId) => tasks.get(taskId)?.store.current() ?? undefined,
+    all: () => [...tasks.values()].flatMap((entry) => entry.store.current() ?? []),
     recover(taskId) {
       const entry = tasks.get(taskId);
       if (entry === undefined) return Promise.reject(new Error(`task ${taskId} is not attached`));
@@ -1045,6 +1098,26 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
         }
         // A writing node whose commit was pending gets its `commit_node` from this event, for that run only.
         await dispatch(entry, { type: "host_restarted" });
+      });
+    },
+    continueNode(taskId, nodeId) {
+      const entry = tasks.get(taskId);
+      if (entry === undefined) return Promise.reject(new Error(`task ${taskId} is not attached`));
+      return enqueue(entry, async () => {
+        const task = entry.store.current();
+        const run = task === null ? undefined : liveRun(task, nodeId);
+        if (run?.state !== "stopped" || run.sessionId === null) throw new CommandError("task_state_invalid");
+        const context = contextOf(run.sessionId);
+        if (context !== undefined) {
+          context.judge = JUDGE_START;
+          context.hold = false;
+          context.killed = false;
+          context.crashed = false;
+          context.ownStart = true;
+          expectTurn(context);
+        }
+        await sessions.open(run.sessionId);
+        await sessions.prompt(run.sessionId, CONTINUE_NODE, closing.signal);
       });
     },
     onEvent(listener) {

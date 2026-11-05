@@ -69,31 +69,41 @@ function isInclude(name: string): boolean {
 }
 
 /**
- * The names of the filters a configuration defines, and whether one has a name no `-c` can carry.
+ * The names a configuration gives to things git runs a command for, and whether one has a name no `-c` can carry.
  *
  * @remarks
- * A filter is `filter.<name>.<variable>`, and its name may hold dots. One with `=` or a newline
- * in its name cannot be turned off with `-c filter.<name>.smudge=`, which git would read as
+ * A filter is `filter.<name>.<variable>` and a merge driver `merge.<name>.driver`; the name may hold dots.
+ * One with `=` or a newline in its name cannot be turned off with `-c <key>=`, which git would read as
  * another setting.
  *
  * @sideEffects none
  * @param names - The setting names.
- * @returns The filters' names, and whether one cannot be turned off.
+ * @returns The filters' and the merge drivers' names, and whether one of either cannot be turned off.
  */
-function filtersOf(names: ConfigNames): { readonly filters: string[]; readonly unsafe: boolean } {
+function commandNamesOf(names: ConfigNames): {
+  readonly filters: string[];
+  readonly drivers: string[];
+  readonly unsafe: "filter_name" | "driver_name" | null;
+} {
   const filters = new Set<string>();
-  let unsafe = false;
+  const drivers = new Set<string>();
+  let unsafe: "filter_name" | "driver_name" | null = null;
   for (const name of names) {
-    if (!name.toLowerCase().startsWith("filter.")) continue;
+    const lower = name.toLowerCase();
     const dot = name.lastIndexOf(".");
-    const variable = name.slice(dot + 1).toLowerCase();
-    // `filter.smudge` alone has no name, and git ignores it.
-    if (dot <= "filter.".length - 1 || !FILTER_VARIABLES.some((known) => known === variable)) continue;
-    const filter = name.slice("filter.".length, dot);
-    if (filter.includes("=") || filter.includes("\n")) unsafe = true;
-    else filters.add(filter);
+    const variable = lower.slice(dot + 1);
+    // `filter.smudge` and `merge.driver` alone have no name, and git ignores them.
+    if (lower.startsWith("filter.") && dot > "filter.".length - 1 && FILTER_VARIABLES.some((v) => v === variable)) {
+      const filter = name.slice("filter.".length, dot);
+      if (filter.includes("=") || filter.includes("\n")) unsafe ??= "filter_name";
+      else filters.add(filter);
+    } else if (lower.startsWith("merge.") && dot > "merge.".length - 1 && variable === "driver") {
+      const driver = name.slice("merge.".length, dot);
+      if (driver.includes("=") || driver.includes("\n")) unsafe ??= "driver_name";
+      else drivers.add(driver);
+    }
   }
-  return { filters: [...filters], unsafe };
+  return { filters: [...filters], drivers: [...drivers], unsafe };
 }
 
 /**
@@ -110,8 +120,14 @@ function filtersOf(names: ConfigNames): { readonly filters: string[]; readonly u
  *   has `smudge`, `clean` and `process` emptied and `required` off, so files that go through
  *   git-lfs stay pointers and nothing runs. A filter named only in `.gitattributes` has no
  *   command and needs nothing;
- * - with `rejectIncludes`, a repository whose own configuration includes another file is refused,
- *   as is one with a filter name `-c` cannot carry: the included file is not the host's to read.
+ * - every merge driver configured anywhere has its `driver` command emptied (SPEC-0006, "宿主自己跑的 git"):
+ *   git then cannot run it ("cannot run : No such file or directory") and reports a conflict for a file
+ *   that names it, where it would otherwise let the agent's program resolve the merge. `diff.<name>.textconv`
+ *   and `diff.external` need no option: `merge` runs neither, and the host's own diffs pass `--no-textconv`
+ *   and `--no-ext-diff`;
+ * - with `rejectIncludes`, a repository whose own configuration includes another file is refused;
+ *   one with a filter or merge driver name `-c` cannot carry is refused either way: the included file is not
+ *   the host's to read.
  *
  * @sideEffects Runs git (two or three listings of its configuration).
  * @param git - git.
@@ -133,8 +149,8 @@ export async function safeGitOptions(
     ];
     if (own.some(isInclude)) throw new CommandError("worktree_config_unsafe", { reason: "include" });
   }
-  const { filters, unsafe } = filtersOf(await configNames(git, cwd, null));
-  if (unsafe) throw new CommandError("worktree_config_unsafe", { reason: "filter_name" });
+  const { filters, drivers, unsafe } = commandNamesOf(await configNames(git, cwd, null));
+  if (unsafe !== null) throw new CommandError("worktree_config_unsafe", { reason: unsafe });
   return [
     "-c",
     `core.hooksPath=${NO_HOOKS_PATH}`,
@@ -157,6 +173,9 @@ export async function safeGitOptions(
       "-c",
       `filter.${filter}.required=false`,
     ]),
+    // A merge driver's command is blanked: git cannot run it, so a file that names the driver conflicts
+    // (the host aborts that merge) instead of being resolved by the agent's program.
+    ...drivers.flatMap((driver) => ["-c", `merge.${driver}.driver=`]),
   ];
 }
 

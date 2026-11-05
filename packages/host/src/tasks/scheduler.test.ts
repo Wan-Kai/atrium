@@ -92,6 +92,60 @@ describe("step: designing and starting", () => {
     expect(sim.task.endedAt).not.toBeNull();
   });
 
+  it("asks about archiving as part of the task, when it ends by finishing and when it is cancelled; not for a worktree it did not make", () => {
+    const done = started(new Sim(newTask([agent("N1")], [], { workspaceState: "ready" })));
+    expect(done.task.archive).toBeUndefined();
+    finish(done, "N1");
+    expect(done.task.archive).toBe("asked");
+
+    const cancelled = started(new Sim(newTask([agent("N1")], [], { workspaceState: "ready" })));
+    cancelled.send({ type: "cancelled" });
+    expect(cancelled.task.archive).toBe("asked");
+
+    const borrowed = started(new Sim(newTask([agent("N1")], [], { workspaceState: "ready", ownsWorkspace: false })));
+    finish(borrowed, "N1");
+    expect(borrowed.task.archive).toBeUndefined();
+    const idle = started(new Sim(newTask([agent("N1")], [])));
+    finish(idle, "N1");
+    expect(idle.task.archive).toBeUndefined();
+  });
+
+  it("takes the answer about archiving after the task has ended, which it takes no other event after", () => {
+    const sim = started(new Sim(newTask([agent("N1")], [], { workspaceState: "ready" })));
+    finish(sim, "N1");
+
+    expect(sim.send({ type: "archive_answered", answer: "keep" })).toStrictEqual([]);
+    expect(sim.task.archive).toBe("kept");
+    // Keeping twice changes nothing; archiving after keeping is allowed, and nothing after that.
+    const kept = sim.task;
+    sim.send({ type: "archive_answered", answer: "keep" });
+    expect(sim.task).toBe(kept);
+    sim.send({ type: "archive_answered", answer: "archive" });
+    expect(sim.task.archive).toBe("archived");
+    const archived = sim.task;
+    sim.send({ type: "archive_answered", answer: "keep" });
+    sim.send({ type: "archive_answered", answer: "archive" });
+    expect(sim.task).toBe(archived);
+    expect(sim.task.endedAt).not.toBeNull();
+  });
+
+  it("answers archive directly from asked, also for a cancelled task, and ignores an answer to a question never asked", () => {
+    const sim = started(new Sim(newTask([agent("N1")], [], { workspaceState: "ready" })));
+    sim.send({ type: "cancelled" });
+    sim.send({ type: "archive_answered", answer: "archive" });
+    expect(sim.task.archive).toBe("archived");
+
+    const none = started(new Sim(newTask([agent("N1")], [], { workspaceState: "ready", ownsWorkspace: false })));
+    finish(none, "N1");
+    const before = none.task;
+    none.send({ type: "archive_answered", answer: "archive" });
+    expect(none.task).toBe(before);
+    const running = started(new Sim(newTask([agent("N1")], [], { workspaceState: "ready" })));
+    const early = running.task;
+    running.send({ type: "archive_answered", answer: "keep" });
+    expect(running.task).toBe(early);
+  });
+
   it("only unlocks a worktree the task did not make", () => {
     const sim = started(new Sim(newTask([agent("N1")], [], { workspaceState: "ready", ownsWorkspace: false })));
     expect(kinds(finish(sim, "N1"))).toStrictEqual(["unlock_workspace"]);
@@ -643,6 +697,23 @@ describe("step: questions, graph changes and the closing human node", () => {
     expect(kinds(merged)).toStrictEqual(["unlock_workspace", "ask_archive"]);
     expect(sim.task.runs[1]).not.toHaveProperty("merging");
     expect(sim.status()).toBe("done");
+  });
+
+  it("keeps the conflicting files on the blocked node (at most the limit) and drops them when the merge is tried again", () => {
+    const sim = started(
+      new Sim(newTask([agent("N1"), human("H1", { merge: true })], edges(["N1", "H1"]), { workspaceState: "ready" })),
+    );
+    finish(sim, "N1");
+    sim.send({ type: "human_passed", node: "H1" });
+    const files = Array.from({ length: 60 }, (_, index) => `f${String(index)}.txt`);
+
+    sim.send({ type: "merge_blocked", node: "H1", reason: "merge_conflict", files });
+
+    expect(sim.task.runs[1]?.blockedFiles).toStrictEqual(files.slice(0, 50));
+    sim.send({ type: "human_passed", node: "H1" });
+    expect(sim.task.runs[1]).not.toHaveProperty("blockedFiles");
+    sim.send({ type: "merge_blocked", node: "H1", reason: "merge_main_dirty" });
+    expect(sim.task.runs[1]).not.toHaveProperty("blockedFiles");
   });
 
   it("holds a blocked merge for the user and merges again on the next pass", () => {

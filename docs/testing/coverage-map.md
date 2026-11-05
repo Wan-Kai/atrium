@@ -23,7 +23,7 @@
 | 界面说法：`worktree_config_unsafe`、`head_mismatch`、`workspace_in_task`；错误码进协议和 Swift 投影 | `ui/state/new-workspace.test.ts`、`ui/app/workbench.browser.test.tsx`、`protocol/envelope.test.ts` |
 
 - 破坏检查：`docs/testing/t1-worktree-break-check.json`。
-- 没做：加锁、解锁、启动清锁还没接到任何流程上（T1 里没有任务）；不关 `merge.<名>.driver`、`diff.<名>.textconv`（见 security.md）。
+- 没做：加锁、解锁、启动清锁还没接到任何流程上（T1 里没有任务）；不关 `merge.<名>.driver`、`diff.<名>.textconv`（T5 已评估：驱动关掉，`textconv` 不用，见 T5 一节和 security.md）。
 
 ## T3 任务核心（SPEC-0006"状态机""调度器""改图"，2026-11-04，待验收）
 
@@ -2178,4 +2178,26 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 
 - 没有单独的测试：结束了的任务释放节点上下文（P，只回收内存，源码里按 `Stryker disable` 标注）；`merge.<名>.driver`（T5）。
 - 没做：协议包里没有失败原因枚举的镜像，`commit` 这个新原因留给 T5 的协议工作。
+
+## T5 human 节点与合并（SPEC-0006"human 节点""合并""归档""协议（给 UI）"，2026-11-05，待验收）
+
+合并、冲突、abort 失败都用真的 git 仓库（testkit `createGitScene`）；合并测试的 git 运行器缺 `cwd` 就抛错，变异体改掉 `cwd` 也不会合并进本仓库。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 合并检查顺序：worktree 脏（含未跟踪）、已合并 / 没改动直接 `merged`（主目录脏或不在主干也一样）、主目录脏、主目录不在主干（含游离 HEAD、项目没有主干）；处理后能合并；成功是 `--no-ff` 的合并提交、不推送 | `tasks/merge.test.ts` |
+| 冲突：`merge --abort`，主目录回到合并前的提交且干净，没有残留的合并状态，冲突文件列表；改好后能合并；`abort` 退出码失败、abort 后留下文件、abort 后提交跑偏 → `merge_abort_failed`；git 自己拒绝 → `merge_git_failed`、主目录没动 | `merge.test.ts` |
+| 合并驱动不跑：配置里的驱动被清空，文件变冲突（对照：裸 git 会跑）；`merge-tree`（MergeInspector）同样不跑（原有问题）；驱动名带 `=` 拒绝；钩子不跑；`core.worktree` 把主目录或任务 worktree 引走 → `merge_git_failed`；仓库没配作者时用 Atrium 的作者；合并提交号而非名字；关宿主的信号在合并前抛出 | `merge.test.ts`、`workspaces/safe-git.test.ts`、`workspaces/merge-inspector.test.ts`、`tasks/task-merge.host.test.ts` |
+| 宿主层（真实宿主 + faux pi）：脏 worktree / 脏主目录 / 不在主干分别挡住、处理后合并成功；冲突后主目录原样、处理后合并；已合并不重复合并；配置的合并驱动不跑；归档提问：已合并事实、有未提交改动时 `workspace_dirty` 且提问保留、先留着再归档、已取消未合并任务的事实、重启后提问和答案还在 | `tasks/task-merge.host.test.ts` |
+| 打回：旁支和下游一起重置（human 节点图，不起 pi）、第三次用同一条边 `task_back_limit`、重启后事件重放出同样的任务；`task_not_found`、`task_state_invalid` 各情形；暂停 / 恢复 / 取消；列出磁盘上的任务 | `tasks/human-node.host.test.ts` |
+| 调度器：`archive` 在任务结束（完成、取消）时置 `asked`、借来的 worktree 没有；`archive_answered` 结束后仍收，`asked`→`kept`/`archived`、`kept`→`archived`、其余忽略；`blockedFiles` 截到 50 个、重试时清掉 | `tasks/scheduler.test.ts` |
+| Runner：`merge` 动作的四种结果（合并、被挡带文件、抛错 → `merge_git_failed`、关宿主时什么也不记且仍 `merging`）；`continue_node` 发"继续"、状态不符报 `task_state_invalid` | `tasks/runner.test.ts` |
+| 视图：状态 / 尝试 / 摘要（取最近一次给出的）/ 打回边用了几次 / `attention` 优先级 / 文本截断 / 没有图；协议枚举和上限与宿主一致 | `tasks/task-view.test.ts` |
+| 协议：命令和事件的往返、命令结果、Swift 夹具；错误码；整条 WebSocket 上的 `list_tasks` / `open_task` / `answer_human` / 推送 / 取消订阅 / 错误码；手机只能列出和打开 | `protocol/envelope.test.ts`、`tasks/tasks-protocol.host.test.ts`、`server/router.test.ts`、`server/remote-policy.test.ts`、`client/atrium-client.test.ts`（客户端放过任务推送）；`pnpm protocol:swift --check` |
+| `pnpm task:try`：解析回答（通过 / 打回带或不带原因 / 退出 / 不认识）、human 节点显示、合并被挡的说明、归档显示、问什么、什么时候停、按行读输入；示例图读得进来 | `dev/task-try.test.ts` |
+| 泄漏：反复合并、被挡、打回、归档、订阅和退订后，资源、子进程、句柄和定时器回到原样 | `tasks/node-run.leak.test.ts` |
+
+- 破坏检查：`packages/host/src/tasks/t5.break-check.json`（34 处）、`t5-host.break-check.json`（7 处，`project: host`）。第一次跑时各漏了几处，补测后全部抓到：已合并 / 没改动的直接算合并（原先靠 git 的"Already up to date"碰巧也对）、`abort` 退出码（原先被"主目录没回原样"盖住）、摘要取最近一次、`open_task` 参数顺序。三处改成不再声称：按名字还是按提交号合并（实测 git 都选分支，留着提交号是为了合的就是检查过的那一个）、客户端放过任务推送（只是类型上的守卫）、任务 id 的形状检查（`openTaskStore` 对不存在的目录什么也不建，检查是纵深防御）。
+- 没有测试保护的：`TaskWorkspaces.merge` 里主干名取自项目的覆盖值（测试里的主干都是 `main`）；`opened.get(...) === taskId` 的守卫（连接中途换了任务时不推旧任务）。
+- 真实模型：`pnpm task:try` 跑 `explore-work-check-merge.json`（claude-bridge/claude-haiku-4-5）：打回一次（第二次的契约带上次的摘要和原因）、主目录切到 `side` 时通过被挡（`merge_main_not_trunk`）、切回后合并成功、origin 未动、回答"归档"后 worktree 目录被清理。
 

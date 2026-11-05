@@ -110,6 +110,17 @@ export const COMMAND_REACH = {
   rename_device: "local_only",
   revoke_device: "local_only",
   reset_remote_identity: "local_only",
+  // Tasks are read-only on a phone: it may list and open them, not answer, rerun, pause or cancel
+  // (SPEC-0006, "协议（给 UI）").
+  list_tasks: "phone",
+  open_task: "phone",
+  answer_human: "local_only",
+  rerun_node: "local_only",
+  continue_node: "local_only",
+  pause_task: "local_only",
+  resume_task: "local_only",
+  cancel_task: "local_only",
+  answer_archive: "local_only",
 } as const satisfies Record<CommandType, Reach>;
 
 /**
@@ -166,6 +177,8 @@ export const PUSHED_TO_PHONE = {
   pi_latest: false,
   credentials_changed: false,
   remote_updated: false,
+  tasks_updated: true,
+  task_updated: true,
 } as const satisfies Record<HostMessage["type"], boolean>;
 
 /**

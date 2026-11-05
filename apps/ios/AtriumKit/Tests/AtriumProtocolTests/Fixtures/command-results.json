@@ -1138,5 +1138,448 @@
   ],
   "reset_remote_identity": [
     {}
+  ],
+  "list_tasks": [
+    {
+      "tasks": []
+    },
+    {
+      "tasks": [
+        {
+          "id": "tsk_0123456789abcdef",
+          "name": "Add the export",
+          "status": "waiting",
+          "projectId": "prj_0123456789abcdef",
+          "workspaceId": "wks_0123456789abcdef",
+          "paused": false,
+          "createdAt": 1760000000000,
+          "startedAt": 1760000001000,
+          "endedAt": null,
+          "attention": "merge_blocked",
+          "archive": null
+        },
+        {
+          "id": "tsk_0123456789abcdef",
+          "name": "Add the export",
+          "status": "done",
+          "projectId": "prj_0123456789abcdef",
+          "workspaceId": "wks_0123456789abcdef",
+          "paused": false,
+          "createdAt": 1760000000000,
+          "startedAt": 1760000001000,
+          "endedAt": 1760000002000,
+          "attention": null,
+          "archive": "asked"
+        }
+      ]
+    }
+  ],
+  "open_task": [
+    {
+      "task": {
+        "id": "tsk_0123456789abcdef",
+        "name": "Add the export",
+        "status": "waiting",
+        "projectId": "prj_0123456789abcdef",
+        "workspaceId": "wks_0123456789abcdef",
+        "paused": false,
+        "createdAt": 1760000000000,
+        "startedAt": 1760000001000,
+        "endedAt": null,
+        "attention": "merge_blocked",
+        "archive": null,
+        "taskSessionId": "s0",
+        "graphVersion": 1,
+        "pendingGraph": false,
+        "nodes": [
+          {
+            "kind": "agent",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "passed",
+            "attempt": 1,
+            "waitingFor": null,
+            "blocked": null,
+            "failure": null,
+            "summary": "Done.",
+            "sessionId": "s1",
+            "sendBack": [],
+            "id": "N1",
+            "name": "Explore",
+            "role": "explore",
+            "place": "readonly"
+          },
+          {
+            "kind": "agent",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "passed",
+            "attempt": 1,
+            "waitingFor": null,
+            "blocked": null,
+            "failure": null,
+            "summary": "Done.",
+            "sessionId": "s1",
+            "sendBack": [],
+            "id": "N2",
+            "name": "Write",
+            "role": "work",
+            "place": "workspace",
+            "backFrom": {
+              "node": "N3",
+              "reason": "Again"
+            }
+          },
+          {
+            "kind": "human",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "waiting",
+            "attempt": 1,
+            "waitingFor": "merge_blocked",
+            "blocked": "merge_conflict",
+            "failure": null,
+            "summary": null,
+            "sessionId": null,
+            "sendBack": [
+              {
+                "to": "N2",
+                "uses": 1
+              }
+            ],
+            "id": "N3",
+            "name": "Accept and merge",
+            "merge": true,
+            "blockedFiles": [
+              "src/a.ts",
+              "src/b.ts"
+            ]
+          },
+          {
+            "kind": "agent",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "failed",
+            "attempt": 1,
+            "waitingFor": null,
+            "blocked": null,
+            "failure": "commit",
+            "summary": "Done.",
+            "sessionId": null,
+            "sendBack": [],
+            "id": "N4",
+            "name": "Check",
+            "role": "check"
+          }
+        ],
+        "edges": [
+          {
+            "from": "N1",
+            "to": "N2",
+            "kind": "seq"
+          },
+          {
+            "from": "N2",
+            "to": "N3",
+            "kind": "seq"
+          },
+          {
+            "from": "N3",
+            "to": "N2",
+            "kind": "back"
+          }
+        ],
+        "archiveFacts": null
+      }
+    },
+    {
+      "task": {
+        "id": "tsk_0123456789abcdef",
+        "name": "Add the export",
+        "status": "done",
+        "projectId": "prj_0123456789abcdef",
+        "workspaceId": "wks_0123456789abcdef",
+        "paused": false,
+        "createdAt": 1760000000000,
+        "startedAt": 1760000001000,
+        "endedAt": null,
+        "attention": null,
+        "archive": "asked",
+        "taskSessionId": "s0",
+        "graphVersion": 1,
+        "pendingGraph": false,
+        "nodes": [
+          {
+            "kind": "agent",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "passed",
+            "attempt": 1,
+            "waitingFor": null,
+            "blocked": null,
+            "failure": null,
+            "summary": "Done.",
+            "sessionId": "s1",
+            "sendBack": [],
+            "id": "N1",
+            "name": "Explore",
+            "role": "explore",
+            "place": "readonly"
+          },
+          {
+            "kind": "agent",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "passed",
+            "attempt": 1,
+            "waitingFor": null,
+            "blocked": null,
+            "failure": null,
+            "summary": "Done.",
+            "sessionId": "s1",
+            "sendBack": [],
+            "id": "N2",
+            "name": "Write",
+            "role": "work",
+            "place": "workspace",
+            "backFrom": {
+              "node": "N3",
+              "reason": "Again"
+            }
+          },
+          {
+            "kind": "human",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "waiting",
+            "attempt": 1,
+            "waitingFor": "merge_blocked",
+            "blocked": "merge_conflict",
+            "failure": null,
+            "summary": null,
+            "sessionId": null,
+            "sendBack": [
+              {
+                "to": "N2",
+                "uses": 1
+              }
+            ],
+            "id": "N3",
+            "name": "Accept and merge",
+            "merge": true,
+            "blockedFiles": [
+              "src/a.ts",
+              "src/b.ts"
+            ]
+          },
+          {
+            "kind": "agent",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "failed",
+            "attempt": 1,
+            "waitingFor": null,
+            "blocked": null,
+            "failure": "commit",
+            "summary": "Done.",
+            "sessionId": null,
+            "sendBack": [],
+            "id": "N4",
+            "name": "Check",
+            "role": "check"
+          }
+        ],
+        "edges": [
+          {
+            "from": "N1",
+            "to": "N2",
+            "kind": "seq"
+          },
+          {
+            "from": "N2",
+            "to": "N3",
+            "kind": "seq"
+          },
+          {
+            "from": "N3",
+            "to": "N2",
+            "kind": "back"
+          }
+        ],
+        "archiveFacts": {
+          "name": "export",
+          "merged": true,
+          "dirty": false,
+          "commits": 3
+        }
+      }
+    },
+    {
+      "task": {
+        "id": "tsk_0123456789abcdef",
+        "name": "Add the export",
+        "status": "waiting",
+        "projectId": null,
+        "workspaceId": null,
+        "paused": false,
+        "createdAt": 1760000000000,
+        "startedAt": 1760000001000,
+        "endedAt": null,
+        "attention": "merge_blocked",
+        "archive": null,
+        "taskSessionId": "s0",
+        "graphVersion": 1,
+        "pendingGraph": false,
+        "nodes": [
+          {
+            "kind": "agent",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "passed",
+            "attempt": 1,
+            "waitingFor": null,
+            "blocked": null,
+            "failure": null,
+            "summary": "Done.",
+            "sessionId": "s1",
+            "sendBack": [],
+            "id": "N1",
+            "name": "Explore",
+            "role": "explore",
+            "place": "readonly"
+          },
+          {
+            "kind": "agent",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "passed",
+            "attempt": 1,
+            "waitingFor": null,
+            "blocked": null,
+            "failure": null,
+            "summary": "Done.",
+            "sessionId": "s1",
+            "sendBack": [],
+            "id": "N2",
+            "name": "Write",
+            "role": "work",
+            "place": "workspace",
+            "backFrom": {
+              "node": "N3",
+              "reason": "Again"
+            }
+          },
+          {
+            "kind": "human",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "waiting",
+            "attempt": 1,
+            "waitingFor": "merge_blocked",
+            "blocked": "merge_conflict",
+            "failure": null,
+            "summary": null,
+            "sessionId": null,
+            "sendBack": [
+              {
+                "to": "N2",
+                "uses": 1
+              }
+            ],
+            "id": "N3",
+            "name": "Accept and merge",
+            "merge": true,
+            "blockedFiles": [
+              "src/a.ts",
+              "src/b.ts"
+            ]
+          },
+          {
+            "kind": "agent",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "failed",
+            "attempt": 1,
+            "waitingFor": null,
+            "blocked": null,
+            "failure": "commit",
+            "summary": "Done.",
+            "sessionId": null,
+            "sendBack": [],
+            "id": "N4",
+            "name": "Check",
+            "role": "check"
+          }
+        ],
+        "edges": [
+          {
+            "from": "N1",
+            "to": "N2",
+            "kind": "seq"
+          },
+          {
+            "from": "N2",
+            "to": "N3",
+            "kind": "seq"
+          },
+          {
+            "from": "N3",
+            "to": "N2",
+            "kind": "back"
+          }
+        ],
+        "archiveFacts": {
+          "name": "x",
+          "merged": null,
+          "dirty": true,
+          "commits": 0
+        }
+      }
+    }
+  ],
+  "answer_human": [
+    {}
+  ],
+  "rerun_node": [
+    {}
+  ],
+  "continue_node": [
+    {}
+  ],
+  "pause_task": [
+    {}
+  ],
+  "resume_task": [
+    {}
+  ],
+  "cancel_task": [
+    {}
+  ],
+  "answer_archive": [
+    {}
   ]
 }

@@ -59,6 +59,8 @@ import { createSessionCatalog } from "./sessions/session-catalog";
 import { createPlanUsage } from "./sessions/plan-usage";
 import { createSessionManager } from "./sessions/session-manager";
 import { createTaskRunner } from "./tasks/runner";
+import { createTaskArchiving } from "./tasks/task-archiving";
+import { createTaskCommands } from "./tasks/task-commands";
 import { type TaskService, createTaskService } from "./tasks/task-service";
 import { createTaskWorkspaces } from "./tasks/task-workspaces";
 import { createReplyTranslations, TRANSLATION_OUTPUT_BYTES } from "./sessions/reply-translation";
@@ -124,7 +126,7 @@ export interface RunningHost {
   readonly address: string;
   /** Live resource counts, for leak tests and diagnostics. */
   readonly resources: ResourceTracker;
-  /** The tasks (SPEC-0006): no protocol commands yet, the handle tests and `task:try` use. */
+  /** The tasks (SPEC-0006): the protocol's task commands go through them; tests and `task:try` use the handle too. */
   readonly tasks: TaskService;
   /** The projects, for the dev tools that set a host up without a client (`pnpm task:try`). */
   readonly projects: Pick<ProjectService, "add" | "projects" | "workspaces">;
@@ -226,14 +228,15 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     git,
     newId: (prefix) => `${prefix}_${randomBytes(8).toString("hex")}`,
   });
+  const inspector = git.then(async (runner) => {
+    if (runner === null) return null;
+    const version = await runner.run(["--version"], { cwd: home.root }).catch(() => null);
+    return createMergeInspector({ git: runner, version: parseGitVersion(version?.stdout ?? "") });
+  });
   const workspaces = createWorkspaceService({
     projects,
     git,
-    inspector: git.then(async (runner) => {
-      if (runner === null) return null;
-      const version = await runner.run(["--version"], { cwd: home.root }).catch(() => null);
-      return createMergeInspector({ git: runner, version: parseGitVersion(version?.stdout ?? "") });
-    }),
+    inspector,
     clock,
     resources,
     logger,
@@ -485,13 +488,25 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         (task.origin.kind === "chat" ? catalog.find(task.origin.sessionId)?.containerId : undefined) ??
         workspaces.list().find((workspace) => workspace.dir === task.sourceDir)?.id,
       dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
+      inspector,
     }),
     git,
     clock,
     logger,
     resources,
   });
-  const tasks: TaskService = createTaskService({ runner: taskRunner, root: join(home.root, "tasks"), clock, logger });
+  const tasks: TaskService = createTaskService({
+    runner: taskRunner,
+    root: join(home.root, "tasks"),
+    clock,
+    logger,
+    archiving: createTaskArchiving({ projects, git, inspector, archiver }),
+  });
+  const taskCommands = createTaskCommands({
+    service: tasks,
+    send: (connectionId, event) => subscriptions.sendTo(connectionId, event),
+    logger,
+  });
   // Names a new worktree's branch by the first message (SPEC-0001, "AI 起分支名").
   const namer = createBranchNamer({
     projects,
@@ -663,6 +678,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       ],
       piLatest,
       remote,
+      tasks: taskCommands,
       receipts,
       translations,
       attachments,
@@ -814,6 +830,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await workspaces.close();
     // Before the sessions, whose stopping the runner would otherwise answer with events.
     await tasks.close();
+    await taskCommands.close();
     await sessions.close();
     await catalog.close();
     // After the sessions, whose stopping still reports changes.

@@ -12,6 +12,8 @@ import type {
   RemoteUpdatedEvent,
   SessionEvent,
   SessionSnapshotEvent,
+  TaskUpdatedEvent,
+  TasksUpdatedEvent,
   ResumePoint,
   SnapshotBudget,
 } from "@atrium/protocol";
@@ -30,6 +32,8 @@ type SinkEvent =
   | ChangesUpdatedEvent
   | DiffUpdatedEvent
   | RemoteUpdatedEvent
+  | TasksUpdatedEvent
+  | TaskUpdatedEvent
   | BroadcastEvent;
 
 /** What goes to every connection, whatever it watches. */

@@ -1182,6 +1182,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       remote.setState({ status: "ready", state: message.remote, error: null }, true);
       return;
     }
+    if (message.type === "tasks_updated" || message.type === "task_updated") {
+      // The board that shows tasks is T7's (SPEC-0006); nothing in the client wants these yet.
+      return;
+    }
     if (message.type === "diff_updated") {
       const { target } = diff.getState();
       if (target?.workspaceId !== message.workspaceId || target.mode !== message.mode) return;

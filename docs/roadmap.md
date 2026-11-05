@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-11-04：任务与任务图设计定稿，在 `atrium/design-agent-task-board`（worktree `atrium.worktrees/design-agent-task-board`），只改文档和原型，未提交、未合并。** 设计稿 `prototypes/agent-task-board-design.html` 经 5 轮审查定下界面：只从对话 `/task` 创建任务；任务和对话是两个入口、两种视图；任务区有固定的"任务""定时"标签；任务标签是图加任务对话。执行方案经讨论定下 Q1–Q14（[task-graph-execution.md](research/task-graph-execution.md)），worktree 的做法参考了 Claude Code 和 8 个 pi 扩展（[worktree-practices.md](research/worktree-practices.md)）。合成 [SPEC-0006](specs/0006-tasks-and-task-graph.md)，用户确认；domain-model §9、overview、security 已同步。开发拆成 T0–T11 和 TP（见"阶段 · 任务与任务图"），每步单独验收；T0 pi 契约 2026-11-04 用户验收通过：6 条行为在 1.0.2、1.3.0、1.5.0 上都成立（`task.pi.test.ts` 9 项、破坏检查 14/14）。T1–T3 由三个子代理并行做完，2026-11-05 用户让继续 T4（未逐项手验）；T3 补出的 32 处 SPEC 细节已写回 SPEC-0006。本机测试环境有两件既有问题，用户定后面单独处理：cmux 终端放在 PATH 最前面的 `pi` 垫片会让宿主 `edit-stopped` / `reply-translation` 11 项挂住（把 `cmux-cli-shims` 移出 PATH 就过）；`test:pi` 52 项失败是缺 pi 1.5.0 的录制夹具。T4 分两段：T4a（pi 侧工具与通道）已提交；T4b（宿主侧 TaskRunner、提交、`pnpm task:try`）2026-11-05 做完，真实模型跑通三节点示例图、Ctrl-C 后重跑不重复提交；变异测试中 Stryker 改掉 `cwd` 让测试在仓库里真提交过一次，已撤销并让测试的 git 运行器缺 `cwd` 就抛错。用户确认：工作区标记记在任务目录的 `workspace.json`，崩溃窗口留给 T9；提交失败记 `failed(commit)`、任务停下，重跑只重试提交。T4 三方审查（Codex gpt-6-astra、Grok grok-4.7、Claude）找出宿主 git 会执行仓库配置里的命令（`diff.external`、`gpg.program`、`core.worktree`）、bash git 拦截的多种绕过、重启后把别的节点的改动提交到旧节点名下、旧 `node_done` 让节点错误通过、崩溃后节点卡住、契约没送到、节点 id 可逃出外壳等，已全部修完：可写节点改为提交落定（`committed` / `commit_checked`）才 `passed`，原先"`done` 之后记 `committed`"的特例随之取消。修完后真实模型跑通示例图，N2 中途 Ctrl-C 再跑只有一个带尾注的提交。下一步请用户验收 T4。
+**2026-11-04：任务与任务图设计定稿，在 `atrium/design-agent-task-board`（worktree `atrium.worktrees/design-agent-task-board`），只改文档和原型，未提交、未合并。** 设计稿 `prototypes/agent-task-board-design.html` 经 5 轮审查定下界面：只从对话 `/task` 创建任务；任务和对话是两个入口、两种视图；任务区有固定的"任务""定时"标签；任务标签是图加任务对话。执行方案经讨论定下 Q1–Q14（[task-graph-execution.md](research/task-graph-execution.md)），worktree 的做法参考了 Claude Code 和 8 个 pi 扩展（[worktree-practices.md](research/worktree-practices.md)）。合成 [SPEC-0006](specs/0006-tasks-and-task-graph.md)，用户确认；domain-model §9、overview、security 已同步。开发拆成 T0–T11 和 TP（见"阶段 · 任务与任务图"），每步单独验收；T0 pi 契约 2026-11-04 用户验收通过：6 条行为在 1.0.2、1.3.0、1.5.0 上都成立（`task.pi.test.ts` 9 项、破坏检查 14/14）。T1–T3 由三个子代理并行做完，2026-11-05 用户让继续 T4（未逐项手验）；T3 补出的 32 处 SPEC 细节已写回 SPEC-0006。本机测试环境有两件既有问题，用户定后面单独处理：cmux 终端放在 PATH 最前面的 `pi` 垫片会让宿主 `edit-stopped` / `reply-translation` 11 项挂住（把 `cmux-cli-shims` 移出 PATH 就过）；`test:pi` 52 项失败是缺 pi 1.5.0 的录制夹具。T4 分两段：T4a（pi 侧工具与通道）已提交；T4b（宿主侧 TaskRunner、提交、`pnpm task:try`）2026-11-05 做完，真实模型跑通三节点示例图、Ctrl-C 后重跑不重复提交；变异测试中 Stryker 改掉 `cwd` 让测试在仓库里真提交过一次，已撤销并让测试的 git 运行器缺 `cwd` 就抛错。用户确认：工作区标记记在任务目录的 `workspace.json`，崩溃窗口留给 T9；提交失败记 `failed(commit)`、任务停下，重跑只重试提交。T4 三方审查（Codex gpt-6-astra、Grok grok-4.7、Claude）找出宿主 git 会执行仓库配置里的命令（`diff.external`、`gpg.program`、`core.worktree`）、bash git 拦截的多种绕过、重启后把别的节点的改动提交到旧节点名下、旧 `node_done` 让节点错误通过、崩溃后节点卡住、契约没送到、节点 id 可逃出外壳等，已全部修完：可写节点改为提交落定（`committed` / `commit_checked`）才 `passed`，原先"`done` 之后记 `committed`"的特例随之取消。修完后真实模型跑通示例图，N2 中途 Ctrl-C 再跑只有一个带尾注的提交。2026-11-05 用户让继续 T5（T4 未逐项手验）。T5（human 节点与合并）2026-11-05 做完：打回、合并前检查与 `merge_blocked`（新增第六个原因 `merge_git_failed`）、冲突后 abort 且主目录回到原提交、已合并直接算 `merged`、归档提问记进 `task.json`、任务协议命令和事件（手机只读）；宿主合并会执行仓库里的 `merge.<名>.driver`，已全部清空（变成冲突），MergeInspector 的 `merge-tree` 也收进 `runSafeGit`；工作区扫描里直接跑的 git 仍未带安全参数，单独排。协议号 29→30 是在本分支上加的，合回 `main` 时取当时的下一个号并重新生成 Swift 投影。没有 `origin` 的本地仓库没有主干，合并一律 `merge_main_not_trunk`（和现有 MergeInspector 一致）。真实模型跑通：打回一次、主目录脏 / 不在主干 / 冲突各挡一次（冲突后主目录 HEAD 不变且干净）、改好后合并、归档清掉 worktree、origin 未动。下一步请用户验收 T5。
 
 **2026-10-28：新建 worktree 同时生成中文名用户验收通过，已本地提交并合回 `main`（功能提交 `7e1a87f`），未安装或推送。原分支和 worktree 仍被当前会话及 Xcode 使用，保留、不强删。** 用户确认全部新增入口（新建工作区、手动子对话、agent 子对话），选原型 `worktree-chinese-name-prototype.html` 的 A“中文单行”：英文分支和目录不改，中文名保存为工作区 `alias`，悬停查看英文分支，已有 worktree 不回填。自动英文分支一次调用产出双名；固定分支只补中文名，失败保留原有兜底，创建重试不重复调用。协议 29，Swift 投影和往返夹具已同步。按用户要求只做 GPT-6 Astra / Grok 4.7 审查，修了冷模型查询拖住关闭及主动取消误记崩溃，限定复核无阻断。检查、单元 4301、宿主 243、Node 泄漏 20、Swift 402 和模拟器测试通过；合并前单 worker 完整 UI 1163/1163、非泄漏 Electron 套件 71 项通过（其中日志门禁一项为预期失败自检）。此前默认 UI 两次 1162/1163，既有状态栏失败、单文件各 28/28，历史失败保留，不视为已修复。30 项破坏检查全部检出，另有 Electron 中文别名负控；改动行变异 UI 100%、shared 87.50%、host 100%、git 保守不计所有超时信用 95.79%。详细口径与首轮失败见[追踪表](testing/coverage-map.md#新建-worktree-同时生成中文名m111-自用后补充2026-10-28)。
 
@@ -752,13 +752,13 @@ TP 补原型（只改原型，随时可做）───────────�
 - **范围**：
   - human 节点的"通过""打回到 X"，最多打回 2 次；
   - 合并：
-    - 合并前的各项检查；
-    - 合并被挡住时进 `merge_blocked`；
-    - 冲突时 `merge --abort`；
-  - 归档提问（`archive_*` 的状态存在哪里在这一步定）；
-  - 评估 `merge.<名字>.driver`、`diff.<名字>.textconv` 要不要关掉；
-  - 协议加任务的命令和事件（SPEC-0006"协议"），Swift 投影重新生成；
-  - `pnpm task:try` 加上回答 human 节点。
+    - ✅ 合并前的各项检查；
+    - ✅ 合并被挡住时进 `merge_blocked`；
+    - ✅ 冲突时 `merge --abort`；
+  - ✅ 归档提问（`archive_*` 的状态存在哪里在这一步定）：存在 `task.json` 的 `archive` 字段；
+  - ✅ 评估 `merge.<名字>.driver`、`diff.<名字>.textconv` 要不要关掉：驱动关（变冲突），`textconv` 实测不跑、不用关；
+  - ✅ 协议加任务的命令和事件（SPEC-0006"协议"），Swift 投影重新生成（T5 只加宿主已能做的；创建 / 启动 / 批准改图属 T6，定时属 T10）；
+  - ✅ `pnpm task:try` 加上回答 human 节点。
 - **依赖**：T4。
 - **参考**：SPEC-0006"human 节点""协议（给 UI）""错误码"。
 - **完成标准**：
@@ -798,6 +798,7 @@ TP 补原型（只改原型，随时可做）───────────�
   - 开发用的 `pnpm task:design --from <会话 id>`：
     - 用真实模型从一段已有对话生成需求摘要和初始图；
     - 打印出来，不启动任务。
+  - 任务协议里 T5 没加的命令和错误码：`create_task`、`start_task`、`abandon_task`、`approve_graph` / `reject_graph`、`task_graph_invalid` 等。
 - **依赖**：T5。
 - **参考**：SPEC-0006"任务对话""/task 与创建""改图"。
 - **完成标准**：
@@ -823,7 +824,8 @@ TP 补原型（只改原型，随时可做）───────────�
     - 节点状态、选中时边框高亮；
     - 设计中的任务显示草图；
   - 任务对话先只读显示；
-  - 照定稿设计稿和 TP 的选择，按 design-language 做。
+  - 照定稿设计稿和 TP 的选择，按 design-language 做；
+  - human 节点的改动统计用现成的 `watch_changes`（对 `TaskView.workspaceId`）；错误码的界面说法照 SPEC-0006"错误码"里的草案。
 - **依赖**：T5（协议），TP 定稿。
 - **完成标准**：
   - 界面测试覆盖设计稿第 2、4、5 屏的各种状态；

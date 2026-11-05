@@ -459,7 +459,11 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 - 代价：项目自己的提交钩子（如 lefthook）在宿主的提交上不跑。验证本来就是 `check` 节点的事，接受这个代价；
 - 2026-11-05 审查后补：宿主自己的 git 还带 `log.showSignature=false`、`merge.verifySignatures=false`、`commit.gpgsign=false`（不跑仓库配置的 `gpg.program`）；`git diff --cached --quiet` 带 `--no-ext-diff --no-textconv`（不跑 `diff.external`、`diff.<名字>.textconv`；`-c diff.external=` 清不掉，git 会报"cannot run"）；只有退出码 1 算"有暂存"，其余非零都是出错；
 - 提交的每条 git 命令都带 `--work-tree=<节点 worktree>`，并先查 `git rev-parse --show-toplevel`（不带 pin）是否就是这个目录，不是就拒绝（节点可以用 `extensions.worktreeConfig` + `core.worktree` 把 git 引去别处）；
-- 还没关掉：`merge.<名字>.driver` 这类合并时会执行命令的配置，T5 做合并时评估。
+- **合并驱动（T5，2026-11-05 评估并关掉）**：`merge.<名字>.driver` 的命令会在合并 `.gitattributes` 里写了 `merge=<名字>` 的文件时执行，配置和属性文件 agent 都能写，所以宿主的合并不能跑它。做法同过滤器：枚举 `git config --list`（含全局和系统）里所有 `merge.<名字>.driver`，每个加 `-c merge.<名字>.driver=`。实测（git 2.50.1）：驱动命令清空后 git 报 "cannot run : No such file or directory"，那个文件按**冲突**处理（走下面"合并"第 4 步的 `merge --abort` 和 `merge_conflict`），不会被"悄悄解决"；清成 `true` 之类反而会让 agent 之外的命令悄悄把文件合成"我方"，所以不用。名字里含 `=` 或换行的驱动 `-c` 带不了，同过滤器：拒绝，`worktree_config_unsafe`（`params.reason: "driver_name"`）。代价：用户自己在全局配了合并驱动（比如 mergiraf）的文件，在宿主的合并里也会变成冲突，由你在 worktree 里自己合并后再通过。
+- **`diff.<名字>.textconv`、`diff.external`（T5 评估，不用关）**：实测 `git merge`（带 diffstat）和 `git merge-tree` 都不跑它们；宿主自己的 `git diff` 本来就带 `--no-ext-diff --no-textconv`。合并另带 `--no-stat --no-edit`，不出 diffstat、不开编辑器。
+- **MergeInspector 里的 `git merge-tree --write-tree`（T5 发现的原有问题）**：它在 SPEC-0001 的每次工作区扫描里跑，会执行配置里的合并驱动，agent 写一个就能让宿主在后台扫描时执行它的命令（还会让两边都改了的文件被判成 `merged`）。T5 起它也走 `runSafeGit`。同一类的还有扫描里直接跑的 `git status` / `git rev-list` 等没有带安全参数，会跑 `core.fsmonitor` 和过滤器——这是 T1 没覆盖到的原有缺口，不在 T5 里改，记在风险里。
+- **合并的目录核对（T5）**：合并和合并前后的每条 git 命令都带 `--work-tree=<目录>`，并且在合并前先查任务 worktree 和主检出目录的 `git rev-parse --show-toplevel`（不带 pin）就是这个目录；不是（节点用 `extensions.worktreeConfig` + `core.worktree` 把 git 引去别处）→ `merge_blocked`（原因 `merge_git_failed`），什么也不合。
+- **合并的是提交，不是分支名（T5）**：宿主合并任务 worktree 当前的 `HEAD` 提交号（正是检查过的那一个），提交信息写 `Merge branch '<分支>'`，不依赖名字解析（agent 能建同名的 tag；实测 git 2.50.1 的 `merge` 仍选分支，但不靠这个）。
 
 #### 加锁
 
@@ -477,15 +481,17 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 
 你在 `merge: true` 的节点点"通过"，宿主按 development.md 的标准流程：
 
-1. **任务 worktree 必须干净**：不干净 → 不合并，不替你 `git add`，节点 `waiting`（`merge_blocked`，原因 `merge_worktree_dirty`）。
-2. **主检出目录必须干净，并且在主干上**。主干的名字同 MergeInspector：项目的覆盖值或 `origin/HEAD`。不满足 → 不合并，节点 `waiting`（`merge_blocked`，原因 `merge_main_dirty` 或 `merge_main_not_trunk`）。
-3. **合并**：在主检出目录 `git merge --no-ff -- <分支>`（带上面"宿主自己跑的 git"的参数）。
-4. **冲突**：先 `git merge --abort`，再确认主检出目录回到合并前的提交、而且干净。
+1. **任务 worktree 必须干净**：不干净（含未跟踪的文件）→ 不合并，不替你 `git add`，节点 `waiting`（`merge_blocked`，原因 `merge_worktree_dirty`）。
+2. **已经合并过的直接算合并了**（T5 排在这里）：MergeInspector 判这个分支是 `merged`（分支在主干历史里，或它的改动已经在主干里）或 `noChange`（任务什么也没改）→ 直接 `merged`，不再合并、不再查主检出目录。这是"动作要幂等"：合并做完、`merged` 事件还没写进日志时宿主崩溃，重放后再发一次 `merge`。
+3. **主检出目录必须干净，并且在主干上**。主干的名字同 MergeInspector：项目的覆盖值或 `origin/HEAD`（取 `origin/` 后面的分支名）。不满足 → 不合并，节点 `waiting`（`merge_blocked`，原因 `merge_main_dirty` 或 `merge_main_not_trunk`）；先查干净再查在不在主干。项目没有主干（没有 `origin`、也没设覆盖值）时一律 `merge_main_not_trunk`：宿主不往一个说不清是不是主干的分支里合。
+4. **合并**：在主检出目录 `git merge --no-ff --no-edit --no-stat -m "Merge branch '<分支>'" -- <任务 worktree 当前的提交号>`（带上面"宿主自己跑的 git"的参数；仓库没配作者时用 `Atrium <atrium@localhost>`）。合并本身和它之后的收尾不被"关宿主"的取消打断（合到一半关了宿主，比多等几秒更糟）；合并有 5 分钟的上限。
+5. **冲突**：先 `git merge --abort`，再确认主检出目录回到合并前的提交、而且干净。冲突的文件取自合并中途的未合并条目（最多记 50 个），记在这条 NodeRun 的 `blockedFiles` 里。
    - 节点 `waiting`（`merge_blocked`，原因 `merge_conflict`，带冲突文件列表），**不进 `failed`**，任务是"等你"而不是"停下"；
    - 你在任务对话里让 agent 处理：它可以改图，加一个在 worktree 里 `git merge <主干>` 并解决冲突的 `work` 节点，放在这个 human 节点前面；
    - 批准后，这个 human 节点有了没通过的上游，按"改图"的规则回到 `pending`，等新节点通过后再到。
    - `merge --abort` 失败、或主目录没回到原样 → 不再碰它，节点保持 `merge_blocked`（原因 `merge_abort_failed`），提示你手动检查主目录。
-5. **成功**：`merged` 事件，节点 `passed`；不推送。
+6. **git 自己出错**（T5）：合并没开始就被 git 拒绝（比如两边没有共同历史）、任务 worktree 在游离的 HEAD 上、主检出目录或 worktree 的顶层目录不对、git 列不出配置——主检出目录回到原样的 → `merge_blocked`（原因 `merge_git_failed`），什么也没动；没回到原样的 → `merge_abort_failed`。合并的动作自己抛错（任务没有 worktree、没有 git）也记成 `merge_git_failed`，节点不会一直停在 `merging`。
+7. **成功**：`merged` 事件，节点 `passed`；不推送。
 
 被挡住时，你在主目录处理完（提交、切回主干），在任务列表或任务标签里再点一次"通过"重试。
 
@@ -497,11 +503,15 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 - 选"归档"：走现有的 `archive_workspace`，它的检查（未提交、游离提交）照旧当场再做一遍。有未提交的改动时，归档按钮置灰，写"先提交或丢弃"。
 - 选"先留着"：任务列表这一行写"worktree 还在"，可以之后再点归档。
 - 不是任务建的 worktree，任务结束只解锁，不问、不删。
+- **提问存在 `task.json` 里（T5 定）**：`Task.archive` 是 `asked` / `archived` / `kept`；任务结束（`done` 或 `cancelled`）的那一步，调度器在发 `ask_archive` 的同时把它置成 `asked`，所以重启后问题还在；没有 `ask_archive` 的任务（借来的 worktree、没建过 worktree）没有这个字段。回答是事件 `archive_answered { answer }`：这是任务结束后调度器**唯一还收**的事件（`step` 在结束的检查之前处理它）。`asked` → `kept` / `archived`；`kept` 之后还能答"归档"→ `archived`；别的组合忽略。
+- **"归档"先做、后记**：`answer_archive("archive")` 先走现有的 `archive_workspace`（同样的检查，`workspace_dirty`、`workspace_unsaved_commits` 等照样原样报给界面），成功后才记 `archive_answered`，所以被拒绝时问题还开着。worktree 已经被别处归档的，`archive_workspace` 本来就当没事。
+- **问题里显示的事实**不存、问的时候现算（`TaskView.archiveFacts`，`asked` 和 `kept` 时才算）：worktree 的名字（别名，没有就用目录名）、是否已合并（MergeInspector 的 `merged` 或 `noChange` 算"已合并"，`pending` 算"没合并"，其余是"不知道"）、有没有未提交的改动、相对 `baseCommit` 有几个提交。算的时候的 git 走 `runSafeGit`。
 
 ### human 节点
 
 - 没有会话。到了就 `waiting`，任务列表、"等你处理"各出现一条（"等你验收合并"）。
 - 你看到：它的"做什么"、"怎样算完成"、直接上游的交接摘要、worktree 相对起点的改动统计（ChangesService）。
+  - T5 里 `TaskView` 带前三样（`job`、`done`、每个节点的 `summary`，直接上游从 `edges` 里取）、任务的 `workspaceId` 和每条打回边已用几次（`sendBack`）。改动统计不重复做一份：界面对任务的 `workspaceId` 用现成的 `watch_changes` 就有（胶囊和改动面板），T7 接上；`pnpm task:try` 自己用 `git diff --shortstat <baseCommit>` 打出来。
 - 你的选择只有：**通过**（带 `merge: true` 的会合并，见"合并"）；**打回到 {它有打回边的节点}**，要写原因。
 - "确认初始图"不是节点，是开始页的"确认并启动"（`designing → running`）。
 
@@ -637,6 +647,7 @@ type Task = {
   paused: boolean;
   cancelled: boolean;
   createdAt; startedAt | null; endedAt | null;
+  archive?: "asked" | "archived" | "kept";  // 归档提问（T5）：任务结束且 ownsWorkspace 时置 asked，回答后改
 };
 
 type GraphVersion = {
@@ -672,7 +683,7 @@ type NodeRun = {
   graph: number;                    // 按哪个图版本开始的
   state: NodeState;
   waitingFor: "question" | "graph_change" | "human" | "merge_blocked" | null;
-  blocked: MergeBlockReason | null; // merge_worktree_dirty | merge_main_dirty | merge_main_not_trunk | merge_conflict | merge_abort_failed
+  blocked: MergeBlockReason | null; // merge_worktree_dirty | merge_main_dirty | merge_main_not_trunk | merge_conflict | merge_abort_failed | merge_git_failed
   sessionId: SessionId | null;      // human 节点为 null
   startedAt; endedAt | null;
   startCommit: string | null;       // 节点开始时 worktree 的 HEAD（判断它有没有改动）
@@ -684,6 +695,7 @@ type NodeRun = {
   void?: true;                      // 改图后作废（human 节点多了上游）
   merging?: true;
   nudged: boolean;                  // 是否已经提醒过一次"还没调用 node_done"
+  blockedFiles?: string[];          // merge_conflict 时冲突的文件（最多 50 个，T5）
   commitPending?: true;             // node_done 生效、提交还没落定（committed / commit_checked 清掉；commit 失败时保留）
   contractSent?: true;              // 契约已交给节点的 pi
 };
@@ -770,6 +782,7 @@ type ScheduleRule = {
 
 ### 协议（给 UI）
 
+- **T5 做了什么、没做什么**（2026-11-05，协议号 29 → 30；合回 `main` 时取当时的下一个号）：下面的命令里，T5 只加宿主这一侧已经有的：`list_tasks`、`open_task`、`answer_human`、`rerun_node`、`continue_node`、`pause_task`、`resume_task`、`cancel_task`、`answer_archive`，事件 `tasks_updated`、`task_updated`。`create_task`、`start_task`、`abandon_task`、`approve_graph` / `reject_graph` 属于 T6（任务对话和改图），`list_schedules` 等属于 T10，到时再加。代码在 `packages/protocol/src/tasks.ts`（数据）和 `commands.ts`（命令）；仓库里协议文件是平的，不分 `commands/`、`events/` 目录。
 - **命令**（`protocol/commands/tasks.ts`）：
   - 任务：
     - `create_task(sessionId, scope?)`：`/task` 走它
@@ -792,6 +805,13 @@ type ScheduleRule = {
   - `schedules_updated`。
 - 任务对话和节点对话的内容走现有的会话订阅，不另开通道。
 - 新协议版本号加一。手机端（remote-policy）第一版只读：能看列表和状态、能答 `ask_user`，不能启动、批准、合并。
+- **T5 定下的协议细节**：
+  - `list_tasks({ watch? })`：答 `TaskSummary[]`；`watch: true` 让这条连接收 `tasks_updated`，`false` 取消。`tasks_updated { seq, tasks }` 每次发**整张列表**（不做增量，任务少时够用；`seq` 是宿主发的次数，客户端丢掉比自己手里小的）。列表包含磁盘上还没被取用的任务（读它们的文件，不启动任何东西；重启后把在跑的任务接起来是 T9）。
+  - `open_task({ taskId })`：答 `TaskView`（摘要加当前生效的图、每个节点最新一条 NodeRun 的状态、`waitingFor`、`blocked` 和 `blockedFiles`、失败原因、交接摘要、会话 id、打回边用了几次、`pendingGraph` 是否有、归档提问和它的事实）；这条连接之后收这个任务的 `task_updated`（也是整张），再打开别的任务就换成那个；连接断开自动取消。
+  - `answer_human(taskId, node, answer)` 的 `answer` 是 `{ kind: "pass" }` 或 `{ kind: "send_back", backTo, reason }`（协议生成 Swift 的联合要有一个判别字段，所以不写成 SPEC 原来的 `{ pass }` / `{ backTo, reason }`）。
+  - 手机：`list_tasks`、`open_task` 和两个事件可以，其余 `local_only`。
+  - 协议里的枚举（节点状态、失败原因含 `commit`、`merge_blocked` 的原因含 `merge_git_failed`、`waitingFor`、任务状态）是宿主类型的镜像，宿主的单元测试比对两边。
+  - 列表行的 `attention`：`failed` > `merge_blocked` > `human` > `question` > `graph_change`，都不是则 `null`（T5 自己定的，分组仍按 `status`）。
 
 ### 错误码
 
@@ -808,6 +828,8 @@ type ScheduleRule = {
 | `workspace_in_task` | 归档或删除一个被任务锁着的 worktree（`params.taskId`）；只认锁的原因正好是 `atrium task <id>` 的，你自己加的锁照旧报 `worktree_remove_failed` |
 | `schedule_not_found` | 规则不存在 |
 
+T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协议（`packages/protocol/src/errors.ts`）；其余（`task_graph_invalid`、`task_already_converted`、`task_no_project_for_work`、`task_caller_invalid` 的命令侧、`schedule_not_found`）随 T6、T10。`task_state_invalid` 在 T5 里是：对不在等的 human 节点答、对没失败的节点"重跑"、对没停下的节点"继续"、暂停已暂停的、恢复没暂停的、取消没启动或已结束的、对已结束的任务答 human、回答不存在的打回边、对没有开着的归档提问答归档。`worktree_config_unsafe` 的 `params.reason` 多一个 `driver_name`。界面的说法留给 T7（现在没有界面用到这些码，加了没人调的导出会被 knip 拦）：`task_not_found` →"这个任务已经不在了"；`task_state_invalid` →"任务的状态变了，刷新后再试"；`task_back_limit` →"这条打回边已经用了两次"；`merge_git_failed` →"git 出错了，没有合并，主目录没动"。
+
 合并被挡住不是命令的错误，是节点的 `blocked` 原因：
 
 - `merge_worktree_dirty`
@@ -815,6 +837,23 @@ type ScheduleRule = {
 - `merge_main_not_trunk`
 - `merge_conflict`（带冲突文件列表）
 - `merge_abort_failed`
+
+### T5 定下的细节
+
+2026-11-05，T5（human 节点与合并）实现时定下，上面各节已写进去的不重复，这里列全：
+
+- **合并的检查顺序**：任务 worktree 干净 → 分支已合并（`merged` / `noChange`）直接记 `merged` → 主检出目录干净 → 主检出目录在主干上 → 合并。"已合并"排在查主检出目录之前，是为了崩溃重放（合并做完、`merged` 没写进日志）时不被"主目录现在脏了 / 切走了"拦住。代价：什么也没改的任务（`noChange`）在主目录脏着时也直接算合并了——本来就没有东西可合。
+- **`merge_git_failed`** 是 T5 加的第六个合并原因（SPEC 原来五个）：git 自己出错、worktree 在游离 HEAD 上、两个目录的顶层不对、合并被 git 拒绝（没有共同历史）。没有主干（没有 `origin`、没设覆盖值）一律 `merge_main_not_trunk`。没有 `origin` 的本地仓库因此合并不了；MergeInspector 对它们也只能给 `unknown`。
+- **合并的是提交**，信息 `Merge branch '<分支>'`；`--no-stat --no-edit`；冲突的文件取自未合并条目，记在 NodeRun 的 `blockedFiles`（最多 50 个，`merge_blocked` 事件带 `files`）。
+- **合并驱动**清空（冲突，不跑）；`textconv` / `external` 不用关；`merge-tree` 收进 `runSafeGit`；详见"宿主自己跑的 git"。
+- **归档提问**存在 `Task.archive`；`archive_answered` 是任务结束后唯一还收的事件；先归档后记；事实现算。详见"归档"。
+- **命令的状态检查在 `TaskService`**：`answer_human` 要求节点是 human、在等（`human` 或 `merge_blocked`）、不在 `merging`、任务没结束；打回要求有这条打回边，已用 2 次 → `task_back_limit`；`rerun_node` 要求节点 `failed`、任务没暂停没结束；`continue_node` 要求 `stopped`；`pause_task` 要求已启动、没暂停、没结束、不在 `designing`；`resume_task` 要求已暂停；`cancel_task` 要求已启动、没结束。都不符 → `task_state_invalid`，什么也不记。调度器对不符的事件本来也忽略，这里的检查是为了给界面一个错误码。
+- **`continue_node` 就是在节点自己的对话里发一条"继续"**（`CONTINUE_NODE`，和你亲手在那里发消息一样）：节点上的那次运行开始，宿主据此记 `node_resumed`；不另设事件。节点的会话没起着时先 `open`。
+- **`list_tasks` 读磁盘上还没取用的任务**（只读文件，不 `recover`）；重启后把在跑的任务接起来仍是 T9，所以 T5 之后、T9 之前重启宿主，在跑的任务会出现在列表里，但不会接着跑。
+- **`tasks_updated` 每次发整张列表，`task_updated` 发整个任务**；一条连接一次只开一个任务。推送在任务的每个事件之后、按事件顺序、一个一个算（归档事实要跑 git）；算不出来的只记日志，不拦下一个。
+- **`notify`、`progress_line`、`wake_task_conversation` 仍只记调试日志**：前两个是界面（T7）的事，第三个是任务对话（T6）的事。`attention` 是列表行自己从节点状态算的，不依赖 `notify`。
+- **`pnpm task:try`**：有 stdin 时，human 节点等你时打出它的做什么 / 怎样算完成 / 上游摘要 / `git diff --shortstat` / 合并被挡的原因和文件 / 选项，读一行回答（`p` 通过；`b <节点> [原因]` 打回，没写原因就再问；`q` 退出）；合并被挡后同样的提示，再 `p` 就是重试；任务结束时问归档（`a` / `k` / `q`），归档被拒（未提交的改动）会说明并再问。没有 stdin（读到末尾）就和以前一样停在 human 节点。示例图 `packages/host/examples/explore-work-check-merge.json`（explore → work → check → human(`merge`)，human ⇢ work）。
+- **没做 / 留给后面**：`TaskView` 不带改动统计（界面用 `watch_changes`，T7）；没有 `notify` 的界面（T7）；`task_graph_invalid` 等 T6 的命令和错误码；重启后的接续（T9）；界面的说法（T7）；`request_graph_change` 的理由落盘（T9）。
 
 ## 备选方案
 
@@ -845,6 +884,8 @@ type ScheduleRule = {
   - 以后升级 pi 时先跑这组测试。
 - [ ] **名额**：同一个任务里最多 6 个节点同时跑；加上 `work` 独占 worktree，图里改代码的节点实际是一个一个跑。第一版接受。
 - [ ] **合并在主检出目录里做**：你正在主目录里手动改东西、或者切在别的分支上时，合并会被挡住。第一版接受，提示写清。
+- [ ] **扫描里直接跑的 git 没带安全参数**（T5 发现，原有问题）：工作区扫描（SPEC-0001）里的 `git status` 等在 agent 的 worktree 里直接跑，会执行 `core.fsmonitor` 和过滤器的 clean 命令。T1 只管了新建和恢复 worktree，T5 只把 MergeInspector 的 `merge-tree` 收进了 `runSafeGit`。需要一并改成安全的，单独排。
+- [ ] **全局合并驱动在宿主的合并里变成冲突**（T5）：见"宿主自己跑的 git"。
 - [ ] **宿主自己的提交不跑项目的钩子**：为了不执行 agent 放进 `.git/hooks` 的东西。lefthook 之类的检查要靠 `check` 节点。
 - [ ] **路径隔离不是沙箱**：`cp`、重定向、脚本里的写入拦不住。
 - [ ] **引导词写死**：效果全靠这四段说明，调优只能改代码发版；先接受，等用出经验再做设置页。

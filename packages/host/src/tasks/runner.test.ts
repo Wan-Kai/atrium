@@ -1,5 +1,6 @@
 import { createTempDir } from "@atrium/testkit";
 import { join } from "node:path";
+import { CommandError } from "@atrium/protocol";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import { systemClock } from "../platform/clock";
@@ -8,7 +9,7 @@ import type { TaskSessionSignal, TaskSessions } from "../sessions/task-sessions"
 import type { TaskWorkspaces } from "./node-ports";
 import { createTaskRunner } from "./runner";
 import { openTaskStore } from "./task-store";
-import { agent, newTask } from "./test-support";
+import { agent, edges, human, newTask } from "./test-support";
 import type { Task } from "./types";
 
 /** The node the tests run. */
@@ -84,6 +85,9 @@ function fake(): Fake {
   };
 }
 
+/** What the fake worktree port answers to a merge; a test sets it. */
+let mergeImpl: TaskWorkspaces["merge"] = () => Promise.resolve({ kind: "merged" });
+
 /** Workspaces that need no git. */
 let unlocked = 0;
 const workspaces: TaskWorkspaces = {
@@ -95,6 +99,7 @@ const workspaces: TaskWorkspaces = {
     unlocked += 1;
     return Promise.resolve();
   },
+  merge: (task, signal) => mergeImpl(task, signal),
 };
 
 /**
@@ -248,5 +253,119 @@ describe("the runner, with a fake session layer", () => {
     await runner.idle();
 
     expect(run()?.state).toBe("held");
+  });
+});
+
+/**
+ * A runner over a task of one closing human node that merges, waiting, in a task with a worktree.
+ *
+ * @sideEffects Creates a temporary directory; the runner is closed when the test finishes.
+ * @returns The runner and a way to read the node's run.
+ */
+async function setupMerge() {
+  const dir = await createTempDir("runner-merge");
+  onTestFinished(dir.cleanup);
+  const { logger, resources } = recordingTracing();
+  const runner = createTaskRunner({
+    sessions: fake().sessions,
+    workspaces,
+    git: Promise.resolve(null),
+    clock: systemClock,
+    logger,
+    resources,
+  });
+  onTestFinished(() => runner.close());
+  runner.attach("tsk_1", await openTaskStore(join(dir.path, "tsk_1"), systemClock));
+  await runner.submit("tsk_1", {
+    type: "created",
+    task: newTask([human("H", { merge: true })], edges(), { workspaceState: "ready" }),
+  });
+  await runner.submit("tsk_1", { type: "started" });
+  return { runner, run: () => runner.task("tsk_1")?.runs[0], task: () => runner.task("tsk_1") };
+}
+
+describe("the runner's merge (SPEC-0006, T5)", () => {
+  it("passes the node and ends the task when the merge was made", async () => {
+    mergeImpl = () => Promise.resolve({ kind: "merged" });
+    const { runner, run, task } = await setupMerge();
+
+    await runner.submit("tsk_1", { type: "human_passed", node: "H" });
+
+    expect(run()).toMatchObject({ state: "passed" });
+    expect(task()?.endedAt).not.toBeNull();
+  });
+
+  it("waits with the reason and the conflicting files when the merge was blocked, and merges on the next pass", async () => {
+    mergeImpl = () => Promise.resolve({ kind: "blocked", reason: "merge_conflict", files: ["a.txt", "b.txt"] });
+    const { runner, run, task } = await setupMerge();
+
+    await runner.submit("tsk_1", { type: "human_passed", node: "H" });
+
+    expect(run()).toMatchObject({
+      state: "waiting",
+      waitingFor: "merge_blocked",
+      blocked: "merge_conflict",
+      blockedFiles: ["a.txt", "b.txt"],
+    });
+    expect(run()?.merging).toBeUndefined();
+    expect(task()?.endedAt).toBeNull();
+
+    mergeImpl = () => Promise.resolve({ kind: "merged" });
+    await runner.submit("tsk_1", { type: "human_passed", node: "H" });
+
+    expect(run()).toMatchObject({ state: "passed", blocked: null });
+    expect(run()?.blockedFiles).toBeUndefined();
+  });
+
+  it("blocks with merge_git_failed, and does not stay merging, when the merge throws", async () => {
+    mergeImpl = () => Promise.reject(new Error("the task has no worktree"));
+    const { runner, run } = await setupMerge();
+
+    await runner.submit("tsk_1", { type: "human_passed", node: "H" });
+
+    expect(run()).toMatchObject({ state: "waiting", waitingFor: "merge_blocked", blocked: "merge_git_failed" });
+    expect(run()?.merging).toBeUndefined();
+  });
+
+  it("records nothing for a merge that the host's closing stopped, which then stays merging for the restart to send again", async () => {
+    let started!: () => void;
+    const begun = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    mergeImpl = (_task, signal) =>
+      new Promise((_resolve, reject) => {
+        started();
+        signal.addEventListener("abort", () => {
+          reject(new Error("aborted"));
+        });
+      });
+    const { runner, run } = await setupMerge();
+    const answered = runner.submit("tsk_1", { type: "human_passed", node: "H" });
+    await begun;
+
+    await runner.close();
+    await answered;
+
+    expect(run()).toMatchObject({ state: "waiting", merging: true });
+  });
+});
+
+describe('the runner\'s continue (SPEC-0006, "节点")', () => {
+  it("sends a node the user stopped a message in its own conversation", async () => {
+    const { fake: layer, runner, run } = await setup();
+    await runner.submit("tsk_1", { type: "node_stopped", node: "N1", attempt: 1 });
+    expect(run()?.state).toBe("stopped");
+    layer.calls.length = 0;
+
+    await runner.continueNode("tsk_1", "N1");
+
+    expect(layer.calls).toStrictEqual(["prompt:继续"]);
+  });
+
+  it("refuses a node that is not stopped, and a task it does not know", async () => {
+    const { runner } = await setup();
+
+    await expect(runner.continueNode("tsk_1", "N1")).rejects.toStrictEqual(new CommandError("task_state_invalid"));
+    await expect(runner.continueNode("tsk_2", "N1")).rejects.toThrow("not attached");
   });
 });

@@ -1,7 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { type TaskHost, startTaskHost } from "../../test/task-harness";
-import { agent, edges } from "./test-support";
+import { rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { recordingTracing } from "../../test/recording-tracing";
+import { runAt } from "./graph";
+import { createTaskCommands } from "./task-commands";
+import { agent, edges, human, need } from "./test-support";
 
 /** A reply that finishes a node. */
 const finish = (id: string) => ({
@@ -86,6 +91,34 @@ async function baseline(host: TaskHost) {
   return { before: host.host.host.resources.snapshot(), handles: liveHandles(), processes: children() };
 }
 
+/**
+ * What the first round does before passing: its branch has a commit, so a dirty main checkout blocks the merge,
+ * and the task is sent back once.
+ *
+ * @sideEffects Writes and removes a file in the repository; answers commands.
+ * @param harness - The task host.
+ * @param taskId - The task.
+ */
+async function blockAndSendBack(harness: TaskHost, taskId: string): Promise<void> {
+  const tasks = harness.host.host.tasks;
+  await writeFile(join(harness.repo, "loose.txt"), "x\n");
+  await tasks.answerHuman(taskId, "H", { kind: "pass" });
+  await rm(join(harness.repo, "loose.txt"));
+  await tasks.answerHuman(taskId, "H", { kind: "send_back", backTo: "N1", reason: "once more" });
+  await vi.waitFor(() => expect(runAt(need(tasks.task(taskId)), "H", 2)?.state).toBe("waiting"));
+}
+
+/** Nothing to do before passing. */
+async function nothing(): Promise<void> {}
+
+/** What each round answers the archive question, and what it does before passing. */
+const ROUNDS = [
+  ["archive", blockAndSendBack],
+  ["keep", nothing],
+  ["archive", nothing],
+  ["keep", nothing],
+] as const;
+
 describe('running tasks leaves nothing behind (testing.md, "泄漏测试")', () => {
   it("starts and stops many nodes with no pi, controller, listener or timer left over", async () => {
     const harness = await startTaskHost({ N1: [finish("d1")], N2: [finish("d2")] });
@@ -120,5 +153,44 @@ describe('running tasks leaves nothing behind (testing.md, "泄漏测试")', () 
     expect(countOf(after, "task.runner")).toBe(0);
     expect(countOf(after, "pi-process")).toBe(0);
     await vi.waitFor(() => expect(children()).toStrictEqual([]), { timeout: 10_000 });
+  });
+
+  it("merges, blocks, sends back and archives many tasks, and watches and unwatches, with nothing left over", async () => {
+    const write = {
+      blocks: [
+        { type: "toolCall" as const, id: "w1", name: "write", arguments: { path: "./out.txt", content: "x\n" } },
+      ],
+    };
+    const harness = await startTaskHost({ N1: [write, finish("d1")] });
+    const { before, handles, processes } = await baseline(harness);
+    const { logger } = recordingTracing();
+    const commands = createTaskCommands({ service: harness.host.host.tasks, send: () => undefined, logger });
+
+    for (const [round, [answer, beforePass]] of ROUNDS.entries()) {
+      const task = await harness.start(
+        [agent("N1", "work"), human("H", { merge: true })],
+        edges(["N1", "H"], ["H", "N1", "back"]),
+      );
+      await harness.until(task.id, (now) => runAt(now, "H", 1)?.state === "waiting");
+      const tasks = harness.host.host.tasks;
+      await commands.list(`c${String(round)}`, true);
+      await commands.open(`c${String(round)}`, task.id);
+      await beforePass(harness, task.id);
+      await tasks.answerHuman(task.id, "H", { kind: "pass" });
+      await harness.until(task.id, (now) => now.endedAt !== null);
+      await tasks.answerArchive(task.id, answer);
+      commands.disconnect(`c${String(round)}`);
+    }
+    await commands.close();
+
+    await vi.waitFor(() => expect(harness.host.host.resources.snapshot()).toStrictEqual(before), { timeout: 10_000 });
+    await vi.waitFor(() => expect(children()).toStrictEqual(processes), { timeout: 10_000 });
+    await vi.waitFor(
+      () => {
+        const after = liveHandles();
+        expect({ ...after, Timeout: Math.min(after.Timeout, handles.Timeout) }).toStrictEqual(handles);
+      },
+      { timeout: 10_000 },
+    );
   });
 });

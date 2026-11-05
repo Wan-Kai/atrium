@@ -4,7 +4,22 @@ import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { agent, edges, need, newTask } from "../tasks/test-support";
 import { Sim } from "../tasks/test-support";
-import { describeProgress, modelFor, parseTaskTryArgs, readGraphFile, stopReason, taskIdFor } from "./task-try";
+import {
+  askFromStream,
+  describeArchive,
+  describeHumanNode,
+  describeProgress,
+  modelFor,
+  parseArchiveChoice,
+  parseHumanChoice,
+  parseTaskTryArgs,
+  pendingQuestion,
+  readGraphFile,
+  stopReason,
+  taskIdFor,
+} from "./task-try";
+import { viewOf } from "../tasks/task-view";
+import { Readable } from "node:stream";
 
 describe("parseTaskTryArgs", () => {
   it("reads the graph file, the repository, the model and the home, relative to where it was typed", () => {
@@ -67,6 +82,18 @@ describe("readGraphFile", () => {
       ["N2", "work"],
       ["N3", "check"],
     ]);
+  });
+
+  it("reads the example with a closing human node that merges and a back edge to the work node", async () => {
+    const file = await readGraphFile(new URL("../../examples/explore-work-check-merge.json", import.meta.url).pathname);
+
+    expect(file.nodes.map((node) => [node.id, node.kind, node.merge])).toStrictEqual([
+      ["N1", "agent", undefined],
+      ["N2", "agent", undefined],
+      ["N3", "agent", undefined],
+      ["N4", "human", true],
+    ]);
+    expect(file.edges.filter((edge) => edge.kind === "back")).toStrictEqual([{ from: "N4", to: "N2", kind: "back" }]);
   });
 
   it("refuses a graph that breaks a rule, naming the first problem's code", async () => {
@@ -169,5 +196,163 @@ describe("what it prints and when it stops", () => {
     next.send({ type: "human_passed", node: "H" });
     expect(stopReason(next.task)).toStrictEqual({ code: 0, line: "the task is done" });
     expect(stopReason({ ...next.task, cancelled: true })).toMatchObject({ code: 1 });
+  });
+});
+
+/** A started task N1 -> H (merging), H -> N1 back, with a worktree, driven until H waits. */
+function waitingAtHuman() {
+  const run = new Sim(
+    newTask(
+      [agent("N1", "explore"), { ...agent("H"), kind: "human" as const, merge: true as const }],
+      edges(["N1", "H"], ["H", "N1", "back"]),
+      { workspaceState: "ready" },
+    ),
+  );
+  run.send({ type: "started" });
+  run.send({ type: "node_started", node: "N1", attempt: 1, sessionId: "s", startCommit: null });
+  run.send({ type: "node_done_pending", node: "N1", attempt: 1, ok: true, summary: "Looked.\nSecond line." });
+  run.send({ type: "node_settled", node: "N1", attempt: 1 });
+  return run;
+}
+
+describe("answering a human node and the archive question", () => {
+  it("reads pass, send-back (with the reason or without) and quit, and not a send-back along an edge there is not", () => {
+    const run = waitingAtHuman();
+    const node = need(viewOf(run.task, null).nodes.find((one) => one.id === "H"));
+
+    expect(parseHumanChoice("p", node)).toStrictEqual({ kind: "pass" });
+    expect(parseHumanChoice(" pass ", node)).toStrictEqual({ kind: "pass" });
+    expect(parseHumanChoice("b N1 the test is missing  ", node)).toStrictEqual({
+      kind: "back",
+      to: "N1",
+      reason: "the test is missing",
+    });
+    expect(parseHumanChoice("back N1", node)).toStrictEqual({ kind: "back", to: "N1", reason: null });
+    expect(parseHumanChoice("q", node)).toStrictEqual({ kind: "quit" });
+    for (const line of ["", "b", "b N9 why", "b H why", "go"]) {
+      expect([line, parseHumanChoice(line, node)]).toStrictEqual([line, { kind: "unknown" }]);
+    }
+    // Only the first word decides a pass.
+    expect(parseHumanChoice("p q", node)).toStrictEqual({ kind: "pass" });
+  });
+
+  it("shows the job, what counts as done, what the node before said, the changes and the choices with the back edge's uses", () => {
+    const run = waitingAtHuman();
+    const view = viewOf(run.task, null);
+    const node = need(view.nodes.find((one) => one.id === "H"));
+
+    expect(describeHumanNode(view, node, "2 files changed, 3 insertions(+)")).toStrictEqual([
+      "[H] node H (attempt 1) waits for you",
+      "  job: do H",
+      "  done when: H done",
+      "  N1 said: Looked.",
+      "  changes: 2 files changed, 3 insertions(+)",
+      "  choices: p = pass and merge, b N1 [reason] = send back to N1 (used 0 of 2), q = quit",
+    ]);
+    expect(describeHumanNode(view, node, null)).toContain("  changes: (none)");
+  });
+
+  it("says why a merge is blocked, with the files of a conflict", () => {
+    const run = waitingAtHuman();
+    run.send({ type: "human_passed", node: "H" });
+    run.send({ type: "merge_blocked", node: "H", reason: "merge_conflict", files: ["a.txt", "b.txt"] });
+    const view = viewOf(run.task, null);
+
+    expect(describeHumanNode(view, need(view.nodes.find((one) => one.id === "H")), null)).toContain(
+      "  the merge is blocked: merge_conflict (a.txt, b.txt); deal with it, then pass again",
+    );
+    run.send({ type: "human_passed", node: "H" });
+    run.send({ type: "merge_blocked", node: "H", reason: "merge_main_dirty" });
+    const dirty = viewOf(run.task, null);
+    expect(describeHumanNode(dirty, need(dirty.nodes.find((one) => one.id === "H")), null)).toContain(
+      "  the merge is blocked: merge_main_dirty; deal with it, then pass again",
+    );
+  });
+
+  it("asks for a waiting human node, then for the archive once the task ended, and for nothing otherwise", () => {
+    const run = waitingAtHuman();
+    expect(pendingQuestion(run.task)).toStrictEqual({ kind: "human", node: "H" });
+    run.send({ type: "human_passed", node: "H" });
+    expect(pendingQuestion(run.task)).toBeNull();
+    run.send({ type: "merge_blocked", node: "H", reason: "merge_main_dirty" });
+    expect(pendingQuestion(run.task)).toStrictEqual({ kind: "human", node: "H" });
+    run.send({ type: "human_passed", node: "H" });
+    run.send({ type: "merged", node: "H" });
+    expect(pendingQuestion(run.task)).toStrictEqual({ kind: "archive" });
+    run.send({ type: "archive_answered", answer: "keep" });
+    expect(pendingQuestion(run.task)).toBeNull();
+    expect(pendingQuestion(started().task)).toBeNull();
+  });
+
+  it("goes on past a human node and an unanswered archive question when it can ask, and stops otherwise", () => {
+    const run = waitingAtHuman();
+    expect(stopReason(run.task, true)).toBeNull();
+    expect(stopReason(run.task)).toMatchObject({ code: 0, line: expect.stringContaining("human node H") });
+    run.send({ type: "human_passed", node: "H" });
+    run.send({ type: "merge_blocked", node: "H", reason: "merge_main_dirty" });
+    expect(stopReason(run.task, true)).toBeNull();
+    run.send({ type: "human_passed", node: "H" });
+    run.send({ type: "merged", node: "H" });
+    expect(run.task.archive).toBe("asked");
+    expect(stopReason(run.task, true)).toBeNull();
+    expect(stopReason(run.task)).toStrictEqual({ code: 0, line: "the task is done" });
+    run.send({ type: "archive_answered", answer: "archive" });
+    expect(stopReason(run.task, true)).toStrictEqual({ code: 0, line: "the task is done" });
+  });
+
+  it("still stops at a failure or a question when it can ask", () => {
+    const run = waitingAtHuman();
+    const asking = started();
+    asking.send({ type: "node_started", node: "N1", attempt: 1, sessionId: "s", startCommit: null });
+    asking.send({ type: "node_waiting", node: "N1", attempt: 1, waitingFor: "question" });
+    expect(stopReason(asking.task, true)).toMatchObject({ code: 3 });
+    const cancelled = { ...run.task, cancelled: true, archive: "asked" as const };
+    expect(stopReason(cancelled, true)).toBeNull();
+    expect(stopReason({ ...cancelled, archive: undefined }, true)).toMatchObject({ code: 1 });
+  });
+
+  it("reads archive, keep and quit", () => {
+    expect([" a", "archive", "k", "keep ", "q", "quit", "", "x"].map(parseArchiveChoice)).toStrictEqual([
+      "archive",
+      "archive",
+      "keep",
+      "keep",
+      "quit",
+      "quit",
+      "unknown",
+      "unknown",
+    ]);
+  });
+
+  it("shows the worktree's facts, and warns when it has changes", () => {
+    expect(describeArchive({ name: "hello", merged: true, dirty: false, commits: 2 })).toStrictEqual([
+      "worktree hello: merged yes, uncommitted changes no, 2 commit(s) since the start",
+      "  a = archive, k = keep it, q = quit",
+    ]);
+    expect(describeArchive({ name: "hello", merged: null, dirty: true, commits: 0 })[0]).toContain(
+      "merged unknown, uncommitted changes yes",
+    );
+    expect(describeArchive({ name: "hello", merged: false, dirty: true, commits: 1 })[1]).toContain("refused while");
+    expect(describeArchive(null)).toStrictEqual(["the task's worktree is gone or archived already"]);
+  });
+
+  it("answers the questions with the lines it is given, in order, and with null when they are used up or it is interrupted", async () => {
+    const written: string[] = [];
+    const reader = askFromStream(Readable.from(["p\n", "k\n"]), { write: (text) => written.push(text) });
+    const signal = new AbortController().signal;
+
+    expect(await reader.ask("one> ", signal)).toBe("p");
+    expect(await reader.ask("two> ", signal)).toBe("k");
+    expect(await reader.ask("three> ", signal)).toBeNull();
+    reader.close();
+    expect(written).toStrictEqual(["one> ", "two> ", "three> "]);
+
+    const idle = askFromStream(new Readable({ read() {} }), { write: () => undefined });
+    const stop = new AbortController();
+    const waiting = idle.ask("> ", stop.signal);
+    stop.abort();
+    expect(await waiting).toBeNull();
+    expect(await idle.ask("> ", stop.signal)).toBeNull();
+    idle.close();
   });
 });

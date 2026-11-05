@@ -1,14 +1,14 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 29,
+    "protocolVersion": 30,
     "clientId": "c1",
     "token": "t",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
     "type": "hello",
-    "protocolVersion": 29,
+    "protocolVersion": 30,
     "clientId": "dev_0123456789abcdef",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
@@ -959,5 +959,90 @@
     "type": "reset_remote_identity",
     "requestId": "r89",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "list_tasks",
+    "requestId": "r90",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "list_tasks",
+    "requestId": "r91",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "watch": true
+  },
+  {
+    "type": "open_task",
+    "requestId": "r92",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
+  },
+  {
+    "type": "answer_human",
+    "requestId": "r93",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef",
+    "node": "N4",
+    "answer": {
+      "kind": "pass"
+    }
+  },
+  {
+    "type": "answer_human",
+    "requestId": "r94",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef",
+    "node": "N4",
+    "answer": {
+      "kind": "send_back",
+      "backTo": "N2",
+      "reason": "The test for the empty list is missing."
+    }
+  },
+  {
+    "type": "rerun_node",
+    "requestId": "r95",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef",
+    "node": "N2"
+  },
+  {
+    "type": "continue_node",
+    "requestId": "r96",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef",
+    "node": "N2"
+  },
+  {
+    "type": "pause_task",
+    "requestId": "r97",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
+  },
+  {
+    "type": "resume_task",
+    "requestId": "r98",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
+  },
+  {
+    "type": "cancel_task",
+    "requestId": "r99",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
+  },
+  {
+    "type": "answer_archive",
+    "requestId": "r100",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef",
+    "answer": "archive"
+  },
+  {
+    "type": "answer_archive",
+    "requestId": "r101",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef",
+    "answer": "keep"
   }
 ]

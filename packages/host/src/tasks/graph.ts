@@ -6,6 +6,9 @@ export const BACK_LIMIT = 2;
 /** How many agent nodes of one task may run at once (SPEC-0006, "调度器"). */
 export const NODE_SLOTS = 6;
 
+/** The most conflicting files a blocked merge keeps on its node, for the user to see. */
+export const MAX_CONFLICT_FILES = 50;
+
 /** The most nodes a graph may have (SPEC-0006, "改图"). */
 export const MAX_NODES = 20;
 

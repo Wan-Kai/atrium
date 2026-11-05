@@ -13,6 +13,7 @@ import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup"
 import { Step, TranscriptItem } from "./transcript";
 import { PI_CONFIG_MAX_BYTES, PiConfigFile, PiConfigName, PiConfigRevision } from "./pi-config";
 import { DeviceId, PairingId, RelayLine, RemoteState } from "./remote";
+import { ArchiveAnswer, HumanAnswer, TaskId, TaskNodeId, TaskSummary, TaskView } from "./tasks";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
 export const RequestId = z.string().min(1).max(128);
@@ -897,6 +898,80 @@ export const ResetRemoteIdentityCommand = z.strictObject({
 });
 export type ResetRemoteIdentityCommand = z.infer<typeof ResetRemoteIdentityCommand>;
 
+/**
+ * Lists the tasks; with `watch` the connection gets `tasks_updated` from then on, and `watch: false` stops it
+ * (SPEC-0006, "协议（给 UI）"). A phone may send it: tasks are read-only there.
+ */
+export const ListTasksCommand = z.strictObject({
+  type: z.literal("list_tasks"),
+  ...commandFields,
+  watch: z.boolean().optional(),
+});
+export type ListTasksCommand = z.infer<typeof ListTasksCommand>;
+
+/**
+ * Opens a task: answers with its whole state, and the connection gets `task_updated` for it from then on
+ * until it opens another or disconnects (SPEC-0006, "协议（给 UI）"). A phone may send it.
+ */
+export const OpenTaskCommand = z.strictObject({ type: z.literal("open_task"), ...commandFields, taskId: TaskId });
+export type OpenTaskCommand = z.infer<typeof OpenTaskCommand>;
+
+/**
+ * Answers a human node that is waiting: pass it, or send the task back to one of the nodes its back edges
+ * lead to, with a reason (SPEC-0006, "human 节点"). Passing a node whose merge is blocked tries the merge again.
+ * Fails with `task_not_found`, `task_state_invalid` or, for the third use of a back edge, `task_back_limit`.
+ */
+export const AnswerHumanCommand = z.strictObject({
+  type: z.literal("answer_human"),
+  ...commandFields,
+  taskId: TaskId,
+  node: TaskNodeId,
+  answer: HumanAnswer,
+});
+export type AnswerHumanCommand = z.infer<typeof AnswerHumanCommand>;
+
+/** Reruns a failed node: the same session and attempt go on, told why it failed (SPEC-0006, "失败"). */
+export const RerunNodeCommand = z.strictObject({
+  type: z.literal("rerun_node"),
+  ...commandFields,
+  taskId: TaskId,
+  node: TaskNodeId,
+});
+export type RerunNodeCommand = z.infer<typeof RerunNodeCommand>;
+
+/** Lets a node the user stopped go on, in its own conversation (SPEC-0006, "节点"). */
+export const ContinueNodeCommand = z.strictObject({
+  type: z.literal("continue_node"),
+  ...commandFields,
+  taskId: TaskId,
+  node: TaskNodeId,
+});
+export type ContinueNodeCommand = z.infer<typeof ContinueNodeCommand>;
+
+/** Pauses a task: running nodes hold after their turn (SPEC-0006, "暂停和恢复"). */
+export const PauseTaskCommand = z.strictObject({ type: z.literal("pause_task"), ...commandFields, taskId: TaskId });
+export type PauseTaskCommand = z.infer<typeof PauseTaskCommand>;
+
+/** Lets a paused task go on. */
+export const ResumeTaskCommand = z.strictObject({ type: z.literal("resume_task"), ...commandFields, taskId: TaskId });
+export type ResumeTaskCommand = z.infer<typeof ResumeTaskCommand>;
+
+/** Cancels a task: running nodes stop at once and the task ends. */
+export const CancelTaskCommand = z.strictObject({ type: z.literal("cancel_task"), ...commandFields, taskId: TaskId });
+export type CancelTaskCommand = z.infer<typeof CancelTaskCommand>;
+
+/**
+ * Answers the question about the worktree a finished task made: archive it, which runs `archive_workspace`'s
+ * checks again and may fail with its codes, or keep it (SPEC-0006, "归档"). After "keep" it can still be archived.
+ */
+export const AnswerArchiveCommand = z.strictObject({
+  type: z.literal("answer_archive"),
+  ...commandFields,
+  taskId: TaskId,
+  answer: ArchiveAnswer,
+});
+export type AnswerArchiveCommand = z.infer<typeof AnswerArchiveCommand>;
+
 /** Every command a client may send after the handshake. */
 export const Command = z.discriminatedUnion("type", [
   PingCommand,
@@ -985,6 +1060,15 @@ export const Command = z.discriminatedUnion("type", [
   RenameDeviceCommand,
   RevokeDeviceCommand,
   ResetRemoteIdentityCommand,
+  ListTasksCommand,
+  OpenTaskCommand,
+  AnswerHumanCommand,
+  RerunNodeCommand,
+  ContinueNodeCommand,
+  PauseTaskCommand,
+  ResumeTaskCommand,
+  CancelTaskCommand,
+  AnswerArchiveCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -1134,5 +1218,14 @@ export const CommandResult = {
   rename_device: z.strictObject({}),
   revoke_device: z.strictObject({}),
   reset_remote_identity: z.strictObject({}),
+  list_tasks: z.strictObject({ tasks: z.array(TaskSummary).max(10_000) }),
+  open_task: z.strictObject({ task: TaskView }),
+  answer_human: z.strictObject({}),
+  rerun_node: z.strictObject({}),
+  continue_node: z.strictObject({}),
+  pause_task: z.strictObject({}),
+  resume_task: z.strictObject({}),
+  cancel_task: z.strictObject({}),
+  answer_archive: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

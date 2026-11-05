@@ -51,3 +51,6 @@ export function resumeAfterFailure(reason: FailureReason | null): string {
 export function wakeForGraphChange(node: NodeId): string {
   return `${node} 申请改图`;
 }
+
+/** The user pressed "continue" on a node they had stopped (SPEC-0006, "节点"). */
+export const CONTINUE_NODE = "继续";

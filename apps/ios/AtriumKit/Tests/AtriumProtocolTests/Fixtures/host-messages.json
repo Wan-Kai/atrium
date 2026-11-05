@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 29,
+    "protocolVersion": 30,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -2114,6 +2114,169 @@
         },
         "refused": 1
       }
+    }
+  },
+  {
+    "type": "tasks_updated",
+    "seq": 1,
+    "tasks": [
+      {
+        "id": "tsk_0123456789abcdef",
+        "name": "Add the export",
+        "status": "waiting",
+        "projectId": "prj_0123456789abcdef",
+        "workspaceId": "wks_0123456789abcdef",
+        "paused": false,
+        "createdAt": 1760000000000,
+        "startedAt": 1760000001000,
+        "endedAt": null,
+        "attention": "merge_blocked",
+        "archive": null
+      },
+      {
+        "id": "tsk_0123456789abcdef",
+        "name": "Add the export",
+        "status": "done",
+        "projectId": "prj_0123456789abcdef",
+        "workspaceId": "wks_0123456789abcdef",
+        "paused": false,
+        "createdAt": 1760000000000,
+        "startedAt": 1760000001000,
+        "endedAt": null,
+        "attention": null,
+        "archive": null
+      }
+    ]
+  },
+  {
+    "type": "tasks_updated",
+    "seq": 2,
+    "tasks": []
+  },
+  {
+    "type": "task_updated",
+    "task": {
+      "id": "tsk_0123456789abcdef",
+      "name": "Add the export",
+      "status": "waiting",
+      "projectId": "prj_0123456789abcdef",
+      "workspaceId": "wks_0123456789abcdef",
+      "paused": false,
+      "createdAt": 1760000000000,
+      "startedAt": 1760000001000,
+      "endedAt": null,
+      "attention": "merge_blocked",
+      "archive": null,
+      "taskSessionId": "s0",
+      "graphVersion": 1,
+      "pendingGraph": false,
+      "nodes": [
+        {
+          "kind": "agent",
+          "job": "Do it",
+          "done": [
+            "It works"
+          ],
+          "state": "passed",
+          "attempt": 1,
+          "waitingFor": null,
+          "blocked": null,
+          "failure": null,
+          "summary": "Done.",
+          "sessionId": "s1",
+          "sendBack": [],
+          "id": "N1",
+          "name": "Explore",
+          "role": "explore",
+          "place": "readonly"
+        },
+        {
+          "kind": "agent",
+          "job": "Do it",
+          "done": [
+            "It works"
+          ],
+          "state": "passed",
+          "attempt": 1,
+          "waitingFor": null,
+          "blocked": null,
+          "failure": null,
+          "summary": "Done.",
+          "sessionId": "s1",
+          "sendBack": [],
+          "id": "N2",
+          "name": "Write",
+          "role": "work",
+          "place": "workspace",
+          "backFrom": {
+            "node": "N3",
+            "reason": "Again"
+          }
+        },
+        {
+          "kind": "human",
+          "job": "Do it",
+          "done": [
+            "It works"
+          ],
+          "state": "waiting",
+          "attempt": 1,
+          "waitingFor": "merge_blocked",
+          "blocked": "merge_conflict",
+          "failure": null,
+          "summary": null,
+          "sessionId": null,
+          "sendBack": [
+            {
+              "to": "N2",
+              "uses": 1
+            }
+          ],
+          "id": "N3",
+          "name": "Accept and merge",
+          "merge": true,
+          "blockedFiles": [
+            "src/a.ts",
+            "src/b.ts"
+          ]
+        },
+        {
+          "kind": "agent",
+          "job": "Do it",
+          "done": [
+            "It works"
+          ],
+          "state": "failed",
+          "attempt": 1,
+          "waitingFor": null,
+          "blocked": null,
+          "failure": "commit",
+          "summary": "Done.",
+          "sessionId": null,
+          "sendBack": [],
+          "id": "N4",
+          "name": "Check",
+          "role": "check"
+        }
+      ],
+      "edges": [
+        {
+          "from": "N1",
+          "to": "N2",
+          "kind": "seq"
+        },
+        {
+          "from": "N2",
+          "to": "N3",
+          "kind": "seq"
+        },
+        {
+          "from": "N3",
+          "to": "N2",
+          "kind": "back"
+        }
+      ],
+      "archiveFacts": null
     }
   },
   {
@@ -6748,6 +6911,30 @@
     "ok": false,
     "error": {
       "code": "workspace_in_task"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "task_not_found"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "task_state_invalid"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "task_back_limit"
     }
   },
   {

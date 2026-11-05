@@ -1,3 +1,4 @@
+import type { MergeOutcome } from "./merge";
 import type { Task } from "./types";
 
 /**
@@ -26,4 +27,12 @@ export interface TaskWorkspaces {
   lock(task: Task): Promise<void>;
   /** Unlocks it; unlocking one not locked for the task changes nothing. */
   unlock(task: Task): Promise<void>;
+  /**
+   * Merges the task's branch into the trunk of the project's main checkout, or says why it did not.
+   *
+   * @remarks
+   * SPEC-0006, "合并"; safe to run again (a branch already merged answers `merged`). Throws when the task has
+   * no worktree or the host no git; the runner turns that into `merge_git_failed`.
+   */
+  merge(task: Task, signal: AbortSignal): Promise<MergeOutcome>;
 }

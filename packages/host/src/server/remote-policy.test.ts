@@ -25,9 +25,9 @@ function typesOf(schema: z.ZodType): string[] {
 }
 
 describe("the phone's allowlist", () => {
-  it("classifies every command there is, 39 for the phone and the rest for the Mac", () => {
+  it("classifies every command there is, 41 for the phone and the rest for the Mac", () => {
     expect(Object.keys(COMMAND_REACH).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
-    expect(Object.values(COMMAND_REACH).filter((reach) => reach === "phone")).toHaveLength(39);
+    expect(Object.values(COMMAND_REACH).filter((reach) => reach === "phone")).toHaveLength(41);
   });
 
   it("refuses a new child conversation, and the remote commands, to a phone", () => {
@@ -44,6 +44,27 @@ describe("the phone's allowlist", () => {
     expect(phoneMayRun({ type: "cancel_translation", ...fields, translationId: "tr1" })).toBe(false);
     expect(COMMAND_REACH.translate_reply).toBe("local_only");
     expect(COMMAND_REACH.cancel_translation).toBe("local_only");
+  });
+});
+
+describe("tasks on a phone (SPEC-0006)", () => {
+  it("may list and open tasks and nothing else about them", () => {
+    const fields = { requestId: "r1", traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" };
+    const task = { taskId: "tsk_a" };
+    expect(phoneMayRun({ type: "list_tasks", ...fields })).toBe(true);
+    expect(phoneMayRun({ type: "open_task", ...fields, ...task })).toBe(true);
+    expect(phoneMayRun({ type: "answer_human", ...fields, ...task, node: "N1", answer: { kind: "pass" } })).toBe(false);
+    expect(phoneMayRun({ type: "rerun_node", ...fields, ...task, node: "N1" })).toBe(false);
+    expect(phoneMayRun({ type: "continue_node", ...fields, ...task, node: "N1" })).toBe(false);
+    expect(phoneMayRun({ type: "pause_task", ...fields, ...task })).toBe(false);
+    expect(phoneMayRun({ type: "resume_task", ...fields, ...task })).toBe(false);
+    expect(phoneMayRun({ type: "cancel_task", ...fields, ...task })).toBe(false);
+    expect(phoneMayRun({ type: "answer_archive", ...fields, ...task, answer: "archive" })).toBe(false);
+  });
+
+  it("pushes the task list and an open task's state to a phone that asked for them", () => {
+    expect(pushedToPhone({ type: "tasks_updated", seq: 1, tasks: [] })).toBe(true);
+    expect(PUSHED_TO_PHONE.task_updated).toBe(true);
   });
 });
 

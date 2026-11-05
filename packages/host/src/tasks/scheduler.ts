@@ -2,6 +2,7 @@ import { advance, endTask } from "./advance";
 import { type Draft, emit, freshRun, notify, progress } from "./draft";
 import {
   BACK_LIMIT,
+  MAX_CONFLICT_FILES,
   activeGraphOf,
   latestRun,
   liveRun,
@@ -505,6 +506,7 @@ function onHumanPassed(draft: Draft, event: Of<"human_passed">): boolean {
     run.merging = true;
     run.waitingFor = "human";
     run.blocked = null;
+    delete run.blockedFiles;
     emit(draft, { kind: "merge", node: node.id });
     return true;
   }
@@ -850,6 +852,8 @@ function onMergeBlocked(draft: Draft, event: Of<"merge_blocked">): boolean {
   run.state = "waiting";
   run.waitingFor = "merge_blocked";
   run.blocked = event.reason;
+  if (event.files === undefined) delete run.blockedFiles;
+  else run.blockedFiles = event.files.slice(0, MAX_CONFLICT_FILES);
   notify(draft, { kind: "merge_blocked", node: event.node, reason: event.reason });
   return true;
 }
@@ -899,7 +903,8 @@ function onHostRestarted(draft: Draft): boolean {
  * One case per event type; an event that does not fit the state (a late one, a repeat, one the user
  * could not have caused) is ignored and returns `false`. The acknowledgements of actions whose effect
  * the scheduler already made when it sent them (`workspace_creating`, `merge_started`) and the
- * records the scheduler does not use (`archive_asked`, `archive_answered`, `created`) change nothing.
+ * records the scheduler does not use (`archive_asked`, `created`) change nothing; `archive_answered` is taken
+ * before this, in `step`.
  *
  * @sideEffects Changes the draft's task and actions.
  * @param draft - The step.
@@ -979,13 +984,34 @@ function apply(draft: Draft): boolean {
 }
 
 /**
+ * Applies `archive_answered`: what the user decided about the worktree the task made.
+ *
+ * @remarks
+ * SPEC-0006, "归档" and "T5 定下的细节". It comes after the task ended, which `step` otherwise ignores
+ * altogether, so it is the one event taken then. "Keep" closes the question for now; "archive" is taken
+ * after "keep" too (the worktree can be archived later), and nothing is taken after "archive". The scheduler
+ * does not archive: the service does that first and records this when it worked.
+ *
+ * @sideEffects none
+ * @param task - The task as it is.
+ * @param event - The event.
+ * @returns The task after the event, or the same task when the answer does not fit.
+ */
+function answerArchive(task: Task, event: Of<"archive_answered">): StepResult {
+  const open = task.archive === "asked" || (task.archive === "kept" && event.answer === "archive");
+  if (!open) return { task, actions: [] };
+  return { task: { ...task, archive: event.answer === "archive" ? "archived" : "kept" }, actions: [] };
+}
+
+/**
  * Moves a task one event forward: the new task and what the runner must do.
  *
  * @remarks
  * SPEC-0006, "调度器". Pure: the task passed in is not touched, time comes from the event, nothing
  * is read or written. State changes when an action is sent, not when its result arrives, so a second
  * event arriving before the result cannot send it again. An event that does not fit is ignored and the
- * same task comes back with no actions. A finished task (done or cancelled) takes no more events;
+ * same task comes back with no actions. A finished task (done or cancelled) takes no more events, but the
+ * answer about archiving its worktree;
  * a writing node passes, and so can end the task, only when its commit is settled. After an event applies, the
  * task is advanced (resume held nodes, open human nodes, start ready ones) and finished if every end node has passed.
  *
@@ -995,6 +1021,7 @@ function apply(draft: Draft): boolean {
  * @returns The task after the event and the actions, in the order they must be carried out.
  */
 export function step(task: Task, event: TaskEvent): StepResult {
+  if (event.type === "archive_answered") return answerArchive(task, event);
   if (task.cancelled) return { task, actions: [] };
   const draft: Draft = { task: structuredClone(task), actions: [], event, lines: 0 };
   if (task.endedAt !== null) return { task, actions: [] };

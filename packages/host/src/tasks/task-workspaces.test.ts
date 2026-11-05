@@ -39,6 +39,7 @@ async function setup(workspaces: { id: string; baseCommit: string | null }[], ma
     root: dir.path,
     sourceContainer: () => "src",
     dirOf: () => "/x",
+    inspector: Promise.resolve(null),
   });
   return { ports, created, task };
 }

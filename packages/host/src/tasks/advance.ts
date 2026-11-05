@@ -9,7 +9,8 @@ import type { GraphNode, GraphVersion } from "./types";
  *
  * @remarks
  * Runs once, for `done` and for `cancelled` (SPEC-0006, "加锁", "归档"). The lock was taken at the
- * start; a worktree the task did not make is only unlocked, never offered for archiving.
+ * start; a worktree the task did not make is only unlocked, never offered for archiving. The question
+ * is `archive: "asked"` on the task until `archive_answered`.
  *
  * @sideEffects Changes the draft's task and actions.
  * @param draft - The step.
@@ -20,7 +21,10 @@ export function endTask(draft: Draft): void {
   task.endedAt = draft.event.at;
   if (task.workspaceState !== "ready") return;
   emit(draft, { kind: "unlock_workspace" });
-  if (task.ownsWorkspace) emit(draft, { kind: "ask_archive" });
+  if (!task.ownsWorkspace) return;
+  // The question is part of the task's record, so it survives a restart until it is answered.
+  task.archive = "asked";
+  emit(draft, { kind: "ask_archive" });
 }
 
 /**

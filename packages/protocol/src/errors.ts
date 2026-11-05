@@ -112,6 +112,12 @@ export const ErrorCode = z.enum([
   "worktree_config_unsafe",
   /** The worktree is locked by a task (`params.taskId`) and is not archived or removed (SPEC-0006, "加锁"). */
   "workspace_in_task",
+  /** No task has this id (SPEC-0006, "错误码"). */
+  "task_not_found",
+  /** The task or node is not in a state that takes this command (SPEC-0006, "错误码"). */
+  "task_state_invalid",
+  /** The back edge has already been used twice (SPEC-0006, "错误码"). */
+  "task_back_limit",
   /**
    * No branch name came of `name_branch`; `params.reason` is `not_git`, `no_model`, `failed`,
    * `invalid` or `taken` (SPEC-0001, "AI 起分支名").

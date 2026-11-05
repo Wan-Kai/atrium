@@ -234,6 +234,46 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
       },
       unwatch: () => {},
     },
+    tasks: {
+      list: async (id, watch) => {
+        calls.push(["listTasks", id, watch]);
+        return { tasks: [] };
+      },
+      open: async (id, taskId) => {
+        calls.push(["openTask", id, taskId]);
+        return Promise.reject(new CommandError("task_not_found"));
+      },
+      answerHuman: async (taskId, node, answer) => {
+        calls.push(["answerHuman", taskId, node, answer]);
+        return {};
+      },
+      rerunNode: async (taskId, node) => {
+        calls.push(["rerunNode", taskId, node]);
+        return {};
+      },
+      continueNode: async (taskId, node) => {
+        calls.push(["continueNode", taskId, node]);
+        return {};
+      },
+      pause: async (taskId) => {
+        calls.push(["pauseTask", taskId]);
+        return {};
+      },
+      resume: async (taskId) => {
+        calls.push(["resumeTask", taskId]);
+        return {};
+      },
+      cancel: async (taskId) => {
+        calls.push(["cancelTask", taskId]);
+        return {};
+      },
+      answerArchive: async (taskId, answer) => {
+        calls.push(["answerArchive", taskId, answer]);
+        return {};
+      },
+      disconnect: () => {},
+      close: async () => {},
+    },
     sessions,
     index,
     piConfig: {
@@ -363,6 +403,96 @@ describe("createRouter", () => {
     await route(connection, withTrace(command));
     expect(calls).toStrictEqual([call]);
     expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: true, result }]);
+  });
+
+  it.each([
+    { command: { type: "list_tasks", watch: true }, call: ["listTasks", "connection-7", true], result: { tasks: [] } },
+    { command: { type: "list_tasks" }, call: ["listTasks", "connection-7", undefined], result: { tasks: [] } },
+    {
+      command: { type: "answer_human", taskId: "tsk_a", node: "N3", answer: { kind: "pass" } },
+      call: ["answerHuman", "tsk_a", "N3", { kind: "pass" }],
+      result: {},
+    },
+    {
+      command: {
+        type: "answer_human",
+        taskId: "tsk_a",
+        node: "N3",
+        answer: { kind: "send_back", backTo: "N2", reason: "again" },
+      },
+      call: ["answerHuman", "tsk_a", "N3", { kind: "send_back", backTo: "N2", reason: "again" }],
+      result: {},
+    },
+    { command: { type: "rerun_node", taskId: "tsk_a", node: "N2" }, call: ["rerunNode", "tsk_a", "N2"], result: {} },
+    {
+      command: { type: "continue_node", taskId: "tsk_a", node: "N2" },
+      call: ["continueNode", "tsk_a", "N2"],
+      result: {},
+    },
+    { command: { type: "pause_task", taskId: "tsk_a" }, call: ["pauseTask", "tsk_a"], result: {} },
+    { command: { type: "resume_task", taskId: "tsk_a" }, call: ["resumeTask", "tsk_a"], result: {} },
+    { command: { type: "cancel_task", taskId: "tsk_a" }, call: ["cancelTask", "tsk_a"], result: {} },
+    {
+      command: { type: "answer_archive", taskId: "tsk_a", answer: "keep" },
+      call: ["answerArchive", "tsk_a", "keep"],
+      result: {},
+    },
+  ])("routes the task command $command.type with its complete arguments", async ({ command, call, result }) => {
+    const { route, connection, calls, sent } = setUp();
+    await route(connection, withTrace(command));
+    expect(calls).toStrictEqual([call]);
+    expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: true, result }]);
+  });
+
+  it("answers a task command's CommandError with its code", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "open_task", taskId: "tsk_gone" }));
+
+    expect(calls).toStrictEqual([["openTask", "connection-7", "tsk_gone"]]);
+    expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: false, error: { code: "task_not_found" } }]);
+  });
+
+  it("lets a phone list and open tasks but not answer, rerun, pause, resume, cancel or archive them", async () => {
+    const { route, sent, calls, logger } = setUp();
+    const phone = createConnection(
+      { bufferedAmount: 0, send: (data) => sent.push(JSON.parse(data) as HostMessage), close: () => undefined },
+      {
+        id: "c3",
+        clientId: "dev_0123456789abcdef",
+        trace: ROOT_CONTEXT,
+        maxBufferedBytes: 1024,
+        logger,
+        remote: { deviceId: "dev_0123456789abcdef", maxMessageBytes: 1024, snapshotOf: () => null },
+      },
+    );
+    const forbidden = [
+      { type: "answer_human", taskId: "tsk_a", node: "N3", answer: { kind: "pass" } },
+      { type: "rerun_node", taskId: "tsk_a", node: "N2" },
+      { type: "continue_node", taskId: "tsk_a", node: "N2" },
+      { type: "pause_task", taskId: "tsk_a" },
+      { type: "resume_task", taskId: "tsk_a" },
+      { type: "cancel_task", taskId: "tsk_a" },
+      { type: "answer_archive", taskId: "tsk_a", answer: "archive" },
+    ];
+
+    await route(phone, withTrace({ type: "list_tasks", requestId: "l1" }));
+    await route(phone, withTrace({ type: "open_task", requestId: "o1", taskId: "tsk_a" }));
+    for (const [index, command] of forbidden.entries()) {
+      await route(phone, withTrace({ ...command, requestId: `f${String(index)}` }));
+    }
+
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "l1", ok: true, result: { tasks: [] } },
+      { type: "response", requestId: "o1", ok: false, error: { code: "task_not_found" } },
+      ...forbidden.map((_, index) => ({
+        type: "response",
+        requestId: `f${String(index)}`,
+        ok: false,
+        error: { code: "local_only" },
+      })),
+    ]);
+    expect(calls.map(([name]) => name)).toStrictEqual(["listTasks", "openTask"]);
   });
 
   it("routes reply translation and cancellation with the requesting connection identity", async () => {

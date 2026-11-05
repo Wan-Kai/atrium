@@ -20,6 +20,7 @@ const WORKSPACE = "wks_0123456789abcdef";
 const CHAT = "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc";
 const DEVICE = "dev_0123456789abcdef";
 const PAIRING = "pair_0123456789abcdef";
+const TASK = "tsk_0123456789abcdef";
 const RELAY_LINE = `atrium-relay://hst_0123456789abcdef:${"A".repeat(43)}@ktoon.site/atrium`;
 
 /** One valid example of every command. */
@@ -300,7 +301,94 @@ const commands: Command[] = [
   { type: "rename_device", requestId: "r87", traceparent, deviceId: DEVICE, name: "" },
   { type: "revoke_device", requestId: "r88", traceparent, deviceId: DEVICE },
   { type: "reset_remote_identity", requestId: "r89", traceparent },
+  { type: "list_tasks", requestId: "r90", traceparent },
+  { type: "list_tasks", requestId: "r91", traceparent, watch: true },
+  { type: "open_task", requestId: "r92", traceparent, taskId: TASK },
+  { type: "answer_human", requestId: "r93", traceparent, taskId: TASK, node: "N4", answer: { kind: "pass" } },
+  {
+    type: "answer_human",
+    requestId: "r94",
+    traceparent,
+    taskId: TASK,
+    node: "N4",
+    answer: { kind: "send_back", backTo: "N2", reason: "The test for the empty list is missing." },
+  },
+  { type: "rerun_node", requestId: "r95", traceparent, taskId: TASK, node: "N2" },
+  { type: "continue_node", requestId: "r96", traceparent, taskId: TASK, node: "N2" },
+  { type: "pause_task", requestId: "r97", traceparent, taskId: TASK },
+  { type: "resume_task", requestId: "r98", traceparent, taskId: TASK },
+  { type: "cancel_task", requestId: "r99", traceparent, taskId: TASK },
+  { type: "answer_archive", requestId: "r100", traceparent, taskId: TASK, answer: "archive" },
+  { type: "answer_archive", requestId: "r101", traceparent, taskId: TASK, answer: "keep" },
 ];
+
+/** A task waiting for the user to merge. */
+const taskSummary = {
+  id: TASK,
+  name: "Add the export",
+  status: "waiting",
+  projectId: PROJECT,
+  workspaceId: WORKSPACE,
+  paused: false,
+  createdAt: 1_760_000_000_000,
+  startedAt: 1_760_000_001_000,
+  endedAt: null,
+  attention: "merge_blocked",
+  archive: null,
+} as const;
+
+/** A task whose closing human node cannot merge, with its graph. */
+const taskNodeBase = {
+  kind: "agent",
+  job: "Do it",
+  done: ["It works"],
+  state: "passed",
+  attempt: 1,
+  waitingFor: null,
+  blocked: null,
+  failure: null,
+  summary: "Done.",
+  sessionId: "s1",
+  sendBack: [],
+} as const;
+const taskView = {
+  ...taskSummary,
+  taskSessionId: "s0",
+  graphVersion: 1,
+  pendingGraph: false,
+  nodes: [
+    { ...taskNodeBase, id: "N1", name: "Explore", role: "explore", place: "readonly" },
+    {
+      ...taskNodeBase,
+      id: "N2",
+      name: "Write",
+      role: "work",
+      place: "workspace",
+      backFrom: { node: "N3", reason: "Again" },
+    },
+    {
+      ...taskNodeBase,
+      id: "N3",
+      name: "Accept and merge",
+      kind: "human",
+      merge: true,
+      state: "waiting",
+      waitingFor: "merge_blocked",
+      blocked: "merge_conflict",
+      blockedFiles: ["src/a.ts", "src/b.ts"],
+      summary: null,
+      sessionId: null,
+      sendBack: [{ to: "N2", uses: 1 }],
+    },
+    { ...taskNodeBase, id: "N4", name: "Check", role: "check", state: "failed", failure: "commit", sessionId: null },
+  ],
+  edges: [
+    { from: "N1", to: "N2", kind: "seq" },
+    { from: "N2", to: "N3", kind: "seq" },
+    { from: "N3", to: "N2", kind: "back" },
+  ],
+  archiveFacts: null,
+} as const;
 
 /** An update waiting for two sessions to finish. */
 const installUpdated = {
@@ -827,6 +915,8 @@ describe("parseClientMessage", () => {
   it("knows exactly the commands it accepts", () => {
     expect([...COMMAND_TYPES].toSorted()).toStrictEqual([
       "add_project",
+      "answer_archive",
+      "answer_human",
       "answer_interaction",
       "answer_login",
       "answer_question",
@@ -836,6 +926,7 @@ describe("parseClientMessage", () => {
       "cancel_install",
       "cancel_login",
       "cancel_pairing",
+      "cancel_task",
       "cancel_translation",
       "check_pi_update",
       "check_setup",
@@ -844,6 +935,7 @@ describe("parseClientMessage", () => {
       "close_tab",
       "compact_session",
       "confirm_pairing",
+      "continue_node",
       "create_chat",
       "create_session",
       "create_workspace",
@@ -864,10 +956,13 @@ describe("parseClientMessage", () => {
       "list_commands",
       "list_dir",
       "list_models",
+      "list_tasks",
       "login",
       "logout",
       "name_branch",
       "open_session",
+      "open_task",
+      "pause_task",
       "ping",
       "prompt",
       "read_file",
@@ -881,11 +976,13 @@ describe("parseClientMessage", () => {
       "rename_session",
       "rename_workspace",
       "report_client_issue",
+      "rerun_node",
       "reset_remote_identity",
       "restore_chat",
       "restore_workspace",
       "resume_deliveries",
       "resume_queue",
+      "resume_task",
       "retry_run",
       "revoke_device",
       "save_pi_config",
@@ -1944,6 +2041,9 @@ const hostMessages: unknown[] = [
   { type: "plans_updated", plans: [plan, { provider: "anthropic", plan: null, windows: [], at: 0 }, grokPlan] },
   { type: "plans_updated", plans: [] },
   { type: "remote_updated", remote: remoteState },
+  { type: "tasks_updated", seq: 1, tasks: [taskSummary, { ...taskSummary, status: "done", attention: null }] },
+  { type: "tasks_updated", seq: 2, tasks: [] },
+  { type: "task_updated", task: taskView },
 ];
 
 const [local, worktree] = snapshot.workspaces;
@@ -2224,6 +2324,43 @@ const commandResultExamples = {
   rename_device: [{}],
   revoke_device: [{}],
   reset_remote_identity: [{}],
+  list_tasks: [
+    { tasks: [] },
+    {
+      tasks: [
+        taskSummary,
+        { ...taskSummary, status: "done", attention: null, archive: "asked", endedAt: 1_760_000_002_000 },
+      ],
+    },
+  ],
+  open_task: [
+    { task: taskView },
+    {
+      task: {
+        ...taskView,
+        status: "done",
+        attention: null,
+        archive: "asked",
+        archiveFacts: { name: "export", merged: true, dirty: false, commits: 3 },
+      },
+    },
+    {
+      task: {
+        ...taskView,
+        workspaceId: null,
+        projectId: null,
+        archive: null,
+        archiveFacts: { name: "x", merged: null, dirty: true, commits: 0 },
+      },
+    },
+  ],
+  answer_human: [{}],
+  rerun_node: [{}],
+  continue_node: [{}],
+  pause_task: [{}],
+  resume_task: [{}],
+  cancel_task: [{}],
+  answer_archive: [{}],
 } satisfies Record<CommandType, unknown[]>;
 
 /**
@@ -2442,6 +2579,9 @@ describe("HostMessage", () => {
       "worktree_create_failed",
       "worktree_config_unsafe",
       "workspace_in_task",
+      "task_not_found",
+      "task_state_invalid",
+      "task_back_limit",
       "branch_name_failed",
       "translation_failed",
       "fast_unavailable",

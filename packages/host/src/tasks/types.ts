@@ -104,15 +104,22 @@ export type NodeState = z.infer<typeof NodeState>;
 const WaitingFor = z.enum(["question", "graph_change", "human", "merge_blocked"]);
 type WaitingFor = z.infer<typeof WaitingFor>;
 
-/** Why a merge was held back (SPEC-0006, "合并"). */
-const MergeBlockReason = z.enum([
+/**
+ * Why a merge was held back (SPEC-0006, "合并").
+ *
+ * @remarks
+ * `merge_git_failed` is T5's (SPEC-0006, "T5 定下的细节"): git could not answer, or the checkout is not
+ * the one the host expects; nothing was merged and nothing was left changed.
+ */
+export const MergeBlockReason = z.enum([
   "merge_worktree_dirty",
   "merge_main_dirty",
   "merge_main_not_trunk",
   "merge_conflict",
   "merge_abort_failed",
+  "merge_git_failed",
 ]);
-type MergeBlockReason = z.infer<typeof MergeBlockReason>;
+export type MergeBlockReason = z.infer<typeof MergeBlockReason>;
 
 /** The five ways a node fails (SPEC-0006, "失败"). */
 export const FailureReason = z.enum(["no_done", "crashed", "model_error", "gave_up", "workspace", "commit"]);
@@ -152,6 +159,8 @@ export const NodeRun = z.strictObject({
   /** Voided by a graph change (a human node that gained an unfinished upstream). */
   void: z.literal(true).optional(),
   merging: z.literal(true).optional(),
+  /** The files a `merge_conflict` named, for the user to see (at most `MAX_CONFLICT_FILES`). */
+  blockedFiles: z.array(z.string()).optional(),
   /** Whether it was already reminded once to call `node_done`. */
   nudged: z.boolean(),
   /**
@@ -170,6 +179,10 @@ const TaskOrigin = z.union([
   z.strictObject({ kind: z.literal("schedule"), ruleId: z.string(), firedAt: z.number() }),
 ]);
 type TaskOrigin = z.infer<typeof TaskOrigin>;
+
+/** Where the question about archiving the task's worktree stands. */
+const ArchiveState = z.enum(["asked", "archived", "kept"]);
+type ArchiveState = z.infer<typeof ArchiveState>;
 
 /** The task record (`task.json`, SPEC-0006 "任务记录"). */
 export const Task = z.strictObject({
@@ -197,6 +210,11 @@ export const Task = z.strictObject({
   createdAt: z.number(),
   startedAt: z.number().nullable(),
   endedAt: z.number().nullable(),
+  /**
+   * The question of what to do with the worktree the task made (SPEC-0006, "归档"; T5): `asked` from the
+   * moment the task ends, then what the user answered. Absent for a task that asks nothing.
+   */
+  archive: ArchiveState.optional(),
 });
 export type Task = z.infer<typeof Task>;
 
@@ -275,7 +293,7 @@ export const TaskEvent = z.discriminatedUnion("type", [
   event("contract_sent", run),
   event("merge_started", { node: NodeId }),
   event("merged", { node: NodeId }),
-  event("merge_blocked", { node: NodeId, reason: MergeBlockReason }),
+  event("merge_blocked", { node: NodeId, reason: MergeBlockReason, files: z.array(z.string()).optional() }),
   event("archive_asked", {}),
   event("archive_answered", { answer: z.enum(["archive", "keep"]) }),
   event("host_restarted", {}),

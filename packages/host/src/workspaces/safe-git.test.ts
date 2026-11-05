@@ -1,6 +1,6 @@
 import { CommandError } from "@atrium/protocol";
 import { GIT_SCENE_ENV, type GitScene, createGitScene, plantTraps } from "@atrium/testkit";
-import { chmod, mkdir, readdir, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { systemClock } from "../platform/clock";
@@ -30,6 +30,32 @@ async function plantHooks(scene: GitScene, names: readonly string[]): Promise<()
     await chmod(path, 0o755);
   }
   return async () => (await readdir(markers)).toSorted();
+}
+
+/**
+ * Makes a file whose merge is done by a driver that leaves a marker when git runs it.
+ *
+ * @remarks
+ * The driver resolves any merge by keeping the current side, as a program the agent planted would.
+ *
+ * @sideEffects Writes the script, `.gitattributes` and a file in the scene's repository, commits, and sets the driver.
+ * @param scene - The scene.
+ * @returns A function telling whether the driver has run.
+ */
+async function plantMergeDriver(scene: GitScene): Promise<() => Promise<boolean>> {
+  const marker = join(scene.root, "driver-ran");
+  const script = join(scene.root, "driver.sh");
+  await writeFile(script, `#!/bin/sh\ntouch '${marker}'\nexit 0\n`, { mode: 0o755 });
+  await writeFile(join(scene.repo, ".gitattributes"), "driven.txt merge=evil\n");
+  await scene.commit(scene.repo, "driven.txt", "base\n");
+  await scene.git(scene.repo, "add", ".gitattributes");
+  await scene.git(scene.repo, "commit", "--quiet", "-m", "attributes");
+  await scene.git(scene.repo, "config", "merge.evil.driver", `${script} %O %A %B`);
+  return () =>
+    access(marker).then(
+      () => true,
+      () => false,
+    );
 }
 
 describe("runSafeGit", () => {
@@ -87,6 +113,30 @@ describe("runSafeGit", () => {
     await scene.commit(work, "more.txt", "more\n");
     await scene.git(scene.repo, "merge", "--quiet", "--no-ff", "-m", "plain", "work");
     expect(await hooks()).toStrictEqual(["post-merge", "pre-merge-commit"]);
+  });
+
+  it("merges without running a merge driver the repository names: the file conflicts, though plain git lets the driver resolve it", async () => {
+    const scene = await createGitScene("safe-merge-driver");
+    onTestFinished(scene.cleanup);
+    const ran = await plantMergeDriver(scene);
+    const work = await scene.worktree("work");
+    await scene.commit(work, "driven.txt", "from work\n");
+    await scene.commit(scene.repo, "driven.txt", "from main\n");
+
+    const merged = await runSafeGit(
+      git,
+      ["merge", "--quiet", "--no-ff", "--no-edit", "--", "work"],
+      { cwd: scene.repo },
+      { rejectIncludes: false },
+    );
+
+    expect(merged.code).toBe(1);
+    expect(await scene.git(scene.repo, "diff", "--name-only", "--diff-filter=U")).toBe("driven.txt");
+    expect(await ran()).toBe(false);
+
+    await scene.git(scene.repo, "merge", "--abort");
+    await git.run(["merge", "--quiet", "--no-ff", "--no-edit", "--", "work"], { cwd: scene.repo });
+    expect(await ran()).toBe(true);
   });
 
   it("refuses includes only when asked to", async () => {
@@ -147,6 +197,32 @@ describe("safeGitOptions", () => {
         `filter.${name}.required=false`,
       ]),
     ]);
+  });
+
+  it("empties every configured merge driver's command, whatever dots its name has", async () => {
+    const scene = await createGitScene("safe-options-driver");
+    onTestFinished(scene.cleanup);
+    await scene.git(scene.repo, "config", "merge.mergiraf.driver", "mergiraf merge %O %A %B");
+    await scene.git(scene.repo, "config", "merge.My.Driver.driver", "x");
+    await scene.git(scene.repo, "config", "merge.driver", "ignored: no name");
+    await scene.git(scene.repo, "config", "merge.mergiraf.name", "only the driver's command runs");
+
+    const options = await safeGitOptions(git, scene.repo, { rejectIncludes: true });
+
+    expect(options.slice(10)).toStrictEqual(["-c", "merge.mergiraf.driver=", "-c", "merge.My.Driver.driver="]);
+  });
+
+  it("refuses a merge driver name it cannot empty, whether or not includes are allowed", async () => {
+    const scene = await createGitScene("safe-driver-name");
+    onTestFinished(scene.cleanup);
+    await scene.git(scene.repo, "config", "merge.a=b.driver", "true");
+
+    for (const rejectIncludes of [true, false]) {
+      await expect(safeGitOptions(git, scene.repo, { rejectIncludes })).rejects.toMatchObject({
+        code: "worktree_config_unsafe",
+        params: { reason: "driver_name" },
+      });
+    }
   });
 
   it("reads a per-worktree configuration only when the repository has one, though it is set off", async () => {

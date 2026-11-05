@@ -4,8 +4,11 @@ import { z } from "zod";
 import type { GitRunner } from "../platform/git";
 import type { ProjectService } from "../projects/project-service";
 import { writeAtomically } from "../store/index-file";
+import type { MergeInspector } from "../workspaces/merge-inspector";
+import { mainBranchRef } from "../workspaces/workspace-service";
 import type { WorktreeCreator } from "../workspaces/worktree-creator";
 import { lockWorktree, unlockWorktree } from "../workspaces/worktree-lock";
+import { mergeTaskBranch } from "./merge";
 import type { TaskWorkspaces } from "./node-ports";
 import type { Task } from "./types";
 
@@ -35,6 +38,8 @@ export function createTaskWorkspaces(options: {
   readonly root: string;
   readonly sourceContainer: (task: Task) => string | undefined;
   readonly dirOf: (workspaceId: string) => string | undefined;
+  /** Tells a branch that is already merged; `null` without it (git before 2.38 or none). */
+  readonly inspector: Promise<MergeInspector | null>;
 }): TaskWorkspaces {
   /**
    * The worktree and the repository it belongs to.
@@ -44,12 +49,15 @@ export function createTaskWorkspaces(options: {
    *
    * @sideEffects none
    * @param task - The task.
-   * @returns The worktree's directory and its project's, or `undefined` when the task has none.
+   * @returns The worktree's directory, its project's, the project's own main branch and the commit the
+   * worktree was made at, or `undefined` when the task has none.
    */
-  function locationOf(task: Task): { dir: string; repo: string } | undefined {
+  function locationOf(task: Task) {
     const workspace = options.projects.workspaces().find((candidate) => candidate.id === task.workspaceId);
     const project = options.projects.projects().find((candidate) => candidate.id === workspace?.projectId);
-    return workspace === undefined || project === undefined ? undefined : { dir: workspace.dir, repo: project.path };
+    return workspace === undefined || project === undefined
+      ? undefined
+      : { dir: workspace.dir, repo: project.path, mainBranch: project.mainBranch, baseCommit: workspace.baseCommit };
   }
 
   return {
@@ -86,6 +94,24 @@ export function createTaskWorkspaces(options: {
       const where = locationOf(task);
       const git = await options.git;
       if (where !== undefined && git !== null) await unlockWorktree(git, where.repo, where.dir, task.id);
+    },
+    async merge(task, signal) {
+      const where = locationOf(task);
+      const git = await options.git;
+      if (where === undefined || git === null) throw new Error("the task has no worktree, or there is no git");
+      // The trunk is named as the merge inspector names it: the project's own setting, else `origin/HEAD`.
+      const ref = await mainBranchRef({ mainBranch: where.mainBranch }, async (...args) =>
+        git.run(args, { cwd: where.repo, signal }).catch(() => null),
+      );
+      return mergeTaskBranch({
+        git,
+        inspector: await options.inspector,
+        mainDir: where.repo,
+        worktreeDir: where.dir,
+        baseCommit: where.baseCommit ?? task.baseCommit,
+        trunk: ref === null ? null : ref.replace(/^refs\/remotes\/origin\//u, ""),
+        signal,
+      });
     },
   };
 }

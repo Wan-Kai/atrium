@@ -797,6 +797,8 @@ Task ──1:1── 任务对话（一个会话，只读角色，带任务对�
 - **节点对话、任务对话不是 SPEC-0002 的 agent 子对话**：会话记录带 `task: { taskId, role: "conversation" | "node", node?, attempt? }`，没有 `agent`。它们走单独的启动路径，只借用 SPEC-0002 起停 pi 和送达的做法；不给任务对话自动回报、不占 SPEC-0002 的名额、重启时不暂停送达；节点能用 `ask_user`。SessionCatalog 按 `task` 字段把它们排除在项目目录、侧栏之外，只在任务区出现。
 - **调度**：宿主里的纯函数 `step(任务, 事件) → (新任务, 动作[])`，发出动作时状态当场变（防重复）；每个任务一个串行队列；动作都能认出"已经做过"（重放后不重复提交、建 worktree、合并）。事件写进 `events.jsonl`（节点相关的带 `attempt`，旧会话迟到的事件丢掉），`task.json`（`{ version, seq, task }`）可以从事件重放出来。
 - **工作区**：任务建的 worktree 记"由任务 X 创建"；任务在用时对它 `git worktree lock`。任务结束时，任务建的 worktree 由你决定归档还是留着；来源对话本来就在的 worktree，任务只解锁，不问、不删。
+- **归档提问**（T5）：`Task.archive`（`asked` / `archived` / `kept`）在任务结束、`ownsWorkspace` 时置为 `asked`，是任务记录的一部分，重启后还在；回答是事件 `archive_answered`，任务结束后调度器只收这一种事件。显示的事实（worktree 名、是否已合并、有无未提交改动、提交数）问的时候现算，不存。
+- **合并被挡住**（T5）：停在 human 节点那条 NodeRun 上：`waitingFor = merge_blocked`，`blocked` 是原因（`merge_worktree_dirty`、`merge_main_dirty`、`merge_main_not_trunk`、`merge_conflict`、`merge_abort_failed`、`merge_git_failed`），冲突时 `blockedFiles` 是冲突的文件（最多 50 个）。再"通过"一次就重试，成功前 `merging` 为真。
 - **数据归属**：任务数据里有交接摘要和你写的打回原因，它们和会话内容一样不进宿主日志；日志只记任务 id、节点 id、事件种类。
 
 ## 已决定
