@@ -2097,3 +2097,26 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 破坏检查：`packages/pi/src/task/path-guard.break-check.json`，31 处全部抓到（解析 6、真实路径 5、判定 6、钩子 5、扩展接线 5、宿主 5）。
 - 变异测试：`pnpm test:mutation pi --mutate=packages/pi/src/task/path-guard.ts`：92.93%（92 杀、7 活；活下来的是等价或只影响退出条件的变异，原因文字的一个随后补了字面断言）。
 - 没做：`bash` 里 `git -C` 等的拦截（SPEC-0006 要，留给 T4）；终端 pi 的"钩子不生效"由 `path-guard.pi.test.ts` 覆盖，没有另做 `fixtures` 录制（`unrecorded`，断言文件结果不断言 pi 流量）。
+
+## T4a 节点运行的 pi 扩展一侧（SPEC-0006"一个 agent 节点怎么跑""扩展与通道"，2026-11-05，待验收）
+
+`packages/pi/src/task/`：`schema.ts`（给 T4b 的接口）、`extension.ts`（`node_done`、`request_graph_change`、`/atrium-task`）、`words.ts`（给模型的话、各角色可用的工具）、`git-guard.ts`（bash 的 git 拦截）。契约测试用 `packages/pi/test/fake-task-host.ts` 当假宿主：只看 pi 的事件、回答通道请求，按 SPEC 判待结算的作废和结算，是 T4b 判定的参照。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| `--atrium-task` 只分会话种类和角色：节点（四种角色）、任务对话、都不是（缺参数、读不出、未知角色、带多余字段）；都不是时什么也不注册；参数不带身份 | `task/schema.test.ts`、`task/extension.test.ts`；`task-node.pi.test.ts` "who gets the node tools"（真 pi：五种情形下模型的工具里没有 `node_done` / `request_graph_change`） |
+| 请求信封、参数、回答、隐藏命令各自的 zod 校验：版本、未知操作、多余字段、超长、坏请求回 id；文字上限 | `task/schema.test.ts` |
+| `node_done` 单独调用：宿主收到请求，这一轮停住（不再请求模型），`agent_settled` 时待结算生效；`ok: false` 带 `reason` | `task-node.pi.test.ts` done-alone、done-gave-up |
+| 待结算作废：与别的工具同批（新的 `turn_start`）、之后插话（steer）、之后被停下、之后模型出错；各自结算为 `no_done` / `stopped` / `error`，不是 `node_done` | `task-node.pi.test.ts` done-with-others、done-then-steer、done-then-stop、done-then-error |
+| `request_graph_change` 单独调用停住这一轮；同批有别的工具同样作废 | `task-node.pi.test.ts` graph-change、graph-change-with-others |
+| 宿主的拒绝（`task_args_invalid`、`task_caller_invalid`）变成给模型的错误结果，不带 `terminate`，模型能改了再调；超长由扩展自己答，不问宿主；读不出的参数由扩展答 `task_bad_request` | `task-node.pi.test.ts` refused、wrong-caller、too-long；`task/extension.test.ts` |
+| 工具停下（abort）时清掉状态、发 `cancel`、工具失败；回答只认每个 id 的第一个，迟到的、读不出的不理 | `task-node.pi.test.ts` stopped-while-asking；`task/extension.test.ts` |
+| `nudge` 开新一轮，模型读到提醒；同 id 再发（含 pi 重启后）不再开；只对节点 | `task-node.pi.test.ts` nudge；`task/extension.test.ts` |
+| `resume` 把宿主的话包进外壳开新一轮（节点、任务对话都行），外壳标签在正文里被转义、宿主自己的引用外壳不动；`progress` 写一行不开轮、按 id 去重 | `task-node.pi.test.ts` resume、conversation；`task/words.test.ts`、`task/extension.test.ts` |
+| 节点按角色限制工具：`explore` / `advise` / `check` 只读表，`work` 全部（不含旧 `grep` / `find`），任何节点都没有 `agent_*`、`ask_parent`、`report_progress` | `task/words.test.ts`；`task-node.pi.test.ts` "a node's tools by role" |
+| 节点默认开路径隔离（`isolated` 可关）；agent 开的 `work` 子对话照旧 | `task/extension.test.ts`；`task-node.pi.test.ts` task-role-work |
+| bash 的 git 拦截：`git -C`、`--git-dir`、`--work-tree`（`=` 与空格两种）、`GIT_DIR=`、`GIT_WORK_TREE=`；引号、转义、相对路径、`~` / `$HOME` / `$PWD`、符号链接、`cd` / `pushd` 之后、`$(…)`、反引号、`sh -c`、`eval`、嵌套过深、无法判断的路径；`git commit -C HEAD` 不算；不在隔离里全部放行 | `task/git-guard.test.ts`；`task-node.pi.test.ts` "bash git outside"（真 pi、真 git：外部仓库没多出提交，`git status` 照跑，关隔离或不是任务会话时命令照跑） |
+
+- 破坏检查：`packages/pi/src/task/node.break-check.json`，59 处全部抓到（扩展 24、words 5、schema 3、git-guard 27）。
+- 变异测试：见汇报（`pnpm test:mutation pi --mutate=<文件>`）。
+- 没做：宿主一侧（T4b）：`TaskRunner`、调用方核对、待结算的真实判定、`--atrium-task` 的下发；任务对话的 `task_*` 工具（T6，`schema.ts` 里留了扩展位）。拦不住的 bash 写法见 security.md 路径隔离一条。

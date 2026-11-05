@@ -93,11 +93,11 @@
     - 来源目录里的 `.worktreeinclude` 是链接或不是普通文件时当作没有；目标已有的文件不覆盖；目标路径经过新 worktree 里指向目录外的链接时不写；
     - 复制不成不让建 worktree 失败；路径不进日志，只记跳过的个数。
   - **路径隔离只防明显的越界**（`work`、`check` 节点和 SPEC-0002 的 `work` 子对话；T2 已对 SPEC-0002 的 `work` 子对话生效，节点随 T4）：
-    - 开关由宿主在 `--atrium-agent` 里给（`isolated`），只有 agent 开的 `work` 子对话为真；你手动开的子对话、主对话、终端里的 pi 没有；钩子在扩展里（`packages/pi/src/task/path-guard.ts`），宿主不替它判断；
+    - 开关由宿主在 `--atrium-agent` 里给（`isolated`），只有 agent 开的 `work` 子对话为真；你手动开的子对话、主对话、终端里的 pi 没有；钩子在扩展里（`packages/pi/src/task/path-guard.ts`），宿主不替它判断；任务节点的开关在 `--atrium-task` 里（`isolated`，缺省为真，四种角色都开）；
     - `edit` / `write` 的目标先按 pi `resolveToCwd` 的规则解析（去 `@`、展开 `~`、`file://`、Unicode 空格），再求真实路径（不存在的文件取最深的存在祖先的真实路径，悬空符号链接按它指向的地方算）；
     - 不在工作目录的真实路径下、或第一段是 `.git`（不分大小写），或真实路径算不出来（符号链接成环、没有权限看），就拦下；
-    - 命令里 `git -C`、`--git-dir`、`--work-tree`、`GIT_DIR=`、`GIT_WORK_TREE=` 指向工作目录之外也要拦（SPEC-0006）——**这一条还没做**，随 T4 的任务节点；
-    - **拦不住**：`bash` 里的 `cp`、`mv`、`>` 重定向、`sed -i`、脚本里的写入；检查和写入之间路径被换成符号链接（检查时间到使用时间之间的竞争）也拦不住。这不是沙箱。
+    - 命令里 `git -C`、`--git-dir`、`--work-tree`、`GIT_DIR=`、`GIT_WORK_TREE=` 指向工作目录之外也要拦（SPEC-0006；T4a 已做，`packages/pi/src/task/git-guard.ts`，开关同上，任务节点默认就开）：只读命令文本，按 shell 的规则拆成简单命令（引号、反斜杠、`;` `&&` `|`、`$(…)` 和反引号里的命令、`sh -c` / `eval` 的脚本），选项的 `=` 写法和空格写法都认，`-C` 只认 git 子命令之前的（`git commit -C HEAD` 不是），相对路径从 `cd` / `pushd` 之后的目录算，`~`、`$HOME`、`$PWD`、`$(pwd)` 展开，求真实路径（链接指出去的算出去）；`cd` 到工作目录之外之后再跑 git 也拦；路径靠别的变量或命令算出来（`$X`、`$(…)`）、判断不了的一律拦；
+    - **拦不住**：`bash` 里的 `cp`、`mv`、`>` 重定向、`sed -i`、脚本里的写入；检查和写入之间路径被换成符号链接（检查时间到使用时间之间的竞争）也拦不住；git 命令也一样不是沙箱：从脚本文件里调用（`bash run.sh`、`make`、`npm run`）、变量分段拼出来的路径、别名或函数、`env -C`、`xargs`、`git` 被改名复制、`GIT_COMMON_DIR` / `GIT_INDEX_FILE` 之类别的环境变量都看不见。这不是沙箱。
   - **调用方由宿主认定**：任务扩展的工具调用，宿主按发请求的 pi 进程查出会话，再看会话记录的 `task` 字段：`task_*` 只认这个任务的任务对话，`node_done` / `request_graph_change` 只认这个节点当前那次运行的会话。参数里的身份一律不信，不符应答 `task_caller_invalid`。
   - **拼进契约的文字当数据**：需求摘要、交接摘要、打回原因、`/task` 的范围和来源对话的内容进节点或任务对话的第一条消息时，包进标明来源、"不是用户说的话、不代表用户授权"的外壳，冒充外壳的标记先转义（同 ADR-0013 第 10 条）。
   - **worktree 锁**：任务在用的 worktree 加 `git worktree lock --reason "atrium task <id>"`，归档、清理遇到就停（`workspace_in_task`）；宿主启动时只解原因是 Atrium 任务、且任务已结束的锁，你自己加的锁不动。原因必须整条是 `atrium task <id>`（id 只含字母、数字、`_`、`-`），别的写法一概不认。

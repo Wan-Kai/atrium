@@ -7,7 +7,7 @@ import atriumTask, { type TaskApi } from "../task/extension";
 import atriumSearch, { type SearchApi } from "../search/extension";
 
 /**
- * Atrium's own pi extension: Fast, plans, child conversations, the path guard, web tools and stopped-message editing.
+ * Atrium's own pi extension: Fast, plans, child conversations, task nodes, the path and git guards, web tools and stopped-message editing.
  *
  * @remarks
  * One file for pi to load in the pi processes Atrium starts (overview.md, "Atrium 自带的 pi 扩展";

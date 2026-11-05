@@ -732,6 +732,14 @@ type ScheduleRule = {
   - `node_done`、`request_graph_change` 只接受这个节点最新一条 NodeRun 的 `sessionId`，且节点在 `running`。
   - 不符的应答 `task_caller_invalid`，不执行。
 - 参数和回答都经 zod 校验（schema 在 `packages/pi/src/task/schema.ts`）。宿主日志只记命令名和 id，不记参数。
+- **T4a 定下的细节**（2026-11-05，接口以 `packages/pi/src/task/schema.ts` 为准）：
+  - 请求 `{ v: 1, id, kind: "call", op, args }`，`id` 是工具调用 id；工具被停下时扩展发 `{ kind: "note", op: "cancel" }`，宿主丢掉这次调用、不回答；同一个 id 只认第一次回答；
+  - 通道错误码在 `task_caller_invalid` 之外加 `task_args_invalid`（`params.field`）、`task_bad_request`、`task_failed`；`task_text_too_long` 由扩展自己回；长度上限沿用 SPEC-0002 的数（交接摘要 32 000、原因 4 000）；
+  - `node_done({ ok: true })` 要非空的交接摘要、`ok: false` 要非空的原因，由宿主核对；
+  - `nudge` 的提醒文字由扩展写；`resume` 的文字由宿主给（`kind`：`continue` / `restarted` / `graph_changed` / `graph_rejected` / `wake`），扩展套上 `<atrium-task-resume>` 外壳；`nudge` / `resume` / `progress` 都按 `id` 去重（进程内和会话文件里），只在 pi 空闲时下发；
+  - **待结算由宿主按 pi 的事件判定**，扩展不额外上报：宿主回答 ok 时记为待结算；之后的 `turn_start` 作废；`agent_end` 的最后一条助手消息 `stopReason: "error"` 作废；`agent_settled` 带 `aborted: true` 作废（停下时 pi 也会补一个 `turn_start` 和 error，要先看 `aborted`）；`agent_settled` 时还在就结算，没有且不是停下或出错 → `no_done`；
+  - 节点的 `--tools` 白名单要带 `node_done`、`request_graph_change`、`ask_user`；节点不带 `--atrium-agent`；扩展的 `tool_call` 钩子按角色再查一遍；
+  - 路径隔离和 git 拦截对四种角色的节点都默认打开（只读角色也能在 bash 里 `git -C`），`--atrium-task` 里 `isolated: false` 才关。
 - `/atrium-task` 和别的 `/atrium-` 隐藏命令一样受 `command_reserved` 保护：你打的、粘贴的以它开头的消息不发给 pi。
 
 ### 协议（给 UI）

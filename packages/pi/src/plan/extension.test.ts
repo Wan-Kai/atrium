@@ -384,12 +384,13 @@ describe("atriumPlan", () => {
         "turn_end",
         "agent_end",
         "message_start",
-        // The path guard's (SPEC-0006), after the child conversations' own.
+        // The path guard's and the git guard's (SPEC-0006), after the child conversations' own.
+        "tool_call",
         "tool_call",
       ],
       12,
       ["web_search", "web_fetch"],
-      ["atrium-agent"],
+      ["atrium-agent", "atrium-task"],
     ]);
   });
 
