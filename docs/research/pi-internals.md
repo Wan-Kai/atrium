@@ -220,6 +220,8 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
   - 用量：Claude Code 的 `rate_limit_event` 经 `after_provider_response` 报成 `anthropic-ratelimit-unified-*` 响应头，并用 `notify` 发"Claude rate limit warning"；`isUsingOverage` 为假表示算在订阅额度里。助手消息的 `cost` 为 0。
   - RPC 模式下的提示、工具、插话、停止和停止后的下一轮都正常。在 bash 工具执行中停止时，最后一条助手消息的 `stopReason` 是 `error`、"This operation was aborted"，pi 自带的 OpenAI 兼容服务商（`sankuai-openai`）实测相同；其他时机停止未测（pi-ai 的服务商在请求途中被中止时报 `aborted`）。
 
+**上下文文件和信任**（pi 1.5.0，2026-11-05 核实，`dist/core/resource-loader.js` 的 `loadProjectContextFiles`）：先读 `~/.pi/agent/` 下的，再从工作目录一路往上，每层取第一个存在的 `AGENTS.override.md`、`AGENTS.md`、`AGENTS.MD`、`CLAUDE.md`、`CLAUDE.MD`，从上往下排；嵌套的 worktree 里，主仓库那份被 worktree 自己的同名文件挡住。**这一步和项目信任无关**，没信任的目录也读。要信任才读的是 `.pi/` 下的设置、`SYSTEM.md`、`APPEND_SYSTEM.md`、提示词模板和 skill。
+
 ## 5. extension 与宿主相关的部分（`src/core/extensions/types.ts`、`docs/rpc-extension-ui.md`）
 
 - **对话框**：`extension_ui_request {id, method}`，`select {title, options, timeout?}`、`confirm {title, message, timeout?}`、`input {title, placeholder?, timeout?}`、`editor {title, prefill?}`；回 `extension_ui_response {id, value} | {id, confirmed} | {id, cancelled: true}`。超时在 pi 侧按默认值结束，迟到的回答被忽略。**不写进会话文件。**
