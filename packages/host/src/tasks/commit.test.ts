@@ -1,5 +1,5 @@
 import { GIT_SCENE_ENV, createGitScene, plantTraps, present } from "@atrium/testkit";
-import { chmod, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { systemClock } from "../platform/clock";
@@ -153,6 +153,154 @@ describe('commitWork (SPEC-0006, "结束" 4)', () => {
     await commitWork(bare, dir, message);
 
     expect(await scene.git(dir, "log", "-1", "--format=%an <%ae>")).toBe("Someone <someone@example.com>");
+  });
+});
+
+/**
+ * Writes a script that leaves a marker file when git runs it.
+ *
+ * @remarks
+ * The repository's configuration can name such a script as a diff driver or a gpg program; the marker is
+ * how a test sees that git ran it.
+ *
+ * @sideEffects Writes two files.
+ * @param root - A directory outside the worktree.
+ * @param name - The marker's name.
+ * @param exit - The script's exit code.
+ * @returns The script's path and the marker's directory.
+ */
+async function trap(root: string, name: string, exit: number) {
+  const marks = join(root, `marks-${name}`);
+  await mkdir(marks, { recursive: true });
+  const script = join(root, `${name}.sh`);
+  await writeFile(script, `#!/bin/sh\ntouch '${marks}/ran'\nexit ${String(exit)}\n`);
+  await chmod(script, 0o755);
+  return {
+    script,
+    ran: async () => (await readdir(marks)).length > 0,
+    reset: () => rm(join(marks, "ran"), { force: true }),
+  };
+}
+
+/**
+ * A git runner that answers the question of the top level with the directory it was asked in.
+ *
+ * @remarks
+ * Lets a test see the pin on the other commands without the top-level check refusing first.
+ *
+ * @sideEffects none
+ * @param runner - The runner that answers everything else.
+ * @returns The runner.
+ */
+function toldTopLevel(runner: GitRunner): GitRunner {
+  return {
+    run: (args, options) =>
+      args.includes("--show-toplevel") && !args.some((arg) => arg.startsWith("--work-tree"))
+        ? Promise.resolve({ code: 0, stdout: `${options.cwd}\n` })
+        : runner.run(args, options),
+  };
+}
+
+/**
+ * A git runner whose question whether anything is staged ends in an exit code that means neither yes nor no.
+ *
+ * @remarks
+ * Only exit code 1 means something is staged.
+ *
+ * @sideEffects none
+ * @param runner - The runner that answers everything else.
+ * @returns The runner.
+ */
+function failingDiff(runner: GitRunner): GitRunner {
+  return {
+    run: (args, options) =>
+      args.includes("--cached") && args.includes("--quiet")
+        ? Promise.resolve({ code: 128, stdout: "" })
+        : runner.run(args, options),
+  };
+}
+
+describe("the host's git runs nothing the agent put in the repository's configuration (security.md, 任务)", () => {
+  it("does not run a diff driver when it asks whether anything is staged", async () => {
+    const { scene, dir } = await worktree();
+    const external = await trap(scene.root, "external", 1);
+    await scene.git(dir, "config", "diff.external", external.script);
+    await scene.git(dir, "config", "diff.trustExitCode", "true");
+    await writeFile(join(dir, "README.md"), "changed\n");
+
+    const result = await commitWork(git, dir, message);
+
+    expect(result.kind).toBe("committed");
+    expect(await external.ran()).toBe(false);
+  });
+
+  it("does not run gpg.program to show the signature of a signed head", async () => {
+    const { scene, dir } = await worktree();
+    const program = await trap(scene.root, "gpg", 0);
+    await scene.git(dir, "config", "gpg.program", program.script);
+    await scene.git(dir, "config", "log.showSignature", "true");
+    // A head with a signature header, which git hands to gpg.program to check.
+    const tree = await scene.git(dir, "rev-parse", "HEAD^{tree}");
+    const parent = await scene.git(dir, "rev-parse", "HEAD");
+    const object = `tree ${tree}\nparent ${parent}\nauthor A <a@b> 1 +0000\ncommitter A <a@b> 1 +0000\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n x\n -----END PGP SIGNATURE-----\n\nsigned\n`;
+    await writeFile(join(scene.root, "signed.obj"), object);
+    const signed = await scene.git(dir, "hash-object", "-t", "commit", "-w", join(scene.root, "signed.obj"));
+    await scene.git(dir, "reset", "--soft", signed);
+    // Plain git does run it, so the signed head is a fair trap.
+    await scene.git(dir, "log", "-1", "--format=%H");
+    expect(await program.ran()).toBe(true);
+    await program.reset();
+    await writeFile(join(dir, "a.txt"), "a\n");
+
+    await commitWork(git, dir, message);
+
+    expect(await program.ran()).toBe(false);
+  });
+
+  it("refuses to commit when the worktree's configuration points core.worktree elsewhere, and touches nothing there", async () => {
+    const { scene, dir } = await worktree();
+    const outside = join(scene.root, "outside");
+    await mkdir(outside);
+    await writeFile(join(outside, "stranger.txt"), "not ours\n");
+    await scene.git(dir, "config", "extensions.worktreeConfig", "true");
+    await scene.git(dir, "config", "--worktree", "core.worktree", await realpath(outside));
+    const before = await scene.git(dir, "rev-parse", "HEAD");
+    await writeFile(join(dir, "mine.txt"), "mine\n");
+
+    await expect(commitWork(git, dir, message)).rejects.toThrow("not the task's worktree");
+
+    expect(await scene.git(dir, "rev-parse", "HEAD")).toBe(before);
+    expect(await readdir(outside)).toStrictEqual(["stranger.txt"]);
+  });
+
+  it("pins every command to the worktree, whatever core.worktree says", async () => {
+    const { scene, dir } = await worktree();
+    const outside = join(scene.root, "outside");
+    await mkdir(outside);
+    await writeFile(join(outside, "stranger.txt"), "not ours\n");
+    await scene.git(dir, "config", "extensions.worktreeConfig", "true");
+    await scene.git(dir, "config", "--worktree", "core.worktree", await realpath(outside));
+    await writeFile(join(dir, "mine.txt"), "mine\n");
+    // The check of the top level is told the truth, so that what is left to see is the pin on the rest.
+    const result = await commitWork(toldTopLevel(git), dir, message);
+
+    expect(result.kind).toBe("committed");
+    expect(await scene.git(dir, "ls-tree", "--name-only", "HEAD")).toContain("mine.txt");
+    expect(await scene.git(dir, "ls-tree", "--name-only", "HEAD")).not.toContain("stranger.txt");
+  });
+
+  it("refuses a directory that is no repository at all", async () => {
+    const { scene } = await worktree();
+    const elsewhere = join(scene.root, "not-a-repository");
+    await mkdir(elsewhere);
+
+    await expect(commitWork(git, elsewhere, message)).rejects.toThrow("not the task's worktree");
+  });
+
+  it("fails on any exit code but 1 when asking whether anything is staged", async () => {
+    const { dir } = await worktree();
+    await writeFile(join(dir, "a.txt"), "a\n");
+    await expect(commitWork(failingDiff(git), dir, message)).rejects.toThrow("git diff failed");
   });
 });
 

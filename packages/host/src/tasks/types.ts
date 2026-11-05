@@ -115,7 +115,7 @@ const MergeBlockReason = z.enum([
 type MergeBlockReason = z.infer<typeof MergeBlockReason>;
 
 /** The five ways a node fails (SPEC-0006, "失败"). */
-export const FailureReason = z.enum(["no_done", "crashed", "model_error", "gave_up", "workspace"]);
+export const FailureReason = z.enum(["no_done", "crashed", "model_error", "gave_up", "workspace", "commit"]);
 export type FailureReason = z.infer<typeof FailureReason>;
 
 /** The `node_done` call waiting for the turn to end. */
@@ -154,6 +154,13 @@ export const NodeRun = z.strictObject({
   merging: z.literal(true).optional(),
   /** Whether it was already reminded once to call `node_done`. */
   nudged: z.boolean(),
+  /**
+   * A writing node's `node_done` took effect and its commit is not settled yet: the node stays `running` until
+   * `committed` or `commit_checked` passes it (SPEC-0006, "动作要幂等"). Stays set on a node failed with `commit`.
+   */
+  commitPending: z.literal(true).optional(),
+  /** The contract (or, after it, anything) was handed to the node's pi: the first message is not lost. */
+  contractSent: z.literal(true).optional(),
 });
 export type NodeRun = z.infer<typeof NodeRun>;
 
@@ -263,6 +270,9 @@ export const TaskEvent = z.discriminatedUnion("type", [
   event("workspace_created", { workspaceId: z.string(), baseCommit: z.string() }),
   event("workspace_failed", {}),
   event("committed", { ...run, commit: z.string() }),
+  event("commit_checked", run),
+  event("commit_failed", run),
+  event("contract_sent", run),
   event("merge_started", { node: NodeId }),
   event("merged", { node: NodeId }),
   event("merge_blocked", { node: NodeId, reason: MergeBlockReason }),

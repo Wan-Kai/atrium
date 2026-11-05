@@ -9,7 +9,7 @@
  * agent channel uses.
  */
 const SHELL_TAG =
-  /<(\/?(?:atrium-task|atrium-agent|atrium-subagent|atrium-quoted|(?:event|reply|question)(?=[\s/>]|$)))/giu;
+  /[<＜]([\s\u200B-\u200F\u2060\uFEFF]*\/?[\s\u200B-\u200F\u2060\uFEFF]*(?:atrium-task|atrium-agent|atrium-subagent|atrium-quoted|(?:event|reply|question)(?=[\s/>＞]|$)))/giu;
 
 /**
  * Escapes text that goes inside the contract.

@@ -47,6 +47,16 @@ describe('checkCall: who may call (SPEC-0006, "调用方由宿主认定")', () =
     }
   });
 
+  it("refuses a node that waits for its commit", () => {
+    const task = running();
+    const run = need(task.runs[0]);
+
+    expect(checkCall({ ...task, runs: [{ ...run, commitPending: true }] }, caller, done(true, "ok"))).toStrictEqual({
+      ok: false,
+      code: "task_caller_invalid",
+    });
+  });
+
   it("refuses a voided run, a cancelled task and an ended one", () => {
     const task = running();
     const run = need(task.runs[0]);

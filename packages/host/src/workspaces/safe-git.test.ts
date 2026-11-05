@@ -130,6 +130,12 @@ describe("safeGitOptions", () => {
       "core.hooksPath=/dev/null",
       "-c",
       "core.fsmonitor=false",
+      "-c",
+      "log.showSignature=false",
+      "-c",
+      "merge.verifySignatures=false",
+      "-c",
+      "commit.gpgsign=false",
       ...["lfs", "My.Filter"].flatMap((name) => [
         "-c",
         `filter.${name}.smudge=`,
@@ -150,7 +156,7 @@ describe("safeGitOptions", () => {
     // With several worktrees, `git config --worktree` is an error unless the extension is on.
     await scene.worktree("other");
 
-    await expect(safeGitOptions(git, scene.repo, { rejectIncludes: true })).resolves.toHaveLength(4);
+    await expect(safeGitOptions(git, scene.repo, { rejectIncludes: true })).resolves.toHaveLength(10);
   });
 
   it("fails as git does when the directory is no repository", async () => {

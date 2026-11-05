@@ -178,13 +178,13 @@ pending ──上游全过──▶ running ──node_done 结算通过──�
   - 你亲手停的节点不挡申请改图的节点继续，但任务在 `stopped` 时不起新节点；
   - 暂停期间"重跑这个节点"不生效；
   - 取消任务：`running` 和 `waiting(question)` 的节点立即停下（`stop_node(now)`），节点状态保留原样；
-  - 任务到了 `done` / `cancelled` 或被放弃后，之后的事件一律忽略；唯一例外：`done` 之后照常记 `committed`。最后一个可写节点的 `commit_node` 和任务结束是同一步发出的，它的提交只能在结束之后回来（2026-11-05 用户确认）。
+  - 任务到了 `done` / `cancelled` 或被放弃后，之后的事件一律忽略；没有例外。可写节点的 `node_done` 生效后它还是 `running`，带 `commitPending`，提交落定（`committed` 或 `commit_checked`）才 `passed`，所以最后一个可写节点的提交在任务 `done` 之前（2026-11-05 审查后改：原先 `passed` 与 `commit_node` 同一步发出，提交失败时后继已经起了、任务已经结束）。
 - **human 节点**：
   - 到了就 `waiting`（`waitingFor: "human"`），你点"通过"后 `passed`；
   - 打回时它自己也新开一条 `pending`；
   - 它没有 `failed`。
 
-**失败**有五种（`FailureReason`）：
+**失败**有六种（`FailureReason`）：
 
 | 原因 | 怎么判定 |
 |---|---|
@@ -193,6 +193,7 @@ pending ──上游全过──▶ running ──node_done 结算通过──�
 | `model_error` | pi 的自动重试结束为失败（`auto_retry_end { success: false }`），或回复以错误结束、不再重试 |
 | `gave_up` | 节点的 `node_done({ ok: false, reason })` 结算生效 |
 | `workspace` | 这个节点要用的任务 worktree 建不出来（git 出错、目录占用、配置不安全） |
+| `commit` | 可写节点的 `node_done` 已生效，但宿主在它的 worktree 里 `git add` / `git commit` 失败（残留的 `index.lock`、worktree 的顶层目录不是它自己等）。节点 `failed`、`commitPending` 保持，任务 `stopped`，后继不起、任务不结束。你点"重跑"时只重试这一次提交（同一 attempt、不开新会话）：成功则记 `committed`，节点 `passed`，图照常往下走；再失败仍是 `failed(commit)`（2026-11-05 用户确认）。协议包里没有这个枚举的镜像，T5 做协议时再加 |
 
 #### 任务
 
@@ -248,7 +249,8 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 |---|---|
 | `ensure_workspace` | 任务目录的 `workspace.json` 已记着这个任务建的工作区 → 直接回 `workspace_created`（已知缺口：建完 worktree、还没写 `workspace.json` 时宿主崩溃，会留下一个没人认的 worktree；T9 处理） |
 | `start_node` | 索引里已有 `task: { taskId, node, attempt }` 相同的会话 → 接回它，不新开 |
-| `commit_node` | worktree 的 HEAD 已经是带 `Atrium-Task: <taskId>/<node>/<attempt>` 尾注的提交 → 记下它，不再提交 |
+| `commit_node` | worktree 的 HEAD 已经是带 `Atrium-Task: <taskId>/<node>/<attempt>` 尾注的提交 → 记下它，不再提交。"提交过了没有" 看 `NodeRun.commitPending`：调度器在 `node_settled` 发 `commit_node` 的同一步把它置真，`committed`（有提交）或 `commit_checked`（查过，没有改动要提交）把它清掉并让节点 `passed`，`commit_failed` 让节点 `failed(commit)`、标记保留。`host_restarted` 对每个 `commitPending` 且 `running` 的节点重发 `commit_node`，只提交这一个 run，不会把别的节点的改动记在它名下 |
+| 节点的第一条消息（契约） | `NodeRun.contractSent`：`node_started` 之后、`sessions.prompt(契约)` 返回后记 `contract_sent`。没有这个标记的节点（prompt 抛错后重跑、或宿主恰好死在两者之间）再被叫起来时，发的是契约，不是"接着做" / "宿主重启了"。已知窄缺口：prompt 其实已送达、`contract_sent` 还没写时宿主崩溃，会发第二份契约 |
 | `merge` | MergeInspector 判定分支已合并 → 直接回 `merged` |
 | `lock_workspace` / `unlock_workspace` | `git worktree list --porcelain` 看当前锁的原因 |
 | `progress_line` | 扩展按行的 id 去重 |
@@ -274,7 +276,7 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 - 在跑的兄弟节点收到 `stop_node(after_turn)`，这一轮结束（`agent_settled`）后进 `held`；
 - 任务进 `stopped`，不起新节点，发 `notify`。
 
-你点"重跑这个节点"：失败的节点 `resume_node`（"上次失败的原因：…，接着做"）回到 `running`；任务不再有 `failed`，下一次推进时 `held` 的兄弟节点自动接着跑。
+你点"重跑这个节点"：失败的节点 `resume_node`（"上次失败的原因：…，接着做"）回到 `running`；原因是 `commit` 的（`commitPending` 还在）不 `resume_node`，改发 `commit_node`，只重试提交；任务不再有 `failed`，下一次推进时 `held` 的兄弟节点自动接着跑。
 
 **暂停和恢复**：
 
@@ -338,7 +340,7 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 【不归你做的】后面节点的事，不要提前做：
   - {每个下游节点：名字 · 做什么的第一句}
 【输入】{inputs 里每个节点最新一次 passed 的交接摘要}
-{第一个 work 节点、worktree 刚建：【环境】这是新建的 worktree，还没有装依赖，先按项目说明装好。}
+{第一个 work 节点、worktree 刚建（"这个 worktree 里还没有任何 work 节点起过会话"，explore 节点先跑过不影响；单个 work 节点的第二次 attempt 不再有）：【环境】这是新建的 worktree，还没有装依赖，先按项目说明装好。}
 {被打回（attempt > 1）：
 【上次被打回的原因】{原因}（来自 {节点}）
 【你上一次的交接摘要】{这个节点上一个 attempt 的摘要}，当时结束在提交 {commit}；worktree 里保留着那次的改动。}
@@ -362,7 +364,7 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 
    作废后要在这一轮结束前重新调用 `node_done`；没有的话按 `no_done` 处理。
 4. 这一轮正常结束（`agent_settled`）时，最后一个待结算的 `node_done` 生效：
-   - 可写节点：worktree 相对这个节点开始时有改动 → `commit_node`；没改动不提交。提交信息是 `"<任务名> · <节点名>：<摘要第一句>"`，加尾注 `Atrium-Task: <taskId>/<node>/<attempt>`，用 `git add -A`，不推送。
+   - 可写节点：发 `commit_node`，节点此时仍是 `running`（`commitPending`），提交落定才 `passed`（见"动作要幂等"）；宿主先停掉它的 pi 再提交，这时它再调 `node_done` 一律 `task_caller_invalid`；没改动不提交。提交信息是 `"<任务名> · <节点名>：<摘要第一句>"`，加尾注 `Atrium-Task: <taskId>/<node>/<attempt>`，用 `git add -A`，不推送。
    - 停掉 pi（"做完一轮就停 pi"）；
    - 事件 `node_done` → `step`。
 
@@ -401,7 +403,9 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 **`bash`**（T4 做；T2 只做了 `edit` / `write`）：pi 的 bash 工作目录就是会话目录。命令文本里出现以下任一项、且指向工作目录之外，就拦下：
 
 - `git -C <路径>`、`--git-dir`、`--work-tree`；
-- `GIT_DIR=`、`GIT_WORK_TREE=`。
+- `GIT_DIR=`、`GIT_WORK_TREE=`；
+- 改 git 的工作树：`git config core.worktree`、`extensions.worktreeConfig`、`-c core.worktree=…`、`--config-env=core.worktree=…`、`GIT_CONFIG_KEY_n=core.worktree`、`GIT_CONFIG_PARAMETERS`，以及 `git config` 的 `--file` / `-f` 指向工作目录之外、`--global` / `--system` / `--blob`（2026-11-05 审查后补）；
+- 看不准就拦：`$'…'`、`$"…"`、`${X:-…}` 这类参数展开、`$@`、`$1`；`builtin cd`、`command cd`、`if cd …; then git …`、`{ cd …; git …; }`、`false && cd …` 这类 `cd` 要么算作 `cd`、要么算作"可能没发生"，git 在任何一个可能的目录里越界都拦；`( … )`、`$( … )` 里的 `cd` 不带出来；读标准输入的 shell（`bash <<< '…'`、`echo '…' | sh`、`sh -s`、不带脚本的 `bash`）一律拦，带脚本文件或 `-c` 文本的照旧（文件内容看不见，见 security.md）。
 
 **拦不住的**：`cp`、`>` 重定向、脚本里的写入。不假装能拦，在 security.md 里写明。只读角色本来就没有 `edit` / `write`，钩子只查 git 的那一条。
 
@@ -453,7 +457,9 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 
 - 理由：agent 能在共享的 `.git/hooks` 里放钩子，宿主执行它就等于替它越权；
 - 代价：项目自己的提交钩子（如 lefthook）在宿主的提交上不跑。验证本来就是 `check` 节点的事，接受这个代价；
-- 还没关掉：`merge.<名字>.driver`、`diff.<名字>.textconv` 这类也会执行命令，T5 做合并时评估。
+- 2026-11-05 审查后补：宿主自己的 git 还带 `log.showSignature=false`、`merge.verifySignatures=false`、`commit.gpgsign=false`（不跑仓库配置的 `gpg.program`）；`git diff --cached --quiet` 带 `--no-ext-diff --no-textconv`（不跑 `diff.external`、`diff.<名字>.textconv`；`-c diff.external=` 清不掉，git 会报"cannot run"）；只有退出码 1 算"有暂存"，其余非零都是出错；
+- 提交的每条 git 命令都带 `--work-tree=<节点 worktree>`，并先查 `git rev-parse --show-toplevel`（不带 pin）是否就是这个目录，不是就拒绝（节点可以用 `extensions.worktreeConfig` + `core.worktree` 把 git 引去别处）；
+- 还没关掉：`merge.<名字>.driver` 这类合并时会执行命令的配置，T5 做合并时评估。
 
 #### 加锁
 
@@ -505,7 +511,7 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 - GraphValidator 的校验（不通过，工具返回带原因的错误，agent 自己改）：
   - **结构**：
     - 顺序边无环；打回边只能从 human 节点指向它的上游；
-    - 节点 id 唯一；
+    - 节点 id 唯一，且只含 ASCII 字母、数字、`_`、`-`，首字符是字母或数字，最长 32（`bad_node_id`）：id 会进契约、会话名和提交尾注，带标签或换行的 id 能冒充宿主的话（契约里所有写 id 的地方另外也都转义）；
     - 至少一个没有入边的节点，至少一个没有出边的节点；
     - 节点数上限 20（防止生成失控）。
   - **字段**：
@@ -596,9 +602,10 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
    - **`waiting`（`question`）**：问题按 SPEC-0003 作废，节点 `resume_node`："刚才的问题作废了，需要的话再问"。
    - **`waiting`（`graph_change`）**：保持等待。`pendingGraph` 已有就继续等你批准；还没有（任务对话的 agent 没来得及出图）→ 再 `wake_task_conversation` 一次。
    - **`waiting`（`human` / `merge_blocked`）**：不动。
+   - **`running` 且 `commitPending`**：不 `resume_node`，重发 `commit_node`（只这一个 run；认出已做的提交见"动作要幂等"）。
    - **`held`**：任务不在 `stopped` 时，推进里自动恢复；**`stopped`**：不动。
    - **`merging: true` 的节点**：按"动作要幂等"先查分支有没有合并，再决定 `merged` 还是回到 `merge_blocked`。
-3. 解掉已结束任务留下的锁（"加锁"）。
+3. 解掉已结束任务留下的锁（"加锁"）：已 `done` 的任务，TaskRunner 在 `recover` 里再 `unlock_workspace` 一次（幂等）。
 4. 每个任务 `step` 一次。
 
 ## 接口与数据
@@ -671,12 +678,14 @@ type NodeRun = {
   startCommit: string | null;       // 节点开始时 worktree 的 HEAD（判断它有没有改动）
   pendingDone: { ok: boolean; summary?: string; reason?: string } | null;  // 待结算的 node_done
   summary: string | null;           // 交接摘要
-  failure: FailureReason | null;    // no_done | crashed | model_error | gave_up | workspace
+  failure: FailureReason | null;    // no_done | crashed | model_error | gave_up | workspace | commit
   commit: string | null;            // 结束时的提交（可写节点有改动时）
   backFrom?: { node: NodeId; reason: string };     // 被打回时的来源和原因
   void?: true;                      // 改图后作废（human 节点多了上游）
   merging?: true;
   nudged: boolean;                  // 是否已经提醒过一次"还没调用 node_done"
+  commitPending?: true;             // node_done 生效、提交还没落定（committed / commit_checked 清掉；commit 失败时保留）
+  contractSent?: true;              // 契约已交给节点的 pi
 };
 ```
 
@@ -690,7 +699,7 @@ type NodeRun = {
 - `human_passed` / `human_sent_back`
 - `rerun_requested` / `paused` / `resumed` / `cancelled`
 - `workspace_creating` / `workspace_created` / `workspace_failed`
-- `committed` / `merge_started` / `merged` / `merge_blocked`
+- `committed` / `commit_checked` / `commit_failed` / `contract_sent` / `merge_started` / `merged` / `merge_blocked`
 - `archive_asked` / `archive_answered`
 - `host_restarted`
 
@@ -743,7 +752,15 @@ type ScheduleRule = {
 - **T4b 定下的细节**（2026-11-05，宿主侧，代码在 `packages/host/src/tasks/`）：
   - 只提交 `role = work` 的节点；`check` 等节点留下的改动不提交，由后面 work 节点的 `git add -A` 一起带走；
   - "没改动不提交"按 `git add -A` 之后暂存区是否为空判断；节点自己提交过、树是干净的 → 不提交，也不发 `committed`；
-  - `stop_node(after_turn)` 时 pi 恰好空闲（包括第一轮还没开始）→ 立即 `node_held`；被要求 hold 的节点这一轮里 `node_done` 已生效 → 照常通过，不进 `held`；
+  - `stop_node(after_turn)` 时 pi 恰好空闲 → 立即 `node_held`；但宿主刚发出 prompt / nudge / resume、`agent_start` 还没到的 15 秒内算"还没开始的一轮"，要等这一轮；被要求 hold 的节点这一轮里 `node_done` 已生效 → 照常通过，不进 `held`（调度器也忽略带着待结算 `node_done` 的 `node_held`）；
+  - 判定（judge）和 `stop_node` 读状态都在任务队列里，按到达顺序；调用方校验、记 `node_done_pending`、judge 记账是同一个队列步骤，所以"回答问题后立刻 `node_done`"不会读到过时状态；扩展撤回（`note`）的调用不记；
+  - 同一批里 `node_done` 之后又 `request_graph_change`：`node_done` 作废（`node_done_void`），改图申请生效；待结算的 `node_done` 在节点停下后继续、被放行（`held`→`running`）、新一次 pi 启动时都清掉；
+  - 你停下的节点（`stopped`）在它的对话里又开始一次运行（发消息 / "继续"）→ 先记 `node_resumed` 再接受它的调用；
+  - pi 在一轮中间崩溃、被会话控制器成功重启：控制器只会重发用户的消息，不会重发宿主的契约 / nudge / resume，新 pi 会空转。宿主看到新一次 pi 启动时那一轮还在走（或刚发出）且不是宿主自己停的，就作废这一轮的 `node_done`，再给节点发"宿主重启了"那条 `resume`（契约没送到过就发契约）；
+  - `crashed` 的去重按次：重跑、放行或 pi 重新启动、控制状态里的失败消失后，下一次失败会再报；
+  - 关宿主时先取消在途的会话请求（`prompt` / `command` 带 `AbortSignal`）再等队列排空；结束了的任务的节点上下文随任务释放；
+  - 带 `task` 字段的会话（节点、任务对话）绝不用 agent 的启动参数（全工具、无隔离）：没有角色的节点、还没有启动路径的任务对话，启动时直接报错；
+  - 任务 worktree 的标记 `workspace.json` 指向的工作区没有 base commit 时报错，不再另建一个；`createFrom` 带取消信号，已取消就不建、也不记 `workspace_created`；
   - `crashed` = 会话起不来，或控制器重启 3 次都失败（沿用 SPEC-0001）；`model_error` = pi 不再重试的出错，重试成功不算；
   - 批准改图后的 `resume` 文字只带新图和新的"不归你做的"，不重发本节点的"做什么 / 怎样算完成"；
   - 契约的"任务目标"只放目标和已定结论；节点名和"做什么"只转义，需求摘要、交接摘要、打回原因才包 `<atrium-quoted>`；

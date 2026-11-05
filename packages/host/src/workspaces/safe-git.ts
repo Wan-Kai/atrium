@@ -104,6 +104,8 @@ function filtersOf(names: ConfigNames): { readonly filters: string[]; readonly u
  * and `.git/hooks`, and git runs hooks, an fsmonitor and filters on checkout, commit and merge,
  * so the host would be running what the agent put there:
  * - `core.hooksPath` points where there are no hooks, `core.fsmonitor` is off;
+ * - `log.showSignature`, `merge.verifySignatures` and `commit.gpgsign` are off, so git never runs the
+ *   repository's `gpg.program` to check or make a signature;
  * - every filter configured anywhere git reads (the repository's, the user's, the system's)
  *   has `smudge`, `clean` and `process` emptied and `required` off, so files that go through
  *   git-lfs stay pointers and nothing runs. A filter named only in `.gitattributes` has no
@@ -138,6 +140,13 @@ export async function safeGitOptions(
     `core.hooksPath=${NO_HOOKS_PATH}`,
     "-c",
     "core.fsmonitor=false",
+    // A signature is checked by running the repository's `gpg.program`; nothing the host runs may do that.
+    "-c",
+    "log.showSignature=false",
+    "-c",
+    "merge.verifySignatures=false",
+    "-c",
+    "commit.gpgsign=false",
     ...filters.flatMap((filter) => [
       "-c",
       `filter.${filter}.smudge=`,

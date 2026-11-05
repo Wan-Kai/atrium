@@ -50,8 +50,8 @@
   },
   {
     "file": "packages/host/src/tasks/channel.ts",
-    "from": "run.state !== \"running\"\n",
-    "to": "false\n",
+    "from": "run.state !== \"running\" ||\n",
+    "to": "false ||\n",
     "test": "packages/host/src/tasks/channel.test.ts",
     "name": "refuses when the node is not running"
   },
@@ -106,7 +106,7 @@
   },
   {
     "file": "packages/host/src/tasks/contract.ts",
-    "from": "你在任务「${escapeShell(task.name)}」里负责节点 ${node.id} · ${escapeShell(node.name)}。",
+    "from": "你在任务「${escapeShell(task.name)}」里负责节点 ${escapeShell(node.id)} · ${escapeShell(node.name)}。",
     "to": "你在任务「${task.name}」里负责节点 ${node.id} · ${node.name}。",
     "test": "packages/host/src/tasks/contract.test.ts",
     "name": "escapes names and jobs"
@@ -126,16 +126,16 @@
     "name": "makes no commit when nothing changed"
   },
   {
-    "file": "packages/host/src/tasks/commit.ts",
-    "from": "      \"commit.gpgsign=false\",\n",
-    "to": "      \"commit.gpgsign=true\",\n",
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "    \"commit.gpgsign=false\",\n",
+    "to": "    \"commit.gpgsign=true\",\n",
     "test": "packages/host/src/tasks/commit.test.ts",
     "name": "never signs"
   },
   {
     "file": "packages/host/src/tasks/commit.ts",
-    "from": "const staged = await runSafeGit(git, [\"diff\", \"--cached\", \"--quiet\"], { cwd, timeoutMs }, guard);",
-    "to": "const staged = await git.run([\"diff\", \"--cached\", \"--quiet\"], { cwd, timeoutMs });",
+    "from": "const staged = await runSafeGit(\n    git,\n",
+    "to": "const staged = await ((g, a, o) => g.run(a, o))(\n    git,\n",
     "test": "packages/host/src/tasks/commit.test.ts",
     "name": "runs none of the repository"
   },
@@ -218,9 +218,9 @@
     "project": "host"
   },
   {
-    "file": "packages/host/src/tasks/runner.ts",
-    "from": "else if (run.state === \"passed\" && run.commit === null && run.void !== true) {",
-    "to": "else if (run.state === \"never\") {",
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (run.state === \"running\" && run.commitPending === true) {\n      // Its commit",
+    "to": "if (false) {\n      // Its commit",
     "test": "packages/host/src/tasks/node-run.host.test.ts",
     "name": "finds the commit again",
     "project": "host"
@@ -243,8 +243,8 @@
   },
   {
     "file": "packages/host/src/sessions/session-manager.ts",
-    "from": "...(taskLaunchFlags(catalogued.find((entry) => entry.sessionId === sessionId)) ??\n              agentLaunchFlags(catalogued, sessionId)),",
-    "to": "...agentLaunchFlags(catalogued, sessionId),",
+    "from": "...sessionLaunchFlags(catalogued, sessionId)",
+    "to": "...toolFlags(catalogued, sessionId)",
     "test": "packages/host/src/tasks/node-run.host.test.ts",
     "name": "gives each node its own tools",
     "project": "host"

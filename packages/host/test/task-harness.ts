@@ -102,6 +102,8 @@ export interface TaskHost {
   readonly home: string;
   /** Lets a faux reply scripted with `waitFor: name` go on. */
   release(name: string): Promise<void>;
+  /** The process id of the pi that last started, which a test can kill. */
+  pid(): Promise<number>;
   /** The directory of the task's worktree. */
   worktree(taskId: string): Promise<string>;
   /** Stops the host and starts another on the same files, after `edit` changed them; the tasks are not taken up. */
@@ -192,6 +194,7 @@ export async function startTaskHost(conversations: Readonly<Record<string, reado
     repo,
     home: home.path,
     release: (name) => launch.release(name),
+    pid: () => launch.pid(),
     contexts: () => launch.contexts(),
     async start(nodes, edges, extra = {}) {
       counter += 1;

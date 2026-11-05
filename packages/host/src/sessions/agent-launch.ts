@@ -167,3 +167,24 @@ export function taskLaunchFlags(entry: LaunchEntry | undefined): string[] | null
   }
   return [flag, "--tools", [...READ_ONLY_TOOLS, ...NODE_TOOLS, ASK_USER_TOOL].join(",")];
 }
+
+/**
+ * pi's flags for a session of any kind: a node's, or else an agent's.
+ *
+ * @remarks
+ * A session with a `task` field never gets the agent's flags (all tools, no isolation): a node without a role,
+ * or a task conversation, which has no launch path yet, is refused instead (SPEC-0006, "一个 agent 节点怎么跑 · 起").
+ *
+ * @sideEffects none
+ * @param entries - The catalogued sessions.
+ * @param sessionId - The session.
+ * @returns The flags.
+ * @throws {Error} When the session belongs to a task but has no launch path of its own.
+ */
+export function sessionLaunchFlags(entries: readonly LaunchEntry[], sessionId: string): string[] {
+  const entry = entries.find((candidate) => candidate.sessionId === sessionId);
+  const flags = taskLaunchFlags(entry);
+  if (flags !== null) return flags;
+  if (entry?.task != null) throw new Error("a task session without a launch path of its own");
+  return agentLaunchFlags(entries, sessionId);
+}

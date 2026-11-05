@@ -59,7 +59,7 @@ function invalid(field: string): CallVerdict {
  *
  * @remarks
  * SPEC-0006, "扩展与通道" and "结束" 1. The caller is the session the request came from, found by the pi
- * process; only the latest run of the node, with this session, while the node is `running`, may call
+ * process; only the latest run of the node, with this session, while the node is `running` and not waiting for its commit, may call
  * (`task_caller_invalid`). Then the arguments: `node_done({ ok: true })` needs a summary and
  * `node_done({ ok: false })` a reason; `request_graph_change` needs both fields (`task_args_invalid`, with
  * `params.field`). A task that is gone is `task_not_found`.
@@ -80,7 +80,8 @@ export function checkCall(task: Task | undefined, caller: Caller, call: TaskCall
     run.void === true ||
     run.sessionId !== caller.sessionId ||
     run.attempt !== caller.attempt ||
-    run.state !== "running"
+    run.state !== "running" ||
+    run.commitPending === true
   ) {
     return { ok: false, code: "task_caller_invalid" };
   }

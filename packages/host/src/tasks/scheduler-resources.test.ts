@@ -110,7 +110,10 @@ describe("step: a work node has its worktree to itself", () => {
   it("runs two ready work nodes one after the other", () => {
     const sim = started(new Sim(newTask([agent("N1", "work"), agent("N2", "work")], [], { workspaceState: "ready" })));
     expect(sim.states()).toBe("N1=running N2=pending");
-    expect(kinds(finish(sim, "N1") as never)).toStrictEqual(["commit_node:N1", "start_node:N2"]);
+    expect(kinds(finish(sim, "N1") as never)).toStrictEqual(["commit_node:N1"]);
+    expect(kinds(sim.send({ type: "commit_checked", node: "N1", attempt: 1 }) as never)).toStrictEqual([
+      "start_node:N2",
+    ]);
   });
 
   it("keeps a check node out while a work node runs, and lets two check nodes run together", () => {
@@ -120,8 +123,9 @@ describe("step: a work node has its worktree to itself", () => {
       ),
     );
     expect(sim.states()).toBe("N1=running N2=pending N3=pending");
-    const next = finish(sim, "N1");
-    expect(kinds(next as never)).toStrictEqual(["commit_node:N1", "start_node:N2", "start_node:N3"]);
+    expect(kinds(finish(sim, "N1") as never)).toStrictEqual(["commit_node:N1"]);
+    const next = sim.send({ type: "commit_checked", node: "N1", attempt: 1 });
+    expect(kinds(next as never)).toStrictEqual(["start_node:N2", "start_node:N3"]);
   });
 
   it("keeps a work node out while another node runs or waits in the worktree", () => {

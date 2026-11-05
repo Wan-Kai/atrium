@@ -40,10 +40,16 @@ export interface TaskSessions {
   recordOf(sessionId: string): TaskSessionRecord | undefined;
   /** Starts the session's pi if it has none. */
   open(sessionId: string): Promise<void>;
-  /** Sends a message to the model; resolves once pi has taken it. */
-  prompt(sessionId: string, text: string): Promise<void>;
-  /** Sends one of Atrium's hidden commands, which pi runs at once (ADR-0013, point 2). */
-  command(sessionId: string, text: string): Promise<void>;
+  /**
+   * Sends a message to the model; resolves once pi has taken it.
+   *
+   * @remarks
+   * It has no deadline of its own (pi may be checking the model first), so the caller's `signal` is how a
+   * host that is closing gets out of a pi that never answers.
+   */
+  prompt(sessionId: string, text: string, signal?: AbortSignal): Promise<void>;
+  /** Sends one of Atrium's hidden commands, which pi runs at once (ADR-0013, point 2); see `prompt` for `signal`. */
+  command(sessionId: string, text: string, signal?: AbortSignal): Promise<void>;
   /** Whether the session has a pi that runs. */
   alive(sessionId: string): boolean;
   /** Stops the session's pi and lets go of what the host keeps for it; the record stays. */

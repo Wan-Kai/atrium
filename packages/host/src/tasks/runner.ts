@@ -1,14 +1,15 @@
-import { type ResumeKind, readTaskRequest, taskCommandText } from "@atrium/pi";
+import { type PiEvent, type ResumeKind, readTaskRequest, taskCommandText } from "@atrium/pi";
 import type { Clock } from "../platform/clock";
 import type { GitRunner } from "../platform/git";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
+import type { SessionEvent } from "@atrium/protocol";
 import type { TaskSessionSignal, TaskSessions } from "../sessions/task-sessions";
 import { type Caller, checkCall, replyText } from "./channel";
 import { commitSubject, commitWork, trailerValue } from "./commit";
 import { buildContract, graphChangedText } from "./contract";
 import { activeGraphOf, liveRun, placeOf, runAt } from "./graph";
-import { JUDGE_START, type JudgeState, type Ending, judge } from "./judge";
+import { type Ending, JUDGE_START, type JudgeState, judge } from "./judge";
 import type { TaskWorkspaces } from "./node-ports";
 import { RESUME_GRAPH_APPROVED, RESUME_GRAPH_REJECTED, RESUME_RESTARTED } from "./texts";
 import type { TaskStore } from "./task-store";
@@ -76,9 +77,19 @@ interface NodeContext extends Caller {
   readonly cancelled: Set<string>;
   /** What the node gave as the reason of the graph change it asked for. */
   graphRequest: { readonly reason: string; readonly suggestion: string } | null;
-  /** The crash was already reported. */
+  /** The crash was already reported; forgotten when the node goes on or its pi starts again. */
   crashed: boolean;
+  /** When the host sent pi something that begins a turn, until the turn is seen to begin. */
+  startingAt: number | null;
+  /** The host starts this pi itself, so the first new epoch it sees is expected, not a crash and a restart. */
+  ownStart: boolean;
 }
+
+/** How long a turn the host asked for may take to begin before a node is taken to be idle. */
+const STARTING_MS = 15_000;
+
+/** The pi events the judge reads. */
+const JUDGED = new Set(["agent_start", "turn_start", "auto_retry_end", "agent_end", "agent_settled"]);
 
 /** One task the runner looks after. */
 interface TaskEntry {
@@ -133,6 +144,30 @@ function eventOf(ending: Ending, context: NodeContext): TaskEventInput | null {
     default:
       return null;
   }
+}
+
+/**
+ * Whether a node's worktree is new: it is the first writing node to have a session in it.
+ *
+ * @remarks
+ * SPEC-0006, "第一条消息：契约": "no work node has had a session in this worktree yet", so a work node after an
+ * `explore` still gets the line, and a single work node's second attempt does not.
+ *
+ * @sideEffects none
+ * @param task - The task.
+ * @param node - The node.
+ * @param run - Its run.
+ * @returns Whether to tell the node the worktree has no dependencies yet.
+ */
+function freshWorktreeFor(task: Task, node: GraphNode, run: NodeRun): boolean {
+  if (node.role !== "work" || !task.ownsWorkspace) return false;
+  const known = task.graphs.flatMap((graph) => graph.nodes);
+  return !task.runs.some(
+    (other) =>
+      !(other.node === run.node && other.attempt === run.attempt) &&
+      other.sessionId !== null &&
+      known.find((candidate) => candidate.id === other.node)?.role === "work",
+  );
 }
 
 /**
@@ -207,9 +242,26 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       cancelled: new Set(),
       graphRequest: null,
       crashed: false,
+      startingAt: null,
+      ownStart: false,
     };
     contexts.set(sessionId, made);
     return made;
+  }
+
+  /**
+   * Notes that the host has just asked pi for a turn.
+   *
+   * @remarks
+   * Until `agent_start` the judge sees an idle pi; a stop after the turn asked for in that window must wait
+   * for the turn, not cut it (the node is `starting`).
+   *
+   * @sideEffects Resets the judge.
+   * @param context - The node's session.
+   */
+  function expectTurn(context: NodeContext): void {
+    context.judge = JUDGE_START;
+    context.startingAt = options.clock.now();
   }
 
   /**
@@ -247,7 +299,8 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
         run.state === "passed" ||
         run.state === "failed" ||
         run.state === "held" ||
-        (run.state === "waiting" && run.waitingFor === "graph_change");
+        (run.state === "waiting" && run.waitingFor === "graph_change") ||
+        (run.state === "running" && run.commitPending === true);
       if (over && sessions.alive(run.sessionId)) {
         const context = contexts.get(run.sessionId);
         if (context !== undefined) context.killed = true;
@@ -329,6 +382,10 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       }
     }
     await stopFinished(recorded.task);
+    // Stryker disable next-line all: only frees memory; a session of an ended task is let go of, and its late signals are dropped.
+    if (recorded.task.endedAt !== null) {
+      for (const run of recorded.task.runs) if (run.sessionId !== null) contexts.delete(run.sessionId);
+    }
     for (const action of recorded.actions) {
       if (closing.signal.aborted) break;
       await execute(entry, action, recorded.event.seq);
@@ -388,6 +445,8 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
     if (task === null) return;
     try {
       const made = await workspaces.ensure(task, closing.signal);
+      // A host that is closing leaves the worktree it made for the next start to find (`workspace.json`).
+      if (closing.signal.aborted) return;
       await dispatch(entry, { type: "workspace_created", ...made });
     } catch (error) {
       if (closing.signal.aborted) return;
@@ -434,14 +493,41 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
   }
 
   /**
+   * Hands a node its contract as the first message, and records that it went.
+   *
+   * @remarks
+   * SPEC-0006, "动作要幂等": `node_started` is recorded before this, so a node whose prompt failed, or whose host
+   * died in between, has a session and no `contract_sent`; whatever would be sent it next is this instead.
+   *
+   * @sideEffects Sends the prompt; records `contract_sent`.
+   * @param entry - The task.
+   * @param nodeId - The node.
+   * @throws {Error} When pi does not take the prompt.
+   */
+  async function deliverContract(entry: TaskEntry, nodeId: NodeId): Promise<void> {
+    const task = entry.store.current();
+    const node = task === null ? undefined : activeGraphOf(task)?.nodes.find((candidate) => candidate.id === nodeId);
+    const run = task === null ? undefined : liveRun(task, nodeId);
+    if (task === null || node === undefined || run?.sessionId == null) return;
+    const context = contextOf(run.sessionId);
+    if (context !== undefined) expectTurn(context);
+    await sessions.prompt(
+      run.sessionId,
+      buildContract({ task, node, run, freshWorktree: freshWorktreeFor(task, node, run) }),
+      closing.signal,
+    );
+    await dispatch(entry, { type: "contract_sent", node: nodeId, attempt: run.attempt });
+  }
+
+  /**
    * Starts a node: its session, the event that records it, and the contract as the first message.
    *
    * @remarks
    * SPEC-0006, "一个 agent 节点怎么跑" and "动作要幂等": a session recorded for this node and attempt is taken
-   * back, not made again; the contract goes out only if the run had no session yet. Failing to start is
+   * back, not made again; the contract goes out unless `contract_sent` says it did. Failing to start is
    * `node_failed(crashed)`.
    *
-   * @sideEffects Starts pi; sends the contract; records `node_started`.
+   * @sideEffects Starts pi; sends the contract; records `node_started` and `contract_sent`.
    * @param entry - The task.
    * @param nodeId - The node.
    * @param attempt - The attempt.
@@ -480,7 +566,8 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
         sessionId = existing;
         await sessions.open(sessionId);
       }
-      contextOf(sessionId);
+      const context = contextOf(sessionId);
+      if (context !== undefined) context.ownStart = true;
       await dispatch(entry, {
         type: "node_started",
         node: nodeId,
@@ -488,14 +575,48 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
         sessionId,
         startCommit: await headOf(cwd),
       });
-      const fresh =
-        node.role === "work" &&
-        task.ownsWorkspace &&
-        !task.runs.some((other) => other.node !== nodeId && other.sessionId !== null);
-      await sessions.prompt(sessionId, buildContract({ task, node, run, freshWorktree: fresh }));
+      await deliverContract(entry, nodeId);
     } catch (error) {
       await sessionFailed(entry, run, error);
     }
+  }
+
+  /**
+   * Tells a node that has a session to go on: the contract if it never got it, else a line.
+   *
+   * @remarks
+   * The hidden command `resume`, whose shell the extension puts around the words. After an approved graph
+   * change the words carry the new graph. A node that never received its contract is sent the contract
+   * instead: carrying on is a line about something it has not seen.
+   *
+   * @sideEffects Sends a prompt or the command.
+   * @param entry - The task.
+   * @param nodeId - The node.
+   * @param text - What the scheduler says.
+   * @param id - The command's id, which stays the same when the same reason sends it again.
+   * @throws {Error} When pi does not take it.
+   */
+  async function sendBack(entry: TaskEntry, nodeId: NodeId, text: string, id: string): Promise<void> {
+    const task = entry.store.current();
+    const run = task === null ? undefined : liveRun(task, nodeId);
+    if (task === null || run?.sessionId == null) return;
+    if (run.contractSent !== true) {
+      await deliverContract(entry, nodeId);
+      return;
+    }
+    const context = contextOf(run.sessionId);
+    if (context !== undefined) expectTurn(context);
+    const kind = resumeKind(text);
+    await sessions.command(
+      run.sessionId,
+      taskCommandText("resume", {
+        v: 1,
+        id,
+        kind,
+        text: kind === "graph_changed" ? graphChangedText(task, nodeId) : text,
+      }),
+      closing.signal,
+    );
   }
 
   /**
@@ -503,8 +624,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
    *
    * @remarks
    * SPEC-0006, "调度器" (rerun, held, graph change, restart): the same session goes on, its pi started again
-   * if it was stopped, and told through the hidden command `resume`; the extension puts its own shell around
-   * the words. After an approved graph change the words carry the new graph. Its judge starts afresh.
+   * if it was stopped. Its judge starts afresh.
    *
    * @sideEffects Starts pi; sends the command.
    * @param entry - The task.
@@ -515,27 +635,21 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
   async function resumeNode(entry: TaskEntry, nodeId: NodeId, text: string, seq: number): Promise<void> {
     const task = entry.store.current();
     const run = task === null ? undefined : liveRun(task, nodeId);
-    if (task === null || run?.sessionId === null || run === undefined) return;
+    if (task === null || run?.sessionId == null) return;
     const { sessionId } = run;
     try {
-      await sessions.open(sessionId);
       const context = contextOf(sessionId);
       if (context !== undefined) {
         context.judge = JUDGE_START;
         context.hold = false;
         context.killed = false;
         context.graphRequest = null;
+        context.crashed = false;
+        context.startingAt = null;
+        context.ownStart = true;
       }
-      const kind = resumeKind(text);
-      await sessions.command(
-        sessionId,
-        taskCommandText("resume", {
-          v: 1,
-          id: `r${String(seq)}.${nodeId}`,
-          kind,
-          text: kind === "graph_changed" ? graphChangedText(task, nodeId) : text,
-        }),
-      );
+      await sessions.open(sessionId);
+      await sendBack(entry, nodeId, text, `r${String(seq)}.${nodeId}`);
     } catch (error) {
       await sessionFailed(entry, run, error);
     }
@@ -546,7 +660,9 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
    *
    * @remarks
    * SPEC-0006, "调度器": `now` ends its pi at once; `after_turn` lets the turn finish and holds the node then
-   * (`node_held`, sent when the turn ends with nothing that stands), or at once if no turn is going.
+   * (`node_held`, sent when the turn ends with nothing that stands), or at once if no turn is going and none
+   * is about to begin. Runs inside the task's queue, like the judge's steps, so it never reads a judge state
+   * that a turn already settled in the queue ahead of it would change.
    *
    * @sideEffects Stops pi; may record `node_held`.
    * @param entry - The task.
@@ -556,7 +672,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
   async function stopNode(entry: TaskEntry, nodeId: NodeId, when: "now" | "after_turn"): Promise<void> {
     const task = entry.store.current();
     const run = task === null ? undefined : liveRun(task, nodeId);
-    if (run?.sessionId === null || run === undefined) return;
+    if (run?.sessionId == null) return;
     const context = contextOf(run.sessionId);
     if (context === undefined) return;
     if (when === "now") {
@@ -565,7 +681,8 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       return;
     }
     context.hold = true;
-    if (!context.judge.running) {
+    const starting = context.startingAt !== null && options.clock.now() - context.startingAt < STARTING_MS;
+    if (!context.judge.running && context.judge.pending === null && !starting) {
       context.hold = false;
       await dispatch(entry, { type: "node_held", node: nodeId, attempt: run.attempt });
     }
@@ -586,25 +703,30 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
   async function nudgeNode(entry: TaskEntry, nodeId: NodeId, seq: number): Promise<void> {
     const task = entry.store.current();
     const run = task === null ? undefined : liveRun(task, nodeId);
-    if (run?.sessionId === null || run === undefined) return;
+    if (run?.sessionId == null) return;
     const context = contextOf(run.sessionId);
-    if (context !== undefined) context.judge = JUDGE_START;
+    if (context !== undefined) expectTurn(context);
     try {
-      await sessions.command(run.sessionId, taskCommandText("nudge", { v: 1, id: `n${String(seq)}.${nodeId}` }));
+      await sessions.command(
+        run.sessionId,
+        taskCommandText("nudge", { v: 1, id: `n${String(seq)}.${nodeId}` }),
+        closing.signal,
+      );
     } catch (error) {
       await sessionFailed(entry, run, error);
     }
   }
 
   /**
-   * Commits what a writing node changed.
+   * Commits what a writing node changed, and settles the node's commit.
    *
    * @remarks
-   * SPEC-0006, "结束" 4: `git add -A` and a commit with the trailer in the node's worktree; nothing changed,
-   * nothing committed and no `committed` event. A commit that fails is logged and leaves the node passed with
-   * its changes uncommitted in the worktree.
+   * SPEC-0006, "结束" 4 and "动作要幂等": `git add -A` and a commit with the trailer in the node's worktree.
+   * Committed is `committed`; nothing changed is `commit_checked` (so "nothing to commit" is told from "not
+   * done yet"); git failing is `commit_failed`, which fails the node with `commit` (a rerun retries just this).
+   * Only the one run the action names is committed.
    *
-   * @sideEffects Runs git; records `committed`.
+   * @sideEffects Runs git; records `committed`, `commit_checked` or `commit_failed`.
    * @param entry - The task.
    * @param nodeId - The node.
    * @param attempt - The attempt.
@@ -613,18 +735,25 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
     const task = entry.store.current();
     const run = task === null ? undefined : runAt(task, nodeId, attempt);
     const node = task === null ? undefined : activeGraphOf(task)?.nodes.find((candidate) => candidate.id === nodeId);
-    const dir = task?.workspaceId == null ? undefined : workspaces.dirOf(task.workspaceId);
-    if (task === null || run === undefined || node === undefined || dir === undefined) return;
+    if (task === null || run?.commitPending !== true || node === undefined) return;
+    const ref = { node: nodeId, attempt };
     try {
+      const dir = task.workspaceId === null ? undefined : workspaces.dirOf(task.workspaceId);
+      if (dir === undefined) throw new Error("the task has no worktree");
       const result = await commitWork(await gitOf(), dir, {
         subject: commitSubject(task.name, node.name, run.summary ?? ""),
         trailer: trailerValue(task.id, nodeId, attempt),
       });
-      if (result.kind === "committed") {
-        await dispatch(entry, { type: "committed", node: nodeId, attempt, commit: result.commit });
-      }
+      await dispatch(
+        entry,
+        result.kind === "committed"
+          ? { type: "committed", ...ref, commit: result.commit }
+          : { type: "commit_checked", ...ref },
+      );
     } catch (error) {
+      if (closing.signal.aborted) return;
       logger.error({ err: error instanceof Error ? error.name : "unknown" }, "task node commit failed");
+      await dispatch(entry, { type: "commit_failed", ...ref });
     }
   }
 
@@ -646,40 +775,22 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
   }
 
   /**
-   * Puts events on the node's task queue without waiting.
-   *
-   * @remarks
-   * For what sessions tell: the order they came in is kept, and the failure is logged.
-   *
-   * @sideEffects As the events'.
-   * @param context - The node's session.
-   * @param events - The events, in order.
-   */
-  function submitLater(context: NodeContext, events: readonly TaskEventInput[]): void {
-    const entry = tasks.get(context.taskId);
-    if (entry === undefined || events.length === 0) return;
-    track(
-      enqueue(entry, async () => {
-        for (const event of events) await dispatch(entry, event);
-      }),
-      "event",
-    );
-  }
-
-  /**
    * Takes a request the extension made on its status line.
    *
    * @remarks
-   * SPEC-0006, "扩展与通道": reads it, finds the caller by the session, checks it and answers. An accepted
-   * `node_done` is recorded as pending before the answer goes (the extension ends the turn on it); an
-   * accepted graph-change request waits in the judge. A note that a call was stopped drops it. The same call
-   * id is answered once. Logs name the operation only.
+   * SPEC-0006, "扩展与通道": runs inside the task's queue, so the check of the caller, the event that records
+   * the call and the judge's note of it are one step; the state it checks is the state after every event ahead
+   * of it, such as a question just answered. An accepted `node_done` is recorded as pending before the answer
+   * goes (the extension ends the turn on it); an accepted graph-change request waits in the judge and voids a
+   * `node_done` of the same turn. A call the extension gave up on is dropped. The same call id is answered
+   * once. Logs name the operation only.
    *
    * @sideEffects Records events; sends the reply.
+   * @param entry - The task.
    * @param context - The session it came from.
    * @param text - The status text.
    */
-  async function onRequest(context: NodeContext, text: string): Promise<void> {
+  async function handleRequest(entry: TaskEntry, context: NodeContext, text: string): Promise<void> {
     const read = readTaskRequest(text);
     if ("bad" in read) {
       if (read.bad !== null && read.kind === "call" && !context.answered.has(read.bad)) {
@@ -695,33 +806,39 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
     }
     if (context.answered.has(request.id)) return;
     context.answered.add(request.id);
-    const entry = tasks.get(context.taskId);
-    if (entry === undefined) return;
+    if (context.cancelled.has(request.id)) return;
     const verdict = checkCall(entry.store.current() ?? undefined, context, request);
     if (!verdict.ok) {
       logger.info({ op: request.op, code: verdict.code }, "task call refused");
       send(context.sessionId, replyText(request.id, verdict));
       return;
     }
+    const run = { node: context.node, attempt: context.attempt };
     try {
       if (request.op === "node_done") {
         const { ok, summary, reason } = request.args;
-        await enqueue(entry, () =>
-          dispatch(entry, {
-            type: "node_done_pending",
-            node: context.node,
-            attempt: context.attempt,
-            ok,
-            ...(summary === "" ? {} : { summary }),
-            ...(reason === undefined ? {} : { reason }),
-          }),
-        );
+        await dispatch(entry, {
+          type: "node_done_pending",
+          ...run,
+          ok,
+          ...(summary === "" ? {} : { summary }),
+          ...(reason === undefined ? {} : { reason }),
+        });
+        if (context.cancelled.has(request.id)) {
+          await dispatch(entry, { type: "node_done_void", ...run });
+          return;
+        }
         context.judge = judge(context.judge, { kind: "accepted", call: "done" }).state;
       } else {
+        if (context.cancelled.has(request.id)) return;
         context.graphRequest = { reason: request.args.reason, suggestion: request.args.suggestion };
-        context.judge = judge(context.judge, { kind: "accepted", call: "graph_change" }).state;
+        const step = judge(context.judge, { kind: "accepted", call: "graph_change" });
+        context.judge = step.state;
+        for (const replaced of step.verdicts) {
+          if (replaced.kind === "void") await dispatch(entry, { type: "node_done_void", ...run });
+        }
       }
-      if (!context.cancelled.has(request.id)) send(context.sessionId, replyText(request.id, { ok: true }));
+      send(context.sessionId, replyText(request.id, { ok: true }));
     } catch (error) {
       logger.warn({ op: request.op, err: error instanceof Error ? error.name : "unknown" }, "task call failed");
       send(context.sessionId, replyText(request.id, { ok: false, code: "task_failed" }));
@@ -729,59 +846,174 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
   }
 
   /**
+   * Feeds one of pi's events to the judge and records what it decides.
+   *
+   * @remarks
+   * Runs inside the task's queue (SPEC-0006, "T4a 定下的细节"): the judge's decisions and the stop of a node
+   * that reads its state are in one order.
+   *
+   * @sideEffects Records events.
+   * @param entry - The task.
+   * @param context - The node's session.
+   * @param event - The pi event.
+   */
+  async function judgeEvent(entry: TaskEntry, context: NodeContext, event: PiEvent): Promise<void> {
+    const run = { node: context.node, attempt: context.attempt };
+    const step = judge(context.judge, { kind: "pi", event });
+    context.judge = step.state;
+    if (event.type === "agent_start" || event.type === "turn_start" || event.type === "agent_settled") {
+      context.startingAt = null;
+    }
+    for (const verdict of step.verdicts) {
+      if (verdict.kind === "void") {
+        await dispatch(entry, { type: "node_done_void", ...run });
+        continue;
+      }
+      const input = eventOf(verdict.ending, context);
+      context.hold = false;
+      context.killed = false;
+      if (input !== null) await dispatch(entry, input);
+    }
+  }
+
+  /**
+   * Takes what a task session's control state or runs say.
+   *
+   * @remarks
+   * A question open or answered becomes `node_waiting` / `node_resumed`; the controller giving up on a crashing
+   * pi becomes `node_failed(crashed)`, once for each failure; a run starting on a node the user stopped (a message
+   * or "继续" in its conversation) is `node_resumed`, recorded before any call of the node is taken.
+   *
+   * @sideEffects Records events.
+   * @param entry - The task.
+   * @param context - The node's session.
+   * @param event - The session event.
+   */
+  async function sessionEvent(entry: TaskEntry, context: NodeContext, event: SessionEvent): Promise<void> {
+    const run = { node: context.node, attempt: context.attempt };
+    if (event.type === "run_started") {
+      const task = entry.store.current();
+      const live = task === null ? undefined : liveRun(task, context.node);
+      if (live?.attempt === context.attempt && live.sessionId === context.sessionId && live.state === "stopped") {
+        await dispatch(entry, { type: "node_resumed", ...run });
+      }
+    } else if (event.type === "control_updated") {
+      const { question, failure } = event.control;
+      if (question !== null && !context.asking) {
+        context.asking = true;
+        await dispatch(entry, { type: "node_waiting", ...run, waitingFor: "question" });
+      } else if (question === null && context.asking) {
+        context.asking = false;
+        await dispatch(entry, { type: "node_resumed", ...run });
+      }
+      if (failure?.reason === "crashed" && !context.crashed) {
+        context.crashed = true;
+        await dispatch(entry, { type: "node_failed", ...run, reason: "crashed" });
+      }
+    }
+  }
+
+  /**
+   * Takes note that a node's pi started again, and sends the node back to work if it was cut off.
+   *
+   * @remarks
+   * A pi the host did not restart itself, new while a turn was going or about to begin, is one the session
+   * controller restarted after a crash. It re-sends only what it kept of the user's messages, which is none of
+   * the host's prompts, so the node would sit idle `running`: the turn's `node_done` is void and the node is
+   * told, as after a host restart (SPEC-0006, "宿主重启"), or sent its contract if that never went.
+   *
+   * @sideEffects Resets the judge; may record `node_done_void`; may send a prompt or a command.
+   * @param entry - The task.
+   * @param context - The node's session.
+   * @param epoch - The new start of pi.
+   */
+  async function newEpoch(entry: TaskEntry, context: NodeContext, epoch: number): Promise<void> {
+    const interrupted = !context.ownStart && !context.killed && (context.judge.running || context.startingAt !== null);
+    context.epoch = epoch;
+    context.ownStart = false;
+    context.judge = JUDGE_START;
+    context.startingAt = null;
+    context.crashed = false;
+    if (!interrupted) return;
+    const task = entry.store.current();
+    const run = task === null ? undefined : liveRun(task, context.node);
+    if (
+      run?.state !== "running" ||
+      run.commitPending === true ||
+      run.sessionId !== context.sessionId ||
+      run.attempt !== context.attempt
+    ) {
+      return;
+    }
+    try {
+      if (run.pendingDone !== null)
+        await dispatch(entry, { type: "node_done_void", node: run.node, attempt: run.attempt });
+      await sendBack(entry, run.node, RESUME_RESTARTED, `e${String(epoch)}.${run.node}`);
+    } catch (error) {
+      await sessionFailed(entry, run, error);
+    }
+  }
+
+  /**
+   * Takes one signal of a task session, in the task's queue.
+   *
+   * @remarks
+   * A signal from an older start of pi than the one the context knows is dropped; a newer one starts a new
+   * epoch (see `newEpoch`).
+   *
+   * @sideEffects As the handlers'.
+   * @param entry - The task.
+   * @param context - The node's session.
+   * @param signal - What it told.
+   */
+  async function handleSignal(entry: TaskEntry, context: NodeContext, signal: TaskSessionSignal): Promise<void> {
+    if (closing.signal.aborted || entry.store.current()?.endedAt != null) return;
+    if (signal.kind !== "session" && signal.epoch < context.epoch) return;
+    if (signal.epoch > context.epoch) await newEpoch(entry, context, signal.epoch);
+    if (signal.kind === "request") await handleRequest(entry, context, signal.text);
+    else if (signal.kind === "pi") await judgeEvent(entry, context, signal.event);
+    else await sessionEvent(entry, context, signal.event);
+  }
+
+  /**
    * Takes what a task session tells: a request, a pi event or a session event.
    *
    * @remarks
-   * A signal from an older start of pi than the one the context knows is dropped; a newer one resets the
-   * judge (a new process remembers nothing of the old one's turn). Pi events go through the judge, whose
-   * verdicts become events in order. A question open or answered becomes `node_waiting` / `node_resumed`; the
-   * controller giving up on a crashing pi becomes `node_failed(crashed)`.
+   * Only what the runner reads is put on the task's queue; the rest of pi's events (most of them) are let go.
+   * A note that the extension gave up on a call is taken at once, so it reaches a call still in the queue.
    *
-   * @sideEffects Records events later; sends replies.
+   * @sideEffects Queues work; may remember a call as given up.
    * @param sessionId - The session.
    * @param signal - What it told.
    */
   function onSignal(sessionId: string, signal: TaskSessionSignal): void {
     const context = contextOf(sessionId);
-    if (context === undefined || !tasks.has(context.taskId)) return;
-    if (signal.kind !== "session") {
-      if (signal.epoch < context.epoch) return;
-      if (signal.epoch > context.epoch) {
-        context.epoch = signal.epoch;
-        context.judge = JUDGE_START;
-      }
+    const entry = context === undefined ? undefined : tasks.get(context.taskId);
+    if (context === undefined || entry === undefined) return;
+    if (entry.store.current()?.endedAt != null) {
+      // Stryker disable next-line all: only frees memory; see `dispatch`.
+      contexts.delete(sessionId);
+      return;
     }
-    const run = { node: context.node, attempt: context.attempt };
     if (signal.kind === "request") {
-      track(onRequest(context, signal.text), "request");
-    } else if (signal.kind === "pi") {
-      const events: TaskEventInput[] = [];
-      const step = judge(context.judge, { kind: "pi", event: signal.event });
-      context.judge = step.state;
-      for (const verdict of step.verdicts) {
-        if (verdict.kind === "void") events.push({ type: "node_done_void", ...run });
-        else {
-          const event = eventOf(verdict.ending, context);
-          if (event !== null) events.push(event);
-          context.hold = false;
-          context.killed = false;
-        }
+      const read = readTaskRequest(signal.text);
+      if (!("bad" in read) && read.request.kind === "note") {
+        context.cancelled.add(read.request.args.id);
+        return;
       }
-      submitLater(context, events);
-    } else if (signal.event.type === "control_updated") {
-      const { question, failure } = signal.event.control;
-      if (question !== null && !context.asking) {
-        context.asking = true;
-        submitLater(context, [{ type: "node_waiting", ...run, waitingFor: "question" }]);
-      } else if (question === null && context.asking) {
-        context.asking = false;
-        submitLater(context, [{ type: "node_resumed", ...run }]);
-      }
-      if (failure?.reason === "crashed" && !context.crashed) {
-        context.crashed = true;
-        submitLater(context, [{ type: "node_failed", ...run, reason: "crashed" }]);
-      }
+    } else if (signal.kind === "pi" && !JUDGED.has(signal.event.type)) {
+      return;
+    } else if (
+      signal.kind === "session" &&
+      signal.event.type !== "control_updated" &&
+      signal.event.type !== "run_started"
+    ) {
+      return;
     }
+    track(
+      enqueue(entry, () => handleSignal(entry, context, signal)),
+      "signal",
+    );
   }
 
   const unsubscribe = sessions.subscribe(onSignal);
@@ -801,18 +1033,17 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       if (entry === undefined) return Promise.reject(new Error(`task ${taskId} is not attached`));
       return enqueue(entry, async () => {
         const task = entry.store.current();
-        if (task === null || task.endedAt !== null || task.cancelled || task.startedAt === null) return;
+        if (task === null || task.cancelled || task.startedAt === null) return;
+        if (task.endedAt !== null) {
+          // The task ended, but the worktree's lock may not have been let go before the host went down.
+          if (task.workspaceState === "ready") await lockWorkspace(entry, false);
+          return;
+        }
         if (task.workspaceState === "creating") await ensureWorkspace(entry);
         for (const run of entry.store.current()?.runs ?? []) {
-          const now = entry.store.current();
-          if (now === null) return;
           if (run.state === "running" && run.sessionId === null) await startNode(entry, run.node, run.attempt);
-          else if (run.state === "passed" && run.commit === null && run.void !== true) {
-            if (activeGraphOf(now)?.nodes.find((node) => node.id === run.node)?.role === "work") {
-              await commitNode(entry, run.node, run.attempt);
-            }
-          }
         }
+        // A writing node whose commit was pending gets its `commit_node` from this event, for that run only.
         await dispatch(entry, { type: "host_restarted" });
       });
     },
@@ -831,6 +1062,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       unsubscribe();
       await Promise.all([...tasks.values()].map((entry) => entry.queue));
       await Promise.all(background);
+      contexts.clear();
       release();
     },
   };

@@ -195,6 +195,14 @@ function candidates(task: Task): TaskEventInput[] {
         out.push(sendBack, sendBack, sendBack, sendBack);
       }
     }
+    if (run.commitPending === true) {
+      out.push(
+        { type: "committed", ...ref, commit: "k" },
+        { type: "commit_checked", ...ref },
+        { type: "commit_failed", ...ref },
+      );
+    }
+    if (run.sessionId !== null) out.push({ type: "contract_sent", ...ref });
   }
   return out;
 }
@@ -259,6 +267,7 @@ function cooperate(task: Task, passHumans = true): TaskEventInput | null {
     const run = latestRun(task, node.id);
     if (run?.state !== "running") continue;
     const ref = { node: node.id, attempt: run.attempt };
+    if (run.commitPending === true) return { type: "committed", ...ref, commit: "k" };
     return run.pendingDone === null
       ? { type: "node_done_pending", ...ref, ok: true, summary: "s" }
       : { type: "node_settled", ...ref };

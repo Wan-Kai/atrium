@@ -297,7 +297,9 @@ describe("checkGit: git pointed outside the working directory (SPEC-0006, 路径
     const t = await tree();
     expect(allowed(t, "cd sub && git -C ../.. status")).toBe(false);
     expect(allowed(t, "cd sub && git -C ../sub/deep status")).toBe(true);
-    expect(allowed(t, "cd OUT && cd ../work/sub && git status")).toBe(true);
+    // The second cd may fail and leave the shell in OUT, where git would then run.
+    expect(allowed(t, "cd OUT && cd ../work/sub && git status")).toBe(false);
+    expect(allowed(t, "cd sub && cd deep && git status")).toBe(true);
     expect(allowed(t, "cd sub/deep && git -C ../../.. log")).toBe(false);
     expect(allowed(t, 'cd sub && git -C "$PWD/deep" log')).toBe(true);
     expect(allowed(t, 'cd sub && git -C "$PWD/../.." log')).toBe(false);
@@ -346,7 +348,6 @@ describe("checkGit: git pointed outside the working directory (SPEC-0006, 路径
       `bash -c 'git -C sub status'`,
       `bash -c 'git status'`,
       `bash script.sh`,
-      `bash`,
       `sh -x script.sh`,
       `eval`,
       `cd sub && bash -c 'git -C deep status'`,
@@ -378,6 +379,218 @@ describe("checkGit: git pointed outside the working directory (SPEC-0006, 路径
     });
     expect(gitReason("/w")).toContain("inside /w");
     expect(gitReason("/w")).toContain("GIT_WORK_TREE");
+  });
+});
+
+describe("checkGit: what the T4 review found it let through (SPEC-0006, 路径隔离 · bash)", () => {
+  it("blocks quoting and expansions that hide where a path leads", async () => {
+    const t = await tree();
+    for (const command of [
+      "git -C $'OUT' status",
+      'git -C $"OUT" status',
+      "git -C ${X:-OUT} status",
+      "git -C ${X:-/tmp} status",
+      "git -C ${#X} status",
+      "git -C $@ status",
+      "git -C $1 status",
+      "git -C $? status",
+    ]) {
+      expect([command, allowed(t, command)]).toStrictEqual([command, false]);
+    }
+    expect(allowed(t, "git -C ${PWD}/sub status")).toBe(true);
+    expect(allowed(t, "echo $ done && git status")).toBe(true);
+  });
+
+  it("follows cd through builtin, command and the keywords of compound commands", async () => {
+    const t = await tree();
+    for (const command of [
+      "builtin cd OUT; git status",
+      "command cd OUT && git status",
+      "if cd OUT; then git status; fi",
+      "{ cd OUT; git status; }",
+      "while cd OUT; do git status; done",
+      "for d in OUT; do cd $d; git status; done",
+      "case x in x) cd OUT; git status;; esac",
+      "! cd OUT; git status",
+    ]) {
+      expect([command, allowed(t, command)]).toStrictEqual([command, false]);
+    }
+  });
+
+  it("keeps a cd inside a subshell from leaking out, and a cd that may not happen from replacing the directory", async () => {
+    const t = await tree();
+    expect(allowed(t, "cd OUT; (cd sub); git status")).toBe(false);
+    expect(allowed(t, "cd sub; (cd OUT); git status")).toBe(true);
+    expect(allowed(t, "cd sub; echo $(cd OUT); git status")).toBe(true);
+    expect(allowed(t, "cd sub; (cd OUT; git status)")).toBe(false);
+    expect(allowed(t, "false && cd OUT; git status")).toBe(false);
+    expect(allowed(t, "true || cd OUT; git status")).toBe(false);
+    expect(allowed(t, "cd OUT; false && cd ../work/sub; git status")).toBe(false);
+    expect(allowed(t, "cd OUT & git status")).toBe(false);
+    // The branch that does the cd to the working directory may not run, so the shell may still be outside.
+    expect(allowed(t, "cd OUT; if false; then cd ../work; fi; git status")).toBe(false);
+    expect(allowed(t, "git status && cd sub && git log")).toBe(true);
+    expect(allowed(t, "cd sub && cd deep && git log")).toBe(true);
+  });
+
+  it("blocks a shell that reads its script from input, and lets one with a script file or plain words go", async () => {
+    const t = await tree();
+    for (const command of [
+      "bash <<< 'git -C OUT status'",
+      "echo 'git -C OUT status' | sh",
+      "printf x | bash -s",
+      "sh",
+      "bash -l",
+      "cat script | env bash",
+    ]) {
+      expect([command, allowed(t, command)]).toStrictEqual([command, false]);
+    }
+    expect(allowed(t, "bash run.sh")).toBe(true);
+    expect(allowed(t, "bash -c 'git status'")).toBe(true);
+    expect(allowed(t, "echo bash sh && ls /bin/sh")).toBe(true);
+    expect(allowed(t, "which bash")).toBe(true);
+  });
+
+  it("blocks changing where git's tree is: core.worktree, the per-worktree configuration, files outside", async () => {
+    const t = await tree();
+    for (const command of [
+      "git config core.worktree OUT",
+      "git config --worktree core.worktree OUT",
+      "git config --local Core.WorkTree OUT",
+      "git config extensions.worktreeConfig true",
+      "git config --unset core.worktree",
+      "git -c core.worktree=OUT status",
+      "git -c Core.WorkTree=OUT status",
+      "git -C . -c core.worktree=OUT commit",
+      "git --config-env=core.worktree=X status",
+      "git config --file OUT/cfg a.b c",
+      "git config -f ../outside/cfg a.b c",
+      "git config --file=OUT/cfg a.b c",
+      "git config --global user.name x",
+      "git config user.name $NAME",
+      "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.worktree GIT_CONFIG_VALUE_0=OUT git status",
+      "GIT_CONFIG_PARAMETERS=\"'core.worktree=OUT'\" git status",
+    ]) {
+      expect([command, allowed(t, command)]).toStrictEqual([command, false]);
+    }
+    for (const command of [
+      "git config user.name x",
+      "git config --worktree user.name x",
+      "git -c user.name=x commit -m y",
+      "git config --file sub/cfg a.b c",
+      "git config --get core.bare",
+    ]) {
+      expect([command, allowed(t, command)]).toStrictEqual([command, true]);
+    }
+  });
+});
+
+describe("checkGit: the words and options the guard steps over (SPEC-0006, 路径隔离 · bash)", () => {
+  it.each([
+    "if",
+    "then",
+    "else",
+    "elif",
+    "fi",
+    "while",
+    "until",
+    "do",
+    "done",
+    "for",
+    "case",
+    "esac",
+    "select",
+    "{",
+    "}",
+    "!",
+    "time",
+    "function",
+    "builtin",
+    "command",
+    "exec",
+    "nohup",
+    "env",
+    "sudo",
+    "nice",
+  ])("sees a cd behind %s", async (word) => {
+    const t = await tree();
+
+    expect(allowed(t, `${word} cd OUT; git status`)).toBe(false);
+  });
+
+  it.each(["if", "then", "else", "elif", "while", "until", "do", "for", "case", "select", "{"])(
+    "does not let a cd after %s replace the places the shell may be in",
+    async (word) => {
+      const t = await tree();
+
+      expect(allowed(t, `cd OUT; ${word} true; cd ../work; git status`)).toBe(false);
+    },
+  );
+
+  it("steps over assignments and the options of a wrapper before the command", async () => {
+    const t = await tree();
+
+    expect(allowed(t, "FOO=1 cd OUT; git status")).toBe(false);
+    expect(allowed(t, "env -i cd OUT; git status")).toBe(false);
+    expect(allowed(t, "cd -x OUT; git status")).toBe(false);
+  });
+
+  it.each(["sh", "bash", "zsh", "dash", "ksh"])("reads the script of %s -c", async (shell) => {
+    const t = await tree();
+
+    expect(allowed(t, `${shell} -c 'git -C OUT status'`)).toBe(false);
+    expect(allowed(t, `${shell} -c 'git status'`)).toBe(true);
+  });
+
+  it.each(["--namespace", "--super-prefix", "--config-env", "--attr-source"])(
+    "steps over the value of git's %s before looking for -C",
+    async (option) => {
+      const t = await tree();
+
+      expect(allowed(t, `git ${option} value -C OUT status`)).toBe(false);
+      expect(allowed(t, `git ${option} value status`)).toBe(true);
+    },
+  );
+
+  it("takes GIT_DIR, GIT_WORK_TREE and GIT_CONFIG_* only as whole names", async () => {
+    const t = await tree();
+
+    expect(allowed(t, "MY_GIT_DIR=OUT git status")).toBe(true);
+    expect(allowed(t, "MY_GIT_WORK_TREE=OUT git status")).toBe(true);
+    expect(allowed(t, "X_GIT_CONFIG_KEY_0=core.worktree git status")).toBe(true);
+    expect(allowed(t, "GIT_CONFIG_KEY_10=core.worktree git status")).toBe(false);
+    expect(allowed(t, "GIT_CONFIG_KEY_0=user.name git status")).toBe(true);
+    expect(allowed(t, 'GIT_CONFIG_KEY_0="$K" git status')).toBe(false);
+  });
+
+  it("takes only core.worktree itself, in any case, as the setting that moves the tree", async () => {
+    const t = await tree();
+
+    expect(allowed(t, "git -c user.core.worktree=x status")).toBe(true);
+    expect(allowed(t, "git config user.core.worktree x")).toBe(true);
+    expect(allowed(t, "git config CORE.WORKTREE x")).toBe(false);
+    expect(allowed(t, "git config Extensions.WorktreeConfig true")).toBe(false);
+    expect(allowed(t, "git config myextensions.worktreeconfig true")).toBe(true);
+    expect(allowed(t, "git config --system user.name x")).toBe(false);
+    expect(allowed(t, "git config --blob HEAD:x user.name")).toBe(false);
+    expect(allowed(t, "git config --file")).toBe(false);
+  });
+
+  it("tells a shell with a script from one that reads its input, whatever is redirected", async () => {
+    const t = await tree();
+
+    for (const command of ["bash 2>/dev/null", "bash < in.sh", "bash <in.sh", "sh -xs", "bash >out", "bash 2>&1"]) {
+      expect([command, allowed(t, command)]).toStrictEqual([command, false]);
+    }
+    for (const command of [
+      "bash run.sh 2>&1",
+      "bash > out run.sh",
+      "sh -x run.sh",
+      "bash -e run.sh arg",
+      "bash 1>out run.sh",
+    ]) {
+      expect([command, allowed(t, command)]).toStrictEqual([command, true]);
+    }
   });
 });
 

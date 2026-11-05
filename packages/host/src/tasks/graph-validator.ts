@@ -9,6 +9,7 @@ export type GraphProblemCode =
   // Structure
   | "too_many_nodes"
   | "duplicate_node_id"
+  | "bad_node_id"
   | "unknown_node"
   | "seq_cycle"
   | "back_edge_not_from_human"
@@ -30,6 +31,15 @@ export type GraphProblemCode =
   | "node_removed"
   | "node_changed"
   | "locked_in_edge_changed";
+
+/**
+ * What a node id may look like: ASCII letters, digits, `_` and `-`, up to 32, starting with a letter or digit.
+ *
+ * @remarks
+ * Ids go into the contract, the session's name and commit trailers; one that holds a tag, a space or a line
+ * break could pass for the host's own words (SPEC-0006, "改图 · 结构").
+ */
+const NODE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/u;
 
 /** One reason a graph is refused. */
 export interface GraphProblem {
@@ -96,7 +106,7 @@ function hasSeqCycle(nodes: readonly GraphNode[], edges: readonly GraphEdge[]): 
 }
 
 /**
- * The structural rules: ids, edges, cycles, ends and size.
+ * The structural rules: ids (their form and that they are unique), edges, cycles, ends and size.
  *
  * @remarks
  * SPEC-0006, "改图 · 结构". Sources and sinks count sequential edges only, since a back edge points at
@@ -111,6 +121,7 @@ function structureProblems(graph: Pick<GraphVersion, "nodes" | "edges">): GraphP
   if (graph.nodes.length > MAX_NODES) problems.push({ code: "too_many_nodes" });
   const ids = new Set<NodeId>();
   for (const node of graph.nodes) {
+    if (!NODE_ID.test(node.id)) problems.push({ code: "bad_node_id", node: node.id });
     if (ids.has(node.id)) problems.push({ code: "duplicate_node_id", node: node.id });
     ids.add(node.id);
   }
@@ -263,7 +274,7 @@ function startedProblems(graph: Pick<GraphVersion, "nodes" | "edges">, task: Tas
  */
 export function validateGraph(graph: Pick<GraphVersion, "nodes" | "edges">, context: GraphContext): GraphProblem[] {
   const structure = structureProblems(graph);
-  if (structure.some((problem) => problem.code === "unknown_node" || problem.code === "duplicate_node_id")) {
+  if (structure.some((problem) => ["unknown_node", "duplicate_node_id", "bad_node_id"].includes(problem.code))) {
     return structure;
   }
   const worktree = !context.projectless && !context.localReadonly;

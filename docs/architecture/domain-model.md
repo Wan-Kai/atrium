@@ -793,7 +793,7 @@ Task ──1:1── 任务对话（一个会话，只读角色，带任务对�
 
 - **Task** 属于一个项目，或不属于项目（那时不能有改代码的节点）。任务状态由节点状态推出，不另存；只有"暂停""取消"是标记。
 - **GraphVersion**：改图就是加一个版本；启动前直接生效，启动后要你批准。节点 id（N1、N2…）跨版本认同一个节点。
-- **NodeRun**：节点的当前状态取它最新的一条；没有 NodeRun 就是 `pending`；改图作废的（`void`）仍是最新的一条，读作 `pending`。打回开新的一条（`attempt + 1`、新会话），重跑沿用原来那条（`attempt` 不变、同一会话）。状态：`pending`、`running`、`waiting`（带 `waitingFor`：问题、改图、等你、合并被挡住）、`held`（调度器连带挂起，任务恢复就接着跑）、`stopped`（你亲手停的）、`passed`、`failed`。下游只读每个上游最新一次通过的交接摘要。
+- **NodeRun**：节点的当前状态取它最新的一条；没有 NodeRun 就是 `pending`；改图作废的（`void`）仍是最新的一条，读作 `pending`。打回开新的一条（`attempt + 1`、新会话），重跑沿用原来那条（`attempt` 不变、同一会话）。状态：`pending`、`running`、`waiting`（带 `waitingFor`：问题、改图、等你、合并被挡住）、`held`（调度器连带挂起，任务恢复就接着跑）、`stopped`（你亲手停的）、`passed`、`failed`。下游只读每个上游最新一次通过的交接摘要。可写节点的 `node_done` 生效后仍是 `running`，带 `commitPending`，提交落定（`committed` / `commit_checked`）才 `passed`；提交失败 → `failed`，失败原因 `commit`（`commitPending` 保留，重跑只重试提交）。`contractSent` 记着契约是否已交给节点的 pi（没交到就补发契约，不发"接着做"）。失败原因共六种：`no_done`、`crashed`、`model_error`、`gave_up`、`workspace`、`commit`。
 - **节点对话、任务对话不是 SPEC-0002 的 agent 子对话**：会话记录带 `task: { taskId, role: "conversation" | "node", node?, attempt? }`，没有 `agent`。它们走单独的启动路径，只借用 SPEC-0002 起停 pi 和送达的做法；不给任务对话自动回报、不占 SPEC-0002 的名额、重启时不暂停送达；节点能用 `ask_user`。SessionCatalog 按 `task` 字段把它们排除在项目目录、侧栏之外，只在任务区出现。
 - **调度**：宿主里的纯函数 `step(任务, 事件) → (新任务, 动作[])`，发出动作时状态当场变（防重复）；每个任务一个串行队列；动作都能认出"已经做过"（重放后不重复提交、建 worktree、合并）。事件写进 `events.jsonl`（节点相关的带 `attempt`，旧会话迟到的事件丢掉），`task.json`（`{ version, seq, task }`）可以从事件重放出来。
 - **工作区**：任务建的 worktree 记"由任务 X 创建"；任务在用时对它 `git worktree lock`。任务结束时，任务建的 worktree 由你决定归档还是留着；来源对话本来就在的 worktree，任务只解锁，不问、不删。

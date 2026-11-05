@@ -2,7 +2,7 @@ import { encodeArgument } from "@atrium/pi";
 import type { AgentRole } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import type { AgentRecord } from "../store/agent-records";
-import { agentLaunchFlags, agentSelf, taskLaunchFlags, toolFlags } from "./agent-launch";
+import { agentLaunchFlags, agentSelf, sessionLaunchFlags, taskLaunchFlags, toolFlags } from "./agent-launch";
 import { agentDepth } from "./child-tree";
 
 /** The main agent's tools, as pi's flags list them. */
@@ -321,5 +321,18 @@ describe('taskLaunchFlags (SPEC-0006, "一个 agent 节点怎么跑 · 起")', (
     const entries = [entry("main"), node("work")];
 
     expect(agentSelf(entries, "node")).toMatchObject({ child: false, depth: 0 });
+  });
+});
+
+describe("sessionLaunchFlags: a session of a task never gets the agent's flags", () => {
+  it("gives a node its own flags, and any other session the agent's", () => {
+    expect(sessionLaunchFlags([node("work")], "node")).toStrictEqual(taskLaunchFlags(node("work")));
+    expect(sessionLaunchFlags([entry("main")], "main")).toStrictEqual(agentLaunchFlags([entry("main")], "main"));
+  });
+
+  it("refuses a node without a role and a task conversation instead of starting them with every tool", () => {
+    expect(() => sessionLaunchFlags([node()], "node")).toThrow("a task session without a launch path");
+    const conversation = { ...entry("t"), task: { taskId: "tsk_1", role: "conversation" as const, startOn: null } };
+    expect(() => sessionLaunchFlags([conversation], "t")).toThrow("a task session without a launch path");
   });
 });

@@ -106,17 +106,113 @@ describe("step: designing and starting", () => {
     expect(sim.task).toBe(before);
   });
 
-  it("still records the commit of a writing end node after the task is done, and nothing else", () => {
+  it("does not end the task until the last writing node's commit is settled", () => {
     const sim = started(new Sim(newTask([agent("N1", "work")], [], { workspaceState: "ready" })));
-    expect(kinds(finish(sim, "N1"))).toStrictEqual(["commit_node:N1", "unlock_workspace", "ask_archive"]);
-    expect(sim.status()).toBe("done");
-    expect(sim.send({ type: "committed", node: "N1", attempt: 1, commit: "deadbeef" })).toStrictEqual([]);
+    expect(kinds(finish(sim, "N1"))).toStrictEqual(["commit_node:N1"]);
+    expect(sim.state("N1")).toBe("running");
+    expect(sim.task.runs[0]?.commitPending).toBe(true);
+    expect(sim.status()).toBe("running");
+    expect(sim.task.endedAt).toBeNull();
+
+    expect(kinds(sim.send({ type: "committed", node: "N1", attempt: 1, commit: "deadbeef" }))).toStrictEqual([
+      "unlock_workspace",
+      "ask_archive",
+    ]);
+
     expect(sim.task.runs[0]?.commit).toBe("deadbeef");
+    expect(sim.task.runs[0]?.commitPending).toBeUndefined();
     expect(sim.status()).toBe("done");
     const after = sim.task;
     expect(sim.send({ type: "committed", node: "N1", attempt: 1, commit: "deadbeef" })).toStrictEqual([]);
     expect(sim.task).toBe(after);
     expect(sim.send({ type: "paused" })).toStrictEqual([]);
+    expect(sim.task).toBe(after);
+  });
+
+  it("passes a writing node that changed nothing when the commit is checked, with no commit recorded", () => {
+    const sim = started(new Sim(newTask([agent("N1", "work")], [], { workspaceState: "ready" })));
+    finish(sim, "N1");
+
+    expect(kinds(sim.send({ type: "commit_checked", node: "N1", attempt: 1 }))).toStrictEqual([
+      "unlock_workspace",
+      "ask_archive",
+    ]);
+
+    expect(sim.task.runs[0]).toMatchObject({ state: "passed", commit: null });
+    expect(sim.task.runs[0]?.commitPending).toBeUndefined();
+  });
+
+  it("fails a writing node whose commit failed with `commit`, starts nothing after it, and stops the task", () => {
+    const sim = started(
+      new Sim(newTask([agent("N1", "work"), agent("N2", "check")], edges(["N1", "N2"]), { workspaceState: "ready" })),
+    );
+    finish(sim, "N1");
+
+    const actions = sim.send({ type: "commit_failed", node: "N1", attempt: 1 });
+
+    expect(actions).toContainEqual({ kind: "notify", attention: { kind: "failed", node: "N1", reason: "commit" } });
+    expect(kinds(actions)).not.toContain("start_node:N2");
+    expect(sim.state("N1")).toBe("failed");
+    expect(sim.task.runs[0]?.failure).toBe("commit");
+    expect(sim.state("N2")).toBe("pending");
+    expect(sim.status()).toBe("stopped");
+  });
+
+  it("retries only the commit when a node failed with `commit` is rerun, then goes on", () => {
+    const sim = started(
+      new Sim(newTask([agent("N1", "work"), agent("N2", "check")], edges(["N1", "N2"]), { workspaceState: "ready" })),
+    );
+    finish(sim, "N1");
+    sim.send({ type: "commit_failed", node: "N1", attempt: 1 });
+
+    expect(sim.send({ type: "rerun_requested", node: "N1" })).toStrictEqual([
+      { kind: "commit_node", node: "N1", attempt: 1 },
+    ]);
+    expect(sim.state("N1")).toBe("running");
+    expect(sim.task.runs).toHaveLength(1);
+    sim.send({ type: "commit_failed", node: "N1", attempt: 1 });
+    expect(sim.state("N1")).toBe("failed");
+    sim.send({ type: "rerun_requested", node: "N1" });
+    expect(kinds(sim.send({ type: "committed", node: "N1", attempt: 1, commit: "c1" }))).toStrictEqual([
+      "start_node:N2",
+    ]);
+    expect(sim.task.runs[0]).toMatchObject({ state: "passed", commit: "c1", attempt: 1 });
+  });
+
+  it("asks again for a pending commit when the host restarts, and for nothing of its pi", () => {
+    const sim = started(new Sim(newTask([agent("N1", "work")], [], { workspaceState: "ready" })));
+    finish(sim, "N1");
+
+    expect(sim.send({ type: "host_restarted" })).toStrictEqual([{ kind: "commit_node", node: "N1", attempt: 1 }]);
+  });
+
+  it("ignores a node's turn ending, a failure or a hold while its commit is pending", () => {
+    const sim = started(new Sim(newTask([agent("N1", "work")], [], { workspaceState: "ready" })));
+    finish(sim, "N1");
+    const before = sim.task;
+
+    expect(sim.send({ type: "node_settled", node: "N1", attempt: 1 })).toStrictEqual([]);
+    expect(sim.task.runs[0]?.nudged).toBe(false);
+    for (const event of [
+      { type: "node_failed", node: "N1", attempt: 1, reason: "crashed" },
+      { type: "node_held", node: "N1", attempt: 1 },
+      { type: "node_done_pending", node: "N1", attempt: 1, ok: true, summary: "again" },
+    ] satisfies TaskEventInput[]) {
+      sim.send(event);
+    }
+
+    expect(sim.state("N1")).toBe("running");
+    expect(sim.task.runs[0]?.summary).toBe(before.runs[0]?.summary);
+  });
+
+  it("records that the contract was sent once, only for a run that has a session", () => {
+    const sim = started(new Sim(newTask([agent("N1")], [])));
+    sim.send({ type: "node_started", node: "N1", attempt: 1, sessionId: "s", startCommit: null });
+    expect(sim.task.runs[0]?.contractSent).toBeUndefined();
+    sim.send({ type: "contract_sent", node: "N1", attempt: 1 });
+    expect(sim.task.runs[0]?.contractSent).toBe(true);
+    const after = sim.task;
+    sim.send({ type: "contract_sent", node: "N1", attempt: 1 });
     expect(sim.task).toBe(after);
   });
 
@@ -143,15 +239,50 @@ describe("step: a node's turn ends", () => {
     const sim = started(
       new Sim(newTask([agent("N1", "work"), agent("N2", "check")], edges(["N1", "N2"]), { workspaceState: "ready" })),
     );
-    expect(kinds(finish(sim, "N1"))).toStrictEqual(["commit_node:N1", "start_node:N2"]);
+    expect(kinds(finish(sim, "N1"))).toStrictEqual(["commit_node:N1"]);
     expect(sim.all().find((a) => a.kind === "commit_node")).toStrictEqual({
       kind: "commit_node",
       node: "N1",
       attempt: 1,
     });
-    sim.send({ type: "committed", node: "N1", attempt: 1, commit: "deadbeef" });
+    expect(kinds(sim.send({ type: "committed", node: "N1", attempt: 1, commit: "deadbeef" }))).toStrictEqual([
+      "start_node:N2",
+    ]);
     expect(sim.task.runs[0]?.commit).toBe("deadbeef");
     expect(kinds(finish(sim, "N2"))).toStrictEqual(["unlock_workspace", "ask_archive"]);
+  });
+
+  it("drops a waiting node_done when the same turn asked for a graph change", () => {
+    const sim = started(new Sim(newTask([agent("N1")], [])));
+    sim.send({ type: "node_done_pending", node: "N1", attempt: 1, ok: true, summary: "old" });
+
+    sim.send({ type: "node_waiting", node: "N1", attempt: 1, waitingFor: "graph_change" });
+
+    expect(sim.task.runs[0]?.pendingDone).toBeNull();
+  });
+
+  it("passes a node whose node_done stands instead of holding it", () => {
+    const sim = started(new Sim(newTask([agent("N1")], [])));
+    sim.send({ type: "node_done_pending", node: "N1", attempt: 1, ok: true, summary: "done" });
+
+    // Held and resumed at once, were it taken, which would send the node a line and lose its summary.
+    expect(sim.send({ type: "node_held", node: "N1", attempt: 1 })).toStrictEqual([]);
+
+    expect(sim.state("N1")).toBe("running");
+    expect(sim.task.runs[0]?.pendingDone).toStrictEqual({ ok: true, summary: "done" });
+    sim.send({ type: "node_settled", node: "N1", attempt: 1 });
+    expect(sim.state("N1")).toBe("passed");
+  });
+
+  it("forgets a waiting node_done when the host restarts under a node that was waiting for an answer", () => {
+    const sim = started(new Sim(newTask([agent("N1")], [])));
+    sim.send({ type: "node_done_pending", node: "N1", attempt: 1, ok: true, summary: "old" });
+    sim.send({ type: "node_waiting", node: "N1", attempt: 1, waitingFor: "question" });
+
+    sim.send({ type: "host_restarted" });
+
+    expect(sim.state("N1")).toBe("running");
+    expect(sim.task.runs[0]?.pendingDone).toBeNull();
   });
 
   it("reminds a node that ended without `node_done` once, then fails it with no_done", () => {
@@ -563,8 +694,8 @@ describe("step: questions, graph changes and the closing human node", () => {
     expect(sim.state("H1")).toBe("pending");
     expect(sim.task.runs.find((r) => r.node === "H1")).toMatchObject({ state: "waiting", void: true });
     expect(sim.status()).toBe("running");
-    const done = finish(sim, "N2");
-    expect(kinds(done)).toStrictEqual(["commit_node:N2"]);
+    expect(kinds(finish(sim, "N2"))).toStrictEqual(["commit_node:N2"]);
+    const done = sim.send({ type: "commit_checked", node: "N2", attempt: 1 });
     expect(done).toContainEqual({ kind: "notify", attention: { kind: "human", node: "H1" } });
     expect(sim.state("H1")).toBe("waiting");
     const h1Runs = sim.task.runs.filter((r) => r.node === "H1");

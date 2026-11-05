@@ -100,6 +100,7 @@ function failRun(draft: Draft, run: NodeRun, reason: FailureReason): void {
  */
 function releaseWaiting(draft: Draft, run: NodeRun, text: string): void {
   run.waitingFor = null;
+  run.pendingDone = null;
   if (isHeldBack(draft.task)) {
     run.state = "held";
     return;
@@ -305,6 +306,8 @@ function onNodeWaiting(draft: Draft, event: Of<"node_waiting">): boolean {
   if (run?.state !== "running") return false;
   run.state = "waiting";
   run.waitingFor = event.waitingFor;
+  // A graph change asked for after a `node_done` in the same turn replaces it.
+  if (event.waitingFor === "graph_change") run.pendingDone = null;
   progress(draft, "node_waiting", run.node);
   if (event.waitingFor === "question") notify(draft, { kind: "question", node: run.node });
   else emit(draft, { kind: "wake_task_conversation", text: wakeForGraphChange(run.node) });
@@ -379,7 +382,7 @@ function onNodeDoneVoid(draft: Draft, event: Of<"node_done_void">): boolean {
  *
  * @remarks
  * SPEC-0006, "结束" 4 and the `no_done` row of "失败": a waiting `node_done` takes effect (a writing
- * node is committed first, in the action order, so the next node starts on top of it); with none,
+ * node passes only once its commit is settled, so the next node starts on top of it); with none,
  * the node is reminded once and fails the second time. The runner sends `node_held` instead of this
  * when the turn ended because it was asked to hold and nothing was pending.
  *
@@ -391,7 +394,7 @@ function onNodeDoneVoid(draft: Draft, event: Of<"node_done_void">): boolean {
 function onNodeSettled(draft: Draft, event: Of<"node_settled">): boolean {
   const { task } = draft;
   const run = liveAttempt(task, event);
-  if (run?.state !== "running") return false;
+  if (run?.state !== "running" || run.commitPending === true) return false;
   const done = run.pendingDone;
   if (done === null) {
     if (run.nudged) failRun(draft, run, "no_done");
@@ -405,11 +408,17 @@ function onNodeSettled(draft: Draft, event: Of<"node_settled">): boolean {
     failRun(draft, run, "gave_up");
     return true;
   }
-  run.state = "passed";
   run.summary = done.summary ?? null;
-  run.endedAt = draft.event.at;
+  run.pendingDone = null;
   const graphNode = activeGraphOf(task)?.nodes.find((node) => node.id === run.node);
-  if (graphNode?.role === "work") emit(draft, { kind: "commit_node", node: run.node, attempt: run.attempt });
+  if (graphNode?.role === "work") {
+    // A writing node passes when its commit is settled; until then it stays running, so nothing after it starts.
+    run.commitPending = true;
+    emit(draft, { kind: "commit_node", node: run.node, attempt: run.attempt });
+    return true;
+  }
+  run.state = "passed";
+  run.endedAt = draft.event.at;
   progress(draft, "node_passed", run.node);
   return true;
 }
@@ -429,6 +438,7 @@ function onNodeSettled(draft: Draft, event: Of<"node_settled">): boolean {
 function onNodeFailed(draft: Draft, event: Of<"node_failed">): boolean {
   const run = liveAttempt(draft.task, event);
   if (run === undefined || !["running", "waiting", "held", "stopped"].includes(run.state)) return false;
+  if (run.commitPending === true) return false;
   if (run.state === "waiting" && run.waitingFor !== "question" && run.waitingFor !== "graph_change") return false;
   failRun(draft, run, event.reason);
   return true;
@@ -468,7 +478,8 @@ function onNodeStopped(draft: Draft, event: Of<"node_stopped">): boolean {
  */
 function onNodeHeld(draft: Draft, event: Of<"node_held">): boolean {
   const run = liveAttempt(draft.task, event);
-  if (run?.state !== "running") return false;
+  // A node whose `node_done` took effect passes (or commits) rather than holds.
+  if (run?.state !== "running" || run.pendingDone !== null || run.commitPending === true) return false;
   run.state = "held";
   return true;
 }
@@ -581,6 +592,12 @@ function onRerunRequested(draft: Draft, event: Of<"rerun_requested">): boolean {
   run.endedAt = null;
   run.nudged = false;
   run.pendingDone = null;
+  if (run.commitPending === true) {
+    // Only the commit failed: the same attempt, no new session; the node passes when the commit does.
+    run.state = "running";
+    emit(draft, { kind: "commit_node", node: run.node, attempt: run.attempt });
+    return true;
+  }
   if (run.sessionId === null) {
     run.state = "pending";
   } else {
@@ -701,20 +718,93 @@ function onWorkspaceFailed(draft: Draft): boolean {
 }
 
 /**
- * Applies `committed`: the commit the node's changes went into.
+ * Passes a writing node whose commit is settled.
  *
  * @remarks
- * Only recorded; the node had passed when the commit was asked for.
+ * SPEC-0006, "结束" 4: the node passes only now, so a successor starts on top of its commit.
  *
- * @sideEffects Changes the draft's task.
+ * @sideEffects Changes the draft's task and actions.
+ * @param draft - The step.
+ * @param run - The node's run, `running` with its commit pending.
+ */
+function passCommitted(draft: Draft, run: NodeRun): void {
+  delete run.commitPending;
+  run.state = "passed";
+  run.endedAt = draft.event.at;
+  progress(draft, "node_passed", run.node);
+}
+
+/**
+ * Applies `committed`: the commit the node's changes went into; the node passes.
+ *
+ * @remarks
+ * Ignored unless the node is waiting for its commit (a repeat, or a late one).
+ *
+ * @sideEffects Changes the draft's task and actions.
  * @param draft - The step.
  * @param event - The event.
  * @returns Whether it applied.
  */
 function onCommitted(draft: Draft, event: Of<"committed">): boolean {
   const run = liveAttempt(draft.task, event);
-  if (run?.state !== "passed" || run.commit === event.commit) return false;
+  if (run?.state !== "running" || run.commitPending !== true) return false;
   run.commit = event.commit;
+  passCommitted(draft, run);
+  return true;
+}
+
+/**
+ * Applies `commit_checked`: the node changed nothing, so there was nothing to commit; the node passes.
+ *
+ * @remarks
+ * SPEC-0006, "动作要幂等": tells "checked, nothing to commit" from "not done yet".
+ *
+ * @sideEffects Changes the draft's task and actions.
+ * @param draft - The step.
+ * @param event - The event.
+ * @returns Whether it applied.
+ */
+function onCommitChecked(draft: Draft, event: Of<"commit_checked">): boolean {
+  const run = liveAttempt(draft.task, event);
+  if (run?.state !== "running" || run.commitPending !== true) return false;
+  passCommitted(draft, run);
+  return true;
+}
+
+/**
+ * Applies `commit_failed`: git could not stage or commit the node's work; the node fails with `commit`.
+ *
+ * @remarks
+ * SPEC-0006, "失败": the task stops like for any failure and nothing after the node starts; the mark stays,
+ * so a rerun retries only the commit.
+ *
+ * @sideEffects Changes the draft's task and actions.
+ * @param draft - The step.
+ * @param event - The event.
+ * @returns Whether it applied.
+ */
+function onCommitFailed(draft: Draft, event: Of<"commit_failed">): boolean {
+  const run = liveAttempt(draft.task, event);
+  if (run?.state !== "running" || run.commitPending !== true) return false;
+  failRun(draft, run, "commit");
+  return true;
+}
+
+/**
+ * Applies `contract_sent`: the node's first message was handed to its pi.
+ *
+ * @remarks
+ * Until then a node that is started again is sent the contract, not a line about carrying on.
+ *
+ * @sideEffects Changes the draft's task.
+ * @param draft - The step.
+ * @param event - The event.
+ * @returns Whether it applied.
+ */
+function onContractSent(draft: Draft, event: Of<"contract_sent">): boolean {
+  const run = liveAttempt(draft.task, event);
+  if (run === undefined || run.sessionId === null || run.contractSent === true) return false;
+  run.contractSent = true;
   return true;
 }
 
@@ -784,7 +874,10 @@ function onHostRestarted(draft: Draft): boolean {
   for (const { node } of nodeStates(task)) {
     const run = liveRun(task, node.id);
     if (run === undefined) continue;
-    if (run.state === "running") {
+    if (run.state === "running" && run.commitPending === true) {
+      // Its commit was asked for and may be lost; the action recognises a commit already made.
+      emit(draft, { kind: "commit_node", node: node.id, attempt: run.attempt });
+    } else if (run.state === "running") {
       run.pendingDone = null;
       if (heldBack) run.state = "held";
       else emit(draft, { kind: "resume_node", node: node.id, text: RESUME_RESTARTED });
@@ -863,6 +956,12 @@ function apply(draft: Draft): boolean {
       return onWorkspaceFailed(draft);
     case "committed":
       return onCommitted(draft, event);
+    case "commit_checked":
+      return onCommitChecked(draft, event);
+    case "commit_failed":
+      return onCommitFailed(draft, event);
+    case "contract_sent":
+      return onContractSent(draft, event);
     case "merged":
       return onMerged(draft, event);
     case "merge_blocked":
@@ -886,10 +985,9 @@ function apply(draft: Draft): boolean {
  * SPEC-0006, "调度器". Pure: the task passed in is not touched, time comes from the event, nothing
  * is read or written. State changes when an action is sent, not when its result arrives, so a second
  * event arriving before the result cannot send it again. An event that does not fit is ignored and the
- * same task comes back with no actions. A finished task (done or cancelled) takes no more events,
- * except that a done task still records `committed`: the last writing node is committed in the same
- * step that ends the task, so its commit can only arrive afterwards. After an event applies, the task is advanced (resume held nodes, open human nodes, start ready
- * ones) and finished if every end node has passed.
+ * same task comes back with no actions. A finished task (done or cancelled) takes no more events;
+ * a writing node passes, and so can end the task, only when its commit is settled. After an event applies, the
+ * task is advanced (resume held nodes, open human nodes, start ready ones) and finished if every end node has passed.
  *
  * @sideEffects none
  * @param task - The task as it is.
@@ -899,10 +997,7 @@ function apply(draft: Draft): boolean {
 export function step(task: Task, event: TaskEvent): StepResult {
   if (task.cancelled) return { task, actions: [] };
   const draft: Draft = { task: structuredClone(task), actions: [], event, lines: 0 };
-  if (task.endedAt !== null) {
-    if (event.type !== "committed" || !onCommitted(draft, event)) return { task, actions: [] };
-    return { task: draft.task, actions: [] };
-  }
+  if (task.endedAt !== null) return { task, actions: [] };
   if (!apply(draft)) return { task, actions: [] };
   advance(draft);
   return { task: draft.task, actions: draft.actions };

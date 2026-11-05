@@ -63,10 +63,12 @@ export function createTaskWorkspaces(options: {
       const known = marked?.success === true ? marked.data.workspaceId : undefined;
       const found = options.projects.workspaces().find((workspace) => workspace.id === known);
       if (found?.baseCommit != null) return { workspaceId: found.id, baseCommit: found.baseCommit };
+      // A worktree the mark names is the task's; one without a base commit is not made again beside it.
+      if (found !== undefined) throw new Error("the task's worktree has no base commit");
       signal.throwIfAborted();
       const source = options.sourceContainer(task);
       if (source === undefined) throw new Error("the task's source has no workspace");
-      const made = await options.creator.createFrom(source, task.name, "atrium/", task.name);
+      const made = await options.creator.createFrom(source, task.name, "atrium/", task.name, signal);
       const record = options.projects.workspaces().find((workspace) => workspace.id === made.workspaceId);
       if (record?.baseCommit == null) throw new Error("the new worktree has no base commit");
       await mkdir(directory, { recursive: true, mode: 0o700 });

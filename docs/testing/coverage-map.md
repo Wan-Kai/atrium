@@ -2141,7 +2141,7 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | `start_node` 幂等：同一 attempt 会话起不来后重跑，接回已记录的会话，不开第二个 | `node-run.host.test.ts` "starts the same attempt again after its session could not start, without a second session"（读索引里该节点该 attempt 的记录数为 1） |
 | `commit_node` 幂等与不重复提交：HEAD 已带同样尾注就记下它；没改动不提交；另一 attempt 另提；提交走 `runSafeGit`（钩子、过滤器、fsmonitor 不跑，含读 HEAD 和 `diff`）、不签名、仓库没有作者时用 Atrium 的 | `commit.test.ts`；`node-run.host.test.ts` "finds the commit again after a replay that lost its event…" |
 | 宿主重启后接着跑：`recover` 重做丢了的动作（建 worktree、起节点、缺的提交），再送 `host_restarted`；跑着的节点收到"宿主重启了…"接着做 | `node-run.host.test.ts` "carries on after the host restarts…" |
-| 最后一个可写节点的提交在任务 `done` 之后照常记下（`run.commit`），别的事件仍忽略；任务取消后的 `committed` 丢掉 | `scheduler.test.ts` "still records the commit of a writing end node after the task is done"、"drops a commit that arrives after the task was cancelled"；`tasks.break-check.json` 3 条 |
+| （已被 T4 审查修复取代，见末尾"T4 审查修复"）可写节点的提交落定才 `passed`，任务结束在提交之后 | `scheduler.test.ts` "does not end the task until the last writing node's commit is settled"、"drops a commit that arrives after the task was cancelled" |
 | 节点会话不在用户的会话列表里 | `node-run.host.test.ts` "leaves no node session in the list the user sees" |
 | 泄漏：反复起停节点后 pi 进程、控制器、监听、定时器回到基线；宿主在节点跑着时关闭，runner 与所有 pi 都释放 | `node-run.leak.test.ts` |
 | `pnpm task:try`：参数、模型、图文件校验、任务 id 稳定、事件的输出、停下的条件与退出码；示例图合法 | `dev/task-try.test.ts` |
@@ -2150,3 +2150,32 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 破坏检查：`packages/host/src/tasks/node-run.break-check.json` 34 条（补测试后只重跑了 contract 的 4 条）；`done` 后记 `committed` 的 3 条在 `tasks.break-check.json`，全部检出。
 - 变异测试：`pnpm test:mutation tasks`，见汇报；`runner.ts`、`task-workspaces.ts`、`task-service.ts`、`new-task.ts` 需要真实的 pi 和 git，由宿主层测试覆盖，没放进变异层（变异测试跑的是不带 `.host` 的单元测试）。
 - 没做（留给后面的步骤）：`merge`、`ask_archive`、`progress_line`、`wake_task_conversation`、`notify` 只记一条 debug 日志不执行（T5、T6、T7）；`node_done` 那一轮在宿主重启前已结束、会话文件里能看到 `terminate` 结果的结算（T9 的完整重启流程）；节点对话里用户亲手停下、插话的宿主层用例（需要 T8 的界面命令，判定本身由 `judge.test.ts` 覆盖）。
+
+## T4 审查修复（三路审查 Codex / Grok / Claude 对 T4 的发现，2026-11-05，待验收）
+
+按审查意见的字母编号。破坏检查：`packages/host/src/tasks/review-fixes.break-check.json`（宿主 36 条）、`packages/pi/src/task/review-fixes.break-check.json`（守卫 10 条），`tasks.break-check.json` 因提交落定后才 `passed` 改了 1 条、删了 2 条；`node-run.break-check.json` 有 6 条的 `from` 随代码改了（全部重跑检出）。三组均已重跑，全部检出。变异测试（只跑改动的行）：`tasks` 组 250 个变异 98.09%，`pi` 组 git-guard.ts 81.84%（补测试前，补后未重跑），`git` 组 safe-git.ts 100%，`host` 组 agent-launch.ts 84.62%。
+
+| 行为 | 测试 |
+|---|---|
+| A1/A2/A4 宿主的 git 不跑仓库配置里的命令：`diff.external`（`diff.trustExitCode`）、`log.showSignature` + 已签名 HEAD 的 `gpg.program`；`diff --cached --quiet` 只有退出码 1 算有暂存，其他非零报错；安全参数多了 `log.showSignature` / `merge.verifySignatures` / `commit.gpgsign` | `tasks/commit.test.ts` "does not run a diff driver…"、"does not run gpg.program…"、"fails on any exit code but 1…"；`workspaces/safe-git.test.ts`（参数表） |
+| A3 `core.worktree` 劫持：提交前核对顶层目录，不是节点 worktree 就拒绝且不碰外面；每条提交命令带 `--work-tree` | `commit.test.ts` "refuses to commit when the worktree's configuration points core.worktree elsewhere…"、"pins every command to the worktree…" |
+| A3/H bash 守卫：改 `core.worktree`、`extensions.worktreeConfig`、`-c core.worktree=`、`GIT_CONFIG_KEY_n`、`git config --file` 越界；`$'…'`、`${X:-…}`、`$@`；`builtin`/`command cd`、`if`/`{ }`/循环里的 `cd`；子 shell 的 `cd` 不外泄、可能没发生的 `cd` 不覆盖；读标准输入的 shell | `packages/pi/src/task/git-guard.test.ts` 新增 4 组 "what the T4 review found it let through"；`cd OUT && cd ../work/sub` 一条改为拦（第二个 `cd` 可能失败） |
+| B/C 提交标记：`commitPending` 区分"还没提交"和"查过没有改动"（`commit_checked`）；`host_restarted` 只对这一个 run 重发 `commit_node`；已结束任务 `recover` 再解锁 | `scheduler.test.ts`（"does not end the task until…"、"passes a writing node that changed nothing…"、"asks again for a pending commit…"）；`runner.test.ts` "lets go of the worktree's lock again…"；`node-run.host.test.ts` "finds the commit again after a replay that lost its event…" |
+| J 提交失败 → `failed(commit)`，后继不起、任务不结束；重跑只重试提交（同一 attempt、不开新会话），成功后图照常往下走 | `scheduler.test.ts` "fails a writing node whose commit failed…"、"retries only the commit…"、"ignores a node's turn ending…"；`channel.test.ts` "refuses a node that waits for its commit"；`review-fixes.host.test.ts` "fails the node with `commit`…"（`index.lock` 让 `git add` 失败一次，删掉后重跑） |
+| D1 同批 `node_done` 后又改图 → `node_done` 作废；放行、停下后继续时清掉待结算 | `judge.test.ts` "voids a node_done when a graph change is accepted…"；`scheduler.test.ts` "drops a waiting node_done…"、"forgets a waiting node_done when a stopped node goes on"；`review-fixes.host.test.ts` "does not pass a node on a node_done that a graph-change request…" |
+| D2 `node_done` 已生效的节点被要求 hold 时照常通过；judge 的决定和 `stop_node` 读状态在同一个队列 | `scheduler.test.ts` "passes a node whose node_done stands instead of holding it"；`review-fixes.host.test.ts` "passes a node whose node_done stands when a pause…" |
+| E1 `crashed` 去重按次 | `runner.test.ts` "reports a second crash of the same node after a rerun" |
+| E2 pi 中途崩溃被控制器重启后，宿主作废那一轮并发"宿主重启了" | `review-fixes.host.test.ts` "tells a node its pi was restarted after a crash…"（`SIGKILL` 节点的 pi） |
+| F 契约没送到就补发契约（`contract_sent` 标记） | `scheduler.test.ts` "records that the contract was sent once…"；`review-fixes.host.test.ts` "sends the contract, not a line about carrying on…" |
+| G 新建 worktree 那一行：explore 先跑过也有；单个 work 节点第二次 attempt 没有 | `review-fixes.host.test.ts` "tells the first work node the worktree is new…"、"does not tell a work node's second attempt…" |
+| I 节点 id 的格式与长度；契约里写 id 的地方都转义；`SHELL_TAG` 认空白、零宽字符、全角 `＜` | `graph-validator.test.ts`；`contract.test.ts` "escapes node ids wherever they are written…"；`quote.test.ts` |
+| K 停下的节点在对话里又运行 → `node_resumed` 先记再接受调用 | `review-fixes.host.test.ts` "lets a node the user stopped go on…" |
+| L 调用方校验、记待结算、judge 记账在同一个队列步骤 | `runner.test.ts` "takes a node_done at once after a question was answered…"（假的会话层，信号连着到） |
+| M 关宿主时取消在途的 `prompt` / `command`（带 `AbortSignal`） | `runner.test.ts` "closes while a prompt is stuck…" |
+| N 刚发出 prompt / nudge / resume、`agent_start` 还没到的 15 秒内，`stop_node(after_turn)` 等这一轮 | `runner.test.ts` "does not hold a node right after it was sent a turn that has not begun…"、"holds a node at once when no turn is going…" |
+| O 带 `task` 字段的会话不用 agent 启动参数，无启动路径的直接报错 | `sessions/agent-launch.test.ts` "sessionLaunchFlags…" |
+| P 标记指向的工作区没有 base commit 时报错不重建；`createFrom` 带取消信号；已取消不记 `workspace_created` | `tasks/task-workspaces.test.ts` |
+
+- 没有单独的测试：结束了的任务释放节点上下文（P，只回收内存，源码里按 `Stryker disable` 标注）；`merge.<名>.driver`（T5）。
+- 没做：协议包里没有失败原因枚举的镜像，`commit` 这个新原因留给 T5 的协议工作。
+

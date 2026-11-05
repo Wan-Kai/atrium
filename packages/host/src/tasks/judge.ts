@@ -72,7 +72,8 @@ function endedInError(event: PiEvent): boolean {
  * Takes one input and says what changed.
  *
  * @remarks
- * SPEC-0006, "T4a 定下的细节": a call the host accepted is waiting; a later `turn_start` voids it (pi began
+ * SPEC-0006, "T4a 定下的细节": a call the host accepted is waiting (a graph change accepted after a `node_done` replaces
+ * it, and the `node_done` is void); a later `turn_start` voids it (pi began
  * another request: the same batch had other tools, or someone spoke); an `agent_end` whose last message is
  * an error voids it; `agent_settled` with `aborted: true` voids it (a stop makes pi print a `turn_start` and
  * an error too, so `aborted` is looked at first); at `agent_settled` what still waits stands, and with
@@ -85,7 +86,11 @@ function endedInError(event: PiEvent): boolean {
  * @returns The new state and what to tell the runner, in order.
  */
 export function judge(state: JudgeState, input: JudgeInput): { state: JudgeState; verdicts: Verdict[] } {
-  if (input.kind === "accepted") return { state: { ...state, pending: input.call }, verdicts: [] };
+  if (input.kind === "accepted") {
+    // A graph change asked for after a `node_done` in the same turn replaces it.
+    const replaced = input.call === "graph_change" && state.pending === "done";
+    return { state: { ...state, pending: input.call }, verdicts: replaced ? [{ kind: "void" }] : [] };
+  }
   const { event } = input;
   if (event.type === "agent_start") return { state: { ...state, running: true }, verdicts: [] };
   if (event.type === "turn_start") {

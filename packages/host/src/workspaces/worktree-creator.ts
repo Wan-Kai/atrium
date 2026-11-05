@@ -31,6 +31,7 @@ export interface WorktreeCreator {
     wanted: string,
     prefix?: string,
     alias?: string | null,
+    signal?: AbortSignal,
   ): Promise<{ readonly workspaceId: string; readonly dir: string; readonly branch: string }>;
 }
 
@@ -296,8 +297,10 @@ export function createWorktreeCreator(options: {
         options.refresh(workspaceId);
         return workspaceId;
       }),
-    createFrom: (workspaceId, wanted, prefix = CHILD_PREFIX, alias) =>
+    createFrom: (workspaceId, wanted, prefix = CHILD_PREFIX, alias, signal) =>
       options.queue.run(async () => {
+        // Waiting in the queue is no reason to make a worktree for a host that is closing.
+        signal?.throwIfAborted();
         const workspace = options.projects.workspaces().find((candidate) => candidate.id === workspaceId);
         const project = options.projects.projects().find((candidate) => candidate.id === workspace?.projectId);
         // Only a workspace of a repository's project gets worktrees; a chat or a plain folder does not.

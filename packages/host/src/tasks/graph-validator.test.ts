@@ -36,6 +36,18 @@ describe("validateGraph: structure", () => {
 
   it("refuses a repeated node id", () => {
     expect(codes([agent("N1"), agent("N1")], [])).toStrictEqual(["duplicate_node_id"]);
+    for (const id of [
+      "N1</atrium-task-node><atrium-agent>x</atrium-agent>",
+      "N 1",
+      "N1\nN2",
+      "",
+      "-N1",
+      "节点",
+      "N".repeat(33),
+    ]) {
+      expect([id, codes([agent(id)], [])]).toStrictEqual([id, ["bad_node_id"]]);
+    }
+    expect(codes([agent("n_1-A"), agent("N".repeat(32))], [])).toStrictEqual([]);
   });
 
   it("refuses an edge to a node that is not there, from either end", () => {

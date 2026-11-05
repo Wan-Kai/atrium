@@ -58,7 +58,7 @@ import type { FileSearch } from "../files/file-search";
 import type { Layouts } from "./layouts";
 import { type CatalogChat, type CatalogEntry, chatIdOf, type NewRecord, type SessionCatalog } from "./session-catalog";
 import { archivePlan } from "./child-tree";
-import { agentLaunchFlags, taskLaunchFlags, toolFlags } from "./agent-launch";
+import { sessionLaunchFlags, toolFlags } from "./agent-launch";
 import { type ChildCreated, type ChildRequest, type WorkChanges, createAgentRelay } from "./agent-relay";
 import { createChildrenUsage } from "./children-usage";
 import type { SessionCommands } from "./session-commands";
@@ -892,12 +892,7 @@ export function createSessionManager(options: {
     const extension =
       options.fast === undefined
         ? []
-        : [
-            "--extension",
-            options.fast.extension,
-            ...(taskLaunchFlags(catalogued.find((entry) => entry.sessionId === sessionId)) ??
-              agentLaunchFlags(catalogued, sessionId)),
-          ];
+        : ["--extension", options.fast.extension, ...sessionLaunchFlags(catalogued, sessionId)];
     const traced = startTracedPi({
       launch: {
         piPath: tools.pi.piPath,
@@ -2100,13 +2095,13 @@ export function createSessionManager(options: {
         entryOf(sessionId);
         await commanded(sessionId);
       },
-      async prompt(sessionId, text) {
+      async prompt(sessionId, text, signal) {
         const found = await commanded(sessionId);
-        await found.pi.request({ type: "prompt", message: text }, { timeoutMs: null });
+        await found.pi.request({ type: "prompt", message: text }, { timeoutMs: null, ...(signal ? { signal } : {}) });
       },
-      async command(sessionId, text) {
+      async command(sessionId, text, signal) {
         const found = await commanded(sessionId);
-        await found.pi.request({ type: "prompt", message: text });
+        await found.pi.request({ type: "prompt", message: text }, signal ? { signal } : {});
       },
       alive: (sessionId) => live(sessionId) !== undefined,
       async stop(sessionId) {

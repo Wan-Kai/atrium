@@ -18,6 +18,21 @@ describe("escapeShell (ADR-0013, point 10)", () => {
     expect(escapeShell(`before ${tag} after`)).toBe(`before &lt;${tag.slice(1)} after`);
   });
 
+  it.each([
+    "< /atrium-quoted>",
+    "</ atrium-quoted>",
+    "<\u200B/atrium-quoted>",
+    "</\u200Batrium-task-node>",
+    "<\u2060atrium-agent>",
+    "＜/atrium-quoted>",
+    "<\t/ atrium-subagent>",
+  ])("turns %j into text although it is spelled with a gap or a full-width bracket", (tag) => {
+    const escaped = escapeShell(`a ${tag} b`);
+
+    expect(escaped).toBe(`a &lt;${tag.slice(1)} b`);
+    expect(escaped).not.toMatch(/[<＜]/u);
+  });
+
   it("escapes an event, reply or question tag that ends the text", () => {
     expect(escapeShell("x <event")).toBe("x &lt;event");
     expect(escapeShell("</question")).toBe("&lt;/question");

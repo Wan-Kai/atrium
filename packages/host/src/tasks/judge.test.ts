@@ -52,9 +52,16 @@ describe("judge (SPEC-0006, T4a's details)", () => {
     expect(feed(accepted("graph_change"), pi("agent_settled")).verdicts).toStrictEqual([ended("graph_change")]);
   });
 
+  it("voids a node_done when a graph change is accepted after it in the same turn", () => {
+    const { verdicts } = feed(accepted("done"), accepted("graph_change"), pi("agent_settled"));
+
+    expect(verdicts).toStrictEqual([{ kind: "void" }, ended("graph_change")]);
+    expect(feed(accepted("graph_change"), accepted("done")).verdicts).toStrictEqual([]);
+  });
+
   it("takes the last accepted call", () => {
-    expect(feed(accepted("done"), accepted("graph_change"), pi("agent_settled")).verdicts).toStrictEqual([
-      ended("graph_change"),
+    expect(feed(accepted("graph_change"), accepted("done"), pi("agent_settled")).verdicts).toStrictEqual([
+      ended("done"),
     ]);
   });
 

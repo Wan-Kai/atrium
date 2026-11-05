@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import type { GitRunner } from "../platform/git";
 import { runSafeGit } from "../workspaces/safe-git";
 import { firstSentence } from "./quote";
@@ -74,12 +75,39 @@ async function headWithTrailer(git: GitRunner, cwd: string, value: string): Prom
 }
 
 /**
+ * Checks that git, run in a directory, works on that directory's own tree.
+ *
+ * @remarks
+ * A node can write `core.worktree` into the repository's or the worktree's configuration (with
+ * `extensions.worktreeConfig`), which makes git in the worktree work on a tree elsewhere; the commit would
+ * follow it (security.md, "任务"). Asked without the pin that the commands themselves carry.
+ *
+ * @sideEffects Runs git; reads the real path of the directory.
+ * @param git - git.
+ * @param cwd - The worktree.
+ * @throws {Error} When git's top level is not the worktree.
+ */
+async function assertOwnTree(git: GitRunner, cwd: string): Promise<void> {
+  const top = await runSafeGit(
+    git,
+    ["rev-parse", "--show-toplevel"],
+    { cwd, timeoutMs: COMMIT_TIMEOUT_MS },
+    { rejectIncludes: false },
+  );
+  const expected = await realpath(cwd);
+  if (top.code !== 0 || (await realpath(top.stdout.trim()).catch(() => "")) !== expected) {
+    throw new Error("git's work tree is not the task's worktree");
+  }
+}
+
+/**
  * Commits what a writing node changed in its worktree.
  *
  * @remarks
  * SPEC-0006, "结束" 4 and "宿主自己跑的 git": `git add -A`, then `git commit` with the trailer
  * `Atrium-Task: <taskId>/<node>/<attempt>`, both through `runSafeGit` with `rejectIncludes: false`, so the
- * repository's hooks, fsmonitor and filters do not run, and nothing is pushed. A head that already carries
+ * repository's hooks, fsmonitor, filters, diff drivers and gpg program do not run; every command is pinned with
+ * `--work-tree=<cwd>`, and a git whose top level is not that directory is refused. Nothing is pushed. A head that already carries
  * the trailer is the answer without committing again. Nothing staged is no commit. The commit gets an
  * author of Atrium's own when the repository names none, and is never signed.
  *
@@ -97,15 +125,25 @@ export async function commitWork(
   cwd: string,
   message: { readonly subject: string; readonly trailer: string },
 ): Promise<CommitResult> {
+  await assertOwnTree(git, cwd);
   const done = await headWithTrailer(git, cwd, message.trailer);
   if (done !== null) return { kind: "committed", commit: done };
   const timeoutMs = COMMIT_TIMEOUT_MS;
   const guard = { rejectIncludes: false };
-  const added = await runSafeGit(git, ["add", "-A"], { cwd, timeoutMs }, guard);
+  // Every command carries the pin, whatever the configuration says about where the tree is.
+  const pin = `--work-tree=${cwd}`;
+  const added = await runSafeGit(git, [pin, "add", "-A"], { cwd, timeoutMs }, guard);
   if (added.code !== 0) throw new Error("git add failed");
-  // Exit code 1 means something is staged.
-  const staged = await runSafeGit(git, ["diff", "--cached", "--quiet"], { cwd, timeoutMs }, guard);
+  // No diff driver or text conversion runs. Exit code 1 means something is staged; 0 nothing; any other code
+  // is a git that did not answer, which is no "nothing" and no "something".
+  const staged = await runSafeGit(
+    git,
+    [pin, "diff", "--cached", "--quiet", "--no-ext-diff", "--no-textconv"],
+    { cwd, timeoutMs },
+    guard,
+  );
   if (staged.code === 0) return { kind: "nothing" };
+  if (staged.code !== 1) throw new Error("git diff failed");
   const named = await git.run(["config", "user.email"], { cwd, timeoutMs });
   const author =
     named.code === 0 && named.stdout.trim() !== ""
@@ -113,22 +151,12 @@ export async function commitWork(
       : ["-c", "user.name=Atrium", "-c", "user.email=atrium@localhost"];
   const committed = await runSafeGit(
     git,
-    [
-      ...author,
-      "-c",
-      "commit.gpgsign=false",
-      "commit",
-      "--quiet",
-      "-m",
-      message.subject,
-      "-m",
-      `${TRAILER_KEY}: ${message.trailer}`,
-    ],
+    [...author, pin, "commit", "--quiet", "-m", message.subject, "-m", `${TRAILER_KEY}: ${message.trailer}`],
     { cwd, timeoutMs },
     guard,
   );
   if (committed.code !== 0) throw new Error("git commit failed");
-  const head = await runSafeGit(git, ["rev-parse", "HEAD"], { cwd, timeoutMs }, guard);
+  const head = await runSafeGit(git, [pin, "rev-parse", "HEAD"], { cwd, timeoutMs }, guard);
   if (head.code !== 0) throw new Error("git rev-parse failed");
   return { kind: "committed", commit: head.stdout.trim() };
 }

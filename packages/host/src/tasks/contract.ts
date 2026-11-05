@@ -67,7 +67,7 @@ function graphLines(task: Task, graph: GraphVersion, self: GraphNode): string[] 
     const standing = where.get(id);
     return node === undefined || standing === undefined
       ? []
-      : [`  - ${node.id} · ${escapeShell(node.name)}：${STANDING_WORDS[standing]}`];
+      : [`  - ${escapeShell(node.id)} · ${escapeShell(node.name)}：${STANDING_WORDS[standing]}`];
   });
 }
 
@@ -166,7 +166,7 @@ export function buildContract(input: ContractInput): string {
     .map((name) => escapeShell(name));
   const lines: string[] = [
     "<atrium-task-node>",
-    `你在任务「${escapeShell(task.name)}」里负责节点 ${node.id} · ${escapeShell(node.name)}。`,
+    `你在任务「${escapeShell(task.name)}」里负责节点 ${escapeShell(node.id)} · ${escapeShell(node.name)}。`,
     "",
     `【任务目标】${quoted("任务对话", task.summary.goal)}`,
     ...(task.summary.decisions.length === 0
@@ -186,7 +186,9 @@ export function buildContract(input: ContractInput): string {
     lines.push("【环境】这是新建的 worktree，还没有装依赖，先按项目说明装好。");
   }
   if (run.attempt > 1 && run.backFrom !== undefined) {
-    lines.push(`【上次被打回的原因】${quoted(run.backFrom.node, run.backFrom.reason)}（来自 ${run.backFrom.node}）`);
+    lines.push(
+      `【上次被打回的原因】${quoted(run.backFrom.node, run.backFrom.reason)}（来自 ${escapeShell(run.backFrom.node)}）`,
+    );
   }
   const earlier = task.runs.findLast(
     (candidate) => candidate.node === node.id && candidate.attempt < run.attempt && candidate.summary !== null,
@@ -194,7 +196,7 @@ export function buildContract(input: ContractInput): string {
   if (earlier?.summary !== undefined && earlier.summary !== null) {
     lines.push(
       `【你上一次的交接摘要】${quoted(`${node.id} · ${node.name}`, earlier.summary)}${
-        earlier.commit === null ? "" : `，当时结束在提交 ${earlier.commit}`
+        earlier.commit === null ? "" : `，当时结束在提交 ${escapeShell(earlier.commit)}`
       }；worktree 里保留着那次的改动。`,
     );
   }
