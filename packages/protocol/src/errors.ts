@@ -100,9 +100,18 @@ export const ErrorCode = z.enum([
   "worktree_restore_failed",
   /**
    * A worktree workspace could not be created; `params.reason` is `not_git`, `branch_invalid`,
-   * `base_missing`, `branch_exists` or `dir_taken`, or absent when git failed (SPEC-0001, "M1.11 的新建工作区").
+   * `base_missing`, `branch_exists`, `dir_taken` or `head_mismatch` (the new worktree is not at its
+   * start), or absent when git failed (SPEC-0001, "M1.11 的新建工作区").
    */
   "worktree_create_failed",
+  /**
+   * No worktree was created or restored: the repository's own configuration includes other files
+   * (`params.reason` `include`) or has a filter whose name cannot be turned off (`filter_name`)
+   * (SPEC-0001, "M1.11 的新建工作区"; SPEC-0006, "工作区").
+   */
+  "worktree_config_unsafe",
+  /** The worktree is locked by a task (`params.taskId`) and is not archived or removed (SPEC-0006, "加锁"). */
+  "workspace_in_task",
   /**
    * No branch name came of `name_branch`; `params.reason` is `not_git`, `no_model`, `failed`,
    * `invalid` or `taken` (SPEC-0001, "AI 起分支名").

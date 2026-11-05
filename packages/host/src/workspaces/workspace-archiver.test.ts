@@ -1,5 +1,13 @@
 import { CommandError } from "@atrium/protocol";
-import { FakeClock, GIT_SCENE_ENV, type GitScene, createGitScene, createTempDir, present } from "@atrium/testkit";
+import {
+  FakeClock,
+  GIT_SCENE_ENV,
+  type GitScene,
+  createGitScene,
+  createTempDir,
+  plantTraps,
+  present,
+} from "@atrium/testkit";
 import { access, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
@@ -394,6 +402,31 @@ describe("WorkspaceArchiver.archive", () => {
     expect(archivedOf(projects, present(ids[locked], "locked"))).toBeNull();
   });
 
+  it("refuses a worktree a task has locked, saying which task, and does nothing; another lock is only git's to refuse", async () => {
+    const repo = await scene();
+    const inTask = await repo.worktree("in-task");
+    const mine = await repo.worktree("mine");
+    const { archive, ids, calls, projects } = await archiver(repo, [inTask, mine]);
+    await repo.git(repo.repo, "worktree", "lock", "--reason", "atrium task tsk_01", "--", inTask);
+    await repo.git(repo.repo, "worktree", "lock", "--reason", "mine", "--", mine);
+
+    const failures = await Promise.all(
+      [inTask, mine].map((dir) => archive.archive(present(ids[dir], dir)).catch((error: unknown) => error)),
+    );
+
+    expect(failures).toStrictEqual([
+      new CommandError("workspace_in_task", { taskId: "tsk_01" }),
+      new CommandError("worktree_remove_failed"),
+    ]);
+    // The task's worktree was refused before its sessions stopped; the other one, only at git's remove.
+    expect(calls).toStrictEqual([`stop ${String(ids[mine])} there`, `release ${String(ids[mine])}`]);
+    expect(await there(inTask)).toBe(true);
+    expect(archivedOf(projects, present(ids[inTask], "in task"))).toBeNull();
+    await repo.git(repo.repo, "worktree", "unlock", "--", inTask);
+    await archive.archive(present(ids[inTask], "in task"));
+    expect(await there(inTask)).toBe(false);
+  });
+
   it("gives git ten minutes to remove or add a worktree's directory, and its usual time for the rest", async () => {
     const repo = await scene();
     const feature = await repo.worktree("feature");
@@ -415,6 +448,9 @@ describe("WorkspaceArchiver.archive", () => {
       ["worktree list", null],
       ["worktree prune", null],
       ["show-ref --verify", null],
+      ["config --local", null],
+      ["config --local", null],
+      ["config --name-only", null],
       ["worktree add", 600_000],
     ]);
   });
@@ -503,6 +539,22 @@ function watchingGit(watched: readonly string[], look: () => void): GitRunner {
 }
 
 /**
+ * A git command's arguments without the `-c name=value` options in front of the subcommand.
+ *
+ * @remarks
+ * The host puts its safety options there (`runSafeGit`); these tests read the subcommand.
+ *
+ * @sideEffects none
+ * @param args - The arguments.
+ * @returns The subcommand and what follows.
+ */
+function unprefixed(args: readonly string[]): readonly string[] {
+  let start = 0;
+  while (args[start] === "-c") start += 2;
+  return args.slice(start);
+}
+
+/**
  * Real git that notes each command's first two arguments and the time it was given.
  *
  * @sideEffects none until run; then appends to `seen` and runs git.
@@ -513,7 +565,7 @@ function timedGit(seen: unknown[][]): GitRunner {
   const git = realGit();
   return {
     run: (args, options) => {
-      seen.push([args.slice(0, 2).join(" "), options.timeoutMs ?? null]);
+      seen.push([unprefixed(args).slice(0, 2).join(" "), options.timeoutMs ?? null]);
       return git.run(args, options);
     },
   };
@@ -540,6 +592,36 @@ describe("WorkspaceArchiver.restore", () => {
     expect(await repo.git(detached, "rev-parse", "HEAD")).toBe(await repo.git(repo.repo, "rev-parse", "main"));
     expect([archivedOf(projects, featureId), archivedOf(projects, detachedId)]).toStrictEqual([null, null]);
     expect(refreshed).toStrictEqual([featureId, detachedId]);
+  });
+
+  it("adds a worktree back without running the repository's hooks, filters or fsmonitor", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    const { archive, ids } = await archiver(repo, [feature]);
+    const id = present(ids[feature], "feature");
+    await archive.archive(id);
+    const traps = await plantTraps(repo, ["hook", "filter", "process", "fsmonitor"]);
+    await traps.reset();
+
+    await archive.restore(id);
+
+    expect(await there(feature)).toBe(true);
+    expect(await traps.ran()).toStrictEqual([]);
+  });
+
+  it("refuses to add a worktree back in a repository whose configuration includes files", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    const { archive, ids, projects } = await archiver(repo, [feature]);
+    const id = present(ids[feature], "feature");
+    await archive.archive(id);
+    await repo.git(repo.repo, "config", "include.path", "../elsewhere.gitconfig");
+
+    const failure = await archive.restore(id).catch((error: unknown) => error);
+
+    expect(failure).toStrictEqual(new CommandError("worktree_config_unsafe", { reason: "include" }));
+    expect(await there(feature)).toBe(false);
+    expect(archivedOf(projects, id)).not.toBeNull();
   });
 
   it("puts back the sessions archived with it before showing it again, or all archived in it for an older archive", async () => {

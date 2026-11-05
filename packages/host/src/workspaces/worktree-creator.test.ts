@@ -1,6 +1,14 @@
 import { CommandError } from "@atrium/protocol";
-import { GIT_SCENE_ENV, type GitScene, createGitScene, createTempDir, present } from "@atrium/testkit";
-import { mkdir, realpath, writeFile } from "node:fs/promises";
+import {
+  GIT_SCENE_ENV,
+  type GitScene,
+  type GitTrap,
+  createGitScene,
+  createTempDir,
+  plantTraps,
+  present,
+} from "@atrium/testkit";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
@@ -97,6 +105,22 @@ async function failure(promise: Promise<unknown>): Promise<{ code: string; param
 }
 
 /**
+ * A git command's arguments without the `-c name=value` options in front of the subcommand.
+ *
+ * @remarks
+ * The host puts its safety options there (`runSafeGit`); these tests read the subcommand.
+ *
+ * @sideEffects none
+ * @param args - The arguments.
+ * @returns The subcommand and what follows.
+ */
+function unprefixed(args: readonly string[]): readonly string[] {
+  let start = 0;
+  while (args[start] === "-c") start += 2;
+  return args.slice(start);
+}
+
+/**
  * Real git that times out adding a worktree.
  *
  * @sideEffects none until run; then runs git.
@@ -106,7 +130,7 @@ function timingOutWorktree(): GitRunner {
   const git = realGit();
   return {
     run: (args, options) =>
-      args[0] === "worktree" ? Promise.reject(new GitError("worktree", "timeout")) : git.run(args, options),
+      unprefixed(args)[0] === "worktree" ? Promise.reject(new GitError("worktree", "timeout")) : git.run(args, options),
   };
 }
 
@@ -121,7 +145,7 @@ function timedGit(seen: unknown[][]): GitRunner {
   const git = realGit();
   return {
     run: (args, options) => {
-      seen.push([args.slice(0, 2).join(" "), options.timeoutMs ?? null]);
+      seen.push([unprefixed(args).slice(0, 2).join(" "), options.timeoutMs ?? null]);
       return git.run(args, options);
     },
   };
@@ -177,7 +201,11 @@ describe("createWorktreeCreator: create", () => {
       ["check-ref-format --branch", null],
       ["rev-parse --verify", null],
       ["show-ref --verify", null],
+      ["config --local", null],
+      ["config --local", null],
+      ["config --name-only", null],
       ["worktree add", WORKTREE_TIMEOUT_MS],
+      ["rev-parse --verify", null],
     ]);
   });
 
@@ -575,5 +603,272 @@ describe("createWorktreeCreator: createFrom", () => {
       code: "child_place_invalid",
       params: undefined,
     });
+  });
+});
+
+/**
+ * Real git that runs a step just before the first `worktree` command, and another just after it.
+ *
+ * @sideEffects none until run; then runs the steps and git.
+ * @param before - Done before `worktree add`.
+ * @param after - Done after it, with git's reply.
+ * @returns The runner.
+ */
+function aroundWorktreeAdd(before: () => Promise<void>, after: () => Promise<void>): GitRunner {
+  const git = realGit();
+  return {
+    run: async (args, options) => {
+      if (unprefixed(args)[0] !== "worktree") return git.run(args, options);
+      await before();
+      const done = await git.run(args, options);
+      await after();
+      return done;
+    },
+  };
+}
+
+describe("createWorktreeCreator: hooks, filters and fsmonitor (SPEC-0006, 工作区)", () => {
+  const traps: readonly GitTrap[] = ["hook", "filter", "process", "fsmonitor"];
+
+  it.each(traps)("does not run the repository's %s when it creates a worktree", async (trap) => {
+    const repo = await scene();
+    const planted = await plantTraps(repo, [trap]);
+    const { create, projects, projectId } = await creator(repo);
+
+    const workspaceId = await create.create(projectId, "safe", "refs/heads/main");
+
+    expect(await planted.ran()).toStrictEqual([]);
+    const record = present(
+      projects.workspaces().find((one) => one.id === workspaceId),
+      "the workspace",
+    );
+    expect(await repo.git(record.dir, "rev-parse", "--abbrev-ref", "HEAD")).toBe("safe");
+  });
+
+  it("does not run them when it creates a child's worktree either", async () => {
+    const repo = await scene();
+    const planted = await plantTraps(repo, traps);
+    const { create, projects, projectId } = await creator(repo);
+
+    const made = await create.createFrom(localOf(projects, projectId), "child");
+
+    expect(await planted.ran()).toStrictEqual([]);
+    expect(await readFile(join(made.dir, "filtered.txt"), "utf8")).toBe("filtered\n");
+  });
+
+  it("does not run a filter only the user's global configuration defines", async () => {
+    const repo = await scene();
+    const marker = join(repo.root, "global-filter-ran");
+    const script = join(repo.root, "global-filter.sh");
+    await writeFile(script, `#!/bin/sh\ntouch '${marker}'\ncat\n`, { mode: 0o755 });
+    const global = join(repo.root, "global.gitconfig");
+    await writeFile(global, `[filter "everywhere"]\n\tsmudge = ${script}\n\tclean = ${script}\n`);
+    await writeFile(join(repo.repo, ".gitattributes"), "*.md filter=everywhere\n");
+    // Committed without the global configuration, so the filter has not run yet.
+    await repo.git(repo.repo, "add", "-A");
+    await repo.git(repo.repo, "commit", "--quiet", "-m", "attributes");
+    const git = createGitRunner({
+      env: { ...GIT_SCENE_ENV, GIT_CONFIG_GLOBAL: global },
+      clock: systemClock,
+      resources: new ResourceTracker(),
+    });
+    const { create, projectId } = await creator(repo, git);
+
+    await create.create(projectId, "global", "refs/heads/main");
+
+    await expect(stat(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+/**
+ * Tries to create a worktree and returns the error code, checking nothing was created.
+ *
+ * @sideEffects Creates a worktree if it is allowed.
+ * @param repo - The scene.
+ * @returns The error and its parameters.
+ */
+async function refused(repo: GitScene) {
+  const { create, projects, projectId } = await creator(repo);
+  const result = await failure(create.create(projectId, "no", "refs/heads/main"));
+  expect(projects.workspaces()).toHaveLength(2);
+  await expect(stat(join(repo.root, "repo.worktrees", "no"))).rejects.toMatchObject({ code: "ENOENT" });
+  expect(await repo.git(repo.repo, "branch", "--list", "no")).toBe("");
+  return result;
+}
+
+describe("createWorktreeCreator: a repository that includes other configuration (SPEC-0006, 工作区)", () => {
+  it("refuses include.path", async () => {
+    const repo = await scene();
+    await repo.git(repo.repo, "config", "include.path", "../elsewhere.gitconfig");
+    expect(await refused(repo)).toStrictEqual({ code: "worktree_config_unsafe", params: { reason: "include" } });
+  });
+
+  it("refuses includeIf", async () => {
+    const repo = await scene();
+    await repo.git(repo.repo, "config", `includeIf.gitdir:${repo.repo}/.path`, "../elsewhere.gitconfig");
+    expect(await refused(repo)).toStrictEqual({ code: "worktree_config_unsafe", params: { reason: "include" } });
+  });
+
+  it("refuses an include in the per-worktree configuration", async () => {
+    const repo = await scene();
+    await repo.git(repo.repo, "config", "extensions.worktreeConfig", "true");
+    await writeFile(join(repo.repo, ".git", "config.worktree"), "[include]\n\tpath = ../elsewhere.gitconfig\n");
+    expect(await refused(repo)).toStrictEqual({ code: "worktree_config_unsafe", params: { reason: "include" } });
+  });
+
+  it("refuses a filter whose name cannot be turned off", async () => {
+    const repo = await scene();
+    await repo.git(repo.repo, "config", "filter.a=b.smudge", "cat");
+    expect(await refused(repo)).toStrictEqual({ code: "worktree_config_unsafe", params: { reason: "filter_name" } });
+  });
+
+  it("refuses for a child's worktree too, saying the same", async () => {
+    const repo = await scene();
+    await repo.git(repo.repo, "config", "include.path", "../elsewhere.gitconfig");
+    const { create, projects, projectId } = await creator(repo);
+    expect(await failure(create.createFrom(localOf(projects, projectId), "child"))).toStrictEqual({
+      code: "worktree_config_unsafe",
+      params: { reason: "include" },
+    });
+  });
+
+  it("allows a repository that includes nothing, even with the per-worktree configuration on", async () => {
+    const repo = await scene();
+    await repo.git(repo.repo, "config", "extensions.worktreeConfig", "true");
+    await writeFile(join(repo.repo, ".git", "config.worktree"), "[core]\n\tignorecase = true\n");
+    const { create, projectId } = await creator(repo);
+    await expect(create.create(projectId, "fine", "refs/heads/main")).resolves.toStrictEqual(expect.any(String));
+  });
+
+  it("does not mind the user's own global include", async () => {
+    const repo = await scene();
+    const global = join(repo.root, "global.gitconfig");
+    await writeFile(global, "[include]\n\tpath = other.gitconfig\n");
+    await writeFile(join(repo.root, "other.gitconfig"), "[core]\n\tignorecase = true\n");
+    const git = createGitRunner({
+      env: { ...GIT_SCENE_ENV, GIT_CONFIG_GLOBAL: global },
+      clock: systemClock,
+      resources: new ResourceTracker(),
+    });
+    const { create, projectId } = await creator(repo, git);
+    await expect(create.create(projectId, "fine", "refs/heads/main")).resolves.toStrictEqual(expect.any(String));
+  });
+});
+
+describe("createWorktreeCreator: the start (SPEC-0006, 工作区)", () => {
+  it("starts from the commit the base was when checked, though the branch moves before git adds the worktree", async () => {
+    const repo = await scene();
+    const first = await repo.git(repo.repo, "rev-parse", "main");
+    const git = aroundWorktreeAdd(
+      async () => {
+        await repo.commit(repo.repo, "moved.txt", "moved\n");
+      },
+      async () => {},
+    );
+    const { create, projects, projectId } = await creator(repo, git);
+
+    const workspaceId = await create.create(projectId, "pinned", "refs/heads/main");
+
+    const record = present(
+      projects.workspaces().find((one) => one.id === workspaceId),
+      "the workspace",
+    );
+    expect(await repo.git(repo.repo, "rev-parse", "main")).not.toBe(first);
+    expect(await repo.git(record.dir, "rev-parse", "HEAD")).toBe(first);
+    expect(record.baseCommit).toBe(first);
+  });
+
+  it("starts a child from the commit its workspace was at, though that moves before git adds the worktree", async () => {
+    const repo = await scene();
+    const first = await repo.git(repo.repo, "rev-parse", "HEAD");
+    const git = aroundWorktreeAdd(
+      async () => {
+        await repo.commit(repo.repo, "moved.txt", "moved\n");
+      },
+      async () => {},
+    );
+    const { create, projects, projectId } = await creator(repo, git);
+
+    const made = await create.createFrom(localOf(projects, projectId), "pinned");
+
+    expect(await repo.git(made.dir, "rev-parse", "HEAD")).toBe(first);
+  });
+
+  it("fails as head_mismatch, leaving the directory and recording nothing, when the worktree is not at its start", async () => {
+    const repo = await scene();
+    let added = "";
+    const git = aroundWorktreeAdd(
+      async () => {},
+      async () => {
+        added = join(repo.root, "repo.worktrees", "off");
+        await repo.commit(added, "off.txt", "off\n");
+      },
+    );
+    const { create, projects, projectId, records } = await creator(repo, git);
+
+    expect(await failure(create.create(projectId, "off", "refs/heads/main"))).toStrictEqual({
+      code: "worktree_create_failed",
+      params: { reason: "head_mismatch" },
+    });
+
+    expect(projects.workspaces()).toHaveLength(2);
+    expect((await stat(added)).isDirectory()).toBe(true);
+    expect(records.filter((record) => record["msg"] === "worktree not at its start")).toMatchObject([{ projectId }]);
+  });
+});
+
+describe("createWorktreeCreator: .worktreeinclude (SPEC-0006, 工作区)", () => {
+  it("takes the ignored files it lists along, and nothing else, whether the worktree is made by a user or for a child", async () => {
+    const repo = await scene();
+    await writeFile(join(repo.repo, ".gitignore"), ".env\n");
+    await writeFile(join(repo.repo, ".worktreeinclude"), ".env\nnot-ignored.txt\n");
+    await writeFile(join(repo.repo, ".env"), "SECRET=1\n");
+    await writeFile(join(repo.repo, "not-ignored.txt"), "x\n");
+    const { create, projects, projectId } = await creator(repo);
+
+    const workspaceId = await create.create(projectId, "env", "refs/heads/main");
+    const made = await create.createFrom(localOf(projects, projectId), "env-child");
+
+    const record = present(
+      projects.workspaces().find((one) => one.id === workspaceId),
+      "the workspace",
+    );
+    for (const dir of [record.dir, made.dir]) {
+      expect(await readFile(join(dir, ".env"), "utf8")).toBe("SECRET=1\n");
+      await expect(stat(join(dir, "not-ignored.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  });
+
+  it("reads .worktreeinclude where the child's workspace is, not in the project's folder", async () => {
+    const repo = await scene();
+    const { create, projects, projectId } = await creator(repo);
+    const parentId = await create.create(projectId, "parent", "refs/heads/main");
+    const parent = present(
+      projects.workspaces().find((one) => one.id === parentId),
+      "the parent",
+    );
+    await writeFile(join(parent.dir, ".gitignore"), ".env\n");
+    await writeFile(join(parent.dir, ".worktreeinclude"), ".env\n");
+    await writeFile(join(parent.dir, ".env"), "PARENT=1\n");
+    await writeFile(join(repo.repo, ".env"), "PROJECT=1\n");
+
+    const made = await create.createFrom(parentId, "kid");
+
+    expect(await readFile(join(made.dir, ".env"), "utf8")).toBe("PARENT=1\n");
+  });
+
+  it("creates the worktree without it when there is no .worktreeinclude", async () => {
+    const repo = await scene();
+    await writeFile(join(repo.repo, ".gitignore"), ".env\n");
+    await writeFile(join(repo.repo, ".env"), "SECRET=1\n");
+    const { create, projects, projectId } = await creator(repo);
+
+    const workspaceId = await create.create(projectId, "bare", "refs/heads/main");
+
+    const record = present(
+      projects.workspaces().find((one) => one.id === workspaceId),
+      "the workspace",
+    );
+    await expect(stat(join(record.dir, ".env"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

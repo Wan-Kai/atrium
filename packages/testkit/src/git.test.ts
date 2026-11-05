@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { GIT_SCENE_ENV, createGitScene, gitSceneEnv } from "./git";
+import { GIT_SCENE_ENV, createGitScene, gitSceneEnv, plantTraps } from "./git";
 import { createTempDir } from "./temp-dir";
 
 const run = promisify(execFile);
@@ -46,5 +46,25 @@ describe("createGitScene", () => {
     expect(await second.git(second.repo, "status", "--porcelain")).toBe("");
     expect(await first.git(first.origin, "log", "--format=%s", "main")).toBe("change only-first.txt\nstart");
     expect(await second.git(second.repo, "branch", "--show-current")).toBe("main");
+  });
+});
+
+describe("plantTraps", () => {
+  it("makes plain git run each trap it sets up, and only those", async () => {
+    const scene = await createGitScene("traps");
+    onTestFinished(scene.cleanup);
+    const traps = await plantTraps(scene, ["hook", "filter", "process", "fsmonitor"]);
+    expect(await traps.ran()).toStrictEqual([]);
+
+    await scene.git(scene.repo, "worktree", "add", "--quiet", "-b", "plain", join(scene.root, "plain"), "HEAD");
+
+    expect(await traps.ran()).toStrictEqual(["filter", "fsmonitor", "hook", "process"]);
+    await traps.reset();
+    expect(await traps.ran()).toStrictEqual([]);
+    const some = await createGitScene("traps-some");
+    onTestFinished(some.cleanup);
+    const only = await plantTraps(some, ["hook"]);
+    await some.git(some.repo, "worktree", "add", "--quiet", "-b", "plain", join(some.root, "plain"), "HEAD");
+    expect(await only.ran()).toStrictEqual(["hook"]);
   });
 });

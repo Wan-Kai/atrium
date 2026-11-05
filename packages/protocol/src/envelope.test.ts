@@ -2440,6 +2440,8 @@ describe("HostMessage", () => {
       "worktree_remove_failed",
       "worktree_restore_failed",
       "worktree_create_failed",
+      "worktree_config_unsafe",
+      "workspace_in_task",
       "branch_name_failed",
       "translation_failed",
       "fast_unavailable",

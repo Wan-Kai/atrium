@@ -6739,6 +6739,22 @@
     "requestId": "r1",
     "ok": false,
     "error": {
+      "code": "worktree_config_unsafe"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "workspace_in_task"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
       "code": "branch_name_failed"
     }
   },

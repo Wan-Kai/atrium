@@ -7,7 +7,9 @@ import type { Logger } from "../platform/logger";
 import type { ProjectRecord, ProjectService } from "../projects/project-service";
 import { WORKTREE_TIMEOUT_MS } from "./workspace-archiver";
 import { cleanBranchName } from "./branch-namer";
+import { runSafeGit } from "./safe-git";
 import { mainBranchRef } from "./workspace-service";
+import { copyWorktreeInclude } from "./worktree-include";
 import type { WorktreeQueue } from "./worktree-queue";
 
 /** Creates worktree workspaces (SPEC-0001, "M1.11 的新建工作区"). */
@@ -68,6 +70,11 @@ export function worktreeDir(repo: string, branch: string): string {
  *   directory's path (`dir_taken`);
  * - git is given the base's commit rather than its name, so the new branch tracks nothing (a
  *   push never goes to the main branch) and starts where the base was when checked;
+ * - git runs without the repository's hooks, fsmonitor and filters, and a repository whose own
+ *   configuration includes other files is refused (`worktree_config_unsafe`; see `runSafeGit`);
+ *   when it is done, the new worktree must be at that commit (`head_mismatch`, the directory is
+ *   left for a look), and the files `.worktreeinclude` lists and git ignores are copied in
+ *   (`copyWorktreeInclude`);
  * - the workspace is recorded with that commit, then its project is scanned again;
  * - what the client gives goes to git after `--end-of-options`, or as an option's value once
  *   checked; logs carry ids and git's exit code, or why git failed, never branches or paths.
@@ -173,7 +180,7 @@ export function createWorktreeCreator(options: {
    * @param branch - The new branch.
    * @param base - Where it starts.
    * @returns The worktree's directory and the commit it started at.
-   * @throws {CommandError} `worktree_create_failed`.
+   * @throws {CommandError} `worktree_create_failed` or `worktree_config_unsafe`.
    */
   async function add(project: ProjectRecord, branch: string, base: string) {
     const run = await repositoryOf(project);
@@ -191,7 +198,7 @@ export function createWorktreeCreator(options: {
     // Stryker disable next-line StringLiteral: no base found reads differently without it, as the comment above says.
     const commit = await run(["rev-parse", "--verify", "--quiet", "--end-of-options", `${base}^{commit}`]);
     if (commit.code !== 0) throw new CommandError("worktree_create_failed", { reason: "base_missing", base });
-    return addAt(project, run, branch, commit.stdout.trim());
+    return addAt(project, run, branch, commit.stdout.trim(), project.path);
   }
 
   /**
@@ -205,14 +212,16 @@ export function createWorktreeCreator(options: {
    * @param run - Runs git in its repository.
    * @param branch - The new branch, a name git accepts.
    * @param start - The commit it starts at.
+   * @param sourceDir - The directory the new worktree comes from, which `.worktreeinclude` is read in.
    * @returns The worktree's directory and the commit it started at.
-   * @throws {CommandError} `worktree_create_failed`.
+   * @throws {CommandError} `worktree_create_failed` or `worktree_config_unsafe`.
    */
   async function addAt(
     project: ProjectRecord,
     run: Awaited<ReturnType<typeof repositoryOf>>,
     branch: string,
     start: string,
+    sourceDir: string,
   ) {
     // Stryker disable next-line StringLiteral: without it git matches the name's tail, which only a branch ending in this whole name would.
     const taken = await run(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
@@ -222,11 +231,24 @@ export function createWorktreeCreator(options: {
     if (recorded || (await stat(dir).catch(() => null)) !== null) {
       throw new CommandError("worktree_create_failed", { reason: "dir_taken", dir });
     }
-    const added = await run(["worktree", "add", "--quiet", "-b", branch, "--", dir, start], WORKTREE_TIMEOUT_MS);
+    const git = await options.git;
+    if (git === null) throw new CommandError("worktree_create_failed");
+    const added = await runSafeGit(
+      git,
+      ["worktree", "add", "--quiet", "-b", branch, "--", dir, start],
+      { cwd: project.path, timeoutMs: WORKTREE_TIMEOUT_MS },
+      { rejectIncludes: true },
+    );
     if (added.code !== 0) {
       options.logger.warn({ projectId: project.id, code: added.code }, "worktree add failed");
       throw new CommandError("worktree_create_failed");
     }
+    const head = await git.run(["rev-parse", "--verify", "HEAD"], { cwd: dir });
+    if (head.code !== 0 || head.stdout.trim() !== start) {
+      options.logger.warn({ projectId: project.id }, "worktree not at its start");
+      throw new CommandError("worktree_create_failed", { reason: "head_mismatch" });
+    }
+    await copyWorktreeInclude({ git, sourceDir, destDir: dir, logger: options.logger });
     return { dir, start };
   }
 
@@ -306,7 +328,10 @@ export function createWorktreeCreator(options: {
               !options.projects.workspaces().some((other) => other.dir === worktreeDir(project.path, candidate)) &&
               (await stat(worktreeDir(project.path, candidate)).catch(() => null)) === null;
             if (free && dirFree)
-              return { ...(await addAt(project, run, candidate, head.stdout.trim())), branch: candidate };
+              return {
+                ...(await addAt(project, run, candidate, head.stdout.trim(), workspace.dir)),
+                branch: candidate,
+              };
           }
           throw new CommandError("worktree_create_failed", {
             reason: "branch_exists",
