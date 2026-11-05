@@ -93,12 +93,46 @@ describe("agentSelf", () => {
       role: "advise",
       depth: 1,
       guard: "extension",
+      isolated: false,
     });
     expect([agentSelf(entries, "main"), agentSelf(entries, "yours"), agentSelf(entries, "record-less")]).toStrictEqual([
-      { v: 1, child: false, role: null, depth: 0, guard: "flags" },
-      { v: 1, child: false, role: null, depth: 0, guard: "flags" },
-      { v: 1, child: false, role: null, depth: 1, guard: "flags" },
+      { v: 1, child: false, role: null, depth: 0, guard: "flags", isolated: false },
+      { v: 1, child: false, role: null, depth: 0, guard: "flags", isolated: false },
+      { v: 1, child: false, role: null, depth: 1, guard: "flags", isolated: false },
     ]);
+  });
+});
+
+describe("agentSelf, isolated (SPEC-0002, 路径隔离)", () => {
+  it("isolates the work children the agent opened, and no one else", () => {
+    const entries = [
+      entry("main"),
+      entry("worker", ["main", "agent"], ["work", "flags"]),
+      entry("forked-worker", ["main", "agent"], ["work", "extension"]),
+      entry("deep-worker", ["worker", "agent"], ["work", "flags"]),
+      entry("explorer", ["main", "agent"], ["explore", "flags"]),
+      entry("adviser", ["main", "agent"], ["advise", "flags"]),
+      // The agent's record stays on a session, but one the user opened (or took over) is theirs.
+      entry("yours", ["main", "user"], ["work", "flags"]),
+    ];
+
+    expect(
+      ["main", "worker", "forked-worker", "deep-worker", "explorer", "adviser", "yours"].map(
+        (id) => agentSelf(entries, id).isolated,
+      ),
+    ).toStrictEqual([false, true, true, true, false, false, false]);
+  });
+
+  it("puts the switch in the flag the extension reads", () => {
+    const entries = [entry("main"), entry("worker", ["main", "agent"], ["work", "flags"])];
+    const flagOf = (id: string) => agentLaunchFlags(entries, id)[0];
+
+    expect(flagOf("worker")).toBe(
+      `--atrium-agent=${encodeArgument({ v: 1, child: true, role: "work", depth: 1, guard: "flags", isolated: true })}`,
+    );
+    expect(flagOf("main")).toBe(
+      `--atrium-agent=${encodeArgument({ v: 1, child: false, role: null, depth: 0, guard: "flags", isolated: false })}`,
+    );
   });
 });
 
@@ -201,7 +235,7 @@ describe("agentLaunchFlags", () => {
     const entries = [entry("main"), entry("child", ["main", "agent"], ["explore", "flags"])];
 
     expect(agentLaunchFlags(entries, "child")).toStrictEqual([
-      `--atrium-agent=${encodeArgument({ v: 1, child: true, role: "explore", depth: 1, guard: "flags" })}`,
+      `--atrium-agent=${encodeArgument({ v: 1, child: true, role: "explore", depth: 1, guard: "flags", isolated: false })}`,
       "--tools",
       `read,bash,ffgrep,fffind,ls,report_progress,ask_parent,${PARENT}`,
     ]);

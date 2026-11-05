@@ -2706,7 +2706,7 @@ describe("SessionManager Fast", () => {
         "--extension",
         FAST_EXTENSION,
         // Who the session is for Atrium's extension: no one's child, at depth 0 (ADR-0013, point 3).
-        `--atrium-agent=${encodeArgument({ v: 1, child: false, role: null, depth: 0, guard: "flags" })}`,
+        `--atrium-agent=${encodeArgument({ v: 1, child: false, role: null, depth: 0, guard: "flags", isolated: false })}`,
         // A session the agent did not open has no child's tools (SPEC-0002, "角色与限制").
         "--exclude-tools",
         "report_progress,ask_parent",

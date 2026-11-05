@@ -24,7 +24,9 @@ const CHILD_SEARCH_EXCLUSIONS = ["grep", "find"] as const;
  *
  * @remarks
  * A child the agent opened has its own two tools, its role and where its tools are limited; any
- * other session is no one's child here. Its depth decides the main agent's tools.
+ * other session is no one's child here. Its depth decides the main agent's tools. A `work` child
+ * is isolated: its `edit` / `write` stay in its directory (SPEC-0002, "路径隔离"); a session the
+ * user opened is not.
  *
  * @sideEffects none
  * @param entries - Every session.
@@ -40,6 +42,7 @@ export function agentSelf(entries: readonly LaunchEntry[], sessionId: string): A
     role: agent?.role ?? null,
     depth: agentDepth(entries, sessionId),
     guard: agent?.toolGuard ?? "flags",
+    isolated: agent?.role === "work",
   };
 }
 

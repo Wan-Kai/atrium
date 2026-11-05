@@ -397,6 +397,8 @@ export const AgentSelf = z.strictObject({
   depth: z.number().int().nonnegative(),
   /** Where its tools are limited: pi's flags, or the extension's `tool_call` hook. */
   guard: z.enum(["flags", "extension"]),
+  /** Its `edit` / `write` may only change files under its working directory (SPEC-0002, "路径隔离"). */
+  isolated: z.boolean().optional(),
 });
 export type AgentSelf = z.infer<typeof AgentSelf>;
 
