@@ -1,4 +1,4 @@
-import { Check, Copy, PencilSimple } from "../design/icons";
+import { Check, Copy, PencilSimple, PlayCircle } from "../design/icons";
 import { useClock } from "../state/clock";
 import { CommandTag } from "./command-tag";
 import { type ChosenCommand, writtenCommand } from "./composer-text";
@@ -73,6 +73,8 @@ export interface UserBubbleProps {
   readonly timestamp?: number;
   /** The host sent it to have the agent go on (SPEC-0001, "运行控制"). */
   readonly auto?: boolean;
+  /** Sent from an inline visual rather than typed (SPEC-0007, "回传"). */
+  readonly fromVisual?: boolean;
   /** The command it started with, shown as a tag before the text. */
   readonly command?: ChosenCommand | null;
   /** Whether it has not gone yet, as a new workspace's first message while its steps go on. */
@@ -91,7 +93,8 @@ export interface UserBubbleProps {
  * has no time yet. Bubble on `--surface-2` with radius 22 (design-language, "消息流"). A message
  * longer than about 12 lines is folded, with "展开" at its end (SPEC-0001, "消息下方的信息");
  * its images show as thumbnails above it. One the host sent on its own after an interrupted run
- * says so under it, "系统自动发出". One that started with a command starts with its tag, and is
+ * says so under it, "系统自动发出". One sent from a visual starts with a "来自演示" mark (SPEC-0007,
+ * 原型 study-mode-visuals 第 3 屏). One that started with a command starts with its tag, and is
  * copied as typed, `/名字 参数` (SPEC-0001, "M1.11 的 `/` 命令"). A new workspace's first message
  * shows at 60% until it has gone, then comes up in 0.2 s; its time comes in once it has, and a
  * note can stand in the time's place, the row's height the same (design-language, "新建工作区页").
@@ -106,6 +109,7 @@ export function UserBubble({
   images = 0,
   timestamp,
   auto = false,
+  fromVisual = false,
   turnId,
   clientMessageId = null,
   settled = false,
@@ -150,6 +154,15 @@ export function UserBubble({
           data-testid="user-text"
           className={`whitespace-pre-wrap wrap-anywhere text-[var(--text)] ${expanded ? "" : "line-clamp-12"}`}
         >
+          {fromVisual ? (
+            <span
+              className="mr-1.5 inline-flex h-5 items-center gap-1 rounded-full bg-[var(--surface-1)] px-[7px] align-[1px] text-[length:var(--fs-xs)] font-medium text-[var(--tint)]"
+              data-testid="user-from-visual"
+            >
+              <PlayCircle size={12} aria-hidden />
+              来自演示
+            </span>
+          ) : null}
           {command === null ? null : <CommandTag command={command} />}
           {text}
         </div>

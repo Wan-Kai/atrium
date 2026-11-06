@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AgentNoticeEvent, AgentRole, AgentSource } from "./agent";
 import { AskedQuestion, QUESTION_LIMITS, QuestionOutcome } from "./question";
+import { VisualSource } from "./visuals";
 
 /** Milliseconds since the Unix epoch. */
 const Timestamp = z.number().int().nonnegative();
@@ -158,6 +159,8 @@ export const Turn = z.strictObject({
     auto: z.boolean(),
     /** The skill the message started with; `text` is then only what followed its name. */
     command: MessageCommand.nullable(),
+    /** Sent from a visual rather than typed (SPEC-0007, "回传"); absent for a typed message. */
+    source: VisualSource.optional(),
     timestamp: Timestamp,
   }),
   steps: z.array(Step),

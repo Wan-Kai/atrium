@@ -21,6 +21,8 @@ import {
   sessionModelOf,
   toLogEntry,
   toSlashCommand,
+  VISUALS_FLAG,
+  visualsArgument,
 } from "@atrium/pi";
 import {
   type AskingName,
@@ -39,6 +41,7 @@ import {
   type ThinkingLevel,
   type Turn,
   UNKNOWN_METRICS,
+  type VisualSource,
   isAuthFailure,
   isChatId,
   isDirectionId,
@@ -420,6 +423,11 @@ export function createSessionManager(options: {
   readonly titleModel?: (cwd: string, signal: AbortSignal) => Promise<ModelRef | null>;
   /** Atrium's Fast extension and the Fast new sessions start with; without it pi loads none and there is no Fast. */
   readonly fast?: SessionFast;
+  /**
+   * Where a session's visuals go, as its container decides (SPEC-0007, "一个演示 = 一个文件");
+   * `null` for a session that has none. Atrium's extension is told it, to tell the model.
+   */
+  readonly visualsDir?: (sessionId: string) => string | null;
   /**
    * Subscriptions' usage, asked through Atrium's extension in sessions' pi (ADR-0010); without it,
    * or without the extension, sessions show none.
@@ -905,10 +913,17 @@ export function createSessionManager(options: {
    */
   async function spawn(tools: ReadyTools, launch: Launch, sessionId: string) {
     // Atrium's extension, and who the session is for it and its tools' limits (SPEC-0002, "角色与限制").
+    const visuals = options.visualsDir?.(sessionId) ?? null;
     const extension =
       options.fast === undefined
         ? []
-        : ["--extension", options.fast.extension, ...agentLaunchFlags(options.catalog.list(), sessionId)];
+        : [
+            "--extension",
+            options.fast.extension,
+            ...agentLaunchFlags(options.catalog.list(), sessionId),
+            // Where its visuals go (SPEC-0007, "怎么让 agent 知道").
+            ...(visuals === null ? [] : [`--${VISUALS_FLAG}=${visualsArgument(visuals)}`]),
+          ];
     const traced = startTracedPi({
       launch: {
         piPath: tools.pi.piPath,
@@ -1164,11 +1179,13 @@ export function createSessionManager(options: {
               opened: starts.opened,
               auto: starts.auto,
               compactions: starts.compactions,
+              sources: starts.sources,
               record: (
                 entryIds: readonly string[],
                 autoIds: readonly string[],
                 compactions: ReadonlyMap<string, "overflow" | "threshold" | null>,
-              ) => inBackground("turn starts", () => starts.record(entryIds, autoIds, compactions)),
+                sources: ReadonlyMap<string, VisualSource>,
+              ) => inBackground("turn starts", () => starts.record(entryIds, autoIds, compactions, sources)),
             },
           }),
     });
@@ -1559,7 +1576,9 @@ export function createSessionManager(options: {
     if (options.turnStarts === undefined) return;
     try {
       const starts = await options.turnStarts(from);
-      await (await options.turnStarts(to)).record([...starts.opened], [...starts.auto], starts.compactions);
+      await (
+        await options.turnStarts(to)
+      ).record([...starts.opened], [...starts.auto], starts.compactions, starts.sources);
     } catch (error) {
       options.logger.warn({ ...failureFields(error), sessionId: to }, "turn starts could not be copied");
     }
@@ -1915,7 +1934,7 @@ export function createSessionManager(options: {
         else prompting.set(sessionId, left);
       }
     },
-    async steer(command, images) {
+    async steer(command, images, source) {
       const { sessionId } = command;
       prompting.set(sessionId, (prompting.get(sessionId) ?? 0) + 1);
       try {
@@ -1926,7 +1945,7 @@ export function createSessionManager(options: {
         notArchived(sessionId);
         notReadOnly(sessionId);
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
-        return await session.controller.steer(command, images);
+        return await session.controller.steer(command, images, source);
       } finally {
         const left = (prompting.get(sessionId) ?? 1) - 1;
         if (left === 0) prompting.delete(sessionId);

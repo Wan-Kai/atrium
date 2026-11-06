@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 /** A JSON value, as tool call arguments must be. */
 type FauxJson = null | boolean | number | string | readonly FauxJson[] | { readonly [key: string]: FauxJson };
 
-/** One content block of a scripted reply. */
+/**
+ * One content block of a scripted reply; text and string tool arguments may hold `{{visuals}}`,
+ * which becomes the session's directory for visuals the host gave pi (SPEC-0007).
+ */
 export type FauxBlock =
   | { readonly type: "thinking"; readonly text: string }
   | { readonly type: "text"; readonly text: string }

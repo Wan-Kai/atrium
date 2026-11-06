@@ -111,3 +111,11 @@ export {
   startLogin,
 } from "./auth/login";
 export { compactionReserve } from "./env/compaction";
+export {
+  VISUALS_FLAG,
+  VISUAL_CDN_HOSTS,
+  VISUAL_ICONS,
+  VISUAL_VARIABLES,
+  type VisualIcon,
+  visualsArgument,
+} from "./visuals/visuals";

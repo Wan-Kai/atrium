@@ -742,6 +742,7 @@ export function TurnView({
             images={turn.user.images}
             {...(status === null ? { timestamp: turn.user.timestamp } : {})}
             auto={turn.user.auto}
+            fromVisual={turn.user.source?.kind === "visual"}
             command={messageTag(turn.user.command)}
             {...(standIn ? {} : { turnId: turn.id })}
             clientMessageId={turn.user.clientMessageId}

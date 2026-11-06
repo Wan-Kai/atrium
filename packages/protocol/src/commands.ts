@@ -13,6 +13,7 @@ import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup"
 import { Step, TranscriptItem } from "./transcript";
 import { PI_CONFIG_MAX_BYTES, PiConfigFile, PiConfigName, PiConfigRevision } from "./pi-config";
 import { DeviceId, PairingId, RelayLine, RemoteState } from "./remote";
+import { VISUAL_FILE_MAX, VISUAL_MESSAGE_MAX, VisualPath } from "./visuals";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
 export const RequestId = z.string().min(1).max(128);
@@ -700,6 +701,31 @@ export const ReadFileCommand = z.strictObject({
 });
 export type ReadFileCommand = z.infer<typeof ReadFileCommand>;
 
+/**
+ * Checks a visual a reply names and hands out its sandbox address (SPEC-0007, "接口与数据").
+ *
+ * @remarks
+ * The connection then hears `visual_changed` when the file changes, until it closes.
+ */
+export const ResolveVisualCommand = z.strictObject({
+  type: z.literal("resolve_visual"),
+  ...sessionCommandFields,
+  path: VisualPath,
+});
+export type ResolveVisualCommand = z.infer<typeof ResolveVisualCommand>;
+
+/**
+ * Sends what you picked in a visual as your message in its session (SPEC-0007, "回传"): a steer
+ * while a run goes on, a new turn otherwise, marked as coming from the visual.
+ */
+export const SendVisualMessageCommand = z.strictObject({
+  type: z.literal("send_visual_message"),
+  ...sessionCommandFields,
+  path: VisualPath,
+  text: z.string().min(1).max(VISUAL_MESSAGE_MAX),
+});
+export type SendVisualMessageCommand = z.infer<typeof SendVisualMessageCommand>;
+
 /** Reads a fixed ordinary pi configuration; `null` selects the global agent directory. */
 export const ReadPiConfigCommand = z.strictObject({
   type: z.literal("read_pi_config"),
@@ -1036,6 +1062,8 @@ export const Command = z.discriminatedUnion("type", [
   WatchDiffCommand,
   ListDirCommand,
   ReadFileCommand,
+  ResolveVisualCommand,
+  SendVisualMessageCommand,
   ReadPiConfigCommand,
   SavePiConfigCommand,
   CheckSetupCommand,
@@ -1187,6 +1215,14 @@ export const CommandResult = {
   list_dir: z.strictObject({ entries: z.array(DirEntry).max(FILE_LIMITS.entries), truncated: z.boolean() }),
   /** `size` in bytes; 0 for a link. */
   read_file: z.strictObject({ size: z.number().int().nonnegative(), content: FileContent }),
+  /** The sandbox address, the file's size and when it last changed. */
+  resolve_visual: z.strictObject({
+    url: z.string().startsWith("atrium-visual://").max(8192),
+    size: z.number().int().nonnegative().max(VISUAL_FILE_MAX),
+    mtime: z.number().int().nonnegative(),
+  }),
+  /** As `steer`'s, and `dropped` when the same visual sent less than a second before. */
+  send_visual_message: z.strictObject({ disposition: z.enum(["started", "queued", "handled", "dropped"]) }),
   read_pi_config: PiConfigFile,
   save_pi_config: PiConfigFile,
   check_setup: SetupState,

@@ -84,6 +84,7 @@ classDiagram
       updatedAt
       archived: bool
       parent?  [索引] 父会话 id + 谁开的，SPEC-0002
+      detachedFrom?  [索引] 脱离前的父会话 id，只用来找上级的演示目录，SPEC-0007
       usageAfter?  [索引] 用量的基线条目 id，SPEC-0002
       agent?  [索引] agent 开的子对话：句柄、角色、工具限制、起点模型、任务，SPEC-0002
       usedHandles?  [索引] 用过的句柄，只增不减，SPEC-0002
@@ -142,7 +143,7 @@ classDiagram
   - **归属**：Atrium 自己建的会话，创建时把所属容器记进索引（`containerId`），以后以它为准（参照 Paseo：创建时写定，不再推断）。终端里 pi 开的、Atrium 没见过的会话，才按文件头里的 `cwd` 归到对应目录的容器。这样既保留"终端会话自动归位"，以后"把对话移到项目"也只需改记录。
   - pi 恢复会话时用的是文件头里的 `cwd`；工作区目录被移走或删除时，恢复报"目录不存在"，不悄悄换目录。
   - 扫描到两个文件带同一个 id 时报告冲突，不自动合并。
-  - **子对话**（SPEC-0002，M1.15）：父子关系只记在索引里（`parent: { sessionId, by }`），不读 pi 会话头的 `parentSession`（新 worktree 的子对话指向已删掉的中间文件）。子对话可以和父会话在同一个容器，也可以在另一个工作区（新建的 worktree）；层数不限，遇到环时在闭合处断开。记录里的名字（`name`）给 pi 写出文件前的草稿子对话用，pi 有了名字以 pi 的为准。`usageAfter` 是分叉出的文件里最后一条条目的 id，状态栏的"含子对话"只算它之后的；空的子对话没有基线，从头算。脱离只去掉 `parent`，它下面的关系不变。
+  - **子对话**（SPEC-0002，M1.15）：父子关系只记在索引里（`parent: { sessionId, by }`），不读 pi 会话头的 `parentSession`（新 worktree 的子对话指向已删掉的中间文件）。子对话可以和父会话在同一个容器，也可以在另一个工作区（新建的 worktree）；层数不限，遇到环时在闭合处断开。记录里的名字（`name`）给 pi 写出文件前的草稿子对话用，pi 有了名字以 pi 的为准。`usageAfter` 是分叉出的文件里最后一条条目的 id，状态栏的"含子对话"只算它之后的；空的子对话没有基线，从头算。脱离只去掉 `parent`，它下面的关系不变；去掉时把原来的父会话 id 记成 `detachedFrom`，只用来让它继续读得到上级会话的演示（SPEC-0007，2026-11-06），不算父子关系。
   - **agent 开的子对话**（SPEC-0002 第二步）：记录多一个 `agent`：不变的句柄 `handle`（寻址和分支名 `agent/<handle>` 用它；显示名就是会话名，可改）、角色、工具限制的做法 `toolGuard`（启动参数，或带上下文时由扩展的 `tool_call` 钩子拦）、第一次起 pi 用的模型和档位、是否在自己的 worktree、任务记录 `tasks: [{ taskId, originTask?, followUpOf?, state }]`。父会话的记录存 `usedHandles`，同一父会话下句柄永不重复。收件会话的记录存 `deliveries`：往上送的通知只存引用（哪个子对话、哪件任务、哪种事件），交代存全文，发出后在文件里见到才删。它们在索引里存成宽松的 JSON，由宿主读时校验，读不出的当作没有。
 - **MergeState** 由 MergeInspector 计算。`unknown` 带原因：git 低于 2.38、主干引用缺失、查询失败、外部 worktree 起点无法判断。合并判定按"分支提交 + 主干提交"缓存；`dirty` 和目录是否存在每次单独刷新。界面映射：`dirty` 优先显示"未提交"，否则 `verdict` 为 `pending` 且 `ahead > 0` 显示 `↑N`（squash 合并后分支仍比主干多提交，但已判定为已合并，不显示 `↑N`），再看 `verdict`。
 
@@ -166,7 +167,10 @@ classDiagram
 ├── remote/vault.bin          手机端的保险箱：Electron 主进程用 safeStorage 加密后写的，宿主只经主进程读写（SPEC-0005"宿主"）
 ├── turns/<会话 id>.json      插话记录：宿主当场看到的用户消息开启了新一轮还是插话（SPEC-0001"对话记录"），
 │                             以及运行中看到的压缩和原因（SPEC-0001 `compaction`，2026-10-20）；
+│                             以及哪些消息来自交互演示（`sources`，SPEC-0007，2026-11-05 加，可选字段，不升版本）；
 │                             随会话变长，单独放，不拖累其他文件
+├── visuals/<会话 id>/        普通会话的交互演示文件（SPEC-0007）：agent 写的 HTML 片段，宿主只读、不清理；
+│                             学习方向的演示在方向目录下的 `visuals/`（SPEC-0008）
 ├── chats/<目录名>/           每个对话的工作目录，对话 id 由目录名得出
 └── logs/
 ```

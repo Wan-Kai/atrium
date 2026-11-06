@@ -160,7 +160,9 @@ export function createReadOnlyTranscripts(options: {
       sessionId: session.sessionId,
       newId: options.newId,
       now: options.now,
-      ...(starts === undefined ? {} : { opened: starts.opened, auto: starts.auto, compactions: starts.compactions }),
+      ...(starts === undefined
+        ? {}
+        : { opened: starts.opened, auto: starts.auto, compactions: starts.compactions, sources: starts.sources }),
     });
     const entries = await options.readEntries(session.file);
     transcript.rebuild({ entries, leafId: entries.at(-1)?.id ?? null }, true);

@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-11-06：MV1 对话里的交互演示经用户验收通过并合回 `main`，未推送。** 分支 `atrium/mv1-inline-visuals`。审查后定：DNS 预解析泄露主机名作为已知风险接受（security.md），esm.sh 按版本范围的依赖继续拦，提示模型用固定版本加 `?bundle`。 协议 35（合并时 main 已用到 34：MP6e 32、拿掉交接 33、ML1 34）。宿主 `visuals/`（目录校验、令牌、外壳、监视、限速）、桌面端 `atrium-visual:` 协议与按 frame 的请求过滤、界面 `visual-card`、扩展的 `atrium_visuals` 提示、手机端占位卡片。实现时定的细节写在 SPEC-0007"MV1 实现时定的细节"（单独的 session 改成按 frame 过滤、回传要落在演示里的鼠标按下、插话步骤不标来源、打开按钮只给相对路径、截图内存里最多 64 个、单独运行的宿主没有演示），2026-11-06 用户全部确认；同日按用户要求在外壳里关掉 WebRTC，TURN over TCP 的口子堵上；测试与未跑的见[追踪表](testing/coverage-map.md#mv1-对话里的交互演示spec-00072026-11-05待验收)。三方审查还没做。
+
 **2026-11-06：ML1 方向容器与新建方向经用户验收通过并合回 `main`，未推送。** 分支 `atrium/ml1-study-directions`。审查后定：手机完全不碰学习方向（不下发、相关命令拒绝），讨论会话起不来时的兜底会话算讨论会话。 方向是第三种容器（`lrn_<目录名>`，`~/Atrium/Learning/`，设了 `ATRIUM_HOME` 时在其下的 `Learning/`），宿主扫描并监听学习目录、`learning.json` 记别名置顶和上次打开、`sessions.json` 加 `study`；新建方向由宿主起名、建目录（AGENTS.md、`lab/` 的 git、标记文件最后写）、开讨论会话，第一条消息由界面发；归档移到 `Archive/`、恢复冲突 `study_restore_conflict`；侧栏"学习"一行、学习首页、新建方向页、方向主页标签。协议 32（MV1 也要升，合并时顺延）。2026-11-06 按用户对待定点的回答补做：归档的方向的会话只读地看（宿主读会话文件，不起 pi）、有会话在跑时归档先确认、去掉"继续讨论"（点卡片进方向，主页列出会话）、讨论第一轮下"建了方向"一行。同日按三方评审补：学习目录和 `Archive/` 不经链接、不覆盖的移动（先占位）、git 去掉指向别的仓库的变量、日志只记错误码、归档方向的会话宿主端拒绝一切要 pi 的命令、只读副本有上限和作废、新建与移动排队、关闭等新建、讨论没建成时照样给方向、归档冲突单独的错误码、启动先扫学习目录、`learning.json` 的保留字段和名字长度、界面面包屑和主页标签的快捷键、`learningDir`。定下的细节和偏离写在 SPEC-0008"ML1 定的细节"，测试见[追踪表](testing/coverage-map.md#学习模式-ml1方向容器与新建方向spec-00082026-11-05)。
 
 **2026-11-05：学习模式和对话里的交互演示设计定稿，SPEC-0007、SPEC-0008 进入评审，在 `atrium/discuss-study-mode`，未合并、未推送。** 原型三份（`study-mode-prototype.html` 入口与主页、`study-mode-flow-prototype.html` 完整流程、`study-mode-visuals-prototype.html` 展示形式），用户选入口丁、步骤条 C、演示内联；调研 [inline-visuals.md](research/inline-visuals.md)；选定的视觉写进 design-language。里程碑排成 ML1～ML5 和 MV1（见"阶段 · 学习模式"），还没开工。
@@ -651,7 +653,7 @@ MP0 互通实验 ──┬── MP1 Swift 工程基础 ──┐
 - **参考**：SPEC-0008"会话的用途""升级"、SPEC-0002（子对话）、SPEC-0003（提问卡片）。
 - **完成标准**：SPEC-0008"验证"里上课到升级的各条有测试；端到端测试用 faux 模型走完一级；归档连带的泄漏测试通过。
 
-##### MV1 对话里的交互演示
+##### MV1 对话里的交互演示（2026-11-06 完成）
 
 - **目标**：所有会话里，agent 都能在回复中放一个可交互的演示，你在演示里点的回答直接回到对话。
 - **范围**：`atrium-visual:` 协议、令牌、外壳（颜色变量、常用 Hugeicons、高度上报、`window.atrium.sendMessage`）；CSP 和单独的 session，按站点只放行写死版本的 CDN 路径；消息流认 `visual` 代码块、`visual.resolve` / `visual.changed` / `visual.sendMessage`；来自演示的消息和来源标记；离开视口卸载和截图；焦点在演示里时按键归演示；手机端占位卡片；扩展系统提示里的演示说明。先改 security.md（原始 HTML 不执行的例外、外部地址表加 CDN）并跑 `pnpm boundary` 登记。

@@ -443,7 +443,7 @@ describe("atriumPlan", () => {
     ]);
   });
 
-  it("registers Fast's switch and hook, the plan query and the child conversations' command, tools and flag, and the web tools, from Atrium's one extension", () => {
+  it("registers Fast's switch and hook, the plan query and the child conversations' command, tools and flag, the web tools, and the visuals' flag and prompt hook, from Atrium's one extension", () => {
     const commands: string[] = [];
     const hooks: string[] = [];
     const tools: string[] = [];
@@ -464,10 +464,18 @@ describe("atriumPlan", () => {
 
     expect([commands, hooks, tools.length, tools.slice(-2), flags]).toStrictEqual([
       ["atrium-fast", "atrium-plan", "atrium-agent", "atrium-edit"],
-      ["before_provider_request", "after_provider_response", "tool_call", "turn_end", "agent_end", "message_start"],
+      [
+        "before_provider_request",
+        "after_provider_response",
+        "tool_call",
+        "turn_end",
+        "agent_end",
+        "message_start",
+        "before_agent_start",
+      ],
       12,
       ["web_search", "web_fetch"],
-      ["atrium-agent"],
+      ["atrium-agent", "atrium-visuals"],
     ]);
   });
 

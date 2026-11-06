@@ -60,6 +60,7 @@ import {
   PaintBoardIcon,
   PencilEdit01Icon,
   Pin02Icon,
+  PlayCircleIcon,
   PuzzleIcon,
   RefreshIcon,
   ReloadIcon,
@@ -188,6 +189,8 @@ export const ArrowsInSimple = drawn(ArrowShrinkIcon);
 export const ArrowsOutSimple = drawn(ArrowExpandIcon);
 export const ArrowUp = drawn(ArrowUp02Icon, 2.5);
 export const ArrowUpRight = drawn(ArrowUpRight01Icon);
+/** An inline visual's mark: its card's title row and a message sent from it (SPEC-0007). */
+export const PlayCircle = drawn(PlayCircleIcon);
 export const At = drawn(AtIcon);
 export const CaretDown = drawn(ArrowDown01Icon);
 export const CaretRight = drawn(ArrowRight01Icon);

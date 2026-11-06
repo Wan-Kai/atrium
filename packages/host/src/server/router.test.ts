@@ -359,6 +359,17 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
         return { size: 1, content: { kind: "text", text: "a" } };
       },
     },
+    visuals: {
+      resolve: async (connectionId, sessionId, path) => {
+        calls.push(["resolveVisual", connectionId, sessionId, path]);
+        if (path === "outside.html") throw new CommandError("visual_outside");
+        return { url: `atrium-visual://${"a".repeat(32)}/a.html`, size: 1, mtime: 2 };
+      },
+      send: async (command) => {
+        calls.push(["sendVisual", command]);
+        return { disposition: "dropped" };
+      },
+    },
     tracer: recording.tracer,
     logger: recording.logger,
     containerOfSession: (sessionId) => SESSION_CONTAINERS[sessionId],
@@ -986,6 +997,39 @@ describe("createRouter", () => {
         ok: false,
         error: { code: "workspace_not_found", params: { workspaceId: "wks_ffffffffffffffff" } },
       },
+    ]);
+  });
+
+  it("hands resolving a visual and its messages to the visuals, with the connection", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "resolve_visual", requestId: "r1", sessionId: "s1", path: "a.html" }));
+    await route(
+      connection,
+      withTrace({ type: "resolve_visual", requestId: "r2", sessionId: "s1", path: "outside.html" }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "send_visual_message", requestId: "r3", sessionId: "s1", path: "a.html", text: "选 B" }),
+    );
+
+    expect(calls).toStrictEqual([
+      ["resolveVisual", connection.id, "s1", "a.html"],
+      ["resolveVisual", connection.id, "s1", "outside.html"],
+      [
+        "sendVisual",
+        { requestId: "r3", traceparent: expect.any(String), sessionId: "s1", path: "a.html", text: "选 B" },
+      ],
+    ]);
+    expect(sent).toStrictEqual([
+      {
+        type: "response",
+        requestId: "r1",
+        ok: true,
+        result: { url: `atrium-visual://${"a".repeat(32)}/a.html`, size: 1, mtime: 2 },
+      },
+      { type: "response", requestId: "r2", ok: false, error: { code: "visual_outside" } },
+      { type: "response", requestId: "r3", ok: true, result: { disposition: "dropped" } },
     ]);
   });
 

@@ -17,6 +17,8 @@ public indirect enum MarkdownBlock: Equatable, Sendable {
   case code(language: String?, code: String, closed: Bool)
   /// A Mermaid or PlantUML block, shown as source.
   case diagram(language: String, source: String)
+  /// An inline visual's reference (SPEC-0007): the phone shows a card with the file's name only.
+  case visual(name: String)
   /// A list; each item's blocks, and its task checkbox if it has one.
   case list(ordered: Bool, start: Int, items: [ListItem])
   /// A block quote.
@@ -70,6 +72,8 @@ public indirect enum MarkdownBlock: Equatable, Sendable {
       let body = code.code.hasSuffix("\n") ? String(code.code.dropLast()) : code.code
       if let language, ["mermaid", "plantuml", "puml"].contains(language.lowercased()) {
         self = .diagram(language: language.lowercased(), source: body)
+      } else if language?.lowercased() == "visual", let name = Self.visualName(body) {
+        self = .visual(name: name)
       } else {
         self = .code(
           language: language, code: body, closed: Self.fenceClosed(code, source: source, lineStarts: lineStarts))
@@ -98,6 +102,22 @@ public indirect enum MarkdownBlock: Equatable, Sendable {
     default:
       self = .paragraph(AttributedString(markup.format()))
     }
+  }
+
+  /// The file name of a `visual` block's path, if the block is one.
+  ///
+  /// - Remark: The block is one line of JSON with a `path` (SPEC-0007, "接口与数据"); the phone
+  ///   neither renders nor fetches the visual, so only the name is kept. Anything else stays code.
+  /// - SideEffects: none
+  /// - Parameter body: The block's text.
+  /// - Returns: The name, or `nil`.
+  private static func visualName(_ body: String) -> String? {
+    guard let data = body.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let path = object["path"] as? String, !path.isEmpty
+    else { return nil }
+    let name = path.split(separator: "/").last.map(String.init) ?? path
+    return name.isEmpty ? nil : name
   }
 
   /// A list's items.

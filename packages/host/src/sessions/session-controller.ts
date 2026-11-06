@@ -14,6 +14,7 @@ import {
   type InteractionAnswer,
   type ModelRef,
   type PendingQuestion,
+  type VisualSource,
   type PendingSteer,
   type PlanProvider,
   type PromptCommand,
@@ -63,6 +64,8 @@ export interface PromptImage {
 interface Outgoing {
   readonly text: string;
   readonly images: readonly PromptImage[];
+  /** The visual it was sent from (SPEC-0007, "回传"); absent for a typed message. It stays with the message wherever it waits. */
+  readonly source?: VisualSource;
 }
 
 /** The part of a running pi a session controller uses; the manager adapts a traced pi to it. */
@@ -196,8 +199,8 @@ export interface SessionController {
     command: EditStoppedMessageCommand,
     images?: readonly PromptImage[],
   ): Promise<CommandResult<"edit_stopped_message">>;
-  /** Sends a steer with its images, or a message when idle. */
-  steer(command: SteerCommand, images?: readonly PromptImage[]): Promise<CommandResult<"steer">>;
+  /** Sends a steer with its images, or a message when idle; `source` says it came from a visual (SPEC-0007). */
+  steer(command: SteerCommand, images?: readonly PromptImage[], source?: VisualSource): Promise<CommandResult<"steer">>;
   /** Stops the run: pauses the queue, clears pi's queue and aborts. */
   stop(): Promise<CommandResult<"stop">>;
   resumeQueue(): CommandResult<"resume_queue">;
@@ -430,6 +433,7 @@ interface QueueItem {
   readonly createdAt: number;
   readonly requestId: string | null;
   readonly traceId: string | null;
+  readonly source?: VisualSource;
 }
 
 /** A steer pi was given, and the text its queue lists it by once it has. */
@@ -438,6 +442,7 @@ interface Steer {
   /** As it was sent: what the client shows, and what goes again if it comes back. */
   readonly text: string;
   readonly images: readonly PromptImage[];
+  readonly source?: VisualSource;
   /** Whether pi's queue has listed it; pi's text may differ, expanded as pi expands skills and templates. */
   listed: boolean;
   /** pi went before delivering it, and it waits in the host's queue now: its command answers so. */
@@ -460,6 +465,7 @@ interface Waiting {
   readonly text: string;
   readonly images: readonly PromptImage[];
   readonly auto: boolean;
+  readonly source?: VisualSource;
   /** Set once pi echoed it as the user message opening a turn. */
   echoed: boolean;
   /** Set when pi went away before taking it and its queued item went back to the queue instead. */
@@ -539,10 +545,13 @@ export function createSessionController(options: {
     readonly opened: ReadonlySet<string>;
     readonly auto?: ReadonlySet<string>;
     readonly compactions?: ReadonlyMap<string, SeenCompaction>;
+    /** Entries of messages earlier host runs saw sent from a visual (SPEC-0007, "回传"). */
+    readonly sources?: ReadonlyMap<string, VisualSource>;
     readonly record: (
       entryIds: readonly string[],
       autoIds: readonly string[],
       compactions: ReadonlyMap<string, SeenCompaction>,
+      sources: ReadonlyMap<string, VisualSource>,
     ) => void;
   };
   /**
@@ -588,6 +597,7 @@ export function createSessionController(options: {
           opened: options.turnStarts.opened,
           ...(options.turnStarts.auto === undefined ? {} : { auto: options.turnStarts.auto }),
           ...(options.turnStarts.compactions === undefined ? {} : { compactions: options.turnStarts.compactions }),
+          ...(options.turnStarts.sources === undefined ? {} : { sources: options.turnStarts.sources }),
           onTurnsSeen: options.turnStarts.record,
         }),
   });
@@ -1025,7 +1035,7 @@ export function createSessionController(options: {
     if (next === undefined) return { clientMessageId: null, auto: false };
     next.echoed = true;
     if (next === unconfirmed) unconfirmed = null;
-    return { clientMessageId: next.requestId, auto: next.auto };
+    return { clientMessageId: next.requestId, auto: next.auto, ...withSource(next.source) };
   }
 
   /**
@@ -1343,7 +1353,14 @@ export function createSessionController(options: {
     from: { readonly requestId: string | null; readonly traceId: string | null; readonly auto: boolean },
     fromQueue = false,
   ): Promise<"started" | "handled"> {
-    const entry: Waiting = { ...from, text: message.text, images: message.images, echoed: false, requeued: false };
+    const entry: Waiting = {
+      ...from,
+      text: message.text,
+      images: message.images,
+      ...withSource(message.source),
+      echoed: false,
+      requeued: false,
+    };
     waiting.push(entry);
     unconfirmed = entry;
     sending = true;
@@ -1658,6 +1675,7 @@ export function createSessionController(options: {
       createdAt: clock.now(),
       requestId,
       traceId,
+      ...withSource(message.source),
     };
     queue.push(item);
     controlChanged();
@@ -1675,13 +1693,14 @@ export function createSessionController(options: {
    */
   function requeue(messages: readonly Outgoing[]): void {
     queue.unshift(
-      ...messages.map(({ text, images }) => ({
+      ...messages.map(({ text, images, source }) => ({
         id: newId(),
         text,
         images,
         createdAt: clock.now(),
         requestId: null,
         traceId: null,
+        ...withSource(source),
       })),
     );
   }
@@ -1705,7 +1724,7 @@ export function createSessionController(options: {
     const listed = steers.filter((steer) => steer.listed);
     const ours = listed.slice(Math.max(0, listed.length - texts.length));
     const others = texts.slice(0, texts.length - ours.length).map((text) => ({ text, images: [] }));
-    return [...others, ...ours.map(({ text, images }) => ({ text, images }))];
+    return [...others, ...ours.map(({ text, images, source }) => ({ text, images, ...withSource(source) }))];
   }
 
   /**
@@ -1832,6 +1851,7 @@ export function createSessionController(options: {
       id: requestId ?? newId(),
       text: message.text,
       images: message.images,
+      ...withSource(message.source),
       listed: false,
       requeued: false,
     };
@@ -2278,13 +2298,13 @@ export function createSessionController(options: {
         dispatch();
       }
     },
-    async steer(command, images = []) {
+    async steer(command, images = [], source) {
       refuseWhenExited();
       refuseWhileStopping();
       spoke();
       // Stryker disable next-line OptionalChaining: commands are validated, so their traceparent always parses.
       const traceId = parseTraceparent(command.traceparent)?.traceId ?? null;
-      return steerOrReply({ text: command.text, images }, command.requestId, traceId);
+      return steerOrReply({ text: command.text, images, ...withSource(source) }, command.requestId, traceId);
     },
     stop() {
       if (editing) throw new CommandError("session_busy");
@@ -2558,4 +2578,18 @@ export function createSessionController(options: {
       await restarting;
     },
   };
+}
+
+/**
+ * A message's visual source as a field to spread, or nothing.
+ *
+ * @remarks
+ * A typed message carries no `source` key at all, so its turn travels as before (SPEC-0007, "回传").
+ *
+ * @sideEffects none
+ * @param source - The source, if any.
+ * @returns `{ source }`, or an empty object.
+ */
+function withSource(source: VisualSource | undefined): { readonly source?: VisualSource } {
+  return source === undefined ? {} : { source };
 }

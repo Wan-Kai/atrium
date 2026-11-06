@@ -291,6 +291,9 @@ importers:
       '@atrium/remote-crypto':
         specifier: workspace:*
         version: link:../remote-crypto
+      '@hugeicons/core-free-icons':
+        specifier: 4.3.5
+        version: 4.3.5
       '@opentelemetry/api':
         specifier: 1.9.1
         version: 1.9.1

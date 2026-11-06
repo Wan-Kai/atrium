@@ -64,6 +64,14 @@ describe("the phone's allowlist", () => {
     expect(COMMAND_REACH.translate_reply).toBe("local_only");
     expect(COMMAND_REACH.cancel_translation).toBe("local_only");
   });
+
+  it("keeps visuals on the Mac: the phone shows a card only (SPEC-0007, 手机端)", () => {
+    const fields = { requestId: "r1", traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" };
+    expect(phoneMayRun({ type: "resolve_visual", ...fields, sessionId: "s1", path: "a.html" })).toBe(false);
+    expect(phoneMayRun({ type: "send_visual_message", ...fields, sessionId: "s1", path: "a.html", text: "B" })).toBe(
+      false,
+    );
+  });
 });
 
 describe("what goes to the phone", () => {
@@ -83,6 +91,7 @@ describe("what goes to the phone", () => {
       "pi_latest",
       "credentials_changed",
       "remote_updated",
+      "visual_changed",
     ]);
     expect(pushedToPhone({ type: "credentials_changed" })).toBe(false);
     expect(pushedToPhone({ type: "plans_updated", plans: [] })).toBe(true);

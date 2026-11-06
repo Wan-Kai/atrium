@@ -4,6 +4,47 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## MV1 对话里的交互演示（SPEC-0007，2026-11-05，2026-11-06 验收）
+
+回复里 `visual` 代码块内联成沙箱演示；协议 35（分支上是 32，2026-11-06 合回 main 时 main 已用到 34，改为 35；`resolve_visual`、`send_visual_message`、`visual_changed`、`Turn.user.source`）。实现时定的细节（2026-11-06 已全部由用户确认）见 SPEC-0007"MV1 实现时定的细节"。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 协议：命令、结果、事件、错误码、来源字段、4 000 字符上限、地址只能是 `atrium-visual:` | `packages/protocol/src/visuals.test.ts`；`envelope.test.ts` 的命令、结果、宿主消息示例（Swift 夹具同步） |
+| 演示目录：只认 `.html`、目录内、路上无符号链接（文件、文件夹，指回目录里的也不行）、最多 1 MB；读的时候再查一次；查完、打开之前把目录换成链接也读不到外面（打开后逐段 `lstat` 比 inode）；读不了的文件只给错误码、不带路径 | `packages/host/src/visuals/visual-file.test.ts`（真实文件；竞争由检查和打开之间的钩子造出来） |
+| 分叉、子对话读得到上级会话的演示（`parent`，脱离后 `detachedFrom`），无关会话照样 `visual_outside`，环只走一遍 | `visual-place.test.ts`（`ancestorsOf`、`visualPlaceOf`）；`visual-service.test.ts` 的 parent 一条；`sessions/session-catalog.test.ts` 的 detach 一条 |
+| 默认目录 `~/.atrium/visuals/<会话 id>/`，会话 id 不安全时没有 | `visuals/visual-place.test.ts` |
+| 令牌：同一文件一个、小写十六进制、只认令牌；页面带外壳、CSP、`no-store`；坏令牌、非 GET、变得不安全的文件 404 | `visuals/visual-service.test.ts`（真实 HTTP）；`visuals.host.test.ts`（真实宿主） |
+| 改了文件告诉 resolve 过的连接；目录监视按引用计数，断开就停，计时器、监视计数归零；监视失败只记一条不带路径的日志；文件删了发 `mtime` 0；resolve 时还没有的文件（文件夹也没有）出现了就发；断开或关闭后才完成的 resolve 不加监视；没人看的令牌丢掉，再 resolve 换新令牌 | `visual-service.test.ts` 的 watching 三条、comes and go 两条、resolving 三条；`visuals.host.test.ts` 第一条 |
+| 回传：当作插话或新一轮发出；同一演示 1 秒内第二条丢掉（同时到的两条也只发一条），日志只记次数、不记正文；不是本会话演示的拒绝 | `visual-service.test.ts` 的 sending 四条；`visuals.host.test.ts` 第二条 |
+| 来源：实时标在开新一轮的消息上，重建、宿主重启、分叉后仍在；插话记录 `sources` 读不出的单条丢掉；排队、崩溃重发后仍带来源 | `store/turn-starts.test.ts`、`transcript/session-transcript.test.ts`、`sessions/session-controller.test.ts`（三条）、`session-manager.test.ts`（分叉复制）、`visuals.host.test.ts` |
+| 扩展：`--atrium-visuals` 读回、系统提示分段 `atrium_visuals`、规则文字（引用块、写死版本、图标、回传）；宿主只给有目录的会话传参数 | `packages/pi/src/visuals/visuals.test.ts`、`plan/extension.test.ts`（注册）、`session-manager.test.ts` 的 visuals 一条 |
+| 外壳：CSP 与 SPEC 一字不差（加 `sandbox allow-scripts`），无 `unsafe-eval`；桥先于片段；桥最先把 `RTC*`、`webkitRTC*` 换成删不掉、改不回的 `undefined`（`node:vm` 实测）；常用 Hugeicons 线宽 1.75、名单外为空；脚本里没有 `</` | `visuals/shell.test.ts` |
+| 桌面端：CSP、按站点检查写死版本（每个站点放行和拦下各若干条；`/gh/` 只认 40 位提交号和 `vX.Y.Z`；esm.sh 的 `/node/*.mjs` 放行、按范围的依赖拦下）、按 frame 过滤、没有 frame 的请求只放行应用和宿主的源与演示能加载的、转发路径、截图矩形校验；⌘W、⌘, 由主进程接住、页面照自己的按键处理 | `apps/desktop/src/main/visual-sandbox.test.ts`、`shortcuts.test.ts`；`packages/ui/src/app/menu-shortcuts.browser.test.ts`；e2e 第三条（焦点在演示里按 ⌘, 开设置、⌘W 关标签） |
+| 回传必须跟着按在这个演示上的真实按下：收到按下时用 `elementFromPoint` 记下按在谁上，5 秒内有效、只用一次、按在别的演示或被裁掉的部分（输入框在上面）不算；别的条件过了才用；按下晚到等 300 ms；`dropped` 告诉演示没发出 | `packages/ui/src/chat/visual-presses.test.ts`；`visual-card.browser.test.tsx` 的两条真实点击（迟到的按下、格式不对的先被拒且不耗按下、没有按下、`dropped`）；e2e 第二条：点输入框（与探测演示的几何矩形重叠）后片段自己发的被拒（旧的按矩形判断时这条失败） |
+| 客户端：resolve / 发送、事件分发；只记卡片在用的（卸载就忘）；重连后再 resolve，每批 20 个、隔 200 ms；断线不忘、不通知，失败的留着下次再试并通知 | `packages/client/src/atrium-client.test.ts` 的 inline visuals 六条 |
+| 卡片：标题行、`sandbox="allow-scripts"`、`no-referrer`、`?v=` 重新加载、主题初始化和切换、高度、各错误提示、写错的引用、没有会话时显示成代码、只对相对路径给打开按钮；脚本自己发的消息丢掉 | `packages/ui/src/chat/visual-card.browser.test.tsx`；`visual-reference.test.ts` |
+| 离开视口卸载、截图（完整可见并停 1 秒）、换成截图同高、滚回来重新加载；截图只留最新、最多 64 个、总共不超过 32 MB，卡片不另存；只在截图时的深浅色下显示；被盖住时不截；10 秒没 `ui/initialize` 显示加载失败；失败恢复后视口观察跟着新元素；卡片挂着时 hold、卸载时放开；超过 10 000px 的高度截到 10 000 | `visual-card-offscreen.browser.test.tsx`（六条）；`visual-card.browser.test.tsx`；`visual-snapshots.test.ts` |
+| 沙箱逃逸（Electron 实测）：fetch、XHR、WebSocket、白名单外图片和脚本、读 `parent.document`、`window.open`、`top.location`、摄像头、自己导航走（只许导航到 `atrium-visual:`，CDN 页面、data、blob 都不行）、Worker、预连接都失败，WebRTC 构造函数在演示里是 `undefined`、删不掉也装不回，子 frame（`about:blank`、`document.write`、`srcdoc`、`data:`、`blob:`）、Worker 里拿不到（`srcdoc` 靠每个 frame 都跑的预加载脚本，去掉它时 `srcdoc` 的 TURN 连到陷阱，反向对照），重定向到陷阱被拦，四个自己导航走的演示（陷阱、CDN 页面、`data:`、`blob:`）逐个滚进视口后都没走成，`window.open` 没叫起系统浏览器，net-log 里演示编的域名只有 `<link rel="dns-prefetch">` 那个被解析（已知未堵），STUN/UDP 和 TURN over TCP 都连不出去，陷阱服务器一个请求、一个连接都没收到；jsDelivr、cdnjs 写死版本能加载，`d3`、`d3@7`、`d3@latest` 被拦；脚本自己发的、焦点在演示里但页面 5 秒内有自己的输入时片段绕过外壳发的、没有落在演示里的按下时发的都被丢掉；真点了才发、1 秒内第二下丢掉、"来自演示"标记、插话记录里有来源；图标、主题；深浅色切换；焦点在演示里 ⌘N 不响应、点回输入框恢复；改文件后卡片显示新版 | `apps/desktop/e2e/visuals.spec.ts`（2 条；CDN 由主进程的 https 替身应答，不联网） |
+| 泄漏：滚出、滚回 15 轮后脱离文档的 DOM 没有增长；完整可见停 1 秒后截到图，滚走后换成截图 | `apps/desktop/e2e/visuals.leak.spec.ts` |
+| 手机端：`visual` 块显示卡片，标题行"演示 · <文件名>"，第二行另起"在电脑上查看"，不渲染、不取内容；写错的仍是代码 | `apps/ios/AtriumKit/Tests/AtriumRenderTests/StreamingMarkdownTests.swift`；`AtriumUITests/VisualPlaceholderCardTests.swift` |
+
+验证记录（2026-11-06，worktree `mv1-inline-visuals`，未提交）：
+
+- `pnpm check` 通过（格式、oxlint 含 JSDoc、类型、knip、`boundary --all`：未登记 0、不精确 0、`ios:check`）。
+- 2026-11-06 合进 `main`（ML1、去掉交接、MP6e、代理 relay；协议改为 35）后：`pnpm check` 通过；`pnpm test` 4748/4748；AtriumKit 475/475；`pnpm test:host` 251/251；`pnpm test:ui` 1219/1219；e2e `visuals.spec.ts`（3）+ `visuals.leak.spec.ts` + `study.spec.ts` 5/5；`pnpm test:leak` vitest 23/23、e2e 11/12（`ask-user.leak.spec.ts` 留下"运行中"图标，单独跑 3 次失败 1 次，偶发，与演示无关，没修，也没在 `main` 上单独验证）；break-check 51/51（合并后补一条：只读会话的对话记录带上演示来源，`read-only-transcripts.test.ts`）。
+- 2026-11-06 用户定两条（DNS 预解析作为残余风险接受、esm.sh 范围依赖照旧拦下并在提示里要 `?bundle`）：只改文档和系统提示；`pnpm check` 通过；`pnpm test` 4511/4511；`pnpm test:host` 245/245；新的提示断言 `asks for exact pinned versions…` 在 break-check 里 CAUGHT（共 50/50）；`pnpm test:pi` 没跑（装的 pi 1.5.0 没有夹具，同前）。
+- 2026-11-06 三方审查修改后重跑（最新）：`pnpm check` 通过（`boundary --all` 未登记 0）；`pnpm test` 4509/4510（失败的仍是 testkit `git.test.ts` 在全量负载下 5 秒超时，与本改动无关，没修）；`pnpm test:host` 245/245；`pnpm test:ui` 1203/1204（失败的仍是 `status-bar.browser.test.tsx` 那条，单独跑通过，没修）；e2e `visuals.spec.ts`（3 条）+ `visuals.leak.spec.ts` 4/4；`pnpm test:leak` vitest 20/20、e2e 11/12（`viewers.leak.spec.ts` 全量里两次都失败、单独跑 5 次都通过，留下的是一个空状态占位，与演示无关，没修）；AtriumKit 408/408。break-check 49/49 CAUGHT（新写的整份；`realFolder`、`O_NOFOLLOW` 两条去掉了：打开后的逐段检查也拦得住，单删一层测试抓不到，属于两层防护）。变异：`visuals` 组 91.1%（visual-service 81.0、visual-file 89.6、visual-place 93.2、visual-sandbox 97.9、shell 96.8、shortcuts 100、pi 95.8/100）；ui 的 visual-presses、visual-snapshots 98.2%；客户端改动的两段 81.5%。e2e 反向对照：去掉每个 frame 的预加载脚本时 `srcdoc` 的 TURN 连上陷阱（抓住）；把 `requestFrame` 的导航判断弄坏时仍然通过——四个演示的导航另有一层（没查清是哪层）也拦住了，导航分类只靠单元测试证明。
+- 2026-11-06 补堵 WebRTC 后重跑：`pnpm check` 通过；`pnpm test` 4481/4481；`pnpm test:host` 245/245；e2e `visuals.spec.ts` + `visuals.leak.spec.ts` 3/3（两次）；新 break-check 一条 CAUGHT（共 22/22）；shell.ts 增量变异 93.55%（新代码在脚本字符串里，Stryker 不变异，由 break-check 盖住）。UI、Swift、全量泄漏这次没改到，没重跑。
+- 首轮：`pnpm test`：4479/4480 通过；失败的 `testkit/src/git.test.ts` 的 createGitScene 一条在全量负载下 5 秒超时，单独跑两次都通过，与本改动无关。`pnpm test:host` 245/245。`pnpm test:ui` 1196/1197；失败的 `status-bar.browser.test.tsx` 一条之前全量时也偶发过，单独跑两次 29/29 通过，与本改动无关。
+- e2e：`visuals.spec.ts` 2/2、`visuals.leak.spec.ts` 1/1。反向对照：关掉请求过滤后 `d3`、`d3@7`、`d3@latest` 都能加载，测试失败；去掉页面输入判断后绕过成功，测试失败；只用 Playwright 的点击（不经 `input-event`）时回传被拒，测试失败。
+- `pnpm test:leak`：vitest 泄漏 20/20；e2e 泄漏 11/12，`visuals.leak.spec.ts` 通过；失败的 `viewers.leak.spec.ts` 一次留下一个空状态占位（与演示无关），单独跑三次都通过，按偶发记录。
+- Swift：AtriumKit 407 项通过；`protocol:swift --check` 一致。
+- break-check：`packages/host/src/visuals/visuals.break-check.json` 21/21 CAUGHT（补 WebRTC 后 22/22）。
+- 变异（增量）：`visuals` 组 92.03%（visual-sandbox 97.1、shell 93.5、visual-file 91.8、visual-place 88.9、visual-service 82.1、pi extension 100、pi visuals 93.0）；ui 组里新增的 visual-presses、visual-reference、visual-snapshots 93.33%。
+- 没跑：`pnpm test:pi`（装的 pi 1.5.0 没有录好的夹具，已有的 52 条合约测试在这台机器上失败，与本改动无关）、`test:package`、`test:stress`、`test:soak`、`pnpm package`（按要求不打包）。
+- WebRTC（2026-11-06 补）：外壳关掉 `RTC*`；e2e 反向对照：去掉这一步时 `rtc`、`rtc-webkit`、`rtc-restore` 成功，陷阱收到两个 TCP 连接（TURN），测试失败。
+
 ## 学习模式 ML1：方向容器与新建方向（SPEC-0008，2026-11-05）
 
 方向是第三种容器（`lrn_<目录名>`，目录在 `~/Atrium/Learning/`，设了 `ATRIUM_HOME` 时在 `$ATRIUM_HOME/Learning/`）；侧栏"学习"一行、学习首页、新建方向页、方向主页标签。协议 32。

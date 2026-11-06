@@ -3166,3 +3166,179 @@ describe("createAtriumClient: workspace changes", () => {
     }
   });
 });
+
+/**
+ * The paths a socket was asked to resolve, in order.
+ *
+ * @remarks
+ * For the inline visuals' tests.
+ *
+ * @sideEffects none
+ * @param socket - The fake socket.
+ * @returns The paths.
+ */
+function resolvesOf(socket: { commands(): Record<string, unknown>[] }): string[] {
+  return socket
+    .commands()
+    .filter((command) => command["type"] === "resolve_visual")
+    .map((command) => String(command["path"]));
+}
+
+describe("createAtriumClient: inline visuals", () => {
+  const url = `atrium-visual://${"a".repeat(32)}/a.html`;
+
+  it("resolves a visual and sends its messages, returning what the host answers", async () => {
+    const { client, latest } = await connected();
+
+    const resolving = client.resolveVisual("s1", "visuals/a.html");
+    latest().answer("resolve_visual", { url, size: 3, mtime: 5 });
+    const sending = client.sendVisualMessage("s1", "visuals/a.html", "选 B");
+    latest().answer("send_visual_message", { disposition: "dropped" });
+
+    expect(await resolving).toStrictEqual({ url, size: 3, mtime: 5 });
+    expect(await sending).toStrictEqual({ disposition: "dropped" });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => String(command["type"]).includes("visual"))
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "resolve_visual", sessionId: "s1", path: "visuals/a.html" },
+      { type: "send_visual_message", sessionId: "s1", path: "visuals/a.html", text: "选 B" },
+    ]);
+  });
+
+  it("tells each listener a visual changed, until it stops listening", async () => {
+    const { client, latest } = await connected();
+    const heard: unknown[] = [];
+    const stop = client.onVisualChanged((changed) => heard.push(changed));
+    const changed = { type: "visual_changed", sessionId: "s1", path: "a.html", mtime: 9 };
+
+    latest().receive(JSON.stringify(changed));
+    stop();
+    latest().receive(JSON.stringify({ ...changed, mtime: 10 }));
+
+    expect(heard).toStrictEqual([changed]);
+  });
+
+  it("resolves what cards hold again on a new connection, telling listeners of a new address or time", async () => {
+    const { client, clock, latest, sockets } = clientWith({ reconnectDelaysMs: [100] });
+    const connecting = client.connect();
+    latest().open();
+    latest().receive(welcome());
+    await connecting;
+    client.holdVisual("s1", "a.html");
+    const resolving = client.resolveVisual("s1", "a.html");
+    latest().answer("resolve_visual", { url, size: 3, mtime: 5 });
+    await resolving;
+    const heard: unknown[] = [];
+    client.onVisualChanged((changed) => heard.push(changed));
+
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+    await vi.waitFor(() => expect(resolvesOf(latest())).toStrictEqual(["a.html"]));
+    latest().answer("resolve_visual", { url: `atrium-visual://${"b".repeat(32)}/a.html`, size: 3, mtime: 5 });
+
+    await vi.waitFor(() =>
+      expect(heard).toStrictEqual([{ type: "visual_changed", sessionId: "s1", path: "a.html", mtime: 5 }]),
+    );
+    expect(sockets).toHaveLength(2);
+  });
+
+  it("forgets a visual once no card holds it, and resolves one no card held only when asked", async () => {
+    const { client, clock, latest } = clientWith({ reconnectDelaysMs: [100] });
+    const connecting = client.connect();
+    latest().open();
+    latest().receive(welcome());
+    await connecting;
+    const first = client.holdVisual("s1", "a.html");
+    const second = client.holdVisual("s1", "a.html");
+    client.holdVisual("s1", "b.html")();
+    for (const path of ["a.html", "b.html", "c.html"]) {
+      const resolving = client.resolveVisual("s1", path);
+      latest().answer("resolve_visual", { url, size: 3, mtime: 5 });
+      await resolving;
+    }
+    first();
+    first();
+
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+    await vi.waitFor(() => expect(resolvesOf(latest())).toStrictEqual(["a.html"]));
+    second();
+    latest().answer("resolve_visual", { url, size: 3, mtime: 5 });
+
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h3"));
+    await Promise.resolve();
+    expect(resolvesOf(latest())).toStrictEqual([]);
+  });
+
+  it("keeps a held visual that failed, or whose connection dropped, and tries it again on the next one", async () => {
+    const { client, clock, latest } = clientWith({ reconnectDelaysMs: [100, 100] });
+    const connecting = client.connect();
+    latest().open();
+    latest().receive(welcome());
+    await connecting;
+    client.holdVisual("s1", "gone.html");
+    client.holdVisual("s1", "a.html");
+    const failing = client.resolveVisual("s1", "gone.html");
+    latest().fail("resolve_visual", "visual_missing");
+    await expect(failing).rejects.toMatchObject({ code: "visual_missing" });
+    const resolving = client.resolveVisual("s1", "a.html");
+    latest().answer("resolve_visual", { url, size: 3, mtime: 5 });
+    await resolving;
+    const heard: unknown[] = [];
+    client.onVisualChanged((changed) => heard.push(changed));
+
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+    await vi.waitFor(() => expect(resolvesOf(latest())).toStrictEqual(["gone.html", "a.html"]));
+    // The connection drops while both are asked again: neither is forgotten, nor told as changed.
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h3"));
+    await vi.waitFor(() => expect(resolvesOf(latest())).toStrictEqual(["gone.html", "a.html"]));
+    answerAt(latest(), "resolve_visual", 0, { url, size: 3, mtime: 6 });
+    answerAt(latest(), "resolve_visual", 1, { url, size: 3, mtime: 5 });
+
+    await vi.waitFor(() =>
+      expect(heard).toStrictEqual([{ type: "visual_changed", sessionId: "s1", path: "gone.html", mtime: 6 }]),
+    );
+  });
+
+  it("asks again at most 20 at a time, 200 ms apart, so a long-lived client stays within the host's rate", async () => {
+    const { client, clock, latest } = clientWith({ reconnectDelaysMs: [100] });
+    const connecting = client.connect();
+    latest().open();
+    latest().receive(welcome());
+    await connecting;
+    const paths = Array.from({ length: 45 }, (_, index) => `v${index}.html`);
+    for (const path of paths) client.holdVisual("s1", path);
+
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+    await vi.waitFor(() => expect(resolvesOf(latest())).toHaveLength(20));
+    for (let index = 0; index < 20; index += 1) answerAt(latest(), "resolve_visual", index, { url, size: 3, mtime: 5 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(resolvesOf(latest())).toHaveLength(20);
+    clock.advance(200);
+    await vi.waitFor(() => expect(resolvesOf(latest())).toHaveLength(40));
+    for (let index = 20; index < 40; index += 1)
+      answerAt(latest(), "resolve_visual", index, { url, size: 3, mtime: 5 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    clock.advance(200);
+    await vi.waitFor(() => expect(resolvesOf(latest())).toStrictEqual(paths));
+  });
+});

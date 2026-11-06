@@ -153,6 +153,8 @@ const SessionRecord = z.looseObject({
   fast: z.boolean().optional(),
   /** The session it is a child conversation of, and who opened it (SPEC-0002); added in M1.15. */
   parent: z.looseObject({ sessionId: z.string(), by: z.enum(["user", "agent"]) }).optional(),
+  /** The parent a detached child had, for reading its visuals only (SPEC-0007, MV1 details); added in MV1. */
+  detachedFrom: z.string().optional(),
   /**
    * A child's usage baseline: the last entry it copied from its parent, whose usage it does not
    * count; `null` when it copied none (SPEC-0002, "用量合计"); added in M1.15.
@@ -344,6 +346,11 @@ const TurnStartsDocument = z.looseObject({
    * absent until there is one (SPEC-0001, `compaction`).
    */
   compactions: z.record(z.string(), z.enum(["overflow", "threshold"]).nullable()).optional(),
+  /**
+   * Messages sent from a visual, by entry, with which (SPEC-0007, "回传"); absent until there is
+   * one. Each is checked as it is read, so one that cannot be read is dropped alone.
+   */
+  sources: z.record(z.string(), z.unknown()).optional(),
 });
 export type TurnStartsDocument = z.infer<typeof TurnStartsDocument>;
 

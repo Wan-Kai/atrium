@@ -16,6 +16,12 @@ interface AtriumBridge {
   reveal?(path: string): Promise<void>;
   /** Opens an absolute path to an HTML file in the default browser. */
   openInBrowser?(path: string): Promise<void>;
+  /** Captures a rectangle of the page as a PNG `data:` address, for a visual's snapshot (SPEC-0007). */
+  captureVisual?(rect: { x: number; y: number; width: number; height: number }): Promise<string | null>;
+  /** Hears each mouse press in the window, frames included, in CSS pixels; returns how to stop. */
+  onPointerDown?: (listener: (point: { x: number; y: number }) => void) => () => void;
+  /** Hears ⌘W and ⌘,, which the main process takes before the page or a visual hears them; returns how to stop. */
+  onShortcut?: (listener: (shortcut: "close-tab" | "settings") => void) => () => void;
   /**
    * Opens a terminal in a workspace's directory, or in the home folder for `null`
    * (SPEC-0001, "在终端中打开").

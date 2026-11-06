@@ -153,14 +153,20 @@ describe("ReadOnlyTranscripts", () => {
     expect(reads).toHaveLength(2);
   });
 
-  it("rebuilds with the turn starts the host recorded, so a message it sent shows as its own", async () => {
+  it("rebuilds with the turn starts the host recorded, so a message it sent shows as its own, a visual's marked", async () => {
     const file = await sessionFile();
     const asked: string[] = [];
     const made = createReadOnlyTranscripts({
       readEntries,
       turnStarts: async (sessionId) => {
         asked.push(sessionId);
-        return { opened: new Set(["u1"]), auto: new Set(["u1"]), compactions: new Map(), record: async () => {} };
+        return {
+          opened: new Set(["u1"]),
+          auto: new Set(["u1"]),
+          compactions: new Map(),
+          sources: new Map([["u1", { kind: "visual" as const, path: "visuals/a.html" }]]),
+          record: async () => {},
+        };
       },
       newId: () => "t1",
       newStream: () => "stream-1",
@@ -171,7 +177,10 @@ describe("ReadOnlyTranscripts", () => {
     const snapshot = present(await made.snapshot({ sessionId: "s1", file, model: null }, false), "snapshot");
 
     expect(asked).toStrictEqual(["s1"]);
-    expect(snapshot.items).toMatchObject([{ kind: "turn", user: { text: "我想学 Go", auto: true } }]);
+    // A message a visual sent keeps its mark in an archived direction too (SPEC-0007).
+    expect(snapshot.items).toMatchObject([
+      { kind: "turn", user: { text: "我想学 Go", auto: true, source: { kind: "visual", path: "visuals/a.html" } } },
+    ]);
   });
 
   it("is in an epoch no pi's first snapshot has, so a live one always replaces it", async () => {

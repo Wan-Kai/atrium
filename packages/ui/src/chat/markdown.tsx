@@ -49,6 +49,7 @@ import { PlantumlBlock } from "./plantuml-block";
 import { ReplyFile } from "./reply-file";
 import { ReplyDataBlock } from "./reply-data-block";
 import { ReplyTable } from "./reply-table";
+import { VisualBlock } from "./visual-card";
 
 /** Streamdown's default Markdown plugins, plus showing raw HTML as text. */
 const REMARK_PLUGINS = [
@@ -199,6 +200,8 @@ function usePlugins(text: string): PluginConfig {
       ...(loaded.math === undefined ? {} : { math: loaded.math }),
       renderers: [
         { language: ["plantuml", "puml"], component: PlantumlBlock },
+        // An inline visual's reference becomes its card (SPEC-0007).
+        { language: "visual", component: VisualBlock },
         ...(loaded.mermaid === undefined ? [] : [{ language: "mermaid", component: MermaidBlock }]),
       ],
     }),
@@ -438,7 +441,7 @@ export interface MarkdownProps {
  * desktop shell already sends links to the system browser. Code blocks have no line numbers and no
  * download, buttons are Atrium's icons with Chinese names, and `styles.css` lays the blocks flat
  * (design-language, "消息流"); Mermaid blocks go to `MermaidBlock` once its plugin has loaded, and
- * tables to `ReplyTable`, which folds a tall one.
+ * tables to `ReplyTable`, which folds a tall one; `visual` blocks become inline visuals (`VisualBlock`, SPEC-0007).
  *
  * @sideEffects May load the math or Mermaid plugin.
  * @param props - The text and whether it is still streaming.

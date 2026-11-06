@@ -106,9 +106,31 @@ export const MUTATION_GROUPS = {
       "packages/ui/src/children/new-child.ts",
       "packages/ui/src/chat/agent-words.ts",
       "packages/ui/src/chat/question-state.ts",
+      "packages/ui/src/chat/visual-reference.ts",
+      "packages/ui/src/chat/visual-snapshots.ts",
+      "packages/ui/src/chat/visual-presses.ts",
       "packages/ui/src/study/learning.ts",
     ],
     tests: ["packages/ui"],
+    skip: [],
+  },
+  // Inline visuals (SPEC-0007): the host's files, pages and messages, the desktop's sandbox rules, the extension's prompt.
+  visuals: {
+    mutate: [
+      "packages/host/src/visuals/*.ts",
+      "!packages/host/src/visuals/*.test.ts",
+      "apps/desktop/src/main/visual-sandbox.ts",
+      "apps/desktop/src/main/shortcuts.ts",
+      "packages/pi/src/visuals/*.ts",
+      "!packages/pi/src/visuals/*.test.ts",
+    ],
+    tests: [
+      "packages/host/src/visuals",
+      "packages/host/src/visuals.host.test.ts",
+      "apps/desktop/src/main/visual-sandbox.test.ts",
+      "apps/desktop/src/main/shortcuts.test.ts",
+      "packages/pi/src/visuals",
+    ],
     skip: [],
   },
   // Study mode's directions on the host (SPEC-0008): scanning, naming, making and moving them.

@@ -358,8 +358,8 @@ describe("createSessionTranscript following recorded compactions during runs", (
       reason: "threshold",
     });
     expect(seen).toStrictEqual([
-      [["e6"], [], new Map([["e7", "threshold"]])],
-      [["e8"], [], new Map([["e10", "threshold"]])],
+      [["e6"], [], new Map([["e7", "threshold"]]), new Map()],
+      [["e8"], [], new Map([["e10", "threshold"]]), new Map()],
     ]);
   });
 });
@@ -1007,6 +1007,51 @@ describe("createSessionTranscript remembering turn starts", () => {
     expect(started).toMatchObject([{ type: "turn_started", turn: { user: { text: "next", auto: true } } }]);
     expect(seen).toStrictEqual([[["u1", "u2"], ["u2"]]]);
     expect(session.items().map((item) => (item as Turn).user.auto)).toStrictEqual([false, true]);
+  });
+
+  it("tells which entries opened turns sent from a visual, and marks them live and rebuilt", () => {
+    const seen: unknown[] = [];
+    let turns = 0;
+    const session = createSessionTranscript({
+      sessionId: "s",
+      newId: () => `live-${++turns}`,
+      now: () => 0,
+      onTurnsSeen: (entryIds, autoIds, _compactions, sources) => seen.push([[...entryIds], [...autoIds], [...sources]]),
+    });
+    const source = { kind: "visual", path: "a.html" } as const;
+    session.apply(userMessage("go"), noClient);
+    session.apply(
+      assistantMessage([{ type: "toolCall", callId: "c1", tool: "bash", args: { command: "ls" } }], "toolUse"),
+      noClient,
+    );
+    session.apply(toolResult("c1", "x"), noClient);
+    session.settle();
+    const started = session.apply(userMessage("next"), () => ({ clientMessageId: "v1", auto: false, source }));
+    session.settle();
+
+    session.rebuild({ entries, leafId: "u2" }, false);
+
+    expect(started).toMatchObject([{ type: "turn_started", turn: { user: { text: "next", source } } }]);
+    expect((session.items()[0] as Turn).user).not.toHaveProperty("source");
+    expect(seen).toStrictEqual([[["u1", "u2"], [], [["u2", source]]]]);
+    expect(session.items().map((item) => (item as Turn).user.source)).toStrictEqual([undefined, source]);
+  });
+
+  it("marks the turns an earlier host saw come from a visual", () => {
+    const recorded = createSessionTranscript({
+      sessionId: "s",
+      newId: () => "x",
+      now: () => 0,
+      opened: new Set(["u2"]),
+      sources: new Map([["u2", { kind: "visual", path: "/v/b.html" }]]),
+    });
+
+    recorded.rebuild({ entries, leafId: "u2" }, false);
+
+    expect(recorded.items().map((item) => [item.id, (item as Turn).user.source])).toStrictEqual([
+      ["s:u1", undefined],
+      ["s:u2", { kind: "visual", path: "/v/b.html" }],
+    ]);
   });
 
   it("marks the turns an earlier host sent on its own", () => {

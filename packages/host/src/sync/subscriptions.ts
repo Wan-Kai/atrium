@@ -14,6 +14,7 @@ import type {
   SessionSnapshotEvent,
   ResumePoint,
   SnapshotBudget,
+  VisualChangedEvent,
 } from "@atrium/protocol";
 import type { ResourceTracker } from "../platform/resources";
 import type { EventRing } from "./event-ring";
@@ -30,6 +31,7 @@ type SinkEvent =
   | ChangesUpdatedEvent
   | DiffUpdatedEvent
   | RemoteUpdatedEvent
+  | VisualChangedEvent
   | BroadcastEvent;
 
 /** What goes to every connection, whatever it watches. */

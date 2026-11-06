@@ -27,6 +27,7 @@ import type { PiConfig } from "../setup/pi-config";
 import type { Connection } from "./connection";
 import { PHONE_STEP_TEXT_LIMIT, phoneMayRun } from "./remote-policy";
 import type { ReceiptBook } from "../remote/receipts";
+import type { VisualService } from "../visuals/visual-service";
 
 /**
  * The remote-access commands of the desktop's "手机" page (SPEC-0005, "给本机界面的命令和事件").
@@ -61,6 +62,8 @@ export interface RouterOptions {
   readonly changes: Pick<ChangesService, "watchChanges" | "watchDiff">;
   /** A workspace's files, for the right panel's file tree and the viewer tabs. */
   readonly files: WorkspaceFiles;
+  /** Inline visuals: their addresses and the messages sent from them (SPEC-0007). */
+  readonly visuals: Pick<VisualService, "resolve" | "send">;
   readonly index: IndexCommands;
   /** Learning directions (SPEC-0008). */
   readonly study: Pick<
@@ -217,6 +220,12 @@ export function createRouter(options: RouterOptions): Route {
         return options.files.listDir(command.workspaceId, command.path);
       case "read_file":
         return options.files.readFile(command.workspaceId, command.path);
+      case "resolve_visual":
+        return options.visuals.resolve(connection.id, command.sessionId, command.path);
+      case "send_visual_message": {
+        const { type: _type, ...message } = command;
+        return options.visuals.send(message);
+      }
       case "translate_reply":
         return options.translations.translate(connection.id, command.translationId, command.sessionId, command.turnId);
       case "cancel_translation":
