@@ -3194,13 +3194,146 @@
       .reason-table code {
         font-size: 10.5px;
       }
+      /* 审核卡片（第 2 稿）*/
+      .win.vwin.sm {
+        height: 470px;
+      }
+      .rv-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        min-width: 0;
+      }
+      .rv-head .what {
+        color: var(--text);
+        font-weight: 600;
+        font-size: var(--fs-meta);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .rv-head .age {
+        margin-left: auto;
+        color: var(--text-dim);
+      }
+      .src {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 20px;
+        padding: 0 7px;
+        border-radius: var(--r-pill);
+        font-size: var(--fs-xs);
+        font-weight: 600;
+        flex: none;
+      }
+      .src.host {
+        background: var(--linked);
+        color: var(--tint);
+      }
+      .src.agent {
+        padding: 0;
+        height: auto;
+        font-family: "Syne", var(--font);
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--attn-text);
+      }
+      .said {
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        line-height: 1.55;
+        padding: 6px 10px;
+        border-radius: var(--r);
+        background: var(--hover);
+        box-shadow: inset 2px 0 0 var(--line-strong);
+      }
+      .said-by {
+        display: block;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        margin-bottom: 1px;
+      }
+      .reason-box {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .rb-top {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: var(--fs-sm);
+        color: var(--attn-text);
+      }
+      .rb-top b {
+        font-weight: 600;
+      }
+      .rb-top .grow {
+        flex: 1;
+      }
+      .rb-top .dim {
+        font-size: var(--fs-xs);
+      }
+      .kbd-hint {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .src-stack {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 14px;
+        padding: 14px 12px;
+      }
+      .rv-record {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        padding: 5px 9px;
+        border-radius: var(--r);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+      }
+      .rv-record b {
+        color: var(--text-2);
+        font-weight: 600;
+      }
+      .rv-record .grow {
+        flex: 1;
+      }
+      .pill-tabs {
+        display: flex;
+        gap: 4px;
+      }
+      .ptab {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 22px;
+        padding: 0 8px;
+        border-radius: var(--r-pill);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+      }
+      .ptab.on {
+        background: var(--attn-soft);
+        color: var(--attn-text);
+        box-shadow: none;
+        font-weight: 600;
+      }
     </style>
   </head>
   <body>
     <button class="btn theme-fab" id="theme-btn" style="background: var(--surface-1)">浅色 / 深色</button>
     <header class="doc-head">
       <div>
-        <h1>任务 · 设计审查稿（第 6 版 · 补原型 06–10）</h1>
+        <h1>任务 · 设计审查稿（第 6 版 · 补原型 06–08）</h1>
         <p>
           对话和任务是两个入口、两种视图：项目目录里只有你自己的对话，打开是纯对话；侧栏只有一个「任务」入口，点开是任务区，有自己的标签：固定的「任务」「定时」，再加每个打开的任务。创建和运行时都有<b>任务对话</b>，可以随时问到哪一步、改了什么。引导词先在内部写死，不做设置页。
         </p>
@@ -3213,7 +3346,7 @@
     <nav class="toc">
       <a href="#s1"><b>1</b>对话里 /task 转成任务</a><a href="#s2"><b>2</b>任务列表</a
       ><a href="#s3"><b>3</b>定时管理（任务区的固定标签）</a><a href="#s4"><b>4</b>任务开始页 · 图 + 任务对话</a
-      ><a href="#s5"><b>5</b>任务运行 · 图 + 任务对话</a><a href="#s6"><b>6</b>批准改图</a><a href="#s7"><b>7</b>human 节点</a><a href="#s8"><b>8</b>合并被挡住</a><a href="#s9"><b>9</b>归档提问</a><a href="#s10"><b>10</b>节点对话标签</a>
+      ><a href="#s5"><b>5</b>任务运行 · 图 + 任务对话</a><a href="#s6"><b>6</b>审核卡片 · 结构和来源</a><a href="#s7"><b>7</b>审核卡片 · 各处的样子</a><a href="#s8"><b>8</b>节点对话标签</a>
     </nav>
 
     <!-- ══ 1 /task ══ -->
@@ -3868,224 +4001,50 @@
       </div>
     </section>
 
-    <!-- ══ 6 批准改图（TP）══ -->
+    <!-- ══ 6 审核卡片的结构（TP 第 2 稿）══ -->
     <section class="screen tp" id="s6">
       <div class="screen-title">
         <span class="no">06</span>
-        <h2>批准改图 · 任务对话底部</h2>
-        <span>节点申请改图、任务对话出了新图之后，等你批准；左边的图同时把改过的节点描成虚线蓝框（同第 4 屏）</span>
+        <h2>审核卡片 · 结构和来源</h2>
+        <span>和提问卡片共用外壳，放在输入框上方；任务里的批准改图、验收、合并被挡住、归档都是它，以后普通对话也用</span>
       </div>
       <div class="vgrid">
         <div class="win vwin v-a">
-          <div class="vlabel"><span class="k">A</span>卡片固定在输入框上方<span class="d">处理完才收起</span></div>
+          <div class="vlabel"><span class="k">A</span>一张卡片的组成<span class="d">合并被挡住、正在写打回原因</span></div>
           <div class="chat design-chat">
             <div class="msgs">
               <div class="msgs-in">
-                <div class="m-sys"><i data-i="swirl" class="s12 c-tint"></i>10:14 N2 核心实现与自检 开始</div>
-                <div class="m-sys"><i data-i="graph" class="s12 c-attn"></i>10:20 N2 申请改图，停下等你</div>
-                <div class="m-agent">N2 发现旧的分支名记录要先迁移，申请在它前面加一步。我按它的理由出了图 v3，左边图上虚线框的是改动。</div>
+                <div class="m-sys"><i data-i="merge" class="s12 c-dim"></i>10:52 你点了通过，开始合并</div>
+                <div class="m-sys"><i data-i="alert" class="s12 c-attn"></i>10:52 合并被挡住：2 个文件冲突</div>
               </div>
             </div>
             <div class="card-dock">
-              <div class="gate-card">
-                <div class="gate-top">
-                  <span class="gate-icon tint"><i data-i="graph" class="s12"></i></span
-                  ><span class="gate-type tint">改图等你批准</span><span class="gate-where">图 v3 · N2 申请</span
-                  ><span class="age">刚刚</span>
+              <div class="gate-card rv">
+                <div class="rv-head">
+                  <span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">N4 验收合并</span
+                  ><span class="age">10:41</span>
                 </div>
-                <div class="diff-list">
-                  <span><span class="op add">+</span>N1b 迁移旧的分支名记录 · work</span>
-                  <span><span class="op mod">~</span>N2 多一个上游：N1b</span>
-                </div>
-                <div class="gate-actions">
-                  <button class="btn sm primary">批准，接着跑</button><button class="btn sm">不批准</button
-                  ><span class="grow"></span><span class="linkish">N2 的理由 ›</span>
-                </div>
-              </div>
-            </div>
-            <div class="composer-dock">
-              <div class="composer chat-composer">
-                <textarea rows="1" placeholder="问进度、要改图、给节点带话"></textarea>
-                <div class="composer-foot">
-                  <span class="pick"><i data-i="spark" class="s12"></i>opus-5.5 · 高</span
-                  ><button class="send"><i data-i="send" class="s16"></i></button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <span class="pin">25</span>
-        </div>
-
-        <div class="win vwin v-b">
-          <div class="vlabel"><span class="k">B</span>一行提示条<span class="d">改动只在图上看</span></div>
-          <div class="chat design-chat">
-            <div class="msgs">
-              <div class="msgs-in">
-                <div class="m-sys"><i data-i="swirl" class="s12 c-tint"></i>10:14 N2 核心实现与自检 开始</div>
-                <div class="m-sys"><i data-i="graph" class="s12 c-attn"></i>10:20 N2 申请改图，停下等你</div>
-                <div class="m-agent">N2 发现旧的分支名记录要先迁移，申请在它前面加一步。我按它的理由出了图 v3，左边图上虚线框的是改动。</div>
-              </div>
-            </div>
-            <div class="card-dock">
-              <div class="slim-bar">
-                <i data-i="graph" class="c-tint"></i><b>图 v3 等你批准</b><span class="dim">加 1 个节点</span
-                ><span class="grow"></span><button class="btn sm text">不批准</button
-                ><button class="btn sm primary">批准</button>
-              </div>
-            </div>
-            <div class="composer-dock">
-              <div class="composer chat-composer">
-                <textarea rows="1" placeholder="问进度、要改图、给节点带话"></textarea>
-                <div class="composer-foot">
-                  <span class="pick"><i data-i="spark" class="s12"></i>opus-5.5 · 高</span
-                  ><button class="send"><i data-i="send" class="s16"></i></button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <span class="pin">26</span>
-        </div>
-
-        <div class="win vwin v-c">
-          <div class="vlabel"><span class="k">C</span>卡片留在对话里<span class="d">答完留一行记录</span></div>
-          <div class="chat design-chat">
-            <div class="msgs">
-              <div class="msgs-in">
-                <div class="m-q compact answered">
-                  <i data-i="check" class="s12 c-ok"></i>图 v2 · 删掉 review-grok<span class="grow" style="flex: 1"></span
-                  >你批准了 10:02
-                </div>
-                <div class="m-sys"><i data-i="swirl" class="s12 c-tint"></i>10:14 N2 核心实现与自检 开始</div>
-                <div class="m-sys"><i data-i="graph" class="s12 c-attn"></i>10:20 N2 申请改图，停下等你</div>
-                <div class="m-agent">N2 发现旧的分支名记录要先迁移，申请在它前面加一步。我按它的理由出了图 v3，左边图上虚线框的是改动。</div>
-                <div class="m-q">
-                  <div class="gate-top">
-                    <span class="gate-icon tint"><i data-i="graph" class="s12"></i></span
-                    ><span class="gate-type tint">图 v3 等你批准</span><span class="gate-where">N2 申请</span>
-                  </div>
-                  <div class="diff-list">
-                    <span><span class="op add">+</span>N1b 迁移旧的分支名记录 · work</span>
-                    <span><span class="op mod">~</span>N2 多一个上游：N1b</span>
-                  </div>
-                  <div class="gate-actions">
-                    <button class="btn sm primary">批准，接着跑</button><button class="btn sm">不批准</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="composer-dock">
-              <div class="composer chat-composer">
-                <textarea rows="1" placeholder="问进度、要改图、给节点带话"></textarea>
-                <div class="composer-foot">
-                  <span class="pick"><i data-i="spark" class="s12"></i>opus-5.5 · 高</span
-                  ><button class="send"><i data-i="send" class="s16"></i></button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <span class="pin">27</span>
-        </div>
-      </div>
-      <div class="notes">
-        <div class="note-card">
-          <div class="h"><span class="pin">25</span>A · 卡片固定在输入框上方</div>
-          SPEC 现在的写法。列出加了、删了、改了哪些节点，理由点开看。往上翻聊天记录时卡片还在原处，不会错过；批准或不批准之后收起，对话里留一行系统提示。
-        </div>
-        <div class="note-card">
-          <div class="h"><span class="pin">26</span>B · 一行提示条</div>
-          最省地方：只写"图 v3 等你批准"和改了几处，具体看左边图上的虚线框。图大时要来回对照，不看图就批准的风险大一些。
-        </div>
-        <div class="note-card">
-          <div class="h"><span class="pin">27</span>C · 卡片留在对话里</div>
-          卡片是对话里的一条，跟着历史滚走；答过的缩成一行"你批准了"，以后翻得到每一版是谁批的。缺点：对话长了之后新卡片可能被后面的进度行挤到屏幕外，要靠收件箱提醒。
-        </div>
-        <div class="note-card">
-          <div class="h">建议</div>
-          <span class="rec">选 <b>A</b>：要你决定的事一直在眼前，和下面三处（human 节点、合并被挡、归档）用同一种卡片；C 的"答过留一行"可以并进 A（收起后插一行系统提示）。</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- ══ 7 human 节点（TP）══ -->
-    <section class="screen tp" id="s7">
-      <div class="screen-title">
-        <span class="no">07</span>
-        <h2>human 节点 · 通过 / 打回到 X</h2>
-        <span>N4「验收合并」等你；打回要写原因，每条打回边最多用 2 次</span>
-      </div>
-      <div class="vgrid">
-        <div class="win vwin v-a">
-          <div class="vlabel"><span class="k">A</span>两个按钮<span class="d">打回时就地展开原因</span></div>
-          <div class="chat design-chat">
-            <div class="msgs">
-              <div class="msgs-in">
-                <div class="m-sys"><i data-i="check" class="s12 c-ok"></i>10:41 N3 破坏检查与变异测试 通过</div>
-                <div class="m-sys"><i data-i="pause" class="s12 c-attn"></i>10:41 N4 验收合并 等你</div>
-              </div>
-            </div>
-            <div class="card-dock">
-              <div class="gate-card">
-                <div class="gate-top">
-                  <span class="gate-icon"><i data-i="pause" class="s12"></i></span><span class="gate-type">等你验收</span
-                  ><span class="gate-where">N4 验收合并</span><span class="age">刚刚</span>
-                </div>
-                <div class="gate-title">看一下改动，通过就合并进 main</div>
                 <div class="facts">
                   <span><i data-i="diff" class="s12 c-dim"></i>3 个文件 +48 −8<span class="linkish">查看改动 ›</span></span>
                   <span><i data-i="check" class="s12 c-ok"></i>N3：12 项测试通过<span class="linkish">摘要 ›</span></span>
                 </div>
+                <div class="warn-band">
+                  <i data-i="alert" class="s12"></i
+                  ><span>合并被挡住：<b>2 个文件冲突</b>，主目录没动<br /><code>BranchNamer.ts</code> <code>0001-mvp1….md</code></span>
+                </div>
+                <div class="reason-box">
+                  <div class="rb-top"><i data-i="undo" class="s12"></i>打回到 <b>N2 核心实现与自检</b><i data-i="down" class="s12"></i><span class="grow"></span><span class="dim">还能打回 2 次</span></div>
+                  <textarea class="q-input" rows="2">先合并 main 的改动再解决冲突</textarea>
+                </div>
                 <div class="gate-actions">
-                  <button class="btn sm primary"><i data-i="merge" class="s12"></i>通过并合并</button
-                  ><button class="btn sm"><i data-i="undo" class="s12"></i>打回到 N2<i data-i="down" class="s12"></i></button
-                  ><span class="grow"></span><span class="dim" style="font-size: var(--fs-xs)">还能打回 2 次</span>
-                </div>
-              </div>
-            </div>
-            <div class="composer-dock">
-              <div class="composer chat-composer">
-                <textarea rows="1" placeholder="问进度、要改图、给节点带话"></textarea>
-                <div class="composer-foot">
-                  <span class="pick"><i data-i="spark" class="s12"></i>opus-5.5 · 高</span
-                  ><button class="send"><i data-i="send" class="s16"></i></button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <span class="pin">28</span>
-        </div>
-
-        <div class="win vwin v-b">
-          <div class="vlabel"><span class="k">B</span>和提问卡片一样<span class="d">选一项再提交</span></div>
-          <div class="chat design-chat">
-            <div class="msgs">
-              <div class="msgs-in">
-                <div class="m-sys"><i data-i="check" class="s12 c-ok"></i>10:41 N3 破坏检查与变异测试 通过</div>
-                <div class="m-sys"><i data-i="pause" class="s12 c-attn"></i>10:41 N4 验收合并 等你</div>
-              </div>
-            </div>
-            <div class="card-dock">
-              <div class="gate-card">
-                <div class="gate-top">
-                  <span class="gate-icon"><i data-i="pause" class="s12"></i></span><span class="gate-type">等你验收</span
-                  ><span class="gate-where">N4 验收合并 · 3 个文件 +48 −8</span>
-                </div>
-                <div class="q-opts">
-                  <button class="q-opt">
-                    <span class="no">1</span><span>通过<span class="d">合并进 main</span></span></button
-                  ><button class="q-opt on">
-                    <span class="no">2</span><span>打回到 N2 核心实现与自检<span class="d">还能打回 2 次</span></span>
-                  </button>
-                </div>
-                <textarea class="q-input" rows="2">提示文案还是旧的，改成「已改用英文分支名」</textarea>
-                <div class="gate-actions">
-                  <span class="linkish">查看改动 ›</span><span class="grow"></span
+                  <span class="kbd-hint">⏎ 确定 · Esc 收起</span><span class="grow"></span><button class="btn sm text">取消</button
                   ><button class="btn sm primary">打回</button>
                 </div>
               </div>
             </div>
             <div class="composer-dock">
               <div class="composer chat-composer">
-                <textarea rows="1" placeholder="问进度、要改图、给节点带话"></textarea>
+                <textarea rows="1" placeholder="直接回复也行：发给任务对话，卡片不动"></textarea>
                 <div class="composer-foot">
                   <span class="pick"><i data-i="spark" class="s12"></i>opus-5.5 · 高</span
                   ><button class="send"><i data-i="send" class="s16"></i></button>
@@ -4093,179 +4052,159 @@
               </div>
             </div>
           </div>
-          <span class="pin">29</span>
+          <span class="pin">25</span><span class="pin">26</span><span class="pin">27</span><span class="pin">28</span>
+        </div>
+
+        <div class="win vwin v-b">
+          <div class="vlabel"><span class="k">B</span>两种来源<span class="d">上：宿主发起 · 下：agent 发起</span></div>
+          <div class="src-stack">
+            <div class="gate-card rv">
+              <div class="rv-head">
+                <span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">要归档 worktree 吗</span>
+              </div>
+              <div class="facts">
+                <span><i data-i="branch" class="s12 c-dim"></i>zh-branch-fallback</span>
+                <span><i data-i="check" class="s12 c-ok"></i>已合并进 main</span>
+                <span><i data-i="check" class="s12 c-ok"></i>没有未提交的改动</span>
+              </div>
+              <div class="gate-actions">
+                <button class="btn sm primary">归档</button><button class="btn sm">先留着</button>
+              </div>
+            </div>
+            <div class="gate-card rv">
+              <div class="rv-head">
+                <span class="src agent">agent</span><span class="what">请你审核 · 提交前</span>
+              </div>
+              <div class="said">
+                <span class="said-by">agent 说</span>
+                改好了中文分支名的回退，测试都过了。准备提交成一个 commit：「Fall back to an ASCII branch name」。
+              </div>
+              <div class="facts">
+                <span><i data-i="diff" class="s12 c-dim"></i>3 个文件 +48 −8<span class="dim" style="font-size: var(--fs-xs)">宿主现算</span><span class="linkish">查看改动 ›</span></span>
+              </div>
+              <div class="gate-actions">
+                <button class="btn sm primary">通过</button><button class="btn sm">要改…</button
+                ><span class="grow"></span><span class="dim" style="font-size: var(--fs-xs)">结果交给 agent</span>
+              </div>
+            </div>
+          </div>
+          <span class="pin">29</span><span class="pin">30</span>
         </div>
 
         <div class="win vwin v-c">
-          <div class="vlabel"><span class="k">C</span>原因写在输入框里<span class="d">发送就打回</span></div>
+          <div class="vlabel"><span class="k">C</span>几张同时在 · 结束后的记录</div>
           <div class="chat design-chat">
             <div class="msgs">
               <div class="msgs-in">
-                <div class="m-sys"><i data-i="check" class="s12 c-ok"></i>10:41 N3 破坏检查与变异测试 通过</div>
-                <div class="m-sys"><i data-i="pause" class="s12 c-attn"></i>10:41 N4 验收合并 等你</div>
+                <div class="m-sys"><i data-i="check" class="s12 c-ok"></i>10:02 你确认了图 v1，任务开始</div>
+                <div class="rv-record">
+                  <i data-i="graph" class="s12 c-tint"></i><span>你批准了 · <b>图 v2</b> 删掉 review-grok</span><span class="grow"></span
+                  ><span class="dim">10:31</span><i data-i="chev" class="s12 c-dim"></i>
+                </div>
+                <div class="rv-record">
+                  <i data-i="undo" class="s12 c-attn"></i><span>你打回到 <b>N2</b>：提示文案还是旧的</span><span class="grow"></span
+                  ><span class="dim">10:44</span><i data-i="chev" class="s12 c-dim"></i>
+                </div>
+                <div class="m-sys"><i data-i="pause" class="s12 c-attn"></i>11:02 N2 在问你 · N4 验收合并 等你</div>
               </div>
             </div>
             <div class="card-dock">
-              <div class="gate-card">
-                <div class="gate-top">
-                  <span class="gate-icon"><i data-i="pause" class="s12"></i></span><span class="gate-type">等你验收</span
-                  ><span class="gate-where">N4 验收合并 · 3 个文件 +48 −8</span>
+              <div class="gate-card rv">
+                <div class="rv-head">
+                  <span class="pill-tabs"
+                    ><span class="ptab on"><i data-i="chat" class="s12"></i>N2 在问你</span
+                    ><span class="ptab"><i data-i="board" class="s12"></i>N4 验收合并</span></span
+                  >
                 </div>
-                <div class="gate-actions">
-                  <button class="btn sm primary"><i data-i="merge" class="s12"></i>通过并合并</button
-                  ><button class="btn sm"><i data-i="undo" class="s12"></i>打回…</button
-                  ><span class="grow"></span><span class="linkish">查看改动 ›</span>
+                <div class="gate-title">提示要只显示一次，还是每次命名失败都显示？</div>
+                <div class="q-opts">
+                  <button class="q-opt"><span class="no">1</span><span>只显示一次<span class="d">记在设置里</span></span></button
+                  ><button class="q-opt"><span class="no">2</span><span>每次都显示</span></button>
                 </div>
               </div>
             </div>
             <div class="composer-dock">
               <div class="composer chat-composer">
-                <div class="chips">
-                  <span class="chip"><i data-i="undo" class="s12"></i>打回到 N2<i data-i="x" class="s12"></i></span>
-                </div>
-                <textarea rows="2" placeholder="写打回的原因，发送就打回">提示文案还是旧的，改成「已改用英文分支名」</textarea>
+                <textarea rows="1" placeholder="直接回复也行"></textarea>
                 <div class="composer-foot">
-                  <span class="dim" style="font-size: var(--fs-xs)">还能打回 2 次</span
+                  <span class="pick"><i data-i="spark" class="s12"></i>opus-5.5 · 高</span
                   ><button class="send"><i data-i="send" class="s16"></i></button>
                 </div>
               </div>
             </div>
           </div>
-          <span class="pin">30</span>
+          <span class="pin">31</span><span class="pin">32</span>
         </div>
       </div>
       <div class="notes">
-        <div class="note-card">
-          <div class="h"><span class="pin">28</span>A · 两个按钮</div>
-          通过一下就合并。点"打回到 N2"时卡片里展开一个原因输入框和"打回"按钮；有好几条打回边时，按钮右边的箭头选打回到哪个节点。改动和上游摘要直接写在卡片上。
+        <div class="note-card decided">
+          <div class="h"><span class="pin">✓</span>已定（2026-11-06）</div>
+          都放在输入框上方；和提问卡片共用外壳，内容分"提问"和"审核"两种；输入框里发消息算直接回复；几张同时在时一次展开一张，其余排成胶囊；证据先做事实、改动、图的改动、摘要四种；T7/T8 只接任务这一个来源，agent 发起的审核另开 SPEC。
         </div>
         <div class="note-card">
-          <div class="h"><span class="pin">29</span>B · 和提问卡片一样</div>
-          和节点用 <span class="cmd">ask_user</span> 问你时的卡片（SPEC-0003）同一个组件：选一项、需要时写原因、再提交。看着统一，但通过也要点两下。
+          <div class="h"><span class="pin">25</span>顶上一行：来源 · 审核什么</div>
+          来源写在最前面，宿主发起的是"任务"（以后的固定关卡写关卡名），agent 发起的是橙色的"agent"，和提问卡片的"agent / 在问你"一致。
         </div>
         <div class="note-card">
-          <div class="h"><span class="pin">30</span>C · 原因写在输入框里</div>
-          点"打回…"后，输入框上方出现"打回到 N2"标签，写的话就是原因，发送即打回；点标签上的 × 取消，回到普通的任务对话。原因能写得长、能粘贴；但同一个输入框身兼两用，容易发错。
+          <div class="h"><span class="pin">26</span>证据</div>
+          这张是"事实"区块：改动统计点开是改动面板，上游摘要点开展开全文。图的改动、摘要是另外两种区块，见第 7 屏。
         </div>
         <div class="note-card">
-          <div class="h">建议</div>
-          <span class="rec">选 <b>A</b>：最常见的是"通过"，一下就好；打回少见，展开写原因也不费事。</span>
+          <div class="h"><span class="pin">27</span>问题提示</div>
+          上次执行没成功才出现：原因、主目录的状态、冲突的文件。主按钮从"通过并合并"换成"重试合并"。
+        </div>
+        <div class="note-card">
+          <div class="h"><span class="pin">28</span>裁决和原因</div>
+          要原因的按钮点了在卡片里展开输入框，箭头选打回到哪个节点，剩几次写在右边；⏎ 确定、Esc 收起。下面的输入框照常是直接回复。
+        </div>
+        <div class="note-card">
+          <div class="h"><span class="pin">29</span>宿主发起</div>
+          事实由宿主现算，可以带绿 / 橙 / 红的状态；裁决由宿主执行，你不点"归档"，worktree 就不会删。
+        </div>
+        <div class="note-card">
+          <div class="h"><span class="pin">30</span>agent 发起（以后，普通对话）</div>
+          agent 写的话放进"agent 说"的引用里，原文显示、不带状态标记，免得它自己写"测试已通过 ✓"冒充事实；改动统计仍由宿主现算。裁决交回 agent 照做，所以按钮写"通过 / 要改"，右下角写"结果交给 agent"。
+        </div>
+        <div class="note-card">
+          <div class="h"><span class="pin">31</span>几张同时在</div>
+          一次展开一张，其余在顶上一行排成胶囊，按出现先后；点了切换。没提交的选择和原因切走再回来还在。
+        </div>
+        <div class="note-card">
+          <div class="h"><span class="pin">32</span>结束后的记录</div>
+          卡片收起后对话里留一行：谁、做了什么、对象、时间；点开看当时的证据（当时的改动统计、图的版本）。
         </div>
       </div>
     </section>
 
-    <!-- ══ 8 合并被挡住（TP）══ -->
-    <section class="screen tp" id="s8">
+    <!-- ══ 7 审核卡片在各处的样子（TP 第 2 稿）══ -->
+    <section class="screen tp" id="s7">
       <div class="screen-title">
-        <span class="no">08</span>
-        <h2>合并被挡住 · 提示和操作</h2>
-        <span>你点了通过，宿主合并前检查没过或合并冲突；主目录不动，节点停在"等你"，处理完再点就是重试</span>
+        <span class="no">07</span>
+        <h2>审核卡片 · 在各处的样子</h2>
+        <span>同一个组件换证据和按钮；前五张是任务（T7/T8 要做的），最后一张是以后普通对话里的</span>
       </div>
       <div class="vgrid">
-        <div class="win vwin v-a">
-          <div class="vlabel"><span class="k">A</span>换成一张"合并被挡住"卡片</div>
+        <div class="win vwin sm v-a">
+          <div class="vlabel"><span class="k">1</span>批准改图</div>
           <div class="chat design-chat">
-            <div class="msgs">
-              <div class="msgs-in">
-                <div class="m-sys"><i data-i="pause" class="s12 c-attn"></i>10:41 N4 验收合并 等你</div>
-                <div class="m-sys"><i data-i="merge" class="s12 c-dim"></i>10:52 你点了通过，开始合并</div>
-                <div class="m-sys"><i data-i="alert" class="s12 c-attn"></i>10:52 合并被挡住：2 个文件冲突</div>
-              </div>
-            </div>
+            <div class="msgs"><div class="msgs-in">
+              <div class="m-sys"><i data-i="graph" class="s12 c-attn"></i>10:20 N2 申请改图，停下等你</div>
+            </div></div>
             <div class="card-dock">
-              <div class="gate-card warn">
-                <div class="gate-top">
-                  <span class="gate-icon"><i data-i="alert" class="s12"></i></span><span class="gate-type">合并被挡住</span
-                  ><span class="gate-where">N4 · 2 个文件冲突</span><span class="age">刚刚</span>
+              <div class="gate-card rv">
+                <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">图 v3 等你批准</span></div>
+                <div class="diff-list">
+                  <span><span class="op add">+</span>N1b 迁移旧的分支名记录 · work</span>
+                  <span><span class="op mod">~</span>N2 多一个上游：N1b</span>
+                  <span class="linkish">在图上看 ›</span>
                 </div>
-                <div class="gate-ctx">main 上也改了这两个文件。主目录已经回到合并前的样子，什么也没动。</div>
-                <div class="file-list">src/worktree/BranchNamer.ts<br />docs/specs/0001-mvp1-single-session-chat.md</div>
-                <div class="gate-actions">
-                  <button class="btn sm primary">重试合并</button><button class="btn sm">打回到 N2</button>
-                </div>
-                <span class="linkish">让任务对话加一个解决冲突的节点 ›</span>
+                <div class="said"><span class="said-by">N2 的理由</span>旧的分支名记录不迁移，新规则读不到它们。</div>
+                <div class="gate-actions"><button class="btn sm primary">批准，接着跑</button><button class="btn sm">不批准…</button></div>
               </div>
             </div>
             <div class="composer-dock">
               <div class="composer chat-composer">
-                <textarea rows="1" placeholder="问进度、要改图、给节点带话"></textarea>
-                <div class="composer-foot">
-                  <span class="pick"><i data-i="spark" class="s12"></i>opus-5.5 · 高</span
-                  ><button class="send"><i data-i="send" class="s16"></i></button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <span class="pin">31</span>
-        </div>
-
-        <div class="win vwin v-b">
-          <div class="vlabel"><span class="k">B</span>原来的卡片上加一条提示</div>
-          <div class="chat design-chat">
-            <div class="msgs">
-              <div class="msgs-in">
-                <div class="m-sys"><i data-i="pause" class="s12 c-attn"></i>10:41 N4 验收合并 等你</div>
-                <div class="m-sys"><i data-i="merge" class="s12 c-dim"></i>10:52 你点了通过，开始合并</div>
-                <div class="m-sys"><i data-i="alert" class="s12 c-attn"></i>10:52 合并被挡住：2 个文件冲突</div>
-              </div>
-            </div>
-            <div class="card-dock">
-              <div class="gate-card">
-                <div class="gate-top">
-                  <span class="gate-icon"><i data-i="pause" class="s12"></i></span><span class="gate-type">等你验收</span
-                  ><span class="gate-where">N4 验收合并</span>
-                </div>
-                <div class="warn-band">
-                  <i data-i="alert" class="s12"></i
-                  ><span>上次合并被挡住：<b>2 个文件冲突</b>（BranchNamer.ts、0001-mvp1…md）。主目录没动。</span>
-                </div>
-                <div class="gate-actions">
-                  <button class="btn sm primary">重试合并</button
-                  ><button class="btn sm"><i data-i="undo" class="s12"></i>打回到 N2<i data-i="down" class="s12"></i></button>
-                </div>
-              </div>
-            </div>
-            <div class="composer-dock">
-              <div class="composer chat-composer">
-                <textarea rows="1" placeholder="问进度、要改图、给节点带话"></textarea>
-                <div class="composer-foot">
-                  <span class="pick"><i data-i="spark" class="s12"></i>opus-5.5 · 高</span
-                  ><button class="send"><i data-i="send" class="s16"></i></button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <span class="pin">32</span>
-        </div>
-
-        <div class="win vwin v-c">
-          <div class="vlabel"><span class="k">C</span>卡片加快捷回复<span class="d">交给任务对话</span></div>
-          <div class="chat design-chat">
-            <div class="msgs">
-              <div class="msgs-in">
-                <div class="m-sys"><i data-i="pause" class="s12 c-attn"></i>10:41 N4 验收合并 等你</div>
-                <div class="m-sys"><i data-i="merge" class="s12 c-dim"></i>10:52 你点了通过，开始合并</div>
-                <div class="m-sys"><i data-i="alert" class="s12 c-attn"></i>10:52 合并被挡住：2 个文件冲突</div>
-              </div>
-            </div>
-            <div class="card-dock">
-              <div class="gate-card warn">
-                <div class="gate-top">
-                  <span class="gate-icon"><i data-i="alert" class="s12"></i></span><span class="gate-type">合并被挡住</span
-                  ><span class="gate-where">2 个文件冲突 · 主目录没动</span>
-                </div>
-                <div class="gate-actions">
-                  <button class="btn sm primary">重试合并</button><button class="btn sm">打回到 N2</button
-                  ><span class="grow"></span><span class="linkish">哪些文件 ›</span>
-                </div>
-              </div>
-            </div>
-            <div class="quick">
-              <button class="chip plain">加一个解决冲突的节点</button><button class="chip plain">冲突在哪几处？</button>
-            </div>
-            <div class="composer-dock">
-              <div class="composer chat-composer">
-                <textarea rows="1" placeholder="问进度、要改图、给节点带话"></textarea>
+                <textarea rows="1" placeholder="直接回复也行"></textarea>
                 <div class="composer-foot">
                   <span class="pick"><i data-i="spark" class="s12"></i>opus-5.5 · 高</span
                   ><button class="send"><i data-i="send" class="s16"></i></button>
@@ -4275,66 +4214,82 @@
           </div>
           <span class="pin">33</span>
         </div>
-      </div>
-      <div class="notes">
-        <div class="note-card">
-          <div class="h"><span class="pin">31</span>A · 换一张卡片</div>
-          挡住时原来的验收卡片换成橙框的"合并被挡住"：原因、主目录的状态、冲突的文件（最多 50 个）、能做的事。处理好了点"重试合并"；也可以让任务对话改图，插一个解决冲突的节点。
-        </div>
-        <div class="note-card">
-          <div class="h"><span class="pin">32</span>B · 原来的卡片上加提示</div>
-          还是那张验收卡片，顶上多一条橙色提示，"通过并合并"变成"重试合并"。卡片种类少；但文件列表放不下，只写前两个。
-        </div>
-        <div class="note-card">
-          <div class="h"><span class="pin">33</span>C · 加快捷回复</div>
-          卡片很短，下面给两句常用的话，点了就发给任务对话，由它解释冲突或提出加节点的新图（还是要你批准）。最省事；但要多调一次模型。
-        </div>
-        <div class="note-card">
-          <div class="h">各种原因怎么写（三种做法通用）</div>
-          <div class="reason-table">
-            <code>merge_worktree_dirty</code><span>任务的 worktree 里还有没提交的改动</span>
-            <code>merge_main_dirty</code><span>主目录有没提交的改动：先提交或收起来</span>
-            <code>merge_main_not_trunk</code><span>主目录不在 main 上（现在在 side）：切回 main</span>
-            <code>merge_conflict</code><span>N 个文件冲突，列出文件</span>
-            <code>merge_abort_failed</code><span>红框：合并没能退回，主目录可能不干净，请手动检查</span>
-            <code>merge_git_failed</code><span>git 出错了，没有合并，主目录没动</span>
-          </div>
-        </div>
-        <div class="note-card">
-          <div class="h">建议</div>
-          <span class="rec">选 <b>A</b>，再借 C 的一个快捷回复"加一个解决冲突的节点"：冲突是最常见、也最需要看文件的情况，单独一张卡片放得下文件列表。</span>
-        </div>
-      </div>
-    </section>
 
-    <!-- ══ 9 归档提问（TP）══ -->
-    <section class="screen tp" id="s9">
-      <div class="screen-title">
-        <span class="no">09</span>
-        <h2>归档提问 · 任务结束后</h2>
-        <span>任务完成或取消时问一次要不要归档它的 worktree；事实现查：名字、合没合并、有没有没提交的改动、几个提交</span>
-      </div>
-      <div class="vgrid">
-        <div class="win vwin v-a">
-          <div class="vlabel"><span class="k">A</span>卡片<span class="d">和上面几处一样</span></div>
+        <div class="win vwin sm v-b">
+          <div class="vlabel"><span class="k">2</span>human 节点验收</div>
           <div class="chat design-chat">
-            <div class="msgs">
-              <div class="msgs-in">
-                <div class="m-sys"><i data-i="merge" class="s12 c-ok"></i>10:58 合并进 main</div>
-                <div class="m-sys"><i data-i="check" class="s12 c-ok"></i>10:58 任务完成</div>
+            <div class="msgs"><div class="msgs-in">
+              <div class="m-sys"><i data-i="pause" class="s12 c-attn"></i>10:41 N4 验收合并 等你</div>
+            </div></div>
+            <div class="card-dock">
+              <div class="gate-card rv">
+                <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">N4 验收合并</span></div>
+                <div class="facts">
+                  <span><i data-i="diff" class="s12 c-dim"></i>3 个文件 +48 −8<span class="linkish">查看改动 ›</span></span>
+                  <span><i data-i="check" class="s12 c-ok"></i>N3：12 项测试通过<span class="linkish">摘要 ›</span></span>
+                </div>
+                <div class="gate-actions">
+                  <button class="btn sm primary"><i data-i="merge" class="s12"></i>通过并合并</button
+                  ><button class="btn sm"><i data-i="undo" class="s12"></i>打回到 N2…</button
+                  ><span class="grow"></span><span class="dim" style="font-size: var(--fs-xs)">还能打回 2 次</span>
+                </div>
               </div>
             </div>
-            <div class="card-dock">
-              <div class="gate-card">
-                <div class="gate-top">
-                  <span class="gate-icon ok"><i data-i="check" class="s12"></i></span
-                  ><span class="gate-type ok">任务完成</span><span class="gate-where">要归档 worktree 吗</span>
+            <div class="composer-dock">
+              <div class="composer chat-composer">
+                <textarea rows="1" placeholder="直接回复也行"></textarea>
+                <div class="composer-foot">
+                  <span class="pick"><i data-i="spark" class="s12"></i>opus-5.5 · 高</span
+                  ><button class="send"><i data-i="send" class="s16"></i></button>
                 </div>
+              </div>
+            </div>
+          </div>
+          <span class="pin">34</span>
+        </div>
+
+        <div class="win vwin sm v-c">
+          <div class="vlabel"><span class="k">3</span>合并被挡住</div>
+          <div class="chat design-chat">
+            <div class="msgs"><div class="msgs-in">
+              <div class="m-sys"><i data-i="alert" class="s12 c-attn"></i>10:52 合并被挡住：主目录不在 main</div>
+            </div></div>
+            <div class="card-dock">
+              <div class="gate-card rv">
+                <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">N4 验收合并</span></div>
+                <div class="warn-band"><i data-i="alert" class="s12"></i><span>合并被挡住：主目录现在在 <b>side</b> 分支上。切回 main 后点重试。</span></div>
+                <div class="gate-actions">
+                  <button class="btn sm primary">重试合并</button><button class="btn sm"><i data-i="undo" class="s12"></i>打回到 N2…</button>
+                </div>
+                <span class="linkish">冲突时：让任务对话加一个解决冲突的节点 ›</span>
+              </div>
+            </div>
+            <div class="composer-dock">
+              <div class="composer chat-composer">
+                <textarea rows="1" placeholder="直接回复也行"></textarea>
+                <div class="composer-foot">
+                  <span class="pick"><i data-i="spark" class="s12"></i>opus-5.5 · 高</span
+                  ><button class="send"><i data-i="send" class="s16"></i></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <span class="pin">35</span>
+        </div>
+
+        <div class="win vwin sm v-d">
+          <div class="vlabel"><span class="k">4</span>归档 · 已合并</div>
+          <div class="chat design-chat">
+            <div class="msgs"><div class="msgs-in">
+              <div class="m-sys"><i data-i="check" class="s12 c-ok"></i>10:58 合并进 main，任务完成</div>
+            </div></div>
+            <div class="card-dock">
+              <div class="gate-card rv">
+                <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">要归档 worktree 吗</span></div>
                 <div class="facts">
-                  <span><i data-i="branch" class="s12 c-dim"></i>zh-branch-fallback</span>
+                  <span><i data-i="branch" class="s12 c-dim"></i>zh-branch-fallback · 3 个提交</span>
                   <span><i data-i="check" class="s12 c-ok"></i>已合并进 main</span>
                   <span><i data-i="check" class="s12 c-ok"></i>没有未提交的改动</span>
-                  <span><i data-i="merge" class="s12 c-dim"></i>3 个提交</span>
                 </div>
                 <div class="gate-actions">
                   <button class="btn sm primary">归档</button><button class="btn sm">先留着</button
@@ -4352,30 +4307,24 @@
               </div>
             </div>
           </div>
-          <span class="pin">34</span>
+          <span class="pin">36</span>
         </div>
 
-        <div class="win vwin v-b">
-          <div class="vlabel"><span class="k">B</span>不弹卡片<span class="d">任务栏上一个按钮</span></div>
-          <div class="task-bar">
-            <b>Worktree 中文命名回退</b
-            ><span class="st-line done"><i data-i="check" class="s12 c-ok"></i><span class="lbl">已完成</span></span
-            ><span class="grow"></span><button class="btn sm">归档 worktree<i data-i="down" class="s12"></i></button>
-          </div>
-          <div class="popover">
-            <div class="facts">
-              <span><i data-i="branch" class="s12 c-dim"></i>zh-branch-fallback</span>
-              <span><i data-i="check" class="s12 c-ok"></i>已合并进 main</span>
-              <span><i data-i="check" class="s12 c-ok"></i>没有未提交的改动</span>
-              <span><i data-i="merge" class="s12 c-dim"></i>3 个提交</span>
-            </div>
-            <div class="gate-actions"><span class="grow"></span><button class="btn sm primary">归档</button></div>
-          </div>
+        <div class="win vwin sm v-e">
+          <div class="vlabel"><span class="k">5</span>归档 · 没合并</div>
           <div class="chat design-chat">
-            <div class="msgs">
-              <div class="msgs-in">
-                <div class="m-sys"><i data-i="merge" class="s12 c-ok"></i>10:58 合并进 main</div>
-                <div class="m-sys"><i data-i="check" class="s12 c-ok"></i>10:58 任务完成</div>
+            <div class="msgs"><div class="msgs-in">
+              <div class="m-sys"><i data-i="stop" class="s12 c-dim"></i>10:58 你取消了任务</div>
+            </div></div>
+            <div class="card-dock">
+              <div class="gate-card rv warn">
+                <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">要归档 worktree 吗</span></div>
+                <div class="facts">
+                  <span><i data-i="branch" class="s12 c-dim"></i>zh-branch-fallback · 3 个提交</span>
+                  <span><i data-i="alert" class="s12 c-attn"></i>还没合并进 main，提交只在这个分支上</span>
+                  <span><i data-i="check" class="s12 c-ok"></i>没有未提交的改动</span>
+                </div>
+                <div class="gate-actions"><button class="btn sm primary">先留着</button><button class="btn sm">归档</button></div>
               </div>
             </div>
             <div class="composer-dock">
@@ -4388,37 +4337,31 @@
               </div>
             </div>
           </div>
-          <span class="pin">35</span>
+          <span class="pin">37</span>
         </div>
 
-        <div class="win vwin v-c">
-          <div class="vlabel"><span class="k">C</span>卡片随情况换默认<span class="d">没合并时</span></div>
+        <div class="win vwin sm v-f">
+          <div class="vlabel"><span class="k">6</span>普通对话 · agent 发起<span class="d">以后另开 SPEC</span></div>
           <div class="chat design-chat">
-            <div class="msgs">
-              <div class="msgs-in">
-                <div class="m-sys"><i data-i="stop" class="s12 c-dim"></i>10:58 你取消了任务</div>
-              </div>
-            </div>
+            <div class="msgs"><div class="msgs-in">
+              <div class="m-step"><i data-i="check" class="s12 c-dim"></i>跑了 pnpm test，改了 3 个文件</div>
+            </div></div>
             <div class="card-dock">
-              <div class="gate-card warn">
-                <div class="gate-top">
-                  <span class="gate-icon"><i data-i="alert" class="s12"></i></span><span class="gate-type">任务取消了</span
-                  ><span class="gate-where">要归档 worktree 吗</span>
-                </div>
+              <div class="gate-card rv">
+                <div class="rv-head"><span class="src agent">agent</span><span class="what">请你审核 · 推送前</span></div>
+                <div class="said"><span class="said-by">agent 说</span>准备把 3 个提交推到 origin/fix-branch 并开 PR。</div>
                 <div class="facts">
-                  <span><i data-i="branch" class="s12 c-dim"></i>zh-branch-fallback</span>
-                  <span><i data-i="alert" class="s12 c-attn"></i>还没合并进 main</span>
-                  <span><i data-i="check" class="s12 c-ok"></i>没有未提交的改动</span>
-                  <span><i data-i="merge" class="s12 c-dim"></i>3 个提交，只在这个分支上</span>
+                  <span><i data-i="diff" class="s12 c-dim"></i>3 个文件 +48 −8<span class="dim" style="font-size: var(--fs-xs)">宿主现算</span><span class="linkish">查看改动 ›</span></span>
                 </div>
                 <div class="gate-actions">
-                  <button class="btn sm primary">先留着</button><button class="btn sm">归档</button>
+                  <button class="btn sm primary">通过</button><button class="btn sm">要改…</button
+                  ><span class="grow"></span><span class="dim" style="font-size: var(--fs-xs)">结果交给 agent</span>
                 </div>
               </div>
             </div>
             <div class="composer-dock">
               <div class="composer chat-composer">
-                <textarea rows="1" placeholder="问这个任务的事"></textarea>
+                <textarea rows="1" placeholder="直接回复也行：代替这次审核交给 agent"></textarea>
                 <div class="composer-foot">
                   <span class="pick"><i data-i="spark" class="s12"></i>opus-5.5 · 高</span
                   ><button class="send"><i data-i="send" class="s16"></i></button>
@@ -4426,33 +4369,45 @@
               </div>
             </div>
           </div>
-          <span class="pin">36</span>
+          <span class="pin">38</span>
         </div>
       </div>
       <div class="notes">
         <div class="note-card">
-          <div class="h"><span class="pin">34</span>A · 卡片</div>
-          任务完成后底部出现，四条事实一眼看完：worktree 名、合没合并、干不干净、几个提交。选"先留着"后卡片收起，任务栏留一个"归档 worktree"按钮，以后再点。有没提交的改动时归档会被拒，卡片说明原因、不收起。
+          <div class="h"><span class="pin">33</span>批准改图</div>
+          证据是"图的改动"（加 / 删 / 改了哪些节点，点开在图上看，同时左边的图描虚线框）和"摘要"（申请改图的节点写的理由）。不批准时原因可写可不写。
         </div>
         <div class="note-card">
-          <div class="h"><span class="pin">35</span>B · 任务栏上一个按钮</div>
-          不主动问，任务栏一直有"归档 worktree"，点开看事实再归档。不打扰；但容易忘，worktree 越积越多。
+          <div class="h"><span class="pin">34</span>human 节点验收</div>
+          通过一下就合并；打回要写原因，点了展开第 6 屏 A 那样的输入框。
         </div>
         <div class="note-card">
-          <div class="h"><span class="pin">36</span>C · 随情况换默认</div>
-          和 A 同一张卡片，只是没合并（比如任务取消了）时边框变橙、"先留着"变成默认按钮，免得顺手把没合并的工作归档掉。已合并时和 A 一样。
+          <div class="h"><span class="pin">35</span>合并被挡住</div>
+          同一张卡片的"执行失败"状态。六种原因的说法：
+          <div class="reason-table">
+            <code>merge_worktree_dirty</code><span>任务的 worktree 里还有没提交的改动</span>
+            <code>merge_main_dirty</code><span>主目录有没提交的改动：先提交或收起来</span>
+            <code>merge_main_not_trunk</code><span>主目录现在在 X 分支上：切回 main</span>
+            <code>merge_conflict</code><span>N 个文件冲突，列出文件；给"加一个解决冲突的节点"</span>
+            <code>merge_abort_failed</code><span>红色：合并没能退回，主目录可能不干净，请手动检查</span>
+            <code>merge_git_failed</code><span>git 出错了，没有合并，主目录没动</span>
+          </div>
         </div>
         <div class="note-card">
-          <div class="h">建议</div>
-          <span class="rec">选 <b>A + C</b>：按事实决定哪个按钮是默认的；"先留着"之后用 B 的任务栏按钮兜底。</span>
+          <div class="h"><span class="pin">36</span><span class="pin" style="margin-left: -4px">37</span>归档</div>
+          事实决定默认按钮：已合并默认"归档"；没合并时边框变橙、默认"先留着"。选"先留着"后卡片收起，任务栏留一个"归档 worktree"按钮兜底。
+        </div>
+        <div class="note-card">
+          <div class="h"><span class="pin">38</span>普通对话（以后）</div>
+          agent 在推送、提交、迁移这类动作前用 <span class="cmd">request_review</span> 请你看。它说的话进"agent 说"，改动由宿主算，结果交回 agent。现在只画出来对齐组件，不在 T7/T8 做。
         </div>
       </div>
     </section>
 
-    <!-- ══ 10 节点对话标签（TP）══ -->
-    <section class="screen tp" id="s10">
+    <!-- ══ 8 节点对话标签（TP）══ -->
+    <section class="screen tp" id="s8">
       <div class="screen-title">
-        <span class="no">10</span>
+        <span class="no">08</span>
         <h2>节点对话 · 从任务对话的进度行点开</h2>
         <span>节点对话是普通会话，能插话、停这一轮；问题是它开在哪里</span>
       </div>
@@ -4494,7 +4449,7 @@
               </div>
             </div>
           </div>
-          <span class="pin">37</span>
+          <span class="pin">39</span>
         </div>
 
         <div class="win vwin v-b">
@@ -4537,7 +4492,7 @@
             </div>
             </div>
           </div>
-          <span class="pin">38</span>
+          <span class="pin">40</span>
         </div>
 
         <div class="win vwin v-c">
@@ -4577,20 +4532,20 @@
               </div>
             </div>
           </div>
-          <span class="pin">39</span>
+          <span class="pin">41</span>
         </div>
       </div>
       <div class="notes">
         <div class="note-card">
-          <div class="h"><span class="pin">37</span>A · 另开一个标签</div>
+          <div class="h"><span class="pin">39</span>A · 另开一个标签</div>
           节点对话是一个普通标签，排在它的任务标签右边，前面一个拐角箭头和节点 id 表示它属于左边那个任务。全宽显示，和平常的对话一样；看图要切回任务标签。关掉任务标签时一起关。
         </div>
         <div class="note-card">
-          <div class="h"><span class="pin">38</span>B · 换右栏</div>
+          <div class="h"><span class="pin">40</span>B · 换右栏</div>
           不开新标签：右栏顶上从"任务对话"切到"N2 核心实现与自检"，左边的图不动，节点在图上描框高亮。能边看图边看节点在做什么；但右栏只有 420 宽，看长的工具输出挤。
         </div>
         <div class="note-card">
-          <div class="h"><span class="pin">39</span>C · 编成一组标签</div>
+          <div class="h"><span class="pin">41</span>C · 编成一组标签</div>
           任务标签和它打开的节点对话放进一个灰底的标签组，节点只写 id（当前那个带名字）；组外的标签照旧。归属最清楚，开了好几个节点也不乱；但标签栏多了一种样子。
         </div>
         <div class="note-card">
@@ -4837,21 +4792,23 @@
         22: ["#s5 .task-bar .st-line"],
         23: ["#s5 .tabbar .tab", "首页首屏"],
         24: ["#s5 .design-chat .crumb .seg-btn"],
-        25: ["#s6 .v-a .gate-card"],
-        26: ["#s6 .v-b .slim-bar"],
-        27: ["#s6 .v-c .m-q", "图 v3"],
-        28: ["#s7 .v-a .gate-card"],
-        29: ["#s7 .v-b .q-opt.on"],
-        30: ["#s7 .v-c .chip"],
-        31: ["#s8 .v-a .gate-card"],
-        32: ["#s8 .v-b .warn-band"],
-        33: ["#s8 .v-c .quick"],
-        34: ["#s9 .v-a .gate-card"],
-        35: ["#s9 .v-b .task-bar .btn"],
-        36: ["#s9 .v-c .gate-card"],
-        37: ["#s10 .v-a .tab.on"],
-        38: ["#s10 .v-b .crumb .seg-btn.cur"],
-        39: ["#s10 .v-c .tab-group"],
+        25: ["#s6 .v-a .rv-head"],
+        26: ["#s6 .v-a .facts"],
+        27: ["#s6 .v-a .warn-band"],
+        28: ["#s6 .v-a .reason-box"],
+        29: ["#s6 .v-b .gate-card"],
+        30: ["#s6 .v-b .said"],
+        31: ["#s6 .v-c .pill-tabs"],
+        32: ["#s6 .v-c .rv-record"],
+        33: ["#s7 .v-a .gate-card"],
+        34: ["#s7 .v-b .gate-card"],
+        35: ["#s7 .v-c .warn-band"],
+        36: ["#s7 .v-d .gate-card"],
+        37: ["#s7 .v-e .gate-card"],
+        38: ["#s7 .v-f .said"],
+        39: ["#s8 .v-a .tab.on"],
+        40: ["#s8 .v-b .crumb .seg-btn.cur"],
+        41: ["#s8 .v-c .tab-group"],
       };
       function placePins() {
         document.querySelectorAll(".win > .pin").forEach((pin) => {
