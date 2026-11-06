@@ -111,7 +111,7 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 
 ## task:try 与 Atrium（T7 定）
 
-`pnpm task:try` 自己起一个宿主，home 是 `--home`（默认 `<仓库>.task-try`），不是 `~/.atrium`；任务区看的是正在开着的 Atrium 的宿主，所以 **task:try 跑的任务不会自己出现在开着的 Atrium 里**。硬性规则：任何时候都不能有两个宿主管理同一个 Atrium home 或同一批会话（锁、pi 进程、会话文件）。T7 评估过三个办法，**都没有在 T7 里做**，等用户选：
+`pnpm task:try` 自己起一个宿主，home 是 `--home`（默认 `<仓库>.task-try`），不是 `~/.atrium`；任务区看的是正在开着的 Atrium 的宿主，所以 **task:try 跑的任务不会自己出现在开着的 Atrium 里**。硬性规则：任何时候都不能有两个宿主管理同一个 Atrium home 或同一批会话（锁、pi 进程、会话文件）。T7 评估过三个办法，2026-11-06 用户选 **B**（T7.1 做）：
 
 | 办法 | 做法 | 为什么这样判 |
 |---|---|---|

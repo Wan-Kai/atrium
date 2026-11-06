@@ -957,6 +957,8 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 
 见 [development.md · task:try 与 Atrium](../development.md#task-try-与-atrium-t7-定)。结论：**任何时候都不能有两个宿主管同一个 Atrium home**；评估了三个办法（A 当客户端连开着的宿主、B 只读地跟着任务目录、C 共用 home），**都没在 T7 里做，等用户选**，建议 B；现在能做的是跑完之后看（task:try 退出后用同一个 home 起 Atrium）。
 
+**2026-11-06 用户定**：边跑 `task:try` 边在 Atrium 里看选 B（开发时只读跟随 task:try 的任务目录，见 development.md"task:try 与 Atrium"，作为 T7.1 补做）；human 节点的改动统计放在节点悬停卡里；"项目 · worktree"的写法（有项目没 worktree 只写项目名，定时写"项目 · 定时 · worktree"）照现在的做；改过节点的虚线框和需求摘要卡片放 T8。
+
 **没做、留给后面**：行内作答、任务栏的按钮、任务对话的输入框、审核卡片和记录（T8）；改过的节点标蓝框和"新"（要协议给前一版，T8）；需求摘要卡片（设计稿第 4 屏，要把摘要给界面，T8）；任务对话在 pi 没在跑时的读取（T9）；定时标签的内容（T10）；节点对话标签（T8）。
 
 ## 备选方案
