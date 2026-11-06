@@ -48,8 +48,6 @@ export {
   DetachSessionCommand,
   ForkPlacement,
   ClearAttentionCommand,
-  HandOffCommand,
-  TakeBackCommand,
   RenameSessionCommand,
   SetPreferencesCommand,
   SteerCommand,

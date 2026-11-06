@@ -101,7 +101,6 @@ export function session(
     attention: null,
     asking: null,
     question: null,
-    handedOff: false,
     model: null,
     parent: null,
     agent: null,
@@ -183,7 +182,6 @@ export interface FakeAnswers {
   readonly prompt?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
   readonly addProject?: () => Promise<void>;
   readonly openSession?: () => Promise<void>;
-  readonly handOff?: () => Promise<void>;
   /** The list `loadModels` puts in a container's model list; empty and ready when left out. */
   readonly models?: ModelListView;
   /** Holds back an upload, given its number counting from 1. */
@@ -532,17 +530,6 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       change(sessionId, (one) => ({
         attention: one.attention === null ? null : { ...one.attention, cleared: one.attention.reason === "error" },
       }));
-      return {};
-    },
-    async handOff(sessionId: string) {
-      calls.push(`handOff ${sessionId}`);
-      await answers.handOff?.();
-      change(sessionId, () => ({ handedOff: true }));
-      return { file: index.getState().sessions.find((one) => one.sessionId === sessionId)?.file ?? "" };
-    },
-    async takeBack(sessionId: string) {
-      calls.push(`takeBack ${sessionId}`);
-      change(sessionId, () => ({ handedOff: false }));
       return {};
     },
     async addProject(path: string) {

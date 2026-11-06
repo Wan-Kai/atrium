@@ -59,7 +59,7 @@ import type { FileSearch } from "../files/file-search";
 import type { Layouts } from "./layouts";
 import { type CatalogChat, type CatalogEntry, chatIdOf, type NewRecord, type SessionCatalog } from "./session-catalog";
 import { archivePlan } from "./child-tree";
-import { agentLaunchFlags, toolFlags } from "./agent-launch";
+import { agentLaunchFlags } from "./agent-launch";
 import { type ChildCreated, type ChildRequest, type WorkChanges, createAgentRelay } from "./agent-relay";
 import { createChildrenUsage } from "./children-usage";
 import type { SessionCommands } from "./session-commands";
@@ -477,8 +477,6 @@ export function createSessionManager(options: {
   const closing = new AbortController();
   /** Each client's last tab or place change, which the next one waits for. */
   const clientTurns = new Map<string, Promise<unknown>>();
-  /** Each session's last hand-off or take-back, which the next one waits for. */
-  const handTurns = new Map<string, Promise<unknown>>();
   /** Children forked into a new worktree, by session, to the file their pi first starts from (SPEC-0002). */
   const forkFrom = new Map<string, string>();
   /** What each session's child conversations produced, for its "含子对话" figures (SPEC-0002, "用量合计"). */
@@ -587,23 +585,6 @@ export function createSessionManager(options: {
       // Stryker disable next-line ConditionalExpression,BlockStatement: only frees memory; a settled turn holds up nothing.
       if (clientTurns.get(clientId) === settled) clientTurns.delete(clientId);
     }
-  }
-
-  /**
-   * Runs a session's hand-off or take-back after the one asked for before it.
-   *
-   * @remarks
-   * SPEC-0001 ("交给终端"): a take-back while the hand-off still stops pi would find that pi
-   * running, start none, and let the next message start one beside pi in the terminal. A failed
-   * one does not hold up the next.
-   *
-   * @sideEffects Runs `work` once the session's earlier hand-off or take-back is done.
-   * @param sessionId - The session.
-   * @param work - The hand-off or take-back.
-   * @returns What `work` returns.
-   */
-  async function inHandOrder<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
-    return inTurn(handTurns, sessionId, work);
   }
 
   /**
@@ -744,7 +725,7 @@ export function createSessionManager(options: {
   function titleSubject(sessionId: string): TitleSubject | null {
     const entry = options.catalog.find(sessionId);
     const found = live(sessionId);
-    if (entry?.name !== null || entry.state !== "persisted" || entry.handedOff || found === undefined) return null;
+    if (entry?.name !== null || entry.state !== "persisted" || found === undefined) return null;
     const model = found.controller.snapshot().model;
     const exchange = firstExchange(found.controller.items());
     if (model === null || exchange === null) return null;
@@ -756,7 +737,7 @@ export function createSessionManager(options: {
       async write(title) {
         const now = options.catalog.find(sessionId);
         if (found.controller.forking) return false;
-        if (now?.name !== null || now.handedOff || renamed.has(sessionId) || live(sessionId)?.pi !== pi) return false;
+        if (now?.name !== null || renamed.has(sessionId) || live(sessionId)?.pi !== pi) return false;
         await pi.request({ type: "set_session_name", name: title });
         await options.catalog.scan();
         return true;
@@ -1285,7 +1266,7 @@ export function createSessionManager(options: {
      * @returns The running session.
      */
     const start = async (): Promise<Running> => {
-      // Counted as a start meanwhile, so a hand-off or a stop sees it (SPEC-0001, "空闲回收").
+      // Counted as a start meanwhile, so a stop sees it (SPEC-0001, "空闲回收").
       await idleStops.get(sessionId);
       notArchived(sessionId);
       const tools = await readyTools();
@@ -1600,8 +1581,6 @@ export function createSessionManager(options: {
       // A discard under way sees the tab, keeps the draft, and its pi starts again here.
       await discarding.get(sessionId)?.catch(() => undefined);
       const found = entryOf(sessionId);
-      // A session handed off waits for "在 Atrium 里继续" (SPEC-0001, "交给终端").
-      if (found.handedOff) return {};
       // A restored draft waits for its first message; one created here starts, or its start under
       // way is waited for.
       if (found.state !== "draft" || sessions.has(sessionId) || created.has(sessionId)) await ensureRunning(sessionId);
@@ -1690,7 +1669,7 @@ export function createSessionManager(options: {
             forget(sessionId);
             await options.catalog.archive(sessionId);
           }
-          // A child conversation elsewhere stays, as an ordinary session (SPEC-0002, "归档、脱离、交接").
+          // A child conversation elsewhere stays, as an ordinary session (SPEC-0002, "归档、脱离").
           await detachAll(detach);
           for (const sessionId of archived) await relay.ended(sessionId, "archived");
         });
@@ -1727,7 +1706,6 @@ export function createSessionManager(options: {
         await session?.pi.request({ type: "set_session_name", name });
         return {};
       }
-      notHandedOff(sessionId);
       const { pi, controller } = await ensureRunning(sessionId);
       if (controller.forking) throw new CommandError("session_busy");
       renamed.add(sessionId);
@@ -1784,7 +1762,6 @@ export function createSessionManager(options: {
         notReserved(command.text);
         await options.catalog.ready();
         notArchived(sessionId);
-        notHandedOff(sessionId);
         // A session whose pi is not running, a restored draft among them, starts on its message.
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
         return await session.controller.prompt(command, images);
@@ -1801,7 +1778,6 @@ export function createSessionManager(options: {
         notReserved(command.text);
         await options.catalog.ready();
         notArchived(sessionId);
-        notHandedOff(sessionId);
         // A view of the pi that stopped holds that pi's epoch; the one started here reads the same
         // file, so only the turn is checked again, by its id from its entry (SPEC-0001, "空闲回收").
         const stopped = live(sessionId) === undefined ? sessions.get(sessionId)?.controller : undefined;
@@ -1824,7 +1800,6 @@ export function createSessionManager(options: {
         notReserved(command.text);
         await options.catalog.ready();
         notArchived(sessionId);
-        notHandedOff(sessionId);
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
         return await session.controller.steer(command, images);
       } finally {
@@ -1835,7 +1810,6 @@ export function createSessionManager(options: {
     },
     stop: async (sessionId) => controllerOf(sessionId).stop(),
     async resumeQueue(sessionId) {
-      notHandedOff(sessionId);
       const controller = controllerOf(sessionId);
       // The queue moves only with a pi to take it.
       if (live(sessionId) === undefined) await ensureRunning(sessionId);
@@ -1884,8 +1858,7 @@ export function createSessionManager(options: {
       const entry = entryOf(sessionId);
       if (entry.state === "missing") throw new CommandError("session_not_found", { sessionId });
       if (entry.file === null) throw new CommandError("session_is_draft", { sessionId });
-      notHandedOff(sessionId);
-      // A tree being archived takes no new child (SPEC-0002, "归档、脱离、交接").
+      // A tree being archived takes no new child (SPEC-0002, "归档、脱离").
       if (child !== undefined) notArchived(sessionId);
       // Turns are known only to a controller, which the session's pi starting makes.
       const controller = sessions.get(sessionId)?.controller;
@@ -1961,7 +1934,6 @@ export function createSessionManager(options: {
     async retryRun(sessionId) {
       await options.catalog.ready();
       entryOf(sessionId);
-      notHandedOff(sessionId);
       // A session this host never ran has no controller yet; starting it makes one.
       const session = sessions.get(sessionId) ?? (await ensureRunning(sessionId));
       return session.controller.retryRun();
@@ -2015,38 +1987,6 @@ export function createSessionManager(options: {
       entryOf(sessionId);
       await relay.resumeDeliveries(sessionId, tree);
       return {};
-    },
-    async handOff(sessionId) {
-      await options.catalog.ready();
-      const entry = entryOf(sessionId);
-      if (entry.state === "missing") throw new CommandError("session_not_found", { sessionId });
-      if (entry.file === null) throw new CommandError("session_is_draft", { sessionId });
-      if (occupied(sessionId)) throw new CommandError("session_busy");
-      const { file } = entry;
-      return inHandOrder(sessionId, async () => {
-        if (occupied(sessionId)) throw new CommandError("session_busy");
-        // Marked first, so nothing starts the session's pi again while it stops.
-        await options.catalog.mark(sessionId, { handedOff: true });
-        await stopEnding(sessionId);
-        await relay.ended(sessionId, "handed_off");
-        // pi in a terminal has no Atrium extension: a child's limits go as flags (SPEC-0002, "交接").
-        const entries = options.catalog.list();
-        const args =
-          entries.find((one) => one.sessionId === sessionId)?.agent == null ? [] : toolFlags(entries, sessionId, true);
-        return { file, args };
-      });
-    },
-    async takeBack(sessionId) {
-      await options.catalog.ready();
-      entryOf(sessionId);
-      return inHandOrder(sessionId, async () => {
-        await options.catalog.mark(sessionId, { handedOff: false });
-        // pi in the terminal has written to the file since.
-        await options.catalog.scan();
-        await ensureRunning(sessionId);
-        relay.takenBack(sessionId);
-        return {};
-      });
     },
     summaries() {
       return options.catalog
@@ -2166,30 +2106,12 @@ export function createSessionManager(options: {
    * @sideEffects May spawn pi.
    * @param sessionId - The session.
    * @returns The running session.
-   * @throws {CommandError} `session_not_found`, `session_handed_off`, `session_cwd_missing`,
-   * `pi_unavailable`.
+   * @throws {CommandError} `session_not_found`, `session_cwd_missing`, `pi_unavailable`.
    */
   async function commanded(sessionId: string): Promise<Running> {
     await options.catalog.ready();
     entryOf(sessionId);
-    notHandedOff(sessionId);
     return live(sessionId) ?? (await ensureRunning(sessionId));
-  }
-
-  /**
-   * Refuses a command that would start or write pi on a session handed off.
-   *
-   * @remarks
-   * Two pi writing one session fork it without telling (SPEC-0001, "交给终端").
-   *
-   * @sideEffects none
-   * @param sessionId - The session.
-   * @throws {CommandError} `session_handed_off`.
-   */
-  function notHandedOff(sessionId: string): void {
-    if (options.catalog.find(sessionId)?.handedOff === true) {
-      throw new CommandError("session_handed_off", { sessionId });
-    }
   }
 
   /**
@@ -2567,11 +2489,11 @@ export function createSessionManager(options: {
   }
 
   /**
-   * Stops a session's pi as it is archived or handed off.
+   * Stops a session's pi as it is archived.
    *
    * @remarks
    * The end of its run meanwhile is not its task's: its parent is told `ended` afterwards
-   * (SPEC-0002, "归档、脱离、交接"), not that the run failed.
+   * (SPEC-0002, "归档、脱离"), not that the run failed.
    *
    * @sideEffects Stops pi; tells the relay.
    * @param sessionId - The session.
@@ -2590,7 +2512,7 @@ export function createSessionManager(options: {
    * parent was archived.
    *
    * @remarks
-   * SPEC-0002 ("归档、脱离、交接"): an archiving that began after the parent was looked at did
+   * SPEC-0002 ("归档、脱离"): an archiving that began after the parent was looked at did
    * not see the child. Once no archiving marks the parent or its container any more, a child of
    * an archived parent is archived too in the parent's container and detached elsewhere, and its
    * tasks end as they would have then.
@@ -2688,7 +2610,7 @@ export function createSessionManager(options: {
    * @remarks
    * A run (a stop under way is one), a message on its way, a run pi said it started that has not
    * begun yet, a restart, a compaction or a fork under way, or messages in the host's queue, which
-   * only Atrium would send (SPEC-0001, "交给终端", "M1.11 的 `/` 命令 · 压缩").
+   * only Atrium would send (SPEC-0001, "M1.11 的 `/` 命令 · 压缩").
    *
    * @sideEffects none
    * @param sessionId - The session.

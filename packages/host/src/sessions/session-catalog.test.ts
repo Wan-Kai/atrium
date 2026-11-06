@@ -123,7 +123,6 @@ describe("SessionCatalog", () => {
         updatedAt: 100_000,
         archived: false,
         attention: null,
-        handedOff: false,
         fast: null,
         model: null,
         parent: null,
@@ -213,7 +212,6 @@ describe("SessionCatalog", () => {
         updatedAt: 5_001,
         archived: false,
         attention: null,
-        handedOff: false,
         fast: null,
         model: null,
         parent: null,
@@ -283,7 +281,7 @@ describe("SessionCatalog", () => {
     ]);
   });
 
-  it("marks a session's attention and hand-off, recording one from the terminal, and writes only a change", async () => {
+  it("marks a session's attention, recording one from the terminal, and writes only a change", async () => {
     const { sessions, dirs, file, write, changes } = await catalog();
     await write(dirs.a, "terminal", [user("hi")]);
     await sessions.record({ sessionId: "ours", containerId: A, cwd: dirs.a });
@@ -291,14 +289,14 @@ describe("SessionCatalog", () => {
     const before = changes();
 
     await sessions.mark("terminal", { attention: { reason: "auth", at: 7, cleared: false, text: null } });
-    await sessions.mark("ours", { handedOff: true });
-    await sessions.mark("ours", { handedOff: true });
+    await sessions.mark("ours", { attention: { reason: "auth", at: 7, cleared: false, text: null } });
+    await sessions.mark("ours", { attention: { reason: "auth", at: 7, cleared: false, text: null } });
     await sessions.mark("terminal", { attention: { reason: "auth", at: 7, cleared: false, text: null } });
-    await sessions.mark("unknown", { handedOff: true });
+    await sessions.mark("unknown", { attention: { reason: "auth", at: 7, cleared: false, text: null } });
 
-    expect(sessions.list().map((entry) => [entry.sessionId, entry.attention, entry.handedOff])).toStrictEqual([
-      ["terminal", { reason: "auth", at: 7, cleared: false, text: null }, false],
-      ["ours", null, true],
+    expect(sessions.list().map((entry) => [entry.sessionId, entry.attention])).toStrictEqual([
+      ["terminal", { reason: "auth", at: 7, cleared: false, text: null }],
+      ["ours", { reason: "auth", at: 7, cleared: false, text: null }],
     ]);
     expect(file.read().sessions).toStrictEqual([
       {
@@ -308,7 +306,7 @@ describe("SessionCatalog", () => {
         draft: true,
         archived: false,
         createdAt: 5_000,
-        handedOff: true,
+        attention: { reason: "auth", at: 7, cleared: false, text: null },
       },
       {
         sessionId: "terminal",
@@ -323,10 +321,10 @@ describe("SessionCatalog", () => {
     expect(changes() - before).toBe(2);
 
     await sessions.mark("terminal", { attention: null });
-    await sessions.mark("ours", { handedOff: false });
-    expect(sessions.list().map((entry) => [entry.sessionId, entry.attention, entry.handedOff])).toStrictEqual([
-      ["terminal", null, false],
-      ["ours", null, false],
+    await sessions.mark("ours", { attention: null });
+    expect(sessions.list().map((entry) => [entry.sessionId, entry.attention])).toStrictEqual([
+      ["terminal", null],
+      ["ours", null],
     ]);
   });
 
@@ -365,7 +363,7 @@ describe("SessionCatalog", () => {
     await write(dirs.a, "terminal", [user("hi")]);
     await sessions.scan();
 
-    await sessions.mark("terminal", { attention: null, handedOff: false });
+    await sessions.mark("terminal", { attention: null });
 
     expect(file.read().sessions).toStrictEqual([]);
   });

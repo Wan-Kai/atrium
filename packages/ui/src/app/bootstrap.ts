@@ -16,6 +16,11 @@ interface AtriumBridge {
   reveal?(path: string): Promise<void>;
   /** Opens an absolute path to an HTML file in the default browser. */
   openInBrowser?(path: string): Promise<void>;
+  /**
+   * Opens a terminal in a workspace's directory, or in the home folder for `null`
+   * (SPEC-0001, "在终端中打开").
+   */
+  openTerminal?(dir: string | null): Promise<void>;
 }
 
 /**

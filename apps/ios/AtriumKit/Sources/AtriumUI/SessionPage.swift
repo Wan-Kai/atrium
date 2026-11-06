@@ -508,7 +508,6 @@ struct SessionPage: View {
     case nil, .loading, .ready: nil
     case .exited: "pi 已退出"
     case .failed(let code): "打不开这个会话（\(code.rawValue)）"
-    case .handedOff: "这个会话交给终端里的 pi 了"
     }
   }
 

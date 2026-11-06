@@ -16,6 +16,7 @@ import { randomBytes } from "node:crypto";
 import { lstat, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { openTerminalIn } from "./open-terminal";
 import { allowsPermission, isPageUrl } from "./permissions";
 import { type VaultKeeper, createVaultKeeper } from "./vault";
 
@@ -253,6 +254,25 @@ async function isBrowsable(path: string): Promise<boolean> {
 }
 
 /**
+ * Whether the page may open a terminal in a directory: an absolute path to a folder that exists.
+ *
+ * @remarks
+ * The page asks for the workspace a session is in, or `null` for the home folder (SPEC-0001,
+ * "在终端中打开"). Anything else it sends is ignored (security.md, "Electron").
+ *
+ * @sideEffects Reads the file system.
+ * @param path - The path the page sent.
+ * @returns Whether to open a terminal there.
+ */
+async function isOpenableDirectory(path: string): Promise<boolean> {
+  if (!isAbsolute(path)) return false;
+  return stat(path).then(
+    (found) => found.isDirectory(),
+    () => false,
+  );
+}
+
+/**
  * Applies the window-level security rules to a window's web contents.
  *
  * @remarks
@@ -380,6 +400,11 @@ async function main(): Promise<void> {
   ipcMain.handle("atrium:open-in-browser", async (event, path: unknown) => {
     checkSender(event);
     if (typeof path === "string" && (await isBrowsable(path))) await shell.openExternal(pathToFileURL(path).href);
+  });
+  ipcMain.handle("atrium:open-terminal", async (event, dir: unknown) => {
+    checkSender(event);
+    if (dir !== null && (typeof dir !== "string" || !(await isOpenableDirectory(dir)))) return;
+    await openTerminalIn(typeof dir === "string" ? dir : null);
   });
   ipcMain.handle("atrium:appearance", (event, appearance: unknown) => {
     checkSender(event);

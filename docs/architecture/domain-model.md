@@ -135,7 +135,7 @@ classDiagram
 ├── host.lock                 宿主单实例锁：{ pid, startedAt }
 ├── projects.json             项目与工作区登记
 ├── chats.json                对话的自定义名称（2026-10-12 加）、归档（M1.11，v2）
-├── sessions.json             Atrium 记录的会话：所属容器、工作目录、草稿、归档、关注状态、已交给终端（M1.9）、Fast（M1.11）
+├── sessions.json             Atrium 记录的会话：所属容器、工作目录、草稿、归档、关注状态、Fast（M1.11）
 ├── layouts.json              按客户端的布局：每个容器打开的标签页、当前标签；只留最近用过的 10 个客户端
 ├── preferences.json          全局偏好：外观、状态栏、网络代理……
 ├── remote.json               远程访问开着没有、各设备的最后在线时间（SPEC-0005"MP3a 定的细节"，2026-10-26 加）；
@@ -404,7 +404,6 @@ classDiagram
 | 归档 `archive` | 记归档标记，关掉进程，丢掉 Controller（工作区或项目移除时，其中的会话也一样丢掉 Controller）。连带子对话（SPEC-0002）：从被归档的会话往下，同一容器的子孙一起归档，别的容器的那一支脱离；归档会话、对话、工作区都这样，工作区的脱离在 worktree 删掉之后 | 不删 pi 的会话文件 |
 | 脱离 `detach` | 去掉子对话的父会话，变成普通会话（SPEC-0002） | 不动它自己的子对话 |
 | 打开 `open` | 对 `closed` 的会话以 `--session` 启动进程（`processEpoch + 1`），重建 SessionLog | 不自动重放结果未知的上一条输入 |
-| 交给终端 `handOff` | 停止接受这个会话的写命令，关掉进程（进入 `closed`），在索引里记下交接（宿主重启后仍在），给出 `pi --session <文件>`；回来时由用户点"在 Atrium 里继续"（`takeBack`）重新打开，切到标签不自动启动 pi（2026-10-10 定） | Atrium 与终端不同时写同一个会话；运行中、排队里还有消息时不交接 |
 
 **排队与提交**
 
@@ -751,7 +750,7 @@ classDiagram
 | `list_bases` / `create_workspace` | WorktreeCreator（git 的部分，和 WorkspaceArchiver 排同一个队）→ ProjectService（记录，带起点提交）→ WorkspaceService（重扫）（M1.11） |
 | `rename_chat` / `pin_chat` / `unpin_chat` | ChatRecords（`chats.json`）；置顶的两个也走 IndexFeed 推一次（2026-10-28） |
 | `archive_chat` / `restore_chat` | SessionManager（停 pi、归档或放回会话）→ ChatRecords（记录）（M1.11） |
-| `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `hand_off` / `take_back` / `clear_attention` / `detach_session` | SessionManager；`create_session` 带 `child` 时开子对话，新 worktree 的经 WorktreeCreator 从父工作区当前的提交建（M1.15） |
+| `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `clear_attention` / `detach_session` | SessionManager；`create_session` 带 `child` 时开子对话，新 worktree 的经 WorktreeCreator 从父工作区当前的提交建（M1.15） |
 | `remove_delivery` / `resume_deliveries` | SessionManager → AgentRelay：删掉一条待送的，或放开宿主重启后暂停的（`tree` 时连同子树），再交给收件会话的 SessionController（M1.15） |
 | `subscribe_index(cursor?)` | IndexFeed |
 | `subscribe_sessions(ids)` / `fetch_transcript(sessionId, direction, cursor, limit)` | SessionManager → SessionController |
@@ -780,7 +779,7 @@ classDiagram
 
 1. **对话不算工作区，但和工作区一样是容器**：每个对话一个目录、可以有多个会话，通过 SessionContainer 与工作区统一选择、列表和新建入口；没有 git（2026-10-12 改，[ADR-0007](../adr/0007-each-chat-is-its-own-container.md)；原先所有对话在一个全局的 ChatSpace 里）。
 2. **会话主键用 pi 的会话 id**，文件路径是可更新的定位；草稿会话也有 id；同 id 多文件报冲突。
-3. **MVP 1 不回收空闲进程**：打开过的会话进程常驻到归档、交给终端或宿主退出；排队、关注状态、当场计时随 Runtime 一直在。宿主重启后会话是 `closed`，打开时重建，当场计时显示"—"。agent 开的子对话例外，空闲且没人看时回收（SPEC-0002，M1.15，见 §3）。
+3. **MVP 1 不回收空闲进程**：打开过的会话进程常驻到归档或宿主退出；排队、关注状态、当场计时随 Runtime 一直在。宿主重启后会话是 `closed`，打开时重建，当场计时显示"—"。agent 开的子对话例外，空闲且没人看时回收（SPEC-0002，M1.15，见 §3）。
 4. **标签页不跨客户端同步**：布局按 `clientId + containerId` 存在索引里。
 5. **会话归属**：Atrium 建的会话创建时记下所属容器；Atrium 没见过的会话按文件头的 `cwd` 归类。
 6. **失败重试 3 次再告诉用户**：模型调用的可重试错误交给 pi 自带的重试（宿主确保开启，次数沿用 pi 的设置，默认 3）；进程崩溃由 SessionController 自动重启，最多连续 3 次，崩溃前那条输入没写进会话就重新提交，已写进就补发一条"继续"；认证失败、目录不存在不重试。3 次都失败才设关注状态、显示错误卡片，卡片上的"重试"按同样规则再来一轮。Runtime 里加 `restartAttempts` 计数，一轮结束且没有失败（完成或被停止）后清零（2026-10-09 改）。模型重试的次数沿用 pi 的设置（默认 3），宿主只确保开启（2026-10-09 定，RPC 改不了次数）。
@@ -794,8 +793,8 @@ classDiagram
 13. **没发过消息就关掉的草稿丢弃**（2026-10-08 定）：停掉 pi、删掉索引记录，"历史"里不堆积空会话。它是对话里唯一的会话时，对话的空目录一并删掉（只删空的），对话随之消失；对话里还有别的会话（含归档的）时目录留着（2026-10-12 补）。
 14. **工作区里新建会话也立刻启动 pi**（2026-10-08 定）：和"已决定 9"的新对话一样。
 15. **主干只认覆盖值或 `origin/HEAD`**（2026-10-08 定）：都没有时合并状态为 `unknown`（主干引用缺失），不猜本地的 main / master。这里定的是主干的名字；比较时先用本机的同名分支，本机没有再用 `origin/<主干>`（2026-10-22 自用时改，原先只用 `origin/<主干>`：本机合并、不推送时侧栏一直显示未合并）。
-16. **交给终端后点了才继续**（2026-10-10 定）：交接记在索引里，宿主重启后仍在；切到标签不自动启动 pi，用户点"在 Atrium 里继续"才重新加载。pi 没有跨进程的写锁，两边同时写会悄悄分叉。
-17. **会话状态、收件箱、工作区汇总在界面派生**（2026-10-10 定）：宿主只在会话摘要里给出运行、关注状态、待回答、已交接，界面按 §4 的优先级算。
+16. **在终端中打开只开终端，不交接**（2026-11-05 改，取代 2026-10-10 定的"交给终端后点了才继续"）：标签栏"···"在本机开一个终端，工作区里的会话开在工作区目录、对话里的会话开在 `~`；不停 pi、不写索引、不复制也不执行命令。原先那套交接（`hand_off` / `take_back`、`handedOff` 标记、"已在终端中继续"面板）随之去掉，协议 33。
+17. **会话状态、收件箱、工作区汇总在界面派生**（2026-10-10 定）：宿主只在会话摘要里给出运行、关注状态、待回答，界面按 §4 的优先级算。
 18. **对话记录不按序号补拉**（2026-10-10 定）：缺口或 `epoch` 变了就重拿快照。
 19. **查看标签只在界面里**（M1.12，2026-10-13 定）：看文件、看 diff 的查看标签和会话标签排在同一个标签栏里，但不是会话，不进 ClientLayout：按容器记在这个窗口的界面状态里，不发给宿主，别的窗口看不到，刷新、重启后没有了。会话标签仍只由宿主的布局决定；界面把两者按顺序合在一起显示，⌘W、⌘1–9 等快捷键一起算（SPEC-0001"M1.12 的文件与更改"）。它只是看一眼的东西，记进宿主要升布局的版本、要处理文件不在了的情况，得不偿失（Paseo 把它们记在客户端本地）。
 

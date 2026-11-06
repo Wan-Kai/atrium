@@ -1,0 +1,76 @@
+[
+  {
+    "file": "apps/desktop/src/main/open-terminal.ts",
+    "from": "const target = dir ?? host.home();",
+    "to": "const target = dir ?? \"/\";",
+    "test": "apps/desktop/src/main/open-terminal.test.ts",
+    "name": "opens the home folder for a chat"
+  },
+  {
+    "file": "apps/desktop/src/main/open-terminal.ts",
+    "from": "const cli = CMUX.find((path) => host.exists(path));",
+    "to": "const cli = [...CMUX].reverse().find((path) => host.exists(path));",
+    "test": "apps/desktop/src/main/open-terminal.test.ts",
+    "name": "prefers the cmux inside the app"
+  },
+  {
+    "file": "apps/desktop/src/main/open-terminal.ts",
+    "from": "await host.run(OPEN, [\"-a\", \"Terminal\", target], OPEN_TIMEOUT_MS);",
+    "to": "await host.run(OPEN, [\"-a\", \"iTerm\", target], OPEN_TIMEOUT_MS);",
+    "test": "apps/desktop/src/main/open-terminal.test.ts",
+    "name": "opens Terminal.app in the directory"
+  },
+  {
+    "file": "apps/desktop/src/main/open-terminal.ts",
+    "from": "if (!(await answering())) {",
+    "to": "if (false) {",
+    "test": "apps/desktop/src/main/open-terminal.test.ts",
+    "name": "launches cmux when it is not running"
+  },
+  {
+    "file": "apps/desktop/src/main/open-terminal.ts",
+    "from": "if (!up) throw new Error(\"cmux did not start\");",
+    "to": "if (false) throw new Error(\"cmux did not start\");",
+    "test": "apps/desktop/src/main/open-terminal.test.ts",
+    "name": "gives up when cmux never answers"
+  },
+  {
+    "file": "apps/desktop/src/main/open-terminal.ts",
+    "from": "...(window === \"\" ? [] : [\"--window\", window]),",
+    "to": "...(false ? [] : [\"--window\", window]),",
+    "test": "apps/desktop/src/main/open-terminal.test.ts",
+    "name": "makes its own window"
+  },
+  {
+    "file": "packages/ui/src/tabs/session-menus.tsx",
+    "from": "(index) => index.workspaces.find((workspace) => workspace.id === session.containerId)?.dir ?? null,",
+    "to": "(index) => index.workspaces.find((workspace) => workspace.id === session.containerId)?.dir ?? \"/\",",
+    "test": "packages/ui/src/app/workbench.browser.test.tsx",
+    "name": "opens a terminal in the session's workspace",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tabs/session-menus.tsx",
+    "from": "disabled={desktop?.openTerminal === undefined}",
+    "to": "disabled={false}",
+    "test": "packages/ui/src/app/workbench.browser.test.tsx",
+    "name": "has no terminal to offer outside the desktop app",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tabs/session-menus.tsx",
+    "from": "await desktop?.openTerminal?.(workspaceDir);",
+    "to": "await Promise.resolve();",
+    "test": "packages/ui/src/app/workbench.browser.test.tsx",
+    "name": "opens a terminal in the session's workspace",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tabs/session-menus.tsx",
+    "from": "}, \"打开终端失败\");",
+    "to": "}, \"打开失败\");",
+    "test": "packages/ui/src/app/workbench.browser.test.tsx",
+    "name": "says so when the terminal does not open",
+    "project": "ui"
+  }
+]

@@ -27,7 +27,6 @@ function session(sessionId: string, fields: Partial<SessionSummary> = {}): Sessi
     attention: null,
     asking: null,
     question: null,
-    handedOff: false,
     model: null,
     parent: null,
     agent: null,

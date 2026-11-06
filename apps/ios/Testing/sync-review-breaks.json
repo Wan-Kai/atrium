@@ -9,14 +9,6 @@
   },
   {
     "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
-    "from": "    guard status == .loading || resuming else { return }",
-    "to": "    guard status == .loading else { return }",
-    "name": "handed off while resuming",
-    "runner": "swift",
-    "filter": "SyncMP4ReviewTests/handedOffWhileResuming"
-  },
-  {
-    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
     "from": "    if resuming, event.position.epoch == epoch, event.position.seq <= seq { return .ignored }\n",
     "to": "",
     "name": "overlap while resuming",

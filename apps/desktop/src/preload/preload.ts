@@ -7,7 +7,7 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
  * The renderer is sandboxed without Node (security.md, "Electron"), so this bridge is its sole
  * way to learn the host address and token, to have the user choose a project folder, to set
  * the window's appearance, to learn the path of a file dropped on the input box, to show a path in
- * the Finder and to open an HTML file in the browser; nothing else from Electron is exposed.
+ * the Finder, to open an HTML file in the browser and to open a terminal; nothing else from Electron is exposed.
  */
 const bridge = {
   /** Asks the main process for the host URL and session token. */
@@ -50,6 +50,18 @@ const bridge = {
    * @returns When the main process has handed it on.
    */
   openInBrowser: (path: string): Promise<void> => ipcRenderer.invoke("atrium:open-in-browser", path),
+  /**
+   * Opens a terminal in a workspace's directory, or in the home folder for `null`.
+   *
+   * @remarks
+   * The main process accepts only `null` or an absolute path to a folder that exists
+   * (SPEC-0001, "在终端中打开").
+   *
+   * @sideEffects Sends an IPC message.
+   * @param dir - The directory, or `null` for the home folder.
+   * @returns When the terminal has been asked for.
+   */
+  openTerminal: (dir: string | null): Promise<void> => ipcRenderer.invoke("atrium:open-terminal", dir),
 };
 
 contextBridge.exposeInMainWorld("atrium", bridge);

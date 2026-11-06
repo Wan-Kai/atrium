@@ -108,7 +108,6 @@ function session(id: string, running = false): SessionSummary {
     attention: null,
     asking: null,
     question: null,
-    handedOff: false,
     model: null,
     parent: null,
     agent: null,

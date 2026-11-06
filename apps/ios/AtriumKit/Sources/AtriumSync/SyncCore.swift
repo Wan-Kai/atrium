@@ -286,12 +286,10 @@ public struct SyncCore {
     case .indexSnapshot(let snapshot):
       index.apply(snapshot)
       listSnapshot = true
-      noteHandedOff()
     case .indexChanges(let changes):
       index.apply(changes)
       // With a cursor the host answers with changes, maybe none, instead of a snapshot.
       listSnapshot = true
-      noteHandedOff()
     case .sessionEvent(let event):
       outputs += take(event)
     case .changesUpdated(let updated) where watchedChanges.contains(updated.workspaceId):
@@ -1014,17 +1012,6 @@ public struct SyncCore {
       subscribe(openSessions.filter { $0 != sessionId }, failing: []),
       subscribe(openSessions, failing: [sessionId]),
     ]
-  }
-
-  /// Marks open sessions handed to a terminal as settled while they wait for a snapshot.
-  ///
-  /// - Remark: The Mac starts no pi for such a session, so no snapshot would come (SPEC-0005
-  ///   "MP4a 定的细节" 3).
-  /// - SideEffects: none
-  private mutating func noteHandedOff() {
-    for summary in index.sessions where summary.handedOff && openSessions.contains(summary.sessionId) {
-      sessions[summary.sessionId]?.markHandedOff()
-    }
   }
 
   /// Marks an open session as refused.

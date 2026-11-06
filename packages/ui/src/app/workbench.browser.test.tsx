@@ -1,5 +1,5 @@
-import { CommandError, type IndexView, type SessionView } from "@atrium/client";
-import { type DiffFile, IDLE_CONTROL } from "@atrium/protocol";
+import { CommandError, type IndexView } from "@atrium/client";
+import { type DiffFile } from "@atrium/protocol";
 import type { ReactNode } from "react";
 import type { StoreApi } from "zustand";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
@@ -20,6 +20,11 @@ const LOCAL = "wks_000000000000000a";
 const FEATURE = "wks_000000000000000b";
 const MERGED = "wks_000000000000000c";
 const CHAT = "cht_a";
+
+/** The desktop bridge a test pretends the page runs under, before adding what it answers. */
+const desktopStub = {
+  getBootstrap: () => Promise.resolve({ hostUrl: "http://127.0.0.1:1", token: "test" }),
+};
 
 /**
  * An element's width and height in pixels.
@@ -2562,7 +2567,7 @@ describe("Workbench drafts", () => {
   });
 });
 
-describe("Workbench attention and hand-off (M1.9)", () => {
+describe("Workbench attention and the terminal (M1.9)", () => {
   it("marks an error seen once its session shows in a focused window, but never a sign-in problem", async () => {
     const initial = list();
     const { calls, index } = await workbench({
@@ -2598,23 +2603,55 @@ describe("Workbench attention and hand-off (M1.9)", () => {
     });
   });
 
-  it("hands the active session to a terminal, then shows only how to go on there, until taken back", async () => {
-    const { screen, calls } = await workbench();
+  it("opens a terminal in the session's workspace, and in the home folder for a chat", async () => {
+    const opened: (string | null)[] = [];
+    const bridge = {
+      ...desktopStub,
+      openTerminal: async (dir: string | null) => {
+        opened.push(dir);
+      },
+    };
+    (window as Window & { atrium?: unknown }).atrium = bridge;
+    onTestFinished(() => {
+      delete (window as Window & { atrium?: unknown }).atrium;
+    });
+    const { screen, index } = await workbench();
 
     await screen.getByRole("button", { name: "当前会话" }).click();
-    await screen.getByRole("menuitem", { name: "在终端中继续" }).click();
+    await screen.getByRole("menuitem", { name: "在终端中打开" }).click();
+    await vi.waitFor(() => expect(opened).toStrictEqual(["/work/atrium"]));
 
-    const banner = screen.getByRole("region", { name: "已在终端中继续" });
-    await expect.element(banner).toBeVisible();
-    await expect.element(banner.getByText("pi --session '/pi/s1.jsonl'")).toBeVisible();
-    await expect.element(screen.getByRole("textbox", { name: "消息" })).not.toBeInTheDocument();
-    expect(calls).toContain("handOff s1");
+    index.setState({ layout: { container: CHAT, tabs: { [CHAT]: { open: ["c1"], active: "c1" } } } });
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    await screen.getByRole("menuitem", { name: "在终端中打开" }).click();
 
-    await banner.getByRole("button", { name: "在 Atrium 里继续" }).click();
+    await vi.waitFor(() => expect(opened).toStrictEqual(["/work/atrium", null]));
+  });
 
-    await expect.element(banner).not.toBeInTheDocument();
-    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
-    expect(calls).toContain("takeBack s1");
+  it("says so when the terminal does not open", async () => {
+    (window as Window & { atrium?: unknown }).atrium = {
+      ...desktopStub,
+      openTerminal: () => Promise.reject(new Error("cmux did not start")),
+    };
+    onTestFinished(() => {
+      delete (window as Window & { atrium?: unknown }).atrium;
+    });
+    const { screen } = await workbench();
+
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    await screen.getByRole("menuitem", { name: "在终端中打开" }).click();
+
+    await expect.element(screen.getByText("打开终端失败")).toBeVisible();
+  });
+
+  it("has no terminal to offer outside the desktop app", async () => {
+    const { screen } = await workbench();
+
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    const item = screen.getByRole("menuitem", { name: "在终端中打开" });
+
+    await expect.element(item).toBeDisabled();
+    await expect.element(item).toHaveAttribute("title", "只在桌面 App 里可用");
   });
 
   it("exports the active session as Markdown, downloading atrium-<id>.md", async () => {
@@ -2626,48 +2663,6 @@ describe("Workbench attention and hand-off (M1.9)", () => {
 
     await vi.waitFor(() => expect(downloads.names).toStrictEqual(["atrium-s1.md"]));
     expect((await downloads.contents()).map(([type]) => type)).toStrictEqual(["text/markdown;charset=utf-8"]);
-  });
-
-  it("cannot hand off a draft, which has no file, nor a session running", async () => {
-    const initial = list();
-    const { screen } = await workbench({
-      initial: {
-        ...initial,
-        sessions: [
-          session({ sessionId: "s1", containerId: LOCAL, file: null, state: "draft" }),
-          session({ sessionId: "s2", containerId: LOCAL, running: true }),
-        ],
-      },
-    });
-
-    await screen.getByRole("button", { name: "当前会话" }).click();
-    await expect.element(screen.getByRole("menuitem", { name: "在终端中继续" })).toBeDisabled();
-    await userEvent.keyboard("{Escape}");
-    await screen.getByRole("tab").nth(1).click();
-    await screen.getByRole("button", { name: "当前会话" }).click();
-
-    await expect.element(screen.getByRole("menuitem", { name: "在终端中继续" })).toBeDisabled();
-  });
-
-  it.each<[string, Partial<SessionView>]>([
-    ["a message on its way", { pending: [{ clientMessageId: "r1", text: "two" }] }],
-    ["a run pi reported", { run: { runId: "run-1", startedAt: 1 } }],
-    ["a stop under way", { control: { ...IDLE_CONTROL, stopping: true } }],
-    ["pi starting again", { control: { ...IDLE_CONTROL, restarting: true } }],
-    [
-      "messages in the queue",
-      { control: { ...IDLE_CONTROL, queue: [{ id: "q1", text: "two", createdAt: 1, images: 0 }] } },
-    ],
-  ])("cannot hand off a session with %s, which the host would refuse", async (_, state) => {
-    const { screen, views } = await workbench();
-    await vi.waitFor(() => expect(views.has("s1")).toBe(true));
-    views.get("s1")?.setState(state);
-
-    await screen.getByRole("button", { name: "当前会话" }).click();
-    const item = screen.getByRole("menuitem", { name: "在终端中继续" });
-
-    await expect.element(item).toBeDisabled();
-    await expect.element(item).toHaveAttribute("title", "先停止运行或清空排队，再交给终端");
   });
 
   it("opens the settings at 模型与账户 from 去登录 on a turn that failed for its credentials", async () => {
@@ -2715,18 +2710,6 @@ describe("Workbench attention and hand-off (M1.9)", () => {
     await draft.click();
     await expect.element(draft).toHaveValue('{"draft":true}');
     expect(localStorage.getItem("atrium.settings.section")).toBe("pi");
-  });
-
-  it("says why a hand-off was refused", async () => {
-    const { screen } = await workbench({
-      answers: { handOff: () => Promise.reject(new CommandError("session_busy")) },
-    });
-
-    await screen.getByRole("button", { name: "当前会话" }).click();
-    await screen.getByRole("menuitem", { name: "在终端中继续" }).click();
-
-    await expect.element(screen.getByText("先停止运行或清空排队，再交给终端")).toBeVisible();
-    await expect.element(screen.getByRole("region", { name: "已在终端中继续" })).not.toBeInTheDocument();
   });
 });
 

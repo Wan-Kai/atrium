@@ -379,19 +379,4 @@ struct SyncCoreReviewTests {
     #expect(sync.sessions["s1"]?.status == .ready)
   }
 
-  @Test("counts a session handed to a terminal as settled, saying so, until its snapshot comes")
-  func handedOff() {
-    var sync = core()
-    _ = sync.open("s1")
-    _ = sync.connected(generation: 1)
-    let handed = summaryJSON("s1", in: "w1", extra: ["handedOff": "true"])
-    #expect(
-      receive(&sync, generation: 1, ok("r1"), indexSnapshotJSON(sessions: [handed]), ok("r2"), ok("r3"))
-        == [.markSynced(generation: 1)])
-    #expect(sync.sessions["s1"]?.status == .handedOff)
-    _ = receive(&sync, generation: 1, snapshotJSON("s1"))
-    #expect(sync.sessions["s1"]?.status == .ready)
-    _ = receive(&sync, generation: 1, indexChangesJSON(seq: 1, sessions: [handed]))
-    #expect(sync.sessions["s1"]?.status == .ready)
-  }
 }

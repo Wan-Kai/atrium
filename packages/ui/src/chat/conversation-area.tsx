@@ -8,7 +8,6 @@ import {
 } from "@atrium/client";
 import type { DiffStat, SessionModel } from "@atrium/protocol";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HandedOff } from "./handed-off";
 import { type StoreApi, useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { desktopBridge } from "../app/bootstrap";
@@ -861,11 +860,6 @@ export function ConversationArea({
     };
   }, [client, sessionId]);
 
-  /** The file of the session shown when it was handed to a terminal, else `null`. */
-  const handedOff = useStore(client.index, (index) => {
-    const shown = index.sessions.find((one) => one.sessionId === sessionId);
-    return shown?.handedOff === true ? (shown.file ?? "") : null;
-  });
   // The host instance last connected to; a new one has lost every session's view.
   const hostInstance = useStore(client.connection, (state) =>
     state.status === "connected" ? state.hostInstanceId : null,
@@ -1296,11 +1290,6 @@ export function ConversationArea({
             />
             {/* Where a session's status bar goes, so the box stays put once the session starts. */}
             <div aria-hidden="true" className="h-9 shrink-0" />
-          </>
-        ) : handedOff !== null ? (
-          <>
-            <HandedOff file={handedOff} onTakeBack={() => act(() => client.takeBack(sessionId))} />
-            {notice}
           </>
         ) : (
           <SessionArea

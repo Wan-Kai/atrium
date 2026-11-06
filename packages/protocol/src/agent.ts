@@ -21,7 +21,6 @@ export const AgentStatus = z.enum([
   "idle",
   "stopped",
   "failed",
-  "handed_off",
   "ended",
 ]);
 export type AgentStatus = z.infer<typeof AgentStatus>;
