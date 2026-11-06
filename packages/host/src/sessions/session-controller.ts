@@ -1106,7 +1106,9 @@ export function createSessionController(options: {
         return;
       }
       case "note_added":
-        // pi wrote the note to its file already; the read places it where a rebuild would (SPEC-0002).
+      case "task_line_added":
+        // pi wrote the note or the task line to its file already; the read places it where a rebuild would (SPEC-0002;
+        // SPEC-0006, "任务对话的进度和记录折叠").
         // Fire and forget: `refresh` reports its own failures.
         void refresh();
         return;

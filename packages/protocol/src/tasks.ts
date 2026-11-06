@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ProjectId, WorkspaceId } from "./ids";
+import { ThinkingLevel } from "./models";
 
 // Tasks and task graphs (SPEC-0006, "协议（给 UI）"; T5). The host sends what the board shows: the graph, the
 // state of each node, why a node waits, and the question about archiving. The words are the UI's.
@@ -75,6 +76,28 @@ export const TaskArchiveFacts = z.strictObject({
 });
 export type TaskArchiveFacts = z.infer<typeof TaskArchiveFacts>;
 
+/** A model a task or a node runs on: provider and model, and the thinking level when one is set. */
+export const TaskModel = z.strictObject({
+  providerId: z.string().min(1).max(128),
+  modelId: z.string().min(1).max(256),
+  thinking: ThinkingLevel.optional(),
+});
+export type TaskModel = z.infer<typeof TaskModel>;
+
+/**
+ * The node a task row names as where the task is (SPEC-0006, "界面 · 任务列表"; T7).
+ *
+ * @remarks
+ * The most pressing one in the graph in force: a failed node, then a stopped, a waiting, a running one; `null`
+ * while none is. The UI writes the words.
+ */
+export const TaskCurrentNode = z.strictObject({
+  id: TaskNodeId,
+  name: z.string().max(512),
+  state: TaskNodeState,
+});
+export type TaskCurrentNode = z.infer<typeof TaskCurrentNode>;
+
 /** One row of the task list. */
 export const TaskSummary = z.strictObject({
   id: TaskId,
@@ -89,6 +112,12 @@ export const TaskSummary = z.strictObject({
   attention: TaskAttention.nullable(),
   /** The question about the worktree the task made; `null` when there is none. */
   archive: TaskArchiveState.nullable(),
+  /** Where the task is now (T7); `null` before it has a graph in force, and once it is done. */
+  current: TaskCurrentNode.nullable(),
+  /** When a node of it last began or ended, else when it was started or made (T7): the row's "最后活动". */
+  activeAt: Timestamp,
+  /** Whether a schedule's trigger made it (T7; schedules themselves are T10). */
+  scheduled: z.boolean(),
 });
 export type TaskSummary = z.infer<typeof TaskSummary>;
 
@@ -120,6 +149,8 @@ export const TaskNode = z.strictObject({
   failure: TaskFailureReason.nullable(),
   /** The hand-over summary of the latest run that gave one. */
   summary: z.string().max(TASK_TEXT_LIMIT).nullable(),
+  /** The model the node was given on its own, `null` when it follows the task's (T7). */
+  model: TaskModel.nullable(),
   /** The node's conversation; `null` for a human node and for a node that has not begun. */
   sessionId: z.string().min(1).max(128).nullable(),
   /** Why the node was sent back and from where, when its latest run was. */
@@ -137,6 +168,10 @@ export type TaskEdge = z.infer<typeof TaskEdge>;
 export const TaskView = TaskSummary.extend({
   /** The task conversation's session. */
   taskSessionId: z.string().min(1).max(128),
+  /** The model of the task, which the nodes without their own run on (T7). */
+  model: TaskModel.required({ thinking: true }),
+  /** The conversation the task was made from; `null` for a task a schedule made (T7). */
+  sourceSessionId: z.string().min(1).max(128).nullable(),
   graphVersion: z.number().int().nonnegative(),
   /** A new graph is waiting for the user's approval. */
   pendingGraph: z.boolean(),

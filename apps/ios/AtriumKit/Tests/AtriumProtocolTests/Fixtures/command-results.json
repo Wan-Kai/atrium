@@ -1156,7 +1156,14 @@
           "startedAt": 1760000001000,
           "endedAt": null,
           "attention": "merge_blocked",
-          "archive": null
+          "archive": null,
+          "current": {
+            "id": "N3",
+            "name": "Accept and merge",
+            "state": "waiting"
+          },
+          "activeAt": 1760000003000,
+          "scheduled": false
         },
         {
           "id": "tsk_0123456789abcdef",
@@ -1169,7 +1176,14 @@
           "startedAt": 1760000001000,
           "endedAt": 1760000002000,
           "attention": null,
-          "archive": "asked"
+          "archive": "asked",
+          "current": {
+            "id": "N3",
+            "name": "Accept and merge",
+            "state": "waiting"
+          },
+          "activeAt": 1760000003000,
+          "scheduled": false
         }
       ]
     }
@@ -1188,7 +1202,20 @@
         "endedAt": null,
         "attention": "merge_blocked",
         "archive": null,
+        "current": {
+          "id": "N3",
+          "name": "Accept and merge",
+          "state": "waiting"
+        },
+        "activeAt": 1760000003000,
+        "scheduled": false,
         "taskSessionId": "s0",
+        "model": {
+          "providerId": "anthropic",
+          "modelId": "opus-5.5",
+          "thinking": "high"
+        },
+        "sourceSessionId": "s-origin",
         "graphVersion": 1,
         "pendingGraph": false,
         "nodes": [
@@ -1204,6 +1231,10 @@
             "blocked": null,
             "failure": null,
             "summary": "Done.",
+            "model": {
+              "providerId": "openai",
+              "modelId": "gpt-6-astra"
+            },
             "sessionId": "s1",
             "sendBack": [],
             "id": "N1",
@@ -1223,6 +1254,7 @@
             "blocked": null,
             "failure": null,
             "summary": "Done.",
+            "model": null,
             "sessionId": "s1",
             "sendBack": [],
             "id": "N2",
@@ -1246,6 +1278,7 @@
             "blocked": "merge_conflict",
             "failure": null,
             "summary": null,
+            "model": null,
             "sessionId": null,
             "sendBack": [
               {
@@ -1273,6 +1306,7 @@
             "blocked": null,
             "failure": "commit",
             "summary": "Done.",
+            "model": null,
             "sessionId": null,
             "sendBack": [],
             "id": "N4",
@@ -1313,7 +1347,20 @@
         "endedAt": null,
         "attention": null,
         "archive": "asked",
+        "current": {
+          "id": "N3",
+          "name": "Accept and merge",
+          "state": "waiting"
+        },
+        "activeAt": 1760000003000,
+        "scheduled": false,
         "taskSessionId": "s0",
+        "model": {
+          "providerId": "anthropic",
+          "modelId": "opus-5.5",
+          "thinking": "high"
+        },
+        "sourceSessionId": "s-origin",
         "graphVersion": 1,
         "pendingGraph": false,
         "nodes": [
@@ -1329,6 +1376,10 @@
             "blocked": null,
             "failure": null,
             "summary": "Done.",
+            "model": {
+              "providerId": "openai",
+              "modelId": "gpt-6-astra"
+            },
             "sessionId": "s1",
             "sendBack": [],
             "id": "N1",
@@ -1348,6 +1399,7 @@
             "blocked": null,
             "failure": null,
             "summary": "Done.",
+            "model": null,
             "sessionId": "s1",
             "sendBack": [],
             "id": "N2",
@@ -1371,6 +1423,7 @@
             "blocked": "merge_conflict",
             "failure": null,
             "summary": null,
+            "model": null,
             "sessionId": null,
             "sendBack": [
               {
@@ -1398,6 +1451,7 @@
             "blocked": null,
             "failure": "commit",
             "summary": "Done.",
+            "model": null,
             "sessionId": null,
             "sendBack": [],
             "id": "N4",
@@ -1443,7 +1497,20 @@
         "endedAt": null,
         "attention": "merge_blocked",
         "archive": null,
+        "current": {
+          "id": "N3",
+          "name": "Accept and merge",
+          "state": "waiting"
+        },
+        "activeAt": 1760000003000,
+        "scheduled": false,
         "taskSessionId": "s0",
+        "model": {
+          "providerId": "anthropic",
+          "modelId": "opus-5.5",
+          "thinking": "high"
+        },
+        "sourceSessionId": "s-origin",
         "graphVersion": 1,
         "pendingGraph": false,
         "nodes": [
@@ -1459,6 +1526,10 @@
             "blocked": null,
             "failure": null,
             "summary": "Done.",
+            "model": {
+              "providerId": "openai",
+              "modelId": "gpt-6-astra"
+            },
             "sessionId": "s1",
             "sendBack": [],
             "id": "N1",
@@ -1478,6 +1549,7 @@
             "blocked": null,
             "failure": null,
             "summary": "Done.",
+            "model": null,
             "sessionId": "s1",
             "sendBack": [],
             "id": "N2",
@@ -1501,6 +1573,7 @@
             "blocked": "merge_conflict",
             "failure": null,
             "summary": null,
+            "model": null,
             "sessionId": null,
             "sendBack": [
               {
@@ -1528,6 +1601,7 @@
             "blocked": null,
             "failure": "commit",
             "summary": "Done.",
+            "model": null,
             "sessionId": null,
             "sendBack": [],
             "id": "N4",

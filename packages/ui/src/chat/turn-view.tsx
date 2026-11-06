@@ -28,6 +28,7 @@ import { ReplyTranslation } from "./reply-translation";
 import { RunStatus } from "./run-status";
 import type { LanePlace } from "./lanes";
 import { SourceLines } from "./source-line";
+import { TaskMarkLine } from "./task-progress";
 import { CompactingRow, DiffBlock, ProcessRowView, StreamedText, useWholeStep } from "./steps";
 import {
   type LaneLayout,
@@ -810,6 +811,7 @@ export function TurnView({ turn, runStartedAt, onRetry, fork, edit, compacting =
  */
 export function NoticeView({ notice }: { readonly notice: Notice }) {
   const [open, setOpen] = useState(false);
+  if (notice.notice === "task_mark") return <TaskMarkLine notice={notice} />;
   if (notice.notice !== "compacted") {
     return (
       <div

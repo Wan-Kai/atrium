@@ -3422,7 +3422,8 @@
     <nav class="toc">
       <a href="#s1"><b>1</b>对话里 /task 转成任务</a><a href="#s2"><b>2</b>任务列表</a
       ><a href="#s3"><b>3</b>定时管理（任务区的固定标签）</a><a href="#s4"><b>4</b>任务开始页 · 图 + 任务对话</a
-      ><a href="#s5"><b>5</b>任务运行 · 图 + 任务对话</a><a href="#s6"><b>6</b>审核卡片 · 结构和来源</a><a href="#s7"><b>7</b>审核卡片 · 各处的样子</a><a href="#s8"><b>8</b>节点对话标签</a>
+      ><a href="#s5"><b>5</b>任务运行 · 图 + 任务对话</a><a href="#s6"><b>6</b>审核卡片 · 结构和来源</a
+      ><a href="#s7"><b>7</b>审核卡片 · 各处的样子</a><a href="#s8"><b>8</b>节点对话标签</a>
     </nav>
 
     <!-- ══ 1 /task ══ -->
@@ -3989,14 +3990,25 @@
                 <div class="msgs">
                   <div class="msgs-in">
                     <div class="proc">
-                  <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:02–10:14</span></div>
-                  <div class="rail">
-                    <div class="rstep"><span class="nd"><i data-i="play" class="s12 c-dim"></i></span><span>你确认了图 v1，任务开始</span><span class="tm">10:02</span></div>
-                    <div class="rstep"><span class="nd"><i data-i="check" class="s12 c-ok"></i></span><span>N1 调研与方案 通过</span><span class="tm">10:14</span></div>
-                    <div class="rstep"><span class="nd"><i data-i="swirl" class="s12 c-tint"></i></span><span>N2 核心实现与自检 开始</span><span class="tm">10:14</span></div>
-                  </div>
-                </div>
-                <div class="m-user">现在到哪一步了？改了哪些文件？</div>
+                      <div class="proc-head">
+                        <i data-i="down" class="s12"></i>任务进度<span class="sum">10:02–10:14</span>
+                      </div>
+                      <div class="rail">
+                        <div class="rstep">
+                          <span class="nd"><i data-i="play" class="s12 c-dim"></i></span
+                          ><span>你确认了图 v1，任务开始</span><span class="tm">10:02</span>
+                        </div>
+                        <div class="rstep">
+                          <span class="nd"><i data-i="check" class="s12 c-ok"></i></span><span>N1 调研与方案 通过</span
+                          ><span class="tm">10:14</span>
+                        </div>
+                        <div class="rstep">
+                          <span class="nd"><i data-i="swirl" class="s12 c-tint"></i></span
+                          ><span>N2 核心实现与自检 开始</span><span class="tm">10:14</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="m-user">现在到哪一步了？改了哪些文件？</div>
                     <div class="m-step">
                       <i data-i="check" class="s12 c-dim"></i>看了任务状态、N1 的交接摘要、worktree 的改动
                     </div>
@@ -4087,44 +4099,64 @@
       <div class="screen-title">
         <span class="no">06</span>
         <h2>审核卡片 · 结构和来源</h2>
-        <span>和提问卡片共用外壳，放在输入框上方；任务里的批准改图、验收、合并被挡住、归档都是它，以后普通对话也用</span>
+        <span
+          >和提问卡片共用外壳，放在输入框上方；任务里的批准改图、验收、合并被挡住、归档都是它，以后普通对话也用</span
+        >
       </div>
       <div class="vgrid">
         <div class="win vwin v-a">
-          <div class="vlabel"><span class="k">A</span>一张卡片的组成<span class="d">合并被挡住、正在写打回原因</span></div>
+          <div class="vlabel">
+            <span class="k">A</span>一张卡片的组成<span class="d">合并被挡住、正在写打回原因</span>
+          </div>
           <div class="chat design-chat">
             <div class="msgs">
               <div class="msgs-in">
                 <div class="proc">
                   <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:52</span></div>
                   <div class="rail">
-                    <div class="rstep"><span class="nd"><i data-i="merge" class="s12 c-dim"></i></span><span>你点了通过，开始合并</span><span class="tm">10:52</span></div>
-                    <div class="rstep attn"><span class="nd"><i data-i="alert" class="s12 c-attn"></i></span><span>合并被挡住：2 个文件冲突</span><span class="tm">10:52</span></div>
+                    <div class="rstep">
+                      <span class="nd"><i data-i="merge" class="s12 c-dim"></i></span><span>你点了通过，开始合并</span
+                      ><span class="tm">10:52</span>
+                    </div>
+                    <div class="rstep attn">
+                      <span class="nd"><i data-i="alert" class="s12 c-attn"></i></span
+                      ><span>合并被挡住：2 个文件冲突</span><span class="tm">10:52</span>
+                    </div>
                   </div>
                 </div>
-                </div>
+              </div>
             </div>
             <div class="card-dock">
               <div class="gate-card rv">
                 <div class="rv-head">
-                  <span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">N4 验收合并</span
-                  ><span class="age">10:41</span>
+                  <span class="src host"><i data-i="board" class="s12"></i>任务</span
+                  ><span class="what">N4 验收合并</span><span class="age">10:41</span>
                 </div>
                 <div class="facts">
-                  <span><i data-i="diff" class="s12 c-dim"></i>3 个文件 +48 −8<span class="linkish">查看改动 ›</span></span>
-                  <span><i data-i="check" class="s12 c-ok"></i>N3：12 项测试通过<span class="linkish">摘要 ›</span></span>
+                  <span
+                    ><i data-i="diff" class="s12 c-dim"></i>3 个文件 +48 −8<span class="linkish">查看改动 ›</span></span
+                  >
+                  <span
+                    ><i data-i="check" class="s12 c-ok"></i>N3：12 项测试通过<span class="linkish">摘要 ›</span></span
+                  >
                 </div>
                 <div class="warn-band">
                   <i data-i="alert" class="s12"></i
-                  ><span>合并被挡住：<b>2 个文件冲突</b>，主目录没动<br /><code>BranchNamer.ts</code> <code>0001-mvp1….md</code></span>
+                  ><span
+                    >合并被挡住：<b>2 个文件冲突</b>，主目录没动<br /><code>BranchNamer.ts</code>
+                    <code>0001-mvp1….md</code></span
+                  >
                 </div>
                 <div class="reason-box">
-                  <div class="rb-top"><i data-i="undo" class="s12"></i>打回到 <b>N2 核心实现与自检</b><i data-i="down" class="s12"></i><span class="grow"></span><span class="dim">还能打回 2 次</span></div>
+                  <div class="rb-top">
+                    <i data-i="undo" class="s12"></i>打回到 <b>N2 核心实现与自检</b><i data-i="down" class="s12"></i
+                    ><span class="grow"></span><span class="dim">还能打回 2 次</span>
+                  </div>
                   <textarea class="q-input" rows="2">先合并 main 的改动再解决冲突</textarea>
                 </div>
                 <div class="gate-actions">
-                  <span class="kbd-hint">⏎ 确定 · Esc 收起</span><span class="grow"></span><button class="btn sm text">取消</button
-                  ><button class="btn sm primary">打回</button>
+                  <span class="kbd-hint">⏎ 确定 · Esc 收起</span><span class="grow"></span
+                  ><button class="btn sm text">取消</button><button class="btn sm primary">打回</button>
                 </div>
               </div>
             </div>
@@ -4146,7 +4178,8 @@
           <div class="src-stack">
             <div class="gate-card rv">
               <div class="rv-head">
-                <span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">要归档 worktree 吗</span>
+                <span class="src host"><i data-i="board" class="s12"></i>任务</span
+                ><span class="what">要归档 worktree 吗</span>
               </div>
               <div class="facts">
                 <span><i data-i="branch" class="s12 c-dim"></i>zh-branch-fallback</span>
@@ -4158,15 +4191,19 @@
               </div>
             </div>
             <div class="gate-card rv">
-              <div class="rv-head">
-                <span class="src agent">agent</span><span class="what">请你审核 · 提交前</span>
-              </div>
+              <div class="rv-head"><span class="src agent">agent</span><span class="what">请你审核 · 提交前</span></div>
               <div class="said">
                 <span class="said-by">agent 说</span>
                 改好了中文分支名的回退，测试都过了。准备提交成一个 commit：「Fall back to an ASCII branch name」。
               </div>
               <div class="facts">
-                <span><i data-i="diff" class="s12 c-dim"></i>3 个文件 +48 −8<span class="dim" style="font-size: var(--fs-xs)">宿主现算</span><span class="linkish">查看改动 ›</span></span>
+                <span
+                  ><i data-i="diff" class="s12 c-dim"></i>3 个文件 +48 −8<span
+                    class="dim"
+                    style="font-size: var(--fs-xs)"
+                    >宿主现算</span
+                  ><span class="linkish">查看改动 ›</span></span
+                >
               </div>
               <div class="gate-actions">
                 <button class="btn sm primary">通过</button><button class="btn sm">要改…</button
@@ -4183,15 +4220,30 @@
             <div class="msgs">
               <div class="msgs-in">
                 <div class="proc">
-                  <div class="proc-head"><i data-i="chev" class="s12"></i>任务进度<span class="sum">· 3 个节点通过 · 你批准了图 v2 · 你打回到 N2 · 10:02–10:44</span></div>
+                  <div class="proc-head">
+                    <i data-i="chev" class="s12"></i>任务进度<span class="sum"
+                      >· 3 个节点通过 · 你批准了图 v2 · 你打回到 N2 · 10:02–10:44</span
+                    >
+                  </div>
                 </div>
                 <div class="m-agent">N2 第二次开始了，这次会按你说的改提示文案。</div>
                 <div class="proc">
-                  <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:58–11:02</span></div>
+                  <div class="proc-head">
+                    <i data-i="down" class="s12"></i>任务进度<span class="sum">10:58–11:02</span>
+                  </div>
                   <div class="rail">
-                    <div class="rstep"><span class="nd"><i data-i="check" class="s12 c-ok"></i></span><span>N3 破坏检查 通过</span><span class="tm">10:58</span></div>
-                    <div class="rstep"><span class="nd"><i data-i="undo" class="s12 c-attn"></i></span><span>你打回到 <b>N2</b> · 提示文案还是旧的</span><span class="tm">10:59</span></div>
-                    <div class="rstep attn"><span class="nd"><i data-i="pause" class="s12 c-attn"></i></span><span>N2 在问你 · N4 验收合并 等你</span><span class="tm">11:02</span></div>
+                    <div class="rstep">
+                      <span class="nd"><i data-i="check" class="s12 c-ok"></i></span><span>N3 破坏检查 通过</span
+                      ><span class="tm">10:58</span>
+                    </div>
+                    <div class="rstep">
+                      <span class="nd"><i data-i="undo" class="s12 c-attn"></i></span
+                      ><span>你打回到 <b>N2</b> · 提示文案还是旧的</span><span class="tm">10:59</span>
+                    </div>
+                    <div class="rstep attn">
+                      <span class="nd"><i data-i="pause" class="s12 c-attn"></i></span
+                      ><span>N2 在问你 · N4 验收合并 等你</span><span class="tm">11:02</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -4206,7 +4258,8 @@
                 </div>
                 <div class="gate-title">提示要只显示一次，还是每次命名失败都显示？</div>
                 <div class="q-opts">
-                  <button class="q-opt"><span class="no">1</span><span>只显示一次<span class="d">记在设置里</span></span></button
+                  <button class="q-opt">
+                    <span class="no">1</span><span>只显示一次<span class="d">记在设置里</span></span></button
                   ><button class="q-opt"><span class="no">2</span><span>每次都显示</span></button>
                 </div>
               </div>
@@ -4227,11 +4280,13 @@
       <div class="notes">
         <div class="note-card decided">
           <div class="h"><span class="pin">✓</span>已定（2026-11-06）</div>
-          都放在输入框上方；和提问卡片共用外壳，内容分"提问"和"审核"两种；输入框里发消息算直接回复；几张同时在时一次展开一张，其余排成胶囊；证据先做事实、改动、图的改动、摘要四种；T7/T8 只接任务这一个来源，agent 发起的审核另开 SPEC。
+          都放在输入框上方；和提问卡片共用外壳，内容分"提问"和"审核"两种；输入框里发消息算直接回复；几张同时在时一次展开一张，其余排成胶囊；证据先做事实、改动、图的改动、摘要四种；T7/T8
+          只接任务这一个来源，agent 发起的审核另开 SPEC。
         </div>
         <div class="note-card">
           <div class="h"><span class="pin">25</span>顶上一行：来源 · 审核什么</div>
-          来源写在最前面，宿主发起的是"任务"（以后的固定关卡写关卡名），agent 发起的是橙色的"agent"，和提问卡片的"agent / 在问你"一致。
+          来源写在最前面，宿主发起的是"任务"（以后的固定关卡写关卡名），agent 发起的是橙色的"agent"，和提问卡片的"agent
+          / 在问你"一致。
         </div>
         <div class="note-card">
           <div class="h"><span class="pin">26</span>证据</div>
@@ -4243,7 +4298,8 @@
         </div>
         <div class="note-card">
           <div class="h"><span class="pin">28</span>裁决和原因</div>
-          要原因的按钮点了在卡片里展开输入框，箭头选打回到哪个节点，剩几次写在右边；⏎ 确定、Esc 收起。下面的输入框照常是直接回复。
+          要原因的按钮点了在卡片里展开输入框，箭头选打回到哪个节点，剩几次写在右边；⏎ 确定、Esc
+          收起。下面的输入框照常是直接回复。
         </div>
         <div class="note-card">
           <div class="h"><span class="pin">29</span>宿主发起</div>
@@ -4251,7 +4307,8 @@
         </div>
         <div class="note-card">
           <div class="h"><span class="pin">30</span>agent 发起（以后，普通对话）</div>
-          agent 写的话放进"agent 说"的引用里，原文显示、不带状态标记，免得它自己写"测试已通过 ✓"冒充事实；改动统计仍由宿主现算。裁决交回 agent 照做，所以按钮写"通过 / 要改"，右下角写"结果交给 agent"。
+          agent 写的话放进"agent 说"的引用里，原文显示、不带状态标记，免得它自己写"测试已通过
+          ✓"冒充事实；改动统计仍由宿主现算。裁决交回 agent 照做，所以按钮写"通过 / 要改"，右下角写"结果交给 agent"。
         </div>
         <div class="note-card">
           <div class="h"><span class="pin">31</span>几张同时在</div>
@@ -4259,7 +4316,8 @@
         </div>
         <div class="note-card">
           <div class="h"><span class="pin">32</span>进度和记录：和普通对话一样折叠</div>
-          进度行和审核的记录都是过程轨道上的一步，两次对话之间的连成一段：正在发生的展开，之前的收成一行灰色摘要（"› 任务进度 · 3 个节点通过 · 你批准了图 v2…"），点开再展开。审核那一步点开看当时的证据。
+          进度行和审核的记录都是过程轨道上的一步，两次对话之间的连成一段：正在发生的展开，之前的收成一行灰色摘要（"›
+          任务进度 · 3 个节点通过 · 你批准了图 v2…"），点开再展开。审核那一步点开看当时的证据。
         </div>
       </div>
     </section>
@@ -4275,24 +4333,34 @@
         <div class="win vwin sm v-a">
           <div class="vlabel"><span class="k">1</span>批准改图</div>
           <div class="chat design-chat">
-            <div class="msgs"><div class="msgs-in">
-              <div class="proc">
+            <div class="msgs">
+              <div class="msgs-in">
+                <div class="proc">
                   <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:20</span></div>
                   <div class="rail">
-                    <div class="rstep attn"><span class="nd"><i data-i="graph" class="s12 c-attn"></i></span><span>N2 申请改图，停下等你</span><span class="tm">10:20</span></div>
+                    <div class="rstep attn">
+                      <span class="nd"><i data-i="graph" class="s12 c-attn"></i></span><span>N2 申请改图，停下等你</span
+                      ><span class="tm">10:20</span>
+                    </div>
                   </div>
                 </div>
-                </div></div>
+              </div>
+            </div>
             <div class="card-dock">
               <div class="gate-card rv">
-                <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">图 v3 等你批准</span></div>
+                <div class="rv-head">
+                  <span class="src host"><i data-i="board" class="s12"></i>任务</span
+                  ><span class="what">图 v3 等你批准</span>
+                </div>
                 <div class="diff-list">
                   <span><span class="op add">+</span>N1b 迁移旧的分支名记录 · work</span>
                   <span><span class="op mod">~</span>N2 多一个上游：N1b</span>
                   <span class="linkish">在图上看 ›</span>
                 </div>
                 <div class="said"><span class="said-by">N2 的理由</span>旧的分支名记录不迁移，新规则读不到它们。</div>
-                <div class="gate-actions"><button class="btn sm primary">批准，接着跑</button><button class="btn sm">不批准…</button></div>
+                <div class="gate-actions">
+                  <button class="btn sm primary">批准，接着跑</button><button class="btn sm">不批准…</button>
+                </div>
               </div>
             </div>
             <div class="composer-dock">
@@ -4311,25 +4379,37 @@
         <div class="win vwin sm v-b">
           <div class="vlabel"><span class="k">2</span>human 节点验收</div>
           <div class="chat design-chat">
-            <div class="msgs"><div class="msgs-in">
-              <div class="proc">
+            <div class="msgs">
+              <div class="msgs-in">
+                <div class="proc">
                   <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:41</span></div>
                   <div class="rail">
-                    <div class="rstep attn"><span class="nd"><i data-i="pause" class="s12 c-attn"></i></span><span>N4 验收合并 等你</span><span class="tm">10:41</span></div>
+                    <div class="rstep attn">
+                      <span class="nd"><i data-i="pause" class="s12 c-attn"></i></span><span>N4 验收合并 等你</span
+                      ><span class="tm">10:41</span>
+                    </div>
                   </div>
                 </div>
-                </div></div>
+              </div>
+            </div>
             <div class="card-dock">
               <div class="gate-card rv">
-                <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">N4 验收合并</span></div>
+                <div class="rv-head">
+                  <span class="src host"><i data-i="board" class="s12"></i>任务</span
+                  ><span class="what">N4 验收合并</span>
+                </div>
                 <div class="facts">
-                  <span><i data-i="diff" class="s12 c-dim"></i>3 个文件 +48 −8<span class="linkish">查看改动 ›</span></span>
-                  <span><i data-i="check" class="s12 c-ok"></i>N3：12 项测试通过<span class="linkish">摘要 ›</span></span>
+                  <span
+                    ><i data-i="diff" class="s12 c-dim"></i>3 个文件 +48 −8<span class="linkish">查看改动 ›</span></span
+                  >
+                  <span
+                    ><i data-i="check" class="s12 c-ok"></i>N3：12 项测试通过<span class="linkish">摘要 ›</span></span
+                  >
                 </div>
                 <div class="gate-actions">
                   <button class="btn sm primary"><i data-i="merge" class="s12"></i>通过并合并</button
-                  ><button class="btn sm"><i data-i="undo" class="s12"></i>打回到 N2…</button
-                  ><span class="grow"></span><span class="dim" style="font-size: var(--fs-xs)">还能打回 2 次</span>
+                  ><button class="btn sm"><i data-i="undo" class="s12"></i>打回到 N2…</button><span class="grow"></span
+                  ><span class="dim" style="font-size: var(--fs-xs)">还能打回 2 次</span>
                 </div>
               </div>
             </div>
@@ -4349,20 +4429,32 @@
         <div class="win vwin sm v-c">
           <div class="vlabel"><span class="k">3</span>合并被挡住</div>
           <div class="chat design-chat">
-            <div class="msgs"><div class="msgs-in">
-              <div class="proc">
+            <div class="msgs">
+              <div class="msgs-in">
+                <div class="proc">
                   <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:52</span></div>
                   <div class="rail">
-                    <div class="rstep attn"><span class="nd"><i data-i="alert" class="s12 c-attn"></i></span><span>合并被挡住：主目录不在 main</span><span class="tm">10:52</span></div>
+                    <div class="rstep attn">
+                      <span class="nd"><i data-i="alert" class="s12 c-attn"></i></span
+                      ><span>合并被挡住：主目录不在 main</span><span class="tm">10:52</span>
+                    </div>
                   </div>
                 </div>
-                </div></div>
+              </div>
+            </div>
             <div class="card-dock">
               <div class="gate-card rv">
-                <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">N4 验收合并</span></div>
-                <div class="warn-band"><i data-i="alert" class="s12"></i><span>合并被挡住：主目录现在在 <b>side</b> 分支上。切回 main 后点重试。</span></div>
+                <div class="rv-head">
+                  <span class="src host"><i data-i="board" class="s12"></i>任务</span
+                  ><span class="what">N4 验收合并</span>
+                </div>
+                <div class="warn-band">
+                  <i data-i="alert" class="s12"></i
+                  ><span>合并被挡住：主目录现在在 <b>side</b> 分支上。切回 main 后点重试。</span>
+                </div>
                 <div class="gate-actions">
-                  <button class="btn sm primary">重试合并</button><button class="btn sm"><i data-i="undo" class="s12"></i>打回到 N2…</button>
+                  <button class="btn sm primary">重试合并</button
+                  ><button class="btn sm"><i data-i="undo" class="s12"></i>打回到 N2…</button>
                 </div>
                 <span class="linkish">冲突时：让任务对话加一个解决冲突的节点 ›</span>
               </div>
@@ -4383,17 +4475,25 @@
         <div class="win vwin sm v-d">
           <div class="vlabel"><span class="k">4</span>归档 · 已合并</div>
           <div class="chat design-chat">
-            <div class="msgs"><div class="msgs-in">
-              <div class="proc">
+            <div class="msgs">
+              <div class="msgs-in">
+                <div class="proc">
                   <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:58</span></div>
                   <div class="rail">
-                    <div class="rstep"><span class="nd"><i data-i="check" class="s12 c-ok"></i></span><span>合并进 main，任务完成</span><span class="tm">10:58</span></div>
+                    <div class="rstep">
+                      <span class="nd"><i data-i="check" class="s12 c-ok"></i></span><span>合并进 main，任务完成</span
+                      ><span class="tm">10:58</span>
+                    </div>
                   </div>
                 </div>
-                </div></div>
+              </div>
+            </div>
             <div class="card-dock">
               <div class="gate-card rv">
-                <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">要归档 worktree 吗</span></div>
+                <div class="rv-head">
+                  <span class="src host"><i data-i="board" class="s12"></i>任务</span
+                  ><span class="what">要归档 worktree 吗</span>
+                </div>
                 <div class="facts">
                   <span><i data-i="branch" class="s12 c-dim"></i>zh-branch-fallback · 3 个提交</span>
                   <span><i data-i="check" class="s12 c-ok"></i>已合并进 main</span>
@@ -4421,23 +4521,33 @@
         <div class="win vwin sm v-e">
           <div class="vlabel"><span class="k">5</span>归档 · 没合并</div>
           <div class="chat design-chat">
-            <div class="msgs"><div class="msgs-in">
-              <div class="proc">
+            <div class="msgs">
+              <div class="msgs-in">
+                <div class="proc">
                   <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:58</span></div>
                   <div class="rail">
-                    <div class="rstep"><span class="nd"><i data-i="stop" class="s12 c-dim"></i></span><span>你取消了任务</span><span class="tm">10:58</span></div>
+                    <div class="rstep">
+                      <span class="nd"><i data-i="stop" class="s12 c-dim"></i></span><span>你取消了任务</span
+                      ><span class="tm">10:58</span>
+                    </div>
                   </div>
                 </div>
-                </div></div>
+              </div>
+            </div>
             <div class="card-dock">
               <div class="gate-card rv warn">
-                <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">要归档 worktree 吗</span></div>
+                <div class="rv-head">
+                  <span class="src host"><i data-i="board" class="s12"></i>任务</span
+                  ><span class="what">要归档 worktree 吗</span>
+                </div>
                 <div class="facts">
                   <span><i data-i="branch" class="s12 c-dim"></i>zh-branch-fallback · 3 个提交</span>
                   <span><i data-i="alert" class="s12 c-attn"></i>还没合并进 main，提交只在这个分支上</span>
                   <span><i data-i="check" class="s12 c-ok"></i>没有未提交的改动</span>
                 </div>
-                <div class="gate-actions"><button class="btn sm primary">先留着</button><button class="btn sm">归档</button></div>
+                <div class="gate-actions">
+                  <button class="btn sm primary">先留着</button><button class="btn sm">归档</button>
+                </div>
               </div>
             </div>
             <div class="composer-dock">
@@ -4456,15 +4566,27 @@
         <div class="win vwin sm v-f">
           <div class="vlabel"><span class="k">6</span>普通对话 · agent 发起<span class="d">以后另开 SPEC</span></div>
           <div class="chat design-chat">
-            <div class="msgs"><div class="msgs-in">
-              <div class="m-step"><i data-i="check" class="s12 c-dim"></i>跑了 pnpm test，改了 3 个文件</div>
-            </div></div>
+            <div class="msgs">
+              <div class="msgs-in">
+                <div class="m-step"><i data-i="check" class="s12 c-dim"></i>跑了 pnpm test，改了 3 个文件</div>
+              </div>
+            </div>
             <div class="card-dock">
               <div class="gate-card rv">
-                <div class="rv-head"><span class="src agent">agent</span><span class="what">请你审核 · 推送前</span></div>
-                <div class="said"><span class="said-by">agent 说</span>准备把 3 个提交推到 origin/fix-branch 并开 PR。</div>
+                <div class="rv-head">
+                  <span class="src agent">agent</span><span class="what">请你审核 · 推送前</span>
+                </div>
+                <div class="said">
+                  <span class="said-by">agent 说</span>准备把 3 个提交推到 origin/fix-branch 并开 PR。
+                </div>
                 <div class="facts">
-                  <span><i data-i="diff" class="s12 c-dim"></i>3 个文件 +48 −8<span class="dim" style="font-size: var(--fs-xs)">宿主现算</span><span class="linkish">查看改动 ›</span></span>
+                  <span
+                    ><i data-i="diff" class="s12 c-dim"></i>3 个文件 +48 −8<span
+                      class="dim"
+                      style="font-size: var(--fs-xs)"
+                      >宿主现算</span
+                    ><span class="linkish">查看改动 ›</span></span
+                  >
                 </div>
                 <div class="gate-actions">
                   <button class="btn sm primary">通过</button><button class="btn sm">要改…</button
@@ -4488,7 +4610,8 @@
       <div class="notes">
         <div class="note-card">
           <div class="h"><span class="pin">33</span>批准改图</div>
-          证据是"图的改动"（加 / 删 / 改了哪些节点，点开在图上看，同时左边的图描虚线框）和"摘要"（申请改图的节点写的理由）。不批准时原因可写可不写。
+          证据是"图的改动"（加 / 删 /
+          改了哪些节点，点开在图上看，同时左边的图描虚线框）和"摘要"（申请改图的节点写的理由）。不批准时原因可写可不写。
         </div>
         <div class="note-card">
           <div class="h"><span class="pin">34</span>human 节点验收</div>
@@ -4500,19 +4623,21 @@
           <div class="reason-table">
             <code>merge_worktree_dirty</code><span>任务的 worktree 里还有没提交的改动</span>
             <code>merge_main_dirty</code><span>主目录有没提交的改动：先提交或收起来</span>
-            <code>merge_main_not_trunk</code><span>主目录现在在 X 分支上：切回 main</span>
-            <code>merge_conflict</code><span>N 个文件冲突，列出文件；给"加一个解决冲突的节点"</span>
-            <code>merge_abort_failed</code><span>红色：合并没能退回，主目录可能不干净，请手动检查</span>
-            <code>merge_git_failed</code><span>git 出错了，没有合并，主目录没动</span>
+            <code>merge_main_not_trunk</code><span>主目录现在在 X 分支上：切回 main</span> <code>merge_conflict</code
+            ><span>N 个文件冲突，列出文件；给"加一个解决冲突的节点"</span> <code>merge_abort_failed</code
+            ><span>红色：合并没能退回，主目录可能不干净，请手动检查</span> <code>merge_git_failed</code
+            ><span>git 出错了，没有合并，主目录没动</span>
           </div>
         </div>
         <div class="note-card">
           <div class="h"><span class="pin">36</span><span class="pin" style="margin-left: -4px">37</span>归档</div>
-          事实决定默认按钮：已合并默认"归档"；没合并时边框变橙、默认"先留着"。选"先留着"后卡片收起，任务栏留一个"归档 worktree"按钮兜底。
+          事实决定默认按钮：已合并默认"归档"；没合并时边框变橙、默认"先留着"。选"先留着"后卡片收起，任务栏留一个"归档
+          worktree"按钮兜底。
         </div>
         <div class="note-card">
           <div class="h"><span class="pin">38</span>普通对话（以后）</div>
-          agent 在推送、提交、迁移这类动作前用 <span class="cmd">request_review</span> 请你看。它说的话进"agent 说"，改动由宿主算，结果交回 agent。现在只画出来对齐组件，不在 T7/T8 做。
+          agent 在推送、提交、迁移这类动作前用 <span class="cmd">request_review</span> 请你看。它说的话进"agent
+          说"，改动由宿主算，结果交回 agent。现在只画出来对齐组件，不在 T7/T8 做。
         </div>
       </div>
     </section>
@@ -4526,7 +4651,9 @@
       </div>
       <div class="vgrid wide">
         <div class="win vwin v-a">
-          <div class="vlabel"><span class="k">A</span>任务标签右边另开一个标签<span class="d">SPEC 现在的写法</span></div>
+          <div class="vlabel">
+            <span class="k">A</span>任务标签右边另开一个标签<span class="d">SPEC 现在的写法</span>
+          </div>
           <header class="tabbar">
             <button class="tab fixed"><i data-i="board"></i><span class="t">任务</span></button
             ><button class="tab fixed"><i data-i="clock"></i><span class="t">定时</span></button
@@ -4545,14 +4672,16 @@
               ><span class="dim">第 1 次 · 运转中 · gpt-6-astra</span>
             </div>
             <div class="msgs">
-                <div class="msgs-in">
-                  <div class="m-sys"><i data-i="doc" class="s12"></i>宿主发来的契约 ›</div>
-                  <div class="m-step"><i data-i="check" class="s12 c-dim"></i>改了 BranchNamer.ts，加了 branch-namer.test.ts</div>
-                  <div class="m-user"><span class="tagline">你插话</span>提示文案用「已改用英文分支名」。</div>
-                  <div class="m-agent">好，提示文案改成「已改用英文分支名」，测试里的断言一起改。正在跑测试。</div>
+              <div class="msgs-in">
+                <div class="m-sys"><i data-i="doc" class="s12"></i>宿主发来的契约 ›</div>
+                <div class="m-step">
+                  <i data-i="check" class="s12 c-dim"></i>改了 BranchNamer.ts，加了 branch-namer.test.ts
                 </div>
+                <div class="m-user"><span class="tagline">你插话</span>提示文案用「已改用英文分支名」。</div>
+                <div class="m-agent">好，提示文案改成「已改用英文分支名」，测试里的断言一起改。正在跑测试。</div>
               </div>
-              <div class="composer-dock">
+            </div>
+            <div class="composer-dock">
               <div class="composer chat-composer">
                 <textarea rows="1" placeholder="给 N2 插话"></textarea>
                 <div class="composer-foot">
@@ -4580,7 +4709,8 @@
             <div class="chat design-chat">
               <div class="crumb">
                 <span class="seg-btn"><i data-i="chat" class="s12"></i>任务对话</span
-                ><span class="seg-btn cur"><span class="nid" style="font-family: var(--font-mono)">N2</span>核心实现与自检<i
+                ><span class="seg-btn cur"
+                  ><span class="nid" style="font-family: var(--font-mono)">N2</span>核心实现与自检<i
                     data-i="x"
                     class="s12"
                   ></i></span
@@ -4589,20 +4719,22 @@
               <div class="msgs">
                 <div class="msgs-in">
                   <div class="m-sys"><i data-i="doc" class="s12"></i>宿主发来的契约 ›</div>
-                  <div class="m-step"><i data-i="check" class="s12 c-dim"></i>改了 BranchNamer.ts，加了 branch-namer.test.ts</div>
+                  <div class="m-step">
+                    <i data-i="check" class="s12 c-dim"></i>改了 BranchNamer.ts，加了 branch-namer.test.ts
+                  </div>
                   <div class="m-user"><span class="tagline">你插话</span>提示文案用「已改用英文分支名」。</div>
                   <div class="m-agent">好，提示文案改成「已改用英文分支名」，测试里的断言一起改。正在跑测试。</div>
                 </div>
               </div>
               <div class="composer-dock">
-              <div class="composer chat-composer">
-                <textarea rows="1" placeholder="给 N2 插话"></textarea>
-                <div class="composer-foot">
-                  <span class="pick"><i data-i="spark" class="s12"></i>opus-5.5 · 高</span
-                  ><button class="send"><i data-i="send" class="s16"></i></button>
+                <div class="composer chat-composer">
+                  <textarea rows="1" placeholder="给 N2 插话"></textarea>
+                  <div class="composer-foot">
+                    <span class="pick"><i data-i="spark" class="s12"></i>opus-5.5 · 高</span
+                    ><button class="send"><i data-i="send" class="s16"></i></button>
+                  </div>
                 </div>
               </div>
-            </div>
             </div>
           </div>
           <span class="pin">40</span>
@@ -4614,9 +4746,9 @@
             <button class="tab fixed"><i data-i="board"></i><span class="t">任务</span></button
             ><button class="tab fixed"><i data-i="clock"></i><span class="t">定时</span></button>
             <span class="tab-group"
-              ><button class="tab"><i data-i="swirl" class="c-tint"></i><span class="t">Worktree 中文命名回退</span></button
-              ><span class="sep"></span
-              ><button class="tab"><span class="nid">N1</span></button
+              ><button class="tab">
+                <i data-i="swirl" class="c-tint"></i><span class="t">Worktree 中文命名回退</span></button
+              ><span class="sep"></span><button class="tab"><span class="nid">N1</span></button
               ><button class="tab on"><span class="nid">N2</span><span class="t">核心实现</span></button
               ><span class="x" style="margin: 0 6px 0 2px"><i data-i="x" class="s12"></i></span
             ></span>
@@ -4628,14 +4760,16 @@
               ><span class="dim">第 1 次 · 运转中 · gpt-6-astra</span>
             </div>
             <div class="msgs">
-                <div class="msgs-in">
-                  <div class="m-sys"><i data-i="doc" class="s12"></i>宿主发来的契约 ›</div>
-                  <div class="m-step"><i data-i="check" class="s12 c-dim"></i>改了 BranchNamer.ts，加了 branch-namer.test.ts</div>
-                  <div class="m-user"><span class="tagline">你插话</span>提示文案用「已改用英文分支名」。</div>
-                  <div class="m-agent">好，提示文案改成「已改用英文分支名」，测试里的断言一起改。正在跑测试。</div>
+              <div class="msgs-in">
+                <div class="m-sys"><i data-i="doc" class="s12"></i>宿主发来的契约 ›</div>
+                <div class="m-step">
+                  <i data-i="check" class="s12 c-dim"></i>改了 BranchNamer.ts，加了 branch-namer.test.ts
                 </div>
+                <div class="m-user"><span class="tagline">你插话</span>提示文案用「已改用英文分支名」。</div>
+                <div class="m-agent">好，提示文案改成「已改用英文分支名」，测试里的断言一起改。正在跑测试。</div>
               </div>
-              <div class="composer-dock">
+            </div>
+            <div class="composer-dock">
               <div class="composer chat-composer">
                 <textarea rows="1" placeholder="给 N2 插话"></textarea>
                 <div class="composer-foot">
@@ -4651,19 +4785,25 @@
       <div class="notes">
         <div class="note-card">
           <div class="h"><span class="pin">39</span>A · 另开一个标签</div>
-          节点对话是一个普通标签，排在它的任务标签右边，前面一个拐角箭头和节点 id 表示它属于左边那个任务。全宽显示，和平常的对话一样；看图要切回任务标签。关掉任务标签时一起关。
+          节点对话是一个普通标签，排在它的任务标签右边，前面一个拐角箭头和节点 id
+          表示它属于左边那个任务。全宽显示，和平常的对话一样；看图要切回任务标签。关掉任务标签时一起关。
         </div>
         <div class="note-card">
           <div class="h"><span class="pin">40</span>B · 换右栏</div>
-          不开新标签：右栏顶上从"任务对话"切到"N2 核心实现与自检"，左边的图不动，节点在图上描框高亮。能边看图边看节点在做什么；但右栏只有 420 宽，看长的工具输出挤。
+          不开新标签：右栏顶上从"任务对话"切到"N2
+          核心实现与自检"，左边的图不动，节点在图上描框高亮。能边看图边看节点在做什么；但右栏只有 420
+          宽，看长的工具输出挤。
         </div>
         <div class="note-card">
           <div class="h"><span class="pin">41</span>C · 编成一组标签</div>
-          任务标签和它打开的节点对话放进一个灰底的标签组，节点只写 id（当前那个带名字）；组外的标签照旧。归属最清楚，开了好几个节点也不乱；但标签栏多了一种样子。
+          任务标签和它打开的节点对话放进一个灰底的标签组，节点只写
+          id（当前那个带名字）；组外的标签照旧。归属最清楚，开了好几个节点也不乱；但标签栏多了一种样子。
         </div>
         <div class="note-card">
           <div class="h">建议</div>
-          <span class="rec">选 <b>A</b>：第 5 版已经定过"任务标签右边"，节点对话和普通对话一样全宽好读；开得多时再考虑 C 的分组。</span>
+          <span class="rec"
+            >选 <b>A</b>：第 5 版已经定过"任务标签右边"，节点对话和普通对话一样全宽好读；开得多时再考虑 C 的分组。</span
+          >
         </div>
       </div>
     </section>

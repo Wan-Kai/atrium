@@ -22,6 +22,12 @@ import {
   pageLaunch,
 } from "../state/new-workspace";
 import { TabBar } from "../tabs/tab-bar";
+import { createTaskArea } from "../state/task-area";
+import { TaskAreaView } from "../tasks/task-area";
+import { groupOf } from "../tasks/task-list-model";
+import { statusWords } from "../tasks/task-words";
+import { type TaskLinks, TaskLinksContext } from "../chat/task-links";
+import type { TaskArea } from "../state/task-area";
 import { Breadcrumb } from "../children/breadcrumb";
 import { NewChildDialog } from "../children/new-child-dialog";
 import {
@@ -107,11 +113,14 @@ function fireAndForget(command: Promise<unknown>): void {
  * @param client - The client.
  * @param pages - The new-workspace page's store.
  * @param views - The workspace views.
+ * @param area - The task area's state: ⌘N and ⌘T leave it, and the keys for tabs do nothing while it shows, as it
+ * has its own.
  */
 function useTabShortcuts(
   client: AtriumClient,
   pages: StoreApi<NewWorkspaceState>,
   views: StoreApi<WorkspaceViews>,
+  area: StoreApi<TaskArea>,
 ): void {
   useEffect(() => {
     /**
@@ -133,10 +142,13 @@ function useTabShortcuts(
       const order = view === null ? [] : tabOrder(open, view);
       const at = view === null ? -1 : currentTab(order, view, tabs?.active ?? null);
       const key = event.key.toLowerCase();
-      const onPage = pages.getState().page !== null;
+      const onPage = pages.getState().page !== null || area.getState().open;
       let target: (typeof order)[number] | undefined;
       let closing: string | null = null;
-      if (!event.shiftKey && (key === "n" || key === "t")) closePage(pages);
+      if (!event.shiftKey && (key === "n" || key === "t")) {
+        closePage(pages);
+        area.getState().hide();
+      }
       if (!event.shiftKey && key === "n") fireAndForget(client.createChat());
       else if (!event.shiftKey && key === "t") fireAndForget(createHere(client));
       else if (onPage) return;
@@ -156,7 +168,7 @@ function useTabShortcuts(
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [client, pages, views]);
+  }, [client, pages, views, area]);
 }
 
 /**
@@ -538,12 +550,20 @@ function MainWindow({
   const [pages] = useState(createNewWorkspaceStore);
   const [panes] = useState(() => createPanes(localStorage));
   const [views] = useState(() => createWorkspaceViews(localStorage));
+  const [area] = useState(createTaskArea);
+  const tasksOpen = useStore(area, (state) => state.open);
+  const tasks = useStore(client.tasks, (state) => state.tasks);
   const folded = useStore(panes, (state) => state.sidebarCollapsed);
   const pageProject = useStore(pages, (state) => state.page?.projectId ?? null);
   // Sent from the page, its launch shows in the conversation area, the page's box under it.
   const pageLaunching = useStore(pages, (state) => pageLaunch(state) !== undefined);
   const viewer = useStore(views, (state) => (container === null ? null : viewOf(state, container).active));
   useDraftCleanup(index, client);
+  useEffect(() => {
+    // The sidebar's "任务" count follows the list wherever the window is; the client asks again on each connection.
+    client.watchTasks(true).catch(() => undefined);
+    return () => void client.watchTasks(false).catch(() => undefined);
+  }, [client]);
 
   useEffect(() => {
     /**
@@ -562,20 +582,44 @@ function MainWindow({
     return () => window.removeEventListener("focus", onFocus);
   }, [client]);
 
-  useTabShortcuts(client, pages, views);
+  useTabShortcuts(client, pages, views, area);
   useSessionShows(views, container, sessionId);
   usePaneShortcuts(client, pages, panes);
   // On the new-workspace page, or under a viewer tab, no session shows.
   useSeenErrors(client, index, pageProject === null && viewer === null ? sessionId : null);
 
   const resets = index.resets.length > 0 && dismissed !== index.generation ? index.resets : [];
+  /** What the conversations' task lines know of tasks: their names and states, and how to open one. */
+  const links: Pick<TaskLinks, "task" | "openTask"> = {
+    task: (taskId) => {
+      const found = tasks.find((one) => one.id === taskId);
+      return found === undefined ? undefined : { name: found.name, status: statusWords(found).text };
+    },
+    openTask: (taskId) => area.getState().openTask(taskId),
+  };
+  /**
+   * Goes from a task to the conversation it was made from.
+   *
+   * @remarks
+   * Leaves the task area and shows the conversation in its container, over a viewer tab.
+   *
+   * @sideEffects Hides the task area; writes the views; sends `open_session`.
+   * @param sourceId - The conversation's session id.
+   */
+  const openSource = (sourceId: string): void => {
+    const source = index.sessions.find((one) => one.sessionId === sourceId);
+    area.getState().hide();
+    if (source !== undefined) showViewer(views, source.containerId, null);
+    fireAndForget(client.openSession(sourceId));
+  };
   return (
-    <>
+    <TaskLinksContext value={{ ...links, nodeName: () => undefined }}>
       <div className="relative flex h-full" inert={settings.open}>
         <Sidebar
           client={client}
           onNewChat={() => {
             closePage(pages);
+            area.getState().hide();
             fireAndForget(client.createChat());
           }}
           showSession={(session) => showViewer(views, session.containerId, null)}
@@ -583,13 +627,30 @@ function MainWindow({
           onSettings={settings.show}
           page={{
             projectId: pageProject,
-            open: (projectId) => openPage(pages, projectId),
-            leave: () => closePage(pages),
+            open: (projectId) => {
+              area.getState().hide();
+              openPage(pages, projectId);
+            },
+            leave: () => {
+              closePage(pages);
+              area.getState().hide();
+            },
+          }}
+          tasks={{
+            open: tasksOpen,
+            attention: tasks.filter((task) => groupOf(task) === "attention").length,
+            show: () => {
+              closePage(pages);
+              area.getState().show();
+            },
           }}
           folded={folded}
         />
         <main className="flex min-w-0 flex-1 flex-col bg-[var(--main)]">
-          {container === null || pageProject !== null ? (
+          {tasksOpen ? (
+            <TaskAreaView client={client} area={area} folded={folded} onOpenSource={openSource} links={links} />
+          ) : null}
+          {tasksOpen ? null : container === null || pageProject !== null ? (
             <div className="h-12 shrink-0 [-webkit-app-region:drag]" />
           ) : (
             <TabBar
@@ -600,7 +661,7 @@ function MainWindow({
               views={views}
             />
           )}
-          {pageProject === null && sessionId !== null ? (
+          {!tasksOpen && pageProject === null && sessionId !== null ? (
             <Breadcrumb client={client} sessionId={sessionId} views={views} />
           ) : null}
           {resets.length > 0 ? (
@@ -616,7 +677,7 @@ function MainWindow({
               </button>
             </div>
           ) : null}
-          {pageProject === null || pageLaunching ? (
+          {tasksOpen ? null : pageProject === null || pageLaunching ? (
             <OpenLogin value={openLogin}>
               <ConversationArea
                 client={client}
@@ -649,6 +710,6 @@ function MainWindow({
           reveal={reveal}
         />
       ) : null}
-    </>
+    </TaskLinksContext>
   );
 }

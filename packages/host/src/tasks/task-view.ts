@@ -2,7 +2,9 @@ import {
   TASK_TEXT_LIMIT,
   type TaskArchiveFacts,
   type TaskAttention,
+  type TaskCurrentNode,
   type TaskNode,
+  type TaskNodeState,
   type TaskSummary,
   type TaskView,
 } from "@atrium/protocol";
@@ -71,7 +73,53 @@ export function summaryOf(task: Task): TaskSummary {
     endedAt: task.endedAt,
     attention: attentionOf(task),
     archive: task.archive ?? null,
+    current: currentOf(task),
+    activeAt: activeAtOf(task),
+    scheduled: task.origin.kind === "schedule",
   };
+}
+
+/** How urgently a node's state names the task's place in the list, the lowest number first. */
+const PLACE_RANK: Readonly<Partial<Record<TaskNodeState, number>>> = { failed: 0, stopped: 1, waiting: 2, running: 3 };
+
+/**
+ * The node a task row names: the most pressing of the graph in force.
+ *
+ * @remarks
+ * A failed node, then a stopped, a waiting, a running one, the first in graph order among equals; `null` while
+ * none of them is (not started, all passed, or no graph). A node voided by a graph change does not count.
+ *
+ * @sideEffects none
+ * @param task - The task.
+ * @returns The node, or `null`.
+ */
+function currentOf(task: Task): TaskCurrentNode | null {
+  let best: { readonly rank: number; readonly node: TaskCurrentNode } | null = null;
+  for (const node of activeGraphOf(task)?.nodes ?? []) {
+    const state = stateOf(task, node.id);
+    const rank = PLACE_RANK[state];
+    if (rank !== undefined && (best === null || rank < best.rank))
+      best = { rank, node: { id: node.id, name: node.name, state } };
+  }
+  return best?.node ?? null;
+}
+
+/**
+ * When something last happened in the task: a node began or ended, else the task started or was made.
+ *
+ * @remarks
+ * The row's "最后活动". The task's own events are in `events.jsonl`; the runs carry the times that matter to
+ * the user, and reading them costs nothing more.
+ *
+ * @sideEffects none
+ * @param task - The task.
+ * @returns The time, in epoch milliseconds.
+ */
+function activeAtOf(task: Task): number {
+  return task.runs.reduce(
+    (latest, run) => Math.max(latest, run.startedAt, run.endedAt ?? 0),
+    task.endedAt ?? task.startedAt ?? task.createdAt,
+  );
 }
 
 /**
@@ -102,6 +150,7 @@ function nodeView(task: Task, node: GraphNode, backs: readonly { from: string; t
     ...(node.role === undefined ? {} : { role: node.role }),
     ...(node.place === undefined ? {} : { place: node.place }),
     ...(node.merge === undefined ? {} : { merge: node.merge }),
+    model: node.model === undefined ? null : node.model,
     state: stateOf(task, node.id),
     attempt: run?.attempt ?? 0,
     waitingFor: run?.state === "waiting" && run.void !== true ? run.waitingFor : null,
@@ -140,6 +189,8 @@ export function viewOf(task: Task, archiveFacts: TaskArchiveFacts | null): TaskV
   return {
     ...summaryOf(task),
     taskSessionId: task.taskSessionId,
+    model: task.model,
+    sourceSessionId: task.origin.kind === "chat" ? task.origin.sessionId : null,
     graphVersion: task.activeGraph,
     pendingGraph: task.pendingGraph !== null,
     nodes: (graph?.nodes ?? []).map((node) => nodeView(task, node, backs)),

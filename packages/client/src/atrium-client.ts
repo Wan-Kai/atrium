@@ -45,6 +45,7 @@ import { type ChangesView, type DiffView, diffViewOf } from "./changes-view";
 import { type ModelListView, UNASKED_MODELS } from "./model-list";
 import { type RemoteView, UNWATCHED_REMOTE } from "./remote-view";
 import { type SetupView, UNASKED_SETUP } from "./setup-view";
+import { LOADING_TASK, type TaskState, type TasksView, UNWATCHED_TASKS } from "./tasks-view";
 import {
   type MessageTag,
   type PendingMessage,
@@ -384,6 +385,20 @@ export interface AtriumClient {
   changes(workspaceId: string): StoreApi<ChangesView>;
   /** Says which workspaces are shown, on this connection and every later one. */
   watchChanges(workspaceIds: readonly string[]): Promise<void>;
+  /**
+   * The task list while a window watches it (SPEC-0006, "协议（给 UI）"): the host's `tasks_updated` pushes land
+   * here, whole each time; idle until {@link watchTasks}.
+   */
+  readonly tasks: StoreApi<TasksView>;
+  /** Starts or stops watching the task list, on this connection and every later one; the answer lands in {@link tasks}. */
+  watchTasks(on: boolean): Promise<void>;
+  /** One task as the host last sent it; the same store every time, `loading` until {@link openTask} is answered. */
+  task(taskId: string): StoreApi<TaskState>;
+  /**
+   * Opens a task: the host answers with it whole and pushes it on every change until another is opened (one
+   * task per connection); asked again on every later connection. A task that is not there shows as `missing`.
+   */
+  openTask(taskId: string): Promise<void>;
   /** What the changes panel shows. */
   readonly diff: StoreApi<DiffView>;
   /** Opens the changes panel on a target, or closes it with `null`, on this connection and every later one. */
@@ -532,6 +547,14 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const setup = createStore<SetupView>(() => UNASKED_SETUP);
   const plans = createStore<Plans>(() => []);
   const remote = createStore<RemoteView>(() => UNWATCHED_REMOTE);
+  const tasks = createStore<TasksView>(() => UNWATCHED_TASKS);
+  /** Whether a window watches the task list, asked for again on each connection. */
+  let watchingTasks = false;
+  /** How many times the list was asked for, so an answer older than a push is not put over it. */
+  let taskListAsks = 0;
+  const taskStores = new Map<string, StoreApi<TaskState>>();
+  /** The task opened on the connection, asked for again on each connection. */
+  let openedTask: string | null = null;
   /** Whether the settings window watches remote state, asked for again on each connection. */
   let watchingRemote = false;
   let remoteAsks = 0;
@@ -898,6 +921,70 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   }
 
   /**
+   * A task's store, made on first use.
+   *
+   * @remarks
+   * `loading` until the host sends the task.
+   *
+   * @sideEffects May create the store.
+   * @param taskId - The task.
+   * @returns The store.
+   */
+  function taskOf(taskId: string): StoreApi<TaskState> {
+    let store = taskStores.get(taskId);
+    if (store === undefined) {
+      store = createStore<TaskState>(() => LOADING_TASK);
+      taskStores.set(taskId, store);
+    }
+    return store;
+  }
+
+  /**
+   * Asks for the task list, and to be pushed it from then on.
+   *
+   * @remarks
+   * The host's send count starts again with each connection, so the view's does. An answer that comes after a
+   * push of this ask is older than it and is dropped.
+   *
+   * @sideEffects Sends `list_tasks`; updates the task list.
+   */
+  async function loadTasks(): Promise<void> {
+    taskListAsks += 1;
+    const ask = taskListAsks;
+    const before = tasks.getState();
+    // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+    tasks.setState({ status: before.status === "ready" ? "ready" : "loading", tasks: before.tasks, seq: -1 }, true);
+    const { tasks: listed } = await request("list_tasks", { watch: true });
+    if (ask !== taskListAsks || !watchingTasks || tasks.getState().seq >= 0) return;
+    // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+    tasks.setState({ status: "ready", tasks: listed, seq: 0 }, true);
+  }
+
+  /**
+   * Opens the task the window shows on this connection.
+   *
+   * @remarks
+   * A task the host does not know shows as `missing`; any other failure as `failed`, keeping the task last seen.
+   *
+   * @sideEffects Sends `open_task`; updates the task's store.
+   * @param taskId - The task.
+   */
+  async function loadTask(taskId: string): Promise<void> {
+    const store = taskOf(taskId);
+    try {
+      const { task } = await request("open_task", { taskId });
+      if (openedTask !== taskId) return;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      store.setState({ status: "ready", task }, true);
+    } catch (error) {
+      if (error instanceof ConnectionLostError) throw error;
+      const missing = error instanceof CommandError && error.code === "task_not_found";
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      store.setState({ status: missing ? "missing" : "failed", task: store.getState().task }, true);
+    }
+  }
+
+  /**
    * Asks for fresh snapshots of every watched session.
    *
    * @remarks
@@ -1182,8 +1269,17 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       remote.setState({ status: "ready", state: message.remote, error: null }, true);
       return;
     }
-    if (message.type === "tasks_updated" || message.type === "task_updated") {
-      // The board that shows tasks is T7's (SPEC-0006); nothing in the client wants these yet.
+    if (message.type === "tasks_updated") {
+      const shown = tasks.getState();
+      // A push still on its way when the window stopped watching shows nothing; an older one is dropped.
+      if (!watchingTasks || message.seq <= shown.seq) return;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      tasks.setState({ status: "ready", tasks: message.tasks, seq: message.seq }, true);
+      return;
+    }
+    if (message.type === "task_updated") {
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      taskOf(message.task.id).setState({ status: "ready", task: message.task }, true);
       return;
     }
     if (message.type === "diff_updated") {
@@ -1309,6 +1405,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         request("subscribe_index", cursor === undefined ? {} : { cursor }).catch(() => undefined);
         subscribeWatched().catch(() => undefined);
         watchShown().catch(() => undefined);
+        if (watchingTasks) loadTasks().catch(() => undefined);
+        if (openedTask !== null) loadTask(openedTask).catch(() => undefined);
         // Fire and forget: the failure lands in the store.
         if (watchingRemote) void loadRemote();
         settle(connection.getState());
@@ -1584,6 +1682,30 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     async watchChanges(workspaceIds) {
       showing = [...new Set(workspaceIds)];
       if (live !== undefined) await request("watch_changes", { workspaceIds: [...showing] });
+    },
+    tasks,
+    async watchTasks(on) {
+      watchingTasks = on;
+      if (on) {
+        if (live !== undefined) await loadTasks();
+        return;
+      }
+      taskListAsks += 1;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      tasks.setState(UNWATCHED_TASKS, true);
+      // Stryker disable next-line ConditionalExpression: without a live socket the catch below ignores the same connection loss.
+      if (live === undefined) return;
+      try {
+        await request("list_tasks", { watch: false });
+      } catch (error) {
+        // A connection gone takes the watch with it, so there is nothing left to stop.
+        if (!(error instanceof ConnectionLostError)) throw error;
+      }
+    },
+    task: taskOf,
+    async openTask(taskId) {
+      openedTask = taskId;
+      if (live !== undefined) await loadTask(taskId);
     },
     diff,
     async watchDiff(target) {

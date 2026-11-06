@@ -10,6 +10,8 @@ import type {
   SessionView,
   SetupView,
   RemoteView,
+  TaskState,
+  TasksView,
 } from "@atrium/client";
 import {
   type Chat,
@@ -306,6 +308,26 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
   const loginState = createStore<LoginUpdatedEvent | null>(() => null);
   const installJob = createStore<InstallJob | null>(() => null);
   const plans = createStore<Plans>(() => []);
+  const tasks = createStore<TasksView>(() => ({ status: "ready", tasks: [], seq: 0 }));
+  const taskStates = new Map<string, StoreApi<TaskState>>();
+  /**
+   * A task's store, made on first use.
+   *
+   * @remarks
+   * Tests set a task's state through it, as the host's pushes would.
+   *
+   * @sideEffects May create the store.
+   * @param taskId - The task.
+   * @returns The store.
+   */
+  const taskStateOf = (taskId: string): StoreApi<TaskState> => {
+    let store = taskStates.get(taskId);
+    if (store === undefined) {
+      store = createStore<TaskState>(() => ({ status: "loading", task: null }));
+      taskStates.set(taskId, store);
+    }
+    return store;
+  };
   let created = 0;
   let uploaded = 0;
   let logins = 0;
@@ -887,6 +909,14 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       await answers.remoteCommand?.();
       return {};
     },
+    tasks,
+    async watchTasks(on: boolean) {
+      calls.push(`watchTasks ${String(on)}`);
+    },
+    task: taskStateOf,
+    async openTask(taskId: string) {
+      calls.push(`openTask ${taskId}`);
+    },
     setup,
     async loadSetup(refresh = false) {
       calls.push(`loadSetup${refresh ? " refresh" : ""}`);
@@ -970,6 +1000,8 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     loginState,
     installJob,
     plans,
+    tasks,
+    taskStateOf,
   };
 }
 

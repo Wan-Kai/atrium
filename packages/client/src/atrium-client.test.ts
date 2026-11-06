@@ -3191,3 +3191,146 @@ describe("createAtriumClient: workspace changes", () => {
     }
   });
 });
+
+/** A task row as the host sends it. */
+const taskSummary = (id: string, name: string) => ({
+  id,
+  name,
+  status: "running",
+  projectId: null,
+  workspaceId: null,
+  paused: false,
+  createdAt: 1,
+  startedAt: 2,
+  endedAt: null,
+  attention: null,
+  archive: null,
+  current: null,
+  activeAt: 3,
+  scheduled: false,
+});
+
+/** The commands sent, without the heartbeat's pings. */
+const taskCommands = (socket: ScriptedSocket) => socket.commands().filter((sent) => sent["type"] !== "ping");
+
+/** A whole task as the host sends it. */
+const taskView = (id: string, name: string) => ({
+  ...taskSummary(id, name),
+  taskSessionId: "s9",
+  model: { providerId: "p", modelId: "m", thinking: "high" },
+  sourceSessionId: null,
+  graphVersion: 1,
+  pendingGraph: false,
+  nodes: [],
+  edges: [],
+  archiveFacts: null,
+});
+
+/** Pushes the list the host would send. */
+const pushTasks = (socket: ScriptedSocket, seq: number, ...names: string[]) =>
+  socket.receive(
+    JSON.stringify({ type: "tasks_updated", seq, tasks: names.map((name) => taskSummary(`tsk_${name}`, name)) }),
+  );
+
+describe("createAtriumClient: tasks (SPEC-0006, T7)", () => {
+  it("asks to watch the list and shows what the host answers, then each whole push in order", async () => {
+    const { client, latest } = await connected();
+    expect(client.tasks.getState()).toStrictEqual({ status: "idle", tasks: [], seq: -1 });
+
+    const watching = client.watchTasks(true);
+    expect(client.tasks.getState().status).toBe("loading");
+    latest().answer("list_tasks", { tasks: [taskSummary("tsk_a", "a")] });
+    await watching;
+    expect(client.tasks.getState()).toMatchObject({ status: "ready", seq: 0, tasks: [{ id: "tsk_a" }] });
+
+    pushTasks(latest(), 2, "b", "c");
+    pushTasks(latest(), 1, "old");
+    expect(client.tasks.getState().tasks.map((task) => task.name)).toStrictEqual(["b", "c"]);
+    expect(taskCommands(latest())).toStrictEqual([{ type: "list_tasks", requestId: "client-1-3", watch: true }]);
+  });
+
+  it("does not put an answer over a push that came before it, and starts counting again on a new connection", async () => {
+    const { client, clock, latest, sockets } = clientWith({ reconnectDelaysMs: [100] });
+    const connecting = client.connect();
+    latest().open();
+    latest().receive(welcome());
+    await connecting;
+
+    const watching = client.watchTasks(true);
+    pushTasks(latest(), 5, "pushed");
+    latest().answer("list_tasks", { tasks: [taskSummary("tsk_old", "old")] });
+    await watching;
+    expect(client.tasks.getState()).toMatchObject({ seq: 5, tasks: [{ name: "pushed" }] });
+
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+    expect(sockets).toHaveLength(2);
+    expect(taskCommands(latest())).toStrictEqual([{ type: "list_tasks", requestId: "client-1-6", watch: true }]);
+    latest().answer("list_tasks", { tasks: [taskSummary("tsk_new", "new")] });
+    await vi.waitFor(() => expect(client.tasks.getState()).toMatchObject({ seq: 0, tasks: [{ name: "new" }] }));
+    pushTasks(latest(), 1, "after");
+    expect(client.tasks.getState().tasks.map((task) => task.name)).toStrictEqual(["after"]);
+  });
+
+  it("stops watching on request, and ignores a push that was still on its way", async () => {
+    const { client, latest } = await connected();
+    const watching = client.watchTasks(true);
+    latest().answer("list_tasks", { tasks: [] });
+    await watching;
+
+    const stopping = client.watchTasks(false);
+    latest().answer("list_tasks", { tasks: [] });
+    await stopping;
+    pushTasks(latest(), 9, "late");
+
+    expect(client.tasks.getState()).toStrictEqual({ status: "idle", tasks: [], seq: -1 });
+    expect(taskCommands(latest()).at(-1)).toMatchObject({ type: "list_tasks", watch: false });
+  });
+
+  it("opens a task and keeps what the host pushes of it whole", async () => {
+    const { client, latest } = await connected();
+    expect(client.task("tsk_a").getState()).toStrictEqual({ status: "loading", task: null });
+
+    const opening = client.openTask("tsk_a");
+    latest().answer("open_task", { task: taskView("tsk_a", "first") });
+    await opening;
+    latest().receive(JSON.stringify({ type: "task_updated", task: taskView("tsk_a", "second") }));
+
+    expect(client.task("tsk_a").getState()).toMatchObject({ status: "ready", task: { name: "second" } });
+    expect(client.task("tsk_b").getState().status).toBe("loading");
+  });
+
+  it("says a task is missing when the host does not know it, and failed on any other error", async () => {
+    const { client, latest } = await connected();
+    const opening = client.openTask("tsk_a");
+    latest().answer("open_task", { task: taskView("tsk_a", "first") });
+    await opening;
+
+    const missing = client.openTask("tsk_a");
+    latest().fail("open_task", "task_not_found");
+    await missing;
+    expect(client.task("tsk_a").getState()).toMatchObject({ status: "missing", task: { name: "first" } });
+
+    const failing = client.openTask("tsk_c");
+    latest().fail("open_task", "internal_error");
+    await failing;
+    expect(client.task("tsk_c").getState()).toStrictEqual({ status: "failed", task: null });
+  });
+
+  it("asks again for the open task on every connection", async () => {
+    const { client, clock, latest } = clientWith({ reconnectDelaysMs: [100] });
+    await client.openTask("tsk_a");
+    const connecting = client.connect();
+    latest().open();
+    latest().receive(welcome());
+    await connecting;
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome());
+
+    expect(taskCommands(latest())).toMatchObject([{ type: "open_task", taskId: "tsk_a" }]);
+  });
+});

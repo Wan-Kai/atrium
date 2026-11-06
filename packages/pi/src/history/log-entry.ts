@@ -1,9 +1,20 @@
 import { AGENT_MESSAGE, type AgentNote, agentNote } from "../agent/agent";
 import { MessageDetails } from "../agent/channel";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { TASK_MESSAGE, TaskMessageDetails } from "../task/schema";
 import { type SectionPiece, sectionPieces } from "./prompt-sections";
 import { readSkillBlock } from "./skill-block";
 import { type ToolArgs, contentText } from "./tools";
+
+/**
+ * A line of the task board in a conversation: a progress line of the task conversation, or the mark in
+ * the conversation a task was made from (SPEC-0006, "任务对话的进度和记录折叠").
+ *
+ * @remarks
+ * The `atrium-task` custom messages that carry nothing for the model to act on; `nudge` and `resume` start turns
+ * and are shown as nothing.
+ */
+export type TaskLine = Extract<TaskMessageDetails, { kind: "progress" | "converted" }>;
 
 /** One block of an assistant message, as Atrium keeps it. */
 export type AssistantPart =
@@ -111,6 +122,8 @@ export type LogEntry = { readonly id: string; readonly parentId: string | null }
       | { readonly kind: "note"; readonly note: AgentNote }
       /** Notices or a task delivered as an `atrium-agent` custom message (SPEC-0002, "送达"). */
       | { readonly kind: "agent"; readonly details: MessageDetails }
+      /** A progress line of the task conversation, or the "已转为任务" mark of its source (SPEC-0006). */
+      | { readonly kind: "task_line"; readonly line: TaskLine }
       /** Anything the transcript does not show: model and thinking changes, labels, `!bash` messages… */
       | { readonly kind: "other" }
     ))
@@ -285,6 +298,12 @@ export function toLogEntry(entry: SessionEntry): LogEntry {
   if (entry.type === "context_edit") {
     return entry.replacement === null
       ? { ...base, kind: "omission", targetId: entry.targetId }
+      : { ...base, kind: "other" };
+  }
+  if (entry.type === "custom_message" && entry.customType === TASK_MESSAGE) {
+    const line = TaskMessageDetails.safeParse(entry.details);
+    return line.success && (line.data.kind === "progress" || line.data.kind === "converted")
+      ? { ...base, kind: "task_line", line: line.data }
       : { ...base, kind: "other" };
   }
   if (entry.type === "custom_message") {

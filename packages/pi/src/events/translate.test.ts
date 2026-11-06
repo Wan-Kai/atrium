@@ -612,6 +612,24 @@ describe("createEventTranslator on cases the fixtures do not show", () => {
     ]);
   });
 
+  it("reports a task progress line or a conversion mark when pi writes it, and nothing for the messages that start turns", () => {
+    const translate = createEventTranslator(() => 99);
+    const progress = { v: 1, kind: "progress", id: "p1", at: 5, text: "t", what: "node_started", node: "N1" };
+    const converted = { v: 1, kind: "converted", id: "m1", at: 6, taskId: "tsk_a", state: "converted" };
+
+    expect([
+      ...translate(customEnded("atrium-task", progress)),
+      ...translate(customEnded("atrium-task", converted)),
+      ...translate(customEnded("atrium-task", { v: 1, kind: "nudge", id: "n1" })),
+      ...translate(customEnded("atrium-task", { v: 1, kind: "resume", id: "r1", reason: "wake" })),
+      ...translate(customEnded("atrium-task", { v: 1, kind: "progress", id: "bad" })),
+      ...translate(customEnded("someone-else", progress)),
+    ]).toStrictEqual([
+      { kind: "task_line_added", timestamp: 42 },
+      { kind: "task_line_added", timestamp: 42 },
+    ]);
+  });
+
   it("reports Atrium's note when pi writes it, mid-message without ending the message, and nothing for another", () => {
     const note = { v: 1, kind: "note", note: "worktree_moved", from: "/a", to: "/b" };
 

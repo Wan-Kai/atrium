@@ -2225,3 +2225,29 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 变异测试：`pnpm test:mutation tasks --mutate=<文件>` 会让每个变异都跑 `tasks` 组里的全部宿主层测试（几分钟一个），所以这次用了只含单元测试的临时分组（`mutation-groups.mjs` 里加过 `t6` / `t6pi`，跑完已还原、没有提交），命令同 `pnpm test:mutation <组> --force --mutate=<文件>`。结果：`conversation.ts` 90.64%、`channel.ts` 99.13%、`design.ts` 100%、`transcript-text.ts` 96.81%；pi 侧 `extension.ts` 89.64%、`words.ts` 94.25%、`schema.ts` 94.35%。`dev/task-design.ts` 的纯函数（解析、找文件、提醒、打印、读最后一句）变异全部抓到；`runTaskDesign` 和 `main` 要真模型，不在变异组里（同 `task-try.ts`），整文件 54.22% 主要是它们。conversation.ts 第一次只有 81.87%，补了状态 JSON 的逐字段断言、diff 的空 / 截断 / git 失败、对话里的工具调用、契约和对话的来源标签、带话的整段文字，抓到了大部分。没跑：`runner.ts`、`task-service.ts`、`new-task.ts`（`tasks` 组按说明不含这三个，由宿主层测试覆盖）、`scheduler.ts` 本次新增的两处（表驱动测试加破坏检查，没单独跑变异：另一个变异测试在跑它）、`agent-launch.ts`、`session-manager.ts`、协议文件（各有测试和破坏检查）。
 - 没有测试保护的：`task_send_to_node` 经真宿主送进真 pi 的 `streamingBehavior: "steer"`（宿主层没有这一条：单元测试只验证调用 `deliver` 时带着外壳的话）；`pnpm task:design` 的 `runTaskDesign` 本身（要真模型，已手跑，见下）；任务对话的 `bash` 不受只读约束（SPEC 里已写明）。
 - 真实模型：`pnpm task:design --from <id> --model claude-bridge/claude-haiku-4-5` 在一段现造的需求对话上跑通，选了 `feature`、写出摘要和四节点图（explore → work → check → human 合并，human 可打回 work），原文件前后哈希相同；输出见 T6 的验收报告。
+
+## T7 任务区（只读）（SPEC-0006"界面""任务对话的进度和记录折叠""错误码"、"T7 定下的细节"，2026-11-06，待验收）
+
+界面测试在真浏览器里渲染整个 `Workbench`，客户端是假的（`fakeClient` 多了 `tasks`、`task(id)`），所以侧栏入口、任务区、标签、列表、图、任务对话、需求对话的那一行都走真实的组件和真实的 store；宿主一侧用真宿主 + faux pi + 真客户端。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 侧栏入口在搜索下面，数字是"待我介入"组的任务数（设计中、等你、停下），为 0 不显示；点它主区换成任务区，选侧栏里的工作区离开任务区 | `ui/tasks/task-area.browser.test.tsx`（"the sidebar's task entry"） |
+| 任务区标签：任务、定时在前且都没有关闭按钮；任务标签有关闭按钮，关掉回到列表、任务不受影响；定时标签的空状态 | 同上（"the task area's tabs"） |
+| 任务列表：按待我介入 → 运行中 → 已完成分组和排序、每行的名字 / 项目 · worktree / 当前节点 / 最后活动 / 状态、设计中的行、失败 / 合并被挡 / human / 暂停 / 改图各自的说法、已完成 7 天 5 条加"显示全部"和"收起"、项目筛选含"不属于项目"、空状态、定时触发的时钟图标 | 同上（"the task list"）；排序、分组、紧迫程度、7 天 5 条、筛选的逻辑 `ui/tasks/task-list-model.test.ts`；各状态的说法、节点和模型的说法、"多久以前" `ui/tasks/task-words.test.ts` |
+| 任务标签：七种节点状态各有自己的图标和图例、边数；单独指定的模型蓝字 / 继承灰字 / human 节点没有模型；点节点描框、换节点、点空白取消；悬停出做什么 / 怎样算完成 / 失败原因 / 合并被挡的原因；设计中的任务显示草图和版本、任务模型、项目 · worktree、"需求对话"链接；点链接回需求对话并离开任务区；打开任务并经会话订阅看任务对话、没有输入框和任务按钮；`task_not_found` 的话和读取中；节点状态随宿主推送变（运转中→通过）不重载；human 节点在等时订 `watch_changes` 并显示改动统计 | 同上（"a task's tab"）；分层、居中、边的路径、打回环的泳道、环和不存在的边、20 个节点的耗时 `ui/tasks/graph-layout.test.ts` |
+| 任务对话里的进度：同一段连成一组、最后一组展开成过程轨道的步骤（失败 ×、等你橙点）、前面的组收成一行摘要（节点通过数、时间范围）、点开再收起、点过之后加一行不改选择、新的一组出现时上一组自己收起；设计指示缩成一行 | 同上（"the task conversation's progress and records"）；分组和摘要的纯逻辑在同一文件里经界面验证 |
+| 需求对话里的"已转为任务「名」· 状态 · 打开 ›"，点"打开"开任务标签；同一任务两条标记只画最后一条（任务已放弃） | 同上（"the line a conversation shows once it became a task"） |
+| 任务区状态：打开的任务标签不重复、关闭后去前一个或列表、显示 / 隐藏不动标签、筛选和显示全部 | `ui/state/task-area.test.ts` |
+| 客户端：`watchTasks` 要列表并收整张推送、旧 `seq` 丢掉、答案不盖掉更新的推送、重连后计数重来并再要一次、停止后推送不收；`openTask` 保留整个任务、`task_not_found` → `missing`（留着上次的任务）、别的失败 → `failed`、重连后再开 | `client/atrium-client.test.ts`（"tasks (SPEC-0006, T7)"） |
+| 宿主：`TaskSummary.current`（失败 > 停下 > 等你 > 运转中，同级取图里靠前）、`activeAt`、`scheduled`；`TaskView.model`、`sourceSessionId`、`TaskNode.model` | `host/tasks/task-view.test.ts` |
+| 对话记录：任务对话的进度行和需求对话的标记投影成 `task_progress` / `task_mark` 两条线之间的 notice；`atrium-task` 的 `nudge` / `resume` / 读不了的什么也不画 | `host/transcript/projection.test.ts`、`pi/history/log-entry.test.ts` |
+| 进度行实时到：pi 写下进度行时翻译成 `task_line_added`，控制器重读文件；`nudge` / `resume` / 读不了的不发 | `pi/events/translate.test.ts`；真宿主 `host/tasks/board.host.test.ts` |
+| **真宿主 + 真客户端**：任务列表里有设计中的任务（无当前节点、`activeAt`）、`open_task` 的整个任务（模型、需求对话、节点模型 `null`）、任务对话按 id 订阅得到快照和第一条设计指示、启动后列表变 `done`、进度行逐条出现在任务对话、节点状态推送、需求对话里有 `task_mark` | `host/tasks/board.host.test.ts`（先在没有 `task_line_added` 时失败过：60 秒也没有进度行） |
+| 协议：新字段的往返、两种新 notice、协议号 32；Swift 投影和往返夹具（`pnpm protocol:swift --check`，`swift test --filter AtriumProtocolTests` 通过，`swift build` 通过） | `protocol/envelope.test.ts`、`protocol/remote.test.ts` |
+| 性能：50 个任务 × 20 个节点，按下"任务"到列表画好、按下一行到图画好 | `apps/desktop/e2e/tasks.perf.spec.ts`（`@perf`，数字见 testing.md） |
+
+- 破坏检查：`packages/ui/src/tasks/task-area.break-check.json`（46 处，`project: ui` 的是界面测试）。
+- 没有测试保护的：悬停卡的浮动位置（`useFloatingLayer`，别处已测）；任务标签在窄窗口下的排版；点阵涡旋等动效；浅色 / 深色截图对照设计稿靠人看（截图在验收报告里）。
+- 没做（留给后面的步骤）：见 SPEC-0006"T7 定下的细节 · 没做、留给后面"。
+

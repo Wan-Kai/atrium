@@ -341,6 +341,9 @@ const taskSummary = {
   endedAt: null,
   attention: "merge_blocked",
   archive: null,
+  current: { id: "N3", name: "Accept and merge", state: "waiting" },
+  activeAt: 1_760_000_003_000,
+  scheduled: false,
 } as const;
 
 /** A task whose closing human node cannot merge, with its graph. */
@@ -354,16 +357,26 @@ const taskNodeBase = {
   blocked: null,
   failure: null,
   summary: "Done.",
+  model: null,
   sessionId: "s1",
   sendBack: [],
 } as const;
 const taskView = {
   ...taskSummary,
   taskSessionId: "s0",
+  model: { providerId: "anthropic", modelId: "opus-5.5", thinking: "high" },
+  sourceSessionId: "s-origin",
   graphVersion: 1,
   pendingGraph: false,
   nodes: [
-    { ...taskNodeBase, id: "N1", name: "Explore", role: "explore", place: "readonly" },
+    {
+      ...taskNodeBase,
+      id: "N1",
+      name: "Explore",
+      role: "explore",
+      place: "readonly",
+      model: { providerId: "openai", modelId: "gpt-6-astra" },
+    },
     {
       ...taskNodeBase,
       id: "N2",
@@ -820,6 +833,24 @@ const noted = {
   timestamp: 6,
 } as const;
 
+/** A progress line the host wrote into a task conversation, and the mark in the conversation a task was made from. */
+const taskProgressed = {
+  kind: "notice",
+  id: "task-1",
+  notice: "task_progress",
+  what: "node_passed",
+  node: "N2",
+  timestamp: 7,
+} as const;
+const taskMarked = {
+  kind: "notice",
+  id: "task-2",
+  notice: "task_mark",
+  taskId: "tsk_a",
+  state: "converted",
+  timestamp: 8,
+} as const;
+
 const events: SessionEvent[] = [
   {
     type: "session_snapshot",
@@ -888,6 +919,9 @@ const events: SessionEvent[] = [
   },
   { type: "notice_added", ...at, notice: asked, before: null },
   { type: "notice_added", ...at, notice: noted, before: null },
+  { type: "notice_added", ...at, notice: taskProgressed, before: null },
+  { type: "notice_added", ...at, notice: { ...taskProgressed, what: null, node: null }, before: null },
+  { type: "notice_added", ...at, notice: taskMarked, before: null },
   { type: "session_resumed", sessionId: "s1", epoch: 2, seq: 40 },
   { type: "model_updated", ...at, model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "off" } },
   { type: "model_updated", ...at, model: null },

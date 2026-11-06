@@ -471,6 +471,33 @@ describe("toLogEntry", () => {
     });
   });
 
+  it("reads a task progress line or a conversion mark from an atrium-task message, and nothing from its other kinds", () => {
+    const progress = { v: 1, kind: "progress", id: "p1", at: 5, text: "x", what: "node_passed", node: "N2" };
+    const converted = { v: 1, kind: "converted", id: "m1", at: 6, taskId: "tsk_a", state: "abandoned" };
+
+    expect(toLogEntry(custom("atrium-task", progress))).toStrictEqual({
+      id: "c1",
+      parentId: null,
+      timestamp: 3,
+      kind: "task_line",
+      line: progress,
+    });
+    expect(toLogEntry(custom("atrium-task", converted))).toMatchObject({ kind: "task_line", line: converted });
+    for (const details of [
+      { v: 1, kind: "nudge", id: "n" },
+      { v: 1, kind: "resume", id: "r", reason: "wake" },
+      { v: 1, kind: "progress", id: "bad" },
+      "not an object",
+    ]) {
+      expect(toLogEntry(custom("atrium-task", details))).toStrictEqual({
+        id: "c1",
+        parentId: null,
+        timestamp: 3,
+        kind: "other",
+      });
+    }
+  });
+
   it("treats another extension's custom message, or a note it cannot read, as nothing to show", () => {
     const note = { v: 1, kind: "note", note: "worktree_moved", from: "/a", to: "/b" };
     const other = { id: "c1", parentId: null, timestamp: 3, kind: "other" };

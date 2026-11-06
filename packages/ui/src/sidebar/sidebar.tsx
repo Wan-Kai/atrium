@@ -5,6 +5,7 @@ import {
   CaretUp,
   ChatAdd,
   DotsThree,
+  Flowchart,
   Folder,
   FolderOpen,
   FolderPlus,
@@ -177,6 +178,7 @@ export function Sidebar({
   pickDirectory,
   onSettings,
   page,
+  tasks,
   folded = false,
 }: {
   readonly client: AtriumClient;
@@ -191,6 +193,8 @@ export function Sidebar({
   readonly onSettings: () => void;
   /** The new-workspace page; without it, projects have no "+". */
   readonly page?: SidebarPage;
+  /** The "任务" entry; without it the sidebar has none. */
+  readonly tasks?: SidebarTasks;
   readonly folded?: boolean;
 }) {
   const listed = useStore(client.index);
@@ -301,6 +305,28 @@ export function Sidebar({
               className="h-8 w-full rounded-[var(--r-md)] bg-[var(--hover)] pr-2.5 pl-8 text-[length:var(--fs-meta)] shadow-[inset_0_0_0_0.5px_var(--line)] outline-none placeholder:text-[var(--text-dim)] focus:shadow-[inset_0_0_0_0.5px_var(--line-strong),var(--focus-ring)]"
             />
           </div>
+          {tasks === undefined ? null : (
+            <div className="mx-3 mb-1 shrink-0">
+              <button
+                type="button"
+                aria-label="任务"
+                aria-current={tasks.open}
+                onClick={tasks.show}
+                className={`${ROW} w-full text-left aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
+              >
+                <Flowchart size={16} className="shrink-0 text-[var(--text-muted)]" />
+                <span className="flex-1">任务</span>
+                {tasks.attention > 0 ? (
+                  <span
+                    data-testid="tasks-attention"
+                    className="rounded-[var(--r-pill)] bg-[var(--attn-soft)] px-[7px] text-[length:var(--fs-sm)] leading-[18px] font-semibold text-[var(--attn-text)] tabular-nums"
+                  >
+                    {tasks.attention}
+                  </span>
+                ) : null}
+              </button>
+            </div>
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
             <div className="mt-1.5 flex h-[34px] items-center pr-1 pl-2 text-[var(--text-muted)]">
               <span className="flex-1">项目</span>
@@ -395,6 +421,14 @@ export function Sidebar({
       {toasts.length === 0 ? null : <ArchiveToasts toasts={toasts} onGone={dropToast} />}
     </LeavePage>
   );
+}
+
+/** The "任务" entry under the search: whether the task area shows, how many tasks want the user, and how to show it. */
+export interface SidebarTasks {
+  readonly open: boolean;
+  /** How many tasks want the user (SPEC-0006, "界面 · 入口"). */
+  readonly attention: number;
+  readonly show: () => void;
 }
 
 /** The new-workspace page, as the sidebar opens, marks and leaves it (SPEC-0001, "M1.11 的新建工作区"). */

@@ -222,6 +222,32 @@ export const Notice = z.discriminatedUnion("notice", [
     to: z.string().min(1).max(4096),
     timestamp: Timestamp,
   }),
+  /**
+   * A progress line the host wrote into a task conversation: what happened (`what` as the scheduler names it,
+   * such as `node_started`) and the node it was about (SPEC-0006, "任务对话的进度和记录折叠"). The UI writes the
+   * words; `timestamp` is when the host wrote the line.
+   */
+  z.strictObject({
+    kind: z.literal("notice"),
+    id: z.string().min(1),
+    notice: z.literal("task_progress"),
+    what: z.string().min(1).max(64).nullable(),
+    node: z.string().min(1).max(64).nullable(),
+    timestamp: Timestamp,
+  }),
+  /**
+   * The mark the host wrote into the conversation a task was made from: it became task `taskId`, or the task
+   * was abandoned while designing (SPEC-0006, "/task 与创建"). A file only grows, so a conversation may hold
+   * both marks for one task; the UI shows the latest per task.
+   */
+  z.strictObject({
+    kind: z.literal("notice"),
+    id: z.string().min(1),
+    notice: z.literal("task_mark"),
+    taskId: z.string().min(1).max(128),
+    state: z.enum(["converted", "abandoned"]),
+    timestamp: Timestamp,
+  }),
 ]);
 export type Notice = z.infer<typeof Notice>;
 

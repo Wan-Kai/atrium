@@ -37,6 +37,7 @@ export {
   type LogStopReason,
   type LogUsage,
   type SystemParts,
+  type TaskLine,
   toLogEntry,
 } from "./history/log-entry";
 export { contextParts } from "./history/system-prompt";

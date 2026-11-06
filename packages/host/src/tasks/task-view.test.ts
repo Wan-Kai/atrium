@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { BACK_LIMIT, MAX_CONFLICT_FILES } from "./graph";
 import { Sim, agent, edges, human, newTask } from "./test-support";
 import { summaryOf, viewOf } from "./task-view";
-import { FailureReason, MergeBlockReason, NodeState, type TaskStatus } from "./types";
+import { FailureReason, MergeBlockReason, type NodeRun, NodeState, type TaskStatus } from "./types";
 
 /** `true` only when the two types are the same. */
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
@@ -33,6 +33,25 @@ function startedSim(nodes: Parameters<typeof newTask>[0], graphEdges: Parameters
   sim.send({ type: "started" });
   return sim;
 }
+
+/** A run of a node in a state, with the times given. */
+const runOf = (node: string, state: NodeRun["state"], startedAt: number, endedAt: number | null): NodeRun => ({
+  node,
+  attempt: 1,
+  graph: 1,
+  state,
+  waitingFor: null,
+  blocked: null,
+  sessionId: null,
+  startedAt,
+  endedAt,
+  startCommit: null,
+  pendingDone: null,
+  summary: null,
+  failure: null,
+  commit: null,
+  nudged: false,
+});
 
 describe("what the board is told (SPEC-0006, T5)", () => {
   it("has the protocol's enums and limits the same as the host's", () => {
@@ -159,6 +178,56 @@ describe("what the board is told (SPEC-0006, T5)", () => {
       nodes: [],
       edges: [],
       graphVersion: 0,
+    });
+  });
+
+  describe("what the task area adds (SPEC-0006, T7)", () => {
+    it("names the node a row is at: a failed one before a stopped one before a waiting one before a running one, the first in the graph among equals", () => {
+      const nodes = [agent("N1"), agent("N2"), agent("N3"), agent("N4"), agent("N5")];
+      const base = { ...newTask(nodes, []), startedAt: 1 };
+      const started = { ...base, graphs: base.graphs.map((graph) => ({ ...graph, approvedAt: 1 })) };
+      const named = (runs: NodeRun[]) => summaryOf({ ...started, runs }).current;
+
+      expect(named([runOf("N1", "running", 1, null), runOf("N2", "running", 1, null)])).toStrictEqual({
+        id: "N1",
+        name: "node N1",
+        state: "running",
+      });
+      expect(named([runOf("N1", "running", 1, null), runOf("N3", "waiting", 1, null)])?.id).toBe("N3");
+      expect(named([runOf("N3", "waiting", 1, null), runOf("N4", "stopped", 1, null)])?.id).toBe("N4");
+      expect(
+        named([runOf("N1", "running", 1, null), runOf("N4", "stopped", 1, null), runOf("N5", "failed", 1, 2)])?.id,
+      ).toBe("N5");
+      expect(named([runOf("N1", "passed", 1, 2)])).toBeNull();
+      expect(named([])).toBeNull();
+    });
+
+    it("dates the row by the latest start or end of a node, else when the task began or was made", () => {
+      const base = { ...newTask([agent("N1")], []), createdAt: 100 };
+
+      expect(summaryOf(base).activeAt).toBe(100);
+      expect(summaryOf({ ...base, startedAt: 200 }).activeAt).toBe(200);
+      expect(summaryOf({ ...base, startedAt: 200, endedAt: 900 }).activeAt).toBe(900);
+      expect(
+        summaryOf({
+          ...base,
+          startedAt: 200,
+          runs: [runOf("N1", "passed", 300, 700), runOf("N1", "running", 500, null)],
+        }).activeAt,
+      ).toBe(700);
+    });
+
+    it("says whether a schedule made the task, and gives the task's model, the conversation it was made from and each node's own model", () => {
+      const chat = newTask([agent("N1"), { ...agent("N2"), model: { providerId: "x", modelId: "y" } }], []);
+      const scheduled = { ...chat, origin: { kind: "schedule" as const, ruleId: "r1", firedAt: 5 } };
+
+      expect(summaryOf(chat).scheduled).toBe(false);
+      expect(summaryOf(scheduled).scheduled).toBe(true);
+      const view = TaskView.parse(viewOf({ ...chat, projectId: PROJECT, workspaceId: WORKSPACE }, null));
+      expect(view.model).toStrictEqual({ providerId: "p", modelId: "m", thinking: "off" });
+      expect(view.sourceSessionId).toBe("ses_src");
+      expect(view.nodes.map((node) => node.model)).toStrictEqual([null, { providerId: "x", modelId: "y" }]);
+      expect(TaskView.parse(viewOf({ ...scheduled, projectId: null }, null)).sourceSessionId).toBeNull();
     });
   });
 });

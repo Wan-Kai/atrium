@@ -340,6 +340,8 @@ struct SessionPage: View {
     case .restarted: "pi 重启了"
     case .interaction: "对话框"
     case .note: "说明"
+    case .taskProgress: "任务进度"
+    case .taskMark: "任务"
     }
   }
 }

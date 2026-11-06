@@ -1,6 +1,7 @@
 import type { AgentNoticeEvent, Notice, Step, TranscriptItem, Turn } from "@atrium/protocol";
 import { AGENT_TOOL_VERBS, agentToolObject, eventLine, sourceLine } from "./agent-words";
 import { typedMessage } from "./composer-text";
+import { progressWords } from "../tasks/task-progress-model";
 
 /** A tool step. */
 export type ToolStep = Extract<Step, { kind: "tool" }>;
@@ -712,6 +713,8 @@ const UNANSWERED: Readonly<Record<"cancelled" | "timed_out" | "stale", string>> 
 export function hostNoticeText(notice: Exclude<Notice, { notice: "compacted" }>): string {
   if (notice.notice === "restarted") return `进程已自动重启（第 ${notice.attempt} / 3 次）`;
   if (notice.notice === "note") return `在新的 worktree 里继续：${notice.to}（之前的路径属于 ${notice.from}）`;
+  if (notice.notice === "task_progress") return progressWords(notice, undefined).text;
+  if (notice.notice === "task_mark") return notice.state === "abandoned" ? "任务已放弃" : "已转为任务";
   const result =
     notice.outcome === "answered"
       ? (notice.value ?? (notice.confirmed === true ? "是" : "否"))
