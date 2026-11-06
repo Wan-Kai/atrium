@@ -37,3 +37,4 @@
 | [0014](0014-web-search-and-fetch-through-deepseek.md) | 联网搜索和网页抓取经 Atrium 自带的 pi 扩展，用 DeepSeek 的 Search / Fetch API | 已接受 | 2026-10-20 |
 | [0015](0015-native-ios-app-in-swiftui.md) | 手机端做 SwiftUI 原生 iOS App，先不做推送 | 已接受 | 2026-10-24 |
 | [0016](0016-remote-access-through-own-relay-with-noise.md) | 手机经自建 relay 连回宿主，用 Noise 端到端加密 | 已接受 | 2026-10-24 |
+| [0017](0017-reviews-one-shape-two-sources.md) | 审核用一个形状，分"宿主关卡"和"agent 请求"两种来源 | 提议 | 2026-11-06 |

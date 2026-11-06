@@ -3248,7 +3248,6 @@
         padding: 6px 10px;
         border-radius: var(--r);
         background: var(--hover);
-        box-shadow: inset 2px 0 0 var(--line-strong);
       }
       .said-by {
         display: block;
@@ -3326,6 +3325,83 @@
         color: var(--attn-text);
         box-shadow: none;
         font-weight: 600;
+      }
+      /* 任务对话的进度：和普通对话的过程一样折叠 */
+      .proc {
+        display: flex;
+        flex-direction: column;
+      }
+      .proc-head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 24px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        cursor: pointer;
+        white-space: nowrap;
+        min-width: 0;
+      }
+      .proc-head .sum {
+        color: var(--text-dim);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .rail {
+        display: flex;
+        flex-direction: column;
+      }
+      .rstep {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 28px;
+        padding-left: 30px;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .rstep::before {
+        content: "";
+        position: absolute;
+        left: 10.5px;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: var(--rail);
+      }
+      .rstep:first-child::before {
+        top: 14px;
+      }
+      .rstep:last-child::before {
+        bottom: 14px;
+      }
+      .rstep:only-child::before {
+        display: none;
+      }
+      .rstep .nd {
+        position: absolute;
+        left: 4px;
+        top: 7px;
+        width: 14px;
+        height: 14px;
+        display: grid;
+        place-items: center;
+        background: var(--main);
+        border-radius: 50%;
+      }
+      .rstep b {
+        font-weight: 600;
+      }
+      .rstep.attn {
+        color: var(--attn-text);
+      }
+      .rstep .tm {
+        margin-left: auto;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        flex: none;
       }
     </style>
   </head>
@@ -3912,10 +3988,15 @@
                 </div>
                 <div class="msgs">
                   <div class="msgs-in">
-                    <div class="m-sys"><i data-i="play" class="s12"></i>10:02 你确认了图 v1，任务开始</div>
-                    <div class="m-sys"><i data-i="check" class="s12 c-ok"></i>10:14 N1 调研与方案 通过</div>
-                    <div class="m-sys"><i data-i="swirl" class="s12 c-tint"></i>10:14 N2 核心实现与自检 开始</div>
-                    <div class="m-user">现在到哪一步了？改了哪些文件？</div>
+                    <div class="proc">
+                  <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:02–10:14</span></div>
+                  <div class="rail">
+                    <div class="rstep"><span class="nd"><i data-i="play" class="s12 c-dim"></i></span><span>你确认了图 v1，任务开始</span><span class="tm">10:02</span></div>
+                    <div class="rstep"><span class="nd"><i data-i="check" class="s12 c-ok"></i></span><span>N1 调研与方案 通过</span><span class="tm">10:14</span></div>
+                    <div class="rstep"><span class="nd"><i data-i="swirl" class="s12 c-tint"></i></span><span>N2 核心实现与自检 开始</span><span class="tm">10:14</span></div>
+                  </div>
+                </div>
+                <div class="m-user">现在到哪一步了？改了哪些文件？</div>
                     <div class="m-step">
                       <i data-i="check" class="s12 c-dim"></i>看了任务状态、N1 的交接摘要、worktree 的改动
                     </div>
@@ -4014,9 +4095,14 @@
           <div class="chat design-chat">
             <div class="msgs">
               <div class="msgs-in">
-                <div class="m-sys"><i data-i="merge" class="s12 c-dim"></i>10:52 你点了通过，开始合并</div>
-                <div class="m-sys"><i data-i="alert" class="s12 c-attn"></i>10:52 合并被挡住：2 个文件冲突</div>
-              </div>
+                <div class="proc">
+                  <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:52</span></div>
+                  <div class="rail">
+                    <div class="rstep"><span class="nd"><i data-i="merge" class="s12 c-dim"></i></span><span>你点了通过，开始合并</span><span class="tm">10:52</span></div>
+                    <div class="rstep attn"><span class="nd"><i data-i="alert" class="s12 c-attn"></i></span><span>合并被挡住：2 个文件冲突</span><span class="tm">10:52</span></div>
+                  </div>
+                </div>
+                </div>
             </div>
             <div class="card-dock">
               <div class="gate-card rv">
@@ -4096,16 +4182,18 @@
           <div class="chat design-chat">
             <div class="msgs">
               <div class="msgs-in">
-                <div class="m-sys"><i data-i="check" class="s12 c-ok"></i>10:02 你确认了图 v1，任务开始</div>
-                <div class="rv-record">
-                  <i data-i="graph" class="s12 c-tint"></i><span>你批准了 · <b>图 v2</b> 删掉 review-grok</span><span class="grow"></span
-                  ><span class="dim">10:31</span><i data-i="chev" class="s12 c-dim"></i>
+                <div class="proc">
+                  <div class="proc-head"><i data-i="chev" class="s12"></i>任务进度<span class="sum">· 3 个节点通过 · 你批准了图 v2 · 你打回到 N2 · 10:02–10:44</span></div>
                 </div>
-                <div class="rv-record">
-                  <i data-i="undo" class="s12 c-attn"></i><span>你打回到 <b>N2</b>：提示文案还是旧的</span><span class="grow"></span
-                  ><span class="dim">10:44</span><i data-i="chev" class="s12 c-dim"></i>
+                <div class="m-agent">N2 第二次开始了，这次会按你说的改提示文案。</div>
+                <div class="proc">
+                  <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:58–11:02</span></div>
+                  <div class="rail">
+                    <div class="rstep"><span class="nd"><i data-i="check" class="s12 c-ok"></i></span><span>N3 破坏检查 通过</span><span class="tm">10:58</span></div>
+                    <div class="rstep"><span class="nd"><i data-i="undo" class="s12 c-attn"></i></span><span>你打回到 <b>N2</b> · 提示文案还是旧的</span><span class="tm">10:59</span></div>
+                    <div class="rstep attn"><span class="nd"><i data-i="pause" class="s12 c-attn"></i></span><span>N2 在问你 · N4 验收合并 等你</span><span class="tm">11:02</span></div>
+                  </div>
                 </div>
-                <div class="m-sys"><i data-i="pause" class="s12 c-attn"></i>11:02 N2 在问你 · N4 验收合并 等你</div>
               </div>
             </div>
             <div class="card-dock">
@@ -4170,8 +4258,8 @@
           一次展开一张，其余在顶上一行排成胶囊，按出现先后；点了切换。没提交的选择和原因切走再回来还在。
         </div>
         <div class="note-card">
-          <div class="h"><span class="pin">32</span>结束后的记录</div>
-          卡片收起后对话里留一行：谁、做了什么、对象、时间；点开看当时的证据（当时的改动统计、图的版本）。
+          <div class="h"><span class="pin">32</span>进度和记录：和普通对话一样折叠</div>
+          进度行和审核的记录都是过程轨道上的一步，两次对话之间的连成一段：正在发生的展开，之前的收成一行灰色摘要（"› 任务进度 · 3 个节点通过 · 你批准了图 v2…"），点开再展开。审核那一步点开看当时的证据。
         </div>
       </div>
     </section>
@@ -4188,8 +4276,13 @@
           <div class="vlabel"><span class="k">1</span>批准改图</div>
           <div class="chat design-chat">
             <div class="msgs"><div class="msgs-in">
-              <div class="m-sys"><i data-i="graph" class="s12 c-attn"></i>10:20 N2 申请改图，停下等你</div>
-            </div></div>
+              <div class="proc">
+                  <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:20</span></div>
+                  <div class="rail">
+                    <div class="rstep attn"><span class="nd"><i data-i="graph" class="s12 c-attn"></i></span><span>N2 申请改图，停下等你</span><span class="tm">10:20</span></div>
+                  </div>
+                </div>
+                </div></div>
             <div class="card-dock">
               <div class="gate-card rv">
                 <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">图 v3 等你批准</span></div>
@@ -4219,8 +4312,13 @@
           <div class="vlabel"><span class="k">2</span>human 节点验收</div>
           <div class="chat design-chat">
             <div class="msgs"><div class="msgs-in">
-              <div class="m-sys"><i data-i="pause" class="s12 c-attn"></i>10:41 N4 验收合并 等你</div>
-            </div></div>
+              <div class="proc">
+                  <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:41</span></div>
+                  <div class="rail">
+                    <div class="rstep attn"><span class="nd"><i data-i="pause" class="s12 c-attn"></i></span><span>N4 验收合并 等你</span><span class="tm">10:41</span></div>
+                  </div>
+                </div>
+                </div></div>
             <div class="card-dock">
               <div class="gate-card rv">
                 <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">N4 验收合并</span></div>
@@ -4252,8 +4350,13 @@
           <div class="vlabel"><span class="k">3</span>合并被挡住</div>
           <div class="chat design-chat">
             <div class="msgs"><div class="msgs-in">
-              <div class="m-sys"><i data-i="alert" class="s12 c-attn"></i>10:52 合并被挡住：主目录不在 main</div>
-            </div></div>
+              <div class="proc">
+                  <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:52</span></div>
+                  <div class="rail">
+                    <div class="rstep attn"><span class="nd"><i data-i="alert" class="s12 c-attn"></i></span><span>合并被挡住：主目录不在 main</span><span class="tm">10:52</span></div>
+                  </div>
+                </div>
+                </div></div>
             <div class="card-dock">
               <div class="gate-card rv">
                 <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">N4 验收合并</span></div>
@@ -4281,8 +4384,13 @@
           <div class="vlabel"><span class="k">4</span>归档 · 已合并</div>
           <div class="chat design-chat">
             <div class="msgs"><div class="msgs-in">
-              <div class="m-sys"><i data-i="check" class="s12 c-ok"></i>10:58 合并进 main，任务完成</div>
-            </div></div>
+              <div class="proc">
+                  <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:58</span></div>
+                  <div class="rail">
+                    <div class="rstep"><span class="nd"><i data-i="check" class="s12 c-ok"></i></span><span>合并进 main，任务完成</span><span class="tm">10:58</span></div>
+                  </div>
+                </div>
+                </div></div>
             <div class="card-dock">
               <div class="gate-card rv">
                 <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">要归档 worktree 吗</span></div>
@@ -4314,8 +4422,13 @@
           <div class="vlabel"><span class="k">5</span>归档 · 没合并</div>
           <div class="chat design-chat">
             <div class="msgs"><div class="msgs-in">
-              <div class="m-sys"><i data-i="stop" class="s12 c-dim"></i>10:58 你取消了任务</div>
-            </div></div>
+              <div class="proc">
+                  <div class="proc-head"><i data-i="down" class="s12"></i>任务进度<span class="sum">10:58</span></div>
+                  <div class="rail">
+                    <div class="rstep"><span class="nd"><i data-i="stop" class="s12 c-dim"></i></span><span>你取消了任务</span><span class="tm">10:58</span></div>
+                  </div>
+                </div>
+                </div></div>
             <div class="card-dock">
               <div class="gate-card rv warn">
                 <div class="rv-head"><span class="src host"><i data-i="board" class="s12"></i>任务</span><span class="what">要归档 worktree 吗</span></div>
@@ -4786,7 +4899,7 @@
         16: ["#s4 .task-bar .btn.primary"],
         17: ["#s4 .model-pill"],
         18: ["#s5 .m-step"],
-        19: ["#s5 .m-sys", "N2 核心实现与自检 开始"],
+        19: ["#s5 .rstep", "N2 核心实现与自检 开始"],
         20: ["#s5 .m-agent", "转给 N2"],
         21: ["#s5 .state-legend span", "失败"],
         22: ["#s5 .task-bar .st-line"],
@@ -4799,7 +4912,7 @@
         29: ["#s6 .v-b .gate-card"],
         30: ["#s6 .v-b .said"],
         31: ["#s6 .v-c .pill-tabs"],
-        32: ["#s6 .v-c .rv-record"],
+        32: ["#s6 .v-c .rstep", "你打回到"],
         33: ["#s7 .v-a .gate-card"],
         34: ["#s7 .v-b .gate-card"],
         35: ["#s7 .v-c .warn-band"],
