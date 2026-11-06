@@ -1,0 +1,682 @@
+[
+  {
+    "file": "packages/host/src/study/directions.ts",
+    "from": "if (name.toLowerCase() === ARCHIVE.toLowerCase()) return null;",
+    "to": "if (name === ARCHIVE) return null;",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "directionIdOf"
+  },
+  {
+    "file": "packages/host/src/study/directions.ts",
+    "from": "    if (!info.isFile()) return null;",
+    "to": "",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "cannot be read as broken"
+  },
+  {
+    "file": "packages/host/src/study/directions.ts",
+    "from": "const id = entry.isDirectory() ? directionIdOf(entry.name) : null;",
+    "to": "const id = directionIdOf(entry.name);",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "lists the directories with a marker"
+  },
+  {
+    "file": "packages/host/src/study/directions.ts",
+    "from": "    const read = [...live, ...archived.filter((direction) => !ids.has(direction.id))];",
+    "to": "    const read = [...live, ...archived];",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "the same name is in both places"
+  },
+  {
+    "file": "packages/host/src/study/directions.ts",
+    "from": "return parts.length === 2 && parts[1] === MARKER;",
+    "to": "return parts.length === 2;",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "mattersToDirections"
+  },
+  {
+    "file": "packages/host/src/study/direction-creator.ts",
+    "from": "if (directionIdOf(name) === null || !(await free(join(options.root, ARCHIVE, name)))) continue;",
+    "to": "if (directionIdOf(name) === null) continue;",
+    "test": "packages/host/src/study/direction-creator.test.ts",
+    "name": "moves on to -2"
+  },
+  {
+    "file": "packages/host/src/study/direction-creator.ts",
+    "from": "await writeFile(join(dir, \"AGENTS.md\"), AGENTS_TEMPLATE, { flag: \"wx\" });",
+    "to": "await writeFile(join(dir, \"AGENTS.md\"), \"\", { flag: \"wx\" });",
+    "test": "packages/host/src/study/direction-creator.test.ts",
+    "name": "makes the directory with AGENTS.md"
+  },
+  {
+    "file": "packages/host/src/study/direction-creator.ts",
+    "from": "const result = await git.run([\"init\", \"--quiet\"], { cwd: lab }).catch(() => null);",
+    "to": "const result = { code: 0 };",
+    "test": "packages/host/src/study/direction-creator.test.ts",
+    "name": "makes the directory with AGENTS.md"
+  },
+  {
+    "file": "packages/host/src/study/direction-namer.ts",
+    "from": "if (text.trim() === \"\") return none;",
+    "to": "if (false) return none;",
+    "test": "packages/host/src/study/direction-namer.test.ts",
+    "name": "for a message without text"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "        await options.sessions.stopContainer(directionId);\n",
+    "to": "",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "archives by stopping the sessions"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "          await options.sessions.forgetWorkspaces([directionId]);\n",
+    "to": "",
+    "test": "packages/host/src/study.host.test.ts",
+    "name": "archives a direction into Archive/",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/study/entering.ts",
+    "from": "      if (go) entered(containerId);",
+    "to": "      entered(containerId);",
+    "test": "packages/host/src/study/entering.test.ts",
+    "name": "tells of a client going into a container"
+  },
+  {
+    "file": "packages/host/src/sessions/session-catalog.ts",
+    "from": "...(options.directions?.() ?? [])",
+    "to": "",
+    "test": "packages/host/src/sessions/session-catalog.test.ts",
+    "name": "files a direction's sessions under it"
+  },
+  {
+    "file": "packages/host/src/sessions/session-catalog.ts",
+    "from": "return study.success ? study.data : null;",
+    "to": "return record.study as SessionSummary[\"study\"];",
+    "test": "packages/host/src/sessions/session-catalog.test.ts",
+    "name": "files a direction's sessions under it"
+  },
+  {
+    "file": "packages/host/src/store/learning-records.ts",
+    "from": "pin: (directionId, at) => update(directionId, { pinnedAt: find(directionId)?.pinnedAt ?? at }),",
+    "to": "pin: (directionId, at) => update(directionId, { pinnedAt: at }),",
+    "test": "packages/host/src/store/learning-records.test.ts",
+    "name": "keeps the first pin's time"
+  },
+  {
+    "file": "packages/host/src/main.ts",
+    "from": "      directions: study.list(),\n",
+    "to": "      directions: [],\n",
+    "test": "packages/host/src/study.host.test.ts",
+    "name": "makes nothing before the first message",
+    "project": "host"
+  },
+  {
+    "file": "packages/protocol/src/ids.ts",
+    "from": "/^lrn_[0-9A-Za-z][0-9A-Za-z_-]{0,63}$/",
+    "to": "/^lrn_.*$/",
+    "test": "packages/protocol/src/envelope.test.ts",
+    "name": "rejects a direction with an id of no direction"
+  },
+  {
+    "file": "packages/ui/src/study/learning.ts",
+    "from": "    .filter((direction) => !direction.archived)\n",
+    "to": "",
+    "test": "packages/ui/src/study/learning.test.ts",
+    "name": "listedDirections"
+  },
+  {
+    "file": "packages/ui/src/study/learning.ts",
+    "from": "return index.sessions.filter((session) => !archived.has(session.containerId));",
+    "to": "return index.sessions;",
+    "test": "packages/ui/src/study/learning.test.ts",
+    "name": "leave out an archived direction"
+  },
+  {
+    "file": "packages/ui/src/study/learning.ts",
+    "from": "    await Promise.resolve();\n",
+    "to": "",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "refuses a first message for the host",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tabs/tab-bar.tsx",
+    "from": "view.active === null && !homeShown}",
+    "to": "view.active === null}",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "fixed home tab",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/sidebar/sidebar.tsx",
+    "from": "const status = topStatus(studySessions(index).map(sessionStatus));",
+    "to": "const status = null;",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "sums up directions",
+    "project": "ui"
+  },
+  {
+    "file": "packages/host/src/sessions/read-only-transcripts.ts",
+    "from": "    transcript.rebuild({ entries, leafId: entries.at(-1)?.id ?? null }, true);",
+    "to": "    transcript.rebuild({ entries: [], leafId: null }, true);",
+    "test": "packages/host/src/sessions/read-only-transcripts.test.ts",
+    "name": "rebuilds a session from its file"
+  },
+  {
+    "file": "packages/host/src/sessions/read-only-transcripts.ts",
+    "from": "      let found = kept.get(sessionId) ?? null;",
+    "to": "      let found = null;",
+    "test": "packages/host/src/sessions/read-only-transcripts.test.ts",
+    "name": "reading the file once"
+  },
+  {
+    "file": "packages/host/src/sessions/read-only-transcripts.ts",
+    "from": "        reading.delete(sessionId);\n        drop(sessionId);",
+    "to": "        reading.delete(sessionId);",
+    "test": "packages/host/src/sessions/read-only-transcripts.test.ts",
+    "name": "one let go"
+  },
+  {
+    "file": "packages/host/src/sessions/read-only-transcripts.ts",
+    "from": "        command.epoch === READ_ONLY_EPOCH ? transcript.before(",
+    "to": "        command.epoch !== -1 ? transcript.before(",
+    "test": "packages/host/src/sessions/read-only-transcripts.test.ts",
+    "name": "transcript_changed for another"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "      if (viewOnly(found)) return {};",
+    "to": "",
+    "test": "packages/host/src/study.host.test.ts",
+    "name": "archived direction's session from its file",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/main.ts",
+    "from": "      readOnly: (containerId) => directions.find(containerId)?.archived === true,",
+    "to": "      readOnly: () => false,",
+    "test": "packages/host/src/study.host.test.ts",
+    "name": "archived direction's session from its file",
+    "project": "host"
+  },
+  {
+    "file": "packages/ui/src/study/learning.ts",
+    "from": "    .toSorted((a, b) => b.updatedAt - a.updatedAt);",
+    "to": "    .toSorted((a, b) => a.updatedAt - b.updatedAt);",
+    "test": "packages/ui/src/study/learning.test.ts",
+    "name": "last active first"
+  },
+  {
+    "file": "packages/ui/src/study/learning.ts",
+    "from": "    .filter((session) => session.containerId === directionId && !session.archived)\n",
+    "to": "    .filter((session) => session.containerId === directionId)\n",
+    "test": "packages/ui/src/study/learning.test.ts",
+    "name": "last active first"
+  },
+  {
+    "file": "packages/ui/src/study/learning-home.tsx",
+    "from": "                  if (running > 0) setArchiving({ direction, running });",
+    "to": "                  if (running > 99) setArchiving({ direction, running });",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "asks before archiving a direction",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/learning-home.tsx",
+    "from": "        <span aria-hidden className=\"absolute inset-0 cursor-default rounded-[14px]\" onClick={onOpen} />",
+    "to": "        <span aria-hidden className=\"absolute inset-0 cursor-default rounded-[14px]\" />",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "from anywhere on its card",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/conversation-area.tsx",
+    "from": "            {...(archivedDirection && containerId !== null",
+    "to": "            {...(false && containerId !== null",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "only to be read",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/conversation-area.tsx",
+    "from": "                  onFork={readOnly ? undefined : (turnId) => forkFrom(client, sessionId, turnId)}",
+    "to": "                  onFork={(turnId) => forkFrom(client, sessionId, turnId)}",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "only to be read",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/conversation-area.tsx",
+    "from": "    if (session?.study?.kind !== \"discuss\") return undefined;",
+    "to": "    if (session === undefined) return undefined;",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "which direction it made",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/transcript.tsx",
+    "from": "                    created={index === 0 && !view.hasOlder ? created : undefined}",
+    "to": "                    created={created}",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "which direction it made",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "              onClick={() => act(() => client.restoreDirection(directionId))}",
+    "to": "              onClick={() => undefined}",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "restores an archived direction from its home",
+    "project": "ui"
+  },
+  {
+    "file": "packages/host/src/study/directions.ts",
+    "from": "  if (!(await realDir(parent))) return [];\n",
+    "to": "",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "Archive/ that is a link"
+  },
+  {
+    "file": "packages/host/src/study/directions.ts",
+    "from": "constants.O_RDONLY | constants.O_NOFOLLOW",
+    "to": "constants.O_RDONLY",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "marker that is a link"
+  },
+  {
+    "file": "packages/host/src/study/directions.ts",
+    "from": "      if (added.scans < mine) addedAt.delete(id);",
+    "to": "      if (added.scans <= mine) addedAt.delete(id);",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "while a scan that began before it runs"
+  },
+  {
+    "file": "packages/host/src/study/directions.ts",
+    "from": "        // What changed before the watch started is not reported by it.\n        scanInBackground();\n",
+    "to": "",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "so what came before the watch is listed"
+  },
+  {
+    "file": "packages/host/src/study/directions.ts",
+    "from": "  return join(await resolved(dirname(path)), basename(path));",
+    "to": "  return resolved(path);",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "own name when it is a link"
+  },
+  {
+    "file": "packages/host/src/study/directions.ts",
+    "from": "    if (!(await realDir(options.root)) || closing.signal.aborted) return;",
+    "to": "    if (closing.signal.aborted) return;",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "learning directory that is a link"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "        await placeOf(found);\n        await options.sessions.stopContainer(directionId);",
+    "to": "        await options.sessions.stopContainer(directionId);",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "before stopping anything"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "      try {\n        await mkdir(to);\n      } catch (error) {",
+    "to": "      try {\n        void to;\n      } catch (error) {",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "filled while the move is under way"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "        if (code === \"ENOTEMPTY\" || code === \"EEXIST\") throw taken(found);",
+    "to": "        if (code === \"EEXIST\") throw taken(found);",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "filled while the move is under way"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "        const found = await onDisk(() => options.creator.make(names, text));",
+    "to": "        const found = await options.creator.make(names, text);",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "only after an archive's move under way"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "        if (closing.signal.aborted) throw new CommandError(\"direction_create_failed\");\n",
+    "to": "",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "for a direction being named"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "      const settled = work.catch(() => undefined);\n      going.add(settled);",
+    "to": "      const settled = work.catch(() => undefined);",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "for a direction being named"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "          return { directionId: found.id, sessionId: null };",
+    "to": "          throw error;",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "its discussion could not be created"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "options.directions.find(containerId)?.archived !== false",
+    "to": "options.directions.find(containerId) === undefined",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "no opening of an archived direction"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "      options.logger.warn({ directionId: found.id, archiving, code: errorCode(error) }, \"direction not moved\");",
+    "to": "      options.logger.warn({ directionId: found.id, archiving, err: error }, \"direction not moved\");",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "by its code, without paths"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "        options.logger.warn({ directionId, code: errorCode(error) }, \"direction opening not recorded\"),",
+    "to": "        options.logger.warn({ directionId, err: error }, \"direction opening not recorded\"),",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "a last opening it could not write"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "    if (!(await realDir(options.directions.root)) || (archiveThere && !(await realDir(archive)))) {",
+    "to": "    if (!(await realDir(options.directions.root))) {",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "a learning directory or Archive/ that is a link"
+  },
+  {
+    "file": "packages/host/src/study/direction-creator.ts",
+    "from": "    if (!(await realDir(options.root))) throw new CommandError(\"learning_dir_unsafe\");\n",
+    "to": "",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "a learning directory or Archive/ that is a link"
+  },
+  {
+    "file": "packages/host/src/platform/git.ts",
+    "from": "    ...Object.fromEntries(Object.entries(options.env).filter(([name]) => !REPOSITORY_VARIABLES.has(name))),",
+    "to": "    ...options.env,",
+    "test": "packages/host/src/platform/git.test.ts",
+    "name": "whatever repository"
+  },
+  {
+    "file": "packages/host/src/platform/git.ts",
+    "from": "    ...Object.fromEntries(Object.entries(options.env).filter(([name]) => !REPOSITORY_VARIABLES.has(name))),",
+    "to": "    ...options.env,",
+    "test": "packages/host/src/study/direction-creator.test.ts",
+    "name": "points git at another"
+  },
+  {
+    "file": "packages/host/src/store/learning-records.ts",
+    "from": "    const empty = Object.keys(after).length === 1;",
+    "to": "    const empty = alias === undefined && pinnedAt === undefined && lastOpenedAt === undefined;",
+    "test": "packages/host/src/store/learning-records.test.ts",
+    "name": "its own last field is cleared"
+  },
+  {
+    "file": "packages/host/src/store/learning-records.ts",
+    "from": "        alias: listedAlias(record?.alias),",
+    "to": "        alias: record?.alias ?? null,",
+    "test": "packages/host/src/store/learning-records.test.ts",
+    "name": "no name a client could not take"
+  },
+  {
+    "file": "packages/host/src/store/chat-records.ts",
+    "from": "    const kept = Object.keys(after).length === 1 ? others : [...others, after];",
+    "to": "    const kept = alias === undefined && archived === undefined && pinnedAt === undefined ? others : [...others, after];",
+    "test": "packages/host/src/store/chat-records.test.ts",
+    "name": "its own last field is cleared"
+  },
+  {
+    "file": "packages/host/src/store/chat-records.ts",
+    "from": "    alias: (chatId) => listedAlias(file.read().chats.find((record) => record.id === chatId)?.alias),",
+    "to": "    alias: (chatId) => file.read().chats.find((record) => record.id === chatId)?.alias ?? null,",
+    "test": "packages/host/src/store/chat-records.test.ts",
+    "name": "no name a client could not take"
+  },
+  {
+    "file": "packages/host/src/sessions/session-catalog.ts",
+    "from": "    await options.directionsFound?.();\n",
+    "to": "",
+    "test": "packages/host/src/sessions/session-catalog.test.ts",
+    "name": "first scan before its own first"
+  },
+  {
+    "file": "packages/host/src/sessions/read-only-transcripts.ts",
+    "from": "    if ((generations.get(session.sessionId) ?? 0) !== generation) return null;\n",
+    "to": "",
+    "test": "packages/host/src/sessions/read-only-transcripts.test.ts",
+    "name": "after the session was let go"
+  },
+  {
+    "file": "packages/host/src/sessions/read-only-transcripts.ts",
+    "from": "    if (under?.generation === generation) return under.read;\n",
+    "to": "",
+    "test": "packages/host/src/sessions/read-only-transcripts.test.ts",
+    "name": "reads a session once"
+  },
+  {
+    "file": "packages/host/src/sessions/read-only-transcripts.ts",
+    "from": "      if (kept.size <= limit) break;",
+    "to": "      break;",
+    "test": "packages/host/src/sessions/read-only-transcripts.test.ts",
+    "name": "keeps at most its limit"
+  },
+  {
+    "file": "packages/host/src/sessions/read-only-transcripts.ts",
+    "from": "export const READ_ONLY_EPOCH = 0;",
+    "to": "export const READ_ONLY_EPOCH = 1;",
+    "test": "packages/host/src/sessions/read-only-transcripts.test.ts",
+    "name": "no pi's first snapshot has"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "  function notHandedOff(sessionId: string): void {\n    notReadOnly(sessionId);",
+    "to": "  function notHandedOff(sessionId: string): void {",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "refuses every command that needs pi"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "    if (options.directions?.readOnly?.(directionId) === true)\n      throw new CommandError(\"direction_archived\", { directionId });\n",
+    "to": "",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "refuses every command that needs pi"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "        } else if (entry !== null) {\n          // Its direction is restored: a copy read while it was archived is old now.\n          readOnly.forget([sessionId]);\n        }",
+    "to": "        }",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "read before the direction was restored"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "      readOnly.evict((sessionId) => options.subscriptions.viewers(sessionId).length > 0);\n",
+    "to": "",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "once nobody watches it"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "      readOnly.evict((kept) => kept !== sessionId || options.subscriptions.viewers(kept).length > 0);\n",
+    "to": "",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "when its tab closes"
+  },
+  {
+    "file": "packages/host/src/study/direction-namer.ts",
+    "from": "  if (/[\\p{Cc}]|(?![\\u200D\\u{E0020}-\\u{E007F}])\\p{Cf}/u.test(line)) return null;",
+    "to": "  if (/[\\p{Cc}\\p{Cf}]/u.test(line)) return null;",
+    "test": "packages/host/src/study/direction-namer.test.ts",
+    "name": "编程"
+  },
+  {
+    "file": "packages/host/src/study/direction-namer.ts",
+    "from": "  for (const { segment } of Array.from(GRAPHEMES.segment(unwrapped)).slice(0, NAME_LIMIT)) {",
+    "to": "  for (const segment of Array.from(unwrapped).slice(0, NAME_LIMIT)) {",
+    "test": "packages/host/src/study/direction-namer.test.ts",
+    "name": "cleanDirectionName"
+  },
+  {
+    "file": "packages/ui/src/tabs/tab-bar.tsx",
+    "from": "              <b className=\"font-semibold text-[var(--text)]\">学习</b>\n              <span className=\"max-w-[160px] truncate text-[var(--text-dim)]\"> › {home.name}</span>",
+    "to": "              学习 ›",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "fixed home tab",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tabs/tab-bar.tsx",
+    "from": "        {home?.archived === true ? null : (",
+    "to": "        {false ? null : (",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "no new session in an archived direction",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/app/workbench.tsx",
+    "from": "      else if (!event.shiftKey && key === \"w\" && homeShown) {",
+    "to": "      else if (false) {",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "⌘W there closes no session",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/app/workbench.tsx",
+    "from": "      const ordered: ({ kind: \"home\" } | (typeof order)[number])[] = direction ? [{ kind: \"home\" }, ...order] : order;",
+    "to": "      const ordered: ({ kind: \"home\" } | (typeof order)[number])[] = order;",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "⌘W there closes no session",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/learning.ts",
+    "from": "  return direction.discussing ? { stage: \"讨论中\", line: \"还没排出阶梯\" } : { stage: \"已排好阶梯\", line: \"阶梯排好了\" };",
+    "to": "  return { stage: \"讨论中\", line: \"还没排出阶梯\" };",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "ladder as no longer under discussion",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/learning.ts",
+    "from": "      sessionId = created.sessionId ?? (await client.createSession(created.directionId)).sessionId;",
+    "to": "      sessionId = created.sessionId ?? \"\";",
+    "test": "packages/ui/src/study/learning.test.ts",
+    "name": "new session in it rather than making another"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "  const stranded = useStore(store, (state) =>\n    state.stranded?.directionId === directionId ? state.stranded.failure : undefined,\n  );",
+    "to": "  const stranded = undefined;",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "made but its session could not be started",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/conversation-area.tsx",
+    "from": "`${learningDir}/${direction.id.slice(\"lrn_\".length)}`",
+    "to": "direction.dir",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "which direction it made",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/learning-home.tsx",
+    "from": "          一个方向一个目录，放在 {learningDir}/ 下面",
+    "to": "          一个方向一个目录，放在 ~/Atrium/Learning/ 下面",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "opens the empty learning home",
+    "project": "ui"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "    if (connection.origin === \"remote\" && namesLearning(command, options.containerOfSession)) {",
+    "to": "    if (false) {",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "refuses a phone's open_session"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "key === \"sessionIds\" && Array.isArray(field)",
+    "to": "key === \"nothing\" && Array.isArray(field)",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "refuses a phone's subscribe_sessions"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "    return namesLearning(field, containerOf);",
+    "to": "    return false;",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "refuses a phone's subscribe_sessions"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "    if (CONTAINER_FIELDS.has(key) && typeof field === \"string\" && isLearning(field)) return true;\n",
+    "to": "",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "refuses a phone's create_session"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "  return connection.origin === \"remote\" && info.code === \"session_cwd_missing\" ? { code: info.code } : info;",
+    "to": "  return info;",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "without saying where it was"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "      directions: [],\n",
+    "to": "",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "out of a snapshot"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "      sessions: message.sessions.filter((session) => !isDirectionId(session.containerId)),",
+    "to": "      sessions: message.sessions,",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "out of a snapshot"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "        upsert: message.sessions.upsert.filter((session) => !isDirectionId(session.containerId)),",
+    "to": "        upsert: message.sessions.upsert,",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "out of changes too"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "    tabs: Object.fromEntries(Object.entries(layout.tabs).filter(([containerId]) => !isDirectionId(containerId))),",
+    "to": "    tabs: layout.tabs,",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "out of a snapshot"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "      learningDir: \"~\",",
+    "to": "",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "out of a snapshot"
+  },
+  {
+    "file": "packages/host/src/server/connection.ts",
+    "from": "    const text = JSON.stringify(forPhone(message));",
+    "to": "    const text = JSON.stringify(message);",
+    "test": "packages/host/src/server/connection.test.ts",
+    "name": "without learning directions, their sessions or paths"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "first ? { kind: \"discuss\" } : undefined",
+    "to": "undefined",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "first session"
+  }
+]

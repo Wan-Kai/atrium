@@ -1,4 +1,4 @@
-import { type IndexView, isChatId } from "@atrium/client";
+import { type IndexView, isChatId, isDirectionId } from "@atrium/client";
 import type { Chat, MergeUnknownReason, SessionSummary, Workspace } from "@atrium/protocol";
 
 /**
@@ -194,10 +194,11 @@ export function sortChats<T extends ChatOrder>(chats: readonly T[]): T[] {
 }
 
 /**
- * Where a session lives, in words: "项目 · 工作区", or "对话 · 对话名".
+ * Where a session lives, in words: "项目 · 工作区", "对话 · 对话名", or "学习 · 方向名".
  *
  * @remarks
- * The second line of a session in the inbox and search results (SPEC-0001, "收件箱", "搜索").
+ * The second line of a session in the inbox and search results (SPEC-0001, "收件箱", "搜索";
+ * SPEC-0008: a direction's sessions reach the inbox too).
  *
  * @sideEffects none
  * @param index - The list.
@@ -205,9 +206,13 @@ export function sortChats<T extends ChatOrder>(chats: readonly T[]): T[] {
  * @returns The place; empty for a container the list does not have.
  */
 export function placeOf(
-  index: Pick<IndexView, "projects" | "workspaces" | "chats" | "sessions">,
+  index: Pick<IndexView, "projects" | "workspaces" | "chats" | "sessions" | "directions">,
   containerId: string,
 ): string {
+  if (isDirectionId(containerId)) {
+    const direction = index.directions.find((candidate) => candidate.id === containerId);
+    return direction === undefined ? "学习" : `学习 · ${direction.alias ?? direction.name}`;
+  }
   if (isChatId(containerId)) {
     const chat = index.chats.find((candidate) => candidate.id === containerId);
     return chat === undefined ? "对话" : `对话 · ${chatName(chat, index.sessions)}`;

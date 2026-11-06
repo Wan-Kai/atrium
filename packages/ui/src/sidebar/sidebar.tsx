@@ -1,4 +1,4 @@
-import { type AtriumClient, CommandError, type IndexView } from "@atrium/client";
+import { type AtriumClient, CommandError, type IndexView, isDirectionId } from "@atrium/client";
 import type { Appearance, Chat, MergeUnknownReason, Project, SessionSummary, Workspace } from "@atrium/protocol";
 import {
   ArrowUp,
@@ -12,6 +12,7 @@ import {
   MagnifyingGlass,
   Monitor,
   Moon,
+  Mortarboard,
   GearSix,
   Pin,
   Plus,
@@ -53,6 +54,7 @@ import { RenameField } from "./rename-field";
 import { useReorderRows } from "./reorder";
 import { INBOX_SHOWN, type RowStatus, inboxOf, sessionStatus, topStatus } from "./status";
 import { StatusIcon } from "./status-icon";
+import { liveSessions, studySessions } from "../study/learning";
 
 /** How many chats the sidebar lists before "显示全部 N 个" (SPEC-0001, "对话"). */
 const RECENT_CHATS = 5;
@@ -170,8 +172,12 @@ function readCollapsed(): ReadonlySet<string> {
  *
  * @sideEffects Subscribes to the client's list and setup; sends commands; remembers collapsed
  * projects and the inbox's card in `localStorage`.
+ * A "学习" row under the search box opens the learning home, and sums up every direction's
+ * status; directions are not listed here (SPEC-0008, "入口").
+ *
  * @param props - The client, how to start a new chat, how to show a session chosen, how to choose
- * a folder, how to open the settings, the new-workspace page, and whether the sidebar is folded.
+ * a folder, how to open the settings, the new-workspace page, the learning home, and whether the
+ * sidebar is folded.
  * @returns The sidebar.
  */
 export function Sidebar({
@@ -181,6 +187,7 @@ export function Sidebar({
   pickDirectory,
   onSettings,
   page,
+  learning,
   folded = false,
 }: {
   readonly client: AtriumClient;
@@ -195,11 +202,14 @@ export function Sidebar({
   readonly onSettings: () => void;
   /** The new-workspace page; without it, projects have no "+". */
   readonly page?: SidebarPage;
+  /** The learning home, and whether a learning page shows; without it, there is no "学习" row. */
+  readonly learning?: SidebarLearning;
   readonly folded?: boolean;
 }) {
   const listed = useStore(client.index);
-  // While the page shows, the client's place is not where the user is.
-  const index = page?.projectId == null ? listed : { ...listed, layout: { ...listed.layout, container: null } };
+  // While a page shows, the client's place is not where the user is.
+  const onPage = page?.projectId != null || learning?.shown === true;
+  const index = onPage ? { ...listed, layout: { ...listed.layout, container: null } } : listed;
   const update = useStore(client.setup, (setup) => setup.state !== null && piUpdateAvailable(setup.state.pi));
   const now = useClock().now();
   const [collapsed, setCollapsed] = useState(readCollapsed);
@@ -305,6 +315,18 @@ export function Sidebar({
               className="h-8 w-full rounded-[var(--r-md)] bg-[var(--hover)] pr-2.5 pl-8 text-[length:var(--fs-meta)] shadow-[inset_0_0_0_0.5px_var(--line)] outline-none placeholder:text-[var(--text-dim)] focus:shadow-[inset_0_0_0_0.5px_var(--line-strong),var(--focus-ring)]"
             />
           </div>
+          {learning === undefined ? null : (
+            <div className="shrink-0 px-3">
+              <LearningRow
+                index={listed}
+                selected={
+                  learning.shown || (listed.layout.container !== null && isDirectionId(listed.layout.container))
+                }
+                onOpen={learning.open}
+              />
+              <div aria-hidden="true" className="mx-1 my-1.5 h-[0.5px] bg-[var(--line)]" />
+            </div>
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
             <div className="mt-1.5 flex h-[34px] items-center pr-1 pl-2 text-[var(--text-muted)]">
               <span className="flex-1">项目</span>
@@ -398,6 +420,61 @@ export function Sidebar({
       </nav>
       {toasts.length === 0 ? null : <ArchiveToasts toasts={toasts} onGone={dropToast} />}
     </LeavePage>
+  );
+}
+
+/** The learning home, as the sidebar opens and marks it (SPEC-0008, "入口"). */
+export interface SidebarLearning {
+  /** Whether a learning page shows. */
+  readonly shown: boolean;
+  readonly open: () => void;
+}
+
+/**
+ * The "学习" row: the way into the learning home, with every direction's status summed up.
+ *
+ * @remarks
+ * design-language ("侧栏"): styled as a chat's row, a 14px mortarboard in `--tint`, "学习"; at its
+ * end the highest status of the sessions in directions not archived, so a run shows the spinner
+ * and a question its icon (SPEC-0008, "入口"). Lit while a learning page or a direction shows.
+ * Going there leaves the new-workspace page, as any row does.
+ *
+ * @sideEffects Calls `onOpen` when clicked.
+ * @param props - The list, whether it is lit, and what opening does.
+ * @returns The row.
+ */
+function LearningRow({
+  index,
+  selected,
+  onOpen,
+}: {
+  readonly index: IndexView;
+  readonly selected: boolean;
+  readonly onOpen: () => void;
+}) {
+  const leave = use(LeavePage);
+  const status = topStatus(studySessions(index).map(sessionStatus));
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-current={selected}
+      data-testid="learning-row"
+      onClick={() => {
+        leave();
+        onOpen();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") return;
+        leave();
+        onOpen();
+      }}
+      className={`${ROW} aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
+    >
+      <Mortarboard size={14} className="shrink-0 text-[var(--tint)]" />
+      <span className="min-w-0 flex-1 truncate">学习</span>
+      <StatusIcon status={status} />
+    </div>
   );
 }
 
@@ -1326,7 +1403,8 @@ function Inbox({
   const [open, setOpen] = useState(() => localStorage.getItem(INBOX_OPEN_KEY) === "true");
   const [expanded, setExpanded] = useState(false);
   const leave = use(LeavePage);
-  const entries = inboxOf(index.sessions);
+  // An archived direction's sessions cannot run, and wait for nothing (SPEC-0008, "ML1 定的细节").
+  const entries = inboxOf(liveSessions(index));
   if (!index.preferences.inbox || entries.length === 0) return null;
   const shown = expanded ? entries : entries.slice(0, INBOX_SHOWN);
   const active = activeOf(index);

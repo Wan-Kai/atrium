@@ -113,8 +113,8 @@ func indexSnapshotJSON(
   """
   {"type":"index_snapshot","generation":"\(generation)","seq":\(seq),"reason":"no_cursor",\
   "projects":[\(projects.joined(separator: ","))],"workspaces":[\(workspaces.joined(separator: ","))],\
-  "chats":[\(chats.joined(separator: ","))],"sessions":[\(sessions.joined(separator: ","))],\
-  "layout":{"container":null,"tabs":{}},"preferences":\(preferencesJSON),"resets":[]}
+  "chats":[\(chats.joined(separator: ","))],"directions":[],"sessions":[\(sessions.joined(separator: ","))],\
+  "layout":{"container":null,"tabs":{}},"preferences":\(preferencesJSON),"resets":[],"learningDir":"~/Atrium/Learning"}
   """
 }
 
@@ -136,7 +136,7 @@ func indexChangesJSON(
   return """
     {"type":"index_changes","generation":"\(generation)","seq":\(seq),\
     "projects":{"upsert":[\(projects.joined(separator: ","))],"remove":[]},\
-    "workspaces":{"upsert":[],"remove":[]},"chats":{"upsert":[],"remove":[]},\
+    "workspaces":{"upsert":[],"remove":[]},"chats":{"upsert":[],"remove":[]},"directions":{"upsert":[],"remove":[]},\
     "sessions":{"upsert":[\(sessions.joined(separator: ","))],"remove":[\(gone)]},"layout":null,"preferences":null}
     """
 }
@@ -210,7 +210,7 @@ func summaryJSON(
     "name": name.map { "\"\($0)\"" } ?? "null", "prompt": prompt.map { "\"\($0)\"" } ?? "null",
     "file": "null", "state": "\"persisted\"", "updatedAt": "1", "archived": "false", "running": "false",
     "attention": "null", "asking": "null", "handedOff": "false", "model": "null", "parent": "null",
-    "agent": "null", "heldDeliveries": "0",
+    "agent": "null", "heldDeliveries": "0", "study": "null",
   ]
   fields.merge(extra) { _, new in new }
   return "{" + fields.sorted { $0.key < $1.key }.map { "\"\($0.key)\":\($0.value)" }.joined(separator: ",") + "}"

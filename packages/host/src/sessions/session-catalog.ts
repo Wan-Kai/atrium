@@ -1,5 +1,5 @@
 import { type SessionFileReader, type SessionFileSummary, type SessionsLocation, sessionFolder } from "@atrium/pi";
-import { type Attention, isChatId, type SessionSummary, ThinkingLevel } from "@atrium/protocol";
+import { type Attention, isChatId, SessionStudy, type SessionSummary, ThinkingLevel } from "@atrium/protocol";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Clock } from "../platform/clock";
@@ -54,6 +54,8 @@ export interface NewRecord {
   readonly persisted?: boolean;
   /** A child the agent opens (SPEC-0002, "第二步"). */
   readonly agent?: AgentRecord;
+  /** What a session of a direction is for (SPEC-0008, "索引"). */
+  readonly study?: NonNullable<SessionSummary["study"]>;
 }
 
 /** Finds the sessions of the registered containers and keeps Atrium's records of them. */
@@ -159,6 +161,22 @@ function nameOf(record: SessionRecord | undefined): string | null {
 }
 
 /**
+ * A record's study, as the summary can carry it.
+ *
+ * @remarks
+ * As `parentOf`: one the protocol would refuse, as a hand-edited index can hold, is none.
+ *
+ * @sideEffects none
+ * @param record - The record, if Atrium has one.
+ * @returns The study, or `null`.
+ */
+function studyOf(record: SessionRecord | undefined): SessionSummary["study"] {
+  if (record?.study === undefined) return null;
+  const study = SessionStudy.safeParse(record.study);
+  return study.success ? study.data : null;
+}
+
+/**
  * Creates the session catalog.
  *
  * @remarks
@@ -174,12 +192,15 @@ function nameOf(record: SessionRecord | undefined): string | null {
  *   sessions in it (ADR-0007); a name no chat id could have is passed over. A chat's first session
  *   is the one created first, by Atrium's record, else when its file last changed.
  *
+ * - every learning direction is a container too, at the directory its sessions run in, also while
+ *   it is archived, so they stay filed under it (domain-model §1, Direction).
+ *
  * Reading is incremental (the pi package's `SessionFileReader`).
  *
  * @sideEffects none until a call; then reads pi's session folders and the chats root, and writes
  * `sessions.json`.
  * @param options - The loaded file, where pi keeps sessions (`null` when unknown), the chats
- * root, the workspaces' directories, the reader, the clock and the logger.
+ * root, the workspaces' and directions' directories, the reader, the clock and the logger.
  * @returns The catalog.
  */
 export function createSessionCatalog(options: {
@@ -187,6 +208,13 @@ export function createSessionCatalog(options: {
   readonly location: Promise<SessionsLocation | null>;
   readonly chatsRoot: string;
   readonly workspaces: () => readonly ContainerDir[];
+  /** The learning directions, each at its sessions' working directory; none without it. */
+  readonly directions?: () => readonly ContainerDir[];
+  /**
+   * Settles when the learning directory's first scan has ended, which every scan waits for, so a
+   * direction's sessions are never listed without it at the host's start.
+   */
+  readonly directionsFound?: () => Promise<void>;
   readonly reader: SessionFileReader;
   readonly clock: Clock;
   readonly logger: Logger;
@@ -211,7 +239,7 @@ export function createSessionCatalog(options: {
    * @returns The directories.
    */
   function containers(): ContainerDir[] {
-    return [...options.workspaces(), ...chatDirs];
+    return [...options.workspaces(), ...chatDirs, ...(options.directions?.() ?? [])];
   }
 
   /**
@@ -263,6 +291,7 @@ export function createSessionCatalog(options: {
         fast: record?.fast ?? null,
         parent: parentOf(record),
         usageAfter: record?.usageAfter ?? null,
+        study: studyOf(record),
         ...agentFieldsOf(record ?? {}),
       });
     }
@@ -287,6 +316,7 @@ export function createSessionCatalog(options: {
         fast: record.fast ?? null,
         parent: parentOf(record),
         usageAfter: record.usageAfter ?? null,
+        study: studyOf(record),
         ...agentFieldsOf(record),
       });
     }
@@ -303,6 +333,8 @@ export function createSessionCatalog(options: {
    * listeners when the list changed.
    */
   async function scanOnce(): Promise<void> {
+    // Stryker disable next-line OptionalChaining: only main gives it.
+    await options.directionsFound?.();
     const before = JSON.stringify([list(), chatDirs]);
     const location = await options.location;
     chatDirs = (await readdir(options.chatsRoot, { withFileTypes: true }).catch(() => []))
@@ -466,6 +498,7 @@ export function createSessionCatalog(options: {
           ...(session.name === undefined ? {} : { name: session.name }),
           ...(session.usageAfter === undefined ? {} : { usageAfter: session.usageAfter }),
           ...(session.agent === undefined ? {} : { agent: session.agent }),
+          ...(session.study === undefined ? {} : { study: session.study }),
         },
       ]);
     },

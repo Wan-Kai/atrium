@@ -74,6 +74,11 @@ export interface FauxScript {
    * branch"), as when the host names a new worktree's branch; without it, an error.
    */
   readonly branch?: string;
+  /**
+   * What pi answers in print mode when told to name a learning direction (instructions that say
+   * "learning direction"), as when the host names a new direction (SPEC-0008); without it, an error.
+   */
+  readonly direction?: string;
   /** A separate print-mode translation reply; a structured reply can hold a cancellation gate. */
   readonly translation?: string | FauxReply;
   /** More models after `FAUX_MODEL`, for switching models. */

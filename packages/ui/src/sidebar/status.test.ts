@@ -31,6 +31,7 @@ function session(sessionId: string, fields: Partial<SessionSummary> = {}): Sessi
     parent: null,
     agent: null,
     heldDeliveries: 0,
+    study: null,
     ...fields,
   };
 }

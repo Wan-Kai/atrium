@@ -1,7 +1,7 @@
 import { CloseCode, type HostMessage, type SessionSnapshotEvent } from "@atrium/protocol";
 import type { Context } from "@opentelemetry/api";
 import type { Logger } from "../platform/logger";
-import { pushedToPhone } from "./remote-policy";
+import { forPhone, pushedToPhone } from "./remote-policy";
 import type { ClientTransport } from "./transport";
 
 /** The part of a transport a connection needs; tests pass a stand-in. */
@@ -107,7 +107,7 @@ export function createConnection(
    */
   function sendToPhone(rules: RemoteSending, message: HostMessage): boolean {
     if (!pushedToPhone(message)) return false;
-    const text = JSON.stringify(message);
+    const text = JSON.stringify(forPhone(message));
     if (Buffer.byteLength(text) <= rules.maxMessageBytes) return write(text);
     if (message.type === "response") {
       return write(

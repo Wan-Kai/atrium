@@ -25,4 +25,6 @@ export {
   answersQuestion,
   isAuthFailure,
   isChatId,
+  isDirectionId,
+  isWorkspaceId,
 } from "@atrium/protocol";

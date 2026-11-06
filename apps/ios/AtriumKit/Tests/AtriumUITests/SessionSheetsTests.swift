@@ -25,7 +25,7 @@ struct SessionSheetsTests {
           """
           {"sessionId":"c","containerId":"w","name":null,"prompt":null,"file":null,"state":"persisted","updatedAt":1,\
           "archived":false,"running":false,"attention":null,"asking":null,"handedOff":false,"model":null,\
-          "parent":null,"agent":null,"heldDeliveries":0}
+          "parent":null,"agent":null,"heldDeliveries":0,"study":null}
           """.utf8))
     }
     let asking = try summary().replacing(asking: 5)

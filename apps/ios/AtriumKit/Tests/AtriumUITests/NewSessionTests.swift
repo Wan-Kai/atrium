@@ -42,9 +42,9 @@ struct NewSessionTests {
       {"id":"w1","projectId":"p1","kind":"local","dir":"/w","alias":null,"branch":"main","head":null,"external":false,"createdAt":null,"merge":null,"archivedAt":null},\
       {"id":"w2","projectId":"p1","kind":"worktree","dir":"/w2","alias":null,"branch":"fix","head":null,"external":false,"createdAt":null,"merge":null,"archivedAt":null},\
       {"id":"w3","projectId":"p1","kind":"worktree","dir":"/w3","alias":null,"branch":"old","head":null,"external":false,"createdAt":null,\(merged),"archivedAt":null}],\
-      "chats":[],"sessions":[],"layout":{"container":null,"tabs":{}},"preferences":{"setupDone":true,\
+      "chats":[],"directions":[],"sessions":[],"layout":{"container":null,"tabs":{}},"preferences":{"setupDone":true,\
       "appearance":"system","lastModel":null,"thinkingByModel":{},"lastFast":false,"statusBar":{},"titleModel":null,\
-      "proxy":null,"inbox":true,"translationLanguage":"简体中文"},"resets":[]}
+      "proxy":null,"inbox":true,"translationLanguage":"简体中文"},"resets":[],"learningDir":"~/Atrium/Learning"}
       """)
     #expect(LocationSheet.workspaces(in: state).map(\.workspaces).map { $0.map(\.id) } == [["w1", "w2"]])
   }

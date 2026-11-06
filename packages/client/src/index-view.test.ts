@@ -42,6 +42,7 @@ const session = (sessionId: string, containerId: string) => ({
   parent: null,
   agent: null,
   heldDeliveries: 0,
+  study: null,
 });
 
 /** A view whose list has sessions s1–s3 in workspace A and c1 in chat C, with `tabs` open in A. */
@@ -54,6 +55,29 @@ function viewWith(open: string[], active: string | null) {
   };
 }
 
+/**
+ * A direction under discussion, named after its id.
+ *
+ * @sideEffects none
+ * @param id - Its id.
+ * @param alias - Its name, if the user gave one.
+ * @returns The direction.
+ */
+function direction(id: string, alias: string | null = null) {
+  return {
+    id,
+    dir: `/home/Atrium/Learning/${id.slice(4)}`,
+    name: id.slice(4),
+    alias,
+    broken: false,
+    discussing: true,
+    archived: false,
+    createdAt: null,
+    pinnedAt: null,
+    lastOpenedAt: null,
+  };
+}
+
 describe("emptyIndex", () => {
   it("is an empty list, not ready, with the default preferences", () => {
     expect(emptyIndex()).toStrictEqual({
@@ -63,6 +87,7 @@ describe("emptyIndex", () => {
       projects: [],
       workspaces: [],
       chats: [],
+      directions: [],
       sessions: [],
       layout: { container: null, tabs: {} },
       preferences: {
@@ -78,6 +103,7 @@ describe("emptyIndex", () => {
         translationLanguage: "简体中文",
       },
       resets: [],
+      learningDir: "~/Atrium/Learning",
     });
   });
 });
@@ -111,6 +137,7 @@ describe("applyIndexChanges", () => {
     projects: { upsert: [], remove: [] },
     workspaces: { upsert: [], remove: [] },
     chats: { upsert: [], remove: [] },
+    directions: { upsert: [], remove: [] },
     sessions: { upsert: [], remove: [] },
     layout: null,
     preferences: null,
@@ -132,6 +159,22 @@ describe("applyIndexChanges", () => {
       projects: [{ ...project, name: "renamed" }],
       sessions: [{ ...session("s2", A), running: true }, session("s3", A), session("c1", C), session("s4", A)],
     });
+  });
+
+  it("tells directions apart by their ids, as the other collections", () => {
+    const view = {
+      ...viewWith([], null),
+      generation: "h1",
+      seq: 4,
+      directions: [direction("lrn_a"), direction("lrn_b")],
+    };
+
+    const next = applyIndexChanges(view, {
+      ...nothing,
+      directions: { upsert: [direction("lrn_c"), direction("lrn_a", "后端")], remove: ["lrn_b"] },
+    });
+
+    expect(next.directions).toStrictEqual([direction("lrn_a", "后端"), direction("lrn_c")]);
   });
 
   it("tells projects, workspaces and chats apart by their ids", () => {

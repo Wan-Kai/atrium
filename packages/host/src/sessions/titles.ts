@@ -224,25 +224,30 @@ export function createTitleGenerator(options: {
  *
  * @remarks
  * pi lists only the models of providers with credentials, so a model it lists in the directory
- * is one whose provider is signed in (SPEC-0001, "自动生成标题"). A chat's directory is asked as
- * all chats are, where the model panel asks for them, so the list is the one kept for it.
+ * is one whose provider is signed in (SPEC-0001, "自动生成标题"). A chat's or a direction's
+ * directory is asked as all chats are, where the model panel asks for them, so the list is the one
+ * kept for it.
  *
  * @sideEffects none until called; then may list pi's models.
  * @param options - The title model chosen (`null` for none), how to list pi's models in a
- * directory, the chats' root, and the directory chats' models are listed for.
+ * directory, the chats' root, the learning directory, and the directory chats' models are listed for.
  * @returns The lookup: the model, or `null` when none is chosen or pi does not list it there.
  */
 export function titleModelLookup(options: {
   readonly chosen: () => ModelRef | null;
   readonly list: (dir: string) => Promise<{ readonly models: readonly ModelRef[] }>;
   readonly chatsRoot: string;
+  /** Where directions are (SPEC-0008); their sessions list models as chats do. */
+  readonly learningRoot?: string;
   readonly chatsDir: string;
 }): (cwd: string) => Promise<ModelRef | null> {
   return async (cwd) => {
     const chosen = options.chosen();
     if (chosen === null) return null;
-    // Each chat has a folder of its own inside the chats' root.
-    const chat = cwd.startsWith(`${options.chatsRoot}/`);
+    // Each chat, and each direction, has a folder of its own inside its root.
+    const chat =
+      cwd.startsWith(`${options.chatsRoot}/`) ||
+      (options.learningRoot !== undefined && cwd.startsWith(`${options.learningRoot}/`));
     const { models } = await options.list(chat ? options.chatsDir : cwd);
     return models.some((model) => model.providerId === chosen.providerId && model.modelId === chosen.modelId)
       ? chosen

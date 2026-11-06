@@ -1,7 +1,7 @@
-import { COMMAND_TYPES, HostMessage } from "@atrium/protocol";
+import { COMMAND_TYPES, HostMessage, type IndexChangesEvent, type IndexSnapshotEvent } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
-import { COMMAND_REACH, PUSHED_TO_PHONE, phoneMayRun, pushedToPhone } from "./remote-policy";
+import { COMMAND_REACH, PUSHED_TO_PHONE, forPhone, phoneMayRun, pushedToPhone } from "./remote-policy";
 
 /**
  * Every `type` a host message schema allows, through its unions.
@@ -67,5 +67,55 @@ describe("what goes to the phone", () => {
     ]);
     expect(pushedToPhone({ type: "credentials_changed" })).toBe(false);
     expect(pushedToPhone({ type: "plans_updated", plans: [] })).toBe(true);
+  });
+});
+
+/** A session summary in a container; only the fields the filter reads matter here. */
+const inContainer = (sessionId: string, containerId: string) =>
+  ({ sessionId, containerId }) as unknown as IndexSnapshotEvent["sessions"][number];
+
+describe("what of the list goes to a phone (SPEC-0008, option A)", () => {
+  it("keeps every learning direction, its sessions, its tabs and the learning directory out of a snapshot", () => {
+    const snapshot = {
+      type: "index_snapshot",
+      directions: [{ id: "lrn_go", dir: "/Users/kim/Atrium/Learning/go" }],
+      sessions: [inContainer("s1", "wks_0123456789abcdef"), inContainer("talk", "lrn_go")],
+      layout: {
+        container: "lrn_go",
+        tabs: { lrn_go: { open: ["talk"], active: "talk" }, wks_0123456789abcdef: { open: ["s1"], active: "s1" } },
+      },
+      learningDir: "/Users/kim/Atrium/Learning",
+    } as unknown as IndexSnapshotEvent;
+
+    const sent = forPhone(snapshot);
+
+    expect(sent).toMatchObject({
+      directions: [],
+      sessions: [{ sessionId: "s1" }],
+      layout: { container: null, tabs: { wks_0123456789abcdef: { open: ["s1"], active: "s1" } } },
+      learningDir: "~",
+    });
+    expect(JSON.stringify(sent)).not.toMatch(/lrn_|Learning|talk/u);
+  });
+
+  it("keeps them out of changes too, and leaves other messages as they are", () => {
+    const changes = {
+      type: "index_changes",
+      directions: { upsert: [{ id: "lrn_go", dir: "/Users/kim/Atrium/Learning/go" }], remove: ["lrn_old"] },
+      sessions: { upsert: [inContainer("s1", "wks_0123456789abcdef"), inContainer("talk", "lrn_go")], remove: [] },
+      layout: { container: "lrn_go", tabs: { lrn_go: { open: ["talk"], active: "talk" } } },
+    } as unknown as IndexChangesEvent;
+    const response = { type: "response", requestId: "r1", ok: true, result: {} } as const;
+
+    const sent = forPhone(changes);
+
+    expect(sent).toMatchObject({
+      directions: { upsert: [], remove: [] },
+      sessions: { upsert: [{ sessionId: "s1" }], remove: [] },
+      layout: { container: null, tabs: {} },
+    });
+    expect(JSON.stringify(sent)).not.toMatch(/lrn_|Learning|talk/u);
+    expect(forPhone({ ...changes, layout: null })).toMatchObject({ layout: null });
+    expect(forPhone(response)).toBe(response);
   });
 });

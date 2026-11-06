@@ -19,10 +19,11 @@ const B = "wks_000000000000000b";
  * Real files throughout; tests write session files where pi would.
  *
  * @sideEffects Creates the directories, removed when the test ends.
- * @param options - Whether pi keeps a folder per directory, and whether its location is known.
+ * @param options - Whether pi keeps a folder per directory, whether its location is known, and
+ * when the learning directory's first scan ends.
  * @returns The catalog and its surroundings.
  */
-async function catalog(options: { perCwd?: boolean; known?: boolean } = {}) {
+async function catalog(options: { perCwd?: boolean; known?: boolean; directionsFound?: Promise<void> } = {}) {
   const temp = await createTempDir("catalog");
   onTestFinished(temp.cleanup);
   const root = await realpath(temp.path);
@@ -38,11 +39,15 @@ async function catalog(options: { perCwd?: boolean; known?: boolean } = {}) {
   const { file } = await loadIndexFile(join(root, "index"), SESSIONS_FILE, 0);
   const clock = new FakeClock(5_000);
   const { logger, records } = recordingTracing();
+  let directions: ContainerDir[] = [];
+  const found = options.directionsFound;
   const sessions = createSessionCatalog({
     file,
     location: Promise.resolve(options.known === false ? null : location),
     chatsRoot,
     workspaces: () => workspaces,
+    directions: () => directions,
+    ...(found === undefined ? {} : { directionsFound: () => found }),
     reader: createSessionFileReader(),
     clock,
     logger,
@@ -60,6 +65,7 @@ async function catalog(options: { perCwd?: boolean; known?: boolean } = {}) {
     logs: records,
     changes: () => changes,
     setWorkspaces: (next: ContainerDir[]) => (workspaces = next),
+    setDirections: (next: ContainerDir[]) => (directions = next),
     /** Writes a session file where pi would, changed at `modifiedAt` seconds. */
     write: async (cwd: string, id: string, lines: unknown[] = [], modifiedAt = 100, name = `${id}.jsonl`) => {
       const folder = sessionFolder(location, cwd);
@@ -128,6 +134,7 @@ describe("SessionCatalog", () => {
         model: null,
         parent: null,
         usageAfter: null,
+        study: null,
         agent: null,
         usedHandles: [],
         deliveries: [],
@@ -218,6 +225,7 @@ describe("SessionCatalog", () => {
         model: null,
         parent: null,
         usageAfter: null,
+        study: null,
         agent: null,
         usedHandles: [],
         deliveries: [],
@@ -368,6 +376,77 @@ describe("SessionCatalog", () => {
     await sessions.mark("terminal", { attention: null, handedOff: false });
 
     expect(file.read().sessions).toStrictEqual([]);
+  });
+
+  it("waits for the learning directory's first scan before its own first, so a direction's sessions are filed at once", async () => {
+    const found = Promise.withResolvers<void>();
+    const { sessions, root, write, setDirections } = await catalog({ directionsFound: found.promise });
+    const dir = join(root, "Learning", "go");
+    await mkdir(dir, { recursive: true });
+    await write(dir, "terminal", [user("从终端问的")]);
+    let ready = false;
+    const waiting = sessions.ready().then(() => (ready = true));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(ready).toBe(false);
+
+    setDirections([{ id: "lrn_go", dir }]);
+    found.resolve();
+    await waiting;
+
+    expect(sessions.find("terminal")?.containerId).toBe("lrn_go");
+  });
+
+  it("files a direction's sessions under it, from the terminal by their directory, each with what it is for", async () => {
+    const { sessions, root, write, setDirections, file } = await catalog();
+    const dir = join(root, "Learning", "go");
+    await mkdir(dir, { recursive: true });
+    setDirections([{ id: "lrn_go", dir }]);
+    await sessions.record({ sessionId: "talk", containerId: "lrn_go", cwd: dir, study: { kind: "discuss" } });
+    await write(dir, "terminal", [user("从终端问的")]);
+    // A record a hand broke loses only its study.
+    await file.save({
+      ...file.read(),
+      sessions: [
+        ...file.read().sessions,
+        {
+          sessionId: "odd",
+          containerId: "lrn_go",
+          cwd: dir,
+          draft: true,
+          archived: false,
+          createdAt: 1,
+          study: { kind: "nap" },
+        },
+      ],
+    });
+
+    await sessions.scan();
+
+    expect(
+      sessions
+        .list()
+        .map(({ sessionId, containerId, study }) => ({ sessionId, containerId, study }))
+        .toSorted((a, b) => a.sessionId.localeCompare(b.sessionId)),
+    ).toStrictEqual([
+      { sessionId: "odd", containerId: "lrn_go", study: null },
+      { sessionId: "talk", containerId: "lrn_go", study: { kind: "discuss" } },
+      { sessionId: "terminal", containerId: "lrn_go", study: null },
+    ]);
+    expect(file.read().sessions.find((record) => record.sessionId === "talk")?.study).toStrictEqual({
+      kind: "discuss",
+    });
+  });
+
+  it("keeps an archived direction's sessions under it while its directory is elsewhere", async () => {
+    const { sessions, root, write, setDirections } = await catalog();
+    const home = join(root, "Learning", "go");
+    await write(home, "lesson", [user("上课")]);
+    // Archived: the directory moved, its sessions still name where it was.
+    setDirections([{ id: "lrn_go", dir: home }]);
+
+    await sessions.scan();
+
+    expect(sessions.find("lesson")).toMatchObject({ containerId: "lrn_go", state: "persisted", cwd: home });
   });
 
   it("lists a new chat and its drafts before any scan", async () => {

@@ -71,7 +71,7 @@
       """
       {"sessionId":"\(id)","containerId":"\(container)","name":null,"prompt":"\(prompt)","file":null,\
       "state":"persisted","updatedAt":\(updated),"archived":false,"running":false,"attention":null,"asking":null,\
-      "handedOff":false,"model":null,"parent":null,"agent":null,"heldDeliveries":0}
+      "handedOff":false,"model":null,"parent":null,"agent":null,"heldDeliveries":0,"study":null}
       """
     }
 
@@ -85,12 +85,12 @@
       \(workspace("w3", "p1", branch: "feat/old-radar", merged: true)),\
       \(workspace("w4", "p2", branch: "feat/radar-layer")),\
       \(workspace("w5", "p2", branch: "main", local: true))],\
-      "chats":[],"sessions":[\(session("s1", in: "w1", prompt: "修一下缓存过期", updated: 50)),\
+      "chats":[],"directions":[],"sessions":[\(session("s1", in: "w1", prompt: "修一下缓存过期", updated: 50)),\
       \(session("s2", in: "w2", prompt: "把 TTL 改成可配置", updated: 40)),\
       \(session("s3", in: "w5", prompt: "整理 README", updated: 30))],\
       "layout":{"container":null,"tabs":{}},"preferences":{"setupDone":true,"appearance":"system","lastModel":null,\
       "thinkingByModel":{},"lastFast":false,"statusBar":{},"titleModel":null,"proxy":null,"inbox":true,\
-      "translationLanguage":"简体中文"},"resets":[]}
+      "translationLanguage":"简体中文"},"resets":[],"learningDir":"~/Atrium/Learning"}
       """
 
     /// The open session's snapshot: idle, on a model with a thinking level and Fast on.

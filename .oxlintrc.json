@@ -107,7 +107,7 @@
       }
     },
     {
-      "files": ["packages/host/src/{projects,workspaces,sessions,transcript,status,setup,titles,files}/**"],
+      "files": ["packages/host/src/{projects,workspaces,sessions,study,transcript,status,setup,titles,files}/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -150,6 +150,7 @@
                   "**/projects/**",
                   "**/workspaces/**",
                   "**/sessions/**",
+                  "**/study/**",
                   "**/transcript/**",
                   "**/status/**",
                   "**/setup/**",
@@ -158,6 +159,7 @@
                   "**/projects",
                   "**/workspaces",
                   "**/sessions",
+                  "**/study",
                   "**/transcript",
                   "**/status",
                   "**/setup",

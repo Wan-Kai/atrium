@@ -4,6 +4,7 @@ import { ArrowDown } from "../design/icons";
 import { type RefObject, useEffect, useEffectEvent, useRef, useState } from "react";
 import { commandArguments, typedMessage } from "./composer-text";
 import type { LaunchInTurn } from "./launch-timeline";
+import type { CreatedDirection } from "./turn-view";
 import type { Launch } from "../state/new-workspace";
 import { useFollowBottom } from "./follow-bottom";
 import { UserBubble } from "./messages";
@@ -234,19 +235,21 @@ export interface TranscriptProps {
   /** Fetches a step that arrived as a preview. */
   readonly onLoadStep: (turnId: string, stepId: string) => void;
   /** The error card's "重试", offered on the last turn when it failed and nothing runs. */
-  readonly onRetry?: () => void;
+  readonly onRetry?: (() => void) | undefined;
   /** Forks the session after a turn, offered under every finished turn's reply. */
-  readonly onFork?: (turnId: string) => void;
+  readonly onFork?: ((turnId: string) => void) | undefined;
   /** Opens a child conversation carrying the turns up to one, offered beside forking (SPEC-0002). */
-  readonly onChild?: (turnId: string) => void;
+  readonly onChild?: ((turnId: string) => void) | undefined;
   /** Opens a stopped message in the bottom box without touching the transcript. */
-  readonly onEditStopped?: (turn: Turn) => void;
+  readonly onEditStopped?: ((turn: Turn) => void) | undefined;
   /** An existing editor blocks reopening its message. */
   readonly editingStopped?: boolean;
   /** How to open a file a tool was given, from its chip; none where files cannot be opened. */
   readonly openFile?: FileOpener;
   /** The launch that made the session, shown in its first turn (SPEC-0001, "M1.11 的新建工作区"). */
   readonly launch?: LaunchInTurn | undefined;
+  /** The learning direction the session's first message made, said in its first turn (SPEC-0008). */
+  readonly created?: CreatedDirection | undefined;
 }
 
 /**
@@ -340,6 +343,7 @@ export function Transcript({
   editingStopped = false,
   openFile,
   launch,
+  created,
 }: TranscriptProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -400,6 +404,7 @@ export function Transcript({
                         : undefined
                     }
                     launch={item === standIn || item === launchTurn ? shownLaunch : undefined}
+                    created={index === 0 && !view.hasOlder ? created : undefined}
                     runStartedAt={view.run?.startedAt ?? null}
                     {...(fork === undefined || item === standIn
                       ? {}

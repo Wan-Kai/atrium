@@ -138,6 +138,32 @@ describe("GitRunner.run", () => {
     );
   });
 
+  it("works on the repository of its directory, whatever repository the tool environment points git at", async () => {
+    const cwd = await tempDir();
+    const other = await tempDir();
+    const plain = createGitRunner({ env, clock: systemClock, resources: new ResourceTracker() });
+    await plain.run(["init", "--quiet"], { cwd: other });
+    const pointed = {
+      GIT_DIR: join(other, ".git"),
+      GIT_WORK_TREE: other,
+      GIT_INDEX_FILE: join(other, ".git", "index"),
+      GIT_OBJECT_DIRECTORY: join(other, ".git", "objects"),
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(other, ".git", "objects"),
+      GIT_COMMON_DIR: join(other, ".git"),
+      GIT_NAMESPACE: "elsewhere",
+    };
+    const git = createGitRunner({ env: { ...env, ...pointed }, clock: systemClock, resources: new ResourceTracker() });
+
+    await git.run(["init", "--quiet"], { cwd });
+    const { stdout } = await git.run(["-c", "alias.env=!env", "env"], { cwd });
+
+    expect(await readFile(join(cwd, ".git", "HEAD"), "utf8")).toMatch(/^ref: refs\/heads\//);
+    expect(stdout).not.toMatch(
+      /^GIT_(DIR|WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|COMMON_DIR|NAMESPACE)=/mu,
+    );
+    expect(stdout).not.toContain(other);
+  });
+
   it("never runs a git found through a relative or empty PATH entry, as one placed in the repository", async () => {
     const cwd = await tempDir();
     const fake = join(cwd, "git");

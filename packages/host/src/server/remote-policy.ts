@@ -1,4 +1,4 @@
-import type { Command, CommandType, HostMessage } from "@atrium/protocol";
+import { type Command, type CommandType, type HostMessage, type Layout, isDirectionId } from "@atrium/protocol";
 
 /** Whether a phone may send a command, or only the Mac. */
 type Reach = "phone" | "local_only";
@@ -76,6 +76,13 @@ export const COMMAND_REACH = {
   // Pinning is offered on the phone too (SPEC-0005, "MP6b").
   pin_chat: "phone",
   unpin_chat: "phone",
+  // Learning directions are the Mac's for now (SPEC-0008, "非目标": 手机端).
+  create_direction: "local_only",
+  rename_direction: "local_only",
+  pin_direction: "local_only",
+  unpin_direction: "local_only",
+  archive_direction: "local_only",
+  restore_direction: "local_only",
   // Signing in and installing.
   login: "local_only",
   answer_login: "local_only",
@@ -121,6 +128,9 @@ export const COMMAND_REACH = {
  * @remarks
  * By `COMMAND_REACH`; a new child conversation is not in the first version, so `create_session`
  * with `child` is the Mac's only (SPEC-0005, "远程客户端能用的命令").
+ * Nothing of learning mode is a phone's either (SPEC-0008, "ML1 定的细节"): the router refuses
+ * any command naming a direction or a session in one (`namesLearning`), and `forPhone` keeps them
+ * out of what is sent.
  *
  * @sideEffects none
  * @param command - The command.
@@ -183,4 +193,61 @@ export const PUSHED_TO_PHONE = {
  */
 export function pushedToPhone(message: HostMessage): boolean {
   return PUSHED_TO_PHONE[message.type];
+}
+
+/**
+ * A host message as a phone gets it: nothing of learning mode in the list.
+ *
+ * @remarks
+ * SPEC-0008 ("ML1 定的细节", option A, 2026-11-06): a phone sees no learning direction, no session
+ * in one, no direction's tabs and no learning directory, so no path of them leaves the Mac.
+ * Applied with `pushedToPhone` where every message to a phone goes through, snapshots and changes
+ * alike; a phone's commands that name one are refused in the router. A session's events reach
+ * only its subscribers, which a phone cannot be for a direction's session. The ids of removed
+ * sessions stay, as the list does not say where those were; they carry nothing else.
+ *
+ * @sideEffects none
+ * @param message - The message.
+ * @returns The message to send, the same one when nothing is held back.
+ */
+export function forPhone(message: HostMessage): HostMessage {
+  if (message.type === "index_snapshot") {
+    return {
+      ...message,
+      directions: [],
+      sessions: message.sessions.filter((session) => !isDirectionId(session.containerId)),
+      layout: withoutLearning(message.layout),
+      // The phone shows no learning mode; the field only has to be there.
+      learningDir: "~",
+    };
+  }
+  if (message.type === "index_changes") {
+    return {
+      ...message,
+      directions: { upsert: [], remove: [] },
+      sessions: {
+        upsert: message.sessions.upsert.filter((session) => !isDirectionId(session.containerId)),
+        remove: message.sessions.remove,
+      },
+      layout: message.layout === null ? null : withoutLearning(message.layout),
+    };
+  }
+  return message;
+}
+
+/**
+ * A layout without learning directions: not where the client is, and without their tabs.
+ *
+ * @remarks
+ * See `forPhone`.
+ *
+ * @sideEffects none
+ * @param layout - The layout.
+ * @returns The layout a phone gets.
+ */
+function withoutLearning(layout: Layout): Layout {
+  return {
+    container: layout.container !== null && isDirectionId(layout.container) ? null : layout.container,
+    tabs: Object.fromEntries(Object.entries(layout.tabs).filter(([containerId]) => !isDirectionId(containerId))),
+  };
 }

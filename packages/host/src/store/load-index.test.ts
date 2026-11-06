@@ -140,6 +140,8 @@ describe("loadIndex", () => {
       { chats: [{ id: "cht_a", archived: { at: -1, sessions: [], first: null } }] },
       { chats: [] },
     ],
+    ["learning", "no list of directions", {}, { directions: [] }],
+    ["learning", "a direction pinned at no time", { directions: [{ id: "lrn_a", pinnedAt: -1 }] }, { directions: [] }],
     ["layouts", "no clients", {}, { clients: [] }],
     ["layouts", "a client with no id", { clients: [{ seenAt: 2, container: null, tabs: {} }] }, { clients: [] }],
     [

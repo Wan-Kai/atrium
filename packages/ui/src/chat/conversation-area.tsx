@@ -3,12 +3,12 @@ import {
   CommandError,
   ConnectionLostError,
   type SessionView,
-  isChatId,
+  isWorkspaceId,
   loadingView,
 } from "@atrium/client";
 import type { DiffStat, SessionModel } from "@atrium/protocol";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HandedOff } from "./handed-off";
+import { ArchivedDirectionBar, HandedOff } from "./handed-off";
 import { type StoreApi, useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { desktopBridge } from "../app/bootstrap";
@@ -55,6 +55,8 @@ import {
   retryLaunch,
 } from "../state/new-workspace";
 import type { LaunchInTurn } from "./launch-timeline";
+import type { CreatedDirection } from "./turn-view";
+import { directionName } from "../study/learning";
 import { type Panes, createPanes, memoryStorage } from "../state/panes";
 import {
   NO_VIEW,
@@ -104,6 +106,8 @@ export function describeSendError(error: unknown): string {
   if (error.code === "session_cwd_missing") return `恢复失败：会话的目录 ${String(error.params?.["cwd"] ?? "")} 不存在`;
   if (error.code === "workspace_not_found") return "这个工作区已经不在了";
   if (error.code === "chat_not_found") return "这个对话已经不在了";
+  if (error.code === "direction_not_found") return "这个学习方向已经不在了";
+  if (error.code === "direction_archived") return "这个方向已归档，恢复以后才能接着学";
   if (error.code === "attachment_missing") return "图片已经过期，请重新添加";
   if (error.code === "attachment_limit") return "图片太多了：一次最多 20 张、共 32 MiB";
   if (error.code === "session_stopping") return "正在等 pi 停下，停下后再发";
@@ -213,15 +217,15 @@ export function describeModelError(error: unknown): string {
  * The workspace a container is, if it is one.
  *
  * @remarks
- * Chats and no container at all run outside any workspace: their models come from Atrium's home,
- * and they have no git changes (SPEC-0001, "对话").
+ * Chats, learning directions and no container at all run outside any workspace: their models
+ * come from Atrium's home, and they have no git changes (SPEC-0001, "对话"; SPEC-0008).
  *
  * @sideEffects none
  * @param containerId - The container, or `null`.
  * @returns The workspace's id, or `null`.
  */
 function workspaceOf(containerId: string | null): string | null {
-  return containerId === null || isChatId(containerId) ? null : containerId;
+  return containerId !== null && isWorkspaceId(containerId) ? containerId : null;
 }
 
 /** Runs a command, showing why it failed if it does, in the words `describe` picks. */
@@ -369,6 +373,7 @@ function SessionArea({
   fileOpener,
   views,
   bottom,
+  readOnly = false,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
@@ -401,8 +406,14 @@ function SessionArea({
   readonly fileOpener?: FileOpener | undefined;
   /** The workspace views, so a child opened from the capsule shows over a viewer tab. */
   readonly views: StoreApi<WorkspaceViews>;
+  /**
+   * Whether the session is only shown: nothing in its transcript edits, retries or forks it, as
+   * for an archived direction's (SPEC-0008, "ML1 定的细节").
+   */
+  readonly readOnly?: boolean;
 }) {
   const subscribed = useStore(store);
+  const created = useCreatedDirection(client, sessionId);
   // The parent's subscription switches in an effect; never pair its old transcript with this
   // render's new workspace reader (SPEC-0001, "回复渲染").
   const view = subscribed.sessionId === sessionId ? subscribed : loadingView(sessionId);
@@ -503,34 +514,38 @@ function SessionArea({
                 <Transcript
                   view={view}
                   editingStopped={editing !== null}
-                  onEditStopped={(turn) => {
-                    const draftKey = `edit:${sessionId}:${crypto.randomUUID()}`;
-                    const imageIds = Array.from({ length: turn.user.images }, () => crypto.randomUUID());
-                    const next = pageDrafts().read(sessionId);
-                    pageDrafts().update(draftKey, () => ({
-                      text: turn.user.text,
-                      pastes: [],
-                      files: [],
-                      command: null,
-                      images: imageIds.map((id) => ({ id, image: null, attachmentId: null })),
-                    }));
-                    editStore.setState({
-                      target: {
-                        epoch: view.epoch,
-                        turnId: turn.id,
-                        draftKey,
-                        images: imageIds,
-                        savedDraft:
-                          next.text !== "" ||
-                          next.images.length > 0 ||
-                          next.pastes.length > 0 ||
-                          next.files.length > 0 ||
-                          next.command !== null,
-                      },
-                      submitting: false,
-                      error: null,
-                    });
-                  }}
+                  onEditStopped={
+                    readOnly
+                      ? undefined
+                      : (turn) => {
+                          const draftKey = `edit:${sessionId}:${crypto.randomUUID()}`;
+                          const imageIds = Array.from({ length: turn.user.images }, () => crypto.randomUUID());
+                          const next = pageDrafts().read(sessionId);
+                          pageDrafts().update(draftKey, () => ({
+                            text: turn.user.text,
+                            pastes: [],
+                            files: [],
+                            command: null,
+                            images: imageIds.map((id) => ({ id, image: null, attachmentId: null })),
+                          }));
+                          editStore.setState({
+                            target: {
+                              epoch: view.epoch,
+                              turnId: turn.id,
+                              draftKey,
+                              images: imageIds,
+                              savedDraft:
+                                next.text !== "" ||
+                                next.images.length > 0 ||
+                                next.pastes.length > 0 ||
+                                next.files.length > 0 ||
+                                next.command !== null,
+                            },
+                            submitting: false,
+                            error: null,
+                          });
+                        }
+                  }
                   onLoadOlder={() => {
                     // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
                     client.loadOlder(sessionId).catch(() => undefined);
@@ -539,11 +554,12 @@ function SessionArea({
                     // Fire and forget: a failed fetch leaves the preview, still marked as loading.
                     client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
                   }}
-                  onRetry={actions.retry}
-                  onFork={(turnId) => forkFrom(client, sessionId, turnId)}
-                  onChild={(turnId) => askForChild({ parentSessionId: sessionId, turnId })}
+                  onRetry={readOnly ? undefined : actions.retry}
+                  onFork={readOnly ? undefined : (turnId) => forkFrom(client, sessionId, turnId)}
+                  onChild={readOnly ? undefined : (turnId) => askForChild({ parentSessionId: sessionId, turnId })}
                   {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
                   launch={shown}
+                  created={created}
                 />
               </ReplyTranslationContext>
             </AgentLinksContext>
@@ -861,6 +877,10 @@ export function ConversationArea({
     };
   }, [client, sessionId]);
 
+  /** Whether the session shown is an archived direction's, only to be read (SPEC-0008, "ML1 定的细节"). */
+  const archivedDirection = useStore(client.index, (index) =>
+    index.directions.some((direction) => direction.id === containerId && direction.archived),
+  );
   /** The file of the session shown when it was handed to a terminal, else `null`. */
   const handedOff = useStore(client.index, (index) => {
     const shown = index.sessions.find((one) => one.sessionId === sessionId);
@@ -1324,11 +1344,53 @@ export function ConversationArea({
             onRetryLaunch={onRetryLaunch}
             views={views}
             fileOpener={fileOpener}
+            {...(archivedDirection && containerId !== null
+              ? {
+                  readOnly: true,
+                  bottom: (
+                    <>
+                      {notice}
+                      <ArchivedDirectionBar onRestore={() => act(() => client.restoreDirection(containerId))} />
+                    </>
+                  ),
+                }
+              : {})}
           />
         )}
       </div>
       <ChangesPane client={client} workspaceId={workspaceId} panes={panes} views={views} />
     </div>
+  );
+}
+
+/**
+ * The learning direction a session's first message made, for the line under it.
+ *
+ * @remarks
+ * SPEC-0008 ("ML1 定的细节"): a discussion session's first message makes its direction (only
+ * `create_direction` makes one in ML1). Picked whole from the list, so the line follows a rename;
+ * the place is where it was made, from the learning directory as the host shows it.
+ *
+ * @sideEffects Subscribes to the list.
+ * @param client - The client.
+ * @param sessionId - The session.
+ * @returns The direction's shown name and directory, or `undefined` for any other session.
+ */
+function useCreatedDirection(client: AtriumClient, sessionId: string): CreatedDirection | undefined {
+  // The direction as the list keeps it: the same object until it changes.
+  const direction = useStore(client.index, (index) => {
+    const session = index.sessions.find((one) => one.sessionId === sessionId);
+    if (session?.study?.kind !== "discuss") return undefined;
+    return index.directions.find((one) => one.id === session.containerId);
+  });
+  const learningDir = useStore(client.index, (index) => index.learningDir);
+  return useMemo(
+    () =>
+      direction === undefined
+        ? undefined
+        : // Where it was made, archived since or not: the learning directory and its directory's name.
+          { name: directionName(direction), dir: `${learningDir}/${direction.id.slice("lrn_".length)}` },
+    [direction, learningDir],
   );
 }
 

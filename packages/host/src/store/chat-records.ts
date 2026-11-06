@@ -1,6 +1,6 @@
 import type { Chat } from "@atrium/protocol";
 import type { IndexFile } from "./index-file";
-import type { ChatsDocument } from "./index-schema";
+import { type ChatsDocument, listedAlias } from "./index-schema";
 
 /** How a chat was archived: when, the sessions archived with it, and its first session then. */
 interface ChatArchive {
@@ -77,12 +77,13 @@ export function createChatRecords(file: IndexFile<ChatsDocument>): ChatRecords {
     };
     if (JSON.stringify(after) === JSON.stringify(before)) return;
     const others = document.chats.filter((record) => record.id !== chatId);
-    const kept = alias === undefined && archived === undefined && pinnedAt === undefined ? others : [...others, after];
+    // A record left with only its id goes; one with fields a newer Atrium wrote stays.
+    const kept = Object.keys(after).length === 1 ? others : [...others, after];
     await file.save({ ...document, chats: kept });
   }
 
   return {
-    alias: (chatId) => file.read().chats.find((record) => record.id === chatId)?.alias ?? null,
+    alias: (chatId) => listedAlias(file.read().chats.find((record) => record.id === chatId)?.alias),
     rename: (chatId, alias) => update(chatId, { alias: alias ?? undefined }),
     pinned: (chatId) => file.read().chats.find((record) => record.id === chatId)?.pinnedAt ?? null,
     pin: (chatId, at) => {

@@ -41,8 +41,8 @@ const pairing = {
 };
 
 describe("the coordinated remote contract", () => {
-  it("uses version 31, which adds pinning a chat", () => {
-    expect(PROTOCOL_VERSION).toBe(31);
+  it("uses version 32, which adds learning directions", () => {
+    expect(PROTOCOL_VERSION).toBe(32);
   });
 
   it.each([

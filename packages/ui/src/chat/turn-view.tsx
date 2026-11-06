@@ -8,6 +8,7 @@ import {
   CaretRight,
   Database,
   FileText,
+  Folder,
   GitBranch,
   GitFork,
   Key,
@@ -578,6 +579,39 @@ export interface TurnViewProps {
    * with the launch's id until the host's arrives (SPEC-0001, "M1.11 的新建工作区").
    */
   readonly launch?: LaunchInTurn | undefined;
+  /** The learning direction this turn's message made, when it opens its discussion (SPEC-0008). */
+  readonly created?: CreatedDirection | undefined;
+}
+
+/** A learning direction a discussion's first message made: its shown name and where it was made, as shown. */
+export interface CreatedDirection {
+  readonly name: string;
+  readonly dir: string;
+}
+
+/**
+ * The line under a discussion's first message: "建了方向 名字 · 目录".
+ *
+ * @remarks
+ * SPEC-0008 ("ML1 定的细节"), design-language ("学习模式"): drawn by the UI from the session's
+ * purpose and its direction, as the host sends no text; lighter than a source line.
+ *
+ * @sideEffects none
+ * @param props - The direction.
+ * @returns The line.
+ */
+function DirectionCreatedLine({ direction }: { readonly direction: CreatedDirection }) {
+  return (
+    <p
+      data-testid="direction-created"
+      className="mt-2 flex min-w-0 items-center gap-1.5 text-[length:var(--fs-sm)] text-[var(--text-dim)]"
+    >
+      <Folder size={14} className="shrink-0" />
+      <span className="min-w-0 truncate">
+        建了方向 <b className="font-medium text-[var(--text-3)]">{direction.name}</b> · {direction.dir}/
+      </span>
+    </p>
+  );
 }
 
 /**
@@ -641,7 +675,16 @@ function useLaunchImages(outer: MessageImages, launch: LaunchInTurn | undefined)
  *   compacts now, and the launch that sent its message.
  * @returns The turn.
  */
-export function TurnView({ turn, runStartedAt, onRetry, fork, edit, compacting = false, launch }: TurnViewProps) {
+export function TurnView({
+  turn,
+  runStartedAt,
+  onRetry,
+  fork,
+  edit,
+  compacting = false,
+  launch,
+  created,
+}: TurnViewProps) {
   const clock = useClock();
   const [expanded, setExpanded] = useState<boolean | null>(null);
   const { process, reply } = useMemo(() => layoutTurn(turn), [turn]);
@@ -710,6 +753,7 @@ export function TurnView({ turn, runStartedAt, onRetry, fork, edit, compacting =
       ) : (
         <SourceLines source={turn.source} />
       )}
+      {created === undefined ? null : <DirectionCreatedLine direction={created} />}
       {waiting ? (
         <div className="mt-3" data-testid="run-waiting">
           <RunStatus startedAt={runStartedAt ?? turn.startedAt} />

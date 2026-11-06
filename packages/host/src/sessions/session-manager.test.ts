@@ -133,6 +133,8 @@ async function manage(
     readonly catalog?: (catalog: SessionCatalog) => SessionCatalog;
     /** The manager's clock, when a test moves time on; the system's otherwise. */
     readonly clock?: Clock;
+    /** A learning direction at a directory, archived while `archived()` says so. */
+    readonly direction?: { readonly id: string; readonly dir: string; readonly archived: () => boolean };
   } = {},
 ) {
   const at = where ?? (await place());
@@ -155,6 +157,7 @@ async function manage(
     location: location ?? Promise.resolve({ directory: at.piSessions, perCwd: false }),
     chatsRoot: join(at.home, "chats"),
     workspaces: () => [{ id: WORKSPACE, dir: at.workspace }, ...(more.workspaces ?? [])],
+    directions: () => (more.direction === undefined ? [] : [{ id: more.direction.id, dir: more.direction.dir }]),
     reader: createSessionFileReader(),
     clock: systemClock,
     logger: recording.logger,
@@ -195,6 +198,15 @@ async function manage(
     ...(fast === undefined ? {} : { fast }),
     ...(more.childWorktree === undefined ? {} : { childWorktree: more.childWorktree }),
     ...(more.tempRoot === undefined ? {} : { tempRoot: more.tempRoot }),
+    ...(more.direction === undefined
+      ? {}
+      : {
+          directions: {
+            dirOf: (id: string) =>
+              id === more.direction?.id && !more.direction.archived() ? more.direction.dir : undefined,
+            readOnly: (id: string) => id === more.direction?.id && more.direction.archived(),
+          },
+        }),
   });
   cleanups.push(
     () => manager.close(),
@@ -2092,7 +2104,7 @@ describe("SessionManager workspaces", () => {
     const { sessionId } = await started(manager, manager.createSession("client-1", WORKSPACE));
     const layout = layouts.of("client-1");
 
-    await manager.stopWorkspace(WORKSPACE);
+    await manager.stopContainer(WORKSPACE);
 
     expect([sessionId, chat].map((id) => present(catalog.find(id), id).archived)).toStrictEqual([false, false]);
     expect(layouts.of("client-1")).toStrictEqual(layout);
@@ -2105,12 +2117,12 @@ describe("SessionManager workspaces", () => {
     const { sessionId: gone } = await manager.createSession("client-1", WORKSPACE);
     await manager.archiveSession(gone);
     const { sessionId: draft } = await manager.createSession("client-1", WORKSPACE);
-    const stopped = await manager.stopWorkspace(WORKSPACE);
+    const stopped = await manager.stopContainer(WORKSPACE);
     const answers = await Promise.all([
       manager.openSession("client-1", running).catch(caught),
       manager.createSession("client-1", WORKSPACE).catch(caught),
     ]);
-    manager.releaseWorkspace(WORKSPACE);
+    manager.releaseContainer(WORKSPACE);
 
     expect([stopped, answers]).toStrictEqual([
       [running, draft],
@@ -2165,6 +2177,7 @@ describe("SessionManager workspaces", () => {
         parent: null,
         agent: null,
         heldDeliveries: 0,
+        study: null,
       },
     ]);
   });
@@ -5096,11 +5109,11 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
 
     const asking = manager.forkSession("client-1", { ...forkCommand("u1"), name: "查日志", child: { place: "same" } });
     await held.reached;
-    await manager.stopWorkspace(WORKSPACE);
+    await manager.stopContainer(WORKSPACE);
     held.release();
     await vi.waitFor(() => expect(catalog.find("pi-session-2")?.parent).toMatchObject({ sessionId: "pi-session-1" }));
     await manager.archiveWorkspace(WORKSPACE);
-    manager.releaseWorkspace(WORKSPACE);
+    manager.releaseContainer(WORKSPACE);
 
     await expect(asking).rejects.toStrictEqual(new CommandError("session_not_found", { sessionId: "pi-session-1" }));
     expect(catalog.find("pi-session-2")?.archived).toBe(true);
@@ -5284,10 +5297,10 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
       place: "worktree",
       branch: "atrium/tests",
     });
-    await manager.stopWorkspace(WORKSPACE);
+    await manager.stopContainer(WORKSPACE);
 
     await manager.archiveWorkspace(WORKSPACE);
-    manager.releaseWorkspace(WORKSPACE);
+    manager.releaseContainer(WORKSPACE);
     expect([catalog.find("pi-session-1")?.archived, catalog.find(elsewhere)?.parent]).toStrictEqual([true, null]);
     await manager.restoreWorkspace(WORKSPACE, null);
 
@@ -5474,5 +5487,133 @@ describe("SessionManager resuming a phone (SPEC-0005, MP4c)", () => {
     managed.subscriptions.connect("p3", (event) => stale.push(event as SessionEvent), "dev_0123456789abcdef", true);
     await managed.manager.subscribe("p3", [sessionId], undefined, [{ ...point, stream: "another" }]);
     expect(stale.map((event) => event.type)).toStrictEqual(["session_snapshot"]);
+  });
+});
+
+/**
+ * A manager with a learning direction holding one session on file, then archived.
+ *
+ * @remarks
+ * The direction's directory stays where it was, as when something was put there again: being
+ * archived is what refuses, not a missing directory.
+ *
+ * @sideEffects Creates files; starts nothing.
+ * @returns The managed manager, and how to restore the direction.
+ */
+async function archivedDirection() {
+  const at = await place();
+  const dir = join(at.root, "Learning", "go");
+  await mkdir(dir, { recursive: true });
+  let archived = false;
+  const managed = await manage(
+    { argvToStderr: true, rules: SESSION_ONE },
+    at,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { direction: { id: "lrn_go", dir, archived: () => archived } },
+  );
+  await terminalSession(at, "older", dir);
+  await managed.catalog.scan();
+  archived = true;
+  return { ...managed, restore: () => (archived = false) };
+}
+
+describe("SessionManager archived directions' sessions", () => {
+  it("refuses every command that needs pi with direction_archived, starting none, though the directory is there", async () => {
+    const { manager, starts } = await archivedDirection();
+    const sessionId = "older";
+    const refused = await Promise.all(
+      [
+        manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "go on" }),
+        manager.steer({ type: "steer", requestId: "q2", traceparent, sessionId, text: "and" }),
+        manager.retryRun(sessionId),
+        manager.resumeQueue(sessionId),
+        manager.renameSession(sessionId, "新名"),
+        manager.takeBack(sessionId),
+        manager.handOff(sessionId),
+        manager.compactSession(sessionId, undefined),
+        manager.exportSession(sessionId),
+        manager.searchFiles(sessionId, "x"),
+        manager.createSession("client-1", "lrn_go"),
+      ].map((command) => command.then(() => "went", caught)),
+    );
+
+    expect(refused).toStrictEqual(
+      Array.from({ length: 11 }, () => new CommandError("direction_archived", { directionId: "lrn_go" })),
+    );
+    expect(starts()).toStrictEqual([]);
+  });
+
+  it("shows the session from its file in epoch 0 without pi, and pages from that copy", async () => {
+    const { manager, received, starts, resources } = await archivedDirection();
+
+    await manager.openSession("client-1", "older");
+    await manager.subscribe("c1", ["older"]);
+
+    const snapshot = received.find((event) => event.type === "session_snapshot");
+    expect(snapshot).toMatchObject({ sessionId: "older", epoch: 0, run: null, items: [{ kind: "turn" }] });
+    expect(starts()).toStrictEqual([]);
+    expect(resources.snapshot()["session.read_only"]).toBe(1);
+  });
+
+  it("lets go of the copy once nobody watches it, and of one read before the direction was restored", async () => {
+    const { manager, subscriptions, resources, restore, received } = await archivedDirection();
+    await manager.subscribe("c1", ["older"]);
+    expect(resources.snapshot()["session.read_only"]).toBe(1);
+
+    subscriptions.subscribe("c1", []);
+    manager.reclaimIdle();
+    expect(resources.snapshot()["session.read_only"]).toBe(0);
+
+    await manager.subscribe("c1", ["older"]);
+    expect(resources.snapshot()["session.read_only"]).toBe(1);
+    restore();
+    received.length = 0;
+    await manager.subscribe("c1", ["older"]);
+    expect(resources.snapshot()["session.read_only"]).toBe(0);
+    // Not run yet, it has no snapshot until a message or opening starts it.
+    expect(received.filter((event) => event.type === "session_snapshot")).toStrictEqual([]);
+  });
+
+  it("lets go of the copy when its tab closes and nobody watches it", async () => {
+    const { manager, subscriptions, resources } = await archivedDirection();
+    await manager.openSession("client-1", "older");
+    await manager.subscribe("c1", ["older"]);
+    subscriptions.subscribe("c1", []);
+
+    await manager.closeTab("client-1", "older");
+
+    expect(resources.snapshot()["session.read_only"]).toBe(0);
+  });
+});
+
+describe("SessionManager a learning direction's first session", () => {
+  it("is its discussion, as when the one create_direction made could not be created; later ones are not", async () => {
+    const at = await place();
+    const dir = join(at.root, "Learning", "go");
+    await mkdir(dir, { recursive: true });
+    const { manager, catalog } = await manage(
+      { rules: SESSION_ONE },
+      at,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { direction: { id: "lrn_go", dir, archived: () => false } },
+    );
+
+    const first = await manager.createSession("client-1", "lrn_go");
+    const second = await manager.createSession("client-1", "lrn_go");
+
+    expect(catalog.find(first.sessionId)?.study).toStrictEqual({ kind: "discuss" });
+    expect(catalog.find(second.sessionId)?.study).toBeNull();
   });
 });
