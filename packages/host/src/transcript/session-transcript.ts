@@ -3,6 +3,7 @@ import {
   type Notice,
   type NoticeAddedEvent,
   SNAPSHOT_TURNS,
+  STEP_TEXT_LIMIT,
   type Step,
   type StepAddedEvent,
   type StepDeltaEvent,
@@ -114,9 +115,10 @@ export interface SessionTranscript {
   latest(): TranscriptPage;
   /**
    * Up to `limit` items, and `maxBytes` of them when given, before the one with id `before`, as
-   * they travel; `null` if there is no such item.
+   * they travel; `null` if there is no such item. With `stepLimit`, steps are cut to it, and the
+   * bytes counted so: a phone's (SPEC-0005, "给手机推什么").
    */
-  before(before: string, limit: number, maxBytes?: number): TranscriptPage | null;
+  before(before: string, limit: number, maxBytes?: number, stepLimit?: number): TranscriptPage | null;
   /** One step, whole; `null` if there is no such step. */
   step(turnId: string, stepId: string): Step | null;
   /**
@@ -585,11 +587,11 @@ export function createSessionTranscript(options: {
         PAGE_BYTES,
       );
     },
-    before(id, limit, maxBytes = PAGE_BYTES) {
+    before(id, limit, maxBytes = PAGE_BYTES, stepLimit = STEP_TEXT_LIMIT) {
       const all = this.items();
       const end = all.findIndex((item) => item.id === id);
       if (end === -1) return null;
-      return takeFromEnd(all.slice(0, end), (taken) => taken.length >= limit, maxBytes);
+      return takeFromEnd(all.slice(0, end), (taken) => taken.length >= limit, maxBytes, stepLimit);
     },
     step(turnId, stepId) {
       const turn = this.items().findLast((item) => item.id === turnId);
@@ -650,18 +652,20 @@ function withHostNotices(
  * @param from - The items to take from, whole.
  * @param enough - Whether the items taken so far are enough.
  * @param maxBytes - The most bytes of items, encoded, past which no further item is taken.
+ * @param stepLimit - The most bytes of one step's text that travel whole.
  * @returns The items taken, in order, and whether earlier ones remain.
  */
 function takeFromEnd(
   from: readonly TranscriptItem[],
   enough: (taken: readonly TranscriptItem[]) => boolean,
   maxBytes: number,
+  stepLimit = STEP_TEXT_LIMIT,
 ): TranscriptPage {
   const taken: TranscriptItem[] = [];
   let bytes = 0;
   for (const whole of from.toReversed()) {
     if (enough(taken)) break;
-    const item = itemForTransport(whole);
+    const item = itemForTransport(whole, stepLimit);
     // Stryker disable next-line StringLiteral: an empty encoding is UTF-8.
     const size = Buffer.byteLength(JSON.stringify(item), "utf8");
     // Stryker disable next-line EqualityOperator: exactly at the limit is within it by one byte either way.

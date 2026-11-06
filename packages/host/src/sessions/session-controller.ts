@@ -232,8 +232,8 @@ export interface SessionController {
   listCommands(): Promise<CommandResult<"list_commands">>;
   /** Runs the last turn again, as after an automatic restart; starts pi first if it has exited. */
   retryRun(): Promise<CommandResult<"retry_run">>;
-  /** Items before one the client has, for scrolling back. */
-  fetchTranscript(command: FetchTranscriptCommand): CommandResult<"fetch_transcript">;
+  /** Items before one the client has, for scrolling back; a phone gives a smaller step limit. */
+  fetchTranscript(command: FetchTranscriptCommand, stepLimit?: number): CommandResult<"fetch_transcript">;
   /** One step whole, for one that traveled as a preview. */
   fetchStep(command: FetchStepCommand): CommandResult<"fetch_step">;
   /** The entry of the user message that opened a turn; `null` if there is no such turn or it is not tied to one yet. */
@@ -2496,8 +2496,9 @@ export function createSessionController(options: {
       await carryOn(interrupted, true);
       return {};
     },
-    fetchTranscript(command) {
-      const page = command.epoch === epoch ? transcript.before(command.before, command.limit, command.maxBytes) : null;
+    fetchTranscript(command, stepLimit) {
+      const page =
+        command.epoch === epoch ? transcript.before(command.before, command.limit, command.maxBytes, stepLimit) : null;
       if (page === null) throw new CommandError("transcript_changed");
       return page;
     },

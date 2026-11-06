@@ -11,7 +11,7 @@ struct Palette {
 
   /// Picks the colours for an appearance.
   ///
-  /// - Remark: Dark is a warm dark grey, not black (design-language).
+  /// - Remark: Dark is a dim warm paper, not black (design-language).
   /// - SideEffects: none
   /// - Parameter scheme: Light or dark.
   init(scheme: ColorScheme) {
@@ -29,6 +29,7 @@ struct Palette {
   }
 
   var page: Color { self(.page) }
+  var note: Color { self(.note) }
   var surface: Color { self(.surface) }
   var text: Color { self(.text) }
   var text2: Color { self(.text2) }
@@ -40,6 +41,7 @@ struct Palette {
   var ink: Color { self(.ink) }
   var onInk: Color { self(.onInk) }
   var tint: Color { self(.tint) }
+  var tintSoft: Color { self(.tintSoft) }
   var attn: Color { self(.attn) }
   var attnText: Color { self(.attnText) }
   var attnSoft: Color { self(.attnSoft) }

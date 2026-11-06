@@ -149,7 +149,7 @@ public enum RemoteHandshake {
     let request = ConnectRequest(appVersion: appVersion, protocolVersion: protocolVersion)
     let (reply, channel) = try await handshake(
       mode: .ik, hostId: hostId, hostKey: hostKey, psk: nil, deviceKey: deviceKey,
-      payload: RemoteJSON.encode(request), transport: transport, stopwatch: stopwatch)
+      payload: RemoteJSON.encode(request), transport: transport, stopwatch: stopwatch, inflates: true)
     guard reply.ok, let deviceId = reply.deviceId else {
       await channel.close()
       throw .rejected(reason: reply.reason ?? "unknown", hostProtocol: reply.hostProtocol)
@@ -233,6 +233,7 @@ public enum RemoteHandshake {
   ///   - payload: Message 1's payload.
   ///   - transport: The connection.
   ///   - stopwatch: The injected clock.
+  ///   - inflates: Whether the payload asked the host for deflated messages.
   /// - Returns: Message 2's payload and the channel.
   /// - Throws: ``RemoteError``.
   private static func handshake(
@@ -243,7 +244,8 @@ public enum RemoteHandshake {
     deviceKey: Curve25519.KeyAgreement.PrivateKey,
     payload: Data,
     transport: any RemoteTransport,
-    stopwatch: Stopwatch
+    stopwatch: Stopwatch,
+    inflates: Bool = false
   ) async throws(RemoteError) -> (HandshakeReply, SecureChannel) {
     let handshake: NoiseHandshake
     let first: Data
@@ -274,7 +276,8 @@ public enum RemoteHandshake {
       throw .noise(error)
     }
     let channel = SecureChannel(
-      transport: transport, noise: result.transport, handshakeHash: result.handshakeHash, stopwatch: stopwatch)
+      transport: transport, noise: result.transport, handshakeHash: result.handshakeHash, stopwatch: stopwatch,
+      inflates: inflates)
     do {
       return (try RemoteJSON.decode(HandshakeReply.self, from: replyBytes), channel)
     } catch {

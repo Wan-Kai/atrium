@@ -1,3 +1,4 @@
+import { deflateRawSync } from "node:zlib";
 import {
   type ControlMessage,
   HOST_TO_PHONE_LIMIT,
@@ -13,6 +14,7 @@ import { type Clock, trackedTimeout } from "../platform/clock";
 import type { ResourceTracker } from "../platform/resources";
 import type { ClientTransport } from "../server/transport";
 import type { RelayEndpoint } from "./relay-line";
+import { type RelayRoute, socketAgent } from "./relay-route";
 
 /** A stream that has not finished its Noise handshake this long after it opened is closed (SPEC-0005). */
 export const HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -79,7 +81,13 @@ export class PhoneStream {
   constructor(
     streamId: string,
     endpoint: RelayEndpoint,
-    options: { readonly clock: Clock; readonly resources: ResourceTracker; readonly events: StreamEvents },
+    options: {
+      readonly clock: Clock;
+      readonly resources: ResourceTracker;
+      readonly events: StreamEvents;
+      /** The way the control connection's latest attempt went (SPEC-0005, "连 relay 走代理"). */
+      readonly route?: RelayRoute;
+    },
   ) {
     this.streamId = streamId;
     this.#clock = options.clock;
@@ -87,7 +95,12 @@ export class PhoneStream {
     this.#events = options.events;
     this.#lastHeard = options.clock.now();
     this.#releaseData = options.resources.acquire("remote.data");
-    this.#socket = new WebSocket(`${endpoint.url}/v1/host/stream`, { perMessageDeflate: false, maxPayload: 70 * 1024 });
+    // The way the control connection went (SPEC-0005, "连 relay 走代理").
+    this.#socket = new WebSocket(`${endpoint.url}/v1/host/stream`, {
+      ...socketAgent(options.route),
+      perMessageDeflate: false,
+      maxPayload: 70 * 1024,
+    });
     this.done = new Promise((resolve) => {
       this.#socket.once("close", () => {
         this.close("socket_closed");
@@ -197,14 +210,17 @@ export class PhoneStream {
    * Starts the encrypted channel after the handshake.
    *
    * @remarks
-   * The handshake's time limit runs on until `settle`.
+   * The handshake's time limit runs on until `settle`. Large messages go deflated only to a phone
+   * that asked for it in `connect` (SPEC-0005, "Noise 通道 · 压缩").
    *
    * @sideEffects none until messages flow.
    * @param transport - From the finished handshake.
+   * @param compress - Whether the phone asked for deflated messages.
    */
-  secure(transport: Transport): void {
+  secure(transport: Transport, compress = false): void {
     if (this.#closed) return;
     this.#channel = new SecureChannel(transport, {
+      ...(compress ? { deflate } : {}),
       write: (bytes) => this.#write(bytes),
       sendLimit: HOST_TO_PHONE_LIMIT,
       receiveLimit: PHONE_TO_HOST_LIMIT,
@@ -398,4 +414,18 @@ function toBytes(data: RawData): Uint8Array {
 export function reasonOf(error: unknown): string {
   const reason: unknown = typeof error === "object" && error !== null ? Reflect.get(error, "reason") : undefined;
   return typeof reason === "string" ? reason : "handshake_failed";
+}
+
+/**
+ * Raw deflate at level 6, for messages to a phone that asked.
+ *
+ * @remarks
+ * About 3 ms for a 577 KB list, which it shrinks about 7 times (SPEC-0005, "Noise 通道 · 压缩").
+ *
+ * @sideEffects none
+ * @param bytes - The encoded message.
+ * @returns The compressed bytes.
+ */
+function deflate(bytes: Uint8Array): Uint8Array {
+  return deflateRawSync(bytes, { level: 6 });
 }

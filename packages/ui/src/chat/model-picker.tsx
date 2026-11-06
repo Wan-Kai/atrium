@@ -405,7 +405,8 @@ function ModelList({
  * provider's name shows to the left of its icon while it is hovered or focused, as the column has
  * room only for icons. A model with Fast has a small bolt after its name (SPEC-0001, "Fast"). A
  * provider on a plan has the "套餐" tag at the bottom right of its icon, clear of the current
- * model's dot at the top right, and "套餐" after its name above its models.
+ * model's dot at the top right, and "套餐" after its name above its models. The providers' column
+ * scrolls without a scrollbar, so a long list of providers does not show a thumb over the icons.
  *
  * @sideEffects Calls `onChoose`; follows the provider tooltip outside scrolling content.
  * @param props - The model shown, the models by provider, the login state, and what choosing one
@@ -457,7 +458,7 @@ function ProviderColumns({
         role="tablist"
         aria-label="服务商"
         aria-orientation="vertical"
-        className="mr-1.5 flex w-[50px] flex-none flex-col gap-0.5 overflow-y-auto pr-1.5 shadow-[inset_-0.5px_0_0_var(--line)]"
+        className="mr-1.5 flex w-[50px] flex-none flex-col gap-0.5 overflow-y-auto pr-1.5 shadow-[inset_-0.5px_0_0_var(--line)] [scrollbar-width:none]"
       >
         {groups.map(({ providerId }) => {
           const provider = providerOf(providerId);

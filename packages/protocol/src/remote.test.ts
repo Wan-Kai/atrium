@@ -41,8 +41,8 @@ const pairing = {
 };
 
 describe("the coordinated remote contract", () => {
-  it("uses version 31, which adds pinning a chat", () => {
-    expect(PROTOCOL_VERSION).toBe(31);
+  it("uses version 33, which takes the hand-off out (SPEC-0005, 协议改动 7) on top of the notes' text", () => {
+    expect(PROTOCOL_VERSION).toBe(33);
   });
 
   it.each([

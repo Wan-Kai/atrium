@@ -21,7 +21,6 @@ const CODES = [
   "agent_depth_limit",
   "agent_not_allowed",
   "agent_gone",
-  "agent_handed_off",
   "agent_busy",
   "agent_name_taken",
   "agent_name_invalid",
@@ -283,10 +282,8 @@ describe("handles and events", () => {
 describe("readCancel", () => {
   it("reads every reason the host closes a question for", () => {
     expect(
-      ["detached", "archived", "handed_off", "reply_failed"].map(
-        (reason) => readCancel({ v: 1, id: "q", reason })?.reason,
-      ),
-    ).toStrictEqual(["detached", "archived", "handed_off", "reply_failed"]);
+      ["detached", "archived", "reply_failed"].map((reason) => readCancel({ v: 1, id: "q", reason })?.reason),
+    ).toStrictEqual(["detached", "archived", "reply_failed"]);
   });
 
   it("reads the id and why, and nothing from another shape", () => {

@@ -18,7 +18,7 @@ nonisolated enum PixelCat {
   enum Scene: Equatable, Sendable, CaseIterable {
     /// Sitting on nothing, small (the new session page).
     case sit
-    /// Sitting in a grey-blue tile, like an app icon (nothing yet, pairing).
+    /// Sitting in a deep beige tile, like an app icon (nothing yet, pairing).
     case tile
     /// Peeking out of a folder, front paws on its edge (no projects yet).
     case peek
@@ -65,7 +65,7 @@ nonisolated enum PixelCat {
     case ear
     /// A shade between paws and toes.
     case toe
-    /// The grey-blue of things that are not the cat: the tile, the folder.
+    /// The deep beige of things that are not the cat: the tile, the folder.
     case tile
     /// The folder's back tab, lighter.
     case tab

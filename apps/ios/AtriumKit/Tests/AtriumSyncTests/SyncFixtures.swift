@@ -209,7 +209,7 @@ func summaryJSON(
     "sessionId": "\"\(id)\"", "containerId": "\"\(container)\"",
     "name": name.map { "\"\($0)\"" } ?? "null", "prompt": prompt.map { "\"\($0)\"" } ?? "null",
     "file": "null", "state": "\"persisted\"", "updatedAt": "1", "archived": "false", "running": "false",
-    "attention": "null", "asking": "null", "handedOff": "false", "model": "null", "parent": "null",
+    "attention": "null", "asking": "null", "question": "null", "model": "null", "parent": "null",
     "agent": "null", "heldDeliveries": "0",
   ]
   fields.merge(extra) { _, new in new }

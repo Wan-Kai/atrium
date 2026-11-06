@@ -68,7 +68,7 @@ struct WireTests {
     }
   }
 
-  @Test("unknown frame types are refused", arguments: [0x05, 0x10, 0x41, 0xff] as [UInt8])
+  @Test("unknown frame types are refused", arguments: [0x07, 0x10, 0x41, 0xff] as [UInt8])
   func unknownFrameTypesAreRefused(type: UInt8) {
     #expect(throws: WireError.unknownFrameType(type)) { try ChannelFrame.decode(Data([type, 0x00])) }
   }

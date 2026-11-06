@@ -6,6 +6,7 @@ import fridayLogo from "../design/brand/friday.png";
 import claudeLogo from "../design/brand/claude.svg";
 import copilotLogo from "../design/brand/copilot.svg";
 import deepseekLogo from "../design/brand/deepseek.svg";
+import googleLogo from "../design/brand/google.png";
 import kimiLogo from "../design/brand/kimi.png";
 import openaiLogo from "../design/brand/openai.svg";
 import opencodeLogo from "../design/brand/opencode.svg";
@@ -198,6 +199,7 @@ describe("providers", () => {
         "kimi-coding",
         "claude-bridge",
         "deepseek",
+        "google",
         "opencode",
         "opencode-go",
       ].map(providerOf),
@@ -214,6 +216,7 @@ describe("providers", () => {
       { name: "Kimi Coding", logo: kimiLogo },
       { name: "Claude 订阅", logo: claudeLogo },
       { name: "DeepSeek", logo: deepseekLogo },
+      { name: "Google", logo: googleLogo },
       { name: "OpenCode Zen", logo: opencodeLogo },
       { name: "OpenCode Go", logo: opencodeLogo },
     ]);

@@ -292,7 +292,6 @@ const ERRORS: Readonly<Record<AgentErrorCode, (params: Readonly<Record<string, u
   agent_depth_limit: () => "Sub-agents this deep cannot start sub-agents of their own.",
   agent_not_allowed: () => "That is not one of your sub-agents, or it was detached from you.",
   agent_gone: () => "That sub-agent's conversation was archived or no longer exists.",
-  agent_handed_off: () => "That sub-agent was handed to the user's terminal; Atrium no longer runs it.",
   agent_busy: () => "That conversation is being archived. Try again later.",
   agent_name_taken: () => "You already used that name for a sub-agent; names are never reused. Pick another.",
   agent_name_invalid: () =>
@@ -435,7 +434,6 @@ export function askText(result: AskResult): string {
     user_turn: "This turn was started by the user, not by the parent's agent: ask the user directly instead.",
     detached: "This conversation was detached from its parent; nobody will answer.",
     archived: "This conversation is being archived; nobody will answer.",
-    handed_off: "This conversation was handed to the user's terminal; nobody will answer.",
     reply_failed: "The parent's agent answered, but the answer did not arrive.",
   }[result.reason];
   // No answer is no leave to go on: the parent decides once it reads why (SPEC-0002, `ask_parent`).

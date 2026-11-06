@@ -23,7 +23,7 @@ import type { PiLatestService } from "../setup/pi-latest";
 import type { SetupService } from "../setup/setup-service";
 import type { PiConfig } from "../setup/pi-config";
 import type { Connection } from "./connection";
-import { phoneMayRun } from "./remote-policy";
+import { PHONE_STEP_TEXT_LIMIT, phoneMayRun } from "./remote-policy";
 import type { ReceiptBook } from "../remote/receipts";
 
 /**
@@ -151,10 +151,6 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.renameSession(command.sessionId, command.name);
       case "clear_attention":
         return options.sessions.clearAttention(command.sessionId);
-      case "hand_off":
-        return options.sessions.handOff(command.sessionId);
-      case "take_back":
-        return options.sessions.takeBack(command.sessionId);
       case "subscribe_index":
         return options.index.subscribeIndex(connection.id, command.cursor);
       case "add_project":
@@ -221,7 +217,11 @@ export function createRouter(options: RouterOptions): Route {
           options.sessions.editStoppedMessage(command, images),
         );
       case "fetch_transcript":
-        return options.sessions.fetchTranscript(command);
+        // A phone's page is cut to its short previews, and counted so, to hold more turns.
+        return options.sessions.fetchTranscript(
+          command,
+          connection.origin === "remote" ? PHONE_STEP_TEXT_LIMIT : undefined,
+        );
       case "fetch_step":
         return options.sessions.fetchStep(command);
       case "fetch_image":

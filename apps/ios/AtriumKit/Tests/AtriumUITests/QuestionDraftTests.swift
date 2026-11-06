@@ -78,3 +78,15 @@ struct QuestionDraftTests {
           ])))
   }
 }
+
+@Suite("Question sheet: agent word")
+struct AgentWordTests {
+  @Test("each letter jumps 4pt at 14% of its 1.8 s cycle, dips a touch, and rests from 40%")
+  func hop() {
+    #expect(AgentWord.hop(0) == 0)
+    #expect(abs(AgentWord.hop(0.14 * 1.8) + 4) < 0.001)
+    #expect(abs(AgentWord.hop(0.26 * 1.8) - 0.5) < 0.001)
+    #expect(AgentWord.hop(0.5 * 1.8) == 0)
+    #expect(AgentWord.hop(1.8 + 0.14 * 1.8) == AgentWord.hop(0.14 * 1.8))
+  }
+}

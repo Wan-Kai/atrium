@@ -24,8 +24,20 @@ public enum SyncOutput: Sendable, Equatable {
 ///   another connection, and answers to requests it does not know, are dropped. What is shown stays
 ///   until fresh snapshots replace it.
 public struct SyncCore {
-  /// The phone's snapshot budget: 6 turns, 512 KiB (SPEC-0005 "协议改动" 2).
-  public static let snapshotBudget = SnapshotBudget(turns: 6, bytes: 512 * 1024)
+  /// The phone's snapshot budget: 3 turns, 256 KiB; older ones come on scrolling up (SPEC-0005
+  /// "MP4a 定的细节" 9).
+  public static let snapshotBudget = SnapshotBudget(turns: 3, bytes: 256 * 1024)
+
+  /// How many items, and bytes at most, one scroll to the top fetches (SPEC-0005 "MP4a 定的细节" 9):
+  /// tool steps come as 512-byte previews, so three turns fit unless one has hundreds of calls.
+  public static let olderBatch = (items: 3, bytes: 1024 * 1024)
+
+  /// The sessions with a `fetch_transcript` for older items on its way.
+  public private(set) var loadingOlder: Set<SessionId> = []
+  /// Steps cut to a preview whose whole is on its way (SPEC-0005 "给手机推什么").
+  public private(set) var fetchingSteps: Set<StepRef> = []
+  /// Steps whose whole could not be fetched, until the next try.
+  public private(set) var failedSteps: Set<StepRef> = []
 
   /// A request on its way, and what its answer settles.
   ///
@@ -51,6 +63,10 @@ public struct SyncCore {
     case models
     /// `create_session` or `create_chat` of a new session, and what to send once it is made.
     case start(ContainerId?, String, [OutgoingImage])
+    /// `fetch_transcript` for the items before `before`, from `epoch`.
+    case older(SessionId, epoch: Int, before: String)
+    /// `fetch_step` for a step cut to a preview, from `epoch`.
+    case step(StepRef, epoch: Int)
     /// A command whose answer settles nothing.
     case other
   }
@@ -150,6 +166,8 @@ public struct SyncCore {
     self.generation = generation
     synced = false
     requests = [:]
+    loadingOlder = []
+    fetchingSteps = []
     // The mark lasts for one connection: the folder may be back (SPEC-0005 "MP6 定的细节 · MP6d").
     if !again {
       missingContainers = []
@@ -217,6 +235,20 @@ public struct SyncCore {
         }
       case .upload(let message, let place)?:
         outputs += uploaded(message, place: place, attachmentId: Self.attachmentId(success.result))
+      case .step(let ref, let epoch)?:
+        fetchingSteps.remove(ref)
+        if let result = success.result, let data = try? JSONEncoder().encode(result),
+          let fetched = try? JSONDecoder().decode(FetchStepResult.self, from: data)
+        {
+          sessions[ref.sessionId]?.replaceStep(fetched.step, in: ref.turnId, epoch: epoch)
+        }
+      case .older(let sessionId, let epoch, let before)?:
+        loadingOlder.remove(sessionId)
+        if let result = success.result, let data = try? JSONEncoder().encode(result),
+          let older = try? JSONDecoder().decode(FetchTranscriptResult.self, from: data)
+        {
+          sessions[sessionId]?.prependOlder(older.items, hasOlder: older.hasOlder, epoch: epoch, before: before)
+        }
       default: break
       }
     case .responseMessage(.failure(let failure)):
@@ -243,6 +275,10 @@ public struct SyncCore {
         if let container, failure.error.code == .workspaceNotFound || failure.error.code == .sessionCwdMissing {
           missingContainers.insert(container)
         }
+      case .older(let sessionId, _, _): loadingOlder.remove(sessionId)
+      case .step(let ref, _):
+        fetchingSteps.remove(ref)
+        failedSteps.insert(ref)
       case .chat(let chatId):
         chatProblems[chatId] = failure.error.code
       case .clearing, .models, .other: break
@@ -250,12 +286,10 @@ public struct SyncCore {
     case .indexSnapshot(let snapshot):
       index.apply(snapshot)
       listSnapshot = true
-      noteHandedOff()
     case .indexChanges(let changes):
       index.apply(changes)
       // With a cursor the host answers with changes, maybe none, instead of a snapshot.
       listSnapshot = true
-      noteHandedOff()
     case .sessionEvent(let event):
       outputs += take(event)
     case .changesUpdated(let updated) where watchedChanges.contains(updated.workspaceId):
@@ -320,10 +354,15 @@ public struct SyncCore {
     guard let position = openSessions.firstIndex(of: sessionId) else { return [] }
     openSessions.remove(at: position)
     sessions[sessionId] = nil
+    loadingOlder.remove(sessionId)
+    fetchingSteps = fetchingSteps.filter { $0.sessionId != sessionId }
+    failedSteps = failedSteps.filter { $0.sessionId != sessionId }
     for (requestId, request) in requests {
       switch request {
       case .open(let opened) where opened == sessionId: requests[requestId] = .other
       case .action(let acted, _) where acted == sessionId: requests[requestId] = .other
+      case .older(let loading, _, _) where loading == sessionId: requests[requestId] = .other
+      case .step(let ref, _) where ref.sessionId == sessionId: requests[requestId] = .other
       case .sessions(let failing) where failing.contains(sessionId):
         requests[requestId] = .sessions(failing.filter { $0 != sessionId })
       default: break
@@ -506,6 +545,65 @@ public struct SyncCore {
             requestId: requestId, traceparent: makeTraceparent(), workspaceId: workspaceId,
             refresh: refresh ? true : nil)))
     ]
+  }
+
+  /// Asks the Mac for the items before the earliest one an open session has.
+  ///
+  /// - Remark: SPEC-0005 "MP4a 定的细节" 9: when the page's top row shows, only after the sync, only
+  ///   when older items exist, one at a time per session.
+  /// - SideEffects: none
+  /// - Parameter sessionId: The session.
+  /// - Returns: The command to send, or nothing.
+  public mutating func loadOlder(_ sessionId: SessionId) -> [SyncOutput] {
+    guard synced, !loadingOlder.contains(sessionId), let state = sessions[sessionId], state.hasOlder,
+      let before = state.items.first?.id
+    else { return [] }
+    loadingOlder.insert(sessionId)
+    let requestId = track(.older(sessionId, epoch: state.epoch, before: before))
+    return [
+      send(
+        .fetchTranscript(
+          FetchTranscriptCommand(
+            requestId: requestId, traceparent: makeTraceparent(), sessionId: sessionId, epoch: state.epoch,
+            before: before, limit: Self.olderBatch.items, maxBytes: Self.olderBatch.bytes)))
+    ]
+  }
+
+  /// Asks the Mac for a step whole that came cut to a preview.
+  ///
+  /// - Remark: SPEC-0005 "给手机推什么": when its row is opened, only after the sync, only for a
+  ///   step that is there and marked partial, one at a time per step. A try clears an earlier failure.
+  /// - SideEffects: none
+  /// - Parameter ref: The step.
+  /// - Returns: The command to send, or nothing.
+  public mutating func fetchStep(_ ref: StepRef) -> [SyncOutput] {
+    guard synced, !fetchingSteps.contains(ref), let state = sessions[ref.sessionId],
+      state.isPartial(ref.stepId, in: ref.turnId)
+    else { return [] }
+    fetchingSteps.insert(ref)
+    failedSteps.remove(ref)
+    let requestId = track(.step(ref, epoch: state.epoch))
+    return [
+      send(
+        .fetchStep(
+          FetchStepCommand(
+            requestId: requestId, traceparent: makeTraceparent(), sessionId: ref.sessionId, epoch: state.epoch,
+            turnId: ref.turnId, stepId: ref.stepId)))
+    ]
+  }
+
+  /// The items an answer to a fetch of older ones brings, without taking it.
+  ///
+  /// - Remark: So the app can get them ready to draw before they are put in front (SPEC-0005
+  ///   "MP4a 定的细节" 9). Changes nothing.
+  /// - SideEffects: none
+  /// - Parameter message: A message from the Mac.
+  /// - Returns: The items, or `nil` for any other message.
+  public func olderItems(in message: HostMessage) -> [TranscriptItem]? {
+    guard case .responseMessage(.success(let success)) = message, case .older? = requests[success.requestId],
+      let result = success.result, let data = try? JSONEncoder().encode(result)
+    else { return nil }
+    return (try? JSONDecoder().decode(FetchTranscriptResult.self, from: data))?.items
   }
 
   /// Watches the changes of the workspaces shown.
@@ -916,17 +1014,6 @@ public struct SyncCore {
     ]
   }
 
-  /// Marks open sessions handed to a terminal as settled while they wait for a snapshot.
-  ///
-  /// - Remark: The Mac starts no pi for such a session, so no snapshot would come (SPEC-0005
-  ///   "MP4a 定的细节" 3).
-  /// - SideEffects: none
-  private mutating func noteHandedOff() {
-    for summary in index.sessions where summary.handedOff && openSessions.contains(summary.sessionId) {
-      sessions[summary.sessionId]?.markHandedOff()
-    }
-  }
-
   /// Marks an open session as refused.
   ///
   /// - Remark: A session closed meanwhile is left alone.
@@ -1001,5 +1088,31 @@ public struct SyncCore {
   /// - Returns: The output.
   private func send(_ command: Command) -> SyncOutput {
     .send(command, generation: generation ?? 0)
+  }
+}
+
+/// One step of a session's turn.
+///
+/// - Remark: What a whole-step fetch is about (SPEC-0005 "给手机推什么").
+public struct StepRef: Hashable, Sendable {
+  /// The session.
+  public let sessionId: SessionId
+  /// The turn.
+  public let turnId: String
+  /// The step.
+  public let stepId: String
+
+  /// Names a step.
+  ///
+  /// - Remark: Memberwise.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - sessionId: The session.
+  ///   - turnId: The turn.
+  ///   - stepId: The step.
+  public init(sessionId: SessionId, turnId: String, stepId: String) {
+    self.sessionId = sessionId
+    self.turnId = turnId
+    self.stepId = stepId
   }
 }

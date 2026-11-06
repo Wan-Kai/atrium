@@ -59,10 +59,6 @@ export interface SessionCommands {
   renameSession(sessionId: string, name: string): Promise<CommandResult<"rename_session">>;
   /** Marks a session's error as seen; a sign-in problem stays until the next run (SPEC-0001, "会话状态"). */
   clearAttention(sessionId: string): Promise<CommandResult<"clear_attention">>;
-  /** Hands a session to pi in a terminal: records it, stops its pi and answers its file. */
-  handOff(sessionId: string): Promise<CommandResult<"hand_off">>;
-  /** Takes a session handed off back into Atrium and starts its pi. */
-  takeBack(sessionId: string): Promise<CommandResult<"take_back">>;
   /**
    * A session's snapshot as it stands, for a phone that cannot take an event too large for it
    * (SPEC-0005, "大小"); `null` for a session without one.
@@ -131,8 +127,8 @@ export interface SessionCommands {
   searchFiles(sessionId: string, query: string): Promise<CommandResult<"search_files">>;
   /** The error card's "重试", starting the session's pi first if it has none. */
   retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
-  /** Items of a session's transcript before one the client has. */
-  fetchTranscript(command: FetchTranscriptCommand): Promise<CommandResult<"fetch_transcript">>;
+  /** Items of a session's transcript before one the client has; a phone gives a smaller step limit. */
+  fetchTranscript(command: FetchTranscriptCommand, stepLimit?: number): Promise<CommandResult<"fetch_transcript">>;
   /** One step of a session's transcript, whole. */
   fetchStep(command: FetchStepCommand): Promise<CommandResult<"fetch_step">>;
   /** One image of a turn's user message, read from the session file (SPEC-0001, "M1.11 的消息图片"). */
