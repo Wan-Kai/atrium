@@ -2270,3 +2270,33 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - **一次真实运行**（2026-11-06）：开发版 Electron + Vite，临时 `ATRIUM_HOME`，`ATRIUM_FOLLOW_TASKS=<仓库>.task-try-xyz/tasks`，另一个进程 `pnpm task:try packages/host/examples/explore-work-check-merge.json --model deepseek/deepseek-flash:off`，跑到 human 节点；Atrium 里图上节点一个个变色，停在"等你验收"；task:try 空闲时哈希和 mtime 在第二次启动 Atrium 前后逐文件相同。截图见验收报告。
 - 没做（留给后面的步骤）：见 SPEC-0006"T7.1 定下的细节 · 没做"。
 
+
+## T8a 审核（协议与宿主）（ADR-0017、SPEC-0006"T8a 定下的细节"，2026-11-06，待验收）
+
+宿主一侧：ReviewHub 用手写的 provider 单测，任务关卡用真宿主（真 pi 跑 faux 模型、真任务存储、真 git 工作区、真 WebSocket 客户端）；任务对话是 `/task` 做出来的真会话，human 节点不需要 pi。界面（T8b）不在这一步。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| ReviewHub：按会话汇总各 provider（先出现的在前）、只在变了时通知、没有审核的会话不吵、一串变化只算一次；裁决形状（按钮不存在 / 目标缺了、不在列表里、不该给 / 必填的原因没写、全是空白、不收原因的写了 → `review_invalid` 带 `field`）；审核不在 → `review_closed`；同一会话两个裁决排队、第二个 `review_closed`、两个会话互不等；provider 失败照样抛出并重算；算失败时保留上次的结果并记一条 warn；监听者抛错不挡别人；多个 provider 各收各的裁决；provider / 监听者的资源计数关闭后归零 | `host/reviews/review-hub.test.ts` |
+| ReviewHub 不漏：一轮轮建、答、关，`review.provider` / `review.listener` 回到 0；跑着的宿主各 1、停后 0、`timer` 为 0 | `host/reviews/review-hub.leak.test.ts` |
+| 任务关卡算出的审核（纯函数）：设计中 / 无人等的任务没有；human 节点的 id（带第几次）、`openedAt`、打回目标和剩余次数（用完的仍列出）、没有打回边时没有 `send_back`、事实和改动在上游摘要前、脏工作区 `warn` 且不推荐 `pass`；合并被挡住是同一张卡的 `problem`（码、文件）、`retry` 换 `pass`；作废的、正在合并的、已结束任务的 human 节点不问；改图的差异和 agent 的说明、设计中的图不算；归档题只在 `asked`、推荐按"已合并且干净"、脏树 `danger`、合并状态未知 `warn`、`kept` / `archived` / 未结束没有；按出现先后；裁决的记录和给模型看的那一行（理由截 4000 字、快照里别人写的话截 8000 字） | `host/tasks/task-reviews.test.ts` |
+| 任务关卡 provider：找到会话对应的任务、别的会话没有、任务被撤回时没有审核、别的失败抛出；每个按钮走对应业务命令（`approve` / `reject` / `pass` / `retry` / `send_back` / `archive` / `keep`）；审核没了才写记录、合并又被挡（审核还在）不写；没有任务的会话和 agent 来源的审核不执行；订阅按会话报事件、可停 | `host/tasks/task-reviews.test.ts` |
+| 图的差异：加 / 删 / 改（任何字段、边的两端、边的种类）、`inputs` 和边的顺序不算改；"上一个生效过的版本"：设计中取前一版，启动后取最近一个批准过的（拒绝的、被顶掉的、设计时的草稿不算） | `host/tasks/graph-diff.test.ts` |
+| `TaskView` 多的四个字段：`graphDiff`（第一版 `null`）、`pending`（整份、节点只含计划、对生效图的差异、说明截到上限）、`requirements`（六个字段，目标截 8000）、`reviews`（传入的，被跟着的任务为空）；都过协议的 schema | `host/tasks/task-view.test.ts`（"what the interactive task area adds"） |
+| **真宿主，human 节点**：任务对话的 `Control.reviews` 里出现、`pass` 后任务结束、卡片消失；对话里多一条 `review` 记录（证据快照 + 裁决）；模型下一次请求的上下文里有 `Atrium review: the user decided task_human_node …`；`send_back` 带目标和理由、剩余次数 2 → 1 → 0、用完的目标宿主拒绝 `task_back_limit` 且不动；每次裁决一条记录；校验的各种 `review_invalid`、不在的 `review_closed`、两个窗口同时答只有一个成功；宿主重启后任务的 `reviews` 和重新起的对话 pi 的 `Control` 里都还在，答了照样往下走 | `host/tasks/reviews.host.test.ts` |
+| **真宿主，改图**：启动后提新图，卡片带差异（加、改）和 agent 的说明，`TaskView.pending` 给整份、批准后 `graphDiff` 对上一版；拒绝；两条记录；已经没有的再答 `review_closed`，业务命令 `task_state_invalid`；需求摘要给到 `requirements`、启动后不再变 | `host/tasks/reviews.host.test.ts` |
+| **真宿主，合并与归档**：合并被挡（工作区脏）→ 同一张卡带 `problem`、按钮 `retry`、不写记录 → 清掉后 `retry` → 合并成功、写一条记录；任务结束后出现归档题，已合并且干净推荐 `archive`，选 `archive` 后 `archived`；未合并推荐 `keep`，选 `keep` 后 `kept`，业务命令再答 `keep` 仍 `task_state_invalid`；`archive` 被业务命令拒绝（工作区脏）时原码 `workspace_dirty` 回给客户端、卡片还在（事实变成 `danger`）、不写记录 | `host/tasks/reviews.host.test.ts` |
+| **真宿主，会话**：审核开着时给任务对话发消息，模型收到、审核不动；节点用 `ask_user` 提问，只 `watch` 它会话的客户端看到 `control.question`，`answer_question` 后节点继续；任务和节点的会话不在 `client.index` 的会话列表里；`open_task_session` 起已通过节点的 pi（`watch` 后收到快照、任务没有新事件、不进布局）和任务对话的 pi；别的任务 / 来源对话 / 不存在的会话 `session_not_found`、不存在的任务 `task_not_found` | `host/tasks/reviews.host.test.ts` |
+| 被跟着的任务：没有审核（`reviews: []`），对它的会话发 `answer_review` 应答 `review_closed`、目录逐字节不变；`open_task_session` 与其它任务命令一样 `task_read_only` | `host/tasks/followed-tasks.host.test.ts` |
+| 手机 / 远程：`answer_review`、`open_task_session` 是 `local_only`，连接是远程时路由应答 `local_only` 且什么也不调 | `host/server/remote-policy.test.ts`、`host/server/router.test.ts`（"lets a phone list and open tasks but not …"） |
+| 路由：`answer_review`、`open_task_session` 带完整参数交给 hub / 任务命令 | `host/server/router.test.ts` |
+| 会话控制：`Control.reviews` 来自注入的来源、变了才发 `control_updated`、没注入时为空 | `host/sessions/session-controller.test.ts`（"createSessionController's reviews"） |
+| 扩展：`/atrium-task review` 在任务对话里写 `atrium-review` 自定义消息（`display: true`、`triggerTurn: false`、`details`）、同 id 只写一次、会话文件已有也不重写、节点和普通会话不收、读不了的忽略 | `pi/task/extension.test.ts`（"/atrium-task review"）、`pi/task/schema.test.ts` |
+| 翻译与投影：`atrium-review` 条目 → `review_line`、读不了的当 `other`；实时事件 `task_line_added`；对话记录里是 `Notice.review`（带快照和裁决） | `pi/history/log-entry.test.ts`、`pi/events/translate.test.ts`、`host/transcript/projection.test.ts` |
+| 协议：`PendingReview` / `Evidence` / `Verdict` / `ReviewRecord` 的形状（严格、四种证据、agent 来源的形状）、`Control.reviews` 必填且空时为 `[]`、命令与错误码；`answer_review`、`open_task_session` 的往返例子、协议号 34；Swift 投影和往返夹具（`pnpm protocol:swift --check`、`swift test` 402 项通过，iOS 的 `Notice` 多一个"审核"灰行） | `protocol/reviews.test.ts`、`protocol/envelope.test.ts`、`protocol/remote.test.ts` |
+| 客户端：十二个任务命令的方法、`answerReview`、`openTaskSession` 带正确参数（`createTask` 没有范围时不带 `scope`） | `client/atrium-client.test.ts` |
+
+- 破坏检查：`packages/host/src/tasks/t8a.break-check.json`（64 处，`project` 写明 host 或 unit）。
+- 变异测试（新组 `reviews`，每个文件单独跑）：`reviews/review-hub.ts` 85.94%（192 个里 27 个存活）、`tasks/task-reviews.ts` 95.83%（408 个里 17 个存活）、`tasks/graph-diff.ts` 98.36%（61 个里 1 个存活，`join(",")` 的分隔符）。存活的多是日志字段和文字、`close()` 之后的清理（`abort`、`clear`）、`idle()` 里"等到没有新排的活"的循环（只让测试能等）、不会发生的 `undefined` 兜底（`graph === undefined`）和 `clip` 恰好等于上限时切不切（结果相同）。
+- 没有测试保护的：上面存活的那些；`task-reviews.ts` 里 `recommended` 对 `send_back` 的 `false`（它永远不是默认）。
+- 没做（留给后面）：见 SPEC-0006"T8a 定下的细节 · 没做"。

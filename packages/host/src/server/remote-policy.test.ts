@@ -60,6 +60,19 @@ describe("tasks on a phone (SPEC-0006)", () => {
     expect(phoneMayRun({ type: "resume_task", ...fields, ...task })).toBe(false);
     expect(phoneMayRun({ type: "cancel_task", ...fields, ...task })).toBe(false);
     expect(phoneMayRun({ type: "answer_archive", ...fields, ...task, answer: "archive" })).toBe(false);
+    // The card for a task's gate is answered on the Mac (ADR-0017, decision 5).
+    expect(
+      phoneMayRun({
+        type: "answer_review",
+        ...fields,
+        sessionId: "s1",
+        reviewId: "tsk_a:human:H:1",
+        verdict: { action: "pass" },
+      }),
+    ).toBe(false);
+    expect(COMMAND_REACH.answer_review).toBe("local_only");
+    expect(phoneMayRun({ type: "open_task_session", ...fields, ...task, sessionId: "s2" })).toBe(false);
+    expect(COMMAND_REACH.open_task_session).toBe("local_only");
   });
 
   it("pushes the task list and an open task's state to a phone that asked for them", () => {

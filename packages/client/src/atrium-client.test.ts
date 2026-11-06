@@ -841,6 +841,11 @@ describe("createAtriumClient: sessions", () => {
     });
     await run(() => client.answerInteraction("s1", "d1", { confirmed: true }), "answer_interaction");
     await run(() => client.answerQuestion("s1", "call-1", { skipped: true }), "answer_question");
+    await run(
+      () => client.answerReview("s1", "tsk_a:human:H:1", { action: "send_back", target: "N1", reason: "again" }),
+      "answer_review",
+    );
+    await run(() => client.openTaskSession("tsk_a", "s2"), "open_task_session");
     await run(() => client.retryRun("s1"), "retry_run");
     await run(() => client.removeDelivery("s1", "d2"), "remove_delivery");
     await run(() => client.resumeDeliveries("s1", true), "resume_deliveries");
@@ -859,9 +864,67 @@ describe("createAtriumClient: sessions", () => {
       { type: "steer_queued", sessionId: "s1", itemId: "i3" },
       { type: "answer_interaction", sessionId: "s1", interactionId: "d1", answer: { confirmed: true } },
       { type: "answer_question", sessionId: "s1", questionId: "call-1", answer: { skipped: true } },
+      {
+        type: "answer_review",
+        sessionId: "s1",
+        reviewId: "tsk_a:human:H:1",
+        verdict: { action: "send_back", target: "N1", reason: "again" },
+      },
+      { type: "open_task_session", taskId: "tsk_a", sessionId: "s2" },
       { type: "retry_run", sessionId: "s1" },
       { type: "remove_delivery", sessionId: "s1", deliveryId: "d2" },
       { type: "resume_deliveries", sessionId: "s1", tree: true },
+    ]);
+  });
+
+  it("sends each task command with its arguments and returns the host's result (SPEC-0006, T8a)", async () => {
+    const { client, latest } = await connected();
+    /** Sends a command and has the host answer it. */
+    const run = async <T>(send: () => Promise<T>, type: string, result: unknown = {}): Promise<T> => {
+      const going = send();
+      await vi.waitFor(() => expect(latest().commands().at(-1)?.["type"]).toBe(type));
+      latest().answer(type, result);
+      return going;
+    };
+
+    expect(await run(() => client.createTask("s1", "only out.txt"), "create_task", { taskId: "tsk_a" })).toStrictEqual({
+      taskId: "tsk_a",
+    });
+    await run(() => client.createTask("s1"), "create_task", { taskId: "tsk_b" });
+    await run(() => client.startTask("tsk_a"), "start_task");
+    await run(() => client.abandonTask("tsk_a"), "abandon_task");
+    await run(() => client.approveGraph("tsk_a"), "approve_graph");
+    await run(() => client.rejectGraph("tsk_a"), "reject_graph");
+    await run(
+      () => client.answerHuman("tsk_a", "N3", { kind: "send_back", backTo: "N2", reason: "r" }),
+      "answer_human",
+    );
+    await run(() => client.rerunNode("tsk_a", "N2"), "rerun_node");
+    await run(() => client.continueNode("tsk_a", "N2"), "continue_node");
+    await run(() => client.pauseTask("tsk_a"), "pause_task");
+    await run(() => client.resumeTask("tsk_a"), "resume_task");
+    await run(() => client.cancelTask("tsk_a"), "cancel_task");
+    await run(() => client.answerArchive("tsk_a", "keep"), "answer_archive");
+
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] !== "ping")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "create_task", sessionId: "s1", scope: "only out.txt" },
+      { type: "create_task", sessionId: "s1" },
+      { type: "start_task", taskId: "tsk_a" },
+      { type: "abandon_task", taskId: "tsk_a" },
+      { type: "approve_graph", taskId: "tsk_a" },
+      { type: "reject_graph", taskId: "tsk_a" },
+      { type: "answer_human", taskId: "tsk_a", node: "N3", answer: { kind: "send_back", backTo: "N2", reason: "r" } },
+      { type: "rerun_node", taskId: "tsk_a", node: "N2" },
+      { type: "continue_node", taskId: "tsk_a", node: "N2" },
+      { type: "pause_task", taskId: "tsk_a" },
+      { type: "resume_task", taskId: "tsk_a" },
+      { type: "cancel_task", taskId: "tsk_a" },
+      { type: "answer_archive", taskId: "tsk_a", answer: "keep" },
     ]);
   });
 
@@ -2743,6 +2806,10 @@ describe("createAtriumClient: remote access", () => {
           taskSessionId: "s0",
           graphVersion: 1,
           pendingGraph: false,
+          pending: null,
+          graphDiff: null,
+          requirements: { goal: "", decisions: [], constraints: [], nonGoals: [], openQuestions: [], acceptance: [] },
+          reviews: [],
           nodes: [],
           edges: [],
           archiveFacts: null,
@@ -3222,6 +3289,10 @@ const taskView = (id: string, name: string) => ({
   sourceSessionId: null,
   graphVersion: 1,
   pendingGraph: false,
+  pending: null,
+  graphDiff: null,
+  requirements: { goal: "", decisions: [], constraints: [], nonGoals: [], openQuestions: [], acceptance: [] },
+  reviews: [],
   nodes: [],
   edges: [],
   archiveFacts: null,

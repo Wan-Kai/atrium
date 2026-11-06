@@ -17,6 +17,8 @@ import {
   ResumeCommand,
   TASK_COMMAND,
   TASK_FLAG,
+  REVIEW_MESSAGE,
+  ReviewCommand,
   TASK_MESSAGE,
   TASK_STATUS,
   TASK_TEXT_LIMITS,
@@ -201,7 +203,9 @@ function failed(code: TaskErrorCode, extra?: Readonly<Record<string, unknown>>):
  * @returns The id, or `undefined`.
  */
 function messageId(entry: EntryView): string | undefined {
-  if (entry.type !== "custom_message" || Reflect.get(entry, "customType") !== TASK_MESSAGE) return undefined;
+  if (entry.type !== "custom_message") return undefined;
+  const type: unknown = Reflect.get(entry, "customType");
+  if (type !== TASK_MESSAGE && type !== REVIEW_MESSAGE) return undefined;
   const details: unknown = Reflect.get(entry, "details");
   const id: unknown = typeof details === "object" && details !== null ? Reflect.get(details, "id") : undefined;
   return typeof id === "string" ? id : undefined;
@@ -744,6 +748,20 @@ export default function atriumTask(pi: TaskApi, isolated: () => boolean, deps: T
         }
       } else if (self === null) {
         // Anything else is for a node or the task conversation.
+      } else if (action === "review") {
+        const review = ReviewCommand.safeParse(value);
+        if (review.success && self.kind === "conversation" && claim(review.data.id, ctx)) {
+          const { id, at, text, review: record } = review.data;
+          pi.sendMessage(
+            {
+              customType: REVIEW_MESSAGE,
+              content: text,
+              display: true,
+              details: { v: 1, kind: "review", id, at, review: record },
+            },
+            { triggerTurn: false },
+          );
+        }
       } else if (action === "reply") {
         replied(value);
       } else if (action === "nudge") {

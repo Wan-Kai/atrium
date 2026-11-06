@@ -1,4 +1,4 @@
-import { ThinkingLevel } from "@atrium/protocol";
+import { ReviewRecord, ThinkingLevel } from "@atrium/protocol";
 import { z } from "zod";
 import { ENVELOPE_LIMIT } from "../agent/channel";
 import { decodeArgument } from "../agent/agent";
@@ -27,6 +27,9 @@ export const TASK_COMMAND = "atrium-task";
 /** The custom type of the messages the task extension writes into pi's session (`details.kind` tells which). */
 export const TASK_MESSAGE = "atrium-task";
 
+/** The custom type of the record a review leaves in the task conversation once its verdict took effect (ADR-0017). */
+export const REVIEW_MESSAGE = "atrium-review";
+
 /** The most an envelope or a command's argument holds before it is encoded (ADR-0013, point 9). */
 const TASK_ENVELOPE_LIMIT = ENVELOPE_LIMIT;
 
@@ -49,6 +52,8 @@ export const TASK_TEXT_LIMITS = {
   resume: 32_000,
   /** The `text` of `/atrium-task progress`. */
   progress: 2000,
+  /** The `text` of `/atrium-task review`. */
+  review: 8000,
 } as const;
 
 /** The tools only a node's session has, and its model calls to end its step or ask for a new graph. */
@@ -484,6 +489,34 @@ export const MarkCommand = z.strictObject({
 });
 export type MarkCommand = z.infer<typeof MarkCommand>;
 
+/**
+ * What `/atrium-task review` carries: the record of a review whose verdict took effect (ADR-0017, decision 2).
+ *
+ * @remarks
+ * The extension writes it as a custom message of type `atrium-review` (`display: true`, no turn), so the model
+ * reads it on its next request and the transcript shows a step on the process rail. `text` is the line the model
+ * reads, composed by the host from codes and parameters (the host writes no prose for people); `review` is the
+ * snapshot the UI draws the step from. `id` makes it idempotent like the other commands'.
+ */
+export const ReviewCommand = z.strictObject({
+  v: z.literal(1),
+  id: RequestId,
+  at: z.number().int().nonnegative(),
+  text: z.string().min(1).max(TASK_TEXT_LIMITS.review),
+  review: ReviewRecord,
+});
+export type ReviewCommand = z.infer<typeof ReviewCommand>;
+
+/** What the `details` of an `atrium-review` custom message keep: the record, with the time and the command's id. */
+export const ReviewMessageDetails = z.strictObject({
+  v: z.literal(1),
+  kind: z.literal("review"),
+  id: RequestId,
+  at: z.number().int().nonnegative(),
+  review: ReviewRecord,
+});
+export type ReviewMessageDetails = z.infer<typeof ReviewMessageDetails>;
+
 /** What the `details` of a `atrium-task` custom message keep, for the transcript and for the host's checks. */
 export const TaskMessageDetails = z.discriminatedUnion("kind", [
   z.strictObject({ v: z.literal(1), kind: z.literal("nudge"), id: RequestId }),
@@ -515,6 +548,7 @@ export const TASK_COMMANDS = {
   resume: ResumeCommand,
   progress: ProgressCommand,
   mark: MarkCommand,
+  review: ReviewCommand,
 } as const;
 
 /** An action of `/atrium-task`. */

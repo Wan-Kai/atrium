@@ -75,6 +75,17 @@ export const ErrorCode = z.enum([
   "question_closed",
   /** An answer does not answer its question; `params.index` is which one (SPEC-0003, "接口与数据"). */
   "question_invalid",
+  /**
+   * The review was answered first by someone else, or its state moved on (a node passed, a graph decided);
+   * `params.reviewId` repeats it (ADR-0017, decision 2).
+   */
+  "review_closed",
+  /**
+   * A verdict does not fit its review; `params.field` is `action` (it names no action of the review), `target` (it
+   * needs one of the action's targets and has none or another) or `reason` (the action requires one and has none)
+   * (ADR-0017, decision 2).
+   */
+  "review_invalid",
   /** pi could not list its models, as when no provider has credentials; `params.detail` is pi's own text. */
   "models_unavailable",
   /** `@` needs `fd`, found neither where pi keeps it nor on the login shell's PATH. */

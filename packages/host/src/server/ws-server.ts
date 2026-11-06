@@ -90,6 +90,7 @@ export interface WsServerOptions {
   /** Remote access, for the local "手机" page; a closed connection stops watching it. */
   readonly remote: RouterOptions["remote"];
   readonly tasks: RouterOptions["tasks"];
+  readonly reviews: RouterOptions["reviews"];
   /** A phone's `prompt` and `steer` receipts. */
   readonly receipts: RouterOptions["receipts"];
   /** Images uploaded ahead of their messages; a closed connection's go. */
@@ -170,6 +171,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     piLatest: options.piLatest,
     remote: options.remote,
     tasks: options.tasks,
+    reviews: options.reviews,
     receipts: options.receipts,
     attachments: options.attachments,
     changes: options.changes,

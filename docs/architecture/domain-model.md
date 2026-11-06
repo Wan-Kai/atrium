@@ -275,6 +275,7 @@ classDiagram
 - **ContextBreakdown** 给状态栏用，是估算值：总量来自 `get_session_stats().contextUsage`（可能为空或是估算）；系统提示词和工具定义沿当前分支回放系统消息与压缩检查点得出；没有系统消息的旧会话只显示总量。MVP 2 的上下文检查器要的是"每次实际发出的请求"，另由 extension 捕获，不从这里升级。
 - **Notice** 里 `extension` 类型保留无法识别的 extension 通知原文，MVP 1 只记录不显示，MVP 2 的"带标记的通知"从这里接入。
 - 自动重试发生在一轮中间，用 **RetryStep** 显示"正在重试（第 N / 3 次）"，不拆开这一轮；一轮中间的压缩同样是一步（**CompactionStep**，2026-10-20 改），放在它发生的位置；**Notice** 用来显示轮与轮之间的压缩和"进程已自动重启"（M1.6），以及 Atrium 给模型的说明（`note`，SPEC-0002：pi 的 `atrium-agent` 自定义消息，排在它跟着的那一轮后面，不开新的一轮）。
+- **PendingReview**（[ADR-0017](../adr/0017-reviews-one-shape-two-sources.md)，T8a）是挂在会话上、等用户裁决的一件事，在 `Control.reviews`：来源是宿主的关卡（任务的改图、human 节点、归档题，从任务的持久状态现算、裁决由宿主执行）或以后 agent 的请求（工具调用，随 pi 作废）。裁决生效后宿主写一条 `atrium-review` 自定义消息进会话，对话记录里是过程轨道上的一步。
 - **InteractionStep** 只是对话记录里"问题 → 回答"的展示，活着的请求见下一节的 PendingInteraction。pi 不把对话框写进会话文件，所以这一步只在宿主存活期间存在。
 - **ToolStep** 各自带状态，同一批里的工具调用可以并行，不假设前一个结束后一个才开始。
 - **改动汇总**不建类，语义是"已观测到的工具修改"：`edit` 有 diff，显示增删行；`write` 显示写入内容（取自调用参数，pi 的结果里没有），增删行未知时不显示数字；通过 bash 等其他方式的改动统计不到。多次编辑同一文件是累计编辑量，不是净改动。

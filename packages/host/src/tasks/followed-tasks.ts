@@ -135,6 +135,10 @@ export async function followTasks(options: {
       refuseIfFollowed(taskId);
       await owned.answerArchive(taskId, answer);
     },
+    async openSession(taskId, sessionId) {
+      refuseIfFollowed(taskId);
+      await owned.openSession(taskId, sessionId);
+    },
     async start(taskId) {
       refuseIfFollowed(taskId);
       await owned.start(taskId);

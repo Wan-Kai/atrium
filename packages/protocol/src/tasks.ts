@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ProjectId, WorkspaceId } from "./ids";
 import { ThinkingLevel } from "./models";
+import { PendingReview, REVIEWS_LIMIT } from "./reviews";
 
 // Tasks and task graphs (SPEC-0006, "协议（给 UI）"; T5). The host sends what the board shows: the graph, the
 // state of each node, why a node waits, and the question about archiving. The words are the UI's.
@@ -125,6 +126,67 @@ export type TaskSummary = z.infer<typeof TaskSummary>;
 export const TaskBackEdge = z.strictObject({ to: TaskNodeId, uses: z.number().int().nonnegative() });
 export type TaskBackEdge = z.infer<typeof TaskBackEdge>;
 
+/**
+ * The requirement summary the task conversation wrote: what the task is for (T6's six fields).
+ *
+ * @remarks
+ * Model-written text, so the UI shows it as quoted text (ADR-0013, point 10), never as a fact of the host's.
+ */
+export const TaskRequirements = z.strictObject({
+  goal: z.string().max(8000),
+  decisions: z.array(z.string().max(2000)).max(50),
+  constraints: z.array(z.string().max(2000)).max(50),
+  nonGoals: z.array(z.string().max(2000)).max(50),
+  openQuestions: z.array(z.string().max(2000)).max(50),
+  acceptance: z.array(z.string().max(2000)).max(50),
+});
+export type TaskRequirements = z.infer<typeof TaskRequirements>;
+
+/**
+ * Which nodes a graph version added, removed and changed against the version in force before it (T8a).
+ *
+ * @remarks
+ * The graph draws the changed ones with a dashed blue frame and the added ones with "新". `from` is the version
+ * compared with. A node is changed when its fields, or the edges into it or out of it, differ.
+ */
+export const TaskGraphDiff = z.strictObject({
+  from: z.number().int().positive(),
+  added: z.array(TaskNodeId).max(20),
+  removed: z.array(TaskNodeId).max(20),
+  changed: z.array(TaskNodeId).max(20),
+});
+export type TaskGraphDiff = z.infer<typeof TaskGraphDiff>;
+
+/** One node of a graph version waiting for approval: what the plan says, without a run's state. */
+export const TaskPlannedNode = z.strictObject({
+  id: TaskNodeId,
+  name: z.string().max(512),
+  kind: z.enum(["agent", "human"]),
+  job: z.string().max(TASK_TEXT_LIMIT),
+  done: z.array(z.string().max(TASK_TEXT_LIMIT)).max(100),
+  role: z.enum(["explore", "work", "check", "advise"]).optional(),
+  place: z.enum(["workspace", "readonly"]).optional(),
+  merge: z.literal(true).optional(),
+  model: TaskModel.nullable(),
+});
+export type TaskPlannedNode = z.infer<typeof TaskPlannedNode>;
+
+/**
+ * The graph version waiting for approval, whole, for "点开在图上看" (T8a).
+ *
+ * @remarks
+ * `note` is what the agent wrote about the change: quoted text. `diff` is against the version in force.
+ */
+export const TaskPendingGraph = z.strictObject({
+  version: z.number().int().positive(),
+  author: z.enum(["agent", "user"]),
+  note: z.string().max(TASK_TEXT_LIMIT),
+  nodes: z.array(TaskPlannedNode).max(20),
+  edges: z.array(z.strictObject({ from: TaskNodeId, to: TaskNodeId, kind: z.enum(["seq", "back"]) })).max(400),
+  diff: TaskGraphDiff,
+});
+export type TaskPendingGraph = z.infer<typeof TaskPendingGraph>;
+
 /** One node of a task's graph, with the state of its latest run. */
 export const TaskNode = z.strictObject({
   id: TaskNodeId,
@@ -175,6 +237,18 @@ export const TaskView = TaskSummary.extend({
   graphVersion: z.number().int().nonnegative(),
   /** A new graph is waiting for the user's approval. */
   pendingGraph: z.boolean(),
+  /** The graph waiting for approval, whole, when there is one (T8a). */
+  pending: TaskPendingGraph.nullable(),
+  /** What the version in force changed against the one before it, `null` for the first version (T8a). */
+  graphDiff: TaskGraphDiff.nullable(),
+  /** The requirement summary the task conversation wrote (T8a). */
+  requirements: TaskRequirements,
+  /**
+   * What waits for the user's verdict, the same reviews the task conversation's control carries (ADR-0017; T8a):
+   * here for the list's row, which opens the task without its conversation, and for a conversation whose pi is not
+   * running. Empty for a followed task.
+   */
+  reviews: z.array(PendingReview).max(REVIEWS_LIMIT),
   nodes: z.array(TaskNode).max(20),
   edges: z.array(TaskEdge).max(400),
   /** What the archive question shows, while it is open; `null` otherwise. */

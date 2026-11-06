@@ -8,8 +8,11 @@ import {
   NodeDoneArgs,
   NudgeCommand,
   ProgressCommand,
+  REVIEW_MESSAGE,
   ReplyCommand,
   ResumeCommand,
+  ReviewCommand,
+  ReviewMessageDetails,
   TASK_COMMANDS,
   TASK_TEXT_LIMITS,
   TaskCallResults,
@@ -202,7 +205,38 @@ describe("the host's commands", () => {
     expect(slash).toBe("/atrium-task");
     expect(action).toBe("nudge");
     expect(decodeArgument(String(argument))).toStrictEqual({ v: 1, id: "n-1" });
-    expect(Object.keys(TASK_COMMANDS).toSorted()).toStrictEqual(["mark", "nudge", "progress", "reply", "resume"]);
+    expect(Object.keys(TASK_COMMANDS).toSorted()).toStrictEqual([
+      "mark",
+      "nudge",
+      "progress",
+      "reply",
+      "resume",
+      "review",
+    ]);
+  });
+
+  it("describes the record a review leaves, apart from the task messages (ADR-0017)", () => {
+    const review = {
+      source: { kind: "gate", gate: "task_archive" },
+      subject: { code: "task_archive", params: { taskId: "tsk_a" } },
+      evidence: [],
+      verdict: { action: "keep" },
+    };
+    const details = { v: 1, kind: "review", id: "review:x", at: 1, review };
+
+    expect(REVIEW_MESSAGE).toBe("atrium-review");
+    expect(ReviewMessageDetails.safeParse(details).success).toBe(true);
+    expect(ReviewMessageDetails.safeParse({ ...details, kind: "progress" }).success).toBe(false);
+    expect(ReviewMessageDetails.safeParse({ ...details, review: { ...review, verdict: { action: "" } } }).success).toBe(
+      false,
+    );
+    expect(TaskMessageDetails.safeParse(details).success).toBe(false);
+    expect(ReviewCommand.safeParse({ v: 1, id: "review:x", at: 1, text: "t", review }).success).toBe(true);
+    expect(ReviewCommand.safeParse({ v: 1, id: "review:x", at: 1, text: "", review }).success).toBe(false);
+    expect(
+      ReviewCommand.safeParse({ v: 1, id: "review:x", at: 1, text: "x".repeat(TASK_TEXT_LIMITS.review + 1), review })
+        .success,
+    ).toBe(false);
   });
 
   it("describes the custom messages the extension writes", () => {

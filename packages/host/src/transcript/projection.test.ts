@@ -1,5 +1,5 @@
 import type { AssistantPart, LogEntry } from "@atrium/pi";
-import type { Step, TranscriptItem, Turn } from "@atrium/protocol";
+import type { ReviewRecord, Step, TranscriptItem, Turn } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { fixtureEntries } from "../../test/pi-fixtures";
 import { projectTranscript } from "./projection";
@@ -838,6 +838,42 @@ describe("projectTranscript", () => {
       { kind: "notice", id: "s:m1", notice: "task_mark", taskId: "tsk_a", state: "converted", timestamp: 3_000 },
       { kind: "notice", id: "s:m2", notice: "task_mark", taskId: "tsk_a", state: "abandoned", timestamp: 3_500 },
     ]);
+    expect(turnEntryIds).toStrictEqual(["u1", "u2"]);
+  });
+
+  it("puts the record of a review between the turns as a notice, with the snapshot and the verdict (ADR-0017)", () => {
+    const record: ReviewRecord = {
+      source: { kind: "gate", gate: "task_human" },
+      subject: { code: "task_human_node", params: { taskId: "tsk_a", node: "H", merge: false } },
+      evidence: [{ kind: "summary", by: { kind: "node", node: "N1" }, text: "Wrote it." }],
+      verdict: { action: "send_back", target: "N1", reason: "again" },
+    };
+
+    const { items, turnEntryIds } = projectTranscript(
+      [
+        user("u1", "go"),
+        reply("a1", [says("done")]),
+        {
+          id: "r1",
+          parentId: null,
+          timestamp: 99,
+          kind: "review_line",
+          line: { v: 1, kind: "review", id: "rv", at: 4_000, review: record },
+        },
+        user("u2", "next"),
+      ],
+      "s",
+      none,
+    );
+
+    expect(items.map((item) => item.kind)).toStrictEqual(["turn", "notice", "turn"]);
+    expect(items[1]).toStrictEqual({
+      kind: "notice",
+      id: "s:r1",
+      notice: "review",
+      review: record,
+      timestamp: 4_000,
+    });
     expect(turnEntryIds).toStrictEqual(["u1", "u2"]);
   });
 

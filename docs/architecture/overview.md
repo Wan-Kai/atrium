@@ -120,6 +120,7 @@ atrium/
 │   │   │   ├── files/              FileSearch（`@` 引用的候选文件：调 fd，按 pi 终端界面的规则打分）；WorkspaceFiles（M1.12：右栏文件树的目录内容、查看标签的文件内容，只读工作区里的、不跟随链接）
 │   │   │   ├── tasks/              任务（SPEC-0006）：TaskService、Scheduler（纯函数 step）、TaskRunner、TaskStore（事件日志与重放）、
 │   │   │   │                       GraphValidator、ScheduleService；用 sessions/、workspaces/、store/、platform/，反过来不用
+│   │   │   ├── reviews/            ReviewHub（ADR-0017）：按会话汇总各来源的待审核、校验裁决的形状、只认第一个裁决、转交给来源的 provider；不知道任务或 agent。任务关卡的 provider 在 `tasks/task-reviews.ts`
 │   │   │   ├── changes/            ChangesService（工作区的 git 改动：胶囊上的合计、右栏"更改"和"改动"标签的 diff，监听有人看的工作区）
 │   │   │   └── platform/           登录 shell 的环境、Clock、日志、子进程工具、git 调用（并发上限 4）
 │   │   └── test/harness.ts         第 4 层测试用的宿主：起真实宿主，用 client 连上去
@@ -251,6 +252,7 @@ protocol  ←──  pi  ←──  host
 server → sessions → transcript、status、pi
                   → workspaces → projects
        → setup、titles、files
+       → reviews（sessions 读它汇总的待审核，server 转交裁决；tasks 实现它的 provider，反过来它不依赖 tasks）
 各业务模块 → sync、store、platform（这三个不依赖任何业务模块）
 main.ts 负责组装全部
 ```

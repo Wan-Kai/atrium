@@ -625,6 +625,9 @@
   "answer_question": [
     {}
   ],
+  "answer_review": [
+    {}
+  ],
   "retry_run": [
     {}
   ],
@@ -1217,7 +1220,200 @@
         },
         "sourceSessionId": "s-origin",
         "graphVersion": 1,
-        "pendingGraph": false,
+        "pendingGraph": true,
+        "pending": {
+          "version": 2,
+          "author": "agent",
+          "note": "Add a docs step",
+          "nodes": [
+            {
+              "id": "N1",
+              "name": "Explore",
+              "kind": "agent",
+              "job": "Look",
+              "done": [
+                "Looked"
+              ],
+              "role": "explore",
+              "model": null
+            },
+            {
+              "id": "N5",
+              "name": "Docs",
+              "kind": "agent",
+              "job": "Write docs",
+              "done": [
+                "Written"
+              ],
+              "role": "work",
+              "model": null
+            }
+          ],
+          "edges": [
+            {
+              "from": "N1",
+              "to": "N5",
+              "kind": "seq"
+            }
+          ],
+          "diff": {
+            "from": 1,
+            "added": [
+              "N5"
+            ],
+            "removed": [],
+            "changed": [
+              "N3"
+            ]
+          }
+        },
+        "graphDiff": {
+          "from": 1,
+          "added": [],
+          "removed": [
+            "N9"
+          ],
+          "changed": [
+            "N2"
+          ]
+        },
+        "requirements": {
+          "goal": "Make out.txt",
+          "decisions": [
+            "plain text"
+          ],
+          "constraints": [],
+          "nonGoals": [],
+          "openQuestions": [],
+          "acceptance": [
+            "out.txt says hello"
+          ]
+        },
+        "reviews": [
+          {
+            "id": "tsk_a:human:N3:1",
+            "openedAt": 1760000002000,
+            "source": {
+              "kind": "gate",
+              "gate": "task_human"
+            },
+            "subject": {
+              "code": "task_human_node",
+              "params": {
+                "taskId": "tsk_a",
+                "node": "N3",
+                "merge": true
+              }
+            },
+            "evidence": [
+              {
+                "kind": "facts",
+                "facts": [
+                  {
+                    "code": "worktree_dirty",
+                    "params": {
+                      "name": "task-a"
+                    },
+                    "status": "warn"
+                  },
+                  {
+                    "code": "commits_ahead",
+                    "params": {
+                      "count": 3
+                    },
+                    "status": "ok"
+                  }
+                ]
+              },
+              {
+                "kind": "changes",
+                "workspaceId": "wks_0123456789abcdef",
+                "files": 4,
+                "added": 120,
+                "removed": 7
+              },
+              {
+                "kind": "summary",
+                "by": {
+                  "kind": "node",
+                  "node": "N2"
+                },
+                "text": "Wrote it."
+              }
+            ],
+            "problem": {
+              "code": "merge_conflict",
+              "params": {},
+              "files": [
+                "src/a.ts",
+                "src/b.ts"
+              ]
+            },
+            "actions": [
+              {
+                "id": "retry",
+                "reason": "none",
+                "targets": [],
+                "recommended": true
+              },
+              {
+                "id": "send_back",
+                "reason": "required",
+                "targets": [
+                  {
+                    "id": "N2",
+                    "remaining": 1
+                  }
+                ],
+                "recommended": false
+              }
+            ]
+          },
+          {
+            "id": "tsk_a:graph:2",
+            "openedAt": 1760000002500,
+            "source": {
+              "kind": "gate",
+              "gate": "task_graph"
+            },
+            "subject": {
+              "code": "task_graph_change",
+              "params": {
+                "taskId": "tsk_a",
+                "version": 2
+              }
+            },
+            "evidence": [
+              {
+                "kind": "graph_diff",
+                "from": 1,
+                "to": 2,
+                "added": [
+                  "N5"
+                ],
+                "removed": [],
+                "changed": [
+                  "N3"
+                ]
+              }
+            ],
+            "problem": null,
+            "actions": [
+              {
+                "id": "approve",
+                "reason": "none",
+                "targets": [],
+                "recommended": true
+              },
+              {
+                "id": "reject",
+                "reason": "none",
+                "targets": [],
+                "recommended": false
+              }
+            ]
+          }
+        ],
         "nodes": [
           {
             "kind": "agent",
@@ -1363,7 +1559,200 @@
         },
         "sourceSessionId": "s-origin",
         "graphVersion": 1,
-        "pendingGraph": false,
+        "pendingGraph": true,
+        "pending": {
+          "version": 2,
+          "author": "agent",
+          "note": "Add a docs step",
+          "nodes": [
+            {
+              "id": "N1",
+              "name": "Explore",
+              "kind": "agent",
+              "job": "Look",
+              "done": [
+                "Looked"
+              ],
+              "role": "explore",
+              "model": null
+            },
+            {
+              "id": "N5",
+              "name": "Docs",
+              "kind": "agent",
+              "job": "Write docs",
+              "done": [
+                "Written"
+              ],
+              "role": "work",
+              "model": null
+            }
+          ],
+          "edges": [
+            {
+              "from": "N1",
+              "to": "N5",
+              "kind": "seq"
+            }
+          ],
+          "diff": {
+            "from": 1,
+            "added": [
+              "N5"
+            ],
+            "removed": [],
+            "changed": [
+              "N3"
+            ]
+          }
+        },
+        "graphDiff": {
+          "from": 1,
+          "added": [],
+          "removed": [
+            "N9"
+          ],
+          "changed": [
+            "N2"
+          ]
+        },
+        "requirements": {
+          "goal": "Make out.txt",
+          "decisions": [
+            "plain text"
+          ],
+          "constraints": [],
+          "nonGoals": [],
+          "openQuestions": [],
+          "acceptance": [
+            "out.txt says hello"
+          ]
+        },
+        "reviews": [
+          {
+            "id": "tsk_a:human:N3:1",
+            "openedAt": 1760000002000,
+            "source": {
+              "kind": "gate",
+              "gate": "task_human"
+            },
+            "subject": {
+              "code": "task_human_node",
+              "params": {
+                "taskId": "tsk_a",
+                "node": "N3",
+                "merge": true
+              }
+            },
+            "evidence": [
+              {
+                "kind": "facts",
+                "facts": [
+                  {
+                    "code": "worktree_dirty",
+                    "params": {
+                      "name": "task-a"
+                    },
+                    "status": "warn"
+                  },
+                  {
+                    "code": "commits_ahead",
+                    "params": {
+                      "count": 3
+                    },
+                    "status": "ok"
+                  }
+                ]
+              },
+              {
+                "kind": "changes",
+                "workspaceId": "wks_0123456789abcdef",
+                "files": 4,
+                "added": 120,
+                "removed": 7
+              },
+              {
+                "kind": "summary",
+                "by": {
+                  "kind": "node",
+                  "node": "N2"
+                },
+                "text": "Wrote it."
+              }
+            ],
+            "problem": {
+              "code": "merge_conflict",
+              "params": {},
+              "files": [
+                "src/a.ts",
+                "src/b.ts"
+              ]
+            },
+            "actions": [
+              {
+                "id": "retry",
+                "reason": "none",
+                "targets": [],
+                "recommended": true
+              },
+              {
+                "id": "send_back",
+                "reason": "required",
+                "targets": [
+                  {
+                    "id": "N2",
+                    "remaining": 1
+                  }
+                ],
+                "recommended": false
+              }
+            ]
+          },
+          {
+            "id": "tsk_a:graph:2",
+            "openedAt": 1760000002500,
+            "source": {
+              "kind": "gate",
+              "gate": "task_graph"
+            },
+            "subject": {
+              "code": "task_graph_change",
+              "params": {
+                "taskId": "tsk_a",
+                "version": 2
+              }
+            },
+            "evidence": [
+              {
+                "kind": "graph_diff",
+                "from": 1,
+                "to": 2,
+                "added": [
+                  "N5"
+                ],
+                "removed": [],
+                "changed": [
+                  "N3"
+                ]
+              }
+            ],
+            "problem": null,
+            "actions": [
+              {
+                "id": "approve",
+                "reason": "none",
+                "targets": [],
+                "recommended": true
+              },
+              {
+                "id": "reject",
+                "reason": "none",
+                "targets": [],
+                "recommended": false
+              }
+            ]
+          }
+        ],
         "nodes": [
           {
             "kind": "agent",
@@ -1509,7 +1898,200 @@
         },
         "sourceSessionId": "s-origin",
         "graphVersion": 1,
-        "pendingGraph": false,
+        "pendingGraph": true,
+        "pending": {
+          "version": 2,
+          "author": "agent",
+          "note": "Add a docs step",
+          "nodes": [
+            {
+              "id": "N1",
+              "name": "Explore",
+              "kind": "agent",
+              "job": "Look",
+              "done": [
+                "Looked"
+              ],
+              "role": "explore",
+              "model": null
+            },
+            {
+              "id": "N5",
+              "name": "Docs",
+              "kind": "agent",
+              "job": "Write docs",
+              "done": [
+                "Written"
+              ],
+              "role": "work",
+              "model": null
+            }
+          ],
+          "edges": [
+            {
+              "from": "N1",
+              "to": "N5",
+              "kind": "seq"
+            }
+          ],
+          "diff": {
+            "from": 1,
+            "added": [
+              "N5"
+            ],
+            "removed": [],
+            "changed": [
+              "N3"
+            ]
+          }
+        },
+        "graphDiff": {
+          "from": 1,
+          "added": [],
+          "removed": [
+            "N9"
+          ],
+          "changed": [
+            "N2"
+          ]
+        },
+        "requirements": {
+          "goal": "Make out.txt",
+          "decisions": [
+            "plain text"
+          ],
+          "constraints": [],
+          "nonGoals": [],
+          "openQuestions": [],
+          "acceptance": [
+            "out.txt says hello"
+          ]
+        },
+        "reviews": [
+          {
+            "id": "tsk_a:human:N3:1",
+            "openedAt": 1760000002000,
+            "source": {
+              "kind": "gate",
+              "gate": "task_human"
+            },
+            "subject": {
+              "code": "task_human_node",
+              "params": {
+                "taskId": "tsk_a",
+                "node": "N3",
+                "merge": true
+              }
+            },
+            "evidence": [
+              {
+                "kind": "facts",
+                "facts": [
+                  {
+                    "code": "worktree_dirty",
+                    "params": {
+                      "name": "task-a"
+                    },
+                    "status": "warn"
+                  },
+                  {
+                    "code": "commits_ahead",
+                    "params": {
+                      "count": 3
+                    },
+                    "status": "ok"
+                  }
+                ]
+              },
+              {
+                "kind": "changes",
+                "workspaceId": "wks_0123456789abcdef",
+                "files": 4,
+                "added": 120,
+                "removed": 7
+              },
+              {
+                "kind": "summary",
+                "by": {
+                  "kind": "node",
+                  "node": "N2"
+                },
+                "text": "Wrote it."
+              }
+            ],
+            "problem": {
+              "code": "merge_conflict",
+              "params": {},
+              "files": [
+                "src/a.ts",
+                "src/b.ts"
+              ]
+            },
+            "actions": [
+              {
+                "id": "retry",
+                "reason": "none",
+                "targets": [],
+                "recommended": true
+              },
+              {
+                "id": "send_back",
+                "reason": "required",
+                "targets": [
+                  {
+                    "id": "N2",
+                    "remaining": 1
+                  }
+                ],
+                "recommended": false
+              }
+            ]
+          },
+          {
+            "id": "tsk_a:graph:2",
+            "openedAt": 1760000002500,
+            "source": {
+              "kind": "gate",
+              "gate": "task_graph"
+            },
+            "subject": {
+              "code": "task_graph_change",
+              "params": {
+                "taskId": "tsk_a",
+                "version": 2
+              }
+            },
+            "evidence": [
+              {
+                "kind": "graph_diff",
+                "from": 1,
+                "to": 2,
+                "added": [
+                  "N5"
+                ],
+                "removed": [],
+                "changed": [
+                  "N3"
+                ]
+              }
+            ],
+            "problem": null,
+            "actions": [
+              {
+                "id": "approve",
+                "reason": "none",
+                "targets": [],
+                "recommended": true
+              },
+              {
+                "id": "reject",
+                "reason": "none",
+                "targets": [],
+                "recommended": false
+              }
+            ]
+          }
+        ],
         "nodes": [
           {
             "kind": "agent",
@@ -1660,7 +2242,200 @@
         },
         "sourceSessionId": "s-origin",
         "graphVersion": 1,
-        "pendingGraph": false,
+        "pendingGraph": true,
+        "pending": {
+          "version": 2,
+          "author": "agent",
+          "note": "Add a docs step",
+          "nodes": [
+            {
+              "id": "N1",
+              "name": "Explore",
+              "kind": "agent",
+              "job": "Look",
+              "done": [
+                "Looked"
+              ],
+              "role": "explore",
+              "model": null
+            },
+            {
+              "id": "N5",
+              "name": "Docs",
+              "kind": "agent",
+              "job": "Write docs",
+              "done": [
+                "Written"
+              ],
+              "role": "work",
+              "model": null
+            }
+          ],
+          "edges": [
+            {
+              "from": "N1",
+              "to": "N5",
+              "kind": "seq"
+            }
+          ],
+          "diff": {
+            "from": 1,
+            "added": [
+              "N5"
+            ],
+            "removed": [],
+            "changed": [
+              "N3"
+            ]
+          }
+        },
+        "graphDiff": {
+          "from": 1,
+          "added": [],
+          "removed": [
+            "N9"
+          ],
+          "changed": [
+            "N2"
+          ]
+        },
+        "requirements": {
+          "goal": "Make out.txt",
+          "decisions": [
+            "plain text"
+          ],
+          "constraints": [],
+          "nonGoals": [],
+          "openQuestions": [],
+          "acceptance": [
+            "out.txt says hello"
+          ]
+        },
+        "reviews": [
+          {
+            "id": "tsk_a:human:N3:1",
+            "openedAt": 1760000002000,
+            "source": {
+              "kind": "gate",
+              "gate": "task_human"
+            },
+            "subject": {
+              "code": "task_human_node",
+              "params": {
+                "taskId": "tsk_a",
+                "node": "N3",
+                "merge": true
+              }
+            },
+            "evidence": [
+              {
+                "kind": "facts",
+                "facts": [
+                  {
+                    "code": "worktree_dirty",
+                    "params": {
+                      "name": "task-a"
+                    },
+                    "status": "warn"
+                  },
+                  {
+                    "code": "commits_ahead",
+                    "params": {
+                      "count": 3
+                    },
+                    "status": "ok"
+                  }
+                ]
+              },
+              {
+                "kind": "changes",
+                "workspaceId": "wks_0123456789abcdef",
+                "files": 4,
+                "added": 120,
+                "removed": 7
+              },
+              {
+                "kind": "summary",
+                "by": {
+                  "kind": "node",
+                  "node": "N2"
+                },
+                "text": "Wrote it."
+              }
+            ],
+            "problem": {
+              "code": "merge_conflict",
+              "params": {},
+              "files": [
+                "src/a.ts",
+                "src/b.ts"
+              ]
+            },
+            "actions": [
+              {
+                "id": "retry",
+                "reason": "none",
+                "targets": [],
+                "recommended": true
+              },
+              {
+                "id": "send_back",
+                "reason": "required",
+                "targets": [
+                  {
+                    "id": "N2",
+                    "remaining": 1
+                  }
+                ],
+                "recommended": false
+              }
+            ]
+          },
+          {
+            "id": "tsk_a:graph:2",
+            "openedAt": 1760000002500,
+            "source": {
+              "kind": "gate",
+              "gate": "task_graph"
+            },
+            "subject": {
+              "code": "task_graph_change",
+              "params": {
+                "taskId": "tsk_a",
+                "version": 2
+              }
+            },
+            "evidence": [
+              {
+                "kind": "graph_diff",
+                "from": 1,
+                "to": 2,
+                "added": [
+                  "N5"
+                ],
+                "removed": [],
+                "changed": [
+                  "N3"
+                ]
+              }
+            ],
+            "problem": null,
+            "actions": [
+              {
+                "id": "approve",
+                "reason": "none",
+                "targets": [],
+                "recommended": true
+              },
+              {
+                "id": "reject",
+                "reason": "none",
+                "targets": [],
+                "recommended": false
+              }
+            ]
+          }
+        ],
         "nodes": [
           {
             "kind": "agent",
@@ -1820,6 +2595,9 @@
     {}
   ],
   "answer_archive": [
+    {}
+  ],
+  "open_task_session": [
     {}
   ]
 }

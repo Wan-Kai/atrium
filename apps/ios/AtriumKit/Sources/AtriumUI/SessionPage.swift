@@ -342,6 +342,7 @@ struct SessionPage: View {
     case .note: "说明"
     case .taskProgress: "任务进度"
     case .taskMark: "任务"
+    case .review: "审核"
     }
   }
 }

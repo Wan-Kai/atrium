@@ -8,7 +8,8 @@ import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
 import type { SessionEvent } from "./events";
 import type { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { type CatalogModel, ThinkingLevel } from "./models";
-import { Step, Turn } from "./transcript";
+import type { PendingReview } from "./reviews";
+import { type Notice, Step, Turn } from "./transcript";
 import { isChatId } from "./ids";
 import { protocolJsonSchema } from "./json-schema";
 import { PROTOCOL_VERSION } from "./version";
@@ -193,6 +194,29 @@ const commands: Command[] = [
   },
   { type: "retry_run", requestId: "r38", traceparent, sessionId: "s1" },
   {
+    type: "answer_review",
+    requestId: "r38d",
+    traceparent,
+    sessionId: "s1",
+    reviewId: "tsk_a:human:N3:1",
+    verdict: { action: "send_back", target: "N2", reason: "The merge conflicts; fix it first." },
+  },
+  {
+    type: "open_task_session",
+    requestId: "r38f",
+    traceparent,
+    taskId: "tsk_a",
+    sessionId: "s2",
+  },
+  {
+    type: "answer_review",
+    requestId: "r38e",
+    traceparent,
+    sessionId: "s1",
+    reviewId: "tsk_a:graph:2",
+    verdict: { action: "approve" },
+  },
+  {
     type: "answer_question",
     requestId: "r38b",
     traceparent,
@@ -361,13 +385,80 @@ const taskNodeBase = {
   sessionId: "s1",
   sendBack: [],
 } as const;
+/** Reviews of the three gates, one with every kind of evidence and a held-back merge. */
+const humanReview: PendingReview = {
+  id: "tsk_a:human:N3:1",
+  openedAt: 1_760_000_002_000,
+  source: { kind: "gate", gate: "task_human" },
+  subject: { code: "task_human_node", params: { taskId: "tsk_a", node: "N3", merge: true } },
+  evidence: [
+    {
+      kind: "facts",
+      facts: [
+        { code: "worktree_dirty", params: { name: "task-a" }, status: "warn" },
+        { code: "commits_ahead", params: { count: 3 }, status: "ok" },
+      ],
+    },
+    { kind: "changes", workspaceId: "wks_0123456789abcdef", files: 4, added: 120, removed: 7 },
+    { kind: "summary", by: { kind: "node", node: "N2" }, text: "Wrote it." },
+  ],
+  problem: { code: "merge_conflict", params: {}, files: ["src/a.ts", "src/b.ts"] },
+  actions: [
+    { id: "retry", reason: "none", targets: [], recommended: true },
+    { id: "send_back", reason: "required", targets: [{ id: "N2", remaining: 1 }], recommended: false },
+  ],
+};
+const graphReview: PendingReview = {
+  id: "tsk_a:graph:2",
+  openedAt: 1_760_000_002_500,
+  source: { kind: "gate", gate: "task_graph" },
+  subject: { code: "task_graph_change", params: { taskId: "tsk_a", version: 2 } },
+  evidence: [{ kind: "graph_diff", from: 1, to: 2, added: ["N5"], removed: [], changed: ["N3"] }],
+  problem: null,
+  actions: [
+    { id: "approve", reason: "none", targets: [], recommended: true },
+    { id: "reject", reason: "none", targets: [], recommended: false },
+  ],
+};
+const agentReview: PendingReview = {
+  id: "call-12",
+  openedAt: 1_760_000_002_700,
+  source: { kind: "agent", toolCallId: "call-12" },
+  subject: { text: "Push the branch?" },
+  evidence: [{ kind: "summary", by: { kind: "agent" }, text: "Two commits, tests pass." }],
+  problem: null,
+  actions: [{ id: "yes", reason: "optional", targets: [], recommended: true }],
+};
+const requirements = {
+  goal: "Make out.txt",
+  decisions: ["plain text"],
+  constraints: [],
+  nonGoals: [],
+  openQuestions: [],
+  acceptance: ["out.txt says hello"],
+} as const;
+
 const taskView = {
   ...taskSummary,
   taskSessionId: "s0",
   model: { providerId: "anthropic", modelId: "opus-5.5", thinking: "high" },
   sourceSessionId: "s-origin",
   graphVersion: 1,
-  pendingGraph: false,
+  pendingGraph: true,
+  pending: {
+    version: 2,
+    author: "agent",
+    note: "Add a docs step",
+    nodes: [
+      { id: "N1", name: "Explore", kind: "agent", job: "Look", done: ["Looked"], role: "explore", model: null },
+      { id: "N5", name: "Docs", kind: "agent", job: "Write docs", done: ["Written"], role: "work", model: null },
+    ],
+    edges: [{ from: "N1", to: "N5", kind: "seq" }],
+    diff: { from: 1, added: ["N5"], removed: [], changed: ["N3"] },
+  },
+  graphDiff: { from: 1, added: [], removed: ["N9"], changed: ["N2"] },
+  requirements,
+  reviews: [humanReview, graphReview],
   nodes: [
     {
       ...taskNodeBase,
@@ -528,6 +619,7 @@ const control: Control = {
   restarting: false,
   compacting: true,
   interactions: [pick],
+  reviews: [humanReview, agentReview],
   question: {
     id: "call-9",
     askedAt: 6,
@@ -852,6 +944,20 @@ const taskMarked = {
   timestamp: 8,
 } as const;
 
+/** The outcome of a review, as the conversation keeps it. */
+const reviewRecorded: Extract<Notice, { notice: "review" }> = {
+  kind: "notice",
+  id: "review-1",
+  notice: "review",
+  review: {
+    source: { kind: "gate", gate: "task_human" },
+    subject: { code: "task_human_node", params: { taskId: "tsk_a", node: "N3", merge: false } },
+    evidence: [{ kind: "summary", by: { kind: "node", node: "N2" }, text: "Wrote it." }],
+    verdict: { action: "send_back", target: "N2", reason: "Again" },
+  },
+  timestamp: 9,
+};
+
 const events: SessionEvent[] = [
   {
     type: "session_snapshot",
@@ -923,6 +1029,7 @@ const events: SessionEvent[] = [
   { type: "notice_added", ...at, notice: taskProgressed, before: null },
   { type: "notice_added", ...at, notice: { ...taskProgressed, what: null, node: null }, before: null },
   { type: "notice_added", ...at, notice: taskMarked, before: null },
+  { type: "notice_added", ...at, notice: reviewRecorded, before: null },
   { type: "session_resumed", sessionId: "s1", epoch: 2, seq: 40 },
   { type: "model_updated", ...at, model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "off" } },
   { type: "model_updated", ...at, model: null },
@@ -962,6 +1069,7 @@ describe("parseClientMessage", () => {
       "answer_interaction",
       "answer_login",
       "answer_question",
+      "answer_review",
       "approve_graph",
       "archive_chat",
       "archive_session",
@@ -1006,6 +1114,7 @@ describe("parseClientMessage", () => {
       "name_branch",
       "open_session",
       "open_task",
+      "open_task_session",
       "pause_task",
       "ping",
       "prompt",
@@ -2234,6 +2343,7 @@ const commandResultExamples = {
   steer_queued: [{ disposition: "queued" }],
   answer_interaction: [{}],
   answer_question: [{}],
+  answer_review: [{}],
   retry_run: [{}],
   list_models: [
     { models: [model, { ...model, fast: { speed: null, moreUsage: true } }], defaultModel: null },
@@ -2414,6 +2524,7 @@ const commandResultExamples = {
   resume_task: [{}],
   cancel_task: [{}],
   answer_archive: [{}],
+  open_task_session: [{}],
 } satisfies Record<CommandType, unknown[]>;
 
 /**
@@ -2538,6 +2649,7 @@ describe("IDLE_CONTROL", () => {
       compacting: false,
       interactions: [],
       question: null,
+      reviews: [],
       failure: null,
     });
   });
@@ -2619,6 +2731,8 @@ describe("HostMessage", () => {
       "interaction_closed",
       "question_closed",
       "question_invalid",
+      "review_closed",
+      "review_invalid",
       "models_unavailable",
       "fd_missing",
       "attachment_limit",

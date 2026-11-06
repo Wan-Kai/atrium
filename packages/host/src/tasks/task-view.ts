@@ -1,13 +1,17 @@
 import {
   TASK_TEXT_LIMIT,
+  type PendingReview,
   type TaskArchiveFacts,
   type TaskAttention,
   type TaskCurrentNode,
   type TaskNode,
   type TaskNodeState,
+  type TaskPendingGraph,
+  type TaskGraphDiff,
   type TaskSummary,
   type TaskView,
 } from "@atrium/protocol";
+import { diffGraphs, previousGraph } from "./graph-diff";
 import { activeGraphOf, latestRun, stateOf } from "./graph";
 import { backUses } from "./scheduler";
 import { deriveStatus } from "./status";
@@ -26,6 +30,9 @@ import type { GraphNode, Task } from "./types";
 function clip(text: string): string {
   return text.length > TASK_TEXT_LIMIT ? text.slice(0, TASK_TEXT_LIMIT) : text;
 }
+
+/** The longest goal the view carries; the task conversation's tool already takes no more (SPEC-0006, "T6 定下的细节"). */
+const REQUIREMENT_GOAL_CHARS = 8000;
 
 /**
  * What the user is wanted for, the most urgent first.
@@ -172,6 +179,57 @@ function nodeView(task: Task, node: GraphNode, backs: readonly { from: string; t
 }
 
 /**
+ * What the graph in force changed against the version in force before it.
+ *
+ * @remarks
+ * `null` for the first version. T8b frames the changed nodes with a dashed blue line and marks the added ones.
+ *
+ * @sideEffects none
+ * @param task - The task.
+ * @returns The difference, or `null`.
+ */
+function graphDiffOf(task: Task): TaskGraphDiff | null {
+  const active = activeGraphOf(task);
+  const before = active === undefined ? undefined : previousGraph(task, active.version);
+  if (active === undefined || before === undefined) return null;
+  return diffGraphs(before, active);
+}
+
+/**
+ * The graph waiting for approval, whole, with what it changes against the one in force.
+ *
+ * @remarks
+ * The card's "点开在图上看" draws it, and the board has only the graph in force otherwise.
+ *
+ * @sideEffects none
+ * @param task - The task.
+ * @returns The graph, or `null` when none waits.
+ */
+function pendingOf(task: Task): TaskPendingGraph | null {
+  const pending = task.graphs.find((graph) => graph.version === task.pendingGraph);
+  const active = activeGraphOf(task);
+  if (pending === undefined || active === undefined) return null;
+  return {
+    version: pending.version,
+    author: pending.author,
+    note: clip(pending.note),
+    nodes: pending.nodes.map((node) => ({
+      id: node.id,
+      name: node.name,
+      kind: node.kind,
+      job: clip(node.job),
+      done: node.done.map(clip),
+      ...(node.role === undefined ? {} : { role: node.role }),
+      ...(node.place === undefined ? {} : { place: node.place }),
+      ...(node.merge === undefined ? {} : { merge: node.merge }),
+      model: node.model === undefined ? null : node.model,
+    })),
+    edges: pending.edges.map(({ from: start, to, kind }) => ({ from: start, to, kind })),
+    diff: diffGraphs(active, pending),
+  };
+}
+
+/**
  * A task as the board shows it: the graph in force and its nodes.
  *
  * @remarks
@@ -182,9 +240,15 @@ function nodeView(task: Task, node: GraphNode, backs: readonly { from: string; t
  * @param task - The task.
  * @param archiveFacts - The facts of the archive question, or `null`.
  * @param followed - Whether the task is only followed (another process writes it); `false` for the host's own.
+ * @param reviews - What waits for the user's verdict, worked out by the caller (it needs git); none for a followed task.
  * @returns The view.
  */
-export function viewOf(task: Task, archiveFacts: TaskArchiveFacts | null, followed = false): TaskView {
+export function viewOf(
+  task: Task,
+  archiveFacts: TaskArchiveFacts | null,
+  followed = false,
+  reviews: readonly PendingReview[] = [],
+): TaskView {
   const graph = activeGraphOf(task);
   const backs = (graph?.edges ?? []).filter((edge) => edge.kind === "back");
   return {
@@ -195,6 +259,17 @@ export function viewOf(task: Task, archiveFacts: TaskArchiveFacts | null, follow
     sourceSessionId: task.origin.kind === "chat" && !followed ? task.origin.sessionId : null,
     graphVersion: task.activeGraph,
     pendingGraph: task.pendingGraph !== null,
+    pending: pendingOf(task),
+    graphDiff: graphDiffOf(task),
+    requirements: {
+      goal: task.summary.goal.slice(0, REQUIREMENT_GOAL_CHARS),
+      decisions: task.summary.decisions,
+      constraints: task.summary.constraints,
+      nonGoals: task.summary.nonGoals,
+      openQuestions: task.summary.openQuestions,
+      acceptance: task.summary.acceptance,
+    },
+    reviews: [...reviews],
     nodes: (graph?.nodes ?? []).map((node) => nodeView(task, node, backs)),
     edges: (graph?.edges ?? []).map(({ from, to, kind }) => ({ from, to, kind })),
     archiveFacts,

@@ -23,7 +23,7 @@ nonisolated private let sessionSnapshot = """
   {"type":"session_snapshot","sessionId":"s1","epoch":1,"seq":0,"traceId":null,"stream":"st","items":[],\
   "hasOlder":false,"run":null,"exited":false,"control":{"queue":[],"deliveries":[],"deliveriesHeld":null,\
   "paused":null,"steers":[],"stopping":false,"restarting":false,"compacting":false,"interactions":[],\
-  "question":null,"failure":null},"model":null,"fast":false,"metrics":{"turns":null,"steps":null,\
+  "question":null,"reviews":[],"failure":null},"model":null,"fast":false,"metrics":{"turns":null,"steps":null,\
   "tokens":null,"cost":null,"reasoning":null,"branchTokens":0,"context":null,"timing":null,"children":null}}
   """
 

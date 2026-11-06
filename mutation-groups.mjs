@@ -87,12 +87,30 @@ export const MUTATION_GROUPS = {
       "!packages/host/src/tasks/types.ts",
       // T4b: these need a real pi and real git; the host-layer tests (`node-run.host.test.ts`) cover them.
       "!packages/host/src/tasks/{runner,task-service,task-workspaces,new-task,node-ports}.ts",
+      // T8a: the review gates and the hub have their own group below, with only their own tests.
+      "!packages/host/src/tasks/{task-reviews,graph-diff}.ts",
       "!packages/host/src/tasks/*.break-check.json",
     ],
     tests: [
       "packages/host/src/tasks",
       "packages/host/src/dev/task-replay.test.ts",
       "packages/host/src/dev/task-try.test.ts",
+    ],
+    skip: [],
+  },
+  // The review hub and the task gates (ADR-0017, T8a): pure code, whose unit tests are quick; the real-host tests
+  // (`reviews.host.test.ts`) cover the wiring and are not run per mutant.
+  reviews: {
+    mutate: [
+      "packages/host/src/reviews/review-hub.ts",
+      "packages/host/src/tasks/task-reviews.ts",
+      "packages/host/src/tasks/graph-diff.ts",
+    ],
+    tests: [
+      "packages/host/src/reviews/review-hub.test.ts",
+      "packages/host/src/tasks/task-reviews.test.ts",
+      "packages/host/src/tasks/graph-diff.test.ts",
+      "packages/host/src/tasks/task-view.test.ts",
     ],
     skip: [],
   },

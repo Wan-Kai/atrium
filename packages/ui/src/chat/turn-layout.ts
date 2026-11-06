@@ -715,6 +715,8 @@ export function hostNoticeText(notice: Exclude<Notice, { notice: "compacted" }>)
   if (notice.notice === "note") return `在新的 worktree 里继续：${notice.to}（之前的路径属于 ${notice.from}）`;
   if (notice.notice === "task_progress") return progressWords(notice, undefined).text;
   if (notice.notice === "task_mark") return notice.state === "abandoned" ? "任务已放弃" : "已转为任务";
+  // The step's own words and the card to open it are T8b's; until then the verdict is named.
+  if (notice.notice === "review") return `审核 · ${notice.review.verdict.action}`;
   const result =
     notice.outcome === "answered"
       ? (notice.value ?? (notice.confirmed === true ? "是" : "否"))

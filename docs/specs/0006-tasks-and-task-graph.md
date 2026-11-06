@@ -2,10 +2,11 @@
 
 - **状态**：已确认（2026-11-04 用户确认执行方案）
 - **创建**：2026-11-04
-- **更新**：2026-11-04（同日按外部审查修订：节点会话与 SPEC-0002 分开、`held` 与 `stopped` 分开、提醒改用 `triggerTurn`、路径隔离按 pi 的解析规则、建 worktree 关掉钩子、合并前的检查、动作幂等）；2026-11-05（T6：任务对话的工具、`/task`、引导词，见“T6 定下的细节”和附录）
+- **更新**：2026-11-04（同日按外部审查修订：节点会话与 SPEC-0002 分开、`held` 与 `stopped` 分开、提醒改用 `triggerTurn`、路径隔离按 pi 的解析规则、建 worktree 关掉钩子、合并前的检查、动作幂等）；2026-11-05（T6：任务对话的工具、`/task`、引导词，见“T6 定下的细节”和附录）；2026-11-06（T8a：审核的协议与宿主、`answer_review`、裁决的记录，见“T8a 定下的细节”）
 - **相关**：
   - 子对话与扩展通道：SPEC-0002、ADR-0013
   - 问用户：SPEC-0003
+  - 审核卡片的技术形状：ADR-0017
   - 新建与归档工作区：SPEC-0001
   - 设计稿：`prototypes/agent-task-board-design.html`（第 5 版）
   - 调研：`docs/research/agent-task-board.md`、`worktree-practices.md`、`task-graph-execution.md`
@@ -844,6 +845,8 @@ type ScheduleRule = {
 | `task_caller_invalid` | 工具调用的会话不是这个工具该来的会话 |
 | `worktree_config_unsafe` | 仓库配置里有 `include` / `includeIf` 或不安全的过滤器名（`params.reason`：`include` / `filter_name`） |
 | `workspace_in_task` | 归档或删除一个被任务锁着的 worktree（`params.taskId`）；只认锁的原因正好是 `atrium task <id>` 的，你自己加的锁照旧报 `worktree_remove_failed` |
+| `review_closed` | 这条审核已经没有了：别处先答了，或状态已经往前走了（带 `reviewId`；T8a，界面说法"这条审核已经处理过了"） |
+| `review_invalid` | 裁决和审核对不上（`params.field`：`action` 没有这个按钮、`target` 缺了或不在按钮列的目标里、`reason` 必填的没写或不收原因的写了；T8a，界面说法"这个裁决不合这条审核，刷新后再试"） |
 | `schedule_not_found` | 规则不存在 |
 
 T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协议（`packages/protocol/src/errors.ts`），T6 加了 `task_graph_invalid`、`task_already_converted`、`task_no_project_for_work`；`task_caller_invalid` 只在扩展通道里（工具调用的应答），不是命令的错误；`schedule_not_found` 随 T10。`task_state_invalid` 在 T5 里是：对不在等的 human 节点答、对没失败的节点"重跑"、对没停下的节点"继续"、暂停已暂停的、恢复没暂停的、取消没启动或已结束的、对已结束的任务答 human、回答不存在的打回边、对没有开着的归档提问答归档。`worktree_config_unsafe` 的 `params.reason` 多一个 `driver_name`。界面的说法留给 T7（现在没有界面用到这些码，加了没人调的导出会被 knip 拦）：`task_not_found` →"这个任务已经不在了"；`task_state_invalid` →"任务的状态变了，刷新后再试"；`task_back_limit` →"这条打回边已经用了两次"；`merge_git_failed` →"git 出错了，没有合并，主目录没动"。
@@ -993,6 +996,39 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 **任务对话窗格**：被跟着的任务的会话文件在 task:try 的会话目录里，不在 Atrium 的，T7.1 不读。窗格不再停在"正在读取任务对话…"，改写两行（`role="status"`，`--fs-meta`，第一行 `--text-2`、第二行 `--text-dim`）："这个任务是别的进程在跑的，Atrium 只读它的图和节点状态。" / "任务对话和各节点的对话不在 Atrium 里，这里看不到。" 标题"任务对话"不变，没有输入框（T7 本来就没有）。
 
 **没做**：读 task:try 的会话文件（要先定会话文件的目录怎么告诉宿主，会碰到 pi 会话目录的读权限）；把被跟着的任务标成"只读"的标签（任务栏上多一个小标签，建议但没做，等用户定）；跟随多个目录。
+
+### T8a 定下的细节
+
+**2026-11-06 用户定**：初始图的"确认并启动"仍是开始页的按钮，不做成审核卡片（审核卡片只管启动后的改图）；不收原因的按钮带了原因判 `review_invalid`；合并多次被挡只在最后成功那次写记录；合并被挡后再答算同一张卡的重试，不算第二个裁决。
+
+2026-11-06，T8a（交互任务区的协议与宿主这一半）实现时定下。T8b（界面）建在它上面。协议号 33 → 34；合回 `main` 时取当时的下一个号并重新生成 Swift 投影。形状照 [ADR-0017](../adr/0017-reviews-one-shape-two-sources.md)，只做任务这一个来源（宿主关卡）；agent 来源的 provider、`request_review` 工具和"某个工具执行前要审核"的固定关卡另开 SPEC。
+
+**协议**（`packages/protocol/src/reviews.ts`）
+
+- `PendingReview { id, openedAt, source, subject, evidence[], problem, actions[] }` 挂在 `Control.reviews`（和 `question` 并列，最多 16 条，先出现的在前）。`source` 是 `{ kind: "gate", gate }` 或 `{ kind: "agent", toolCallId }`（形状有了，T8a 不产出）；`GateKind` = `task_graph | task_human | task_archive`。
+- **合并被挡住不是另一道关卡**：它是 `task_human` 那张审核的 `problem`（`{ code: 合并原因, params: {}, files? }`），同一个审核 id；这时主按钮 `pass` 换成 `retry`（都调 `answer_human` 的 `pass`），`send_back` 照旧。这是 ADR"同一张卡片的执行失败状态"的直接做法，业务命令本来也是一个。
+- `subject` 关卡是 `{ code, params }`：`task_graph_change`（`taskId`、`version`）、`task_human_node`（`taskId`、`node`、`merge`）、`task_archive`（`taskId`）；agent 来源是 `{ text }`（模型原文）。
+- `Evidence` 四种：`facts`（`{ code, params, status: ok|warn|danger }`，码：`worktree_clean` / `worktree_dirty` / `worktree_merged` / `worktree_not_merged` / `worktree_merge_unknown`，都带 `name`；`commits_ahead` 带 `count`）、`changes`（`workspaceId`、文件数、加、减，界面用 `workspaceId` 打开改动面板）、`graph_diff`（`from`、`to`、`added`、`removed`、`changed`）、`summary`（`by: { kind: "node", node } | { kind: "agent" }`，`text`）。`summary` 是别人写的话，按引用显示，**不带状态**；agent 来源的审核不能出现 `facts`（ADR 第 2 条的可信度规则，协议形状允许，provider 负责不发）。
+- `ReviewAction { id, reason: none|optional|required, targets[], recommended }`。ADR 写的 `targets?` / `remaining?` 这里做成 `targets: { id, remaining }[]`（空数组 = 不用选目标），`remaining` 跟着每个目标，因为一个 human 节点可以有几条打回边、每条各用了几次；用完的目标（`remaining: 0`）仍列出，界面置灰，宿主照旧拒绝（`task_back_limit`）。按钮 id：`approve`、`reject`（`task_graph`）；`pass`、`retry`、`send_back`（`task_human`）；`archive`、`keep`（`task_archive`）。
+- `Verdict { action, target?, reason? }`，命令 `answer_review(sessionId, reviewId, verdict)`，答 `{}`。`local_only`（任务关卡手机不能答；手机能解码 `Control.reviews`、`TaskView.reviews` 和 `review` 记录并忽略，iOS 的 `Notice` 加了一个"审核"灰行，没有别的界面）。
+- 错误码两个：`review_closed`（`reviewId`）、`review_invalid`（`field`）。校验失败的、不在的审核**不执行任何东西**。其余沿用业务命令的码（`task_back_limit`、`task_graph_invalid`、`workspace_dirty`、`task_state_invalid`…）。
+- `Notice` 加 `review`：`{ review: ReviewRecord, timestamp }`，`ReviewRecord` = `{ source, subject, evidence（当时的快照）, verdict }`，界面画成过程轨道上的一步（T8b）。
+- `TaskView` 加四个字段：`reviews`（同样的审核，见下）、`pending`（等批准的那版图整份：节点只含计划、不含运行状态，加 `note`、`author`、对生效图的 `diff`；"点开在图上看"用它）、`graphDiff`（生效的这版相对上一个生效过的版本改了哪些：`from`、`added`、`removed`、`changed`；第一版是 `null`；虚线蓝框和"新"用它）、`requirements`（需求摘要，T6 的六个字段，模型写的话，界面按引用显示）。
+- 新命令 `open_task_session(taskId, sessionId)`（`local_only`）：见下"节点对话"。
+
+**宿主**
+
+- **ReviewHub**（`packages/host/src/reviews/review-hub.ts`，新的业务模块 `reviews/`，只依赖 protocol 和 platform；`sessions/` 和 `server/` 用它，`tasks/` 实现它的 provider）：按会话汇总各 provider 的待审核（先出现的在前），保存最近一次算的结果给 `Control` 同步读，变了通知监听者（会话控制器据此发 `control_updated`）；`answer` 在这个会话的队列里一件一件做：重算一遍 → 找不到这条审核 `review_closed` → 校验形状（按钮存在；目标：按钮有目标就必须是其中一个、没有就不能给；原因：必填的要有非空白字、不收的不能写、可选的随意）`review_invalid` → 交给 provider。同一会话的裁决排队，所以**第一个裁决赢，其余应答 `review_closed`**。一条审核在"还挂着"时（合并又被挡）再答，是对同一张卡片的又一次重试，不算"第二个裁决"。
+- **任务 provider**（`tasks/task-reviews.ts`）：待审核**从调度器的持久状态现算，不另存**（`reviewsOf(task, 工作区的事实)` 是纯函数），所以宿主重启后一样。`pendingGraph` → `task_graph`（只在任务启动后；设计中的图直接生效，"确认并启动"仍是开始页的按钮，不是审核）；每个 `waiting(human)` 或 `waiting(merge_blocked)` 且没作废、不在合并中的 human 节点 → `task_human`（id 带第几次，打回再回来是新的一条）；`Task.archive = asked` → `task_archive`（回答"留着"之后不再是审核，业务命令 `answer_archive` 仍能再答"归档"）。**挂在任务对话的会话上**。证据全是宿主现算：human 节点和归档题的 git 事实和改动统计（同归档题原有的 `facts`，改动统计用 `changesSince`），上游节点的交接摘要，改图的差异和 agent 写的说明。`recommended`：human 节点的 `pass` / `retry` 在工作区干净时推荐；归档只在"已合并且干净"时推荐 `archive`，否则 `keep`（SPEC"没合并的 worktree 默认先留着"）；改图的 `approve` 推荐。
+- **裁决走现有业务命令**：`approve` / `reject` → `approve_graph` / `reject_graph`；`pass`、`retry` → `answer_human` 的 `pass`；`send_back` → `answer_human` 的 `send_back`（`backTo` = `target`）；`archive` / `keep` → `answer_archive`。列表行内处理和 `answer_review` 是两个入口、同一套状态检查（`task_state_invalid`、`task_back_limit`、`workspace_dirty`、`task_graph_invalid` 照旧）。
+- **`TaskView.reviews` 和 `Control.reviews` 是同一份**：任务对话的 pi 没在跑时（宿主重启后、任务结束后）会话没有控制器，订阅不到 `Control`，而列表的行要在不开任务对话时就看到审核，所以 `open_task` 的 `TaskView` 也带上。会话的 pi 起来后（发一条消息就起）控制器从 ReviewHub 读到同样的审核，`control_updated` 照常推。这是对 ADR 的补充，不改它的形状。
+- **裁决的记录**：审核**不在了**（裁决生效）之后，宿主让任务对话的 pi 写一条 `custom_message`——`/atrium-task review`（命令 id `review:<审核 id>`，同一条只写一次），扩展写成 `customType: "atrium-review"`、`display: true`、`triggerTurn: false`、`details = { v: 1, kind: "review", id, at, review: { source, subject, evidence（快照，别人写的文字截到 8000 字）, verdict } }`；正文是一行英文（`Atrium review: the user decided task_human_node taskId=… node=H merge=false: send_back N1. The user's reason: …`），**模型下一次请求能看到**（`custom_message` 进上下文；真实宿主测试看到了）。走和进度行同一条链（`TaskEntry.lines`），所以排在它前面的进度行后面。合并又被挡的那次 `pass` 审核还在，不写记录；最后合并成功那次写一条 `retry`（或 `pass`）。会话文件被翻译成 `Notice.review`，实时到（`task_line_added` 重读文件）。
+- **任务对话收消息**：现有的 `prompt` / `steer` / `stop` 对任务对话的会话 id 直接可用（真实宿主测试：审核开着时发一条消息，模型收到、审核不动）。**不要对它用 `open_session`**：那会在项目的容器里给它开一个标签。界面用 `watch` 看它，`prompt` / `steer` 发消息。"卡片开着时输入框发消息"对任务发起的审核就是这条，卡片不动。
+- **节点对话**：`watch([节点会话 id])` 加现有的 `prompt` / `steer` / `stop` / `answer_question` 按会话 id 都可用，不开标签（真实宿主测试：节点用 `ask_user` 提问，只 `watch` 它的客户端看到 `control.question`，`answer_question` 后节点继续；任务和节点的会话不进 `client.index` 的会话列表）。pi 没在跑的会话（已通过的节点、宿主重启后）订阅不到快照，所以加 `open_task_session(taskId, sessionId)`：核对会话是这个任务的对话或节点（否则 `session_not_found`；被跟着的任务 `task_read_only`），只起它的 pi，**不开标签**；客户端先 `watch` 再调它，快照随后到。起一个已通过节点的 pi 不改任务状态（真实宿主测试：没有新事件）。
+- **`/task`**：宿主这一半 T6 已完整（`create_task`、`task_already_converted`、来源对话的"已转为任务"行）。`/task` 由输入框拦下再调 `create_task`，不发给模型，是 T8b 的界面工作，宿主不拦文字：发给宿主的 `/task` 当普通文字交给 pi。客户端（`packages/client`）补了任务命令的方法：`createTask`、`startTask`、`abandonTask`、`approveGraph`、`rejectGraph`、`answerHuman`、`rerunNode`、`continueNode`、`pauseTask`、`resumeTask`、`cancelTask`、`answerArchive`、`openTaskSession`、`answerReview`。
+- **被跟着的任务（T7.1）**：不产生审核（`reviews: []`，`Control` 里也没有，它的会话不在这个宿主里）；对它的会话发 `answer_review` 应答 `review_closed`（没有这条审核），什么也不写。界面对被跟着的任务本来就不画按钮（`task_read_only` 的说法给别的客户端和脚本）。
+- **列表行内作答**：不需要新协议。一次展开一行 = 一条连接一次开一个任务（`open_task`）：`TaskView.reviews` 给改图、human、归档的卡片；节点的提问在节点的会话里（`TaskView.nodes[].sessionId` 加 `watch`，`answer_question`）。确认初始图和验收仍只给"打开任务"。
+- **没做**：设计中的初始图的"确认并启动"不是审核（SPEC"human 节点"的原话）；agent provider、`request_review`、固定关卡；"等你处理"收件箱的任务条目和搜索（界面按 `TaskSummary.attention` 和 `current` 自己做）。
 
 ## 备选方案
 

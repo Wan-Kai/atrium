@@ -3,7 +3,7 @@ import { AGENT_MESSAGE, type AgentNote } from "../agent/agent";
 import type { MessageDetails } from "../agent/channel";
 import { type AssistantPart, type LogMessage, type PiMessage, agentMessage, toLogMessage } from "../history/log-entry";
 import { contentText } from "../history/tools";
-import { TASK_MESSAGE, TaskMessageDetails } from "../task/schema";
+import { REVIEW_MESSAGE, ReviewMessageDetails, TASK_MESSAGE, TaskMessageDetails } from "../task/schema";
 import type { PiEvent } from "../process/pi-process";
 
 /**
@@ -108,6 +108,11 @@ function custom(message: Extract<PiMessage, { role: "custom" }>): TranslatedEven
     const line = TaskMessageDetails.safeParse(message.details);
     // `nudge` and `resume` start turns the transcript does not show as lines.
     return line.success && (line.data.kind === "progress" || line.data.kind === "converted")
+      ? [{ kind: "task_line_added", timestamp: message.timestamp }]
+      : [];
+  }
+  if (message.customType === REVIEW_MESSAGE) {
+    return ReviewMessageDetails.safeParse(message.details).success
       ? [{ kind: "task_line_added", timestamp: message.timestamp }]
       : [];
   }

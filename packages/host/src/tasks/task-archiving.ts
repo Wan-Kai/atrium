@@ -1,11 +1,13 @@
 import type { TaskArchiveFacts } from "@atrium/protocol";
 import { basename } from "node:path";
+import { changesSince } from "../changes/checkout";
 import type { GitRunner } from "../platform/git";
 import type { ProjectService } from "../projects/project-service";
 import type { MergeInspector } from "../workspaces/merge-inspector";
 import { runSafeGit } from "../workspaces/safe-git";
 import type { WorkspaceArchiver } from "../workspaces/workspace-archiver";
 import { comparedMainRef } from "../workspaces/workspace-service";
+import type { WorktreeChanges } from "./task-reviews";
 import type { Task } from "./types";
 
 /**
@@ -20,6 +22,11 @@ export interface TaskArchiving {
    * archived already).
    */
   facts(task: Task, signal: AbortSignal): Promise<TaskArchiveFacts | null>;
+  /**
+   * What the worktree changed since the commit it began at, committed or not; `null` when there is no worktree, no
+   * start commit, or git could not say.
+   */
+  changes(task: Task, signal: AbortSignal): Promise<WorktreeChanges | null>;
   /**
    * Archives the task's worktree through the same path as `archive_workspace`, with its checks.
    *
@@ -121,6 +128,14 @@ export function createTaskArchiving(options: {
         dirty: status.stdout !== "",
         commits: counted?.code === 0 ? Number(counted.stdout.trim()) || 0 : 0,
       };
+    },
+    async changes(task, signal) {
+      const workspace = options.projects.workspaces().find((candidate) => candidate.id === task.workspaceId);
+      const git = await options.git;
+      const base = workspace?.baseCommit ?? task.baseCommit;
+      if (workspace === undefined || git === null || base === null || (workspace.archived ?? null) !== null)
+        return null;
+      return changesSince(git, workspace.dir, base, signal).catch(() => null);
     },
     async archive(task) {
       if (task.workspaceId !== null) await options.archiver.archive(task.workspaceId);

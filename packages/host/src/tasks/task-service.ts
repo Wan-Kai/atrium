@@ -1,5 +1,5 @@
 import { taskCommandText } from "@atrium/pi";
-import { CommandError, type ArchiveAnswer, type HumanAnswer, type TaskView } from "@atrium/protocol";
+import { CommandError, type ArchiveAnswer, type HumanAnswer, type ReviewRecord, type TaskView } from "@atrium/protocol";
 import { randomUUID } from "node:crypto";
 import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -15,6 +15,7 @@ import { backUses } from "./scheduler";
 import { deriveStatus } from "./status";
 import type { TaskArchiving } from "./task-archiving";
 import { openTaskStore } from "./task-store";
+import { needsWorktreeFacts, reviewsOf } from "./task-reviews";
 import { viewOf } from "./task-view";
 import type { NodeId, NodeRun, Task, TaskEventInput } from "./types";
 
@@ -101,6 +102,26 @@ export interface TaskService {
   approveGraph(taskId: string): Promise<void>;
   /** Refuses the graph a started task waits for. */
   rejectGraph(taskId: string): Promise<void>;
+  /**
+   * Writes the record of a review whose verdict took effect into the task conversation (ADR-0017, decision 2).
+   *
+   * @remarks
+   * A custom message, without a model call; the conversation's pi is started if it is not running. A task whose
+   * conversation the host did not start (`task:try`, tests) gets none. Failures are logged by the runner.
+   */
+  recordReview(
+    taskId: string,
+    line: { readonly id: string; readonly text: string; readonly record: ReviewRecord },
+  ): void;
+  /**
+   * Starts the pi of a session of the task, its conversation or a node's, so that a client watching it gets its
+   * snapshot and can write to it (SPEC-0006, "T8a 定下的细节").
+   *
+   * @remarks
+   * Not `open_session`, which makes a tab in the project's container; task sessions are in no list. Fails with
+   * `task_not_found`, and with `session_not_found` for a session that is not this task's.
+   */
+  openSession(taskId: string, sessionId: string): Promise<void>;
   /** Calls `listener` after every event is recorded; returns a function that stops it. */
   onEvent: TaskRunner["onEvent"];
   /** Resolves once every task's queue is done. */
@@ -134,7 +155,7 @@ function runOf(task: Task, node: NodeId): NodeRun | undefined {
  */
 export interface TaskDesignPorts {
   /** The sessions: the source conversation's facts, the task conversation, and the lines written to both. */
-  readonly sessions: Pick<TaskSessions, "source" | "create" | "open" | "prompt" | "command" | "retire">;
+  readonly sessions: Pick<TaskSessions, "source" | "create" | "open" | "prompt" | "command" | "retire" | "recordOf">;
   /**
    * Where a container is: its project, and the worktree to borrow when it is one Atrium (or git) made.
    *
@@ -373,8 +394,18 @@ export function createTaskService(options: {
     async view(taskId, signal) {
       const task = await need(taskId);
       const asked = task.archive === "asked" || task.archive === "kept";
-      const facts = asked ? await options.archiving.facts(task, signal).catch(() => null) : null;
-      return viewOf(task, facts);
+      const worktree =
+        asked || needsWorktreeFacts(task) ? await options.archiving.facts(task, signal).catch(() => null) : null;
+      const changes = needsWorktreeFacts(task) ? await options.archiving.changes(task, signal).catch(() => null) : null;
+      return viewOf(task, asked ? worktree : null, false, reviewsOf(task, { worktree, changes }));
+    },
+    recordReview: (taskId, line) => runner.recordReview(taskId, line),
+    async openSession(taskId, sessionId) {
+      const task = await need(taskId);
+      if (options.design.sessions.recordOf(sessionId)?.taskId !== task.id) {
+        throw new CommandError("session_not_found", { sessionId });
+      }
+      await options.design.sessions.open(sessionId);
     },
     createFromChat(sessionId, scope, extra = {}) {
       const made = converting.then(() => convert(sessionId, scope, extra.model));

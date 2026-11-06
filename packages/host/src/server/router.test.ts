@@ -234,6 +234,11 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
       },
       unwatch: () => {},
     },
+    reviews: {
+      answer: async (sessionId, reviewId, verdict) => {
+        calls.push(["answerReview", sessionId, reviewId, verdict]);
+      },
+    },
     tasks: {
       list: async (id, watch) => {
         calls.push(["listTasks", id, watch]);
@@ -289,6 +294,10 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
       },
       answerArchive: async (taskId, answer) => {
         calls.push(["answerArchive", taskId, answer]);
+        return {};
+      },
+      openSession: async (taskId, sessionId) => {
+        calls.push(["openTaskSession", taskId, sessionId]);
         return {};
       },
       disconnect: () => {},
@@ -471,6 +480,11 @@ describe("createRouter", () => {
       call: ["answerArchive", "tsk_a", "keep"],
       result: {},
     },
+    {
+      command: { type: "open_task_session", taskId: "tsk_a", sessionId: "ses_n2" },
+      call: ["openTaskSession", "tsk_a", "ses_n2"],
+      result: {},
+    },
   ])("routes the task command $command.type with its complete arguments", async ({ command, call, result }) => {
     const { route, connection, calls, sent } = setUp();
     await route(connection, withTrace(command));
@@ -513,6 +527,8 @@ describe("createRouter", () => {
       { type: "resume_task", taskId: "tsk_a" },
       { type: "cancel_task", taskId: "tsk_a" },
       { type: "answer_archive", taskId: "tsk_a", answer: "archive" },
+      { type: "open_task_session", taskId: "tsk_a", sessionId: "ses_n2" },
+      { type: "answer_review", sessionId: "ses_task", reviewId: "tsk_a:human:N3:1", verdict: { action: "pass" } },
     ];
 
     await route(phone, withTrace({ type: "list_tasks", requestId: "l1" }));
@@ -796,6 +812,16 @@ describe("createRouter", () => {
         answer: { skipped: true },
       }),
     );
+    await route(
+      connection,
+      withTrace({
+        type: "answer_review",
+        requestId: "r8c",
+        ...session,
+        reviewId: "tsk_a:human:N3:1",
+        verdict: { action: "send_back", target: "N2", reason: "again" },
+      }),
+    );
     await route(connection, withTrace({ type: "retry_run", requestId: "r9", ...session }));
     await route(
       connection,
@@ -823,6 +849,7 @@ describe("createRouter", () => {
       ["steerQueued", "s1", "q3"],
       ["answerInteraction", "s1", "d1", { value: "a" }],
       ["answerQuestion", "s1", "call-1", { skipped: true }],
+      ["answerReview", "s1", "tsk_a:human:N3:1", { action: "send_back", target: "N2", reason: "again" }],
       ["retryRun", "s1"],
       ["setModel", "s1", { providerId: "anthropic", modelId: "haiku" }],
       ["setThinkingLevel", "s1", "max"],
@@ -843,7 +870,12 @@ describe("createRouter", () => {
       { type: "response", requestId: "r2", ok: true, result: { confirmed: false } },
       ...["r3", "r4", "r5", "r6"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
       { type: "response", requestId: "r7", ok: true, result: { disposition: "handled" } },
-      ...["r8", "r8b", "r9", "r10", "r11"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      ...["r8", "r8b", "r8c", "r9", "r10", "r11"].map((requestId) => ({
+        type: "response",
+        requestId,
+        ok: true,
+        result: {},
+      })),
       { type: "response", requestId: "r12", ok: true, result: { commands: [] } },
       { type: "response", requestId: "r13", ok: true, result: { files: [] } },
       ...["r14", "r15", "r16"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),

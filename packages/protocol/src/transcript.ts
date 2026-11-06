@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AgentNoticeEvent, AgentRole, AgentSource } from "./agent";
 import { AskedQuestion, QUESTION_LIMITS, QuestionOutcome } from "./question";
+import { ReviewRecord } from "./reviews";
 
 /** Milliseconds since the Unix epoch. */
 const Timestamp = z.number().int().nonnegative();
@@ -246,6 +247,18 @@ export const Notice = z.discriminatedUnion("notice", [
     notice: z.literal("task_mark"),
     taskId: z.string().min(1).max(128),
     state: z.enum(["converted", "abandoned"]),
+    timestamp: Timestamp,
+  }),
+  /**
+   * The outcome of a review, an `atrium-review` custom message the host wrote after the verdict took effect
+   * (ADR-0017, decision 2): a step on the process rail with the evidence as it was when the user decided.
+   * `timestamp` is when the host wrote it.
+   */
+  z.strictObject({
+    kind: z.literal("notice"),
+    id: z.string().min(1),
+    notice: z.literal("review"),
+    review: ReviewRecord,
     timestamp: Timestamp,
   }),
 ]);

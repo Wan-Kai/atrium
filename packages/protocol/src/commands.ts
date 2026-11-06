@@ -6,6 +6,7 @@ import { DirEntry, FILE_LIMITS, FileContent, WorkspacePath } from "./files";
 import { SNAPSHOT_TURNS, SnapshotStream } from "./events";
 import { InteractionAnswer } from "./control";
 import { QuestionReply } from "./question";
+import { Verdict } from "./reviews";
 import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, BranchName, ProxySetting, StatusBarChoices, TranslationLanguage } from "./listing";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
@@ -230,6 +231,21 @@ export const AnswerQuestionCommand = z.strictObject({
   answer: QuestionReply,
 });
 export type AnswerQuestionCommand = z.infer<typeof AnswerQuestionCommand>;
+
+/**
+ * Gives a verdict on a review waiting in a session (ADR-0017): a task's gates (graph approval, a human node, the
+ * question about the worktree), which the host then carries out through the same checks as `approve_graph`,
+ * `answer_human` and `answer_archive`. The first verdict on a review wins; later ones fail with `review_closed`.
+ * Fails with `review_invalid` when the verdict does not fit the review, `task_read_only` for a followed task, and
+ * with the codes of the business command it stands for (`task_back_limit`, `workspace_dirty`…).
+ */
+export const AnswerReviewCommand = z.strictObject({
+  type: z.literal("answer_review"),
+  ...sessionCommandFields,
+  reviewId: z.string().min(1).max(256),
+  verdict: Verdict,
+});
+export type AnswerReviewCommand = z.infer<typeof AnswerReviewCommand>;
 
 /** The error card's "重试": runs the last turn again, as after an automatic restart. */
 export const RetryRunCommand = z.strictObject({ type: z.literal("retry_run"), ...sessionCommandFields });
@@ -1017,6 +1033,20 @@ export const AnswerArchiveCommand = z.strictObject({
 });
 export type AnswerArchiveCommand = z.infer<typeof AnswerArchiveCommand>;
 
+/**
+ * Starts the pi of a session that belongs to a task, its conversation or one of its nodes', so that a client which
+ * watches it gets its snapshot and can write to it, without making it a tab among the project's (SPEC-0006, "T8a
+ * 定下的细节"). Fails with `task_not_found`, `session_not_found` for a session that is not the task's, and
+ * `task_read_only` for a followed task.
+ */
+export const OpenTaskSessionCommand = z.strictObject({
+  type: z.literal("open_task_session"),
+  ...commandFields,
+  taskId: TaskId,
+  sessionId: SessionId,
+});
+export type OpenTaskSessionCommand = z.infer<typeof OpenTaskSessionCommand>;
+
 /** Every command a client may send after the handshake. */
 export const Command = z.discriminatedUnion("type", [
   PingCommand,
@@ -1066,6 +1096,7 @@ export const Command = z.discriminatedUnion("type", [
   SteerQueuedCommand,
   AnswerInteractionCommand,
   AnswerQuestionCommand,
+  AnswerReviewCommand,
   RetryRunCommand,
   ListModelsCommand,
   SetModelCommand,
@@ -1119,6 +1150,7 @@ export const Command = z.discriminatedUnion("type", [
   ResumeTaskCommand,
   CancelTaskCommand,
   AnswerArchiveCommand,
+  OpenTaskSessionCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -1220,6 +1252,7 @@ export const CommandResult = {
   steer_queued: z.strictObject({ disposition: z.enum(["started", "queued", "handled"]) }),
   answer_interaction: z.strictObject({}),
   answer_question: z.strictObject({}),
+  answer_review: z.strictObject({}),
   retry_run: z.strictObject({}),
   /** `defaultModel` is the one pi picks by its own settings, `null` when it reported none. */
   list_models: z.strictObject({ models: z.array(CatalogModel), defaultModel: ModelRef.nullable() }),
@@ -1282,5 +1315,6 @@ export const CommandResult = {
   resume_task: z.strictObject({}),
   cancel_task: z.strictObject({}),
   answer_archive: z.strictObject({}),
+  open_task_session: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

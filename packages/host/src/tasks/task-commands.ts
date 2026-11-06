@@ -34,6 +34,8 @@ export interface TaskCommands {
   resume(taskId: string): Promise<CommandResult<"resume_task">>;
   cancel(taskId: string): Promise<CommandResult<"cancel_task">>;
   answerArchive(taskId: string, answer: "archive" | "keep"): Promise<CommandResult<"answer_archive">>;
+  /** Starts the pi of a session of the task without a tab for it; see the protocol's `open_task_session`. */
+  openSession(taskId: string, sessionId: string): Promise<CommandResult<"open_task_session">>;
   /** A connection closed; it watches nothing more. */
   disconnect(connectionId: string): void;
   /** Stops listening to the tasks and waits for the pushes under way. */
@@ -168,6 +170,10 @@ export function createTaskCommands(options: {
     },
     async answerArchive(taskId, answer) {
       await service.answerArchive(taskId, answer);
+      return {};
+    },
+    async openSession(taskId, sessionId) {
+      await service.openSession(taskId, sessionId);
       return {};
     },
     disconnect(connectionId) {

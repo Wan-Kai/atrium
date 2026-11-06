@@ -9,11 +9,14 @@ import {
   type ContainerId,
   type DiffTarget,
   type ForkPlacement,
+  type ArchiveAnswer,
   type HelloMessage,
+  type HumanAnswer,
   HostMessage,
   type InstallUpdatedEvent,
   type InteractionAnswer,
   type QuestionReply,
+  type Verdict,
   type LoginMethod,
   type LoginUpdatedEvent,
   type ModelRef,
@@ -276,6 +279,10 @@ export interface AtriumClient {
     questionId: string,
     answer: QuestionReply,
   ): Promise<CommandResult<"answer_question">>;
+  /** Starts the pi of a session of a task (its conversation or a node's) without a tab, so a watch gets its snapshot. */
+  openTaskSession(taskId: string, sessionId: string): Promise<CommandResult<"open_task_session">>;
+  /** Gives a verdict on a review waiting in a session, a task gate's (ADR-0017); fails `review_closed` if it is gone. */
+  answerReview(sessionId: string, reviewId: string, verdict: Verdict): Promise<CommandResult<"answer_review">>;
   /** The error card's "重试". */
   retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
   /** The models of a workspace, or with `null` of every chat and the settings, as far as asked; the same store every time. */
@@ -399,6 +406,30 @@ export interface AtriumClient {
    * task per connection); asked again on every later connection. A task that is not there shows as `missing`.
    */
   openTask(taskId: string): Promise<void>;
+  /** Makes a task of a conversation (`/task`); answers its id. Fails `task_already_converted` with the task's id. */
+  createTask(sessionId: string, scope?: string): Promise<CommandResult<"create_task">>;
+  /** "确认并启动". */
+  startTask(taskId: string): Promise<CommandResult<"start_task">>;
+  /** "放弃任务", while it is being designed. */
+  abandonTask(taskId: string): Promise<CommandResult<"abandon_task">>;
+  /** Approves the graph a started task waits for. */
+  approveGraph(taskId: string): Promise<CommandResult<"approve_graph">>;
+  /** Refuses the graph a started task waits for. */
+  rejectGraph(taskId: string): Promise<CommandResult<"reject_graph">>;
+  /** Answers a human node: pass it, or send the task back with a reason. */
+  answerHuman(taskId: string, node: string, answer: HumanAnswer): Promise<CommandResult<"answer_human">>;
+  /** Reruns a failed node. */
+  rerunNode(taskId: string, node: string): Promise<CommandResult<"rerun_node">>;
+  /** Lets a node the user stopped go on. */
+  continueNode(taskId: string, node: string): Promise<CommandResult<"continue_node">>;
+  /** "暂停任务". */
+  pauseTask(taskId: string): Promise<CommandResult<"pause_task">>;
+  /** "继续" a paused task. */
+  resumeTask(taskId: string): Promise<CommandResult<"resume_task">>;
+  /** "取消任务". */
+  cancelTask(taskId: string): Promise<CommandResult<"cancel_task">>;
+  /** The question about the worktree a finished task made. */
+  answerArchive(taskId: string, answer: ArchiveAnswer): Promise<CommandResult<"answer_archive">>;
   /** What the changes panel shows. */
   readonly diff: StoreApi<DiffView>;
   /** Opens the changes panel on a target, or closes it with `null`, on this connection and every later one. */
@@ -1571,6 +1602,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     answerInteraction: (sessionId, interactionId, answer) =>
       request("answer_interaction", { sessionId, interactionId, answer }),
     answerQuestion: (sessionId, questionId, answer) => request("answer_question", { sessionId, questionId, answer }),
+    openTaskSession: (taskId, sessionId) => request("open_task_session", { taskId, sessionId }),
+    answerReview: (sessionId, reviewId, verdict) => request("answer_review", { sessionId, reviewId, verdict }),
     retryRun: (sessionId) => request("retry_run", { sessionId }),
     models: (workspaceId) => modelList(workspaceId),
     loadModels: (workspaceId, refresh = false) => loadModels(workspaceId, refresh),
@@ -1707,6 +1740,19 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       openedTask = taskId;
       if (live !== undefined) await loadTask(taskId);
     },
+    createTask: (sessionId, scope) =>
+      request("create_task", scope === undefined ? { sessionId } : { sessionId, scope }),
+    startTask: (taskId) => request("start_task", { taskId }),
+    abandonTask: (taskId) => request("abandon_task", { taskId }),
+    approveGraph: (taskId) => request("approve_graph", { taskId }),
+    rejectGraph: (taskId) => request("reject_graph", { taskId }),
+    answerHuman: (taskId, node, answer) => request("answer_human", { taskId, node, answer }),
+    rerunNode: (taskId, node) => request("rerun_node", { taskId, node }),
+    continueNode: (taskId, node) => request("continue_node", { taskId, node }),
+    pauseTask: (taskId) => request("pause_task", { taskId }),
+    resumeTask: (taskId) => request("resume_task", { taskId }),
+    cancelTask: (taskId) => request("cancel_task", { taskId }),
+    answerArchive: (taskId, answer) => request("answer_archive", { taskId, answer }),
     diff,
     async watchDiff(target) {
       const shown = diff.getState().target;

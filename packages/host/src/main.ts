@@ -58,8 +58,10 @@ import { withModelRules } from "./sessions/model-rules";
 import { createSessionCatalog } from "./sessions/session-catalog";
 import { createPlanUsage } from "./sessions/plan-usage";
 import { createSessionManager } from "./sessions/session-manager";
+import { createReviewHub } from "./reviews/review-hub";
 import { createTaskRunner } from "./tasks/runner";
 import { createTaskArchiving } from "./tasks/task-archiving";
+import { createTaskReviewProvider } from "./tasks/task-reviews";
 import { createTaskCommands } from "./tasks/task-commands";
 import { followTasks } from "./tasks/followed-tasks";
 import { type TaskService, createTaskService } from "./tasks/task-service";
@@ -328,7 +330,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const worktreeNaming = new AbortController();
   // Who else wants to know the sessions changed: an update waits for running sessions to finish.
   const sessionListeners = new Set<() => void>();
+  // What waits for the user's verdict, per session (ADR-0017); the task gates register when the tasks exist.
+  const reviewHub = createReviewHub({ logger, resources });
   const sessions = createSessionManager({
+    reviews: reviewHub,
     chatsRoot: join(home.root, "chats"),
     // A pi started while pi is being updated waits, so it is the new one.
     tools: async () => {
@@ -534,6 +539,18 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
           resources,
           logger,
         });
+  // The task gates (ADR-0017): graph approval, human nodes, the question about the worktree.
+  reviewHub.register(
+    createTaskReviewProvider({
+      service: tasks,
+      taskOf: (sessionId) =>
+        tasks.held().find((task) => task.taskSessionId === sessionId)?.id ??
+        (() => {
+          const record = sessions.taskSessions.recordOf(sessionId);
+          return record?.role === "conversation" ? record.taskId : undefined;
+        })(),
+    }),
+  );
   const taskCommands = createTaskCommands({
     service: tasks,
     send: (connectionId, event) => subscriptions.sendTo(connectionId, event),
@@ -711,6 +728,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       piLatest,
       remote,
       tasks: taskCommands,
+      reviews: reviewHub,
       receipts,
       translations,
       attachments,
@@ -863,6 +881,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     // Before the sessions, whose stopping the runner would otherwise answer with events.
     await tasks.close();
     await taskCommands.close();
+    await reviewHub.close();
     await sessions.close();
     await catalog.close();
     // After the sessions, whose stopping still reports changes.

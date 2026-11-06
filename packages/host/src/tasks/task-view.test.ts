@@ -1,4 +1,5 @@
 import {
+  type PendingReview,
   TASK_BACK_LIMIT,
   TASK_CONFLICT_FILES_LIMIT,
   TASK_TEXT_LIMIT,
@@ -228,6 +229,107 @@ describe("what the board is told (SPEC-0006, T5)", () => {
       expect(view.sourceSessionId).toBe("ses_src");
       expect(view.nodes.map((node) => node.model)).toStrictEqual([null, { providerId: "x", modelId: "y" }]);
       expect(TaskView.parse(viewOf({ ...scheduled, projectId: null }, null)).sourceSessionId).toBeNull();
+    });
+
+    describe("what the interactive task area adds (SPEC-0006, T8a)", () => {
+      it("shows what the graph in force changed against the version before it, and none for the first", () => {
+        const sim = startedSim([agent("N1"), agent("N2")], edges(["N1", "N2"]));
+        expect(viewOf(sim.task, null).graphDiff).toBeNull();
+
+        sim.send({
+          type: "graph_proposed",
+          author: "agent",
+          note: "",
+          nodes: [agent("N1"), agent("N3")],
+          edges: edges(["N1", "N3"]),
+        });
+        sim.send({ type: "graph_approved" });
+
+        const view = TaskView.parse(viewOf(sim.task, null));
+        expect(view).toMatchObject({ graphVersion: 2, pendingGraph: false, pending: null });
+        expect(view.graphDiff).toStrictEqual({ from: 1, added: ["N3"], removed: ["N2"], changed: ["N1"] });
+      });
+
+      it("gives the graph that waits whole, with its difference against the one in force and what its author said", () => {
+        const sim = startedSim([agent("N1"), human("H", { merge: true })], edges(["N1", "H"]));
+        sim.send({
+          type: "graph_proposed",
+          author: "user",
+          note: "Add docs",
+          nodes: [
+            agent("N1"),
+            agent("N2", "work", { model: { providerId: "x", modelId: "y" }, place: "workspace" }),
+            human("H", { merge: true }),
+          ],
+          edges: edges(["N1", "N2"], ["N2", "H"]),
+        });
+
+        const view = TaskView.parse(viewOf(sim.task, null));
+
+        expect(view.pendingGraph).toBe(true);
+        expect(view.graphVersion).toBe(1);
+        expect(view.pending).toStrictEqual({
+          version: 2,
+          author: "user",
+          note: "Add docs",
+          nodes: [
+            { id: "N1", name: "node N1", kind: "agent", job: "do N1", done: ["N1 done"], role: "explore", model: null },
+            {
+              id: "N2",
+              name: "node N2",
+              kind: "agent",
+              job: "do N2",
+              done: ["N2 done"],
+              role: "work",
+              place: "workspace",
+              model: { providerId: "x", modelId: "y" },
+            },
+            { id: "H", name: "node H", kind: "human", job: "check H", done: ["H ok"], merge: true, model: null },
+          ],
+          edges: [
+            { from: "N1", to: "N2", kind: "seq" },
+            { from: "N2", to: "H", kind: "seq" },
+          ],
+          diff: { from: 1, added: ["N2"], removed: [], changed: ["N1", "H"] },
+        });
+        expect(view.reviews).toStrictEqual([]);
+      });
+
+      it("cuts a long note and carries the requirement summary and the reviews it is given", () => {
+        const sim = startedSim([agent("N1")], []);
+        sim.send({
+          type: "graph_proposed",
+          author: "agent",
+          note: "n".repeat(TASK_TEXT_LIMIT + 4),
+          nodes: [agent("N1", "explore", { job: "j".repeat(TASK_TEXT_LIMIT + 1) })],
+          edges: [],
+        });
+        const summary = {
+          goal: "g".repeat(9000),
+          decisions: ["d"],
+          constraints: ["c"],
+          nonGoals: ["x"],
+          openQuestions: ["q"],
+          acceptance: ["a"],
+        };
+        const review: PendingReview = {
+          id: "r",
+          openedAt: 1,
+          source: { kind: "gate", gate: "task_archive" },
+          subject: { code: "task_archive", params: {} },
+          evidence: [],
+          problem: null,
+          actions: [{ id: "keep", reason: "none", targets: [], recommended: true }],
+        };
+
+        const view = TaskView.parse(viewOf({ ...sim.task, summary }, null, false, [review]));
+
+        expect(view.pending?.note).toHaveLength(TASK_TEXT_LIMIT);
+        expect(view.pending?.nodes[0]?.job).toHaveLength(TASK_TEXT_LIMIT);
+        expect(view.requirements).toStrictEqual({ ...summary, goal: "g".repeat(8000) });
+        expect(view.reviews).toStrictEqual([review]);
+        expect(TaskView.parse(viewOf(sim.task, null, true)).reviews).toStrictEqual([]);
+      });
     });
   });
 });

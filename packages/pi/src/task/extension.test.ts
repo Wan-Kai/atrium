@@ -788,6 +788,69 @@ describe("/atrium-task mark and progress details (SPEC-0006, T6)", () => {
   });
 });
 
+describe("/atrium-task review (ADR-0017, decision 2)", () => {
+  const record = {
+    source: { kind: "gate", gate: "task_human" },
+    subject: { code: "task_human_node", params: { taskId: "tsk_a", node: "H", merge: false } },
+    evidence: [{ kind: "summary", by: { kind: "node", node: "N1" }, text: "Wrote it." }],
+    verdict: { action: "send_back", target: "N1", reason: "again" },
+  };
+  const review = {
+    v: 1,
+    id: "review:tsk_a:human:H:1",
+    at: 9,
+    text: "Atrium review: the user decided it.",
+    review: record,
+  };
+
+  it("writes the record into the task conversation as an atrium-review message, without a turn, once", async () => {
+    const s = stand({ argv: [conversation()] });
+
+    await s.command("review", review);
+    await s.command("review", { ...review, text: "again" });
+
+    expect(s.sent).toStrictEqual([
+      [
+        {
+          customType: "atrium-review",
+          content: "Atrium review: the user decided it.",
+          display: true,
+          details: { v: 1, kind: "review", id: "review:tsk_a:human:H:1", at: 9, review: record },
+        },
+        { triggerTurn: false },
+      ],
+    ]);
+  });
+
+  it("knows a record the session file has already, also after a restart", async () => {
+    const s = stand({ argv: [conversation()] });
+    s.session.branch.push({
+      type: "custom_message",
+      customType: "atrium-review",
+      details: { v: 1, kind: "review", id: "review:tsk_a:human:H:1" },
+    });
+
+    await s.command("review", review);
+
+    expect(s.sent).toStrictEqual([]);
+  });
+
+  it("is for the task conversation only, and ignores what it cannot read", async () => {
+    const worker = stand({ argv: [node("work")] });
+    const plain = stand({});
+    const conv = stand({ argv: [conversation()] });
+
+    await worker.command("review", review);
+    await plain.command("review", review);
+    await conv.command("review", { ...review, id: "r2", review: { ...record, verdict: {} } });
+    await conv.command("review", { ...review, id: "r3", text: "" });
+    await conv.command("review", { ...review, id: "r4", extra: 1 });
+    await conv.command("review");
+
+    expect([worker.sent, plain.sent, conv.sent]).toStrictEqual([[], [], []]);
+  });
+});
+
 /** A JSON Schema, as the tools declare their parameters. */
 interface Schema {
   type?: string;

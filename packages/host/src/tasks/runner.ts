@@ -4,7 +4,7 @@ import type { Clock } from "../platform/clock";
 import type { GitRunner } from "../platform/git";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
-import { CommandError, type SessionEvent } from "@atrium/protocol";
+import { CommandError, type ReviewRecord, type SessionEvent } from "@atrium/protocol";
 import type { TaskSessionSignal, TaskSessions } from "../sessions/task-sessions";
 import { type Caller, checkCall, checkConversationCall, replyText } from "./channel";
 import { type Answer, type ConversationCall, answerConversation, isConversationCall } from "./conversation";
@@ -64,6 +64,19 @@ export interface TaskRunner {
    * Fails with `task_state_invalid` when the node is not `stopped` or has no session.
    */
   continueNode(taskId: string, node: NodeId): Promise<void>;
+  /**
+   * Writes the record of a review whose verdict took effect into the task conversation (ADR-0017, decision 2).
+   *
+   * @remarks
+   * The hidden command `review`, which the extension writes as an `atrium-review` custom message without a model
+   * call and drops when it has the id already. It goes on the task's line of conversation commands, apart from the
+   * task's queue, so it follows the progress lines written before it. A task whose conversation the host did not
+   * start gets nothing.
+   */
+  recordReview(
+    taskId: string,
+    line: { readonly id: string; readonly text: string; readonly record: ReviewRecord },
+  ): void;
   /**
    * Forgets a task whose record was deleted (a design that was abandoned), once its queue is done.
    *
@@ -1429,6 +1442,26 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
         }
         await sessions.open(run.sessionId);
         await sessions.prompt(run.sessionId, CONTINUE_NODE, closing.signal);
+      });
+    },
+    recordReview(taskId, line) {
+      const entry = tasks.get(taskId);
+      const task = entry?.store.current() ?? null;
+      const sessionId = task === null ? undefined : conversationOf(task);
+      if (entry === undefined || sessionId === undefined) return;
+      onLine(entry, "review record", async () => {
+        await sessions.open(sessionId);
+        await sessions.command(
+          sessionId,
+          taskCommandText("review", {
+            v: 1,
+            id: line.id,
+            at: options.clock.now(),
+            text: line.text,
+            review: line.record,
+          }),
+          closing.signal,
+        );
       });
     },
     async detach(taskId) {

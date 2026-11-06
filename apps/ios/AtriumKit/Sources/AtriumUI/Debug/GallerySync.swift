@@ -98,7 +98,7 @@
       {"type":"session_snapshot","sessionId":"s1","epoch":1,"seq":0,"traceId":null,"stream":"st-1","items":[],\
       "hasOlder":false,"run":null,"exited":false,"control":{"queue":[],"deliveries":[],"deliveriesHeld":null,\
       "paused":null,"steers":[],"stopping":false,"restarting":false,"compacting":false,"interactions":[],\
-      "question":null,"failure":null},\
+      "question":null,"reviews":[],"failure":null},\
       "model":{"providerId":"openai-codex","modelId":"gpt-6","thinkingLevel":"high"},"fast":true,\
       "metrics":{"turns":null,"steps":null,"tokens":null,"cost":null,"reasoning":null,"branchTokens":0,\
       "context":null,"timing":null,"children":null}}

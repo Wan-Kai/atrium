@@ -498,6 +498,34 @@ describe("toLogEntry", () => {
     }
   });
 
+  it("reads the record of a review from an atrium-review message, and nothing from a record it cannot read", () => {
+    const review = {
+      source: { kind: "gate", gate: "task_archive" },
+      subject: { code: "task_archive", params: { taskId: "tsk_a" } },
+      evidence: [],
+      verdict: { action: "keep" },
+    };
+    const details = { v: 1, kind: "review", id: "review:tsk_a:archive", at: 8, review };
+
+    expect(toLogEntry(custom("atrium-review", details))).toStrictEqual({
+      id: "c1",
+      parentId: null,
+      timestamp: 3,
+      kind: "review_line",
+      line: details,
+    });
+    for (const bad of [{ ...details, review: { ...review, verdict: {} } }, { ...details, v: 2 }, "text", null]) {
+      expect(toLogEntry(custom("atrium-review", bad))).toStrictEqual({
+        id: "c1",
+        parentId: null,
+        timestamp: 3,
+        kind: "other",
+      });
+    }
+    // The task extension's own type does not carry it.
+    expect(toLogEntry(custom("atrium-task", details))).toMatchObject({ kind: "other" });
+  });
+
   it("treats another extension's custom message, or a note it cannot read, as nothing to show", () => {
     const note = { v: 1, kind: "note", note: "worktree_moved", from: "/a", to: "/b" };
     const other = { id: "c1", parentId: null, timestamp: 3, kind: "other" };

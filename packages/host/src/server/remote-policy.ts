@@ -41,6 +41,8 @@ export const COMMAND_REACH = {
   retry_run: "phone",
   answer_interaction: "phone",
   answer_question: "phone",
+  // A task gate's verdict is carried out by the host on the Mac; a phone only sees the reviews (ADR-0017, decision 5).
+  answer_review: "local_only",
   // A session's settings.
   set_model: "phone",
   set_thinking_level: "phone",
@@ -126,6 +128,7 @@ export const COMMAND_REACH = {
   resume_task: "local_only",
   cancel_task: "local_only",
   answer_archive: "local_only",
+  open_task_session: "local_only",
 } as const satisfies Record<CommandType, Reach>;
 
 /**

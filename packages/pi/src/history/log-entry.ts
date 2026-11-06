@@ -1,7 +1,7 @@
 import { AGENT_MESSAGE, type AgentNote, agentNote } from "../agent/agent";
 import { MessageDetails } from "../agent/channel";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { TASK_MESSAGE, TaskMessageDetails } from "../task/schema";
+import { REVIEW_MESSAGE, ReviewMessageDetails, TASK_MESSAGE, TaskMessageDetails } from "../task/schema";
 import { type SectionPiece, sectionPieces } from "./prompt-sections";
 import { readSkillBlock } from "./skill-block";
 import { type ToolArgs, contentText } from "./tools";
@@ -124,6 +124,8 @@ export type LogEntry = { readonly id: string; readonly parentId: string | null }
       | { readonly kind: "agent"; readonly details: MessageDetails }
       /** A progress line of the task conversation, or the "已转为任务" mark of its source (SPEC-0006). */
       | { readonly kind: "task_line"; readonly line: TaskLine }
+      /** The record of a review whose verdict took effect, an `atrium-review` custom message (ADR-0017). */
+      | { readonly kind: "review_line"; readonly line: ReviewMessageDetails }
       /** Anything the transcript does not show: model and thinking changes, labels, `!bash` messages… */
       | { readonly kind: "other" }
     ))
@@ -305,6 +307,10 @@ export function toLogEntry(entry: SessionEntry): LogEntry {
     return line.success && (line.data.kind === "progress" || line.data.kind === "converted")
       ? { ...base, kind: "task_line", line: line.data }
       : { ...base, kind: "other" };
+  }
+  if (entry.type === "custom_message" && entry.customType === REVIEW_MESSAGE) {
+    const line = ReviewMessageDetails.safeParse(entry.details);
+    return line.success ? { ...base, kind: "review_line", line: line.data } : { ...base, kind: "other" };
   }
   if (entry.type === "custom_message") {
     const message = entry.customType === AGENT_MESSAGE ? agentMessage(entry.details) : null;

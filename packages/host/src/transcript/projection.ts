@@ -251,6 +251,16 @@ export function projectTranscript(
               },
         );
         break;
+      case "review_line":
+        // The outcome of a review (ADR-0017, decision 2): a step on the process rail between the turns.
+        notices.push({
+          kind: "notice",
+          id: historyId(sessionId, entry.id),
+          notice: "review",
+          review: entry.line.review,
+          timestamp: entry.line.at,
+        });
+        break;
       // Stryker disable next-line StringLiteral,ConditionalExpression: these cases do nothing, as no case does for other kinds.
       case "omission":
       // Stryker disable next-line StringLiteral,ConditionalExpression: see above.

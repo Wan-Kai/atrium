@@ -25,6 +25,7 @@ import type { PiConfig } from "../setup/pi-config";
 import type { Connection } from "./connection";
 import { phoneMayRun } from "./remote-policy";
 import type { ReceiptBook } from "../remote/receipts";
+import type { ReviewHub } from "../reviews/review-hub";
 import type { TaskCommands } from "../tasks/task-commands";
 
 /**
@@ -75,6 +76,8 @@ export interface RouterOptions {
   readonly remote: RemoteCommands;
   /** Tasks and their graphs (SPEC-0006); a phone may only list and open them. */
   readonly tasks: TaskCommands;
+  /** The reviews waiting for a verdict (ADR-0017). */
+  readonly reviews: Pick<ReviewHub, "answer">;
   /** A phone's `prompt` and `steer` run at most once per request id (SPEC-0005, "MP4b 定的细节"). */
   readonly receipts: ReceiptBook;
   readonly tracer: Tracer;
@@ -253,6 +256,9 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.answerInteraction(command.sessionId, command.interactionId, command.answer);
       case "answer_question":
         return options.sessions.answerQuestion(command.sessionId, command.questionId, command.answer);
+      case "answer_review":
+        await options.reviews.answer(command.sessionId, command.reviewId, command.verdict);
+        return {};
       case "retry_run":
         return options.sessions.retryRun(command.sessionId);
       case "set_model":
@@ -340,6 +346,8 @@ export function createRouter(options: RouterOptions): Route {
         return options.tasks.resume(command.taskId);
       case "cancel_task":
         return options.tasks.cancel(command.taskId);
+      case "open_task_session":
+        return options.tasks.openSession(command.taskId, command.sessionId);
       case "answer_archive":
         return options.tasks.answerArchive(command.taskId, command.answer);
       case "get_remote":

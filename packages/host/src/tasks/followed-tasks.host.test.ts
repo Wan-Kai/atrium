@@ -166,6 +166,7 @@ describe("tasks followed read-only (SPEC-0006, T7.1)", () => {
       { type: "approve_graph", taskId: "tsk_try" },
       { type: "reject_graph", taskId: "tsk_try" },
       { type: "answer_archive", taskId: "tsk_try", answer: "archive" },
+      { type: "open_task_session", taskId: "tsk_try", sessionId: "ses_try_task" },
     ];
     const answers: unknown[] = [];
     for (const command of commands) answers.push([command["type"], await client.send(command)]);
@@ -186,6 +187,29 @@ describe("tasks followed read-only (SPEC-0006, T7.1)", () => {
     // Nothing of it was taken up as an own task: the host's own tasks directory has no entry for it.
     expect(await readdir(join(home, "tasks")).catch(() => [])).not.toContain("tsk_try");
     expect(countOf(host.host.resources.snapshot(), "session.controller")).toBe(0);
+  });
+
+  it("shows a followed task no reviews to answer, and a verdict on its conversation finds nothing open and writes nothing (ADR-0017)", async () => {
+    const { tasks, host } = await followingHost(async (directory) => {
+      const writer = await writeTask(directory, followedTask("tsk_try"));
+      for (const step of FOLLOWED_STEPS) await writer.record(step);
+    });
+    const client = await connect(host.url, host.token);
+    await client.send({ type: "list_tasks" });
+    const opened = viewOf(await client.send({ type: "open_task", taskId: "tsk_try" }));
+    const before = await fingerprint(tasks);
+
+    const answered = await client.send({
+      type: "answer_review",
+      sessionId: "ses_try_task",
+      reviewId: "tsk_try:human:H1:1",
+      verdict: { action: "pass" },
+    });
+
+    // H1 waits, and an own task in that state would have a review for it; a followed one has none.
+    expect(opened).toMatchObject({ followed: true, attention: "human", reviews: [] });
+    expect(answered).toMatchObject({ ok: false, error: { code: "review_closed" } });
+    expect(await fingerprint(tasks)).toStrictEqual(before);
   });
 
   it("does not run, start or record anything for a followed task, even one that is running and waiting", async () => {

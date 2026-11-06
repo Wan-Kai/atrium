@@ -368,6 +368,7 @@ extension Notice {
     case .note(let notice): notice.id
     case .taskProgress(let notice): notice.id
     case .taskMark(let notice): notice.id
+    case .review(let notice): notice.id
     }
   }
 }

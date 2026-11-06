@@ -29,6 +29,7 @@ import {
   CommandError,
   IDLE_CONTROL,
   type ModelRef,
+  type PendingReview,
   type PlanProvider,
   type SessionEvent,
   type SessionModel,
@@ -322,6 +323,14 @@ export function createSessionManager(options: {
   readonly tools: () => Promise<SessionTools | null>;
   readonly subscriptions: SubscriptionRegistry;
   readonly catalog: SessionCatalog;
+  /**
+   * What waits for the user's verdict in a session (ADR-0017): the control carries it, and a change is published.
+   * Without it no session has any.
+   */
+  readonly reviews?: {
+    readonly current: (sessionId: string) => readonly PendingReview[];
+    readonly onChanged: (listener: (sessionId: string) => void) => () => void;
+  };
   readonly layouts: Layouts;
   /** Which chats are archived, and with which sessions (SPEC-0001, "M1.11 的对话归档"). */
   readonly chats: Pick<ChatRecords, "archived" | "setArchived">;
@@ -447,6 +456,10 @@ export function createSessionManager(options: {
   // A child created, detached, archived or found grown changes its ancestors' figures.
   const stopWatchingCatalog = options.catalog.onChange(() => {
     for (const sessionId of sessions.keys()) childrenUsage.refresh(sessionId);
+  });
+  // A session's reviews changed: its control says so, if it has a controller (ADR-0017).
+  const stopWatchingReviews = options.reviews?.onChanged((sessionId) => {
+    sessions.get(sessionId)?.controller.reviewsChanged();
   });
   /** How many times pi was started, so each start has its own number (ADR-0013, point 5). */
   let epochs = 0;
@@ -1157,6 +1170,7 @@ export function createSessionManager(options: {
         inBackground("fast record", () => options.catalog.mark(sessionId, { fast: enabled }));
       },
       deliveries: relay.deliveries(sessionId),
+      ...(options.reviews === undefined ? {} : { reviews: () => options.reviews?.current(sessionId) ?? [] }),
       ...(starts === undefined
         ? {}
         : {
@@ -2253,6 +2267,7 @@ export function createSessionManager(options: {
       closed = true;
       closing.abort();
       stopWatchingCatalog();
+      stopWatchingReviews?.();
       for (const search of searches.values()) search.abort();
       const titlesClosed = titles.close();
       // Tasks running are told `stopped` before their pi stops (SPEC-0002, "送达").
