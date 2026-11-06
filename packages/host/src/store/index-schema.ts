@@ -111,8 +111,6 @@ const SessionRecord = z.looseObject({
   attention: Attention.extend({ text: z.string().max(300).nullable().default(null) })
     .nullable()
     .optional(),
-  /** It was handed to pi in a terminal (SPEC-0001, "交给终端"); added in M1.9. */
-  handedOff: z.boolean().optional(),
   /** Fast as last switched in it (SPEC-0001, "Fast"); added in M1.11. */
   fast: z.boolean().optional(),
   /** The session it is a child conversation of, and who opened it (SPEC-0002); added in M1.15. */

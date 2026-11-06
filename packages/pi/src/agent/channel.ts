@@ -39,7 +39,6 @@ export const AgentErrorCode = z.enum([
   "agent_depth_limit",
   "agent_not_allowed",
   "agent_gone",
-  "agent_handed_off",
   "agent_busy",
   "agent_name_taken",
   "agent_name_invalid",
@@ -268,7 +267,7 @@ export function readReply(value: unknown): AgentReply | null {
 }
 
 /** Why the host closed a question it was asked (SPEC-0002, `ask_parent`). */
-export const CancelReason = z.enum(["detached", "archived", "handed_off", "reply_failed"]);
+export const CancelReason = z.enum(["detached", "archived", "reply_failed"]);
 export type CancelReason = z.infer<typeof CancelReason>;
 
 /** What `/atrium-agent cancel` carries (ADR-0013, point 2). */

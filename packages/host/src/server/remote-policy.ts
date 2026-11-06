@@ -97,8 +97,6 @@ export const COMMAND_REACH = {
   set_preferences: "local_only",
   // Only for the Mac's own window.
   window_focused: "local_only",
-  hand_off: "local_only",
-  take_back: "local_only",
   export_session: "local_only",
   // Not in the first version.
   edit_stopped_message: "local_only",

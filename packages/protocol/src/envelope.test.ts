@@ -138,8 +138,6 @@ const commands: Command[] = [
   { type: "select_container", requestId: "r23", traceparent, containerId: null },
   { type: "archive_session", requestId: "r24", traceparent, sessionId: "s1" },
   { type: "clear_attention", requestId: "r24a", traceparent, sessionId: "s1" },
-  { type: "hand_off", requestId: "r24b", traceparent, sessionId: "s1" },
-  { type: "take_back", requestId: "r24c", traceparent, sessionId: "s1" },
   { type: "rename_session", requestId: "r25", traceparent, sessionId: "s1", name: "重构" },
   { type: "set_preferences", requestId: "r26", traceparent, appearance: "dark" },
   { type: "set_preferences", requestId: "r60", traceparent, statusBar: { session: false, cost: true } },
@@ -870,7 +868,6 @@ describe("parseClientMessage", () => {
       "fetch_transcript",
       "fork_session",
       "get_remote",
-      "hand_off",
       "install_node",
       "install_pi",
       "list_bases",
@@ -918,7 +915,6 @@ describe("parseClientMessage", () => {
       "stop",
       "subscribe_index",
       "subscribe_sessions",
-      "take_back",
       "test_relay",
       "translate_reply",
       "unpin_chat",
@@ -1675,13 +1671,8 @@ describe("CommandResult", () => {
     expect(CommandResult.watch_diff.safeParse({ files: [] }).success).toBe(false);
     expect(CommandResult.set_model.parse({})).toStrictEqual({});
     expect(CommandResult.set_thinking_level.parse({})).toStrictEqual({});
-    expect(CommandResult.hand_off.parse({ file: "/pi/sessions/s1.jsonl", args: ["--tools", "read,ls"] })).toStrictEqual(
-      { file: "/pi/sessions/s1.jsonl", args: ["--tools", "read,ls"] },
-    );
-    expect(CommandResult.hand_off.safeParse({ file: "/pi/sessions/s1.jsonl" }).success).toBe(false);
     expect(CommandResult.remove_delivery.parse({})).toStrictEqual({});
     expect(CommandResult.resume_deliveries.parse({})).toStrictEqual({});
-    expect(CommandResult.take_back.parse({})).toStrictEqual({});
     expect(CommandResult.clear_attention.parse({})).toStrictEqual({});
     expect(CommandResult.login.parse({ loginId: "l1" })).toStrictEqual({ loginId: "l1" });
     expect(CommandResult.login.safeParse({ loginId: "" }).success).toBe(false);
@@ -1764,7 +1755,6 @@ const snapshot: IndexSnapshotEvent = {
       attention: null,
       asking: null,
       question: null,
-      handedOff: false,
       model: null,
       parent: null,
       agent: null,
@@ -1783,7 +1773,6 @@ const snapshot: IndexSnapshotEvent = {
       attention: { reason: "error", at: 7, cleared: false, text: "overloaded" },
       asking: 8,
       question: { title: "回调地址用哪个？", detail: "换了要同步改 Nginx" },
-      handedOff: true,
       model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "high" },
       parent: { sessionId: "s1", by: "agent" },
       agent: {
@@ -1841,7 +1830,6 @@ const changes: IndexChangesEvent = {
         attention: null,
         asking: null,
         question: null,
-        handedOff: false,
         model: null,
         parent: { sessionId: "s2", by: "agent" },
         agent: null,
@@ -2098,8 +2086,6 @@ const commandResultExamples = {
   archive_session: [{}],
   detach_session: [{}],
   clear_attention: [{}],
-  hand_off: [{ file: "/pi/sessions/s1.jsonl", args: ["--tools", "read,ls"] }],
-  take_back: [{}],
   rename_session: [{}],
   set_preferences: [{}],
   report_client_issue: [{}],
@@ -2476,7 +2462,6 @@ describe("HostMessage", () => {
       "export_failed",
       "fork_failed",
       "turn_not_found",
-      "session_handed_off",
       "login_unavailable",
       "login_not_found",
       "logout_failed",

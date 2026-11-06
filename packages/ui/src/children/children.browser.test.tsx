@@ -74,7 +74,7 @@ const FAMILY = [
   child("补测试", "main", { containerId: OTHER, updatedAt: Date.now() - 180_000 }),
   child("边界用例", "补测试", { asking: 5, containerId: OTHER }),
   child("时区", "边界用例", { containerId: OTHER }),
-  child("日志排查", "main", { handedOff: true, updatedAt: Date.now() - 3_600_000 }),
+  child("日志排查", "main", { updatedAt: Date.now() - 3_600_000 }),
   child("旧的", "main", { archived: true }),
 ];
 
@@ -112,7 +112,7 @@ describe("ChildCapsule", () => {
       expect(rows.elements().map((row) => row.textContent)).toStrictEqual([
         "安全审查刚刚",
         "补测试atrium · atrium/tests+23 分钟前",
-        "日志排查已在终端中继续1 小时前",
+        "日志排查1 小时前",
       ]),
     );
     const list = screen.getByRole("dialog", { name: "子对话" }).element();

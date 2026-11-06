@@ -101,7 +101,6 @@ export const MUTATION_GROUPS = {
       "packages/ui/src/state/panes.ts",
       "packages/ui/src/sidebar/names.ts",
       "packages/ui/src/sidebar/status.ts",
-      "packages/ui/src/tabs/hand-off.ts",
       "packages/ui/src/children/children.ts",
       "packages/ui/src/children/new-child.ts",
       "packages/ui/src/chat/agent-words.ts",

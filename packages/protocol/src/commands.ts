@@ -475,14 +475,6 @@ export const ClearAttentionCommand = z.strictObject({
 });
 export type ClearAttentionCommand = z.infer<typeof ClearAttentionCommand>;
 
-/** Stops a session's pi so pi in a terminal can go on with it; Atrium starts none until taken back. */
-export const HandOffCommand = z.strictObject({ type: z.literal("hand_off"), ...commandFields, sessionId: SessionId });
-export type HandOffCommand = z.infer<typeof HandOffCommand>;
-
-/** Goes on with a session handed to a terminal: reads its file again and starts pi. */
-export const TakeBackCommand = z.strictObject({ type: z.literal("take_back"), ...commandFields, sessionId: SessionId });
-export type TakeBackCommand = z.infer<typeof TakeBackCommand>;
-
 /** Names a session, written back to pi. */
 export const RenameSessionCommand = z.strictObject({
   type: z.literal("rename_session"),
@@ -948,8 +940,6 @@ export const Command = z.discriminatedUnion("type", [
   ArchiveSessionCommand,
   DetachSessionCommand,
   ClearAttentionCommand,
-  HandOffCommand,
-  TakeBackCommand,
   RenameSessionCommand,
   SetPreferencesCommand,
   ReportClientIssueCommand,
@@ -1083,13 +1073,6 @@ export const CommandResult = {
   archive_session: z.strictObject({}),
   detach_session: z.strictObject({}),
   clear_attention: z.strictObject({}),
-  /** The session file, for `pi --session`. */
-  /**
-   * `args`: the tool limits of a child the agent opened, which pi in a terminal takes as flags, as
-   * it has no Atrium extension; only advice there (SPEC-0002, "交接").
-   */
-  hand_off: z.strictObject({ file: z.string().min(1).max(4096), args: z.array(z.string().max(4096)).max(16) }),
-  take_back: z.strictObject({}),
   rename_session: z.strictObject({}),
   set_preferences: z.strictObject({}),
   report_client_issue: z.strictObject({}),

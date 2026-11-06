@@ -153,7 +153,7 @@ iOS App ──wss──▶ relay（用户 VPS，前面的反代终止外层 TLS�
   - 项目和工作区：`add_project`、`remove_project`、`rename_project`、`discover_projects`、`archive_workspace`、`restore_workspace`、`set_main_branch`、`list_branches`、`list_bases`、`create_workspace`、`name_branch`、`rename_workspace`、`rename_chat`；
   - 登录与安装：`login`、`answer_login`、`cancel_login`、`logout`、`install_pi`、`install_node`、`update_pi`、`cancel_install`、`check_setup`、`check_pi_update`；
   - 配置：`read_pi_config`、`save_pi_config`、`set_preferences`；
-  - 本机专用：`window_focused`、`hand_off`、`take_back`、`export_session`；
+  - 本机专用：`window_focused`、`export_session`；
   - 第一版不做的：`edit_stopped_message`、`fork_session`、`detach_session`、`archive_chat`、`restore_chat`、`search_files`；
   - 新增的远程管理命令（下文"宿主"）一律只给本机。
 
@@ -347,7 +347,6 @@ MP4 拆成三片，各自验收：**MP4a** 只读同步（列表、打开会话�
 7. **审查后补（2026-10-27，gpt-6-astra 单路只读审查）**：
    - 同步由"通道打开"触发（`RemoteConnection.openings`），不看状态文字。回到前台时新连接还在握手就已显示"正在同步"，按状态触发会把订阅发进还没建好的通道丢掉，之后再也不同步。"正在同步"只在当前已有打开的通道时才触发同一条连接重新同步。
    - 离开会话页时发 `close_tab` 放掉手机的标签，不然这个会话一直留在手机的布局里，Mac 回收不了它的控制器。这个页面还在路上的请求不再作数，迟到的失败应答不会落到重新打开的同一个页面上。
-   - 交给终端的会话（`handedOff`）Mac 不会为它起 pi，等不到快照，算作"已同步"，页面写"这个会话交给终端里的 pi 了"；之后若有快照就照常替换。
 8. MP4a 已知的限制：列表快照超过 8 MiB 会被宿主丢掉，手机停在"正在同步"（MP4c 前不处理）；会话页不往前翻页，`hasOlder` 只显示一行"更早的在 Mac 上看"。
 9. **往上翻载入更早的**（2026-10-29 补，用户选原型 A，`prototypes/mobile-older-turns-prototype.html`）：
    - 手机的快照预算从 6 轮、512 KiB 降到 **3 轮、256 KiB**：线路慢时打开会话要等的就是这一份。
@@ -418,7 +417,7 @@ MP4 拆成三片，各自验收：**MP4a** 只读同步（列表、打开会话�
 - 列表带上游标（`generation`、`seq`）订阅；宿主能接上就立刻回一批（可能是空的）`index_changes`，这批或者一份快照到了，列表才算同步完了。
 - 回到前台时同一条连接也按这个规则走。宿主只给新加入订阅的会话发快照或续传，所以仍要先从订阅里去掉再加回，加回时带上 `resume`。
 - 三方审查后补（2026-10-27）：
-  - 续传中的会话被宿主拒绝打开（例如在 Mac 上删掉了），或者在列表里显示已交给终端，同样算同步完了，不会一直"正在同步"。
+  - 续传中的会话被宿主拒绝打开（例如在 Mac 上删掉了），同样算同步完了，不会一直"正在同步"。
   - 续传中收到 `seq` 不超过自己位置的事件（回到前台时通道里还没读完的旧事件），当作已有的忽略，不触发重新同步。
 
 **冷启动缓存**（`AtriumSync` 的 `SyncCache`，iOS 上落在 Application Support）：
@@ -543,6 +542,11 @@ MP4 拆成三片，各自验收：**MP4a** 只读同步（列表、打开会话�
    - `Attention` 加 `text: string | null`（最多 300 字符）：失败时 pi 给的报错原文，换行压成空格前保留第一行在前；同 `attention` 一起写进索引，旧索引没有这个字段读成 `null`。
    - `SessionSummary` 加 `question: { title: string, detail: string | null } | null`：最早一个没答的提问的第一题（`title` 是题目，最多 200 字符；`detail` 是说明，最多 300 字符，没有为 `null`）；扩展对话框用它的 `title` / `message`。随 `asking` 一起变，没有提问时为 `null`。
    - 这些是 pi 和 agent 的原文，不是宿主产出的文字；只截断不改写。手机缓存照旧，协议不一致时按现有的版本不一致处理。
+
+7. **拿掉"交给终端"（协议 33，2026-11-05 定）**：桌面标签栏"···"里的"在终端中继续"改成"在终端中打开"——由桌面壳在本机开一个终端，宿主和协议不参与（SPEC-0001，"在终端中打开"）。整套交接机制随之去掉：
+   - 去掉命令 `hand_off`、`take_back` 和它们的 `CommandResult`；`session_handed_off` 这个错误码一并去掉。
+   - `SessionSummary` 去掉 `handedOff`；`AgentStatus` 去掉 `handed_off`；宿主结束子对话、取消 `ask_parent` 的原因里不再有 `handed_off`，扩展的 `agent_handed_off` 错误码也去掉。
+   - 索引里旧的 `handedOff: true` 不再读，这样记过的会话下次打开时照常在 Atrium 里起 pi（从同一个会话文件接着读）。手机端没有这个标记，不需要迁移。
 
 ### iOS App（`apps/ios`）
 

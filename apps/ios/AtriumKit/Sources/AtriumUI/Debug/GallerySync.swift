@@ -89,7 +89,7 @@
       {"sessionId":"\(id)","containerId":"\(container)","name":null,"prompt":"\(prompt)","file":null,\
       "state":"persisted","updatedAt":\(updated),"archived":false,"running":\(running),"attention":\(attention),\
       "asking":\(asking),"question":\(question),\
-      "handedOff":false,"model":null,"parent":null,"agent":null,"heldDeliveries":0}
+      "model":null,"parent":null,"agent":null,"heldDeliveries":0}
       """
     }
 

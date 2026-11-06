@@ -4,6 +4,28 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## 在终端中打开；拿掉"交给终端"（2026-11-05）
+
+用户定：标签栏"···"里的"在终端中继续"改成"在终端中打开"，只开终端、不再交接——不停 pi、不写索引、不复制也不运行命令。目录是会话所在工作区的目录，对话用 `~`；cmux 装着就在它当前窗口新开一个工作区并切到 cmux，没跑就先启动，没装就用系统"终端"。整套交接机制（`hand_off` / `take_back`、`handedOff`、"已在终端中继续"面板、子对话的 `handed_off` 状态、`agent_handed_off`）一并去掉，协议 33。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 开在会话的工作区目录；对话（没有工作区）用 `~` | `packages/ui/src/app/workbench.browser.test.tsx` "opens a terminal in the session's workspace, and in the home folder for a chat"；`apps/desktop/src/main/open-terminal.test.ts` "opens the home folder for a chat" |
+| 桌面壳：cmux 已运行就在当前窗口新建工作区（`--cwd` 目录、`--focus true`）并把 cmux 提到前面；cmux 没跑就启动并等它应答；没有 cmux 就用 `open -a Terminal <目录>` | `open-terminal.test.ts` "adds a workspace in the window cmux shows…"、"launches cmux when it is not running…"、"opens Terminal.app in the directory…"、"prefers the cmux inside the app…"、"makes its own window…" |
+| 15 秒内 cmux 没起来算失败，菜单旁显示"打开终端失败" | `open-terminal.test.ts` "gives up when cmux never answers"；`workbench.browser.test.tsx` "says so when the terminal does not open" |
+| 浏览器里没有这个桥：入口置灰并说明 | `workbench.browser.test.tsx` "has no terminal to offer outside the desktop app" |
+| 主进程只接受 `null` 或存在的绝对目录，其它忽略（security.md"Electron"） | `apps/desktop/src/main/main.ts` 的 `isOpenableDirectory`；IPC 校验由下面的破坏检查和 Electron 端到端层看，不做单元替身 |
+| 交接机制整段去掉：协议 33 的样例、索引里的旧 `handedOff` 不再读、手机端状态与文案、子对话状态与错误码 | `packages/protocol/src/envelope.test.ts`、`agent.test.ts`、`remote.test.ts`；`packages/host/src/sessions/{session-catalog,agent-relay}.test.ts`；`packages/pi/src/agent/{words,channel}.test.ts`；`apps/ios/AtriumKit/Tests/AtriumSyncTests/*`（协议往返夹具由 `pnpm protocol:swift` 重写） |
+
+验证记录：
+
+- 代码与文档先改（SPEC-0001"标签栏""关键流程""在终端中打开"、SPEC-0002、SPEC-0005"协议改动 7"、domain-model"已决定 16"、security.md、external-terminal.md），再改实现。
+- `pnpm check` 通过；unit 4346/4346；`pnpm test:host` 243/243；完整 UI 单 worker 1180/1180；Swift 473/473；`pnpm protocol:swift` 重新生成 Swift 类型和往返夹具。
+- `pnpm break-check apps/desktop/src/main/open-terminal.break-check.json` 10/10 全部检出（目录、cmux 顺序、Terminal 回退、启动等待、超时放弃、自带窗口、置灰条件、失败文案、调用本身）。
+- 变异：`pnpm test:mutation host --mutate=packages/host/src/server/remote-policy.ts` 80 个变异、98.75%，唯一存活在 `remote-policy.ts:132`（`create_session` 带 `child` 时 `local_only` 的既有条件，本任务没改这一行，测试也没覆盖这个分支）。`agent-relay.ts` 的定向变异跑了 40 分钟、2140 个变异只到 22%（55 个存活）就被停止，没有结论；协议和客户端的改动都是删除，没有对删除行做变异。下一次全量夜间变异会接着这份增量报告跑。
+- `pnpm test:pi` 仍是 52 项 "no fixture pi-1.5.0"（roadmap 里记过的既有问题，与本任务无关）；本任务没跑 Electron 端到端、泄漏、压力、打包和模拟器 UI 测试。
+- 没有在真实 cmux 上验收：会打开用户自己的窗口，留给用户试。删除的 e2e `hand-off.spec.ts` 和旧追踪表里关于交接的行不再对应现在的行为，保留为历史记录。
+
 ## Markdown 文件预览（M1.12 自用后补充，2026-11-04）
 
 用户选 `prototypes/markdown-preview-prototype.html` 的 A“单按钮原位切换”，并要求一起支持本地图片和相对文件链接。复用既有 Markdown 渲染和文件安全边界；模式与两套滚动位置仅存在窗口内，不改协议。

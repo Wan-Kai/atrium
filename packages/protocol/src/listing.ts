@@ -172,8 +172,6 @@ export const SessionSummary = z.strictObject({
   asking: Timestamp.nullable(),
   /** What the oldest unanswered dialog asks; `null` without one (SPEC-0005, "协议改动" 6). */
   question: AskingName.nullable(),
-  /** Handed to pi in a terminal; Atrium starts no pi for it until taken back. */
-  handedOff: z.boolean(),
   /**
    * The model and thinking level its file last records, as the child list shows them; `null` when
    * the file records none (a draft) or a level pi does not know (SPEC-0002, "显示 · 子对话条").

@@ -48,8 +48,6 @@ function fakeCommands() {
     restoreChat: record("restoreChat", {}),
     renameSession: record("renameSession", {}),
     clearAttention: record("clearAttention", {}),
-    handOff: record("handOff", { file: "/s.jsonl", args: [] }),
-    takeBack: record("takeBack", {}),
     subscribe: record("subscribe", {}),
     prompt: async (command: PromptCommand, images = []) => {
       calls.push(["prompt", command.sessionId, command.text, ...images.map((image) => image.data)]);
@@ -556,8 +554,6 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "restore_chat", requestId: "r10b", chatId: CHAT }));
     await route(connection, withTrace({ type: "rename_session", requestId: "r11", sessionId: "s2", name: "名字" }));
     await route(connection, withTrace({ type: "clear_attention", requestId: "r12", sessionId: "s2" }));
-    await route(connection, withTrace({ type: "hand_off", requestId: "r13", sessionId: "s2" }));
-    await route(connection, withTrace({ type: "take_back", requestId: "r14", sessionId: "s2" }));
     await route(
       connection,
       withTrace({ type: "fetch_image", requestId: "r15", sessionId: "s1", turnId: "t9", index: 1 }),
@@ -581,8 +577,6 @@ describe("createRouter", () => {
       ["restoreChat", CHAT],
       ["renameSession", "s2", "名字"],
       ["clearAttention", "s2"],
-      ["handOff", "s2"],
-      ["takeBack", "s2"],
       ["fetchImage", "s1", "t9", 1],
     ]);
     expect(sent).toStrictEqual([
@@ -601,8 +595,6 @@ describe("createRouter", () => {
         ok: true,
         result: {},
       })),
-      { type: "response", requestId: "r13", ok: true, result: { file: "/s.jsonl", args: [] } },
-      { type: "response", requestId: "r14", ok: true, result: {} },
       { type: "response", requestId: "r15", ok: true, result: { mimeType: "image/png", data: "eA==" } },
     ]);
   });

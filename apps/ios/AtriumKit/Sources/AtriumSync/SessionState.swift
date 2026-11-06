@@ -21,8 +21,6 @@ public struct SessionState: Sendable, Equatable {
     case exited
     /// The host refused to open or subscribe to the session.
     case failed(ErrorCode)
-    /// Handed to pi in a terminal: the Mac starts no pi for it, so no snapshot comes until taken back.
-    case handedOff
   }
 
   /// What applying an event did.
@@ -130,17 +128,6 @@ public struct SessionState: Sendable, Equatable {
   /// - SideEffects: none
   public mutating func reload() {
     status = .loading
-    resuming = false
-  }
-
-  /// Marks a session still waiting for its snapshot, or to resume, as handed to a terminal.
-  ///
-  /// - Remark: It counts as settled for "已连接"; a snapshot, should one come, replaces it. The Mac
-  ///   starts no pi for it, so neither a snapshot nor `session_resumed` would come.
-  /// - SideEffects: none
-  public mutating func markHandedOff() {
-    guard status == .loading || resuming else { return }
-    status = .handedOff
     resuming = false
   }
 
