@@ -110,6 +110,8 @@ atrium/
 │   │   │   │                       PendingInteraction、Attention、计时与指标；子对话的树（child-tree）
 │   │   │   │                       和用量合计（children-usage，SPEC-0002）；stopped-edit 负责停止消息编辑的分支事务和恢复；
 │   │   │   │                       reply-translation 管理按连接归属的临时翻译与取消，不写会话
+│   │   │   ├── study/              学习方向（SPEC-0008，ML1）：扫描和监听学习目录（Directions）、起名、建方向目录、
+│   │   │   │                       方向的命令（新建、归档、恢复，经 SessionManager 建会话、停 pi）
 │   │   │   ├── transcript/         SessionLog（日志条目树、叶子、当前分支）、TranscriptProjection
 │   │   │   ├── status/             会话状态、工作区和项目的汇总（纯函数）
 │   │   │   ├── sync/               订阅表、列表推送（M1.5 整份快照，M1.9 加 generation+seq 增量）
@@ -132,6 +134,7 @@ atrium/
 │   │       ├── state/              把 client 的 store 包成 hooks；ViewState（折叠、草稿，存 localStorage；图片只在内存）
 │   │       ├── design/             设计变量（CSS）、外观、弹簧曲线、点阵、图标封装、字体、服务商官方图标（brand/）
 │   │       ├── sidebar/            侧栏、搜索、项目与工作区、对话分区（收件箱在 M1.9）
+│   │       ├── study/              学习模式（SPEC-0008）：学习首页、新建方向页、方向主页标签和主页
 │   │       ├── tabs/               标签栏、历史和会话菜单
 │   │       ├── children/           子对话：子对话条、面包屑、开子对话的对话框和它们的规则（SPEC-0002）
 │   │       ├── chat/               对话区：消息流、过程、步骤、diff、Streamdown、平滑揭示、提问导航条、输入框；PlantUML 的有界本地 worker、工作区回复图片和全屏预览；受控文件引用与有界 JSON/CSV 查看（2026-10-20）；reply-translation 的临时回复译文
@@ -246,8 +249,9 @@ protocol  ←──  pi  ←──  host
 只能从左往右依赖：
 
 ```
-server → sessions → transcript、status、pi
-                  → workspaces → projects
+server → study → sessions → transcript、status、pi
+              → workspaces（起名用 branch-namer 的 cleanBranchName）
+         sessions → workspaces → projects
        → setup、titles、files
 各业务模块 → sync、store、platform（这三个不依赖任何业务模块）
 main.ts 负责组装全部

@@ -395,7 +395,13 @@ export default function fauxExtension(pi: ExtensionApi): void {
                   : {}),
               })}\n`,
             );
-            const asked = translating ? "translation" : told.includes("git branch") ? "branch" : "title";
+            const asked = translating
+              ? "translation"
+              : told.includes("git branch")
+                ? "branch"
+                : told.includes("learning direction")
+                  ? "direction"
+                  : "title";
             const answer = script[asked];
             const reply =
               answer === undefined

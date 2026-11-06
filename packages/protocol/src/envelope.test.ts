@@ -18,6 +18,7 @@ const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
 const PROJECT = "prj_0123456789abcdef";
 const WORKSPACE = "wks_0123456789abcdef";
 const CHAT = "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc";
+const DIRECTION = "lrn_node-backend";
 const DEVICE = "dev_0123456789abcdef";
 const PAIRING = "pair_0123456789abcdef";
 const RELAY_LINE = `atrium-relay://hst_0123456789abcdef:${"A".repeat(43)}@ktoon.site/atrium`;
@@ -132,9 +133,24 @@ const commands: Command[] = [
   { type: "restore_chat", requestId: "r19b", traceparent, chatId: CHAT },
   { type: "pin_chat", requestId: "r19c", traceparent, chatId: CHAT },
   { type: "unpin_chat", requestId: "r19d", traceparent, chatId: CHAT },
+  {
+    type: "create_direction",
+    requestId: "r19e",
+    traceparent,
+    text: "我想学后端",
+    model: { providerId: "faux", modelId: "faux-1" },
+  },
+  { type: "create_direction", requestId: "r19f", traceparent, text: "", model: null },
+  { type: "rename_direction", requestId: "r19g", traceparent, directionId: DIRECTION, name: "Node 后端" },
+  { type: "rename_direction", requestId: "r19h", traceparent, directionId: DIRECTION, name: null },
+  { type: "pin_direction", requestId: "r19i", traceparent, directionId: DIRECTION },
+  { type: "unpin_direction", requestId: "r19j", traceparent, directionId: DIRECTION },
+  { type: "archive_direction", requestId: "r19k", traceparent, directionId: DIRECTION },
+  { type: "restore_direction", requestId: "r19l", traceparent, directionId: DIRECTION },
   { type: "close_tab", requestId: "r20", traceparent, sessionId: "s1" },
   { type: "select_container", requestId: "r21", traceparent, containerId: WORKSPACE },
   { type: "select_container", requestId: "r22", traceparent, containerId: CHAT },
+  { type: "select_container", requestId: "r22b", traceparent, containerId: DIRECTION },
   { type: "select_container", requestId: "r23", traceparent, containerId: null },
   { type: "archive_session", requestId: "r24", traceparent, sessionId: "s1" },
   { type: "clear_attention", requestId: "r24a", traceparent, sessionId: "s1" },
@@ -843,6 +859,7 @@ describe("parseClientMessage", () => {
       "answer_login",
       "answer_question",
       "archive_chat",
+      "archive_direction",
       "archive_session",
       "archive_workspace",
       "cancel_install",
@@ -857,6 +874,7 @@ describe("parseClientMessage", () => {
       "compact_session",
       "confirm_pairing",
       "create_chat",
+      "create_direction",
       "create_session",
       "create_workspace",
       "detach_session",
@@ -880,6 +898,7 @@ describe("parseClientMessage", () => {
       "name_branch",
       "open_session",
       "pin_chat",
+      "pin_direction",
       "ping",
       "prompt",
       "read_file",
@@ -889,12 +908,14 @@ describe("parseClientMessage", () => {
       "remove_queued",
       "rename_chat",
       "rename_device",
+      "rename_direction",
       "rename_project",
       "rename_session",
       "rename_workspace",
       "report_client_issue",
       "reset_remote_identity",
       "restore_chat",
+      "restore_direction",
       "restore_workspace",
       "resume_deliveries",
       "resume_queue",
@@ -918,6 +939,7 @@ describe("parseClientMessage", () => {
       "test_relay",
       "translate_reply",
       "unpin_chat",
+      "unpin_direction",
       "update_pi",
       "update_queued",
       "upload_attachment",
@@ -1741,6 +1763,32 @@ const snapshot: IndexSnapshotEvent = {
       pinnedAt: null,
     },
   ],
+  directions: [
+    {
+      id: DIRECTION,
+      dir: "/Users/test/Atrium/Learning/node-backend",
+      name: "Node 后端",
+      alias: null,
+      broken: false,
+      discussing: true,
+      archived: false,
+      createdAt: 1_700_000_400_000,
+      pinnedAt: 1_700_000_500_000,
+      lastOpenedAt: 1_700_000_600_000,
+    },
+    {
+      id: "lrn_rust",
+      dir: "/Users/test/Atrium/Learning/Archive/rust",
+      name: "rust",
+      alias: "Rust 入门",
+      broken: true,
+      discussing: true,
+      archived: true,
+      createdAt: null,
+      pinnedAt: null,
+      lastOpenedAt: null,
+    },
+  ],
   sessions: [
     {
       sessionId: "s1",
@@ -1759,6 +1807,7 @@ const snapshot: IndexSnapshotEvent = {
       parent: null,
       agent: null,
       heldDeliveries: 0,
+      study: null,
     },
     {
       sessionId: "s2",
@@ -1785,6 +1834,7 @@ const snapshot: IndexSnapshotEvent = {
         taskStartedAt: 9,
       },
       heldDeliveries: 2,
+      study: { kind: "lesson", level: "l2", step: "s4", gap: "g1" },
     },
   ],
   layout: {
@@ -1804,6 +1854,7 @@ const snapshot: IndexSnapshotEvent = {
     translationLanguage: "简体中文",
   },
   resets: ["layouts"],
+  learningDir: "~/Atrium/Learning",
 };
 
 /** Changes to the list with one of everything. */
@@ -1814,6 +1865,7 @@ const changes: IndexChangesEvent = {
   projects: { upsert: snapshot.projects, remove: ["prj_fedcba9876543210"] },
   workspaces: { upsert: snapshot.workspaces, remove: [WORKSPACE] },
   chats: { upsert: snapshot.chats, remove: ["cht_gone"] },
+  directions: { upsert: snapshot.directions, remove: ["lrn_gone"] },
   sessions: {
     upsert: [
       ...snapshot.sessions,
@@ -1834,6 +1886,7 @@ const changes: IndexChangesEvent = {
         parent: { sessionId: "s2", by: "agent" },
         agent: null,
         heldDeliveries: 0,
+        study: { kind: "discuss" },
       },
     ],
     remove: ["s3"],
@@ -1914,6 +1967,7 @@ const hostMessages: unknown[] = [
     projects: { upsert: [], remove: [] },
     workspaces: { upsert: [], remove: [] },
     chats: { upsert: [], remove: [] },
+    directions: { upsert: [], remove: [] },
     sessions: { upsert: [], remove: [] },
     layout: null,
     preferences: null,
@@ -2079,6 +2133,15 @@ const commandResultExamples = {
   restore_chat: [{}],
   pin_chat: [{}],
   unpin_chat: [{}],
+  create_direction: [
+    { directionId: DIRECTION, sessionId: "s1" },
+    { directionId: DIRECTION, sessionId: null },
+  ],
+  rename_direction: [{}],
+  pin_direction: [{}],
+  unpin_direction: [{}],
+  archive_direction: [{}],
+  restore_direction: [{}],
   window_focused: [{}],
   create_session: [{ sessionId: "s1" }],
   close_tab: [{}],
@@ -2425,6 +2488,13 @@ describe("HostMessage", () => {
       "project_not_found",
       "workspace_not_found",
       "chat_not_found",
+      "direction_not_found",
+      "direction_create_failed",
+      "study_restore_conflict",
+      "study_archive_conflict",
+      "learning_dir_unsafe",
+      "study_move_failed",
+      "direction_archived",
       "project_exists",
       "name_taken",
       "path_not_found",
@@ -2530,6 +2600,20 @@ describe("HostMessage", () => {
     ["a chat without when it was archived", { ...snapshot, chats: [{ ...snapshot.chats[0], archivedAt: undefined }] }],
     ["a chat archived at no time", { ...snapshot, chats: [{ ...snapshot.chats[0], archivedAt: -1 }] }],
     [
+      "a direction with an id of no direction",
+      { ...snapshot, directions: [{ ...snapshot.directions[0], id: "lrn_" }] },
+    ],
+    ["a direction without a name", { ...snapshot, directions: [{ ...snapshot.directions[0], name: "" }] }],
+    [
+      "a direction without whether it is archived",
+      { ...snapshot, directions: [{ ...snapshot.directions[0], archived: undefined }] },
+    ],
+    [
+      "a session of an unknown study kind",
+      { ...snapshot, sessions: [{ ...snapshot.sessions[0], study: { kind: "nap" } }] },
+    ],
+    ["a list without directions", { ...snapshot, directions: undefined }],
+    [
       "an unknown merge verdict",
       {
         ...snapshot,
@@ -2561,6 +2645,7 @@ describe("HostMessage", () => {
       { ...snapshot, layout: { container: null, tabs: { inbox: { open: [], active: null } } } },
     ],
     ["an unknown reset file", { ...snapshot, resets: ["turns"] }],
+    ["an empty learning directory", { ...snapshot, learningDir: "" }],
     ["a snapshot without a reason", { ...snapshot, reason: undefined }],
     ["an unknown snapshot reason", { ...snapshot, reason: "asked" }],
     [

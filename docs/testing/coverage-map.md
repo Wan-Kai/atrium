@@ -4,6 +4,67 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## 学习模式 ML1：方向容器与新建方向（SPEC-0008，2026-11-05）
+
+方向是第三种容器（`lrn_<目录名>`，目录在 `~/Atrium/Learning/`，设了 `ATRIUM_HOME` 时在 `$ATRIUM_HOME/Learning/`）；侧栏"学习"一行、学习首页、新建方向页、方向主页标签。协议 32。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 扫描学习目录下一层带标记文件的目录；`Archive/` 下是归档的；名字不合 id 的、没有标记的、链接、文件都不算；`Archive` 不分大小写保留；同名时归档的那个不列、记日志 | `packages/host/src/study/directions.test.ts` |
+| 标记文件读不出（不是 JSON、缺名字、超过 1 MiB、是目录）按讨论中显示、标出坏了；有阶梯的不是讨论中 | 同上 |
+| 监听：方向来了、归档、删掉后过一会儿重扫；学习目录不在时不监听，建好后开始；只看前两层 | 同上；`mattersToDirections` 的逐项用例 |
+| 监听和计时器在关闭后都放掉；宿主里建、归档、恢复几轮后资源计数回到基线 | `packages/host/src/study/directions.leak.test.ts`（leak 项目，含 Node 的 `FSEventWrap` 计数） |
+| 起名：一次一次性 pi，消息当数据、截 1200 码点，标题模型 → 页上的模型 → pi 默认；只有图片时不调；失败只记类别不记内容；可取消、关闭时等待 | `packages/host/src/study/direction-namer.test.ts` |
+| 建目录：`AGENTS.md` 模板、`lab/` 的 `git init`、标记文件；重名（学习目录或 `Archive/`、不分大小写）加 `-2`…，再随机；没有 git 时照样建 `lab/` 并记日志；建不了报 `direction_create_failed`、日志不带路径 | `packages/host/src/study/direction-creator.test.ts` |
+| 新建方向的命令：起名 → 建目录 → 列出 → 建讨论会话（`study: { kind: "discuss" }`）；归档：停会话 → 移目录 → 忘掉标签 → 放开；恢复冲突（空目录、文件）拒绝且不动；归档到 `Archive/` 已有的名字也拒绝；别名、置顶、上次打开写进 `learning.json` | `packages/host/src/study/study-commands.test.ts`、`entering.test.ts`、`store/learning-records.test.ts` |
+| 真实宿主经 WebSocket：第一条消息之前什么都不建；之后目录、标记文件、AGENTS.md、`lab/.git` 都在，会话在方向里、带 `study`，客户端到了方向里；归档后目录在 `Archive/` 下、标签没了、不能新建会话；恢复后会话能打开、能新建；原处有东西时恢复被拒；窗口聚焦后列出外面建的方向；归档的方向的会话打开不起 pi、快照从会话文件重建、发消息报 `session_cwd_missing`（2026-11-06） | `packages/host/src/study.host.test.ts` |
+| 只读的对话记录：按会话文件重建成空闲快照、文件只读一次、翻页/步骤/轮的条目只认它的 epoch、放下后不认识（2026-11-06） | `packages/host/src/sessions/read-only-transcripts.test.ts` |
+| 会话目录归到方向（终端里开的按 `cwd`），归档的方向的会话仍归它；坏的 `study` 字段当作没有 | `packages/host/src/sessions/session-catalog.test.ts` 两条 |
+| pi 在方向目录里读 AGENTS.md，不需要信任（`.pi/SYSTEM.md` 不生效） | `packages/pi/src/contract/study.pi.test.ts`（夹具 `pi-1.5.0/study-agents.jsonl`） |
+| 协议：命令、结果、错误码、`directions`、`study` 的往返和拒绝 | `packages/protocol/src/envelope.test.ts`；Swift 往返夹具 |
+| 路由和手机：方向的命令交给 StudyCommands；手机不能用 | `packages/host/src/server/router.test.ts`；`remote-policy` 的穷举 |
+| 列表推送和客户端：方向的增删改 | `packages/host/src/sync/index-feed.test.ts`、`packages/client/src/index-view.test.ts` |
+| 界面：侧栏"学习"一行、空状态、新建方向页（发出前不建）、发出后到讨论会话、`/atrium-` 在建之前拒绝并放回输入框、首页"继续"和卡片顺序、卡片 ···（置顶、改名、归档）、已归档和恢复、恢复冲突的说明、方向主页标签（讨论中、会话列表按最近活动、点一行打开、被会话标签盖住、再点回来）、没有"继续讨论"、整张卡片进方向、"继续"卡的"打开"、有会话在跑时归档先确认（取消不归档）、归档方向的主页有恢复和会话列表、归档方向的会话只读（没有输入框和分叉，下面一行加"恢复"，恢复后照常）、讨论会话第一轮下的"建了方向"（只第一轮、跟着改名、不是讨论会话不显示）、"学习"一行和收件箱的汇总不算归档方向的会话（2026-11-06 改） | `packages/ui/src/study/study.browser.test.tsx`；纯逻辑 `packages/ui/src/study/learning.test.ts` |
+| 桌面端整条：从侧栏到新建、发出第一条消息、讨论回复、"建了方向"一行、目录和记录、主页标签、归档、归档后只读地看讨论、恢复冲突、恢复、点卡片进方向再从会话列表接着谈 | `apps/desktop/e2e/study.spec.ts` |
+
+验证记录（2026-11-05）：
+
+- `pnpm check` 通过（含 knip、JSDoc、`boundary --all`、iOS 检查）；`pnpm boundary`：无新依赖、地址、环境变量、隐藏命令，协议 31 → 32。
+- 单元 4471/4472：`testkit/src/git.test.ts` 一项在整套并发时 5 秒超时，单跑 3/3 通过，未改相关代码。宿主层 248/248（首轮 11 项因本机 PATH 最前面是 cmux 的 `pi` 包装脚本、pi 检测失败而红，去掉它后全过，与本改动无关）。leak 22/22。完整 UI 1193/1194：`status-bar.browser.test.tsx` 一项在整套下找不到 tooltip，单跑 3/3 通过，未改相关代码；学习模式 UI 9/9。Swift AtriumKit 406/406。pi 契约只跑了新的 `study-agents`（录了 `pi-1.5.0` 夹具）；其余契约仍缺 1.5.0 夹具，未跑。
+- Electron：`study.spec.ts` 以及 `chats`、`new-workspace`、`inbox` 共 6/6；其余 e2e、性能、打包未跑。
+- 破坏检查 `packages/host/test/study.break-check.json` 25 处全部检出（首轮 `tab-bar` 的 `!homeShown` 漏检，补了"主页显示时会话标签不选中"的断言后检出）。
+- 变异：新增分组 `study`（`study/*.ts`、`store/learning-records.ts`）93.59%（526 杀 / 36 存活；首轮 76.76%，删掉只在竞争时走到的 rename 兜底、补测试，等价的用 `Stryker disable` 写明）；`ui` 组 `study/learning.ts` 94.48%；`shared` 组 `ids.ts` 100%。宿主 `host` 组里改到的 `session-catalog.ts`、`session-manager.ts`、`index-feed.ts` 没跑增量变异（每个变异要跑整套宿主测试），改到的行由破坏检查守。
+
+评审后补（2026-11-06，三方评审 gpt-6-astra、grok-4.7、Claude）：
+
+| 行为 | 测试 |
+|---|---|
+| 学习目录或 `Archive/` 是链接时不列、不监听；标记文件是链接不算方向；学习目录本身是链接时启动解析不跟进去 | `packages/host/src/study/directions.test.ts` |
+| 扫描开始后宿主加的方向不被这次扫描丢掉，下一次扫描按磁盘判断；监听开始时补扫一次 | 同上 |
+| 归档冲突在停会话之前拒绝（`study_archive_conflict`）；移动先占位，占位被放进东西就拒绝，东西和方向都不动；别的失败按错误码记日志、不带路径（`study_move_failed`）；经链接的学习目录或 `Archive/` 不建、不归档、不恢复（`learning_dir_unsafe`）；新建排在同名方向的移动之后；关闭时等起名中的新建，之后不再建；讨论会话没建成时照样给方向（`sessionId` `null`）；打开归档的方向不记"上次打开"；记录"上次打开"失败的日志只有错误码 | `packages/host/src/study/study-commands.test.ts` |
+| shell 里的 `GIT_DIR` 等不让 git 跑到别的仓库，新方向的 `lab/` 是自己的仓库 | `packages/host/src/platform/git.test.ts`、`packages/host/src/study/direction-creator.test.ts` |
+| `learning.json`、`chats.json`：清掉最后一个已知字段时，带着新版本字段的记录留下；空的或超过 256 字的名字不给客户端；`learning.json` 坏了重置并报告 | `packages/host/src/store/{learning-records,chat-records,load-index}.test.ts` |
+| 会话目录的第一次扫描等学习目录扫完 | `packages/host/src/sessions/session-catalog.test.ts` |
+| 只读副本：epoch 0；同时要的只读一次；读到一半被作废的不放回去；最多留 32 个、最久没用的先放；没人看的放掉 | `packages/host/src/sessions/read-only-transcripts.test.ts`；泄漏 `read-only-transcripts.leak.test.ts`（翻 200 个归档会话也只留 32 个，放掉后为 0） |
+| 归档方向的会话：发消息、插话、重试、继续队列、改名、压缩、导出、搜文件、新建会话都报 `direction_archived`，旧目录在也一样，不起 pi；快照 epoch 0；没人看、关标签、方向恢复后放掉副本 | `packages/host/src/sessions/session-manager.test.ts`；真实宿主 `packages/host/src/study.host.test.ts`（旧目录又建出来后发消息仍被拒） |
+| 显示名：emoji 组合（ZWJ、旗帜标签）保留、按看到的字符截 16 个，零宽空格和方向控制符整行不用 | `packages/host/src/study/direction-namer.test.ts` |
+| 界面：面包屑"学士帽 学习 › 方向名"；⌘1 和 ⌘⇧[ ] 算上主页标签，主页显示时 ⌘W 不关会话；归档方向没有"+"和"新建"；排好阶梯的方向不标"讨论中"；讨论会话没建成时进方向主页说明；归档冲突的说法；"建了方向"、空状态、归档确认框用宿主给的 `learningDir`，归档后仍写建的地方 | `packages/ui/src/study/study.browser.test.tsx`；`packages/ui/src/study/learning.test.ts`（没建成讨论时改在方向里新开会话） |
+
+手机与学习模式（2026-11-06 用户定选项 A）及补建的讨论会话：
+
+| 行为 | 测试 |
+|---|---|
+| 手机对方向或方向里会话的命令（打开、订阅含续传点、发消息、插话、重试、停止、继续队列、翻记录、看步骤、看图、在方向里新建、进方向、改名、归档、清提醒、关标签、换模型、列命令、压缩）都按 `local_only` 拒绝，什么都不执行；Mac 照常；手机碰工作区的会话照常 | `packages/host/src/server/router.test.ts` |
+| 给手机的 `session_cwd_missing` 不带 `cwd`，给 Mac 的照旧带 | 同上 |
+| 给手机的列表快照和变更里没有方向、方向里的会话、方向的标签、学习目录（`learningDir` 只给 `~`） | `packages/host/src/server/remote-policy.test.ts`；连接出口 `packages/host/src/server/connection.test.ts` |
+| 方向里的第一个会话记成讨论用途，之后的不是；新建方向时讨论会话没建成、界面补建的会话有"建了方向"一行 | `packages/host/src/sessions/session-manager.test.ts`；`packages/ui/src/study/study.browser.test.tsx` |
+
+验证记录（2026-11-06，按用户回答补做）：
+
+- `pnpm check` 通过。单元 4474/4474，宿主层 249/249，UI 1198/1198（学习模式 13/13），leak 22/22。Electron：`study`、`chats`、`new-workspace`、`inbox` 全过；其余 e2e 未跑。
+- 破坏检查新增 16 处全部检出（首轮 `openSession` 里只读会话不起 pi 的那行漏检，宿主层测试补了"从主页打开"后检出）。宿主层用例补了 `project`。
+- 变异：`sessions/read-only-transcripts.ts` 并进 `study` 组，92%（剩下空文件的叶子、重建的 `reset`、步骤的 epoch 判断）；`ui` 组 `study/learning.ts` 94.16%。`session-manager.ts`、`conversation-area.tsx`、`turn-view.tsx` 的改动由破坏检查守。`hold` 里"pi 跑起来后丢掉只读副本"一行没有测试能看出来（假的 pi 不写会话文件），说明在交付报告里。
+
 ## 在终端中打开；拿掉"交给终端"（2026-11-05）
 
 用户定：标签栏"···"里的"在终端中继续"改成"在终端中打开"，只开终端、不再交接——不停 pi、不写索引、不复制也不运行命令。目录是会话所在工作区的目录，对话用 `~`；cmux 装着就在它当前窗口新开一个工作区并切到 cmux，没跑就先启动，没装就用系统"终端"。整套交接机制（`hand_off` / `take_back`、`handedOff`、"已在终端中继续"面板、子对话的 `handed_off` 状态、`agent_handed_off`）一并去掉，协议 33。

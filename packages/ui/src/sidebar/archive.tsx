@@ -225,6 +225,48 @@ export function ChatArchiveDialog({
 }
 
 /**
+ * Asks before archiving a learning direction some of whose sessions run.
+ *
+ * @remarks
+ * Only asked then, as archiving a direction loses nothing: its directory moves under
+ * `Archive/` (SPEC-0008, "ML1 定的细节", 2026-11-06). Laid out as the other archive
+ * confirmations; it closes on "归档" and the learning home archives.
+ *
+ * @sideEffects none; calls `onArchive` or `onClose` when answered.
+ * @param props - The direction's name, the learning directory, how many of its sessions run,
+ * what archiving does, and how to close.
+ * @returns The dialog.
+ */
+export function DirectionArchiveDialog({
+  name,
+  learningDir,
+  running,
+  onArchive,
+  onClose,
+}: {
+  readonly name: string;
+  /** The learning directory as shown (`learningDir`). */
+  readonly learningDir: string;
+  readonly running: number;
+  readonly onArchive: () => void;
+  readonly onClose: () => void;
+}) {
+  return (
+    <ArchiveConfirm
+      title={`归档方向「${name}」？`}
+      onConfirm={() => {
+        onClose();
+        onArchive();
+      }}
+      onClose={onClose}
+    >
+      <p>目录会移到 {learningDir}/Archive/ 下；之后可以在“已归档的方向”里恢复</p>
+      <p className="mt-1.5 text-[var(--danger)]">其中 {running} 个会话正在运行，归档会停止它们</p>
+    </ArchiveConfirm>
+  );
+}
+
+/**
  * Explains why archiving or restoring a chat failed, in Chinese.
  *
  * @remarks

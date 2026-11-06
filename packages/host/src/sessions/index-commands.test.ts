@@ -73,9 +73,11 @@ async function assemble() {
       workspaces: [],
       // As the host builds them.
       chats: listChats(catalog.chats(), chatRecords),
+      directions: [],
       sessions: [],
       preferences: preferences.read(),
       resets: [],
+      learningDir: "~/Atrium/Learning",
     }),
     layoutOf: (clientId) => layouts.of(clientId),
     clock: systemClock,

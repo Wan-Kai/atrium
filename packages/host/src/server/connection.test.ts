@@ -150,6 +150,46 @@ describe("a phone's connection", () => {
     expect(socket.sent).toStrictEqual([JSON.stringify(response)]);
   });
 
+  it("sends a phone the list, snapshot and changes, without learning directions, their sessions or paths", () => {
+    const socket = fakeSocket();
+    const { connection } = phoneOver(socket, {});
+
+    connection.send({
+      type: "index_changes",
+      generation: "h1",
+      seq: 2,
+      projects: { upsert: [], remove: [] },
+      workspaces: { upsert: [], remove: [] },
+      chats: { upsert: [], remove: [] },
+      directions: { upsert: [{ id: "lrn_go" } as never], remove: [] },
+      sessions: { upsert: [{ sessionId: "talk", containerId: "lrn_go" } as never], remove: [] },
+      layout: null,
+      preferences: null,
+    });
+
+    connection.send({
+      type: "index_snapshot",
+      generation: "h1",
+      seq: 3,
+      reason: "no_cursor",
+      projects: [],
+      workspaces: [],
+      chats: [],
+      directions: [{ id: "lrn_go", dir: "/Users/kim/Atrium/Learning/go" } as never],
+      sessions: [{ sessionId: "talk", containerId: "lrn_go" } as never],
+      layout: { container: "lrn_go", tabs: { lrn_go: { open: ["talk"], active: "talk" } } },
+      preferences: {} as never,
+      resets: [],
+      learningDir: "/Users/kim/Atrium/Learning",
+    });
+
+    expect(socket.sent.map((text) => JSON.parse(text) as unknown)).toMatchObject([
+      { type: "index_changes", directions: { upsert: [] }, sessions: { upsert: [] } },
+      { type: "index_snapshot", directions: [], sessions: [], layout: { container: null, tabs: {} }, learningDir: "~" },
+    ]);
+    expect(socket.sent.join("")).not.toMatch(/lrn_|Learning|talk/u);
+  });
+
   it("sends a message of exactly the limit, and answers a larger response with response_too_large", () => {
     const socket = fakeSocket();
     const { connection } = phoneOver(socket, {});
@@ -203,6 +243,7 @@ describe("a phone's connection", () => {
       projects: { upsert: [], remove: [] },
       workspaces: { upsert: [], remove: [] },
       chats: { upsert: [], remove: [] },
+      directions: { upsert: [], remove: [] },
       sessions: { upsert: [], remove: [] },
       layout: null,
       preferences: null,
@@ -239,6 +280,7 @@ describe("a phone's connection", () => {
       parent: null,
       agent: null,
       heldDeliveries: 0,
+      study: null,
     } as const;
     const changes: HostMessage = {
       type: "index_changes",
@@ -247,6 +289,7 @@ describe("a phone's connection", () => {
       projects: { upsert: [], remove: [] },
       workspaces: { upsert: [], remove: [] },
       chats: { upsert: [], remove: [] },
+      directions: { upsert: [], remove: [] },
       sessions: { upsert: [archived], remove: [] },
       layout: null,
       preferences: null,

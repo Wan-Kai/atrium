@@ -72,6 +72,10 @@ export interface WsServerOptions {
   /** A disconnected connection's translations are cancelled, never transferred to a reconnect. */
   readonly translations: RouterOptions["translations"] & { disconnect(connectionId: string): void };
   readonly index: IndexCommands;
+  /** Learning directions (SPEC-0008). */
+  readonly study: RouterOptions["study"];
+  /** The container a session is filed under, for what a phone may not reach. */
+  readonly containerOfSession: RouterOptions["containerOfSession"];
   /** First launch and the settings. */
   readonly setup: RouterOptions["setup"];
   readonly piConfig: RouterOptions["piConfig"];
@@ -162,6 +166,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     sessions: options.sessions,
     translations: options.translations,
     index: options.index,
+    study: options.study,
     setup: options.setup,
     piConfig: options.piConfig,
     logins: options.logins,
@@ -174,6 +179,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     files: options.files,
     tracer: options.tracer,
     logger: options.logger,
+    containerOfSession: options.containerOfSession,
   });
   let nextConnectionId = 0;
 

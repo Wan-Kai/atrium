@@ -7,6 +7,7 @@ import {
   type CommandResult,
   type CommandType,
   type ErrorInfo,
+  isDirectionId,
   type PromptCommand,
   type SteerCommand,
   parseClientMessage,
@@ -16,6 +17,7 @@ import type { Logger } from "../platform/logger";
 import { contextFromTraceparent, inSpan } from "../platform/tracing";
 import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
+import type { StudyCommands } from "../study/study-commands";
 import type { ReplyTranslations } from "../sessions/reply-translation";
 import type { InstallService } from "../setup/install-service";
 import type { LoginService } from "../setup/login-service";
@@ -60,6 +62,11 @@ export interface RouterOptions {
   /** A workspace's files, for the right panel's file tree and the viewer tabs. */
   readonly files: WorkspaceFiles;
   readonly index: IndexCommands;
+  /** Learning directions (SPEC-0008). */
+  readonly study: Pick<
+    StudyCommands,
+    "createDirection" | "renameDirection" | "pinDirection" | "unpinDirection" | "archiveDirection" | "restoreDirection"
+  >;
   /** First launch and the settings. */
   readonly setup: Pick<SetupService, "check">;
   /** Ordinary pi JSON files, excluding credentials. */
@@ -76,6 +83,11 @@ export interface RouterOptions {
   readonly receipts: ReceiptBook;
   readonly tracer: Tracer;
   readonly logger: Logger;
+  /**
+   * The container a session is filed under, so a phone's command on a learning direction's
+   * session is refused (SPEC-0008, "ML1 定的细节"); `undefined` for a session not known.
+   */
+  readonly containerOfSession: (sessionId: string) => string | undefined;
 }
 
 /** Handles one decoded message from an authenticated client. */
@@ -117,6 +129,10 @@ export function createRouter(options: RouterOptions): Route {
   async function run(connection: Connection, command: Command): Promise<CommandResult<CommandType>> {
     // A phone runs only what the allowlist gives it (SPEC-0005, "远程客户端能用的命令").
     if (connection.origin === "remote" && !phoneMayRun(command)) throw new CommandError("local_only");
+    // Nor anything of learning mode, whatever command names it (SPEC-0008, "ML1 定的细节").
+    if (connection.origin === "remote" && namesLearning(command, options.containerOfSession)) {
+      throw new CommandError("local_only");
+    }
     switch (command.type) {
       case "ping":
         return {};
@@ -177,6 +193,18 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.pinChat(command.chatId);
       case "unpin_chat":
         return options.index.unpinChat(command.chatId);
+      case "create_direction":
+        return options.study.createDirection(connection.clientId, command.text, command.model);
+      case "rename_direction":
+        return options.study.renameDirection(command.directionId, command.name);
+      case "pin_direction":
+        return options.study.pinDirection(command.directionId);
+      case "unpin_direction":
+        return options.study.unpinDirection(command.directionId);
+      case "archive_direction":
+        return options.study.archiveDirection(command.directionId);
+      case "restore_direction":
+        return options.study.restoreDirection(command.directionId);
       case "window_focused":
         return options.index.windowFocused();
       case "watch_changes":
@@ -398,7 +426,7 @@ export function createRouter(options: RouterOptions): Route {
           flush(connection);
           connection.send({ type: "response", requestId: command.requestId, ok: true, result });
         } catch (error) {
-          const info = failure(error, command);
+          const info = forOrigin(connection, failure(error, command));
           span.setAttribute("command.error", info.code);
           flush(connection);
           connection.send({ type: "response", requestId: command.requestId, ok: false, error: info });
@@ -430,4 +458,63 @@ function once(
   execute: () => Promise<CommandResult<"prompt"> | CommandResult<"steer">>,
 ): Promise<CommandResult<"prompt"> | CommandResult<"steer">> {
   return sender.deviceId === null ? execute() : receipts.run(sender.deviceId, message, execute);
+}
+
+/** The fields of a command that name a session, or a container a session can be in. */
+const SESSION_FIELDS = new Set(["sessionId", "parentSessionId"]);
+const CONTAINER_FIELDS = new Set(["containerId", "workspaceId", "directionId"]);
+
+/**
+ * Whether a command names a learning direction or a session in one, anywhere in it.
+ *
+ * @remarks
+ * A phone sees nothing of learning mode (SPEC-0008, "ML1 定的细节", option A). Checked once for
+ * every command rather than in each handler, so no command is missed: every field that names a
+ * session (`sessionId`, `parentSessionId`, the `sessionIds` of a subscription and each resume
+ * point's) or a container (`containerId`, `workspaceId`, `directionId`), at any depth.
+ *
+ * @sideEffects none
+ * @param value - The command, or a part of it.
+ * @param containerOf - The container a session is filed under.
+ * @returns Whether it names one.
+ */
+function namesLearning(value: unknown, containerOf: (sessionId: string) => string | undefined): boolean {
+  if (Array.isArray(value)) return value.some((item) => namesLearning(item, containerOf));
+  if (typeof value !== "object" || value === null) return false;
+  return Object.entries(value).some(([key, field]) => {
+    const sessions = key === "sessionIds" && Array.isArray(field) ? field : SESSION_FIELDS.has(key) ? [field] : [];
+    if (sessions.some((id) => typeof id === "string" && isLearning(containerOf(id)))) return true;
+    if (CONTAINER_FIELDS.has(key) && typeof field === "string" && isLearning(field)) return true;
+    return namesLearning(field, containerOf);
+  });
+}
+
+/**
+ * Whether a container is a learning direction.
+ *
+ * @remarks
+ * By its id's prefix (`lrn_`, domain-model §1).
+ *
+ * @sideEffects none
+ * @param containerId - The container, if any.
+ * @returns Whether.
+ */
+function isLearning(containerId: string | undefined): boolean {
+  return containerId !== undefined && isDirectionId(containerId);
+}
+
+/**
+ * The error as the connection may see it: a phone is not told a session's directory.
+ *
+ * @remarks
+ * `session_cwd_missing` names the path pi could not find; paths stay on the Mac (security.md,
+ * "宿主远程访问").
+ *
+ * @sideEffects none
+ * @param connection - Who gets it.
+ * @param info - The error.
+ * @returns What to send.
+ */
+function forOrigin(connection: Connection, info: ErrorInfo): ErrorInfo {
+  return connection.origin === "remote" && info.code === "session_cwd_missing" ? { code: info.code } : info;
 }

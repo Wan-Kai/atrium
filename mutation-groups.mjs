@@ -41,6 +41,7 @@ export const MUTATION_GROUPS = {
       "packages/host/src/platform/{redact,resources,clock,login-shell,errors,proxy,stray-rejections}.ts",
       "packages/host/src/server/*.ts",
       "packages/host/src/store/*.ts",
+      "!packages/host/src/store/learning-records.ts",
       "packages/host/src/sessions/{session-controller,session-metrics,session-catalog,layouts,prompt-line,index-commands,model-lister,titles,plan-usage,child-tree,children-usage,agent-relay,agent-launch,model-rules,stopped-edit}.ts",
       "packages/host/src/sync/*.ts",
       "packages/host/src/transcript/*.ts",
@@ -105,8 +106,23 @@ export const MUTATION_GROUPS = {
       "packages/ui/src/children/new-child.ts",
       "packages/ui/src/chat/agent-words.ts",
       "packages/ui/src/chat/question-state.ts",
+      "packages/ui/src/study/learning.ts",
     ],
     tests: ["packages/ui"],
+    skip: [],
+  },
+  // Study mode's directions on the host (SPEC-0008): scanning, naming, making and moving them.
+  study: {
+    mutate: [
+      "packages/host/src/study/*.ts",
+      "packages/host/src/store/learning-records.ts",
+      "packages/host/src/sessions/read-only-transcripts.ts",
+    ],
+    tests: [
+      "packages/host/src/study",
+      "packages/host/src/store/learning-records.test.ts",
+      "packages/host/src/sessions/read-only-transcripts.test.ts",
+    ],
     skip: [],
   },
   // The phone's end-to-end encryption and the host's remote module (SPEC-0005, "Noise 通道", "宿主").

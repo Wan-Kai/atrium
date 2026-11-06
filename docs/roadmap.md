@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-11-06：ML1 方向容器与新建方向经用户验收通过并合回 `main`，未推送。** 分支 `atrium/ml1-study-directions`。审查后定：手机完全不碰学习方向（不下发、相关命令拒绝），讨论会话起不来时的兜底会话算讨论会话。 方向是第三种容器（`lrn_<目录名>`，`~/Atrium/Learning/`，设了 `ATRIUM_HOME` 时在其下的 `Learning/`），宿主扫描并监听学习目录、`learning.json` 记别名置顶和上次打开、`sessions.json` 加 `study`；新建方向由宿主起名、建目录（AGENTS.md、`lab/` 的 git、标记文件最后写）、开讨论会话，第一条消息由界面发；归档移到 `Archive/`、恢复冲突 `study_restore_conflict`；侧栏"学习"一行、学习首页、新建方向页、方向主页标签。协议 32（MV1 也要升，合并时顺延）。2026-11-06 按用户对待定点的回答补做：归档的方向的会话只读地看（宿主读会话文件，不起 pi）、有会话在跑时归档先确认、去掉"继续讨论"（点卡片进方向，主页列出会话）、讨论第一轮下"建了方向"一行。同日按三方评审补：学习目录和 `Archive/` 不经链接、不覆盖的移动（先占位）、git 去掉指向别的仓库的变量、日志只记错误码、归档方向的会话宿主端拒绝一切要 pi 的命令、只读副本有上限和作废、新建与移动排队、关闭等新建、讨论没建成时照样给方向、归档冲突单独的错误码、启动先扫学习目录、`learning.json` 的保留字段和名字长度、界面面包屑和主页标签的快捷键、`learningDir`。定下的细节和偏离写在 SPEC-0008"ML1 定的细节"，测试见[追踪表](testing/coverage-map.md#学习模式-ml1方向容器与新建方向spec-00082026-11-05)。
+
 **2026-11-05：学习模式和对话里的交互演示设计定稿，SPEC-0007、SPEC-0008 进入评审，在 `atrium/discuss-study-mode`，未合并、未推送。** 原型三份（`study-mode-prototype.html` 入口与主页、`study-mode-flow-prototype.html` 完整流程、`study-mode-visuals-prototype.html` 展示形式），用户选入口丁、步骤条 C、演示内联；调研 [inline-visuals.md](research/inline-visuals.md)；选定的视觉写进 design-language。里程碑排成 ML1～ML5 和 MV1（见"阶段 · 学习模式"），还没开工。
 
 **2026-11-05：标签栏的"在终端中继续"改成"在终端中打开"，并按要求把整套"交给终端"删掉。用户验收通过并要求合回 `main`，已本地合并（功能提交 `c387b73`，合并 `e5c9e04`），未推送、未装包。在 `atrium/brave-koala`（worktree `atrium.worktrees/brave-koala`），当前会话还以它为工作目录，保留不删。** 用户定：只开终端，不再交接（不停 pi、不写索引、不复制也不运行命令）；会话属于工作区时开在工作区目录，对话开在 `~`；cmux 装着就在它当前窗口新开一个工作区并切到 cmux，没跑就先启动，没装就用系统"终端"。桌面壳（`apps/desktop/src/main/open-terminal.ts`）按固定顺序找 cmux 的命令，探活失败就 `open -b com.cmuxterm.app` 启动并最多等 15 秒，然后 `new-workspace --window <当前窗口> --cwd <目录> --focus true`；失败在菜单旁显示"打开终端失败"。这条路径只由用户点菜单触发，不向终端输入文字、不读屏、不关窗口，cmux 的凭据仍由它自己的 CLI 读。交接机制（`hand_off` / `take_back`、`SessionSummary.handedOff`、`session_handed_off`、子对话的 `handed_off` 状态和 `agent_handed_off`、"已在终端中继续"面板）随之删掉，协议 **33**；索引里旧的 `handedOff: true` 不再读，这样的会话下次打开时照常在 Atrium 里起 pi。文档先改：SPEC-0001、SPEC-0002、SPEC-0005"协议改动 7"、domain-model"已决定 16"、security.md、[外部终端最小接入](architecture/external-terminal.md#标签栏的在终端中打开2026-11-05)。验证：`pnpm check`、unit 4346、宿主 243、完整 UI 单 worker 1180、Swift 473、`pnpm protocol:swift` 重新生成通过；破坏检查 10/10 检出；`remote-policy.ts` 定向变异 98.75%（唯一存活是没改的既有分支）。`agent-relay.ts` 的定向变异 2140 个变异跑 40 分钟只到 22% 就停了，没有结论；`pnpm test:pi` 仍是既有的 52 项缺 pi-1.5.0 夹具；没跑 Electron 端到端、泄漏、打包和模拟器测试；合并前把 `main` 的 `7aaefe0` 合进分支后重跑 `pnpm check`、unit 4346、Swift 473 通过。真实 cmux 的开窗由用户在实际使用里验证。
@@ -628,7 +630,7 @@ MP0 互通实验 ──┬── MP1 Swift 工程基础 ──┐
 
 2026-11-05 定稿设计、两份 SPEC 进入评审。学习算日常使用（"用真实的日常任务驱动"）。顺序：ML1 → ML2 → ML3 → ML4 → ML5；MV1 不依赖学习模式，可以在另一个 worktree 并行，但 ML4 要等它。协议版本按合并的先后顺延。
 
-##### ML1 方向容器与新建方向
+##### ML1 方向容器与新建方向（2026-11-06 完成）
 
 - **目标**：侧栏有"学习"，能从一句话建出一个方向、进入讨论会话。
 - **范围**：`SessionContainer` 加 Direction（`lrn_<目录名>`）；扫描 `~/Atrium/Learning/` 下一层带 `.atrium-study.json` 的目录、监听变化；`learning.json`（别名、置顶、上次打开）；`sessions.json` 的 `study` 字段；侧栏"学习"一行和状态汇总、学习首页（空状态和方向卡片的骨架）、新建方向页（只有输入框）；第一条消息后起名、建目录、写 AGENTS.md 模板、`lab/` 初始化 git、开讨论会话；方向主页标签（还没有步骤条，只有"讨论中"）；归档到 `Archive/` 和恢复（`study.restore_conflict`）。

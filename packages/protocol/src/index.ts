@@ -39,6 +39,12 @@ export {
   RestoreChatCommand,
   PinChatCommand,
   UnpinChatCommand,
+  CreateDirectionCommand,
+  RenameDirectionCommand,
+  PinDirectionCommand,
+  UnpinDirectionCommand,
+  ArchiveDirectionCommand,
+  RestoreDirectionCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -173,7 +179,17 @@ export {
   QuestionReply,
   answersQuestion,
 } from "./question";
-export { ChatId, ContainerId, isChatId, ProjectId, SessionId, WorkspaceId } from "./ids";
+export {
+  ChatId,
+  ContainerId,
+  DirectionId,
+  isChatId,
+  isDirectionId,
+  isWorkspaceId,
+  ProjectId,
+  SessionId,
+  WorkspaceId,
+} from "./ids";
 export {
   Appearance,
   TranslationLanguage,
@@ -181,6 +197,7 @@ export {
   Attention,
   Chat,
   ContainerTabs,
+  Direction,
   IndexChangesEvent,
   IndexFileName,
   IndexSnapshotEvent,
@@ -192,8 +209,10 @@ export {
   ProxySetting,
   StatusBarChoices,
   ChildParent,
+  SessionStudy,
   SessionSummary,
   SnapshotReason,
+  StudyKind,
   Workspace,
   isAuthFailure,
 } from "./listing";

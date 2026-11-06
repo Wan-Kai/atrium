@@ -11,12 +11,14 @@ import type {
   SetupView,
   RemoteView,
 } from "@atrium/client";
+import { isDirectionId } from "@atrium/client";
 import {
   type Chat,
   type ChildPlacement,
   type CommandResult,
   CommandError,
   type DiffTarget,
+  type Direction,
   type DiscoveredDirectory,
   type ForkPlacement,
   IDLE_CONTROL,
@@ -78,6 +80,32 @@ export function chat(fields: Partial<Chat> & Pick<Chat, "id" | "firstSessionId">
 }
 
 /**
+ * A learning direction under discussion, not archived.
+ *
+ * @remarks
+ * Its directory under the learning directory, named as its id, unless `fields` say otherwise.
+ *
+ * @sideEffects none
+ * @param fields - Fields to set; the id is required.
+ * @returns The direction.
+ */
+export function direction(fields: Partial<Direction> & Pick<Direction, "id">): Direction {
+  const dirName = fields.id.slice("lrn_".length);
+  return {
+    dir: `/home/Atrium/Learning/${dirName}`,
+    name: dirName,
+    alias: null,
+    broken: false,
+    discussing: true,
+    archived: false,
+    createdAt: 1,
+    pinnedAt: null,
+    lastOpenedAt: null,
+    ...fields,
+  };
+}
+
+/**
  * A session.
  *
  * @remarks
@@ -105,6 +133,7 @@ export function session(
     parent: null,
     agent: null,
     heldDeliveries: 0,
+    study: null,
     ...fields,
   };
 }
@@ -179,6 +208,12 @@ export interface FakeAnswers {
   readonly archiveChat?: () => Promise<void>;
   /** Answers restoring a chat, which then shows again; restored at once when left out. */
   readonly restoreChat?: () => Promise<void>;
+  /** Answers creating a direction, which then shows with its discussion; `lrn_go` at once when left out. */
+  readonly createDirection?: () => Promise<void>;
+  /** The host makes the direction but not its discussion (`sessionId` `null`). */
+  readonly noDiscussion?: boolean;
+  /** Answers any other direction command, which then changes the list; at once when left out. */
+  readonly directionCommand?: () => Promise<void>;
   readonly prompt?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
   readonly addProject?: () => Promise<void>;
   readonly openSession?: () => Promise<void>;
@@ -277,6 +312,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     projects: [],
     workspaces: [],
     chats: [],
+    directions: [],
     sessions: [],
     layout: { container: null, tabs: {} },
     preferences: {
@@ -292,6 +328,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       inbox: true,
     },
     resets: [],
+    learningDir: "~/Atrium/Learning",
     ...initial,
   }));
   const connection = createStore<ConnectionState>(() => ({
@@ -435,7 +472,11 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       await answers.createSession?.();
       // As the host does: told not to go, the tab opens and the client stays.
       const layout = index.getState().layout;
+      // As the host does: a direction's first session is its discussion.
+      const first =
+        isDirectionId(containerId) && !index.getState().sessions.some((one) => one.containerId === containerId);
       const sessionId = addDraft(containerId);
+      if (first) change(sessionId, () => ({ study: { kind: "discuss" } }));
       if (go === false) index.setState({ layout: { ...index.getState().layout, container: layout.container } });
       return { sessionId };
     },
@@ -587,6 +628,73 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
           one.containerId === chatId && (back === undefined || back.includes(one.sessionId))
             ? { ...one, archived: false }
             : one,
+        ),
+      });
+      return {};
+    },
+    async createDirection(text: string, model: ModelRef | null) {
+      calls.push(`createDirection ${text} ${model === null ? "null" : `${model.providerId}/${model.modelId}`}`);
+      await answers.createDirection?.();
+      // As the host does: the direction, and its discussion opened as the active tab there.
+      const directionId = "lrn_go";
+      index.setState({
+        directions: [
+          ...index.getState().directions,
+          direction({ id: directionId, name: "Go", lastOpenedAt: Date.now() }),
+        ],
+      });
+      if (answers.noDiscussion === true) return { directionId, sessionId: null };
+      const sessionId = addDraft(directionId);
+      change(sessionId, () => ({ study: { kind: "discuss" } }));
+      return { directionId, sessionId };
+    },
+    async renameDirection(directionId: string, name: string | null) {
+      calls.push(`renameDirection ${directionId} ${name}`);
+      await answers.directionCommand?.();
+      const { directions } = index.getState();
+      index.setState({ directions: directions.map((one) => (one.id === directionId ? { ...one, alias: name } : one)) });
+      return {};
+    },
+    async pinDirection(directionId: string) {
+      calls.push(`pinDirection ${directionId}`);
+      await answers.directionCommand?.();
+      const { directions } = index.getState();
+      index.setState({
+        directions: directions.map((one) => (one.id === directionId ? { ...one, pinnedAt: Date.now() } : one)),
+      });
+      return {};
+    },
+    async unpinDirection(directionId: string) {
+      calls.push(`unpinDirection ${directionId}`);
+      await answers.directionCommand?.();
+      const { directions } = index.getState();
+      index.setState({
+        directions: directions.map((one) => (one.id === directionId ? { ...one, pinnedAt: null } : one)),
+      });
+      return {};
+    },
+    async archiveDirection(directionId: string) {
+      calls.push(`archiveDirection ${directionId}`);
+      await answers.directionCommand?.();
+      const { directions, layout } = index.getState();
+      const { [directionId]: _gone, ...tabs } = layout.tabs;
+      index.setState({
+        directions: directions.map((one) =>
+          one.id === directionId
+            ? { ...one, archived: true, dir: one.dir.replace("/Learning/", "/Learning/Archive/") }
+            : one,
+        ),
+        layout: { container: layout.container === directionId ? null : layout.container, tabs },
+      });
+      return {};
+    },
+    async restoreDirection(directionId: string) {
+      calls.push(`restoreDirection ${directionId}`);
+      await answers.directionCommand?.();
+      const { directions } = index.getState();
+      index.setState({
+        directions: directions.map((one) =>
+          one.id === directionId ? { ...one, archived: false, dir: one.dir.replace("/Archive/", "/") } : one,
         ),
       });
       return {};

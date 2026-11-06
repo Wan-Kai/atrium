@@ -1097,6 +1097,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
     projects: [],
     workspaces: [],
     chats: [],
+    directions: [],
     sessions: [
       {
         sessionId: "s1",
@@ -1115,6 +1116,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
         parent: null,
         agent: null,
         heldDeliveries: 0,
+        study: null,
       },
     ],
     layout: { container: null, tabs: {} },
@@ -1131,6 +1133,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
       translationLanguage: "简体中文",
     },
     resets: [],
+    learningDir: "~/Atrium/Learning",
     ...fields,
   });
 }
@@ -1144,6 +1147,7 @@ function indexChanges(seq: number, remove: string): string {
     projects: { upsert: [], remove: [] },
     workspaces: { upsert: [], remove: [] },
     chats: { upsert: [], remove: [] },
+    directions: { upsert: [], remove: [] },
     sessions: { upsert: [], remove: [remove] },
     layout: null,
     preferences: null,

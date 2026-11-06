@@ -79,7 +79,7 @@ struct SyncModelMirrorTests {
       after: {
         try receive(
           model,
-          #"{"type":"index_snapshot","generation":"h1","seq":1,"reason":"no_cursor","projects":[],"workspaces":[],"chats":[],"sessions":[],"layout":{"container":null,"tabs":{}},"preferences":{"setupDone":true,"appearance":"system","lastModel":null,"thinkingByModel":{},"lastFast":false,"statusBar":{},"titleModel":null,"proxy":null,"inbox":true,"translationLanguage":"简体中文"},"resets":[]}"#
+          #"{"type":"index_snapshot","generation":"h1","seq":1,"reason":"no_cursor","projects":[],"workspaces":[],"chats":[],"directions":[],"sessions":[],"layout":{"container":null,"tabs":{}},"preferences":{"setupDone":true,"appearance":"system","lastModel":null,"thinkingByModel":{},"lastFast":false,"statusBar":{},"titleModel":null,"proxy":null,"inbox":true,"translationLanguage":"简体中文"},"resets":[],"learningDir":"~/Atrium/Learning"}"#
         )
       })
     #expect(fired)

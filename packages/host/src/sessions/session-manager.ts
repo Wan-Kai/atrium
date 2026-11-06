@@ -29,6 +29,7 @@ import {
   type Control,
   CommandError,
   IDLE_CONTROL,
+  type CommandResult,
   type ModelRef,
   type PlanProvider,
   type SessionEvent,
@@ -40,12 +41,15 @@ import {
   UNKNOWN_METRICS,
   isAuthFailure,
   isChatId,
+  isDirectionId,
+  isWorkspaceId,
 } from "@atrium/protocol";
 import type { Tracer } from "@opentelemetry/api";
 import { mkdir, mkdtemp, readFile, readdir, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Clock, trackedTimeout } from "../platform/clock";
+import { errorCode } from "../platform/errors";
 import type { Logger } from "../platform/logger";
 import { createPiDeps } from "../platform/pi-deps";
 import type { ResourceTracker } from "../platform/resources";
@@ -59,6 +63,7 @@ import type { FileSearch } from "../files/file-search";
 import type { Layouts } from "./layouts";
 import { type CatalogChat, type CatalogEntry, chatIdOf, type NewRecord, type SessionCatalog } from "./session-catalog";
 import { archivePlan } from "./child-tree";
+import { createReadOnlyTranscripts } from "./read-only-transcripts";
 import { agentLaunchFlags } from "./agent-launch";
 import { type ChildCreated, type ChildRequest, type WorkChanges, createAgentRelay } from "./agent-relay";
 import { createChildrenUsage } from "./children-usage";
@@ -117,12 +122,21 @@ export interface SessionManager extends SessionCommands {
   /** Stops the sessions of workspaces that went away and drops them from every layout. */
   forgetWorkspaces(workspaceIds: readonly string[]): Promise<void>;
   /**
-   * Keeps a workspace's sessions from starting, and new ones from being created in it, until
-   * released; stops their pi, archiving nothing; resolves to those not archived.
+   * Keeps a workspace's or direction's sessions from starting, and new ones from being created in
+   * it, until released; stops their pi, archiving nothing; resolves to those not archived.
    */
-  stopWorkspace(workspaceId: string): Promise<string[]>;
-  /** Lets a workspace's sessions start again, once its archiving is done or failed. */
-  releaseWorkspace(workspaceId: string): void;
+  stopContainer(containerId: string): Promise<string[]>;
+  /** Lets a container's sessions start again, once its archiving is done or failed. */
+  releaseContainer(containerId: string): void;
+  /**
+   * Creates a session of a direction for a use (SPEC-0008, "会话的用途"), opened as the client's
+   * active tab there, as `createSession` does.
+   */
+  createStudySession(
+    clientId: string,
+    directionId: string,
+    study: NonNullable<SessionSummary["study"]>,
+  ): Promise<CommandResult<"create_session">>;
   /** Archives every session in a workspace, as `archiveSession` does, and drops it from every layout. */
   archiveWorkspace(workspaceId: string): Promise<void>;
   /** Unarchives the sessions given, or with `null` all archived in the workspace. */
@@ -371,6 +385,18 @@ export function createSessionManager(options: {
   /** Which chats are archived, and with which sessions (SPEC-0001, "M1.11 的对话归档"). */
   readonly chats: Pick<ChatRecords, "archived" | "setArchived">;
   readonly workspaces: Pick<WorkspaceService, "dirOf" | "refresh">;
+  /**
+   * Where a learning direction's new sessions start; `undefined` for one archived or not there
+   * (SPEC-0008); without it there are no directions.
+   */
+  readonly directions?: {
+    readonly dirOf: (directionId: string) => string | undefined;
+    /**
+     * Whether a container's sessions are only shown, never run: an archived direction's, whose
+     * directory moved (SPEC-0008, "ML1 定的细节").
+     */
+    readonly readOnly?: (containerId: string) => boolean;
+  };
   readonly onChange: () => void;
   readonly clock: Clock;
   readonly resources: ResourceTracker;
@@ -467,6 +493,15 @@ export function createSessionManager(options: {
   const archivingWaiters = new Set<() => void>();
   /** Each chat's archive or restore under way, for the next to wait for. */
   const chatTurns = new Map<string, Promise<unknown>>();
+  /** Archived directions' sessions, read from their files and shown without pi (domain-model §1, Direction). */
+  const readOnly = createReadOnlyTranscripts({
+    readEntries: (file) => readEntries(file),
+    turnStarts: options.turnStarts,
+    newId: options.newId,
+    newStream: options.newStream,
+    now: () => options.clock.now(),
+    resources: options.resources,
+  });
   /** Background work, such as scans after a run, that `close` waits for. */
   const background = new Set<Promise<void>>();
   /** Set by `close`; a session being started then stops its pi instead of keeping it. */
@@ -543,7 +578,7 @@ export function createSessionManager(options: {
     },
     canBranch(sessionId) {
       const entry = options.catalog.find(sessionId);
-      return entry !== undefined && !isChatId(entry.containerId) && options.childWorktree !== undefined;
+      return entry !== undefined && isWorkspaceId(entry.containerId) && options.childWorktree !== undefined;
     },
     createChild: (request) => createAgentChild(request),
     async models(sessionId) {
@@ -842,7 +877,7 @@ export function createSessionManager(options: {
       if (ran || event.type === "run_settled") options.onChange();
       if (event.type === "run_settled") {
         const containerId = options.catalog.find(sessionId)?.containerId;
-        if (containerId !== undefined && !isChatId(containerId)) options.workspaces.refresh(containerId);
+        if (containerId !== undefined && isWorkspaceId(containerId)) options.workspaces.refresh(containerId);
         inBackground("session scan", async () => {
           await options.catalog.scan();
           // After the scan, which finds the file a first run wrote.
@@ -1269,6 +1304,7 @@ export function createSessionManager(options: {
       // Counted as a start meanwhile, so a stop sees it (SPEC-0001, "空闲回收").
       await idleStops.get(sessionId);
       notArchived(sessionId);
+      notReadOnly(sessionId);
       const tools = await readyTools();
       const started = await connect(sessionId, await spawn(tools, await launchOf(sessionId), sessionId));
       // pi copied the history and wrote the file: never `--fork` the same id again (SPEC-0002).
@@ -1292,6 +1328,7 @@ export function createSessionManager(options: {
    * @param cwd - Its working directory.
    * @param go - Whether the client goes to the container, as it does unless it moved meanwhile.
    * @param child - For a child conversation, its parent and name (SPEC-0002).
+   * @param study - For a session of a direction, what it is for (SPEC-0008).
    * @returns The new session's id.
    */
   async function create(
@@ -1300,10 +1337,11 @@ export function createSessionManager(options: {
     cwd: string,
     go = true,
     child: Pick<NewRecord, "parent" | "name"> = {},
+    study?: NewRecord["study"],
   ): Promise<string> {
     const asked = options.layouts.of(clientId).container;
     const sessionId = options.newSessionId();
-    await options.catalog.record({ sessionId, containerId, cwd, ...child });
+    await options.catalog.record({ sessionId, containerId, cwd, ...child, ...(study === undefined ? {} : { study }) });
     // A parent archived meanwhile takes the child with it, or lets it go (SPEC-0002).
     await settleChild(sessionId);
     created.add(sessionId);
@@ -1333,6 +1371,8 @@ export function createSessionManager(options: {
     held.get(sessionId)?.();
     held.set(sessionId, options.resources.acquire("session.controller"));
     sessions.set(sessionId, started);
+    // A read-only copy from before its direction was restored is stale once pi runs it.
+    readOnly.forget([sessionId]);
     lastActive.set(sessionId, options.clock.now());
     childrenUsage.refresh(sessionId);
   }
@@ -1430,6 +1470,21 @@ export function createSessionManager(options: {
   }
 
   /**
+   * Whether a session is only shown, from its file, never run.
+   *
+   * @remarks
+   * An archived direction's session on file (SPEC-0008, "ML1 定的细节"): its working directory
+   * moved, so pi could not start; a draft has nothing to show.
+   *
+   * @sideEffects none
+   * @param entry - The session.
+   * @returns Whether.
+   */
+  function viewOnly(entry: CatalogEntry): entry is CatalogEntry & { readonly file: string } {
+    return entry.file !== null && options.directions?.readOnly?.(entry.containerId) === true;
+  }
+
+  /**
    * A chat there is, archived or not.
    *
    * @remarks
@@ -1444,6 +1499,46 @@ export function createSessionManager(options: {
     const chat = options.catalog.chats().find((candidate) => candidate.id === chatId);
     if (chat === undefined) throw new CommandError("chat_not_found", { chatId });
     return chat;
+  }
+
+  /**
+   * Where a direction's new sessions start.
+   *
+   * @remarks
+   * A direction archived, or being archived, takes no new session: its directory is not, or soon
+   * not, where its sessions run (SPEC-0008, "方向是一种新容器").
+   *
+   * @sideEffects none
+   * @param directionId - The direction.
+   * @returns Its directory.
+   * @throws {CommandError} `direction_archived` for an archived one; `direction_not_found` when
+   * there is no such direction to start in.
+   */
+  function directionDir(directionId: string): string {
+    if (options.directions?.readOnly?.(directionId) === true)
+      throw new CommandError("direction_archived", { directionId });
+    const dir = options.directions?.dirOf(directionId);
+    if (dir === undefined || archiving.has(directionId)) throw new CommandError("direction_not_found", { directionId });
+    return dir;
+  }
+
+  /**
+   * The directory a container's sessions run in, for a child conversation in its parent's container.
+   *
+   * @remarks
+   * A chat's, a direction's or a workspace's, each found its own way.
+   *
+   * @sideEffects none
+   * @param containerId - The container.
+   * @returns The directory.
+   * @throws {CommandError} `chat_not_found`, `direction_not_found` or `workspace_not_found`.
+   */
+  function containerDir(containerId: string): string {
+    if (isChatId(containerId)) return chatOf(containerId).dir;
+    if (isDirectionId(containerId)) return directionDir(containerId);
+    const dir = options.workspaces.dirOf(containerId);
+    if (dir === undefined) throw new CommandError("workspace_not_found", { workspaceId: containerId });
+    return dir;
   }
 
   /**
@@ -1557,6 +1652,16 @@ export function createSessionManager(options: {
         }
         return { sessionId: await create(clientId, containerId, chat.dir) };
       }
+      if (isDirectionId(containerId)) {
+        const dir = directionDir(containerId);
+        await options.catalog.ready();
+        // A direction's first session is its discussion, as the one create_direction makes; one
+        // the client creates after that failed takes its place (SPEC-0008, "ML1 定的细节").
+        const first = !options.catalog.list().some((entry) => entry.containerId === containerId);
+        return {
+          sessionId: await create(clientId, containerId, dir, true, {}, first ? { kind: "discuss" } : undefined),
+        };
+      }
       const dir = options.workspaces.dirOf(containerId);
       if (dir === undefined || archiving.has(containerId)) {
         throw new CommandError("workspace_not_found", { workspaceId: containerId });
@@ -1581,6 +1686,8 @@ export function createSessionManager(options: {
       // A discard under way sees the tab, keeps the draft, and its pi starts again here.
       await discarding.get(sessionId)?.catch(() => undefined);
       const found = entryOf(sessionId);
+      // An archived direction's session is only shown, from its file (SPEC-0008, "ML1 定的细节").
+      if (viewOnly(found)) return {};
       // A restored draft waits for its first message; one created here starts, or its start under
       // way is waited for.
       if (found.state !== "draft" || sessions.has(sessionId) || created.has(sessionId)) await ensureRunning(sessionId);
@@ -1593,6 +1700,8 @@ export function createSessionManager(options: {
       });
       // A child the agent opened, idle without a tab, stops its pi (SPEC-0002, "角色与限制 · 进程").
       relay.tabClosed(sessionId);
+      // A read-only copy nobody watches goes with its tab.
+      readOnly.evict((kept) => kept !== sessionId || options.subscriptions.viewers(kept).length > 0);
       if (options.catalog.find(sessionId)?.state !== "draft") return {};
       // A message may be on its way, or its file just written: look again before discarding.
       await options.catalog.scan();
@@ -1693,6 +1802,7 @@ export function createSessionManager(options: {
     async renameSession(sessionId, name) {
       await options.catalog.ready();
       const entry = entryOf(sessionId);
+      notReadOnly(sessionId);
       if (entry.state === "draft") {
         // pi writes no file before the first message, so a draft's name has nowhere to go, but a
         // child's: its record (SPEC-0002, "概念 · 名字").
@@ -1729,6 +1839,18 @@ export function createSessionManager(options: {
           snapshots.set(sessionId, controller.snapshot());
         } else if (entry?.state === "draft") {
           snapshots.set(sessionId, draftSnapshot(sessionId, fastOf(entry), options.newStream()));
+        } else if (entry !== null && viewOnly(entry)) {
+          const read = await readOnly.snapshot(entry, fastOf(entry)).catch((error: unknown) => {
+            // Shown as a session on file not started yet: nothing until it can be.
+            options.logger.warn({ sessionId, code: errorCode(error) }, "read-only session not read");
+            return null;
+          });
+          // Its direction restored and its pi started during the read: the live one is what shows.
+          const now = sessions.get(sessionId)?.controller.snapshot() ?? read;
+          if (now !== null) snapshots.set(sessionId, now);
+        } else if (entry !== null) {
+          // Its direction is restored: a copy read while it was archived is old now.
+          readOnly.forget([sessionId]);
         }
         // A session on file whose pi has not started yet is watched already; its snapshot follows
         // once `open_session` or a message starts it (SPEC-0001, "项目、工作区与会话").
@@ -1762,6 +1884,7 @@ export function createSessionManager(options: {
         notReserved(command.text);
         await options.catalog.ready();
         notArchived(sessionId);
+        notReadOnly(sessionId);
         // A session whose pi is not running, a restored draft among them, starts on its message.
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
         return await session.controller.prompt(command, images);
@@ -1778,6 +1901,7 @@ export function createSessionManager(options: {
         notReserved(command.text);
         await options.catalog.ready();
         notArchived(sessionId);
+        notReadOnly(sessionId);
         // A view of the pi that stopped holds that pi's epoch; the one started here reads the same
         // file, so only the turn is checked again, by its id from its entry (SPEC-0001, "空闲回收").
         const stopped = live(sessionId) === undefined ? sessions.get(sessionId)?.controller : undefined;
@@ -1800,6 +1924,7 @@ export function createSessionManager(options: {
         notReserved(command.text);
         await options.catalog.ready();
         notArchived(sessionId);
+        notReadOnly(sessionId);
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
         return await session.controller.steer(command, images);
       } finally {
@@ -1810,6 +1935,7 @@ export function createSessionManager(options: {
     },
     stop: async (sessionId) => controllerOf(sessionId).stop(),
     async resumeQueue(sessionId) {
+      notReadOnly(sessionId);
       const controller = controllerOf(sessionId);
       // The queue moves only with a pi to take it.
       if (live(sessionId) === undefined) await ensureRunning(sessionId);
@@ -1858,6 +1984,7 @@ export function createSessionManager(options: {
       const entry = entryOf(sessionId);
       if (entry.state === "missing") throw new CommandError("session_not_found", { sessionId });
       if (entry.file === null) throw new CommandError("session_is_draft", { sessionId });
+      notReadOnly(sessionId);
       // A tree being archived takes no new child (SPEC-0002, "归档、脱离").
       if (child !== undefined) notArchived(sessionId);
       // Turns are known only to a controller, which the session's pi starting makes.
@@ -1920,6 +2047,7 @@ export function createSessionManager(options: {
     async searchFiles(sessionId, query) {
       await options.catalog.ready();
       const { cwd } = entryOf(sessionId);
+      notReadOnly(sessionId);
       if (options.files === undefined) throw new CommandError("fd_missing");
       // Typing a character makes the last search useless; only the newest one runs on.
       searches.get(sessionId)?.abort();
@@ -1934,6 +2062,7 @@ export function createSessionManager(options: {
     async retryRun(sessionId) {
       await options.catalog.ready();
       entryOf(sessionId);
+      notReadOnly(sessionId);
       // A session this host never ran has no controller yet; starting it makes one.
       const session = sessions.get(sessionId) ?? (await ensureRunning(sessionId));
       return session.controller.retryRun();
@@ -1951,20 +2080,27 @@ export function createSessionManager(options: {
       return { cwd: entryOf(sessionId).cwd, text: reply?.kind === "text" ? reply.text : "", model: controller.model() };
     },
     async fetchStep(command) {
+      if (readable(command.sessionId)) return readOnly.fetchStep(command);
       return controllerOf(command.sessionId).fetchStep(command);
     },
     async fetchImage(command) {
       // pi keeps the image in the session file, so it is read from there rather than kept here.
-      const controller = controllerOf(command.sessionId);
-      // A turn that just ended is tied to its entry by the read its end started.
-      await controller.entriesRead();
-      const entryId = controller.entryOfTurn(command.turnId);
+      let entryId: string | null;
+      if (readable(command.sessionId)) {
+        entryId = readOnly.entryOfTurn(command.sessionId, command.turnId);
+      } else {
+        const controller = controllerOf(command.sessionId);
+        // A turn that just ended is tied to its entry by the read its end started.
+        await controller.entriesRead();
+        entryId = controller.entryOfTurn(command.turnId);
+      }
       const { file } = entryOf(command.sessionId);
       const image = entryId === null || file === null ? null : await readUserImage(file, entryId, command.index);
       if (image === null) throw new CommandError("image_unavailable");
       return image;
     },
     async fetchTranscript(command, stepLimit) {
+      if (readable(command.sessionId)) return readOnly.fetchTranscript(command, stepLimit);
       return controllerOf(command.sessionId).fetchTranscript(command, stepLimit);
     },
     async clearAttention(sessionId) {
@@ -2018,6 +2154,7 @@ export function createSessionManager(options: {
       await Promise.all(idle.map((sessionId) => stopSession(sessionId)));
     },
     reclaimIdle() {
+      readOnly.evict((sessionId) => options.subscriptions.viewers(sessionId).length > 0);
       const now = options.clock.now();
       for (const [sessionId, { controller }] of sessions) {
         if (controller.exited && !controller.restarting) {
@@ -2039,15 +2176,20 @@ export function createSessionManager(options: {
       await options.layouts.forgetContainers(workspaceIds);
       options.onChange();
     },
-    async stopWorkspace(workspaceId) {
+    async stopContainer(containerId) {
       // Marked first, so nothing starts or is created in it until it is released (see `notArchived`).
-      mark([workspaceId]);
-      const inside = options.catalog.list().filter((entry) => entry.containerId === workspaceId);
+      mark([containerId]);
+      const inside = options.catalog.list().filter((entry) => entry.containerId === containerId);
+      // Archived again, its sessions may have changed since a copy was read.
+      readOnly.forget(inside.map((entry) => entry.sessionId));
       await Promise.all(inside.map((entry) => stopEnding(entry.sessionId)));
       return inside.filter((entry) => !entry.archived).map((entry) => entry.sessionId);
     },
-    releaseWorkspace(workspaceId) {
-      unmark([workspaceId]);
+    releaseContainer(containerId) {
+      unmark([containerId]);
+    },
+    async createStudySession(clientId, directionId, study) {
+      return { sessionId: await create(clientId, directionId, directionDir(directionId), true, {}, study) };
     },
     async archiveWorkspace(workspaceId) {
       // Archived with its workspace (SPEC-0001, "M1.11 的工作区归档"), drafts too; archiving one again changes nothing.
@@ -2111,7 +2253,41 @@ export function createSessionManager(options: {
   async function commanded(sessionId: string): Promise<Running> {
     await options.catalog.ready();
     entryOf(sessionId);
+    notReadOnly(sessionId);
     return live(sessionId) ?? (await ensureRunning(sessionId));
+  }
+
+  /**
+   * Refuses a command that would start or write pi on an archived direction's session.
+   *
+   * @remarks
+   * It is only read, from its file (SPEC-0008, "ML1 定的细节"), whether or not something is at its
+   * old directory again: a pi started there would write another directory's work into it.
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @throws {CommandError} `direction_archived`.
+   */
+  function notReadOnly(sessionId: string): void {
+    const containerId = options.catalog.find(sessionId)?.containerId;
+    if (containerId !== undefined && options.directions?.readOnly?.(containerId) === true) {
+      throw new CommandError("direction_archived", { directionId: containerId });
+    }
+  }
+
+  /**
+   * Whether fetches for a session go to its read-only copy.
+   *
+   * @remarks
+   * Only while its direction is archived and no pi runs it.
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @returns Whether.
+   */
+  function readable(sessionId: string): boolean {
+    const entry = options.catalog.find(sessionId);
+    return !sessions.has(sessionId) && entry !== undefined && viewOnly(entry) && readOnly.has(sessionId);
   }
 
   /**
@@ -2346,10 +2522,7 @@ export function createSessionManager(options: {
         if (!request.fallback || !(error instanceof CommandError && error.code === "child_place_invalid")) throw error;
       }
     }
-    const dir =
-      place?.dir ??
-      (isChatId(parent.containerId) ? chatOf(parent.containerId).dir : options.workspaces.dirOf(parent.containerId));
-    if (dir === undefined) throw new CommandError("workspace_not_found", { workspaceId: parent.containerId });
+    const dir = place?.dir ?? containerDir(parent.containerId);
     const usageAfter =
       request.branchFile === null ? null : await lastEntryId(request.branchFile).catch(() => UNREAD_BASELINE);
     const sessionId = options.newSessionId();
@@ -2393,7 +2566,7 @@ export function createSessionManager(options: {
     prefix = "atrium/",
     model?: ModelRef | null,
   ) {
-    if (isChatId(parent.containerId) || options.childWorktree === undefined) {
+    if (!isWorkspaceId(parent.containerId) || options.childWorktree === undefined) {
       throw new CommandError("child_place_invalid");
     }
     const chosen = model ?? sessions.get(parent.sessionId)?.controller.model() ?? parent.model;
@@ -2576,11 +2749,7 @@ export function createSessionManager(options: {
     const record = { parent: { sessionId: parent.sessionId, by: "user" as const }, name: child.name };
     if (child.place === "worktree") return createChildWorktree(clientId, parent, child.branch, go, record);
     if (containerId !== parent.containerId) throw new CommandError("child_place_invalid");
-    const dir = isChatId(parent.containerId)
-      ? chatOf(parent.containerId).dir
-      : options.workspaces.dirOf(parent.containerId);
-    if (dir === undefined) throw new CommandError("workspace_not_found", { workspaceId: parent.containerId });
-    return create(clientId, parent.containerId, dir, go, record);
+    return create(clientId, parent.containerId, containerDir(parent.containerId), go, record);
   }
 
   /**

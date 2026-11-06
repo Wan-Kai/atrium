@@ -53,6 +53,7 @@ function fakeCommands() {
       calls.push(["prompt", command.sessionId, command.text, ...images.map((image) => image.data)]);
       if (command.text === "missing") throw new CommandError("session_not_found", { sessionId: command.sessionId });
       if (command.text === "crash") throw new Error("secret detail");
+      if (command.text === "moved") throw new CommandError("session_cwd_missing", { cwd: "/Users/kim/app" });
       return { disposition: "started" };
     },
     editStoppedMessage: async (command, images = []) => {
@@ -122,6 +123,7 @@ function fakeCommands() {
 }
 
 const PROJECT = "prj_0123456789abcdef";
+const DIRECTION = "lrn_node-backend";
 const CHAT = "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc";
 
 /** A directory of pi's history, as the list commands find it. */
@@ -136,6 +138,31 @@ const SETUP: SetupState = {
   projects: 0,
 };
 const WORKSPACE = "wks_0123456789abcdef";
+
+/** Where the test's sessions are: `talk` in a learning direction, `s1` in the workspace. */
+const SESSION_CONTAINERS: Readonly<Record<string, string>> = { talk: "lrn_go", s1: WORKSPACE };
+
+/**
+ * A phone's connection, its messages going to `sent`.
+ *
+ * @sideEffects none
+ * @param sent - Where its messages go.
+ * @param logger - The logger.
+ * @returns The connection.
+ */
+function phoneConnection(sent: HostMessage[], logger: Parameters<typeof createConnection>[1]["logger"]): Connection {
+  return createConnection(
+    { bufferedAmount: 0, send: (data) => sent.push(JSON.parse(data) as HostMessage), close: () => undefined },
+    {
+      id: "c3",
+      clientId: "dev_0123456789abcdef",
+      trace: ROOT_CONTEXT,
+      maxBufferedBytes: 1024 * 1024,
+      logger,
+      remote: { deviceId: "dev_0123456789abcdef", maxMessageBytes: 1024 * 1024, snapshotOf: () => null },
+    },
+  );
+}
 const MODEL = { providerId: "anthropic", modelId: "claude-haiku-4-5" };
 
 /** A proxy setting, passed on as it is; the index commands check it. */
@@ -292,6 +319,33 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
         return { latest: "1.1.0", checkedAt: 7 };
       },
     },
+    study: {
+      createDirection: async (clientId, text, model) => {
+        calls.push(["createDirection", clientId, text, model]);
+        return { directionId: DIRECTION, sessionId: "s9" };
+      },
+      renameDirection: async (directionId, name) => {
+        calls.push(["renameDirection", directionId, name]);
+        return {};
+      },
+      pinDirection: async (directionId) => {
+        calls.push(["pinDirection", directionId]);
+        return {};
+      },
+      unpinDirection: async (directionId) => {
+        calls.push(["unpinDirection", directionId]);
+        return {};
+      },
+      archiveDirection: async (directionId) => {
+        calls.push(["archiveDirection", directionId]);
+        return {};
+      },
+      restoreDirection: async (directionId) => {
+        calls.push(["restoreDirection", directionId]);
+        if (directionId === "lrn_taken") throw new CommandError("study_restore_conflict", { directionId });
+        return {};
+      },
+    },
     attachments,
     changes,
     files: {
@@ -307,6 +361,7 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
     },
     tracer: recording.tracer,
     logger: recording.logger,
+    containerOfSession: (sessionId) => SESSION_CONTAINERS[sessionId],
   });
   return {
     route,
@@ -822,6 +877,41 @@ describe("createRouter", () => {
     });
   });
 
+  it("hands the direction commands to the study commands, with the client for creating one (SPEC-0008)", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "create_direction", requestId: "d1", text: "我想学后端", model: MODEL }));
+    await route(
+      connection,
+      withTrace({ type: "rename_direction", requestId: "d2", directionId: DIRECTION, name: "后端" }),
+    );
+    await route(connection, withTrace({ type: "pin_direction", requestId: "d3", directionId: DIRECTION }));
+    await route(connection, withTrace({ type: "unpin_direction", requestId: "d4", directionId: DIRECTION }));
+    await route(connection, withTrace({ type: "archive_direction", requestId: "d5", directionId: DIRECTION }));
+    await route(connection, withTrace({ type: "restore_direction", requestId: "d6", directionId: DIRECTION }));
+    await route(connection, withTrace({ type: "restore_direction", requestId: "d7", directionId: "lrn_taken" }));
+
+    expect(calls).toStrictEqual([
+      ["createDirection", "client-1", "我想学后端", MODEL],
+      ["renameDirection", DIRECTION, "后端"],
+      ["pinDirection", DIRECTION],
+      ["unpinDirection", DIRECTION],
+      ["archiveDirection", DIRECTION],
+      ["restoreDirection", DIRECTION],
+      ["restoreDirection", "lrn_taken"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "d1", ok: true, result: { directionId: DIRECTION, sessionId: "s9" } },
+      ...["d2", "d3", "d4", "d5", "d6"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      {
+        type: "response",
+        requestId: "d7",
+        ok: false,
+        error: { code: "study_restore_conflict", params: { directionId: "lrn_taken" } },
+      },
+    ]);
+  });
+
   it("sends a connection the list changes waiting for it before answering any of its commands", async () => {
     const answered: [string, number][] = [];
     const setup = setUp((connectionId) => answered.push([connectionId, setup.sent.length]));
@@ -1165,6 +1255,71 @@ describe("createRouter's attachments", () => {
         requestId: "p3",
         ok: false,
         error: { code: "attachment_missing", params: { attachmentId: "a1" } },
+      },
+    ]);
+  });
+
+  it.each([
+    { type: "open_session", sessionId: "talk" },
+    { type: "subscribe_sessions", sessionIds: ["s1", "talk"] },
+    { type: "subscribe_sessions", sessionIds: ["s1"], resume: [{ sessionId: "talk", stream: "x", epoch: 1, seq: 0 }] },
+    { type: "prompt", sessionId: "talk", text: "hi" },
+    { type: "steer", sessionId: "talk", text: "and" },
+    { type: "retry_run", sessionId: "talk" },
+    { type: "stop", sessionId: "talk" },
+    { type: "resume_queue", sessionId: "talk" },
+    { type: "fetch_transcript", sessionId: "talk", epoch: 1, before: "t1", limit: 10 },
+    { type: "fetch_step", sessionId: "talk", epoch: 1, turnId: "t1", stepId: "1" },
+    { type: "fetch_image", sessionId: "talk", turnId: "t1", index: 0 },
+    { type: "create_session", containerId: "lrn_go" },
+    { type: "select_container", containerId: "lrn_go" },
+    { type: "rename_session", sessionId: "talk", name: "x" },
+    { type: "archive_session", sessionId: "talk" },
+    { type: "clear_attention", sessionId: "talk" },
+    { type: "close_tab", sessionId: "talk" },
+    { type: "set_model", sessionId: "talk", providerId: "p", modelId: "m" },
+    { type: "list_commands", sessionId: "talk" },
+    { type: "compact_session", sessionId: "talk" },
+  ])(
+    "refuses a phone's $type on a learning direction or a session in one, as local_only, running nothing",
+    async (fields) => {
+      const { route, sent, calls, logger } = setUp();
+      const phone = phoneConnection(sent, logger);
+
+      await route(phone, withTrace({ ...fields, requestId: "r1" }));
+
+      expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: false, error: { code: "local_only" } }]);
+      expect(calls).toStrictEqual([]);
+    },
+  );
+
+  it("runs the same commands from the Mac, and a phone's on a workspace's session", async () => {
+    const { route, sent, calls, connection, logger } = setUp();
+    const phone = phoneConnection(sent, logger);
+
+    await route(connection, withTrace({ type: "open_session", requestId: "r1", sessionId: "talk" }));
+    await route(phone, withTrace({ type: "open_session", requestId: "r2", sessionId: "s1" }));
+
+    expect(calls).toStrictEqual([
+      ["openSession", "client-1", "talk"],
+      ["openSession", "dev_0123456789abcdef", "s1"],
+    ]);
+  });
+
+  it("tells a phone a session's directory is gone without saying where it was", async () => {
+    const { route, sent, connection, logger } = setUp();
+    const phone = phoneConnection(sent, logger);
+
+    await route(phone, withTrace({ type: "prompt", requestId: "r1", sessionId: "s1", text: "moved" }));
+    await route(connection, withTrace({ type: "prompt", requestId: "r2", sessionId: "s1", text: "moved" }));
+
+    expect(sent.filter((message) => message.type === "response")).toStrictEqual([
+      { type: "response", requestId: "r1", ok: false, error: { code: "session_cwd_missing" } },
+      {
+        type: "response",
+        requestId: "r2",
+        ok: false,
+        error: { code: "session_cwd_missing", params: { cwd: "/Users/kim/app" } },
       },
     ]);
   });

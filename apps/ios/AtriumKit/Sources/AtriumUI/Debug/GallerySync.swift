@@ -89,7 +89,7 @@
       {"sessionId":"\(id)","containerId":"\(container)","name":null,"prompt":"\(prompt)","file":null,\
       "state":"persisted","updatedAt":\(updated),"archived":false,"running":\(running),"attention":\(attention),\
       "asking":\(asking),"question":\(question),\
-      "model":null,"parent":null,"agent":null,"heldDeliveries":0}
+      "model":null,"parent":null,"agent":null,"heldDeliveries":0,"study":null}
       """
     }
 
@@ -111,7 +111,7 @@
       \(workspace("w4", "p2", branch: "feat/radar-layer")),\
       \(workspace("w5", "p2", branch: "main", local: true))],\
       "chats":[{"id":"cht_1","dir":"/chats/cht_1","alias":null,"firstSessionId":"s8","archivedAt":null,"pinnedAt":null}],\
-      "sessions":[\(session("s1", in: "w1", prompt: "修一下缓存过期", updated: now - 7_200_000)),\
+      "directions":[],"sessions":[\(session("s1", in: "w1", prompt: "修一下缓存过期", updated: now - 7_200_000)),\
       \(session("s2", in: "w2", prompt: "把 TTL 改成可配置", updated: now - 3_000_000)),\
       \(session("s3", in: "w5", prompt: "整理 README", updated: now - 90_000_000)),\
       \(session("s4", in: "w4", prompt: "雷达图配色调整", updated: now - 60_000, running: true)),\
@@ -128,7 +128,7 @@
       \(session("s10", in: "w1", prompt: "过期时间写进文档", updated: now - 86_400_000))],\
       "layout":{"container":null,"tabs":{}},"preferences":{"setupDone":true,"appearance":"system","lastModel":null,\
       "thinkingByModel":{},"lastFast":false,"statusBar":{},"titleModel":null,"proxy":null,"inbox":true,\
-      "translationLanguage":"简体中文"},"resets":[]}
+      "translationLanguage":"简体中文"},"resets":[],"learningDir":"~/Atrium/Learning"}
       """
     }
 

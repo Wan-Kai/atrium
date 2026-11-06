@@ -1,14 +1,14 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 33,
+    "protocolVersion": 34,
     "clientId": "c1",
     "token": "t",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
     "type": "hello",
-    "protocolVersion": 33,
+    "protocolVersion": 34,
     "clientId": "dev_0123456789abcdef",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
@@ -331,6 +331,61 @@
     "chatId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc"
   },
   {
+    "type": "create_direction",
+    "requestId": "r19e",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "text": "我想学后端",
+    "model": {
+      "providerId": "faux",
+      "modelId": "faux-1"
+    }
+  },
+  {
+    "type": "create_direction",
+    "requestId": "r19f",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "text": "",
+    "model": null
+  },
+  {
+    "type": "rename_direction",
+    "requestId": "r19g",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "directionId": "lrn_node-backend",
+    "name": "Node 后端"
+  },
+  {
+    "type": "rename_direction",
+    "requestId": "r19h",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "directionId": "lrn_node-backend",
+    "name": null
+  },
+  {
+    "type": "pin_direction",
+    "requestId": "r19i",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "directionId": "lrn_node-backend"
+  },
+  {
+    "type": "unpin_direction",
+    "requestId": "r19j",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "directionId": "lrn_node-backend"
+  },
+  {
+    "type": "archive_direction",
+    "requestId": "r19k",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "directionId": "lrn_node-backend"
+  },
+  {
+    "type": "restore_direction",
+    "requestId": "r19l",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "directionId": "lrn_node-backend"
+  },
+  {
     "type": "close_tab",
     "requestId": "r20",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
@@ -347,6 +402,12 @@
     "requestId": "r22",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
     "containerId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc"
+  },
+  {
+    "type": "select_container",
+    "requestId": "r22b",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "containerId": "lrn_node-backend"
   },
   {
     "type": "select_container",

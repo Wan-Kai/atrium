@@ -14,9 +14,9 @@ nonisolated private let traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6
 /// An empty list snapshot, as the host sends it.
 nonisolated private let emptyList = """
   {"type":"index_snapshot","generation":"h1","seq":0,"reason":"no_cursor","projects":[],"workspaces":[],\
-  "chats":[],"sessions":[],"layout":{"container":null,"tabs":{}},"preferences":{"setupDone":true,\
+  "chats":[],"directions":[],"sessions":[],"layout":{"container":null,"tabs":{}},"preferences":{"setupDone":true,\
   "appearance":"system","lastModel":null,"thinkingByModel":{},"lastFast":false,"statusBar":{},\
-  "titleModel":null,"proxy":null,"inbox":true,"translationLanguage":"简体中文"},"resets":[]}
+  "titleModel":null,"proxy":null,"inbox":true,"translationLanguage":"简体中文"},"resets":[],"learningDir":"~/Atrium/Learning"}
   """
 
 /// An empty snapshot of session `s1`, as the host sends it.

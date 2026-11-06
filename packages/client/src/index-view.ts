@@ -23,6 +23,7 @@ export function emptyIndex(): IndexView {
     projects: [],
     workspaces: [],
     chats: [],
+    directions: [],
     sessions: [],
     layout: { container: null, tabs: {} },
     preferences: {
@@ -38,6 +39,7 @@ export function emptyIndex(): IndexView {
       translationLanguage: "简体中文",
     },
     resets: [],
+    learningDir: "~/Atrium/Learning",
   };
 }
 
@@ -110,6 +112,7 @@ export function applyIndexChanges(view: IndexView, event: IndexChangesEvent): In
     projects: withChanges(view.projects, event.projects, (project) => project.id),
     workspaces: withChanges(view.workspaces, event.workspaces, (workspace) => workspace.id),
     chats: withChanges(view.chats, event.chats, (chat) => chat.id),
+    directions: withChanges(view.directions, event.directions, (direction) => direction.id),
     sessions: withChanges(view.sessions, event.sessions, (session) => session.sessionId),
     layout: event.layout ?? view.layout,
     preferences: event.preferences ?? view.preferences,

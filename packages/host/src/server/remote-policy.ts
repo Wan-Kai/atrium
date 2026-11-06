@@ -1,4 +1,11 @@
-import type { Command, CommandType, HostMessage, SessionSummary } from "@atrium/protocol";
+import {
+  type Command,
+  type CommandType,
+  type HostMessage,
+  type Layout,
+  type SessionSummary,
+  isDirectionId,
+} from "@atrium/protocol";
 import { forTransport, itemForTransport } from "../transcript/rules";
 
 /** The longest text of a tool step that travels whole to a phone (SPEC-0005, "给手机推什么"). */
@@ -80,6 +87,13 @@ export const COMMAND_REACH = {
   // Pinning is offered on the phone too (SPEC-0005, "MP6b").
   pin_chat: "phone",
   unpin_chat: "phone",
+  // Learning directions are the Mac's for now (SPEC-0008, "非目标": 手机端).
+  create_direction: "local_only",
+  rename_direction: "local_only",
+  pin_direction: "local_only",
+  unpin_direction: "local_only",
+  archive_direction: "local_only",
+  restore_direction: "local_only",
   // Signing in and installing.
   login: "local_only",
   answer_login: "local_only",
@@ -123,6 +137,9 @@ export const COMMAND_REACH = {
  * @remarks
  * By `COMMAND_REACH`; a new child conversation is not in the first version, so `create_session`
  * with `child` is the Mac's only (SPEC-0005, "远程客户端能用的命令").
+ * Nothing of learning mode is a phone's either (SPEC-0008, "ML1 定的细节"): the router refuses
+ * any command naming a direction or a session in one (`namesLearning`), and `forPhone` keeps them
+ * out of what is sent.
  *
  * @sideEffects none
  * @param command - The command.
@@ -197,7 +214,12 @@ export function pushedToPhone(message: HostMessage): boolean {
  * The phone only ever shows sessions, workspaces and chats that are not archived, and has no use
  * for session file paths, so the list leaves them out: a snapshot drops them, and a change that
  * archived one becomes its removal. An upsert that takes an item out of the archive brings it back
- * whole (SPEC-0005, "给手机推什么"). Every other message is the same object.
+ * whole (SPEC-0005, "给手机推什么"). Nothing of learning mode goes either (SPEC-0008, "ML1 定的细节",
+ * option A): no learning direction, no session in one, no direction's tabs and no learning
+ * directory, so no path of them leaves the Mac; a phone's commands that name one are refused in
+ * the router, and a session's events reach only its subscribers, which a phone cannot be for a
+ * direction's session. The ids of removed sessions stay, as the list does not say where those
+ * were. Every other message is the same object.
  *
  * @sideEffects none
  * @param message - The message.
@@ -215,7 +237,13 @@ export function forPhone(message: HostMessage): HostMessage {
       ...message,
       workspaces: message.workspaces.filter((workspace) => workspace.archivedAt === null),
       chats: message.chats.filter((chat) => chat.archivedAt === null),
-      sessions: message.sessions.filter((session) => !session.archived).map(withoutFile),
+      directions: [],
+      sessions: message.sessions
+        .filter((session) => !session.archived && !isDirectionId(session.containerId))
+        .map(withoutFile),
+      layout: withoutLearning(message.layout),
+      // The phone shows no learning mode; the field only has to be there.
+      learningDir: "~",
     };
   }
   if (message.type !== "index_changes") return message;
@@ -230,11 +258,21 @@ export function forPhone(message: HostMessage): HostMessage {
     (item) => item.id,
   );
   const sessions = split(
-    message.sessions,
+    {
+      upsert: message.sessions.upsert.filter((session) => !isDirectionId(session.containerId)),
+      remove: message.sessions.remove,
+    },
     (session) => session.archived,
     (item) => item.sessionId,
   );
-  return { ...message, workspaces, chats, sessions: { ...sessions, upsert: sessions.upsert.map(withoutFile) } };
+  return {
+    ...message,
+    workspaces,
+    chats,
+    directions: { upsert: [], remove: [] },
+    sessions: { ...sessions, upsert: sessions.upsert.map(withoutFile) },
+    layout: message.layout === null ? null : withoutLearning(message.layout),
+  };
 }
 
 /**
@@ -272,4 +310,21 @@ function split<T>(
  */
 function withoutFile(session: SessionSummary): SessionSummary {
   return { ...session, file: null };
+}
+
+/**
+ * A layout without learning directions: not where the client is, and without their tabs.
+ *
+ * @remarks
+ * See `forPhone`.
+ *
+ * @sideEffects none
+ * @param layout - The layout.
+ * @returns The layout a phone gets.
+ */
+function withoutLearning(layout: Layout): Layout {
+  return {
+    container: layout.container !== null && isDirectionId(layout.container) ? null : layout.container,
+    tabs: Object.fromEntries(Object.entries(layout.tabs).filter(([containerId]) => !isDirectionId(containerId))),
+  };
 }

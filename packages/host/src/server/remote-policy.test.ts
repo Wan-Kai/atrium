@@ -3,6 +3,8 @@ import {
   COMMAND_TYPES,
   HostMessage,
   IDLE_CONTROL,
+  type IndexChangesEvent,
+  type IndexSnapshotEvent,
   type SessionSummary,
   type Step,
   type Turn,
@@ -87,6 +89,60 @@ describe("what goes to the phone", () => {
   });
 });
 
+/** A session summary in a container; only the fields the filter reads matter here. */
+const inContainer = (sessionId: string, containerId: string) =>
+  ({ sessionId, containerId }) as unknown as IndexSnapshotEvent["sessions"][number];
+
+describe("what of the list goes to a phone (SPEC-0008, option A)", () => {
+  it("keeps every learning direction, its sessions, its tabs and the learning directory out of a snapshot", () => {
+    const snapshot = {
+      type: "index_snapshot",
+      workspaces: [],
+      chats: [],
+      directions: [{ id: "lrn_go", dir: "/Users/kim/Atrium/Learning/go" }],
+      sessions: [inContainer("s1", "wks_0123456789abcdef"), inContainer("talk", "lrn_go")],
+      layout: {
+        container: "lrn_go",
+        tabs: { lrn_go: { open: ["talk"], active: "talk" }, wks_0123456789abcdef: { open: ["s1"], active: "s1" } },
+      },
+      learningDir: "/Users/kim/Atrium/Learning",
+    } as unknown as IndexSnapshotEvent;
+
+    const sent = forPhone(snapshot);
+
+    expect(sent).toMatchObject({
+      directions: [],
+      sessions: [{ sessionId: "s1" }],
+      layout: { container: null, tabs: { wks_0123456789abcdef: { open: ["s1"], active: "s1" } } },
+      learningDir: "~",
+    });
+    expect(JSON.stringify(sent)).not.toMatch(/lrn_|Learning|talk/u);
+  });
+
+  it("keeps them out of changes too, and leaves other messages as they are", () => {
+    const changes = {
+      type: "index_changes",
+      workspaces: { upsert: [], remove: [] },
+      chats: { upsert: [], remove: [] },
+      directions: { upsert: [{ id: "lrn_go", dir: "/Users/kim/Atrium/Learning/go" }], remove: ["lrn_old"] },
+      sessions: { upsert: [inContainer("s1", "wks_0123456789abcdef"), inContainer("talk", "lrn_go")], remove: [] },
+      layout: { container: "lrn_go", tabs: { lrn_go: { open: ["talk"], active: "talk" } } },
+    } as unknown as IndexChangesEvent;
+    const response = { type: "response", requestId: "r1", ok: true, result: {} } as const;
+
+    const sent = forPhone(changes);
+
+    expect(sent).toMatchObject({
+      directions: { upsert: [], remove: [] },
+      sessions: { upsert: [{ sessionId: "s1" }], remove: [] },
+      layout: { container: null, tabs: {} },
+    });
+    expect(JSON.stringify(sent)).not.toMatch(/lrn_|Learning|talk/u);
+    expect(forPhone({ ...changes, layout: null })).toMatchObject({ layout: null });
+    expect(forPhone(response)).toBe(response);
+  });
+});
+
 /**
  * A session summary for the phone's list.
  *
@@ -116,6 +172,7 @@ function session(id: string, archived: boolean): SessionSummary {
     parent: null,
     agent: null,
     heldDeliveries: 0,
+    study: null,
   };
 }
 
@@ -173,6 +230,7 @@ describe("the list as the phone gets it", () => {
       projects: [],
       workspaces: [workspace("wks_0000000000000001", null), workspace("wks_0000000000000002", 5)],
       chats: [chat("cht_1", null), chat("cht_2", 5)],
+      directions: [],
       sessions: [session("s1", false), session("s2", true)],
       layout: { container: null, tabs: {} },
       preferences: {
@@ -188,6 +246,7 @@ describe("the list as the phone gets it", () => {
         translationLanguage: "简体中文",
       },
       resets: [],
+      learningDir: "~/Atrium/Learning",
     });
 
     expect(forPhone(snapshot)).toStrictEqual({
@@ -195,6 +254,7 @@ describe("the list as the phone gets it", () => {
       workspaces: [workspace("wks_0000000000000001", null)],
       chats: [chat("cht_1", null)],
       sessions: [live],
+      learningDir: "~",
     });
   });
 
@@ -209,6 +269,7 @@ describe("the list as the phone gets it", () => {
         remove: ["wks_0000000000000003"],
       },
       chats: { upsert: [chat("cht_2", 5)], remove: [] },
+      directions: { upsert: [], remove: [] },
       sessions: { upsert: [session("s1", false), session("s2", true)], remove: ["s3"] },
       layout: null,
       preferences: null,

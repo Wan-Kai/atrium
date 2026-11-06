@@ -6,7 +6,7 @@ import { DirEntry, FILE_LIMITS, FileContent, WorkspacePath } from "./files";
 import { SNAPSHOT_TURNS, SnapshotStream } from "./events";
 import { InteractionAnswer } from "./control";
 import { QuestionReply } from "./question";
-import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
+import { ChatId, ContainerId, DirectionId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, BranchName, ProxySetting, StatusBarChoices, TranslationLanguage } from "./listing";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
 import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup";
@@ -260,7 +260,7 @@ export type SubscribeIndexCommand = z.infer<typeof SubscribeIndexCommand>;
 /** An absolute path on the host's machine. */
 const Path = z.string().min(1).max(4096);
 
-/** A name the user types for a project, workspace, chat or session. */
+/** A name the user types for a project, workspace, chat, direction or session. */
 const Name = z.string().trim().min(1).max(256);
 
 /** Registers a directory as a project. */
@@ -400,6 +400,67 @@ export const UnpinChatCommand = z.strictObject({
 });
 export type UnpinChatCommand = z.infer<typeof UnpinChatCommand>;
 
+/**
+ * Creates a learning direction from its first message (SPEC-0008, "新建方向"): the host names it,
+ * makes its directory and a discussion session, opened as this client's active tab. The message
+ * itself goes to that session with `prompt`, as from the new-workspace page.
+ *
+ * @remarks
+ * `text` is only material for the name, and may be empty for a message of images only; `model`
+ * is the one the page's session would use, `null` when none was chosen.
+ */
+export const CreateDirectionCommand = z.strictObject({
+  type: z.literal("create_direction"),
+  ...commandFields,
+  text: PromptText,
+  model: ModelRef.nullable(),
+});
+export type CreateDirectionCommand = z.infer<typeof CreateDirectionCommand>;
+
+/** Names a direction on the learning home, or with `null` goes back to its own display name. */
+export const RenameDirectionCommand = z.strictObject({
+  type: z.literal("rename_direction"),
+  ...commandFields,
+  directionId: DirectionId,
+  name: Name.nullable(),
+});
+export type RenameDirectionCommand = z.infer<typeof RenameDirectionCommand>;
+
+/** Pins a direction to the front of the learning home. */
+export const PinDirectionCommand = z.strictObject({
+  type: z.literal("pin_direction"),
+  ...commandFields,
+  directionId: DirectionId,
+});
+export type PinDirectionCommand = z.infer<typeof PinDirectionCommand>;
+
+/** Unpins a direction. */
+export const UnpinDirectionCommand = z.strictObject({
+  type: z.literal("unpin_direction"),
+  ...commandFields,
+  directionId: DirectionId,
+});
+export type UnpinDirectionCommand = z.infer<typeof UnpinDirectionCommand>;
+
+/**
+ * Archives a direction: stops its sessions and moves its directory under `Archive/` (SPEC-0008,
+ * "方向是一种新容器").
+ */
+export const ArchiveDirectionCommand = z.strictObject({
+  type: z.literal("archive_direction"),
+  ...commandFields,
+  directionId: DirectionId,
+});
+export type ArchiveDirectionCommand = z.infer<typeof ArchiveDirectionCommand>;
+
+/** Moves an archived direction's directory back; refused as `study_restore_conflict` when its place is taken. */
+export const RestoreDirectionCommand = z.strictObject({
+  type: z.literal("restore_direction"),
+  ...commandFields,
+  directionId: DirectionId,
+});
+export type RestoreDirectionCommand = z.infer<typeof RestoreDirectionCommand>;
+
 /** The window gained focus: the host scans workspaces, merge states and session files again. */
 export const WindowFocusedCommand = z.strictObject({ type: z.literal("window_focused"), ...commandFields });
 export type WindowFocusedCommand = z.infer<typeof WindowFocusedCommand>;
@@ -421,7 +482,7 @@ export const ForkPlacement = z.discriminatedUnion("place", [
 ]);
 export type ForkPlacement = z.infer<typeof ForkPlacement>;
 
-/** Creates a session in a workspace or chat, starts its pi and opens it as this client's active tab. */
+/** Creates a session in a workspace, chat or direction, starts its pi and opens it as this client's active tab. */
 export const CreateSessionCommand = z.strictObject({
   type: z.literal("create_session"),
   ...commandFields,
@@ -443,7 +504,7 @@ export type CreateSessionCommand = z.infer<typeof CreateSessionCommand>;
 export const CloseTabCommand = z.strictObject({ type: z.literal("close_tab"), ...commandFields, sessionId: SessionId });
 export type CloseTabCommand = z.infer<typeof CloseTabCommand>;
 
-/** Goes to a workspace or a chat, or nowhere. */
+/** Goes to a workspace, a chat or a direction, or nowhere. */
 export const SelectContainerCommand = z.strictObject({
   type: z.literal("select_container"),
   ...commandFields,
@@ -933,6 +994,12 @@ export const Command = z.discriminatedUnion("type", [
   RestoreChatCommand,
   PinChatCommand,
   UnpinChatCommand,
+  CreateDirectionCommand,
+  RenameDirectionCommand,
+  PinDirectionCommand,
+  UnpinDirectionCommand,
+  ArchiveDirectionCommand,
+  RestoreDirectionCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -1066,6 +1133,13 @@ export const CommandResult = {
   restore_chat: z.strictObject({}),
   pin_chat: z.strictObject({}),
   unpin_chat: z.strictObject({}),
+  /** `sessionId` is `null` when the direction was made but its discussion could not be created (SPEC-0008). */
+  create_direction: z.strictObject({ directionId: DirectionId, sessionId: SessionId.nullable() }),
+  rename_direction: z.strictObject({}),
+  pin_direction: z.strictObject({}),
+  unpin_direction: z.strictObject({}),
+  archive_direction: z.strictObject({}),
+  restore_direction: z.strictObject({}),
   window_focused: z.strictObject({}),
   create_session: z.strictObject({ sessionId: SessionId }),
   close_tab: z.strictObject({}),
