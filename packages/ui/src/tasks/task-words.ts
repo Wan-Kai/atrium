@@ -60,6 +60,7 @@ const ERROR_WORDS: Readonly<Record<string, string>> = {
   task_not_found: "这个任务已经不在了",
   task_state_invalid: "任务的状态变了，刷新后再试",
   task_back_limit: "这条打回边已经用了两次",
+  task_read_only: "这个任务是别的进程在跑的，Atrium 里只能看",
   task_graph_invalid: "这张图不合规则，需要先改图",
   task_already_converted: "这段对话已经转成任务了",
   task_no_project_for_work: "不属于项目的任务不能放改代码或跑命令的节点",

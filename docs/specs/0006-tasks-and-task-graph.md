@@ -838,6 +838,7 @@ type ScheduleRule = {
 | `task_state_invalid` | 当前状态不允许这个操作（比如对 `running` 的任务点"确认并启动"、对启动后的任务"放弃"） |
 | `task_graph_invalid` | GraphValidator 不通过（参数带第一条原因的代码） |
 | `task_back_limit` | 这条打回边已用 2 次 |
+| `task_read_only` | 这个任务是 `ATRIUM_FOLLOW_TASKS` 只读跟着的（别的进程在写它的目录），任何改动它的命令都被拒绝（T7.1；界面说法见"T7.1 定下的细节"） |
 | `task_already_converted` | 来源对话已经转过（带任务 id，UI 据此打开已有任务） |
 | `task_no_project_for_work` | 不属于项目的任务要放 `work` / `check` 节点 |
 | `task_caller_invalid` | 工具调用的会话不是这个工具该来的会话 |
@@ -960,6 +961,38 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 **2026-11-06 用户定**：边跑 `task:try` 边在 Atrium 里看选 B（开发时只读跟随 task:try 的任务目录，见 development.md"task:try 与 Atrium"，作为 T7.1 补做）；human 节点的改动统计放在节点悬停卡里；"项目 · worktree"的写法（有项目没 worktree 只写项目名，定时写"项目 · 定时 · worktree"）照现在的做；改过节点的虚线框和需求摘要卡片放 T8。
 
 **没做、留给后面**：行内作答、任务栏的按钮、任务对话的输入框、审核卡片和记录（T8）；改过的节点标蓝框和"新"（要协议给前一版，T8）；需求摘要卡片（设计稿第 4 屏，要把摘要给界面，T8）；任务对话在 pi 没在跑时的读取（T9）；定时标签的内容（T10）；节点对话标签（T8）。
+
+### T7.1 定下的细节
+
+2026-11-06，T7.1（开发时在 Atrium 里跟着 `pnpm task:try` 的运行）实现时定下。用户选的办法 B，评估见 [development.md · task:try 与 Atrium](../development.md#task-try-与-atrium-t7-定)。
+
+**开关**：环境变量 `ATRIUM_FOLLOW_TASKS=<task:try 的 home>/tasks`，只给开发用。
+
+- 打包版忽略它，机制是**读的人不同**：桌面端主进程只在 `!app.isPackaged` 时读这个变量，经和 token 同一条的 `config` 消息交给宿主进程（`followTasks`）；Electron 里的宿主不自己读环境，所以打包版的环境里有这个变量也没用。单独运行的宿主（`entry.ts` 的 `runStandalone`，只在开发和测试里用）直接读。纯函数 `followTasksFor(env, packaged)` 有单元测试；`ATRIUM_FOLLOW_TASKS` 登记在 security.md 的环境变量表里。
+- 目录不存在或读不了：日志一条 warn（`task follow unavailable`，只带错误码，不带路径），之后每 5 秒试一次（先开 Atrium、后跑 task:try 时目录还没有），出现了就开始跟；不崩。
+- 目录和 Atrium 自己的任务目录是同一个（符号链接解析后相同）：拒绝跟，一条 warn。这正是"两个宿主管同一个 home"，禁止。
+
+**纯读的重放**（`tasks/task-reader.ts`）：`openTaskStore` 打开时会截掉半行、补换行、重写 `task.json`，对另一个进程正在追加的目录就是写。读者只读 `events.jsonl`，用同一个 `parseEvents`（半行的尾巴丢掉不写、中间坏行照旧报 `TaskStoreCorruptError`）和同一个 `replayEvents`（归约器不复制）；**不读 `task.json`**（它可能比事件慢一拍，事件才是真相），不写、不改、不 `chmod`。半行读到时忽略，写完整了下一次扫描就读到。读不出的任务（中间坏行、`seq` 跳号）记一条 warn（同一原因只记一次），保留上次读到的状态。测试证明"不写"：跟随期间目录里每个文件的内容哈希和 mtime 都没变，包括写者留下半行时。
+
+**跟随**（`tasks/task-follower.ts`）：
+
+- 机制沿用 `changes/changes-service.ts` 的：递归 `fs.watch`（`watchDirectory`）加轮询兜底。有变化的通知（去抖 100ms）、watch 失败时（改为每秒轮询）、或 watch 开着时每 3 秒一次的兜底（递归 FSEvents 可能晚启动或漏一个通知），扫描目录：新出现的任务目录、`events.jsonl` 的大小或 mtime 变了的任务重读。没有变化的任务不重读。
+- 读到新事件就当作任务的一次更新：每个有变化的任务**每次扫描推一次**（`onEvent(task, 最后一个事件, [])`，动作恒为空），`list_tasks` / `tasks_updated` / `open_task` / `task_updated` 与自己的任务一模一样，T7 的界面不为此加路径。第一次扫描不推（还没有人在看）。目录里任务整个消失（task:try 的 home 被删）：从列表里拿掉，推一次。
+- 计时器（去抖、轮询、重试、兜底各一个，同一类同时最多一个）经注入的 `Clock` 和资源计数（`timer`）；watch 的句柄计数 `task.follow.watch`；宿主关闭时全部释放（泄漏测试）。
+
+**严格只读**（`withFollowedTasks` 包在 `TaskService` 外面，`main.ts` 接线）：
+
+- 所有改任务的命令对一个被跟着的任务都答 **`task_read_only`**（新码，`answer_human`、`rerun_node`、`continue_node`、`pause` / `resume` / `cancel`、`start` / `abandon`、`approve_graph` / `reject_graph`、`answer_archive`，以及 `submit` / `recover`）。`task_state_invalid` 的界面说法是"任务的状态变了，刷新后再试"，会让人去重试一个永远不会成功的操作，所以另立一个码。
+- 调度器、运行器、会话都不碰它：被跟着的任务从不 `attach` 到 `TaskRunner`，不起 pi，不建 worktree，不提交、不合并、不弹归档提问。测试里用资源计数（`pi.process`）和任务目录的哈希证明。
+- `view()` 不跑 git（`archiveFacts` 恒为 `null`），`sourceSessionId` 恒为 `null`（需求对话在 task:try 的 home 里，任务栏的"需求对话 ›"不显示，免得点到一个打不开的链接）。
+- **id 冲突**：被跟着的目录里的 id 和 Atrium 自己的任务（已取用的或磁盘上已有的目录）同名时，**自己的赢**，被跟着的那个不显示，记一条 warn；这在实际中不会发生（task:try 的 id 由图文件和仓库路径算出，自己的是随机的），但命令的路由不能因此有歧义。
+- 被跟着的任务引用的项目和 worktree 是 task:try 的 home 里的，Atrium 的索引里没有：任务栏和列表里"项目 · worktree"读不到项目名，照 T7 的现成写法只写"项目"；human 节点的"改动 +N −M"悬停统计不出现（`watch_changes` 对一个 Atrium 不认识的 worktree 什么也不给）。真实运行里看过（2026-11-06，`deepseek/deepseek-flash`，截图在验收报告里）。这两处 T7.1 不改，要认得 task:try 的项目得另做。
+
+**协议**（号 32 → 33；合回 `main` 时取当时的下一个号并重新生成 Swift 投影）：`TaskView` 加 `followed: boolean`（是不是被只读跟着的）。`TaskSummary` 不加。新的错误码 `task_read_only`，界面的说法"这个任务是别的进程在跑的，Atrium 里只能看"（`task-words.ts`；T8 的按钮对被跟着的任务不画，所以这句只在别的客户端或脚本发了命令时用得上）。
+
+**任务对话窗格**：被跟着的任务的会话文件在 task:try 的会话目录里，不在 Atrium 的，T7.1 不读。窗格不再停在"正在读取任务对话…"，改写两行（`role="status"`，`--fs-meta`，第一行 `--text-2`、第二行 `--text-dim`）："这个任务是别的进程在跑的，Atrium 只读它的图和节点状态。" / "任务对话和各节点的对话不在 Atrium 里，这里看不到。" 标题"任务对话"不变，没有输入框（T7 本来就没有）。
+
+**没做**：读 task:try 的会话文件（要先定会话文件的目录怎么告诉宿主，会碰到 pi 会话目录的读权限）；把被跟着的任务标成"只读"的标签（任务栏上多一个小标签，建议但没做，等用户定）；跟随多个目录。
 
 ## 备选方案
 

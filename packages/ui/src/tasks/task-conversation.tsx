@@ -45,21 +45,33 @@ function withoutDesignPrompt(items: readonly TranscriptItem[]): readonly Transcr
  * It shows what the host sent: turns, and the progress lines as groups on the rail. There is no input box in
  * T7; talking to the task conversation arrives with T8. Until the host sends the first snapshot the pane says it is
  * reading; a conversation whose process is not running (a finished task) may never get one, which the pane says too.
+ * A task that is only followed (another process writes it; T7.1) has its conversation elsewhere: the pane says so,
+ * and does not watch.
  *
  * @sideEffects Watches the session while mounted (this replaces the sessions watched before, which is why the task
  * area and the conversations are never mounted together); loads older items and whole steps on request.
- * @param props - The client, and the task conversation's session id.
+ * @param props - The client, the task conversation's session id, and whether the task is only followed.
  * @returns The conversation.
  */
-export function TaskConversation({ client, sessionId }: { readonly client: AtriumClient; readonly sessionId: string }) {
+export function TaskConversation({
+  client,
+  sessionId,
+  followed,
+}: {
+  readonly client: AtriumClient;
+  readonly sessionId: string;
+  readonly followed: boolean;
+}) {
   const [store, setStore] = useState(() => client.session(sessionId));
   useEffect(() => {
+    // A followed task's conversation is not in this host; watching it would wait for ever.
+    if (followed) return;
     // Fire and forget: a lost connection subscribes again when it is back.
     client.watch([sessionId]).catch(() => undefined);
     // `watch` makes the view at once, and this has to render again to subscribe to it.
     // oxlint-disable-next-line react/set-state-in-effect -- the client is the external system here.
     setStore(client.session(sessionId));
-  }, [client, sessionId]);
+  }, [client, sessionId, followed]);
   const view = useStore(store ?? NOT_WATCHED);
   const shown = useMemo(() => ({ ...view, items: withoutDesignPrompt(view.items) }), [view]);
   return (
@@ -67,7 +79,12 @@ export function TaskConversation({ client, sessionId }: { readonly client: Atriu
       <h2 className="flex h-9 shrink-0 items-center px-4 text-[length:var(--fs-meta)] font-medium text-[var(--text-2)]">
         任务对话
       </h2>
-      {view.status === "loading" ? (
+      {followed ? (
+        <div role="status" className="px-6 py-6 text-[length:var(--fs-meta)]">
+          <p className="text-[var(--text-2)]">这个任务是别的进程在跑的，Atrium 只读它的图和节点状态。</p>
+          <p className="mt-1 text-[var(--text-dim)]">任务对话和各节点的对话不在 Atrium 里，这里看不到。</p>
+        </div>
+      ) : view.status === "loading" ? (
         <p role="status" className="px-6 py-6 text-[length:var(--fs-meta)] text-[var(--text-dim)]">
           正在读取任务对话…
         </p>

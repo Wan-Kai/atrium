@@ -61,6 +61,7 @@ import { createSessionManager } from "./sessions/session-manager";
 import { createTaskRunner } from "./tasks/runner";
 import { createTaskArchiving } from "./tasks/task-archiving";
 import { createTaskCommands } from "./tasks/task-commands";
+import { followTasks } from "./tasks/followed-tasks";
 import { type TaskService, createTaskService } from "./tasks/task-service";
 import { createTaskWorkspaces } from "./tasks/task-workspaces";
 import { createReplyTranslations, TRANSLATION_OUTPUT_BYTES } from "./sessions/reply-translation";
@@ -114,6 +115,11 @@ export interface HostConfig {
   readonly homebrewPlaces?: readonly string[];
   /** Where to look up the latest pi; defaults to pi.dev, as pi does; `null` never looks (tests). */
   readonly piLatestUrl?: string | null;
+  /**
+   * A directory of tasks another process writes (`pnpm task:try`'s `<home>/tasks`) to follow read-only; dev only
+   * (`ATRIUM_FOLLOW_TASKS`, SPEC-0006, "T7.1 定下的细节"). Without it, the host follows nothing.
+   */
+  readonly followTasks?: string;
   /** The vault Electron's main process keeps; without it, as when run alone, remote access is unavailable. */
   readonly vault?: VaultPort;
 }
@@ -495,7 +501,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
     resources,
   });
-  const tasks: TaskService = createTaskService({
+  const ownedTasks: TaskService = createTaskService({
     runner: taskRunner,
     root: join(home.root, "tasks"),
     clock,
@@ -516,6 +522,18 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       },
     },
   });
+  // Dev only (SPEC-0006, "T7.1 定下的细节"): the tasks of a `pnpm task:try` run, followed read-only.
+  const tasks: TaskService =
+    config.followTasks === undefined
+      ? ownedTasks
+      : await followTasks({
+          owned: ownedTasks,
+          ownRoot: join(home.root, "tasks"),
+          directory: config.followTasks,
+          clock,
+          resources,
+          logger,
+        });
   const taskCommands = createTaskCommands({
     service: tasks,
     send: (connectionId, event) => subscriptions.sendTo(connectionId, event),

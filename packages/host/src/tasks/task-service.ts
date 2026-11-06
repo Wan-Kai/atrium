@@ -160,7 +160,7 @@ export interface TaskDesignPorts {
  * @param task - The task.
  * @returns Whether it is.
  */
-function isAbandoned(task: Task): boolean {
+export function isAbandoned(task: Task): boolean {
   return task.cancelled && task.startedAt === null;
 }
 

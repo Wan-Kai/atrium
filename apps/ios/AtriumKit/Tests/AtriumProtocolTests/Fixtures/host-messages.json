@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 32,
+    "protocolVersion": 33,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -2358,7 +2358,8 @@
           "kind": "back"
         }
       ],
-      "archiveFacts": null
+      "archiveFacts": null,
+      "followed": false
     }
   },
   {
@@ -7025,6 +7026,14 @@
     "ok": false,
     "error": {
       "code": "task_graph_invalid"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "task_read_only"
     }
   },
   {

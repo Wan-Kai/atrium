@@ -11,15 +11,22 @@ import { isStrongToken } from "./server/auth";
  * @remarks
  * `ATRIUM_HOME` lets tests and developers point the host at another home directory;
  * `ATRIUM_PI_LATEST_URL` where it looks up the latest pi, empty for nowhere, so tests stay off the
- * network.
+ * network. The task directory to follow (`ATRIUM_FOLLOW_TASKS`) is not read here: under Electron it comes from the
+ * main process, which sends it only when the app is not packaged; run alone, the host reads it itself.
  *
  * @sideEffects Reads environment variables.
  * @param token - Session token.
  * @param uiDir - Built UI to serve, if any.
  * @param extraOrigins - Extra allowed origins, if any.
+ * @param followTasks - The directory of tasks to follow read-only, if any (dev only).
  * @returns The configuration.
  */
-function configFor(token: string, uiDir: string | undefined, extraOrigins: readonly string[] | undefined): HostConfig {
+function configFor(
+  token: string,
+  uiDir: string | undefined,
+  extraOrigins: readonly string[] | undefined,
+  followTasks: string | undefined,
+): HostConfig {
   return {
     home: process.env["ATRIUM_HOME"] ?? join(homedir(), ".atrium"),
     token,
@@ -28,6 +35,7 @@ function configFor(token: string, uiDir: string | undefined, extraOrigins: reado
     fastExtension: join(__dirname, "atrium-extension.mjs"),
     ...(uiDir === undefined ? {} : { uiDir }),
     ...(extraOrigins === undefined ? {} : { extraOrigins }),
+    ...(followTasks === undefined || followTasks === "" ? {} : { followTasks }),
     ...piLatestUrlFor(process.env["ATRIUM_PI_LATEST_URL"]),
   };
 }
@@ -62,7 +70,7 @@ async function runStandalone(): Promise<void> {
   const token = process.env["ATRIUM_TOKEN"] ?? randomBytes(32).toString("base64url");
   if (!isStrongToken(token)) throw new Error("ATRIUM_TOKEN must be at least 32 random bytes in base64url");
   const host = await startHost({
-    ...configFor(token, process.env["ATRIUM_UI_DIR"], undefined),
+    ...configFor(token, process.env["ATRIUM_UI_DIR"], undefined, process.env["ATRIUM_FOLLOW_TASKS"]),
     port: Number(process.env["ATRIUM_PORT"] ?? 0),
   });
   process.stdout.write(`${JSON.stringify({ type: "ready", url: host.origin, token })}\n`);
@@ -91,7 +99,11 @@ if (parentPort === undefined) {
   });
 } else {
   runUnderElectron(parentPort, {
-    start: (request, vault) => startHost({ ...configFor(request.token, request.uiDir, request.extraOrigins), vault }),
+    start: (request, vault) =>
+      startHost({
+        ...configFor(request.token, request.uiDir, request.extraOrigins, request.followTasks),
+        vault,
+      }),
     exit: (code) => process.exit(code),
   });
 }

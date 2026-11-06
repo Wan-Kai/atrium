@@ -120,6 +120,11 @@ export const ErrorCode = z.enum([
   "task_back_limit",
   /** The graph breaks a rule; `params.code` is the first problem's code, `params.node` the node when one is meant (SPEC-0006, "错误码"). */
   "task_graph_invalid",
+  /**
+   * The task is followed read-only (`ATRIUM_FOLLOW_TASKS`, another process writes it), so no command may change it
+   * (SPEC-0006, "T7.1 定下的细节").
+   */
+  "task_read_only",
   /** The conversation has a task already; `params.taskId` says which, to open it (SPEC-0006, "/task 与创建"). */
   "task_already_converted",
   /** A task outside any project has a `work` or `check` node, or a node in a worktree (SPEC-0006, "错误码"). */

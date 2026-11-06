@@ -2251,3 +2251,22 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 没有测试保护的：悬停卡的浮动位置（`useFloatingLayer`，别处已测）；任务标签在窄窗口下的排版；点阵涡旋等动效；浅色 / 深色截图对照设计稿靠人看（截图在验收报告里）。
 - 没做（留给后面的步骤）：见 SPEC-0006"T7 定下的细节 · 没做、留给后面"。
 
+## T7.1 开发时在 Atrium 里跟着 task:try（SPEC-0006"T7.1 定下的细节"，2026-11-06，待验收）
+
+宿主一侧用真宿主、真文件系统（递归 `fs.watch`）、真任务存储；写者是同一进程里另开的一个 `openTaskStore`（`pnpm task:try` 在另一个进程里，写的是同样的字节，一次真实运行见验收报告），半行用手写字节造。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 纯读重放：整份日志重放成存储会给的任务（同一个 `parseEvents` / `replayEvents`）；最后一行没写完时忽略、写完整后读到；**不写**（每个文件的哈希和 mtime 不变，落后的 `task.json` 不修、没有的不建、半行不截、不补换行）；没有事件时没有任务；中间坏行报 `TaskStoreCorruptError`；用大小和 mtime 判断变没变 | `host/tasks/task-reader.test.ts` |
+| 跟随：已有的任务列出、之后写者每走一步推一次、不为第一次扫描推；后来才出现的任务目录、整个消失的任务；半行忽略且目录不变、写完整后读到；watch 起不来时轮询、watch 开着但漏了通知时的兜底；目录不存在时只记一次 warn（不含路径）、之后重试、出现后跟上并推给监听者；自己的任务同 id 时自己赢并记一次 warn；跟自己的任务目录（含符号链接）时拒绝；中间坏行的任务保留上次的状态、只记一次；关闭后 watch 和计时器都释放、不再通知，等着去抖的那次也取消 | `host/tasks/task-follower.test.ts` |
+| 真宿主：被跟着的任务和自己的任务一起出现在 `list_tasks`，`open_task` 的 `followed` 为 `true` / `false`、被跟着的 `sourceSessionId` 为 `null`、`archiveFacts` 为 `null`；写者一步步写，`task_updated` 里节点一个个变色，`tasks_updated` 里状态和当前节点跟着变；**十二个任务命令**（`answer_human` 两种、`rerun_node`、`continue_node`、暂停、恢复、取消、启动、放弃、批准图、拒绝图、`answer_archive`）和 `recover`、`submit` 都答 `task_read_only` 且目录不变，Atrium 自己的目录里没有它；不认识的 id 仍是 `task_not_found`；跑着、停在节点的被跟着任务 400ms 里没有任何 pi（`session.controller` 为 0、目录不变）；写者留着半行时目录逐字节不变；同 id 时自己赢（列表、视图、命令）；目录不存在时 warn 一次、出现后跟上；目录被删时从列表拿掉并推送；跟自己的目录时拒绝 | `host/tasks/followed-tasks.host.test.ts`（日志门禁：未声明的 warn 会失败） |
+| 泄漏：宿主一轮轮起停，一个 watch、关后为 0、`timer` 为 0、Node 的 `FSEvent` / `FSWatcher` 回到基线；六十次追加后资源计数回到稳定值 | `host/tasks/followed-tasks.leak.test.ts`（`Timeout` 数没比，它随测试运行器自己的计时器变，见文件注释） |
+| 打包版忽略：只有主进程在 `!app.isPackaged` 时读 `ATRIUM_FOLLOW_TASKS`；Electron 里的宿主只收主进程交来的值（空串被拒） | `apps/desktop/src/main/follow-tasks.test.ts`、`host/electron-port.test.ts`；`security.md` 环境变量表登记，`pnpm boundary --all` 通过 |
+| 界面：被跟着的任务的任务对话窗格写两行只读说明、不写"正在读取任务对话…"、不订阅会话；`task_read_only` 的说法 | `ui/tasks/task-area.browser.test.tsx`（"says a followed task is read-only"）、`ui/tasks/task-words.test.ts` |
+| 协议：`TaskView.followed` 往返（`true` 与 `false` 都在例子里）、错误码 `task_read_only`、协议号 33；Swift 投影和往返夹具（`pnpm protocol:swift --check`、`swift test --filter AtriumProtocolTests` 通过） | `protocol/envelope.test.ts`、`protocol/remote.test.ts` |
+
+- 破坏检查：`packages/host/src/tasks/t71-follow.break-check.json`（40 处，`project` 写明 host / leak / ui，其余是 unit）。
+- 没有测试保护的：入口 `entry.ts` 把环境变量或主进程交来的值写进宿主配置的那几行（真实运行里走过：开发版 Electron 经 `config` 消息交给宿主，见验收报告）；`startTaskFollower` 里"没变就不重读"的优化（只省读文件，行为一样）。
+- **一次真实运行**（2026-11-06）：开发版 Electron + Vite，临时 `ATRIUM_HOME`，`ATRIUM_FOLLOW_TASKS=<仓库>.task-try-xyz/tasks`，另一个进程 `pnpm task:try packages/host/examples/explore-work-check-merge.json --model deepseek/deepseek-flash:off`，跑到 human 节点；Atrium 里图上节点一个个变色，停在"等你验收"；task:try 空闲时哈希和 mtime 在第二次启动 Atrium 前后逐文件相同。截图见验收报告。
+- 没做（留给后面的步骤）：见 SPEC-0006"T7.1 定下的细节 · 没做"。
+

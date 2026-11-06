@@ -2746,6 +2746,7 @@ describe("createAtriumClient: remote access", () => {
           nodes: [],
           edges: [],
           archiveFacts: null,
+          followed: false,
         },
       }),
     );
@@ -3224,6 +3225,7 @@ const taskView = (id: string, name: string) => ({
   nodes: [],
   edges: [],
   archiveFacts: null,
+  followed: false,
 });
 
 /** Pushes the list the host would send. */

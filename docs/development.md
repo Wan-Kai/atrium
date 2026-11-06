@@ -116,10 +116,28 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | 办法 | 做法 | 为什么这样判 |
 |---|---|---|
 | A. task:try 当客户端连开着的宿主，由那个宿主跑图 | 加一条只给开发用、`local_only` 的命令，打包版没有 | 开着的 Atrium 宿主的 token 是每次启动随机、只在内存和 IPC 里（security.md"WebSocket 与鉴权"），task:try 要连上就得有一份落盘的凭据或一个新的发现机制；再加一条"跑任意图"的命令，手机和远程的策略、打包版的屏蔽都要做和测。安全面比它省的事大，不在 T7 里偷偷加 |
-| B. Atrium 的宿主只读地跟着 task:try 的任务目录 | `ATRIUM_FOLLOW_TASKS=<home>/tasks` 开发用；宿主多读这个目录，列表和任务标签照常显示，轮询变化后推送 | 安全：task:try 是目录的唯一写者，Atrium 只读。但现有的 `openTaskStore` 打开时会**截掉半行的尾巴、补换行、重写快照**，对另一个进程正在追加的目录是写，所以要另写一个纯读的重放；任务对话和节点的会话文件在 task:try 的会话目录里，Atrium 的目录里没有，对话窗格读不到（图和列表够看节点一个个变色）。约 200 行加测试，建议做（T7.1 或 T8 前） |
+| B. Atrium 的宿主只读地跟着 task:try 的任务目录（**T7.1 已做，用这个**） | `ATRIUM_FOLLOW_TASKS=<home>/tasks` 开发用；宿主多读这个目录，递归 `fs.watch` 加轮询兜底，列表和任务标签照常显示，推送与自己的任务一样 | 安全：task:try 是目录的唯一写者，Atrium 只读。现有的 `openTaskStore` 打开时会**截掉半行的尾巴、补换行、重写快照**，对另一个进程正在追加的目录是写，所以另写了纯读的重放（`tasks/task-reader.ts`，复用 `parseEvents` / `replayEvents`）；被跟着的任务所有命令答 `task_read_only`，不进调度器，不起 pi。任务对话和节点的会话文件在 task:try 的会话目录里，窗格读不到，写明"只读"（图和列表够看节点一个个变色）。细节见 SPEC-0006"T7.1 定下的细节" |
 | C. 让开着的 Atrium 用 task:try 的 home | `ATRIUM_HOME=<仓库>.task-try pnpm dev` | 两个宿主同时管一个 home，**禁止** |
 
-**现在能做的验收**（不同时开）：先 `pnpm task:try <图> --repo <仓库>` 跑到 human 节点，在提示处按 `q` 退出（或读到输入末尾自己停）；task:try 退出后 `ATRIUM_HOME=<仓库>.task-try pnpm dev`（首次启动页点完即可），"任务"里看得到这张图和每个节点停在的状态。这是跑完之后看，不是边跑边看；边跑边看等 B。
+**边跑边看（T7.1）**：两个宿主，**两个不同的 home**，Atrium 只读 task:try 的任务目录。
+
+```sh
+# 终端 1：task:try（唯一的写者），home 用自己的目录，不要用 ~/.atrium，也不要是 Atrium 的 ATRIUM_HOME
+pnpm task:try packages/host/examples/explore-work-check-merge.json \
+  --repo <仓库> --home <仓库>.task-try --model <provider/model[:档位]>
+
+# 终端 2：开发版 Atrium，ATRIUM_FOLLOW_TASKS 指向 task:try 的 <home>/tasks
+ATRIUM_HOME=<另一个临时目录> ATRIUM_FOLLOW_TASKS=<仓库>.task-try/tasks pnpm dev
+```
+
+先开哪个都行：目录还没有时宿主记一条 warn，每 5 秒再找。Atrium 里点侧栏的"任务"，task:try 的任务和自己的任务排在一起；点开看图，节点随 task:try 的进度一个个变色，任务对话窗格写明只读。task:try 在 human 节点停下时，图上那个节点是"等你"，要在终端 1 里回答（`p` / `b` / `a` / `k` / `q`）；Atrium 里点不了任何按钮，对被跟着的任务发的命令（比如脚本发的）都答 `task_read_only`。
+
+- 只有开发版读 `ATRIUM_FOLLOW_TASKS`：桌面端主进程在 `app.isPackaged` 时不读，打包版里设了也没用。
+- `ATRIUM_FOLLOW_TASKS` 不能指向 Atrium 自己的 `<ATRIUM_HOME>/tasks`（宿主拒绝并记 warn）；也不要让 Atrium 的 `ATRIUM_HOME` 等于 task:try 的 `--home`（方案 C，禁止）。
+- Atrium 对那个目录不写任何东西（测试逐文件比对哈希和 mtime）；宿主自己的日志、索引在 `ATRIUM_HOME` 里。
+- 任务对话和各节点的对话读不到，图和节点状态读得到；任务栏的项目 / worktree 对 Atrium 来说是陌生的，见 SPEC-0006"T7.1 定下的细节"。
+
+跑完之后再看也行：task:try 退出后同样设 `ATRIUM_FOLLOW_TASKS`，任务还在。
 
 ## 夜间变异测试
 

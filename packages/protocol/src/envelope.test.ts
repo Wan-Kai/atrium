@@ -407,6 +407,7 @@ const taskView = {
     { from: "N3", to: "N2", kind: "back" },
   ],
   archiveFacts: null,
+  followed: false,
 } as const;
 
 /** An update waiting for two sessions to finish. */
@@ -2380,6 +2381,8 @@ const commandResultExamples = {
   ],
   open_task: [
     { task: taskView },
+    // A task another process writes, which the host only follows (T7.1).
+    { task: { ...taskView, followed: true } },
     {
       task: {
         ...taskView,
@@ -2633,6 +2636,7 @@ describe("HostMessage", () => {
       "task_state_invalid",
       "task_back_limit",
       "task_graph_invalid",
+      "task_read_only",
       "task_already_converted",
       "task_no_project_for_work",
       "branch_name_failed",

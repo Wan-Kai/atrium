@@ -181,20 +181,23 @@ function nodeView(task: Task, node: GraphNode, backs: readonly { from: string; t
  * @sideEffects none
  * @param task - The task.
  * @param archiveFacts - The facts of the archive question, or `null`.
+ * @param followed - Whether the task is only followed (another process writes it); `false` for the host's own.
  * @returns The view.
  */
-export function viewOf(task: Task, archiveFacts: TaskArchiveFacts | null): TaskView {
+export function viewOf(task: Task, archiveFacts: TaskArchiveFacts | null, followed = false): TaskView {
   const graph = activeGraphOf(task);
   const backs = (graph?.edges ?? []).filter((edge) => edge.kind === "back");
   return {
     ...summaryOf(task),
     taskSessionId: task.taskSessionId,
     model: task.model,
-    sourceSessionId: task.origin.kind === "chat" ? task.origin.sessionId : null,
+    // A followed task's source conversation is in the other process's home, so there is nothing to open.
+    sourceSessionId: task.origin.kind === "chat" && !followed ? task.origin.sessionId : null,
     graphVersion: task.activeGraph,
     pendingGraph: task.pendingGraph !== null,
     nodes: (graph?.nodes ?? []).map((node) => nodeView(task, node, backs)),
     edges: (graph?.edges ?? []).map(({ from, to, kind }) => ({ from, to, kind })),
     archiveFacts,
+    followed,
   };
 }

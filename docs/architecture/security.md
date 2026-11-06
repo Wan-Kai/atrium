@@ -193,6 +193,7 @@ MP3a，协议见 [SPEC-0005](../specs/0005-mobile-app-and-remote-access.md)。�
 | `ATRIUM_PI_LATEST_URL` | 宿主 | 查 pi 最新版本的地址，空就不查（测试不联网） | 见上表 |
 | `ATRIUM_DEV_URL` | 桌面端主进程 | 开发时页面来自 Vite 的地址 | development.md `pnpm dev` |
 | `ATRIUM_HOST_ENTRY` | 桌面端主进程 | 换一个宿主入口（测试用） | overview.md"桌面端怎么启动宿主" |
+| `ATRIUM_FOLLOW_TASKS` | 桌面端主进程（`!app.isPackaged` 时才读）、单独运行的宿主（`entry.ts`） | 开发用：宿主只读地跟着 `pnpm task:try` 的任务目录（`<home>/tasks`），不写、不跑、不起 pi。打包版的桌面端不读它，Electron 里的宿主只收主进程交来的值，所以打包版设了也没用。目录等于 Atrium 自己的任务目录时宿主拒绝 | SPEC-0006"T7.1 定下的细节"、development.md"task:try 与 Atrium" |
 | `ATRIUM_APP_METRICS_INTERVAL_MS` | 桌面端主进程 | 进程资源采样间隔（测试用） | testing.md"运行时监控" |
 | `ATRIUM_RELAY_DIR` | relay（`cli.ts`） | 数据目录（`relay.json`、`hosts.json`、`logs/`），默认当前目录；Docker 镜像里是 `/data`，`--dir` 优先 | SPEC-0005"部署 relay" |
 | `ATRIUM_RELAY_LISTEN` | relay（`cli.ts`） | 监听地址，默认 `127.0.0.1:8787`；Docker 镜像里是 `0.0.0.0:8787`（端口只发布到宿主机的 127.0.0.1），`--listen` 优先 | SPEC-0005"部署 relay"、本文"relay" |

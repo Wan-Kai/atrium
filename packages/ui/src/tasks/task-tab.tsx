@@ -180,7 +180,7 @@ export function TaskTab({
           <div className="relative z-20 flex min-h-0 w-[46%] min-w-[320px] flex-col shadow-[inset_-0.5px_0_0_var(--line)]">
             <TaskGraph task={task} selected={keep} stat={changes?.stat ?? null} onSelect={setSelected} />
           </div>
-          <TaskConversation client={client} sessionId={task.taskSessionId} />
+          <TaskConversation client={client} sessionId={task.taskSessionId} followed={task.followed} />
         </div>
       </div>
     </TaskLinksContext>

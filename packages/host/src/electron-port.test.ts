@@ -62,6 +62,24 @@ function controlledRuntime() {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("runUnderElectron", () => {
+  it("hands the tasks directory to follow (dev only) to the host, and refuses an empty one", async () => {
+    const followed = fakePort();
+    const run = controlledRuntime();
+    runUnderElectron(followed.port, run.runtime);
+    followed.send({ type: "config", token: TOKEN, followTasks: "/try/tasks" });
+    run.finishStart();
+    await settle();
+    expect(run.started).toStrictEqual([{ type: "config", token: TOKEN, followTasks: "/try/tasks" }]);
+
+    const empty = fakePort();
+    const refused = controlledRuntime();
+    runUnderElectron(empty.port, refused.runtime);
+    empty.send({ type: "config", token: TOKEN, followTasks: "" });
+    await settle();
+    expect(refused.started).toStrictEqual([]);
+    expect(empty.posted).toStrictEqual([{ type: "failed", message: "invalid config message" }]);
+  });
+
   it("starts the host from a valid config and reports the port", async () => {
     const { port, posted, send } = fakePort();
     const { runtime, started, finishStart, exits } = controlledRuntime();

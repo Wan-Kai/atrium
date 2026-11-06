@@ -558,6 +558,17 @@ describe("a task's tab (SPEC-0006, 界面 · 任务标签; 设计稿第 4、5 �
     }
   });
 
+  it("says a followed task is read-only in the conversation pane instead of waiting to read, and does not watch its conversation", async () => {
+    const task = view("fol", [node("N1")], [], { taskSessionId: "ses_followed", followed: true });
+    const { screen, calls } = await openTask(task);
+
+    await expect.element(screen.getByText("这个任务是别的进程在跑的，Atrium 只读它的图和节点状态。")).toBeVisible();
+    await expect.element(screen.getByText("任务对话和各节点的对话不在 Atrium 里，这里看不到。")).toBeVisible();
+    expect(screen.container.textContent).not.toContain("正在读取任务对话");
+    expect(calls).not.toContain("watch ses_followed");
+    expect(screen.container.querySelector("textarea, [role=textbox]")).toBeNull();
+  });
+
   it("says in words that a task is not there when the host does not know it, and reads while it asks", async () => {
     const shown = await board([summary("gone", { name: "没了的任务" })]);
     await openArea(shown.screen);

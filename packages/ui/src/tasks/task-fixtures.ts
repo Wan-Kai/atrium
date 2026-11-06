@@ -100,6 +100,7 @@ export function view(
     nodes: [...nodes],
     edges: edges.map(([from, to, kind]) => ({ from, to, kind: kind ?? "seq" })),
     archiveFacts: null,
+    followed: false,
     ...changes,
   };
 }

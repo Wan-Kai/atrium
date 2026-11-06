@@ -1331,7 +1331,154 @@
             "kind": "back"
           }
         ],
-        "archiveFacts": null
+        "archiveFacts": null,
+        "followed": false
+      }
+    },
+    {
+      "task": {
+        "id": "tsk_0123456789abcdef",
+        "name": "Add the export",
+        "status": "waiting",
+        "projectId": "prj_0123456789abcdef",
+        "workspaceId": "wks_0123456789abcdef",
+        "paused": false,
+        "createdAt": 1760000000000,
+        "startedAt": 1760000001000,
+        "endedAt": null,
+        "attention": "merge_blocked",
+        "archive": null,
+        "current": {
+          "id": "N3",
+          "name": "Accept and merge",
+          "state": "waiting"
+        },
+        "activeAt": 1760000003000,
+        "scheduled": false,
+        "taskSessionId": "s0",
+        "model": {
+          "providerId": "anthropic",
+          "modelId": "opus-5.5",
+          "thinking": "high"
+        },
+        "sourceSessionId": "s-origin",
+        "graphVersion": 1,
+        "pendingGraph": false,
+        "nodes": [
+          {
+            "kind": "agent",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "passed",
+            "attempt": 1,
+            "waitingFor": null,
+            "blocked": null,
+            "failure": null,
+            "summary": "Done.",
+            "model": {
+              "providerId": "openai",
+              "modelId": "gpt-6-astra"
+            },
+            "sessionId": "s1",
+            "sendBack": [],
+            "id": "N1",
+            "name": "Explore",
+            "role": "explore",
+            "place": "readonly"
+          },
+          {
+            "kind": "agent",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "passed",
+            "attempt": 1,
+            "waitingFor": null,
+            "blocked": null,
+            "failure": null,
+            "summary": "Done.",
+            "model": null,
+            "sessionId": "s1",
+            "sendBack": [],
+            "id": "N2",
+            "name": "Write",
+            "role": "work",
+            "place": "workspace",
+            "backFrom": {
+              "node": "N3",
+              "reason": "Again"
+            }
+          },
+          {
+            "kind": "human",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "waiting",
+            "attempt": 1,
+            "waitingFor": "merge_blocked",
+            "blocked": "merge_conflict",
+            "failure": null,
+            "summary": null,
+            "model": null,
+            "sessionId": null,
+            "sendBack": [
+              {
+                "to": "N2",
+                "uses": 1
+              }
+            ],
+            "id": "N3",
+            "name": "Accept and merge",
+            "merge": true,
+            "blockedFiles": [
+              "src/a.ts",
+              "src/b.ts"
+            ]
+          },
+          {
+            "kind": "agent",
+            "job": "Do it",
+            "done": [
+              "It works"
+            ],
+            "state": "failed",
+            "attempt": 1,
+            "waitingFor": null,
+            "blocked": null,
+            "failure": "commit",
+            "summary": "Done.",
+            "model": null,
+            "sessionId": null,
+            "sendBack": [],
+            "id": "N4",
+            "name": "Check",
+            "role": "check"
+          }
+        ],
+        "edges": [
+          {
+            "from": "N1",
+            "to": "N2",
+            "kind": "seq"
+          },
+          {
+            "from": "N2",
+            "to": "N3",
+            "kind": "seq"
+          },
+          {
+            "from": "N3",
+            "to": "N2",
+            "kind": "back"
+          }
+        ],
+        "archiveFacts": null,
+        "followed": true
       }
     },
     {
@@ -1481,7 +1628,8 @@
           "merged": true,
           "dirty": false,
           "commits": 3
-        }
+        },
+        "followed": false
       }
     },
     {
@@ -1631,7 +1779,8 @@
           "merged": null,
           "dirty": true,
           "commits": 0
-        }
+        },
+        "followed": false
       }
     }
   ],

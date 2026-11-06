@@ -179,6 +179,11 @@ export const TaskView = TaskSummary.extend({
   edges: z.array(TaskEdge).max(400),
   /** What the archive question shows, while it is open; `null` otherwise. */
   archiveFacts: TaskArchiveFacts.nullable(),
+  /**
+   * Another process writes this task and the host only follows it (`ATRIUM_FOLLOW_TASKS`, dev only): every
+   * command on it fails with `task_read_only`, and its conversations are not in this host (T7.1).
+   */
+  followed: z.boolean(),
 });
 export type TaskView = z.infer<typeof TaskView>;
 

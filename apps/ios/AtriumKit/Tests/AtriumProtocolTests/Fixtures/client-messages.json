@@ -1,14 +1,14 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 32,
+    "protocolVersion": 33,
     "clientId": "c1",
     "token": "t",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
     "type": "hello",
-    "protocolVersion": 32,
+    "protocolVersion": 33,
     "clientId": "dev_0123456789abcdef",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
