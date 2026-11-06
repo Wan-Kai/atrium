@@ -38,8 +38,8 @@ export interface ReadOnlyTranscripts {
   snapshot(session: ReadOnlySession, fast: boolean): Promise<SessionSnapshotEvent | null>;
   /** Whether a session's transcript is kept. */
   has(sessionId: string): boolean;
-  /** Older items, as a controller answers `fetch_transcript`. */
-  fetchTranscript(command: FetchTranscriptCommand): CommandResult<"fetch_transcript">;
+  /** Older items, as a controller answers `fetch_transcript`, with its limit on a step's text. */
+  fetchTranscript(command: FetchTranscriptCommand, stepLimit?: number): CommandResult<"fetch_transcript">;
   /** A step, as a controller answers `fetch_step`. */
   fetchStep(command: FetchStepCommand): CommandResult<"fetch_step">;
   /** The entry that opened a turn, for its images; `null` for none. */
@@ -224,10 +224,12 @@ export function createReadOnlyTranscripts(options: {
       };
     },
     has: (sessionId) => kept.has(sessionId),
-    fetchTranscript(command) {
+    fetchTranscript(command, stepLimit) {
       const transcript = transcriptOf(command.sessionId);
       const page =
-        command.epoch === READ_ONLY_EPOCH ? transcript.before(command.before, command.limit, command.maxBytes) : null;
+        command.epoch === READ_ONLY_EPOCH
+          ? transcript.before(command.before, command.limit, command.maxBytes, stepLimit)
+          : null;
       if (page === null) throw new CommandError("transcript_changed");
       return page;
     },

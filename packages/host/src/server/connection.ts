@@ -45,7 +45,8 @@ export interface RemoteSending {
  * with 4507 and nothing more is queued for it, rather than letting the host's memory grow without
  * bound. The client reconnects and catches up from its cursors (SPEC-0001, "发送端背压").
  *
- * A phone's connection also drops what is not for the phone, whoever sent it, and keeps to its
+ * A phone's connection also drops what is not for the phone, whoever sent it, sends the list
+ * without what the phone never shows (`forPhone`), and keeps to its
  * message limit: a response too large becomes a `response_too_large` failure, a session event too
  * large becomes that session's snapshot, and anything else too large is dropped and logged
  * (SPEC-0005, "给手机推什么", "大小"). Sizes are of the encoded message, envelope included.
@@ -102,12 +103,13 @@ export function createConnection(
    *
    * @sideEffects Sends; logs what was dropped.
    * @param rules - The phone's rules.
-   * @param message - The message.
+   * @param original - The message, as every client gets it.
    * @returns Whether something was sent.
    */
-  function sendToPhone(rules: RemoteSending, message: HostMessage): boolean {
-    if (!pushedToPhone(message)) return false;
-    const text = JSON.stringify(forPhone(message));
+  function sendToPhone(rules: RemoteSending, original: HostMessage): boolean {
+    if (!pushedToPhone(original)) return false;
+    const message = forPhone(original);
+    const text = JSON.stringify(message);
     if (Buffer.byteLength(text) <= rules.maxMessageBytes) return write(text);
     if (message.type === "response") {
       return write(

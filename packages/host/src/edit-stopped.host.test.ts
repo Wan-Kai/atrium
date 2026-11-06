@@ -118,20 +118,6 @@ async function stopped(client: AtriumClient, sessionId: string, view: { getState
 }
 
 describe("editing a stopped message through the real host", () => {
-  it("rejects edits after handoff without starting another model request", async () => {
-    const { client, sessionId, view, launch } = await editingChat();
-    const original = await stopped(client, sessionId, view);
-    const contexts = await launch.contexts();
-    await client.handOff(sessionId);
-
-    await expect(
-      client.editStoppedMessage(sessionId, original.epoch, original.turn.id, "correct"),
-    ).rejects.toStrictEqual(new CommandError("session_handed_off", { sessionId }));
-
-    expect(contexts).toHaveLength(1);
-    expect(await launch.contexts()).toStrictEqual(contexts);
-  }, 30_000);
-
   it("rejects edits after archiving without starting another model request", async () => {
     const { client, sessionId, view, launch } = await editingChat();
     const original = await stopped(client, sessionId, view);

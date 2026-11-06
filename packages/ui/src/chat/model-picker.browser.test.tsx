@@ -358,6 +358,19 @@ describe("ModelPicker's panel", () => {
     ]).toStrictEqual([6, 6, 7]);
   });
 
+  it("scrolls a long list of providers without showing a scrollbar, while the models keep theirs", async () => {
+    const many = Array.from({ length: 12 }, (_, index) =>
+      model(`provider-${index}`, `model-${index}`, `Model ${index}`),
+    );
+    const { screen, chip } = await picker(null, { ...READY, models: many });
+    await userEvent.click(chip);
+
+    const providers = screen.getByRole("tablist", { name: "服务商" }).element();
+    expect(providers.scrollHeight).toBeGreaterThan(providers.clientHeight);
+    expect(getComputedStyle(providers).scrollbarWidth).toBe("none");
+    expect(getComputedStyle(screen.getByRole("tabpanel").element()).scrollbarWidth).toBe("auto");
+  });
+
   it("wraps a 256-character provider name within its narrow tooltip without overflowing text", async () => {
     await browserPage.viewport(360, 500);
     const providerId = "p".repeat(256);

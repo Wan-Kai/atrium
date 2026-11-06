@@ -15,7 +15,24 @@ export const FrameType = {
   Pong: 0x03,
   /** One channel control message, JSON, single chunk. */
   Control: 0x04,
+  /** The last (or only) chunk of a deflated message. */
+  DeflatedLast: 0x05,
+  /** A chunk of a deflated message with more to come. */
+  DeflatedMore: 0x06,
 } as const;
+
+/** Messages shorter than this, encoded, go uncompressed (SPEC-0005, "Noise 通道 · 压缩"). */
+export const COMPRESS_FROM = 1024;
+
+/** Raw deflate (RFC 1951) of a whole message; the owner supplies it, so this package needs no zlib. */
+export type Deflate = (bytes: Uint8Array) => Uint8Array;
+
+/**
+ * Raw inflate of a whole message.
+ *
+ * @returns The bytes, or `null` when they would pass `limit`; throws on corrupt input.
+ */
+export type Inflate = (bytes: Uint8Array, limit: number) => Uint8Array | null;
 
 /** A channel control message: a JSON object with a string `kind`. */
 export type ControlMessage = { readonly kind: string } & Readonly<Record<string, unknown>>;
@@ -50,23 +67,46 @@ export const PONG = Uint8Array.of(FrameType.Pong);
  *
  * @remarks
  * A Noise message holds at most 65535 bytes, so longer messages go in chunks; the size limit is
- * checked on the encoded message, envelope included (SPEC-0005, "大小").
+ * checked on the encoded message, envelope included (SPEC-0005, "大小"). Given `deflate`, a message
+ * of at least `COMPRESS_FROM` bytes that deflate makes smaller goes deflated instead, in `0x06`
+ * chunks then a `0x05` (SPEC-0005, "Noise 通道 · 压缩").
  *
  * @sideEffects none
  * @param text - The encoded message.
  * @param limit - The direction's message limit in bytes.
+ * @param deflate - How to compress, when the other side asked for it.
  * @returns The plaintexts, each at most 65519 bytes.
  * @throws ChannelError message_too_large.
  */
-export function encodeMessage(text: string, limit: number): Uint8Array[] {
+export function encodeMessage(text: string, limit: number, deflate?: Deflate): Uint8Array[] {
   const bytes = utf8(text);
   if (bytes.length > limit) throw new ChannelError("message_too_large");
+  const deflated = deflate !== undefined && bytes.length >= COMPRESS_FROM ? deflate(bytes) : null;
+  if (deflated !== null && deflated.length < bytes.length) {
+    return chunks(deflated, FrameType.DeflatedMore, FrameType.DeflatedLast);
+  }
+  return chunks(bytes, FrameType.More, FrameType.Last);
+}
+
+/**
+ * Cuts bytes into chunk frames of one kind.
+ *
+ * @remarks
+ * Every chunk but the last carries `more`; an empty message is one `last` frame.
+ *
+ * @sideEffects none
+ * @param bytes - The message's bytes, plain or deflated.
+ * @param more - The type of a chunk with more to come.
+ * @param last - The type of the last chunk.
+ * @returns The plaintexts.
+ */
+function chunks(bytes: Uint8Array, more: number, last: number): Uint8Array[] {
   const frames: Uint8Array[] = [];
   for (let offset = 0; ; offset += MAX_CHUNK) {
     const end = Math.min(offset + MAX_CHUNK, bytes.length);
-    const last = end === bytes.length;
-    frames.push(concat(Uint8Array.of(last ? FrameType.Last : FrameType.More), bytes.subarray(offset, end)));
-    if (last) return frames;
+    const final = end === bytes.length;
+    frames.push(concat(Uint8Array.of(final ? last : more), bytes.subarray(offset, end)));
+    if (final) return frames;
   }
 }
 
@@ -98,6 +138,9 @@ export class FrameReader {
   readonly #limit: number;
   readonly #clock: Clock;
   readonly #onTimeout: () => void;
+  readonly #inflate: Inflate | undefined;
+  /** Whether the open message is deflated; `null` with none open. */
+  #deflated: boolean | null = null;
   #chunks: Uint8Array[] = [];
   #size = 0;
   #cancelTimer: (() => void) | null = null;
@@ -112,11 +155,14 @@ export class FrameReader {
    * @param limit - Largest message in bytes for this direction.
    * @param clock - Where the chunk timeout is scheduled.
    * @param onTimeout - Called once when a message stays incomplete for 30 seconds.
+   * @param inflate - How to decompress, when we asked the other side to compress; without it a
+   *   deflated chunk is an unknown frame type.
    */
-  constructor(limit: number, clock: Clock, onTimeout: () => void) {
+  constructor(limit: number, clock: Clock, onTimeout: () => void, inflate?: Inflate) {
     this.#limit = limit;
     this.#clock = clock;
     this.#onTimeout = onTimeout;
+    this.#inflate = inflate;
   }
 
   /**
@@ -139,28 +185,74 @@ export class FrameReader {
         return { kind: plaintext[0] === FrameType.Ping ? "ping" : "pong" };
       case FrameType.Control:
         return { kind: "control", value: parseControl(body) };
+      case FrameType.DeflatedMore:
+      case FrameType.DeflatedLast:
+        if (this.#inflate === undefined) throw new ChannelError("unknown_frame_type");
+        return this.#chunk(body, true, plaintext[0] === FrameType.DeflatedLast);
       case FrameType.More:
-      case FrameType.Last: {
-        this.#size += body.length;
-        if (this.#size > this.#limit) throw new ChannelError("message_too_large");
-        this.#chunks.push(body);
-        if (plaintext[0] === FrameType.More) {
-          this.#cancelTimer ??= this.#clock.setTimeout(this.#onTimeout, CHUNK_TIMEOUT_MS);
-          return null;
-        }
-        const bytes = concat(...this.#chunks);
-        this.dispose();
-        try {
-          return { kind: "message", text: fromUtf8(bytes) };
-        } catch {
-          throw new ChannelError("bad_utf8");
-        }
-      }
+      case FrameType.Last:
+        return this.#chunk(body, false, plaintext[0] === FrameType.Last);
       case undefined:
         throw new ChannelError("bad_frame");
       default:
         throw new ChannelError("unknown_frame_type");
     }
+  }
+
+  /**
+   * Takes one chunk of a message.
+   *
+   * @remarks
+   * All chunks of a message are of one kind. A deflated message's compressed bytes and its
+   * inflated bytes are both held to the limit, so a small message cannot inflate without bound.
+   *
+   * @sideEffects Buffers the chunk; starts or stops the chunk timer.
+   * @param body - The chunk's bytes.
+   * @param deflated - Whether it is a deflated message's.
+   * @param last - Whether it ends the message.
+   * @returns The message once complete, else null.
+   * @throws ChannelError on mixed kinds, corrupt or too large input, or bad UTF-8.
+   */
+  #chunk(body: Uint8Array, deflated: boolean, last: boolean): Received | null {
+    if (this.#deflated !== null && this.#deflated !== deflated) throw new ChannelError("bad_frame");
+    this.#deflated = deflated;
+    this.#size += body.length;
+    if (this.#size > this.#limit) throw new ChannelError("message_too_large");
+    this.#chunks.push(body);
+    if (!last) {
+      this.#cancelTimer ??= this.#clock.setTimeout(this.#onTimeout, CHUNK_TIMEOUT_MS);
+      return null;
+    }
+    const joined = concat(...this.#chunks);
+    this.dispose();
+    const bytes = deflated ? this.#inflated(joined) : joined;
+    try {
+      return { kind: "message", text: fromUtf8(bytes) };
+    } catch {
+      throw new ChannelError("bad_utf8");
+    }
+  }
+
+  /**
+   * Inflates a whole deflated message.
+   *
+   * @remarks
+   * Only called once `#inflate` is known to be set.
+   *
+   * @sideEffects none
+   * @param bytes - The compressed bytes.
+   * @returns The message's bytes.
+   * @throws ChannelError message_too_large past the limit, bad_frame on corrupt input.
+   */
+  #inflated(bytes: Uint8Array): Uint8Array {
+    let inflated: Uint8Array | null;
+    try {
+      inflated = this.#inflate!(bytes, this.#limit);
+    } catch {
+      throw new ChannelError("bad_frame");
+    }
+    if (inflated === null) throw new ChannelError("message_too_large");
+    return inflated;
   }
 
   /**
@@ -176,6 +268,7 @@ export class FrameReader {
     this.#cancelTimer = null;
     this.#chunks = [];
     this.#size = 0;
+    this.#deflated = null;
   }
 }
 

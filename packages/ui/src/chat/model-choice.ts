@@ -5,6 +5,7 @@ import fridayLogo from "../design/brand/friday.png";
 import claudeLogo from "../design/brand/claude.svg";
 import copilotLogo from "../design/brand/copilot.svg";
 import deepseekLogo from "../design/brand/deepseek.svg";
+import googleLogo from "../design/brand/google.png";
 import kimiLogo from "../design/brand/kimi.png";
 import openaiLogo from "../design/brand/openai.svg";
 import opencodeLogo from "../design/brand/opencode.svg";
@@ -170,6 +171,7 @@ const PROVIDERS: Readonly<Record<string, { readonly name: string; readonly logo:
   "moonshotai-cn": { name: "Kimi", logo: kimiLogo },
   "kimi-coding": { name: "Kimi Coding", logo: kimiLogo },
   deepseek: { name: "DeepSeek", logo: deepseekLogo },
+  google: { name: "Google", logo: googleLogo },
   "catpaw-cli": { name: "catpaw-cli", logo: catpawLogo },
   "sankuai-openai": { name: "Friday", logo: fridayLogo },
 };

@@ -3,7 +3,9 @@ import { FakeClock } from "@atrium/testkit";
 import pino from "pino";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer, WebSocket } from "ws";
+import { startConnectProxy } from "../../test/connect-proxy";
 import { checkRelayPong } from "./relay-pong";
+import { RelayRoute } from "./relay-route";
 import { ResourceTracker } from "../platform/resources";
 import { LINK_PING_MS, READY_TIMEOUT_MS, RelayLink, probeRelay, type LinkState } from "./relay-link";
 
@@ -13,7 +15,7 @@ afterEach(async () => {
 });
 
 /** Starts a controllable relay control endpoint. @remarks Used only for malformed and stalled relay behavior. @sideEffects Opens a loopback listener. */
-async function fixture(autoPong = true, perMessageDeflate = false) {
+async function fixture(autoPong = true, perMessageDeflate = false, route?: RelayRoute) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0, autoPong, perMessageDeflate });
   await once(server, "listening");
   const address = server.address();
@@ -43,6 +45,7 @@ async function fixture(autoPong = true, perMessageDeflate = false) {
     clock,
     resources,
     logger,
+    ...(route === undefined ? {} : { route }),
     onState: (state) => states.push(state),
     onStream: (id) => streams.push(id),
   });
@@ -68,6 +71,37 @@ function onFirstError(action: () => void): (state: LinkState) => void {
 }
 
 describe("RelayLink", () => {
+  it("connects through the proxy with a CONNECT to the relay (SPEC-0005, 连 relay 走代理)", async () => {
+    const proxy = await startConnectProxy();
+    cleanup.push(proxy.close);
+    const f = await fixture(true, false, new RelayRoute(() => ({ url: proxy.url, noProxy: [] })));
+    f.link.start();
+    await expect.poll(() => f.messages.length).toBe(1);
+    f.sockets[0]!.send('{"type":"ready"}');
+    await expect.poll(() => f.link.state.status).toBe("connected");
+    expect(proxy.targets).toStrictEqual([new URL(f.endpoint.url).host]);
+    expect(f.logs).toContainEqual(expect.objectContaining({ msg: "relay connected", via: "proxy" }));
+    await f.link.stop();
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+  });
+
+  it("goes direct after the proxy refused, and logs only which way it went", async () => {
+    const dead = await startConnectProxy();
+    await dead.close();
+    const f = await fixture(true, false, new RelayRoute(() => ({ url: dead.url, noProxy: [] })));
+    f.link.start();
+    await expect.poll(() => f.link.state.status).toBe("error");
+    expect(f.sockets).toHaveLength(0);
+    f.clock.advance(1_000);
+    await expect.poll(() => f.messages.length).toBe(1);
+    f.sockets[0]!.send('{"type":"ready"}');
+    await expect.poll(() => f.link.state.status).toBe("connected");
+    expect(f.logs).toContainEqual(expect.objectContaining({ msg: "relay connected", via: "direct" }));
+    expect(JSON.stringify(f.logs)).not.toContain(new URL(dead.url).host);
+    await f.link.stop();
+    expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
+  });
+
   it("accepts a 70 KiB control frame but rejects one extra byte on the same socket", async () => {
     const f = await fixture();
     f.link.start();
@@ -553,9 +587,16 @@ describe("RelayLink", () => {
       });
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 1 });
     expect(f.logs).toStrictEqual([
-      { level: "info", host_id: f.endpoint.hostId, msg: "relay connected" },
+      { level: "info", host_id: f.endpoint.hostId, via: "direct", msg: "relay connected" },
       { level: "warn", host_id: f.endpoint.hostId, msg: "relay did not answer a ping" },
-      { level: "info", host_id: f.endpoint.hostId, code: 1006, ready: true, msg: "relay connection closed" },
+      {
+        level: "info",
+        host_id: f.endpoint.hostId,
+        code: 1006,
+        ready: true,
+        via: "direct",
+        msg: "relay connection closed",
+      },
     ]);
     f.clock.advance(999);
     expect(f.sockets).toHaveLength(1);
@@ -617,8 +658,15 @@ describe("RelayLink", () => {
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
     expect(await f.link.retryNow()).toBe("relay_unreachable");
     expect(f.logs).toStrictEqual([
-      { level: "info", host_id: f.endpoint.hostId, msg: "relay connected" },
-      { level: "info", host_id: f.endpoint.hostId, code: 1006, ready: true, msg: "relay connection closed" },
+      { level: "info", host_id: f.endpoint.hostId, via: "direct", msg: "relay connected" },
+      {
+        level: "info",
+        host_id: f.endpoint.hostId,
+        code: 1006,
+        ready: true,
+        via: "direct",
+        msg: "relay connection closed",
+      },
     ]);
     const serialized = JSON.stringify(f.logs);
     expect(serialized).not.toContain(f.endpoint.token);
@@ -651,10 +699,31 @@ describe("RelayLink", () => {
     expect(f.sockets).toHaveLength(3);
     expect(f.resources.snapshot()).toStrictEqual({ "remote.control": 0, timer: 0 });
     expect(f.logs).toStrictEqual([
-      { level: "info", host_id: f.endpoint.hostId, code: 4401, ready: false, msg: "relay connection closed" },
-      { level: "info", host_id: f.endpoint.hostId, code: 1006, ready: false, msg: "relay connection closed" },
-      { level: "info", host_id: f.endpoint.hostId, msg: "relay connected" },
-      { level: "info", host_id: f.endpoint.hostId, code: 1006, ready: true, msg: "relay connection closed" },
+      {
+        level: "info",
+        host_id: f.endpoint.hostId,
+        code: 4401,
+        ready: false,
+        via: "direct",
+        msg: "relay connection closed",
+      },
+      {
+        level: "info",
+        host_id: f.endpoint.hostId,
+        code: 1006,
+        ready: false,
+        via: "direct",
+        msg: "relay connection closed",
+      },
+      { level: "info", host_id: f.endpoint.hostId, via: "direct", msg: "relay connected" },
+      {
+        level: "info",
+        host_id: f.endpoint.hostId,
+        code: 1006,
+        ready: true,
+        via: "direct",
+        msg: "relay connection closed",
+      },
     ]);
     const serialized = JSON.stringify(f.logs);
     expect(serialized).not.toContain("private-relay-rejection-detail");
@@ -706,7 +775,14 @@ describe("RelayLink", () => {
     });
     expect(f.logs).toStrictEqual([
       { level: "warn", host_id: f.endpoint.hostId, msg: "relay did not say ready in time" },
-      { level: "info", host_id: f.endpoint.hostId, code: 1006, ready: false, msg: "relay connection closed" },
+      {
+        level: "info",
+        host_id: f.endpoint.hostId,
+        code: 1006,
+        ready: false,
+        via: "direct",
+        msg: "relay connection closed",
+      },
     ]);
     const pending = f.link.retryNow();
     await f.link.stop();
@@ -777,6 +853,19 @@ describe("the correlated pong's resources", () => {
 });
 
 describe("probeRelay", () => {
+  it("tests the relay through the proxy, as the control connection would go", async () => {
+    const proxy = await startConnectProxy();
+    cleanup.push(proxy.close);
+    const route = new RelayRoute(() => ({ url: proxy.url, noProxy: [] }));
+    const f = await fixture();
+    const pending = probeRelay(f.endpoint, { ...f, route, signal: new AbortController().signal });
+    await expect.poll(() => f.messages.length).toBe(1);
+    f.sockets[0]!.send('{"type":"ready"}');
+    expect(await pending).toBeNull();
+    expect(proxy.targets).toStrictEqual([new URL(f.endpoint.url).host]);
+    expect(route.via).toBe("proxy");
+  });
+
   it.each([
     { bytes: 70 * 1024, result: null },
     { bytes: 70 * 1024 + 1, result: "relay_unreachable" },

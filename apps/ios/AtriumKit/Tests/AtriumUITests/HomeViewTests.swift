@@ -39,13 +39,24 @@ struct HomeViewTests {
 
 @Suite("Session page")
 struct SessionPageTests {
-  @Test("says it is loading, that pi exited, or which code refused it, and nothing when up to date")
+  @Test("says that pi exited or which code refused it, and nothing while loading or up to date")
   func statusLine() {
-    #expect(SessionPage.statusLine(nil) == "正在加载…")
-    #expect(SessionPage.statusLine(.loading) == "正在加载…")
+    #expect(SessionPage.statusLine(nil) == nil)
+    #expect(SessionPage.statusLine(.loading) == nil)
     #expect(SessionPage.statusLine(.ready) == nil)
     #expect(SessionPage.statusLine(.exited) == "pi 已退出")
     #expect(SessionPage.statusLine(.failed(.sessionCwdMissing)) == "打不开这个会话（session_cwd_missing）")
+  }
+
+  @Test("floats one capsule under the title: the link when it is down, else loading, else none")
+  func strip() {
+    #expect(SessionPage.strip(pill: .connected, status: nil) == .loading)
+    #expect(SessionPage.strip(pill: .syncing, status: .loading) == .loading)
+    #expect(SessionPage.strip(pill: .reconnecting, status: .loading) == .reconnecting)
+    #expect(SessionPage.strip(pill: .offline, status: nil) == .offline)
+    #expect(SessionPage.strip(pill: .connected, status: .ready) == nil)
+    #expect(SessionPage.strip(pill: .connected, status: .exited) == nil)
+    #expect(SessionPage.strip(pill: .relayUnreachable, status: .ready) == .relayUnreachable)
   }
 
   @Test("says a failed pinning with the host's code only")
@@ -86,20 +97,12 @@ struct WorkspaceTagTests {
   }
 }
 
-@Suite("Home: drawer")
-struct DrawerTests {
+@Suite("Home: appearance")
+struct AppearanceTests {
   @Test("follows the appearance chosen, or the system")
   func appearance() {
     #expect(HomeView.scheme("light") == .light)
     #expect(HomeView.scheme("dark") == .dark)
     #expect(HomeView.scheme("system") == nil)
-  }
-
-  @Test("words the host's status as the drawer does")
-  func status() {
-    #expect(Drawer.statusText(.connected) == "已连接")
-    #expect(Drawer.statusText(.syncing) == "正在同步…")
-    #expect(Drawer.statusText(.hostOffline(lastSeen: nil)) == "离线")
-    #expect(Drawer.statusText(.relayUnreachable) == "连不上 relay")
   }
 }

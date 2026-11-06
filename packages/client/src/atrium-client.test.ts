@@ -475,13 +475,10 @@ describe("createAtriumClient: commands", () => {
       client.restoreChat(CHAT),
       client.windowFocused(),
       client.clearAttention("s1"),
-      client.handOff("s1"),
-      client.takeBack("s1"),
     ];
     answerAt(latest(), "create_session", 0, { sessionId: "s9" });
     answerAt(latest(), "create_session", 1, { sessionId: "s8" });
     latest().answer("add_project", { projectId: "prj_0123456789abcdef" });
-    latest().answer("hand_off", { file: "/pi/s1.jsonl", args: [] });
     latest().answer("list_bases", { main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] });
     latest().answer("create_workspace", { workspaceId: "wks_00000000000000aa" });
     latest().answer("name_branch", { branch: "atrium/fix-it", alias: null });
@@ -498,7 +495,6 @@ describe("createAtriumClient: commands", () => {
       "restore_chat",
       "window_focused",
       "clear_attention",
-      "take_back",
     ]) {
       latest().answer(type);
     }
@@ -521,8 +517,6 @@ describe("createAtriumClient: commands", () => {
       {},
       {},
       {},
-      {},
-      { file: "/pi/s1.jsonl", args: [] },
       {},
     ]);
     expect(
@@ -554,8 +548,6 @@ describe("createAtriumClient: commands", () => {
       { type: "restore_chat", chatId: CHAT },
       { type: "window_focused" },
       { type: "clear_attention", sessionId: "s1" },
-      { type: "hand_off", sessionId: "s1" },
-      { type: "take_back", sessionId: "s1" },
     ]);
   });
 
@@ -1119,7 +1111,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
         running: false,
         attention: null,
         asking: null,
-        handedOff: false,
+        question: null,
         model: null,
         parent: null,
         agent: null,

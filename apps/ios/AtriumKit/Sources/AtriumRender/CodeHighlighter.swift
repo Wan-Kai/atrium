@@ -1,5 +1,6 @@
 import Foundation
 import JavaScriptCore
+import Synchronization
 
 /// What a stretch of highlighted code is, for picking its colour.
 ///
@@ -64,12 +65,29 @@ public actor CodeHighlighter {
   private var context: JSContext?
   /// Whether loading failed, so it is not retried on every block.
   private var unavailable = false
+  /// Tokens highlighted lately, by language and code, newest last; read from any thread.
+  private nonisolated let kept = Mutex<(order: [String], tokens: [String: [CodeToken]])>(([], [:]))
+  /// The most blocks kept.
+  static let keptLimit = 128
+
+  /// The tokens of code highlighted before in a language, if still kept.
+  ///
+  /// - Remark: A code block scrolled off and back is a new view; read at once, its colours are
+  ///   there from the first frame instead of the plain text being laid out again a frame later.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - code: The code.
+  ///   - language: The fence's language name.
+  /// - Returns: The tokens, or `nil`.
+  public nonisolated func cached(_ code: String, language: String) -> [CodeToken]? {
+    kept.withLock { $0.tokens[language + "\u{0}" + code] }
+  }
 
   /// Highlights code in a language.
   ///
   /// - Remark: `ignoreIllegals` keeps streaming code highlighted. Over 128 KiB stays plain to bound
   ///   a non-interruptible JavaScript invocation; source is never truncated.
-  /// - SideEffects: Loads highlight.js into a JavaScript context on first use.
+  /// - SideEffects: Loads highlight.js into a JavaScript context on first use; keeps the tokens.
   /// - Parameters:
   ///   - code: The code.
   ///   - language: The fence's language name, as highlight.js knows it or an alias ("ts", "sh").
@@ -88,7 +106,13 @@ public actor CodeHighlighter {
       return nil
     }
     guard !Task.isCancelled else { return nil }
-    return Self.tokens(fromHTML: html)
+    let tokens = Self.tokens(fromHTML: html)
+    let key = language + "\u{0}" + code
+    kept.withLock { kept in
+      if kept.tokens.updateValue(tokens, forKey: key) == nil { kept.order.append(key) }
+      while kept.order.count > Self.keptLimit { kept.tokens[kept.order.removeFirst()] = nil }
+    }
+    return tokens
   }
 
   /// The context, loading highlight.js the first time.

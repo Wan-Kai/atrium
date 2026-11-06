@@ -32,7 +32,7 @@ export interface AgentFields {
 }
 
 /** What the catalog knows of one session; the manager adds whether it runs or asks, and its agent's state. */
-export type CatalogEntry = Omit<SessionSummary, "running" | "asking" | "agent" | "heldDeliveries"> &
+export type CatalogEntry = Omit<SessionSummary, "running" | "asking" | "question" | "agent" | "heldDeliveries"> &
   AgentFields & {
     /** The working directory pi starts in. */
     readonly cwd: string;
@@ -82,7 +82,7 @@ export interface SessionCatalog {
   archive(sessionId: string): Promise<void>;
   /** Shows a session hidden by `archive` again. */
   unarchive(sessionId: string): Promise<void>;
-  /** Sets a session's attention, hand-off or Fast, as given. */
+  /** Sets a session's attention or Fast, as given. */
   mark(sessionId: string, change: SessionMarks): Promise<void>;
   /**
    * Resolves once the first scan has ended, starting one if none has.
@@ -103,7 +103,6 @@ export interface SessionCatalog {
 /** The marks Atrium keeps on a session besides archiving it. */
 interface SessionMarks {
   readonly attention?: Attention | null;
-  readonly handedOff?: boolean;
   readonly fast?: boolean;
 }
 
@@ -287,7 +286,6 @@ export function createSessionCatalog(options: {
         updatedAt: file.modifiedAt,
         archived: record?.archived ?? false,
         attention: record?.attention ?? null,
-        handedOff: record?.handedOff ?? false,
         fast: record?.fast ?? null,
         parent: parentOf(record),
         usageAfter: record?.usageAfter ?? null,
@@ -312,7 +310,6 @@ export function createSessionCatalog(options: {
         updatedAt: record.createdAt,
         archived: record.archived,
         attention: record.attention ?? null,
-        handedOff: record.handedOff ?? false,
         fast: record.fast ?? null,
         parent: parentOf(record),
         usageAfter: record.usageAfter ?? null,
@@ -413,7 +410,6 @@ export function createSessionCatalog(options: {
     const marks = {
       archived: entry.archived,
       attention: entry.attention,
-      handedOff: entry.handedOff,
       fast: entry.fast,
     };
     if (JSON.stringify({ ...marks, ...change }) === JSON.stringify(marks)) return;

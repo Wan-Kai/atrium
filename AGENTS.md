@@ -51,4 +51,6 @@ Atrium 是以 pi 为唯一内核的 macOS 桌面 coding agent。本文件给在�
 
 `pnpm dev`、`pnpm check`、`pnpm test`（及 `test:pi`、`test:host`、`test:ui`、`test:e2e`、`test:leak`、`test:perf`、`test:package`、`test:stress`、`test:soak`）、`pnpm test:mutation [组…] [--mutate=<文件>]`、`pnpm break-check <cases.json>`、`pnpm boundary [基准]`、`pnpm package`、`pnpm usage`、`pnpm errors`、`pnpm bench`、`pnpm trace <trace id>`、`pnpm pi:try "<提示词>"`、`pnpm fixtures:record`、`pnpm readme:shots`。完整说明见 [development.md · 命令](docs/development.md#命令)，以 `package.json` 为准。
 
+把新包装到 `/Applications/Atrium.app`：`sh scripts/install-app.sh`。它把一个一次性 launchd 作业装上，等 12 秒后自己退出 Atrium、备份旧包、替换、验签、重开；不要从 Atrium 里的 pi 直接起脚本，也不要用 `launchctl submit`（前者被退出时的进程树清理杀掉，后者退出就重启、会连装十几次），原因、核对和回滚见 [install-app.md](docs/install-app.md)。
+
 手机端（`apps/ios`，要 Xcode 26.6）：`pnpm test:ios`、`pnpm ios:build [--simulator]`、`pnpm ios:install`、`pnpm ios:shot [--dark]`、`pnpm ios:format`、`pnpm protocol:swift [--check]`。不要自己猜 scheme 和 destination，它们是固定的，背后的确切命令见 [development.md · 手机端的确切命令](docs/development.md#手机端的确切命令)：工程 `apps/ios/Atrium.xcodeproj`，scheme `Atrium`，模拟器 "Atrium iPhone 16 Pro"，产物 `apps/ios/.build/xcode`。只改 Swift 逻辑时，`swift test --package-path apps/ios/AtriumKit --filter <名字>` 最快，不用起模拟器。

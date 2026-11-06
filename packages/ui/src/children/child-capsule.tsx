@@ -6,7 +6,7 @@ import type { StoreApi } from "zustand/vanilla";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { RoleTag } from "../chat/lanes";
 import { CapsuleUnit } from "../chat/run-control";
-import { Clock, DotsThree, GitBranch, TerminalWindow } from "../design/icons";
+import { Clock, DotsThree, GitBranch } from "../design/icons";
 import { placeOf, sessionTitle, timeAgo } from "../sidebar/names";
 import type { RowStatus } from "../sidebar/status";
 import { StatusIcon } from "../sidebar/status-icon";
@@ -247,12 +247,7 @@ function ChildRow({
             </span>
           </span>
         )}
-        {child.handedOff ? (
-          <span className="flex shrink-0 items-center gap-1 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
-            <TerminalWindow size={12} />
-            已在终端中继续
-          </span>
-        ) : place === null ? null : (
+        {place === null ? null : (
           <span className="flex shrink-0 items-center gap-1 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
             <GitBranch size={12} />
             {place}

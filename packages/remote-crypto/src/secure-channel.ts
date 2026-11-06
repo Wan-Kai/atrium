@@ -1,9 +1,11 @@
 import {
   type Clock,
   type ControlMessage,
+  type Deflate,
   encodeControl,
   encodeMessage,
   FrameReader,
+  type Inflate,
   PING,
   PONG,
   type Received,
@@ -24,6 +26,10 @@ export interface ChannelOptions {
   readonly onClose: (reason: string) => void;
   /** Where the chunk timeout is scheduled. */
   readonly clock: Clock;
+  /** Compresses large outgoing messages; only when the other side asked (SPEC-0005, "压缩"). */
+  readonly deflate?: Deflate;
+  /** Decompresses incoming deflated messages; without it they close the channel. */
+  readonly inflate?: Inflate;
 }
 
 /**
@@ -59,7 +65,12 @@ export class SecureChannel {
     this.#options = options;
     this.handshakeHash = transport.handshakeHash;
     this.remoteStatic = transport.remoteStatic;
-    this.#reader = new FrameReader(options.receiveLimit, options.clock, () => this.close("chunk_timeout"));
+    this.#reader = new FrameReader(
+      options.receiveLimit,
+      options.clock,
+      () => this.close("chunk_timeout"),
+      options.inflate,
+    );
   }
 
   /**
@@ -87,7 +98,7 @@ export class SecureChannel {
    * @throws ChannelError message_too_large.
    */
   sendMessage(text: string): void {
-    for (const frame of encodeMessage(text, this.#options.sendLimit)) this.#send(frame);
+    for (const frame of encodeMessage(text, this.#options.sendLimit, this.#options.deflate)) this.#send(frame);
   }
 
   /**

@@ -4,10 +4,12 @@ import SwiftUI
 
 /// The sheet that answers the agent's `ask_user` questions.
 ///
-/// - Remark: The final prototype's question sheet (SPEC-0005 "MP5 定的细节 · MP5c"): "agent 在问你"
-///   with "已答 N / M", tabs for the questions, the question with "单选" or "多选", its options and
-///   "其他" with a text field; "跳过" and "下一题" / "提交回答". A single choice moves on to the next
-///   question 0.22 s later. When the Mac answered first, the sheet says "已在 Mac 上回答" and keeps
+/// - Remark: The paper redesign (design-language "手机端 · 提问 sheet"), after the desktop's question
+///   card: "agent" in Syne with its letters hopping in turn, "/ 在问你", "已答 N / M"; the questions'
+///   titles as chips; the question with "单选" or "多选 · 已选 N"; its options without borders, a
+///   numbered badge each (round for one choice, square for several), the picked ones deep beige with
+///   a tick; "其他" with a text field; "跳过", "下一题 ›" and "提交回答". A single choice moves on to
+///   the next question 0.22 s later. When the Mac answered first, the sheet says "已在 Mac 上回答" and keeps
 ///   only "好": what was picked here is not sent.
 struct QuestionSheet: View {
   /// The session.
@@ -54,14 +56,19 @@ struct QuestionSheet: View {
     let questions = draft.question.questions
     let asked = questions[page]
     VStack(alignment: .leading, spacing: 0) {
-      VStack(spacing: 2) {
-        Text("agent 在问你").font(.system(size: 17, weight: .semibold)).foregroundStyle(palette.text)
+      HStack(alignment: .firstTextBaseline, spacing: 6) {
+        AgentWord()
+        Text("/").font(.system(size: 13)).foregroundStyle(palette.attn)
+        Text("在问你").font(.system(size: 14, weight: .medium)).foregroundStyle(palette.text)
         Text(elsewhere ? "已在 Mac 上回答" : "已答 \(draft.answered) / \(questions.count)")
           .font(.system(size: 12.5)).monospacedDigit().foregroundStyle(palette.secondary)
+          .padding(.leading, 2)
+        Spacer(minLength: 0)
       }
-      .frame(maxWidth: .infinity)
-      .padding(.top, Metrics.md)
-      .padding(.bottom, Metrics.sm)
+      .padding(.horizontal, 22)
+      .padding(.top, 22)
+      .padding(.bottom, 10)
+      .accessibilityElement(children: .combine)
       if elsewhere {
         HStack(alignment: .top, spacing: Metrics.xs) {
           Image(systemName: "checkmark").font(.system(size: 16, weight: .semibold)).foregroundStyle(palette.okText)
@@ -83,16 +90,19 @@ struct QuestionSheet: View {
       }
       ScrollView {
         VStack(alignment: .leading, spacing: 4) {
-          HStack(alignment: .firstTextBaseline, spacing: Metrics.xs) {
-            Text(asked.question).font(.system(size: 18, weight: .semibold)).foregroundStyle(palette.text)
-              .lineSpacing(4)
-            MonoTag(text: asked.multiSelect ? "多选" : "单选")
-          }
-          .padding(.horizontal, Metrics.lg)
-          .padding(.bottom, 10)
+          Text(asked.question).font(.system(size: 18, weight: .semibold)).foregroundStyle(palette.text)
+            .lineSpacing(4)
+            .padding(.horizontal, 22)
+          kindTag(
+            multi: asked.multiSelect, picked: draft.selected[page].count + (draft.otherOn[page] ? 1 : 0),
+            palette: palette
+          )
+          .padding(.horizontal, 22)
+          .padding(.top, 2)
+          .padding(.bottom, 8)
           ForEach(Array(asked.options.enumerated()), id: \.offset) { index, option in
             optionRow(
-              option.label, detail: option.description, recommended: option.recommended,
+              number: index + 1, option.label, detail: option.description, recommended: option.recommended,
               on: draft.selected[page].contains(index), multi: asked.multiSelect, palette: palette
             ) {
               let next = draft.choose(index, in: page)
@@ -100,7 +110,8 @@ struct QuestionSheet: View {
             }
           }
           optionRow(
-            "其他", detail: "都不合适？写你自己的回答", recommended: false, on: draft.otherOn[page],
+            number: asked.options.count + 1, "其他", detail: "都不合适？写你自己的回答", recommended: false,
+            on: draft.otherOn[page],
             multi: asked.multiSelect, palette: palette
           ) {
             draft.chooseOther(in: page)
@@ -110,14 +121,14 @@ struct QuestionSheet: View {
               .lineLimit(2...6)
               .font(.system(size: 15.5))
               .padding(Metrics.sm)
-              .background(palette.page, in: RoundedRectangle(cornerRadius: 12))
-              .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(palette.tertiary, lineWidth: 1))
-              .padding(.horizontal, Metrics.lg)
+              .background(palette.surface, in: RoundedRectangle(cornerRadius: 12))
+              .padding(.leading, 58)
+              .padding(.trailing, 22)
           }
           if !elsewhere {
             Text("也可以关掉这里，在输入框里直接回复，发出后代替回答。")
               .font(.system(size: 13)).foregroundStyle(palette.secondary)
-              .padding(.horizontal, Metrics.lg).padding(.top, Metrics.sm)
+              .padding(.horizontal, 22).padding(.top, Metrics.sm)
           }
         }
         .disabled(elsewhere)
@@ -127,7 +138,7 @@ struct QuestionSheet: View {
       }
       buttons(palette)
     }
-    .background(palette.surface)
+    .background(palette.note)
     .presentationDetents([.medium, .large])
     .presentationDragIndicator(.visible)
     .task(id: turning) {
@@ -140,14 +151,15 @@ struct QuestionSheet: View {
     }
   }
 
-  /// The tabs, one per question, with a dot that fills once answered.
+  /// The questions' titles as chips, the one shown on a quiet ground, a tick once answered.
   ///
-  /// - Remark: The prototype's `.qseg`, split evenly by the number of questions.
+  /// - Remark: The desktop card's title chips: 26pt, an open dot before an unanswered one's name, a
+  ///   green tick before an answered one's; a tap turns to it.
   /// - SideEffects: none
   /// - Parameter palette: The colours.
-  /// - Returns: The tabs.
+  /// - Returns: The chips.
   private func tabs(_ palette: Palette) -> some View {
-    HStack(spacing: 0) {
+    HStack(spacing: 4) {
       ForEach(Array(draft.question.questions.enumerated()), id: \.offset) { index, asked in
         Button {
           turning = nil
@@ -155,32 +167,54 @@ struct QuestionSheet: View {
             page = index
           }
         } label: {
-          HStack(spacing: 6) {
-            Circle()
-              .strokeBorder(draft.isAnswered(index) ? palette.ok : palette.tertiary, lineWidth: 1.3)
-              .background(Circle().fill(draft.isAnswered(index) ? palette.ok : .clear))
-              .frame(width: 7, height: 7)
+          HStack(spacing: 5) {
+            if draft.isAnswered(index) {
+              Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(palette.ok)
+            } else {
+              Circle().strokeBorder(palette.secondary, lineWidth: 1).frame(width: 6, height: 6)
+            }
             Text(asked.header).lineLimit(1)
           }
-          .font(.system(size: 14, weight: .medium))
+          .font(.system(size: 12, weight: page == index ? .medium : .regular))
           .foregroundStyle(page == index ? palette.text : palette.secondary)
-          .frame(maxWidth: .infinity, minHeight: 34)
-          .background(page == index ? palette.page : .clear, in: RoundedRectangle(cornerRadius: 10))
+          .padding(.horizontal, 9)
+          .frame(height: 26)
+          .background(page == index ? palette.surface : .clear, in: Capsule())
         }
         .buttonStyle(.plain)
       }
+      Spacer(minLength: 0)
     }
-    .padding(2)
-    .background(palette.fill, in: RoundedRectangle(cornerRadius: 12))
-    .padding(.horizontal, Metrics.md)
-    .padding(.bottom, 18)
+    .padding(.horizontal, 22)
+    .padding(.bottom, 14)
   }
 
-  /// One option: its label, what it means, and its mark.
+  /// "单选", or "多选 · 已选 N" in the tint.
   ///
-  /// - Remark: A round mark for a single choice, a square one for several; "推荐" for the agent's pick.
+  /// - Remark: design-language "手机端 · 提问 sheet": the kind is always written.
   /// - SideEffects: none
   /// - Parameters:
+  ///   - multi: Whether several may be picked.
+  ///   - picked: How many are picked.
+  ///   - palette: The colours.
+  /// - Returns: The tag.
+  private func kindTag(multi: Bool, picked: Int, palette: Palette) -> some View {
+    Text(multi ? "多选 · 已选 \(picked)" : "单选")
+      .font(.system(size: 11, weight: .semibold))
+      .monospacedDigit()
+      .foregroundStyle(multi ? palette.tint : palette.secondary)
+      .padding(.horizontal, 6)
+      .frame(height: 19)
+      .background(multi ? palette.tintSoft : palette.surface, in: RoundedRectangle(cornerRadius: 5))
+  }
+
+  /// One option, without a border: its numbered badge, its label and what it means.
+  ///
+  /// - Remark: The badge is round for a single choice, a rounded square for several; picked, it is
+  ///   deep beige with a tick. "推荐" follows the agent's pick.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - number: Its place, from 1.
   ///   - label: The label.
   ///   - detail: What it means.
   ///   - recommended: Whether the agent recommends it.
@@ -190,39 +224,44 @@ struct QuestionSheet: View {
   ///   - pick: What a tap does.
   /// - Returns: The row.
   private func optionRow(
-    _ label: String, detail: String, recommended: Bool, on: Bool, multi: Bool, palette: Palette,
+    number: Int, _ label: String, detail: String, recommended: Bool, on: Bool, multi: Bool, palette: Palette,
     pick: @escaping () -> Void
   ) -> some View {
     Button(action: pick) {
-      HStack(spacing: Metrics.sm) {
-        VStack(alignment: .leading, spacing: 2) {
+      HStack(alignment: .top, spacing: 12) {
+        let badge: AnyShape = multi ? AnyShape(RoundedRectangle(cornerRadius: 7)) : AnyShape(Circle())
+        ZStack {
+          badge.fill(on ? palette.tint : palette.surface)
+          if on {
+            Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(palette.onInk)
+          } else {
+            Text("\(number)").font(.system(size: 12, weight: .semibold)).monospacedDigit()
+              .foregroundStyle(palette.secondary)
+          }
+        }
+        .frame(width: 24, height: 24)
+        VStack(alignment: .leading, spacing: 1) {
           HStack(spacing: 6) {
-            Text(label).font(.system(size: 16)).foregroundStyle(palette.text)
+            Text(label).font(.system(size: 15.5, weight: .semibold)).foregroundStyle(palette.text)
             if recommended {
-              Text("推荐").font(.system(size: 11.5, weight: .medium)).foregroundStyle(palette.tint)
-                .padding(.horizontal, 6).frame(height: 18).background(palette.tint.opacity(0.12), in: Capsule())
+              Text("推荐").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(palette.tint)
+                .padding(.horizontal, 5).frame(height: 17).background(
+                  palette.tintSoft, in: RoundedRectangle(cornerRadius: 4))
             }
           }
+          .frame(minHeight: 24)
           if !detail.isEmpty {
             Text(detail).font(.system(size: 13)).foregroundStyle(palette.secondary).multilineTextAlignment(.leading)
           }
         }
         Spacer(minLength: 0)
-        let mark: AnyShape = multi ? AnyShape(RoundedRectangle(cornerRadius: 7)) : AnyShape(Circle())
-        ZStack {
-          mark.fill(on ? palette.ink : .clear)
-          mark.stroke(on ? palette.ink : palette.tertiary, lineWidth: 1.5)
-          if on { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(palette.onInk) }
-        }
-        .frame(width: 22, height: 22)
       }
-      .padding(.horizontal, Metrics.md)
-      .frame(minHeight: 56)
-      .background(on ? palette.fill : .clear, in: RoundedRectangle(cornerRadius: 16))
-      .contentShape(RoundedRectangle(cornerRadius: 16))
+      .padding(.horizontal, 22)
+      .padding(.vertical, 10)
+      .contentShape(Rectangle())
     }
     .buttonStyle(PressStyle(scale: 0.98))
-    .padding(.horizontal, Metrics.xs)
+    .accessibilityAddTraits(on ? .isSelected : [])
   }
 
   /// The buttons at the bottom: "跳过" and "下一题" / "提交回答", or only "好".
@@ -232,35 +271,47 @@ struct QuestionSheet: View {
   /// - Parameter palette: The colours.
   /// - Returns: The buttons.
   private func buttons(_ palette: Palette) -> some View {
-    HStack(spacing: Metrics.sm) {
+    HStack(spacing: 10) {
       if elsewhere {
         Button("好") { dismiss() }
-          .frame(maxWidth: .infinity, minHeight: 50).background(palette.ink, in: Capsule()).foregroundStyle(
+          .frame(maxWidth: .infinity, minHeight: 46).background(palette.ink, in: Capsule()).foregroundStyle(
             palette.onInk)
       } else {
         Button("跳过") {
           sync.perform(.answerQuestion(draft.question.id, .skipped), in: sessionId)
           dismiss()
         }
-        .frame(maxWidth: .infinity, minHeight: 50).background(palette.fill, in: Capsule()).foregroundStyle(palette.text)
+        .font(.system(size: 14))
+        .foregroundStyle(palette.secondary)
+        .padding(.horizontal, 6)
+        Spacer(minLength: 0)
         let last = draft.complete || page == draft.question.questions.count - 1
-        Button(last ? "提交回答" : "下一题") {
+        if !last {
+          Button("下一题 ›") { advance() }
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(palette.text)
+            .padding(.horizontal, 18).frame(height: 46)
+            .overlay(Capsule().strokeBorder(palette.line, lineWidth: 1))
+        }
+        Button("提交回答") {
           if let reply = draft.reply {
             sync.perform(.answerQuestion(draft.question.id, reply), in: sessionId)
             dismiss()
-          } else {
-            advance()
           }
         }
-        .frame(maxWidth: .infinity, minHeight: 50).background(palette.ink, in: Capsule()).foregroundStyle(palette.onInk)
-        .opacity(last && !draft.complete ? 0.35 : 1)
-        .disabled(last && !draft.complete)
+        .font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(draft.complete ? palette.onInk : palette.secondary)
+        .padding(.horizontal, 22).frame(height: 46)
+        .background(draft.complete ? palette.ink : palette.surface, in: Capsule())
+        .disabled(!draft.complete)
         .accessibilityIdentifier("question.submit")
       }
     }
     .font(.system(size: 16, weight: .semibold))
     .buttonStyle(PressStyle())
-    .padding(Metrics.md)
+    .padding(.horizontal, 22)
+    .padding(.top, 12)
+    .padding(.bottom, Metrics.md)
   }
 
   /// Goes on to the next unanswered question, a moment after a single choice.
@@ -271,5 +322,49 @@ struct QuestionSheet: View {
     let count = draft.question.questions.count
     guard count > 1 else { return }
     turning = (1..<count).map({ (page + $0) % count }).first(where: { !draft.isAnswered($0) })
+  }
+}
+
+/// "agent" on the question sheet, its letters hopping one after another.
+///
+/// - Remark: The desktop card's word (design-language "手机端 · 提问 sheet"): Syne 700 in the
+///   attention colour; every 1.8 s each letter jumps 4pt and settles, 0.08 s after the one before.
+///   Still under Reduce Motion.
+struct AgentWord: View {
+  /// Light or dark.
+  @Environment(\.colorScheme) private var scheme
+  /// Whether Reduce Motion is on.
+  @Environment(\.atriumReduceMotion) private var reduceMotion
+
+  /// The word.
+  var body: some View {
+    let palette = Palette(scheme: scheme)
+    TimelineView(.animation(paused: reduceMotion)) { context in
+      let time = context.date.timeIntervalSinceReferenceDate
+      HStack(spacing: 0) {
+        ForEach(Array("agent".enumerated()), id: \.offset) { place, letter in
+          Text(String(letter)).offset(y: reduceMotion ? 0 : Self.hop(time - Double(place) * 0.08))
+        }
+      }
+    }
+    .font(Typography.agent(size: 14))
+    .foregroundStyle(palette.attn)
+    .accessibilityLabel("agent")
+  }
+
+  /// How high a letter is at a moment of its 1.8 s cycle.
+  ///
+  /// - Remark: The desktop's `hop` keyframes: up 4pt by 14%, a touch below at 26%, rest from 40%.
+  /// - SideEffects: none
+  /// - Parameter time: Seconds, shifted by the letter's delay.
+  /// - Returns: The offset, negative upwards.
+  static func hop(_ time: Double) -> CGFloat {
+    let part = (time.truncatingRemainder(dividingBy: 1.8) + 1.8).truncatingRemainder(dividingBy: 1.8) / 1.8
+    switch part {
+    case ..<0.14: return -4 * part / 0.14
+    case ..<0.26: return -4 + 4.5 * (part - 0.14) / 0.12
+    case ..<0.40: return 0.5 - 0.5 * (part - 0.26) / 0.14
+    default: return 0
+    }
   }
 }

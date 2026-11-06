@@ -181,8 +181,8 @@
   },
   {
     "file": "packages/host/src/sessions/read-only-transcripts.ts",
-    "from": "        command.epoch === READ_ONLY_EPOCH ? transcript.before(",
-    "to": "        command.epoch !== -1 ? transcript.before(",
+    "from": "        command.epoch === READ_ONLY_EPOCH\n          ? transcript.before(",
+    "to": "        command.epoch !== -1\n          ? transcript.before(",
     "test": "packages/host/src/sessions/read-only-transcripts.test.ts",
     "name": "transcript_changed for another"
   },
@@ -477,8 +477,8 @@
   },
   {
     "file": "packages/host/src/sessions/session-manager.ts",
-    "from": "  function notHandedOff(sessionId: string): void {\n    notReadOnly(sessionId);",
-    "to": "  function notHandedOff(sessionId: string): void {",
+    "from": "    if (containerId !== undefined && options.directions?.readOnly?.(containerId) === true) {\n      throw new CommandError(\"direction_archived\", { directionId: containerId });",
+    "to": "    if (false) {\n      throw new CommandError(\"direction_archived\", { directionId: containerId });",
     "test": "packages/host/src/sessions/session-manager.test.ts",
     "name": "refuses every command that needs pi"
   },
@@ -639,15 +639,15 @@
   },
   {
     "file": "packages/host/src/server/remote-policy.ts",
-    "from": "      sessions: message.sessions.filter((session) => !isDirectionId(session.containerId)),",
-    "to": "      sessions: message.sessions,",
+    "from": "        .filter((session) => !session.archived && !isDirectionId(session.containerId))",
+    "to": "        .filter((session) => !session.archived)",
     "test": "packages/host/src/server/remote-policy.test.ts",
     "name": "out of a snapshot"
   },
   {
     "file": "packages/host/src/server/remote-policy.ts",
-    "from": "        upsert: message.sessions.upsert.filter((session) => !isDirectionId(session.containerId)),",
-    "to": "        upsert: message.sessions.upsert,",
+    "from": "      upsert: message.sessions.upsert.filter((session) => !isDirectionId(session.containerId)),",
+    "to": "      upsert: message.sessions.upsert,",
     "test": "packages/host/src/server/remote-policy.test.ts",
     "name": "out of changes too"
   },
@@ -667,8 +667,8 @@
   },
   {
     "file": "packages/host/src/server/connection.ts",
-    "from": "    const text = JSON.stringify(forPhone(message));",
-    "to": "    const text = JSON.stringify(message);",
+    "from": "    const message = forPhone(original);",
+    "to": "    const message = original;",
     "test": "packages/host/src/server/connection.test.ts",
     "name": "without learning directions, their sessions or paths"
   },

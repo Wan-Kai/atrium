@@ -78,7 +78,6 @@ export function describeChildError(error: unknown): string {
     session_busy: "运行中不能开带上下文的子对话",
     session_is_draft: "主对话还没有消息，发一条再开子对话",
     session_not_found: "主对话已经不在了",
-    session_handed_off: "主对话已在终端中继续，先接回来",
     turn_not_found: "没能开子对话：找不到这一轮",
     fork_failed: "没能开子对话：pi 出错了",
   };

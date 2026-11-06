@@ -54,8 +54,6 @@ export {
   DetachSessionCommand,
   ForkPlacement,
   ClearAttentionCommand,
-  HandOffCommand,
-  TakeBackCommand,
   RenameSessionCommand,
   SetPreferencesCommand,
   SteerCommand,
@@ -195,6 +193,7 @@ export {
 export {
   Appearance,
   TranslationLanguage,
+  AskingName,
   Attention,
   Chat,
   ContainerTabs,

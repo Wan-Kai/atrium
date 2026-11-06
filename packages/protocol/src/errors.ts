@@ -153,7 +153,6 @@ export const ErrorCode = z.enum([
   /** `fork_session`: the session has no such turn. */
   "turn_not_found",
   /** The session was handed to pi in a terminal; take it back first (SPEC-0001, "并行、同步与关注"). */
-  "session_handed_off",
   /** Atrium cannot sign in through pi now: the login program cannot load the pi found, or pi is not usable. */
   "login_unavailable",
   /** The `loginId` names no login under way. */

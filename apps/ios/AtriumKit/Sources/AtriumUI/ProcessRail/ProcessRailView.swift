@@ -90,14 +90,15 @@ struct ProcessRailView: View {
       HStack(spacing: 6) {
         if waiting {
           Image(systemName: "questionmark.circle")
-            .font(.system(size: 18))
+            .font(.system(size: 17))
             .foregroundStyle(palette.attn)
-          Text("等你回答").foregroundStyle(palette.attnText)
-          Text(duration).monospacedDigit().foregroundStyle(palette.secondary)
+            .frame(width: 18)
+          Text("等你回答").fontWeight(.medium).foregroundStyle(palette.attn)
+          Text("· " + duration).monospacedDigit().foregroundStyle(palette.secondary)
         } else if running {
           RunningCat()
-          ShimmerText(text: "进行中", color: palette.text2, still: reduceMotion)
-          Text(duration).monospacedDigit().foregroundStyle(palette.secondary)
+          ShimmerText(text: "进行中", base: palette.secondary, light: palette.text, still: reduceMotion)
+          Text("· " + duration).monospacedDigit().foregroundStyle(palette.secondary)
         } else {
           Image(systemName: "chevron.right")
             .font(.system(size: 11, weight: .semibold))
@@ -163,37 +164,53 @@ private struct FoldStagger: ViewModifier {
   }
 }
 
-/// Words with a band of light sweeping across them every 2.2 s, for "进行中".
+/// Words with a band of light sweeping across them every 1.9 s, for "进行中".
 ///
-/// - Remark: design-language "动效 · 扫光文字". A gradient mask moves across the text; with Reduce
-///   Motion the words stand plain.
+/// - Remark: design-language "动效 · 扫光文字", as the desktop: the words in the quiet colour, a
+///   band of the text colour a third as wide as the gradient (32%–68%, full between 47% and 53%)
+///   moving across a 220% width. With Reduce Motion the words stand plain.
 private struct ShimmerText: View {
   /// The words.
   let text: String
-  /// Their colour.
-  let color: Color
+  /// Their quiet colour.
+  let base: Color
+  /// The colour of the band.
+  let light: Color
   /// Whether to hold still.
   let still: Bool
 
   /// The shimmering words.
   var body: some View {
     Text(text)
-      .foregroundStyle(color)
+      .foregroundStyle(base)
       .overlay {
         if !still {
           TimelineView(.animation(paused: still)) { context in
-            let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.2) / 2.2
-            GeometryReader { proxy in
-              LinearGradient(
-                colors: [.clear, .white.opacity(0.7), .clear], startPoint: .leading, endPoint: .trailing
-              )
-              .frame(width: proxy.size.width * 0.6)
-              .offset(x: proxy.size.width * (phase * 2 - 0.8))
-            }
+            let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.9) / 1.9
+            Text(text).foregroundStyle(light).mask { band(phase) }
           }
-          .mask(Text(text))
-          .blendMode(.plusLighter)
         }
       }
+  }
+
+  /// The moving band, as a mask.
+  ///
+  /// - Remark: See the type.
+  /// - SideEffects: none
+  /// - Parameter phase: How far through the sweep, 0 to 1.
+  /// - Returns: The mask.
+  private func band(_ phase: Double) -> some View {
+    GeometryReader { proxy in
+      let width = proxy.size.width * 2.2
+      LinearGradient(
+        stops: [
+          .init(color: .clear, location: 0.32), .init(color: .black, location: 0.47),
+          .init(color: .black, location: 0.53), .init(color: .clear, location: 0.68),
+        ],
+        startPoint: .leading, endPoint: .trailing
+      )
+      .frame(width: width)
+      .offset(x: (1 - phase * 2) * proxy.size.width - (width - proxy.size.width) / 2)
+    }
   }
 }

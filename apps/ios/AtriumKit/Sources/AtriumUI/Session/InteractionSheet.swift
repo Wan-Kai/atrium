@@ -166,13 +166,17 @@ struct InteractionSheet: View {
 /// The sheet that lists a session's child conversations.
 ///
 /// - Remark: The final prototype's child list: the latest updated first, each with its state, title
-///   and role; tapping a row opens its page. The phone cannot open or stop a child.
+///   and role; tapping a row opens its page. The phone cannot open or stop a child. Shown as a
+///   full-width `BottomPanel` with "子对话" on the left and no hints (design-language "子对话
+///   sheet、排队 sheet", 2026-10-29).
 struct ChildrenSheet: View {
   /// The children.
   let children: [SessionSummary]
   /// Opens a child's page.
   let open: (SessionId) -> Void
-  /// Closes the sheet.
+  /// Closes the panel it sits in.
+  @Environment(\.closePanel) private var closePanel
+  /// Closes the sheet, when shown as one.
   @Environment(\.dismiss) private var dismiss
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
@@ -182,15 +186,14 @@ struct ChildrenSheet: View {
     let palette = Palette(scheme: scheme)
     ScrollView {
       VStack(alignment: .leading, spacing: 4) {
-        VStack(spacing: 2) {
-          Text("子对话").font(.system(size: 17, weight: .semibold)).foregroundStyle(palette.text)
-          Text("最近更新的在前").font(.system(size: 12.5)).foregroundStyle(palette.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, Metrics.md)
+        Text("子对话").font(.system(size: 20, weight: .semibold)).foregroundStyle(palette.text)
+          .padding(.horizontal, Metrics.md)
+          .padding(.top, Metrics.xs)
+          .padding(.bottom, Metrics.xs)
+          .accessibilityAddTraits(.isHeader)
         ForEach(children, id: \.sessionId) { child in
           Button {
-            dismiss()
+            if let closePanel { closePanel() } else { dismiss() }
             open(child.sessionId)
           } label: {
             HStack(spacing: Metrics.sm) {
@@ -214,14 +217,10 @@ struct ChildrenSheet: View {
           }
           .buttonStyle(PressStyle(scale: 0.98))
         }
-        Text("子对话由 agent 或在 Mac 上开。点一行打开它的对话。")
-          .font(.system(size: 13)).foregroundStyle(palette.secondary)
-          .padding(Metrics.md)
       }
+      .padding(.bottom, Metrics.md)
     }
     .background(palette.surface)
-    .presentationDetents([.medium, .large])
-    .presentationDragIndicator(.visible)
   }
 
   /// A child's state icon: asking, running, or neither.

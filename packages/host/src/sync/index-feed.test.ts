@@ -130,7 +130,7 @@ function session(id: string, running = false): SessionSummary {
     running,
     attention: null,
     asking: null,
-    handedOff: false,
+    question: null,
     model: null,
     parent: null,
     agent: null,

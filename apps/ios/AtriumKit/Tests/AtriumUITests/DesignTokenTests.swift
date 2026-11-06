@@ -22,24 +22,32 @@ struct DesignTokenTests {
     #expect(Typography.display(for: text, size: 23) == .system(size: 19, weight: .semibold))
   }
 
-  @Test("takes the colour table of design-language and the final prototype")
+  @Test("takes the paper colour table of design-language")
   func colours() {
     let rows: [(ColorToken, RGBA, RGBA)] = [
-      (.page, RGBA(0xfaf9f5), RGBA(0x1c1b19)),
-      (.surface, RGBA(0xf3f1eb), RGBA(0x252421)),
-      (.text, RGBA(0x1f1e1c), RGBA(0xf2efe8)),
-      (.text2, RGBA(0x3d3b37), RGBA(0xd9d5cc)),
-      (.secondary, RGBA(0x86827a), RGBA(0x9b968c)),
-      (.tertiary, RGBA(0xcbc6bc), RGBA(0x504c46)),
-      (.tint, RGBA(0x2f6fed), RGBA(0x8fb0ff)),
-      (.attn, RGBA(0xd97a1e), RGBA(0xe08a35)),
-      (.attnText, RGBA(0xb3600b), RGBA(0xeda25a)),
-      (.danger, RGBA(0xd4463d), RGBA(0xef6b5f)),
-      (.ok, RGBA(0x2f8a46), RGBA(0x4caf68)),
-      (.okText, RGBA(0x2c7a3e), RGBA(0x74c98a)),
+      (.page, RGBA(0xf6f2e9), RGBA(0x1c1a16)),
+      (.note, RGBA(0xfffcf5), RGBA(0x25221d)),
+      (.surface, RGBA(0xefe9dc), RGBA(0x2b2822)),
+      (.text, RGBA(0x26221c), RGBA(0xeee9df)),
+      (.text2, RGBA(0x4d473d), RGBA(0xcec7b9)),
+      (.secondary, RGBA(0x8b8477), RGBA(0x8f887b)),
+      (.tertiary, RGBA(0xd3cbbb), RGBA(0x4a453c)),
+      (.line, RGBA(0x46371e, 0.11), RGBA(0xeee9df, 0.09)),
+      (.tint, RGBA(0x8a7352), RGBA(0xc9b28c)),
+      (.tintSoft, RGBA(0x8a7352, 0.14), RGBA(0xc9b28c, 0.16)),
+      (.ink, RGBA(0x26221c), RGBA(0xeee9df)),
+      (.onInk, RGBA(0xf6f2e9), RGBA(0x1c1a16)),
+      (.attn, RGBA(0xc0651c), RGBA(0xe6944a)),
+      (.danger, RGBA(0xc13f35), RGBA(0xec6a5e)),
+      (.ok, RGBA(0x3d7a4a), RGBA(0x7bbf8a)),
       (.rail, RGBA(0x3c321e, 0.14), RGBA(0xfff0dc, 0.13)),
-      (.branch, RGBA(0x3c321e, 0.26), RGBA(0xfff0dc, 0.26)),
       (.node, RGBA(0xcbc3b4), RGBA(0x5f5951)),
+      (.stickyStuck, RGBA(0xf4cdc4), RGBA(0xc2948a)),
+      (.stickyStuckInk, RGBA(0x3d1913), RGBA(0x2a110d)),
+      (.stickyWaiting, RGBA(0xf7dfb8), RGBA(0xc4a77c)),
+      (.stickyWaitingInk, RGBA(0x3a2610), RGBA(0x24180a)),
+      (.stickyReminder, RGBA(0xdfe0cf), RGBA(0xa8aa95)),
+      (.stickyReminderInk, RGBA(0x262a17), RGBA(0x1d2012)),
     ]
     for (token, light, dark) in rows {
       #expect(token.value(in: .light) == light, "\(token)")
@@ -90,5 +98,16 @@ struct DesignTokenTests {
     }
     #expect(Motion.fold(reduceMotion: true) == .reduced)
     #expect(Motion.fold(reduceMotion: false).animation == .timingCurve(0.45, 0, 0.15, 1, duration: 0.4))
+  }
+
+  @Test("sets the conversation one size down from the first cut, with tighter lines")
+  func conversationScale() {
+    #expect(Typography.reply == .system(size: 15.5))
+    #expect(abs(Typography.replyLineSpacing - 7.75) < 0.001)
+    #expect(Typography.bubble == .system(size: 14.5))
+    #expect(Typography.step == .system(size: 12))
+    #expect(Typography.stepMono == .system(size: 11.5, design: .monospaced))
+    #expect(Typography.code == .system(size: 12, design: .monospaced))
+    #expect(Typography.inlineCode == .system(size: 13, design: .monospaced))
   }
 }

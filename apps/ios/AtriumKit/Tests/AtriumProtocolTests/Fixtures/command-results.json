@@ -587,18 +587,6 @@
   "clear_attention": [
     {}
   ],
-  "hand_off": [
-    {
-      "file": "/pi/sessions/s1.jsonl",
-      "args": [
-        "--tools",
-        "read,ls"
-      ]
-    }
-  ],
-  "take_back": [
-    {}
-  ],
   "rename_session": [
     {}
   ],
