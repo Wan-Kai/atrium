@@ -65,6 +65,12 @@ async function openArea(screen: Awaited<ReturnType<typeof board>>["screen"]) {
   await screen.getByRole("button", { name: "任务", exact: true }).click();
 }
 
+/** Presses the one row of the list and then its "打开任务". */
+async function openRow(screen: Awaited<ReturnType<typeof board>>["screen"]) {
+  await screen.getByTestId("task-row").click();
+  await screen.getByRole("button", { name: "打开任务" }).click();
+}
+
 const GROUPS = (screen: Awaited<ReturnType<typeof board>>["screen"]) =>
   [...screen.container.querySelectorAll('[data-testid="task-group"]')].map((group) => [
     (group as HTMLElement).dataset["group"],
@@ -127,7 +133,7 @@ describe("the task area's tabs (SPEC-0006, 界面 · 入口)", () => {
   it("opens a task as a tab after them with a close button, closing it leaves the list and the task alone", async () => {
     const { screen, tasks } = await board([summary("a", { name: "首页首屏加载提速" })]);
     await openArea(screen);
-    await screen.getByTestId("task-row").click();
+    await openRow(screen);
 
     const tab = screen.getByRole("tab", { name: /首页首屏加载提速/ });
     await expect.element(tab).toHaveAttribute("aria-selected", "true");
@@ -303,7 +309,7 @@ async function openTask(
   const shown = await board(rows);
   shown.taskStateOf(task.id).setState({ status: "ready", task });
   await openArea(shown.screen);
-  await shown.screen.getByTestId("task-row").click();
+  await openRow(shown.screen);
   return shown;
 }
 
@@ -325,7 +331,7 @@ async function conversation(items: readonly TranscriptItem[]) {
   const shown = await board([summary("conv", { name: "任务" })]);
   shown.taskStateOf("tsk_conv").setState({ status: "ready", task });
   await openArea(shown.screen);
-  await shown.screen.getByTestId("task-row").click();
+  await openRow(shown.screen);
   await expect.poll(() => shown.client.session("ses_conv")).toBeDefined();
   shown.client.session("ses_conv")?.setState({ items: [...items] } as Partial<SessionView>);
   return shown;
@@ -543,15 +549,14 @@ describe("a task's tab (SPEC-0006, 界面 · 任务标签; 设计稿第 4、5 �
     expect(screen.container.querySelector('[data-testid="task-tab-bar"]')).toBeNull();
   });
 
-  it("opens the task on the client and watches its conversation by id, with no input box and no task buttons", async () => {
-    const task = view("ro", [node("N1")], [], { taskSessionId: "ses_conv" });
+  it("opens the task on the client and watches its conversation by id, with an input box and without a button that does not fit", async () => {
+    const task = view("ro", [node("N1")], [], { taskSessionId: "ses_conv", status: "running" });
     const { screen, calls } = await openTask(task);
 
     expect(calls).toContain("openTask tsk_ro");
     expect(calls).toContain("watch ses_conv");
-    expect(screen.container.querySelector("textarea, [role=textbox]")).toBeNull();
-    for (const name of ["确认并启动", "放弃任务", "暂停任务", "取消任务"]) {
-      expect(screen.container.querySelector(`button[aria-label="${name}"]`)).toBeNull();
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
+    for (const name of ["确认并启动", "放弃任务"]) {
       expect([...screen.container.querySelectorAll("button")].some((button) => button.textContent === name)).toBe(
         false,
       );
@@ -572,7 +577,7 @@ describe("a task's tab (SPEC-0006, 界面 · 任务标签; 设计稿第 4、5 �
   it("says in words that a task is not there when the host does not know it, and reads while it asks", async () => {
     const shown = await board([summary("gone", { name: "没了的任务" })]);
     await openArea(shown.screen);
-    await shown.screen.getByTestId("task-row").click();
+    await openRow(shown.screen);
     await expect.element(shown.screen.getByText("正在读取任务…")).toBeVisible();
 
     shown.taskStateOf("tsk_gone").setState({ status: "missing", task: null });

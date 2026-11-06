@@ -1,15 +1,108 @@
 import { use, useState } from "react";
 import { CaretRight, Flowchart } from "../design/icons";
-import {
-  type MarkNotice,
-  type ProgressNotice,
-  clockWords,
-  progressWords,
-  summaryWords,
-} from "../tasks/task-progress-model";
+import { type MarkNotice, type RailLine, clockWords, lineWords, summaryWords } from "../tasks/task-progress-model";
+import { EvidenceBlock } from "./review-card";
 import { Fold } from "./fold";
 import { RailMarks } from "./steps";
 import { TaskLinksContext } from "./task-links";
+
+/**
+ * One step on the rail of a task conversation: a progress line or a review's record.
+ *
+ * @remarks
+ * A progress line about a started node opens that node's conversation when pressed (SPEC-0006, "节点对话"); a
+ * review's record opens the evidence it was decided on, as the question's record does (SPEC-0006, "审核卡片" 5),
+ * with the reason you gave.
+ *
+ * @sideEffects Keeps whether a record is open; calls the links' `openNode`.
+ * @param props - The line and its place in the group.
+ * @returns The row.
+ */
+function RailRow({
+  notice,
+  first,
+  last,
+}: {
+  readonly notice: RailLine;
+  readonly first: boolean;
+  readonly last: boolean;
+}) {
+  const links = use(TaskLinksContext);
+  const [open, setOpen] = useState(false);
+  const words = lineWords(
+    notice,
+    notice.notice === "review" || notice.node === null ? undefined : links.nodeName(notice.node),
+  );
+  const node = notice.notice === "task_progress" ? notice.node : null;
+  const opens = node !== null && links.openNode !== undefined && links.canOpenNode?.(node) === true;
+  const text = <span className="min-w-0 flex-1 truncate text-left">{words.text}</span>;
+  return (
+    <div
+      data-fold-row
+      data-testid={notice.notice === "review" ? "review-record" : "task-progress-row"}
+      data-tone={words.tone}
+      className="relative min-w-0 pl-[30px]"
+    >
+      <RailMarks
+        node={words.tone === "fail" ? "fail" : words.tone === "wait" ? "ask" : "dot"}
+        first={first}
+        last={last}
+      />
+      <div
+        className={`flex min-h-[30px] items-center gap-2 text-[length:var(--fs-meta)] ${
+          words.tone === "fail"
+            ? "text-[var(--danger)]"
+            : words.tone === "wait"
+              ? "text-[var(--attn-text)]"
+              : "text-[var(--text-2)]"
+        }`}
+      >
+        {notice.notice === "review" ? (
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+            className="flex min-w-0 flex-1 items-center gap-1 hover:text-[var(--text)]"
+          >
+            {text}
+            <CaretRight
+              size={11}
+              className={`flex-none text-[var(--text-dim)] ${open ? "rotate-90" : ""}`}
+              aria-hidden
+            />
+          </button>
+        ) : opens ? (
+          <button
+            type="button"
+            data-testid="task-progress-open"
+            onClick={() => links.openNode?.(node)}
+            className="flex min-w-0 flex-1 items-center hover:text-[var(--text)] hover:underline"
+          >
+            {text}
+          </button>
+        ) : (
+          text
+        )}
+        <span className="flex-none text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums">
+          {clockWords(notice.timestamp)}
+        </span>
+      </div>
+      {notice.notice === "review" && open ? (
+        <div
+          data-testid="review-record-evidence"
+          className="mb-1.5 flex flex-col gap-1.5 pr-1 pb-0.5 text-[length:var(--fs-sm)]"
+        >
+          {notice.review.evidence.map((evidence, index) => (
+            <EvidenceBlock key={`${evidence.kind}:${String(index)}`} evidence={evidence} />
+          ))}
+          {notice.review.verdict.reason === undefined || notice.review.verdict.reason === "" ? null : (
+            <p className="text-[var(--text-muted)]">你写的原因：{notice.review.verdict.reason}</p>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * A run of progress lines between two turns of a task conversation, as a process on the rail.
@@ -29,10 +122,9 @@ export function TaskProgressGroup({
   notices,
   last,
 }: {
-  readonly notices: readonly ProgressNotice[];
+  readonly notices: readonly RailLine[];
   readonly last: boolean;
 }) {
-  const links = use(TaskLinksContext);
   const [choice, setChoice] = useState<boolean | null>(null);
   const open = choice ?? last;
   const first = notices[0];
@@ -66,38 +158,9 @@ export function TaskProgressGroup({
         </span>
       </button>
       <Fold open={open} testId="task-progress-steps">
-        {notices.map((notice, index) => {
-          const words = progressWords(notice, notice.node === null ? undefined : links.nodeName(notice.node));
-          return (
-            <div
-              key={notice.id}
-              data-fold-row
-              data-testid="task-progress-row"
-              data-tone={words.tone}
-              className="relative min-w-0 pl-[30px]"
-            >
-              <RailMarks
-                node={words.tone === "fail" ? "fail" : words.tone === "wait" ? "ask" : "dot"}
-                first={index === 0}
-                last={index === notices.length - 1}
-              />
-              <div
-                className={`flex min-h-[30px] items-center gap-2 text-[length:var(--fs-meta)] ${
-                  words.tone === "fail"
-                    ? "text-[var(--danger)]"
-                    : words.tone === "wait"
-                      ? "text-[var(--attn-text)]"
-                      : "text-[var(--text-2)]"
-                }`}
-              >
-                <span className="min-w-0 flex-1 truncate">{words.text}</span>
-                <span className="flex-none text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums">
-                  {clockWords(notice.timestamp)}
-                </span>
-              </div>
-            </div>
-          );
-        })}
+        {notices.map((notice, index) => (
+          <RailRow key={notice.id} notice={notice} first={index === 0} last={index === notices.length - 1} />
+        ))}
       </Fold>
     </div>
   );

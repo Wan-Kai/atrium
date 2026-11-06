@@ -180,6 +180,11 @@ export interface FakeAnswers {
   /** Answers restoring a chat, which then shows again; restored at once when left out. */
   readonly restoreChat?: () => Promise<void>;
   readonly prompt?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
+  /**
+   * Answers a task, review or question command by its name (`startTask`, `answerReview`, `createTask`, …) with its
+   * arguments; reject with a `CommandError` to fail it. Succeeds when left out.
+   */
+  readonly taskCommand?: (name: string, args: readonly unknown[]) => Promise<void>;
   readonly addProject?: () => Promise<void>;
   readonly openSession?: () => Promise<void>;
   readonly handOff?: () => Promise<void>;
@@ -238,6 +243,52 @@ export interface FakeAnswers {
     turnId: string,
     index: number,
   ) => Promise<{ mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string } | undefined>;
+}
+
+/**
+ * The task, review and question commands of the fake client: each records itself in `calls` and answers as the test says.
+ *
+ * @remarks
+ * Shared by the tests of the task area, not by the app. `createTask` answers `{ taskId: "tsk_new" }`; the others `{}`.
+ *
+ * @sideEffects Records into `calls`.
+ * @param calls - The client's call log.
+ * @param answers - The test's answers.
+ * @returns The methods.
+ */
+function taskCommands(calls: string[], answers: FakeAnswers) {
+  /**
+   * Records one command and waits for the test's answer to it.
+   *
+   * @remarks
+   * A rejection from the answer is the command's failure.
+   *
+   * @sideEffects Records into `calls`.
+   * @param name - The method's name.
+   * @param args - Its arguments.
+   * @returns The command's result.
+   */
+  const command = async (name: string, ...args: readonly unknown[]) => {
+    calls.push(`${name} ${args.map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg))).join(" ")}`);
+    await answers.taskCommand?.(name, args);
+    return name === "createTask" ? { taskId: "tsk_new" } : {};
+  };
+  return {
+    createTask: (sessionId: string, scope?: string) =>
+      command("createTask", sessionId, ...(scope === undefined ? [] : [scope])),
+    startTask: (taskId: string) => command("startTask", taskId),
+    abandonTask: (taskId: string) => command("abandonTask", taskId),
+    pauseTask: (taskId: string) => command("pauseTask", taskId),
+    resumeTask: (taskId: string) => command("resumeTask", taskId),
+    cancelTask: (taskId: string) => command("cancelTask", taskId),
+    rerunNode: (taskId: string, node: string) => command("rerunNode", taskId, node),
+    answerArchive: (taskId: string, answer: string) => command("answerArchive", taskId, answer),
+    answerReview: (sessionId: string, reviewId: string, verdict: unknown) =>
+      command("answerReview", sessionId, reviewId, verdict),
+    answerQuestion: (sessionId: string, questionId: string, reply: unknown) =>
+      command("answerQuestion", sessionId, questionId, reply),
+    openTaskSession: (taskId: string, sessionId: string) => command("openTaskSession", taskId, sessionId),
+  };
 }
 
 /**
@@ -909,6 +960,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       await answers.remoteCommand?.();
       return {};
     },
+    ...taskCommands(calls, answers),
     tasks,
     async watchTasks(on: boolean) {
       calls.push(`watchTasks ${String(on)}`);

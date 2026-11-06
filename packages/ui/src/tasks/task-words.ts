@@ -65,7 +65,25 @@ const ERROR_WORDS: Readonly<Record<string, string>> = {
   task_already_converted: "这段对话已经转成任务了",
   task_no_project_for_work: "不属于项目的任务不能放改代码或跑命令的节点",
   merge_git_failed: "git 出错了，没有合并，主目录没动",
+  review_closed: "这张审核已经处理过，或者不在了",
+  review_invalid: "没有通过：原因没写，或者没选打回到哪个节点",
+  workspace_dirty: "任务的 worktree 里还有没提交的改动",
+  session_not_found: "这个对话已经不存在了",
 };
+
+/**
+ * The words for an error code a task command can fail with, if the board has some.
+ *
+ * @remarks
+ * Lets a caller fall back to the general wording for the codes that are not about tasks.
+ *
+ * @sideEffects none
+ * @param code - The error code.
+ * @returns The sentence, or `null` for a code the board does not know.
+ */
+export function knownTaskError(code: string): string | null {
+  return ERROR_WORDS[code] ?? null;
+}
 
 /**
  * What to tell the user about a failure of a task command.
@@ -119,6 +137,21 @@ export function statusWords(task: TaskSummary): {
   }
   if (task.status === "stopped") return { text: `${node === "" ? "" : `${node} `}已停下`, tone: "attn" };
   return { text: "运转中", tone: "run" };
+}
+
+/**
+ * What a task in the inbox says it waits for: "N2 在问", "N4 验收合并 · 等你验收".
+ *
+ * @remarks
+ * SPEC-0006 ("界面 · 等你处理"): the inbox line is the task's name and this.
+ *
+ * @sideEffects none
+ * @param task - The task.
+ * @returns The words.
+ */
+export function inboxWords(task: TaskSummary): string {
+  if (task.attention === "question" && task.current !== null) return `${task.current.id} 在问`;
+  return statusWords(task).text;
 }
 
 /**

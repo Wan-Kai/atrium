@@ -314,6 +314,7 @@ describe("Composer's built-in commands", () => {
       "/copy复制最后一条回复",
       "/export导出为 HTML",
       "/child开子对话",
+      "/task[范围]把这段对话转成任务",
     ]);
     expect(
       screen
@@ -321,9 +322,7 @@ describe("Composer's built-in commands", () => {
         .elements()
         .map((group) => group.getAttribute("aria-label")),
     ).toStrictEqual(["内置"]);
-    expect(iconColors(list.element())).toStrictEqual(
-      ["var(--tint)", "var(--tint)", "var(--tint)", "var(--tint)", "var(--tint)", "var(--tint)"].map(colorOf),
-    );
+    expect(iconColors(list.element())).toStrictEqual(Array.from({ length: 7 }, () => "var(--tint)").map(colorOf));
     await expect.element(screen.getByText("正在读取命令…")).toBeVisible();
   });
 

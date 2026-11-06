@@ -25,7 +25,7 @@ import { TabBar } from "../tabs/tab-bar";
 import { createTaskArea } from "../state/task-area";
 import { TaskAreaView } from "../tasks/task-area";
 import { groupOf } from "../tasks/task-list-model";
-import { statusWords } from "../tasks/task-words";
+import { inboxWords, statusWords } from "../tasks/task-words";
 import { type TaskLinks, TaskLinksContext } from "../chat/task-links";
 import type { TaskArea } from "../state/task-area";
 import { Breadcrumb } from "../children/breadcrumb";
@@ -612,6 +612,34 @@ function MainWindow({
     if (source !== undefined) showViewer(views, source.containerId, null);
     fireAndForget(client.openSession(sourceId));
   };
+  /**
+   * Opens what a task in the inbox waits on: its tab, and the node's conversation when a node asks.
+   *
+   * @remarks
+   * SPEC-0006 ("界面 · 等你处理"): a node's question opens that node's conversation straight away.
+   *
+   * @sideEffects Shows the task area; writes its state.
+   * @param taskId - The task.
+   */
+  const openWaiting = (taskId: string): void => {
+    const task = tasks.find((one) => one.id === taskId);
+    if (task?.attention === "question" && task.current !== null) area.getState().openNode(taskId, task.current.id);
+    else area.getState().openTask(taskId);
+  };
+  /**
+   * Goes from a review card to the changes of a task's worktree.
+   *
+   * @remarks
+   * Leaves the task area, shows the worktree and opens the right panel, where its changes are.
+   *
+   * @sideEffects Hides the task area; sends `select_container`; opens the right panel.
+   * @param workspaceId - The worktree.
+   */
+  const openChanges = (workspaceId: string): void => {
+    area.getState().hide();
+    fireAndForget(client.selectContainer(workspaceId));
+    panes.getState().setPanelOpen(true);
+  };
   return (
     <TaskLinksContext value={{ ...links, nodeName: () => undefined }}>
       <div className="relative flex h-full" inert={settings.open}>
@@ -638,6 +666,16 @@ function MainWindow({
           }}
           tasks={{
             open: tasksOpen,
+            waiting: tasks
+              .filter((task) => groupOf(task) === "attention")
+              .map((task) => ({
+                id: task.id,
+                title: task.name,
+                words: inboxWords(task),
+                at: task.activeAt,
+                failed: task.attention === "failed",
+              })),
+            openTask: openWaiting,
             attention: tasks.filter((task) => groupOf(task) === "attention").length,
             show: () => {
               closePage(pages);
@@ -648,7 +686,14 @@ function MainWindow({
         />
         <main className="flex min-w-0 flex-1 flex-col bg-[var(--main)]">
           {tasksOpen ? (
-            <TaskAreaView client={client} area={area} folded={folded} onOpenSource={openSource} links={links} />
+            <TaskAreaView
+              client={client}
+              area={area}
+              folded={folded}
+              onOpenSource={openSource}
+              onOpenChanges={openChanges}
+              links={links}
+            />
           ) : null}
           {tasksOpen ? null : container === null || pageProject !== null ? (
             <div className="h-12 shrink-0 [-webkit-app-region:drag]" />

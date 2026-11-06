@@ -190,7 +190,9 @@ test(`@perf shows ${TASKS} tasks of ${NODES} nodes: the first open within ${COLD
       await window.getByRole("button", { name: "收起" }).click();
 
       await window.evaluate(timeDrawn, ['[data-testid="graph-node"]', NODES] as const);
+      // A row opens under the press and "打开任务" in it opens the tab; the time is from the first press to the graph.
       await window.getByTestId("task-row").first().click();
+      await window.getByRole("button", { name: "打开任务" }).click();
       graphs.push(await window.evaluate(() => (window as unknown as { drawn: Promise<number> }).drawn));
       await expect(window.getByTestId("graph-node")).toHaveCount(NODES);
       await window.getByRole("button", { name: /^关闭 / }).click();

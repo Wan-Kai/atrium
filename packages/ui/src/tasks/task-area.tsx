@@ -1,9 +1,10 @@
 import type { AtriumClient } from "@atrium/client";
 import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
-import { Clock, Flowchart, X } from "../design/icons";
+import { ArrowBendDownRight, Clock, Flowchart, X } from "../design/icons";
 import { RunningDots } from "../design/running-dots";
-import type { TaskArea as TaskAreaState } from "../state/task-area";
+import { type TaskArea as TaskAreaState, parseNodeTab } from "../state/task-area";
+import { NodeTab } from "./node-tab";
 import { TaskKindIcon, NodeStateIcon } from "./task-icons";
 import { TaskList } from "./task-list";
 import { TaskTab } from "./task-tab";
@@ -69,6 +70,37 @@ function TaskTabBar({
           </div>
         ))}
         {tabs.map((id) => {
+          const nodeTab = parseNodeTab(id);
+          if (nodeTab !== null)
+            return (
+              <div
+                key={id}
+                role="tab"
+                data-node-tab={nodeTab.node}
+                tabIndex={active === id ? 0 : -1}
+                aria-selected={active === id}
+                title={`节点对话 ${nodeTab.node}`}
+                onClick={() => area.getState().activate(id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") area.getState().activate(id);
+                }}
+                className={`${TAB} !min-w-0`}
+              >
+                <ArrowBendDownRight size={13} className="flex-none text-[var(--text-dim)]" aria-hidden />
+                <span className="min-w-0 flex-1 truncate">{nodeTab.node}</span>
+                <button
+                  type="button"
+                  aria-label={`关闭节点对话 ${nodeTab.node}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    area.getState().closeTask(id);
+                  }}
+                  className="inline-flex size-5 shrink-0 items-center justify-center rounded-[var(--r-sm)] opacity-0 group-hover:opacity-100 group-aria-selected:opacity-100 hover:bg-[var(--hover)]"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            );
           const task = tasks.find((one) => one.id === id);
           const name = task === undefined || task.name === "" ? "任务" : task.name;
           const status = task === undefined ? null : statusWords(task);
@@ -161,12 +193,15 @@ export function TaskAreaView({
   area,
   folded,
   onOpenSource,
+  onOpenChanges,
   links,
 }: {
   readonly client: AtriumClient;
   readonly area: StoreApi<TaskAreaState>;
   readonly folded: boolean;
   readonly onOpenSource: (sessionId: string) => void;
+  /** Goes to a workspace's changes panel, leaving the task area. */
+  readonly onOpenChanges: (workspaceId: string) => void;
   readonly links: React.ComponentProps<typeof TaskTab>["links"];
 }) {
   const active = useStore(area, (state) => state.active);
@@ -174,11 +209,32 @@ export function TaskAreaView({
     <>
       <TaskTabBar client={client} area={area} folded={folded} />
       {active === "list" ? (
-        <TaskList client={client} area={area} onOpen={(taskId) => area.getState().openTask(taskId)} />
+        <TaskList
+          client={client}
+          area={area}
+          onOpen={(taskId) => area.getState().openTask(taskId)}
+          onOpenChanges={onOpenChanges}
+        />
       ) : active === "schedules" ? (
         <SchedulesEmpty />
+      ) : parseNodeTab(active) !== null ? (
+        <NodeTab
+          key={active}
+          client={client}
+          taskId={parseNodeTab(active)?.taskId ?? ""}
+          node={parseNodeTab(active)?.node ?? ""}
+          onBack={() => area.getState().activate(parseNodeTab(active)?.taskId ?? "list")}
+        />
       ) : (
-        <TaskTab key={active} client={client} taskId={active} onOpenSource={onOpenSource} links={links} />
+        <TaskTab
+          key={active}
+          client={client}
+          taskId={active}
+          onOpenSource={onOpenSource}
+          onOpenNode={(taskId, node) => area.getState().openNode(taskId, node)}
+          onOpenChanges={onOpenChanges}
+          links={links}
+        />
       )}
     </>
   );

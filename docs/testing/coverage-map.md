@@ -2300,3 +2300,26 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 变异测试（新组 `reviews`，每个文件单独跑）：`reviews/review-hub.ts` 85.94%（192 个里 27 个存活）、`tasks/task-reviews.ts` 95.83%（408 个里 17 个存活）、`tasks/graph-diff.ts` 98.36%（61 个里 1 个存活，`join(",")` 的分隔符）。存活的多是日志字段和文字、`close()` 之后的清理（`abort`、`clear`）、`idle()` 里"等到没有新排的活"的循环（只让测试能等）、不会发生的 `undefined` 兜底（`graph === undefined`）和 `clip` 恰好等于上限时切不切（结果相同）。
 - 没有测试保护的：上面存活的那些；`task-reviews.ts` 里 `recommended` 对 `send_back` 的 `false`（它永远不是默认）。
 - 没做（留给后面）：见 SPEC-0006"T8a 定下的细节 · 没做"。
+
+## T8b 交互任务区（SPEC-0006"T8b 定下的细节"、ADR-0017，2026-11-06，待验收）
+
+界面用真 Chromium 渲染真组件、真 `Workbench`，客户端是 `fakeClient`（命令只记录、失败由测试给）；纯函数用单测；整条流程在 Electron 里对真宿主走一遍（`apps/desktop/e2e/tasks-flow.spec.ts`，真 pi 跑 faux 模型）。破坏检查 `packages/ui/src/tasks/t8b.break-check.json`。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 审核卡片的组成：顶上一行来源和审核什么（任务的小胶囊、agent 发起的字）、图的改动（加 / 改 / 去掉和"在图上看"）、改动统计和"查看改动"、事实的状态、摘要引用（"某某 说"）、问题带（含文件、红色那种）、推荐的按钮排最前并填色、注意的事实让卡片描边 | `chat/review-card.browser.test.tsx`、`tasks/review-words.test.ts` |
+| 裁决：不要原因的直接发；"打回"展开表单、只剩一个目标自动选上、几个目标要自己选、用完的置灰且不能发、全用完不能发、必填原因要有非空白字、可选原因可不写；Enter 确定 / Shift+Enter 换行 / Esc 收起；失败写在卡片里能再按、一次只发一个；没发完的原因按会话和审核留着、发成功或审核没了就清掉；确认按钮、取消 | `chat/review-card.browser.test.tsx`、`chat/review-state.test.ts` |
+| agent 发起的审核：不画事实、摘要写"agent 说"、模型写的话按文字（不当标记） | `chat/review-card.browser.test.tsx` |
+| 几张卡片同时在（提问加审核）：胶囊按出现先后、一次一张、点了切换；一张时不画胶囊；提问卡片共用外壳后原有测试照旧通过 | `chat/review-card.browser.test.tsx`、`chat/question-card.browser.test.tsx`、`tasks/task-interactive.browser.test.tsx` |
+| 任务对话输入框：`prompt` / `steer` / `stop` 用任务对话的会话 id、从不 `open_session`；审核开着时发消息卡片不动；pi 没在跑先 `open_task_session`；发失败写在输入框上面 | `tasks/task-interactive.browser.test.tsx` |
+| 四种关卡在任务标签里作答（通过、打回带目标和原因、归档）、`review_closed` / `review_invalid` / `task_back_limit` 写成话、改图的"在图上看"换成提议的图并能回来 | `tasks/task-interactive.browser.test.tsx` |
+| 任务栏的按钮：设计中（放弃、确认并启动，没图时后者灰）、运行中（暂停 / 继续、取消）、停下的、完成的、归档兜底、被跟着的任务一个都没有；放弃和取消先问一句、"不了" / Esc 不发；命令失败写在任务栏下面 | `tasks/task-interactive.browser.test.tsx` |
+| 改过的节点虚线框、新加的"新"（来自 `graphDiff`，第一版没有）；需求摘要卡片（目标引用、展开各段、模型写的话按文字、全空不画） | `tasks/task-interactive.browser.test.tsx` |
+| 过程轨道上的审核记录：和进度行同组折叠、折叠行写进每个裁决、各种裁决的说法、点开看当时的证据和原因；进度行点开节点对话 | `tasks/task-progress-model.test.ts`、`tasks/task-interactive.browser.test.tsx` |
+| 列表行内作答：一次一行、再按收起；审核卡片经 `answer_review`；节点的提问用 `watch` 看它的会话并 `answer_question`；失败节点"重跑这个节点"；只有"打开任务"的行 | `tasks/task-interactive.browser.test.tsx` |
+| "等你处理"里的任务：写任务名和在等什么、按紧迫程度混排、点了开任务标签，提问的直接开节点对话；没有要处理的任务时没有 | `tasks/task-interactive.browser.test.tsx` |
+| 节点对话标签：从图的悬停卡、进度行、列表行、收件箱打开；标签在任务标签之后带箭头和节点 id；插话 `prompt`、停 `stop`、pi 没在跑 `open_task_session`；关任务一起关、单关回任务；没开始的节点说明白 | `tasks/task-interactive.browser.test.tsx`、`state/task-area.test.ts` |
+| `/task`：内置命令、列在命令里、调 `create_task`（带范围）、成功开任务标签、不发给模型；失败（`task_already_converted`）写在输入框上面 | `tasks/task-command.browser.test.tsx`、`chat/builtin-commands.test.ts`、`chat/composer.browser.test.tsx` |
+| 从对话 `/task` → 确认并启动 → 在列表里答多选 → 通过并合并 → 归档，全程在 Electron 里对真宿主走通 | `apps/desktop/e2e/tasks-flow.spec.ts` |
+
+- 没做（留给后面）：见 SPEC-0006"T8b 定下的细节 · 没做"。

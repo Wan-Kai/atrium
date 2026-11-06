@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createTaskArea } from "./task-area";
+import { createTaskArea, nodeTabId, parseNodeTab } from "./task-area";
 
 describe("the task area's state (SPEC-0006, 界面 · 入口)", () => {
   it("starts closed, on the list, with no task open", () => {
@@ -54,5 +54,66 @@ describe("the task area's state (SPEC-0006, 界面 · 入口)", () => {
     area.getState().activate("schedules");
 
     expect(area.getState()).toMatchObject({ filter: "prj_1", showAll: true, active: "schedules" });
+  });
+});
+
+describe("a node's conversation tab (SPEC-0006, 节点对话)", () => {
+  it("opens right after its task's tab and the node tabs it has, opening the task's tab if it was not", () => {
+    const area = createTaskArea();
+    area.getState().openTask("tsk_a");
+    area.getState().openTask("tsk_b");
+    area.getState().openNode("tsk_a", "N2");
+    area.getState().openNode("tsk_a", "N1");
+    area.getState().openNode("tsk_c", "N1");
+
+    expect(area.getState().tabs).toStrictEqual([
+      "tsk_a",
+      nodeTabId("tsk_a", "N2"),
+      nodeTabId("tsk_a", "N1"),
+      "tsk_b",
+      "tsk_c",
+      nodeTabId("tsk_c", "N1"),
+    ]);
+    expect(area.getState().active).toBe(nodeTabId("tsk_c", "N1"));
+  });
+
+  it("is brought up when opened again instead of being added twice", () => {
+    const area = createTaskArea();
+    area.getState().openNode("tsk_a", "N2");
+    area.getState().openTask("tsk_a");
+    area.getState().openNode("tsk_a", "N2");
+
+    expect(area.getState().tabs).toStrictEqual(["tsk_a", nodeTabId("tsk_a", "N2")]);
+    expect(area.getState().active).toBe(nodeTabId("tsk_a", "N2"));
+  });
+
+  it("closes with its task, and closing it alone goes back to its task", () => {
+    const area = createTaskArea();
+    area.getState().openNode("tsk_a", "N2");
+    area.getState().openNode("tsk_a", "N1");
+    area.getState().closeTask(nodeTabId("tsk_a", "N1"));
+    expect(area.getState()).toMatchObject({ tabs: ["tsk_a", nodeTabId("tsk_a", "N2")], active: "tsk_a" });
+
+    area.getState().activate(nodeTabId("tsk_a", "N2"));
+    area.getState().closeTask("tsk_a");
+    expect(area.getState()).toMatchObject({ tabs: [], active: "list" });
+  });
+
+  it("keeps the tab on top when a tab behind it closes", () => {
+    const area = createTaskArea();
+    area.getState().openNode("tsk_a", "N2");
+    area.getState().openTask("tsk_b");
+    area.getState().closeTask("tsk_a");
+
+    expect(area.getState()).toMatchObject({ tabs: ["tsk_b"], active: "tsk_b" });
+    expect(nodeTabId("tsk_a", "N2")).toBe("tsk_a#N2");
+  });
+});
+
+describe("the id of a node tab", () => {
+  it("carries the task and the node, and only a node tab parses", () => {
+    expect(parseNodeTab(nodeTabId("tsk_a", "N2"))).toStrictEqual({ taskId: "tsk_a", node: "N2" });
+    expect(parseNodeTab("tsk_a")).toBeNull();
+    expect(parseNodeTab("list")).toBeNull();
   });
 });

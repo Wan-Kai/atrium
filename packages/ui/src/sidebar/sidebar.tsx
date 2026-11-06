@@ -48,7 +48,7 @@ import {
 import { type ArchiveToast, ArchiveToasts, pushToast } from "./archive-toasts";
 import { MORE_ROW } from "./more-row";
 import { RenameField } from "./rename-field";
-import { INBOX_SHOWN, type RowStatus, inboxOf, sessionStatus, topStatus } from "./status";
+import { INBOX_SHOWN, type InboxEntry, type RowStatus, inboxOf, sessionStatus, topStatus } from "./status";
 import { StatusIcon } from "./status-icon";
 
 /** How many chats the sidebar lists before "显示全部 N 个" (SPEC-0001, "对话"). */
@@ -389,7 +389,7 @@ export function Sidebar({
               </>
             )}
           </div>
-          <Inbox client={client} index={index} now={now} showSession={showSession} />
+          <Inbox client={client} index={index} now={now} showSession={showSession} tasks={tasks} />
           <div className="flex shrink-0 items-center gap-1 px-3 pt-2 pb-3">
             <button
               type="button"
@@ -426,6 +426,16 @@ export function Sidebar({
 /** The "任务" entry under the search: whether the task area shows, how many tasks want the user, and how to show it. */
 export interface SidebarTasks {
   readonly open: boolean;
+  /** The tasks that want the user, for the inbox (SPEC-0006, "界面 · 等你处理"): one line each. */
+  readonly waiting: readonly {
+    readonly id: string;
+    readonly title: string;
+    readonly words: string;
+    readonly at: number;
+    readonly failed: boolean;
+  }[];
+  /** Opens a task's tab, or the conversation of the node that asks. */
+  readonly openTask: (taskId: string) => void;
   /** How many tasks want the user (SPEC-0006, "界面 · 入口"). */
   readonly attention: number;
   readonly show: () => void;
@@ -1287,6 +1297,19 @@ function SessionLine({
   );
 }
 
+/** The statuses of the inbox's lines, most urgent first. */
+const INBOX_ORDER: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error", "running"];
+
+/** One line of the inbox: a session that waits for you, or a task that does. */
+type InboxRow =
+  | ({ readonly kind: "session" } & InboxEntry)
+  | {
+      readonly kind: "task";
+      readonly status: "asking" | "error";
+      readonly at: number;
+      readonly task: SidebarTasks["waiting"][number];
+    };
+
 /**
  * The inbox: a card at the bottom of the sidebar with the sessions waiting for the user, across
  * every project and chat.
@@ -1311,16 +1334,28 @@ function Inbox({
   index,
   now,
   showSession,
+  tasks,
 }: {
   readonly client: AtriumClient;
   readonly index: IndexView;
   readonly now: number;
   readonly showSession: (session: SessionSummary) => void;
+  readonly tasks: SidebarTasks | undefined;
 }) {
   const [open, setOpen] = useState(() => localStorage.getItem(INBOX_OPEN_KEY) === "true");
   const [expanded, setExpanded] = useState(false);
   const leave = use(LeavePage);
-  const entries = inboxOf(index.sessions);
+  const sessions = inboxOf(index.sessions);
+  // A task that wants you stands among the sessions, as a question (or an error when it failed), by the same order.
+  const entries: readonly InboxRow[] = [
+    ...sessions.map((entry): InboxRow => ({ kind: "session", ...entry })),
+    ...(tasks?.waiting ?? []).map((task): InboxRow => ({
+      kind: "task",
+      status: task.failed ? "error" : "asking",
+      at: task.at,
+      task,
+    })),
+  ].toSorted((a, b) => INBOX_ORDER.indexOf(a.status) - INBOX_ORDER.indexOf(b.status) || b.at - a.at);
   if (!index.preferences.inbox || entries.length === 0) return null;
   const shown = expanded ? entries : entries.slice(0, INBOX_SHOWN);
   const active = activeOf(index);
@@ -1338,23 +1373,45 @@ function Inbox({
         duration={PROJECT_FOLD_MS}
         className="flex max-h-[228px] flex-col overflow-y-auto"
       >
-        {shown.map(({ session, status, at }) => (
-          <SessionLine
-            key={session.sessionId}
-            index={index}
-            session={session}
-            when={timeAgo(at, now)}
-            status={status}
-            current={index.layout.container === session.containerId && active === session.sessionId}
-            testId="inbox-row"
-            onOpen={() => {
-              leave();
-              showSession(session);
-              // Fire and forget: opening shows the session or its failure there.
-              void client.openSession(session.sessionId).catch(() => undefined);
-            }}
-          />
-        ))}
+        {shown.map((entry) =>
+          entry.kind === "task" ? (
+            <button
+              key={entry.task.id}
+              type="button"
+              data-testid="inbox-task-row"
+              data-fold-row
+              onClick={() => tasks?.openTask(entry.task.id)}
+              className={`${ROW} h-auto w-full items-start py-[7px] text-left`}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{entry.task.title === "" ? "任务" : entry.task.title}</span>
+                <span className="block truncate text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+                  {entry.task.words}
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2.5 pt-px text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+                {timeAgo(entry.at, now)}
+                <StatusIcon status={entry.status} />
+              </span>
+            </button>
+          ) : (
+            <SessionLine
+              key={entry.session.sessionId}
+              index={index}
+              session={entry.session}
+              when={timeAgo(entry.at, now)}
+              status={entry.status}
+              current={index.layout.container === entry.session.containerId && active === entry.session.sessionId}
+              testId="inbox-row"
+              onOpen={() => {
+                leave();
+                showSession(entry.session);
+                // Fire and forget: opening shows the session or its failure there.
+                void client.openSession(entry.session.sessionId).catch(() => undefined);
+              }}
+            />
+          ),
+        )}
         {entries.length > INBOX_SHOWN ? (
           <button type="button" data-fold-row onClick={() => setExpanded(!expanded)} className={MORE_ROW}>
             {expanded ? "收起" : `还有 ${entries.length - INBOX_SHOWN} 条`}

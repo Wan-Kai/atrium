@@ -1,4 +1,4 @@
-import type { Control, DiffStat, Interaction, InteractionAnswer, QuestionReply } from "@atrium/protocol";
+import type { Control, DiffStat, Interaction, InteractionAnswer, QuestionReply, Verdict } from "@atrium/protocol";
 import {
   ArrowBendDownRight,
   ArrowTurnBack,
@@ -10,13 +10,17 @@ import {
   WarningCircle,
   X,
 } from "../design/icons";
-import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { reducedMotion } from "../design/dots";
 import { useFloatingLayer } from "../design/floating-layer";
 import { DiffCounts } from "../files/diff-parts";
 import { QUEUE_EVENT_WORDS } from "./agent-words";
+import { CardTabs } from "./card-shell";
 import { QuestionCard } from "./question-card";
 import { forgetDrafts } from "./question-state";
+import { ReviewCard } from "./review-card";
+import { ReviewEnvContext } from "./review-env";
+import { forgetReviewDrafts } from "./review-state";
 
 /** What the run control UI can ask of the session. */
 export interface RunActions {
@@ -30,6 +34,11 @@ export interface RunActions {
   readonly answer: (interactionId: string, answer: InteractionAnswer) => void;
   /** Answers, or skips, the agent's questions (SPEC-0003); whether it went. */
   readonly answerQuestion: (questionId: string, reply: QuestionReply) => Promise<boolean>;
+  /**
+   * Decides a review (ADR-0017); resolves with the words for what went wrong, or `null` when the verdict went.
+   * Without it a review's buttons are inert.
+   */
+  readonly answerReview?: (reviewId: string, verdict: Verdict) => Promise<string | null>;
   readonly retry: () => void;
 }
 
@@ -826,12 +835,36 @@ export function ControlCards({
   readonly actions: RunActions;
 }) {
   const asked = control.question?.id ?? null;
+  const look = use(ReviewEnvContext);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const reviewIds = control.reviews.map((review) => review.id).join("\n");
   // A draft goes once other questions are asked; questions away for a moment, as a direct reply pi
   // refused or a view loading, keep theirs.
   useEffect(() => {
     if (asked !== null) forgetDrafts(sessionId, asked);
   }, [sessionId, asked]);
-  if (control.interactions.length === 0 && control.failure === null && control.question === null) return null;
+  useEffect(() => {
+    forgetReviewDrafts(sessionId, reviewIds === "" ? [] : reviewIds.split("\n"));
+  }, [sessionId, reviewIds]);
+  if (
+    control.interactions.length === 0 &&
+    control.failure === null &&
+    control.question === null &&
+    control.reviews.length === 0
+  )
+    return null;
+  // The cards that judge or ask, in the order they came: one open, the others capsules above it (SPEC-0006).
+  const cards = [
+    ...(control.question === null
+      ? []
+      : [{ key: `question:${control.question.id}`, label: "agent 在问你", at: control.question.askedAt }]),
+    ...control.reviews.map((review) => ({
+      key: `review:${review.id}`,
+      label: look.subject(review),
+      at: review.openedAt,
+    })),
+  ].toSorted((a, b) => a.at - b.at);
+  const open = cards.find((card) => card.key === chosen)?.key ?? cards[0]?.key ?? "";
   return (
     <div>
       {control.interactions.map((interaction) => (
@@ -842,7 +875,8 @@ export function ControlCards({
         />
       ))}
       {control.failure === null ? null : <FailureCard attempts={control.failure.attempts} onRetry={actions.retry} />}
-      {control.question === null ? null : (
+      <CardTabs cards={cards} open={open} onPick={setChosen} />
+      {control.question === null || open !== `question:${control.question.id}` ? null : (
         <QuestionCard
           key={control.question.id}
           sessionId={sessionId}
@@ -851,6 +885,20 @@ export function ControlCards({
             control.question === null ? Promise.resolve(false) : actions.answerQuestion(control.question.id, reply)
           }
         />
+      )}
+      {control.reviews.map((review) =>
+        open !== `review:${review.id}` ? null : (
+          <ReviewCard
+            key={review.id}
+            sessionId={sessionId}
+            review={review}
+            {...(actions.answerReview === undefined
+              ? {}
+              : {
+                  onAnswer: (verdict: Verdict) => actions.answerReview?.(review.id, verdict) ?? Promise.resolve(null),
+                })}
+          />
+        ),
       )}
     </div>
   );

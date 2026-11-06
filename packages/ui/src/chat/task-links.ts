@@ -15,6 +15,10 @@ export interface TaskLinks {
   readonly openTask: (taskId: string) => void;
   /** The name of a node of the task the conversation belongs to, by the node's id. */
   readonly nodeName: (node: string) => string | undefined;
+  /** Opens a started node's conversation as a tab; absent where there is no task to open it in. */
+  readonly openNode?: (node: string) => void;
+  /** Whether a node has a conversation to open: it has started. */
+  readonly canOpenNode?: (node: string) => boolean;
 }
 
 /** The links a conversation has when nothing says otherwise: no names, nothing to open. */

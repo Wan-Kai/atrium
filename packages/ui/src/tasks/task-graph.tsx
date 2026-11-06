@@ -7,6 +7,9 @@ import { NodeStateIcon } from "./task-icons";
 import { FAILURE_WORDS, MERGE_BLOCK_WORDS, NODE_STATE_WORDS, WAITING_WORDS, modelWords, roleWords } from "./task-words";
 
 /** How far the graph shrinks to fit its pane before the pane scrolls instead. */
+/** How a node stands out after the graph changed: added, or changed (SPEC-0006, "界面 · 任务标签"). */
+export type NodeMark = "new" | "changed";
+
 const MIN_SCALE = 0.7;
 
 /** The states the legend under the graph names, in order (设计稿第 5 屏). */
@@ -53,7 +56,9 @@ function GraphNode({
   taskModel,
   selected,
   stat,
+  mark,
   onSelect,
+  onOpenNode,
 }: {
   readonly node: TaskNode;
   readonly x: number;
@@ -61,7 +66,10 @@ function GraphNode({
   readonly taskModel: TaskModel;
   readonly selected: boolean;
   readonly stat: DiffStat | null;
+  /** Whether the graph's last change added or changed this node (SPEC-0006, "T8b 定下的细节"). */
+  readonly mark: NodeMark | null;
   readonly onSelect: () => void;
+  readonly onOpenNode: ((node: string) => void) | undefined;
 }) {
   const cardId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -77,6 +85,7 @@ function GraphNode({
         data-testid="graph-node"
         data-node={node.id}
         data-state={node.state}
+        data-mark={mark ?? undefined}
         aria-pressed={selected}
         aria-describedby={cardId}
         onClick={(event) => {
@@ -85,8 +94,16 @@ function GraphNode({
         }}
         className={`flex h-full w-full flex-col justify-center gap-0.5 rounded-[var(--r-md)] bg-[var(--surface-1)] px-2.5 text-left shadow-[var(--chip-shadow)] ${
           selected ? "!shadow-[0_0_0_1.5px_var(--tint)]" : "hover:shadow-[0_0_0_0.5px_var(--line-strong)]"
-        } ${node.state === "pending" ? "opacity-80" : ""}`}
+        } ${node.state === "pending" ? "opacity-80" : ""} ${mark === null ? "" : "outline-[1.5px] outline-offset-[2px] outline-[var(--tint)] outline-dashed"}`}
       >
+        {mark === "new" ? (
+          <span
+            data-testid="graph-node-new"
+            className="absolute -top-2 -right-1.5 rounded-[var(--r-sm)] bg-[var(--tint)] px-1.5 text-[length:var(--fs-xs)] leading-[16px] font-medium text-[var(--on-tint)]"
+          >
+            新
+          </span>
+        ) : null}
         <span className="flex min-w-0 items-center gap-1.5">
           <NodeStateIcon state={node.state} size={13} />
           <span className="flex-none text-[length:var(--fs-xs)] text-[var(--text-dim)] tabular-nums">{node.id}</span>
@@ -127,6 +144,16 @@ function GraphNode({
         {standing === null ? null : (
           <p className="mt-1.5 text-[length:var(--fs-sm)] text-[var(--attn-text)]">{standing}</p>
         )}
+        {onOpenNode === undefined || node.sessionId === null ? null : (
+          <button
+            type="button"
+            data-testid="graph-node-open"
+            onClick={() => onOpenNode(node.id)}
+            className="mt-1.5 text-[length:var(--fs-sm)] text-[var(--tint)] hover:underline"
+          >
+            打开节点对话 ›
+          </button>
+        )}
         {node.kind === "human" && stat !== null ? (
           <p className="mt-1.5 text-[length:var(--fs-sm)] text-[var(--text-muted)]" data-testid="graph-node-stat">
             改动 <span className="text-[var(--ok-text)]">+{stat.added}</span>{" "}
@@ -157,12 +184,18 @@ export function TaskGraph({
   task,
   selected,
   stat,
+  marks,
   onSelect,
+  onOpenNode,
 }: {
-  readonly task: TaskView;
+  readonly task: Pick<TaskView, "nodes" | "edges" | "graphVersion" | "model">;
   readonly selected: string | null;
   readonly stat: DiffStat | null;
+  /** The nodes the graph's last change added or changed. */
+  readonly marks: ReadonlyMap<string, NodeMark>;
   readonly onSelect: (node: string | null) => void;
+  /** Opens a node's conversation as a tab; without it the hover card has no link. */
+  readonly onOpenNode?: (node: string) => void;
 }) {
   const arrow = useId();
   // Twenty nodes lay out in microseconds, so each push of the task lays the graph out again.
@@ -272,7 +305,9 @@ export function TaskGraph({
                   taskModel={task.model}
                   selected={selected === node.id}
                   stat={stat}
+                  mark={marks.get(node.id) ?? null}
                   onSelect={() => onSelect(node.id)}
+                  onOpenNode={onOpenNode}
                 />
               );
             })}

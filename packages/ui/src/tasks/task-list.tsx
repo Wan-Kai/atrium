@@ -1,9 +1,12 @@
 import type { AtriumClient } from "@atrium/client";
 import type { Project, TaskSummary, Workspace } from "@atrium/protocol";
-import { useReducer, useEffect } from "react";
-import { type StoreApi } from "zustand/vanilla";
+import { useEffect, useMemo, useReducer, useState } from "react";
+import { type StoreApi, createStore } from "zustand/vanilla";
 import { useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
+import { QuestionCard } from "../chat/question-card";
+import { ReviewCard } from "../chat/review-card";
+import { ReviewEnvContext } from "../chat/review-env";
 import { CaretDown, CaretRight, CheckCircle, Folder, Lightning } from "../design/icons";
 import { RunningDots } from "../design/running-dots";
 import { workspaceName } from "../sidebar/names";
@@ -11,6 +14,7 @@ import { useClock } from "../state/clock";
 import type { TaskArea } from "../state/task-area";
 import { NodeStateIcon, TaskKindIcon } from "./task-icons";
 import { NO_PROJECT, type TaskGroup, type TaskGroupKey, arrangeTasks } from "./task-list-model";
+import { describeTaskCommandError, taskReviewEnv } from "./review-words";
 import { agoWords, currentWords, statusWords } from "./task-words";
 
 /** How the groups are headed (设计稿第 2 屏). */
@@ -51,68 +55,233 @@ function placeWords(task: TaskSummary, projects: readonly Project[], workspaces:
 }
 
 /**
- * One row of the list.
+ * What a row opened shows: the question, the reviews, or only "打开任务" (设计稿第 2 屏).
+ *
+ * @remarks
+ * SPEC-0006 ("界面 · 任务列表"): one row is open at a time, and it opens the task on the host (`open_task`), whose
+ * pushes give what waits for you. A node's question is asked in the node's conversation, so it is watched by that
+ * session and answered through `answer_question`, as in the node's tab; a review (graph change, human, archive) is
+ * the same card the task conversation shows, answered through `answer_review` on the task conversation's id, which
+ * the host checks as the business commands do. A failed node can be run again here. Confirming the first graph
+ * and accepting have the buttons of the task bar, so they only offer "打开任务".
+ *
+ * @sideEffects Sends `open_task` and, for a node asking, `watch`; the cards send their answers and "重跑这个节点"
+ * sends `rerun_node`.
+ * @param props - The client, the row's task, and how to open the task, a node's conversation, and the changes.
+ * @returns The panel.
+ */
+function RowPanel({
+  client,
+  task,
+  onOpen,
+  onOpenNode,
+  onOpenChanges,
+}: {
+  readonly client: AtriumClient;
+  readonly task: TaskSummary;
+  readonly onOpen: () => void;
+  readonly onOpenNode: (taskId: string, node: string) => void;
+  readonly onOpenChanges: (workspaceId: string) => void;
+}) {
+  const state = useStore(client.task(task.id));
+  const view = state.task?.id === task.id ? state.task : null;
+  const [failure, setFailure] = useState<string | null>(null);
+  const [, redraw] = useReducer((tick: number) => tick + 1, 0);
+  const asking = view?.nodes.find((node) => node.state === "waiting" && node.waitingFor === "question") ?? null;
+  const askingSession = asking?.sessionId ?? null;
+  const failed = view?.nodes.find((node) => node.state === "failed") ?? null;
+  useEffect(() => {
+    // Fire and forget: the host's push lands in the task's state; a lost connection asks again when back.
+    client.openTask(task.id).catch(() => undefined);
+  }, [client, task.id]);
+  useEffect(() => {
+    if (askingSession === null) return;
+    // Fire and forget: the node's snapshot lands in its session's view, which `watch` makes; draw again to read it.
+    client
+      .watch([askingSession])
+      .then(redraw)
+      .catch(() => undefined);
+  }, [client, askingSession]);
+  const env = useMemo(
+    () =>
+      taskReviewEnv({
+        nodeName: (node) =>
+          view?.nodes.find((one) => one.id === node)?.name ?? view?.pending?.nodes.find((one) => one.id === node)?.name,
+        openChanges: onOpenChanges,
+        showOnGraph: onOpen,
+      }),
+    [view, onOpenChanges, onOpen],
+  );
+  const asked = useStore(
+    askingSession === null ? NO_SESSION : (client.session(askingSession) ?? NO_SESSION),
+    (session) => session.control.question,
+  );
+  const open = (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="atrium-press inline-flex h-7 items-center rounded-[var(--r-pill)] px-3 text-[length:var(--fs-meta)] text-[var(--tint)] hover:bg-[var(--hover)]"
+    >
+      打开任务
+    </button>
+  );
+  if (view === null)
+    return (
+      <div data-testid="task-row-panel" className="flex items-center gap-2 px-9 pb-2">
+        <p role="status" className="text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+          {state.status === "failed" || state.status === "missing" ? "没能读到这个任务" : "正在读取…"}
+        </p>
+        {open}
+      </div>
+    );
+  return (
+    <div data-testid="task-row-panel" className="px-9 pb-2">
+      <ReviewEnvContext value={env}>
+        {view.reviews.map((review) => (
+          <ReviewCard
+            key={review.id}
+            sessionId={view.taskSessionId}
+            review={review}
+            onAnswer={(verdict) =>
+              client.answerReview(view.taskSessionId, review.id, verdict).then(
+                () => null,
+                (error: unknown) => describeTaskCommandError(error),
+              )
+            }
+          />
+        ))}
+      </ReviewEnvContext>
+      {asking === null || askingSession === null || asked === null ? null : (
+        <>
+          <QuestionCard
+            sessionId={askingSession}
+            question={asked}
+            onAnswer={(reply) =>
+              client.answerQuestion(askingSession, asked.id, reply).then(
+                () => true,
+                () => false,
+              )
+            }
+          />
+          <button
+            type="button"
+            onClick={() => onOpenNode(view.id, asking.id)}
+            className="mb-1 text-[length:var(--fs-sm)] text-[var(--tint)] hover:underline"
+          >
+            到 {asking.id} 的对话里讨论 ›
+          </button>
+        </>
+      )}
+      {failure === null ? null : (
+        <p role="alert" className="mb-1 text-[length:var(--fs-sm)] text-[var(--danger)]">
+          {failure}
+        </p>
+      )}
+      <div className="mt-1 flex items-center gap-2">
+        {failed === null || view.followed ? null : (
+          <button
+            type="button"
+            onClick={() => {
+              setFailure(null);
+              // Fire and forget: the task's push shows the node running; a failure is worded below.
+              client
+                .rerunNode(view.id, failed.id)
+                .catch((error: unknown) => setFailure(describeTaskCommandError(error)));
+            }}
+            className="atrium-press inline-flex h-7 items-center rounded-[var(--r-pill)] px-3 text-[length:var(--fs-meta)] text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--hover)]"
+          >
+            重跑这个节点
+          </button>
+        )}
+        {open}
+      </div>
+    </div>
+  );
+}
+
+/** What a row's question reads while no node is asking: a session that has nothing. */
+const NO_SESSION = createStore<{ readonly control: { readonly question: null } }>(() => ({
+  control: { question: null },
+}));
+
+/**
+ * One row of the list, and what opens under it.
  *
  * @remarks
  * Name and place on the left, then the node the task is at, when it last did something, and what it waits for or how
- * it goes. Pressing it opens the task's tab. A row's answer cards (a question, a graph change) are T8's; this one only
- * shows the state and offers "打开任务". A finished task is dimmer.
+ * it goes. Pressing the row opens it (one at a time, SPEC-0006 "界面 · 任务列表") and a second press folds it; the
+ * way into the task is "打开任务" inside. A finished task is dimmer.
  *
- * @sideEffects none; the callback opens the task.
- * @param props - The row, the place line, the time now, and what opening does.
+ * @sideEffects none; the callbacks are the caller's.
+ * @param props - The task, the place line, the time now, whether it is open, and what to do.
  * @returns The row.
  */
 function TaskRow({
+  client,
   task,
   place,
   now,
+  expanded,
+  onToggle,
   onOpen,
+  onOpenNode,
+  onOpenChanges,
 }: {
+  readonly client: AtriumClient;
   readonly task: TaskSummary;
   readonly place: string;
   readonly now: number;
+  readonly expanded: boolean;
+  readonly onToggle: () => void;
   readonly onOpen: () => void;
+  readonly onOpenNode: (taskId: string, node: string) => void;
+  readonly onOpenChanges: (workspaceId: string) => void;
 }) {
   const status = statusWords(task);
   const done = task.status === "done" || task.status === "cancelled";
   return (
-    <button
-      type="button"
-      data-testid="task-row"
-      data-task={task.id}
-      data-status={task.status}
-      data-attention={task.attention ?? ""}
-      onClick={onOpen}
-      className={`group grid w-full grid-cols-[20px_minmax(0,1fr)_minmax(0,150px)_84px_minmax(0,170px)_90px] items-center gap-x-3 rounded-[var(--r-md)] px-2.5 py-2 text-left hover:bg-[var(--hover)] ${done ? "text-[var(--text-dim)]" : ""}`}
-    >
-      <TaskKindIcon scheduled={task.scheduled} />
-      <span className="min-w-0">
-        <span className={`block truncate text-[length:var(--fs-meta)] ${done ? "" : "text-[var(--text)]"}`}>
-          {task.name}
-        </span>
-        <span className="block truncate text-[length:var(--fs-sm)] text-[var(--text-dim)]">{place}</span>
-      </span>
-      <span className="truncate text-[length:var(--fs-meta)] text-[var(--text-muted)]">{currentWords(task)}</span>
-      <span className="text-right text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums">
-        {agoWords(task.activeAt, now)}
-      </span>
-      <span className={`flex min-w-0 items-center gap-1.5 text-[length:var(--fs-meta)] ${TONES[status.tone]}`}>
-        {status.tone === "run" ? (
-          <span className="inline-flex size-4 shrink-0 items-center justify-center text-[var(--tint)]">
-            <RunningDots size={14} />
+    <div data-testid="task-entry" data-expanded={expanded}>
+      <button
+        type="button"
+        data-testid="task-row"
+        data-task={task.id}
+        data-status={task.status}
+        data-attention={task.attention ?? ""}
+        aria-expanded={expanded}
+        onClick={onToggle}
+        className={`group grid w-full grid-cols-[20px_minmax(0,1fr)_minmax(0,150px)_84px_minmax(0,170px)_24px] items-center gap-x-3 rounded-[var(--r-md)] px-2.5 py-2 text-left hover:bg-[var(--hover)] ${expanded ? "bg-[var(--hover)]" : ""} ${done ? "text-[var(--text-dim)]" : ""}`}
+      >
+        <TaskKindIcon scheduled={task.scheduled} />
+        <span className="min-w-0">
+          <span className={`block truncate text-[length:var(--fs-meta)] ${done ? "" : "text-[var(--text)]"}`}>
+            {task.name}
           </span>
-        ) : null}
-        {status.tone === "attn" ? <NodeStateIcon state="waiting" size={14} /> : null}
-        {status.tone === "danger" ? <NodeStateIcon state="failed" size={14} /> : null}
-        <span className="truncate" data-testid="task-status">
-          {status.text}
+          <span className="block truncate text-[length:var(--fs-sm)] text-[var(--text-dim)]">{place}</span>
         </span>
-      </span>
-      <span className="flex items-center justify-end gap-0.5 text-[length:var(--fs-sm)] text-[var(--tint)]">
-        <span className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100">打开任务</span>
-        <CaretRight size={13} className="text-[var(--text-dim)]" />
-      </span>
-    </button>
+        <span className="truncate text-[length:var(--fs-meta)] text-[var(--text-muted)]">{currentWords(task)}</span>
+        <span className="text-right text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums">
+          {agoWords(task.activeAt, now)}
+        </span>
+        <span className={`flex min-w-0 items-center gap-1.5 text-[length:var(--fs-meta)] ${TONES[status.tone]}`}>
+          {status.tone === "run" ? (
+            <span className="inline-flex size-4 shrink-0 items-center justify-center text-[var(--tint)]">
+              <RunningDots size={14} />
+            </span>
+          ) : null}
+          {status.tone === "attn" ? <NodeStateIcon state="waiting" size={14} /> : null}
+          {status.tone === "danger" ? <NodeStateIcon state="failed" size={14} /> : null}
+          <span className="truncate" data-testid="task-status">
+            {status.text}
+          </span>
+        </span>
+        <span className="flex items-center justify-end">
+          <CaretRight size={13} className={`text-[var(--text-dim)] ${expanded ? "rotate-90" : ""}`} />
+        </span>
+      </button>
+      {expanded ? (
+        <RowPanel client={client} task={task} onOpen={onOpen} onOpenNode={onOpenNode} onOpenChanges={onOpenChanges} />
+      ) : null}
+    </div>
   );
 }
 
@@ -155,11 +324,14 @@ export function TaskList({
   client,
   area,
   onOpen,
+  onOpenChanges,
 }: {
   readonly client: AtriumClient;
   readonly area: StoreApi<TaskArea>;
   readonly onOpen: (taskId: string) => void;
+  readonly onOpenChanges: (workspaceId: string) => void;
 }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
   const tasks = useStore(client.tasks);
   const index = useStore(client.index);
   const filter = useStore(area, (state) => state.filter);
@@ -243,10 +415,15 @@ export function TaskList({
                 {group.tasks.map((task) => (
                   <TaskRow
                     key={task.id}
+                    client={client}
                     task={task}
                     place={placeWords(task, index.projects, index.workspaces)}
                     now={now}
+                    expanded={expanded === task.id}
+                    onToggle={() => setExpanded(expanded === task.id ? null : task.id)}
                     onOpen={() => onOpen(task.id)}
+                    onOpenNode={(taskId, node) => area.getState().openNode(taskId, node)}
+                    onOpenChanges={onOpenChanges}
                   />
                 ))}
                 {group.key === "done" && group.foldable > 0 ? (
