@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-11-05：学习模式和对话里的交互演示设计定稿，SPEC-0007、SPEC-0008 进入评审，在 `atrium/discuss-study-mode`，未合并、未推送。** 原型三份（`study-mode-prototype.html` 入口与主页、`study-mode-flow-prototype.html` 完整流程、`study-mode-visuals-prototype.html` 展示形式），用户选入口丁、步骤条 C、演示内联；调研 [inline-visuals.md](research/inline-visuals.md)；选定的视觉写进 design-language。里程碑排成 ML1～ML5 和 MV1（见"阶段 · 学习模式"），还没开工。
+
 **2026-11-05：标签栏的"在终端中继续"改成"在终端中打开"，并按要求把整套"交给终端"删掉。用户验收通过并要求合回 `main`，已本地合并（功能提交 `c387b73`，合并 `e5c9e04`），未推送、未装包。在 `atrium/brave-koala`（worktree `atrium.worktrees/brave-koala`），当前会话还以它为工作目录，保留不删。** 用户定：只开终端，不再交接（不停 pi、不写索引、不复制也不运行命令）；会话属于工作区时开在工作区目录，对话开在 `~`；cmux 装着就在它当前窗口新开一个工作区并切到 cmux，没跑就先启动，没装就用系统"终端"。桌面壳（`apps/desktop/src/main/open-terminal.ts`）按固定顺序找 cmux 的命令，探活失败就 `open -b com.cmuxterm.app` 启动并最多等 15 秒，然后 `new-workspace --window <当前窗口> --cwd <目录> --focus true`；失败在菜单旁显示"打开终端失败"。这条路径只由用户点菜单触发，不向终端输入文字、不读屏、不关窗口，cmux 的凭据仍由它自己的 CLI 读。交接机制（`hand_off` / `take_back`、`SessionSummary.handedOff`、`session_handed_off`、子对话的 `handed_off` 状态和 `agent_handed_off`、"已在终端中继续"面板）随之删掉，协议 **33**；索引里旧的 `handedOff: true` 不再读，这样的会话下次打开时照常在 Atrium 里起 pi。文档先改：SPEC-0001、SPEC-0002、SPEC-0005"协议改动 7"、domain-model"已决定 16"、security.md、[外部终端最小接入](architecture/external-terminal.md#标签栏的在终端中打开2026-11-05)。验证：`pnpm check`、unit 4346、宿主 243、完整 UI 单 worker 1180、Swift 473、`pnpm protocol:swift` 重新生成通过；破坏检查 10/10 检出；`remote-policy.ts` 定向变异 98.75%（唯一存活是没改的既有分支）。`agent-relay.ts` 的定向变异 2140 个变异跑 40 分钟只到 22% 就停了，没有结论；`pnpm test:pi` 仍是既有的 52 项缺 pi-1.5.0 夹具；没跑 Electron 端到端、泄漏、打包和模拟器测试；合并前把 `main` 的 `7aaefe0` 合进分支后重跑 `pnpm check`、unit 4346、Swift 473 通过。真实 cmux 的开窗由用户在实际使用里验证。
 
 **2026-11-05：本机换装固化成 `scripts/install-app.sh`，并已用它装过一次 `main` 的包（`5969056`）。** 起因是当天两次事故：从 Atrium 里的 pi 用 `nohup` 起的替换脚本随 Atrium 退出被一起杀掉，`/Applications/Atrium.app` 没换成；改用 `launchctl submit` 后那个作业常驻、进程退出就重启，Atrium 被连装十几次（同一天 16:26 add-google-logo 的旁路脚本 `/tmp/atrium-replace.log` 每 50 秒一轮，是同一个坑）。现在：脚本写一个 `RunAtLoad`、不设 `KeepAlive` 的一次性 LaunchAgent 并 `bootstrap`，作业先删自己的 plist、等 12 秒（用户定，让发起换装的会话把回复说完，试过 45 秒）、退出 Atrium（超时 `TERM`/`KILL`，仍不走就放弃）、`tccutil reset`、旧包 `mv` 成 `Atrium.app.bak-<时间戳>`、`ditto`、去隔离、验签、`open`，拷贝失败把备份换回去；`install-app.last` 兜住 10 分钟内被意外重跑。跑通一次：`runs = 1`、作业跑完自行卸载、装进的是 `Apple Development: wanktaoo@163.com` 证书签名的包（requirement 是 bundle id 加证书，不是 cdhash）。新增 [install-app.md](install-app.md)，`AGENTS.md` 的常用命令、development.md 第 7 步、acceptance.md 的"装上试用"改为链过去。这个脚本是自用的运维脚本，没有测试，也没有进追踪表。
@@ -622,6 +624,51 @@ MP0 互通实验 ──┬── MP1 Swift 工程基础 ──┐
 - **范围**：看重连日志、耗电、流量、relay 的资源；按问题修；补 App 的安装和续签说明。
 - **完成标准**：用户验收；`self-use.md` 补手机端一节；三方审查后修完。
 
+#### 学习模式（[SPEC-0008](specs/0008-study-mode.md)）与对话里的交互演示（[SPEC-0007](specs/0007-inline-visuals.md)）
+
+2026-11-05 定稿设计、两份 SPEC 进入评审。学习算日常使用（"用真实的日常任务驱动"）。顺序：ML1 → ML2 → ML3 → ML4 → ML5；MV1 不依赖学习模式，可以在另一个 worktree 并行，但 ML4 要等它。协议版本按合并的先后顺延。
+
+##### ML1 方向容器与新建方向
+
+- **目标**：侧栏有"学习"，能从一句话建出一个方向、进入讨论会话。
+- **范围**：`SessionContainer` 加 Direction（`lrn_<目录名>`）；扫描 `~/Atrium/Learning/` 下一层带 `.atrium-study.json` 的目录、监听变化；`learning.json`（别名、置顶、上次打开）；`sessions.json` 的 `study` 字段；侧栏"学习"一行和状态汇总、学习首页（空状态和方向卡片的骨架）、新建方向页（只有输入框）；第一条消息后起名、建目录、写 AGENTS.md 模板、`lab/` 初始化 git、开讨论会话；方向主页标签（还没有步骤条，只有"讨论中"）；归档到 `Archive/` 和恢复（`study.restore_conflict`）。
+- **参考**：SPEC-0008"入口""方向是一种新容器""新建方向""方向目录"、design-language"侧栏""学习模式"、domain-model §1。
+- **完成标准**：SPEC-0008"验证"里新建方向、归档与恢复两条有测试；pi 在方向目录里读到 AGENTS.md、不需要信任有 pi 契约测试；扫描和监听的泄漏测试通过；domain-model 写进 Direction。
+
+##### ML2 进度、步骤条与下一步
+
+- **目标**：讨论能排出阶梯，主页和每个学习会话都看得到这一级走到哪、下一步是什么。
+- **范围**：扩展的隐藏命令 `/atrium-study` 和各用途的提示词（先照推文的 6 段写）、`study_*` 工具（按用途给）；宿主校验后写 `.atrium-study.json`（2～6 级、坏文件不覆盖、保留不认识的字段）；下一步的规则表；常驻步骤条（C）；方向主页的完整内容；手动标完成和撤回（`study.mark`）。
+- **参考**：SPEC-0008"讨论""一级 = 一串步骤""常驻步骤条""下一步怎么算""接口与数据"、ADR-0013。
+- **完成标准**：每个 `study_*` 工具、规则表的每一行、手动标记各有测试；破坏检查覆盖级数上下限和规则表；`.atrium-study.json` 的读写加进变异分组且 ≥ 80%；用真实模型走一次讨论，排出阶梯。
+
+##### ML3 学习循环
+
+- **目标**：一级从第一节课走到升级。
+- **范围**：上课 → 测验（上课会话的子对话，带上下文）→ 费曼的串联和漏洞；速查表、过关项目、综合测验；升级确认框、把这一级的会话一起归档、没补的漏洞带到下一级、排计划会话。
+- **参考**：SPEC-0008"会话的用途""升级"、SPEC-0002（子对话）、SPEC-0003（提问卡片）。
+- **完成标准**：SPEC-0008"验证"里上课到升级的各条有测试；端到端测试用 faux 模型走完一级；归档连带的泄漏测试通过。
+
+##### MV1 对话里的交互演示
+
+- **目标**：所有会话里，agent 都能在回复中放一个可交互的演示，你在演示里点的回答直接回到对话。
+- **范围**：`atrium-visual:` 协议、令牌、外壳（颜色变量、常用 Hugeicons、高度上报、`window.atrium.sendMessage`）；CSP 和单独的 session，按站点只放行写死版本的 CDN 路径；消息流认 `visual` 代码块、`visual.resolve` / `visual.changed` / `visual.sendMessage`；来自演示的消息和来源标记；离开视口卸载和截图；焦点在演示里时按键归演示；手机端占位卡片；扩展系统提示里的演示说明。先改 security.md（原始 HTML 不执行的例外、外部地址表加 CDN）并跑 `pnpm boundary` 登记。
+- **参考**：SPEC-0007、[inline-visuals.md](research/inline-visuals.md)、plugin-model.md"沙箱视图由核心提供"、design-language"消息流 · 交互演示"。
+- **完成标准**：SPEC-0007"验证"的各条有测试（沙箱逃逸、版本拦截、回传要刚点过、限速）；演示卸载和重新加载的泄漏测试通过；协议和宿主的新模块加进变异分组且 ≥ 80%；三方审查（安全为重点）后修完。
+
+##### ML4 首页与演示接进学习
+
+- **目标**：学习首页的"继续"一键接着学；课上用得上演示。
+- **范围**：首页"继续"（上次打开的方向和它的下一步）、方向卡片的完整内容和点阵进度、已归档列表；学习方向的演示放 `visuals/`、AGENTS.md 里演示的两条规则、主页档案里列出演示。
+- **参考**：SPEC-0008"入口""演示"、design-language"学习模式"。
+- **完成标准**：界面测试和明暗截图对照原型；真实模型上一节带演示的课。
+
+##### ML5 自用
+
+- **目标**：自己学一个方向，至少走完一级。
+- **范围**：按问题修；调各用途的提示词；记下要不要改阶梯、间隔复习这些先没做的。
+- **完成标准**：用户验收；`self-use.md` 补学习模式一节。
+
 v0.1 不做：沙箱隔离、插件系统、会话树、agent 自扩展、对外分发的签名与公证（本机用的打包在 M1.11 做了）、空闲进程回收、编辑文件（M1.12 的文件区只读；外部改动的处理留到做编辑时设计）。
 
 成功标准：连续两周把 Atrium 当作日常编码的主力工具；至少有一次通过上下文检查器发现问题，并用 extension 修好。
@@ -634,7 +681,7 @@ v0.1 不做：沙箱隔离、插件系统、会话树、agent 自扩展、对外
 
 ### 3. 抽出插件接口（2026-10-23 暂缓）
 
-从 todo 中抽出"extension + 视图"的插件接口，再用第二个插件验证。第二个插件的候选是 HTML 设计稿（对话里渲染模型写的 HTML、一个文件持续改、元素标注、分享），它能检验 todo 测不出的内联挂载和沙箱视图，需求见 [plugin-model.md · 待做的插件：HTML 设计稿](architecture/plugin-model.md#待做的插件html-设计稿)。
+从 todo 中抽出"extension + 视图"的插件接口，再用第二个插件验证。HTML 设计稿用的沙箱视图会先在 MV1（SPEC-0007）做成核心组件。第二个插件的候选是 HTML 设计稿（对话里渲染模型写的 HTML、一个文件持续改、元素标注、分享），它能检验 todo 测不出的内联挂载和沙箱视图，需求见 [plugin-model.md · 待做的插件：HTML 设计稿](architecture/plugin-model.md#待做的插件html-设计稿)。
 
 ### 4. 深度特性
 
