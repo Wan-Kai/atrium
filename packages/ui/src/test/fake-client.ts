@@ -224,6 +224,8 @@ export interface FakeAnswers {
   readonly listDir?: (workspaceId: string, path: string) => Promise<CommandResult<"list_dir">>;
   /** A workspace file; `path_not_found` when left out. */
   readonly readFile?: (workspaceId: string, path: string) => Promise<CommandResult<"read_file">>;
+  /** A visual's address (SPEC-0007); `visual_missing` when left out. */
+  readonly resolveVisual?: (sessionId: string, path: string) => Promise<CommandResult<"resolve_visual">>;
   /** Reads ordinary pi configuration without recording its contents. */
   readonly readPiConfig?: (workspaceId: string | null, name: PiConfigName) => Promise<PiConfigFile>;
   /** Saves ordinary pi configuration without recording its contents. */
@@ -795,6 +797,17 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
         }
       );
     },
+    async resolveVisual(sessionId: string, path: string) {
+      calls.push(`resolveVisual ${sessionId} ${path}`);
+      const resolved = await answers.resolveVisual?.(sessionId, path);
+      if (resolved === undefined) throw new CommandError("visual_missing");
+      return resolved;
+    },
+    async sendVisualMessage(sessionId: string, path: string, text: string) {
+      calls.push(`sendVisualMessage ${sessionId} ${path} ${text}`);
+      return { disposition: "started" };
+    },
+    onVisualChanged: () => () => undefined,
     async readFile(workspaceId: string, path: string) {
       calls.push(`readFile ${workspaceId} ${path}`);
       const read = await answers.readFile?.(workspaceId, path);

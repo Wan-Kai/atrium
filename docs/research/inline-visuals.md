@@ -28,6 +28,7 @@
 - CDN 白名单：`cdnjs.cloudflare.com`、`cdn.jsdelivr.net`、`esm.sh`、`unpkg.com`，字体 `fonts.googleapis.com`、`fonts.gstatic.com`、`fonts.bunny.net`。白名单外的会被拦下，不报错。
 - 宿主自己的组件（日历、火焰图、请求瀑布、调用栈）放在 `persistent.oaistatic.com/plugins/visualize/` 下，固定版本。
 - 规则里点名固定版本，比如图表用 `d3@7.9.0`，地图用固定的数据源。
+- Atrium 的做法（MV1 实测后，2026-11-06）：只许写死完整版本的地址；esm.sh 给的模块按依赖声明的范围引依赖（`/d3-array@3?target=es2022`），会被拦下，所以系统提示让模型在 esm.sh 上加 `?bundle`，依赖打进同一个文件（见 SPEC-0007"沙箱"）。
 
 ### 宿主提供的运行环境
 

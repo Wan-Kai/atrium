@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-11-06：MV1 对话里的交互演示经用户验收通过并合回 `main`，未推送。** 分支 `atrium/mv1-inline-visuals`。审查后定：DNS 预解析泄露主机名作为已知风险接受（security.md），esm.sh 按版本范围的依赖继续拦，提示模型用固定版本加 `?bundle`。 协议 32（和 ML1 的版本号合并时顺延）。宿主 `visuals/`（目录校验、令牌、外壳、监视、限速）、桌面端 `atrium-visual:` 协议与按 frame 的请求过滤、界面 `visual-card`、扩展的 `atrium_visuals` 提示、手机端占位卡片。实现时定的细节写在 SPEC-0007"MV1 实现时定的细节"（单独的 session 改成按 frame 过滤、回传要落在演示里的鼠标按下、插话步骤不标来源、打开按钮只给相对路径、截图内存里最多 64 个、单独运行的宿主没有演示），2026-11-06 用户全部确认；同日按用户要求在外壳里关掉 WebRTC，TURN over TCP 的口子堵上；测试与未跑的见[追踪表](testing/coverage-map.md#mv1-对话里的交互演示spec-00072026-11-05待验收)。三方审查还没做。
+
 **2026-11-05：学习模式和对话里的交互演示设计定稿，SPEC-0007、SPEC-0008 进入评审，在 `atrium/discuss-study-mode`，未合并、未推送。** 原型三份（`study-mode-prototype.html` 入口与主页、`study-mode-flow-prototype.html` 完整流程、`study-mode-visuals-prototype.html` 展示形式），用户选入口丁、步骤条 C、演示内联；调研 [inline-visuals.md](research/inline-visuals.md)；选定的视觉写进 design-language。里程碑排成 ML1～ML5 和 MV1（见"阶段 · 学习模式"），还没开工。
 
 **2026-11-04：Markdown 文件预览经用户验收通过并授权本地合并，第二次同步 main 后发现的 Mermaid 绘图 DOM 残留已按用户要求先修复并复验，未安装或推送。原分支 `atrium/add-markdown-preview-button` 和 worktree 仍被当前会话使用，保留，不为清理结束会话。** M1.12 自用后补充：用户选原型 A“单按钮原位切换”，`.md` / `.markdown` 文件头新增“预览 / 查看源码”；复用回复渲染，本地图片和文件链接按文档目录解析，保持已有工作区边界。按标签记模式和各自滚动，行定位回到源码。同步至 main 的 `4678388` 后，检查、单元 4325、Swift 406、界面 1185、相关 Electron 5 项通过；查看器泄漏的绝对零绘图容器断言另连跑 3 次通过。Mermaid 11.17.2 局部补丁在共用布局 finally 清空内部缓存，6 个生命周期测试先红后绿；原功能 12 处破坏检查、依赖清理负控和桌面负控检出，原改动行变异 54/54 Killed。明暗、空/错状态截图已看；合并前失败/修复、未跑范围与限制见[追踪表](testing/coverage-map.md#markdown-文件预览m112-自用后补充2026-11-04)。
@@ -633,7 +635,7 @@ MP0 互通实验 ──┬── MP1 Swift 工程基础 ──┐
 - **参考**：SPEC-0008"会话的用途""升级"、SPEC-0002（子对话）、SPEC-0003（提问卡片）。
 - **完成标准**：SPEC-0008"验证"里上课到升级的各条有测试；端到端测试用 faux 模型走完一级；归档连带的泄漏测试通过。
 
-##### MV1 对话里的交互演示
+##### MV1 对话里的交互演示（2026-11-06 完成）
 
 - **目标**：所有会话里，agent 都能在回复中放一个可交互的演示，你在演示里点的回答直接回到对话。
 - **范围**：`atrium-visual:` 协议、令牌、外壳（颜色变量、常用 Hugeicons、高度上报、`window.atrium.sendMessage`）；CSP 和单独的 session，按站点只放行写死版本的 CDN 路径；消息流认 `visual` 代码块、`visual.resolve` / `visual.changed` / `visual.sendMessage`；来自演示的消息和来源标记；离开视口卸载和截图；焦点在演示里时按键归演示；手机端占位卡片；扩展系统提示里的演示说明。先改 security.md（原始 HTML 不执行的例外、外部地址表加 CDN）并跑 `pnpm boundary` 登记。

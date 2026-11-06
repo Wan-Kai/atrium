@@ -1,0 +1,364 @@
+[
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "below.startsWith(`..${sep}`) || ",
+    "to": "",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "refuses anything outside the directory"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "if (stats.size > VISUAL_FILE_MAX)",
+    "to": "if (stats.size > VISUAL_FILE_MAX + 1)",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "takes a file of 1 MB"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "if (!/\\.html$/iu.test(file))",
+    "to": "if (!/\\.(html|txt)$/iu.test(file))",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "refuses anything outside the directory"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "now - last < MESSAGE_GAP_MS",
+    "to": "now - last < 0",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "drops a second message"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "const QUIET_MS = 100;",
+    "to": "const QUIET_MS = 0;",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "tells each connection"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "    folder.release();\n",
+    "to": "\n",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "stops watching a folder"
+  },
+  {
+    "file": "packages/host/src/visuals/shell.ts",
+    "from": "\"connect-src 'none'\",",
+    "to": "\"connect-src *\",",
+    "test": "packages/host/src/visuals/shell.test.ts",
+    "name": "sends the policy"
+  },
+  {
+    "file": "apps/desktop/src/main/visual-sandbox.ts",
+    "from": "const VERSION = /^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$/u;",
+    "to": "const VERSION = /^\\d+/u;",
+    "test": "apps/desktop/src/main/visual-sandbox.test.ts",
+    "name": "stops"
+  },
+  {
+    "file": "packages/host/src/store/turn-starts.ts",
+    "from": "        ...(sources.size === 0 ? {} : { sources: Object.fromEntries(sources) }),\n",
+    "to": "",
+    "test": "packages/host/src/store/turn-starts.test.ts",
+    "name": "records which messages came from a visual"
+  },
+  {
+    "file": "packages/host/src/sessions/session-controller.ts",
+    "from": "return { clientMessageId: next.requestId, auto: next.auto, ...withSource(next.source) };",
+    "to": "return { clientMessageId: next.requestId, auto: next.auto };",
+    "test": "packages/host/src/sessions/session-controller.test.ts",
+    "name": "marks the turn a visual's message opened"
+  },
+  {
+    "file": "packages/host/src/transcript/projection.ts",
+    "from": "              ...(source === undefined ? {} : { source }),\n",
+    "to": "",
+    "test": "packages/host/src/transcript/session-transcript.test.ts",
+    "name": "marks the turns an earlier host saw come from a visual"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "if (url === known.url && mtime === known.mtime) return;",
+    "to": "return;",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "keeps a held visual"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-card.tsx",
+    "from": "if (which === path) void load();",
+    "to": "if (which === \"x\") void load();",
+    "test": "packages/ui/src/chat/visual-card.browser.test.tsx",
+    "name": "loads the file again",
+    "project": "ui"
+  },
+  {
+    "file": "packages/pi/src/visuals/visuals.ts",
+    "from": "!dir.startsWith(\"/\") || ",
+    "to": "",
+    "test": "packages/pi/src/visuals/visuals.test.ts",
+    "name": "reads back only a version 1 launch"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-presses.ts",
+    "from": "    this.#latest = null;\n    return true;",
+    "to": "    return true;",
+    "test": "packages/ui/src/chat/visual-presses.test.ts",
+    "name": "takes a fresh press on the frame once"
+  },
+  {
+    "file": "packages/host/src/visuals/shell.ts",
+    "from": "Object.defineProperty(window, name, { value: undefined, writable: false, enumerable: false, configurable: false });",
+    "to": "",
+    "test": "packages/host/src/visuals/shell.test.ts",
+    "name": "takes WebRTC away from the frame"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "    await confirmInside(realDir, below, stats);\n",
+    "to": "",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "refuses a folder swapped for a link"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "    throw new CommandError(\"visual_missing\");\n  }\n  try {\n    const stats",
+    "to": "    throw error;\n  }\n  try {\n    const stats",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "refuses a file it may not read"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "    return !closed && !mark.gone;",
+    "to": "    return true;",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "adds no watch for a resolve that ends"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "    if (token !== undefined) entries.delete(token);",
+    "to": "",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "forgets a file's address"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "        () => 0,\n      );\n      if (!folder.looks.has(look)) continue;",
+    "to": "        () => look.mtime,\n      );\n      if (!folder.looks.has(look)) continue;",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "tells of a watched file deleted"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "            await watchMissing(connectionId, sessionId, path, place, mark);",
+    "to": "",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "tells of a file missing when resolved"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "        if (nearer !== null && nearer !== look.folder && folder.looks.has(look)) moveLook(look, nearer);",
+    "to": "",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "tells of a file missing when resolved"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "  const dirs = [place.dir, ...(place.ancestors ?? [])];",
+    "to": "  const dirs = [place.dir];",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "opens a visual of a session's parent"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-place.ts",
+    "from": "    if (up === undefined || seen.has(up)) break;",
+    "to": "    if (up === undefined) break;",
+    "test": "packages/host/src/visuals/visual-place.test.ts",
+    "name": "goes round a loop"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-place.ts",
+    "from": "    const up = at.parent ?? at.detachedFrom;",
+    "to": "    const up = at.parent ?? undefined;",
+    "test": "packages/host/src/visuals/visual-place.test.ts",
+    "name": "walks a session's parents"
+  },
+  {
+    "file": "packages/host/src/sessions/session-catalog.ts",
+    "from": "          return { ...rest, detachedFrom: parent.sessionId };",
+    "to": "          return rest;",
+    "test": "packages/host/src/sessions/session-catalog.test.ts",
+    "name": "detaches a child conversation"
+  },
+  {
+    "file": "apps/desktop/src/main/visual-sandbox.ts",
+    "from": "  if (frame.kind === \"none\") return apps.includes(originOf(parsed)) || visualMayLoad(parsed);",
+    "to": "  if (frame.kind === \"none\") return true;",
+    "test": "apps/desktop/src/main/visual-sandbox.test.ts",
+    "name": "lets a request of no frame"
+  },
+  {
+    "file": "apps/desktop/src/main/visual-sandbox.ts",
+    "from": "|[0-9a-f]{40})$/u;",
+    "to": "|[0-9a-f]{7,40})$/u;",
+    "test": "apps/desktop/src/main/visual-sandbox.test.ts",
+    "name": "stops"
+  },
+  {
+    "file": "apps/desktop/src/main/visual-sandbox.ts",
+    "from": "      if (ESM_NODE.test(url.pathname)) return true;\n",
+    "to": "",
+    "test": "apps/desktop/src/main/visual-sandbox.test.ts",
+    "name": "lets"
+  },
+  {
+    "file": "apps/desktop/src/main/visual-sandbox.ts",
+    "from": "  if (frame.navigation) return parsed.protocol === `${VISUAL_SCHEME}:`;\n",
+    "to": "",
+    "test": "apps/desktop/src/main/visual-sandbox.test.ts",
+    "name": "stays on its own scheme"
+  },
+  {
+    "file": "apps/desktop/src/main/shortcuts.ts",
+    "from": "  if (input.type !== \"keyDown\" || !input.meta || input.control || input.alt || input.shift) return null;",
+    "to": "  if (input.type !== \"keyDown\" || !input.meta) return null;",
+    "test": "apps/desktop/src/main/shortcuts.test.ts",
+    "name": "takes"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "      if (error instanceof ConnectionLostError) return;\n",
+    "to": "",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "keeps a held visual"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "        if (known.holds === 0 && visuals.get(key) === known) visuals.delete(key);",
+    "to": "",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "forgets a visual once no card"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "      if (start > 0) await new Promise<void>((done) => clock.setTimeout(done, RESOLVE_GAP_MS));\n",
+    "to": "",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "asks again at most 20"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-presses.ts",
+    "from": "    return press !== null && press.target === target && now - press.at <= PRESS_MS;",
+    "to": "    return press !== null && now - press.at <= PRESS_MS;",
+    "test": "packages/ui/src/chat/visual-presses.test.ts",
+    "name": "refuses a press on anything else"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-snapshots.ts",
+    "from": "    while (this.#images.size > SNAPSHOTS_KEPT || this.#bytes > SNAPSHOT_BYTES) {",
+    "to": "    while (this.#images.size > SNAPSHOTS_KEPT) {",
+    "test": "packages/ui/src/chat/visual-snapshots.test.ts",
+    "name": "keeps no more than its bytes"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-snapshots.ts",
+    "from": "    return snapshot === undefined || snapshot.dark !== dark ? null : snapshot.image;",
+    "to": "    return snapshot === undefined ? null : snapshot.image;",
+    "test": "packages/ui/src/chat/visual-snapshots.test.ts",
+    "name": "keeps the latest image"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-card.tsx",
+    "from": "      if (!started.current) setResolved({ kind: \"failed\", code: \"load\" });",
+    "to": "",
+    "test": "packages/ui/src/chat/visual-card-offscreen.browser.test.tsx",
+    "name": "shows a frame that never says it started",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-card.tsx",
+    "from": "      if (element === null || !uncovered(element)) return;",
+    "to": "      if (element === null) return;",
+    "test": "packages/ui/src/chat/visual-card-offscreen.browser.test.tsx",
+    "name": "takes no snapshot while something lies over",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-card.tsx",
+    "from": "  }, [body]);",
+    "to": "  }, []);",
+    "test": "packages/ui/src/chat/visual-card-offscreen.browser.test.tsx",
+    "name": "shows a snapshot only in the appearance",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-card.tsx",
+    "from": "    const release = access.hold(path);\n",
+    "to": "    const release = (): void => undefined;\n",
+    "test": "packages/ui/src/chat/visual-card.browser.test.tsx",
+    "name": "holds the visual",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-card.tsx",
+    "from": "          setHeight(Math.min(Math.ceil(reported), VISUAL_MAX_HEIGHT));",
+    "to": "          setHeight(Math.ceil(reported));",
+    "test": "packages/ui/src/chat/visual-card.browser.test.tsx",
+    "name": "keeps a reported height within",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/app/menu-shortcuts.ts",
+    "from": "    window.dispatchEvent(new KeyboardEvent(\"keydown\", { key: KEYS[shortcut], metaKey: true, cancelable: true }));",
+    "to": "",
+    "test": "packages/ui/src/app/menu-shortcuts.browser.test.ts",
+    "name": "plays",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-card.tsx",
+    "from": "          disposition === \"dropped\" ? { id, error: { code: -32_000, message: \"dropped\" } } : { id, result: {} },",
+    "to": "          { id, result: {} },",
+    "test": "packages/ui/src/chat/visual-card.browser.test.tsx",
+    "name": "refuses a clicked message with no press",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-card.tsx",
+    "from": "        if (text === null || document.activeElement !== element || !navigator.userActivation.isActive) {",
+    "to": "        if (text === null) {",
+    "test": "packages/ui/src/chat/visual-card.browser.test.tsx",
+    "name": "drops a message the frame's script sends",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-card.tsx",
+    "from": "        if (text === null || document.activeElement !== element || !navigator.userActivation.isActive) {",
+    "to": "        if (document.activeElement !== element || !navigator.userActivation.isActive) {",
+    "test": "packages/ui/src/chat/visual-card.browser.test.tsx",
+    "name": "sends a clicked message once a press",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-card.tsx",
+    "from": "            if (presses.spend(element)) void answer(element, id, text);",
+    "to": "            if (presses.has(element)) void answer(element, id, text);",
+    "test": "packages/ui/src/chat/visual-card.browser.test.tsx",
+    "name": "sends a clicked message once a press",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-card.tsx",
+    "from": "            else refuse();\n          });",
+    "to": "            else void answer(element, id, text);\n          });",
+    "test": "packages/ui/src/chat/visual-card.browser.test.tsx",
+    "name": "refuses a clicked message with no press",
+    "project": "ui"
+  },
+  {
+    "file": "packages/pi/src/visuals/visuals.ts",
+    "from": "On esm.sh always add ?bundle (d3@7.9.0?bundle), so its dependencies come inlined in one file: without it the modules it serves import their dependencies by version range, and those requests are blocked; ",
+    "to": "",
+    "test": "packages/pi/src/visuals/visuals.test.ts",
+    "name": "asks for exact pinned versions"
+  }
+]

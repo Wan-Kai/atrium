@@ -38,6 +38,8 @@ export type CatalogEntry = Omit<SessionSummary, "running" | "asking" | "agent" |
     readonly cwd: string;
     /** Fast as last switched in it; `null` while it never was (SPEC-0001, "Fast"). */
     readonly fast: boolean | null;
+    /** The parent it had before it was detached, whose visuals it still reads (SPEC-0007, MV1 details). */
+    readonly detachedFrom?: string;
     /** A child's usage baseline; `null` to count all of it (SPEC-0002, "用量合计"). */
     readonly usageAfter: string | null;
   };
@@ -262,6 +264,7 @@ export function createSessionCatalog(options: {
         handedOff: record?.handedOff ?? false,
         fast: record?.fast ?? null,
         parent: parentOf(record),
+        ...(record?.detachedFrom === undefined ? {} : { detachedFrom: record.detachedFrom }),
         usageAfter: record?.usageAfter ?? null,
         ...agentFieldsOf(record ?? {}),
       });
@@ -286,6 +289,7 @@ export function createSessionCatalog(options: {
         handedOff: record.handedOff ?? false,
         fast: record.fast ?? null,
         parent: parentOf(record),
+        ...(record.detachedFrom === undefined ? {} : { detachedFrom: record.detachedFrom }),
         usageAfter: record.usageAfter ?? null,
         ...agentFieldsOf(record),
       });
@@ -475,9 +479,10 @@ export function createSessionCatalog(options: {
       if (!sessions.some((record) => record.sessionId === sessionId && record.parent !== undefined)) return;
       await save(
         sessions.map((record) => {
-          if (record.sessionId !== sessionId) return record;
-          const { parent: _parent, ...rest } = record;
-          return rest;
+          if (record.sessionId !== sessionId || record.parent === undefined) return record;
+          const { parent, ...rest } = record;
+          // Kept only so it still reads the visuals its copied history names (SPEC-0007, MV1 details).
+          return { ...rest, detachedFrom: parent.sessionId };
         }),
       );
     },

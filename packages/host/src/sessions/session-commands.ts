@@ -16,6 +16,7 @@ import type {
   SnapshotBudget,
   SteerCommand,
   ThinkingLevel,
+  VisualSource,
 } from "@atrium/protocol";
 import type { PromptImage } from "./session-controller";
 
@@ -86,8 +87,11 @@ export interface SessionCommands {
     command: EditStoppedMessageCommand,
     images?: readonly PromptImage[],
   ): Promise<CommandResult<"edit_stopped_message">>;
-  /** Sends a steer, or a message when the session is idle, starting a restored draft's pi first. */
-  steer(command: SteerCommand, images?: readonly PromptImage[]): Promise<CommandResult<"steer">>;
+  /**
+   * Sends a steer, or a message when the session is idle, starting a restored draft's pi first;
+   * `source` marks one sent from a visual (SPEC-0007, "回传").
+   */
+  steer(command: SteerCommand, images?: readonly PromptImage[], source?: VisualSource): Promise<CommandResult<"steer">>;
   /** Stops a session's run (SPEC-0001, "运行控制"). */
   stop(sessionId: string): Promise<CommandResult<"stop">>;
   resumeQueue(sessionId: string): Promise<CommandResult<"resume_queue">>;

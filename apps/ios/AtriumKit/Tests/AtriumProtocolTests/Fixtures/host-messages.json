@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 31,
+    "protocolVersion": 32,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -2146,6 +2146,54 @@
         },
         "refused": 1
       }
+    }
+  },
+  {
+    "type": "visual_changed",
+    "sessionId": "s1",
+    "path": "visuals/2-03-isolation.html",
+    "mtime": 1760000000000
+  },
+  {
+    "type": "turn_started",
+    "sessionId": "s1",
+    "epoch": 1,
+    "seq": 7,
+    "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "turn": {
+      "kind": "turn",
+      "id": "s1:e1",
+      "source": null,
+      "user": {
+        "text": "hi",
+        "images": 1,
+        "clientMessageId": "r96",
+        "auto": false,
+        "command": null,
+        "timestamp": 1,
+        "source": {
+          "kind": "visual",
+          "path": "visuals/2-03-isolation.html"
+        }
+      },
+      "steps": [],
+      "outcome": "running",
+      "error": null,
+      "startedAt": 1,
+      "durationMs": null,
+      "usage": null,
+      "changes": [
+        {
+          "path": "a.ts",
+          "added": 1,
+          "removed": 0
+        },
+        {
+          "path": "b.ts",
+          "added": null,
+          "removed": null
+        }
+      ]
     }
   },
   {
@@ -6814,6 +6862,30 @@
     "ok": false,
     "error": {
       "code": "translation_failed"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "visual_outside"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "visual_missing"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "visual_too_large"
     }
   },
   {

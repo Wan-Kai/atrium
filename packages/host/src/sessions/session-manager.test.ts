@@ -1,4 +1,10 @@
-import { type SessionsLocation, createSessionFileReader, encodeArgument, sessionFolder } from "@atrium/pi";
+import {
+  type SessionsLocation,
+  createSessionFileReader,
+  encodeArgument,
+  sessionFolder,
+  visualsArgument,
+} from "@atrium/pi";
 import {
   CommandError,
   type ForkSessionCommand,
@@ -133,6 +139,8 @@ async function manage(
     readonly catalog?: (catalog: SessionCatalog) => SessionCatalog;
     /** The manager's clock, when a test moves time on; the system's otherwise. */
     readonly clock?: Clock;
+    /** Where each session's visuals go (SPEC-0007). */
+    readonly visualsDir?: Parameters<typeof createSessionManager>[0]["visualsDir"];
   } = {},
 ) {
   const at = where ?? (await place());
@@ -195,6 +203,7 @@ async function manage(
     ...(fast === undefined ? {} : { fast }),
     ...(more.childWorktree === undefined ? {} : { childWorktree: more.childWorktree }),
     ...(more.tempRoot === undefined ? {} : { tempRoot: more.tempRoot }),
+    ...(more.visualsDir === undefined ? {} : { visualsDir: more.visualsDir }),
   });
   cleanups.push(
     () => manager.close(),
@@ -327,6 +336,7 @@ async function translationHistory(
       opened: new Set(["u1"]),
       auto: new Set(),
       compactions: new Map([["k1", "threshold"]]),
+      sources: new Map(),
       record: async () => undefined,
     }),
   );
@@ -1413,7 +1423,13 @@ describe("SessionManager running sessions", () => {
     await asked.promise;
 
     const closing = manager.close();
-    read.resolve({ opened: new Set(), auto: new Set(), compactions: new Map(), record: () => Promise.resolve() });
+    read.resolve({
+      opened: new Set(),
+      auto: new Set(),
+      compactions: new Map(),
+      sources: new Map(),
+      record: () => Promise.resolve(),
+    });
     await closing;
 
     // None was ever kept.
@@ -1827,7 +1843,13 @@ describe("SessionManager archiving and renaming", () => {
     await reading.promise;
 
     const archiving = manager.archiveSession("pi-session-1");
-    read.resolve({ opened: new Set(), auto: new Set(), compactions: new Map(), record: async () => undefined });
+    read.resolve({
+      opened: new Set(),
+      auto: new Set(),
+      compactions: new Map(),
+      sources: new Map(),
+      record: async () => undefined,
+    });
     await archiving;
     await opening;
 
@@ -2196,6 +2218,7 @@ describe("SessionManager turn starts", () => {
           opened: new Set(),
           auto: new Set(),
           compactions: new Map(),
+          sources: new Map(),
           record: async (entryIds) => void recorded.push([...entryIds]),
         };
       },
@@ -2249,12 +2272,13 @@ describe("SessionManager turn starts", () => {
         opened: new Set(),
         auto: new Set(),
         compactions: new Map(),
+        sources: new Map(),
         record: async (...seen) => void recorded.push(seen),
       }),
     );
     const { sessionId } = await manager.createChat("client-1");
     await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
-    await vi.waitFor(() => expect(recorded).toStrictEqual([[["u1"], [], new Map([["k1", "threshold"]])]]));
+    await vi.waitFor(() => expect(recorded).toStrictEqual([[["u1"], [], new Map([["k1", "threshold"]]), new Map()]]));
 
     const at = await place();
     await terminalSession(at, "pi-session-1", at.workspace);
@@ -2267,6 +2291,7 @@ describe("SessionManager turn starts", () => {
         opened: new Set(["u1"]),
         auto: new Set(),
         compactions: new Map([["k1", "threshold" as const]]),
+        sources: new Map(),
         record: async () => undefined,
       }),
     );
@@ -2300,6 +2325,7 @@ describe("SessionManager turn starts", () => {
         opened: new Set(),
         auto: new Set(),
         compactions: new Map(),
+        sources: new Map(),
         record: () => Promise.reject(new Error("disk full")),
       }),
     );
@@ -2675,6 +2701,11 @@ function fastSwitches(received: readonly Record<string, unknown>[]): unknown[] {
   return received.filter((command) => command["type"] === "prompt").map((command) => command["message"]);
 }
 
+/** Where the visuals go: the first session's in its folder, none for any other. */
+function firstSessionVisuals(sessionId: string): string | null {
+  return sessionId === "pi-session-1" ? `/home/.atrium/visuals/${sessionId}` : null;
+}
+
 describe("SessionManager Fast", () => {
   it("loads the Fast extension in a session's pi and switches Fast on, as last chosen, before reading the session", async () => {
     const { fast } = fastMemory(true);
@@ -2722,6 +2753,31 @@ describe("SessionManager Fast", () => {
       ]),
     );
     expect(received).toMatchObject([{ type: "session_snapshot", fast: true }]);
+  });
+
+  it("tells Atrium's extension where the session's visuals go, and nothing for a session that has no place", async () => {
+    const { fast } = fastMemory(false);
+    const { manager, starts } = await manage(
+      { argvToStderr: true, rules: FAST_PI },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fast,
+      undefined,
+      { visualsDir: firstSessionVisuals },
+    );
+
+    await started(manager, manager.createChat("client-1"));
+    await started(manager, manager.createChat("client-1"));
+
+    const argvs = starts()
+      .map(({ argv }) => argv)
+      .filter((argv) => argv !== undefined);
+    expect(argvs[0]?.at(-1)).toBe(`--atrium-visuals=${visualsArgument("/home/.atrium/visuals/pi-session-1")}`);
+    expect(argvs[1]?.some((arg) => arg.startsWith("--atrium-visuals"))).toBe(false);
   });
 
   it("sends no switch while Fast is off", async () => {
@@ -3231,7 +3287,8 @@ describe("SessionManager forking", () => {
     await terminalSession(at, "pi-session-1", at.workspace);
     const turns = join(at.home, "turn-starts");
     const load = async (sessionId: string) => (await loadTurnStarts(turns, sessionId, 0)).starts;
-    await (await load("pi-session-1")).record(["u1", "u2"], ["u2"]);
+    const source = { kind: "visual", path: "a.html" } as const;
+    await (await load("pi-session-1")).record(["u1", "u2"], ["u2"], new Map(), new Map([["u1", source]]));
     const { manager, catalog } = await manage(forking(at), at, load);
     await catalog.scan();
     await manager.openSession("client-1", "pi-session-1");
@@ -3239,7 +3296,11 @@ describe("SessionManager forking", () => {
     await manager.forkSession("client-1", forkCommand("u1"));
 
     const copied = await load("pi-session-2");
-    expect([[...copied.opened], [...copied.auto]]).toStrictEqual([["u1", "u2"], ["u2"]]);
+    expect([[...copied.opened], [...copied.auto], [...copied.sources]]).toStrictEqual([
+      ["u1", "u2"],
+      ["u2"],
+      [["u1", source]],
+    ]);
   });
 
   it.each([
@@ -4258,7 +4319,13 @@ describe("SessionManager after pi is updated (M1.10)", () => {
     await reading.promise;
 
     const stopping = manager.stopIdle();
-    read.resolve({ opened: new Set(), auto: new Set(), compactions: new Map(), record: async () => undefined });
+    read.resolve({
+      opened: new Set(),
+      auto: new Set(),
+      compactions: new Map(),
+      sources: new Map(),
+      record: async () => undefined,
+    });
     await stopping;
     await opening;
 
@@ -4278,7 +4345,13 @@ describe("SessionManager after pi is updated (M1.10)", () => {
     await reading.promise;
 
     const stopping = manager.stopIdle();
-    read.resolve({ opened: new Set(), auto: new Set(), compactions: new Map(), record: async () => undefined });
+    read.resolve({
+      opened: new Set(),
+      auto: new Set(),
+      compactions: new Map(),
+      sources: new Map(),
+      record: async () => undefined,
+    });
     await stopping;
 
     expect(await creating).toStrictEqual({ sessionId: "pi-session-1" });
@@ -4781,6 +4854,7 @@ function keptTurnStarts(
     opened: new Set(found),
     auto: new Set(),
     compactions: seen,
+    sources: new Map(),
     record: (entryIds, _autoIds, added = new Map()) => {
       kept.set(sessionId, [...found, ...entryIds]);
       compactions.set(sessionId, new Map([...seen, ...added]));
@@ -4809,7 +4883,13 @@ function heldTurnStarts() {
         reached.resolve();
         await gate.promise;
       }
-      return { opened: new Set(), auto: new Set(), compactions: new Map(), record: () => Promise.resolve() };
+      return {
+        opened: new Set(),
+        auto: new Set(),
+        compactions: new Map(),
+        sources: new Map(),
+        record: () => Promise.resolve(),
+      };
     },
     hold: () => {
       holding = true;

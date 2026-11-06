@@ -155,6 +155,22 @@ struct StreamingMarkdownTests {
       ])
   }
 
+  @Test("shows a visual block as a card with its file name only, never its content (SPEC-0007, 手机端)")
+  func visuals() {
+    #expect(
+      StreamingMarkdown.parse("```visual\n{\"path\":\"/Users/me/.atrium/visuals/s1/2-03-isolation.html\"}\n```\n") == [
+        .visual(name: "2-03-isolation.html")
+      ])
+    #expect(
+      StreamingMarkdown.parse("```visual\n{\"path\":\"visuals/a.html\",\"title\":\"隔离\"}\n```\n") == [
+        .visual(name: "a.html")
+      ])
+    #expect(
+      StreamingMarkdown.parse("```visual\nnot json\n```\n") == [
+        .code(language: "visual", code: "not json", closed: true)
+      ])
+  }
+
   @Test("uses source for diagrams and preserves fence closing and inline formatting")
   func blocks() {
     #expect(

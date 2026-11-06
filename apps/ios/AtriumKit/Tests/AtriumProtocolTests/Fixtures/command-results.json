@@ -792,6 +792,32 @@
       }
     }
   ],
+  "resolve_visual": [
+    {
+      "url": "atrium-visual://AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/2-03-isolation.html",
+      "size": 1,
+      "mtime": 1760000000000
+    },
+    {
+      "url": "atrium-visual://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/a.html",
+      "size": 1048576,
+      "mtime": 0
+    }
+  ],
+  "send_visual_message": [
+    {
+      "disposition": "started"
+    },
+    {
+      "disposition": "queued"
+    },
+    {
+      "disposition": "handled"
+    },
+    {
+      "disposition": "dropped"
+    }
+  ],
   "read_pi_config": [
     {
       "path": "/Users/test/.pi/agent/settings.json",

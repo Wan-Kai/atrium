@@ -26,6 +26,7 @@ import {
   type SessionModel,
   type ThinkingLevel,
   type TraceContext,
+  type VisualChangedEvent,
   createTraceContext,
   formatTraceparent,
 } from "@atrium/protocol";
@@ -313,6 +314,23 @@ export interface AtriumClient {
   listDir(workspaceId: string, path: string): Promise<CommandResult<"list_dir">>;
   /** One file of a workspace, for a viewer tab (SPEC-0001, "M1.12 的文件与更改"). */
   readFile(workspaceId: string, path: string): Promise<CommandResult<"read_file">>;
+  /**
+   * Checks a visual a reply names and gets its sandbox address (SPEC-0007); while a card holds it,
+   * it is resolved again on each later connection, so the host keeps telling of its changes.
+   */
+  resolveVisual(sessionId: string, path: string): Promise<CommandResult<"resolve_visual">>;
+  /**
+   * Holds a visual while its card is shown, so each new connection resolves it again; returns how
+   * to let go, after which, with no other card holding it, it is forgotten.
+   */
+  holdVisual(sessionId: string, path: string): () => void;
+  /** Sends what you picked in a visual as your message in its session (SPEC-0007, "回传"). */
+  sendVisualMessage(sessionId: string, path: string, text: string): Promise<CommandResult<"send_visual_message">>;
+  /**
+   * Hears when a resolved visual changed, as the host tells, or as a new connection finds its
+   * address or time changed or the file gone; returns how to stop.
+   */
+  onVisualChanged(listener: (changed: VisualChangedEvent) => void): () => void;
   /** An ordinary pi config's path, exact text and version; `null` selects the global directory. */
   readPiConfig(workspaceId: string | null, name: PiConfigName): Promise<CommandResult<"read_pi_config">>;
   /** Saves JSON only when the original version still matches; never reloads or interrupts pi. */
@@ -463,6 +481,12 @@ const OLDER_PAGE_ITEMS = 50;
 /** A command as callers give it, without the envelope the client fills in. */
 type CommandFields<T extends CommandType> = Omit<Extract<Command, { type: T }>, "type" | "requestId" | "traceparent">;
 
+/** How many held visuals a new connection resolves at once (SPEC-0007, MV1 details). */
+const RESOLVE_BATCH = 20;
+
+/** How long a new connection waits between batches of held visuals, in milliseconds. */
+const RESOLVE_GAP_MS = 200;
+
 /** The platform's timers. */
 const systemClock: ClientClock = {
   setTimeout(callback, ms) {
@@ -563,6 +587,15 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const changeStores = new Map<string, StoreApi<ChangesView>>();
   /** The workspaces shown, asked for again on each connection. */
   let showing: readonly string[] = [];
+  /**
+   * The visuals cards hold, by session and path, with how many hold each and the address and time
+   * last heard (`null` before one was, or after it failed); resolved again on each connection.
+   */
+  const visuals = new Map<
+    string,
+    { readonly sessionId: string; readonly path: string; holds: number; url: string | null; mtime: number | null }
+  >();
+  const visualListeners = new Set<(changed: VisualChangedEvent) => void>();
   const diff = createStore<DiffView>(() => diffViewOf(null));
   const pending = new Map<
     string,
@@ -931,6 +964,76 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   }
 
   /**
+   * Tells the listeners a visual changed.
+   *
+   * @remarks
+   * A listener that throws is the UI's bug; it does not keep the others from hearing.
+   *
+   * @sideEffects Calls the listeners.
+   * @param changed - The change.
+   */
+  function visualChanged(changed: VisualChangedEvent): void {
+    for (const listener of visualListeners) {
+      try {
+        listener(changed);
+      } catch {
+        // See the remarks.
+      }
+    }
+  }
+
+  /**
+   * Resolves the visuals cards hold again on a new connection, 20 at a time, 200 ms apart.
+   *
+   * @remarks
+   * The host watches only what a connection resolved, and a restarted host has new addresses. A
+   * visual whose address or time changed, or that can no longer be resolved, is told as changed,
+   * so its card loads it again or shows why not; it stays held and is tried again next time. A
+   * connection that drops meanwhile changes nothing: the next one asks again. Paced so a client
+   * holding many visuals stays well within the host's 200 messages a second (SPEC-0007, MV1 details).
+   *
+   * @sideEffects Sends `resolve_visual`; may tell the listeners; waits on the clock.
+   */
+  async function resolveVisualsAgain(): Promise<void> {
+    const held = [...visuals.values()];
+    for (let start = 0; start < held.length; start += RESOLVE_BATCH) {
+      if (start > 0) await new Promise<void>((done) => clock.setTimeout(done, RESOLVE_GAP_MS));
+      await Promise.all(held.slice(start, start + RESOLVE_BATCH).map(async (known) => resolveHeldAgain(known)));
+    }
+  }
+
+  /**
+   * Resolves one held visual again, and tells its listeners if it changed or failed.
+   *
+   * @remarks
+   * See `resolveVisualsAgain`. A visual let go meanwhile is still asked, harmlessly, and not told.
+   *
+   * @sideEffects Sends `resolve_visual`; may tell the listeners.
+   * @param known - The visual, as held.
+   */
+  async function resolveHeldAgain(known: {
+    readonly sessionId: string;
+    readonly path: string;
+    url: string | null;
+    mtime: number | null;
+  }): Promise<void> {
+    const { sessionId, path } = known;
+    try {
+      const { url, mtime } = await request("resolve_visual", { sessionId, path });
+      if (url === known.url && mtime === known.mtime) return;
+      known.url = url;
+      known.mtime = mtime;
+      visualChanged({ type: "visual_changed", sessionId, path, mtime });
+    } catch (error) {
+      if (error instanceof ConnectionLostError) return;
+      const before = known.mtime;
+      known.url = null;
+      known.mtime = null;
+      visualChanged({ type: "visual_changed", sessionId, path, mtime: before ?? 0 });
+    }
+  }
+
+  /**
    * A workspace's changes store, made on first use.
    *
    * @remarks
@@ -1133,6 +1236,12 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       showIndex(applyIndexChanges(index.getState(), message), message.layout !== null);
       return;
     }
+    if (message.type === "visual_changed") {
+      const known = visuals.get(`${message.sessionId}\u0000${message.path}`);
+      if (known !== undefined) known.mtime = message.mtime;
+      visualChanged(message);
+      return;
+    }
     if (message.type === "changes_updated") {
       const { type: _type, workspaceId, ...changes } = message;
       // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
@@ -1309,6 +1418,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         request("subscribe_index", cursor === undefined ? {} : { cursor }).catch(() => undefined);
         subscribeWatched().catch(() => undefined);
         watchShown().catch(() => undefined);
+        resolveVisualsAgain().catch(() => undefined);
         // Fire and forget: the failure lands in the store.
         if (watchingRemote) void loadRemote();
         settle(connection.getState());
@@ -1488,6 +1598,41 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     searchFiles: (sessionId, query) => request("search_files", { sessionId, query }),
     listDir: (workspaceId, path) => request("list_dir", { workspaceId, path }),
     readFile: (workspaceId, path) => request("read_file", { workspaceId, path }),
+    async resolveVisual(sessionId, path) {
+      const known = visuals.get(`${sessionId}\u0000${path}`);
+      try {
+        const result = await request("resolve_visual", { sessionId, path });
+        if (known !== undefined) {
+          known.url = result.url;
+          known.mtime = result.mtime;
+        }
+        return result;
+      } catch (error) {
+        if (known !== undefined && !(error instanceof ConnectionLostError)) {
+          known.url = null;
+          known.mtime = null;
+        }
+        throw error;
+      }
+    },
+    holdVisual(sessionId, path) {
+      const key = `${sessionId}\u0000${path}`;
+      const known = visuals.get(key) ?? { sessionId, path, holds: 0, url: null, mtime: null };
+      known.holds += 1;
+      visuals.set(key, known);
+      let held = true;
+      return () => {
+        if (!held) return;
+        held = false;
+        known.holds -= 1;
+        if (known.holds === 0 && visuals.get(key) === known) visuals.delete(key);
+      };
+    },
+    sendVisualMessage: (sessionId, path, text) => request("send_visual_message", { sessionId, path, text }),
+    onVisualChanged(listener) {
+      visualListeners.add(listener);
+      return () => visualListeners.delete(listener);
+    },
     readPiConfig: (workspaceId, name) => request("read_pi_config", { workspaceId, name }),
     savePiConfig: (workspaceId, name, text, revision) =>
       request("save_pi_config", { workspaceId, name, text, revision }),

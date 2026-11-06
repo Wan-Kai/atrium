@@ -7,6 +7,7 @@ import { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { HelloMessage, WelcomeMessage } from "./handshake";
 import { PlansUpdatedEvent } from "./metrics";
 import { RemoteUpdatedEvent } from "./remote";
+import { VisualChangedEvent } from "./visuals";
 import {
   CredentialsChangedEvent,
   InstallOutputEvent,
@@ -55,6 +56,7 @@ export const HostMessage = z.union([
   CredentialsChangedEvent,
   PlansUpdatedEvent,
   RemoteUpdatedEvent,
+  VisualChangedEvent,
 ]);
 export type HostMessage = z.infer<typeof HostMessage>;
 

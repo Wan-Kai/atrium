@@ -275,6 +275,17 @@ const commands: Command[] = [
   { type: "list_dir", requestId: "r91", traceparent, workspaceId: WORKSPACE, path: "src/files" },
   { type: "read_file", requestId: "r92", traceparent, workspaceId: WORKSPACE, path: "src/files/a.ts" },
   { type: "read_file", requestId: "r93", traceparent, workspaceId: WORKSPACE, path: "a".repeat(4096) },
+  { type: "resolve_visual", requestId: "r94", traceparent, sessionId: "s1", path: "visuals/2-03-isolation.html" },
+  { type: "resolve_visual", requestId: "r95", traceparent, sessionId: "s1", path: "a".repeat(4096) },
+  { type: "send_visual_message", requestId: "r96", traceparent, sessionId: "s1", path: "/v/a.html", text: "选 B" },
+  {
+    type: "send_visual_message",
+    requestId: "r97",
+    traceparent,
+    sessionId: "s1",
+    path: "a.html",
+    text: "长".repeat(4000),
+  },
   { type: "check_setup", requestId: "r61", traceparent },
   { type: "check_setup", requestId: "r62", traceparent, refresh: true },
   { type: "login", requestId: "r65", traceparent, providerId: "anthropic", method: "oauth" },
@@ -897,6 +908,7 @@ describe("parseClientMessage", () => {
       "rename_workspace",
       "report_client_issue",
       "reset_remote_identity",
+      "resolve_visual",
       "restore_chat",
       "restore_workspace",
       "resume_deliveries",
@@ -906,6 +918,7 @@ describe("parseClientMessage", () => {
       "save_pi_config",
       "search_files",
       "select_container",
+      "send_visual_message",
       "set_fast",
       "set_main_branch",
       "set_model",
@@ -1401,6 +1414,29 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     ["a cancel without the job", { type: "cancel_install", requestId: "r1", traceparent }, "r1"],
+    ["a visual of no path", { type: "resolve_visual", requestId: "r1", traceparent, sessionId: "s1", path: "" }, "r1"],
+    [
+      "a visual path over 4096 characters",
+      { type: "resolve_visual", requestId: "r1", traceparent, sessionId: "s1", path: "a".repeat(4097) },
+      "r1",
+    ],
+    [
+      "a visual message over 4000 characters",
+      {
+        type: "send_visual_message",
+        requestId: "r1",
+        traceparent,
+        sessionId: "s1",
+        path: "a.html",
+        text: "a".repeat(4001),
+      },
+      "r1",
+    ],
+    [
+      "an empty visual message",
+      { type: "send_visual_message", requestId: "r1", traceparent, sessionId: "s1", path: "a.html", text: "" },
+      "r1",
+    ],
     ["an install of a given command", { type: "install_pi", requestId: "r1", traceparent, command: "sh" }, "r1"],
   ])("calls a message with %s invalid", (_case, message, requestId) => {
     expect(parseClientMessage(message)).toStrictEqual({ ok: false, requestId, code: "invalid_message" });
@@ -1965,6 +2001,20 @@ const hostMessages: unknown[] = [
   },
   { type: "plans_updated", plans: [] },
   { type: "remote_updated", remote: remoteState },
+  { type: "visual_changed", sessionId: "s1", path: "visuals/2-03-isolation.html", mtime: 1_760_000_000_000 },
+  {
+    type: "turn_started",
+    ...at,
+    turn: {
+      ...turn,
+      source: null,
+      user: { ...turn.user, clientMessageId: "r96", source: { kind: "visual", path: "visuals/2-03-isolation.html" } },
+      steps: [],
+      outcome: "running",
+      durationMs: null,
+      usage: null,
+    },
+  },
 ];
 
 const [local, worktree] = snapshot.workspaces;
@@ -2148,6 +2198,16 @@ const commandResultExamples = {
     { size: 3, content: { kind: "text", text: "abc" } },
     { size: 4, content: { kind: "image", mimeType: "image/png", data: "UklGRg==" } },
     { size: 9, content: { kind: "too_large" } },
+  ],
+  resolve_visual: [
+    { url: `atrium-visual://${"A".repeat(43)}/2-03-isolation.html`, size: 1, mtime: 1_760_000_000_000 },
+    { url: `atrium-visual://${"b".repeat(43)}/a.html`, size: 1024 * 1024, mtime: 0 },
+  ],
+  send_visual_message: [
+    { disposition: "started" },
+    { disposition: "queued" },
+    { disposition: "handled" },
+    { disposition: "dropped" },
   ],
   read_pi_config: [
     { path: "/Users/test/.pi/agent/settings.json", text: "{}\n", revision: "a".repeat(64) },
@@ -2465,6 +2525,9 @@ describe("HostMessage", () => {
       "worktree_create_failed",
       "branch_name_failed",
       "translation_failed",
+      "visual_outside",
+      "visual_missing",
+      "visual_too_large",
       "fast_unavailable",
       "pi_rejected",
       "nothing_to_compact",

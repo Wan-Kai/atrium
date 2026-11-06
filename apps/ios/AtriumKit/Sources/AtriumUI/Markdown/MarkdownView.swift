@@ -54,6 +54,7 @@ private struct MarkdownBlockView: View, Equatable {
         CodeBlockView(code: source, language: language)
         Text("在 Mac 上查看").font(Typography.meta).foregroundStyle(palette.secondary)
       }
+    case .visual(let name): VisualPlaceholderCard(name: name)
     case .list(let ordered, let start, let items):
       VStack(alignment: .leading, spacing: 4) {
         ForEach(Array(items.enumerated()), id: \.offset) { index, item in

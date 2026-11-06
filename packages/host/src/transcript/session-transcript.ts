@@ -10,6 +10,7 @@ import {
   type TranscriptItem,
   type TurnFinishedEvent,
   type TurnStartedEvent,
+  type VisualSource,
 } from "@atrium/protocol";
 import { type SeenCompaction, projectTranscript } from "./projection";
 import { forTransport, inputTokens, itemForTransport } from "./rules";
@@ -48,6 +49,8 @@ export interface TurnOrigin {
   readonly clientMessageId: string | null;
   /** The host sent it to have the agent go on (SPEC-0001, "运行控制"). */
   readonly auto: boolean;
+  /** The visual it was sent from (SPEC-0007, "回传"); absent for a typed message. */
+  readonly source?: VisualSource;
 }
 
 /** A window of items, as they travel, with whether earlier ones exist. */
@@ -172,16 +175,19 @@ export function createSessionTranscript(options: {
   readonly opened?: ReadonlySet<string>;
   /** Entries of messages earlier host runs sent on their own. */
   readonly auto?: ReadonlySet<string>;
+  /** Entries of messages earlier host runs saw sent from a visual, with which (SPEC-0007, "回传"). */
+  readonly sources?: ReadonlyMap<string, VisualSource>;
   /** Compaction entries earlier host runs saw during a run, with what set each off. */
   readonly compactions?: ReadonlyMap<string, SeenCompaction>;
   /**
    * Told the entries a rebuild found turns seen live to have opened, which of them the host sent
-   * on its own, and the compactions it saw during runs, to remember them.
+   * on its own, the compactions it saw during runs, and which came from a visual, to remember them.
    */
   readonly onTurnsSeen?: (
     entryIds: readonly string[],
     autoIds: readonly string[],
     compactions: ReadonlyMap<string, SeenCompaction>,
+    sources: ReadonlyMap<string, VisualSource>,
   ) => void;
 }): SessionTranscript {
   const { sessionId, newId, now } = options;
@@ -270,6 +276,7 @@ export function createSessionTranscript(options: {
       turnId: live.draft.id,
       clientMessageId: live.draft.user.clientMessageId,
       auto: live.draft.user.auto,
+      ...(live.draft.user.source === undefined ? {} : { source: live.draft.user.source }),
       retryLimit: live.draft.retryLimit,
       durationMs: Math.max(0, now() - live.startedAt),
       thinkingMs: live.thinkingMs,
@@ -317,7 +324,7 @@ export function createSessionTranscript(options: {
         ];
       }
       const events = finishLive(false);
-      const { clientMessageId, auto } = origin();
+      const { clientMessageId, auto, source } = origin();
       const draft = new TurnDraft(
         newId(),
         {
@@ -326,6 +333,7 @@ export function createSessionTranscript(options: {
           clientMessageId,
           auto,
           command: messageCommand(message),
+          ...(source === undefined ? {} : { source }),
           timestamp: message.timestamp,
         },
         null,
@@ -465,6 +473,7 @@ export function createSessionTranscript(options: {
     const records = seen.slice(seen.length - count);
     const opened: string[] = [];
     const auto: string[] = [];
+    const sources = new Map<string, VisualSource>();
     entries.forEach((entry, index) => {
       const facts = records[index]?.facts;
       // Stryker disable next-line ConditionalExpression: rebuilds happen between runs, when every turn has ended and has facts.
@@ -472,12 +481,13 @@ export function createSessionTranscript(options: {
         factsByEntry.set(entry.id, facts);
         opened.push(entry.id);
         if (facts.auto) auto.push(entry.id);
+        if (facts.source !== undefined) sources.set(entry.id, facts.source);
       }
     });
     // Stryker disable next-line ArrayDeclaration: see `seen`.
     seen = [];
     const compactions = bindCompactions(fresh);
-    if (opened.length > 0 || compactions.size > 0) options.onTurnsSeen?.(opened, auto, compactions);
+    if (opened.length > 0 || compactions.size > 0) options.onTurnsSeen?.(opened, auto, compactions, sources);
   }
 
   /**
@@ -570,6 +580,7 @@ export function createSessionTranscript(options: {
         options.opened,
         options.auto,
         compactionsByEntry,
+        options.sources,
       ).items;
       items = withHostNotices(projected, hostNotices);
       awaiting = new Set(

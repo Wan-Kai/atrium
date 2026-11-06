@@ -47,6 +47,8 @@ import { REMOTE_FILE } from "./remote/devices";
 import { loadIndexFile } from "./store/index-file";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
+import { defaultVisualsDir, visualPlaceOf } from "./visuals/visual-place";
+import { createVisualService } from "./visuals/visual-service";
 import { openReceipts } from "./remote/receipts";
 import { discoverProjects } from "./projects/discovery";
 import { createIndexCommands } from "./sessions/index-commands";
@@ -312,6 +314,19 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const worktreeNaming = new AbortController();
   // Who else wants to know the sessions changed: an update waits for running sessions to finish.
   const sessionListeners = new Set<() => void>();
+  /**
+   * Where a session's visuals go.
+   *
+   * @remarks
+   * Every session has the default one until a container gives its own (SPEC-0007; ML4 adds study directions').
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @returns The directory, or `null`.
+   */
+  function visualsDir(sessionId: string): string | null {
+    return defaultVisualsDir(home.root, sessionId);
+  }
   const sessions = createSessionManager({
     chatsRoot: join(home.root, "chats"),
     // A pi started while pi is being updated waits, so it is the new one.
@@ -415,6 +430,27 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       if (setAside !== null) logger.warn({ sessionId }, "turn starts file was damaged and has been reset");
       return starts;
     },
+    visualsDir,
+  });
+  // Inline visuals (SPEC-0007): each session's directory, its pages, and messages sent from them.
+  const visuals = createVisualService({
+    // A fork or child also reads the visuals of the sessions it came from (SPEC-0007, MV1 details).
+    locate: (sessionId) =>
+      visualPlaceOf(
+        sessionId,
+        (id) => {
+          const entry = catalog.find(id);
+          return entry === undefined
+            ? undefined
+            : { cwd: entry.cwd, parent: entry.parent?.sessionId ?? null, detachedFrom: entry.detachedFrom };
+        },
+        visualsDir,
+      ),
+    steer: (command, source) => sessions.steer(command, [], source),
+    send: (connectionId, event) => subscriptions.sendTo(connectionId, event),
+    clock,
+    resources,
+    logger,
   });
   const translations = createReplyTranslations({
     source: (sessionId, turnId) => sessions.replyTranslationSource(sessionId, turnId),
@@ -642,6 +678,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       attachments,
       changes,
       files: createWorkspaceFiles({ dirOf: (workspaceId) => workspaces.dirOf(workspaceId), git, logger }),
+      visuals,
       logger,
       tracer: tracing.tracer,
       clock,
@@ -785,6 +822,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await logins.close();
     attachments.close();
     await changes.close();
+    visuals.close();
     await workspaces.close();
     await sessions.close();
     await catalog.close();

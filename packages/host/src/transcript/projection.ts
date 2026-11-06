@@ -1,5 +1,5 @@
 import { type LogEntry, agentSource } from "@atrium/pi";
-import type { Notice, TranscriptItem } from "@atrium/protocol";
+import type { Notice, TranscriptItem, VisualSource } from "@atrium/protocol";
 import { inputTokens } from "./rules";
 import { type CompactionStep, TurnDraft, type TurnFacts, messageCommand, noUser, steerText } from "./turn-draft";
 
@@ -51,8 +51,9 @@ function historyId(sessionId: string, entryId: string): string {
  * (SPEC-0001, `compaction`). Either way it has the input of the first later reply that says one.
  * Model changes, labels, system messages and other entries are skipped. Assistant messages before
  * any user message belong to no turn and are skipped too. A turn the host saw live gets the id,
- * `clientMessageId`, timings and whether the host sent it on its own that it had then, from
- * `facts`; one an earlier host run sent on its own is marked from `auto`.
+ * `clientMessageId`, timings, whether the host sent it on its own and the visual it came from that
+ * it had then, from `facts`; one an earlier host run sent on its own is marked from `auto`, one it
+ * saw come from a visual from `sources` (SPEC-0007, "回传").
  *
  * @sideEffects none
  * @param branch - The branch's entries, root first.
@@ -62,6 +63,7 @@ function historyId(sessionId: string, entryId: string): string {
  * that survived.
  * @param auto - Entries of messages an earlier host run sent on its own (SPEC-0001, "运行控制").
  * @param compactions - Compaction entries the host saw during a run, with what set each off.
+ * @param sources - Entries of messages an earlier host run saw sent from a visual, with which.
  * @returns The items and the entries that opened turns.
  */
 export function projectTranscript(
@@ -71,6 +73,7 @@ export function projectTranscript(
   opened: ReadonlySet<string> = new Set(),
   auto: ReadonlySet<string> = new Set(),
   compactions: ReadonlyMap<string, SeenCompaction> = new Map(),
+  sources: ReadonlyMap<string, VisualSource> = new Map(),
 ): Projection {
   // Stryker disable next-line ConditionalExpression,ArrayDeclaration: only looked up by entry id, which is never undefined or made up.
   const omitted = new Set(branch.flatMap((entry) => (entry.kind === "omission" ? [entry.targetId] : [])));
@@ -152,6 +155,7 @@ export function projectTranscript(
         }
         close();
         const known = facts.get(entry.id);
+        const source = known?.source ?? sources.get(entry.id);
         draft = {
           turn: new TurnDraft(
             known?.turnId ?? historyId(sessionId, entry.id),
@@ -161,6 +165,7 @@ export function projectTranscript(
               clientMessageId: known?.clientMessageId ?? null,
               auto: known?.auto ?? auto.has(entry.id),
               command: messageCommand(entry),
+              ...(source === undefined ? {} : { source }),
               timestamp: entry.timestamp,
             },
             known?.retryLimit ?? null,

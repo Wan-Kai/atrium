@@ -27,16 +27,25 @@
 
 - 渲染进程：`contextIsolation: true`、`sandbox: true`、`nodeIntegration: false`、`webSecurity: true`。
 - preload 只通过 `contextBridge` 暴露最小接口（宿主地址和 token、让用户选择文件夹、设置窗口外观；M1.5 起；拖进输入框的文件的路径，用 `webUtils.getPathForFile`，只对用户亲手拖进来的文件有用，M1.7 起；在访达中显示 pi 的位置和日志文件夹，M1.10 起；用默认浏览器打开工作区里的 HTML 文件，2026-10-15 起），不暴露 Node 或 IPC 本身。每个 IPC 处理函数都只回应应用自己页面的来源，外观只接受三个取值，在访达中显示只接受存在的绝对路径；用浏览器打开只接受扩展名是 `.html`、`.htm` 的绝对路径，用 `lstat` 确认是普通文件（不是符号链接、目录），再以 `file://` 地址交给 `shell.openExternal`，路径不记日志。桌面端不知道工作区在哪，工作区的边界由宿主守：界面只在宿主读到了这个文件之后才给"在浏览器打开"（`read_file` 只读工作区里的、路上没有链接的路径），被拒绝的、是链接的不给（2026-10-16 审查后定）。
-- 设置内容安全策略（CSP）：脚本只允许本应用；不允许 `eval`；图片允许本应用、`data:`、`blob:` 和 `https:`（回复里的远程图片，见下文"渲染内容"），连接只允许本应用。宿主直接提供的页面（单独运行时）由宿主加响应头；窗口里的页面从 `atrium://app/` 加载（overview.md"桌面端怎么启动宿主"），由 Electron 主进程转发宿主的文件并换上同样的策略，只额外允许连接宿主端口；开发时页面来自 Vite，主进程给它加的策略再额外允许内联脚本（React 热更新需要）。
+- 设置内容安全策略（CSP）：脚本只允许本应用；不允许 `eval`；图片允许本应用、`data:`、`blob:` 和 `https:`（回复里的远程图片，见下文"渲染内容"），连接只允许本应用；frame 只允许 `atrium-visual:`（交互演示，MV1）。宿主直接提供的页面（单独运行时）由宿主加响应头；窗口里的页面从 `atrium://app/` 加载（overview.md"桌面端怎么启动宿主"），由 Electron 主进程转发宿主的文件并换上同样的策略，只额外允许连接宿主端口；开发时页面来自 Vite，主进程给它加的策略再额外允许内联脚本（React 热更新需要）。
 - `atrium` 协议只转发到宿主的静态文件服务，路径校验和符号链接检查仍由宿主做；宿主的 `Origin` 白名单只多出 `atrium://app` 这一个来源。主进程判断"是不是自己的页面"时比较协议和主机名（`atrium:` 加 `app`），不用 `URL.origin`：Node 对非标准协议给出的 origin 是 `"null"`，所有不透明来源都相等。协议处理器只接受主机名 `app`。
 - 网页的权限请求一律拒绝，只有一个例外：应用自己的页面（同上，按协议和主机名比）写剪贴板（`clipboard-sanitized-write`，`navigator.clipboard.writeText`），复制按钮要用（2026-10-20 自用时补：原先连它也拒了，对话区的复制按钮一直没效果，e2e 为了不碰真剪贴板把 `writeText` 换成了假的，没发现）。读剪贴板（`clipboard-read`）照样拒绝，粘贴走输入框自己的 paste 事件，不需要它。
 - 禁止窗口导航到别的页面（`will-navigate`），禁止新开窗口（`setWindowOpenHandler` 一律拒绝）。
 - 外链只允许 `http` / `https`，用 `shell.openExternal` 交给系统浏览器。
+- 交互演示（SPEC-0007，MV1）：`atrium-visual` 协议只转发到宿主的 `/visual/<令牌>/<文件名>`，主进程换上演示的 CSP（见下文"渲染内容"）。默认 session 的 `webRequest.onBeforeRequest` 看发起请求的 frame：不是应用页面本身的，只放行 `atrium-visual:`、`data:`、`blob:` 和白名单站点里写死版本的地址，其他（包括演示把自己导航到别处）一律拦下；没有 frame 的请求（主进程自己的、Worker 的）只放行应用页面和宿主的源，以及上面同一份名单；重定向的每一跳都再查。预加载脚本在每个 frame 里都跑（`nodeIntegrationInSubFrames: true`，仍然 `nodeIntegration: false`、沙箱）：只有应用页面拿到 `window.atrium` 桥，别的 frame（演示和演示里再开的）里它只在页面脚本之前拿掉 WebRTC（见下文"渲染内容"）；IPC 照旧只回应应用页面的 frame。演示响应带 `X-DNS-Prefetch-Control: off`；但 `<link rel="dns-prefetch">` 仍会让 Chromium 解析演示写的域名（e2e net-log 实测），能把数据编进域名发给 DNS。**接受的残余风险**（2026-11-06 用户定）：漏的只有域名，经 DNS 查询发到对方的权威服务器，没有 HTTP 请求、请求体和回应，演示读不到结果；Electron 没有开关，整个应用的解析白名单会弄坏回复里的远程图片，agent 本身也能用工具联网。以后要堵：远程图片改走宿主转发后给整个应用加 `--host-resolver-rules` 白名单，或等 Electron/Chromium 有关掉 frame DNS 预解析的开关。主进程在 `before-input-event` 里接住 ⌘W、⌘,，经 IPC 告诉页面（焦点在演示里时页面收不到按键），只发这两个动作的名字。拦下的只记总数，不记地址和站点（站点名可能是模型编进去的数据）。演示的权限请求照上一条全部拒绝（它的来源不是应用页面）。截图的 IPC 只回应应用页面，只接受窗口内、有限大小的矩形（按页面缩放换算），图片只回给页面、不写盘。主进程把窗口里鼠标按下的位置（只有坐标）发给页面，页面收到时就看按在哪个元素上，用来认演示里的点按。
 - 本机打包的 Atrium.app（overview.md"桌面端怎么启动宿主"）只做 ad-hoc 签名，没打开 Electron fuses 的加固（关掉 `ELECTRON_RUN_AS_NODE`、命令行调试参数等），留到对外分发时和签名公证一起定（2026-10-11 定）。只在本机用时，能改这个应用的进程本来就能改用户的其他文件；端到端测试还要靠调试参数驱动它。
 
 ## 渲染内容
 
-- 回复的 Markdown 不执行原始 HTML，按文本显示（Streamdown 自带 rehype-harden）。文件标签的 Markdown 预览（2026-11-04）复用这套渲染与图片/链接规则，相对路径以文档所在目录为基准，绝对路径仍限制在工作区；含 `..` 的地址仍拒绝，不放宽宿主读取和符号链接限制，不新增脚本执行、外部服务或 CSP 权限。
+- 回复的 Markdown 不执行原始 HTML，按文本显示（Streamdown 自带 rehype-harden）。**唯一的例外是交互演示**（SPEC-0007，MV1，2026-11-05 定）：回复里的 `visual` 代码块只是一个文件引用，被引用的 HTML 片段跑在沙箱 iframe 里，不进应用页面的 DOM，回复正文里的 HTML 照旧不执行。沙箱：
+  - 文件只认会话的演示目录（默认 `~/.atrium/visuals/<会话 id>/`，由会话所在的容器决定）里的 `.html`，路上不能有符号链接（真实路径必须在演示目录的真实路径里，最后一段 `O_NOFOLLOW`），最多 1 MB；打开之后再从演示目录的真实路径一段一段 `lstat` 到这个文件（每段都不能是链接），和打开的文件比设备号、inode，不一样就不给：查完、打开之前有人把中间的目录换成链接也读不到外面的文件。分叉和子对话还能读上级会话的演示目录（只读，见 SPEC-0007）。路径、内容不进日志，读文件的错误先换成错误码再往外抛，路由的日志里也没有路径。
+  - 独立的源：`atrium-visual://<令牌>/<文件名>`，令牌 16 字节随机、写成小写十六进制（它是地址的主机名，主机名不分大小写），只在宿主这次运行的内存里，一个令牌只对应一个文件；不用 `srcdoc`。iframe 只给 `sandbox="allow-scripts"`、`referrerpolicy="no-referrer"`；响应头的 CSP 从 `default-src 'none'` 起，`connect-src 'none'`，脚本、样式只许内联、`atrium-visual:` 和 CDN 白名单，不开 `'unsafe-eval'`，另加 `sandbox allow-scripts`，单独打开这个地址也是不透明源。
+  - CDN 白名单 6 个站点（见"外部边界登记"），4 个代码站点只放行地址里写死完整版本号的，由主进程按站点检查（见上文"Electron"）。**接受的风险**：写死的那个版本本身有问题；它跑在沙箱里、不能联网、拿不到对话。jsDelivr 的 `/gh/` 只认完整提交号和 `vX.Y.Z` 标签；esm.sh 自己的 Node 垫片 `/node/<名字>.mjs` 放行，它按范围引的依赖照旧拦下（2026-11-06 用户定；系统提示要求写死完整版本、esm.sh 上加 `?bundle`）。字体站点不带版本，照放，**接受的风险**（2026-11-06 定）：演示能在字体地址的查询参数里带数据发给 Google 的字体服务。
+  - 演示能做的只有一件事：用户刚在演示里点过时，经 postMessage 发一条消息。界面检查 iframe 是焦点元素、页面有用户激活，并且主进程报来的最近一次鼠标按下在 5 秒内、按下时最上面的就是这个 iframe（被裁掉、盖住的部分不算，之后滚动也不换主人）、还没用过（片段能把焦点移进自己，借 Atrium 里或别的演示里那次点按的激活）；别的条件都过了才用掉这次按下；宿主回 `dropped` 时演示得到"没发出"；一次按下最多一条，最多 4 000 字符；宿主再限速（同一个演示 1 秒一条），超出的丢掉，只记次数。这条消息当作用户在这个会话里发的，记"来自演示"的来源。演示读不到对话、文件、凭据和输入框，收不到回复。
+  - WebRTC：CSP 管不到，也不经过 `webRequest`，所以整个关掉（2026-11-06 用户定，演示用不上）。外壳的桥先于片段运行，把演示 frame 全局上所有 `RTC*`、`webkitRTC*` 名字定义成不可配置、不可写的 `undefined`（片段 `delete`、`defineProperty` 都改不回）；演示里再建的 `about:blank` 子 frame 是另一个不透明源，读不到它的全局；`srcdoc` 子 frame 自己跑脚本、有一份新的 `RTCPeerConnection`（MV1 三方审查发现，`frame-src 'none'` 管不到），`srcdoc` 不经过请求，`will-frame-navigate` 也看不到它，所以由每个 frame 都跑的预加载脚本在页面脚本之前拿掉 WebRTC（上文"Electron"）；`data:`、`blob:` 子 frame 被请求过滤拦下；Worker 里没有 `RTCPeerConnection`，`RTCDataChannel` 不能直接构造。窗口另设 `setWebRTCIPHandlingPolicy("disable_non_proxied_udp")`。e2e 用 STUN/UDP 和 TURN over TCP（`turn:…?transport=tcp`）对着陷阱服务器试，连同删了再装、子 frame（`about:blank`、`document.write`、`srcdoc`、`data:`、`blob:`）、Worker 几条路，陷阱一个包、一个连接都没收到；去掉外壳里的这一步，TURN over TCP 能连到陷阱（反向对照）。
+  - 焦点在演示里时按键归演示，Atrium 页面的快捷键收不到；只有 ⌘Q、⌘W、⌘, 照常（⌘Q 在菜单上，⌘W、⌘, 由主进程接住）。
+  - `window.open`：iframe 的 sandbox 没有 `allow-popups`，渲染进程直接返回 `null`，到不了 `setWindowOpenHandler`（它的参数里也没有发起的 frame，分不出来），e2e 实测系统浏览器没被叫起。
+文件标签的 Markdown 预览（2026-11-04）复用这套渲染与图片/链接规则，相对路径以文档所在目录为基准，绝对路径仍限制在工作区；含 `..` 的地址仍拒绝，不放宽宿主读取和符号链接限制，不新增脚本执行、外部服务或 CSP 权限。
 - 回复里的 `https` 远程图片直接显示（2026-10-07 定）。**接受的风险**：模型输出（可能受网页、文件里的提示注入影响）可以把信息编进图片地址，图片一加载就发到对方服务器。为了看图方便接受这一点，限制在：只放开 `https`，`http` 图片不加载、显示成链接；原始 HTML 不渲染，图片只能来自 Markdown 的图片语法。
 - 链接一律交给系统浏览器，不在应用内打开。
 - PlantUML（2026-10-20）：官方纯 JavaScript 引擎按需加载到专用 module worker，不提供 Node、文件读取、token、客户端或预加载桥；worker 不允许网络、动态脚本和本地文件加载，不自动回退公共服务器。引擎用 worker 内的 XML DOM 构造 SVG、用 OffscreenCanvas 测量文字；这个 XML DOM 没有页面、脚本执行、资源加载或导航能力，不提供真实页面 DOM。标准库、外部 include 和额外主题资源不开放；输入、输出、并发、等待数量和时间上限见 SPEC“回复渲染”，超时或取消时终止 worker。生成的 SVG 当作不可信图片，只用 `blob:` 图片展示，绝不注入页面 DOM；不开放内联链接和外部资源。保持现有 CSP，不增加 `unsafe-eval`、`wasm-unsafe-eval` 或任意外部连接。
@@ -147,6 +156,12 @@ MP3a，协议见 [SPEC-0005](../specs/0005-mobile-app-and-remote-access.md)。�
 | `<Claude 订阅登录的模型 baseUrl>/api/oauth/usage` （拼出） | 请求 | Atrium 的 pi 扩展（`pi/src/plan/extension.ts`） | Claude 只在订阅登录（`isUsingOAuth`）时查套餐用量；根是模型的 `baseUrl`，去掉末尾的 `/` | ADR-0010 |
 | `http://127.0.0.1:*` | 请求 | 桌面端主进程（`main/main.ts`）连宿主，`atrium` 协议拼上请求路径转发到这里；宿主（`server/ws-server.ts`）把它当自己的来源 | 本机宿主的地址和 `Origin` 白名单 | 本文"WebSocket 与鉴权" |
 | `ws://127.0.0.1:*` | 请求 | 桌面端主进程（`main/main.ts`）写进 CSP 的 `connect-src`；界面（`app/app.tsx`）把宿主地址的 `http` 换成 `ws` 连过去 | 页面只允许连本机宿主 | 本文"Electron" |
+| `https://cdnjs.cloudflare.com` | 请求 | 交互演示的 iframe（模型写的片段）；桌面端主进程（`main/visual-sandbox.ts`）只放行 `/ajax/libs/<名字>/<x.y.z>/…`，宿主（`visuals/shell.ts`）写进 CSP，扩展（`pi/src/visuals`）在系统提示里列出 | 演示从 CDN 加载库 | SPEC-0007"沙箱" |
+| `https://cdn.jsdelivr.net` | 请求 | 同上；只放行 `/npm/<包>@<x.y.z>/…`、`/gh/<用户>/<仓库>@<40 位提交号或 vX.Y.Z>/…` | 同上 | 同上 |
+| `https://esm.sh` | 请求 | 同上；只放行包名带 `@<x.y.z>` 的路径和 esm.sh 的 Node 垫片 `/node/<名字>.mjs` | 同上 | 同上 |
+| `https://unpkg.com` | 请求 | 同上；只放行 `/<包>@<x.y.z>/…` | 同上 | 同上 |
+| `https://fonts.googleapis.com` | 请求 | 同上；不带版本，照放（查询参数能带数据，接受的风险） | 演示加载字体 | 同上 |
+| `https://fonts.gstatic.com` | 请求 | 同上 | 同上 | 同上 |
 | `http://localhost:*` | 比对 | 宿主（`server/ws-server.ts`） | `Origin` 白名单里的另一种写法 | 本文"WebSocket 与鉴权" |
 | `http://host.invalid` | 比对 | 宿主（`server/static-files.ts`） | 解析请求路径用的假基准地址，不会连 | — |
 | `http://relay.invalid` | 比对 | relay（`relay.ts`） | 解析请求路径和 `?host=` 用的假基准地址，不会连 | — |
@@ -231,4 +246,4 @@ MP3a，协议见 [SPEC-0005](../specs/0005-mobile-app-and-remote-access.md)。�
 
 ## 测试
 
-每一条都要有测试证明：没有 token、token 错误、来源不对的连接被拒绝；渲染进程里拿不到 Node；导航和新窗口被拦截；日志里搜不到测试时用的 token 和 API Key；`@` 搜索不会返回工作区之外的文件。追踪表里单列"安全"一组。
+每一条都要有测试证明：没有 token、token 错误、来源不对的连接被拒绝；渲染进程里拿不到 Node；导航和新窗口被拦截；日志里搜不到测试时用的 token 和 API Key；`@` 搜索不会返回工作区之外的文件。交互演示（MV1）另要证明：演示里 `fetch`、`WebSocket`、`window.open`、`top.location`、导航自己、读 `parent.document`、加载白名单外和没写死版本的脚本、请求摄像头都失败；脚本自己调 `sendMessage` 被丢掉；演示目录外、符号链接（含查完再换成链接）、太大的文件不给；`srcdoc` 等子 frame 里的 WebRTC、DNS 预解析、重定向到名单外都出不去。追踪表里单列"安全"一组。

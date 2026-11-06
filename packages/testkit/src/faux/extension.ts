@@ -166,10 +166,25 @@ function declaredTools(context: {
  * @returns The assistant message.
  */
 function toAssistantMessage(reply: FauxReply): AssistantMessage {
+  const visuals = visualsDirOf(process.argv);
+  /**
+   * Puts the session's directory for visuals where a script wrote `{{visuals}}`.
+   *
+   * @remarks
+   * See `visualsDirOf`.
+   *
+   * @sideEffects none
+   * @param text - The scripted text.
+   * @returns It with the directory.
+   */
+  const placed = (text: string): string => (visuals === null ? text : text.replaceAll("{{visuals}}", visuals));
   const blocks = reply.blocks.map((block) => {
     if (block.type === "thinking") return fauxThinking(block.text);
-    if (block.type === "text") return fauxText(block.text);
-    return fauxToolCall(block.name, { ...block.arguments }, { id: block.id });
+    if (block.type === "text") return fauxText(placed(block.text));
+    const args = Object.fromEntries(
+      Object.entries(block.arguments).map(([key, value]) => [key, typeof value === "string" ? placed(value) : value]),
+    );
+    return fauxToolCall(block.name, args, { id: block.id });
   });
   if (reply.error !== undefined)
     return fauxAssistantMessage(blocks, { stopReason: "error", errorMessage: reply.error });
@@ -199,6 +214,32 @@ function instructionsOf(context: { readonly systemPrompt?: string; readonly mess
   const parts = Object.values(sections ?? {}).filter((part): part is string => typeof part === "string");
   const content = "content" in system && typeof system.content === "string" ? system.content : "";
   return [content, ...parts].filter((part) => part !== "").join("\n\n");
+}
+
+/**
+ * The session's directory for visuals, from the flag the host gives Atrium's extension.
+ *
+ * @remarks
+ * `--atrium-visuals=<base64url JSON>` (SPEC-0007); a script writes `{{visuals}}` where the model
+ * would write the directory its instructions name, so an end-to-end test can have the model
+ * write a visual and reference it without knowing the session's id.
+ *
+ * @sideEffects none
+ * @param argv - pi's arguments.
+ * @returns The directory, or `null` when the host gave none.
+ */
+function visualsDirOf(argv: readonly string[]): string | null {
+  const flag = argv.find((arg) => arg.startsWith("--atrium-visuals="));
+  if (flag === undefined) return null;
+  try {
+    const launch: unknown = JSON.parse(
+      Buffer.from(flag.slice("--atrium-visuals=".length), "base64url").toString("utf8"),
+    );
+    const dir: unknown = typeof launch === "object" && launch !== null ? Reflect.get(launch, "dir") : null;
+    return typeof dir === "string" ? dir : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -35,6 +35,8 @@ import {
 } from "../state/workspace-views";
 import { NewWorkspaceBottom, NewWorkspacePage } from "./new-workspace-page";
 import type { StoreApi } from "zustand";
+import { desktopBridge } from "./bootstrap";
+import { playMenuShortcuts } from "./menu-shortcuts";
 
 /** What the user calls each index file in the reset notice. */
 const FILE_NAMES: Readonly<Record<IndexFileName, string>> = {
@@ -113,6 +115,8 @@ function useTabShortcuts(
   pages: StoreApi<NewWorkspaceState>,
   views: StoreApi<WorkspaceViews>,
 ): void {
+  // ⌘W and ⌘, the main process took, as with the focus in a visual (SPEC-0007, "键盘").
+  useEffect(() => playMenuShortcuts(desktopBridge()?.onShortcut), []);
   useEffect(() => {
     /**
      * Acts on a ⌘ shortcut.

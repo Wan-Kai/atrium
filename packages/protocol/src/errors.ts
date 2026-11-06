@@ -110,6 +110,15 @@ export const ErrorCode = z.enum([
   "branch_name_failed",
   /** Reply translation failed; `params.reason` identifies the safe failure category, never model output. */
   "translation_failed",
+  /**
+   * The visual a reply names is not a `.html` file in the session's directory for visuals, or a link
+   * lies on its way (SPEC-0007, "接口与数据").
+   */
+  "visual_outside",
+  /** Nothing is at the visual's path, or the session's directory for visuals does not exist. */
+  "visual_missing",
+  /** The visual file is over 1 MB. */
+  "visual_too_large",
   /** The session's pi did not load Atrium's Fast extension, so Fast cannot be switched there (ADR-0008). */
   "fast_unavailable",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */

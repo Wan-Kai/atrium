@@ -581,7 +581,10 @@ describe("SessionCatalog before its first scan", () => {
     await sessions.detach("c1");
 
     expect(sessions.find("c1")?.parent).toBeNull();
-    expect(file.read().sessions[0]).toMatchObject({ sessionId: "c1", name: "x" });
+    // It still reads the visuals of the session it came from (SPEC-0007, MV1 details).
+    expect(sessions.find("c1")?.detachedFrom).toBe("s1");
+    expect(sessions.find("s2")?.detachedFrom).toBeUndefined();
+    expect(file.read().sessions[0]).toMatchObject({ sessionId: "c1", name: "x", detachedFrom: "s1" });
     expect(Object.keys(present(file.read().sessions[0], "the first record"))).not.toContain("parent");
     expect(changes()).toBe(before + 1);
   });

@@ -78,6 +78,8 @@ export {
   WatchDiffCommand,
   ListDirCommand,
   ReadFileCommand,
+  ResolveVisualCommand,
+  SendVisualMessageCommand,
   ReadPiConfigCommand,
   SavePiConfigCommand,
   CheckSetupCommand,
@@ -247,3 +249,4 @@ export {
   DeliveryItem,
   SessionAgent,
 } from "./agent";
+export { VISUAL_FILE_MAX, VISUAL_MESSAGE_MAX, VisualChangedEvent, VisualPath, VisualSource } from "./visuals";

@@ -1,5 +1,5 @@
 import type { AssistantPart, LogMessage } from "@atrium/pi";
-import type { AgentSource, MessageCommand, Step, Turn } from "@atrium/protocol";
+import type { AgentSource, MessageCommand, Step, Turn, VisualSource } from "@atrium/protocol";
 import {
   type FinishedOutcome,
   type LastStop,
@@ -61,6 +61,8 @@ export interface TurnFacts {
   readonly clientMessageId: string | null;
   /** The host sent the message to have the agent go on (SPEC-0001, "运行控制"). */
   readonly auto: boolean;
+  /** The visual the message was sent from (SPEC-0007, "回传"); absent for a typed one. */
+  readonly source?: VisualSource;
   /** From the user message to the end of the run, by the host's clock. */
   readonly durationMs: number | null;
   /** How long each thinking step took, by step id. */
