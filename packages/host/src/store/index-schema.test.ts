@@ -54,4 +54,47 @@ describe("the index's file specs", () => {
       ),
     ).toStrictEqual([true, true, false]);
   });
+
+  it("reads a mark kept before protocol 32 as having no failure text (SPEC-0005)", () => {
+    const doc = {
+      ...SESSIONS_FILE.empty(),
+      sessions: [
+        {
+          sessionId: "s1",
+          containerId: "wks_a",
+          cwd: "/a",
+          draft: false,
+          archived: false,
+          createdAt: 0,
+          attention: { reason: "error", at: 3, cleared: false },
+        },
+      ],
+    };
+
+    expect(SESSIONS_FILE.schema.parse(doc).sessions[0]?.attention).toStrictEqual({
+      reason: "error",
+      at: 3,
+      cleared: false,
+      text: null,
+    });
+  });
+
+  it("keeps a mark's failure text, which may be short (SPEC-0005)", () => {
+    const doc = {
+      ...SESSIONS_FILE.empty(),
+      sessions: [
+        {
+          sessionId: "s1",
+          containerId: "wks_a",
+          cwd: "/a",
+          draft: false,
+          archived: false,
+          createdAt: 0,
+          attention: { reason: "error", at: 3, cleared: false, text: "overloaded" },
+        },
+      ],
+    };
+
+    expect(SESSIONS_FILE.schema.parse(doc).sessions[0]?.attention?.text).toBe("overloaded");
+  });
 });

@@ -360,5 +360,12 @@
     "to": "",
     "test": "packages/pi/src/visuals/visuals.test.ts",
     "name": "asks for exact pinned versions"
+  },
+  {
+    "file": "packages/host/src/sessions/read-only-transcripts.ts",
+    "from": "compactions: starts.compactions, sources: starts.sources }",
+    "to": "compactions: starts.compactions }",
+    "test": "packages/host/src/sessions/read-only-transcripts.test.ts",
+    "name": "rebuilds with the turn starts the host recorded"
   }
 ]

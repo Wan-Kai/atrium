@@ -109,23 +109,24 @@ export function withResult(step: ToolStep, result: ToolResult): ToolStep {
  * A preview of a long text: its start, or its end.
  *
  * @remarks
- * At most `STEP_TEXT_LIMIT` bytes of UTF-8, never cutting a character in half.
+ * At most `limit` bytes of UTF-8, never cutting a character in half.
  *
  * @sideEffects none
  * @param text - The text, longer than the limit.
  * @param keepEnd - Whether to keep the end rather than the start.
+ * @param limit - The most bytes.
  * @returns The preview.
  */
-function preview(text: string, keepEnd: boolean): string {
+function preview(text: string, keepEnd: boolean, limit: number): string {
   // Stryker disable next-line StringLiteral: an empty encoding is UTF-8.
   const bytes = Buffer.from(text, "utf8");
   if (keepEnd) {
-    let start = bytes.length - STEP_TEXT_LIMIT;
+    let start = bytes.length - limit;
     // A continuation byte is the middle of a character.
     while ((bytes[start] ?? 0) >> 6 === 0b10) start += 1;
     return bytes.subarray(start).toString("utf8");
   }
-  let end = STEP_TEXT_LIMIT;
+  let end = limit;
   while ((bytes[end] ?? 0) >> 6 === 0b10) end -= 1;
   return bytes.subarray(0, end).toString("utf8");
 }
@@ -138,11 +139,12 @@ function preview(text: string, keepEnd: boolean): string {
  *
  * @sideEffects none
  * @param text - The text.
- * @returns Whether it is over `STEP_TEXT_LIMIT` bytes.
+ * @param limit - The most bytes that travel whole.
+ * @returns Whether it is over `limit` bytes.
  */
-function tooLong(text: string): boolean {
+function tooLong(text: string, limit: number): boolean {
   // Stryker disable next-line ConditionalExpression,EqualityOperator,StringLiteral: the length check only spares counting the bytes of short text, which cannot be too long; an empty encoding is UTF-8.
-  return text.length > STEP_TEXT_LIMIT / 4 && Buffer.byteLength(text, "utf8") > STEP_TEXT_LIMIT;
+  return text.length > limit / 4 && Buffer.byteLength(text, "utf8") > limit;
 }
 
 /**
@@ -153,13 +155,15 @@ function tooLong(text: string): boolean {
  * write's content, an edit's diff and long strings in its arguments, travels as a preview, and
  * the step says it is `partial`, so the UI can fetch it whole. A command's output keeps its end,
  * where errors are, as pi does; every other text keeps its start. Short steps are returned as
- * they are.
+ * they are. A phone gets a smaller limit (SPEC-0005, "给手机推什么"); cutting a preview again gives
+ * what cutting the whole text would.
  *
  * @sideEffects none
- * @param step - The whole step.
+ * @param step - The whole step, or one already cut to a larger limit.
+ * @param limit - The most bytes of one text that travel whole.
  * @returns The step to send.
  */
-export function forTransport(step: Step): Step {
+export function forTransport(step: Step, limit = STEP_TEXT_LIMIT): Step {
   if (step.kind !== "tool") return step;
   let partial = false;
   /**
@@ -174,9 +178,9 @@ export function forTransport(step: Step): Step {
    * @returns The text or its preview.
    */
   const shorten = (text: string, keepEnd = false): string => {
-    if (!tooLong(text)) return text;
+    if (!tooLong(text, limit)) return text;
     partial = true;
-    return preview(text, keepEnd);
+    return preview(text, keepEnd, limit);
   };
   /**
    * Shortens the long strings anywhere in an argument value.
@@ -211,12 +215,13 @@ export function forTransport(step: Step): Step {
  * See `forTransport`.
  *
  * @sideEffects none
- * @param item - The whole item.
+ * @param item - The whole item, or one already cut to a larger limit.
+ * @param limit - The most bytes of one text that travel whole.
  * @returns The item to send.
  */
-export function itemForTransport(item: TranscriptItem): TranscriptItem {
+export function itemForTransport(item: TranscriptItem, limit = STEP_TEXT_LIMIT): TranscriptItem {
   if (item.kind !== "turn") return item;
-  const steps = item.steps.map(forTransport);
+  const steps = item.steps.map((step) => forTransport(step, limit));
   return steps.every((step, index) => step === item.steps[index]) ? item : { ...item, steps };
 }
 

@@ -344,14 +344,6 @@
     "filter": "SyncCoreReviewTests/closesTab"
   },
   {
-    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
-    "from": "    for summary in index.sessions where summary.handedOff && openSessions.contains(summary.sessionId) {",
-    "to": "    for summary in index.sessions where false {",
-    "name": "handed-off settles",
-    "runner": "swift",
-    "filter": "SyncCoreReviewTests/handedOff"
-  },
-  {
     "file": "apps/ios/AtriumKit/Sources/AtriumUI/Sync/SyncModel.swift",
     "from": "    guard status == .syncing, let generation = await connection.openGeneration else { return }",
     "to": "    guard status == .syncing else { return }\n    let generation = await connection.generation",
@@ -366,14 +358,6 @@
     "name": "sync starts on opening",
     "runner": "swift",
     "filter": "SyncModelTests/foregroundReconnect"
-  },
-  {
-    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SessionState.swift",
-    "from": "    if status == .loading { status = .handedOff }",
-    "to": "    status = .handedOff",
-    "name": "only a waiting session becomes handed off",
-    "runner": "swift",
-    "filter": "SyncCoreReviewTests/handedOff"
   },
   {
     "file": "apps/ios/AtriumKit/Sources/AtriumUI/Sync/SyncModel.swift",

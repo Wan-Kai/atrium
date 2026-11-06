@@ -754,6 +754,36 @@ function callEntry(id: string, parentId: string, callId: string): LogEntry {
   };
 }
 
+/**
+ * Turns of a user message, one bash call printing `output`, and a short reply.
+ *
+ * @remarks
+ * The reply keeps the next user message a new turn rather than a steer.
+ *
+ * @sideEffects none
+ * @param count - How many turns.
+ * @param output - What each call printed.
+ * @returns The entries, `u0` first, the last reply `d<count-1>` the leaf.
+ */
+function toolTurns(count: number, output: string): LogEntry[] {
+  const entries: LogEntry[] = [];
+  let parent: string | null = null;
+  for (let index = 0; index < count; index += 1) {
+    entries.push(
+      userEntry(`u${index}`, parent, `${index}`),
+      callEntry(`a${index}`, `u${index}`, `c${index}`),
+      { ...resultEntry(`r${index}`, `a${index}`, `c${index}`), text: output } as LogEntry,
+      {
+        ...callEntry(`d${index}`, `r${index}`, ""),
+        parts: [{ type: "text", text: "done" }],
+        stopReason: "stop",
+      } as LogEntry,
+    );
+    parent = `d${index}`;
+  }
+  return entries;
+}
+
 /** A compaction entry. */
 function compactionEntry(id: string, parentId: string): LogEntry {
   return {
@@ -1203,6 +1233,18 @@ describe("createSessionTranscript pages", () => {
     });
     expect(ids(present(session.before("s:u3", 1, 4_194_304), "a page").items)).toStrictEqual(["s:u2"]);
     expect(ids(present(session.before("s:u1", 10, 1), "a page").items)).toStrictEqual(["s:u0"]);
+  });
+
+  it("counts a page's bytes with steps cut to a smaller limit when given, and sends them so", () => {
+    const { transcript: session } = transcript();
+    const entries = toolTurns(4, "o".repeat(15_000));
+    session.rebuild({ entries, leafId: "d3" }, false);
+
+    expect(ids(present(session.before("s:u3", 3, 30_000), "a page").items)).toStrictEqual(["s:u2"]);
+    const phone = present(session.before("s:u3", 3, 30_000, 512), "a page");
+    expect(ids(phone.items)).toStrictEqual(["s:u0", "s:u1", "s:u2"]);
+    const step = (phone.items[0] as Turn).steps[0];
+    expect(step).toMatchObject({ kind: "tool", partial: true, output: "o".repeat(512) });
   });
 
   it("pages back from an item, and knows no item it does not have", () => {

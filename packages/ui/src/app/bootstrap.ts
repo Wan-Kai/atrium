@@ -22,6 +22,11 @@ interface AtriumBridge {
   onPointerDown?: (listener: (point: { x: number; y: number }) => void) => () => void;
   /** Hears ⌘W and ⌘,, which the main process takes before the page or a visual hears them; returns how to stop. */
   onShortcut?: (listener: (shortcut: "close-tab" | "settings") => void) => () => void;
+  /**
+   * Opens a terminal in a workspace's directory, or in the home folder for `null`
+   * (SPEC-0001, "在终端中打开").
+   */
+  openTerminal?(dir: string | null): Promise<void>;
 }
 
 /**

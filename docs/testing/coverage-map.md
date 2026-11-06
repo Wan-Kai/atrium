@@ -4,9 +4,9 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
-## MV1 对话里的交互演示（SPEC-0007，2026-11-05，待验收）
+## MV1 对话里的交互演示（SPEC-0007，2026-11-05，2026-11-06 验收）
 
-回复里 `visual` 代码块内联成沙箱演示；协议 32（`resolve_visual`、`send_visual_message`、`visual_changed`、`Turn.user.source`）。实现时定的细节（2026-11-06 已全部由用户确认）见 SPEC-0007"MV1 实现时定的细节"。
+回复里 `visual` 代码块内联成沙箱演示；协议 35（分支上是 32，2026-11-06 合回 main 时 main 已用到 34，改为 35；`resolve_visual`、`send_visual_message`、`visual_changed`、`Turn.user.source`）。实现时定的细节（2026-11-06 已全部由用户确认）见 SPEC-0007"MV1 实现时定的细节"。
 
 | 需求 / 风险 | 验证 |
 |---|---|
@@ -32,6 +32,7 @@
 验证记录（2026-11-06，worktree `mv1-inline-visuals`，未提交）：
 
 - `pnpm check` 通过（格式、oxlint 含 JSDoc、类型、knip、`boundary --all`：未登记 0、不精确 0、`ios:check`）。
+- 2026-11-06 合进 `main`（ML1、去掉交接、MP6e、代理 relay；协议改为 35）后：`pnpm check` 通过；`pnpm test` 4748/4748；AtriumKit 475/475；`pnpm test:host` 251/251；`pnpm test:ui` 1219/1219；e2e `visuals.spec.ts`（3）+ `visuals.leak.spec.ts` + `study.spec.ts` 5/5；`pnpm test:leak` vitest 23/23、e2e 11/12（`ask-user.leak.spec.ts` 留下"运行中"图标，单独跑 3 次失败 1 次，偶发，与演示无关，没修，也没在 `main` 上单独验证）；break-check 51/51（合并后补一条：只读会话的对话记录带上演示来源，`read-only-transcripts.test.ts`）。
 - 2026-11-06 用户定两条（DNS 预解析作为残余风险接受、esm.sh 范围依赖照旧拦下并在提示里要 `?bundle`）：只改文档和系统提示；`pnpm check` 通过；`pnpm test` 4511/4511；`pnpm test:host` 245/245；新的提示断言 `asks for exact pinned versions…` 在 break-check 里 CAUGHT（共 50/50）；`pnpm test:pi` 没跑（装的 pi 1.5.0 没有夹具，同前）。
 - 2026-11-06 三方审查修改后重跑（最新）：`pnpm check` 通过（`boundary --all` 未登记 0）；`pnpm test` 4509/4510（失败的仍是 testkit `git.test.ts` 在全量负载下 5 秒超时，与本改动无关，没修）；`pnpm test:host` 245/245；`pnpm test:ui` 1203/1204（失败的仍是 `status-bar.browser.test.tsx` 那条，单独跑通过，没修）；e2e `visuals.spec.ts`（3 条）+ `visuals.leak.spec.ts` 4/4；`pnpm test:leak` vitest 20/20、e2e 11/12（`viewers.leak.spec.ts` 全量里两次都失败、单独跑 5 次都通过，留下的是一个空状态占位，与演示无关，没修）；AtriumKit 408/408。break-check 49/49 CAUGHT（新写的整份；`realFolder`、`O_NOFOLLOW` 两条去掉了：打开后的逐段检查也拦得住，单删一层测试抓不到，属于两层防护）。变异：`visuals` 组 91.1%（visual-service 81.0、visual-file 89.6、visual-place 93.2、visual-sandbox 97.9、shell 96.8、shortcuts 100、pi 95.8/100）；ui 的 visual-presses、visual-snapshots 98.2%；客户端改动的两段 81.5%。e2e 反向对照：去掉每个 frame 的预加载脚本时 `srcdoc` 的 TURN 连上陷阱（抓住）；把 `requestFrame` 的导航判断弄坏时仍然通过——四个演示的导航另有一层（没查清是哪层）也拦住了，导航分类只靠单元测试证明。
 - 2026-11-06 补堵 WebRTC 后重跑：`pnpm check` 通过；`pnpm test` 4481/4481；`pnpm test:host` 245/245；e2e `visuals.spec.ts` + `visuals.leak.spec.ts` 3/3（两次）；新 break-check 一条 CAUGHT（共 22/22）；shell.ts 增量变异 93.55%（新代码在脚本字符串里，Stryker 不变异，由 break-check 盖住）。UI、Swift、全量泄漏这次没改到，没重跑。
@@ -43,6 +44,89 @@
 - 变异（增量）：`visuals` 组 92.03%（visual-sandbox 97.1、shell 93.5、visual-file 91.8、visual-place 88.9、visual-service 82.1、pi extension 100、pi visuals 93.0）；ui 组里新增的 visual-presses、visual-reference、visual-snapshots 93.33%。
 - 没跑：`pnpm test:pi`（装的 pi 1.5.0 没有录好的夹具，已有的 52 条合约测试在这台机器上失败，与本改动无关）、`test:package`、`test:stress`、`test:soak`、`pnpm package`（按要求不打包）。
 - WebRTC（2026-11-06 补）：外壳关掉 `RTC*`；e2e 反向对照：去掉这一步时 `rtc`、`rtc-webkit`、`rtc-restore` 成功，陷阱收到两个 TCP 连接（TURN），测试失败。
+
+## 学习模式 ML1：方向容器与新建方向（SPEC-0008，2026-11-05）
+
+方向是第三种容器（`lrn_<目录名>`，目录在 `~/Atrium/Learning/`，设了 `ATRIUM_HOME` 时在 `$ATRIUM_HOME/Learning/`）；侧栏"学习"一行、学习首页、新建方向页、方向主页标签。协议 32。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 扫描学习目录下一层带标记文件的目录；`Archive/` 下是归档的；名字不合 id 的、没有标记的、链接、文件都不算；`Archive` 不分大小写保留；同名时归档的那个不列、记日志 | `packages/host/src/study/directions.test.ts` |
+| 标记文件读不出（不是 JSON、缺名字、超过 1 MiB、是目录）按讨论中显示、标出坏了；有阶梯的不是讨论中 | 同上 |
+| 监听：方向来了、归档、删掉后过一会儿重扫；学习目录不在时不监听，建好后开始；只看前两层 | 同上；`mattersToDirections` 的逐项用例 |
+| 监听和计时器在关闭后都放掉；宿主里建、归档、恢复几轮后资源计数回到基线 | `packages/host/src/study/directions.leak.test.ts`（leak 项目，含 Node 的 `FSEventWrap` 计数） |
+| 起名：一次一次性 pi，消息当数据、截 1200 码点，标题模型 → 页上的模型 → pi 默认；只有图片时不调；失败只记类别不记内容；可取消、关闭时等待 | `packages/host/src/study/direction-namer.test.ts` |
+| 建目录：`AGENTS.md` 模板、`lab/` 的 `git init`、标记文件；重名（学习目录或 `Archive/`、不分大小写）加 `-2`…，再随机；没有 git 时照样建 `lab/` 并记日志；建不了报 `direction_create_failed`、日志不带路径 | `packages/host/src/study/direction-creator.test.ts` |
+| 新建方向的命令：起名 → 建目录 → 列出 → 建讨论会话（`study: { kind: "discuss" }`）；归档：停会话 → 移目录 → 忘掉标签 → 放开；恢复冲突（空目录、文件）拒绝且不动；归档到 `Archive/` 已有的名字也拒绝；别名、置顶、上次打开写进 `learning.json` | `packages/host/src/study/study-commands.test.ts`、`entering.test.ts`、`store/learning-records.test.ts` |
+| 真实宿主经 WebSocket：第一条消息之前什么都不建；之后目录、标记文件、AGENTS.md、`lab/.git` 都在，会话在方向里、带 `study`，客户端到了方向里；归档后目录在 `Archive/` 下、标签没了、不能新建会话；恢复后会话能打开、能新建；原处有东西时恢复被拒；窗口聚焦后列出外面建的方向；归档的方向的会话打开不起 pi、快照从会话文件重建、发消息报 `session_cwd_missing`（2026-11-06） | `packages/host/src/study.host.test.ts` |
+| 只读的对话记录：按会话文件重建成空闲快照、文件只读一次、翻页/步骤/轮的条目只认它的 epoch、放下后不认识（2026-11-06） | `packages/host/src/sessions/read-only-transcripts.test.ts` |
+| 会话目录归到方向（终端里开的按 `cwd`），归档的方向的会话仍归它；坏的 `study` 字段当作没有 | `packages/host/src/sessions/session-catalog.test.ts` 两条 |
+| pi 在方向目录里读 AGENTS.md，不需要信任（`.pi/SYSTEM.md` 不生效） | `packages/pi/src/contract/study.pi.test.ts`（夹具 `pi-1.5.0/study-agents.jsonl`） |
+| 协议：命令、结果、错误码、`directions`、`study` 的往返和拒绝 | `packages/protocol/src/envelope.test.ts`；Swift 往返夹具 |
+| 路由和手机：方向的命令交给 StudyCommands；手机不能用 | `packages/host/src/server/router.test.ts`；`remote-policy` 的穷举 |
+| 列表推送和客户端：方向的增删改 | `packages/host/src/sync/index-feed.test.ts`、`packages/client/src/index-view.test.ts` |
+| 界面：侧栏"学习"一行、空状态、新建方向页（发出前不建）、发出后到讨论会话、`/atrium-` 在建之前拒绝并放回输入框、首页"继续"和卡片顺序、卡片 ···（置顶、改名、归档）、已归档和恢复、恢复冲突的说明、方向主页标签（讨论中、会话列表按最近活动、点一行打开、被会话标签盖住、再点回来）、没有"继续讨论"、整张卡片进方向、"继续"卡的"打开"、有会话在跑时归档先确认（取消不归档）、归档方向的主页有恢复和会话列表、归档方向的会话只读（没有输入框和分叉，下面一行加"恢复"，恢复后照常）、讨论会话第一轮下的"建了方向"（只第一轮、跟着改名、不是讨论会话不显示）、"学习"一行和收件箱的汇总不算归档方向的会话（2026-11-06 改） | `packages/ui/src/study/study.browser.test.tsx`；纯逻辑 `packages/ui/src/study/learning.test.ts` |
+| 桌面端整条：从侧栏到新建、发出第一条消息、讨论回复、"建了方向"一行、目录和记录、主页标签、归档、归档后只读地看讨论、恢复冲突、恢复、点卡片进方向再从会话列表接着谈 | `apps/desktop/e2e/study.spec.ts` |
+
+验证记录（2026-11-05）：
+
+- `pnpm check` 通过（含 knip、JSDoc、`boundary --all`、iOS 检查）；`pnpm boundary`：无新依赖、地址、环境变量、隐藏命令，协议 31 → 32。
+- 单元 4471/4472：`testkit/src/git.test.ts` 一项在整套并发时 5 秒超时，单跑 3/3 通过，未改相关代码。宿主层 248/248（首轮 11 项因本机 PATH 最前面是 cmux 的 `pi` 包装脚本、pi 检测失败而红，去掉它后全过，与本改动无关）。leak 22/22。完整 UI 1193/1194：`status-bar.browser.test.tsx` 一项在整套下找不到 tooltip，单跑 3/3 通过，未改相关代码；学习模式 UI 9/9。Swift AtriumKit 406/406。pi 契约只跑了新的 `study-agents`（录了 `pi-1.5.0` 夹具）；其余契约仍缺 1.5.0 夹具，未跑。
+- Electron：`study.spec.ts` 以及 `chats`、`new-workspace`、`inbox` 共 6/6；其余 e2e、性能、打包未跑。
+- 破坏检查 `packages/host/test/study.break-check.json` 25 处全部检出（首轮 `tab-bar` 的 `!homeShown` 漏检，补了"主页显示时会话标签不选中"的断言后检出）。
+- 变异：新增分组 `study`（`study/*.ts`、`store/learning-records.ts`）93.59%（526 杀 / 36 存活；首轮 76.76%，删掉只在竞争时走到的 rename 兜底、补测试，等价的用 `Stryker disable` 写明）；`ui` 组 `study/learning.ts` 94.48%；`shared` 组 `ids.ts` 100%。宿主 `host` 组里改到的 `session-catalog.ts`、`session-manager.ts`、`index-feed.ts` 没跑增量变异（每个变异要跑整套宿主测试），改到的行由破坏检查守。
+
+评审后补（2026-11-06，三方评审 gpt-6-astra、grok-4.7、Claude）：
+
+| 行为 | 测试 |
+|---|---|
+| 学习目录或 `Archive/` 是链接时不列、不监听；标记文件是链接不算方向；学习目录本身是链接时启动解析不跟进去 | `packages/host/src/study/directions.test.ts` |
+| 扫描开始后宿主加的方向不被这次扫描丢掉，下一次扫描按磁盘判断；监听开始时补扫一次 | 同上 |
+| 归档冲突在停会话之前拒绝（`study_archive_conflict`）；移动先占位，占位被放进东西就拒绝，东西和方向都不动；别的失败按错误码记日志、不带路径（`study_move_failed`）；经链接的学习目录或 `Archive/` 不建、不归档、不恢复（`learning_dir_unsafe`）；新建排在同名方向的移动之后；关闭时等起名中的新建，之后不再建；讨论会话没建成时照样给方向（`sessionId` `null`）；打开归档的方向不记"上次打开"；记录"上次打开"失败的日志只有错误码 | `packages/host/src/study/study-commands.test.ts` |
+| shell 里的 `GIT_DIR` 等不让 git 跑到别的仓库，新方向的 `lab/` 是自己的仓库 | `packages/host/src/platform/git.test.ts`、`packages/host/src/study/direction-creator.test.ts` |
+| `learning.json`、`chats.json`：清掉最后一个已知字段时，带着新版本字段的记录留下；空的或超过 256 字的名字不给客户端；`learning.json` 坏了重置并报告 | `packages/host/src/store/{learning-records,chat-records,load-index}.test.ts` |
+| 会话目录的第一次扫描等学习目录扫完 | `packages/host/src/sessions/session-catalog.test.ts` |
+| 只读副本：epoch 0；同时要的只读一次；读到一半被作废的不放回去；最多留 32 个、最久没用的先放；没人看的放掉 | `packages/host/src/sessions/read-only-transcripts.test.ts`；泄漏 `read-only-transcripts.leak.test.ts`（翻 200 个归档会话也只留 32 个，放掉后为 0） |
+| 归档方向的会话：发消息、插话、重试、继续队列、改名、压缩、导出、搜文件、新建会话都报 `direction_archived`，旧目录在也一样，不起 pi；快照 epoch 0；没人看、关标签、方向恢复后放掉副本 | `packages/host/src/sessions/session-manager.test.ts`；真实宿主 `packages/host/src/study.host.test.ts`（旧目录又建出来后发消息仍被拒） |
+| 显示名：emoji 组合（ZWJ、旗帜标签）保留、按看到的字符截 16 个，零宽空格和方向控制符整行不用 | `packages/host/src/study/direction-namer.test.ts` |
+| 界面：面包屑"学士帽 学习 › 方向名"；⌘1 和 ⌘⇧[ ] 算上主页标签，主页显示时 ⌘W 不关会话；归档方向没有"+"和"新建"；排好阶梯的方向不标"讨论中"；讨论会话没建成时进方向主页说明；归档冲突的说法；"建了方向"、空状态、归档确认框用宿主给的 `learningDir`，归档后仍写建的地方 | `packages/ui/src/study/study.browser.test.tsx`；`packages/ui/src/study/learning.test.ts`（没建成讨论时改在方向里新开会话） |
+
+手机与学习模式（2026-11-06 用户定选项 A）及补建的讨论会话：
+
+| 行为 | 测试 |
+|---|---|
+| 手机对方向或方向里会话的命令（打开、订阅含续传点、发消息、插话、重试、停止、继续队列、翻记录、看步骤、看图、在方向里新建、进方向、改名、归档、清提醒、关标签、换模型、列命令、压缩）都按 `local_only` 拒绝，什么都不执行；Mac 照常；手机碰工作区的会话照常 | `packages/host/src/server/router.test.ts` |
+| 给手机的 `session_cwd_missing` 不带 `cwd`，给 Mac 的照旧带 | 同上 |
+| 给手机的列表快照和变更里没有方向、方向里的会话、方向的标签、学习目录（`learningDir` 只给 `~`） | `packages/host/src/server/remote-policy.test.ts`；连接出口 `packages/host/src/server/connection.test.ts` |
+| 方向里的第一个会话记成讨论用途，之后的不是；新建方向时讨论会话没建成、界面补建的会话有"建了方向"一行 | `packages/host/src/sessions/session-manager.test.ts`；`packages/ui/src/study/study.browser.test.tsx` |
+
+验证记录（2026-11-06，按用户回答补做）：
+
+- `pnpm check` 通过。单元 4474/4474，宿主层 249/249，UI 1198/1198（学习模式 13/13），leak 22/22。Electron：`study`、`chats`、`new-workspace`、`inbox` 全过；其余 e2e 未跑。
+- 破坏检查新增 16 处全部检出（首轮 `openSession` 里只读会话不起 pi 的那行漏检，宿主层测试补了"从主页打开"后检出）。宿主层用例补了 `project`。
+- 变异：`sessions/read-only-transcripts.ts` 并进 `study` 组，92%（剩下空文件的叶子、重建的 `reset`、步骤的 epoch 判断）；`ui` 组 `study/learning.ts` 94.16%。`session-manager.ts`、`conversation-area.tsx`、`turn-view.tsx` 的改动由破坏检查守。`hold` 里"pi 跑起来后丢掉只读副本"一行没有测试能看出来（假的 pi 不写会话文件），说明在交付报告里。
+
+## 在终端中打开；拿掉"交给终端"（2026-11-05）
+
+用户定：标签栏"···"里的"在终端中继续"改成"在终端中打开"，只开终端、不再交接——不停 pi、不写索引、不复制也不运行命令。目录是会话所在工作区的目录，对话用 `~`；cmux 装着就在它当前窗口新开一个工作区并切到 cmux，没跑就先启动，没装就用系统"终端"。整套交接机制（`hand_off` / `take_back`、`handedOff`、"已在终端中继续"面板、子对话的 `handed_off` 状态、`agent_handed_off`）一并去掉，协议 33。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 开在会话的工作区目录；对话（没有工作区）用 `~` | `packages/ui/src/app/workbench.browser.test.tsx` "opens a terminal in the session's workspace, and in the home folder for a chat"；`apps/desktop/src/main/open-terminal.test.ts` "opens the home folder for a chat" |
+| 桌面壳：cmux 已运行就在当前窗口新建工作区（`--cwd` 目录、`--focus true`）并把 cmux 提到前面；cmux 没跑就启动并等它应答；没有 cmux 就用 `open -a Terminal <目录>` | `open-terminal.test.ts` "adds a workspace in the window cmux shows…"、"launches cmux when it is not running…"、"opens Terminal.app in the directory…"、"prefers the cmux inside the app…"、"makes its own window…" |
+| 15 秒内 cmux 没起来算失败，菜单旁显示"打开终端失败" | `open-terminal.test.ts` "gives up when cmux never answers"；`workbench.browser.test.tsx` "says so when the terminal does not open" |
+| 浏览器里没有这个桥：入口置灰并说明 | `workbench.browser.test.tsx` "has no terminal to offer outside the desktop app" |
+| 主进程只接受 `null` 或存在的绝对目录，其它忽略（security.md"Electron"） | `apps/desktop/src/main/main.ts` 的 `isOpenableDirectory`；IPC 校验由下面的破坏检查和 Electron 端到端层看，不做单元替身 |
+| 交接机制整段去掉：协议 33 的样例、索引里的旧 `handedOff` 不再读、手机端状态与文案、子对话状态与错误码 | `packages/protocol/src/envelope.test.ts`、`agent.test.ts`、`remote.test.ts`；`packages/host/src/sessions/{session-catalog,agent-relay}.test.ts`；`packages/pi/src/agent/{words,channel}.test.ts`；`apps/ios/AtriumKit/Tests/AtriumSyncTests/*`（协议往返夹具由 `pnpm protocol:swift` 重写） |
+
+验证记录：
+
+- 代码与文档先改（SPEC-0001"标签栏""关键流程""在终端中打开"、SPEC-0002、SPEC-0005"协议改动 7"、domain-model"已决定 16"、security.md、external-terminal.md），再改实现。
+- `pnpm check` 通过；unit 4346/4346；`pnpm test:host` 243/243；完整 UI 单 worker 1180/1180；Swift 473/473；`pnpm protocol:swift` 重新生成 Swift 类型和往返夹具。
+- `pnpm break-check apps/desktop/src/main/open-terminal.break-check.json` 10/10 全部检出（目录、cmux 顺序、Terminal 回退、启动等待、超时放弃、自带窗口、置灰条件、失败文案、调用本身）。
+- 变异：`pnpm test:mutation host --mutate=packages/host/src/server/remote-policy.ts` 80 个变异、98.75%，唯一存活在 `remote-policy.ts:132`（`create_session` 带 `child` 时 `local_only` 的既有条件，本任务没改这一行，测试也没覆盖这个分支）。`agent-relay.ts` 的定向变异跑了 40 分钟、2140 个变异只到 22%（55 个存活）就被停止，没有结论；协议和客户端的改动都是删除，没有对删除行做变异。下一次全量夜间变异会接着这份增量报告跑。
+- `pnpm test:pi` 仍是 52 项 "no fixture pi-1.5.0"（roadmap 里记过的既有问题，与本任务无关）；本任务没跑 Electron 端到端、泄漏、压力、打包和模拟器 UI 测试。
+- 没有在真实 cmux 上验收：会打开用户自己的窗口，留给用户试。删除的 e2e `hand-off.spec.ts` 和旧追踪表里关于交接的行不再对应现在的行为，保留为历史记录。
 
 ## Markdown 文件预览（M1.12 自用后补充，2026-11-04）
 
@@ -86,6 +170,7 @@
 | 宿主：`pinnedAt` 写进 `chats.json`，重复置顶保留首次时间，取消置顶清掉并删空记录；对话不存在 `chat_not_found`；列表推送一次 | `store/chat-records.test.ts` 两例、`sessions/index-commands.test.ts` 两例（其中一例放第二个对话，抓 `some → every`）、`server/router.test.ts` 两条命令 |
 | 手机可用：`pin_chat` / `unpin_chat` 对手机开放 | `server/remote-policy.test.ts`（41 条 phone） |
 | 手机：首页对话行按同一规则排，钉住的会话带图钉；对话页「···」置顶、失败按宿主码提示 | `HomeListTests.swift`"pinnedChats"、`SyncControlTests.swift`"pinChat"/"pinBeforeSync"、`HomeViewTests.swift` 的 `chatProblemText` |
+| 手机纸面改版合回 main（2026-11-04，用户定）：置顶入口从对话页「···」菜单挪到设置页"对话"组第一行，只在对话里打开时出现，字样按当前状态写"置顶这个对话"/"取消置顶"；首页对话行（`ChatRow`）名字后带图钉 | `SettingsPageTests.swift`"the pinning row says which way a tap goes"；行与图钉只有编译和手看，未写视图快照 |
 | 客户端：`pinChat` / `unpinChat` 发出正确的命令和 id | `atrium-client.test.ts`"pins and unpins a chat with its id" |
 
 最终验证：`pnpm check` 全链通过（格式、lint 含 JSDoc、递归＋根 typecheck、knip、boundary `unregistered 0 / not exact 0`、iOS 格式与 lint）；合进 `main` 后单元 4317 项、宿主 243 项、Swift 406 项通过；界面全量 1167/1167 通过（合并前的并行跑曾出现既有 `status-bar.browser.test.tsx`"opens a row…"与 `question-card.browser.test.tsx` 各一处失败，单文件 28/28、21/21 通过，合并后整套干净）。破坏检查 10 处全部检出（宿主 3、UI 4、客户端 1、Swift 2）。改动行变异：`sidebar/names.ts` 99.04%（207 Killed / 2 Survived，两处存活都在未改动的合并状态代码，逐处保留）；`sessions/index-commands.ts` 97.70%（85 Killed / 2 Survived，存活仍是既有的 `projects.workspaces()` 与 `windowFocused` 重扫，新增冷路径全杀）。首轮该文件 94.25% 时新增的 `chats().some → every` 存活，补第二个对话后复测死亡。未跑：Electron 端到端、桌面泄漏、模拟器 UI 测试（Swift 逻辑与 UI 文案在 macOS 上跑过）；未在真机上验证手机端置顶。
@@ -981,7 +1066,7 @@ Opus 未确认硬性规范、安全或正确性违规；提示事务恢复分支
 | 偏好：记住上一次的模型和每个模型的档位，新会话用它们，第 1 版文件升级 | `packages/host/src/store/preferences.test.ts`、`load-index.test.ts` | 已覆盖 |
 | 客户端：快照和 `model_updated` 的模型；容器的模型列表（加载中保留旧列表、失败带错误）；换模型和推理强度先在视图里生效，被拒绝时放回、宿主报告过的不动 | `packages/client/src/session-view.test.ts`、`atrium-client.test.ts` "models" | 已覆盖 |
 | 测试工具：faux 可加模型（名字、推理、图片、档位表）；脚本化的 pi 可把收到的命令写到 stderr；faux 的确定性测试把工具耗时规范化 | `packages/testkit/src/faux/faux.pi.test.ts`（修了 pi 1.1.0 的 `durationMs` 让它时有时无失败的问题） | 已覆盖 |
-| 界面：模型按钮（服务商图标、模型名、档位字、拉满时发光，没有模型时"选择模型"）；面板（两列：左边服务商图标栏 44×40、图标 22px、选中底色、当前模型所在服务商的小点、悬停或聚焦时左侧说出名字，右边选中服务商的模型、顶上名字和模型数、高度固定 320px；打开时选中当前模型的服务商、没有时选第一个；点图标切换、悬停不切换、面板尺寸不变；基础数据、当前模型打勾、点选即关、刷新、加载中保留旧列表、失败可展开原始报错并重试、没有可用模型的提示）；推理强度框（档位名、"3 / 4"、说明、每档 56px、拖动吸附、点格子跳档、方向键、到头不动、外部改档跟随、聚焦）；⌘⇧I / ⌘⇧E；停止中不能用；空状态显示上一次的模型、选模型时先建会话；被拒绝时说明原因 | `packages/ui/src/chat/model-picker.browser.test.tsx`、`effort-box.browser.test.tsx`、`chat.browser.test.tsx` "model button"；逻辑：`model-choice.test.ts` | 已覆盖 |
+| 界面：模型按钮（服务商图标、模型名、档位字、拉满时发光，没有模型时"选择模型"）；面板（两列：左边服务商图标栏 44×40、图标 22px、选中底色、当前模型所在服务商的小点、悬停或聚焦时左侧说出名字，服务商多到放不下时左列照样能滚、但不显示滚动条（2026-11-05），右边选中服务商的模型、顶上名字和模型数、高度固定 320px；打开时选中当前模型的服务商、没有时选第一个；点图标切换、悬停不切换、面板尺寸不变；基础数据、当前模型打勾、点选即关、刷新、加载中保留旧列表、失败可展开原始报错并重试、没有可用模型的提示）；推理强度框（档位名、"3 / 4"、说明、每档 56px、拖动吸附、点格子跳档、方向键、到头不动、外部改档跟随、聚焦）；⌘⇧I / ⌘⇧E；停止中不能用；空状态显示上一次的模型、选模型时先建会话；被拒绝时说明原因 | `packages/ui/src/chat/model-picker.browser.test.tsx`、`effort-box.browser.test.tsx`、`chat.browser.test.tsx` "model button"；逻辑：`model-choice.test.ts` | 已覆盖 |
 | 点阵：覆盖度、档位越高越密、拉满变彩色、同种子同图案、扫光、深浅色、扫光节奏 | `packages/ui/src/design/dots.browser.test.ts` | 已覆盖 |
 | 协议：`list_commands`、`search_files` 及其应答，`fd_missing` | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
 | `/` 命令：pi 契约（1.1.0：extension 命令、pi 自带的 `/llama` `/mcp`、模板、skill 的顺序；模板发出时展开；插话不收 extension 命令）；映射；控制器和会话管理器（草稿先启动 pi）；路由；客户端 | `packages/pi/src/contract/commands.pi.test.ts`、`catalog/commands.test.ts`、`session-controller.test.ts` "commands"、`session-manager.test.ts` "commands"、`router.test.ts`、`atrium-client.test.ts` | 已覆盖 |
@@ -2214,3 +2299,71 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 用样例同步数据截图（经真的 `SyncCore.receive`）：`pnpm ios:shot --gallery=location-sheet|new-session-missing|model-sheet|drawer [--dark]`，已逐张看过。
 - 没有自动测试、靠验收看：抽屉里的 relay、手机名、版本和"重新配对"；忘掉 Mac 清理失败时的提示；新建进行中不能点"×"；新会话页的失败提示只显示本页发起的。
 - 审查里决定不改的：hunk 之间的上下文不展开（协议没有按版本取内容的命令，SPEC 已写明）；签名到期用 `Date.now`（按天显示，`Signing` 本身接受注入的时间，界面层不另做时钟）；`ios-brand-icons.mjs` 不进 `pnpm check`（要 Playwright 的浏览器）。
+
+## MP6e 纸面改版（SPEC-0005，2026-10-28，进行中）
+
+| 行为 | 测试 |
+|---|---|
+| 手机纸面配色：纸、便签纸、浅底、正文、元信息、细线、深米色及浅底、墨色按钮、在问你、出错、通过、轨道；便签三级（卡住 / 等你 / 提醒）的纸色和字色，浅深两套 | Swift `DesignTokenTests`"takes the paper colour table of design-language" |
+| 打包的 Fraunces 斜体（"Atrium" 和 0–9）、Syne（"agent"）按自己的 PostScript 名注册，字形齐全；重复注册无害 | Swift `BrandFontTests`（关掉注册时三条都失败） |
+| 协议 32：`Attention.text` 必填、最多 300 字符；`SessionSummary.question` 的形状；版本 32 | `listing.test.ts`"Attention (protocol 32)"、`envelope.test.ts`（样例）、`remote.test.ts`（版本 32）；Swift `RoundTripTests`（重新生成的夹具、版本 32） |
+| 失败标记带 pi 的报错原文，截到 300 字符；崩溃的标记没有原文；看过之后原文保留 | `session-manager.test.ts`"SessionManager attention"（登录、其他失败、"keeps pi's failure text…"） |
+| 旧索引里没有 `text` 的标记读成 `null` | `index-schema.test.ts`"reads a mark kept before protocol 32…" |
+| 列表里最早一个没答的提问 / 对话框的名字：提问取第一题的第一行作标题、其余作说明，对话框取标题和 message；分别截到 200、300 字符；答完变 `null` | `session-manager.test.ts`"says since when…"（两条）、"names the first question…"、"names a confirmation…" |
+| 首页便签：卡住在等你前面、同级新的在前；标题和正文取报错原文或提问的 `question`，没有时用会话标题；报错正文用等宽；"项目 · 分支"；最多 8 张，其余算进"还有 N 件" | Swift `HomeListTests`"makes a note of each thing…"、"shows eight notes…" |
+| 一个 worktree 一行：按"问你 > 出错 > 运行 > 最新"选领头的会话，"等 N 个在跑"数其余在跑的，空 worktree 没有领头，已合并的收成一个数 | Swift `HomeListTests`"gives each open worktree one line…" |
+| 时间的说法：刚刚 / N 分钟 / N 小时 / 昨天 / 周几 / 几月几日（注入的时区和现在） | Swift `HomeListTests`"says how long ago…" |
+| "重试"立即重连：退避从 1 秒重新开始；没有网络时不试 | Swift `RemoteConnectionTests`"retrying now while waiting…" |
+| 首页整屏（便签、worktree 行、已合并折叠、对话组、浅深两色） | 没有自动测试，靠截图：`pnpm ios:shot --gallery=home [--dark]`，已看过 |
+| 设置页列出当前会话所在 worktree 的主对话（不含子对话、归档，新的在前；子对话打开时列父会话那一组） | Swift `HomeListTests`"lists a session's worktree's own conversations…" |
+| 外观一个按钮轮换：跟随系统 → 浅色 → 深色 → 跟随系统，按钮字和图标 | Swift `SettingsPageTests` |
+| 签名的值："还剩 N 天"、"今天到期"、"已过期" | Swift `SigningTests`"counts whole days left…" |
+| 设置页整屏（对话组、Mac、这台手机、忘掉、页脚，浅深两色） | 截图 `pnpm ios:shot --gallery=settings [--dark]`，已看过；切换对话、忘掉确认框、连不上的样子靠验收 |
+| 气泡下面的时间（"9:31"，按手机的时区）；子对话页的顶栏副标题"↳ 父会话"，普通对话没有副标题 | Swift `TurnLayoutTests`"puts the time you sent it under the bubble…"、`SessionSheetsTests`"says a child page belongs to its parent…" |
+| 对话页整屏（居中标题、纸条气泡和时间、桌面小猫换深米、扫光、两层输入框、模型按钮带 ⚡、墨色停止键，浅深两色） | 截图 `pnpm ios:shot --gallery=conversation [--dark]`，已看过；断线浮条、出错淡红块、排队和子对话数字靠验收 |
+| 提问 sheet："agent" 的字母依次跳（1.8 秒一轮，14% 处最高 4pt，40% 后停） | Swift `AgentWordTests`；整页靠截图 `pnpm ios:shot --gallery=question-sheet [--dark]`（样例是"已在 Mac 上回答"的状态） |
+| 模型 sheet 整屏（无搜索、服务商栏和竖线、深米点阵、深米 Fast 开关，浅深两色） | 截图 `pnpm ios:shot --gallery=model-sheet [--dark]`，已看过 |
+| 工作区页（改动卡片：Fraunces 行数、比例条）、新会话（无猫、两层输入框带位置）、diff 的 hunk 头深米、配对校验码纸卡、像素猫底块深米 | 截图 `pnpm ios:shot --gallery=new-session|diff-page`，已看过；工作区页和配对校验码靠验收 |
+| 变异测试：`pnpm test:mutation host --mutate=packages/host/src/store/index-schema.ts` 96.64%（存活 5 个都在这次没改的行）；补了"保留短的报错原文"一条杀掉 `max(300)→min(300)` | `index-schema.test.ts` |
+| 调试启动钩子：Debug 版从启动环境 `ATRIUM_PAIR_LINK` 取配对链接（去首尾空白，空的不算），模拟器走查时链接不经过任何人眼 | Swift `PairingLaunchLinkTests`（去掉 trim 后失败，已见过） |
+| 全 App 的系统控件（配对完成的勾、底栏按钮）用深米，不是系统蓝 | 模拟器走查截图（真 host + 脚本 pi + 本机 relay），已看过；没有布局单测 |
+| 首页两种空状态放一叠白纸，不放猫（方案 D）：纸边浅色用三级文字色、深色用二级文字色的 55%；阴影浅色暖棕、深色黑；出现时落定，减弱动态效果时不动 | Swift `PaperStackTests`（深色纸边改回三级文字色后失败，已见过）；样子靠截图 `pnpm ios:shot --gallery=cats [--dark]`；落定动画靠验收 |
+| 对话页：会话加载中时标题下浮一条纸面玻璃胶囊（转圈、"正在加载…"、无"重试"），加载完收起；断线时只显示重连胶囊；列表里不再写"正在加载…"灰字。对话正文小一号：回复 15.5pt、行高 1.5，气泡 14.5pt，过程步骤 12pt / 等宽 11.5pt，代码 12pt，行内代码 13pt | Swift `SessionPageTests`"floats one capsule under the title…"（函数不存在时失败，已见过）、`DesignTokenTests`"sets the conversation one size down…"（改回 16.5pt / 1.65 后失败，已见过）；样子靠截图 `pnpm ios:shot --gallery=conversation [--dark]`，加载胶囊靠验收 |
+| 模型 sheet 照桌面（2026-10-29）：⚡ 用桌面的 Hugeicons Flash（开时实心、关时线框）；推理强度框照 `effort-box.tsx`（点阵与 `paintDots` 逐点一致，拖动跟手、两端橡皮筋、松手吸附、点格直跳，只把顶档的渐变换成深米）；服务商列间距收窄、"套餐"小签放在图标右下内侧、滚出边缘先半透明模糊再消失；关闭、刷新用 44pt 纸面玻璃圆按钮 | Swift `ModelSheetDesktopTests`（点阵值来自在 Node 里跑桌面的 `paintDots`；改羽化、橡皮筋系数、模糊系数、闪电路径、取整方式各自失败，已见过）；样子靠截图 `pnpm ios:shot --gallery=model-sheet [--dark]`，已看过；拖动手感靠验收 |
+| 首页 worktree 按最近活动（最新会话的更新时间，没有会话按创建时间）从新到旧排，本地工作区不再固定在最前；先列 8 个，再多时"显示更多 N 个"原地展开 | Swift `HomeListTests`"orders open worktrees by their latest activity…"（只加上限、没排序时失败，已见过；上限改成 9 也失败）；展开的样子靠验收 |
+| 首页顶栏（"Atrium"、主机行、⋯）固定，列表从下面滑过时被两层纸面玻璃边模糊 | 模拟器上滑动截图，已看过；没有布局单测 |
+| 子对话、排队改成横向占满屏幕的底部面板（iOS 26 系统 sheet 在 large 以下两边留空，没有接口能贴边）：后面压暗、点空白或下拉关闭，标题靠左，子对话不写"最近更新的在前"和底部说明 | 截图 `pnpm ios:shot --gallery=children-sheet\|queue-sheet [--dark]`，已看过；对话页里的接线、拖动关闭、减弱动态效果时淡入淡出靠验收 |
+| 首页右下 +：点开以 + 为圆心的一圈玻璃圆钮（新对话在第一格，后面每个项目一个，按最近活动；项目进它最近活动的没合并的工作区）；超出一屏绕 + 拖动转，橡皮筋、惯性吸附、过第一格渐隐；点圆钮以外收起；涟漪弹出（每个晚 0.028 秒，名字晚 0.2 秒），毛玻璃从 + 圆形扩开 | Swift `PlaceRingTests`（角度、可转范围、橡皮筋、吸附、跨 ±180° 的角度差、渐隐、点中哪个、涟漪延迟；类型不存在时失败，已见过；渐隐在第一格浮点不等于 1 也抓到过）、`HomeListTests`"lists one ring place a project…"（函数不存在时失败，已见过）；模拟器上点开截图（浅色）已看过；转动手感、深色、减弱动态效果靠验收 |
+| 首页 + 和工作区页 + 整个圆都能点（`.contentShape(Circle())`）：真机 iOS 26.6.1 上玻璃本身不接触摸，原先只有 + 字形能点，点在圆的其余部分会穿透到下面的行（模拟器 26.5 上复现不出） | 没有自动测试（命中区域只有真机上不同）；靠真机验收 |
+| 等你处理：只有一张便签时宽度是屏宽减两边页边距（横向滚动里不能用 maxWidth .infinity，否则按标题一行的长度撑出屏幕）；便签的阴影不被横向滚动区裁掉 | 模拟器截图（三张、强制一张两种）已看过；没有布局单测 |
+| 首页 + 的圆环贴近 +：半径 92pt、隔 48°、一屏 3 个（-84° 到 -180°），两端外的圆钮都渐隐、点不中；等你处理下面不留边距；顶栏模糊区降到 180pt | Swift `PlaceRingTests`（`keepsKeysCloseToThePlus`、`fadesKeysOutsideTheSlots`、`findsTheKeyUnderATap` 的第四个圆钮，改常量前已见过失败）；间距和模糊区靠模拟器截图，已看过 |
+| 首页 + 展开时只在 + 和圆环后面铺一块半径 146pt、边缘 40pt 渐隐的毛玻璃圆，只有这块圆接触摸，页面其余地方照常能点；离开首页时收起；+ 按下不用系统玻璃鼓起 | Swift `PlaceRingTests.padsOnlyTheRing`（毛玻璃圆盖住三个圆钮和名字、不超过 160pt；加常量前已见过失败）；渐隐边缘、穿透和按压靠模拟器截图与点按，已看过 |
+| 首页 + 圆环的毛玻璃圆底色是"纸雾"（模糊上盖 72% 纸色），不发灰 | 颜色没有自动测试；模拟器截图和原型 B 对比过 |
+| 对话页每次更新只重画变了的那一轮：`TurnItem` 按轮次内容、是不是最新一轮、改动入口比较，不比较每次新建的闭包（原先流式输出时每个片段都让所有轮重画，约 345 次/秒） | Swift `TurnItemTests`（类型不存在时失败，已见过）；调试画廊 `conversation-stream`（4 轮历史 + 每 33ms 一个片段）实测轮次重画 1720 → 143 次/5 秒 |
+| 首页读的列表、"不是最新"、就绪、改动由 `SyncModel` 单独保存，只在列表变了时重建首页列表；对话流式输出时首页（压在对话页下面）既不重建也不收到变化通知 | Swift `SyncModelMirrorTests`（重建条件改成恒真、恒假都会失败，已见过）；真机录制里首页重建原先占我们代码采样约 10% |
+| 节流的缓存写入在主线程外编码和写盘；撤销时先等正在写的那次写完再删缓存 | Swift `SyncModelTests.cache`（推进 1 秒后列表和会话都写到盘上）；撤销等待没有单独的并发测试 |
+| 便签、用户气泡的阴影由纸张形状投，不由整块内容投 | 模拟器新旧截图对比外观不变；真机首页离屏渲染 83 → 27 次、超时帧 436/908 → 12/597，对话测速页 31 → 23 次 |
+| + 圆环收起时不挂圆钮和毛玻璃圆：`RingStage` 关→开启中（先挂上）→开→收起中（0.45 秒后卸下） | Swift `PlaceRingTests.mountsKeysOnlyWhileUsed`（类型不存在时失败，已见过）；模拟器上展开涟漪、收起都看过；真机首页离屏渲染再少 6 次 |
+| 心跳发出后收到宿主的任何一帧（含没收齐的消息块）都算回应，同一时刻或更早的不算；没有心跳回应、但长消息一直在到时不重连 | Swift `HeartbeatTrackerTests.anyFrameAnswers`、`SecureChannelTests.chunkIsHeard`、`RemoteConnectionTests.arrivingChunksKeepTheLink`（60 秒里每 5 秒一块、从不回心跳）；先红后绿；`>=` 的写法让已有的"两次没回应 35 秒重连"挂住，改为严格晚于；破坏检查 4/4 CAUGHT |
+| 发给手机的列表不带已归档的会话、工作区、对话，会话 `file` 一律 `null`；变更里归档的条目改成删除，原有删除保留；本机客户端照旧拿完整列表 | `remote-policy.test.ts`"the list as the phone gets it"3 项、`connection.test.ts`"sends the list without archived sessions"；先红后绿；破坏检查 9/9 CAUGHT |
+| 宿主发给手机的消息：手机在 `connect` 里要了 `deflate` 才压；不小于 1 KiB 且压完更小才压，`0x06`…`0x05` 分块；没要过就收到压缩块、同一条消息混用两类块、损坏、解压超过上限都关通道；Node 压的 Swift 能解 | TS `framing.test.ts`"compression"5 项、`channel.test.ts`"deflates large messages only for a phone that asked"、`phone-sync.host.test.ts`"reads the list deflated…"（真 relay、真宿主）；Swift `DeflateTests` 3 项（Node 生成的 raw deflate 夹具；2026-11-04 合回 main 时补：空输入按损坏处理，原先回退到临时数组指针，严格构建报悬空指针）、`RemoteConnectionTests.deflatedMessages`；破坏检查 12/12 CAUGHT（第一次跑时接线用例在破坏后挂住而非失败，已把接线测试改为"消息到了或连接断了"二选一等待，复验抓到） |
+| 手机打开会话只要 3 轮、256 KiB；会话页顶行出现时自动取更早的（`fetch_transcript` 3 条、256 KiB，同一会话一次一个），取到接在最前面并换上 `hasOlder`；`epoch` 变了或最早一条变了就丢掉应答；失败只结束"正在载入"；换代、关页作废 | Swift `SyncOlderTests` 7 项；先红后绿；破坏检查 7/7 CAUGHT（第一次漏了"同一最早条目、不同 epoch"，补测试后抓到）。顶行转圈和插入后视口不跳只编译和 lint 过，没在模拟器或真机上看过 |
+| 往上翻载入更早的不跳、不连取：顶行滚进屏幕才取（取完不算触发）；每批整块排版；插入前先把回复 Markdown 解析进缓存；最上面一条被推下多少就滚多少，跟住到手指再碰屏幕、最多 30 次；替换快照、手指在滚时不动 | Swift `OlderPlaceTests` 5 项、`SyncOlderTests` 增"批次大小""先看应答里的条目"2 项、`MarkdownCacheTests` 2 项；模拟器 `conversation-older` 图库（真实 `SyncCore`，0.8 秒后答 3 轮）：修前一次滑动连取 4 批、内容换成新插入的；修后只取 1 批、第 0 轮停在原处（top 102→1968→102），60 帧录屏插入时无变化帧；对照上一提交，`conversation-stream` 打开不在底部是原有现象，不是这次引入；破坏检查 12/12 CAUGHT（第一次 7 项因测试没有显示名、脚本认不出失败行而报 MISSED，手工复验确实能抓到，补上显示名后复验） |
+| 顶行在屏幕上时，会话同步好或换了新快照（`epoch` 变）也会再取；会话还在加载或等续传时不取 | Swift `OlderPlaceTests` 增"连上且同步好才取""新快照或同步好算一次变化"；真机探针日志确认打开时先用缓存那份发出请求；Mac 日志 03:38:15 一次 `transcript_changed` |
+| 给手机的工具步骤只发 512 字节预览（先 2 KB，实测仍大后改；快照、`step_added`、`step_updated`、手机的 `fetch_transcript` 应答），`bash` 取结尾、其余取开头，标 `partial`；对 16 KB 预览再缩和直接从原文缩一样；桌面照旧 | `rules.test.ts`"previews against a smaller limit…"、`remote-policy.test.ts`"conversations as the phone gets them"3 项（含"cuts to 512 bytes"）、`router.test.ts`"answers a phone's page of older turns…"；先红后绿 |
+| 手机展开 `partial` 的工具步骤时取完整步骤：只在同步后、只对在场的 partial 步骤、同一步一次一个；取回后整步换上（`epoch` 对得上才换），失败记下可重试；换代、关页作废；展开处"正在取完整内容…"/"没取到完整内容 · 重试" | Swift `SyncStepTests` 3 项、`RailRowsTests.partialStep`（含"探索了代码库"合并行列出其中每个预览步骤）；先红后绿。界面这两行没在模拟器或真机看过 |
+| 手机往上翻一页按 512 字节预览的大小算字节预算（宿主 `before(…, stepLimit)`，路由给手机传 512、给桌面不传），手机一页上限 1 MiB；一次三轮 | `session-transcript.test.ts`"counts a page's bytes with steps cut to a smaller limit…"（同样 30 KB 预算：桌面 1 轮、手机 3 轮）、`router.test.ts`"pages a phone's older turns with its short step limit…"、`session-controller.test.ts`"cuts a page's steps to the step limit it is given"、Swift `SyncOlderTests`（1 MiB）；先红后绿，破坏检查 5 处全抓到。`session-manager` 只转手，没单独测 |
+| 往上翻取到的一批等会话页滚动停下（手指离开、惯性停住）才插进去，最多等 3 秒；后面来的消息排在它后面。滚动停下时最上面一行在屏幕上也算一次触发 | Swift `SyncModelTests`"puts older turns in front only once the page's scroll rests, or after three seconds"、`OlderPlaceTests`"a scroll coming to rest is a change that fetches again"；先红后绿，破坏检查 4 处全抓到。会话页把滚动阶段写给 `ScrollRest`、停下时计数这两处接线没有单测，在模拟器 `conversation-older`（临时加重的样例轮次、帧计时探针）里看过：两批都在停下后插入、位置跟住，第二批自己取了；插入那一帧仍有 190～230 ms，只是不再落在滑动当中 |
+| 对话页标题下的雾换成渐进模糊（三层材质叠加、纸色 62%→52%→透明，到 160pt（真机看后从 82%、190pt 调淡）），停在最顶上时不显示、滚过 16pt 淡入；"正在载入更早的"换成两条细线夹转圈和字 | 视觉改动，没有单测：模拟器 `conversation-older`（临时把应答延到 30 秒）浅色停在顶上载入中、浅色往下滚、深色往下滚三张截图看过：标题清楚、标题后只剩隐约的字，细线一行在雾外面能看清。真机没看过 |
+| 手机对话页滑回来的回复不重排：快照的回复先解析进 `MarkdownCache`；屏幕上解析好的完成回复存进缓存（上限 256）；缓存命中就不再解析；代码高亮按语言和代码留 128 块，代码块一出来就上好色。标题的雾在载入更早的、跟住位置时也开着，滚过 16pt 立刻出现 | Swift `SyncModelTests`"parses a snapshot's replies before it goes in…"、`CodeHighlighterTests`"keeps what it highlighted…"；先红后绿，破坏检查 3 处全抓到。`StreamingReplyView` 命中缓存不再解析、解析后存缓存，和雾的开关没有单测：真机探针日志定位（滑动中的慢帧里本页和轮次都没重建、没有消息，滚动条长度在变），模拟器看过载入中雾下细线仍清楚；2026-10-30 用户在真机上确认"对话内 HTML 渲染调研"滑动顺了、插入时不再闪 |
+| 宿主连 relay 优先经设置里的代理（HTTP `CONNECT` 隧道，TLS 端到端）：控制连接、每台手机的数据连接、"测试连接"都经代理；上一次经代理在 `ready` 前失败，下一次直连，之后回到代理；relay 在本机或主机名在"不走代理"里的直连；日志只记"经代理/直连" | `relay-route.test.ts` 6 项、`relay-link.test.ts`"connects through the proxy…""goes direct after the proxy refused…""tests the relay through the proxy…"、`channel.test.ts`"opens the data connection the way the link's route chose…"（测试里起真的本地 CONNECT 代理 `test/connect-proxy.ts`）；先红后绿，破坏检查 9 处全抓到。`main.ts` 里把设置接给 `RelayRoute` 一处没有单测，打包后看宿主日志"relay connected"的 `via` 确认 |
+
+## Google 服务商图标（2026-11-05，待验收）
+
+用户 2026-11-05 要求把 pi 的 `google`（Gemini API，按量计费）在 Atrium 里显示成“Google”并换上官方的四色 G 图标。模型的名字、上下文、最大输出、是否收图照旧来自 pi 的目录，Atrium 不另配；没有新增服务商、没有新增查询。
+
+| 行为 | 验证 |
+| --- | --- |
+| 桌面模型按钮、服务商列表把 `google` 显示为“Google”并带官方图标，其他未知服务商仍显示 id 和首字母 | `packages/ui/src/chat/model-choice.test.ts`“names the providers it knows, with their icon, and others by their id”（先红后绿：去掉映射后该用例挂在 `{ name: "google", logo: null }`） |
+| 手机同一张映射表：`providerName("google")` 为“Google”、`logo("google")` 为 `google.png` | Swift `ModelChoiceTests.providers`（先红后绿：去掉映射后两个断言分别得到 `"google"` 和 `nil`） |
+| 图标是官方资源：`packages/ui/src/design/brand/google.png` 取自 Google 官方 gstatic 的 `googleg_standard_color_128dp.png`（128×128 透明底 PNG，原图不缩放），来源记在 `SOURCES.md`；手机那份由 `scripts/ios-brand-icons.mjs` 复制（该脚本对非 SVG 原样拷贝），重跑后只有 `google.png` 新增，其余图标无变动 | 目视 `SOURCES.md` 与 `git status`；未启动应用看实际渲染，也没有新增桌面 e2e 截图 |

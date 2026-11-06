@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { SessionAgent } from "./agent";
-import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
+import { ChatId, ContainerId, DirectionId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { StatusGroupId } from "./metrics";
 import { ModelRef, SessionModel, ThinkingLevel } from "./models";
 
@@ -91,6 +91,53 @@ export const Chat = z.strictObject({
 export type Chat = z.infer<typeof Chat>;
 
 /**
+ * A learning direction: a directory of its own under the learning directory, with sessions in it
+ * (domain-model §1, Direction; SPEC-0008).
+ *
+ * @remarks
+ * Found by its directory and its `.atrium-study.json`; whether it is archived is where its
+ * directory is, not a record. Its progress comes in ML2.
+ */
+export const Direction = z.strictObject({
+  id: DirectionId,
+  /** Where its directory is now: under `Archive/` while archived. */
+  dir: Path,
+  /** The display name its `.atrium-study.json` holds, else its directory's name. */
+  name: z.string().min(1).max(256),
+  /** The name the user gave it on the learning home; `null` for none. */
+  alias: z.string().min(1).max(256).nullable(),
+  /** Its `.atrium-study.json` could not be read; it shows as under discussion and is not written over. */
+  broken: z.boolean(),
+  /** It has no ladder yet: the discussion has not ended (SPEC-0008, "讨论"). */
+  discussing: z.boolean(),
+  /** Its directory is under `Archive/` (SPEC-0008, "方向是一种新容器"). */
+  archived: z.boolean(),
+  /** When its `.atrium-study.json` says it was created; `null` when it says nothing readable. */
+  createdAt: Timestamp.nullable(),
+  /** When the user pinned it; `null` when not pinned. */
+  pinnedAt: Timestamp.nullable(),
+  /** When a client last went into it; the learning home's "继续" is the latest (SPEC-0008, "入口"). */
+  lastOpenedAt: Timestamp.nullable(),
+});
+export type Direction = z.infer<typeof Direction>;
+
+/** What a learning session is for (SPEC-0008, "会话的用途"). */
+export const StudyKind = z.enum(["discuss", "plan", "lesson", "quiz", "feynman", "sheet", "project", "exam", "ask"]);
+export type StudyKind = z.infer<typeof StudyKind>;
+
+/** An id in a direction's progress: a level, a step or a gap. */
+const StudyRef = z.string().min(1).max(64);
+
+/** What a session of a direction is for, and which level, step or gap (SPEC-0008, "索引"). */
+export const SessionStudy = z.strictObject({
+  kind: StudyKind,
+  level: StudyRef.optional(),
+  step: StudyRef.optional(),
+  gap: StudyRef.optional(),
+});
+export type SessionStudy = z.infer<typeof SessionStudy>;
+
+/**
  * Why a session needs you, kept in the index until its next run starts (SPEC-0001, "并行、同步与关注").
  *
  * @remarks
@@ -102,8 +149,26 @@ export const Attention = z.strictObject({
   /** When it was set. */
   at: Timestamp,
   cleared: z.boolean(),
+  /**
+   * pi's text of the failure, cut to 300 characters; `null` for pi crashing, and for a mark an index
+   * from before protocol 32 kept (SPEC-0005, "协议改动" 6).
+   */
+  text: z.string().max(300).nullable(),
 });
 export type Attention = z.infer<typeof Attention>;
+
+/**
+ * What a session waits on you for, as the phone's note names it (SPEC-0005, "协议改动" 6).
+ *
+ * @remarks
+ * The agent's or the extension's own words, only cut: the first line of the first question (or a
+ * dialog's title) and the rest (or the dialog's message).
+ */
+export const AskingName = z.strictObject({
+  title: z.string().max(200),
+  detail: z.string().max(300).nullable(),
+});
+export type AskingName = z.infer<typeof AskingName>;
 
 /** pi's texts of a failure that comes from credentials (pi-internals.md §3, "一次性调用"). */
 const AUTH_FAILURE = /no api key|oauth|\b401\b|unauthorized|authentication|invalid[ _]api[ _]key|\/login/i;
@@ -152,8 +217,8 @@ export const SessionSummary = z.strictObject({
   attention: Attention.nullable(),
   /** Since when the oldest unanswered dialog has waited; `null` without one. */
   asking: Timestamp.nullable(),
-  /** Handed to pi in a terminal; Atrium starts no pi for it until taken back. */
-  handedOff: z.boolean(),
+  /** What the oldest unanswered dialog asks; `null` without one (SPEC-0005, "协议改动" 6). */
+  question: AskingName.nullable(),
   /**
    * The model and thinking level its file last records, as the child list shows them; `null` when
    * the file records none (a draft) or a level pi does not know (SPEC-0002, "显示 · 子对话条").
@@ -165,6 +230,8 @@ export const SessionSummary = z.strictObject({
   agent: SessionAgent.nullable(),
   /** How many of its deliveries wait since the host restarted, until you let them go (SPEC-0002, "送达"). */
   heldDeliveries: z.number().int().nonnegative(),
+  /** What a session of a direction is for; `null` for any other session (SPEC-0008, "索引"). */
+  study: SessionStudy.nullable(),
 });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 
@@ -177,7 +244,7 @@ export type ContainerTabs = z.infer<typeof ContainerTabs>;
 
 /** One client's layout (domain-model, "已决定 4"). */
 export const Layout = z.strictObject({
-  /** Where the client is: a workspace, a chat, or nowhere yet. */
+  /** Where the client is: a workspace, a chat, a direction, or nowhere yet. */
   container: ContainerId.nullable(),
   tabs: z.record(ContainerId, ContainerTabs),
 });
@@ -241,7 +308,7 @@ export const Preferences = z.strictObject({
 export type Preferences = z.infer<typeof Preferences>;
 
 /** Files of the index that were reset because they were damaged (domain-model §1, "索引的存储"). */
-export const IndexFileName = z.enum(["projects", "chats", "sessions", "layouts", "preferences"]);
+export const IndexFileName = z.enum(["projects", "chats", "learning", "sessions", "layouts", "preferences"]);
 export type IndexFileName = z.infer<typeof IndexFileName>;
 
 /** Why the host sent the whole list rather than changes after the client's cursor. */
@@ -268,11 +335,17 @@ export const IndexSnapshotEvent = z.strictObject({
   projects: z.array(Project),
   workspaces: z.array(Workspace),
   chats: z.array(Chat),
+  directions: z.array(Direction),
   sessions: z.array(SessionSummary),
   layout: Layout,
   preferences: Preferences,
   /** Files reset at this host's start because they were damaged; the UI tells the user once. */
   resets: z.array(IndexFileName),
+  /**
+   * The learning directory as the UI shows it, the home folder as `~` (SPEC-0008, "方向是一种新
+   * 容器"): a direction's place is it and the directory name.
+   */
+  learningDir: z.string().min(1).max(4096),
 });
 export type IndexSnapshotEvent = z.infer<typeof IndexSnapshotEvent>;
 
@@ -305,6 +378,7 @@ export const IndexChangesEvent = z.strictObject({
   projects: collectionChanges(Project, ProjectId),
   workspaces: collectionChanges(Workspace, WorkspaceId),
   chats: collectionChanges(Chat, ChatId),
+  directions: collectionChanges(Direction, DirectionId),
   sessions: collectionChanges(SessionSummary, SessionId),
   layout: Layout.nullable(),
   preferences: Preferences.nullable(),

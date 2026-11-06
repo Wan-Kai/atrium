@@ -170,7 +170,7 @@ struct SyncControlTests {
 
   @Test("clears an error the page shows once, and not an auth one, nor one already cleared")
   func clearAttention() {
-    var sync = attentiveCore(#"{"reason":"error","at":1,"cleared":false}"#)
+    var sync = attentiveCore(#"{"reason":"error","at":1,"cleared":false,"text":null}"#)
     #expect(
       sync.clearAttention("s1") == [
         .send(
@@ -179,9 +179,9 @@ struct SyncControlTests {
       ])
     #expect(sync.clearAttention("s1") == [])
 
-    var auth = attentiveCore(#"{"reason":"auth","at":1,"cleared":false}"#)
+    var auth = attentiveCore(#"{"reason":"auth","at":1,"cleared":false,"text":null}"#)
     #expect(auth.clearAttention("s1") == [])
-    var cleared = attentiveCore(#"{"reason":"error","at":1,"cleared":true}"#)
+    var cleared = attentiveCore(#"{"reason":"error","at":1,"cleared":true,"text":null}"#)
     #expect(cleared.clearAttention("s1") == [])
   }
 }

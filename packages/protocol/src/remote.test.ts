@@ -41,8 +41,8 @@ const pairing = {
 };
 
 describe("the coordinated remote contract", () => {
-  it("uses version 32, which adds inline visuals", () => {
-    expect(PROTOCOL_VERSION).toBe(32);
+  it("uses version 35, which adds inline visuals on top of learning directions and taking the hand-off out (SPEC-0005, 协议改动 7)", () => {
+    expect(PROTOCOL_VERSION).toBe(35);
   });
 
   it.each([

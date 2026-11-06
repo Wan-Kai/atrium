@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 32,
+    "protocolVersion": 35,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -1126,6 +1126,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -1139,11 +1165,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -1158,10 +1185,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -1180,7 +1211,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -1328,7 +1365,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_changes",
@@ -1408,6 +1446,37 @@
         "cht_gone"
       ]
     },
+    "directions": {
+      "upsert": [
+        {
+          "id": "lrn_node-backend",
+          "dir": "/Users/test/Atrium/Learning/node-backend",
+          "name": "Node 后端",
+          "alias": null,
+          "broken": false,
+          "discussing": true,
+          "archived": false,
+          "createdAt": 1700000400000,
+          "pinnedAt": 1700000500000,
+          "lastOpenedAt": 1700000600000
+        },
+        {
+          "id": "lrn_rust",
+          "dir": "/Users/test/Atrium/Learning/Archive/rust",
+          "name": "rust",
+          "alias": "Rust 入门",
+          "broken": true,
+          "discussing": true,
+          "archived": true,
+          "createdAt": null,
+          "pinnedAt": null,
+          "lastOpenedAt": null
+        }
+      ],
+      "remove": [
+        "lrn_gone"
+      ]
+    },
     "sessions": {
       "upsert": [
         {
@@ -1422,11 +1491,12 @@
           "running": true,
           "attention": null,
           "asking": null,
-          "handedOff": false,
+          "question": null,
           "model": null,
           "parent": null,
           "agent": null,
-          "heldDeliveries": 0
+          "heldDeliveries": 0,
+          "study": null
         },
         {
           "sessionId": "s2",
@@ -1441,10 +1511,14 @@
           "attention": {
             "reason": "error",
             "at": 7,
-            "cleared": false
+            "cleared": false,
+            "text": "overloaded"
           },
           "asking": 8,
-          "handedOff": true,
+          "question": {
+            "title": "回调地址用哪个？",
+            "detail": "换了要同步改 Nginx"
+          },
           "model": {
             "providerId": "faux",
             "modelId": "faux-1",
@@ -1463,7 +1537,13 @@
             "taskId": "t-1",
             "taskStartedAt": 9
           },
-          "heldDeliveries": 2
+          "heldDeliveries": 2,
+          "study": {
+            "kind": "lesson",
+            "level": "l2",
+            "step": "s4",
+            "gap": "g1"
+          }
         },
         {
           "sessionId": "s4",
@@ -1477,14 +1557,17 @@
           "running": false,
           "attention": null,
           "asking": null,
-          "handedOff": false,
+          "question": null,
           "model": null,
           "parent": {
             "sessionId": "s2",
             "by": "agent"
           },
           "agent": null,
-          "heldDeliveries": 0
+          "heldDeliveries": 0,
+          "study": {
+            "kind": "discuss"
+          }
         }
       ],
       "remove": [
@@ -1648,6 +1731,10 @@
       "remove": []
     },
     "chats": {
+      "upsert": [],
+      "remove": []
+    },
+    "directions": {
       "upsert": [],
       "remove": []
     },
@@ -2247,6 +2334,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -2260,11 +2373,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -2279,10 +2393,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -2301,7 +2419,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -2449,7 +2573,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -2502,6 +2627,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -2515,11 +2666,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -2534,10 +2686,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -2556,7 +2712,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -2704,7 +2866,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -2757,6 +2920,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -2770,11 +2959,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -2789,10 +2979,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -2811,7 +3005,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -2959,7 +3159,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -3012,6 +3213,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -3025,11 +3252,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -3044,10 +3272,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -3066,7 +3298,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -3214,7 +3452,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -3267,6 +3506,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -3280,11 +3545,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -3299,10 +3565,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -3321,7 +3591,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -3469,7 +3745,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -3522,6 +3799,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -3535,11 +3838,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -3554,10 +3858,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -3576,7 +3884,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -3724,7 +4038,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -3777,6 +4092,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -3790,11 +4131,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -3809,10 +4151,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -3831,7 +4177,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -3979,7 +4331,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -4045,6 +4398,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -4058,11 +4437,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       }
     ],
     "layout": {
@@ -4210,7 +4590,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -4276,6 +4657,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -4289,11 +4696,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -4308,10 +4716,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -4330,7 +4742,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -4478,7 +4896,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -4544,6 +4963,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -4557,11 +5002,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -4576,10 +5022,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -4598,7 +5048,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -4746,7 +5202,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -4812,6 +5269,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -4825,11 +5308,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -4844,10 +5328,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -4866,7 +5354,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -5014,7 +5508,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -5078,6 +5573,32 @@
         "firstSessionId": null,
         "archivedAt": 1700000200000,
         "pinnedAt": null
+      }
+    ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
       }
     ],
     "sessions": [
@@ -5094,14 +5615,16 @@
         "attention": {
           "reason": "auth",
           "at": 0,
-          "cleared": true
+          "cleared": true,
+          "text": null
         },
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       }
     ],
     "layout": {
@@ -5249,7 +5772,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -5315,6 +5839,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -5328,11 +5878,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -5347,10 +5898,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -5369,7 +5924,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -5517,7 +6078,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -5583,6 +6145,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -5596,11 +6184,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -5615,10 +6204,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -5637,7 +6230,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -5785,7 +6384,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -5851,6 +6451,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -5864,11 +6490,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -5883,10 +6510,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -5905,7 +6536,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -6045,7 +6682,8 @@
       "chats",
       "sessions",
       "preferences"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "index_snapshot",
@@ -6111,6 +6749,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -6124,11 +6788,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -6143,10 +6808,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -6165,7 +6834,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -6200,7 +6875,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "model_updated",
@@ -6332,6 +7008,32 @@
         "pinnedAt": null
       }
     ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null
+      }
+    ],
     "sessions": [
       {
         "sessionId": "s1",
@@ -6345,11 +7047,12 @@
         "running": true,
         "attention": null,
         "asking": null,
-        "handedOff": false,
+        "question": null,
         "model": null,
         "parent": null,
         "agent": null,
-        "heldDeliveries": 0
+        "heldDeliveries": 0,
+        "study": null
       },
       {
         "sessionId": "s2",
@@ -6364,10 +7067,14 @@
         "attention": {
           "reason": "error",
           "at": 7,
-          "cleared": false
+          "cleared": false,
+          "text": "overloaded"
         },
         "asking": 8,
-        "handedOff": true,
+        "question": {
+          "title": "回调地址用哪个？",
+          "detail": "换了要同步改 Nginx"
+        },
         "model": {
           "providerId": "faux",
           "modelId": "faux-1",
@@ -6386,7 +7093,13 @@
           "taskId": "t-1",
           "taskStartedAt": 9
         },
-        "heldDeliveries": 2
+        "heldDeliveries": 2,
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4",
+          "gap": "g1"
+        }
       }
     ],
     "layout": {
@@ -6534,7 +7247,8 @@
     },
     "resets": [
       "layouts"
-    ]
+    ],
+    "learningDir": "~/Atrium/Learning"
   },
   {
     "type": "response",
@@ -6630,6 +7344,62 @@
     "ok": false,
     "error": {
       "code": "chat_not_found"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "direction_not_found"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "direction_create_failed"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "study_restore_conflict"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "study_archive_conflict"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "learning_dir_unsafe"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "study_move_failed"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "direction_archived"
     }
   },
   {
@@ -6950,14 +7720,6 @@
     "ok": false,
     "error": {
       "code": "turn_not_found"
-    }
-  },
-  {
-    "type": "response",
-    "requestId": "r1",
-    "ok": false,
-    "error": {
-      "code": "session_handed_off"
     }
   },
   {

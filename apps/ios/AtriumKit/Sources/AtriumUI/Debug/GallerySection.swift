@@ -95,9 +95,9 @@
         Text("weather-app").displayFont(for: "weather-app", size: 23, cjkSize: 19)
         Text("天气应用").displayFont(for: "天气应用", size: 23, cjkSize: 19)
         Text("482 916").displayFont(for: "482 916", size: 34)
-        Text("回复正文 16.5pt，行高 1.65。Reply body.")
+        Text("回复正文 15.5pt，行高 1.5。Reply body.")
           .font(Typography.reply)
-          .lineSpacing(16.5 * (Typography.replyLineHeight - 1))
+          .lineSpacing(Typography.replyLineSpacing)
         Text("会话行标题 16pt").font(Typography.rowTitle)
         Text("元信息 13pt · weather-app · main").font(Typography.meta).foregroundStyle(palette.secondary)
         Text("过程步骤 12.5pt").font(Typography.step).foregroundStyle(palette.text2)
@@ -181,7 +181,7 @@
       }
     }
 
-    /// The pixel cat in every scene.
+    /// The pixel cat in every scene, and the home empty state's paper stack.
     private var cats: some View {
       LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
         PixelCatView(scene: .tile, size: 150, seed: 1)
@@ -189,6 +189,7 @@
         PixelCatView(scene: .sit, size: 150, seed: 3)
         PixelCatView(scene: .paired, size: 150, seed: 4)
         PixelCatView(scene: .asleep, size: 150)
+        PaperStack()
       }
     }
 

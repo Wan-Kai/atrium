@@ -1039,6 +1039,47 @@ describe("createSessionController on a recorded session", () => {
     await controller.shutdown();
   });
 
+  it("cuts a page's steps to the step limit it is given", async () => {
+    const call = replyEntry("call", "u0");
+    const entries: LogEntry[] = [
+      userEntry("u0", null, "zero"),
+      {
+        ...call,
+        stopReason: "toolUse",
+        parts: [{ type: "toolCall", callId: "tool", tool: "bash", args: { command: "pwd" } }],
+      } as LogEntry,
+      {
+        id: "result",
+        parentId: "call",
+        kind: "toolResult",
+        callId: "tool",
+        tool: "bash",
+        text: "o".repeat(4096),
+        isError: false,
+        details: null,
+        timestamp: 1,
+      },
+      replyEntry("done", "result"),
+      userEntry("u1", "done", "one"),
+    ];
+    const { controller } = control(manualPi().pi, { entries, leafId: "u1" });
+    await settle();
+
+    expect(controller.fetchTranscript(fetch(1, "s1:u1"), 512).items[0]).toMatchObject({
+      steps: [
+        { partial: true, output: "o".repeat(512) },
+        { kind: "text", text: "ok" },
+      ],
+    });
+    expect(controller.fetchTranscript(fetch(1, "s1:u1")).items[0]).toMatchObject({
+      steps: [
+        { partial: false, output: "o".repeat(4096) },
+        { kind: "text", text: "ok" },
+      ],
+    });
+    await controller.shutdown();
+  });
+
   it("pages back through the transcript, and refuses a page from an epoch that has passed", async () => {
     const { pi, raw, since, initial } = replayedHistory();
     const { controller } = control(pi, initial);

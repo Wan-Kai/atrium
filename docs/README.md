@@ -11,6 +11,7 @@
 | [`roadmap.md`](roadmap.md) | 路线图 | 阶段计划与原则；实现阶段的入口 |
 | [`development.md`](development.md) | 开发环境与流程 | 版本要求、分支、提交、标准开发流程、命令 |
 | [`acceptance.md`](acceptance.md) | 验收指南 | 改了什么跑什么、交给用户之前查什么、用户和里程碑怎么验收、三方审查的提问模板 |
+| [`install-app.md`](install-app.md) | 把新包装到"应用程序" | 本机换装的流程：一次性 launchd 作业、事后核对与回滚 |
 
 仓库根目录的 [`AGENTS.md`](../AGENTS.md)（`CLAUDE.md` 引用它）是每次工作都要遵守的守则。
 

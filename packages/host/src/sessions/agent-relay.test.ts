@@ -56,12 +56,12 @@ function session(sessionId: string, fields: Partial<CatalogEntry> = {}): Catalog
     updatedAt: 1,
     archived: false,
     attention: null,
-    handedOff: false,
     model: null,
     parent: null,
     cwd: `/repo/${sessionId}`,
     fast: null,
     usageAfter: null,
+    study: null,
     agent: null,
     usedHandles: [],
     deliveries: [],
@@ -936,11 +936,10 @@ describe("agent relay: tasks and notices", () => {
     ]);
   });
 
-  it("drops what goes to a session archived, keeps what goes to one handed off or held, and starts one asleep", async () => {
+  it("drops what goes to a session archived, and starts one asleep", async () => {
     const h = harness(
       session("main"),
       session("gone", { archived: true, deliveries: [notice("n1", "t-1", "finished")] }),
-      session("away", { handedOff: true, deliveries: [notice("n2", "t-1", "finished")] }),
       child("c1", "main", "audit", { tasks: [task("t-1")] }),
     );
     h.live.delete("main");
@@ -952,13 +951,10 @@ describe("agent relay: tasks and notices", () => {
     deliveries.runStarted({ deliveries: ["k1"] });
     deliveries.runSettled("completed", false, Promise.resolve(null));
     await settle();
-    h.relay.takenBack("gone");
-    h.relay.takenBack("away");
-    await settle();
+    await h.relay.resumeDeliveries("gone", false);
 
     expect(h.started).toStrictEqual(["main"]);
     expect(h.entry("gone").deliveries).toStrictEqual([]);
-    expect(h.entry("away").deliveries.map((one) => one.id)).toStrictEqual(["n2"]);
   });
 
   it("counts a child still being created against the six when one asleep would start", async () => {
@@ -986,7 +982,7 @@ describe("agent relay: tasks and notices", () => {
     const spawned = h.call("main", "spawn", { name: "sixth", task: "t" }, "spawn-1");
     await settle();
     h.sessions.set("asleep", { ...h.entry("asleep"), deliveries: [waitingTask] });
-    h.relay.takenBack("asleep");
+    void h.relay.resumeDeliveries("asleep", false);
     await settle();
     const whileCreating = [...h.started];
     made.resolve();
@@ -1017,7 +1013,7 @@ describe("agent relay: tasks and notices", () => {
     for (const handle of ["a", "b", "c", "d", "e", "f"]) h.states.set(`k-${handle}`, { ...IDLE, running: true });
     h.live.delete("asleep");
 
-    h.relay.takenBack("asleep");
+    await h.relay.resumeDeliveries("asleep", false);
     await settle();
     const full = [...h.started];
     h.states.set("k-a", IDLE);
@@ -1403,7 +1399,7 @@ describe("agent relay: questions", () => {
     expect(answer).toMatchObject({ ok: false, code: "agent_not_allowed" });
   });
 
-  it("cancels only the open questions of a child that ended, and keeps what waits for one handed off", async () => {
+  it("cancels only the open questions of a child that ended, and drops what it was given", async () => {
     const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1")] }));
     await runTaskStarted(h, "c1", "t-1");
     await h.note("c1", "progress", { message: "half" });
@@ -1420,10 +1416,10 @@ describe("agent relay: questions", () => {
     };
     h.sessions.set("c1", { ...h.entry("c1"), deliveries: [waitingTask] });
 
-    await h.relay.ended("c1", "handed_off");
+    await h.relay.ended("c1", "detached");
 
     expect(h.commands.filter(([, , sent]) => sent.action === "cancel")).toStrictEqual([]);
-    expect(h.entry("c1").deliveries).toStrictEqual([waitingTask]);
+    expect(h.entry("c1").deliveries).toStrictEqual([]);
     expect(h.relay.summary("c1").agent?.progress).toBe("half");
   });
 });
@@ -1678,7 +1674,6 @@ describe("agent relay: list, read, stop and models", () => {
         entry: { name: "审查", updatedAt: 7 },
       }),
       child("c2", "main", "tests", { role: "work", worktree: true, entry: { archived: true } }),
-      child("c3", "main", "away", { entry: { handedOff: true } }),
       child("c4", "main", "lost", { entry: { state: "missing" } }),
       session("yours", { parent: { sessionId: "main", by: "user" } }),
     );
@@ -1713,7 +1708,6 @@ describe("agent relay: list, read, stop and models", () => {
     expect(listedChildren(all.answer)).toStrictEqual([
       ["audit", "running", "same"],
       ["tests", "ended", "worktree"],
-      ["away", "handed_off", "same"],
       ["lost", "ended", "same"],
     ]);
     expect(h.relay.summary("main").agent).toBeNull();
@@ -1815,7 +1809,7 @@ describe("agent relay: list, read, stop and models", () => {
     expect(h.stopped).toStrictEqual(["c1", "g1"]);
   });
 
-  it("names a child the caller may not touch: another's, detached, gone, archived, handed off or being archived", async () => {
+  it("names a child the caller may not touch: another's, detached, gone, archived or being archived", async () => {
     const h = harness(
       session("main", { usedHandles: ["gone", "loose"] }),
       session("other"),
@@ -1825,25 +1819,13 @@ describe("agent relay: list, read, stop and models", () => {
         agent: { handle: "loose", role: "explore", toolGuard: "flags", startOn: null, worktree: false, tasks: [] },
       }),
       child("archived", "main", "archived", { entry: { archived: true } }),
-      child("away", "main", "away", { entry: { handedOff: true } }),
       child("busy", "main", "busy"),
       child("missing", "main", "missing", { entry: { state: "missing" } }),
     );
     h.archiving.add("busy");
 
     const codes = [];
-    for (const to of [
-      "theirs",
-      "id:theirs",
-      "gone",
-      "loose",
-      "id:loose",
-      "id:nobody",
-      "archived",
-      "away",
-      "busy",
-      "missing",
-    ]) {
+    for (const to of ["theirs", "id:theirs", "gone", "loose", "id:loose", "id:nobody", "archived", "busy", "missing"]) {
       codes.push((await h.call("main", "send", { to, message: "x" })).answer?.["code"]);
     }
     const readable = await h.call("main", "read", { to: "archived" });
@@ -1856,7 +1838,6 @@ describe("agent relay: list, read, stop and models", () => {
       "agent_not_allowed",
       "agent_gone",
       "agent_gone",
-      "agent_handed_off",
       "agent_busy",
       "agent_gone",
     ]);
@@ -2182,7 +2163,7 @@ describe("agent relay: the queue panel, a restart and the host closing", () => {
     ]);
   });
 
-  it("ends a child's open tasks for its parent when it is archived, handed off or detached, and drops what waited for an archived one", async () => {
+  it("ends a child's open tasks for its parent when it is archived or detached, and drops what waited for an archived one", async () => {
     const h = harness(
       session("main"),
       child("c1", "main", "audit", {
@@ -2194,12 +2175,12 @@ describe("agent relay: the queue panel, a restart and the host closing", () => {
     );
 
     await h.relay.ended("c1", "archived");
-    await h.relay.ended("c2", "handed_off");
+    await h.relay.ended("c2", "detached");
     await h.relay.ended("plain", "archived");
 
     expect(h.entry("main").deliveries.map((one) => [one.from, one.taskId, one.event, one.reason])).toStrictEqual([
       ["c1", "t-1", "ended", "archived"],
-      ["c2", "t-2", "ended", "handed_off"],
+      ["c2", "t-2", "ended", "detached"],
     ]);
     expect(h.entry("c1").deliveries).toStrictEqual([]);
     expect(h.entry("c1").agent?.tasks.map((one) => one.state)).toStrictEqual(["done", "done"]);
@@ -2610,8 +2591,7 @@ describe("agent relay: what the three-way review found (2026-10-18)", () => {
   it("starts recycled children notices come to only as places free among the six, all of them in time", async () => {
     const h = sevenAsleep();
 
-    for (const handle of SEVEN) h.relay.takenBack(`k-${handle}`);
-    await settle();
+    await h.relay.resumeDeliveries("main", true);
     const first = [...h.started];
     await runNotices(h, "k-a", "n-a");
 
@@ -2633,13 +2613,13 @@ describe("agent relay: what the three-way review found (2026-10-18)", () => {
 
   it("wakes a child waiting for a place when a sibling ends, or a run you opened in one ends", async () => {
     const h = sevenAsleep();
-    for (const handle of SEVEN) h.relay.takenBack(`k-${handle}`);
+    await h.relay.resumeDeliveries("main", true);
     await settle();
     await h.relay.ended("k-a", "archived");
     await settle();
     const yours = sevenAsleep();
     yours.tabs.add("k-c");
-    for (const handle of SEVEN) yours.relay.takenBack(`k-${handle}`);
+    await yours.relay.resumeDeliveries("main", true);
     await settle();
 
     await yours.relay.deliveries("k-c").confirm(["n-c"]);
@@ -2714,7 +2694,7 @@ describe("agent relay: what the three-way review found (2026-10-18)", () => {
     ]);
   });
 
-  it("tells the parent a running child archived or handed off ended, though its run's end comes first", async () => {
+  it("tells the parent a running child archived or detached ended, though its run's end comes first", async () => {
     const h = harness(
       session("main"),
       child("c1", "main", "audit", { tasks: [task("t-1")] }),
@@ -2729,15 +2709,15 @@ describe("agent relay: what the three-way review found (2026-10-18)", () => {
     h.relay.deliveries("c2").runSettled("failed", false, Promise.resolve(null));
     await settle();
     await h.relay.ended("c1", "archived");
-    await h.relay.ended("c2", "handed_off");
+    await h.relay.ended("c2", "detached");
 
     expect(h.entry("main").deliveries.map((one) => [one.taskId, one.event, one.reason])).toStrictEqual([
       ["t-1", "ended", "archived"],
-      ["t-2", "ended", "handed_off"],
+      ["t-2", "ended", "detached"],
     ]);
   });
 
-  it("tells the parent a child's run ended again once every stop for an archive or hand-off called off is over", async () => {
+  it("tells the parent a child's run ended again once every stop for an archive called off is over", async () => {
     const h = harness(session("main"), child("c1", "main", "audit", { tasks: [task("t-1"), task("t-2")] }));
     const first = h.relay.ending("c1");
     const second = h.relay.ending("c1");

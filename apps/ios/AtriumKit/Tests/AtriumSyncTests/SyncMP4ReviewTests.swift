@@ -30,15 +30,6 @@ struct SyncMP4ReviewTests {
     #expect(sync.sessions["s1"]?.resuming == false)
   }
 
-  @Test("settles a resuming session handed to a terminal meanwhile")
-  func handedOffWhileResuming() {
-    var sync = resumingCore()
-    let handed = summaryJSON("s1", in: "w1", extra: ["handedOff": "true"])
-    let outputs = receive(&sync, generation: 2, ok("r4"), indexChangesJSON(seq: 4, sessions: [handed]))
-    #expect(outputs == [.markSynced(generation: 2)])
-    #expect(sync.sessions["s1"]?.status == .handedOff)
-  }
-
   @Test("takes events it already holds as nothing new while resuming, and still resumes")
   func overlapWhileResuming() {
     var sync = resumingCore()

@@ -1,4 +1,4 @@
-import { type AtriumClient, type IndexView, isChatId } from "@atrium/client";
+import { type AtriumClient, type IndexView, isDirectionId, isWorkspaceId } from "@atrium/client";
 import type { Appearance, IndexFileName } from "@atrium/protocol";
 import { SidebarLeft, X } from "../design/icons";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -34,6 +34,18 @@ import {
   viewOf,
 } from "../state/workspace-views";
 import { NewWorkspaceBottom, NewWorkspacePage } from "./new-workspace-page";
+import { DirectionHome } from "../study/direction-home";
+import { LearningBar } from "../study/learning-bar";
+import { LearningHome } from "../study/learning-home";
+import { NewDirectionPage } from "../study/new-direction-page";
+import {
+  type LearningState,
+  closeLearning,
+  createLearningStore,
+  directionName,
+  openLearning,
+  showHome,
+} from "../study/learning";
 import type { StoreApi } from "zustand";
 import { desktopBridge } from "./bootstrap";
 import { playMenuShortcuts } from "./menu-shortcuts";
@@ -42,6 +54,7 @@ import { playMenuShortcuts } from "./menu-shortcuts";
 const FILE_NAMES: Readonly<Record<IndexFileName, string>> = {
   projects: "项目列表",
   chats: "对话名称",
+  learning: "学习方向的名字和置顶",
   sessions: "会话记录",
   layouts: "标签页",
   preferences: "偏好设置",
@@ -102,18 +115,22 @@ function fireAndForget(command: Promise<unknown>): void {
  * key position, since Shift changes the character. The keys read the list at the moment they
  * are pressed. Viewer tabs count with the sessions', after them (SPEC-0001, "M1.12 的文件与更改 ·
  * 查看标签"). On the new-workspace page, ⌘N and ⌘T leave it, and the keys for tabs do nothing,
- * as it has none (SPEC-0001, "M1.11 的新建工作区").
+ * as it has none (SPEC-0001, "M1.11 的新建工作区"); so do the learning pages (SPEC-0008). In a
+ * direction its fixed home tab comes first: ⌘1 and the brackets reach it, and ⌘W does nothing
+ * while it shows, as it cannot close (design-language, "学习模式").
  *
  * @sideEffects Listens for keys on the window while mounted; sends commands; writes the views;
  * may leave the page.
  * @param client - The client.
  * @param pages - The new-workspace page's store.
  * @param views - The workspace views.
+ * @param learning - The study store, whose pages the keys leave as the new-workspace page.
  */
 function useTabShortcuts(
   client: AtriumClient,
   pages: StoreApi<NewWorkspaceState>,
   views: StoreApi<WorkspaceViews>,
+  learning: StoreApi<LearningState>,
 ): void {
   // ⌘W and ⌘, the main process took, as with the focus in a visual (SPEC-0007, "键盘").
   useEffect(() => playMenuShortcuts(desktopBridge()?.onShortcut), []);
@@ -137,20 +154,34 @@ function useTabShortcuts(
       const order = view === null ? [] : tabOrder(open, view);
       const at = view === null ? -1 : currentTab(order, view, tabs?.active ?? null);
       const key = event.key.toLowerCase();
-      const onPage = pages.getState().page !== null;
+      const onPage = pages.getState().page !== null || learning.getState().page !== null;
+      // A direction's home shows while asked for, or while none of its sessions is active.
+      const direction = container !== null && index.directions.some((one) => one.id === container);
+      const homeShown = direction && ((learning.getState().homes[container] ?? false) || tabs?.active == null);
+      const homeAt = direction ? (homeShown ? 0 : at + 1) : at;
+      const ordered: ({ kind: "home" } | (typeof order)[number])[] = direction ? [{ kind: "home" }, ...order] : order;
+      let goTo: (typeof ordered)[number] | undefined;
       let target: (typeof order)[number] | undefined;
       let closing: string | null = null;
-      if (!event.shiftKey && (key === "n" || key === "t")) closePage(pages);
+      if (!event.shiftKey && (key === "n" || key === "t")) {
+        closePage(pages);
+        closeLearning(learning);
+      }
       if (!event.shiftKey && key === "n") fireAndForget(client.createChat());
       else if (!event.shiftKey && key === "t") fireAndForget(createHere(client));
       else if (onPage) return;
-      else if (!event.shiftKey && key === "w" && container !== null && view?.active != null)
+      else if (!event.shiftKey && key === "w" && homeShown) {
+        // The home tab cannot close.
+      } else if (!event.shiftKey && key === "w" && container !== null && view?.active != null)
         closing = closeViewer(views, container, view.active, open);
       else if (!event.shiftKey && key === "w" && tabs?.active != null) fireAndForget(client.closeTab(tabs.active));
-      else if (!event.shiftKey && /^[1-9]$/.test(event.key)) target = order[Number(event.key) - 1];
-      else if (event.shiftKey && event.code === "BracketLeft") target = order[at - 1];
-      else if (event.shiftKey && event.code === "BracketRight") target = order[at + 1];
+      else if (!event.shiftKey && /^[1-9]$/.test(event.key)) goTo = ordered[Number(event.key) - 1];
+      else if (event.shiftKey && event.code === "BracketLeft") goTo = ordered[homeAt - 1];
+      else if (event.shiftKey && event.code === "BracketRight") goTo = ordered[homeAt + 1];
       else return;
+      if (goTo?.kind === "home" && container !== null) showHome(learning, container, true);
+      else if (goTo !== undefined && goTo.kind !== "home") target = goTo;
+      if (target !== undefined && direction && container !== null) showHome(learning, container, false);
       if (closing !== null) fireAndForget(client.openSession(closing));
       if (target !== undefined && container !== null) {
         showViewer(views, container, target.kind === "viewer" ? target.key : null);
@@ -160,7 +191,7 @@ function useTabShortcuts(
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [client, pages, views]);
+  }, [client, pages, views, learning]);
 }
 
 /**
@@ -170,22 +201,32 @@ function useTabShortcuts(
  * The host makes a session active when one is created (⌘T, "+") or opened; it should then show,
  * not stay behind the viewer tab. A session chosen in the sidebar or "历史" is shown by the choice
  * itself, even the one already active. Going to another container keeps each container's viewer
- * tab as it was (SPEC-0001, "M1.12 的文件与更改 · 查看标签"). Done before the page paints, so the
- * viewer tab does not flash first.
+ * tab as it was (SPEC-0001, "M1.12 的文件与更改 · 查看标签"); a direction's home tab goes the
+ * same way (design-language, "学习模式"). Done before the page paints, so the viewer tab does not
+ * flash first.
  *
- * @sideEffects Writes the views.
+ * @sideEffects Writes the views and the study store.
  * @param views - The workspace views.
+ * @param learning - The study store.
  * @param container - The current container.
  * @param sessionId - Its active session.
  */
-function useSessionShows(views: StoreApi<WorkspaceViews>, container: string | null, sessionId: string | null): void {
+function useSessionShows(
+  views: StoreApi<WorkspaceViews>,
+  learning: StoreApi<LearningState>,
+  container: string | null,
+  sessionId: string | null,
+): void {
   const seen = useRef({ container, sessionId });
   useLayoutEffect(() => {
     const before = seen.current;
     seen.current = { container, sessionId };
-    if (before.container === container && before.sessionId !== sessionId && container !== null && sessionId !== null)
+    if (before.container === container && before.sessionId !== sessionId && container !== null && sessionId !== null) {
       showViewer(views, container, null);
-  }, [views, container, sessionId]);
+      // Over a direction's home too (design-language, "学习模式").
+      showHome(learning, container, false);
+    }
+  }, [views, learning, container, sessionId]);
 }
 
 /**
@@ -237,7 +278,7 @@ function usePaneShortcuts(client: AtriumClient, pages: StoreApi<NewWorkspaceStat
  * @returns Whether it can.
  */
 function hasPanel(container: string | null, pages: StoreApi<NewWorkspaceState>): boolean {
-  return container !== null && !isChatId(container) && pages.getState().page === null;
+  return container !== null && isWorkspaceId(container) && pages.getState().page === null;
 }
 
 /**
@@ -504,7 +545,10 @@ export function Workbench({
  * what it sets going shows over its session once there (SPEC-0001, "M1.11 的新建工作区"). An error
  * card's "去登录" opens the settings at "模型与账户" (SPEC-0001, "运行出错与停止"). The sidebar
  * folds, and the changes panel opens and widens, as remembered in `localStorage` (SPEC-0001,
- * "界面 · 左栏折叠与右栏").
+ * "界面 · 左栏折叠与右栏"). The learning home and the new-direction page show in place of the tab
+ * bar and the conversation area, as the new-workspace page does; in a direction, the tab bar leads
+ * with its fixed home tab, and its home shows in place of the conversation while chosen or while no
+ * session is open (SPEC-0008, "入口", "方向主页").
  *
  * @sideEffects Subscribes to the client's list and the panes; listens for focus and keys; sends
  * commands; reads and writes `localStorage`.
@@ -540,6 +584,15 @@ function MainWindow({
     showSettings();
   }, [chooseSection, showSettings, settings.open]);
   const [pages] = useState(createNewWorkspaceStore);
+  const [learning] = useState(createLearningStore);
+  const learningPage = useStore(learning, (state) => state.page);
+  const direction = useStore(client.index, (state) =>
+    container === null || !isDirectionId(container) ? undefined : state.directions.find((one) => one.id === container),
+  );
+  // A direction shows its home while asked to, or with no session open (design-language, "学习模式").
+  const homeShown = useStore(learning, (state) =>
+    direction === undefined ? false : (state.homes[direction.id] ?? false) || sessionId === null,
+  );
   const [panes] = useState(() => createPanes(localStorage));
   const [views] = useState(() => createWorkspaceViews(localStorage));
   const folded = useStore(panes, (state) => state.sidebarCollapsed);
@@ -566,11 +619,24 @@ function MainWindow({
     return () => window.removeEventListener("focus", onFocus);
   }, [client]);
 
-  useTabShortcuts(client, pages, views);
-  useSessionShows(views, container, sessionId);
+  useTabShortcuts(client, pages, views, learning);
+  useSessionShows(views, learning, container, sessionId);
   usePaneShortcuts(client, pages, panes);
-  // On the new-workspace page, or under a viewer tab, no session shows.
-  useSeenErrors(client, index, pageProject === null && viewer === null ? sessionId : null);
+  // On the new-workspace page or a learning page, under a viewer tab or a direction's home, no session shows.
+  const sessionShown = pageProject === null && learningPage === null && viewer === null && !homeShown;
+  useSeenErrors(client, index, sessionShown ? sessionId : null);
+  /**
+   * Leaves the new-workspace page and the learning pages.
+   *
+   * @remarks
+   * As going anywhere from the sidebar does.
+   *
+   * @sideEffects Updates both page stores.
+   */
+  const leavePages = (): void => {
+    closePage(pages);
+    closeLearning(learning);
+  };
 
   const resets = index.resets.length > 0 && dismissed !== index.generation ? index.resets : [];
   return (
@@ -579,32 +645,62 @@ function MainWindow({
         <Sidebar
           client={client}
           onNewChat={() => {
-            closePage(pages);
+            leavePages();
             fireAndForget(client.createChat());
           }}
-          showSession={(session) => showViewer(views, session.containerId, null)}
+          showSession={(session) => {
+            showViewer(views, session.containerId, null);
+            showHome(learning, session.containerId, false);
+          }}
           pickDirectory={pickDirectory}
           onSettings={settings.show}
           page={{
             projectId: pageProject,
-            open: (projectId) => openPage(pages, projectId),
-            leave: () => closePage(pages),
+            open: (projectId) => {
+              closeLearning(learning);
+              openPage(pages, projectId);
+            },
+            leave: leavePages,
+          }}
+          learning={{
+            shown: learningPage !== null,
+            open: () => {
+              closePage(pages);
+              openLearning(learning, "home");
+            },
           }}
           folded={folded}
         />
         <main className="flex min-w-0 flex-1 flex-col bg-[var(--main)]">
-          {container === null || pageProject !== null ? (
+          {learningPage !== null ? (
+            <LearningBar panes={panes} {...(learningPage === "new" ? { crumb: "新方向" } : {})} />
+          ) : container === null || pageProject !== null ? (
             <div className="h-12 shrink-0 [-webkit-app-region:drag]" />
           ) : (
             <TabBar
               client={client}
               containerId={container}
-              onNew={() => fireAndForget(createHere(client))}
+              onNew={() => {
+                if (direction !== undefined) showHome(learning, direction.id, false);
+                fireAndForget(createHere(client));
+              }}
               panes={panes}
               views={views}
+              home={
+                direction === undefined
+                  ? undefined
+                  : {
+                      name: directionName(direction),
+                      shown: homeShown,
+                      onShow: () => showHome(learning, direction.id, true),
+                      onHide: () => showHome(learning, direction.id, false),
+                      onCrumb: () => openLearning(learning, "home"),
+                      archived: direction.archived,
+                    }
+              }
             />
           )}
-          {pageProject === null && sessionId !== null ? (
+          {sessionShown && sessionId !== null ? (
             <Breadcrumb client={client} sessionId={sessionId} views={views} />
           ) : null}
           {resets.length > 0 ? (
@@ -620,7 +716,13 @@ function MainWindow({
               </button>
             </div>
           ) : null}
-          {pageProject === null || pageLaunching ? (
+          {learningPage === "home" ? (
+            <LearningHome client={client} store={learning} />
+          ) : learningPage === "new" ? (
+            <NewDirectionPage client={client} store={learning} />
+          ) : direction !== undefined && homeShown ? (
+            <DirectionHome client={client} store={learning} directionId={direction.id} />
+          ) : pageProject === null || pageLaunching ? (
             <OpenLogin value={openLogin}>
               <ConversationArea
                 client={client}

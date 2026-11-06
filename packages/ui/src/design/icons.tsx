@@ -24,6 +24,8 @@ import {
   ComputerIcon,
   CloudIcon,
   LaptopIcon,
+  Message01Icon,
+  Mortarboard02Icon,
   SmartPhone01Icon,
   SquareLock01Icon,
   ComputerTerminal01Icon,
@@ -230,6 +232,10 @@ export const MagnifyingGlass = drawn(Search01Icon);
 export const MagnifyingGlassMinus = drawn(SearchMinusIcon);
 export const MagnifyingGlassPlus = drawn(SearchAddIcon);
 export const MetaLogo = drawn(META);
+/** A discussion, as the learning sessions' tabs mark one (SPEC-0008, prototype `KIND.talk`). */
+export const Message = drawn(Message01Icon);
+/** Study mode: the sidebar's "学习" row and a direction's home tab (design-language, "学习模式"). */
+export const Mortarboard = drawn(Mortarboard02Icon);
 export const MinusSquare = drawn(MinusSignSquareIcon);
 export const Monitor = drawn(ComputerIcon);
 export const Cloud = drawn(CloudIcon);

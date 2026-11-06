@@ -36,6 +36,32 @@ export const ErrorCode = z.enum([
   "workspace_not_found",
   /** The `chatId` names no chat: its directory under `~/.atrium/chats/` is gone, or never was. */
   "chat_not_found",
+  /**
+   * The `directionId` names no direction: no directory with a `.atrium-study.json` under the learning
+   * directory or its `Archive/`, or it is being archived (SPEC-0008).
+   */
+  "direction_not_found",
+  /** The new direction's directory could not be made or written, as on a disk error (SPEC-0008, "新建方向"). */
+  "direction_create_failed",
+  /**
+   * Where an archived direction's directory was is taken, so it was not restored; nothing was
+   * moved (SPEC-0008).
+   */
+  "study_restore_conflict",
+  /** A direction's name is taken under `Archive/`, so it was not archived; nothing was moved or stopped (SPEC-0008). */
+  "study_archive_conflict",
+  /**
+   * The learning directory or its `Archive/` is a link or not a directory, so no direction is made
+   * or moved there (security.md, "学习方向").
+   */
+  "learning_dir_unsafe",
+  /** A direction's directory could not be moved for another reason, as on a disk error; nothing was moved (SPEC-0008). */
+  "study_move_failed",
+  /**
+   * The session is an archived direction's, only to be read: nothing that needs its pi runs until
+   * the direction is restored; `params.directionId` names it (SPEC-0008, "ML1 定的细节").
+   */
+  "direction_archived",
   /** The directory is a registered project or one of its workspaces already; `params.projectId` names the project. */
   "project_exists",
   /** Another project has that name; `params.name` repeats it. */
@@ -136,7 +162,6 @@ export const ErrorCode = z.enum([
   /** `fork_session`: the session has no such turn. */
   "turn_not_found",
   /** The session was handed to pi in a terminal; take it back first (SPEC-0001, "并行、同步与关注"). */
-  "session_handed_off",
   /** Atrium cannot sign in through pi now: the login program cannot load the pi found, or pi is not usable. */
   "login_unavailable",
   /** The `loginId` names no login under way. */

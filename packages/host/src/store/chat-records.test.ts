@@ -110,6 +110,40 @@ describe("ChatRecords", () => {
     await expect(stat(join(index, "chats.json"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("keeps a record holding fields a newer Atrium wrote when its own last field is cleared", async () => {
+    const index = await indexDirectory();
+    await writeFile(
+      join(index, "chats.json"),
+      JSON.stringify({ version: 2, chats: [{ id: "cht_a", alias: "旧", colour: "teal" }] }),
+    );
+    const records = createChatRecords((await loadIndexFile(index, CHATS_FILE, 0)).file);
+
+    await records.rename("cht_a", null);
+
+    expect(JSON.parse(await readFile(join(index, "chats.json"), "utf8"))).toStrictEqual({
+      version: 2,
+      chats: [{ id: "cht_a", colour: "teal" }],
+    });
+  });
+
+  it("gives no name a client could not take: empty or longer than 256 characters", async () => {
+    const index = await indexDirectory();
+    await writeFile(
+      join(index, "chats.json"),
+      JSON.stringify({
+        version: 2,
+        chats: [
+          { id: "cht_a", alias: "" },
+          { id: "cht_b", alias: "x".repeat(257) },
+        ],
+      }),
+    );
+    const records = createChatRecords((await loadIndexFile(index, CHATS_FILE, 0)).file);
+
+    expect(records.alias("cht_a")).toBeNull();
+    expect(records.alias("cht_b")).toBeNull();
+  });
+
   it("keeps the fields of a record a newer Atrium wrote", async () => {
     const index = await indexDirectory();
     await writeFile(

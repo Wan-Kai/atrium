@@ -42,11 +42,14 @@ private struct MarkdownBlockView: View, Equatable {
 
   /// The block's native view.
   var body: some View {
+    #if DEBUG && os(iOS)
+      let _ = GalleryTimelineStats.blockEvaluated()
+    #endif
     let palette = Palette(scheme: scheme)
     switch block {
     case .paragraph(let text): inline(text)
     case .heading(let level, let text):
-      Text(text).font(.system(size: max(17, 28 - CGFloat(level) * 2), weight: .semibold))
+      Text(text).font(.system(size: max(16, 27 - CGFloat(level) * 2), weight: .semibold))
         .foregroundStyle(palette.text)
     case .code(let language, let code, _): CodeBlockView(code: code, language: language)
     case .diagram(let language, let source):
@@ -94,12 +97,12 @@ private struct MarkdownBlockView: View, Equatable {
     var text = source
     let palette = Palette(scheme: scheme)
     for run in source.runs where run.inlinePresentationIntent?.contains(.code) == true {
-      text[run.range].font = .system(size: 14, design: .monospaced)
+      text[run.range].font = Typography.inlineCode
       text[run.range].backgroundColor = palette.surface
     }
     return Text(text).font(Typography.reply)
       .foregroundStyle(palette.text).tint(palette.tint)
-      .lineSpacing(16.5 * (Typography.replyLineHeight - 1))
+      .lineSpacing(Typography.replyLineSpacing)
       .frame(maxWidth: .infinity, alignment: .leading)
       .textSelection(.enabled)
   }

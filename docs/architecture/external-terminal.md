@@ -86,6 +86,17 @@ CLI=/opt/homebrew/bin/cmux
 
 新终端的首条命令可用官方 `--command`，无需再发 Enter。按安装版本核对输出格式：部分旧创建命令即使传 `--json` 仍输出 `OK <id>`，不能假定所有返回都为 JSON。
 
+## 标签栏的"在终端中打开"（2026-11-05）
+
+用户点标签栏"···"里的"在终端中打开"时，由桌面壳（Electron 主进程）开一个终端，和上面 agent 经 skill 操作终端是两条路：
+
+- 由用户发起、只开终端：不停 pi、不交接会话、不复制也不运行任何命令。目录是会话所在工作区的目录；对话（没有工作区）用 `~`。
+- cmux 装着时用它：先 `list-windows` 探一下（5 秒不应答算没在跑），没在跑就 `open -b com.cmuxterm.app` 启动，最多等 15 秒；然后在当前窗口（`current-window`）新建一个工作区（`new-workspace --window <窗口> --cwd <目录> --focus true`），最后把 cmux 提到前面。命令按固定顺序找：`/Applications/cmux.app/Contents/Resources/bin/cmux`、`/opt/homebrew/bin/cmux`、`/usr/local/bin/cmux`。
+- 没装 cmux 时用系统"终端"：`open -a Terminal <目录>`。
+- 失败（找不到命令、cmux 30 秒内没起来或拒绝命令）在菜单旁显示"打开终端失败"，不改会话状态。
+
+这条路径不经过 agent，也不受上面 skill 的外部调用约定约束：它只开终端，不向终端输入任何文字、不读屏、不关闭任何窗口。cmux 的凭据仍由它自己的 CLI 读取；Atrium 不读密码、不传 `CMUX_SOCKET_PASSWORD`。
+
 ## 验收与恢复
 
 实际结果见 [测试追踪表](../testing/coverage-map.md#外部-cmux-终端最小接入2026-11-04)。普通 CLI 探针、源码和 faux 不替代真实 Atrium 的 agent：

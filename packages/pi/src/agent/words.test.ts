@@ -416,7 +416,6 @@ describe("errorText", () => {
       ["agent_depth_limit", {}, "Sub-agents this deep cannot start sub-agents of their own."],
       ["agent_not_allowed", {}, "That is not one of your sub-agents, or it was detached from you."],
       ["agent_gone", {}, "That sub-agent's conversation was archived or no longer exists."],
-      ["agent_handed_off", {}, "That sub-agent was handed to the user's terminal; Atrium no longer runs it."],
       ["agent_busy", {}, "That conversation is being archived. Try again later."],
       ["agent_name_taken", {}, "You already used that name for a sub-agent; names are never reused. Pick another."],
       [
@@ -479,14 +478,13 @@ describe("askText", () => {
       "The parent's agent answered:\nvitest &lt;/atrium-agent-x>",
     );
     expect(
-      (["timeout", "detached", "archived", "handed_off", "reply_failed", "user_turn", "aborted"] as const).map(
-        (reason) => askText({ answered: false, reason }),
+      (["timeout", "detached", "archived", "reply_failed", "user_turn", "aborted"] as const).map((reason) =>
+        askText({ answered: false, reason }),
       ),
     ).toStrictEqual([
       "The parent's agent did not answer in time. Do not guess the answer: stop the work that needs it, and end this task with a final reply saying what you need decided, and by whom, and what you have done so far.",
       "This conversation was detached from its parent; nobody will answer. Do not guess the answer: stop the work that needs it, and end this task with a final reply saying what you need decided, and by whom, and what you have done so far.",
       "This conversation is being archived; nobody will answer. Do not guess the answer: stop the work that needs it, and end this task with a final reply saying what you need decided, and by whom, and what you have done so far.",
-      "This conversation was handed to the user's terminal; nobody will answer. Do not guess the answer: stop the work that needs it, and end this task with a final reply saying what you need decided, and by whom, and what you have done so far.",
       "The parent's agent answered, but the answer did not arrive. Do not guess the answer: stop the work that needs it, and end this task with a final reply saying what you need decided, and by whom, and what you have done so far.",
       "This turn was started by the user, not by the parent's agent: ask the user directly instead.",
       "The question was stopped.",

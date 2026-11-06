@@ -135,6 +135,7 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
      - `git`：宿主的 `workspaces/`、`changes/`、`projects/` 和 `platform/git.ts`；跑这几处的测试，加用 git 的集成测试。
      - `ui`：界面的纯逻辑文件；跑界面的 Node 层测试。
      - `relay`：手机端的 relay（`apps/relay/src`，除了只做组装的 `entry.ts`）；跑它自己的测试（2026-10-25 MP2 加）。
+     - `study`：学习模式在宿主的部分（`study/`、`store/learning-records.ts`，2026-11-06 加只读看归档会话的 `sessions/read-only-transcripts.ts`）；跑它们自己的单元测试（2026-11-05 ML1 加，SPEC-0008）。真实宿主的 `study.host.test.ts` 不在里面：每个变异都起 pi 和 git 太慢，它守的行用破坏检查验证。
 
      `pnpm test:mutation` 依次跑各组（也可以只跑某几组：`pnpm test:mutation git ui`），每组的增量结果分开存（`reports/stryker-incremental-<组>.json`）。代价是只能被别组测试抓住的变异会显示存活，补本组的测试或注明理由。之前试过、不用的办法：Stryker 自带的 Vitest 运行器能按覆盖选测试，但在 Vitest 5 下运行时激活的变异全被判成存活（10.0.0 仍然如此）；先跑 `vitest related` 选出的测试、全过再跑整套确认，在四个文件 377 个变异上没有提速（被检出的变异有 `--bail` 本来就停得早），存活的变异还因为跑两轮超过期限被记成超时（23 个里 18 个）。全量仍然慢，所以放到夜里跑。
    - **登录程序不做变异测试**（2026-10-10 定）：`packages/pi/src/auth/login-worker.ts` 由系统 Node 在另一个进程里运行，Stryker 的激活开关传不过去，所有变异都会显示存活。它保持很薄（只把 pi 的调用翻译成按行的 JSON），宿主这边的 `login.ts` 照常做变异测试；登录程序靠手工破坏验证：写完测试后逐个改坏它的每条分支（重复撤回提问、不给设备 ID、`stored` 写死、不分订阅、标准输入关闭不中止），确认都有测试失败，改动它时同样再做一遍。

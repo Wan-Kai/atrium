@@ -539,6 +539,31 @@
   "unpin_chat": [
     {}
   ],
+  "create_direction": [
+    {
+      "directionId": "lrn_node-backend",
+      "sessionId": "s1"
+    },
+    {
+      "directionId": "lrn_node-backend",
+      "sessionId": null
+    }
+  ],
+  "rename_direction": [
+    {}
+  ],
+  "pin_direction": [
+    {}
+  ],
+  "unpin_direction": [
+    {}
+  ],
+  "archive_direction": [
+    {}
+  ],
+  "restore_direction": [
+    {}
+  ],
   "window_focused": [
     {}
   ],
@@ -560,18 +585,6 @@
     {}
   ],
   "clear_attention": [
-    {}
-  ],
-  "hand_off": [
-    {
-      "file": "/pi/sessions/s1.jsonl",
-      "args": [
-        "--tools",
-        "read,ls"
-      ]
-    }
-  ],
-  "take_back": [
     {}
   ],
   "rename_session": [

@@ -26,19 +26,20 @@ function session(sessionId: string, fields: Partial<SessionSummary> = {}): Sessi
     running: false,
     attention: null,
     asking: null,
-    handedOff: false,
+    question: null,
     model: null,
     parent: null,
     agent: null,
     heldDeliveries: 0,
+    study: null,
     ...fields,
   };
 }
 
 /** An error set at `at`, seen or not. */
-const error = (at: number, cleared = false) => ({ attention: { reason: "error", at, cleared } as const });
+const error = (at: number, cleared = false) => ({ attention: { reason: "error", at, cleared, text: null } as const });
 /** A sign-in problem set at `at`; a look does not clear it, but the list may say so. */
-const auth = (at: number, cleared = false) => ({ attention: { reason: "auth", at, cleared } as const });
+const auth = (at: number, cleared = false) => ({ attention: { reason: "auth", at, cleared, text: null } as const });
 
 describe("sessionStatus", () => {
   it("puts a question above sign-in, sign-in above an error seen or not, and an error above running", () => {

@@ -20,18 +20,7 @@ describe("the agent's words in the protocol", () => {
     expect([AgentRole.options, AgentEventKind.options, AgentStatus.options]).toStrictEqual([
       ["explore", "work", "advise"],
       ["finished", "failed", "question", "needs_you", "stopped", "ended"],
-      [
-        "creating",
-        "running",
-        "queued",
-        "waiting_for_you",
-        "waiting_for_parent",
-        "idle",
-        "stopped",
-        "failed",
-        "handed_off",
-        "ended",
-      ],
+      ["creating", "running", "queued", "waiting_for_you", "waiting_for_parent", "idle", "stopped", "failed", "ended"],
     ]);
   });
 

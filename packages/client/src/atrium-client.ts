@@ -177,10 +177,6 @@ export interface AtriumClient {
   renameSession(sessionId: string, name: string): Promise<CommandResult<"rename_session">>;
   /** Marks a session's error as seen (SPEC-0001, "会话状态"). */
   clearAttention(sessionId: string): Promise<CommandResult<"clear_attention">>;
-  /** Hands a session to pi in a terminal and returns its file (SPEC-0001, "交给终端"). */
-  handOff(sessionId: string): Promise<CommandResult<"hand_off">>;
-  /** Takes a session handed off back into Atrium. */
-  takeBack(sessionId: string): Promise<CommandResult<"take_back">>;
   addProject(path: string): Promise<CommandResult<"add_project">>;
   removeProject(projectId: string): Promise<CommandResult<"remove_project">>;
   renameProject(projectId: string, name: string): Promise<CommandResult<"rename_project">>;
@@ -216,6 +212,22 @@ export interface AtriumClient {
   archiveChat(chatId: string): Promise<CommandResult<"archive_chat">>;
   /** Brings an archived chat back with the sessions archived with it. */
   restoreChat(chatId: string): Promise<CommandResult<"restore_chat">>;
+  /**
+   * Creates a learning direction named after its first message, with a discussion session opened
+   * as the active tab, and returns both ids; the message goes to the session with `prompt`
+   * (SPEC-0008, "新建方向").
+   */
+  createDirection(text: string, model: ModelRef | null): Promise<CommandResult<"create_direction">>;
+  /** Names a direction, or with `null` goes back to its own display name. */
+  renameDirection(directionId: string, name: string | null): Promise<CommandResult<"rename_direction">>;
+  /** Pins a direction to the front of the learning home. */
+  pinDirection(directionId: string): Promise<CommandResult<"pin_direction">>;
+  /** Unpins a direction. */
+  unpinDirection(directionId: string): Promise<CommandResult<"unpin_direction">>;
+  /** Stops a direction's sessions and moves its directory under `Archive/`. */
+  archiveDirection(directionId: string): Promise<CommandResult<"archive_direction">>;
+  /** Moves an archived direction back; fails as `study_restore_conflict` when its place is taken. */
+  restoreDirection(directionId: string): Promise<CommandResult<"restore_direction">>;
   /** Tells the host the window gained focus, so it looks at workspaces and sessions again. */
   windowFocused(): Promise<CommandResult<"window_focused">>;
   /** Changes preferences, at once in the list; a proxy shows once the host has checked it. */
@@ -1534,8 +1546,6 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     archiveSession: (sessionId) => request("archive_session", { sessionId }),
     renameSession: (sessionId, name) => request("rename_session", { sessionId, name }),
     clearAttention: (sessionId) => request("clear_attention", { sessionId }),
-    handOff: (sessionId) => request("hand_off", { sessionId }),
-    takeBack: (sessionId) => request("take_back", { sessionId }),
     addProject: (path) => request("add_project", { path }),
     removeProject: (projectId) => request("remove_project", { projectId }),
     renameProject: (projectId, name) => request("rename_project", { projectId, name }),
@@ -1552,6 +1562,12 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     unpinChat: (chatId) => request("unpin_chat", { chatId }),
     archiveChat: (chatId) => request("archive_chat", { chatId }),
     restoreChat: (chatId) => request("restore_chat", { chatId }),
+    createDirection: (text, model) => request("create_direction", { text, model }),
+    renameDirection: (directionId, name) => request("rename_direction", { directionId, name }),
+    pinDirection: (directionId) => request("pin_direction", { directionId }),
+    unpinDirection: (directionId) => request("unpin_direction", { directionId }),
+    archiveDirection: (directionId) => request("archive_direction", { directionId }),
+    restoreDirection: (directionId) => request("restore_direction", { directionId }),
     windowFocused: () => request("window_focused", {}),
     setPreferences(changes) {
       // Proxy and translation language show only after the host validates and saves them.

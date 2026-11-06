@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>首页 + 扇形选择</title>
+    <style>
+      :root {
+        --page: #f6f2e9;
+        --note: #fffcf5;
+        --surface: #efe9dc;
+        --text: #26221c;
+        --l2: #8b8477;
+        --l3: #d3cbbb;
+        --tint: #8a7352;
+        --rule: rgba(70, 55, 30, 0.11);
+        --glass: rgba(255, 252, 245, 0.72);
+        --ring: rgba(255, 255, 255, 0.7);
+        --shadow: rgba(60, 45, 20, 0.16);
+        --scrim: rgba(246, 242, 233, 0.55);
+        --desk: #e4ddcf;
+      }
+      :root[data-theme="dark"] {
+        --page: #1c1a16;
+        --note: #25221d;
+        --surface: #2a2620;
+        --text: #eee9df;
+        --l2: #8f887b;
+        --l3: #4a453c;
+        --tint: #c9b28c;
+        --rule: rgba(255, 240, 220, 0.08);
+        --glass: rgba(46, 44, 41, 0.72);
+        --ring: rgba(255, 255, 255, 0.1);
+        --shadow: rgba(0, 0, 0, 0.5);
+        --scrim: rgba(28, 26, 22, 0.55);
+        --desk: #121110;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--desk);
+        color: var(--text);
+        font:
+          15px/1.45 -apple-system,
+          "PingFang SC",
+          sans-serif;
+      }
+      header {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 28px 16px 8px;
+      }
+      header h1 {
+        margin: 0 0 6px;
+        font-size: 20px;
+      }
+      header p {
+        margin: 0 0 12px;
+        color: var(--l2);
+        max-width: 760px;
+      }
+      header button {
+        font: inherit;
+        font-size: 13px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        border: 0.5px solid var(--l3);
+        background: var(--note);
+        color: var(--text);
+      }
+      main {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 12px 16px 48px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 28px;
+      }
+      .option h2 {
+        font-size: 15px;
+        margin: 0 0 4px;
+      }
+      .option .note {
+        color: var(--l2);
+        font-size: 12.5px;
+        margin: 0 0 10px;
+        max-width: 340px;
+      }
+      .phone {
+        position: relative;
+        width: 340px;
+        height: 640px;
+        border-radius: 40px;
+        background: var(--page);
+        overflow: hidden;
+        box-shadow: 0 10px 30px var(--shadow);
+      }
+      .content {
+        padding: 56px 20px 0;
+      }
+      .brand {
+        font:
+          italic 560 32px/1 "Fraunces",
+          Georgia,
+          serif;
+      }
+      .host {
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--l2);
+      }
+      .proj {
+        margin-top: 22px;
+        font:
+          600 17px/1.2 "New York",
+          Georgia,
+          serif;
+      }
+      .row {
+        height: 46px;
+        border-bottom: 0.5px solid var(--rule);
+        font-size: 13px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .row b {
+        font:
+          500 12.5px ui-monospace,
+          Menlo,
+          monospace;
+      }
+      .row span {
+        color: var(--l2);
+        font-size: 12px;
+      }
+      .scrim {
+        position: absolute;
+        inset: 0;
+        background: var(--scrim);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.28s;
+      }
+      .open .scrim {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .fab {
+        position: absolute;
+        right: 18px;
+        bottom: 26px;
+        width: 58px;
+        height: 58px;
+        border-radius: 50%;
+        border: 0.5px solid var(--ring);
+        background: var(--glass);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        box-shadow: 0 8px 22px var(--shadow);
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        z-index: 3;
+      }
+      .fab svg {
+        transition: transform 0.4s cubic-bezier(0.3, 1.4, 0.5, 1);
+      }
+      .open .fab svg {
+        transform: rotate(45deg);
+      }
+      .item {
+        position: absolute;
+        right: 18px;
+        bottom: 26px;
+        z-index: 2;
+        opacity: 0;
+        pointer-events: none;
+        transform: translate(0, 0) scale(0.4);
+        transition:
+          transform 0.42s cubic-bezier(0.3, 1.35, 0.5, 1),
+          opacity 0.2s;
+        cursor: pointer;
+      }
+      .open .item {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translate(var(--x), var(--y)) scale(1) rotate(var(--r, 0deg));
+        transition-delay: var(--d);
+      }
+
+      /* A: round glass buttons on a quarter circle, label beside each. */
+      .a .item {
+        width: 58px;
+        height: 58px;
+        display: grid;
+        place-items: center;
+      }
+      .a .item i {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: var(--glass);
+        border: 0.5px solid var(--ring);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        box-shadow: 0 6px 16px var(--shadow);
+        display: grid;
+        place-items: center;
+        font:
+          italic 600 17px "New York",
+          Georgia,
+          serif;
+        font-style: normal;
+        color: var(--tint);
+      }
+      .a .item i.chat {
+        background: var(--text);
+        color: var(--page);
+      }
+      .a .item em {
+        position: absolute;
+        top: 54px;
+        left: 50%;
+        transform: translateX(-50%);
+        white-space: nowrap;
+        font-style: normal;
+        font-size: 11px;
+        font-weight: 600;
+        background: var(--note);
+        padding: 2px 7px;
+        border-radius: 9px;
+        box-shadow: 0 2px 8px var(--shadow);
+      }
+
+      /* B: paper cards fanned from the corner, like a hand of cards. */
+      .b .item {
+        transform-origin: 100% 100%;
+        width: 168px;
+        height: 40px;
+        right: 34px;
+        bottom: 30px;
+        border-radius: 4px 4px 10px 4px;
+        background: var(--note);
+        box-shadow: 0 6px 16px var(--shadow);
+        border: 0.5px solid var(--l3);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 14px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .b .item small {
+        margin-left: auto;
+        color: var(--l2);
+        font-weight: 400;
+        font-size: 11.5px;
+        font-family: ui-monospace, Menlo, monospace;
+      }
+      .b .item.chat {
+        background: var(--text);
+        color: var(--page);
+        border-color: transparent;
+      }
+      .b .item.chat small {
+        color: var(--l3);
+      }
+
+      /* C: a glass panel unfolding upward from the +, rows on an arc-like stagger. */
+      .c .item {
+        right: 18px;
+        bottom: 96px;
+        height: 44px;
+        min-width: 176px;
+        border-radius: 22px;
+        background: var(--glass);
+        border: 0.5px solid var(--ring);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        box-shadow: 0 6px 16px var(--shadow);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 16px 0 12px;
+        font-size: 14px;
+        font-weight: 600;
+        transform-origin: 100% 100%;
+      }
+      .c .item b {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--surface);
+        display: grid;
+        place-items: center;
+        color: var(--tint);
+        font-size: 12px;
+      }
+      .c .item.chat b {
+        background: var(--text);
+        color: var(--page);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .item,
+        .fab svg,
+        .scrim {
+          transition: opacity 0.18s !important;
+        }
+        .open .item {
+          transform: translate(var(--x), var(--y)) !important;
+          transition-delay: 0s !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>首页右下 + · 扇形选择</h1>
+      <p>
+        点 + 不直接新建，先弹出选择：新对话（不绑定项目），或在某个项目里开。点每台手机右下的 +
+        试试，点空白处收起。项目超过 4 个时最后一项是"更多项目…"，打开原来的选位置 sheet。
+      </p>
+      <button id="theme">切到深色</button>
+      <button id="all">全部展开 / 收起</button>
+    </header>
+    <main id="main"></main>
+    <script>
+      const projects = [
+        { name: "atrium", n: 3 },
+        { name: "radar-map", n: 1 },
+        { name: "blog", n: 0 },
+        { name: "更多项目…", n: null },
+      ];
+      const plus = `<svg width="22" height="22" viewBox="0 0 22 22"><path d="M11 4v14M4 11h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+      const options = [
+        {
+          id: "a",
+          title: "A · 圆形玻璃按钮扇开",
+          note: "五个小圆按钮沿四分之一圆弧弹出，名字在按钮下面。最像经典的扇形菜单，按钮和首页 + 是同一种纸面玻璃；新对话是墨色。",
+          items(list) {
+            const all = [{ name: "新对话", chat: true }, ...list];
+            const radius = 176;
+            return all
+              .map((item, index) => {
+                const angle = (Math.PI / 2) * (index / (all.length - 1));
+                const dx = -Math.sin(angle) * radius;
+                const dy = -Math.cos(angle) * radius;
+                const letter = item.chat ? "+" : item.n === null ? "⋯" : item.name[0].toUpperCase();
+                return `<div class="item" style="--x:${dx.toFixed(1)}px;--y:${dy.toFixed(1)}px;--d:${index * 35}ms"><i class="${item.chat ? "chat" : ""}">${letter}</i><em>${item.name}</em></div>`;
+              })
+              .join("");
+          },
+        },
+        {
+          id: "b",
+          title: "B · 纸卡像一手牌扇开",
+          note: "几张便签纸从 + 的角上扇开，每张转一个小角度；纸上写项目名和在跑数。最有纸张主题的味道，但斜着的字稍难读。",
+          items(list) {
+            const all = [{ name: "新对话", chat: true }, ...list];
+            return all
+              .map((item, index) => {
+                const rotate = 2 + index * 15;
+                const lift = 64;
+                const meta = item.chat ? "不绑定项目" : item.n === null ? "选位置" : item.n ? `${item.n} 在跑` : "空闲";
+                return `<div class="item ${item.chat ? "chat" : ""}" style="--x:0px;--y:${-lift}px;--r:${rotate}deg;--d:${index * 30}ms">${item.name}<small>${meta}</small></div>`;
+              })
+              .join("");
+          },
+        },
+        {
+          id: "c",
+          title: "C · 玻璃胶囊沿弧线升起",
+          note: "一列玻璃胶囊从 + 上方依次升起，越往上越往左偏一点，排成一道弧。字是正的、最好读，点按区域最大；扇形感比 A、B 弱。",
+          items(list) {
+            const all = [{ name: "新对话", chat: true }, ...list];
+            return all
+              .map((item, index) => {
+                const dy = -index * 54;
+                const dx = -Math.pow(index, 1.6) * 7;
+                const letter = item.chat ? "+" : item.n === null ? "⋯" : item.name[0].toUpperCase();
+                return `<div class="item ${item.chat ? "chat" : ""}" style="--x:${dx.toFixed(1)}px;--y:${dy}px;--d:${index * 40}ms"><b>${letter}</b>${item.name}</div>`;
+              })
+              .join("");
+          },
+        },
+      ];
+      const page = `<div class="content"><div class="brand">Atrium</div><div class="host">● MacBook Pro</div>
+        <div class="proj">atrium</div>
+        <div class="row"><b>feat/mobile-redesign</b><span>首页空状态换成纸</span></div>
+        <div class="row"><b>main</b><span>夜间变异测试结果</span></div>
+        <div class="proj">radar-map</div>
+        <div class="row"><b>feat/radar-map</b><span>雷达图缩放</span></div></div>`;
+      const main = document.getElementById("main");
+      main.innerHTML = options
+        .map(
+          (option) => `<section class="option"><h2>${option.title}</h2><p class="note">${option.note}</p>
+          <div class="phone ${option.id}">${page}<div class="scrim"></div>${option.items(projects)}<div class="fab">${plus}</div></div></section>`,
+        )
+        .join("");
+      document.querySelectorAll(".phone").forEach((phone) => {
+        phone.querySelector(".fab").addEventListener("click", () => phone.classList.toggle("open"));
+        phone.querySelector(".scrim").addEventListener("click", () => phone.classList.remove("open"));
+        phone
+          .querySelectorAll(".item")
+          .forEach((item) => item.addEventListener("click", () => phone.classList.remove("open")));
+      });
+      document.getElementById("all").addEventListener("click", () => {
+        const phones = [...document.querySelectorAll(".phone")];
+        const open = !phones.every((phone) => phone.classList.contains("open"));
+        phones.forEach((phone) => phone.classList.toggle("open", open));
+      });
+      // "#open" opens every fan on load, for screenshots.
+      if (location.hash === "#open")
+        document.querySelectorAll(".phone").forEach((phone) => phone.classList.add("open"));
+      const theme = document.getElementById("theme");
+      theme.addEventListener("click", () => {
+        const dark = document.documentElement.dataset.theme === "dark";
+        document.documentElement.dataset.theme = dark ? "light" : "dark";
+        theme.textContent = dark ? "切到深色" : "切到浅色";
+      });
+    </script>
+  </body>
+</html>

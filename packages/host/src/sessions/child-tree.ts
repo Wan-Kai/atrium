@@ -83,7 +83,7 @@ export interface ArchivePlan {
  * Works out what archiving sessions of one container does to the sessions below them.
  *
  * @remarks
- * SPEC-0002 ("归档、脱离、交接"): from each archived session down, its descendants in the same
+ * SPEC-0002 ("归档、脱离"): from each archived session down, its descendants in the same
  * container, drafts too, are archived with it; a branch in another container is detached instead,
  * and the relations below it stay. Sessions archived already are not listed but gone through,
  * as an archiving cut short can leave one with live sessions below; those being archived

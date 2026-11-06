@@ -43,6 +43,7 @@ import { type HostTools, createToolbox, withProxySetting } from "./setup/toolbox
 import { HOST_TO_PHONE_LIMIT } from "@atrium/remote-crypto";
 import type { VaultPort } from "./remote/vault";
 import { RemoteService } from "./remote/remote-service";
+import { RelayRoute, relayProxy } from "./remote/relay-route";
 import { REMOTE_FILE } from "./remote/devices";
 import { loadIndexFile } from "./store/index-file";
 import { createAttachmentStore } from "./server/attachments";
@@ -76,6 +77,13 @@ import { createWorkspaceArchiver } from "./workspaces/workspace-archiver";
 import { createWorktreeCreator } from "./workspaces/worktree-creator";
 import { createWorktreeQueue } from "./workspaces/worktree-queue";
 import { createWorkspaceService } from "./workspaces/workspace-service";
+import { createLearningRecords } from "./store/learning-records";
+import { createDirectionCreator } from "./study/direction-creator";
+import { createDirectionNamer } from "./study/direction-namer";
+import { errorCode } from "./platform/errors";
+import { createDirections, resolveRoot, shownPath } from "./study/directions";
+import { withEntries } from "./study/entering";
+import { createStudyCommands } from "./study/study-commands";
 
 /** How often clients ping the host, and how long they wait for the answer (SPEC-0001, "握手与心跳"). */
 const HEARTBEAT_MS = 15_000;
@@ -87,6 +95,11 @@ const MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
 export interface HostConfig {
   /** Atrium home directory, normally `~/.atrium`. */
   readonly home: string;
+  /**
+   * The learning directory, normally `~/Atrium/Learning` (SPEC-0008); `<home>/Learning` when
+   * left out, so a host started without it, as in tests, never touches the real one.
+   */
+  readonly learningRoot?: string;
   /** Token clients must present. */
   readonly token: string;
   /** Port to listen on; defaults to 0 (any free port). */
@@ -233,16 +246,34 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     resources,
     logger,
   });
+  // Learning directions live outside the home, where the user can see them (SPEC-0008).
+  const directions = createDirections({
+    root: await resolveRoot(config.learningRoot ?? join(home.root, "Learning")),
+    clock,
+    resources,
+    logger,
+  });
+  const learningRecords = createLearningRecords(index.learning);
+  // The catalog files directions' sessions by their directories: its first scan waits for theirs.
+  const directionsFound = directions
+    .scan()
+    .catch((error: unknown) => logger.warn({ code: errorCode(error) }, "learning directory not scanned"));
   const catalog = createSessionCatalog({
     file: index.sessions,
     location: toolbox.current().then((tools) => (tools === null ? null : sessionsLocation(tools.env))),
     chatsRoot: join(home.root, "chats"),
     workspaces: () => workspaces.list().map((workspace) => ({ id: workspace.id, dir: workspace.dir })),
+    // At the directory their sessions run in, archived or not (domain-model §1, Direction).
+    directions: () => directions.list().map((direction) => ({ id: direction.id, dir: direction.home })),
+    directionsFound: () => directionsFound,
     reader: createSessionFileReader(),
     clock,
     logger,
   });
-  const layouts = createLayouts({ file: index.layouts, clock });
+  // A client going into a direction makes it the one opened last; the commands come below.
+  const layouts = withEntries(createLayouts({ file: index.layouts, clock }), (containerId) =>
+    study.entered(containerId),
+  );
   const chatRecords = createChatRecords(index.chats);
   const feed = createIndexFeed({
     registry: subscriptions,
@@ -251,9 +282,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       projects: projects.projects().map(({ id, path, name, mainBranch }) => ({ id, path, name, mainBranch })),
       workspaces: workspaces.list(),
       chats: listChats(catalog.chats(), chatRecords),
+      directions: study.list(),
       sessions: sessions.summaries(),
       preferences: preferences.read(),
       resets: [...index.resets],
+      learningDir: shownPath(directions.root, homedir()),
     }),
     layoutOf: (clientId) => layouts.of(clientId),
     clock,
@@ -307,6 +340,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     chosen: () => preferences.read().titleModel,
     list: (dir) => models.list(dir, false),
     chatsRoot: join(home.root, "chats"),
+    learningRoot: directions.root,
     // As the model lister asks for chats.
     chatsDir: home.root,
   });
@@ -338,6 +372,15 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     catalog,
     layouts,
     chats: chatRecords,
+    // An archived direction takes no new session (SPEC-0008).
+    directions: {
+      dirOf: (directionId) => {
+        const found = directions.find(directionId);
+        return found === undefined || found.archived ? undefined : found.dir;
+      },
+      // Its sessions are shown from their files, without pi (SPEC-0008, "ML1 定的细节").
+      readOnly: (containerId) => directions.find(containerId)?.archived === true,
+    },
     // A run ending in a workspace may have changed its files.
     workspaces: {
       dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
@@ -467,8 +510,48 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       );
     },
   });
+  // Names a new direction by its first message and makes its directory (SPEC-0008, "新建方向").
+  const directionNamer = createDirectionNamer({
+    // As chats are named: the direction's directory is not made yet.
+    cwd: home.root,
+    titleModel,
+    models: (dir) => models.list(dir, false),
+    oneShot: async ({ timeoutMs, ...request }, signal) => {
+      const found = await toolbox.current();
+      if (found?.pi.status !== "ready") {
+        throw new CommandError("pi_unavailable", { status: found?.pi.status ?? "unknown" });
+      }
+      return runOneShot(
+        { piPath: found.pi.piPath, ...request },
+        createPiDeps({ clock, resources, logger, env: found.env }),
+        { timeoutMs, ...(signal === undefined ? {} : { signal }) },
+      );
+    },
+    logger,
+  });
+  const study = createStudyCommands({
+    directions,
+    namer: directionNamer,
+    creator: createDirectionCreator({
+      root: directions.root,
+      git,
+      clock,
+      random: () => randomBytes(3).toString("hex"),
+      logger,
+    }),
+    records: learningRecords,
+    sessions,
+    clock,
+    changed: () => feed.changed(),
+    logger,
+  });
   projects.onChange(() => feed.changed());
   catalog.onChange(() => feed.changed());
+  directions.onChange(() => {
+    feed.changed();
+    // A direction come or moved may hold sessions started in a terminal.
+    sessions.rescan();
+  });
   workspaces.onChange(() => {
     feed.changed();
     // A scan or fetch may have moved a branch or the main branch.
@@ -526,6 +609,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       windowFocused: () => {
         workspaces.windowFocused();
         changes.refresh();
+        // Fire and forget: a failed scan is logged; the next focus tries again.
+        void directions
+          .scan()
+          .catch((error: unknown) => logger.warn({ code: errorCode(error) }, "learning directory not scanned"));
       },
       refresh: (workspaceId) => {
         workspaces.refresh(workspaceId);
@@ -627,6 +714,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     resources,
     logger,
     hostName: hostname(),
+    // The proxy setting, read afresh at every attempt (SPEC-0005, "连 relay 走代理").
+    route: new RelayRoute(() => relayProxy(preferences.read().proxy)),
     send: (id, event) => subscriptions.sendTo(id, event),
     accept: (transport, origin) => server.accept(transport, origin),
   });
@@ -650,6 +739,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       subscriptions,
       sessions,
       index: indexCommands,
+      study,
+      containerOfSession: (sessionId) => catalog.find(sessionId)?.containerId,
       setup,
       piConfig: createPiConfig({
         environment: async () => {
@@ -686,6 +777,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     });
   } catch (error) {
     logger.error({ err: error }, "host failed to start");
+    // The learning directory is scanned, and so watched, from the start.
+    await directions.close();
     releaseRejections();
     await tracing.shutdown();
     await closeLogFile(destination);
@@ -812,8 +905,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await translations.close();
     // Naming may be waiting on a shared cold model query: abort both before awaiting either.
     const namingClosed = namer.close();
+    const studyClosed = study.close();
     await models.close();
     await namingClosed;
+    // Before the sessions, which a direction being created or archived still uses.
+    await studyClosed;
     // Before the sessions and the index, which a worktree being created, archived or restored still uses.
     await worktreeQueue.idle();
     await loginService.close();
@@ -826,6 +922,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await workspaces.close();
     await sessions.close();
     await catalog.close();
+    await directions.close();
     // After the sessions, whose stopping still reports changes.
     feed.close();
     ring.close();

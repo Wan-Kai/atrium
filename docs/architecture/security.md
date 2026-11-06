@@ -26,7 +26,7 @@
 ## Electron
 
 - 渲染进程：`contextIsolation: true`、`sandbox: true`、`nodeIntegration: false`、`webSecurity: true`。
-- preload 只通过 `contextBridge` 暴露最小接口（宿主地址和 token、让用户选择文件夹、设置窗口外观；M1.5 起；拖进输入框的文件的路径，用 `webUtils.getPathForFile`，只对用户亲手拖进来的文件有用，M1.7 起；在访达中显示 pi 的位置和日志文件夹，M1.10 起；用默认浏览器打开工作区里的 HTML 文件，2026-10-15 起），不暴露 Node 或 IPC 本身。每个 IPC 处理函数都只回应应用自己页面的来源，外观只接受三个取值，在访达中显示只接受存在的绝对路径；用浏览器打开只接受扩展名是 `.html`、`.htm` 的绝对路径，用 `lstat` 确认是普通文件（不是符号链接、目录），再以 `file://` 地址交给 `shell.openExternal`，路径不记日志。桌面端不知道工作区在哪，工作区的边界由宿主守：界面只在宿主读到了这个文件之后才给"在浏览器打开"（`read_file` 只读工作区里的、路上没有链接的路径），被拒绝的、是链接的不给（2026-10-16 审查后定）。
+- preload 只通过 `contextBridge` 暴露最小接口（宿主地址和 token、让用户选择文件夹、设置窗口外观；M1.5 起；拖进输入框的文件的路径，用 `webUtils.getPathForFile`，只对用户亲手拖进来的文件有用，M1.7 起；在访达中显示 pi 的位置和日志文件夹，M1.10 起；用默认浏览器打开工作区里的 HTML 文件，2026-10-15 起；在会话的目录里打开终端，2026-11-05 起），不暴露 Node 或 IPC 本身。每个 IPC 处理函数都只回应应用自己页面的来源，外观只接受三个取值，在访达中显示只接受存在的绝对路径；用浏览器打开只接受扩展名是 `.html`、`.htm` 的绝对路径，用 `lstat` 确认是普通文件（不是符号链接、目录），再以 `file://` 地址交给 `shell.openExternal`，路径不记日志；打开终端只接受 `null`（家目录）或 `stat` 确认存在的绝对目录，其它一律忽略，路径只作为 `open` / cmux 的一个参数，不经过 shell。桌面端不知道工作区在哪，工作区的边界由宿主守：界面只在宿主读到了这个文件之后才给"在浏览器打开"（`read_file` 只读工作区里的、路上没有链接的路径），被拒绝的、是链接的不给（2026-10-16 审查后定）。
 - 设置内容安全策略（CSP）：脚本只允许本应用；不允许 `eval`；图片允许本应用、`data:`、`blob:` 和 `https:`（回复里的远程图片，见下文"渲染内容"），连接只允许本应用；frame 只允许 `atrium-visual:`（交互演示，MV1）。宿主直接提供的页面（单独运行时）由宿主加响应头；窗口里的页面从 `atrium://app/` 加载（overview.md"桌面端怎么启动宿主"），由 Electron 主进程转发宿主的文件并换上同样的策略，只额外允许连接宿主端口；开发时页面来自 Vite，主进程给它加的策略再额外允许内联脚本（React 热更新需要）。
 - `atrium` 协议只转发到宿主的静态文件服务，路径校验和符号链接检查仍由宿主做；宿主的 `Origin` 白名单只多出 `atrium://app` 这一个来源。主进程判断"是不是自己的页面"时比较协议和主机名（`atrium:` 加 `app`），不用 `URL.origin`：Node 对非标准协议给出的 origin 是 `"null"`，所有不透明来源都相等。协议处理器只接受主机名 `app`。
 - 网页的权限请求一律拒绝，只有一个例外：应用自己的页面（同上，按协议和主机名比）写剪贴板（`clipboard-sanitized-write`，`navigator.clipboard.writeText`），复制按钮要用（2026-10-20 自用时补：原先连它也拒了，对话区的复制按钮一直没效果，e2e 为了不碰真剪贴板把 `writeText` 换成了假的，没发现）。读剪贴板（`clipboard-read`）照样拒绝，粘贴走输入框自己的 paste 事件，不需要它。
@@ -70,6 +70,7 @@
 - 子进程的环境里没有 token：宿主把登录 shell 的环境交给 pi 时去掉 `ATRIUM_`、`ELECTRON_` 开头的变量，读取登录 shell 时 shell 也只带少数基本变量启动（SPEC-0001"第 1 步"）。这份环境可能含有用户的 API Key，日志里不记录它的内容。
 - 设置里的网络代理（SPEC-0001"设置 · pi"）只接受 `http`、`https` 的地址，不能带用户名和密码：它会进 pi 和安装程序的环境，而脱敏只认名字像凭据的变量，`HTTPS_PROXY` 里的密码拦不住。日志只记代理来自设置、登录 shell 还是没有，不记地址。`NO_PROXY` 总带着 `localhost,127.0.0.1,::1`，pi 连本机的服务不经代理（2026-10-11 定）。
 - 外部命令一律用 `execFile` / `spawn` 传参数数组，不经过 shell，防止命令注入；参数来自用户输入时（分支名、路径）先校验。
+- 在终端中打开（SPEC-0001，2026-11-05）：桌面壳按固定顺序找 cmux 的命令（`/Applications/cmux.app/Contents/Resources/bin/cmux`、`/opt/homebrew/bin/cmux`、`/usr/local/bin/cmux`），用 `execFile` 跑它，工作区路径和窗口 id 都只作为参数；没装 cmux 时用 `/usr/bin/open -a Terminal <目录>`。cmux 的凭据由它自己的 CLI 从官方密码存储读，Atrium 不读、不传、不记；cmux 和用户在终端里的任务不归 Atrium 管，Atrium 退出或归档时不关闭它。
 - 在 `PATH` 里找 pi 时跳过相对路径（包括 POSIX 里表示"当前目录"的空项），宿主不会运行恰好位于自己工作目录里的 `pi`。交给 pi（`pi --version` 和 `pi --mode rpc`）的 `PATH` 也去掉相对项：pi 的启动脚本用 `#!/usr/bin/env node` 在 `PATH` 上找 `node`，相对项会让它运行工作目录里的 `node`。
 - Atrium 自己的 Node 程序用 `process.execPath` 启动，不通过 `npx` 或 `.bin` 脚本。pi 用找到的绝对路径直接启动（宿主跑在 Electron 里时 `process.execPath` 是 Electron 本身），PATH 取自登录 shell，不经过 shell。git 同样用登录 shell 的 PATH，去掉相对项和空项，仓库里同名的 `git` 不会被执行（2026-10-08 审查后补）；git 超时或取消时连同它拉起的子进程（ssh、凭据助手）一起结束。
 - `@` 引用的文件搜索限制在工作区目录内：不接受 `~/`、绝对路径和 `..`，查询词放在 `--` 之后传给 `fd`，不会被当成选项。工作区里的符号链接和 pi 一样跟进去，它指向的内容算工作区的一部分（用户自己放的链接，agent 本来也能经它读到；2026-10-10 定）。
@@ -78,13 +79,22 @@
 - 右栏的文件树和查看标签（SPEC-0001"M1.12 的文件与更改"）只读工作区里的东西：`list_dir`、`read_file` 只接受相对路径，各段不能是空、`.`、`..`；路径上的目录不能是符号链接（上级目录的真实路径必须正好是工作区目录拼上这段路径），最后一段打开时不跟随（`O_NOFOLLOW`），链接只报告"是链接"、不读它指向的内容。这比 `@` 搜索严：搜索只给出文件名交给 pi，这里要把内容送到界面上，不让一个链接把工作区外的文件（如 `~/.ssh`）显示出来。类型、大小和内容取自同一次打开；文本最多读 1 MB、图片 10 MB。被忽略的文件用 `git check-ignore --stdin` 认，文件名从标准输入给。日志只记工作区 id 和错误类别，不记路径和内容（2026-10-13 定）。
 - pi 普通配置编辑（SPEC-0001“设置 · pi”，2026-10-20）：只接受固定文件名 `settings.json`、`models.json`、`mcp.json`、`keybindings.json`，项目作用域只开放 settings / mcp；全局目录来自宿主交给 pi 的环境，项目目录来自登记的工作区，不接受任意客户端路径。`auth.json`、`mcp-auth.json` 不在白名单；全局 agent 目录来自用户自己的 pi 环境，允许目录与祖先的符号链接，先解析到真实路径再读写并展示；项目 `.pi` 路径仍拒绝符号链接，且项目配置只创建已有工作区下的 `.pi`，不重建已删除的工作区。最终文件一律拒绝符号链接、非普通文件和多硬链接文件，避免配置别名读到凭据。单文件最多 256 KiB UTF-8，打开后限量读取；保存按 pi 的语法校验对象（models 支持行注释与尾逗号，校验忽略 BOM，空 settings 视为对象，原文保留）、比较原文件 SHA-256，同宿主串行受理并用同目录临时文件原子替换（新文件 `0600`）。settings 另持有与 pi 一致的 `proper-lockfile` 锁（`realpath: false`，锁忙立即冲突），从读取当前版本到替换都在锁内，成功和失败都释放；不为兼容锁协议手写过期或续租逻辑。普通配置可能手填密钥，内容只送到配置编辑器，不写入索引、对话、日志、链路和错误文本；文件系统错误映射为稳定错误码，不记录原错误的路径与消息。只保存，不执行配置、不自动重启 pi。
 - worktree 的中英文命名（2026-10-28 自用后补充）：仅将首条消息/子对话名称/agent 首件任务截到 1200 码点作为素材，连同固定分支（如有）编码为固定非命令前缀后的 JSON，经 stdin 给一次性 pi，防止开头 `/` 被当作命令。生成的中文名只存工作区 `alias`，不参与 Git 参数或目录拼接；分支仍经既有清理与 Git 校验。不读取图片、完整历史或源码来起名；日志不含素材、别名、分支或原始回答。命名可取消、关闭时等待清理，不给已有 worktree 回填。
+- 学习方向（SPEC-0008，ML1，2026-11-05）：这是宿主第一次在 `~/.atrium/` 之外写东西。只写固定的学习目录 `~/Atrium/Learning/`（设了 `ATRIUM_HOME` 时是 `$ATRIUM_HOME/Learning/`），路径由宿主算出，不来自客户端：
+  - 新建方向时目录名来自模型或随机数，宿主先整理成小写英文、数字和 `-`（2 到 40 个字符，不能是 `archive`，macOS 的文件系统不分大小写），再拼到学习目录下，所以出不了这一层；建目录不用 `recursive`（已有就换个名字），写的文件只有 `AGENTS.md`（固定模板）、`.atrium-study.json`（显示名、时间）和 `lab/`。新文件权限按用户的 umask，不收紧：档案就是给人看、拿别的工具读的。
+  - `lab/` 里跑一次 `git init`，经 `platform/git.ts`（参数数组、不经 shell、PATH 去掉相对项、去掉指向别的仓库的变量，见下面环境变量表），参数固定，不带用户给的东西。git 不在或失败时 `lab/` 照样建好，只是不是仓库，日志记一条不带路径的。
+  - 归档、恢复只在学习目录和 `Archive/` 之间 `rename` 同名目录，不复制、不删；目录名取宿主扫描到的、合 id 格式的名字，不来自客户端。目标处已有东西就拒绝，不覆盖（归档是 `study_archive_conflict`，在停会话之前查；恢复是 `study_restore_conflict`）。宿主不删学习目录里的任何东西（只删自己刚建、移动失败后还空着的占位目录）。
+  - 不经链接出学习目录（2026-11-06 评审后加）：学习目录和 `Archive/` 必须是真目录（`lstat`，不是链接），否则不扫描、不建、不移动（`learning_dir_unsafe`）；学习目录本身是链接时启动解析路径也不跟进去，只解析它上面的各级。标记文件用 `O_NOFOLLOW` 打开，是链接的不算方向。移动前再查一遍，并核对目标的上一级 `realpath` 后还是学习目录或 `Archive/`。
+  - 不覆盖的移动（2026-11-06）：Node 没有 macOS `renamex_np(RENAME_EXCL)` 这种不替换的改名，所以先在目标处 `mkdir` 一个空目录占位（已有东西就失败 → 冲突），再把方向 `rename` 到占位上；`rename` 只会替换空目录，占位被别人放进东西就失败（`ENOTEMPTY` → 冲突，占位和里面的东西都不动）。剩下的窗口只有"别人删掉占位、换上另一个空目录"，最坏是那个空目录被替换，不丢内容。
+  - 新建方向和归档、恢复的移动排队一个一个来，新方向不会在同名方向移动的半途占到名字；关闭宿主时等新建做完，起名中途关闭的不再建目录。
+  - 起名同 worktree：消息只截前 1200 个码点作为素材，编码成固定前缀后的 JSON 经 stdin 给一次性 pi，显示名、目录名、消息都不进日志。显示名只写进 `.atrium-study.json`，不参与路径拼接。
+  - pi 在方向目录里读 `AGENTS.md` 不需要信任目录（SPEC-0008"方向目录"）：学习目录里的 `AGENTS.md` 是给模型的说明，用户可以改，和工作区里的 `AGENTS.md` 一样算用户自己的输入。上层目录（`~/Atrium/`、`~`）的 `AGENTS.md` 也会被读到。
+  - 日志只记方向 id 和错误类别，不记显示名、路径和消息。
 - 子对话分叉到新 worktree（SPEC-0002，M1.15）：临时 pi 写的中间文件放在宿主用 `mkdtemp` 在自己数据目录下的 `tmp/`（`~/.atrium/tmp`，权限 `0700`，一个数据目录只有一个宿主）新建的 `atrium-fork-*` 目录里，目录里写一个标记文件 `.atrium-fork`，写不了就删掉这个目录；子对话的 pi 起好或失败后删掉它，删不掉只记一条不带路径的日志。宿主启动时只删 `tmp/` 里名字带这个前缀、并且有标记文件的目录，别的一概不碰，删完之前不新建（2026-10-17 审查后改：原先放在系统临时目录，两个宿主同时开着时后启动的会删掉前一个正在用的目录）。中间文件是对话内容，不进日志，路径也不记。新 worktree 的分支名来自用户输入，先整理成 `atrium/…` 再交给 git，同新建工作区。
 - 停止消息编辑（M1.11 自用，2026-10-20）：正文与图片仍经普通消息和附件通道发送，不放进隐藏命令参数。`/atrium-edit` 只接受严格结构、限长的 base64url JSON（动作、随机操作标识、条目 id 和旧 leaf）；扩展核对当前分支，旧操作不能恢复覆盖后来的消息；宿主必须先确认扩展已加载，再发隐藏命令，避免未知命令成为模型输入。回退和恢复不摘要旧分支，不主动调用模型，旧记录留在原 pi 文件。宿主检查最后一轮、停止状态和 epoch，不信任界面的可编辑标记；仍拒绝伪造隐藏命令。失败日志只记错误码 / 类别，不带正文、图片或隐藏命令参数。
 - `/atrium-` 开头的消息留给宿主（SPEC-0002"送达"）：你打的消息、插话、改排队里的消息、新建工作区的第一条消息以它开头时，宿主应答 `command_reserved`，不发给 pi（界面在新建工作区之前就拦下，不先建 worktree）。这样只有宿主能对扩展发隐藏命令（`/atrium-fast`、`/atrium-plan`、`/atrium-agent`），你和粘贴进来的文字冒充不了宿主。隐藏命令的参数是 base64url 的 JSON，扩展读不出就什么都不做；参数里可能有路径，不进日志。会话文件和索引里的子对话数据（`atrium-agent` 消息的路径、父会话 id、名字）超出协议的长度时当作没有，不让一条坏数据带着整份对话记录或会话列表被客户端丢掉。
 - agent 开的子对话（SPEC-0002 第二步，M1.15；通道见 ADR-0013）：
   - 2026-10-21 用户明确同意 `explore`、`advise` 默认开放普通 `bash`，以支持 Git 差异、目录、进程等读取和查询；原先白名单不含 Bash。**只读是行为约束，不是技术上的写入隔离**：首件任务提示 Bash 仅用于读取与查询，禁止修改文件及仓库状态、构建、测试、启动服务，需要修改时交给 `work` 子代理；不做命令解析或过滤，普通 Bash 仍可能写入或执行任意程序。不带上下文的由宿主 `--tools` 在 pi 注册表保留 `read,bash,ffgrep,fffind,ls` 及按角色和层数开放的 agent 工具；带上下文的由 Atrium 扩展在 `tool_call` 钩子里按同样的白名单拦，`edit`、`write`、`powershell`、MCP、`codemode` 等仍不可用。`read` 与 Bash 能访问绝对路径，不隔离工作区外的文件。你自己装的扩展和 pi 同进程，能注册同名工具覆盖内置工具、也能写 `atrium-agent:` 状态键冒充 Atrium 的扩展，不在保证之内；宿主按 pi 进程认定调用方，照样按索引里的当前关系和角色核对 agent 操作权限。
   - 2026-10-22 自用选装 pi-fff：所有 agent 开的子对话停用旧独立工具 `grep/find`，搜索只开放 `ffgrep/fffind`；`work`、带上下文、交给终端的参数同样排除旧名，扩展也拦旧名。保留 Bash，不过滤其命令。扩展通过用户级 pi package 安装，和 pi 同权限，不是沙箱；配置独立 frecency/history 数据库，避免默认复用或清理 Neovim 的库；关闭 home 根扫描和跟随目录链接只是缩小范围，外部路径索引仍可用。原生同步调用的取消和多会话重复索引成本仍是试用风险，见 [调研](../research/pi-fff.md)。
-  - 交给终端时复制的命令带上工具参数（`--tools`、`--exclude-tools`），终端里扩展不在，这只是建议，你可以删掉；这些参数是工具名，不含凭据和路径。
   - 主 agent 交代的事全文存在子对话的索引记录（`deliveries`）里，pi 写进会话文件、宿主在文件里见到后删掉，只短暂停留；往上送的通知只存引用，回复从子对话的会话文件里读。这些文字是对话内容，不进日志：日志只记送达 id、任务 id、事件种类和字数。
   - 通知和交代给模型时套上标明来源、"不是用户说的话、不代表用户授权"的外壳，冒充外壳的标记先转义（ADR-0013 第 10 条）。子对话的文字只当数据交给父会话的模型，宿主不照它做任何事。
   - 扩展写到状态行的请求有长度上限，读不出的当坏请求回 `agent_bad_request`，不记内容；隐藏命令的参数同样不进日志。
@@ -96,14 +106,16 @@
 
 MP3a，协议见 [SPEC-0005](../specs/0005-mobile-app-and-remote-access.md)。远程能力默认关闭；独立宿主没有 Electron 保险箱时不可用。本机监听仍只在 loopback，不增加公网入口。
 
-- `remote-crypto` 只实现 IK/IKpsk2，不协商其他模式、不压缩；配对码五分钟、密钥确认后等待 Mac 两分钟。错码、错版本、认证失败、畸形帧、超限分块均不降级。
+- `remote-crypto` 只实现 IK/IKpsk2，不协商其他模式；只有宿主发给手机、且手机在 `connect` 里要过时才压缩（raw deflate，每条消息单独压，手机解压超过 8 MiB 即关闭）。先压缩再加密会让密文长度随内容变化，能看长度又能往对话里放内容的 relay 理论上可做 CRIME 类猜测；用户 2026-10-29 知情后接受（SPEC-0005"Noise 通道 · 压缩"）；配对码五分钟、密钥确认后等待 Mac 两分钟。错码、错版本、认证失败、畸形帧、超限分块均不降级。
 - 宿主独立限制四条未完成握手的流、十秒握手时限、每设备两条通道；单帧 70 KiB、上行消息 1 MiB、下行 8 MiB。通道与本机共用 32 连接总上限、发送背压及断线清理。每台手机单独一条 relay 数据连接。
 - 远程 `hello` 必须不带本机 token，`clientId` 必须是 Noise 公钥认出的 `deviceId`。来源和设备 id 只由宿主写入；命令白名单、事件过滤穷举协议全集，远程不能操作配对、保险箱、登录和安装。`remote_updated` 只发给主动订阅的本机连接。
 - 长期私钥、relay 令牌、设备公钥及名称只存于 `remote/vault.bin`：主进程用异步 `safeStorage` 加密，0700 目录、0600 临时文件后原子改名；宿主经带 id/version 的进程端口读写，渲染进程没有保险箱 IPC。`remote.json` 只放开关及最后在线时间。未启用时不自动读钥匙串；显式设置 relay、测试连接、重置才会读取，读取等待不阻塞本机服务。
 - 读取必须明确返回版本与内容；缺字段、不可解码或重复的设备身份、损坏内容都 fail-closed，不自动换身份。缺文件才可首次生成；恢复损坏必须由本机显式重置。两侧写队列失败后可以继续重试，不将超限请求静默丢掉。仅落盘成功才授予配对权限或替换身份。
 - 撤销先拉黑、关闭已有通道再写盘；确认配对写盘期间发生的后来撤销优先，不能由写盘回调重新放行。重置先写新身份再撤销全部通道。relay 传来的关闭码不能作为已认证撤销。
+- 宿主连 relay 优先经设置里的代理（pi 也用它；没设直连，不读登录 shell 的；2026-10-30 定，SPEC-0005"连 relay 走代理"）：HTTP `CONNECT` 隧道，TLS 在隧道里由宿主和 relay 端到端完成、照样校验证书，令牌只在 TLS 里发；代理只看到目标主机、端口、字节量和时间，和 relay 本身能看到的同一类。代理不通退回直连。日志只记"经代理"或"直连"。
 - TLS 默认用于远程 relay，只有 localhost、127.0.0.1、[::1] 用明文 WebSocket 供本机测试。解析时验证 URL 和端口；令牌只在控制/数据连接的首帧发送，不放 URL，不跟随重定向。临时连接测试可取消，不能在启用后认证并挤掉正式连接。
 - **固定版本的解密失败分类**：Electron 44.5.1 的 `OnOsCryptReady` 无条件令 async availability 为 true；Chromium 152.0.7977.130 的 KeychainKeyProvider 在密码不可用时返回 temporarily unavailable，而 Encryptor 保留此状态。`decryptStringAsync` 只给不同 Error 消息，没有可用的结构化 code。主进程仅把精确的一般 ciphertext 失败消息和成功解密后的格式失败归为 `corrupt`；“暂时不可用”和所有未知拒绝均为 `keychain_unavailable`，清除已知版本为 null，禁止绕过重读来覆盖原文件。`corrupt` 也可能是密钥不匹配，不宣称确定磁盘损坏。原文不外传、不记日志；不加宽松 includes 匹配或额外加密探测。依据：[Electron v44.5.1 原生实现](https://github.com/electron/electron/blob/v44.5.1/shell/browser/api/electron_api_safe_storage.cc)、[该版本 DEPS](https://github.com/electron/electron/blob/v44.5.1/DEPS)、[Chromium KeychainKeyProvider](https://chromium.googlesource.com/chromium/src/+/152.0.7977.130/components/os_crypt/async/browser/keychain_key_provider.mm)、[Encryptor](https://chromium.googlesource.com/chromium/src/+/152.0.7977.130/components/os_crypt/async/common/encryptor.cc)。测试锁定 Electron 44.5.1 以要求升级时重新审阅消息合同；这些是静态证据及模拟回归，不是操作真实钥匙串后的平台实测，亦未证实授权拒绝已造成实际覆盖。
+- 手机碰不到学习方向（SPEC-0008，2026-11-06 用户定选项 A）：发给手机的列表里没有方向，也没有方向里的会话（`index_snapshot`、`index_changes` 都在连接的出口统一过滤，方向的绝对路径、`learningDir` 一并不给）；手机发来的命令只要带的会话或容器是方向或方向里的会话，路由在分发前统一按 `local_only` 拒绝，不带参数（按命令里所有会话、容器、工作区 id 字段查，不靠逐条命令记得检查）。给手机的 `session_cwd_missing` 也去掉 `cwd`，路径不出 Mac。
 - safeStorage 的防护边界不变：能修改 ad-hoc 签名应用或同用户进程内存的攻击者不在保证之内。relay 可拒绝服务，已认证手机可使用白名单内能力；本机工具执行仍沿用 MVP 1 的风险模型。
 
 ## relay
@@ -143,7 +155,7 @@ MP3a，协议见 [SPEC-0005](../specs/0005-mobile-app-and-remote-access.md)。�
 
 | 地址 | 性质 | 谁 | 用途 | 出处 |
 |---|---|---|---|---|
-| `<用户 relay 地址>/v1/host` （拼出） | 请求 | 宿主 `remote/relay-link.ts` | 控制连接及可取消的连接测试；默认 wss，仅 loopback 用 ws | SPEC-0005、本文“宿主远程访问” |
+| `<用户 relay 地址>/v1/host` （拼出） | 请求 | 宿主 `remote/relay-link.ts` | 控制连接及可取消的连接测试；默认 wss，仅 loopback 用 ws；有代理时经代理的 `CONNECT` 隧道 | SPEC-0005、本文“宿主远程访问” |
 | `<用户 relay 地址>/v1/host/stream` （拼出） | 请求 | 宿主 `remote/channel.ts` | 每手机独立的 Noise 数据连接，令牌只进首帧 | SPEC-0005 |
 | `https://pi.dev/api/latest-version` | 请求 | 宿主（`setup/pi-latest.ts`） | 每天查一次 pi 的最新版本；`ATRIUM_PI_LATEST_URL` 可换地址、设为空就不查，pi 的环境里有 `PI_OFFLINE` 时也不查 | SPEC-0001"设置 · pi"、pi-internals |
 | `https://pi.dev/install.sh` | 请求 | 宿主（`setup/install-script.ts`）；界面（`setup/install-step.tsx`）显示同一条命令 | 安装 pi 的官方脚本，地址写死 | 本文"子进程与文件" |
@@ -174,7 +186,7 @@ MP3a，协议见 [SPEC-0005](../specs/0005-mobile-app-and-remote-access.md)。�
 
 | 名字 | 谁读或交给谁 | 用途 | 出处 |
 |---|---|---|---|
-| `ATRIUM_HOME` | 宿主、桌面端主进程、`pi:try` | Atrium 的数据目录（默认 `~/.atrium`）；桌面端据此把 Electron 的数据分开 | development.md、本文"凭据与日志" |
+| `ATRIUM_HOME` | 宿主、桌面端主进程、`pi:try` | Atrium 的数据目录（默认 `~/.atrium`）；桌面端据此把 Electron 的数据分开；设了它时学习目录改在 `$ATRIUM_HOME/Learning`（SPEC-0008） | development.md、本文"凭据与日志""子进程与文件" |
 | `ATRIUM_PORT` | 宿主（单独运行时） | 监听端口，默认随机 | 本文"WebSocket 与鉴权" |
 | `ATRIUM_TOKEN` | 宿主（单独运行时） | 指定 token，要满足长度和字符集 | 本文"WebSocket 与鉴权" |
 | `ATRIUM_UI_DIR` | 宿主（单独运行时） | 要提供的界面文件目录 | overview.md"桌面端怎么启动宿主" |
@@ -210,6 +222,19 @@ MP3a，协议见 [SPEC-0005](../specs/0005-mobile-app-and-remote-access.md)。�
 | `no_proxy` | 同上 | 同上 | 同上 |
 | `GIT_OPTIONAL_LOCKS` | 宿主（`platform/git.ts`）交给 git | 设成 `0`，查询时不抢仓库的锁 | — |
 | `GIT_TERMINAL_PROMPT` | 同上 | 设成 `0`，git 不在终端里问密码 | — |
+| `GIT_DIR` | 用户 shell 里可能有 | 宿主交给 git 前去掉（git 自己换仓库时清的那一组，配置类的除外），每条命令都只作用于它所在目录的仓库，新方向的 `git init` 不会落到别的仓库（2026-11-06） | — |
+| `GIT_WORK_TREE` | 用户 shell 里可能有 | 同上，交给 git 前去掉 | — |
+| `GIT_IMPLICIT_WORK_TREE` | 用户 shell 里可能有 | 同上，交给 git 前去掉 | — |
+| `GIT_INDEX_FILE` | 用户 shell 里可能有 | 同上，交给 git 前去掉 | — |
+| `GIT_OBJECT_DIRECTORY` | 用户 shell 里可能有 | 同上，交给 git 前去掉 | — |
+| `GIT_ALTERNATE_OBJECT_DIRECTORIES` | 用户 shell 里可能有 | 同上，交给 git 前去掉 | — |
+| `GIT_COMMON_DIR` | 用户 shell 里可能有 | 同上，交给 git 前去掉 | — |
+| `GIT_GRAFT_FILE` | 用户 shell 里可能有 | 同上，交给 git 前去掉 | — |
+| `GIT_NO_REPLACE_OBJECTS` | 用户 shell 里可能有 | 同上，交给 git 前去掉 | — |
+| `GIT_REPLACE_REF_BASE` | 用户 shell 里可能有 | 同上，交给 git 前去掉 | — |
+| `GIT_PREFIX` | 用户 shell 里可能有 | 同上，交给 git 前去掉 | — |
+| `GIT_SHALLOW_FILE` | 用户 shell 里可能有 | 同上，交给 git 前去掉 | — |
+| `GIT_NAMESPACE` | 用户 shell 里可能有 | 同上，交给 git 前去掉 | — |
 | `PI_CODING_AGENT_DIR` | pi 包（`env/agent-dir.ts`、`sessions/session-files.ts`） | 照 pi 的规则找它的配置目录 | pi-internals |
 | `PI_CODING_AGENT_SESSION_DIR` | pi 包（`sessions/session-files.ts`） | 照 pi 的规则找会话目录 | pi-internals |
 | `PI_OFFLINE` | 宿主（`main.ts`）读交给 pi 的环境 | 设了就不查 pi 的最新版本，和 pi 一致 | SPEC-0001"设置 · pi" |

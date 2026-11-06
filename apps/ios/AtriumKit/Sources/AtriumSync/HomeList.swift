@@ -1,8 +1,12 @@
 import AtriumProtocol
+import Foundation
 
 /// What the home screen lists, worked out from the list.
 ///
-/// - Remark: SPEC-0005 "MP4a 定的细节 · 界面": "等你处理" first, then each project's workspaces
+/// - Remark: The paper redesign (SPEC-0005 "界面", 2026-10-28; design-language "手机端 · 首页"):
+///   "等你处理" is a strip of notes, one a thing, stuck before waiting; each project lists one line a
+///   worktree, led by its most urgent session, the merged ones folded into a count. Before it,
+///   SPEC-0005 "MP4a 定的细节 · 界面": "等你处理" first, then each project's workspaces
 ///   with their sessions, then the sessions of chats. The rules follow the desktop's sidebar
 ///   (`packages/ui/src/sidebar/names.ts`, `status.ts`): the inbox picks and orders as `inboxOf`,
 ///   workspaces are named and ordered as `workspaceName` and `sortWorkspaces`, sessions are titled
@@ -35,8 +39,61 @@ public struct HomeList: Sendable, Equatable {
     public let detail: String?
     /// Its mark, if any.
     public let status: Status?
+    /// When it last changed, for the time at the end of a worktree's line.
+    public let updatedAt: Int
     /// Whether its chat is pinned (SPEC-0001, "对话的置顶与顺序"); drawn in front of the title.
     public let pinned: Bool
+  }
+
+  /// How urgent a note is, which its paper's colour shows.
+  ///
+  /// - Remark: design-language "手机端 · 首页": stuck, waiting, then reminders, in that order.
+  public enum NoteLevel: Sendable, Equatable {
+    /// Stuck: a run failed, or a sign-in is needed.
+    case stuck
+    /// Waiting on you: a question or a dialog.
+    case waiting
+    /// A reminder; nothing makes one yet (later: to-dos, the inbox).
+    case reminder
+  }
+
+  /// One note in "等你处理": one thing waiting on you.
+  ///
+  /// - Remark: Named by the thing's own words where the host sends them (SPEC-0005 "协议改动" 6): a
+  ///   failure's first line and the rest, or the question's title and detail; without them, the
+  ///   session's title. Identified by its session, which also seeds the note's tilt.
+  public struct Note: Sendable, Equatable, Identifiable {
+    /// The session.
+    public let id: SessionId
+    /// How urgent it is.
+    public let level: NoteLevel
+    /// The bold lines.
+    public let title: String
+    /// The smaller lines under it, if any.
+    public let body: String?
+    /// Whether the body is pi's error text, set in mono.
+    public let code: Bool
+    /// Where it is: the project and branch, or the chat's name.
+    public let place: String
+    /// Since when it waits, in milliseconds since the epoch.
+    public let since: Int
+  }
+
+  /// One worktree's line under its project.
+  ///
+  /// - Remark: The branch and its tag, then the session that matters most in it (asking, errors,
+  ///   running, then the newest), "等 N 个在跑" for the others running, and the time.
+  public struct WorktreeLine: Sendable, Equatable, Identifiable {
+    /// The workspace.
+    public let id: WorkspaceId
+    /// Its name: the alias, the branch, or the folder.
+    public let name: String
+    /// The local checkout or a worktree.
+    public let kind: Workspace.Kind
+    /// The session leading the line; `nil` for a workspace without one.
+    public let lead: Row?
+    /// How many other sessions in it run.
+    public let alsoRunning: Int
   }
 
   /// A workspace and its sessions.
@@ -53,6 +110,8 @@ public struct HomeList: Sendable, Equatable {
     public let kind: Workspace.Kind
     /// Whether its branch was merged.
     public let merged: Bool
+    /// When it last saw activity: its latest session's change, else when it was made, in milliseconds.
+    public let active: Int
     /// The sessions the home shows: at most three, the ones waiting for you first.
     public var shown: [Row] { Array(HomeList.byUrgency(rows).prefix(HomeList.perWorkspace)) }
     /// How many more it has, for "还有 N 个".
@@ -61,6 +120,8 @@ public struct HomeList: Sendable, Equatable {
 
   /// The most sessions a workspace shows on the home.
   public static let perWorkspace = 3
+  /// The most worktree lines a project shows before "显示更多 N 个".
+  public static let worktreesShown = 8
   /// The most chats the home shows.
   public static let chatsShown = 5
 
@@ -76,10 +137,57 @@ public struct HomeList: Sendable, Equatable {
     public let running: Int
     /// Its workspaces, in the sidebar's order.
     public let workspaces: [WorkspaceGroup]
+    /// One line a workspace not merged, the latest activity first (design-language "手机端 · 首页").
+    public var lines: [WorktreeLine] {
+      HomeList.stable(workspaces.filter { !$0.merged }) { $0.active > $1.active }.map(HomeList.line)
+    }
+    /// The merged workspaces' lines, shown when "另外 N 个已合并" is opened.
+    public var mergedLines: [WorktreeLine] { workspaces.filter(\.merged).map(HomeList.line) }
+    /// How many of its workspaces were merged, for "另外 N 个已合并".
+    public var merged: Int { workspaces.filter(\.merged).count }
+    /// The lines shown before "显示更多 N 个".
+    public var shownLines: [WorktreeLine] { Array(lines.prefix(HomeList.worktreesShown)) }
+    /// How many lines "显示更多 N 个" hides; 0 for none.
+    public var moreLines: Int { max(0, lines.count - HomeList.worktreesShown) }
   }
 
-  /// The sessions that wait for you.
-  public let inbox: [Row]
+  /// A workspace's line: its most urgent session and how many others run.
+  ///
+  /// - Remark: See `WorktreeLine`.
+  /// - SideEffects: none
+  /// - Parameter group: The workspace and its sessions.
+  /// - Returns: The line.
+  static func line(_ group: WorkspaceGroup) -> WorktreeLine {
+    let lead = byUrgency(group.rows).first
+    let running = group.rows.filter { $0.status == .running && $0.id != lead?.id }.count
+    return WorktreeLine(id: group.id, name: group.name, kind: group.kind, lead: lead, alsoRunning: running)
+  }
+
+  /// The conversations of a session's workspace or chat, for settings to switch between.
+  ///
+  /// - Remark: SPEC-0005 "界面" (2026-10-28): settings opened from a conversation lists its
+  ///   worktree's own conversations, not their children, not archived, newest first; a child's
+  ///   list is its parent's.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - sessionId: The conversation open now.
+  ///   - index: The list.
+  /// - Returns: The conversations, or none for a session not on the list.
+  public static func siblings(of sessionId: SessionId, in index: IndexState) -> [SessionSummary] {
+    guard let session = index.sessions.first(where: { $0.sessionId == sessionId }) else { return [] }
+    return newestFirst(
+      index.sessions.filter { $0.containerId == session.containerId && $0.parent == nil && !$0.archived })
+  }
+
+  /// The most notes the strip shows before the pile.
+  public static let notesShown = 8
+
+  /// What waits on you, as notes, in order.
+  public let notes: [Note]
+  /// The notes the strip shows.
+  public var shownNotes: [Note] { Array(notes.prefix(Self.notesShown)) }
+  /// How many more there are, for the pile "还有 N 件"; 0 for no pile.
+  public var pile: Int { max(0, notes.count - Self.notesShown) }
   /// The projects, in the host's order.
   public let projects: [ProjectGroup]
   /// The sessions of chats, newest first.
@@ -88,7 +196,7 @@ public struct HomeList: Sendable, Equatable {
   public var shownChats: [Row] { Array(chats.prefix(Self.chatsShown)) }
 
   /// Whether there is nothing to list at all.
-  public var isEmpty: Bool { inbox.isEmpty && projects.isEmpty && chats.isEmpty }
+  public var isEmpty: Bool { notes.isEmpty && projects.isEmpty && chats.isEmpty }
 
   /// Works the home list out from the list.
   ///
@@ -98,14 +206,15 @@ public struct HomeList: Sendable, Equatable {
   public init(_ index: IndexState) {
     let listed = index.sessions.filter { !$0.archived && $0.parent == nil }
     let liveChats = Set(index.chats.filter { $0.archivedAt == nil }.map(\.id))
-    inbox = Self.inbox(index)
+    notes = Self.notes(index)
     projects = index.projects.map { project in
       let workspaces = Self.sorted(index.workspaces.filter { $0.projectId == project.id && $0.archivedAt == nil })
       let sessions = workspaces.map { workspace in Self.newestFirst(listed.filter { $0.containerId == workspace.id }) }
       let groups = zip(workspaces, sessions).map { workspace, sessions in
         WorkspaceGroup(
           id: workspace.id, name: Self.name(of: workspace), rows: sessions.map { Self.row($0) }, kind: workspace.kind,
-          merged: workspace.merge?.verdict == .merged)
+          merged: workspace.merge?.verdict == .merged,
+          active: sessions.map(\.updatedAt).max() ?? workspace.createdAt ?? 0)
       }
       return ProjectGroup(
         id: project.id, name: project.name, running: sessions.joined().filter(\.running).count, workspaces: groups)
@@ -115,29 +224,75 @@ public struct HomeList: Sendable, Equatable {
       .map { Self.row($0, pinned: pinnedChats.contains($0.containerId)) }
   }
 
-  /// The sessions that wait for you, in order.
+  /// The notes of what waits on you, in order.
   ///
-  /// - Remark: As the desktop's `inboxOf`: not archived; waiting for an answer, else with an
-  ///   attention not seen yet (an error seen stays out, a sign-in stays in); asking, then sign-in,
-  ///   then errors, each newest first.
+  /// - Remark: Picked as the desktop's `inboxOf`: not archived; waiting for an answer, else with an
+  ///   attention not seen yet (an error seen stays out, a sign-in stays in). Ordered by level (stuck,
+  ///   then waiting), each newest first, as design-language "手机端 · 首页" orders the notes.
   /// - SideEffects: none
   /// - Parameter index: The list.
-  /// - Returns: The rows.
-  private static func inbox(_ index: IndexState) -> [Row] {
-    let waiting: [(session: SessionSummary, priority: Int, at: Int)] = index.sessions.compactMap { session in
+  /// - Returns: The notes.
+  private static func notes(_ index: IndexState) -> [Note] {
+    let waiting: [Note] = index.sessions.compactMap { session in
       guard !session.archived else { return nil }
-      if let asking = session.asking { return (session, 0, asking) }
-      guard let attention = session.attention, !(attention.reason == .error && attention.cleared) else { return nil }
-      return (session, attention.reason == .auth ? 1 : 2, attention.at)
-    }
-    return stable(waiting) { a, b in a.priority != b.priority ? a.priority < b.priority : a.at > b.at }
-      .map { entry in
-        let status: Status = entry.priority == 0 ? .asking : .error
-        let word = status == .asking ? "在问你" : "出错"
-        return Row(
-          id: entry.session.sessionId, title: title(of: entry.session),
-          detail: "\(word) · \(place(of: entry.session.containerId, in: index))", status: status, pinned: false)
+      let place = place(of: session.containerId, in: index)
+      if let asking = session.asking {
+        return Note(
+          id: session.sessionId, level: .waiting, title: session.question?.title ?? title(of: session),
+          body: session.question?.detail, code: false, place: place, since: asking)
       }
+      guard let attention = session.attention, !(attention.reason == .error && attention.cleared) else { return nil }
+      let (first, rest) = split(attention.text)
+      return Note(
+        id: session.sessionId, level: .stuck, title: first ?? title(of: session), body: rest, code: rest != nil,
+        place: place, since: attention.at)
+    }
+    let rank = { (note: Note) -> Int in note.level == .stuck ? 0 : note.level == .waiting ? 1 : 2 }
+    return stable(waiting) { a, b in rank(a) != rank(b) ? rank(a) < rank(b) : a.since > b.since }
+  }
+
+  /// A text's first line and the rest.
+  ///
+  /// - Remark: A failure's note shows its first line large and the rest in mono under it; an empty
+  ///   text or rest counts as none.
+  /// - SideEffects: none
+  /// - Parameter text: The text, if any.
+  /// - Returns: The first line and the rest, each `nil` when empty.
+  private static func split(_ text: String?) -> (String?, String?) {
+    guard let text, !text.isEmpty else { return (nil, nil) }
+    let parts = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+    let rest = parts.count > 1 ? parts[1] : ""
+    return (parts[0].isEmpty ? nil : parts[0], rest.isEmpty ? nil : rest)
+  }
+
+  /// How long ago a moment was, in the phone's short words.
+  ///
+  /// - Remark: The prototype's times: "刚刚" under a minute, "N 分钟", "N 小时" the same day,
+  ///   "昨天", the weekday within a week, else the date. The clock and calendar are passed in, so the
+  ///   words do not depend on when or where the tests run.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - at: The moment, in milliseconds since the epoch.
+  ///   - now: Now, in the same units.
+  ///   - calendar: The calendar and time zone to count days in.
+  /// - Returns: The words.
+  public static func ago(_ at: Int, now: Int, calendar: Calendar = .current) -> String {
+    let seconds = max(0, now - at) / 1000
+    if seconds < 60 { return "刚刚" }
+    if seconds < 3600 { return "\(seconds / 60) 分钟" }
+    let then = Date(timeIntervalSince1970: Double(at) / 1000)
+    let today = Date(timeIntervalSince1970: Double(now) / 1000)
+    let days =
+      calendar.dateComponents([.day], from: calendar.startOfDay(for: then), to: calendar.startOfDay(for: today)).day
+      ?? 0
+    if days == 0 { return "\(seconds / 3600) 小时" }
+    if days == 1 { return "昨天" }
+    if days < 7 {
+      let weekday = calendar.component(.weekday, from: then)
+      return "周" + ["日", "一", "二", "三", "四", "五", "六"][weekday - 1]
+    }
+    let parts = calendar.dateComponents([.month, .day], from: then)
+    return "\(parts.month ?? 0)月\(parts.day ?? 0)日"
   }
 
   /// Rows in the order the home shows a workspace's: asking, errors, running, then the rest.
@@ -190,6 +345,40 @@ public struct HomeList: Sendable, Equatable {
     Set(index.workspaces.filter { $0.archivedAt == nil && $0.merge?.verdict != .merged }.map(\.id))
   }
 
+  /// One project on the home plus key's ring, where a new session in it starts.
+  ///
+  /// - Remark: design-language "手机端 · 首页" (2026-10-29): a key a project.
+  public struct RingPlace: Sendable, Equatable, Identifiable {
+    /// The project.
+    public let id: ProjectId
+    /// Its name.
+    public let name: String
+    /// Its open workspace with the latest activity, where the session goes.
+    public let workspace: WorkspaceId
+    /// How many of its sessions run, for the dot.
+    public let running: Int
+  }
+
+  /// The projects on the home plus key's ring, the latest activity first.
+  ///
+  /// - Remark: design-language "手机端 · 首页" (2026-10-29): each project goes to its open
+  ///   workspace with the latest activity; a project with only merged workspaces is not a place.
+  ///   Ties keep the sidebar's order.
+  /// - SideEffects: none
+  /// - Parameter projects: The home's projects.
+  /// - Returns: The places.
+  public static func ringPlaces(_ projects: [ProjectGroup]) -> [RingPlace] {
+    let latest = projects.compactMap { project -> (RingPlace, Int)? in
+      guard let workspace = stable(project.workspaces.filter { !$0.merged }, by: { $0.active > $1.active }).first
+      else { return nil }
+      return (
+        RingPlace(id: project.id, name: project.name, workspace: workspace.id, running: project.running),
+        workspace.active
+      )
+    }
+    return stable(latest) { $0.1 > $1.1 }.map(\.0)
+  }
+
   /// The workspaces worked in last, newest first, for the new session's place sheet.
   ///
   /// - Remark: SPEC-0005 "MP6 定的细节 · MP6d": "最近 3 个（按会话最近更新）"; chats, archived and
@@ -224,7 +413,9 @@ public struct HomeList: Sendable, Equatable {
     let failed = session.attention.map { !($0.reason == .error && $0.cleared) } ?? false
     let status: Status? =
       session.asking != nil ? .asking : failed ? .error : session.running ? .running : nil
-    return Row(id: session.sessionId, title: title(of: session), detail: nil, status: status, pinned: pinned)
+    return Row(
+      id: session.sessionId, title: title(of: session), detail: nil, status: status, updatedAt: session.updatedAt,
+      pinned: pinned)
   }
 
   /// A session's title.
@@ -335,7 +526,7 @@ public struct HomeList: Sendable, Equatable {
   ///   - items: The items.
   ///   - before: Whether one goes before another.
   /// - Returns: The sorted items.
-  private static func stable<Item>(_ items: [Item], by before: (Item, Item) -> Bool) -> [Item] {
+  static func stable<Item>(_ items: [Item], by before: (Item, Item) -> Bool) -> [Item] {
     items.enumerated()
       .sorted { a, b in before(a.element, b.element) || (!before(b.element, a.element) && a.offset < b.offset) }
       .map(\.element)

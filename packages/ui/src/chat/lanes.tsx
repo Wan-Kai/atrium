@@ -181,7 +181,6 @@ const STATUS_WORDS: Readonly<Record<AgentStatus, string>> = {
   idle: "完成",
   stopped: "已停下",
   failed: "出错",
-  handed_off: "已在终端中继续",
   ended: "已结束",
 };
 
