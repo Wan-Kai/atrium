@@ -1,6 +1,6 @@
 # ADR-0017：审核用一个形状，分"宿主关卡"和"agent 请求"两种来源
 
-- **状态**：提议（2026-11-06 用户定方向，T7/T8 实施时接受）
+- **状态**：已接受（2026-11-06 用户同意）
 - **日期**：2026-11-06
 - **相关**：[SPEC-0006](../specs/0006-tasks-and-task-graph.md)"界面 › 审核卡片"、[SPEC-0003](../specs/0003-agent-asks-user.md)（提问卡片）、[ADR-0013](0013-agent-channel-status-and-hidden-command.md)（扩展与宿主的通道）、[pi-internals](../research/pi-internals.md)（`custom_message` 进上下文）、[security.md](../architecture/security.md)
 
