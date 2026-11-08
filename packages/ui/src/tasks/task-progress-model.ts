@@ -1,4 +1,5 @@
 import type { Notice, ReviewRecord, TranscriptItem } from "@atrium/protocol";
+import { clockWords } from "../chat/clock-words";
 
 /** A progress line of a task conversation. */
 export type ProgressNotice = Extract<Notice, { notice: "task_progress" }>;
@@ -59,20 +60,6 @@ export function arrangeRows(items: readonly TranscriptItem[]): TranscriptRow[] {
   });
   const lastGroup = rows.findLast((row) => row.kind === "progress");
   return rows.map((row) => (row === lastGroup && row.kind === "progress" ? { ...row, last: true } : row));
-}
-
-/**
- * The time a line was written, as the transcript shows it: hours and minutes.
- *
- * @remarks
- * In the user's time zone and in 24 hours, as the conversation's own times are.
- *
- * @sideEffects none
- * @param at - Epoch milliseconds.
- * @returns "10:44".
- */
-export function clockWords(at: number): string {
-  return new Date(at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 /**

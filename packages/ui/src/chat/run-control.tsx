@@ -819,20 +819,26 @@ function FailureCard({ attempts, onRetry }: { readonly attempts: number; readonl
  * @remarks
  * Kept out of the scrolling transcript so they stay in view (SPEC-0001, "对话框": "消息流底部的卡片";
  * SPEC-0003, "界面"); placed in the input box's column, under the capsule bar (`Composer`'s
- * `pinned`). What was picked for questions no longer asked is forgotten.
+ * `pinned`). What was picked for questions no longer asked is forgotten, and what was written on a review that is
+ * no longer pending, but only when the control is the host's own word (`settled`): a view that is loading again
+ * (after the watched set was replaced and the pane mounted again) shows no reviews, which is not "all decided"
+ * (T8 review fix 5).
  *
  * @sideEffects Calls the actions as the user acts; forgets drafts of questions that ended.
- * @param props - The session, its run control and the actions.
+ * @param props - The session, its run control, the actions, and whether the control is authoritative.
  * @returns The cards, or nothing.
  */
 export function ControlCards({
   sessionId,
   control,
   actions,
+  settled = true,
 }: {
   readonly sessionId: string;
   readonly control: Control;
   readonly actions: RunActions;
+  /** Whether `control` is what the host last said (the view is ready), not the empty one of a view still loading. */
+  readonly settled?: boolean;
 }) {
   const asked = control.question?.id ?? null;
   const look = use(ReviewEnvContext);
@@ -844,8 +850,8 @@ export function ControlCards({
     if (asked !== null) forgetDrafts(sessionId, asked);
   }, [sessionId, asked]);
   useEffect(() => {
-    forgetReviewDrafts(sessionId, reviewIds === "" ? [] : reviewIds.split("\n"));
-  }, [sessionId, reviewIds]);
+    if (settled) forgetReviewDrafts(sessionId, reviewIds === "" ? [] : reviewIds.split("\n"));
+  }, [sessionId, reviewIds, settled]);
   if (
     control.interactions.length === 0 &&
     control.failure === null &&

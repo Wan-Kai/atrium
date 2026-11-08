@@ -1,5 +1,5 @@
 import type { Evidence, PendingReview, ReviewAction } from "@atrium/protocol";
-import { type KeyboardEvent, use, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, use, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   ArrowClockwise,
   ArrowTurnBack,
@@ -13,15 +13,18 @@ import {
 } from "../design/icons";
 import { CARD_BUTTON, CARD_KEY, CardShell } from "./card-shell";
 import { type ActionIconName, ReviewEnvContext } from "./review-env";
-import { clockWords } from "../tasks/task-progress-model";
+import { clockWords } from "./clock-words";
 import {
   NO_DRAFT,
   type ReviewDraft,
   needsForm,
-  primaryOf,
+  orderedActions,
   readReviewDraft,
+  readReviewProgress,
   verdictOf,
+  watchReviewProgress,
   writeReviewDraft,
+  writeReviewProgress,
 } from "./review-state";
 
 /** How long a written reason may be (the host takes more; the box stops here so a paste does not freeze the card). */
@@ -112,13 +115,21 @@ function SummaryQuote({ who, text }: { readonly who: string; readonly text: stri
  *
  * @remarks
  * Four kinds (SPEC-0006, "审核卡片" 2): facts, changes, the graph's changes and a summary. The host's statistics open
- * the changes panel; a proposed graph is looked at on the graph itself.
+ * the changes panel; a proposed graph is looked at on the graph itself. A `frozen` block is the snapshot a decided
+ * review's record keeps: the same numbers and names, with no link to anything live (design-language, "过程轨道上的
+ * 审核记录": "不带按钮"), because the worktree and the graph are not what they were.
  *
  * @sideEffects Calls the environment's `openChanges` and `showOnGraph` when the links are pressed.
- * @param props - The evidence.
+ * @param props - The evidence, and whether it is a record's snapshot.
  * @returns The block.
  */
-export function EvidenceBlock({ evidence }: { readonly evidence: Evidence }) {
+export function EvidenceBlock({
+  evidence,
+  frozen = false,
+}: {
+  readonly evidence: Evidence;
+  readonly frozen?: boolean;
+}) {
   const look = use(ReviewEnvContext);
   if (evidence.kind === "facts")
     return (
@@ -138,14 +149,16 @@ export function EvidenceBlock({ evidence }: { readonly evidence: Evidence }) {
         <span className="tabular-nums">{evidence.files} 个文件</span>
         <span className="text-[var(--ok-text)] tabular-nums">+{evidence.added}</span>
         <span className="text-[var(--danger)] tabular-nums">−{evidence.removed}</span>
-        <button
-          type="button"
-          onClick={() => look.openChanges(evidence.workspaceId)}
-          className="inline-flex items-center gap-0.5 text-[var(--tint)] hover:underline"
-        >
-          查看改动
-          <CaretRight size={11} aria-hidden />
-        </button>
+        {frozen ? null : (
+          <button
+            type="button"
+            onClick={() => look.openChanges(evidence.workspaceId)}
+            className="inline-flex items-center gap-0.5 text-[var(--tint)] hover:underline"
+          >
+            查看改动
+            <CaretRight size={11} aria-hidden />
+          </button>
+        )}
       </div>
     );
   if (evidence.kind === "graph_diff") {
@@ -183,14 +196,16 @@ export function EvidenceBlock({ evidence }: { readonly evidence: Evidence }) {
             <span>{name(node)}</span>
           </div>
         ))}
-        <button
-          type="button"
-          onClick={() => look.showOnGraph(evidence.to)}
-          className="mt-0.5 inline-flex w-fit items-center gap-0.5 text-[var(--tint)] hover:underline"
-        >
-          在图上看
-          <CaretRight size={11} aria-hidden />
-        </button>
+        {frozen ? null : (
+          <button
+            type="button"
+            onClick={() => look.showOnGraph(evidence.to)}
+            className="mt-0.5 inline-flex w-fit items-center gap-0.5 text-[var(--tint)] hover:underline"
+          >
+            在图上看
+            <CaretRight size={11} aria-hidden />
+          </button>
+        )}
       </div>
     );
   }
@@ -232,12 +247,13 @@ export function ReviewCard({
 }) {
   const look = use(ReviewEnvContext);
   const [draft, setDraft] = useState<ReviewDraft>(() => readReviewDraft(sessionId, review.id));
-  const [sent, setSent] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
+  // Where the verdict stands is the page's, not this card's: it is dropped when you switch to another card.
+  const standing = useSyncExternalStore(watchReviewProgress, () => readReviewProgress(sessionId, review.id));
+  const sent = standing?.phase === "sending" || standing?.phase === "sent";
+  const failure = standing?.phase === "failed" ? standing.words : null;
   const box = useRef<HTMLTextAreaElement>(null);
   const focusBox = useRef(false);
-  const primary = primaryOf(review);
-  const ordered = primary === undefined ? [] : [primary, ...review.actions.filter((one) => one !== primary)];
+  const ordered = orderedActions(review);
   const opened = review.actions.find((one) => one.id === draft.open) ?? null;
   const problem = review.problem === null ? null : look.problem(review.problem);
   // The host's facts carry a status; a request an agent made cannot (ADR-0017 decision 2), so none is drawn for it.
@@ -268,23 +284,22 @@ export function ReviewCard({
    * Sends a verdict, once.
    *
    * @remarks
-   * The card goes when the host lists the review no more; a failure is worded in the card and lets you press again.
+   * The card goes when the host lists the review no more and stays off until then; a failure is worded in the card
+   * and lets you press again. The lock is the page's, per session and review, so it holds when you switch cards.
    *
-   * @sideEffects Calls `onAnswer`.
+   * @sideEffects Calls `onAnswer`; records the progress.
    * @param action - The button.
    * @param from - What is filled in.
    */
   const send = (action: ReviewAction, from: ReviewDraft): void => {
     const verdict = verdictOf(action, from);
     if (verdict === null || sent || onAnswer === undefined) return;
-    setSent(true);
-    setFailure(null);
+    writeReviewProgress(sessionId, review.id, { phase: "sending" });
     // Fire and forget: the answer's failure is shown in the card.
     void onAnswer(verdict).then((words) => {
-      setSent(false);
-      setFailure(words);
-      // Decided: what was written for it is of no use.
+      // Taken: what was written for it is of no use, and the buttons stay off until the review is no longer listed.
       if (words === null) writeReviewDraft(sessionId, review.id, NO_DRAFT);
+      writeReviewProgress(sessionId, review.id, words === null ? { phase: "sent" } : { phase: "failed", words });
       return words;
     });
   };
@@ -497,18 +512,19 @@ export function ReviewCard({
           </>
         ) : (
           <>
-            {ordered.map((action, index) => {
+            {ordered.map((action) => {
               const icon = look.icon(action, review);
               return (
                 <button
                   key={action.id}
                   type="button"
                   data-action={action.id}
+                  data-recommended={action.recommended}
                   aria-expanded={needsForm(action) ? false : undefined}
                   disabled={sent || onAnswer === undefined}
                   onClick={() => press(action)}
                   className={`${CARD_BUTTON} ${
-                    index === 0
+                    action.recommended
                       ? "bg-[var(--tint)] font-medium text-[var(--on-tint)]"
                       : "text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--hover)]"
                   }`}

@@ -1324,8 +1324,8 @@ type InboxRow =
  * at most until "还有 N 条" opens the rest, which "收起" closes again; a long list scrolls in the
  * card. A row is lit while its session is the one shown.
  *
- * @sideEffects Sends `open_session` when a row is clicked; remembers the card opened or folded in
- * `localStorage`.
+ * @sideEffects Leaves the page that was open and sends `open_session` when a row is clicked (a task's row opens
+ * its tab); remembers the card opened or folded in `localStorage`.
  * @param props - The client, the list, the time now, and how to show a session chosen.
  * @returns The inbox, or nothing.
  */
@@ -1380,7 +1380,11 @@ function Inbox({
               type="button"
               data-testid="inbox-task-row"
               data-fold-row
-              onClick={() => tasks?.openTask(entry.task.id)}
+              onClick={() => {
+                // As a session row does: a page that was open (the new-workspace page) is left first.
+                leave();
+                tasks?.openTask(entry.task.id);
+              }}
               className={`${ROW} h-auto w-full items-start py-[7px] text-left`}
             >
               <span className="min-w-0 flex-1">

@@ -22,6 +22,20 @@ import type { NodeId, NodeRun, Task, TaskEventInput } from "./types";
 /** A task's directory name: what `newTaskRecord` and `pnpm task:try` make ids of. */
 const TASK_DIRECTORY = /^tsk_[0-9A-Za-z_-]{1,64}$/u;
 
+/**
+ * The graph version a verdict was given on, so that it is not carried out on another one.
+ *
+ * @remarks
+ * A review card names the proposal the user saw; the agent can propose again before the click arrives
+ * (T8 review fix 2).
+ */
+interface ReviewedGraph {
+  /** The version the user saw. */
+  readonly version: number;
+  /** The review the verdict answers, for `review_closed`'s parameter. */
+  readonly reviewId: string;
+}
+
 /** The host's tasks, as the rest of the host and (later) the protocol use them. */
 export interface TaskService {
   /** Starts a task: writes its `created` event and looks after it. */
@@ -98,10 +112,16 @@ export interface TaskService {
    * conversation, and lets it be made into a task again.
    */
   abandon(taskId: string): Promise<void>;
-  /** Approves the graph a started task waits for; checked again, so it can still be `task_graph_invalid`. */
-  approveGraph(taskId: string): Promise<void>;
-  /** Refuses the graph a started task waits for. */
-  rejectGraph(taskId: string): Promise<void>;
+  /**
+   * Approves the graph a started task waits for; checked again, so it can still be `task_graph_invalid`.
+   *
+   * @remarks
+   * With `reviewed`, only that version: when another is waiting by the time the task's queue gets to it, nothing
+   * is approved and it fails with `review_closed`.
+   */
+  approveGraph(taskId: string, reviewed?: ReviewedGraph): Promise<void>;
+  /** Refuses the graph a started task waits for; `reviewed` as for `approveGraph`. */
+  rejectGraph(taskId: string, reviewed?: ReviewedGraph): Promise<void>;
   /**
    * Writes the record of a review whose verdict took effect into the task conversation (ADR-0017, decision 2).
    *
@@ -201,6 +221,23 @@ function graphError(problem: GraphProblem): CommandError {
     code: problem.code,
     ...(problem.node === undefined ? {} : { node: problem.node }),
   });
+}
+
+/**
+ * Checks that the graph waiting is the one the user gave a verdict on.
+ *
+ * @remarks
+ * Nothing to check when the verdict names no version (the plain `approve_graph` / `reject_graph`).
+ *
+ * @sideEffects none
+ * @param task - The task as it is now.
+ * @param reviewed - The version the user saw, if the verdict came from a review card.
+ * @throws {CommandError} `review_closed` when another version (or none) is waiting.
+ */
+function sameGraph(task: Task, reviewed: ReviewedGraph | undefined): void {
+  if (reviewed !== undefined && task.pendingGraph !== reviewed.version) {
+    throw new CommandError("review_closed", { reviewId: reviewed.reviewId });
+  }
 }
 
 /** The longest a task's first name may be. */
@@ -433,26 +470,28 @@ export function createTaskService(options: {
       });
       if (task.origin.kind === "chat") await markSource(task.origin.sessionId, taskId, "abandoned");
     },
-    async approveGraph(taskId) {
+    async approveGraph(taskId, reviewed) {
       const task = await need(taskId);
       const pending = task.graphs.find((graph) => graph.version === task.pendingGraph);
       if (pending === undefined || task.startedAt === null || task.endedAt !== null) {
         throw new CommandError("task_state_invalid");
       }
+      sameGraph(task, reviewed);
       const problem = validateGraph(pending, {
         projectless: task.projectId === null,
         localReadonly: false,
         started: task,
       })[0];
       if (problem !== undefined) throw graphError(problem);
-      await runner.submit(taskId, { type: "graph_approved" });
+      await runner.submit(taskId, { type: "graph_approved" }, (now) => sameGraph(now, reviewed));
     },
-    async rejectGraph(taskId) {
+    async rejectGraph(taskId, reviewed) {
       const task = await need(taskId);
       if (task.pendingGraph === null || task.startedAt === null || task.endedAt !== null) {
         throw new CommandError("task_state_invalid");
       }
-      await runner.submit(taskId, { type: "graph_rejected" });
+      sameGraph(task, reviewed);
+      await runner.submit(taskId, { type: "graph_rejected" }, (now) => sameGraph(now, reviewed));
     },
     async answerHuman(taskId, node, answer) {
       const task = await need(taskId);

@@ -18,6 +18,7 @@ export { type TaskState, type TasksView } from "./tasks-view";
 // Runtime protocol values reach the UI through this facade; protocol imports are type-only there (overview.md).
 export {
   CommandError,
+  IDLE_CONTROL,
   PI_CONFIG_MAX_BYTES,
   PI_PROJECT_CONFIG_NAMES,
   PiConfigName,

@@ -1,12 +1,14 @@
 import type { AtriumClient, SessionView } from "@atrium/client";
 import { loadingView } from "@atrium/client";
 import type { TaskRequirements, TranscriptItem, Verdict } from "@atrium/protocol";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createStore } from "zustand/vanilla";
 import { useStore } from "zustand";
 import { Composer, type ComposerProps, type SentImage } from "../chat/composer";
 import { ControlCards, type RunActions } from "../chat/run-control";
 import { Transcript } from "../chat/transcript";
+import { pageDrafts } from "../state/use-draft";
+import { claimWatch } from "../state/watch-owner";
 import { RequirementsCard } from "./requirements-card";
 import { describeTaskCommandError } from "./review-words";
 
@@ -47,15 +49,17 @@ function withoutDesignPrompt(items: readonly TranscriptItem[]): readonly Transcr
  * A task or node conversation whose pi is not running (a node that passed, a task that ended, a host that
  * restarted) gives no snapshot to a watcher; `open_task_session` starts only its pi, without opening a tab
  * (SPEC-0006, "T8a 定下的细节"). Never `open_session`, which would put the conversation among the project's tabs.
+ * A view that is `lost` (the host was replaced) is as much without a pi as one still `loading`.
  *
- * @sideEffects Sends `open_task_session` when the view is still loading.
+ * @sideEffects Sends `open_task_session` when the view is still loading or lost.
  * @param client - The client.
  * @param taskId - The task the session belongs to.
  * @param sessionId - The session.
  * @returns Resolves once the host has started it, or at once when it is already there.
  */
 async function ensureTaskSession(client: AtriumClient, taskId: string, sessionId: string): Promise<void> {
-  if (client.session(sessionId)?.getState().status !== "loading") return;
+  const status = client.session(sessionId)?.getState().status;
+  if (status !== "loading" && status !== "lost") return;
   await client.openTaskSession(taskId, sessionId);
 }
 
@@ -103,14 +107,17 @@ export function TaskConversation({
 }) {
   const [store, setStore] = useState(() => client.session(sessionId));
   const [failure, setFailure] = useState<string | null>(null);
+  // Lets go of the claim in force on this pane's watch (the latest: a host restart claims it again).
+  const release = useRef<() => void>(() => undefined);
   useEffect(() => {
     // A followed task's conversation is not in this host; watching it would wait for ever.
     if (followed) return undefined;
     let current = true;
     // Fire and forget: a lost connection subscribes again when it is back; starting the pi can fail and then the
     // pane keeps saying it is reading.
-    client
-      .watch([sessionId])
+    const claim = claimWatch(client, [sessionId]);
+    release.current = claim.release;
+    claim.watched
       .then(() => (current ? ensureTaskSession(client, taskId, sessionId) : undefined))
       .catch(() => undefined);
     // `watch` makes the view at once, and this has to render again to subscribe to it.
@@ -118,8 +125,28 @@ export function TaskConversation({
     setStore(client.session(sessionId));
     return () => {
       current = false;
+      // Not watched once the pane is gone, unless something else has taken the watch since.
+      release.current();
     };
   }, [client, taskId, sessionId, followed]);
+  // The host instance last connected to; a new one has lost every session's view, and so this one's.
+  const hostInstance = useStore(client.connection, (state) =>
+    state.status === "connected" ? state.hostInstanceId : null,
+  );
+  const lastHost = useRef<string | null>(null);
+  useEffect(() => {
+    if (hostInstance === null) return;
+    const before = lastHost.current;
+    lastHost.current = hostInstance;
+    if (before === null || before === hostInstance || followed) return;
+    // The host restarted: the session shown is watched and started again at once, as a session tab is, rather than
+    // on the next message. Fire and forget: a lost connection subscribes again when it is back.
+    const claim = claimWatch(client, [sessionId]);
+    release.current = claim.release;
+    claim.watched.then(() => ensureTaskSession(client, taskId, sessionId)).catch(() => undefined);
+    // Only when the host changes; the effect above watches a session shown later.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- see above.
+  }, [client, hostInstance]);
   const view = useStore(store ?? NOT_WATCHED);
   const shown = useMemo(() => ({ ...view, items: withoutDesignPrompt(view.items) }), [view]);
   const running = view.run !== null;
@@ -148,6 +175,20 @@ export function TaskConversation({
     },
     [client, taskId, sessionId],
   );
+  /**
+   * Sends a message through `attempt`, and puts it back in the box if it did not go.
+   *
+   * @remarks
+   * As the chat's box does with a message the host refused or that could not be sent (T8 review fix 6); the box was
+   * cleared when the message was sent, so the text goes back only if nothing new was typed meanwhile.
+   *
+   * @sideEffects As `attempt`; may put the text back into the draft.
+   * @param text - The message.
+   * @param command - What sends it.
+   */
+  const attemptOrRestore = async (text: string, command: () => Promise<unknown>): Promise<void> => {
+    if (!(await attempt(command))) pageDrafts().restore(sessionId, text, []);
+  };
   const actions: RunActions = {
     resume: () => void attempt(() => client.resumeQueue(sessionId)),
     clear: () => void attempt(() => client.clearQueue(sessionId)),
@@ -173,27 +214,28 @@ export function TaskConversation({
    *
    * @remarks
    * `prompt` on the session's id (queued while a round goes on). It never opens the conversation as a session. A
-   * review that is open stays: for the host's gates a message is only a message (ADR-0017).
+   * review that is open stays: for the host's gates a message is only a message (ADR-0017). A message that did not
+   * go (the session could not be started, the host refused it) is put back in the box, as the chat's box does.
    *
-   * @sideEffects Sends `prompt`.
+   * @sideEffects Sends `prompt`; may put the text back into the draft.
    * @param text - The message.
    * @param _images - The images; the box offers none here.
    */
   const send: ComposerProps["onSend"] = (text: string, _images: readonly SentImage[]) => {
-    // Fire and forget: a failure is shown above the box.
-    void attempt(() => client.prompt(sessionId, text));
+    // Fire and forget: a failure is shown above the box and the message goes back into it.
+    void attemptOrRestore(text, () => client.prompt(sessionId, text));
   };
   /**
    * Steers the round that goes on with the box's message (⌘+Enter).
    *
    * @remarks
-   * Delivered before the agent's next step, as in any conversation.
+   * Delivered before the agent's next step, as in any conversation. A steer that did not go is put back in the box.
    *
-   * @sideEffects Sends `steer`.
+   * @sideEffects Sends `steer`; may put the text back into the draft.
    * @param text - The message.
    */
   const steer: NonNullable<ComposerProps["onSteer"]> = (text: string) => {
-    void attempt(() => client.steer(sessionId, text));
+    void attemptOrRestore(text, () => client.steer(sessionId, text));
   };
   return (
     <section aria-label={title} className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -242,7 +284,14 @@ export function TaskConversation({
             stopping={view.control.stopping}
             compacting={view.control.compacting}
             idlePlaceholder={view.control.reviews.length > 0 ? "直接回复也行：发给任务对话，卡片不动" : idlePlaceholder}
-            pinned={<ControlCards sessionId={sessionId} control={view.control} actions={actions} />}
+            pinned={
+              <ControlCards
+                sessionId={sessionId}
+                control={view.control}
+                actions={actions}
+                settled={view.status === "ready"}
+              />
+            }
           />
         </>
       )}

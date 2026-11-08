@@ -147,13 +147,13 @@ export async function followTasks(options: {
       refuseIfFollowed(taskId);
       await owned.abandon(taskId);
     },
-    async approveGraph(taskId) {
+    async approveGraph(taskId, reviewed) {
       refuseIfFollowed(taskId);
-      await owned.approveGraph(taskId);
+      await owned.approveGraph(taskId, reviewed);
     },
-    async rejectGraph(taskId) {
+    async rejectGraph(taskId, reviewed) {
       refuseIfFollowed(taskId);
-      await owned.rejectGraph(taskId);
+      await owned.rejectGraph(taskId, reviewed);
     },
     onEvent(listener) {
       const stopOwn = owned.onEvent(listener);

@@ -1,5 +1,7 @@
 import {
   CommandError,
+  REVIEWS_LIMIT,
+  REVIEW_EVIDENCE_LIMIT,
   REVIEW_TEXT_LIMIT,
   type Evidence,
   type Fact,
@@ -139,7 +141,7 @@ function graphReview(task: Task): PendingReview[] {
       problem: null,
       actions: [
         { id: "approve", reason: "none", targets: [], recommended: true },
-        { id: "reject", reason: "none", targets: [], recommended: false },
+        { id: "reject", reason: "optional", targets: [], recommended: false },
       ],
     },
   ];
@@ -203,7 +205,8 @@ function humanReviews(task: Task, facts: ReviewFacts): PendingReview[] {
         openedAt: run.startedAt,
         source: { kind: "gate", gate: "task_human" },
         subject: { code: "task_human_node", params: { taskId: task.id, node: node.id, merge: node.merge === true } },
-        evidence: [...worktreeEvidence(task, facts, "warn", false), ...summaries],
+        // What the host measured goes first and what people wrote is cut to fit the protocol (T8 review fix 4).
+        evidence: [...worktreeEvidence(task, facts, "warn", false), ...summaries].slice(0, REVIEW_EVIDENCE_LIMIT),
         problem: blocked
           ? {
               code: run.blocked ?? "merge_blocked",
@@ -268,7 +271,8 @@ export function needsWorktreeFacts(task: Task): boolean {
  *
  * @remarks
  * Worked out from the task's durable state every time and kept nowhere, so it is the same after a host restart.
- * Oldest first. A task that has ended or has no graph yet asks nothing but the archive question.
+ * Oldest first, and at most `REVIEWS_LIMIT` of them, which is all the protocol takes (T8 review fix 4). A task that has
+ * ended or has no graph yet asks nothing but the archive question.
  *
  * @sideEffects none
  * @param task - The task.
@@ -276,9 +280,9 @@ export function needsWorktreeFacts(task: Task): boolean {
  * @returns The reviews.
  */
 export function reviewsOf(task: Task, facts: ReviewFacts): PendingReview[] {
-  return [...graphReview(task), ...humanReviews(task, facts), ...archiveReview(task, facts)].toSorted(
-    (a, b) => a.openedAt - b.openedAt,
-  );
+  return [...graphReview(task), ...humanReviews(task, facts), ...archiveReview(task, facts)]
+    .toSorted((a, b) => a.openedAt - b.openedAt)
+    .slice(0, REVIEWS_LIMIT);
 }
 
 /**
@@ -333,7 +337,7 @@ export function recordOf(review: PendingReview, verdict: Verdict): ReviewRecord 
 export interface TaskReviewPorts {
   readonly service: Pick<
     TaskService,
-    "view" | "approveGraph" | "rejectGraph" | "answerHuman" | "answerArchive" | "onEvent" | "recordReview"
+    "view" | "held" | "approveGraph" | "rejectGraph" | "answerHuman" | "answerArchive" | "onEvent" | "recordReview"
   >;
   /** The task a session is the conversation of, if it is one (a task already held, else the session's record). */
   readonly taskOf: (sessionId: string) => string | undefined;
@@ -386,8 +390,12 @@ export function createTaskReviewProvider(ports: TaskReviewPorts): ReviewProvider
         throw new CommandError("review_closed", { reviewId: review.id });
       const gate = review.source.gate;
       if (gate === "task_graph") {
-        if (verdict.action === "approve") await service.approveGraph(taskId);
-        else await service.rejectGraph(taskId);
+        // Only the version the user saw: the agent may have proposed another since the card was made.
+        const version = "params" in review.subject ? review.subject.params["version"] : undefined;
+        if (typeof version !== "number") throw new CommandError("review_closed", { reviewId: review.id });
+        const reviewed = { version, reviewId: review.id };
+        if (verdict.action === "approve") await service.approveGraph(taskId, reviewed);
+        else await service.rejectGraph(taskId, reviewed);
       } else if (gate === "task_human") {
         const node = "params" in review.subject ? review.subject.params["node"] : undefined;
         if (typeof node !== "string") throw new CommandError("review_closed", { reviewId: review.id });
@@ -400,6 +408,18 @@ export function createTaskReviewProvider(ports: TaskReviewPorts): ReviewProvider
         );
       } else {
         await service.answerArchive(taskId, verdict.action === "archive" ? "archive" : "keep");
+      }
+      // A node still `merging` asks nothing either, but nothing was decided yet: the host is closing under its merge
+      // and the restart goes on with it. Only the merge that ends writes the record (T8 review fix 12).
+      const node = "params" in review.subject ? review.subject.params["node"] : undefined;
+      const held = service.held().find((task) => task.id === taskId);
+      if (
+        gate === "task_human" &&
+        typeof node === "string" &&
+        held !== undefined &&
+        liveRun(held, node)?.merging === true
+      ) {
+        return;
       }
       // The review is done when it is no longer there; a merge held back again is the same review with its problem.
       const after = await look(sessionId, signal).catch(() => undefined);

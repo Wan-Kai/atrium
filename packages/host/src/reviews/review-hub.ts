@@ -1,4 +1,4 @@
-import { CommandError, type PendingReview, type Verdict } from "@atrium/protocol";
+import { CommandError, type PendingReview, REVIEWS_LIMIT, type Verdict } from "@atrium/protocol";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
 
@@ -42,6 +42,30 @@ export interface ReviewHub {
    * follows through `onChanged`.
    */
   current(sessionId: string): readonly PendingReview[];
+  /**
+   * Says a controller now reads a session's reviews, so a count is kept for it even when nothing waits.
+   *
+   * @remarks
+   * Until `forget`. Said by the session layer when it holds a controller, not by `current`: a control built late, by a
+   * controller that was let go of, must not make the hub keep the session (T8 review fix 13).
+   */
+  read(sessionId: string): void;
+  /**
+   * Lets go of what is kept for a session that is no longer read (its controller is gone).
+   *
+   * @remarks
+   * T8 review fix 13: without it the hub would keep a count for every session it was ever asked about. A session
+   * that still has reviews is kept until they are gone; one read again is looked at again.
+   */
+  forget(sessionId: string): void;
+  /**
+   * Counts a session's reviews again now, as if a provider had said they may have changed.
+   *
+   * @remarks
+   * For what no event tells: the facts on a card come from the worktree, which can be edited while a node waits
+   * (T8 review fix 11). The listeners hear of it when the count differs.
+   */
+  refresh(sessionId: string): void;
   /** Calls `listener` with a session whenever its reviews changed; returns a function that stops it. */
   onChanged(listener: (sessionId: string) => void): () => void;
   /**
@@ -110,7 +134,33 @@ export function createReviewHub(options: { readonly logger: Logger; readonly res
   const listeners = new Map<(sessionId: string) => void, () => void>();
   const known = new Map<string, readonly PendingReview[]>();
   const lanes = new Map<string, Lane>();
+  /** The sessions a controller reads through `current`; they keep a count even when nothing waits in them. */
+  const reading = new Set<string>();
+  /** The resource count held for each session the hub keeps anything about (`review.session`). */
+  const holding = new Map<string, () => void>();
   const closing = new AbortController();
+  // The kind is known from the start, at zero, so a snapshot taken before any session was looked at has it too.
+  options.resources.acquire("review.session")();
+
+  /**
+   * Holds or gives back the resource count of a session, by whether the hub still keeps anything about it.
+   *
+   * @remarks
+   * The count is what the leak tests read: a long-lived hub must come back to zero once its sessions are done.
+   *
+   * @sideEffects Acquires or releases a resource count.
+   * @param sessionId - The session.
+   */
+  function account(sessionId: string): void {
+    const kept = known.has(sessionId) || reading.has(sessionId) || lanes.has(sessionId);
+    const release = holding.get(sessionId);
+    if (kept && release === undefined) {
+      holding.set(sessionId, options.resources.acquire("review.session"));
+    } else if (!kept && release !== undefined) {
+      holding.delete(sessionId);
+      release();
+    }
+  }
 
   /**
    * Puts work at the end of a session's line.
@@ -126,8 +176,26 @@ export function createReviewHub(options: { readonly logger: Logger; readonly res
   function inLane<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
     const lane = lanes.get(sessionId) ?? { tail: Promise.resolve(), recountQueued: false };
     lanes.set(sessionId, lane);
+    account(sessionId);
     const turn = lane.tail.then(work, work);
-    lane.tail = turn.catch(() => undefined);
+    /**
+     * Ends this piece of work's place in the line.
+     *
+     * @remarks
+     * A line with nothing more in it is dropped; the next piece of work makes a new one. A failure of the work is the
+     * caller's, so it is not passed on here.
+     *
+     * @sideEffects May drop the lane and give back its resource count.
+     */
+    const dropped = (): undefined => {
+      if (lanes.get(sessionId) === lane && lane.tail === tail && !lane.recountQueued) {
+        lanes.delete(sessionId);
+        account(sessionId);
+      }
+      return undefined;
+    };
+    const tail = turn.then(dropped, dropped);
+    lane.tail = tail;
     return turn;
   }
 
@@ -149,7 +217,11 @@ export function createReviewHub(options: { readonly logger: Logger; readonly res
         (await provider.pending(sessionId, closing.signal)).map((review) => ({ review, provider })),
       ),
     );
-    return asked.flat().toSorted((a, b) => a.review.openedAt - b.review.openedAt);
+    // The protocol takes no more than `REVIEWS_LIMIT` per session; the provider keeps to it, and this is the backstop.
+    return asked
+      .flat()
+      .toSorted((a, b) => a.review.openedAt - b.review.openedAt)
+      .slice(0, REVIEWS_LIMIT);
   }
 
   /**
@@ -164,7 +236,10 @@ export function createReviewHub(options: { readonly logger: Logger; readonly res
    */
   function keep(sessionId: string, reviews: readonly PendingReview[]): void {
     const before = known.get(sessionId);
-    known.set(sessionId, reviews);
+    // Nothing waiting in a session nobody reads is nothing to remember.
+    if (reviews.length === 0 && !reading.has(sessionId)) known.delete(sessionId);
+    else known.set(sessionId, reviews);
+    account(sessionId);
     if (before !== undefined && JSON.stringify(before) === JSON.stringify(reviews)) return;
     if (before === undefined && reviews.length === 0) return;
     for (const listener of listeners.keys()) {
@@ -234,11 +309,22 @@ export function createReviewHub(options: { readonly logger: Logger; readonly res
         if (providers.delete(entry)) entry.stop();
       };
     },
+    read(sessionId) {
+      reading.add(sessionId);
+      account(sessionId);
+    },
     current(sessionId) {
       const found = known.get(sessionId);
       if (found !== undefined) return found;
+      account(sessionId);
       recount(sessionId);
       return [];
+    },
+    refresh: (sessionId) => recount(sessionId),
+    forget(sessionId) {
+      reading.delete(sessionId);
+      if ((known.get(sessionId) ?? []).length === 0) known.delete(sessionId);
+      account(sessionId);
     },
     onChanged(listener) {
       const release = options.resources.acquire("review.listener");
@@ -285,6 +371,11 @@ export function createReviewHub(options: { readonly logger: Logger; readonly res
       for (const lane of lanes.values()) await lane.tail;
       for (const release of listeners.values()) release();
       listeners.clear();
+      known.clear();
+      reading.clear();
+      lanes.clear();
+      for (const release of holding.values()) release();
+      holding.clear();
     },
   };
 }

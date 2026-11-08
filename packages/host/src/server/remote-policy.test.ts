@@ -75,6 +75,36 @@ describe("tasks on a phone (SPEC-0006)", () => {
     expect(COMMAND_REACH.open_task_session).toBe("local_only");
   });
 
+  it("may talk in a task's or a node's conversation, and answer its question, but not decide anything (T8 review decision 4)", () => {
+    const fields = { requestId: "r1", traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" };
+    const session = { sessionId: "ses_task" };
+    expect(phoneMayRun({ type: "prompt", ...fields, ...session, text: "hi" })).toBe(true);
+    expect(phoneMayRun({ type: "steer", ...fields, ...session, text: "hi" })).toBe(true);
+    expect(phoneMayRun({ type: "stop", ...fields, ...session })).toBe(true);
+    expect(
+      phoneMayRun({ type: "answer_question", ...fields, ...session, questionId: "q1", answer: { skipped: true } }),
+    ).toBe(true);
+    // Everything that carries out a task's decision or opens its sessions stays on the Mac.
+    for (const type of [
+      "create_task",
+      "start_task",
+      "abandon_task",
+      "approve_graph",
+      "reject_graph",
+      "answer_human",
+      "rerun_node",
+      "continue_node",
+      "pause_task",
+      "resume_task",
+      "cancel_task",
+      "answer_archive",
+      "open_task_session",
+      "answer_review",
+    ] as const) {
+      expect(COMMAND_REACH[type]).toBe("local_only");
+    }
+  });
+
   it("pushes the task list and an open task's state to a phone that asked for them", () => {
     expect(pushedToPhone({ type: "tasks_updated", seq: 1, tasks: [] })).toBe(true);
     expect(PUSHED_TO_PHONE.task_updated).toBe(true);

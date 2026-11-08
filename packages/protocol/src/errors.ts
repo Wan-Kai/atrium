@@ -82,8 +82,8 @@ export const ErrorCode = z.enum([
   "review_closed",
   /**
    * A verdict does not fit its review; `params.field` is `action` (it names no action of the review), `target` (it
-   * needs one of the action's targets and has none or another) or `reason` (the action requires one and has none)
-   * (ADR-0017, decision 2).
+   * needs one of the action's targets and has none or another) or `reason` (the action requires one and has none,
+   * or takes none and was given one) (ADR-0017, decision 2).
    */
   "review_invalid",
   /** pi could not list its models, as when no provider has credentials; `params.detail` is pi's own text. */

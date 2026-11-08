@@ -201,8 +201,8 @@
   },
   {
     "file": "packages/host/src/tasks/task-reviews.ts",
-    "from": "if (verdict.action === \"approve\") await service.approveGraph(taskId);",
-    "to": "if (true) await service.approveGraph(taskId);",
+    "from": "if (verdict.action === \"approve\") await service.approveGraph(taskId, reviewed);",
+    "to": "if (true) await service.approveGraph(taskId, reviewed);",
     "test": "packages/host/src/tasks/task-reviews.test.ts",
     "name": "maps each gate",
     "project": "unit"

@@ -37,9 +37,11 @@ export interface TaskRunner {
    *
    * @remarks
    * One task's events go one at a time: an event's `step` and the actions it produces are done before the next
-   * event is taken (SPEC-0006, "调度器").
+   * event is taken (SPEC-0006, "调度器"). With `guard`, the task is checked on the queue's turn, right before the
+   * event is recorded: if it throws, nothing is recorded, so a check on a state another event may change is not
+   * open to a race.
    */
-  submit(taskId: string, input: TaskEventInput): Promise<Task>;
+  submit(taskId: string, input: TaskEventInput, guard?: (task: Task) => void): Promise<Task>;
   /** The task as it is. */
   task(taskId: string): Task | undefined;
   /** Every task looked after, in the order they were attached. */
@@ -1398,10 +1400,14 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
     attach(taskId, store) {
       if (!tasks.has(taskId)) tasks.set(taskId, { store, queue: Promise.resolve(), lines: Promise.resolve() });
     },
-    submit(taskId, input) {
+    submit(taskId, input, guard) {
       const entry = tasks.get(taskId);
       if (entry === undefined) return Promise.reject(new Error(`task ${taskId} is not attached`));
-      return enqueue(entry, () => dispatch(entry, input));
+      return enqueue(entry, () => {
+        const task = entry.store.current();
+        if (guard !== undefined && task !== null) guard(task);
+        return dispatch(entry, input);
+      });
     },
     task: (taskId) => tasks.get(taskId)?.store.current() ?? undefined,
     all: () => [...tasks.values()].flatMap((entry) => entry.store.current() ?? []),

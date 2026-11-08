@@ -8,6 +8,25 @@ export const MINUTE = 60_000;
 export const DAY = 86_400_000;
 
 /**
+ * Refuses a task row the host could never send.
+ *
+ * @remarks
+ * T8 review fix 1: a fixture said `running` with `paused`, which the host never sends (`deriveStatus` makes a paused
+ * task `stopped`), so a test passed on a state the app never sees. The states the host rules out are thrown here.
+ *
+ * @sideEffects none
+ * @param row - The row.
+ * @returns The row.
+ * @throws {Error} For a paused task that is not `stopped`, a designing one that has started, or a started one
+ * that is designing.
+ */
+function hostPossible<T extends TaskSummary>(row: T): T {
+  if (row.paused && row.status !== "stopped") throw new Error(`impossible task: ${row.status} but paused`);
+  if (row.status === "designing" && row.startedAt !== null) throw new Error("impossible task: designing but started");
+  return row;
+}
+
+/**
  * A task row for tests; every field can be set, the rest is a running task with nothing to say.
  *
  * @remarks
@@ -19,7 +38,7 @@ export const DAY = 86_400_000;
  * @returns The row.
  */
 export function summary(id: string, changes: Partial<TaskSummary> = {}): TaskSummary {
-  return {
+  return hostPossible({
     id: `tsk_${id}`,
     name: `任务 ${id}`,
     status: "running",
@@ -34,8 +53,10 @@ export function summary(id: string, changes: Partial<TaskSummary> = {}): TaskSum
     current: null,
     activeAt: NOW - MINUTE,
     scheduled: false,
+    // A task being designed has not started.
+    ...(changes.status === "designing" ? { startedAt: null } : {}),
     ...changes,
-  };
+  });
 }
 
 /**
@@ -90,8 +111,8 @@ export function view(
   edges: readonly (readonly [string, string] | readonly [string, string, "seq" | "back"])[] = [],
   changes: Partial<TaskView> = {},
 ): TaskView {
-  return {
-    ...summary(id),
+  return hostPossible({
+    ...summary(id, changes),
     taskSessionId: `ses_${id}`,
     model: { providerId: "anthropic", modelId: "opus-5.5", thinking: "high" },
     sourceSessionId: `src_${id}`,
@@ -106,5 +127,5 @@ export function view(
     archiveFacts: null,
     followed: false,
     ...changes,
-  };
+  });
 }

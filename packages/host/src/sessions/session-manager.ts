@@ -330,6 +330,10 @@ export function createSessionManager(options: {
   readonly reviews?: {
     readonly current: (sessionId: string) => readonly PendingReview[];
     readonly onChanged: (listener: (sessionId: string) => void) => () => void;
+    /** A session got a controller, which reads its reviews until it is let go of (T8 review fix 13). */
+    readonly read: (sessionId: string) => void;
+    /** A session lost its controller, so nobody reads its reviews any more. */
+    readonly forget: (sessionId: string) => void;
   };
   readonly layouts: Layouts;
   /** Which chats are archived, and with which sessions (SPEC-0001, "M1.11 的对话归档"). */
@@ -1170,7 +1174,11 @@ export function createSessionManager(options: {
         inBackground("fast record", () => options.catalog.mark(sessionId, { fast: enabled }));
       },
       deliveries: relay.deliveries(sessionId),
-      ...(options.reviews === undefined ? {} : { reviews: () => options.reviews?.current(sessionId) ?? [] }),
+      ...(options.reviews === undefined
+        ? {}
+        : {
+            reviews: () => options.reviews?.current(sessionId) ?? [],
+          }),
       ...(starts === undefined
         ? {}
         : {
@@ -1381,6 +1389,8 @@ export function createSessionManager(options: {
   function hold(sessionId: string, started: Running): void {
     held.get(sessionId)?.();
     held.set(sessionId, options.resources.acquire("session.controller"));
+    // The hub keeps a count for a session while its controller is held, and lets go of it in `dropController`.
+    options.reviews?.read(sessionId);
     sessions.set(sessionId, started);
     lastActive.set(sessionId, options.clock.now());
     childrenUsage.refresh(sessionId);
@@ -1399,6 +1409,7 @@ export function createSessionManager(options: {
     held.get(sessionId)?.();
     held.delete(sessionId);
     sessions.delete(sessionId);
+    options.reviews?.forget(sessionId);
     // A new controller starts a new stream; what the phones' ring kept cannot be resumed from.
     options.subscriptions.forget(sessionId);
     // Stryker disable next-line all: only frees memory; holding the session again sets it first.
@@ -1619,6 +1630,7 @@ export function createSessionManager(options: {
         // The scan may have ended because the host is closing.
         if (closed) return undefined;
         const found = entryOf(sessionId);
+        notTaskSession(sessionId);
         notArchived(sessionId);
         // The tab opens first, so a session that cannot start explains why in its own tab.
         await options.layouts.open(clientId, found.containerId, sessionId);
@@ -1672,6 +1684,7 @@ export function createSessionManager(options: {
     },
     async archiveSession(sessionId) {
       const entry = entryOf(sessionId);
+      notTaskSession(sessionId);
       // Its child conversations in the same container go with it; one elsewhere is detached (SPEC-0002).
       const plan = archivePlan(options.catalog.list(), [sessionId], entry.containerId);
       const archived = [sessionId, ...plan.archive];
@@ -1745,6 +1758,7 @@ export function createSessionManager(options: {
     async renameSession(sessionId, name) {
       await options.catalog.ready();
       const entry = entryOf(sessionId);
+      notTaskSession(sessionId);
       if (entry.state === "draft") {
         // pi writes no file before the first message, so a draft's name has nowhere to go, but a
         // child's: its record (SPEC-0002, "概念 · 名字").
@@ -2312,6 +2326,22 @@ export function createSessionManager(options: {
     if (options.catalog.find(sessionId)?.handedOff === true) {
       throw new CommandError("session_handed_off", { sessionId });
     }
+  }
+
+  /**
+   * Refuses a command that would make a task's session an ordinary tab, name or archive it.
+   *
+   * @remarks
+   * A task conversation or a node's conversation belongs to its task (SPEC-0006, "T8 审查后用户定"): it has no tab,
+   * no place in a list and is let go of by the task alone. It is answered as if it did not exist, which also keeps
+   * a client from learning which ids are task sessions.
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @throws {CommandError} `session_not_found`, also for an unknown session.
+   */
+  function notTaskSession(sessionId: string): void {
+    if (entryOf(sessionId).task !== null) throw new CommandError("session_not_found", { sessionId });
   }
 
   /**

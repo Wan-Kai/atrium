@@ -107,6 +107,7 @@
     - `pnpm task:design` 只读用户的真实会话文件，复制进临时目录、在自己的宿主里跑，原文件前后各算一次哈希核对（SPEC-0006“T6 定下的细节”）；设计那一轮的 `bash` 仍在对话原来的目录里，要完全不碰仓库就用 `--cwd` 指一份副本。
   - **worktree 锁**：任务在用的 worktree 加 `git worktree lock --reason "atrium task <id>"`，归档、清理遇到就停（`workspace_in_task`）；宿主启动时只解原因是 Atrium 任务、且任务已结束的锁，你自己加的锁不动。原因必须整条是 `atrium task <id>`（id 只含字母、数字、`_`、`-`），别的写法一概不认。
   - **审核卡片的裁决由宿主执行**（ADR-0017，T8a）：任务关卡的 `answer_review` 是 `local_only`（手机不能答，手机只收到审核并忽略）；宿主先重算一遍当前有什么审核，裁决只对仍在的那一条有效（别处先答了、状态往前走了都是 `review_closed`），形状不对 `review_invalid`，然后走和列表行内处理同一套业务命令和状态检查；证据（git 事实、改动统计、图的差异）由宿主现算，别人写的话（交接摘要、agent 的说明）只作 `summary` 引用，不带状态；被跟着的任务（T7.1）没有审核。裁决生效后的记录由 `/atrium-task review` 经扩展写进任务对话，内容不进日志。
+  - **手机和任务 / 节点会话**（2026-11-08 用户定）：手机可以对任务对话和节点会话做对话的事——`prompt`、`steer`、`stop`、`answer_question`（和普通会话一样的白名单）；审核（`answer_review`）、`open_task_session` 和所有任务命令（开始、暂停、继续、取消、放弃、批准 / 打回改图、回答 human 节点、重跑、继续节点、回答归档）仍是 `local_only`。手机的 `prompt` 对没在跑的任务会话会按 `prompt` 的老办法起它的 pi，不借 `open_task_session`，所以没有给手机多开任何任务权限。任务和节点的会话对**所有**客户端都不能经 `open_session` / `rename_session` / `archive_session` 变成普通标签、改名或归档（`session_not_found`）。
   - **不进日志**：任务数据（需求摘要、交接摘要、打回原因）存在 `~/.atrium/tasks/`，和会话内容同等对待，不进日志；`/atrium-task` 的参数同样不进日志，它和别的 `/atrium-` 隐藏命令一样受 `command_reserved` 保护。
 - 宿主提供界面文件时同样解析符号链接，真实路径不在界面目录内就返回 404；先打开文件再读大小，读失败或客户端中途断开都不会影响宿主进程。
 - 安装 pi 只运行官方安装脚本（`https://pi.dev/install.sh`），地址写死在代码里。

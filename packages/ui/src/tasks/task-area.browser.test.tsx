@@ -175,6 +175,8 @@ describe("the task list (SPEC-0006, 界面 · 任务列表; 设计稿第 2 屏)"
       summary("chat", {
         name: "竞品语音输入方案调研",
         projectId: null,
+        // Relative to the real clock like the other rows: the fixtures' fixed NOW is in the past by now.
+        activeAt: Date.now() - MINUTE,
         current: { id: "N2", name: "写报告", state: "running" },
       }),
     ]);

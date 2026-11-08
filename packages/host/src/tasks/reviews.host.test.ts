@@ -271,7 +271,7 @@ describe("graph approval reviews (ADR-0017, T8a)", () => {
       ],
       actions: [
         { id: "approve", reason: "none", targets: [], recommended: true },
-        { id: "reject", reason: "none", targets: [], recommended: false },
+        { id: "reject", reason: "optional", targets: [], recommended: false },
       ],
     });
     const waiting = await viewOf(harness, task.id);

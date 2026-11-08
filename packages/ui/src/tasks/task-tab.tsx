@@ -101,7 +101,8 @@ function ConfirmButton({
  *
  * @remarks
  * 设计稿第 4、5 屏. While designing: 放弃任务 and 确认并启动 (the second waits for a drawn graph). Running or waiting:
- * 暂停任务 (or 继续 while paused) and 取消任务; stopped: 取消任务; over: none. 放弃 and 取消 ask again first.
+ * 暂停任务 and 取消任务; paused: 继续 and 取消任务 (the host sends a paused task as `stopped` with `paused` set, never
+ * `running`); stopped by a node's failure or by the user's own stop: 取消任务; over: none. 放弃 and 取消 ask again first.
  * A followed task (T7.1) is another process's: no buttons. The model is shown, not changed: it changes by saying
  * so in the task conversation. A task made by a schedule has no conversation to link. A command's failure is
  * worded under the bar.
@@ -169,7 +170,7 @@ function TaskBar({
     </>
   ) : live || task.status === "stopped" ? (
     <>
-      {live ? (
+      {live || task.paused ? (
         <button
           type="button"
           disabled={busy}
@@ -209,7 +210,7 @@ function TaskBar({
         <span className={`text-[length:var(--fs-meta)] ${TONES[status.tone]}`} data-testid="task-bar-status">
           {task.status === "designing"
             ? "设计中"
-            : currentWords(task) === ""
+            : currentWords(task) === "" || task.status === "done"
               ? status.text
               : `${currentWords(task)} · ${status.text}`}
         </span>
@@ -372,6 +373,8 @@ export function TaskTab({
   const waitsOnHuman = task?.nodes.some((node) => node.kind === "human" && node.state === "waiting") === true;
   const changes = useStore(workspaceId !== null && waitsOnHuman ? client.changes(workspaceId) : NO_CHANGES);
   const pending = task?.pending ?? null;
+  // Looking is about the proposal waiting, whichever version that is: a newer one that comes while you look is
+  // shown with the banner updated, and once none waits you are back on the current graph (T8 review fix 8).
   const lookingAt = looking && pending !== null ? pending : null;
   const drawn = useMemo(
     () => (task === null ? null : lookingAt === null ? task : proposedGraph(lookingAt, task.model, task.nodes)),
@@ -383,10 +386,17 @@ export function TaskTab({
         nodeName: (node) =>
           task?.nodes.find((one) => one.id === node)?.name ?? pending?.nodes.find((one) => one.id === node)?.name,
         openChanges: onOpenChanges,
-        showOnGraph: () => setLooking(true),
+        // Only the proposal that waits can be looked at: a card for another version is the one that was decided.
+        showOnGraph: (version) => setLooking(pending?.version === version),
       }),
     [task, pending, onOpenChanges],
   );
+  const proposalWaits = pending !== null;
+  useEffect(() => {
+    // Nothing is proposed any more: the next proposal is not looked at until you ask.
+    // oxlint-disable-next-line react/set-state-in-effect -- the task is the host's, which this follows.
+    if (!proposalWaits) setLooking(false);
+  }, [proposalWaits]);
 
   useEffect(() => {
     // Fire and forget: what the host answers lands in the task's state, a lost connection asks again when back.

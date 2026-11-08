@@ -1,6 +1,6 @@
 import type { TaskSummary } from "@atrium/protocol";
 import { CommandError } from "@atrium/client";
-import type { ErrorCode } from "@atrium/protocol";
+import type { ErrorCode, ErrorParams } from "@atrium/protocol";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
@@ -97,6 +97,34 @@ export async function openTab(
   // The mouse rests on the bar, not on a node whose hover card would float over what the test presses next.
   await userEvent.hover(shown.screen.getByTestId("task-name"));
   return shown;
+}
+
+/**
+ * The fake's answer that fails one command every time, after the host's own pace.
+ *
+ * @remarks
+ * Test support for the task area's tests, not the app. The conditional lives here so tests have none. The failure
+ * comes after `afterMs`, as over a socket: a box that sent the message has been cleared by then.
+ *
+ * @sideEffects none
+ * @param command - The method that fails, as the fake names it (`openTaskSession`, `createTask`, …).
+ * @param code - The error code.
+ * @param params - The error's parameters.
+ * @param afterMs - How long the host takes to refuse.
+ * @returns The fake's `taskCommand` answer.
+ */
+export function refuseOn(
+  command: string,
+  code: ErrorCode,
+  params?: ErrorParams,
+  afterMs = 30,
+): (name: string) => Promise<void> {
+  return (name) =>
+    name === command
+      ? new Promise<void>((_, reject) => {
+          setTimeout(() => reject(new CommandError(code, params)), afterMs);
+        })
+      : Promise.resolve();
 }
 
 /**

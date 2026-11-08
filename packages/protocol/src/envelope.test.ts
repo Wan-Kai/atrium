@@ -417,7 +417,7 @@ const graphReview: PendingReview = {
   problem: null,
   actions: [
     { id: "approve", reason: "none", targets: [], recommended: true },
-    { id: "reject", reason: "none", targets: [], recommended: false },
+    { id: "reject", reason: "optional", targets: [], recommended: false },
   ],
 };
 const agentReview: PendingReview = {

@@ -221,7 +221,7 @@ describe("the reviews of a task (ADR-0017, T8a)", () => {
       problem: null,
       actions: [
         { id: "approve", reason: "none", targets: [], recommended: true },
-        { id: "reject", reason: "none", targets: [], recommended: false },
+        { id: "reject", reason: "optional", targets: [], recommended: false },
       ],
     });
     // No note, no summary; and a task that has not started takes its graph at once, so nothing waits.
@@ -316,6 +316,73 @@ describe("the reviews of a task (ADR-0017, T8a)", () => {
   });
 });
 
+/** A task whose human node `H` waits behind `count` upstream nodes that each handed something over. */
+function manyUpstream(count: number): Sim {
+  const names = Array.from({ length: count }, (_, index) => `N${String(index + 1)}`);
+  const sim = new Sim({
+    ...newTask(
+      [...names.map((name) => agent(name, "explore")), human("H")],
+      names.map((name) => edges([name, "H"])[0]!),
+      {
+        workspaceState: "ready",
+      },
+    ),
+    projectId: PROJECT,
+    workspaceId: WORKSPACE,
+  });
+  sim.send({ type: "started" });
+  for (const name of names) {
+    sim.send({ type: "node_started", node: name, attempt: 1, sessionId: `ses_${name}`, startCommit: "abc" });
+    sim.send({ type: "node_done_pending", node: name, attempt: 1, ok: true, summary: `Done ${name}.` });
+    sim.send({ type: "node_settled", node: name, attempt: 1 });
+  }
+  return sim;
+}
+
+/** The nodes whose hand-overs a review quotes, in the order it quotes them. */
+function quotedNodes(review: PendingReview | undefined): string[] {
+  return (review?.evidence ?? []).flatMap((one) =>
+    one.kind === "summary" && one.by.kind === "node" ? [one.by.node] : [],
+  );
+}
+
+describe("what the protocol takes of the reviews of one task (T8 review fix 4)", () => {
+  it("gives at most eight evidence items for a node with many upstream nodes, the host's measurements first", () => {
+    const sim = manyUpstream(12);
+    const changes = { files: 3, added: 10, removed: 2 };
+
+    const [review] = reviews(sim.task, { worktree: CLEAN, changes });
+
+    expect(review?.evidence).toHaveLength(8);
+    expect(review?.evidence.map((one) => one.kind)).toStrictEqual([
+      "facts",
+      "changes",
+      ...Array<string>(6).fill("summary"),
+    ]);
+    // The summaries kept are the first upstream nodes in graph order.
+    expect(quotedNodes(review)).toStrictEqual(["N1", "N2", "N3", "N4", "N5", "N6"]);
+    // Without a worktree there is room for eight summaries.
+    expect(reviews(sim.task)[0]?.evidence).toHaveLength(8);
+  });
+
+  it("gives at most sixteen reviews, oldest first, when more human nodes wait", () => {
+    const nodes = Array.from({ length: 20 }, (_, index) => human(`H${String(index + 1)}`));
+    const sim = new Sim({ ...newTask(nodes, [], { workspaceState: "ready" }), projectId: PROJECT });
+    sim.send({ type: "started" });
+
+    const found = reviewsOf(sim.task, NO_FACTS);
+
+    expect(found).toHaveLength(16);
+    expect(found.map((one) => one.id)).toStrictEqual(
+      sim.task.runs
+        .toSorted((a, b) => a.startedAt - b.startedAt)
+        .slice(0, 16)
+        .map((run) => `tsk_1:human:${run.node}:1`),
+    );
+    expect(found.map((one) => PendingReview.parse(one).id)).toHaveLength(16);
+  });
+});
+
 describe("what a verdict leaves in the conversation (ADR-0017, decision 2)", () => {
   const record: ReviewRecord = {
     source: { kind: "gate", gate: "task_human" },
@@ -389,13 +456,16 @@ class FakeService {
     if (this.task === undefined) throw new CommandError("task_not_found");
     return { reviews: reviewsOf(this.task, NO_FACTS) } as Awaited<ReturnType<TaskReviewPorts["service"]["view"]>>;
   };
-  approveGraph = async (id: string) => void this.calls.push(`approve ${id}`);
-  rejectGraph = async (id: string) => void this.calls.push(`reject ${id}`);
+  approveGraph = async (id: string, reviewed?: { version: number; reviewId: string }) =>
+    void this.calls.push(`approve ${id} v${String(reviewed?.version)} ${reviewed?.reviewId ?? ""}`);
+  rejectGraph = async (id: string, reviewed?: { version: number; reviewId: string }) =>
+    void this.calls.push(`reject ${id} v${String(reviewed?.version)} ${reviewed?.reviewId ?? ""}`);
   answerHuman = async (id: string, node: string, answer: unknown) => {
     this.calls.push(`human ${id} ${node} ${JSON.stringify(answer)}`);
     this.afterAnswer?.();
   };
   answerArchive = async (id: string, answer: string) => void this.calls.push(`archive ${id} ${answer}`);
+  held = () => (this.task === undefined ? [] : [this.task]);
   recordReview = (id: string, line: { id: string }) => void this.recorded.push(`${id} ${line.id}`);
   onEvent = (listener: (task: Task, event: never, actions: readonly []) => void) => {
     this.events.push("subscribed");
@@ -457,6 +527,23 @@ describe("the provider of the task gates", () => {
     expect(service.recorded).toStrictEqual([]);
   });
 
+  it("writes no record while the node is still merging, as when the host is closing under its merge (T8 review fix 12)", async () => {
+    const sim = waitingHuman({ merge: true });
+    const service = new FakeService(sim.task);
+    const provider = providerOver(service);
+    const waiting = need((await provider.pending("ses_task", signal))[0]);
+    // The pass took effect and the merge began, but the host closed before it ended: the node is `merging`, which
+    // asks nothing, so the review is gone although nothing was decided yet.
+    service.afterAnswer = () => {
+      service.task = withRunChanges(sim.task, "H", { merging: true });
+    };
+
+    await provider.decide("ses_task", waiting, { action: "pass" }, signal);
+
+    expect(service.calls).toStrictEqual(['human tsk_1 H {"kind":"pass"}']);
+    expect(service.recorded).toStrictEqual([]);
+  });
+
   it("maps each gate's actions to its business command", async () => {
     const sim = waitingHuman();
     sim.send({
@@ -480,8 +567,8 @@ describe("the provider of the task gates", () => {
     await provider.decide("ses_task", waiting, { action: "retry" }, signal);
 
     expect(service.calls).toStrictEqual([
-      "approve tsk_1",
-      "reject tsk_1",
+      "approve tsk_1 v2 tsk_1:graph:v2",
+      "reject tsk_1 v2 tsk_1:graph:v2",
       "archive tsk_1 archive",
       "archive tsk_1 keep",
       'human tsk_1 H {"kind":"pass"}',
@@ -507,6 +594,15 @@ describe("the provider of the task gates", () => {
     ).rejects.toMatchObject({ code: "review_closed" });
     await expect(
       provider.decide("ses_task", { ...review, subject: { text: "no node" } }, { action: "pass" }, signal),
+    ).rejects.toMatchObject({ code: "review_closed", params: { reviewId: review.id } });
+    // A graph review that names no version cannot be checked against the one waiting: it is not carried out.
+    await expect(
+      provider.decide(
+        "ses_task",
+        { ...review, source: { kind: "gate", gate: "task_graph" }, subject: { code: "task_graph_change", params: {} } },
+        { action: "approve" },
+        signal,
+      ),
     ).rejects.toMatchObject({ code: "review_closed", params: { reviewId: review.id } });
     expect(service.calls).toStrictEqual([]);
   });

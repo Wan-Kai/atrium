@@ -2323,3 +2323,33 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 从对话 `/task` → 确认并启动 → 在列表里答多选 → 通过并合并 → 归档，全程在 Electron 里对真宿主走通 | `apps/desktop/e2e/tasks-flow.spec.ts` |
 
 - 没做（留给后面）：见 SPEC-0006"T8b 定下的细节 · 没做"。
+
+## T8 审查修复（SPEC-0006"T8 审查后用户定"，2026-11-08，待验收）
+
+三方审查（Codex gpt-6-astra、Grok grok-4.7、Claude）找出的问题和用户的四个决定。宿主一侧的新用例在 `packages/host/src/tasks/t8-fixes.host.test.ts`（真宿主、真 pi 跑 faux 模型、真 git、真客户端）和各自模块的单测；界面一侧在 `tasks/task-interactive.browser.test.tsx`、`chat/review-card.browser.test.tsx`、`tasks/task-command.browser.test.tsx`。破坏检查 `packages/host/src/tasks/t8-fixes.break-check.json`（宿主）和 `packages/ui/src/tasks/t8-fixes.break-check.json`（界面）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 决定 1：列表行只有节点提问、改图、归档三种卡片，human 验收只给"打开任务"；几张卡片按胶囊叠、一次一张 | `tasks/task-interactive.browser.test.tsx`（"gives a human node's acceptance no card in the row"、"stacks the cards of a row as capsules"） |
+| 决定 2：看提议的图时已有的节点保持当前状态、只有新节点未开始（文档改了，代码和测试本来就是） | `tasks/task-interactive.browser.test.tsx`（"looks at a proposed graph on the graph"） |
+| 决定 3：改图"不批准"的原因可选：宿主给 `optional`、记录和模型的上下文带原因、界面可留空 | `tasks/task-reviews.test.ts`、`tasks/reviews.host.test.ts`、`tasks/t8-fixes.host.test.ts`（端到端：原因进记录和模型的下一次请求）、`tasks/task-interactive.browser.test.tsx`、`chat/review-card.browser.test.tsx`、`protocol/envelope.test.ts` |
+| 决定 4：手机对任务 / 节点会话能 `prompt`、`steer`、`stop`、`answer_question`，不能审核和任务命令；对没在跑的任务对话 `prompt` 按老办法起 pi | `server/remote-policy.test.ts`、`tasks/t8-fixes.host.test.ts`（"starts its pi the way prompt always does"，本机客户端；手机与本机走同一个 `sessions.prompt`，只是命令白名单不同，白名单由 `remote-policy.test.ts` 管） |
+| 修 1：暂停的任务（宿主发 `stopped` 加 `paused`）显示"继续"；只停下的才只有"取消任务"；夹具不再能造出宿主不会发的状态 | `tasks/task-interactive.browser.test.tsx`、`tasks/task-fixtures.ts`（`hostPossible`） |
+| 修 2：改图的裁决只对看过的版本有效，新提案先到就 `review_closed`，不执行（在任务自己的队列里核对） | `tasks/t8-fixes.host.test.ts`、`tasks/task-reviews.test.ts` |
+| 修 3：任务 / 节点会话不能经 `open_session`、`rename_session`、`archive_session` 变成普通标签（`session_not_found`） | `tasks/t8-fixes.host.test.ts` |
+| 修 4：证据最多 8 条、审核最多 16 条（提供者守，ReviewHub 再截一道）；多个上游节点、多个等待的 human 节点 | `tasks/task-reviews.test.ts`、`reviews/review-hub.test.ts`、`tasks/t8-fixes.host.test.ts` |
+| 修 5：没提交的审核输入只在"已读到"的控制里审核不见了才丢；经真实的"读取中 → 读到"过程（假客户端改成和真的一样） | `tasks/task-interactive.browser.test.tsx`、`test/fake-client.ts` |
+| 修 6：`open_task_session` / `prompt` / `steer` 被拒时文字放回输入框 | `tasks/task-interactive.browser.test.tsx` |
+| 修 7：宿主换了之后任务 / 节点对话重新 `watch`，视图 `lost` 时也起 pi | `tasks/task-interactive.browser.test.tsx` |
+| 修 8：审核记录展开后的证据没有按钮；"在图上看"带版本；看着 v3 来了 v4 就换成 v4（横幅跟着）；没有提议了就复位 | `tasks/task-interactive.browser.test.tsx` |
+| 修 9：裁决成功后卡片一直禁用到审核离开；"正在提交"的锁按会话 + 审核 id，切胶囊不解锁；失败写在卡片里、切回来还在 | `chat/review-card.browser.test.tsx`、`chat/review-state.test.ts` |
+| 修 10：没有推荐的按钮时不画蓝色按钮、保持宿主的顺序 | `chat/review-card.browser.test.tsx`、`chat/review-state.test.ts` |
+| 修 11：打开任务时重算它任务对话的审核，卡片上的事实不陈旧 | `tasks/t8-fixes.host.test.ts`、`reviews/review-hub.test.ts` |
+| 修 12：合并中途宿主关闭，不写"通过"记录 | `tasks/task-reviews.test.ts` |
+| 修 13：ReviewHub 的 `lanes` / `known` 不无限增长；控制器放掉时 `forget`；一个长寿的 hub 来来去去很多会话后资源计数回 0 | `reviews/review-hub.test.ts`、`reviews/review-hub.leak.test.ts`、`sessions/session-manager.test.ts` |
+| 修 14：列表行、任务 / 节点对话卸载时放掉自己的 `watch`、不清掉新所有者的；被跟着的任务不 watch 别的进程的节点会话、没有节点对话链接 | `tasks/task-interactive.browser.test.tsx`、`state/watch-owner.ts` |
+| 修 15：`/task` 对已转为任务的对话直接打开它的任务（`params.taskId`） | `tasks/task-command.browser.test.tsx` |
+| 修 16：`review_invalid` / `review_closed` 的说法和 SPEC 错误表一字不差；完成的任务栏只写"已完成" | `tasks/task-words.test.ts`、`tasks/task-interactive.browser.test.tsx` |
+| 修 17：协议注释更正；通用审核卡片不再依赖 `tasks/`（`clockWords` 挪到 `chat/clock-words.ts`）；收件箱的任务行先 `leave()` 并关页面 | `chat/clock-words.test.ts`、`tasks/task-interactive.browser.test.tsx` |
+| 修 18：浏览器测试里改图 reject 的动作形状和宿主给的一致（`optional`） | `tasks/task-interactive.browser.test.tsx`、`protocol/envelope.test.ts` |
+| 协议号 34 → 35；Swift 投影重新生成、夹具和 `RoundTripTests` 的版本号跟着改 | `protocol/remote.test.ts`、`swift test --filter AtriumProtocolTests` |

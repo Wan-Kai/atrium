@@ -236,8 +236,10 @@ export type AnswerQuestionCommand = z.infer<typeof AnswerQuestionCommand>;
  * Gives a verdict on a review waiting in a session (ADR-0017): a task's gates (graph approval, a human node, the
  * question about the worktree), which the host then carries out through the same checks as `approve_graph`,
  * `answer_human` and `answer_archive`. The first verdict on a review wins; later ones fail with `review_closed`.
- * Fails with `review_invalid` when the verdict does not fit the review, `task_read_only` for a followed task, and
- * with the codes of the business command it stands for (`task_back_limit`, `workspace_dirty`…).
+ * Fails with `review_invalid` when the verdict does not fit the review, `review_closed` for a followed task (it has
+ * no reviews here), and with the codes of the business command it stands for (`task_back_limit`,
+ * `workspace_dirty`…). A graph verdict is for the version the card showed: another waiting by then is
+ * `review_closed`.
  */
 export const AnswerReviewCommand = z.strictObject({
   type: z.literal("answer_review"),

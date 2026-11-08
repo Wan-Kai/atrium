@@ -13,6 +13,7 @@ import type {
   TaskState,
   TasksView,
 } from "@atrium/client";
+import { loadingView } from "@atrium/client";
 import {
   type Chat,
   type ChildPlacement,
@@ -21,6 +22,7 @@ import {
   type DiffTarget,
   type DiscoveredDirectory,
   type ForkPlacement,
+  type Control,
   IDLE_CONTROL,
   type IndexSnapshotEvent,
   type LoginMethod,
@@ -181,6 +183,15 @@ export interface FakeAnswers {
   readonly restoreChat?: () => Promise<void>;
   readonly prompt?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
   /**
+   * Sessions whose pi is not running: watching them brings no snapshot (the view stays `loading`) until
+   * `open_task_session` starts it, as the host does.
+   */
+  readonly notRunning?: readonly string[];
+  /** The run control the host's snapshot of a session carries, by session id; idle for the rest. */
+  readonly controls?: Readonly<Record<string, Control>>;
+  /** Answers a steer; queued at once when left out. */
+  readonly steer?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
+  /**
    * Answers a task, review or question command by its name (`startTask`, `answerReview`, `createTask`, …) with its
    * arguments; reject with a `CommandError` to fail it. Succeeds when left out.
    */
@@ -254,9 +265,10 @@ export interface FakeAnswers {
  * @sideEffects Records into `calls`.
  * @param calls - The client's call log.
  * @param answers - The test's answers.
+ * @param started - Told when `open_task_session` started a session's pi, so its snapshot can arrive.
  * @returns The methods.
  */
-function taskCommands(calls: string[], answers: FakeAnswers) {
+function taskCommands(calls: string[], answers: FakeAnswers, started: (sessionId: string) => void = () => undefined) {
   /**
    * Records one command and waits for the test's answer to it.
    *
@@ -287,7 +299,12 @@ function taskCommands(calls: string[], answers: FakeAnswers) {
       command("answerReview", sessionId, reviewId, verdict),
     answerQuestion: (sessionId: string, questionId: string, reply: unknown) =>
       command("answerQuestion", sessionId, questionId, reply),
-    openTaskSession: (taskId: string, sessionId: string) => command("openTaskSession", taskId, sessionId),
+    openTaskSession: async (taskId: string, sessionId: string) => {
+      const result = await command("openTaskSession", taskId, sessionId);
+      // Its pi runs now, and the snapshot reaches whoever watches it.
+      started(sessionId);
+      return result;
+    },
   };
 }
 
@@ -322,6 +339,10 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
   const diff = createStore<DiffView>(() => ({ target: null, status: "idle", files: [], tooLarge: false, error: null }));
   const modelLists = new Map<string | null, StoreApi<ModelListView>>();
   const views = new Map<string, StoreApi<SessionView>>();
+  /** The run control the host's snapshot of a session carries, when a test gives it one; idle otherwise. */
+  const controls = new Map<string, Control>(Object.entries(answers.controls ?? {}));
+  /** The sessions still without a pi; watching them brings no snapshot. */
+  const idle = new Set<string>(answers.notRunning ?? []);
   const index = createStore<IndexView>(() => ({
     ready: true,
     generation: "h1",
@@ -473,14 +494,33 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     connection,
     index,
     session: (sessionId: string) => views.get(sessionId),
+    /**
+     * Watches sessions as the real client does: the views of sessions no longer named are dropped, a new one starts
+     * `loading` and becomes `ready` when the host's snapshot arrives, which is before the command's answer.
+     *
+     * @remarks
+     * T8 review fix 5: the fake used to give every new view ready at once and keep the ones left behind, which hid
+     * that a view comes back loading, with an empty control, whenever the watched set is replaced.
+     *
+     * @sideEffects Replaces the views; records the call.
+     * @param sessionIds - The sessions to watch.
+     */
     async watch(sessionIds: readonly string[]) {
       calls.push(`watch ${sessionIds.join(",")}`);
-      for (const id of sessionIds)
-        if (!views.has(id))
-          views.set(
-            id,
-            createStore(() => sessionView(id)),
-          );
+      for (const id of views.keys()) if (!sessionIds.includes(id)) views.delete(id);
+      const fresh = sessionIds.filter((id) => !views.has(id));
+      for (const id of fresh)
+        views.set(
+          id,
+          createStore(() => loadingView(id)),
+        );
+      if (fresh.length === 0) return;
+      // The snapshot comes after the view was seen loading, and before the answer.
+      await Promise.resolve();
+      for (const id of fresh) {
+        if (idle.has(id)) continue;
+        views.get(id)?.setState(sessionView(id, { control: controls.get(id) ?? IDLE_CONTROL }), true);
+      }
     },
     async createChat() {
       calls.push("createChat");
@@ -749,7 +789,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     steer(sessionId: string, text: string) {
       calls.push(`steer ${sessionId} ${text}`);
-      return Promise.resolve({ disposition: "queued" as const });
+      return answers.steer?.() ?? Promise.resolve({ disposition: "queued" as const });
     },
     async stop(sessionId: string) {
       calls.push(`stop ${sessionId}`);
@@ -960,7 +1000,12 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       await answers.remoteCommand?.();
       return {};
     },
-    ...taskCommands(calls, answers),
+    ...taskCommands(calls, answers, (sessionId) => {
+      if (!idle.delete(sessionId)) return;
+      views
+        .get(sessionId)
+        ?.setState(sessionView(sessionId, { control: controls.get(sessionId) ?? IDLE_CONTROL }), true);
+    }),
     tasks,
     async watchTasks(on: boolean) {
       calls.push(`watchTasks ${String(on)}`);
@@ -1045,6 +1090,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     modelCalls,
     changeCalls,
     views,
+    controls,
     index,
     connection,
     remote,

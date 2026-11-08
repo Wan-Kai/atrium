@@ -196,6 +196,7 @@ export {
   GateKind,
   PendingReview,
   REVIEWS_LIMIT,
+  REVIEW_EVIDENCE_LIMIT,
   REVIEW_TEXT_LIMIT,
   ReviewAction,
   ReviewProblem,

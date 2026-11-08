@@ -3,6 +3,7 @@ import {
   type CommandResult,
   type HumanAnswer,
   type TaskUpdatedEvent,
+  type TaskView,
   type TasksUpdatedEvent,
 } from "@atrium/protocol";
 import type { Logger } from "../platform/logger";
@@ -63,6 +64,13 @@ export function createTaskCommands(options: {
   readonly service: TaskService;
   readonly send: (connectionId: string, event: TaskPush) => void;
   readonly logger: Logger;
+  /**
+   * Called with a task as it was handed to a client that opened it.
+   *
+   * @remarks
+   * The reviews of its conversation are counted again then, so a card shows the worktree as it is now.
+   */
+  readonly onOpened?: (task: TaskView) => void;
 }): TaskCommands {
   const { service } = options;
   const listWatchers = new Set<string>();
@@ -125,6 +133,7 @@ export function createTaskCommands(options: {
     async open(connectionId, taskId) {
       const task = await service.view(taskId, stopping.signal);
       opened.set(connectionId, taskId);
+      options.onOpened?.(task);
       return { task };
     },
     create: (sessionId, scope) => service.createFromChat(sessionId, scope),

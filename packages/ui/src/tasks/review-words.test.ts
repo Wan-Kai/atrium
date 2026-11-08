@@ -96,7 +96,7 @@ describe("the words of a task review", () => {
 describe("describeTaskCommandError", () => {
   it("words the codes of the task commands and falls back to the words of a send", () => {
     expect(describeTaskCommandError(new CommandError("task_back_limit"))).toBe("这条打回边已经用了两次");
-    expect(describeTaskCommandError(new CommandError("review_invalid"))).toContain("没有通过");
+    expect(describeTaskCommandError(new CommandError("review_invalid"))).toBe("这个裁决不合这条审核，刷新后再试");
     expect(describeTaskCommandError(new CommandError("workspace_dirty"))).toContain("没提交的改动");
     expect(describeTaskCommandError(new CommandError("session_not_found"))).toBe("这个对话已经不存在了");
     expect(describeTaskCommandError(new Error("x"))).toBe("发送失败");

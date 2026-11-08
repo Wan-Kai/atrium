@@ -51,7 +51,7 @@ function human(changes: Partial<PendingReview> = {}): PendingReview {
 }
 
 /** A graph change's review. */
-function graph(): PendingReview {
+function graph(changes: Partial<PendingReview> = {}): PendingReview {
   return {
     id: "rv_graph",
     openedAt: 5,
@@ -66,6 +66,7 @@ function graph(): PendingReview {
       { id: "approve", reason: "none", targets: [], recommended: true },
       { id: "reject", reason: "optional", targets: [], recommended: false },
     ],
+    ...changes,
   };
 }
 
@@ -290,6 +291,8 @@ describe("the verdicts (SPEC-0006, 审核卡片 4)", () => {
     await without.screen.getByTestId("review-confirm").click();
     expect(without.verdicts).toStrictEqual([{ action: "reject" }]);
     await without.screen.unmount();
+    // The same review again is a new question: the list has long stopped carrying the one that was answered.
+    forgetReviewDrafts("s1", []);
 
     const withReason = await card(graph());
     await withReason.screen.getByRole("button", { name: "不批准…" }).click();
@@ -321,8 +324,8 @@ describe("the verdicts (SPEC-0006, 审核卡片 4)", () => {
     await pass.click({ force: true });
     expect(verdicts).toHaveLength(1);
 
-    gate.release("这张审核已经处理过，或者不在了");
-    await expect.element(screen.getByTestId("review-failure")).toHaveTextContent("这张审核已经处理过，或者不在了");
+    gate.release("这条审核已经处理过了");
+    await expect.element(screen.getByTestId("review-failure")).toHaveTextContent("这条审核已经处理过了");
     await pass.click();
     expect(verdicts).toHaveLength(2);
   });
@@ -339,6 +342,19 @@ describe("the verdicts (SPEC-0006, 审核卡片 4)", () => {
     gate.release(null);
   });
 
+  it("forgets what you wrote for a review once its verdict was taken, though the card is still drawn", async () => {
+    const taken = await card(human());
+    await taken.screen.getByRole("button", { name: /^打回到/ }).click();
+    await userEvent.type(taken.screen.getByRole("textbox", { name: "原因（必填）" }), "打回去重做");
+    await taken.screen.getByTestId("review-confirm").click();
+    await expect.poll(() => taken.verdicts).toHaveLength(1);
+    await taken.screen.unmount();
+
+    // Drawn again while the list still carries the review: the written reason is of no use any more.
+    const again = await card(human());
+    expect(again.screen.container.querySelector('[data-testid="review-form"]')).toBeNull();
+  });
+
   it("keeps what you wrote when the card is drawn again, and forgets it once the review is gone", async () => {
     const first = await card(human());
     await first.screen.getByRole("button", { name: /^打回到/ }).click();
@@ -352,6 +368,130 @@ describe("the verdicts (SPEC-0006, 审核卡片 4)", () => {
     forgetReviewDrafts("s1", []);
     const gone = await card(human());
     expect(gone.screen.container.querySelector('[data-testid="review-form"]')).toBeNull();
+  });
+});
+
+describe("a verdict that went, and the buttons that stay put (T8 review fix 9)", () => {
+  it("keeps the buttons off once the verdict went, until the review is no longer pending", async () => {
+    const { screen, verdicts } = await card(human());
+    await screen.getByRole("button", { name: "通过并合并" }).click();
+    await expect.poll(() => verdicts).toHaveLength(1);
+
+    // The host has taken it; the list learns of it with the next `control_updated`, so the card is still drawn.
+    for (const button of screen.container.querySelectorAll<HTMLButtonElement>("[data-action]")) {
+      expect(button.disabled).toBe(true);
+    }
+    await screen.getByRole("button", { name: "通过并合并" }).click({ force: true });
+    expect(verdicts).toHaveLength(1);
+  });
+
+  it("keeps the lock of a verdict on its way when you switch to another card and back", async () => {
+    const gate = held();
+    const sent: string[] = [];
+    const actions: RunActions = {
+      resume: () => undefined,
+      clear: () => undefined,
+      update: () => undefined,
+      remove: () => undefined,
+      steerQueued: () => undefined,
+      removeDelivery: () => undefined,
+      resumeDeliveries: () => undefined,
+      answer: () => undefined,
+      answerQuestion: () => Promise.resolve(true),
+      answerReview: (id) => {
+        sent.push(id);
+        return gate.next();
+      },
+      retry: () => undefined,
+    };
+    const control = { ...IDLE_CONTROL, reviews: [human(), graph()] };
+    const screen = await render(
+      <ReviewEnvContext value={ENV}>
+        <ControlCards sessionId="s1" control={control} actions={actions} />
+      </ReviewEnvContext>,
+    );
+    await screen.getByRole("button", { name: "批准，接着跑" }).click();
+    await screen.getByRole("tab", { name: "N4 验收合并" }).click();
+    await expect.element(screen.getByRole("button", { name: "通过并合并" })).toBeEnabled();
+    await screen.getByRole("tab", { name: "图 v3 等你批准" }).click();
+
+    for (const button of screen.container.querySelectorAll<HTMLButtonElement>("[data-action]")) {
+      expect(button.disabled).toBe(true);
+    }
+    // The answer comes back while the other card is open, and the lock stays: the review is still pending.
+    await screen.getByRole("tab", { name: "N4 验收合并" }).click();
+    gate.release(null);
+    await screen.getByRole("tab", { name: "图 v3 等你批准" }).click();
+    for (const button of screen.container.querySelectorAll<HTMLButtonElement>("[data-action]")) {
+      expect(button.disabled).toBe(true);
+    }
+    expect(sent).toStrictEqual(["rv_graph"]);
+
+    // Once the host stops listing it the lock is let go, so a review that comes with the same id can be answered.
+    await screen.rerender(
+      <ReviewEnvContext value={ENV}>
+        <ControlCards sessionId="s1" control={{ ...control, reviews: [human()] }} actions={actions} />
+      </ReviewEnvContext>,
+    );
+    await screen.rerender(
+      <ReviewEnvContext value={ENV}>
+        <ControlCards sessionId="s1" control={control} actions={actions} />
+      </ReviewEnvContext>,
+    );
+    await expect.element(screen.getByRole("button", { name: "批准，接着跑" })).toBeEnabled();
+  });
+
+  it("shows a failure that came while another card was open when you come back, with the buttons usable again", async () => {
+    const gate = held();
+    const actions: RunActions = {
+      resume: () => undefined,
+      clear: () => undefined,
+      update: () => undefined,
+      remove: () => undefined,
+      steerQueued: () => undefined,
+      removeDelivery: () => undefined,
+      resumeDeliveries: () => undefined,
+      answer: () => undefined,
+      answerQuestion: () => Promise.resolve(true),
+      answerReview: () => gate.next(),
+      retry: () => undefined,
+    };
+    const screen = await render(
+      <ReviewEnvContext value={ENV}>
+        <ControlCards sessionId="s1" control={{ ...IDLE_CONTROL, reviews: [human(), graph()] }} actions={actions} />
+      </ReviewEnvContext>,
+    );
+    await screen.getByRole("button", { name: "批准，接着跑" }).click();
+    await screen.getByRole("tab", { name: "N4 验收合并" }).click();
+    gate.release("这条审核已经处理过了");
+    await screen.getByRole("tab", { name: "图 v3 等你批准" }).click();
+
+    await expect.element(screen.getByTestId("review-failure")).toHaveTextContent("这条审核已经处理过了");
+    await expect.element(screen.getByRole("button", { name: "批准，接着跑" })).toBeEnabled();
+  });
+});
+
+/** The background a button is painted with. */
+const paint = (screen: { container: HTMLElement }, action: string) =>
+  getComputedStyle(screen.container.querySelector(`[data-action="${action}"]`) as HTMLElement).backgroundColor;
+
+describe("a card with nothing recommended (T8 review fix 10)", () => {
+  it("paints the recommended button, and none when the host recommends none", async () => {
+    const some = await card(graph());
+    const none = await card(
+      graph({
+        actions: [
+          { id: "approve", reason: "none", targets: [], recommended: false },
+          { id: "reject", reason: "optional", targets: [], recommended: false },
+        ],
+      }),
+    );
+
+    expect(paint(some.screen, "approve")).not.toBe(paint(some.screen, "reject"));
+    expect(paint(none.screen, "approve")).toBe(paint(none.screen, "reject"));
+    // The host's order stands when none comes first.
+    expect(labels(none.screen)).toStrictEqual(["批准，接着跑", "不批准…"]);
+    expect(none.screen.container.querySelector('[data-action][data-recommended="true"]')).toBeNull();
   });
 });
 

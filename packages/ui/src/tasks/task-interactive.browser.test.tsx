@@ -1,11 +1,40 @@
-import { CommandError, loadingView, type SessionView } from "@atrium/client";
+import { CommandError, type SessionView } from "@atrium/client";
 import { IDLE_CONTROL, type Notice, type PendingReview, type TaskView } from "@atrium/protocol";
 import { beforeEach, describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
-import { createStore } from "zustand/vanilla";
-import { FEATURE, board, openTab, rejectOn } from "./task-board-support";
+import { FEATURE, board, openTab, refuseOn, rejectOn } from "./task-board-support";
 import type { FakeAnswers } from "../test/fake-client";
 import { node, summary, view } from "./task-fixtures";
+import { pageDrafts } from "../state/use-draft";
+import { forgetReviewDrafts } from "../chat/review-state";
+
+/**
+ * A refusal that comes after the box has been cleared, as the host's answer does over a socket.
+ *
+ * @sideEffects Sets a timer.
+ * @param code - The error code.
+ * @returns A promise that rejects.
+ */
+function refusedLater(code: "session_not_found"): Promise<never> {
+  return new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new CommandError(code)), 30);
+  });
+}
+
+/** The connection of a host instance, as the client reports it once connected. */
+const connected = (hostInstanceId: string) =>
+  ({ status: "connected", traceId: "t", hostVersion: "0", hostInstanceId, installSeed: 1, logDir: "/l" }) as const;
+
+/**
+ * Waits for what was set to be drawn.
+ *
+ * @sideEffects Waits 30 ms.
+ */
+const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 30));
+
+/** The banner's words over a task's graph, or `null` while the current graph is shown. */
+const banner = (screen: { container: HTMLElement }) =>
+  screen.container.querySelector('[data-testid="graph-proposed"]')?.textContent ?? null;
 
 /** The change figures and the upstream summary a human node waits with. */
 function humanReview(changes: Partial<PendingReview> = {}): PendingReview {
@@ -77,6 +106,9 @@ function buttons(screen: { container: HTMLElement }): string[] {
   );
 }
 
+// A message that did not go comes back into its box, and the boxes are the page's: each test starts with them empty.
+beforeEach(() => pageDrafts().drop(["ses_conv", "ses_n1", "ses_n2"]));
+
 describe("the composer of the task conversation (SPEC-0006, T8)", () => {
   it("sends a message with prompt on the task conversation's id, never opening it as a session", async () => {
     const { screen, calls } = await openTab(task({ status: "running" }));
@@ -115,12 +147,8 @@ describe("the composer of the task conversation (SPEC-0006, T8)", () => {
   });
 
   it("starts the conversation's pi first when it is not running, then sends", async () => {
-    const shown = await openTab(task({ status: "waiting" }), undefined, {});
-    shown.views.set(
-      "ses_conv",
-      createStore(() => loadingView("ses_conv")),
-    );
-    // The pane watches again with the view not ready, as after a restart.
+    // Its pi is not running, so watching it brings no snapshot, as after a restart.
+    const shown = await openTab(task({ status: "waiting" }), undefined, { notRunning: ["ses_conv"] });
     await shown.screen.getByRole("tab", { name: "任务" }).click();
     await shown.screen.getByTestId("task-row").click();
     await shown.screen.getByRole("button", { name: "打开任务" }).click();
@@ -135,6 +163,70 @@ describe("the composer of the task conversation (SPEC-0006, T8)", () => {
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "你好{Enter}");
 
     await expect.element(screen.getByTestId("conversation-failure")).toHaveTextContent("这个对话已经不存在了");
+  });
+
+  it("puts a message that did not go back in the box, whether prompt, steer or opening the session refused it (T8 review fix 6)", async () => {
+    // The host answers after the box has been cleared, as over a socket.
+    const prompted = await openTab(task({ status: "running" }), undefined, {
+      prompt: () => refusedLater("session_not_found"),
+    });
+    await userEvent.type(prompted.screen.getByRole("textbox", { name: "消息" }), "你好{Enter}");
+    await expect.element(prompted.screen.getByTestId("conversation-failure")).toBeVisible();
+    await expect.element(prompted.screen.getByRole("textbox", { name: "消息" })).toHaveValue("你好");
+    await prompted.screen.unmount();
+    pageDrafts().drop(["ses_conv"]);
+
+    const steered = await openTab(task({ status: "running" }), undefined, {
+      steer: () => refusedLater("session_not_found"),
+    });
+    steered.client.session("ses_conv")?.setState({ run: { runId: "r1", startedAt: 1 } } as Partial<SessionView>);
+    await userEvent.type(steered.screen.getByRole("textbox", { name: "消息" }), "改个方向");
+    await userEvent.keyboard("{Meta>}{Enter}{/Meta}");
+    await expect.element(steered.screen.getByTestId("conversation-failure")).toBeVisible();
+    await expect.element(steered.screen.getByRole("textbox", { name: "消息" })).toHaveValue("改个方向");
+    await steered.screen.unmount();
+    pageDrafts().drop(["ses_conv"]);
+
+    // The conversation's pi is not running and starting it is refused: the message is the user's still.
+    const closed = await openTab(task({ status: "waiting" }), undefined, {
+      notRunning: ["ses_conv"],
+      taskCommand: refuseOn("openTaskSession", "session_not_found"),
+    });
+    await userEvent.type(closed.screen.getByRole("textbox", { name: "消息" }), "还在吗{Enter}");
+    await expect.element(closed.screen.getByRole("textbox", { name: "消息" })).toHaveValue("还在吗");
+    expect(closed.calls.some((call) => call.startsWith("prompt ses_conv"))).toBe(false);
+  });
+});
+
+describe("the task conversation after the host restarted (T8 review fix 7)", () => {
+  it("watches the session shown again and starts its pi under a new host, but not after a reconnect to the same one", async () => {
+    const shown = await openTab(task({ status: "waiting" }));
+    await expect.poll(() => shown.calls.filter((call) => call === "watch ses_conv").length).toBeGreaterThan(0);
+    const before = shown.calls.length;
+
+    // The same host again: nothing to redo. (Each step is drawn before the next: batched, the pane would not see it.)
+    shown.connection.setState({ status: "connecting" });
+    await settle();
+    shown.connection.setState(connected("h1"));
+    await settle();
+    // A new one has lost every view, as the real client marks them.
+    shown.connection.setState({ status: "connecting" });
+    await settle();
+    shown.client.session("ses_conv")?.setState({ status: "lost", run: null, pending: [] });
+    shown.connection.setState(connected("h2"));
+
+    await expect
+      .poll(() => shown.calls.slice(before).filter((call) => /^(watch|openTaskSession) /u.test(call)))
+      .toStrictEqual(["watch ses_conv", "openTaskSession tsk_a ses_conv"]);
+  });
+
+  it("starts the pi of a conversation whose view is lost, not only one still loading", async () => {
+    const shown = await openTab(task({ status: "waiting" }));
+    shown.client.session("ses_conv")?.setState({ status: "lost", run: null, pending: [] });
+    await userEvent.type(shown.screen.getByRole("textbox", { name: "消息" }), "还在吗{Enter}");
+
+    await expect.poll(() => shown.calls).toContain("openTaskSession tsk_a ses_conv");
+    await expect.poll(() => shown.calls).toContain("prompt ses_conv 还在吗");
   });
 });
 
@@ -170,7 +262,7 @@ describe("the review cards over the task conversation (SPEC-0006, T8)", () => {
     const { screen } = await withReviews([humanReview()], { taskCommand: rejectOn("answerReview", "review_closed") });
     await screen.getByRole("button", { name: "通过并合并" }).click();
 
-    await expect.element(screen.getByTestId("review-failure")).toHaveTextContent("这张审核已经处理过，或者不在了");
+    await expect.element(screen.getByTestId("review-failure")).toHaveTextContent("这条审核已经处理过了");
   });
 
   it("words review_invalid and a back edge used up", async () => {
@@ -179,9 +271,7 @@ describe("the review cards over the task conversation (SPEC-0006, T8)", () => {
     });
     const pass = screen.getByRole("button", { name: "通过并合并" });
     await pass.click();
-    await expect
-      .element(screen.getByTestId("review-failure"))
-      .toHaveTextContent("没有通过：原因没写，或者没选打回到哪个节点");
+    await expect.element(screen.getByTestId("review-failure")).toHaveTextContent("这个裁决不合这条审核，刷新后再试");
     await pass.click();
     await expect.element(screen.getByTestId("review-failure")).toHaveTextContent("这条打回边已经用了两次");
   });
@@ -211,6 +301,38 @@ describe("the review cards over the task conversation (SPEC-0006, T8)", () => {
     await screen.getByRole("tab", { name: "agent 在问你" }).click();
     await expect.element(screen.getByTestId("question")).toBeVisible();
     expect(screen.container.querySelector('[data-testid="review"]')).toBeNull();
+  });
+
+  it("keeps what was written on a card while the conversation is read again, loading with no reviews first (T8 review fix 5)", async () => {
+    const shown = await openTab(task({ status: "waiting", reviews: [humanReview()] }), undefined, {
+      controls: { ses_conv: { ...IDLE_CONTROL, reviews: [humanReview()] } },
+    });
+    await shown.screen.getByRole("button", { name: /^打回到/ }).click();
+    await userEvent.type(shown.screen.getByRole("textbox", { name: "原因（必填）" }), "补一个测试");
+
+    // Another owner of the watch (a list row, a node's tab) replaces the set, and the tab is mounted again later.
+    await shown.screen.getByRole("tab", { name: "任务", exact: true }).click();
+    await shown.client.watch(["ses_n2"]);
+    await shown.screen.getByRole("tab", { name: /首页提速/ }).click();
+
+    await expect.element(shown.screen.getByRole("textbox", { name: "原因（必填）" })).toHaveValue("补一个测试");
+  });
+
+  it("refuses a graph change with the optional reason the host offers, left empty or written (T8 review decision 3)", async () => {
+    const without = await withReviews([GRAPH_REVIEW]);
+    await without.screen.getByRole("button", { name: "不批准…" }).click();
+    await expect.element(without.screen.getByRole("textbox", { name: "原因（可选）" })).toBeVisible();
+    await without.screen.getByTestId("review-confirm").click();
+    expect(without.calls).toContain('answerReview ses_conv rv_g {"action":"reject"}');
+    await without.screen.unmount();
+    pageDrafts().drop(["ses_conv"]);
+    forgetReviewDrafts("ses_conv", []);
+
+    const written = await withReviews([GRAPH_REVIEW]);
+    await written.screen.getByRole("button", { name: "不批准…" }).click();
+    await userEvent.type(written.screen.getByRole("textbox", { name: "原因（可选）" }), "先别动旧记录");
+    await written.screen.getByTestId("review-confirm").click();
+    expect(written.calls).toContain('answerReview ses_conv rv_g {"action":"reject","reason":"先别动旧记录"}');
   });
 
   it("answers an archive question with 归档", async () => {
@@ -268,6 +390,72 @@ describe("the review cards over the task conversation (SPEC-0006, T8)", () => {
     await shown.screen.getByRole("button", { name: "回到当前图" }).click();
     expect(shown.screen.container.querySelector('[data-testid="graph-proposed"]')).toBeNull();
     expect(shown.screen.container.querySelectorAll('[data-testid="graph-node"]')).toHaveLength(3);
+  });
+});
+
+/** A task waiting for the graph change `version`, which adds N1b. */
+function proposedTask(version: number): TaskView {
+  return task({
+    status: "waiting",
+    pendingGraph: true,
+    reviews: [GRAPH_REVIEW],
+    pending: {
+      version,
+      author: "agent",
+      note: "多一个上游",
+      nodes: [
+        { id: "N1", name: "调研与方案", kind: "agent", job: "j", done: ["d"], role: "explore", model: null },
+        { id: "N1b", name: "迁移旧记录", kind: "agent", job: "j", done: ["d"], role: "work", model: null },
+        { id: "N2", name: "核心实现与自检", kind: "agent", job: "j", done: ["d"], role: "work", model: null },
+      ],
+      edges: [
+        { from: "N1", to: "N1b", kind: "seq" },
+        { from: "N1b", to: "N2", kind: "seq" },
+      ],
+      diff: { from: 2, added: ["N1b"], removed: [], changed: [] },
+    },
+  });
+}
+
+describe("looking at a proposed graph follows its version (T8 review fix 8)", () => {
+  it("shows the newer proposal with the banner updated when it comes while you look, not the old one and not the current graph", async () => {
+    const shown = await openTab(proposedTask(3), undefined, {
+      controls: { ses_conv: { ...IDLE_CONTROL, reviews: [GRAPH_REVIEW] } },
+    });
+    await shown.screen.getByRole("button", { name: "在图上看" }).click();
+    await expect.poll(() => banner(shown.screen)).toContain("正在看图 v3");
+
+    shown.taskStateOf("tsk_a").setState({ status: "ready", task: proposedTask(4) });
+
+    await expect.poll(() => banner(shown.screen)).toContain("正在看图 v4（等你批准）");
+    expect(banner(shown.screen)).not.toContain("v3");
+  });
+
+  it("stops looking when the proposal is decided, and does not look at the next one by itself", async () => {
+    const shown = await openTab(proposedTask(3), undefined, {
+      controls: { ses_conv: { ...IDLE_CONTROL, reviews: [GRAPH_REVIEW] } },
+    });
+    await shown.screen.getByRole("button", { name: "在图上看" }).click();
+    await expect.poll(() => banner(shown.screen)).not.toBeNull();
+
+    shown.taskStateOf("tsk_a").setState({ status: "ready", task: task({ status: "running" }) });
+    await expect.poll(() => banner(shown.screen)).toBeNull();
+    shown.taskStateOf("tsk_a").setState({ status: "ready", task: proposedTask(5) });
+
+    await expect.element(shown.screen.getByTestId("task-tab")).toBeVisible();
+    expect(banner(shown.screen)).toBeNull();
+  });
+
+  it("looks at nothing for a card whose version is not the one waiting any more", async () => {
+    // The card still says v3 (a verdict on it would be refused) while v4 is the proposal now.
+    const shown = await openTab(proposedTask(4), undefined, {
+      controls: { ses_conv: { ...IDLE_CONTROL, reviews: [GRAPH_REVIEW] } },
+    });
+
+    await shown.screen.getByRole("button", { name: "在图上看" }).click();
+
+    await expect.element(shown.screen.getByTestId("task-tab")).toBeVisible();
+    expect(banner(shown.screen)).toBeNull();
   });
 });
 
@@ -352,7 +540,8 @@ describe("the task bar's buttons (SPEC-0006, 界面 · 任务标签)", () => {
     expect(running.calls).toContain("pauseTask tsk_a");
     await running.screen.unmount();
 
-    const paused = await openTab(task({ status: "running", paused: true }));
+    // As the host sends it: a paused task is `stopped` with `paused` set, never `running` (T8 review fix 1).
+    const paused = await openTab(task({ status: "stopped", paused: true }));
     expect(buttons(paused.screen)).toStrictEqual(["继续", "取消任务"]);
     await paused.screen.getByRole("button", { name: "继续" }).click();
     expect(paused.calls).toContain("resumeTask tsk_a");
@@ -360,6 +549,20 @@ describe("the task bar's buttons (SPEC-0006, 界面 · 任务标签)", () => {
 
     const stopped = await openTab(task({ status: "stopped" }));
     expect(buttons(stopped.screen)).toStrictEqual(["取消任务"]);
+  });
+
+  it("writes a finished task's status once in the bar, not 完成 and then 已完成 (T8 review fix 16)", async () => {
+    const done = await openTab(task({ status: "done" }));
+    await expect.poll(() => done.screen.getByTestId("task-bar-status").element().textContent).toBe("已完成");
+    await done.screen.unmount();
+
+    // A running task still says where it is, then how it goes.
+    const running = await openTab(
+      task({ status: "running", current: { id: "N2", name: "核心实现与自检", state: "running" } }),
+    );
+    await expect
+      .poll(() => running.screen.getByTestId("task-bar-status").element().textContent)
+      .toBe("N2 核心实现与自检 · 运转中");
   });
 
   it("offers nothing for a finished or cancelled task, and 归档 worktree for a kept one", async () => {
@@ -423,7 +626,10 @@ const record = (
   review: {
     source: { kind: "gate", gate: "task_graph" },
     subject: { code: "task_graph_change", params: { taskId: "tsk_a", version: 2 } },
-    evidence: [{ kind: "graph_diff", from: 1, to: 2, added: ["N1b"], removed: [], changed: [] }],
+    evidence: [
+      { kind: "graph_diff", from: 1, to: 2, added: ["N1b"], removed: [], changed: [] },
+      { kind: "changes", workspaceId: FEATURE, files: 3, added: 48, removed: 8 },
+    ],
     verdict: { action: verdict, ...(reason === undefined ? {} : { reason }) },
   },
   timestamp: time,
@@ -474,6 +680,24 @@ describe("the review records on the rail (SPEC-0006, 任务对话的进度和记
     expect(first.querySelector('[data-testid="review-record-evidence"]')?.textContent).toContain("N1b");
   });
 
+  it("shows the evidence of an opened record as it was, with no buttons: no 查看改动, no 在图上看 (T8 review fix 8)", async () => {
+    const { screen, client } = await openTab(task({ status: "running" }));
+    client
+      .session("ses_conv")
+      ?.setState({ items: [record("r1", t(1), "reject", "先别动旧记录")] } as Partial<SessionView>);
+    await expect.poll(() => screen.container.querySelector('[data-testid="task-progress"]')).not.toBeNull();
+    // The last group of the rail is open already.
+    await userEvent.click(screen.container.querySelector('[data-testid="review-record"] button') as HTMLElement);
+
+    const evidence = screen.container.querySelector('[data-testid="review-record-evidence"]') as HTMLElement;
+    // The numbers and the nodes are there; nothing in it can be pressed except folding a long quote.
+    expect(evidence.textContent).toContain("3 个文件");
+    expect(evidence.textContent).toContain("N1b");
+    expect(evidence.textContent).not.toContain("查看改动");
+    expect(evidence.textContent).not.toContain("在图上看");
+    expect([...evidence.querySelectorAll("button")]).toHaveLength(0);
+  });
+
   it("writes what you decided, with the reason, and shows the evidence of the time on a press", async () => {
     const { screen, client } = await openTab(task({ status: "running" }));
     client
@@ -501,7 +725,7 @@ describe("answering in the list (SPEC-0006, 界面 · 任务列表; 设计稿第
     const shown = await board(rows);
     shown
       .taskStateOf("tsk_a")
-      .setState({ status: "ready", task: task({ status: "waiting", reviews: [humanReview()] }) });
+      .setState({ status: "ready", task: task({ status: "waiting", reviews: [ARCHIVE_REVIEW] }) });
     await shown.screen.getByRole("button", { name: "任务", exact: true }).click();
     const rowOf = (id: string) =>
       shown.screen.container.querySelector(`[data-testid="task-row"][data-task="${id}"]`) as HTMLElement;
@@ -514,8 +738,108 @@ describe("answering in the list (SPEC-0006, 界面 · 任务列表; 设计稿第
     expect(shown.screen.container.querySelector('[data-testid="review"]')).toBeNull();
 
     await userEvent.click(rowOf("tsk_a"));
-    await shown.screen.getByRole("button", { name: "通过并合并" }).click();
-    expect(shown.calls).toContain('answerReview ses_conv rv_h {"action":"pass"}');
+    await shown.screen.getByRole("button", { name: "归档" }).click();
+    expect(shown.calls).toContain('answerReview ses_conv rv_a {"action":"archive"}');
+  });
+
+  it("gives a human node's acceptance no card in the row, only 打开任务 (T8 review decision 1)", async () => {
+    const shown = await board(rows);
+    shown
+      .taskStateOf("tsk_a")
+      .setState({ status: "ready", task: task({ status: "waiting", reviews: [humanReview()] }) });
+    await shown.screen.getByRole("button", { name: "任务", exact: true }).click();
+    await shown.screen.getByTestId("task-row").first().click();
+
+    await expect.element(shown.screen.getByRole("button", { name: "打开任务" })).toBeVisible();
+    expect(shown.screen.container.querySelector('[data-testid="review"]')).toBeNull();
+    expect(shown.screen.container.querySelector('[data-action="pass"]')).toBeNull();
+    expect(shown.screen.container.querySelector('[role="tablist"][aria-label="等你处理的卡片"]')).toBeNull();
+  });
+
+  it("stacks the cards of a row as capsules like the task conversation does, one open at a time, the acceptance left out", async () => {
+    const asking = task({
+      status: "waiting",
+      reviews: [GRAPH_REVIEW, humanReview(), ARCHIVE_REVIEW],
+      nodes: [node("N2", { name: "核心实现", state: "waiting", waitingFor: "question", sessionId: "ses_n2" })],
+      edges: [],
+    });
+    const shown = await board([summary("a", { name: "首页提速", status: "waiting", attention: "question" })]);
+    shown.taskStateOf("tsk_a").setState({ status: "ready", task: asking });
+    await shown.screen.getByRole("button", { name: "任务", exact: true }).click();
+    await shown.screen.getByTestId("task-row").click();
+    await expect.poll(() => shown.client.session("ses_n2")).toBeDefined();
+    shown.client.session("ses_n2")?.setState((state: SessionView) => ({
+      ...state,
+      control: {
+        ...IDLE_CONTROL,
+        question: {
+          id: "call-9",
+          askedAt: 12,
+          questions: [
+            {
+              header: "范围",
+              question: "这次做哪些？",
+              multiSelect: false,
+              options: [{ label: "只改一处", description: "", preview: null, recommended: true }],
+            },
+          ],
+        },
+      },
+    }));
+
+    const tabs = shown.screen.getByRole("tablist", { name: "等你处理的卡片" });
+    await expect.element(tabs).toBeVisible();
+    expect([...tabs.element().querySelectorAll("[role=tab]")].map((tab) => tab.textContent)).toStrictEqual([
+      "图 v3 等你批准",
+      "agent 在问你",
+      "要归档 worktree 吗",
+    ]);
+    // The earliest is open, the rest are capsules; a press switches.
+    expect(shown.screen.container.querySelectorAll('[data-testid="review"], [data-testid="question"]')).toHaveLength(1);
+    await shown.screen.getByRole("tab", { name: "agent 在问你" }).click();
+    await expect.element(shown.screen.getByTestId("question")).toBeVisible();
+  });
+
+  it("does not watch the node sessions of a followed task, nor link to their conversations", async () => {
+    const followed = task({
+      status: "waiting",
+      followed: true,
+      nodes: [
+        node("N2", { name: "核心实现", state: "waiting", waitingFor: "question", sessionId: "ses_other_process" }),
+      ],
+      edges: [],
+    });
+    const shown = await board([summary("a", { name: "首页提速", status: "waiting", attention: "question" })]);
+    shown.taskStateOf("tsk_a").setState({ status: "ready", task: followed });
+    await shown.screen.getByRole("button", { name: "任务", exact: true }).click();
+    await shown.screen.getByTestId("task-row").click();
+
+    await expect.element(shown.screen.getByRole("button", { name: "打开任务" })).toBeVisible();
+    expect(shown.calls.filter((call) => call.includes("ses_other_process"))).toStrictEqual([]);
+    expect(shown.screen.container.textContent).not.toContain("的对话里讨论");
+  });
+
+  it("lets go of the node session it watched when the row folds, and does not undo the watch of what opened after it", async () => {
+    const asking = task({
+      status: "waiting",
+      nodes: [node("N2", { name: "核心实现", state: "waiting", waitingFor: "question", sessionId: "ses_n2" })],
+      edges: [],
+    });
+    const shown = await board([summary("a", { name: "首页提速", status: "waiting", attention: "question" })]);
+    shown.taskStateOf("tsk_a").setState({ status: "ready", task: asking });
+    await shown.screen.getByRole("button", { name: "任务", exact: true }).click();
+    const row = shown.screen.getByTestId("task-row");
+    await row.click();
+    await expect.poll(() => shown.calls).toContain("watch ses_n2");
+
+    await row.click();
+    await expect.poll(() => shown.calls.filter((call) => call.startsWith("watch")).at(-1)).toBe("watch ");
+
+    // Opened again, then the task itself: its conversation is watched last, and the row's letting go came before.
+    await row.click();
+    await shown.screen.getByRole("button", { name: "打开任务" }).click();
+    await expect.element(shown.screen.getByTestId("task-tab")).toBeVisible();
+    await expect.poll(() => shown.calls.filter((call) => call.startsWith("watch")).at(-1)).toBe("watch ses_conv");
   });
 
   it("folds a row on a second press and offers 打开任务 for one with nothing to answer", async () => {
@@ -628,6 +952,39 @@ describe("the inbox 等你处理 (SPEC-0006, 界面)", () => {
     await expect.element(shown.screen.getByTestId("node-tab")).toBeVisible();
   });
 
+  it("leaves the new-workspace page that was open when a task is chosen, as a session row does (T8 review fix 17)", async () => {
+    const shown = await board([
+      summary("a", {
+        name: "首页提速",
+        status: "waiting",
+        attention: "human",
+        current: { id: "N4", name: "验收合并", state: "waiting" },
+      }),
+      summary("b", {
+        name: "语音输入",
+        status: "running",
+        attention: "question",
+        current: { id: "N2", name: "x", state: "waiting" },
+      }),
+    ]);
+    shown.taskStateOf("tsk_a").setState({ status: "ready", task: task({ status: "waiting" }) });
+    const project = shown.screen.getByTestId("project-row");
+    await project.hover();
+    await project.getByRole("button", { name: "在 atrium 新建工作区" }).click();
+    await expect.element(shown.screen.getByText("新建工作区", { exact: true })).toBeVisible();
+
+    await shown.screen.getByRole("button", { name: /等你处理/ }).click();
+    await userEvent.click(
+      shown.screen.container.querySelector('[data-testid="inbox-task-row"][data-fold-row]') as HTMLElement,
+    );
+    await expect.element(shown.screen.getByTestId("task-tab")).toBeVisible();
+
+    // The page is closed, not just hidden behind the task area: the project is not marked as the one being worked on.
+    await expect.element(shown.screen.getByTestId("project-row")).not.toHaveAttribute("aria-current", "true");
+    await shown.screen.getByTestId("workspace-row").filter({ hasText: "main" }).click();
+    await expect.element(shown.screen.getByText("新建工作区", { exact: true })).not.toBeInTheDocument();
+  });
+
   it("is left out when no task wants you", async () => {
     const shown = await board([summary("b", { status: "running" })]);
 
@@ -672,11 +1029,7 @@ describe("a node's conversation as a tab (设计稿第 8 屏 A)", () => {
   });
 
   it("starts the node's pi through open_task_session when it is not running", async () => {
-    const shown = await openTab(task({ status: "running" }));
-    shown.views.set(
-      "ses_n1",
-      createStore(() => loadingView("ses_n1")),
-    );
+    const shown = await openTab(task({ status: "running" }), undefined, { notRunning: ["ses_n1"] });
     const graphNode = shown.screen.container.querySelector('[data-testid="graph-node"][data-node="N1"]') as HTMLElement;
     await userEvent.hover(graphNode);
     await userEvent.click(

@@ -555,6 +555,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     service: tasks,
     send: (connectionId, event) => subscriptions.sendTo(connectionId, event),
     logger,
+    // Opening a task counts its conversation's reviews again: the worktree may have been edited since (T8 review fix 11).
+    onOpened: (task) => reviewHub.refresh(task.taskSessionId),
   });
   // Names a new worktree's branch by the first message (SPEC-0001, "AI 起分支名").
   const namer = createBranchNamer({

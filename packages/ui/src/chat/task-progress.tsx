@@ -1,6 +1,7 @@
 import { use, useState } from "react";
 import { CaretRight, Flowchart } from "../design/icons";
-import { type MarkNotice, type RailLine, clockWords, lineWords, summaryWords } from "../tasks/task-progress-model";
+import { type MarkNotice, type RailLine, lineWords, summaryWords } from "../tasks/task-progress-model";
+import { clockWords } from "./clock-words";
 import { EvidenceBlock } from "./review-card";
 import { Fold } from "./fold";
 import { RailMarks } from "./steps";
@@ -93,7 +94,7 @@ function RailRow({
           className="mb-1.5 flex flex-col gap-1.5 pr-1 pb-0.5 text-[length:var(--fs-sm)]"
         >
           {notice.review.evidence.map((evidence, index) => (
-            <EvidenceBlock key={`${evidence.kind}:${String(index)}`} evidence={evidence} />
+            <EvidenceBlock key={`${evidence.kind}:${String(index)}`} evidence={evidence} frozen />
           ))}
           {notice.review.verdict.reason === undefined || notice.review.verdict.reason === "" ? null : (
             <p className="text-[var(--text-muted)]">你写的原因：{notice.review.verdict.reason}</p>

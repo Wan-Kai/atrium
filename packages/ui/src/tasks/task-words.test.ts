@@ -21,6 +21,9 @@ describe("the task area's words (SPEC-0006, 界面 and 错误码)", () => {
     expect(describeTaskError("task_back_limit")).toBe("这条打回边已经用了两次");
     expect(describeTaskError("task_read_only")).toBe("这个任务是别的进程在跑的，Atrium 里只能看");
     expect(describeTaskError("merge_git_failed")).toBe("git 出错了，没有合并，主目录没动");
+    // The review codes read as SPEC-0006's error table says them, word for word (T8 review fix 16).
+    expect(describeTaskError("review_closed")).toBe("这条审核已经处理过了");
+    expect(describeTaskError("review_invalid")).toBe("这个裁决不合这条审核，刷新后再试");
     expect(describeTaskError("something_new")).toBe("这个操作没能完成");
   });
 

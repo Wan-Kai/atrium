@@ -1115,6 +1115,12 @@ export function ConversationArea({
         taskLinks.openTask(taskId);
         return null;
       } catch (error) {
+        // The conversation has its task already: that is the one to go to, not an error (SPEC-0006, "错误码").
+        const existing = error instanceof CommandError ? error.params?.["taskId"] : undefined;
+        if (error instanceof CommandError && error.code === "task_already_converted" && typeof existing === "string") {
+          taskLinks.openTask(existing);
+          return null;
+        }
         return (error instanceof CommandError ? knownTaskError(error.code) : null) ?? describeSendError(error);
       }
     }

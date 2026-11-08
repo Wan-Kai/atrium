@@ -119,6 +119,21 @@ const ROUNDS = [
   ["keep", nothing],
 ] as const;
 
+/**
+ * The baseline once the tasks that ended have left their archive question open.
+ *
+ * @remarks
+ * Nobody answers it here, and an open review is kept by the reviews' hub for its session (all the harness's tasks
+ * share one conversation id), so that one session is counted as held (`review.session`, T8 review fix 13).
+ *
+ * @sideEffects none
+ * @param before - The counts before the tasks.
+ * @returns The counts expected after them.
+ */
+function withOpenQuestion(before: Readonly<Record<string, number>>): Record<string, number> {
+  return { ...before, "review.session": (before["review.session"] ?? 0) + 1 };
+}
+
 describe('running tasks leaves nothing behind (testing.md, "泄漏测试")', () => {
   it("starts and stops many nodes with no pi, controller, listener or timer left over", async () => {
     const harness = await startTaskHost({ N1: [finish("d1")], N2: [finish("d2")] });
@@ -129,7 +144,9 @@ describe('running tasks leaves nothing behind (testing.md, "泄漏测试")', () 
       await harness.until(task.id, (now) => now.endedAt !== null);
     }
 
-    await vi.waitFor(() => expect(harness.host.host.resources.snapshot()).toStrictEqual(before), { timeout: 10_000 });
+    await vi.waitFor(() => expect(harness.host.host.resources.snapshot()).toStrictEqual(withOpenQuestion(before)), {
+      timeout: 10_000,
+    });
     await vi.waitFor(() => expect(children()).toStrictEqual(processes), { timeout: 10_000 });
     await vi.waitFor(
       () => {

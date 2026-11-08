@@ -156,6 +156,7 @@ describe("the review hub (ADR-0017, decision 2)", () => {
     const provider = fakeProvider();
     const { hub, heard } = hubWith(provider);
 
+    hub.read("s9");
     expect(hub.current("s9")).toStrictEqual([]);
     await hub.idle();
     expect(hub.current("s9")).toStrictEqual([]);
@@ -347,5 +348,90 @@ describe("the review hub (ADR-0017, decision 2)", () => {
     provider.set("s1", []);
     await hub.idle();
     expect(provider.asks()).toBeLessThanOrEqual(2);
+  });
+});
+
+/** How many sessions the hub holds a count for. */
+function sessionsHeld(resources: ResourceTracker): number {
+  return resources.snapshot()["review.session"] ?? 0;
+}
+
+describe("the review hub keeps nothing about a session that no longer needs it (T8 review fix 13)", () => {
+  it("holds a count for a session only while it has reviews, a controller reading it, or work under way", async () => {
+    const provider = fakeProvider({ idle: [], busy: [review("a", 1, [PASS])] });
+    const { hub, resources } = hubWith(provider);
+    const held = () => sessionsHeld(resources);
+
+    // A change for a session nobody reads and that has nothing waiting leaves nothing behind.
+    provider.set("idle", []);
+    await hub.idle();
+    expect(held()).toBe(0);
+
+    // One with reviews is remembered, and forgotten once they are gone.
+    provider.set("busy", [review("a", 1, [PASS])]);
+    await hub.idle();
+    expect(held()).toBe(1);
+    await hub.answer("busy", "a", { action: "pass" });
+    await hub.idle();
+    expect(held()).toBe(0);
+
+    // A controller reading a session keeps its count until the session says it is gone.
+    hub.read("watched");
+    expect(hub.current("watched")).toStrictEqual([]);
+    await hub.idle();
+    expect(held()).toBe(1);
+    hub.forget("watched");
+    expect(held()).toBe(0);
+  });
+
+  it("keeps a forgotten session's reviews while they wait, and counts a quiet one again when it is read once more", async () => {
+    const provider = fakeProvider({ s1: [review("a", 1, [PASS])] });
+    const { hub } = hubWith(provider);
+    hub.read("s1");
+    hub.read("quiet");
+    hub.current("s1");
+    hub.current("quiet");
+    await hub.idle();
+    hub.forget("s1");
+    hub.forget("quiet");
+    const asked = provider.asks();
+
+    expect(hub.current("s1").map((one) => one.id)).toStrictEqual(["a"]);
+    expect(hub.current("quiet")).toStrictEqual([]);
+    await hub.idle();
+
+    // Only the quiet one was looked at again: the other still had a count.
+    expect(provider.asks()).toBe(asked + 1);
+  });
+
+  it("gives back what it held for every session when it closes", async () => {
+    const provider = fakeProvider({ s1: [review("a", 1, [PASS])] });
+    const { hub, resources } = hubWith(provider);
+    hub.read("s1");
+    hub.read("s2");
+    hub.current("s1");
+    hub.current("s2");
+    await hub.idle();
+    expect(sessionsHeld(resources)).toBe(2);
+
+    await hub.close();
+
+    expect(sessionsHeld(resources)).toBe(0);
+  });
+});
+
+describe("the review hub keeps to what the protocol takes (T8 review fix 4)", () => {
+  it("counts at most sixteen reviews for a session, oldest first, and answers only those", async () => {
+    const many = Array.from({ length: 20 }, (_, index) => review(`r${String(index + 1)}`, index + 1, [PASS]));
+    const provider = fakeProvider({ s1: many });
+    const { hub } = hubWith(provider);
+
+    hub.current("s1");
+    await hub.idle();
+
+    expect(hub.current("s1").map((one) => one.id)).toStrictEqual(many.slice(0, 16).map((one) => one.id));
+    expect(await failure(hub.answer("s1", "r17", { action: "pass" }))).toMatchObject({ code: "review_closed" });
+    await hub.answer("s1", "r1", { action: "pass" });
+    expect(provider.decided).toHaveLength(1);
   });
 });

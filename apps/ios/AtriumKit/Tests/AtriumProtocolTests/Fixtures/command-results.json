@@ -1407,7 +1407,7 @@
               },
               {
                 "id": "reject",
-                "reason": "none",
+                "reason": "optional",
                 "targets": [],
                 "recommended": false
               }
@@ -1746,7 +1746,7 @@
               },
               {
                 "id": "reject",
-                "reason": "none",
+                "reason": "optional",
                 "targets": [],
                 "recommended": false
               }
@@ -2085,7 +2085,7 @@
               },
               {
                 "id": "reject",
-                "reason": "none",
+                "reason": "optional",
                 "targets": [],
                 "recommended": false
               }
@@ -2429,7 +2429,7 @@
               },
               {
                 "id": "reject",
-                "reason": "none",
+                "reason": "optional",
                 "targets": [],
                 "recommended": false
               }

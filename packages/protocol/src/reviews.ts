@@ -13,6 +13,9 @@ export const REVIEW_TEXT_LIMIT = 100_000;
 /** The most reviews one session has open at a time. */
 export const REVIEWS_LIMIT = 16;
 
+/** The most evidence items one review (and the record of its verdict) carries. */
+export const REVIEW_EVIDENCE_LIMIT = 8;
+
 /**
  * Which gate of the host's flow raised a review (ADR-0017, decision 1).
  *
@@ -154,7 +157,7 @@ export const PendingReview = z.strictObject({
   openedAt: z.number().int().nonnegative(),
   source: ReviewSource,
   subject: ReviewSubject,
-  evidence: z.array(Evidence).max(8),
+  evidence: z.array(Evidence).max(REVIEW_EVIDENCE_LIMIT),
   problem: ReviewProblem.nullable(),
   actions: z.array(ReviewAction).min(1).max(8),
 });
@@ -177,7 +180,7 @@ export type Verdict = z.infer<typeof Verdict>;
 export const ReviewRecord = z.strictObject({
   source: ReviewSource,
   subject: ReviewSubject,
-  evidence: z.array(Evidence).max(8),
+  evidence: z.array(Evidence).max(REVIEW_EVIDENCE_LIMIT),
   verdict: Verdict,
 });
 export type ReviewRecord = z.infer<typeof ReviewRecord>;

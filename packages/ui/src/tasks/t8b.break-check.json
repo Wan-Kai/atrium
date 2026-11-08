@@ -50,10 +50,10 @@
   },
   {
     "file": "packages/ui/src/chat/review-state.ts",
-    "from": "review.actions.find((action) => action.recommended) ?? review.actions[0]",
-    "to": "review.actions[0]",
+    "from": "...review.actions.filter((action) => action.recommended),",
+    "to": "...review.actions.filter((action) => !action.recommended),",
     "test": "packages/ui/src/chat/review-state.test.ts",
-    "name": "is the recommended button, else the first"
+    "name": "puts the recommended buttons first"
   },
   {
     "file": "packages/ui/src/chat/review-state.ts",
@@ -75,7 +75,7 @@
     "from": "if (words === null) writeReviewDraft(sessionId, review.id, NO_DRAFT);",
     "to": "",
     "test": "packages/ui/src/chat/review-card.browser.test.tsx",
-    "name": "takes a reason for 不批准 but does not need one",
+    "name": "forgets what you wrote for a review once its verdict was taken",
     "project": "ui"
   },
   {
@@ -112,7 +112,7 @@
   },
   {
     "file": "packages/ui/src/chat/review-card.tsx",
-    "from": "const ordered = primary === undefined ? [] : [primary, ...review.actions.filter((one) => one !== primary)];",
+    "from": "const ordered = orderedActions(review);",
     "to": "const ordered = review.actions;",
     "test": "packages/ui/src/chat/review-card.browser.test.tsx",
     "name": "puts the recommended button first and filled, whatever the order the host listed",
@@ -228,8 +228,8 @@
   },
   {
     "file": "packages/ui/src/tasks/task-conversation.tsx",
-    "from": "void attempt(() => client.prompt(sessionId, text));",
-    "to": "void attempt(() => client.steer(sessionId, text));",
+    "from": "void attemptOrRestore(text, () => client.prompt(sessionId, text));",
+    "to": "void attemptOrRestore(text, () => client.steer(sessionId, text));",
     "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
     "name": "sends a message with prompt on the task conversation's id, never opening it as a session",
     "project": "ui"
@@ -332,8 +332,8 @@
   },
   {
     "file": "packages/ui/src/sidebar/sidebar.tsx",
-    "from": "onClick={() => tasks?.openTask(entry.task.id)}",
-    "to": "onClick={() => undefined}",
+    "from": "                leave();\n                tasks?.openTask(entry.task.id);",
+    "to": "                leave();\n                tasks?.openTask(\"\");",
     "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
     "name": "lists a task that wants you with what it waits for, and opens its tab",
     "project": "ui"

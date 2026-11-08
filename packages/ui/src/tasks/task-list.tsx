@@ -1,17 +1,18 @@
 import type { AtriumClient } from "@atrium/client";
-import type { Project, TaskSummary, Workspace } from "@atrium/protocol";
+import { IDLE_CONTROL } from "@atrium/client";
+import type { Control, Project, TaskSummary, Workspace } from "@atrium/protocol";
 import { useEffect, useMemo, useReducer, useState } from "react";
 import { type StoreApi, createStore } from "zustand/vanilla";
 import { useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
-import { QuestionCard } from "../chat/question-card";
-import { ReviewCard } from "../chat/review-card";
 import { ReviewEnvContext } from "../chat/review-env";
+import { ControlCards, type RunActions } from "../chat/run-control";
 import { CaretDown, CaretRight, CheckCircle, Folder, Lightning } from "../design/icons";
 import { RunningDots } from "../design/running-dots";
 import { workspaceName } from "../sidebar/names";
 import { useClock } from "../state/clock";
 import type { TaskArea } from "../state/task-area";
+import { claimWatch } from "../state/watch-owner";
 import { NodeStateIcon, TaskKindIcon } from "./task-icons";
 import { NO_PROJECT, type TaskGroup, type TaskGroupKey, arrangeTasks } from "./task-list-model";
 import { describeTaskCommandError, taskReviewEnv } from "./review-words";
@@ -62,11 +63,14 @@ function placeWords(task: TaskSummary, projects: readonly Project[], workspaces:
  * pushes give what waits for you. A node's question is asked in the node's conversation, so it is watched by that
  * session and answered through `answer_question`, as in the node's tab; a review (graph change, human, archive) is
  * the same card the task conversation shows, answered through `answer_review` on the task conversation's id, which
- * the host checks as the business commands do. A failed node can be run again here. Confirming the first graph
- * and accepting have the buttons of the task bar, so they only offer "打开任务".
+ * the host checks as the business commands do. Only the graph change and the archive question are answered here:
+ * a human node's acceptance (pass, send back, merge) is answered in the task's own tab, so the row only offers
+ * "打开任务" for it, as it does for confirming the first graph (SPEC-0006, "T8 审查后用户定"). Several cards stack as
+ * capsules, one open at a time, through `ControlCards` as in the task conversation. A failed node can be run again
+ * here. A followed task's nodes belong to another process: its sessions are neither watched nor linked.
  *
- * @sideEffects Sends `open_task` and, for a node asking, `watch`; the cards send their answers and "重跑这个节点"
- * sends `rerun_node`.
+ * @sideEffects Sends `open_task` and, for a node asking, `watch` (let go of when the row folds); the cards send their
+ * answers and "重跑这个节点" sends `rerun_node`.
  * @param props - The client, the row's task, and how to open the task, a node's conversation, and the changes.
  * @returns The panel.
  */
@@ -87,7 +91,10 @@ function RowPanel({
   const view = state.task?.id === task.id ? state.task : null;
   const [failure, setFailure] = useState<string | null>(null);
   const [, redraw] = useReducer((tick: number) => tick + 1, 0);
-  const asking = view?.nodes.find((node) => node.state === "waiting" && node.waitingFor === "question") ?? null;
+  const asking =
+    view === null || view.followed
+      ? null
+      : (view.nodes.find((node) => node.state === "waiting" && node.waitingFor === "question") ?? null);
   const askingSession = asking?.sessionId ?? null;
   const failed = view?.nodes.find((node) => node.state === "failed") ?? null;
   useEffect(() => {
@@ -95,12 +102,12 @@ function RowPanel({
     client.openTask(task.id).catch(() => undefined);
   }, [client, task.id]);
   useEffect(() => {
-    if (askingSession === null) return;
+    if (askingSession === null) return undefined;
     // Fire and forget: the node's snapshot lands in its session's view, which `watch` makes; draw again to read it.
-    client
-      .watch([askingSession])
-      .then(redraw)
-      .catch(() => undefined);
+    const claim = claimWatch(client, [askingSession]);
+    claim.watched.then(redraw).catch(() => undefined);
+    // The row folding lets go of it, unless the page has watched something else since.
+    return claim.release;
   }, [client, askingSession]);
   const env = useMemo(
     () =>
@@ -116,6 +123,39 @@ function RowPanel({
     askingSession === null ? NO_SESSION : (client.session(askingSession) ?? NO_SESSION),
     (session) => session.control.question,
   );
+  // What the row answers: the graph change and the archive question, not a human node's acceptance, and the node's
+  // question; stacked like the task conversation's cards.
+  const control: Control = {
+    ...IDLE_CONTROL,
+    question: askingSession === null ? null : asked,
+    reviews:
+      view?.reviews.filter((review) => review.source.kind !== "gate" || review.source.gate !== "task_human") ?? [],
+  };
+  const actions: RunActions = {
+    resume: () => undefined,
+    clear: () => undefined,
+    update: () => undefined,
+    remove: () => undefined,
+    steerQueued: () => undefined,
+    removeDelivery: () => undefined,
+    resumeDeliveries: () => undefined,
+    answer: () => undefined,
+    answerQuestion: (questionId, reply) =>
+      askingSession === null
+        ? Promise.resolve(false)
+        : client.answerQuestion(askingSession, questionId, reply).then(
+            () => true,
+            () => false,
+          ),
+    answerReview: (reviewId, verdict) =>
+      view === null
+        ? Promise.resolve(null)
+        : client.answerReview(view.taskSessionId, reviewId, verdict).then(
+            () => null,
+            (error: unknown) => describeTaskCommandError(error),
+          ),
+    retry: () => undefined,
+  };
   const open = (
     <button
       type="button"
@@ -137,40 +177,16 @@ function RowPanel({
   return (
     <div data-testid="task-row-panel" className="px-9 pb-2">
       <ReviewEnvContext value={env}>
-        {view.reviews.map((review) => (
-          <ReviewCard
-            key={review.id}
-            sessionId={view.taskSessionId}
-            review={review}
-            onAnswer={(verdict) =>
-              client.answerReview(view.taskSessionId, review.id, verdict).then(
-                () => null,
-                (error: unknown) => describeTaskCommandError(error),
-              )
-            }
-          />
-        ))}
+        <ControlCards sessionId={view.taskSessionId} control={control} actions={actions} />
       </ReviewEnvContext>
       {asking === null || askingSession === null || asked === null ? null : (
-        <>
-          <QuestionCard
-            sessionId={askingSession}
-            question={asked}
-            onAnswer={(reply) =>
-              client.answerQuestion(askingSession, asked.id, reply).then(
-                () => true,
-                () => false,
-              )
-            }
-          />
-          <button
-            type="button"
-            onClick={() => onOpenNode(view.id, asking.id)}
-            className="mb-1 text-[length:var(--fs-sm)] text-[var(--tint)] hover:underline"
-          >
-            到 {asking.id} 的对话里讨论 ›
-          </button>
-        </>
+        <button
+          type="button"
+          onClick={() => onOpenNode(view.id, asking.id)}
+          className="mb-1 text-[length:var(--fs-sm)] text-[var(--tint)] hover:underline"
+        >
+          到 {asking.id} 的对话里讨论 ›
+        </button>
       )}
       {failure === null ? null : (
         <p role="alert" className="mb-1 text-[length:var(--fs-sm)] text-[var(--danger)]">

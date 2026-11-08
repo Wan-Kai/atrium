@@ -4,7 +4,7 @@ import {
   NO_DRAFT,
   forgetReviewDrafts,
   needsForm,
-  primaryOf,
+  orderedActions,
   readReviewDraft,
   verdictOf,
   writeReviewDraft,
@@ -87,12 +87,20 @@ const review = (actions: ReviewAction[]): PendingReview => ({
   actions,
 });
 
-describe("primaryOf", () => {
-  it("is the recommended button, else the first", () => {
+describe("orderedActions", () => {
+  it("puts the recommended buttons first and keeps the host's order among the rest, and among all when none is", () => {
     const keep: ReviewAction = { id: "keep", reason: "none", targets: [], recommended: true };
     const archive: ReviewAction = { id: "archive", reason: "none", targets: [], recommended: false };
-    expect(primaryOf(review([archive, keep]))?.id).toBe("keep");
-    expect(primaryOf(review([archive, { ...keep, recommended: false }]))?.id).toBe("archive");
+    const other: ReviewAction = { id: "other", reason: "none", targets: [], recommended: false };
+    expect(orderedActions(review([archive, other, keep])).map((action) => action.id)).toStrictEqual([
+      "keep",
+      "archive",
+      "other",
+    ]);
+    // The first is not the host's advice for being first (T8 review fix 10).
+    expect(
+      orderedActions(review([archive, other, { ...keep, recommended: false }])).map((action) => action.id),
+    ).toStrictEqual(["archive", "other", "keep"]);
   });
 });
 

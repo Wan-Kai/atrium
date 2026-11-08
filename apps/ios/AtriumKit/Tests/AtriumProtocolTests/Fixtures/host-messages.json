@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 34,
+    "protocolVersion": 35,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -2585,7 +2585,7 @@
             },
             {
               "id": "reject",
-              "reason": "none",
+              "reason": "optional",
               "targets": [],
               "recommended": false
             }
