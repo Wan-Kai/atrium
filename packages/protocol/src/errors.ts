@@ -62,6 +62,28 @@ export const ErrorCode = z.enum([
    * the direction is restored; `params.directionId` names it (SPEC-0008, "ML1 定的细节").
    */
   "direction_archived",
+  /** The level, step or gap named is not in the direction's progress (SPEC-0008, "ML2 定的细节"). */
+  "study_not_found",
+  /** The session asked for is not the one the direction's next step offers, or cannot be opened yet. */
+  "study_not_available",
+  /** The mark is not one the rules allow: done already, the agent's, or not a lesson's part. */
+  "study_mark_refused",
+  /** The direction's `.atrium-study.json` cannot be read, so nothing is written to it. */
+  "study_file_broken",
+  /** The direction's `.atrium-study.json` is of a later version; it is read but not written. */
+  "study_file_version",
+  /** The direction's `.atrium-study.json` could not be written, as on a disk error; it is as it was. */
+  "study_write_failed",
+  /**
+   * The change would make the direction's `.atrium-study.json` larger than Atrium reads (1 MiB);
+   * nothing is written.
+   */
+  "study_file_too_large",
+  /**
+   * A session the host opened for a use did not start: its pi does not list Atrium's
+   * `atrium-study` command (SPEC-0008, "ML2 定的细节").
+   */
+  "study_kickoff_failed",
   /** The directory is a registered project or one of its workspaces already; `params.projectId` names the project. */
   "project_exists",
   /** Another project has that name; `params.name` repeats it. */

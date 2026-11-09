@@ -8,6 +8,7 @@ import { InteractionAnswer } from "./control";
 import { QuestionReply } from "./question";
 import { ChatId, ContainerId, DirectionId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, BranchName, ProxySetting, StatusBarChoices, TranslationLanguage } from "./listing";
+import { StudyKind, StudyRef } from "./study";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
 import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
@@ -461,6 +462,63 @@ export const RestoreDirectionCommand = z.strictObject({
   directionId: DirectionId,
 });
 export type RestoreDirectionCommand = z.infer<typeof RestoreDirectionCommand>;
+
+/**
+ * Opens a session of a direction for a use, at a level and step, as the step strip's button does
+ * (SPEC-0008, "ML2 定的细节"); it opens as this client's active tab there.
+ *
+ * @remarks
+ * Only the one the host's next step offers can be opened: else `study_not_available`.
+ */
+export const StartStudySessionCommand = z.strictObject({
+  type: z.literal("start_study_session"),
+  ...commandFields,
+  directionId: DirectionId,
+  kind: StudyKind,
+  level: StudyRef,
+  step: StudyRef,
+  gap: StudyRef.optional(),
+});
+export type StartStudySessionCommand = z.infer<typeof StartStudySessionCommand>;
+
+/**
+ * Marks a part of a step done by hand, or takes a mark you made back (SPEC-0008, "手动标完成").
+ *
+ * @remarks
+ * `lesson` and `quiz` are a lesson's parts, `step` the whole step, `later` putting its quiz off;
+ * one the rules refuse is `study_mark_refused`.
+ */
+export const MarkStudyStepCommand = z.strictObject({
+  type: z.literal("mark_study_step"),
+  ...commandFields,
+  directionId: DirectionId,
+  level: StudyRef,
+  step: StudyRef,
+  mark: z.enum(["lesson", "quiz", "step", "later"]),
+  done: z.boolean(),
+});
+export type MarkStudyStepCommand = z.infer<typeof MarkStudyStepCommand>;
+
+/** Marks a gap fixed by hand, or takes that back (SPEC-0008, "手动标完成"). */
+export const MarkStudyGapCommand = z.strictObject({
+  type: z.literal("mark_study_gap"),
+  ...commandFields,
+  directionId: DirectionId,
+  gapId: StudyRef,
+  fixed: z.boolean(),
+});
+export type MarkStudyGapCommand = z.infer<typeof MarkStudyGapCommand>;
+
+/**
+ * Starts again a session the host opened for a use that did not start (its "重试"; SPEC-0008,
+ * "ML2 定的细节"): sends the start once its pi lists the command, if it has no turn yet.
+ */
+export const RetryStudyKickoffCommand = z.strictObject({
+  type: z.literal("retry_study_kickoff"),
+  ...commandFields,
+  sessionId: SessionId,
+});
+export type RetryStudyKickoffCommand = z.infer<typeof RetryStudyKickoffCommand>;
 
 /** The window gained focus: the host scans workspaces, merge states and session files again. */
 export const WindowFocusedCommand = z.strictObject({ type: z.literal("window_focused"), ...commandFields });
@@ -1026,6 +1084,10 @@ export const Command = z.discriminatedUnion("type", [
   UnpinDirectionCommand,
   ArchiveDirectionCommand,
   RestoreDirectionCommand,
+  StartStudySessionCommand,
+  MarkStudyStepCommand,
+  MarkStudyGapCommand,
+  RetryStudyKickoffCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -1168,6 +1230,10 @@ export const CommandResult = {
   unpin_direction: z.strictObject({}),
   archive_direction: z.strictObject({}),
   restore_direction: z.strictObject({}),
+  start_study_session: z.strictObject({ sessionId: SessionId }),
+  mark_study_step: z.strictObject({}),
+  mark_study_gap: z.strictObject({}),
+  retry_study_kickoff: z.strictObject({}),
   window_focused: z.strictObject({}),
   create_session: z.strictObject({ sessionId: SessionId }),
   close_tab: z.strictObject({}),

@@ -94,6 +94,10 @@ export const COMMAND_REACH = {
   unpin_direction: "local_only",
   archive_direction: "local_only",
   restore_direction: "local_only",
+  start_study_session: "local_only",
+  mark_study_step: "local_only",
+  mark_study_gap: "local_only",
+  retry_study_kickoff: "local_only",
   // Signing in and installing.
   login: "local_only",
   answer_login: "local_only",

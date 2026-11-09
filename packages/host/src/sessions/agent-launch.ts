@@ -5,13 +5,17 @@ import {
   CHILD_TOOLS,
   PARENT_TOOLS,
   READ_ONLY_TOOLS,
+  STUDY_FLAG,
   encodeArgument,
+  studyArgument,
 } from "@atrium/pi";
+import { isDirectionId } from "@atrium/protocol";
 import type { CatalogEntry } from "./session-catalog";
 import { agentDepth } from "./child-tree";
 
 /** What the launch rules read of a session. */
-type LaunchEntry = Pick<CatalogEntry, "sessionId" | "containerId" | "parent" | "archived" | "agent">;
+type LaunchEntry = Pick<CatalogEntry, "sessionId" | "containerId" | "parent" | "archived" | "agent"> &
+  Partial<Pick<CatalogEntry, "study">>;
 
 /** The agent depth at which a session has none of the main agent's tools (SPEC-0002, "概念 · 层数"). */
 const MAX_DEPTH = 2;
@@ -132,4 +136,24 @@ function withChildTools(flags: readonly string[]): string[] {
  */
 export function agentLaunchFlags(entries: readonly LaunchEntry[], sessionId: string): string[] {
   return [`--${AGENT_FLAG}=${encodeArgument(agentSelf(entries, sessionId))}`, ...toolFlags(entries, sessionId)];
+}
+
+/**
+ * pi's flag for a session of a direction with a use: `--atrium-study=<base64url JSON>`.
+ *
+ * @remarks
+ * SPEC-0008, "ML2 定的细节": only a session of a direction whose record has a use other than
+ * asking; every other session, in a workspace or a chat or asking in a direction, gets none, so
+ * Atrium's extension registers no study tool there. One argument with `=`, as `--atrium-agent`.
+ *
+ * @sideEffects none
+ * @param entries - Every session.
+ * @param sessionId - The session.
+ * @returns The flag, or none.
+ */
+export function studyLaunchFlags(entries: readonly LaunchEntry[], sessionId: string): string[] {
+  const entry = entries.find((candidate) => candidate.sessionId === sessionId);
+  const study = entry?.study ?? null;
+  if (entry === undefined || !isDirectionId(entry.containerId) || study === null || study.kind === "ask") return [];
+  return [`--${STUDY_FLAG}=${studyArgument({ ...study, kind: study.kind })}`];
 }

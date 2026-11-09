@@ -315,6 +315,24 @@ const ERRORS: Readonly<Record<AgentErrorCode, (params: Readonly<Record<string, u
   agent_bad_request: () => "Atrium could not read that request.",
   agent_failed: () => "Atrium failed to do that. Try again, or go on without it.",
   ask_user_unavailable: () => SUB_AGENT_ASKS_PARENT,
+  study_ladder_size: (params) =>
+    `A ladder has ${typeof params["min"] === "number" ? String(params["min"]) : "2"} to ${typeof params["max"] === "number" ? String(params["max"]) : "6"} levels, skipped ones included; this one has ${typeof params["got"] === "number" ? String(params["got"]) : "a different number"}. Merge or split levels and call it again.`,
+  study_ladder_set: () =>
+    "The ladder is written already and cannot be changed in this version. Go on with the learner.",
+  study_steps_set: () => "The current level has its lessons already.",
+  study_not_allowed: () => "This session is not for that; only the sessions Atrium opens for that use can write it.",
+  study_bad_report: () =>
+    "That report does not fit this session: a quiz or an exam reports its score and out of how many; a lesson, a cheat sheet or a project reports no score.",
+  study_not_found: () => "The step or gap this session is for is no longer in the learner's progress.",
+  study_file_broken: () =>
+    "The direction's .atrium-study.json cannot be read, so Atrium does not write to it. Tell the learner; do not edit the file yourself.",
+  study_file_version: () =>
+    "The direction's .atrium-study.json was written by a later version of Atrium, so this one does not write to it.",
+  study_write_failed: () => "Atrium could not save the progress. Try again once.",
+  study_file_too_large: () =>
+    "The learner's progress file would grow too large to read, so that was not written. Keep it short.",
+  study_gaps_full: (params) =>
+    `The direction holds ${typeof params["max"] === "number" ? String(params["max"]) : "no more"} gaps already; no more can be recorded until the learner fixes some.`,
 };
 
 /**

@@ -24,6 +24,7 @@ import {
   type Preferences,
   type SessionEvent,
   type SessionModel,
+  type StudyKind,
   type ThinkingLevel,
   type TraceContext,
   type VisualChangedEvent,
@@ -228,6 +229,26 @@ export interface AtriumClient {
   archiveDirection(directionId: string): Promise<CommandResult<"archive_direction">>;
   /** Moves an archived direction back; fails as `study_restore_conflict` when its place is taken. */
   restoreDirection(directionId: string): Promise<CommandResult<"restore_direction">>;
+  /**
+   * Opens a session of a direction for a use, as the step strip's button does (SPEC-0008, "ML2 定的细节");
+   * only the one the direction's next step offers, else `study_not_available`.
+   */
+  startStudySession(
+    directionId: string,
+    study: { readonly kind: StudyKind; readonly level: string; readonly step: string; readonly gap?: string },
+  ): Promise<CommandResult<"start_study_session">>;
+  /** Marks a step's part done by hand, or takes a manual mark back (SPEC-0008, "手动标完成"). */
+  markStudyStep(
+    directionId: string,
+    level: string,
+    step: string,
+    mark: "lesson" | "quiz" | "step" | "later",
+    done: boolean,
+  ): Promise<CommandResult<"mark_study_step">>;
+  /** Marks a gap fixed by hand, or takes that back. */
+  markStudyGap(directionId: string, gapId: string, fixed: boolean): Promise<CommandResult<"mark_study_gap">>;
+  /** Starts again a session the host opened for a use that did not start. */
+  retryStudyKickoff(sessionId: string): Promise<CommandResult<"retry_study_kickoff">>;
   /** Tells the host the window gained focus, so it looks at workspaces and sessions again. */
   windowFocused(): Promise<CommandResult<"window_focused">>;
   /** Changes preferences, at once in the list; a proxy shows once the host has checked it. */
@@ -1568,6 +1589,12 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     unpinDirection: (directionId) => request("unpin_direction", { directionId }),
     archiveDirection: (directionId) => request("archive_direction", { directionId }),
     restoreDirection: (directionId) => request("restore_direction", { directionId }),
+    startStudySession: (directionId, { kind, level, step, gap }) =>
+      request("start_study_session", { directionId, kind, level, step, ...(gap === undefined ? {} : { gap }) }),
+    markStudyStep: (directionId, level, step, mark, done) =>
+      request("mark_study_step", { directionId, level, step, mark, done }),
+    markStudyGap: (directionId, gapId, fixed) => request("mark_study_gap", { directionId, gapId, fixed }),
+    retryStudyKickoff: (sessionId) => request("retry_study_kickoff", { sessionId }),
     windowFocused: () => request("window_focused", {}),
     setPreferences(changes) {
       // Proxy and translation language show only after the host validates and saves them.

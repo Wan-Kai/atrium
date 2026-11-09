@@ -68,7 +68,15 @@ export interface RouterOptions {
   /** Learning directions (SPEC-0008). */
   readonly study: Pick<
     StudyCommands,
-    "createDirection" | "renameDirection" | "pinDirection" | "unpinDirection" | "archiveDirection" | "restoreDirection"
+    | "createDirection"
+    | "renameDirection"
+    | "pinDirection"
+    | "unpinDirection"
+    | "archiveDirection"
+    | "restoreDirection"
+    | "startStudySession"
+    | "markStudyStep"
+    | "markStudyGap"
   >;
   /** First launch and the settings. */
   readonly setup: Pick<SetupService, "check">;
@@ -208,6 +216,27 @@ export function createRouter(options: RouterOptions): Route {
         return options.study.archiveDirection(command.directionId);
       case "restore_direction":
         return options.study.restoreDirection(command.directionId);
+      case "start_study_session": {
+        const { directionId, kind, level, step, gap } = command;
+        return options.study.startStudySession(connection.clientId, directionId, {
+          kind,
+          level,
+          step,
+          ...(gap === undefined ? {} : { gap }),
+        });
+      }
+      case "mark_study_step":
+        return options.study.markStudyStep(
+          command.directionId,
+          command.level,
+          command.step,
+          command.mark,
+          command.done,
+        );
+      case "mark_study_gap":
+        return options.study.markStudyGap(command.directionId, command.gapId, command.fixed);
+      case "retry_study_kickoff":
+        return options.sessions.retryStudyKickoff(command.sessionId);
       case "window_focused":
         return options.index.windowFocused();
       case "watch_changes":

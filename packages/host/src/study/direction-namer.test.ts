@@ -13,6 +13,7 @@ import {
 const TITLE: ModelRef = { providerId: "faux", modelId: "title" };
 const PAGE: ModelRef = { providerId: "faux", modelId: "page" };
 const DEFAULT: ModelRef = { providerId: "faux", modelId: "default" };
+const LAST: ModelRef = { providerId: "faux", modelId: "last" };
 
 /**
  * A namer whose one-shot call is a stand-in answering `answer`, noting what it was asked.
@@ -21,7 +22,8 @@ const DEFAULT: ModelRef = { providerId: "faux", modelId: "default" };
  * The one-shot pi itself is covered by the pi package's tests and the host layer's.
  *
  * @sideEffects none
- * @param setup - The answer (an error fails the call), the title model and pi's default.
+ * @param setup - The answer (an error fails the call), the title model, the model a new session
+ * starts on and pi's default.
  * @returns The namer, the calls made and the logs.
  */
 function namer(
@@ -29,6 +31,7 @@ function namer(
     readonly answer?: string | Error;
     readonly titleModel?: ModelRef | null;
     readonly defaultModel?: ModelRef | null;
+    readonly preferred?: ModelRef | null;
     readonly oneShot?: (request: DirectionNameRequest, signal: AbortSignal | undefined) => Promise<string>;
   } = {},
 ) {
@@ -44,6 +47,10 @@ function namer(
     models: async (dir) => {
       asked.push(`models:${dir}`);
       return { defaultModel: setup.defaultModel === undefined ? DEFAULT : setup.defaultModel };
+    },
+    preferred: () => {
+      asked.push("preferred");
+      return setup.preferred ?? null;
     },
     oneShot:
       setup.oneShot ??
@@ -86,6 +93,7 @@ describe("DirectionNamer", () => {
         return null;
       },
       models: async () => ({ defaultModel: DEFAULT }),
+      preferred: () => null,
       oneShot: async (request) => {
         calls.push(request);
         return "{}";
@@ -135,16 +143,22 @@ describe("DirectionNamer", () => {
     ]);
   });
 
-  it("falls back from the title model to the page's, then pi's default", async () => {
-    const page = namer();
+  it("falls back from the title model to the page's, then the one a new session starts on, then pi's default", async () => {
+    const page = namer({ preferred: LAST });
     await page.namer.name("学 Rust", PAGE);
     expect(page.calls[0]?.request.model).toStrictEqual(PAGE);
     expect(page.asked).toStrictEqual(["title:/home/.atrium"]);
 
+    // The page left as it was shows the model chosen last, and sends none (SPEC-0008, 2026-11-09).
+    const last = namer({ preferred: LAST });
+    await last.namer.name("学 Rust", null);
+    expect(last.calls[0]?.request.model).toStrictEqual(LAST);
+    expect(last.asked).toStrictEqual(["title:/home/.atrium", "preferred"]);
+
     const fallback = namer();
     await fallback.namer.name("学 Rust", null);
     expect(fallback.calls[0]?.request.model).toStrictEqual(DEFAULT);
-    expect(fallback.asked).toStrictEqual(["title:/home/.atrium", "models:/home/.atrium"]);
+    expect(fallback.asked).toStrictEqual(["title:/home/.atrium", "preferred", "models:/home/.atrium"]);
   });
 
   it("gives the model at most 1200 characters of the message", async () => {

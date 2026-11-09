@@ -186,7 +186,14 @@ function harness(...entries: CatalogEntry[]) {
   let failStarts = false;
   let workChanges: Awaited<ReturnType<AgentHost["workChanges"]>> = { branch: null, changes: null };
   let model: SessionModel | null = { providerId: "faux", modelId: "m1", thinkingLevel: "high" };
+  /** How the study tools answer, as a test sets it; none answers `study_not_allowed`. */
+  let study: AgentHost["study"];
+  const studyCalls: [string, string, unknown][] = [];
   const host: AgentHost = {
+    study: (sessionId, call) => {
+      studyCalls.push([sessionId, call.op, call.args]);
+      return study?.(sessionId, call) ?? Promise.resolve({ ok: false, code: "study_not_allowed" });
+    },
     catalog: {
       list: () => [...sessions.values()],
       find: (id) => sessions.get(id),
@@ -303,6 +310,11 @@ function harness(...entries: CatalogEntry[]) {
   return {
     relay,
     sessions,
+    studyCalls,
+    /** Sets how the study tools answer. */
+    setStudy: (answer: AgentHost["study"]) => {
+      study = answer;
+    },
     commands,
     states,
     live,
@@ -1844,6 +1856,37 @@ describe("agent relay: list, read, stop and models", () => {
     expect(readable.answer).toMatchObject({ ok: false, code: "agent_not_allowed" });
     // Detached, it is no longer one the agent opened.
     expect(h.relay.summary("loose")).toStrictEqual({ agent: null, heldDeliveries: 0 });
+  });
+
+  it("hands a study tool's call to the study tools, at any depth, and passes their code and parameters on (SPEC-0008, ML2)", async () => {
+    // At depth 2, where the main agent's tools are refused (SPEC-0002, "概念 · 层数").
+    const h = harness(session("main"), child("mid", "main", "m"), child("deep", "mid", "x"));
+    const answers: Readonly<Record<string, Awaited<ReturnType<NonNullable<AgentHost["study"]>>>>> = {
+      study_set_name: { ok: true, result: {} },
+      study_set_ladder: { ok: false, code: "study_ladder_size", params: { min: 2, max: 6, got: 7 } },
+    };
+    h.setStudy(async (_sessionId, call) => present(answers[call.op], call.op));
+
+    const named = await h.call("main", "study_set_name", { name: "Go" });
+    const ladder = await h.call("deep", "study_set_ladder", { levels: [], lessons: ["a"] });
+    const bad = await h.call("main", "study_report", { score: -1 });
+
+    expect(named.answer).toStrictEqual({ v: 1, id: named.id, ok: true, result: {} });
+    expect(ladder.answer).toStrictEqual({
+      v: 1,
+      id: ladder.id,
+      ok: false,
+      code: "study_ladder_size",
+      params: { min: 2, max: 6, got: 7 },
+    });
+    expect(bad.answer).toMatchObject({ ok: false, code: "agent_bad_request" });
+    expect(h.studyCalls).toStrictEqual([
+      ["main", "study_set_name", { name: "Go" }],
+      ["deep", "study_set_ladder", { levels: [], lessons: ["a"] }],
+    ]);
+    h.setStudy(undefined);
+
+    expect((await h.call("main", "study_fix_gap", {})).answer).toMatchObject({ ok: false, code: "study_not_allowed" });
   });
 
   it("lists the models the caller can use, with the current one marked", async () => {

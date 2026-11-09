@@ -1,7 +1,8 @@
+import type { SessionSummary } from "@atrium/protocol";
 import { FakeClock, createTempDir } from "@atrium/testkit";
-import { chmod, lstat, mkdir, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import { ResourceTracker } from "../platform/resources";
 import { loadIndexFile } from "../store/index-file";
@@ -9,6 +10,8 @@ import { LEARNING_FILE } from "../store/index-schema";
 import { createLearningRecords } from "../store/learning-records";
 import { createDirectionCreator } from "./direction-creator";
 import { createDirections } from "./directions";
+import { createProgressFiles } from "./progress-file";
+import { setLadder } from "./progress-rules";
 import { createStudyCommands } from "./study-commands";
 
 /**
@@ -33,6 +36,8 @@ async function study(
     readonly naming?: Promise<void>;
     /** Makes creating the discussion fail. */
     readonly sessionFails?: boolean;
+    /** The sessions there are, for the next step. */
+    readonly summaries?: () => SessionSummary[];
   } = {},
 ) {
   const temp = await createTempDir("study-commands");
@@ -45,6 +50,7 @@ async function study(
   const directions = createDirections({ root, clock, resources, logger });
   onTestFinished(() => directions.close());
   const asked: string[] = [];
+  const started: SessionSummary[] = [];
   let changes = 0;
   /** Holds back stopping the sessions while a test wants it. */
   let stopping = Promise.withResolvers<void>();
@@ -76,7 +82,17 @@ async function study(
       forgetWorkspaces: async (containerIds) => {
         asked.push(`forget ${containerIds.join(",")}`);
       },
+      startStudySession: async (clientId, directionId, kind) => {
+        asked.push(`startStudySession ${clientId} ${directionId} ${JSON.stringify(kind)}`);
+        // Recorded after a turn of the event loop, as the session manager writes its catalog first,
+        // and before answering.
+        await new Promise((resolve) => setImmediate(resolve));
+        started.push(studySession("s2", kind));
+        return { sessionId: "s2" };
+      },
+      summaries: () => [...(more.summaries?.() ?? []), ...started],
     },
+    files: createProgressFiles({ root, random: () => "r", logger }),
     clock,
     changed: () => (changes += 1),
     logger,
@@ -187,11 +203,14 @@ describe("StudyCommands", () => {
         name: "Go",
         alias: null,
         broken: false,
+        newer: false,
         discussing: true,
         archived: false,
         createdAt: 1_000,
         pinnedAt: null,
         lastOpenedAt: null,
+        progress: null,
+        next: { primary: null, secondary: null },
       },
     ]);
   });
@@ -413,5 +432,223 @@ describe("StudyCommands", () => {
 
     expect(commands.list()[0]?.lastOpenedAt).toBe(1_009);
     expect(changes()).toBe(1);
+  });
+});
+
+/** A direction's marker once its discussion wrote a ladder: one lesson at the start level. */
+const PLANNED = setLadder(
+  { version: 1, name: "Go" },
+  {
+    levels: [
+      { name: "语法", topics: "", pass: "" },
+      { name: "并发", topics: "", pass: "" },
+    ],
+    lessons: ["goroutine"],
+  },
+);
+
+/**
+ * A session's summary in the direction, with a use.
+ *
+ * @remarks
+ * Only what the next step reads matters.
+ *
+ * @sideEffects none
+ * @param sessionId - Its id.
+ * @param use - Its use.
+ * @returns The summary.
+ */
+function studySession(sessionId: string, use: SessionSummary["study"]): SessionSummary {
+  return {
+    sessionId,
+    containerId: "lrn_go",
+    name: null,
+    prompt: null,
+    file: null,
+    state: "draft",
+    updatedAt: 1,
+    archived: false,
+    running: false,
+    attention: null,
+    asking: null,
+    question: null,
+    model: null,
+    parent: null,
+    agent: null,
+    heldDeliveries: 0,
+    kickoff: null,
+    study: use,
+  };
+}
+
+describe("StudyCommands progress (ML2)", () => {
+  it("lists a direction's progress and its next step, going back to a session open for it", async () => {
+    let sessions: SessionSummary[] = [];
+    const { commands, directions, root } = await study(undefined, { summaries: () => sessions });
+    await mkdir(join(root, "go"), { recursive: true });
+    await writeFile(join(root, "go", ".atrium-study.json"), JSON.stringify(PLANNED));
+    await directions.scan();
+
+    expect(commands.list()[0]).toMatchObject({
+      discussing: false,
+      progress: {
+        ladder: [
+          { id: "l1", state: "current" },
+          { id: "l2", state: "todo" },
+        ],
+      },
+      next: { primary: { type: "start", kind: "lesson", level: "l1", step: "s1", available: true }, secondary: null },
+    });
+    sessions = [studySession("s7", { kind: "lesson", level: "l1", step: "s1" })];
+
+    expect(commands.list()[0]?.next).toStrictEqual({ primary: { type: "open", sessionId: "s7" }, secondary: null });
+  });
+
+  it("opens only the session the next step offers", async () => {
+    const { commands, directions, root, asked } = await study();
+    await mkdir(join(root, "go"), { recursive: true });
+    await writeFile(join(root, "go", ".atrium-study.json"), JSON.stringify(PLANNED));
+    await directions.scan();
+
+    await expect(
+      commands.startStudySession("c1", "lrn_go", { kind: "lesson", level: "l1", step: "s1" }),
+    ).resolves.toStrictEqual({
+      sessionId: "s2",
+    });
+    for (const wrong of [
+      { kind: "lesson", level: "l1", step: "s2" },
+      { kind: "sheet", level: "l1", step: "s2" },
+      { kind: "lesson", level: "l2", step: "s1" },
+      { kind: "lesson", level: "l1", step: "s1", gap: "g1" },
+    ] as const) {
+      await expect(commands.startStudySession("c1", "lrn_go", wrong)).rejects.toMatchObject({
+        code: "study_not_available",
+        params: { directionId: "lrn_go" },
+      });
+    }
+    expect(asked.filter((line) => line.startsWith("startStudySession"))).toStrictEqual([
+      'startStudySession c1 lrn_go {"kind":"lesson","level":"l1","step":"s1"}',
+    ]);
+    await expect(
+      commands.startStudySession("c1", "lrn_none", { kind: "lesson", level: "l1", step: "s1" }),
+    ).rejects.toMatchObject({
+      code: "direction_not_found",
+    });
+  });
+
+  it("marks by hand and takes it back, listing the change, and refuses what the rules do not allow", async () => {
+    const { commands, directions, root, changes } = await study();
+    await mkdir(join(root, "go"), { recursive: true });
+    await writeFile(join(root, "go", ".atrium-study.json"), JSON.stringify(PLANNED));
+    await directions.scan();
+    const before = changes();
+
+    await commands.markStudyStep("lrn_go", "l1", "s1", "quiz", true);
+
+    expect(commands.list()[0]?.progress?.steps["l1"]?.[0]).toMatchObject({
+      lesson: { by: "manual" },
+      quiz: { by: "manual" },
+    });
+    expect(commands.list()[0]?.next.primary).toStrictEqual({ type: "mark", mark: "step", level: "l1", step: "s1" });
+    expect(changes()).toBeGreaterThan(before);
+    await commands.markStudyStep("lrn_go", "l1", "s1", "lesson", false);
+
+    expect(JSON.parse(await readFile(join(root, "go", ".atrium-study.json"), "utf8"))).toStrictEqual(PLANNED);
+    await expect(commands.markStudyStep("lrn_go", "l1", "s1", "quiz", false)).rejects.toMatchObject({
+      code: "study_mark_refused",
+    });
+    await expect(commands.markStudyStep("lrn_go", "l1", "s9", "step", true)).rejects.toMatchObject({
+      code: "study_not_found",
+    });
+    await expect(commands.markStudyGap("lrn_go", "g1", true)).rejects.toMatchObject({ code: "study_not_found" });
+  });
+
+  it("refuses marks on an archived direction, and on a broken file without writing it", async () => {
+    const { commands, directions, root } = await study();
+    await mkdir(join(root, "Archive", "old"), { recursive: true });
+    await writeFile(join(root, "Archive", "old", ".atrium-study.json"), JSON.stringify(PLANNED));
+    await mkdir(join(root, "bad"), { recursive: true });
+    await writeFile(join(root, "bad", ".atrium-study.json"), "{");
+    await directions.scan();
+
+    await expect(commands.markStudyStep("lrn_old", "l1", "s1", "step", true)).rejects.toMatchObject({
+      code: "direction_archived",
+      params: { directionId: "lrn_old" },
+    });
+    await expect(
+      commands.startStudySession("c1", "lrn_old", { kind: "lesson", level: "l1", step: "s1" }),
+    ).rejects.toMatchObject({
+      code: "direction_archived",
+    });
+    await expect(commands.markStudyGap("lrn_bad", "g1", true)).rejects.toMatchObject({ code: "study_file_broken" });
+    expect(await readFile(join(root, "bad", ".atrium-study.json"), "utf8")).toBe("{");
+    expect(commands.list().find((one) => one.id === "lrn_bad")?.next).toStrictEqual({ primary: null, secondary: null });
+  });
+
+  it("opens one session for two presses at once", async () => {
+    const { commands, directions, root, asked } = await study();
+    await mkdir(join(root, "go"), { recursive: true });
+    await writeFile(join(root, "go", ".atrium-study.json"), JSON.stringify(PLANNED));
+    await directions.scan();
+    const lesson = { kind: "lesson", level: "l1", step: "s1" } as const;
+
+    const [first, second] = await Promise.allSettled([
+      commands.startStudySession("c1", "lrn_go", lesson),
+      commands.startStudySession("c2", "lrn_go", lesson),
+    ]);
+
+    expect(first).toStrictEqual({ status: "fulfilled", value: { sessionId: "s2" } });
+    expect(second).toMatchObject({ status: "rejected", reason: { code: "study_not_available" } });
+    expect(asked.filter((line) => line.startsWith("startStudySession"))).toHaveLength(1);
+  });
+
+  it("shows a file of a later version, offering nothing and refusing to start or mark", async () => {
+    const { commands, directions, root } = await study();
+    await mkdir(join(root, "go"), { recursive: true });
+    const newer = { ...PLANNED, version: 2 };
+    await writeFile(join(root, "go", ".atrium-study.json"), JSON.stringify(newer));
+    await directions.scan();
+
+    expect(commands.list()[0]).toMatchObject({
+      broken: false,
+      newer: true,
+      progress: { ladder: [{ id: "l1" }, { id: "l2" }] },
+      next: { primary: null, secondary: null },
+    });
+    await expect(
+      commands.startStudySession("c1", "lrn_go", { kind: "lesson", level: "l1", step: "s1" }),
+    ).rejects.toMatchObject({ code: "study_file_version" });
+    await expect(commands.markStudyStep("lrn_go", "l1", "s1", "lesson", true)).rejects.toMatchObject({
+      code: "study_file_version",
+    });
+    expect(JSON.parse(await readFile(join(root, "go", ".atrium-study.json"), "utf8"))).toStrictEqual(newer);
+  });
+
+  it("archives after the marks asked before it, refusing those asked while it runs", async () => {
+    const { commands, directions, root, asked, holdStop } = await study();
+    await mkdir(join(root, "go"), { recursive: true });
+    await writeFile(join(root, "go", ".atrium-study.json"), JSON.stringify(PLANNED));
+    await directions.scan();
+    const release = holdStop();
+
+    const before = commands.markStudyStep("lrn_go", "l1", "s1", "lesson", true);
+    const archiving = commands.archiveDirection("lrn_go");
+    await vi.waitFor(() => expect(asked).toContain("stopContainer lrn_go"));
+
+    await expect(commands.markStudyStep("lrn_go", "l1", "s1", "quiz", true)).rejects.toMatchObject({
+      code: "direction_archived",
+      params: { directionId: "lrn_go" },
+    });
+    // A start waits for the archive, then finds the direction archived.
+    const start = commands.startStudySession("c1", "lrn_go", { kind: "lesson", level: "l1", step: "s1" });
+    release();
+    await archiving;
+    await before;
+    await expect(start).rejects.toMatchObject({ code: "direction_archived" });
+
+    const archived = join(root, "Archive", "go");
+    expect((await readdir(archived)).toSorted()).toStrictEqual([".atrium-study.json"]);
+    const written = JSON.parse(await readFile(join(archived, ".atrium-study.json"), "utf8")) as typeof PLANNED;
+    expect(written.steps?.["l1"]?.[0]).toMatchObject({ id: "s1", lesson: { by: "manual" }, quiz: null });
   });
 });

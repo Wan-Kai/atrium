@@ -1,0 +1,467 @@
+[
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "if (got < STUDY_LIMITS.minLevels || got > STUDY_LIMITS.maxLevels) {",
+    "to": "if (got < 1 || got > STUDY_LIMITS.maxLevels) {",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "takes 2 and 6 levels"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "if (got < STUDY_LIMITS.minLevels || got > STUDY_LIMITS.maxLevels) {",
+    "to": "if (got < STUDY_LIMITS.minLevels || got > 7) {",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "takes 2 and 6 levels"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "if (got < STUDY_LIMITS.minLevels || got > STUDY_LIMITS.maxLevels) {",
+    "to": "if (got < STUDY_LIMITS.minLevels - 1 || got > STUDY_LIMITS.maxLevels) {",
+    "test": "packages/host/src/study/study-tools.test.ts",
+    "name": "refuses the ladder's bounds"
+  },
+  {
+    "file": "packages/host/src/study/progress.ts",
+    "from": "ladder: z.array(Level).min(STUDY_LIMITS.minLevels).max(STUDY_LIMITS.maxLevels)",
+    "to": "ladder: z.array(Level).min(1).max(STUDY_LIMITS.maxLevels)",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "cannot be read as broken"
+  },
+  {
+    "file": "packages/host/src/study/progress.ts",
+    "from": "ladder: z.array(Level).min(STUDY_LIMITS.minLevels).max(STUDY_LIMITS.maxLevels)",
+    "to": "ladder: z.array(Level).min(STUDY_LIMITS.minLevels).max(7)",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "cannot be read as broken"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "  } else if (step.lesson === null) {",
+    "to": "  } else if (false) {",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "lesson not taught"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "  } else if (step.quiz === null) {",
+    "to": "  } else if (false) {",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "lesson taught, no quiz"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "secondary: { type: \"mark\", mark: \"later\", ...at } };",
+    "to": "secondary: null };",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "lesson taught, no quiz"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "(one) => one.fixed === null && one.from.level === at.level && one.from.step === at.step,",
+    "to": "(one) => one.fixed === null,",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "quizzed with a gap of this step not fixed"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "        ? { primary: { type: \"mark\", mark: \"step\", ...at }, secondary: null }",
+    "to": "        ? { primary: null, secondary: null }",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "quizzed, by the agent or by hand"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "          : startAction(step.kind, at.level, at.step),",
+    "to": "          : startAction(\"lesson\", at.level, at.step),",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "cheat sheet, project, exam not done"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "          ? { type: \"upgrade\", level: level.id, available: false }",
+    "to": "          ? null",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "cheat sheet, project, exam not done"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "const AVAILABLE: ReadonlySet<StudyKind> = new Set([\"lesson\", \"sheet\", \"project\", \"exam\"]);",
+    "to": "const AVAILABLE: ReadonlySet<StudyKind> = new Set([\"lesson\", \"sheet\", \"project\", \"exam\", \"quiz\"]);",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "lesson taught, no quiz"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "  return open === undefined ? action : { type: \"open\", sessionId: open.sessionId };",
+    "to": "  return action;",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "goes back to the session open for this step"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "        !archived &&\n",
+    "to": "",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "goes back to the session open for this step"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "        ? { ...found, lesson: byAgent(found.lesson) }",
+    "to": "        ? { ...found, lesson: found.lesson ?? { by: \"agent\" } }",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "takes the agent's report over a manual mark"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "            lesson: byAgent(found.lesson),\n            quiz: { ...byAgent(found.quiz), score",
+    "to": "            lesson: found.lesson ?? { by: \"agent\" },\n            quiz: { ...byAgent(found.quiz), score",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "takes the agent's report over a manual mark"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "  return withGap(file, gapId, (gap) => ({ ...gap, fixed: byAgent(gap.fixed) }));",
+    "to": "  return withGap(file, gapId, (gap) => ({ ...gap, fixed: gap.fixed ?? { by: \"agent\" } }));",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "records a gap from the session's step and fixes it"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "    if (fixed ? gap.fixed !== null : gap.fixed?.by !== \"manual\") throw new StudyRuleError(\"study_mark_refused\");",
+    "to": "    if (fixed ? gap.fixed !== null : gap.fixed === null) throw new StudyRuleError(\"study_mark_refused\");",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "marks a gap fixed by hand and takes it back"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "        return found.lesson?.by === \"manual\" ? { ...found, lesson: null, ...laterParts } : refused();",
+    "to": "        return found.lesson !== null ? { ...found, lesson: null, ...laterParts } : refused();",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "refuses marks the rules do not allow"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "      if (found.done !== null) return refused();\n",
+    "to": "",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "refuses marks the rules do not allow"
+  },
+  {
+    "file": "packages/host/src/study/study-tools.ts",
+    "from": "        TOOLS_BY_USE[study.kind].includes(op);",
+    "to": "        true;",
+    "test": "packages/host/src/study/study-tools.test.ts",
+    "name": "refuses a tool the session's use does not have"
+  },
+  {
+    "file": "packages/pi/src/study/extension.ts",
+    "from": "    if (found === null || registered) return;",
+    "to": "    if (registered) return;",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "registers no tool and no prompt without the flag"
+  },
+  {
+    "file": "packages/host/src/sessions/agent-launch.ts",
+    "from": " || study === null || study.kind === \"ask\") return [];",
+    "to": " || study === null) return [];",
+    "test": "packages/host/src/sessions/agent-launch.test.ts",
+    "name": "gives none to a workspace's"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "first ? { kind: \"discuss\" } : { kind: \"ask\" }",
+    "to": "first ? { kind: \"discuss\" } : undefined",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "later ones ask"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "    if (!commands.some(isStudyCommand)) {",
+    "to": "    if (false) {",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "sends no start to a pi without study mode's command"
+  },
+  {
+    "file": "packages/host/src/study/progress-file.ts",
+    "from": "  if (file.version > STUDY_VERSION) throw new StudyFileError(\"study_file_version\");\n",
+    "to": "",
+    "test": "packages/host/src/study/progress-file.test.ts",
+    "name": "does not write a broken file, nor one of a later version"
+  },
+  {
+    "file": "packages/host/src/study/progress-file.ts",
+    "from": "constants.O_RDONLY | constants.O_NOFOLLOW",
+    "to": "constants.O_RDONLY",
+    "test": "packages/host/src/study/progress-file.test.ts",
+    "name": "does not read or write through a link"
+  },
+  {
+    "file": "packages/ui/src/study/step-strip.tsx",
+    "from": "      {view.kind !== \"learning\" ? null : (",
+    "to": "      {false ? null : (",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "shows an archived direction where it stopped",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/step-strip.tsx",
+    "from": "disabled={busy || !available(primary)}",
+    "to": "disabled={busy}",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "shows the level, a dot a step",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "      if (step.lesson === null) marks.push({ label: \"标上课完成\", mark: \"lesson\", done: true });",
+    "to": "      marks.push({ label: \"标上课完成\", mark: \"lesson\", done: true });",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "marks a step's part done by hand from its menu",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "{gap.fixed === null && !actions.readOnly ? (",
+    "to": "{gap.fixed !== null && !actions.readOnly ? (",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "marks a gap fixed by hand from its hover button",
+    "project": "ui"
+  },
+  {
+    "file": "packages/host/src/study/progress-file.ts",
+    "from": "        await checkPlace(dir, options.root);\n",
+    "to": "",
+    "test": "packages/host/src/study/progress-file.test.ts",
+    "name": "swapped for a link after the scan"
+  },
+  {
+    "file": "packages/host/src/study/progress-file.ts",
+    "from": " || parent !== realRoot)",
+    "to": ")",
+    "test": "packages/host/src/study/progress-file.test.ts",
+    "name": "swapped for a link after the scan"
+  },
+  {
+    "file": "packages/host/src/study/progress-file.ts",
+    "from": "      if (held.has(dir)) return Promise.reject(new StudyFileError(\"direction_archived\"));\n",
+    "to": "",
+    "test": "packages/host/src/study/progress-file.test.ts",
+    "name": "holds a direction for an archive"
+  },
+  {
+    "file": "packages/host/src/study/progress-file.ts",
+    "from": "      if (Buffer.byteLength(text) > MARKER_LIMIT) throw new StudyFileError(\"study_file_too_large\");\n",
+    "to": "",
+    "test": "packages/host/src/study/progress-file.test.ts",
+    "name": "refuses a change that would not be read back for its size"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "        await options.files.hold(found.dir, async () => {",
+    "to": "        await ((_dir: string, task: () => Promise<void>) => task())(found.dir, async () => {",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "archives after the marks asked before it"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "      return inTurn(directionId, async () => {",
+    "to": "      return ((_id: string, work: () => Promise<{ sessionId: string }>) => work())(directionId, async () => {",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "opens one session for two presses at once"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "        if (found.newer) throw new CommandError(\"study_file_version\");\n",
+    "to": "",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "shows a file of a later version"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": " || state.newer",
+    "to": "",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "offers nothing archived, broken, of a later version"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": " || found.kind === \"up\") return refused();",
+    "to": ") return refused();",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "refuses marks the rules do not allow"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "quiz: { ...byAgent(found.quiz), score",
+    "to": "quiz: { by: \"agent\", score",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "keeps fields it does not know on a quiz"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "throw new StudyRuleError(\"study_gaps_full\", { max: STUDY_LIMITS.maxGaps });",
+    "to": "throw new StudyRuleError(\"agent_bad_request\");",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "stops at the limit"
+  },
+  {
+    "file": "packages/host/src/study/study-tools.ts",
+    "from": "  if (code === \"direction_archived\") return \"study_not_allowed\";\n",
+    "to": "",
+    "test": "packages/host/src/study/study-tools.test.ts",
+    "name": "refuses a tool while its direction is being archived"
+  },
+  {
+    "file": "packages/host/src/study/directions.ts",
+    "from": "    newer: marker.version > STUDY_VERSION,",
+    "to": "    newer: false,",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "cannot be read as broken"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "readOnly: direction.archived || direction.broken || direction.newer,",
+    "to": "readOnly: direction.broken,",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "offers no marks on an archived direction",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "  } else if (step.kind === \"up\") {",
+    "to": "  } else if (false) {",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "offers no mark for the upgrade",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "{item.mark === \"step\" && item.done && at > 0 ? (",
+    "to": "{false ? (",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "marks a step's part done by hand from its menu",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/step-strip.tsx",
+    "from": "disabled={busy || !available(primary)}",
+    "to": "disabled={!available(primary)}",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "presses a start once",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/progress.ts",
+    "from": "  const level = shownLevel(progress);\n  const steps = level === null ? [] : (progress.steps[level.id] ?? []);\n  const currentAt",
+    "to": "  const level = currentLevel(progress);\n  const steps = level === null ? [] : (progress.steps[level.id] ?? []);\n  const currentAt",
+    "test": "packages/ui/src/study/progress.test.ts",
+    "name": "shows the last level once none is current"
+  },
+  {
+    "file": "packages/ui/src/study/progress.ts",
+    "from": "direction.newer ? \"newer\" : ",
+    "to": "",
+    "test": "packages/ui/src/study/progress.test.ts",
+    "name": "shows a file of a later version where it stands"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "\"order-2 @min-[640px]:order-none\"",
+    "to": "\"order-0 @min-[640px]:order-none\"",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "is two columns in a wide window",
+    "project": "ui"
+  },
+  {
+    "file": "packages/pi/src/study/extension.ts",
+    "from": "ctx.isIdle() ? { triggerTurn: true } : { triggerTurn: true, deliverAs: \"followUp\" }",
+    "to": "{ triggerTurn: true }",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "after a run under way"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "      if (hostOpened(found.study)) inBackground(\"study kickoff\", () => kickoff(sessionId));\n",
+    "to": "",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "sends the start again when a session it opened is opened"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "if (found.controller.snapshot().items.length > 0 || busy.has(sessionId)) {",
+    "to": "if (busy.has(sessionId)) {",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "sends no start to a session that has a turn already"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "      if (kicked.has(sessionId)) return;\n",
+    "to": "",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "shows a start that did not happen"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "kickedOff(sessionId, \"study_kickoff_failed\");",
+    "to": "kickedOff(sessionId, null);",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "shows a start that did not happen"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "      if (!hostOpened(found.study)) throw new CommandError(\"study_not_available\");\n",
+    "to": "",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "refuses 重试 for a session of no host-opened use"
+  },
+  {
+    "file": "packages/ui/src/study/kickoff-line.tsx",
+    "from": "  if (code === null) return null;\n",
+    "to": "",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "says nothing for a session that started",
+    "project": "ui"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "lesson: parts.includes(\"lesson\") && found.lesson?.by === \"manual\" ? null : found.lesson,",
+    "to": "lesson: found.lesson,",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "undoes the whole step back to before it"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "([\"lesson\", \"quiz\"] as const).filter((part) => found[part] === null);",
+    "to": "[\"lesson\", \"quiz\"] as const;",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "undoes the whole step back to before it"
+  },
+  {
+    "file": "packages/protocol/src/text.ts",
+    "from": "    return length >= min && length <= max;",
+    "to": "    return text.length >= min && text.length <= max;",
+    "test": "packages/protocol/src/text.test.ts",
+    "name": "takes a level's name of 60 characters"
+  },
+  {
+    "file": "packages/protocol/src/text.ts",
+    "from": "    return length >= min && length <= max;",
+    "to": "    return text.length >= min && text.length <= max;",
+    "test": "packages/host/src/study/progress.test.ts",
+    "name": "bounds texts by characters as seen"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "  return seenLength(text) > max ||",
+    "to": "  return text.length > max ||",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "finds text over its limit"
+  },
+  {
+    "file": "packages/pi/src/agent/channel.ts",
+    "from": "    .refine((value) => seenLength(value) <= max);",
+    "to": "    .refine((value) => value.length <= max);",
+    "test": "packages/pi/src/agent/channel.test.ts",
+    "name": "bounds them by characters as seen"
+  }
+]

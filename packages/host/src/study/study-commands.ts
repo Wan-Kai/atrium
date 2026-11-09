@@ -1,4 +1,11 @@
-import { CommandError, type CommandResult, type Direction, type ModelRef } from "@atrium/protocol";
+import {
+  CommandError,
+  type CommandResult,
+  type Direction,
+  type ModelRef,
+  type SessionStudy,
+  type SessionSummary,
+} from "@atrium/protocol";
 import { lstat, mkdir, realpath, rename, rmdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Clock } from "../platform/clock";
@@ -9,6 +16,9 @@ import type { LearningRecords } from "../store/learning-records";
 import type { DirectionCreator } from "./direction-creator";
 import type { DirectionNamer } from "./direction-namer";
 import { ARCHIVE, type Directions, type FoundDirection, realDir } from "./directions";
+import type { StudyFile } from "./progress";
+import { StudyFileError, type ProgressFiles } from "./progress-file";
+import { type StepMark, StudyRuleError, markGap, markStep, nextOf } from "./progress-rules";
 
 /** The study commands the server hands on, and what the list and the host need of directions. */
 export interface StudyCommands {
@@ -22,7 +32,26 @@ export interface StudyCommands {
   archiveDirection(directionId: string): Promise<CommandResult<"archive_direction">>;
   /** Moves an archived direction's directory back where it was. */
   restoreDirection(directionId: string): Promise<CommandResult<"restore_direction">>;
-  /** The directions as the list shows them. */
+  /**
+   * Opens a session for a use at a level and step, as the step strip's button does (SPEC-0008,
+   * "ML2 定的细节"); only the one the next step offers.
+   */
+  startStudySession(
+    clientId: string,
+    directionId: string,
+    study: SessionStudy,
+  ): Promise<CommandResult<"start_study_session">>;
+  /** Marks a step's part done by hand, or takes a manual mark back (SPEC-0008, "手动标完成"). */
+  markStudyStep(
+    directionId: string,
+    level: string,
+    step: string,
+    mark: StepMark,
+    done: boolean,
+  ): Promise<CommandResult<"mark_study_step">>;
+  /** Marks a gap fixed by hand, or takes that back. */
+  markStudyGap(directionId: string, gapId: string, fixed: boolean): Promise<CommandResult<"mark_study_gap">>;
+  /** The directions as the list shows them, with their progress and next step. */
   list(): Direction[];
   /** A client went into a container; for a direction, it is the one opened last (SPEC-0008, "入口"). */
   entered(containerId: string | null): void;
@@ -43,6 +72,25 @@ async function ensureDir(path: string): Promise<void> {
   await mkdir(path).catch((error: unknown) => {
     if (errorCode(error) !== "EEXIST") throw error;
   });
+}
+
+/**
+ * The next step of a direction, from its progress and its sessions.
+ *
+ * @remarks
+ * SPEC-0008, "下一步怎么算"; worked out each time the list is built.
+ *
+ * @sideEffects none
+ * @param found - The direction.
+ * @param sessions - Every session's summary.
+ * @returns The two buttons.
+ */
+function nextFor(found: FoundDirection, sessions: readonly SessionSummary[]) {
+  return nextOf(
+    found.progress,
+    sessions.filter((session) => session.containerId === found.id),
+    { archived: found.archived, broken: found.broken, newer: found.newer },
+  );
 }
 
 /**
@@ -87,8 +135,10 @@ export function createStudyCommands(options: {
   readonly records: LearningRecords;
   readonly sessions: Pick<
     SessionManager,
-    "createStudySession" | "stopContainer" | "releaseContainer" | "forgetWorkspaces"
+    "createStudySession" | "startStudySession" | "stopContainer" | "releaseContainer" | "forgetWorkspaces" | "summaries"
   >;
+  /** Writes directions' progress (SPEC-0008, "ML2 定的细节"). */
+  readonly files: Pick<ProgressFiles, "update" | "hold">;
   readonly clock: Pick<Clock, "now">;
   readonly changed: () => void;
   readonly logger: Logger;
@@ -103,15 +153,17 @@ export function createStudyCommands(options: {
   const closing = new AbortController();
 
   /**
-   * Runs a direction's archive or restore after the one asked for before it.
+   * Runs a direction's archive, restore or session start after the one asked for before it.
    *
    * @remarks
-   * Both move its directory; one starting before the other ended would look at the wrong place.
-   * A failed one does not hold up the next.
+   * Archive and restore move its directory; one starting before the other ended would look at the
+   * wrong place. A start asks for the next step in turn, so two at once never open two sessions
+   * for one step, and none opens in a direction being archived. A failed one does not hold up
+   * the next.
    *
    * @sideEffects Runs `work` once the direction's earlier one is done.
    * @param directionId - The direction.
-   * @param work - The archive or restore.
+   * @param work - The archive, restore or start.
    * @returns What `work` returns.
    */
   async function inTurn<T>(directionId: string, work: () => Promise<T>): Promise<T> {
@@ -267,6 +319,41 @@ export function createStudyCommands(options: {
     void write.finally(() => going.delete(write));
   }
 
+  /**
+   * Changes a direction's progress by hand, then lists it again.
+   *
+   * @remarks
+   * An archived direction is not written (`direction_archived`); the rules' and the writer's
+   * refusals are the command's error codes, with nothing written.
+   *
+   * @sideEffects Writes the direction's marker; scans; tells of the change.
+   * @param directionId - The direction.
+   * @param change - The change.
+   * @throws {CommandError} As above, or `direction_not_found`.
+   */
+  async function changeProgress(directionId: string, change: (file: StudyFile) => StudyFile): Promise<void> {
+    const found = directionOf(directionId);
+    if (found.archived) throw new CommandError("direction_archived", { directionId });
+    try {
+      await options.files.update(found.dir, change);
+    } catch (error) {
+      if (error instanceof StudyRuleError || error instanceof StudyFileError) {
+        options.logger.info({ directionId, code: error.code }, "study mark refused");
+        // A mark is refused only as not found or not allowed by the rules.
+        const code =
+          error instanceof StudyFileError
+            ? error.code
+            : error.code === "study_not_found"
+              ? "study_not_found"
+              : "study_mark_refused";
+        throw new CommandError(code, code === "direction_archived" ? { directionId } : {});
+      }
+      throw error;
+    }
+    await options.directions.scan();
+    options.changed();
+  }
+
   return {
     async createDirection(clientId, text, model) {
       const work = (async () => {
@@ -320,13 +407,17 @@ export function createStudyCommands(options: {
         if (found.archived) return;
         // A place taken, or a link, refuses it before any session is stopped.
         await placeOf(found);
-        await options.sessions.stopContainer(directionId);
-        try {
-          await onDisk(() => moveDir(found));
-          await options.sessions.forgetWorkspaces([directionId]);
-        } finally {
-          options.sessions.releaseContainer(directionId);
-        }
+        // The progress written before it first; none from now on, so no temporary file is moved
+        // along and no change lands in the old place (SPEC-0008, "ML2 定的细节").
+        await options.files.hold(found.dir, async () => {
+          await options.sessions.stopContainer(directionId);
+          try {
+            await onDisk(() => moveDir(found));
+            await options.sessions.forgetWorkspaces([directionId]);
+          } finally {
+            options.sessions.releaseContainer(directionId);
+          }
+        });
       });
       return {};
     },
@@ -338,7 +429,38 @@ export function createStudyCommands(options: {
       });
       return {};
     },
+    startStudySession(clientId, directionId, study) {
+      // One at a time with each other and with archiving, the next step asked again in turn, so
+      // two presses at once never open two sessions for one step.
+      return inTurn(directionId, async () => {
+        const found = directionOf(directionId);
+        if (found.archived) throw new CommandError("direction_archived", { directionId });
+        if (found.newer) throw new CommandError("study_file_version");
+        const { primary } = nextFor(found, options.sessions.summaries());
+        // Only what the strip offers now: no second session for a step, none ML2 cannot open yet.
+        if (
+          primary?.type !== "start" ||
+          !primary.available ||
+          primary.kind !== study.kind ||
+          primary.level !== study.level ||
+          primary.step !== study.step ||
+          primary.gap !== study.gap
+        ) {
+          throw new CommandError("study_not_available", { directionId });
+        }
+        return options.sessions.startStudySession(clientId, directionId, study);
+      });
+    },
+    async markStudyStep(directionId, level, step, mark, done) {
+      await changeProgress(directionId, (file) => markStep(file, level, step, mark, done));
+      return {};
+    },
+    async markStudyGap(directionId, gapId, fixed) {
+      await changeProgress(directionId, (file) => markGap(file, gapId, fixed));
+      return {};
+    },
     list() {
+      const sessions = options.sessions.summaries();
       return options.directions.list().map((found) => {
         const record = options.records.of(found.id);
         return {
@@ -347,11 +469,14 @@ export function createStudyCommands(options: {
           name: found.name ?? found.dirName,
           alias: record.alias,
           broken: found.broken,
+          newer: found.newer,
           discussing: found.discussing,
           archived: found.archived,
           createdAt: found.createdAt,
           pinnedAt: record.pinnedAt,
           lastOpenedAt: record.lastOpenedAt,
+          progress: found.progress,
+          next: nextFor(found, sessions),
         };
       });
     },

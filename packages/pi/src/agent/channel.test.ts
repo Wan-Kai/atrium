@@ -292,3 +292,19 @@ describe("readCancel", () => {
     expect(readCancel({ v: 2, id: "q", reason: "archived" })).toBeNull();
   });
 });
+
+/** A study_set_steps call with these lessons, as the channel reads it. */
+function stepsCall(lessons: string[]) {
+  return readRequest(JSON.stringify({ v: 1, kind: "call", id: "c", op: "study_set_steps", args: { lessons } }));
+}
+
+describe("the study tools' texts on the channel (SPEC-0008, ML2)", () => {
+  it("bounds them by characters as seen, as the extension does", () => {
+    const family = "👨‍👩‍👧";
+
+    expect(stepsCall([family.repeat(120)])).toStrictEqual({
+      request: { kind: "call", id: "c", op: "study_set_steps", args: { lessons: [family.repeat(120)] } },
+    });
+    expect(stepsCall([family.repeat(121)])).toStrictEqual({ bad: "c", kind: "call" });
+  });
+});

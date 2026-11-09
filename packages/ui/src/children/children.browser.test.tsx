@@ -325,6 +325,7 @@ describe("ChildCapsule with children the agent opened", () => {
       updatedAt: Date.now() - 1000,
       parent: { sessionId: "main", by: "agent" },
       heldDeliveries: 2,
+      kickoff: null,
       agent: {
         handle: "tests",
         role: "work",

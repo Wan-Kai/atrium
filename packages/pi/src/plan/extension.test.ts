@@ -443,7 +443,7 @@ describe("atriumPlan", () => {
     ]);
   });
 
-  it("registers Fast's switch and hook, the plan query and the child conversations' command, tools and flag, the web tools, and the visuals' flag and prompt hook, from Atrium's one extension", () => {
+  it("registers Fast's switch and hook, the plan query and the child conversations' command, tools and flag, the web tools, the visuals' flag and prompt hook, and study mode's command, flag and hooks but no tools, from Atrium's one extension", () => {
     const commands: string[] = [];
     const hooks: string[] = [];
     const tools: string[] = [];
@@ -463,7 +463,7 @@ describe("atriumPlan", () => {
     });
 
     expect([commands, hooks, tools.length, tools.slice(-2), flags]).toStrictEqual([
-      ["atrium-fast", "atrium-plan", "atrium-agent", "atrium-edit"],
+      ["atrium-fast", "atrium-plan", "atrium-agent", "atrium-edit", "atrium-study"],
       [
         "before_provider_request",
         "after_provider_response",
@@ -472,10 +472,13 @@ describe("atriumPlan", () => {
         "agent_end",
         "message_start",
         "before_agent_start",
+        // Study mode's tools wait for the session to start, and come only with its flag (SPEC-0008, ML2).
+        "session_start",
+        "before_agent_start",
       ],
       12,
       ["web_search", "web_fetch"],
-      ["atrium-agent", "atrium-visuals"],
+      ["atrium-agent", "atrium-visuals", "atrium-study"],
     ]);
   });
 

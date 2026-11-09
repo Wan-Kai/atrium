@@ -1,12 +1,12 @@
-import { isDirectionId } from "@atrium/protocol";
+import { type StudyProgress, isDirectionId } from "@atrium/protocol";
 import { type Dirent, watch } from "node:fs";
 import { constants } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { z } from "zod";
 import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
+import { STUDY_VERSION, parseStudyFile, progressOf } from "./progress";
 
 /** The marker file that makes a directory a direction, and holds its progress (SPEC-0008). */
 export const MARKER = ".atrium-study.json";
@@ -19,19 +19,6 @@ const MARKER_LIMIT = 1024 * 1024;
 
 /** How long changes the watch sees are gathered before one scan. */
 const WATCH_DELAY_MS = 200;
-
-/**
- * What the host reads of a marker file; the rest stays for the agent's tools (ML2).
- *
- * @remarks
- * Loose, as the file holds more than this; a field of the wrong type makes it broken.
- */
-const Marker = z.looseObject({
-  version: z.number().int().positive(),
-  name: z.string().trim().min(1).max(256),
-  createdAt: z.string().optional(),
-  ladder: z.array(z.unknown()).optional(),
-});
 
 /** A direction as the learning directory holds it. */
 export interface FoundDirection {
@@ -53,8 +40,12 @@ export interface FoundDirection {
   readonly createdAt: number | null;
   /** Its marker cannot be read; it shows as under discussion and is never written over. */
   readonly broken: boolean;
+  /** Its marker is of a later version: read as far as Atrium knows it, never written (ML2). */
+  readonly newer: boolean;
   /** It has no ladder yet (SPEC-0008, "讨论"). */
   readonly discussing: boolean;
+  /** Its ladder, steps and gaps; `null` while under discussion or broken (ML2). */
+  readonly progress: StudyProgress | null;
 }
 
 /** Watches a directory and what is below it; returns how to stop. */
@@ -209,7 +200,7 @@ export function directionIdOf(name: string): string | null {
 }
 
 /** What a marker that cannot be read says. */
-const BROKEN = { name: null, createdAt: null, broken: true, discussing: true } as const;
+const BROKEN = { name: null, createdAt: null, broken: true, newer: false, discussing: true, progress: null } as const;
 
 /**
  * Reads a direction's marker file.
@@ -217,7 +208,8 @@ const BROKEN = { name: null, createdAt: null, broken: true, discussing: true } a
  * @remarks
  * `null` when there is none, or it is not a regular file, a link included (opened with
  * `O_NOFOLLOW`): the directory is no direction. A file too large, not JSON or of the wrong shape
- * is a broken marker: still a direction, under discussion, its name its directory's.
+ * is a broken marker: still a direction, under discussion, its name its directory's. The shape is
+ * the host's whole reading of it (`StudyFile`, SPEC-0008 "ML2 定的细节").
  *
  * @sideEffects Reads the file.
  * @param dir - The directory.
@@ -225,7 +217,7 @@ const BROKEN = { name: null, createdAt: null, broken: true, discussing: true } a
  */
 async function readMarker(
   dir: string,
-): Promise<Pick<FoundDirection, "name" | "createdAt" | "broken" | "discussing"> | null> {
+): Promise<Pick<FoundDirection, "name" | "createdAt" | "broken" | "newer" | "discussing" | "progress"> | null> {
   const file = await open(join(dir, MARKER), constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => null);
   if (file === null) return null;
   let text: string;
@@ -238,20 +230,17 @@ async function readMarker(
   } finally {
     await file.close();
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } /* Stryker disable next-line BlockStatement: what the parse leaves unset fails the schema, broken all the same. */ catch {
-    return BROKEN;
-  }
-  const marker = Marker.safeParse(parsed);
-  if (!marker.success) return BROKEN;
-  const created = Date.parse(marker.data.createdAt ?? "");
+  const marker = parseStudyFile(text);
+  if (marker === null) return BROKEN;
+  const created = Date.parse(marker.createdAt ?? "");
+  const progress = progressOf(marker);
   return {
-    name: marker.data.name,
+    name: marker.name,
     createdAt: Number.isFinite(created) && created >= 0 ? created : null,
     broken: false,
-    discussing: (marker.data.ladder?.length ?? 0) === 0,
+    newer: marker.version > STUDY_VERSION,
+    discussing: progress === null,
+    progress,
   };
 }
 

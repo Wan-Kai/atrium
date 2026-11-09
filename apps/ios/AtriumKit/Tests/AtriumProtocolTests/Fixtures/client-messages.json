@@ -1,14 +1,14 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 35,
+    "protocolVersion": 36,
     "clientId": "c1",
     "token": "t",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
     "type": "hello",
-    "protocolVersion": 35,
+    "protocolVersion": 36,
     "clientId": "dev_0123456789abcdef",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
@@ -384,6 +384,49 @@
     "requestId": "r19l",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
     "directionId": "lrn_node-backend"
+  },
+  {
+    "type": "start_study_session",
+    "requestId": "r19m",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "directionId": "lrn_node-backend",
+    "kind": "lesson",
+    "level": "l2",
+    "step": "s4"
+  },
+  {
+    "type": "start_study_session",
+    "requestId": "r19n",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "directionId": "lrn_node-backend",
+    "kind": "feynman",
+    "level": "l2",
+    "step": "s3",
+    "gap": "g1"
+  },
+  {
+    "type": "mark_study_step",
+    "requestId": "r19o",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "directionId": "lrn_node-backend",
+    "level": "l2",
+    "step": "s4",
+    "mark": "quiz",
+    "done": true
+  },
+  {
+    "type": "mark_study_gap",
+    "requestId": "r19p",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "directionId": "lrn_node-backend",
+    "gapId": "g1",
+    "fixed": false
+  },
+  {
+    "type": "retry_study_kickoff",
+    "requestId": "r19q",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1"
   },
   {
     "type": "close_tab",

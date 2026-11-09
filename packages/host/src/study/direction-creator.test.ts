@@ -58,10 +58,17 @@ describe("DirectionCreator", () => {
       name: "Node 后端",
       createdAt: Date.parse("2026-11-05T10:12:00Z"),
       broken: false,
+      newer: false,
       discussing: true,
+      progress: null,
     });
     expect((await readdir(dir)).toSorted()).toStrictEqual([".atrium-study.json", "AGENTS.md", "lab"]);
     expect(await readFile(join(dir, "AGENTS.md"), "utf8")).toBe(AGENTS_TEMPLATE);
+    // The profile lives in the marker file; nothing in AGENTS.md invites the agent to write there (2026-11-09).
+    expect(AGENTS_TEMPLATE).not.toContain("Learner profile");
+    expect(AGENTS_TEMPLATE).toContain(
+      "- The learner's profile (goal, background, time per week, language or environment) is in\n  `.atrium-study.json`.",
+    );
     expect(JSON.parse(await readFile(join(dir, ".atrium-study.json"), "utf8"))).toStrictEqual({
       version: 1,
       name: "Node 后端",

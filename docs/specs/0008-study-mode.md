@@ -2,7 +2,7 @@
 
 - **状态**：评审中
 - **创建**：2026-11-05
-- **更新**：2026-11-06（ML1 验收前的回答：只读看归档会话、归档确认、去掉"继续讨论"、"建了方向"一行；三方评审后的细节）
+- **更新**：2026-11-06（ML1 验收前的回答：只读看归档会话、归档确认、去掉"继续讨论"、"建了方向"一行；三方评审后的细节）；2026-11-09（ML2 定的细节：进度文件、工具、下一步、手动标记，原型 `study-progress-states-prototype.html`）
 - **相关**：[SPEC-0007 对话里的交互演示](0007-inline-visuals.md)、[SPEC-0002 子对话](0002-child-conversations.md)（测验是上课会话的子对话）、[SPEC-0003 agent 向你提问](0003-agent-asks-user.md)（定档提问、选择题）、[SPEC-0001 · 新建工作区](0001-mvp1-single-session-chat.md)（先发消息再起名）、[domain-model.md §1](../architecture/domain-model.md#1-项目工作区会话)（容器）、[ADR-0008](../adr/0008-atrium-own-pi-extension-for-fast.md)（Atrium 自带的 pi 扩展）、[ADR-0013](../adr/0013-agent-channel-status-and-hidden-command.md)（隐藏命令）、原型 `prototypes/study-mode-prototype.html`（入口和方向主页的几种做法）、`prototypes/study-mode-flow-prototype.html`（完整流程，步骤条 A/B/C）、`prototypes/study-mode-visuals-prototype.html`（展示形式）
 
 ## 背景与目标
@@ -67,7 +67,7 @@
 
 - 点"新建方向"，主区是一个只有输入框的页："想学点什么？"（原型第 2 屏）。没有对话框、没有表单。这时什么都没建，关掉不留东西。
 - 发出第一条消息后，宿主：
-  1. 让 AI 按这条消息起显示名和英文目录名（同 worktree 的中文名那套；起不成时显示名取消息的第一行、目录名用随机名，不做拼音（2026-11-06 用户确认）；重名时加后缀）。
+  1. 让 AI 按这条消息起显示名和英文目录名（同 worktree 的中文名那套，用哪个模型见"ML2 定的细节"的"真实模型检查后改"；起不成时显示名取消息的第一行、目录名用随机名，不做拼音（2026-11-06 用户确认）；重名时加后缀）。
   2. 建目录，写 `.atrium-study.json`、方法论的 `AGENTS.md`，建 `lab/` 并 `git init`。
   3. 在目录里开"讨论"会话，把这条消息交给它。
 - pi 必须在目录存在之后才能启动（工作目录），所以顺序不能反。
@@ -150,7 +150,7 @@
 ```
 ~/Atrium/Learning/<目录名>/
 ├── .atrium-study.json   标记 + 进度（见"接口与数据"），只经扩展工具改
-├── AGENTS.md            方法论规则 + 定档；pi 每个会话都读
+├── AGENTS.md            方法论规则；pi 每个会话都读，agent 不改
 ├── resources.md         挑的资料和使用顺序
 ├── cheatsheet.md        每一级一节
 ├── notes/               每节课一篇，费曼的讲解
@@ -159,7 +159,7 @@
 ```
 
 - **pi 读 AGENTS.md 不需要信任目录**（pi 1.5.0 源码核实，`resource-loader.js` 的 `loadProjectContextFiles`：从工作目录一路往上找 `AGENTS.md`、`CLAUDE.md`，和信任无关；`.pi/prompts`、`.pi/skills`、`.pi/SYSTEM.md` 才要信任）。所以方法论放 AGENTS.md，命令由 Atrium 扩展注册，不放 `.pi/prompts`，方向目录不用信任。注意上层目录（`~/Atrium/`、`~`）的 AGENTS.md 也会被读到。
-- AGENTS.md 由宿主建方向时写入方法论规则（英文，给模型看；你可以改），讨论时 agent 在后面补定档。规则包括：一次只讲一点、让学生动手、测验一次一题、不替学生写 `lab/` 里的代码、按内容挑展示形式（原型"展示形式"第 6 屏）、每个会话开始先读进度和漏洞。
+- AGENTS.md 由宿主建方向时写入方法论规则（英文，给模型看；你可以改，agent 不改，2026-11-09 改：原先讨论时 agent 在后面补定档，定档现在只在 `.atrium-study.json`）。规则包括：一次只讲一点、让学生动手、测验一次一题、不替学生写 `lab/` 里的代码、按内容挑展示形式（原型"展示形式"第 6 屏）、每个会话开始先读进度和漏洞。
 
 ### 演示
 
@@ -178,7 +178,7 @@
   "version": 1,
   "name": "Node 后端",                 // 显示名，讨论中可以改
   "createdAt": "2026-11-05T10:12:00Z",
-  "profile": {                         // 定档，给界面显示一句话用；详细的在 AGENTS.md
+  "profile": {                         // 定档，给界面显示一句话用，各会话也从这里读（2026-11-09 起不再写进 AGENTS.md）
     "goal": "能独立写并部署一个 Node 服务",
     "weeklyHours": "4-8", "language": "TypeScript"
   },
@@ -209,15 +209,15 @@
 |---|---|---|
 | `study_set_name` | 讨论 | 改显示名 |
 | `study_set_profile` | 讨论 | 写定档 |
-| `study_set_ladder` | 讨论 | 写阶梯和起点（哪些级跳过）；写了讨论就算结束 |
-| `study_set_steps` | 讨论、排计划 | 写某一级的步骤 |
+| `study_set_ladder` | 讨论 | 写阶梯、起点（哪些级跳过）和起点那一级的课，一次写完；写了讨论就算结束（2026-11-09 改：原先起点那一级的步骤另用 `study_set_steps` 写） |
+| `study_set_steps` | 排计划 | 写当前这一级的课（还没排过时） |
 | `study_report` | 上课、测验、费曼、速查表、过关项目、综合测验 | 报告这个会话做完了什么：上课完成、测验分数、过关项目验收通过…… |
-| `study_add_gap` / `study_fix_gap` | 测验、费曼 | 记一个漏洞、标为已补 |
+| `study_add_gap` / `study_fix_gap` | 测验和综合测验记漏洞；费曼标已补 | 记一个漏洞、标为已补 |
 
 - 工具改的是宿主那边的状态：扩展把调用交给宿主（ADR-0013 的通道），宿主校验后写文件、推给界面。这样界面、步骤条、首页始终和文件一致。
 - 每个工具只在对应用途的会话里有（同 SPEC-0002"哪些会话有哪些工具"的做法）。
 - 工具说明写清楚什么时候调；agent 不调，进度就不动，你可以在主页上手动标完成（协议 `study.mark`，见"一级 = 一串步骤"）。
-- `study_set_ladder` 的级数不在 2～6 之间时拒绝，错误码 `study.ladder_size`，参数带 `min`、`max`、`got`。
+- `study_set_ladder` 的级数不在 2～6 之间时拒绝，错误码 `study.ladder_size`（协议里写作 `study_ladder_size`），参数带 `min`、`max`、`got`。
 
 ### 索引
 
@@ -251,6 +251,93 @@
 - 方向主页标签和学习首页只在界面里，不进布局（domain-model"已决定 20"）。
 - 收件箱和侧栏"学习"一行的汇总只算没归档的方向里、没归档的会话。
 - 手机完全碰不到学习模式（2026-11-06 用户定，选项 A）：手机收到的列表里没有方向、没有方向里的会话、没有方向的路径；手机对方向或方向里会话的任何命令（打开、订阅、发消息、插话、重试、停止、翻记录、看步骤、看图、在方向里新建会话……）都按 `local_only` 拒绝。宿主在路由和连接出口统一做，不按命令逐个做（security.md"宿主远程访问"）。
+
+### ML2 定的细节（2026-11-09）
+
+实现 ML2 时定下、上面没写到的（2026-11-09 用户全部同意；视觉按原型 `study-progress-states-prototype.html` 选的 1A、2D、3A、4A、5A，写在 design-language"学习模式"）：
+
+**用途怎么交给模型**
+
+- 宿主给方向里有用途的会话（讨论、排计划、上课、测验、费曼、速查表、过关项目、综合测验）起 pi 时加 `--atrium-study=<base64url JSON>`（`{ v: 1, kind, level?, step?, gap? }`，写法同 `--atrium-agent`）；随口问、没有用途的会话（`study: null`）和方向外的会话（工作区、对话）都不加。
+- 扩展只在有这个参数时注册 `study_*` 工具，并且只注册这个用途用得到的（2026-11-09 用户强调：普通会话的工具表里根本没有学习工具，不只是用 `--exclude-tools` 去掉）。pi 在扩展加载之后才设参数，所以扩展在 `session_start` 里读参数、注册工具。宿主照样按调用方会话的记录核对用途（第二层），不对的回 `study_not_allowed`。
+- 每次运行前扩展按用途在系统提示里加一段 `atrium_study`（先照推文的 6 段写）；pi 重启后照样有。讨论的第一条消息是你自己发的普通消息，不经隐藏命令。
+- 宿主开的会话（ML2 是上课、速查表、过关项目、综合测验）建好后，宿主确认 `get_commands` 里有 `atrium-study`，再发隐藏命令 `/atrium-study start <base64url JSON>`（`{ v: 1 }`，只有版本，用途和第几级第几步扩展从启动参数读）。扩展发一条 `atrium-agent` 自定义消息开一轮（`details` 是 `{ v: 1, kind: "study", deliveries: [], study }`），内容是给模型的开场；对话记录里这一轮的来源是 `{ kind: "study", study }`，界面画成"上课 · 第 2 级第 4 步"的气泡，宿主不产出文字。
+
+**工具（按用途给）**
+
+| 用途 | 工具 |
+|---|---|
+| 讨论 | `study_set_name`、`study_set_profile`、`study_set_ladder` |
+| 排计划 | `study_set_steps` |
+| 上课、速查表、过关项目 | `study_report` |
+| 测验、综合测验 | `study_report`、`study_add_gap` |
+| 费曼 | `study_fix_gap` |
+| 随口问、没有用途 | 没有 |
+
+- 工具经 ADR-0013 的通道问宿主（`atrium-agent:` 状态，`op` 就是工具名）。宿主核对用途，校验参数，排队写文件，答结果或错误码。
+- `study_report`、`study_add_gap` 写的是调用方会话记录里的那一级那一步，参数里不带级和步，写不到别的步骤上：上课报"上课完成"（不带分数）；测验、综合测验报分数 `{ score, of }`（`0 ≤ score ≤ of`，`1 ≤ of ≤ 100`）；速查表、过关项目报"完成"。`study_fix_gap` 只能标费曼会话记录里那一个漏洞。
+- 阶梯写过以后再调 `study_set_ladder` 回 `study_ladder_set`（第一版不改阶梯）；当前这一级已经有课时 `study_set_steps` 回 `study_steps_set`。
+
+**`.atrium-study.json`（v1）**
+
+```jsonc
+{
+  "version": 1, "name": "Node 后端", "createdAt": "…",
+  "profile": { "goal": "…", "weeklyHours": "4-8", "language": "TypeScript" },   // 都可以没有，每段最多 200 字
+  "ladder": [ { "id": "l1", "name": "…", "topics": "…", "pass": "…", "state": "skipped" | "current" | "done" | "todo" } ],
+  "steps": { "l2": [
+    { "id": "s1", "kind": "lesson", "title": "关系建模",
+      "lesson": null | { "by": "agent" | "manual" },
+      "quiz": null | { "by": "agent", "score": 42, "of": 50 } | { "by": "manual" } | { "by": "later" },
+      "done": null | { "by": "agent" | "manual" } },
+    { "id": "s10", "kind": "sheet" | "project" | "exam" | "up", "done": null | { "by": "agent" | "manual", "score"?: 8, "of"?: 10 } }
+  ] },
+  "gaps": [ { "id": "g1", "text": "…", "from": { "level": "l2", "step": "s3", "question": 4 }, "fixed": null | { "by": "agent" | "manual" } } ],
+  "finishedAt": null
+}
+```
+
+- id 由宿主给（`l1`…、`s1`…、`g1`…）。agent 只给课的题目（每级 1～30 节）；速查表、过关项目、综合测验、升级这 4 步由宿主接在课后面，没有题目，名字由界面按种类写。
+- 上限：级名 60 字、学什么和过关标志各 500 字、课题目 120 字、漏洞 1000 字、显示名 256 字，"字"都按看到的字符（字形簇，同 ML1 起名的规则）数，扩展、通道、档案的读写和协议用同一个函数（2026-11-09 用户定）；超了工具回 `agent_text_too_long`（带字段和上限）。这些上限不写进工具的 JSON Schema（`maxLength`）：写了 pi 会在扩展之前按自己的说法拒绝，模型拿不到字段和上限（ADR-0013 第 9 条），由扩展自己查（2026-11-09 评审后改）。漏洞最多 200 条，满了 `study_add_gap` 回 `study_gaps_full`（带 `max`）。
+- 整份档案写出来不能超过 1 MiB（读的上限），超了不写，回 `study_file_too_large`（2026-11-09 评审后加）。
+- 读的时候严格：哪一处形状不对、级数不在 2～6，整份按"坏了"算：方向显示"讨论中"、标出文件坏了，工具回 `study_file_broken`，不写。`version` 比 1 大的照样读认识的部分，不写（`study_file_version`）：方向列表里标 `newer`，步骤条和主页照样显示进度，但没有按钮、没有手动标记，`start_study_session` 也回 `study_file_version`（2026-11-09 评审后定）。
+- 不认识的字段在每一层都保留（顶层、每一级、每一步、每个漏洞）。
+- 写：同一个方向的写排队一个一个来；每次写之前先确认方向目录仍是学习目录下一层的真目录（`lstat` 不是链接、`realpath` 的上一层就是学习目录），不是就不写（`learning_dir_unsafe`，工具回 `study_write_failed`）；再重新读文件，在同一个目录新建临时文件（从建出来起归这次写，之后哪一步失败都删掉）再改名换上，标记文件是链接的不写（`O_NOFOLLOW`）。写完宿主重新扫描，界面跟着变。
+- 归档方向时先等这个方向排在前面的写做完再移目录；归档开始以后来的写都拒绝（命令回 `direction_archived`，工具回 `study_not_allowed`），`Archive/` 里不会留下临时文件。开有用途的会话和归档、恢复按方向一个一个来，开之前在队里再算一次下一步，同时按两下只开一个会话（2026-11-09 评审后定）。
+- 讨论结束的判断：有阶梯（`study_set_ladder` 一次写出阶梯和起点那一级的课）。起点是第一个不跳过的级；全部跳过的拒绝（`agent_bad_request`）。
+
+**下一步（宿主算，规则表补充）**
+
+- 当前这一步是当前一级里第一个 `done` 为空的步骤。课这一步：`lesson` 空 → 开始上课；上过、`quiz` 空 → 开始测验，次要"以后再测"；测过（agent 或手动）且这一步有没补的漏洞 → 跑费曼，次要"进入下一步"；测过、没有没补的漏洞 → 进入下一步。
+- "以后再测"：这一步记 `quiz: { by: "later" }`、`done: { by: "manual" }`，往下走；主页在这一步上显示"没测"，悬停可"补测"（原型 4A）。
+- "进入下一步"：这一步记 `done: { by: "manual" }`，没补的漏洞照样留着。
+- "回到这个会话"：方向里有没归档的会话，记录的用途、级、步和主按钮要开的一样（不论在不在跑），主按钮就是打开它（最近活动的那个）。
+- ML2 里能开的会话只有上课、速查表、过关项目、综合测验；测验、跑费曼、升级的按钮画出来但不能点（"即将开放"，原型 2D），ML3 接上。
+- 归档的方向、已学完的方向、档案读不出来的方向、档案版本比 1 大的方向都没有按钮（原型 2D）；这几种方向的主页也没有手动标记和撤回。已学完的方向没有当前一级，步骤条和主页显示最后一级的步骤，点全亮。
+
+**手动标完成**
+
+- 只能标还没完成的，只能撤回手动标的；agent 报告的不能撤回。之后 agent 报告同一项，以 agent 的为准（`by` 换成 `agent`、写上分数）。
+- 升级这一步不能手动标（只有升级本身能完成它，ML3）；速查表、过关项目、综合测验只能"标为完成"。
+- 撤回"整步标为完成"时，它当时一起手动标上的上课、测验也撤回，回到标之前的样子；之后 agent 报告过的（`by: "agent"`）留着（2026-11-09 用户定）。整步的标记里记下它一起标了哪几项（`done: { by: "manual", parts: ["lesson", "quiz"] }`，读时可以没有）。
+- 课这一步能单标"上课""测验"或整步；标测验时上课一起标上（手动），整步是上课、测验（空的那几项）和完成都标上。撤回一项时，它后面手动标的也一起撤回。agent 报告测验时，上课也一起记成 agent 的。
+- 补漏不在步骤上标：在漏洞上"标为已补"（`fixed: { by: "manual" }`，原型 3A），能撤回；之后费曼标同一个漏洞以它为准。
+- 协议：`mark_study_step { directionId, level, step, mark: "lesson" | "quiz" | "step" | "later", done }`、`mark_study_gap { directionId, gapId, fixed }`；不合规则的（已经完成、撤回 agent 的、不是课却标小步）回 `study_mark_refused`，找不到级、步、漏洞回 `study_not_found`。
+
+**协议的其他部分**
+
+- 方向列表里每个方向多 `progress`（档案里的定档、阶梯、各级步骤、漏洞、学完时间；讨论中或坏了是 `null`）和 `next`（`{ primary, secondary }`，每个是 `start`（用途、级、步、漏洞，`available`）、`open`（会话）、`mark`（`later` / `step`）、`upgrade`（`available`）之一，或 `null`）。手机收到的列表里方向是空的，带方向的命令照样按 `local_only` 拒绝。
+- 开有用途的会话：`start_study_session { directionId, kind, level, step, gap? }`，应答 `{ sessionId }`；方向归档了 `direction_archived`，这一步不是当前要开的 `study_not_available`。
+- 在方向标签栏点"+"开的会话记成"随口问"（`{ kind: "ask" }`），没有学习工具。
+- 方向主页右栏的"档案"（目录里的文件、用现有的文件预览打开）ML2 不做，和 ML4 的演示列表一起做（2026-11-09 用户确认：文件预览目前只认工作区，要先让 `list_dir`、`read_file` 和查看标签认方向）。
+- 宿主开的会话没开起来（2026-11-09 用户定）：上课、速查表、过关项目、综合测验的会话打开时如果还没有任何一轮，宿主在 pi 列出 `atrium-study` 以后再发一次开场；已经有一轮的不再发，同一时间只发一次。pi 起不来、或者起来了没列出这个命令时，列表里这个会话的 `kickoff` 是 `{ code }`（pi 起不来的错误码，或 `study_kickoff_failed`），会话里显示一行错误和"重试"（字由界面写）；"重试"发 `retry_study_kickoff { sessionId }`，开起来以后 `kickoff` 回到 `null`。扩展收到开场时 pi 正在跑，就把它排在这次运行之后（`followUp`），不丢。手机碰不到。
+
+**真实模型检查后改（2026-11-09，DeepSeek 跑了一遍，用户同意按建议全改）**
+
+- 第一条消息先到：新建方向后，第一条消息交给 pi 之前，在讨论会话里再发的消息排在它后面，按发的顺序一条一条发（界面里排：第一条要等设模型、等 pi 起来，后发的那条原先会先到 pi，第一条反而落到最后）。第一条没发出去（回到输入框）时，排着的照常发。宿主照收到的顺序交给 pi。
+- 起名用的模型：设置里的标题模型（pi 能用时）→ 页上选的 → 新会话会用的模型（上次选的，同输入框按钮上显示的）→ pi 的默认。原先没有第三档：页上没另选时（按钮显示的是上次选的模型，发出去是 `null`）落到 pi 的默认模型，和讨论会话用的不是同一个；那次检查里 pi 的默认模型调用失败（`model_failed`），目录名成了随机名。
+- 方向里的 `AGENTS.md` agent 不改：系统提示词的公共部分写明它是 Atrium 放的学习方法、学生可以改、agent 不改；定档只经 `study_set_profile` 写进 `.atrium-study.json`，不再写到 `AGENTS.md` 里（模板去掉"Learner profile"一节，改成一句"定档在 `.atrium-study.json` 里"）。宿主不另加拦截。
+- 讨论排阶梯的说法：先把阶梯和起点那一级的课排出来问"准备这样排，确认吗？"（用学生的语言），学生确认以后才调 `study_set_ladder`；没调之前不说"已经放上去了"。调成功以后用两三句话收尾（定了什么、去方向主页开始第一课），然后停下，这个会话里不再建目录、改文件（`resources.md` 在提议之前写好）。
 
 ## 备选方案
 

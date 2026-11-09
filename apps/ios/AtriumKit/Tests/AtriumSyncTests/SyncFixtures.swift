@@ -210,7 +210,7 @@ func summaryJSON(
     "name": name.map { "\"\($0)\"" } ?? "null", "prompt": prompt.map { "\"\($0)\"" } ?? "null",
     "file": "null", "state": "\"persisted\"", "updatedAt": "1", "archived": "false", "running": "false",
     "attention": "null", "asking": "null", "question": "null", "model": "null", "parent": "null",
-    "agent": "null", "heldDeliveries": "0", "study": "null",
+    "agent": "null", "heldDeliveries": "0", "study": "null", "kickoff": "null",
   ]
   fields.merge(extra) { _, new in new }
   return "{" + fields.sorted { $0.key < $1.key }.map { "\"\($0.key)\":\($0.value)" }.joined(separator: ",") + "}"

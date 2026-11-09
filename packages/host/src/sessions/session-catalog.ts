@@ -32,7 +32,10 @@ export interface AgentFields {
 }
 
 /** What the catalog knows of one session; the manager adds whether it runs or asks, and its agent's state. */
-export type CatalogEntry = Omit<SessionSummary, "running" | "asking" | "question" | "agent" | "heldDeliveries"> &
+export type CatalogEntry = Omit<
+  SessionSummary,
+  "running" | "asking" | "question" | "agent" | "heldDeliveries" | "kickoff"
+> &
   AgentFields & {
     /** The working directory pi starts in. */
     readonly cwd: string;

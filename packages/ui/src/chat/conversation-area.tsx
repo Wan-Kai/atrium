@@ -6,8 +6,9 @@ import {
   isWorkspaceId,
   loadingView,
 } from "@atrium/client";
-import type { DiffStat, SessionModel } from "@atrium/protocol";
+import type { DiffStat, SessionModel, SessionStudy } from "@atrium/protocol";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StudyKickoffLine } from "../study/kickoff-line";
 import { ArchivedDirectionBar } from "./archived-direction-bar";
 import { type StoreApi, useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
@@ -59,6 +60,8 @@ import {
 import type { LaunchInTurn } from "./launch-timeline";
 import type { CreatedDirection } from "./turn-view";
 import { directionName } from "../study/learning";
+import { stepTitle, studyLabel } from "../study/progress";
+import { StudyLabelContext } from "../study/study-label";
 import { type Panes, createPanes, memoryStorage } from "../state/panes";
 import {
   NO_VIEW,
@@ -74,6 +77,7 @@ import {
 import { ActiveViewer } from "../files/active-viewer";
 import { workspacePath } from "../files/workspace-path";
 import { NO_CHANGES, useDiffWatch } from "../files/use-diff";
+import { firstMessages } from "./first-message";
 
 /** What to say when pi cannot be used, by the status the host found. */
 const PI_STATUS_TEXT: Readonly<Record<string, string>> = {
@@ -482,6 +486,7 @@ function SessionArea({
     }),
     [client, views, sessionId, sessions],
   );
+  const studyNames = useStudyNames(client, sessionId);
   useEffect(() => {
     // The box's own effect has focused it by now, as children's effects run first.
     if (takesFocus) onFocusTaken();
@@ -519,58 +524,60 @@ function SessionArea({
           <VisualsContext value={visuals}>
             <MessageImagesContext value={images}>
               <AgentLinksContext value={links}>
-                <ReplyTranslationContext value={translation}>
-                  <Transcript
-                    view={view}
-                    editingStopped={editing !== null}
-                    onEditStopped={
-                      readOnly
-                        ? undefined
-                        : (turn) => {
-                            const draftKey = `edit:${sessionId}:${crypto.randomUUID()}`;
-                            const imageIds = Array.from({ length: turn.user.images }, () => crypto.randomUUID());
-                            const next = pageDrafts().read(sessionId);
-                            pageDrafts().update(draftKey, () => ({
-                              text: turn.user.text,
-                              pastes: [],
-                              files: [],
-                              command: null,
-                              images: imageIds.map((id) => ({ id, image: null, attachmentId: null })),
-                            }));
-                            editStore.setState({
-                              target: {
-                                epoch: view.epoch,
-                                turnId: turn.id,
-                                draftKey,
-                                images: imageIds,
-                                savedDraft:
-                                  next.text !== "" ||
-                                  next.images.length > 0 ||
-                                  next.pastes.length > 0 ||
-                                  next.files.length > 0 ||
-                                  next.command !== null,
-                              },
-                              submitting: false,
-                              error: null,
-                            });
-                          }
-                    }
-                    onLoadOlder={() => {
-                      // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
-                      client.loadOlder(sessionId).catch(() => undefined);
-                    }}
-                    onLoadStep={(turnId, stepId) => {
-                      // Fire and forget: a failed fetch leaves the preview, still marked as loading.
-                      client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
-                    }}
-                    onRetry={readOnly ? undefined : actions.retry}
-                    onFork={readOnly ? undefined : (turnId) => forkFrom(client, sessionId, turnId)}
-                    onChild={readOnly ? undefined : (turnId) => askForChild({ parentSessionId: sessionId, turnId })}
-                    {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
-                    launch={shown}
-                    created={created}
-                  />
-                </ReplyTranslationContext>
+                <StudyLabelContext value={studyNames}>
+                  <ReplyTranslationContext value={translation}>
+                    <Transcript
+                      view={view}
+                      editingStopped={editing !== null}
+                      onEditStopped={
+                        readOnly
+                          ? undefined
+                          : (turn) => {
+                              const draftKey = `edit:${sessionId}:${crypto.randomUUID()}`;
+                              const imageIds = Array.from({ length: turn.user.images }, () => crypto.randomUUID());
+                              const next = pageDrafts().read(sessionId);
+                              pageDrafts().update(draftKey, () => ({
+                                text: turn.user.text,
+                                pastes: [],
+                                files: [],
+                                command: null,
+                                images: imageIds.map((id) => ({ id, image: null, attachmentId: null })),
+                              }));
+                              editStore.setState({
+                                target: {
+                                  epoch: view.epoch,
+                                  turnId: turn.id,
+                                  draftKey,
+                                  images: imageIds,
+                                  savedDraft:
+                                    next.text !== "" ||
+                                    next.images.length > 0 ||
+                                    next.pastes.length > 0 ||
+                                    next.files.length > 0 ||
+                                    next.command !== null,
+                                },
+                                submitting: false,
+                                error: null,
+                              });
+                            }
+                      }
+                      onLoadOlder={() => {
+                        // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
+                        client.loadOlder(sessionId).catch(() => undefined);
+                      }}
+                      onLoadStep={(turnId, stepId) => {
+                        // Fire and forget: a failed fetch leaves the preview, still marked as loading.
+                        client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
+                      }}
+                      onRetry={readOnly ? undefined : actions.retry}
+                      onFork={readOnly ? undefined : (turnId) => forkFrom(client, sessionId, turnId)}
+                      onChild={readOnly ? undefined : (turnId) => askForChild({ parentSessionId: sessionId, turnId })}
+                      {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
+                      launch={shown}
+                      created={created}
+                    />
+                  </ReplyTranslationContext>
+                </StudyLabelContext>
               </AgentLinksContext>
             </MessageImagesContext>
           </VisualsContext>
@@ -954,7 +961,8 @@ export function ConversationArea({
    * See `ConversationArea`.
    *
    * An image the host has let go after 30 minutes is uploaded again once, from the copy the box
-   * kept, one image at a time (SPEC-0001, "模型与输入框"). A message that still does not go goes
+   * kept, one image at a time (SPEC-0001, "模型与输入框"). While a new direction's first message
+   * is on its way to pi, this one waits behind it (SPEC-0008, "真实模型检查后改"). A message that still does not go goes
    * back into its box with its latest uploads.
    *
    * @sideEffects Sends commands; may upload images; updates component state.
@@ -977,6 +985,8 @@ export function ConversationArea({
     try {
       id = await target();
       const to = id;
+      // A new direction's first message is still on its way: this one goes after it.
+      await firstMessages().after(to);
       const previews = images.map(({ image }) => image.preview);
       const tag = command ?? undefined;
       /**
@@ -1334,7 +1344,12 @@ export function ConversationArea({
             act={act}
             attempt={attempt}
             session={target}
-            notice={notice}
+            notice={
+              <>
+                {notice}
+                <StudyKickoffLine client={client} sessionId={sessionId} />
+              </>
+            }
             pickerRequest={pickerRequest}
             attaching={attaching}
             takesFocus={handing?.sessionId === sessionId}
@@ -1391,6 +1406,37 @@ function useCreatedDirection(client: AtriumClient, sessionId: string): CreatedDi
         : // Where it was made, archived since or not: the learning directory and its directory's name.
           { name: directionName(direction), dir: `${learningDir}/${direction.id.slice("lrn_".length)}` },
     [direction, learningDir],
+  );
+}
+
+/**
+ * How this session's conversation names a use: with its direction's level and step, and the
+ * step's title (design-language "学习模式", "宿主开的学习会话第一轮").
+ *
+ * @remarks
+ * Outside a direction, or before its progress is read, the use alone.
+ *
+ * @sideEffects Subscribes to the list.
+ * @param client - The client.
+ * @param sessionId - The session.
+ * @returns The namer.
+ */
+function useStudyNames(client: AtriumClient, sessionId: string): (study: SessionStudy) => string {
+  const progress = useStore(client.index, (index) => {
+    const session = index.sessions.find((one) => one.sessionId === sessionId);
+    return index.directions.find((one) => one.id === session?.containerId)?.progress ?? null;
+  });
+  return useCallback(
+    (study: SessionStudy) => {
+      const label = studyLabel(study, progress);
+      const levelAt = progress?.ladder.findIndex((level) => level.id === study.level) ?? -1;
+      const step =
+        study.level === undefined ? undefined : progress?.steps[study.level]?.find((one) => one.id === study.step);
+      return step === undefined || progress === null
+        ? label
+        : `${label} · ${stepTitle(step, levelAt + 1, progress.ladder.length)}`;
+    },
+    [progress],
   );
 }
 

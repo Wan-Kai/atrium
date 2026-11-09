@@ -181,6 +181,7 @@ function session(id: string, archived: boolean): SessionSummary {
     parent: null,
     agent: null,
     heldDeliveries: 0,
+    kickoff: null,
     study: null,
   };
 }

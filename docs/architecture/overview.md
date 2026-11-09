@@ -113,7 +113,9 @@ atrium/
 │   │   │   │                       和用量合计（children-usage，SPEC-0002）；stopped-edit 负责停止消息编辑的分支事务和恢复；
 │   │   │   │                       reply-translation 管理按连接归属的临时翻译与取消，不写会话
 │   │   │   ├── study/              学习方向（SPEC-0008，ML1）：扫描和监听学习目录（Directions）、起名、建方向目录、
-│   │   │   │                       方向的命令（新建、归档、恢复，经 SessionManager 建会话、停 pi）
+│   │   │   │                       方向的命令（新建、归档、恢复，经 SessionManager 建会话、停 pi）；
+│   │   │   │                       进度（ML2）：progress（读 `.atrium-study.json`）、progress-file（排队、原子写）、
+│   │   │   │                       progress-rules（工具、手动标记、下一步，纯函数）、study-tools（答扩展的 `study_*` 工具）
 │   │   │   ├── transcript/         SessionLog（日志条目树、叶子、当前分支）、TranscriptProjection
 │   │   │   ├── status/             会话状态、工作区和项目的汇总（纯函数）
 │   │   │   ├── sync/               订阅表、列表推送（M1.5 整份快照，M1.9 加 generation+seq 增量）
