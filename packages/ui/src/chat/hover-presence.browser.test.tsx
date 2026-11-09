@@ -53,6 +53,34 @@ describe("Hover card top-layer presence", () => {
       expect(added.mock.calls.filter(([type]) => ["resize", "scroll"].includes(type))).toStrictEqual([]);
     });
 
+    it(`keeps the ${testCase.kind} card shown while the pointer is on it, though the card is in the top layer, and hides it once the pointer leaves`, async () => {
+      const screen = await render(
+        <div style={{ marginTop: 500, width: 500 }}>
+          <button type="button">外面</button>
+          <Target kind={testCase.kind} />
+        </div>,
+      );
+      await screen.getByRole("button", { name: testCase.name, exact: true }).hover();
+      const card = screen.getByRole("tooltip");
+      await expect.element(card).toBeVisible();
+      const tooltip = card.element();
+      await card.hover();
+      // Wherever its fade is, its end: shown while the pointer stays on the card (SPEC-0001, "状态栏").
+      for (const animation of tooltip.getAnimations()) animation.finish();
+      const open = tooltip.matches(":popover-open");
+      const shown = [getComputedStyle(tooltip).visibility, getComputedStyle(tooltip).opacity];
+      await screen.getByRole("button", { name: "外面" }).hover();
+      for (const animation of tooltip.getAnimations()) animation.finish();
+
+      expect([open, ...shown, getComputedStyle(tooltip).visibility, getComputedStyle(tooltip).opacity]).toStrictEqual([
+        true,
+        "visible",
+        "1",
+        "hidden",
+        "0",
+      ]);
+    });
+
     it(`keeps the ${testCase.kind} card fixed through its exit, cancels reentry, and releases its timer`, async () => {
       const time = new FakeClock();
       const clock: UiClock = {
@@ -73,9 +101,9 @@ describe("Hover card top-layer presence", () => {
       await trigger.hover();
       const tooltip = screen.getByRole("tooltip", { includeHidden: true }).element();
       await expect.poll(() => tooltip.matches(":popover-open")).toBe(true);
-      const entrance = tooltip.getAnimations().map((animation) => animation.effect?.getTiming());
-      expect(entrance.map((timing) => timing?.delay)).toContain(120);
-      expect(entrance.map((timing) => timing?.duration)).toContain(150);
+      // The entrance's timing as the stylesheet gives it; its animation may be over already when the machine is busy.
+      const style = getComputedStyle(tooltip);
+      expect([style.transitionDelay, style.transitionDuration]).toStrictEqual(["0.12s", "0.15s"]);
       const before = tooltip.getBoundingClientRect();
       await outside.hover();
       expect(tooltip.matches(":popover-open")).toBe(true);

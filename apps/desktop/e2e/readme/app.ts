@@ -4,6 +4,7 @@ import {
   README_FAUX_LOG_ENV,
   README_FAUX_SCRIPT_ENV,
   type ReadmeFauxScript,
+  installedPi,
 } from "@atrium/testkit";
 import { type ElectronApplication, type Page, _electron as electron, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
@@ -12,7 +13,6 @@ import { type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { realPi } from "../faux-pi";
 import { addProject } from "../projects";
 
 /** A loopback stand-in for ChatGPT's backend. */
@@ -136,7 +136,7 @@ export async function launchShotsApp(
       setupDone: true,
     })}\n`,
   );
-  const pi = await realPi();
+  const pi = await installedPi();
   const wrapper = join(bin, "pi");
   writeFileSync(
     wrapper,

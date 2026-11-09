@@ -1,8 +1,7 @@
-import { createTempDir, fauxPi, present } from "@atrium/testkit";
+import { createTempDir, fauxPi, installedPi, present } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
 import { describe, expect, it, onTestFinished } from "vitest";
 import type { PiDeps } from "../deps";
-import { findPi } from "../locate/locate";
 import { descendantsOf, parseProcessTable } from "./kill-tree";
 import { startPiProcess } from "./pi-process";
 
@@ -75,7 +74,7 @@ describe("PiProcess resources", () => {
     onTestFinished(dir.cleanup);
     const launch = await fauxPi({ replies: [] }, dir.path);
     const path = present(process.env["PATH"], "PATH");
-    const piPath = present(await findPi(path), "pi on PATH");
+    const piPath = await installedPi(path);
     const { deps, open, timers } = countingDeps({ PATH: path, HOME: dir.path });
     const handlesBefore = liveHandles();
     const descendantsBefore = ownDescendants();

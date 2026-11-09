@@ -26,13 +26,18 @@ const DETACHED = 2;
  *
  * @remarks
  * Snapshots are taken over CDP so the real Electron renderer is measured, not a separate browser
- * (testing.md, "界面泄漏测试").
+ * (testing.md, "界面泄漏测试"). First the page draws two frames (`settleFrames`): Chromium's
+ * document timeline can keep the CSS animations of an element removed since the last frame, and
+ * with them the element, until a frame services the timeline. A running mark (21 animated dots)
+ * removed just before the snapshot otherwise counts as detached DOM nothing in the app holds.
  *
- * @sideEffects Opens a CDP session on the page, runs GC, and writes the snapshot file.
+ * @sideEffects Waits for two frames in the page; opens a CDP session on the page, runs GC, and
+ * writes the snapshot file.
  * @param page - The renderer page.
  * @param file - Where to write the `.heapsnapshot`.
  */
 export async function takeHeapSnapshot(page: Page, file: string): Promise<void> {
+  await settleFrames(page);
   const cdp = await page.context().newCDPSession(page);
   const chunks: string[] = [];
   cdp.on("HeapProfiler.addHeapSnapshotChunk", ({ chunk }) => chunks.push(chunk));
@@ -41,6 +46,24 @@ export async function takeHeapSnapshot(page: Page, file: string): Promise<void> 
   await cdp.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false });
   await cdp.detach();
   await writeFile(file, chunks.join(""));
+}
+
+/**
+ * Waits until the page has drawn two whole frames.
+ *
+ * @remarks
+ * A frame services the document timeline before it runs animation-frame callbacks, and an element
+ * removed since may have its animations cancelled only in that frame's style pass; the next frame's
+ * service drops them. Two callbacks are the least that covers both, wherever in a frame the call
+ * lands.
+ *
+ * @sideEffects Schedules two animation-frame callbacks in the page.
+ * @param page - The renderer page.
+ */
+async function settleFrames(page: Page): Promise<void> {
+  await page.evaluate(
+    () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+  );
 }
 
 /**

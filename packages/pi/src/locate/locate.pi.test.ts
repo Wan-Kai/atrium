@@ -1,12 +1,27 @@
-import { present } from "@atrium/testkit";
+import { installedPi, present } from "@atrium/testkit";
+import { delimiter, dirname } from "node:path";
 import { describe, expect, it } from "vitest";
 import { inspectPi } from "./inspect";
 import { findPi, readVersion } from "./locate";
 import { MIN_PI_VERSION, isAtLeast } from "./version";
 
+/**
+ * The test process's PATH with the installed pi's folder first.
+ *
+ * @remarks
+ * The app reads PATH from the login shell; the test process's may have a shim before pi, such as
+ * cmux's in its terminals, which the login shell's does not (testing.md, "端到端测试找 pi").
+ *
+ * @sideEffects Checks files on disk.
+ * @returns The PATH.
+ */
+async function pathToInstalledPi(): Promise<string> {
+  return [dirname(await installedPi()), present(process.env["PATH"], "PATH")].join(delimiter);
+}
+
 describe("installed pi", () => {
   it("is found on PATH and reports a supported version", async () => {
-    const piPath = present(await findPi(present(process.env["PATH"], "PATH")), "pi on PATH");
+    const piPath = present(await findPi(await pathToInstalledPi()), "pi on PATH");
 
     const version = present(await readVersion(piPath, { env: process.env }), "pi version");
 
@@ -15,7 +30,7 @@ describe("installed pi", () => {
   });
 
   it("is ready when inspected through the test process's PATH", async () => {
-    const path = present(process.env["PATH"], "PATH");
+    const path = await pathToInstalledPi();
 
     const clock = {
       now: () => Date.now(),
