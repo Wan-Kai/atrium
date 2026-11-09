@@ -94,6 +94,9 @@ nonisolated enum RailRows {
         return [RailRow(id: agent.id, node: .steer, verb: "主 agent 插话", object: opening(task.text), detail: task.text)]
       case .report(let report):
         return report.events.enumerated().map { index, event in eventRow(event, id: "\(agent.id):\(index)") }
+      case .study:
+        // Only a turn's opening, in a learning direction's session, which the phone never gets (SPEC-0008).
+        return []
       }
     case .retry(let retry):
       let limit = retry.maxAttempts.map { " / \($0)" } ?? ""

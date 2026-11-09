@@ -15,6 +15,8 @@ import {
   type PiInspection,
   PiRequestError,
   isFastSwitch,
+  isStudyCommand,
+  startCommand,
   piStatsOf,
   readUserImage,
   runOneShot,
@@ -29,6 +31,7 @@ import {
   type Attention,
   type ChildPlacement,
   type Control,
+  type ErrorCode,
   CommandError,
   IDLE_CONTROL,
   type CommandResult,
@@ -67,8 +70,14 @@ import type { Layouts } from "./layouts";
 import { type CatalogChat, type CatalogEntry, chatIdOf, type NewRecord, type SessionCatalog } from "./session-catalog";
 import { archivePlan } from "./child-tree";
 import { createReadOnlyTranscripts } from "./read-only-transcripts";
-import { agentLaunchFlags } from "./agent-launch";
-import { type ChildCreated, type ChildRequest, type WorkChanges, createAgentRelay } from "./agent-relay";
+import { agentLaunchFlags, studyLaunchFlags } from "./agent-launch";
+import {
+  type AgentHost,
+  type ChildCreated,
+  type ChildRequest,
+  type WorkChanges,
+  createAgentRelay,
+} from "./agent-relay";
 import { createChildrenUsage } from "./children-usage";
 import type { SessionCommands } from "./session-commands";
 import type { ReplyTranslationSource } from "./reply-translation";
@@ -91,6 +100,23 @@ export interface SessionTools {
 
 /** The largest page `export_session` hands over (SPEC-0001, "M1.11 的 `/` 命令 · 其他宿主命令"). */
 const EXPORT_MAX_BYTES = 20 * 1024 * 1024;
+
+/** The uses of the sessions the host opens itself, which start with `/atrium-study start` (ML2). */
+const HOST_OPENED: ReadonlySet<string> = new Set(["lesson", "sheet", "project", "exam"]);
+
+/**
+ * Whether a session is one the host opened for a use and starts itself.
+ *
+ * @remarks
+ * SPEC-0008, "ML2 定的细节": a discussion, a plan or an asking session starts with your message.
+ *
+ * @sideEffects none
+ * @param study - The session's use.
+ * @returns Whether.
+ */
+function hostOpened(study: SessionSummary["study"] | undefined): boolean {
+  return study !== null && study !== undefined && HOST_OPENED.has(study.kind);
+}
 
 /**
  * Runs work after the work run before it under the same key.
@@ -136,6 +162,15 @@ export interface SessionManager extends SessionCommands {
    * active tab there, as `createSession` does.
    */
   createStudySession(
+    clientId: string,
+    directionId: string,
+    study: NonNullable<SessionSummary["study"]>,
+  ): Promise<CommandResult<"create_session">>;
+  /**
+   * Creates a session of a direction the host opens for a use, as `createStudySession` does, and
+   * starts its first turn with `/atrium-study start` (SPEC-0008, "ML2 定的细节").
+   */
+  startStudySession(
     clientId: string,
     directionId: string,
     study: NonNullable<SessionSummary["study"]>,
@@ -400,6 +435,8 @@ export function createSessionManager(options: {
      */
     readonly readOnly?: (containerId: string) => boolean;
   };
+  /** Answers the study tools of directions' sessions (SPEC-0008, "ML2 定的细节"); without it they are refused. */
+  readonly study?: { readonly call: NonNullable<AgentHost["study"]> };
   readonly onChange: () => void;
   readonly clock: Clock;
   readonly resources: ResourceTracker;
@@ -469,6 +506,27 @@ export function createSessionManager(options: {
   const running = new Set<{ stop(): Promise<unknown> }>();
   /** Sessions with a run in progress. */
   const busy = new Set<string>();
+  /** Why a session the host opened for a use did not start, by session (SPEC-0008, "ML2 定的细节"). */
+  const kickoffs = new Map<string, ErrorCode>();
+  /** The starts of sessions the host opened under way, by session. */
+  const kicking = new Map<string, Promise<void>>();
+  /** The sessions whose start was sent, or found a turn, in this host run. */
+  const kicked = new Set<string>();
+
+  /**
+   * A session's failed start, as its summary shows it.
+   *
+   * @remarks
+   * See `kickoff`.
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @returns The code, or `null`.
+   */
+  function kickoffOf(sessionId: string): { readonly code: ErrorCode } | null {
+    const code = kickoffs.get(sessionId);
+    return code === undefined ? null : { code };
+  }
   /** pi's text of each session's last failed turn in the run in progress. */
   const failures = new Map<string, string>();
   /** Sessions marked for attention since their last run started, so a mark is set once. */
@@ -535,7 +593,9 @@ export function createSessionManager(options: {
   /** How many times pi was started, so each start has its own number (ADR-0013, point 5). */
   let epochs = 0;
   /** The host's end of Atrium's extension: child conversations the agent opens (SPEC-0002, "第二步"). */
+  const studyTools = options.study;
   const relay = createAgentRelay({
+    ...(studyTools === undefined ? {} : { study: (sessionId, call) => studyTools.call(sessionId, call) }),
     catalog: options.catalog,
     clock: timers,
     newId: options.newId,
@@ -702,6 +762,74 @@ export function createSessionManager(options: {
     const found = sessions.get(sessionId);
     // A session whose pi is being started again counts as running: nothing else may start one.
     return found === undefined || (found.controller.exited && !found.controller.restarting) ? undefined : found;
+  }
+
+  /**
+   * Starts a session the host opened for a use: its pi up, then `/atrium-study start`.
+   *
+   * @remarks
+   * SPEC-0008, "ML2 定的细节": only once pi lists the command, or the words would go to the model
+   * (pi-internals §3); the extension then sends the kickoff that opens the first turn. Never to a
+   * session with a turn, never twice in one host run, one at a time per session. A pi that cannot
+   * start, or lists no command, leaves the session's `kickoff` failed with the code, for "重试";
+   * it never rejects.
+   *
+   * @sideEffects Starts pi; sends a hidden command; may log and tell of a change.
+   * @param sessionId - The session.
+   * @returns When it is done.
+   */
+  function kickoff(sessionId: string): Promise<void> {
+    const under = kicking.get(sessionId);
+    if (under !== undefined) return under;
+    const work = (async () => {
+      if (kicked.has(sessionId)) return;
+      try {
+        await ensureRunning(sessionId);
+        const found = live(sessionId);
+        if (found === undefined) return;
+        // A session with a turn started already: nothing to send, ever (no second start).
+        if (found.controller.snapshot().items.length > 0 || busy.has(sessionId)) {
+          kicked.add(sessionId);
+          kickedOff(sessionId, null);
+          return;
+        }
+        const { commands } = await found.pi.request({ type: "get_commands" });
+        if (!commands.some(isStudyCommand)) {
+          options.logger.warn({ sessionId }, "study extension not loaded");
+          kickedOff(sessionId, "study_kickoff_failed");
+          return;
+        }
+        await found.pi.request({ type: "prompt", message: startCommand() });
+        kicked.add(sessionId);
+        kickedOff(sessionId, null);
+      } catch (error) {
+        const code = error instanceof CommandError ? error.code : "study_kickoff_failed";
+        options.logger.warn({ sessionId, code }, "study session not started");
+        kickedOff(sessionId, code);
+      }
+    })();
+    kicking.set(sessionId, work);
+    // Fire and forget: only frees memory; `work` never rejects.
+    // Stryker disable next-line all: only frees memory; a settled start holds up nothing.
+    void work.finally(() => kicking.delete(sessionId));
+    return work;
+  }
+
+  /**
+   * Records whether a session the host opened started, and tells of a change.
+   *
+   * @remarks
+   * Shown as the session's `kickoff` (SPEC-0008, "ML2 定的细节"), in memory only.
+   *
+   * @sideEffects May update the failures and tell of the change.
+   * @param sessionId - The session.
+   * @param code - Why it did not, or `null` once it did.
+   */
+  function kickedOff(sessionId: string, code: ErrorCode | null): void {
+    if ((kickoffs.get(sessionId) ?? null) === code) return;
+    if (code === null) kickoffs.delete(sessionId);
+    else kickoffs.set(sessionId, code);
+    options.onChange();
   }
 
   /**
@@ -921,6 +1049,8 @@ export function createSessionManager(options: {
             "--extension",
             options.fast.extension,
             ...agentLaunchFlags(options.catalog.list(), sessionId),
+            // Its use in a direction: only then does it have study tools (SPEC-0008, "ML2 定的细节").
+            ...studyLaunchFlags(options.catalog.list(), sessionId),
             // Where its visuals go (SPEC-0007, "怎么让 agent 知道").
             ...(visuals === null ? [] : [`--${VISUALS_FLAG}=${visualsArgument(visuals)}`]),
           ];
@@ -1678,7 +1808,8 @@ export function createSessionManager(options: {
         // the client creates after that failed takes its place (SPEC-0008, "ML1 定的细节").
         const first = !options.catalog.list().some((entry) => entry.containerId === containerId);
         return {
-          sessionId: await create(clientId, containerId, dir, true, {}, first ? { kind: "discuss" } : undefined),
+          // Any after it is the learner asking, with no study tools (SPEC-0008, "ML2 定的细节").
+          sessionId: await create(clientId, containerId, dir, true, {}, first ? { kind: "discuss" } : { kind: "ask" }),
         };
       }
       const dir = options.workspaces.dirOf(containerId);
@@ -1710,6 +1841,8 @@ export function createSessionManager(options: {
       // A restored draft waits for its first message; one created here starts, or its start under
       // way is waited for.
       if (found.state !== "draft" || sessions.has(sessionId) || created.has(sessionId)) await ensureRunning(sessionId);
+      // A session the host opened for a use, with no turn yet: its start may have been lost.
+      if (hostOpened(found.study)) inBackground("study kickoff", () => kickoff(sessionId));
       return {};
     },
     async closeTab(clientId, sessionId) {
@@ -2161,6 +2294,7 @@ export function createSessionManager(options: {
             asking: askingSince(entry.sessionId),
             question: askingNames.get(entry.sessionId) ?? null,
             ...relay.summary(entry.sessionId),
+            kickoff: kickoffOf(entry.sessionId),
           }),
         );
     },
@@ -2209,6 +2343,20 @@ export function createSessionManager(options: {
     },
     async createStudySession(clientId, directionId, study) {
       return { sessionId: await create(clientId, directionId, directionDir(directionId), true, {}, study) };
+    },
+    async startStudySession(clientId, directionId, study) {
+      const sessionId = await create(clientId, directionId, directionDir(directionId), true, {}, study);
+      inBackground("study kickoff", () => kickoff(sessionId));
+      return { sessionId };
+    },
+    async retryStudyKickoff(sessionId) {
+      const found = entryOf(sessionId);
+      if (!hostOpened(found.study)) throw new CommandError("study_not_available");
+      notArchived(sessionId);
+      await kickoff(sessionId);
+      const code = kickoffs.get(sessionId);
+      if (code !== undefined) throw new CommandError(code);
+      return {};
     },
     async archiveWorkspace(workspaceId) {
       // Archived with its workspace (SPEC-0001, "M1.11 的工作区归档"), drafts too; archiving one again changes nothing.

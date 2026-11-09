@@ -212,6 +212,8 @@ export function createVisualService(options: {
   const folders = new Map<string, Folder>();
   const looksBy = new Map<string, Set<Look>>();
   const lastSent = new Map<string, number>();
+  /** Each session's last claim of a message, which the next waits for. */
+  const claims = new Map<string, Promise<void>>();
   const looking = new Set<Promise<void>>();
   /** Resolves under way, by connection, and whether the connection closed meanwhile. */
   const pending = new Map<string, { count: number; gone: boolean }>();
@@ -467,6 +469,37 @@ export function createVisualService(options: {
     }
   }
 
+  /**
+   * Checks a message's visual and claims its second, unless the same visual claimed one less than
+   * a second before.
+   *
+   * @remarks
+   * See `createVisualService`; `send` runs one session's claims one at a time, in order.
+   *
+   * @sideEffects Reads the file; updates the times; may log a drop.
+   * @param sessionId - The session.
+   * @param path - The visual's path, as its reply named it.
+   * @returns Whether to send it.
+   * @throws {CommandError} As `checkIn`, or `session_not_found`.
+   */
+  async function claim(sessionId: string, path: string): Promise<boolean> {
+    const visual = await checkIn(placeOf(sessionId), path);
+    const key = `${sessionId}\u0000${visual.file}`;
+    const now = options.clock.now();
+    // Only the last second's times matter; the older ones go, so the map holds no more.
+    // Stryker disable next-line all: only frees memory; a time a second old is let through below all the same.
+    for (const [sentKey, at] of lastSent) if (now - at >= MESSAGE_GAP_MS) lastSent.delete(sentKey);
+    const last = lastSent.get(key);
+    // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: without a last time the difference is NaN, which is never less; a time a second old was forgotten above, so `<=` drops nothing more.
+    if (last !== undefined && now - last < MESSAGE_GAP_MS) {
+      dropped += 1;
+      options.logger.info({ dropped }, "visual message dropped");
+      return false;
+    }
+    lastSent.set(key, now);
+    return true;
+  }
+
   return {
     async resolve(connectionId, sessionId, path) {
       const place = placeOf(sessionId);
@@ -505,19 +538,21 @@ export function createVisualService(options: {
       }
     },
     async send({ requestId, traceparent, sessionId, path, text }) {
-      const visual = await checkIn(placeOf(sessionId), path);
-      const key = `${sessionId}\u0000${visual.file}`;
-      const now = options.clock.now();
-      // Only the last second's times matter; the older ones go, so the map holds no more.
-      for (const [sentKey, at] of lastSent) if (now - at >= MESSAGE_GAP_MS) lastSent.delete(sentKey);
-      const last = lastSent.get(key);
-      // Stryker disable next-line ConditionalExpression: without a last time the difference is NaN, which is never less.
-      if (last !== undefined && now - last < MESSAGE_GAP_MS) {
-        dropped += 1;
-        options.logger.info({ dropped }, "visual message dropped");
-        return { disposition: "dropped" };
-      }
-      lastSent.set(key, now);
+      // The check and the claim of one session's messages go in the order they came: the check reads
+      // the file system, and two messages of one visual must not both pass before either claims.
+      const turn = (claims.get(sessionId) ?? Promise.resolve()).then(() => claim(sessionId, path));
+      const settled = turn.then(
+        () => undefined,
+        () => undefined,
+      );
+      claims.set(sessionId, settled);
+      // Fire and forget: only frees memory once the claim settles.
+      // Stryker disable next-line all: only frees memory; a settled claim holds up nothing.
+      void settled.finally(() => {
+        // Stryker disable next-line all: see above.
+        if (claims.get(sessionId) === settled) claims.delete(sessionId);
+      });
+      if (!(await turn)) return { disposition: "dropped" };
       return options.steer({ type: "steer", requestId, traceparent, sessionId, text }, { kind: "visual", path });
     },
     async serve(request, response) {

@@ -102,3 +102,92 @@ test("makes a direction from the first message and goes on in its discussion; ar
     await pi.cleanup();
   }
 });
+
+/**
+ * The tools a request offered the model.
+ *
+ * @remarks
+ * None for no request.
+ *
+ * @sideEffects none
+ * @param context - The request.
+ * @returns The tools' names.
+ */
+function toolsOf(context: { readonly tools?: readonly string[] } | undefined): readonly string[] {
+  return context?.tools ?? [];
+}
+
+test("writes the ladder the discussion's agent calls study_set_ladder with; the step strip starts the first lesson (SPEC-0008, ML2)", async () => {
+  const ladder = {
+    levels: [
+      { name: "语法", topics: "类型、函数", pass: "一个小工具", skip: true },
+      { name: "并发", topics: "goroutine", pass: "一个爬虫" },
+    ],
+    lessons: ["goroutine", "channel"],
+  };
+  const pi = await fauxPiEnvironment({
+    replies: [
+      { blocks: [{ type: "toolCall", id: "ladder-1", name: "study_set_ladder", arguments: ladder }] },
+      { blocks: [{ type: "text", text: "阶梯排好了" }] },
+    ],
+    // The lesson's pi starts its own replies; its kickoff is Atrium's message, not the learner's.
+    byPrompt: [{ startsWith: "<atrium-study", reply: { blocks: [{ type: "text", text: "今天讲 goroutine" }] } }],
+    direction: JSON.stringify({ dir: "go", name: "Go" }),
+  });
+  const launched = await launchApp(pi.env);
+  const learning = join(await realpath(launched.home), "Learning");
+  try {
+    const { window } = launched;
+    await window.getByTestId("learning-row").click();
+    await window.getByRole("button", { name: "新建方向" }).click();
+    await window.getByRole("textbox", { name: "消息" }).fill("我想学 Go，写一个爬虫");
+    await window.getByRole("textbox", { name: "消息" }).press("Enter");
+
+    await expect(window.getByTestId("reply").last()).toHaveText("阶梯排好了", { timeout: 60_000 });
+    const strip = window.getByTestId("step-strip");
+    await expect(strip).toHaveAttribute("data-state", "learning", { timeout: 30_000 });
+    await expect(strip).toContainText("第 2 级 · 并发");
+    await expect(strip).toContainText("第 1 步 · goroutine");
+    await expect(strip.getByRole("button", { name: "开始上课" })).toBeEnabled();
+    const marker = JSON.parse(await readFile(join(learning, "go", ".atrium-study.json"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+    expect(marker).toMatchObject({
+      name: "Go",
+      ladder: [
+        { id: "l1", name: "语法", state: "skipped" },
+        { id: "l2", name: "并发", state: "current" },
+      ],
+      steps: {
+        l2: [
+          { id: "s1", title: "goroutine" },
+          { id: "s2", title: "channel" },
+          { kind: "sheet" },
+          { kind: "project" },
+          { kind: "exam" },
+          { kind: "up" },
+        ],
+      },
+    });
+    // The discussion's model had the discussion's tools, and none of a lesson's.
+    const tools = (await pi.contexts()).flatMap(toolsOf);
+    expect(tools).toContain("study_set_ladder");
+    expect(tools).not.toContain("study_report");
+
+    // The lesson's session opens with its use as its first turn, then the strip goes back to it.
+    await strip.getByRole("button", { name: "开始上课" }).click();
+    await expect(window.getByTestId("source-line")).toHaveText("上课 · 第 2 级第 1 步 · goroutine", {
+      timeout: 60_000,
+    });
+    await expect(window.getByTestId("reply").last()).toHaveText("今天讲 goroutine", { timeout: 60_000 });
+    await expect(window.getByTestId("user-message")).toHaveCount(0);
+    await expect(strip.getByRole("button", { name: "回到会话" })).toBeVisible({ timeout: 30_000 });
+    const lessonTools = toolsOf((await pi.contexts()).at(-1));
+    expect(lessonTools).toContain("study_report");
+    expect(lessonTools).not.toContain("study_set_ladder");
+  } finally {
+    await launched.close();
+    await pi.cleanup();
+  }
+});

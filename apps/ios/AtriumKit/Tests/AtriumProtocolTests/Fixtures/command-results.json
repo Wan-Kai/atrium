@@ -564,6 +564,20 @@
   "restore_direction": [
     {}
   ],
+  "start_study_session": [
+    {
+      "sessionId": "s1"
+    }
+  ],
+  "mark_study_step": [
+    {}
+  ],
+  "mark_study_gap": [
+    {}
+  ],
+  "retry_study_kickoff": [
+    {}
+  ],
   "window_focused": [
     {}
   ],

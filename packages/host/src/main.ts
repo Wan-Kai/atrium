@@ -84,6 +84,8 @@ import { errorCode } from "./platform/errors";
 import { createDirections, resolveRoot, shownPath } from "./study/directions";
 import { withEntries } from "./study/entering";
 import { createStudyCommands } from "./study/study-commands";
+import { createProgressFiles } from "./study/progress-file";
+import { createStudyTools } from "./study/study-tools";
 
 /** How often clients ping the host, and how long they wait for the answer (SPEC-0001, "握手与心跳"). */
 const HEARTBEAT_MS = 15_000;
@@ -361,7 +363,20 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   function visualsDir(sessionId: string): string | null {
     return defaultVisualsDir(home.root, sessionId);
   }
+  // Directions' progress, written by the agent's study tools and your marks (SPEC-0008, "ML2 定的细节").
+  const progressFiles = createProgressFiles({
+    root: directions.root,
+    random: () => randomBytes(6).toString("hex"),
+    logger,
+  });
+  const studyTools = createStudyTools({
+    find: (sessionId) => catalog.find(sessionId),
+    directions,
+    files: progressFiles,
+    logger,
+  });
   const sessions = createSessionManager({
+    study: studyTools,
     chatsRoot: join(home.root, "chats"),
     // A pi started while pi is being updated waits, so it is the new one.
     tools: async () => {
@@ -516,6 +531,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     cwd: home.root,
     titleModel,
     models: (dir) => models.list(dir, false),
+    // As a new session starts (SPEC-0008, "真实模型检查后改").
+    preferred: () => preferences.preferred()?.model ?? null,
     oneShot: async ({ timeoutMs, ...request }, signal) => {
       const found = await toolbox.current();
       if (found?.pi.status !== "ready") {
@@ -541,6 +558,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     }),
     records: learningRecords,
     sessions,
+    files: progressFiles,
     clock,
     changed: () => feed.changed(),
     logger,
@@ -910,6 +928,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await namingClosed;
     // Before the sessions, which a direction being created or archived still uses.
     await studyClosed;
+    // The progress a tool or a mark is writing goes to disk before the directions close.
+    await progressFiles.close();
     // Before the sessions and the index, which a worktree being created, archived or restored still uses.
     await worktreeQueue.idle();
     await loginService.close();

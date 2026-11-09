@@ -1,4 +1,4 @@
-import type { ModelRef } from "@atrium/protocol";
+import { type ModelRef, splitSeen } from "@atrium/protocol";
 import { z } from "zod";
 import type { Logger } from "../platform/logger";
 import { cleanBranchName } from "../workspaces/branch-namer";
@@ -47,9 +47,6 @@ export interface DirectionNamer {
   close(): Promise<void>;
 }
 
-/** Splits text into the characters a reader sees. */
-const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-
 /** The most UTF-16 units of a name the list carries (protocol `Direction.name`). */
 const NAME_UNITS = 256;
 
@@ -74,7 +71,7 @@ export function cleanDirectionName(raw: unknown): string | null {
   if (/[\p{Cc}]|(?![\u200D\u{E0020}-\u{E007F}])\p{Cf}/u.test(line)) return null;
   const unwrapped = line.replaceAll(/^[\s"'`“”‘’「」『』《》]+|[\s"'`“”‘’「」『』《》.,;:!?…。，、；：！？]+$/gu, "");
   let name = "";
-  for (const { segment } of Array.from(GRAPHEMES.segment(unwrapped)).slice(0, NAME_LIMIT)) {
+  for (const segment of splitSeen(unwrapped).slice(0, NAME_LIMIT)) {
     if (name.length + segment.length > NAME_UNITS) break;
     name += segment;
   }
@@ -114,19 +111,24 @@ export function readDirectionAnswer(answer: string): DirectionNames {
  * @remarks
  * SPEC-0008 ("新建方向"): one model call gives the display name and the directory's name, as for
  * a worktree (security.md, "学习方向"). The model is the title model chosen in the settings if pi
- * can use it, else the page's, else pi's default, each asked in Atrium's own directory as chats'
- * are, since the direction's directory is not made yet. A message without text is not sent to a
- * model. Any failure gives `null` names and the
+ * can use it, else the page's, else the one a new session starts on (the model chosen last, which
+ * the page's button shows while nothing else is chosen there), else pi's default, each asked in
+ * Atrium's own directory as chats' are, since the direction's directory is not made yet. Without
+ * the third, a page left as it was named with pi's default, not the model the discussion runs on
+ * (SPEC-0008, "真实模型检查后改"). A message without text is not sent to a model. Any failure gives `null` names and the
  * caller falls back; only its category is logged. Closing calls off naming under way and waits.
  *
  * @sideEffects none until a call; then lists models, runs a one-shot pi and logs failures by category.
- * @param options - Atrium's own directory, the title model, the models there, the one-shot runner and the logger.
+ * @param options - Atrium's own directory, the title model, the models there, the model a new
+ * session starts on, the one-shot runner and the logger.
  * @returns The namer.
  */
 export function createDirectionNamer(options: {
   readonly cwd: string;
   readonly titleModel: (dir: string) => Promise<ModelRef | null>;
   readonly models: (dir: string) => Promise<{ readonly defaultModel: ModelRef | null }>;
+  /** The model a new session starts on, the one chosen last; `null` when none was. */
+  readonly preferred: () => ModelRef | null;
   readonly oneShot: (request: DirectionNameRequest, signal?: AbortSignal) => Promise<string>;
   readonly logger: Logger;
 }): DirectionNamer {
@@ -140,7 +142,7 @@ export function createDirectionNamer(options: {
    * @remarks
    * See `createDirectionNamer`.
    *
-   * @sideEffects Lists models; runs a one-shot pi; logs a failure's category.
+   * @sideEffects Reads the model chosen last; lists models; runs a one-shot pi; logs a failure's category.
    * @param text - The first message.
    * @param model - The page's model, or `null`.
    * @param signal - Called off by the caller or by closing.
@@ -155,6 +157,7 @@ export function createDirectionNamer(options: {
     const chosen =
       (await options.titleModel(options.cwd).catch(() => null)) ??
       model ??
+      options.preferred() ??
       (await options.models(options.cwd).then(
         (list) => list.defaultModel,
         // Stryker disable next-line ArrowFunction: `undefined` is no model either.

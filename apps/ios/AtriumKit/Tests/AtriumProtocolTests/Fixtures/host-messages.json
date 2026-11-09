@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 35,
+    "protocolVersion": 36,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -1133,11 +1133,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -1145,11 +1307,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -1170,6 +1345,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -1212,6 +1388,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -1454,11 +1631,173 @@
           "name": "Node 后端",
           "alias": null,
           "broken": false,
+          "newer": false,
           "discussing": true,
           "archived": false,
           "createdAt": 1700000400000,
           "pinnedAt": 1700000500000,
-          "lastOpenedAt": 1700000600000
+          "lastOpenedAt": 1700000600000,
+          "progress": null,
+          "next": {
+            "primary": null,
+            "secondary": null
+          }
+        },
+        {
+          "id": "lrn_go",
+          "dir": "/Users/test/Atrium/Learning/go",
+          "name": "Go",
+          "alias": null,
+          "broken": false,
+          "newer": false,
+          "discussing": false,
+          "archived": false,
+          "createdAt": 1700000400000,
+          "pinnedAt": null,
+          "lastOpenedAt": null,
+          "progress": {
+            "profile": {
+              "goal": "写一个 CLI",
+              "weeklyHours": "4",
+              "language": "Go"
+            },
+            "ladder": [
+              {
+                "id": "l1",
+                "name": "语法",
+                "topics": "类型、函数",
+                "pass": "一个小工具",
+                "state": "skipped"
+              },
+              {
+                "id": "l2",
+                "name": "并发",
+                "topics": "goroutine",
+                "pass": "一个爬虫",
+                "state": "current"
+              }
+            ],
+            "steps": {
+              "l2": [
+                {
+                  "id": "s1",
+                  "kind": "lesson",
+                  "title": "goroutine",
+                  "lesson": {
+                    "by": "agent"
+                  },
+                  "quiz": {
+                    "by": "agent",
+                    "score": 4,
+                    "of": 5
+                  },
+                  "done": {
+                    "by": "manual"
+                  }
+                },
+                {
+                  "id": "s2",
+                  "kind": "lesson",
+                  "title": "channel",
+                  "lesson": {
+                    "by": "manual"
+                  },
+                  "quiz": {
+                    "by": "manual"
+                  },
+                  "done": null
+                },
+                {
+                  "id": "s3",
+                  "kind": "lesson",
+                  "title": "select",
+                  "lesson": {
+                    "by": "agent"
+                  },
+                  "quiz": {
+                    "by": "later"
+                  },
+                  "done": {
+                    "by": "manual"
+                  }
+                },
+                {
+                  "id": "s4",
+                  "kind": "lesson",
+                  "title": "context",
+                  "lesson": null,
+                  "quiz": null,
+                  "done": null
+                },
+                {
+                  "id": "s5",
+                  "kind": "sheet",
+                  "done": null
+                },
+                {
+                  "id": "s6",
+                  "kind": "project",
+                  "done": {
+                    "by": "agent"
+                  }
+                },
+                {
+                  "id": "s7",
+                  "kind": "exam",
+                  "done": {
+                    "by": "agent",
+                    "score": 8,
+                    "of": 10
+                  }
+                },
+                {
+                  "id": "s8",
+                  "kind": "up",
+                  "done": null
+                }
+              ]
+            },
+            "gaps": [
+              {
+                "id": "g1",
+                "text": "关闭的 channel 还能读",
+                "from": {
+                  "level": "l2",
+                  "step": "s1",
+                  "question": 3
+                },
+                "fixed": null
+              },
+              {
+                "id": "g2",
+                "text": "nil channel",
+                "from": {
+                  "level": "l2",
+                  "step": "s2"
+                },
+                "fixed": {
+                  "by": "manual"
+                }
+              }
+            ],
+            "finishedAt": null
+          },
+          "next": {
+            "primary": {
+              "type": "start",
+              "kind": "feynman",
+              "level": "l2",
+              "step": "s2",
+              "gap": "g1",
+              "available": false
+            },
+            "secondary": {
+              "type": "mark",
+              "mark": "step",
+              "level": "l2",
+              "step": "s2"
+            }
+          }
         },
         {
           "id": "lrn_rust",
@@ -1466,11 +1805,24 @@
           "name": "rust",
           "alias": "Rust 入门",
           "broken": true,
+          "newer": false,
           "discussing": true,
           "archived": true,
           "createdAt": null,
           "pinnedAt": null,
-          "lastOpenedAt": null
+          "lastOpenedAt": null,
+          "progress": null,
+          "next": {
+            "primary": {
+              "type": "open",
+              "sessionId": "s1"
+            },
+            "secondary": {
+              "type": "upgrade",
+              "level": "l2",
+              "available": false
+            }
+          }
         }
       ],
       "remove": [
@@ -1496,6 +1848,7 @@
           "parent": null,
           "agent": null,
           "heldDeliveries": 0,
+          "kickoff": null,
           "study": null
         },
         {
@@ -1538,6 +1891,7 @@
             "taskStartedAt": 9
           },
           "heldDeliveries": 2,
+          "kickoff": null,
           "study": {
             "kind": "lesson",
             "level": "l2",
@@ -1565,6 +1919,7 @@
           },
           "agent": null,
           "heldDeliveries": 0,
+          "kickoff": null,
           "study": {
             "kind": "discuss"
           }
@@ -2341,11 +2696,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -2353,11 +2870,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -2378,6 +2908,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -2420,6 +2951,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -2634,11 +3166,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -2646,11 +3340,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -2671,6 +3378,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -2713,6 +3421,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -2927,11 +3636,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -2939,11 +3810,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -2964,6 +3848,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -3006,6 +3891,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -3220,11 +4106,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -3232,11 +4280,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -3257,6 +4318,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -3299,6 +4361,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -3513,11 +4576,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -3525,11 +4750,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -3550,6 +4788,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -3592,6 +4831,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -3806,11 +5046,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -3818,11 +5220,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -3843,6 +5258,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -3885,6 +5301,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -4099,11 +5516,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -4111,11 +5690,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -4136,6 +5728,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -4178,6 +5771,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -4405,11 +5999,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -4417,11 +6173,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -4442,6 +6211,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       }
     ],
@@ -4664,11 +6434,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -4676,11 +6608,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -4701,6 +6646,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -4743,6 +6689,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -4970,11 +6917,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -4982,11 +7091,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -5007,6 +7129,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -5049,6 +7172,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -5276,11 +7400,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -5288,11 +7574,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -5313,6 +7612,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -5355,6 +7655,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -5582,11 +7883,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -5594,11 +8057,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -5624,6 +8100,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       }
     ],
@@ -5846,11 +8323,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -5858,11 +8497,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -5883,6 +8535,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -5925,6 +8578,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -6152,11 +8806,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -6164,11 +8980,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -6189,6 +9018,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -6231,6 +9061,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -6458,11 +9289,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -6470,11 +9463,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -6495,6 +9501,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -6537,6 +9544,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -6756,11 +9764,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -6768,11 +9938,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -6793,6 +9976,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -6835,6 +10019,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -7015,11 +10200,173 @@
         "name": "Node 后端",
         "alias": null,
         "broken": false,
+        "newer": false,
         "discussing": true,
         "archived": false,
         "createdAt": 1700000400000,
         "pinnedAt": 1700000500000,
-        "lastOpenedAt": 1700000600000
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
       },
       {
         "id": "lrn_rust",
@@ -7027,11 +10374,24 @@
         "name": "rust",
         "alias": "Rust 入门",
         "broken": true,
+        "newer": false,
         "discussing": true,
         "archived": true,
         "createdAt": null,
         "pinnedAt": null,
-        "lastOpenedAt": null
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "open",
+            "sessionId": "s1"
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": false
+          }
+        }
       }
     ],
     "sessions": [
@@ -7052,6 +10412,7 @@
         "parent": null,
         "agent": null,
         "heldDeliveries": 0,
+        "kickoff": null,
         "study": null
       },
       {
@@ -7094,6 +10455,7 @@
           "taskStartedAt": 9
         },
         "heldDeliveries": 2,
+        "kickoff": null,
         "study": {
           "kind": "lesson",
           "level": "l2",
@@ -7400,6 +10762,70 @@
     "ok": false,
     "error": {
       "code": "direction_archived"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "study_not_found"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "study_not_available"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "study_mark_refused"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "study_file_broken"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "study_file_version"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "study_write_failed"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "study_file_too_large"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "study_kickoff_failed"
     }
   },
   {
@@ -9477,6 +12903,402 @@
         }
       ],
       "outcome": "failed",
+      "error": null,
+      "startedAt": 1,
+      "durationMs": 2000,
+      "usage": {
+        "input": 10,
+        "output": 5
+      },
+      "changes": [
+        {
+          "path": "a.ts",
+          "added": 1,
+          "removed": 0
+        },
+        {
+          "path": "b.ts",
+          "added": null,
+          "removed": null
+        }
+      ]
+    }
+  },
+  {
+    "type": "turn_started",
+    "sessionId": "s1",
+    "epoch": 1,
+    "seq": 7,
+    "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "turn": {
+      "kind": "turn",
+      "id": "s1:e1",
+      "source": {
+        "kind": "study",
+        "study": {
+          "kind": "lesson",
+          "level": "l2",
+          "step": "s4"
+        }
+      },
+      "user": {
+        "text": "",
+        "images": 0,
+        "clientMessageId": "r4",
+        "auto": false,
+        "command": null,
+        "timestamp": 1
+      },
+      "steps": [
+        {
+          "kind": "thinking",
+          "id": "0",
+          "text": "plan",
+          "durationMs": 1200
+        },
+        {
+          "kind": "thinking",
+          "id": "1",
+          "text": "",
+          "durationMs": null
+        },
+        {
+          "kind": "tool",
+          "id": "2",
+          "callId": "call-1",
+          "tool": "bash",
+          "args": {
+            "command": "ls"
+          },
+          "status": "done",
+          "output": "a.ts",
+          "details": {
+            "tool": "bash",
+            "command": "ls"
+          },
+          "partial": false
+        },
+        {
+          "kind": "tool",
+          "id": "3",
+          "callId": "call-2",
+          "tool": "read",
+          "args": {
+            "path": "a.ts"
+          },
+          "status": "failed",
+          "output": "…",
+          "details": {
+            "tool": "read",
+            "path": "a.ts",
+            "offset": 10,
+            "limit": null
+          },
+          "partial": false
+        },
+        {
+          "kind": "tool",
+          "id": "4",
+          "callId": "call-3",
+          "tool": "edit",
+          "args": {},
+          "status": "running",
+          "output": null,
+          "details": {
+            "tool": "edit",
+            "path": "a.ts",
+            "diff": "+1 x",
+            "added": 1,
+            "removed": 0
+          },
+          "partial": false
+        },
+        {
+          "kind": "tool",
+          "id": "5",
+          "callId": "call-4",
+          "tool": "write",
+          "args": {},
+          "status": "unfinished",
+          "output": null,
+          "details": {
+            "tool": "write",
+            "path": "b.ts",
+            "content": "x"
+          },
+          "partial": false
+        },
+        {
+          "kind": "tool",
+          "id": "6",
+          "callId": "call-5",
+          "tool": "grep",
+          "args": {},
+          "status": "done",
+          "output": null,
+          "details": null,
+          "partial": true
+        },
+        {
+          "kind": "tool",
+          "id": "11",
+          "callId": "call-6",
+          "tool": "agent_spawn",
+          "args": {
+            "name": "audit",
+            "task": "look"
+          },
+          "status": "done",
+          "output": "Sub-agent",
+          "details": {
+            "tool": "agent",
+            "spawned": {
+              "sessionId": "s2",
+              "name": "audit",
+              "taskId": "t-1",
+              "role": "work",
+              "branch": "agent/audit"
+            },
+            "events": [
+              {
+                "sessionId": "s2",
+                "name": "audit",
+                "title": "安全审查",
+                "taskId": "t-1",
+                "event": "finished",
+                "reason": null,
+                "elapsedMs": 192000,
+                "question": null,
+                "branch": "agent/audit",
+                "changes": {
+                  "files": 3,
+                  "added": 20,
+                  "removed": 4
+                }
+              }
+            ]
+          },
+          "partial": false
+        },
+        {
+          "kind": "tool",
+          "id": "15",
+          "callId": "call-9",
+          "tool": "ask_user",
+          "args": {},
+          "status": "done",
+          "output": "\"改到哪为止？\" = 只改收件箱",
+          "details": {
+            "tool": "ask_user",
+            "questions": [
+              {
+                "header": "范围",
+                "question": "改到哪为止？",
+                "multiSelect": true,
+                "options": [
+                  {
+                    "label": "只改收件箱",
+                    "description": "",
+                    "preview": null,
+                    "recommended": true
+                  },
+                  {
+                    "label": "整个侧栏",
+                    "description": "改动大",
+                    "preview": null,
+                    "recommended": false
+                  }
+                ]
+              }
+            ],
+            "outcome": {
+              "kind": "answered",
+              "answers": [
+                {
+                  "selected": [
+                    0,
+                    1
+                  ],
+                  "other": "也补测试"
+                }
+              ]
+            }
+          },
+          "partial": false
+        },
+        {
+          "kind": "tool",
+          "id": "16-0",
+          "callId": "call-10",
+          "tool": "ask_user",
+          "args": {},
+          "status": "done",
+          "output": null,
+          "details": {
+            "tool": "ask_user",
+            "questions": [
+              {
+                "header": "名字",
+                "question": "叫什么？",
+                "multiSelect": false,
+                "options": [
+                  {
+                    "label": "甲",
+                    "description": "",
+                    "preview": null,
+                    "recommended": false
+                  },
+                  {
+                    "label": "乙",
+                    "description": "",
+                    "preview": null,
+                    "recommended": false
+                  }
+                ]
+              }
+            ],
+            "outcome": {
+              "kind": "skipped"
+            }
+          },
+          "partial": false
+        },
+        {
+          "kind": "tool",
+          "id": "16-1",
+          "callId": "call-10",
+          "tool": "ask_user",
+          "args": {},
+          "status": "done",
+          "output": null,
+          "details": {
+            "tool": "ask_user",
+            "questions": [
+              {
+                "header": "名字",
+                "question": "叫什么？",
+                "multiSelect": false,
+                "options": [
+                  {
+                    "label": "甲",
+                    "description": "",
+                    "preview": null,
+                    "recommended": false
+                  },
+                  {
+                    "label": "乙",
+                    "description": "",
+                    "preview": null,
+                    "recommended": false
+                  }
+                ]
+              }
+            ],
+            "outcome": {
+              "kind": "reply"
+            }
+          },
+          "partial": false
+        },
+        {
+          "kind": "tool",
+          "id": "16-2",
+          "callId": "call-10",
+          "tool": "ask_user",
+          "args": {},
+          "status": "failed",
+          "output": null,
+          "details": {
+            "tool": "ask_user",
+            "questions": [
+              {
+                "header": "名字",
+                "question": "叫什么？",
+                "multiSelect": false,
+                "options": [
+                  {
+                    "label": "甲",
+                    "description": "",
+                    "preview": null,
+                    "recommended": false
+                  },
+                  {
+                    "label": "乙",
+                    "description": "",
+                    "preview": null,
+                    "recommended": false
+                  }
+                ]
+              }
+            ],
+            "outcome": null
+          },
+          "partial": false
+        },
+        {
+          "kind": "steer",
+          "id": "7",
+          "text": "also b"
+        },
+        {
+          "kind": "retry",
+          "id": "8",
+          "attempt": 1,
+          "maxAttempts": 3,
+          "error": "503"
+        },
+        {
+          "kind": "compaction",
+          "id": "12",
+          "tokensBefore": 152000,
+          "tokensAfter": 41000,
+          "summary": "so far",
+          "reason": "threshold"
+        },
+        {
+          "kind": "compaction",
+          "id": "13",
+          "tokensBefore": 0,
+          "tokensAfter": null,
+          "summary": "",
+          "reason": "overflow"
+        },
+        {
+          "kind": "compaction",
+          "id": "14",
+          "tokensBefore": 9,
+          "tokensAfter": 0,
+          "summary": "x",
+          "reason": null
+        },
+        {
+          "kind": "agent",
+          "id": "10",
+          "source": {
+            "kind": "report",
+            "events": [
+              {
+                "sessionId": "s3",
+                "name": "tests",
+                "title": "补测试",
+                "taskId": "t-2",
+                "event": "question",
+                "reason": null,
+                "elapsedMs": null,
+                "question": "vitest?",
+                "branch": null,
+                "changes": null
+              }
+            ]
+          }
+        },
+        {
+          "kind": "text",
+          "id": "9",
+          "text": "done"
+        }
+      ],
+      "outcome": "done",
       "error": null,
       "startedAt": 1,
       "durationMs": 2000,

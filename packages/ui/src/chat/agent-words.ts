@@ -1,4 +1,5 @@
 import type { AgentEventKind, AgentNoticeEvent, AgentRole, AgentSource } from "@atrium/protocol";
+import { studyLabel } from "../study/progress";
 
 /** What each event says, after the child's name (SPEC-0002, "显示 · 由通知开头的轮"). */
 export const EVENT_WORDS: Readonly<Record<AgentEventKind, string>> = {
@@ -63,13 +64,14 @@ export function eventLine(event: AgentNoticeEvent): string {
  * A source in one line, for a step and for Markdown.
  *
  * @remarks
- * Notices joined; a task as "来自主对话的 agent · 交代的事".
+ * Notices joined; a task as "来自主对话的 agent · 交代的事"; a study session's start as its use.
  *
  * @sideEffects none
  * @param source - The source.
  * @returns The line.
  */
 export function sourceLine(source: AgentSource): string {
+  if (source.kind === "study") return studyLabel(source.study, null);
   return source.kind === "task" ? "来自主对话的 agent · 交代的事" : source.events.map(eventLine).join("；");
 }
 

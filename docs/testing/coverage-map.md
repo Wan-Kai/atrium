@@ -106,6 +106,96 @@
 - 破坏检查新增 16 处全部检出（首轮 `openSession` 里只读会话不起 pi 的那行漏检，宿主层测试补了"从主页打开"后检出）。宿主层用例补了 `project`。
 - 变异：`sessions/read-only-transcripts.ts` 并进 `study` 组，92%（剩下空文件的叶子、重建的 `reset`、步骤的 epoch 判断）；`ui` 组 `study/learning.ts` 94.16%。`session-manager.ts`、`conversation-area.tsx`、`turn-view.tsx` 的改动由破坏检查守。`hold` 里"pi 跑起来后丢掉只读副本"一行没有测试能看出来（假的 pi 不写会话文件），说明在交付报告里。
 
+## 学习模式 ML2：进度、步骤条与下一步（SPEC-0008，2026-11-09）
+
+进度只在 `.atrium-study.json`，只经 `study_*` 工具和手动标记改；步骤条（原型 C、`study-progress-states` 的 2D）、方向主页（1A、3A、4A、5A）。协议 35 → 36。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 读 `.atrium-study.json`：严格读阶梯（2～6 级、id 不重复、步骤只属于阶梯里的级、分数不超过总数、文字上限），不认识的字段每一层都留；读不出就是"坏了"；只发协议认识的字段 | `packages/host/src/study/progress.test.ts`；扫描 `directions.test.ts`（1 级、7 级坏，6 级好） |
+| 写：每次先重读、排队一个一个写、临时文件再改名；坏的、版本更高的、是链接的、超过 1 MiB 的不写；改名失败删掉临时文件；临时文件名被占用不覆盖；写不回去的改动不写；日志只有错误码；关闭时等写完 | `packages/host/src/study/progress-file.test.ts` |
+| 工具的规则：阶梯一次写完（含起点那一级的课和后面 4 步）、2/6 级通过、1/7 级 `study_ladder_size` 带 `min`/`max`/`got`、只能写一次、全部跳过拒绝；排计划只写当前一级的课一次；上课、测验、速查表、过关项目、综合测验的报告和分数；漏洞的编号和上限；agent 的报告和补漏盖过手动标记 | `packages/host/src/study/progress-rules.test.ts` |
+| 手动标记：小步、测验连上课、整步、以后再测；只撤回手动的、连带后面手动的；不合规则的 `study_mark_refused`；找不到 `study_not_found`；漏洞标已补和撤回 | 同上 |
+| 下一步规则表：每一行一个用例（没上、上了没测＋以后再测、测了有漏洞＝跑费曼＋进入下一步、测了没漏洞或补完、速查表/过关项目/综合测验、升级），回到正对着这一步的会话（最新的、不算归档的），归档/坏了/学完/没有当前级或步骤时没有按钮；ML2 里测验、费曼、升级 `available: false` | 同上 |
+| 工具只写调用方会话记录里的那一级那一步；用途不对、随口问、没有用途、方向外、归档的方向都 `study_not_allowed`；坏文件 `study_file_broken`；日志只有方向 id、工具名、错误码 | `packages/host/src/study/study-tools.test.ts` |
+| 通道：`study_*` 调用交给学习工具（不受 agent 层数限制），错误码和参数原样回；没有学习工具时 `study_not_allowed`；坏参数 `agent_bad_request` | `packages/host/src/sessions/agent-relay.test.ts` |
+| 只有方向里有用途的会话带 `--atrium-study`；工作区、对话、随口问、没有用途的会话都没有 | `packages/host/src/sessions/agent-launch.test.ts`；`session-manager.test.ts`（起 pi 的参数） |
+| "+" 开的会话记成随口问；宿主开的会话在 pi 列出 `atrium-study` 后才发 `/atrium-study start`，没列出时不发并记日志 | `packages/host/src/sessions/session-manager.test.ts` |
+| 命令：列表带进度和下一步；只能开下一步给的那个会话（`study_not_available`）；手动标记写进文件、列表跟着变；归档的方向 `direction_archived`；坏文件不写 | `packages/host/src/study/study-commands.test.ts` |
+| 路由：三条新命令交给学习命令；手机按 `local_only` 拒绝 | `packages/host/src/server/router.test.ts`；`remote-policy` 的穷举 |
+| 真实宿主：列表里的进度和下一步；经 WebSocket 手动标记写进文件（保留不认识的字段）；开不了的会话被拒；换一个宿主后进度还在 | `packages/host/src/study.host.test.ts` |
+| 扩展：只有带 `--atrium-study` 时在 `session_start` 注册这个用途的工具（不带、随口问的都没有）；每次运行前加 `atrium_study` 一段；工具经通道问宿主、按错误码说给模型；文字超长不问宿主；`/atrium-study start` 只认 `{ v: 1 }`、只在空闲时开一轮，消息是 `atrium-agent`、`details.kind` 为 `study` | `packages/pi/src/study/study.test.ts`；`plan/extension.test.ts`（整个扩展注册了什么）；`catalog/commands.test.ts`（`/` 菜单不列它） |
+| pi 契约：没有参数（或随口问）的会话工具表里没有 `study_*`；讨论有三个工具和提示；`study_report` 经通道问到宿主、模型读到结果；`/atrium-study start` 开一轮，模型读到的是 Atrium 的开场 | `packages/pi/src/contract/study.pi.test.ts`（夹具 `pi-1.5.0/study-tools-none`、`study-tools-discuss`、`study-call`、`study-kickoff`，faux 模型录的） |
+| 协议：进度、下一步、新命令和结果、错误码、`study` 来源的往返；版本 36 | `packages/protocol/src/envelope.test.ts`、`remote.test.ts`；Swift 往返夹具和版本 |
+| 界面纯逻辑：级和步的说法、会话的名字、课的三小步、当前一步的说明、按钮的说法、卡片一行、步骤条的各种状态 | `packages/ui/src/study/progress.test.ts` |
+| 界面：步骤条（讨论中、正常、坏了的占位、归档停在第几步且没有按钮、学完全亮、回到会话和在跑的点、ML3 的按钮变淡"即将开放"、以后再测、开始上课）；主页（当前步骤卡、步骤列表的状态和三小步、会话小签和分数、"你标的"、··· 菜单标记和撤回、以后再测的"没测"和悬停"补测"、漏洞的悬停圆勾和"撤回"、阶梯原地展开、宽两栏窄一栏且阶梯在步骤前、其他会话）；宿主开的会话第一轮的来源行；标签上的用途名；首页卡片的一行 | `packages/ui/src/study/progress.browser.test.tsx`、`study.browser.test.tsx` |
+| 桌面端整条：讨论的 agent 调 `study_set_ladder` 后文件里有阶梯和步骤、步骤条显示第一节课；讨论只有讨论的工具；点"开始上课"开出上课会话，第一轮是"上课 · 第 2 级第 1 步 · goroutine"的来源行、没有你的消息，上课只有 `study_report`，步骤条换成"回到会话" | `apps/desktop/e2e/study.spec.ts` |
+| 真实模型检查后改（2026-11-09）：新建方向的第一条消息交给 pi 之前，讨论会话里再发的消息排在它后面、按顺序发；第一条没发出去也照常放行 | `packages/ui/src/study/study.browser.test.tsx`（"before the first message reached pi"，pi 还在起时连发两条）；`packages/ui/src/chat/first-message.test.ts`（放行顺序、两个 hold、只有最新的 hold 清掉记录）。宿主层没有对应的测试：乱序发生在界面里，第二条命令先到宿主，宿主无从知道它不是第一条 |
+| 起名的模型：标题模型 → 页上选的 → 新会话会用的模型（上次选的）→ pi 的默认 | `packages/host/src/study/direction-namer.test.ts`；真实宿主 `study.host.test.ts`（"the model a new session starts on"：偏好里有上次选的模型、页上发 `null`，一次性 pi 的 `--model` 是它） |
+| 方向的 `AGENTS.md` agent 不改：每种用途的提示词都有这条，讨论不再把定档写进 `AGENTS.md`；模板没有"Learner profile"一节；讨论先提议、确认后才调 `study_set_ladder`、调完收尾停下 | `packages/pi/src/study/study.test.ts`；`direction-creator.test.ts`；pi 契约 `study.pi.test.ts`（讨论的系统提示里有这条，夹具重录） |
+| 长级名：主页标题下的级标签、阶梯的级名、步骤条的级名都一行省略、悬停提示完整的"第 N 级 · 名字"；右栏 240px | `packages/ui/src/study/progress.browser.test.tsx`（"keeps a long level name on one line"、两栏宽度） |
+
+验证记录（2026-11-09）：
+
+- `pnpm check` 通过（含 knip、JSDoc、`boundary --all` 登记了 `/atrium-study`、iOS 检查）。
+- 单元 4837/4837；Swift AtriumKit 475/475（`RailRows` 的新来源分支、协议版本 36）。宿主层 252/252（含 ML2 新增 1 条，ML1 的 2 条按新字段改了期望）。UI 1234/1234；之前两轮各有一次不是本改动的失败：一次 `chat.browser.test.tsx` 的"stays at the bottom through every frame…"在整套并发下失败（单跑 3/3 通过），一次 31 个文件因 Vite 依赖缓存报 `Duplicate export of 'ZzzIcon'` 没加载（紧接着重跑全过）；学习模式 UI 32/32。leak（vitest）23/23；e2e 泄漏 12/12；e2e `study`（2）、`chats`、`new-workspace`、`inbox` 7/7。
+- `test:pi`：52/104 失败，全是"没有 pi 1.5.0 的夹具"（同 MV1 记录的那 52 条，与本改动无关）；新加的学习模式契约 5/5 通过（4 条新夹具用 faux 模型录，不要账号）。以后给 1.5.0 补录夹具时，`commands`、`agent-tools` 等的输出会多出 `atrium-study` 命令和标志，这是预期的。
+- 破坏检查 `packages/host/test/study-progress.break-check.json` 33 处全部检出（首轮漏 2 处：上课报告盖过手动标的上课、归档方向的步骤条按钮守卫，各补了断言）。
+- 变异：新分组 `studyProgress` 93.03%（progress 98.19、progress-file 98.04、progress-rules 91.89、study-tools 87.88；首轮 85.03%，补了 `progress.test.ts` 和写入失败、关闭等待、大小上限的用例，只管内存释放的几行用 `Stryker disable` 写明）；`ui` 组 `study/progress.ts` 89.64%。`pi` 组里新加的 `study/*.ts` 没跑增量变异（这一组每个变异要跑宿主的会话测试），关键行由破坏检查守。
+- 没跑：完整 e2e、`test:perf`、`test:package`、`test:stress`、`test:soak`、`pnpm package`；真实模型的讨论（等用户定模型）。
+- 没做：方向主页的"档案"（SPEC-0008"ML2 定的细节"最后一条，待用户确认推到 ML4）；没有新的监听、计时器或订阅，所以没加新的泄漏测试。
+
+真实模型检查后改的验证记录（2026-11-09，SPEC-0008"真实模型检查后改"）：
+
+- `pnpm check` 通过。单元 4874/4874（261 个文件）、Swift AtriumKit 475/475；宿主层 253/253；UI 1242/1242；学习契约 `study.pi.test.ts` 6/6（讨论和超长两份夹具按新提示词重录，faux 模型）。leak（vitest）23/23、e2e 泄漏 12/12；e2e `study`、`new-workspace`、`chats` 6/6。没有新的监听、计时器或订阅。
+- 破坏检查 `packages/host/test/study-real-run.break-check.json` 18 处全部检出（首轮漏 2 处：只有最新的 hold 清掉记录、步骤条级名的省略，各补了断言）。
+- 变异增量：`study` 组 direction-namer 88.89%、direction-creator 94.79%（组 96.66%；namer 剩下的存活都在这次没改的行）；`ui` 组 first-message 100%（只管释放内存的两行用 `Stryker disable` 写明）、learning 82.14%（组 91.95%）。`pi` 组的 `study/study.ts` 提示词本来就整段 `Stryker disable`，新加的 `AGENTS_RULE` 由破坏检查守。
+- 真实模型（`catpaw-cli/deepseek-v4.1-flash`，开发页面，`ATRIUM_HOME` 和 pi 的会话目录都在临时目录，`~/.pi/agent/sessions` 前后一致）：目录名 `rust-ownership`、显示名"Rust 所有权与借用"（起名成功）；连发的第二条排在第一条后面；`AGENTS.md` 前后哈希相同；先说"准备这样排，确认吗？"，确认后才调 `study_set_ladder`，调完一段收尾、没有再动文件；阶梯级名和步骤条一行省略、带完整的悬停提示。
+
+评审后补（2026-11-09 第一轮，三方评审 gpt-6-astra、grok-4.7、Claude）：
+
+| 行为 | 测试 |
+|---|---|
+| 每次写之前确认方向目录仍是学习目录下一层的真目录：扫描后换成链接的、不在下一层的都 `learning_dir_unsafe`，不经它写；工具回 `study_write_failed` | `packages/host/src/study/progress-file.test.ts`；`study-tools.test.ts` |
+| 归档等排在前面的写做完再移目录，归档中来的手动标记 `direction_archived`、工具 `study_not_allowed`，开会话等归档完再拒绝；`Archive/<目录>/` 里没有临时文件 | `progress-file.test.ts`（`hold`）；`study-commands.test.ts`；`study-tools.test.ts` |
+| 写出来超过 1 MiB 不写（`study_file_too_large`），正好 1 MiB 照写；读得进的 1 MiB 文件缩进写回超了也拒绝 | `progress-file.test.ts` |
+| 升级一步不能手动标；主页的升级行没有"···" | `progress-rules.test.ts`；`progress.browser.test.tsx` |
+| agent 报告测验时保留测验上不认识的字段 | `progress-rules.test.ts` |
+| 漏洞满 200 条回 `study_gaps_full`（带 `max`），SPEC 同步 | `progress-rules.test.ts` |
+| 扩展向 pi 声明的每个工具（名字、标签、说明、参数、执行方式）整份比对，没有 `maxLength`；每个工具成功后对模型说的话 | `packages/pi/src/study/study.test.ts` |
+| 文字上限不进工具的 JSON Schema：真实 pi 里超长的名字到了扩展，模型拿到 `agent_text_too_long`、字段和上限，没有问宿主（改之前 pi 回的是自己的 "Validation failed"） | `packages/pi/src/contract/study.pi.test.ts`（新夹具 `pi-1.5.0/study-too-long`，faux 录） |
+| 档案版本比 1 大：列表标 `newer`，照样给进度，没有按钮；开会话、手动标记都 `study_file_version`；步骤条是自己的"只能看"状态，主页没有标记和撤回 | `directions.test.ts`、`progress-rules.test.ts`、`study-commands.test.ts`；`packages/ui/src/study/progress.test.ts`、`progress.browser.test.tsx`；协议 `envelope.test.ts`、Swift 夹具 |
+| 归档、档案版本更高的方向主页没有"···"、漏洞的勾按钮和"撤回" | `progress.browser.test.tsx` |
+| 已学完的方向没有当前一级：步骤条和主页按最后一级，点全亮（断言点数，不再对空列表用 `every`） | `progress.test.ts`、`progress.browser.test.tsx` |
+| 同时开同一步两次只开一个会话（命令按方向排队、队里再算下一步）；步骤条和主页的按钮在宿主回答前不能再按 | `study-commands.test.ts`；`progress.browser.test.tsx` |
+| 讨论中的步骤条是一句"讨论中，排出阶梯以后这里显示当前一级的步骤" | `progress.browser.test.tsx` |
+| 主页宽窗口当前步骤卡在左栏、和阶梯顶端对齐、在步骤上面；窄窗口卡片在阶梯前；1A 菜单"标测验完成"和"整步标为完成"之间有分隔线 | `progress.browser.test.tsx` |
+| 同一个会话的可视化回传按到达顺序检查、占位，同一可视化一秒内的第二条一定丢掉（MV1 留下、`main` 上也有的偶发失败） | `packages/host/src/visuals/visual-service.test.ts`"sends one of two messages…"，单跑 60/60 |
+
+用户定的五项（2026-11-09）：
+
+| 行为 | 测试 |
+|---|---|
+| 宿主开的会话没开起来：pi 没列出 `atrium-study` 时会话的 `kickoff` 是 `{ code: "study_kickoff_failed" }`；"重试"（`retry_study_kickoff`）在 pi 列出命令后发开场、`kickoff` 回到 `null`；打开一个还没有任何一轮的这种会话时重发一次；已有一轮的会话打开、重试都不发；同一次宿主运行里不发第二次；不是宿主开的会话"重试"回 `study_not_available` | `packages/host/src/sessions/session-manager.test.ts` |
+| 扩展收到开场时 pi 在跑：排到这次运行之后（`followUp`），不丢 | `packages/pi/src/study/study.test.ts` |
+| 会话里"这一步的会话没能开始：…"一行和"重试"，开起来的会话没有 | `packages/ui/src/study/progress.browser.test.tsx` |
+| 协议：`kickoff`、`retry_study_kickoff`、`study_kickoff_failed` 的往返；路由；手机 `local_only` | `packages/protocol/src/envelope.test.ts`、Swift 夹具；`packages/host/src/server/router.test.ts` |
+| 撤回"整步标为完成"回到标之前：它一起标的上课、测验撤回，标之前就有的、之后 agent 报告的留着；没有 `parts` 的旧标记照旧 | `packages/host/src/study/progress-rules.test.ts` |
+| 文字上限按看到的字符（字形簇）数：协议、档案、通道、扩展同一个函数（`seenLength`），ML1 起名也用它 | `packages/protocol/src/text.test.ts`；`progress.test.ts`；`packages/pi/src/agent/channel.test.ts`；`packages/pi/src/study/study.test.ts`；`direction-namer.test.ts` |
+| agent 用 write/edit/bash 改档案：不改代码，security.md、domain-model 写明；改坏的照"档案读不出来"处理（已有的读法测试） | `directions.test.ts`、`progress.test.ts` |
+
+验证记录（2026-11-09，用户定的五项做完后）：
+
+- `pnpm check` 通过；`pnpm test` 单元 4867/4867、Swift 475/475（协议仍 36：`SessionSummary.kickoff`、`retry_study_kickoff`、`study_kickoff_failed`，Swift 重新生成，手写的 Swift 夹具补了 `kickoff`）；学习模式契约 6/6。宿主层 252/252、UI 1240/1240、leak 23/23、e2e `study.spec.ts` 2/2、e2e 泄漏 12/12（这几层在最后两处只改测试和 Stryker 注释之前跑的）。
+- 破坏检查 65/65 检出（新加 13 处；"撤回整步"首轮漏一处，补了从空到整步再撤回的断言）。
+- 变异：`studyProgress` 组 progress-file 94.37、progress-rules 92.08、progress 95.00、study-tools 90.00；`shared` 组 `text.ts` 93.75；`pi` 组 `study/extension.ts` 96.53、`study/study.ts` 96.38（首轮 75.40：提示词正文用 `Stryker disable StringLiteral,ArrayDeclaration` 写明是给模型的字、由真实模型的检查调，补了拼法、开场、`readStart`、旗标的测试）。`session-manager.ts` 的重发开场没跑增量变异（`host` 组每个变异跑整套宿主测试），改的行由破坏检查守。
+
+验证记录（2026-11-09，评审第一轮修完后）：
+
+- `pnpm check` 通过。`pnpm test`：单元 4852/4852，Swift 475/475（协议仍是 36，`Direction` 多 `newer`、错误码多 `study_file_too_large`，已重新生成）。宿主层 252/252，UI 1238/1238，leak 23/23；学习模式契约 6/6（新夹具 `study-too-long` 用 faux 录，不要账号）；e2e `study.spec.ts` 2/2；e2e 泄漏 12 项里 `viewers.leak.spec.ts` 在整套里失败一次（留下 8 个 `SVGPathElement`，与 ML1 记录的同一项偶发相同），单跑 3/3 通过，没改相关代码。
+- 破坏检查 `packages/host/test/study-progress.break-check.json` 53/53 检出（新加 20 处；"同时按两下"首轮漏检，测试里的会话管理替身改成像真的一样隔一轮事件循环才记下会话后检出）。临时文件"写到一半失败"那一步没有能在测试里造出来的失败方式，没有破坏检查，只靠"建出来就归这次写"的结构和改名失败的用例。
+- 变异：`studyProgress` 组 93.22%（progress-file 94.37、progress-rules 92.38、progress 98.19、study-tools 89.09）；`study` 组只变 `study-commands.ts`、`directions.ts` 84.02%；`ui` 组 `study/progress.ts` 89.66%；`pi` 组 `study/extension.ts` 96.53%（首轮 42.08%：工具的说明和参数没有测试，补了整份比对）；`visuals` 组 `visual-service.ts` 72.44%，低于 80%：存活的都在这次没改的 `resolve`、`serve`、`disconnect`、`watchFolder` 等代码里，改动的 `send` 和新的 `claim` 里没有存活的（两处只释放内存、与下面判断等价的用 `Stryker disable` 写明）。
+
 ## 在终端中打开；拿掉"交给终端"（2026-11-05）
 
 用户定：标签栏"···"里的"在终端中继续"改成"在终端中打开"，只开终端、不再交接——不停 pi、不写索引、不复制也不运行命令。目录是会话所在工作区的目录，对话用 `~`；cmux 装着就在它当前窗口新开一个工作区并切到 cmux，没跑就先启动，没装就用系统"终端"。整套交接机制（`hand_off` / `take_back`、`handedOff`、"已在终端中继续"面板、子对话的 `handed_off` 状态、`agent_handed_off`）一并去掉，协议 33。

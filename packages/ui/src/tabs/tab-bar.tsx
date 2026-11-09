@@ -5,7 +5,6 @@ import {
   CaretDown,
   ClockCounterClockwise,
   FileDiff,
-  Message,
   Mortarboard,
   Plus,
   SidebarRight,
@@ -36,6 +35,8 @@ import { useClock } from "../state/clock";
 import type { Panes } from "../state/panes";
 import { SessionMenu } from "./session-menus";
 import { SessionNoticeLine } from "./session-notice";
+import { KIND_NAMES } from "../study/progress";
+import { StudyIcon, studySessionTitle } from "../study/study-icon";
 
 /**
  * What a child conversation belongs to, for its row's hover text.
@@ -187,6 +188,10 @@ export function TabBar({
           <Tab
             key={session.sessionId}
             session={session}
+            title={studySessionTitle(
+              session,
+              index.directions.find((direction) => direction.id === session.containerId),
+            )}
             status={tabStatus(index.sessions, session)}
             selected={session.sessionId === tabs.active && view.active === null && !homeShown}
             renaming={session.sessionId === renaming}
@@ -468,6 +473,7 @@ function ViewerTabButton({
  */
 function Tab({
   session,
+  title,
   status,
   selected,
   renaming,
@@ -476,6 +482,8 @@ function Tab({
   onClose,
 }: {
   readonly session: SessionSummary;
+  /** Its title; a study session the host opened is named by its use until pi names it (SPEC-0008, ML2). */
+  readonly title: string;
   /** Its status, raised by its child conversations' (SPEC-0002, "主对话标签的状态图标"). */
   readonly status: RowStatus;
   readonly selected: boolean;
@@ -485,7 +493,6 @@ function Tab({
   readonly onSelect: () => void;
   readonly onClose: () => void;
 }) {
-  const title = sessionTitle(session);
   return (
     <div
       role="tab"
@@ -499,9 +506,11 @@ function Tab({
       className="group flex h-[30px] max-w-[200px] min-w-24 shrink items-center gap-1.5 rounded-[var(--r)] pr-1 pl-2.5 text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)] aria-selected:bg-[var(--selected)] aria-selected:text-[var(--text)]"
     >
       <StatusIcon status={status} />
-      {session.study?.kind === "discuss" ? (
-        <Message size={13} aria-label="讨论" className="shrink-0 text-[var(--text-dim)]" />
-      ) : null}
+      {session.study === null ? null : (
+        <span aria-label={KIND_NAMES[session.study.kind]} className="inline-flex shrink-0 text-[var(--text-dim)]">
+          <StudyIcon kind={session.study.kind} size={13} />
+        </span>
+      )}
       {session.parent === null ? null : (
         <ArrowBendDownRight size={12} aria-label="子对话" className="shrink-0 text-[var(--text-dim)]" />
       )}

@@ -96,11 +96,14 @@ export function direction(fields: Partial<Direction> & Pick<Direction, "id">): D
     name: dirName,
     alias: null,
     broken: false,
+    newer: false,
     discussing: true,
     archived: false,
     createdAt: 1,
     pinnedAt: null,
     lastOpenedAt: null,
+    progress: null,
+    next: { primary: null, secondary: null },
     ...fields,
   };
 }
@@ -133,6 +136,7 @@ export function session(
     parent: null,
     agent: null,
     heldDeliveries: 0,
+    kickoff: null,
     study: null,
     ...fields,
   };
@@ -215,6 +219,8 @@ export interface FakeAnswers {
   /** Answers any other direction command, which then changes the list; at once when left out. */
   readonly directionCommand?: () => Promise<void>;
   readonly prompt?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
+  /** Answers listing a session's commands, as when pi is still starting; at once when left out. */
+  readonly listCommands?: () => Promise<void>;
   readonly addProject?: () => Promise<void>;
   readonly openSession?: () => Promise<void>;
   /** The list `loadModels` puts in a container's model list; empty and ready when left out. */
@@ -690,6 +696,29 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       });
       return {};
     },
+    async startStudySession(
+      directionId: string,
+      study: { readonly kind: string; readonly level: string; readonly step: string; readonly gap?: string },
+    ) {
+      calls.push(`startStudySession ${directionId} ${JSON.stringify(study)}`);
+      await answers.directionCommand?.();
+      return { sessionId: "s-study" };
+    },
+    async markStudyStep(directionId: string, level: string, step: string, mark: string, done: boolean) {
+      calls.push(`markStudyStep ${directionId} ${level} ${step} ${mark} ${String(done)}`);
+      await answers.directionCommand?.();
+      return {};
+    },
+    async retryStudyKickoff(sessionId: string) {
+      calls.push(`retryStudyKickoff ${sessionId}`);
+      await answers.directionCommand?.();
+      return {};
+    },
+    async markStudyGap(directionId: string, gapId: string, fixed: boolean) {
+      calls.push(`markStudyGap ${directionId} ${gapId} ${String(fixed)}`);
+      await answers.directionCommand?.();
+      return {};
+    },
     async restoreDirection(directionId: string) {
       calls.push(`restoreDirection ${directionId}`);
       await answers.directionCommand?.();
@@ -863,6 +892,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     async listCommands(sessionId: string) {
       calls.push(`listCommands ${sessionId}`);
+      await answers.listCommands?.();
       return { commands: [{ name: "review", description: "Reviews", source: "prompt" }] };
     },
     async searchFiles(sessionId: string, query: string) {

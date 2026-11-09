@@ -45,6 +45,10 @@ export {
   UnpinDirectionCommand,
   ArchiveDirectionCommand,
   RestoreDirectionCommand,
+  StartStudySessionCommand,
+  MarkStudyStepCommand,
+  MarkStudyGapCommand,
+  RetryStudyKickoffCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -211,13 +215,28 @@ export {
   ProxySetting,
   StatusBarChoices,
   ChildParent,
-  SessionStudy,
   SessionSummary,
   SnapshotReason,
-  StudyKind,
   Workspace,
   isAuthFailure,
 } from "./listing";
+export {
+  STUDY_LIMITS,
+  SessionStudy,
+  StudyAction,
+  StudyBy,
+  StudyFixedStep,
+  StudyGap,
+  StudyKind,
+  StudyLesson,
+  StudyLevel,
+  StudyNext,
+  StudyProfile,
+  StudyProgress,
+  StudyQuiz,
+  StudyRef,
+  StudyStep,
+} from "./study";
 export {
   ControlUpdatedEvent,
   MetricsUpdatedEvent,
@@ -268,3 +287,4 @@ export {
   SessionAgent,
 } from "./agent";
 export { VISUAL_FILE_MAX, VISUAL_MESSAGE_MAX, VisualChangedEvent, VisualPath, VisualSource } from "./visuals";
+export { seenLength, seenText, splitSeen } from "./text";

@@ -1,0 +1,1901 @@
+<!doctype html>
+<!--
+  PROTOTYPE — 设计稿，不接入生产构建。ML2（SPEC-0008）里设计稿还没画到的五处，每处 4 种做法，按字母选。
+
+  已定的前提（2026-11-05 / 09 用户）：
+  · 步骤条选 C：标签栏下面常驻一条，高 40px，8px 的点（课方点，后面几步圆点），右端下一步按钮。
+  · 方向主页按 study-mode-flow-prototype.html 的 C：标题 + 当前步骤卡 + 这一级的全部步骤 | 右栏阶梯、漏洞、其他会话、档案。
+  · 手动标完成：只能标没完成的；只有手动标的能撤回；之后 agent 报告同一步，以 agent 的为准。
+  · 能手动标的小步只有"上课""测验"；补漏看漏洞，手动是在漏洞上"标为已补"。标测验时上课一起标上。
+  · "以后再测"：这一步算完成、测验记为没测，之后可以从这一步补测。
+  · 有会话正对着当前这一步时，按钮是"回到这个会话"（不论在不在跑）。
+  · 测验、费曼、升级的会话在 ML3 才做：ML2 里这些按钮显示出来但不能点。
+  · 归档的方向：步骤条只显示，没有按钮；已学完：没有主按钮；档案读不出来：没有按钮。
+  · 窄窗口时两栏变一栏。
+
+  这里只比较还没定的样子；每种做法左边浅色、右边深色。
+  图标：Hugeicons 免费版 stroke-rounded（4.3.5，路径照抄），文件类型图标是 material-icon-theme 5.39.0 的原图。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>原型 · 学习进度的几种状态</title>
+    <style>
+      :root,
+      .th-light {
+        --window: #e8ecf2;
+        --main: #ffffff;
+        --surface-1: #ffffff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --code: #f6f6f8;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --rail: rgba(0, 0, 0, 0.15);
+        --node: #c4c4c9;
+        --tint: #2f6fed;
+        --on-tint: #ffffff;
+        --linked: rgba(47, 111, 237, 0.1);
+        --attn: #dd8629;
+        --attn-text: #c96509;
+        --attn-soft: rgba(221, 134, 41, 0.12);
+        --danger: #e5484d;
+        --ok: #16a34a;
+        --ok-text: #1e8e3e;
+        --chip-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.05);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.08);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --fs-mono: 12.5px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-btn: 12px;
+        --r-card: 16px;
+        color-scheme: light;
+      }
+      .th-dark {
+        --window: #0d1016;
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --surface-3: #353638;
+        --code: #19191b;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --rail: rgba(255, 255, 255, 0.15);
+        --node: #5d6067;
+        --tint: #7aaaff;
+        --on-tint: #0d1016;
+        --linked: rgba(122, 170, 255, 0.14);
+        --attn: #dd8629;
+        --attn-text: #f0a24e;
+        --attn-soft: rgba(221, 134, 41, 0.16);
+        --danger: #f25a5a;
+        --ok: #22c55e;
+        --ok-text: #4ade80;
+        --chip-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.3);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.5);
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 22px 28px 64px;
+        background: #e8ecf2;
+        color: #2c2c30;
+        font:
+          14px / 1.5 -apple-system,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        font-variant-numeric: tabular-nums;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+      }
+      svg.i {
+        width: 16px;
+        height: 16px;
+        flex: 0 0 auto;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.75;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      svg.i.s12 {
+        width: 12px;
+        height: 12px;
+      }
+      svg.i.s13 {
+        width: 13px;
+        height: 13px;
+      }
+      svg.i.s14 {
+        width: 14px;
+        height: 14px;
+      }
+      .ft {
+        width: 15px;
+        height: 15px;
+        flex: 0 0 auto;
+      }
+
+      /* ---------- 页面框架 ---------- */
+      .doc-head h1 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+        color: #1d1d1f;
+      }
+      .doc-head p {
+        margin: 6px 0 0;
+        max-width: 900px;
+        color: #6e6e74;
+        font-size: 13px;
+      }
+      .toc {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 14px 0 0;
+      }
+      .toc a {
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: #fff;
+        box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1);
+        color: #2c2c30;
+        text-decoration: none;
+        font-size: 12px;
+      }
+      .part {
+        margin-top: 44px;
+      }
+      .part > h2 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 600;
+        color: #1d1d1f;
+      }
+      .part > .why {
+        margin: 4px 0 0;
+        max-width: 900px;
+        font-size: 13px;
+        color: #6e6e74;
+      }
+      .opt {
+        margin-top: 22px;
+      }
+      .opt > .oh {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        font-size: 14px;
+        color: #1d1d1f;
+      }
+      .opt > .oh .letter {
+        display: inline-grid;
+        place-items: center;
+        min-width: 30px;
+        height: 22px;
+        padding: 0 6px;
+        border-radius: 6px;
+        background: #1d1d1f;
+        color: #fff;
+        font-weight: 700;
+        font-size: 12px;
+      }
+      .opt > .oh b {
+        font-weight: 600;
+      }
+      .opt > .od {
+        margin: 4px 0 0 40px;
+        max-width: 900px;
+        font-size: 12.5px;
+        color: #6e6e74;
+      }
+      .pair {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin-top: 10px;
+      }
+      .frame {
+        padding: 16px;
+        border-radius: 14px;
+        background: var(--window);
+        color: var(--text-2);
+        font: var(--fs) / 1.5 var(--font-sans);
+      }
+      .frame > .fl {
+        margin: 0 0 8px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .win {
+        position: relative;
+        border-radius: 12px;
+        background: var(--main);
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+      }
+      .win.open {
+        overflow: visible;
+      }
+      .pad {
+        padding: 16px 18px 18px;
+      }
+      .cap {
+        margin: 12px 0 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .cap:first-child {
+        margin-top: 0;
+      }
+
+      /* ---------- 共用部件（同 study-mode-flow-prototype C） ---------- */
+      .muted {
+        color: var(--text-muted);
+      }
+      .dim {
+        color: var(--text-dim);
+      }
+      .tabbar {
+        height: 48px;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 0 12px;
+        box-shadow: inset 0 -0.5px 0 var(--line);
+        overflow: hidden;
+      }
+      .crumb {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-right: 8px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 10px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .tab.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .tab.home .i {
+        color: var(--tint);
+      }
+      .ibtn {
+        all: unset;
+        display: inline-grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        border-radius: var(--r);
+        color: var(--text-muted);
+      }
+      .ibtn.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .run {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 1.5px solid var(--tint);
+        border-right-color: transparent;
+        animation: spin 0.9s linear infinite;
+        flex: 0 0 auto;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .run {
+          animation: none;
+        }
+      }
+      .btn {
+        all: unset;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 12px;
+        border-radius: var(--r-btn);
+        font-size: var(--fs-meta);
+        white-space: nowrap;
+        cursor: default;
+      }
+      .btn.primary {
+        background: var(--tint);
+        color: var(--on-tint);
+        font-weight: 600;
+      }
+      .btn.ghost {
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        color: var(--text-2);
+      }
+      .btn.outline {
+        box-shadow: inset 0 0 0 1px var(--tint);
+        color: var(--tint);
+        font-weight: 500;
+      }
+      .btn.textbtn {
+        color: var(--text-muted);
+        padding: 0 8px;
+      }
+      .btn.sm {
+        height: 26px;
+        padding: 0 10px;
+        border-radius: 9px;
+      }
+      .btn.xs {
+        height: 22px;
+        padding: 0 8px;
+        border-radius: 7px;
+        font-size: var(--fs-sm);
+      }
+      .btn[disabled],
+      .btn.off {
+        opacity: 0.42;
+      }
+      .btn.locked {
+        background: var(--surface-2);
+        color: var(--text-dim);
+        font-weight: 500;
+      }
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 20px;
+        padding: 0 7px;
+        border-radius: var(--r-sm);
+        background: var(--surface-2);
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .tag.attn {
+        background: var(--attn-soft);
+        color: var(--attn-text);
+      }
+      .tag.tint {
+        background: var(--linked);
+        color: var(--tint);
+      }
+      .tag.ok {
+        background: color-mix(in srgb, var(--ok) 12%, transparent);
+        color: var(--ok-text);
+      }
+      .tag.xs {
+        height: 17px;
+        padding: 0 5px;
+        font-size: var(--fs-xs);
+        border-radius: 5px;
+      }
+      .card {
+        border-radius: var(--r-card);
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+      }
+
+      /* 步骤条 */
+      .strip {
+        height: 40px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 10px 0 16px;
+        box-shadow: inset 0 -0.5px 0 var(--line);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .strip .lvl {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--text-2);
+        font-weight: 500;
+      }
+      .strip .trk {
+        display: inline-flex;
+        gap: 3px;
+      }
+      .strip .trk i {
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        background: var(--line-strong);
+      }
+      .strip .trk i.done {
+        background: var(--text-muted);
+      }
+      .strip .trk i.cur {
+        background: var(--tint);
+      }
+      .strip .trk i.x {
+        border-radius: 50%;
+      }
+      .strip .trk.faded {
+        opacity: 0.45;
+      }
+      .strip .trk.grey i.cur {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--text-muted);
+      }
+      .strip .trk.hatch i {
+        background: transparent;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+      }
+      .strip .trk.all i {
+        background: var(--tint);
+      }
+      .strip .now {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .strip .now b {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .strip .sp {
+        flex: 1;
+      }
+      .strip .warn {
+        color: var(--attn-text);
+      }
+      .strip .okc {
+        color: var(--ok-text);
+      }
+      .strip-label {
+        padding: 8px 16px 0;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .live {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--ok);
+      }
+
+      /* 步骤列表 */
+      .lessons {
+        padding: 4px;
+        border-radius: 12px;
+        background: var(--code);
+      }
+      .lesson {
+        position: relative;
+        border-radius: var(--r);
+      }
+      .lesson .lh {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 32px;
+        padding: 0 6px 0 10px;
+        font-size: var(--fs-meta);
+        color: var(--text-3);
+      }
+      .lesson .no {
+        width: 18px;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+        flex: 0 0 auto;
+      }
+      .lesson .no.kd {
+        display: inline-flex;
+      }
+      .lesson .ok {
+        color: var(--ok-text);
+        display: inline-flex;
+      }
+      .lesson .okm {
+        color: var(--text-muted);
+        display: inline-flex;
+      }
+      .lesson .t {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .lesson .m {
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+        white-space: nowrap;
+      }
+      .lesson .m.attn {
+        color: var(--attn-text);
+      }
+      .lesson.next {
+        background: var(--surface-1);
+        box-shadow: var(--chip-shadow);
+      }
+      .lesson.next .lh {
+        color: var(--text);
+      }
+      .lesson.next .no {
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .lesson.todo .lh {
+        color: var(--text-dim);
+      }
+      .lesson.hover {
+        background: var(--hover);
+      }
+      .lesson .more {
+        width: 24px;
+        height: 24px;
+      }
+      .sess {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px;
+        padding: 0 10px 8px 38px;
+      }
+      .schip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 22px;
+        padding: 0 8px;
+        border-radius: 999px;
+        background: var(--surface-1);
+        box-shadow: var(--chip-shadow);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        white-space: nowrap;
+      }
+      .schip .i {
+        color: var(--text-muted);
+      }
+      .schip .s {
+        color: var(--text-dim);
+      }
+      .schip.manual {
+        background: transparent;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+        border: 0;
+        color: var(--text-muted);
+        background-image: none;
+        outline: 1px dashed var(--line-strong);
+        outline-offset: -1px;
+        box-shadow: none;
+      }
+      .inline-link {
+        font-size: var(--fs-sm);
+        color: var(--tint);
+      }
+      .subd {
+        display: inline-flex;
+        gap: 2px;
+        flex: 0 0 auto;
+      }
+      .subd i {
+        width: 5px;
+        height: 5px;
+        border-radius: 1.4px;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+      }
+      .subd i.d {
+        background: var(--text-muted);
+        box-shadow: none;
+      }
+      .subd i.g {
+        background: var(--attn);
+        box-shadow: none;
+      }
+      .subd i.m {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.25px var(--text-muted);
+      }
+      .subd i.n {
+        background: transparent;
+        box-shadow: none;
+        outline: 1px dashed var(--text-dim);
+        outline-offset: -1px;
+      }
+      .seg {
+        display: inline-flex;
+        padding: 2px;
+        gap: 2px;
+        border-radius: 8px;
+        background: var(--surface-2);
+      }
+      .seg span {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 20px;
+        padding: 0 7px;
+        border-radius: 6px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .seg span.on {
+        background: var(--surface-1);
+        box-shadow: var(--chip-shadow);
+        color: var(--text);
+      }
+      .seg span.mine {
+        background: var(--surface-1);
+        color: var(--text-2);
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+      }
+      .roundchk {
+        display: inline-grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+        color: var(--text-muted);
+        background: var(--surface-1);
+      }
+
+      /* 菜单 */
+      .menu {
+        position: absolute;
+        z-index: 5;
+        min-width: 188px;
+        padding: 4px;
+        border-radius: var(--r-md);
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .menu.flow {
+        position: relative;
+        margin: 2px 4px 8px auto;
+        width: max-content;
+      }
+      .menu .mi {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 28px;
+        padding: 0 8px;
+        border-radius: 6px;
+        white-space: nowrap;
+      }
+      .menu .mi.hl {
+        background: var(--selected);
+      }
+      .menu .mi .k {
+        margin-left: auto;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .menu .mi.dis {
+        color: var(--text-dim);
+      }
+      .menu .mi .ck {
+        width: 14px;
+        display: inline-flex;
+        color: var(--text-muted);
+      }
+      .menu .sep {
+        height: 0.5px;
+        margin: 4px 6px;
+        background: var(--line);
+      }
+      .menu .mh {
+        padding: 4px 8px 2px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .menu .note {
+        padding: 2px 8px 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        white-space: normal;
+        max-width: 220px;
+      }
+      .menu .row-btns {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+        padding: 6px 4px 2px;
+      }
+      .box {
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+        display: inline-grid;
+        place-items: center;
+        flex: 0 0 auto;
+      }
+      .box.on {
+        background: var(--tint);
+        color: var(--on-tint);
+        box-shadow: none;
+      }
+      .box.agent {
+        background: var(--surface-3);
+        color: var(--text-muted);
+        box-shadow: none;
+      }
+      .box.ok {
+        background: var(--ok);
+        color: #fff;
+        box-shadow: none;
+      }
+      .tip {
+        position: absolute;
+        z-index: 6;
+        padding: 4px 8px;
+        border-radius: 6px;
+        background: var(--text);
+        color: var(--main);
+        font-size: var(--fs-xs);
+        white-space: nowrap;
+      }
+
+      /* 主页 */
+      .ptitle {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .psub {
+        margin: 4px 0 0;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .hero {
+        padding: 16px 18px 14px;
+      }
+      .hero .eyebrow {
+        font-size: var(--fs-sm);
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .hero .big {
+        margin: 4px 0 2px;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .hero .desc {
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        line-height: 1.6;
+      }
+      .hero .row2 {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+      .hero .extra {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        padding-top: 10px;
+        box-shadow: inset 0 0.5px 0 var(--line);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .subpills {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 10px;
+        font-size: var(--fs-sm);
+      }
+      .subpill {
+        display: inline-flex;
+        align-items: center;
+        height: 24px;
+        padding: 0 9px;
+        border-radius: 999px;
+        background: var(--surface-2);
+        color: var(--text-muted);
+      }
+      .subpill.on {
+        background: var(--linked);
+        color: var(--tint);
+        font-weight: 500;
+      }
+      .sect {
+        margin-top: 20px;
+      }
+      .sect > .h {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .sect > .h span {
+        flex: 1;
+      }
+      .side-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+      .node {
+        width: 18px;
+        height: 18px;
+        display: grid;
+        place-items: center;
+        flex: 0 0 auto;
+      }
+      .node i {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--node);
+      }
+      .node i.cur {
+        width: 11px;
+        height: 11px;
+        background: transparent;
+        box-shadow: inset 0 0 0 2px var(--tint);
+      }
+      .node i.lock {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--rail);
+      }
+      .lvc {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 30px;
+        padding: 0 6px 0 4px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .lvc .nm {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .lvc .m {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .lvc.lock {
+        color: var(--text-dim);
+      }
+      .lvc.open {
+        background: var(--hover);
+      }
+      .lvx {
+        margin: 2px 0 6px 30px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        line-height: 1.6;
+      }
+      .lvx dt {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+      }
+      .lvx dd {
+        margin: 0 0 4px;
+        color: var(--text-2);
+      }
+      .lvcard {
+        margin: 4px 0 6px 26px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: var(--code);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        line-height: 1.6;
+      }
+      .lvcard .k {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+      }
+      .pop {
+        position: absolute;
+        z-index: 5;
+        width: 250px;
+        padding: 10px 12px;
+        border-radius: var(--r-md);
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        line-height: 1.6;
+      }
+      .pop .k {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+      }
+      .pop .t {
+        font-weight: 600;
+        color: var(--text);
+        font-size: var(--fs-meta);
+      }
+      .gap-row {
+        position: relative;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 9px 10px 9px 12px;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        line-height: 1.5;
+      }
+      .gap-row + .gap-row {
+        box-shadow: inset 0 0.5px 0 var(--line);
+      }
+      .gap-row .body {
+        flex: 1;
+        min-width: 0;
+      }
+      .gap-row .src {
+        display: block;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .gap-row .mk {
+        margin-top: 6px;
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        flex: 0 0 auto;
+        background: var(--attn);
+      }
+      .gap-row.fixed .mk {
+        background: var(--ok);
+      }
+      .gap-row.fixed .tx {
+        color: var(--text-dim);
+        text-decoration: line-through;
+        text-decoration-color: var(--line-strong);
+      }
+      .gap-row.hover {
+        background: var(--hover);
+      }
+      .gap-row .act {
+        display: inline-flex;
+        gap: 4px;
+        margin-top: 1px;
+      }
+      .gap-row .cb {
+        margin-top: 3px;
+      }
+      .mini-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+        flex-wrap: wrap;
+      }
+      .frow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 28px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        font: var(--fs-mono) var(--font-mono);
+        color: var(--text-2);
+      }
+      .frow .m {
+        margin-left: auto;
+        color: var(--text-dim);
+        font: var(--fs-sm) var(--font-sans);
+        white-space: nowrap;
+      }
+      .twocol {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 200px;
+        gap: 22px;
+        align-items: start;
+      }
+      .tabs-seg {
+        display: flex;
+        gap: 2px;
+        margin-top: 18px;
+        padding: 2px;
+        border-radius: 10px;
+        background: var(--surface-2);
+        width: max-content;
+      }
+      .tabs-seg span {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 26px;
+        padding: 0 12px;
+        border-radius: 8px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .tabs-seg span.on {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow: var(--chip-shadow);
+        font-weight: 500;
+      }
+      .tabs-seg span .n {
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .sumcards {
+        display: flex;
+        gap: 8px;
+        margin-top: 16px;
+        overflow: hidden;
+      }
+      .sumcard {
+        flex: 0 0 auto;
+        min-width: 128px;
+        padding: 9px 12px;
+        border-radius: 12px;
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .sumcard b {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text);
+        font-weight: 500;
+        font-size: var(--fs-meta);
+      }
+      .sumcard.on {
+        box-shadow:
+          inset 0 0 0 1px var(--tint),
+          var(--card-shadow);
+      }
+      .disc {
+        margin-top: 4px;
+        border-radius: 12px;
+      }
+      .disc + .disc {
+        margin-top: 2px;
+      }
+      .disc .dh {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        font-weight: 500;
+      }
+      .disc .dh .m {
+        margin-left: auto;
+        color: var(--text-dim);
+        font-weight: 400;
+        font-size: var(--fs-sm);
+      }
+      .disc .dh .chev {
+        color: var(--text-dim);
+        display: inline-flex;
+        transition: transform 0.2s;
+      }
+      .disc.open .dh .chev {
+        transform: rotate(90deg);
+      }
+      .disc .db {
+        padding: 0 4px 8px 10px;
+      }
+      .sheet-scrim {
+        position: absolute;
+        inset: 88px 0 0;
+        background: rgba(20, 24, 32, 0.16);
+      }
+      .th-dark .sheet-scrim {
+        background: rgba(0, 0, 0, 0.4);
+      }
+      .sheet {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 6;
+        padding: 14px 16px 16px;
+        border-radius: 16px 16px 0 0;
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+      }
+      .sheet .sh {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+        font-size: var(--fs-meta);
+        font-weight: 600;
+        color: var(--text);
+      }
+      .sheet .sh .ibtn {
+        margin-left: auto;
+      }
+      .reco {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 0 6px;
+        border-radius: 5px;
+        background: #2f6fed;
+        color: #fff;
+        font-size: 11px;
+        font-weight: 600;
+        vertical-align: 1px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="doc-head">
+      <h1>学习进度的几种状态（ML2 · SPEC-0008）</h1>
+      <p>
+        设计稿还没画到的五处，每处 4 种做法，按编号挑（比如"1B、2A、3A、4C、5D"）。每种左边浅色、右边深色。数据是
+        study-mode-flow-prototype 里那个"Node 后端"方向：第 2 级"数据和登录"，13 步，走到第 4 步。
+      </p>
+      <nav class="toc" id="toc"></nav>
+    </div>
+    <main id="parts"></main>
+
+    <script>
+      const ICONS = {
+        Mortarboard02:
+          '<path d="M2 8C2 9.34178 10.0949 13 11.9861 13C13.8772 13 21.9722 9.34178 21.9722 8C21.9722 6.65822 13.8772 3 11.9861 3C10.0949 3 2 6.65822 2 8Z"/><path d="M5.99414 11L6.23925 16.6299C6.24415 16.7426 6.25634 16.8555 6.28901 16.9635C6.38998 17.2973 6.57608 17.6006 6.86 17.8044C9.08146 19.3985 14.8901 19.3985 17.1115 17.8044C17.3956 17.6006 17.5816 17.2973 17.6826 16.9635C17.7152 16.8555 17.7274 16.7426 17.7324 16.6299L17.9774 11"/><path d="M20.4734 9.5V16.5M20.4734 16.5C19.6814 17.9463 19.3312 18.7212 18.9755 20C18.8983 20.455 18.9596 20.6843 19.2732 20.8879C19.4006 20.9706 19.5537 21 19.7055 21H21.2259C21.3876 21 21.5507 20.9663 21.6838 20.8745C21.9753 20.6735 22.0503 20.453 21.9713 20C21.6595 18.8126 21.2623 18.0008 20.4734 16.5Z"/>',
+        Search01:
+          '<path d="M17 17L21 21"/><path d="M19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11C3 15.4183 6.58172 19 11 19C15.4183 19 19 15.4183 19 11Z"/>',
+        Pin02:
+          '<path d="M12 16V21"/><path d="M8 5.2918C8 5.02079 8 4.88529 8.01312 4.77132C8.1194 3.84789 8.84789 3.1194 9.77133 3.01312C9.88529 3 10.0208 3 10.2918 3H13.7082C13.9792 3 14.1147 3 14.2287 3.01312C15.1521 3.1194 15.8806 3.84789 15.9869 4.77132C16 4.88529 16 5.02079 16 5.2918C16 5.37885 16 5.42237 15.9967 5.46264C15.9708 5.78281 15.7927 6.07104 15.5179 6.2374C15.4834 6.25832 15.4444 6.27779 15.3666 6.31672L15.1055 6.44726C14.7021 6.64897 14.5003 6.74983 14.3681 6.90564C14.26 7.03286 14.1856 7.18509 14.1515 7.34846C14.1097 7.54854 14.1539 7.76968 14.2424 8.21197L15 12H15.3333C15.9533 12 16.2633 12 16.5176 12.0681C17.2078 12.2531 17.7469 12.7922 17.9319 13.4824C18 13.7367 18 14.0467 18 14.6667C18 14.9767 18 15.1317 17.9659 15.2588C17.8735 15.6039 17.6039 15.8735 17.2588 15.9659C17.1317 16 16.9767 16 16.6667 16H7.33333C7.02334 16 6.86835 16 6.74118 15.9659C6.39609 15.8735 6.12654 15.6039 6.03407 15.2588C6 15.1317 6 14.9767 6 14.6667C6 14.0467 6 13.7367 6.06815 13.4824C6.25308 12.7922 6.79218 12.2531 7.48236 12.0681C7.73669 12 8.04669 12 8.66667 12H9L9.75761 8.21197C9.84606 7.76968 9.89029 7.54854 9.84852 7.34846C9.81441 7.18509 9.73995 7.03286 9.63194 6.90564C9.49965 6.74983 9.29794 6.64897 8.89452 6.44726L8.63344 6.31672C8.55558 6.27779 8.51665 6.25832 8.48208 6.2374C8.20731 6.07104 8.02917 5.78281 8.00326 5.46264C8 5.42237 8 5.37885 8 5.2918Z"/>',
+        BubbleChatAdd:
+          '<path d="M21.5 12C21.5 17.2467 17.2467 21.5 12 21.5C10.3719 21.5 8.8394 21.0904 7.5 20.3687C5.63177 19.362 4.37462 20.2979 3.26592 20.4658C3.09774 20.4913 2.93024 20.4302 2.80997 20.31C2.62741 20.1274 2.59266 19.8451 2.6935 19.6074C3.12865 18.5818 3.5282 16.6382 2.98341 15C2.6698 14.057 2.5 13.0483 2.5 12C2.5 6.75329 6.75329 2.5 12 2.5C17.2467 2.5 21.5 6.75329 21.5 12Z"/><path d="M15.5 12H8.5M12 8.5V15.5"/>',
+        Folder01:
+          '<path d="M8 7H16.75C18.8567 7 19.91 7 20.6667 7.50559C20.9943 7.72447 21.2755 8.00572 21.4944 8.33329C22 9.08996 22 10.1433 22 12.25C22 15.7612 22 17.5167 21.1573 18.7779C20.7926 19.3238 20.3238 19.7926 19.7779 20.1573C18.5167 21 16.7612 21 13.25 21H12C7.28595 21 4.92893 21 3.46447 19.5355C2 18.0711 2 15.714 2 11V7.94427C2 6.1278 2 5.21956 2.38032 4.53806C2.65142 4.05227 3.05227 3.65142 3.53806 3.38032C4.21956 3 5.1278 3 6.94427 3C8.10802 3 8.6899 3 9.19926 3.19101C10.3622 3.62712 10.8418 4.68358 11.3666 5.73313L12 7"/>',
+        Add01: '<path d="M12.001 5.00003V19.002"/><path d="M19.002 12.002L4.99998 12.002"/>',
+        MoreHorizontal:
+          '<path d="M6.00449 12.5V12M18.0045 12.5V12M12.0045 12.5V12M7.00449 12.5C7.00449 11.9477 6.55677 11.5 6.00449 11.5C5.4522 11.5 5.00449 11.9477 5.00449 12.5C5.00449 13.0523 5.4522 13.5 6.00449 13.5C6.55677 13.5 7.00449 13.0523 7.00449 12.5ZM19.0045 12.5C19.0045 11.9477 18.5568 11.5 18.0045 11.5C17.4522 11.5 17.0045 11.9477 17.0045 12.5C17.0045 13.0523 17.4522 13.5 18.0045 13.5C18.5568 13.5 19.0045 13.0523 19.0045 12.5ZM13.0045 12.5C13.0045 11.9477 12.5568 11.5 12.0045 11.5C11.4522 11.5 11.0045 11.9477 11.0045 12.5C11.0045 13.0523 11.4522 13.5 12.0045 13.5C12.5568 13.5 13.0045 13.0523 13.0045 12.5Z"/>',
+        Settings01:
+          '<path d="M21.3175 7.14139L20.8239 6.28479C20.4506 5.63696 20.264 5.31305 19.9464 5.18388C19.6288 5.05472 19.2696 5.15664 18.5513 5.36048L17.3311 5.70418C16.8725 5.80994 16.3913 5.74994 15.9726 5.53479L15.6357 5.34042C15.2766 5.11043 15.0004 4.77133 14.8475 4.37274L14.5136 3.37536C14.294 2.71534 14.1842 2.38533 13.9228 2.19657C13.6615 2.00781 13.3143 2.00781 12.6199 2.00781H11.5051C10.8108 2.00781 10.4636 2.00781 10.2022 2.19657C9.94085 2.38533 9.83106 2.71534 9.61149 3.37536L9.27753 4.37274C9.12465 4.77133 8.84845 5.11043 8.48937 5.34042L8.15249 5.53479C7.73374 5.74994 7.25259 5.80994 6.79398 5.70418L5.57375 5.36048C4.85541 5.15664 4.49625 5.05472 4.17867 5.18388C3.86109 5.31305 3.67445 5.63696 3.30115 6.28479L2.80757 7.14139C2.45766 7.74864 2.2827 8.05227 2.31666 8.37549C2.35061 8.69871 2.58483 8.95918 3.05326 9.48012L4.0843 10.6328C4.3363 10.9518 4.51521 11.5078 4.51521 12.0077C4.51521 12.5078 4.33636 13.0636 4.08433 13.3827L3.05326 14.5354C2.58483 15.0564 2.35062 15.3168 2.31666 15.6401C2.2827 15.9633 2.45766 16.2669 2.80757 16.8741L3.30114 17.7307C3.67443 18.3785 3.86109 18.7025 4.17867 18.8316C4.49625 18.9608 4.85542 18.8589 5.57377 18.655L6.79394 18.3113C7.25263 18.2055 7.73387 18.2656 8.15267 18.4808L8.4895 18.6752C8.84851 18.9052 9.12464 19.2442 9.2775 19.6428L9.61149 20.6403C9.83106 21.3003 9.94085 21.6303 10.2022 21.8191C10.4636 22.0078 10.8108 22.0078 11.5051 22.0078H12.6199C13.3143 22.0078 13.6615 22.0078 13.9228 21.8191C14.1842 21.6303 14.294 21.3003 14.5136 20.6403L14.8476 19.6428C15.0004 19.2442 15.2765 18.9052 15.6356 18.6752L15.9724 18.4808C16.3912 18.2656 16.8724 18.2055 17.3311 18.3113L18.5513 18.655C19.2696 18.8589 19.6288 18.9608 19.9464 18.8316C20.264 18.7025 20.4506 18.3785 20.8239 17.7307L21.3175 16.8741C21.6674 16.2669 21.8423 15.9633 21.8084 15.6401C21.7744 15.3168 21.5402 15.0564 21.0718 14.5354L20.0407 13.3827C19.7887 13.0636 19.6098 12.5078 19.6098 12.0077C19.6098 11.5078 19.7888 10.9518 20.0407 10.6328L21.0718 9.48012C21.5402 8.95918 21.7744 8.69871 21.8084 8.37549C21.8423 8.05227 21.6674 7.74864 21.3175 7.14139Z"/><path d="M15.5195 12C15.5195 13.933 13.9525 15.5 12.0195 15.5C10.0865 15.5 8.51953 13.933 8.51953 12C8.51953 10.067 10.0865 8.5 12.0195 8.5C13.9525 8.5 15.5195 10.067 15.5195 12Z"/>',
+        Sparkles:
+          '<path d="M15 2L15.5387 4.39157C15.9957 6.42015 17.5798 8.00431 19.6084 8.46127L22 9L19.6084 9.53873C17.5798 9.99569 15.9957 11.5798 15.5387 13.6084L15 16L14.4613 13.6084C14.0043 11.5798 12.4202 9.99569 10.3916 9.53873L8 9L10.3916 8.46127C12.4201 8.00431 14.0043 6.42015 14.4613 4.39158L15 2Z"/><path d="M7 12L7.38481 13.7083C7.71121 15.1572 8.84275 16.2888 10.2917 16.6152L12 17L10.2917 17.3848C8.84275 17.7112 7.71121 18.8427 7.38481 20.2917L7 22L6.61519 20.2917C6.28879 18.8427 5.15725 17.7112 3.70827 17.3848L2 17L3.70827 16.6152C5.15725 16.2888 6.28879 15.1573 6.61519 13.7083L7 12Z"/>',
+        ArrowRight01: '<path d="M9.00005 6C9.00005 6 15 10.4189 15 12C15 13.5812 9 18 9 18"/>',
+        Tick02: '<path d="M5 14L8.5 17.5L19 6.5"/>',
+        Target02:
+          '<path d="M17 12C17 14.7614 14.7614 17 12 17C9.23858 17 7 14.7614 7 12C7 9.23858 9.23858 7 12 7"/><path d="M14 2.20004C13.3538 2.06886 12.6849 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12C22 11.3151 21.9311 10.6462 21.8 10"/><path d="M12.0303 11.9625L16.5832 7.4096M19.7404 4.34462L19.1872 2.35748C19.0853 2.03011 18.6914 1.89965 18.4259 2.11662C16.9898 3.29018 15.4254 4.87091 16.703 7.36419C19.2771 8.56455 20.7466 6.94584 21.8733 5.5853C22.0975 5.3146 21.9623 4.90767 21.6247 4.81005L19.7404 4.34462Z"/>',
+        Idea01:
+          '<path d="M8 16.4998C6.7725 15.4011 6 13.7768 6 11.9998C6 8.68605 8.68629 5.99976 12 5.99976C15.3137 5.99976 18 8.68605 18 11.9998C18 13.7768 17.2275 15.4011 16 16.4998"/><path d="M12 11.9998V16.4998"/><path d="M9.5 18.9998H14.5"/><path d="M10.5 21.4998H13.5"/><path d="M3.5 11.9998H2.5M5.98438 5.97632L5.23438 5.23022M18.0195 5.97632L18.7695 5.23022M21.5 11.9998H20.5M12 2.49976V3.49976"/>',
+        Note01:
+          '<path d="M16.5 2V5M7.5 2V5M12 2V5"/><path d="M13 3.5H11C7.70017 3.5 6.05025 3.5 5.02513 4.52513C4 5.55025 4 7.20017 4 10.5V15C4 18.2998 4 19.9497 5.02513 20.9749C6.05025 22 7.70017 22 11 22H13C16.2998 22 17.9497 22 18.9749 20.9749C20 19.9497 20 18.2998 20 15V10.5C20 7.20017 20 5.55025 18.9749 4.52512C17.9497 3.5 16.2998 3.5 13 3.5Z"/><path d="M8 15H12M8 11H16"/>',
+        BookOpen01:
+          '<path d="M7.99978 3.5H6.60021C4.43183 3.5 3.34764 3.5 2.67399 4.17362C2.00034 4.84724 2.00029 5.93144 2.00021 8.09982L2 13.3998C1.99992 15.5684 1.99987 16.6526 2.67353 17.3263C3.34719 18 4.43146 18 6.6 18H8.95042C10.4329 18 11.7092 19.0464 11.9999 20.5V5.5C11.0556 4.24097 9.99989 3.5 7.99978 3.5Z"/><path d="M16.0001 3.5H17.3997C19.5681 3.5 20.6523 3.5 21.3259 4.17362C21.9996 4.84724 21.9996 5.93144 21.9997 8.09982L21.9999 13.3998C22 15.5684 22 16.6526 21.3264 17.3263C20.6527 18 19.5684 18 17.3999 18H15.0495C13.567 18 12.2907 19.0464 12 20.5V5.5C12.9443 4.24097 14 3.5 16.0001 3.5Z"/>',
+        Quiz01:
+          '<path d="M10.4564 2.64012C11.3085 1.78663 12.6915 1.78663 13.5436 2.64012L14.553 3.65112C14.9625 4.06139 15.5186 4.29172 16.0983 4.29124L17.5269 4.29007C18.733 4.28909 19.7109 5.26702 19.7099 6.47306L19.7088 7.90166C19.7083 8.48139 19.9386 9.03745 20.3489 9.44705L21.3599 10.4564C22.2134 11.3085 22.2134 12.6915 21.3599 13.5436L20.3489 14.553C19.9386 14.9625 19.7083 15.5186 19.7088 16.0983L19.7099 17.5269C19.7109 18.733 18.733 19.7109 17.5269 19.7099L16.0983 19.7088C15.5186 19.7083 14.9625 19.9386 14.553 20.3489L13.5436 21.3599C12.6915 22.2134 11.3085 22.2134 10.4564 21.3599L9.44705 20.3489C9.03745 19.9386 8.48139 19.7083 7.90166 19.7088L6.47306 19.7099C5.26702 19.7109 4.28909 18.733 4.29007 17.5269L4.29124 16.0983C4.29172 15.5186 4.06139 14.9625 3.65112 14.553L2.64012 13.5436C1.78663 12.6915 1.78663 11.3085 2.64012 10.4564L3.65112 9.44705C4.06139 9.03745 4.29172 8.48139 4.29124 7.90166L4.29007 6.47306C4.28909 5.26702 5.26702 4.28909 6.47306 4.29007L7.90166 4.29124C8.48139 4.29172 9.03745 4.06139 9.44705 3.65112L10.4564 2.64012Z"/><path d="M10 9C10 7.89543 10.8954 7 12 7C13.1046 7 14 7.89543 14 9C14 9.39815 13.8837 9.76913 13.6831 10.0808C13.0854 11.0097 12 11.8954 12 13V13.5M12.1244 16.75H11.9994M12.2494 16.75C12.2494 16.8881 12.1375 17 11.9994 17C11.8613 17 11.7494 16.8881 11.7494 16.75C11.7494 16.6119 11.8613 16.5 11.9994 16.5C12.1375 16.5 12.2494 16.6119 12.2494 16.75Z"/>',
+        Flag01:
+          '<path d="M5.0249 21C5.04385 19.2643 5.04366 17.5541 5.0366 15.9209M5.0366 15.9209C5.01301 10.4614 4.91276 5.86186 5.19475 4.04271C5.5611 1.67939 9.39301 3.82993 13.9703 5.59842L16.0328 6.48729C17.5508 7.1415 19.7187 8.30352 18.7662 9.66084C18.3738 10.22 17.56 10.8596 16.0575 11.567L5.0366 15.9209Z"/>',
+        ArrowDown01: '<path d="M18 9.00005C18 9.00005 13.5811 15 12 15C10.4188 15 6 9 6 9"/>',
+        Message01:
+          '<path d="M8.5 14.5H15.5M8.5 9.5H12"/><path d="M14.1706 20.8905C18.3536 20.6125 21.6856 17.2332 21.9598 12.9909C22.0134 12.1607 22.0134 11.3009 21.9598 10.4707C21.6856 6.22838 18.3536 2.84913 14.1706 2.57107C12.7435 2.47621 11.2536 2.47641 9.8294 2.57107C5.64639 2.84913 2.31441 6.22838 2.04024 10.4707C1.98659 11.3009 1.98659 12.1607 2.04024 12.9909C2.1401 14.536 2.82343 15.9666 3.62791 17.1746C4.09501 18.0203 3.78674 19.0758 3.30021 19.9978C2.94941 20.6626 2.77401 20.995 2.91484 21.2351C3.05568 21.4752 3.37026 21.4829 3.99943 21.4982C5.24367 21.5285 6.08268 21.1757 6.74868 20.6846C7.1264 20.4061 7.31527 20.2668 7.44544 20.2508C7.5756 20.2348 7.83177 20.3403 8.34401 20.5513C8.8044 20.7409 9.33896 20.8579 9.8294 20.8905C11.2536 20.9852 12.7435 20.9854 14.1706 20.8905Z"/>',
+        PlayCircle:
+          '<circle cx="12" cy="12" r="10"/><path d="M15.9453 12.3948C15.7686 13.0215 14.9333 13.4644 13.2629 14.3502C11.648 15.2064 10.8406 15.6346 10.1899 15.4625C9.9209 15.3913 9.6758 15.2562 9.47812 15.0701C9 14.6198 9 13.7465 9 12C9 10.2535 9 9.38018 9.47812 8.92995C9.6758 8.74381 9.9209 8.60868 10.1899 8.53753C10.8406 8.36544 11.648 8.79357 13.2629 9.64983C14.9333 10.5356 15.7686 10.9785 15.9453 11.6052C16.0182 11.8639 16.0182 12.1361 15.9453 12.3948Z"/>',
+        Globe02:
+          '<circle cx="12" cy="12" r="10"/><path d="M8 12C8 18 12 22 12 22C12 22 16 18 16 12C16 6 12 2 12 2C12 2 8 6 8 12Z"/><path d="M21 15H3"/><path d="M21 9H3"/>',
+        Cancel01: '<path d="M18 6L6.00081 17.9992M17.9992 18L6 6.00085"/>',
+        ArrowTurnBackward:
+          '<path d="M11 6H15.5C17.9853 6 20 8.01472 20 10.5C20 12.9853 17.9853 15 15.5 15H4"/><path d="M6.99998 12C6.99998 12 4.00001 14.2095 4 15C3.99999 15.7906 7 18 7 18"/>',
+        ArrowUpRight01:
+          '<path d="M9 6.65032C9 6.65032 15.9383 6.10759 16.9154 7.08463C17.8924 8.06167 17.3496 15 17.3496 15M16.5 7.5L6.5 17.5"/>',
+        Archive02:
+          '<path d="M7 21H16.9999C19.3569 21 20.5354 21 21.2677 20.2678C21.9999 19.5355 21.9999 18.357 21.9999 16C21.9999 13.643 21.9999 12.4645 21.2677 11.7322C20.5354 11 19.3569 11 16.9999 11H7C4.64302 11 3.46453 11 2.7323 11.7322C2.00007 12.4644 2.00005 13.6429 2 15.9999C1.99995 18.357 1.99993 19.5355 2.73217 20.2677C3.4644 21 4.64294 21 7 21Z"/><path d="M4 11C4.00005 9.59977 4.00008 8.89966 4.27263 8.36485C4.5123 7.89455 4.89469 7.51218 5.365 7.27253C5.89981 7 6.59993 7 8.00015 7H16C17.4001 7 18.1002 7 18.635 7.27248C19.1054 7.51217 19.4878 7.89462 19.7275 8.36502C20 8.8998 20 9.59987 20 11"/><path d="M6 7C6.00004 5.5998 6.00006 4.89969 6.27259 4.3649C6.51227 3.89457 6.89467 3.51218 7.36501 3.27252C7.89981 3 8.59991 3 10.0001 3H14C15.4001 3 16.1002 3 16.635 3.27248C17.1054 3.51217 17.4878 3.89462 17.7275 4.36502C18 4.8998 18 5.59987 18 7"/><path d="M16 15L15.7 15.4C15.1111 16.1851 14.8167 16.5777 14.3944 16.7889C13.9721 17 13.4814 17 12.5 17H11.5C10.5186 17 10.0279 17 9.60557 16.7889C9.18328 16.5777 8.88885 16.1851 8.3 15.4L8 15"/>',
+        Award01:
+          '<path d="M15.9349 21.033C16.1789 21.5331 15.699 22 15.1239 22H8.87606C8.30096 22 7.82107 21.5331 8.06509 21.033C8.63149 19.8722 10.1793 19 12 19C13.8207 19 15.3685 19.8722 15.9349 21.033Z"/><path d="M12 16L11.9883 19"/><path d="M17.9866 4.49139C17.992 4.30176 17.9963 4.11477 17.9997 3.93095C18.0194 2.86463 17.1162 2.00002 16.0093 2.00002L7.99052 2C6.88381 2 5.98074 2.86438 6.00031 3.93054C6.00358 4.10833 6.00768 4.28907 6.01283 4.47231C6.05734 6.05627 6.18024 7.82593 6.51875 9.47415C7.18043 12.6958 8.66606 16 12.0001 16C15.3341 16 16.8193 12.6958 17.481 9.47415C17.8181 7.83255 17.9415 6.07048 17.9866 4.49139Z"/><path d="M18 4.5L19.4447 4.68748C20.9062 4.87714 22 6.122 22 7.59578C22 8.99373 21.0133 10.1973 19.6425 10.4715L17.5 11"/><path d="M6 4.5L4.55527 4.68748C3.09375 4.87714 2 6.122 2 7.59578C2 8.99373 2.98673 10.1973 4.35754 10.4715L6.5 11"/>',
+        ComputerTerminal01:
+          '<path d="M7.5 7.5L8.72654 8.55719C9.24218 9.00163 9.5 9.22386 9.5 9.5C9.5 9.77614 9.24218 9.99836 8.72654 10.4428L7.5 11.5"/><path d="M11.5 12.5H15.5"/><path d="M12 21C15.7497 21 17.6246 21 18.9389 20.0451C19.3634 19.7367 19.7367 19.3634 20.0451 18.9389C21 17.6246 21 15.7497 21 12C21 8.25027 21 6.3754 20.0451 5.06107C19.7367 4.6366 19.3634 4.26331 18.9389 3.95491C17.6246 3 15.7497 3 12 3C8.25027 3 6.3754 3 5.06107 3.95491C4.6366 4.26331 4.26331 4.6366 3.95491 5.06107C3 6.3754 3 8.25027 3 12C3 15.7497 3 17.6246 3.95491 18.9389C4.26331 19.3634 4.6366 19.7367 5.06107 20.0451C6.3754 21 8.25027 21 12 21Z"/>',
+        Square:
+          '<path d="M2.5 12C2.5 7.52166 2.5 5.28249 3.89124 3.89124C5.28249 2.5 7.52166 2.5 12 2.5C16.4783 2.5 18.7175 2.5 20.1088 3.89124C21.5 5.28249 21.5 7.52166 21.5 12C21.5 16.4783 21.5 18.7175 20.1088 20.1088C18.7175 21.5 16.4783 21.5 12 21.5C7.52166 21.5 5.28249 21.5 3.89124 20.1088C2.5 18.7175 2.5 16.4783 2.5 12Z"/>',
+        CheckmarkSquare02:
+          '<path d="M2.5 12C2.5 7.52166 2.5 5.28249 3.89124 3.89124C5.28249 2.5 7.52166 2.5 12 2.5C16.4783 2.5 18.7175 2.5 20.1088 3.89124C21.5 5.28249 21.5 7.52166 21.5 12C21.5 16.4783 21.5 18.7175 20.1088 20.1088C18.7175 21.5 16.4783 21.5 12 21.5C7.52166 21.5 5.28249 21.5 3.89124 20.1088C2.5 18.7175 2.5 16.4783 2.5 12Z"/><path d="M8 12.5L10.5 15L16 9"/>',
+        Alert02:
+          '<path d="M13.9248 21H10.0752C5.44476 21 3.12955 21 2.27636 19.4939C1.42317 17.9879 2.60736 15.9914 4.97574 11.9985L6.90057 8.75333C9.17559 4.91778 10.3131 3 12 3C13.6869 3 14.8244 4.91777 17.0994 8.75332L19.0243 11.9985C21.3926 15.9914 22.5768 17.9879 21.7236 19.4939C20.8704 21 18.5552 21 13.9248 21Z"/><path d="M12 9V13"/><path d="M12.125 16.75H12M12.25 16.75C12.25 16.8881 12.1381 17 12 17C11.8619 17 11.75 16.8881 11.75 16.75C11.75 16.6119 11.8619 16.5 12 16.5C12.1381 16.5 12.25 16.6119 12.25 16.75Z"/>',
+        Undo02:
+          '<path d="M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C8.66873 3 5.76018 4.80989 4.20404 7.5"/><path d="M3 3V4.27816C3 6.47004 3 7.56599 3.70725 8.16512C4.4145 8.76425 5.49553 8.58408 7.6576 8.22373L9 8"/>',
+        Clock01: '<circle cx="12" cy="12" r="10"/><path d="M12 8V12L14 14"/>',
+        CheckmarkCircle02:
+          '<path d="M22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12Z"/><path d="M8 12.5L10.5 15L16 9"/>',
+        LockKey:
+          '<path d="M18 10.9971C17.6078 10.1968 16.5481 9.02153 14.3703 9.07154C14.3703 9.07154 12.6431 8.99652 10.6906 8.99652C8.73815 8.99652 7.82408 9.04224 6.25999 9.07154C5.25872 9.04653 3.35629 9.2716 2.48017 11.3472C1.90444 13.0976 1.87941 16.7736 2.22986 18.6241C2.30495 19.5744 2.80559 20.8998 4.35757 21.6C5.30878 22.1001 6.83573 21.9 7.98719 22.0001M5.98464 8.1963C5.93458 5.82065 5.83445 3.94514 8.58796 2.39472C9.51414 2.01962 10.8909 1.69453 12.5931 2.49475C14.3703 3.57004 14.5917 4.70802 14.7458 4.99543C15.1713 6.12074 14.9461 7.72117 14.9961 8.37135"/><path d="M15.5 19.7351C15.5 20.9792 14.4911 21.9656 13.2552 21.9656C12.0194 21.9656 11 20.9792 11 19.7351C11 18.4911 12.0194 17.4915 13.2552 17.4915C14.4911 17.4915 15.5 18.4911 15.5 19.7351Z"/><path d="M22 15.8482L20.3731 14.3089C19.6 13.5692 18.95 14.2149 18.6264 14.4906L17.2156 15.8482L15.225 17.7909M17.2156 15.8482L18.825 17.3936"/>',
+      };
+      const FT = {
+        md: '<svg class="ft" viewBox="0 0 32 32"><path fill="#42a5f5" d="m14 10-4 3.5L6 10H4v12h4v-6l2 2 2-2v6h4V10zm12 6v-6h-4v6h-4l6 8 6-8z"/></svg>',
+        folder:
+          '<svg class="ft" viewBox="0 0 16 16"><path d="m6.922 3.768-.644-.536A1 1 0 0 0 5.638 3H2a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H7.562a1 1 0 0 1-.64-.232" fill="#90a4ae"/></svg>',
+      };
+      const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24">${ICONS[n]}</svg>`;
+      const KIND = {
+        home: "Mortarboard02",
+        talk: "Message01",
+        lesson: "BookOpen01",
+        quiz: "Quiz01",
+        feyn: "Idea01",
+        sheet: "Note01",
+        project: "ComputerTerminal01",
+        up: "Award01",
+      };
+
+      /* ---------- 数据 ---------- */
+      const NAME = "Node 后端";
+      const LADDER = [
+        { n: "能跑的 API", m: "HTTP、REST、增删改查", pass: "一个增删改查服务", st: "skip" },
+        { n: "数据和登录", m: "建模、索引、事务、认证、测试", pass: "带登录的 API，有测试", st: "cur" },
+        { n: "上线", m: "Docker、部署、迁移、日志、后台任务", pass: "部署到一台 VPS，能回滚", st: "lock" },
+        { n: "扛得住", m: "慢查询、并发、缓存、限流", pass: "压测找出并修好一个瓶颈", st: "lock" },
+      ];
+      const STEPS = [
+        { t: "关系建模", k: "lesson" },
+        { t: "索引", k: "lesson" },
+        { t: "事务", k: "lesson" },
+        { t: "认证：session 与 JWT", k: "lesson" },
+        { t: "输入校验", k: "lesson" },
+        { t: "错误处理", k: "lesson" },
+        { t: "接口测试", k: "lesson" },
+        { t: "权限模型", k: "lesson" },
+        { t: "分页与过滤", k: "lesson" },
+        { t: "速查表", k: "sheet" },
+        { t: "过关项目：带登录的 API", k: "project" },
+        { t: "综合测验", k: "quiz" },
+        { t: "升到第 3 级", k: "up" },
+      ];
+      const GAPS = [
+        ["分不清“可重复读”和“串行化”各挡住了什么", "事务 · 测验第 4 题"],
+        ["refresh token 为什么要轮换、存哪", "认证 · 测验第 3 题"],
+        ["JWT 无法提前作废，退出登录怎么办", "认证 · 测验第 5 题"],
+      ];
+
+      /* ---------- 共用画法 ---------- */
+      const subDots = (s) =>
+        `<span class="subd" title="上课 · 测验 · 补漏">${[...s].map((c) => `<i class="${c === "-" ? "" : c}"></i>`).join("")}</span>`;
+      const lead = (i, k) =>
+        k === "lesson" ? `<span class="no">${i + 1}</span>` : `<span class="no kd">${ic(KIND[k], "s14")}</span>`;
+      const chip = (kind, name, score, cls = "") =>
+        `<span class="schip ${cls}">${ic(KIND[kind], "s12")}${name}${score ? `<span class="s">${score}</span>` : ""}</span>`;
+      /** 一行步骤：state done | next | todo；tick: "ok" | "mine" | ""；right: 行尾内容；below: 下面一行 */
+      function row(i, { state = "todo", tick = "", sub = "", right = "", below = "", cls = "", t } = {}) {
+        const s = STEPS[i];
+        const tk =
+          tick === "ok"
+            ? `<span class="ok">${ic("Tick02", "s14")}</span>`
+            : tick === "mine"
+              ? `<span class="okm">${ic("Tick02", "s14")}</span>`
+              : "";
+        return `<div class="lesson ${state === "next" ? "next" : state === "todo" ? "todo" : ""} ${cls}"><div class="lh">${lead(i, s.k)}${tk}<span class="t">${t ?? s.t}</span>${sub ? subDots(sub) : ""}${right}</div>${below}</div>`;
+      }
+      const more = (on = false) => `<span class="ibtn more ${on ? "on" : ""}">${ic("MoreHorizontal", "s14")}</span>`;
+      const menu = (style, items) =>
+        `<div class="menu ${style === "flow" ? "flow" : ""}" style="${style === "flow" ? "" : style}">${items
+          .map((it) =>
+            it === "-"
+              ? `<div class="sep"></div>`
+              : it.h
+                ? `<div class="mh">${it.h}</div>`
+                : it.note
+                  ? `<div class="note">${it.note}</div>`
+                  : it.raw
+                    ? it.raw
+                    : `<div class="mi ${it.hl ? "hl" : ""} ${it.dis ? "dis" : ""}">${it.ck !== undefined ? `<span class="ck">${it.ck ? ic("Tick02", "s13") : ""}</span>` : it.i ? ic(it.i, "s14") : ""}<span>${it.t}</span>${it.k ? `<span class="k">${it.k}</span>` : ""}</div>`,
+          )
+          .join("")}</div>`;
+      const trk = (cur = 3, cls = "") =>
+        `<span class="trk ${cls}">${STEPS.map((s, i) => `<i class="${i < cur ? "done" : i === cur ? "cur" : ""}${s.k !== "lesson" ? " x" : ""}"></i>`).join("")}</span>`;
+      const lvl = (icon = "Mortarboard02", text = `第 2 级 · ${LADDER[1].n}`, cls = "") =>
+        `<span class="lvl ${cls}">${ic(icon, "s14")}${text}</span>`;
+      const strip = (inner) => `<div class="strip">${inner}</div>`;
+      const tabbar = (tabs = [], homeOn = true) =>
+        `<div class="tabbar"><span class="crumb">${ic("Mortarboard02", "s14")}学习 ›</span><span class="tab home ${homeOn ? "on" : ""}">${ic("Mortarboard02", "s14")}${NAME}</span>${tabs
+          .map(([k, t, on]) => `<span class="tab ${on ? "on" : ""}">${ic(KIND[k], "s14")}${t}</span>`)
+          .join("")}<span style="flex:1"></span><span class="ibtn">${ic("Add01", "s14")}</span></div>`;
+      const normalStrip = () =>
+        strip(
+          `${lvl()}${trk()}<span class="now"><b>第 4 步 · 认证：session 与 JWT</b> · 还没开始</span><span class="sp"></span><button class="btn primary sm">开始上课</button>`,
+        );
+      const gapRow = ([t, s], { fixed = false, mk = true, act = "", src, cls = "", lead: ld } = {}) =>
+        `<div class="gap-row ${fixed ? "fixed" : ""} ${cls}">${ld ?? (mk ? `<span class="mk"></span>` : "")}<span class="body"><span class="tx">${t}</span><span class="src">${src ?? s}</span></span>${act}</div>`;
+      const ladderList = (open = -1, expand = "inline") =>
+        `<div class="side-list">${LADDER.map((l, k) => {
+          const st = l.st;
+          const node = `<span class="node"><i class="${st === "cur" ? "cur" : st === "lock" ? "lock" : ""}"></i></span>`;
+          const m = st === "skip" ? "跳过" : st === "cur" ? "当前" : "";
+          const r = `<div class="lvc ${st === "lock" ? "lock" : ""} ${k === open ? "open" : ""}">${node}<span class="nm">第 ${k + 1} 级 · ${l.n}</span><span class="m">${m}</span>${expand === "inline" || expand === "card" ? `<span class="dim" style="display:inline-flex;transform:rotate(${k === open ? 90 : 0}deg)">${ic("ArrowRight01", "s12")}</span>` : ""}</div>`;
+          if (k !== open) return r;
+          if (expand === "inline")
+            return (
+              r +
+              `<dl class="lvx"><dt>学什么</dt><dd>${l.m}</dd><dt>怎样算过关</dt><dd>${l.pass}</dd><dt>状态</dt><dd>${st === "skip" ? "摸底时跳过" : st === "cur" ? "第 4 / 13 步" : "还没到"}</dd></dl>`
+            );
+          if (expand === "card")
+            return (
+              r +
+              `<div class="lvcard"><div class="k">学什么</div>${l.m}<div class="k" style="margin-top:4px">怎样算过关</div>${l.pass}<div style="margin-top:6px"><span class="tag xs ${st === "skip" ? "" : "tint"}">${st === "skip" ? "摸底时跳过" : st === "cur" ? "第 4 / 13 步" : "还没到"}</span></div></div>`
+            );
+          return r;
+        }).join("")}</div>`;
+      const hero = (extra = "") =>
+        `<div class="card hero"><div class="eyebrow">第 4 步 · 上课</div><div class="big">认证：session 与 JWT</div><div class="desc">在 lab/ 的服务上加登录：先用 session 做一遍，再换成 JWT，说出两者的取舍。</div><div class="subpills"><span class="subpill on">上课</span><span class="dim">›</span><span class="subpill">测验</span><span class="dim">›</span><span class="subpill">补漏</span></div><div class="row2"><button class="btn primary">${ic("BookOpen01", "s14")}开始上课</button></div>${extra}</div>`;
+      const head = () =>
+        `<h3 class="ptitle">${NAME} <span class="tag tint">第 2 级 · ${LADDER[1].n}</span></h3><p class="psub">能独立写并部署一个 Node 服务 · TypeScript · 每周 4–8 小时</p>`;
+      const FILES = [
+        [FT.md, "AGENTS.md", "定档"],
+        [FT.md, "resources.md", "5 份"],
+        [FT.md, "cheatsheet.md", ""],
+        [FT.folder, "notes/", "3 篇"],
+        [FT.folder, "lab/", "git"],
+      ];
+      const files = () =>
+        `<div class="side-list">${FILES.map(([i, n, m]) => `<div class="frow">${i}<span>${n}</span><span class="m">${m}</span></div>`).join("")}</div>`;
+      const others = () =>
+        `<div class="side-list"><div class="frow" style="font-family:var(--font-sans);font-size:var(--fs-meta)">${ic("Message01", "s14")}讨论 · 排阶梯<span class="m">11月5日</span></div><div class="frow" style="font-family:var(--font-sans);font-size:var(--fs-meta)">${ic("Message01", "s14")}ORM 要不要用<span class="m">昨天</span></div></div>`;
+      const sect = (h, body, m = "") => `<div class="sect"><div class="h"><span>${h}</span>${m}</div>${body}</div>`;
+      const doneRows = () =>
+        row(0, {
+          state: "done",
+          tick: "ok",
+          sub: "ddd",
+          below: `<div class="sess">${chip("lesson", "上课")}${chip("quiz", "测验", "42/50")}</div>`,
+        }) +
+        row(1, {
+          state: "done",
+          tick: "ok",
+          sub: "ddd",
+          below: `<div class="sess">${chip("lesson", "上课")}${chip("quiz", "测验", "36/50")}${chip("feyn", "费曼 · 最左前缀")}</div>`,
+        }) +
+        row(2, {
+          state: "done",
+          tick: "ok",
+          sub: "ddg",
+          below: `<div class="sess">${chip("lesson", "上课")}${chip("quiz", "测验", "31/50")}</div>`,
+        });
+      const nextRow = () => row(3, { state: "next", right: `<span class="m">约 2 小时</span>` });
+
+      /* ---------- 成对的浅色 / 深色 ---------- */
+      const pair = (build, width, label = "") =>
+        `<div class="pair">${["light", "dark"]
+          .map(
+            (th) =>
+              `<div class="frame th-${th}" style="width:${width + 32}px"><p class="fl">${th === "light" ? "浅色" : "深色"}${label ? " · " + label : ""}</p>${build(th)}</div>`,
+          )
+          .join("")}</div>`;
+
+      /* =====================================================================
+         1 · 步骤行的"···"：标为完成、撤回、选小步、手动标的样子
+         ===================================================================== */
+      const P1 = {
+        title: "1 · 步骤行的“···”：标为完成 / 撤回",
+        why: "没完成的步骤行尾有“···”。课这一步能单标“上课”或“测验”（标测验时上课一起标上）；速查表、过关项目、综合测验只有一项“标为完成”。手动标的没有分数，只能撤回手动标的。每种上面是“标”，下面是“撤回”。",
+        opts: [
+          {
+            L: "1A",
+            name: "菜单里直接分小步，手动标的写“你标的”",
+            reco: true,
+            desc: "“···”菜单：标上课完成 / 标测验完成 / 整步标为完成。手动标的会话位置写一个没有分数的“测验 · 你标的”；小方点空心。撤回在同一菜单里写明撤回哪一项。",
+            w: 520,
+            build: () =>
+              `<div class="win open"><div class="pad"><p class="cap">标：第 4 步还没开始</p><div class="lessons">${doneRows()}${row(3, { state: "next", right: `<span class="m">约 2 小时</span>${more(true)}` })}${menu(
+                "flow",
+                [
+                  { h: "第 4 步 · 认证：session 与 JWT" },
+                  { i: "BookOpen01", t: "标上课完成", hl: true },
+                  { i: "Quiz01", t: "标测验完成", k: "连上课" },
+                  "-",
+                  { i: "Tick02", t: "整步标为完成" },
+                ],
+              )}${row(4, { right: more() })}</div><p class="cap">撤回：第 3 步的测验是你标的</p><div class="lessons">${row(
+                2,
+                {
+                  state: "done",
+                  tick: "ok",
+                  sub: "dm-",
+                  right: more(true),
+                  below: `<div class="sess">${chip("lesson", "上课")}${chip("quiz", "测验", "你标的")}</div>`,
+                },
+              )}${menu("flow", [{ i: "Undo02", t: "撤回“测验完成”", hl: true }, { note: "agent 报告的不能撤回；之后 agent 报告这一步，以它的为准。" }])}</div></div></div>`,
+          },
+          {
+            L: "1B",
+            name: "一项“标为完成…”，展开成勾选框",
+            desc: "菜单只有一项“标为完成…”，展开一个小面板，勾选上课、测验，再点“好”。agent 报告过的勾是灰的、点不动；撤回就是把自己勾的取消。手动标的会话位置是虚线框的“测验”，没有分数。",
+            w: 520,
+            build: () =>
+              `<div class="win open"><div class="pad"><p class="cap">标：勾上要标的小步</p><div class="lessons">${doneRows()}${row(3, { state: "next", right: `<span class="m">约 2 小时</span>${more(true)}` })}${menu(
+                "flow",
+                [
+                  { h: "标为完成" },
+                  { raw: `<div class="mi hl"><span class="box on">${ic("Tick02", "s12")}</span>上课</div>` },
+                  { raw: `<div class="mi"><span class="box"></span>测验<span class="k">没有分数</span></div>` },
+                  {
+                    raw: `<div class="row-btns"><button class="btn textbtn xs">取消</button><button class="btn primary xs">好</button></div>`,
+                  },
+                ],
+              )}</div><p class="cap">撤回：取消自己勾的</p><div class="lessons">${row(2, {
+                state: "done",
+                tick: "ok",
+                sub: "dm-",
+                right: more(true),
+                below: `<div class="sess">${chip("lesson", "上课")}${chip("quiz", "测验", "", "manual")}</div>`,
+              })}${menu("flow", [
+                { h: "标为完成" },
+                {
+                  raw: `<div class="mi dis"><span class="box agent">${ic("Tick02", "s12")}</span>上课<span class="k">agent 报告的</span></div>`,
+                },
+                { raw: `<div class="mi hl"><span class="box"></span>测验<span class="k">你标的</span></div>` },
+                {
+                  raw: `<div class="row-btns"><button class="btn textbtn xs">取消</button><button class="btn primary xs">好</button></div>`,
+                },
+              ])}</div></div></div>`,
+          },
+          {
+            L: "1C",
+            name: "不用菜单，悬停时小步变成可点的开关",
+            desc: "鼠标移到课这一行，三个小方点换成“上课 · 测验”两个小开关，点一下标上，再点撤回；自己标的开关是描边的。速查表这类一步只有一个圆形勾。没有“···”。",
+            w: 520,
+            build: () =>
+              `<div class="win open"><div class="pad"><p class="cap">标：悬停在第 4 步上</p><div class="lessons">${doneRows()}${row(
+                3,
+                {
+                  state: "next",
+                  cls: "",
+                  right: `<span class="seg"><span>${ic("BookOpen01", "s12")}上课</span><span>${ic("Quiz01", "s12")}测验</span></span>`,
+                },
+              )}${row(9, { right: `<span class="dim" style="font-size:var(--fs-xs)">点一下标为完成</span><span class="roundchk" title="标为完成">${ic("Tick02", "s12")}</span>`, cls: "hover" })}</div><p class="cap">撤回：再点一下自己标的那个</p><div class="lessons">${row(
+                2,
+                {
+                  state: "done",
+                  tick: "ok",
+                  right: `<span class="seg"><span class="on">${ic("Tick02", "s12")}上课</span><span class="mine">${ic("Tick02", "s12")}测验</span></span>`,
+                  below: `<div class="sess">${chip("lesson", "上课")}${chip("quiz", "测验", "你标的")}</div>`,
+                },
+              )}</div><p class="cap">（实底的是 agent 报告的，点不动；描边的是你标的，再点撤回）</p></div></div>`,
+          },
+          {
+            L: "1D",
+            name: "菜单是打勾项，会话那一行写“你标的 · 撤回”",
+            desc: "“···”菜单里上课、测验是打勾项（已完成的带勾，agent 报告的变灰）。手动标的在会话那一行写一枚虚线小签“测验 · 你标的 11月8日”，旁边直接一个“撤回”文字按钮，不用再打开菜单。",
+            w: 520,
+            build: () =>
+              `<div class="win open"><div class="pad"><p class="cap">标</p><div class="lessons">${doneRows()}${row(3, { state: "next", right: `<span class="m">约 2 小时</span>${more(true)}` })}${menu(
+                "flow",
+                [
+                  { ck: false, t: "上课完成", hl: true },
+                  { ck: false, t: "测验完成" },
+                  "-",
+                  { ck: false, t: "整步完成" },
+                ],
+              )}</div><p class="cap">撤回：就在会话那一行</p><div class="lessons">${row(2, {
+                state: "done",
+                tick: "ok",
+                sub: "dm-",
+                right: more(),
+                below: `<div class="sess">${chip("lesson", "上课")}${chip("quiz", "测验 · 你标的", "11月8日", "manual")}<span class="btn textbtn xs">${ic("Undo02", "s12")}撤回</span></div>`,
+              })}</div></div></div>`,
+          },
+        ],
+      };
+
+      /* =====================================================================
+         2 · 步骤条的其他状态
+         ===================================================================== */
+      const stripSet = (rows) =>
+        `<div class="win">${rows.map(([label, html]) => `<div class="strip-label">${label}</div>${html}`).join("")}<div style="height:6px"></div></div>`;
+      const P2 = {
+        title: "2 · 步骤条的其他状态",
+        why: "档案读不出来、方向已归档、已学完、有会话正对着这一步（回到这个会话）、ML2 里还不能点的按钮（开始测验、跑费曼、升级要等 ML3）。第一条是正常的样子，作对照。",
+        opts: [
+          {
+            L: "2A",
+            name: "安静：只换一句话，不加标签",
+            reco: true,
+            desc: "状态写在级名的位置，前面换图标（警告、归档、奖杯）；归档的点阵变淡；回到这个会话是主按钮，在跑时前面一个转圈；不能点的按钮照常画但变淡，旁边一句“下一版开放”。",
+            w: 640,
+            build: () =>
+              stripSet([
+                ["正常", normalStrip()],
+                [
+                  "档案读不出来",
+                  strip(
+                    `${lvl("Alert02", "档案读不出来", "warn")}<span class="now">.atrium-study.json 不是能读的格式，进度先不显示；文件没有被改动</span>`,
+                  ),
+                ],
+                [
+                  "已归档",
+                  strip(
+                    `${lvl("Archive02", "已归档")}${trk(3, "faded")}<span class="now">停在第 2 级第 4 步 · 恢复以后接着学</span>`,
+                  ),
+                ],
+                [
+                  "已学完",
+                  strip(`${lvl("Award01", "4 级都学完了", "okc")}${trk(13)}<span class="now">还能随口问、复习</span>`),
+                ],
+                [
+                  "回到这个会话",
+                  strip(
+                    `${lvl()}${trk()}<span class="now"><b>第 4 步 · 认证：session 与 JWT</b> · 上课中</span><span class="sp"></span><button class="btn primary sm"><span class="run" style="border-color:var(--on-tint);border-right-color:transparent"></span>回到这个会话</button>`,
+                  ),
+                ],
+                [
+                  "下一版才能点",
+                  strip(
+                    `${lvl()}${trk()}<span class="now"><b>第 4 步 · 认证：session 与 JWT</b> · 上课完成</span><span class="sp"></span><span class="dim">下一版开放</span><button class="btn primary sm off">开始测验</button>`,
+                  ),
+                ],
+              ]),
+          },
+          {
+            L: "2B",
+            name: "标签：左边一枚状态签",
+            desc: "级名前面一枚小签：橙色“档案坏了”、灰色“已归档”、绿色“已学完”；其余照常。回到这个会话是描边按钮，写会话名；不能点的按钮换成灰底加锁。",
+            w: 640,
+            build: () =>
+              stripSet([
+                ["正常", normalStrip()],
+                [
+                  "档案读不出来",
+                  strip(
+                    `<span class="tag attn">${ic("Alert02", "s12")}档案坏了</span><span class="now">看不到进度，文件没有被改动</span>`,
+                  ),
+                ],
+                [
+                  "已归档",
+                  strip(
+                    `<span class="tag">已归档</span>${lvl()}${trk()}<span class="now"><b>第 4 步 · 认证：session 与 JWT</b></span>`,
+                  ),
+                ],
+                ["已学完", strip(`<span class="tag ok">已学完</span>${lvl("Mortarboard02", "共 4 级")}${trk(13)}`)],
+                [
+                  "回到这个会话",
+                  strip(
+                    `${lvl()}${trk()}<span class="now"><b>第 4 步</b> · 上课中</span><span class="sp"></span><button class="btn outline sm"><span class="run"></span>回到 上课 · 认证</button>`,
+                  ),
+                ],
+                [
+                  "下一版才能点",
+                  strip(
+                    `${lvl()}${trk()}<span class="now"><b>第 4 步</b> · 上课完成</span><span class="sp"></span><button class="btn locked sm" title="下一版开放">${ic("LockKey", "s12")}开始测验</button>`,
+                  ),
+                ],
+              ]),
+          },
+          {
+            L: "2C",
+            name: "收起成一句话",
+            desc: "不正常的三种不画点阵，整条只有一个图标和一句话；回到这个会话前面写“上课中”；不能点的按钮干脆不画，换成一句灰字。",
+            w: 640,
+            build: () =>
+              stripSet([
+                ["正常", normalStrip()],
+                [
+                  "档案读不出来",
+                  strip(
+                    `<span class="warn" style="display:inline-flex">${ic("Alert02", "s14")}</span><span class="now">档案读不出来，修好 .atrium-study.json 以后这里显示进度</span>`,
+                  ),
+                ],
+                [
+                  "已归档",
+                  strip(
+                    `<span style="display:inline-flex">${ic("Archive02", "s14")}</span><span class="now">这个方向已归档，恢复以后才能接着学</span>`,
+                  ),
+                ],
+                [
+                  "已学完",
+                  strip(
+                    `<span class="okc" style="display:inline-flex">${ic("Award01", "s14")}</span><span class="now"><b>已学完</b> · 共 4 级 46 步</span>`,
+                  ),
+                ],
+                [
+                  "回到这个会话",
+                  strip(
+                    `${lvl()}${trk()}<span class="now"><b>第 4 步</b> · 上课中</span><span class="sp"></span><button class="btn primary sm">回到这个会话</button>`,
+                  ),
+                ],
+                [
+                  "下一版才能点",
+                  strip(
+                    `${lvl()}${trk()}<span class="now"><b>第 4 步</b> · 上课完成</span><span class="sp"></span><span class="dim">测验在下一版开放</span>`,
+                  ),
+                ],
+              ]),
+          },
+          {
+            L: "2D",
+            name: "点阵一直在，用点阵的样子说状态",
+            desc: "档案读不出来时点阵是一排空心占位；归档时当前点变成灰圈；已学完全部点亮；回到这个会话前面一个绿点表示在跑；不能点的按钮是淡的主按钮，悬停说“即将开放”。",
+            w: 640,
+            build: () =>
+              stripSet([
+                ["正常", normalStrip()],
+                ["档案读不出来", strip(`${lvl("Alert02", "档案读不出来", "warn")}${trk(0, "hatch")}`)],
+                ["已归档", strip(`${lvl("Archive02", "已归档")}${trk(3, "grey")}<span class="now">停在第 4 步</span>`)],
+                [
+                  "已学完",
+                  strip(`${lvl("Award01", "已学完", "okc")}${trk(13, "all")}<span class="now">共 4 级</span>`),
+                ],
+                [
+                  "回到这个会话",
+                  strip(
+                    `${lvl()}${trk()}<span class="now"><b>第 4 步</b> · 上课中</span><span class="sp"></span><span class="live"></span><button class="btn outline sm">回到会话</button>`,
+                  ),
+                ],
+                [
+                  "下一版才能点",
+                  `<div style="position:relative">${strip(`${lvl()}${trk()}<span class="now"><b>第 4 步</b> · 上课完成</span><span class="sp"></span><button class="btn primary sm off">开始测验</button>`)}<span class="tip" style="right:8px;top:-24px">即将开放</span></div>`,
+                ],
+              ]),
+          },
+        ],
+      };
+
+      /* =====================================================================
+         3 · 漏洞上的"标为已补"
+         ===================================================================== */
+      const gapsWin = (body, w = 300) =>
+        `<div class="win open" style="width:${w}px"><div class="pad"><div class="sect" style="margin-top:0"><div class="h"><span>漏洞</span></div>${body}</div></div></div>`;
+      const P3 = {
+        title: "3 · 漏洞上的“标为已补”",
+        why: "补漏不能在步骤上单标，要在主页右栏的漏洞上标。手动标的记“你标的”，能撤回；之后费曼会话报告同一个漏洞，以它的为准。第一行是悬停，第三行是你标过的。",
+        opts: [
+          {
+            L: "3A",
+            name: "悬停出一个小圆勾",
+            reco: true,
+            desc: "鼠标移到一条漏洞上，右边出一个圆形勾按钮（提示“标为已补”）；标过的划掉、方块变绿，来源那一行写“你标的已补 · 撤回”。",
+            w: 300,
+            build: () =>
+              gapsWin(
+                `<div class="card">${gapRow(GAPS[0], { cls: "hover", act: `<span class="roundchk" title="标为已补">${ic("Tick02", "s12")}</span>` })}${gapRow(GAPS[1])}${gapRow(GAPS[2], { fixed: true, src: `认证 · 测验第 5 题 · 你标的已补 · <span class="inline-link">撤回</span>` })}</div><div class="mini-actions"><button class="btn ghost sm">${ic("Idea01", "s14")}跑费曼</button></div>`,
+              ),
+          },
+          {
+            L: "3B",
+            name: "方块本身就是勾选框",
+            desc: "左边那个橙色小方块悬停时变成勾选框，点了就是已补（绿底白勾）；再点一下撤回。来源行后面写“你标的”。",
+            w: 300,
+            build: () =>
+              gapsWin(
+                `<div class="card">${gapRow(GAPS[0], { cls: "hover", lead: `<span class="box cb" style="box-shadow:inset 0 0 0 1.5px var(--attn)"></span>` })}${gapRow(GAPS[1])}${gapRow(GAPS[2], { fixed: true, lead: `<span class="box ok cb">${ic("Tick02", "s12")}</span>`, src: "认证 · 测验第 5 题 · 你标的" })}</div><div class="mini-actions"><button class="btn ghost sm">${ic("Idea01", "s14")}跑费曼</button></div>`,
+              ),
+          },
+          {
+            L: "3C",
+            name: "每条漏洞一个“···”",
+            desc: "悬停出“···”，菜单里“跑费曼”（下一版开放，灰）和“标为已补”；你标过的变成“撤回已补”。标过的写一枚小签“你标的”。",
+            w: 300,
+            build: () =>
+              gapsWin(
+                `<div class="card">${gapRow(GAPS[0], { cls: "hover", act: more(true) })}${menu("flow", [
+                  { i: "Idea01", t: "跑费曼", dis: true, k: "下一版" },
+                  { i: "CheckmarkCircle02", t: "标为已补", hl: true },
+                ])}${gapRow(GAPS[1])}${gapRow(GAPS[2], { fixed: true, act: `<span class="tag xs">你标的</span>` })}</div>`,
+              ),
+          },
+          {
+            L: "3D",
+            name: "整理模式：一次标几条",
+            desc: "漏洞标题右边一个“标已补”文字按钮，点了每条前面出勾选框，勾好点“完成”；撤回也在这个模式里取消勾。平时卡片和现在一样干净。",
+            w: 300,
+            build: () =>
+              `<div class="win" style="width:300px"><div class="pad"><div class="sect" style="margin-top:0"><div class="h"><span>漏洞 · 勾上已经弄懂的</span><span class="btn textbtn xs">取消</span><span class="btn primary xs">完成</span></div><div class="card">${gapRow(GAPS[0], { lead: `<span class="box on cb">${ic("Tick02", "s12")}</span>` })}${gapRow(GAPS[1], { lead: `<span class="box cb"></span>` })}${gapRow(GAPS[2], { fixed: true, lead: `<span class="box on cb">${ic("Tick02", "s12")}</span>`, src: "认证 · 测验第 5 题 · 你标的" })}</div></div><p class="cap" style="margin-top:10px">平时：</p><div class="sect" style="margin-top:0"><div class="h"><span>漏洞</span><span class="btn textbtn xs">标已补</span></div></div></div></div>`,
+          },
+        ],
+      };
+
+      /* =====================================================================
+         4 · "以后再测"的一步，和之后补测
+         ===================================================================== */
+      const P4 = {
+        title: "4 · “以后再测”的一步，和之后从哪补测",
+        why: "上完课点了“以后再测”：这一步算完成，往下走；测验记为没测。之后要能从这一步补测（补测的会话在 ML3 才能开）。这里第 3 步“事务”是以后再测的。",
+        opts: [
+          {
+            L: "4A",
+            name: "照常打勾，第二个小点是虚线，行尾“没测”",
+            reco: true,
+            desc: "步骤照常打勾；三个小点里测验那个是虚线空心；行尾灰字“没测”，悬停时换成一个小按钮“补测”。",
+            w: 520,
+            build: () =>
+              `<div class="win"><div class="pad"><div class="lessons">${row(1, { state: "done", tick: "ok", sub: "ddd", below: `<div class="sess">${chip("lesson", "上课")}${chip("quiz", "测验", "36/50")}</div>` })}${row(
+                2,
+                {
+                  state: "done",
+                  tick: "ok",
+                  sub: "dn-",
+                  cls: "hover",
+                  right: `<button class="btn ghost xs">${ic("Quiz01", "s12")}补测</button>`,
+                  below: `<div class="sess">${chip("lesson", "上课")}</div>`,
+                },
+              )}${nextRow()}</div><p class="cap" style="margin-top:8px">不悬停时行尾是灰字：</p><div class="lessons">${row(2, { state: "done", tick: "ok", sub: "dn-", right: `<span class="m">没测</span>`, below: `<div class="sess">${chip("lesson", "上课")}</div>` })}</div></div></div>`,
+          },
+          {
+            L: "4B",
+            name: "不打勾，挂一枚“待测”",
+            desc: "这一步不画绿勾，换成钟表图标和一枚橙色“待测”小签；当前步骤卡下面多一行“第 3 步还没测 · 补测验”。",
+            w: 520,
+            build: () =>
+              `<div class="win"><div class="pad">${hero(`<span style="display:inline-flex;color:var(--attn-text)">${ic("Clock01", "s14")}</span>第 3 步“事务”还没测<span style="flex:1"></span><button class="btn ghost xs">补测验</button>`)}<div class="lessons" style="margin-top:14px">${row(1, { state: "done", tick: "ok", sub: "ddd" })}${row(
+                2,
+                {
+                  state: "done",
+                  right: `<span class="tag xs attn">待测</span>`,
+                  t: "事务",
+                  sub: "dn-",
+                },
+              ).replace(
+                '<span class="t">',
+                `<span class="okm" style="color:var(--attn-text)">${ic("Clock01", "s14")}</span><span class="t">`,
+              )}${nextRow()}</div></div></div>`,
+          },
+          {
+            L: "4C",
+            name: "右栏单列“还没测的课”",
+            desc: "步骤照常打勾、行尾“没测”；右栏漏洞上面多一小块“还没测的课”，每条一个“测验”按钮。几步都没测时一眼看全。",
+            w: 560,
+            build: () =>
+              `<div class="win"><div class="pad"><div class="twocol" style="grid-template-columns:minmax(0,1fr) 190px"><div><div class="lessons">${row(1, { state: "done", tick: "ok", sub: "ddd" })}${row(2, { state: "done", tick: "ok", sub: "dn-", right: `<span class="m">没测</span>` })}${nextRow()}</div></div><div>${sect(
+                "还没测的课",
+                `<div class="card">${`<div class="gap-row"><span class="body"><span class="tx">第 3 步 · 事务</span><span class="src">11月7日上完</span></span><button class="btn ghost xs">测验</button></div>`}</div>`,
+              ).replace(
+                'class="sect"',
+                'class="sect" style="margin-top:0"',
+              )}${sect("漏洞", `<div class="card">${gapRow(GAPS[0])}</div>`)}</div></div></div></div>`,
+          },
+          {
+            L: "4D",
+            name: "只在“···”里",
+            desc: "步骤照常打勾，行尾一行很淡的“没测”；补测放在这一步的“···”菜单里（开始测验），平时不占地方。",
+            w: 520,
+            build: () =>
+              `<div class="win open"><div class="pad"><div class="lessons">${row(1, { state: "done", tick: "ok", sub: "ddd" })}${row(
+                2,
+                {
+                  state: "done",
+                  tick: "ok",
+                  sub: "dn-",
+                  right: `<span class="m" style="opacity:.7">没测</span>${more(true)}`,
+                  below: `<div class="sess">${chip("lesson", "上课")}</div>`,
+                },
+              )}${menu("flow", [{ i: "Quiz01", t: "开始测验", hl: true, k: "下一版" }, "-", { i: "Tick02", t: "标测验完成" }])}${nextRow()}</div></div></div>`,
+          },
+        ],
+      };
+
+      /* =====================================================================
+         5 · 窄窗口的主页，和展开的阶梯一行
+         ===================================================================== */
+      const narrowWin = (body, overlay = "") =>
+        `<div class="win" style="height:760px;display:flex;flex-direction:column"><div style="flex:0 0 auto">${tabbar([["lesson", "上课 · 第 3 步"]])}${normalStrip()}</div><div style="flex:1;overflow:hidden;position:relative"><div style="padding:20px 18px">${body}</div></div>${overlay}</div>`;
+      const stepsShort = () => `<div class="lessons">${doneRows()}${nextRow()}${row(4)}${row(5)}</div>`;
+      const P5 = {
+        title: "5 · 窄窗口的主页，和展开的阶梯一行",
+        why: "窗口窄到放不下右栏时（这里 480px 宽的主区）两栏变一栏；阶梯每一级点开能看到“学什么、怎样算过关、状态”。宽窗口的阶梯展开和这里同一种做法。",
+        opts: [
+          {
+            L: "5A",
+            name: "一栏顺着排，阶梯在行内展开",
+            desc: "顺序：标题 → 当前步骤卡 → 阶梯 → 这一级的步骤 → 漏洞 → 其他会话 → 档案。阶梯一行点开，在它下面展开三小段文字。",
+            w: 480,
+            build: () =>
+              narrowWin(
+                `${head()}<div style="margin-top:16px">${hero()}</div>${sect("阶梯 · 4 级", ladderList(1, "inline"))}${sect("第 2 级的步骤", stepsShort())}`,
+              ),
+          },
+          {
+            L: "5B",
+            name: "当前步骤卡下面分页签",
+            desc: "当前步骤卡下面一组分段页签：步骤 / 阶梯 / 漏洞 / 档案（加其他会话），一次只看一样；阶梯一行悬停弹出小卡片说明。",
+            w: 480,
+            build: () =>
+              `<div style="position:relative">${narrowWin(
+                `${head()}<div style="margin-top:16px">${hero()}</div><div class="tabs-seg"><span>步骤<span class="n">13</span></span><span class="on">阶梯<span class="n">4</span></span><span>漏洞<span class="n">3</span></span><span>档案</span></div><div style="margin-top:12px">${ladderList(1, "none").replace('class="lvc  "', 'class="lvc"')}</div>`,
+                `<div class="pop" style="left:170px;top:478px"><div class="t">第 2 级 · 数据和登录</div><div class="k" style="margin-top:4px">学什么</div>${LADDER[1].m}<div class="k" style="margin-top:4px">怎样算过关</div>${LADDER[1].pass}<div style="margin-top:6px"><span class="tag xs tint">第 4 / 13 步</span></div></div>`,
+              )}</div>`,
+          },
+          {
+            L: "5C",
+            name: "右栏变成一排小卡，点开从下面升起",
+            desc: "右栏收成标题下面一排横向的小卡（阶梯 4 级 · 当前第 2 级 / 漏洞 3 / 档案 5 个）；点一张，从窗口下面升起一张面板，阶梯在面板里，当前一级默认展开。",
+            w: 480,
+            build: () =>
+              narrowWin(
+                `${head()}<div class="sumcards"><div class="sumcard on"><b>${ic("Mortarboard02", "s14")}阶梯</b>4 级 · 当前第 2 级</div><div class="sumcard"><b>${ic("Alert02", "s14")}漏洞</b>3 个没补</div><div class="sumcard"><b>${FT.folder}档案</b>5 项</div></div><div style="margin-top:16px">${hero()}</div>${sect("第 2 级的步骤", stepsShort())}`,
+                `<div class="sheet-scrim"></div><div class="sheet"><div class="sh">${ic("Mortarboard02", "s14")}阶梯 · 4 级<span class="ibtn">${ic("Cancel01", "s14")}</span></div>${ladderList(1, "card")}</div>`,
+              ),
+          },
+          {
+            L: "5D",
+            name: "右栏折成几段可展开的标题",
+            reco: true,
+            desc: "步骤列表下面是几段可折叠的标题：阶梯 · 4 级 / 漏洞 · 3 / 其他会话 · 2 / 档案 · 5，默认只展开漏洞；阶梯一行点开，下面一张浅底小卡写学什么、过关、状态。宽窗口右栏的阶梯也用这张小卡。",
+            w: 480,
+            build: () => {
+              const disc = (title, m, open, body = "") =>
+                `<div class="disc ${open ? "open" : ""}"><div class="dh"><span class="chev">${ic("ArrowRight01", "s12")}</span>${title}<span class="m">${m}</span></div>${open ? `<div class="db">${body}</div>` : ""}</div>`;
+              return narrowWin(
+                `${head()}<div style="margin-top:16px">${hero()}</div>${sect("第 2 级的步骤", `<div class="lessons">${row(2, { state: "done", tick: "ok", sub: "ddg" })}${nextRow()}${row(4)}</div>`)}<div style="margin-top:14px">${disc("阶梯", "4 级 · 当前第 2 级", true, ladderList(1, "card"))}${disc("漏洞", "3 个没补", false)}${disc("其他会话", "2", false)}${disc("档案", "5 项", false)}</div>`,
+              );
+            },
+          },
+        ],
+      };
+
+      /* ---------- 渲染 ---------- */
+      const PARTS = [P1, P2, P3, P4, P5];
+      document.getElementById("toc").innerHTML = PARTS.map((p, k) => `<a href="#part-${k + 1}">${p.title}</a>`).join(
+        "",
+      );
+      document.getElementById("parts").innerHTML = PARTS.map(
+        (p, k) =>
+          `<section class="part" id="part-${k + 1}"><h2>${p.title}</h2><p class="why">${p.why}</p>${p.opts
+            .map(
+              (o) =>
+                `<div class="opt"><div class="oh"><span class="letter">${o.L}</span><b>${o.name}</b>${o.reco ? `<span class="reco">推荐</span>` : ""}</div><p class="od">${o.desc}</p>${pair(o.build, o.w)}</div>`,
+            )
+            .join("")}</section>`,
+      ).join("");
+    </script>
+  </body>
+</html>

@@ -3,6 +3,8 @@ import {
   createSessionFileReader,
   encodeArgument,
   sessionFolder,
+  startCommand,
+  studyArgument,
   visualsArgument,
 } from "@atrium/pi";
 import {
@@ -143,6 +145,8 @@ async function manage(
     readonly visualsDir?: Parameters<typeof createSessionManager>[0]["visualsDir"];
     /** A learning direction at a directory, archived while `archived()` says so. */
     readonly direction?: { readonly id: string; readonly dir: string; readonly archived: () => boolean };
+    /** The study tools' answers (SPEC-0008, ML2). */
+    readonly study?: Parameters<typeof createSessionManager>[0]["study"];
   } = {},
 ) {
   const at = where ?? (await place());
@@ -207,6 +211,7 @@ async function manage(
     ...(more.childWorktree === undefined ? {} : { childWorktree: more.childWorktree }),
     ...(more.tempRoot === undefined ? {} : { tempRoot: more.tempRoot }),
     ...(more.visualsDir === undefined ? {} : { visualsDir: more.visualsDir }),
+    ...(more.study === undefined ? {} : { study: more.study }),
     ...(more.direction === undefined
       ? {}
       : {
@@ -2042,6 +2047,7 @@ describe("SessionManager workspaces", () => {
         parent: null,
         agent: null,
         heldDeliveries: 0,
+        kickoff: null,
         study: null,
       },
     ]);
@@ -5298,7 +5304,7 @@ describe("SessionManager archived directions' sessions", () => {
 });
 
 describe("SessionManager a learning direction's first session", () => {
-  it("is its discussion, as when the one create_direction made could not be created; later ones are not", async () => {
+  it("is its discussion, as when the one create_direction made could not be created; later ones ask (SPEC-0008, ML2)", async () => {
     const at = await place();
     const dir = join(at.root, "Learning", "go");
     await mkdir(dir, { recursive: true });
@@ -5319,6 +5325,167 @@ describe("SessionManager a learning direction's first session", () => {
     const second = await manager.createSession("client-1", "lrn_go");
 
     expect(catalog.find(first.sessionId)?.study).toStrictEqual({ kind: "discuss" });
-    expect(catalog.find(second.sessionId)?.study).toBeNull();
+    expect(catalog.find(second.sessionId)?.study).toStrictEqual({ kind: "ask" });
+  });
+});
+
+/** A lesson's use, at the first level's first step. */
+const LESSON_USE = { kind: "lesson", level: "l1", step: "s1" } as const;
+
+/** pi's entries of a session with no turn yet. */
+const EMPTY = { data: { entries: [], leafId: null } };
+
+/** pi's entries once a turn is in its file. */
+const ANSWERED = { data: (getEntries as { sequence: { data: unknown }[] }).sequence[1]?.data };
+
+/** A pi that lists Atrium's Fast switch and study mode's command, as with Atrium's extension. */
+const STUDY_PI = {
+  ...SESSION_ONE,
+  get_commands: {
+    data: {
+      commands: [
+        { name: "atrium-fast", description: "Atrium's Fast switch", source: "extension", sourceInfo: {} },
+        { name: "atrium-study", description: "study", source: "extension", sourceInfo: {} },
+      ],
+    },
+  },
+  prompt: { data: { disposition: "handled" } },
+};
+
+/**
+ * A manager with one direction, its pi scripted to list `commands` and to write what it received.
+ *
+ * @remarks
+ * As the first-session test, with Atrium's extension given, so the launch flags are there.
+ *
+ * @sideEffects Creates directories; starts scripted pi.
+ * @param rules - The pi's script.
+ * @returns The managed manager.
+ */
+async function studyDirection(rules: NonNullable<ScriptedPiBehavior["rules"]>) {
+  const at = await place();
+  const dir = join(at.root, "Learning", "go");
+  await mkdir(dir, { recursive: true });
+  return manage(
+    { argvToStderr: true, receivedToStderr: true, rules },
+    at,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    fastMemory(false).fast,
+    undefined,
+    { direction: { id: "lrn_go", dir, archived: () => false } },
+  );
+}
+
+describe("SessionManager a learning direction's sessions with a use (SPEC-0008, ML2)", () => {
+  it("starts pi with the use's flag, and nothing for an asking session", async () => {
+    const { manager, starts } = await studyDirection(STUDY_PI);
+
+    await manager.createStudySession("client-1", "lrn_go", { kind: "discuss" });
+    await manager.createSession("client-1", "lrn_go");
+    /** The arguments of each pi started. */
+    const argvs = () =>
+      starts()
+        .map(({ argv }) => argv)
+        .filter((argv) => argv !== undefined);
+    await vi.waitFor(() => expect(argvs()).toHaveLength(2));
+
+    expect(argvs()[0]).toContain(`--atrium-study=${studyArgument({ kind: "discuss" })}`);
+    expect(argvs()[1]?.some((arg) => arg.startsWith("--atrium-study"))).toBe(false);
+  });
+
+  it("starts a session it opened for a use with /atrium-study start, once pi lists the command", async () => {
+    const { manager, starts, piReceived } = await studyDirection(STUDY_PI);
+
+    const { sessionId } = await manager.startStudySession("client-1", "lrn_go", {
+      kind: "lesson",
+      level: "l1",
+      step: "s1",
+    });
+
+    expect(sessionId).toBe("pi-session-1");
+    await vi.waitFor(() =>
+      expect(
+        piReceived()
+          .filter((command) => command["type"] === "prompt")
+          .map((command) => command["message"]),
+      ).toContain(startCommand()),
+    );
+    expect(starts().find(({ argv }) => argv !== undefined)?.argv).toContain(
+      `--atrium-study=${studyArgument({ kind: "lesson", level: "l1", step: "s1" })}`,
+    );
+  });
+
+  it("shows a start that did not happen, and sends it on 重试 once pi lists the command", async () => {
+    // pi's start asks once for Fast's switch; the first start, then the next, ask again.
+    const commands = { sequence: [FAST_PI.get_commands, FAST_PI.get_commands, STUDY_PI.get_commands] };
+    const { manager, piReceived } = await studyDirection({ ...STUDY_PI, get_entries: EMPTY, get_commands: commands });
+    const { sessionId } = await manager.startStudySession("client-1", "lrn_go", LESSON_USE);
+    /** The session's summary. */
+    const summary = () => manager.summaries().find((one) => one.sessionId === sessionId);
+    /** The starts pi was sent. */
+    const kickoffs = () => piReceived().filter((command) => command["message"] === startCommand());
+
+    await vi.waitFor(() => expect(summary()?.kickoff).toStrictEqual({ code: "study_kickoff_failed" }));
+    expect(kickoffs()).toStrictEqual([]);
+    await manager.retryStudyKickoff(sessionId);
+
+    await vi.waitFor(() => expect(kickoffs()).toHaveLength(1));
+    expect(summary()?.kickoff).toBeNull();
+    // Opening it again sends no second start.
+    await manager.openSession("client-1", sessionId);
+    await manager.retryStudyKickoff(sessionId);
+    // Closing waits for the work in the background, an opening's start included.
+    await manager.close();
+    expect(kickoffs()).toHaveLength(1);
+  });
+
+  it("sends the start again when a session it opened is opened with no turn yet", async () => {
+    // pi's start asks once for Fast's switch; the first start, then the next, ask again.
+    const commands = { sequence: [FAST_PI.get_commands, FAST_PI.get_commands, STUDY_PI.get_commands] };
+    const { manager, piReceived } = await studyDirection({ ...STUDY_PI, get_entries: EMPTY, get_commands: commands });
+    const { sessionId } = await manager.startStudySession("client-1", "lrn_go", LESSON_USE);
+    await vi.waitFor(() =>
+      expect(manager.summaries().find((one) => one.sessionId === sessionId)?.kickoff).not.toBeNull(),
+    );
+
+    await manager.openSession("client-1", sessionId);
+
+    await vi.waitFor(() =>
+      expect(piReceived().filter((command) => command["message"] === startCommand())).toHaveLength(1),
+    );
+    expect(manager.summaries().find((one) => one.sessionId === sessionId)?.kickoff).toBeNull();
+  });
+
+  it("sends no start to a session that has a turn already, opened or retried", async () => {
+    const { manager, piReceived } = await studyDirection({ ...STUDY_PI, get_entries: ANSWERED });
+    const { sessionId } = await manager.startStudySession("client-1", "lrn_go", LESSON_USE);
+    await manager.openSession("client-1", sessionId);
+    await manager.retryStudyKickoff(sessionId);
+    const kickoff = manager.summaries().find((one) => one.sessionId === sessionId)?.kickoff;
+    await manager.close();
+
+    expect(piReceived().filter((command) => command["message"] === startCommand())).toStrictEqual([]);
+    expect(kickoff).toBeNull();
+  });
+
+  it("shows a pi that cannot start by its code, and refuses 重试 for a session of no host-opened use", async () => {
+    const { manager } = await studyDirection(STUDY_PI);
+    const { sessionId } = await manager.createStudySession("client-1", "lrn_go", { kind: "discuss" });
+
+    await expect(manager.retryStudyKickoff(sessionId)).rejects.toMatchObject({ code: "study_not_available" });
+    await expect(manager.retryStudyKickoff("nope")).rejects.toMatchObject({ code: "session_not_found" });
+  });
+
+  it("sends no start to a pi without study mode's command, and logs that", async () => {
+    const { manager, piReceived, records } = await studyDirection(FAST_PI);
+
+    await manager.startStudySession("client-1", "lrn_go", { kind: "lesson", level: "l1", step: "s1" });
+
+    await vi.waitFor(() => expect(records.some((record) => record["msg"] === "study extension not loaded")).toBe(true));
+    expect(piReceived().filter((command) => command["message"] === startCommand())).toStrictEqual([]);
   });
 });

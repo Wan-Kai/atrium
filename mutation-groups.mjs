@@ -28,6 +28,7 @@ export const MUTATION_GROUPS = {
       "packages/pi/src/plan/*.ts",
       "packages/pi/src/extension/*.ts",
       "packages/pi/src/agent/*.ts",
+      "packages/pi/src/study/*.ts",
       "packages/pi/src/stats/*.ts",
       "packages/pi/src/oneshot/oneshot.ts",
       "packages/pi/src/auth/login.ts",
@@ -85,6 +86,7 @@ export const MUTATION_GROUPS = {
       "packages/ui/src/chat/markdown-transforms.ts",
       "packages/ui/src/chat/image-preview-layout.ts",
       "packages/ui/src/chat/model-choice.ts",
+      "packages/ui/src/chat/first-message.ts",
       "packages/ui/src/chat/composer-text.ts",
       "packages/ui/src/chat/builtin-commands.ts",
       "packages/ui/src/chat/changes.ts",
@@ -110,6 +112,7 @@ export const MUTATION_GROUPS = {
       "packages/ui/src/chat/visual-snapshots.ts",
       "packages/ui/src/chat/visual-presses.ts",
       "packages/ui/src/study/learning.ts",
+      "packages/ui/src/study/progress.ts",
     ],
     tests: ["packages/ui"],
     skip: [],
@@ -137,6 +140,8 @@ export const MUTATION_GROUPS = {
   study: {
     mutate: [
       "packages/host/src/study/*.ts",
+      // Their own group below, as the progress is ML2's.
+      "!packages/host/src/study/{progress,progress-file,progress-rules,study-tools}.ts",
       "packages/host/src/store/learning-records.ts",
       "packages/host/src/sessions/read-only-transcripts.ts",
     ],
@@ -145,6 +150,18 @@ export const MUTATION_GROUPS = {
       "packages/host/src/store/learning-records.test.ts",
       "packages/host/src/sessions/read-only-transcripts.test.ts",
     ],
+    skip: [],
+  },
+  // Study mode's progress on the host (SPEC-0008, "ML2 定的细节"): reading and writing
+  // `.atrium-study.json`, the rules of tools, marks and the next step, and the tools' answers.
+  studyProgress: {
+    mutate: [
+      "packages/host/src/study/progress.ts",
+      "packages/host/src/study/progress-file.ts",
+      "packages/host/src/study/progress-rules.ts",
+      "packages/host/src/study/study-tools.ts",
+    ],
+    tests: ["packages/host/src/study"],
     skip: [],
   },
   // The phone's end-to-end encryption and the host's remote module (SPEC-0005, "Noise 通道", "宿主").

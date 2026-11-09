@@ -41,6 +41,7 @@ function fakeCommands() {
     createSession: record("createSession", { sessionId: "s3" }),
     openSession: record("openSession", {}),
     closeTab: record("closeTab", {}),
+    retryStudyKickoff: record("retryStudyKickoff", {}),
     selectContainer: record("selectContainer", {}),
     archiveSession: record("archiveSession", {}),
     detachSession: record("detachSession", {}),
@@ -343,6 +344,19 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
       restoreDirection: async (directionId) => {
         calls.push(["restoreDirection", directionId]);
         if (directionId === "lrn_taken") throw new CommandError("study_restore_conflict", { directionId });
+        return {};
+      },
+      startStudySession: async (clientId, directionId, study) => {
+        calls.push(["startStudySession", clientId, directionId, study]);
+        return { sessionId: "s8" };
+      },
+      markStudyStep: async (directionId, level, step, mark, done) => {
+        calls.push(["markStudyStep", directionId, level, step, mark, done]);
+        if (step === "s9") throw new CommandError("study_mark_refused");
+        return {};
+      },
+      markStudyGap: async (directionId, gapId, fixed) => {
+        calls.push(["markStudyGap", directionId, gapId, fixed]);
         return {};
       },
     },
@@ -923,6 +937,44 @@ describe("createRouter", () => {
     ]);
   });
 
+  it("hands the study progress commands to the study commands, with the client for starting a session (SPEC-0008, ML2)", async () => {
+    const { route, connection, sent, calls } = setUp();
+    const at = { directionId: DIRECTION, level: "l2", step: "s4" } as const;
+
+    await route(connection, withTrace({ type: "start_study_session", requestId: "m1", kind: "lesson", ...at }));
+    await route(
+      connection,
+      withTrace({ type: "start_study_session", requestId: "m2", kind: "feynman", ...at, gap: "g1" }),
+    );
+    await route(connection, withTrace({ type: "mark_study_step", requestId: "m3", ...at, mark: "quiz", done: true }));
+    await route(
+      connection,
+      withTrace({ type: "mark_study_step", requestId: "m4", ...at, step: "s9", mark: "step", done: false }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "mark_study_gap", requestId: "m5", directionId: DIRECTION, gapId: "g1", fixed: true }),
+    );
+    await route(connection, withTrace({ type: "retry_study_kickoff", requestId: "m6", sessionId: "s8" }));
+
+    expect(calls).toStrictEqual([
+      ["startStudySession", "client-1", DIRECTION, { kind: "lesson", level: "l2", step: "s4" }],
+      ["startStudySession", "client-1", DIRECTION, { kind: "feynman", level: "l2", step: "s4", gap: "g1" }],
+      ["markStudyStep", DIRECTION, "l2", "s4", "quiz", true],
+      ["markStudyStep", DIRECTION, "l2", "s9", "step", false],
+      ["markStudyGap", DIRECTION, "g1", true],
+      ["retryStudyKickoff", "s8"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "m1", ok: true, result: { sessionId: "s8" } },
+      { type: "response", requestId: "m2", ok: true, result: { sessionId: "s8" } },
+      { type: "response", requestId: "m3", ok: true, result: {} },
+      { type: "response", requestId: "m4", ok: false, error: { code: "study_mark_refused" } },
+      { type: "response", requestId: "m5", ok: true, result: {} },
+      { type: "response", requestId: "m6", ok: true, result: {} },
+    ]);
+  });
+
   it("sends a connection the list changes waiting for it before answering any of its commands", async () => {
     const answered: [string, number][] = [];
     const setup = setUp((connectionId) => answered.push([connectionId, setup.sent.length]));
@@ -1324,6 +1376,10 @@ describe("createRouter's attachments", () => {
     { type: "set_model", sessionId: "talk", providerId: "p", modelId: "m" },
     { type: "list_commands", sessionId: "talk" },
     { type: "compact_session", sessionId: "talk" },
+    { type: "start_study_session", directionId: "lrn_go", kind: "lesson", level: "l1", step: "s1" },
+    { type: "mark_study_step", directionId: "lrn_go", level: "l1", step: "s1", mark: "lesson", done: true },
+    { type: "mark_study_gap", directionId: "lrn_go", gapId: "g1", fixed: true },
+    { type: "retry_study_kickoff", sessionId: "talk" },
   ])(
     "refuses a phone's $type on a learning direction or a session in one, as local_only, running nothing",
     async (fields) => {

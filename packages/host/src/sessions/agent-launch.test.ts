@@ -1,8 +1,8 @@
-import { encodeArgument } from "@atrium/pi";
-import type { AgentRole } from "@atrium/protocol";
+import { encodeArgument, studyArgument } from "@atrium/pi";
+import type { AgentRole, SessionStudy } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import type { AgentRecord } from "../store/agent-records";
-import { agentLaunchFlags, agentSelf, toolFlags } from "./agent-launch";
+import { agentLaunchFlags, agentSelf, studyLaunchFlags, toolFlags } from "./agent-launch";
 import { agentDepth } from "./child-tree";
 
 /** The main agent's tools, as pi's flags list them. */
@@ -205,5 +205,50 @@ describe("agentLaunchFlags", () => {
       "--tools",
       `read,bash,ffgrep,fffind,ls,report_progress,ask_parent,${PARENT}`,
     ]);
+  });
+});
+
+/**
+ * A session in a container, with a use.
+ *
+ * @remarks
+ * Only what the launch rules read.
+ *
+ * @sideEffects none
+ * @param sessionId - Its id.
+ * @param containerId - Its container.
+ * @param use - Its use, or `null`.
+ * @returns The entry.
+ */
+function study(sessionId: string, containerId: string, use: SessionStudy | null) {
+  return { ...entry(sessionId), containerId, study: use };
+}
+
+describe("studyLaunchFlags", () => {
+  it("gives a direction's session with a use its flag, in one argument (SPEC-0008, ML2)", () => {
+    const entries = [
+      study("discuss", "lrn_go", { kind: "discuss" }),
+      study("lesson", "lrn_go", { kind: "lesson", level: "l2", step: "s4" }),
+    ];
+
+    expect(studyLaunchFlags(entries, "discuss")).toStrictEqual([
+      `--atrium-study=${studyArgument({ kind: "discuss" })}`,
+    ]);
+    expect(studyLaunchFlags(entries, "lesson")).toStrictEqual([
+      `--atrium-study=${studyArgument({ kind: "lesson", level: "l2", step: "s4" })}`,
+    ]);
+  });
+
+  it("gives none to a workspace's, a chat's, an asking or a use-less session, or one unknown", () => {
+    const entries = [
+      study("workspace", "wks_0123456789abcdef", { kind: "lesson", level: "l1", step: "s1" }),
+      study("chat", "cht_00000000-0000-4000-8000-000000000000", { kind: "discuss" }),
+      study("ask", "lrn_go", { kind: "ask" }),
+      study("none", "lrn_go", null),
+      entry("old"),
+    ];
+    expect(
+      ["workspace", "chat", "ask", "none", "old", "unknown"].map((sessionId) => studyLaunchFlags(entries, sessionId)),
+    ).toStrictEqual([[], [], [], [], [], []]);
   });
 });

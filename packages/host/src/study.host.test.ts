@@ -30,15 +30,22 @@ const NAMES = {
  *
  * @sideEffects Creates temporary directories and starts a host, both gone when the test ends.
  * @param piSessions - Where pi keeps sessions, when a test writes one there.
+ * @param learningRoot - The learning directory, when a test keeps it across hosts.
+ * @param more - The host's home, when a test puts files in it first, and the file a one-shot pi
+ * records what it was started with into.
  * @returns The host, the client and the learning directory.
  */
-async function studyHost(piSessions?: string): Promise<{ host: TestHost; client: AtriumClient; root: string }> {
+async function studyHost(
+  piSessions?: string,
+  learningRoot?: string,
+  more: { readonly home?: string; readonly recordTo?: string } = {},
+): Promise<{ host: TestHost; client: AtriumClient; root: string }> {
   const bin = await createTempDir("study-bin");
   onTestFinished(bin.cleanup);
   const scripted = await writeScriptedPi(
     bin.path,
     {
-      print: { lines: [NAMES] },
+      print: { lines: [NAMES], ...(more.recordTo === undefined ? {} : { recordTo: more.recordTo }) },
       rules: {
         get_state: { data: { sessionId: "pi-session-1" } },
         get_entries: PONG_ENTRIES,
@@ -54,6 +61,8 @@ async function studyHost(piSessions?: string): Promise<{ host: TestHost; client:
       ...scripted.env,
       ...(piSessions === undefined ? {} : { PI_CODING_AGENT_SESSION_DIR: piSessions }),
     },
+    ...(learningRoot === undefined ? {} : { learningRoot }),
+    ...(more.home === undefined ? {} : { home: more.home }),
   });
   onTestFinished(host.dispose);
   await host.host.tools;
@@ -61,7 +70,7 @@ async function studyHost(piSessions?: string): Promise<{ host: TestHost; client:
   onTestFinished(() => client.disconnect());
   await client.connect();
   await vi.waitFor(() => expect(client.index.getState().ready).toBe(true));
-  return { host, client, root: join(host.host.logFile, "..", "..", "Learning") };
+  return { host, client, root: learningRoot ?? join(host.host.logFile, "..", "..", "Learning") };
 }
 
 /** Whether something is at a path. */
@@ -97,11 +106,14 @@ describe("learning directions over the WebSocket (SPEC-0008, ML1)", () => {
         name: "Node 后端",
         alias: null,
         broken: false,
+        newer: false,
         discussing: true,
         archived: false,
         createdAt: expect.any(Number),
         pinnedAt: null,
         lastOpenedAt: expect.any(Number),
+        progress: null,
+        next: { primary: null, secondary: null },
       },
     ]);
     expect(index.sessions.find((session) => session.sessionId === sessionId)).toMatchObject({
@@ -113,6 +125,26 @@ describe("learning directions over the WebSocket (SPEC-0008, ML1)", () => {
       container: directionId,
       tabs: { [directionId]: { open: [sessionId], active: sessionId } },
     });
+  });
+
+  it("names a direction with the model a new session starts on when the page sent none (2026-11-09)", async () => {
+    const home = await createTempDir("study-home");
+    onTestFinished(home.cleanup);
+    const last = { providerId: "faux", modelId: "last" };
+    await writeFile(
+      join(home.path, "preferences.json"),
+      JSON.stringify({ version: 3, appearance: "system", lastModel: last, thinkingByModel: {} }),
+    );
+    const records = await createTempDir("study-oneshot");
+    onTestFinished(records.cleanup);
+    const recordTo = join(records.path, "oneshot.json");
+    const { client } = await studyHost(undefined, undefined, { home: home.path, recordTo });
+
+    const { directionId } = await client.createDirection("我想学后端", null);
+
+    expect(directionId).toBe("lrn_node-backend");
+    const { argv } = JSON.parse(await readFile(recordTo, "utf8")) as { argv: string[] };
+    expect(argv[argv.indexOf("--model") + 1]).toBe("faux/last");
   });
 
   it("archives a direction into Archive/, takes no new session there, and restores it to go on", async () => {
@@ -149,9 +181,10 @@ describe("learning directions over the WebSocket (SPEC-0008, ML1)", () => {
     await client.openSession(present(sessionId, "the discussion"));
     expect(client.index.getState().layout.container).toBe(directionId);
     const another = await client.createSession(directionId);
+    // Not the first: the learner asking, with no study tools (SPEC-0008, ML2).
     expect(client.index.getState().sessions.find((session) => session.sessionId === another.sessionId)).toMatchObject({
       containerId: directionId,
-      study: null,
+      study: { kind: "ask" },
     });
   });
 
@@ -251,6 +284,60 @@ describe("learning directions over the WebSocket (SPEC-0008, ML1)", () => {
 
     await vi.waitFor(() =>
       expect(client.index.getState().directions).toMatchObject([{ id: "lrn_rust", name: "Rust" }]),
+    );
+  });
+
+  it("lists a direction's progress and next step, marks by hand into its file, and reads it again after a restart (ML2)", async () => {
+    const learning = await createTempDir("study-learning");
+    onTestFinished(learning.cleanup);
+    const root = join(await realpath(learning.path), "Learning");
+    const marker = {
+      version: 1,
+      name: "Go",
+      mine: "kept",
+      ladder: [
+        { id: "l1", name: "语法", topics: "", pass: "", state: "current" },
+        { id: "l2", name: "并发", topics: "", pass: "", state: "todo" },
+      ],
+      steps: { l1: [{ id: "s1", kind: "lesson", title: "变量", lesson: null, quiz: null, done: null }] },
+      gaps: [],
+      finishedAt: null,
+    };
+    await mkdir(join(root, "go"), { recursive: true });
+    await writeFile(join(root, "go", ".atrium-study.json"), JSON.stringify(marker));
+    const first = await studyHost(undefined, root);
+
+    await vi.waitFor(() =>
+      expect(first.client.index.getState().directions).toMatchObject([
+        {
+          id: "lrn_go",
+          discussing: false,
+          progress: { ladder: [{ id: "l1", state: "current" }, { id: "l2" }] },
+          next: { primary: { type: "start", kind: "lesson", level: "l1", step: "s1", available: true } },
+        },
+      ]),
+    );
+    await first.client.markStudyStep("lrn_go", "l1", "s1", "lesson", true);
+
+    expect(first.client.index.getState().directions[0]?.next).toStrictEqual({
+      primary: { type: "start", kind: "quiz", level: "l1", step: "s1", available: false },
+      secondary: { type: "mark", mark: "later", level: "l1", step: "s1" },
+    });
+    expect(JSON.parse(await readFile(join(root, "go", ".atrium-study.json"), "utf8"))).toMatchObject({
+      mine: "kept",
+      steps: { l1: [{ id: "s1", lesson: { by: "manual" } }] },
+    });
+    await expect(first.client.markStudyGap("lrn_go", "g1", true)).rejects.toMatchObject({ code: "study_not_found" });
+    await expect(
+      first.client.startStudySession("lrn_go", { kind: "quiz", level: "l1", step: "s1" }),
+    ).rejects.toMatchObject({ code: "study_not_available" });
+    await first.host.dispose();
+    const second = await studyHost(undefined, root);
+
+    await vi.waitFor(() =>
+      expect(second.client.index.getState().directions[0]?.progress?.steps["l1"]?.[0]).toMatchObject({
+        lesson: { by: "manual" },
+      }),
     );
   });
 });

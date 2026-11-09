@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SessionStudy } from "./study";
 
 /** Milliseconds since the Unix epoch. */
 const Timestamp = z.number().int().nonnegative();
@@ -54,7 +55,8 @@ export type AgentNoticeEvent = z.infer<typeof AgentNoticeEvent>;
 
 /**
  * What a turn opened with, or a step brought, when it was not you: notices from children, or a
- * task from the parent's agent (SPEC-0002, "对话记录里的自定义消息").
+ * task from the parent's agent (SPEC-0002, "对话记录里的自定义消息"), or the start of a session the host
+ * opened for a use (SPEC-0008, "ML2 定的细节").
  */
 export const AgentSource = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("report"), events: z.array(AgentNoticeEvent).min(1) }),
@@ -66,6 +68,8 @@ export const AgentSource = z.discriminatedUnion("kind", [
     /** What the parent's agent asked, whole. */
     text: z.string(),
   }),
+  /** The host opened the session for a use; the UI words it, as "上课 · 第 2 级第 4 步". */
+  z.strictObject({ kind: z.literal("study"), study: SessionStudy }),
 ]);
 export type AgentSource = z.infer<typeof AgentSource>;
 

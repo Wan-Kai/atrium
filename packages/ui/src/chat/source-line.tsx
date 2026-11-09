@@ -2,6 +2,8 @@ import type { AgentNoticeEvent, AgentSource } from "@atrium/protocol";
 import { ArrowTurnBack, Question, Robot } from "../design/icons";
 import { useAgentLinks } from "./agent-links";
 import { EVENT_WORDS, tookWords } from "./agent-words";
+import { StudyIcon } from "../study/study-icon";
+import { useStudyLabel } from "../study/study-label";
 
 /**
  * What a `work` child changed: "+A −D", as the changes capsule says it.
@@ -83,8 +85,8 @@ export function NoticeLine({ event }: { readonly event: AgentNoticeEvent }) {
  *
  * @remarks
  * SPEC-0002 ("显示 · 由通知开头的轮"): notices one line each; a task as "来自主对话的 agent · 交代的
- * 事", "主对话" at its right, and below it the task whole as a quote. What Atrium wrapped it in for
- * the model is not shown.
+ * 事", "主对话" at its right, and below it the task whole as a quote; a study session's start as its
+ * use and step (SPEC-0008, "ML2 定的细节"). What Atrium wrapped it in for the model is not shown.
  *
  * @sideEffects Opens a session when a link is clicked.
  * @param props - The source.
@@ -92,6 +94,28 @@ export function NoticeLine({ event }: { readonly event: AgentNoticeEvent }) {
  */
 export function SourceLines({ source }: { readonly source: AgentSource }) {
   const links = useAgentLinks();
+  const label = useStudyLabel();
+  if (source.kind === "study") {
+    // A session the host opened for a use: its use and step, no link (design-language "学习模式").
+    const [use, ...rest] = label(source.study).split(" · ");
+    return (
+      <div className="flex flex-col gap-1" data-testid="source">
+        <div
+          className="flex min-w-0 items-center gap-1.5 text-[length:var(--fs-meta)] text-[var(--text-muted)]"
+          data-testid="source-line"
+          data-event="study"
+        >
+          <span className="flex flex-none items-center">
+            <StudyIcon kind={source.study.kind} size={13} />
+          </span>
+          <span className="min-w-0 truncate">
+            <b className="font-semibold text-[var(--text-2)]">{use}</b>
+            {rest.map((part) => ` · ${part}`).join("")}
+          </span>
+        </div>
+      </div>
+    );
+  }
   if (source.kind === "report") {
     return (
       <div className="flex flex-col gap-1" data-testid="source">

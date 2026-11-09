@@ -570,6 +570,36 @@ describe("createAtriumClient: commands", () => {
     ]);
   });
 
+  it("starts a study session and marks steps and gaps with the direction's ids (SPEC-0008, ML2)", async () => {
+    const { client, latest } = await connected();
+    const started = client.startStudySession("lrn_go", { kind: "lesson", level: "l1", step: "s1" });
+    latest().answer("start_study_session", { sessionId: "s5" });
+    const feynman = client.startStudySession("lrn_go", { kind: "feynman", level: "l1", step: "s1", gap: "g1" });
+    latest().answer("start_study_session", { sessionId: "s6" });
+    const marked = client.markStudyStep("lrn_go", "l1", "s1", "later", true);
+    const fixed = client.markStudyGap("lrn_go", "g1", false);
+    latest().answer("mark_study_step");
+    latest().answer("mark_study_gap");
+
+    expect([await started, await feynman, await marked, await fixed]).toStrictEqual([
+      { sessionId: "s5" },
+      { sessionId: "s6" },
+      {},
+      {},
+    ]);
+    expect(
+      latest()
+        .commands()
+        .slice(-4)
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "start_study_session", directionId: "lrn_go", kind: "lesson", level: "l1", step: "s1" },
+      { type: "start_study_session", directionId: "lrn_go", kind: "feynman", level: "l1", step: "s1", gap: "g1" },
+      { type: "mark_study_step", directionId: "lrn_go", level: "l1", step: "s1", mark: "later", done: true },
+      { type: "mark_study_gap", directionId: "lrn_go", gapId: "g1", fixed: false },
+    ]);
+  });
+
   it("rejects with the host's error code, and with the schema's error for a malformed result", async () => {
     const { client, latest } = await connected();
 
@@ -1116,6 +1146,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
         parent: null,
         agent: null,
         heldDeliveries: 0,
+        kickoff: null,
         study: null,
       },
     ],

@@ -48,6 +48,11 @@ export interface SessionCommands {
   openSession(clientId: string, sessionId: string): Promise<CommandResult<"open_session">>;
   /** Closes the client's tab of a session; a draft without messages is discarded. */
   closeTab(clientId: string, sessionId: string): Promise<CommandResult<"close_tab">>;
+  /**
+   * Starts again a session the host opened for a use that did not start, if it has no turn yet
+   * (SPEC-0008, "ML2 定的细节").
+   */
+  retryStudyKickoff(sessionId: string): Promise<CommandResult<"retry_study_kickoff">>;
   /** Goes to a container, or nowhere. */
   selectContainer(clientId: string, containerId: ContainerId | null): Promise<CommandResult<"select_container">>;
   /** Hides a session in Atrium and stops its pi. */

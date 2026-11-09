@@ -38,6 +38,7 @@ import { DirectionHome } from "../study/direction-home";
 import { LearningBar } from "../study/learning-bar";
 import { LearningHome } from "../study/learning-home";
 import { NewDirectionPage } from "../study/new-direction-page";
+import { StepStrip } from "../study/step-strip";
 import {
   type LearningState,
   closeLearning,
@@ -700,6 +701,10 @@ function MainWindow({
               }
             />
           )}
+          {learningPage === null && pageProject === null && direction !== undefined ? (
+            // On the direction's home and in each of its sessions (design-language "常驻步骤条").
+            <StepStrip client={client} store={learning} directionId={direction.id} />
+          ) : null}
           {sessionShown && sessionId !== null ? (
             <Breadcrumb client={client} sessionId={sessionId} views={views} />
           ) : null}

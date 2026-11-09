@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { SessionAgent } from "./agent";
+import { ErrorCode } from "./errors";
 import { ChatId, ContainerId, DirectionId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { StatusGroupId } from "./metrics";
 import { ModelRef, SessionModel, ThinkingLevel } from "./models";
+import { SessionStudy, StudyNext, StudyProgress } from "./study";
 
 /** An absolute path on the host's machine. */
 const Path = z.string().min(1).max(4096);
@@ -96,7 +98,7 @@ export type Chat = z.infer<typeof Chat>;
  *
  * @remarks
  * Found by its directory and its `.atrium-study.json`; whether it is archived is where its
- * directory is, not a record. Its progress comes in ML2.
+ * directory is, not a record; its progress is read from that file (ML2).
  */
 export const Direction = z.strictObject({
   id: DirectionId,
@@ -108,6 +110,11 @@ export const Direction = z.strictObject({
   alias: z.string().min(1).max(256).nullable(),
   /** Its `.atrium-study.json` could not be read; it shows as under discussion and is not written over. */
   broken: z.boolean(),
+  /**
+   * Its `.atrium-study.json` is of a later version: what Atrium knows of it is read and shown, but
+   * nothing is written, so nothing is offered to change it (SPEC-0008, "ML2 定的细节").
+   */
+  newer: z.boolean(),
   /** It has no ladder yet: the discussion has not ended (SPEC-0008, "讨论"). */
   discussing: z.boolean(),
   /** Its directory is under `Archive/` (SPEC-0008, "方向是一种新容器"). */
@@ -118,24 +125,12 @@ export const Direction = z.strictObject({
   pinnedAt: Timestamp.nullable(),
   /** When a client last went into it; the learning home's "继续" is the latest (SPEC-0008, "入口"). */
   lastOpenedAt: Timestamp.nullable(),
+  /** Its ladder, steps and gaps; `null` while under discussion or when its file cannot be read (ML2). */
+  progress: StudyProgress.nullable(),
+  /** What its step strip offers, as the host works it out (SPEC-0008, "下一步怎么算"). */
+  next: StudyNext,
 });
 export type Direction = z.infer<typeof Direction>;
-
-/** What a learning session is for (SPEC-0008, "会话的用途"). */
-export const StudyKind = z.enum(["discuss", "plan", "lesson", "quiz", "feynman", "sheet", "project", "exam", "ask"]);
-export type StudyKind = z.infer<typeof StudyKind>;
-
-/** An id in a direction's progress: a level, a step or a gap. */
-const StudyRef = z.string().min(1).max(64);
-
-/** What a session of a direction is for, and which level, step or gap (SPEC-0008, "索引"). */
-export const SessionStudy = z.strictObject({
-  kind: StudyKind,
-  level: StudyRef.optional(),
-  step: StudyRef.optional(),
-  gap: StudyRef.optional(),
-});
-export type SessionStudy = z.infer<typeof SessionStudy>;
 
 /**
  * Why a session needs you, kept in the index until its next run starts (SPEC-0001, "并行、同步与关注").
@@ -232,6 +227,11 @@ export const SessionSummary = z.strictObject({
   heldDeliveries: z.number().int().nonnegative(),
   /** What a session of a direction is for; `null` for any other session (SPEC-0008, "索引"). */
   study: SessionStudy.nullable(),
+  /**
+   * Why a session the host opened for a use did not start, by code; `null` once it did, or for
+   * any other session (SPEC-0008, "ML2 定的细节"). Kept in memory only.
+   */
+  kickoff: z.strictObject({ code: ErrorCode }).nullable(),
 });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 
