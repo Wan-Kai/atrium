@@ -2118,6 +2118,14 @@ export function createSessionManager(options: {
               entry.task.attempt === attempt,
           )?.sessionId,
       recordOf: (sessionId) => options.catalog.find(sessionId)?.task ?? undefined,
+      conversations: () =>
+        options.catalog
+          .list()
+          .flatMap((entry) =>
+            entry.task?.role === "conversation" && !entry.archived
+              ? [{ sessionId: entry.sessionId, taskId: entry.task.taskId }]
+              : [],
+          ),
       async open(sessionId) {
         await options.catalog.ready();
         entryOf(sessionId);

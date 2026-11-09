@@ -92,7 +92,8 @@ describe('the schedule clock leaves nothing behind (testing.md, "泄漏测试")'
       resources,
       logger: recordingTracing().logger,
       tasks: {
-        lookup: async () => undefined,
+        lookup: async (id) => template(id),
+        ofRule: async () => [],
         createScheduled: async () => "tsk_x",
         discardTemplate: async () => undefined,
       },
@@ -134,7 +135,8 @@ describe('the schedule clock leaves nothing behind (testing.md, "泄漏测试")'
       resources,
       logger: recordingTracing().logger,
       tasks: {
-        lookup: async () => undefined,
+        lookup: async (id) => template(id),
+        ofRule: async () => [],
         createScheduled: async () => "tsk_x",
         discardTemplate: async () => undefined,
       },

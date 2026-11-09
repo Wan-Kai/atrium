@@ -132,25 +132,40 @@ export interface TaskHost {
   restart(edit?: () => Promise<void>): Promise<void>;
 }
 
+/** What a host needs to run tasks with the faux model: the environment pi is found in, the repository and the home. */
+export interface TaskEnvironment {
+  /** The temporary directory holding the fake pi's agent directory and wrapper. */
+  readonly dir: string;
+  /** The project's repository, as a real path. */
+  readonly repo: string;
+  /** The host's home directory. */
+  readonly home: string;
+  /** The environment the host looks for pi in (`toolEnv`): the wrapper first on PATH, the faux model's settings. */
+  readonly env: Record<string, string>;
+  /** Lets a faux reply scripted with `waitFor: name` go on. */
+  release(name: string): Promise<void>;
+  /** The faux model's launch, for `contexts`, `pid` and `release`. */
+  readonly launch: Awaited<ReturnType<typeof fauxPi>>;
+}
+
 /**
- * Starts a real host whose pi runs the faux model, with a git project and one conversation.
+ * Makes the world a task host runs in: a git repository, a home, a fake pi that runs the faux model, and the
+ * environment that finds it.
  *
  * @remarks
- * The scripts are `FauxScript.byConversation`: each node's conversation (told by its contract's first line) is
- * answered from its own list, whichever pi process serves it.
+ * Apart from `startTaskHost` so that a test can start the host somewhere else, such as in a process it will kill
+ * (`t910.crash.host.test.ts`). The scripts are `FauxScript.byConversation`: each node's conversation (told by its
+ * contract's first line) is answered from its own list, whichever pi process serves it.
  *
- * @sideEffects Creates temporary directories and a git repository, starts a host and a client; both are
- * stopped when the test finishes.
+ * @sideEffects Creates temporary directories and a git repository, removed when the test finishes.
  * @param conversations - The replies of each node, by node id.
  * @param scripts - The replies of the task conversation and the source conversation.
- * @param options - `followTasks`: a directory of another process's tasks the host follows read-only.
- * @returns The harness.
+ * @returns The environment.
  */
-export async function startTaskHost(
+export async function prepareTaskEnvironment(
   conversations: Readonly<Record<string, readonly FauxReply[]>>,
   scripts: TaskHostScripts = {},
-  options: { readonly followTasks?: string } = {},
-): Promise<TaskHost> {
+): Promise<TaskEnvironment> {
   const dir = await createTempDir("task-host");
   onTestFinished(dir.cleanup);
   const scene = await createGitScene("task-host-repo");
@@ -192,6 +207,32 @@ export async function startTaskHost(
     PATH: `${bin}${delimiter}${process.env["PATH"] ?? ""}`,
     TASK_REAL_PI: await realPi(),
   };
+  return { dir: dir.path, repo, home: home.path, env, release: (name) => launch.release(name), launch };
+}
+
+/**
+ * Starts a real host whose pi runs the faux model, with a git project and one conversation.
+ *
+ * @remarks
+ * The scripts are `FauxScript.byConversation`: each node's conversation (told by its contract's first line) is
+ * answered from its own list, whichever pi process serves it.
+ *
+ * @sideEffects Creates temporary directories and a git repository, starts a host and a client; both are
+ * stopped when the test finishes.
+ * @param conversations - The replies of each node, by node id.
+ * @param scripts - The replies of the task conversation and the source conversation.
+ * @param options - `followTasks`: a directory of another process's tasks the host follows read-only.
+ * @returns The harness.
+ */
+export async function startTaskHost(
+  conversations: Readonly<Record<string, readonly FauxReply[]>>,
+  scripts: TaskHostScripts = {},
+  options: { readonly followTasks?: string } = {},
+): Promise<TaskHost> {
+  const world = await prepareTaskEnvironment(conversations, scripts);
+  const { launch, repo, env } = world;
+  const dir = { path: world.dir };
+  const home = { path: world.home };
   let counter = 0;
 
   /**

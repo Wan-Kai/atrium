@@ -76,6 +76,13 @@ export interface TaskSessions {
    * runs, a new turn if it is idle (SPEC-0006, `task_send_to_node`).
    */
   deliver(sessionId: string, text: string, signal?: AbortSignal): Promise<void>;
+  /**
+   * The task conversations that are not archived, with the task each belongs to.
+   *
+   * @remarks
+   * For finding the ones whose task never got written (a crash between the conversation and its task).
+   */
+  conversations(): readonly { readonly sessionId: string; readonly taskId: string }[];
   /** Lets go of a session nobody will open again: stops its pi and archives its record. */
   retire(sessionId: string): Promise<void>;
   /** Whether the session has a pi that runs. */

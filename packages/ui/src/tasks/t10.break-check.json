@@ -8,7 +8,7 @@
   },
   {
     "file": "packages/ui/src/tasks/schedule-words.ts",
-    "from": "const shown = hour > 12 ? hour - 12 : hour;",
+    "from": "const shown = hour % 12 === 0 ? 12 : hour % 12;",
     "to": "const shown = hour >= 12 ? hour - 12 : hour;",
     "test": "packages/ui/src/tasks/schedule-words.test.ts",
     "name": "is 每天"
@@ -90,7 +90,7 @@
   },
   {
     "file": "packages/ui/src/tasks/schedule-tab.tsx",
-    "from": "if (event.key === \"Escape\") setAsking(false);",
+    "from": "if (event.key === \"Escape\") dismiss();",
     "to": "",
     "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
     "name": "puts the focus on 确定",

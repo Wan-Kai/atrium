@@ -65,6 +65,7 @@ const ERROR_WORDS: Readonly<Record<string, string>> = {
   task_already_converted: "这段对话已经转成任务了",
   task_no_project_for_work: "不属于项目的任务不能放改代码或跑命令的节点",
   schedule_not_found: "这条规则已经不在了",
+  schedule_file_unreadable: "定时规则文件读不出来，没有保存",
   merge_git_failed: "git 出错了，没有合并，主目录没动",
   review_closed: "这条审核已经处理过了",
   review_invalid: "这个裁决不合这条审核，刷新后再试",

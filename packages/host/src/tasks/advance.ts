@@ -1,8 +1,8 @@
 import { type Draft, emit, freshRun, notify, progress } from "./draft";
 import { NODE_SLOTS, activeGraphOf, latestRun, liveRun, placeOf, stateOf, topologicalOrder, upstreamOf } from "./graph";
 import { deriveStatus } from "./status";
-import { RESUME_HELD } from "./texts";
-import type { GraphNode, GraphVersion } from "./types";
+import { RESUME_HELD, RESUME_QUESTION_VOID, RESUME_RESTARTED } from "./texts";
+import type { GraphNode, GraphVersion, NodeRun } from "./types";
 
 /**
  * Ends the task: records when, unlocks its worktree and asks whether to archive it.
@@ -114,6 +114,25 @@ function openHuman(draft: Draft, node: GraphNode): void {
 }
 
 /**
+ * What a held node is told when it is resumed.
+ *
+ * @remarks
+ * The held line, and, if a restart held it back instead of telling it (`afterRestart`), what the restart did: the turn
+ * it was in was cut off, the question it was asking is void (SPEC-0006, "T9 / T10 审查后用户定").
+ *
+ * @sideEffects none
+ * @param run - The node's run.
+ * @returns The text.
+ */
+function heldText(run: NodeRun): string {
+  return [
+    RESUME_HELD,
+    ...(run.afterRestart?.cutOff === true ? [RESUME_RESTARTED] : []),
+    ...(run.afterRestart?.questionVoid === true ? [RESUME_QUESTION_VOID] : []),
+  ].join("\n");
+}
+
+/**
  * Moves the task forward as far as its rules allow, after an event has been applied.
  *
  * @remarks
@@ -138,7 +157,8 @@ export function advance(draft: Draft): void {
     const run = liveRun(task, id);
     if (run?.state !== "held") continue;
     run.state = "running";
-    emit(draft, { kind: "resume_node", node: id, text: RESUME_HELD });
+    emit(draft, { kind: "resume_node", node: id, text: heldText(run) });
+    delete run.afterRestart;
   }
   for (const id of order) {
     const node = graph.nodes.find((candidate) => candidate.id === id);

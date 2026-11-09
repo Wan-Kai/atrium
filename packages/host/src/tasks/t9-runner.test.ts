@@ -27,9 +27,21 @@ const contract = (): LogEntry =>
 const doneResult = (isError = false): LogEntry =>
   message({ kind: "toolResult", callId: "d1", tool: "node_done", text: "ok", isError, details: { v: 1 } });
 
-/** An assistant message. */
-const assistant = (): LogEntry =>
-  message({ kind: "assistant", parts: [{ type: "text", text: "hm" }], stopReason: "stop", errorMessage: null });
+/** An assistant message, with the tool calls it made (`id:tool`). */
+const assistant = (...calls: readonly string[]): LogEntry =>
+  message({
+    kind: "assistant",
+    parts: [
+      { type: "text", text: "hm" },
+      ...calls.map((call) => ({ type: "toolCall", callId: call.split(":")[0], tool: call.split(":")[1], args: {} })),
+    ],
+    stopReason: "toolUse",
+    errorMessage: null,
+  });
+
+/** The result of the other tool call `b1` that the model made together with `node_done`. */
+const bashResult = (): LogEntry =>
+  message({ kind: "toolResult", callId: "b1", tool: "bash", text: "x", isError: false, details: null });
 
 /**
  * The words of the hidden commands, which the extension reads as base64url JSON after the command's name.
@@ -124,6 +136,7 @@ async function afterCrash(options: {
     },
     deliver: () => Promise.resolve(),
     retire: () => Promise.resolve(),
+    conversations: () => [],
     alive: () => false,
     stop: () => Promise.resolve(),
     subscribe: () => () => undefined,
@@ -169,6 +182,7 @@ async function afterCrash(options: {
     records,
     task: () => need(runner.task("tsk_1")),
     types: () => store.events().map((event) => event.type),
+    events: () => store.events(),
     commandWords: () => decoded(seen.commands),
   };
 }
@@ -191,7 +205,7 @@ describe("recover settles a node whose node_done turn ended before the restart (
   it("sends node_settled before host_restarted, and the node passes without being told to look again", async () => {
     const { runner, seen, task, types } = await afterCrash({
       events: [...BEGAN, DONE_PENDING],
-      files: { [SESSION]: [contract(), assistant(), doneResult()] },
+      files: { [SESSION]: [contract(), assistant("d1:node_done"), doneResult()] },
     });
 
     await runner.recover("tsk_1");
@@ -203,12 +217,18 @@ describe("recover settles a node whose node_done turn ended before the restart (
   });
 
   it.each([
-    ["the model went on after the result", [contract(), doneResult(), assistant()]],
-    ["the call was refused (an error result)", [contract(), assistant(), doneResult(true)]],
+    ["the model went on after the result", [contract(), assistant("d1:node_done"), doneResult(), assistant()]],
+    ["the call was refused (an error result)", [contract(), assistant("d1:node_done"), doneResult(true)]],
+    [
+      "another call of the same message has no result (cut off by the restart)",
+      [contract(), assistant("b1:bash", "d1:node_done"), doneResult()],
+    ],
+    ["the file shows no message that made the call", [contract(), doneResult()]],
     [
       "the last result is another tool's",
       [
         contract(),
+        assistant("b:bash"),
         message({ kind: "toolResult", callId: "b", tool: "bash", text: "x", isError: false, details: null }),
       ],
     ],
@@ -226,10 +246,21 @@ describe("recover settles a node whose node_done turn ended before the restart (
     expect(decoded(seen.commands)).toContain("宿主重启了");
   });
 
+  it("settles when every call of the message that made node_done has its result, in either order", async () => {
+    const { runner, task } = await afterCrash({
+      events: [...BEGAN, DONE_PENDING],
+      files: { [SESSION]: [contract(), assistant("b1:bash", "d1:node_done"), bashResult(), doneResult()] },
+    });
+
+    await runner.recover("tsk_1");
+
+    expect(task().runs[0]?.state).toBe("passed");
+  });
+
   it("looks past entries the transcript does not show when it finds the end of the turn", async () => {
     const { runner, task } = await afterCrash({
       events: [...BEGAN, DONE_PENDING],
-      files: { [SESSION]: [contract(), doneResult(), message({ kind: "other" })] },
+      files: { [SESSION]: [contract(), assistant("d1:node_done"), doneResult(), message({ kind: "other" })] },
     });
 
     await runner.recover("tsk_1");
@@ -253,7 +284,7 @@ describe("recover settles a node whose node_done turn ended before the restart (
       nodes: [agent("N1", "explore"), agent("N2", "explore")],
       graphEdges: edges(["N1", "N2"]),
       events: [...BEGAN, DONE_PENDING],
-      files: { [SESSION]: [contract(), doneResult()] },
+      files: { [SESSION]: [contract(), assistant("d1:node_done"), doneResult()] },
     });
 
     await runner.recover("tsk_1");
@@ -364,6 +395,121 @@ describe("recover wakes the task conversation with what the node asked for", () 
     // The forged closing tag is escaped; only the real one closes the quote.
     expect(words).toContain("&lt;/atrium-quoted>after N2.");
     expect(seen.opened).toContain(CONVERSATION);
+  });
+});
+
+/** The text a `resume` command carries, decoded. */
+function resumeTextOf(commands: readonly string[]): string {
+  const [, , payload] = (commands.at(-1) ?? "").split(" ");
+  const parsed: unknown = JSON.parse(Buffer.from(payload ?? "", "base64url").toString("utf8"));
+  return String(Reflect.get(Object(parsed), "text"));
+}
+
+/** `count` nodes (at most six run at once), each waiting for a graph change with the largest reason and suggestion the channel allows. */
+function manyAsking(count: number, reasonChars = 4000) {
+  const ids = Array.from({ length: count }, (_, index) => `N${String(index + 1)}`);
+  const events: TaskEventInput[] = ids.map((node) => ({
+    type: "node_waiting",
+    node,
+    attempt: 1,
+    waitingFor: "graph_change",
+    request: { reason: "r".repeat(reasonChars), suggestion: "s".repeat(32_000) },
+  }));
+  return { ids, events };
+}
+
+describe("recover wakes the task conversation within what the command takes (SPEC-0006, T9 / T10 审查后用户定)", () => {
+  it.each([1, 4, 6])(
+    "keeps the note of %i maximum-size requests under 31 000 characters, cut with a marker",
+    async (count) => {
+      const { ids, events } = manyAsking(count);
+      const { runner, seen } = await afterCrash({
+        nodes: ids.map((id) => agent(id, "explore")),
+        events: [{ type: "started" }, ...events],
+        conversation: true,
+      });
+
+      await runner.recover("tsk_1");
+      await runner.idle();
+
+      const text = resumeTextOf(seen.commands);
+      expect(text.length).toBeLessThanOrEqual(31_000);
+      expect(text).toContain("先用 task_status 看现状");
+      for (const id of ids) expect(text).toContain(`节点 ${id} 申请改图`);
+      expect(text).toMatch(/已截断|已省略/u);
+      // One wake, however many nodes ask.
+      expect(seen.commands.filter((command) => command.includes(" resume "))).toHaveLength(1);
+    },
+  );
+
+  it("names only the nodes when even their reasons cannot fit (the extension limits a reason, a stored event does not)", async () => {
+    const { ids, events } = manyAsking(6, 9000);
+    const { runner, seen } = await afterCrash({
+      nodes: ids.map((id) => agent(id, "explore")),
+      events: [{ type: "started" }, ...events],
+      conversation: true,
+    });
+
+    await runner.recover("tsk_1");
+    await runner.idle();
+
+    const text = resumeTextOf(seen.commands);
+    expect(text.length).toBeLessThanOrEqual(31_000);
+    for (const id of ids) expect(text).toContain(`节点 ${id} 申请改图（理由和建议太长，已省略`);
+    expect(text).toContain("先用 task_status 看现状");
+  });
+
+  it("does not cut a request that fits, and has no marker then", async () => {
+    const { runner, seen } = await afterCrash({
+      events: [
+        { type: "started" },
+        {
+          type: "node_waiting",
+          node: "N1",
+          attempt: 1,
+          waitingFor: "graph_change",
+          request: { reason: "short", suggestion: "x".repeat(5000) },
+        },
+      ],
+      conversation: true,
+    });
+
+    await runner.recover("tsk_1");
+    await runner.idle();
+
+    const text = resumeTextOf(seen.commands);
+    expect(text).toContain("x".repeat(5000));
+    expect(text).not.toMatch(/已截断|已省略/u);
+  });
+});
+
+describe("recover tells the scheduler which nodes this process had already spoken to (SPEC-0006, T9 / T10 审查后用户定)", () => {
+  it("lists the node whose contract the recovery itself sent in host_restarted's live, and nothing for a node it did not reach", async () => {
+    const { runner, events } = await afterCrash({
+      nodes: [agent("N1", "explore"), agent("N2", "explore")],
+      graphEdges: edges(["N1", "N2"]),
+      events: [...BEGAN, DONE_PENDING],
+      files: { [SESSION]: [contract(), assistant("d1:node_done"), doneResult()] },
+    });
+
+    await runner.recover("tsk_1");
+
+    expect(events().at(-1)).toMatchObject({ type: "host_restarted", live: ["N2"] });
+  });
+
+  it("leaves live out when there is no such node", async () => {
+    const { runner, events } = await afterCrash({
+      events: [
+        { type: "started" },
+        { type: "node_started", node: "N1", attempt: 1, sessionId: SESSION, startCommit: null },
+      ],
+      files: { [SESSION]: [contract(), assistant()] },
+    });
+
+    await runner.recover("tsk_1");
+
+    const restarted = need(events().findLast((event) => event.type === "host_restarted"));
+    expect("live" in restarted).toBe(false);
   });
 });
 

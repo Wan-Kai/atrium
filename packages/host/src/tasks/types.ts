@@ -172,6 +172,18 @@ export const NodeRun = z.strictObject({
    * Kept on the run, not in memory, so the task conversation woken after a host restart reads them (SPEC-0006, "T9 定下的细节").
    */
   graphRequest: GraphRequest.optional(),
+  /**
+   * What a restart did to the node while the task was held back: the node was `held` instead of being told. Said to it,
+   * with the held line, when it is really resumed (SPEC-0006, "T9 / T10 审查后用户定").
+   */
+  afterRestart: z
+    .strictObject({
+      /** The turn it was in was cut off by the restart. */
+      cutOff: z.literal(true).optional(),
+      /** The question it was asking is void. */
+      questionVoid: z.literal(true).optional(),
+    })
+    .optional(),
 });
 export type NodeRun = z.infer<typeof NodeRun>;
 
@@ -309,7 +321,11 @@ export const TaskEvent = z.discriminatedUnion("type", [
   event("merge_blocked", { node: NodeId, reason: MergeBlockReason, files: z.array(z.string()).optional() }),
   event("archive_asked", {}),
   event("archive_answered", { answer: z.enum(["archive", "keep"]) }),
-  event("host_restarted", {}),
+  /**
+   * `live`: the nodes this process had already spoken to (resumed, answered, started) when the restart was taken up; the
+   * restart is news to none of them.
+   */
+  event("host_restarted", { live: z.array(NodeId).optional() }),
 ]);
 export type TaskEvent = z.infer<typeof TaskEvent>;
 

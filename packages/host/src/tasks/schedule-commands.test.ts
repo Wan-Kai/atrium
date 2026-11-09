@@ -39,12 +39,13 @@ const RULE: ScheduleRule = {
  * @param rules - The rules.
  * @returns The service, with `change` to call the listeners.
  */
-function fakeService(rules: ScheduleRule[]) {
+function fakeService(rules: ScheduleRule[], unreadable = false) {
   const listeners = new Set<() => void>();
   const calls: string[] = [];
   const service = {
     list: () => rules,
     rule: (id: string) => rules.find((one) => one.id === id),
+    unreadable: () => unreadable,
     nextAt: (rule: ScheduleRule) => (rule.paused ? null : 5000),
     onChange: (listener: () => void) => {
       listeners.add(listener);
@@ -205,6 +206,22 @@ describe("the schedule commands", () => {
       logger: recordingTracing().logger,
     });
     await expect(commands.edit("rul_a")).rejects.toStrictEqual(new CommandError("task_not_found"));
+    await commands.close();
+  });
+
+  it("answers schedule_file_unreadable to a list that watches and to 修改, and lets a window stop watching", async () => {
+    const fake = fakeService([], true);
+    const commands = createScheduleCommands({
+      schedules: fake.service,
+      tasks: fakeTasks({}).port,
+      send: () => undefined,
+      logger: recordingTracing().logger,
+    });
+    const refused = new CommandError("schedule_file_unreadable");
+    await expect(commands.list("c1", true)).rejects.toStrictEqual(refused);
+    await expect(commands.list("c1", undefined)).rejects.toStrictEqual(refused);
+    await expect(commands.edit("rul_a")).rejects.toStrictEqual(refused);
+    expect(await commands.list("c1", false)).toStrictEqual({ schedules: [] });
     await commands.close();
   });
 

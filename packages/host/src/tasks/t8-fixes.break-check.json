@@ -249,8 +249,8 @@
   },
   {
     "file": "packages/protocol/src/version.ts",
-    "from": "export const PROTOCOL_VERSION = 35;",
-    "to": "export const PROTOCOL_VERSION = 34;",
+    "from": "export const PROTOCOL_VERSION = 37;",
+    "to": "export const PROTOCOL_VERSION = 36;",
     "test": "packages/protocol/src/remote.test.ts",
     "name": "uses version",
     "project": "unit"

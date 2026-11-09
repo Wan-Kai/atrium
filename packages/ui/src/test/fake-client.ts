@@ -197,6 +197,8 @@ export interface FakeAnswers {
    * arguments; reject with a `CommandError` to fail it. Succeeds when left out.
    */
   readonly taskCommand?: (name: string, args: readonly unknown[]) => Promise<void>;
+  /** Answers `watchSchedules(true)`, such as by rejecting with the host's `schedule_file_unreadable`. */
+  readonly watchSchedules?: () => Promise<void>;
   readonly addProject?: () => Promise<void>;
   readonly openSession?: () => Promise<void>;
   readonly handOff?: () => Promise<void>;
@@ -1034,6 +1036,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     schedules,
     async watchSchedules(on: boolean) {
       calls.push(`watchSchedules ${String(on)}`);
+      if (on) await answers.watchSchedules?.();
     },
     pauseSchedule: (scheduleId: string) => scheduleCommand(calls, answers, "pauseSchedule", scheduleId),
     resumeSchedule: (scheduleId: string) => scheduleCommand(calls, answers, "resumeSchedule", scheduleId),

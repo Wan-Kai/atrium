@@ -2803,6 +2803,7 @@ describe("HostMessage", () => {
       "task_already_converted",
       "task_no_project_for_work",
       "schedule_not_found",
+      "schedule_file_unreadable",
       "branch_name_failed",
       "translation_failed",
       "fast_unavailable",

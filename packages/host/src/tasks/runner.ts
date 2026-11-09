@@ -62,11 +62,14 @@ export interface TaskRunner {
    * Lifts the locks tasks left on worktrees that are over, when the host starts.
    *
    * @remarks
-   * SPEC-0006, "加锁": a lock whose reason names a task that is done, cancelled, or not among those looked after.
-   * Call it once every task on disk has been attached, or an active task's lock is taken for a stale one.
-   * Resolves to how many locks were lifted.
+   * SPEC-0006, "加锁" and "T9 / T10 审查后用户定": a lock this home took for a task that is done or cancelled, or whose
+   * directory is gone. A task whose directory is there but that was not attached (it could not be read) may still be
+   * going, so its lock stays. Call it once every task on disk has been attached, or an active task's lock is taken
+   * for a stale one. Resolves to how many locks were lifted.
+   *
+   * @param present - The names of the task directories that exist.
    */
-  clearStaleLocks(): Promise<number>;
+  clearStaleLocks(present: ReadonlySet<string>): Promise<number>;
   /**
    * Lets a node the user stopped go on: a message in its own conversation, as the user could send (SPEC-0006,
    * "节点"). The run it starts is what puts the node back to `running`.
@@ -153,6 +156,16 @@ interface TaskEntry {
   queue: Promise<unknown>;
   /** The lines and wake-ups for the task conversation, one after the other, apart from the task's queue. */
   lines: Promise<unknown>;
+  /**
+   * The sessions of the task's nodes this process has spoken to (contract, resume, continue, nudge, an answered
+   * question), until `recover` has used them.
+   *
+   * @remarks
+   * `host_restarted` is news to a node only if nothing of this process reached it before: a user who answered first, or
+   * a node the recovery itself started, must not hear that the host restarted. `recover` hands the nodes among them
+   * to the event (`live`) and drops the set, which is how it stays small (SPEC-0006, "T9 / T10 审查后用户定").
+   */
+  spoken: Set<string> | undefined;
 }
 
 /** The longest a node's suggestion for a graph change may be in the note that wakes the task conversation. */
@@ -273,7 +286,9 @@ function lastMessage(entries: readonly LogEntry[]): LogEntry | undefined {
  * @remarks
  * SPEC-0006, "T9 定下的细节": the extension answers an accepted call with a result that has `terminate`, so pi
  * asks the model for nothing after it and it is the last thing in the file. A refused call is an error result and
- * the model goes on; anything written after the result means the turn went on.
+ * the model goes on; anything written after the result means the turn went on. Every tool call of the assistant
+ * message that made the call must have its result, not only `node_done`: a message whose other calls were cut off by
+ * the restart did not finish its turn (SPEC-0006, "T9 / T10 审查后用户定").
  *
  * @sideEffects none
  * @param entries - The session's entries, in file order.
@@ -281,7 +296,15 @@ function lastMessage(entries: readonly LogEntry[]): LogEntry | undefined {
  */
 function endedOnNodeDone(entries: readonly LogEntry[]): boolean {
   const last = lastMessage(entries);
-  return last?.kind === "toolResult" && last.tool === "node_done" && !last.isError;
+  if (last?.kind !== "toolResult" || last.tool !== "node_done" || last.isError) return false;
+  const at = entries.findLastIndex((entry) => entry.kind === "assistant");
+  const assistant = entries[at];
+  if (assistant?.kind !== "assistant") return false;
+  const answered = new Set(
+    entries.slice(at + 1).flatMap((entry) => (entry.kind === "toolResult" ? [entry.callId] : [])),
+  );
+  const calls = assistant.parts.flatMap((part) => (part.type === "toolCall" ? [part.callId] : []));
+  return calls.includes(last.callId) && calls.every((callId) => answered.has(callId));
 }
 
 /**
@@ -298,6 +321,67 @@ function endedOnNodeDone(entries: readonly LogEntry[]): boolean {
 function beginsWithContract(entries: readonly LogEntry[]): boolean {
   const first = entries.find((entry) => entry.kind === "user");
   return first?.kind === "user" && first.text.startsWith(CONTRACT_OPENING);
+}
+
+/** The most characters the note that wakes the task conversation may have: under the command's 32 000, with room for the shell. */
+const WAKE_LIMIT = 30_000;
+
+/** The marker where a request's words were cut short. */
+const CUT = "…（已截断）";
+
+/**
+ * The note that wakes the task conversation, within what the command takes.
+ *
+ * @remarks
+ * SPEC-0006, "T9 / T10 审查后用户定": the nodes waiting for a graph change each bring a reason (up to 4 000) and a
+ * suggestion (up to 32 000), quoted. The whole note, wrappers and escapes counted, must stay within what
+ * `/atrium-task resume` takes, or the extension refuses it and the conversation is never woken. So the suggestions
+ * are cut to a share each, a smaller one until it fits, with a marker where they were cut; if even the reasons do not
+ * fit, only the nodes are named, and the model reads the rest with `task_status`.
+ *
+ * @sideEffects none
+ * @param text - What the scheduler says.
+ * @param asking - The nodes waiting for a graph change, with what they wrote (nothing if it was lost).
+ * @returns The note, at most `WAKE_LIMIT` characters.
+ */
+function wakeWords(
+  text: string,
+  asking: readonly { readonly id: string; readonly label: string; readonly request: NodeRun["graphRequest"] }[],
+): string {
+  const tail =
+    "先用 task_status 看现状，想清楚新图，再用 task_propose_graph 提交。新图要等用户批准才生效；提交后用一两句话告诉用户改了什么、为什么。";
+  /**
+   * Composes the note with each suggestion cut to `share` characters (`null`: the words left out altogether).
+   *
+   * @remarks
+   * One composition per share the loop below tries, so the same pieces are put together again, smaller.
+   *
+   * @sideEffects none
+   * @param share - The most characters of each suggestion, or `null`.
+   * @returns The note.
+   */
+  const compose = (share: number | null): string =>
+    [
+      text,
+      ...asking.flatMap((one) => {
+        if (one.request === undefined) return [`节点 ${one.id} 申请改图。`];
+        if (share === null) return [`节点 ${one.id} 申请改图（理由和建议太长，已省略；用 task_status 看现状）。`];
+        const suggestion = one.request.suggestion;
+        const kept = suggestion.length > share ? `${suggestion.slice(0, share)}${CUT}` : suggestion;
+        return [
+          `节点 ${one.id} 申请改图。`,
+          `理由：${quoted(one.label, one.request.reason)}`,
+          `它的建议：${quoted(one.label, kept)}`,
+        ];
+      }),
+      tail,
+    ].join("\n");
+  const base = Math.min(WAKE_SUGGESTION_CHARS, Math.floor(WAKE_LIMIT / Math.max(1, asking.length)));
+  for (let share = base; share >= 100; share = Math.floor(share / 2)) {
+    const words = compose(share);
+    if (words.length <= WAKE_LIMIT) return words;
+  }
+  return compose(null);
 }
 
 /**
@@ -323,14 +407,6 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
   const contexts = new Map<string, NodeContext>();
   const conversations = new Map<string, ConversationContext>();
   const background = new Set<Promise<unknown>>();
-  /**
-   * The sessions whose node was handed its contract by this runner, and has not been spoken to since.
-   *
-   * @remarks
-   * `host_restarted` tells every `running` node that the host restarted; a node started during the recovery itself
-   * (the settlement of its upstream started it) has nothing to be told, its contract is the latest word it has.
-   */
-  const freshlyStarted = new Set<string>();
   const closing = new AbortController();
   const release = options.resources.acquire("task.runner");
   const listeners = new Set<(task: Task, event: TaskEvent, actions: readonly Action[]) => void>();
@@ -685,7 +761,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       buildContract({ task, node, run, freshWorktree: freshWorktreeFor(task, node, run) }),
       closing.signal,
     );
-    freshlyStarted.add(run.sessionId);
+    entry.spoken?.add(run.sessionId);
     await dispatch(entry, { type: "contract_sent", node: nodeId, attempt: run.attempt });
     return false;
   }
@@ -809,9 +885,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
     const run = task === null ? undefined : liveRun(task, nodeId);
     if (task === null || run?.sessionId == null) return;
     const { sessionId } = run;
-    // A node the recovery started itself has just been given its contract; "the host restarted" is not news to it.
-    if (text === RESUME_RESTARTED && freshlyStarted.delete(sessionId)) return;
-    freshlyStarted.delete(sessionId);
+    entry.spoken?.add(sessionId);
     try {
       const context = contextOf(sessionId);
       if (context !== undefined) {
@@ -881,6 +955,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
     if (run?.sessionId == null) return;
     const context = contextOf(run.sessionId);
     if (context !== undefined) expectTurn(context);
+    entry.spoken?.add(run.sessionId);
     try {
       await sessions.command(
         run.sessionId,
@@ -1072,21 +1147,9 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
     const asking = (activeGraphOf(task)?.nodes ?? []).flatMap((node) => {
       const run = liveRun(task, node.id);
       if (run?.state !== "waiting" || run.waitingFor !== "graph_change") return [];
-      const request = run.graphRequest;
-      const label = `${node.id} · ${node.name}`;
-      return request === undefined
-        ? [`节点 ${node.id} 申请改图。`]
-        : [
-            `节点 ${node.id} 申请改图。`,
-            `理由：${quoted(label, request.reason)}`,
-            `它的建议：${quoted(label, request.suggestion.slice(0, WAKE_SUGGESTION_CHARS))}`,
-          ];
+      return [{ id: node.id, label: `${node.id} · ${node.name}`, request: run.graphRequest }];
     });
-    const words = [
-      text,
-      ...asking,
-      "先用 task_status 看现状，想清楚新图，再用 task_propose_graph 提交。新图要等用户批准才生效；提交后用一两句话告诉用户改了什么、为什么。",
-    ].join("\n");
+    const words = wakeWords(text, asking);
     onLine(entry, "wake of the task conversation", async () => {
       await sessions.open(sessionId);
       await sessions.command(
@@ -1386,6 +1449,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       const task = entry.store.current();
       const live = task === null ? undefined : liveRun(task, context.node);
       if (live?.attempt === context.attempt && live.sessionId === context.sessionId && live.state === "stopped") {
+        entry.spoken?.add(context.sessionId);
         await dispatch(entry, { type: "node_resumed", ...run });
       }
     } else if (event.type === "control_updated") {
@@ -1395,6 +1459,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
         await dispatch(entry, { type: "node_waiting", ...run, waitingFor: "question" });
       } else if (question === null && context.asking) {
         context.asking = false;
+        entry.spoken?.add(context.sessionId);
         await dispatch(entry, { type: "node_resumed", ...run });
       }
       if (failure?.reason === "crashed" && !context.crashed) {
@@ -1527,7 +1592,8 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
 
   return {
     attach(taskId, store) {
-      if (!tasks.has(taskId)) tasks.set(taskId, { store, queue: Promise.resolve(), lines: Promise.resolve() });
+      if (!tasks.has(taskId))
+        tasks.set(taskId, { store, queue: Promise.resolve(), lines: Promise.resolve(), spoken: new Set() });
     },
     submit(taskId, input, guard) {
       const entry = tasks.get(taskId);
@@ -1559,14 +1625,23 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
         // Stryker disable next-line OptionalChaining,ArrayDeclaration: the task is there; the fallback only satisfies the type.
         for (const run of entry.store.current()?.runs ?? []) await startNode(entry, run.node, run.attempt);
         await settleEndedTurns(entry);
+        // The nodes this process has already spoken to (the user answered first; the recovery started them itself)
+        // are not told the host restarted, and a question they were answered is not void.
+        const spoken = entry.spoken;
+        entry.spoken = undefined;
+        const live = (entry.store.current()?.runs ?? []).flatMap((run) =>
+          run.sessionId !== null && spoken?.has(run.sessionId) === true ? [run.node] : [],
+        );
         // A writing node whose commit was pending gets its `commit_node` from this event, for that run only.
-        await dispatch(entry, { type: "host_restarted" });
+        await dispatch(entry, { type: "host_restarted", ...(live.length === 0 ? {} : { live }) });
       });
     },
-    clearStaleLocks: () =>
+    clearStaleLocks: (present) =>
       workspaces.clearStaleLocks((taskId) => {
-        const task = tasks.get(taskId)?.store.current();
-        return task != null && task.endedAt === null;
+        const entry = tasks.get(taskId);
+        // A task held is over when it ended; one not held is over only if its directory is gone, not when it cannot be read.
+        if (entry !== undefined) return entry.store.current()?.endedAt != null;
+        return !present.has(taskId);
       }),
     continueNode(taskId, nodeId) {
       const entry = tasks.get(taskId);
@@ -1585,6 +1660,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
           expectTurn(context);
         }
         await sessions.open(run.sessionId);
+        entry.spoken?.add(run.sessionId);
         await sessions.prompt(run.sessionId, CONTINUE_NODE, closing.signal);
       });
     },
@@ -1633,7 +1709,6 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       await Promise.all(background);
       contexts.clear();
       conversations.clear();
-      freshlyStarted.clear();
       release();
     },
   };

@@ -642,8 +642,8 @@ export async function runTaskTry(
       // A question left open by the last run is void now: recovering makes the node ask it again.
       if (early !== null && early.question !== true) finished.resolve(early);
       else {
-        // As the app does when it starts: every task of the home that was going, here the one.
-        await host.tasks.recoverAll({ signal: io.signal, staleLocks: true, ready: () => Promise.resolve(true) });
+        // As the app does when it starts, but for this one task: the home is a run's own, and the locks in it are not ours to sweep.
+        await host.tasks.recover(taskId);
         askNext();
       }
     }

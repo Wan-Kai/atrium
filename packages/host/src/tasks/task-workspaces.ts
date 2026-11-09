@@ -56,6 +56,8 @@ export function createTaskWorkspaces(options: {
   readonly dirOf: (workspaceId: string) => string | undefined;
   /** Tells a branch that is already merged; `null` without it (git before 2.38 or none). */
   readonly inspector: Promise<MergeInspector | null>;
+  /** Names this Atrium home in the locks it takes (`homeTagOf`), so that a start lifts only its own. */
+  readonly homeTag: string;
 }): TaskWorkspaces {
   /**
    * The worktree and the repository it belongs to.
@@ -109,7 +111,7 @@ export function createTaskWorkspaces(options: {
         // The host died with a worktree under way: it is the task's if, and only if, it is what the plan said.
         made = await options.creator.adopt(marker.planned, {
           alias: task.name,
-          allowedLock: taskLockReason(task.id),
+          allowedLocks: [taskLockReason(task.id, options.homeTag), taskLockReason(task.id)],
           signal,
         });
       }
@@ -130,20 +132,21 @@ export function createTaskWorkspaces(options: {
     async lock(task) {
       const where = locationOf(task);
       const git = await options.git;
-      if (where !== undefined && git !== null) await lockWorktree(git, where.repo, where.dir, task.id);
+      if (where !== undefined && git !== null) await lockWorktree(git, where.repo, where.dir, task.id, options.homeTag);
     },
     async unlock(task) {
       const where = locationOf(task);
       const git = await options.git;
-      if (where !== undefined && git !== null) await unlockWorktree(git, where.repo, where.dir, task.id);
+      if (where !== undefined && git !== null)
+        await unlockWorktree(git, where.repo, where.dir, task.id, options.homeTag);
     },
-    async clearStaleLocks(isActive) {
+    async clearStaleLocks(isOver) {
       const git = await options.git;
       if (git === null) return 0;
       let lifted = 0;
       for (const project of options.projects.projects()) {
         // A repository git cannot list (gone, or not one any longer) has no locks of ours to lift.
-        lifted += await clearStaleLocks(git, project.path, isActive).catch((error: unknown) => {
+        lifted += await clearStaleLocks(git, project.path, options.homeTag, isOver).catch((error: unknown) => {
           if (error instanceof GitError) return 0;
           throw error;
         });

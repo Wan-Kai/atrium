@@ -1,6 +1,6 @@
 import type { AtriumClient } from "@atrium/client";
 import type { ScheduleSummary } from "@atrium/protocol";
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { type StoreApi } from "zustand/vanilla";
 import { useStore } from "zustand";
 import { Clock, Warning } from "../design/icons";
@@ -56,7 +56,29 @@ function RuleRow({
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
+  const deleteButton = useRef<HTMLButtonElement>(null);
+  /** Closing the question without deleting puts the focus back on "删除", which was disabled and not focusable while it was open. */
+  const refocus = useRef(false);
   const result = resultWords(rule);
+  useEffect(() => {
+    if (!asking && refocus.current) {
+      refocus.current = false;
+      deleteButton.current?.focus();
+    }
+  }, [asking]);
+
+  /**
+   * Closes the delete question without deleting.
+   *
+   * @remarks
+   * Escape and "不了" both: the focus goes back to "删除", where the user was, not to the page.
+   *
+   * @sideEffects Closes the question; asks for the focus to return to "删除" once it can take it.
+   */
+  const dismiss = (): void => {
+    refocus.current = true;
+    setAsking(false);
+  };
 
   /**
    * Runs a command once, worded on failure.
@@ -159,6 +181,7 @@ function RuleRow({
           </button>
           {rule.paused ? (
             <button
+              ref={deleteButton}
               type="button"
               disabled={busy || asking}
               className={`${LINK} !text-[var(--danger)]`}
@@ -176,7 +199,7 @@ function RuleRow({
           data-testid="confirm-asking"
           className="flex items-center justify-end gap-2 px-2.5 pb-2"
           onKeyDown={(event) => {
-            if (event.key === "Escape") setAsking(false);
+            if (event.key === "Escape") dismiss();
           }}
         >
           <span className="text-[length:var(--fs-meta)] whitespace-nowrap text-[var(--danger)]">删除这条规则？</span>
@@ -193,7 +216,7 @@ function RuleRow({
           </button>
           <button
             type="button"
-            onClick={() => setAsking(false)}
+            onClick={dismiss}
             className={`${CONFIRM_BUTTON} text-[var(--text-2)] hover:bg-[var(--hover)]`}
           >
             不了
@@ -214,11 +237,14 @@ function RuleRow({
 }
 
 /**
- * The "定时" tab: one row for each schedule rule, or the empty state (SPEC-0006, "界面 · 定时标签"; 设计稿第 3 屏).
+ * The "定时" tab: one row for each schedule rule, or the empty state, or why there are none to show (SPEC-0006, "界面 ·
+ * 定时标签"; 设计稿第 3 屏).
  *
  * @remarks
  * There is no "新建": a rule comes from a conversation, with `/task`. The tab watches the rules while it is on top.
- * Rows are in the order the rules were made.
+ * Rows are in the order the rules were made. If the host cannot read the rules file (`schedule_file_unreadable`), or
+ * the watch fails for any reason, the tab says so in place of the list instead of waiting for it for good
+ * (SPEC-0006, "T9 / T10 审查后用户定").
  *
  * @sideEffects Watches the rules on the host (`list_schedules`), let go of when the tab is left; redraws every half
  * minute so that "下次" stays right.
@@ -230,10 +256,15 @@ export function ScheduleTab({ client, area }: { readonly client: AtriumClient; r
   const index = useStore(client.index);
   const clock = useClock();
   const [, refresh] = useReducer((tick: number) => tick + 1, 0);
+  /** Why the rules could not be read, in words; `null` while they can. */
+  const [unreadable, setUnreadable] = useState<string | null>(null);
   useEffect(() => clock.every(30_000, refresh), [clock]);
   useEffect(() => {
     // Fire and forget: the answer lands in the store; a lost connection asks again when it is back.
-    client.watchSchedules(true).catch(() => undefined);
+    client.watchSchedules(true).then(
+      () => setUnreadable(null),
+      (error: unknown) => setUnreadable(describeTaskCommandError(error)),
+    );
     return () => void client.watchSchedules(false).catch(() => undefined);
   }, [client]);
   const now = clock.now();
@@ -243,7 +274,7 @@ export function ScheduleTab({ client, area }: { readonly client: AtriumClient; r
         <div className="flex items-center gap-3 px-2.5">
           <h2 className="text-[length:var(--fs)] font-semibold text-[var(--text)]">定时</h2>
           <span className="rounded-[var(--r-pill)] bg-[var(--surface-2)] px-2 text-[length:var(--fs-sm)] leading-[20px] text-[var(--text-muted)] tabular-nums">
-            {schedules.schedules.length}
+            {unreadable === null ? schedules.schedules.length : 0}
           </span>
           <span className="flex-1" />
           <span className="text-[length:var(--fs-sm)] text-[var(--text-dim)]">
@@ -252,7 +283,15 @@ export function ScheduleTab({ client, area }: { readonly client: AtriumClient; r
             ，就生成定时规则
           </span>
         </div>
-        {schedules.status !== "ready" ? (
+        {unreadable !== null ? (
+          <p
+            role="alert"
+            data-testid="schedules-unreadable"
+            className="px-2.5 py-8 text-[length:var(--fs-meta)] text-[var(--danger)]"
+          >
+            {unreadable}
+          </p>
+        ) : schedules.status !== "ready" ? (
           <p role="status" className="px-2.5 py-8 text-[length:var(--fs-meta)] text-[var(--text-dim)]">
             正在读取定时规则…
           </p>

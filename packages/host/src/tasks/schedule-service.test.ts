@@ -6,9 +6,15 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import type { Clock } from "../platform/clock";
 import { ResourceTracker } from "../platform/resources";
-import { type ScheduleRule, readRules } from "./schedule-rules";
-import { HEARTBEAT_MS, type ScheduleTasks, createScheduleService, scheduledTaskName } from "./schedule-service";
-import { Sim, agent, newTask } from "./test-support";
+import { type ScheduleRule, readRules, writeRules } from "./schedule-rules";
+import {
+  HEARTBEAT_MS,
+  type ScheduleService,
+  type ScheduleTasks,
+  createScheduleService,
+  scheduledTaskName,
+} from "./schedule-service";
+import { Sim, agent, need, newTask } from "./test-support";
 import type { Task } from "./types";
 
 const MINUTE = 60_000;
@@ -71,6 +77,16 @@ interface FakeTasks extends ScheduleTasks {
   readonly discarded: string[];
   /** Task id to what it is; a missing id is a task that is gone. */
   readonly states: Map<string, "running" | "done" | "cancelled" | "stopped">;
+  /** The template tasks the service may read again; a template not here has been deleted. */
+  readonly templates: Map<string, Task>;
+  /** Puts a task of a rule on "disk" that the rule never recorded, as a host that died in between leaves one. */
+  leave(
+    ruleId: string,
+    taskId: string,
+    state: "running" | "done" | "cancelled" | "stopped",
+    firedAt: number,
+    createdAt?: number,
+  ): void;
   failNext: boolean;
   /** The signal of each task the service made. */
   readonly signals: AbortSignal[];
@@ -109,15 +125,34 @@ function taskIn(id: string, state: "running" | "done" | "cancelled" | "stopped")
 function fakeTasks(): FakeTasks {
   const states = new Map<string, "running" | "done" | "cancelled" | "stopped">();
   const made: Made[] = [];
+  /** When each left task was made, for the ones that say. */
+  const createdAts = new Map<string, number>();
   const port: FakeTasks = {
     made,
     discarded: [],
     states,
+    templates: new Map(),
+    leave(ruleId, taskId, state, firedAt, createdAt = 0) {
+      made.push({ ruleId, name: "left", firedAt, taskId });
+      states.set(taskId, state);
+      createdAts.set(taskId, createdAt);
+    },
     failNext: false,
     signals: [],
     async lookup(taskId) {
+      const held = port.templates.get(taskId);
+      if (held !== undefined) return held;
       const state = states.get(taskId);
       return state === undefined ? undefined : taskIn(taskId, state);
+    },
+    async ofRule(ruleId) {
+      return made
+        .filter((one) => one.ruleId === ruleId && states.has(one.taskId))
+        .map((one) => ({
+          ...taskIn(one.taskId, states.get(one.taskId) ?? "running"),
+          createdAt: createdAts.get(one.taskId) ?? 0,
+          origin: { kind: "schedule" as const, ruleId, firedAt: one.firedAt },
+        }));
     },
     async createScheduled(rule, name, firedAt, signal) {
       port.signals.push(signal);
@@ -156,6 +191,47 @@ function template(
     taskSessionId: "ses_template",
     scheduleDraft: { when, place },
   };
+}
+
+/**
+ * How many timers a tracker holds; zero for a kind never seen.
+ *
+ * @sideEffects none
+ * @param resources - The tracker.
+ * @returns The count.
+ */
+function timersOf(resources: ResourceTracker): number {
+  return resources.snapshot()["timer"] ?? 0;
+}
+
+/**
+ * Whether the rules file holds one rule and the service still knows the template as saved.
+ *
+ * @sideEffects Reads the rules file.
+ * @param ctx - The set-up.
+ * @param templateId - The template task.
+ * @returns Whether both hold.
+ */
+async function savedOnDisk(ctx: { readonly file: string; readonly service: ScheduleService }, templateId: string) {
+  return (await readRules(ctx.file)).rules.length === 1 && ctx.service.saved(templateId);
+}
+
+/**
+ * Saves the rule a template stands for, the template being on "disk" as it is saved.
+ *
+ * @sideEffects Puts the template among the fake tasks; saves the rule.
+ * @param ctx - The set-up.
+ * @param task - The template task.
+ * @param container - The container of its conversation.
+ * @returns The rule.
+ */
+function confirm(
+  ctx: { readonly service: ScheduleService; readonly tasks: FakeTasks },
+  task: Task,
+  container = "wsp_1",
+) {
+  ctx.tasks.templates.set(task.id, task);
+  return ctx.service.confirm(task, container);
 }
 
 /**
@@ -222,7 +298,7 @@ describe("a rule fires at its time", () => {
     // 2026-11-08 18:00 UTC is 11-09 02:00 in Shanghai.
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 8, 10, 0)), timeZone: "Asia/Shanghai" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "day", at: "2:00" }), "wsp_1");
+    await confirm(ctx, template({ every: "day", at: "2:00" }), "wsp_1");
     expect(ctx.tasks.made).toStrictEqual([]);
 
     await runTo(ctx, utc(2026, 11, 8, 18, 0));
@@ -255,7 +331,7 @@ describe("a rule fires at its time", () => {
   it("makes a task every 5 minutes for an interval rule, and not before the first one is due", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 10, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
     await runTo(ctx, utc(2026, 11, 9, 10, 4));
     expect(ctx.tasks.made).toHaveLength(0);
     ctx.tasks.states.set("tsk_made1", "done");
@@ -269,7 +345,7 @@ describe("a rule fires at its time", () => {
   it("does not run a trigger from before the rule was made", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 5, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "day", at: "2:00" }), "wsp_1");
+    await confirm(ctx, template({ every: "day", at: "2:00" }), "wsp_1");
     await ctx.service.close();
     const again = await setUp({ clock: new TestClock(utc(2026, 11, 9, 5, 30)), timeZone: "UTC", dir: ctx.dir });
     await again.service.start();
@@ -281,7 +357,7 @@ describe("the last run has not ended", () => {
   it("skips the trigger, counts it and moves the time on; the next one after it ended makes a task", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 10, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
     await runTo(ctx, utc(2026, 11, 9, 10, 5));
     expect(ctx.tasks.made).toHaveLength(1);
 
@@ -307,7 +383,7 @@ describe("the last run has not ended", () => {
   it("counts a last task that is gone as ended", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 10, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
     await runTo(ctx, utc(2026, 11, 9, 10, 5));
     ctx.tasks.states.delete("tsk_made1");
     await runTo(ctx, utc(2026, 11, 9, 10, 10));
@@ -329,7 +405,7 @@ describe("the last run has not ended", () => {
 async function offFor(gap: number, last: "running" | "done" | null) {
   const first = await setUp({ clock: new TestClock(utc(2026, 11, 1, 10, 0)), timeZone: "UTC" });
   await first.service.start();
-  await first.service.confirm(template({ every: "day", at: "2:00" }), "wsp_1");
+  await confirm(first, template({ every: "day", at: "2:00" }), "wsp_1");
   await runTo(first, utc(2026, 11, 2, 2, 0));
   expect(first.tasks.made).toHaveLength(1);
   await first.service.close();
@@ -367,11 +443,20 @@ describe("the host was off (SPEC-0006, 定时 · 错过)", () => {
   it("catches up an interval rule once after 15 minutes off", async () => {
     const first = await setUp({ clock: new TestClock(utc(2026, 11, 9, 10, 0)), timeZone: "UTC" });
     await first.service.start();
-    await first.service.confirm(template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(first, template({ every: "interval", minutes: 5 }), "wsp_1");
     await first.service.close();
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 10, 16)), timeZone: "UTC", dir: first.dir });
     await ctx.service.start();
     expect(ctx.tasks.made.map((one) => one.firedAt)).toStrictEqual([utc(2026, 11, 9, 10, 15)]);
+    // Then one more at the next time, on the injected clock: not before it, and not two.
+    ctx.tasks.states.set("tsk_made1", "done");
+    await runTo(ctx, utc(2026, 11, 9, 10, 19));
+    expect(ctx.tasks.made).toHaveLength(1);
+    await runTo(ctx, utc(2026, 11, 9, 10, 20));
+    expect(ctx.tasks.made.map((one) => one.firedAt)).toStrictEqual([
+      utc(2026, 11, 9, 10, 15),
+      utc(2026, 11, 9, 10, 20),
+    ]);
   });
 });
 
@@ -381,7 +466,7 @@ describe("time zones and daylight saving time", () => {
     const b = await setUp({ clock: new TestClock(utc(2026, 11, 8, 0, 0)), timeZone: "America/New_York" });
     for (const ctx of [a, b]) {
       await ctx.service.start();
-      await ctx.service.confirm(template({ every: "day", at: "2:00" }), "wsp_1");
+      await confirm(ctx, template({ every: "day", at: "2:00" }), "wsp_1");
       await runTo(ctx, utc(2026, 11, 8, 23, 0));
     }
     expect(a.tasks.made.map((one) => one.firedAt)).toStrictEqual([utc(2026, 11, 7, 18, 0) + DAY]);
@@ -392,7 +477,7 @@ describe("time zones and daylight saving time", () => {
     // 2026-03-08 in New York: 02:00 EST jumps to 03:00 EDT at 07:00 UTC, so 2:30 does not exist that day.
     const ctx = await setUp({ clock: new TestClock(utc(2026, 3, 7, 12, 0)), timeZone: "America/New_York" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "day", at: "2:30" }), "wsp_1");
+    await confirm(ctx, template({ every: "day", at: "2:30" }), "wsp_1");
     await runTo(ctx, utc(2026, 3, 8, 6, 59));
     expect(ctx.tasks.made).toStrictEqual([]);
     await runTo(ctx, utc(2026, 3, 8, 7, 0));
@@ -408,7 +493,7 @@ describe("time zones and daylight saving time", () => {
   it("runs a rule on the fall-back day once, though the time comes twice", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 10, 31, 12, 0)), timeZone: "America/New_York" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "day", at: "1:30" }), "wsp_1");
+    await confirm(ctx, template({ every: "day", at: "1:30" }), "wsp_1");
     await runTo(ctx, utc(2026, 11, 1, 5, 30));
     expect(ctx.tasks.made.map((one) => one.firedAt)).toStrictEqual([utc(2026, 11, 1, 5, 30)]);
     ctx.tasks.states.set("tsk_made1", "done");
@@ -423,7 +508,7 @@ describe("the system clock is set back", () => {
   it("neither makes up nor repeats a trigger, and waits for the next time", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "day", at: "10:00" }), "wsp_1");
+    await confirm(ctx, template({ every: "day", at: "10:00" }), "wsp_1");
     await runTo(ctx, utc(2026, 11, 9, 10, 0));
     expect(ctx.tasks.made).toHaveLength(1);
     ctx.tasks.states.set("tsk_made1", "done");
@@ -441,7 +526,7 @@ describe("the system clock is set back", () => {
   it("makes a rule made in the future by a clock set back wait until its own time", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 12, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
     ctx.clock.t = utc(2026, 11, 9, 10, 0);
     await runTo(ctx, utc(2026, 11, 9, 11, 0));
     expect(ctx.tasks.made).toStrictEqual([]);
@@ -454,8 +539,9 @@ describe("the template task is gone", () => {
   it("does not stop the rule, which keeps its own summary and graph", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "day", at: "10:00" }), "wsp_1");
-    // The fake knows no `tsk_template`: it is gone.
+    await confirm(ctx, template({ every: "day", at: "10:00" }), "wsp_1");
+    // The template task is deleted after the rule was saved: it is gone.
+    ctx.tasks.templates.delete("tsk_template");
     expect(await ctx.tasks.lookup("tsk_template")).toBeUndefined();
     await runTo(ctx, utc(2026, 11, 9, 10, 0));
     expect(ctx.tasks.made).toHaveLength(1);
@@ -464,7 +550,7 @@ describe("the template task is gone", () => {
   it("is removed with the rule, and the rule goes even if the template cannot be removed", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "day", at: "10:00" }), "wsp_1");
+    await confirm(ctx, template({ every: "day", at: "10:00" }), "wsp_1");
     ctx.tasks.discardTemplate = async () => {
       throw new Error("disk");
     };
@@ -479,7 +565,7 @@ describe("pausing, resuming, running now and deleting", () => {
   it("fires nothing while paused, makes up nothing on resume, and holds no timer when nothing is active", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
     expect(ctx.resources.snapshot()["timer"]).toBe(1);
 
     await ctx.service.pause("rul_one");
@@ -499,7 +585,7 @@ describe("pausing, resuming, running now and deleting", () => {
   it("refuses to pause a paused rule, to resume a running one, and any command for an unknown rule", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "day", at: "10:00" }), "wsp_1");
+    await confirm(ctx, template({ every: "day", at: "10:00" }), "wsp_1");
     await expect(ctx.service.resume("rul_one")).rejects.toMatchObject({ code: "task_state_invalid" });
     await ctx.service.pause("rul_one");
     await expect(ctx.service.pause("rul_one")).rejects.toMatchObject({ code: "task_state_invalid" });
@@ -518,7 +604,7 @@ describe("pausing, resuming, running now and deleting", () => {
   it("runs now whatever the last run is doing, without moving the rule's own times", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "day", at: "10:00" }), "wsp_1");
+    await confirm(ctx, template({ every: "day", at: "10:00" }), "wsp_1");
     await runTo(ctx, utc(2026, 11, 9, 10, 0));
     const before = ctx.service.rule("rul_one");
     ctx.clock.t = utc(2026, 11, 9, 12, 0);
@@ -531,7 +617,7 @@ describe("pausing, resuming, running now and deleting", () => {
   it("keeps a paused rule paused through a restart, and does not run it", async () => {
     const first = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await first.service.start();
-    await first.service.confirm(template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(first, template({ every: "interval", minutes: 5 }), "wsp_1");
     await first.service.pause("rul_one");
     await first.service.close();
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 13, 0)), timeZone: "UTC", dir: first.dir });
@@ -545,11 +631,12 @@ describe("saving a rule from its template", () => {
   it("saves a changed rule over the same one, keeping its place in time", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
     // One task made, one trigger skipped, then paused.
     await runTo(ctx, utc(2026, 11, 9, 9, 10));
     await ctx.service.pause("rul_one");
-    const saved = await ctx.service.confirm(
+    const saved = await confirm(
+      ctx,
       { ...template({ every: "day", at: "11:00" }, "local_readonly"), name: "Renamed" },
       "wsp_1",
     );
@@ -578,7 +665,7 @@ describe("saving a rule from its template", () => {
       { ...base, projectId: null },
       { ...base, graphs: [], activeGraph: 0 },
     ]) {
-      await expect(ctx.service.confirm(bad, "wsp_1")).rejects.toMatchObject({ code: "task_state_invalid" });
+      await expect(confirm(ctx, bad, "wsp_1")).rejects.toMatchObject({ code: "task_state_invalid" });
     }
     expect(ctx.service.list()).toStrictEqual([]);
   });
@@ -588,7 +675,7 @@ describe("failures", () => {
   it("spends a trigger whose task could not be made, logs it, and tries again at the next", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
     ctx.tasks.failNext = true;
     await runTo(ctx, utc(2026, 11, 9, 9, 5));
     expect(ctx.tasks.made).toStrictEqual([]);
@@ -598,21 +685,54 @@ describe("failures", () => {
     expect(ctx.tasks.made).toHaveLength(1);
   });
 
-  it("leaves a rules file it cannot read as it is, and keeps the entries it does not understand when it writes", async () => {
-    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
-    await writeFile(ctx.file, "not json");
-    await ctx.service.start();
-    await ctx.service.confirm(template({ every: "day", at: "10:00" }), "wsp_1");
-    expect(await readFile(ctx.file, "utf8")).toBe("not json");
-    expect(ctx.records.some((record) => record.msg === "schedules file not read")).toBe(true);
-
+  it("keeps the entries it does not understand when it writes", async () => {
     const other = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await writeFile(other.file, JSON.stringify({ v: 1, rules: [{ from: "a newer Atrium" }] }));
     await other.service.start();
-    await other.service.confirm(template({ every: "day", at: "10:00" }), "wsp_1");
+    await confirm(other, template({ every: "day", at: "10:00" }), "wsp_1");
     const text = JSON.parse(await readFile(other.file, "utf8")) as { rules: unknown[] };
     expect(text.rules).toHaveLength(2);
     expect(text.rules[1]).toStrictEqual({ from: "a newer Atrium" });
+  });
+});
+
+describe("a rules file that cannot be read (SPEC-0006, T9 / T10 审查后用户定 4)", () => {
+  it.each([
+    ["not json", "not json"],
+    ["a version this Atrium does not know", JSON.stringify({ v: 2, rules: [] })],
+  ])(
+    "refuses every command with schedule_file_unreadable, installs nothing, sets no timer and leaves the file: %s",
+    async (_name, text) => {
+      const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+      await writeFile(ctx.file, text);
+      await ctx.service.start();
+      const refused = { code: "schedule_file_unreadable" };
+
+      await expect(confirm(ctx, template({ every: "day", at: "10:00" }), "wsp_1")).rejects.toMatchObject(refused);
+      for (const command of [
+        () => ctx.service.pause("rul_one"),
+        () => ctx.service.resume("rul_one"),
+        () => ctx.service.runNow("rul_one"),
+        () => ctx.service.remove("rul_one"),
+      ]) {
+        await expect(command()).rejects.toMatchObject(refused);
+      }
+
+      expect(ctx.service.unreadable()).toBe(true);
+      expect(ctx.service.list()).toStrictEqual([]);
+      expect(ctx.service.saved("tsk_template")).toBe(false);
+      expect(ctx.clock.timers).toHaveLength(0);
+      expect(timersOf(ctx.resources)).toBe(0);
+      expect(await readFile(ctx.file, "utf8")).toBe(text);
+      expect(ctx.tasks.made).toStrictEqual([]);
+      expect(ctx.records.filter((record) => record.msg === "schedules file not read")).toHaveLength(1);
+    },
+  );
+
+  it("is readable when the file is missing or fine", async () => {
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await ctx.service.start();
+    expect(ctx.service.unreadable()).toBe(false);
   });
 });
 
@@ -621,8 +741,8 @@ describe("the timer", () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await ctx.service.start();
     expect(ctx.clock.timers).toHaveLength(0);
-    await ctx.service.confirm(template({ every: "interval", minutes: 5 }), "wsp_1");
-    await ctx.service.confirm({ ...template({ every: "day", at: "23:00" }), id: "tsk_template2" }, "wsp_1");
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(ctx, { ...template({ every: "day", at: "23:00" }), id: "tsk_template2" }, "wsp_1");
     // The next trigger is 5 minutes away, but the service looks at the clock at least every HEARTBEAT_MS.
     expect(ctx.clock.timers.map((timer) => timer.dueAt - ctx.clock.t)).toStrictEqual([HEARTBEAT_MS]);
     await runTo(ctx, utc(2026, 11, 9, 9, 3));
@@ -639,7 +759,7 @@ describe("load and start", () => {
   it("shows the rules after load, before the catch-up and the clock start; asked again, load reads nothing", async () => {
     const first = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await first.service.start();
-    await first.service.confirm(template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(first, template({ every: "interval", minutes: 5 }), "wsp_1");
     await first.service.close();
 
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 30)), timeZone: "UTC", dir: first.dir });
@@ -666,7 +786,7 @@ describe("what the service tells and logs", () => {
     const stop = ctx.service.onChange(() => void (told += 1));
     await ctx.service.start();
     expect(told).toBe(0);
-    await ctx.service.confirm(template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
     expect(told).toBe(1);
     await runTo(ctx, utc(2026, 11, 9, 9, 3));
     expect(told).toBe(1);
@@ -680,7 +800,7 @@ describe("what the service tells and logs", () => {
     await ctx.service.remove("rul_one");
     expect(told).toBe(5);
     const other = ctx.service.onChange(() => void (told += 1));
-    await ctx.service.confirm(template({ every: "day", at: "10:00" }), "wsp_1");
+    await confirm(ctx, template({ every: "day", at: "10:00" }), "wsp_1");
     expect(told).toBe(6);
     other();
     await ctx.service.close();
@@ -690,7 +810,7 @@ describe("what the service tells and logs", () => {
   it("logs a skipped trigger, a made task, and a task that could not be made, with the rule and no words of the user's", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
     await runTo(ctx, utc(2026, 11, 9, 9, 5));
     await runTo(ctx, utc(2026, 11, 9, 9, 10));
     ctx.tasks.states.set("tsk_made1", "done");
@@ -712,7 +832,7 @@ describe("what the service tells and logs", () => {
     await ctx.service.start();
     const other = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await other.service.start();
-    await other.service.confirm(template({ every: "day", at: "10:00" }), "wsp_1");
+    await confirm(other, template({ every: "day", at: "10:00" }), "wsp_1");
     other.tasks.discardTemplate = async () => {
       throw new TypeError("disk");
     };
@@ -726,8 +846,8 @@ describe("what the service tells and logs", () => {
   it("makes its own rule ids when it is given none: rul_ and sixteen hex digits, a new one each time", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC", defaultIds: true });
     await ctx.service.start();
-    const a = await ctx.service.confirm(template({ every: "day", at: "10:00" }), "wsp_1");
-    const b = await ctx.service.confirm({ ...template({ every: "day", at: "10:00" }), id: "tsk_other" }, "wsp_1");
+    const a = await confirm(ctx, template({ every: "day", at: "10:00" }), "wsp_1");
+    const b = await confirm(ctx, { ...template({ every: "day", at: "10:00" }), id: "tsk_other" }, "wsp_1");
     expect(a.id).toMatch(/^rul_[0-9a-f]{16}$/u);
     expect(b.id).toMatch(/^rul_[0-9a-f]{16}$/u);
     expect(a.id).not.toBe(b.id);
@@ -736,8 +856,8 @@ describe("what the service tells and logs", () => {
   it("keeps several rules apart: a command changes one, a lookup finds one, and a trigger of one leaves the other", async () => {
     const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
     await ctx.service.start();
-    await ctx.service.confirm(template({ every: "interval", minutes: 5 }), "wsp_1");
-    await ctx.service.confirm({ ...template({ every: "day", at: "23:00" }), id: "tsk_other", name: "Other" }, "wsp_1");
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(ctx, { ...template({ every: "day", at: "23:00" }), id: "tsk_other", name: "Other" }, "wsp_1");
     expect(ctx.service.rule("rul_two")?.name).toBe("Other");
     expect(ctx.service.saved("tsk_other")).toBe(true);
     expect(ctx.service.saved("tsk_none")).toBe(false);
@@ -753,10 +873,7 @@ describe("what the service tells and logs", () => {
       ["rul_two", null],
     ]);
     // Saving the second again changes only it.
-    await ctx.service.confirm(
-      { ...template({ every: "day", at: "22:00" }), id: "tsk_other", name: "Other 2" },
-      "wsp_1",
-    );
+    await confirm(ctx, { ...template({ every: "day", at: "22:00" }), id: "tsk_other", name: "Other 2" }, "wsp_1");
     expect(ctx.service.list().map((rule) => rule.name)).toStrictEqual(["Nightly check", "Other 2"]);
   });
 
@@ -765,11 +882,335 @@ describe("what the service tells and logs", () => {
     await ctx.service.start();
     const base = template({ every: "day", at: "10:00" });
     const second = { ...base.graphs[0]!, version: 2, nodes: [agent("N1"), agent("N2")] };
-    const saved = await ctx.service.confirm({ ...base, graphs: [...base.graphs, second], activeGraph: 2 }, "wsp_1");
+    const saved = await confirm(ctx, { ...base, graphs: [...base.graphs, second], activeGraph: 2 }, "wsp_1");
     expect(saved.graph.nodes.map((node) => node.id)).toStrictEqual(["N1", "N2"]);
     expect(JSON.parse(await readFile(ctx.file, "utf8"))).toStrictEqual({
       v: 1,
       rules: [JSON.parse(JSON.stringify(saved))],
     });
+  });
+});
+
+describe("editing a rule counts from the moment of the edit (SPEC-0006, T9 / T10 审查后用户定 2)", () => {
+  it("does not make up a slot of the new time that fell before the edit, and does not fire on saving", async () => {
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await ctx.service.start();
+    await confirm(ctx, template({ every: "day", at: "10:00" }), "wsp_1");
+    await runTo(ctx, utc(2026, 11, 9, 10, 0));
+    ctx.tasks.states.set("tsk_made1", "done");
+    // The edit at 10:45 moves the rule to 10:30: today's 10:30 is already past.
+    await runTo(ctx, utc(2026, 11, 9, 10, 45));
+    const saved = await confirm(ctx, template({ every: "day", at: "10:30" }), "wsp_1");
+    expect(saved.lastFiredAt).toBe(utc(2026, 11, 9, 10, 45));
+    await ctx.service.idle();
+    await runTo(ctx, utc(2026, 11, 9, 23, 0));
+    expect(ctx.tasks.made).toHaveLength(1);
+
+    await runTo(ctx, utc(2026, 11, 10, 10, 30));
+    expect(ctx.tasks.made.map((one) => one.firedAt)).toStrictEqual([
+      utc(2026, 11, 9, 10, 0),
+      utc(2026, 11, 10, 10, 30),
+    ]);
+  });
+
+  it("counts an interval from the edit, not from when the rule was made", async () => {
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await ctx.service.start();
+    await confirm(ctx, template({ every: "interval", minutes: 60 }), "wsp_1");
+    await runTo(ctx, utc(2026, 11, 9, 9, 50));
+    await confirm(ctx, template({ every: "interval", minutes: 30 }), "wsp_1");
+    await runTo(ctx, utc(2026, 11, 9, 10, 19));
+    expect(ctx.tasks.made).toStrictEqual([]);
+    await runTo(ctx, utc(2026, 11, 9, 10, 20));
+    expect(ctx.tasks.made.map((one) => one.firedAt)).toStrictEqual([utc(2026, 11, 9, 10, 20)]);
+  });
+
+  it("keeps a mark the clock was set back from, so that an edit never moves the time backwards", async () => {
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await ctx.service.start();
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
+    await runTo(ctx, utc(2026, 11, 9, 9, 5));
+    ctx.clock.t = utc(2026, 11, 9, 8, 0);
+    const saved = await confirm(ctx, template({ every: "interval", minutes: 10 }), "wsp_1");
+    expect(saved.lastFiredAt).toBe(utc(2026, 11, 9, 9, 5));
+  });
+});
+
+/** A service whose pi is ready only when the test says so. */
+async function withPi(start: number) {
+  const pi = { ready: false, asked: 0 };
+  const clock = new TestClock(start);
+  const made = await createTempDir("schedules-pi-");
+  onTestFinished(made.cleanup);
+  const tasks = fakeTasks();
+  const { logger, records } = recordingTracing();
+  const resources = new ResourceTracker();
+  const service = createScheduleService({
+    file: join(made.path, "schedules.json"),
+    clock,
+    resources,
+    logger,
+    tasks,
+    timeZone: "UTC",
+    newId: () => "rul_one",
+    ready: async () => {
+      pi.asked += 1;
+      return pi.ready;
+    },
+  });
+  onTestFinished(() => service.close());
+  const ctx = { service, tasks, clock, records, resources, file: join(made.path, "schedules.json"), dir: made.path };
+  return { pi, ctx };
+}
+
+describe("pi is not ready when a trigger is due (SPEC-0006, T9 / T10 审查后用户定 3)", () => {
+  it("neither makes the task nor spends the slot, warns once, and looks again at the heartbeat, not at once", async () => {
+    const { pi, ctx } = await withPi(utc(2026, 11, 9, 9, 0));
+    await ctx.service.start();
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
+
+    await runTo(ctx, utc(2026, 11, 9, 9, 5));
+    await runTo(ctx, utc(2026, 11, 9, 9, 8));
+    expect(ctx.tasks.made).toStrictEqual([]);
+    expect(ctx.service.rule("rul_one")).toMatchObject({ lastFiredAt: null, lastTaskId: null, skipped: 0 });
+    expect(ctx.records.filter((record) => record.msg === "schedule trigger waits for pi")).toMatchObject([
+      { level: "warn", ruleId: "rul_one" },
+    ]);
+    // One look at the heartbeat, not a spin: the timer waits a minute after a trigger that cannot run.
+    expect(ctx.clock.timers.map((timer) => timer.dueAt - ctx.clock.t)).toStrictEqual([HEARTBEAT_MS]);
+    expect(pi.asked).toBeLessThan(10);
+
+    // The next start with pi ready makes the missed slot up once (and only the latest of those missed).
+    pi.ready = true;
+    await runTo(ctx, utc(2026, 11, 9, 9, 9));
+    expect(ctx.tasks.made.map((one) => one.firedAt)).toStrictEqual([utc(2026, 11, 9, 9, 5)]);
+  });
+
+  it("warns again when pi was ready in between and went away", async () => {
+    const { pi, ctx } = await withPi(utc(2026, 11, 9, 9, 0));
+    await ctx.service.start();
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
+    await runTo(ctx, utc(2026, 11, 9, 9, 5));
+    pi.ready = true;
+    await runTo(ctx, utc(2026, 11, 9, 9, 6));
+    ctx.tasks.states.set("tsk_made1", "done");
+    pi.ready = false;
+    await runTo(ctx, utc(2026, 11, 9, 9, 10));
+    expect(ctx.records.filter((record) => record.msg === "schedule trigger waits for pi")).toHaveLength(2);
+  });
+
+  it("catches up once on the start after pi became ready: the latest missed slot only", async () => {
+    const { pi, ctx } = await withPi(utc(2026, 11, 9, 9, 0));
+    await ctx.service.start();
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
+    await ctx.service.close();
+
+    pi.ready = true;
+    const again = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 33)), timeZone: "UTC", dir: ctx.dir });
+    await again.service.start();
+    expect(again.tasks.made.map((one) => one.firedAt)).toStrictEqual([utc(2026, 11, 9, 9, 30)]);
+  });
+});
+
+describe("a run started with 立即跑一次 is the rule's last task (SPEC-0006, T9 / T10 审查后用户定 6)", () => {
+  it("makes the next slot skip while it is going, as after any task, and the one after it ended makes a task", async () => {
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await ctx.service.start();
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
+    ctx.clock.t = utc(2026, 11, 9, 9, 2);
+    const taskId = await ctx.service.runNow("rul_one");
+    expect(ctx.service.rule("rul_one")).toMatchObject({ lastTaskId: taskId, lastFiredAt: null });
+
+    await runTo(ctx, utc(2026, 11, 9, 9, 5));
+    expect(ctx.tasks.made).toHaveLength(1);
+    expect(ctx.service.rule("rul_one")).toMatchObject({ skipped: 1, lastFiredAt: utc(2026, 11, 9, 9, 5) });
+
+    ctx.tasks.states.set(taskId, "done");
+    await runTo(ctx, utc(2026, 11, 9, 9, 10));
+    expect(ctx.tasks.made).toHaveLength(2);
+  });
+
+  it("runs now even when the last task is going", async () => {
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await ctx.service.start();
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
+    await runTo(ctx, utc(2026, 11, 9, 9, 5));
+    await ctx.service.runNow("rul_one");
+    expect(ctx.tasks.made).toHaveLength(2);
+  });
+});
+
+describe("a task the rule made and did not record (the host died after `started`, SPEC-0006, T9 / T10 审查后用户定)", () => {
+  it("makes the next slot skip, as the last task is going", async () => {
+    const first = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await first.service.start();
+    await confirm(first, template({ every: "interval", minutes: 5 }), "wsp_1");
+    await first.service.close();
+
+    const tasks = fakeTasks();
+    tasks.leave("rul_one", "tsk_left", "running", utc(2026, 11, 9, 9, 5));
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 7)), timeZone: "UTC", dir: first.dir, tasks });
+    await ctx.service.start();
+    expect(tasks.made).toHaveLength(1);
+    // Nothing new was made for the slot that fell due while the left task was still going; it was skipped.
+    expect(ctx.service.rule("rul_one")).toMatchObject({ lastTaskId: "tsk_left", skipped: 1 });
+  });
+
+  it("makes a slot skip while an older task of the rule is still going, though the rule's last task has ended", async () => {
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 10, 0)), timeZone: "UTC" });
+    await ctx.service.start();
+    await confirm(ctx, template({ every: "interval", minutes: 5 }), "wsp_1");
+    await runTo(ctx, utc(2026, 11, 9, 10, 5));
+    ctx.tasks.states.set("tsk_made1", "done");
+    // An earlier task of the rule that never ended (stopped for good), unknown to `lastTaskId`.
+    ctx.tasks.leave("rul_one", "tsk_stuck", "stopped", utc(2026, 11, 9, 9, 0));
+
+    await runTo(ctx, utc(2026, 11, 9, 10, 10));
+
+    expect(ctx.tasks.made.filter((one) => one.name !== "left")).toHaveLength(1);
+    expect(ctx.service.rule("rul_one")?.skipped).toBe(1);
+  });
+
+  it("is made the rule's last task when the host starts, and the file says so", async () => {
+    const first = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await first.service.start();
+    await confirm(first, template({ every: "day", at: "23:00" }), "wsp_1");
+    await first.service.close();
+
+    const tasks = fakeTasks();
+    tasks.leave("rul_one", "tsk_older", "done", utc(2026, 11, 8, 23, 0));
+    tasks.leave("rul_one", "tsk_left", "running", utc(2026, 11, 9, 8, 0));
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 7)), timeZone: "UTC", dir: first.dir, tasks });
+    await ctx.service.start();
+    expect(ctx.service.rule("rul_one")?.lastTaskId).toBe("tsk_left");
+    expect((await readRules(ctx.file)).rules[0]?.lastTaskId).toBe("tsk_left");
+  });
+
+  it("takes the task made last when two were fired for the same time, and replaces a last task that is gone", async () => {
+    const first = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await first.service.start();
+    await confirm(first, template({ every: "day", at: "23:00" }), "wsp_1");
+    await first.service.close();
+
+    const tasks = fakeTasks();
+    // The same slot twice (a run now at the very time), the later made one wins; `tsk_gone` is on no disk.
+    tasks.leave("rul_one", "tsk_first", "done", utc(2026, 11, 9, 8, 0), 10);
+    tasks.leave("rul_one", "tsk_second", "done", utc(2026, 11, 9, 8, 0), 20);
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 7)), timeZone: "UTC", dir: first.dir, tasks });
+    await writeRules(
+      ctx.file,
+      [{ ...need((await readRules(ctx.file)).rules[0]), lastTaskId: "tsk_gone", skipped: 3 }],
+      [],
+    );
+    await ctx.service.start();
+
+    expect(ctx.service.rule("rul_one")).toMatchObject({ lastTaskId: "tsk_second", skipped: 0 });
+  });
+
+  it("keeps a last task that is newer than the ones on disk, and leaves a rule alone that has none", async () => {
+    const first = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await first.service.start();
+    await confirm(first, template({ every: "interval", minutes: 5 }), "wsp_1");
+    await runTo(first, utc(2026, 11, 9, 9, 5));
+    await first.service.close();
+
+    const tasks = fakeTasks();
+    tasks.leave("rul_one", "tsk_made1", "done", utc(2026, 11, 9, 9, 5));
+    tasks.leave("rul_one", "tsk_stale", "done", utc(2026, 11, 9, 8, 0));
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 6)), timeZone: "UTC", dir: first.dir, tasks });
+    await ctx.service.start();
+    expect(ctx.service.rule("rul_one")?.lastTaskId).toBe("tsk_made1");
+    const bare = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 6)), timeZone: "UTC", dir: first.dir });
+    await bare.service.start();
+    expect(bare.service.rule("rul_one")?.lastTaskId).toBe("tsk_made1");
+  });
+});
+
+describe("a save that races a deletion (SPEC-0006, T9 / T10 审查后用户定)", () => {
+  it("fails with schedule_not_found when the rule was deleted ahead of it, and does not make the rule again", async () => {
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await ctx.service.start();
+    const tpl = template({ every: "day", at: "10:00" });
+    await confirm(ctx, tpl, "wsp_1");
+    // The deletion removes the template as it goes, as the task service does.
+    ctx.tasks.discardTemplate = async (taskId) => void ctx.tasks.templates.delete(taskId);
+
+    const removing = ctx.service.remove("rul_one");
+    const saving = ctx.service.confirm(tpl, "wsp_1");
+    await removing;
+    await expect(saving).rejects.toMatchObject({ code: "schedule_not_found" });
+    expect(ctx.service.list()).toStrictEqual([]);
+    expect((await readRules(ctx.file)).rules).toStrictEqual([]);
+    expect(ctx.clock.timers).toHaveLength(0);
+  });
+
+  it("fails with schedule_not_found for a template that is gone though no rule was made from it", async () => {
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await ctx.service.start();
+    await expect(ctx.service.confirm(template({ every: "day", at: "10:00" }), "wsp_1")).rejects.toMatchObject({
+      code: "schedule_not_found",
+    });
+    expect(ctx.service.list()).toStrictEqual([]);
+  });
+
+  it("saves what the template is now, not what the caller held", async () => {
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await ctx.service.start();
+    ctx.tasks.templates.set("tsk_template", { ...template({ every: "day", at: "11:00" }), name: "Now" });
+    const saved = await ctx.service.confirm(template({ every: "day", at: "10:00" }), "wsp_1");
+    expect(saved).toMatchObject({ name: "Now", when: { every: "day", at: "11:00" } });
+  });
+});
+
+describe("the rules do not run by themselves before start (SPEC-0006, T9 / T10 审查后用户定)", () => {
+  it("lets commands change and save rules but sets no timer, and the rules run once start has run", async () => {
+    const first = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await first.service.start();
+    await confirm(first, template({ every: "interval", minutes: 5 }), "wsp_1");
+    await confirm(first, { ...template({ every: "interval", minutes: 5 }), id: "tsk_other" }, "wsp_1");
+    await first.service.close();
+
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 30)), timeZone: "UTC", dir: first.dir });
+    await ctx.service.load();
+    await ctx.service.pause("rul_one");
+    await ctx.service.resume("rul_one");
+    await ctx.service.remove("rul_two");
+    await confirm(ctx, template({ every: "interval", minutes: 10 }), "wsp_1");
+    expect(ctx.clock.timers).toHaveLength(0);
+    expect(timersOf(ctx.resources)).toBe(0);
+    expect(ctx.tasks.made).toStrictEqual([]);
+    expect((await readRules(ctx.file)).rules.map((rule) => rule.paused)).toStrictEqual([false]);
+
+    await ctx.service.start();
+    expect(ctx.clock.timers).toHaveLength(1);
+  });
+});
+
+describe("deleting a rule (SPEC-0006, T9 / T10 审查后用户定)", () => {
+  it("removes the template while the rule is still saved, so that a crash between the two cannot leave a template nobody can see", async () => {
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await ctx.service.start();
+    await confirm(ctx, template({ every: "day", at: "10:00" }), "wsp_1");
+    let savedWhenTemplateWentOut: boolean | undefined;
+    ctx.tasks.discardTemplate = async () => {
+      savedWhenTemplateWentOut = await savedOnDisk(ctx, "tsk_template");
+      throw new Error("the host died here");
+    };
+    await ctx.service.remove("rul_one");
+    expect(savedWhenTemplateWentOut).toBe(true);
+    expect(ctx.service.list()).toStrictEqual([]);
+  });
+
+  it("does not remove the rule when the host died with the template out and the rule in: deleting again works", async () => {
+    const first = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 0)), timeZone: "UTC" });
+    await first.service.start();
+    await confirm(first, template({ every: "day", at: "10:00" }), "wsp_1");
+    await first.service.close();
+    const ctx = await setUp({ clock: new TestClock(utc(2026, 11, 9, 9, 1)), timeZone: "UTC", dir: first.dir });
+    await ctx.service.start();
+    expect(ctx.service.list()).toHaveLength(1);
+    await ctx.service.remove("rul_one");
+    expect(ctx.tasks.discarded).toStrictEqual(["tsk_template"]);
+    expect(ctx.service.list()).toStrictEqual([]);
   });
 });

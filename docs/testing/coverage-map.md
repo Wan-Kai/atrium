@@ -2400,3 +2400,35 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 界面：定时标签一行一条（名字、项目、位置、时间的话、下次、上次结果、动作）；暂停行为恢复 / 修改 / 删除；删除行内"确定 / 不了"；修改打开模板的任务标签，那里的按钮写"确认并保存规则"，已保存的不再给"放弃任务"；失败写在行下；没有"新建" | `schedule-tab.browser.test.tsx`、`schedule-words.test.ts`、`apps/desktop/e2e/schedules-flow.spec.ts` |
 
 - 没做 / 靠别的层：`powerMonitor` 转发（60 秒的心跳覆盖睡醒）；Mac 真睡醒后补跑（只在假时钟里验证）。
+
+## T9 / T10 审查修复（SPEC-0006"T9 / T10 审查后用户定"，2026-11-09，待验收）
+
+三家审查（gpt-6-astra、grok-4.7、Claude 子代理）找到的问题和用户定的六条；逐项做法见 SPEC。破坏检查：`tasks/t910-fixes.break-check.json`（宿主）、`ui/src/tasks/t910-fixes.break-check.json`（界面）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 过期的锁：原因记着是哪个家目录加的（`home <12 位哈希>`），旧写法照旧认得；启动只解本机的、任务已结束或目录不存在的；别家的、旧写法的、目录在但读不出来的不解；任务自己新旧写法的锁都能加 / 解；归档遇到两种写法都停 | `workspaces/worktree-lock.test.ts`（"the home in a lock's reason"、"clearStaleLocks"）、`tasks/task-workspaces.test.ts`、`tasks/t9-service.test.ts`（"for one that cannot be read"）、`tasks/t9.host.test.ts`（"locks that tasks left"） |
+| 改规则的时间 / 频率从保存起算，保存不当场触发；间隔规则从那一刻起重新数；时钟被拨回时不往回退 | `tasks/schedule-service.test.ts`（"editing a rule counts from the moment of the edit"） |
+| pi 没准备好：不触发、不用掉时间点、只记一条 warn、按心跳再问而不是空转；好了之后下一次启动补一次；`main.ts` 和 `recoverAll` 同一个 `piReady` | `tasks/schedule-service.test.ts`（"pi is not ready when a trigger is due"） |
+| 规则文件读不出来：确认 / 暂停 / 恢复 / 删除 / 立即跑 / 修改 / 列表都答 `schedule_file_unreadable`；内存里不装规则、不挂定时器、文件不动；定时标签显示这句话代替列表；"确认并保存规则"同一句话；`watchSchedules` 被拒显示错误而不是一直"正在读取" | `tasks/schedule-service.test.ts`（"a rules file that cannot be read"）、`tasks/schedule-commands.test.ts`、`ui/src/tasks/schedule-tab.browser.test.tsx` |
+| 模板在规则真的存下来之前留在任务列表里，存下来之后才隐藏 | `tasks/t910-service.test.ts`（"the task list and a template task"）、`tasks/schedules.host.test.ts` |
+| 立即跑一次算最近的任务：它没结束时下一个时间点被跳过 | `tasks/schedule-service.test.ts`（"a run started with 立即跑一次"） |
+| 崩在 `started` 之后、`lastTaskId` 存下之前：磁盘上没结束的规则任务算"上一个任务"；启动时对账 `lastTaskId` | `tasks/schedule-service.test.ts`（"a task the rule made and did not record"）、`tasks/t910-service.test.ts`（`ofRule`） |
+| 崩在 `createScheduled` 里：没启动的计划任务重启时补上 `started`（pi 没好时不动）；任务记录没写成的孤儿对话重启时放掉，正在建的不放；关闭时撤销不拆半成品 | `tasks/t910-service.test.ts`（"what a crash inside createScheduled leaves"） |
+| 崩在存规则与删模板之间：先删模板后删规则，不留隐藏的孤儿模板 | `tasks/schedule-service.test.ts`（"deleting a rule"） |
+| 删与确认的竞争：确认时重新取模板，规则或模板没了答 `schedule_not_found`，不把规则建回来 | `tasks/schedule-service.test.ts`（"a save that races a deletion"） |
+| `start()` 之前命令可以改规则但不挂定时器 | `tasks/schedule-service.test.ts`（"before start() the rules do not run by themselves"） |
+| 关闭不死锁：pi 永不应答合同提示时，先后关闭两个服务都能结束；两个一起发出关闭 | `tasks/t910-service.test.ts`（"a host that closes while a trigger waits"）、`tasks/t910.leak.test.ts` |
+| 暂停 / 有节点失败的任务重启：被打断的轮次和作废的问题记在节点上（`afterRestart`），真的恢复时才说，一直停着不说；已经是 `held` 的不动 | `tasks/t9-scheduler.test.ts`（"a task held back at the restart…"） |
+| `host_restarted` 的次序：这个进程已经对话过的节点（`live`）不被告知重启、已回答的问题不作废；`spoken` 用完即删 | `tasks/t9-scheduler.test.ts`（"leaves alone the nodes this process already spoke to"）、`tasks/t9-runner.test.ts`（"tells the scheduler which nodes…"） |
+| 唤醒任务对话一次（不是每个等改图的节点一次）；整条唤醒的字数有预算，几个最大长度的申请也不超 32 000 字，截断有标记，实在放不下只点名 | `tasks/t9-scheduler.test.ts`、`tasks/t9-runner.test.ts`（"within what the command takes"） |
+| `endedOnNodeDone`：同一条助手消息里每个工具调用都有结果才算那一轮结束 | `tasks/t9-runner.test.ts`（"another call of the same message has no result"） |
+| 认回 worktree：`worktree list` / `rev-parse` / `ls-files` / `check-ignore` 都经 `runSafeGit`（不跑 fsmonitor、过滤器、钩子）；在目录里核对共同 git 目录、顶层、分支、HEAD，状态检查带 `--work-tree`；别的仓库的检出、`core.worktree` 引走的都不认 | `workspaces/worktree-creator.test.ts`（"planning and adopting"）、`workspaces/worktree-include.test.ts`（"the repository's configuration is not run"） |
+| `.worktreeinclude` 复制是原子的：先写到 worktree 旁边的暂存目录再 `link`，已有的文件不覆盖；中途被打断不留半截文件，崩溃留下的暂存目录下次清掉 | `workspaces/worktree-include.test.ts`（"a copy that dies in the middle"） |
+| 动作中途被打断（不是"做完、事件没写"）：`git worktree add` 被杀留下的半截目录；复制到一半；提示被 pi 收下而会话文件没写（既有 `t9-runner.test.ts` "sends the contract when the file has none"）；定时的各个崩溃窗口 | `workspaces/worktree-creator.test.ts`（"a killed `git worktree add`"）、`workspaces/worktree-include.test.ts`、`tasks/schedule-service.test.ts`、`tasks/t910-service.test.ts` |
+| 真的子进程 `kill -9`：宿主在另一个进程里跑，节点跑到一半被杀，同一个家目录上再起宿主，任务接着跑完，一个 worktree、一份契约、一次 `host_restarted` | `tasks/t910.crash.host.test.ts` |
+| `pnpm task:try` 只 `recover` 自己的任务，不扫锁 | 一行调用（`dev/task-try.ts`），无自动测试：没有 pi 的单元测试跑不到那条路；靠 `pnpm typecheck` 和真实运行 |
+| 界面：午夜"凌晨 12:00"、中午"中午 12:00"；"上次还在跑"只在真的还在时写；关闭删除确认后焦点回"删除" | `ui/src/tasks/schedule-words.test.ts`、`ui/src/tasks/schedule-tab.browser.test.tsx` |
+| 协议号 36 → 37（新错误码 `schedule_file_unreadable`），Swift 投影重新生成 | `protocol/src/envelope.test.ts`、`remote.test.ts`、`pnpm protocol:swift --check` |
+
+- 没做：跟随开发版任务目录时定时标签的说法（SPEC 没有，待用户定，见 SPEC"风险与待定问题"）。

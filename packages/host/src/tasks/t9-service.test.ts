@@ -1,6 +1,6 @@
 import type { LogEntry } from "@atrium/pi";
 import { createTempDir } from "@atrium/testkit";
-import { chmod } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
@@ -66,6 +66,7 @@ async function startedHost(
     transcript: () => Promise.resolve([] as LogEntry[]),
     deliver: () => Promise.resolve(),
     retire: () => Promise.resolve(),
+    conversations: () => [],
     alive: () => false,
     stop: () => Promise.resolve(),
     subscribe: () => () => undefined,
@@ -83,10 +84,10 @@ async function startedHost(
       return Promise.resolve();
     },
     merge: () => Promise.resolve({ kind: "merged" }),
-    clearStaleLocks(isActive) {
+    clearStaleLocks(isOver) {
       sweeps += 1;
       seen.worktree.push(
-        `stale:${["tsk_a", "tsk_b", "tsk_done", "tsk_finished", "tsk_ghost"].map((id) => `${id}=${String(isActive(id))}`).join(",")}`,
+        `stale:${["tsk_a", "tsk_b", "tsk_broken", "tsk_done", "tsk_finished", "tsk_ghost"].map((id) => `${id}=${String(isOver(id))}`).join(",")}`,
       );
       return stale === "fails" ? Promise.reject(new RangeError("git is gone")) : Promise.resolve(stale);
     },
@@ -124,6 +125,7 @@ async function startedHost(
         prompt: () => Promise.resolve(),
         command: () => Promise.resolve(),
         retire: () => Promise.resolve(),
+        conversations: () => [],
         recordOf: () => undefined,
       },
       placement: () => ({ projectId: null, borrowed: null }),
@@ -168,18 +170,21 @@ describe("recoverAll takes up the tasks the host left going (SPEC-0006, T9)", ()
     expect(service.task("tsk_designing")?.startedAt).toBeNull();
   });
 
-  it("lifts stale locks first, counting the tasks that are over or unknown as inactive, and not at all when told not to", async () => {
+  it("lifts stale locks first, for the tasks that are over or whose directory is gone but not for one that cannot be read, and not at all when told not to", async () => {
     const withLocks = await startedHost([
       { id: "tsk_a", createdAt: 1, events: GOING },
       { id: "tsk_done", createdAt: 2, events: [...GOING, { type: "cancelled" }] },
       { id: "tsk_finished", createdAt: 3, events: [...GOING, DONE, SETTLED] },
     ]);
+    // A directory that is there but whose events cannot be read: the task may be going, so it is not over.
+    await mkdir(join(withLocks.root, "tsk_broken"), { recursive: true });
+    await writeFile(join(withLocks.root, "tsk_broken", "events.jsonl"), "this is not an event\n{\n");
     await withLocks.service.recoverAll(WITH_PI(true));
     const without = await startedHost([{ id: "tsk_a", createdAt: 1, events: GOING }]);
     await without.service.recoverAll(WITH_PI(false));
 
     expect(withLocks.seen.worktree[0]).toBe(
-      "stale:tsk_a=true,tsk_b=false,tsk_done=false,tsk_finished=false,tsk_ghost=false",
+      "stale:tsk_a=false,tsk_b=true,tsk_broken=false,tsk_done=true,tsk_finished=true,tsk_ghost=true",
     );
     expect(withLocks.sweeps()).toBe(1);
     expect(without.sweeps()).toBe(0);

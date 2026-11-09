@@ -1,16 +1,16 @@
 [
   {
     "file": "packages/host/src/tasks/runner.ts",
-    "from": "return last?.kind === \"toolResult\" && last.tool === \"node_done\" && !last.isError;",
-    "to": "return last?.kind === \"toolResult\" && last.tool === \"node_done\";",
+    "from": "if (last?.kind !== \"toolResult\" || last.tool !== \"node_done\" || last.isError) return false;",
+    "to": "if (last?.kind !== \"toolResult\" || last.tool !== \"node_done\") return false;",
     "test": "packages/host/src/tasks/t9-runner.test.ts",
     "name": "does not settle when",
     "project": "unit"
   },
   {
     "file": "packages/host/src/tasks/runner.ts",
-    "from": "return last?.kind === \"toolResult\" && last.tool === \"node_done\" && !last.isError;",
-    "to": "return last?.kind === \"toolResult\" && !last.isError;",
+    "from": "if (last?.kind !== \"toolResult\" || last.tool !== \"node_done\" || last.isError) return false;",
+    "to": "if (last?.kind !== \"toolResult\" || last.isError) return false;",
     "test": "packages/host/src/tasks/t9-runner.test.ts",
     "name": "does not settle when",
     "project": "unit"
@@ -33,18 +33,10 @@
   },
   {
     "file": "packages/host/src/tasks/runner.ts",
-    "from": "freshlyStarted.add(run.sessionId);",
-    "to": "",
+    "from": "entry.spoken?.add(run.sessionId);\n    await dispatch(entry, { type: \"contract_sent\"",
+    "to": "await dispatch(entry, { type: \"contract_sent\"",
     "test": "packages/host/src/tasks/t9-runner.test.ts",
-    "name": "settles each node",
-    "project": "unit"
-  },
-  {
-    "file": "packages/host/src/tasks/runner.ts",
-    "from": "if (text === RESUME_RESTARTED && freshlyStarted.delete(sessionId)) return;",
-    "to": "",
-    "test": "packages/host/src/tasks/t9-runner.test.ts",
-    "name": "settles each node",
+    "name": "lists the node whose contract the recovery itself sent",
     "project": "unit"
   },
   {
@@ -65,8 +57,8 @@
   },
   {
     "file": "packages/host/src/tasks/runner.ts",
-    "from": "const request = run.graphRequest;",
-    "to": "const request = undefined;",
+    "from": "request: run.graphRequest }",
+    "to": "request: undefined }",
     "test": "packages/host/src/tasks/t9-runner.test.ts",
     "name": "quotes the reason and suggestion",
     "project": "unit"
@@ -89,7 +81,7 @@
   },
   {
     "file": "packages/host/src/tasks/runner.ts",
-    "from": "return task != null && task.endedAt === null;",
+    "from": "return !present.has(taskId);",
     "to": "return true;",
     "test": "packages/host/src/tasks/t9-service.test.ts",
     "name": "lifts stale locks first",
@@ -145,7 +137,7 @@
   },
   {
     "file": "packages/host/src/workspaces/worktree-creator.ts",
-    "from": "(found.locked !== null && found.locked !== adoption.allowedLock)",
+    "from": "(found.locked !== null && !(adoption.allowedLocks ?? []).includes(found.locked))",
     "to": "false",
     "test": "packages/host/src/workspaces/worktree-creator.test.ts",
     "name": "adopts a worktree whose lock is the task",
@@ -161,7 +153,7 @@
   },
   {
     "file": "packages/host/src/workspaces/worktree-creator.ts",
-    "from": "await copyWorktreeInclude({ git, sourceDir: workspace.dir, destDir: plan.dir, logger: options.logger });",
+    "from": "        await copyWorktreeInclude({\n          git,\n          sourceDir: workspace.dir,\n          destDir: plan.dir,\n          logger: options.logger,\n          ...(adoption.signal ? { signal: adoption.signal } : {}),\n        });\n",
     "to": "",
     "test": "packages/host/src/workspaces/worktree-creator.test.ts",
     "name": "finds the worktree again after a crash",
@@ -185,7 +177,7 @@
   },
   {
     "file": "packages/host/src/tasks/task-workspaces.ts",
-    "from": "allowedLock: taskLockReason(task.id),",
+    "from": "allowedLocks: [taskLockReason(task.id, options.homeTag), taskLockReason(task.id)],",
     "to": "",
     "test": "packages/host/src/tasks/task-workspaces.test.ts",
     "name": "adopts the worktree the plan names",
@@ -217,7 +209,7 @@
   },
   {
     "file": "packages/host/src/tasks/task-workspaces.ts",
-    "from": "lifted += await clearStaleLocks(git, project.path, isActive).catch(",
+    "from": "lifted += await clearStaleLocks(git, project.path, options.homeTag, isOver).catch(",
     "to": "lifted += await Promise.resolve(0).catch(",
     "test": "packages/host/src/tasks/t9.host.test.ts",
     "name": "lifts those of a task that is over or unknown",
@@ -241,7 +233,7 @@
   },
   {
     "file": "packages/host/src/tasks/task-service.ts",
-    "from": "if (task.startedAt === null) continue;",
+    "from": "if (task.startedAt === null && !unfinished) continue;",
     "to": "",
     "test": "packages/host/src/tasks/t9-service.test.ts",
     "name": "does not ask for pi",
@@ -264,16 +256,8 @@
     "project": "unit"
   },
   {
-    "file": "packages/host/src/tasks/task-service.ts",
-    "from": "        if (signal.aborted) return;\n        if (task.startedAt === null) continue;",
-    "to": "        if (task.startedAt === null) continue;",
-    "test": "packages/host/src/tasks/t9-service.test.ts",
-    "name": "stops at once",
-    "project": "unit"
-  },
-  {
     "file": "packages/host/src/main.ts",
-    "from": "ready: async () => (await tools)?.pi.status === \"ready\",",
+    "from": "ready: piReady,",
     "to": "ready: async () => true,",
     "test": "packages/host/src/tasks/t9.host.test.ts",
     "name": "leaves tasks as they are, and says so once",

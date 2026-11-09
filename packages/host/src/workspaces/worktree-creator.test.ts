@@ -197,6 +197,8 @@ describe("createWorktreeCreator: create", () => {
     await create.create(projectId, "fix", "refs/heads/main");
 
     expect(seen.slice(before)).toStrictEqual([
+      // The top level is asked through `runSafeGit`, which lists the configuration first.
+      ["config --name-only", null],
       ["rev-parse --show-toplevel", null],
       ["check-ref-format --branch", null],
       ["rev-parse --verify", null],
@@ -899,6 +901,39 @@ function crashingBeforeRecord(made: Awaited<ReturnType<typeof creator>>, git: Gi
   });
 }
 
+/**
+ * A git that is killed the moment it is asked to add a worktree, while `on` is set.
+ *
+ * @remarks
+ * Everything else is the real git, so the directory and the plan are as a kill leaves them.
+ *
+ * @sideEffects Runs git.
+ * @param state - Whether the kill is on.
+ * @returns The runner.
+ */
+function killingAdd(state: { on: boolean }): GitRunner {
+  return {
+    async run(args, options) {
+      if (state.on && args.includes("worktree") && args.includes("add")) throw new Error("killed");
+      return realGit().run(args, options);
+    },
+  };
+}
+
+/** A crash between `git worktree add` and the record: the plan, and the creator that never saw the worktree. */
+async function afterCrashedAdd(repo: GitScene) {
+  const ordinary = await creator(repo);
+  const crashing = crashingBeforeRecord(ordinary, realGit());
+  let planned: Parameters<NonNullable<Parameters<typeof ordinary.create.createFrom>[5]>>[0] | undefined;
+  await crashing
+    .createFrom(localOf(ordinary.projects, ordinary.projectId), "Fix it", "atrium/", null, undefined, (plan) => {
+      planned = plan;
+      return Promise.resolve();
+    })
+    .catch(() => undefined);
+  return { ...ordinary, plan: present(planned, "the plan") };
+}
+
 describe("createWorktreeCreator: planning and adopting (SPEC-0006, T9)", () => {
   it("tells the plan before it adds the worktree: the source, the branch, the directory and the start", async () => {
     const repo = await scene();
@@ -1005,8 +1040,8 @@ describe("createWorktreeCreator: planning and adopting (SPEC-0006, T9)", () => {
     const plan = present(planned, "the plan");
     await repo.git(repo.repo, "worktree", "lock", "--reason", "atrium task tsk_1", made.dir);
 
-    expect(await create.adopt(plan, { allowedLock: "atrium task tsk_1" })).toStrictEqual(made);
-    expect(await create.adopt(plan, { allowedLock: "atrium task tsk_2" })).toBeNull();
+    expect(await create.adopt(plan, { allowedLocks: ["atrium task tsk_1"] })).toStrictEqual(made);
+    expect(await create.adopt(plan, { allowedLocks: ["atrium task tsk_2"] })).toBeNull();
     expect(await create.adopt(plan, {})).toBeNull();
   });
 
@@ -1043,6 +1078,96 @@ describe("createWorktreeCreator: planning and adopting (SPEC-0006, T9)", () => {
 
     expect(next.dir).toBe(join(repo.root, "repo.worktrees", "fix-it-2"));
     expect(next.branch).toBe("atrium/fix-it-2");
+  });
+
+  it("does not adopt a directory whose checkout belongs to another repository, though the source still lists the worktree (SPEC-0006, T9 / T10 审查后用户定)", async () => {
+    const repo = await scene();
+    const { create, plan, projects } = await afterCrashedAdd(repo);
+    // The source's registration still names the directory, the branch and the start; the checkout there is a clone.
+    await rm(plan.dir, { recursive: true, force: true });
+    await repo.git(repo.root, "clone", "--quiet", repo.repo, plan.dir);
+    await repo.git(plan.dir, "checkout", "--quiet", "-b", plan.branch);
+    expect(await repo.git(plan.dir, "rev-parse", "HEAD")).toBe(plan.start);
+    expect(await repo.git(plan.dir, "status", "--porcelain")).toBe("");
+    expect(await repo.git(repo.repo, "worktree", "list", "--porcelain")).toContain(`worktree ${plan.dir}`);
+
+    expect(await create.adopt(plan, {})).toBeNull();
+
+    expect(projects.workspaces()).toHaveLength(2);
+  });
+
+  it("does not adopt a checkout whose work tree git was told to find elsewhere, and does not take that other directory's status for it", async () => {
+    const repo = await scene();
+    const { create, plan, projects } = await afterCrashedAdd(repo);
+    const elsewhere = join(repo.root, "elsewhere");
+    await mkdir(elsewhere);
+    await repo.git(plan.dir, "config", "extensions.worktreeConfig", "true");
+    await repo.git(plan.dir, "config", "--worktree", "core.worktree", elsewhere);
+    // The directory is clean as the plan left it; the other directory is not.
+    await writeFile(join(elsewhere, "stray.txt"), "x\n");
+
+    expect(await create.adopt(plan, {})).toBeNull();
+
+    expect(projects.workspaces()).toHaveLength(2);
+  });
+
+  it("asks git for the worktree list, the top level, the status and the files to copy without running the repository's fsmonitor or filters", async () => {
+    const repo = await scene();
+    await writeFile(join(repo.repo, ".gitignore"), ".env\n");
+    await writeFile(join(repo.repo, ".worktreeinclude"), ".env\n");
+    await writeFile(join(repo.repo, ".env"), "SECRET=1\n");
+    const { create, plan } = await afterCrashedAdd(repo);
+    // The copy that the crashed creation made is gone, as if it had not got that far.
+    await rm(join(plan.dir, ".env"), { force: true });
+    const planted = await plantTraps(repo, ["fsmonitor", "filter", "process", "hook"]);
+    await planted.reset();
+
+    const adopted = await create.adopt(plan, { alias: "Fix it" });
+
+    expect(adopted).not.toBeNull();
+    expect(await planted.ran()).toStrictEqual([]);
+    expect(await readFile(join(plan.dir, ".env"), "utf8")).toBe("SECRET=1\n");
+  });
+
+  it("logs that it adopted a worktree, by project and workspace ids and nothing of the branch or the path", async () => {
+    const repo = await scene();
+    const { create, plan, records, projectId } = await afterCrashedAdd(repo);
+
+    const adopted = present(await create.adopt(plan, { alias: "Fix it" }), "the adopted worktree");
+
+    expect(records.filter((record) => record["msg"] === "worktree adopted")).toMatchObject([
+      { level: "info", projectId, workspaceId: adopted.workspaceId },
+    ]);
+    expect(JSON.stringify(records)).not.toContain(plan.branch);
+  });
+
+  it("does not adopt what a killed `git worktree add` left: a directory git never registered, or one with half a checkout; a new worktree goes beside it", async () => {
+    const repo = await scene();
+    const killing = { on: true };
+    const killedAdd = killingAdd(killing);
+    const { create, projects, projectId } = await creator(repo, killedAdd);
+    const source = localOf(projects, projectId);
+    const plans: Parameters<NonNullable<Parameters<typeof create.createFrom>[5]>>[0][] = [];
+    await create
+      .createFrom(source, "Fix it", "atrium/", null, undefined, (plan) => {
+        plans.push(plan);
+        return Promise.resolve();
+      })
+      .catch(() => undefined);
+    killing.on = false;
+    const plan = present(plans[0], "the plan");
+    expect(await create.adopt(plan, {})).toBeNull();
+    // Git got as far as making the directory, and then was killed.
+    await mkdir(join(plan.dir, "src"), { recursive: true });
+    await writeFile(join(plan.dir, "src", "half.txt"), "half");
+    expect(await create.adopt(plan, {})).toBeNull();
+    expect(projects.workspaces()).toHaveLength(2);
+
+    const next = await create.createFrom(source, "Fix it");
+
+    expect(next.dir).toBe(join(repo.root, "repo.worktrees", "fix-it-2"));
+    // What was left is not removed: it may be the user's.
+    expect(await readFile(join(plan.dir, "src", "half.txt"), "utf8")).toBe("half");
   });
 
   it("does not adopt a worktree that was not made from the planned source, or when there is no git", async () => {

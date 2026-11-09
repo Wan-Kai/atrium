@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 36,
+    "protocolVersion": 37,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -7516,6 +7516,14 @@
     "ok": false,
     "error": {
       "code": "schedule_not_found"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "schedule_file_unreadable"
     }
   },
   {

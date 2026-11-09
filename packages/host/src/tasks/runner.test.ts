@@ -85,6 +85,7 @@ function fake(): Fake {
     transcript: () => Promise.resolve([]),
     deliver: () => Promise.resolve(),
     retire: () => Promise.resolve(),
+    conversations: () => [],
     alive: () => true,
     stop() {
       state.stopped += 1;

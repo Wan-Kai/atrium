@@ -24,6 +24,16 @@ const RULE: ScheduleSummary = {
 };
 
 /**
+ * A task command that fails only for "确认并保存规则", as a host with a rules file it cannot read does.
+ *
+ * @sideEffects Throws for `startTask`.
+ * @param name - The command's name.
+ */
+async function failingStart(name: string): Promise<void> {
+  if (name === "startTask") throw new CommandError("schedule_file_unreadable");
+}
+
+/**
  * The workbench on the 定时 tab, over a fake client with rules.
  *
  * @sideEffects Renders.
@@ -93,7 +103,16 @@ describe("the 定时 tab (SPEC-0006, 界面 · 定时标签; 设计稿第 3 屏)
   });
 
   it("shows a paused rule dim with 已暂停, 恢复, 修改 and 删除; and the skipped triggers under its name", async () => {
-    const { screen } = await schedules([{ ...RULE, paused: true, nextAt: null, skipped: 1, place: "local_readonly" }]);
+    const { screen } = await schedules([
+      {
+        ...RULE,
+        paused: true,
+        nextAt: null,
+        skipped: 1,
+        place: "local_readonly",
+        last: { taskId: "tsk_1", status: "running", failed: false },
+      },
+    ]);
     await expect.element(screen.getByTestId("rule-result")).toHaveTextContent("已暂停");
     await expect.element(screen.getByTestId("rule-next")).toHaveTextContent("—");
     expect(screen.getByTestId("rule-row").element().textContent).toContain(
@@ -171,6 +190,23 @@ describe("the 定时 tab (SPEC-0006, 界面 · 定时标签; 设计稿第 3 屏)
     },
   );
 
+  it("words a rules file that could not be read when the template's 确认并保存规则 is pressed, and the template stays", async () => {
+    const { screen, taskStateOf } = await schedules([RULE], {
+      taskCommand: failingStart,
+    });
+    await screen.getByRole("button", { name: "修改" }).click();
+    taskStateOf("tsk_new").setState({
+      status: "ready",
+      task: view("new", [node("N1", { name: "查日志" })], [], {
+        status: "designing",
+        scheduleDraft: { when: RULE.when, place: "new_worktree", saved: false },
+      }),
+    });
+    await screen.getByRole("button", { name: "确认并保存规则" }).click();
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("定时规则文件读不出来，没有保存");
+    await expect.element(screen.getByRole("button", { name: "确认并保存规则" })).toBeVisible();
+  });
+
   it("asks about deleting on its own line below the row, so the name column keeps its width", async () => {
     const { screen } = await schedules([{ ...RULE, paused: true, nextAt: null, place: "local_readonly", skipped: 1 }]);
     const name = () => screen.getByTestId("rule-name").element().getBoundingClientRect().width;
@@ -182,6 +218,48 @@ describe("the 定时 tab (SPEC-0006, 界面 · 定时标签; 设计稿第 3 屏)
     // Below the row, inside the same card.
     expect(asking.top).toBeGreaterThanOrEqual(row.bottom);
     expect(asking.bottom).toBeLessThanOrEqual(screen.getByTestId("rule-card").element().getBoundingClientRect().bottom);
+  });
+
+  it.each([
+    ["Esc", async () => userEvent.keyboard("{Escape}")],
+    [
+      "不了",
+      async (screen: Awaited<ReturnType<typeof schedules>>["screen"]) =>
+        screen.getByRole("button", { name: "不了" }).click(),
+    ],
+  ])("puts the focus back on 删除 when %s closes the question", async (_name, close) => {
+    const { screen } = await schedules([{ ...RULE, paused: true, nextAt: null }]);
+    await screen.getByRole("button", { name: "删除" }).click();
+    expect(document.activeElement?.textContent).toBe("确定");
+
+    await close(screen);
+
+    await expect.poll(() => document.activeElement?.textContent).toBe("删除");
+  });
+
+  it("words a rules file the host cannot read in place of the list, with no rows and no empty-state words", async () => {
+    const { screen } = await schedules([RULE], {
+      watchSchedules: async () => {
+        throw new CommandError("schedule_file_unreadable");
+      },
+    });
+    await expect
+      .element(screen.getByTestId("schedules-unreadable"))
+      .toHaveTextContent("定时规则文件读不出来，没有保存");
+    expect(screen.getByTestId("rule-row").elements()).toHaveLength(0);
+    expect(screen.container.textContent).not.toContain("正在读取定时规则");
+    expect(screen.container.textContent).not.toContain("还没有定时规则");
+  });
+
+  it("does not wait for ever for rules that could not be asked for: a failed watch says so", async () => {
+    const { screen, schedules: store } = await schedules([], {
+      watchSchedules: async () => {
+        throw new Error("the connection is not open");
+      },
+    });
+    store.setState({ status: "loading", schedules: [], seq: -1 });
+    await expect.element(screen.getByTestId("schedules-unreadable")).toBeVisible();
+    expect(screen.container.textContent).not.toContain("正在读取定时规则");
   });
 
   it("puts the focus on 确定 when it asks, and Esc goes back", async () => {

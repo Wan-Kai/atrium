@@ -35,7 +35,8 @@ export type SchedulePush = SchedulesUpdatedEvent;
  *
  * @remarks
  * Without a service (the host follows another process's tasks, read-only) every command fails with `task_read_only`
- * and the list is empty. A push goes out after a rule changes and after an event of the task a rule last made (its
+ * and the list is empty. With a rules file that cannot be read, the list and every command fail with
+ * `schedule_file_unreadable`. A push goes out after a rule changes and after an event of the task a rule last made (its
  * status is in the row), one at a time in the order they came, each row worked out when its turn comes. The host sends
  * codes and states, never words.
  *
@@ -163,16 +164,20 @@ export function createScheduleCommands(options: {
    * @sideEffects none
    * @param scheduleId - The rule.
    * @returns The rule.
-   * @throws {CommandError} `task_read_only`, `schedule_not_found`.
+   * @throws {CommandError} `task_read_only`, `schedule_file_unreadable`, `schedule_not_found`.
    */
   function found(scheduleId: string): ScheduleRule {
-    const rule = writable().rule(scheduleId);
+    const service = writable();
+    if (service.unreadable()) throw new CommandError("schedule_file_unreadable");
+    const rule = service.rule(scheduleId);
     if (rule === undefined) throw new CommandError("schedule_not_found", { scheduleId });
     return rule;
   }
 
   return {
     async list(connectionId, watch) {
+      // A rules file nobody can read has no rules to show: the window shows the error in their place.
+      if (schedules?.unreadable() === true && watch !== false) throw new CommandError("schedule_file_unreadable");
       if (watch === true) watchers.add(connectionId);
       else if (watch === false) watchers.delete(connectionId);
       return { schedules: schedules === undefined ? [] : await rows(schedules) };

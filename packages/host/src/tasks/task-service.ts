@@ -62,6 +62,13 @@ export interface TaskService {
    */
   createScheduled(rule: ScheduleRule, name: string, firedAt: number, signal: AbortSignal): Promise<string>;
   /**
+   * The tasks of a schedule rule that are on disk.
+   *
+   * @remarks
+   * By `origin.ruleId`, whatever the rule's `lastTaskId` says (SPEC-0006, "T9 / T10 审查后用户定").
+   */
+  ofRule(ruleId: string): Promise<readonly Task[]>;
+  /**
    * Removes a schedule rule's template task and its conversation.
    *
    * @remarks
@@ -76,8 +83,10 @@ export interface TaskService {
    * Takes up every task of this host that was started and not finished, after the host restarted.
    *
    * @remarks
-   * SPEC-0006, "宿主重启" and "T9 定下的细节". Reads every task on disk, lifts the stale locks (`staleLocks`), then
-   * `recover`s the tasks in the order they were made. A task that needs pi (it is still going) waits for `ready`,
+   * SPEC-0006, "宿主重启" and "T9 定下的细节". First lets go of the task conversations whose task is not on disk and
+   * is not being made now (a crash between a conversation and its task), reads every task on disk, lifts the stale
+   * locks (`staleLocks`), then `recover`s the tasks in the order they were made. A task a schedule made that was never
+   * started (the host died inside `createScheduled`) is started, which is all it lacks. A task that needs pi (it is still going) waits for `ready`,
    * which is asked only when there is one; if pi is not ready they are left as they are, with one warning. One that
    * cannot be recovered is logged and does not stop the rest. Stops early when `signal` aborts.
    */
@@ -229,7 +238,10 @@ function runOf(task: Task, node: NodeId): NodeRun | undefined {
  */
 export interface TaskDesignPorts {
   /** The sessions: the source conversation's facts, the task conversation, and the lines written to both. */
-  readonly sessions: Pick<TaskSessions, "source" | "create" | "open" | "prompt" | "command" | "retire" | "recordOf">;
+  readonly sessions: Pick<
+    TaskSessions,
+    "source" | "create" | "open" | "prompt" | "command" | "retire" | "recordOf" | "conversations"
+  >;
   /**
    * Where a container is: its project, and the worktree to borrow when it is one Atrium (or git) made.
    *
@@ -294,6 +306,29 @@ function sameGraph(task: Task, reviewed: ReviewedGraph | undefined): void {
   }
 }
 
+/**
+ * Waits for work, or gives up with the signal's reason when the signal comes first.
+ *
+ * @remarks
+ * The work itself is not stopped, only waited for no longer; whatever it does after is its own business and its
+ * failure is not an unhandled rejection.
+ *
+ * @sideEffects Listens to the signal until either is done.
+ * @param work - What is under way.
+ * @param signal - When to stop waiting.
+ * @returns What the work gives.
+ * @throws {unknown} The signal's reason when it aborts first.
+ */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    if (signal.aborted) reject(signal.reason);
+    // Taken off the signal once the work is over, whichever way, so a long-lived signal keeps no listener.
+    const over = new AbortController();
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true, signal: over.signal });
+    work.then(resolve, reject).finally(() => over.abort());
+  });
+}
+
 /** The longest a task's first name may be. */
 const NAME_CHARS = 120;
 
@@ -326,6 +361,8 @@ export function createTaskService(options: {
   let converting: Promise<unknown> = Promise.resolve();
   /** Opens under way, so that the board's list and the recovery reading one task at once open its files once. */
   const opening = new Map<string, Promise<Task>>();
+  /** The ids of the tasks being made (a conversation exists, the task may not yet): not orphans to the sweep. */
+  const creating = new Set<string>();
   const newId = options.design.newId ?? ((): string => `tsk_${randomUUID().replaceAll("-", "").slice(0, 16)}`);
 
   /**
@@ -410,51 +447,56 @@ export function createTaskService(options: {
     if (model === null) throw new CommandError("task_state_invalid");
     const place = options.design.placement(source.containerId);
     const taskId = newId();
-    const conversation = await sessions.create({
-      containerId: source.containerId,
-      cwd: source.cwd,
-      name: taskId,
-      task: {
-        taskId,
-        role: "conversation",
-        startOn: {
-          providerId: model.providerId,
-          modelId: model.modelId,
-          thinkingLevel: model.thinking,
-        },
-      },
-    });
-    const task = newDesignTask({
-      id: taskId,
-      name: (source.name ?? "").slice(0, NAME_CHARS),
-      projectId: place.projectId,
-      sourceDir: source.cwd,
-      originSessionId: sessionId,
-      taskSessionId: conversation,
-      model,
-      borrowed: place.borrowed,
-      now: options.clock.now(),
-    });
-    await service.create(task);
+    creating.add(taskId);
     try {
-      await sessions.prompt(
-        conversation,
-        buildDesignPrompt({
-          sourceSessionId: sessionId,
-          scope: scope ?? null,
-          projectless: place.projectId === null,
-        }),
-        stopping.signal,
-      );
-    } catch (error) {
-      await runner.submit(taskId, { type: "abandoned" });
-      await runner.detach(taskId);
-      await rm(join(options.root, taskId), { recursive: true, force: true });
-      await sessions.retire(conversation).catch(() => undefined);
-      throw error;
+      const conversation = await sessions.create({
+        containerId: source.containerId,
+        cwd: source.cwd,
+        name: taskId,
+        task: {
+          taskId,
+          role: "conversation",
+          startOn: {
+            providerId: model.providerId,
+            modelId: model.modelId,
+            thinkingLevel: model.thinking,
+          },
+        },
+      });
+      const task = newDesignTask({
+        id: taskId,
+        name: (source.name ?? "").slice(0, NAME_CHARS),
+        projectId: place.projectId,
+        sourceDir: source.cwd,
+        originSessionId: sessionId,
+        taskSessionId: conversation,
+        model,
+        borrowed: place.borrowed,
+        now: options.clock.now(),
+      });
+      await service.create(task);
+      try {
+        await sessions.prompt(
+          conversation,
+          buildDesignPrompt({
+            sourceSessionId: sessionId,
+            scope: scope ?? null,
+            projectless: place.projectId === null,
+          }),
+          stopping.signal,
+        );
+      } catch (error) {
+        await runner.submit(taskId, { type: "abandoned" });
+        await runner.detach(taskId);
+        await rm(join(options.root, taskId), { recursive: true, force: true });
+        await sessions.retire(conversation).catch(() => undefined);
+        throw error;
+      }
+      await markSource(sessionId, taskId, "converted");
+      return { taskId };
+    } finally {
+      creating.delete(taskId);
     }
-    await markSource(sessionId, taskId, "converted");
-    return { taskId };
   }
 
   const service: TaskService = {
@@ -499,46 +541,57 @@ export function createTaskService(options: {
       if (problem !== undefined) throw graphError(problem);
       const taskId = newId();
       const { sessions } = options.design;
-      const conversation = await sessions.create({
-        containerId: rule.containerId,
-        cwd: rule.sourceDir,
-        name: taskId,
-        task: {
-          taskId,
-          role: "conversation",
-          startOn: {
-            providerId: rule.model.providerId,
-            modelId: rule.model.modelId,
-            thinkingLevel: rule.model.thinking,
-          },
-        },
-      });
+      creating.add(taskId);
       try {
-        await service.create(
-          newScheduledTask({
-            id: taskId,
-            name,
-            projectId: rule.projectId,
-            sourceDir: rule.sourceDir,
-            ruleId: rule.id,
-            firedAt,
-            taskSessionId: conversation,
-            model: rule.model,
-            summary: rule.summary,
-            nodes: rule.graph.nodes,
-            edges: rule.graph.edges,
-            now: options.clock.now(),
-          }),
-        );
-        await runner.submit(taskId, { type: "started" });
-      } catch (error) {
-        await runner.submit(taskId, { type: "abandoned" }).catch(() => undefined);
-        await runner.detach(taskId).catch(() => undefined);
-        await rm(join(options.root, taskId), { recursive: true, force: true });
-        await sessions.retire(conversation).catch(() => undefined);
-        throw error;
+        const conversation = await sessions.create({
+          containerId: rule.containerId,
+          cwd: rule.sourceDir,
+          name: taskId,
+          task: {
+            taskId,
+            role: "conversation",
+            startOn: {
+              providerId: rule.model.providerId,
+              modelId: rule.model.modelId,
+              thinkingLevel: rule.model.thinking,
+            },
+          },
+        });
+        try {
+          await service.create(
+            newScheduledTask({
+              id: taskId,
+              name,
+              projectId: rule.projectId,
+              sourceDir: rule.sourceDir,
+              ruleId: rule.id,
+              firedAt,
+              taskSessionId: conversation,
+              model: rule.model,
+              summary: rule.summary,
+              nodes: rule.graph.nodes,
+              edges: rule.graph.edges,
+              now: options.clock.now(),
+            }),
+          );
+          // The node's first prompt waits for pi, which may never answer; the host that is closing must not wait for it.
+          await untilAborted(runner.submit(taskId, { type: "started" }), signal);
+        } catch (error) {
+          // A host that is closing leaves the task as it is: the next start finishes what was begun (`recoverAll`).
+          if (signal.aborted) throw error;
+          await runner.submit(taskId, { type: "abandoned" }).catch(() => undefined);
+          await runner.detach(taskId).catch(() => undefined);
+          await rm(join(options.root, taskId), { recursive: true, force: true });
+          await sessions.retire(conversation).catch(() => undefined);
+          throw error;
+        }
+      } finally {
+        creating.delete(taskId);
       }
       return taskId;
+    },
+    async ofRule(ruleId) {
+      return (await service.list()).filter((task) => task.origin.kind === "schedule" && task.origin.ruleId === ruleId);
     },
     async discardTemplate(taskId) {
       const task = await service.lookup(taskId);
@@ -554,9 +607,26 @@ export function createTaskService(options: {
     task: (taskId) => runner.task(taskId),
     recover: (taskId) => runner.recover(taskId),
     async recoverAll({ signal, staleLocks, ready }) {
+      // Conversations and the tasks being made are read before the directory is: a task finished in between is then
+      // seen on disk, and one begun in between is not in the conversations.
+      const conversations = options.design.sessions.conversations();
+      const making = new Set(creating);
+      const present = new Set(
+        (await readdir(options.root).catch(() => [] as string[])).filter((one) => TASK_DIRECTORY.test(one)),
+      );
+      for (const conversation of conversations) {
+        if (signal.aborted) return;
+        if (present.has(conversation.taskId) || making.has(conversation.taskId)) continue;
+        await options.design.sessions.retire(conversation.sessionId).catch((error: unknown) => {
+          options.logger.warn(
+            { err: error instanceof Error ? error.name : "unknown" },
+            "orphan conversation not archived",
+          );
+        });
+      }
       const all = (await service.list()).toSorted((a, b) => a.createdAt - b.createdAt);
       if (staleLocks && !signal.aborted) {
-        const lifted = await runner.clearStaleLocks().catch((error: unknown) => {
+        const lifted = await runner.clearStaleLocks(present).catch((error: unknown) => {
           options.logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "stale task locks not cleared");
           return 0;
         });
@@ -566,18 +636,22 @@ export function createTaskService(options: {
       let left = 0;
       for (const task of all) {
         if (signal.aborted) return;
-        if (task.startedAt === null) continue;
+        // A task a schedule made has no designing: one that never started is what a crash inside `createScheduled` left.
+        const unfinished = task.origin.kind === "schedule" && task.startedAt === null && !task.cancelled;
+        if (task.startedAt === null && !unfinished) continue;
         const going = task.endedAt === null;
         if (going && !(await (piReady ??= ready()))) {
           left += 1;
           continue;
         }
-        await service.recover(task.id).catch((error: unknown) => {
-          options.logger.warn(
-            { err: error instanceof Error ? error.name : "unknown" },
-            "a task could not be recovered",
-          );
-        });
+        await (unfinished ? service.submit(task.id, { type: "started" }) : service.recover(task.id)).catch(
+          (error: unknown) => {
+            options.logger.warn(
+              { err: error instanceof Error ? error.name : "unknown" },
+              "a task could not be recovered",
+            );
+          },
+        );
       }
       if (left > 0) options.logger.warn({ tasks: left }, "tasks not recovered: pi is not ready");
     },

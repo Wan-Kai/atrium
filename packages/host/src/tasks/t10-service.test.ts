@@ -76,6 +76,7 @@ async function built(
     source: () => undefined,
     transcript: () => Promise.resolve([] as LogEntry[]),
     deliver: () => Promise.resolve(),
+    conversations: () => [],
     retire(sessionId) {
       asked.retired.push(sessionId);
       return options.retire?.(sessionId) ?? Promise.resolve();
@@ -120,6 +121,7 @@ async function built(
         open: () => Promise.resolve(),
         prompt: () => Promise.resolve(),
         command: () => Promise.resolve(),
+        conversations: () => [],
         retire: (sessionId) => sessions.retire(sessionId),
         recordOf: () => undefined,
       },

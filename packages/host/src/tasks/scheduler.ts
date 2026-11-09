@@ -99,13 +99,16 @@ function failRun(draft: Draft, run: NodeRun, reason: FailureReason): void {
  * @param draft - The step.
  * @param run - The waiting run.
  * @param text - What to tell the node.
+ * @param voided - The question was voided by a restart: if the node is held, it is told so when it is resumed.
  */
-function releaseWaiting(draft: Draft, run: NodeRun, text: string): void {
+function releaseWaiting(draft: Draft, run: NodeRun, text: string, voided = false): void {
   run.waitingFor = null;
   run.pendingDone = null;
   delete run.graphRequest;
   if (isHeldBack(draft.task)) {
     run.state = "held";
+    // The line it would have had is kept for when it is resumed.
+    if (voided) run.afterRestart = { ...run.afterRestart, questionVoid: true };
     return;
   }
   run.state = "running";
@@ -907,32 +910,41 @@ function onMergeBlocked(draft: Draft, event: Of<"merge_blocked">): boolean {
  *
  * @remarks
  * SPEC-0006, "宿主重启" 2. A running node's pi is gone: it resumes (or, if the task is held back, is
- * held). A question that was waiting is void and the node resumes. A graph change that was asked for
- * but not yet proposed wakes the task conversation again. A merge in flight is sent again; the runner
+ * held, and told when it is really resumed: `afterRestart`). A question that was waiting is void and the node
+ * resumes (held and told later, likewise). A graph change that was asked for but not yet proposed wakes the task
+ * conversation again, once for all the nodes that wait. A node in `live`, one this process has spoken to since it
+ * started, is left alone. A merge in flight is sent again; the runner
  * recognises a branch that is already merged. A `node_done` whose turn had already ended is settled by
  * the runner, with a `node_settled` event before this one.
  *
  * @sideEffects Changes the draft's task and actions.
  * @param draft - The step.
+ * @param live - The nodes this process had already spoken to, which are left as they are.
  * @returns Whether it applied (always).
  */
-function onHostRestarted(draft: Draft): boolean {
+function onHostRestarted(draft: Draft, live: readonly string[] = []): boolean {
   const { task } = draft;
   const heldBack = isHeldBack(task);
+  let woken = false;
   for (const { node } of nodeStates(task)) {
     const run = liveRun(task, node.id);
-    if (run === undefined) continue;
+    // This process has spoken to the node since it started: the restart is no news, and a question it answered is not void.
+    if (run === undefined || live.includes(node.id)) continue;
     if (run.state === "running" && run.commitPending === true) {
       // Its commit was asked for and may be lost; the action recognises a commit already made.
       emit(draft, { kind: "commit_node", node: node.id, attempt: run.attempt });
     } else if (run.state === "running") {
       run.pendingDone = null;
-      if (heldBack) run.state = "held";
-      else emit(draft, { kind: "resume_node", node: node.id, text: RESUME_RESTARTED });
+      if (heldBack) {
+        run.state = "held";
+        run.afterRestart = { ...run.afterRestart, cutOff: true };
+      } else emit(draft, { kind: "resume_node", node: node.id, text: RESUME_RESTARTED });
     } else if (run.state === "waiting" && run.waitingFor === "question") {
-      releaseWaiting(draft, run, RESUME_QUESTION_VOID);
+      releaseWaiting(draft, run, RESUME_QUESTION_VOID, true);
     } else if (run.state === "waiting" && run.waitingFor === "graph_change" && task.pendingGraph === null) {
-      emit(draft, { kind: "wake_task_conversation", text: wakeForGraphChange(node.id) });
+      // One wake for the lot: it names every node that waits for a graph change (the runner writes the note).
+      if (!woken) emit(draft, { kind: "wake_task_conversation", text: wakeForGraphChange(node.id) });
+      woken = true;
     } else if (run.merging === true) {
       emit(draft, { kind: "merge", node: node.id });
     }
@@ -1020,7 +1032,7 @@ function apply(draft: Draft): boolean {
     case "merge_blocked":
       return onMergeBlocked(draft, event);
     case "host_restarted":
-      return onHostRestarted(draft);
+      return onHostRestarted(draft, event.live);
     case "created":
     case "workspace_creating":
     case "merge_started":

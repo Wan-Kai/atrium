@@ -1,4 +1,5 @@
-import { GIT_SCENE_ENV, type GitScene, createGitScene } from "@atrium/testkit";
+import { GIT_SCENE_ENV, type GitScene, createGitScene, plantTraps } from "@atrium/testkit";
+import { readdirSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
@@ -29,7 +30,8 @@ async function setup() {
   const dest = await scene.worktree("copy");
   const { logger, records } = recordingTracing();
   const git = createGitRunner({ env: GIT_SCENE_ENV, clock: systemClock, resources: new ResourceTracker() });
-  const copy = () => copyWorktreeInclude({ git, sourceDir: scene.repo, destDir: dest, logger });
+  const copy = (more: Partial<Parameters<typeof copyWorktreeInclude>[0]> = {}) =>
+    copyWorktreeInclude({ git, sourceDir: scene.repo, destDir: dest, logger, ...more });
   /**
    * Writes the files that list and ignore, in the repository.
    *
@@ -171,5 +173,112 @@ describe("copyWorktreeInclude", () => {
 
     expect(result).toStrictEqual({ copied: INCLUDE_COUNT_LIMIT, skipped: 1 });
     expect(await readdir(join(dest, "many"))).toHaveLength(INCLUDE_COUNT_LIMIT);
+  });
+});
+
+/**
+ * The paths beside the worktree that are the copy's staging area.
+ *
+ * @sideEffects none
+ * @param dest - The worktree.
+ * @returns The staging directory.
+ */
+function stagingOf(dest: string): string {
+  return `${dest}.atrium-include`;
+}
+
+/**
+ * A test seam that stops the host, as a kill would, when half of one file is written.
+ *
+ * @sideEffects Aborts the controller when it is called for that file.
+ * @param kill - What stops the copy.
+ * @param file - The file to stop in the middle of.
+ * @returns The seam.
+ */
+function abortOn(kill: AbortController, file: string): (path: string) => void {
+  return (path) => {
+    if (path === file) kill.abort();
+  };
+}
+
+describe("copyWorktreeInclude: a copy that dies in the middle (SPEC-0006, T9 / T10 审查后用户定)", () => {
+  it("leaves no half-written file where the file belongs when it is stopped halfway, and the next copy finishes the job", async () => {
+    const { scene, dest, copy, rules } = await setup();
+    await rules([".env", "big.key"], [".env", "big.key"]);
+    await writeFile(join(scene.repo, ".env"), "SECRET=1\n");
+    await writeFile(join(scene.repo, "big.key"), "k".repeat(10_000));
+    const kill = new AbortController();
+
+    // The "kill": the host stops after half of the second file is written.
+    await expect(
+      copy({
+        signal: kill.signal,
+        hooks: {
+          midWrite: abortOn(kill, "big.key"),
+        },
+      }),
+    ).rejects.toThrow(/abort/iu);
+
+    expect(await readFile(join(dest, ".env"), "utf8")).toBe("SECRET=1\n");
+    await expect(stat(join(dest, "big.key"))).rejects.toMatchObject({ code: "ENOENT" });
+
+    // Nothing is where a copy was left half done: the next copy takes the file whole and leaves the other as it is.
+    expect(await copy()).toStrictEqual({ copied: 1, skipped: 1 });
+    expect(await readFile(join(dest, "big.key"), "utf8")).toBe("k".repeat(10_000));
+    expect(await readFile(join(dest, ".env"), "utf8")).toBe("SECRET=1\n");
+    await expect(stat(stagingOf(dest))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("clears what a host that was killed outright left in the staging area, and never takes it for a copy", async () => {
+    const { scene, dest, copy, rules } = await setup();
+    await rules([".env"], [".env"]);
+    await writeFile(join(scene.repo, ".env"), "SECRET=1\n");
+    // Left by a kill -9 in the middle of a write: the staging area holds half a file.
+    await mkdir(stagingOf(dest), { recursive: true });
+    await writeFile(join(stagingOf(dest), "half"), "SECR");
+
+    expect(await copy()).toStrictEqual({ copied: 1, skipped: 0 });
+
+    expect(await readFile(join(dest, ".env"), "utf8")).toBe("SECRET=1\n");
+    await expect(stat(stagingOf(dest))).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await readdir(dest)).toSorted()).toStrictEqual([".env", ".git", "README.md"].toSorted());
+  });
+
+  it("stages nothing inside the worktree: while a file is half written the worktree holds no trace of it", async () => {
+    const { scene, dest, copy, rules } = await setup();
+    await rules([".env"], [".env"]);
+    await writeFile(join(scene.repo, ".env"), "SECRET=1\n");
+    const seen: string[][] = [];
+
+    await copy({ hooks: { midWrite: () => void seen.push(readdirSync(dest).toSorted()) } });
+
+    expect(seen).toStrictEqual([[".git", "README.md"]]);
+  });
+
+  it("keeps a file the user already has in its place, whole", async () => {
+    const { scene, dest, copy, rules } = await setup();
+    await rules([".env"], [".env"]);
+    await writeFile(join(scene.repo, ".env"), "SECRET=1\n");
+    await writeFile(join(dest, ".env"), "mine\n");
+
+    expect(await copy()).toStrictEqual({ copied: 0, skipped: 1 });
+
+    expect(await readFile(join(dest, ".env"), "utf8")).toBe("mine\n");
+    await expect(stat(stagingOf(dest))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+describe("copyWorktreeInclude: the repository's configuration is not run (security.md, 任务)", () => {
+  it("does not run the source repository's fsmonitor or filters while it lists what to copy", async () => {
+    const { scene, dest, copy, rules } = await setup();
+    const traps = await plantTraps(scene, ["fsmonitor", "filter"]);
+    await rules([".env"], [".env"]);
+    await writeFile(join(scene.repo, ".env"), "SECRET=1\n");
+    await traps.reset();
+
+    expect(await copy()).toStrictEqual({ copied: 1, skipped: 0 });
+
+    expect(await traps.ran()).toStrictEqual([]);
+    expect(await readFile(join(dest, ".env"), "utf8")).toBe("SECRET=1\n");
   });
 });

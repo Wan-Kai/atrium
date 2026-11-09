@@ -20,6 +20,13 @@ export const HEARTBEAT_MS = 60_000;
 export interface ScheduleTasks {
   /** A task by id, taken up from disk if it is there and not held; `undefined` when there is none. */
   lookup(taskId: string): Promise<Task | undefined>;
+  /**
+   * The tasks a rule made that are on disk, whatever `lastTaskId` says.
+   *
+   * @remarks
+   * A host that died after a task was started and before the rule recorded it leaves a task the rule does not know.
+   */
+  ofRule(ruleId: string): Promise<readonly Task[]>;
   /** Makes a started task of the rule and answers its id; see `TaskService.createScheduled`. */
   createScheduled(rule: ScheduleRule, name: string, firedAt: number, signal: AbortSignal): Promise<string>;
   /** Removes a template task and its conversation; a task that is not there is not an error. */
@@ -47,25 +54,32 @@ export interface ScheduleService {
    * Makes up for the triggers missed while the host was off (once per rule), and starts the clock.
    *
    * @remarks
-   * Reads the rules first if `load` has not. Resolves when the catch-up is done.
+   * Reads the rules first if `load` has not; then each rule's `lastTaskId` is made to agree with the tasks on disk
+   * (a crash between a task starting and the rule recording it). Until `start`, commands change and save rules but
+   * set no timer. Resolves when the catch-up is done. With a rules file that cannot be read it starts nothing.
    */
   start(): Promise<void>;
   /**
    * Saves the rule a template task stands for: a new one, or the changed one when a rule was saved from this template.
    *
    * @remarks
-   * Nothing runs now. A changed rule keeps its place in time (when it last fired, whether it is paused).
+   * Nothing runs now. A changed rule keeps whether it is paused, and counts from the moment of saving: what fell due
+   * before is not made up (SPEC-0006, "T9 / T10 审查后用户定"). The template is read again when its turn comes, so a
+   * save queued behind a deletion fails with `schedule_not_found` instead of making the rule again. Fails with
+   * `schedule_file_unreadable` while the rules file cannot be read.
    */
   confirm(template: Task, container: string): Promise<ScheduleRule>;
   /** Whether a rule was saved from this template task. */
   saved(templateTaskId: string): boolean;
+  /** Whether the rules file could not be read: nothing is saved or started until the file is dealt with. */
+  unreadable(): boolean;
   /** Pauses a rule; `task_state_invalid` if it is paused. */
   pause(ruleId: string): Promise<void>;
   /** Lets a paused rule go on from now; `task_state_invalid` if it is not paused. */
   resume(ruleId: string): Promise<void>;
-  /** Makes a task of the rule now, whatever the last one is doing; answers its id. */
+  /** Makes a task of the rule now, whatever the last one is doing; answers its id, and it counts as the rule's last task. */
   runNow(ruleId: string): Promise<string>;
-  /** Deletes a rule and its template task. */
+  /** Deletes a rule and its template task (the template first, so a crash cannot leave a template nobody can see). */
   remove(ruleId: string): Promise<void>;
   /** Calls `listener` after a rule is added, changed or removed; returns a function that stops it. */
   onChange(listener: () => void): () => void;
@@ -103,7 +117,8 @@ export function scheduledTaskName(rule: Pick<ScheduleRule, "name" | "when">, at:
  * The time after which a trigger of the rule counts.
  *
  * @remarks
- * A rule never makes up a trigger from before it was made or before its last one.
+ * A rule never makes up a trigger from before it was made or before its last one. An interval counts from the same
+ * moment, so that a rule changed or resumed goes on from then (SPEC-0006, "T9 / T10 审查后用户定").
  *
  * @sideEffects none
  * @param rule - The rule.
@@ -111,6 +126,35 @@ export function scheduledTaskName(rule: Pick<ScheduleRule, "name" | "when">, at:
  */
 function sinceOf(rule: ScheduleRule): number {
   return Math.max(rule.lastFiredAt ?? 0, rule.createdAt);
+}
+
+/**
+ * The time a task of a rule was fired for.
+ *
+ * @remarks
+ * What puts a rule's tasks in order when `lastTaskId` is made to agree with the disk; a run now is fired for the
+ * moment it was asked.
+ *
+ * @sideEffects none
+ * @param task - A task of a rule.
+ * @returns The `firedAt` of its origin; 0 for a task that no rule made.
+ */
+function firedAtOf(task: Task): number {
+  return task.origin.kind === "schedule" ? task.origin.firedAt : 0;
+}
+
+/**
+ * Whether a task has not ended.
+ *
+ * @remarks
+ * SPEC-0006, "定时 · 到点": `done` and `cancelled` are the two ends; waiting for the user and stopped are not.
+ *
+ * @sideEffects none
+ * @param task - The task.
+ * @returns Whether it is still going.
+ */
+function isGoing(task: Task): boolean {
+  return !["done", "cancelled"].includes(deriveStatus(task));
 }
 
 /**
@@ -136,10 +180,18 @@ export function createScheduleService(options: {
   readonly timeZone?: string;
   /** A fresh rule id; `rul_` and a name. */
   readonly newId?: () => string;
+  /**
+   * Whether pi can run, asked when a trigger is due.
+   *
+   * @remarks
+   * While it cannot, a trigger waits: it is not made and not spent (SPEC-0006, "T9 / T10 审查后用户定"). Always ready when left out.
+   */
+  readonly ready?: () => Promise<boolean>;
 }): ScheduleService {
   const { clock, logger, tasks } = options;
   const timeZone = options.timeZone ?? localTimeZone();
   const newId = options.newId ?? ((): string => `rul_${randomUUID().replaceAll("-", "").slice(0, 16)}`);
+  const ready = options.ready ?? ((): Promise<boolean> => Promise.resolve(true));
   const stopping = new AbortController();
   const listeners = new Set<() => void>();
   let rules: ScheduleRule[] = [];
@@ -147,6 +199,12 @@ export function createScheduleService(options: {
   /** The file could not be read: nothing is written over it. */
   let unreadable = false;
   let loaded = false;
+  /** `start` has run: only then does a timer run the rules by itself. */
+  let started = false;
+  /** A trigger was due and pi was not ready, so it waits; the timer then looks again at the heartbeat. */
+  let waitingForPi = false;
+  /** The warning that triggers wait for pi was logged, until pi is ready again. */
+  let warnedAboutPi = false;
   let cancelTimer: (() => void) | null = null;
   let closed = false;
   let chain: Promise<unknown> = Promise.resolve();
@@ -168,15 +226,15 @@ export function createScheduleService(options: {
   }
 
   /**
-   * Writes the rules down, unless the file was unreadable.
+   * Writes the rules down.
    *
    * @remarks
-   * A file that could not be read is not written over, so a bad file is kept for the user to look at.
+   * Never reached with a file that could not be read: every command that changes a rule refuses first (`writable`),
+   * and `start` does nothing, so a bad file is kept for the user to look at.
    *
    * @sideEffects Replaces the file.
    */
   async function save(): Promise<void> {
-    if (unreadable) return;
     await writeRules(options.file, rules, rest);
   }
 
@@ -210,16 +268,20 @@ export function createScheduleService(options: {
    *
    * @remarks
    * SPEC-0006: not `done` and not `cancelled` is going, a task waiting for the user or stopped included; a task that
-   * is gone counts as ended.
+   * is gone counts as ended. Besides the task `lastTaskId` names, any task on disk made by this rule that has not
+   * ended counts (the host died after starting it and before recording it), and so does one "立即跑一次" made.
    *
-   * @sideEffects Reads the task's files if it is not held.
+   * @sideEffects Reads the tasks' files if they are not held.
    * @param rule - The rule.
    * @returns Whether the last task has not ended.
    */
   async function lastIsGoing(rule: ScheduleRule): Promise<boolean> {
-    if (rule.lastTaskId === null) return false;
-    const last = await tasks.lookup(rule.lastTaskId);
-    return last !== undefined && !["done", "cancelled"].includes(deriveStatus(last));
+    if (rule.lastTaskId !== null) {
+      const last = await tasks.lookup(rule.lastTaskId);
+      if (last !== undefined && isGoing(last)) return true;
+    }
+    // A task the rule made but did not get to record (the host died in between) is also its last.
+    return (await tasks.ofRule(rule.id)).some(isGoing);
   }
 
   /**
@@ -261,18 +323,31 @@ export function createScheduleService(options: {
    *
    * @remarks
    * However many triggers a rule missed (the host was off, the Mac slept), the latest one is run once
-   * (SPEC-0006, "定时 · 错过"). On time or late, it is the same question: is there a trigger in (last, now].
+   * (SPEC-0006, "定时 · 错过"). On time or late, it is the same question: is there a trigger in (last, now]. A trigger
+   * that is due while pi cannot run is left as it is (`waitingForPi`), with one warning until pi is ready again.
    *
-   * @sideEffects As `fire`.
+   * @sideEffects As `fire`; asks whether pi is ready.
    */
   async function dueNow(): Promise<void> {
     let any = false;
+    waitingForPi = false;
     for (const rule of rules) {
       if (closed) break;
       const current = rules.find((candidate) => candidate.id === rule.id);
       if (current === undefined || current.paused) continue;
-      const due = lastDue(current.when, sinceOf(current), clock.now(), current.createdAt, timeZone);
+      const due = lastDue(current.when, sinceOf(current), clock.now(), sinceOf(current), timeZone);
       if (due === null) continue;
+      // A trigger needs pi to start the task's conversation. Without it the trigger is not made and not spent:
+      // the next start with pi ready makes it up like any missed one.
+      if (!(await ready())) {
+        waitingForPi = true;
+        if (!warnedAboutPi) {
+          warnedAboutPi = true;
+          logger.warn({ ruleId: current.id }, "schedule trigger waits for pi");
+        }
+        continue;
+      }
+      warnedAboutPi = false;
       any = true;
       await fire(current, due);
     }
@@ -283,19 +358,21 @@ export function createScheduleService(options: {
    * Sets the timer for the next trigger, or for none.
    *
    * @remarks
-   * There is a timer only while some rule is not paused and the service is open.
+   * There is a timer only while some rule is not paused, the service is open and `start` has run.
    *
    * @sideEffects Cancels and sets the timer.
    */
   function arm(): void {
     cancelTimer?.();
     cancelTimer = null;
-    if (closed) return;
+    // Before `start` the host is still taking its tasks up again; the rules do not run by themselves yet.
+    if (closed || !started) return;
     const next = rules
       .filter((rule) => !rule.paused)
-      .map((rule) => nextDue(rule.when, sinceOf(rule), rule.createdAt, timeZone));
+      .map((rule) => nextDue(rule.when, sinceOf(rule), sinceOf(rule), timeZone));
     if (next.length === 0) return;
-    const wait = Math.min(Math.max(Math.min(...next) - clock.now(), 1), HEARTBEAT_MS);
+    // A trigger that waits for pi is overdue for good; looking again at once would spin, so it waits for the heartbeat.
+    const wait = waitingForPi ? HEARTBEAT_MS : Math.min(Math.max(Math.min(...next) - clock.now(), 1), HEARTBEAT_MS);
     cancelTimer = trackedTimeout(clock, options.resources, wake, wait);
   }
 
@@ -338,6 +415,48 @@ export function createScheduleService(options: {
   }
 
   /**
+   * Reads the file if that is not done, and refuses when it cannot be read.
+   *
+   * @remarks
+   * Every command that would change a rule starts here: with a rules file nobody can read, nothing is installed in
+   * memory, nothing is saved and no timer is set (SPEC-0006, "T9 / T10 审查后用户定").
+   *
+   * @sideEffects Reads the file the first time.
+   * @throws {CommandError} `schedule_file_unreadable`.
+   */
+  async function writable(): Promise<void> {
+    await readOnce();
+    if (unreadable) throw new CommandError("schedule_file_unreadable");
+  }
+
+  /**
+   * Makes each rule's `lastTaskId` agree with the tasks on disk.
+   *
+   * @remarks
+   * The host can die after a task has started and before the rule records it; the latest task the rule made (by the
+   * time it was fired for) is its last, whatever the file says. Writes only if something changed.
+   *
+   * @sideEffects Reads the tasks' files; writes the rules.
+   */
+  async function reconcile(): Promise<void> {
+    let changedAny = false;
+    for (const rule of rules) {
+      const mine = await tasks.ofRule(rule.id);
+      const newest = mine.toSorted((a, b) => firedAtOf(b) - firedAtOf(a) || b.createdAt - a.createdAt)[0];
+      if (newest === undefined || newest.id === rule.lastTaskId) continue;
+      // A last task that is not on disk any more gives way to the one that is; one that is as new stays.
+      const known = mine.find((task) => task.id === rule.lastTaskId);
+      if (known !== undefined && firedAtOf(known) >= firedAtOf(newest)) continue;
+      put({ ...rule, lastTaskId: newest.id, skipped: 0 });
+      changedAny = true;
+    }
+    if (changedAny) {
+      await save();
+      changed();
+    }
+  }
+
+  /**
    * Finds a rule or fails.
    *
    * @remarks
@@ -357,40 +476,54 @@ export function createScheduleService(options: {
   const service: ScheduleService = {
     list: () => rules,
     rule: (ruleId) => rules.find((rule) => rule.id === ruleId),
-    nextAt: (rule) => (rule.paused ? null : nextDue(rule.when, sinceOf(rule), rule.createdAt, timeZone)),
+    nextAt: (rule) => (rule.paused ? null : nextDue(rule.when, sinceOf(rule), sinceOf(rule), timeZone)),
     saved: (templateTaskId) => rules.some((rule) => rule.templateTaskId === templateTaskId),
+    unreadable: () => unreadable,
     load: () => enqueue(readOnce),
     start() {
       return enqueue(async () => {
         await readOnce();
+        if (unreadable || closed) return;
+        await reconcile();
+        started = true;
         await dueNow();
         arm();
       });
     },
     confirm(template, container) {
+      // Whether this template had a rule when it was saved: if one was there and is gone when this turn comes, the
+      // rule was deleted in between and must not be made again from a template that is gone too.
+      const knewId = rules.find((rule) => rule.templateTaskId === template.id)?.id;
       return enqueue(async () => {
-        const draft = template.scheduleDraft;
-        const graph = template.graphs.find((one) => one.version === template.activeGraph);
-        if (draft === null || graph === undefined || template.projectId === null) {
+        await writable();
+        // The template as it is now, not as the caller held it: a deletion queued ahead of this save took it away.
+        const current = await tasks.lookup(template.id);
+        const known = rules.find((rule) => rule.templateTaskId === template.id);
+        if (current === undefined || (knewId !== undefined && known === undefined)) {
+          throw new CommandError("schedule_not_found", { scheduleId: knewId ?? template.id });
+        }
+        const draft = current.scheduleDraft;
+        const graph = current.graphs.find((one) => one.version === current.activeGraph);
+        if (draft === null || graph === undefined || current.projectId === null) {
           throw new CommandError("task_state_invalid");
         }
-        const known = rules.find((rule) => rule.templateTaskId === template.id);
         const made: ScheduleRule = {
           id: known?.id ?? newId(),
-          name: template.name,
-          projectId: template.projectId,
+          name: current.name,
+          projectId: current.projectId,
           containerId: container,
-          sourceDir: template.sourceDir,
+          sourceDir: current.sourceDir,
           when: draft.when,
           place: draft.place,
-          summary: template.summary,
+          summary: current.summary,
           graph: { nodes: graph.nodes, edges: graph.edges },
-          model: template.model,
-          templateTaskId: template.id,
-          taskSessionId: template.taskSessionId,
+          model: current.model,
+          templateTaskId: current.id,
+          taskSessionId: current.taskSessionId,
           paused: known?.paused ?? false,
           createdAt: known?.createdAt ?? clock.now(),
-          lastFiredAt: known?.lastFiredAt ?? null,
+          // A changed rule counts from now: what fell due before the edit is not made up, and saving never fires.
+          lastFiredAt: known === undefined ? null : Math.max(known.lastFiredAt ?? 0, clock.now()),
           lastTaskId: known?.lastTaskId ?? null,
           skipped: known?.skipped ?? 0,
         };
@@ -403,6 +536,7 @@ export function createScheduleService(options: {
     },
     pause(ruleId) {
       return enqueue(async () => {
+        await writable();
         const rule = need(ruleId);
         if (rule.paused) throw new CommandError("task_state_invalid");
         put({ ...rule, paused: true });
@@ -413,6 +547,7 @@ export function createScheduleService(options: {
     },
     resume(ruleId) {
       return enqueue(async () => {
+        await writable();
         const rule = need(ruleId);
         if (!rule.paused) throw new CommandError("task_state_invalid");
         // What fell due while it was paused is not made up: the rule goes on from now.
@@ -424,10 +559,12 @@ export function createScheduleService(options: {
     },
     runNow(ruleId) {
       return enqueue(async () => {
+        await writable();
         const rule = need(ruleId);
         const now = clock.now();
         const taskId = await tasks.createScheduled(rule, scheduledTaskName(rule, now, timeZone), now, stopping.signal);
         const current = rules.find((candidate) => candidate.id === ruleId) ?? rule;
+        // The task counts as the rule's last: while it goes, the next trigger is skipped like after any other.
         put({ ...current, lastTaskId: taskId, skipped: 0 });
         await save();
         changed();
@@ -436,14 +573,17 @@ export function createScheduleService(options: {
     },
     remove(ruleId) {
       return enqueue(async () => {
+        await writable();
         const rule = need(ruleId);
+        // The template goes first: a crash between the two leaves a rule whose template is gone (which is allowed: the
+        // rule still fires and "修改" says so), never a template no rule owns and nobody can see.
+        await tasks.discardTemplate(rule.templateTaskId).catch((error: unknown) => {
+          logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "template task not removed");
+        });
         rules = rules.filter((candidate) => candidate.id !== ruleId);
         await save();
         arm();
         changed();
-        await tasks.discardTemplate(rule.templateTaskId).catch((error: unknown) => {
-          logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "template task not removed");
-        });
       });
     },
     onChange(listener) {

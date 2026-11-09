@@ -50,15 +50,17 @@ export interface TaskCommands {
  * Whether the task list shows a task.
  *
  * @remarks
- * A schedule rule's template task is not a task to run, so it is not in the list (SPEC-0006, "定时"); the rule's tab
- * opens it by id.
+ * A schedule rule's template task is not a task to run, so once the rule is saved it is not in the list (SPEC-0006,
+ * "定时"); the rule's tab opens it by id. Until the rule is really saved it is listed like any task being designed
+ * (T9 / T10 审查后用户定 5), or a template whose rule could not be saved would be hidden and lost.
  *
  * @sideEffects none
  * @param task - The task.
+ * @param saved - Whether a rule was saved from a task.
  * @returns Whether it is listed.
  */
-function listed(task: Task): boolean {
-  return task.scheduleDraft === null;
+function listed(task: Task, saved: (taskId: string) => boolean): boolean {
+  return task.scheduleDraft === null || !saved(task.id);
 }
 
 /** What the commands send to a connection. */
@@ -89,8 +91,11 @@ export function createTaskCommands(options: {
    * The reviews of its conversation are counted again then, so a card shows the worktree as it is now.
    */
   readonly onOpened?: (task: TaskView) => void;
+  /** Whether a rule was saved from a template task; none are without schedules. */
+  readonly saved?: (taskId: string) => boolean;
 }): TaskCommands {
   const { service } = options;
+  const saved = options.saved ?? ((): boolean => false);
   const listWatchers = new Set<string>();
   const opened = new Map<string, string>();
   const stopping = new AbortController();
@@ -108,7 +113,10 @@ export function createTaskCommands(options: {
   function pushList(): void {
     if (listWatchers.size === 0) return;
     seq += 1;
-    const tasks = service.held().filter(listed).map(summaryOf);
+    const tasks = service
+      .held()
+      .filter((task) => listed(task, saved))
+      .map(summaryOf);
     for (const connectionId of listWatchers) options.send(connectionId, { type: "tasks_updated", seq, tasks });
   }
 
@@ -143,7 +151,7 @@ export function createTaskCommands(options: {
 
   return {
     async list(connectionId, watch) {
-      const tasks = (await service.list()).filter(listed);
+      const tasks = (await service.list()).filter((task) => listed(task, saved));
       if (watch === true) listWatchers.add(connectionId);
       else if (watch === false) listWatchers.delete(connectionId);
       return { tasks: tasks.map(summaryOf) };

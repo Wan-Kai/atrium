@@ -1,7 +1,7 @@
 import { CommandError, type CommandResult } from "@atrium/protocol";
 import { randomBytes } from "node:crypto";
-import { stat } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { realpath, stat } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { GitError, type GitRunner } from "../platform/git";
 import type { Logger } from "../platform/logger";
 import type { ProjectRecord, ProjectService } from "../projects/project-service";
@@ -62,14 +62,18 @@ export interface WorktreeCreator {
    *
    * @remarks
    * Everything must hold: the plan's directory is one of the repository's worktrees, on the plan's branch, at
-   * the plan's start commit with nothing changed, and not locked for anything but `allowedLock`. Then it is
+   * the plan's start commit with nothing changed, and not locked for anything but one of `allowedLocks`. Then it is
    * recorded as a workspace (when it is not already) and the files `.worktreeinclude` lists are copied again.
    * `null` when anything differs or nothing is there: it is not this plan's, and nothing is touched. Waits in the
    * worktree queue.
    */
   adopt(
     plan: WorktreePlan,
-    adoption: { readonly alias?: string | null; readonly allowedLock?: string; readonly signal?: AbortSignal },
+    adoption: {
+      readonly alias?: string | null;
+      readonly allowedLocks?: readonly string[];
+      readonly signal?: AbortSignal;
+    },
   ): Promise<{ readonly workspaceId: string; readonly dir: string; readonly branch: string } | null>;
 }
 
@@ -179,7 +183,13 @@ export function createWorktreeCreator(options: {
      */
     const run = (args: string[], timeoutMs?: number) =>
       git.run(args, timeoutMs === undefined ? { cwd: project.path } : { cwd: project.path, timeoutMs });
-    const top = await run(["rev-parse", "--show-toplevel"]);
+    // Through `runSafeGit`: whatever the repository's configuration says about hooks and fsmonitor is not run for this.
+    const top = await runSafeGit(
+      git,
+      ["rev-parse", "--show-toplevel"],
+      { cwd: project.path },
+      { rejectIncludes: false },
+    );
     // Stryker disable next-line ConditionalExpression: git prints no path when it fails, so the second check holds too.
     if (top.code !== 0 || top.stdout.trim() !== project.path) {
       throw new CommandError("worktree_create_failed", { reason: "not_git" });
@@ -400,35 +410,111 @@ export function createWorktreeCreator(options: {
         const project = options.projects.projects().find((candidate) => candidate.id === workspace?.projectId);
         const git = await options.git;
         if (workspace === undefined || project === undefined || git === null) return null;
-        const run = await repositoryOf(project);
-        const listing = await run(["worktree", "list", "--porcelain"]);
+        await repositoryOf(project);
+        /**
+         * Runs a read-only command through `runSafeGit`, in a directory.
+         *
+         * @remarks
+         * The repository's configuration, and a checkout's own, is what an agent could have written (security.md,
+         * "任务"): nothing here runs hooks, an fsmonitor or filters.
+         *
+         * @sideEffects Runs git.
+         * @param cwd - Where to run it.
+         * @param args - The subcommand and its arguments, after the global options.
+         * @param pin - Global options to put first, such as `--work-tree=<dir>`.
+         * @returns What git did.
+         */
+        const safely = (cwd: string, args: readonly string[], pin: readonly string[] = []) =>
+          runSafeGit(
+            git,
+            [...pin, ...args],
+            { cwd, timeoutMs: WORKTREE_TIMEOUT_MS, ...(adoption.signal ? { signal: adoption.signal } : {}) },
+            { rejectIncludes: false },
+          );
+        const listing = await safely(project.path, ["worktree", "list", "--porcelain"]);
         if (listing.code !== 0) return null;
         const found = parseWorktreeList(listing.stdout).find((candidate) => candidate.dir === plan.dir);
         if (
           found === undefined ||
           found.bare ||
           found.prunable ||
-          found.branch !== plan.branch ||
-          found.head !== plan.start ||
-          (found.locked !== null && found.locked !== adoption.allowedLock)
+          (found.locked !== null && !(adoption.allowedLocks ?? []).includes(found.locked))
         ) {
           return null;
         }
+        // The registration only says the directory is a worktree of this repository, not bare, not prunable and not
+        // locked by anyone else; what is checked out there is asked of the checkout itself, from inside:
+        // it must be this repository's (same common git dir), on the plan's branch, at the start commit, and its
+        // work tree must be the directory (a `core.worktree` could point git elsewhere).
+        if (!(await ownCheckout(safely, project.path, plan))) return null;
         // The checkout is whole and untouched: nothing was written to it since the plan.
-        const status = await runSafeGit(
-          git,
-          ["status", "--porcelain"],
-          { cwd: plan.dir, timeoutMs: WORKTREE_TIMEOUT_MS, ...(adoption.signal ? { signal: adoption.signal } : {}) },
-          { rejectIncludes: false },
-        );
+        const status = await safely(plan.dir, ["status", "--porcelain"], [`--work-tree=${plan.dir}`]);
         if (status.code !== 0 || status.stdout !== "") return null;
-        await copyWorktreeInclude({ git, sourceDir: workspace.dir, destDir: plan.dir, logger: options.logger });
+        await copyWorktreeInclude({
+          git,
+          sourceDir: workspace.dir,
+          destDir: plan.dir,
+          logger: options.logger,
+          ...(adoption.signal ? { signal: adoption.signal } : {}),
+        });
         const adopted = await options.projects.addWorktree(project.id, plan.dir, plan.start, adoption.alias);
         options.logger.info({ projectId: project.id, workspaceId: adopted }, "worktree adopted");
         options.refresh(adopted);
         return { workspaceId: adopted, dir: plan.dir, branch: plan.branch };
       }),
   };
+}
+
+/**
+ * Whether a directory's checkout really is the worktree a plan named, of the repository the plan came from.
+ *
+ * @remarks
+ * Asked of git from inside the directory, not read from the source repository's registration (which a stale or
+ * forged `.git` file in the directory would not change): its common git dir is the source's, its top level is the
+ * directory, it is on the plan's branch and at the start commit.
+ *
+ * @sideEffects Runs git.
+ * @param safely - Runs a read-only command through `runSafeGit` in a directory.
+ * @param repo - The source repository's directory.
+ * @param plan - The plan.
+ * @returns Whether the checkout is the plan's.
+ */
+async function ownCheckout(
+  safely: (cwd: string, args: readonly string[], pin?: readonly string[]) => ReturnType<GitRunner["run"]>,
+  repo: string,
+  plan: WorktreePlan,
+): Promise<boolean> {
+  /**
+   * The real path git prints for a directory.
+   *
+   * @remarks
+   * Relative paths git prints (`.git`) are taken from the directory it ran in; both sides are compared as real paths.
+   *
+   * @sideEffects Runs git; reads the file system.
+   * @param cwd - Where to run it.
+   * @param option - The `rev-parse` option that prints a path.
+   * @returns The real path, or `null` when git printed none.
+   */
+  const pathOf = async (cwd: string, option: "--git-common-dir" | "--show-toplevel"): Promise<string | null> => {
+    const printed = await safely(cwd, ["rev-parse", option]);
+    if (printed.code !== 0 || printed.stdout.trim() === "") return null;
+    return realpath(resolve(cwd, printed.stdout.trim())).catch(() => null);
+  };
+  const [ours, theirs, top, real] = await Promise.all([
+    pathOf(repo, "--git-common-dir"),
+    pathOf(plan.dir, "--git-common-dir"),
+    pathOf(plan.dir, "--show-toplevel"),
+    realpath(plan.dir).catch(() => null),
+  ]);
+  if (ours === null || ours !== theirs || top === null || top !== real) return false;
+  const branch = await safely(plan.dir, ["symbolic-ref", "--quiet", "HEAD"]);
+  const head = await safely(plan.dir, ["rev-parse", "--verify", "HEAD"]);
+  return (
+    branch.code === 0 &&
+    branch.stdout.trim() === `refs/heads/${plan.branch}` &&
+    head.code === 0 &&
+    head.stdout.trim() === plan.start
+  );
 }
 
 /**

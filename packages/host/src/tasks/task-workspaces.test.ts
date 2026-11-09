@@ -7,6 +7,9 @@ import { GitError, type GitRunner } from "../platform/git";
 import type { WorktreePlan } from "../workspaces/worktree-creator";
 import { agent, newTask } from "./test-support";
 
+/** The tag of the home these tests lock for. */
+const HOME = "0123456789ab";
+
 /**
  * Task workspaces over a stub creator and project list.
  *
@@ -46,7 +49,11 @@ async function setup(
     await writeFile(join(dir.path, task.id, "workspace.json"), extra.raw);
   }
   const created: { signal: AbortSignal | undefined; marker: string; asked: (string | null | undefined)[] }[] = [];
-  const adopted: { plan: WorktreePlan; alias: string | null | undefined; allowedLock: string | undefined }[] = [];
+  const adopted: {
+    plan: WorktreePlan;
+    alias: string | null | undefined;
+    allowedLocks: readonly string[] | undefined;
+  }[] = [];
   const markerOnDisk = () => readFile(join(dir.path, task.id, "workspace.json"), "utf8").then((text) => text.trim());
   const ports = createTaskWorkspaces({
     creator: {
@@ -58,7 +65,7 @@ async function setup(
         return { workspaceId: "w_new", dir: "/x", branch: "atrium/b" };
       },
       adopt(plan, adoption) {
-        adopted.push({ plan, alias: adoption.alias, allowedLock: adoption.allowedLock });
+        adopted.push({ plan, alias: adoption.alias, allowedLocks: adoption.allowedLocks });
         if (adopting === "refuses") return Promise.resolve(null);
         workspaces.push({ id: "w_adopted", baseCommit: "base" });
         return Promise.resolve({ workspaceId: "w_adopted", dir: plan.dir, branch: plan.branch });
@@ -70,6 +77,7 @@ async function setup(
     sourceContainer: () => ("source" in extra ? extra.source : "src"),
     dirOf: () => "/x",
     inspector: Promise.resolve(null),
+    homeTag: HOME,
   });
   return { ports, created, task, adopted, markerOnDisk };
 }
@@ -131,7 +139,13 @@ describe("createTaskWorkspaces: the plan and the crash window (SPEC-0006, T9)", 
 
     expect(await ports.ensure(task, controller.signal)).toStrictEqual({ workspaceId: "w_adopted", baseCommit: "base" });
 
-    expect(adopted).toStrictEqual([{ plan: PLANNED.planned, alias: task.name, allowedLock: `atrium task ${task.id}` }]);
+    expect(adopted).toStrictEqual([
+      {
+        plan: PLANNED.planned,
+        alias: task.name,
+        allowedLocks: [`atrium task ${task.id} home ${HOME}`, `atrium task ${task.id}`],
+      },
+    ]);
     expect(created).toHaveLength(0);
     expect(await markerOnDisk()).toBe(JSON.stringify({ workspaceId: "w_adopted" }));
   });
@@ -210,6 +224,7 @@ describe("createTaskWorkspaces: what is asked of the creator", () => {
       sourceContainer: () => "src",
       dirOf: () => "/x",
       inspector: Promise.resolve(null),
+      homeTag: HOME,
     });
     await expect(missing.ensure(lost.task, new AbortController().signal)).rejects.toThrow(
       "the new worktree has no base commit",
@@ -256,7 +271,10 @@ function lockingGit(
         return Promise.resolve({ code: 0, stdout: "" });
       }
       const listing = (locked[options.cwd] ?? [])
-        .map((task) => `worktree /w/${task}\nHEAD abc\nbranch refs/heads/${task}\nlocked atrium task ${task}\n`)
+        .map(
+          (task) =>
+            `worktree /w/${task}\nHEAD abc\nbranch refs/heads/${task}\nlocked atrium task ${task} home ${task.endsWith("_other") ? "ffffffffffff" : HOME}\n`,
+        )
         .join("\n");
       return Promise.resolve({
         code: 0,
@@ -273,11 +291,11 @@ describe("createTaskWorkspaces: clearStaleLocks", () => {
     { id: "p2", path: "/r2" },
   ];
 
-  it("lifts the locks of tasks that are over in every project, counting them, and keeps those of active tasks", async () => {
-    const { git, unlocked } = lockingGit({ "/r1": ["tsk_over", "tsk_live"], "/r2": ["tsk_gone"] });
+  it("lifts this home's locks of tasks that are over in every project, counting them, and keeps the others'", async () => {
+    const { git, unlocked } = lockingGit({ "/r1": ["tsk_over", "tsk_live", "tsk_over_other"], "/r2": ["tsk_gone"] });
     const { ports } = await setup([], undefined, "refuses", { projects: PROJECTS, git });
 
-    const lifted = await ports.clearStaleLocks((taskId) => taskId === "tsk_live");
+    const lifted = await ports.clearStaleLocks((taskId) => taskId !== "tsk_live");
 
     expect(lifted).toBe(2);
     expect(unlocked.toSorted()).toStrictEqual(["/w/tsk_gone", "/w/tsk_over"]);
@@ -288,16 +306,16 @@ describe("createTaskWorkspaces: clearStaleLocks", () => {
     const { ports } = await setup([], undefined, "refuses", { projects: PROJECTS, git });
     const bare = await setup([], undefined, "refuses", { projects: PROJECTS });
 
-    expect(await ports.clearStaleLocks(() => false)).toBe(1);
+    expect(await ports.clearStaleLocks(() => true)).toBe(1);
     expect(unlocked).toStrictEqual(["/w/tsk_over"]);
-    expect(await bare.ports.clearStaleLocks(() => false)).toBe(0);
+    expect(await bare.ports.clearStaleLocks(() => true)).toBe(0);
   });
 
   it("does not hide a failure that is not git's", async () => {
     const { git } = lockingGit({}, [], ["/r1"]);
     const { ports } = await setup([], undefined, "refuses", { projects: PROJECTS, git });
 
-    await expect(ports.clearStaleLocks(() => false)).rejects.toThrow("not a GitError");
+    await expect(ports.clearStaleLocks(() => true)).rejects.toThrow("not a GitError");
     expect(new GitError("worktree", "exit")).toBeInstanceOf(Error);
   });
 });

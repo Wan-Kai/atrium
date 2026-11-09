@@ -143,6 +143,11 @@ export const ErrorCode = z.enum([
   /** No schedule rule has this id (SPEC-0006, "T10 定下的细节"). */
   "schedule_not_found",
   /**
+   * `schedules.json` cannot be read (not JSON, a version this Atrium does not know), so no schedule command works and
+   * the file is left as it is (SPEC-0006, "T9 / T10 审查后用户定").
+   */
+  "schedule_file_unreadable",
+  /**
    * No branch name came of `name_branch`; `params.reason` is `not_git`, `no_model`, `failed`,
    * `invalid` or `taken` (SPEC-0001, "AI 起分支名").
    */

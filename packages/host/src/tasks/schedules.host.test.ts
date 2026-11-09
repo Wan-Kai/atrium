@@ -118,7 +118,7 @@ async function rows(harness: TaskHost, count: number) {
 }
 
 describe("a schedule rule from a conversation (SPEC-0006, 定时; T10)", () => {
-  it("the conversation sets the schedule, saving the rule is the start button, and the template stays out of the task list", async () => {
+  it("the conversation sets the schedule, saving the rule is the start button, and the template is in the task list until the rule is saved", async () => {
     const { harness, taskId } = await withTemplate();
     const { client } = harness;
     expect(harness.task(taskId).scheduleDraft).toStrictEqual({
@@ -127,7 +127,8 @@ describe("a schedule rule from a conversation (SPEC-0006, 定时; T10)", () => {
     });
     await client.watchTasks(true);
     await vi.waitFor(() => expect(client.tasks.getState().status).toBe("ready"));
-    expect(client.tasks.getState().tasks.map((task) => task.id)).not.toContain(taskId);
+    // Until the rule is saved the template is a task being designed like any other, so that it cannot be lost.
+    expect(client.tasks.getState().tasks.map((task) => task.id)).toContain(taskId);
     await client.openTask(taskId);
     await vi.waitFor(() => expect(client.task(taskId).getState().task?.scheduleDraft).toMatchObject({ saved: false }));
 
@@ -145,6 +146,8 @@ describe("a schedule rule from a conversation (SPEC-0006, 定时; T10)", () => {
     });
     expect(row.nextAt).toBeGreaterThan(Date.now());
     expect(harness.task(taskId).startedAt).toBeNull();
+    // Once it is saved the template is out of the list (the rule's tab opens it).
+    await vi.waitFor(() => expect(client.tasks.getState().tasks.map((task) => task.id)).not.toContain(taskId));
     await vi.waitFor(() => expect(client.task(taskId).getState().task?.scheduleDraft).toMatchObject({ saved: true }));
     expect(JSON.parse(await readFile(await rulesFile(harness.home), "utf8"))).toMatchObject({
       v: 1,
@@ -222,7 +225,7 @@ describe("a schedule rule from a conversation (SPEC-0006, 定时; T10)", () => {
     await harness.until(made.taskId, (now) => now.endedAt !== null);
   });
 
-  it("after the host was off for 15 minutes, a restart makes exactly one task, and one more at the next time", async () => {
+  it("after the host was off for 15 minutes, a restart makes exactly one task (the next time is the unit test's, on an injected clock)", async () => {
     const { harness, taskId } = await withTemplate();
     await harness.client.startTask(taskId);
     const row = only(await rows(harness, 1));

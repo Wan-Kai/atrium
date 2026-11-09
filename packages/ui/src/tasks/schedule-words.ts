@@ -13,7 +13,8 @@ const WEEKDAY = ["日", "一", "二", "三", "四", "五", "六"];
  *
  * @remarks
  * 设计稿 writes "每天凌晨 2:00" and "每天早上 9:00": the part of the day, then the hour in the 12-hour style, with
- * the minutes. The parts are 凌晨 (0 to 5), 早上 (6 to 11), 中午 (12), 下午 (13 to 17) and 晚上 (18 to 23).
+ * the minutes. The parts are 凌晨 (0 to 5), 早上 (6 to 11), 中午 (12), 下午 (13 to 17) and 晚上 (18 to 23). Midnight is
+ * "凌晨 12:00" and noon "中午 12:00": the 12-hour clock has no 0.
  *
  * @sideEffects none
  * @param at - `H:MM` or `HH:MM`, 24-hour.
@@ -23,7 +24,8 @@ function timeWords(at: string): string {
   const [hourText = "0", minute = "00"] = at.split(":");
   const hour = Number(hourText);
   const part = hour < 6 ? "凌晨" : hour < 12 ? "早上" : hour === 12 ? "中午" : hour < 18 ? "下午" : "晚上";
-  const shown = hour > 12 ? hour - 12 : hour;
+  // The 12-hour clock has no 0: midnight is 12, as noon is.
+  const shown = hour % 12 === 0 ? 12 : hour % 12;
   return `${part} ${String(shown)}:${minute}`;
 }
 
@@ -140,7 +142,8 @@ export function resultWords(rule: ScheduleSummary): ResultWords {
  * The second line under a rule's name: the project, where it runs, and how many triggers were skipped.
  *
  * @remarks
- * 设计稿 note 11: "跳过 1 次 · 上次还在跑".
+ * 设计稿 note 11: "跳过 1 次 · 上次还在跑". "上次还在跑" is said only while the last run really is on (running, or
+ * waiting for the user); a last run that failed or was stopped is not "还在跑", and one that is gone has nothing to say.
  *
  * @sideEffects none
  * @param rule - The row.
@@ -148,7 +151,7 @@ export function resultWords(rule: ScheduleSummary): ResultWords {
  * @returns The words.
  */
 export function ruleSubWords(rule: ScheduleSummary, project: string): string {
-  return [project, placeWords(rule.place), rule.skipped > 0 ? `跳过 ${String(rule.skipped)} 次 · 上次还在跑` : null]
-    .filter((part): part is string => part !== null)
-    .join(" · ");
+  const going = rule.last !== null && !rule.last.failed && ["running", "waiting"].includes(rule.last.status);
+  const skipped = rule.skipped > 0 ? `跳过 ${String(rule.skipped)} 次${going ? " · 上次还在跑" : ""}` : null;
+  return [project, placeWords(rule.place), skipped].filter((part): part is string => part !== null).join(" · ");
 }

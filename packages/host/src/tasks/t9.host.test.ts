@@ -648,9 +648,19 @@ describe("locks that tasks left (SPEC-0006, 加锁)", () => {
     const mine = join(harness.repo, "..", "mine-wt");
     git(harness.repo, "worktree", "add", "--quiet", "-b", "ghost", ghost);
     git(harness.repo, "worktree", "add", "--quiet", "-b", "mine", mine);
-    git(harness.repo, "worktree", "lock", "--reason", "atrium task tsk_ghost", ghost);
+    const otherHome = join(harness.repo, "..", "other-home-wt");
+    const oldStyle = join(harness.repo, "..", "old-style-wt");
+    git(harness.repo, "worktree", "add", "--quiet", "-b", "other-home", otherHome);
+    git(harness.repo, "worktree", "add", "--quiet", "-b", "old-style", oldStyle);
+    // This host's tag is in the lock the live task holds; the locks below are written the same way.
+    const tag = got(got(/home ([0-9a-f]{12})/u.exec(git(harness.repo, "worktree", "list", "--porcelain")))[1]);
+    expect(tag).toMatch(/^[0-9a-f]{12}$/u);
+    git(harness.repo, "worktree", "lock", "--reason", `atrium task tsk_ghost home ${tag}`, ghost);
     git(harness.repo, "worktree", "lock", "--reason", "mine, do not touch", mine);
-    git(harness.repo, "worktree", "lock", "--reason", `atrium task ${finishedTask.id}`, finishedDir);
+    git(harness.repo, "worktree", "lock", "--reason", `atrium task ${finishedTask.id} home ${tag}`, finishedDir);
+    // Not this home's: another home's, and the older reason that names no home, though the tasks are not there.
+    git(harness.repo, "worktree", "lock", "--reason", "atrium task tsk_gone2 home ffffffffffff", otherHome);
+    git(harness.repo, "worktree", "lock", "--reason", "atrium task tsk_gone3", oldStyle);
 
     await harness.restart();
 
@@ -673,7 +683,9 @@ describe("locks that tasks left (SPEC-0006, 加锁)", () => {
       expect(lockOf(ghost)).toBeUndefined();
     });
     expect(lockOf(mine)).toBe("locked mine, do not touch");
-    expect(lockOf(liveDir)).toBe(`locked atrium task ${live.id}`);
+    expect(lockOf(liveDir)).toBe(`locked atrium task ${live.id} home ${tag}`);
+    expect(lockOf(otherHome)).toBe("locked atrium task tsk_gone2 home ffffffffffff");
+    expect(lockOf(oldStyle)).toBe("locked atrium task tsk_gone3");
     await harness.release("hold");
   });
 });

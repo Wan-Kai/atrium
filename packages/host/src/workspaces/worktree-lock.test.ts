@@ -5,7 +5,16 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { systemClock } from "../platform/clock";
 import { createGitRunner } from "../platform/git";
 import { ResourceTracker } from "../platform/resources";
-import { clearStaleLocks, lockOf, lockWorktree, lockedTaskOf, taskLockReason, unlockWorktree } from "./worktree-lock";
+import {
+  clearStaleLocks,
+  homeTagOf,
+  lockOf,
+  lockOwnerOf,
+  lockWorktree,
+  lockedTaskOf,
+  taskLockReason,
+  unlockWorktree,
+} from "./worktree-lock";
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -51,6 +60,32 @@ describe("taskLockReason and lockedTaskOf", () => {
       "x atrium task t",
     ]) {
       expect(lockedTaskOf(other)).toBeNull();
+    }
+  });
+});
+
+describe("the home in a lock's reason (SPEC-0006, 加锁)", () => {
+  it("is 12 hexadecimal digits of the home's path, the same for the same path and different for another", () => {
+    expect(homeTagOf("/home/a/.atrium")).toMatch(/^[0-9a-f]{12}$/);
+    expect(homeTagOf("/home/a/.atrium")).toBe(homeTagOf("/home/a/.atrium"));
+    expect(homeTagOf("/home/a/.atrium")).not.toBe(homeTagOf("/home/b/.atrium"));
+  });
+
+  it("is written after the task, and read back with the task; the older reason has no home and still names its task", () => {
+    const tag = homeTagOf("/home/a/.atrium");
+    expect(taskLockReason("tsk_01", tag)).toBe(`atrium task tsk_01 home ${tag}`);
+    expect(lockOwnerOf(`atrium task tsk_01 home ${tag}`)).toStrictEqual({ taskId: "tsk_01", home: tag });
+    expect(lockOwnerOf("atrium task tsk_01")).toStrictEqual({ taskId: "tsk_01", home: null });
+    expect(lockedTaskOf(`atrium task tsk_01 home ${tag}`)).toBe("tsk_01");
+    for (const other of [
+      "atrium task tsk_01 home",
+      "atrium task tsk_01 home ABCDEF012345",
+      "atrium task tsk_01 home 0123456789a",
+      "atrium task tsk_01 home 0123456789abc",
+      "atrium task tsk_01 home 0123456789ab extra",
+      "atrium task tsk_01  home 0123456789ab",
+    ]) {
+      expect(lockOwnerOf(other)).toBeNull();
     }
   });
 });
@@ -101,31 +136,54 @@ describe("lockWorktree and unlockWorktree", () => {
 });
 
 describe("clearStaleLocks", () => {
-  it("lifts the locks of tasks that are over, and no other", async () => {
+  const HOME = homeTagOf("/home/a/.atrium");
+  const OTHER_HOME = homeTagOf("/home/b/.atrium");
+
+  it("lifts the locks of this home's tasks that are over, and no other", async () => {
     const { scene, repo, one, two, three, real } = await setup();
-    await lockWorktree(git, repo, one, "over");
-    await lockWorktree(git, repo, two, "running");
+    await lockWorktree(git, repo, one, "over", HOME);
+    await lockWorktree(git, repo, two, "running", HOME);
     await scene.git(repo, "worktree", "lock", "--reason", "mine", three);
     const bare = await real("four");
     await scene.git(repo, "worktree", "lock", bare);
 
-    const lifted = await clearStaleLocks(git, repo, (taskId) => taskId === "running");
+    const lifted = await clearStaleLocks(git, repo, HOME, (taskId) => taskId !== "running");
 
     expect(lifted).toBe(1);
     expect(await reasonOf(repo, one)).toBeNull();
-    expect(await reasonOf(repo, two)).toBe("atrium task running");
+    expect(await reasonOf(repo, two)).toBe(`atrium task running home ${HOME}`);
     expect(await reasonOf(repo, three)).toBe("mine");
     expect(await reasonOf(repo, bare)).toBe("");
   });
 
+  it("leaves a lock of another home, and the older reason that names no home, though the task is over", async () => {
+    const { repo, one, two } = await setup();
+    await lockWorktree(git, repo, one, "over", OTHER_HOME);
+    await lockWorktree(git, repo, two, "old");
+
+    expect(await clearStaleLocks(git, repo, HOME, () => true)).toBe(0);
+
+    expect(await reasonOf(repo, one)).toBe(`atrium task over home ${OTHER_HOME}`);
+    expect(await reasonOf(repo, two)).toBe("atrium task old");
+  });
+
+  it("takes the older reason of its own task for a lock it holds, and lifts it with unlock", async () => {
+    const { repo, one } = await setup();
+    await lockWorktree(git, repo, one, "t1");
+    expect(await lockWorktree(git, repo, one, "t1", HOME)).toBe(true);
+    expect(await reasonOf(repo, one)).toBe("atrium task t1");
+    expect(await unlockWorktree(git, repo, one, "t1", HOME)).toBe(true);
+    expect(await reasonOf(repo, one)).toBeNull();
+  });
+
   it("lifts nothing when no lock is a task's", async () => {
     const { repo } = await setup();
-    expect(await clearStaleLocks(git, repo, () => false)).toBe(0);
+    expect(await clearStaleLocks(git, repo, HOME, () => true)).toBe(0);
   });
 
   it("fails as git does outside a repository", async () => {
     const { scene } = await setup();
-    await expect(clearStaleLocks(git, scene.root, () => false)).rejects.toMatchObject({
+    await expect(clearStaleLocks(git, scene.root, HOME, () => true)).rejects.toMatchObject({
       command: "worktree",
       reason: "exit",
     });

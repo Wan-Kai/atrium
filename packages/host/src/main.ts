@@ -82,6 +82,7 @@ import { createMergeInspector, parseGitVersion } from "./workspaces/merge-inspec
 import { createBranchNamer } from "./workspaces/branch-namer";
 import { createWorkspaceArchiver } from "./workspaces/workspace-archiver";
 import { createWorktreeCreator } from "./workspaces/worktree-creator";
+import { homeTagOf } from "./workspaces/worktree-lock";
 import { createWorktreeQueue } from "./workspaces/worktree-queue";
 import { createWorkspaceService } from "./workspaces/workspace-service";
 
@@ -511,6 +512,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         workspaces.list().find((workspace) => workspace.dir === task.sourceDir)?.id,
       dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
       inspector,
+      homeTag: homeTagOf(home.root),
     }),
     git,
     clock,
@@ -575,6 +577,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       resources,
       logger,
       tasks: ownedTasks,
+      // The same question the recovery of tasks asks: a trigger needs pi to start the task's conversation.
+      ready: () => piReady(),
       ...(config.scheduleTimeZone === undefined ? {} : { timeZone: config.scheduleTimeZone }),
     });
   }
@@ -592,6 +596,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   );
   const taskCommands = createTaskCommands({
     service: tasks,
+    // A template task is listed until the rule it stands for is really saved (T9 / T10 审查后用户定 5).
+    saved: (taskId) => schedules?.saved(taskId) ?? false,
     send: (connectionId, event) => subscriptions.sendTo(connectionId, event),
     logger,
     // Opening a task counts its conversation's reviews again: the worktree may have been edited since (T8 review fix 11).
@@ -809,6 +815,17 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   toolbox.start();
   piLatest.start();
   const tools = toolbox.current();
+  /**
+   * Whether pi is found and fit to run.
+   *
+   * @remarks
+   * Asked by the recovery of tasks and by the schedules alike (SPEC-0006, "T9 / T10 审查后用户定"): a node, or the
+   * conversation of a scheduled task, needs pi, and a host that cannot run it must not fail them all.
+   *
+   * @sideEffects none
+   * @returns Whether pi's status is `ready`.
+   */
+  const piReady = async (): Promise<boolean> => (await tools)?.pi.status === "ready";
   // SPEC-0006, "宿主重启": tasks that were going when the host stopped go on, as soon as pi is known to run.
   const recovery = new AbortController();
   const recovering: Promise<void> =
@@ -818,7 +835,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
           .recoverAll({
             signal: recovery.signal,
             staleLocks: true,
-            ready: async () => (await tools)?.pi.status === "ready",
+            ready: piReady,
           })
           .catch((error: unknown) => {
             logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "tasks could not be recovered");
@@ -967,9 +984,13 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await workspaces.close();
     // Before the sessions, whose stopping the runner would otherwise answer with events.
     recovery.abort();
-    await schedules?.close();
+    // Both are told to stop before either is waited for: a trigger in the middle of starting its task waits for a pi
+    // that may never answer, and only the tasks' closing cancels that.
+    const schedulesClosed = schedules?.close();
+    const tasksClosed = tasks.close();
+    await schedulesClosed;
     await scheduling;
-    await tasks.close();
+    await tasksClosed;
     await recovering;
     await scheduleCommands.close();
     await taskCommands.close();

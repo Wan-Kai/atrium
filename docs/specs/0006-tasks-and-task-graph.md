@@ -483,9 +483,9 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 
 #### 加锁
 
-- 任务从 `started` 起，对它用的 worktree 执行 `git worktree lock --reason "atrium task <taskId>"`，不是任务建的也加；`done`、`cancelled` 时解锁。
-- 归档遇到锁着的应答 `workspace_in_task`，界面写"任务 X 正在用"。
-- 宿主启动时，原因是 `atrium task <id>`、但这个任务已经结束或不存在的锁，解掉。
+- 任务从 `started` 起，对它用的 worktree 执行 `git worktree lock --reason "atrium task <taskId> home <家目录的哈希>"`（哈希是 `ATRIUM_HOME` 路径的 SHA-256 前 12 位十六进制，记下是哪个 Atrium 家目录加的锁），不是任务建的也加；`done`、`cancelled` 时解锁。旧写法 `atrium task <taskId>`（没有家目录那一段）照旧认得，但认不出是哪个家目录的。
+- 归档遇到锁着的应答 `workspace_in_task`，界面写"任务 X 正在用"。新旧两种写法都算任务的锁。
+- 宿主启动时**只**解同时满足这几条的锁（2026-11-09 用户定，见"T9 / T10 审查后用户定"）：原因是新写法、家目录的哈希就是本机这个家目录的，且任务在本机已结束（`done` / `cancelled`）或目录不存在。别的家目录的锁、旧写法认不出归属的锁、任务目录在但读不出来的锁，一概留着。
 
 #### 合并
 
@@ -608,11 +608,14 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
   - 确认后存成 ScheduleRule：`taskSessionId` 指向这个模板的任务对话，之后在定时标签点"修改"就打开它；
   - 模板任务本身不进任务列表，也不跑；
   - 不立即跑，可以在定时标签点"立即跑一次"。
+  - **改规则的时间或频率**，从改的那一刻起算：`lastFiredAt` 记成保存的时间（取它和原值里晚的），改之前的时间点不补，保存本身也从不当场触发（2026-11-09 用户定）。
 - **到点**：
-  - `lastTaskId` 的任务没结束（不是 `done` / `cancelled`）→ `skipped + 1`，`lastFiredAt` 照样推进到这次的触发时间；
+  - 这条规则的上一个任务没结束（不是 `done` / `cancelled`）→ `skipped + 1`，`lastFiredAt` 照样推进到这次的触发时间。"上一个任务"包括"立即跑一次"建的（它算规则最近的任务，在它结束前下一个到点的时间点照样跳过），也包括磁盘上 `origin.ruleId` 是这条规则、还没结束、但 `lastTaskId` 没来得及存的任务（崩在中间）；
   - 否则按规则新建 Task：`origin.kind = "schedule"`，跳过 `designing`，直接 `started`；
   - `place = new_worktree` 时，第一个要 worktree 的节点开跑前建（同"工作区"）；`local_readonly` 的规则，GraphValidator 不许有 `work` 节点。
   - `lastTaskId` 指向的任务被删了，当作已结束。
+- **pi 没准备好**（没装或版本不对）：到点时不触发，也**不用掉这个时间点**（`lastFiredAt` 不动），记一条 warn（只有代码和参数，一次不装好只记一次）。之后 pi 好了的那次启动按"错过补一次"补跑一次；定时标签不为此加状态（2026-11-09 用户定）。
+- **规则文件读不出来**（不是 JSON 或版本不认得）：确认、暂停、恢复、删除、修改、立即跑一次都答 `schedule_file_unreadable`，内存里不装任何规则、不挂定时器、文件原样不动；定时标签用这条错误代替规则列表（2026-11-09 用户定）。
 - **错过**：宿主启动、系统唤醒（`powerMonitor` 由 desktop 经宿主入口转来）时，对每条规则算"按 `max(lastFiredAt, createdAt)` 之后应该触发的最近一次"；它早于现在，就补跑一次（错过多次也只补一次），然后 `lastFiredAt` 记成这次应该触发的时间。刚建的规则不会补跑建之前的时间点。
 - **时间**：
   - 按本机时区的钟点算；
@@ -631,7 +634,7 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
    - **`running` 且 `commitPending`**：不 `resume_node`，重发 `commit_node`（只这一个 run；认出已做的提交见"动作要幂等"）。
    - **`held`**：任务不在 `stopped` 时，推进里自动恢复；**`stopped`**：不动。
    - **`merging: true` 的节点**：按"动作要幂等"先查分支有没有合并，再决定 `merged` 还是回到 `merge_blocked`。
-3. 解掉已结束任务留下的锁（"加锁"）：已 `done` 或 `cancelled` 的任务，TaskRunner 在 `recover` 里再 `unlock_workspace` 一次（幂等）；启动时另扫一遍各项目的仓库，原因是 `atrium task <id>`、但任务已结束或不存在的锁都解掉。没结束的任务重新 `lock_workspace`（幂等，补上 `workspace_created` 之后、加锁之前崩溃的那一下）。
+3. 解掉已结束任务留下的锁（"加锁"）：已 `done` 或 `cancelled` 的任务，TaskRunner 在 `recover` 里再 `unlock_workspace` 一次（幂等）；启动时另扫一遍各项目的仓库，只解"加锁"里列的那几条都成立的锁（本机家目录加的、任务已结束或目录不存在）。没结束的任务重新 `lock_workspace`（幂等，补上 `workspace_created` 之后、加锁之前崩溃的那一下）。
 4. 每个任务 `step` 一次。
 
 ## 接口与数据
@@ -848,7 +851,8 @@ type ScheduleRule = {
 | `workspace_in_task` | 归档或删除一个被任务锁着的 worktree（`params.taskId`）；只认锁的原因正好是 `atrium task <id>` 的，你自己加的锁照旧报 `worktree_remove_failed` |
 | `review_closed` | 这条审核已经没有了：别处先答了，或状态已经往前走了（带 `reviewId`；T8a，界面说法"这条审核已经处理过了"） |
 | `review_invalid` | 裁决和审核对不上（`params.field`：`action` 没有这个按钮、`target` 缺了或不在按钮列的目标里、`reason` 必填的没写或不收原因的写了；T8a，界面说法"这个裁决不合这条审核，刷新后再试"） |
-| `schedule_not_found` | 规则不存在 |
+| `schedule_not_found` | 规则不存在（或确认保存规则时，规则或它的模板在排队等待的时候被删了） |
+| `schedule_file_unreadable` | `schedules.json` 读不出来（不是 JSON、版本不认得），所以确认、暂停、恢复、删除、修改、立即跑一次都不做，也不覆盖这个文件；界面说法「定时规则文件读不出来，没有保存」（2026-11-09 用户定） |
 
 T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协议（`packages/protocol/src/errors.ts`），T6 加了 `task_graph_invalid`、`task_already_converted`、`task_no_project_for_work`；`task_caller_invalid` 只在扩展通道里（工具调用的应答），不是命令的错误；`schedule_not_found` 随 T10。`task_state_invalid` 在 T5 里是：对不在等的 human 节点答、对没失败的节点"重跑"、对没停下的节点"继续"、暂停已暂停的、恢复没暂停的、取消没启动或已结束的、对已结束的任务答 human、回答不存在的打回边、对没有开着的归档提问答归档。`worktree_config_unsafe` 的 `params.reason` 多一个 `driver_name`。界面的说法留给 T7（现在没有界面用到这些码，加了没人调的导出会被 knip 拦）：`task_not_found` →"这个任务已经不在了"；`task_state_invalid` →"任务的状态变了，刷新后再试"；`task_back_limit` →"这条打回边已经用了两次"；`merge_git_failed` →"git 出错了，没有合并，主目录没动"。
 
@@ -1116,8 +1120,8 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
   5. 有待结算的 `node_done`（`pendingDone`）、不在 `commitPending` 的 `running` 节点：读它的会话文件，**最后一条是 `node_done` 的成功工具结果**（`terminate` 的那一条；失败的结果 `isError`、没有它）→ 先送 `node_settled`，让节点走正常的结算（可写的发 `commit_node`）；
   6. 送 `host_restarted`。
 - 节点的契约在会话文件里：`contractSent` 没记、但会话文件第一条用户消息已经是契约（`<atrium-task-node>` 开头）→ 补记 `contract_sent`，再发 `resume_node` 该发的话（“宿主重启了”）；文件里没有（pi 还没写就死了）→ 照旧发契约。这关掉了“prompt 已送达、`contract_sent` 还没写”的窄缺口。
-- 恢复时自己起的节点（上游刚结算，它的后继当场起来）已经收到了契约，`host_restarted` 对它不再发“宿主重启了”（runner 记着这次启动刚发过契约的会话，发过别的话就不再记）；会话文件里已有契约、`contract_sent` 没记的节点才需要这句。
-- 问题作废：重启后会话的 pi 是新的，没有“正在问”的状态；`host_restarted` 让 `waiting(question)` 的节点回 `running`，`resume_node` 带“刚才的问题作废了，需要的话再问”，节点愿意的话会再问一次（新的问题卡，不是旧的）。
+- 恢复时自己起的节点（上游刚结算，它的后继当场起来）已经收到了契约，`host_restarted` 对它不再发“宿主重启了”（runner 给每个任务记着这个进程里对话过的节点会话，`recover` 把其中的节点放进事件的 `live`，调度器不管它们；见“T9 / T10 审查后用户定”）；会话文件里已有契约、`contract_sent` 没记的节点才需要这句。
+- 问题作废（任务被暂停或有节点失败时，节点只是 `held`，这两句记在节点上，等真的恢复时再说，见“T9 / T10 审查后用户定”）：重启后会话的 pi 是新的，没有“正在问”的状态；`host_restarted` 让 `waiting(question)` 的节点回 `running`，`resume_node` 带“刚才的问题作废了，需要的话再问”，节点愿意的话会再问一次（新的问题卡，不是旧的）。
 
 **`ensure_workspace` 的崩溃窗口**
 
@@ -1170,10 +1174,10 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 - **错过补一次**：规则的"起点"是 `max(lastFiredAt, createdAt)`；起点之后、现在之前该触发的最近一次，就是这次触发的时间，错过多次只补它，`lastFiredAt` 记成它。宿主启动时（找到 pi 之后，已启动的任务接起来之后）问一次，之后每次定时器醒来问一次。
 - **上一次没结束就跳过**：`lastTaskId` 的任务状态不是 `done` / `cancelled`（含等你处理、停下、暂停）就 `skipped + 1`，`lastFiredAt` 照样推进；任务已不在磁盘上算结束。补一次和跳过可以同时发生：错过了三天、上一次还在跑，结果是 `skipped` 加一、不新建任务。
 - **系统时间往回拨**：`lastFiredAt` 在"现在"之后时没有"起点之后、现在之前"的触发，所以不补；已触发过的时间点回来也不重复（它不在起点之后）；等下一个时间点。
-- **先记时间再建任务**：触发时先把 `lastFiredAt` 写盘，再建任务，再写 `lastTaskId`。崩在中间会少一次，不会多一次。任务建不出来（pi 起不来、容器没了、图不合规）只记一条 warn，这次触发算用掉了，下一个时间点再试，不在每个心跳重试。
-- **立即跑一次**：不管上一次在做什么都新建一个任务，不动规则的 `lastFiredAt`，把 `lastTaskId` 指向它、`skipped` 清零。
+- **先记时间再建任务**：触发时先把 `lastFiredAt` 写盘，再建任务，再写 `lastTaskId`。崩在中间会少一次，不会多一次；崩在"任务已启动、`lastTaskId` 还没写"时，下一次触发和启动时都按 `origin.ruleId` 在磁盘上找这条规则的任务（见"T9 / T10 审查后用户定"）。任务建不出来（pi 起不来、容器没了、图不合规）只记一条 warn，这次触发算用掉了，下一个时间点再试，不在每个心跳重试。
+- **立即跑一次**：不管上一次在做什么都新建一个任务，不动规则的 `lastFiredAt`，把 `lastTaskId` 指向它、`skipped` 清零。它算规则最近的任务：它没结束时，下一个到点的时间点照"上一次没结束就跳过"跳过（2026-11-09 用户定）。
 - **暂停与恢复**：暂停期间到点的不补；恢复时 `lastFiredAt` 取 `max(原值, 现在)`。
-- **规则文件** `<home>/schedules.json`：`{ v: 1, rules }`，经 `writeAtomically` 整份重写。规则比 SPEC 多三个字段：`containerId`（模板对话所在的容器，触发出来的任务对话放进它）、`sourceDir`（模板的目录，即每个任务的 `sourceDir`）、其余同 SPEC。读不懂的单条规则原样保留在文件里（以后的 Atrium 写的不被丢）；整个文件不是规则文件（不是 JSON、版本不对）就当没有规则，并且不写回，直到用户处理这个文件。
+- **规则文件** `<home>/schedules.json`：`{ v: 1, rules }`，经 `writeAtomically` 整份重写。规则比 SPEC 多三个字段：`containerId`（模板对话所在的容器，触发出来的任务对话放进它）、`sourceDir`（模板的目录，即每个任务的 `sourceDir`）、其余同 SPEC。读不懂的单条规则原样保留在文件里（以后的 Atrium 写的不被丢）；整个文件不是规则文件（不是 JSON、版本不对）：不装任何规则、不写回、不挂定时器，所有改规则的命令答 `schedule_file_unreadable`，定时标签显示这条错误（见"T9 / T10 审查后用户定"），直到用户处理这个文件、重启 Atrium。
 - **没有项目的对话不能定时**：`task_set_schedule` 对 `projectId: null` 的任务答 `task_state_invalid`，规则的 `projectId` 因此一定有。
 - **跟随开发版任务目录时**（`ATRIUM_FOLLOW_TASKS`）、`pnpm task:try`（`recoverTasks: false`）不建 ScheduleService：不读规则、不触发；定时命令一律 `task_read_only`，`list_schedules` 答空。
 
@@ -1209,7 +1213,58 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 6. **改了**：删除的确认"删除这条规则？确定 / 不了"放在这一行下面单独的一行，仍在同一张行卡片里，名字那一列的宽度不变；键盘和焦点照旧（浏览器测试断言名字格的宽度在确认出现前后不变）。删除只在暂停的行出现，照设计稿。
 7. 规则没起名时显示"（还没起名）"：保持。
 
-**没做**：`powerMonitor` 转发（见上，心跳覆盖）；规则的"最近几次"历史；改规则的名字（跟模板任务名走，在任务对话里改）；规则文件损坏时的界面提示（只记 warn）。
+**没做**：`powerMonitor` 转发（见上，心跳覆盖）；规则的"最近几次"历史；改规则的名字（跟模板任务名走，在任务对话里改）。（规则文件损坏时的界面提示原先没做，审查后补上了。）
+
+### T9 / T10 审查后用户定
+
+2026-11-09，T9、T10 做完后三家审查（见 coverage-map 里的"T9 / T10 审查修复"）找到的问题。下面六条是用户定的；其后是没有设计问题、直接照办的修复和选定的做法。
+
+**用户定的六条**
+
+1. **过期的锁**。锁的原因记下是哪个 Atrium 家目录加的：`atrium task <任务 id> home <ATRIUM_HOME 路径的 SHA-256 前 12 位十六进制>`。旧写法 `atrium task <任务 id>` 照旧认得（归档遇到它仍答 `workspace_in_task`），但认不出归属。宿主启动时**只解**：新写法、家目录哈希是本机的、任务已 `done` / `cancelled` 或任务目录不存在。留着不解的：别的家目录的锁、旧写法的锁、任务目录在但读不出来的锁（`events.jsonl` 坏了之类，它可能还在跑）。实现：`TaskService.recoverAll` 先读目录，把"目录在的任务 id"交给 `TaskRunner.clearStaleLocks`；runner 里有记录的任务看 `endedAt`，没记录的任务看它的目录在不在。
+2. **改规则的时间或频率**从保存的那一刻起算：`confirm` 对已存的规则把 `lastFiredAt` 记成 `max(原值, 现在)`；`interval` 规则的格子从 `max(lastFiredAt, createdAt)` 起数（原先从 `createdAt` 起），所以改过或恢复过的间隔规则从那一刻起重新数。保存从不当场触发。
+3. **pi 没准备好**（没装、版本不对）：到点不触发、不用掉时间点（`lastFiredAt` 不动）、记一条 warn（`schedule trigger waits for pi`，只有规则 id，一次没好只记一次，好了再重置）。`ScheduleService` 收一个 `ready()`，`main.ts` 用和 `recoverAll` 同一个 `piReady`；等 pi 的时候定时器按心跳（60 秒）醒来再问，不会 1 毫秒一转。下次启动 pi 好了，按"错过补一次"补跑一次。定时标签不加状态。
+4. **规则文件读不出来**：`schedule_file_unreadable`（新错误码，协议号 36 → 37）。确认、暂停、恢复、删除、修改、立即跑一次、`list_schedules` 都答它；不往内存里装任何规则、不挂定时器、不碰文件。定时标签把这条错误的话「定时规则文件读不出来，没有保存」放在规则列表的位置（`watchSchedules` 被拒时的通用做法：显示错误的说法，不再停在"正在读取定时规则…"）。"确认并保存规则"同样答这条码，按钮旁显示同一句话，模板留在任务列表里。
+5. **模板**：有 `scheduleDraft` 的任务在规则真的存下来之前留在任务列表里（可以放弃，可以在它的标签里改），存下来之后才隐藏。`createTaskCommands` 的"列不列"改看 `saved(taskId)`；保存规则、删规则都会让宿主刷新一次列表。
+6. **立即跑一次和下一个时间点**：立即跑一次建的任务算规则的"上一个任务"（`lastTaskId` 指向它），它没结束时，下一个到点的时间点被跳过（`skipped + 1`，`lastFiredAt` 照样推进）。立即跑一次本身不看上一个任务有没有结束。
+
+**没有设计问题的修复，选定的做法**
+
+*定时与崩溃窗口*
+
+- **崩在 `started` 之后、`lastTaskId` 存下之前**：`ScheduleTasks` 多一个 `ofRule(ruleId)`（`TaskService` 读磁盘上 `origin.ruleId` 等于它的任务）。"上一个任务没结束"同时看 `lastTaskId` 的任务和 `ofRule` 里任何一个没结束的任务；`start()` 先把 `lastTaskId` 对账（这条规则触发时间最晚的任务，晚于 `lastTaskId` 的任务就取代它），写盘后再问有没有到点的。
+- **崩在 `createScheduled` 里**：选"重启时补上"，不选"当场撤回"（当场撤回本身也可能崩）。触发出来的任务跳过 `designing`，所以磁盘上 `origin.kind = "schedule"` 而没有 `startedAt` 的任务只会是崩溃留下的：`recoverAll` 对它送 `started` 再 `recover`（图在任务记录里）。会话已建、任务记录还没写的：`recoverAll` 开头清掉"任务目录不存在、也不是此刻正在建"的任务对话（`TaskSessions.conversations()` 列未归档的任务对话；`TaskService` 记着正在建的任务 id），不留孤儿对话。
+- **崩在规则 `save` 与 `discardTemplate` 之间**：`remove` 改成**先删模板、再存规则**。崩在中间留下的是"规则还在、模板没了"（SPEC 本来就有这个状态：规则照旧触发，"修改"答 `task_not_found`，再删一次就好），不会留下隐藏的孤儿模板；又因为模板只在规则存下来时才隐藏（上面第 5 条），模板删不掉时它显示在任务列表里，用户可以放弃。
+- **删与确认的竞争**：`confirm` 在排队执行时重新取模板（`lookup`），模板没了就答 `schedule_not_found`；调用时规则已存在、执行时却不在了，同样答 `schedule_not_found`。不会用过期的模板对象把删掉的规则建回来。
+- **`start()` 之前不挂定时器**：`ScheduleService` 记一个 `started`；恢复期间的命令可以改规则、写盘，但不 `arm`。
+- **关闭时不死锁**：`main.ts` 关闭时先把两个服务都发出关闭（`schedules.close()` 和 `tasks.close()` 一起开始，再一起等），触发里的建任务才不会等一个只有 `tasks.close()` 才会取消的提示；`createScheduled` 每一步之后再看一次 `signal`。
+- **`pnpm task:try`**：只 `recover` 它自己的那个任务，`staleLocks: false`（它的家目录不是宿主的家目录，不去扫别人的锁）。
+
+*T9 重启*
+
+- **暂停或有节点失败的任务**：重启时 `running` 的节点变 `held`、`waiting(question)` 的节点变 `held` 时，在节点上记 `afterRestart`（`cutOff`：这一轮被重启打断；`questionVoid`：问题作废了）。以后这个节点真的被放回去的时候（`advance` 里的 `resume_node`），话是 `RESUME_HELD` 加上这两句（"宿主重启了。先看…"、"刚才的问题作废了，需要的话再问"），说完就清掉。任务一直停着就不发。已经是 `held` 的节点保持原样。
+- **`host_restarted` 的次序**：选"这个进程已经对话过的节点就不管"，不选"recover 排上队之前不收命令"（后者要让窗口等 pi 好）。`TaskRunner` 给每个任务记 `spoken`（这个进程里发过契约、续作、继续、催促的会话），`recover` 在送 `host_restarted` 前把其中还在 `running` 的节点放进事件的 `live`，调度器对 `live` 里的节点什么也不做（用户先回答了的问题不作废、自己进程里起的轮次不被告知"宿主重启了"）。这也取代了原来的 `freshlyStarted`，那个集合只在 `resume_node` 里删，会一直长；`spoken` 在任务里，用完（`recover` 里）就删，任务 `detach` 时一起丢。
+- **唤醒任务对话**：一次 `host_restarted` 只唤醒一次，不是每个等改图的节点一次（唤醒的话本来就列出所有等改图的节点）。
+- **唤醒的长度**：整条命令（所有节点的理由和建议，加上引用的包装、转义）编码后要小于扩展的 32 000 字上限。预算按整条算：先按每个申请平分建议的字数，不够就逐级减半，最后只留"节点 X 申请改图（理由和建议太长，已省略；用 task_status 看现状）"这样的一行并带明确的截断标记，永远不会被扩展拒收。
+- **`endedOnNodeDone`**：最后一条助手消息里的每个工具调用都要有结果（不止 `node_done`），才算那一轮在 `node_done` 上结束；有调用没结果说明这一轮被打断了。
+
+*工作区认回（security.md）*
+
+- `copyWorktreeInclude` 的 `git ls-files` / `git check-ignore`、`adopt` 里的 `git worktree list` / `rev-parse`、`repositoryOf` 都走 `runSafeGit`（钩子、fsmonitor、过滤器关掉）。
+- **身份核对**：`adopt` 在计划的目录里自己问 `git rev-parse --git-common-dir` / `--show-toplevel`，`--git-common-dir` 必须就是来源仓库的，toplevel 必须就是计划的目录；分支、HEAD 也在目录里问一遍，不只信来源仓库里的登记。`status --porcelain` 带 `--work-tree=<已核对的目录>`，和提交一样不被 `core.worktree` 引走。
+- **复制是原子的**：每个文件先写到 worktree 旁边的临时目录（`<worktree>.atrium-include`，同一个文件系统），再 `link` 到目标（目标已有就不覆盖，用户的文件不动），最后删临时文件；崩溃留下的临时目录在下次复制开头清掉。目标要么没有、要么是完整的。
+
+*界面*
+
+- **跟随模式**：SPEC 没有定时标签在跟随开发版任务目录时的说法；要先定说法再做（见"风险与待定问题"）。
+- **`ruleSubWords`**：只有上一次真的还在（`running`，或 `waiting` 等你）时才写"上次还在跑"；失败、停下、设计中、已不在时只写"跳过 N 次"。
+- **午夜与中午**：每天的 12 小时写法里午夜是"凌晨 12:00"，中午是"中午 12:00"；测试里原来的 `0:00` 改掉。每周的钟点照设计稿用 24 小时（"每周一 0:00"）；"下次 …"也是 24 小时（"明天 0:00"）。
+- **焦点**：关掉删除的确认（Esc 或"不了"）后，焦点回到"删除"。
+- **时区**（已核对）：宿主只发 `nextAt`（绝对时刻），界面只负责把它写成"今天 / 明天 / 日期 + 钟点"，用窗口所在的时区。桌面端的宿主是 Electron 主进程 `utilityProcess.fork` 出来的，没改环境变量，和窗口同一台机器、同一个用户会话，时区同源；规则里的钟点（"每天凌晨 2:00"）按宿主时区算，也按这个写。宿主启动时读一次时区，运行中改系统时区要重启才跟上（窗口会先跟上，这段时间里"下次"按新时区写、触发还按旧的）；这是已知的小缺口，不为它加机制。
+
+*测试*
+
+- 保留"动作做完、事件没写"的重放表，另加动作中途被打断的确定的断点（复制到一半、`git worktree add` 被杀、提示已被 pi 收下而会话文件没写、定时的各个崩溃窗口），以及一个真的子进程 `kill -9` 的测试（`t910.crash.host.test.ts`）。
 
 ## 备选方案
 
@@ -1238,6 +1293,7 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 - [ ] **全局合并驱动在宿主的合并里变成冲突**（T5）：见"宿主自己跑的 git"。
 - [ ] **宿主自己的提交不跑项目的钩子**：为了不执行 agent 放进 `.git/hooks` 的东西。lefthook 之类的检查要靠 `check` 节点。
 - [ ] **路径隔离不是沙箱**：`cp`、重定向、脚本里的写入拦不住。
+- [ ] **跟随开发版任务目录时的定时标签**（T9 / T10 审查，待用户定说法）：这时宿主不建 `ScheduleService`，`list_schedules` 答空，标签显示的是「还没有定时规则」的空状态，会让人以为是没建规则。需要一句话告诉用户这里不跑定时规则。建议：「这是在跟着别的进程的任务，定时规则不在这里运行」，协议上给 `list_schedules` 的答复加 `followed`（又一次协议号变动）。说法定下前不做。
 - [ ] **引导词写死**：效果全靠这四段说明，调优只能改代码发版；先接受，等用出经验再做设置页。
 - [ ] **引导词的效果**（T6）：四段话全靠它们让任务对话拆出合理的图；定稿前要用真实对话反复试（`pnpm task:design`），改了文字就加版本号。小改动倾向于选 `feature` 而不是 `fix`（`fix` 偏“一个已知的小问题”），定时修复的图是固定的、没有条件分支，所以没坏的那天也会走到最后一个 human 节点。
 - [ ] **模型不核对**（T6）：`task_set_meta` 写了不存在的模型，宿主不拦，还没开始的节点会 `failed(crashed)`；以后有模型清单的端口再核对。

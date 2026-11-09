@@ -27,8 +27,12 @@ describe("whenWords: the time in plain words, never cron (设计稿第 3 屏)", 
     [{ every: "day", at: "13:00" }, "每天下午 1:00"],
     [{ every: "day", at: "17:59" }, "每天下午 5:59"],
     [{ every: "day", at: "18:00" }, "每天晚上 6:00"],
-    [{ every: "day", at: "0:00" }, "每天凌晨 0:00"],
+    [{ every: "day", at: "0:00" }, "每天凌晨 12:00"],
+    [{ every: "day", at: "00:30" }, "每天凌晨 12:30"],
+    [{ every: "day", at: "1:00" }, "每天凌晨 1:00"],
+    [{ every: "day", at: "12:00" }, "每天中午 12:00"],
     [{ every: "day", at: "12:15" }, "每天中午 12:15"],
+    [{ every: "day", at: "23:59" }, "每天晚上 11:59"],
     [{ every: "day", at: "14:30" }, "每天下午 2:30"],
     [{ every: "day", at: "21:05" }, "每天晚上 9:05"],
     [{ every: "week", day: 1, at: "10:00" }, "每周一 10:00"],
@@ -108,8 +112,26 @@ describe("the second line", () => {
     expect(placeWords("new_worktree")).toBe("每次新建 worktree");
     expect(placeWords("local_readonly")).toBe("只读，在本地目录跑");
     expect(ruleSubWords(ROW, "atrium")).toBe("atrium · 每次新建 worktree");
-    expect(ruleSubWords({ ...ROW, place: "local_readonly", skipped: 1 }, "atrium")).toBe(
-      "atrium · 只读，在本地目录跑 · 跳过 1 次 · 上次还在跑",
-    );
+    expect(
+      ruleSubWords(
+        { ...ROW, place: "local_readonly", skipped: 1, last: { taskId: "t", status: "running", failed: false } },
+        "atrium",
+      ),
+    ).toBe("atrium · 只读，在本地目录跑 · 跳过 1 次 · 上次还在跑");
+  });
+
+  it("says the last run is still going only while it is, not when it failed or was stopped (or is gone)", () => {
+    const last = (status: NonNullable<ScheduleSummary["last"]>["status"], failed = false) =>
+      ruleSubWords({ ...ROW, skipped: 2, last: { taskId: "t", status, failed } }, "atrium");
+    expect(last("running")).toBe("atrium · 每次新建 worktree · 跳过 2 次 · 上次还在跑");
+    expect(last("waiting")).toBe("atrium · 每次新建 worktree · 跳过 2 次 · 上次还在跑");
+    expect(last("stopped", true)).toBe("atrium · 每次新建 worktree · 跳过 2 次");
+    expect(last("running", true)).toBe("atrium · 每次新建 worktree · 跳过 2 次");
+    expect(last("stopped")).toBe("atrium · 每次新建 worktree · 跳过 2 次");
+    expect(last("designing")).toBe("atrium · 每次新建 worktree · 跳过 2 次");
+    expect(ruleSubWords({ ...ROW, skipped: 2 }, "atrium")).toBe("atrium · 每次新建 worktree · 跳过 2 次");
+    expect(
+      ruleSubWords({ ...ROW, skipped: 0, last: { taskId: "t", status: "running", failed: false } }, "atrium"),
+    ).toBe("atrium · 每次新建 worktree");
   });
 });

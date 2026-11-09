@@ -113,6 +113,8 @@ export const MUTATION_GROUPS = {
       "packages/host/src/tasks/runner.test.ts",
       "packages/host/src/tasks/t9-runner.test.ts",
       "packages/host/src/tasks/t9-service.test.ts",
+      "packages/host/src/tasks/t910-service.test.ts",
+      "packages/host/src/tasks/t10-service.test.ts",
       "packages/host/src/tasks/task-workspaces.test.ts",
     ],
     skip: [],
@@ -130,6 +132,7 @@ export const MUTATION_GROUPS = {
       "packages/host/src/tasks/cadence.test.ts",
       "packages/host/src/tasks/schedule-service.test.ts",
       "packages/host/src/tasks/schedule-commands.test.ts",
+      "packages/host/src/tasks/t910-service.test.ts",
     ],
     skip: [],
   },
@@ -143,7 +146,7 @@ export const MUTATION_GROUPS = {
   // the real-host test (`schedules.host.test.ts`) covers the wiring and is not run per mutant.
   schedulehost: {
     mutate: ["packages/host/src/tasks/task-service.ts"],
-    tests: ["packages/host/src/tasks/t10-service.test.ts"],
+    tests: ["packages/host/src/tasks/t10-service.test.ts", "packages/host/src/tasks/t910-service.test.ts"],
     skip: [],
   },
   // The scheduler's pure `step` with only its own fast unit tests: for a run on a few lines of `scheduler.ts`
@@ -162,6 +165,18 @@ export const MUTATION_GROUPS = {
   worktreecreator: {
     mutate: ["packages/host/src/workspaces/worktree-creator.ts"],
     tests: ["packages/host/src/workspaces/worktree-creator.test.ts"],
+    skip: [],
+  },
+  // The worktree include copy and the task locks (T9 / T10 review fixes) with their own real-git tests, so that a run on
+  // one file does not run the whole `git` group's tests for every mutant.
+  worktreeinclude: {
+    mutate: ["packages/host/src/workspaces/worktree-include.ts"],
+    tests: ["packages/host/src/workspaces/worktree-include.test.ts"],
+    skip: [],
+  },
+  worktreelock: {
+    mutate: ["packages/host/src/workspaces/worktree-lock.ts"],
+    tests: ["packages/host/src/workspaces/worktree-lock.test.ts"],
     skip: [],
   },
   // The review hub and the task gates (ADR-0017, T8a): pure code, whose unit tests are quick; the real-host tests

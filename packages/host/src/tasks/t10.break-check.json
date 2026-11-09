@@ -64,17 +64,17 @@
   },
   {
     "file": "packages/host/src/tasks/schedule-service.ts",
-    "from": "![\"done\", \"cancelled\"].includes(deriveStatus(last))",
-    "to": "![\"done\"].includes(deriveStatus(last))",
+    "from": "return ![\"done\", \"cancelled\"].includes(deriveStatus(task));",
+    "to": "return ![\"done\"].includes(deriveStatus(task));",
     "test": "packages/host/src/tasks/schedule-service.test.ts",
     "name": "skips the trigger, counts it"
   },
   {
     "file": "packages/host/src/tasks/schedule-service.ts",
-    "from": "if (rule.lastTaskId === null) return false;",
-    "to": "if (rule.lastTaskId === null) return true;",
+    "from": "if (last !== undefined && isGoing(last)) return true;",
+    "to": "if (last === undefined || isGoing(last)) return true;",
     "test": "packages/host/src/tasks/schedule-service.test.ts",
-    "name": "makes a task named after the rule"
+    "name": "counts a last task that is gone as ended"
   },
   {
     "file": "packages/host/src/tasks/schedule-service.ts",
@@ -85,8 +85,8 @@
   },
   {
     "file": "packages/host/src/tasks/schedule-service.ts",
-    "from": "const wait = Math.min(Math.max(Math.min(...next) - clock.now(), 1), HEARTBEAT_MS);",
-    "to": "const wait = Math.max(Math.min(...next) - clock.now(), 1);",
+    "from": "const wait = waitingForPi ? HEARTBEAT_MS : Math.min(Math.max(Math.min(...next) - clock.now(), 1), HEARTBEAT_MS);",
+    "to": "const wait = waitingForPi ? HEARTBEAT_MS : Math.max(Math.min(...next) - clock.now(), 1);",
     "test": "packages/host/src/tasks/schedule-service.test.ts",
     "name": "is one timer at most"
   },
@@ -99,8 +99,8 @@
   },
   {
     "file": "packages/host/src/tasks/schedule-service.ts",
-    "from": "const due = lastDue(current.when, sinceOf(current), clock.now(), current.createdAt, timeZone);",
-    "to": "const due = lastDue(current.when, current.createdAt, clock.now(), current.createdAt, timeZone);",
+    "from": "const due = lastDue(current.when, sinceOf(current), clock.now(), sinceOf(current), timeZone);",
+    "to": "const due = lastDue(current.when, current.createdAt, clock.now(), sinceOf(current), timeZone);",
     "test": "packages/host/src/tasks/schedule-service.test.ts",
     "name": "runs nothing when no trigger fell in the gap"
   },
@@ -134,18 +134,11 @@
   },
   {
     "file": "packages/host/src/tasks/schedule-service.ts",
-    "from": "    cancelTimer?.();\n    cancelTimer = null;\n    if (closed) return;",
-    "to": "    if (closed) return;",
+    "from": "if (closed || !started) return;",
+    "to": "if (!started) return;",
     "test": "packages/host/src/tasks/schedules.leak.test.ts",
-    "name": "holds one timer while a rule is active",
+    "name": "leaves no timer when a ringing timer finds the service closed",
     "project": "leak"
-  },
-  {
-    "file": "packages/host/src/tasks/schedule-service.ts",
-    "from": "    if (unreadable) return;\n",
-    "to": "",
-    "test": "packages/host/src/tasks/schedule-service.test.ts",
-    "name": "leaves a rules file it cannot read"
   },
   {
     "file": "packages/host/src/tasks/schedule-service.ts",
@@ -215,7 +208,7 @@
   },
   {
     "file": "packages/host/src/tasks/task-commands.ts",
-    "from": "return task.scheduleDraft === null;",
+    "from": "return task.scheduleDraft === null || !saved(task.id);",
     "to": "return true;",
     "test": "packages/host/src/tasks/schedules.host.test.ts",
     "name": "the conversation sets the schedule",
