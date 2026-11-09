@@ -1,9 +1,9 @@
 import type { AtriumClient } from "@atrium/client";
 import { type HostMessage, PROTOCOL_VERSION } from "@atrium/protocol";
 import type { TranscriptItem } from "@atrium/protocol";
-import { type FauxReply, createTempDir, fauxPi, present, writeScriptedPi } from "@atrium/testkit";
+import { createTempDir, fauxPi, type FauxReply, installedPi, present, writeScriptedPi } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
-import { access, chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
@@ -335,30 +335,6 @@ const ATRIUM_EXTENSION = fileURLToPath(new URL("../../pi/src/extension/atrium.ts
 const AGENT_ROUNDS = 5;
 
 /**
- * The real pi on this process's PATH.
- *
- * @remarks
- * As the end-to-end tests run it: the pi installed, answering from the faux model.
- *
- * @sideEffects Checks files on disk.
- * @returns Its path.
- * @throws {Error} When pi is not installed.
- */
-async function realPi(): Promise<string> {
-  for (const directory of (process.env["PATH"] ?? "").split(delimiter).filter((one) => one !== "")) {
-    const candidate = join(directory, "pi");
-    if (
-      await access(candidate).then(
-        () => true,
-        () => false,
-      )
-    )
-      return candidate;
-  }
-  throw new Error("pi is not on PATH; the agent's children leak test needs it installed");
-}
-
-/**
  * What the parent's agent says in each round: opens a child, ends its run, and takes the child's notice.
  *
  * @remarks
@@ -419,7 +395,7 @@ async function agentHost(rounds: number): Promise<{ readonly host: TestHost; rea
     toolEnv: {
       ...launch.env,
       PATH: `${bin}${delimiter}${process.env["PATH"] ?? ""}`,
-      LEAK_REAL_PI: await realPi(),
+      LEAK_REAL_PI: await installedPi(),
     },
   });
   await testHost.host.tools;

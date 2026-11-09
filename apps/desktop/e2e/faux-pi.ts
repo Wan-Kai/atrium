@@ -1,5 +1,5 @@
-import { type ExpectedLog, type FauxContext, type FauxScript, fauxPi } from "@atrium/testkit";
-import { access, chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { type ExpectedLog, type FauxContext, type FauxScript, fauxPi, installedPi } from "@atrium/testkit";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
@@ -44,32 +44,6 @@ export function fauxExpectedLogs(env: Readonly<Record<string, string>>): readonl
 }
 
 /**
- * Finds the real pi on this process's PATH.
- *
- * @remarks
- * End-to-end tests run the pi that is installed, as the host would, only answering from the faux
- * model instead of a real one.
- *
- * @sideEffects Checks files on disk.
- * @returns The path of `pi`.
- * @throws {Error} When pi is not installed.
- */
-export async function realPi(): Promise<string> {
-  for (const directory of (process.env["PATH"] ?? "").split(delimiter)) {
-    const candidate = join(directory, "pi");
-    if (
-      directory !== "" &&
-      (await access(candidate).then(
-        () => true,
-        () => false,
-      ))
-    )
-      return candidate;
-  }
-  throw new Error("pi is not on PATH; end-to-end chat tests need it installed");
-}
-
-/**
  * Prepares an environment in which the host's pi answers from `script`.
  *
  * @remarks
@@ -100,7 +74,7 @@ export async function fauxPiEnvironment(script: FauxScript): Promise<FauxPiEnvir
       ...launch.env,
       SHELL: "/usr/bin/false",
       PATH: `${bin}${delimiter}${process.env["PATH"] ?? ""}`,
-      [REAL_PI_ENV]: await realPi(),
+      [REAL_PI_ENV]: await installedPi(),
     },
     agentDir: launch.agentDir,
     release: (name) => launch.release(name),

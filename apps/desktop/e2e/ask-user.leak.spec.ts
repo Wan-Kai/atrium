@@ -13,10 +13,12 @@ import { addProject } from "./projects";
 const ROUNDS = 8;
 
 /**
- * One round: send a message, answer the questions it brings by choosing or skip, and wait for the reply.
+ * One round: send a message, answer the questions it brings by choosing or skip, and wait for the turn to end.
  *
  * @remarks
- * Even rounds skip, odd ones choose and send, so both ends of the card are walked.
+ * Even rounds skip, odd ones choose and send, so both ends of the card are walked. The reply shows
+ * before the turn settles; a round ends only when no running mark is left, so a snapshot after it
+ * does not race the marks going (testing.md, "已知不稳的测试").
  *
  * @sideEffects Drives the page.
  * @param window - The app's page.
@@ -31,6 +33,7 @@ async function round(window: Page, index: number): Promise<void> {
   await (skip ? Promise.resolve() : card.getByRole("button", { name: "提交回答" }).click());
   await expect(card).toHaveCount(0);
   await expect(window.getByTestId("reply")).toHaveCount(index + 1, { timeout: 60_000 });
+  await expect(window.getByRole("img", { name: "运行中" })).toHaveCount(0, { timeout: 30_000 });
 }
 
 test("@leak the agent's questions coming and going, answered or skipped, leak no DOM (SPEC-0003)", async () => {

@@ -3,7 +3,12 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
+
+// Each test starts the script as its own Node process, and most build a git repository first: a
+// dozen processes or more in turn, which take 150 ms to 1 s each while the machine is busy. Next to
+// the other test files that is up to about 5 seconds, the default (testing.md, "子进程多的测试").
+vi.setConfig({ testTimeout: 30_000 });
 
 const run = promisify(execFile);
 const script = join(import.meta.dirname, "boundary.mjs");

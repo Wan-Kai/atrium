@@ -1,11 +1,18 @@
-import { FAUX_MODEL, FAUX_PROVIDER, type FauxScript, createTempDir, fauxPi, present } from "@atrium/testkit";
+import {
+  createTempDir,
+  FAUX_MODEL,
+  FAUX_PROVIDER,
+  fauxPi,
+  type FauxScript,
+  installedPi,
+  present,
+} from "@atrium/testkit";
 import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PiDeps } from "../deps";
-import { findPi } from "../locate/locate";
 import { OneShotError, runOneShot } from "./oneshot";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -42,7 +49,7 @@ async function oneShot(
   cleanups.push(dir.cleanup);
   const home = await realpath(dir.path);
   const launch = await fauxPi(script, home);
-  const pi = present(await findPi(present(process.env["PATH"], "PATH")), "pi");
+  const pi = await installedPi();
   await options.configure?.(home, launch.agentDir);
   const wrapper = join(home, "pi");
   const probe = join(home, "slash-probe.ts");
