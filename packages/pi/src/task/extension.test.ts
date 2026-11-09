@@ -178,11 +178,10 @@ describe("atriumTask: what a session gets by what the flag says", () => {
     expect([...s.tools.keys()]).toStrictEqual([]);
   });
 
-  it("gives the task conversation the command and its eight tools, one at a time in a batch", () => {
+  it("gives the task conversation the command and its nine tools, one at a time in a batch", () => {
     const s = stand({ argv: [arg({ v: 1, kind: "conversation" })] });
 
     expect([...s.tools.keys()]).toStrictEqual([...CONVERSATION_TOOLS]);
-    expect([...s.tools.keys()]).not.toContain("task_set_schedule");
     for (const tool of s.tools.values()) {
       expect(tool.executionMode).toBe("sequential");
       expect(tool.parameters["additionalProperties"]).toBe(false);
@@ -598,7 +597,7 @@ describe("the hooks of a node", () => {
     for (const tool of ["read", "bash", "ffgrep", "fffind", "ls", "ask_user", ...CONVERSATION_TOOLS]) {
       expect(s.hook(tool, {}, "/w")).toBeUndefined();
     }
-    for (const tool of ["write", "edit", "agent_spawn", "node_done", "task_set_schedule"]) {
+    for (const tool of ["write", "edit", "agent_spawn", "node_done"]) {
       expect(s.hook(tool, { path: "x" }, "/w")).toMatchObject({ block: true });
     }
   });
@@ -969,6 +968,10 @@ describe("what the conversation's tools declare (SPEC-0006, T6)", () => {
       task_send_to_node: [
         ["id", "text"],
         ["id", "text"],
+      ],
+      task_set_schedule: [
+        ["when", "place"],
+        ["when", "place"],
       ],
     });
   });

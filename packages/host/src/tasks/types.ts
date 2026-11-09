@@ -1,4 +1,4 @@
-import { ThinkingLevel } from "@atrium/protocol";
+import { Cadence, SchedulePlace, ThinkingLevel } from "@atrium/protocol";
 import { z } from "zod";
 
 /*
@@ -42,17 +42,6 @@ const RequirementSummary = z.strictObject({
   acceptance: z.array(z.string()),
 });
 type RequirementSummary = z.infer<typeof RequirementSummary>;
-
-/** When a schedule rule fires, in the machine's time zone. */
-const Cadence = z.union([
-  z.strictObject({ every: z.literal("day"), at: z.string() }),
-  z.strictObject({ every: z.literal("week"), day: z.number().int().min(0).max(6), at: z.string() }),
-]);
-type Cadence = z.infer<typeof Cadence>;
-
-/** Where a scheduled task runs. */
-const SchedulePlace = z.enum(["new_worktree", "local_readonly"]);
-type SchedulePlace = z.infer<typeof SchedulePlace>;
 
 /** What a node does for the task. */
 export const NodeRole = z.enum(["explore", "work", "check", "advise"]);
@@ -281,6 +270,8 @@ export const TaskEvent = z.discriminatedUnion("type", [
   event("started", {}),
   event("abandoned", {}),
   event("meta_changed", { name: z.string().optional(), model: TaskModel.optional() }),
+  /** The task conversation made the task a schedule rule's template, or changed its cadence or place (T10); only while designing. */
+  event("schedule_set", { when: Cadence, place: SchedulePlace }),
   event("node_started", { ...run, sessionId: z.string(), startCommit: z.string().nullable() }),
   event("node_waiting", {
     ...run,

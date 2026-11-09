@@ -126,6 +126,7 @@ export function view(
     edges: edges.map(([from, to, kind]) => ({ from, to, kind: kind ?? "seq" })),
     archiveFacts: null,
     followed: false,
+    scheduleDraft: null,
     ...changes,
   });
 }

@@ -48,7 +48,14 @@ import { type ChangesView, type DiffView, diffViewOf } from "./changes-view";
 import { type ModelListView, UNASKED_MODELS } from "./model-list";
 import { type RemoteView, UNWATCHED_REMOTE } from "./remote-view";
 import { type SetupView, UNASKED_SETUP } from "./setup-view";
-import { LOADING_TASK, type TaskState, type TasksView, UNWATCHED_TASKS } from "./tasks-view";
+import {
+  LOADING_TASK,
+  type SchedulesView,
+  type TaskState,
+  type TasksView,
+  UNWATCHED_SCHEDULES,
+  UNWATCHED_TASKS,
+} from "./tasks-view";
 import {
   type MessageTag,
   type PendingMessage,
@@ -430,6 +437,20 @@ export interface AtriumClient {
   cancelTask(taskId: string): Promise<CommandResult<"cancel_task">>;
   /** The question about the worktree a finished task made. */
   answerArchive(taskId: string, answer: ArchiveAnswer): Promise<CommandResult<"answer_archive">>;
+  /** The schedule rules while the 定时 tab is shown: `schedules_updated` pushes land here, whole; idle until {@link watchSchedules}. */
+  readonly schedules: StoreApi<SchedulesView>;
+  /** Starts or stops watching the rules, on this connection and every later one. */
+  watchSchedules(on: boolean): Promise<void>;
+  /** Pauses a rule. */
+  pauseSchedule(scheduleId: string): Promise<CommandResult<"pause_schedule">>;
+  /** Lets a paused rule go on. */
+  resumeSchedule(scheduleId: string): Promise<CommandResult<"resume_schedule">>;
+  /** "立即跑一次": answers the new task's id. */
+  runScheduleNow(scheduleId: string): Promise<CommandResult<"run_schedule_now">>;
+  /** Deletes a rule. */
+  deleteSchedule(scheduleId: string): Promise<CommandResult<"delete_schedule">>;
+  /** "修改": answers the template task to open. */
+  editSchedule(scheduleId: string): Promise<CommandResult<"edit_schedule">>;
   /** What the changes panel shows. */
   readonly diff: StoreApi<DiffView>;
   /** Opens the changes panel on a target, or closes it with `null`, on this connection and every later one. */
@@ -581,6 +602,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const tasks = createStore<TasksView>(() => UNWATCHED_TASKS);
   /** Whether a window watches the task list, asked for again on each connection. */
   let watchingTasks = false;
+  const schedules = createStore<SchedulesView>(() => UNWATCHED_SCHEDULES);
+  let watchingSchedules = false;
   /** How many times the list was asked for, so an answer older than a push is not put over it. */
   let taskListAsks = 0;
   const taskStores = new Map<string, StoreApi<TaskState>>();
@@ -992,6 +1015,25 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   }
 
   /**
+   * Asks for the schedule rules and keeps watching them.
+   *
+   * @remarks
+   * A push that arrived first wins over this answer.
+   *
+   * @sideEffects Sends `list_schedules`; updates the rules' store.
+   */
+  async function loadSchedules(): Promise<void> {
+    const before = schedules.getState();
+    schedules.setState(
+      { status: before.status === "ready" ? "ready" : "loading", schedules: before.schedules, seq: -1 },
+      true,
+    );
+    const { schedules: listed } = await request("list_schedules", { watch: true });
+    if (!watchingSchedules || schedules.getState().seq >= 0) return;
+    schedules.setState({ status: "ready", schedules: listed, seq: 0 }, true);
+  }
+
+  /**
    * Opens the task the window shows on this connection.
    *
    * @remarks
@@ -1308,6 +1350,11 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       tasks.setState({ status: "ready", tasks: message.tasks, seq: message.seq }, true);
       return;
     }
+    if (message.type === "schedules_updated") {
+      if (!watchingSchedules || message.seq <= schedules.getState().seq) return;
+      schedules.setState({ status: "ready", schedules: message.schedules, seq: message.seq }, true);
+      return;
+    }
     if (message.type === "task_updated") {
       // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
       taskOf(message.task.id).setState({ status: "ready", task: message.task }, true);
@@ -1437,6 +1484,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         subscribeWatched().catch(() => undefined);
         watchShown().catch(() => undefined);
         if (watchingTasks) loadTasks().catch(() => undefined);
+        if (watchingSchedules) loadSchedules().catch(() => undefined);
         if (openedTask !== null) loadTask(openedTask).catch(() => undefined);
         // Fire and forget: the failure lands in the store.
         if (watchingRemote) void loadRemote();
@@ -1735,6 +1783,26 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         if (!(error instanceof ConnectionLostError)) throw error;
       }
     },
+    schedules,
+    async watchSchedules(on) {
+      watchingSchedules = on;
+      if (on) {
+        if (live !== undefined) await loadSchedules();
+        return;
+      }
+      schedules.setState(UNWATCHED_SCHEDULES, true);
+      if (live === undefined) return;
+      try {
+        await request("list_schedules", { watch: false });
+      } catch (error) {
+        if (!(error instanceof ConnectionLostError)) throw error;
+      }
+    },
+    pauseSchedule: (scheduleId) => request("pause_schedule", { scheduleId }),
+    resumeSchedule: (scheduleId) => request("resume_schedule", { scheduleId }),
+    runScheduleNow: (scheduleId) => request("run_schedule_now", { scheduleId }),
+    deleteSchedule: (scheduleId) => request("delete_schedule", { scheduleId }),
+    editSchedule: (scheduleId) => request("edit_schedule", { scheduleId }),
     task: taskOf,
     async openTask(taskId) {
       openedTask = taskId;

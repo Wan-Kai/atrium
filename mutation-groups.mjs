@@ -89,6 +89,8 @@ export const MUTATION_GROUPS = {
       "!packages/host/src/tasks/{runner,task-service,task-workspaces,new-task,node-ports}.ts",
       // T8a: the review gates and the hub have their own group below, with only their own tests.
       "!packages/host/src/tasks/{task-reviews,graph-diff}.ts",
+      // T10: the schedules have their own group below.
+      "!packages/host/src/tasks/{cadence,schedule-service,schedule-commands,schedule-rules}.ts",
       "!packages/host/src/tasks/*.break-check.json",
     ],
     tests: [
@@ -113,6 +115,35 @@ export const MUTATION_GROUPS = {
       "packages/host/src/tasks/t9-service.test.ts",
       "packages/host/src/tasks/task-workspaces.test.ts",
     ],
+    skip: [],
+  },
+  // The schedules (SPEC-0006, T10): the cadence arithmetic, the service over a fake clock and fake tasks, the commands and
+  // the rules file. The host-layer tests (`schedules.host.test.ts`) cover the wiring and are not run per mutant.
+  schedules: {
+    mutate: [
+      "packages/host/src/tasks/cadence.ts",
+      "packages/host/src/tasks/schedule-service.ts",
+      "packages/host/src/tasks/schedule-commands.ts",
+      "packages/host/src/tasks/schedule-rules.ts",
+    ],
+    tests: [
+      "packages/host/src/tasks/cadence.test.ts",
+      "packages/host/src/tasks/schedule-service.test.ts",
+      "packages/host/src/tasks/schedule-commands.test.ts",
+    ],
+    skip: [],
+  },
+  // The task conversation's tools (`task_set_schedule` is T10's) with their own fast unit tests; a run names the lines.
+  taskconversation: {
+    mutate: ["packages/host/src/tasks/conversation.ts"],
+    tests: ["packages/host/src/tasks/conversation.test.ts"],
+    skip: [],
+  },
+  // The task service's schedule parts (T10: saving a rule, making a task of a rule, the template) over a fake session layer;
+  // the real-host test (`schedules.host.test.ts`) covers the wiring and is not run per mutant.
+  schedulehost: {
+    mutate: ["packages/host/src/tasks/task-service.ts"],
+    tests: ["packages/host/src/tasks/t10-service.test.ts"],
     skip: [],
   },
   // The scheduler's pure `step` with only its own fast unit tests: for a run on a few lines of `scheduler.ts`

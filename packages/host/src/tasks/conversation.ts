@@ -43,7 +43,13 @@ const DIFF_TIMEOUT_MS = 30_000;
 const DIFF_CHARS = 20_000;
 
 /** The calls that change the task. */
-const CHANGING = new Set<string>(["task_set_summary", "task_set_meta", "task_propose_graph", "task_send_to_node"]);
+const CHANGING = new Set<string>([
+  "task_set_summary",
+  "task_set_meta",
+  "task_set_schedule",
+  "task_propose_graph",
+  "task_send_to_node",
+]);
 
 /**
  * Whether a call is one of the task conversation's tools.
@@ -281,7 +287,7 @@ async function proposeGraph(
     { nodes: nodes.data, edges: edges.data },
     {
       projectless: task.projectId === null,
-      localReadonly: false,
+      localReadonly: task.scheduleDraft?.place === "local_readonly",
       ...(task.startedAt === null ? {} : { started: task }),
     },
   )[0];
@@ -350,6 +356,23 @@ export async function answerConversation(input: {
               },
             }),
       });
+      return { ok: true, result: { recorded: true } };
+    }
+    case "task_set_schedule": {
+      // A rule belongs to a project, and is set while the task is still being designed (SPEC-0006, "T10 定下的细节").
+      if (task.startedAt !== null || task.projectId === null) return refuse("task_state_invalid");
+      const graph = activeGraphOf(task);
+      const problem =
+        graph === undefined
+          ? undefined
+          : validateGraph(graph, { projectless: false, localReadonly: call.args.place === "local_readonly" })[0];
+      if (problem !== undefined) {
+        return refuse("task_graph_invalid", {
+          code: problem.code,
+          ...(problem.node === undefined ? {} : { node: problem.node }),
+        });
+      }
+      await submit({ type: "schedule_set", when: call.args.when, place: call.args.place });
       return { ok: true, result: { recorded: true } };
     }
     case "task_status":

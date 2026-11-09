@@ -14,7 +14,7 @@ export { type ModelListView } from "./model-list";
 export { type MessageTag, type PendingMessage, type SessionView, loadingView } from "./session-view";
 export { type RemoteView } from "./remote-view";
 export { type SetupView } from "./setup-view";
-export { type TaskState, type TasksView } from "./tasks-view";
+export { type SchedulesView, type TaskState, type TasksView } from "./tasks-view";
 // Runtime protocol values reach the UI through this facade; protocol imports are type-only there (overview.md).
 export {
   CommandError,

@@ -1,7 +1,7 @@
 import { taskCommandText } from "@atrium/pi";
 import { CommandError, type ArchiveAnswer, type HumanAnswer, type ReviewRecord, type TaskView } from "@atrium/protocol";
 import { randomUUID } from "node:crypto";
-import { readdir, rm } from "node:fs/promises";
+import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Clock } from "../platform/clock";
 import type { Logger } from "../platform/logger";
@@ -9,7 +9,8 @@ import type { TaskSessions } from "../sessions/task-sessions";
 import { buildDesignPrompt } from "./design";
 import { BACK_LIMIT, activeGraphOf, liveRun } from "./graph";
 import { type GraphProblem, validateGraph } from "./graph-validator";
-import { newDesignTask } from "./new-task";
+import type { ScheduleRule } from "./schedule-rules";
+import { newDesignTask, newScheduledTask } from "./new-task";
 import type { TaskRunner } from "./runner";
 import { backUses } from "./scheduler";
 import { deriveStatus } from "./status";
@@ -44,6 +45,29 @@ export interface TaskService {
   open(taskId: string): Promise<Task>;
   /** Records an event for a task and carries out what it brings. */
   submit(taskId: string, input: TaskEventInput): Promise<Task>;
+  /**
+   * A task by id, taken up from disk if it is there and not held; `undefined` when there is none.
+   *
+   * @remarks
+   * Unlike `open`, a task that does not exist is not an error and leaves nothing behind.
+   */
+  lookup(taskId: string): Promise<Task | undefined>;
+  /**
+   * Makes a started task of a schedule rule (SPEC-0006, "定时"): its own conversation, the rule's summary and graph, and
+   * the `started` event.
+   *
+   * @remarks
+   * The graph is checked again with the rule's place. A task that could not be started is taken back out, so a
+   * failed trigger leaves no half-made task. Answers the task's id.
+   */
+  createScheduled(rule: ScheduleRule, name: string, firedAt: number, signal: AbortSignal): Promise<string>;
+  /**
+   * Removes a schedule rule's template task and its conversation.
+   *
+   * @remarks
+   * For deleting the rule. A task that is not there is not an error.
+   */
+  discardTemplate(taskId: string): Promise<void>;
   /** The task as it is. */
   task(taskId: string): Task | undefined;
   /** Takes up a task again after the host restarted; see `TaskRunner.recover`. */
@@ -167,6 +191,20 @@ export interface TaskService {
 }
 
 /**
+ * What the task service needs from the schedule rules.
+ *
+ * @remarks
+ * The two are wired in `main.ts`: the service makes the tasks the rules ask for, and asks the rules to save the one
+ * a template task stands for.
+ */
+export interface TaskSchedules {
+  /** Saves the rule a template task stands for; see `ScheduleService.confirm`. */
+  confirm(template: Task): Promise<void>;
+  /** Whether a rule was saved from this template task. */
+  saved(templateTaskId: string): boolean;
+}
+
+/**
  * The node's latest run, if it is the live one of a node of the graph in force.
  *
  * @remarks
@@ -279,6 +317,8 @@ export function createTaskService(options: {
   readonly logger: Logger;
   readonly archiving: TaskArchiving;
   readonly design: TaskDesignPorts;
+  /** The schedule rules; absent while another process's tasks are followed. */
+  readonly schedules?: TaskSchedules;
 }): TaskService {
   const { runner } = options;
   const stopping = new AbortController();
@@ -440,6 +480,77 @@ export function createTaskService(options: {
       return made;
     },
     submit: (taskId, input) => runner.submit(taskId, input),
+    async lookup(taskId) {
+      const held = runner.task(taskId);
+      if (held !== undefined) return held;
+      if (!TASK_DIRECTORY.test(taskId)) return undefined;
+      const there = await stat(join(options.root, taskId, "events.jsonl")).then(
+        () => true,
+        () => false,
+      );
+      return there ? service.open(taskId).catch(() => undefined) : undefined;
+    },
+    async createScheduled(rule, name, firedAt, signal) {
+      signal.throwIfAborted();
+      const problem = validateGraph(rule.graph, {
+        projectless: false,
+        localReadonly: rule.place === "local_readonly",
+      })[0];
+      if (problem !== undefined) throw graphError(problem);
+      const taskId = newId();
+      const { sessions } = options.design;
+      const conversation = await sessions.create({
+        containerId: rule.containerId,
+        cwd: rule.sourceDir,
+        name: taskId,
+        task: {
+          taskId,
+          role: "conversation",
+          startOn: {
+            providerId: rule.model.providerId,
+            modelId: rule.model.modelId,
+            thinkingLevel: rule.model.thinking,
+          },
+        },
+      });
+      try {
+        await service.create(
+          newScheduledTask({
+            id: taskId,
+            name,
+            projectId: rule.projectId,
+            sourceDir: rule.sourceDir,
+            ruleId: rule.id,
+            firedAt,
+            taskSessionId: conversation,
+            model: rule.model,
+            summary: rule.summary,
+            nodes: rule.graph.nodes,
+            edges: rule.graph.edges,
+            now: options.clock.now(),
+          }),
+        );
+        await runner.submit(taskId, { type: "started" });
+      } catch (error) {
+        await runner.submit(taskId, { type: "abandoned" }).catch(() => undefined);
+        await runner.detach(taskId).catch(() => undefined);
+        await rm(join(options.root, taskId), { recursive: true, force: true });
+        await sessions.retire(conversation).catch(() => undefined);
+        throw error;
+      }
+      return taskId;
+    },
+    async discardTemplate(taskId) {
+      const task = await service.lookup(taskId);
+      if (task === undefined) return;
+      await runner.submit(taskId, { type: "abandoned" }).catch(() => undefined);
+      await runner.detach(taskId);
+      await rm(join(options.root, taskId), { recursive: true, force: true });
+      await options.design.sessions.retire(task.taskSessionId).catch((error: unknown) => {
+        options.logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "task conversation not archived");
+      });
+      // The source conversation is not told: "converted" stays, as the template was made from it and the rule was real.
+    },
     task: (taskId) => runner.task(taskId),
     recover: (taskId) => runner.recover(taskId),
     async recoverAll({ signal, staleLocks, ready }) {
@@ -488,7 +599,9 @@ export function createTaskService(options: {
       const worktree =
         asked || needsWorktreeFacts(task) ? await options.archiving.facts(task, signal).catch(() => null) : null;
       const changes = needsWorktreeFacts(task) ? await options.archiving.changes(task, signal).catch(() => null) : null;
-      return viewOf(task, asked ? worktree : null, false, reviewsOf(task, { worktree, changes }));
+      return viewOf(task, asked ? worktree : null, false, reviewsOf(task, { worktree, changes }), {
+        saved: options.schedules?.saved(task.id) ?? false,
+      });
     },
     recordReview: (taskId, line) => runner.recordReview(taskId, line),
     async openSession(taskId, sessionId) {
@@ -508,13 +621,24 @@ export function createTaskService(options: {
       const graph = activeGraphOf(task);
       if (task.startedAt !== null || task.cancelled || graph === undefined)
         throw new CommandError("task_state_invalid");
-      const problem = validateGraph(graph, { projectless: task.projectId === null, localReadonly: false })[0];
+      const problem = validateGraph(graph, {
+        projectless: task.projectId === null,
+        localReadonly: task.scheduleDraft?.place === "local_readonly",
+      })[0];
       if (problem !== undefined) throw graphError(problem);
+      if (task.scheduleDraft !== null) {
+        // A schedule rule's template is never started: saving the rule is what the button does (SPEC-0006, "定时").
+        if (options.schedules === undefined || task.projectId === null) throw new CommandError("task_state_invalid");
+        await options.schedules.confirm(task);
+        return;
+      }
       await runner.submit(taskId, { type: "started" });
     },
     async abandon(taskId) {
       const task = await need(taskId);
       if (task.startedAt !== null || task.cancelled) throw new CommandError("task_state_invalid");
+      // A template whose rule was saved goes with the rule (`delete_schedule`), not by itself.
+      if (options.schedules?.saved(taskId) === true) throw new CommandError("task_state_invalid");
       await runner.submit(taskId, { type: "abandoned" });
       await runner.detach(taskId);
       await rm(join(options.root, taskId), { recursive: true, force: true });

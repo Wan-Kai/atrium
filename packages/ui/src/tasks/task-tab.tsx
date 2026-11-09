@@ -72,7 +72,7 @@ function ConfirmButton({
         if (event.key === "Escape") setAsking(false);
       }}
     >
-      <span className="text-[length:var(--fs-meta)] text-[var(--danger)]">{question}</span>
+      <span className="text-[length:var(--fs-meta)] whitespace-nowrap text-[var(--danger)]">{question}</span>
       <button
         type="button"
         autoFocus
@@ -150,14 +150,17 @@ function TaskBar({
     );
   };
   const live = task.status === "running" || task.status === "waiting";
+  const template = task.scheduleDraft;
   const buttons: ReactNode = task.followed ? null : task.status === "designing" ? (
     <>
-      <ConfirmButton
-        label="放弃任务"
-        question="放弃这个任务？"
-        disabled={busy}
-        onConfirm={() => run(() => client.abandonTask(task.id))}
-      />
+      {template?.saved === true ? null : (
+        <ConfirmButton
+          label="放弃任务"
+          question="放弃这个任务？"
+          disabled={busy}
+          onConfirm={() => run(() => client.abandonTask(task.id))}
+        />
+      )}
       <button
         type="button"
         disabled={busy || task.nodes.length === 0}
@@ -165,7 +168,7 @@ function TaskBar({
         onClick={() => run(() => client.startTask(task.id))}
         className={`${BAR_BUTTON} bg-[var(--tint)] font-medium text-[var(--on-tint)]`}
       >
-        确认并启动
+        {template === null ? "确认并启动" : "确认并保存规则"}
       </button>
     </>
   ) : live || task.status === "stopped" ? (

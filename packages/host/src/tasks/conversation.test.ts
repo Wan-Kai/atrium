@@ -615,3 +615,69 @@ function need<T>(value: T | undefined): T {
   if (value === undefined) throw new Error("expected a value");
   return value;
 }
+
+describe("task_set_schedule (SPEC-0006, 定时; T10)", () => {
+  const WHEN = { every: "day", at: "2:00" } as const;
+
+  it("makes the designing task a rule's template and records the cadence and place", async () => {
+    const w = world(designing());
+
+    expect(await w.ask(call("task_set_schedule", { when: WHEN, place: "new_worktree" }))).toStrictEqual({
+      ok: true,
+      result: { recorded: true },
+    });
+    expect(w.task().scheduleDraft).toStrictEqual({ when: WHEN, place: "new_worktree" });
+    // Again, with another time: it replaces.
+    await w.ask(call("task_set_schedule", { when: { every: "interval", minutes: 5 }, place: "new_worktree" }));
+    expect(w.task().scheduleDraft?.when).toStrictEqual({ every: "interval", minutes: 5 });
+  });
+
+  it("is refused once the task started, once it ended, and for a task outside any project", async () => {
+    const args = { when: WHEN, place: "new_worktree" } as const;
+    expect(await world(started()).ask(call("task_set_schedule", args))).toStrictEqual({
+      ok: false,
+      code: "task_state_invalid",
+    });
+    for (const closed of [{ endedAt: 9 }, { cancelled: true }]) {
+      expect(await world({ ...started(), ...closed }).ask(call("task_set_schedule", args))).toStrictEqual({
+        ok: false,
+        code: "task_state_invalid",
+      });
+    }
+    // A task given up while it was designing is closed too.
+    expect(await world({ ...designing(), cancelled: true }).ask(call("task_set_schedule", args))).toStrictEqual({
+      ok: false,
+      code: "task_state_invalid",
+    });
+    const outside = newTask(THREE, SEQ, { projectId: null });
+    expect(await world(outside).ask(call("task_set_schedule", args))).toStrictEqual({
+      ok: false,
+      code: "task_state_invalid",
+    });
+    expect(world(outside).task().scheduleDraft).toBeNull();
+  });
+
+  it("refuses a read-only place when the graph has a work node, and then records nothing", async () => {
+    const w = world(designing());
+
+    expect(await w.ask(call("task_set_schedule", { when: WHEN, place: "local_readonly" }))).toStrictEqual({
+      ok: false,
+      code: "task_graph_invalid",
+      params: { code: "readonly_rule_has_work", node: "N2" },
+    });
+    expect(w.task().scheduleDraft).toBeNull();
+  });
+
+  it("then holds the graphs it proposes to a read-only rule's rules", async () => {
+    const w = world(newTask([agent("N1", "explore")], []));
+    await w.ask(call("task_set_schedule", { when: WHEN, place: "local_readonly" }));
+
+    const refused = await w.ask(call("task_propose_graph", { nodes: THREE, edges: SEQ, note: "" }));
+
+    expect(refused).toMatchObject({
+      ok: false,
+      code: "task_graph_invalid",
+      params: { code: "readonly_rule_has_work" },
+    });
+  });
+});

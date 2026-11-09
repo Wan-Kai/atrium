@@ -208,6 +208,13 @@ const commands: Command[] = [
     taskId: "tsk_a",
     sessionId: "s2",
   },
+  { type: "list_schedules", requestId: "r38g", traceparent },
+  { type: "list_schedules", requestId: "r38h", traceparent, watch: true },
+  { type: "pause_schedule", requestId: "r38i", traceparent, scheduleId: "rul_a" },
+  { type: "resume_schedule", requestId: "r38j", traceparent, scheduleId: "rul_a" },
+  { type: "run_schedule_now", requestId: "r38k", traceparent, scheduleId: "rul_a" },
+  { type: "delete_schedule", requestId: "r38l", traceparent, scheduleId: "rul_a" },
+  { type: "edit_schedule", requestId: "r38m", traceparent, scheduleId: "rul_a" },
   {
     type: "answer_review",
     requestId: "r38e",
@@ -499,6 +506,22 @@ const taskView = {
   ],
   archiveFacts: null,
   followed: false,
+  scheduleDraft: null,
+} as const;
+
+/** A schedule rule's row, as the 定时 tab gets it. */
+const scheduleSummary = {
+  id: "rul_a",
+  name: "Mutation run",
+  projectId: PROJECT,
+  place: "new_worktree",
+  when: { every: "day", at: "2:00" },
+  paused: false,
+  nextAt: 1_760_000_000_000,
+  last: { taskId: "tsk_a", status: "stopped", failed: true },
+  skipped: 1,
+  templateTaskId: "tsk_t",
+  createdAt: 1_759_000_000_000,
 } as const;
 
 /** An update waiting for two sessions to finish. */
@@ -1091,8 +1114,10 @@ describe("parseClientMessage", () => {
       "create_session",
       "create_task",
       "create_workspace",
+      "delete_schedule",
       "detach_session",
       "discover_projects",
+      "edit_schedule",
       "edit_stopped_message",
       "export_session",
       "fetch_image",
@@ -1108,6 +1133,7 @@ describe("parseClientMessage", () => {
       "list_commands",
       "list_dir",
       "list_models",
+      "list_schedules",
       "list_tasks",
       "login",
       "logout",
@@ -1115,6 +1141,7 @@ describe("parseClientMessage", () => {
       "open_session",
       "open_task",
       "open_task_session",
+      "pause_schedule",
       "pause_task",
       "ping",
       "prompt",
@@ -1136,9 +1163,11 @@ describe("parseClientMessage", () => {
       "restore_workspace",
       "resume_deliveries",
       "resume_queue",
+      "resume_schedule",
       "resume_task",
       "retry_run",
       "revoke_device",
+      "run_schedule_now",
       "save_pi_config",
       "search_files",
       "select_container",
@@ -2199,6 +2228,20 @@ const hostMessages: unknown[] = [
   { type: "tasks_updated", seq: 1, tasks: [taskSummary, { ...taskSummary, status: "done", attention: null }] },
   { type: "tasks_updated", seq: 2, tasks: [] },
   { type: "task_updated", task: taskView },
+  {
+    type: "schedules_updated",
+    seq: 1,
+    schedules: [scheduleSummary, { ...scheduleSummary, paused: true, nextAt: null, last: null }],
+  },
+  { type: "schedules_updated", seq: 2, schedules: [] },
+  {
+    type: "schedules_updated",
+    seq: 3,
+    schedules: [
+      { ...scheduleSummary, when: { every: "week", day: 1, at: "10:00" } },
+      { ...scheduleSummary, when: { every: "interval", minutes: 5 }, place: "local_readonly" },
+    ],
+  },
 ];
 
 const [local, worktree] = snapshot.workspaces;
@@ -2525,6 +2568,12 @@ const commandResultExamples = {
   cancel_task: [{}],
   answer_archive: [{}],
   open_task_session: [{}],
+  list_schedules: [{ schedules: [] }, { schedules: [scheduleSummary] }],
+  pause_schedule: [{}],
+  resume_schedule: [{}],
+  run_schedule_now: [{ taskId: "tsk_a" }],
+  delete_schedule: [{}],
+  edit_schedule: [{ taskId: "tsk_t" }],
 } satisfies Record<CommandType, unknown[]>;
 
 /**
@@ -2753,6 +2802,7 @@ describe("HostMessage", () => {
       "task_read_only",
       "task_already_converted",
       "task_no_project_for_work",
+      "schedule_not_found",
       "branch_name_failed",
       "translation_failed",
       "fast_unavailable",

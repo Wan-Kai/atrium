@@ -3290,6 +3290,7 @@ const taskView = (id: string, name: string) => ({
   graphVersion: 1,
   pendingGraph: false,
   pending: null,
+  scheduleDraft: null,
   graphDiff: null,
   requirements: { goal: "", decisions: [], constraints: [], nonGoals: [], openQuestions: [], acceptance: [] },
   reviews: [],

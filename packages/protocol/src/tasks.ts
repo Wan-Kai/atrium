@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ProjectId, WorkspaceId } from "./ids";
 import { ThinkingLevel } from "./models";
 import { PendingReview, REVIEWS_LIMIT } from "./reviews";
+import { Cadence, SchedulePlace } from "./schedule-cadence";
 
 // Tasks and task graphs (SPEC-0006, "协议（给 UI）"; T5). The host sends what the board shows: the graph, the
 // state of each node, why a node waits, and the question about archiving. The words are the UI's.
@@ -258,6 +259,11 @@ export const TaskView = TaskSummary.extend({
    * command on it fails with `task_read_only`, and its conversations are not in this host (T7.1).
    */
   followed: z.boolean(),
+  /**
+   * Set on a schedule rule's template task (T10): the cadence and place it holds, and whether a rule was saved from it.
+   * The start button of such a task saves the rule instead of starting anything.
+   */
+  scheduleDraft: z.strictObject({ when: Cadence, place: SchedulePlace, saved: z.boolean() }).nullable(),
 });
 export type TaskView = z.infer<typeof TaskView>;
 

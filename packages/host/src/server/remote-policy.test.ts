@@ -105,6 +105,20 @@ describe("tasks on a phone (SPEC-0006)", () => {
     }
   });
 
+  it("keeps the schedule rules on the Mac: every command and the push (T10)", () => {
+    for (const type of [
+      "list_schedules",
+      "pause_schedule",
+      "resume_schedule",
+      "run_schedule_now",
+      "delete_schedule",
+      "edit_schedule",
+    ] as const) {
+      expect(COMMAND_REACH[type]).toBe("local_only");
+    }
+    expect(pushedToPhone({ type: "schedules_updated", seq: 1, schedules: [] })).toBe(false);
+  });
+
   it("pushes the task list and an open task's state to a phone that asked for them", () => {
     expect(pushedToPhone({ type: "tasks_updated", seq: 1, tasks: [] })).toBe(true);
     expect(PUSHED_TO_PHONE.task_updated).toBe(true);
@@ -128,6 +142,7 @@ describe("what goes to the phone", () => {
       "pi_latest",
       "credentials_changed",
       "remote_updated",
+      "schedules_updated",
     ]);
     expect(pushedToPhone({ type: "credentials_changed" })).toBe(false);
     expect(pushedToPhone({ type: "plans_updated", plans: [] })).toBe(true);

@@ -140,6 +140,8 @@ export const ErrorCode = z.enum([
   "task_already_converted",
   /** A task outside any project has a `work` or `check` node, or a node in a worktree (SPEC-0006, "错误码"). */
   "task_no_project_for_work",
+  /** No schedule rule has this id (SPEC-0006, "T10 定下的细节"). */
+  "schedule_not_found",
   /**
    * No branch name came of `name_branch`; `params.reason` is `not_git`, `no_model`, `failed`,
    * `invalid` or `taken` (SPEC-0001, "AI 起分支名").

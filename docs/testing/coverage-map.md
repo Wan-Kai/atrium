@@ -2373,3 +2373,30 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | `pnpm task:try` 接着跑走 `recoverAll`，一个上次停在提问上的任务不再因为"问题还开着"一开头就停（问题已作废，节点会再问）；宿主的自动接回在 task:try 里关掉 | `dev/task-try.test.ts`（`stopReason` 标出提问的停）、真实模型运行（见 T9 验收记录） |
 | 被跟着的任务（`ATRIUM_FOLLOW_TASKS`）：不接、不写、不启会话、不扫锁；自己的任务照常接回 | `tasks/t9.host.test.ts`（"leaves a followed task alone"）、`tasks/followed-tasks.host.test.ts`（既有） |
 | 泄漏：接回的任务跑完 / 被取消 / 宿主关闭（含接回途中关闭），pi、控制器、`task.runner`、子进程都放掉 | `tasks/t9.leak.test.ts` |
+
+## T10 定时（SPEC-0006"定时（ScheduleService）""T10 定下的细节"，2026-11-09，待验收）
+
+规则、时钟、协议和定时标签；逐项见 SPEC "T10 定下的细节"。假时钟的测试在 `packages/host/src/tasks/schedule-service.test.ts`（`TestClock` 能往回拨；任务端口是假的，服务、规则文件、`cadence` 是真的），纯函数在 `cadence.test.ts`，宿主层（真宿主、真 pi 跑 faux 模型、真 git）在 `schedules.host.test.ts`，泄漏在 `schedules.leak.test.ts`，界面在 `packages/ui/src/tasks/schedule-*.test.ts(x)`，端到端 `apps/desktop/e2e/schedules-flow.spec.ts`。破坏检查：`tasks/t10.break-check.json`（宿主 38 条）、`ui/src/tasks/t10.break-check.json`（界面 14 条），全部检出。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 时区：同一条"每天 2:00"在上海和纽约触发在不同的时刻；下次 / 最近一次按所给时区的挂钟算，周几按该时区的日历 | `cadence.test.ts`（"is the next 2:00…"、"finds the weekday"）、`schedule-service.test.ts`（"fires 2:00 at different instants in different zones"） |
+| 夏令时：拨快那天不存在的钟点在钟跳过去的那一分钟触发一次，第二天恢复；拨慢那天重复的钟点只在第一次出现时触发一次；平常的钟点跨切换日不变；间隔不按挂钟算 | `cadence.test.ts`（"daylight saving time" 四条）、`schedule-service.test.ts`（"runs a rule on the spring-forward day once…"、"…on the fall-back day once…"） |
+| 系统时间往回拨：不补、不重复、等下一个时间点；规则建在"未来"（时钟又拨回去）要等到它自己的时间 | `schedule-service.test.ts`（"the system clock is set back" 两条）、`cadence.test.ts`（"finds nothing when the system clock was set back…"） |
+| 上一次没结束就跳过（`skipped + 1`、时间照样推进），含停下 / 等你的任务；取消或完成后下一次照常建；上一次的任务已不在算结束 | `schedule-service.test.ts`（"the last run has not ended" 两条） |
+| 错过补一次：宿主关着错过多次也只补最近一次、`lastFiredAt` 记成它、之后照常；没错过不补；规则建之前的时间点不补；15 分钟的间隔规则重启后只补一个 | `schedule-service.test.ts`（"the host was off" 四条、"does not run a trigger from before the rule was made"）、`schedules.host.test.ts`（"after the host was off for 15 minutes…"，真宿主重启，恰好一个任务） |
+| 补一次和跳过同时发生：错过了三天、上一次还在跑 → `skipped` 加一、不建任务 | `schedule-service.test.ts`（"catches up and skips together…"） |
+| 模板任务被删：规则照样触发，"修改"答 `task_not_found`；删规则带走模板，模板删不掉也不挡删规则 | `schedule-service.test.ts`（"the template task is gone" 两条）、`schedules.host.test.ts`（"修改 of a rule whose template is gone says so"、"pauses, resumes and deletes…"） |
+| 暂停 / 恢复 / 立即跑一次 / 删除：暂停期间不补、恢复从现在起；立即跑一次不管上一次、不动规则的时间；暂停的规则重启后仍暂停；未知规则 `schedule_not_found`、重复暂停 / 恢复 `task_state_invalid` | `schedule-service.test.ts`（"pausing, resuming, running now and deleting" 四条）、`schedules.host.test.ts` |
+| 保存规则：同一个模板再保存改同一条规则并保留位置（暂停、`lastFiredAt`、`lastTaskId`、`skipped`、`createdAt`）；不是模板 / 没项目 / 没图被拒 | `schedule-service.test.ts`（"saving a rule from its template"） |
+| 触发失败（pi 起不来等）：记 warn、这次触发用掉、下一个时间点再试；规则文件读不懂时原样留着、不写回；读不懂的单条原样保留 | `schedule-service.test.ts`（"failures"）、`schedule-commands.test.ts`（"the rules file"） |
+| 一个定时器：只在有没暂停的规则时有，睡到下一次触发或 60 秒；暂停 / 删除 / 关闭后为零；换规则不累积 | `schedule-service.test.ts`（"the timer"）、`schedules.leak.test.ts`（三条：服务、响铃时已关闭、真宿主关闭后） |
+| 规则从对话来：`task_set_schedule` 注册（九个工具）、只在设计中且有项目时收、`place` 为只读而图里有 work 节点被拒、之后提的图按只读规则校验；已结束 / 取消 / 启动 / 没项目都是 `task_state_invalid` | `conversation.test.ts`（"task_set_schedule"）、`pi/src/task/schema.test.ts`、`extension.test.ts`、`words.test.ts`、`agent-launch.test.ts`、`design.test.ts` |
+| "确认并保存规则"是 `start_task`：保存规则、不启动；模板不进任务列表；已存规则的模板不能放弃；模板的"已保存"变了推 `task_updated` | `schedules.host.test.ts`（"the conversation sets the schedule…"）、`schedule-commands.test.ts`（"shows a template's cadence…"） |
+| 每次触发出一个普通任务：规则的摘要和图、`origin: schedule`、名字"规则名 · 日期"（间隔规则加时间）、自己的任务对话、`TaskSummary.scheduled`；图按规则的 place 再校验，失败不留半成品 | `schedules.host.test.ts`（"立即跑一次 makes an ordinary task…"、"makes no task, and leaves nothing half-made…"）、`schedule-commands.test.ts`（"a task a rule makes"）、`schedule-service.test.ts`（"adds the time to the name…"） |
+| 协议 35 → 36：六条命令、`schedules_updated`、`schedule_not_found`、`TaskView.scheduleDraft`；全部 `local_only`、事件不推手机；Swift 投影 | `protocol/src/envelope.test.ts`、`remote.test.ts`、`host/src/server/router.test.ts`、`remote-policy.test.ts`、`pnpm protocol:swift --check` |
+| 命令与推送：行里是上一次任务的状态和是否失败；规则或上次的任务变了才推、按顺序、整份；断开 / 关闭后不推；跟随开发版任务目录时命令一律 `task_read_only`、列表为空 | `schedule-commands.test.ts` |
+| 跟随时（`ATRIUM_FOLLOW_TASKS`）、`task:try`：不建 ScheduleService | `main.ts`（`schedulesWanted`），`schedule-commands.test.ts`（"is read-only while another process's tasks are followed…"） |
+| 界面：定时标签一行一条（名字、项目、位置、时间的话、下次、上次结果、动作）；暂停行为恢复 / 修改 / 删除；删除行内"确定 / 不了"；修改打开模板的任务标签，那里的按钮写"确认并保存规则"，已保存的不再给"放弃任务"；失败写在行下；没有"新建" | `schedule-tab.browser.test.tsx`、`schedule-words.test.ts`、`apps/desktop/e2e/schedules-flow.spec.ts` |
+
+- 没做 / 靠别的层：`powerMonitor` 转发（60 秒的心跳覆盖睡醒）；Mac 真睡醒后补跑（只在假时钟里验证）。

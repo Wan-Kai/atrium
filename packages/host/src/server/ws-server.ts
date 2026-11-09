@@ -90,6 +90,7 @@ export interface WsServerOptions {
   /** Remote access, for the local "手机" page; a closed connection stops watching it. */
   readonly remote: RouterOptions["remote"];
   readonly tasks: RouterOptions["tasks"];
+  readonly schedules: RouterOptions["schedules"];
   readonly reviews: RouterOptions["reviews"];
   /** A phone's `prompt` and `steer` receipts. */
   readonly receipts: RouterOptions["receipts"];
@@ -171,6 +172,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     piLatest: options.piLatest,
     remote: options.remote,
     tasks: options.tasks,
+    schedules: options.schedules,
     reviews: options.reviews,
     receipts: options.receipts,
     attachments: options.attachments,
@@ -499,6 +501,7 @@ function serveTransport(
     options.changes.disconnect(connectionId);
     options.remote.unwatch(connectionId);
     options.tasks.disconnect(connectionId);
+    options.schedules.disconnect(connectionId);
     context.with(connectionTrace, () => options.logger.info({ code }, "client disconnected"));
   });
 }

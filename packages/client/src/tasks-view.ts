@@ -1,4 +1,4 @@
-import type { TaskSummary, TaskView } from "@atrium/protocol";
+import type { ScheduleSummary, TaskSummary, TaskView } from "@atrium/protocol";
 
 /**
  * The task list as the host last sent it (SPEC-0006, "协议（给 UI）").
@@ -32,3 +32,18 @@ export interface TaskState {
 
 /** What a task nobody has asked about shows. */
 export const LOADING_TASK: TaskState = { status: "loading", task: null };
+
+/**
+ * The schedule rules as the host last sent them (SPEC-0006, "T10 定下的细节").
+ *
+ * @remarks
+ * Like {@link TasksView}: `idle` until a window watches, `loading` for the first answer, `ready` after; `seq` drops older pushes.
+ */
+export interface SchedulesView {
+  readonly status: "idle" | "loading" | "ready";
+  readonly schedules: readonly ScheduleSummary[];
+  readonly seq: number;
+}
+
+/** What a window that does not watch the schedules sees. */
+export const UNWATCHED_SCHEDULES: SchedulesView = { status: "idle", schedules: [], seq: -1 };

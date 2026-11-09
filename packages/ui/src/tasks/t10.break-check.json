@@ -1,0 +1,131 @@
+[
+  {
+    "file": "packages/ui/src/tasks/schedule-words.ts",
+    "from": "hour < 6 ? \"凌晨\"",
+    "to": "hour < 7 ? \"凌晨\"",
+    "test": "packages/ui/src/tasks/schedule-words.test.ts",
+    "name": "is 每天"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-words.ts",
+    "from": "const shown = hour > 12 ? hour - 12 : hour;",
+    "to": "const shown = hour >= 12 ? hour - 12 : hour;",
+    "test": "packages/ui/src/tasks/schedule-words.test.ts",
+    "name": "is 每天"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-words.ts",
+    "from": "if (when.minutes === 60) return \"每小时\";",
+    "to": "",
+    "test": "packages/ui/src/tasks/schedule-words.test.ts",
+    "name": "is 每小时"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-words.ts",
+    "from": "apart === 1 ? \"明天\"",
+    "to": "apart === 2 ? \"明天\"",
+    "test": "packages/ui/src/tasks/schedule-words.test.ts",
+    "name": "says today, tomorrow or the date"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-words.ts",
+    "from": "if (rule.paused) return { text: \"已暂停\", tone: \"dim\", icon: \"pause\" };",
+    "to": "",
+    "test": "packages/ui/src/tasks/schedule-words.test.ts",
+    "name": "is 已暂停 for a paused rule"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-words.ts",
+    "from": "if (last.failed) return { text: \"上次失败\", tone: \"danger\", icon: \"alert\" };",
+    "to": "",
+    "test": "packages/ui/src/tasks/schedule-words.test.ts",
+    "name": "is a dash before the first run"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-words.ts",
+    "from": "rule.skipped > 0 ?",
+    "to": "rule.skipped > 1 ?",
+    "test": "packages/ui/src/tasks/schedule-words.test.ts",
+    "name": "names the project and the place"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-tab.tsx",
+    "from": "                (answer) => onOpenTask(answer.taskId),",
+    "to": "                () => undefined,",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "opens the rule's template task",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-tab.tsx",
+    "from": "client.watchSchedules(true)",
+    "to": "client.watchSchedules(false)",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "shows one rule to a row",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-tab.tsx",
+    "from": "{template === null ? \"确认并启动\" : \"确认并保存规则\"}",
+    "to": "{template === null ? \"确认并保存规则\" : \"确认并启动\"}",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "the template's start button says",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-tab.tsx",
+    "from": "{template?.saved === true ? null : (",
+    "to": "{false ? null : (",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "the template's start button says",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-words.ts",
+    "from": "schedule_not_found: \"这条规则已经不在了\",",
+    "to": "",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "words a failed command under the row",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-tab.tsx",
+    "from": "if (event.key === \"Escape\") setAsking(false);",
+    "to": "",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "puts the focus on 确定",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-tab.tsx",
+    "from": "            autoFocus\n",
+    "to": "",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "puts the focus on 确定",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-tab.tsx",
+    "from": "className=\"flex items-center justify-end gap-2 px-2.5 pb-2\"",
+    "to": "className=\"absolute right-2 top-2 flex items-center justify-end gap-2\"",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "asks about deleting on its own line",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-tab.tsx",
+    "from": "              run(() => client.deleteSchedule(rule.id));",
+    "to": "",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "asks again before deleting",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-tab.tsx",
+    "from": "onClick={() => setAsking(true)}",
+    "to": "onClick={() => undefined}",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "asks again before deleting",
+    "project": "ui"
+  }
+]

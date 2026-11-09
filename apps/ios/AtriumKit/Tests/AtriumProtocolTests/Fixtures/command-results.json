@@ -1528,7 +1528,8 @@
           }
         ],
         "archiveFacts": null,
-        "followed": false
+        "followed": false,
+        "scheduleDraft": null
       }
     },
     {
@@ -1867,7 +1868,8 @@
           }
         ],
         "archiveFacts": null,
-        "followed": true
+        "followed": true,
+        "scheduleDraft": null
       }
     },
     {
@@ -2211,7 +2213,8 @@
           "dirty": false,
           "commits": 3
         },
-        "followed": false
+        "followed": false,
+        "scheduleDraft": null
       }
     },
     {
@@ -2555,7 +2558,8 @@
           "dirty": true,
           "commits": 0
         },
-        "followed": false
+        "followed": false,
+        "scheduleDraft": null
       }
     }
   ],
@@ -2599,5 +2603,53 @@
   ],
   "open_task_session": [
     {}
+  ],
+  "list_schedules": [
+    {
+      "schedules": []
+    },
+    {
+      "schedules": [
+        {
+          "id": "rul_a",
+          "name": "Mutation run",
+          "projectId": "prj_0123456789abcdef",
+          "place": "new_worktree",
+          "when": {
+            "every": "day",
+            "at": "2:00"
+          },
+          "paused": false,
+          "nextAt": 1760000000000,
+          "last": {
+            "taskId": "tsk_a",
+            "status": "stopped",
+            "failed": true
+          },
+          "skipped": 1,
+          "templateTaskId": "tsk_t",
+          "createdAt": 1759000000000
+        }
+      ]
+    }
+  ],
+  "pause_schedule": [
+    {}
+  ],
+  "resume_schedule": [
+    {}
+  ],
+  "run_schedule_now": [
+    {
+      "taskId": "tsk_a"
+    }
+  ],
+  "delete_schedule": [
+    {}
+  ],
+  "edit_schedule": [
+    {
+      "taskId": "tsk_t"
+    }
   ]
 }

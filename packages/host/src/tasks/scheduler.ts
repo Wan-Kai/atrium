@@ -292,6 +292,26 @@ function onMetaChanged(draft: Draft, event: Of<"meta_changed">): boolean {
 }
 
 /**
+ * Applies `schedule_set`: the task becomes a schedule rule's template, or its cadence or place changes.
+ *
+ * @remarks
+ * Only while the task is being designed (T10); the service checks, and a stray event after the start changes nothing.
+ *
+ * @sideEffects Changes the draft's task.
+ * @param draft - The step.
+ * @param event - The event.
+ * @returns Whether anything changed.
+ */
+function onScheduleSet(draft: Draft, event: Of<"schedule_set">): boolean {
+  const { task } = draft;
+  if (task.startedAt !== null) return false;
+  const next = { when: event.when, place: event.place };
+  if (JSON.stringify(task.scheduleDraft) === JSON.stringify(next)) return false;
+  task.scheduleDraft = next;
+  return true;
+}
+
+/**
  * Applies `node_started`: the session is up.
  *
  * @remarks
@@ -951,6 +971,8 @@ function apply(draft: Draft): boolean {
       return onGraphRejected(draft);
     case "meta_changed":
       return onMetaChanged(draft, event);
+    case "schedule_set":
+      return onScheduleSet(draft, event);
     case "node_started":
       return onNodeStarted(draft, event);
     case "node_waiting":

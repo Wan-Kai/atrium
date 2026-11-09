@@ -278,10 +278,11 @@ describe("the task conversation's calls (SPEC-0006, T6)", () => {
     ["task_diff", { since: "N2" }],
     ["task_propose_graph", { nodes: [{ id: "N1" }], edges: [], note: "first", guide: "feature" }],
     ["task_send_to_node", { id: "N1", text: "use the other port" }],
+    ["task_set_schedule", { when: { every: "interval", minutes: 5 }, place: "local_readonly" }],
   ] as const;
 
-  it("names eight tools, each with a result schema, and each round-trips through the status line", () => {
-    expect(CONVERSATION_TOOLS).toHaveLength(8);
+  it("names nine tools, each with a result schema, and each round-trips through the status line", () => {
+    expect(CONVERSATION_TOOLS).toHaveLength(9);
     expect(Object.keys(TaskCallResults).toSorted()).toStrictEqual(
       ["node_done", "request_graph_change", ...CONVERSATION_TOOLS].toSorted(),
     );

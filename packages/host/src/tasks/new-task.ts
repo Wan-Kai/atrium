@@ -132,3 +132,55 @@ export function newDesignTask(input: DesignTaskInput): Task {
         }),
   };
 }
+
+/** What a task a schedule rule made is built from. */
+export interface ScheduledTaskInput {
+  readonly id: string;
+  /** "规则名 · 日期". */
+  readonly name: string;
+  readonly projectId: string;
+  readonly sourceDir: string;
+  /** The rule that made it, and the time it should have fired. */
+  readonly ruleId: string;
+  readonly firedAt: number;
+  /** The task's own conversation. */
+  readonly taskSessionId: string;
+  readonly model: Task["model"];
+  readonly summary: Task["summary"];
+  readonly nodes: readonly GraphNode[];
+  readonly edges: readonly GraphEdge[];
+  readonly now: number;
+}
+
+/**
+ * A new task a schedule rule makes: the rule's summary and graph, with no designing.
+ *
+ * @remarks
+ * SPEC-0006, "定时": `origin.kind` is `schedule`, and the graph is in force from the start (the `started` event
+ * approves it). No source conversation. The worktree, if a node needs one, is made when that node is ready, as for any
+ * task; a read-only rule's graph has no such node.
+ *
+ * @sideEffects none
+ * @param input - The task's parts.
+ * @returns The task.
+ */
+export function newScheduledTask(input: ScheduledTaskInput): Task {
+  const base = newTaskRecord({
+    id: input.id,
+    name: input.name,
+    projectId: input.projectId,
+    sourceDir: input.sourceDir,
+    originSessionId: "",
+    taskSessionId: input.taskSessionId,
+    model: input.model,
+    goal: "",
+    nodes: input.nodes,
+    edges: input.edges,
+    now: input.now,
+  });
+  return {
+    ...base,
+    summary: input.summary,
+    origin: { kind: "schedule", ruleId: input.ruleId, firedAt: input.firedAt },
+  };
+}

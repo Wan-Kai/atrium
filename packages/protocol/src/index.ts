@@ -308,3 +308,5 @@ export {
   TaskWaitingFor,
   TasksUpdatedEvent,
 } from "./tasks";
+export { Cadence, INTERVAL_MAX_MINUTES, SchedulePlace } from "./schedule-cadence";
+export { ScheduleId, ScheduleLast, ScheduleSummary, SchedulesUpdatedEvent } from "./schedules";

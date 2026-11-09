@@ -14,6 +14,7 @@ import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup"
 import { Step, TranscriptItem } from "./transcript";
 import { PI_CONFIG_MAX_BYTES, PiConfigFile, PiConfigName, PiConfigRevision } from "./pi-config";
 import { DeviceId, PairingId, RelayLine, RemoteState } from "./remote";
+import { ScheduleId, ScheduleSummary } from "./schedules";
 import { ArchiveAnswer, HumanAnswer, TaskId, TaskNodeId, TaskSummary, TaskView } from "./tasks";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
@@ -917,6 +918,60 @@ export const ResetRemoteIdentityCommand = z.strictObject({
 export type ResetRemoteIdentityCommand = z.infer<typeof ResetRemoteIdentityCommand>;
 
 /**
+ * Lists the schedule rules; with `watch` the connection gets `schedules_updated` from then on, and `watch: false`
+ * stops it (SPEC-0006, "协议（给 UI）"). Not for a phone (`local_only`).
+ */
+const ListSchedulesCommand = z.strictObject({
+  type: z.literal("list_schedules"),
+  ...commandFields,
+  watch: z.boolean().optional(),
+});
+
+/** Pauses a rule: it fires no more until resumed. Fails with `schedule_not_found`, or `task_state_invalid` if it is paused. */
+const PauseScheduleCommand = z.strictObject({
+  type: z.literal("pause_schedule"),
+  ...commandFields,
+  scheduleId: ScheduleId,
+});
+
+/**
+ * Lets a paused rule go on. What fell due while it was paused is not made up (SPEC-0006, "T10 定下的细节").
+ * Fails with `schedule_not_found`, or `task_state_invalid` if it is not paused.
+ */
+const ResumeScheduleCommand = z.strictObject({
+  type: z.literal("resume_schedule"),
+  ...commandFields,
+  scheduleId: ScheduleId,
+});
+
+/**
+ * Makes a task of the rule now ("立即跑一次"): answers its id. The rule's own times do not move. Fails with
+ * `schedule_not_found`, or whatever refuses the task (`session_not_found`, `task_graph_invalid`).
+ */
+const RunScheduleNowCommand = z.strictObject({
+  type: z.literal("run_schedule_now"),
+  ...commandFields,
+  scheduleId: ScheduleId,
+});
+
+/** Deletes a rule and its template task. Tasks it already made stay. Fails with `schedule_not_found`. */
+const DeleteScheduleCommand = z.strictObject({
+  type: z.literal("delete_schedule"),
+  ...commandFields,
+  scheduleId: ScheduleId,
+});
+
+/**
+ * "修改": answers the rule's template task, whose tab holds the rule's conversation. Fails with `schedule_not_found`,
+ * and with `task_not_found` when the template is gone.
+ */
+const EditScheduleCommand = z.strictObject({
+  type: z.literal("edit_schedule"),
+  ...commandFields,
+  scheduleId: ScheduleId,
+});
+
+/**
  * Lists the tasks; with `watch` the connection gets `tasks_updated` from then on, and `watch: false` stops it
  * (SPEC-0006, "协议（给 UI）"). A phone may send it: tasks are read-only there.
  */
@@ -1153,6 +1208,12 @@ export const Command = z.discriminatedUnion("type", [
   CancelTaskCommand,
   AnswerArchiveCommand,
   OpenTaskSessionCommand,
+  ListSchedulesCommand,
+  PauseScheduleCommand,
+  ResumeScheduleCommand,
+  RunScheduleNowCommand,
+  DeleteScheduleCommand,
+  EditScheduleCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -1318,5 +1379,11 @@ export const CommandResult = {
   cancel_task: z.strictObject({}),
   answer_archive: z.strictObject({}),
   open_task_session: z.strictObject({}),
+  list_schedules: z.strictObject({ schedules: z.array(ScheduleSummary).max(1000) }),
+  pause_schedule: z.strictObject({}),
+  resume_schedule: z.strictObject({}),
+  run_schedule_now: z.strictObject({ taskId: TaskId }),
+  delete_schedule: z.strictObject({}),
+  edit_schedule: z.strictObject({ taskId: TaskId }),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

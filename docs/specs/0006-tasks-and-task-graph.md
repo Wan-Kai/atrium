@@ -799,7 +799,7 @@ type ScheduleRule = {
 
 ### 协议（给 UI）
 
-- **T5 做了什么、没做什么**（2026-11-05，协议号 29 → 30；合回 `main` 时取当时的下一个号）：下面的命令里，T5 只加宿主这一侧已经有的：`list_tasks`、`open_task`、`answer_human`、`rerun_node`、`continue_node`、`pause_task`、`resume_task`、`cancel_task`、`answer_archive`，事件 `tasks_updated`、`task_updated`。`create_task`、`start_task`、`abandon_task`、`approve_graph` / `reject_graph` 属于 T6（任务对话和改图），`list_schedules` 等属于 T10，到时再加。代码在 `packages/protocol/src/tasks.ts`（数据）和 `commands.ts`（命令）；仓库里协议文件是平的，不分 `commands/`、`events/` 目录。
+- **T5 做了什么、没做什么**（2026-11-05，协议号 29 → 30；合回 `main` 时取当时的下一个号）：下面的命令里，T5 只加宿主这一侧已经有的：`list_tasks`、`open_task`、`answer_human`、`rerun_node`、`continue_node`、`pause_task`、`resume_task`、`cancel_task`、`answer_archive`，事件 `tasks_updated`、`task_updated`。`create_task`、`start_task`、`abandon_task`、`approve_graph` / `reject_graph` 属于 T6（任务对话和改图），`list_schedules` 等属于 T10，到时再加（T10 已加，见“T10 定下的细节”）。代码在 `packages/protocol/src/tasks.ts`（数据）和 `commands.ts`（命令）；仓库里协议文件是平的，不分 `commands/`、`events/` 目录。
 - **命令**（`protocol/commands/tasks.ts`）：
   - 任务：
     - `create_task(sessionId, scope?)`：`/task` 走它
@@ -883,7 +883,7 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 
 **任务对话的工具**
 
-- **八个，不是九个**：`task_set_schedule` 不注册。它的消费者是定时（T10）：现在注册了，任务对话会向用户许诺一条不会有人跑的规则，`scheduleDraft` 也没有“确认并保存规则”可接。T10 一起加（含事件和按钮）。表里保留这一行。
+- **八个，不是九个**（T10 已加第九个，见“T10 定下的细节”）：`task_set_schedule` 不注册。它的消费者是定时（T10）：现在注册了，任务对话会向用户许诺一条不会有人跑的规则，`scheduleDraft` 也没有“确认并保存规则”可接。T10 一起加（含事件和按钮）。表里保留这一行。
 - **选引导词**：`task_propose_graph` 多一个可选的 `guide`（`feature` / `fix` / `scheduled_fix` / `research`）。设计中提交时，宿主把 `{ id, version }` 记进 `task.guide`（事件 `graph_proposed` 带 `guide`）；启动后提的图忽略它；一直不填，`guide` 保持 `{ id: "default", version: 1 }`，意思是“还没选”。没放进 `task_set_meta`：提图是必经的一步，不会忘。
 - **`task_set_summary`**：`summary` 是对象，六个字段：`goal`（必填）、`decisions`、`constraints`、`nonGoals`、`openQuestions`、`acceptance`（各至多 50 条、每条至多 2 000 字），整体替换（事件 `summary_set`）。启动后一律 `task_state_invalid`：SPEC 原文是“启动后改摘要算改图”，但摘要不是图，批准流程里没有它的位置；保守做法是启动后不开这个口子，要改的话提新图，在 `note` 里说明。
 - **`task_set_meta`**：名字至多 200 字、去首尾空白；`model` 不写 `thinking` 就沿用任务现在的档位；至少要给 `name` 或 `model` 之一（`task_args_invalid`，`field: "name"`）。宿主**不核对模型是否存在**（那要问模型清单，T6 不加端口）：写错的模型会让还没开始的节点 `failed(crashed)`，见风险。
@@ -1158,6 +1158,59 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 - 归档做完而 `archive_answered` 没记：不自动补记（用户可以再答一次）。
 - 同一个工作区里 `workspace_created` 记了、`lock_workspace` 没做的窗口由 `recover` 补上；`progress_line` 靠扩展按行 id 去重（T6 已有）。
 
+### T10 定下的细节
+
+2026-11-09，T10（定时）实现时定下。SPEC 原文没答的，都取保守的一边；界面说法和取舍的七点已由用户定（见下面"2026-11-09 用户定"）。
+
+**时间与触发**（`packages/host/src/tasks/cadence.ts`、`schedule-service.ts`）
+
+- **`Cadence` 多一种**：`{ every: "interval", minutes }`（1 到 1440 分钟），从规则创建的时刻起每隔这么久一次（"每 5 分钟跑一次调研"要它）。`day` / `week` 的 `at` 是 `H:MM` 或 `HH:MM`，24 小时；`week` 的 `day` 0 是周日。定义在 `packages/protocol/src/schedule-cadence.ts`，宿主、扩展、界面共用。
+- **时区**：`createScheduleService` 收一个 IANA 时区名，默认本机的；测试给任意时区。钟点用这个时区的挂钟算；`interval` 是绝对分钟，不受夏令时影响。夏令时按 SPEC：拨快那天不存在的钟点，在钟跳过去的那一分钟（第一个存在的分钟）触发一次；拨慢那天重复的钟点只在第一次出现时触发。
+- **一个定时器**：规则里只要有一条没暂停，就挂一个经 `trackedTimeout` 记数的定时器，睡到下一个触发时间，最久睡 60 秒（`HEARTBEAT_MS`），醒来用 `Clock.now()` 问"从上次触发到现在有没有该触发的"。所以"错过"、"Mac 睡醒"、"系统时间被拨动"是同一个问题的同一个答案，不用分支；SPEC 说的 `powerMonitor` 转发因此没做（睡醒后最多 60 秒内补上）。全暂停、全删除、宿主关闭后没有定时器。
+- **错过补一次**：规则的"起点"是 `max(lastFiredAt, createdAt)`；起点之后、现在之前该触发的最近一次，就是这次触发的时间，错过多次只补它，`lastFiredAt` 记成它。宿主启动时（找到 pi 之后，已启动的任务接起来之后）问一次，之后每次定时器醒来问一次。
+- **上一次没结束就跳过**：`lastTaskId` 的任务状态不是 `done` / `cancelled`（含等你处理、停下、暂停）就 `skipped + 1`，`lastFiredAt` 照样推进；任务已不在磁盘上算结束。补一次和跳过可以同时发生：错过了三天、上一次还在跑，结果是 `skipped` 加一、不新建任务。
+- **系统时间往回拨**：`lastFiredAt` 在"现在"之后时没有"起点之后、现在之前"的触发，所以不补；已触发过的时间点回来也不重复（它不在起点之后）；等下一个时间点。
+- **先记时间再建任务**：触发时先把 `lastFiredAt` 写盘，再建任务，再写 `lastTaskId`。崩在中间会少一次，不会多一次。任务建不出来（pi 起不来、容器没了、图不合规）只记一条 warn，这次触发算用掉了，下一个时间点再试，不在每个心跳重试。
+- **立即跑一次**：不管上一次在做什么都新建一个任务，不动规则的 `lastFiredAt`，把 `lastTaskId` 指向它、`skipped` 清零。
+- **暂停与恢复**：暂停期间到点的不补；恢复时 `lastFiredAt` 取 `max(原值, 现在)`。
+- **规则文件** `<home>/schedules.json`：`{ v: 1, rules }`，经 `writeAtomically` 整份重写。规则比 SPEC 多三个字段：`containerId`（模板对话所在的容器，触发出来的任务对话放进它）、`sourceDir`（模板的目录，即每个任务的 `sourceDir`）、其余同 SPEC。读不懂的单条规则原样保留在文件里（以后的 Atrium 写的不被丢）；整个文件不是规则文件（不是 JSON、版本不对）就当没有规则，并且不写回，直到用户处理这个文件。
+- **没有项目的对话不能定时**：`task_set_schedule` 对 `projectId: null` 的任务答 `task_state_invalid`，规则的 `projectId` 因此一定有。
+- **跟随开发版任务目录时**（`ATRIUM_FOLLOW_TASKS`）、`pnpm task:try`（`recoverTasks: false`）不建 ScheduleService：不读规则、不触发；定时命令一律 `task_read_only`，`list_schedules` 答空。
+
+**规则从对话来**
+
+- **`task_set_schedule({ when, place })`** 现在注册，任务对话共九个工具。只在任务还在 `designing` 时可用，已启动、已结束、取消、没有项目都是 `task_state_invalid`；`when` / `place` 经 zod 校验，错的参数是 `task_bad_request`；`place` 是 `local_readonly` 而生效的图里有 `work` 节点是 `task_graph_invalid`（`readonly_rule_has_work`）；再调一次替换。事件 `schedule_set`，任务记录的 `scheduleDraft` 就是它。有 `scheduleDraft` 的任务是"规则模板"：之后 `task_propose_graph`、`start_task` 的校验都按 `place` 判断是否只读规则。
+- **模板不进任务列表**：`list_tasks` / `tasks_updated` 过滤掉有 `scheduleDraft` 的任务；"修改"按 id 打开它。模板不运行，不参与"等你处理"。
+- **"确认并保存规则"就是开始页的"确认并启动"按钮换了字**（SPEC 原文：开始页的按钮写"确认并保存规则"），不是 ADR-0017 的关卡：它是用户对图本身的确认，不是对某个已有东西的裁决。命令仍是 `start_task`：对模板，宿主再校验一次图，然后保存规则（新规则，或这个模板已有规则时改规则），任务本身仍是 `designing`，什么也不启动。`TaskView.scheduleDraft`（`{ when, place, saved }`，非模板为 `null`）让界面把按钮写成"确认并保存规则"；`saved` 为真时不再给"放弃任务"，因为模板随规则走：对已存规则的模板 `abandon_task` 是 `task_state_invalid`，删除规则（`delete_schedule`）才会带走它（删它的目录、归档它的任务对话）。
+- **模板被删**（目录没了）：规则照旧触发，它自己存着摘要、图和模型；`edit_schedule` 答 `task_not_found`。
+- **每次触发出一个普通任务**：`TaskService.createScheduled`：开自己的任务对话（容器、目录取规则的，模型取规则的；不发设计消息，没有东西要设计），记录 `origin: { kind: "schedule", ruleId, firedAt }`，摘要和图取规则的，再记 `started`；图按规则的 `place` 再校验一次，失败不留半成品（撤回记录、删目录、归档任务对话）。名字"规则名 · 11 月 9 日"（触发时刻在本机时区的日期）；一天触发多次的 `interval` 规则再加时间，"规则名 · 11 月 9 日 14:05"（**待确认**：SPEC 只写"规则名 · 日期"，每 5 分钟一次的规则会撞名；2026-11-09 用户定，保持）。`TaskSummary.scheduled` 因此为真，列表里图标是时钟、位置行写"项目 · 定时 · worktree"（T7 已做）。
+- **设计消息**多一步：需求里说了按时间重复，就用 `task_set_schedule`（SPEC-0006 附录第 5 条）；引导词文字没改，版本不变。
+
+**协议**（35 → 36，Swift 投影已重新生成）
+
+- 命令：`list_schedules({ watch? })`（答 `{ schedules }`）、`pause_schedule`、`resume_schedule`、`run_schedule_now`（答 `{ taskId }`）、`delete_schedule`、`edit_schedule`（答模板的 `{ taskId }`，并先起它的任务对话的 pi）；参数是 `scheduleId`。事件 `schedules_updated { seq, schedules }`，整份、`seq` 规则同 `tasks_updated`。全是 `local_only`，事件不推给手机（SPEC 的手机只读只含任务列表、任务和两个事件）。错误码 `schedule_not_found`（`params.scheduleId`）；对已暂停的暂停、没暂停的恢复是 `task_state_invalid`。
+- `ScheduleSummary`：`id`、`name`、`projectId`、`place`、`when`、`paused`、`nextAt`（暂停为 `null`）、`last`（`{ taskId, status, failed }`，上一次的任务；没有或已不在为 `null`）、`skipped`、`templateTaskId`、`createdAt`。宿主只给状态和时间，说法在界面。
+- 客户端：`client.schedules`（`{ status, schedules, seq }`）、`watchSchedules(on)`、`pauseSchedule` 等。规则或"上次的任务"变了都会推；模板的"已保存"变了，推一次 `task_updated`。
+- 界面说法：`schedule_not_found` →"这条规则已经不在了"。
+
+**定时标签**（设计稿第 3 屏）
+
+- 一条规则一行：时钟图标、名字、第二行"项目 · 每次新建 worktree / 只读，在本地目录跑"（有跳过时加" · 跳过 N 次 · 上次还在跑"）、时间、"下次 …"、上次结果，以及动作。没暂停的：立即跑一次、暂停、修改；暂停的：恢复、修改、删除（设计稿只在暂停行放"删除"，所以先暂停再删）。"删除"点下去，"删除这条规则？确定 / 不了"出现在这一行下面单独的一行（同一张行卡片里，不挤名字那一列），键盘和焦点同任务栏的（焦点在"确定"，Esc 回去）。"修改"打开模板的任务标签，那里按钮写"确认并保存规则"。没有"新建"。
+- **说法（2026-11-09 用户定，保持）**：设计稿给了"每天凌晨 2:00""每天早上 9:00""每周一 10:00""下次 今晚 2:00""下次 明早 9:00"、结果栏"上次失败""这次在跑""已暂停""—"。没有给的，先这样写：下午、晚上和中午（"每天下午 2:30"、"每天中午 12:15"、"每天晚上 9:05"，12 小时写法加时段词）；每周不加时段词（照"每周一 10:00"）；间隔"每 5 分钟""每小时""每 2 小时"；"下次"写"下次 今天 14:05 / 明天 2:00 / 11 月 12 日 2:00"，不照设计稿的"今晚""明早"；结果栏"这次在等你""这次停下了""上次完成""上次取消了"。全在 `packages/ui/src/tasks/schedule-words.ts`，一处改。
+- 空状态沿用 T7 的说法。
+
+**2026-11-09 用户定**（T10 的七处界面取舍）：
+
+1. 间隔写"每 5 分钟""每小时""每 2 小时""每 90 分钟"：保持。
+2. 钟点的时段词（凌晨、早上、中午、下午、晚上，12 小时写法加分钟）；每周不加时段词（照"每周一 10:00"）：保持。
+3. "下次"写"下次 今天 14:05 / 明天 2:00 / 11 月 12 日 2:00"，不用"今晚""明早"：保持。
+4. 结果栏除设计稿的"上次失败""这次在跑""已暂停""—"外，另加"这次在等你""这次停下了""上次完成""上次取消了"：保持。
+5. 间隔规则一天触发多次，任务名加时间"规则名 · 11 月 9 日 14:05"：保持。
+6. **改了**：删除的确认"删除这条规则？确定 / 不了"放在这一行下面单独的一行，仍在同一张行卡片里，名字那一列的宽度不变；键盘和焦点照旧（浏览器测试断言名字格的宽度在确认出现前后不变）。删除只在暂停的行出现，照设计稿。
+7. 规则没起名时显示"（还没起名）"：保持。
+
+**没做**：`powerMonitor` 转发（见上，心跳覆盖）；规则的"最近几次"历史；改规则的名字（跟模板任务名走，在任务对话里改）；规则文件损坏时的界面提示（只记 warn）。
+
 ## 备选方案
 
 - **单独的任务台、首页列表、新建任务入口和草稿**（设计稿第 1、2 版）：入口多、和对话重复；改成只从对话 `/task` 创建，前面的对话就是草稿。
@@ -1273,7 +1326,8 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 2. 用 task_set_summary 写需求摘要：目标、已定结论、约束、不做、未决问题、验收要点。只写对话里说过的；没定的放进未决问题，不要替用户定。范围里限定了的，只整理范围内的。
 3. 用 task_set_meta 给任务起一个简短的名字（几个字到一句话，说清做什么）。
 4. 从下面四套引导词里选最合适的一套，按它拆图，用 task_propose_graph 提交（guide 填它的 id）。图被拒绝时会带原因，改了再提交。
-5. 最后用一两句话告诉用户：选了哪套引导词、图长什么样、还有什么未决问题。不要启动任务：启动由用户确认。
+5. 需求里说了要按时间重复做（每天几点、每周几、每隔几分钟）的，用 task_set_schedule 记下时间和地点（new_worktree：每次新建 worktree；local_readonly：在项目目录里只读地跑，图里不能有 work 节点）。这时任务是一条定时规则的模板：用户确认后保存规则，不会马上运行，之后每到时间会照这份摘要和图新建一个任务。不属于项目的对话不能定时。
+6. 最后用一两句话告诉用户：选了哪套引导词、图长什么样、还有什么未决问题。不要启动任务：启动（定时规则是保存）由用户确认。
 拿不准的地方用 ask_user 问用户，不要猜。
 
 【图的规则】

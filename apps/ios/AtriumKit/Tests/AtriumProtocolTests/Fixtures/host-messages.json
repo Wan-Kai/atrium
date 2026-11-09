@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 35,
+    "protocolVersion": 36,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -2706,8 +2706,103 @@
         }
       ],
       "archiveFacts": null,
-      "followed": false
+      "followed": false,
+      "scheduleDraft": null
     }
+  },
+  {
+    "type": "schedules_updated",
+    "seq": 1,
+    "schedules": [
+      {
+        "id": "rul_a",
+        "name": "Mutation run",
+        "projectId": "prj_0123456789abcdef",
+        "place": "new_worktree",
+        "when": {
+          "every": "day",
+          "at": "2:00"
+        },
+        "paused": false,
+        "nextAt": 1760000000000,
+        "last": {
+          "taskId": "tsk_a",
+          "status": "stopped",
+          "failed": true
+        },
+        "skipped": 1,
+        "templateTaskId": "tsk_t",
+        "createdAt": 1759000000000
+      },
+      {
+        "id": "rul_a",
+        "name": "Mutation run",
+        "projectId": "prj_0123456789abcdef",
+        "place": "new_worktree",
+        "when": {
+          "every": "day",
+          "at": "2:00"
+        },
+        "paused": true,
+        "nextAt": null,
+        "last": null,
+        "skipped": 1,
+        "templateTaskId": "tsk_t",
+        "createdAt": 1759000000000
+      }
+    ]
+  },
+  {
+    "type": "schedules_updated",
+    "seq": 2,
+    "schedules": []
+  },
+  {
+    "type": "schedules_updated",
+    "seq": 3,
+    "schedules": [
+      {
+        "id": "rul_a",
+        "name": "Mutation run",
+        "projectId": "prj_0123456789abcdef",
+        "place": "new_worktree",
+        "when": {
+          "every": "week",
+          "day": 1,
+          "at": "10:00"
+        },
+        "paused": false,
+        "nextAt": 1760000000000,
+        "last": {
+          "taskId": "tsk_a",
+          "status": "stopped",
+          "failed": true
+        },
+        "skipped": 1,
+        "templateTaskId": "tsk_t",
+        "createdAt": 1759000000000
+      },
+      {
+        "id": "rul_a",
+        "name": "Mutation run",
+        "projectId": "prj_0123456789abcdef",
+        "place": "local_readonly",
+        "when": {
+          "every": "interval",
+          "minutes": 5
+        },
+        "paused": false,
+        "nextAt": 1760000000000,
+        "last": {
+          "taskId": "tsk_a",
+          "status": "stopped",
+          "failed": true
+        },
+        "skipped": 1,
+        "templateTaskId": "tsk_t",
+        "createdAt": 1759000000000
+      }
+    ]
   },
   {
     "type": "index_snapshot",
@@ -7413,6 +7508,14 @@
     "ok": false,
     "error": {
       "code": "task_no_project_for_work"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "schedule_not_found"
     }
   },
   {

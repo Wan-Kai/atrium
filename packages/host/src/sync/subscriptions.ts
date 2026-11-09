@@ -10,6 +10,7 @@ import type {
   PiLatestEvent,
   PlansUpdatedEvent,
   RemoteUpdatedEvent,
+  SchedulesUpdatedEvent,
   SessionEvent,
   SessionSnapshotEvent,
   TaskUpdatedEvent,
@@ -34,6 +35,7 @@ type SinkEvent =
   | RemoteUpdatedEvent
   | TasksUpdatedEvent
   | TaskUpdatedEvent
+  | SchedulesUpdatedEvent
   | BroadcastEvent;
 
 /** What goes to every connection, whatever it watches. */

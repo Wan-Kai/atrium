@@ -1,14 +1,14 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 35,
+    "protocolVersion": 36,
     "clientId": "c1",
     "token": "t",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
     "type": "hello",
-    "protocolVersion": 35,
+    "protocolVersion": 36,
     "clientId": "dev_0123456789abcdef",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
@@ -543,6 +543,47 @@
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
     "taskId": "tsk_a",
     "sessionId": "s2"
+  },
+  {
+    "type": "list_schedules",
+    "requestId": "r38g",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "list_schedules",
+    "requestId": "r38h",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "watch": true
+  },
+  {
+    "type": "pause_schedule",
+    "requestId": "r38i",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "scheduleId": "rul_a"
+  },
+  {
+    "type": "resume_schedule",
+    "requestId": "r38j",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "scheduleId": "rul_a"
+  },
+  {
+    "type": "run_schedule_now",
+    "requestId": "r38k",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "scheduleId": "rul_a"
+  },
+  {
+    "type": "delete_schedule",
+    "requestId": "r38l",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "scheduleId": "rul_a"
+  },
+  {
+    "type": "edit_schedule",
+    "requestId": "r38m",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "scheduleId": "rul_a"
   },
   {
     "type": "answer_review",

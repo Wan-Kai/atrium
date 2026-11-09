@@ -10,6 +10,7 @@ import type {
   SessionView,
   SetupView,
   RemoteView,
+  SchedulesView,
   TaskState,
   TasksView,
 } from "@atrium/client";
@@ -257,6 +258,25 @@ export interface FakeAnswers {
 }
 
 /**
+ * One schedule command of the fake client: records itself and answers as the test says.
+ *
+ * @remarks
+ * `editSchedule` and `runScheduleNow` answer `{ taskId: "tsk_new" }`; the others `{}`.
+ *
+ * @sideEffects Records into `calls`.
+ * @param calls - The client's call log.
+ * @param answers - The test's answers.
+ * @param name - The method's name.
+ * @param scheduleId - The rule.
+ * @returns The command's result.
+ */
+async function scheduleCommand(calls: string[], answers: FakeAnswers, name: string, scheduleId: string) {
+  calls.push(`${name} ${scheduleId}`);
+  await answers.taskCommand?.(name, [scheduleId]);
+  return name === "editSchedule" || name === "runScheduleNow" ? { taskId: "tsk_new" } : {};
+}
+
+/**
  * The task, review and question commands of the fake client: each records itself in `calls` and answers as the test says.
  *
  * @remarks
@@ -381,6 +401,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
   const installJob = createStore<InstallJob | null>(() => null);
   const plans = createStore<Plans>(() => []);
   const tasks = createStore<TasksView>(() => ({ status: "ready", tasks: [], seq: 0 }));
+  const schedules = createStore<SchedulesView>(() => ({ status: "ready", schedules: [], seq: 0 }));
   const taskStates = new Map<string, StoreApi<TaskState>>();
   /**
    * A task's store, made on first use.
@@ -1010,6 +1031,15 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     async watchTasks(on: boolean) {
       calls.push(`watchTasks ${String(on)}`);
     },
+    schedules,
+    async watchSchedules(on: boolean) {
+      calls.push(`watchSchedules ${String(on)}`);
+    },
+    pauseSchedule: (scheduleId: string) => scheduleCommand(calls, answers, "pauseSchedule", scheduleId),
+    resumeSchedule: (scheduleId: string) => scheduleCommand(calls, answers, "resumeSchedule", scheduleId),
+    runScheduleNow: (scheduleId: string) => scheduleCommand(calls, answers, "runScheduleNow", scheduleId),
+    deleteSchedule: (scheduleId: string) => scheduleCommand(calls, answers, "deleteSchedule", scheduleId),
+    editSchedule: (scheduleId: string) => scheduleCommand(calls, answers, "editSchedule", scheduleId),
     task: taskStateOf,
     async openTask(taskId: string) {
       calls.push(`openTask ${taskId}`);
@@ -1099,6 +1129,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     installJob,
     plans,
     tasks,
+    schedules,
     taskStateOf,
   };
 }

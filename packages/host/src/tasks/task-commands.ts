@@ -9,6 +9,7 @@ import {
 import type { Logger } from "../platform/logger";
 import type { TaskService } from "./task-service";
 import { summaryOf } from "./task-view";
+import type { Task } from "./types";
 
 /**
  * What the router needs from tasks (SPEC-0006, "协议（给 UI）").
@@ -37,10 +38,27 @@ export interface TaskCommands {
   answerArchive(taskId: string, answer: "archive" | "keep"): Promise<CommandResult<"answer_archive">>;
   /** Starts the pi of a session of the task without a tab for it; see the protocol's `open_task_session`. */
   openSession(taskId: string, sessionId: string): Promise<CommandResult<"open_task_session">>;
+  /** Sends a task as it is now to the connections that watch it, for a change no task event brought (a rule saved from a template). */
+  refresh(taskId: string): void;
   /** A connection closed; it watches nothing more. */
   disconnect(connectionId: string): void;
   /** Stops listening to the tasks and waits for the pushes under way. */
   close(): Promise<void>;
+}
+
+/**
+ * Whether the task list shows a task.
+ *
+ * @remarks
+ * A schedule rule's template task is not a task to run, so it is not in the list (SPEC-0006, "定时"); the rule's tab
+ * opens it by id.
+ *
+ * @sideEffects none
+ * @param task - The task.
+ * @returns Whether it is listed.
+ */
+function listed(task: Task): boolean {
+  return task.scheduleDraft === null;
 }
 
 /** What the commands send to a connection. */
@@ -90,7 +108,7 @@ export function createTaskCommands(options: {
   function pushList(): void {
     if (listWatchers.size === 0) return;
     seq += 1;
-    const tasks = service.held().map(summaryOf);
+    const tasks = service.held().filter(listed).map(summaryOf);
     for (const connectionId of listWatchers) options.send(connectionId, { type: "tasks_updated", seq, tasks });
   }
 
@@ -125,7 +143,7 @@ export function createTaskCommands(options: {
 
   return {
     async list(connectionId, watch) {
-      const tasks = await service.list();
+      const tasks = (await service.list()).filter(listed);
       if (watch === true) listWatchers.add(connectionId);
       else if (watch === false) listWatchers.delete(connectionId);
       return { tasks: tasks.map(summaryOf) };
@@ -184,6 +202,9 @@ export function createTaskCommands(options: {
     async openSession(taskId, sessionId) {
       await service.openSession(taskId, sessionId);
       return {};
+    },
+    refresh(taskId) {
+      chain = chain.then(() => push(taskId));
     },
     disconnect(connectionId) {
       listWatchers.delete(connectionId);

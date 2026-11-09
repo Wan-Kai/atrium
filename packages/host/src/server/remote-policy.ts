@@ -129,6 +129,12 @@ export const COMMAND_REACH = {
   cancel_task: "local_only",
   answer_archive: "local_only",
   open_task_session: "local_only",
+  list_schedules: "local_only",
+  pause_schedule: "local_only",
+  resume_schedule: "local_only",
+  run_schedule_now: "local_only",
+  delete_schedule: "local_only",
+  edit_schedule: "local_only",
 } as const satisfies Record<CommandType, Reach>;
 
 /**
@@ -187,6 +193,7 @@ export const PUSHED_TO_PHONE = {
   remote_updated: false,
   tasks_updated: true,
   task_updated: true,
+  schedules_updated: false,
 } as const satisfies Record<HostMessage["type"], boolean>;
 
 /**

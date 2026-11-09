@@ -203,7 +203,7 @@ describe("the words of the task conversation's tools (SPEC-0006, T6)", () => {
     for (const tool of ["read", "bash", "ls", "task_status", "task_propose_graph", "ask_user"]) {
       expect(conversationToolRefusal(tool)).toBeNull();
     }
-    for (const tool of ["write", "edit", "agent_spawn", "node_done", "request_graph_change", "task_set_schedule"]) {
+    for (const tool of ["write", "edit", "agent_spawn", "node_done", "request_graph_change"]) {
       expect(conversationToolRefusal(tool)).toContain("The task conversation can only use");
     }
   });

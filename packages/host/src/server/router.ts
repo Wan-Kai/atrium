@@ -26,6 +26,7 @@ import type { Connection } from "./connection";
 import { phoneMayRun } from "./remote-policy";
 import type { ReceiptBook } from "../remote/receipts";
 import type { ReviewHub } from "../reviews/review-hub";
+import type { ScheduleCommands } from "../tasks/schedule-commands";
 import type { TaskCommands } from "../tasks/task-commands";
 
 /**
@@ -76,6 +77,7 @@ export interface RouterOptions {
   readonly remote: RemoteCommands;
   /** Tasks and their graphs (SPEC-0006); a phone may only list and open them. */
   readonly tasks: TaskCommands;
+  readonly schedules: ScheduleCommands;
   /** The reviews waiting for a verdict (ADR-0017). */
   readonly reviews: Pick<ReviewHub, "answer">;
   /** A phone's `prompt` and `steer` run at most once per request id (SPEC-0005, "MP4b 定的细节"). */
@@ -350,6 +352,18 @@ export function createRouter(options: RouterOptions): Route {
         return options.tasks.openSession(command.taskId, command.sessionId);
       case "answer_archive":
         return options.tasks.answerArchive(command.taskId, command.answer);
+      case "list_schedules":
+        return options.schedules.list(connection.id, command.watch);
+      case "pause_schedule":
+        return options.schedules.pause(command.scheduleId);
+      case "resume_schedule":
+        return options.schedules.resume(command.scheduleId);
+      case "run_schedule_now":
+        return options.schedules.runNow(command.scheduleId);
+      case "delete_schedule":
+        return options.schedules.remove(command.scheduleId);
+      case "edit_schedule":
+        return options.schedules.edit(command.scheduleId);
       case "get_remote":
         return options.remote.get(connection.id, command.watch);
       case "set_remote":

@@ -240,6 +240,7 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
       },
     },
     tasks: {
+      refresh: () => {},
       list: async (id, watch) => {
         calls.push(["listTasks", id, watch]);
         return { tasks: [] };
@@ -299,6 +300,34 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
       openSession: async (taskId, sessionId) => {
         calls.push(["openTaskSession", taskId, sessionId]);
         return {};
+      },
+      disconnect: () => {},
+      close: async () => {},
+    },
+    schedules: {
+      list: async (id, watch) => {
+        calls.push(["listSchedules", id, watch]);
+        return { schedules: [] };
+      },
+      pause: async (scheduleId) => {
+        calls.push(["pauseSchedule", scheduleId]);
+        return {};
+      },
+      resume: async (scheduleId) => {
+        calls.push(["resumeSchedule", scheduleId]);
+        return {};
+      },
+      runNow: async (scheduleId) => {
+        calls.push(["runScheduleNow", scheduleId]);
+        return { taskId: "tsk_made" };
+      },
+      remove: async (scheduleId) => {
+        calls.push(["deleteSchedule", scheduleId]);
+        return {};
+      },
+      edit: async (scheduleId) => {
+        calls.push(["editSchedule", scheduleId]);
+        return { taskId: "tsk_t" };
       },
       disconnect: () => {},
       close: async () => {},
@@ -446,6 +475,24 @@ describe("createRouter", () => {
       command: { type: "create_task", sessionId: "ses_src" },
       call: ["createTask", "ses_src", undefined],
       result: { taskId: "tsk_new" },
+    },
+    {
+      command: { type: "list_schedules", watch: true },
+      call: ["listSchedules", "connection-7", true],
+      result: { schedules: [] },
+    },
+    { command: { type: "pause_schedule", scheduleId: "rul_a" }, call: ["pauseSchedule", "rul_a"], result: {} },
+    { command: { type: "resume_schedule", scheduleId: "rul_a" }, call: ["resumeSchedule", "rul_a"], result: {} },
+    {
+      command: { type: "run_schedule_now", scheduleId: "rul_a" },
+      call: ["runScheduleNow", "rul_a"],
+      result: { taskId: "tsk_made" },
+    },
+    { command: { type: "delete_schedule", scheduleId: "rul_a" }, call: ["deleteSchedule", "rul_a"], result: {} },
+    {
+      command: { type: "edit_schedule", scheduleId: "rul_a" },
+      call: ["editSchedule", "rul_a"],
+      result: { taskId: "tsk_t" },
     },
     { command: { type: "start_task", taskId: "tsk_a" }, call: ["startTask", "tsk_a"], result: {} },
     { command: { type: "abandon_task", taskId: "tsk_a" }, call: ["abandonTask", "tsk_a"], result: {} },

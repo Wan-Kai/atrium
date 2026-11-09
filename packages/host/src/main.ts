@@ -64,6 +64,8 @@ import { createTaskArchiving } from "./tasks/task-archiving";
 import { createTaskReviewProvider } from "./tasks/task-reviews";
 import { createTaskCommands } from "./tasks/task-commands";
 import { followTasks } from "./tasks/followed-tasks";
+import { createScheduleCommands } from "./tasks/schedule-commands";
+import { type ScheduleService, createScheduleService } from "./tasks/schedule-service";
 import { type TaskService, createTaskService } from "./tasks/task-service";
 import { createTaskWorkspaces } from "./tasks/task-workspaces";
 import { createReplyTranslations, TRANSLATION_OUTPUT_BYTES } from "./sessions/reply-translation";
@@ -127,6 +129,8 @@ export interface HostConfig {
    * `true` unless set. `pnpm task:try` turns it off: it looks after the one task it runs itself.
    */
   readonly recoverTasks?: boolean;
+  /** The time zone schedule rules count their clock times in; the machine's when left out (tests set one). */
+  readonly scheduleTimeZone?: string;
   /** The vault Electron's main process keeps; without it, as when run alone, remote access is unavailable. */
   readonly vault?: VaultPort;
 }
@@ -141,6 +145,8 @@ export interface RunningHost {
   readonly resources: ResourceTracker;
   /** The tasks (SPEC-0006): the protocol's task commands go through them; tests and `task:try` use the handle too. */
   readonly tasks: TaskService;
+  /** The schedule rules (SPEC-0006, "定时"); `undefined` while another process's tasks are followed or `recoverTasks` is off. */
+  readonly schedules: ScheduleService | undefined;
   /** The projects, for the dev tools that set a host up without a client (`pnpm task:try`). */
   readonly projects: Pick<ProjectService, "add" | "projects" | "workspaces">;
   /** Resolves once PATH is known and the tools have been looked for; `null` if the host closed first or detection failed. */
@@ -511,11 +517,29 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
     resources,
   });
+  // Schedules (SPEC-0006, "定时"): none while another process's tasks are followed, and none for `pnpm task:try`, which
+  // looks after the one task it runs itself. The rules make tasks through the service below and the service saves
+  // rules through them, so they are joined after both exist.
+  const schedulesWanted = config.followTasks === undefined && config.recoverTasks !== false;
+  let schedules: ScheduleService | undefined;
   const ownedTasks: TaskService = createTaskService({
     runner: taskRunner,
     root: join(home.root, "tasks"),
     clock,
     logger,
+    ...(schedulesWanted
+      ? {
+          schedules: {
+            confirm: async (template) => {
+              const container = catalog.find(template.taskSessionId)?.containerId;
+              if (container === undefined)
+                throw new CommandError("session_not_found", { sessionId: template.taskSessionId });
+              await schedules?.confirm(template, container);
+            },
+            saved: (templateTaskId) => schedules?.saved(templateTaskId) ?? false,
+          },
+        }
+      : {}),
     archiving: createTaskArchiving({ projects, git, inspector, archiver }),
     design: {
       sessions: sessions.taskSessions,
@@ -544,6 +568,16 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
           resources,
           logger,
         });
+  if (schedulesWanted) {
+    schedules = createScheduleService({
+      file: join(home.root, "schedules.json"),
+      clock,
+      resources,
+      logger,
+      tasks: ownedTasks,
+      ...(config.scheduleTimeZone === undefined ? {} : { timeZone: config.scheduleTimeZone }),
+    });
+  }
   // The task gates (ADR-0017): graph approval, human nodes, the question about the worktree.
   reviewHub.register(
     createTaskReviewProvider({
@@ -562,6 +596,18 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
     // Opening a task counts its conversation's reviews again: the worktree may have been edited since (T8 review fix 11).
     onOpened: (task) => reviewHub.refresh(task.taskSessionId),
+  });
+  // The rules are read now, so that a window's commands do not find them missing while pi is still being looked for.
+  await schedules?.load();
+  // A rule saved or deleted changes how its template task looks (the start button says "saved"), though no task event did.
+  schedules?.onChange(() => {
+    for (const rule of schedules?.list() ?? []) taskCommands.refresh(rule.templateTaskId);
+  });
+  const scheduleCommands = createScheduleCommands({
+    schedules,
+    tasks,
+    send: (connectionId, event) => subscriptions.sendTo(connectionId, event),
+    logger,
   });
   // Names a new worktree's branch by the first message (SPEC-0001, "AI 起分支名").
   const namer = createBranchNamer({
@@ -735,6 +781,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       piLatest,
       remote,
       tasks: taskCommands,
+      schedules: scheduleCommands,
       reviews: reviewHub,
       receipts,
       translations,
@@ -775,6 +822,25 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
           })
           .catch((error: unknown) => {
             logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "tasks could not be recovered");
+          });
+
+  // SPEC-0006, "定时": once the tasks that were going are taken up and pi is known, read the rules and make up what was
+  // missed while the host was off (once per rule); a trigger needs pi to start the task's conversation.
+  const scheduling: Promise<void> =
+    schedules === undefined
+      ? Promise.resolve()
+      : recovering
+          .then(() =>
+            Promise.race([
+              tools,
+              new Promise<void>((resolve) =>
+                recovery.signal.addEventListener("abort", () => resolve(), { once: true }),
+              ),
+            ]),
+          )
+          .then(() => (recovery.signal.aborted ? undefined : schedules.start()))
+          .catch((error: unknown) => {
+            logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "schedules could not be started");
           });
 
   /**
@@ -901,8 +967,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await workspaces.close();
     // Before the sessions, whose stopping the runner would otherwise answer with events.
     recovery.abort();
+    await schedules?.close();
+    await scheduling;
     await tasks.close();
     await recovering;
+    await scheduleCommands.close();
     await taskCommands.close();
     await reviewHub.close();
     await sessions.close();
@@ -924,6 +993,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     port: server.port,
     origin: server.origin,
     tasks,
+    schedules,
     projects,
     address: server.address,
     resources,

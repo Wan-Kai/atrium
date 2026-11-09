@@ -241,6 +241,7 @@ function pendingOf(task: Task): TaskPendingGraph | null {
  * @param archiveFacts - The facts of the archive question, or `null`.
  * @param followed - Whether the task is only followed (another process writes it); `false` for the host's own.
  * @param reviews - What waits for the user's verdict, worked out by the caller (it needs git); none for a followed task.
+ * @param schedule - For a schedule rule's template task: whether a rule was saved from it (T10).
  * @returns The view.
  */
 export function viewOf(
@@ -248,6 +249,7 @@ export function viewOf(
   archiveFacts: TaskArchiveFacts | null,
   followed = false,
   reviews: readonly PendingReview[] = [],
+  schedule: { readonly saved: boolean } = { saved: false },
 ): TaskView {
   const graph = activeGraphOf(task);
   const backs = (graph?.edges ?? []).filter((edge) => edge.kind === "back");
@@ -274,5 +276,6 @@ export function viewOf(
     edges: (graph?.edges ?? []).map(({ from, to, kind }) => ({ from, to, kind })),
     archiveFacts,
     followed,
+    scheduleDraft: task.scheduleDraft === null ? null : { ...task.scheduleDraft, saved: schedule.saved },
   };
 }

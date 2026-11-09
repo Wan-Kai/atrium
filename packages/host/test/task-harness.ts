@@ -162,7 +162,8 @@ export async function startTaskHost(
       title: "A title",
       byConversation: [
         ...Object.entries(conversations).map(([node, replies]) => ({
-          startsWith: contractStart(node),
+          // A key that begins with "<" is a contract's beginning as it is (a task whose name the test does not know whole).
+          startsWith: node.startsWith("<") ? node : contractStart(node),
           replies,
         })),
         ...(scripts.design === undefined ? [] : [{ startsWith: DESIGN_START, replies: scripts.design }]),

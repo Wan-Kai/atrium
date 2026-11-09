@@ -1,4 +1,4 @@
-import { ReviewRecord, ThinkingLevel } from "@atrium/protocol";
+import { Cadence, ReviewRecord, SchedulePlace, ThinkingLevel } from "@atrium/protocol";
 import { z } from "zod";
 import { ENVELOPE_LIMIT } from "../agent/channel";
 import { decodeArgument } from "../agent/agent";
@@ -63,8 +63,8 @@ export const NODE_TOOLS = ["node_done", "request_graph_change"] as const;
  * The tools only the task conversation has (SPEC-0006, "任务对话").
  *
  * @remarks
- * Eight, not SPEC-0006's nine: `task_set_schedule` comes with schedules (T10), and a tool that records a
- * schedule nothing runs would promise the user something that does not happen (SPEC-0006, "T6 定下的细节").
+ * Nine. T6 left out `task_set_schedule` because nothing ran schedules yet; T10 added it with them (SPEC-0006,
+ * "T10 定下的细节").
  */
 export const CONVERSATION_TOOLS = [
   "task_read_source",
@@ -75,6 +75,7 @@ export const CONVERSATION_TOOLS = [
   "task_diff",
   "task_propose_graph",
   "task_send_to_node",
+  "task_set_schedule",
 ] as const;
 
 /**
@@ -225,6 +226,8 @@ export const CallArgs = {
     note: z.string().max(TASK_TEXT_LIMITS.reason),
     guide: GuideId.optional(),
   }),
+  /** It makes the task the template of a schedule rule: when it runs and where. */
+  task_set_schedule: z.strictObject({ when: Cadence, place: SchedulePlace }),
   /** It passes a word on to a running node. */
   task_send_to_node: z.strictObject({
     id: z.string().min(1).max(64),
@@ -380,6 +383,7 @@ export const TaskCallResults = {
   task_diff: z.strictObject({ text: z.string() }),
   task_propose_graph: z.strictObject({ version: z.number().int(), pending: z.boolean() }),
   task_send_to_node: z.strictObject({ recorded: z.literal(true) }),
+  task_set_schedule: z.strictObject({ recorded: z.literal(true) }),
 } as const satisfies Record<TaskCallOp, z.ZodType>;
 
 /** The host's answer to a call (ADR-0013, point 2, `reply`). */

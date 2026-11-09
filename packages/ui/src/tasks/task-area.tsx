@@ -6,6 +6,7 @@ import { RunningDots } from "../design/running-dots";
 import { type TaskArea as TaskAreaState, parseNodeTab } from "../state/task-area";
 import { NodeTab } from "./node-tab";
 import { TaskKindIcon, NodeStateIcon } from "./task-icons";
+import { ScheduleTab } from "./schedule-tab";
 import { TaskList } from "./task-list";
 import { TaskTab } from "./task-tab";
 import { statusWords } from "./task-words";
@@ -149,33 +150,6 @@ function TaskTabBar({
 }
 
 /**
- * The "定时" tab's content: the schedules' empty state (SPEC-0006, "界面 · 定时标签"; T7).
- *
- * @remarks
- * Schedules arrive with T10; until then the tab says how they will come: from a conversation, with `/task`.
- *
- * @sideEffects none
- * @returns The empty state.
- */
-function SchedulesEmpty() {
-  return (
-    <section aria-label="定时" className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-[860px] px-6 py-6">
-        <div className="flex items-center gap-3 px-2.5">
-          <h2 className="text-[length:var(--fs)] font-semibold text-[var(--text)]">定时</h2>
-          <span className="rounded-[var(--r-pill)] bg-[var(--surface-2)] px-2 text-[length:var(--fs-sm)] leading-[20px] text-[var(--text-muted)] tabular-nums">
-            0
-          </span>
-        </div>
-        <p role="status" className="px-2.5 py-8 text-[length:var(--fs-meta)] text-[var(--text-dim)]">
-          还没有定时规则。在对话里说清「每天几点做什么」再 /task，就生成定时规则。
-        </p>
-      </div>
-    </section>
-  );
-}
-
-/**
  * The task area: its tab bar, and under it the list, the schedules or a task, whichever tab is on top.
  *
  * @remarks
@@ -216,7 +190,7 @@ export function TaskAreaView({
           onOpenChanges={onOpenChanges}
         />
       ) : active === "schedules" ? (
-        <SchedulesEmpty />
+        <ScheduleTab client={client} area={area} />
       ) : parseNodeTab(active) !== null ? (
         <NodeTab
           key={active}

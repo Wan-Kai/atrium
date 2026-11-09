@@ -307,13 +307,13 @@ describe('taskLaunchFlags (SPEC-0006, "一个 agent 节点怎么跑 · 起")', (
     }
   });
 
-  it("gives the task conversation the read-only list, its eight tools and ask_user; no edit, write or agent tool", () => {
+  it("gives the task conversation the read-only list, its nine tools and ask_user; no edit, write or agent tool", () => {
     const flags = taskLaunchFlags({ ...entry("t"), task: { taskId: "tsk_1", role: "conversation", startOn: null } });
 
     expect(selfOf(flags)).toStrictEqual({ v: 1, kind: "conversation" });
     expect(flags?.slice(1)).toStrictEqual([
       "--tools",
-      "read,bash,ffgrep,fffind,ls,task_read_source,task_set_summary,task_set_meta,task_status,task_read_node,task_diff,task_propose_graph,task_send_to_node,ask_user",
+      "read,bash,ffgrep,fffind,ls,task_read_source,task_set_summary,task_set_meta,task_status,task_read_node,task_diff,task_propose_graph,task_send_to_node,task_set_schedule,ask_user",
     ]);
     expect(flags?.some((flag) => flag.startsWith("--atrium-agent"))).toBe(false);
   });

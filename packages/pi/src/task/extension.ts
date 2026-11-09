@@ -454,6 +454,32 @@ const CONVERSATION_SPECS: Readonly<Record<ConversationOp, ConversationSpec>> = {
       ["nodes", "edges", "note"],
     ),
   },
+  task_set_schedule: {
+    label: "Set schedule",
+    description:
+      "Make this task the template of a schedule rule, for a need that repeats on a clock (every day at a time, every week on a day, every so many minutes). Nothing runs now: the user confirms the rule with the button at the top of the task, and from then on each trigger makes a task from this summary and graph. place: new_worktree makes a worktree for each run; local_readonly runs in the project's own directory and the graph may have no work node. Call it again to change the time or place. Only while the task is being designed, and only for a task in a project.",
+    promptSnippet: "Make this task a schedule rule's template",
+    parameters: object(
+      {
+        when: describedObject(
+          "When it runs, in the user's local time. every=day: set at (24-hour, like 02:00). every=week: set day (0 Sunday to 6 Saturday) and at. every=interval: set minutes (1 to 1440), counted from when the user confirms.",
+          {
+            every: { type: "string", enum: ["day", "week", "interval"], description: "The kind of cadence." },
+            at: stringProp("Time of day, 24-hour HH:MM; for day and week."),
+            day: { type: "integer", minimum: 0, maximum: 6, description: "Weekday, 0 is Sunday; for week." },
+            minutes: { type: "integer", minimum: 1, maximum: 1440, description: "Minutes between runs; for interval." },
+          },
+          ["every"],
+        ),
+        place: {
+          type: "string",
+          enum: ["new_worktree", "local_readonly"],
+          description: "Where each run works.",
+        },
+      },
+      ["when", "place"],
+    ),
+  },
   task_send_to_node: {
     label: "Send to node",
     description:
