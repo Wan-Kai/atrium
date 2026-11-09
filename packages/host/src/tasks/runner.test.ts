@@ -133,6 +133,7 @@ const workspaces: TaskWorkspaces = {
     return Promise.resolve();
   },
   merge: (task, signal) => mergeImpl(task, signal),
+  clearStaleLocks: () => Promise.resolve(0),
 };
 
 /**

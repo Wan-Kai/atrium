@@ -8,7 +8,7 @@ import {
   plantTraps,
   present,
 } from "@atrium/testkit";
-import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
@@ -872,3 +872,211 @@ describe("createWorktreeCreator: .worktreeinclude (SPEC-0006, 工作区)", () =>
     await expect(stat(join(record.dir, ".env"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
+
+/**
+ * A creator that goes down when it records the worktree it has just added, the way the host does when it dies there.
+ *
+ * @remarks
+ * Shares the projects of an ordinary creator; only `addWorktree` is cut. The queue is the ordinary creator's, so
+ * the two take turns as they would in one host.
+ *
+ * @sideEffects none until a call.
+ * @param made - The ordinary creator's pieces.
+ * @param git - git.
+ * @returns A creator whose `createFrom` throws "crash" after `git worktree add` and the copying of includes.
+ */
+function crashingBeforeRecord(made: Awaited<ReturnType<typeof creator>>, git: GitRunner) {
+  return createWorktreeCreator({
+    projects: {
+      projects: () => made.projects.projects(),
+      workspaces: () => made.projects.workspaces(),
+      addWorktree: () => Promise.reject(new Error("crash")),
+    },
+    git: Promise.resolve(git),
+    queue: made.queue,
+    refresh: () => undefined,
+    logger: recordingTracing().logger,
+  });
+}
+
+describe("createWorktreeCreator: planning and adopting (SPEC-0006, T9)", () => {
+  it("tells the plan before it adds the worktree: the source, the branch, the directory and the start", async () => {
+    const repo = await scene();
+    const { create, projects, projectId } = await creator(repo);
+    const source = localOf(projects, projectId);
+    const plans: { plan: unknown; existed: boolean }[] = [];
+
+    const made = await create.createFrom(source, "Fix it", "atrium/", "Fix it", undefined, async (plan) => {
+      plans.push({
+        plan,
+        existed: await stat(plan.dir).then(
+          () => true,
+          () => false,
+        ),
+      });
+    });
+
+    expect(plans).toStrictEqual([
+      {
+        plan: {
+          source,
+          branch: "atrium/fix-it",
+          dir: made.dir,
+          start: await repo.git(repo.repo, "rev-parse", "HEAD"),
+        },
+        existed: false,
+      },
+    ]);
+  });
+
+  it("adds nothing when the plan cannot be written", async () => {
+    const repo = await scene();
+    const { create, projects, projectId } = await creator(repo);
+
+    await expect(
+      create.createFrom(localOf(projects, projectId), "Fix it", "atrium/", null, undefined, () =>
+        Promise.reject(new Error("disk full")),
+      ),
+    ).rejects.toThrow("disk full");
+
+    expect(await repo.git(repo.repo, "worktree", "list", "--porcelain")).not.toContain("fix-it");
+    expect(lineCount(await repo.git(repo.repo, "branch", "--list", "atrium/*"))).toBe(0);
+  });
+
+  it("finds the worktree again after a crash between adding it and recording it, and records it without making a second", async () => {
+    const repo = await scene();
+    await writeFile(join(repo.repo, ".gitignore"), ".env\n");
+    await writeFile(join(repo.repo, ".worktreeinclude"), ".env\n");
+    await writeFile(join(repo.repo, ".env"), "SECRET=1\n");
+    const ordinary = await creator(repo);
+    const source = localOf(ordinary.projects, ordinary.projectId);
+    let planned: Parameters<NonNullable<Parameters<typeof ordinary.create.createFrom>[5]>>[0] | undefined;
+    const crashing = crashingBeforeRecord(ordinary, realGit());
+    await expect(
+      crashing.createFrom(source, "Fix it", "atrium/", null, undefined, (plan) => {
+        planned = plan;
+        return Promise.resolve();
+      }),
+    ).rejects.toThrow("crash");
+    expect(ordinary.projects.workspaces()).toHaveLength(2);
+    const plan = present(planned, "the plan");
+    // Whatever the include copy did not finish is made good by the adoption.
+    await rm(join(plan.dir, ".env"), { force: true });
+
+    const adopted = await ordinary.create.adopt(plan, { alias: "Fix it" });
+
+    expect(adopted).toStrictEqual({ workspaceId: expect.any(String), dir: plan.dir, branch: "atrium/fix-it" });
+    expect(ordinary.projects.workspaces().find((one) => one.dir === plan.dir)).toMatchObject({
+      id: present(adopted, "adopted").workspaceId,
+      kind: "worktree",
+      alias: "Fix it",
+      baseCommit: plan.start,
+      external: false,
+    });
+    expect(ordinary.projects.workspaces()).toHaveLength(3);
+    expect(ordinary.refreshed).toStrictEqual([present(adopted, "adopted").workspaceId]);
+    expect(await readFile(join(plan.dir, ".env"), "utf8")).toBe("SECRET=1\n");
+    expect((await repo.git(repo.repo, "worktree", "list", "--porcelain")).match(/^worktree /gmu)).toHaveLength(2);
+  });
+
+  it("returns the record that is there after a crash between recording it and writing the task's mark", async () => {
+    const repo = await scene();
+    const { create, projects, projectId } = await creator(repo);
+    let planned: Parameters<NonNullable<Parameters<typeof create.createFrom>[5]>>[0] | undefined;
+    const made = await create.createFrom(localOf(projects, projectId), "Fix it", "atrium/", null, undefined, (plan) => {
+      planned = plan;
+      return Promise.resolve();
+    });
+
+    const adopted = await create.adopt(present(planned, "the plan"), {});
+
+    expect(adopted).toStrictEqual(made);
+    expect(projects.workspaces()).toHaveLength(3);
+  });
+
+  it("adopts a worktree whose lock is the task's own, and refuses one locked for anything else", async () => {
+    const repo = await scene();
+    const { create, projects, projectId } = await creator(repo);
+    let planned: Parameters<NonNullable<Parameters<typeof create.createFrom>[5]>>[0] | undefined;
+    const made = await create.createFrom(localOf(projects, projectId), "Fix it", "atrium/", null, undefined, (plan) => {
+      planned = plan;
+      return Promise.resolve();
+    });
+    const plan = present(planned, "the plan");
+    await repo.git(repo.repo, "worktree", "lock", "--reason", "atrium task tsk_1", made.dir);
+
+    expect(await create.adopt(plan, { allowedLock: "atrium task tsk_1" })).toStrictEqual(made);
+    expect(await create.adopt(plan, { allowedLock: "atrium task tsk_2" })).toBeNull();
+    expect(await create.adopt(plan, {})).toBeNull();
+  });
+
+  it("does not adopt what is not exactly the plan, and a new worktree then goes beside it", async () => {
+    const repo = await scene();
+    const { create, projects, projectId } = await creator(repo);
+    const source = localOf(projects, projectId);
+    const crashing = crashingBeforeRecord(await creator(repo), realGit());
+    const plans: Parameters<NonNullable<Parameters<typeof create.createFrom>[5]>>[0][] = [];
+    await crashing
+      .createFrom(source, "Fix it", "atrium/", null, undefined, (plan) => {
+        plans.push(plan);
+        return Promise.resolve();
+      })
+      .catch(() => undefined);
+    const plan = present(plans[0], "the plan");
+
+    // Nothing is at a directory that was never made.
+    expect(await create.adopt({ ...plan, dir: `${plan.dir}-never` }, {})).toBeNull();
+    // The branch is not the one planned.
+    expect(await create.adopt({ ...plan, branch: "atrium/other" }, {})).toBeNull();
+    // It is not at the commit planned.
+    expect(await create.adopt({ ...plan, start: "0".repeat(40) }, {})).toBeNull();
+    // It has a commit.
+    await repo.commit(plan.dir, "extra.txt", "extra\n");
+    expect(await create.adopt(plan, {})).toBeNull();
+    // A commit undone, but a change not committed.
+    await repo.git(plan.dir, "reset", "--hard", "--quiet", plan.start);
+    await writeFile(join(plan.dir, "loose.txt"), "x\n");
+    expect(await create.adopt(plan, {})).toBeNull();
+    expect(projects.workspaces()).toHaveLength(2);
+
+    const next = await create.createFrom(source, "Fix it");
+
+    expect(next.dir).toBe(join(repo.root, "repo.worktrees", "fix-it-2"));
+    expect(next.branch).toBe("atrium/fix-it-2");
+  });
+
+  it("does not adopt a worktree that was not made from the planned source, or when there is no git", async () => {
+    const repo = await scene();
+    const { create, projects, projectId } = await creator(repo);
+    const source = localOf(projects, projectId);
+    const crashing = crashingBeforeRecord(await creator(repo), realGit());
+    let planned: Parameters<NonNullable<Parameters<typeof create.createFrom>[5]>>[0] | undefined;
+    await crashing
+      .createFrom(source, "Fix it", "atrium/", null, undefined, (plan) => {
+        planned = plan;
+        return Promise.resolve();
+      })
+      .catch(() => undefined);
+    const plan = present(planned, "the plan");
+    const withoutGit = await creator(repo, null);
+
+    expect(await create.adopt({ ...plan, source: "wks_unknown" }, {})).toBeNull();
+    expect(await withoutGit.create.adopt(plan, {})).toBeNull();
+    expect(await create.adopt({ ...plan, source: "wks_unknown" }, { signal: new AbortController().signal })).toBeNull();
+    // Closing stops it before it looks at anything, even a plan it could not have adopted.
+    await expect(create.adopt({ ...plan, source: "wks_unknown" }, { signal: AbortSignal.abort() })).rejects.toThrow(
+      "aborted",
+    );
+  });
+});
+
+/**
+ * How many lines a listing has.
+ *
+ * @sideEffects none
+ * @param listing - git's output.
+ * @returns The count.
+ */
+function lineCount(listing: string): number {
+  return listing === "" ? 0 : listing.split("\n").length;
+}

@@ -8,6 +8,9 @@ import type { GraphNode, GraphVersion, NodeId, NodeRun, Task } from "./types";
  * (coding-standards.md, "宿主不产出给用户看的文字"); the wording is SPEC-0006's.
  */
 
+/** What a node's first message begins with; the runner recognises a contract already on a session's file by it. */
+export const CONTRACT_OPENING = "<atrium-task-node>";
+
 /** Where a node stands in the list of the whole graph, from its own point of view. */
 type Standing = "passed" | "you" | "next" | "later" | "user";
 
@@ -165,7 +168,7 @@ export function buildContract(input: ContractInput): string {
     .filter((name): name is string => name !== undefined)
     .map((name) => escapeShell(name));
   const lines: string[] = [
-    "<atrium-task-node>",
+    CONTRACT_OPENING,
     `你在任务「${escapeShell(task.name)}」里负责节点 ${escapeShell(node.id)} · ${escapeShell(node.name)}。`,
     "",
     `【任务目标】${quoted("任务对话", task.summary.goal)}`,

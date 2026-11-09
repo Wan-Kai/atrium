@@ -122,6 +122,11 @@ export interface HostConfig {
    * (`ATRIUM_FOLLOW_TASKS`, SPEC-0006, "T7.1 定下的细节"). Without it, the host follows nothing.
    */
   readonly followTasks?: string;
+  /**
+   * Whether to take up the tasks that were going when the host last stopped, once pi is found (SPEC-0006, "宿主重启");
+   * `true` unless set. `pnpm task:try` turns it off: it looks after the one task it runs itself.
+   */
+  readonly recoverTasks?: boolean;
   /** The vault Electron's main process keeps; without it, as when run alone, remote access is unavailable. */
   readonly vault?: VaultPort;
 }
@@ -757,6 +762,20 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   toolbox.start();
   piLatest.start();
   const tools = toolbox.current();
+  // SPEC-0006, "宿主重启": tasks that were going when the host stopped go on, as soon as pi is known to run.
+  const recovery = new AbortController();
+  const recovering: Promise<void> =
+    config.recoverTasks === false
+      ? Promise.resolve()
+      : tasks
+          .recoverAll({
+            signal: recovery.signal,
+            staleLocks: true,
+            ready: async () => (await tools)?.pi.status === "ready",
+          })
+          .catch((error: unknown) => {
+            logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "tasks could not be recovered");
+          });
 
   /**
    * Reads the login shell's environment, then looks for pi, Node, Homebrew and fd on its PATH.
@@ -881,7 +900,9 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await changes.close();
     await workspaces.close();
     // Before the sessions, whose stopping the runner would otherwise answer with events.
+    recovery.abort();
     await tasks.close();
+    await recovering;
     await taskCommands.close();
     await reviewHub.close();
     await sessions.close();

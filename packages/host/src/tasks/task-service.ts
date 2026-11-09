@@ -49,11 +49,27 @@ export interface TaskService {
   /** Takes up a task again after the host restarted; see `TaskRunner.recover`. */
   recover(taskId: string): Promise<void>;
   /**
+   * Takes up every task of this host that was started and not finished, after the host restarted.
+   *
+   * @remarks
+   * SPEC-0006, "宿主重启" and "T9 定下的细节". Reads every task on disk, lifts the stale locks (`staleLocks`), then
+   * `recover`s the tasks in the order they were made. A task that needs pi (it is still going) waits for `ready`,
+   * which is asked only when there is one; if pi is not ready they are left as they are, with one warning. One that
+   * cannot be recovered is logged and does not stop the rest. Stops early when `signal` aborts.
+   */
+  recoverAll(options: {
+    readonly signal: AbortSignal;
+    /** Whether to lift stale locks; not while following another process's tasks, whose locks are not ours. */
+    readonly staleLocks: boolean;
+    /** Whether pi can run; asked at most once, and only if a task needs it. */
+    readonly ready: () => Promise<boolean>;
+  }): Promise<void>;
+  /**
    * Every task, those on disk that were not taken up yet included.
    *
    * @remarks
    * Taking a task up only reads its files (`open`); it does not start anything. Picking nodes up again after a
-   * restart is `recover`'s, which T9 calls for the tasks that were running.
+   * restart is `recover`'s, which `recoverAll` calls at start for the tasks that were going.
    */
   list(): Promise<Task[]>;
   /** The tasks taken up so far, in the order they were; one abandoned while designing is not among them. */
@@ -268,6 +284,8 @@ export function createTaskService(options: {
   const stopping = new AbortController();
   /** `createFromChat` goes one at a time, so two `/task` of one conversation cannot both pass the check. */
   let converting: Promise<unknown> = Promise.resolve();
+  /** Opens under way, so that the board's list and the recovery reading one task at once open its files once. */
+  const opening = new Map<string, Promise<Task>>();
   const newId = options.design.newId ?? ((): string => `tsk_${randomUUID().replaceAll("-", "").slice(0, 16)}`);
 
   /**
@@ -406,16 +424,52 @@ export function createTaskService(options: {
       options.logger.info({ taskId: task.id }, "task created");
       return runner.submit(task.id, { type: "created", task });
     },
-    async open(taskId) {
-      const store = await openTaskStore(join(options.root, taskId), options.clock);
-      const task = store.current();
-      if (task === null) throw new Error(`task ${taskId} has no events`);
-      runner.attach(taskId, store);
-      return task;
+    open(taskId) {
+      const held = runner.task(taskId);
+      if (held !== undefined) return Promise.resolve(held);
+      const under = opening.get(taskId);
+      if (under !== undefined) return under;
+      const made = (async () => {
+        const store = await openTaskStore(join(options.root, taskId), options.clock);
+        const task = store.current();
+        if (task === null) throw new Error(`task ${taskId} has no events`);
+        runner.attach(taskId, store);
+        return task;
+      })().finally(() => opening.delete(taskId));
+      opening.set(taskId, made);
+      return made;
     },
     submit: (taskId, input) => runner.submit(taskId, input),
     task: (taskId) => runner.task(taskId),
     recover: (taskId) => runner.recover(taskId),
+    async recoverAll({ signal, staleLocks, ready }) {
+      const all = (await service.list()).toSorted((a, b) => a.createdAt - b.createdAt);
+      if (staleLocks && !signal.aborted) {
+        const lifted = await runner.clearStaleLocks().catch((error: unknown) => {
+          options.logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "stale task locks not cleared");
+          return 0;
+        });
+        if (lifted > 0) options.logger.info({ lifted }, "stale task locks lifted");
+      }
+      let piReady: Promise<boolean> | undefined;
+      let left = 0;
+      for (const task of all) {
+        if (signal.aborted) return;
+        if (task.startedAt === null) continue;
+        const going = task.endedAt === null;
+        if (going && !(await (piReady ??= ready()))) {
+          left += 1;
+          continue;
+        }
+        await service.recover(task.id).catch((error: unknown) => {
+          options.logger.warn(
+            { err: error instanceof Error ? error.name : "unknown" },
+            "a task could not be recovered",
+          );
+        });
+      }
+      if (left > 0) options.logger.warn({ tasks: left }, "tasks not recovered: pi is not ready");
+    },
     held: () => runner.all().filter((task) => !isAbandoned(task)),
     async list() {
       const names = await readdir(options.root).catch(() => [] as string[]);

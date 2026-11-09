@@ -1,4 +1,4 @@
-import { type PiEvent, type ResumeKind, readTaskRequest, taskCommandText } from "@atrium/pi";
+import { type LogEntry, type PiEvent, type ResumeKind, readTaskRequest, taskCommandText } from "@atrium/pi";
 import { quoted } from "./quote";
 import type { Clock } from "../platform/clock";
 import type { GitRunner } from "../platform/git";
@@ -9,7 +9,7 @@ import type { TaskSessionSignal, TaskSessions } from "../sessions/task-sessions"
 import { type Caller, checkCall, checkConversationCall, replyText } from "./channel";
 import { type Answer, type ConversationCall, answerConversation, isConversationCall } from "./conversation";
 import { commitSubject, commitWork, trailerValue } from "./commit";
-import { buildContract, graphChangedText } from "./contract";
+import { CONTRACT_OPENING, buildContract, graphChangedText } from "./contract";
 import type { MergeOutcome } from "./merge";
 import { activeGraphOf, liveRun, placeOf, runAt } from "./graph";
 import { type Ending, JUDGE_START, type JudgeState, judge } from "./judge";
@@ -50,14 +50,23 @@ export interface TaskRunner {
    * Picks a task up after the host restarted, doing again what was lost and telling the scheduler.
    *
    * @remarks
-   * SPEC-0006, "宿主重启": events were written before their actions were carried out, so a crash can lose the
-   * actions. Those recognised by what the task's own record shows (a worktree that was being made, a node
-   * that was starting, a finished node whose commit is missing) are done again, each by its idempotent
-   * rule, then `host_restarted` goes to the scheduler. The rest of the restart (a `node_done` whose turn had
-   * ended before the restart, T9) is not done here: such a node is told to look at its work and call
-   * `node_done` again.
+   * SPEC-0006, "宿主重启" and "T9 定下的细节": events were written before their actions were carried out, so a
+   * crash can lose the actions. Those recognised by what the task's own record shows (a worktree that was
+   * being made, a node that was starting, a finished node whose commit is missing) are done again, each by its
+   * idempotent rule. A node whose `node_done` was pending and whose turn ended before the restart (its session
+   * file ends with the call's result) is settled first (`node_settled`); then `host_restarted` goes to the
+   * scheduler. A task that ended gets its worktree unlocked again; one that did not, locked again.
    */
   recover(taskId: string): Promise<void>;
+  /**
+   * Lifts the locks tasks left on worktrees that are over, when the host starts.
+   *
+   * @remarks
+   * SPEC-0006, "加锁": a lock whose reason names a task that is done, cancelled, or not among those looked after.
+   * Call it once every task on disk has been attached, or an active task's lock is taken for a stale one.
+   * Resolves to how many locks were lifted.
+   */
+  clearStaleLocks(): Promise<number>;
   /**
    * Lets a node the user stopped go on: a message in its own conversation, as the user could send (SPEC-0006,
    * "节点"). The run it starts is what puts the node back to `running`.
@@ -200,7 +209,12 @@ function eventOf(ending: Ending, context: NodeContext): TaskEventInput | null {
     case "done":
       return { type: "node_settled", ...run };
     case "graph_change":
-      return { type: "node_waiting", ...run, waitingFor: "graph_change" };
+      return {
+        type: "node_waiting",
+        ...run,
+        waitingFor: "graph_change",
+        ...(context.graphRequest === null ? {} : { request: context.graphRequest }),
+      };
     case "none":
       return context.hold ? { type: "node_held", ...run } : { type: "node_settled", ...run };
     case "stopped":
@@ -237,6 +251,56 @@ function freshWorktreeFor(task: Task, node: GraphNode, run: NodeRun): boolean {
 }
 
 /**
+ * The last message of a session's file: what was said last, leaving out the entries that say nothing.
+ *
+ * @remarks
+ * A file can end in entries the transcript does not show (labels, model changes); the turn's end is read from the
+ * last user, assistant or tool-result message.
+ *
+ * @sideEffects none
+ * @param entries - The session's entries, in file order.
+ * @returns The last message, or `undefined` for a file with none.
+ */
+function lastMessage(entries: readonly LogEntry[]): LogEntry | undefined {
+  return entries.findLast(
+    (entry) => entry.kind === "user" || entry.kind === "assistant" || entry.kind === "toolResult",
+  );
+}
+
+/**
+ * Whether a session's file ends with a `node_done` that the host accepted, the result that ended the turn.
+ *
+ * @remarks
+ * SPEC-0006, "T9 定下的细节": the extension answers an accepted call with a result that has `terminate`, so pi
+ * asks the model for nothing after it and it is the last thing in the file. A refused call is an error result and
+ * the model goes on; anything written after the result means the turn went on.
+ *
+ * @sideEffects none
+ * @param entries - The session's entries, in file order.
+ * @returns Whether the node's turn ended on its `node_done`.
+ */
+function endedOnNodeDone(entries: readonly LogEntry[]): boolean {
+  const last = lastMessage(entries);
+  return last?.kind === "toolResult" && last.tool === "node_done" && !last.isError;
+}
+
+/**
+ * Whether a session's file already begins with the node's contract.
+ *
+ * @remarks
+ * The first user message of a node's session is its contract (SPEC-0006, "第一条消息：契约"). pi writes the file
+ * with the first reply, so a contract that reached pi but not its reply is not on file, and is sent again.
+ *
+ * @sideEffects none
+ * @param entries - The session's entries, in file order.
+ * @returns Whether it does.
+ */
+function beginsWithContract(entries: readonly LogEntry[]): boolean {
+  const first = entries.find((entry) => entry.kind === "user");
+  return first?.kind === "user" && first.text.startsWith(CONTRACT_OPENING);
+}
+
+/**
  * Creates the task runner.
  *
  * @remarks
@@ -259,6 +323,14 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
   const contexts = new Map<string, NodeContext>();
   const conversations = new Map<string, ConversationContext>();
   const background = new Set<Promise<unknown>>();
+  /**
+   * The sessions whose node was handed its contract by this runner, and has not been spoken to since.
+   *
+   * @remarks
+   * `host_restarted` tells every `running` node that the host restarted; a node started during the recovery itself
+   * (the settlement of its upstream started it) has nothing to be told, its contract is the latest word it has.
+   */
+  const freshlyStarted = new Set<string>();
   const closing = new AbortController();
   const release = options.resources.acquire("task.runner");
   const listeners = new Set<(task: Task, event: TaskEvent, actions: readonly Action[]) => void>();
@@ -393,6 +465,25 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
     const wanted = placeOf(node) === "workspace" || task.workspaceState === "ready";
     if (!wanted) return task.sourceDir;
     return task.workspaceId === null ? undefined : workspaces.dirOf(task.workspaceId);
+  }
+
+  /**
+   * The entries of a session's file, or none when it cannot be read.
+   *
+   * @remarks
+   * Read to tell what happened before a restart; a file that is not there or is damaged tells nothing, which the
+   * callers take as "pi never wrote it". Logs the error's name only.
+   *
+   * @sideEffects Reads the file; may log.
+   * @param sessionId - The session.
+   * @returns The entries, in file order.
+   */
+  async function entriesOf(sessionId: string): Promise<LogEntry[]> {
+    return sessions.transcript(sessionId).catch((error: unknown) => {
+      logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "task node session file not read");
+      // Stryker disable next-line ArrayDeclaration: one entry that is no message reads like a file with none.
+      return [];
+    });
   }
 
   /**
@@ -568,18 +659,25 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
    *
    * @remarks
    * SPEC-0006, "动作要幂等": `node_started` is recorded before this, so a node whose prompt failed, or whose host
-   * died in between, has a session and no `contract_sent`; whatever would be sent it next is this instead.
+   * died in between, has a session and no `contract_sent`; whatever would be sent it next is this instead. If the
+   * session's file already begins with the contract, the host died after pi took it: it is recorded as sent and
+   * not sent a second time (T9).
    *
-   * @sideEffects Sends the prompt; records `contract_sent`.
+   * @sideEffects Reads the session's file; sends the prompt; records `contract_sent`.
    * @param entry - The task.
    * @param nodeId - The node.
+   * @returns Whether the contract was on the session's file already, so that nothing was sent.
    * @throws {Error} When pi does not take the prompt.
    */
-  async function deliverContract(entry: TaskEntry, nodeId: NodeId): Promise<void> {
+  async function deliverContract(entry: TaskEntry, nodeId: NodeId): Promise<boolean> {
     const task = entry.store.current();
     const node = task === null ? undefined : activeGraphOf(task)?.nodes.find((candidate) => candidate.id === nodeId);
     const run = task === null ? undefined : liveRun(task, nodeId);
-    if (task === null || node === undefined || run?.sessionId == null) return;
+    if (task === null || node === undefined || run?.sessionId == null) return false;
+    if (beginsWithContract(await entriesOf(run.sessionId))) {
+      await dispatch(entry, { type: "contract_sent", node: nodeId, attempt: run.attempt });
+      return true;
+    }
     const context = contextOf(run.sessionId);
     if (context !== undefined) expectTurn(context);
     await sessions.prompt(
@@ -587,7 +685,9 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       buildContract({ task, node, run, freshWorktree: freshWorktreeFor(task, node, run) }),
       closing.signal,
     );
+    freshlyStarted.add(run.sessionId);
     await dispatch(entry, { type: "contract_sent", node: nodeId, attempt: run.attempt });
+    return false;
   }
 
   /**
@@ -595,8 +695,8 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
    *
    * @remarks
    * SPEC-0006, "一个 agent 节点怎么跑" and "动作要幂等": a session recorded for this node and attempt is taken
-   * back, not made again; the contract goes out unless `contract_sent` says it did. Failing to start is
-   * `node_failed(crashed)`.
+   * back, not made again; the contract goes out unless `contract_sent` says it did or the session's file already
+   * begins with it. Failing to start is `node_failed(crashed)`.
    *
    * @sideEffects Starts pi; sends the contract; records `node_started` and `contract_sent`.
    * @param entry - The task.
@@ -658,9 +758,10 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
    * @remarks
    * The hidden command `resume`, whose shell the extension puts around the words. After an approved graph
    * change the words carry the new graph. A node that never received its contract is sent the contract
-   * instead: carrying on is a line about something it has not seen.
+   * instead: carrying on is a line about something it has not seen. A contract found on the session's file
+   * (the host died before recording it) is recorded as sent, and the line goes as for any node.
    *
-   * @sideEffects Sends a prompt or the command.
+   * @sideEffects Reads the session's file; sends a prompt or the command; may record `contract_sent`.
    * @param entry - The task.
    * @param nodeId - The node.
    * @param text - What the scheduler says.
@@ -672,8 +773,8 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
     const run = task === null ? undefined : liveRun(task, nodeId);
     if (task === null || run?.sessionId == null) return;
     if (run.contractSent !== true) {
-      await deliverContract(entry, nodeId);
-      return;
+      // If the contract is on file already (the host died after pi took it), it is recorded and the line is due.
+      if (!(await deliverContract(entry, nodeId))) return;
     }
     const context = contextOf(run.sessionId);
     if (context !== undefined) expectTurn(context);
@@ -708,6 +809,9 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
     const run = task === null ? undefined : liveRun(task, nodeId);
     if (task === null || run?.sessionId == null) return;
     const { sessionId } = run;
+    // A node the recovery started itself has just been given its contract; "the host restarted" is not news to it.
+    if (text === RESUME_RESTARTED && freshlyStarted.delete(sessionId)) return;
+    freshlyStarted.delete(sessionId);
     try {
       const context = contextOf(sessionId);
       if (context !== undefined) {
@@ -953,8 +1057,8 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
    *
    * @remarks
    * SPEC-0006, "中途": the one system input that makes the conversation's model run. The note names every node
-   * waiting for a graph change and, from what the runner holds in memory (persisting it is T9), its reason and
-   * suggestion, quoted as the node's words.
+   * waiting for a graph change and, from the run (`graphRequest`, kept with the event, so a restart has it), its
+   * reason and suggestion, quoted as the node's words.
    *
    * @sideEffects Opens the conversation's pi if it is not running; sends the command.
    * @param entry - The task.
@@ -968,9 +1072,9 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
     const asking = (activeGraphOf(task)?.nodes ?? []).flatMap((node) => {
       const run = liveRun(task, node.id);
       if (run?.state !== "waiting" || run.waitingFor !== "graph_change") return [];
-      const request = run.sessionId === null ? undefined : contexts.get(run.sessionId)?.graphRequest;
+      const request = run.graphRequest;
       const label = `${node.id} · ${node.name}`;
-      return request === undefined || request === null
+      return request === undefined
         ? [`节点 ${node.id} 申请改图。`]
         : [
             `节点 ${node.id} 申请改图。`,
@@ -991,6 +1095,31 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
         closing.signal,
       );
     });
+  }
+
+  /**
+   * Settles the nodes whose `node_done` turn ended before the host went down.
+   *
+   * @remarks
+   * SPEC-0006, "宿主重启" 2. `step` is pure and cannot read a session's file, so this does: a `running` node whose
+   * `node_done` is pending, and whose file ends with that call's result (the turn that ended on it), gets
+   * `node_settled` as if pi had said `agent_settled`, before `host_restarted` would tell it to look at its work
+   * again. A node that is waiting to commit, or whose file goes on past the result, is left to the restart. A file
+   * that cannot be read leaves the node to the restart too.
+   *
+   * @sideEffects Reads session files; records `node_settled` (and what it brings, such as a commit).
+   * @param entry - The task.
+   */
+  async function settleEndedTurns(entry: TaskEntry): Promise<void> {
+    // Stryker disable next-line OptionalChaining,ArrayDeclaration: the task is there; the fallback only satisfies the type.
+    for (const run of entry.store.current()?.runs ?? []) {
+      // A node waiting to commit has no `node_done` pending any more; one waiting for an answer is not settled.
+      // Stryker disable next-line ConditionalExpression: a pending `node_done` always belongs to a node with a session.
+      if (run.state !== "running" || run.pendingDone === null || run.sessionId === null) continue;
+      if (endedOnNodeDone(await entriesOf(run.sessionId))) {
+        await dispatch(entry, { type: "node_settled", node: run.node, attempt: run.attempt });
+      }
+    }
   }
 
   /**
@@ -1416,20 +1545,29 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       if (entry === undefined) return Promise.reject(new Error(`task ${taskId} is not attached`));
       return enqueue(entry, async () => {
         const task = entry.store.current();
-        if (task === null || task.cancelled || task.startedAt === null) return;
+        // Stryker disable next-line ConditionalExpression: a task that is attached has a record.
+        if (task === null || task.startedAt === null) return;
         if (task.endedAt !== null) {
           // The task ended, but the worktree's lock may not have been let go before the host went down.
           if (task.workspaceState === "ready") await lockWorkspace(entry, false);
           return;
         }
+        // A task locks its worktree from the event that made it; the host may have died before the lock was put on.
+        if (task.workspaceState === "ready") await lockWorkspace(entry, true);
         if (task.workspaceState === "creating") await ensureWorkspace(entry);
-        for (const run of entry.store.current()?.runs ?? []) {
-          if (run.state === "running" && run.sessionId === null) await startNode(entry, run.node, run.attempt);
-        }
+        // `startNode` takes only a running node that has no session yet.
+        // Stryker disable next-line OptionalChaining,ArrayDeclaration: the task is there; the fallback only satisfies the type.
+        for (const run of entry.store.current()?.runs ?? []) await startNode(entry, run.node, run.attempt);
+        await settleEndedTurns(entry);
         // A writing node whose commit was pending gets its `commit_node` from this event, for that run only.
         await dispatch(entry, { type: "host_restarted" });
       });
     },
+    clearStaleLocks: () =>
+      workspaces.clearStaleLocks((taskId) => {
+        const task = tasks.get(taskId)?.store.current();
+        return task != null && task.endedAt === null;
+      }),
     continueNode(taskId, nodeId) {
       const entry = tasks.get(taskId);
       if (entry === undefined) return Promise.reject(new Error(`task ${taskId} is not attached`));
@@ -1495,6 +1633,7 @@ export function createTaskRunner(options: TaskRunnerOptions): TaskRunner {
       await Promise.all(background);
       contexts.clear();
       conversations.clear();
+      freshlyStarted.clear();
       release();
     },
   };

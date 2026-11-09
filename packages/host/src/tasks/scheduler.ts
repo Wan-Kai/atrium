@@ -81,6 +81,7 @@ function failRun(draft: Draft, run: NodeRun, reason: FailureReason): void {
   run.state = "failed";
   run.failure = reason;
   run.waitingFor = null;
+  delete run.graphRequest;
   run.endedAt = draft.event.at;
   holdRunning(draft);
   notify(draft, { kind: "failed", node: run.node, reason });
@@ -102,6 +103,7 @@ function failRun(draft: Draft, run: NodeRun, reason: FailureReason): void {
 function releaseWaiting(draft: Draft, run: NodeRun, text: string): void {
   run.waitingFor = null;
   run.pendingDone = null;
+  delete run.graphRequest;
   if (isHeldBack(draft.task)) {
     run.state = "held";
     return;
@@ -327,7 +329,10 @@ function onNodeWaiting(draft: Draft, event: Of<"node_waiting">): boolean {
   run.state = "waiting";
   run.waitingFor = event.waitingFor;
   // A graph change asked for after a `node_done` in the same turn replaces it.
-  if (event.waitingFor === "graph_change") run.pendingDone = null;
+  if (event.waitingFor === "graph_change") {
+    run.pendingDone = null;
+    if (event.request !== undefined) run.graphRequest = event.request;
+  }
   progress(draft, "node_waiting", run.node);
   if (event.waitingFor === "question") notify(draft, { kind: "question", node: run.node });
   else emit(draft, { kind: "wake_task_conversation", text: wakeForGraphChange(run.node) });

@@ -107,6 +107,10 @@ export async function followTasks(options: {
       refuseIfFollowed(taskId);
       await owned.recover(taskId);
     },
+    async recoverAll(request) {
+      // Only this host's own tasks are on its disk to find; the followed ones are another process's and are never read here.
+      await owned.recoverAll({ ...request, staleLocks: false });
+    },
     async answerHuman(taskId, node, answer) {
       refuseIfFollowed(taskId);
       await owned.answerHuman(taskId, node, answer);

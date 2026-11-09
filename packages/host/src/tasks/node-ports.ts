@@ -35,4 +35,12 @@ export interface TaskWorkspaces {
    * no worktree or the host no git; the runner turns that into `merge_git_failed`.
    */
   merge(task: Task, signal: AbortSignal): Promise<MergeOutcome>;
+  /**
+   * Lifts the locks tasks left on worktrees, when the host starts (SPEC-0006, "加锁").
+   *
+   * @remarks
+   * Only a lock whose reason names a task that `isActive` says is over; the user's own locks stay. Looks in every
+   * project's repository. A repository git cannot list is skipped. Resolves to how many locks were lifted.
+   */
+  clearStaleLocks(isActive: (taskId: string) => boolean): Promise<number>;
 }

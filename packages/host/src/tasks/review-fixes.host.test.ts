@@ -105,28 +105,32 @@ describe("T4 review fixes: what a node is told (SPEC-0006, 第一条消息：契
     for (const text of mentioning(contexts, "这是新建的 worktree")) expect(text).not.toContain("上次被打回的原因");
   });
 
-  it("sends the contract, not a line about carrying on, to a node whose contract was never recorded as sent", async () => {
-    const harness = await startTaskHost({ N1: [done("d1", "first"), done("d2", "after the contract again")] });
+  it("sends the contract, not a line about carrying on, to a node whose contract never reached pi's file", async () => {
+    const harness = await startTaskHost({ N1: [done("d1", "told by the contract")] });
     const task = await harness.start([agent("N1", "explore")], []);
     await harness.until(task.id, (now) => now.endedAt !== null);
+    const file = await harness.filePath(present(runOf(harness.task(task.id), "N1").sessionId, "the node's session"));
 
-    // The host went down after `node_started`: the log ends there and the contract looks as if it never went.
+    // The host went down after `node_started`, and pi before it wrote the contract: the log ends there and the
+    // session's file has only its header, as if the contract never went.
     await harness.restart(async () => {
       const path = join(harness.home, "tasks", task.id, "events.jsonl");
       const lines = (await readFile(path, "utf8")).split("\n").filter((line) => line !== "");
       const at = lines.findIndex((line) => line.includes('"type":"contract_sent"'));
       expect(at).toBeGreaterThan(0);
       await writeFile(path, `${lines.slice(0, at).join("\n")}\n`);
+      const header = present((await readFile(file, "utf8")).split("\n")[0], "the header");
+      await writeFile(file, `${header}\n`);
     });
-    await harness.host.host.tasks.open(task.id);
-    expect(runOf(harness.task(task.id), "N1").contractSent).toBeUndefined();
-    await harness.host.host.tasks.recover(task.id);
     const finished = await harness.until(task.id, (now) => now.endedAt !== null);
 
-    expect(runOf(finished, "N1")).toMatchObject({ state: "passed", summary: "after the contract again" });
+    expect(runOf(finished, "N1")).toMatchObject({ state: "passed", summary: "told by the contract" });
     expect(runOf(finished, "N1").contractSent).toBe(true);
-    const last = JSON.stringify((await harness.contexts()).at(-1)?.messages);
-    expect(last.match(/<atrium-task-node>\\n你在任务/gu)).toHaveLength(2);
+    // The model was asked twice, and the second time it began with the contract again: the file had lost it.
+    const asked = (await harness.contexts()).map((context) => JSON.stringify(context.messages));
+    expect(asked).toHaveLength(2);
+    const last = present(asked.at(-1), "the last request");
+    expect(last.match(/<atrium-task-node>\\n你在任务/gu)).toHaveLength(1);
     expect(last).not.toContain("宿主重启了");
   });
 });

@@ -2353,3 +2353,23 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 修 17：协议注释更正；通用审核卡片不再依赖 `tasks/`（`clockWords` 挪到 `chat/clock-words.ts`）；收件箱的任务行先 `leave()` 并关页面 | `chat/clock-words.test.ts`、`tasks/task-interactive.browser.test.tsx` |
 | 修 18：浏览器测试里改图 reject 的动作形状和宿主给的一致（`optional`） | `tasks/task-interactive.browser.test.tsx`、`protocol/envelope.test.ts` |
 | 协议号 34 → 35；Swift 投影重新生成、夹具和 `RoundTripTests` 的版本号跟着改 | `protocol/remote.test.ts`、`swift test --filter AtriumProtocolTests` |
+
+## T9 宿主重启（SPEC-0006"宿主重启""动作要幂等""T9 定下的细节"，2026-11-09，待验收）
+
+宿主启动时自己把没结束的任务接回来（`TaskService.recoverAll`，在找到 pi 之后），逐项见 SPEC。宿主层测试在 `packages/host/src/tasks/t9.host.test.ts`（真宿主、真 pi 跑 faux 模型、真 git；"动作做完、事件没写"用把 `events.jsonl` 截到该事件之前再重启来造），单元测试在 `t9-runner.test.ts`（真 runner、真 store，只替掉会话层和 worktree 端口）、`t9-service.test.ts`（真 service、runner、store，`recoverAll`）、`t9-scheduler.test.ts`、`task-workspaces.test.ts`、`workspaces/worktree-creator.test.ts`（真 git）、`dev/task-try.test.ts`。泄漏测试 `t9.leak.test.ts`。破坏检查 `packages/host/src/tasks/t9.break-check.json`（单元和宿主层两部分）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 启动时接回：对每个已启动、没结束的任务 `recover`；pi 没好不接，只记一条 warn，任务文件原样；没有任务时不写日志；一个任务接不回来不挡别的 | `tasks/t9.host.test.ts`（"tasks that must not be taken up"）、其余宿主层测试（重启后不再手动 `recover`） |
+| 崩溃表（真宿主、真 git）：建 worktree（`workspace_created` 丢）、worktree 已建但记录和标记都没写（计划）、起节点（`node_started` 丢）、契约（`contract_sent` 丢，pi 文件里已有）、结算（`node_settled` 丢）、提交（`committed` 丢）、合并（`merged` 丢）、归档（`archive_answered` 丢）、提问中宿主死、回答后 `node_resumed` 丢——都不重复：一个 worktree、一个会话记录、一份契约、一次提交、一次合并 | `tasks/t9.host.test.ts`（"a host that dies when an action is done and its event is not written does not do it twice"，表驱动） |
+| 先结算：待结算的 `node_done` 那一轮在重启前已结束（会话文件最后一条是 `node_done` 的成功结果）→ 先 `node_settled` 再 `host_restarted`，节点不被再叫起来；文件继续往下写了 / 结果是错误 / 是别的工具的 / 没文件 / 没有待结算的 `node_done` → 不结算；各节点各看各的文件 | `tasks/t9-runner.test.ts`（"recover settles a node whose node_done turn ended before the restart"）、`tasks/t9.host.test.ts`（"passes an explore node whose node_done turn ended…"、结算那一行） |
+| 契约：会话文件第一条用户消息已是契约 → 补记 `contract_sent`、发"宿主重启了"，不发第二份；文件里没有 → 发契约；`node_started` 丢了接回已有会话也不重发；恢复里自己起的节点不再被告知"宿主重启了" | `tasks/t9-runner.test.ts`（"recover and a contract that reached pi"、"settles each node of a graph…"）、`tasks/review-fixes.host.test.ts`、`tasks/t9.host.test.ts` |
+| `waitingFor` 各情况：running → `resume_node`；question 作废后 `resume_node` 并能再问（新卡片）；graph_change 有 `pendingGraph` 继续等且不再唤醒，没有就再唤醒一次；human / merge_blocked 不动；commitPending 只重发 `commit_node`；held / stopped；merging 先查已合并 | `tasks/t9-scheduler.test.ts`、`tasks/scheduler.test.ts`（既有 host_restarted 用例）、`tasks/t9.host.test.ts`（question 两行、graph_change 两个用例）、`tasks/runner.test.ts` |
+| 锁：已结束和取消的任务再解一次；没结束的再加一次；启动时解掉原因是 `atrium task <id>`、但任务已结束或不存在的锁，不碰用户自己的锁和还在跑的任务的锁；跟着别人任务时不扫锁 | `tasks/t9-runner.test.ts`（"recover and the worktree's lock"）、`tasks/t9.host.test.ts`（"locks that tasks left"、"leaves a followed task alone"） |
+| `ensure_workspace` 的崩溃窗口：建之前写计划（分支、目录、起点）；重启后只认和计划一模一样的 worktree（在 `git worktree list` 里、分支和起点对、没有提交、没有改动、没被别人锁），登记并补复制 `.worktreeinclude`；有任何一条对不上就不认，另建（避让 `-2`），留下的不删；任务自己的锁可以认，别人的锁不认 | `workspaces/worktree-creator.test.ts`（"planning and adopting"，真 git）、`tasks/task-workspaces.test.ts`（"the plan and the crash window"）、`tasks/t9.host.test.ts`（崩溃表里"git added it…"和"makes another worktree… someone's own"） |
+| `request_graph_change` 的理由和建议随 `node_waiting` 落盘（`NodeRun.graphRequest`），等待结束清掉；重启后的唤醒带着它们，包 `<atrium-quoted>` | `tasks/t9-scheduler.test.ts`、`tasks/t9-runner.test.ts`（"recover wakes the task conversation…"）、`tasks/t9.host.test.ts`（"wakes the conversation again, with the node's reason…"） |
+| 任务对话接回：宿主重启后 `watch` 之后 `open_task_session` 起它的 pi，快照带着重启前的对话；不预先起 pi | `tasks/t9.host.test.ts`（"the task conversation after a restart"）、`tasks/t8-fixes.host.test.ts`（既有） |
+| `recoverAll` 本身：按任务建立的顺序（不是目录顺序）接；设计中的任务不动；只在有任务要 pi 时才问 pi 好了没有、没好就原样留下并记一条 warn（只有任务数）；已结束 / 取消的任务不要 pi，照样解锁；宿主关闭时立刻停；一个任务接不回来只记 warn，不挡后面的；扫锁失败只记 warn；扫锁时已结束的任务（不管是 `done` 还是 `cancelled`）和不存在的任务算不在跑 | `tasks/t9-service.test.ts`（假的是会话层和 worktree 端口） |
+| `pnpm task:try` 接着跑走 `recoverAll`，一个上次停在提问上的任务不再因为"问题还开着"一开头就停（问题已作废，节点会再问）；宿主的自动接回在 task:try 里关掉 | `dev/task-try.test.ts`（`stopReason` 标出提问的停）、真实模型运行（见 T9 验收记录） |
+| 被跟着的任务（`ATRIUM_FOLLOW_TASKS`）：不接、不写、不启会话、不扫锁；自己的任务照常接回 | `tasks/t9.host.test.ts`（"leaves a followed task alone"）、`tasks/followed-tasks.host.test.ts`（既有） |
+| 泄漏：接回的任务跑完 / 被取消 / 宿主关闭（含接回途中关闭），pi、控制器、`task.runner`、子进程都放掉 | `tasks/t9.leak.test.ts` |

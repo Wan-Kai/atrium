@@ -8,9 +8,28 @@ import type { ProjectRecord, ProjectService } from "../projects/project-service"
 import { WORKTREE_TIMEOUT_MS } from "./workspace-archiver";
 import { cleanBranchName } from "./branch-namer";
 import { runSafeGit } from "./safe-git";
+import { parseWorktreeList } from "./worktree-list";
 import { mainBranchRef } from "./workspace-service";
 import { copyWorktreeInclude } from "./worktree-include";
 import type { WorktreeQueue } from "./worktree-queue";
+
+/**
+ * What a worktree is going to be, written down before git is asked to add it (SPEC-0006, "T9 定下的细节").
+ *
+ * @remarks
+ * A host that dies after `git worktree add` and before the worktree is recorded leaves one nobody knows;
+ * the plan is how the task's next start recognises it.
+ */
+export interface WorktreePlan {
+  /** The workspace the worktree comes from. */
+  readonly source: string;
+  /** The new branch. */
+  readonly branch: string;
+  /** The worktree's directory. */
+  readonly dir: string;
+  /** The commit it starts at. */
+  readonly start: string;
+}
 
 /** Creates worktree workspaces (SPEC-0001, "M1.11 的新建工作区"). */
 export interface WorktreeCreator {
@@ -25,6 +44,10 @@ export interface WorktreeCreator {
    * Creates a worktree for a child conversation, from where a workspace is now (SPEC-0002, "概念 ·
    * 新 worktree 的起点"), on a branch named after `wanted` under `prefix` (`atrium/` by default,
    * `agent/` for a child the agent opens); returns the workspace, its directory and the branch.
+   *
+   * @remarks
+   * With `planned`, the plan is handed over once the branch and the directory are chosen and found free, before
+   * git adds anything; a plan that cannot be kept (it rejects) stops the creation with nothing added.
    */
   createFrom(
     workspaceId: string,
@@ -32,7 +55,22 @@ export interface WorktreeCreator {
     prefix?: string,
     alias?: string | null,
     signal?: AbortSignal,
+    planned?: (plan: WorktreePlan) => Promise<void>,
   ): Promise<{ readonly workspaceId: string; readonly dir: string; readonly branch: string }>;
+  /**
+   * Takes up the worktree of a plan a crashed host had begun, if it is exactly what the plan said.
+   *
+   * @remarks
+   * Everything must hold: the plan's directory is one of the repository's worktrees, on the plan's branch, at
+   * the plan's start commit with nothing changed, and not locked for anything but `allowedLock`. Then it is
+   * recorded as a workspace (when it is not already) and the files `.worktreeinclude` lists are copied again.
+   * `null` when anything differs or nothing is there: it is not this plan's, and nothing is touched. Waits in the
+   * worktree queue.
+   */
+  adopt(
+    plan: WorktreePlan,
+    adoption: { readonly alias?: string | null; readonly allowedLock?: string; readonly signal?: AbortSignal },
+  ): Promise<{ readonly workspaceId: string; readonly dir: string; readonly branch: string } | null>;
 }
 
 /** The prefix of the branches of child conversations the user opens (SPEC-0002, "概念"). */
@@ -297,7 +335,7 @@ export function createWorktreeCreator(options: {
         options.refresh(workspaceId);
         return workspaceId;
       }),
-    createFrom: (workspaceId, wanted, prefix = CHILD_PREFIX, alias, signal) =>
+    createFrom: (workspaceId, wanted, prefix = CHILD_PREFIX, alias, signal, planned) =>
       options.queue.run(async () => {
         // Waiting in the queue is no reason to make a worktree for a host that is closing.
         signal?.throwIfAborted();
@@ -330,11 +368,16 @@ export function createWorktreeCreator(options: {
             const dirFree =
               !options.projects.workspaces().some((other) => other.dir === worktreeDir(project.path, candidate)) &&
               (await stat(worktreeDir(project.path, candidate)).catch(() => null)) === null;
-            if (free && dirFree)
-              return {
-                ...(await addAt(project, run, candidate, head.stdout.trim(), workspace.dir)),
+            if (free && dirFree) {
+              const startAt = head.stdout.trim();
+              await planned?.({
+                source: workspaceId,
                 branch: candidate,
-              };
+                dir: worktreeDir(project.path, candidate),
+                start: startAt,
+              });
+              return { ...(await addAt(project, run, candidate, startAt, workspace.dir)), branch: candidate };
+            }
           }
           throw new CommandError("worktree_create_failed", {
             reason: "branch_exists",
@@ -349,6 +392,41 @@ export function createWorktreeCreator(options: {
         options.logger.info({ projectId, workspaceId: created }, "worktree created");
         options.refresh(created);
         return { workspaceId: created, dir, branch };
+      }),
+    adopt: (plan, adoption) =>
+      options.queue.run(async () => {
+        adoption.signal?.throwIfAborted();
+        const workspace = options.projects.workspaces().find((candidate) => candidate.id === plan.source);
+        const project = options.projects.projects().find((candidate) => candidate.id === workspace?.projectId);
+        const git = await options.git;
+        if (workspace === undefined || project === undefined || git === null) return null;
+        const run = await repositoryOf(project);
+        const listing = await run(["worktree", "list", "--porcelain"]);
+        if (listing.code !== 0) return null;
+        const found = parseWorktreeList(listing.stdout).find((candidate) => candidate.dir === plan.dir);
+        if (
+          found === undefined ||
+          found.bare ||
+          found.prunable ||
+          found.branch !== plan.branch ||
+          found.head !== plan.start ||
+          (found.locked !== null && found.locked !== adoption.allowedLock)
+        ) {
+          return null;
+        }
+        // The checkout is whole and untouched: nothing was written to it since the plan.
+        const status = await runSafeGit(
+          git,
+          ["status", "--porcelain"],
+          { cwd: plan.dir, timeoutMs: WORKTREE_TIMEOUT_MS, ...(adoption.signal ? { signal: adoption.signal } : {}) },
+          { rejectIncludes: false },
+        );
+        if (status.code !== 0 || status.stdout !== "") return null;
+        await copyWorktreeInclude({ git, sourceDir: workspace.dir, destDir: plan.dir, logger: options.logger });
+        const adopted = await options.projects.addWorktree(project.id, plan.dir, plan.start, adoption.alias);
+        options.logger.info({ projectId: project.id, workspaceId: adopted }, "worktree adopted");
+        options.refresh(adopted);
+        return { workspaceId: adopted, dir: plan.dir, branch: plan.branch };
       }),
   };
 }

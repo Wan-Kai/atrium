@@ -263,10 +263,10 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 
 | 动作 | 怎么认出"已经做过" |
 |---|---|
-| `ensure_workspace` | 任务目录的 `workspace.json` 已记着这个任务建的工作区 → 直接回 `workspace_created`（已知缺口：建完 worktree、还没写 `workspace.json` 时宿主崩溃，会留下一个没人认的 worktree；T9 处理） |
+| `ensure_workspace` | 任务目录的 `workspace.json` 已记着这个任务建的工作区 → 直接回 `workspace_created`。建之前先在 `workspace.json` 写下“计划”（分支、目录、起点提交），崩溃后只认和计划一模一样的 worktree，登记并接回；认不出就另建，绝不接手别人的（T9，见“T9 定下的细节”） |
 | `start_node` | 索引里已有 `task: { taskId, node, attempt }` 相同的会话 → 接回它，不新开 |
 | `commit_node` | worktree 的 HEAD 已经是带 `Atrium-Task: <taskId>/<node>/<attempt>` 尾注的提交 → 记下它，不再提交。"提交过了没有" 看 `NodeRun.commitPending`：调度器在 `node_settled` 发 `commit_node` 的同一步把它置真，`committed`（有提交）或 `commit_checked`（查过，没有改动要提交）把它清掉并让节点 `passed`，`commit_failed` 让节点 `failed(commit)`、标记保留。`host_restarted` 对每个 `commitPending` 且 `running` 的节点重发 `commit_node`，只提交这一个 run，不会把别的节点的改动记在它名下 |
-| 节点的第一条消息（契约） | `NodeRun.contractSent`：`node_started` 之后、`sessions.prompt(契约)` 返回后记 `contract_sent`。没有这个标记的节点（prompt 抛错后重跑、或宿主恰好死在两者之间）再被叫起来时，发的是契约，不是"接着做" / "宿主重启了"。已知窄缺口：prompt 其实已送达、`contract_sent` 还没写时宿主崩溃，会发第二份契约 |
+| 节点的第一条消息（契约） | `NodeRun.contractSent`：`node_started` 之后、`sessions.prompt(契约)` 返回后记 `contract_sent`。没有这个标记的节点（prompt 抛错后重跑、或宿主恰好死在两者之间）再被叫起来时，发的是契约，不是"接着做" / "宿主重启了"。prompt 其实已送达、`contract_sent` 还没写时宿主崩溃：T9 起先读会话文件，第一条用户消息已经是契约就补记 `contract_sent`，再发"宿主重启了"，不发第二份契约 |
 | `merge` | MergeInspector 判定分支已合并 → 直接回 `merged` |
 | `lock_workspace` / `unlock_workspace` | `git worktree list --porcelain` 看当前锁的原因 |
 | `progress_line` | 扩展按行的 id 去重 |
@@ -622,16 +622,16 @@ TaskService 对每个任务一个串行队列：一个事件的 `step` 和它产
 
 ### 宿主重启
 
-1. 读每个没结束的任务的 `task.json`，和 `events.jsonl` 的末尾比对 `seq`，落后就从事件重放。
+1. 宿主启动、找到 pi 之后，对磁盘上每个已启动、没结束的任务做一次 `recover`（`recoverAll`，见“T9 定下的细节”）。每个任务先读 `task.json`，和 `events.jsonl` 的末尾比对 `seq`，落后就从事件重放（取用任务时 `TaskStore` 已做）。
 2. TaskRunner 先读会话文件：待结算的 `node_done` 那一轮已经结束的，先送 `node_settled`（`step` 是纯函数，读不了会话文件）。再给每个任务送 `host_restarted`。调度器按 `waitingFor` 和状态区分：
-   - **`running`**：pi 已经不在。如果有待结算的 `node_done` 且它那一轮已经结束（会话文件里能看到 `terminate` 的工具结果是最后一条）→ 按 `agent_settled` 结算；否则 `resume_node`："宿主重启了。先看一下你已经做了什么（会话记录和 worktree 的改动），再接着做；做完调用 node_done"。起不来 → `failed(crashed)`。
+   - **`running`**：pi 已经不在。如果有待结算的 `node_done` 且它那一轮已经结束（会话文件里能看到 `terminate` 的工具结果是最后一条）→ 先由 TaskRunner 送 `node_settled` 结算；否则 `resume_node`："宿主重启了。先看一下你已经做了什么（会话记录和 worktree 的改动），再接着做；做完调用 node_done"。起不来 → `failed(crashed)`。
    - **`waiting`（`question`）**：问题按 SPEC-0003 作废，节点 `resume_node`："刚才的问题作废了，需要的话再问"。
-   - **`waiting`（`graph_change`）**：保持等待。`pendingGraph` 已有就继续等你批准；还没有（任务对话的 agent 没来得及出图）→ 再 `wake_task_conversation` 一次。
+   - **`waiting`（`graph_change`）**：保持等待。`pendingGraph` 已有就继续等你批准；还没有（任务对话的 agent 没来得及出图）→ 再 `wake_task_conversation` 一次，带着落盘的理由和建议。
    - **`waiting`（`human` / `merge_blocked`）**：不动。
    - **`running` 且 `commitPending`**：不 `resume_node`，重发 `commit_node`（只这一个 run；认出已做的提交见"动作要幂等"）。
    - **`held`**：任务不在 `stopped` 时，推进里自动恢复；**`stopped`**：不动。
    - **`merging: true` 的节点**：按"动作要幂等"先查分支有没有合并，再决定 `merged` 还是回到 `merge_blocked`。
-3. 解掉已结束任务留下的锁（"加锁"）：已 `done` 的任务，TaskRunner 在 `recover` 里再 `unlock_workspace` 一次（幂等）。
+3. 解掉已结束任务留下的锁（"加锁"）：已 `done` 或 `cancelled` 的任务，TaskRunner 在 `recover` 里再 `unlock_workspace` 一次（幂等）；启动时另扫一遍各项目的仓库，原因是 `atrium task <id>`、但任务已结束或不存在的锁都解掉。没结束的任务重新 `lock_workspace`（幂等，补上 `workspace_created` 之后、加锁之前崩溃的那一下）。
 4. 每个任务 `step` 一次。
 
 ## 接口与数据
@@ -714,6 +714,7 @@ type NodeRun = {
   blockedFiles?: string[];          // merge_conflict 时冲突的文件（最多 50 个，T5）
   commitPending?: true;             // node_done 生效、提交还没落定（committed / commit_checked 清掉；commit 失败时保留）
   contractSent?: true;              // 契约已交给节点的 pi
+  graphRequest?: { reason: string; suggestion: string }; // waiting(graph_change) 时节点写的理由和建议（T9 落盘），等待结束就清掉
 };
 ```
 
@@ -723,7 +724,7 @@ type NodeRun = {
 
 - `created` / `graph_proposed` / `graph_approved` / `graph_rejected` / `started` / `abandoned`
 - `meta_changed`：任务名、任务模型
-- `node_started` / `node_waiting` / `node_resumed` / `node_done_pending` / `node_done_void` / `node_settled` / `node_failed` / `node_stopped` / `node_held`
+- `node_started` / `node_waiting`（`graph_change` 的带 `request: { reason, suggestion }`）/ `node_resumed` / `node_done_pending` / `node_done_void` / `node_settled` / `node_failed` / `node_stopped` / `node_held`
 - `human_passed` / `human_sent_back`
 - `rerun_requested` / `paused` / `resumed` / `cancelled`
 - `workspace_creating` / `workspace_created` / `workspace_failed`
@@ -792,7 +793,7 @@ type ScheduleRule = {
   - `crashed` = 会话起不来，或控制器重启 3 次都失败（沿用 SPEC-0001）；`model_error` = pi 不再重试的出错，重试成功不算；
   - 批准改图后的 `resume` 文字只带新图和新的"不归你做的"，不重发本节点的"做什么 / 怎样算完成"；
   - 契约的"任务目标"只放目标和已定结论；节点名和"做什么"只转义，需求摘要、交接摘要、打回原因才包 `<atrium-quoted>`；
-  - `request_graph_change` 的理由和建议目前只在内存里（给 T6 唤醒任务对话用），落盘见 T9；
+  - `request_graph_change` 的理由和建议随 `node_waiting` 事件落盘（`NodeRun.graphRequest`，T9），重启后的唤醒带着它们；
   - 来源对话在目录里找不到时，退回按 `sourceDir` 找所在的工作区。
 - `/atrium-task` 和别的 `/atrium-` 隐藏命令一样受 `command_reserved` 保护：你打的、粘贴的以它开头的消息不发给 pi。
 
@@ -822,7 +823,7 @@ type ScheduleRule = {
 - 任务对话和节点对话的内容走现有的会话订阅，不另开通道。
 - 新协议版本号加一。手机端（remote-policy）第一版只读：能看列表和状态、能答 `ask_user`，不能启动、批准、合并。
 - **T5 定下的协议细节**：
-  - `list_tasks({ watch? })`：答 `TaskSummary[]`；`watch: true` 让这条连接收 `tasks_updated`，`false` 取消。`tasks_updated { seq, tasks }` 每次发**整张列表**（不做增量，任务少时够用；`seq` 是宿主发的次数，客户端丢掉比自己手里小的）。列表包含磁盘上还没被取用的任务（读它们的文件，不启动任何东西；重启后把在跑的任务接起来是 T9）。
+  - `list_tasks({ watch? })`：答 `TaskSummary[]`；`watch: true` 让这条连接收 `tasks_updated`，`false` 取消。`tasks_updated { seq, tasks }` 每次发**整张列表**（不做增量，任务少时够用；`seq` 是宿主发的次数，客户端丢掉比自己手里小的）。列表包含磁盘上还没被取用的任务（读它们的文件，不启动任何东西；重启后把在跑的任务接起来是宿主启动时的 `recoverAll`，T9）。
   - `open_task({ taskId })`：答 `TaskView`（摘要加当前生效的图、每个节点最新一条 NodeRun 的状态、`waitingFor`、`blocked` 和 `blockedFiles`、失败原因、交接摘要、会话 id、打回边用了几次、`pendingGraph` 是否有、归档提问和它的事实）；这条连接之后收这个任务的 `task_updated`（也是整张），再打开别的任务就换成那个；连接断开自动取消。
   - `answer_human(taskId, node, answer)` 的 `answer` 是 `{ kind: "pass" }` 或 `{ kind: "send_back", backTo, reason }`（协议生成 Swift 的联合要有一个判别字段，所以不写成 SPEC 原来的 `{ pass }` / `{ backTo, reason }`）。
   - 手机：`list_tasks`、`open_task` 和两个事件可以，其余 `local_only`。
@@ -870,11 +871,11 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 - **归档提问**存在 `Task.archive`；`archive_answered` 是任务结束后唯一还收的事件；先归档后记；事实现算。详见"归档"。
 - **命令的状态检查在 `TaskService`**：`answer_human` 要求节点是 human、在等（`human` 或 `merge_blocked`）、不在 `merging`、任务没结束；打回要求有这条打回边，已用 2 次 → `task_back_limit`；`rerun_node` 要求节点 `failed`、任务没暂停没结束；`continue_node` 要求 `stopped`；`pause_task` 要求已启动、没暂停、没结束、不在 `designing`；`resume_task` 要求已暂停；`cancel_task` 要求已启动、没结束。都不符 → `task_state_invalid`，什么也不记。调度器对不符的事件本来也忽略，这里的检查是为了给界面一个错误码。
 - **`continue_node` 就是在节点自己的对话里发一条"继续"**（`CONTINUE_NODE`，和你亲手在那里发消息一样）：节点上的那次运行开始，宿主据此记 `node_resumed`；不另设事件。节点的会话没起着时先 `open`。
-- **`list_tasks` 读磁盘上还没取用的任务**（只读文件，不 `recover`）；重启后把在跑的任务接起来仍是 T9，所以 T5 之后、T9 之前重启宿主，在跑的任务会出现在列表里，但不会接着跑。
+- **`list_tasks` 读磁盘上还没取用的任务**（只读文件，不 `recover`）；重启后把在跑的任务接起来是 T9（宿主启动时的 `recoverAll`）。T5 到 T9 之间重启宿主，在跑的任务会出现在列表里，但不会接着跑。
 - **`tasks_updated` 每次发整张列表，`task_updated` 发整个任务**；一条连接一次只开一个任务。推送在任务的每个事件之后、按事件顺序、一个一个算（归档事实要跑 git）；算不出来的只记日志，不拦下一个。
 - **`notify` 仍只记调试日志**（界面 T7 的事）；`progress_line` 和 `wake_task_conversation` 在 T6 接上了（见“T6 定下的细节”）。`attention` 是列表行自己从节点状态算的，不依赖 `notify`。
 - **`pnpm task:try`**：有 stdin 时，human 节点等你时打出它的做什么 / 怎样算完成 / 上游摘要 / `git diff --shortstat` / 合并被挡的原因和文件 / 选项，读一行回答（`p` 通过；`b <节点> [原因]` 打回，没写原因就再问；`q` 退出）；合并被挡后同样的提示，再 `p` 就是重试；任务结束时问归档（`a` / `k` / `q`），归档被拒（未提交的改动）会说明并再问。没有 stdin（读到末尾）就和以前一样停在 human 节点。示例图 `packages/host/examples/explore-work-check-merge.json`（explore → work → check → human(`merge`)，human ⇢ work）。
-- **没做 / 留给后面**：`TaskView` 不带改动统计（界面用 `watch_changes`，T7）；没有 `notify` 的界面（T7）；`task_graph_invalid` 等 T6 的命令和错误码；重启后的接续（T9）；界面的说法（T7）；`request_graph_change` 的理由落盘（T9）。
+- **没做 / 留给后面**：`TaskView` 不带改动统计（界面用 `watch_changes`，T7）；没有 `notify` 的界面（T7）；`task_graph_invalid` 等 T6 的命令和错误码；界面的说法（T7）。（重启后的接续和 `request_graph_change` 的理由落盘，T9 已做。）
 
 ### T6 定下的细节
 
@@ -903,7 +904,7 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 
 - 进度行是 `/atrium-task progress`，多两个可选字段：`what`（调度器的 `ProgressLine.kind`，如 `node_started`）和 `node`，写进 `details`，让界面（T7）自己拼话；正文是英文一行 `Atrium task event: node_started N2`（宿主不产出给用户看的文字；任务对话的模型也读得到，不调模型）。行 id 是调度器给的（事件 `seq` 加行号），扩展按 id 去重，重放不写两次。
 - 写进度行和唤醒走每个任务自己的一条链（`TaskEntry.lines`），不占任务队列：打开任务对话的 pi 要几秒，不能拖住调度。宿主关闭时在途的命令被取消，不记失败。任务的 `taskSessionId` 不是宿主起的任务对话（手工造的任务、`task:try`）就什么也不写。
-- **唤醒**（`wake_task_conversation`）是 `/atrium-task resume`（`kind: "wake"`，命令 id `w<seq>`）：事件给的话，加上每个正在 `waiting(graph_change)` 的节点的理由和建议（节点写的，包 `<atrium-quoted from="N2 · 名字">`，建议截 12 000 字，来自内存），加一句指示（先 `task_status`，再 `task_propose_graph`；新图要等批准；说一两句）。理由和建议仍只在内存里，落盘属 T9：宿主重启后的再唤醒只有“N2 申请改图”。
+- **唤醒**（`wake_task_conversation`）是 `/atrium-task resume`（`kind: "wake"`，命令 id `w<seq>`）：事件给的话，加上每个正在 `waiting(graph_change)` 的节点的理由和建议（节点写的，包 `<atrium-quoted from="N2 · 名字">`，建议截 12 000 字，来自 `NodeRun.graphRequest`），加一句指示（先 `task_status`，再 `task_propose_graph`；新图要等批准；说一两句）。理由和建议随 `node_waiting` 落盘（T9 起），宿主重启后的再唤醒同样带着它们。
 - 批准或拒绝改图后，任务对话不会收到专门的消息（调度器没有这个动作）；它用 `task_status` 看；节点按 T4 收到 `resume`。
 
 **`/task` 与创建**
@@ -926,7 +927,7 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 - **怎么保证不碰真实对话**：它只读两样——`--sessions`（默认 pi 自己的会话目录）里那一个会话文件，和（`--home` 默认 `~/.atrium`）；把那个文件**复制**进一个新建的临时目录，在那里起一个自己的宿主（自己的 Atrium home、自己的 pi 会话目录）并对**副本**跑 `createFromChat`，所以 `converted` 行写进副本；真实的 home 和会话目录从不传给宿主。每次先后各算一次原文件的内容哈希和修改时间并打印，不一致就退出码 1；临时目录在真实的 home 或会话目录里就拒绝运行。设计这一轮用的是对话的目录（或 `--cwd`）当工作目录，工具只读，但 `bash` 不受只读约束；想完全不碰仓库，用 `--cwd` 指一份仓库的副本。`--model` 只换任务对话用的模型（默认同来源对话）；`--timeout`（默认 300 秒）从任务建好算起，等宿主认出副本另有 120 秒。
 - 退出码：0 提出了图，1 没有图或出错或原文件变了，2 用法错，130 被打断。
 
-**没做、留给后面**：`task_set_schedule` 与 `scheduleDraft`（T10）；`TaskView` 的摘要、引导词、来源会话字段和“已转为任务”“进度行”在对话记录里的画法（T7）；宿主重启后接回任务对话（T9）；`request_graph_change` 的理由落盘（T9）；核对任务和节点的模型是否存在；`/task` 在输入框里的拦截（T8）。
+**没做、留给后面**：`task_set_schedule` 与 `scheduleDraft`（T10）；`TaskView` 的摘要、引导词、来源会话字段和“已转为任务”“进度行”在对话记录里的画法（T7）；核对任务和节点的模型是否存在；`/task` 在输入框里的拦截（T8）。
 
 ### T7 定下的细节
 
@@ -952,7 +953,7 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 - **列表**：分组、排序、已完成的 7 天 / 5 条加"显示全部"、项目筛选（含"不属于项目"）按设计稿第 2 屏和上面"界面"的写法（逻辑在 `task-list-model.ts`，有单元测试）；"待我介入"组里按紧迫程度排：失败、合并被挡住、human、提问、改图、已停下 / 暂停、设计中，同级按最后活动。T7 的行不展开作答，点一行打开任务标签（悬停出"打开任务"）。"项目 · worktree"：对话里的任务写"对话 · 不属于项目"；定时的写"项目 · 定时 · worktree"；有项目但还没有 worktree 的只写项目。每半分钟刷新一次"N 分钟前"。
 - **文字**（宿主只发代码，界面写）：状态——设计中"等你确认初始图"、失败"N4b 失败 · 已停下"、合并被挡住"合并被挡住"、human"等你验收"、提问"等你回答"、改图"等你批准改图"、暂停"已暂停"、你停下的节点"N2 已停下"、运行中"运转中"、完成"已完成"、取消"已取消"；节点状态按设计稿图例（未开始、运转中、等你、通过、已挂起、你停下的、失败任务停下）；失败原因（`failure`）六种、合并被挡住的原因六种的说法见 `task-words.ts`（合并原因按设计稿第 7 屏）；错误码的说法 `task_not_found` "这个任务已经不在了"、`task_state_invalid` "任务的状态变了，刷新后再试"、`task_back_limit` "这条打回边已经用了两次"、`merge_git_failed` "git 出错了，没有合并，主目录没动"，其余已知的码和不认识的码各有一句。这些说法在 T7 里只有 `task_not_found` 有地方显示（打不开任务时），其余随 T8 的按钮用上。
 - **任务标签**：任务栏（名字、状态、项目 · worktree、"需求对话 ›"、任务模型只显示）；左边图、右边任务对话，各占约一半。**按钮一律不画**（不画灰的），T8 加上放弃 / 确认并启动 / 暂停 / 取消。图：自上而下分层，同一层并排，顺序线用柔和曲线加箭头，打回边是左边的橙色虚线环加"打回"字（`graph-layout.ts`，纯函数，有单元测试）；节点卡片（144×62，整张图缩放到放得下图区，最小 0.7 倍）写状态图标、id、名字，角色 · 位置，模型（单独指定蓝字，继承灰字写"继承 · 模型"，human 节点不写）；点节点描蓝框（`aria-pressed`）、点空白取消、悬停浮出"做什么""怎样算完成"和失败 / 等待 / 合并被挡的原因，human 节点在等你时加"改动 +N −M"（`watch_changes` 对 `TaskView.workspaceId`，只有 human 节点在等时才订，离开标签就退订）；图上方一行图例和"图 vN"，下方一行状态图例。**改过的节点描虚线蓝框、新加的标"新"没做**：宿主没有给界面前一版的图（`TaskView` 只有生效的一版），要做需要协议多给一个"相对上一版改了哪些节点"，留给 T8（那时批准改图的卡片也要它）。
-- **任务对话（只读）**：任务对话不进目录和侧栏，所以不能 `open_session`（会把它开成会话的标签）；界面用 `client.watch([taskSessionId])` 经现成的会话订阅看，不挂输入框。宿主给任务对话的第一条消息是长长的设计指示（四套引导词全文），界面把它缩成一行"（设计任务的指示：整理需求摘要，选引导词，画初始图）"，那一轮和 agent 的动作照旧。**已知限制**：任务对话的 pi 没在跑时（任务结束后、宿主重启后，T9 才接回）订阅不到快照，窗格停在"正在读取任务对话…"；`resume` / `nudge` 起的轮没有开头，agent 的回复并进上一轮。
+- **任务对话（只读）**：任务对话不进目录和侧栏，所以不能 `open_session`（会把它开成会话的标签）；界面用 `client.watch([taskSessionId])` 经现成的会话订阅看，不挂输入框。宿主给任务对话的第一条消息是长长的设计指示（四套引导词全文），界面把它缩成一行"（设计任务的指示：整理需求摘要，选引导词，画初始图）"，那一轮和 agent 的动作照旧。**已知限制**（T8b 起已解决：pi 没在跑时窗格调 `open_task_session`；T9 核对了宿主重启后同样可用）：任务对话的 pi 没在跑时（任务结束后、宿主重启后）订阅不到快照，窗格停在"正在读取任务对话…"；`resume` / `nudge` 起的轮没有开头，agent 的回复并进上一轮。
 - **进度和记录的折叠**：进度行（`task_progress`）两次对话之间连成一段，一段是一组：最后一组展开，是过程轨道上的步骤（节点开始 / 通过是灰点，失败是红 ×，等你是橙点，右边写时间 `HH:MM`），前面的组收成一行灰字"› 任务进度 · 3 个节点通过 · 10:02–10:44"，点开再展开、再点收起；用户点过之后，后来的行不改变他的选择，没点过的跟着"是不是最后一组"走（新的一组出现时，上一组自己收起）。进度行的文字：`N2 核心实现与自检 开始 / 通过 / 失败 / 等你`，`workspace_ready` "工作区准备好了"，`merged` "合并完成，任务完成"，不认识的 `what` 写"N2 有新进展"。审核的记录（"你通过了 · 图 v3"等）和卡片一样是 T8，那时并进同一组。
 - **需求对话里的一行**：`task_mark` 画成居中的灰字"已转为任务「名字」· 状态 · 打开 ›"（设计稿第 1 屏），"打开"打开任务标签；会话文件只增不改，同一个任务有两条时只画最后一条：放弃了画"任务已放弃"（任务的记录已删，没有名字可写）；任务不在列表里（还没读到）画"已转为任务"，不带链接。
 - **新增的视觉规则**写在 design-language.md"任务区"。
@@ -963,7 +964,7 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 
 **2026-11-06 用户定**：边跑 `task:try` 边在 Atrium 里看选 B（开发时只读跟随 task:try 的任务目录，见 development.md"task:try 与 Atrium"，作为 T7.1 补做）；human 节点的改动统计放在节点悬停卡里；"项目 · worktree"的写法（有项目没 worktree 只写项目名，定时写"项目 · 定时 · worktree"）照现在的做；改过节点的虚线框和需求摘要卡片放 T8。
 
-**没做、留给后面**：行内作答、任务栏的按钮、任务对话的输入框、审核卡片和记录（T8）；改过的节点标蓝框和"新"（要协议给前一版，T8）；需求摘要卡片（设计稿第 4 屏，要把摘要给界面，T8）；任务对话在 pi 没在跑时的读取（T9）；定时标签的内容（T10）；节点对话标签（T8）。
+**没做、留给后面**：行内作答、任务栏的按钮、任务对话的输入框、审核卡片和记录（T8）；改过的节点标蓝框和"新"（要协议给前一版，T8）；需求摘要卡片（设计稿第 4 屏，要把摘要给界面，T8）；定时标签的内容（T10）；节点对话标签（T8）。
 
 ### T7.1 定下的细节
 
@@ -1062,7 +1063,7 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 
 **没做、留给后面**
 
-- agent 来源的审核（provider、`request_review`、固定关卡）；定时标签的内容；搜索里任务内部对话的结果（T10/T11）；宿主重启后的接回（T9）。
+- agent 来源的审核（provider、`request_review`、固定关卡）；定时标签的内容；搜索里任务内部对话的结果（T10/T11）。
 
 ### T8 审查后用户定
 
@@ -1098,6 +1099,64 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 - **没有推荐的按钮时**：不把第一个按钮画成蓝色推荐按钮；蓝色只给 `recommended`（[design-language.md](../architecture/design-language.md)）。
 - **watch 的释放**：列表行和任务 / 节点对话卸载时释放自己的 `watch`，但不清掉接手的新所有者的 watch。
 - **收件箱的任务行**：点了和会话行一样先 `leave()` 并关掉打开的页面，再打开任务区。
+
+### T9 定下的细节
+
+2026-11-09，T9（宿主重启）实现时定下。协议没有改（号仍是 35）：宿主启动时自己接回任务，界面照旧经 `watch` 和 `open_task_session` 看。
+
+**启动**
+
+- `TaskService.recoverAll(signal)` 只管自己的任务（`ATRIUM_FOLLOW_TASKS` 跟着的任务不进它，也不会被写）。`startHost` 在**找到 pi、状态是 `ready` 之后**调用一次，后台跑，宿主关闭时取消，关闭时等它收尾。pi 没装好（`missing`、版本不对）→ 记一条 warn（只有代码）、不接任务：节点要的是 pi，这时硬接会把每个节点都判成 `crashed`。任务留在磁盘上原样不动，装好 pi 后重启 Atrium 才接。`HostConfig.recoverTasks: false` 关掉它（`pnpm task:try` 自己管那一个任务，用）。
+- 顺序：先解掉过期的锁（正在跟着别人的任务时不做：别的进程的任务对这个宿主是“不存在”，会被误解锁），再按任务建立的顺序逐个 `recover`；一个任务接不回来只记 warn，不挡后面的。设计中的任务（还没 `started`）、被放弃的任务不动。
+- `recover` 的步骤（一个任务的队列里）：
+  1. 结束了的：`done` 或 `cancelled` 的任务有 worktree 就再解一次锁，然后结束；
+  2. 没结束的：有 worktree 就再加一次锁（幂等）；
+  3. `workspaceState` 是 `creating` → 再发 `ensure_workspace`（认回崩溃时建了一半的 worktree，见下）；
+  4. `running` 而没有会话的节点 → `start_node`（T4 已有，认回已记的会话）；
+  5. 有待结算的 `node_done`（`pendingDone`）、不在 `commitPending` 的 `running` 节点：读它的会话文件，**最后一条是 `node_done` 的成功工具结果**（`terminate` 的那一条；失败的结果 `isError`、没有它）→ 先送 `node_settled`，让节点走正常的结算（可写的发 `commit_node`）；
+  6. 送 `host_restarted`。
+- 节点的契约在会话文件里：`contractSent` 没记、但会话文件第一条用户消息已经是契约（`<atrium-task-node>` 开头）→ 补记 `contract_sent`，再发 `resume_node` 该发的话（“宿主重启了”）；文件里没有（pi 还没写就死了）→ 照旧发契约。这关掉了“prompt 已送达、`contract_sent` 还没写”的窄缺口。
+- 恢复时自己起的节点（上游刚结算，它的后继当场起来）已经收到了契约，`host_restarted` 对它不再发“宿主重启了”（runner 记着这次启动刚发过契约的会话，发过别的话就不再记）；会话文件里已有契约、`contract_sent` 没记的节点才需要这句。
+- 问题作废：重启后会话的 pi 是新的，没有“正在问”的状态；`host_restarted` 让 `waiting(question)` 的节点回 `running`，`resume_node` 带“刚才的问题作废了，需要的话再问”，节点愿意的话会再问一次（新的问题卡，不是旧的）。
+
+**`ensure_workspace` 的崩溃窗口**
+
+- 谁会留下没人认的 worktree：`git worktree add` 做完、`workspace.json` 还没写（中间还隔着“登记工作区”）时宿主死了。
+- 做法是**先写计划**：`createFrom` 选定分支和目录、确认它们空着之后、`git worktree add` 之前，调用 `onPlanned`，任务目录的 `workspace.json` 写成 `{ "planned": { "source", "branch", "dir", "start" } }`（`source` 是来源工作区，`start` 是起点提交）；建完、登记完再改写成 `{ "workspaceId" }`。两种形状互斥（`workspaceId` 在先）。
+- 宿主重启后 `ensure` 看到只有计划：让 `WorktreeCreator.adopt` 核对，**全部成立才认**——
+  - 目录是 `git worktree list` 里的一个 worktree，目录正是计划的目录，检出的分支正是计划的分支；
+  - HEAD 正是 `start`（没有任何提交），`git status --porcelain` 为空（半截检出、被改过的都不认）；
+  - 没被锁成别人的（锁的原因不是 `atrium task <本任务>` 就不认）。
+  认了之后：没有这个目录的工作区记录就登记（`addWorktree`，起点提交 `start`），再把 `.worktreeinclude` 复制一遍（上次可能做了一半），写 `{ workspaceId }`，回 `workspace_created`。
+- 任何一条对不上（目录是别的东西、分支被别人用了、有了提交）→ **不认**，按平常新建；分支或目录已被占就走已有的 `-2`、`-3`… 避让，所以不会卡死。留下的东西不删（那可能是用户的）。绝不接手不是本任务计划建的 worktree。
+- 计划里的分支和目录是计划时刻空着的；之后同名同目录同起点又空的 worktree 只可能是宿主建的或有人刻意仿造，仿造的要同时伪造分支、目录、起点、干净状态，且只在宿主崩溃的那一个窗口里有用，这个风险接受（安全面见 security.md：不执行 worktree 里的任何东西，adopt 只用 `runSafeGit` 读状态）。
+
+**`request_graph_change` 的理由和建议落盘**
+
+- `node_waiting` 事件加可选的 `request: { reason, suggestion }`（只有 `waitingFor: "graph_change"` 才带），`NodeRun.graphRequest` 存着，等待结束（图被批准 / 拒绝、节点被放走）就清掉。长度是通道本来的上限（理由 4 000、建议 32 000 字）；唤醒时照旧包 `<atrium-quoted>`，建议截 12 000 字。快照因此多出最多约 36 000 字，只在等待期间。
+- `wakeConversation` 从 `NodeRun.graphRequest` 读，不再读内存里的 `NodeContext.graphRequest`，所以重启后的再唤醒和第一次一样完整。`TaskView` 不带这个字段（协议不变）。
+
+**任务对话接回**
+
+- 不需要新协议。普通会话 pi 没在跑时也是 `watch` 订阅不到快照、要 `open_session` 或发消息才起 pi；任务对话的对应物是 T8a 的 `open_task_session`，T8b 的窗格在“正在读取”时就调它。T9 的宿主层测试核对了宿主重启后这条路走得通：重新 `watch`、`open_task_session`，快照带着重启前的对话。`resume` / `nudge` / 进度行 / 唤醒本来就在需要时起对话的 pi。
+- 启动时不预先起任务对话的 pi（没人看就不占进程）。
+
+**动作幂等的补充**
+
+- `lock_workspace` 在 `recover` 里对没结束的任务再做一次；`unlock_workspace` 对 `cancelled` 的任务也做（原先只有 `done`）。
+- 归档：`answerArchive("archive")` 在工作区已归档时不报错（`archiving.archive` 本来就幂等），所以“归档做完了、`archive_answered` 没记”重启后再答一次就行；不自动代答。
+- `propose_graph`：事件写下了就有 `pendingGraph`，重启不再唤醒；没写下，重启后的唤醒只会让任务对话再出一次，不会有两版待批准的图（`graph_proposed` 本来就是“第二个替换第一个”）。
+
+**“每个动作做完、事件没写”的崩溃测试**
+
+- 做法：真宿主、真 git、真 pi 跑 faux 模型，把任务跑到该动作的结果刚记完，宿主关掉，把 `events.jsonl` 截到该事件之前（相当于动作做完、事件没写进去时死掉），重新启动（启动时自己 `recoverAll`），断言没有重复。覆盖：建 worktree（`workspace_created` 丢了）、起节点（`node_started` 丢了）、契约（`contract_sent` 丢了）、提交（`committed` 丢了）、合并（`merged` 丢了）、归档（`archive_answered` 丢了）、提问（问题开着时宿主死了）、提改图（`graph_proposed` 在 / 不在）。表驱动，见 `packages/host/src/tasks/t9.host.test.ts`。
+
+**没做、留给后面**
+
+- pi 没装好时启动不接任务，装好后要重启（不监听 pi 状态变化）。
+- `request_graph_change` 已被宿主接受、但 `node_waiting` 还没记时宿主死了：节点按“宿主重启了”重新跑，会再申请一次（理由没丢，因为还没存）。
+- 归档做完而 `archive_answered` 没记：不自动补记（用户可以再答一次）。
+- 同一个工作区里 `workspace_created` 记了、`lock_workspace` 没做的窗口由 `recover` 补上；`progress_line` 靠扩展按行 id 去重（T6 已有）。
 
 ## 备选方案
 

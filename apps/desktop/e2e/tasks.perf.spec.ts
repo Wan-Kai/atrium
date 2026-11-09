@@ -57,7 +57,7 @@ function runOf(index: number, state: "passed" | "running" | "waiting") {
     state,
     waitingFor: state === "waiting" ? ("human" as const) : null,
     blocked: null,
-    sessionId: null,
+    sessionId: null as string | null,
     startedAt: NOW - (NODES - index) * 60_000,
     endedAt: state === "passed" ? NOW - (NODES - index) * 60_000 + 30_000 : null,
     startCommit: null,
@@ -88,7 +88,7 @@ async function seedTasks(home: string): Promise<void> {
     const runs = Array.from({ length: upTo }, (_, node) => runOf(node, "passed"));
     if (waiting) runs.push(runOf(NODES - 1, "waiting"));
     else if (done) runs.push(runOf(NODES - 1, "passed"));
-    else runs.push(runOf(upTo, "running"));
+    else runs.push({ ...runOf(upTo, "running"), sessionId: `s-node-${index}` });
     const task = {
       id,
       name: `性能任务 ${index}`,
@@ -118,7 +118,9 @@ async function seedTasks(home: string): Promise<void> {
       activeGraph: 1,
       pendingGraph: null,
       runs,
-      paused: false,
+      // The host takes up tasks that were going when it stopped (SPEC-0006, T9); a paused one with a session is held, and
+      // nothing is started for it, so the seeded "running" tasks stay as they are and the test stays about drawing.
+      paused: !waiting && !done,
       cancelled: false,
       createdAt: NOW - 3_600_000,
       startedAt: NOW - 3_500_000,

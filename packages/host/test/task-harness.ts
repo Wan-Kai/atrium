@@ -104,6 +104,8 @@ export interface TaskHost {
   discuss(): Promise<void>;
   /** The text of a session's file, found by the session's id among the files pi wrote. */
   fileText(sessionId: string): Promise<string>;
+  /** The path of a session's file, found as `fileText` finds it. */
+  filePath(sessionId: string): Promise<string>;
   readonly host: TestHost;
   readonly client: AtriumClient;
   /** The project's repository. */
@@ -140,11 +142,14 @@ export interface TaskHost {
  * @sideEffects Creates temporary directories and a git repository, starts a host and a client; both are
  * stopped when the test finishes.
  * @param conversations - The replies of each node, by node id.
+ * @param scripts - The replies of the task conversation and the source conversation.
+ * @param options - `followTasks`: a directory of another process's tasks the host follows read-only.
  * @returns The harness.
  */
 export async function startTaskHost(
   conversations: Readonly<Record<string, readonly FauxReply[]>>,
   scripts: TaskHostScripts = {},
+  options: { readonly followTasks?: string } = {},
 ): Promise<TaskHost> {
   const dir = await createTempDir("task-host");
   onTestFinished(dir.cleanup);
@@ -198,7 +203,12 @@ export async function startTaskHost(
    * @returns The host, the client, and the id of the conversation tasks are made from.
    */
   async function boot(first: boolean) {
-    const host = await startTestHost({ home: home.path, fastExtension: ATRIUM_EXTENSION, toolEnv: env });
+    const host = await startTestHost({
+      home: home.path,
+      fastExtension: ATRIUM_EXTENSION,
+      toolEnv: env,
+      ...(options.followTasks === undefined ? {} : { followTasks: options.followTasks }),
+    });
     onTestFinished(host.dispose);
     await host.host.tools;
     const client = host.connect();
@@ -215,10 +225,13 @@ export async function startTaskHost(
   const current = { ...first };
   const harness: TaskHost = {
     origin,
-    async fileText(sessionId) {
+    async filePath(sessionId) {
       const found = (await readdir(dir.path, { recursive: true })).find((name) => name.endsWith(`_${sessionId}.jsonl`));
       if (found === undefined) throw new Error(`no session file for ${sessionId}`);
-      return readFile(join(dir.path, found), "utf8");
+      return join(dir.path, found);
+    },
+    async fileText(sessionId) {
+      return readFile(await harness.filePath(sessionId), "utf8");
     },
     async discuss() {
       await current.client.prompt(origin, SOURCE_PROMPT);

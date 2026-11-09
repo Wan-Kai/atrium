@@ -277,13 +277,19 @@ export function askFromStream(
  * The task ended, a node failed, or the task waits for something `task:try` cannot give: the answer to a
  * question. A human node waiting stops it only when it cannot ask (`interactive` false); asking, it goes on until
  * the task ends, and an ended task whose worktree is still to be archived or kept goes on until that is answered.
+ * A stop for a question says so (`question`): a question that was open when a run ended died with it, and the next
+ * run, which recovers the task, makes the node ask again (SPEC-0006, "宿主重启"), so it is a reason to stop only
+ * for the run in which it is asked.
  *
  * @sideEffects none
  * @param task - The task.
  * @param interactive - Whether the run can ask the user at a human node and about archiving.
  * @returns The code and a line, or `null` while the task goes on.
  */
-export function stopReason(task: Task, interactive = false): { readonly code: number; readonly line: string } | null {
+export function stopReason(
+  task: Task,
+  interactive = false,
+): { readonly code: number; readonly line: string; readonly question?: true } | null {
   const status = deriveStatus(task);
   const archiveOpen = interactive && task.archive === "asked";
   if (status === "done") return archiveOpen ? null : { code: 0, line: "the task is done" };
@@ -300,6 +306,7 @@ export function stopReason(task: Task, interactive = false): { readonly code: nu
       return {
         code: 3,
         line: `${node.id} asked a question; task:try cannot answer it, run the command again to let it go on`,
+        question: true,
       };
     }
     if (run?.state === "waiting" && run.waitingFor === "graph_change") {
@@ -461,6 +468,8 @@ export async function runTaskTry(
     toolEnv: { ...login.env, PI_CODING_AGENT_SESSION_DIR: join(options.home, "pi-sessions") },
     fastExtension: io.extension ?? join(__dirname, "atrium-extension.mjs"),
     piLatestUrl: null,
+    // This run looks after the one task it carries on itself, below.
+    recoverTasks: false,
   });
   const finished = Promise.withResolvers<{ code: number; line: string }>();
   /**
@@ -630,9 +639,11 @@ export async function runTaskTry(
     } else {
       io.out.write("carrying on the task found in the home\n");
       const early = stopReason(existing, interactive);
-      if (early !== null) finished.resolve(early);
+      // A question left open by the last run is void now: recovering makes the node ask it again.
+      if (early !== null && early.question !== true) finished.resolve(early);
       else {
-        await host.tasks.recover(taskId);
+        // As the app does when it starts: every task of the home that was going, here the one.
+        await host.tasks.recoverAll({ signal: io.signal, staleLocks: true, ready: () => Promise.resolve(true) });
         askNext();
       }
     }

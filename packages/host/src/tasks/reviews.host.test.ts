@@ -228,8 +228,8 @@ describe("human node reviews, answered through answer_review (ADR-0017, T8a)", (
 
     await harness.restart();
 
-    // Nothing is held after the restart; the reviews are worked out again from the files.
-    expect(harness.host.host.tasks.held()).toStrictEqual([]);
+    // The host takes the task up by itself (T9); the reviews are worked out again from the files.
+    await vi.waitFor(() => expect(harness.host.host.tasks.held().map((held) => held.id)).toStrictEqual([task.id]));
     expect((await viewOf(harness, task.id)).reviews).toStrictEqual(before);
     // The conversation's pi starts on a message; its control then carries the reviews.
     const { client } = harness;

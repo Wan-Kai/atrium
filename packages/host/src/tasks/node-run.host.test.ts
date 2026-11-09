@@ -346,9 +346,8 @@ describe("a task's nodes run to the end (SPEC-0006, T4)", () => {
     await harness.until(task.id, (now) => now.runs.find((run) => run.node === "N2")?.sessionId != null);
     await vi.waitFor(async () => expect(await harness.contexts()).toHaveLength(3));
 
+    // The host takes the task up by itself when it starts (SPEC-0006, T9); nothing is asked of it.
     await harness.restart();
-    await harness.host.host.tasks.open(task.id);
-    await harness.host.host.tasks.recover(task.id);
     await harness.release("stay");
     const finished = await harness.until(task.id, (now) => now.endedAt !== null);
 
@@ -382,9 +381,7 @@ describe("a task's nodes run to the end (SPEC-0006, T4)", () => {
       const at = lines.findIndex((line) => line.includes('"type":"committed"'));
       await writeFile(path, `${lines.slice(0, at).join("\n")}\n`);
     });
-    await harness.host.host.tasks.open(task.id);
-    expect(harness.task(task.id).runs[0]?.commit).toBeNull();
-    await harness.host.host.tasks.recover(task.id);
+    await harness.until(task.id, (now) => now.runs[0]?.commit === commit);
 
     expect(harness.task(task.id).runs[0]?.commit).toBe(commit);
     expect(git(dir, "rev-list", "--count", "main..HEAD")).toBe("1");

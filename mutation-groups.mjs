@@ -98,6 +98,41 @@ export const MUTATION_GROUPS = {
     ],
     skip: [],
   },
+  // The restart (SPEC-0006, T9): the runner's recovery, the task workspaces' plan and `recoverAll`, with the unit tests
+  // that drive them over a fake session layer. The runner's other code is covered by the host-layer tests, which are
+  // too slow per mutant, so a run names the lines it is about (`--mutate=<file>:<from>-<to>`).
+  taskrunner: {
+    mutate: [
+      "packages/host/src/tasks/runner.ts",
+      "packages/host/src/tasks/task-workspaces.ts",
+      "packages/host/src/tasks/task-service.ts",
+    ],
+    tests: [
+      "packages/host/src/tasks/runner.test.ts",
+      "packages/host/src/tasks/t9-runner.test.ts",
+      "packages/host/src/tasks/t9-service.test.ts",
+      "packages/host/src/tasks/task-workspaces.test.ts",
+    ],
+    skip: [],
+  },
+  // The scheduler's pure `step` with only its own fast unit tests: for a run on a few lines of `scheduler.ts`
+  // (`--mutate=<file>:<from>-<to>`), where the `tasks` group's host-layer tests would be run for every survivor.
+  taskscheduler: {
+    mutate: ["packages/host/src/tasks/scheduler.ts"],
+    tests: [
+      "packages/host/src/tasks/scheduler.test.ts",
+      "packages/host/src/tasks/t9-scheduler.test.ts",
+      "packages/host/src/tasks/scheduler-resources.test.ts",
+      "packages/host/src/tasks/scheduler.prop.test.ts",
+    ],
+    skip: [],
+  },
+  // The worktree creator (T9: the plan and `adopt`) with its own tests, which run real git.
+  worktreecreator: {
+    mutate: ["packages/host/src/workspaces/worktree-creator.ts"],
+    tests: ["packages/host/src/workspaces/worktree-creator.test.ts"],
+    skip: [],
+  },
   // The review hub and the task gates (ADR-0017, T8a): pure code, whose unit tests are quick; the real-host tests
   // (`reviews.host.test.ts`) cover the wiring and are not run per mutant.
   reviews: {

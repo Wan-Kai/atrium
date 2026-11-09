@@ -1,19 +1,33 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import type { GitRunner } from "../platform/git";
+import { GitError, type GitRunner } from "../platform/git";
 import type { ProjectService } from "../projects/project-service";
 import { writeAtomically } from "../store/index-file";
 import type { MergeInspector } from "../workspaces/merge-inspector";
 import { mainBranchRef } from "../workspaces/workspace-service";
 import type { WorktreeCreator } from "../workspaces/worktree-creator";
-import { lockWorktree, unlockWorktree } from "../workspaces/worktree-lock";
+import { clearStaleLocks, lockWorktree, taskLockReason, unlockWorktree } from "../workspaces/worktree-lock";
 import { mergeTaskBranch } from "./merge";
 import type { TaskWorkspaces } from "./node-ports";
 import type { Task } from "./types";
 
-/** What the task's directory remembers of the worktree it made (`workspace.json`). */
-const Marker = z.strictObject({ workspaceId: z.string().min(1) });
+/** What the task's directory remembers of the worktree it is making: where it will be, written before git adds it. */
+const Plan = z.strictObject({
+  source: z.string().min(1),
+  branch: z.string().min(1),
+  dir: z.string().min(1),
+  start: z.string().min(1),
+});
+
+/**
+ * What the task's directory remembers of the worktree it made (`workspace.json`).
+ *
+ * @remarks
+ * Either the worktree's workspace, once it is made and recorded, or only the plan, before it is (SPEC-0006,
+ * "T9 定下的细节"). They never appear together.
+ */
+const Marker = z.union([z.strictObject({ workspaceId: z.string().min(1) }), z.strictObject({ planned: Plan })]);
 
 /**
  * Creates the task runner's view of workspaces from the worktree creator, the projects and git.
@@ -22,9 +36,11 @@ const Marker = z.strictObject({ workspaceId: z.string().min(1) });
  * SPEC-0006, "工作区" and "加锁". `ensure` creates the worktree like a child conversation's
  * (`createFrom`, branch `atrium/<name from the task's name>`, from where the source workspace is now) and
  * writes `workspace.json` in the task's directory; run again after a crash it finds the file and the
- * workspace and answers with them instead of creating a second one. SPEC-0006 puts this mark in the
- * workspace index ("由任务 X 创建"); a crash between the creator's return and the file's write still leaves
- * a worktree nobody marks. Locking uses `lockWorktree`, which reads the lock first, so it can be done twice.
+ * workspace and answers with them instead of creating a second one. The file is first written as the plan
+ * (the creator tells it before git adds anything), so a crash between git and the file leaves a plan that
+ * `adopt` can hold the worktree against: it is taken up only if it is exactly what the plan said, never
+ * otherwise (SPEC-0006, "T9 定下的细节"). Locking uses `lockWorktree`, which reads the lock first, so it can
+ * be done twice. `clearStaleLocks` lifts, when the host starts, the locks of tasks that are over.
  *
  * @sideEffects none until a call; then creates worktrees, writes files in the task's directory and runs git.
  * @param options - The creator, the projects, git, the tasks' root directory, and which container a task's
@@ -32,7 +48,7 @@ const Marker = z.strictObject({ workspaceId: z.string().min(1) });
  * @returns The workspaces.
  */
 export function createTaskWorkspaces(options: {
-  readonly creator: Pick<WorktreeCreator, "createFrom">;
+  readonly creator: Pick<WorktreeCreator, "createFrom" | "adopt">;
   readonly projects: Pick<ProjectService, "projects" | "workspaces">;
   readonly git: Promise<GitRunner | null>;
   readonly root: string;
@@ -68,19 +84,45 @@ export function createTaskWorkspaces(options: {
         (text) => Marker.safeParse(JSON.parse(text)),
         () => null,
       );
-      const known = marked?.success === true ? marked.data.workspaceId : undefined;
+      const marker = marked?.success === true ? marked.data : undefined;
+      const known = marker !== undefined && "workspaceId" in marker ? marker.workspaceId : undefined;
       const found = options.projects.workspaces().find((workspace) => workspace.id === known);
       if (found?.baseCommit != null) return { workspaceId: found.id, baseCommit: found.baseCommit };
       // A worktree the mark names is the task's; one without a base commit is not made again beside it.
       if (found !== undefined) throw new Error("the task's worktree has no base commit");
       signal.throwIfAborted();
-      const source = options.sourceContainer(task);
-      if (source === undefined) throw new Error("the task's source has no workspace");
-      const made = await options.creator.createFrom(source, task.name, "atrium/", task.name, signal);
-      const record = options.projects.workspaces().find((workspace) => workspace.id === made.workspaceId);
+      /**
+       * Writes what the marker holds.
+       *
+       * @remarks
+       * Atomically, so a crash leaves the old content or the new, never half.
+       *
+       * @sideEffects Creates the task's directory if needed; writes `workspace.json`.
+       * @param content - The marker.
+       */
+      const mark = async (content: z.infer<typeof Marker>): Promise<void> => {
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        await writeAtomically(markerPath, `${JSON.stringify(content)}\n`);
+      };
+      let made: { readonly workspaceId: string } | null = null;
+      if (marker !== undefined && "planned" in marker) {
+        // The host died with a worktree under way: it is the task's if, and only if, it is what the plan said.
+        made = await options.creator.adopt(marker.planned, {
+          alias: task.name,
+          allowedLock: taskLockReason(task.id),
+          signal,
+        });
+      }
+      if (made === null) {
+        const source = options.sourceContainer(task);
+        if (source === undefined) throw new Error("the task's source has no workspace");
+        made = await options.creator.createFrom(source, task.name, "atrium/", task.name, signal, (plan) =>
+          mark({ planned: plan }),
+        );
+      }
+      const record = options.projects.workspaces().find((workspace) => workspace.id === made?.workspaceId);
       if (record?.baseCommit == null) throw new Error("the new worktree has no base commit");
-      await mkdir(directory, { recursive: true, mode: 0o700 });
-      await writeAtomically(markerPath, `${JSON.stringify({ workspaceId: made.workspaceId })}\n`);
+      await mark({ workspaceId: made.workspaceId });
       return { workspaceId: made.workspaceId, baseCommit: record.baseCommit };
     },
     dirOf: options.dirOf,
@@ -94,6 +136,19 @@ export function createTaskWorkspaces(options: {
       const where = locationOf(task);
       const git = await options.git;
       if (where !== undefined && git !== null) await unlockWorktree(git, where.repo, where.dir, task.id);
+    },
+    async clearStaleLocks(isActive) {
+      const git = await options.git;
+      if (git === null) return 0;
+      let lifted = 0;
+      for (const project of options.projects.projects()) {
+        // A repository git cannot list (gone, or not one any longer) has no locks of ours to lift.
+        lifted += await clearStaleLocks(git, project.path, isActive).catch((error: unknown) => {
+          if (error instanceof GitError) return 0;
+          throw error;
+        });
+      }
+      return lifted;
     },
     async merge(task, signal) {
       const where = locationOf(task);

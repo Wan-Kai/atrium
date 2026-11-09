@@ -181,10 +181,15 @@ describe("what it prints and when it stops", () => {
     expect(stopReason(run.task)).toBeNull();
     run.send({ type: "node_started", node: "N1", attempt: 1, sessionId: "s", startCommit: null });
     run.send({ type: "node_waiting", node: "N1", attempt: 1, waitingFor: "question" });
-    expect(stopReason(run.task)).toMatchObject({ code: 3, line: expect.stringContaining("asked a question") });
+    expect(stopReason(run.task)).toMatchObject({
+      code: 3,
+      line: expect.stringContaining("asked a question"),
+      question: true,
+    });
     run.send({ type: "node_resumed", node: "N1", attempt: 1 });
     run.send({ type: "node_waiting", node: "N1", attempt: 1, waitingFor: "graph_change" });
     expect(stopReason(run.task)).toMatchObject({ code: 3, line: expect.stringContaining("graph") });
+    expect(stopReason(run.task)).not.toHaveProperty("question");
     run.send({ type: "node_failed", node: "N1", attempt: 1, reason: "no_done" });
     expect(stopReason(run.task)).toMatchObject({ code: 1, line: "N1 failed: no_done" });
 

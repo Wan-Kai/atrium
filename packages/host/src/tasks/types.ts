@@ -133,6 +133,14 @@ const PendingDone = z.strictObject({
 });
 type PendingDone = z.infer<typeof PendingDone>;
 
+/**
+ * What a node wrote when it asked for the graph to change (`request_graph_change`).
+ *
+ * @remarks
+ * The limits are the channel's own (`TASK_TEXT_LIMITS`); the wake-up of the task conversation quotes it.
+ */
+const GraphRequest = z.strictObject({ reason: z.string(), suggestion: z.string() });
+
 /** One run of one node. */
 export const NodeRun = z.strictObject({
   node: NodeId,
@@ -170,6 +178,11 @@ export const NodeRun = z.strictObject({
   commitPending: z.literal(true).optional(),
   /** The contract (or, after it, anything) was handed to the node's pi: the first message is not lost. */
   contractSent: z.literal(true).optional(),
+  /**
+   * The reason and suggestion of the graph change a `waiting(graph_change)` node asked for; gone when the wait ends.
+   * Kept on the run, not in memory, so the task conversation woken after a host restart reads them (SPEC-0006, "T9 定下的细节").
+   */
+  graphRequest: GraphRequest.optional(),
 });
 export type NodeRun = z.infer<typeof NodeRun>;
 
@@ -269,7 +282,12 @@ export const TaskEvent = z.discriminatedUnion("type", [
   event("abandoned", {}),
   event("meta_changed", { name: z.string().optional(), model: TaskModel.optional() }),
   event("node_started", { ...run, sessionId: z.string(), startCommit: z.string().nullable() }),
-  event("node_waiting", { ...run, waitingFor: z.enum(["question", "graph_change"]) }),
+  event("node_waiting", {
+    ...run,
+    waitingFor: z.enum(["question", "graph_change"]),
+    /** What the node wrote, for a graph change (T9); a question has none. */
+    request: GraphRequest.optional(),
+  }),
   event("node_resumed", run),
   event("node_done_pending", {
     ...run,
