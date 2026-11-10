@@ -289,6 +289,29 @@ describe("SessionCatalog", () => {
     ]);
   });
 
+  it("records what a session was archived with, and forgets it once restored (SPEC-0008, ML3)", async () => {
+    const { sessions, dirs, file } = await catalog();
+    await sessions.record({ sessionId: "lesson", containerId: A, cwd: dirs.a });
+    await sessions.record({ sessionId: "quiz", containerId: A, cwd: dirs.a });
+
+    await sessions.archive("lesson", "lesson");
+    await sessions.archive("quiz", "lesson");
+
+    expect(sessions.list().map((one) => [one.sessionId, one.archived, one.archivedWith])).toStrictEqual([
+      ["lesson", true, "lesson"],
+      ["quiz", true, "lesson"],
+    ]);
+    await sessions.unarchive("quiz");
+
+    expect(sessions.find("quiz")).toMatchObject({ archived: false });
+    expect(sessions.find("quiz")).not.toHaveProperty("archivedWith");
+    expect(JSON.parse(JSON.stringify(file.read().sessions))).toMatchObject([
+      { sessionId: "lesson", archived: true, archivedWith: "lesson" },
+      { sessionId: "quiz", archived: false },
+    ]);
+    expect(JSON.parse(JSON.stringify(file.read().sessions))[1]).not.toHaveProperty("archivedWith");
+  });
+
   it("marks a session's attention, recording one from the terminal, and writes only a change", async () => {
     const { sessions, dirs, file, write, changes } = await catalog();
     await write(dirs.a, "terminal", [user("hi")]);

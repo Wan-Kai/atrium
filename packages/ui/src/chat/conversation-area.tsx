@@ -61,7 +61,8 @@ import type { LaunchInTurn } from "./launch-timeline";
 import type { CreatedDirection } from "./turn-view";
 import { directionName } from "../study/learning";
 import { stepTitle, studyLabel } from "../study/progress";
-import { StudyLabelContext } from "../study/study-label";
+import { StudyLabelContext, StudySessionContext, type StudySessionInfo } from "../study/study-label";
+import { ArchivedSessionBar } from "./archived-session-bar";
 import { type Panes, createPanes, memoryStorage } from "../state/panes";
 import {
   NO_VIEW,
@@ -487,6 +488,7 @@ function SessionArea({
     [client, views, sessionId, sessions],
   );
   const studyNames = useStudyNames(client, sessionId);
+  const studySession = useStudySessionInfo(client, sessionId);
   useEffect(() => {
     // The box's own effect has focused it by now, as children's effects run first.
     if (takesFocus) onFocusTaken();
@@ -525,58 +527,60 @@ function SessionArea({
             <MessageImagesContext value={images}>
               <AgentLinksContext value={links}>
                 <StudyLabelContext value={studyNames}>
-                  <ReplyTranslationContext value={translation}>
-                    <Transcript
-                      view={view}
-                      editingStopped={editing !== null}
-                      onEditStopped={
-                        readOnly
-                          ? undefined
-                          : (turn) => {
-                              const draftKey = `edit:${sessionId}:${crypto.randomUUID()}`;
-                              const imageIds = Array.from({ length: turn.user.images }, () => crypto.randomUUID());
-                              const next = pageDrafts().read(sessionId);
-                              pageDrafts().update(draftKey, () => ({
-                                text: turn.user.text,
-                                pastes: [],
-                                files: [],
-                                command: null,
-                                images: imageIds.map((id) => ({ id, image: null, attachmentId: null })),
-                              }));
-                              editStore.setState({
-                                target: {
-                                  epoch: view.epoch,
-                                  turnId: turn.id,
-                                  draftKey,
-                                  images: imageIds,
-                                  savedDraft:
-                                    next.text !== "" ||
-                                    next.images.length > 0 ||
-                                    next.pastes.length > 0 ||
-                                    next.files.length > 0 ||
-                                    next.command !== null,
-                                },
-                                submitting: false,
-                                error: null,
-                              });
-                            }
-                      }
-                      onLoadOlder={() => {
-                        // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
-                        client.loadOlder(sessionId).catch(() => undefined);
-                      }}
-                      onLoadStep={(turnId, stepId) => {
-                        // Fire and forget: a failed fetch leaves the preview, still marked as loading.
-                        client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
-                      }}
-                      onRetry={readOnly ? undefined : actions.retry}
-                      onFork={readOnly ? undefined : (turnId) => forkFrom(client, sessionId, turnId)}
-                      onChild={readOnly ? undefined : (turnId) => askForChild({ parentSessionId: sessionId, turnId })}
-                      {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
-                      launch={shown}
-                      created={created}
-                    />
-                  </ReplyTranslationContext>
+                  <StudySessionContext value={studySession}>
+                    <ReplyTranslationContext value={translation}>
+                      <Transcript
+                        view={view}
+                        editingStopped={editing !== null}
+                        onEditStopped={
+                          readOnly
+                            ? undefined
+                            : (turn) => {
+                                const draftKey = `edit:${sessionId}:${crypto.randomUUID()}`;
+                                const imageIds = Array.from({ length: turn.user.images }, () => crypto.randomUUID());
+                                const next = pageDrafts().read(sessionId);
+                                pageDrafts().update(draftKey, () => ({
+                                  text: turn.user.text,
+                                  pastes: [],
+                                  files: [],
+                                  command: null,
+                                  images: imageIds.map((id) => ({ id, image: null, attachmentId: null })),
+                                }));
+                                editStore.setState({
+                                  target: {
+                                    epoch: view.epoch,
+                                    turnId: turn.id,
+                                    draftKey,
+                                    images: imageIds,
+                                    savedDraft:
+                                      next.text !== "" ||
+                                      next.images.length > 0 ||
+                                      next.pastes.length > 0 ||
+                                      next.files.length > 0 ||
+                                      next.command !== null,
+                                  },
+                                  submitting: false,
+                                  error: null,
+                                });
+                              }
+                        }
+                        onLoadOlder={() => {
+                          // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
+                          client.loadOlder(sessionId).catch(() => undefined);
+                        }}
+                        onLoadStep={(turnId, stepId) => {
+                          // Fire and forget: a failed fetch leaves the preview, still marked as loading.
+                          client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
+                        }}
+                        onRetry={readOnly ? undefined : actions.retry}
+                        onFork={readOnly ? undefined : (turnId) => forkFrom(client, sessionId, turnId)}
+                        onChild={readOnly ? undefined : (turnId) => askForChild({ parentSessionId: sessionId, turnId })}
+                        {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
+                        launch={shown}
+                        created={created}
+                      />
+                    </ReplyTranslationContext>
+                  </StudySessionContext>
                 </StudyLabelContext>
               </AgentLinksContext>
             </MessageImagesContext>
@@ -897,6 +901,16 @@ export function ConversationArea({
   /** Whether the session shown is an archived direction's, only to be read (SPEC-0008, "ML1 定的细节"). */
   const archivedDirection = useStore(client.index, (index) =>
     index.directions.some((direction) => direction.id === containerId && direction.archived),
+  );
+  /**
+   * Whether the session shown was archived in a direction still there, as with its level: read
+   * until restored (SPEC-0008, "ML3 定的细节 · 方向里归档了的会话").
+   */
+  const archivedInDirection = useStore(
+    client.index,
+    (index) =>
+      index.directions.some((direction) => direction.id === containerId && !direction.archived) &&
+      index.sessions.some((session) => session.sessionId === sessionId && session.archived),
   );
   // The host instance last connected to; a new one has lost every session's view.
   const hostInstance = useStore(client.connection, (state) =>
@@ -1369,7 +1383,19 @@ export function ConversationArea({
                     </>
                   ),
                 }
-              : {})}
+              : archivedInDirection && containerId !== null && sessionId !== null
+                ? {
+                    readOnly: true,
+                    bottom: (
+                      <>
+                        {notice}
+                        <ArchivedSessionBar
+                          onRestore={() => act(() => client.restoreStudySessions(containerId, [sessionId]))}
+                        />
+                      </>
+                    ),
+                  }
+                : {})}
           />
         )}
       </div>
@@ -1434,10 +1460,46 @@ function useStudyNames(client: AtriumClient, sessionId: string): (study: Session
         study.level === undefined ? undefined : progress?.steps[study.level]?.find((one) => one.id === study.step);
       return step === undefined || progress === null
         ? label
-        : `${label} · ${stepTitle(step, levelAt + 1, progress.ladder.length)}`;
+        : `${label} · ${stepTitle(step, levelAt + 1, progress.ladder)}`;
     },
     [progress],
   );
+}
+
+/**
+ * What the conversation knows of the study session it shows: its use, its direction's progress,
+ * and for a quiz its lesson.
+ *
+ * @remarks
+ * SPEC-0008, "ML3 定的细节": a quiz child folds the lesson's turns and says where it came from; the
+ * study tools are worded from the use. `null` for a session with no use, or one of no direction.
+ *
+ * @sideEffects Subscribes to the list.
+ * @param client - The client.
+ * @param sessionId - The session.
+ * @returns The session's study, or `null`.
+ */
+function useStudySessionInfo(client: AtriumClient, sessionId: string): StudySessionInfo | null {
+  const study = useStore(client.index, (index) => index.sessions.find((one) => one.sessionId === sessionId)?.study);
+  const parentId = useStore(
+    client.index,
+    (index) => index.sessions.find((one) => one.sessionId === sessionId)?.parent?.sessionId ?? null,
+  );
+  const progress = useStore(client.index, (index) => {
+    const session = index.sessions.find((one) => one.sessionId === sessionId);
+    return index.directions.find((one) => one.id === session?.containerId)?.progress ?? null;
+  });
+  return useMemo(() => {
+    if (study === undefined || study === null) return null;
+    const step =
+      study.level === undefined ? undefined : progress?.steps[study.level]?.find((one) => one.id === study.step);
+    return {
+      study,
+      progress,
+      parentId,
+      lessonTitle: step?.kind === "lesson" ? step.title : null,
+    };
+  }, [study, progress, parentId]);
 }
 
 /** No launches, where the new-workspace page is not given. */

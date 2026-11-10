@@ -231,12 +231,23 @@ export interface AtriumClient {
   restoreDirection(directionId: string): Promise<CommandResult<"restore_direction">>;
   /**
    * Opens a session of a direction for a use, as the step strip's button does (SPEC-0008, "ML2 定的细节");
-   * only the one the direction's next step offers, else `study_not_available`.
+   * only one the host can open now (the main button's, Feynman on a gap, a quiz put off), else
+   * `study_not_available`; one open already for the same use is given back instead.
    */
   startStudySession(
     directionId: string,
-    study: { readonly kind: StudyKind; readonly level: string; readonly step: string; readonly gap?: string },
+    study: { readonly kind: StudyKind; readonly level: string; readonly step?: string; readonly gap?: string },
   ): Promise<CommandResult<"start_study_session">>;
+  /**
+   * Upgrades a direction past `level`, archiving that level's sessions when asked, and opens the
+   * next level's plan session (SPEC-0008, "ML3 定的细节 · 升级").
+   */
+  upgradeStudy(directionId: string, level: string, archiveSessions: boolean): Promise<CommandResult<"upgrade_study">>;
+  /** Unarchives sessions of a direction archived with a level, with their children. */
+  restoreStudySessions(
+    directionId: string,
+    sessionIds: readonly string[],
+  ): Promise<CommandResult<"restore_study_sessions">>;
   /** Marks a step's part done by hand, or takes a manual mark back (SPEC-0008, "手动标完成"). */
   markStudyStep(
     directionId: string,
@@ -1590,7 +1601,17 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     archiveDirection: (directionId) => request("archive_direction", { directionId }),
     restoreDirection: (directionId) => request("restore_direction", { directionId }),
     startStudySession: (directionId, { kind, level, step, gap }) =>
-      request("start_study_session", { directionId, kind, level, step, ...(gap === undefined ? {} : { gap }) }),
+      request("start_study_session", {
+        directionId,
+        kind,
+        level,
+        ...(step === undefined ? {} : { step }),
+        ...(gap === undefined ? {} : { gap }),
+      }),
+    upgradeStudy: (directionId, level, archiveSessions) =>
+      request("upgrade_study", { directionId, level, archiveSessions }),
+    restoreStudySessions: (directionId, sessionIds) =>
+      request("restore_study_sessions", { directionId, sessionIds: [...sessionIds] }),
     markStudyStep: (directionId, level, step, mark, done) =>
       request("mark_study_step", { directionId, level, step, mark, done }),
     markStudyGap: (directionId, gapId, fixed) => request("mark_study_gap", { directionId, gapId, fixed }),

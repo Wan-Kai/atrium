@@ -1,7 +1,9 @@
 import { type FauxContext, present } from "@atrium/testkit";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { runScenario } from "../../test/contract";
+import { runScenario, startOtherPi } from "../../test/contract";
 import { AGENT_MESSAGE, encodeArgument } from "../agent/agent";
 import { readRequest } from "../agent/channel";
 import type { PiEvent } from "../process/pi-process";
@@ -96,6 +98,48 @@ const UNTRUSTED = "untrusted-system-marker";
 function systemText(messages: readonly unknown[]): string {
   const system = messages.find((message) => Reflect.get(Object(message), "role") === "system");
   return system === undefined ? "" : JSON.stringify(system);
+}
+
+/**
+ * Every system message a request carried, as JSON each.
+ *
+ * @remarks
+ * A session forked from another carries the other's system messages in its history too; the one
+ * the run itself gives is the last (pi-internals §2, "系统消息").
+ *
+ * @sideEffects none
+ * @param messages - The request's messages.
+ * @returns The system messages.
+ */
+function systemTexts(messages: readonly unknown[]): string[] {
+  return messages
+    .filter((message) => Reflect.get(Object(message), "role") === "system")
+    .map((message) => JSON.stringify(message));
+}
+
+/**
+ * The texts of a request's user and assistant messages, in order.
+ *
+ * @remarks
+ * What history the model was given, system messages and tool results left out.
+ *
+ * @sideEffects none
+ * @param messages - The request's messages.
+ * @returns `role: text` for each.
+ */
+function said(messages: readonly unknown[]): string[] {
+  return messages.flatMap((message): string[] => {
+    const role = String(Reflect.get(Object(message), "role"));
+    if (role !== "user" && role !== "assistant") return [];
+    const content: unknown = Reflect.get(Object(message), "content");
+    const text =
+      typeof content === "string"
+        ? content
+        : Array.isArray(content)
+          ? content.map((block: unknown) => String(Reflect.get(Object(block), "text") ?? "")).join("")
+          : "";
+    return [`${role}: ${text}`];
+  });
 }
 
 describe("pi contract: study mode (SPEC-0008)", () => {
@@ -250,6 +294,125 @@ describe("pi contract: study mode (SPEC-0008)", () => {
         expect(JSON.stringify(present(request, "the request").messages)).toContain(
           JSON.stringify(kickoffText(launch)).slice(1, -1),
         );
+      },
+    );
+  });
+
+  it("study-quiz-fork: a quiz forked from its lesson's file has the quiz's prompt and tools, the lesson's history, and opens a quiz turn (ML3)", async () => {
+    const lesson = { kind: "lesson", level: "l1", step: "s1" } as const;
+    const quiz = { kind: "quiz", level: "l1", step: "s1" } as const;
+    await runScenario(
+      {
+        scenario: "study-quiz-fork",
+        session: true,
+        extensions: [ATRIUM_EXTENSION],
+        args: [`--${STUDY_FLAG}=${studyArgument(lesson)}`],
+        script: { replies: [{ blocks: [{ type: "text", text: "lesson-marker: goroutines" }] }] },
+      },
+      async ({ pi, until, cwd }) => {
+        await pi.request({ type: "prompt", message: startCommand() });
+        await until((event) => event.type === "agent_settled");
+        const lessonFile = present((await pi.request({ type: "get_state" })).sessionFile, "the lesson's file");
+
+        // As the host starts the quiz: in the direction's directory, from the lesson's file, the quiz's use.
+        const id = randomUUID();
+        const child = await startOtherPi({
+          dir: join(cwd, "quiz"),
+          script: { replies: [{ blocks: [{ type: "text", text: "第 1 题" }] }] },
+          args: [
+            "--session-dir",
+            join(cwd, "quiz-sessions"),
+            "--fork",
+            lessonFile,
+            "--session-id",
+            id,
+            `--${STUDY_FLAG}=${studyArgument(quiz)}`,
+          ],
+          extensions: [ATRIUM_EXTENSION],
+        });
+        try {
+          const handled = await child.pi.request({ type: "prompt", message: startCommand() });
+          const message = await child.until(customEnd);
+          await child.until((event) => event.type === "agent_settled");
+          const [request] = await child.contexts();
+          const messages = present(request, "the quiz's request").messages;
+          const systems = systemTexts(messages);
+
+          expect(handled).toStrictEqual({ disposition: "handled" });
+          expect(message).toMatchObject({
+            message: { customType: AGENT_MESSAGE, details: { v: 1, kind: "study", deliveries: [], study: quiz } },
+          });
+          // The quiz's tools only; the lesson's study_report shape is not carried over.
+          expect(studyTools(request)).toStrictEqual(["study_add_gap", "study_report"]);
+          expect(systems.at(-1)).toContain(
+            'This session\'s use: quiz (level=\\\"l1\\\" step=\\\"s1\\\" in .atrium-study.json).',
+          );
+          expect(systems.at(-1)).not.toContain("This session's use: lesson");
+          // pi keeps the lesson's system message in the copied history; the quiz's comes after it.
+          expect(systems).toHaveLength(2);
+          expect(systems[0]).toContain("This session's use: lesson");
+          // The lesson's turn, then the quiz's kickoff, which points at it.
+          const history = said(messages);
+          expect(history.some((line) => line.includes("lesson-marker: goroutines"))).toBe(true);
+          expect(history.at(-1)).toContain("The lesson's conversation is above");
+          expect(history.at(-1)).toContain('<atrium-study use="quiz" level="l1" step="s1">');
+        } finally {
+          await child.pi.stop();
+        }
+      },
+    );
+  });
+
+  it("study-quiz-none: a quiz with no lesson to come from is told to quiz from the notes and the progress (ML3)", async () => {
+    const launch = { kind: "quiz", level: "l1", step: "s1", context: "none" } as const;
+    await runScenario(
+      {
+        scenario: "study-quiz-none",
+        session: true,
+        extensions: [ATRIUM_EXTENSION],
+        args: [`--${STUDY_FLAG}=${studyArgument(launch)}`],
+        script: { replies: [{ blocks: [{ type: "text", text: "第 1 题" }] }] },
+      },
+      async ({ pi, until, contexts }) => {
+        await pi.request({ type: "prompt", message: startCommand() });
+        const message = await until(customEnd);
+        await until((event) => event.type === "agent_settled");
+        const [request] = await contexts();
+
+        // The record the transcript reads has no `context`: it is the session's use only.
+        expect(message).toMatchObject({
+          message: { details: { study: { kind: "quiz", level: "l1", step: "s1" } } },
+        });
+        expect(
+          Reflect.get(Reflect.get(Object(Reflect.get(message, "message")), "details") as object, "study"),
+        ).not.toHaveProperty("context");
+        expect(studyTools(request)).toStrictEqual(["study_add_gap", "study_report"]);
+        expect(JSON.stringify(present(request, "the request").messages)).toContain(
+          JSON.stringify(kickoffText(launch)).slice(1, -1),
+        );
+        expect(kickoffText(launch)).toContain("There is no conversation of the lesson in this session");
+      },
+    );
+  });
+
+  it("study-tools-plan: a plan session has only study_set_steps and the plan's prompt (ML3)", async () => {
+    await runScenario(
+      {
+        scenario: "study-tools-plan",
+        session: true,
+        extensions: [ATRIUM_EXTENSION],
+        args: [`--${STUDY_FLAG}=${studyArgument({ kind: "plan", level: "l2" })}`],
+        script: { replies: [{ blocks: [{ type: "text", text: "准备这样排，确认吗？" }] }] },
+      },
+      async ({ pi, until, contexts }) => {
+        await pi.request({ type: "prompt", message: startCommand() });
+        await until((event) => event.type === "agent_settled");
+        const [request] = await contexts();
+        const told = systemText(present(request, "the request").messages);
+
+        expect(studyTools(request)).toStrictEqual(["study_set_steps"]);
+        expect(told).toContain('This session\'s use: plan (level=\\\"l2\\\" in .atrium-study.json).');
+        expect(told).toContain("Do not say the lessons are set or saved before you have called study_set_steps.");
       },
     );
   });

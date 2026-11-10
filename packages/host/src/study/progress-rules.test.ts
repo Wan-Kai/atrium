@@ -12,6 +12,9 @@ import {
   setName,
   setProfile,
   setSteps,
+  startable,
+  upgrade,
+  existingFor,
 } from "./progress-rules";
 
 /** A direction under discussion, with a field of a later version kept. */
@@ -164,15 +167,41 @@ describe("planning a level", () => {
   it("writes the current level's lessons when it has none, numbering after the steps there are", () => {
     const upgraded = withStates(PLANNED, { l2: "done", l3: "current" });
 
-    expect(setSteps(upgraded, ["docker"]).steps?.["l3"]).toStrictEqual([
+    expect(setSteps(upgraded, ["docker"], "l3").steps?.["l3"]).toStrictEqual([
       { id: "s1", kind: "lesson", title: "docker", lesson: null, quiz: null, done: null },
       { id: "s2", kind: "sheet", done: null },
       { id: "s3", kind: "project", done: null },
       { id: "s4", kind: "exam", done: null },
       { id: "s5", kind: "up", done: null },
     ]);
-    expect(refusal(() => setSteps(PLANNED, ["again"]))).toStrictEqual({ code: "study_steps_set", params: {} });
-    expect(refusal(() => setSteps(FRESH, ["a"]))).toStrictEqual({ code: "study_not_found", params: {} });
+    expect(refusal(() => setSteps(PLANNED, ["again"], "l2"))).toStrictEqual({ code: "study_steps_set", params: {} });
+    expect(refusal(() => setSteps(FRESH, ["a"], "l1"))).toStrictEqual({ code: "study_not_found", params: {} });
+  });
+
+  it("writes only the level the plan session is recorded at, never the current one of another", () => {
+    const upgraded = withStates({ ...PLANNED, steps: {} }, { l2: "done", l3: "current" });
+
+    // An old plan session of level 2, kept at the upgrade or restored: level 3 stays unplanned.
+    expect(refusal(() => setSteps(upgraded, ["docker"], "l2"))).toStrictEqual({
+      code: "study_not_allowed",
+      params: {},
+    });
+    expect(refusal(() => setSteps(upgraded, ["docker"], undefined))).toStrictEqual({
+      code: "study_not_allowed",
+      params: {},
+    });
+    expect(setSteps(upgraded, ["docker"], "l3").steps?.["l3"]?.[0]).toMatchObject({ kind: "lesson", title: "docker" });
+  });
+
+  it("plans a level hand-edited down to steps without lessons, keeping them after the lessons", () => {
+    const kept = { id: "s4", kind: "sheet" as const, done: { by: "manual" as const }, note: 1 };
+    const edited = StudyFile.parse({ ...PLANNED, steps: { l2: [kept] } });
+
+    expect(setSteps(edited, ["a", "b"], "l2").steps?.["l2"]).toStrictEqual([
+      { id: "s5", kind: "lesson", title: "a", lesson: null, quiz: null, done: null },
+      { id: "s6", kind: "lesson", title: "b", lesson: null, quiz: null, done: null },
+      kept,
+    ]);
   });
 });
 
@@ -460,7 +489,7 @@ describe("the next step (SPEC-0008, 下一步怎么算)", () => {
     const taught = report(PLANNED, { kind: "lesson", level: "l2", step: "s1" }, {});
 
     expect(nextOf(progress(taught), NONE, LIVE)).toStrictEqual({
-      primary: { type: "start", kind: "quiz", level: "l2", step: "s1", available: false },
+      primary: { type: "start", kind: "quiz", level: "l2", step: "s1", available: true },
       secondary: { type: "mark", mark: "later", level: "l2", step: "s1" },
     });
   });
@@ -472,7 +501,7 @@ describe("the next step (SPEC-0008, 下一步怎么算)", () => {
     const fixedFirst = addGap(markGap(gapped, "g2", true), { kind: "quiz", level: "l2", step: "s1" }, { text: "y" });
 
     expect(nextOf(progress(gapped), NONE, LIVE)).toStrictEqual({
-      primary: { type: "start", kind: "feynman", level: "l2", step: "s1", gap: "g2", available: false },
+      primary: { type: "start", kind: "feynman", level: "l2", step: "s1", gap: "g2", available: true },
       secondary: { type: "mark", mark: "step", level: "l2", step: "s1" },
     });
     expect(nextOf(progress(fixedFirst), NONE, LIVE).primary).toStrictEqual({
@@ -481,7 +510,7 @@ describe("the next step (SPEC-0008, 下一步怎么算)", () => {
       level: "l2",
       step: "s1",
       gap: "g3",
-      available: false,
+      available: true,
     });
   });
 
@@ -511,7 +540,7 @@ describe("the next step (SPEC-0008, 下一步怎么算)", () => {
       { type: "start", kind: "exam", level: "l2", step: "s5", available: true },
     ]);
     expect(nextOf(progress(examDone), NONE, LIVE)).toStrictEqual({
-      primary: { type: "upgrade", level: "l2", available: false },
+      primary: { type: "upgrade", level: "l2", available: true },
       secondary: null,
     });
   });
@@ -542,7 +571,7 @@ describe("the next step (SPEC-0008, 下一步怎么算)", () => {
       kind: "quiz",
       level: "l2",
       step: "s1",
-      available: false,
+      available: true,
     });
     const quiz = [
       { sessionId: "q", study: { kind: "quiz" as const, level: "l2", step: "s1" }, updatedAt: 1, archived: false },
@@ -554,7 +583,7 @@ describe("the next step (SPEC-0008, 下一步怎么算)", () => {
     });
   });
 
-  it("offers nothing archived, broken, of a later version, finished, without a current level or without its steps", () => {
+  it("offers nothing archived, broken, of a later version, finished, without a current level or with every step done", () => {
     const empty = { primary: null, secondary: null };
 
     expect(nextOf(progress(PLANNED), NONE, { ...LIVE, archived: true })).toStrictEqual(empty);
@@ -563,9 +592,6 @@ describe("the next step (SPEC-0008, 下一步怎么算)", () => {
     expect(nextOf(progress(PLANNED), NONE, { ...LIVE, newer: true })).toStrictEqual(empty);
     expect(nextOf(null, NONE, LIVE)).toStrictEqual(empty);
     expect(nextOf(progress({ ...PLANNED, finishedAt: "2026-12-01T00:00:00.000Z" }), NONE, LIVE)).toStrictEqual(empty);
-    const noSteps: StudyFile = { ...PLANNED, steps: {} };
-
-    expect(nextOf(progress(noSteps), NONE, LIVE)).toStrictEqual(empty);
     const noCurrent = withStates(PLANNED, { l1: "done", l2: "done", l3: "done" });
 
     expect(nextOf(progress(noCurrent), NONE, LIVE)).toStrictEqual(empty);
@@ -575,5 +601,212 @@ describe("the next step (SPEC-0008, 下一步怎么算)", () => {
     };
 
     expect(nextOf(progress(allDone), NONE, LIVE)).toStrictEqual(empty);
+  });
+});
+
+/** The second level's lessons and the cheat sheet, project and exam all done, by hand. */
+const AT_UPGRADE = ["s1", "s2", "s3", "s4", "s5"].reduce(
+  (file, step) => markStep(file, "l2", step, "step", true),
+  PLANNED,
+);
+
+describe("ML3: planning, the exam's gaps and the upgrade (SPEC-0008, ML3 定的细节)", () => {
+  it("a current level with no lessons yet: plan it, or go back to its plan session", () => {
+    const unplanned: StudyFile = { ...PLANNED, steps: {} };
+
+    expect(nextOf(progress(unplanned), NONE, LIVE)).toStrictEqual({
+      primary: { type: "start", kind: "plan", level: "l2", available: true },
+      secondary: null,
+    });
+    const sessions = [
+      { sessionId: "p", study: { kind: "plan" as const, level: "l2" }, updatedAt: 2, archived: false },
+      { sessionId: "p-old", study: { kind: "plan" as const, level: "l1" }, updatedAt: 9, archived: false },
+    ];
+
+    expect(nextOf(progress(unplanned), sessions, LIVE)).toStrictEqual({
+      primary: { type: "open", sessionId: "p" },
+      secondary: null,
+    });
+    // An empty list of steps is no lessons either, nor steps without a lesson.
+    expect(nextOf(progress({ ...PLANNED, steps: { l2: [] } }), NONE, LIVE).primary).toStrictEqual({
+      type: "start",
+      kind: "plan",
+      level: "l2",
+      available: true,
+    });
+    const noLessons = StudyFile.parse({ ...PLANNED, steps: { l2: [{ id: "s1", kind: "sheet", done: null }] } });
+
+    expect(nextOf(progress(noLessons), NONE, LIVE).primary).toStrictEqual({
+      type: "start",
+      kind: "plan",
+      level: "l2",
+      available: true,
+    });
+    expect(startable(progress(noLessons), LIVE)).toStrictEqual([
+      { type: "start", kind: "plan", level: "l2", available: true },
+    ]);
+  });
+
+  it("the upgrade with a gap of the exam not fixed: Feynman on it first, or upgrade", () => {
+    const lessonGap = addGap(AT_UPGRADE, { kind: "quiz", level: "l2", step: "s1" }, { text: "lesson's" });
+    const examGap = addGap(lessonGap, { kind: "exam", level: "l2", step: "s5" }, { text: "exam's", question: 7 });
+
+    // A lesson's gap left does not hold the upgrade up.
+    expect(nextOf(progress(lessonGap), NONE, LIVE)).toStrictEqual({
+      primary: { type: "upgrade", level: "l2", available: true },
+      secondary: null,
+    });
+    expect(nextOf(progress(examGap), NONE, LIVE)).toStrictEqual({
+      primary: { type: "start", kind: "feynman", level: "l2", step: "s5", gap: "g2", available: true },
+      secondary: { type: "upgrade", level: "l2", available: true },
+    });
+    expect(nextOf(progress(markGap(examGap, "g2", true)), NONE, LIVE)).toStrictEqual({
+      primary: { type: "upgrade", level: "l2", available: true },
+      secondary: null,
+    });
+  });
+
+  it("can start the main button's session, Feynman on any gap not fixed, and a quiz put off", () => {
+    const earlier = {
+      ...PLANNED,
+      steps: { ...PLANNED.steps, l1: [{ id: "s1", kind: "exam" as const, done: { by: "manual" as const } }] },
+    } satisfies StudyFile;
+    const carried = addGap(earlier, { kind: "exam", level: "l1", step: "s1" }, { text: "from level 1" });
+    const later = markStep(report(carried, at("lesson", "s1"), {}), "l2", "s1", "later", true);
+    const gapped = addGap(later, { kind: "quiz", level: "l2", step: "s1" }, { text: "this level" });
+    const fixed = addGap(gapped, { kind: "quiz", level: "l2", step: "s1" }, { text: "fixed" });
+    const file = markGap(fixed, "g3", true);
+
+    expect(startable(progress(file), LIVE)).toStrictEqual([
+      { type: "start", kind: "lesson", level: "l2", step: "s2", available: true },
+      // A gap of an earlier level is the current level's session, with no step.
+      { type: "start", kind: "feynman", level: "l2", gap: "g1", available: true },
+      { type: "start", kind: "feynman", level: "l2", step: "s1", gap: "g2", available: true },
+      { type: "start", kind: "quiz", level: "l2", step: "s1", available: true },
+    ]);
+    // The main button's start is offered even with its session open: that one is given back.
+    expect(startable(progress(PLANNED), LIVE)).toStrictEqual([
+      { type: "start", kind: "lesson", level: "l2", step: "s1", available: true },
+    ]);
+    // The upgrade is not started as a session; a Feynman main button is not listed twice.
+    const examGap = addGap(AT_UPGRADE, { kind: "exam", level: "l2", step: "s5" }, { text: "exam's" });
+
+    expect(startable(progress(examGap), LIVE)).toStrictEqual([
+      { type: "start", kind: "feynman", level: "l2", step: "s5", gap: "g1", available: true },
+    ]);
+    expect(startable(progress(AT_UPGRADE), LIVE)).toStrictEqual([]);
+    expect(startable(progress({ ...PLANNED, steps: {} }), LIVE)).toStrictEqual([
+      { type: "start", kind: "plan", level: "l2", available: true },
+    ]);
+  });
+
+  it("can start nothing archived, broken, of a later version, finished or under discussion", () => {
+    const gapped = addGap(PLANNED, { kind: "quiz", level: "l2", step: "s1" }, { text: "x" });
+
+    expect(startable(progress(gapped), { ...LIVE, archived: true })).toStrictEqual([]);
+    expect(startable(progress(gapped), { ...LIVE, broken: true })).toStrictEqual([]);
+    expect(startable(progress(gapped), { ...LIVE, newer: true })).toStrictEqual([]);
+    expect(startable(null, LIVE)).toStrictEqual([]);
+    expect(startable(progress({ ...gapped, finishedAt: "2026-12-01T00:00:00.000Z" }), LIVE)).toStrictEqual([]);
+  });
+
+  it("finds the session open for a use, level, step and gap: the latest not archived", () => {
+    const sessions = [
+      {
+        sessionId: "f-old",
+        study: { kind: "feynman" as const, level: "l2", gap: "g1" },
+        updatedAt: 1,
+        archived: false,
+      },
+      {
+        sessionId: "f-new",
+        study: { kind: "feynman" as const, level: "l2", gap: "g1" },
+        updatedAt: 5,
+        archived: false,
+      },
+      {
+        sessionId: "f-gone",
+        study: { kind: "feynman" as const, level: "l2", gap: "g1" },
+        updatedAt: 9,
+        archived: true,
+      },
+      {
+        sessionId: "f-step",
+        study: { kind: "feynman" as const, level: "l2", step: "s1", gap: "g1" },
+        updatedAt: 9,
+        archived: false,
+      },
+      {
+        sessionId: "f-other",
+        study: { kind: "feynman" as const, level: "l2", gap: "g2" },
+        updatedAt: 9,
+        archived: false,
+      },
+    ];
+
+    expect(existingFor({ kind: "feynman", level: "l2", gap: "g1" }, sessions)).toBe("f-new");
+    expect(existingFor({ kind: "feynman", level: "l2", step: "s1", gap: "g1" }, sessions)).toBe("f-step");
+    expect(existingFor({ kind: "feynman", level: "l3", gap: "g1" }, sessions)).toBeNull();
+    expect(existingFor({ kind: "quiz", level: "l2", step: "s1" }, sessions)).toBeNull();
+  });
+
+  it("upgrades a middle level: the upgrade done by you, the level done, the next to learn current", () => {
+    const fourLevels = setLadder(FRESH, {
+      levels: [
+        { name: "a", topics: "", pass: "" },
+        { name: "b", topics: "", pass: "", skip: true },
+        { name: "c", topics: "", pass: "" },
+        { name: "d", topics: "", pass: "" },
+      ],
+      lessons: ["one"],
+    });
+    const ready = ["s1", "s2", "s3", "s4"].reduce((file, step) => markStep(file, "l1", step, "step", true), fourLevels);
+    const upgraded = upgrade(ready, "l1", "2026-11-10T00:00:00.000Z");
+
+    expect(ladder(upgraded).map((level) => level.state)).toStrictEqual(["done", "skipped", "current", "todo"]);
+    expect(upgraded.steps?.["l1"]?.at(-1)).toStrictEqual({ id: "s5", kind: "up", done: { by: "manual" } });
+    // The next level is not planned yet; nothing finished.
+    expect(upgraded.steps?.["l3"]).toBeUndefined();
+    expect(upgraded.finishedAt).toBeNull();
+    expect(upgraded.later).toStrictEqual({ keep: true });
+  });
+
+  it("upgrades the last level: the direction finished, no level current", () => {
+    const last = withStates(AT_UPGRADE, { l3: "done" });
+    const finished = upgrade(last, "l2", "2026-11-10T00:00:00.000Z");
+
+    expect(ladder(finished).map((level) => level.state)).toStrictEqual(["skipped", "done", "done"]);
+    expect(finished.finishedAt).toBe("2026-11-10T00:00:00.000Z");
+    expect(steps(finished).at(-1)?.done).toStrictEqual({ by: "manual" });
+    expect(nextOf(progress(finished), NONE, LIVE)).toStrictEqual({ primary: null, secondary: null });
+  });
+
+  it("refuses marks and their undos in a finished direction", () => {
+    const gapped = addGap(AT_UPGRADE, { kind: "quiz", level: "l2", step: "s1" }, { text: "x" });
+    const fixed = markGap(gapped, "g1", true);
+    const finished = upgrade(withStates(fixed, { l3: "done" }), "l2", "2026-11-10T00:00:00.000Z");
+
+    expect(refusal(() => markStep(finished, "l2", "s2", "step", false))).toStrictEqual({
+      code: "study_mark_refused",
+      params: {},
+    });
+    expect(refusal(() => markGap(finished, "g1", false))).toStrictEqual({ code: "study_mark_refused", params: {} });
+    // Before it finished, the same undos are allowed.
+    expect(markStep(fixed, "l2", "s2", "step", false).steps?.["l2"]?.[1]?.done).toBeNull();
+    expect(markGap(fixed, "g1", false).gaps?.[0]?.fixed).toBeNull();
+  });
+
+  it("refuses an upgrade of a level not current, or before its upgrade is the step to do", () => {
+    expect(refusal(() => upgrade(AT_UPGRADE, "l3", "now"))).toStrictEqual({ code: "study_not_available", params: {} });
+    expect(refusal(() => upgrade(AT_UPGRADE, "l9", "now"))).toStrictEqual({ code: "study_not_available", params: {} });
+    expect(refusal(() => upgrade(PLANNED, "l2", "now"))).toStrictEqual({ code: "study_not_available", params: {} });
+    expect(refusal(() => upgrade({ ...PLANNED, steps: {} }, "l2", "now"))).toStrictEqual({
+      code: "study_not_available",
+      params: {},
+    });
+    const upgraded = upgrade(AT_UPGRADE, "l2", "now");
+
+    // Twice from two windows: the second sees the level done.
+    expect(refusal(() => upgrade(upgraded, "l2", "now"))).toStrictEqual({ code: "study_not_available", params: {} });
   });
 });

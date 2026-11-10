@@ -86,6 +86,7 @@ classDiagram
       parent?  [索引] 父会话 id + 谁开的，SPEC-0002
       detachedFrom?  [索引] 脱离前的父会话 id，只用来找上级的演示目录，SPEC-0007
       usageAfter?  [索引] 用量的基线条目 id，SPEC-0002
+      archivedWith?  [索引] 这次归档从哪个会话开始（恢复时只带回同一次归档的子孙），SPEC-0008 ML3
       agent?  [索引] agent 开的子对话：句柄、角色、工具限制、起点模型、任务，SPEC-0002
       usedHandles?  [索引] 用过的句柄，只增不减，SPEC-0002
       deliveries?  [索引] 待送达的通知和交代，SPEC-0002
@@ -136,6 +137,13 @@ classDiagram
   - 方向里所有会话的工作目录都是方向目录（归档的方向是它原来的位置），终端里在方向目录开的 pi 会话按 `cwd` 归到这个方向。宿主建的会话在记录里带 `study`（用途和第几级第几步，ML1 只有新建方向时的"讨论" `{ kind: "discuss" }`）。
   - 新建方向（`create_direction`）：发出第一条消息时宿主先让模型起显示名和英文目录名，起不成时显示名取消息的第一行、目录名随机；目录名在学习目录和 `Archive/` 下都没有用过才用，否则加 `-2`……`-9`，再不行随机。然后建目录、写 `AGENTS.md`、建 `lab/` 并 `git init`，最后写 `.atrium-study.json`：标记文件最后写，中途失败留下的目录不算方向。再在目录里建"讨论"会话，第一条消息由界面像新建工作区那样发给它。
   - **进度**（ML2，2026-11-09）：只在 `.atrium-study.json` 里（阶梯、各级步骤、漏洞、定档），宿主扫描时一起读、严格校验，读不出的按"坏了"算、不写（SPEC-0008"ML2 定的细节"）。Atrium 里改它的只有宿主：agent 的 `study_*` 工具经扩展通道交给宿主（按调用方会话记录里的用途和第几级第几步核对，工具写不到别的步骤上），你的手动标记经 `mark_study_step` / `mark_study_gap`。agent 用自己的 write、edit、bash 改写这个文件拦不住（2026-11-09 用户接受）；改坏的由严格的读法当作"档案读不出来"。同一个方向的写排队一个一个来，每次先重读、保留不认识的字段、写临时文件再改名，写完重扫。"下一步"（`next`）不存，宿主每次出列表时按进度和方向里的会话算出来（StudyRules，纯函数）。宿主开的会话没开起来时，会话摘要的 `kickoff` 记着错误码（只在内存里，重试或开起来后清掉）。方向里的会话记录的 `study` 多了随口问（`+` 开的）和宿主开的上课、速查表、过关项目、综合测验（`start_study_session`）。
+  - **学习循环**（ML3，2026-11-09，SPEC-0008"ML3 定的细节"）：
+    - 测验是上课会话的子对话（`parent.by: "user"`），宿主以 `--fork <上课会话的文件>` 在方向目录起它，文件路径取自上课会话的记录；没有能用的上课会话时是不带上下文的普通会话。费曼、补测、排计划都是方向里的普通会话，只是 `study` 不同。宿主开场的用途是上课、测验、费曼、速查表、过关项目、综合测验、排计划；开没开过场看会话文件里分叉基线（`usageAfter`）之后有没有开场消息，不记在索引里。
+    - StudyRules 除了下一步，还算"现在能开的"集合（主按钮的那个、每个没补的漏洞的费曼、当前一级每个"以后再测"的补测），`start_study_session` 只认集合里的；同一个（用途、级、步、漏洞）已有没归档的会话就给它，不新开。
+    - **升级的命令链**（`upgrade_study`，在方向的队里，同开会话和归档方向）：StudyCommands 在队里重算下一步、核对 `level` → ProgressFiles 原子写档案（升级一步完成、这一级 `done`、下一个 `todo` 的级变 `current`，最后一级写 `finishedAt`）→ SessionManager 按会话记录选出这一级的会话（`study.level` 是这一级、没归档的，讨论和随口问除外）连同子孙一起归档（停 pi，一个失败不挡其他的，记个数）→ SessionManager 开排计划会话并开场（最后一级不开）。只有写档案那一步要原子；它失败什么都不动，之后的失败不回滚：归档能恢复，排计划没开成时下一步的规则给"排计划"。
+    - **方向里一批会话的归档和恢复**：方向在、里面一部分会话归档，和整个方向归档（目录移到 `Archive/`）是两回事。会话的归档同工作区里的会话（记录的 `archived`，连带同容器的子孙，SPEC-0002），只是由升级按级挑出来；恢复经 `restore_study_sessions`，只认这个方向里已归档的会话：连同它在方向里归档了的祖先，和同一次归档的子孙（记录里的 `archivedWith` 一样的）放回；单独归档过的子对话不跟着回来。正在归档的先等它做完。归档了的会话能看、发消息前要先恢复，它的学习工具调用被拒。
+    - **测验分叉占住上课**：宿主查过上课会话没被占着就当场占住，直到测验的 pi 读完上课的文件（起来或没起来）；这期间上课不起 pi、不开新的一轮、不压缩，`usageAfter` 在占住以后读。
+    - `study_set_steps` 只写排计划会话记录的那一级，那一级不是当前一级就拒绝。
 - **SessionContainer** 只表达"会话放在哪、怎么列、新会话在哪个目录建"。工作区和对话都对其中所有会话给同一个目录；新建对话时新建一个目录。标签页不在接口上，在 **ClientLayout**。
 - **Session** 是逻辑会话，以 pi 的会话 id 为主键，文件路径只是可更新的定位：
   - `draft`：pi 已分配 id，但还没有用户消息，文件尚未写出；只能由宿主记住，扫描找不到。
@@ -782,6 +790,9 @@ classDiagram
 | `rename_direction` / `pin_direction` / `unpin_direction` | LearningRecords（`learning.json`），走 IndexFeed 推一次（ML1） |
 | 归档方向的会话的 `subscribe_sessions` / `fetch_transcript` / `fetch_step` / `fetch_image` | SessionManager → ReadOnlyTranscripts：读会话文件重建，不起 pi（2026-11-06） |
 | `archive_direction` / `restore_direction` | StudyCommands → SessionManager（停 pi、挡住新会话）→ Directions（移动目录、重扫）（ML1） |
+| `start_study_session` | StudyCommands（方向的队里重算下一步和"现在能开的"集合，已有同一用途的会话就给它）→ SessionManager（建会话并开场；测验以 `--fork <上课会话的文件>` 开成上课的子对话）（ML2，ML3 放宽） |
+| `upgrade_study` | StudyCommands（方向的队里核对 `level`）→ ProgressFiles（原子写档案）→ SessionManager（归档这一级的会话连同子孙、开排计划会话并开场）（ML3） |
+| `restore_study_sessions` | StudyCommands（方向的队里核对会话都属于这个方向）→ SessionManager（放回会话连同子孙）（ML3） |
 | `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `clear_attention` / `detach_session` | SessionManager；`create_session` 带 `child` 时开子对话，新 worktree 的经 WorktreeCreator 从父工作区当前的提交建（M1.15） |
 | `remove_delivery` / `resume_deliveries` | SessionManager → AgentRelay：删掉一条待送的，或放开宿主重启后暂停的（`tree` 时连同子树），再交给收件会话的 SessionController（M1.15） |
 | `subscribe_index(cursor?)` | IndexFeed |

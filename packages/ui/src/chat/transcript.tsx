@@ -14,6 +14,10 @@ import { LoadStepContext } from "./steps";
 import { OpenFileContext, type FileOpener } from "./file-opener";
 import { CompactingCat, RunStatus } from "./run-status";
 import { type ForkFromTurn, NoticeView, TurnView } from "./turn-view";
+import { useAgentLinks } from "./agent-links";
+import { copiedItems } from "../study/loop";
+import { CopiedTurns, QuizHead } from "../study/quiz-head";
+import { useStudySession } from "../study/study-label";
 
 /**
  * Asks for older items when the top of the transcript comes into view.
@@ -324,7 +328,8 @@ function cutBefore(items: readonly TranscriptItem[], index: number): boolean {
  * The launch that made the session from the new-workspace page shows in its first turn, from the
  * moment it is sent, a stand-in until the host's turn arrives under the same key, so nothing is
  * mounted again; the session's pending copy of its message and the run's own line give way to
- * it (SPEC-0001, "M1.11 的新建工作区").
+ * it (SPEC-0001, "M1.11 的新建工作区"). A study quiz that is a lesson's child starts with where it
+ * came from and folds the lesson's turns it copied into one row (SPEC-0008, prototype 1A).
  *
  * @sideEffects Observes the content's size and scrolling while mounted; asks for older items.
  * @param props - The session's view, how to load older items, how to fetch a step whole, how to
@@ -373,6 +378,13 @@ export function Transcript({
   const pending = standIn === undefined ? view.pending : view.pending.slice(1);
   // One key for the stand-in and the host's turn after it, so the turn is not mounted again.
   const launchKey = `launch:${shownLaunch?.launch.id ?? ""}`;
+  // A quiz child of a lesson: its head, and the lesson's turns it copied folded (SPEC-0008, prototype 1A).
+  const study = useStudySession();
+  const quizChild = study?.study.kind === "quiz" && study.parentId !== null ? study : null;
+  const copied = quizChild === null ? 0 : copiedItems(items);
+  const copiedTurns = items.slice(0, copied).filter((item) => item.kind === "turn").length;
+  const [copiedShown, setCopiedShown] = useState(false);
+  const agentLinks = useAgentLinks();
   return (
     <LoadStepContext value={onLoadStep}>
       <OpenFileContext value={openFile ?? null}>
@@ -386,8 +398,27 @@ export function Transcript({
                   <p className="text-center text-[length:var(--fs-sm)] text-[var(--text-dim)]">正在加载更早的记录…</p>
                 ) : null}
               </div>
+              {quizChild === null ? null : (
+                <div className="flex flex-col gap-2">
+                  <QuizHead
+                    lessonTitle={quizChild.lessonTitle}
+                    onBack={
+                      agentLinks === null || quizChild.parentId === null
+                        ? null
+                        : () => agentLinks.open(quizChild.parentId ?? "")
+                    }
+                  />
+                  {copiedTurns === 0 ? null : (
+                    <CopiedTurns
+                      count={copiedTurns}
+                      shown={copiedShown}
+                      onToggle={() => setCopiedShown(!copiedShown)}
+                    />
+                  )}
+                </div>
+              )}
               {items.map((item, index) =>
-                item.kind === "turn" ? (
+                index < copied && !copiedShown ? null : item.kind === "turn" ? (
                   <TurnView
                     key={item === standIn || item === launchTurn ? launchKey : item.id}
                     turn={item}

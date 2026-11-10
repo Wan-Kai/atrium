@@ -62,6 +62,14 @@ export interface FauxScript {
    */
   readonly childReplies?: readonly FauxReply[];
   /**
+   * What a pi Atrium started for a learning use says instead, by the use its `--atrium-study=…`
+   * flag names (SPEC-0008, "ML2 定的细节"), so each session of a direction answers as its use
+   * does from one script. Picked by how many replies the model gave since the session's own start
+   * (its newest `<atrium-study` message), so a quiz forked from its lesson starts at its own first
+   * reply, and a pi started again goes on where its conversation is.
+   */
+  readonly studyReplies?: Readonly<Partial<Record<string, readonly FauxReply[]>>>;
+  /**
    * What a child the agent opened at depth 2 or more says instead of `childReplies`, so a child
    * and its own child can answer differently. A child's replies are picked by how many the model
    * already gave in its conversation, as its pi may be stopped and started again between them.

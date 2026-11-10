@@ -49,6 +49,8 @@ export {
   MarkStudyStepCommand,
   MarkStudyGapCommand,
   RetryStudyKickoffCommand,
+  UpgradeStudyCommand,
+  RestoreStudySessionsCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,

@@ -141,15 +141,16 @@ export type StudyProgress = z.infer<typeof StudyProgress>;
  * What a step-strip button does, as the host worked it out (SPEC-0008, "下一步怎么算").
  *
  * @remarks
- * `available` is false for sessions not made yet (in ML2 the quiz, the Feynman session and the
- * upgrade), drawn but not to be pressed.
+ * `available` was false in ML2 for the sessions not made yet (drawn as "即将开放"); since ML3
+ * every one can be pressed (SPEC-0008, "ML3 定的细节 · 协议"). A start has no `step` for a plan
+ * session (a level with no lessons yet) and for Feynman on a gap carried from an earlier level.
  */
 export const StudyAction = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("start"),
     kind: StudyKind,
     level: StudyRef,
-    step: StudyRef,
+    step: StudyRef.optional(),
     gap: StudyRef.optional(),
     available: z.boolean(),
   }),

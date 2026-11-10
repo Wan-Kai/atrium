@@ -578,6 +578,19 @@
   "retry_study_kickoff": [
     {}
   ],
+  "upgrade_study": [
+    {
+      "planSessionId": "s1",
+      "notArchived": 0
+    },
+    {
+      "planSessionId": null,
+      "notArchived": 2
+    }
+  ],
+  "restore_study_sessions": [
+    {}
+  ],
   "window_focused": [
     {}
   ],

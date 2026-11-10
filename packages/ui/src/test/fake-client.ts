@@ -698,11 +698,21 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     async startStudySession(
       directionId: string,
-      study: { readonly kind: string; readonly level: string; readonly step: string; readonly gap?: string },
+      study: { readonly kind: string; readonly level: string; readonly step?: string; readonly gap?: string },
     ) {
       calls.push(`startStudySession ${directionId} ${JSON.stringify(study)}`);
       await answers.directionCommand?.();
       return { sessionId: "s-study" };
+    },
+    async upgradeStudy(directionId: string, level: string, archiveSessions: boolean) {
+      calls.push(`upgradeStudy ${directionId} ${level} ${String(archiveSessions)}`);
+      await answers.directionCommand?.();
+      return { planSessionId: null, notArchived: 0 };
+    },
+    async restoreStudySessions(directionId: string, sessionIds: readonly string[]) {
+      calls.push(`restoreStudySessions ${directionId} ${sessionIds.join(",")}`);
+      await answers.directionCommand?.();
+      return {};
     },
     async markStudyStep(directionId: string, level: string, step: string, mark: string, done: boolean) {
       calls.push(`markStudyStep ${directionId} ${level} ${step} ${mark} ${String(done)}`);

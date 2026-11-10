@@ -149,11 +149,14 @@ export function agentLaunchFlags(entries: readonly LaunchEntry[], sessionId: str
  * @sideEffects none
  * @param entries - Every session.
  * @param sessionId - The session.
+ * @param unforked - A quiz with its lesson as parent that could not fork from it after all.
  * @returns The flag, or none.
  */
-export function studyLaunchFlags(entries: readonly LaunchEntry[], sessionId: string): string[] {
+export function studyLaunchFlags(entries: readonly LaunchEntry[], sessionId: string, unforked = false): string[] {
   const entry = entries.find((candidate) => candidate.sessionId === sessionId);
   const study = entry?.study ?? null;
   if (entry === undefined || !isDirectionId(entry.containerId) || study === null || study.kind === "ask") return [];
-  return [`--${STUDY_FLAG}=${studyArgument({ ...study, kind: study.kind })}`];
+  // A quiz not forked from its lesson is told it has none of the lesson's conversation (SPEC-0008, "ML3 定的细节").
+  const alone = study.kind === "quiz" && (unforked || (entry.parent ?? null) === null);
+  return [`--${STUDY_FLAG}=${studyArgument({ ...study, kind: study.kind, ...(alone ? { context: "none" } : {}) })}`];
 }

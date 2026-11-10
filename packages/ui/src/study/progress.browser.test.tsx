@@ -78,9 +78,9 @@ const FINISHED: StudyProgress = {
   finishedAt: "2026-12-01T00:00:00.000Z",
 };
 
-/** What the host offers at the second lesson: the quiz (not open in ML2), or putting it off. */
+/** What the host offers at the second lesson: the quiz, or putting it off. */
 const QUIZ_NEXT: StudyNext = {
-  primary: { type: "start", kind: "quiz", level: "l2", step: "s2", available: false },
+  primary: { type: "start", kind: "quiz", level: "l2", step: "s2", available: true },
   secondary: { type: "mark", mark: "later", level: "l2", step: "s2" },
 };
 
@@ -165,8 +165,8 @@ describe("the step strip (SPEC-0008, ML2; prototype 2D)", () => {
       [...strip.element().querySelectorAll("i[data-state]")].map((dot) => dot.getAttribute("data-state")),
     ).toStrictEqual(["done", "current", "todo", "todo", "todo", "todo", "todo"]);
     const quiz = strip.getByRole("button", { name: "开始测验" });
-    await expect.element(quiz).toBeDisabled();
-    await expect.element(quiz).toHaveAttribute("title", "即将开放");
+    await expect.element(quiz).toBeEnabled();
+    expect(quiz.element().getAttribute("title")).toBeNull();
     await strip.getByRole("button", { name: "以后再测" }).click();
 
     expect(calls).toContain(`markStudyStep ${GO} l2 s2 later true`);
@@ -200,7 +200,7 @@ describe("the step strip (SPEC-0008, ML2; prototype 2D)", () => {
     await expect.element(strip.getByLabelText("在跑")).toBeVisible();
     await expect.element(screen.getByTestId("direction-home")).not.toBeInTheDocument();
     const tabs = screen.getByRole("tablist", { name: "打开的会话" });
-    await expect.element(tabs.getByRole("tab", { name: /上课 · 第 2 级第 3 步/ })).toBeVisible();
+    await expect.element(tabs.getByRole("tab", { name: /上课 · select/ })).toBeVisible();
     await strip.getByRole("button", { name: "回到会话" }).click();
 
     expect(calls).toContain("openSession lesson");
@@ -288,7 +288,7 @@ describe("a direction's home with its progress (ML2; prototypes 1A, 3A, 4A, 5A)"
     const card = screen.getByRole("region", { name: "当前步骤" });
 
     await expect.element(card).toHaveTextContent("第 2 步 · 上课channel上课›测验›补漏开始测验");
-    await expect.element(card.getByRole("button", { name: "开始测验" })).toBeDisabled();
+    await expect.element(card.getByRole("button", { name: "开始测验" })).toBeEnabled();
     const steps = screen.getByRole("region", { name: "步骤" }).getByTestId("study-step");
     await expect
       .poll(() => steps.elements().map((row) => row.getAttribute("data-state")))
@@ -375,8 +375,8 @@ describe("a direction's home with its progress (ML2; prototypes 1A, 3A, 4A, 5A)"
     }
   });
 
-  it("says a quiz put off is not taken, and offers 补测 on hover, not open yet", async () => {
-    const { screen } = await home({ progress: LATER });
+  it("says a quiz put off is not taken, and offers 补测 on hover, a quiz of that step (ML3)", async () => {
+    const { screen, calls } = await home({ progress: LATER });
     const first = screen.getByRole("region", { name: "步骤" }).getByTestId("study-step").nth(0);
 
     await expect.element(first.getByText("没测")).toBeVisible();
@@ -384,7 +384,9 @@ describe("a direction's home with its progress (ML2; prototypes 1A, 3A, 4A, 5A)"
     await first.hover();
     const retake = first.getByRole("button", { name: "补测" });
     await expect.element(retake).toBeVisible();
-    await expect.element(retake).toBeDisabled();
+    await retake.click();
+
+    await expect.poll(() => calls).toContain(`startStudySession ${GO} {"kind":"quiz","level":"l2","step":"s1"}`);
   });
 
   it("marks a gap fixed by hand from its hover button, and takes it back", async () => {

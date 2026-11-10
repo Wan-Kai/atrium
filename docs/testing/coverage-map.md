@@ -196,6 +196,104 @@
 - 破坏检查 `packages/host/test/study-progress.break-check.json` 53/53 检出（新加 20 处；"同时按两下"首轮漏检，测试里的会话管理替身改成像真的一样隔一轮事件循环才记下会话后检出）。临时文件"写到一半失败"那一步没有能在测试里造出来的失败方式，没有破坏检查，只靠"建出来就归这次写"的结构和改名失败的用例。
 - 变异：`studyProgress` 组 93.22%（progress-file 94.37、progress-rules 92.38、progress 98.19、study-tools 89.09）；`study` 组只变 `study-commands.ts`、`directions.ts` 84.02%；`ui` 组 `study/progress.ts` 89.66%；`pi` 组 `study/extension.ts` 96.53%（首轮 42.08%：工具的说明和参数没有测试，补了整份比对）；`visuals` 组 `visual-service.ts` 72.44%，低于 80%：存活的都在这次没改的 `resolve`、`serve`、`disconnect`、`watchFolder` 等代码里，改动的 `send` 和新的 `claim` 里没有存活的（两处只释放内存、与下面判断等价的用 `Stryker disable` 写明）。
 
+
+## 学习模式 ML3：学习循环（SPEC-0008"ML3 定的细节"，2026-11-09）
+
+测验是上课会话的子对话（`--fork <上课会话的文件>`）；开场按会话文件判断；"现在能开的"集合；升级（档案、归档这一级的会话、排计划）；方向里归档的会话和恢复；界面按原型 `study-loop-prototype.html` 的 1A 2A 3B 4A 5B 6A 7C。协议 36 → 37。
+
+### 宿主与协议
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 下一步：这一级还没有课 → 排计划（有这一级的排计划会话时回到它）；升级这一步、综合测验有没补的漏洞 → 跑费曼（综合测验那一步第一个）＋次要"升级"，没有或补完 → 升级；课的漏洞不挡升级；所有按钮 `available: true` | `packages/host/src/study/progress-rules.test.ts`（"ML3: planning, the exam's gaps and the upgrade"） |
+| "现在能开的"集合：主按钮的那个（含排计划）、每个没补的漏洞的费曼（当前一级的带来源那一步，之前几级的不带步）、当前一级每个"以后再测"的补测；不重复；归档、坏了、版本更高、学完、讨论中都是空的；同一个（用途、级、步、漏洞）最新的没归档会话 | 同上 |
+| 升级的规则：中间一级（升级一步 `done: { by: "manual" }`、这一级 `done`、后面第一个 `todo` 变 `current`、跳过的不动、不排下一级的课、不认识的字段留着）；最后一级写 `finishedAt`；不是当前一级、升级还不是当前这一步、没有课、第二次升级都 `study_not_available` | 同上 |
+| 命令：费曼和补测按集合开，别的 `study_not_available`；同时按两下只开一个、第二下拿到第一个并打开它；升级（勾着归档：只归档这一级没归档的、讨论随口问和别的级不算；不勾不归档；排计划开在下一级，之后下一步是"回到这个会话"）；最后一级不开排计划；没给的、别的级、两个窗口各升一次只升一次；排计划没开成照样升级、日志只有方向 id、下一步是"排计划"；归档的方向、坏文件、版本更高拒绝；写档案失败什么都不做；先来的归档方向之后的升级 `direction_archived`；恢复：一个不是这个方向的就整条 `session_not_found`、没归档的跳过、归档的方向拒绝 | `packages/host/src/study/study-commands.test.ts`（"StudyCommands learning loop (ML3)"） |
+| 测验是上课的子对话：记录（`parent.by: "user"`、`usageAfter` 是上课文件最后一条、没有名字）、pi 以 `--fork <上课的文件> --session-id <id>` 在方向目录起、`--atrium-study` 是测验的、标签打开、开场发一次；取这一步最近活动的上课会话；没有能用的上课会话（手动标的、草稿、归档的）时普通会话、`context: "none"`；上课在跑时 `session_busy`、什么都不建 | `packages/host/src/sessions/session-manager.test.ts`（"SessionManager the learning loop (SPEC-0008, ML3)"）；`agent-launch.ts` 由同一组用例看参数 |
+| 开场按会话文件判断：基线之后有这个用途的开场不发（重启后）；只有上课的开场时发，基线找得到找不到都对；基线之前同一用途的开场不算；上课文件里有开场不发；刚发还没写进文件时打开两次只发一次；只有你的一轮、没有开场的也发（ML2 的旧规则改了）；排计划、费曼宿主开场，"重试"认它们 | 同上 |
+| 归档一批会话：连同子对话、停 pi、不归档讨论；找不到的记个数；归档了的方向内会话从文件只读地看、不起 pi、要 pi 的命令 `session_not_found`；恢复连同子孙、丢掉只读副本 | 同上 |
+| 路由：`upgrade_study`、`restore_study_sessions`、没有步的 `start_study_session` 交给学习命令，错误码原样回；手机按 `local_only` 拒绝 | `packages/host/src/server/router.test.ts` |
+| 真实宿主经 WebSocket：别的级升级被拒；升级后档案、这一级的综合测验会话归档、排计划会话（`{ kind: "plan", level: "l2" }`）、下一步回到它；再升一次被拒；恢复别处的会话被拒、恢复这一个；ML2 那条的测验现在能点 | `packages/host/src/study.host.test.ts` |
+| 协议 37：新命令和结果、没有步的开始、计划和真的升级按钮；Swift 类型和往返夹具重新生成 | `packages/protocol/src/envelope.test.ts`、`remote.test.ts`；`apps/ios/AtriumKit/Tests/AtriumProtocolTests` |
+
+### pi 扩展
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| `--atrium-study` 的 `context: "none"`：只认测验、只认 `"none"`，别的值或别的用途整个标志当作没有；开场的 `details.study` 里不带它 | `packages/pi/src/study/study.test.ts`（"reads a quiz with no lesson…"）；契约 `study-quiz-none` |
+| 提示词：测验 5～10 题、一次一题、连续两题答不上就停、选择题用 `ask_user`、每题 10 分可部分给分、`of` 是 10×题数、漏洞带题号、再报覆盖；综合测验 10 题、`of` 100；费曼先读 `gaps` 里的那条、讲清楚才 `study_fix_gap`、讲不清不标并停下、讲解写进 `notes/`；排计划先读阶梯和没补的漏洞、提议并问"准备这样排，确认吗？"、确认后才调 `study_set_steps`、成功后两三句收尾停下、只可追加 `resources.md` | `packages/pi/src/study/study.test.ts`（ML3 的 5 条） |
+| 开场：分叉来的测验写明"上课的对话在上面"，不带上下文的写明按 `notes/` 和档案出题，开场标签带 `context="none"`；别的用途都没有这两句 | 同上（"tells a quiz with no lesson…"） |
+| pi 契约：`--fork <上课的文件> --session-id <id> --atrium-study=<测验>` 起的 pi 工具表是测验的两个、最后一条系统消息是测验段（复制来的上课那条也在，排在前面）、模型收到上课的轮、开场开一轮测验；不带上下文的测验开场文字；排计划只有 `study_set_steps` 和它的提示 | `packages/pi/src/contract/study.pi.test.ts`（夹具 `pi-1.5.0/study-quiz-fork`、`study-quiz-none`、`study-tools-plan`，faux 模型录的） |
+| 破坏检查 | `packages/host/test/study-loop-pi.break-check.json` 19 处全部检出 |
+
+### 界面
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 纯逻辑：测验挂的上课会话（这一步最近活动、没归档的上课会话）和它在跑时"开始测验"要等；这一级要归档的会话（不含讨论、随口问、别的级，连带子孙）；升级确认框的标题、正文、X、R、Z、按钮（中间一级、跳过的级、最后一级、没有会话和漏洞）；漏洞分组（这一级、之前带来的、之前已补）；费曼的记录（当前一级，来自这一级才带步）、已开的费曼会话；一级里归档的会话按步骤分组（子对话跟着父会话，环不死循环）；测验子对话复制来的条目数；学习工具的一行人话和小方块；会话名（测验 · 课名、费曼 · 漏洞、排计划 · 第 N 级，测验子对话不用复制来的第一条消息） | `packages/ui/src/study/loop.test.ts`；`progress.test.ts`（说明"测验 32/50 · 2 个漏洞""综合测验还有 N 个漏洞"、"学完"按钮、`studySessionTitle`）；`learning.test.ts`（升级确认的状态、`session_busy` 等说法） |
+| 步骤条（2A）：上课在跑时"开始测验"变淡、悬停"等上课这一轮结束"、轮结束后能点；跑费曼 + 进入下一步；综合测验有漏洞时跑费曼 + 升级；没排课时没有点阵、"还没排课"和"排计划"，排计划会话开着时"排计划中"、"回到会话"和绿点；最后一级"学完"；"即将开放"去掉 | `packages/ui/src/study/study-loop.browser.test.tsx`；`progress.browser.test.tsx`（ML2 的用例改成按钮能点、补测开测验） |
+| 升级确认框（4A）：标题、正文、默认勾上的归档、带来的漏洞、勾着时会停掉几个；取消勾以后发 `archiveSessions: false`、红字消失；"先不升"不发命令；主页当前步骤卡也能开；最后一级的"学完"版没有复选框和漏洞行 | `study-loop.browser.test.tsx` |
+| 升级后没排课的主页（6A）：排计划卡（带来的漏洞数）、"开始排计划"开 `{ kind: "plan", level }`、步骤是虚线占位；排计划会话开着时"回到会话"和绿点 | 同上 |
+| 漏洞（3B）：这一级 / 之前带来的两组和数、之前已补收成一行能展开；悬停"跑费曼"按当前一级开（带过来的不带步）、已有费曼会话时"回到费曼"打开它；已补的没有按钮 | 同上 |
+| 方向里归档的会话（5B）：阶梯展开一级有"会话 N 个 · 已归档"，按步骤列出、测验带分数，悬停"恢复"发 `restore_study_sessions`，点一行打开；没有归档的级不画；打开归档的会话没有输入框，换成"这个会话已归档"和"恢复" | 同上 |
+| 测验子对话的开头（1A）：来源条"测验 · 来自上课「课名」"和"回到上课"（打开上课会话）、复制来的轮收成"这节课的 N 轮"能展开、标签名"测验 · 课名"；没带上下文的测验来源行写"没带上课的上下文"、没有来源条 | 同上 |
+| 过程轨道上的学习工具（7C）：记下漏洞、报告的一行人话，记漏洞的节点是 `--attn` 小方块，点开是工具名、参数和"写到 第 N 级第 M 步 · 用途"；补上漏洞写档案里那个漏洞的字、节点是 `--ok` 小方块 | 同上 |
+
+### 端到端与泄漏
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 端到端（faux 模型，按 `--atrium-study` 的用途给回复：`studyReplies`）走完一级：讨论 `study_set_ladder`（2 级、第 1 级 1 节课）→ 上课 `study_report` → 开始测验（上课的子对话，`parent.by: "user"`，来源条和"这节课的 1 轮"，模型收到上课的回复、工具表有 `study_add_gap` 没有 `study_set_ladder`）→ 提问卡片答一题 → `study_add_gap` + `study_report` → 跑费曼 `study_fix_gap` → 进入下一步 → 速查表、过关项目、综合测验（留一个漏洞）→ 次要按钮"升级"、确认框写带过去 1 个漏洞、复选框默认勾上 → 排计划开场、`study_set_steps` → 步骤条第 2 级第 1 步；第 1 级 6 个会话都归档、讨论还在、档案里第 1 级 `done`、漏洞一个已补一个带过去 | `apps/desktop/e2e/study-loop.spec.ts` 第一条 |
+| 端到端：最后一级（第 1 级跳过）以后再测、速查表、项目、综合测验后"学完"，确认框"学完最后一级"，方向"已学完"、写了 `finishedAt`、不开排计划 | `apps/desktop/e2e/study-loop.spec.ts` 第二条 |
+| 测验子对话的面包屑按用途起名，不用复制来的上课第一条消息（真实模型检查时发现） | `packages/ui/src/children/children.browser.test.tsx`（"names a lesson's quiz by its use"） |
+| 泄漏：在跑的上课、它的测验子对话、费曼被升级一起归档（6 轮，每轮之后恢复、再跑、再升级，排计划会话归档）：pi 进程退出、controller、订阅、计时器、句柄回到基线；归档中断掉的开场不记错误 | `packages/host/src/sessions.leak.test.ts`（"study resources (SPEC-0008, ML3)"） |
+
+验证记录（2026-11-09）：
+
+- `pnpm check` 通过（格式、lint 含 JSDoc、类型、knip、`boundary --all`、iOS 检查）。
+- `pnpm test`：单元 4938/4938（262 个文件），Swift AtriumKit 475/475；宿主层 254/254；UI 1259/1259（之后又加了面包屑 1 条，children 文件 23/23）；leak（vitest）24/24（含新的升级归档泄漏测试）。
+- 破坏检查：`study-loop-host.break-check.json` 35/35、`study-loop-ui.break-check.json` 26/26、`study-loop-pi.break-check.json` 19/19，全部检出（宿主首轮漏 3 处：`HOST_OPENED` 的用例只看了直接开的路径，补了"重试"的断言；挑最新上课会话的用例三个文件时间太近，改成显式设时间；"已归档的跳过"只省事、行为不变，去掉了这一条）。
+- 变异（增量）：`progress-rules.ts` 91.63%，`study-commands.ts` 83.86%；UI 的 `study/loop.ts` 89.38%、`study/progress.ts` 91.46%（UI 那次跑在 `loop.ts` 最后一次只改 lint 的修改之前）。`session-manager.ts` 的改动由破坏检查守，没跑变异（整组太慢）。
+- e2e：`study-loop.spec.ts` 2/2、`study.spec.ts` 2/2 通过。整套 e2e 误跑了一遍（命令过滤没生效，含 `@perf`、`@package`，没有执行 `pnpm package`）：93 过 6 失败；其中 `app.spec.ts`"gives the page no Node access…"（桥上多了 `openTerminal` 等，终端那次合并留下的）和 `children.spec.ts`"forks a child into a new worktree…"在 `main`（ec9a3d0）上同样失败，和本改动无关；`status-bar.spec.ts` 在单跑时通过；`changes.perf`、两条 `@package` 是没打包、性能门槛的，不属于这次。
+- 真实模型检查见 SPEC-0008"ML3 定的细节 · 真实模型检查"。
+
+- 界面（UI 分支）：`pnpm test:ui` 1259/1259（69 个文件，含新文件 `study-loop.browser.test.tsx` 17 条）；单元 `packages/ui` + `packages/client` 890/890（含 `loop.test.ts` 18 条）。破坏检查 `packages/host/test/study-loop-ui.break-check.json` 25/25 检出（首轮漏 1 处：确认框"会停掉"一行在取消勾以后还显示，原断言用了 `not.toHaveTextContent`，它是整段比对、永远通过，改成比对整段文字后检出）。变异 `ui` 组 `study/loop.ts` 89.38%、`study/progress.ts` 91.46%（合计 90.16%）。明暗截图对照原型（`/private/tmp/claude-501/atrium-ml3-real/shots/ui-*.png`）。
+
+### 三方评审后修（2026-11-09，gpt-6-astra、grok-4.7、Claude；用户定 A～E）
+
+| 行为 | 测试 |
+|---|---|
+| `study_set_steps` 只写排计划会话记录的那一级；不是当前一级（旧的、恢复的排计划）`study_not_allowed`，文件不动 | `progress-rules.test.ts`（"writes only the level the plan session is recorded at"）；`study-tools.test.ts`（"writes a plan session's lessons only at the level"） |
+| "没有课"按没有课步骤算：只剩速查表这几步的一级给"排计划"，`study_set_steps` 把课写在前面、留着原来的几步（id 不重用） | `progress-rules.test.ts`（"a current level with no lessons yet"、"plans a level hand-edited down"）；界面 `direction-home.tsx`、`step-strip.tsx` 的占位由破坏检查守 |
+| 已学完的方向宿主拒绝手动标记和撤回（步骤、漏洞都 `study_mark_refused`）；主页没有"···"、勾和"撤回" | `progress-rules.test.ts`（"refuses marks and their undos in a finished direction"）；`study-loop.browser.test.tsx`（"offers no manual mark or undo"） |
+| 升级时这一级已有没归档的排计划会话就打开它，不开第二个 | `study-commands.test.ts`（"opens the plan session of the next level open already"） |
+| 测验分叉占住上课：查过以后占住，到测验的 pi 读完上课文件为止；占着时上课的消息不交给 pi（停止过、排队暂停的也照样在放开后发）、第二个测验 `session_busy`；没起 pi 的上课等测验的 pi 起来再起；`usageAfter` 是复制的最后一条；"会话被占着"含在停止 | `session-manager.test.ts`（"holds the lesson from the busy check…"、"holds a lesson with no pi…"） |
+| 上课文件找不到、读不了：退回不带上下文的测验（没有 `parent`、`context: "none"`、不 `--fork`）；日志只有会话 id 和错误码，没有路径 | `session-manager.test.ts`（"…when the lesson's file is gone, logging ids and codes only"） |
+| 分叉没跑过的测验重启后从上课文件再分叉（同样占住）；上课文件没了就不带上下文起；`forget` 清掉分叉来源 | `session-manager.test.ts`（"forks a quiz whose pi never started…"）；`agent-launch.test.ts`（"tells a quiz with no lesson's conversation so"） |
+| 停止丢掉的开场：同一次宿主运行里"重试"再发 | `session-manager.test.ts`（"sends the start again after a stop dropped it"） |
+| 一棵树里一个归档失败：其余照样归档、从布局去掉，`notArchived` 按会话数 | `session-manager.test.ts`（"archives the rest of a tree when one of it cannot be"） |
+| 恢复（A）：恢复子对话连同归档的祖先；恢复父会话只带回同一次归档的子孙（`archivedWith`），之前单独归档的不回来；恢复先等进行中的归档 | `child-tree.test.ts`（`restoreSet`）；`session-catalog.test.ts`（"records what a session was archived with"）；`session-manager.test.ts`（"restores a child with its archived lesson…"） |
+| 归档了的、正在归档的会话调学习工具 `study_not_allowed` | `study-tools.test.ts`（`shelved`）；`session-manager.test.ts`（"tells whether a session is being archived"，`main.ts` 用它） |
+| 宿主开的学习会话不自动起标题（B） | `session-manager.test.ts`（"gives no title to a session the host opened for a use"） |
+| 会话名（B）：上课 / 测验"· 课名"、速查表 / 过关项目 / 综合测验 / 排计划"· 第 N 级"、费曼"· 漏洞前段"，不用第一条消息；讨论、随口问照旧；有名字用名字 | `progress.test.ts`（`studySessionTitle`）；`loop.test.ts`（`loopSessionName`）；`children.browser.test.tsx`、`progress.browser.test.tsx`、`study-loop.browser.test.tsx` 的标签和列表 |
+| 升级一步的名字按后面第一个没跳过的级，没有就"学完最后一级"；已学完的方向显示最后学完的一级 | `progress.test.ts`（"names the upgrade by the next level not skipped"、"shows a finished direction's last level learnt"）；`study-loop.browser.test.tsx`（步骤条、卡片、步骤行） |
+| 开始测验 / 补测变淡（C）：只看这个方向的会话；界面开着上课会话时在停止、压缩、重启、有排队也变淡；宿主回 `session_busy` 时写"等上课这一轮结束" | `loop.test.ts`（"waits while the lesson shown here stops…"）；`study-loop.browser.test.tsx`（"only for this direction's lesson"、"while the lesson shown here stops"、"fades 补测"）；`learning.test.ts` |
+| "回到费曼"和宿主一样按（用途、级、步、漏洞）对上 | `loop.test.ts`（"finds the Feynman session open for a gap's start"） |
+| 之前几级没归档的会话列在"其他会话" | `study-loop.browser.test.tsx`（"lists sessions of an earlier level"） |
+| 已归档的会话"恢复"键盘能到 | `study-loop.browser.test.tsx`（"reaches an archived session's 恢复 by the keyboard"） |
+| 测验子对话：较早的没加载、显示的里没有测验开场时全部收起 | `loop.test.ts`（"are all before the quiz started…"） |
+| 提示词（D）：选择题一律提问卡片、答错当场讲；排计划除了追加 `resources.md` 不建不改文件；上课不建探查文件；不对学生说内部 id；契约夹具重录 | `study.test.ts`；`study.pi.test.ts`（faux 夹具重录） |
+| 泄漏：开场的记账、分叉来源、占住都算资源（`CountedMap`），升级归档几轮后都是 0 | `resources.test.ts`（`CountedMap`）；`sessions.leak.test.ts`（"study resources"） |
+| 破坏检查 | `study-loop-host.break-check.json`、`study-loop-ui.break-check.json`、`study-loop-pi.break-check.json`（数字见验证记录） |
+
+验证记录（2026-11-10，评审后修）：
+
+- `pnpm check` 通过。`pnpm test`：单元 4965/4965（262 个文件）、Swift AtriumKit 475/475。同一轮之前一次在机器忙时跑出 33 个超时（git、登录 shell、errors 脚本等，单跑全过，第二次整跑全过）。宿主层 254/254；UI 1268/1268；leak（vitest）24/24、e2e 泄漏 12/12；e2e `study-loop.spec.ts` + `study.spec.ts` 4/4；学习契约 `study.pi.test.ts` 9/9（夹具按新提示词重录）。
+- 破坏检查：宿主 59/59、UI 42/42、pi 23/23 全部检出（首轮宿主漏 7、UI 漏 3：树里归档失败只数了一个、占住和 `ensureRunning` 的等待、上课没有文件的再分叉、`forget` 清分叉来源、不自动起标题、UI 三条用例改了名；各补了断言或改了用例；只守控制器的那层占住〔挡宿主自己排队和通知〕没有能单独抓住它的用例，删掉了这一条，记在这里）。
+- 变异（增量）：`progress-rules.ts` 92.40%、`study-commands.ts` 84.69%、`ui` 组 `study/loop.ts` 100%、`study/progress.ts` 92.07%（合计 96.49%）。`session-manager.ts`、`child-tree.ts` 的改动由破坏检查守，没跑变异。
+- "会话被占着"含在停止（`control.stopping`）：在跑的会话停止时 `busy` 一般还在，没有单独抓住这一项的用例。
+- 真实模型检查见 SPEC-0008"ML3 定的细节 · 评审修完后的第二次真实模型检查"。
+
 ## 在终端中打开；拿掉"交给终端"（2026-11-05）
 
 用户定：标签栏"···"里的"在终端中继续"改成"在终端中打开"，只开终端、不再交接——不停 pi、不写索引、不复制也不运行命令。目录是会话所在工作区的目录，对话用 `~`；cmux 装着就在它当前窗口新开一个工作区并切到 cmux，没跑就先启动，没装就用系统"终端"。整套交接机制（`hand_off` / `take_back`、`handedOff`、"已在终端中继续"面板、子对话的 `handed_off` 状态、`agent_handed_off`）一并去掉，协议 33。

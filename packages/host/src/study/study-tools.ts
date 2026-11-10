@@ -53,7 +53,8 @@ function changeFor(call: StudyCall, study: SessionStudy): (file: StudyFile) => S
     }
     case "study_set_steps": {
       const { lessons } = call.args;
-      return (file) => setSteps(file, lessons);
+      // Only the level the plan session was opened for (SPEC-0008, "ML3 定的细节 · 排计划").
+      return (file) => setSteps(file, lessons, study.level);
     }
     case "study_report": {
       const { args } = call;
@@ -93,7 +94,7 @@ function toolCode(code: StudyFileCode): AgentErrorCode {
  *
  * @remarks
  * SPEC-0008, "ML2 定的细节": the caller is the session whose pi asked (ADR-0013, point 3); its
- * record must be of a direction not archived, with a use that has the tool (the extension only
+ * record must be of a direction not archived, itself not archived (ML3), with a use that has the tool (the extension only
  * registers those, so anything else is not Atrium's extension: `study_not_allowed`). The change
  * goes through the direction's file writer; the rules' and the writer's refusals come back as
  * codes. The list is scanned again at once rather than when the watch notices. Each call is
@@ -106,7 +107,7 @@ function toolCode(code: StudyFileCode): AgentErrorCode {
 export function createStudyTools(options: {
   readonly find: (
     sessionId: string,
-  ) => { readonly containerId: string; readonly study: SessionStudy | null } | undefined;
+  ) => { readonly containerId: string; readonly study: SessionStudy | null; readonly archived: boolean } | undefined;
   readonly directions: Pick<Directions, "find" | "scan">;
   readonly files: Pick<ProgressFiles, "update">;
   readonly logger: Logger;
@@ -123,6 +124,7 @@ export function createStudyTools(options: {
       const allowed =
         direction !== undefined &&
         !direction.archived &&
+        entry?.archived === false &&
         study !== null &&
         study.kind !== "ask" &&
         TOOLS_BY_USE[study.kind].includes(op);
@@ -136,8 +138,9 @@ export function createStudyTools(options: {
         answer = { ok: true, result: {} };
       } catch (error) {
         if (error instanceof StudyRuleError) {
-          // A mark is a command's, never a tool's.
-          const code = error.code === "study_mark_refused" ? "agent_failed" : error.code;
+          // A mark and an upgrade are commands', never a tool's.
+          const code =
+            error.code === "study_mark_refused" || error.code === "study_not_available" ? "agent_failed" : error.code;
           answer = { ok: false, code, ...(Object.keys(error.params).length === 0 ? {} : { params: error.params }) };
         } else if (error instanceof StudyFileError) answer = { ok: false, code: toolCode(error.code) };
         else throw error;

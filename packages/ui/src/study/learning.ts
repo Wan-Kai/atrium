@@ -36,6 +36,11 @@ export interface LearningState {
    * so. `null` for none.
    */
   readonly stranded: { readonly directionId: string; readonly failure: unknown } | null;
+  /**
+   * The upgrade being confirmed: its direction and the level gone up from (SPEC-0008, "ML3 定的细节
+   * · 升级确认框"); `null` for none.
+   */
+  readonly upgrading: { readonly directionId: string; readonly level: string } | null;
 }
 
 /** Where the new-direction page keeps what is typed in its box. */
@@ -58,6 +63,7 @@ export function createLearningStore(): StoreApi<LearningState> {
     sending: false,
     failure: undefined,
     stranded: null,
+    upgrading: null,
   }));
 }
 
@@ -86,6 +92,23 @@ export function openLearning(store: StoreApi<LearningState>, page: LearningPage)
  */
 export function closeLearning(store: StoreApi<LearningState>): void {
   if (store.getState().page !== null) store.setState({ page: null });
+}
+
+/**
+ * Asks to confirm upgrading a direction past a level, or stops asking.
+ *
+ * @remarks
+ * The strip and the home's current-step card both ask; the strip shows the dialog (prototype 4A).
+ *
+ * @sideEffects Updates the store.
+ * @param store - The store.
+ * @param upgrading - The direction and level, or `null`.
+ */
+export function confirmUpgrade(
+  store: StoreApi<LearningState>,
+  upgrading: { readonly directionId: string; readonly level: string } | null,
+): void {
+  store.setState({ upgrading });
 }
 
 /**
@@ -358,6 +381,9 @@ const STUDY_ERRORS: Partial<Readonly<Record<CommandError["code"], string>>> = {
   study_write_failed: "没能写进档案",
   study_file_too_large: "档案会超过 1 MiB，没有写进去",
   study_kickoff_failed: "pi 没有加载 Atrium 的学习扩展",
+  // Only a quiz on a lesson in use gets it from a study command (SPEC-0008, ML3, 2026-11-09 C).
+  session_busy: "等上课这一轮结束",
+  session_not_found: "这个会话已经不在了",
 };
 
 /**

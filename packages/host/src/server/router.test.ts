@@ -359,6 +359,15 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
         calls.push(["markStudyGap", directionId, gapId, fixed]);
         return {};
       },
+      upgradeStudy: async (clientId, directionId, level, archiveSessions) => {
+        calls.push(["upgradeStudy", clientId, directionId, level, archiveSessions]);
+        if (level === "l9") throw new CommandError("study_not_available", { directionId });
+        return { planSessionId: "s9", notArchived: 1 };
+      },
+      restoreStudySessions: async (directionId, sessionIds) => {
+        calls.push(["restoreStudySessions", directionId, sessionIds]);
+        return {};
+      },
     },
     attachments,
     changes,
@@ -975,6 +984,51 @@ describe("createRouter", () => {
     ]);
   });
 
+  it("hands upgrading and restoring a level's sessions to the study commands, a plan with no step (SPEC-0008, ML3)", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(
+      connection,
+      withTrace({ type: "upgrade_study", requestId: "u1", directionId: DIRECTION, level: "l2", archiveSessions: true }),
+    );
+    await route(
+      connection,
+      withTrace({
+        type: "upgrade_study",
+        requestId: "u2",
+        directionId: DIRECTION,
+        level: "l9",
+        archiveSessions: false,
+      }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "restore_study_sessions", requestId: "u3", directionId: DIRECTION, sessionIds: ["s1", "s2"] }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "start_study_session", requestId: "u4", directionId: DIRECTION, kind: "plan", level: "l3" }),
+    );
+
+    expect(calls).toStrictEqual([
+      ["upgradeStudy", "client-1", DIRECTION, "l2", true],
+      ["upgradeStudy", "client-1", DIRECTION, "l9", false],
+      ["restoreStudySessions", DIRECTION, ["s1", "s2"]],
+      ["startStudySession", "client-1", DIRECTION, { kind: "plan", level: "l3" }],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "u1", ok: true, result: { planSessionId: "s9", notArchived: 1 } },
+      {
+        type: "response",
+        requestId: "u2",
+        ok: false,
+        error: { code: "study_not_available", params: { directionId: DIRECTION } },
+      },
+      { type: "response", requestId: "u3", ok: true, result: {} },
+      { type: "response", requestId: "u4", ok: true, result: { sessionId: "s8" } },
+    ]);
+  });
+
   it("sends a connection the list changes waiting for it before answering any of its commands", async () => {
     const answered: [string, number][] = [];
     const setup = setUp((connectionId) => answered.push([connectionId, setup.sent.length]));
@@ -1380,6 +1434,8 @@ describe("createRouter's attachments", () => {
     { type: "mark_study_step", directionId: "lrn_go", level: "l1", step: "s1", mark: "lesson", done: true },
     { type: "mark_study_gap", directionId: "lrn_go", gapId: "g1", fixed: true },
     { type: "retry_study_kickoff", sessionId: "talk" },
+    { type: "upgrade_study", directionId: "lrn_go", level: "l1", archiveSessions: true },
+    { type: "restore_study_sessions", directionId: "lrn_go", sessionIds: ["talk"] },
   ])(
     "refuses a phone's $type on a learning direction or a session in one, as local_only, running nothing",
     async (fields) => {

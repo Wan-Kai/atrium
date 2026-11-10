@@ -466,3 +466,189 @@ describe("agent children's resources (SPEC-0002, 第二步)", () => {
     await backToBaseline(host, before, handles, processes, { "session.controller": AGENT_ROUNDS });
   });
 });
+
+/** Rounds of upgrading with a level's sessions running, then restoring them (SPEC-0008, ML3). */
+const UPGRADE_ROUNDS = 6;
+
+/** A direction at its first level's upgrade, a quiz put off and a gap open, so both can start. */
+const AT_UPGRADE = {
+  version: 1,
+  name: "Go",
+  ladder: [
+    { id: "l1", name: "语法", topics: "", pass: "", state: "current" },
+    { id: "l2", name: "并发", topics: "", pass: "", state: "todo" },
+  ],
+  steps: {
+    l1: [
+      {
+        id: "s1",
+        kind: "lesson",
+        title: "变量",
+        lesson: { by: "agent" },
+        quiz: { by: "later" },
+        done: { by: "manual" },
+      },
+      { id: "s2", kind: "sheet", done: { by: "agent" } },
+      { id: "s3", kind: "project", done: { by: "agent" } },
+      { id: "s4", kind: "exam", done: { by: "agent", score: 8, of: 10 } },
+      { id: "s5", kind: "up", done: null },
+    ],
+  },
+  gaps: [{ id: "g1", text: "x", from: { level: "l1", step: "s1" }, fixed: null }],
+  finishedAt: null,
+};
+
+/** The same direction before its first lesson was taught. */
+const UNTAUGHT = {
+  ...AT_UPGRADE,
+  steps: {
+    l1: [
+      { id: "s1", kind: "lesson", title: "变量", lesson: null, quiz: null, done: null },
+      ...AT_UPGRADE.steps.l1.slice(1),
+    ],
+  },
+};
+
+/**
+ * Runs the lesson too, upgrades with the level's sessions archived, and puts the plan away.
+ *
+ * @remarks
+ * The level's sessions must all be running when the upgrade stops them; the plan session it opens
+ * is archived so that only the level's sessions come and go each round.
+ *
+ * @sideEffects Sends a message; upgrades; archives the plan session.
+ * @param client - The client.
+ * @param level - The lesson, its quiz and the Feynman session, the lesson first.
+ */
+async function upgradeRunning(client: AtriumClient, level: readonly string[]): Promise<void> {
+  /** Each session's archived and running. */
+  const states = () =>
+    level.map((id) => {
+      const one = client.index.getState().sessions.find((summary) => summary.sessionId === id);
+      return [one?.archived, one?.running];
+    });
+  await client.prompt(present(level[0], "the lesson"), "go");
+  // The lesson's pi starts only once its quiz's has read its file, one after the other (SPEC-0008, ML3).
+  await vi.waitFor(() => expect(states()).toStrictEqual(level.map(() => [false, true])), { timeout: 10_000 });
+
+  const { planSessionId, notArchived } = await client.upgradeStudy("lrn_go", "l1", true);
+
+  expect(notArchived).toBe(0);
+  await vi.waitFor(() => expect(states()).toStrictEqual(level.map(() => [true, false])));
+  await client.archiveSession(present(planSessionId, "the plan session"));
+}
+
+describe("study resources (SPEC-0008, ML3)", () => {
+  it("stops and lets go of a running lesson, its quiz and a Feynman session archived by each upgrade, and of them again after each restore", async () => {
+    const bin = await createTempDir("leak-study-bin");
+    onTestFinished(bin.cleanup);
+    const scripted = await writeScriptedPi(
+      bin.path,
+      {
+        rules: {
+          get_state: { data: { sessionId: "pi-session-1" } },
+          get_entries: { data: { entries: [], leafId: null } },
+          get_session_stats: PONG_STATS,
+          get_commands: {
+            data: { commands: [{ name: "atrium-study", description: "study", source: "extension", sourceInfo: {} }] },
+          },
+          prompt: { data: { disposition: "started" }, events: [{ type: "agent_start" }] },
+          abort: { data: {}, events: [{ type: "agent_settled" }] },
+        },
+      },
+      "pi",
+    );
+    testHost = await startTestHost({
+      logLevel: "warn",
+      toolEnv: { PATH: `${bin.path}:/usr/bin:/bin`, PI_CODING_AGENT_SESSION_DIR: bin.path, ...scripted.env },
+    });
+    const host = testHost;
+    await host.host.tools;
+    const client = host.connect();
+    expect(await client.connect()).toMatchObject({ status: "connected" });
+    const dir = join(dirname(dirname(host.host.logFile)), "Learning", "go");
+    const marker = join(dir, ".atrium-study.json");
+    await mkdir(dir, { recursive: true });
+    // Untaught first, so the lesson is started as the strip would.
+    await writeFile(marker, JSON.stringify(UNTAUGHT));
+    await client.windowFocused();
+    await vi.waitFor(() =>
+      expect(client.index.getState().directions[0]?.next.primary).toMatchObject({ kind: "lesson" }),
+    );
+    const { before, handles, processes } = await baseline(host);
+    /** The session's summary. */
+    const summary = (sessionId: string) => client.index.getState().sessions.find((one) => one.sessionId === sessionId);
+    const { sessionId: lesson } = await client.startStudySession("lrn_go", { kind: "lesson", level: "l1", step: "s1" });
+
+    // The scripted pi writes no file; the quiz forks from the one written here.
+    const entry = {
+      type: "message",
+      id: "u1",
+      parentId: null,
+      timestamp: "",
+      message: { role: "user", content: "go" },
+    };
+    await writeFile(
+      join(bin.path, `${lesson}.jsonl`),
+      `${JSON.stringify({ type: "session", id: lesson, timestamp: "", cwd: dir })}\n${JSON.stringify(entry)}\n`,
+    );
+    // Its start is a run of its own, which goes on until stopped.
+    await vi.waitFor(() => expect(summary(lesson)?.running).toBe(true));
+    await client.stop(lesson);
+    await client.windowFocused();
+    await vi.waitFor(() =>
+      expect([summary(lesson)?.state, summary(lesson)?.running]).toStrictEqual(["persisted", false]),
+    );
+    await writeFile(marker, JSON.stringify(AT_UPGRADE));
+    await client.windowFocused();
+    await vi.waitFor(() =>
+      expect(client.index.getState().directions[0]?.next.primary).toMatchObject({ type: "upgrade" }),
+    );
+    const { sessionId: quiz } = await client.startStudySession("lrn_go", { kind: "quiz", level: "l1", step: "s1" });
+    const { sessionId: feynman } = await client.startStudySession("lrn_go", {
+      kind: "feynman",
+      level: "l1",
+      step: "s1",
+      gap: "g1",
+    });
+    expect(summary(quiz)?.parent).toStrictEqual({ sessionId: lesson, by: "user" });
+    const level = [lesson, quiz, feynman];
+
+    // The quiz and Feynman run on their start.
+    await upgradeRunning(client, level);
+    for (let round = 1; round < UPGRADE_ROUNDS; round++) {
+      await client.restoreStudySessions("lrn_go", level);
+      await writeFile(marker, JSON.stringify(AT_UPGRADE));
+      await client.windowFocused();
+      await vi.waitFor(() =>
+        expect(client.index.getState().directions[0]?.next.primary).toMatchObject({ type: "upgrade" }),
+      );
+      for (const sessionId of [quiz, feynman]) await client.prompt(sessionId, "go on");
+      await upgradeRunning(client, level);
+      await pause();
+    }
+
+    await backToBaseline(host, before, handles, processes);
+    // The kickoffs' and forks' bookkeeping was there, and is let go of with the sessions.
+    expect(
+      Object.fromEntries(
+        [
+          "study.kicked",
+          "study.kicking",
+          "study.kickoff_failed",
+          "session.fork_from",
+          "study.fork_release",
+          "study.lesson_hold",
+        ]
+          .filter((kind) => kind in host.host.resources.snapshot())
+          .map((kind) => [kind, host.host.resources.snapshot()[kind]]),
+      ),
+    ).toStrictEqual({
+      "study.kicked": 0,
+      "study.kicking": 0,
+      "session.fork_from": 0,
+      "study.fork_release": 0,
+      "study.lesson_hold": 0,
+    });
+  });
+});

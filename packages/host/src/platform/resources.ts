@@ -45,3 +45,81 @@ export class ResourceTracker {
     return Object.fromEntries([...this.#counts.entries()].toSorted(([a], [b]) => a.localeCompare(b)));
   }
 }
+
+/**
+ * A map whose entries count as open resources of a kind, one per key.
+ *
+ * @remarks
+ * For bookkeeping a leak test must see emptied: an entry left after its session went shows up in
+ * `ResourceTracker.snapshot` (testing.md, "泄漏测试"), as the kickoffs and forks of study sessions
+ * (SPEC-0008, "验证 · 泄漏").
+ *
+ * @sideEffects Updates the tracker's count as keys come and go.
+ */
+export class CountedMap<K, V> extends Map<K, V> {
+  readonly #releases = new Map<K, () => void>();
+
+  /**
+   * An empty map counting under `kind`.
+   *
+   * @remarks
+   * See `CountedMap`.
+   *
+   * @sideEffects none
+   * @param resources - The tracker.
+   * @param kind - The kind its entries count as.
+   */
+  constructor(
+    private readonly resources: ResourceTracker,
+    private readonly kind: string,
+  ) {
+    super();
+  }
+
+  /**
+   * Sets a key's value, counting a key new to the map.
+   *
+   * @remarks
+   * See `Map.set`.
+   *
+   * @sideEffects Updates the map and the count.
+   * @param key - The key.
+   * @param value - The value.
+   * @returns The map.
+   */
+  override set(key: K, value: V): this {
+    // `Map`'s constructor calls `set` before the fields exist; it adds nothing here.
+    if (this.#releases !== undefined && !this.has(key)) this.#releases.set(key, this.resources.acquire(this.kind));
+    return super.set(key, value);
+  }
+
+  /**
+   * Removes a key, no longer counting it.
+   *
+   * @remarks
+   * See `Map.delete`.
+   *
+   * @sideEffects Updates the map and the count.
+   * @param key - The key.
+   * @returns Whether it was there.
+   */
+  override delete(key: K): boolean {
+    this.#releases.get(key)?.();
+    this.#releases.delete(key);
+    return super.delete(key);
+  }
+
+  /**
+   * Removes every key, no longer counting them.
+   *
+   * @remarks
+   * See `Map.clear`.
+   *
+   * @sideEffects Updates the map and the count.
+   */
+  override clear(): void {
+    for (const release of this.#releases.values()) release();
+    this.#releases.clear();
+    super.clear();
+  }
+}

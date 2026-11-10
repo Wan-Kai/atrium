@@ -46,6 +46,11 @@ export const TOOLS_BY_USE: { readonly [Use in StudyUse]: readonly StudyTool[] } 
 /** What the host tells the extension about the session's use. */
 export interface StudyLaunch extends SessionStudy {
   readonly kind: StudyUse;
+  /**
+   * `none` for a quiz with no lesson session to come from, which quizzes from the notes and the
+   * progress (SPEC-0008, "ML3 定的细节 · 测验"); left out otherwise.
+   */
+  readonly context?: "none";
 }
 
 /**
@@ -77,9 +82,14 @@ export function readStudyArgument(flag: unknown): StudyLaunch | null {
   if (typeof flag !== "string" || flag === "") return null;
   const value = decodeArgument(flag);
   if (typeof value !== "object" || value === null || Reflect.get(value, "v") !== 1) return null;
-  const study = SessionStudy.safeParse(Object.fromEntries(Object.entries(value).filter(([key]) => key !== "v")));
+  const context: unknown = Reflect.get(value, "context");
+  // Only a quiz may come without its lesson (ML3); any other value, or on another use, is no flag.
+  if (context !== undefined && (context !== "none" || Reflect.get(value, "kind") !== "quiz")) return null;
+  const study = SessionStudy.safeParse(
+    Object.fromEntries(Object.entries(value).filter(([key]) => key !== "v" && key !== "context")),
+  );
   if (!study.success || study.data.kind === "ask") return null;
-  return { ...study.data, kind: study.data.kind };
+  return { ...study.data, kind: study.data.kind, ...(context === "none" ? { context } : {}) };
 }
 
 /**
@@ -124,7 +134,22 @@ const COMMON = [
   "Never edit .atrium-study.json yourself. Progress changes only through the study_* tools you have; if you do not call them, the progress does not move.",
   AGENTS_RULE,
   "Keep content in Markdown files: resources.md, cheatsheet.md (one section per level), notes/ (one note per lesson).",
+  "Never say Atrium's internal ids (such as l1, s2 or g3) to the learner: call a level by its number and name, a lesson by its title, a gap by what it is about.",
 ].join("\n");
+
+/** How a quiz asks (SPEC-0008, "ML3 定的细节 · 测验的题数和计分"). */
+const QUESTIONS =
+  "Ask one question at a time, from easy to hard: 5 to 10 questions, and stop early after two in a row the learner cannot answer.";
+
+/** How the quiz and the exam put a question and judge it. */
+const CHOICE = [
+  "Ask every multiple-choice question with the ask_user tool, as a question card with the choices as its options; never list the choices in your text instead.",
+  "Judge each answer as soon as it comes: say whether it was right, and when it was wrong or partly right, explain the right answer and what was missed right then, before you ask the next question. Do not leave the explanations for the summary at the end.",
+].join("\n");
+
+/** How the quiz and the exam record gaps. */
+const GAPS =
+  "Each time an answer shows a gap, call study_add_gap with what the learner does not understand and the question's number.";
 
 /**
  * Each use's instructions, after the six prompts of sairahul1's article (SPEC-0008, "会话的用途").
@@ -142,19 +167,35 @@ const USES: { readonly [Use in StudyUse]: string } = {
     "5. Set: Only after the learner confirms, call study_set_ladder once with the levels (skip: true for the ones placement showed they can skip) and the starting level's lesson titles. That ends the discussion: the ladder cannot be changed afterwards.",
     "6. Stop: Once it succeeds, wrap up in two or three sentences (what was set, and that the first lesson starts from the direction's home in Atrium), then stop. Do no more work with files in this session: do not create directories or files and do not edit resources.md or anything else.",
   ].join("\n"),
-  plan: `Plan the current level as a 20-hour plan of lessons (at most ${String(STUDY_LIMITS.maxLessons)}), using the ladder, what the learner did so far and the gaps not yet fixed. Then call study_set_steps with the lesson titles.`,
+  plan: [
+    "This session plans the current level, which the learner just reached. Do these, in order:",
+    "1. Read the ladder, what the learner did in the levels before, and the gaps not yet fixed in .atrium-study.json.",
+    `2. Plan the current level as a 20-hour plan of lessons (at most ${String(STUDY_LIMITS.maxLessons)}), each a small piece the learner practises in lab/; a lesson may review gaps not yet fixed.`,
+    "3. Confirm: Show the lessons as a proposal and ask the learner to confirm, in their language (for example: 准备这样排，确认吗？). Do not say the lessons are set or saved before you have called study_set_steps. If they want changes, change the proposal and ask again.",
+    "4. Set: Only after the learner confirms, call study_set_steps once with the lesson titles: it can be called only once for a level.",
+    "5. Stop: Once it succeeds, wrap up in two or three sentences (how many lessons, and that the first one starts from the direction's home in Atrium), then stop.",
+    "You may add this level's resources to resources.md; do not change the ladder or AGENTS.md.",
+    "Apart from adding to resources.md, do not create or edit any file in this session: nothing in lab/, no probe, scratch or test files.",
+  ].join("\n"),
   lesson: [
     "This is one lesson: teach the step of the current level named in .atrium-study.json, as part of the 20-hour plan.",
     "Teach one idea at a time, then let the learner try it in lab/ before going on; read their code, point at what is wrong, and do not write it for them. Keep the lesson to what the step covers.",
+    "Do not create probe or scratch files to try things yourself. The files you write are the lesson's note in notes/ and, only when the lesson needs one, a short starting file in lab/ that the learner then fills in.",
     "Write a short note of the lesson to notes/. When the lesson is done, call study_report with no score.",
   ].join("\n"),
   quiz: [
-    "Quiz the learner on the lesson until they break: one question at a time, from easy to hard, multiple choice through ask_user when it fits. Judge each answer at once and explain what was missed.",
-    "Each time an answer shows a gap, call study_add_gap with what they do not understand (and the question's number). At the end call study_report with the score and how many questions there were.",
+    "Quiz the learner on the lesson until they break.",
+    QUESTIONS,
+    CHOICE,
+    "Score each question out of 10 (partial credit allowed). At the end call study_report with score as the sum and of as 10 times the number of questions asked.",
+    GAPS,
+    "Calling study_report again in this session overwrites the score.",
   ].join("\n"),
   feynman: [
-    "Run the Feynman loop on the gap named in .atrium-study.json: explain it simply, as to a 12-year-old; then have the learner explain it back in their own words; where their explanation is unclear or wrong, explain that part again, and repeat until it is clear.",
-    "Write the final clean explanation to notes/, then call study_fix_gap.",
+    "The gap is the entry of gaps in .atrium-study.json with the id above: read its text and where it came from first.",
+    "Run the Feynman loop on it: explain it simply, as to a 12-year-old; then have the learner explain it back in their own words; where their explanation is unclear or wrong, explain that part again, and repeat until it is clear.",
+    "Write the final clean explanation to notes/ as a Feynman note for this gap.",
+    "Call study_fix_gap only once the learner has explained it back clearly in their own words. If they still cannot, do not call it: say what is still unclear and stop.",
   ].join("\n"),
   sheet:
     "Condense the current level into a one-page cheat sheet the learner can review in 5 minutes: the key ideas, commands and pitfalls. Add it to cheatsheet.md as this level's section, then call study_report with no score.",
@@ -162,7 +203,10 @@ const USES: { readonly [Use in StudyUse]: string } = {
     "Guide the learner through the level's passing project in lab/, against the level's pass criterion in .atrium-study.json. Do not write the project for them; review it. When it meets the criterion, call study_report with no score.",
   exam: [
     "Give the level's final exam: 10 questions over the whole level, from easy to hard, one at a time, judging each at once.",
-    "Call study_add_gap for each gap an answer shows, and at the end study_report with the score out of 10.",
+    CHOICE,
+    "Score each question out of 10 (partial credit allowed). At the end call study_report with score as the sum and of as 100.",
+    GAPS,
+    "Calling study_report again in this session overwrites the score.",
   ].join("\n"),
 };
 // Stryker restore StringLiteral,ArrayDeclaration
@@ -192,9 +236,18 @@ export function studyPrompt(launch: StudyLaunch): string {
  * @returns The message's content.
  */
 export function kickoffText(launch: StudyLaunch): string {
+  const none = launch.context === "none";
   return [
-    `<atrium-study use="${launch.kind}"${launch.level === undefined ? "" : ` level="${escapeAttribute(launch.level)}"`}${launch.step === undefined ? "" : ` step="${escapeAttribute(launch.step)}"`}${launch.gap === undefined ? "" : ` gap="${escapeAttribute(launch.gap)}"`}>`,
+    `<atrium-study use="${launch.kind}"${launch.level === undefined ? "" : ` level="${escapeAttribute(launch.level)}"`}${launch.step === undefined ? "" : ` step="${escapeAttribute(launch.step)}"`}${launch.gap === undefined ? "" : ` gap="${escapeAttribute(launch.gap)}"`}${none ? ' context="none"' : ""}>`,
     "Atrium opened this session for the learner. This is not the learner's message. Read the progress, then begin as your instructions for this use say.",
+    // A quiz is the lesson's child with its history, or, with no lesson session, a new session (ML3).
+    ...(launch.kind !== "quiz"
+      ? []
+      : none
+        ? [
+            "There is no conversation of the lesson in this session: build the questions from the lesson's note in notes/ and from .atrium-study.json.",
+          ]
+        : ["The lesson's conversation is above: quiz on what was taught there, with its examples."]),
     "</atrium-study>",
   ].join("\n");
 }

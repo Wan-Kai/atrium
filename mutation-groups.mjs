@@ -113,6 +113,7 @@ export const MUTATION_GROUPS = {
       "packages/ui/src/chat/visual-presses.ts",
       "packages/ui/src/study/learning.ts",
       "packages/ui/src/study/progress.ts",
+      "packages/ui/src/study/loop.ts",
     ],
     tests: ["packages/ui"],
     skip: [],

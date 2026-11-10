@@ -370,7 +370,13 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
   });
   const studyTools = createStudyTools({
-    find: (sessionId) => catalog.find(sessionId),
+    // A session archived, or being archived, takes no tool (SPEC-0008, "ML3 定的细节").
+    find: (sessionId) => {
+      const entry = catalog.find(sessionId);
+      return entry === undefined
+        ? undefined
+        : { ...entry, archived: entry.archived || sessions.isArchiving(sessionId) };
+    },
     directions,
     files: progressFiles,
     logger,

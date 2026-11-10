@@ -31,7 +31,7 @@ const LADDER = {
  * @returns The tools, the direction's directory, the writer, the directions and the logs.
  */
 async function setUp(
-  sessions: Readonly<Record<string, { containerId: string; study: SessionStudy | null }>>,
+  sessions: Readonly<Record<string, { containerId: string; study: SessionStudy | null; archived?: boolean }>>,
   content: unknown = { version: 1, name: "Go" },
 ) {
   const temp = await createTempDir("study-tools");
@@ -48,7 +48,10 @@ async function setUp(
   await directions.scan();
   const files = createProgressFiles({ root, random: () => "r", logger });
   const tools = createStudyTools({
-    find: (sessionId) => sessions[sessionId],
+    find: (sessionId) => {
+      const found = sessions[sessionId];
+      return found === undefined ? undefined : { archived: false, ...found };
+    },
     directions,
     files,
     logger,
@@ -153,6 +156,8 @@ describe("StudyTools", () => {
       workspace: { containerId: "wks_0123456789abcdef", study: { kind: "lesson", level: "l2", step: "s1" } },
       archived: { containerId: "lrn_old", study: { kind: "discuss" } },
       gone: { containerId: "lrn_gone", study: { kind: "discuss" } },
+      // Archived in a direction still there, as an upgrade archives a level's (ML3).
+      shelved: { containerId: "lrn_go", study: { kind: "discuss" }, archived: true },
     });
     const name = { op: "study_set_name", args: { name: "x" } } as const;
     for (const [sessionId, call] of [
@@ -162,6 +167,7 @@ describe("StudyTools", () => {
       ["none", name],
       ["workspace", { op: "study_report", args: {} }],
       ["archived", name],
+      ["shelved", name],
       ["gone", name],
       ["unknown", name],
     ] as const) {
@@ -170,6 +176,28 @@ describe("StudyTools", () => {
         code: "study_not_allowed",
       });
     }
+  });
+
+  it("writes a plan session's lessons only at the level it was opened for (ML3)", async () => {
+    const { tools, dir } = await setUp({
+      s1: DISCUSS,
+      old: { containerId: "lrn_go", study: { kind: "plan", level: "l1" } },
+      plan: { containerId: "lrn_go", study: { kind: "plan", level: "l2" } },
+    });
+    await tools.call("s1", { op: "study_set_ladder", args: LADDER });
+    const planned = await marker(dir);
+    await writeFile(join(dir, MARKER), JSON.stringify({ ...planned, steps: {} }));
+
+    expect(await tools.call("old", { op: "study_set_steps", args: { lessons: ["wrong"] } })).toStrictEqual({
+      ok: false,
+      code: "study_not_allowed",
+    });
+    expect(await marker(dir)).toMatchObject({ steps: {} });
+    expect(await tools.call("plan", { op: "study_set_steps", args: { lessons: ["select"] } })).toStrictEqual({
+      ok: true,
+      result: {},
+    });
+    expect(Reflect.get(Object((await marker(dir))["steps"]), "l2")[0]).toMatchObject({ title: "select" });
   });
 
   it("refuses to write a broken file, and a Feynman session without its gap", async () => {

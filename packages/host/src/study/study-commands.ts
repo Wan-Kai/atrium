@@ -18,7 +18,18 @@ import type { DirectionNamer } from "./direction-namer";
 import { ARCHIVE, type Directions, type FoundDirection, realDir } from "./directions";
 import type { StudyFile } from "./progress";
 import { StudyFileError, type ProgressFiles } from "./progress-file";
-import { type StepMark, StudyRuleError, markGap, markStep, nextOf } from "./progress-rules";
+import {
+  type StepMark,
+  StudyRuleError,
+  existingFor,
+  levelSessions,
+  markGap,
+  markStep,
+  nextOf,
+  sameStart,
+  startable,
+  upgrade,
+} from "./progress-rules";
 
 /** The study commands the server hands on, and what the list and the host need of directions. */
 export interface StudyCommands {
@@ -51,6 +62,21 @@ export interface StudyCommands {
   ): Promise<CommandResult<"mark_study_step">>;
   /** Marks a gap fixed by hand, or takes that back. */
   markStudyGap(directionId: string, gapId: string, fixed: boolean): Promise<CommandResult<"mark_study_gap">>;
+  /**
+   * Upgrades a direction past its current level: the file written, the level's sessions archived
+   * when asked, the next level's plan session opened (SPEC-0008, "ML3 定的细节 · 升级").
+   */
+  upgradeStudy(
+    clientId: string,
+    directionId: string,
+    level: string,
+    archiveSessions: boolean,
+  ): Promise<CommandResult<"upgrade_study">>;
+  /** Unarchives sessions of a direction, with their children (SPEC-0008, "ML3 定的细节"). */
+  restoreStudySessions(
+    directionId: string,
+    sessionIds: readonly string[],
+  ): Promise<CommandResult<"restore_study_sessions">>;
   /** The directions as the list shows them, with their progress and next step. */
   list(): Direction[];
   /** A client went into a container; for a direction, it is the one opened last (SPEC-0008, "入口"). */
@@ -86,11 +112,26 @@ async function ensureDir(path: string): Promise<void> {
  * @returns The two buttons.
  */
 function nextFor(found: FoundDirection, sessions: readonly SessionSummary[]) {
-  return nextOf(
-    found.progress,
-    sessions.filter((session) => session.containerId === found.id),
-    { archived: found.archived, broken: found.broken, newer: found.newer },
-  );
+  return nextOf(found.progress, inDirection(found, sessions), {
+    archived: found.archived,
+    broken: found.broken,
+    newer: found.newer,
+  });
+}
+
+/**
+ * A direction's sessions.
+ *
+ * @remarks
+ * Filed under it (domain-model §1, Direction).
+ *
+ * @sideEffects none
+ * @param found - The direction.
+ * @param sessions - Every session's summary.
+ * @returns Those of the direction.
+ */
+function inDirection(found: FoundDirection, sessions: readonly SessionSummary[]): SessionSummary[] {
+  return sessions.filter((session) => session.containerId === found.id);
 }
 
 /**
@@ -135,7 +176,15 @@ export function createStudyCommands(options: {
   readonly records: LearningRecords;
   readonly sessions: Pick<
     SessionManager,
-    "createStudySession" | "startStudySession" | "stopContainer" | "releaseContainer" | "forgetWorkspaces" | "summaries"
+    | "createStudySession"
+    | "startStudySession"
+    | "stopContainer"
+    | "releaseContainer"
+    | "forgetWorkspaces"
+    | "summaries"
+    | "openSession"
+    | "archiveSessions"
+    | "restoreSessions"
   >;
   /** Writes directions' progress (SPEC-0008, "ML2 定的细节"). */
   readonly files: Pick<ProgressFiles, "update" | "hold">;
@@ -334,24 +383,43 @@ export function createStudyCommands(options: {
   async function changeProgress(directionId: string, change: (file: StudyFile) => StudyFile): Promise<void> {
     const found = directionOf(directionId);
     if (found.archived) throw new CommandError("direction_archived", { directionId });
+    await writeProgress(found, change);
+    options.changed();
+  }
+
+  /**
+   * Writes a direction's progress, then looks at the learning directory again.
+   *
+   * @remarks
+   * The rules' and the writer's refusals are the command's error codes, with nothing written: a
+   * mark is refused only as not found or not allowed by the rules, an upgrade as not available.
+   *
+   * @sideEffects Writes the direction's marker; scans; may log.
+   * @param found - The direction.
+   * @param change - The change.
+   * @throws {CommandError} As above.
+   */
+  async function writeProgress(found: FoundDirection, change: (file: StudyFile) => StudyFile): Promise<void> {
+    const directionId = found.id;
     try {
       await options.files.update(found.dir, change);
     } catch (error) {
       if (error instanceof StudyRuleError || error instanceof StudyFileError) {
-        options.logger.info({ directionId, code: error.code }, "study mark refused");
-        // A mark is refused only as not found or not allowed by the rules.
+        options.logger.info({ directionId, code: error.code }, "study change refused");
         const code =
           error instanceof StudyFileError
             ? error.code
-            : error.code === "study_not_found"
-              ? "study_not_found"
+            : error.code === "study_not_found" || error.code === "study_not_available"
+              ? error.code
               : "study_mark_refused";
-        throw new CommandError(code, code === "direction_archived" ? { directionId } : {});
+        throw new CommandError(
+          code,
+          code === "direction_archived" || code === "study_not_available" ? { directionId } : {},
+        );
       }
       throw error;
     }
     await options.directions.scan();
-    options.changed();
   }
 
   return {
@@ -430,25 +498,84 @@ export function createStudyCommands(options: {
       return {};
     },
     startStudySession(clientId, directionId, study) {
-      // One at a time with each other and with archiving, the next step asked again in turn, so
-      // two presses at once never open two sessions for one step.
+      // One at a time with each other and with archiving, what can be opened asked again in turn,
+      // so two presses at once never open two sessions for one step.
       return inTurn(directionId, async () => {
         const found = directionOf(directionId);
         if (found.archived) throw new CommandError("direction_archived", { directionId });
         if (found.newer) throw new CommandError("study_file_version");
-        const { primary } = nextFor(found, options.sessions.summaries());
-        // Only what the strip offers now: no second session for a step, none ML2 cannot open yet.
-        if (
-          primary?.type !== "start" ||
-          !primary.available ||
-          primary.kind !== study.kind ||
-          primary.level !== study.level ||
-          primary.step !== study.step ||
-          primary.gap !== study.gap
-        ) {
+        const starts = startable(found.progress, found);
+        // Only what can be opened now (SPEC-0008, "ML3 定的细节 · 费曼和补测从哪开").
+        if (!starts.some((start) => sameStart(start, study))) {
           throw new CommandError("study_not_available", { directionId });
         }
+        // One session for a use, level, step and gap: the one open already is given back.
+        const open = existingFor(study, inDirection(found, options.sessions.summaries()));
+        if (open !== null) {
+          await options.sessions.openSession(clientId, open);
+          return { sessionId: open };
+        }
         return options.sessions.startStudySession(clientId, directionId, study);
+      });
+    },
+    upgradeStudy(clientId, directionId, level, archiveSessions) {
+      return inTurn(directionId, async () => {
+        const found = directionOf(directionId);
+        if (found.archived) throw new CommandError("direction_archived", { directionId });
+        if (found.broken) throw new CommandError("study_file_broken");
+        if (found.newer) throw new CommandError("study_file_version");
+        const { primary, secondary } = nextFor(found, options.sessions.summaries());
+        if (![primary, secondary].some((action) => action?.type === "upgrade" && action.level === level)) {
+          throw new CommandError("study_not_available", { directionId });
+        }
+        // The upgrade itself, written at once: what follows is not taken back if it fails.
+        await writeProgress(found, (file) => upgrade(file, level, new Date(options.clock.now()).toISOString()));
+        let notArchived = 0;
+        if (archiveSessions) {
+          const chosen = levelSessions(inDirection(found, options.sessions.summaries()), level);
+          if (chosen.length > 0) notArchived = await options.sessions.archiveSessions(chosen);
+          if (notArchived > 0) options.logger.warn({ directionId, notArchived }, "level sessions not all archived");
+        }
+        const after = directionOf(directionId).progress;
+        const next = after?.finishedAt === null ? after.ladder.find((one) => one.state === "current") : undefined;
+        let planSessionId: string | null = null;
+        if (next !== undefined) {
+          try {
+            const plan = { kind: "plan" as const, level: next.id };
+            // A plan session of that level open already is the one (SPEC-0008, "ML3 定的细节 · 升级").
+            const open = existingFor(plan, inDirection(found, options.sessions.summaries()));
+            if (open === null) {
+              ({ sessionId: planSessionId } = await options.sessions.startStudySession(clientId, directionId, plan));
+            } else {
+              await options.sessions.openSession(clientId, open);
+              planSessionId = open;
+            }
+          } catch (error) {
+            // The strip offers to plan it (SPEC-0008, "ML3 定的细节 · 升级").
+            options.logger.warn(
+              { directionId, code: error instanceof CommandError ? error.code : errorCode(error) },
+              "plan session not opened",
+            );
+          }
+        }
+        options.changed();
+        return { planSessionId, notArchived };
+      });
+    },
+    restoreStudySessions(directionId, sessionIds) {
+      return inTurn(directionId, async () => {
+        const found = directionOf(directionId);
+        if (found.archived) throw new CommandError("direction_archived", { directionId });
+        const inside = inDirection(found, options.sessions.summaries());
+        // Only this direction's: one of anywhere else refuses the whole command.
+        const foreign = sessionIds.find((id) => !inside.some((session) => session.sessionId === id));
+        if (foreign !== undefined) throw new CommandError("session_not_found", { sessionId: foreign });
+        const archived = sessionIds.filter((id) =>
+          inside.some((session) => session.sessionId === id && session.archived),
+        );
+        if (archived.length > 0) await options.sessions.restoreSessions(archived);
+        options.changed();
+        return {};
       });
     },
     async markStudyStep(directionId, level, step, mark, done) {

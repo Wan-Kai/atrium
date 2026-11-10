@@ -424,6 +424,28 @@ describe("Breadcrumb", () => {
     expect(screen.container.textContent).toBe("");
   });
 
+  it("names a lesson and its quiz by their use, not by the first message there (SPEC-0008, ML3, B)", async () => {
+    const lesson = session({
+      sessionId: "lesson",
+      containerId: "lrn_go",
+      name: null,
+      prompt: "输出是 内层 和 外层",
+      study: { kind: "lesson", level: "l1", step: "s1" },
+    });
+    const quiz = session({
+      sessionId: "quiz",
+      containerId: "lrn_go",
+      name: null,
+      prompt: "输出是 内层 和 外层",
+      parent: { sessionId: "lesson", by: "user" },
+      study: { kind: "quiz", level: "l1", step: "s1" },
+    });
+    const { client } = fakeClient({ sessions: [lesson, quiz] });
+    const screen = await render(<Breadcrumb client={client} sessionId="quiz" />);
+
+    await expect.element(screen.getByRole("navigation", { name: "子对话的位置" })).toHaveTextContent("上课测验");
+  });
+
   it("shows the way down to a child, going back from a name", async () => {
     const { client, calls } = fakeClient(LISTED);
     const screen = await render(<Breadcrumb client={client} sessionId="边界用例" />);

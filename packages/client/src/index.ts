@@ -27,4 +27,5 @@ export {
   isChatId,
   isDirectionId,
   isWorkspaceId,
+  splitSeen,
 } from "@atrium/protocol";

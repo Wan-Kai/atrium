@@ -38,6 +38,10 @@ async function study(
     readonly sessionFails?: boolean;
     /** The sessions there are, for the next step. */
     readonly summaries?: () => SessionSummary[];
+    /** How many of the sessions asked to be archived are not. */
+    readonly notArchived?: number;
+    /** Makes starting a session fail. */
+    readonly startFails?: boolean;
   } = {},
 ) {
   const temp = await createTempDir("study-commands");
@@ -84,6 +88,7 @@ async function study(
       },
       startStudySession: async (clientId, directionId, kind) => {
         asked.push(`startStudySession ${clientId} ${directionId} ${JSON.stringify(kind)}`);
+        if (more.startFails === true) throw new Error("pi not there");
         // Recorded after a turn of the event loop, as the session manager writes its catalog first,
         // and before answering.
         await new Promise((resolve) => setImmediate(resolve));
@@ -91,6 +96,17 @@ async function study(
         return { sessionId: "s2" };
       },
       summaries: () => [...(more.summaries?.() ?? []), ...started],
+      openSession: async (clientId, sessionId) => {
+        asked.push(`openSession ${clientId} ${sessionId}`);
+        return {};
+      },
+      archiveSessions: async (sessionIds) => {
+        asked.push(`archiveSessions ${sessionIds.join(",")}`);
+        return more.notArchived ?? 0;
+      },
+      restoreSessions: async (sessionIds) => {
+        asked.push(`restoreSessions ${sessionIds.join(",")}`);
+      },
     },
     files: createProgressFiles({ root, random: () => "r", logger }),
     clock,
@@ -585,7 +601,7 @@ describe("StudyCommands progress (ML2)", () => {
     expect(commands.list().find((one) => one.id === "lrn_bad")?.next).toStrictEqual({ primary: null, secondary: null });
   });
 
-  it("opens one session for two presses at once", async () => {
+  it("opens one session for two presses at once, the second given the first's", async () => {
     const { commands, directions, root, asked } = await study();
     await mkdir(join(root, "go"), { recursive: true });
     await writeFile(join(root, "go", ".atrium-study.json"), JSON.stringify(PLANNED));
@@ -598,8 +614,11 @@ describe("StudyCommands progress (ML2)", () => {
     ]);
 
     expect(first).toStrictEqual({ status: "fulfilled", value: { sessionId: "s2" } });
-    expect(second).toMatchObject({ status: "rejected", reason: { code: "study_not_available" } });
-    expect(asked.filter((line) => line.startsWith("startStudySession"))).toHaveLength(1);
+    expect(second).toStrictEqual({ status: "fulfilled", value: { sessionId: "s2" } });
+    expect(asked.filter((line) => /^(startStudySession|openSession) /u.test(line))).toStrictEqual([
+      'startStudySession c1 lrn_go {"kind":"lesson","level":"l1","step":"s1"}',
+      "openSession c2 s2",
+    ]);
   });
 
   it("shows a file of a later version, offering nothing and refusing to start or mark", async () => {
@@ -650,5 +669,313 @@ describe("StudyCommands progress (ML2)", () => {
     expect((await readdir(archived)).toSorted()).toStrictEqual([".atrium-study.json"]);
     const written = JSON.parse(await readFile(join(archived, ".atrium-study.json"), "utf8")) as typeof PLANNED;
     expect(written.steps?.["l1"]?.[0]).toMatchObject({ id: "s1", lesson: { by: "manual" }, quiz: null });
+  });
+});
+
+/** The marker at the first level's upgrade: its lesson, cheat sheet, project and exam done. */
+const AT_UPGRADE = {
+  ...PLANNED,
+  steps: {
+    l1: (PLANNED.steps?.["l1"] ?? []).map((step) =>
+      step.kind === "up"
+        ? step
+        : step.kind === "lesson"
+          ? { ...step, lesson: { by: "agent" }, quiz: { by: "agent", score: 8, of: 10 }, done: { by: "manual" } }
+          : { ...step, done: { by: "agent" } },
+    ),
+  },
+};
+
+/** The marker with its lesson's quiz put off and two gaps, one fixed. */
+const QUIZ_PUT_OFF = {
+  ...PLANNED,
+  steps: {
+    l1: [
+      {
+        id: "s1",
+        kind: "lesson",
+        title: "goroutine",
+        lesson: { by: "agent" },
+        quiz: { by: "later" },
+        done: { by: "manual" },
+      },
+      ...(PLANNED.steps?.["l1"] ?? []).slice(1),
+    ],
+  },
+  gaps: [
+    { id: "g1", text: "x", from: { level: "l1", step: "s1" }, fixed: null },
+    { id: "g2", text: "y", from: { level: "l1", step: "s1" }, fixed: { by: "manual" } },
+  ],
+};
+
+/** The marker at the upgrade of its last level to learn: the second skipped. */
+const LAST_UPGRADE = {
+  ...AT_UPGRADE,
+  ladder: [
+    { id: "l1", name: "语法", topics: "", pass: "", state: "current" },
+    { id: "l2", name: "并发", topics: "", pass: "", state: "skipped" },
+  ],
+};
+
+/**
+ * Writes a direction's marker and lists it.
+ *
+ * @remarks
+ * At `go/` under the learning directory.
+ *
+ * @sideEffects Writes the marker; scans.
+ * @param at - The study commands' fixture.
+ * @param file - The marker.
+ */
+async function directionWith(at: Awaited<ReturnType<typeof study>>, file: unknown): Promise<void> {
+  await mkdir(join(at.root, "go"), { recursive: true });
+  await writeFile(join(at.root, "go", ".atrium-study.json"), JSON.stringify(file));
+  await at.directions.scan();
+}
+
+/**
+ * The marker as it is on disk.
+ *
+ * @remarks
+ * To compare whole.
+ *
+ * @sideEffects Reads the marker.
+ * @param root - The learning directory.
+ * @returns The marker.
+ */
+async function marker(
+  root: string,
+): Promise<{ ladder: { state: string }[]; steps: Record<string, { done: unknown }[]>; finishedAt: unknown }> {
+  return JSON.parse(await readFile(join(root, "go", ".atrium-study.json"), "utf8"));
+}
+
+describe("StudyCommands learning loop (ML3)", () => {
+  it("starts Feynman on any gap not fixed and a quiz put off, refusing others", async () => {
+    const at = await study();
+    await directionWith(at, QUIZ_PUT_OFF);
+
+    await at.commands.startStudySession("c1", "lrn_go", { kind: "feynman", level: "l1", step: "s1", gap: "g1" });
+    await at.commands.startStudySession("c1", "lrn_go", { kind: "quiz", level: "l1", step: "s1" });
+    for (const wrong of [
+      { kind: "feynman", level: "l1", step: "s1", gap: "g2" },
+      { kind: "feynman", level: "l1", gap: "g1" },
+      { kind: "quiz", level: "l1", step: "s2" },
+      { kind: "plan", level: "l1" },
+    ] as const) {
+      await expect(at.commands.startStudySession("c1", "lrn_go", wrong)).rejects.toMatchObject({
+        code: "study_not_available",
+      });
+    }
+    expect(at.asked.filter((line) => line.startsWith("startStudySession"))).toStrictEqual([
+      'startStudySession c1 lrn_go {"kind":"feynman","level":"l1","step":"s1","gap":"g1"}',
+      'startStudySession c1 lrn_go {"kind":"quiz","level":"l1","step":"s1"}',
+    ]);
+  });
+
+  it("upgrades: the level done, the next current, the level's sessions archived and the plan opened", async () => {
+    const sessions = [
+      studySession("lesson", { kind: "lesson", level: "l1", step: "s1" }),
+      studySession("quiz", { kind: "quiz", level: "l1", step: "s1" }),
+      studySession("feynman", { kind: "feynman", level: "l1", gap: "g1" }),
+      studySession("exam", { kind: "exam", level: "l1", step: "s4" }),
+      studySession("talk", { kind: "discuss" }),
+      studySession("ask", { kind: "ask" }),
+      studySession("plain", null),
+      { ...studySession("gone", { kind: "sheet", level: "l1", step: "s2" }), archived: true },
+      studySession("next", { kind: "lesson", level: "l2", step: "s1" }),
+      { ...studySession("elsewhere", { kind: "lesson", level: "l1", step: "s1" }), containerId: "lrn_other" },
+    ];
+    const at = await study(undefined, { summaries: () => sessions, notArchived: 1 });
+    await directionWith(at, AT_UPGRADE);
+    expect(at.commands.list()[0]?.next.primary).toStrictEqual({ type: "upgrade", level: "l1", available: true });
+
+    await expect(at.commands.upgradeStudy("c1", "lrn_go", "l1", true)).resolves.toStrictEqual({
+      planSessionId: "s2",
+      notArchived: 1,
+    });
+
+    const written = await marker(at.root);
+    expect(written.ladder.map((level) => level.state)).toStrictEqual(["done", "current"]);
+    expect(written.steps["l1"]?.at(-1)?.done).toStrictEqual({ by: "manual" });
+    expect(written.finishedAt).toBeNull();
+    expect(at.asked.filter((line) => !line.startsWith("name"))).toStrictEqual([
+      "archiveSessions lesson,quiz,feynman,exam",
+      'startStudySession c1 lrn_go {"kind":"plan","level":"l2"}',
+    ]);
+    expect(at.commands.list()[0]?.next.primary).toStrictEqual({ type: "open", sessionId: "s2" });
+  });
+
+  it("upgrades without archiving when not asked to", async () => {
+    const at = await study(undefined, {
+      summaries: () => [studySession("lesson", { kind: "lesson", level: "l1", step: "s1" })],
+    });
+    await directionWith(at, AT_UPGRADE);
+
+    await expect(at.commands.upgradeStudy("c1", "lrn_go", "l1", false)).resolves.toStrictEqual({
+      planSessionId: "s2",
+      notArchived: 0,
+    });
+
+    expect(at.asked).toStrictEqual(['startStudySession c1 lrn_go {"kind":"plan","level":"l2"}']);
+  });
+
+  it("opens the plan session of the next level open already rather than a second (hand-edited back)", async () => {
+    const at = await study(undefined, {
+      summaries: () => [studySession("kept-plan", { kind: "plan", level: "l2" })],
+    });
+    await directionWith(at, AT_UPGRADE);
+
+    await expect(at.commands.upgradeStudy("c1", "lrn_go", "l1", false)).resolves.toStrictEqual({
+      planSessionId: "kept-plan",
+      notArchived: 0,
+    });
+
+    expect(at.asked).toStrictEqual(["openSession c1 kept-plan"]);
+  });
+
+  it("finishes the direction after the last level, opening no plan", async () => {
+    const at = await study();
+    await directionWith(at, LAST_UPGRADE);
+
+    await expect(at.commands.upgradeStudy("c1", "lrn_go", "l1", true)).resolves.toStrictEqual({
+      planSessionId: null,
+      notArchived: 0,
+    });
+
+    const written = await marker(at.root);
+    expect(written.ladder.map((level) => level.state)).toStrictEqual(["done", "skipped"]);
+    expect(written.finishedAt).toBe(new Date(1_000).toISOString());
+    expect(at.asked).toStrictEqual([]);
+    expect(at.commands.list()[0]?.next).toStrictEqual({ primary: null, secondary: null });
+  });
+
+  it("refuses an upgrade not offered, of another level, or asked twice, writing nothing more", async () => {
+    const at = await study();
+    await directionWith(at, PLANNED);
+
+    await expect(at.commands.upgradeStudy("c1", "lrn_go", "l1", true)).rejects.toMatchObject({
+      code: "study_not_available",
+      params: { directionId: "lrn_go" },
+    });
+    expect(JSON.parse(await readFile(join(at.root, "go", ".atrium-study.json"), "utf8"))).toStrictEqual(PLANNED);
+    await directionWith(at, AT_UPGRADE);
+    await expect(at.commands.upgradeStudy("c1", "lrn_go", "l2", true)).rejects.toMatchObject({
+      code: "study_not_available",
+    });
+
+    const [first, second] = await Promise.allSettled([
+      at.commands.upgradeStudy("c1", "lrn_go", "l1", false),
+      at.commands.upgradeStudy("c2", "lrn_go", "l1", false),
+    ]);
+
+    expect(first).toStrictEqual({ status: "fulfilled", value: { planSessionId: "s2", notArchived: 0 } });
+    expect(second).toMatchObject({ status: "rejected", reason: { code: "study_not_available" } });
+    expect((await marker(at.root)).ladder.map((level) => level.state)).toStrictEqual(["done", "current"]);
+    expect(at.asked.filter((line) => line.startsWith("startStudySession"))).toHaveLength(1);
+  });
+
+  it("still upgrades when the plan session cannot be opened, the strip then offering to plan", async () => {
+    const at = await study(undefined, { startFails: true });
+    await directionWith(at, AT_UPGRADE);
+
+    await expect(at.commands.upgradeStudy("c1", "lrn_go", "l1", false)).resolves.toStrictEqual({
+      planSessionId: null,
+      notArchived: 0,
+    });
+
+    expect(at.commands.list()[0]?.next.primary).toStrictEqual({
+      type: "start",
+      kind: "plan",
+      level: "l2",
+      available: true,
+    });
+    expect(at.logs.filter((record) => record["msg"] === "plan session not opened")).toStrictEqual([
+      expect.objectContaining({ level: "warn", directionId: "lrn_go" }),
+    ]);
+  });
+
+  it("refuses an upgrade of an archived direction, a broken file or one of a later version, archiving nothing", async () => {
+    const at = await study();
+    await directionWith(at, AT_UPGRADE);
+    await at.commands.archiveDirection("lrn_go");
+
+    await expect(at.commands.upgradeStudy("c1", "lrn_go", "l1", true)).rejects.toMatchObject({
+      code: "direction_archived",
+      params: { directionId: "lrn_go" },
+    });
+    await mkdir(join(at.root, "bad"), { recursive: true });
+    await writeFile(join(at.root, "bad", ".atrium-study.json"), "{");
+    await mkdir(join(at.root, "new"), { recursive: true });
+    await writeFile(join(at.root, "new", ".atrium-study.json"), JSON.stringify({ ...AT_UPGRADE, version: 2 }));
+    await at.directions.scan();
+
+    await expect(at.commands.upgradeStudy("c1", "lrn_bad", "l1", true)).rejects.toMatchObject({
+      code: "study_file_broken",
+    });
+    await expect(at.commands.upgradeStudy("c1", "lrn_new", "l1", true)).rejects.toMatchObject({
+      code: "study_file_version",
+    });
+    expect(at.asked.filter((line) => line.startsWith("archiveSessions"))).toStrictEqual([]);
+  });
+
+  it("does nothing more when the upgrade cannot be written: no session archived, no plan", async () => {
+    const at = await study(undefined, {
+      summaries: () => [studySession("lesson", { kind: "lesson", level: "l1", step: "s1" })],
+    });
+    await directionWith(at, AT_UPGRADE);
+    await chmod(join(at.root, "go"), 0o500);
+    onTestFinished(() => chmod(join(at.root, "go"), 0o700));
+
+    await expect(at.commands.upgradeStudy("c1", "lrn_go", "l1", true)).rejects.toMatchObject({
+      code: "study_write_failed",
+    });
+
+    expect(at.asked).toStrictEqual([]);
+    expect((await marker(at.root)).ladder.map((level) => level.state)).toStrictEqual(["current", "todo"]);
+  });
+
+  it("takes an upgrade after an archive asked before it as the archive left it", async () => {
+    const at = await study();
+    await directionWith(at, AT_UPGRADE);
+    const release = at.holdStop();
+
+    const archiving = at.commands.archiveDirection("lrn_go");
+    const upgrading = at.commands.upgradeStudy("c1", "lrn_go", "l1", true);
+    release();
+    await archiving;
+
+    await expect(upgrading).rejects.toMatchObject({ code: "direction_archived" });
+  });
+
+  it("restores sessions of the direction archived, skipping live ones, refusing any not of it", async () => {
+    const sessions = [
+      { ...studySession("lesson", { kind: "lesson", level: "l1", step: "s1" }), archived: true },
+      { ...studySession("quiz", { kind: "quiz", level: "l1", step: "s1" }), archived: true },
+      studySession("live", { kind: "lesson", level: "l2", step: "s1" }),
+      {
+        ...studySession("other", { kind: "lesson", level: "l1", step: "s1" }),
+        containerId: "lrn_other",
+        archived: true,
+      },
+    ];
+    const at = await study(undefined, { summaries: () => sessions });
+    await directionWith(at, AT_UPGRADE);
+
+    await expect(at.commands.restoreStudySessions("lrn_go", ["lesson", "other"])).rejects.toMatchObject({
+      code: "session_not_found",
+      params: { sessionId: "other" },
+    });
+    await expect(at.commands.restoreStudySessions("lrn_go", ["lesson", "unknown"])).rejects.toMatchObject({
+      code: "session_not_found",
+    });
+    expect(at.asked).toStrictEqual([]);
+
+    await expect(at.commands.restoreStudySessions("lrn_go", ["lesson", "live", "quiz"])).resolves.toStrictEqual({});
+
+    expect(at.asked).toStrictEqual(["restoreSessions lesson,quiz"]);
+    await at.commands.archiveDirection("lrn_go");
+    await expect(at.commands.restoreStudySessions("lrn_go", ["lesson"])).rejects.toMatchObject({
+      code: "direction_archived",
+    });
   });
 });
