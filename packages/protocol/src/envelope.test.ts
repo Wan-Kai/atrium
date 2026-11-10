@@ -332,6 +332,13 @@ const commands: Command[] = [
   { type: "read_file", requestId: "r93", traceparent, workspaceId: WORKSPACE, path: "a".repeat(4096) },
   { type: "resolve_visual", requestId: "r94", traceparent, sessionId: "s1", path: "visuals/2-03-isolation.html" },
   { type: "resolve_visual", requestId: "r95", traceparent, sessionId: "s1", path: "a".repeat(4096) },
+  // A direction's own files and visuals, for its home's archive and its viewer tabs (SPEC-0008, ML4).
+  { type: "list_dir", requestId: "r98", traceparent, workspaceId: DIRECTION, path: "notes" },
+  { type: "read_file", requestId: "r99", traceparent, workspaceId: DIRECTION, path: "notes/2-03.md" },
+  { type: "resolve_visual", requestId: "r100", traceparent, directionId: DIRECTION, path: "visuals/2-03-a.html" },
+  // A visual whose last card closed (SPEC-0007, ML4 review).
+  { type: "release_visual", requestId: "r101", traceparent, sessionId: "s1", path: "visuals/2-03-isolation.html" },
+  { type: "release_visual", requestId: "r102", traceparent, directionId: DIRECTION, path: "visuals/2-03-a.html" },
   { type: "send_visual_message", requestId: "r96", traceparent, sessionId: "s1", path: "/v/a.html", text: "选 B" },
   {
     type: "send_visual_message",
@@ -957,6 +964,7 @@ describe("parseClientMessage", () => {
       "prompt",
       "read_file",
       "read_pi_config",
+      "release_visual",
       "remove_delivery",
       "remove_project",
       "remove_queued",
@@ -1480,6 +1488,29 @@ describe("parseClientMessage", () => {
     ],
     ["a cancel without the job", { type: "cancel_install", requestId: "r1", traceparent }, "r1"],
     ["a visual of no path", { type: "resolve_visual", requestId: "r1", traceparent, sessionId: "s1", path: "" }, "r1"],
+    ["a visual of nobody", { type: "resolve_visual", requestId: "r1", traceparent, path: "a.html" }, "r1"],
+    [
+      "a visual of a session and a direction at once",
+      { type: "resolve_visual", requestId: "r1", traceparent, sessionId: "s1", directionId: DIRECTION, path: "a.html" },
+      "r1",
+    ],
+    [
+      "a visual of a workspace",
+      { type: "resolve_visual", requestId: "r1", traceparent, directionId: WORKSPACE, path: "a.html" },
+      "r1",
+    ],
+    ["a release of nobody's visual", { type: "release_visual", requestId: "r1", traceparent, path: "a.html" }, "r1"],
+    [
+      "a release of a session's and a direction's visual at once",
+      { type: "release_visual", requestId: "r1", traceparent, sessionId: "s1", directionId: DIRECTION, path: "a.html" },
+      "r1",
+    ],
+    [
+      "a release of no path",
+      { type: "release_visual", requestId: "r1", traceparent, directionId: DIRECTION, path: "" },
+      "r1",
+    ],
+    ["a read in a chat", { type: "read_file", requestId: "r1", traceparent, workspaceId: "cht_abc", path: "a" }, "r1"],
     [
       "a visual path over 4096 characters",
       { type: "resolve_visual", requestId: "r1", traceparent, sessionId: "s1", path: "a".repeat(4097) },
@@ -2168,6 +2199,7 @@ const hostMessages: unknown[] = [
   { type: "plans_updated", plans: [] },
   { type: "remote_updated", remote: remoteState },
   { type: "visual_changed", sessionId: "s1", path: "visuals/2-03-isolation.html", mtime: 1_760_000_000_000 },
+  { type: "visual_changed", directionId: DIRECTION, path: "visuals/2-03-isolation.html", mtime: 0 },
   {
     type: "turn_started",
     ...at,
@@ -2390,6 +2422,7 @@ const commandResultExamples = {
     { size: 4, content: { kind: "image", mimeType: "image/png", data: "UklGRg==" } },
     { size: 9, content: { kind: "too_large" } },
   ],
+  release_visual: [{}],
   resolve_visual: [
     { url: `atrium-visual://${"A".repeat(43)}/2-03-isolation.html`, size: 1, mtime: 1_760_000_000_000 },
     { url: `atrium-visual://${"b".repeat(43)}/a.html`, size: 1024 * 1024, mtime: 0 },

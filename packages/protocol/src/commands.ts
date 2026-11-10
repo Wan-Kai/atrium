@@ -14,7 +14,7 @@ import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup"
 import { Step, TranscriptItem } from "./transcript";
 import { PI_CONFIG_MAX_BYTES, PiConfigFile, PiConfigName, PiConfigRevision } from "./pi-config";
 import { DeviceId, PairingId, RelayLine, RemoteState } from "./remote";
-import { VISUAL_FILE_MAX, VISUAL_MESSAGE_MAX, VisualPath } from "./visuals";
+import { VISUAL_FILE_MAX, VISUAL_MESSAGE_MAX, VisualPath, namesOneOwner } from "./visuals";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
 export const RequestId = z.string().min(1).max(128);
@@ -779,20 +779,23 @@ export const WatchDiffCommand = z.strictObject({
 });
 export type WatchDiffCommand = z.infer<typeof WatchDiffCommand>;
 
-/** Lists one directory of a workspace, for the right panel's file tree (SPEC-0001, "M1.12 的文件与更改"). */
+/**
+ * Lists one directory of a workspace, for the right panel's file tree (SPEC-0001, "M1.12 的文件与更改"),
+ * or of a learning direction, for its home's archive (SPEC-0008, "ML4 定的细节"; the field keeps its name).
+ */
 export const ListDirCommand = z.strictObject({
   type: z.literal("list_dir"),
   ...commandFields,
-  workspaceId: WorkspaceId,
+  workspaceId: z.union([WorkspaceId, DirectionId]),
   path: WorkspacePath,
 });
 export type ListDirCommand = z.infer<typeof ListDirCommand>;
 
-/** Reads one file of a workspace, for a viewer tab (SPEC-0001, "M1.12 的文件与更改"). */
+/** Reads one file of a workspace or a learning direction, for a viewer tab (SPEC-0001, "M1.12"; SPEC-0008, ML4). */
 export const ReadFileCommand = z.strictObject({
   type: z.literal("read_file"),
   ...commandFields,
-  workspaceId: WorkspaceId,
+  workspaceId: z.union([WorkspaceId, DirectionId]),
   path: WorkspacePath,
 });
 export type ReadFileCommand = z.infer<typeof ReadFileCommand>;
@@ -801,14 +804,40 @@ export type ReadFileCommand = z.infer<typeof ReadFileCommand>;
  * Checks a visual a reply names and hands out its sandbox address (SPEC-0007, "接口与数据").
  *
  * @remarks
- * The connection then hears `visual_changed` when the file changes, until it closes.
+ * The connection then hears `visual_changed` when the file changes, until it closes. For a
+ * session's reply, or for a direction's viewer tab (SPEC-0008, "ML4 定的细节"): exactly one of the two.
  */
-export const ResolveVisualCommand = z.strictObject({
-  type: z.literal("resolve_visual"),
-  ...sessionCommandFields,
-  path: VisualPath,
-});
+export const ResolveVisualCommand = z
+  .strictObject({
+    type: z.literal("resolve_visual"),
+    ...commandFields,
+    sessionId: SessionId.optional(),
+    directionId: DirectionId.optional(),
+    path: VisualPath,
+  })
+  // No message of its own: a failure only ever becomes `invalid_message`.
+  .refine(namesOneOwner);
 export type ResolveVisualCommand = z.infer<typeof ResolveVisualCommand>;
+
+/**
+ * Lets go of a visual whose last card on this connection closed (SPEC-0007, "接口与数据").
+ *
+ * @remarks
+ * The connection hears no more of it, and its address is forgotten once no connection looks at
+ * it; closing a viewer tab or a demo preview releases at once, not at disconnect (SPEC-0008, ML4
+ * three-way review). Named as it was resolved: exactly one of a session and a direction.
+ */
+export const ReleaseVisualCommand = z
+  .strictObject({
+    type: z.literal("release_visual"),
+    ...commandFields,
+    sessionId: SessionId.optional(),
+    directionId: DirectionId.optional(),
+    path: VisualPath,
+  })
+  // No message of its own: a failure only ever becomes `invalid_message`.
+  .refine(namesOneOwner);
+export type ReleaseVisualCommand = z.infer<typeof ReleaseVisualCommand>;
 
 /**
  * Sends what you picked in a visual as your message in its session (SPEC-0007, "回传"): a steer
@@ -1165,6 +1194,7 @@ export const Command = z.discriminatedUnion("type", [
   ListDirCommand,
   ReadFileCommand,
   ResolveVisualCommand,
+  ReleaseVisualCommand,
   SendVisualMessageCommand,
   ReadPiConfigCommand,
   SavePiConfigCommand,
@@ -1330,6 +1360,7 @@ export const CommandResult = {
     size: z.number().int().nonnegative().max(VISUAL_FILE_MAX),
     mtime: z.number().int().nonnegative(),
   }),
+  release_visual: z.strictObject({}),
   /** As `steer`'s, and `dropped` when the same visual sent less than a second before. */
   send_visual_message: z.strictObject({ disposition: z.enum(["started", "queued", "handled", "dropped"]) }),
   read_pi_config: PiConfigFile,

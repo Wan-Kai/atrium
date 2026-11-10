@@ -149,7 +149,10 @@ describe("study mode in the window (SPEC-0008, ML1)", () => {
     await screen.getByTestId("learning-row").click();
 
     const resume = screen.getByRole("region", { name: "继续" });
-    await expect.element(resume).toHaveTextContent("继续Rust 入门讨论中还没排出阶梯打开 Rust 入门");
+    // ML4: the eyebrow says it is under discussion, and the last session (SPEC-0008, "ML4 定的细节 · 继续").
+    await expect
+      .element(resume)
+      .toHaveTextContent("继续Rust 入门 · 讨论中还没排出阶梯打开 Rust 入门上次：1 分钟前 · talk");
     await expect.element(screen.getByRole("button", { name: "继续讨论" })).not.toBeInTheDocument();
     const cards = screen.getByRole("region", { name: "全部方向" }).getByRole("group");
     await expect
@@ -158,11 +161,13 @@ describe("study mode in the window (SPEC-0008, ML1)", () => {
     await expect.element(cards.first().getByLabelText("已置顶")).toBeVisible();
     await expect.element(screen.getByRole("region", { name: "全部方向" })).not.toHaveTextContent("SQL");
     await screen.getByRole("button", { name: "已归档的方向" }).click();
-    await expect.element(screen.getByRole("list", { name: "已归档的方向" })).toHaveTextContent("SQL恢复");
+    await expect.element(screen.getByRole("list", { name: "已归档的方向" })).toHaveTextContent("SQL讨论中恢复");
 
     await resume.getByRole("button", { name: "打开 Rust 入门" }).click();
 
-    await expect.element(screen.getByTestId("direction-home").getByRole("heading")).toHaveTextContent("Rust 入门");
+    await expect
+      .element(screen.getByTestId("direction-home").getByRole("heading", { level: 1 }))
+      .toHaveTextContent("Rust 入门");
     expect(calls.filter((call) => /^(selectContainer|openSession|createSession)/.test(call))).toStrictEqual([
       `selectContainer ${RUST}`,
     ]);
@@ -175,7 +180,9 @@ describe("study mode in the window (SPEC-0008, ML1)", () => {
     // Its middle is none of its buttons.
     await screen.getByRole("group", { name: "Go" }).click();
 
-    await expect.element(screen.getByTestId("direction-home").getByRole("heading")).toHaveTextContent("Go");
+    await expect
+      .element(screen.getByTestId("direction-home").getByRole("heading", { level: 1 }))
+      .toHaveTextContent("Go");
     expect(calls).toContain(`selectContainer ${GO}`);
   });
 
@@ -358,7 +365,7 @@ describe("study mode in the window (SPEC-0008, ML1)", () => {
     await expect.element(card).toHaveTextContent("Go共 2 级 · 第 1 级第 1 步");
     await expect
       .element(screen.getByRole("region", { name: "继续" }))
-      .toHaveTextContent("继续Go已排好阶梯共 2 级 · 第 1 级第 1 步打开 Go");
+      .toHaveTextContent("继续Go · 第 1 级 · 第 1 步变量打开 Go");
     await card.click();
     const home = screen.getByTestId("direction-home");
     await expect.element(home.getByText("写爬虫 · Go")).toBeVisible();

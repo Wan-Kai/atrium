@@ -41,8 +41,8 @@ const pairing = {
 };
 
 describe("the coordinated remote contract", () => {
-  it("uses version 37, which adds upgrading a direction and restoring its sessions (SPEC-0008, ML3)", () => {
-    expect(PROTOCOL_VERSION).toBe(37);
+  it("uses version 38, which lets a direction's files and visuals be read (SPEC-0008, ML4)", () => {
+    expect(PROTOCOL_VERSION).toBe(38);
   });
 
   it.each([

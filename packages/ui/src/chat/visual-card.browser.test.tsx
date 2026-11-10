@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { Markdown } from "./markdown";
-import { VISUAL_MAX_HEIGHT, type VisualRect, type VisualsAccess, VisualsContext } from "./visual-card";
+import { VISUAL_MAX_HEIGHT, VisualCard, type VisualRect, type VisualsAccess, VisualsContext } from "./visual-card";
 import "../styles.css";
 
 /**
@@ -107,7 +107,7 @@ function visuals(
   const listeners = new Set<(path: string) => void>();
   let next = 0;
   const access: VisualsAccess = {
-    sessionId: "s1",
+    owner: "s1",
     hold: () => () => undefined,
     async resolve(path) {
       resolved.push(path);
@@ -295,6 +295,34 @@ describe("an inline visual", () => {
     );
     heard.stop();
     expect(dropped.sent).toStrictEqual([["visuals/a.html", "选 B"]]);
+  });
+
+  it("refuses every clicked message of a direction's demo in its viewer tab, which has no title row (SPEC-0008, ML4)", async () => {
+    const heard = answersHeard();
+    const { access } = visuals(
+      [{ url: `data:text/html;charset=utf-8,${encodeURIComponent(CLICKED)}`, mtime: 1 }],
+      null,
+      {
+        presses: { has: () => true, spend: () => true },
+      },
+    );
+    const screen = await render(
+      <VisualCard access={{ ...access, owner: "lrn_rust", send: null }} path="visuals/a.html" title={null} headless />,
+    );
+    await vi.waitFor(() =>
+      expect(screen.getByTestId("visual-body").element().getBoundingClientRect().height).toBe(120),
+    );
+
+    await userEvent.click(screen.getByTestId("visual-frame").element());
+
+    await vi.waitFor(() =>
+      expect(heard.answers).toStrictEqual([
+        [2, "refused"],
+        [3, "refused"],
+      ]),
+    );
+    heard.stop();
+    expect(screen.getByTestId("visual-path").query()).toBeNull();
   });
 
   it("loads the file again when it changed", async () => {

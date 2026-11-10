@@ -126,6 +126,8 @@ export {
   type StudyTool,
   type StudyUse,
   TOOLS_BY_USE,
+  VISUAL_RULES,
+  askArgument,
   startCommand,
   studyArgument,
 } from "./study/study";

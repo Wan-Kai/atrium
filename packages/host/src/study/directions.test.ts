@@ -4,7 +4,14 @@ import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import { ResourceTracker } from "../platform/resources";
-import { type FoundDirection, createDirections, directionIdOf, mattersToDirections, resolveRoot } from "./directions";
+import {
+  type FoundDirection,
+  createDirections,
+  directionIdOf,
+  directionPlaceSafe,
+  mattersToDirections,
+  resolveRoot,
+} from "./directions";
 
 /**
  * A learning directory for one test, and its directions.
@@ -441,5 +448,52 @@ describe("directionIdOf", () => {
     ["x".repeat(65), null],
   ])("%s → %s", (name, id) => {
     expect(directionIdOf(name)).toBe(id);
+  });
+});
+
+describe("directionPlaceSafe (SPEC-0008, ML4)", () => {
+  it("takes a real directory right in the learning directory or its Archive/, and nothing else", async () => {
+    const temp = await createTempDir("place");
+    onTestFinished(temp.cleanup);
+    const base = await realpath(temp.path);
+    const root = join(base, "Learning");
+    await mkdir(join(root, "rust"), { recursive: true });
+    await mkdir(join(root, "Archive", "go"), { recursive: true });
+    await mkdir(join(root, "deep", "x"), { recursive: true });
+    await mkdir(join(base, "elsewhere", "go2"), { recursive: true });
+    await symlink(join(base, "elsewhere", "go2"), join(root, "linked"));
+    await writeFile(join(root, "file"), "x");
+
+    const seen = await Promise.all(
+      ["rust", "Archive/go", "deep/x", "linked", "file", "gone", "."].map(async (path) => [
+        path,
+        await directionPlaceSafe(join(root, path), root),
+      ]),
+    );
+
+    expect(seen).toStrictEqual([
+      ["rust", true],
+      ["Archive/go", true],
+      ["deep/x", false],
+      ["linked", false],
+      ["file", false],
+      ["gone", false],
+      [".", false],
+    ]);
+  });
+
+  it("refuses a direction under an Archive/ or a learning directory that is a link", async () => {
+    const temp = await createTempDir("place");
+    onTestFinished(temp.cleanup);
+    const base = await realpath(temp.path);
+    const root = join(base, "Learning");
+    await mkdir(join(base, "other", "go"), { recursive: true });
+    await mkdir(root);
+    await symlink(join(base, "other"), join(root, "Archive"));
+    await mkdir(join(base, "real", "rust"), { recursive: true });
+    await symlink(join(base, "real"), join(base, "Linked"));
+
+    expect(await directionPlaceSafe(join(root, "Archive", "go"), root)).toBe(false);
+    expect(await directionPlaceSafe(join(base, "Linked", "rust"), join(base, "Linked"))).toBe(false);
   });
 });

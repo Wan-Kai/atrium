@@ -103,7 +103,10 @@ export interface WsServerOptions {
   /** A workspace's files, for the right panel's file tree and the viewer tabs. */
   readonly files: RouterOptions["files"];
   /** Inline visuals: their commands, their pages under `/visual/`; a closed connection stops watching them. */
-  readonly visuals: Pick<VisualService, "resolve" | "send" | "serve" | "disconnect">;
+  readonly visuals: Pick<
+    VisualService,
+    "resolve" | "resolveForDirection" | "send" | "release" | "serve" | "disconnect"
+  >;
   readonly logger: Logger;
   readonly tracer: Tracer;
   readonly clock: Clock;

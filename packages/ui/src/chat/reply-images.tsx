@@ -26,6 +26,8 @@ export function replyImageLabel(node: ExtraProps["node"]): string | null {
 interface ReplyImageFiles {
   readonly dir: string;
   readonly basePath: string;
+  /** Whether `..` is resolved from the document's folder, as a direction's preview does (ML4). */
+  readonly parents: boolean;
   readonly load: (path: string) => Promise<string>;
 }
 
@@ -40,6 +42,7 @@ export const ReplyImagesContext = createContext<ReplyImageFiles | null>(null);
  * @param workspaceId - The current workspace.
  * @param dir - Its absolute root, used only to resolve Markdown paths.
  * @param basePath - The document's workspace-relative directory, or empty for replies.
+ * @param parents - Resolve `..` from that directory, kept inside the root (a direction's notes, ML4).
  * @returns The narrow image reader.
  */
 export function replyImageFiles(
@@ -47,10 +50,12 @@ export function replyImageFiles(
   workspaceId: string,
   dir: string,
   basePath = "",
+  parents = false,
 ): ReplyImageFiles {
   return {
     dir,
     basePath,
+    parents,
     load: async (path) => {
       const { content } = await client.readFile(workspaceId, path);
       if (content.kind !== "image") throw new Error(content.kind);
@@ -86,7 +91,9 @@ type ReplyImageProps = ComponentProps<"img"> & { readonly node?: unknown };
 export function ReplyImage({ node: _node, src, alt = "", ...props }: ReplyImageProps) {
   const files = useContext(ReplyImagesContext);
   const source =
-    typeof src === "string" ? replyImageSource(src, files?.dir ?? null, files?.basePath) : { kind: "blocked" as const };
+    typeof src === "string"
+      ? replyImageSource(src, files?.dir ?? null, files?.basePath, files?.parents)
+      : { kind: "blocked" as const };
   if (source.kind === "link")
     return (
       <a

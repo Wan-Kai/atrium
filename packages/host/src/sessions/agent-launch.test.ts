@@ -1,4 +1,4 @@
-import { encodeArgument, studyArgument } from "@atrium/pi";
+import { askArgument, encodeArgument, studyArgument } from "@atrium/pi";
 import type { AgentRole, SessionStudy } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import type { AgentRecord } from "../store/agent-records";
@@ -261,16 +261,25 @@ describe("studyLaunchFlags", () => {
     ]);
   });
 
-  it("gives none to a workspace's, a chat's, an asking or a use-less session, or one unknown", () => {
+  it("gives none to a workspace's, a chat's or a use-less session, or one unknown", () => {
     const entries = [
       study("workspace", "wks_0123456789abcdef", { kind: "lesson", level: "l1", step: "s1" }),
       study("chat", "cht_00000000-0000-4000-8000-000000000000", { kind: "discuss" }),
-      study("ask", "lrn_go", { kind: "ask" }),
       study("none", "lrn_go", null),
       entry("old"),
     ];
     expect(
-      ["workspace", "chat", "ask", "none", "old", "unknown"].map((sessionId) => studyLaunchFlags(entries, sessionId)),
-    ).toStrictEqual([[], [], [], [], [], []]);
+      ["workspace", "chat", "none", "old", "unknown"].map((sessionId) => studyLaunchFlags(entries, sessionId)),
+    ).toStrictEqual([[], [], [], [], []]);
+  });
+
+  it("tells an asking session of a direction only that it asks, for the rule of staying in its folder (ML4 review)", () => {
+    const entries = [
+      study("ask", "lrn_go", { kind: "ask" }),
+      study("elsewhere", "wks_0123456789abcdef", { kind: "ask" }),
+    ];
+
+    expect(studyLaunchFlags(entries, "ask")).toStrictEqual([`--atrium-study=${askArgument()}`]);
+    expect(studyLaunchFlags(entries, "elsewhere")).toStrictEqual([]);
   });
 });

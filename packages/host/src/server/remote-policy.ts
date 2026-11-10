@@ -137,6 +137,7 @@ export const COMMAND_REACH = {
   reset_remote_identity: "local_only",
   // The phone shows a visual as a card and renders nothing (SPEC-0007, "手机端").
   resolve_visual: "local_only",
+  release_visual: "local_only",
   send_visual_message: "local_only",
 } as const satisfies Record<CommandType, Reach>;
 

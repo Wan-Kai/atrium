@@ -156,9 +156,10 @@ function useTabShortcuts(
       const at = view === null ? -1 : currentTab(order, view, tabs?.active ?? null);
       const key = event.key.toLowerCase();
       const onPage = pages.getState().page !== null || learning.getState().page !== null;
-      // A direction's home shows while asked for, or while none of its sessions is active.
+      // A direction's home shows while asked for, or while none of its sessions is active, under no viewer tab (ML4).
       const direction = container !== null && index.directions.some((one) => one.id === container);
-      const homeShown = direction && ((learning.getState().homes[container] ?? false) || tabs?.active == null);
+      const homeShown =
+        direction && view?.active == null && ((learning.getState().homes[container] ?? false) || tabs?.active == null);
       const homeAt = direction ? (homeShown ? 0 : at + 1) : at;
       const ordered: ({ kind: "home" } | (typeof order)[number])[] = direction ? [{ kind: "home" }, ...order] : order;
       let goTo: (typeof ordered)[number] | undefined;
@@ -180,8 +181,10 @@ function useTabShortcuts(
       else if (event.shiftKey && event.code === "BracketLeft") goTo = ordered[homeAt - 1];
       else if (event.shiftKey && event.code === "BracketRight") goTo = ordered[homeAt + 1];
       else return;
-      if (goTo?.kind === "home" && container !== null) showHome(learning, container, true);
-      else if (goTo !== undefined && goTo.kind !== "home") target = goTo;
+      if (goTo?.kind === "home" && container !== null) {
+        showViewer(views, container, null);
+        showHome(learning, container, true);
+      } else if (goTo !== undefined && goTo.kind !== "home") target = goTo;
       if (target !== undefined && direction && container !== null) showHome(learning, container, false);
       if (closing !== null) fireAndForget(client.openSession(closing));
       if (target !== undefined && container !== null) {
@@ -590,10 +593,6 @@ function MainWindow({
   const direction = useStore(client.index, (state) =>
     container === null || !isDirectionId(container) ? undefined : state.directions.find((one) => one.id === container),
   );
-  // A direction shows its home while asked to, or with no session open (design-language, "学习模式").
-  const homeShown = useStore(learning, (state) =>
-    direction === undefined ? false : (state.homes[direction.id] ?? false) || sessionId === null,
-  );
   const [panes] = useState(() => createPanes(localStorage));
   const [views] = useState(() => createWorkspaceViews(localStorage));
   const folded = useStore(panes, (state) => state.sidebarCollapsed);
@@ -601,6 +600,10 @@ function MainWindow({
   // Sent from the page, its launch shows in the conversation area, the page's box under it.
   const pageLaunching = useStore(pages, (state) => pageLaunch(state) !== undefined);
   const viewer = useStore(views, (state) => (container === null ? null : viewOf(state, container).active));
+  // A direction shows its home while asked to, or with no session open, and no viewer tab shows (design-language, "学习模式"; ML4).
+  const homeShown = useStore(learning, (state) =>
+    direction === undefined || viewer !== null ? false : (state.homes[direction.id] ?? false) || sessionId === null,
+  );
   useDraftCleanup(index, client);
 
   useEffect(() => {
@@ -693,7 +696,10 @@ function MainWindow({
                   : {
                       name: directionName(direction),
                       shown: homeShown,
-                      onShow: () => showHome(learning, direction.id, true),
+                      onShow: () => {
+                        showViewer(views, direction.id, null);
+                        showHome(learning, direction.id, true);
+                      },
                       onHide: () => showHome(learning, direction.id, false),
                       onCrumb: () => openLearning(learning, "home"),
                       archived: direction.archived,
@@ -703,7 +709,7 @@ function MainWindow({
           )}
           {learningPage === null && pageProject === null && direction !== undefined ? (
             // On the direction's home and in each of its sessions (design-language "常驻步骤条").
-            <StepStrip client={client} store={learning} directionId={direction.id} />
+            <StepStrip client={client} store={learning} directionId={direction.id} views={views} />
           ) : null}
           {sessionShown && sessionId !== null ? (
             <Breadcrumb client={client} sessionId={sessionId} views={views} />
@@ -722,11 +728,11 @@ function MainWindow({
             </div>
           ) : null}
           {learningPage === "home" ? (
-            <LearningHome client={client} store={learning} />
+            <LearningHome client={client} store={learning} views={views} />
           ) : learningPage === "new" ? (
             <NewDirectionPage client={client} store={learning} />
           ) : direction !== undefined && homeShown ? (
-            <DirectionHome client={client} store={learning} directionId={direction.id} />
+            <DirectionHome client={client} store={learning} directionId={direction.id} views={views} />
           ) : pageProject === null || pageLaunching ? (
             <OpenLogin value={openLogin}>
               <ConversationArea

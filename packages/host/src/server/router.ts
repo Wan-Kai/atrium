@@ -63,7 +63,7 @@ export interface RouterOptions {
   /** A workspace's files, for the right panel's file tree and the viewer tabs. */
   readonly files: WorkspaceFiles;
   /** Inline visuals: their addresses and the messages sent from them (SPEC-0007). */
-  readonly visuals: Pick<VisualService, "resolve" | "send">;
+  readonly visuals: Pick<VisualService, "resolve" | "resolveForDirection" | "send" | "release">;
   readonly index: IndexCommands;
   /** Learning directions (SPEC-0008). */
   readonly study: Pick<
@@ -261,7 +261,20 @@ export function createRouter(options: RouterOptions): Route {
       case "read_file":
         return options.files.readFile(command.workspaceId, command.path);
       case "resolve_visual":
-        return options.visuals.resolve(connection.id, command.sessionId, command.path);
+        // A direction's viewer tab resolves for the direction, with no session (SPEC-0008, ML4).
+        return command.sessionId === undefined
+          ? options.visuals.resolveForDirection(connection.id, command.directionId ?? "", command.path)
+          : options.visuals.resolve(connection.id, command.sessionId, command.path);
+      case "release_visual":
+        // Named as it was resolved: a direction's viewer tab, or a session's reply (ML4 review).
+        options.visuals.release(
+          connection.id,
+          command.sessionId === undefined
+            ? { directionId: command.directionId ?? "" }
+            : { sessionId: command.sessionId },
+          command.path,
+        );
+        return {};
       case "send_visual_message": {
         const { type: _type, ...message } = command;
         return options.visuals.send(message);

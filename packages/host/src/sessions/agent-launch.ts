@@ -7,6 +7,7 @@ import {
   READ_ONLY_TOOLS,
   STUDY_FLAG,
   encodeArgument,
+  askArgument,
   studyArgument,
 } from "@atrium/pi";
 import { isDirectionId } from "@atrium/protocol";
@@ -155,7 +156,9 @@ export function agentLaunchFlags(entries: readonly LaunchEntry[], sessionId: str
 export function studyLaunchFlags(entries: readonly LaunchEntry[], sessionId: string, unforked = false): string[] {
   const entry = entries.find((candidate) => candidate.sessionId === sessionId);
   const study = entry?.study ?? null;
-  if (entry === undefined || !isDirectionId(entry.containerId) || study === null || study.kind === "ask") return [];
+  if (entry === undefined || !isDirectionId(entry.containerId) || study === null) return [];
+  // Asking has no use's tools or prompt, only the rule of staying in the folder (SPEC-0008, ML4 review).
+  if (study.kind === "ask") return [`--${STUDY_FLAG}=${askArgument()}`];
   // A quiz not forked from its lesson is told it has none of the lesson's conversation (SPEC-0008, "ML3 定的细节").
   const alone = study.kind === "quiz" && (unforked || (entry.parent ?? null) === null);
   return [`--${STUDY_FLAG}=${studyArgument({ ...study, kind: study.kind, ...(alone ? { context: "none" } : {}) })}`];

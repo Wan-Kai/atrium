@@ -60,7 +60,7 @@ function visuals(
   const listeners = new Set<(path: string) => void>();
   let next = 0;
   const access: VisualsAccess = {
-    sessionId: "s1",
+    owner: "s1",
     hold: () => () => undefined,
     async resolve(path) {
       resolved.push(path);

@@ -505,9 +505,11 @@ export function createSessionManager(options: {
   readonly fast?: SessionFast;
   /**
    * Where a session's visuals go, as its container decides (SPEC-0007, "一个演示 = 一个文件");
-   * `null` for a session that has none. Atrium's extension is told it, to tell the model.
+   * `null` for a session that has none. Atrium's extension is told it, to tell the model; a study
+   * direction's, with the direction's place (`base`), is written and named by its place in the
+   * direction (SPEC-0008, ML4).
    */
-  readonly visualsDir?: (sessionId: string) => string | null;
+  readonly visualsDir?: (sessionId: string) => { readonly dir: string; readonly base?: string } | null;
   /**
    * Subscriptions' usage, asked through Atrium's extension in sessions' pi (ADR-0010); without it,
    * or without the extension, sessions show none.
@@ -1148,8 +1150,12 @@ export function createSessionManager(options: {
             ...agentLaunchFlags(options.catalog.list(), sessionId),
             // Its use in a direction: only then does it have study tools (SPEC-0008, "ML2 定的细节").
             ...studyLaunchFlags(options.catalog.list(), sessionId, launch.alone === true),
-            // Where its visuals go (SPEC-0007, "怎么让 agent 知道").
-            ...(visuals === null ? [] : [`--${VISUALS_FLAG}=${visualsArgument(visuals)}`]),
+            // Where its visuals go (SPEC-0007, "怎么让 agent 知道"); a direction's, by their place in it (ML4).
+            ...(visuals === null
+              ? []
+              : [
+                  `--${VISUALS_FLAG}=${visualsArgument(visuals.dir, visuals.base === undefined ? undefined : "visuals")}`,
+                ]),
           ];
     const traced = startTracedPi({
       launch: {

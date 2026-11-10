@@ -71,6 +71,7 @@ describe("the phone's allowlist", () => {
     expect(phoneMayRun({ type: "send_visual_message", ...fields, sessionId: "s1", path: "a.html", text: "B" })).toBe(
       false,
     );
+    expect(phoneMayRun({ type: "release_visual", ...fields, sessionId: "s1", path: "a.html" })).toBe(false);
   });
 });
 

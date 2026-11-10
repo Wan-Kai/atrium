@@ -832,6 +832,9 @@
       }
     }
   ],
+  "release_visual": [
+    {}
+  ],
   "resolve_visual": [
     {
       "url": "atrium-visual://AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/2-03-isolation.html",
