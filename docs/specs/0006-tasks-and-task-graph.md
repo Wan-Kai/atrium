@@ -6,7 +6,7 @@
 - **相关**：
   - 子对话与扩展通道：SPEC-0002、ADR-0013
   - 问用户：SPEC-0003
-  - 审核卡片的技术形状：ADR-0017
+  - 审核卡片的技术形状：ADR-0018
   - 新建与归档工作区：SPEC-0001
   - 设计稿：`prototypes/agent-task-board-design.html`（第 5 版）
   - 调研：`docs/research/agent-task-board.md`、`worktree-practices.md`、`task-graph-execution.md`
@@ -76,7 +76,7 @@
     - **宿主发起（关卡）**：任务的流程（human 节点、批准改图、归档），以后还有"某个工具或命令执行前要审核"这类固定关卡。事实由宿主现算（git 状态、改动统计），可以带状态；裁决由宿主执行，你不通过动作就不发生，模型绕不过去。
     - **agent 发起**（以后的 `request_review` 工具，普通对话里在不可逆或代价大的动作前用）：标题、摘要是模型写的，只按原文显示成引用、标明"agent 说"，不能带状态标记（免得 agent 写一句"测试已通过 ✓"冒充事实）；改动统计仍由宿主现算，不用 agent 报的数。裁决作为工具结果交回 agent，宿主不强制，按钮的说法不暗示有保证。工具和固定关卡另开 SPEC，任务做完后再做。
   - 你看到的文字由界面按"种类 + 参数"写，宿主只发代码和参数。
-  - **技术上怎么通用**见 [ADR-0017](../adr/0017-reviews-one-shape-two-sources.md)：一个协议形状 `PendingReview` 挂在会话的控制状态上，宿主的 ReviewHub 汇总、校验、转交，来源各自实现 provider。任务的关卡从调度器的持久状态算出来、由宿主执行、裁决后写一条 `custom_message` 进任务对话；agent 的审核是对话里的一次工具调用，裁决作为工具结果交回模型。
+  - **技术上怎么通用**见 [ADR-0018](../adr/0018-reviews-one-shape-two-sources.md)：一个协议形状 `PendingReview` 挂在会话的控制状态上，宿主的 ReviewHub 汇总、校验、转交，来源各自实现 provider。任务的关卡从调度器的持久状态算出来、由宿主执行、裁决后写一条 `custom_message` 进任务对话；agent 的审核是对话里的一次工具调用，裁决作为工具结果交回模型。
 - **任务对话的进度和记录折叠**（2026-11-06 用户定）：进度行（节点开始、通过、失败、等你、合并）和审核的记录都是过程轨道上的一步，两次对话（你的消息、agent 的回复）之间的连成一段，和普通对话的过程一样：正在发生的那段展开，之前的收成一行灰色摘要（"› 任务进度 · 3 个节点通过 · 你批准了图 v2 · 10:02–10:44"），点开再展开。样式同 design-language"过程轨道"。
 - **"等你处理"**：任务要你介入的事也进侧栏底部的收件箱，一条写"任务名 · 在等什么"，点了打开任务标签。节点的提问点了直接打开那个节点的对话。
 - **搜索**：任务内部的对话也搜得到，结果前面写"任务名 · N2"，点了打开任务标签再打开那个对话。
@@ -1006,7 +1006,7 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 
 **2026-11-06 用户定**：初始图的"确认并启动"仍是开始页的按钮，不做成审核卡片（审核卡片只管启动后的改图）；不收原因的按钮带了原因判 `review_invalid`；合并多次被挡只在最后成功那次写记录；合并被挡后再答算同一张卡的重试，不算第二个裁决。
 
-2026-11-06，T8a（交互任务区的协议与宿主这一半）实现时定下。T8b（界面）建在它上面。协议号 33 → 34；合回 `main` 时取当时的下一个号并重新生成 Swift 投影。形状照 [ADR-0017](../adr/0017-reviews-one-shape-two-sources.md)，只做任务这一个来源（宿主关卡）；agent 来源的 provider、`request_review` 工具和"某个工具执行前要审核"的固定关卡另开 SPEC。
+2026-11-06，T8a（交互任务区的协议与宿主这一半）实现时定下。T8b（界面）建在它上面。协议号 33 → 34；合回 `main` 时取当时的下一个号并重新生成 Swift 投影。形状照 [ADR-0018](../adr/0018-reviews-one-shape-two-sources.md)，只做任务这一个来源（宿主关卡）；agent 来源的 provider、`request_review` 工具和"某个工具执行前要审核"的固定关卡另开 SPEC。
 
 **协议**（`packages/protocol/src/reviews.ts`）
 
@@ -1049,7 +1049,7 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 
 **任务对话与节点对话**
 
-- 任务对话窗格（`TaskConversation`）加了输入框、`ControlCards`（提问和审核）、需求摘要卡片（`TaskView.requirements`，模型写的话按文字显示，全空不画）。发消息是 `prompt` / `steer` / `stop`，对象是任务对话的会话 id，从不 `open_session`；审核开着时发消息也是 `prompt`，卡片不动（ADR-0017）。
+- 任务对话窗格（`TaskConversation`）加了输入框、`ControlCards`（提问和审核）、需求摘要卡片（`TaskView.requirements`，模型写的话按文字显示，全空不画）。发消息是 `prompt` / `steer` / `stop`，对象是任务对话的会话 id，从不 `open_session`；审核开着时发消息也是 `prompt`，卡片不动（ADR-0018）。
 - pi 没在跑的会话（宿主重启后、任务结束后、已通过的节点）：`watch` 之后如果视图仍是"正在读取"，调 `open_task_session`（发消息前也核一次）；这解决了 T7 记下的"任务结束后窗格停在正在读取"。
 - 节点对话标签（设计稿第 8 屏 A）：任务区的标签 id 是 `<任务 id>#<节点 id>`，紧跟在它任务的标签（和它已有的节点标签）后面，关任务时一起关，单关回到任务；打开方式：图上节点的悬停卡里"打开节点对话 ›"，任务对话里已开始节点的进度行（按下），列表行里"到 N2 的对话里讨论 ›"，收件箱里节点提问的那一条。内容是同一个对话窗格全宽，没开始的节点写"还没开始，没有对话可看"。被只读跟着的任务没有节点对话。
 - 任务栏按钮：设计中"放弃任务""确认并启动"（图还没画时后者灰）；运行中 / 等你"暂停任务"（暂停后"继续"）和"取消任务"；你停下的任务只有"取消任务"；完成和取消的没有；回答"先留着"之后（`archive = kept`）有"归档 worktree"兜底；被跟着的任务一个都没有。放弃和取消原地问一句再做（"确定 / 不了"，Esc 是不了），不弹对话框。
@@ -1185,7 +1185,7 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 
 - **`task_set_schedule({ when, place })`** 现在注册，任务对话共九个工具。只在任务还在 `designing` 时可用，已启动、已结束、取消、没有项目都是 `task_state_invalid`；`when` / `place` 经 zod 校验，错的参数是 `task_bad_request`；`place` 是 `local_readonly` 而生效的图里有 `work` 节点是 `task_graph_invalid`（`readonly_rule_has_work`）；再调一次替换。事件 `schedule_set`，任务记录的 `scheduleDraft` 就是它。有 `scheduleDraft` 的任务是"规则模板"：之后 `task_propose_graph`、`start_task` 的校验都按 `place` 判断是否只读规则。
 - **模板不进任务列表**：`list_tasks` / `tasks_updated` 过滤掉有 `scheduleDraft` 的任务；"修改"按 id 打开它。模板不运行，不参与"等你处理"。
-- **"确认并保存规则"就是开始页的"确认并启动"按钮换了字**（SPEC 原文：开始页的按钮写"确认并保存规则"），不是 ADR-0017 的关卡：它是用户对图本身的确认，不是对某个已有东西的裁决。命令仍是 `start_task`：对模板，宿主再校验一次图，然后保存规则（新规则，或这个模板已有规则时改规则），任务本身仍是 `designing`，什么也不启动。`TaskView.scheduleDraft`（`{ when, place, saved }`，非模板为 `null`）让界面把按钮写成"确认并保存规则"；`saved` 为真时不再给"放弃任务"，因为模板随规则走：对已存规则的模板 `abandon_task` 是 `task_state_invalid`，删除规则（`delete_schedule`）才会带走它（删它的目录、归档它的任务对话）。
+- **"确认并保存规则"就是开始页的"确认并启动"按钮换了字**（SPEC 原文：开始页的按钮写"确认并保存规则"），不是 ADR-0018 的关卡：它是用户对图本身的确认，不是对某个已有东西的裁决。命令仍是 `start_task`：对模板，宿主再校验一次图，然后保存规则（新规则，或这个模板已有规则时改规则），任务本身仍是 `designing`，什么也不启动。`TaskView.scheduleDraft`（`{ when, place, saved }`，非模板为 `null`）让界面把按钮写成"确认并保存规则"；`saved` 为真时不再给"放弃任务"，因为模板随规则走：对已存规则的模板 `abandon_task` 是 `task_state_invalid`，删除规则（`delete_schedule`）才会带走它（删它的目录、归档它的任务对话）。
 - **模板被删**（目录没了）：规则照旧触发，它自己存着摘要、图和模型；`edit_schedule` 答 `task_not_found`。
 - **每次触发出一个普通任务**：`TaskService.createScheduled`：开自己的任务对话（容器、目录取规则的，模型取规则的；不发设计消息，没有东西要设计），记录 `origin: { kind: "schedule", ruleId, firedAt }`，摘要和图取规则的，再记 `started`；图按规则的 `place` 再校验一次，失败不留半成品（撤回记录、删目录、归档任务对话）。名字"规则名 · 11 月 9 日"（触发时刻在本机时区的日期）；一天触发多次的 `interval` 规则再加时间，"规则名 · 11 月 9 日 14:05"（**待确认**：SPEC 只写"规则名 · 日期"，每 5 分钟一次的规则会撞名；2026-11-09 用户定，保持）。`TaskSummary.scheduled` 因此为真，列表里图标是时钟、位置行写"项目 · 定时 · worktree"（T7 已做）。
 - **设计消息**多一步：需求里说了按时间重复，就用 `task_set_schedule`（SPEC-0006 附录第 5 条）；引导词文字没改，版本不变。

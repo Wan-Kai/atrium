@@ -43,3 +43,4 @@ export { createNormalizer } from "./pi-fixtures/normalize";
 export { type FixtureHeader, type FixtureRecorder, createRecorder } from "./pi-fixtures/recorder";
 export { comparable } from "./pi-fixtures/compare";
 export { FixtureMismatch, type ReplayExit, ReplayRequestError, type ReplayedPi, replayPi } from "./pi-fixtures/replay";
+export { installedPi } from "./installed-pi";

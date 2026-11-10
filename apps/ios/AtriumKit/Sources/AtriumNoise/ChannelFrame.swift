@@ -13,6 +13,8 @@ public enum ChannelFrame: Equatable, Sendable {
   case heartbeatAck
   /// 0x04: a channel control message, single-chunk JSON.
   case control(Data)
+  /// A chunk of a deflated message (0x05 last, 0x06 more), only once the phone asked for them.
+  case deflatedChunk(Data, isLast: Bool)
 
   /// The largest body one frame can carry: a Noise plaintext minus the type byte.
   public static let maxBody = NoiseTransport.maxPlaintextLength - 1
@@ -28,6 +30,7 @@ public enum ChannelFrame: Equatable, Sendable {
     case .heartbeat: Data([0x02])
     case .heartbeatAck: Data([0x03])
     case .control(let body): Data([0x04]) + body
+    case .deflatedChunk(let body, let isLast): Data([isLast ? 0x05 : 0x06]) + body
     }
   }
 
@@ -52,6 +55,8 @@ public enum ChannelFrame: Equatable, Sendable {
       guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any], object["kind"] is String
       else { throw .badControl }
       return .control(body)
+    case 0x05: return .deflatedChunk(body, isLast: true)
+    case 0x06: return .deflatedChunk(body, isLast: false)
     default: throw .unknownFrameType(type)
     }
   }
@@ -118,7 +123,11 @@ public struct FrameReassembler<Instant: InstantProtocol> where Instant.Duration 
   public let limit: Int
   /// How long a chunked message may stay open.
   public let timeout: Duration
+  /// Whether deflated chunks are accepted: the phone asked the host for them.
+  public let inflates: Bool
   private var buffer = Data()
+  /// Whether the open message is deflated; `nil` with none open.
+  private var deflated: Bool?
   private var startedAt: Instant?
 
   /// Creates a reassembler for one receive direction.
@@ -128,9 +137,11 @@ public struct FrameReassembler<Instant: InstantProtocol> where Instant.Duration 
   /// - Parameters:
   ///   - limit: Largest complete message.
   ///   - timeout: How long a chunked message may stay open.
-  public init(limit: Int, timeout: Duration = ChannelLimits.chunkTimeout) {
+  ///   - inflates: Whether deflated chunks are accepted; otherwise they are an unknown frame type.
+  public init(limit: Int, timeout: Duration = ChannelLimits.chunkTimeout, inflates: Bool = false) {
     self.limit = limit
     self.timeout = timeout
+    self.inflates = inflates
   }
 
   /// When the open chunked message times out, or `nil` when none is open.
@@ -151,19 +162,43 @@ public struct FrameReassembler<Instant: InstantProtocol> where Instant.Duration 
     case .heartbeat: return .heartbeat
     case .heartbeatAck: return .heartbeatAck
     case .control(let body): return .control(body)
-    case .chunk(let body, let isLast):
-      guard buffer.count + body.count <= limit else { throw .messageTooLarge(limit: limit) }
-      buffer += body
-      if isLast {
-        let message = buffer
-        buffer = Data()
-        startedAt = nil
-        guard String(data: message, encoding: .utf8) != nil else { throw .badUTF8 }
-        return .message(message)
-      }
+    case .chunk(let body, let isLast): return try chunk(body, deflated: false, isLast: isLast, at: now)
+    case .deflatedChunk(let body, let isLast):
+      guard inflates else { throw .unknownFrameType(isLast ? 0x05 : 0x06) }
+      return try chunk(body, deflated: true, isLast: isLast, at: now)
+    }
+  }
+
+  /// Takes one chunk of a plain or deflated message.
+  ///
+  /// - Remark: All chunks of a message are of one kind. Both the deflated bytes and the inflated
+  ///   message are held to the limit (SPEC-0005 "Noise 通道 · 压缩").
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - body: The chunk's bytes.
+  ///   - deflated: Whether it is a deflated message's.
+  ///   - isLast: Whether it ends the message.
+  ///   - now: When it arrived.
+  /// - Returns: The message once complete, else `nil`.
+  /// - Throws: ``WireError/badFrame``, ``WireError/messageTooLarge(limit:)`` or ``WireError/badUTF8``.
+  private mutating func chunk(_ body: Data, deflated: Bool, isLast: Bool, at now: Instant) throws(WireError)
+    -> ChannelEvent?
+  {
+    if let open = self.deflated, open != deflated { throw .badFrame }
+    guard buffer.count + body.count <= limit else { throw .messageTooLarge(limit: limit) }
+    buffer += body
+    guard isLast else {
+      self.deflated = deflated
       if startedAt == nil { startedAt = now }
       return nil
     }
+    let joined = buffer
+    buffer = Data()
+    startedAt = nil
+    self.deflated = nil
+    let message = deflated ? try Inflate.raw(joined, limit: limit) : joined
+    guard String(data: message, encoding: .utf8) != nil else { throw .badUTF8 }
+    return .message(message)
   }
 
   /// Fails when an open chunked message has passed its deadline.

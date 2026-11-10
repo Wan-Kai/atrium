@@ -4,7 +4,11 @@ import {
   type AgentStatus,
   AskedQuestion,
   QUESTION_LIMITS,
+  STUDY_LIMITS,
+  SessionStudy,
   ThinkingLevel,
+  seenLength,
+  seenText,
 } from "@atrium/protocol";
 import type { AskUserResult } from "./ask-user";
 import { z } from "zod";
@@ -39,7 +43,6 @@ export const AgentErrorCode = z.enum([
   "agent_depth_limit",
   "agent_not_allowed",
   "agent_gone",
-  "agent_handed_off",
   "agent_busy",
   "agent_name_taken",
   "agent_name_invalid",
@@ -55,6 +58,28 @@ export const AgentErrorCode = z.enum([
   "agent_bad_request",
   /** `ask_user` from a child the agent opened, which asks its parent instead (SPEC-0003). */
   "ask_user_unavailable",
+  /** A study tool's ladder has fewer or more levels than allowed; `params` has `min`, `max`, `got` (SPEC-0008). */
+  "study_ladder_size",
+  /** The ladder is written already; v1 does not change it (SPEC-0008, "ML2 定的细节"). */
+  "study_ladder_set",
+  /** The current level has its lessons already. */
+  "study_steps_set",
+  /** This session's use does not write that, or the session has no use (SPEC-0008, "ML2 定的细节"). */
+  "study_not_allowed",
+  /** What this session reports does not fit its step: a score where none goes, or none where one does. */
+  "study_bad_report",
+  /** The step or gap this session is for is no longer in the progress. */
+  "study_not_found",
+  /** The direction's `.atrium-study.json` cannot be read, so it is not written. */
+  "study_file_broken",
+  /** The direction's `.atrium-study.json` is of a later version, so it is not written. */
+  "study_file_version",
+  /** The direction's `.atrium-study.json` could not be written. */
+  "study_write_failed",
+  /** The change would make the direction's `.atrium-study.json` larger than Atrium reads. */
+  "study_file_too_large",
+  /** The direction has as many gaps recorded as it holds; `params.max` is how many. */
+  "study_gaps_full",
   "agent_failed",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
@@ -78,6 +103,25 @@ const To = z.string().min(1).max(256);
  */
 function text(limit: number) {
   return z.string().min(1).max(limit);
+}
+
+/**
+ * A study text, trimmed, not empty and at most `max` characters as seen.
+ *
+ * @remarks
+ * SPEC-0008, "ML2 定的细节": the same count as the extension's and the progress file's
+ * (`seenLength`), so what the extension let through the host takes.
+ *
+ * @sideEffects none
+ * @param max - The most characters.
+ * @returns The schema.
+ */
+function seenTrimmed(max: number) {
+  return z
+    .string()
+    .trim()
+    .min(1)
+    .refine((value) => seenLength(value) <= max);
 }
 
 /** What each call carries: its tool's parameters, checked by the tool's schema (ADR-0013, point 8). */
@@ -117,6 +161,39 @@ const CallArgs = {
     timeoutSeconds: z.number().int().min(60).max(3600).optional(),
   }),
   branch: z.strictObject({}),
+  // The study tools (SPEC-0008, "ML2 定的细节"): level counts are the host's to refuse, so the
+  // schemas take more than the ladder allows and the host answers `study_ladder_size`.
+  study_set_name: z.strictObject({ name: seenTrimmed(256).refine((name) => name.length <= 256) }),
+  study_set_profile: z.strictObject({
+    goal: seenText(STUDY_LIMITS.profile).optional(),
+    weeklyHours: seenText(STUDY_LIMITS.profile).optional(),
+    language: seenText(STUDY_LIMITS.profile).optional(),
+  }),
+  study_set_ladder: z.strictObject({
+    levels: z
+      .array(
+        z.strictObject({
+          name: seenTrimmed(STUDY_LIMITS.levelName),
+          topics: seenText(STUDY_LIMITS.topics),
+          pass: seenText(STUDY_LIMITS.pass),
+          skip: z.boolean().optional(),
+        }),
+      )
+      .max(64),
+    lessons: z.array(seenTrimmed(STUDY_LIMITS.lessonTitle)).min(STUDY_LIMITS.minLessons).max(STUDY_LIMITS.maxLessons),
+  }),
+  study_set_steps: z.strictObject({
+    lessons: z.array(seenTrimmed(STUDY_LIMITS.lessonTitle)).min(STUDY_LIMITS.minLessons).max(STUDY_LIMITS.maxLessons),
+  }),
+  study_report: z.strictObject({
+    score: z.number().int().nonnegative().optional(),
+    of: z.number().int().min(1).max(STUDY_LIMITS.maxQuestions).optional(),
+  }),
+  study_add_gap: z.strictObject({
+    text: seenTrimmed(STUDY_LIMITS.gap),
+    question: z.number().int().min(1).max(STUDY_LIMITS.maxQuestions).optional(),
+  }),
+  study_fix_gap: z.strictObject({}),
   /** `ask_user`'s questions, as the extension read them (SPEC-0003, "接口与数据"). */
   ask_user: z.strictObject({
     questions: z
@@ -268,7 +345,7 @@ export function readReply(value: unknown): AgentReply | null {
 }
 
 /** Why the host closed a question it was asked (SPEC-0002, `ask_parent`). */
-export const CancelReason = z.enum(["detached", "archived", "handed_off", "reply_failed"]);
+export const CancelReason = z.enum(["detached", "archived", "reply_failed"]);
 export type CancelReason = z.infer<typeof CancelReason>;
 
 /** What `/atrium-agent cancel` carries (ADR-0013, point 2). */
@@ -383,6 +460,13 @@ export const MessageDetails = z.discriminatedUnion("kind", [
     text: z.string(),
     /** Words for the task in hand, which its run took in (SPEC-0002, `agent_send`). */
     steer: z.literal(true).optional(),
+  }),
+  /** The start of a session the host opened for a use (SPEC-0008, "ML2 定的细节"); nothing was delivered. */
+  z.strictObject({
+    v: z.literal(1),
+    kind: z.literal("study"),
+    deliveries: z.array(z.string()).max(0),
+    study: SessionStudy,
   }),
 ]);
 export type MessageDetails = z.infer<typeof MessageDetails>;

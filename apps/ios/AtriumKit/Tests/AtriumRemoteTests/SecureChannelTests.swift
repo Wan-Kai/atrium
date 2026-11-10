@@ -65,6 +65,19 @@ struct SecureChannelTests {
     #expect(chunks == 4)
   }
 
+  @Test("a chunk that does not finish a message still records when the host was last heard")
+  func chunkIsHeard() async throws {
+    let clock = ManualClock()
+    let (channel, host, hostEnd) = try openChannel(stopwatch: Stopwatch(clock))
+    #expect(await channel.lastHeard == nil)
+    clock.advance(by: .seconds(3))
+    try await hostEnd.send(try host.encrypt(ChannelFrame.chunk(Data("part".utf8), isLast: false).encoded()))
+    let event = Task { try await channel.nextEvent() }
+    defer { event.cancel() }
+    await clock.waitForSleepers(1)
+    #expect(await channel.lastHeard == Elapsed(offset: .seconds(3)))
+  }
+
   @Test("control messages and heartbeats go out as their own frame types")
   func controlAndHeartbeat() async throws {
     let (channel, host, hostEnd) = try openChannel(stopwatch: Stopwatch(ManualClock()))
@@ -173,6 +186,25 @@ struct HeartbeatTrackerTests {
     _ = recovered.acknowledged(at: at(21))
     #expect(recovered.misses == 0)
     #expect(recovered.nextCheck(at: at(40)) == .zero)
+  }
+
+  @Test("any frame from the host after the open heartbeat answers it; one from before or the same instant does not")
+  func anyFrameAnswers() {
+    let at = { (seconds: Int) in Elapsed(offset: .seconds(seconds)) }
+    var tracker = HeartbeatTracker()
+    tracker.sent(at: at(10))
+    tracker.heard(at: at(9))
+    #expect(tracker.nextCheck(at: at(10)) == .seconds(10))
+    #expect(tracker.tick(at: at(25)) == .send)
+    #expect(tracker.misses == 1)
+    tracker.sent(at: at(25))
+    tracker.heard(at: at(25))
+    #expect(tracker.misses == 1)
+    tracker.heard(at: at(26))
+    #expect(tracker.misses == 0)
+    #expect(tracker.nextCheck(at: at(26)) == .seconds(9))
+    #expect(tracker.tick(at: at(40)) == .send)
+    #expect(tracker.misses == 0)
   }
 }
 

@@ -1,8 +1,8 @@
 import type { AtriumClient } from "@atrium/client";
 import type { TranscriptItem } from "@atrium/protocol";
-import { createTempDir, fauxPi, present } from "@atrium/testkit";
+import { createTempDir, fauxPi, installedPi, present } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
-import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { heapWithoutCode, settledResources, startTestHost, type TestHost } from "../harness";
@@ -75,31 +75,6 @@ function children(): number[] {
 }
 
 /**
- * Finds the real pi on this process's PATH.
- *
- * @remarks
- * The soak runs the pi that is installed, as the host would, only answering from the faux model.
- *
- * @sideEffects Checks files on disk.
- * @returns The path of `pi`.
- * @throws {Error} When pi is not installed.
- */
-async function realPi(): Promise<string> {
-  for (const directory of (process.env["PATH"] ?? "").split(delimiter)) {
-    const candidate = join(directory, "pi");
-    if (
-      directory !== "" &&
-      (await access(candidate).then(
-        () => true,
-        () => false,
-      ))
-    )
-      return candidate;
-  }
-  throw new Error("pi is not on PATH; the sessions soak needs it installed");
-}
-
-/**
  * Starts a host whose pi answers from the faux model, and a file listing the pis it started.
  *
  * @remarks
@@ -152,7 +127,7 @@ async function fauxHost(): Promise<{ readonly testHost: TestHost; readonly pids:
       ...launch.env,
       PATH: `${bin}${delimiter}${process.env["PATH"] ?? ""}`,
       HOME: dir.path,
-      SOAK_REAL_PI: await realPi(),
+      SOAK_REAL_PI: await installedPi(),
       SOAK_PIDS: list,
     },
   });

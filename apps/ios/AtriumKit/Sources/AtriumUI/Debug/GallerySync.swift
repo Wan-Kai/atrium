@@ -46,6 +46,20 @@
     static let missingWorkspace = "w4"
     /// The open session the model sheet is for.
     static let openSession = "s1"
+    /// A question with two parts, the first a single choice with a recommended option.
+    static var question: PendingQuestion? {
+      let json = #"""
+        {"id":"call-1","askedAt":1,"questions":[\
+        {"header":"回调","question":"回调地址用哪个？","multiSelect":false,"options":[\
+        {"label":"/auth/callback","description":"和现有的 /auth/* 路由放在一起","preview":null,"recommended":true},\
+        {"label":"/oauth/cb","description":"GitHub 应用里已经填的是这个","preview":null,"recommended":false}]},\
+        {"header":"权限","question":"要申请哪些 GitHub 权限？","multiSelect":true,"options":[\
+        {"label":"read:user","description":"读用户名和头像，登录必须","preview":null,"recommended":false},\
+        {"label":"user:email","description":"拿到邮箱，用来认出同一个人","preview":null,"recommended":false}]}]}
+        """#
+      return try? JSONDecoder().decode(
+        PendingQuestion.self, from: Data(json.replacingOccurrences(of: "\\\n", with: "").utf8))
+    }
 
     /// A workspace, as JSON.
     ///
@@ -67,16 +81,27 @@
     ///
     /// - Remark: Part of the gallery sample; see the type.
     /// - SideEffects: none
-    private static func session(_ id: String, in container: String, prompt: String, updated: Int) -> String {
+    private static func session(
+      _ id: String, in container: String, prompt: String, updated: Int, running: Bool = false,
+      attention: String = "null", asking: String = "null", question: String = "null"
+    ) -> String {
       """
       {"sessionId":"\(id)","containerId":"\(container)","name":null,"prompt":"\(prompt)","file":null,\
-      "state":"persisted","updatedAt":\(updated),"archived":false,"running":false,"attention":null,"asking":null,\
-      "handedOff":false,"model":null,"parent":null,"agent":null,"heldDeliveries":0}
+      "state":"persisted","updatedAt":\(updated),"archived":false,"running":\(running),"attention":\(attention),\
+      "asking":\(asking),"question":\(question),\
+      "model":null,"parent":null,"agent":null,"heldDeliveries":0,"study":null,"kickoff":null}
       """
     }
 
+    /// Now, in milliseconds, so the sample's times read as minutes and hours ago.
+    private static var now: Int {
+      // Real time: the gallery's sample is laid out around the moment it is shown.
+      Int(Date().timeIntervalSince1970 * 1000)
+    }
+
     /// The list: two projects, five workspaces (one merged), recent sessions.
-    private static let index = """
+    private static var index: String {
+      """
       {"type":"index_snapshot","generation":"h1","seq":0,"reason":"no_cursor",\
       "projects":[{"id":"p1","path":"/work/weather-app","name":"weather-app","mainBranch":"main"},\
       {"id":"p2","path":"/work/atrium","name":"atrium","mainBranch":"main"}],\
@@ -85,24 +110,78 @@
       \(workspace("w3", "p1", branch: "feat/old-radar", merged: true)),\
       \(workspace("w4", "p2", branch: "feat/radar-layer")),\
       \(workspace("w5", "p2", branch: "main", local: true))],\
-      "chats":[],"sessions":[\(session("s1", in: "w1", prompt: "修一下缓存过期", updated: 50)),\
-      \(session("s2", in: "w2", prompt: "把 TTL 改成可配置", updated: 40)),\
-      \(session("s3", in: "w5", prompt: "整理 README", updated: 30))],\
+      "chats":[{"id":"cht_1","dir":"/chats/cht_1","alias":null,"firstSessionId":"s8","archivedAt":null,"pinnedAt":null}],\
+      "directions":[],"sessions":[\(session("s1", in: "w1", prompt: "修一下缓存过期", updated: now - 7_200_000)),\
+      \(session("s2", in: "w2", prompt: "把 TTL 改成可配置", updated: now - 3_000_000)),\
+      \(session("s3", in: "w5", prompt: "整理 README", updated: now - 90_000_000)),\
+      \(session("s4", in: "w4", prompt: "雷达图配色调整", updated: now - 60_000, running: true)),\
+      \(session("s5", in: "w4", prompt: "接上 GitHub 登录", updated: now - 400_000,
+        asking: "\(now - 360_000)",
+        question: #"{"title":"OAuth 回调地址用哪个？","detail":"回调用 /auth/callback 还是 /oauth/cb？换了要同步改 Nginx"}"#)),\
+      \(session("s6", in: "w2", prompt: "生成文件图标", updated: now - 900_000,
+        attention: #"{"reason":"error","at":\#(now - 840_000),"cleared":false,"text":"TypeError: Cannot read properties of undefined\nat HomeList.render (HomeList.tsx:48)"}"#)),\
+      \(session("s7", in: "w5", prompt: "清理旧的状态存储", updated: now - 1_000_000,
+        asking: "\(now - 840_000)",
+        question: #"{"title":"清理旧的状态存储","detail":"新 Store 已经接好。要不要顺便删掉旧的？"}"#)),\
+      \(session("s8", in: "cht_1", prompt: "Swift 并发怎么理解", updated: now - 200_000_000)),\
+      \(session("s9", in: "w1", prompt: "缓存命中率统计", updated: now - 120_000, running: true)),\
+      \(session("s10", in: "w1", prompt: "过期时间写进文档", updated: now - 86_400_000))],\
       "layout":{"container":null,"tabs":{}},"preferences":{"setupDone":true,"appearance":"system","lastModel":null,\
       "thinkingByModel":{},"lastFast":false,"statusBar":{},"titleModel":null,"proxy":null,"inbox":true,\
-      "translationLanguage":"简体中文"},"resets":[]}
+      "translationLanguage":"简体中文"},"resets":[],"learningDir":"~/Atrium/Learning"}
       """
+    }
+
+    /// A finished turn whose reply is the Markdown sample, as JSON.
+    ///
+    /// - Remark: History for the streaming benchmark, so a long page is redrawn as the tail grows.
+    /// - SideEffects: none
+    /// - Parameter index: Which one; names its ids.
+    /// - Returns: The JSON.
+    static func historyTurn(_ index: Int) -> String {
+      let reply = String(
+        decoding: (try? JSONEncoder().encode(GalleryMarkdown.sample)) ?? Data("\"\"".utf8), as: UTF8.self)
+      return """
+        {"kind":"turn","id":"h\(index)","source":null,"user":{"text":"第 \(index) 个问题：缓存为什么会过期？","images":0,\
+        "clientMessageId":null,"auto":false,"command":null,"timestamp":\(now - 900_000)},"steps":[\
+        \(SampleTurns.read("h\(index)-1", "src/cache.ts")),{"kind":"text","id":"h\(index)-2","text":\(reply)}],\
+        "outcome":"done","error":null,"startedAt":\(now - 900_000),"durationMs":31000,"usage":null,"changes":[]},
+        """
+    }
 
     /// The open session's snapshot: idle, on a model with a thinking level and Fast on.
-    private static let snapshot = """
-      {"type":"session_snapshot","sessionId":"s1","epoch":1,"seq":0,"traceId":null,"stream":"st-1","items":[],\
-      "hasOlder":false,"run":null,"exited":false,"control":{"queue":[],"deliveries":[],"deliveriesHeld":null,\
-      "paused":null,"steers":[],"stopping":false,"restarting":false,"compacting":false,"interactions":[],\
-      "question":null,"reviews":[],"failure":null},\
-      "model":{"providerId":"openai-codex","modelId":"gpt-6","thinkingLevel":"high"},"fast":true,\
-      "metrics":{"turns":null,"steps":null,"tokens":null,"cost":null,"reasoning":null,"branchTokens":0,\
-      "context":null,"timing":null,"children":null}}
-      """
+    private static var snapshot: String { snapshot(history: 0) }
+
+    /// The open session's snapshot, after some finished turns.
+    ///
+    /// - Remark: See `historyTurn(_:)`.
+    /// - SideEffects: none
+    /// - Parameters:
+    ///   - history: How many finished turns come first.
+    ///   - older: Whether older turns are on the Mac.
+    /// - Returns: The JSON.
+    private static func snapshot(history: Int, older: Bool = false) -> String {
+      let earlier = (0..<history).map(historyTurn).joined()
+      return """
+        {"type":"session_snapshot","sessionId":"s1","epoch":1,"seq":0,"traceId":null,"stream":"st-1","items":[\(earlier)\
+        {"kind":"turn","id":"t1","source":null,"user":{"text":"先把雷达图的配色列出来，看看现在用了几种颜色。","images":0,\
+        "clientMessageId":null,"auto":false,"command":null,"timestamp":\(now - 600_000)},"steps":[\
+        \(SampleTurns.read("1", "src/radar.ts")),\(SampleTurns.read("2", "src/RadarChart.tsx")),\
+        {"kind":"text","id":"3","text":"现在用了五种不相干的颜色：品牌渐变的蓝、青、桃、紫，加一个粉。建议改成从 `--tint` 派生的五级深米。"}],\
+        "outcome":"done","error":null,"startedAt":\(now - 600_000),"durationMs":48000,"usage":null,"changes":[]},\
+        {"kind":"turn","id":"t2","source":null,"user":{"text":"好，就这么改，图例挪到右上角。","images":0,\
+        "clientMessageId":null,"auto":false,"command":null,"timestamp":\(now - 192_000)},"steps":[\
+        \(SampleTurns.read("4", "src/radar.ts")),\(SampleTurns.edit("5", "src/radar.ts", added: 18, removed: 9)),\
+        \(SampleTurns.bash("6", "pnpm test:ui radar", "running"))],\
+        "outcome":"running","error":null,"startedAt":\(now - 192_000),"durationMs":null,"usage":null,"changes":[]}],\
+        "hasOlder":\(older),"run":{"runId":"r-gallery","startedAt":\(now - 192_000)},"exited":false,"control":{"queue":[],"deliveries":[],"deliveriesHeld":null,\
+        "paused":null,"steers":[],"stopping":false,"restarting":false,"compacting":false,"interactions":[],\
+        "question":null,"reviews":[],"failure":null},\
+        "model":{"providerId":"openai-codex","modelId":"gpt-6","thinkingLevel":"high"},"fast":true,\
+        "metrics":{"turns":null,"steps":null,"tokens":null,"cost":null,"reasoning":null,"branchTokens":0,\
+        "context":null,"timing":null,"children":null}}
+        """
+    }
 
     /// One catalog model, as JSON.
     ///
@@ -171,19 +250,26 @@
     /// - Parameters:
     ///   - missing: Whether `w4` is marked as not found.
     ///   - modelsFor: The workspace whose models are answered.
+    ///   - history: How many finished turns the open session has before its two.
+    ///   - older: Whether older turns are on the Mac.
+    ///   - issued: Told every request id the core makes, so a sample can answer it.
     /// - Returns: The model, status connected.
-    static func model(missing: Bool = false, modelsFor: String? = nil) -> SyncModel {
+    static func model(
+      missing: Bool = false, modelsFor: String? = nil, history: Int = 0, older: Bool = false,
+      issued: @escaping (String) -> Void = { _ in }
+    ) -> SyncModel {
       var next = 0
       var core = SyncCore(
         requestId: {
           next += 1
+          issued("r\(next)")
           return "r\(next)"
         },
         traceparent: { "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01" }, now: { .zero })
       _ = core.open(openSession)
       _ = core.connected(generation: 1)
       let ok = { (id: String) in #"{"type":"response","requestId":"\#(id)","ok":true,"result":{}}"# }
-      for json in [ok("r1"), index, ok("r2"), ok("r3"), snapshot] {
+      for json in [ok("r1"), index, ok("r2"), ok("r3"), snapshot(history: history, older: older)] {
         _ = core.receive(host(json), generation: 1)
       }
       if missing {

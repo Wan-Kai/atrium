@@ -41,7 +41,7 @@ const pairing = {
 };
 
 describe("the coordinated remote contract", () => {
-  it("uses version 28, which fixes the MP4 sync fields", () => {
+  it("uses version 38, which merges the task board (SPEC-0006) with the study loop and inline visuals (SPEC-0008)", () => {
     expect(PROTOCOL_VERSION).toBe(38);
   });
 

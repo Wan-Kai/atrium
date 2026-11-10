@@ -1,7 +1,7 @@
 import type { AtriumClient, SessionView } from "@atrium/client";
 import { CommandError, type Turn } from "@atrium/protocol";
-import { createTempDir, fauxPi, present } from "@atrium/testkit";
-import { access, chmod, mkdir, writeFile } from "node:fs/promises";
+import { createTempDir, fauxPi, installedPi, present } from "@atrium/testkit";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
@@ -12,28 +12,6 @@ const IMAGE = {
   mimeType: "image/png",
   data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
 } as const;
-
-/**
- * Finds the installed pi without loading the user's configuration.
- * @remarks Only its executable is reused; fauxPi supplies an isolated agent directory.
- * @sideEffects Checks executable paths on disk.
- * @returns The pi executable.
- * @throws {Error} When pi is not installed.
- */
-async function realPi(): Promise<string> {
-  for (const directory of (process.env["PATH"] ?? "").split(delimiter)) {
-    const candidate = join(directory, "pi");
-    if (
-      directory !== "" &&
-      (await access(candidate).then(
-        () => true,
-        () => false,
-      ))
-    )
-      return candidate;
-  }
-  throw new Error("pi is not on PATH; stopped-message integration needs it installed");
-}
 
 /**
  * Starts a real host and client with a gated faux model in an isolated home.
@@ -72,7 +50,7 @@ async function editingChat(withExtension = true) {
       ...launch.env,
       HOME: dir.path,
       PATH: `${bin}${delimiter}${process.env["PATH"] ?? ""}`,
-      EDIT_REAL_PI: await realPi(),
+      EDIT_REAL_PI: await installedPi(),
     },
   });
   onTestFinished(host.dispose);
@@ -118,20 +96,6 @@ async function stopped(client: AtriumClient, sessionId: string, view: { getState
 }
 
 describe("editing a stopped message through the real host", () => {
-  it("rejects edits after handoff without starting another model request", async () => {
-    const { client, sessionId, view, launch } = await editingChat();
-    const original = await stopped(client, sessionId, view);
-    const contexts = await launch.contexts();
-    await client.handOff(sessionId);
-
-    await expect(
-      client.editStoppedMessage(sessionId, original.epoch, original.turn.id, "correct"),
-    ).rejects.toStrictEqual(new CommandError("session_handed_off", { sessionId }));
-
-    expect(contexts).toHaveLength(1);
-    expect(await launch.contexts()).toStrictEqual(contexts);
-  }, 30_000);
-
   it("rejects edits after archiving without starting another model request", async () => {
     const { client, sessionId, view, launch } = await editingChat();
     const original = await stopped(client, sessionId, view);

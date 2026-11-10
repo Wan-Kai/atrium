@@ -34,7 +34,7 @@ function reviews(task: Task, facts: ReviewFacts = NO_FACTS): PendingReview[] {
   return reviewsOf(task, facts).map((one) => PendingReview.parse(one));
 }
 
-describe("the reviews of a task (ADR-0017, T8a)", () => {
+describe("the reviews of a task (ADR-0018, T8a)", () => {
   it("asks nothing of a task that is being designed, or that waits for nothing", () => {
     const designing = newTask([human("H")], []);
     const quiet = new Sim({ ...newTask([agent("N1")], []), projectId: PROJECT });
@@ -383,7 +383,7 @@ describe("what the protocol takes of the reviews of one task (T8 review fix 4)",
   });
 });
 
-describe("what a verdict leaves in the conversation (ADR-0017, decision 2)", () => {
+describe("what a verdict leaves in the conversation (ADR-0018, decision 2)", () => {
   const record: ReviewRecord = {
     source: { kind: "gate", gate: "task_human" },
     subject: { code: "task_human_node", params: { taskId: "tsk_1", node: "H", merge: false } },

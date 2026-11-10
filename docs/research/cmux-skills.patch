@@ -1,0 +1,62 @@
+--- a/cmux/SKILL.md
++++ b/cmux/SKILL.md
+@@ -1,9 +1,20 @@
+ ---
+ name: cmux
+-description: End-user control of cmux topology and routing (windows, workspaces, panes/surfaces, focus, moves, reorder, identify, trigger flash). Use when automation needs deterministic placement and navigation in a multi-pane cmux layout.
++description: End-user control of cmux topology and routing (windows, workspaces, panes/surfaces, focus, moves, reorder, identify, trigger flash). Use when automation needs deterministic placement and navigation in a multi-pane cmux layout, or external terminal commands, screen reads, and keys.
+ ---
+ 
+ # cmux Core Control
++
++## External caller policy (local Atrium adaptation)
++
++Upstream: manaflow-ai/cmux v0.65.2.2, commit 12023d89feb5425c766ba05e8d8e4cfc176e3991. This policy overrides the caller/focus defaults and illustrative unscoped commands below and in linked references. Read both `cmux` and `cmux-workspace` before external terminal work.
++
++- Resolve targets from explicit user authorization or this task's creation results. Missing targets mean ask the user or create a new window; environment IDs and the visually focused context are not authorization. Metadata listings may inform a user choice, never silently select a target.
++- Pass an explicit absolute `--socket` on every call; do not auto-discover another instance. Keep socket, window, workspace, and surface identities together. Supply `--workspace` and `--surface` for input and screen reads, and `--window` for workspace creation. Revalidate UUIDs after restart or a missing target; do not substitute another target.
++- Create only in newly created or explicitly authorized containers. Use `--focus false` where supported. If addressing fails, stop and report it rather than changing focus to recover. Do not reuse or tidy old helper panes.
++- Text, Enter, Ctrl+C, and creation with `--command` are side effects. Unknown outcomes or timeouts require read-only inspection and, if unresolved, user confirmation, not automatic resending. Only read-only queries may be retried within a bound. `--command` already includes one Enter. CLI success is not shell completion; read real output.
++- Let the official CLI read its official local password store. Keep credentials out of skills, prompts, command arguments, logs, and controlled-shell environments; do not export `CMUX_SOCKET_PASSWORD` or print full environments. Presence-only credential checks are sufficient.
++- cmux and the user own terminal/task lifetime. Atrium exit, agent stop, idle recycling, and archive do not close or stop external tasks. There is no archive-time all-tasks-stopped guarantee. These are skill conventions, not a same-user Bash permission sandbox or exactly-once delivery.
+ 
+ Non-browser cmux topology and routing.
+ 
+--- a/cmux-workspace/SKILL.md
++++ b/cmux-workspace/SKILL.md
+@@ -4,6 +4,17 @@
+ ---
+ 
+ # cmux Workspace
++
++## External caller policy (local Atrium adaptation)
++
++Upstream: manaflow-ai/cmux v0.65.2.2, commit 12023d89feb5425c766ba05e8d8e4cfc176e3991. This policy overrides the caller/focus defaults and illustrative unscoped commands below and in linked references. Read both `cmux` and `cmux-workspace` before external terminal work.
++
++- Resolve targets from explicit user authorization or this task's creation results. Missing targets mean ask the user or create a new window; environment IDs and the visually focused context are not authorization. Metadata listings may inform a user choice, never silently select a target.
++- Pass an explicit absolute `--socket` on every call; do not auto-discover another instance. Keep socket, window, workspace, and surface identities together. Supply `--workspace` and `--surface` for input and screen reads, and `--window` for workspace creation. Revalidate UUIDs after restart or a missing target; do not substitute another target.
++- Create only in newly created or explicitly authorized containers. Use `--focus false` where supported. If addressing fails, stop and report it rather than changing focus to recover. Do not reuse or tidy old helper panes.
++- Text, Enter, Ctrl+C, and creation with `--command` are side effects. Unknown outcomes or timeouts require read-only inspection and, if unresolved, user confirmation, not automatic resending. Only read-only queries may be retried within a bound. `--command` already includes one Enter. CLI success is not shell completion; read real output.
++- Let the official CLI read its official local password store. Keep credentials out of skills, prompts, command arguments, logs, and controlled-shell environments; do not export `CMUX_SOCKET_PASSWORD` or print full environments. Presence-only credential checks are sufficient.
++- cmux and the user own terminal/task lifetime. Atrium exit, agent stop, idle recycling, and archive do not close or stop external tasks. There is no archive-time all-tasks-stopped guarantee. These are skill conventions, not a same-user Bash permission sandbox or exactly-once delivery.
+ 
+ Scope work to the cmux workspace that invoked the agent.
+ 
+@@ -23,7 +34,7 @@
+ cmux identify --json
+ ```
+ 
+-`CMUX_WORKSPACE_ID` is the default workspace anchor and `CMUX_SURFACE_ID` the default caller terminal anchor. If they are missing, fall back to `cmux identify --json` and say explicitly that you are using the currently focused context.
++Inside cmux, `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` describe the caller. For external callers, use an explicitly authorized target or this task's creation results; if missing, ask the user or create a new window. The focused context returned by `identify` is diagnostic information, not target authorization.
+ 
+ ## Non-disruptive automation
+ 
+@@ -112,7 +123,7 @@
+ 
+ ## Socket access
+ 
+-Use the socket path cmux provided before any default: `SOCK="${CMUX_SOCKET_PATH:-/tmp/cmux.sock}"`. Socket access can be off, restricted to cmux-spawned processes, or open to all local processes. If a command cannot connect, inspect `cmux capabilities --json` and `cmux ping` before changing settings.
++For this standard macOS release installation, the CLI is `/opt/homebrew/bin/cmux` and the socket is `$HOME/.local/state/cmux/cmux.sock`; expand HOME and pass the absolute path with `--socket`. This identifies the installed app, not permission to choose an existing window. A user-specified different instance requires its explicit socket path; if the socket is missing or ambiguous, ask instead of auto-discovering another instance. Socket access may require password authentication; let the official CLI read its saved password. Check capabilities and ping with that same explicit socket before requesting an authorization change.
+ 
+ ## Rules
+ 

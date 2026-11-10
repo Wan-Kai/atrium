@@ -24,6 +24,8 @@ import {
   ComputerIcon,
   CloudIcon,
   LaptopIcon,
+  Message01Icon,
+  Mortarboard02Icon,
   SmartPhone01Icon,
   SquareLock01Icon,
   ComputerTerminal01Icon,
@@ -57,6 +59,8 @@ import {
   MoreHorizontalIcon,
   PaintBoardIcon,
   PencilEdit01Icon,
+  Pin02Icon,
+  PlayCircleIcon,
   PuzzleIcon,
   RefreshIcon,
   ReloadIcon,
@@ -80,6 +84,14 @@ import {
   UnfoldVerticalIcon,
   UserIcon,
   ViewIcon,
+  Archive02Icon,
+  Award01Icon,
+  BookOpen01Icon,
+  Idea01Icon,
+  Note01Icon,
+  Quiz01Icon,
+  Target02Icon,
+  Undo02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import type { SVGProps } from "react";
@@ -185,6 +197,8 @@ export const ArrowsInSimple = drawn(ArrowShrinkIcon);
 export const ArrowsOutSimple = drawn(ArrowExpandIcon);
 export const ArrowUp = drawn(ArrowUp02Icon, 2.5);
 export const ArrowUpRight = drawn(ArrowUpRight01Icon);
+/** An inline visual's mark: its card's title row and a message sent from it (SPEC-0007). */
+export const PlayCircle = drawn(PlayCircleIcon);
 export const At = drawn(AtIcon);
 export const CaretDown = drawn(ArrowDown01Icon);
 export const CaretRight = drawn(ArrowRight01Icon);
@@ -226,6 +240,10 @@ export const MagnifyingGlass = drawn(Search01Icon);
 export const MagnifyingGlassMinus = drawn(SearchMinusIcon);
 export const MagnifyingGlassPlus = drawn(SearchAddIcon);
 export const MetaLogo = drawn(META);
+/** A discussion, as the learning sessions' tabs mark one (SPEC-0008, prototype `KIND.talk`). */
+export const Message = drawn(Message01Icon);
+/** Study mode: the sidebar's "学习" row and a direction's home tab (design-language, "学习模式"). */
+export const Mortarboard = drawn(Mortarboard02Icon);
 export const MinusSquare = drawn(MinusSignSquareIcon);
 export const Monitor = drawn(ComputerIcon);
 export const Cloud = drawn(CloudIcon);
@@ -238,6 +256,7 @@ export const PencilSimple = drawn(PencilEdit01Icon);
 export const Plus = drawn(Add01Icon);
 export const Trash = drawn(Delete02Icon);
 export const ChatAdd = drawn(BubbleChatAddIcon);
+export const Pin = drawn(Pin02Icon);
 export const PlusSquare = drawn(AddSquareIcon);
 export const Question = drawn(HelpCircleIcon);
 export const Puzzle = drawn(PuzzleIcon);
@@ -257,3 +276,12 @@ export const User = drawn(UserIcon);
 export const Warning = drawn(Alert02Icon);
 export const WarningCircle = drawn(AlertCircleIcon);
 export const X = drawn(Cancel01Icon);
+// Study mode's uses and states (design-language "学习模式", ML2).
+export const Archive = drawn(Archive02Icon);
+export const Award = drawn(Award01Icon);
+export const BookOpen = drawn(BookOpen01Icon);
+export const Idea = drawn(Idea01Icon);
+export const Note = drawn(Note01Icon);
+export const Quiz = drawn(Quiz01Icon);
+export const Target = drawn(Target02Icon);
+export const Undo = drawn(Undo02Icon);

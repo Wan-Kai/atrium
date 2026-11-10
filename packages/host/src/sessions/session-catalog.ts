@@ -1,5 +1,5 @@
 import { type SessionFileReader, type SessionFileSummary, type SessionsLocation, sessionFolder } from "@atrium/pi";
-import { type Attention, isChatId, type SessionSummary, ThinkingLevel } from "@atrium/protocol";
+import { type Attention, isChatId, SessionStudy, type SessionSummary, ThinkingLevel } from "@atrium/protocol";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Clock } from "../platform/clock";
@@ -33,16 +33,23 @@ export interface AgentFields {
 }
 
 /** What the catalog knows of one session; the manager adds whether it runs or asks, and its agent's state. */
-export type CatalogEntry = Omit<SessionSummary, "running" | "asking" | "agent" | "heldDeliveries"> &
+export type CatalogEntry = Omit<
+  SessionSummary,
+  "running" | "asking" | "question" | "agent" | "heldDeliveries" | "kickoff"
+> &
   AgentFields & {
     /** The working directory pi starts in. */
     readonly cwd: string;
     /** Fast as last switched in it; `null` while it never was (SPEC-0001, "Fast"). */
     readonly fast: boolean | null;
+    /** The parent it had before it was detached, whose visuals it still reads (SPEC-0007, MV1 details). */
+    readonly detachedFrom?: string;
     /** A child's usage baseline; `null` to count all of it (SPEC-0002, "用量合计"). */
     readonly usageAfter: string | null;
     /** For a session of a task's node or conversation (SPEC-0006); `null` for any other. */
     readonly task: TaskSessionRecord | null;
+    /** For an archived session, where the archive that took it started (SPEC-0008, ML3). */
+    readonly archivedWith?: string;
   };
 
 /** A new session's record: where it is, and for a child conversation its parent, name and baseline. */
@@ -59,6 +66,8 @@ export interface NewRecord {
   readonly agent?: AgentRecord;
   /** A session of a task's node or conversation (SPEC-0006). */
   readonly task?: TaskSessionRecord;
+  /** What a session of a direction is for (SPEC-0008, "索引"). */
+  readonly study?: NonNullable<SessionSummary["study"]>;
 }
 
 /** Finds the sessions of the registered containers and keeps Atrium's records of them. */
@@ -81,11 +90,14 @@ export interface SessionCatalog {
   changeAgent(sessionId: string, change: (fields: AgentFields) => AgentFields): Promise<void>;
   /** Forgets a draft that was discarded. */
   forget(sessionId: string): Promise<void>;
-  /** Hides a session in Atrium; pi's file stays. */
-  archive(sessionId: string): Promise<void>;
-  /** Shows a session hidden by `archive` again. */
+  /**
+   * Hides a session in Atrium; pi's file stays. `withRoot` is the session the archive started
+   * from, kept so a restore brings back only what went with it (SPEC-0008, ML3).
+   */
+  archive(sessionId: string, withRoot?: string): Promise<void>;
+  /** Shows a session hidden by `archive` again, forgetting what it was archived with. */
   unarchive(sessionId: string): Promise<void>;
-  /** Sets a session's attention, hand-off or Fast, as given. */
+  /** Sets a session's attention or Fast, as given. */
   mark(sessionId: string, change: SessionMarks): Promise<void>;
   /**
    * Resolves once the first scan has ended, starting one if none has.
@@ -106,7 +118,6 @@ export interface SessionCatalog {
 /** The marks Atrium keeps on a session besides archiving it. */
 interface SessionMarks {
   readonly attention?: Attention | null;
-  readonly handedOff?: boolean;
   readonly fast?: boolean;
 }
 
@@ -164,6 +175,22 @@ function nameOf(record: SessionRecord | undefined): string | null {
 }
 
 /**
+ * A record's study, as the summary can carry it.
+ *
+ * @remarks
+ * As `parentOf`: one the protocol would refuse, as a hand-edited index can hold, is none.
+ *
+ * @sideEffects none
+ * @param record - The record, if Atrium has one.
+ * @returns The study, or `null`.
+ */
+function studyOf(record: SessionRecord | undefined): SessionSummary["study"] {
+  if (record?.study === undefined) return null;
+  const study = SessionStudy.safeParse(record.study);
+  return study.success ? study.data : null;
+}
+
+/**
  * Creates the session catalog.
  *
  * @remarks
@@ -179,12 +206,15 @@ function nameOf(record: SessionRecord | undefined): string | null {
  *   sessions in it (ADR-0007); a name no chat id could have is passed over. A chat's first session
  *   is the one created first, by Atrium's record, else when its file last changed.
  *
+ * - every learning direction is a container too, at the directory its sessions run in, also while
+ *   it is archived, so they stay filed under it (domain-model §1, Direction).
+ *
  * Reading is incremental (the pi package's `SessionFileReader`).
  *
  * @sideEffects none until a call; then reads pi's session folders and the chats root, and writes
  * `sessions.json`.
  * @param options - The loaded file, where pi keeps sessions (`null` when unknown), the chats
- * root, the workspaces' directories, the reader, the clock and the logger.
+ * root, the workspaces' and directions' directories, the reader, the clock and the logger.
  * @returns The catalog.
  */
 export function createSessionCatalog(options: {
@@ -192,6 +222,13 @@ export function createSessionCatalog(options: {
   readonly location: Promise<SessionsLocation | null>;
   readonly chatsRoot: string;
   readonly workspaces: () => readonly ContainerDir[];
+  /** The learning directions, each at its sessions' working directory; none without it. */
+  readonly directions?: () => readonly ContainerDir[];
+  /**
+   * Settles when the learning directory's first scan has ended, which every scan waits for, so a
+   * direction's sessions are never listed without it at the host's start.
+   */
+  readonly directionsFound?: () => Promise<void>;
   readonly reader: SessionFileReader;
   readonly clock: Clock;
   readonly logger: Logger;
@@ -216,7 +253,7 @@ export function createSessionCatalog(options: {
    * @returns The directories.
    */
   function containers(): ContainerDir[] {
-    return [...options.workspaces(), ...chatDirs];
+    return [...options.workspaces(), ...chatDirs, ...(options.directions?.() ?? [])];
   }
 
   /**
@@ -264,10 +301,14 @@ export function createSessionCatalog(options: {
         updatedAt: file.modifiedAt,
         archived: record?.archived ?? false,
         attention: record?.attention ?? null,
-        handedOff: record?.handedOff ?? false,
         fast: record?.fast ?? null,
         parent: parentOf(record),
+        ...(record?.detachedFrom === undefined ? {} : { detachedFrom: record.detachedFrom }),
+        ...(record?.archived !== true || record.archivedWith === undefined
+          ? {}
+          : { archivedWith: record.archivedWith }),
         usageAfter: record?.usageAfter ?? null,
+        study: studyOf(record),
         ...agentFieldsOf(record ?? {}),
         task: record === undefined ? null : taskFieldOf(record),
       });
@@ -289,10 +330,12 @@ export function createSessionCatalog(options: {
         updatedAt: record.createdAt,
         archived: record.archived,
         attention: record.attention ?? null,
-        handedOff: record.handedOff ?? false,
         fast: record.fast ?? null,
         parent: parentOf(record),
+        ...(record.detachedFrom === undefined ? {} : { detachedFrom: record.detachedFrom }),
+        ...(!record.archived || record.archivedWith === undefined ? {} : { archivedWith: record.archivedWith }),
         usageAfter: record.usageAfter ?? null,
+        study: studyOf(record),
         ...agentFieldsOf(record),
         task: taskFieldOf(record),
       });
@@ -310,6 +353,8 @@ export function createSessionCatalog(options: {
    * listeners when the list changed.
    */
   async function scanOnce(): Promise<void> {
+    // Stryker disable next-line OptionalChaining: only main gives it.
+    await options.directionsFound?.();
     const before = JSON.stringify([list(), chatDirs]);
     const location = await options.location;
     chatDirs = (await readdir(options.chatsRoot, { withFileTypes: true }).catch(() => []))
@@ -382,14 +427,17 @@ export function createSessionCatalog(options: {
    * @param sessionId - The session.
    * @param change - The fields to set.
    */
-  async function update(sessionId: string, change: SessionMarks & { readonly archived?: boolean }): Promise<void> {
+  async function update(
+    sessionId: string,
+    change: SessionMarks & { readonly archived?: boolean; readonly archivedWith?: string | undefined },
+  ): Promise<void> {
     const entry = list().find((candidate) => candidate.sessionId === sessionId);
     if (entry === undefined) return;
     const marks = {
       archived: entry.archived,
       attention: entry.attention,
-      handedOff: entry.handedOff,
       fast: entry.fast,
+      ...("archivedWith" in change ? { archivedWith: entry.archivedWith } : {}),
     };
     if (JSON.stringify({ ...marks, ...change }) === JSON.stringify(marks)) return;
     await write(entry, { ...change });
@@ -474,6 +522,7 @@ export function createSessionCatalog(options: {
           ...(session.usageAfter === undefined ? {} : { usageAfter: session.usageAfter }),
           ...(session.agent === undefined ? {} : { agent: session.agent }),
           ...(session.task === undefined ? {} : { task: session.task }),
+          ...(session.study === undefined ? {} : { study: session.study }),
         },
       ]);
     },
@@ -483,9 +532,10 @@ export function createSessionCatalog(options: {
       if (!sessions.some((record) => record.sessionId === sessionId && record.parent !== undefined)) return;
       await save(
         sessions.map((record) => {
-          if (record.sessionId !== sessionId) return record;
-          const { parent: _parent, ...rest } = record;
-          return rest;
+          if (record.sessionId !== sessionId || record.parent === undefined) return record;
+          const { parent, ...rest } = record;
+          // Kept only so it still reads the visuals its copied history names (SPEC-0007, MV1 details).
+          return { ...rest, detachedFrom: parent.sessionId };
         }),
       );
     },
@@ -494,8 +544,9 @@ export function createSessionCatalog(options: {
       if (!sessions.some((record) => record.sessionId === sessionId && record.name !== name)) return;
       await save(sessions.map((record) => (record.sessionId === sessionId ? { ...record, name } : record)));
     },
-    archive: (sessionId) => update(sessionId, { archived: true }),
-    unarchive: (sessionId) => update(sessionId, { archived: false }),
+    archive: (sessionId, withRoot) =>
+      update(sessionId, { archived: true, ...(withRoot === undefined ? {} : { archivedWith: withRoot }) }),
+    unarchive: (sessionId) => update(sessionId, { archived: false, archivedWith: undefined }),
     mark: (sessionId, change) => update(sessionId, change),
     async changeAgent(sessionId, change) {
       const entry = list().find((candidate) => candidate.sessionId === sessionId);

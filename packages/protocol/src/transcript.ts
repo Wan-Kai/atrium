@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AgentNoticeEvent, AgentRole, AgentSource } from "./agent";
 import { AskedQuestion, QUESTION_LIMITS, QuestionOutcome } from "./question";
 import { ReviewRecord } from "./reviews";
+import { VisualSource } from "./visuals";
 
 /** Milliseconds since the Unix epoch. */
 const Timestamp = z.number().int().nonnegative();
@@ -159,6 +160,8 @@ export const Turn = z.strictObject({
     auto: z.boolean(),
     /** The skill the message started with; `text` is then only what followed its name. */
     command: MessageCommand.nullable(),
+    /** Sent from a visual rather than typed (SPEC-0007, "回传"); absent for a typed message. */
+    source: VisualSource.optional(),
     timestamp: Timestamp,
   }),
   steps: z.array(Step),
@@ -251,7 +254,7 @@ export const Notice = z.discriminatedUnion("notice", [
   }),
   /**
    * The outcome of a review, an `atrium-review` custom message the host wrote after the verdict took effect
-   * (ADR-0017, decision 2): a step on the process rail with the evidence as it was when the user decided.
+   * (ADR-0018, decision 2): a step on the process rail with the evidence as it was when the user decided.
    * `timestamp` is when the host wrote it.
    */
   z.strictObject({

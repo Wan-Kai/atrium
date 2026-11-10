@@ -100,12 +100,12 @@ async function archiver(
     projects,
     git: Promise.resolve(git),
     sessions: {
-      stopWorkspace: async (workspaceId) => {
+      stopContainer: async (workspaceId) => {
         calls.push(`stop ${workspaceId} ${(await there(dirOf(workspaceId))) ? "there" : "gone"}`);
         await stopping(dirOf(workspaceId));
         return [`ses_in_${workspaceId}`];
       },
-      releaseWorkspace: (workspaceId) => {
+      releaseContainer: (workspaceId) => {
         calls.push(`release ${workspaceId}`);
       },
       archiveWorkspace: async (workspaceId) => {

@@ -66,6 +66,27 @@ export interface GitRunner {
 /** How many git commands run at once (SPEC-0001, "worktree 合并状态"). */
 export const GIT_CONCURRENCY = 4;
 
+/**
+ * The variables that make git work on another repository than its directory's: git's own list of
+ * what it clears when it moves to another repository (`git rev-parse --local-env-vars`), but for
+ * the configuration ones, which are the user's settings rather than a repository.
+ */
+const REPOSITORY_VARIABLES = new Set([
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_GRAFT_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_NAMESPACE",
+]);
+
 /** How long one git command may take by default. */
 const GIT_TIMEOUT_MS = 30_000;
 
@@ -83,7 +104,10 @@ const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
  * - `GIT_OPTIONAL_LOCKS=0`, so a background `git status` never takes the index lock from under
  *   the user's own git commands;
  * - `GIT_TERMINAL_PROMPT=0`, so a fetch that needs a password fails instead of waiting for input;
- * - `LC_ALL=C`, so output does not depend on the user's language.
+ * - `LC_ALL=C`, so output does not depend on the user's language;
+ * - none of the variables that point git at a repository (`REPOSITORY_VARIABLES`): every command
+ *   works on the repository of its own directory, as a new direction's `lab/` must, never on one
+ *   a shell setting names (security.md, "子进程与文件").
  *
  * A non-zero exit is a result, not an error: callers read meaning from codes such as
  * `merge-base --is-ancestor`'s 1. The deadline runs on the injected clock.
@@ -98,7 +122,7 @@ export function createGitRunner(options: {
   readonly resources: ResourceTracker;
 }): GitRunner {
   const env = {
-    ...options.env,
+    ...Object.fromEntries(Object.entries(options.env).filter(([name]) => !REPOSITORY_VARIABLES.has(name))),
     PATH: absolutePathEntries(options.env["PATH"] ?? ""),
     GIT_OPTIONAL_LOCKS: "0",
     GIT_TERMINAL_PROMPT: "0",

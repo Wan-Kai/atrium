@@ -16,6 +16,8 @@ import {
   questionRecord,
 } from "./turn-layout";
 import { useRevealedText } from "./use-revealed-text";
+import { type StudyToolLine, studyToolLine } from "../study/loop";
+import { useStudySession } from "../study/study-label";
 
 /**
  * What stands on the rail for a row (design-language, "消息流 · 过程"); `fail` is a new workspace's
@@ -37,7 +39,10 @@ export type RailNode =
   | "pass"
   | "compaction"
   | "ask"
-  | "asking";
+  | "asking"
+  /** A gap a study session found, and one it fixed: the home's gap squares (SPEC-0008, prototype 7C). */
+  | "gap"
+  | "fixed";
 
 /** How far the rail stops short of each node's centre: the node's radius and a 4px gap. */
 const NODE_GAP: Readonly<Record<RailNode, number>> = {
@@ -49,6 +54,8 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
   said: 7,
   ask: 7,
   asking: 7,
+  gap: 7,
+  fixed: 7,
   live: 7,
   dead: 7,
   steer: 7,
@@ -96,6 +103,14 @@ function NodeGlyph({ node }: { readonly node: RailNode }) {
           />
         ) : null}
       </>
+    );
+  }
+  if (node === "gap" || node === "fixed") {
+    return (
+      <span
+        data-testid={`rail-${node}`}
+        className={`size-[7px] rounded-[2px] shadow-[0_0_0_2px_var(--main)] ${node === "gap" ? "bg-[var(--attn)]" : "bg-[var(--ok)]"}`}
+      />
     );
   }
   if (node === "search") return <MagnifyingGlass size={14} className="text-[var(--text-muted)]" />;
@@ -550,14 +565,23 @@ function laned(
  * @remarks
  * "动词 + 对象" (SPEC-0001, "过程的呈现"). Files are chips, an edit's chip carrying its line
  * counts; a command is monospaced; text said in the middle of a turn is shown as said, without a
- * verb. A step going on shimmers.
+ * verb. A study tool says what it did in words, not its name (SPEC-0008, prototype 7C). A step
+ * going on shimmers.
  *
  * @sideEffects none
  * @param props - The step and whether it is going on.
  * @returns The words.
  */
-function StepWords({ step, live }: { readonly step: Step; readonly live: boolean }) {
-  const line = describeStep(step, live);
+function StepWords({
+  step,
+  live,
+  study = null,
+}: {
+  readonly step: Step;
+  readonly live: boolean;
+  readonly study?: StudyToolLine | null;
+}) {
+  const line = study ?? describeStep(step, live);
   const shimmer = live ? "atrium-shimmer" : "";
   if (step.kind === "text") {
     return (
@@ -774,8 +798,30 @@ function StepRow({
   const opens = hasDetail(step);
   const open = opens && opened;
   useWholeStep(turnId, step, open);
+  const session = useStudySession();
+  const study =
+    step.kind === "tool" && session !== null
+      ? studyToolLine(step.tool, step.args, step.status === "running", session.study, session.progress)
+      : null;
   let detail: ReactNode = null;
-  if (open && (step.kind === "thinking" || step.kind === "text")) {
+  if (open && study !== null && step.kind === "tool") {
+    detail = (
+      <Detail>
+        <pre className="font-[family-name:var(--font-mono)] text-[12px] leading-[1.55] whitespace-pre-wrap text-[var(--text-3)]">
+          <span className="text-[var(--text-dim)]">{step.tool}</span>
+          {`  ${JSON.stringify(step.args)}`}
+          {study.wrote === null ? null : (
+            <>
+              {"\n"}
+              <span className="text-[var(--text-dim)]">写到</span>
+              {`  ${study.wrote}`}
+            </>
+          )}
+        </pre>
+        {step.status === "failed" && step.output !== null ? <Output text={step.output} /> : null}
+      </Detail>
+    );
+  } else if (open && (step.kind === "thinking" || step.kind === "text")) {
     detail = (
       <Detail>
         <div className="text-[length:var(--fs-meta)] text-[var(--text-muted)]">
@@ -800,7 +846,7 @@ function StepRow({
       <CompactionWords step={step} open={open} />
     ) : (
       <>
-        <StepWords step={step} live={live} /> <StepEnd step={step} />
+        <StepWords step={step} live={live} study={study} /> <StepEnd step={step} />
       </>
     );
   const details = step.kind === "tool" ? step.details : null;
@@ -820,7 +866,15 @@ function StepRow({
       data-open={open}
       data-fold-row
     >
-      <RailMarks node={stepNode(step, live)} first={place.first} last={place.last} />
+      <RailMarks
+        node={
+          study?.square !== undefined && study.square !== null && step.kind === "tool" && step.status === "done"
+            ? study.square
+            : stepNode(step, live)
+        }
+        first={place.first}
+        last={place.last}
+      />
       {marks}
       {spawned ? (
         <SpawnWords step={step} took={lanes?.row.took ?? null} />

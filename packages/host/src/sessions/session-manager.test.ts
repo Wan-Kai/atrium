@@ -1,4 +1,12 @@
-import { type SessionsLocation, createSessionFileReader, encodeArgument, sessionFolder } from "@atrium/pi";
+import {
+  type SessionsLocation,
+  createSessionFileReader,
+  encodeArgument,
+  sessionFolder,
+  startCommand,
+  studyArgument,
+  visualsArgument,
+} from "@atrium/pi";
 import {
   CommandError,
   type ForkSessionCommand,
@@ -8,7 +16,7 @@ import {
   UNKNOWN_METRICS,
 } from "@atrium/protocol";
 import { type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
-import { appendFile, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -133,8 +141,14 @@ async function manage(
     readonly catalog?: (catalog: SessionCatalog) => SessionCatalog;
     /** The manager's clock, when a test moves time on; the system's otherwise. */
     readonly clock?: Clock;
-    /** What waits for a verdict in each session, when a test needs the manager to ask (ADR-0017). */
+    /** What waits for a verdict in each session, when a test needs the manager to ask (ADR-0018). */
     readonly reviews?: Parameters<typeof createSessionManager>[0]["reviews"];
+    /** Where each session's visuals go (SPEC-0007). */
+    readonly visualsDir?: Parameters<typeof createSessionManager>[0]["visualsDir"];
+    /** A learning direction at a directory, archived while `archived()` says so. */
+    readonly direction?: { readonly id: string; readonly dir: string; readonly archived: () => boolean };
+    /** The study tools' answers (SPEC-0008, ML2). */
+    readonly study?: Parameters<typeof createSessionManager>[0]["study"];
   } = {},
 ) {
   const at = where ?? (await place());
@@ -157,6 +171,7 @@ async function manage(
     location: location ?? Promise.resolve({ directory: at.piSessions, perCwd: false }),
     chatsRoot: join(at.home, "chats"),
     workspaces: () => [{ id: WORKSPACE, dir: at.workspace }, ...(more.workspaces ?? [])],
+    directions: () => (more.direction === undefined ? [] : [{ id: more.direction.id, dir: more.direction.dir }]),
     reader: createSessionFileReader(),
     clock: systemClock,
     logger: recording.logger,
@@ -198,6 +213,17 @@ async function manage(
     ...(more.childWorktree === undefined ? {} : { childWorktree: more.childWorktree }),
     ...(more.tempRoot === undefined ? {} : { tempRoot: more.tempRoot }),
     ...(more.reviews === undefined ? {} : { reviews: more.reviews }),
+    ...(more.visualsDir === undefined ? {} : { visualsDir: more.visualsDir }),
+    ...(more.study === undefined ? {} : { study: more.study }),
+    ...(more.direction === undefined
+      ? {}
+      : {
+          directions: {
+            dirOf: (id: string) =>
+              id === more.direction?.id && !more.direction.archived() ? more.direction.dir : undefined,
+            readOnly: (id: string) => id === more.direction?.id && more.direction.archived(),
+          },
+        }),
   });
   cleanups.push(
     () => manager.close(),
@@ -330,6 +356,7 @@ async function translationHistory(
       opened: new Set(["u1"]),
       auto: new Set(),
       compactions: new Map([["k1", "threshold"]]),
+      sources: new Map(),
       record: async () => undefined,
     }),
   );
@@ -395,17 +422,6 @@ async function terminalSession(at: Awaited<ReturnType<typeof place>>, id: string
 }
 
 /**
- * The status the first session shows as a child the agent opened.
- *
- * @sideEffects none
- * @param manager - The manager.
- * @returns The status, or `null` for none.
- */
-function agentStatus(manager: Manager): string | null {
-  return manager.summaries()[0]?.agent?.status ?? null;
-}
-
-/**
  * What a command failed with, for a list of answers.
  *
  * @sideEffects none
@@ -414,68 +430,6 @@ function agentStatus(manager: Manager): string | null {
  */
 function caught(error: unknown): unknown {
   return error;
-}
-/**
- * Opens a real stopped session whose scripted rewind is deliberately unconfirmed.
- * @remarks The real controller rejects the edit without stopping pi, exposing reservation and
- * hand-off ordering independently of model execution or successful branch persistence.
- * @sideEffects Creates temporary files, starts scripted pi and subscribes to its session.
- * @param catalog - An optional stage controller around the real catalog.
- * @returns The manager, its stopped edit command and session file.
- */
-async function editableSession(catalog?: (catalog: SessionCatalog) => SessionCatalog) {
-  const at = await place();
-  const file = await terminalSession(at, "pi-session-1", at.workspace);
-  const user = {
-    type: "message",
-    id: "u1",
-    parentId: null,
-    timestamp: "1970-01-01T00:00:00.000Z",
-    message: { role: "user", content: "hi", timestamp: 0 },
-  };
-  const managed = await manage(
-    {
-      rules: {
-        get_state: { data: { sessionId: "pi-session-1", sessionFile: file } },
-        get_entries: { data: { entries: [user], leafId: "u1" } },
-        get_commands: { data: { commands: [{ name: "atrium-edit", source: "extension", sourceInfo: {} }] } },
-        prompt: { data: { disposition: "handled" } },
-      },
-    },
-    at,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    catalog === undefined ? {} : { catalog },
-  );
-  await managed.catalog.scan();
-  await managed.manager.openSession("client-1", "pi-session-1");
-  await managed.manager.subscribe("c1", ["pi-session-1"]);
-  const snapshot = present(
-    managed.received.findLast((event) => event.type === "session_snapshot"),
-    "snapshot",
-  );
-  const stopped = present(
-    snapshot.items.find((item) => item.kind === "turn"),
-    "stopped turn",
-  );
-  return {
-    ...managed,
-    file,
-    edit: {
-      type: "edit_stopped_message" as const,
-      requestId: "edit-serialization",
-      traceparent,
-      sessionId: "pi-session-1",
-      epoch: snapshot.epoch,
-      turnId: stopped.id,
-      text: "correct",
-    },
-  };
 }
 
 describe("SessionManager editing persistence", () => {
@@ -537,90 +491,6 @@ describe("SessionManager editing persistence", () => {
 });
 
 describe("SessionManager editing serialization", () => {
-  it("reserves an edit before catalog readiness so an early hand-off cannot pass", async () => {
-    const ready = Promise.withResolvers<void>();
-    const waits: Promise<void>[] = [];
-    const managed = await editableSession((catalog) => ({
-      ...catalog,
-      async ready() {
-        await Promise.all(waits.splice(0, 1));
-        await catalog.ready();
-      },
-    }));
-    waits.push(ready.promise);
-    const editing = managed.manager.editStoppedMessage(managed.edit).catch(caught);
-
-    const handing = await managed.manager.handOff("pi-session-1").catch(caught);
-    ready.resolve();
-    expect(await editing).toStrictEqual(
-      new CommandError("edit_failed", { turnId: managed.edit.turnId, epoch: managed.edit.epoch + 1 }),
-    );
-    expect(handing).toStrictEqual(new CommandError("session_busy"));
-    expect(managed.catalog.find("pi-session-1")?.handedOff).toBe(false);
-    expect(managed.resources.snapshot()["pi-process"]).toBe(1);
-  });
-
-  it("keeps the edit reservation until controller rejection and releases it afterwards", async () => {
-    const managed = await editableSession();
-    const editing = managed.manager
-      .editStoppedMessage({ ...managed.edit, epoch: managed.edit.epoch + 1 })
-      .catch(caught);
-    const handing = managed.manager.handOff("pi-session-1").catch(caught);
-
-    expect(await editing).toStrictEqual(new CommandError("transcript_changed"));
-    expect(await handing).toStrictEqual(new CommandError("session_busy"));
-    expect(managed.catalog.find("pi-session-1")?.handedOff).toBe(false);
-    expect(await managed.manager.handOff("pi-session-1")).toStrictEqual({ file: managed.file, args: [] });
-  });
-
-  it("keeps the remaining edit reservation after one overlapping edit rejects and releases both afterwards", async () => {
-    const firstReady = Promise.withResolvers<void>();
-    const secondReady = Promise.withResolvers<void>();
-    const waits: Promise<void>[] = [];
-    const managed = await editableSession((catalog) => ({
-      ...catalog,
-      async ready() {
-        // Capture this call's stage before yielding, so a later ready call cannot take its gate.
-        const stage = waits.splice(0, 1);
-        await Promise.all(stage);
-        await catalog.ready();
-      },
-    }));
-    waits.push(firstReady.promise, secondReady.promise);
-    const stale = { ...managed.edit, epoch: managed.edit.epoch + 1 };
-    const firstEdit = managed.manager.editStoppedMessage(stale).catch(caught);
-    const secondEdit = managed.manager.editStoppedMessage({ ...stale, requestId: "overlapping-edit" }).catch(caught);
-
-    firstReady.resolve();
-    const firstResult = await firstEdit;
-    const handing = await managed.manager.handOff("pi-session-1").catch(caught);
-    secondReady.resolve();
-    const secondResult = await secondEdit;
-
-    expect(firstResult).toStrictEqual(new CommandError("transcript_changed"));
-    expect(handing).toStrictEqual(new CommandError("session_busy"));
-    expect(secondResult).toStrictEqual(new CommandError("transcript_changed"));
-    expect(managed.catalog.find("pi-session-1")?.handedOff).toBe(false);
-    expect(await managed.manager.handOff("pi-session-1")).toStrictEqual({ file: managed.file, args: [] });
-  });
-
-  it("rechecks a hand-off queued before an edit entered its rewind stage", async () => {
-    const managed = await editableSession();
-    const handing = managed.manager.handOff("pi-session-1").catch(caught);
-    // The hand-off's ready continuation runs first; its inHandOrder callback is queued next.
-    // This continuation starts the editor before that callback can mark or stop pi.
-    await Promise.resolve();
-    const editing = managed.manager.editStoppedMessage(managed.edit).catch(caught);
-
-    expect(await handing).toStrictEqual(new CommandError("session_busy"));
-    expect(await editing).toStrictEqual(
-      new CommandError("edit_failed", { turnId: managed.edit.turnId, epoch: managed.edit.epoch + 1 }),
-    );
-    expect(managed.catalog.find("pi-session-1")?.handedOff).toBe(false);
-    expect(managed.resources.snapshot()["pi-process"]).toBe(1);
-    expect(await managed.manager.handOff("pi-session-1")).toStrictEqual({ file: managed.file, args: [] });
-  });
-
   it("restarts an idle pi for an edit, taking the stopped pi's epoch and refusing an older one, without dereferencing no controller", async () => {
     const at = await place();
     const file = await terminalSession(at, "pi-session-1", at.workspace);
@@ -1416,7 +1286,13 @@ describe("SessionManager running sessions", () => {
     await asked.promise;
 
     const closing = manager.close();
-    read.resolve({ opened: new Set(), auto: new Set(), compactions: new Map(), record: () => Promise.resolve() });
+    read.resolve({
+      opened: new Set(),
+      auto: new Set(),
+      compactions: new Map(),
+      sources: new Map(),
+      record: () => Promise.resolve(),
+    });
     await closing;
 
     // None was ever kept.
@@ -1830,7 +1706,13 @@ describe("SessionManager archiving and renaming", () => {
     await reading.promise;
 
     const archiving = manager.archiveSession("pi-session-1");
-    read.resolve({ opened: new Set(), auto: new Set(), compactions: new Map(), record: async () => undefined });
+    read.resolve({
+      opened: new Set(),
+      auto: new Set(),
+      compactions: new Map(),
+      sources: new Map(),
+      record: async () => undefined,
+    });
     await archiving;
     await opening;
 
@@ -2095,7 +1977,7 @@ describe("SessionManager workspaces", () => {
     const { sessionId } = await started(manager, manager.createSession("client-1", WORKSPACE));
     const layout = layouts.of("client-1");
 
-    await manager.stopWorkspace(WORKSPACE);
+    await manager.stopContainer(WORKSPACE);
 
     expect([sessionId, chat].map((id) => present(catalog.find(id), id).archived)).toStrictEqual([false, false]);
     expect(layouts.of("client-1")).toStrictEqual(layout);
@@ -2108,12 +1990,12 @@ describe("SessionManager workspaces", () => {
     const { sessionId: gone } = await manager.createSession("client-1", WORKSPACE);
     await manager.archiveSession(gone);
     const { sessionId: draft } = await manager.createSession("client-1", WORKSPACE);
-    const stopped = await manager.stopWorkspace(WORKSPACE);
+    const stopped = await manager.stopContainer(WORKSPACE);
     const answers = await Promise.all([
       manager.openSession("client-1", running).catch(caught),
       manager.createSession("client-1", WORKSPACE).catch(caught),
     ]);
-    manager.releaseWorkspace(WORKSPACE);
+    manager.releaseContainer(WORKSPACE);
 
     expect([stopped, answers]).toStrictEqual([
       [running, draft],
@@ -2163,11 +2045,13 @@ describe("SessionManager workspaces", () => {
         running: false,
         attention: null,
         asking: null,
-        handedOff: false,
+        question: null,
         model: null,
         parent: null,
         agent: null,
         heldDeliveries: 0,
+        kickoff: null,
+        study: null,
       },
     ]);
   });
@@ -2199,6 +2083,7 @@ describe("SessionManager turn starts", () => {
           opened: new Set(),
           auto: new Set(),
           compactions: new Map(),
+          sources: new Map(),
           record: async (entryIds) => void recorded.push([...entryIds]),
         };
       },
@@ -2252,12 +2137,13 @@ describe("SessionManager turn starts", () => {
         opened: new Set(),
         auto: new Set(),
         compactions: new Map(),
+        sources: new Map(),
         record: async (...seen) => void recorded.push(seen),
       }),
     );
     const { sessionId } = await manager.createChat("client-1");
     await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
-    await vi.waitFor(() => expect(recorded).toStrictEqual([[["u1"], [], new Map([["k1", "threshold"]])]]));
+    await vi.waitFor(() => expect(recorded).toStrictEqual([[["u1"], [], new Map([["k1", "threshold"]]), new Map()]]));
 
     const at = await place();
     await terminalSession(at, "pi-session-1", at.workspace);
@@ -2270,6 +2156,7 @@ describe("SessionManager turn starts", () => {
         opened: new Set(["u1"]),
         auto: new Set(),
         compactions: new Map([["k1", "threshold" as const]]),
+        sources: new Map(),
         record: async () => undefined,
       }),
     );
@@ -2303,6 +2190,7 @@ describe("SessionManager turn starts", () => {
         opened: new Set(),
         auto: new Set(),
         compactions: new Map(),
+        sources: new Map(),
         record: () => Promise.reject(new Error("disk full")),
       }),
     );
@@ -2678,6 +2566,11 @@ function fastSwitches(received: readonly Record<string, unknown>[]): unknown[] {
   return received.filter((command) => command["type"] === "prompt").map((command) => command["message"]);
 }
 
+/** Where the visuals go: the first session's in its folder, none for any other. */
+function firstSessionVisuals(sessionId: string): string | null {
+  return sessionId === "pi-session-1" ? `/home/.atrium/visuals/${sessionId}` : null;
+}
+
 describe("SessionManager Fast", () => {
   it("loads the Fast extension in a session's pi and switches Fast on, as last chosen, before reading the session", async () => {
     const { fast } = fastMemory(true);
@@ -2725,6 +2618,31 @@ describe("SessionManager Fast", () => {
       ]),
     );
     expect(received).toMatchObject([{ type: "session_snapshot", fast: true }]);
+  });
+
+  it("tells Atrium's extension where the session's visuals go, and nothing for a session that has no place", async () => {
+    const { fast } = fastMemory(false);
+    const { manager, starts } = await manage(
+      { argvToStderr: true, rules: FAST_PI },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fast,
+      undefined,
+      { visualsDir: firstSessionVisuals },
+    );
+
+    await started(manager, manager.createChat("client-1"));
+    await started(manager, manager.createChat("client-1"));
+
+    const argvs = starts()
+      .map(({ argv }) => argv)
+      .filter((argv) => argv !== undefined);
+    expect(argvs[0]?.at(-1)).toBe(`--atrium-visuals=${visualsArgument("/home/.atrium/visuals/pi-session-1")}`);
+    expect(argvs[1]?.some((arg) => arg.startsWith("--atrium-visuals"))).toBe(false);
   });
 
   it("sends no switch while Fast is off", async () => {
@@ -2964,7 +2882,7 @@ describe("SessionManager compacting", () => {
     );
   });
 
-  it("counts a compaction as busy: a hand-off is refused and stopping idle pi keeps it", async () => {
+  it("counts a compaction as busy: another compaction is refused and stopping idle pi keeps it", async () => {
     const at = await place();
     await terminalSession(at, "pi-session-1", at.workspace);
     const { manager, catalog, piReceived, resources } = await manage(
@@ -2979,10 +2897,10 @@ describe("SessionManager compacting", () => {
       ]),
     );
 
-    const handedOff = await manager.handOff("pi-session-1").catch(caught);
+    const again = await manager.compactSession("pi-session-1", undefined).catch(caught);
     await manager.stopIdle();
 
-    expect([handedOff, resources.snapshot()["pi-process"]]).toStrictEqual([new CommandError("session_busy"), 1]);
+    expect([again, resources.snapshot()["pi-process"]]).toStrictEqual([new CommandError("session_busy"), 1]);
     await manager.close();
     await compacting;
   });
@@ -3234,7 +3152,8 @@ describe("SessionManager forking", () => {
     await terminalSession(at, "pi-session-1", at.workspace);
     const turns = join(at.home, "turn-starts");
     const load = async (sessionId: string) => (await loadTurnStarts(turns, sessionId, 0)).starts;
-    await (await load("pi-session-1")).record(["u1", "u2"], ["u2"]);
+    const source = { kind: "visual", path: "a.html" } as const;
+    await (await load("pi-session-1")).record(["u1", "u2"], ["u2"], new Map(), new Map([["u1", source]]));
     const { manager, catalog } = await manage(forking(at), at, load);
     await catalog.scan();
     await manager.openSession("client-1", "pi-session-1");
@@ -3242,7 +3161,11 @@ describe("SessionManager forking", () => {
     await manager.forkSession("client-1", forkCommand("u1"));
 
     const copied = await load("pi-session-2");
-    expect([[...copied.opened], [...copied.auto]]).toStrictEqual([["u1", "u2"], ["u2"]]);
+    expect([[...copied.opened], [...copied.auto], [...copied.sources]]).toStrictEqual([
+      ["u1", "u2"],
+      ["u2"],
+      [["u1", source]],
+    ]);
   });
 
   it.each([
@@ -3280,15 +3203,13 @@ describe("SessionManager forking", () => {
     expect(resources.snapshot()["pi-process"]).toBe(0);
   });
 
-  it("holds the session busy until the fork's pi is done: a message queues, a fork, a compaction or a hand-off is refused", async () => {
+  it("holds the session busy until the fork's pi is done: a message queues, a fork or a compaction is refused", async () => {
     const { manager, piReceived } = await forkable({ fork: { silent: true } });
     const pending = manager.forkSession("client-1", forkCommand("u1")).catch(caught);
     await vi.waitFor(() => expect(forkCommands(piReceived())).toStrictEqual([{ type: "fork", entryId: "u2" }]));
     const busy = new CommandError("session_busy");
 
-    // The hand-off first: a message in the queue would keep it back on its own.
     const answers = [
-      await manager.handOff("pi-session-1").catch(caught),
       await manager.forkSession("client-1", forkCommand("u1")).catch(caught),
       await manager.compactSession("pi-session-1", undefined).catch(caught),
       await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "ping" }),
@@ -3296,13 +3217,12 @@ describe("SessionManager forking", () => {
     await manager.close();
     await pending;
 
-    expect(answers).toMatchObject([busy, busy, busy, { disposition: "queued" }]);
+    expect(answers).toMatchObject([busy, busy, { disposition: "queued" }]);
   });
 
-  it("refuses a draft, and a session unknown, gone, handed off or never started here", async () => {
+  it("refuses a draft, and a session unknown, gone or never started here", async () => {
     const at = await place();
     const gone = await terminalSession(at, "pi-session-3", at.workspace);
-    await terminalSession(at, "pi-session-4", at.workspace);
     await terminalSession(at, "pi-session-5", at.workspace);
     const { manager, catalog } = await manage(forking(at), at);
     // Recorded, so its file going leaves it missing rather than unknown.
@@ -3310,10 +3230,9 @@ describe("SessionManager forking", () => {
     await catalog.scan();
     await rm(gone);
     await catalog.scan();
-    await manager.handOff("pi-session-4");
     const { sessionId: draft } = await manager.createChat("client-1");
 
-    const refusals = [draft, "nope", "pi-session-3", "pi-session-4", "pi-session-5"].map((sessionId) =>
+    const refusals = [draft, "nope", "pi-session-3", "pi-session-5"].map((sessionId) =>
       manager.forkSession("client-1", forkCommand("u1", sessionId)).catch((error: unknown) => error),
     );
 
@@ -3321,7 +3240,6 @@ describe("SessionManager forking", () => {
       new CommandError("session_is_draft", { sessionId: draft }),
       new CommandError("session_not_found", { sessionId: "nope" }),
       new CommandError("session_not_found", { sessionId: "pi-session-3" }),
-      new CommandError("session_handed_off", { sessionId: "pi-session-4" }),
       new CommandError("turn_not_found"),
     ]);
   });
@@ -3581,7 +3499,7 @@ function confirmation(id: string): object {
 
 /** The one session's summary fields this suite looks at. */
 const marks = (manager: Manager) =>
-  manager.summaries().map(({ attention, asking, handedOff }) => ({ attention, asking, handedOff }));
+  manager.summaries().map(({ attention, asking, question }) => ({ attention, asking, question }));
 
 describe("SessionManager message images (M1.11)", () => {
   it("reads a turn's image from the session file, and answers image_unavailable for one that is not there", async () => {
@@ -3669,11 +3587,20 @@ describe("SessionManager attention (M1.9)", () => {
     await run();
 
     expect(marked).toStrictEqual([
-      { attention: { reason: "auth", at: expect.any(Number), cleared: false }, asking: null, handedOff: false },
+      {
+        attention: {
+          reason: "auth",
+          at: expect.any(Number),
+          cleared: false,
+          text: "No API key found for anthropic. Use /login to sign in.",
+        },
+        asking: null,
+        question: null,
+      },
     ]);
     expect(marked[0]?.attention?.at).toBeGreaterThanOrEqual(before);
     expect(looked).toStrictEqual(marked);
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null }]);
     expect(catalog.find("pi-session-1")?.attention).toBeNull();
     expect(changes()).toBeGreaterThan(changed);
   });
@@ -3698,10 +3625,19 @@ describe("SessionManager attention (M1.9)", () => {
     await run();
     const marked = marks(manager)[0]?.attention;
 
-    expect(marked).toStrictEqual({ reason: "error", at: expect.any(Number), cleared: false });
+    expect(marked).toStrictEqual({ reason: "error", at: expect.any(Number), cleared: false, text: "overloaded" });
     expect(await manager.clearAttention("pi-session-1")).toStrictEqual({});
     expect(marks(manager)[0]?.attention).toStrictEqual({ ...marked, cleared: true });
     expect(catalog.find("pi-session-1")?.attention).toStrictEqual({ ...marked, cleared: true });
+  });
+
+  it("keeps pi's failure text with the mark, cut to 300 characters (SPEC-0005, 协议 32)", async () => {
+    const long = `overloaded\n${"x".repeat(400)}`;
+    const { manager, run } = await opened([failingTurn(long)]);
+
+    await run();
+
+    expect(marks(manager)[0]?.attention?.text).toBe(long.slice(0, 300));
   });
 
   it("does not mark a run that was stopped or completed, nor clear a session that needs no look", async () => {
@@ -3710,7 +3646,7 @@ describe("SessionManager attention (M1.9)", () => {
     await run();
     await manager.clearAttention("pi-session-1");
 
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null }]);
     await expect(manager.clearAttention("nope")).rejects.toStrictEqual(
       new CommandError("session_not_found", { sessionId: "nope" }),
     );
@@ -3739,7 +3675,7 @@ describe("SessionManager attention (M1.9)", () => {
       { outcome: last },
     ]);
     expect(received.find((event) => event.type === "run_settled")).toMatchObject({ outcome });
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null }]);
   });
 
   it("says since when a session waits for an answer, until it has none", async () => {
@@ -3752,10 +3688,12 @@ describe("SessionManager attention (M1.9)", () => {
 
     await manager.answerInteraction("pi-session-1", "d1", { value: "a" });
 
-    expect(asking).toStrictEqual([{ attention: null, asking: expect.any(Number), handedOff: false }]);
+    expect(asking).toStrictEqual([
+      { attention: null, asking: expect.any(Number), question: { title: "Pick", detail: null } },
+    ]);
     expect(asking[0]?.asking).toBeGreaterThanOrEqual(before);
     expect(received.at(-1)).toMatchObject({ type: "control_updated", control: { interactions: [] } });
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null }]);
   });
 
   it("says since when a session waits for the questions its agent asked with ask_user, until you answer them (SPEC-0003)", async () => {
@@ -3786,11 +3724,50 @@ describe("SessionManager attention (M1.9)", () => {
 
     await manager.answerQuestion("pi-session-1", "call-1", { skipped: true });
 
-    expect(asking).toStrictEqual([{ attention: null, asking: expect.any(Number), handedOff: false }]);
+    expect(asking).toStrictEqual([
+      { attention: null, asking: expect.any(Number), question: { title: "改到哪？", detail: null } },
+    ]);
     expect(asking[0]?.asking).toBeGreaterThanOrEqual(before);
     expect(shown).toMatchObject({ control: { question: { id: "call-1", questions } } });
     expect(received.at(-1)).toMatchObject({ type: "control_updated", control: { question: null } });
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null }]);
+  });
+
+  it("names the first question by its first line, the rest as its detail, cut to 200 and 300 characters (SPEC-0005, 协议 32)", async () => {
+    const questions = [
+      {
+        header: "回调",
+        question: `${"回".repeat(250)}\n两个都能跑通，\n${"换".repeat(400)}`,
+        multiSelect: false,
+        options: [
+          { label: "/auth/callback", description: "", preview: null, recommended: true },
+          { label: "/oauth/cb", description: "", preview: null, recommended: false },
+        ],
+      },
+    ];
+    const asked = {
+      type: "extension_ui_request",
+      id: "u1",
+      method: "setStatus",
+      statusKey: "atrium-agent:call-1",
+      statusText: JSON.stringify({ v: 1, id: "call-1", kind: "call", op: "ask_user", args: { questions } }),
+    };
+    const { manager } = await opened([[{ type: "agent_start" }, asked]]);
+    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
+    await vi.waitFor(() => expect(manager.summaries()[0]?.question).not.toBeNull());
+
+    expect(manager.summaries()[0]?.question).toStrictEqual({
+      title: "回".repeat(200),
+      detail: `两个都能跑通，\n${"换".repeat(400)}`.slice(0, 300),
+    });
+  });
+
+  it("names a confirmation by its title and message", async () => {
+    const { manager } = await opened([[{ type: "agent_start" }, confirmation("d1")]]);
+    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
+    await vi.waitFor(() => expect(manager.summaries()[0]?.question).not.toBeNull());
+
+    expect(manager.summaries()[0]?.question).toStrictEqual({ title: "d1", detail: "?" });
   });
 
   it("keeps since when the questions wait through a direct reply pi refused, which brings them back (SPEC-0003)", async () => {
@@ -3847,245 +3824,6 @@ describe("SessionManager attention (M1.9)", () => {
 
     expect(both).toBe(first);
     expect(manager.summaries()[0]?.asking).toBeGreaterThanOrEqual(before);
-  });
-});
-
-/** Every command that starts or writes pi, for a session handed off. */
-const writes = (manager: Manager) => [
-  manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" }),
-  manager.steer({ type: "steer", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" }),
-  manager.resumeQueue("pi-session-1"),
-  manager.retryRun("pi-session-1"),
-  manager.renameSession("pi-session-1", "x"),
-  manager.setModel("pi-session-1", { providerId: "p", modelId: "m" }),
-  manager.setThinkingLevel("pi-session-1", "low"),
-  manager.listCommands("pi-session-1"),
-];
-
-describe("SessionManager handing off (M1.9)", () => {
-  it("records the hand-off, stops pi and answers its file; then opens it without pi and refuses to write it", async () => {
-    const { manager, catalog, received, starts, file, at } = await opened([turn]);
-
-    expect(await manager.handOff("pi-session-1")).toStrictEqual({ file, args: [] });
-    await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited", reason: "requested" }));
-    await manager.openSession("client-1", "pi-session-1");
-
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: true }]);
-    expect(catalog.find("pi-session-1")?.handedOff).toBe(true);
-    for (const refused of await Promise.allSettled(writes(manager))) {
-      expect(refused).toStrictEqual({
-        status: "rejected",
-        reason: new CommandError("session_handed_off", { sessionId: "pi-session-1" }),
-      });
-    }
-    expect(starts()).toHaveLength(1);
-
-    // A host started again keeps the hand-off, and opens the session without pi too.
-    await manager.close();
-    const again = await manage({ argvToStderr: true, rules: SESSION_ONE }, at);
-    await again.manager.openSession("client-1", "pi-session-1");
-    expect(marks(again.manager)).toStrictEqual([{ attention: null, asking: null, handedOff: true }]);
-    expect(again.starts()).toStrictEqual([]);
-  });
-
-  it("refuses to hand off a session busy, or one it does not know", async () => {
-    const { manager } = await opened([[{ type: "agent_start" }]]);
-    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
-    await vi.waitFor(() => expect(manager.summaries()[0]?.running).toBe(true));
-
-    await expect(manager.handOff("pi-session-1")).rejects.toStrictEqual(new CommandError("session_busy"));
-    await expect(manager.handOff("nope")).rejects.toStrictEqual(
-      new CommandError("session_not_found", { sessionId: "nope" }),
-    );
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
-  });
-
-  it("refuses to hand off a session with messages in the host's queue, which only Atrium would send", async () => {
-    const { manager, received } = await opened([[{ type: "agent_start" }]], {
-      abort: { data: {}, events: [{ type: "agent_settled" }] },
-    });
-    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "one" });
-    await vi.waitFor(() => expect(manager.summaries()[0]?.running).toBe(true));
-    await manager.prompt({ type: "prompt", requestId: "q2", traceparent, sessionId: "pi-session-1", text: "two" });
-    await manager.stop("pi-session-1");
-    await vi.waitFor(() => expect(received.map((event) => event.type)).toContain("run_settled"));
-
-    await expect(manager.handOff("pi-session-1")).rejects.toStrictEqual(new CommandError("session_busy"));
-    expect(manager.summaries()[0]?.running).toBe(false);
-    expect(received.findLast((event) => event.type === "control_updated")).toMatchObject({
-      control: { queue: [{ text: "two" }], paused: "stopped" },
-    });
-  });
-
-  it("refuses to hand off a session while a message is on its way to pi", async () => {
-    const { manager } = await opened([], { prompt: { silent: true } });
-    const sending = manager
-      .prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "one" })
-      .catch(() => undefined);
-
-    await expect(manager.handOff("pi-session-1")).rejects.toStrictEqual(new CommandError("session_busy"));
-    await manager.close();
-    await sending;
-  });
-
-  it("refuses to hand off a session pi said it started a run for, before the run begins", async () => {
-    const { manager } = await opened([[]]);
-    expect(
-      await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "one" }),
-    ).toMatchObject({ disposition: "started" });
-
-    await expect(manager.handOff("pi-session-1")).rejects.toStrictEqual(new CommandError("session_busy"));
-    expect(manager.summaries()[0]?.running).toBe(false);
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
-  });
-
-  it("refuses to hand off a session while pi starts again after a crash", async () => {
-    const at = await place();
-    await terminalSession(at, "pi-session-1", at.workspace);
-    const { manager, catalog, subscriptions } = await manage(
-      { rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, exitAfter: 1 } } },
-      at,
-    );
-    await catalog.scan();
-    await manager.openSession("client-1", "pi-session-1");
-    await manager.subscribe("c1", ["pi-session-1"]);
-    const meanwhile = whenRestarting(subscriptions, () =>
-      manager.handOff("pi-session-1").catch((error: unknown) => error),
-    );
-    await manager.subscribe("c2", ["pi-session-1"]);
-
-    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "bye" });
-
-    expect(await meanwhile).toStrictEqual(new CommandError("session_busy"));
-  });
-
-  it("calls a child the agent opened stopped once its pi was put away after you stopped it", async () => {
-    const at = await place();
-    await terminalSession(at, "pi-session-1", at.workspace);
-    const { manager, catalog, records } = await manage(
-      {
-        rules: {
-          ...SESSION_ONE,
-          prompt: { data: { disposition: "started" }, events: [{ type: "agent_start" }] },
-          abort: { data: {}, events: [{ type: "agent_settled" }] },
-        },
-      },
-      at,
-    );
-    await catalog.scan();
-    await catalog.record({
-      sessionId: "pi-session-1",
-      containerId: WORKSPACE,
-      cwd: at.workspace,
-      parent: { sessionId: "main", by: "agent" },
-      name: "audit",
-      persisted: true,
-      agent: { handle: "audit", role: "explore", toolGuard: "flags", startOn: null, worktree: false, tasks: [] },
-    });
-    await manager.openSession("client-1", "pi-session-1");
-    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "go" });
-    await vi.waitFor(() => expect(present(manager.summaries()[0], "the child").running).toBe(true));
-    await manager.stop("pi-session-1");
-
-    await manager.closeTab("client-1", "pi-session-1");
-
-    await vi.waitFor(() => expect(records.filter((record) => record["msg"] === "pi exited")).toHaveLength(1));
-
-    expect(agentStatus(manager)).toBe("stopped");
-  });
-
-  it("tells the parent a child the agent opened ended when it is archived mid-task, not that it failed", async () => {
-    const at = await place();
-    await terminalSession(at, "main", at.workspace);
-    await terminalSession(at, "pi-session-1", at.workspace);
-    const { manager, catalog } = await manage(
-      {
-        rules: {
-          ...SESSION_ONE,
-          prompt: { data: { disposition: "started" }, events: [{ type: "agent_start" }] },
-          abort: { data: {}, events: [{ type: "agent_settled" }] },
-        },
-      },
-      at,
-    );
-    await catalog.scan();
-    await catalog.record({
-      sessionId: "pi-session-1",
-      containerId: WORKSPACE,
-      cwd: at.workspace,
-      parent: { sessionId: "main", by: "agent" },
-      name: "audit",
-      persisted: true,
-      agent: {
-        handle: "audit",
-        role: "explore",
-        toolGuard: "flags",
-        startOn: null,
-        worktree: false,
-        tasks: [],
-      },
-    });
-    // The task and its delivery together, as `agent_send` gives them.
-    await catalog.changeAgent("pi-session-1", (fields) => ({
-      ...fields,
-      agent: {
-        handle: "audit",
-        role: "explore",
-        toolGuard: "flags",
-        startOn: null,
-        worktree: false,
-        tasks: [{ taskId: "t-1", state: "open", at: 0 }],
-      },
-      deliveries: [{ id: "d-1", kind: "task", from: "main", taskId: "t-1", text: "go", at: 0, state: "waiting" }],
-    }));
-    await manager.openSession("client-1", "pi-session-1");
-    await manager.resumeDeliveries("pi-session-1", false);
-    await vi.waitFor(() => expect(present(manager.summaries()[1], "the child").running).toBe(true));
-
-    await manager.archiveSession("pi-session-1");
-
-    await vi.waitFor(() =>
-      expect(
-        present(catalog.find("main"), "the parent").deliveries.map((one) => [one.taskId, one.event, one.reason]),
-      ).toStrictEqual([["t-1", "ended", "archived"]]),
-    );
-  });
-
-  it("refuses to hand off a draft, which has no file for pi to go on with", async () => {
-    const { manager } = await manage({ rules: SESSION_ONE });
-    const { sessionId } = await manager.createSession("client-1", WORKSPACE);
-
-    await expect(manager.handOff(sessionId)).rejects.toStrictEqual(new CommandError("session_is_draft", { sessionId }));
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
-  });
-
-  it("takes a session back: clears the mark and starts pi on its file in a new epoch", async () => {
-    const { manager, received, starts, file, at } = await opened([turn]);
-    await manager.handOff("pi-session-1");
-    await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited" }));
-
-    expect(await manager.takeBack("pi-session-1")).toStrictEqual({});
-
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
-    expect(starts()).toStrictEqual([
-      { argv: ["--mode", "rpc", "--session", file], cwd: at.workspace },
-      { argv: ["--mode", "rpc", "--session", file], cwd: at.workspace },
-    ]);
-    expect(received.at(-1)).toMatchObject({ type: "session_snapshot", epoch: 2, exited: false });
-  });
-
-  it("takes a session back only once its hand-off has stopped pi, then starts pi again", async () => {
-    // pi stays after its stdin closes, so the hand-off's stop takes its grace time.
-    const { manager, received, starts } = await opened([turn], {}, { ignoreStdinEnd: true });
-
-    const handing = manager.handOff("pi-session-1");
-    const taking = manager.takeBack("pi-session-1");
-    await handing;
-    expect(await taking).toStrictEqual({});
-
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
-    expect(starts()).toHaveLength(2);
-    expect(received.at(-1)).toMatchObject({ type: "session_snapshot", epoch: 2, exited: false });
   });
 });
 
@@ -4196,6 +3934,23 @@ describe("SessionManager titles (M1.9)", () => {
     expect(await plain.asked()).toBe(false);
   });
 
+  it("gives no title to a session the host opened for a use, which the UI names by its use (SPEC-0008, ML3)", async () => {
+    const { run, seen, catalog, at } = await titled("Ping");
+    await catalog.record({
+      sessionId: "pi-session-1",
+      containerId: WORKSPACE,
+      cwd: at.workspace,
+      persisted: true,
+      study: { kind: "lesson", level: "l1", step: "s1" },
+    });
+    await catalog.scan();
+
+    await run();
+
+    // A one-shot pi for the title would have started by now, as in the first test of this group.
+    await expect(seen()).rejects.toThrow("ENOENT");
+  });
+
   it("asks for no title for a session that has a name", async () => {
     const { run, asked, manager, file, catalog } = await titled("Ping");
     await appendFile(
@@ -4220,10 +3975,6 @@ describe("SessionManager titles (M1.9)", () => {
         );
         await managed.catalog.scan();
       },
-    ],
-    [
-      "it was handed off meanwhile",
-      async (_: string, managed: Awaited<ReturnType<typeof titled>>) => managed.manager.handOff("pi-session-1"),
     ],
   ])("discards the title when %s", async (_, act) => {
     const managed = await titled("Ping");
@@ -4310,7 +4061,13 @@ describe("SessionManager after pi is updated (M1.10)", () => {
     await reading.promise;
 
     const stopping = manager.stopIdle();
-    read.resolve({ opened: new Set(), auto: new Set(), compactions: new Map(), record: async () => undefined });
+    read.resolve({
+      opened: new Set(),
+      auto: new Set(),
+      compactions: new Map(),
+      sources: new Map(),
+      record: async () => undefined,
+    });
     await stopping;
     await opening;
 
@@ -4330,7 +4087,13 @@ describe("SessionManager after pi is updated (M1.10)", () => {
     await reading.promise;
 
     const stopping = manager.stopIdle();
-    read.resolve({ opened: new Set(), auto: new Set(), compactions: new Map(), record: async () => undefined });
+    read.resolve({
+      opened: new Set(),
+      auto: new Set(),
+      compactions: new Map(),
+      sources: new Map(),
+      record: async () => undefined,
+    });
     await stopping;
 
     expect(await creating).toStrictEqual({ sessionId: "pi-session-1" });
@@ -4567,33 +4330,6 @@ describe("SessionManager idle reclaim (M1.11 自用, 2026-10-22)", () => {
     expect(resources.snapshot()["session.controller"]).toBe(1);
     await manager.subscribe("c1", ["pi-session-1"]);
     expect(received.at(-1)).toMatchObject({ type: "session_snapshot", exited: true });
-  });
-
-  it("counts a start waiting for the idle stop as busy, so the session cannot be handed off meanwhile", async () => {
-    const time = movableClock();
-    // pi lingers after its stdin closes, so the stop takes its whole grace period.
-    const { manager, run, resources, starts } = await opened(
-      [turn],
-      {},
-      { ignoreStdinEnd: true },
-      undefined,
-      time.clock,
-    );
-    await run();
-    await piAnswered(resources);
-    time.pass(30 * MINUTE);
-    manager.reclaimIdle();
-    await quiet();
-
-    const opening = manager.openSession("client-1", "pi-session-1");
-    // The open is waiting for the stop by now, which takes its whole grace period.
-    await quiet();
-    const handing = await manager.handOff("pi-session-1").catch(caught);
-
-    expect(handing).toStrictEqual(new CommandError("session_busy"));
-    await opening;
-    expect(starts()).toHaveLength(2);
-    expect(resources.snapshot()["pi-process"]).toBe(1);
   });
 
   it("keeps a live session's controller while nobody watches it", async () => {
@@ -4862,6 +4598,7 @@ function keptTurnStarts(
     opened: new Set(found),
     auto: new Set(),
     compactions: seen,
+    sources: new Map(),
     record: (entryIds, _autoIds, added = new Map()) => {
       kept.set(sessionId, [...found, ...entryIds]);
       compactions.set(sessionId, new Map([...seen, ...added]));
@@ -4890,7 +4627,13 @@ function heldTurnStarts() {
         reached.resolve();
         await gate.promise;
       }
-      return { opened: new Set(), auto: new Set(), compactions: new Map(), record: () => Promise.resolve() };
+      return {
+        opened: new Set(),
+        auto: new Set(),
+        compactions: new Map(),
+        sources: new Map(),
+        record: () => Promise.resolve(),
+      };
     },
     hold: () => {
       holding = true;
@@ -5177,11 +4920,11 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
 
     const asking = manager.forkSession("client-1", { ...forkCommand("u1"), name: "查日志", child: { place: "same" } });
     await held.reached;
-    await manager.stopWorkspace(WORKSPACE);
+    await manager.stopContainer(WORKSPACE);
     held.release();
     await vi.waitFor(() => expect(catalog.find("pi-session-2")?.parent).toMatchObject({ sessionId: "pi-session-1" }));
     await manager.archiveWorkspace(WORKSPACE);
-    manager.releaseWorkspace(WORKSPACE);
+    manager.releaseContainer(WORKSPACE);
 
     await expect(asking).rejects.toStrictEqual(new CommandError("session_not_found", { sessionId: "pi-session-1" }));
     expect(catalog.find("pi-session-2")?.archived).toBe(true);
@@ -5365,10 +5108,10 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
       place: "worktree",
       branch: "atrium/tests",
     });
-    await manager.stopWorkspace(WORKSPACE);
+    await manager.stopContainer(WORKSPACE);
 
     await manager.archiveWorkspace(WORKSPACE);
-    manager.releaseWorkspace(WORKSPACE);
+    manager.releaseContainer(WORKSPACE);
     expect([catalog.find("pi-session-1")?.archived, catalog.find(elsewhere)?.parent]).toStrictEqual([true, null]);
     await manager.restoreWorkspace(WORKSPACE, null);
 
@@ -5555,5 +5298,948 @@ describe("SessionManager resuming a phone (SPEC-0005, MP4c)", () => {
     managed.subscriptions.connect("p3", (event) => stale.push(event as SessionEvent), "dev_0123456789abcdef", true);
     await managed.manager.subscribe("p3", [sessionId], undefined, [{ ...point, stream: "another" }]);
     expect(stale.map((event) => event.type)).toStrictEqual(["session_snapshot"]);
+  });
+});
+
+/**
+ * A manager with a learning direction holding one session on file, then archived.
+ *
+ * @remarks
+ * The direction's directory stays where it was, as when something was put there again: being
+ * archived is what refuses, not a missing directory.
+ *
+ * @sideEffects Creates files; starts nothing.
+ * @returns The managed manager, and how to restore the direction.
+ */
+async function archivedDirection() {
+  const at = await place();
+  const dir = join(at.root, "Learning", "go");
+  await mkdir(dir, { recursive: true });
+  let archived = false;
+  const managed = await manage(
+    { argvToStderr: true, rules: SESSION_ONE },
+    at,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { direction: { id: "lrn_go", dir, archived: () => archived } },
+  );
+  await terminalSession(at, "older", dir);
+  await managed.catalog.scan();
+  archived = true;
+  return { ...managed, restore: () => (archived = false) };
+}
+
+describe("SessionManager archived directions' sessions", () => {
+  it("refuses every command that needs pi with direction_archived, starting none, though the directory is there", async () => {
+    const { manager, starts } = await archivedDirection();
+    const sessionId = "older";
+    const refused = await Promise.all(
+      [
+        manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "go on" }),
+        manager.steer({ type: "steer", requestId: "q2", traceparent, sessionId, text: "and" }),
+        manager.retryRun(sessionId),
+        manager.resumeQueue(sessionId),
+        manager.renameSession(sessionId, "新名"),
+        manager.compactSession(sessionId, undefined),
+        manager.exportSession(sessionId),
+        manager.searchFiles(sessionId, "x"),
+        manager.createSession("client-1", "lrn_go"),
+      ].map((command) => command.then(() => "went", caught)),
+    );
+
+    expect(refused).toStrictEqual(
+      Array.from({ length: 9 }, () => new CommandError("direction_archived", { directionId: "lrn_go" })),
+    );
+    expect(starts()).toStrictEqual([]);
+  });
+
+  it("shows the session from its file in epoch 0 without pi, and pages from that copy", async () => {
+    const { manager, received, starts, resources } = await archivedDirection();
+
+    await manager.openSession("client-1", "older");
+    await manager.subscribe("c1", ["older"]);
+
+    const snapshot = received.find((event) => event.type === "session_snapshot");
+    expect(snapshot).toMatchObject({ sessionId: "older", epoch: 0, run: null, items: [{ kind: "turn" }] });
+    expect(starts()).toStrictEqual([]);
+    expect(resources.snapshot()["session.read_only"]).toBe(1);
+  });
+
+  it("lets go of the copy once nobody watches it, and of one read before the direction was restored", async () => {
+    const { manager, subscriptions, resources, restore, received } = await archivedDirection();
+    await manager.subscribe("c1", ["older"]);
+    expect(resources.snapshot()["session.read_only"]).toBe(1);
+
+    subscriptions.subscribe("c1", []);
+    manager.reclaimIdle();
+    expect(resources.snapshot()["session.read_only"]).toBe(0);
+
+    await manager.subscribe("c1", ["older"]);
+    expect(resources.snapshot()["session.read_only"]).toBe(1);
+    restore();
+    received.length = 0;
+    await manager.subscribe("c1", ["older"]);
+    expect(resources.snapshot()["session.read_only"]).toBe(0);
+    // Not run yet, it has no snapshot until a message or opening starts it.
+    expect(received.filter((event) => event.type === "session_snapshot")).toStrictEqual([]);
+  });
+
+  it("lets go of the copy when its tab closes and nobody watches it", async () => {
+    const { manager, subscriptions, resources } = await archivedDirection();
+    await manager.openSession("client-1", "older");
+    await manager.subscribe("c1", ["older"]);
+    subscriptions.subscribe("c1", []);
+
+    await manager.closeTab("client-1", "older");
+
+    expect(resources.snapshot()["session.read_only"]).toBe(0);
+  });
+});
+
+describe("SessionManager a learning direction's first session", () => {
+  it("is its discussion, as when the one create_direction made could not be created; later ones ask (SPEC-0008, ML2)", async () => {
+    const at = await place();
+    const dir = join(at.root, "Learning", "go");
+    await mkdir(dir, { recursive: true });
+    const { manager, catalog } = await manage(
+      { rules: SESSION_ONE },
+      at,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { direction: { id: "lrn_go", dir, archived: () => false } },
+    );
+
+    const first = await manager.createSession("client-1", "lrn_go");
+    const second = await manager.createSession("client-1", "lrn_go");
+
+    expect(catalog.find(first.sessionId)?.study).toStrictEqual({ kind: "discuss" });
+    expect(catalog.find(second.sessionId)?.study).toStrictEqual({ kind: "ask" });
+  });
+});
+
+/** A lesson's use, at the first level's first step. */
+const LESSON_USE = { kind: "lesson", level: "l1", step: "s1" } as const;
+
+/** pi's entries of a session with no turn yet. */
+const EMPTY = { data: { entries: [], leafId: null } };
+
+/** pi's entries once a turn is in its file. */
+const ANSWERED = { data: (getEntries as { sequence: { data: unknown }[] }).sequence[1]?.data };
+
+/** A pi that lists Atrium's Fast switch and study mode's command, as with Atrium's extension. */
+const STUDY_PI = {
+  ...SESSION_ONE,
+  get_commands: {
+    data: {
+      commands: [
+        { name: "atrium-fast", description: "Atrium's Fast switch", source: "extension", sourceInfo: {} },
+        { name: "atrium-study", description: "study", source: "extension", sourceInfo: {} },
+      ],
+    },
+  },
+  prompt: { data: { disposition: "handled" } },
+};
+
+/**
+ * A manager with one direction, its pi scripted to list `commands` and to write what it received.
+ *
+ * @remarks
+ * As the first-session test, with Atrium's extension given, so the launch flags are there.
+ *
+ * @sideEffects Creates directories; starts scripted pi.
+ * @param rules - The pi's script.
+ * @param more - A gate before each pi starts, and a step into the catalog.
+ * @returns The managed manager.
+ */
+async function studyDirection(
+  rules: NonNullable<ScriptedPiBehavior["rules"]>,
+  more: {
+    /** Waited for before each pi starts, so a test holds starts back. */
+    readonly gate?: () => Promise<void>;
+    /** Steps into the real catalog. */
+    readonly catalog?: (catalog: SessionCatalog) => SessionCatalog;
+  } = {},
+) {
+  const at = await place();
+  const dir = join(at.root, "Learning", "go");
+  await mkdir(dir, { recursive: true });
+  const behavior = { argvToStderr: true, receivedToStderr: true, rules } as const;
+  const tools = more.gate === undefined ? undefined : await scriptedTools(at, behavior);
+  const { gate } = more;
+  return manage(
+    gate === undefined || tools === undefined
+      ? behavior
+      : async () => {
+          await gate();
+          return tools;
+        },
+    at,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    fastMemory(false).fast,
+    undefined,
+    {
+      direction: { id: "lrn_go", dir, archived: () => false },
+      ...(more.catalog === undefined ? {} : { catalog: more.catalog }),
+    },
+  );
+}
+
+describe("SessionManager a learning direction's sessions with a use (SPEC-0008, ML2)", () => {
+  it("starts pi with the use's flag, and nothing for an asking session", async () => {
+    const { manager, starts } = await studyDirection(STUDY_PI);
+
+    await manager.createStudySession("client-1", "lrn_go", { kind: "discuss" });
+    await manager.createSession("client-1", "lrn_go");
+    /** The arguments of each pi started. */
+    const argvs = () =>
+      starts()
+        .map(({ argv }) => argv)
+        .filter((argv) => argv !== undefined);
+    await vi.waitFor(() => expect(argvs()).toHaveLength(2));
+
+    expect(argvs()[0]).toContain(`--atrium-study=${studyArgument({ kind: "discuss" })}`);
+    expect(argvs()[1]?.some((arg) => arg.startsWith("--atrium-study"))).toBe(false);
+  });
+
+  it("starts a session it opened for a use with /atrium-study start, once pi lists the command", async () => {
+    const { manager, starts, piReceived } = await studyDirection(STUDY_PI);
+
+    const { sessionId } = await manager.startStudySession("client-1", "lrn_go", {
+      kind: "lesson",
+      level: "l1",
+      step: "s1",
+    });
+
+    expect(sessionId).toBe("pi-session-1");
+    await vi.waitFor(() =>
+      expect(
+        piReceived()
+          .filter((command) => command["type"] === "prompt")
+          .map((command) => command["message"]),
+      ).toContain(startCommand()),
+    );
+    expect(starts().find(({ argv }) => argv !== undefined)?.argv).toContain(
+      `--atrium-study=${studyArgument({ kind: "lesson", level: "l1", step: "s1" })}`,
+    );
+  });
+
+  it("shows a start that did not happen, and sends it on 重试 once pi lists the command", async () => {
+    // pi's start asks once for Fast's switch; the first start, then the next, ask again.
+    const commands = { sequence: [FAST_PI.get_commands, FAST_PI.get_commands, STUDY_PI.get_commands] };
+    const { manager, piReceived } = await studyDirection({ ...STUDY_PI, get_entries: EMPTY, get_commands: commands });
+    const { sessionId } = await manager.startStudySession("client-1", "lrn_go", LESSON_USE);
+    /** The session's summary. */
+    const summary = () => manager.summaries().find((one) => one.sessionId === sessionId);
+    /** The starts pi was sent. */
+    const kickoffs = () => piReceived().filter((command) => command["message"] === startCommand());
+
+    await vi.waitFor(() => expect(summary()?.kickoff).toStrictEqual({ code: "study_kickoff_failed" }));
+    expect(kickoffs()).toStrictEqual([]);
+    await manager.retryStudyKickoff(sessionId);
+
+    await vi.waitFor(() => expect(kickoffs()).toHaveLength(1));
+    expect(summary()?.kickoff).toBeNull();
+    // Opening it again sends no second start.
+    await manager.openSession("client-1", sessionId);
+    await manager.retryStudyKickoff(sessionId);
+    // Closing waits for the work in the background, an opening's start included.
+    await manager.close();
+    expect(kickoffs()).toHaveLength(1);
+  });
+
+  it("sends the start again when a session it opened is opened with no turn yet", async () => {
+    // pi's start asks once for Fast's switch; the first start, then the next, ask again.
+    const commands = { sequence: [FAST_PI.get_commands, FAST_PI.get_commands, STUDY_PI.get_commands] };
+    const { manager, piReceived } = await studyDirection({ ...STUDY_PI, get_entries: EMPTY, get_commands: commands });
+    const { sessionId } = await manager.startStudySession("client-1", "lrn_go", LESSON_USE);
+    await vi.waitFor(() =>
+      expect(manager.summaries().find((one) => one.sessionId === sessionId)?.kickoff).not.toBeNull(),
+    );
+
+    await manager.openSession("client-1", sessionId);
+
+    await vi.waitFor(() =>
+      expect(piReceived().filter((command) => command["message"] === startCommand())).toHaveLength(1),
+    );
+    expect(manager.summaries().find((one) => one.sessionId === sessionId)?.kickoff).toBeNull();
+  });
+
+  it("sends the start once to a session with a turn but no start in its file, opened or retried (ML3)", async () => {
+    const { manager, piReceived } = await studyDirection({ ...STUDY_PI, get_entries: ANSWERED });
+    const { sessionId } = await manager.startStudySession("client-1", "lrn_go", LESSON_USE);
+    await manager.openSession("client-1", sessionId);
+    await manager.retryStudyKickoff(sessionId);
+    const kickoff = manager.summaries().find((one) => one.sessionId === sessionId)?.kickoff;
+    await manager.close();
+
+    expect(piReceived().filter((command) => command["message"] === startCommand())).toHaveLength(1);
+    expect(kickoff).toBeNull();
+  });
+
+  it("shows a pi that cannot start by its code, and refuses 重试 for a session of no host-opened use", async () => {
+    const { manager } = await studyDirection(STUDY_PI);
+    const { sessionId } = await manager.createStudySession("client-1", "lrn_go", { kind: "discuss" });
+
+    await expect(manager.retryStudyKickoff(sessionId)).rejects.toMatchObject({ code: "study_not_available" });
+    await expect(manager.retryStudyKickoff("nope")).rejects.toMatchObject({ code: "session_not_found" });
+  });
+
+  it("sends no start to a pi without study mode's command, and logs that", async () => {
+    const { manager, piReceived, records } = await studyDirection(FAST_PI);
+
+    await manager.startStudySession("client-1", "lrn_go", { kind: "lesson", level: "l1", step: "s1" });
+
+    await vi.waitFor(() => expect(records.some((record) => record["msg"] === "study extension not loaded")).toBe(true));
+    expect(piReceived().filter((command) => command["message"] === startCommand())).toStrictEqual([]);
+  });
+});
+
+/** A quiz's use, after the lesson at the first level's first step. */
+const QUIZ_USE = { kind: "quiz", level: "l1", step: "s1" } as const;
+
+/**
+ * The start of a host-opened session as its file keeps it: an `atrium-agent` message of kind `study`.
+ *
+ * @remarks
+ * As Atrium's extension writes it (SPEC-0008, "ML2 定的细节").
+ *
+ * @sideEffects none
+ * @param id - The entry's id.
+ * @param parentId - The entry before it.
+ * @param study - The use it starts.
+ * @returns The entry.
+ */
+function kickoffEntry(id: string, parentId: string | null, study: object) {
+  return {
+    type: "custom_message",
+    id,
+    parentId,
+    timestamp: "1970-01-01T00:00:00.000Z",
+    customType: "atrium-agent",
+    content: "start",
+    display: true,
+    details: { v: 1, kind: "study", deliveries: [], study },
+  };
+}
+
+/** A message of yours in a lesson, after its start. */
+const LESSON_REPLY = {
+  type: "message",
+  id: "a1",
+  parentId: "k0",
+  timestamp: "1970-01-01T00:00:00.000Z",
+  message: { role: "user", content: "got it", timestamp: 0 },
+};
+
+/** A lesson's file: its start, then a message of yours. */
+const LESSON_ENTRIES = [kickoffEntry("k0", null, LESSON_USE), LESSON_REPLY];
+
+/**
+ * A session of the direction on file, recorded with a use.
+ *
+ * @remarks
+ * Written where pi keeps the direction's sessions, then found by a scan.
+ *
+ * @sideEffects Writes the session's file and the index; scans.
+ * @param managed - The manager and its catalog.
+ * @param sessionId - The session.
+ * @param entries - Its entries after the header.
+ * @param record - What its record holds besides the direction and its use.
+ * @returns Its file.
+ */
+async function studyOnFile(
+  managed: Awaited<ReturnType<typeof studyDirection>>,
+  sessionId: string,
+  entries: readonly object[],
+  record: Omit<Parameters<SessionCatalog["record"]>[0], "sessionId" | "containerId" | "cwd">,
+): Promise<string> {
+  const dir = join(managed.at.root, "Learning", "go");
+  const folder = sessionFolder({ directory: managed.at.piSessions, perCwd: false }, dir);
+  await mkdir(folder, { recursive: true });
+  const file = join(folder, `${sessionId}.jsonl`);
+  const header = { type: "session", version: 3, id: sessionId, timestamp: "1970-01-01T00:00:00.000Z", cwd: dir };
+  await writeFile(file, `${[header, ...entries].map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+  await managed.catalog.record({ sessionId, containerId: "lrn_go", cwd: dir, persisted: true, ...record });
+  await managed.catalog.scan();
+  return file;
+}
+
+/** The pi started, without the commands they wrote. */
+function launches(managed: Awaited<ReturnType<typeof studyDirection>>) {
+  return managed.starts().filter((line) => "argv" in line);
+}
+
+/** The starts pi was sent. */
+function kickoffsOf(managed: Awaited<ReturnType<typeof studyDirection>>) {
+  return managed.piReceived().filter((command) => command["message"] === startCommand());
+}
+
+/**
+ * A gate pi's starts pass: closed, it holds the next start only, until opened.
+ *
+ * @remarks
+ * For the tests that hold a quiz's pi before it reads its lesson's file, while any other start
+ * goes on.
+ *
+ * @sideEffects none
+ * @returns The gate and how to close, open and fail it.
+ */
+function startGate() {
+  const held = Promise.withResolvers<void>();
+  let closed = false;
+  return {
+    gate: () => {
+      const wait = closed ? held.promise : Promise.resolve();
+      closed = false;
+      return wait;
+    },
+    close: () => {
+      closed = true;
+    },
+    open: () => held.resolve(),
+    /** Fails the start held, as tools that cannot be found would. */
+    fail: () => held.reject(new Error("no tools")),
+  };
+}
+
+/**
+ * A catalog whose `archive` fails for one session.
+ *
+ * @remarks
+ * As a disk error would, on that session only.
+ *
+ * @sideEffects none
+ * @param failing - The sessions.
+ * @returns The step into the catalog.
+ */
+function failingArchive(...failing: string[]): (catalog: SessionCatalog) => SessionCatalog {
+  return (catalog) => ({
+    ...catalog,
+    archive: async (sessionId, withRoot) => {
+      if (failing.includes(sessionId)) throw new Error("disk full");
+      await catalog.archive(sessionId, withRoot);
+    },
+  });
+}
+
+/**
+ * A catalog whose `archive` waits for a promise.
+ *
+ * @remarks
+ * So a test sees a session while it is being archived.
+ *
+ * @sideEffects none
+ * @param until - What it waits for.
+ * @returns The step into the catalog.
+ */
+function heldArchive(until: Promise<void>): (catalog: SessionCatalog) => SessionCatalog {
+  return (catalog) => ({
+    ...catalog,
+    archive: async (sessionId, withRoot) => {
+      await until;
+      await catalog.archive(sessionId, withRoot);
+    },
+  });
+}
+
+describe("SessionManager the learning loop (SPEC-0008, ML3)", () => {
+  it("opens a quiz as its lesson's child, its pi forked from the lesson's file, and starts it", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    const lessonFile = await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE);
+
+    expect(managed.catalog.find(sessionId)).toMatchObject({
+      containerId: "lrn_go",
+      parent: { sessionId: "lesson", by: "user" },
+      name: null,
+      usageAfter: "a1",
+      study: QUIZ_USE,
+    });
+    await vi.waitFor(() => expect(kickoffsOf(managed)).toHaveLength(1));
+    const quizStart = present(
+      launches(managed).find(({ argv }) => argv.includes("--fork")),
+      "the quiz's start",
+    );
+    expect(quizStart.argv.slice(0, 6)).toStrictEqual([
+      "--mode",
+      "rpc",
+      "--fork",
+      lessonFile,
+      "--session-id",
+      sessionId,
+    ]);
+    expect(quizStart.argv).toContain(`--atrium-study=${studyArgument(QUIZ_USE)}`);
+    expect(quizStart.cwd).toBe(join(managed.at.root, "Learning", "go"));
+    expect(managed.layouts.of("client-1").tabs["lrn_go"]?.active).toBe(sessionId);
+  });
+
+  it("forks from the latest lesson of the step not archived, on file", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    const files = [
+      await studyOnFile(managed, "older", LESSON_ENTRIES, { study: LESSON_USE }),
+      await studyOnFile(managed, "newer", LESSON_ENTRIES, { study: LESSON_USE }),
+      await studyOnFile(managed, "other-step", LESSON_ENTRIES, { study: { ...LESSON_USE, step: "s2" } }),
+    ];
+    // Last active in this order, the other step's the latest.
+    for (const [at, file] of files.entries()) await utimes(file, 1_000 + at, 1_000 + at);
+    await managed.catalog.scan();
+
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE);
+
+    expect(managed.catalog.find(sessionId)?.parent).toStrictEqual({ sessionId: "newer", by: "user" });
+  });
+
+  it("opens a quiz with no lesson's context when the step has no lesson on file, telling the extension", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    // A lesson marked by hand has no session; a draft has no file; an archived one is not used.
+    await managed.manager.createStudySession("client-1", "lrn_go", LESSON_USE);
+    await studyOnFile(managed, "archived", LESSON_ENTRIES, { study: LESSON_USE });
+    await managed.catalog.archive("archived");
+
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE);
+
+    expect(managed.catalog.find(sessionId)).toMatchObject({ parent: null, study: QUIZ_USE });
+    await vi.waitFor(() => expect(launches(managed).some(({ argv }) => argv.includes(sessionId))).toBe(true));
+    const quizStart = present(
+      launches(managed).find(({ argv }) => argv.includes(sessionId)),
+      "the quiz's start",
+    );
+    expect(quizStart.argv).not.toContain("--fork");
+    expect(quizStart.argv).toContain(`--atrium-study=${studyArgument({ ...QUIZ_USE, context: "none" })}`);
+  });
+
+  it("refuses a quiz while its lesson runs, creating nothing", async () => {
+    const managed = await studyDirection({ ...STUDY_PI, prompt: { events: [{ type: "agent_start" }], data: {} } });
+    await studyOnFile(managed, "pi-session-1", LESSON_ENTRIES, { study: LESSON_USE });
+    await managed.manager.prompt({
+      type: "prompt",
+      requestId: "q",
+      traceparent,
+      sessionId: "pi-session-1",
+      text: "go",
+    });
+    await vi.waitFor(() =>
+      expect(managed.manager.summaries().find((one) => one.sessionId === "pi-session-1")?.running).toBe(true),
+    );
+    const before = managed.catalog.list().length;
+
+    await expect(managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE)).rejects.toStrictEqual(
+      new CommandError("session_busy"),
+    );
+
+    expect(managed.catalog.list()).toHaveLength(before);
+  });
+
+  it("sends no start to a session whose file has one after its fork's baseline, as after a restart", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    await studyOnFile(managed, "pi-session-1", [...LESSON_ENTRIES, kickoffEntry("k1", "a1", QUIZ_USE)], {
+      study: QUIZ_USE,
+      parent: { sessionId: "lesson", by: "user" },
+      usageAfter: "a1",
+    });
+
+    await managed.manager.openSession("client-1", "pi-session-1");
+    await managed.manager.retryStudyKickoff("pi-session-1");
+    await managed.manager.close();
+
+    expect(kickoffsOf(managed)).toStrictEqual([]);
+  });
+
+  it("sends the start to a forked session whose file has only its lesson's, its baseline found or not", async () => {
+    for (const usageAfter of ["a1", "(unread)"]) {
+      const managed = await studyDirection(STUDY_PI);
+      await studyOnFile(managed, "pi-session-1", LESSON_ENTRIES, {
+        study: QUIZ_USE,
+        parent: { sessionId: "lesson", by: "user" },
+        usageAfter,
+      });
+
+      await managed.manager.openSession("client-1", "pi-session-1");
+
+      await vi.waitFor(() => expect(kickoffsOf(managed)).toHaveLength(1));
+      await managed.manager.close();
+    }
+  });
+
+  it("counts only a start after the baseline, as one before it is the parent's", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    // Forked from a session started for the same use: that start is the parent's.
+    await studyOnFile(managed, "pi-session-1", [kickoffEntry("k0", null, QUIZ_USE), LESSON_REPLY], {
+      study: QUIZ_USE,
+      parent: { sessionId: "lesson", by: "user" },
+      usageAfter: "a1",
+    });
+
+    await managed.manager.openSession("client-1", "pi-session-1");
+
+    await vi.waitFor(() => expect(kickoffsOf(managed)).toHaveLength(1));
+    await managed.manager.close();
+  });
+
+  it("sends no start to a lesson whose file has its start, and no second while the first is not in it yet", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    await studyOnFile(managed, "pi-session-1", LESSON_ENTRIES, { study: LESSON_USE });
+    await managed.manager.openSession("client-1", "pi-session-1");
+    await managed.manager.retryStudyKickoff("pi-session-1");
+    expect(kickoffsOf(managed)).toStrictEqual([]);
+    await managed.manager.close();
+
+    const fresh = await studyDirection(STUDY_PI);
+    const { sessionId } = await fresh.manager.startStudySession("client-1", "lrn_go", {
+      kind: "feynman",
+      level: "l1",
+      gap: "g1",
+    });
+    await fresh.manager.openSession("client-1", sessionId);
+    await fresh.manager.openSession("client-1", sessionId);
+    await vi.waitFor(() => expect(kickoffsOf(fresh)).toHaveLength(1));
+    await fresh.manager.retryStudyKickoff(sessionId);
+    await fresh.manager.close();
+
+    expect(kickoffsOf(fresh)).toHaveLength(1);
+  });
+
+  it("starts the plan, Feynman and quiz sessions it opens itself", async () => {
+    for (const study of [
+      { kind: "plan", level: "l2" },
+      { kind: "feynman", level: "l1", step: "s1", gap: "g1" },
+    ] as const) {
+      const managed = await studyDirection(STUDY_PI);
+      const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", study);
+      await vi.waitFor(() => expect(kickoffsOf(managed)).toHaveLength(1));
+      // One it opens itself, so it may be started again (重试), which sends nothing more.
+      await expect(managed.manager.retryStudyKickoff(sessionId)).resolves.toStrictEqual({});
+      await managed.manager.close();
+      expect(kickoffsOf(managed)).toHaveLength(1);
+    }
+  });
+
+  it("archives sessions with their children, stopping them, and counts those it could not", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    await studyOnFile(managed, "quiz", LESSON_ENTRIES, {
+      study: QUIZ_USE,
+      parent: { sessionId: "lesson", by: "user" },
+      usageAfter: "a1",
+    });
+    await studyOnFile(managed, "talk", [], { study: { kind: "discuss" } });
+
+    // The quiz goes with its lesson; asked for again, it is not counted as failed.
+    await expect(managed.manager.archiveSessions(["lesson", "quiz", "unknown"])).resolves.toBe(1);
+
+    expect(["lesson", "quiz", "talk"].map((id) => managed.catalog.find(id)?.archived)).toStrictEqual([
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it("shows an archived session of a live direction from its file without pi, and restores it with its children", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    await studyOnFile(managed, "quiz", LESSON_ENTRIES, {
+      study: QUIZ_USE,
+      parent: { sessionId: "lesson", by: "user" },
+      usageAfter: "a1",
+    });
+    await managed.manager.archiveSessions(["lesson"]);
+
+    await managed.manager.openSession("client-1", "lesson");
+    await managed.manager.subscribe("c1", ["lesson"]);
+
+    const snapshot = managed.received.find((event) => event.type === "session_snapshot");
+    expect(snapshot).toMatchObject({ sessionId: "lesson", epoch: 0, run: null });
+    expect(launches(managed)).toStrictEqual([]);
+    expect(managed.resources.snapshot()["session.read_only"]).toBe(1);
+    await expect(
+      managed.manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "lesson", text: "go" }),
+    ).rejects.toMatchObject({ code: "session_not_found" });
+
+    await managed.manager.restoreSessions(["lesson"]);
+
+    expect(["lesson", "quiz"].map((id) => managed.catalog.find(id)?.archived)).toStrictEqual([false, false]);
+    expect(managed.resources.snapshot()["session.read_only"]).toBe(0);
+  });
+
+  it("holds the lesson from the busy check until the quiz's pi read its file: a message waits meanwhile", async () => {
+    const starts = startGate();
+    const managed = await studyDirection(
+      {
+        ...STUDY_PI,
+        prompt: { data: { disposition: "started" }, events: [{ type: "agent_start" }] },
+        abort: { data: {}, events: [{ type: "agent_settled" }] },
+      },
+      { gate: starts.gate },
+    );
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    await managed.manager.openSession("client-1", "lesson");
+    await vi.waitFor(() => expect(launches(managed)).toHaveLength(1));
+    // Stopped once, so its queue is paused: a message must not wait there after the fork.
+    await managed.manager.prompt({ type: "prompt", requestId: "q0", traceparent, sessionId: "lesson", text: "first" });
+    await vi.waitFor(() =>
+      expect(managed.manager.summaries().find((one) => one.sessionId === "lesson")?.running).toBe(true),
+    );
+    await managed.manager.stop("lesson");
+    await vi.waitFor(() =>
+      expect(managed.manager.summaries().find((one) => one.sessionId === "lesson")?.running).toBe(false),
+    );
+    starts.close();
+
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE);
+    // The quiz's pi has not read the lesson's file: the lesson is held, so no second fork.
+    await expect(managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE)).rejects.toStrictEqual(
+      new CommandError("session_busy"),
+    );
+    const sent = managed.manager.prompt({
+      type: "prompt",
+      requestId: "q",
+      traceparent,
+      sessionId: "lesson",
+      text: "go",
+    });
+    const sentToLesson = () => managed.piReceived().filter((command) => command["message"] === "go");
+    expect(sentToLesson()).toStrictEqual([]);
+    starts.open();
+    await sent;
+    await vi.waitFor(() => expect(launches(managed).some(({ argv }) => argv.includes(sessionId))).toBe(true));
+    await vi.waitFor(() => expect(sentToLesson()).toHaveLength(1));
+    // Its baseline is the last entry it copied.
+    expect(managed.catalog.find(sessionId)?.usageAfter).toBe("a1");
+  });
+
+  it("holds a lesson with no pi: its start waits until the quiz's pi started", async () => {
+    const starts = startGate();
+    const managed = await studyDirection(STUDY_PI, { gate: starts.gate });
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    starts.close();
+
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE);
+    // Started from the host's side too, as its kickoff starts it, not only by a command of yours.
+    const lessonOpened = managed.manager.retryStudyKickoff("lesson");
+    // Held, the lesson's pi does not start while the quiz's waits; unheld, it would within this time.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(launches(managed)).toStrictEqual([]);
+    starts.open();
+    await lessonOpened;
+    await vi.waitFor(() => expect(launches(managed)).toHaveLength(2));
+
+    expect(launches(managed)[0]?.argv).toContain(sessionId);
+  });
+
+  it("opens a quiz with no lesson's context when the lesson's file is gone, logging ids and codes only", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    const lessonFile = await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    // Gone outside Atrium; the catalog has not looked again.
+    await rm(lessonFile);
+
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE);
+
+    expect(managed.catalog.find(sessionId)).toMatchObject({ parent: null, study: QUIZ_USE });
+    await vi.waitFor(() => expect(launches(managed).some(({ argv }) => argv.includes(sessionId))).toBe(true));
+    const quizStart = present(
+      launches(managed).find(({ argv }) => argv.includes(sessionId)),
+      "the quiz's start",
+    );
+    expect(quizStart.argv).not.toContain("--fork");
+    expect(quizStart.argv).toContain(`--atrium-study=${studyArgument({ ...QUIZ_USE, context: "none" })}`);
+    const logged = managed.records.filter((record) => record["msg"] === "lesson not read for its quiz");
+    expect(logged).toStrictEqual([expect.objectContaining({ sessionId: "lesson", code: "ENOENT" })]);
+    expect(JSON.stringify(managed.records)).not.toContain(lessonFile);
+  });
+
+  it("forks a quiz whose pi never started from its lesson again after a restart, or goes without it", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    const lessonFile = await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    // Recorded by an earlier host, whose fork never ran: no file, nothing in memory.
+    await managed.catalog.record({
+      sessionId: "quiz",
+      containerId: "lrn_go",
+      cwd: join(managed.at.root, "Learning", "go"),
+      parent: { sessionId: "lesson", by: "user" },
+      usageAfter: "a1",
+      study: QUIZ_USE,
+    });
+
+    await managed.manager.openSession("client-1", "quiz");
+    await vi.waitFor(() => expect(launches(managed)).toHaveLength(1));
+
+    expect(launches(managed)[0]?.argv.slice(0, 6)).toStrictEqual([
+      "--mode",
+      "rpc",
+      "--fork",
+      lessonFile,
+      "--session-id",
+      "quiz",
+    ]);
+    await managed.manager.close();
+
+    const gone = await studyDirection(STUDY_PI);
+    const goneFile = await studyOnFile(gone, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    await gone.catalog.record({
+      sessionId: "quiz",
+      containerId: "lrn_go",
+      cwd: join(gone.at.root, "Learning", "go"),
+      parent: { sessionId: "lesson", by: "user" },
+      usageAfter: "a1",
+      study: QUIZ_USE,
+    });
+    await rm(goneFile);
+
+    await gone.manager.openSession("client-1", "quiz");
+    await vi.waitFor(() => expect(launches(gone)).toHaveLength(1));
+
+    expect(launches(gone)[0]?.argv).not.toContain("--fork");
+    expect(launches(gone)[0]?.argv).toContain(`--atrium-study=${studyArgument({ ...QUIZ_USE, context: "none" })}`);
+  });
+
+  it("starts a quiz left by an earlier host under a lesson with no file without the lesson's context", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    await managed.catalog.record({
+      sessionId: "lesson",
+      containerId: "lrn_go",
+      cwd: join(managed.at.root, "Learning", "go"),
+      study: LESSON_USE,
+    });
+    await managed.catalog.record({
+      sessionId: "quiz",
+      containerId: "lrn_go",
+      cwd: join(managed.at.root, "Learning", "go"),
+      parent: { sessionId: "lesson", by: "user" },
+      usageAfter: null,
+      study: QUIZ_USE,
+    });
+
+    await managed.manager.openSession("client-1", "quiz");
+    await vi.waitFor(() => expect(launches(managed)).toHaveLength(1));
+
+    expect(launches(managed)[0]?.argv).not.toContain("--fork");
+    expect(launches(managed)[0]?.argv).toContain(`--atrium-study=${studyArgument({ ...QUIZ_USE, context: "none" })}`);
+  });
+
+  it("forgets where a quiz archived before its pi started would have forked from", async () => {
+    const starts = startGate();
+    const managed = await studyDirection(STUDY_PI, { gate: starts.gate });
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    starts.close();
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE);
+    expect(managed.resources.snapshot()["session.fork_from"]).toBe(1);
+
+    // Its pi never starts, so only the archive can let go of where it would fork from.
+    starts.fail();
+    await vi.waitFor(() => expect(managed.resources.snapshot()["study.lesson_hold"]).toBe(0));
+    expect(managed.resources.snapshot()["session.fork_from"]).toBe(1);
+    await managed.manager.archiveSessions([sessionId]);
+
+    expect(managed.catalog.find(sessionId)?.archived).toBe(true);
+    expect(managed.resources.snapshot()).toMatchObject({
+      "session.fork_from": 0,
+      "study.fork_release": 0,
+      "study.lesson_hold": 0,
+    });
+  });
+
+  it("sends the start again after a stop dropped it, in the same host run", async () => {
+    const managed = await studyDirection({
+      ...STUDY_PI,
+      prompt: { events: [{ type: "agent_start" }], data: { disposition: "handled" } },
+      abort: { data: {}, events: [{ type: "agent_settled" }] },
+    });
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", {
+      kind: "feynman",
+      level: "l1",
+      gap: "g1",
+    });
+    await vi.waitFor(() => expect(kickoffsOf(managed)).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(managed.manager.summaries().find((one) => one.sessionId === sessionId)?.running).toBe(true),
+    );
+
+    await managed.manager.stop(sessionId);
+    await vi.waitFor(() => expect(managed.piReceived().some((command) => command["type"] === "abort")).toBe(true));
+    await managed.manager.retryStudyKickoff(sessionId);
+
+    await vi.waitFor(() => expect(kickoffsOf(managed)).toHaveLength(2));
+  });
+
+  it("archives the rest of a tree when one of it cannot be, counting each session not archived", async () => {
+    const managed = await studyDirection(STUDY_PI, { catalog: failingArchive("quiz", "quiz3") });
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    for (const child of ["quiz", "quiz2", "quiz3"]) {
+      await studyOnFile(managed, child, LESSON_ENTRIES, {
+        study: QUIZ_USE,
+        parent: { sessionId: "lesson", by: "user" },
+        usageAfter: "a1",
+      });
+    }
+    await managed.layouts.open("client-1", "lrn_go", "quiz2", true);
+
+    await expect(managed.manager.archiveSessions(["lesson"])).resolves.toBe(2);
+
+    expect(["lesson", "quiz", "quiz2", "quiz3"].map((id) => managed.catalog.find(id)?.archived)).toStrictEqual([
+      true,
+      false,
+      true,
+      false,
+    ]);
+    expect(managed.layouts.of("client-1").tabs["lrn_go"]?.open).toStrictEqual([]);
+  });
+
+  it("restores a child with its archived lesson, and a lesson without a child archived alone before", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    for (const child of ["alone", "with"]) {
+      await studyOnFile(managed, child, LESSON_ENTRIES, {
+        study: QUIZ_USE,
+        parent: { sessionId: "lesson", by: "user" },
+        usageAfter: "a1",
+      });
+    }
+    await managed.manager.archiveSession("alone");
+    await managed.manager.archiveSessions(["lesson"]);
+
+    await managed.manager.restoreSessions(["lesson"]);
+
+    expect(["lesson", "alone", "with"].map((id) => managed.catalog.find(id)?.archived)).toStrictEqual([
+      false,
+      true,
+      false,
+    ]);
+    await managed.manager.archiveSessions(["lesson"]);
+    await managed.manager.restoreSessions(["alone"]);
+
+    expect(["lesson", "alone", "with"].map((id) => managed.catalog.find(id)?.archived)).toStrictEqual([
+      false,
+      false,
+      true,
+    ]);
+  });
+
+  it("tells whether a session is being archived, from its archive's start to its end", async () => {
+    const release = Promise.withResolvers<void>();
+    const managed = await studyDirection(STUDY_PI, { catalog: heldArchive(release.promise) });
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    expect(managed.manager.isArchiving("lesson")).toBe(false);
+
+    const archived = managed.manager.archiveSessions(["lesson"]);
+    await vi.waitFor(() => expect(managed.manager.isArchiving("lesson")).toBe(true));
+    release.resolve();
+    await archived;
+
+    expect(managed.manager.isArchiving("lesson")).toBe(false);
   });
 });

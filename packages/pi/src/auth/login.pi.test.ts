@@ -1,4 +1,4 @@
-import { createTempDir, present } from "@atrium/testkit";
+import { createTempDir, installedPi, present } from "@atrium/testkit";
 import { spawn } from "node:child_process";
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { authUrlOf, loginUpdates, outputLines, promptIdOf } from "../../test/login-updates";
 import type { PiDeps } from "../deps";
-import { findExecutable, findPi } from "../locate/locate";
+import { findExecutable } from "../locate/locate";
 import { LoginError, type LoginProgram, logout, piPackageEntry, readLogins, startLogin } from "./login";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -70,7 +70,7 @@ async function piHome() {
  * @returns The program.
  */
 async function program(): Promise<LoginProgram> {
-  const pi = present(await findPi(PATH), "pi on PATH");
+  const pi = await installedPi(PATH);
   return {
     node: present(await findExecutable(PATH, "node"), "node on PATH"),
     worker: WORKER,
@@ -98,7 +98,7 @@ async function portFree(port: number): Promise<boolean> {
 
 describe("signing in through the installed pi", () => {
   it("finds the entry of the package pi's command belongs to, and none for a command that is not pi", async () => {
-    const pi = present(await findPi(PATH), "pi on PATH");
+    const pi = await installedPi(PATH);
 
     expect(await piPackageEntry(pi)).toMatch(/^file:\/\/.*\/@earendil-works\/pi-coding-agent\/dist\/index\.js$/);
     expect(await piPackageEntry(present(await findExecutable(PATH, "sh"), "sh"))).toBeNull();

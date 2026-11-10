@@ -77,7 +77,7 @@ export const Control = z.strictObject({
   /** The questions the agent asked with `ask_user`, waiting for you (SPEC-0003); at most one call at a time. */
   question: PendingQuestion.nullable(),
   /**
-   * What waits for your verdict in this session (ADR-0017): a task conversation's gates, worked out from the
+   * What waits for your verdict in this session (ADR-0018): a task conversation's gates, worked out from the
    * task's durable state, so they come back after a restart; later an agent's request. Oldest first.
    */
   reviews: z.array(PendingReview).max(REVIEWS_LIMIT),

@@ -39,7 +39,8 @@
 atrium/
 ├── apps/
 │   ├── desktop/                    Electron 外壳：只负责启动宿主和开窗口
-│   │   ├── src/main/               主进程：启动宿主、窗口、菜单、用系统浏览器开外链
+│   │   ├── src/main/               主进程：启动宿主、窗口、菜单、用系统浏览器开外链；visual-sandbox 是交互演示的协议、CSP、
+│   │   │                           按 frame 和站点过滤请求、截图（SPEC-0007，MV1）
 │   │   ├── src/preload/            把宿主地址和 token 交给 UI
 │   │   └── e2e/                    第 6 层端到端测试；heap.ts 取堆快照、比较脱离文档的 DOM 节点
 │   ├── ios/                        手机端（SwiftUI，ADR-0015，MP1 起）
@@ -93,6 +94,7 @@ atrium/
 │   │   │   │                       隐藏命令 `/atrium-task` 的参数和 schema；走 ADR-0013 的通道
 │   │   │   ├── agent/              子对话：隐藏命令 `/atrium-agent` 的参数、给模型的说明，扩展的这一部分（SPEC-0002、ADR-0013）
 │   │   │   ├── stats/              会话统计；UsageReader 增量读会话文件里的用量（子对话的"含子对话"，SPEC-0002）
+│   │   │   ├── visuals/            交互演示（SPEC-0007）：`--atrium-visuals` 参数、系统提示里的说明、外壳可用的图标名单
 │   │   │   └── locate/             找到 pi 和它用的 Node、检查版本；找到 `@` 用的 fd
 │   │   ├── fixtures/               第 3 层录制的夹具，`pi-<版本>/<场景>.jsonl`
 │   │   └── test/contract.ts        跑契约场景并录制或检查夹具（场景在 `src/contract/`）
@@ -112,6 +114,10 @@ atrium/
 │   │   │   │                       PendingInteraction、Attention、计时与指标；子对话的树（child-tree）
 │   │   │   │                       和用量合计（children-usage，SPEC-0002）；stopped-edit 负责停止消息编辑的分支事务和恢复；
 │   │   │   │                       reply-translation 管理按连接归属的临时翻译与取消，不写会话
+│   │   │   ├── study/              学习方向（SPEC-0008，ML1）：扫描和监听学习目录（Directions）、起名、建方向目录、
+│   │   │   │                       方向的命令（新建、归档、恢复，经 SessionManager 建会话、停 pi）；
+│   │   │   │                       进度（ML2）：progress（读 `.atrium-study.json`）、progress-file（排队、原子写）、
+│   │   │   │                       progress-rules（工具、手动标记、下一步，纯函数）、study-tools（答扩展的 `study_*` 工具）
 │   │   │   ├── transcript/         SessionLog（日志条目树、叶子、当前分支）、TranscriptProjection
 │   │   │   ├── status/             会话状态、工作区和项目的汇总（纯函数）
 │   │   │   ├── sync/               订阅表、列表推送（M1.5 整份快照，M1.9 加 generation+seq 增量）
@@ -120,8 +126,10 @@ atrium/
 │   │   │   ├── files/              FileSearch（`@` 引用的候选文件：调 fd，按 pi 终端界面的规则打分）；WorkspaceFiles（M1.12：右栏文件树的目录内容、查看标签的文件内容，只读工作区里的、不跟随链接）
 │   │   │   ├── tasks/              任务（SPEC-0006）：TaskService、Scheduler（纯函数 step）、TaskRunner、TaskStore（事件日志与重放）、
 │   │   │   │                       GraphValidator、ScheduleService；用 sessions/、workspaces/、store/、platform/，反过来不用
-│   │   │   ├── reviews/            ReviewHub（ADR-0017）：按会话汇总各来源的待审核、校验裁决的形状、只认第一个裁决、转交给来源的 provider；不知道任务或 agent。任务关卡的 provider 在 `tasks/task-reviews.ts`
+│   │   │   ├── reviews/            ReviewHub（ADR-0018）：按会话汇总各来源的待审核、校验裁决的形状、只认第一个裁决、转交给来源的 provider；不知道任务或 agent。任务关卡的 provider 在 `tasks/task-reviews.ts`
 │   │   │   ├── changes/            ChangesService（工作区的 git 改动：胶囊上的合计、右栏"更改"和"改动"标签的 diff，监听有人看的工作区）
+│   │   │   ├── visuals/            交互演示（SPEC-0007，MV1）：演示目录里的路径校验、令牌、外壳和 CSP、按目录监视、
+│   │   │   │                       回传的限速；`/visual/<令牌>/…` 由 server 的 HTTP 处理转来
 │   │   │   └── platform/           登录 shell 的环境、Clock、日志、子进程工具、git 调用（并发上限 4）
 │   │   └── test/harness.ts         第 4 层测试用的宿主：起真实宿主，用 client 连上去
 │   ├── client/                     客户端层：不依赖 DOM，也不依赖 React
@@ -137,10 +145,11 @@ atrium/
 │   │       ├── state/              把 client 的 store 包成 hooks；ViewState（折叠、草稿，存 localStorage；图片只在内存）
 │   │       ├── design/             设计变量（CSS）、外观、弹簧曲线、点阵、图标封装、字体、服务商官方图标（brand/）
 │   │       ├── sidebar/            侧栏、搜索、项目与工作区、对话分区（收件箱在 M1.9）
+│   │       ├── study/              学习模式（SPEC-0008）：学习首页、新建方向页、方向主页标签和主页
 │   │       ├── tabs/               标签栏、历史和会话菜单
 │   │       ├── tasks/              任务区（SPEC-0006）：固定的"任务""定时"标签、任务列表、任务标签（图 + 任务对话）
 │   │       ├── children/           子对话：子对话条、面包屑、开子对话的对话框和它们的规则（SPEC-0002）
-│   │       ├── chat/               对话区：消息流、过程、步骤、diff、Streamdown、平滑揭示、提问导航条、输入框；PlantUML 的有界本地 worker、工作区回复图片和全屏预览；受控文件引用与有界 JSON/CSV 查看（2026-10-20）；reply-translation 的临时回复译文
+│   │       ├── chat/               对话区：消息流、过程、步骤、diff、Streamdown、平滑揭示、提问导航条、输入框；PlantUML 的有界本地 worker、工作区回复图片和全屏预览；受控文件引用与有界 JSON/CSV 查看（2026-10-20）；reply-translation 的临时回复译文；visual-card 交互演示的卡片（iframe、外壳消息、离开视口卸载和截图，SPEC-0007）
 │   │       ├── test/               浏览器测试用的假客户端
 │   │       └── 以后：status-bar/、interactions/、onboarding/、settings/
 │   └── testkit/                    测试工具：不依赖任何内部包（最多依赖 protocol），只出现在 devDependencies
@@ -164,6 +173,8 @@ atrium/
 MVP 2 的内置 pi extension 以后放在根目录的 `extensions/`，现在不建。M1.11 的 Fast 扩展不是插件（没有视图、不按 pi package 发布），它的规则宿主也要用，所以放在 `packages/pi/src/fast/`（ADR-0008）。
 
 2026-10-21 回复图表 B 细化：`chat/plantuml-theme.ts` 只给 worker 生成本地默认皮肤行，原始代码仍由展示/复制组件保管，输出继续经过原尺寸/UTF-8 字节校验并只作 Blob 图片。`chat/mermaid-zoom.tsx` 是锁定 Streamdown 版本的窄 DOM 适配：库只公开 `panZoom` 开关、没有控制器/比例回调，所以由 B 工具条激活当前内联图的原生按钮，并用一个可回收 MutationObserver 读取其真实 transform/disabled；不另写缩放算法、不移动第三方 React 的节点或改 SVG。选择器仅限当前图，排除 body 全屏 portal；真实渲染、Tab 顺序、滚轮、边界、换源/主题、缩放尺寸与回收测试守住此版本契约。
+
+2026-11-04 Markdown 预览合并前发现 Mermaid 11.17.2 的共用布局渲染器只在下一次布局前清空节点、边标签、分组缓存，模块级 Map 因而留住已移除的绘图 DOM。用户选择先修复再合并：用 `patches/mermaid@11.17.2.patch` 和 pnpm 的 `patchedDependencies` 固定局部修复，在共用布局函数的 `finally` 清理同一组缓存，成功和异常都释放；不升级依赖、不在 UI 导入 Mermaid 私有路径，也不改变 SVG、交互和按需加载。补丁适用于应用所用 ESM 入口的共用布局实现；升级 Mermaid 时重新核对补丁和真实绘图/泄漏测试，不把其他图种的资源回收一并视为已证明。
 
 2026-10-26 桌面浮层边界修复：`ui/src/design/floating-layer.ts` 仅负责锚点浮层的视口几何、manual popover top layer 与观察/监听的释放，不拥有业务开关、焦点策略或内容。各组件保留打开/关闭与理想尺寸；top layer 保持 DOM 归属，解决滚动、filter/transform 祖先裁剪而不改变父面板的外点判断。居中对话框用自身 CSS 限宽限高，不接入这个锚点模块。行为见 SPEC-0001“桌面浮层的窗口边界”、design-language“浮层边界”；决策比较和入口盘点见 `research/popup-bounds.md`。
 
@@ -190,13 +201,15 @@ protocol  ←──  pi  ←──  host
 - **RelayLink 的公开回调所有权**：`onState` 是同步公开回调，允许在终态通知中调用 `retryNow()` 或 `stop()`。旧连接尝试只能结算进入该终态时已有的等待者；回调中新建的 retry 必须等新连接的 ready/失败，不能被旧结果结算。回调已经启动新代或停止后，旧 close 不能再挂自动重试 timer；正常自动 backoff 保持。旧 live check 的迟到结果不覆盖停止后或新代的诊断，不额外发布通知。此约束来自真实 socket 的模块公开边界复现，不表示当前 Electron UI 已复现该重入路径。
 - **MP3a 远程边界**：`server/transport.ts`、`server/router.ts` 声明传输和管理命令接口；`remote/` 只依赖这些类型，不 import 服务器实现；`main.ts` 注入 `RunningServer.accept`、订阅表的定向发送、Clock、资源计数和 VaultPort。服务器不 import `remote/`，继续共用会话/工作区服务。主进程 `main/vault.ts` 只处理固定 vault 文件的加解密与有版本的 IPC，不 import 宿主代码。独立宿主不触碰 safeStorage，未启用时不自动读保险箱（显式配置、测试、重置除外）。
 - **回复翻译的边界（M1.11 自用后补充）**：`sessions/reply-translation.ts` 只管理按连接归属的一次性翻译及取消，不控制原会话运行；`SessionManager.replyTranslationSource` 同步提取当前分支已结束轮的正文和当前模型，`main.ts` 注入偏好语言及 pi 一次性调用。服务不依赖 server，router 传连接 id，WebSocket 断开和宿主关闭调用取消；无翻译索引或历史字段。UI 的 `chat/reply-translation.tsx` 只在回复组件内存中保存结果，客户端等待之前的取消清理后再发送新请求，不跨重连补发；设置只写 `translationLanguage`。
+- **交互演示（SPEC-0007，MV1，2026-11-05）**：宿主 `visuals/` 只依赖 `sync`/`store`/`platform` 和 pi 包的名单；它要的会话工作目录、演示目录、按插话发消息都由 `main.ts` 注入（`visualsDirFor(sessionId)` 由会话所在的容器决定，现在只有默认的 `~/.atrium/visuals/<会话 id>/`，ML4 给学习方向换成方向目录下的 `visuals/`）。server 的 HTTP 处理只把 `/visual/` 开头的请求交给它。桌面端 `main/visual-sandbox.ts` 是纯函数（CSP、按站点检查地址），`main.ts` 把它接到 `protocol.handle`、`webRequest.onBeforeRequest` 和截图 IPC 上。界面 `chat/visual-card.tsx` 经 `VisualsContext` 拿到 resolve、发消息、截图的能力，`Markdown` 只把 `visual` 代码块交给它；Hugeicons 的 SVG 在宿主里按名单生成，界面不往 iframe 里送图标。
+- **文件 Markdown 预览（2026-11-04）**：`files/markdown-file-preview.tsx` 只组装已有的 `chat/Markdown`、受控图片读取和文件打开能力；相对引用以文档目录为基准，安全检查和渲染仍由既有组件负责。`FileViewer` 拥有显示切换，模式和两套纵向滚动位置只存窗口的 `ViewerPlace`，不新增宿主协议或依赖。
 - **回复增强的 UI 内部边界（2026-10-20）**：`chat/file-opener.ts` 只声明当前工作区的惰性打开能力，供工具胶囊与 Markdown 引用共同使用；不从 Markdown 反向 import 步骤组件。文件路径的工作区校验与打开仍由 ConversationArea 组装；`state/workspace-views.ts` 保存窗口内的一次性行范围导航，FileViewer 在读取和恢复滚动后按实际行元素消费，不增加宿主命令或持久索引字段。JSON 使用精确锁定的 `jsonc-parser@3.3.1` 的 scanner/AST（严格 JSON，不接受注释），通过源码位置展示数值和属性，CSV 用受限状态机；两者都不引入脚本执行或网络能力。
 - **faux extension 的例外**：`packages/testkit/src/faux/extension.ts` 可以 import `@earendil-works/pi-ai`。我们的代码从不加载它，它只作为文件路径交给 pi 进程（`--extension`），由 pi 自己加载执行，import 也由 pi 解析到它自带的 pi-ai；testkit 声明的同版本 pi-ai 开发依赖只用于类型检查。oxlint 只对这一个文件放开限制。放在 testkit 而不是 pi 包，是因为 pi 契约测试、宿主集成测试和端到端测试都要用它。
 - 同理，`packages/testkit/src/faux/readme-extension.ts`（README 截图用，`pnpm readme:shots`，见 development.md"命令"）在一个 pi 里用真实的服务商名注册几个 faux 服务商，同样只作为文件路径交给 pi、由 pi 自己加载，oxlint 对它也放开（2026-10-20 截图脚本收进仓库时加）。
 
 - **登录程序的例外**（2026-10-10 定）：`packages/pi/src/auth/` 里的登录程序由宿主交给系统 Node 运行，不被我们的进程加载。它按绝对路径 `import` 用户装的 pi 包（`dist/index.js`），用的是 pi 自带的依赖；只从 `@earendil-works/pi-coding-agent` 取类型（pi 包的开发依赖）。它只用 Node 能直接运行的写法（能被去掉的类型注解，不用 enum 等），因为系统 Node 直接运行源文件。
 
-- **Atrium 自带的 pi 扩展**（2026-10-12 定，ADR-0008；2026-10-15 加套餐用量，ADR-0010）：`packages/pi/src/extension/atrium.ts` 是入口，注册 `packages/pi/src/fast/` 的 Fast、`packages/pi/src/plan/` 的套餐用量、`packages/pi/src/agent/` 的子对话工具、`packages/pi/src/task/` 的任务工具与路径隔离钩子（SPEC-0006）、`packages/pi/src/edit/` 的停止消息编辑隐藏命令和 `packages/pi/src/search/` 的联网搜索与抓取（ADR-0014）；由 pi 加载（`--extension`），不被我们的进程加载。构建时连同它用到的规则打成一个文件 `atrium-extension.mjs`（原名 `fast-extension.mjs`），放在宿主旁边（和登录程序一样，所以应用不用 asar）；测试里直接加载源文件。它只从 `@earendil-works/pi-coding-agent` 取类型，运行时不 import pi 的任何东西。
+- **Atrium 自带的 pi 扩展**（2026-10-12 定，ADR-0008；2026-10-15 加套餐用量，ADR-0010）：`packages/pi/src/extension/atrium.ts` 是入口，注册 `packages/pi/src/fast/` 的 Fast、`packages/pi/src/plan/` 的套餐用量、`packages/pi/src/agent/` 的子对话工具、`packages/pi/src/task/` 的任务工具与路径隔离钩子（SPEC-0006）、`packages/pi/src/edit/` 的停止消息编辑隐藏命令、`packages/pi/src/search/` 的联网搜索与抓取（ADR-0014）、`packages/pi/src/visuals/` 在系统提示里加的交互演示说明（SPEC-0007，分段 `atrium_visuals`）和 `packages/pi/src/study/` 的学习模式工具（SPEC-0008）；由 pi 加载（`--extension`），不被我们的进程加载。构建时连同它用到的规则打成一个文件 `atrium-extension.mjs`（原名 `fast-extension.mjs`），放在宿主旁边（和登录程序一样，所以应用不用 asar）；测试里直接加载源文件。它只从 `@earendil-works/pi-coding-agent` 取类型，运行时不 import pi 的任何东西。
 
 - **pi 包的边界**：怎么调 pi、pi 的事件和条目长什么样、pi 的回放语义，都在 pi 包里；Atrium 的业务规则（会话归哪个容器、标题怎么起、上下文分段怎么展示）在 host。pi 包对外输出两类东西：协议里的对话记录实体，以及它自己定义的 LogEntry（只在宿主内部用，不上线）。
 - **线上实体与宿主内部模型分开**：SessionRuntime 等运行时模型在 host 里，快照和事件由 SessionController 映射成 protocol 的实体。
@@ -249,9 +262,10 @@ protocol  ←──  pi  ←──  host
 只能从左往右依赖：
 
 ```
-server → sessions → transcript、status、pi
-                  → workspaces → projects
-       → setup、titles、files
+server → study → sessions → transcript、status、pi
+              → workspaces（起名用 branch-namer 的 cleanBranchName）
+         sessions → workspaces → projects
+       → setup、titles、files、visuals
        → reviews（sessions 读它汇总的待审核，server 转交裁决；tasks 实现它的 provider，反过来它不依赖 tasks）
 各业务模块 → sync、store、platform（这三个不依赖任何业务模块）
 main.ts 负责组装全部
@@ -271,7 +285,7 @@ main.ts 负责组装全部
 - 宿主入口不依赖 Electron，`node packages/host/dist/main.js` 能单独运行，以后无界面运行用它。
 - 窗口从固定的来源 `atrium://app/` 加载界面（2026-10-08 定）：主进程用 `protocol.handle` 把这个协议的请求转给宿主的静态文件服务，只把内容安全策略换成允许连接宿主端口的版本；WebSocket 仍连宿主的随机端口，宿主的 `Origin` 白名单里加上 `atrium://app`。宿主端口每次启动都不同，直接加载 `http://127.0.0.1:<端口>` 时页面来源跟着变，`localStorage` 里的客户端 id、折叠状态、草稿重启后就丢了；固定来源让它们保留下来。开发时页面来自 Vite 的固定端口，不受影响。
 - 打包时宿主打成单个文件放进应用资源目录，避免只声明为 peerDependency 的包在 `app.asar` 里找不到（Paseo 踩过）。
-- 本机打包（2026-10-11 定）：`pnpm package` 用 `@electron/packager` 生成 `apps/desktop/out/Atrium-darwin-<架构>/Atrium.app`，不依赖仓库和本机的 Node，可以拷进"应用程序"、拷给同一台机器上的别的账户。应用目录 `Contents/Resources/app/` 里是主进程和预加载脚本（`dist/`）、宿主单文件和登录程序（`host/`）、界面（`ui/`），没有 `node_modules`；应用图标是 `apps/desktop/assets/icon.icns`（[design-language · 标志](design-language.md#标志)）；主进程按 `app.isPackaged` 在这里找宿主和界面，没打包时在仓库里找。不用 asar：登录程序由系统 Node 运行，读不了 asar，宿主的静态文件服务也按真实路径检查文件。只做 ad-hoc 签名（Apple Silicon 上的程序必须带签名才能运行），不公证：本机生成的文件没有隔离标记，Gatekeeper 不拦。开发版和打包版的应用名都是 Atrium，共用单实例锁和页面存储，同时只能开一个。
+- 本机打包（2026-10-11 定）：`pnpm package` 用 `@electron/packager` 生成 `apps/desktop/out/Atrium-darwin-<架构>/Atrium.app`，不依赖仓库和本机的 Node，可以拷进"应用程序"、拷给同一台机器上的别的账户。应用目录 `Contents/Resources/app/` 里是主进程和预加载脚本（`dist/`）、宿主单文件和登录程序（`host/`）、界面（`ui/`），没有 `node_modules`；应用图标是 `apps/desktop/assets/icon.icns`（[design-language · 标志](design-language.md#标志)）；主进程按 `app.isPackaged` 在这里找宿主和界面，没打包时在仓库里找。不用 asar：登录程序由系统 Node 运行，读不了 asar，宿主的静态文件服务也按真实路径检查文件。签名（Apple Silicon 上的程序必须带签名才能运行）用 `ATRIUM_CODESIGN_IDENTITY` 指定的证书，不设时退到 ad-hoc（2026-11-03 改）：签名决定 macOS 认不认得「同一个 app」，ad-hoc 的 requirement 是二进制的 cdhash、每打一次包就变，系统授过的「文稿」等权限随每次换装作废；证书签名的 requirement 是 bundle id 加证书，一次授权跨重装有效。都不公证：本机生成的文件没有隔离标记，Gatekeeper 不拦。开发版和打包版的应用名都是 Atrium，共用单实例锁和页面存储，同时只能开一个。
 
 ## 进程模型
 

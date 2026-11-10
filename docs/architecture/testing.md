@@ -136,6 +136,7 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
      - `ui`：界面的纯逻辑文件；跑界面的 Node 层测试。
      - `relay`：手机端的 relay（`apps/relay/src`，除了只做组装的 `entry.ts`）；跑它自己的测试（2026-10-25 MP2 加）。
      - `reviews`：审核的 ReviewHub、任务关卡的算法和图的差异（`reviews/review-hub.ts`、`tasks/task-reviews.ts`、`tasks/graph-diff.ts`）；只跑它们的单测和 `task-view.test.ts`，真实宿主的测试（`reviews.host.test.ts`）不逐个变异跑（2026-11-06 T8a 加；这几个文件不在 `tasks` 组里）。
+     - `study`：学习模式在宿主的部分（`study/`、`store/learning-records.ts`，2026-11-06 加只读看归档会话的 `sessions/read-only-transcripts.ts`）；跑它们自己的单元测试（2026-11-05 ML1 加，SPEC-0008）。真实宿主的 `study.host.test.ts` 不在里面：每个变异都起 pi 和 git 太慢，它守的行用破坏检查验证。
 
      - `taskrunner`、`taskscheduler`、`worktreecreator`：宿主重启（T9，2026-11-09 加）。`taskrunner` 变异 `tasks/runner.ts`、`task-workspaces.ts`、`task-service.ts`，只跑把会话层和 worktree 端口换成替身的单测（`runner.test.ts`、`t9-runner.test.ts`、`t9-service.test.ts`、`task-workspaces.test.ts`）；runner 的其余代码靠宿主层测试，逐个变异跑太慢，所以这一组按行范围跑：`pnpm test:mutation taskrunner --mutate=packages/host/src/tasks/runner.ts:<起>-<止>,…`。`taskscheduler` 变异 `tasks/scheduler.ts`，只跑 scheduler 的单测（`tasks` 组会对每个存活的变异跑完整个目录的宿主层测试）；`worktreecreator` 变异 `workspaces/worktree-creator.ts`，只跑它自己的（真 git）测试，不跑 `git` 组的全部。按范围跑时，增量文件会把别的范围留下的旧结果一起算进分数：换范围前先删 `reports/stryker-incremental-<组>.json`。
      `pnpm test:mutation` 依次跑各组（也可以只跑某几组：`pnpm test:mutation git ui`），每组的增量结果分开存（`reports/stryker-incremental-<组>.json`）。代价是只能被别组测试抓住的变异会显示存活，补本组的测试或注明理由。之前试过、不用的办法：Stryker 自带的 Vitest 运行器能按覆盖选测试，但在 Vitest 5 下运行时激活的变异全被判成存活（10.0.0 仍然如此）；先跑 `vitest related` 选出的测试、全过再跑整套确认，在四个文件 377 个变异上没有提速（被检出的变异有 `--bail` 本来就停得早），存活的变异还因为跑两轮超过期限被记成超时（23 个里 18 个）。全量仍然慢，所以放到夜里跑。
@@ -199,6 +200,7 @@ client 也做同样的测试：订阅和退订 1000 次，store 数量回到基�
 - 场景：在几个会话间来回切换、打开再关闭长会话、流式输出后切走，各重复 N 次。
 - 通过 CDP 强制垃圾回收后，在场景前后各取一份堆快照，比较"已脱离文档的 DOM 节点"按名称的数量（`findDetachedDomLeaks`）；任何增长都算泄漏，断言为空。React 组件卸载后仍被引用时，它的 DOM 也会留下，所以同样能抓到。
 - 场景里的每一步都要等界面真正变化后再做下一步：Chromium 会合并来得太快的变化，不等就等于没跑完场景。
+- 取快照前场景要停在稳定状态：等的是回合真正结束（没有"运行中"标记），不是回复出现。`takeHeapSnapshot` 先让页面画两帧再回收：Chromium 的文档时间线会抓着刚移除元素的 CSS 动画（连同元素）到下一帧处理时间线为止。教训（2026-11-06）：`ask-user.leak.spec.ts` 只等回复出现就取快照，回合在取快照的几十毫秒里结束，运行中点阵（21 个各带动画的圆点）刚被移除，引用链只有 `DocumentTimeline → CSSAnimation → SVGCircleElement`，应用代码没有引用，却被算成 42 个圆点、2 个 SVG、2 个"运行中" span 的泄漏。
 
 **3. 性能预算**（`e2e/*.perf.spec.ts`，取多次运行的中位数）
 
@@ -264,6 +266,14 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 
 2026-10-23 定。创建成千上万个文件在别的进程也在建文件时很慢：13 个进程同时各建 5000 个空文件，每个要约 6.5 秒，单独一个只要 0.35 秒（APFS 的元数据操作全机共享，加核数也没用）。所以测试不要每次自己建大目录：只读的大目录用 testkit 的 `numberedFiles(count)`，它和共享的可执行文件放在同一处，按内容哈希命名、先在旁边建好再改名就位，跨运行复用；全局初始化先确保 5000、5001 两份都在。系统可能清掉放久了的临时文件，所以每次用时数一下条目。不全的不动它，在下一个空着的名字（`<名字>-1`、`<名字>-2`……）建一份新的；读的人取第一份完整的。任何一份都从不挪动、从不删除，别的进程正在读也不受影响；不加锁，测试进程被杀也不留下要收拾的状态（2026-10-24 审查后改：原先不全就挪开重建，两个进程同时重建时，后一个会把前一个刚放好的完整目录挪走删掉）。只往确定不存在的名字上改名：一份只会由改名出现，改名到已有的非空目录会失败，失败就重新看一遍，取别人刚放好的那份。代号只在系统清理过时才增加，可以接受。它在每次运行的临时根目录之外，在里面跑 git 时要用 `gitSceneEnv(它的上一级)` 拦住 git 往上找仓库。
 
+### 端到端测试找 pi
+
+2026-11-08 定。跑已装 pi 的测试（端到端的 faux pi、宿主的集成 / 泄漏 / 浸泡、pi 包的契约和 `*.pi.test.ts`）一律用 testkit 的 `installedPi()` 找 pi，不各写一份。它和 app 的 `findPi` 一样跳过相对目录和不能执行的文件，另外跳过 cmux 的 pi shim：cmux 在它的终端里把 `~/.cmuxterm/cmux-cli-shims/<id>` 放在 PATH 最前，那里的 `pi` 交给 `cmux-pi-wrapper`，在测试的环境里跑不起来，宿主检查时报"pi 运行不了"。认法是在这个目录下，或文件开头 1 KB 里提到 `cmux-pi-wrapper`。app 不受影响：它从只带 HOME、USER 等变量启动的登录 shell 读 PATH，里面没有这个目录。
+
+### 子进程多的测试
+
+2026-11-06 定。单元层默认 5 秒期限。一个测试要依次起十几个以上子进程（git 场景、把脚本作为 Node 进程跑）时，耗时由起进程决定：单独跑每个 git 约 10 毫秒，机器忙时每个 150 毫秒到 1 秒，与改动无关地越过 5 秒。这类文件在开头写 `vi.setConfig({ testTimeout: 30_000 })`，并注明起了多少进程（同 `workspace-service.test.ts` 等宿主的 git 测试）。只放宽期限、不放宽断言；要先量过时间是均匀摊在各个进程上，而不是卡在某一步（卡住是 bug）。教训（2026-11-06）：testkit `git.test.ts` 的场景用例依次跑约 20 个 git（含建模板），`scripts/boundary.test.ts` 每个用例起一个 Node 进程、多数先建 git 仓库；整套单元并行时再同时跑 10 份这两个文件，修前 10 份全部 5 秒超时、整套里也是这几项超时，逐个计时：push 平均 670 毫秒、commit 314 毫秒，其余每个 120～310 毫秒，没有哪一步卡住；改期限后同样的负载 300 项全过，最慢 7 秒。
+
 ### 压力测试
 
 时有时无的失败要靠同时多跑几份才看得出来。`pnpm test:stress [--copies N] [--rounds R] [--project P] [路径…]` 同时跑 N 份（默认核数减一）、连跑 R 轮（默认 2 轮），每份只用一个 worker，最后列出失败过的测试（第几次里失败几次）和最慢的几个测试。新增或改动的测试合并前跑一次，宿主层用 `--project host`。
@@ -285,18 +295,15 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 | `packages/ui/src/app/workbench.browser.test.tsx` "unfolds the inbox's list only to the 228px it scrolls beyond" | 2026-10-24 混合压力（13 份并行 4 轮，五个界面文件）里失败一次：重新展开时列表 `scrollHeight` 是 201，像是之前点的"还有 3 条"没生效、只列了 3 条 | `pnpm test:stress --project ui packages/ui/src/app/workbench.browser.test.tsx packages/ui/src/chat/streaming.browser.test.tsx packages/ui/src/chat/markdown.browser.test.tsx` | 待查 |
 | `packages/host/src/files/file-search.host.test.ts` "finds nothing when fd prints more than a mebibyte" | 2026-10-26 MP3a 全量宿主验证中返回截断的 `a.ts` 列表而非 `[]`。源码超限只发 SIGKILL，`close` 仍只按退出码决定是否接收；若进程已经退出 0、输出还在管道里，kill 太迟就误接收。未在远程模块任务里顺带修改 | `pnpm test:host`，或定向该用例并增加并行负载 | 待单独修复退出/超限竞态 |
 | `packages/host/src/setup/install-job.test.ts` "ends what the command left running in its group once it exits"（`install-service.test.ts` 有同类用例） | 整套并行时偶尔失败，单独跑通过（M1.14 时记下）。2026-10-23 单文件压力 13 份 10 轮 130 次、`setup/` 13 份 4 轮 52 次、整套单元 6 份 2 轮和默认并行 3 次都没复现；同目录 `install-service.test.ts` 的同类失败是新写可执行文件被 macOS 检查拖慢，已修（追踪表"已知不稳的测试修复"） | `pnpm test:stress packages/host/src/setup/` | 待修 |
-| `apps/desktop/e2e/ask-user.leak.spec.ts` | 2026-10-26 MP3a 全量泄漏验证一次报额外脱离 DOM：SVGCircleElement 42、运行中 span 2、SVGSVGElement 2；当时单跑和第二次全量通过。2026-10-27 四路整合 `d910237` 的全套再次出现上述增长；定向复验仍失败，但变为 RunStatus / RunCat 的 ellipse、g、path、rect、SVG、shimmer/span/Text，不能概括为同一增长。用例只等待问题卡消失与回复数量，未显式等待回合终态；已有跳过预热，提交未预热。c710d51的Q0/Q1/Q2诊断各一次无增长，但主动关闭录制、环境与旧复验不完全同值，且未形成红绿对照；不能解释旧失败。原堆按约删除，父仅核作者分析元数据，不宣称重算。未修改原例 / heap helper，详见`testing/ui-controlled-diagnostics.md` | `pnpm test:leak`；定向 `test:e2e ask-user.leak.spec.ts`；整合日志见 `testing/mobile-integration.md` | 待查 |
 | `apps/desktop/e2e/appearance.leak.spec.ts` 的日志门禁 | 2026-10-27 四路整合全套与定向复验失败；首轮为 `logins unavailable` 两次、`pi did not exit after stdin closed; sending SIGTERM` 一次；定向复验只剩后者一次。用例没用 faux，启动器只保证 ATRIUM_HOME 隔离，历史 pi 配置来源未确认；退出等待关联 child close，不能仅由这条警告断言进程仍活着。不是 DOM 增长断言失败；用例 / heap helper 相对 main 未改，但不能仅据此判断运行时归属；未新增白名单。后续基线/当前四格停在离线full metadata缺失，baseline安装1次失败，build及四格均0，不算产品复验 | `test:e2e appearance.leak.spec.ts --workers=1`；日志见 `testing/mobile-integration.md`，准备阻断见 `testing/appearance-first-layer.md` | 待查；对照准备阻断 |
 | `apps/desktop/e2e/images.spec.ts` 的 `@leak` | 同次全量中，下一轮点击缩略图被已经打开的图片画布拦截，30 秒超时；单跑和第二次全量通过，未放宽点击或清理断言 | `pnpm test:leak`；定向 `test:e2e images.spec.ts --grep @leak` | 待查 |
 | `apps/desktop/e2e/rendering.leak.spec.ts` | 2026-10-26 第二次全量泄漏验证中，第一张 PlantUML 的 naturalWidth 在 5 秒内未就绪；首轮全量及随后单跑通过，根因未查明 | `pnpm test:leak`；定向 `test:e2e rendering.leak.spec.ts --grep @leak` | 待查 |
-| `packages/ui/src/chat/status-bar.browser.test.tsx` "keeps a card that grows past the window within it, scrolling, a long list of skills opened" | 2026-10-26 回复翻译整合验证中，默认全量 1028 项里失败一次：点击 Skills 前另一元素拦截指针，随后 tooltip 消失；单文件 27 项通过，串行全量 1028 项通过。未改该组件或测试 | `pnpm test:ui` | 待查 |
-| `packages/ui/src/chat/status-bar.browser.test.tsx` "opens a row to its files, tools or servers, and closes it again" | 2026-10-28 提问卡片顶行改版验证中，默认全量 1161 项里失败一次；单文件连跑 3 次 28 项都通过。改动不涉及状态栏 | `pnpm test:ui` | 待查 |
 | `packages/host/src/setup.host.test.ts` "takes the place of the login shell's for the latest pi and for updating pi, and refuses one with a password" | 2026-10-26 全量宿主及变异 dry run 各出现一次：默认 1 秒的 waitFor 没等到 pi ready。单文件 10 项通过，变异的全组测试改为串行后 dry run 通过；未放宽断言或期限 | `pnpm test:host`；host 变异 dry run | 待查 |
 | `packages/pi/src/contract/edit.pi.test.ts` "edit-aborted: rewinds an aborted assistant tail, excludes the old branch from context, keeps images and restarts on the replacement" | 2026-10-26 全量 pi 契约出现一次夹具时序差异：`get_entries r7` 在最后 assistant `message_end` / `agent_settled` 前发出，而不是夹具中的之后；单文件 5 项通过。不重录夹具、不改断言 | `pnpm test:pi` | 待查 |
 | `apps/desktop/e2e/edit-stopped-message.spec.ts` "edits the last stopped message in place, preserves the next draft and old branch, and restores the revision after restart" | 2026-10-24 整套 `pnpm test:e2e` 4 次里失败一次：把内容改成 `/help` 后点"重新发送"，5 秒内没出现"没能重新发送，编辑内容已保留，请重试"的提示 | 整套跑 `pnpm test:e2e` | 待查 |
 | `apps/desktop/e2e/children.spec.ts` “the agent opens two children…” | 2026-10-27 `376e1b5` 最小环境隔离的完整非泄漏 Electron 67/68，audit 完成 source-line 5 秒内为 0；截图仅有 tests 来源行，首轮过程折叠。同环境仅一次定向 1/1，不代表已修。固定 faux 最终文案不是“两份报告送达”屏障；SPEC 允许报告进当前步骤，laned 分支不产出 source-line，c710d51的C1已按身份链证明合法read批边界报告确实落在旧轮步骤而无来源行，C2同批两项也通过；这证明判据过强，但非原spawn批时序重现，不能认定历史失败必属此因或排除B/C。共享启动/transport 有整合变化 | 旧失败见 `testing/mobile-integration.md`；六项新诊断及录制/环境差异见 `testing/ui-controlled-diagnostics.md`，没有修改原测试 | 判据待修；历史根因未定 |
-| `scripts/boundary.test.ts` 的 "pnpm boundary (changes)" 各用例、`packages/testkit/src/git.test.ts` "gives each scene a clone on main of its own origin…"（同类：git 重活被拖过 5 秒期限） | 2026-10-26 整套单元默认并行下失败：worktree 上 11 项（含 workspace-*、merge-inspector、session-manager 的 git 重用例）、主工作区 main 上 3 项，两边都有这两个文件；6 文件小批量 294 项全过、单独跑全过。main 上没有相关改动也失败，与当次改动无关。2026-10-27 `376e1b5` 全套 4 workers 再次为该 Git 场景 5 秒超时（4186/4187），未加时或忽略，不凭历史 main 失败判本次整合无回归 | 整套跑 `pnpm test`（机器忙时） | 待查 |
 | `apps/desktop/e2e/status-bar.spec.ts` "shows the session's figures under the input box after a reply, with the context split, and keeps the groups chosen" | 2026-10-23 集成验证时整套串行跑（63 个里的最后一个）失败一次：按回车后消息没发出去，"一"还留在输入框里，30 秒没等到回复；这个用例的宿主日志没有意外的 warn/error。单跑 4 次、log-gate 分支的整套都通过。原因未查清，改动不涉及界面和输入框 | 整套跑 `pnpm test:e2e`；单跑 `--repeat-each` 没复现。2026-10-23～24 在 flaky-tests 分支整套跑 4 次都通过 | 待查 |
+| `packages/ui/src/chat/question-card.browser.test.tsx` "opens a box across the row for the other answer, focused, two lines high and growing…" | 2026-11-06 修不稳测试时整套 `pnpm test:ui` 约 40 次里失败一次：`expected 61.99998474121094 to be greater than or equal to 62`，输入框高度差了不到十万分之一像素，像是缩放或亚像素取整；没有查 | `pnpm test:ui` | 待查 |
 
 另外，`pnpm test:pi` 曾经跑不过：本机 pi 升到了 1.3.0，仓库里只有 1.0.2 和 1.1.0 的夹具（"pi 夹具"一节：没有本机版本的夹具就失败）（2026-10-20 记）。2026-10-23 已补齐 1.3.0 夹具并审查和 1.1.0 的差异，`test:pi` 89 项全部通过。
 

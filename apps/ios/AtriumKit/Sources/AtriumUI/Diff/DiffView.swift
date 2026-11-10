@@ -129,7 +129,8 @@ struct DiffView: View {
 
   /// A hunk's sticky header.
   ///
-  /// - Remark: See the type.
+  /// - Remark: The paper redesign (design-language "手机端 · 改动与 diff"): deep beige words on a
+  ///   faint deep beige ground, opaque over the paper so the lines pass under it.
   /// - SideEffects: none
   /// - Parameters:
   ///   - text: "@@ -a,b +c,d @@".
@@ -138,11 +139,11 @@ struct DiffView: View {
   private func hunkHeader(_ text: String, _ palette: Palette) -> some View {
     Text(text)
       .font(.system(size: 11, design: .monospaced))
-      .foregroundStyle(palette.secondary)
+      .foregroundStyle(palette.tint)
       .padding(.horizontal, 14)
       .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
-      .background(.ultraThinMaterial)
-      .background(palette.page.opacity(0.84))
+      .background(palette.tintSoft)
+      .background(palette.page)
       .overlay(alignment: .bottom) { palette.line.frame(height: 0.5) }
   }
 

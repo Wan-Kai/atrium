@@ -787,7 +787,7 @@ describe("/atrium-task mark and progress details (SPEC-0006, T6)", () => {
   });
 });
 
-describe("/atrium-task review (ADR-0017, decision 2)", () => {
+describe("/atrium-task review (ADR-0018, decision 2)", () => {
   const record = {
     source: { kind: "gate", gate: "task_human" },
     subject: { code: "task_human_node", params: { taskId: "tsk_a", node: "H", merge: false } },

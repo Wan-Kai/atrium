@@ -1,0 +1,58 @@
+[
+  {
+    "file": "packages/pi/src/plan/plan.ts",
+    "from": "  [\"monthly\", MONTH],",
+    "to": "  [\"monthly\", WEEK],",
+    "test": "packages/pi/src/plan/plan.test.ts",
+    "name": "reads the 5-hour, weekly and monthly windows"
+  },
+  {
+    "file": "packages/pi/src/plan/plan.ts",
+    "from": "resetsAt: isoTime(fieldOf(meter, \"resetsAt\"))",
+    "to": "resetsAt: null",
+    "test": "packages/pi/src/plan/plan.test.ts",
+    "name": "reads the 5-hour, weekly and monthly windows"
+  },
+  {
+    "file": "packages/pi/src/plan/plan.ts",
+    "from": "[\"openai-codex\", \"anthropic\", \"xai\", \"opencode-go\"]",
+    "to": "[\"openai-codex\", \"anthropic\", \"xai\"]",
+    "test": "packages/pi/src/plan/plan.test.ts",
+    "name": "the four providers Atrium asks"
+  },
+  {
+    "file": "packages/pi/src/plan/extension.ts",
+    "from": "const oauthNotRequired = provider === \"openai-codex\" || provider === \"opencode-go\";",
+    "to": "const oauthNotRequired = provider === \"openai-codex\";",
+    "test": "packages/pi/src/plan/extension.test.ts",
+    "name": "asks OpenCode Go's usage at its own address"
+  },
+  {
+    "file": "packages/pi/src/plan/extension.ts",
+    "from": "const answer = await askFor(opencodeUrl, {",
+    "to": "const answer = await askFor(opencodeUrl, { ...login.headers,",
+    "test": "packages/pi/src/plan/extension.test.ts",
+    "name": "asks OpenCode Go's usage at its own address"
+  },
+  {
+    "file": "packages/pi/src/plan/extension.ts",
+    "from": "export const OPENCODE_USAGE_URL = \"https://opencode.ai/zen/go/v1/usage\";",
+    "to": "export const OPENCODE_USAGE_URL = \"https://opencode.ai/zen/go/v1/usage2\";",
+    "test": "packages/pi/src/plan/extension.test.ts",
+    "name": "asks OpenCode Go at the one address ADR-0017 allows"
+  },
+  {
+    "file": "packages/ui/src/chat/status-figures.ts",
+    "from": "  else if (seconds === MONTH) name = \"每月\";",
+    "to": "  else if (seconds === MONTH) name = \"30 天\";",
+    "test": "packages/ui/src/chat/status-figures.test.ts",
+    "name": "names a window by its length"
+  },
+  {
+    "file": "packages/ui/src/chat/status-figures.ts",
+    "from": "  \"opencode-go\": \"OpenCode Go\",",
+    "to": "  \"opencode-go\": \"OpenCode\",",
+    "test": "packages/ui/src/chat/status-figures.test.ts",
+    "name": "names a subscription by the provider and its plan"
+  }
+]

@@ -32,7 +32,7 @@ import {
 } from "./words";
 
 /** pi's one-way status line, which the extension asks the host on (ADR-0013, point 1). */
-interface StatusLine {
+export interface StatusLine {
   setStatus(key: string, text: string | undefined): void;
 }
 
@@ -113,6 +113,23 @@ export interface AgentApi {
   ): unknown;
   on(event: "agent_end", handler: (event: { readonly messages: readonly unknown[] }) => void): unknown;
   on(event: "message_start", handler: (event: { readonly message: unknown }) => void): unknown;
+}
+
+/**
+ * The channel to the host the agent part keeps, for the other parts' tools to ask on (ADR-0013).
+ *
+ * @remarks
+ * The study tools ask through it, so one `/atrium-agent reply` answers them all (SPEC-0008).
+ */
+export interface HostChannel {
+  /** Asks the host and waits for its answer; `null` when the tool was stopped. */
+  call(
+    ui: StatusLine,
+    id: string,
+    op: CallOp,
+    args: Readonly<Record<string, unknown>>,
+    signal: AbortSignal | undefined,
+  ): Promise<AgentReply | null>;
 }
 
 /** How many delivery ids the extension remembers handing pi, so one sent again goes once. */
@@ -304,7 +321,7 @@ const PARENT_TOOL_SPECS: Readonly<Record<(typeof PARENT_TOOLS)[number], Omit<Age
 };
 
 /** The calls each main-agent tool makes. */
-const PARENT_OPS: Readonly<Record<(typeof PARENT_TOOLS)[number], Exclude<CallOp, "ask_user">>> = {
+const PARENT_OPS: Readonly<Record<(typeof PARENT_TOOLS)[number], Exclude<CallOp, "ask_user" | `study_${string}`>>> = {
   agent_spawn: "spawn",
   agent_send: "send",
   agent_reply: "reply",
@@ -591,8 +608,9 @@ interface Question {
  * and the command writes custom messages into the session.
  * @param pi - pi's extension API.
  * @param deps - Timers and branching; tests alone pass other ones.
+ * @returns The channel to the host, which the study tools ask on.
  */
-export default function atriumAgent(pi: AgentApi, deps: AgentDeps = REAL_DEPS): void {
+export default function atriumAgent(pi: AgentApi, deps: AgentDeps = REAL_DEPS): HostChannel {
   /** Calls waiting for the host's answer, by request id. */
   const calls = new Map<string, (reply: AgentReply) => void>();
   /** Questions asked, by id: the open ones and the latest closed ones, for a repeated answer. */
@@ -1270,4 +1288,6 @@ export default function atriumAgent(pi: AgentApi, deps: AgentDeps = REAL_DEPS): 
       return Promise.resolve();
     },
   });
+
+  return { call: (ui, id, op, args, signal) => ask(ui, id, op, args, signal) };
 }

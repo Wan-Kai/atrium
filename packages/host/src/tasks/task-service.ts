@@ -172,7 +172,7 @@ export interface TaskService {
   /** Refuses the graph a started task waits for; `reviewed` as for `approveGraph`. */
   rejectGraph(taskId: string, reviewed?: ReviewedGraph): Promise<void>;
   /**
-   * Writes the record of a review whose verdict took effect into the task conversation (ADR-0017, decision 2).
+   * Writes the record of a review whose verdict took effect into the task conversation (ADR-0018, decision 2).
    *
    * @remarks
    * A custom message, without a model call; the conversation's pi is started if it is not running. A task whose

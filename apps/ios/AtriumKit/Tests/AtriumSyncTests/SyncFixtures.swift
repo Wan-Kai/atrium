@@ -113,8 +113,8 @@ func indexSnapshotJSON(
   """
   {"type":"index_snapshot","generation":"\(generation)","seq":\(seq),"reason":"no_cursor",\
   "projects":[\(projects.joined(separator: ","))],"workspaces":[\(workspaces.joined(separator: ","))],\
-  "chats":[\(chats.joined(separator: ","))],"sessions":[\(sessions.joined(separator: ","))],\
-  "layout":{"container":null,"tabs":{}},"preferences":\(preferencesJSON),"resets":[]}
+  "chats":[\(chats.joined(separator: ","))],"directions":[],"sessions":[\(sessions.joined(separator: ","))],\
+  "layout":{"container":null,"tabs":{}},"preferences":\(preferencesJSON),"resets":[],"learningDir":"~/Atrium/Learning"}
   """
 }
 
@@ -136,7 +136,7 @@ func indexChangesJSON(
   return """
     {"type":"index_changes","generation":"\(generation)","seq":\(seq),\
     "projects":{"upsert":[\(projects.joined(separator: ","))],"remove":[]},\
-    "workspaces":{"upsert":[],"remove":[]},"chats":{"upsert":[],"remove":[]},\
+    "workspaces":{"upsert":[],"remove":[]},"chats":{"upsert":[],"remove":[]},"directions":{"upsert":[],"remove":[]},\
     "sessions":{"upsert":[\(sessions.joined(separator: ","))],"remove":[\(gone)]},"layout":null,"preferences":null}
     """
 }
@@ -181,12 +181,14 @@ func workspaceJSON(_ id: String, project: String, branch: String? = nil, alias: 
 
 /// A chat, as JSON.
 ///
-/// - Remark: Not archived.
+/// - Remark: Not archived, not pinned.
 /// - SideEffects: none
-/// - Parameter id: Its id.
+/// - Parameters:
+///   - id: Its id.
+///   - pinnedAt: When it was pinned, for the ordering by pinning.
 /// - Returns: The JSON.
-func chatJSON(_ id: String) -> String {
-  #"{"id":"\#(id)","dir":"/chats/\#(id)","alias":null,"firstSessionId":null,"archivedAt":null}"#
+func chatJSON(_ id: String, pinnedAt: Int? = nil) -> String {
+  #"{"id":"\#(id)","dir":"/chats/\#(id)","alias":null,"firstSessionId":null,"archivedAt":null,"pinnedAt":\#(pinnedAt.map(String.init) ?? "null")}"#
 }
 
 /// A session summary on the list, as JSON.
@@ -207,8 +209,8 @@ func summaryJSON(
     "sessionId": "\"\(id)\"", "containerId": "\"\(container)\"",
     "name": name.map { "\"\($0)\"" } ?? "null", "prompt": prompt.map { "\"\($0)\"" } ?? "null",
     "file": "null", "state": "\"persisted\"", "updatedAt": "1", "archived": "false", "running": "false",
-    "attention": "null", "asking": "null", "handedOff": "false", "model": "null", "parent": "null",
-    "agent": "null", "heldDeliveries": "0",
+    "attention": "null", "asking": "null", "question": "null", "model": "null", "parent": "null",
+    "agent": "null", "heldDeliveries": "0", "study": "null", "kickoff": "null",
   ]
   fields.merge(extra) { _, new in new }
   return "{" + fields.sorted { $0.key < $1.key }.map { "\"\($0.key)\":\($0.value)" }.joined(separator: ",") + "}"

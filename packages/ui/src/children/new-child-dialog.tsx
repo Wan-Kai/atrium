@@ -1,4 +1,4 @@
-import { type AtriumClient, isChatId } from "@atrium/client";
+import { type AtriumClient, isWorkspaceId } from "@atrium/client";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "zustand";
@@ -92,7 +92,8 @@ function ChildForm({ client, request }: { readonly client: AtriumClient; readonl
     return () => window.removeEventListener("keydown", escape);
   }, [busy]);
   if (parent === undefined) return null;
-  const inChat = isChatId(parent.containerId);
+  // A chat or a direction has no git, so its children stay in it.
+  const inChat = !isWorkspaceId(parent.containerId);
   // Neither a branch nor a detached commit: the project is no git repository (SPEC-0002, "概念 · 位置").
   const workspace = index.workspaces.find((one) => one.id === parent.containerId);
   const onlyHere = inChat || (workspace?.branch === null && workspace.head === null);

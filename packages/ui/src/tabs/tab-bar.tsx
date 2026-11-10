@@ -1,6 +1,15 @@
-import { type AtriumClient, isChatId } from "@atrium/client";
+import { type AtriumClient, isDirectionId, isWorkspaceId } from "@atrium/client";
 import type { ContainerId, SessionSummary } from "@atrium/protocol";
-import { ArrowBendDownRight, CaretDown, ClockCounterClockwise, FileDiff, Plus, SidebarRight, X } from "../design/icons";
+import {
+  ArrowBendDownRight,
+  CaretDown,
+  ClockCounterClockwise,
+  FileDiff,
+  Mortarboard,
+  Plus,
+  SidebarRight,
+  X,
+} from "../design/icons";
 import { useState } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
@@ -26,6 +35,8 @@ import { useClock } from "../state/clock";
 import type { Panes } from "../state/panes";
 import { SessionMenu } from "./session-menus";
 import { SessionNoticeLine } from "./session-notice";
+import { KIND_NAMES } from "../study/progress";
+import { StudyIcon, studySessionTitle } from "../study/study-icon";
 
 /**
  * What a child conversation belongs to, for its row's hover text.
@@ -58,6 +69,22 @@ function run(command: () => Promise<unknown>): void {
   void command().catch(() => undefined);
 }
 
+/** A direction's fixed home tab, before its sessions' (SPEC-0008, "方向主页"). */
+export interface HomeTab {
+  /** The direction's name. */
+  readonly name: string;
+  /** Whether the home shows, over the sessions. */
+  readonly shown: boolean;
+  /** Shows the home. */
+  readonly onShow: () => void;
+  /** Hides it, as a session tab chosen does. */
+  readonly onHide: () => void;
+  /** Goes to the learning home, by the "学习 › 方向名" crumb. */
+  readonly onCrumb: () => void;
+  /** The direction is archived: it is only read, and takes no new session. */
+  readonly archived: boolean;
+}
+
 /**
  * The tab bar at the top of the conversation area.
  *
@@ -71,12 +98,16 @@ function run(command: () => Promise<unknown>): void {
  * tabs follow its sessions'; while one shows, no session tab is selected, and a session tab
  * clicked shows its session again (SPEC-0001, "M1.12 的文件与更改 · 查看标签"). The "···" menu's
  * rename happens on the session's tab (design-language, "改名框"); a failure shows next to the
- * menu, until the next action there.
+ * menu, until the next action there. A direction's bar starts with the breadcrumb (the mortarboard,
+ * a semibold "学习", then `--text-dim` " › 方向名") and its fixed home tab, which no close button
+ * has; while the home shows, no session tab is selected, and a session tab chosen hides it
+ * (design-language, "学习模式"). An archived direction's bar offers no new session. A session for
+ * a use shows the use's icon (ML1: the discussion's).
  *
  * @sideEffects Subscribes to the client's list, the panes and the views; sends commands and
  * writes the views when used.
- * @param props - The client, the container, how to start a new session in it, the panes, and
- * the workspace views.
+ * @param props - The client, the container, how to start a new session in it, the panes, the
+ * workspace views, and a direction's home tab.
  * @returns The tab bar.
  */
 export function TabBar({
@@ -85,16 +116,19 @@ export function TabBar({
   onNew,
   panes,
   views,
+  home,
 }: {
   readonly client: AtriumClient;
   readonly containerId: ContainerId;
   readonly onNew: () => void;
   readonly panes: StoreApi<Panes>;
   readonly views: StoreApi<WorkspaceViews>;
+  readonly home?: HomeTab | undefined;
 }) {
   const folded = useStore(panes, (state) => state.sidebarCollapsed);
   const view = useStore(views, (state) => viewOf(state, containerId));
-  const mode = useDiffMode(client, views, isChatId(containerId) ? null : containerId);
+  const mode = useDiffMode(client, views, isWorkspaceId(containerId) ? containerId : null);
+  const homeShown = home?.shown ?? false;
   const index = useStore(client.index);
   const now = useClock().now();
   const tabs = index.layout.tabs[containerId] ?? { open: [], active: null };
@@ -120,12 +154,46 @@ export function TabBar({
         aria-label="打开的会话"
         className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [-webkit-app-region:no-drag]"
       >
+        {home === undefined ? null : (
+          <>
+            <button
+              type="button"
+              onClick={home.onCrumb}
+              className="mr-1.5 inline-flex shrink-0 items-center gap-1 rounded-[var(--r)] px-1 text-[length:var(--fs-meta)] whitespace-nowrap text-[var(--text-muted)] hover:bg-[var(--hover)]"
+            >
+              <Mortarboard size={14} className="shrink-0 text-[var(--tint)]" />
+              <b className="font-semibold text-[var(--text)]">学习</b>
+              <span className="max-w-[160px] truncate text-[var(--text-dim)]"> › {home.name}</span>
+            </button>
+            <div
+              role="tab"
+              tabIndex={homeShown ? 0 : -1}
+              aria-selected={homeShown}
+              title={home.name}
+              onClick={home.onShow}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") home.onShow();
+              }}
+              className="flex h-[30px] max-w-[200px] shrink-0 items-center gap-1.5 rounded-[var(--r)] px-2.5 text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)] aria-selected:bg-[var(--selected)] aria-selected:text-[var(--text)]"
+            >
+              <Mortarboard size={14} className="shrink-0 text-[var(--tint)]" />
+              <span className="min-w-0 truncate">{home.name}</span>
+            </div>
+            {open.length > 0 ? (
+              <span aria-hidden="true" className="mx-1.5 h-[18px] w-[0.5px] shrink-0 bg-[var(--line-strong)]" />
+            ) : null}
+          </>
+        )}
         {open.map((session) => (
           <Tab
             key={session.sessionId}
             session={session}
+            title={studySessionTitle(
+              session,
+              index.directions.find((direction) => direction.id === session.containerId),
+            )}
             status={tabStatus(index.sessions, session)}
-            selected={session.sessionId === tabs.active && view.active === null}
+            selected={session.sessionId === tabs.active && view.active === null && !homeShown}
             renaming={session.sessionId === renaming}
             onRenamed={(name) => {
               setRenaming(null);
@@ -134,6 +202,7 @@ export function TabBar({
               void client.renameSession(session.sessionId, name).catch(() => setRenameFailed(session.sessionId));
             }}
             onSelect={() => {
+              home?.onHide();
               showViewer(views, containerId, null);
               run(() => client.openSession(session.sessionId));
             }}
@@ -159,53 +228,57 @@ export function TabBar({
         })}
       </div>
       <span className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
-        <button
-          type="button"
-          aria-label="新建会话（⌘T）"
-          title="新建会话（⌘T）"
-          onClick={onNew}
-          className="inline-flex size-7 items-center justify-center rounded-[var(--r)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
-        >
-          <Plus size={15} />
-        </button>
-        <MenuButton label="新建" align="start" compact content={<CaretDown size={10} />}>
-          {(close) => (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                className={MENU_ITEM}
-                onClick={() => {
-                  close();
-                  onNew();
-                }}
-              >
-                <Plus size={13} />
-                <span className="flex-1">新会话</span>
-                <span className="text-[length:var(--fs-xs)] text-[var(--text-dim)]">⌘T</span>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                disabled={active === undefined || active.state === "draft"}
-                title={active?.state === "draft" ? "这个会话还没有消息，发一条再开子对话" : undefined}
-                className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
-                onClick={() => {
-                  close();
-                  if (active !== undefined) askForChild({ parentSessionId: active.sessionId, turnId: null });
-                }}
-              >
-                <ArrowBendDownRight size={13} />
-                <span className="flex-1">子对话</span>
-                {active === undefined ? null : (
-                  <span className="max-w-32 truncate text-[length:var(--fs-xs)] text-[var(--text-dim)]">
-                    挂在「{sessionTitle(active)}」下
-                  </span>
-                )}
-              </button>
-            </>
-          )}
-        </MenuButton>
+        {home?.archived === true ? null : (
+          <>
+            <button
+              type="button"
+              aria-label="新建会话（⌘T）"
+              title="新建会话（⌘T）"
+              onClick={onNew}
+              className="inline-flex size-7 items-center justify-center rounded-[var(--r)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+            >
+              <Plus size={15} />
+            </button>
+            <MenuButton label="新建" align="start" compact content={<CaretDown size={10} />}>
+              {(close) => (
+                <>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={MENU_ITEM}
+                    onClick={() => {
+                      close();
+                      onNew();
+                    }}
+                  >
+                    <Plus size={13} />
+                    <span className="flex-1">新会话</span>
+                    <span className="text-[length:var(--fs-xs)] text-[var(--text-dim)]">⌘T</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={active === undefined || active.state === "draft"}
+                    title={active?.state === "draft" ? "这个会话还没有消息，发一条再开子对话" : undefined}
+                    className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
+                    onClick={() => {
+                      close();
+                      if (active !== undefined) askForChild({ parentSessionId: active.sessionId, turnId: null });
+                    }}
+                  >
+                    <ArrowBendDownRight size={13} />
+                    <span className="flex-1">子对话</span>
+                    {active === undefined ? null : (
+                      <span className="max-w-32 truncate text-[length:var(--fs-xs)] text-[var(--text-dim)]">
+                        挂在「{sessionTitle(active)}」下
+                      </span>
+                    )}
+                  </button>
+                </>
+              )}
+            </MenuButton>
+          </>
+        )}
         <MenuButton
           label="历史"
           align="start"
@@ -230,6 +303,7 @@ export function TabBar({
                     className={MENU_ITEM}
                     onClick={() => {
                       close();
+                      home?.onHide();
                       // Shows the session over a viewer tab, even the one already active.
                       showViewer(views, containerId, null);
                       run(() => client.openSession(session.sessionId));
@@ -272,7 +346,11 @@ export function TabBar({
             onAction={() => setRenameFailed(null)}
           />
         )}
-        <PanelToggle panes={panes} usable={!isChatId(containerId)} />
+        <PanelToggle
+          panes={panes}
+          usable={isWorkspaceId(containerId)}
+          unusable={isDirectionId(containerId) ? "学习方向没有工作区" : "对话没有工作区"}
+        />
       </span>
     </div>
   );
@@ -287,10 +365,18 @@ export function TabBar({
  * shows on hover, as the archive icon does.
  *
  * @sideEffects Subscribes to the panes; opens or closes the panel when clicked.
- * @param props - The panes, and whether there are changes to show here.
+ * @param props - The panes, whether there are changes to show here, and why not.
  * @returns The toggle.
  */
-function PanelToggle({ panes, usable }: { readonly panes: StoreApi<Panes>; readonly usable: boolean }) {
+function PanelToggle({
+  panes,
+  usable,
+  unusable,
+}: {
+  readonly panes: StoreApi<Panes>;
+  readonly usable: boolean;
+  readonly unusable: string;
+}) {
   const open = useStore(panes, (state) => state.panelOpen);
   const setOpen = useStore(panes, (state) => state.setPanelOpen);
   return (
@@ -299,7 +385,7 @@ function PanelToggle({ panes, usable }: { readonly panes: StoreApi<Panes>; reado
       aria-label="右栏"
       aria-pressed={usable && open}
       aria-disabled={!usable}
-      title={usable ? "文件与更改（⌥⌘B）" : "对话没有工作区"}
+      title={usable ? "文件与更改（⌥⌘B）" : unusable}
       onClick={() => {
         if (usable) setOpen(!open);
       }}
@@ -387,6 +473,7 @@ function ViewerTabButton({
  */
 function Tab({
   session,
+  title,
   status,
   selected,
   renaming,
@@ -395,6 +482,8 @@ function Tab({
   onClose,
 }: {
   readonly session: SessionSummary;
+  /** Its title; a study session the host opened is named by its use until pi names it (SPEC-0008, ML2). */
+  readonly title: string;
   /** Its status, raised by its child conversations' (SPEC-0002, "主对话标签的状态图标"). */
   readonly status: RowStatus;
   readonly selected: boolean;
@@ -404,7 +493,6 @@ function Tab({
   readonly onSelect: () => void;
   readonly onClose: () => void;
 }) {
-  const title = sessionTitle(session);
   return (
     <div
       role="tab"
@@ -418,6 +506,11 @@ function Tab({
       className="group flex h-[30px] max-w-[200px] min-w-24 shrink items-center gap-1.5 rounded-[var(--r)] pr-1 pl-2.5 text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)] aria-selected:bg-[var(--selected)] aria-selected:text-[var(--text)]"
     >
       <StatusIcon status={status} />
+      {session.study === null ? null : (
+        <span aria-label={KIND_NAMES[session.study.kind]} className="inline-flex shrink-0 text-[var(--text-dim)]">
+          <StudyIcon kind={session.study.kind} size={13} />
+        </span>
+      )}
       {session.parent === null ? null : (
         <ArrowBendDownRight size={12} aria-label="子对话" className="shrink-0 text-[var(--text-dim)]" />
       )}

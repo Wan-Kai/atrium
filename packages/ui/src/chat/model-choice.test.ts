@@ -6,8 +6,10 @@ import fridayLogo from "../design/brand/friday.png";
 import claudeLogo from "../design/brand/claude.svg";
 import copilotLogo from "../design/brand/copilot.svg";
 import deepseekLogo from "../design/brand/deepseek.svg";
+import googleLogo from "../design/brand/google.png";
 import kimiLogo from "../design/brand/kimi.png";
 import openaiLogo from "../design/brand/openai.svg";
+import opencodeLogo from "../design/brand/opencode.svg";
 import openrouterLogo from "../design/brand/openrouter.svg";
 import xaiLogo from "../design/brand/xai.png";
 import {
@@ -197,6 +199,9 @@ describe("providers", () => {
         "kimi-coding",
         "claude-bridge",
         "deepseek",
+        "google",
+        "opencode",
+        "opencode-go",
       ].map(providerOf),
     ).toStrictEqual([
       { name: "Anthropic", logo: claudeLogo },
@@ -211,6 +216,9 @@ describe("providers", () => {
       { name: "Kimi Coding", logo: kimiLogo },
       { name: "Claude 订阅", logo: claudeLogo },
       { name: "DeepSeek", logo: deepseekLogo },
+      { name: "Google", logo: googleLogo },
+      { name: "OpenCode Zen", logo: opencodeLogo },
+      { name: "OpenCode Go", logo: opencodeLogo },
     ]);
     expect(providerOf("acme")).toStrictEqual({ name: "acme", logo: null });
   });
@@ -268,9 +276,9 @@ function ready(...providers: SetupProvider[]): SetupLogin {
 }
 
 describe("onPlan", () => {
-  const ALWAYS = ["claude-bridge", "openai-codex", "github-copilot"];
+  const ALWAYS = ["claude-bridge", "openai-codex", "github-copilot", "opencode-go"];
 
-  it("counts claude-bridge, openai-codex and github-copilot as on a plan whatever the login state", () => {
+  it("counts claude-bridge, openai-codex, github-copilot and opencode-go as on a plan whatever the login state", () => {
     const logins: (SetupLogin | null)[] = [
       null,
       { state: "unavailable" },
@@ -279,10 +287,10 @@ describe("onPlan", () => {
     ];
 
     expect(logins.map((login) => ALWAYS.map((id) => onPlan(id, login)))).toStrictEqual([
-      [true, true, true],
-      [true, true, true],
-      [true, true, true],
-      [true, true, true],
+      [true, true, true, true],
+      [true, true, true, true],
+      [true, true, true, true],
+      [true, true, true, true],
     ]);
   });
 
@@ -310,8 +318,8 @@ describe("onPlan", () => {
     ]);
   });
 
-  it("never counts anthropic, deepseek or any other provider, even signed in through OAuth", () => {
-    const others = ["anthropic", "deepseek", "openrouter", "azure-openai-responses", "kimi-coding", "acme"];
+  it("never counts anthropic, OpenCode Zen, deepseek or any other provider, even signed in through OAuth", () => {
+    const others = ["anthropic", "opencode", "deepseek", "openrouter", "azure-openai-responses", "kimi-coding", "acme"];
     const login = ready(...others.map((id) => provider(id, "oauth")));
 
     expect([...others.map((id) => onPlan(id, login)), ...others.map((id) => onPlan(id, null))]).toStrictEqual(

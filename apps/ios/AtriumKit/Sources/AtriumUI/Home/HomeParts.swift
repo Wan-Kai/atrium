@@ -66,8 +66,9 @@ struct WorkspaceHeader: View {
 
 /// What the home shows when there is no project.
 ///
-/// - Remark: The prototype's empty states: the cat peeking over a folder when chats exist but no
-///   project ("还没有项目"), on its tile when there is nothing at all ("这里还是空的").
+/// - Remark: The prototype's empty states, "还没有项目" when chats exist but no project and "这里还是
+///   空的" when there is nothing at all, both over the stack of blank sheets (design-language
+///   "首页空状态插图"; the cat was dropped).
 struct EmptyHome: View {
   /// Whether there are chats below.
   let hasChats: Bool
@@ -78,8 +79,7 @@ struct EmptyHome: View {
   var body: some View {
     let palette = Palette(scheme: scheme)
     VStack(spacing: Metrics.sm) {
-      PixelCatView(scene: hasChats ? .peek : .tile)
-        .frame(width: hasChats ? 128 : 160, height: hasChats ? 128 : 160)
+      PaperStack()
       Text(hasChats ? "还没有项目" : "这里还是空的").font(.system(size: 18, weight: .semibold)).foregroundStyle(palette.text)
       Text(
         hasChats
@@ -115,65 +115,46 @@ struct WorkspacePage: View {
   /// The page.
   var body: some View {
     let palette = Palette(scheme: scheme)
-    let group = sync?.home.projects.flatMap(\.workspaces).first { $0.id == workspaceId }
-    let workspace = sync?.core.index.workspaces.first { $0.id == workspaceId }
-    let project = sync?.core.index.projects.first { $0.id == workspace?.projectId }
-    let changes = sync?.core.changes[workspaceId]
+    // From the mirrored list, not the core: this page can sit under a streaming conversation.
+    let project = sync?.home.projects.first { $0.workspaces.contains { $0.id == workspaceId } }
+    let group = project?.workspaces.first { $0.id == workspaceId }
+    let changes = sync?.changes[workspaceId]
     ScrollView {
       VStack(alignment: .leading, spacing: 4) {
-        Text(project?.name ?? "").font(Typography.display(for: project?.name ?? "", size: 17, cjkSize: 15))
+        Text(project?.name ?? "").font(Typography.display(for: project?.name ?? "", size: 16, cjkSize: 14))
           .foregroundStyle(palette.secondary)
-        HStack(spacing: Metrics.xs) {
-          Image(systemName: workspace?.kind == .local ? "laptopcomputer" : "arrow.triangle.branch").font(
-            .system(size: 20))
-          Text(group?.name ?? "").font(.system(size: 25, weight: .semibold)).lineLimit(2)
-        }
-        .foregroundStyle(palette.text)
-        HStack(spacing: 6) {
-          Text(workspace?.kind == .local ? "本地工作区" : "worktree").font(.system(size: 13.5))
+        Text(group?.name ?? "").font(.system(size: 22, weight: .semibold, design: .monospaced))
+          .foregroundStyle(palette.text).lineLimit(2)
+        HStack(spacing: 8) {
+          Text(group?.kind == .local ? "本地工作区" : "worktree").font(.system(size: 12.5))
             .foregroundStyle(palette.secondary)
           if let tag = WorkspaceHeader.tag(
             dirty: changes?.dirty ?? false, ahead: changes?.ahead ?? 0, merged: group?.merged ?? false)
           {
-            MonoTag(text: tag, tone: group?.merged == true ? .merged : .attention)
+            Text(tag).font(.system(size: 11, weight: .medium, design: .monospaced))
+              .foregroundStyle(group?.merged == true ? palette.ok : palette.attn)
           }
         }
         NavigationLink(value: ChangesRoute(workspaceId: workspaceId)) {
-          HStack(spacing: Metrics.sm) {
-            Image(systemName: "plusminus").font(.system(size: 17)).frame(width: 24)
-            VStack(alignment: .leading, spacing: 2) {
-              Text("改动").font(.system(size: 16))
-              Text(Self.changesLine(dirty: changes?.dirty)).font(.system(size: 13.5))
-                .foregroundStyle(palette.secondary)
-            }
-            Spacer()
-            if let stat = changes?.stat {
-              Text("+\(ChangeList.short(stat.added))").foregroundStyle(palette.okText)
-              Text("−\(ChangeList.short(stat.removed))").foregroundStyle(palette.danger)
-            }
-            Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(palette.tertiary)
-          }
-          .font(.system(size: 13, design: .monospaced))
-          .foregroundStyle(palette.text)
-          .frame(minHeight: 56)
-          .contentShape(Rectangle())
+          ChangesCard(changes: changes)
         }
-        .buttonStyle(.plain)
-        .padding(.top, 20)
-        Text("会话 \(group?.rows.count ?? 0)").font(.system(size: 14)).monospacedDigit().foregroundStyle(
-          palette.secondary
-        )
-        .padding(.top, 30).padding(.bottom, 6)
+        .buttonStyle(PressStyle(scale: 0.985))
+        .padding(.top, 18)
+        Text("会话 \(group?.rows.count ?? 0)").font(.system(size: 12.5, weight: .semibold)).monospacedDigit()
+          .foregroundStyle(palette.secondary)
+          .padding(.top, 26).padding(.bottom, 2)
         if group?.rows.isEmpty ?? true {
           Text("这个工作区还没有会话").font(.system(size: 15)).foregroundStyle(palette.secondary)
             .frame(maxWidth: .infinity).padding(.top, Metrics.xl)
           NavigationLink(value: NewSessionRoute(container: workspaceId)) {
-            Text("在这里新建会话").font(.system(size: 15)).foregroundStyle(palette.tint)
+            Text("在这里新建会话").font(.system(size: 15, weight: .medium)).foregroundStyle(palette.tint)
           }
           .buttonStyle(.plain)
           .frame(maxWidth: .infinity).frame(minHeight: 42)
         }
-        ForEach(group?.rows ?? []) { SessionRow(row: $0) }
+        ForEach(Array((group?.rows ?? []).enumerated()), id: \.element.id) { place, row in
+          SessionRow(row: row, divided: place > 0)
+        }
       }
       .padding(.horizontal, Metrics.page)
       .padding(.top, Metrics.glassButton + Metrics.lg)
@@ -205,187 +186,50 @@ extension WorkspacePage {
   }
 }
 
-/// The drawer the menu key opens: the Mac, this phone, the appearance and about.
+/// The workspace page's changes, as a card into the change list.
 ///
-/// - Remark: The prototype's drawer (SPEC-0005 "MP6 定的细节 · MP6b"): glass, 318pt wide, sliding in
-///   from the left over a 16% shade; only the menu key opens it, the shade or "×" closes it. Latency
-///   and "上次同步" are left out of the first version. "忘掉这台 Mac" asks first.
-struct Drawer: View {
-  /// The connection's sync.
-  let sync: SyncModel
-  /// Closes the drawer.
-  let close: () -> Void
-  /// The appearance the person chose.
-  @AppStorage("appearance") private var appearance = "system"
-  /// Whether "忘掉这台 Mac" is being confirmed.
-  @State private var forgetting = false
-  /// Whether "重新配对" is being confirmed.
-  @State private var repairing = false
-  /// The relay, this phone and the App's version.
-  @Environment(\.pairingDetails) private var details
-  /// Forgets the Mac.
-  @Environment(\.forgetMac) private var forgetMac
-  /// Whether the drawer has slid in.
-  @State private var shown = false
+/// - Remark: design-language "手机端 · 工作区页": a `--note` card with the lines changed in Fraunces
+///   italic, "+A −D" and whether anything is uncommitted, and a bar of added against removed. The
+///   host sends line counts, not files, so the big number is lines (listed for acceptance).
+struct ChangesCard: View {
+  /// The workspace's changes, once watched.
+  let changes: ChangesUpdatedEvent?
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
-  /// Whether Reduce Motion is on.
-  @Environment(\.atriumReduceMotion) private var reduceMotion
 
-  /// The drawer.
+  /// The card.
   var body: some View {
     let palette = Palette(scheme: scheme)
-    ZStack(alignment: .leading) {
-      Color.black.opacity(shown ? 0.16 : 0).ignoresSafeArea().onTapGesture(perform: dismiss)
-      ScrollView {
-        VStack(alignment: .leading, spacing: 0) {
-          HStack {
-            Text("Atrium").font(.system(size: 30, design: .serif)).foregroundStyle(palette.text)
-            Spacer()
-            GlassCircleButton(systemImage: "xmark", label: "关闭", size: 36, action: dismiss)
-          }
-          .padding(.top, 60).padding(.horizontal, 18).padding(.leading, 6)
-          section("主机", palette)
-          HStack(spacing: Metrics.sm) {
-            Image(systemName: "laptopcomputer").font(.system(size: 24)).frame(width: 30)
-            VStack(alignment: .leading, spacing: 2) {
-              Text(sync.hostName).font(.system(size: 16.5, weight: .semibold))
-              HStack(spacing: 6) {
-                Circle().fill(sync.status == .connected ? palette.ok : palette.attn).frame(width: 7, height: 7)
-                Text(Self.statusText(sync.status)).font(.system(size: 13)).foregroundStyle(palette.secondary)
-              }
-            }
-          }
-          .foregroundStyle(palette.text)
-          .padding(.horizontal, 24)
-          if let details { row("relay", details.relay, palette) }
-          if let details { row("这台手机", details.deviceName, palette) }
-          row("加密", "端到端", palette)
-          if let expiry = Signing.appExpiry() {
-            VStack(alignment: .leading, spacing: 4) {
-              MonoTag(
-                text: Signing.text(expiry: expiry, now: .now),
-                tone: Signing.soon(expiry: expiry, now: .now) ? .attention : .plain)
-              Text("到期前在 Mac 上重新安装，否则 App 会打不开。").font(.system(size: 13)).foregroundStyle(palette.secondary)
-            }
-            .padding(.horizontal, 24).padding(.top, Metrics.xs)
-          }
-          HStack(spacing: 22) {
-            Button("重新配对") { repairing = true }.foregroundStyle(palette.tint)
-            Button("忘掉这台 Mac") { forgetting = true }.foregroundStyle(palette.danger)
-          }
-          .font(.system(size: 14.5, weight: .medium))
-          .buttonStyle(.plain)
-          .padding(.horizontal, 24).padding(.top, Metrics.md)
-          section("外观", palette)
-          Picker("外观", selection: $appearance) {
-            Text("跟随系统").tag("system")
-            Text("浅色").tag("light")
-            Text("深色").tag("dark")
-          }
-          .pickerStyle(.segmented)
-          .padding(.horizontal, 24)
-          Text("减弱动态效果跟随系统设置。").font(.system(size: 13)).foregroundStyle(palette.secondary)
-            .padding(.horizontal, 24).padding(.top, 6)
-          section("关于", palette)
-          if let details { row("版本", details.appVersion, palette) }
-          row("协议", "\(protocolVersion)", palette)
-          Text("经你自己的 relay 连回 Mac，中间看不到内容。没有推送：回到 App 时先告诉你谁在等你。")
-            .font(.system(size: 13)).foregroundStyle(palette.secondary).padding(.horizontal, 24).padding(.top, 6)
+    let added = changes?.stat?.added ?? 0
+    let removed = changes?.stat?.removed ?? 0
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text("\(added + removed)").font(Typography.brand(size: 40)).foregroundStyle(palette.text)
+        Text("行改动").font(.system(size: 13)).foregroundStyle(palette.secondary)
+        Spacer()
+        Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(palette.tertiary)
+      }
+      GeometryReader { proxy in
+        let total = max(1, added + removed)
+        HStack(spacing: 2) {
+          Capsule().fill(palette.ok).frame(width: proxy.size.width * CGFloat(added) / CGFloat(total))
+          Capsule().fill(palette.danger).frame(width: proxy.size.width * CGFloat(removed) / CGFloat(total))
         }
-        .padding(.bottom, Metrics.xl)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Capsule().fill(palette.surface))
       }
-      .frame(width: 318)
-      .atriumGlass(in: RoundedRectangle(cornerRadius: 44))
-      .padding(8)
-      .offset(x: shown || reduceMotion ? 0 : -340)
-      .opacity(shown ? 1 : 0)
-    }
-    .onAppear {
-      withAnimation(
-        reduceMotion ? .easeOut(duration: 0.18) : MotionToken.smooth.resolved(reduceMotion: false).animation
-      ) {
-        shown = true
+      .frame(height: 4)
+      HStack(spacing: 8) {
+        Text("+\(ChangeList.short(added))").foregroundStyle(palette.ok)
+        Text("−\(ChangeList.short(removed))").foregroundStyle(palette.danger)
+        Text(WorkspacePage.changesLine(dirty: changes?.dirty)).foregroundStyle(palette.secondary)
       }
+      .font(.system(size: 12.5, design: .monospaced))
     }
-    .confirmationDialog("忘掉这台 Mac？", isPresented: $forgetting, titleVisibility: .visible) {
-      Button("忘掉", role: .destructive) {
-        close()
-        forgetMac?()
-      }
-    } message: {
-      Text("手机上的密钥、缓存和草稿都会删掉。")
-    }
-    .confirmationDialog("重新配对？", isPresented: $repairing, titleVisibility: .visible) {
-      Button("重新配对", role: .destructive) {
-        close()
-        forgetMac?()
-      }
-    } message: {
-      Text("会先忘掉这台 Mac，手机上的密钥、缓存和草稿都会删掉，然后扫 Mac 上新的配对码。")
-    }
-  }
-
-  /// Slides the drawer out, then closes it.
-  ///
-  /// - Remark: The shade fades with it.
-  /// - SideEffects: Animates; closes the drawer.
-  private func dismiss() {
-    withAnimation(reduceMotion ? .easeOut(duration: 0.18) : MotionToken.smooth.resolved(reduceMotion: false).animation)
-    {
-      shown = false
-    } completion: {
-      close()
-    }
-  }
-
-  /// A section's small title.
-  ///
-  /// - Remark: The prototype's `.sl`.
-  /// - SideEffects: none
-  /// - Parameters:
-  ///   - text: The title.
-  ///   - palette: The colours.
-  /// - Returns: The title.
-  private func section(_ text: String, _ palette: Palette) -> some View {
-    Text(text).font(.system(size: 13.5)).foregroundStyle(palette.secondary).padding(.horizontal, 24)
-      .padding(.top, 22).padding(.bottom, 6)
-  }
-
-  /// A key and its value.
-  ///
-  /// - Remark: The prototype's `.kv`.
-  /// - SideEffects: none
-  /// - Parameters:
-  ///   - key: The key.
-  ///   - value: The value.
-  ///   - palette: The colours.
-  /// - Returns: The row.
-  private func row(_ key: String, _ value: String, _ palette: Palette) -> some View {
-    HStack {
-      Text(key).foregroundStyle(palette.text)
-      Spacer()
-      Text(value).foregroundStyle(palette.text2)
-    }
-    .font(.system(size: 14.5))
-    .padding(.horizontal, 24)
-    .padding(.vertical, 7)
-  }
-
-  /// The host's status in the drawer's words.
-  ///
-  /// - Remark: The prototype's lines, without the latency.
-  /// - SideEffects: none
-  /// - Parameter status: The status.
-  /// - Returns: The words.
-  static func statusText(_ status: ConnectionStatus) -> String {
-    switch HomeView.pill(for: status) {
-    case .connected: "已连接"
-    case .syncing: "正在同步…"
-    case .reconnecting: "正在重连"
-    case .offline: "离线"
-    case .relayUnreachable: "连不上 relay"
-    case .versionMismatch: "版本不一致"
-    }
+    .padding(16)
+    .background(palette.note, in: RoundedRectangle(cornerRadius: 18))
+    .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(palette.line, lineWidth: 0.5))
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("改动：\(added + removed) 行，\(WorkspacePage.changesLine(dirty: changes?.dirty))")
   }
 }

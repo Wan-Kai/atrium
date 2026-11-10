@@ -3,9 +3,14 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { GIT_SCENE_ENV, createGitScene, gitSceneEnv, plantTraps } from "./git";
 import { createTempDir } from "./temp-dir";
+
+// The scenes' test runs about twenty git commands in turn, building the template among them; each
+// takes 150 ms to 1 s while the machine is busy, about 5 seconds in all, the default (testing.md,
+// "子进程多的测试").
+vi.setConfig({ testTimeout: 30_000 });
 
 const run = promisify(execFile);
 

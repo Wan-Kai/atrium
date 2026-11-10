@@ -25,7 +25,7 @@ const review = {
   actions: [{ id: "pass", reason: "none", targets: [], recommended: true }],
 };
 
-describe("the shape of a review (ADR-0017)", () => {
+describe("the shape of a review (ADR-0018)", () => {
   it("names the gates of the host's flow, and takes an agent's request as a source too", () => {
     expect(GateKind.options).toStrictEqual(["task_graph", "task_human", "task_archive"]);
     expect(ReviewSource.safeParse({ kind: "gate", gate: "task_archive" }).success).toBe(true);

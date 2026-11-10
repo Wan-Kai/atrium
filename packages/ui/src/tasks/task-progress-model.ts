@@ -4,7 +4,7 @@ import { clockWords } from "../chat/clock-words";
 /** A progress line of a task conversation. */
 export type ProgressNotice = Extract<Notice, { notice: "task_progress" }>;
 
-/** A review's record in a task conversation: what you decided, with the evidence as it was (ADR-0017). */
+/** A review's record in a task conversation: what you decided, with the evidence as it was (ADR-0018). */
 type ReviewNotice = Extract<Notice, { notice: "review" }>;
 
 /** A line of the rail between two turns of a task conversation: a progress line or a review's record. */

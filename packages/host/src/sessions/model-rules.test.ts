@@ -65,6 +65,8 @@ const LISTED = [
   model("openrouter", "deepseek/openai/compat"),
   model("deepseek", "deepseek-v4"),
   model("github-copilot", "claude-opus-5.5"),
+  model("opencode", "claude-opus-5-5"),
+  model("opencode-go", "kimi-k3"),
   model("xai", "grok-4.7"),
   model("groq", "openai/gpt-oss-120b"),
 ];
@@ -77,6 +79,7 @@ const KEPT = [
   "openrouter/deepseek/openai/compat",
   "deepseek/deepseek-v4",
   "github-copilot/claude-opus-5.5",
+  "opencode-go/kimi-k3",
   "xai/grok-4.7",
   "groq/openai/gpt-oss-120b",
 ];
@@ -90,6 +93,48 @@ describe("visibleModels", () => {
       ids(visibleModels(LISTED, { state: "unavailable" })),
       ids(visibleModels(LISTED, null)),
     ]).toStrictEqual([KEPT, KEPT, KEPT, KEPT, KEPT]);
+  });
+});
+
+describe("visibleModels, without opencode-go", () => {
+  it("keeps OpenCode Zen's models only while no OpenCode Go model is listed, so its metered route is not a second choice", () => {
+    const withoutGo = LISTED.filter((one) => one.providerId !== "opencode-go");
+    const kept = [
+      "claude-bridge/claude-opus-5-5",
+      "openai-codex/gpt-6-astra",
+      "openrouter/moonshotai/kimi-k3",
+      "openrouter/deepseek/openai/compat",
+      "deepseek/deepseek-v4",
+      "github-copilot/claude-opus-5.5",
+      "opencode/claude-opus-5-5",
+      "xai/grok-4.7",
+      "groq/openai/gpt-oss-120b",
+    ];
+
+    expect([ids(visibleModels(withoutGo, null)), ids(visibleModels(LISTED, null))]).toStrictEqual([kept, KEPT]);
+  });
+});
+
+describe("visibleModels, OpenCode Go's withdrawn or unreachable models", () => {
+  it("drops those by exact id within their provider, keeping the rest and the same ids elsewhere", () => {
+    const listed = [
+      model("opencode-go", "deepseek-v4.1-flash"),
+      model("opencode-go", "mimo-v2.5"),
+      model("opencode-go", "mimo-v2.5-pro"),
+      model("opencode-go", "beam-free"),
+      model("opencode-go", "gpt-6-luna"),
+      model("opencode-go", "muse-spark-1.2-contributor"),
+      model("opencode-go", "muse-spark-1.3-contributor"),
+      model("opencode-go", "iceman-contributor-free"),
+      model("opencode-go", "hy3"),
+      model("example", "mimo-v2.5"),
+    ];
+
+    expect(ids(visibleModels(listed, null))).toStrictEqual([
+      "opencode-go/deepseek-v4.1-flash",
+      "opencode-go/hy3",
+      "example/mimo-v2.5",
+    ]);
   });
 });
 

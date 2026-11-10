@@ -52,8 +52,20 @@ classDiagram
       dir  ~/.atrium/chats/<目录名>  [扫描]
       alias?
       archived?  at + sessions + first，M1.11
+      pinnedAt?  置顶的时间，2026-10-28
       firstSessionId?  [扫描]
       name()  alias 或第一个会话的标题
+    }
+    class Direction {
+      <<扫描 + 索引>>
+      id  lrn_目录名
+      dir  ~/Atrium/Learning/<目录名>，归档时在 Archive/ 下  [扫描]
+      name  .atrium-study.json 的显示名  [扫描]
+      archived  目录在 Archive/ 下  [扫描]
+      alias?  [索引] learning.json
+      pinnedAt?  [索引] learning.json
+      lastOpenedAt?  [索引] learning.json
+      name()  alias 或 name 或目录名
     }
     class SessionContainer {
       <<interface>>
@@ -73,10 +85,13 @@ classDiagram
       updatedAt
       archived: bool
       parent?  [索引] 父会话 id + 谁开的，SPEC-0002
+      detachedFrom?  [索引] 脱离前的父会话 id，只用来找上级的演示目录，SPEC-0007
       usageAfter?  [索引] 用量的基线条目 id，SPEC-0002
+      archivedWith?  [索引] 这次归档从哪个会话开始（恢复时只带回同一次归档的子孙），SPEC-0008 ML3
       agent?  [索引] agent 开的子对话：句柄、角色、工具限制、起点模型、任务，SPEC-0002
       usedHandles?  [索引] 用过的句柄，只增不减，SPEC-0002
       deliveries?  [索引] 待送达的通知和交代，SPEC-0002
+      study?  [索引] 学习会话的用途和第几级第几步，SPEC-0008
       title()  piName、记录的名字或兜底标题
     }
     class MergeState {
@@ -98,6 +113,7 @@ classDiagram
     Project "1" *-- "1..*" Workspace : 登记记录，恰好一个 local
     SessionContainer <|.. Workspace
     SessionContainer <|.. Chat
+    SessionContainer <|.. Direction
     SessionContainer "1" -- "0..*" Session : 记录的容器，否则按 cwd
     Session "0..1" <-- "0..*" Session : parent，子对话
     Workspace "1" -- "0..1" MergeState : 仅 worktree
@@ -111,8 +127,24 @@ classDiagram
   - id 是 `cht_<目录名>`。目录由 Atrium 新建、名字随机（UUID），和会话 id 无关；宿主扫描 `~/.atrium/chats/` 的子目录得到对话列表，名字不合 id 格式的目录不算。用户删掉目录，对话就没了。
   - 对话里可以有多个会话，都以对话的目录为工作目录。终端里在对话目录开的 pi 会话按 `cwd` 归到这个对话。
   - `alias` 是自定义名称，存在 `chats.json`；`firstSessionId` 是对话里没归档的会话中最早建的一个（按索引记录的创建时间，没有记录的按文件修改时间），名称由界面按 `alias ?? 第一个会话的标题` 得出。
+  - `pinnedAt` 是置顶的时间（2026-10-28 加），也存在 `chats.json`；列表顺序是置顶 → 进行中 → 最近活动（SPEC-0001"对话的置顶与顺序"），归档不妨碍它保留。
   - 所有会话都归档了的对话不在侧栏列出。
   - 归档对话（M1.11，2026-10-12 加）：`chats.json` 里记下归档时间、这次归档了哪些会话和当时的第一个会话（`archived: { at, sessions, first }`），恢复时只放回这些会话；协议里的对话只带 `archivedAt`。归档后对话里没有没归档的会话，`firstSessionId` 就用记下的 `first`，名称和归档前一样。
+- **Direction** 是学习方向（SPEC-0008，ML1，2026-11-05 加），和工作区、对话并列的第三种容器：
+  - 目录固定在 `~/Atrium/Learning/<目录名>/`，不放 `~/.atrium/`：档案是给人看的，换个工具也能读。设了 `ATRIUM_HOME`（测试、开发时的第二份）时改在 `$ATRIUM_HOME/Learning/`，测试和第二份不碰真的学习目录。
+  - 宿主扫描学习目录下一层、带 `.atrium-study.json` 的子目录得到方向列表，id 是 `lrn_<目录名>`；名字不合 id 格式的、没有标记文件的目录不算。`Archive/` 这一层同样扫，里面的是归档的方向。用户删掉目录，方向就没了。宿主监听学习目录（递归，只看第一、二层的变化），窗口聚焦时也再扫一次；学习目录还不存在时不监听，宿主建第一个方向后开始。
+  - 显示名 `name` 读自 `.atrium-study.json`，读不出（坏了）时按"讨论中"显示，名字用目录名，标出文件坏了，不覆盖。`alias` 是用户在学习首页改的名字，存在 `learning.json`，优先于 `name`。`pinnedAt`、`lastOpenedAt`（学习首页"继续"取它最大的那个）也存在 `learning.json`。
+  - **归档不记在索引里**：目录在 `~/Atrium/Learning/Archive/<目录名>/` 下就是归档的。归档先停掉方向里会话的 pi、不再接受新会话，再把目录移过去；恢复移回原处，原处已有同名的目录或文件时拒绝（`study_restore_conflict`）。会话的记录不改，`archived` 不动；归档的方向的会话工作目录不在原处，pi 起不来（pi-internals §1"`cwd`"），所以只读地看：宿主不起 pi，直接读会话文件，用同一个 SessionTranscript 重建对话记录，快照（epoch 0）、往前翻页、看步骤都由它答；发消息、改名、新建会话这些要 pi 或要写的命令报 `direction_archived`，不看旧目录在不在（2026-11-06，评审后改）。副本最多留 32 个，没人看的放掉，恢复、再归档、pi 起来时作废。方向里第一个会话（还没有任何会话记录时新建的）记成讨论用途，新建方向时讨论会话没建成、界面补建的那个也就是讨论会话。手机看不到方向和方向里的会话，也不能对它们发命令（SPEC-0008“ML1 定的细节”）。恢复后照常继续，下次打开起 pi。`Archive` 是保留名，新方向不用它；同一个目录名在学习目录和 `Archive/` 下都有时，学习目录下的那个是方向，`Archive/` 下的那个先不列出（id 相同，只能有一个），日志记一条。
+  - 方向里所有会话的工作目录都是方向目录（归档的方向是它原来的位置），终端里在方向目录开的 pi 会话按 `cwd` 归到这个方向。宿主建的会话在记录里带 `study`（用途和第几级第几步，ML1 只有新建方向时的"讨论" `{ kind: "discuss" }`）。
+  - 新建方向（`create_direction`）：发出第一条消息时宿主先让模型起显示名和英文目录名，起不成时显示名取消息的第一行、目录名随机；目录名在学习目录和 `Archive/` 下都没有用过才用，否则加 `-2`……`-9`，再不行随机。然后建目录、写 `AGENTS.md`、建 `lab/` 并 `git init`，最后写 `.atrium-study.json`：标记文件最后写，中途失败留下的目录不算方向。再在目录里建"讨论"会话，第一条消息由界面像新建工作区那样发给它。
+  - **进度**（ML2，2026-11-09）：只在 `.atrium-study.json` 里（阶梯、各级步骤、漏洞、定档），宿主扫描时一起读、严格校验，读不出的按"坏了"算、不写（SPEC-0008"ML2 定的细节"）。Atrium 里改它的只有宿主：agent 的 `study_*` 工具经扩展通道交给宿主（按调用方会话记录里的用途和第几级第几步核对，工具写不到别的步骤上），你的手动标记经 `mark_study_step` / `mark_study_gap`。agent 用自己的 write、edit、bash 改写这个文件拦不住（2026-11-09 用户接受）；改坏的由严格的读法当作"档案读不出来"。同一个方向的写排队一个一个来，每次先重读、保留不认识的字段、写临时文件再改名，写完重扫。"下一步"（`next`）不存，宿主每次出列表时按进度和方向里的会话算出来（StudyRules，纯函数）。宿主开的会话没开起来时，会话摘要的 `kickoff` 记着错误码（只在内存里，重试或开起来后清掉）。方向里的会话记录的 `study` 多了随口问（`+` 开的）和宿主开的上课、速查表、过关项目、综合测验（`start_study_session`）。
+  - **学习循环**（ML3，2026-11-09，SPEC-0008"ML3 定的细节"）：
+    - 测验是上课会话的子对话（`parent.by: "user"`），宿主以 `--fork <上课会话的文件>` 在方向目录起它，文件路径取自上课会话的记录；没有能用的上课会话时是不带上下文的普通会话。费曼、补测、排计划都是方向里的普通会话，只是 `study` 不同。宿主开场的用途是上课、测验、费曼、速查表、过关项目、综合测验、排计划；开没开过场看会话文件里分叉基线（`usageAfter`）之后有没有开场消息，不记在索引里。
+    - StudyRules 除了下一步，还算"现在能开的"集合（主按钮的那个、每个没补的漏洞的费曼、当前一级每个"以后再测"的补测），`start_study_session` 只认集合里的；同一个（用途、级、步、漏洞）已有没归档的会话就给它，不新开。
+    - **升级的命令链**（`upgrade_study`，在方向的队里，同开会话和归档方向）：StudyCommands 在队里重算下一步、核对 `level` → ProgressFiles 原子写档案（升级一步完成、这一级 `done`、下一个 `todo` 的级变 `current`，最后一级写 `finishedAt`）→ SessionManager 按会话记录选出这一级的会话（`study.level` 是这一级、没归档的，讨论和随口问除外）连同子孙一起归档（停 pi，一个失败不挡其他的，记个数）→ SessionManager 开排计划会话并开场（最后一级不开）。只有写档案那一步要原子；它失败什么都不动，之后的失败不回滚：归档能恢复，排计划没开成时下一步的规则给"排计划"。
+    - **方向里一批会话的归档和恢复**：方向在、里面一部分会话归档，和整个方向归档（目录移到 `Archive/`）是两回事。会话的归档同工作区里的会话（记录的 `archived`，连带同容器的子孙，SPEC-0002），只是由升级按级挑出来；恢复经 `restore_study_sessions`，只认这个方向里已归档的会话：连同它在方向里归档了的祖先，和同一次归档的子孙（记录里的 `archivedWith` 一样的）放回；单独归档过的子对话不跟着回来。正在归档的先等它做完。归档了的会话能看、发消息前要先恢复，它的学习工具调用被拒。
+    - **测验分叉占住上课**：宿主查过上课会话没被占着就当场占住，直到测验的 pi 读完上课的文件（起来或没起来）；这期间上课不起 pi、不开新的一轮、不压缩，`usageAfter` 在占住以后读。
+    - `study_set_steps` 只写排计划会话记录的那一级，那一级不是当前一级就拒绝。
 - **SessionContainer** 只表达"会话放在哪、怎么列、新会话在哪个目录建"。工作区和对话都对其中所有会话给同一个目录；新建对话时新建一个目录。标签页不在接口上，在 **ClientLayout**。
 - **Session** 是逻辑会话，以 pi 的会话 id 为主键，文件路径只是可更新的定位：
   - `draft`：pi 已分配 id，但还没有用户消息，文件尚未写出；只能由宿主记住，扫描找不到。
@@ -121,7 +153,7 @@ classDiagram
   - **归属**：Atrium 自己建的会话，创建时把所属容器记进索引（`containerId`），以后以它为准（参照 Paseo：创建时写定，不再推断）。终端里 pi 开的、Atrium 没见过的会话，才按文件头里的 `cwd` 归到对应目录的容器。这样既保留"终端会话自动归位"，以后"把对话移到项目"也只需改记录。
   - pi 恢复会话时用的是文件头里的 `cwd`；工作区目录被移走或删除时，恢复报"目录不存在"，不悄悄换目录。
   - 扫描到两个文件带同一个 id 时报告冲突，不自动合并。
-  - **子对话**（SPEC-0002，M1.15）：父子关系只记在索引里（`parent: { sessionId, by }`），不读 pi 会话头的 `parentSession`（新 worktree 的子对话指向已删掉的中间文件）。子对话可以和父会话在同一个容器，也可以在另一个工作区（新建的 worktree）；层数不限，遇到环时在闭合处断开。记录里的名字（`name`）给 pi 写出文件前的草稿子对话用，pi 有了名字以 pi 的为准。`usageAfter` 是分叉出的文件里最后一条条目的 id，状态栏的"含子对话"只算它之后的；空的子对话没有基线，从头算。脱离只去掉 `parent`，它下面的关系不变。
+  - **子对话**（SPEC-0002，M1.15）：父子关系只记在索引里（`parent: { sessionId, by }`），不读 pi 会话头的 `parentSession`（新 worktree 的子对话指向已删掉的中间文件）。子对话可以和父会话在同一个容器，也可以在另一个工作区（新建的 worktree）；层数不限，遇到环时在闭合处断开。记录里的名字（`name`）给 pi 写出文件前的草稿子对话用，pi 有了名字以 pi 的为准。`usageAfter` 是分叉出的文件里最后一条条目的 id，状态栏的"含子对话"只算它之后的；空的子对话没有基线，从头算。脱离只去掉 `parent`，它下面的关系不变；去掉时把原来的父会话 id 记成 `detachedFrom`，只用来让它继续读得到上级会话的演示（SPEC-0007，2026-11-06），不算父子关系。
   - **agent 开的子对话**（SPEC-0002 第二步）：记录多一个 `agent`：不变的句柄 `handle`（寻址和分支名 `agent/<handle>` 用它；显示名就是会话名，可改）、角色、工具限制的做法 `toolGuard`（启动参数，或带上下文时由扩展的 `tool_call` 钩子拦）、第一次起 pi 用的模型和档位、是否在自己的 worktree、任务记录 `tasks: [{ taskId, originTask?, followUpOf?, state }]`。父会话的记录存 `usedHandles`，同一父会话下句柄永不重复。收件会话的记录存 `deliveries`：往上送的通知只存引用（哪个子对话、哪件任务、哪种事件），交代存全文，发出后在文件里见到才删。它们在索引里存成宽松的 JSON，由宿主读时校验，读不出的当作没有。
 - **MergeState** 由 MergeInspector 计算。`unknown` 带原因：git 低于 2.38、主干引用缺失、查询失败、外部 worktree 起点无法判断。合并判定按"分支提交 + 主干提交"缓存；`dirty` 和目录是否存在每次单独刷新。界面映射：`dirty` 优先显示"未提交"，否则 `verdict` 为 `pending` 且 `ahead > 0` 显示 `↑N`（squash 合并后分支仍比主干多提交，但已判定为已合并，不显示 `↑N`），再看 `verdict`。
 
@@ -134,7 +166,10 @@ classDiagram
 ├── host.lock                 宿主单实例锁：{ pid, startedAt }
 ├── projects.json             项目与工作区登记
 ├── chats.json                对话的自定义名称（2026-10-12 加）、归档（M1.11，v2）
-├── sessions.json             Atrium 记录的会话：所属容器、工作目录、草稿、归档、关注状态、已交给终端（M1.9）、Fast（M1.11）
+├── learning.json             学习方向的别名、置顶、上次打开时间（SPEC-0008，ML1，2026-11-05 加，v1）；
+│                             归档不在这里，看目录在不在 Archive/ 下
+├── sessions.json             Atrium 记录的会话：所属容器、工作目录、草稿、归档、关注状态、Fast（M1.11）、
+│                             学习会话的 `study`（SPEC-0008，可选字段，不升版本）
 ├── layouts.json              按客户端的布局：每个容器打开的标签页、当前标签；只留最近用过的 10 个客户端
 ├── preferences.json          全局偏好：外观、状态栏、网络代理……
 ├── remote.json               远程访问开着没有、各设备的最后在线时间（SPEC-0005"MP3a 定的细节"，2026-10-26 加）；
@@ -142,9 +177,12 @@ classDiagram
 ├── remote/vault.bin          手机端的保险箱：Electron 主进程用 safeStorage 加密后写的，宿主只经主进程读写（SPEC-0005"宿主"）
 ├── turns/<会话 id>.json      插话记录：宿主当场看到的用户消息开启了新一轮还是插话（SPEC-0001"对话记录"），
 │                             以及运行中看到的压缩和原因（SPEC-0001 `compaction`，2026-10-20）；
+│                             以及哪些消息来自交互演示（`sources`，SPEC-0007，2026-11-05 加，可选字段，不升版本）；
 │                             随会话变长，单独放，不拖累其他文件
 ├── tasks/<任务 id>/          任务（SPEC-0006）：task.json 当前状态快照、events.jsonl 只追加的事件日志（快照坏了从它重放）
 ├── schedules.json            定时规则（SPEC-0006）
+├── visuals/<会话 id>/        普通会话的交互演示文件（SPEC-0007）：agent 写的 HTML 片段，宿主只读、不清理；
+│                             学习方向的演示在方向目录下的 `visuals/`（SPEC-0008）
 ├── chats/<目录名>/           每个对话的工作目录，对话 id 由目录名得出
 └── logs/
 ```
@@ -275,7 +313,7 @@ classDiagram
 - **ContextBreakdown** 给状态栏用，是估算值：总量来自 `get_session_stats().contextUsage`（可能为空或是估算）；系统提示词和工具定义沿当前分支回放系统消息与压缩检查点得出；没有系统消息的旧会话只显示总量。MVP 2 的上下文检查器要的是"每次实际发出的请求"，另由 extension 捕获，不从这里升级。
 - **Notice** 里 `extension` 类型保留无法识别的 extension 通知原文，MVP 1 只记录不显示，MVP 2 的"带标记的通知"从这里接入。
 - 自动重试发生在一轮中间，用 **RetryStep** 显示"正在重试（第 N / 3 次）"，不拆开这一轮；一轮中间的压缩同样是一步（**CompactionStep**，2026-10-20 改），放在它发生的位置；**Notice** 用来显示轮与轮之间的压缩和"进程已自动重启"（M1.6），以及 Atrium 给模型的说明（`note`，SPEC-0002：pi 的 `atrium-agent` 自定义消息，排在它跟着的那一轮后面，不开新的一轮）。
-- **PendingReview**（[ADR-0017](../adr/0017-reviews-one-shape-two-sources.md)，T8a）是挂在会话上、等用户裁决的一件事，在 `Control.reviews`：来源是宿主的关卡（任务的改图、human 节点、归档题，从任务的持久状态现算、裁决由宿主执行）或以后 agent 的请求（工具调用，随 pi 作废）。裁决生效后宿主写一条 `atrium-review` 自定义消息进会话，对话记录里是过程轨道上的一步。
+- **PendingReview**（[ADR-0018](../adr/0018-reviews-one-shape-two-sources.md)，T8a）是挂在会话上、等用户裁决的一件事，在 `Control.reviews`：来源是宿主的关卡（任务的改图、human 节点、归档题，从任务的持久状态现算、裁决由宿主执行）或以后 agent 的请求（工具调用，随 pi 作废）。裁决生效后宿主写一条 `atrium-review` 自定义消息进会话，对话记录里是过程轨道上的一步。
 - **InteractionStep** 只是对话记录里"问题 → 回答"的展示，活着的请求见下一节的 PendingInteraction。pi 不把对话框写进会话文件，所以这一步只在宿主存活期间存在。
 - **ToolStep** 各自带状态，同一批里的工具调用可以并行，不假设前一个结束后一个才开始。
 - **改动汇总**不建类，语义是"已观测到的工具修改"：`edit` 有 diff，显示增删行；`write` 显示写入内容（取自调用参数，pi 的结果里没有），增删行未知时不显示数字；通过 bash 等其他方式的改动统计不到。多次编辑同一文件是累计编辑量，不是净改动。
@@ -406,7 +444,6 @@ classDiagram
 | 归档 `archive` | 记归档标记，关掉进程，丢掉 Controller（工作区或项目移除时，其中的会话也一样丢掉 Controller）。连带子对话（SPEC-0002）：从被归档的会话往下，同一容器的子孙一起归档，别的容器的那一支脱离；归档会话、对话、工作区都这样，工作区的脱离在 worktree 删掉之后 | 不删 pi 的会话文件 |
 | 脱离 `detach` | 去掉子对话的父会话，变成普通会话（SPEC-0002） | 不动它自己的子对话 |
 | 打开 `open` | 对 `closed` 的会话以 `--session` 启动进程（`processEpoch + 1`），重建 SessionLog | 不自动重放结果未知的上一条输入 |
-| 交给终端 `handOff` | 停止接受这个会话的写命令，关掉进程（进入 `closed`），在索引里记下交接（宿主重启后仍在），给出 `pi --session <文件>`；回来时由用户点"在 Atrium 里继续"（`takeBack`）重新打开，切到标签不自动启动 pi（2026-10-10 定） | Atrium 与终端不同时写同一个会话；运行中、排队里还有消息时不交接 |
 
 **排队与提交**
 
@@ -737,7 +774,7 @@ classDiagram
 
 **客户端的状态**：IndexView、每个 SessionView 和布局各是一个 Zustand vanilla store（`zustand/vanilla`，不依赖 DOM），SessionView 在订阅时创建、退订时释放；UI 通过选择器订阅，不直接碰 WebSocket。
 
-**ViewState** 在 `packages/ui/src/state/`，保存草稿、展开的过程、滚动位置，存 localStorage；右栏选的标签、文件树展开了哪些、更改树和"改动"标签收起了哪些也在这里（M1.12）。查看标签只在内存里（"已决定 19"）。client 的布局 store 只镜像宿主上按客户端记录的标签页和当前容器。
+**ViewState** 在 `packages/ui/src/state/`，保存草稿、展开的过程、滚动位置，存 localStorage；右栏选的标签、文件树展开了哪些、更改树和"改动"标签收起了哪些也在这里（M1.12）。查看标签只在内存里（"已决定 19"）；Markdown 文件的源码/预览模式和各自的纵向滚动位置也按标签记，关闭标签就忘记，带行号的显式定位切回源码（2026-11-04）。client 的布局 store 只镜像宿主上按客户端记录的标签页和当前容器。
 
 **多客户端**
 
@@ -751,9 +788,16 @@ classDiagram
 | `list_workspaces` / `rename_workspace` / `window_focused` | WorkspaceService |
 | `archive_workspace` / `restore_workspace` | WorkspaceArchiver（git 的部分）→ SessionManager（停 pi、归档会话）→ ProjectService（记录）（M1.11） |
 | `list_bases` / `create_workspace` | WorktreeCreator（git 的部分，和 WorkspaceArchiver 排同一个队）→ ProjectService（记录，带起点提交）→ WorkspaceService（重扫）（M1.11） |
-| `rename_chat` | ChatRecords（`chats.json`） |
+| `rename_chat` / `pin_chat` / `unpin_chat` | ChatRecords（`chats.json`）；置顶的两个也走 IndexFeed 推一次（2026-10-28） |
 | `archive_chat` / `restore_chat` | SessionManager（停 pi、归档或放回会话）→ ChatRecords（记录）（M1.11） |
-| `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `hand_off` / `take_back` / `clear_attention` / `detach_session` | SessionManager；`create_session` 带 `child` 时开子对话，新 worktree 的经 WorktreeCreator 从父工作区当前的提交建（M1.15） |
+| `create_direction` | StudyCommands → DirectionNamer（一次性 pi 起名）→ DirectionCreator（建目录、`AGENTS.md`、`lab/` 的 git、标记文件）→ Directions（列出）→ SessionManager（建讨论会话）（ML1） |
+| `rename_direction` / `pin_direction` / `unpin_direction` | LearningRecords（`learning.json`），走 IndexFeed 推一次（ML1） |
+| 归档方向的会话的 `subscribe_sessions` / `fetch_transcript` / `fetch_step` / `fetch_image` | SessionManager → ReadOnlyTranscripts：读会话文件重建，不起 pi（2026-11-06） |
+| `archive_direction` / `restore_direction` | StudyCommands → SessionManager（停 pi、挡住新会话）→ Directions（移动目录、重扫）（ML1） |
+| `start_study_session` | StudyCommands（方向的队里重算下一步和"现在能开的"集合，已有同一用途的会话就给它）→ SessionManager（建会话并开场；测验以 `--fork <上课会话的文件>` 开成上课的子对话）（ML2，ML3 放宽） |
+| `upgrade_study` | StudyCommands（方向的队里核对 `level`）→ ProgressFiles（原子写档案）→ SessionManager（归档这一级的会话连同子孙、开排计划会话并开场）（ML3） |
+| `restore_study_sessions` | StudyCommands（方向的队里核对会话都属于这个方向）→ SessionManager（放回会话连同子孙）（ML3） |
+| `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `clear_attention` / `detach_session` | SessionManager；`create_session` 带 `child` 时开子对话，新 worktree 的经 WorktreeCreator 从父工作区当前的提交建（M1.15） |
 | `remove_delivery` / `resume_deliveries` | SessionManager → AgentRelay：删掉一条待送的，或放开宿主重启后暂停的（`tree` 时连同子树），再交给收件会话的 SessionController（M1.15） |
 | `subscribe_index(cursor?)` | IndexFeed |
 | `subscribe_sessions(ids)` / `fetch_transcript(sessionId, direction, cursor, limit)` | SessionManager → SessionController |
@@ -807,7 +851,7 @@ Task ──1:1── 任务对话（一个会话，只读角色，带任务对�
 
 1. **对话不算工作区，但和工作区一样是容器**：每个对话一个目录、可以有多个会话，通过 SessionContainer 与工作区统一选择、列表和新建入口；没有 git（2026-10-12 改，[ADR-0007](../adr/0007-each-chat-is-its-own-container.md)；原先所有对话在一个全局的 ChatSpace 里）。
 2. **会话主键用 pi 的会话 id**，文件路径是可更新的定位；草稿会话也有 id；同 id 多文件报冲突。
-3. **MVP 1 不回收空闲进程**：打开过的会话进程常驻到归档、交给终端或宿主退出；排队、关注状态、当场计时随 Runtime 一直在。宿主重启后会话是 `closed`，打开时重建，当场计时显示"—"。agent 开的子对话例外，空闲且没人看时回收（SPEC-0002，M1.15，见 §3）。
+3. **MVP 1 不回收空闲进程**：打开过的会话进程常驻到归档或宿主退出；排队、关注状态、当场计时随 Runtime 一直在。宿主重启后会话是 `closed`，打开时重建，当场计时显示"—"。agent 开的子对话例外，空闲且没人看时回收（SPEC-0002，M1.15，见 §3）。
 4. **标签页不跨客户端同步**：布局按 `clientId + containerId` 存在索引里。
 5. **会话归属**：Atrium 建的会话创建时记下所属容器；Atrium 没见过的会话按文件头的 `cwd` 归类。
 6. **失败重试 3 次再告诉用户**：模型调用的可重试错误交给 pi 自带的重试（宿主确保开启，次数沿用 pi 的设置，默认 3）；进程崩溃由 SessionController 自动重启，最多连续 3 次，崩溃前那条输入没写进会话就重新提交，已写进就补发一条"继续"；认证失败、目录不存在不重试。3 次都失败才设关注状态、显示错误卡片，卡片上的"重试"按同样规则再来一轮。Runtime 里加 `restartAttempts` 计数，一轮结束且没有失败（完成或被停止）后清零（2026-10-09 改）。模型重试的次数沿用 pi 的设置（默认 3），宿主只确保开启（2026-10-09 定，RPC 改不了次数）。
@@ -821,10 +865,12 @@ Task ──1:1── 任务对话（一个会话，只读角色，带任务对�
 13. **没发过消息就关掉的草稿丢弃**（2026-10-08 定）：停掉 pi、删掉索引记录，"历史"里不堆积空会话。它是对话里唯一的会话时，对话的空目录一并删掉（只删空的），对话随之消失；对话里还有别的会话（含归档的）时目录留着（2026-10-12 补）。
 14. **工作区里新建会话也立刻启动 pi**（2026-10-08 定）：和"已决定 9"的新对话一样。
 15. **主干只认覆盖值或 `origin/HEAD`**（2026-10-08 定）：都没有时合并状态为 `unknown`（主干引用缺失），不猜本地的 main / master。这里定的是主干的名字；比较时先用本机的同名分支，本机没有再用 `origin/<主干>`（2026-10-22 自用时改，原先只用 `origin/<主干>`：本机合并、不推送时侧栏一直显示未合并）。
-16. **交给终端后点了才继续**（2026-10-10 定）：交接记在索引里，宿主重启后仍在；切到标签不自动启动 pi，用户点"在 Atrium 里继续"才重新加载。pi 没有跨进程的写锁，两边同时写会悄悄分叉。
-17. **会话状态、收件箱、工作区汇总在界面派生**（2026-10-10 定）：宿主只在会话摘要里给出运行、关注状态、待回答、已交接，界面按 §4 的优先级算。
+16. **在终端中打开只开终端，不交接**（2026-11-05 改，取代 2026-10-10 定的"交给终端后点了才继续"）：标签栏"···"在本机开一个终端，工作区里的会话开在工作区目录、对话里的会话开在 `~`；不停 pi、不写索引、不复制也不执行命令。原先那套交接（`hand_off` / `take_back`、`handedOff` 标记、"已在终端中继续"面板）随之去掉，协议 33。
+17. **会话状态、收件箱、工作区汇总在界面派生**（2026-10-10 定）：宿主只在会话摘要里给出运行、关注状态、待回答，界面按 §4 的优先级算。
 18. **对话记录不按序号补拉**（2026-10-10 定）：缺口或 `epoch` 变了就重拿快照。
 19. **查看标签只在界面里**（M1.12，2026-10-13 定）：看文件、看 diff 的查看标签和会话标签排在同一个标签栏里，但不是会话，不进 ClientLayout：按容器记在这个窗口的界面状态里，不发给宿主，别的窗口看不到，刷新、重启后没有了。会话标签仍只由宿主的布局决定；界面把两者按顺序合在一起显示，⌘W、⌘1–9 等快捷键一起算（SPEC-0001"M1.12 的文件与更改"）。它只是看一眼的东西，记进宿主要升布局的版本、要处理文件不在了的情况，得不偿失（Paseo 把它们记在客户端本地）。
+
+20. **学习首页、新建方向页、方向主页标签只在界面里**（ML1，2026-11-05 定）：学习首页和新建方向页同新建工作区页，是这个窗口的界面状态，不进 ClientLayout；方向主页是方向容器标签栏最左边固定的标签，显示它时也只记在界面里（同"已决定 19"的查看标签），会话标签仍由宿主的布局决定。宿主只在客户端进到方向（`select_container`、打开或新建方向里的会话）时记下 `lastOpenedAt`。
 
 ## 待定
 

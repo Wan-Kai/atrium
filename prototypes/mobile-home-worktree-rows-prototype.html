@@ -1,0 +1,1649 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>首页 worktree 行</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,72,560&display=block"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --brand-weight: 560;
+        --brand: "Fraunces";
+        --brand-size: 38px;
+        --brand-ls: -0.015em;
+      }
+      :root {
+        --page: #e8e5dd;
+        --page-text: #2a2722;
+        --page-dim: #7a756b;
+        --page-line: #d5d0c5;
+      }
+      :root[data-theme="dark"] {
+        --page: #0f0e0c;
+        --page-text: #ece8df;
+        --page-dim: #8c867b;
+        --page-line: #2b2925;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--page);
+        color: var(--page-text);
+        font:
+          15px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        padding: 28px 16px 64px;
+      }
+      header.page {
+        max-width: 2060px;
+        margin: 0 auto 26px;
+        display: flex;
+        gap: 20px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+        justify-content: space-between;
+      }
+      header.page h1 {
+        font-size: 22px;
+        font-weight: 650;
+      }
+      header.page p {
+        color: var(--page-dim);
+        font-size: 13.5px;
+        max-width: 74ch;
+        margin-top: 4px;
+      }
+      .seg {
+        display: inline-flex;
+        background: var(--page-line);
+        border-radius: 10px;
+        padding: 3px;
+      }
+      .seg button {
+        border: 0;
+        background: transparent;
+        color: var(--page-text);
+        font: inherit;
+        font-size: 13px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .seg button[aria-pressed="true"] {
+        background: var(--page);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+        font-weight: 600;
+      }
+      .grid {
+        max-width: 2060px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(390px, 1fr));
+        gap: 36px 24px;
+        justify-items: center;
+      }
+      figure {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        width: 390px;
+        max-width: 100%;
+      }
+      figcaption {
+        width: 100%;
+      }
+      figcaption h2 {
+        font-size: 16px;
+        font-weight: 650;
+      }
+      figcaption p {
+        font-size: 13px;
+        color: var(--page-dim);
+        margin-top: 3px;
+      }
+      .tokens {
+        max-width: 1340px;
+        margin: 40px auto 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 12px;
+      }
+      .tok {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        font-size: 12.5px;
+      }
+      .tok i {
+        width: 34px;
+        height: 34px;
+        border-radius: 9px;
+        box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.18);
+        flex: none;
+      }
+      .tok b {
+        display: block;
+        font-weight: 600;
+      }
+      .tok span {
+        color: var(--page-dim);
+        font-family: "SF Mono", ui-monospace, monospace;
+        font-size: 11.5px;
+      }
+
+      /* ---------- paper tokens ---------- */
+      .phone {
+        --bg: #f6f2e9; /* page paper */
+        --note: #fffcf5; /* the note card, a lighter sheet on the page */
+        --text: #26221c;
+        --text2: #4d473d;
+        --l2: #8b8477;
+        --l3: #d3cbbb;
+        --rule: rgba(70, 55, 30, 0.11);
+        --tint: #8a7352; /* deep beige: the theme color */
+        --tint-soft: rgba(138, 115, 82, 0.14);
+        --on-tint: #fbf8f1;
+        --attn: #c0651c;
+        --danger: #c13f35;
+        --ok: #3d7a4a;
+        --edge: rgba(246, 242, 233, 0.88);
+      }
+      :root[data-theme="dark"] .phone {
+        --bg: #1c1a16;
+        --note: #25221d;
+        --text: #eee9df;
+        --text2: #cec7b9;
+        --l2: #8f887b;
+        --l3: #4a453c;
+        --rule: rgba(238, 233, 223, 0.09);
+        --tint: #c9b28c;
+        --tint-soft: rgba(201, 178, 140, 0.16);
+        --on-tint: #1c1a16;
+        --attn: #e6944a;
+        --danger: #ec6a5e;
+        --ok: #7bbf8a;
+        --edge: rgba(28, 26, 22, 0.88);
+      }
+      .phone {
+        width: 390px;
+        height: 844px;
+        border-radius: 54px;
+        position: relative;
+        overflow: hidden;
+        flex: none;
+        isolation: isolate;
+        box-shadow:
+          0 0 0 10px #1c1b19,
+          0 0 0 11px #3b3934,
+          0 30px 60px -20px rgba(0, 0, 0, 0.45);
+        background: var(--bg);
+        color: var(--text);
+      }
+      .island {
+        position: absolute;
+        top: 11px;
+        left: 50%;
+        translate: -50% 0;
+        width: 124px;
+        height: 36px;
+        background: #000;
+        border-radius: 20px;
+        z-index: 40;
+      }
+      .status {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 54px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 34px 0 46px;
+        font: 600 16px/1 -apple-system;
+        z-index: 35;
+        pointer-events: none;
+      }
+      .status .icons {
+        display: flex;
+        gap: 6px;
+      }
+      .home-ind {
+        position: absolute;
+        bottom: 8px;
+        left: 50%;
+        translate: -50% 0;
+        width: 136px;
+        height: 5px;
+        border-radius: 3px;
+        z-index: 40;
+        background: var(--text);
+      }
+      .scroll {
+        position: absolute;
+        inset: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: none;
+      }
+      .scroll::-webkit-scrollbar {
+        display: none;
+      }
+      .inner {
+        padding: 112px 24px 150px;
+      }
+
+      /* scroll-edge blur, three layers so text softens progressively toward the edge */
+      .edge {
+        position: absolute;
+        left: 0;
+        right: 0;
+        z-index: 20;
+        pointer-events: none;
+      }
+      .edge i {
+        position: absolute;
+        inset: 0;
+        display: block;
+      }
+      .edge.top {
+        top: 0;
+        height: 118px;
+      }
+      .edge.bot {
+        bottom: 0;
+        height: 124px;
+      }
+      .edge.top i:nth-child(1) {
+        backdrop-filter: blur(1.5px);
+        mask: linear-gradient(#000 60%, transparent);
+      }
+      .edge.top i:nth-child(2) {
+        backdrop-filter: blur(5px);
+        mask: linear-gradient(#000 42%, transparent 78%);
+      }
+      .edge.top i:nth-child(3) {
+        backdrop-filter: blur(12px);
+        mask: linear-gradient(#000 26%, transparent 58%);
+      }
+      .edge.bot i:nth-child(1) {
+        backdrop-filter: blur(1.5px);
+        mask: linear-gradient(transparent, #000 40%);
+      }
+      .edge.bot i:nth-child(2) {
+        backdrop-filter: blur(5px);
+        mask: linear-gradient(transparent 22%, #000 58%);
+      }
+      .edge.bot i:nth-child(3) {
+        backdrop-filter: blur(12px);
+        mask: linear-gradient(transparent 42%, #000 74%);
+      }
+      .edge.top::after,
+      .edge.bot::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+      }
+      .edge.top::after {
+        background: linear-gradient(var(--edge) 55%, transparent);
+      }
+      .edge.bot::after {
+        background: linear-gradient(transparent, var(--edge));
+      }
+
+      /* floating controls: paper-glass round buttons and a solid deep-beige + */
+      .btn {
+        position: absolute;
+        width: 44px;
+        height: 44px;
+        border-radius: 22px;
+        display: grid;
+        place-items: center;
+        z-index: 30;
+        border: 0;
+        cursor: pointer;
+        color: var(--text);
+        background: color-mix(in srgb, var(--note) 78%, transparent);
+        backdrop-filter: blur(14px) saturate(1.2);
+        box-shadow:
+          inset 0 0 0 0.5px var(--rule),
+          0 4px 12px -6px rgba(50, 35, 10, 0.28);
+      }
+      .menu {
+        top: 58px;
+        right: 18px;
+      }
+      .menu .pip {
+        position: absolute;
+        top: 9px;
+        right: 9px;
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: var(--attn);
+        box-shadow: 0 0 0 2px var(--note);
+      }
+      .fab {
+        width: 58px;
+        height: 58px;
+        border-radius: 29px;
+        right: 20px;
+        bottom: 34px;
+        background: var(--tint);
+        color: var(--on-tint);
+        backdrop-filter: none;
+        box-shadow:
+          0 10px 20px -10px rgba(60, 40, 10, 0.55),
+          inset 0 0.5px 0 rgba(255, 255, 255, 0.25);
+      }
+
+      /* loading, every instance in the theme color */
+      @keyframes spin {
+        to {
+          rotate: 360deg;
+        }
+      }
+      @keyframes sweep {
+        from {
+          translate: -100% 0;
+        }
+        to {
+          translate: 270% 0;
+        }
+      }
+      @keyframes breathe {
+        0%,
+        100% {
+          opacity: 0.45;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+      .spin {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        flex: none;
+        border: 2px solid var(--tint-soft);
+        border-top-color: var(--tint);
+        animation: spin 0.95s linear infinite;
+      }
+      .bar {
+        height: 2px;
+        border-radius: 1px;
+        background: var(--tint-soft);
+        overflow: hidden;
+        position: relative;
+      }
+      .bar::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        width: 36%;
+        border-radius: 1px;
+        background: var(--tint);
+        animation: sweep 1.4s cubic-bezier(0.3, 0, 0.2, 1) infinite;
+      }
+      .ghost {
+        border-radius: 6px;
+        background: var(--tint-soft);
+        animation: breathe 1.8s ease-in-out infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation: none !important;
+        }
+      }
+
+      /* header: the title and host on the left, the settings button on the right (settings slide in from the right) */
+      .inner {
+        padding: 104px 22px 150px;
+      }
+      /* the header stays put above the scroll-edge blur; content blurs as it slides beneath it */
+      .masthead {
+        position: absolute;
+        top: 56px;
+        left: 22px;
+        right: 82px;
+        height: 48px;
+        z-index: 31;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+      }
+      h3.t {
+        font:
+          600 34px/0.9 "New York",
+          "Iowan Old Style",
+          Georgia,
+          serif;
+        letter-spacing: -0.02em;
+      }
+      .host {
+        margin-top: 1px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        font-size: 12.5px;
+        color: var(--l2);
+      }
+      .host .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: var(--tint);
+      }
+      .host .spin {
+        width: 11px;
+        height: 11px;
+        border-width: 1.6px;
+      }
+      .host .act {
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .explain {
+        margin-top: 4px;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--l2);
+      }
+
+      /* what needs you, set like a front-page box: heavy double rule, a dateline, headlines with a lede */
+      .desk {
+        margin-top: 14px;
+      }
+      .desk .mast {
+        border-top: 2px solid var(--text);
+        padding-top: 2px;
+      }
+      .desk .mast::before {
+        content: "";
+        display: block;
+        border-top: 0.5px solid var(--text);
+      }
+      .desk .line1 {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding: 8px 0 7px;
+        border-bottom: 0.5px solid var(--rule);
+      }
+      .desk .line1 b {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+      .desk .line1 span {
+        font-size: 12px;
+        color: var(--l2);
+        font-variant-numeric: tabular-nums;
+      }
+      .story {
+        display: grid;
+        grid-template-columns: 30px 1fr;
+        gap: 10px;
+        padding: 13px 0 14px;
+      }
+      .story + .story {
+        border-top: 0.5px solid var(--rule);
+      }
+      .story .ic {
+        padding-top: 1px;
+      }
+      .story h5 {
+        font-size: 18px;
+        font-weight: 700;
+        line-height: 1.3;
+        letter-spacing: -0.01em;
+      }
+      .story .lede {
+        margin-top: 4px;
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--text2);
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .story .lede.code {
+        font:
+          12.5px/1.5 "SF Mono",
+          ui-monospace,
+          monospace;
+        color: var(--danger);
+      }
+      .story .dl {
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--l2);
+      }
+      .story .dl em {
+        font-style: normal;
+        font-weight: 700;
+      }
+      .story .dl em.ask {
+        color: var(--attn);
+      }
+      .story .dl em.err {
+        color: var(--danger);
+      }
+      .desk .foot {
+        border-top: 1px solid var(--text);
+      }
+
+      /* projects: an explicit disclosure chevron, tight rows */
+      .proj {
+        margin-top: 22px;
+      }
+      .ph {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 36px;
+        cursor: pointer;
+      }
+      .ph .chev {
+        width: 20px;
+        height: 20px;
+        display: grid;
+        place-items: center;
+        color: var(--l2);
+        transition: rotate 0.25s;
+        margin-left: -3px;
+      }
+      .proj.closed .ph .chev {
+        rotate: -90deg;
+      }
+      .ph h4 {
+        font:
+          600 21px/1 "New York",
+          "Iowan Old Style",
+          Georgia,
+          serif;
+        letter-spacing: -0.01em;
+        flex: 1;
+      }
+      .ph small {
+        font-size: 12.5px;
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .ph small.q {
+        color: var(--l2);
+        font-weight: 500;
+      }
+      .proj.closed .body {
+        display: none;
+      }
+      .ws {
+        margin: 6px 0 0 23px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        height: 24px;
+      }
+      .ws svg {
+        color: var(--l2);
+        flex: none;
+      }
+      .ws .br {
+        font:
+          500 12px "SF Mono",
+          ui-monospace,
+          monospace;
+        color: var(--text2);
+      }
+      .ws .tag {
+        font:
+          500 10.5px "SF Mono",
+          ui-monospace,
+          monospace;
+        color: var(--attn);
+      }
+      .ws .tag.ok {
+        color: var(--ok);
+      }
+      .s {
+        display: grid;
+        grid-template-columns: 22px 1fr auto;
+        gap: 6px;
+        align-items: center;
+        height: 40px;
+        margin-left: 23px;
+      }
+      .s b {
+        font-size: 15px;
+        font-weight: 500;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .s .tm {
+        font-size: 12.5px;
+        color: var(--l2);
+        font-variant-numeric: tabular-nums;
+      }
+      .s .tm.live {
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .s .u {
+        width: 7px;
+        height: 7px;
+        border-radius: 4px;
+        background: var(--tint);
+        margin-left: 4px;
+      }
+      .s .spin {
+        width: 12px;
+        height: 12px;
+      }
+      .more {
+        display: block;
+        margin-left: 45px;
+        height: 30px;
+        line-height: 30px;
+        font-size: 13px;
+        color: var(--tint);
+        font-weight: 500;
+      }
+      .chats .add {
+        width: 26px;
+        height: 26px;
+        border-radius: 13px;
+        display: grid;
+        place-items: center;
+        color: var(--tint);
+        background: var(--tint-soft);
+      }
+      .chats .s {
+        grid-template-columns: 1fr auto;
+      }
+
+      /* ---------- sticky strip: one note per thing, side by side, scrolls sideways ---------- */
+      .wh {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-top: 12px;
+      }
+      .wh b {
+        font-size: 15px;
+        font-weight: 700;
+      }
+      .wh span {
+        font-size: 12.5px;
+        color: var(--l2);
+        font-variant-numeric: tabular-nums;
+      }
+      .wh span em {
+        font-style: normal;
+        font-weight: 700;
+        color: var(--attn);
+      }
+      .strip {
+        margin: 0 -22px 2px;
+        padding: 16px 22px 20px;
+        display: flex;
+        gap: 12px;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        scroll-padding: 0 22px;
+        scrollbar-width: none;
+        overscroll-behavior-x: contain;
+      }
+      .strip::-webkit-scrollbar {
+        display: none;
+      }
+      .strip.one-only .one {
+        flex-basis: 100%;
+      }
+      .one {
+        --r: 0deg;
+        --y: 0px;
+        --tx: 50%;
+        --ta: -3deg;
+        flex: 0 0 158px;
+        height: 164px;
+        scroll-snap-align: start;
+        position: relative;
+        padding: 14px 13px 11px;
+        border-radius: 2px 2px 10px 2px;
+        display: flex;
+        flex-direction: column;
+        rotate: var(--r);
+        translate: 0 var(--y);
+        cursor: pointer;
+        text-decoration: none;
+        box-shadow:
+          0 1px 1px rgba(60, 40, 0, 0.08),
+          0 14px 18px -14px rgba(60, 40, 0, 0.5);
+      }
+      .one.ask {
+        background: #f7dfb8;
+        color: #3a2610;
+      }
+      .one.low {
+        background: #dfe0cf;
+        color: #262a17;
+      }
+      .one.err {
+        background: #f4cdc4;
+        color: #3d1913;
+      }
+      :root[data-theme="dark"] .one {
+        box-shadow:
+          0 1px 1px rgba(0, 0, 0, 0.3),
+          0 16px 22px -12px rgba(0, 0, 0, 0.9);
+      }
+      :root[data-theme="dark"] .one.ask {
+        background: #c4a77c;
+        color: #24180a;
+      }
+      :root[data-theme="dark"] .one.low {
+        background: #a8aa95;
+        color: #1d2012;
+      }
+      :root[data-theme="dark"] .one.err {
+        background: #c2948a;
+        color: #2a110d;
+      }
+      .one .tape {
+        position: absolute;
+        top: -8px;
+        left: var(--tx);
+        translate: -50% 0;
+        width: 50px;
+        height: 16px;
+        background: rgba(255, 255, 255, 0.5);
+        rotate: var(--ta);
+      }
+      :root[data-theme="dark"] .one .tape {
+        background: rgba(255, 255, 255, 0.28);
+      }
+      .one .kind {
+        font-size: 12px;
+        font-weight: 700;
+        display: flex;
+        justify-content: space-between;
+        opacity: 0.85;
+      }
+      .one .kind span:last-child {
+        font-weight: 500;
+        opacity: 0.8;
+        font-variant-numeric: tabular-nums;
+      }
+      .one b {
+        margin-top: 6px;
+        font-size: 15.5px;
+        font-weight: 700;
+        line-height: 1.3;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .one p {
+        margin-top: 4px;
+        font-size: 12.5px;
+        line-height: 1.45;
+        opacity: 0.75;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .one p.code {
+        font:
+          11px/1.45 "SF Mono",
+          ui-monospace,
+          monospace;
+      }
+      .one small {
+        margin-top: auto;
+        padding-top: 6px;
+        font-size: 11.5px;
+        opacity: 0.6;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      /* the last place when there are more than fit: a small pile of blank notes */
+      .one.pile {
+        background: var(--note);
+        color: var(--text);
+        align-items: flex-start;
+        justify-content: flex-end;
+        box-shadow:
+          0 0 0 0.5px var(--rule),
+          0 14px 18px -14px rgba(60, 40, 0, 0.45);
+      }
+      .one.pile::before,
+      .one.pile::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: var(--note);
+        box-shadow: 0 0 0 0.5px var(--rule);
+        z-index: -1;
+      }
+      .one.pile::before {
+        rotate: -3deg;
+        translate: -3px 2px;
+      }
+      .one.pile::after {
+        rotate: 2.5deg;
+        translate: 3px 3px;
+      }
+      .one.pile b {
+        font:
+          600 22px/1.15 "New York",
+          Georgia,
+          serif;
+        -webkit-line-clamp: 3;
+      }
+      .one.pile small {
+        margin-top: 6px;
+        color: var(--tint);
+        opacity: 1;
+        font-weight: 600;
+        font-size: 12.5px;
+      }
+      /* while the Mac is away the notes are what it last said: faded, no tape shine */
+      .stale .one:not(.pile) {
+        filter: saturate(0.35);
+        opacity: 0.78;
+      }
+      .calm {
+        margin-top: 12px;
+        font-size: 13px;
+        color: var(--l2);
+      }
+      /* pasting on and peeling off */
+      @keyframes paste {
+        from {
+          opacity: 0;
+          scale: 1.1;
+          translate: 0 calc(var(--y) - 14px);
+          rotate: calc(var(--r) - 5deg);
+        }
+      }
+      @keyframes peel {
+        to {
+          opacity: 0;
+          translate: 6px calc(var(--y) - 18px);
+          rotate: calc(var(--r) + 7deg);
+        }
+      }
+      @keyframes close {
+        to {
+          flex-basis: 0;
+          margin-right: -12px;
+          padding-left: 0;
+          padding-right: 0;
+        }
+      }
+      .one.in {
+        animation: paste 0.42s cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+      }
+      .one.out {
+        animation:
+          peel 0.26s ease-in both,
+          close 0.22s 0.24s ease-in-out forwards;
+        overflow: hidden;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .one {
+          rotate: 0deg;
+        }
+      }
+
+      /* the brand title: Fraunces italic, chosen 2026-10-28 */
+      h3.t {
+        font:
+          italic var(--brand-weight) var(--brand-size)/0.9 var(--brand),
+          "Iowan Old Style",
+          Georgia,
+          serif;
+        letter-spacing: var(--brand-ls);
+        font-variation-settings:
+          "SOFT" 50,
+          "WONK" 0;
+      }
+      /* + is the same paper glass as the menu, only larger */
+      .fab {
+        background: color-mix(in srgb, var(--note) 62%, transparent);
+        color: var(--text);
+        backdrop-filter: blur(18px) saturate(1.4);
+        box-shadow:
+          inset 0 0 0 0.5px var(--rule),
+          inset 0 1px 0 rgba(255, 255, 255, 0.55),
+          0 10px 22px -12px rgba(50, 35, 10, 0.4);
+      }
+      :root[data-theme="dark"] .fab {
+        background: color-mix(in srgb, var(--note) 58%, transparent);
+        box-shadow:
+          inset 0 0 0 0.5px rgba(238, 233, 223, 0.14),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08),
+          0 10px 22px -12px rgba(0, 0, 0, 0.7);
+      }
+      /* the top-left corner names the kind of thing; for now every note is a conversation */
+      .one .kind > span:first-child {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .one .kind svg {
+        opacity: 0.8;
+      }
+      .legend {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-top: 6px;
+      }
+      .legend span {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .legend i {
+        width: 18px;
+        height: 14px;
+        border-radius: 2px 2px 5px 2px;
+        box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+      }
+
+      /* ---------- worktree rows: one line per worktree, three densities ---------- */
+      .mk2 {
+        width: 16px;
+        height: 16px;
+        display: grid;
+        place-items: center;
+        flex: none;
+      }
+      .mk2 .spin {
+        width: 12px;
+        height: 12px;
+      }
+      .mk2 .u {
+        width: 7px;
+        height: 7px;
+        border-radius: 4px;
+        background: var(--tint);
+        margin: 0;
+      }
+      .mk2 .ask {
+        width: 9px;
+        height: 9px;
+        border-radius: 5px;
+        border: 2px solid var(--attn);
+      }
+      .mk2 .err {
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: var(--danger);
+      }
+      .mk2 .idle {
+        width: 5px;
+        height: 5px;
+        border-radius: 3px;
+        background: var(--l3);
+      }
+      .tg {
+        font:
+          500 10.5px "SF Mono",
+          ui-monospace,
+          monospace;
+        color: var(--attn);
+        white-space: nowrap;
+      }
+      .tg.ok {
+        color: var(--ok);
+      }
+      .tm2 {
+        font-size: 12px;
+        color: var(--l2);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      .tm2.live {
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .ell {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+      }
+      .gh {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+      }
+      .gh .chev {
+        width: 16px;
+        height: 16px;
+        display: grid;
+        place-items: center;
+        color: var(--l2);
+        margin-left: -2px;
+        transition: rotate 0.25s;
+      }
+      .grp.closed .gh .chev {
+        rotate: -90deg;
+      }
+      .grp.closed .gb {
+        display: none;
+      }
+      .gh h4 {
+        font:
+          600 19px/1 "New York",
+          "Iowan Old Style",
+          Georgia,
+          serif;
+        letter-spacing: -0.01em;
+        flex: 1;
+      }
+      .gh small {
+        font-size: 12px;
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .gh small.q {
+        color: var(--l2);
+        font-weight: 500;
+      }
+      .fold {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12.5px;
+        color: var(--l2);
+      }
+      .fold b {
+        font-weight: 500;
+        color: var(--tint);
+      }
+      .chat-add {
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        color: var(--tint);
+        margin-right: -4px;
+      }
+
+      /* A: two lines, 46pt — branch on top, the session that matters under it */
+      .vA .grp {
+        margin-top: 20px;
+      }
+      .vA .gh {
+        height: 34px;
+      }
+      .vA .wt {
+        display: grid;
+        grid-template-columns: 16px 1fr auto;
+        column-gap: 8px;
+        align-items: center;
+        height: 50px;
+        padding-left: 2px;
+      }
+      .vA .wt .l1 {
+        display: flex;
+        gap: 6px;
+        align-items: baseline;
+        min-width: 0;
+      }
+      .vA .wt .br {
+        font:
+          500 13.5px "SF Mono",
+          ui-monospace,
+          monospace;
+        color: var(--text);
+      }
+      .vA .wt .l2 {
+        font-size: 13px;
+        color: var(--l2);
+        margin-top: 3px;
+      }
+      .vA .wt + .wt {
+        border-top: 0.5px solid var(--rule);
+      }
+      .vA .fold {
+        height: 34px;
+        padding-left: 26px;
+      }
+      .vA .ch {
+        display: grid;
+        grid-template-columns: 16px 1fr auto;
+        column-gap: 8px;
+        align-items: center;
+        height: 42px;
+        padding-left: 2px;
+        font-size: 14.5px;
+      }
+      .vA .ch + .ch {
+        border-top: 0.5px solid var(--rule);
+      }
+
+      /* B: one line, 36pt — branch, then the session's title, then its time */
+      .vB .grp {
+        margin-top: 14px;
+      }
+      .vB .gh {
+        height: 28px;
+      }
+      .vB .wt {
+        display: grid;
+        grid-template-columns: 16px auto 1fr auto;
+        column-gap: 8px;
+        align-items: center;
+        height: 36px;
+        padding-left: 2px;
+      }
+      .vB .wt .br {
+        font:
+          500 13px "SF Mono",
+          ui-monospace,
+          monospace;
+        max-width: 128px;
+      }
+      .vB .wt .tg {
+        margin-left: -4px;
+      }
+      .vB .wt .ti {
+        font-size: 13.5px;
+        color: var(--text2);
+      }
+      .vB .wt .bx {
+        display: flex;
+        gap: 6px;
+        align-items: baseline;
+        min-width: 0;
+      }
+      .vB .fold {
+        height: 28px;
+        padding-left: 26px;
+      }
+      .vB .ch {
+        display: grid;
+        grid-template-columns: 16px 1fr auto;
+        column-gap: 8px;
+        align-items: center;
+        height: 36px;
+        padding-left: 2px;
+        font-size: 14px;
+      }
+
+      /* C: each project on a sheet; two-line rows with hairlines between */
+      .vC .grp {
+        margin-top: 12px;
+        background: var(--note);
+        border-radius: 14px;
+        padding: 4px 12px 2px;
+        box-shadow:
+          inset 0 0 0 0.5px var(--rule),
+          0 6px 14px -12px rgba(60, 40, 10, 0.35);
+      }
+      .vC .gh {
+        height: 38px;
+        border-bottom: 0.5px solid var(--rule);
+      }
+      .vC .grp.closed .gh {
+        border-bottom: 0;
+      }
+      .vC .wt {
+        display: grid;
+        grid-template-columns: 16px 1fr auto;
+        column-gap: 8px;
+        align-items: center;
+        height: 44px;
+      }
+      .vC .wt .l1 {
+        display: flex;
+        gap: 6px;
+        align-items: baseline;
+        min-width: 0;
+      }
+      .vC .wt .br {
+        font:
+          500 13px "SF Mono",
+          ui-monospace,
+          monospace;
+      }
+      .vC .wt .l2 {
+        font-size: 13px;
+        color: var(--l2);
+        margin-top: 1px;
+      }
+      .vC .wt + .wt,
+      .vC .wt + .fold,
+      .vC .ch + .ch {
+        border-top: 0.5px solid var(--rule);
+      }
+      .vC .fold {
+        height: 34px;
+        padding-left: 24px;
+      }
+      .vC .ch {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        column-gap: 8px;
+        align-items: center;
+        height: 40px;
+        font-size: 14.5px;
+      }
+      /* rule sheet beside the phones */
+      .rules {
+        max-width: 1340px;
+        margin: 44px auto 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 18px 32px;
+        font-size: 13.5px;
+      }
+      .rules h3 {
+        font-size: 15px;
+        font-weight: 650;
+        margin-bottom: 6px;
+      }
+      .rules ol,
+      .rules ul {
+        padding-left: 1.3em;
+        display: grid;
+        gap: 3px;
+        color: var(--page-text);
+      }
+      .rules li::marker {
+        color: var(--page-dim);
+      }
+      .rules .q {
+        color: #b8661f;
+        font-weight: 600;
+      }
+      .demo {
+        display: flex;
+        gap: 8px;
+      }
+      .demo button {
+        border: 0;
+        background: var(--page-line);
+        color: var(--page-text);
+        font: inherit;
+        font-size: 13px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+THESIS: 等你处理是一排便签，一事一张，贴在纸面首页上；在问你是杏色、要登录是灰绿、出错是浅红；多了就横着滑。
+OWN-WORLD: 纸 #f6f2e9 / 墨 #26221c / 深米 #8a7352；便签杏 #f7dfb8、灰绿 #dfe0cf、浅红 #f4cdc4（深色 #3f3221 / #33342a / #402723）。
+STORY: 打开就看到几张便签，最急的在最左；处理掉一张，它被撕下，后面的补上来。
+FIRST VIEWPORT: 左上 Atrium、右上设置钮，下面「等你处理 N 件」和一排便签，再下面是项目。
+FORM: 用户选定 D「一事一张」，本页定生成规则。
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+-->
+    <header class="page">
+      <div>
+        <h1>首页 · 一个 worktree 一行</h1>
+        <p>
+          项目下面每个 worktree 只占一行，显示其中最值得看的会话（在跑 → 等你/出错 → 没读过 → 最近），点进去是 worktree
+          页。已合并的收进"另外 N 个已合并"。三种密度，最右是现在的写法做对比。示例数据是虚构的。
+        </p>
+      </div>
+      <div class="seg" role="group" aria-label="外观">
+        <button type="button" data-theme-set="light" aria-pressed="true">浅色</button>
+        <button type="button" data-theme-set="dark" aria-pressed="false">深色</button>
+      </div>
+    </header>
+
+    <main class="grid">
+      <figure>
+        <div class="phone" data-n="2" data-v="A"></div>
+        <figcaption>
+          <h2>A 两行 · 50pt（选定）</h2>
+          <p>上行分支和状态（未提交、↑3），下行是那个会话的标题；右边状态和时间。worktree 之间细线。</p>
+        </figcaption>
+      </figure>
+      <figure>
+        <div class="phone" data-n="2" data-v="B"></div>
+        <figcaption>
+          <h2>B 单行 · 36pt</h2>
+          <p>分支、会话标题、时间挤在一行，最密；分支太长会截断，会话标题只剩半行。</p>
+        </figcaption>
+      </figure>
+      <figure>
+        <div class="phone" data-n="2" data-v="C"></div>
+        <figcaption>
+          <h2>C 每个项目一张纸 · 44pt</h2>
+          <p>同 A 的两行，但每个项目放在一张浅色纸上，项目之间分得清；收起时只剩标题条。</p>
+        </figcaption>
+      </figure>
+      <figure>
+        <div class="phone" data-n="2"></div>
+        <figcaption>
+          <h2>现在</h2>
+          <p>每个 worktree 列 3 个会话、每行 40pt，作对比。</p>
+        </figcaption>
+      </figure>
+    </main>
+
+    <script>
+      const root = document.documentElement;
+      const ICONS = `<span class="icons"><svg width="18" height="12" viewBox="0 0 18 12"><rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor"/><rect x="5" y="5" width="3" height="7" rx="1" fill="currentColor"/><rect x="10" y="2" width="3" height="10" rx="1" fill="currentColor"/><rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor"/></svg><svg width="26" height="12" viewBox="0 0 26 12"><rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor"/></svg></span>`;
+      const MENU = `<svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><circle cx="4.5" cy="10" r="1.6"/><circle cx="10" cy="10" r="1.6"/><circle cx="15.5" cy="10" r="1.6"/></svg>`;
+      const PLUS = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></svg>`;
+      const BRANCH = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="4.5" cy="3.5" r="1.8"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="5.5" r="1.8"/><path d="M4.5 5.3v5.4M11.5 7.3c0 2.5-2.2 3.4-6.2 3.6"/></svg>`;
+      const SMALL_PLUS = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M7 2.5v9M2.5 7h9"/></svg>`;
+
+      const ASK = `<svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6.5A3.5 3.5 0 0 1 8.5 3h9A3.5 3.5 0 0 1 21 6.5v7a3.5 3.5 0 0 1-3.5 3.5H12l-4.6 3.7c-.4.3-.9 0-.9-.4V17A3.5 3.5 0 0 1 5 13.5z"/><path d="M10.6 8.2a2.4 2.4 0 1 1 3.3 2.3c-.6.3-.9.8-.9 1.4"/><circle cx="13" cy="14.3" r=".4" fill="currentColor"/></svg>`;
+      const ERR = `<svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 4.6a2 2 0 0 1 3.4 0l8 13.7a2 2 0 0 1-1.7 3H5a2 2 0 0 1-1.7-3z"/><path d="M13 10v4.6"/><circle cx="13" cy="17.6" r=".5" fill="currentColor"/></svg>`;
+      const CHEV = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5.5 7 9l3.5-3.5"/></svg>`;
+      const POOL = [
+        {
+          id: "s-oauth",
+          k: "ask",
+          title: "OAuth 回调地址用哪个？",
+          lede: "回调用 /auth/callback 还是 /oauth/cb？换了要同步改 Nginx 和 GitHub 应用设置。",
+          where: "atrium · feat/oauth",
+          since: "6 分钟",
+        },
+        {
+          id: "s-store",
+          k: "ask",
+          title: "清理旧的状态存储",
+          lede: "新 Store 已经接好。要不要顺便删掉 LegacyStore？还有两处引用在 SettingsView。",
+          where: "atrium · main",
+          since: "14 分钟",
+        },
+        {
+          id: "s-pi",
+          k: "auth",
+          title: "升级 pi 到 1.3.1",
+          lede: "Anthropic 登录过期，到 Mac 上重新登录后继续。",
+          where: "atrium · main",
+          since: "20 分钟",
+        },
+        {
+          id: "s-flash",
+          k: "err",
+          title: "修复首页闪烁",
+          lede: "TypeError: Cannot read properties of undefined (reading 'rows')",
+          code: true,
+          where: "atrium · main",
+          since: "2 分钟",
+        },
+        {
+          id: "s-full",
+          k: "err",
+          title: "跑一遍全量测试",
+          lede: "Process exited with code 137",
+          code: true,
+          where: "atrium · feat/radar-map",
+          since: "1 小时",
+        },
+        {
+          id: "s-swift",
+          k: "ask",
+          title: "Swift 并发怎么理解",
+          lede: "你想先看 actor 隔离，还是先看 Sendable 的检查规则？",
+          where: "对话",
+          since: "昨天",
+        },
+        {
+          id: "s-blog",
+          k: "ask",
+          title: "十月周报的标题",
+          lede: "用「慢下来的十月」还是「一个人的工具箱」？",
+          where: "blog · main",
+          since: "昨天",
+        },
+        {
+          id: "s-astro",
+          k: "err",
+          title: "迁移到 Astro 5",
+          lede: "Cannot find module 'astro:content'",
+          code: true,
+          where: "blog · main",
+          since: "周一",
+        },
+        {
+          id: "s-zsh",
+          k: "ask",
+          title: "整理 zsh 启动脚本",
+          lede: "nvm 的懒加载要保留吗？去掉能快 300ms。",
+          where: "dotfiles · main",
+          since: "周一",
+        },
+        {
+          id: "s-icons",
+          k: "err",
+          title: "生成文件图标",
+          lede: "ENOENT: material-icon-theme/icons",
+          code: true,
+          where: "atrium · feat/icons",
+          since: "周一",
+        },
+        {
+          id: "s-cat",
+          k: "ask",
+          title: "像素猫换配色？",
+          lede: "深米主题下猫的底色用 #6c86cc 还是换成米色？",
+          where: "atrium · feat/ios-redesign",
+          since: "上周",
+        },
+        {
+          id: "s-ci",
+          k: "err",
+          title: "夜间变异测试",
+          lede: "Stryker: 3 mutants timed out",
+          code: true,
+          where: "atrium · main",
+          since: "上周",
+        },
+      ];
+      const EXTRA = {
+        id: "s-new",
+        k: "ask",
+        title: "雷达图的图例放哪？",
+        lede: "放右上角会挡住第三个轴，放底下要多 24pt。",
+        where: "atrium · feat/radar-map",
+        since: "刚刚",
+      };
+      const LEVEL = { err: "err", auth: "err", ask: "ask", low: "low" };
+      const RANK = { err: 0, ask: 1, low: 2 };
+      const CHAT = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M2 3.2A1.7 1.7 0 0 1 3.7 1.5h4.6A1.7 1.7 0 0 1 10 3.2v3.1A1.7 1.7 0 0 1 8.3 8H5.4L3 10V8h0A1.7 1.7 0 0 1 2 6.3z"/></svg>`;
+      const MAX = 8;
+
+      /* a stable 0..1 from a session id, so a note keeps its tilt and tape between visits */
+      const hash = (s, salt) => {
+        let h = 2166136261 ^ salt;
+        for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+        return ((h >>> 0) % 1000) / 1000;
+      };
+      const look = (w, i) => {
+        const mag = 0.8 + hash(w.id, 1) * 1.4,
+          sign = i % 2 ? 1 : -1;
+        return `--r:${(sign * mag).toFixed(2)}deg;--y:${i % 2 ? 6 : 0}px;--tx:${(40 + hash(w.id, 2) * 20).toFixed(0)}%;--ta:${((hash(w.id, 3) - 0.5) * 8).toFixed(1)}deg`;
+      };
+      const note = (w, i, solo) =>
+        `<a class="one ${LEVEL[w.k]}" data-id="${w.id}" aria-label="${{ ask: "在问你", auth: "要登录", err: "出错" }[w.k]}" style="${solo ? "" : look(w, i)}"><span class="tape"></span><span class="kind"><span>${CHAT}对话</span><span>${w.since}</span></span><b>${w.title}</b><p class="${w.code ? "code" : ""}">${w.lede}</p><small>${w.where}</small></a>`;
+      const sorted = (list) =>
+        list
+          .map((w, i) => [w, i])
+          .sort((a, b) => RANK[LEVEL[a[0].k]] - RANK[LEVEL[b[0].k]] || a[1] - b[1])
+          .map((x) => x[0]);
+      function strip(list) {
+        if (!list.length) return "";
+        const shown = sorted(list).slice(0, list.length > MAX ? MAX : list.length);
+        const rest = list.length - shown.length;
+        const pile = rest ? `<a class="one pile"><b>还有<br>${rest} 件</b><small>看全部 ›</small></a>` : "";
+        return `<div class="wh"><b>等你处理</b><span><em>${list.length}</em> 件</span></div><div class="strip ${list.length === 1 ? "one-only" : ""}">${shown.map((w, i) => note(w, i, list.length === 1)).join("")}${pile}</div>`;
+      }
+
+      const PROJECTS = [
+        {
+          name: "atrium",
+          running: 2,
+          ws: [
+            {
+              br: "feat/radar-map",
+              tag: "未提交 · ↑3",
+              s: [
+                ["run", "雷达图配色调整", "3:12"],
+                ["new", "补齐变异测试", "12 分钟"],
+                ["", "整理过程轨道动效", "1 小时"],
+              ],
+              more: 2,
+            },
+            {
+              br: "main",
+              s: [
+                ["run", "升级 pi 到 1.3.1", "0:48"],
+                ["", "拆分 SyncCore", "昨天"],
+              ],
+            },
+          ],
+        },
+        { name: "blog", running: 0, closed: true, summary: "2 个会话 · 已合并", ws: [] },
+        { name: "dotfiles", running: 0, ws: [{ br: "main", s: [["new", "整理 zsh 启动脚本", "3 小时"]] }] },
+      ];
+      const mark = (k) =>
+        k === "run" ? `<span class="spin"></span>` : k === "new" ? `<span class="u"></span>` : `<span></span>`;
+      const rows = (list) =>
+        list
+          .map(
+            ([k, t, tm]) =>
+              `<div class="s">${mark(k)}<b>${t}</b><span class="tm ${k === "run" ? "live" : ""}">${tm}</span></div>`,
+          )
+          .join("");
+      const projs = () =>
+        PROJECTS.map(
+          (p) =>
+            `<div class="proj ${p.closed ? "closed" : ""}"><div class="ph"><span class="chev">${CHEV}</span><h4>${p.name}</h4>${p.closed ? `<small class="q">${p.summary}</small>` : p.running ? `<small>${p.running} 在跑</small>` : `<small class="q">空闲</small>`}</div><div class="body">${p.ws.map((w) => `<div class="ws">${BRANCH}<span class="br">${w.br}</span>${w.tag ? `<span class="tag">${w.tag}</span>` : ""}</div>${rows(w.s)}${w.more ? `<a class="more">还有 ${w.more} 个 ›</a>` : ""}`).join("")}</div></div>`,
+        ).join("");
+
+      /* one line per worktree: the session that matters most in it */
+      const WT = [
+        {
+          name: "atrium",
+          sum: "3 在跑",
+          rows: [
+            {
+              br: "feat/radar-map",
+              tg: "未提交 · ↑3",
+              st: "run",
+              ti: "雷达图配色调整",
+              more: "等 2 个在跑",
+              tm: "3:12",
+            },
+            { br: "main", st: "run", ti: "升级 pi 到 1.3.1", tm: "0:48" },
+            { br: "feat/oauth", tg: "未提交", st: "ask", ti: "OAuth 回调地址用哪个？", tm: "6 分钟" },
+            { br: "feat/ios-redesign", tg: "未提交", st: "new", ti: "纸面首页精修", tm: "2 小时" },
+            { br: "feat/icons", st: "err", ti: "生成文件图标", tm: "周一" },
+          ],
+          merged: 2,
+        },
+        {
+          name: "blog",
+          sum: "空闲",
+          q: true,
+          rows: [
+            { br: "feat/astro-5", tg: "↑1", st: "err", ti: "迁移到 Astro 5", tm: "周一" },
+            { br: "main", st: "", ti: "写十月周报草稿", tm: "昨天" },
+          ],
+        },
+        {
+          name: "dotfiles",
+          sum: "空闲",
+          q: true,
+          rows: [{ br: "main", st: "new", ti: "整理 zsh 启动脚本", tm: "3 小时" }],
+        },
+      ];
+      const NEW_CHAT = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.2A2.7 2.7 0 0 1 6.7 3.5h8.6A2.7 2.7 0 0 1 18 6.2v6.1a2.7 2.7 0 0 1-2.7 2.7H10l-3.6 3c-.4.3-.9 0-.9-.4V15h0A2.7 2.7 0 0 1 4 12.3z"/><path d="M11 6.6v5.3M8.35 9.25h5.3"/></svg>`;
+      const CH = [
+        ["new", "Swift 并发怎么理解", "周一"],
+        ["", "帮我起个分支名", "上周"],
+        ["", "读一下这篇论文", "上周"],
+      ];
+      const mk2 = (st) =>
+        `<span class="mk2">${{ run: `<span class="spin"></span>`, new: `<span class="u"></span>`, ask: `<span class="ask"></span>`, err: `<span class="err"></span>` }[st] || `<span class="idle"></span>`}</span>`;
+      const tg = (r) => (r.tg ? `<span class="tg">${r.tg}</span>` : "");
+      const right = (r) => `<span class="tm2 ${r.st === "run" ? "live" : ""}">${r.tm}</span>`;
+      const ti = (r) => r.ti + (r.more ? ` <span style="color:var(--tint)">${r.more}</span>` : "");
+      const ROW = {
+        A: (r) =>
+          `<div class="wt">${mk2(r.st)}<div style="min-width:0"><div class="l1"><span class="br ell">${r.br}</span>${tg(r)}</div><div class="l2 ell">${ti(r)}</div></div>${right(r)}</div>`,
+        B: (r) =>
+          `<div class="wt">${mk2(r.st)}<div class="bx"><span class="br ell">${r.br}</span>${r.tg ? `<span class="tg">${r.tg.replace("未提交 · ", "")}</span>` : ""}</div><span class="ti ell">${r.ti}</span>${right(r)}</div>`,
+        C: (r) =>
+          `<div class="wt">${mk2(r.st)}<div style="min-width:0"><div class="l1"><span class="br ell">${r.br}</span>${tg(r)}</div><div class="l2 ell">${ti(r)}</div></div>${right(r)}</div>`,
+      };
+      function dense(v) {
+        const groups = WT.map(
+          (p) =>
+            `<div class="grp"><div class="gh"><span class="chev">${CHEV}</span><h4>${p.name}</h4><small class="${p.q ? "q" : ""}">${p.sum}</small></div><div class="gb">${p.rows.map(ROW[v]).join("")}${p.merged ? `<div class="fold">另外 ${p.merged} 个已合并 <b>›</b></div>` : ""}</div></div>`,
+        ).join("");
+        const chats = `<div class="grp"><div class="gh"><span class="chev">${CHEV}</span><h4>对话</h4><span class="chat-add" aria-label="新对话">${NEW_CHAT}</span></div><div class="gb">${CH.map(([k, t, tm]) => `<div class="ch">${v === "C" ? "" : mk2(k)}<span class="ell">${t}</span><span class="tm2">${tm}</span></div>`).join("")}</div></div>`;
+        return `<div class="v${v}">${groups}${chats}</div>`;
+      }
+      function phone(el) {
+        const state = el.dataset.state || "ready";
+        const host =
+          state === "trouble"
+            ? `<div class="host"><span class="spin"></span>正在重连 · <span class="act">重试</span></div>`
+            : `<div class="host"><span class="dot"></span>MacBook Pro</div>`;
+        const explain =
+          state === "trouble" ? `<p class="explain">MacBook Pro 上次在线是 9:32，下面是那时的状态。</p>` : "";
+        const list = POOL.slice(0, +el.dataset.n);
+        el.innerHTML = `<div class="island"></div><div class="status"><span>9:41</span>${ICONS}</div>
+    <div class="scroll"><div class="inner ${state === "trouble" ? "stale" : ""}">${explain}${strip(list)}${el.dataset.v ? dense(el.dataset.v) : projs()}</div></div>
+    <div class="edge top"><i></i><i></i><i></i></div><div class="masthead"><h3 class="t">Atrium</h3>${host}</div><div class="edge bot"><i></i><i></i><i></i></div>
+    <button class="btn menu" aria-label="设置">${MENU}${state === "trouble" ? `<span class="pip"></span>` : ""}</button>
+    <button class="btn fab" aria-label="新建会话">${PLUS}</button><div class="home-ind"></div>`;
+        const s = el.querySelector(".strip");
+        if (s && el.dataset.at) s.scrollLeft = el.dataset.at === "end" ? s.scrollWidth : +el.dataset.at;
+      }
+      document.querySelectorAll(".phone").forEach(phone);
+
+      document.addEventListener("click", (e) => {
+        const h = e.target.closest(".ph, .gh");
+        if (h && !e.target.closest(".chat-add")) h.parentElement.classList.toggle("closed");
+      });
+      document.querySelectorAll("[data-theme-set]").forEach(
+        (b) =>
+          (b.onclick = () => {
+            root.dataset.theme = b.dataset.themeSet;
+            document
+              .querySelectorAll("[data-theme-set]")
+              .forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+          }),
+      );
+    </script>
+  </body>
+</html>

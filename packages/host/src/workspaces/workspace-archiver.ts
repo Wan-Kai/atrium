@@ -29,9 +29,9 @@ export interface WorkspaceSessions {
    * Keeps the workspace's sessions from starting, and new ones from being created in it, until
    * released; stops their pi; resolves to those not archived.
    */
-  stopWorkspace(workspaceId: string): Promise<string[]>;
+  stopContainer(workspaceId: string): Promise<string[]>;
   /** Lets the workspace's sessions start again. */
-  releaseWorkspace(workspaceId: string): void;
+  releaseContainer(workspaceId: string): void;
   /** Archives every session in the workspace, stopping its pi, and drops the workspace from every layout. */
   archiveWorkspace(workspaceId: string): Promise<void>;
   /** Unarchives the sessions given, or with `null` all archived in the workspace. */
@@ -287,7 +287,7 @@ export function createWorkspaceArchiver(options: {
         if ((record.archived ?? null) !== null) return;
         const run = runnerOf(record, await gitOr("worktree_remove_failed"));
         await checked(record, run);
-        const sessions = await options.sessions.stopWorkspace(workspaceId);
+        const sessions = await options.sessions.stopContainer(workspaceId);
         try {
           const { listed, present } = await checked(record, run);
           await options.projects.setArchived(workspaceId, {
@@ -306,7 +306,7 @@ export function createWorkspaceArchiver(options: {
           }
           await options.sessions.archiveWorkspace(workspaceId);
         } finally {
-          options.sessions.releaseWorkspace(workspaceId);
+          options.sessions.releaseContainer(workspaceId);
         }
       }),
     restore: (workspaceId) =>

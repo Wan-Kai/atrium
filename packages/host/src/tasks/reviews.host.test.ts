@@ -92,7 +92,7 @@ async function viewOf(harness: TaskHost, taskId: string): Promise<TaskView> {
   return TaskView.parse(await harness.host.host.tasks.view(taskId, new AbortController().signal));
 }
 
-describe("human node reviews, answered through answer_review (ADR-0017, T8a)", () => {
+describe("human node reviews, answered through answer_review (ADR-0018, T8a)", () => {
   it("shows the waiting node on the task conversation, passes it, and leaves a record the model reads", async () => {
     const harness = await startTaskHost({}, { design: CHATTER });
     const task = await startedTask(harness, [human("H1")], []);
@@ -242,7 +242,7 @@ describe("human node reviews, answered through answer_review (ADR-0017, T8a)", (
   });
 });
 
-describe("graph approval reviews (ADR-0017, T8a)", () => {
+describe("graph approval reviews (ADR-0018, T8a)", () => {
   it("shows a graph change with what it adds and changes, approves one, and refuses the next", async () => {
     const harness = await startTaskHost({}, { design: CHATTER });
     const task = await startedTask(harness, [human("H1")], []);
@@ -342,7 +342,7 @@ describe("graph approval reviews (ADR-0017, T8a)", () => {
   });
 });
 
-describe("merge and archive reviews (ADR-0017, T8a)", () => {
+describe("merge and archive reviews (ADR-0018, T8a)", () => {
   it("holds a merge back as a problem on the same card, retries it once the cause is gone, and then asks about the worktree", async () => {
     const harness = await startTaskHost({ N1: writing }, { design: CHATTER });
     const task = await startedTask(harness, [agent("N1", "work"), human("H", { merge: true })], edges(["N1", "H"]));

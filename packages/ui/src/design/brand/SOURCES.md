@@ -1,14 +1,16 @@
 # 品牌图标来源
 
-| 文件           | 来源                                                                                                           |
-| -------------- | -------------------------------------------------------------------------------------------------------------- |
-| openai.svg     | ChatGPT 官网 favicon：https://cdn.oaistatic.com/assets/favicon-o20kmmos.svg                                    |
-| claude.svg     | claude.ai 官方图标：https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/cd02a42d9-Vq_H3mgS.svg           |
-| copilot.svg    | GitHub 官方 Primer Octicons：copilot-24                                                                        |
-| kimi.png       | 月之暗面官方品牌指南：https://moonshotai.github.io/Branding-Guide/（kimi-icon-rounded-corner.png，缩到 128px） |
-| xai.png        | xAI 官网图标：https://x.ai/icon.png（缩到 128px）                                                              |
-| openrouter.svg | OpenRouter 官网品牌资源：https://openrouter.ai/brand/v2/openrouter-glyph-light.svg                             |
-| deepseek.svg   | DeepSeek 官网图标：https://fe-static.deepseek.com/chat/favicon.svg（chat.deepseek.com 的 favicon）             |
+| 文件           | 来源                                                                                                                                                                                                                                                                                                  |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| openai.svg     | ChatGPT 官网 favicon：https://cdn.oaistatic.com/assets/favicon-o20kmmos.svg                                                                                                                                                                                                                           |
+| claude.svg     | claude.ai 官方图标：https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/cd02a42d9-Vq_H3mgS.svg                                                                                                                                                                                                  |
+| copilot.svg    | GitHub 官方 Primer Octicons：copilot-24                                                                                                                                                                                                                                                               |
+| kimi.png       | 月之暗面官方品牌指南：https://moonshotai.github.io/Branding-Guide/（kimi-icon-rounded-corner.png，缩到 128px）                                                                                                                                                                                        |
+| xai.png        | xAI 官网图标：https://x.ai/icon.png（缩到 128px）                                                                                                                                                                                                                                                     |
+| openrouter.svg | OpenRouter 官网品牌资源：https://openrouter.ai/brand/v2/openrouter-glyph-light.svg                                                                                                                                                                                                                    |
+| deepseek.svg   | DeepSeek 官网图标：https://fe-static.deepseek.com/chat/favicon.svg（chat.deepseek.com 的 favicon）                                                                                                                                                                                                    |
+| opencode.svg   | OpenCode 官方品牌资源 https://opencode.ai/brand 的源文件（GitHub `anomalyco/opencode` 的 `packages/console/app/src/asset/brand/`）：`opencode-logo-light-square.svg` 的标志，外加一层白底（design-language 的“白底圆角小方块”，浅色、深色共用一份，和手机生成的 PNG 一致），其余不变（2026-11-02 取） |
+| google.png     | Google 官方「G」标志：https://www.gstatic.com/images/branding/googleg/1x/googleg_standard_color_128dp.png（128×128 PNG，透明底，保留原图；2026-11-05 取）                                                                                                                                             |
 
 `friday.png` 为 https://friday.sankuai.com/ 的官网 favicon（2026-10-22 获取）：https://s3plus.meituan.net/aigc-media-resources/friday-icon.png 。保留 80×80 PNG 原图，按用户指定用于 `sankuai-openai`，显示名为 `Friday`。
 

@@ -5,6 +5,8 @@ import { type IndexFile, loadIndexFile } from "./index-file";
 import {
   CHATS_FILE,
   type ChatsDocument,
+  LEARNING_FILE,
+  type LearningDocument,
   type LayoutsDocument,
   layoutsFile,
   PREFERENCES_FILE,
@@ -19,6 +21,7 @@ import {
 export interface LoadedIndex {
   readonly projects: IndexFile<ProjectsDocument>;
   readonly chats: IndexFile<ChatsDocument>;
+  readonly learning: IndexFile<LearningDocument>;
   readonly sessions: IndexFile<SessionsDocument>;
   readonly layouts: IndexFile<LayoutsDocument>;
   readonly preferences: IndexFile<PreferencesDocument>;
@@ -72,18 +75,27 @@ export async function loadIndex(home: string, now: number, logger: Logger): Prom
 
   const projects = await load("projects", PROJECTS_FILE);
   const chats = await load("chats", CHATS_FILE);
+  const learning = await load("learning", LEARNING_FILE);
   const sessions = await load("sessions", SESSIONS_FILE);
   const layouts = await load("layouts", layoutsFile(sessions.read()));
   const preferences = await load("preferences", PREFERENCES_FILE);
   return {
     projects,
     chats,
+    learning,
     sessions,
     layouts,
     preferences,
     resets,
     async flush() {
-      await Promise.all([projects.flush(), chats.flush(), sessions.flush(), layouts.flush(), preferences.flush()]);
+      await Promise.all([
+        projects.flush(),
+        chats.flush(),
+        learning.flush(),
+        sessions.flush(),
+        layouts.flush(),
+        preferences.flush(),
+      ]);
     },
   };
 }

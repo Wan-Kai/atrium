@@ -37,6 +37,20 @@ export {
   RenameChatCommand,
   ArchiveChatCommand,
   RestoreChatCommand,
+  PinChatCommand,
+  UnpinChatCommand,
+  CreateDirectionCommand,
+  RenameDirectionCommand,
+  PinDirectionCommand,
+  UnpinDirectionCommand,
+  ArchiveDirectionCommand,
+  RestoreDirectionCommand,
+  StartStudySessionCommand,
+  MarkStudyStepCommand,
+  MarkStudyGapCommand,
+  RetryStudyKickoffCommand,
+  UpgradeStudyCommand,
+  RestoreStudySessionsCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -61,8 +75,6 @@ export {
   PauseTaskCommand,
   RerunNodeCommand,
   ResumeTaskCommand,
-  HandOffCommand,
-  TakeBackCommand,
   RenameSessionCommand,
   SetPreferencesCommand,
   SteerCommand,
@@ -92,6 +104,8 @@ export {
   WatchDiffCommand,
   ListDirCommand,
   ReadFileCommand,
+  ResolveVisualCommand,
+  SendVisualMessageCommand,
   ReadPiConfigCommand,
   SavePiConfigCommand,
   CheckSetupCommand,
@@ -206,13 +220,25 @@ export {
   ReviewTarget,
   Verdict,
 } from "./reviews";
-export { ChatId, ContainerId, isChatId, ProjectId, SessionId, WorkspaceId } from "./ids";
+export {
+  ChatId,
+  ContainerId,
+  DirectionId,
+  isChatId,
+  isDirectionId,
+  isWorkspaceId,
+  ProjectId,
+  SessionId,
+  WorkspaceId,
+} from "./ids";
 export {
   Appearance,
   TranslationLanguage,
+  AskingName,
   Attention,
   Chat,
   ContainerTabs,
+  Direction,
   IndexChangesEvent,
   IndexFileName,
   IndexSnapshotEvent,
@@ -229,6 +255,23 @@ export {
   Workspace,
   isAuthFailure,
 } from "./listing";
+export {
+  STUDY_LIMITS,
+  SessionStudy,
+  StudyAction,
+  StudyBy,
+  StudyFixedStep,
+  StudyGap,
+  StudyKind,
+  StudyLesson,
+  StudyLevel,
+  StudyNext,
+  StudyProfile,
+  StudyProgress,
+  StudyQuiz,
+  StudyRef,
+  StudyStep,
+} from "./study";
 export {
   ControlUpdatedEvent,
   MetricsUpdatedEvent,
@@ -310,3 +353,5 @@ export {
 } from "./tasks";
 export { Cadence, INTERVAL_MAX_MINUTES, SchedulePlace } from "./schedule-cadence";
 export { ScheduleId, ScheduleLast, ScheduleSummary, SchedulesUpdatedEvent } from "./schedules";
+export { VISUAL_FILE_MAX, VISUAL_MESSAGE_MAX, VisualChangedEvent, VisualPath, VisualSource } from "./visuals";
+export { seenLength, seenText, splitSeen } from "./text";

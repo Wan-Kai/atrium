@@ -2,6 +2,7 @@ import AtriumNoise
 import AtriumProtocol
 import AtriumTestSupport
 import Foundation
+import Synchronization
 import Testing
 
 @testable import AtriumRemote
@@ -65,6 +66,28 @@ struct RemoteConnectionTests {
     #expect(h.relay.requested.map(\.absoluteString) == ["wss://relay.test/atrium/v1/client?host=hst_0123456789abcdef"])
     await connection.stop()
     #expect(await statuses.next() == nil)
+  }
+
+  @Test("asks the Mac to deflate, and a deflated message arrives as the plain message")
+  func deflatedMessages() async throws {
+    let h = Harness()
+    let connection = try h.connection()
+    await connection.start()
+    let side = try await h.open(connection)
+    let payload = try #require(try JSONSerialization.jsonObject(with: side.request) as? [String: Any])
+    #expect(payload["compression"] as? [String] == ["deflate"])
+    let received = Mutex<[Data]>([])
+    let reader = Task { for await message in connection.messages { received.withLock { $0.append(message.data) } } }
+    // `{"type":"index_snapshot"}` as the host's Node deflates it.
+    let deflated = try #require(Data(base64Encoded: "q1YqqSxIVbJSysxLSa2IL85LLCjOyC9RqgUA"))
+    try await #require(side.channel).send(.deflatedChunk(deflated, isLast: true))
+    // Not blocking on the message: a phone that refuses the frame drops the link instead, and the
+    // test fails rather than waiting for ever.
+    try await eventually { await connection.status != .syncing || received.withLock { !$0.isEmpty } }
+    #expect(received.withLock { $0 } == [Data(#"{"type":"index_snapshot"}"#.utf8)])
+    #expect(await connection.status == .syncing)
+    await connection.stop()
+    reader.cancel()
   }
 
   @Test("device_unknown in message 2 deletes the Mac's records and stops for good")
@@ -281,6 +304,23 @@ struct RemoteConnectionTests {
     #expect(h.relay.requested.count == 6)
   }
 
+  @Test("retrying now while waiting tries at once and starts the waits at 1 s again; without a network it waits")
+  func retryNowSkipsTheWait() async throws {
+    let h = Harness()
+    for _ in 0..<4 { h.relay.failNext(with: .unreachable) }
+    let connection = try h.connection()
+    await connection.start()
+    try await waitForRetry(h, attempts: 1, delay: .seconds(1))
+    h.clock.advance(by: .seconds(1))
+    try await waitForRetry(h, attempts: 2, delay: .seconds(2))
+    await connection.retryNow()
+    try await waitForRetry(h, attempts: 3, delay: .seconds(1))
+    await connection.networkChanged(available: false)
+    await connection.retryNow()
+    h.clock.advance(by: .seconds(60))
+    #expect(h.relay.requested.count == 3)
+  }
+
   @Test("two unanswered heartbeats in a row end the link after 35 seconds")
   func unansweredHeartbeatsReconnect() async throws {
     let h = Harness()
@@ -328,6 +368,31 @@ struct RemoteConnectionTests {
     #expect(h.relay.requested.count == 1)
     await connection.stop()
     serving.cancel()
+  }
+
+  @Test("a long message still arriving keeps the link though no heartbeat is answered")
+  func arrivingChunksKeepTheLink() async throws {
+    let h = Harness()
+    let connection = try h.connection()
+    await connection.start()
+    let side = try await h.open(connection)
+    let channel = try #require(side.channel)
+    var open = false
+    for second in 0..<60 {
+      if second % 5 == 0 {
+        open = second % 30 != 25
+        try await channel.send(.chunk(Data("part".utf8), isLast: !open))
+        let now = Elapsed(offset: .seconds(second))
+        try await eventually { await connection.channelHeard == now }
+      }
+      // Both loops asleep: the heartbeat's, and while a message is open the chunk deadline's.
+      let sleepers = open ? 2 : 1
+      try await eventually { h.clock.sleeperCount == sleepers }
+      h.clock.advance(by: .seconds(1))
+    }
+    #expect(await connection.status == .syncing)
+    #expect(h.relay.requested.count == 1)
+    await connection.stop()
   }
 
   @Test("a handshake the host never answers times out after 15 seconds")

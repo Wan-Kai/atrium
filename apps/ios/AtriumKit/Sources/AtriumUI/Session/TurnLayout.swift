@@ -1,4 +1,5 @@
 import AtriumProtocol
+import Foundation
 
 /// What a turn shows on the session page: your message, its process, its reply and what it changed.
 ///
@@ -41,6 +42,8 @@ struct TurnLayout: Equatable {
   let failure: String?
   /// What it changed, `nil` when nothing.
   let changes: Changes?
+  /// When you sent its message, in milliseconds since the epoch.
+  let sentAt: Int
 
   private let outcome: Turn.Outcome
   private let startedAt: Int
@@ -56,6 +59,7 @@ struct TurnLayout: Equatable {
     id = turn.id
     user = turn.user.text
     images = turn.user.images
+    sentAt = turn.user.timestamp
     showsBubble = !turn.user.auto
     rows = layout.rows
     summary = RailRows.summary(turn)
@@ -100,5 +104,21 @@ struct TurnLayout: Equatable {
     let seconds = ms / 1000
     let clock = String(format: "%d:%02d", (seconds / 60) % 60, seconds % 60)
     return seconds >= 3600 ? String(format: "%d:%02d:%02d", seconds / 3600, (seconds / 60) % 60, seconds % 60) : clock
+  }
+
+  /// A moment as the time under a bubble: hours and minutes, "9:31".
+  ///
+  /// - Remark: design-language "手机端 · 对话页": the time sits under the bubble, not in it. The time
+  ///   zone is passed in so the words do not depend on where the tests run.
+  /// - SideEffects: none
+  /// - Parameters:
+  ///   - ms: The moment, in milliseconds since the epoch.
+  ///   - timeZone: Where the phone is.
+  /// - Returns: The time.
+  static func clock(_ ms: Int, in timeZone: TimeZone = .current) -> String {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    let parts = calendar.dateComponents([.hour, .minute], from: Date(timeIntervalSince1970: Double(ms) / 1000))
+    return String(format: "%d:%02d", parts.hour ?? 0, parts.minute ?? 0)
   }
 }

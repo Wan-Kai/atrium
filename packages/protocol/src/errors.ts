@@ -36,6 +36,54 @@ export const ErrorCode = z.enum([
   "workspace_not_found",
   /** The `chatId` names no chat: its directory under `~/.atrium/chats/` is gone, or never was. */
   "chat_not_found",
+  /**
+   * The `directionId` names no direction: no directory with a `.atrium-study.json` under the learning
+   * directory or its `Archive/`, or it is being archived (SPEC-0008).
+   */
+  "direction_not_found",
+  /** The new direction's directory could not be made or written, as on a disk error (SPEC-0008, "新建方向"). */
+  "direction_create_failed",
+  /**
+   * Where an archived direction's directory was is taken, so it was not restored; nothing was
+   * moved (SPEC-0008).
+   */
+  "study_restore_conflict",
+  /** A direction's name is taken under `Archive/`, so it was not archived; nothing was moved or stopped (SPEC-0008). */
+  "study_archive_conflict",
+  /**
+   * The learning directory or its `Archive/` is a link or not a directory, so no direction is made
+   * or moved there (security.md, "学习方向").
+   */
+  "learning_dir_unsafe",
+  /** A direction's directory could not be moved for another reason, as on a disk error; nothing was moved (SPEC-0008). */
+  "study_move_failed",
+  /**
+   * The session is an archived direction's, only to be read: nothing that needs its pi runs until
+   * the direction is restored; `params.directionId` names it (SPEC-0008, "ML1 定的细节").
+   */
+  "direction_archived",
+  /** The level, step or gap named is not in the direction's progress (SPEC-0008, "ML2 定的细节"). */
+  "study_not_found",
+  /** The session asked for is not the one the direction's next step offers, or cannot be opened yet. */
+  "study_not_available",
+  /** The mark is not one the rules allow: done already, the agent's, or not a lesson's part. */
+  "study_mark_refused",
+  /** The direction's `.atrium-study.json` cannot be read, so nothing is written to it. */
+  "study_file_broken",
+  /** The direction's `.atrium-study.json` is of a later version; it is read but not written. */
+  "study_file_version",
+  /** The direction's `.atrium-study.json` could not be written, as on a disk error; it is as it was. */
+  "study_write_failed",
+  /**
+   * The change would make the direction's `.atrium-study.json` larger than Atrium reads (1 MiB);
+   * nothing is written.
+   */
+  "study_file_too_large",
+  /**
+   * A session the host opened for a use did not start: its pi does not list Atrium's
+   * `atrium-study` command (SPEC-0008, "ML2 定的细节").
+   */
+  "study_kickoff_failed",
   /** The directory is a registered project or one of its workspaces already; `params.projectId` names the project. */
   "project_exists",
   /** Another project has that name; `params.name` repeats it. */
@@ -77,13 +125,13 @@ export const ErrorCode = z.enum([
   "question_invalid",
   /**
    * The review was answered first by someone else, or its state moved on (a node passed, a graph decided);
-   * `params.reviewId` repeats it (ADR-0017, decision 2).
+   * `params.reviewId` repeats it (ADR-0018, decision 2).
    */
   "review_closed",
   /**
    * A verdict does not fit its review; `params.field` is `action` (it names no action of the review), `target` (it
    * needs one of the action's targets and has none or another) or `reason` (the action requires one and has none,
-   * or takes none and was given one) (ADR-0017, decision 2).
+   * or takes none and was given one) (ADR-0018, decision 2).
    */
   "review_invalid",
   /** pi could not list its models, as when no provider has credentials; `params.detail` is pi's own text. */
@@ -154,6 +202,15 @@ export const ErrorCode = z.enum([
   "branch_name_failed",
   /** Reply translation failed; `params.reason` identifies the safe failure category, never model output. */
   "translation_failed",
+  /**
+   * The visual a reply names is not a `.html` file in the session's directory for visuals, or a link
+   * lies on its way (SPEC-0007, "接口与数据").
+   */
+  "visual_outside",
+  /** Nothing is at the visual's path, or the session's directory for visuals does not exist. */
+  "visual_missing",
+  /** The visual file is over 1 MB. */
+  "visual_too_large",
   /** The session's pi did not load Atrium's Fast extension, so Fast cannot be switched there (ADR-0008). */
   "fast_unavailable",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */
@@ -171,7 +228,6 @@ export const ErrorCode = z.enum([
   /** `fork_session`: the session has no such turn. */
   "turn_not_found",
   /** The session was handed to pi in a terminal; take it back first (SPEC-0001, "并行、同步与关注"). */
-  "session_handed_off",
   /** Atrium cannot sign in through pi now: the login program cannot load the pi found, or pi is not usable. */
   "login_unavailable",
   /** The `loginId` names no login under way. */

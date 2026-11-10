@@ -65,8 +65,8 @@
   },
   {
     "file": "packages/ui/src/chat/use-hover-presence.ts",
-    "from": "useState(false)",
-    "to": "useState(true)",
+    "from": "const [present, setPresent] = useState(false);",
+    "to": "const [present, setPresent] = useState(true);",
     "test": "packages/ui/src/chat/hover-presence.browser.test.tsx",
     "name": "idle",
     "project": "ui"

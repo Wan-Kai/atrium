@@ -267,7 +267,7 @@ export function needsWorktreeFacts(task: Task): boolean {
 }
 
 /**
- * What waits for the user's verdict in a task (ADR-0017; SPEC-0006, "T8a 定下的细节").
+ * What waits for the user's verdict in a task (ADR-0018; SPEC-0006, "T8a 定下的细节").
  *
  * @remarks
  * Worked out from the task's durable state every time and kept nowhere, so it is the same after a host restart.
@@ -344,7 +344,7 @@ export interface TaskReviewPorts {
 }
 
 /**
- * Creates the provider of the task gates (ADR-0017, decision 2).
+ * Creates the provider of the task gates (ADR-0018, decision 2).
  *
  * @remarks
  * What waits comes from `TaskService.view`, which works the reviews out of the task's durable state and the

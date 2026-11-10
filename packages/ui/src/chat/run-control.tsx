@@ -35,7 +35,7 @@ export interface RunActions {
   /** Answers, or skips, the agent's questions (SPEC-0003); whether it went. */
   readonly answerQuestion: (questionId: string, reply: QuestionReply) => Promise<boolean>;
   /**
-   * Decides a review (ADR-0017); resolves with the words for what went wrong, or `null` when the verdict went.
+   * Decides a review (ADR-0018); resolves with the words for what went wrong, or `null` when the verdict went.
    * Without it a review's buttons are inert.
    */
   readonly answerReview?: (reviewId: string, verdict: Verdict) => Promise<string | null>;

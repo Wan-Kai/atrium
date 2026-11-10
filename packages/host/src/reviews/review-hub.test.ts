@@ -131,7 +131,7 @@ async function failure(work: Promise<unknown>): Promise<{ code: string; params: 
   return { code: error.code, params: error.params };
 }
 
-describe("the review hub (ADR-0017, decision 2)", () => {
+describe("the review hub (ADR-0018, decision 2)", () => {
   it("counts a session's reviews oldest first and tells its listeners only when they changed", async () => {
     const provider = fakeProvider({ s1: [review("b", 20, [PASS]), review("a", 10, [PASS])] });
     const { hub, heard } = hubWith(provider);

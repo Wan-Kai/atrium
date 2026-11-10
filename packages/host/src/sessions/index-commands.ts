@@ -5,6 +5,7 @@ import {
   type ModelRef,
   type Preferences,
 } from "@atrium/protocol";
+import type { Clock } from "../platform/clock";
 import { checkProxy } from "../platform/proxy";
 import type { ProjectService } from "../projects/project-service";
 import type { ChatRecords } from "../store/chat-records";
@@ -46,6 +47,10 @@ export interface IndexCommands {
   ): Promise<CommandResult<"name_branch">>;
   /** Names a chat, or with `null` goes back to its first session's title. */
   renameChat(chatId: string, name: string | null): Promise<CommandResult<"rename_chat">>;
+  /** Pins a chat to the top of the sidebar (SPEC-0001, "对话的置顶与顺序"). */
+  pinChat(chatId: string): Promise<CommandResult<"pin_chat">>;
+  /** Unpins a chat, letting it fall back to activity order. */
+  unpinChat(chatId: string): Promise<CommandResult<"unpin_chat">>;
   windowFocused(): Promise<CommandResult<"window_focused">>;
   setPreferences(changes: Partial<Preferences>): Promise<CommandResult<"set_preferences">>;
   /** The models pi can use in a workspace's directory, or with `null` outside any; `refresh` asks pi again. */
@@ -87,13 +92,32 @@ export function createIndexCommands(options: {
   readonly preferences: PreferenceStore;
   /** The chats there are (`SessionCatalog.chats`). */
   readonly chats: () => readonly ContainerDir[];
-  readonly chatRecords: Pick<ChatRecords, "rename">;
+  readonly chatRecords: Pick<ChatRecords, "rename" | "pin" | "unpin">;
+  /** The host's clock, for when a chat was pinned. */
+  readonly clock: Pick<Clock, "now">;
   readonly feed: IndexFeed;
   /** Lists a workspace's models, or those outside any (`createModelLister`). */
   readonly listModels: IndexCommands["listModels"];
   /** Finds pi's working directories, leaving out those inside `taken` (`discoverProjects`). */
   readonly discover: (taken: readonly string[]) => Promise<DiscoveredDirectory[]>;
 }): IndexCommands {
+  /**
+   * Pins or unpins a chat, telling the clients.
+   *
+   * @remarks
+   * A chat is found by its directory, so one whose directory went is `chat_not_found`.
+   *
+   * @sideEffects Writes `chats.json` when it changes; tells the feed.
+   * @param chatId - The chat.
+   * @param pinned - Whether to pin it or unpin it.
+   */
+  async function setPinned(chatId: string, pinned: boolean): Promise<void> {
+    if (!options.chats().some((chat) => chat.id === chatId)) throw new CommandError("chat_not_found", { chatId });
+    if (pinned) await options.chatRecords.pin(chatId, options.clock.now());
+    else await options.chatRecords.unpin(chatId);
+    options.feed.changed();
+  }
+
   return {
     async subscribeIndex(connectionId, cursor) {
       options.feed.subscribe(connectionId, cursor);
@@ -139,6 +163,14 @@ export function createIndexCommands(options: {
       if (!options.chats().some((chat) => chat.id === chatId)) throw new CommandError("chat_not_found", { chatId });
       await options.chatRecords.rename(chatId, name);
       options.feed.changed();
+      return {};
+    },
+    async pinChat(chatId) {
+      await setPinned(chatId, true);
+      return {};
+    },
+    async unpinChat(chatId) {
+      await setPinned(chatId, false);
       return {};
     },
     async windowFocused() {

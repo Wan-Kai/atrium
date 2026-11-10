@@ -80,6 +80,19 @@ public struct HeartbeatTracker: Sendable {
     if pendingSince == nil { pendingSince = now }
   }
 
+  /// Records that something came from the host at `instant`, not only a heartbeat answer.
+  ///
+  /// - Remark: The host's answer queues behind a long message it already wrote, so on a slow line
+  ///   it can come later than the timeout; any frame heard since the open heartbeat went out shows
+  ///   the host is there and answers it (SPEC-0005 "断线与恢复 · 心跳"). A frame from before, or from
+  ///   the same instant, does not: it may have been on its way before the heartbeat went out.
+  /// - SideEffects: none
+  /// - Parameter instant: When the last frame came.
+  public mutating func heard(at instant: Elapsed) {
+    guard let pendingSince, instant > pendingSince else { return }
+    acknowledged(at: instant)
+  }
+
   /// Records an answer at `now`.
   ///
   /// - Remark: Any answer clears the misses.

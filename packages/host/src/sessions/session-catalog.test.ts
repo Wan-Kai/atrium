@@ -19,10 +19,11 @@ const B = "wks_000000000000000b";
  * Real files throughout; tests write session files where pi would.
  *
  * @sideEffects Creates the directories, removed when the test ends.
- * @param options - Whether pi keeps a folder per directory, and whether its location is known.
+ * @param options - Whether pi keeps a folder per directory, whether its location is known, and
+ * when the learning directory's first scan ends.
  * @returns The catalog and its surroundings.
  */
-async function catalog(options: { perCwd?: boolean; known?: boolean } = {}) {
+async function catalog(options: { perCwd?: boolean; known?: boolean; directionsFound?: Promise<void> } = {}) {
   const temp = await createTempDir("catalog");
   onTestFinished(temp.cleanup);
   const root = await realpath(temp.path);
@@ -38,11 +39,15 @@ async function catalog(options: { perCwd?: boolean; known?: boolean } = {}) {
   const { file } = await loadIndexFile(join(root, "index"), SESSIONS_FILE, 0);
   const clock = new FakeClock(5_000);
   const { logger, records } = recordingTracing();
+  let directions: ContainerDir[] = [];
+  const found = options.directionsFound;
   const sessions = createSessionCatalog({
     file,
     location: Promise.resolve(options.known === false ? null : location),
     chatsRoot,
     workspaces: () => workspaces,
+    directions: () => directions,
+    ...(found === undefined ? {} : { directionsFound: () => found }),
     reader: createSessionFileReader(),
     clock,
     logger,
@@ -60,6 +65,7 @@ async function catalog(options: { perCwd?: boolean; known?: boolean } = {}) {
     logs: records,
     changes: () => changes,
     setWorkspaces: (next: ContainerDir[]) => (workspaces = next),
+    setDirections: (next: ContainerDir[]) => (directions = next),
     /** Writes a session file where pi would, changed at `modifiedAt` seconds. */
     write: async (cwd: string, id: string, lines: unknown[] = [], modifiedAt = 100, name = `${id}.jsonl`) => {
       const folder = sessionFolder(location, cwd);
@@ -123,11 +129,11 @@ describe("SessionCatalog", () => {
         updatedAt: 100_000,
         archived: false,
         attention: null,
-        handedOff: false,
         fast: null,
         model: null,
         parent: null,
         usageAfter: null,
+        study: null,
         agent: null,
         usedHandles: [],
         task: null,
@@ -214,11 +220,11 @@ describe("SessionCatalog", () => {
         updatedAt: 5_001,
         archived: false,
         attention: null,
-        handedOff: false,
         fast: null,
         model: null,
         parent: null,
         usageAfter: null,
+        study: null,
         agent: null,
         usedHandles: [],
         task: null,
@@ -285,22 +291,45 @@ describe("SessionCatalog", () => {
     ]);
   });
 
-  it("marks a session's attention and hand-off, recording one from the terminal, and writes only a change", async () => {
+  it("records what a session was archived with, and forgets it once restored (SPEC-0008, ML3)", async () => {
+    const { sessions, dirs, file } = await catalog();
+    await sessions.record({ sessionId: "lesson", containerId: A, cwd: dirs.a });
+    await sessions.record({ sessionId: "quiz", containerId: A, cwd: dirs.a });
+
+    await sessions.archive("lesson", "lesson");
+    await sessions.archive("quiz", "lesson");
+
+    expect(sessions.list().map((one) => [one.sessionId, one.archived, one.archivedWith])).toStrictEqual([
+      ["lesson", true, "lesson"],
+      ["quiz", true, "lesson"],
+    ]);
+    await sessions.unarchive("quiz");
+
+    expect(sessions.find("quiz")).toMatchObject({ archived: false });
+    expect(sessions.find("quiz")).not.toHaveProperty("archivedWith");
+    expect(JSON.parse(JSON.stringify(file.read().sessions))).toMatchObject([
+      { sessionId: "lesson", archived: true, archivedWith: "lesson" },
+      { sessionId: "quiz", archived: false },
+    ]);
+    expect(JSON.parse(JSON.stringify(file.read().sessions))[1]).not.toHaveProperty("archivedWith");
+  });
+
+  it("marks a session's attention, recording one from the terminal, and writes only a change", async () => {
     const { sessions, dirs, file, write, changes } = await catalog();
     await write(dirs.a, "terminal", [user("hi")]);
     await sessions.record({ sessionId: "ours", containerId: A, cwd: dirs.a });
     await sessions.scan();
     const before = changes();
 
-    await sessions.mark("terminal", { attention: { reason: "auth", at: 7, cleared: false } });
-    await sessions.mark("ours", { handedOff: true });
-    await sessions.mark("ours", { handedOff: true });
-    await sessions.mark("terminal", { attention: { reason: "auth", at: 7, cleared: false } });
-    await sessions.mark("unknown", { handedOff: true });
+    await sessions.mark("terminal", { attention: { reason: "auth", at: 7, cleared: false, text: null } });
+    await sessions.mark("ours", { attention: { reason: "auth", at: 7, cleared: false, text: null } });
+    await sessions.mark("ours", { attention: { reason: "auth", at: 7, cleared: false, text: null } });
+    await sessions.mark("terminal", { attention: { reason: "auth", at: 7, cleared: false, text: null } });
+    await sessions.mark("unknown", { attention: { reason: "auth", at: 7, cleared: false, text: null } });
 
-    expect(sessions.list().map((entry) => [entry.sessionId, entry.attention, entry.handedOff])).toStrictEqual([
-      ["terminal", { reason: "auth", at: 7, cleared: false }, false],
-      ["ours", null, true],
+    expect(sessions.list().map((entry) => [entry.sessionId, entry.attention])).toStrictEqual([
+      ["terminal", { reason: "auth", at: 7, cleared: false, text: null }],
+      ["ours", { reason: "auth", at: 7, cleared: false, text: null }],
     ]);
     expect(file.read().sessions).toStrictEqual([
       {
@@ -310,7 +339,7 @@ describe("SessionCatalog", () => {
         draft: true,
         archived: false,
         createdAt: 5_000,
-        handedOff: true,
+        attention: { reason: "auth", at: 7, cleared: false, text: null },
       },
       {
         sessionId: "terminal",
@@ -319,16 +348,16 @@ describe("SessionCatalog", () => {
         draft: false,
         archived: false,
         createdAt: 5_000,
-        attention: { reason: "auth", at: 7, cleared: false },
+        attention: { reason: "auth", at: 7, cleared: false, text: null },
       },
     ]);
     expect(changes() - before).toBe(2);
 
     await sessions.mark("terminal", { attention: null });
-    await sessions.mark("ours", { handedOff: false });
-    expect(sessions.list().map((entry) => [entry.sessionId, entry.attention, entry.handedOff])).toStrictEqual([
-      ["terminal", null, false],
-      ["ours", null, false],
+    await sessions.mark("ours", { attention: null });
+    expect(sessions.list().map((entry) => [entry.sessionId, entry.attention])).toStrictEqual([
+      ["terminal", null],
+      ["ours", null],
     ]);
   });
 
@@ -367,9 +396,80 @@ describe("SessionCatalog", () => {
     await write(dirs.a, "terminal", [user("hi")]);
     await sessions.scan();
 
-    await sessions.mark("terminal", { attention: null, handedOff: false });
+    await sessions.mark("terminal", { attention: null });
 
     expect(file.read().sessions).toStrictEqual([]);
+  });
+
+  it("waits for the learning directory's first scan before its own first, so a direction's sessions are filed at once", async () => {
+    const found = Promise.withResolvers<void>();
+    const { sessions, root, write, setDirections } = await catalog({ directionsFound: found.promise });
+    const dir = join(root, "Learning", "go");
+    await mkdir(dir, { recursive: true });
+    await write(dir, "terminal", [user("从终端问的")]);
+    let ready = false;
+    const waiting = sessions.ready().then(() => (ready = true));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(ready).toBe(false);
+
+    setDirections([{ id: "lrn_go", dir }]);
+    found.resolve();
+    await waiting;
+
+    expect(sessions.find("terminal")?.containerId).toBe("lrn_go");
+  });
+
+  it("files a direction's sessions under it, from the terminal by their directory, each with what it is for", async () => {
+    const { sessions, root, write, setDirections, file } = await catalog();
+    const dir = join(root, "Learning", "go");
+    await mkdir(dir, { recursive: true });
+    setDirections([{ id: "lrn_go", dir }]);
+    await sessions.record({ sessionId: "talk", containerId: "lrn_go", cwd: dir, study: { kind: "discuss" } });
+    await write(dir, "terminal", [user("从终端问的")]);
+    // A record a hand broke loses only its study.
+    await file.save({
+      ...file.read(),
+      sessions: [
+        ...file.read().sessions,
+        {
+          sessionId: "odd",
+          containerId: "lrn_go",
+          cwd: dir,
+          draft: true,
+          archived: false,
+          createdAt: 1,
+          study: { kind: "nap" },
+        },
+      ],
+    });
+
+    await sessions.scan();
+
+    expect(
+      sessions
+        .list()
+        .map(({ sessionId, containerId, study }) => ({ sessionId, containerId, study }))
+        .toSorted((a, b) => a.sessionId.localeCompare(b.sessionId)),
+    ).toStrictEqual([
+      { sessionId: "odd", containerId: "lrn_go", study: null },
+      { sessionId: "talk", containerId: "lrn_go", study: { kind: "discuss" } },
+      { sessionId: "terminal", containerId: "lrn_go", study: null },
+    ]);
+    expect(file.read().sessions.find((record) => record.sessionId === "talk")?.study).toStrictEqual({
+      kind: "discuss",
+    });
+  });
+
+  it("keeps an archived direction's sessions under it while its directory is elsewhere", async () => {
+    const { sessions, root, write, setDirections } = await catalog();
+    const home = join(root, "Learning", "go");
+    await write(home, "lesson", [user("上课")]);
+    // Archived: the directory moved, its sessions still name where it was.
+    setDirections([{ id: "lrn_go", dir: home }]);
+
+    await sessions.scan();
+
+    expect(sessions.find("lesson")).toMatchObject({ containerId: "lrn_go", state: "persisted", cwd: home });
   });
 
   it("lists a new chat and its drafts before any scan", async () => {
@@ -583,7 +683,10 @@ describe("SessionCatalog before its first scan", () => {
     await sessions.detach("c1");
 
     expect(sessions.find("c1")?.parent).toBeNull();
-    expect(file.read().sessions[0]).toMatchObject({ sessionId: "c1", name: "x" });
+    // It still reads the visuals of the session it came from (SPEC-0007, MV1 details).
+    expect(sessions.find("c1")?.detachedFrom).toBe("s1");
+    expect(sessions.find("s2")?.detachedFrom).toBeUndefined();
+    expect(file.read().sessions[0]).toMatchObject({ sessionId: "c1", name: "x", detachedFrom: "s1" });
     expect(Object.keys(present(file.read().sessions[0], "the first record"))).not.toContain("parent");
     expect(changes()).toBe(before + 1);
   });

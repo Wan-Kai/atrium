@@ -80,7 +80,33 @@ const CHAT = "cht_a";
  * @returns The chat.
  */
 function chat(id: string, alias: string | null = null): Chat {
-  return { id, dir: `/home/.atrium/chats/${id}`, alias, firstSessionId: null, archivedAt: null };
+  return { id, dir: `/home/.atrium/chats/${id}`, alias, firstSessionId: null, archivedAt: null, pinnedAt: null };
+}
+
+/**
+ * A direction under discussion, named after its id.
+ *
+ * @sideEffects none
+ * @param id - Its id.
+ * @param alias - Its name, if the user gave one.
+ * @returns The direction.
+ */
+function direction(id: string, alias: string | null = null) {
+  return {
+    id,
+    dir: `/home/Atrium/Learning/${id.slice(4)}`,
+    name: id.slice(4),
+    alias,
+    broken: false,
+    newer: false,
+    discussing: true,
+    archived: false,
+    createdAt: null,
+    pinnedAt: null,
+    lastOpenedAt: null,
+    progress: null,
+    next: { primary: null, secondary: null },
+  };
 }
 
 /**
@@ -107,11 +133,13 @@ function session(id: string, running = false): SessionSummary {
     running,
     attention: null,
     asking: null,
-    handedOff: false,
+    question: null,
     model: null,
     parent: null,
     agent: null,
     heldDeliveries: 0,
+    kickoff: null,
+    study: null,
   };
 }
 
@@ -138,9 +166,11 @@ function feed(limits: { readonly removalsKept?: number; readonly changesLimit?: 
     projects: [project(1)],
     workspaces: [workspace(1)],
     chats: [chat(CHAT)],
+    directions: [],
     sessions: [session("s1")],
     preferences: PREFERENCES,
     resets: ["layouts"],
+    learningDir: "~/Atrium/Learning",
   };
   const layouts: Record<string, Layout> = {};
   const layoutOf = (clientId: string): Layout => layouts[clientId] ?? { container: null, tabs: {} };
@@ -200,10 +230,12 @@ describe("IndexFeed", () => {
         projects: [project(1)],
         workspaces: [workspace(1)],
         chats: [chat(CHAT)],
+        directions: [],
         sessions: [session("s1")],
         layout: { container: CHAT, tabs: { [CHAT]: { open: ["s1"], active: "s1" } } },
         preferences: PREFERENCES,
         resets: ["layouts"],
+        learningDir: "~/Atrium/Learning",
       },
     ]);
     expect(received["a"]).toStrictEqual([]);
@@ -232,6 +264,7 @@ describe("IndexFeed", () => {
       projects: { upsert: [project(1, "renamed"), project(2)], remove: [] },
       workspaces: { upsert: [], remove: [workspace(1).id] },
       chats: { upsert: [chat(CHAT, "合并原理"), chat("cht_b")], remove: [] },
+      directions: { upsert: [], remove: [] },
       sessions: { upsert: [session("s1", true), session("s2")], remove: [] },
       layout: null,
       preferences: null,
@@ -241,6 +274,21 @@ describe("IndexFeed", () => {
     expect(resources.snapshot()["timer"]).toBe(0);
     push();
     expect(received["a"]).toHaveLength(2);
+  });
+
+  it("sends a direction that changed, came or went like any other item (SPEC-0008)", () => {
+    const { index, received, content, push } = feed();
+    content.directions = [direction("lrn_go"), direction("lrn_rust")];
+    index.subscribe("a");
+
+    content.directions = [direction("lrn_go", "Go 语言"), direction("lrn_sql")];
+    push();
+
+    expect(received["a"]?.[1]).toMatchObject({
+      type: "index_changes",
+      directions: { upsert: [direction("lrn_go", "Go 语言"), direction("lrn_sql")], remove: ["lrn_rust"] },
+      sessions: { upsert: [], remove: [] },
+    });
   });
 
   it("sends a client's own layout only to it, with no new seq, and the preferences to all", () => {
@@ -261,6 +309,7 @@ describe("IndexFeed", () => {
         projects: none,
         workspaces: none,
         chats: none,
+        directions: none,
         sessions: none,
         layout: { container: CHAT, tabs: {} },
         preferences: null,
@@ -272,6 +321,7 @@ describe("IndexFeed", () => {
         projects: none,
         workspaces: none,
         chats: none,
+        directions: none,
         sessions: none,
         layout: null,
         preferences: { ...PREFERENCES, appearance: "dark" },
@@ -285,6 +335,7 @@ describe("IndexFeed", () => {
         projects: none,
         workspaces: none,
         chats: none,
+        directions: none,
         sessions: none,
         layout: null,
         preferences: { ...PREFERENCES, appearance: "dark" },
@@ -313,6 +364,7 @@ describe("IndexFeed", () => {
       projects: none,
       workspaces: none,
       chats: none,
+      directions: none,
       sessions: { upsert: [session("s2")], remove: [] },
       preferences: null,
     };
@@ -344,6 +396,7 @@ describe("IndexFeed", () => {
         projects: { upsert: [project(2)], remove: [] },
         workspaces: none,
         chats: none,
+        directions: none,
         sessions: { upsert: [session("s2")], remove: ["s1"] },
         layout: { container: CHAT, tabs: {} },
         preferences: PREFERENCES,
@@ -355,6 +408,7 @@ describe("IndexFeed", () => {
         projects: none,
         workspaces: none,
         chats: none,
+        directions: none,
         sessions: none,
         layout: { container: CHAT, tabs: {} },
         preferences: PREFERENCES,
@@ -395,6 +449,7 @@ describe("IndexFeed", () => {
           projects: none,
           workspaces: none,
           chats: none,
+          directions: none,
           sessions: { upsert: [session("s2")], remove: [] },
           layout: null,
           preferences: null,
@@ -427,6 +482,7 @@ describe("IndexFeed", () => {
         projects: none,
         workspaces: none,
         chats: none,
+        directions: none,
         sessions: { upsert: [session("t4")], remove: [] },
         layout: null,
         preferences: null,
@@ -455,6 +511,7 @@ describe("IndexFeed", () => {
         projects: none,
         workspaces: none,
         chats: none,
+        directions: none,
         sessions: { upsert: [session("t3")], remove: ["t0", "t1", "t2"] },
         layout: { container: null, tabs: {} },
         preferences: PREFERENCES,
@@ -481,6 +538,7 @@ describe("IndexFeed", () => {
         projects: none,
         workspaces: none,
         chats: none,
+        directions: none,
         sessions: { upsert: [session("s4")], remove: [] },
         layout: { container: null, tabs: {} },
         preferences: PREFERENCES,
@@ -507,6 +565,7 @@ describe("IndexFeed", () => {
         projects: none,
         workspaces: none,
         chats: none,
+        directions: none,
         sessions: { upsert: [session("s2")], remove: ["s1"] },
         layout: { container: null, tabs: {} },
         preferences: PREFERENCES,
@@ -518,6 +577,7 @@ describe("IndexFeed", () => {
         projects: none,
         workspaces: none,
         chats: none,
+        directions: none,
         sessions: { upsert: [session("s3")], remove: ["s2"] },
         layout: null,
         preferences: null,

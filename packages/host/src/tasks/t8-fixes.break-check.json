@@ -177,16 +177,16 @@
   },
   {
     "file": "packages/host/src/sessions/session-manager.ts",
-    "from": "const entry = entryOf(sessionId);\n      notTaskSession(sessionId);\n      // Its child",
-    "to": "const entry = entryOf(sessionId);\n      // Its child",
+    "from": "async archiveSession(sessionId) {\n      notTaskSession(sessionId);\n",
+    "to": "async archiveSession(sessionId) {\n",
     "test": "packages/host/src/tasks/t8-fixes.host.test.ts",
     "name": "refuses to open, rename or archive",
     "project": "host"
   },
   {
     "file": "packages/host/src/sessions/session-manager.ts",
-    "from": "const entry = entryOf(sessionId);\n      notTaskSession(sessionId);\n      if (entry.state === \"draft\") {",
-    "to": "const entry = entryOf(sessionId);\n      if (entry.state === \"draft\") {",
+    "from": "const entry = entryOf(sessionId);\n      notTaskSession(sessionId);\n      notReadOnly(sessionId);",
+    "to": "const entry = entryOf(sessionId);\n      notReadOnly(sessionId);",
     "test": "packages/host/src/tasks/t8-fixes.host.test.ts",
     "name": "refuses to open, rename or archive",
     "project": "host"
@@ -249,8 +249,8 @@
   },
   {
     "file": "packages/protocol/src/version.ts",
-    "from": "export const PROTOCOL_VERSION = 37;",
-    "to": "export const PROTOCOL_VERSION = 36;",
+    "from": "export const PROTOCOL_VERSION = 38;",
+    "to": "export const PROTOCOL_VERSION = 37;",
     "test": "packages/protocol/src/remote.test.ts",
     "name": "uses version",
     "project": "unit"

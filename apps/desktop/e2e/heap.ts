@@ -26,13 +26,18 @@ const DETACHED = 2;
  *
  * @remarks
  * Snapshots are taken over CDP so the real Electron renderer is measured, not a separate browser
- * (testing.md, "界面泄漏测试").
+ * (testing.md, "界面泄漏测试"). First the page draws two frames (`settleFrames`): Chromium's
+ * document timeline can keep the CSS animations of an element removed since the last frame, and
+ * with them the element, until a frame services the timeline. A running mark (21 animated dots)
+ * removed just before the snapshot otherwise counts as detached DOM nothing in the app holds.
  *
- * @sideEffects Opens a CDP session on the page, runs GC, and writes the snapshot file.
+ * @sideEffects Waits for two frames in the page; opens a CDP session on the page, runs GC, and
+ * writes the snapshot file.
  * @param page - The renderer page.
  * @param file - Where to write the `.heapsnapshot`.
  */
 export async function takeHeapSnapshot(page: Page, file: string): Promise<void> {
+  await settleFrames(page);
   const cdp = await page.context().newCDPSession(page);
   const chunks: string[] = [];
   cdp.on("HeapProfiler.addHeapSnapshotChunk", ({ chunk }) => chunks.push(chunk));
@@ -41,6 +46,24 @@ export async function takeHeapSnapshot(page: Page, file: string): Promise<void> 
   await cdp.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false });
   await cdp.detach();
   await writeFile(file, chunks.join(""));
+}
+
+/**
+ * Waits until the page has drawn two whole frames.
+ *
+ * @remarks
+ * A frame services the document timeline before it runs animation-frame callbacks, and an element
+ * removed since may have its animations cancelled only in that frame's style pass; the next frame's
+ * service drops them. Two callbacks are the least that covers both, wherever in a frame the call
+ * lands.
+ *
+ * @sideEffects Schedules two animation-frame callbacks in the page.
+ * @param page - The renderer page.
+ */
+async function settleFrames(page: Page): Promise<void> {
+  await page.evaluate(
+    () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
+  );
 }
 
 /**
@@ -60,11 +83,26 @@ export async function takeHeapSnapshot(page: Page, file: string): Promise<void> 
  * @returns One entry per node kind that grew, empty when nothing leaked.
  */
 export async function findDetachedDomLeaks(baselineFile: string, finalFile: string): Promise<DetachedGrowth[]> {
-  const before = countDetached(await readSnapshot(baselineFile));
-  const after = countDetached(await readSnapshot(finalFile));
+  const before = await readDetachedDomCounts(baselineFile);
+  const after = await readDetachedDomCounts(finalFile);
   return [...after.entries()]
     .filter(([name, count]) => count > (before.get(name) ?? 0))
     .map(([name, count]) => ({ name, before: before.get(name) ?? 0, after: count }));
+}
+
+/**
+ * Reads the number of detached DOM nodes of each kind in one snapshot.
+ *
+ * @remarks
+ * A warmed baseline can already contain a leak. Callers checking disposable resources such as
+ * Mermaid's drawing containers need an absolute zero check as well as the growth comparison.
+ *
+ * @sideEffects Reads the snapshot file.
+ * @param file - Heap snapshot to inspect.
+ * @returns Counts keyed by Chromium's DOM node description.
+ */
+export async function readDetachedDomCounts(file: string): Promise<Map<string, number>> {
+  return countDetached(await readSnapshot(file));
 }
 
 /**

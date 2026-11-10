@@ -358,8 +358,8 @@ describe("createSessionTranscript following recorded compactions during runs", (
       reason: "threshold",
     });
     expect(seen).toStrictEqual([
-      [["e6"], [], new Map([["e7", "threshold"]])],
-      [["e8"], [], new Map([["e10", "threshold"]])],
+      [["e6"], [], new Map([["e7", "threshold"]]), new Map()],
+      [["e8"], [], new Map([["e10", "threshold"]]), new Map()],
     ]);
   });
 });
@@ -754,6 +754,36 @@ function callEntry(id: string, parentId: string, callId: string): LogEntry {
   };
 }
 
+/**
+ * Turns of a user message, one bash call printing `output`, and a short reply.
+ *
+ * @remarks
+ * The reply keeps the next user message a new turn rather than a steer.
+ *
+ * @sideEffects none
+ * @param count - How many turns.
+ * @param output - What each call printed.
+ * @returns The entries, `u0` first, the last reply `d<count-1>` the leaf.
+ */
+function toolTurns(count: number, output: string): LogEntry[] {
+  const entries: LogEntry[] = [];
+  let parent: string | null = null;
+  for (let index = 0; index < count; index += 1) {
+    entries.push(
+      userEntry(`u${index}`, parent, `${index}`),
+      callEntry(`a${index}`, `u${index}`, `c${index}`),
+      { ...resultEntry(`r${index}`, `a${index}`, `c${index}`), text: output } as LogEntry,
+      {
+        ...callEntry(`d${index}`, `r${index}`, ""),
+        parts: [{ type: "text", text: "done" }],
+        stopReason: "stop",
+      } as LogEntry,
+    );
+    parent = `d${index}`;
+  }
+  return entries;
+}
+
 /** A compaction entry. */
 function compactionEntry(id: string, parentId: string): LogEntry {
   return {
@@ -979,6 +1009,51 @@ describe("createSessionTranscript remembering turn starts", () => {
     expect(session.items().map((item) => (item as Turn).user.auto)).toStrictEqual([false, true]);
   });
 
+  it("tells which entries opened turns sent from a visual, and marks them live and rebuilt", () => {
+    const seen: unknown[] = [];
+    let turns = 0;
+    const session = createSessionTranscript({
+      sessionId: "s",
+      newId: () => `live-${++turns}`,
+      now: () => 0,
+      onTurnsSeen: (entryIds, autoIds, _compactions, sources) => seen.push([[...entryIds], [...autoIds], [...sources]]),
+    });
+    const source = { kind: "visual", path: "a.html" } as const;
+    session.apply(userMessage("go"), noClient);
+    session.apply(
+      assistantMessage([{ type: "toolCall", callId: "c1", tool: "bash", args: { command: "ls" } }], "toolUse"),
+      noClient,
+    );
+    session.apply(toolResult("c1", "x"), noClient);
+    session.settle();
+    const started = session.apply(userMessage("next"), () => ({ clientMessageId: "v1", auto: false, source }));
+    session.settle();
+
+    session.rebuild({ entries, leafId: "u2" }, false);
+
+    expect(started).toMatchObject([{ type: "turn_started", turn: { user: { text: "next", source } } }]);
+    expect((session.items()[0] as Turn).user).not.toHaveProperty("source");
+    expect(seen).toStrictEqual([[["u1", "u2"], [], [["u2", source]]]]);
+    expect(session.items().map((item) => (item as Turn).user.source)).toStrictEqual([undefined, source]);
+  });
+
+  it("marks the turns an earlier host saw come from a visual", () => {
+    const recorded = createSessionTranscript({
+      sessionId: "s",
+      newId: () => "x",
+      now: () => 0,
+      opened: new Set(["u2"]),
+      sources: new Map([["u2", { kind: "visual", path: "/v/b.html" }]]),
+    });
+
+    recorded.rebuild({ entries, leafId: "u2" }, false);
+
+    expect(recorded.items().map((item) => [item.id, (item as Turn).user.source])).toStrictEqual([
+      ["s:u1", undefined],
+      ["s:u2", { kind: "visual", path: "/v/b.html" }],
+    ]);
+  });
+
   it("marks the turns an earlier host sent on its own", () => {
     const recorded = createSessionTranscript({
       sessionId: "s",
@@ -1158,6 +1233,18 @@ describe("createSessionTranscript pages", () => {
     });
     expect(ids(present(session.before("s:u3", 1, 4_194_304), "a page").items)).toStrictEqual(["s:u2"]);
     expect(ids(present(session.before("s:u1", 10, 1), "a page").items)).toStrictEqual(["s:u0"]);
+  });
+
+  it("counts a page's bytes with steps cut to a smaller limit when given, and sends them so", () => {
+    const { transcript: session } = transcript();
+    const entries = toolTurns(4, "o".repeat(15_000));
+    session.rebuild({ entries, leafId: "d3" }, false);
+
+    expect(ids(present(session.before("s:u3", 3, 30_000), "a page").items)).toStrictEqual(["s:u2"]);
+    const phone = present(session.before("s:u3", 3, 30_000, 512), "a page");
+    expect(ids(phone.items)).toStrictEqual(["s:u0", "s:u1", "s:u2"]);
+    const step = (phone.items[0] as Turn).steps[0];
+    expect(step).toMatchObject({ kind: "tool", partial: true, output: "o".repeat(512) });
   });
 
   it("pages back from an item, and knows no item it does not have", () => {

@@ -3,7 +3,7 @@ import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
 
 /**
- * Where a kind of review comes from (ADR-0017, decision 2).
+ * Where a kind of review comes from (ADR-0018, decision 2).
  *
  * @remarks
  * The hub knows nothing of tasks or agents. A provider says what waits in a session, carries out a verdict (the
@@ -94,7 +94,7 @@ interface Lane {
  * Checks a verdict against the review it answers.
  *
  * @remarks
- * The shape only (ADR-0017, decision 2): the action exists, the reason is there when the action requires one and
+ * The shape only (ADR-0018, decision 2): the action exists, the reason is there when the action requires one and
  * is not there when it takes none, and the target is one of the action's targets (and given only then). Whether the
  * state still allows it is the provider's business command's to say.
  *
@@ -120,7 +120,7 @@ function checkVerdict(review: PendingReview, verdict: Verdict): void {
  * Creates the review hub.
  *
  * @remarks
- * ADR-0017, decision 2. It gathers each session's pending reviews from the providers, keeps the last count for the
+ * ADR-0018, decision 2. It gathers each session's pending reviews from the providers, keeps the last count for the
  * run control and tells its listeners when a session's changed, checks a verdict's shape, lets only the first
  * verdict on a review through, and hands it to the provider that raised it. Everything for one session happens one
  * piece at a time, so two verdicts cannot both pass the check. It writes no words for people.

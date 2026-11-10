@@ -102,7 +102,7 @@ export {
 export { type ModelList, queryModels } from "./catalog/query";
 export { type ModelCatalog, createModelCatalog } from "./catalog/model-catalog";
 export { sessionModelOf } from "./catalog/models";
-export { isAgentCommand, isFastSwitch, isEditCommand, toSlashCommand } from "./catalog/commands";
+export { isAgentCommand, isFastSwitch, isEditCommand, isStudyCommand, toSlashCommand } from "./catalog/commands";
 export { EDIT_COMMAND, type EditParams, editCommand } from "./edit/edit";
 export { FAST_COMMAND } from "./fast/fast";
 export { PLAN_PROVIDERS, type PlanReport, isPlanProvider, planReplyOf } from "./plan/plan";
@@ -132,3 +132,21 @@ export {
   startLogin,
 } from "./auth/login";
 export { compactionReserve } from "./env/compaction";
+export {
+  VISUALS_FLAG,
+  VISUAL_CDN_HOSTS,
+  VISUAL_ICONS,
+  VISUAL_VARIABLES,
+  type VisualIcon,
+  visualsArgument,
+} from "./visuals/visuals";
+export {
+  STUDY_COMMAND,
+  STUDY_FLAG,
+  type StudyLaunch,
+  type StudyTool,
+  type StudyUse,
+  TOOLS_BY_USE,
+  startCommand,
+  studyArgument,
+} from "./study/study";

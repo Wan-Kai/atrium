@@ -7,8 +7,9 @@ import { SNAPSHOT_TURNS, SnapshotStream } from "./events";
 import { InteractionAnswer } from "./control";
 import { QuestionReply } from "./question";
 import { Verdict } from "./reviews";
-import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
+import { ChatId, ContainerId, DirectionId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, BranchName, ProxySetting, StatusBarChoices, TranslationLanguage } from "./listing";
+import { StudyKind, StudyRef } from "./study";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
 import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
@@ -16,6 +17,7 @@ import { PI_CONFIG_MAX_BYTES, PiConfigFile, PiConfigName, PiConfigRevision } fro
 import { DeviceId, PairingId, RelayLine, RemoteState } from "./remote";
 import { ScheduleId, ScheduleSummary } from "./schedules";
 import { ArchiveAnswer, HumanAnswer, TaskId, TaskNodeId, TaskSummary, TaskView } from "./tasks";
+import { VISUAL_FILE_MAX, VISUAL_MESSAGE_MAX, VisualPath } from "./visuals";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
 export const RequestId = z.string().min(1).max(128);
@@ -234,7 +236,7 @@ export const AnswerQuestionCommand = z.strictObject({
 export type AnswerQuestionCommand = z.infer<typeof AnswerQuestionCommand>;
 
 /**
- * Gives a verdict on a review waiting in a session (ADR-0017): a task's gates (graph approval, a human node, the
+ * Gives a verdict on a review waiting in a session (ADR-0018): a task's gates (graph approval, a human node, the
  * question about the worktree), which the host then carries out through the same checks as `approve_graph`,
  * `answer_human` and `answer_archive`. The first verdict on a review wins; later ones fail with `review_closed`.
  * Fails with `review_invalid` when the verdict does not fit the review, `review_closed` for a followed task (it has
@@ -280,7 +282,7 @@ export type SubscribeIndexCommand = z.infer<typeof SubscribeIndexCommand>;
 /** An absolute path on the host's machine. */
 const Path = z.string().min(1).max(4096);
 
-/** A name the user types for a project, workspace, chat or session. */
+/** A name the user types for a project, workspace, chat, direction or session. */
 const Name = z.string().trim().min(1).max(256);
 
 /** Registers a directory as a project. */
@@ -404,6 +406,178 @@ export const RestoreChatCommand = z.strictObject({
 });
 export type RestoreChatCommand = z.infer<typeof RestoreChatCommand>;
 
+/** Pins a chat to the top of the sidebar (SPEC-0001, "对话的置顶与顺序"). */
+export const PinChatCommand = z.strictObject({
+  type: z.literal("pin_chat"),
+  ...commandFields,
+  chatId: ChatId,
+});
+export type PinChatCommand = z.infer<typeof PinChatCommand>;
+
+/** Unpins a chat, letting it fall back to activity order. */
+export const UnpinChatCommand = z.strictObject({
+  type: z.literal("unpin_chat"),
+  ...commandFields,
+  chatId: ChatId,
+});
+export type UnpinChatCommand = z.infer<typeof UnpinChatCommand>;
+
+/**
+ * Creates a learning direction from its first message (SPEC-0008, "新建方向"): the host names it,
+ * makes its directory and a discussion session, opened as this client's active tab. The message
+ * itself goes to that session with `prompt`, as from the new-workspace page.
+ *
+ * @remarks
+ * `text` is only material for the name, and may be empty for a message of images only; `model`
+ * is the one the page's session would use, `null` when none was chosen.
+ */
+export const CreateDirectionCommand = z.strictObject({
+  type: z.literal("create_direction"),
+  ...commandFields,
+  text: PromptText,
+  model: ModelRef.nullable(),
+});
+export type CreateDirectionCommand = z.infer<typeof CreateDirectionCommand>;
+
+/** Names a direction on the learning home, or with `null` goes back to its own display name. */
+export const RenameDirectionCommand = z.strictObject({
+  type: z.literal("rename_direction"),
+  ...commandFields,
+  directionId: DirectionId,
+  name: Name.nullable(),
+});
+export type RenameDirectionCommand = z.infer<typeof RenameDirectionCommand>;
+
+/** Pins a direction to the front of the learning home. */
+export const PinDirectionCommand = z.strictObject({
+  type: z.literal("pin_direction"),
+  ...commandFields,
+  directionId: DirectionId,
+});
+export type PinDirectionCommand = z.infer<typeof PinDirectionCommand>;
+
+/** Unpins a direction. */
+export const UnpinDirectionCommand = z.strictObject({
+  type: z.literal("unpin_direction"),
+  ...commandFields,
+  directionId: DirectionId,
+});
+export type UnpinDirectionCommand = z.infer<typeof UnpinDirectionCommand>;
+
+/**
+ * Archives a direction: stops its sessions and moves its directory under `Archive/` (SPEC-0008,
+ * "方向是一种新容器").
+ */
+export const ArchiveDirectionCommand = z.strictObject({
+  type: z.literal("archive_direction"),
+  ...commandFields,
+  directionId: DirectionId,
+});
+export type ArchiveDirectionCommand = z.infer<typeof ArchiveDirectionCommand>;
+
+/** Moves an archived direction's directory back; refused as `study_restore_conflict` when its place is taken. */
+export const RestoreDirectionCommand = z.strictObject({
+  type: z.literal("restore_direction"),
+  ...commandFields,
+  directionId: DirectionId,
+});
+export type RestoreDirectionCommand = z.infer<typeof RestoreDirectionCommand>;
+
+/**
+ * Opens a session of a direction for a use, at a level and step, as the step strip's button does
+ * (SPEC-0008, "ML2 定的细节"); it opens as this client's active tab there.
+ *
+ * @remarks
+ * Only one of those the host can open now (SPEC-0008, "ML3 定的细节 · 费曼和补测从哪开"): the
+ * main button's, Feynman on a gap not fixed, a quiz put off; else `study_not_available`. One open
+ * already for the same use, level, step and gap is given instead of a new one. A quiz while its
+ * lesson's session runs is `session_busy`. `step` is left out for a plan session and for Feynman
+ * on a gap carried from an earlier level.
+ */
+export const StartStudySessionCommand = z.strictObject({
+  type: z.literal("start_study_session"),
+  ...commandFields,
+  directionId: DirectionId,
+  kind: StudyKind,
+  level: StudyRef,
+  step: StudyRef.optional(),
+  gap: StudyRef.optional(),
+});
+export type StartStudySessionCommand = z.infer<typeof StartStudySessionCommand>;
+
+/**
+ * Marks a part of a step done by hand, or takes a mark you made back (SPEC-0008, "手动标完成").
+ *
+ * @remarks
+ * `lesson` and `quiz` are a lesson's parts, `step` the whole step, `later` putting its quiz off;
+ * one the rules refuse is `study_mark_refused`.
+ */
+export const MarkStudyStepCommand = z.strictObject({
+  type: z.literal("mark_study_step"),
+  ...commandFields,
+  directionId: DirectionId,
+  level: StudyRef,
+  step: StudyRef,
+  mark: z.enum(["lesson", "quiz", "step", "later"]),
+  done: z.boolean(),
+});
+export type MarkStudyStepCommand = z.infer<typeof MarkStudyStepCommand>;
+
+/** Marks a gap fixed by hand, or takes that back (SPEC-0008, "手动标完成"). */
+export const MarkStudyGapCommand = z.strictObject({
+  type: z.literal("mark_study_gap"),
+  ...commandFields,
+  directionId: DirectionId,
+  gapId: StudyRef,
+  fixed: z.boolean(),
+});
+export type MarkStudyGapCommand = z.infer<typeof MarkStudyGapCommand>;
+
+/**
+ * Starts again a session the host opened for a use that did not start (its "重试"; SPEC-0008,
+ * "ML2 定的细节"): sends the start once its pi lists the command, if it has no turn yet.
+ */
+export const RetryStudyKickoffCommand = z.strictObject({
+  type: z.literal("retry_study_kickoff"),
+  ...commandFields,
+  sessionId: SessionId,
+});
+export type RetryStudyKickoffCommand = z.infer<typeof RetryStudyKickoffCommand>;
+
+/**
+ * Upgrades a direction past its current level (SPEC-0008, "ML3 定的细节 · 升级"): writes the level
+ * done and the next current, or the direction finished after the last; archives the level's
+ * sessions with their children when `archiveSessions`; opens the next level's plan session.
+ *
+ * @remarks
+ * `level` is the level the client saw as current, so two windows pressing it once each upgrade
+ * once; when it is not current, or the upgrade is not the next step, `study_not_available`.
+ */
+export const UpgradeStudyCommand = z.strictObject({
+  type: z.literal("upgrade_study"),
+  ...commandFields,
+  directionId: DirectionId,
+  level: StudyRef,
+  archiveSessions: z.boolean(),
+});
+export type UpgradeStudyCommand = z.infer<typeof UpgradeStudyCommand>;
+
+/**
+ * Unarchives sessions of a direction archived with a level, with their children (SPEC-0008,
+ * "ML3 定的细节 · 方向里归档了的会话").
+ *
+ * @remarks
+ * One id not of a session of this direction refuses the whole command (`session_not_found`); those
+ * not archived are skipped.
+ */
+export const RestoreStudySessionsCommand = z.strictObject({
+  type: z.literal("restore_study_sessions"),
+  ...commandFields,
+  directionId: DirectionId,
+  sessionIds: z.array(SessionId).min(1).max(256),
+});
+export type RestoreStudySessionsCommand = z.infer<typeof RestoreStudySessionsCommand>;
+
 /** The window gained focus: the host scans workspaces, merge states and session files again. */
 export const WindowFocusedCommand = z.strictObject({ type: z.literal("window_focused"), ...commandFields });
 export type WindowFocusedCommand = z.infer<typeof WindowFocusedCommand>;
@@ -425,7 +599,7 @@ export const ForkPlacement = z.discriminatedUnion("place", [
 ]);
 export type ForkPlacement = z.infer<typeof ForkPlacement>;
 
-/** Creates a session in a workspace or chat, starts its pi and opens it as this client's active tab. */
+/** Creates a session in a workspace, chat or direction, starts its pi and opens it as this client's active tab. */
 export const CreateSessionCommand = z.strictObject({
   type: z.literal("create_session"),
   ...commandFields,
@@ -447,7 +621,7 @@ export type CreateSessionCommand = z.infer<typeof CreateSessionCommand>;
 export const CloseTabCommand = z.strictObject({ type: z.literal("close_tab"), ...commandFields, sessionId: SessionId });
 export type CloseTabCommand = z.infer<typeof CloseTabCommand>;
 
-/** Goes to a workspace or a chat, or nowhere. */
+/** Goes to a workspace, a chat or a direction, or nowhere. */
 export const SelectContainerCommand = z.strictObject({
   type: z.literal("select_container"),
   ...commandFields,
@@ -478,14 +652,6 @@ export const ClearAttentionCommand = z.strictObject({
   sessionId: SessionId,
 });
 export type ClearAttentionCommand = z.infer<typeof ClearAttentionCommand>;
-
-/** Stops a session's pi so pi in a terminal can go on with it; Atrium starts none until taken back. */
-export const HandOffCommand = z.strictObject({ type: z.literal("hand_off"), ...commandFields, sessionId: SessionId });
-export type HandOffCommand = z.infer<typeof HandOffCommand>;
-
-/** Goes on with a session handed to a terminal: reads its file again and starts pi. */
-export const TakeBackCommand = z.strictObject({ type: z.literal("take_back"), ...commandFields, sessionId: SessionId });
-export type TakeBackCommand = z.infer<typeof TakeBackCommand>;
 
 /** Names a session, written back to pi. */
 export const RenameSessionCommand = z.strictObject({
@@ -650,6 +816,31 @@ export const ReadFileCommand = z.strictObject({
   path: WorkspacePath,
 });
 export type ReadFileCommand = z.infer<typeof ReadFileCommand>;
+
+/**
+ * Checks a visual a reply names and hands out its sandbox address (SPEC-0007, "接口与数据").
+ *
+ * @remarks
+ * The connection then hears `visual_changed` when the file changes, until it closes.
+ */
+export const ResolveVisualCommand = z.strictObject({
+  type: z.literal("resolve_visual"),
+  ...sessionCommandFields,
+  path: VisualPath,
+});
+export type ResolveVisualCommand = z.infer<typeof ResolveVisualCommand>;
+
+/**
+ * Sends what you picked in a visual as your message in its session (SPEC-0007, "回传"): a steer
+ * while a run goes on, a new turn otherwise, marked as coming from the visual.
+ */
+export const SendVisualMessageCommand = z.strictObject({
+  type: z.literal("send_visual_message"),
+  ...sessionCommandFields,
+  path: VisualPath,
+  text: z.string().min(1).max(VISUAL_MESSAGE_MAX),
+});
+export type SendVisualMessageCommand = z.infer<typeof SendVisualMessageCommand>;
 
 /** Reads a fixed ordinary pi configuration; `null` selects the global agent directory. */
 export const ReadPiConfigCommand = z.strictObject({
@@ -1130,6 +1321,20 @@ export const Command = z.discriminatedUnion("type", [
   RenameChatCommand,
   ArchiveChatCommand,
   RestoreChatCommand,
+  PinChatCommand,
+  UnpinChatCommand,
+  CreateDirectionCommand,
+  RenameDirectionCommand,
+  PinDirectionCommand,
+  UnpinDirectionCommand,
+  ArchiveDirectionCommand,
+  RestoreDirectionCommand,
+  StartStudySessionCommand,
+  MarkStudyStepCommand,
+  MarkStudyGapCommand,
+  RetryStudyKickoffCommand,
+  UpgradeStudyCommand,
+  RestoreStudySessionsCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -1137,8 +1342,6 @@ export const Command = z.discriminatedUnion("type", [
   ArchiveSessionCommand,
   DetachSessionCommand,
   ClearAttentionCommand,
-  HandOffCommand,
-  TakeBackCommand,
   RenameSessionCommand,
   SetPreferencesCommand,
   ReportClientIssueCommand,
@@ -1169,6 +1372,8 @@ export const Command = z.discriminatedUnion("type", [
   WatchDiffCommand,
   ListDirCommand,
   ReadFileCommand,
+  ResolveVisualCommand,
+  SendVisualMessageCommand,
   ReadPiConfigCommand,
   SavePiConfigCommand,
   CheckSetupCommand,
@@ -1285,6 +1490,22 @@ export const CommandResult = {
   rename_chat: z.strictObject({}),
   archive_chat: z.strictObject({}),
   restore_chat: z.strictObject({}),
+  pin_chat: z.strictObject({}),
+  unpin_chat: z.strictObject({}),
+  /** `sessionId` is `null` when the direction was made but its discussion could not be created (SPEC-0008). */
+  create_direction: z.strictObject({ directionId: DirectionId, sessionId: SessionId.nullable() }),
+  rename_direction: z.strictObject({}),
+  pin_direction: z.strictObject({}),
+  unpin_direction: z.strictObject({}),
+  archive_direction: z.strictObject({}),
+  restore_direction: z.strictObject({}),
+  start_study_session: z.strictObject({ sessionId: SessionId }),
+  mark_study_step: z.strictObject({}),
+  mark_study_gap: z.strictObject({}),
+  retry_study_kickoff: z.strictObject({}),
+  /** The plan session opened (`null` after the last level, or when it could not be), and how many sessions could not be archived. */
+  upgrade_study: z.strictObject({ planSessionId: SessionId.nullable(), notArchived: z.number().int().nonnegative() }),
+  restore_study_sessions: z.strictObject({}),
   window_focused: z.strictObject({}),
   create_session: z.strictObject({ sessionId: SessionId }),
   close_tab: z.strictObject({}),
@@ -1292,13 +1513,6 @@ export const CommandResult = {
   archive_session: z.strictObject({}),
   detach_session: z.strictObject({}),
   clear_attention: z.strictObject({}),
-  /** The session file, for `pi --session`. */
-  /**
-   * `args`: the tool limits of a child the agent opened, which pi in a terminal takes as flags, as
-   * it has no Atrium extension; only advice there (SPEC-0002, "交接").
-   */
-  hand_off: z.strictObject({ file: z.string().min(1).max(4096), args: z.array(z.string().max(4096)).max(16) }),
-  take_back: z.strictObject({}),
   rename_session: z.strictObject({}),
   set_preferences: z.strictObject({}),
   report_client_issue: z.strictObject({}),
@@ -1340,6 +1554,14 @@ export const CommandResult = {
   list_dir: z.strictObject({ entries: z.array(DirEntry).max(FILE_LIMITS.entries), truncated: z.boolean() }),
   /** `size` in bytes; 0 for a link. */
   read_file: z.strictObject({ size: z.number().int().nonnegative(), content: FileContent }),
+  /** The sandbox address, the file's size and when it last changed. */
+  resolve_visual: z.strictObject({
+    url: z.string().startsWith("atrium-visual://").max(8192),
+    size: z.number().int().nonnegative().max(VISUAL_FILE_MAX),
+    mtime: z.number().int().nonnegative(),
+  }),
+  /** As `steer`'s, and `dropped` when the same visual sent less than a second before. */
+  send_visual_message: z.strictObject({ disposition: z.enum(["started", "queued", "handled", "dropped"]) }),
   read_pi_config: PiConfigFile,
   save_pi_config: PiConfigFile,
   check_setup: SetupState,

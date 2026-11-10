@@ -533,6 +533,64 @@
   "restore_chat": [
     {}
   ],
+  "pin_chat": [
+    {}
+  ],
+  "unpin_chat": [
+    {}
+  ],
+  "create_direction": [
+    {
+      "directionId": "lrn_node-backend",
+      "sessionId": "s1"
+    },
+    {
+      "directionId": "lrn_node-backend",
+      "sessionId": null
+    }
+  ],
+  "rename_direction": [
+    {}
+  ],
+  "pin_direction": [
+    {}
+  ],
+  "unpin_direction": [
+    {}
+  ],
+  "archive_direction": [
+    {}
+  ],
+  "restore_direction": [
+    {}
+  ],
+  "start_study_session": [
+    {
+      "sessionId": "s1"
+    }
+  ],
+  "mark_study_step": [
+    {}
+  ],
+  "mark_study_gap": [
+    {}
+  ],
+  "retry_study_kickoff": [
+    {}
+  ],
+  "upgrade_study": [
+    {
+      "planSessionId": "s1",
+      "notArchived": 0
+    },
+    {
+      "planSessionId": null,
+      "notArchived": 2
+    }
+  ],
+  "restore_study_sessions": [
+    {}
+  ],
   "window_focused": [
     {}
   ],
@@ -554,18 +612,6 @@
     {}
   ],
   "clear_attention": [
-    {}
-  ],
-  "hand_off": [
-    {
-      "file": "/pi/sessions/s1.jsonl",
-      "args": [
-        "--tools",
-        "read,ls"
-      ]
-    }
-  ],
-  "take_back": [
     {}
   ],
   "rename_session": [
@@ -787,6 +833,32 @@
       "content": {
         "kind": "too_large"
       }
+    }
+  ],
+  "resolve_visual": [
+    {
+      "url": "atrium-visual://AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/2-03-isolation.html",
+      "size": 1,
+      "mtime": 1760000000000
+    },
+    {
+      "url": "atrium-visual://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/a.html",
+      "size": 1048576,
+      "mtime": 0
+    }
+  ],
+  "send_visual_message": [
+    {
+      "disposition": "started"
+    },
+    {
+      "disposition": "queued"
+    },
+    {
+      "disposition": "handled"
+    },
+    {
+      "disposition": "dropped"
     }
   ],
   "read_pi_config": [

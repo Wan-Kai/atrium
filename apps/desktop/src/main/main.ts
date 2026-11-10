@@ -17,7 +17,17 @@ import { lstat, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { followTasksFor } from "./follow-tasks";
+import { openTerminalIn } from "./open-terminal";
 import { allowsPermission, isPageUrl } from "./permissions";
+import { menuShortcut } from "./shortcuts";
+import {
+  type RequestFrame,
+  VISUAL_SCHEME,
+  captureRect,
+  visualContentSecurityPolicy,
+  visualHostPath,
+  visualRequestAllowed,
+} from "./visual-sandbox";
 import { type VaultKeeper, createVaultKeeper } from "./vault";
 
 /** Where the host's bundle and the built UI live, and how often the app's processes are sampled. */
@@ -200,6 +210,8 @@ function pageContentSecurityPolicy(hostPort: number, dev: boolean): string {
     "img-src 'self' data: blob: https:",
     "font-src 'self'",
     `connect-src 'self' ws://127.0.0.1:${hostPort}`,
+    // Inline visuals load in frames of their own scheme, and nothing else does (SPEC-0007).
+    `frame-src ${VISUAL_SCHEME}:`,
     "object-src 'none'",
     "base-uri 'none'",
     "frame-ancestors 'none'",
@@ -262,6 +274,25 @@ async function isBrowsable(path: string): Promise<boolean> {
 }
 
 /**
+ * Whether the page may open a terminal in a directory: an absolute path to a folder that exists.
+ *
+ * @remarks
+ * The page asks for the workspace a session is in, or `null` for the home folder (SPEC-0001,
+ * "在终端中打开"). Anything else it sends is ignored (security.md, "Electron").
+ *
+ * @sideEffects Reads the file system.
+ * @param path - The path the page sent.
+ * @returns Whether to open a terminal there.
+ */
+async function isOpenableDirectory(path: string): Promise<boolean> {
+  if (!isAbsolute(path)) return false;
+  return stat(path).then(
+    (found) => found.isDirectory(),
+    () => false,
+  );
+}
+
+/**
  * Applies the window-level security rules to a window's web contents.
  *
  * @remarks
@@ -297,7 +328,8 @@ function restrictNavigation(window: BrowserWindow, pageUrl: string): void {
  * app again focuses this window.
  *
  * @sideEffects Generates the session token; starts the host, which may ask for the vault; registers IPC handlers (bootstrap,
- * choosing a folder, appearance); sets the app menu; creates a window; adds a CSP header to dev pages; delays quitting until the host has stopped; focuses
+ * choosing a folder, appearance, a visual's snapshot); serves `atrium-visual:` and filters visuals' requests; sets the app
+ * menu; creates a window; adds a CSP header to dev pages; delays quitting until the host has stopped; focuses
  * the window when the app is opened again.
  */
 async function main(): Promise<void> {
@@ -355,6 +387,11 @@ async function main(): Promise<void> {
   } else {
     serveAppScheme(hostUrl, pageContentSecurityPolicy(host.port, false));
   }
+  serveVisualScheme(hostUrl);
+  // What a request of no frame may reach besides what a visual may: the app's page and the host.
+  const appOrigins = [APP_ORIGIN, hostUrl, hostUrl.replace(/^http:/u, "ws:")];
+  if (devUrl !== undefined) appOrigins.push(pageOrigin, pageOrigin.replace(/^http/u, "ws"));
+  filterVisualRequests(appOrigins);
 
   /**
    * Refuses IPC from any frame but the app's page.
@@ -391,6 +428,27 @@ async function main(): Promise<void> {
     checkSender(event);
     if (typeof path === "string" && (await isBrowsable(path))) await shell.openExternal(pathToFileURL(path).href);
   });
+  ipcMain.handle("atrium:capture-visual", async (event, rect: unknown) => {
+    checkSender(event);
+    const [width, height] = BrowserWindow.fromWebContents(event.sender)?.getContentSize() ?? [0, 0];
+    // The page measures in CSS pixels, the window in its own; they differ when the page is zoomed.
+    const zoom = event.sender.getZoomFactor();
+    const area = captureRect(rect, { width: (width ?? 0) / zoom, height: (height ?? 0) / zoom });
+    if (area === null) return null;
+    // In memory only: the page keeps the latest one per visual (SPEC-0007, "截图怎么截").
+    const scaled = {
+      x: Math.round(area.x * zoom),
+      y: Math.round(area.y * zoom),
+      width: Math.round(area.width * zoom),
+      height: Math.round(area.height * zoom),
+    };
+    return (await event.sender.capturePage(scaled)).toDataURL();
+  });
+  ipcMain.handle("atrium:open-terminal", async (event, dir: unknown) => {
+    checkSender(event);
+    if (dir !== null && (typeof dir !== "string" || !(await isOpenableDirectory(dir)))) return;
+    await openTerminalIn(typeof dir === "string" ? dir : null);
+  });
   ipcMain.handle("atrium:appearance", (event, appearance: unknown) => {
     checkSender(event);
     if (appearance === "system" || appearance === "light" || appearance === "dark") {
@@ -415,11 +473,25 @@ async function main(): Promise<void> {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      // The preload runs in frames too, there only to take WebRTC away (SPEC-0007, MV1 details).
+      nodeIntegrationInSubFrames: true,
       webSecurity: true,
       spellcheck: false,
     },
   });
   restrictNavigation(window, pageUrl);
+  // WebRTC is not held by CSP nor seen by the request filter: with no proxy, no UDP and no
+  // WebRTC traffic at all, so a visual cannot reach a STUN/TURN server (security.md, "Electron").
+  window.webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
+  // Where the user pressed the mouse, in the page's CSS pixels: a visual's message counts only
+  // after a press inside its own frame, which the page cannot see itself (SPEC-0007, MV1 details).
+  window.webContents.on("input-event", (_event, input) => {
+    const point = pressPoint(input);
+    if (point === null) return;
+    const zoom = window.webContents.getZoomFactor();
+    window.webContents.send("atrium:pointer-down", { x: point.x / zoom, y: point.y / zoom });
+  });
+  forwardMenuShortcuts(window);
   window.once("ready-to-show", () => window.show());
   // Opening the app again brings this window forward (domain-model §1, "索引的存储").
   app.on("second-instance", () => {
@@ -453,6 +525,131 @@ function serveAppScheme(hostUrl: string, policy: string): void {
     const headers = new Headers(response.headers);
     headers.set("Content-Security-Policy", policy);
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  });
+}
+
+/**
+ * Serves `atrium-visual://<token>/<name>` from the host's `/visual/` pages, with the sandbox's CSP.
+ *
+ * @remarks
+ * Each visual gets an origin of its own, never `srcdoc`, which would take the page's CSP
+ * (SPEC-0007, "沙箱"). Only a GET of a well-formed address reaches the host, which checks the
+ * token and the file; the response keeps only its status and body, with the policy set here, so a
+ * host's header cannot widen it (security.md, "Electron").
+ *
+ * @sideEffects Registers the scheme's handler on the default session.
+ * @param hostUrl - The host's HTTP origin.
+ */
+function serveVisualScheme(hostUrl: string): void {
+  protocol.handle(VISUAL_SCHEME, async (request) => {
+    const path = request.method === "GET" ? visualHostPath(request.url) : null;
+    if (path === null) return new Response(null, { status: 404 });
+    const response = await net.fetch(`${hostUrl}${path}`, { bypassCustomProtocolHandlers: true });
+    if (!response.ok) return new Response(null, { status: 404 });
+    return new Response(response.body, {
+      status: 200,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "content-security-policy": visualContentSecurityPolicy(),
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer",
+        // Explicitly off, a fragment's own `<meta>` cannot turn DNS prefetching back on.
+        "x-dns-prefetch-control": "off",
+      },
+    });
+  });
+}
+
+/**
+ * Takes ⌘W and ⌘, before the page or a visual does, and tells the page.
+ *
+ * @remarks
+ * SPEC-0007 ("键盘"): with the focus in a visual, its keys are its own and the page hears none,
+ * but ⌘W and ⌘, are still Atrium's, as a menu's would be (MV1 three-way review). The page does
+ * what it does for its own ⌘W and ⌘,; only the action's name crosses.
+ *
+ * @sideEffects Registers a key handler on the window; sends IPC to the page.
+ * @param window - The window.
+ */
+function forwardMenuShortcuts(window: BrowserWindow): void {
+  window.webContents.on("before-input-event", (event, input) => {
+    const shortcut = menuShortcut(input);
+    if (shortcut === null) return;
+    event.preventDefault();
+    window.webContents.send("atrium:shortcut", shortcut);
+  });
+}
+
+/**
+ * Where a mouse press was, in window pixels, or `null` for any other input.
+ *
+ * @remarks
+ * Electron types `input-event`'s input as the base `InputEvent`; a mouse press carries its point
+ * as well (SPEC-0007, MV1 details: a visual's message must follow a press inside it).
+ *
+ * @sideEffects none
+ * @param input - The input the window got.
+ * @returns The press's point, if it is a press.
+ */
+function pressPoint(input: Electron.InputEvent): { x: number; y: number } | null {
+  if (input.type !== "mouseDown") return null;
+  const x: unknown = Reflect.get(input, "x");
+  const y: unknown = Reflect.get(input, "y");
+  return typeof x === "number" && typeof y === "number" ? { x, y } : null;
+}
+
+/**
+ * Who made a request, by its frame.
+ *
+ * @remarks
+ * A top frame is a window's page (the app's, or the developer tools'); only visuals are frames
+ * inside one (SPEC-0007, MV1 details). Electron gives no frame for some requests, such as the
+ * main process's own.
+ *
+ * @sideEffects none
+ * @param frame - The request's frame, if any.
+ * @param resourceType - The request's kind, which says whether it loads a frame.
+ * @returns Who asked.
+ */
+function requestFrame(frame: Electron.WebFrameMain | null | undefined, resourceType: string): RequestFrame {
+  const navigation = resourceType === "subFrame" || resourceType === "mainFrame";
+  if (frame === null || frame === undefined) return { kind: "none" };
+  try {
+    return frame.parent === null ? { kind: "page" } : { kind: "subframe", navigation };
+  } catch {
+    // A frame gone meanwhile is held as a visual's: the strictest rule.
+    return { kind: "subframe", navigation };
+  }
+}
+
+/** How many requests of visuals were stopped, for the log. */
+let stoppedVisualRequests = 0;
+
+/**
+ * Stops what a visual may not load: anything but its own scheme, data, blobs and pinned CDN
+ * addresses.
+ *
+ * @remarks
+ * An iframe cannot have a session of its own, so its requests are told by their frame in the
+ * default session (SPEC-0007, MV1 details; security.md, "Electron"). A stopped request fails in
+ * the visual; the main process has no log, so stderr gets a count now and then, never the address
+ * or its host, which a visual chooses. A request of no frame may reach the app's own origins too.
+ *
+ * @sideEffects Registers a request filter on the default session; writes counts to stderr.
+ * @param appOrigins - The app's page and the host, as `scheme://host`.
+ */
+function filterVisualRequests(appOrigins: readonly string[]): void {
+  session.defaultSession.webRequest.onBeforeRequest({ urls: ["<all_urls>"] }, (details, callback) => {
+    const allowed = visualRequestAllowed(details.url, requestFrame(details.frame, details.resourceType), appOrigins);
+    if (!allowed) {
+      stoppedVisualRequests += 1;
+      // The host name may be the model's, data and all, so only a count, and not for every one.
+      if (stoppedVisualRequests === 1 || stoppedVisualRequests % 100 === 0) {
+        console.error(`atrium: stopped ${stoppedVisualRequests} request(s) of visuals`);
+      }
+    }
+    callback({ cancel: !allowed });
   });
 }
 
@@ -498,6 +695,8 @@ separateUserData();
 // Before the app is ready, so the page's origin behaves like https: storage, fetch and a secure context.
 protocol.registerSchemesAsPrivileged([
   { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, codeCache: true } },
+  // A standard scheme gives each token its own origin; the iframe's sandbox makes it opaque anyway.
+  { scheme: VISUAL_SCHEME, privileges: { standard: true, secure: true } },
 ]);
 // Only one app per home: a second launch hands over to the first and quits (domain-model §1,
 // "索引的存储").

@@ -495,7 +495,7 @@ describe("a card with nothing recommended (T8 review fix 10)", () => {
   });
 });
 
-describe("a review an agent asked for (ADR-0017)", () => {
+describe("a review an agent asked for (ADR-0018)", () => {
   const agent: PendingReview = {
     id: "rv_agent",
     openedAt: 1,

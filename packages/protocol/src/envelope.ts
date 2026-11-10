@@ -9,6 +9,7 @@ import { PlansUpdatedEvent } from "./metrics";
 import { RemoteUpdatedEvent } from "./remote";
 import { SchedulesUpdatedEvent } from "./schedules";
 import { TaskUpdatedEvent, TasksUpdatedEvent } from "./tasks";
+import { VisualChangedEvent } from "./visuals";
 import {
   CredentialsChangedEvent,
   InstallOutputEvent,
@@ -60,6 +61,7 @@ export const HostMessage = z.union([
   TasksUpdatedEvent,
   TaskUpdatedEvent,
   SchedulesUpdatedEvent,
+  VisualChangedEvent,
 ]);
 export type HostMessage = z.infer<typeof HostMessage>;
 

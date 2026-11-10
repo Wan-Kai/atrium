@@ -74,6 +74,57 @@ describe("loadTurnStarts", () => {
     expect([...unsafe.compactions]).toStrictEqual([["k1", "threshold"]]);
   });
 
+  it("records which messages came from a visual, only once there is one, keeping the first source", async () => {
+    const dir = await home();
+    const { starts } = await loadTurnStarts(dir, "s1", 0);
+    expect([...starts.sources]).toStrictEqual([]);
+
+    await starts.record(["u1"], [], new Map(), new Map());
+    const plain: unknown = JSON.parse(await readFile(join(dir, "turns", "s1.json"), "utf8"));
+    await starts.record(["u2"], [], new Map(), new Map([["u2", { kind: "visual", path: "a.html" }]]));
+    await starts.record(
+      ["u2", "u3"],
+      [],
+      new Map(),
+      new Map([
+        ["u2", { kind: "visual", path: "b.html" }],
+        ["u3", { kind: "visual", path: "/v/c.html" }],
+      ]),
+    );
+
+    expect(plain).toStrictEqual({ version: 1, entries: ["u1"] });
+    expect(JSON.parse(await readFile(join(dir, "turns", "s1.json"), "utf8"))).toStrictEqual({
+      version: 1,
+      entries: ["u1", "u2", "u3"],
+      sources: { u2: { kind: "visual", path: "a.html" }, u3: { kind: "visual", path: "/v/c.html" } },
+    });
+    expect([...(await loadTurnStarts(dir, "s1", 0)).starts.sources]).toStrictEqual([
+      ["u2", { kind: "visual", path: "a.html" }],
+      ["u3", { kind: "visual", path: "/v/c.html" }],
+    ]);
+    const { starts: unsafe } = await loadTurnStarts(dir, "../escape", 0);
+    await unsafe.record(["u9"], [], new Map(), new Map([["u9", { kind: "visual", path: "a.html" }]]));
+    expect([...unsafe.sources]).toStrictEqual([["u9", { kind: "visual", path: "a.html" }]]);
+  });
+
+  it("drops a source it cannot read instead of the whole record", async () => {
+    const dir = await home();
+    await mkdir(join(dir, "turns"));
+    await writeFile(
+      join(dir, "turns", "s1.json"),
+      JSON.stringify({
+        version: 1,
+        entries: ["u1", "u2"],
+        sources: { u1: { kind: "task" }, u2: { kind: "visual", path: "a.html" } },
+      }),
+    );
+
+    const { starts } = await loadTurnStarts(dir, "s1", 0);
+
+    expect([...starts.opened]).toStrictEqual(["u1", "u2"]);
+    expect([...starts.sources]).toStrictEqual([["u2", { kind: "visual", path: "a.html" }]]);
+  });
+
   it("writes a message the host sent on its own though its entry is known already", async () => {
     const dir = await home();
     const { starts } = await loadTurnStarts(dir, "s1", 0);

@@ -1,0 +1,1842 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>手机首页重做</title>
+    <style>
+      :root {
+        --page: #ecebe8;
+        --page-text: #2a2a2c;
+        --page-dim: #77767a;
+        --page-line: #d6d5d1;
+      }
+      :root[data-theme="dark"] {
+        --page: #0f0f11;
+        --page-text: #ececee;
+        --page-dim: #8c8c92;
+        --page-line: #2a2a2e;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--page);
+        color: var(--page-text);
+        font:
+          15px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        padding: 28px 16px 64px;
+      }
+      header.page {
+        max-width: 1760px;
+        margin: 0 auto 28px;
+        display: flex;
+        gap: 24px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+        justify-content: space-between;
+      }
+      header.page h1 {
+        font-size: 22px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+      }
+      header.page p {
+        color: var(--page-dim);
+        font-size: 13.5px;
+        max-width: 70ch;
+        margin-top: 4px;
+      }
+      .controls {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .seg {
+        display: inline-flex;
+        background: var(--page-line);
+        border-radius: 10px;
+        padding: 3px;
+      }
+      .seg button {
+        border: 0;
+        background: transparent;
+        color: var(--page-text);
+        font: inherit;
+        font-size: 13px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .seg button[aria-pressed="true"] {
+        background: var(--page);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+        font-weight: 600;
+      }
+      .grid {
+        max-width: 1760px;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(390px, 1fr));
+        gap: 36px 24px;
+        justify-items: center;
+      }
+      figure {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        width: 390px;
+        max-width: 100%;
+      }
+      figcaption {
+        width: 100%;
+      }
+      figcaption h2 {
+        font-size: 16px;
+        font-weight: 650;
+      }
+      figcaption h2 span {
+        color: var(--page-dim);
+        font-weight: 500;
+        margin-left: 6px;
+      }
+      figcaption p {
+        font-size: 13px;
+        color: var(--page-dim);
+        margin-top: 3px;
+      }
+      .swatches {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      .swatches i {
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.18);
+      }
+
+      /* phone shell */
+      .phone {
+        width: 390px;
+        height: 844px;
+        border-radius: 54px;
+        position: relative;
+        overflow: hidden;
+        flex: none;
+        box-shadow:
+          0 0 0 10px #1b1b1d,
+          0 0 0 11px #3a3a3d,
+          0 30px 60px -20px rgba(0, 0, 0, 0.45);
+        isolation: isolate;
+      }
+      .island {
+        position: absolute;
+        top: 11px;
+        left: 50%;
+        translate: -50% 0;
+        width: 124px;
+        height: 36px;
+        background: #000;
+        border-radius: 20px;
+        z-index: 30;
+      }
+      .status {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 54px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 34px 0 46px;
+        font:
+          600 16px/1 -apple-system,
+          "SF Pro Text";
+        z-index: 25;
+      }
+      .status .icons {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .status svg {
+        display: block;
+      }
+      .home-ind {
+        position: absolute;
+        bottom: 8px;
+        left: 50%;
+        translate: -50% 0;
+        width: 136px;
+        height: 5px;
+        border-radius: 3px;
+        z-index: 30;
+      }
+      .scroll {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+      }
+      .tab-nums {
+        font-variant-numeric: tabular-nums;
+      }
+      .mono {
+        font-family: "SF Mono", ui-monospace, Menlo, monospace;
+      }
+      .glass-btn {
+        position: absolute;
+        width: 44px;
+        height: 44px;
+        border-radius: 22px;
+        display: grid;
+        place-items: center;
+        z-index: 20;
+        backdrop-filter: blur(18px) saturate(1.6);
+        -webkit-backdrop-filter: blur(18px) saturate(1.6);
+      }
+      .fab {
+        width: 58px;
+        height: 58px;
+        border-radius: 29px;
+        right: 20px;
+        bottom: 34px;
+      }
+      /* Floating controls get a band of the page color under them, so rows never sit beneath the + button. */
+      .phone::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 120px;
+        z-index: 15;
+        pointer-events: none;
+        background: linear-gradient(to bottom, transparent, var(--bg) 62%);
+      }
+      @keyframes spin {
+        to {
+          rotate: 360deg;
+        }
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 0.35;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+      @keyframes sweep {
+        from {
+          translate: -100% 0;
+        }
+        to {
+          translate: 260% 0;
+        }
+      }
+      .state-sync .when-ready {
+        display: none !important;
+      }
+      .state-ready .when-sync {
+        display: none !important;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation: none !important;
+        }
+      }
+
+      /* ============ A · 中庭天窗 ============ */
+      .A {
+        --bg: #f7f9fa;
+        --sky1: #d9f1f3;
+        --sky2: #eef7f8;
+        --text: #14232a;
+        --text2: #3a4a51;
+        --l2: #6b7a80;
+        --l3: #c9d4d7;
+        --tint: #0b8a9c;
+        --on-tint: #fff;
+        --attn: #c8641a;
+        --danger: #cc3b33;
+        --rule: rgba(20, 35, 42, 0.12);
+        --glass: rgba(255, 255, 255, 0.62);
+        --ring: rgba(20, 35, 42, 0.1);
+        background: var(--bg);
+        color: var(--text);
+      }
+      :root[data-theme="dark"] .A {
+        --bg: #0e1416;
+        --sky1: #12343a;
+        --sky2: #10211f00;
+        --text: #e8f1f2;
+        --text2: #c3d0d2;
+        --l2: #8a9a9e;
+        --l3: #33433f;
+        --tint: #4fd0d8;
+        --on-tint: #062226;
+        --attn: #f0a050;
+        --danger: #f06a5f;
+        --rule: rgba(232, 241, 242, 0.1);
+        --glass: rgba(30, 42, 45, 0.55);
+        --ring: rgba(232, 241, 242, 0.1);
+      }
+      .A .home-ind {
+        background: var(--text);
+      }
+      .A .well {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 360px;
+        background: radial-gradient(120% 90% at 50% -10%, var(--sky1) 0%, var(--sky2) 62%, transparent 100%);
+      }
+      .A .well::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(90deg, transparent 0 77px, var(--ring) 77px 78px);
+        mask: linear-gradient(#000 0 30%, transparent 70%);
+        opacity: 0.7;
+      }
+      .A .glass-btn {
+        background: var(--glass);
+        box-shadow:
+          inset 0 0 0 0.5px var(--ring),
+          0 6px 16px -8px rgba(0, 0, 0, 0.25);
+        color: var(--text);
+      }
+      .A .menu {
+        top: 58px;
+        left: 18px;
+      }
+      .A .fab {
+        background: var(--tint);
+        color: var(--on-tint);
+        box-shadow: 0 8px 18px -8px rgba(0, 0, 0, 0.35);
+        backdrop-filter: none;
+      }
+      .A .content {
+        position: absolute;
+        inset: 0;
+        padding: 116px 22px 120px;
+      }
+      .A h3.title {
+        font:
+          700 40px/1 -apple-system,
+          "SF Pro Display";
+        letter-spacing: -0.03em;
+      }
+      .A .conn {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        margin-top: 10px;
+        font-size: 14px;
+        color: var(--text2);
+      }
+      .A .conn .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: var(--tint);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--tint) 22%, transparent);
+      }
+      .A .light {
+        margin-top: 26px;
+      }
+      .A .light .row {
+        display: grid;
+        grid-template-columns: 36px 1fr auto;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 14px;
+        border-radius: 16px;
+        margin-bottom: 8px;
+        background: var(--glass);
+        box-shadow: inset 0 0 0 0.5px var(--ring);
+        backdrop-filter: blur(10px);
+      }
+      .A .ico {
+        width: 36px;
+        height: 36px;
+        border-radius: 12px;
+        display: grid;
+        place-items: center;
+        font-weight: 700;
+        font-size: 17px;
+        color: #fff;
+      }
+      .A .ico.ask {
+        background: var(--attn);
+      }
+      .A .ico.err {
+        background: var(--danger);
+      }
+      .A .row b {
+        display: block;
+        font-size: 16px;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+      .A .row small {
+        font-size: 13px;
+        color: var(--l2);
+      }
+      .A .row small em {
+        font-style: normal;
+        font-weight: 600;
+      }
+      .A .row small em.ask {
+        color: var(--attn);
+      }
+      .A .row small em.err {
+        color: var(--danger);
+      }
+      .A .chev {
+        color: var(--l3);
+        font-size: 18px;
+      }
+      .A .floor {
+        margin-top: 26px;
+      }
+      .A .room {
+        border-top: 1px solid var(--rule);
+        padding-top: 12px;
+        margin-bottom: 18px;
+      }
+      .A .room-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+      .A .room-head h4 {
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      .A .room-head span {
+        font-size: 13px;
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .A .door {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 10px 0 2px;
+        font-size: 13px;
+        color: var(--l2);
+      }
+      .A .door .br {
+        font-family: "SF Mono", ui-monospace, monospace;
+        font-size: 12.5px;
+        color: var(--text2);
+      }
+      .A .tag {
+        font-family: "SF Mono", ui-monospace, monospace;
+        font-size: 11px;
+        padding: 1px 6px;
+        border-radius: 5px;
+        background: color-mix(in srgb, var(--attn) 14%, transparent);
+        color: var(--attn);
+      }
+      .A .tag.ok {
+        background: color-mix(in srgb, #2f8a46 14%, transparent);
+        color: #2f8a46;
+      }
+      .A .sess {
+        display: grid;
+        grid-template-columns: 22px 1fr auto;
+        gap: 8px;
+        align-items: center;
+        height: 52px;
+      }
+      .A .sess b {
+        font-size: 15.5px;
+        font-weight: 500;
+      }
+      .A .sess small {
+        font-size: 12.5px;
+        color: var(--l2);
+      }
+      .A .sess .t {
+        font-size: 12.5px;
+        color: var(--l2);
+      }
+      .A .run {
+        width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        border: 2px solid color-mix(in srgb, var(--tint) 25%, transparent);
+        border-top-color: var(--tint);
+        animation: spin 1s linear infinite;
+      }
+      .A .unread {
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: var(--tint);
+        margin-left: 3px;
+      }
+      .A .syncbar {
+        margin-top: 26px;
+        height: 3px;
+        border-radius: 2px;
+        background: color-mix(in srgb, var(--tint) 18%, transparent);
+        overflow: hidden;
+        position: relative;
+      }
+      .A .syncbar::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        width: 40%;
+        background: var(--tint);
+        border-radius: 2px;
+        animation: sweep 1.3s cubic-bezier(0.3, 0, 0.2, 1) infinite;
+      }
+      .A .ghost {
+        height: 52px;
+        border-radius: 14px;
+        margin-top: 10px;
+        background: linear-gradient(90deg, var(--rule), transparent);
+        animation: pulse 1.6s ease-in-out infinite;
+      }
+
+      /* ============ B · 登机口告示板 ============ */
+      .B {
+        --bg: #f4f4f2;
+        --panel: #ffffff;
+        --text: #111;
+        --text2: #333;
+        --l2: #6d6d6d;
+        --l3: #c4c4c4;
+        --rule: #e3e3e0;
+        --tint: #f5a300;
+        --tint-ink: #8a5a00;
+        --on-tint: #111;
+        --danger: #e23b2e;
+        --glass: rgba(255, 255, 255, 0.7);
+        --ring: rgba(0, 0, 0, 0.08);
+        background: var(--bg);
+        color: var(--text);
+      }
+      :root[data-theme="dark"] .B {
+        --bg: #050505;
+        --panel: #141414;
+        --text: #f3f3f3;
+        --text2: #d4d4d4;
+        --l2: #8e8e8e;
+        --l3: #3b3b3b;
+        --rule: #222;
+        --tint: #ffb31a;
+        --tint-ink: #ffcc66;
+        --on-tint: #111;
+        --danger: #ff5a4a;
+        --glass: rgba(30, 30, 30, 0.7);
+        --ring: rgba(255, 255, 255, 0.08);
+      }
+      .B .home-ind {
+        background: var(--text);
+      }
+      .B .content {
+        position: absolute;
+        inset: 0;
+        padding: 104px 16px 120px;
+      }
+      .B .glass-btn {
+        background: var(--glass);
+        box-shadow: inset 0 0 0 0.5px var(--ring);
+        color: var(--text);
+      }
+      .B .menu {
+        top: 58px;
+        left: 16px;
+      }
+      .B .fab {
+        background: var(--tint);
+        color: var(--on-tint);
+        backdrop-filter: none;
+        border-radius: 18px;
+        box-shadow: 0 8px 20px -10px rgba(0, 0, 0, 0.5);
+      }
+      .B .top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        padding: 0 4px;
+      }
+      .B .top h3 {
+        font:
+          800 30px/1 -apple-system,
+          "SF Pro Display";
+        letter-spacing: -0.02em;
+      }
+      .B .top .clock {
+        font:
+          600 13px/1 "SF Mono",
+          ui-monospace,
+          monospace;
+        color: var(--l2);
+        text-align: right;
+      }
+      .B .top .clock b {
+        display: block;
+        color: var(--text);
+        font-size: 15px;
+        margin-top: 3px;
+      }
+      .B .pass {
+        margin-top: 16px;
+        background: var(--tint);
+        color: var(--on-tint);
+        border-radius: 18px;
+        overflow: hidden;
+        position: relative;
+      }
+      .B .pass .seg-main {
+        padding: 14px 16px 12px;
+      }
+      .B .pass .lab {
+        font-size: 11px;
+        font-weight: 700;
+        opacity: 0.7;
+      }
+      .B .pass .what {
+        font-size: 19px;
+        font-weight: 750;
+        line-height: 1.25;
+        margin-top: 2px;
+      }
+      .B .pass .fields {
+        display: grid;
+        grid-template-columns: 1.2fr 1.4fr 0.8fr;
+        border-top: 1.5px dashed rgba(0, 0, 0, 0.35);
+      }
+      .B .pass .fields div {
+        padding: 9px 16px 12px;
+      }
+      .B .pass .fields div + div {
+        border-left: 1px solid rgba(0, 0, 0, 0.18);
+        padding-left: 12px;
+      }
+      .B .pass .fields b {
+        display: block;
+        font:
+          700 14px/1.2 "SF Mono",
+          ui-monospace,
+          monospace;
+        margin-top: 2px;
+      }
+      .B .pass .notch {
+        position: absolute;
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        background: var(--bg);
+        top: calc(100% - 64px);
+      }
+      .B .pass .notch.l {
+        left: -9px;
+      }
+      .B .pass .notch.r {
+        right: -9px;
+      }
+      .B .board {
+        margin-top: 18px;
+        background: var(--panel);
+        border-radius: 18px;
+        overflow: hidden;
+        box-shadow: 0 0 0 0.5px var(--ring);
+      }
+      .B .board-head,
+      .B .flight {
+        display: grid;
+        grid-template-columns: 64px 1fr 58px;
+        gap: 10px;
+        padding: 0 14px;
+        align-items: center;
+      }
+      .B .board-head {
+        height: 32px;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--l2);
+        border-bottom: 1px solid var(--rule);
+      }
+      .B .flight {
+        min-height: 58px;
+        border-bottom: 1px solid var(--rule);
+      }
+      .B .flight:last-child {
+        border-bottom: 0;
+      }
+      .B .st {
+        font:
+          700 11.5px/1 "SF Mono",
+          ui-monospace,
+          monospace;
+        padding: 5px 0;
+        text-align: center;
+        border-radius: 6px;
+      }
+      .B .st.ask {
+        background: var(--tint);
+        color: var(--on-tint);
+      }
+      .B .st.err {
+        background: var(--danger);
+        color: #fff;
+      }
+      .B .st.run {
+        color: var(--tint-ink);
+        box-shadow: inset 0 0 0 1.5px var(--tint);
+      }
+      .B .st.new {
+        color: var(--text);
+        box-shadow: inset 0 0 0 1px var(--l3);
+      }
+      .B .st.idle {
+        color: var(--l2);
+      }
+      .B .flight b {
+        display: block;
+        font-size: 15px;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+      .B .flight small {
+        font:
+          500 12px/1.3 "SF Mono",
+          ui-monospace,
+          monospace;
+        color: var(--l2);
+      }
+      .B .flight .tm {
+        font:
+          600 13px/1 "SF Mono",
+          ui-monospace,
+          monospace;
+        text-align: right;
+        color: var(--text2);
+      }
+      .B .flight.hot {
+        background: color-mix(in srgb, var(--tint) 10%, transparent);
+      }
+      .B .sync {
+        margin-top: 18px;
+        background: var(--panel);
+        border-radius: 18px;
+        padding: 14px;
+        box-shadow: 0 0 0 0.5px var(--ring);
+      }
+      .B .flap {
+        display: flex;
+        gap: 3px;
+        margin-top: 8px;
+      }
+      .B .flap i {
+        width: 22px;
+        height: 30px;
+        border-radius: 4px;
+        background: #161616;
+        box-shadow: inset 0 -15px 0 -14px #000;
+        color: var(--tint);
+        font:
+          700 17px/30px "SF Mono",
+          monospace;
+        text-align: center;
+        font-style: normal;
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+      .B .flap i:nth-child(2) {
+        animation-delay: 0.1s;
+      }
+      .B .flap i:nth-child(3) {
+        animation-delay: 0.2s;
+      }
+      .B .flap i:nth-child(4) {
+        animation-delay: 0.3s;
+      }
+      .B .flap i:nth-child(5) {
+        animation-delay: 0.4s;
+      }
+      .B .flap i:nth-child(6) {
+        animation-delay: 0.5s;
+      }
+
+      /* ============ C · 黄色指路牌 ============ */
+      .C {
+        --bg: #ffffff;
+        --band: #ffcc00;
+        --band-ink: #111;
+        --text: #111;
+        --text2: #2c2c2c;
+        --l2: #6f6f6f;
+        --l3: #d0d0d0;
+        --rule: #ececec;
+        --tint: #ffcc00;
+        --ink: #111;
+        --danger: #e0352b;
+        --glass: rgba(255, 255, 255, 0.72);
+        --ring: rgba(0, 0, 0, 0.08);
+        background: var(--bg);
+        color: var(--text);
+      }
+      :root[data-theme="dark"] .C {
+        --bg: #111111;
+        --band: #ffcc00;
+        --band-ink: #111;
+        --text: #f5f5f5;
+        --text2: #dadada;
+        --l2: #9a9a9a;
+        --l3: #3a3a3a;
+        --rule: #222;
+        --tint: #ffd21f;
+        --ink: #111;
+        --danger: #ff5a4e;
+        --glass: rgba(34, 34, 34, 0.72);
+        --ring: rgba(255, 255, 255, 0.1);
+      }
+      .C .home-ind {
+        background: var(--text);
+      }
+      .C .content {
+        position: absolute;
+        inset: 0;
+        padding: 104px 0 120px;
+      }
+      .C .glass-btn {
+        background: var(--glass);
+        box-shadow: inset 0 0 0 0.5px var(--ring);
+        color: var(--text);
+      }
+      .C .menu {
+        top: 58px;
+        left: 16px;
+      }
+      .C .fab {
+        background: var(--band);
+        color: var(--ink);
+        backdrop-filter: none;
+        border-radius: 16px;
+        box-shadow: 0 8px 20px -10px rgba(0, 0, 0, 0.45);
+      }
+      .C .head {
+        padding: 0 20px;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+      }
+      .C .head h3 {
+        font:
+          700 32px/1 -apple-system,
+          "SF Pro Display";
+        letter-spacing: -0.02em;
+      }
+      .C .head span {
+        font-size: 13px;
+        color: var(--l2);
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .C .head span i {
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: #1aa34a;
+        display: inline-block;
+      }
+      .C .band {
+        background: var(--band);
+        color: var(--band-ink);
+        margin-top: 16px;
+      }
+      .C .band .bline {
+        display: grid;
+        grid-template-columns: 40px 1fr auto;
+        gap: 12px;
+        align-items: center;
+        padding: 12px 20px;
+        min-height: 64px;
+      }
+      .C .band .bline + .bline {
+        border-top: 2px solid rgba(0, 0, 0, 0.85);
+      }
+      .C .picto {
+        width: 40px;
+        height: 40px;
+        border-radius: 6px;
+        background: #111;
+        color: var(--band);
+        display: grid;
+        place-items: center;
+        font: 800 21px/1 -apple-system;
+      }
+      .C .picto.err {
+        color: #fff;
+        background: var(--danger);
+      }
+      .C .band b {
+        display: block;
+        font-size: 17px;
+        font-weight: 700;
+        line-height: 1.25;
+      }
+      .C .band small {
+        font-size: 13px;
+        font-weight: 500;
+        opacity: 0.75;
+      }
+      .C .band .arrow {
+        font: 800 26px/1 -apple-system;
+      }
+      .C .big {
+        font:
+          800 56px/0.9 -apple-system,
+          "SF Pro Display";
+        letter-spacing: -0.04em;
+      }
+      .C .section {
+        padding: 18px 20px 0;
+      }
+      .C .section h4 {
+        font-size: 22px;
+        font-weight: 750;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+      .C .section h4 small {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--l2);
+      }
+      .C .ws {
+        margin-top: 10px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-size: 13px;
+        color: var(--l2);
+      }
+      .C .ws .sq {
+        width: 18px;
+        height: 18px;
+        border-radius: 4px;
+        background: var(--text);
+        color: var(--bg);
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        font-weight: 800;
+      }
+      .C .ws code {
+        font:
+          600 13px "SF Mono",
+          ui-monospace,
+          monospace;
+        color: var(--text);
+      }
+      .C .chip {
+        font:
+          700 11px "SF Mono",
+          ui-monospace,
+          monospace;
+        background: var(--band);
+        color: #111;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      .C .line {
+        display: grid;
+        grid-template-columns: 26px 1fr auto;
+        gap: 8px;
+        align-items: center;
+        height: 50px;
+        border-bottom: 1px solid var(--rule);
+      }
+      .C .line b {
+        font-size: 15.5px;
+        font-weight: 550;
+      }
+      .C .line .t {
+        font:
+          500 12.5px "SF Mono",
+          ui-monospace,
+          monospace;
+        color: var(--l2);
+      }
+      .C .runsq {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        background: var(--band);
+        animation: pulse 1s ease-in-out infinite;
+        box-shadow: inset 0 0 0 1.5px #111;
+      }
+      .C .newdot {
+        width: 9px;
+        height: 9px;
+        border-radius: 2px;
+        background: var(--text);
+      }
+      .C .syncband {
+        background: var(--band);
+        color: #111;
+        margin-top: 16px;
+        padding: 18px 20px;
+        display: grid;
+        grid-template-columns: 40px 1fr;
+        gap: 12px;
+        align-items: center;
+      }
+      .C .syncband .picto {
+        position: relative;
+        overflow: hidden;
+      }
+      .C .syncband .picto::after {
+        content: "";
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        border: 3px solid rgba(255, 204, 0, 0.3);
+        border-top-color: var(--band);
+        animation: spin 0.9s linear infinite;
+      }
+
+      /* ============ D · 分页手册 ============ */
+      .D {
+        --bg: #f3f2ef;
+        --leaf: rgba(255, 255, 255, 0.86);
+        --text: #16161a;
+        --text2: #34343a;
+        --l2: #6c6c74;
+        --l3: #c7c7cc;
+        --rule: rgba(0, 0, 0, 0.09);
+        --tint: #3346e0;
+        --on-tint: #fff;
+        --attn: #e8541c;
+        --danger: #d6372b;
+        --glass: rgba(255, 255, 255, 0.7);
+        --ring: rgba(0, 0, 0, 0.08);
+        --h1: #3346e0;
+        --h2: #0f9d8a;
+        --h3: #e8a10c;
+        --h4: #8a4fd6;
+        background: var(--bg);
+        color: var(--text);
+      }
+      :root[data-theme="dark"] .D {
+        --bg: #121214;
+        --leaf: rgba(32, 32, 36, 0.9);
+        --text: #f1f1f3;
+        --text2: #d0d0d6;
+        --l2: #8f8f98;
+        --l3: #3d3d44;
+        --rule: rgba(255, 255, 255, 0.08);
+        --tint: #8c98ff;
+        --on-tint: #0e1033;
+        --attn: #ff8a4c;
+        --danger: #ff6a5c;
+        --glass: rgba(36, 36, 40, 0.72);
+        --ring: rgba(255, 255, 255, 0.09);
+        --h1: #6f7dff;
+        --h2: #2bc2ac;
+        --h3: #f2b632;
+        --h4: #a97bf0;
+      }
+      .D .home-ind {
+        background: var(--text);
+      }
+      .D .board {
+        position: absolute;
+        inset: 0;
+        right: 40px;
+      }
+      .D .rail {
+        position: absolute;
+        top: 104px;
+        bottom: 96px;
+        right: 0;
+        width: 40px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .D .rail i {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px 0 0 10px;
+        font: 700 11px/1 -apple-system;
+        color: #fff;
+        writing-mode: vertical-rl;
+        letter-spacing: 0.04em;
+        font-style: normal;
+      }
+      .D .rail i.cur {
+        margin-left: -8px;
+        box-shadow: -3px 0 10px -4px rgba(0, 0, 0, 0.35);
+      }
+      .D .content {
+        position: absolute;
+        inset: 0;
+        right: 40px;
+        padding: 104px 14px 120px 18px;
+      }
+      .D .glass-btn {
+        background: var(--glass);
+        box-shadow: inset 0 0 0 0.5px var(--ring);
+        color: var(--text);
+      }
+      .D .menu {
+        top: 58px;
+        left: 16px;
+      }
+      .D .fab {
+        background: var(--tint);
+        color: var(--on-tint);
+        backdrop-filter: none;
+        right: 56px;
+        box-shadow: 0 8px 18px -8px rgba(0, 0, 0, 0.35);
+      }
+      .D .hd {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+      }
+      .D .hd h3 {
+        font:
+          700 30px/1 -apple-system,
+          "SF Pro Display";
+        letter-spacing: -0.02em;
+      }
+      .D .hd span {
+        font-size: 12.5px;
+        color: var(--l2);
+      }
+      .D .slip {
+        margin-top: 16px;
+        background: var(--attn);
+        color: #fff;
+        border-radius: 14px;
+        padding: 12px 14px;
+        box-shadow: 0 6px 14px -8px rgba(0, 0, 0, 0.4);
+      }
+      .D .slip .sl {
+        font-size: 12px;
+        font-weight: 700;
+        opacity: 0.85;
+        display: flex;
+        justify-content: space-between;
+      }
+      .D .slip b {
+        display: block;
+        font-size: 16px;
+        font-weight: 650;
+        margin-top: 4px;
+        line-height: 1.3;
+      }
+      .D .slip small {
+        font-size: 12.5px;
+        opacity: 0.85;
+      }
+      .D .slip + .slip {
+        margin-top: 8px;
+        background: var(--danger);
+      }
+      .D .proj {
+        margin-top: 20px;
+        border-radius: 18px;
+        padding: 14px 14px 6px;
+        background: var(--h1);
+        position: relative;
+      }
+      .D .proj h4 {
+        color: #fff;
+        font-size: 20px;
+        font-weight: 750;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+      .D .proj h4 small {
+        font-size: 12.5px;
+        font-weight: 600;
+        opacity: 0.85;
+      }
+      .D .leafs {
+        margin-top: 10px;
+      }
+      .D .leaf {
+        background: var(--leaf);
+        border-radius: 12px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        position: relative;
+        box-shadow: 0 2px 0 -1px rgba(0, 0, 0, 0.15);
+      }
+      .D .leaf::before,
+      .D .leaf::after {
+        content: "";
+        position: absolute;
+        left: 5px;
+        width: 4px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--h1);
+        opacity: 0.6;
+      }
+      .D .leaf::before {
+        top: 10px;
+      }
+      .D .leaf::after {
+        bottom: 10px;
+      }
+      .D .leaf .br {
+        font:
+          600 12px "SF Mono",
+          ui-monospace,
+          monospace;
+        color: var(--l2);
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .D .leaf .br em {
+        font-style: normal;
+        font-size: 10.5px;
+        padding: 1px 5px;
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--attn) 16%, transparent);
+        color: var(--attn);
+      }
+      .D .srow {
+        display: grid;
+        grid-template-columns: 18px 1fr auto;
+        gap: 6px;
+        align-items: center;
+        height: 42px;
+      }
+      .D .srow b {
+        font-size: 15px;
+        font-weight: 550;
+      }
+      .D .srow .t {
+        font-size: 12px;
+        color: var(--l2);
+        font-variant-numeric: tabular-nums;
+      }
+      .D .srow + .srow {
+        border-top: 1px solid var(--rule);
+      }
+      .D .step {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        background: var(--h1);
+        animation: hinge 0.9s steps(2) infinite;
+      }
+      @keyframes hinge {
+        50% {
+          transform: scaleX(0.2);
+        }
+      }
+      .D .ud {
+        width: 8px;
+        height: 8px;
+        border-radius: 4px;
+        background: var(--tint);
+      }
+      .D .proj.p2 {
+        background: var(--h2);
+      }
+      .D .proj.p2 .leaf::before,
+      .D .proj.p2 .leaf::after {
+        background: var(--h2);
+      }
+      .D .loading {
+        margin-top: 20px;
+        border-radius: 18px;
+        padding: 16px;
+        background: var(--h1);
+        color: #fff;
+      }
+      .D .loading .bars {
+        display: flex;
+        gap: 4px;
+        margin-top: 10px;
+      }
+      .D .loading .bars i {
+        flex: 1;
+        height: 26px;
+        border-radius: 6px;
+        background: var(--leaf);
+        animation: hinge 0.9s steps(2) infinite;
+      }
+      .D .loading .bars i:nth-child(2) {
+        animation-delay: 0.15s;
+      }
+      .D .loading .bars i:nth-child(3) {
+        animation-delay: 0.3s;
+      }
+      .D .loading .bars i:nth-child(4) {
+        animation-delay: 0.45s;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+THESIS: 首页先回答"有没有事等我"，四个方向各自给 Atrium 一个品牌色，并让加载状态用同一个颜色。
+OWN-WORLD: A 中庭天窗（抽中方向，种子 112ef995 第 6 位）：青色天光；B 登机口告示板：琥珀信号；C 黄色指路牌：Atrium 黄；D 分页手册：每个项目一种色，群青为主色。
+STORY: 一眼看到在问你/出错的会话，点进去处理；其次看各项目在跑什么。
+FIRST VIEWPORT: 左上菜单、标题与连接状态、等你处理的条目、按项目分组的会话、右下角新建。
+FORM: 四个方向并排比较，浅色深色、正常和同步中两种状态都可切换。
+FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+-->
+    <header class="page">
+      <div>
+        <h1>手机首页 · 四个方向</h1>
+        <p>
+          同一份示例数据（虚构）：1 个在问你、1 个出错、atrium 项目 2 个工作区、blog 项目 1 个、对话 1
+          个。每个方向都有自己的品牌色，"同步中"看加载状态是否用同一个颜色。
+        </p>
+      </div>
+      <div class="controls">
+        <div class="seg" role="group" aria-label="外观">
+          <button type="button" data-theme-set="light" aria-pressed="true">浅色</button>
+          <button type="button" data-theme-set="dark" aria-pressed="false">深色</button>
+        </div>
+        <div class="seg" role="group" aria-label="状态">
+          <button type="button" data-state-set="ready" aria-pressed="true">正常</button>
+          <button type="button" data-state-set="sync" aria-pressed="false">同步中</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="grid state-ready" id="grid">
+      <!-- ===== A ===== -->
+      <figure>
+        <div class="phone A">
+          <div class="island"></div>
+          <div class="status">
+            <span>9:41</span
+            ><span class="icons"
+              ><svg width="18" height="12" viewBox="0 0 18 12">
+                <rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor" />
+                <rect x="5" y="5" width="3" height="7" rx="1" fill="currentColor" />
+                <rect x="10" y="2" width="3" height="10" rx="1" fill="currentColor" />
+                <rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor" /></svg
+              ><svg width="26" height="12" viewBox="0 0 26 12">
+                <rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4" />
+                <rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor" />
+                <rect x="24" y="4" width="1.6" height="4" rx=".8" fill="currentColor" opacity=".4" /></svg
+            ></span>
+          </div>
+          <div class="well"></div>
+          <button class="glass-btn menu" aria-label="菜单">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            >
+              <path d="M3 6h14M3 10h10M3 14h14" />
+            </svg>
+          </button>
+          <div class="content">
+            <h3 class="title">Atrium</h3>
+            <div class="conn when-ready"><span class="dot"></span>MacBook Pro · 已连接</div>
+            <div class="conn when-sync">
+              <span
+                class="run"
+                style="
+                  width: 13px;
+                  height: 13px;
+                  border-radius: 7px;
+                  border: 2px solid color-mix(in srgb, var(--tint) 25%, transparent);
+                  border-top-color: var(--tint);
+                  animation: spin 1s linear infinite;
+                "
+              ></span
+              >正在同步 MacBook Pro…
+            </div>
+
+            <div class="when-sync">
+              <div class="syncbar"></div>
+              <div class="ghost"></div>
+              <div class="ghost" style="width: 82%"></div>
+              <div class="ghost" style="width: 64%"></div>
+            </div>
+
+            <div class="light when-ready">
+              <div class="row">
+                <span class="ico ask">?</span>
+                <div>
+                  <b>OAuth 回调地址用哪个？</b><small><em class="ask">在问你</em> · atrium · feat/oauth</small>
+                </div>
+                <span class="chev">›</span>
+              </div>
+              <div class="row">
+                <span class="ico err">!</span>
+                <div>
+                  <b>修复首页闪烁</b><small><em class="err">出错</em> · atrium · main</small>
+                </div>
+                <span class="chev">›</span>
+              </div>
+            </div>
+
+            <div class="floor when-ready">
+              <div class="room">
+                <div class="room-head">
+                  <h4>atrium</h4>
+                  <span>2 在跑</span>
+                </div>
+                <div class="door"><span class="br">feat/radar-map</span><span class="tag">未提交 · ↑3</span></div>
+                <div class="sess">
+                  <span class="run"></span>
+                  <div><b>雷达图配色调整</b></div>
+                  <span class="t tab-nums">3:12</span>
+                </div>
+                <div class="sess">
+                  <span class="unread"></span>
+                  <div><b>补齐变异测试</b></div>
+                  <span class="t">12 分钟</span>
+                </div>
+                <div class="door"><span class="br">main</span></div>
+                <div class="sess">
+                  <span class="run"></span>
+                  <div><b>升级 pi 到 1.3.1</b></div>
+                  <span class="t tab-nums">0:48</span>
+                </div>
+              </div>
+              <div class="room">
+                <div class="room-head">
+                  <h4>blog</h4>
+                  <span style="color: var(--l2); font-weight: 500">空闲</span>
+                </div>
+                <div class="door"><span class="br">main</span><span class="tag ok">已合并</span></div>
+                <div class="sess">
+                  <span></span>
+                  <div><b>写十月周报草稿</b></div>
+                  <span class="t">昨天</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <button class="glass-btn fab" aria-label="新建会话">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.4"
+              stroke-linecap="round"
+            >
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+          <div class="home-ind"></div>
+        </div>
+        <figcaption>
+          <h2>A 中庭天窗<span>青色天光</span></h2>
+          <p>
+            顶部是一口"天井"，等你处理的条目浮在天光里；下面按项目像楼层平面图一样排开，线条细、留白大。品牌色是从品牌渐变里取的青色，转圈和进度条也用它。
+          </p>
+          <div class="swatches">
+            <i style="background: #0b8a9c"></i><i style="background: #4fd0d8"></i><i style="background: #d9f1f3"></i
+            ><i style="background: #c8641a"></i>
+          </div>
+        </figcaption>
+      </figure>
+
+      <!-- ===== B ===== -->
+      <figure>
+        <div class="phone B">
+          <div class="island"></div>
+          <div class="status">
+            <span>9:41</span
+            ><span class="icons"
+              ><svg width="18" height="12" viewBox="0 0 18 12">
+                <rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor" />
+                <rect x="5" y="5" width="3" height="7" rx="1" fill="currentColor" />
+                <rect x="10" y="2" width="3" height="10" rx="1" fill="currentColor" />
+                <rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor" /></svg
+              ><svg width="26" height="12" viewBox="0 0 26 12">
+                <rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4" />
+                <rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor" />
+                <rect x="24" y="4" width="1.6" height="4" rx=".8" fill="currentColor" opacity=".4" /></svg
+            ></span>
+          </div>
+          <button class="glass-btn menu" aria-label="菜单">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            >
+              <path d="M3 6h14M3 10h10M3 14h14" />
+            </svg>
+          </button>
+          <div class="content">
+            <div class="top">
+              <h3>Atrium</h3>
+              <div class="clock when-ready">MACBOOK PRO<b>● 在线 · 42ms</b></div>
+              <div class="clock when-sync">MACBOOK PRO<b style="color: var(--tint-ink)">同步中</b></div>
+            </div>
+
+            <div class="when-ready">
+              <div class="pass">
+                <div class="seg-main">
+                  <div class="lab">等你处理 · 1/2</div>
+                  <div class="what">OAuth 回调地址用哪个？</div>
+                </div>
+                <div class="fields">
+                  <div><span class="lab">项目</span><b>atrium</b></div>
+                  <div><span class="lab">工作区</span><b>feat/oauth</b></div>
+                  <div><span class="lab">已等</span><b class="tab-nums">06:14</b></div>
+                </div>
+                <span class="notch l"></span><span class="notch r"></span>
+              </div>
+              <div class="board">
+                <div class="board-head">
+                  <span>状态</span><span>会话 · 位置</span><span style="text-align: right">时间</span>
+                </div>
+                <div class="flight hot">
+                  <span class="st err">出错</span>
+                  <div><b>修复首页闪烁</b><small>atrium · main</small></div>
+                  <span class="tm">2分</span>
+                </div>
+                <div class="flight">
+                  <span class="st run">运行</span>
+                  <div><b>雷达图配色调整</b><small>atrium · feat/radar-map</small></div>
+                  <span class="tm tab-nums">3:12</span>
+                </div>
+                <div class="flight">
+                  <span class="st run">运行</span>
+                  <div><b>升级 pi 到 1.3.1</b><small>atrium · main</small></div>
+                  <span class="tm tab-nums">0:48</span>
+                </div>
+                <div class="flight">
+                  <span class="st new">未读</span>
+                  <div><b>补齐变异测试</b><small>atrium · feat/radar-map</small></div>
+                  <span class="tm">12分</span>
+                </div>
+                <div class="flight">
+                  <span class="st idle">空闲</span>
+                  <div><b>写十月周报草稿</b><small>blog · main</small></div>
+                  <span class="tm">昨天</span>
+                </div>
+                <div class="flight">
+                  <span class="st idle">对话</span>
+                  <div><b>Swift 并发怎么理解</b><small>不绑定项目</small></div>
+                  <span class="tm">周一</span>
+                </div>
+              </div>
+            </div>
+            <div class="when-sync">
+              <div class="sync">
+                <div style="font-size: 12px; font-weight: 700; color: var(--l2)">正在接收 Mac 的状态</div>
+                <div class="flap"><i>S</i><i>Y</i><i>N</i><i>C</i><i>·</i><i>·</i></div>
+              </div>
+              <div class="board" style="opacity: 0.5">
+                <div class="board-head">
+                  <span>状态</span><span>会话 · 位置</span><span style="text-align: right">时间</span>
+                </div>
+                <div class="flight">
+                  <span class="st new">— —</span>
+                  <div><b style="color: var(--l3)">— — — — — —</b></div>
+                  <span class="tm">--</span>
+                </div>
+                <div class="flight">
+                  <span class="st new">— —</span>
+                  <div><b style="color: var(--l3)">— — — —</b></div>
+                  <span class="tm">--</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <button class="glass-btn fab" aria-label="新建会话">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.6"
+              stroke-linecap="round"
+            >
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+          <div class="home-ind"></div>
+        </div>
+        <figcaption>
+          <h2>B 登机口告示板<span>琥珀信号</span></h2>
+          <p>
+            最急的一件事做成一张"登机牌"放在最上面；下面是一块按紧急程度排序的告示板，所有会话不分项目排成一张表，状态改变的行会亮琥珀色直到你看过。项目退成每行的小字。
+          </p>
+          <div class="swatches">
+            <i style="background: #f5a300"></i><i style="background: #ffb31a"></i><i style="background: #111"></i
+            ><i style="background: #e23b2e"></i>
+          </div>
+        </figcaption>
+      </figure>
+
+      <!-- ===== C ===== -->
+      <figure>
+        <div class="phone C">
+          <div class="island"></div>
+          <div class="status">
+            <span>9:41</span
+            ><span class="icons"
+              ><svg width="18" height="12" viewBox="0 0 18 12">
+                <rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor" />
+                <rect x="5" y="5" width="3" height="7" rx="1" fill="currentColor" />
+                <rect x="10" y="2" width="3" height="10" rx="1" fill="currentColor" />
+                <rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor" /></svg
+              ><svg width="26" height="12" viewBox="0 0 26 12">
+                <rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4" />
+                <rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor" />
+                <rect x="24" y="4" width="1.6" height="4" rx=".8" fill="currentColor" opacity=".4" /></svg
+            ></span>
+          </div>
+          <button class="glass-btn menu" aria-label="菜单">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            >
+              <path d="M3 6h14M3 10h10M3 14h14" />
+            </svg>
+          </button>
+          <div class="content">
+            <div class="head">
+              <h3>Atrium</h3>
+              <span class="when-ready"><i></i>MacBook Pro</span
+              ><span class="when-sync" style="font-weight: 600; color: var(--text)">同步中…</span>
+            </div>
+
+            <div class="band when-ready">
+              <div class="bline">
+                <span class="picto">?</span>
+                <div><b>OAuth 回调地址用哪个？</b><small>在问你 · atrium · feat/oauth</small></div>
+                <span class="arrow">→</span>
+              </div>
+              <div class="bline">
+                <span class="picto err">!</span>
+                <div><b>修复首页闪烁</b><small>出错 · atrium · main</small></div>
+                <span class="arrow">→</span>
+              </div>
+            </div>
+            <div class="syncband when-sync">
+              <span class="picto"></span>
+              <div>
+                <b style="font-size: 17px">正在接收 Mac 的状态</b>
+                <div style="font-size: 13px; opacity: 0.75">连上以后这里列出等你处理的会话</div>
+              </div>
+            </div>
+
+            <div class="when-ready">
+              <div class="section">
+                <h4>atrium <small>2 在跑</small></h4>
+                <div class="ws">
+                  <span class="sq">⑂</span><code>feat/radar-map</code><span class="chip">未提交 ↑3</span>
+                </div>
+                <div class="line"><span class="runsq"></span><b>雷达图配色调整</b><span class="t">3:12</span></div>
+                <div class="line"><span class="newdot"></span><b>补齐变异测试</b><span class="t">12分</span></div>
+                <div class="ws"><span class="sq">⑂</span><code>main</code></div>
+                <div class="line"><span class="runsq"></span><b>升级 pi 到 1.3.1</b><span class="t">0:48</span></div>
+              </div>
+              <div class="section">
+                <h4>blog <small>空闲</small></h4>
+                <div class="line"><span></span><b>写十月周报草稿</b><span class="t">昨天</span></div>
+              </div>
+            </div>
+          </div>
+          <button class="glass-btn fab" aria-label="新建会话">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.8"
+              stroke-linecap="round"
+            >
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+          <div class="home-ind"></div>
+        </div>
+        <figcaption>
+          <h2>C 黄色指路牌<span>Atrium 黄</span></h2>
+          <p>
+            像机场的黄色指示牌：等你处理的事是一条横贯屏幕的黄色牌子，黑字加方块图标，一行一件事，箭头指向下一步。其余部分黑白，黄色只留给"该去哪儿"。
+          </p>
+          <div class="swatches">
+            <i style="background: #ffcc00"></i><i style="background: #111"></i><i style="background: #fff"></i
+            ><i style="background: #e0352b"></i>
+          </div>
+        </figcaption>
+      </figure>
+
+      <!-- ===== D ===== -->
+      <figure>
+        <div class="phone D">
+          <div class="island"></div>
+          <div class="status">
+            <span>9:41</span
+            ><span class="icons"
+              ><svg width="18" height="12" viewBox="0 0 18 12">
+                <rect x="0" y="8" width="3" height="4" rx="1" fill="currentColor" />
+                <rect x="5" y="5" width="3" height="7" rx="1" fill="currentColor" />
+                <rect x="10" y="2" width="3" height="10" rx="1" fill="currentColor" />
+                <rect x="15" y="0" width="3" height="12" rx="1" fill="currentColor" /></svg
+              ><svg width="26" height="12" viewBox="0 0 26 12">
+                <rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".4" />
+                <rect x="2" y="2" width="17" height="8" rx="2" fill="currentColor" />
+                <rect x="24" y="4" width="1.6" height="4" rx=".8" fill="currentColor" opacity=".4" /></svg
+            ></span>
+          </div>
+          <button class="glass-btn menu" aria-label="菜单">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            >
+              <path d="M3 6h14M3 10h10M3 14h14" />
+            </svg>
+          </button>
+          <div class="rail" aria-label="项目">
+            <i class="cur" style="flex: 5; background: var(--h1)">atrium</i>
+            <i style="flex: 2; background: var(--h2)">blog</i>
+            <i style="flex: 1.4; background: var(--h4)">对话</i>
+          </div>
+          <div class="content">
+            <div class="hd">
+              <h3>Atrium</h3>
+              <span class="when-ready">MacBook Pro · 已连接</span
+              ><span class="when-sync" style="color: var(--tint); font-weight: 600">同步中</span>
+            </div>
+
+            <div class="when-ready">
+              <div class="slip">
+                <div class="sl"><span>在问你</span><span>atrium · feat/oauth</span></div>
+                <b>OAuth 回调地址用哪个？</b>
+              </div>
+              <div class="slip">
+                <div class="sl"><span>出错</span><span>atrium · main</span></div>
+                <b>修复首页闪烁</b>
+              </div>
+
+              <div class="proj">
+                <h4>atrium <small>2 在跑</small></h4>
+                <div class="leafs">
+                  <div class="leaf">
+                    <div class="br" style="padding-left: 6px">feat/radar-map <em>未提交 · ↑3</em></div>
+                    <div class="srow" style="padding-left: 6px">
+                      <span class="step"></span><b>雷达图配色调整</b><span class="t">3:12</span>
+                    </div>
+                    <div class="srow" style="padding-left: 6px">
+                      <span class="ud"></span><b>补齐变异测试</b><span class="t">12 分钟</span>
+                    </div>
+                  </div>
+                  <div class="leaf">
+                    <div class="br" style="padding-left: 6px">main</div>
+                    <div class="srow" style="padding-left: 6px">
+                      <span class="step"></span><b>升级 pi 到 1.3.1</b><span class="t">0:48</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="when-sync">
+              <div class="loading">
+                <b style="font-size: 16px">正在翻到最新一页</b>
+                <div style="font-size: 12.5px; opacity: 0.85">从 MacBook Pro 接收项目和会话</div>
+                <div class="bars"><i></i><i></i><i></i><i></i></div>
+              </div>
+            </div>
+          </div>
+          <button class="glass-btn fab" aria-label="新建会话">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.4"
+              stroke-linecap="round"
+            >
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+          <div class="home-ind"></div>
+        </div>
+        <figcaption>
+          <h2>D 分页手册<span>每个项目一种颜色</span></h2>
+          <p>
+            像带色彩分隔页的说明书：右边一条按项目分色的书签栏，高度代表会话多少，点哪个翻到哪个项目；当前项目整块是它的颜色，工作区是叠在上面的半透明页。等你处理的事是插在最前面的"勘误条"。
+          </p>
+          <div class="swatches">
+            <i style="background: #3346e0"></i><i style="background: #0f9d8a"></i><i style="background: #e8a10c"></i
+            ><i style="background: #8a4fd6"></i><i style="background: #e8541c"></i>
+          </div>
+        </figcaption>
+      </figure>
+    </main>
+    <script>
+      const root = document.documentElement,
+        grid = document.getElementById("grid");
+      function press(attr, value) {
+        document
+          .querySelectorAll(`[${attr}]`)
+          .forEach((b) => b.setAttribute("aria-pressed", String(b.getAttribute(attr) === value)));
+      }
+      document.querySelectorAll("[data-theme-set]").forEach((b) =>
+        b.addEventListener("click", () => {
+          root.dataset.theme = b.dataset.themeSet;
+          press("data-theme-set", b.dataset.themeSet);
+        }),
+      );
+      document.querySelectorAll("[data-state-set]").forEach((b) =>
+        b.addEventListener("click", () => {
+          grid.className = `grid state-${b.dataset.stateSet}`;
+          press("data-state-set", b.dataset.stateSet);
+        }),
+      );
+    </script>
+  </body>
+</html>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ResourceTracker } from "./resources";
+import { CountedMap, ResourceTracker } from "./resources";
 
 describe("ResourceTracker", () => {
   it("counts open resources per kind and keeps released kinds at zero", () => {
@@ -32,5 +32,24 @@ describe("ResourceTracker", () => {
     release();
 
     expect(resources.snapshot()).toStrictEqual({ timer: 1 });
+  });
+});
+
+describe("CountedMap", () => {
+  it("counts each key while it is there, a key set again once, and none once deleted or cleared", () => {
+    const resources = new ResourceTracker();
+    const map = new CountedMap<string, number>(resources, "kept");
+    map.set("a", 1).set("a", 2).set("b", 3);
+
+    expect(resources.snapshot()).toStrictEqual({ kept: 2 });
+    expect(map.get("a")).toBe(2);
+    expect(map.delete("a")).toBe(true);
+    expect(map.delete("a")).toBe(false);
+    expect(resources.snapshot()).toStrictEqual({ kept: 1 });
+    map.set("c", 4);
+    map.clear();
+
+    expect(resources.snapshot()).toStrictEqual({ kept: 0 });
+    expect(map.size).toBe(0);
   });
 });

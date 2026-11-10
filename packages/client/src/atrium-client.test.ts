@@ -475,13 +475,10 @@ describe("createAtriumClient: commands", () => {
       client.restoreChat(CHAT),
       client.windowFocused(),
       client.clearAttention("s1"),
-      client.handOff("s1"),
-      client.takeBack("s1"),
     ];
     answerAt(latest(), "create_session", 0, { sessionId: "s9" });
     answerAt(latest(), "create_session", 1, { sessionId: "s8" });
     latest().answer("add_project", { projectId: "prj_0123456789abcdef" });
-    latest().answer("hand_off", { file: "/pi/s1.jsonl", args: [] });
     latest().answer("list_bases", { main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] });
     latest().answer("create_workspace", { workspaceId: "wks_00000000000000aa" });
     latest().answer("name_branch", { branch: "atrium/fix-it", alias: null });
@@ -498,7 +495,6 @@ describe("createAtriumClient: commands", () => {
       "restore_chat",
       "window_focused",
       "clear_attention",
-      "take_back",
     ]) {
       latest().answer(type);
     }
@@ -521,8 +517,6 @@ describe("createAtriumClient: commands", () => {
       {},
       {},
       {},
-      {},
-      { file: "/pi/s1.jsonl", args: [] },
       {},
     ]);
     expect(
@@ -554,8 +548,55 @@ describe("createAtriumClient: commands", () => {
       { type: "restore_chat", chatId: CHAT },
       { type: "window_focused" },
       { type: "clear_attention", sessionId: "s1" },
-      { type: "hand_off", sessionId: "s1" },
-      { type: "take_back", sessionId: "s1" },
+    ]);
+  });
+
+  it("pins and unpins a chat with its id", async () => {
+    const { client, latest } = await connected();
+    const pinned = client.pinChat(CHAT);
+    const unpinned = client.unpinChat(CHAT);
+    latest().answer("pin_chat");
+    latest().answer("unpin_chat");
+
+    expect([await pinned, await unpinned]).toStrictEqual([{}, {}]);
+    expect(
+      latest()
+        .commands()
+        .slice(-2)
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "pin_chat", chatId: CHAT },
+      { type: "unpin_chat", chatId: CHAT },
+    ]);
+  });
+
+  it("starts a study session and marks steps and gaps with the direction's ids (SPEC-0008, ML2)", async () => {
+    const { client, latest } = await connected();
+    const started = client.startStudySession("lrn_go", { kind: "lesson", level: "l1", step: "s1" });
+    latest().answer("start_study_session", { sessionId: "s5" });
+    const feynman = client.startStudySession("lrn_go", { kind: "feynman", level: "l1", step: "s1", gap: "g1" });
+    latest().answer("start_study_session", { sessionId: "s6" });
+    const marked = client.markStudyStep("lrn_go", "l1", "s1", "later", true);
+    const fixed = client.markStudyGap("lrn_go", "g1", false);
+    latest().answer("mark_study_step");
+    latest().answer("mark_study_gap");
+
+    expect([await started, await feynman, await marked, await fixed]).toStrictEqual([
+      { sessionId: "s5" },
+      { sessionId: "s6" },
+      {},
+      {},
+    ]);
+    expect(
+      latest()
+        .commands()
+        .slice(-4)
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "start_study_session", directionId: "lrn_go", kind: "lesson", level: "l1", step: "s1" },
+      { type: "start_study_session", directionId: "lrn_go", kind: "feynman", level: "l1", step: "s1", gap: "g1" },
+      { type: "mark_study_step", directionId: "lrn_go", level: "l1", step: "s1", mark: "later", done: true },
+      { type: "mark_study_gap", directionId: "lrn_go", gapId: "g1", fixed: false },
     ]);
   });
 
@@ -1149,6 +1190,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
     projects: [],
     workspaces: [],
     chats: [],
+    directions: [],
     sessions: [
       {
         sessionId: "s1",
@@ -1162,11 +1204,13 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
         running: false,
         attention: null,
         asking: null,
-        handedOff: false,
+        question: null,
         model: null,
         parent: null,
         agent: null,
         heldDeliveries: 0,
+        kickoff: null,
+        study: null,
       },
     ],
     layout: { container: null, tabs: {} },
@@ -1183,6 +1227,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
       translationLanguage: "简体中文",
     },
     resets: [],
+    learningDir: "~/Atrium/Learning",
     ...fields,
   });
 }
@@ -1196,6 +1241,7 @@ function indexChanges(seq: number, remove: string): string {
     projects: { upsert: [], remove: [] },
     workspaces: { upsert: [], remove: [] },
     chats: { upsert: [], remove: [] },
+    directions: { upsert: [], remove: [] },
     sessions: { upsert: [], remove: [remove] },
     layout: null,
     preferences: null,
@@ -3406,5 +3452,181 @@ describe("createAtriumClient: tasks (SPEC-0006, T7)", () => {
     latest().receive(welcome());
 
     expect(taskCommands(latest())).toMatchObject([{ type: "open_task", taskId: "tsk_a" }]);
+  });
+});
+
+/**
+ * The paths a socket was asked to resolve, in order.
+ *
+ * @remarks
+ * For the inline visuals' tests.
+ *
+ * @sideEffects none
+ * @param socket - The fake socket.
+ * @returns The paths.
+ */
+function resolvesOf(socket: { commands(): Record<string, unknown>[] }): string[] {
+  return socket
+    .commands()
+    .filter((command) => command["type"] === "resolve_visual")
+    .map((command) => String(command["path"]));
+}
+
+describe("createAtriumClient: inline visuals", () => {
+  const url = `atrium-visual://${"a".repeat(32)}/a.html`;
+
+  it("resolves a visual and sends its messages, returning what the host answers", async () => {
+    const { client, latest } = await connected();
+
+    const resolving = client.resolveVisual("s1", "visuals/a.html");
+    latest().answer("resolve_visual", { url, size: 3, mtime: 5 });
+    const sending = client.sendVisualMessage("s1", "visuals/a.html", "选 B");
+    latest().answer("send_visual_message", { disposition: "dropped" });
+
+    expect(await resolving).toStrictEqual({ url, size: 3, mtime: 5 });
+    expect(await sending).toStrictEqual({ disposition: "dropped" });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => String(command["type"]).includes("visual"))
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "resolve_visual", sessionId: "s1", path: "visuals/a.html" },
+      { type: "send_visual_message", sessionId: "s1", path: "visuals/a.html", text: "选 B" },
+    ]);
+  });
+
+  it("tells each listener a visual changed, until it stops listening", async () => {
+    const { client, latest } = await connected();
+    const heard: unknown[] = [];
+    const stop = client.onVisualChanged((changed) => heard.push(changed));
+    const changed = { type: "visual_changed", sessionId: "s1", path: "a.html", mtime: 9 };
+
+    latest().receive(JSON.stringify(changed));
+    stop();
+    latest().receive(JSON.stringify({ ...changed, mtime: 10 }));
+
+    expect(heard).toStrictEqual([changed]);
+  });
+
+  it("resolves what cards hold again on a new connection, telling listeners of a new address or time", async () => {
+    const { client, clock, latest, sockets } = clientWith({ reconnectDelaysMs: [100] });
+    const connecting = client.connect();
+    latest().open();
+    latest().receive(welcome());
+    await connecting;
+    client.holdVisual("s1", "a.html");
+    const resolving = client.resolveVisual("s1", "a.html");
+    latest().answer("resolve_visual", { url, size: 3, mtime: 5 });
+    await resolving;
+    const heard: unknown[] = [];
+    client.onVisualChanged((changed) => heard.push(changed));
+
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+    await vi.waitFor(() => expect(resolvesOf(latest())).toStrictEqual(["a.html"]));
+    latest().answer("resolve_visual", { url: `atrium-visual://${"b".repeat(32)}/a.html`, size: 3, mtime: 5 });
+
+    await vi.waitFor(() =>
+      expect(heard).toStrictEqual([{ type: "visual_changed", sessionId: "s1", path: "a.html", mtime: 5 }]),
+    );
+    expect(sockets).toHaveLength(2);
+  });
+
+  it("forgets a visual once no card holds it, and resolves one no card held only when asked", async () => {
+    const { client, clock, latest } = clientWith({ reconnectDelaysMs: [100] });
+    const connecting = client.connect();
+    latest().open();
+    latest().receive(welcome());
+    await connecting;
+    const first = client.holdVisual("s1", "a.html");
+    const second = client.holdVisual("s1", "a.html");
+    client.holdVisual("s1", "b.html")();
+    for (const path of ["a.html", "b.html", "c.html"]) {
+      const resolving = client.resolveVisual("s1", path);
+      latest().answer("resolve_visual", { url, size: 3, mtime: 5 });
+      await resolving;
+    }
+    first();
+    first();
+
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+    await vi.waitFor(() => expect(resolvesOf(latest())).toStrictEqual(["a.html"]));
+    second();
+    latest().answer("resolve_visual", { url, size: 3, mtime: 5 });
+
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h3"));
+    await Promise.resolve();
+    expect(resolvesOf(latest())).toStrictEqual([]);
+  });
+
+  it("keeps a held visual that failed, or whose connection dropped, and tries it again on the next one", async () => {
+    const { client, clock, latest } = clientWith({ reconnectDelaysMs: [100, 100] });
+    const connecting = client.connect();
+    latest().open();
+    latest().receive(welcome());
+    await connecting;
+    client.holdVisual("s1", "gone.html");
+    client.holdVisual("s1", "a.html");
+    const failing = client.resolveVisual("s1", "gone.html");
+    latest().fail("resolve_visual", "visual_missing");
+    await expect(failing).rejects.toMatchObject({ code: "visual_missing" });
+    const resolving = client.resolveVisual("s1", "a.html");
+    latest().answer("resolve_visual", { url, size: 3, mtime: 5 });
+    await resolving;
+    const heard: unknown[] = [];
+    client.onVisualChanged((changed) => heard.push(changed));
+
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+    await vi.waitFor(() => expect(resolvesOf(latest())).toStrictEqual(["gone.html", "a.html"]));
+    // The connection drops while both are asked again: neither is forgotten, nor told as changed.
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h3"));
+    await vi.waitFor(() => expect(resolvesOf(latest())).toStrictEqual(["gone.html", "a.html"]));
+    answerAt(latest(), "resolve_visual", 0, { url, size: 3, mtime: 6 });
+    answerAt(latest(), "resolve_visual", 1, { url, size: 3, mtime: 5 });
+
+    await vi.waitFor(() =>
+      expect(heard).toStrictEqual([{ type: "visual_changed", sessionId: "s1", path: "gone.html", mtime: 6 }]),
+    );
+  });
+
+  it("asks again at most 20 at a time, 200 ms apart, so a long-lived client stays within the host's rate", async () => {
+    const { client, clock, latest } = clientWith({ reconnectDelaysMs: [100] });
+    const connecting = client.connect();
+    latest().open();
+    latest().receive(welcome());
+    await connecting;
+    const paths = Array.from({ length: 45 }, (_, index) => `v${index}.html`);
+    for (const path of paths) client.holdVisual("s1", path);
+
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+    await vi.waitFor(() => expect(resolvesOf(latest())).toHaveLength(20));
+    for (let index = 0; index < 20; index += 1) answerAt(latest(), "resolve_visual", index, { url, size: 3, mtime: 5 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(resolvesOf(latest())).toHaveLength(20);
+    clock.advance(200);
+    await vi.waitFor(() => expect(resolvesOf(latest())).toHaveLength(40));
+    for (let index = 20; index < 40; index += 1)
+      answerAt(latest(), "resolve_visual", index, { url, size: 3, mtime: 5 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    clock.advance(200);
+    await vi.waitFor(() => expect(resolvesOf(latest())).toStrictEqual(paths));
   });
 });

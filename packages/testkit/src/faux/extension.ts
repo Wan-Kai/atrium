@@ -166,10 +166,25 @@ function declaredTools(context: {
  * @returns The assistant message.
  */
 function toAssistantMessage(reply: FauxReply): AssistantMessage {
+  const visuals = visualsDirOf(process.argv);
+  /**
+   * Puts the session's directory for visuals where a script wrote `{{visuals}}`.
+   *
+   * @remarks
+   * See `visualsDirOf`.
+   *
+   * @sideEffects none
+   * @param text - The scripted text.
+   * @returns It with the directory.
+   */
+  const placed = (text: string): string => (visuals === null ? text : text.replaceAll("{{visuals}}", visuals));
   const blocks = reply.blocks.map((block) => {
     if (block.type === "thinking") return fauxThinking(block.text);
-    if (block.type === "text") return fauxText(block.text);
-    return fauxToolCall(block.name, { ...block.arguments }, { id: block.id });
+    if (block.type === "text") return fauxText(placed(block.text));
+    const args = Object.fromEntries(
+      Object.entries(block.arguments).map(([key, value]) => [key, typeof value === "string" ? placed(value) : value]),
+    );
+    return fauxToolCall(block.name, args, { id: block.id });
   });
   if (reply.error !== undefined)
     return fauxAssistantMessage(blocks, { stopReason: "error", errorMessage: reply.error });
@@ -202,6 +217,32 @@ function instructionsOf(context: { readonly systemPrompt?: string; readonly mess
 }
 
 /**
+ * The session's directory for visuals, from the flag the host gives Atrium's extension.
+ *
+ * @remarks
+ * `--atrium-visuals=<base64url JSON>` (SPEC-0007); a script writes `{{visuals}}` where the model
+ * would write the directory its instructions name, so an end-to-end test can have the model
+ * write a visual and reference it without knowing the session's id.
+ *
+ * @sideEffects none
+ * @param argv - pi's arguments.
+ * @returns The directory, or `null` when the host gave none.
+ */
+function visualsDirOf(argv: readonly string[]): string | null {
+  const flag = argv.find((arg) => arg.startsWith("--atrium-visuals="));
+  if (flag === undefined) return null;
+  try {
+    const launch: unknown = JSON.parse(
+      Buffer.from(flag.slice("--atrium-visuals=".length), "base64url").toString("utf8"),
+    );
+    const dir: unknown = typeof launch === "object" && launch !== null ? Reflect.get(launch, "dir") : null;
+    return typeof dir === "string" ? dir : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * How deep a child the agent opened pi was started as, if it was one.
  *
  * @remarks
@@ -223,6 +264,48 @@ function agentChildDepth(argv: readonly string[]): number | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The learning use pi was started for, if any.
+ *
+ * @remarks
+ * The host says so with `--atrium-study=<base64url JSON>` (SPEC-0008, "ML2 定的细节"); anything
+ * that does not read as an object with a `kind` is none.
+ *
+ * @sideEffects none
+ * @param argv - pi's arguments.
+ * @returns The use, or `null`.
+ */
+function studyUse(argv: readonly string[]): string | null {
+  const flag = argv.find((arg) => arg.startsWith("--atrium-study="));
+  if (flag === undefined) return null;
+  try {
+    const use: unknown = JSON.parse(Buffer.from(flag.slice("--atrium-study=".length), "base64url").toString("utf8"));
+    const kind: unknown = typeof use === "object" && use !== null ? Reflect.get(use, "kind") : null;
+    return typeof kind === "string" ? kind : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How many replies the model gave since a learning session's own start.
+ *
+ * @remarks
+ * After the newest user message that is a study start (`<atrium-study`), or in the whole
+ * conversation without one, as in a discussion. See `FauxScript.studyReplies`.
+ *
+ * @sideEffects none
+ * @param context - The request.
+ * @returns The count.
+ */
+function repliesSinceStart(context: { readonly messages?: readonly unknown[] }): number {
+  const messages = context.messages ?? [];
+  const start = messages.findLastIndex(
+    (message) => Reflect.get(Object(message), "role") === "user" && textOf(message).startsWith("<atrium-study"),
+  );
+  return repliesIn({ messages: messages.slice(start + 1) });
 }
 
 /**
@@ -252,8 +335,22 @@ function repliesIn(context: { readonly messages?: readonly unknown[] }): number 
  * @returns The text, empty when there is no user message.
  */
 function newestUserText(context: { readonly messages?: readonly unknown[] }): string {
-  const message = (context.messages ?? []).findLast((one) => Reflect.get(Object(one), "role") === "user");
+  return textOf((context.messages ?? []).findLast((one) => Reflect.get(Object(one), "role") === "user"));
+}
+
+/**
+ * The text of a message: its text blocks, or its content when that is text.
+ *
+ * @remarks
+ * See `newestUserText`; pi gives a custom message's content as text.
+ *
+ * @sideEffects none
+ * @param message - The message.
+ * @returns The text, empty without one.
+ */
+function textOf(message: unknown): string {
   const content: unknown = Reflect.get(Object(message), "content");
+  if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
     .map((block: unknown) => (Reflect.get(Object(block), "type") === "text" ? Reflect.get(Object(block), "text") : ""))
@@ -352,6 +449,8 @@ export default function fauxExtension(pi: ExtensionApi): void {
   const payloads = gates === "" || printing ? null : join(dirname(gates), FAUX_PAYLOADS_FILE);
   const contexts = gates === "" || printing ? null : join(dirname(gates), FAUX_CONTEXTS_FILE);
   const depth = agentChildDepth(process.argv);
+  const use = studyUse(process.argv);
+  const useList = use === null ? undefined : script.studyReplies?.[use];
   const childList =
     depth !== null && depth >= 2
       ? (script.grandchildReplies ?? script.childReplies ?? script.replies)
@@ -378,6 +477,22 @@ export default function fauxExtension(pi: ExtensionApi): void {
   };
   const childAnswers = childList.map((reply) => answerWith(reply));
   const noMoreReplies = answerWith({ blocks: [], error: "faux script has no more child replies" });
+  const studyAnswers = (useList ?? []).map((reply) => answerWith(reply));
+  /**
+   * Answers a learning session by its conversation since its own start.
+   *
+   * @remarks
+   * See `FauxScript.studyReplies`.
+   *
+   * @sideEffects As the answer chosen.
+   * @param context - The request.
+   * @param options - Its options.
+   * @param state - The faux provider's state.
+   * @param model - The model.
+   * @returns The answer.
+   */
+  const studyAnswer: FauxResponseFactory = (context, options, state, model) =>
+    (studyAnswers[repliesSinceStart(context)] ?? noMoreReplies)(context, options, state, model);
   const byPrompt = (script.byPrompt ?? []).map(({ startsWith, reply }) => ({ startsWith, answer: answerWith(reply) }));
   const conversations = (script.byConversation ?? []).map(({ startsWith, replies }) => ({
     startsWith,
@@ -426,7 +541,13 @@ export default function fauxExtension(pi: ExtensionApi): void {
                   : {}),
               })}\n`,
             );
-            const asked = translating ? "translation" : told.includes("git branch") ? "branch" : "title";
+            const asked = translating
+              ? "translation"
+              : told.includes("git branch")
+                ? "branch"
+                : told.includes("learning direction")
+                  ? "direction"
+                  : "title";
             const answer = script[asked];
             const reply =
               answer === undefined
@@ -437,24 +558,27 @@ export default function fauxExtension(pi: ExtensionApi): void {
             return answerWith(reply)(context, options, state, model);
           },
         ]
-      : depth === null
-        ? // As many requests as the longest conversation asks for, so a conversation never runs out of factories.
-          Array.from(
-            {
-              length:
-                conversations.length === 0
-                  ? script.replies.length
-                  : Math.max(script.replies.length, CONVERSATION_REQUESTS),
-            },
-            (_, at) => orByPrompt(script.replies[at] === undefined ? noMoreReplies : answerWith(script.replies[at])),
-          )
-        : // A child picks by the conversation; as many as it may ask for.
-          childAnswers.map(() =>
-            orByPrompt((context, options, state, model) => {
-              const answer = childAnswers[repliesIn(context)] ?? noMoreReplies;
-              return answer(context, options, state, model);
-            }),
-          ),
+      : useList !== undefined
+        ? // A learning session picks by its conversation since its own start; as many as it may ask for.
+          Array.from({ length: 64 }, () => studyAnswer)
+        : depth === null
+          ? // As many requests as the longest conversation asks for, so a conversation never runs out of factories.
+            Array.from(
+              {
+                length:
+                  conversations.length === 0
+                    ? script.replies.length
+                    : Math.max(script.replies.length, CONVERSATION_REQUESTS),
+              },
+              (_, at) => orByPrompt(script.replies[at] === undefined ? noMoreReplies : answerWith(script.replies[at])),
+            )
+          : // A child picks by the conversation; as many as it may ask for.
+            childAnswers.map(() =>
+              orByPrompt((context, options, state, model) => {
+                const answer = childAnswers[repliesIn(context)] ?? noMoreReplies;
+                return answer(context, options, state, model);
+              }),
+            ),
   );
   // The faux provider takes no thinking map, so it is added to the models it made; each model
   // carries its own base address, so a test's goes on each.

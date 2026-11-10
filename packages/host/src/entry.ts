@@ -9,10 +9,12 @@ import { isStrongToken } from "./server/auth";
  * Builds the host configuration shared by both ways of starting.
  *
  * @remarks
- * `ATRIUM_HOME` lets tests and developers point the host at another home directory;
- * `ATRIUM_PI_LATEST_URL` where it looks up the latest pi, empty for nowhere, so tests stay off the
- * network. The task directory to follow (`ATRIUM_FOLLOW_TASKS`) is not read here: under Electron it comes from the
- * main process, which sends it only when the app is not packaged; run alone, the host reads it itself.
+ * `ATRIUM_HOME` lets tests and developers point the host at another home directory, and then
+ * the learning directory goes inside it, so a second copy never touches the real
+ * `~/Atrium/Learning` (SPEC-0008, "ML1 定的细节"); `ATRIUM_PI_LATEST_URL` where it looks up the
+ * latest pi, empty for nowhere, so tests stay off the network. The task directory to follow
+ * (`ATRIUM_FOLLOW_TASKS`) is not read here: under Electron it comes from the main process, which sends it only when
+ * the app is not packaged; run alone, the host reads it itself.
  *
  * @sideEffects Reads environment variables.
  * @param token - Session token.
@@ -27,8 +29,11 @@ function configFor(
   extraOrigins: readonly string[] | undefined,
   followTasks: string | undefined,
 ): HostConfig {
+  const home = process.env["ATRIUM_HOME"];
   return {
-    home: process.env["ATRIUM_HOME"] ?? join(homedir(), ".atrium"),
+    home: home ?? join(homedir(), ".atrium"),
+    // Without `ATRIUM_HOME` the host puts it in that home itself.
+    ...(home === undefined ? { learningRoot: join(homedir(), "Atrium", "Learning") } : {}),
     token,
     // Built next to this bundle (build.mjs).
     loginWorker: join(__dirname, "login-worker.mjs"),

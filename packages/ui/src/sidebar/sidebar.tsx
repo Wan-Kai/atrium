@@ -1,4 +1,4 @@
-import { type AtriumClient, CommandError, type IndexView } from "@atrium/client";
+import { type AtriumClient, CommandError, type IndexView, isDirectionId } from "@atrium/client";
 import type { Appearance, Chat, MergeUnknownReason, Project, SessionSummary, Workspace } from "@atrium/protocol";
 import {
   ArrowUp,
@@ -13,7 +13,9 @@ import {
   MagnifyingGlass,
   Monitor,
   Moon,
+  Mortarboard,
   GearSix,
+  Pin,
   Plus,
   Sun,
   Trash,
@@ -35,12 +37,14 @@ import {
   describeRestoreError,
 } from "./archive";
 import {
+  chatBand,
   chatName,
   isDone,
   isPending,
   mergeLabels,
   placeOf,
   sessionTitle,
+  sortChats,
   sortWorkspaces,
   timeAgo,
   workspaceName,
@@ -48,8 +52,10 @@ import {
 import { type ArchiveToast, ArchiveToasts, pushToast } from "./archive-toasts";
 import { MORE_ROW } from "./more-row";
 import { RenameField } from "./rename-field";
+import { useReorderRows } from "./reorder";
 import { INBOX_SHOWN, type InboxEntry, type RowStatus, inboxOf, sessionStatus, topStatus } from "./status";
 import { StatusIcon } from "./status-icon";
+import { liveSessions, studySessions } from "../study/learning";
 
 /** How many chats the sidebar lists before "显示全部 N 个" (SPEC-0001, "对话"). */
 const RECENT_CHATS = 5;
@@ -167,8 +173,12 @@ function readCollapsed(): ReadonlySet<string> {
  *
  * @sideEffects Subscribes to the client's list and setup; sends commands; remembers collapsed
  * projects and the inbox's card in `localStorage`.
+ * A "学习" row under the search box opens the learning home, and sums up every direction's
+ * status; directions are not listed here (SPEC-0008, "入口").
+ *
  * @param props - The client, how to start a new chat, how to show a session chosen, how to choose
- * a folder, how to open the settings, the new-workspace page, and whether the sidebar is folded.
+ * a folder, how to open the settings, the new-workspace page, the learning home, and whether the
+ * sidebar is folded.
  * @returns The sidebar.
  */
 export function Sidebar({
@@ -179,6 +189,7 @@ export function Sidebar({
   onSettings,
   page,
   tasks,
+  learning,
   folded = false,
 }: {
   readonly client: AtriumClient;
@@ -195,11 +206,14 @@ export function Sidebar({
   readonly page?: SidebarPage;
   /** The "任务" entry; without it the sidebar has none. */
   readonly tasks?: SidebarTasks;
+  /** The learning home, and whether a learning page shows; without it, there is no "学习" row. */
+  readonly learning?: SidebarLearning;
   readonly folded?: boolean;
 }) {
   const listed = useStore(client.index);
-  // While the page shows, the client's place is not where the user is.
-  const index = page?.projectId == null ? listed : { ...listed, layout: { ...listed.layout, container: null } };
+  // While a page shows, the client's place is not where the user is.
+  const onPage = page?.projectId != null || learning?.shown === true;
+  const index = onPage ? { ...listed, layout: { ...listed.layout, container: null } } : listed;
   const update = useStore(client.setup, (setup) => setup.state !== null && piUpdateAvailable(setup.state.pi));
   const now = useClock().now();
   const [collapsed, setCollapsed] = useState(readCollapsed);
@@ -305,26 +319,38 @@ export function Sidebar({
               className="h-8 w-full rounded-[var(--r-md)] bg-[var(--hover)] pr-2.5 pl-8 text-[length:var(--fs-meta)] shadow-[inset_0_0_0_0.5px_var(--line)] outline-none placeholder:text-[var(--text-dim)] focus:shadow-[inset_0_0_0_0.5px_var(--line-strong),var(--focus-ring)]"
             />
           </div>
-          {tasks === undefined ? null : (
-            <div className="mx-3 mb-1 shrink-0">
-              <button
-                type="button"
-                aria-label="任务"
-                aria-current={tasks.open}
-                onClick={tasks.show}
-                className={`${ROW} w-full text-left aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
-              >
-                <Flowchart size={16} className="shrink-0 text-[var(--text-muted)]" />
-                <span className="flex-1">任务</span>
-                {tasks.attention > 0 ? (
-                  <span
-                    data-testid="tasks-attention"
-                    className="rounded-[var(--r-pill)] bg-[var(--attn-soft)] px-[7px] text-[length:var(--fs-sm)] leading-[18px] font-semibold text-[var(--attn-text)] tabular-nums"
-                  >
-                    {tasks.attention}
-                  </span>
-                ) : null}
-              </button>
+          {learning === undefined && tasks === undefined ? null : (
+            <div className="shrink-0 px-3">
+              {learning === undefined ? null : (
+                <LearningRow
+                  index={listed}
+                  selected={
+                    learning.shown || (listed.layout.container !== null && isDirectionId(listed.layout.container))
+                  }
+                  onOpen={learning.open}
+                />
+              )}
+              {tasks === undefined ? null : (
+                <button
+                  type="button"
+                  aria-label="任务"
+                  aria-current={tasks.open}
+                  onClick={tasks.show}
+                  className={`${ROW} w-full text-left aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
+                >
+                  <Flowchart size={16} className="shrink-0 text-[var(--text-muted)]" />
+                  <span className="flex-1">任务</span>
+                  {tasks.attention > 0 ? (
+                    <span
+                      data-testid="tasks-attention"
+                      className="rounded-[var(--r-pill)] bg-[var(--attn-soft)] px-[7px] text-[length:var(--fs-sm)] leading-[18px] font-semibold text-[var(--attn-text)] tabular-nums"
+                    >
+                      {tasks.attention}
+                    </span>
+                  ) : null}
+                </button>
+              )}
+              <div aria-hidden="true" className="mx-1 my-1.5 h-[0.5px] bg-[var(--line)]" />
             </div>
           )}
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
@@ -441,6 +467,61 @@ export interface SidebarTasks {
   readonly show: () => void;
 }
 
+/** The learning home, as the sidebar opens and marks it (SPEC-0008, "入口"). */
+export interface SidebarLearning {
+  /** Whether a learning page shows. */
+  readonly shown: boolean;
+  readonly open: () => void;
+}
+
+/**
+ * The "学习" row: the way into the learning home, with every direction's status summed up.
+ *
+ * @remarks
+ * design-language ("侧栏"): styled as a chat's row, a 14px mortarboard in `--tint`, "学习"; at its
+ * end the highest status of the sessions in directions not archived, so a run shows the spinner
+ * and a question its icon (SPEC-0008, "入口"). Lit while a learning page or a direction shows.
+ * Going there leaves the new-workspace page, as any row does.
+ *
+ * @sideEffects Calls `onOpen` when clicked.
+ * @param props - The list, whether it is lit, and what opening does.
+ * @returns The row.
+ */
+function LearningRow({
+  index,
+  selected,
+  onOpen,
+}: {
+  readonly index: IndexView;
+  readonly selected: boolean;
+  readonly onOpen: () => void;
+}) {
+  const leave = use(LeavePage);
+  const status = topStatus(studySessions(index).map(sessionStatus));
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-current={selected}
+      data-testid="learning-row"
+      onClick={() => {
+        leave();
+        onOpen();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") return;
+        leave();
+        onOpen();
+      }}
+      className={`${ROW} aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
+    >
+      <Mortarboard size={14} className="shrink-0 text-[var(--tint)]" />
+      <span className="min-w-0 flex-1 truncate">学习</span>
+      <StatusIcon status={status} />
+    </div>
+  );
+}
+
 /** The new-workspace page, as the sidebar opens, marks and leaves it (SPEC-0001, "M1.11 的新建工作区"). */
 export interface SidebarPage {
   /** The project whose page shows, or `null`. */
@@ -497,33 +578,42 @@ interface ListedChat {
   readonly sessions: readonly SessionSummary[];
   readonly at: number;
   readonly status: RowStatus;
+  /** When the user pinned it; `null` when not (SPEC-0001, "对话的置顶与顺序"). */
+  readonly pinnedAt: number | null;
+  /** A session in it is running or shows a status icon, which brings the chat up the list. */
+  readonly busy: boolean;
 }
 
 /**
- * The chats the sidebar lists, latest activity first.
+ * The chats the sidebar lists, in the order it shows them.
  *
  * @remarks
  * An archived chat, or one whose sessions are all archived, is left out; its activity is its
- * sessions' latest, its status their highest (SPEC-0001, "对话", "M1.11 的对话归档").
+ * sessions' latest, its status their highest (SPEC-0001, "对话", "M1.11 的对话归档"). Pinned
+ * first, then the ones with a status icon, then the rest by activity (SPEC-0001,
+ * "对话的置顶与顺序").
  *
  * @sideEffects none
  * @param index - The list.
  * @returns The chats.
  */
 function listedChats(index: Pick<IndexView, "chats" | "sessions">): ListedChat[] {
-  return index.chats
+  const listed = index.chats
     .filter((chat) => chat.archivedAt === null)
     .map((chat) => {
       const sessions = index.sessions.filter((session) => session.containerId === chat.id && !session.archived);
+      const status = topStatus(sessions.map(sessionStatus));
       return {
         chat,
         sessions,
         at: Math.max(...sessions.map((session) => session.updatedAt)),
-        status: topStatus(sessions.map(sessionStatus)),
+        status,
+        pinnedAt: chat.pinnedAt,
+        busy: status !== null,
       };
     })
-    .filter((listed) => listed.sessions.length > 0)
-    .toSorted((a, b) => b.at - a.at);
+    .filter((each) => each.sessions.length > 0);
+  return sortChats(listed);
 }
 
 /**
@@ -597,6 +687,7 @@ function ChatRows({
       (error) => describeChatArchiveError(error, "没能归档这个对话"),
     );
   const shown = expanded ? chats : chats.slice(0, RECENT_CHATS);
+  const rows = useReorderRows(chats.map((listed) => ({ key: listed.chat.id, band: chatBand(listed) })));
   const leave = use(LeavePage);
   return (
     <section aria-label="对话">
@@ -606,82 +697,108 @@ function ChatRows({
           <ChatAdd size={17} />
         </button>
       </div>
-      {shown.map((listed) => {
-        const { chat } = listed;
-        const name = chatName(chat, index.sessions);
-        return (
-          <div
-            key={chat.id}
-            role="button"
-            tabIndex={0}
-            aria-current={index.layout.container === chat.id}
-            onClick={() => {
-              leave();
-              run(() => selectChat(client, listed));
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter") return;
-              leave();
-              run(() => selectChat(client, listed));
-            }}
-            className={`${ROW} aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
-            data-testid="chat-row"
-          >
-            {renaming === chat.id ? (
-              <RenameField
-                initial={name}
-                label="对话名称"
-                restores="清空恢复为第一个会话的标题"
-                onDone={(alias) => {
-                  setRenaming(null);
-                  if (alias !== undefined && alias !== chat.alias) run(() => client.renameChat(chat.id, alias));
-                }}
-              />
-            ) : (
-              <span className="min-w-0 flex-1 truncate">{name}</span>
-            )}
-            <span className="shrink-0 text-[length:var(--fs-sm)] text-[var(--text-dim)] group-hover:hidden">
-              {timeAgo(listed.at, now)}
-            </span>
-            <StatusIcon status={listed.status} />
-            <span
-              className="hidden gap-1 group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
-              // The menu belongs to the row but must not select it.
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
+      <div ref={rows}>
+        {shown.map((listed) => {
+          const { chat } = listed;
+          const name = chatName(chat, index.sessions);
+          return (
+            <div
+              key={chat.id}
+              data-row-key={chat.id}
+              role="button"
+              tabIndex={0}
+              aria-current={index.layout.container === chat.id}
+              onClick={() => {
+                leave();
+                run(() => selectChat(client, listed));
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                leave();
+                run(() => selectChat(client, listed));
+              }}
+              className={`${ROW} aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
+              data-testid="chat-row"
             >
-              <button
-                type="button"
-                aria-label={`归档对话 ${name}`}
-                title="归档"
-                onClick={() => {
-                  const running = listed.sessions.filter((session) => session.running).length;
-                  if (running > 0) setArchiving({ chat, running });
-                  else archive(chat.id);
-                }}
-                className={ROW_ARCHIVE}
+              {listed.pinnedAt === null ? null : (
+                <span
+                  role="img"
+                  aria-label="已置顶"
+                  title="已置顶"
+                  className="-mr-1 inline-flex shrink-0 text-[var(--tint)]"
+                >
+                  <Pin size={13} />
+                </span>
+              )}
+              {renaming === chat.id ? (
+                <RenameField
+                  initial={name}
+                  label="对话名称"
+                  restores="清空恢复为第一个会话的标题"
+                  onDone={(alias) => {
+                    setRenaming(null);
+                    if (alias !== undefined && alias !== chat.alias) run(() => client.renameChat(chat.id, alias));
+                  }}
+                />
+              ) : (
+                <span className="min-w-0 flex-1 truncate">{name}</span>
+              )}
+              <span className="shrink-0 text-[length:var(--fs-sm)] text-[var(--text-dim)] group-hover:hidden">
+                {timeAgo(listed.at, now)}
+              </span>
+              <StatusIcon status={listed.status} />
+              <span
+                className="hidden gap-1 group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
+                // The menu belongs to the row but must not select it.
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
               >
-                <Trash size={14} />
-              </button>
-              <MenuButton label={`对话 ${name}`} compact content={<DotsThree size={14} weight="bold" />}>
-                {(close) => (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={MENU_ITEM}
-                    onClick={() => {
-                      close();
-                      setRenaming(chat.id);
-                    }}
-                  >
-                    重命名
-                  </button>
-                )}
-              </MenuButton>
-            </span>
-          </div>
-        );
-      })}
+                <button
+                  type="button"
+                  aria-label={`归档对话 ${name}`}
+                  title="归档"
+                  onClick={() => {
+                    const running = listed.sessions.filter((session) => session.running).length;
+                    if (running > 0) setArchiving({ chat, running });
+                    else archive(chat.id);
+                  }}
+                  className={ROW_ARCHIVE}
+                >
+                  <Trash size={14} />
+                </button>
+                <MenuButton label={`对话 ${name}`} compact content={<DotsThree size={14} weight="bold" />}>
+                  {(close) => (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={MENU_ITEM}
+                        onClick={() => {
+                          close();
+                          run(() => (listed.pinnedAt === null ? client.pinChat(chat.id) : client.unpinChat(chat.id)));
+                        }}
+                      >
+                        {listed.pinnedAt === null ? "置顶" : "取消置顶"}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={MENU_ITEM}
+                        onClick={() => {
+                          close();
+                          setRenaming(chat.id);
+                        }}
+                      >
+                        重命名
+                      </button>
+                    </>
+                  )}
+                </MenuButton>
+              </span>
+            </div>
+          );
+        })}
+      </div>
       {chats.length > RECENT_CHATS ? (
         <button type="button" onClick={() => setExpanded(!expanded)} className={MORE_ROW}>
           {expanded ? "收起" : `显示全部 ${chats.length} 个`}
@@ -1345,7 +1462,8 @@ function Inbox({
   const [open, setOpen] = useState(() => localStorage.getItem(INBOX_OPEN_KEY) === "true");
   const [expanded, setExpanded] = useState(false);
   const leave = use(LeavePage);
-  const sessions = inboxOf(index.sessions);
+  // An archived direction's sessions cannot run, and wait for nothing (SPEC-0008, "ML1 定的细节").
+  const sessions = inboxOf(liveSessions(index));
   // A task that wants you stands among the sessions, as a question (or an error when it failed), by the same order.
   const entries: readonly InboxRow[] = [
     ...sessions.map((entry): InboxRow => ({ kind: "session", ...entry })),

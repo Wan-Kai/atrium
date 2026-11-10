@@ -27,7 +27,7 @@ export const TASK_COMMAND = "atrium-task";
 /** The custom type of the messages the task extension writes into pi's session (`details.kind` tells which). */
 export const TASK_MESSAGE = "atrium-task";
 
-/** The custom type of the record a review leaves in the task conversation once its verdict took effect (ADR-0017). */
+/** The custom type of the record a review leaves in the task conversation once its verdict took effect (ADR-0018). */
 export const REVIEW_MESSAGE = "atrium-review";
 
 /** The most an envelope or a command's argument holds before it is encoded (ADR-0013, point 9). */
@@ -494,7 +494,7 @@ export const MarkCommand = z.strictObject({
 export type MarkCommand = z.infer<typeof MarkCommand>;
 
 /**
- * What `/atrium-task review` carries: the record of a review whose verdict took effect (ADR-0017, decision 2).
+ * What `/atrium-task review` carries: the record of a review whose verdict took effect (ADR-0018, decision 2).
  *
  * @remarks
  * The extension writes it as a custom message of type `atrium-review` (`display: true`, no turn), so the model

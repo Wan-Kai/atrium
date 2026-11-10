@@ -1,9 +1,10 @@
 import {
+  createTempDir,
   FAUX_BASE_URL_ENV,
   FAUX_MODEL,
   FAUX_PROVIDER,
-  createTempDir,
   fauxPi,
+  installedPi,
   present,
   startModelListServer,
 } from "@atrium/testkit";
@@ -13,7 +14,6 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PiDeps } from "../deps";
-import { findPi } from "../locate/locate";
 import { queryModels } from "./query";
 
 /** Atrium's Fast extension, as the host has pi load it (ADR-0008). */
@@ -66,7 +66,7 @@ function isolatedDeps(home: string): PiDeps {
 async function setUp(): Promise<{ readonly dir: string; readonly piPath: string }> {
   const dir = await createTempDir("query-models-pi");
   cleanups.push(dir.cleanup);
-  return { dir: await realpath(dir.path), piPath: present(await findPi(present(process.env["PATH"], "PATH")), "pi") };
+  return { dir: await realpath(dir.path), piPath: await installedPi() };
 }
 
 describe("queryModels against pi", () => {

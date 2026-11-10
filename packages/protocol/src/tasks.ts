@@ -245,7 +245,7 @@ export const TaskView = TaskSummary.extend({
   /** The requirement summary the task conversation wrote (T8a). */
   requirements: TaskRequirements,
   /**
-   * What waits for the user's verdict, the same reviews the task conversation's control carries (ADR-0017; T8a):
+   * What waits for the user's verdict, the same reviews the task conversation's control carries (ADR-0018; T8a):
    * here for the list's row, which opens the task without its conversation, and for a conversation whose pi is not
    * running. Empty for a followed task.
    */

@@ -3,8 +3,9 @@ import SwiftUI
 /// Paints the pixel cat (design-language "像素猫插图"), idling unless asleep or Reduce Motion is on.
 ///
 /// - Remark: Dots are 0.7 of their cell with corners of 0.3 of a dot, as the prototype's canvas.
-///   Colours: cream (lighter at the top) is the cat, ink its features, grey-blue what is not the cat,
-///   pink the blush and ears; in dark mode the ring goes and the blue darkens. The timeline only
+///   Colours: cream (lighter at the top) is the cat, ink its features, the deep beige tint what is not
+///   the cat (the paper redesign; it was grey-blue), pink the blush and ears; in dark mode the ring goes
+///   and the tile darkens. The timeline only
 ///   fires when `PixelCatIdle` says the pose changes, so an idle cat costs nothing between moves.
 struct PixelCatView: View {
   /// Where the cat is.
@@ -101,10 +102,10 @@ struct PixelCatColors: Equatable {
     case .blush, .ear: return RGBA(asleep ? (dark ? 0x7a6a64 : 0xd3bfb4) : (dark ? 0xd9938b : 0xf0aea6)).color
     case .tile:
       if asleep { return dark ? RGBA(0xfff0dc, 0.08).color : RGBA(0x3c321e, 0.1).color }
-      return RGBA(dark ? 0x5f77b8 : 0x6c86cc).color
-    case .tab: return RGBA(dark ? 0x3f4c6e : 0xa7b6e0).color
+      return RGBA(dark ? 0x7a6648 : 0x8a7352).color
+    case .tab: return RGBA(dark ? 0x56483a : 0xc9b896).color
     case .toe: return Self.mix(UInt32(creamTop), ink, 0.5)
-    case .ok: return RGBA(dark ? 0x4caf68 : 0x2f8a46).color
+    case .ok: return RGBA(dark ? 0x7bbf8a : 0x3d7a4a).color
     case .check: return RGBA(0xfbf3e6).color
     case .outline: return dark ? nil : RGBA(0x46371e, 0.42).color
     }

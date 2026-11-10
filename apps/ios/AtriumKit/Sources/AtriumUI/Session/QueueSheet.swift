@@ -16,7 +16,9 @@ struct QueueSheet: View {
   let sync: SyncModel
   /// The queued message being edited, and its text so far.
   @State private var editing: (id: String, text: String)?
-  /// Closes the sheet.
+  /// Closes the panel it sits in.
+  @Environment(\.closePanel) private var closePanel
+  /// Closes the sheet, when shown as one.
   @Environment(\.dismiss) private var dismiss
   /// Light or dark.
   @Environment(\.colorScheme) private var scheme
@@ -86,32 +88,23 @@ struct QueueSheet: View {
       }
     }
     .background(palette.surface)
-    .presentationDetents([.medium, .large])
-    .presentationDragIndicator(.visible)
     .animation(MotionToken.smooth.resolved(reduceMotion: false).animation, value: queue.map(\.id))
   }
 
-  /// The sheet's header: close, the title, and "清空".
+  /// The sheet's header: the title on the left, then "清空" and close.
   ///
-  /// - Remark: As the prototype's sheets.
+  /// - Remark: design-language "子对话 sheet、排队 sheet" (2026-10-29): the title on the left, not
+  ///   centred; the sheet is a full-width `BottomPanel`.
   /// - SideEffects: none
   /// - Parameters:
   ///   - palette: The colours.
   ///   - empty: Whether the queue is empty, so "清空" has nothing to do.
   /// - Returns: The header.
   private func header(_ palette: Palette, empty: Bool) -> some View {
-    HStack(alignment: .top) {
-      Button {
-        dismiss()
-      } label: {
-        Image(systemName: "xmark").font(.system(size: 15, weight: .semibold)).foregroundStyle(palette.text2)
-          .frame(width: 36, height: 36).background(palette.fill, in: Circle())
-      }
-      .buttonStyle(PressStyle())
-      .accessibilityLabel("关闭")
-      Spacer()
-      VStack(spacing: 2) {
-        Text("排队").font(.system(size: 17, weight: .semibold)).foregroundStyle(palette.text)
+    HStack(alignment: .center, spacing: Metrics.xs) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("排队").font(.system(size: 20, weight: .semibold)).foregroundStyle(palette.text)
+          .accessibilityAddTraits(.isHeader)
         Text("运行结束后依次发送").font(.system(size: 12.5)).foregroundStyle(palette.secondary)
       }
       Spacer()
@@ -121,9 +114,17 @@ struct QueueSheet: View {
         .disabled(empty)
         .frame(width: 44, height: 36)
         .buttonStyle(.plain)
+      Button {
+        if let closePanel { closePanel() } else { dismiss() }
+      } label: {
+        Image(systemName: "xmark").font(.system(size: 15, weight: .semibold)).foregroundStyle(palette.text2)
+          .frame(width: 36, height: 36).background(palette.fill, in: Circle())
+      }
+      .buttonStyle(PressStyle())
+      .accessibilityLabel("关闭")
     }
     .padding(.horizontal, Metrics.md)
-    .padding(.top, Metrics.md)
+    .padding(.top, Metrics.xs)
   }
 
   /// A section's small title.

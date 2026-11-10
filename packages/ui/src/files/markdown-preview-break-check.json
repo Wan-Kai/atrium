@@ -1,0 +1,96 @@
+[
+  {
+    "file": "packages/ui/src/files/file-viewer.tsx",
+    "from": "const canPreview = /\\.(?:md|markdown)$/iu.test(path) && text !== null;",
+    "to": "const canPreview = false;",
+    "test": "packages/ui/src/files/markdown-preview.browser.test.tsx",
+    "name": "previews an empty Markdown",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/files/file-viewer.tsx",
+    "from": "const canPreview = /\\.(?:md|markdown)$/iu.test(path) && text !== null;",
+    "to": "const canPreview = true;",
+    "test": "packages/ui/src/files/markdown-preview.browser.test.tsx",
+    "name": "does not offer|hides preview while loading",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/files/file-viewer.tsx",
+    "from": "const previewing = canPreview && preview === true;",
+    "to": "const previewing = preview === true;",
+    "test": "packages/ui/src/files/markdown-preview.browser.test.tsx",
+    "name": "refreshes rendered content",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/files/file-viewer.tsx",
+    "from": "markdownPreview: !previewing",
+    "to": "markdownPreview: false",
+    "test": "packages/ui/src/files/markdown-preview.browser.test.tsx",
+    "name": "toggles the same read-only tab",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/files/file-viewer.tsx",
+    "from": "${previewing ? \" invisible\" : \"\"}",
+    "to": "${previewing ? \"\" : \"\"}",
+    "test": "packages/ui/src/files/markdown-preview.browser.test.tsx",
+    "name": "toggles the same read-only tab",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/files/viewer-place.ts",
+    "from": "[scrollField] ?? 0",
+    "to": ".scrollTop",
+    "test": "packages/ui/src/files/markdown-preview.browser.test.tsx",
+    "name": "keeps mode and independent scroll",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/files/viewer-place.ts",
+    "from": "{ [scrollField]: element.scrollTop }",
+    "to": "{ scrollTop: element.scrollTop }",
+    "test": "packages/ui/src/files/markdown-preview.browser.test.tsx",
+    "name": "keeps mode and independent scroll",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/state/workspace-views.ts",
+    "from": "[key]: { ...view.places[key], markdownPreview: false }",
+    "to": "[key]: { ...view.places[key], markdownPreview: true }",
+    "test": "packages/ui/src/state/workspace-views.test.ts",
+    "name": "keeps Markdown mode on ordinary opens"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-image-source.ts",
+    "from": "`${absolute ? \"\" : basePath}${parts.join(\"/\")}`",
+    "to": "parts.join(\"/\")",
+    "test": "packages/ui/src/chat/reply-image-source.test.ts",
+    "name": "resolves document-relative images"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-images.tsx",
+    "from": "replyImageSource(src, files?.dir ?? null, files?.basePath)",
+    "to": "replyImageSource(src, files?.dir ?? null)",
+    "test": "packages/ui/src/files/markdown-preview.browser.test.tsx",
+    "name": "reads local images",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/files/markdown-file-preview.tsx",
+    "from": "target.startsWith(\"/\") ? target : `${basePath}${target}`",
+    "to": "target",
+    "test": "packages/ui/src/files/markdown-preview.browser.test.tsx",
+    "name": "reads local images",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/files/markdown-file-preview.tsx",
+    "from": "workspacePath(target.startsWith(\"/\") ? target : `${basePath}${target}`, dir)",
+    "to": "workspacePath(target.startsWith(\"/\") ? target : `${basePath}${target}`, \"/\")",
+    "test": "packages/ui/src/files/markdown-preview.browser.test.tsx",
+    "name": "reads local images",
+    "project": "ui"
+  }
+]

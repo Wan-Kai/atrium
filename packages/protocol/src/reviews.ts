@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ErrorParams } from "./errors";
 import { WorkspaceId } from "./ids";
 
-// Reviews (ADR-0017; SPEC-0006, "界面 · 审核卡片"). One shape for everything the user is asked to judge: the gates
+// Reviews (ADR-0018; SPEC-0006, "界面 · 审核卡片"). One shape for everything the user is asked to judge: the gates
 // of a task (the host's flow, carried out by the host) and, later, a request the agent makes in a conversation.
 // The host sends codes and parameters, never words; the words are the UI's. Text an agent wrote travels only as
 // quoted text (`Evidence.summary`, `subject.text`), never as a fact.
@@ -17,7 +17,7 @@ export const REVIEWS_LIMIT = 16;
 export const REVIEW_EVIDENCE_LIMIT = 8;
 
 /**
- * Which gate of the host's flow raised a review (ADR-0017, decision 1).
+ * Which gate of the host's flow raised a review (ADR-0018, decision 1).
  *
  * @remarks
  * `task_graph`: a graph change waits for approval; `task_human`: a human node waits, and a merge that was held
@@ -74,7 +74,7 @@ export type Fact = z.infer<typeof Fact>;
 const NodeRef = z.string().min(1).max(64);
 
 /**
- * What a review shows to judge by (ADR-0017, decision 1).
+ * What a review shows to judge by (ADR-0018, decision 1).
  *
  * @remarks
  * - `facts`: what the host worked out, each with a status;
@@ -145,7 +145,7 @@ export const ReviewAction = z.strictObject({
 export type ReviewAction = z.infer<typeof ReviewAction>;
 
 /**
- * A review waiting for the user's verdict (ADR-0017, decision 1).
+ * A review waiting for the user's verdict (ADR-0018, decision 1).
  *
  * @remarks
  * Worked out from the host's durable state for a gate, so it is the same after a restart. `id` is stable while the
@@ -172,7 +172,7 @@ export const Verdict = z.strictObject({
 export type Verdict = z.infer<typeof Verdict>;
 
 /**
- * A review's outcome as the conversation keeps it (the `atrium-review` custom message; ADR-0017, decision 2).
+ * A review's outcome as the conversation keeps it (the `atrium-review` custom message; ADR-0018, decision 2).
  *
  * @remarks
  * The evidence is the snapshot from when the verdict was given.

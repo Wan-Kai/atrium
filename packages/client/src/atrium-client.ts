@@ -27,8 +27,10 @@ import {
   type Preferences,
   type SessionEvent,
   type SessionModel,
+  type StudyKind,
   type ThinkingLevel,
   type TraceContext,
+  type VisualChangedEvent,
   createTraceContext,
   formatTraceparent,
 } from "@atrium/protocol";
@@ -187,10 +189,6 @@ export interface AtriumClient {
   renameSession(sessionId: string, name: string): Promise<CommandResult<"rename_session">>;
   /** Marks a session's error as seen (SPEC-0001, "会话状态"). */
   clearAttention(sessionId: string): Promise<CommandResult<"clear_attention">>;
-  /** Hands a session to pi in a terminal and returns its file (SPEC-0001, "交给终端"). */
-  handOff(sessionId: string): Promise<CommandResult<"hand_off">>;
-  /** Takes a session handed off back into Atrium. */
-  takeBack(sessionId: string): Promise<CommandResult<"take_back">>;
   addProject(path: string): Promise<CommandResult<"add_project">>;
   removeProject(projectId: string): Promise<CommandResult<"remove_project">>;
   renameProject(projectId: string, name: string): Promise<CommandResult<"rename_project">>;
@@ -218,10 +216,61 @@ export interface AtriumClient {
   ): Promise<CommandResult<"name_branch">>;
   /** Names a chat, or with `null` goes back to its first session's title. */
   renameChat(chatId: string, name: string | null): Promise<CommandResult<"rename_chat">>;
+  /** Pins a chat to the top of the sidebar (SPEC-0001, "对话的置顶与顺序"). */
+  pinChat(chatId: string): Promise<CommandResult<"pin_chat">>;
+  /** Unpins a chat, letting it fall back to activity order. */
+  unpinChat(chatId: string): Promise<CommandResult<"unpin_chat">>;
   /** Archives a chat with its sessions, stopping those that run. */
   archiveChat(chatId: string): Promise<CommandResult<"archive_chat">>;
   /** Brings an archived chat back with the sessions archived with it. */
   restoreChat(chatId: string): Promise<CommandResult<"restore_chat">>;
+  /**
+   * Creates a learning direction named after its first message, with a discussion session opened
+   * as the active tab, and returns both ids; the message goes to the session with `prompt`
+   * (SPEC-0008, "新建方向").
+   */
+  createDirection(text: string, model: ModelRef | null): Promise<CommandResult<"create_direction">>;
+  /** Names a direction, or with `null` goes back to its own display name. */
+  renameDirection(directionId: string, name: string | null): Promise<CommandResult<"rename_direction">>;
+  /** Pins a direction to the front of the learning home. */
+  pinDirection(directionId: string): Promise<CommandResult<"pin_direction">>;
+  /** Unpins a direction. */
+  unpinDirection(directionId: string): Promise<CommandResult<"unpin_direction">>;
+  /** Stops a direction's sessions and moves its directory under `Archive/`. */
+  archiveDirection(directionId: string): Promise<CommandResult<"archive_direction">>;
+  /** Moves an archived direction back; fails as `study_restore_conflict` when its place is taken. */
+  restoreDirection(directionId: string): Promise<CommandResult<"restore_direction">>;
+  /**
+   * Opens a session of a direction for a use, as the step strip's button does (SPEC-0008, "ML2 定的细节");
+   * only one the host can open now (the main button's, Feynman on a gap, a quiz put off), else
+   * `study_not_available`; one open already for the same use is given back instead.
+   */
+  startStudySession(
+    directionId: string,
+    study: { readonly kind: StudyKind; readonly level: string; readonly step?: string; readonly gap?: string },
+  ): Promise<CommandResult<"start_study_session">>;
+  /**
+   * Upgrades a direction past `level`, archiving that level's sessions when asked, and opens the
+   * next level's plan session (SPEC-0008, "ML3 定的细节 · 升级").
+   */
+  upgradeStudy(directionId: string, level: string, archiveSessions: boolean): Promise<CommandResult<"upgrade_study">>;
+  /** Unarchives sessions of a direction archived with a level, with their children. */
+  restoreStudySessions(
+    directionId: string,
+    sessionIds: readonly string[],
+  ): Promise<CommandResult<"restore_study_sessions">>;
+  /** Marks a step's part done by hand, or takes a manual mark back (SPEC-0008, "手动标完成"). */
+  markStudyStep(
+    directionId: string,
+    level: string,
+    step: string,
+    mark: "lesson" | "quiz" | "step" | "later",
+    done: boolean,
+  ): Promise<CommandResult<"mark_study_step">>;
+  /** Marks a gap fixed by hand, or takes that back. */
+  markStudyGap(directionId: string, gapId: string, fixed: boolean): Promise<CommandResult<"mark_study_gap">>;
+  /** Starts again a session the host opened for a use that did not start. */
+  retryStudyKickoff(sessionId: string): Promise<CommandResult<"retry_study_kickoff">>;
   /** Tells the host the window gained focus, so it looks at workspaces and sessions again. */
   windowFocused(): Promise<CommandResult<"window_focused">>;
   /** Changes preferences, at once in the list; a proxy shows once the host has checked it. */
@@ -288,7 +337,7 @@ export interface AtriumClient {
   ): Promise<CommandResult<"answer_question">>;
   /** Starts the pi of a session of a task (its conversation or a node's) without a tab, so a watch gets its snapshot. */
   openTaskSession(taskId: string, sessionId: string): Promise<CommandResult<"open_task_session">>;
-  /** Gives a verdict on a review waiting in a session, a task gate's (ADR-0017); fails `review_closed` if it is gone. */
+  /** Gives a verdict on a review waiting in a session, a task gate's (ADR-0018); fails `review_closed` if it is gone. */
   answerReview(sessionId: string, reviewId: string, verdict: Verdict): Promise<CommandResult<"answer_review">>;
   /** The error card's "重试". */
   retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
@@ -324,6 +373,23 @@ export interface AtriumClient {
   listDir(workspaceId: string, path: string): Promise<CommandResult<"list_dir">>;
   /** One file of a workspace, for a viewer tab (SPEC-0001, "M1.12 的文件与更改"). */
   readFile(workspaceId: string, path: string): Promise<CommandResult<"read_file">>;
+  /**
+   * Checks a visual a reply names and gets its sandbox address (SPEC-0007); while a card holds it,
+   * it is resolved again on each later connection, so the host keeps telling of its changes.
+   */
+  resolveVisual(sessionId: string, path: string): Promise<CommandResult<"resolve_visual">>;
+  /**
+   * Holds a visual while its card is shown, so each new connection resolves it again; returns how
+   * to let go, after which, with no other card holding it, it is forgotten.
+   */
+  holdVisual(sessionId: string, path: string): () => void;
+  /** Sends what you picked in a visual as your message in its session (SPEC-0007, "回传"). */
+  sendVisualMessage(sessionId: string, path: string, text: string): Promise<CommandResult<"send_visual_message">>;
+  /**
+   * Hears when a resolved visual changed, as the host tells, or as a new connection finds its
+   * address or time changed or the file gone; returns how to stop.
+   */
+  onVisualChanged(listener: (changed: VisualChangedEvent) => void): () => void;
   /** An ordinary pi config's path, exact text and version; `null` selects the global directory. */
   readPiConfig(workspaceId: string | null, name: PiConfigName): Promise<CommandResult<"read_pi_config">>;
   /** Saves JSON only when the original version still matches; never reloads or interrupts pi. */
@@ -526,6 +592,12 @@ const OLDER_PAGE_ITEMS = 50;
 /** A command as callers give it, without the envelope the client fills in. */
 type CommandFields<T extends CommandType> = Omit<Extract<Command, { type: T }>, "type" | "requestId" | "traceparent">;
 
+/** How many held visuals a new connection resolves at once (SPEC-0007, MV1 details). */
+const RESOLVE_BATCH = 20;
+
+/** How long a new connection waits between batches of held visuals, in milliseconds. */
+const RESOLVE_GAP_MS = 200;
+
 /** The platform's timers. */
 const systemClock: ClientClock = {
   setTimeout(callback, ms) {
@@ -636,6 +708,15 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const changeStores = new Map<string, StoreApi<ChangesView>>();
   /** The workspaces shown, asked for again on each connection. */
   let showing: readonly string[] = [];
+  /**
+   * The visuals cards hold, by session and path, with how many hold each and the address and time
+   * last heard (`null` before one was, or after it failed); resolved again on each connection.
+   */
+  const visuals = new Map<
+    string,
+    { readonly sessionId: string; readonly path: string; holds: number; url: string | null; mtime: number | null }
+  >();
+  const visualListeners = new Set<(changed: VisualChangedEvent) => void>();
   const diff = createStore<DiffView>(() => diffViewOf(null));
   const pending = new Map<
     string,
@@ -1092,6 +1173,76 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   }
 
   /**
+   * Tells the listeners a visual changed.
+   *
+   * @remarks
+   * A listener that throws is the UI's bug; it does not keep the others from hearing.
+   *
+   * @sideEffects Calls the listeners.
+   * @param changed - The change.
+   */
+  function visualChanged(changed: VisualChangedEvent): void {
+    for (const listener of visualListeners) {
+      try {
+        listener(changed);
+      } catch {
+        // See the remarks.
+      }
+    }
+  }
+
+  /**
+   * Resolves the visuals cards hold again on a new connection, 20 at a time, 200 ms apart.
+   *
+   * @remarks
+   * The host watches only what a connection resolved, and a restarted host has new addresses. A
+   * visual whose address or time changed, or that can no longer be resolved, is told as changed,
+   * so its card loads it again or shows why not; it stays held and is tried again next time. A
+   * connection that drops meanwhile changes nothing: the next one asks again. Paced so a client
+   * holding many visuals stays well within the host's 200 messages a second (SPEC-0007, MV1 details).
+   *
+   * @sideEffects Sends `resolve_visual`; may tell the listeners; waits on the clock.
+   */
+  async function resolveVisualsAgain(): Promise<void> {
+    const held = [...visuals.values()];
+    for (let start = 0; start < held.length; start += RESOLVE_BATCH) {
+      if (start > 0) await new Promise<void>((done) => clock.setTimeout(done, RESOLVE_GAP_MS));
+      await Promise.all(held.slice(start, start + RESOLVE_BATCH).map(async (known) => resolveHeldAgain(known)));
+    }
+  }
+
+  /**
+   * Resolves one held visual again, and tells its listeners if it changed or failed.
+   *
+   * @remarks
+   * See `resolveVisualsAgain`. A visual let go meanwhile is still asked, harmlessly, and not told.
+   *
+   * @sideEffects Sends `resolve_visual`; may tell the listeners.
+   * @param known - The visual, as held.
+   */
+  async function resolveHeldAgain(known: {
+    readonly sessionId: string;
+    readonly path: string;
+    url: string | null;
+    mtime: number | null;
+  }): Promise<void> {
+    const { sessionId, path } = known;
+    try {
+      const { url, mtime } = await request("resolve_visual", { sessionId, path });
+      if (url === known.url && mtime === known.mtime) return;
+      known.url = url;
+      known.mtime = mtime;
+      visualChanged({ type: "visual_changed", sessionId, path, mtime });
+    } catch (error) {
+      if (error instanceof ConnectionLostError) return;
+      const before = known.mtime;
+      known.url = null;
+      known.mtime = null;
+      visualChanged({ type: "visual_changed", sessionId, path, mtime: before ?? 0 });
+    }
+  }
+
+  /**
    * A workspace's changes store, made on first use.
    *
    * @remarks
@@ -1294,6 +1445,12 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       showIndex(applyIndexChanges(index.getState(), message), message.layout !== null);
       return;
     }
+    if (message.type === "visual_changed") {
+      const known = visuals.get(`${message.sessionId}\u0000${message.path}`);
+      if (known !== undefined) known.mtime = message.mtime;
+      visualChanged(message);
+      return;
+    }
     if (message.type === "changes_updated") {
       const { type: _type, workspaceId, ...changes } = message;
       // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
@@ -1494,6 +1651,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         if (watchingTasks) loadTasks().catch(() => undefined);
         if (watchingSchedules) loadSchedules().catch(() => undefined);
         if (openedTask !== null) loadTask(openedTask).catch(() => undefined);
+        resolveVisualsAgain().catch(() => undefined);
         // Fire and forget: the failure lands in the store.
         if (watchingRemote) void loadRemote();
         settle(connection.getState());
@@ -1609,8 +1767,6 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     archiveSession: (sessionId) => request("archive_session", { sessionId }),
     renameSession: (sessionId, name) => request("rename_session", { sessionId, name }),
     clearAttention: (sessionId) => request("clear_attention", { sessionId }),
-    handOff: (sessionId) => request("hand_off", { sessionId }),
-    takeBack: (sessionId) => request("take_back", { sessionId }),
     addProject: (path) => request("add_project", { path }),
     removeProject: (projectId) => request("remove_project", { projectId }),
     renameProject: (projectId, name) => request("rename_project", { projectId, name }),
@@ -1623,8 +1779,32 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     nameBranch: (projectId, text, model, branch) =>
       request("name_branch", { projectId, text, model, ...(branch === undefined ? {} : { branch }) }),
     renameChat: (chatId, name) => request("rename_chat", { chatId, name }),
+    pinChat: (chatId) => request("pin_chat", { chatId }),
+    unpinChat: (chatId) => request("unpin_chat", { chatId }),
     archiveChat: (chatId) => request("archive_chat", { chatId }),
     restoreChat: (chatId) => request("restore_chat", { chatId }),
+    createDirection: (text, model) => request("create_direction", { text, model }),
+    renameDirection: (directionId, name) => request("rename_direction", { directionId, name }),
+    pinDirection: (directionId) => request("pin_direction", { directionId }),
+    unpinDirection: (directionId) => request("unpin_direction", { directionId }),
+    archiveDirection: (directionId) => request("archive_direction", { directionId }),
+    restoreDirection: (directionId) => request("restore_direction", { directionId }),
+    startStudySession: (directionId, { kind, level, step, gap }) =>
+      request("start_study_session", {
+        directionId,
+        kind,
+        level,
+        ...(step === undefined ? {} : { step }),
+        ...(gap === undefined ? {} : { gap }),
+      }),
+    upgradeStudy: (directionId, level, archiveSessions) =>
+      request("upgrade_study", { directionId, level, archiveSessions }),
+    restoreStudySessions: (directionId, sessionIds) =>
+      request("restore_study_sessions", { directionId, sessionIds: [...sessionIds] }),
+    markStudyStep: (directionId, level, step, mark, done) =>
+      request("mark_study_step", { directionId, level, step, mark, done }),
+    markStudyGap: (directionId, gapId, fixed) => request("mark_study_gap", { directionId, gapId, fixed }),
+    retryStudyKickoff: (sessionId) => request("retry_study_kickoff", { sessionId }),
     windowFocused: () => request("window_focused", {}),
     setPreferences(changes) {
       // Proxy and translation language show only after the host validates and saves them.
@@ -1673,6 +1853,41 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     searchFiles: (sessionId, query) => request("search_files", { sessionId, query }),
     listDir: (workspaceId, path) => request("list_dir", { workspaceId, path }),
     readFile: (workspaceId, path) => request("read_file", { workspaceId, path }),
+    async resolveVisual(sessionId, path) {
+      const known = visuals.get(`${sessionId}\u0000${path}`);
+      try {
+        const result = await request("resolve_visual", { sessionId, path });
+        if (known !== undefined) {
+          known.url = result.url;
+          known.mtime = result.mtime;
+        }
+        return result;
+      } catch (error) {
+        if (known !== undefined && !(error instanceof ConnectionLostError)) {
+          known.url = null;
+          known.mtime = null;
+        }
+        throw error;
+      }
+    },
+    holdVisual(sessionId, path) {
+      const key = `${sessionId}\u0000${path}`;
+      const known = visuals.get(key) ?? { sessionId, path, holds: 0, url: null, mtime: null };
+      known.holds += 1;
+      visuals.set(key, known);
+      let held = true;
+      return () => {
+        if (!held) return;
+        held = false;
+        known.holds -= 1;
+        if (known.holds === 0 && visuals.get(key) === known) visuals.delete(key);
+      };
+    },
+    sendVisualMessage: (sessionId, path, text) => request("send_visual_message", { sessionId, path, text }),
+    onVisualChanged(listener) {
+      visualListeners.add(listener);
+      return () => visualListeners.delete(listener);
+    },
     readPiConfig: (workspaceId, name) => request("read_pi_config", { workspaceId, name }),
     savePiConfig: (workspaceId, name, text, revision) =>
       request("save_pi_config", { workspaceId, name, text, revision }),

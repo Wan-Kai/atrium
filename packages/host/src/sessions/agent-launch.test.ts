@@ -1,8 +1,15 @@
-import { encodeArgument } from "@atrium/pi";
-import type { AgentRole } from "@atrium/protocol";
+import { encodeArgument, studyArgument } from "@atrium/pi";
+import type { AgentRole, SessionStudy } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import type { AgentRecord } from "../store/agent-records";
-import { agentLaunchFlags, agentSelf, sessionLaunchFlags, taskLaunchFlags, toolFlags } from "./agent-launch";
+import {
+  agentLaunchFlags,
+  agentSelf,
+  sessionLaunchFlags,
+  studyLaunchFlags,
+  taskLaunchFlags,
+  toolFlags,
+} from "./agent-launch";
 import { agentDepth } from "./child-tree";
 
 /** The main agent's tools, as pi's flags list them. */
@@ -342,5 +349,72 @@ describe("sessionLaunchFlags: a session of a task never gets the agent's flags",
     expect(() => sessionLaunchFlags([node()], "node")).toThrow("a task session without a launch path");
     const conversation = { ...entry("t"), task: { taskId: "tsk_1", role: "conversation" as const, startOn: null } };
     expect(sessionLaunchFlags([conversation], "t")).toStrictEqual(taskLaunchFlags(conversation));
+  });
+});
+
+/**
+ * A session in a container, with a use.
+ *
+ * @remarks
+ * Only what the launch rules read.
+ *
+ * @sideEffects none
+ * @param sessionId - Its id.
+ * @param containerId - Its container.
+ * @param use - Its use, or `null`.
+ * @returns The entry.
+ */
+function study(sessionId: string, containerId: string, use: SessionStudy | null) {
+  return { ...entry(sessionId), containerId, study: use };
+}
+
+describe("studyLaunchFlags", () => {
+  it("gives a direction's session with a use its flag, in one argument (SPEC-0008, ML2)", () => {
+    const entries = [
+      study("discuss", "lrn_go", { kind: "discuss" }),
+      study("lesson", "lrn_go", { kind: "lesson", level: "l2", step: "s4" }),
+    ];
+
+    expect(studyLaunchFlags(entries, "discuss")).toStrictEqual([
+      `--atrium-study=${studyArgument({ kind: "discuss" })}`,
+    ]);
+    expect(studyLaunchFlags(entries, "lesson")).toStrictEqual([
+      `--atrium-study=${studyArgument({ kind: "lesson", level: "l2", step: "s4" })}`,
+    ]);
+  });
+
+  it("tells a quiz with no lesson's conversation so: no parent, or a fork that could not be made (ML3)", () => {
+    const entries = [
+      study("alone", "lrn_go", { kind: "quiz", level: "l1", step: "s1" }),
+      {
+        ...study("child", "lrn_go", { kind: "quiz", level: "l1", step: "s1" }),
+        parent: { sessionId: "l", by: "user" as const },
+      },
+      study("lesson", "lrn_go", { kind: "lesson", level: "l1", step: "s1" }),
+    ];
+    const none = `--atrium-study=${studyArgument({ kind: "quiz", level: "l1", step: "s1", context: "none" })}`;
+
+    expect(studyLaunchFlags(entries, "alone")).toStrictEqual([none]);
+    expect(studyLaunchFlags(entries, "child")).toStrictEqual([
+      `--atrium-study=${studyArgument({ kind: "quiz", level: "l1", step: "s1" })}`,
+    ]);
+    expect(studyLaunchFlags(entries, "child", true)).toStrictEqual([none]);
+    // Only a quiz is ever told it has no lesson.
+    expect(studyLaunchFlags(entries, "lesson", true)).toStrictEqual([
+      `--atrium-study=${studyArgument({ kind: "lesson", level: "l1", step: "s1" })}`,
+    ]);
+  });
+
+  it("gives none to a workspace's, a chat's, an asking or a use-less session, or one unknown", () => {
+    const entries = [
+      study("workspace", "wks_0123456789abcdef", { kind: "lesson", level: "l1", step: "s1" }),
+      study("chat", "cht_00000000-0000-4000-8000-000000000000", { kind: "discuss" }),
+      study("ask", "lrn_go", { kind: "ask" }),
+      study("none", "lrn_go", null),
+      entry("old"),
+    ];
+    expect(
+      ["workspace", "chat", "ask", "none", "old", "unknown"].map((sessionId) => studyLaunchFlags(entries, sessionId)),
+    ).toStrictEqual([[], [], [], [], [], []]);
   });
 });

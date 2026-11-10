@@ -26,6 +26,7 @@ import type { ChangesService } from "../changes/changes-service";
 import type { AttachmentStore } from "./attachments";
 import { type Route, type RouterOptions, createRouter } from "./router";
 import { serveStatic } from "./static-files";
+import type { VisualService } from "../visuals/visual-service";
 
 /** Limits that keep one local process from exhausting the host (security.md, "WebSocket 与鉴权"). */
 interface ConnectionLimits {
@@ -72,6 +73,10 @@ export interface WsServerOptions {
   /** A disconnected connection's translations are cancelled, never transferred to a reconnect. */
   readonly translations: RouterOptions["translations"] & { disconnect(connectionId: string): void };
   readonly index: IndexCommands;
+  /** Learning directions (SPEC-0008). */
+  readonly study: RouterOptions["study"];
+  /** The container a session is filed under, for what a phone may not reach. */
+  readonly containerOfSession: RouterOptions["containerOfSession"];
   /** First launch and the settings. */
   readonly setup: RouterOptions["setup"];
   readonly piConfig: RouterOptions["piConfig"];
@@ -100,6 +105,8 @@ export interface WsServerOptions {
   readonly changes: Pick<ChangesService, "watchChanges" | "watchDiff" | "disconnect">;
   /** A workspace's files, for the right panel's file tree and the viewer tabs. */
   readonly files: RouterOptions["files"];
+  /** Inline visuals: their commands, their pages under `/visual/`; a closed connection stops watching them. */
+  readonly visuals: Pick<VisualService, "resolve" | "send" | "serve" | "disconnect">;
   readonly logger: Logger;
   readonly tracer: Tracer;
   readonly clock: Clock;
@@ -148,6 +155,17 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
   const channels = new Set<ClientTransport>();
   let closing = false;
   const httpServer = createServer((request, response) => {
+    // A visual's page, for the desktop shell's `atrium-visual:` (SPEC-0007, MV1 details).
+    if (request.url?.startsWith("/visual/") === true) {
+      // Stryker disable all: serve answers every failure itself; this only catches a future bug.
+      options.visuals.serve(request, response).catch((error: unknown) => {
+        options.logger.error({ err: error }, "visual request failed");
+        if (!response.headersSent) response.writeHead(500);
+        response.end();
+      });
+      // Stryker restore all
+      return;
+    }
     if (options.uiDir === undefined) {
       response.writeHead(404).end();
       return;
@@ -165,6 +183,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     sessions: options.sessions,
     translations: options.translations,
     index: options.index,
+    study: options.study,
     setup: options.setup,
     piConfig: options.piConfig,
     logins: options.logins,
@@ -178,8 +197,10 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     attachments: options.attachments,
     changes: options.changes,
     files: options.files,
+    visuals: options.visuals,
     tracer: options.tracer,
     logger: options.logger,
+    containerOfSession: options.containerOfSession,
   });
   let nextConnectionId = 0;
 
@@ -499,6 +520,7 @@ function serveTransport(
     options.attachments.drop(connectionId);
     options.translations.disconnect(connectionId);
     options.changes.disconnect(connectionId);
+    options.visuals.disconnect(connectionId);
     options.remote.unwatch(connectionId);
     options.tasks.disconnect(connectionId);
     options.schedules.disconnect(connectionId);

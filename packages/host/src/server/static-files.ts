@@ -30,6 +30,8 @@ const CONTENT_SECURITY_POLICY = [
   "img-src 'self' data: blob: https:",
   "font-src 'self'",
   "connect-src 'self'",
+  // Inline visuals load in frames of their own scheme, and nothing else does (SPEC-0007).
+  "frame-src atrium-visual:",
   "object-src 'none'",
   "base-uri 'none'",
   "frame-ancestors 'none'",

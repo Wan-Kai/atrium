@@ -101,7 +101,7 @@ function noteWords(review: PendingReview): string | null {
  * The environment a review card above a task conversation reads: the words for the four task gates and the links.
  *
  * @remarks
- * The card is generic (ADR-0017); everything task-specific about it is the code-to-words mapping here, so an agent's
+ * The card is generic (ADR-0018); everything task-specific about it is the code-to-words mapping here, so an agent's
  * review later reuses the card unchanged. A subject is named by the node the review is about, with its name.
  *
  * @sideEffects none; the callbacks are the caller's.

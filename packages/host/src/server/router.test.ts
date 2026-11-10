@@ -14,6 +14,7 @@ import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
 import { type Connection, createConnection } from "./connection";
 import { createAttachmentStore } from "./attachments";
+import { PHONE_STEP_TEXT_LIMIT } from "./remote-policy";
 import { createRouter } from "./router";
 
 const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -40,6 +41,7 @@ function fakeCommands() {
     createSession: record("createSession", { sessionId: "s3" }),
     openSession: record("openSession", {}),
     closeTab: record("closeTab", {}),
+    retryStudyKickoff: record("retryStudyKickoff", {}),
     selectContainer: record("selectContainer", {}),
     archiveSession: record("archiveSession", {}),
     detachSession: record("detachSession", {}),
@@ -47,13 +49,12 @@ function fakeCommands() {
     restoreChat: record("restoreChat", {}),
     renameSession: record("renameSession", {}),
     clearAttention: record("clearAttention", {}),
-    handOff: record("handOff", { file: "/s.jsonl", args: [] }),
-    takeBack: record("takeBack", {}),
     subscribe: record("subscribe", {}),
     prompt: async (command: PromptCommand, images = []) => {
       calls.push(["prompt", command.sessionId, command.text, ...images.map((image) => image.data)]);
       if (command.text === "missing") throw new CommandError("session_not_found", { sessionId: command.sessionId });
       if (command.text === "crash") throw new Error("secret detail");
+      if (command.text === "moved") throw new CommandError("session_cwd_missing", { cwd: "/Users/kim/app" });
       return { disposition: "started" };
     },
     editStoppedMessage: async (command, images = []) => {
@@ -68,8 +69,8 @@ function fakeCommands() {
       calls.push(["fetchImage", command.sessionId, command.turnId, command.index]);
       return { mimeType: "image/png", data: "eA==" };
     },
-    fetchTranscript: async (command) => {
-      calls.push(["fetchTranscript", command.sessionId, command.epoch, command.before, command.limit]);
+    fetchTranscript: async (command, stepLimit) => {
+      calls.push(["fetchTranscript", command.sessionId, command.epoch, command.before, command.limit, stepLimit]);
       return { items: [], hasOlder: true };
     },
     steer: async (command, images = []) => {
@@ -109,6 +110,8 @@ function fakeCommands() {
     createWorkspace: record("createWorkspace", { workspaceId: WORKSPACE }),
     nameBranch: record("nameBranch", { branch: "atrium/fix-it", alias: "修复登录" }),
     renameChat: record("renameChat", {}),
+    pinChat: record("pinChat", {}),
+    unpinChat: record("unpinChat", {}),
     windowFocused: record("windowFocused", {}),
     setPreferences: record("setPreferences", {}),
     listModels: record("listModels", { models: [], defaultModel: null }),
@@ -121,6 +124,7 @@ function fakeCommands() {
 }
 
 const PROJECT = "prj_0123456789abcdef";
+const DIRECTION = "lrn_node-backend";
 const CHAT = "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc";
 
 /** A directory of pi's history, as the list commands find it. */
@@ -135,6 +139,31 @@ const SETUP: SetupState = {
   projects: 0,
 };
 const WORKSPACE = "wks_0123456789abcdef";
+
+/** Where the test's sessions are: `talk` in a learning direction, `s1` in the workspace. */
+const SESSION_CONTAINERS: Readonly<Record<string, string>> = { talk: "lrn_go", s1: WORKSPACE };
+
+/**
+ * A phone's connection, its messages going to `sent`.
+ *
+ * @sideEffects none
+ * @param sent - Where its messages go.
+ * @param logger - The logger.
+ * @returns The connection.
+ */
+function phoneConnection(sent: HostMessage[], logger: Parameters<typeof createConnection>[1]["logger"]): Connection {
+  return createConnection(
+    { bufferedAmount: 0, send: (data) => sent.push(JSON.parse(data) as HostMessage), close: () => undefined },
+    {
+      id: "c3",
+      clientId: "dev_0123456789abcdef",
+      trace: ROOT_CONTEXT,
+      maxBufferedBytes: 1024 * 1024,
+      logger,
+      remote: { deviceId: "dev_0123456789abcdef", maxMessageBytes: 1024 * 1024, snapshotOf: () => null },
+    },
+  );
+}
 const MODEL = { providerId: "anthropic", modelId: "claude-haiku-4-5" };
 
 /** A proxy setting, passed on as it is; the index commands check it. */
@@ -389,6 +418,55 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
         return { latest: "1.1.0", checkedAt: 7 };
       },
     },
+    study: {
+      createDirection: async (clientId, text, model) => {
+        calls.push(["createDirection", clientId, text, model]);
+        return { directionId: DIRECTION, sessionId: "s9" };
+      },
+      renameDirection: async (directionId, name) => {
+        calls.push(["renameDirection", directionId, name]);
+        return {};
+      },
+      pinDirection: async (directionId) => {
+        calls.push(["pinDirection", directionId]);
+        return {};
+      },
+      unpinDirection: async (directionId) => {
+        calls.push(["unpinDirection", directionId]);
+        return {};
+      },
+      archiveDirection: async (directionId) => {
+        calls.push(["archiveDirection", directionId]);
+        return {};
+      },
+      restoreDirection: async (directionId) => {
+        calls.push(["restoreDirection", directionId]);
+        if (directionId === "lrn_taken") throw new CommandError("study_restore_conflict", { directionId });
+        return {};
+      },
+      startStudySession: async (clientId, directionId, study) => {
+        calls.push(["startStudySession", clientId, directionId, study]);
+        return { sessionId: "s8" };
+      },
+      markStudyStep: async (directionId, level, step, mark, done) => {
+        calls.push(["markStudyStep", directionId, level, step, mark, done]);
+        if (step === "s9") throw new CommandError("study_mark_refused");
+        return {};
+      },
+      markStudyGap: async (directionId, gapId, fixed) => {
+        calls.push(["markStudyGap", directionId, gapId, fixed]);
+        return {};
+      },
+      upgradeStudy: async (clientId, directionId, level, archiveSessions) => {
+        calls.push(["upgradeStudy", clientId, directionId, level, archiveSessions]);
+        if (level === "l9") throw new CommandError("study_not_available", { directionId });
+        return { planSessionId: "s9", notArchived: 1 };
+      },
+      restoreStudySessions: async (directionId, sessionIds) => {
+        calls.push(["restoreStudySessions", directionId, sessionIds]);
+        return {};
+      },
+    },
     attachments,
     changes,
     files: {
@@ -402,8 +480,20 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
         return { size: 1, content: { kind: "text", text: "a" } };
       },
     },
+    visuals: {
+      resolve: async (connectionId, sessionId, path) => {
+        calls.push(["resolveVisual", connectionId, sessionId, path]);
+        if (path === "outside.html") throw new CommandError("visual_outside");
+        return { url: `atrium-visual://${"a".repeat(32)}/a.html`, size: 1, mtime: 2 };
+      },
+      send: async (command) => {
+        calls.push(["sendVisual", command]);
+        return { disposition: "dropped" };
+      },
+    },
     tracer: recording.tracer,
     logger: recording.logger,
+    containerOfSession: (sessionId) => SESSION_CONTAINERS[sessionId],
   });
   return {
     route,
@@ -648,6 +738,30 @@ describe("createRouter", () => {
     expect(records.filter((record) => record["msg"] === "client issue")).toStrictEqual([]);
   });
 
+  it("pages a phone's older turns with its short step limit, and the Mac's with the usual one", async () => {
+    const { route, connection, calls, logger, sent } = setUp();
+    const phone = createConnection(
+      { bufferedAmount: 0, send: (data) => sent.push(JSON.parse(data) as HostMessage), close: () => undefined },
+      {
+        id: "c3",
+        clientId: "dev_0123456789abcdef",
+        trace: ROOT_CONTEXT,
+        maxBufferedBytes: 1_000_000,
+        logger,
+        remote: { deviceId: "dev_0123456789abcdef", maxMessageBytes: 1_000_000, snapshotOf: () => null },
+      },
+    );
+    const fetch = { type: "fetch_transcript", sessionId: "s1", epoch: 1, before: "t9", limit: 3 } as const;
+
+    await route(phone, withTrace({ ...fetch, requestId: "p1" }));
+    await route(connection, withTrace({ ...fetch, requestId: "d1" }));
+
+    expect(calls.filter(([name]) => name === "fetchTranscript")).toStrictEqual([
+      ["fetchTranscript", "s1", 1, "t9", 3, PHONE_STEP_TEXT_LIMIT],
+      ["fetchTranscript", "s1", 1, "t9", 3, undefined],
+    ]);
+  });
+
   it("runs a phone's prompt and steer through its receipts, and the Mac's straight", async () => {
     const { route, connection, calls, logger, sent } = setUp();
     const phone = createConnection(
@@ -761,8 +875,6 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "restore_chat", requestId: "r10b", chatId: CHAT }));
     await route(connection, withTrace({ type: "rename_session", requestId: "r11", sessionId: "s2", name: "名字" }));
     await route(connection, withTrace({ type: "clear_attention", requestId: "r12", sessionId: "s2" }));
-    await route(connection, withTrace({ type: "hand_off", requestId: "r13", sessionId: "s2" }));
-    await route(connection, withTrace({ type: "take_back", requestId: "r14", sessionId: "s2" }));
     await route(
       connection,
       withTrace({ type: "fetch_image", requestId: "r15", sessionId: "s1", turnId: "t9", index: 1 }),
@@ -772,7 +884,7 @@ describe("createRouter", () => {
       ["createChat", "client-1"],
       ["subscribe", "connection-7", ["s1"], undefined, undefined],
       ["prompt", "s1", "hi"],
-      ["fetchTranscript", "s1", 2, "t9", 50],
+      ["fetchTranscript", "s1", 2, "t9", 50, undefined],
       ["fetchStep", "s1", 2, "t9", "3"],
       ["openSession", "client-1", "s2"],
       ["createSession", "client-1", WORKSPACE, true, undefined],
@@ -786,8 +898,6 @@ describe("createRouter", () => {
       ["restoreChat", CHAT],
       ["renameSession", "s2", "名字"],
       ["clearAttention", "s2"],
-      ["handOff", "s2"],
-      ["takeBack", "s2"],
       ["fetchImage", "s1", "t9", 1],
     ]);
     expect(sent).toStrictEqual([
@@ -806,8 +916,6 @@ describe("createRouter", () => {
         ok: true,
         result: {},
       })),
-      { type: "response", requestId: "r13", ok: true, result: { file: "/s.jsonl", args: [] } },
-      { type: "response", requestId: "r14", ok: true, result: {} },
       { type: "response", requestId: "r15", ok: true, result: { mimeType: "image/png", data: "eA==" } },
     ]);
   });
@@ -997,6 +1105,8 @@ describe("createRouter", () => {
         branch: "feature/fixed",
       }),
     );
+    await route(connection, withTrace({ type: "pin_chat", requestId: "r21", chatId: CHAT }));
+    await route(connection, withTrace({ type: "unpin_chat", requestId: "r22", chatId: CHAT }));
 
     expect(calls).toStrictEqual([
       ["subscribeIndex", "connection-7", undefined],
@@ -1020,6 +1130,12 @@ describe("createRouter", () => {
       ["listBases", PROJECT],
       ["createWorkspace", PROJECT, "atrium/a", "main", "修复登录"],
       ["nameBranch", PROJECT, "Fix it", MODEL, "feature/fixed"],
+      ["pinChat", CHAT],
+      ["unpinChat", CHAT],
+    ]);
+    expect([sent[21], sent[22]]).toStrictEqual([
+      { type: "response", requestId: "r21", ok: true, result: {} },
+      { type: "response", requestId: "r22", ok: true, result: {} },
     ]);
     expect(sent[20]).toStrictEqual({
       type: "response",
@@ -1041,6 +1157,124 @@ describe("createRouter", () => {
       ok: true,
       result: { models: [], defaultModel: null },
     });
+  });
+
+  it("hands the direction commands to the study commands, with the client for creating one (SPEC-0008)", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "create_direction", requestId: "d1", text: "我想学后端", model: MODEL }));
+    await route(
+      connection,
+      withTrace({ type: "rename_direction", requestId: "d2", directionId: DIRECTION, name: "后端" }),
+    );
+    await route(connection, withTrace({ type: "pin_direction", requestId: "d3", directionId: DIRECTION }));
+    await route(connection, withTrace({ type: "unpin_direction", requestId: "d4", directionId: DIRECTION }));
+    await route(connection, withTrace({ type: "archive_direction", requestId: "d5", directionId: DIRECTION }));
+    await route(connection, withTrace({ type: "restore_direction", requestId: "d6", directionId: DIRECTION }));
+    await route(connection, withTrace({ type: "restore_direction", requestId: "d7", directionId: "lrn_taken" }));
+
+    expect(calls).toStrictEqual([
+      ["createDirection", "client-1", "我想学后端", MODEL],
+      ["renameDirection", DIRECTION, "后端"],
+      ["pinDirection", DIRECTION],
+      ["unpinDirection", DIRECTION],
+      ["archiveDirection", DIRECTION],
+      ["restoreDirection", DIRECTION],
+      ["restoreDirection", "lrn_taken"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "d1", ok: true, result: { directionId: DIRECTION, sessionId: "s9" } },
+      ...["d2", "d3", "d4", "d5", "d6"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      {
+        type: "response",
+        requestId: "d7",
+        ok: false,
+        error: { code: "study_restore_conflict", params: { directionId: "lrn_taken" } },
+      },
+    ]);
+  });
+
+  it("hands the study progress commands to the study commands, with the client for starting a session (SPEC-0008, ML2)", async () => {
+    const { route, connection, sent, calls } = setUp();
+    const at = { directionId: DIRECTION, level: "l2", step: "s4" } as const;
+
+    await route(connection, withTrace({ type: "start_study_session", requestId: "m1", kind: "lesson", ...at }));
+    await route(
+      connection,
+      withTrace({ type: "start_study_session", requestId: "m2", kind: "feynman", ...at, gap: "g1" }),
+    );
+    await route(connection, withTrace({ type: "mark_study_step", requestId: "m3", ...at, mark: "quiz", done: true }));
+    await route(
+      connection,
+      withTrace({ type: "mark_study_step", requestId: "m4", ...at, step: "s9", mark: "step", done: false }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "mark_study_gap", requestId: "m5", directionId: DIRECTION, gapId: "g1", fixed: true }),
+    );
+    await route(connection, withTrace({ type: "retry_study_kickoff", requestId: "m6", sessionId: "s8" }));
+
+    expect(calls).toStrictEqual([
+      ["startStudySession", "client-1", DIRECTION, { kind: "lesson", level: "l2", step: "s4" }],
+      ["startStudySession", "client-1", DIRECTION, { kind: "feynman", level: "l2", step: "s4", gap: "g1" }],
+      ["markStudyStep", DIRECTION, "l2", "s4", "quiz", true],
+      ["markStudyStep", DIRECTION, "l2", "s9", "step", false],
+      ["markStudyGap", DIRECTION, "g1", true],
+      ["retryStudyKickoff", "s8"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "m1", ok: true, result: { sessionId: "s8" } },
+      { type: "response", requestId: "m2", ok: true, result: { sessionId: "s8" } },
+      { type: "response", requestId: "m3", ok: true, result: {} },
+      { type: "response", requestId: "m4", ok: false, error: { code: "study_mark_refused" } },
+      { type: "response", requestId: "m5", ok: true, result: {} },
+      { type: "response", requestId: "m6", ok: true, result: {} },
+    ]);
+  });
+
+  it("hands upgrading and restoring a level's sessions to the study commands, a plan with no step (SPEC-0008, ML3)", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(
+      connection,
+      withTrace({ type: "upgrade_study", requestId: "u1", directionId: DIRECTION, level: "l2", archiveSessions: true }),
+    );
+    await route(
+      connection,
+      withTrace({
+        type: "upgrade_study",
+        requestId: "u2",
+        directionId: DIRECTION,
+        level: "l9",
+        archiveSessions: false,
+      }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "restore_study_sessions", requestId: "u3", directionId: DIRECTION, sessionIds: ["s1", "s2"] }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "start_study_session", requestId: "u4", directionId: DIRECTION, kind: "plan", level: "l3" }),
+    );
+
+    expect(calls).toStrictEqual([
+      ["upgradeStudy", "client-1", DIRECTION, "l2", true],
+      ["upgradeStudy", "client-1", DIRECTION, "l9", false],
+      ["restoreStudySessions", DIRECTION, ["s1", "s2"]],
+      ["startStudySession", "client-1", DIRECTION, { kind: "plan", level: "l3" }],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "u1", ok: true, result: { planSessionId: "s9", notArchived: 1 } },
+      {
+        type: "response",
+        requestId: "u2",
+        ok: false,
+        error: { code: "study_not_available", params: { directionId: DIRECTION } },
+      },
+      { type: "response", requestId: "u3", ok: true, result: {} },
+      { type: "response", requestId: "u4", ok: true, result: { sessionId: "s8" } },
+    ]);
   });
 
   it("sends a connection the list changes waiting for it before answering any of its commands", async () => {
@@ -1117,6 +1351,39 @@ describe("createRouter", () => {
         ok: false,
         error: { code: "workspace_not_found", params: { workspaceId: "wks_ffffffffffffffff" } },
       },
+    ]);
+  });
+
+  it("hands resolving a visual and its messages to the visuals, with the connection", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "resolve_visual", requestId: "r1", sessionId: "s1", path: "a.html" }));
+    await route(
+      connection,
+      withTrace({ type: "resolve_visual", requestId: "r2", sessionId: "s1", path: "outside.html" }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "send_visual_message", requestId: "r3", sessionId: "s1", path: "a.html", text: "选 B" }),
+    );
+
+    expect(calls).toStrictEqual([
+      ["resolveVisual", connection.id, "s1", "a.html"],
+      ["resolveVisual", connection.id, "s1", "outside.html"],
+      [
+        "sendVisual",
+        { requestId: "r3", traceparent: expect.any(String), sessionId: "s1", path: "a.html", text: "选 B" },
+      ],
+    ]);
+    expect(sent).toStrictEqual([
+      {
+        type: "response",
+        requestId: "r1",
+        ok: true,
+        result: { url: `atrium-visual://${"a".repeat(32)}/a.html`, size: 1, mtime: 2 },
+      },
+      { type: "response", requestId: "r2", ok: false, error: { code: "visual_outside" } },
+      { type: "response", requestId: "r3", ok: true, result: { disposition: "dropped" } },
     ]);
   });
 
@@ -1386,6 +1653,77 @@ describe("createRouter's attachments", () => {
         requestId: "p3",
         ok: false,
         error: { code: "attachment_missing", params: { attachmentId: "a1" } },
+      },
+    ]);
+  });
+
+  it.each([
+    { type: "open_session", sessionId: "talk" },
+    { type: "subscribe_sessions", sessionIds: ["s1", "talk"] },
+    { type: "subscribe_sessions", sessionIds: ["s1"], resume: [{ sessionId: "talk", stream: "x", epoch: 1, seq: 0 }] },
+    { type: "prompt", sessionId: "talk", text: "hi" },
+    { type: "steer", sessionId: "talk", text: "and" },
+    { type: "retry_run", sessionId: "talk" },
+    { type: "stop", sessionId: "talk" },
+    { type: "resume_queue", sessionId: "talk" },
+    { type: "fetch_transcript", sessionId: "talk", epoch: 1, before: "t1", limit: 10 },
+    { type: "fetch_step", sessionId: "talk", epoch: 1, turnId: "t1", stepId: "1" },
+    { type: "fetch_image", sessionId: "talk", turnId: "t1", index: 0 },
+    { type: "create_session", containerId: "lrn_go" },
+    { type: "select_container", containerId: "lrn_go" },
+    { type: "rename_session", sessionId: "talk", name: "x" },
+    { type: "archive_session", sessionId: "talk" },
+    { type: "clear_attention", sessionId: "talk" },
+    { type: "close_tab", sessionId: "talk" },
+    { type: "set_model", sessionId: "talk", providerId: "p", modelId: "m" },
+    { type: "list_commands", sessionId: "talk" },
+    { type: "compact_session", sessionId: "talk" },
+    { type: "start_study_session", directionId: "lrn_go", kind: "lesson", level: "l1", step: "s1" },
+    { type: "mark_study_step", directionId: "lrn_go", level: "l1", step: "s1", mark: "lesson", done: true },
+    { type: "mark_study_gap", directionId: "lrn_go", gapId: "g1", fixed: true },
+    { type: "retry_study_kickoff", sessionId: "talk" },
+    { type: "upgrade_study", directionId: "lrn_go", level: "l1", archiveSessions: true },
+    { type: "restore_study_sessions", directionId: "lrn_go", sessionIds: ["talk"] },
+  ])(
+    "refuses a phone's $type on a learning direction or a session in one, as local_only, running nothing",
+    async (fields) => {
+      const { route, sent, calls, logger } = setUp();
+      const phone = phoneConnection(sent, logger);
+
+      await route(phone, withTrace({ ...fields, requestId: "r1" }));
+
+      expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: false, error: { code: "local_only" } }]);
+      expect(calls).toStrictEqual([]);
+    },
+  );
+
+  it("runs the same commands from the Mac, and a phone's on a workspace's session", async () => {
+    const { route, sent, calls, connection, logger } = setUp();
+    const phone = phoneConnection(sent, logger);
+
+    await route(connection, withTrace({ type: "open_session", requestId: "r1", sessionId: "talk" }));
+    await route(phone, withTrace({ type: "open_session", requestId: "r2", sessionId: "s1" }));
+
+    expect(calls).toStrictEqual([
+      ["openSession", "client-1", "talk"],
+      ["openSession", "dev_0123456789abcdef", "s1"],
+    ]);
+  });
+
+  it("tells a phone a session's directory is gone without saying where it was", async () => {
+    const { route, sent, connection, logger } = setUp();
+    const phone = phoneConnection(sent, logger);
+
+    await route(phone, withTrace({ type: "prompt", requestId: "r1", sessionId: "s1", text: "moved" }));
+    await route(connection, withTrace({ type: "prompt", requestId: "r2", sessionId: "s1", text: "moved" }));
+
+    expect(sent.filter((message) => message.type === "response")).toStrictEqual([
+      { type: "response", requestId: "r1", ok: false, error: { code: "session_cwd_missing" } },
+      {
+        type: "response",
+        requestId: "r2",
+        ok: false,
+        error: { code: "session_cwd_missing", params: { cwd: "/Users/kim/app" } },
       },
     ]);
   });

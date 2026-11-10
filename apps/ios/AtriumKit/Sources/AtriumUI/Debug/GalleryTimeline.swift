@@ -96,7 +96,7 @@
   ///
   /// - Remark: Owns and invalidates its link explicitly; samples are ordinary values and do not
   ///   invalidate the SwiftUI tree every frame. CADisplayLink supplies the timestamps.
-  private final class GalleryFrameProbe: NSObject {
+  final class GalleryFrameProbe: NSObject {
     /// The injected monotonic clock for main-runloop interval measurements.
     private let clock: ContinuousClock
     /// Observer owned by this probe, registered only on the main runloop.
@@ -211,10 +211,13 @@
       guard !sorted.isEmpty else { return "\(prefix) no frames" }
       let p95 = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
       return String(
-        format: "%@ n=%d p95=%.2f max=%.2f over50=%d maxAt=%.3f awakeMax=%.2f awakeOver50=%d rows=%d builds=%d",
-        prefix, sorted.count, p95, sorted.last ?? 0, sorted.filter { $0 > 50 }.count, peakAt,
-        activeSamples.max() ?? 0, activeSamples.filter { $0 > 50 }.count,
-        GalleryTimelineStats.rowBodies, GalleryTimelineStats.rowBuilds)
+        format:
+          "%@ n=%d p95=%.2f max=%.2f over25=%d over50=%d maxAt=%.3f awakeMax=%.2f awakeOver16=%d awakeOver50=%d "
+          + "rows=%d builds=%d turns=%d blocks=%d",
+        prefix, sorted.count, p95, sorted.last ?? 0, sorted.filter { $0 > 25 }.count, sorted.filter { $0 > 50 }.count,
+        peakAt, activeSamples.max() ?? 0, activeSamples.filter { $0 > 16.7 }.count,
+        activeSamples.filter { $0 > 50 }.count, GalleryTimelineStats.rowBodies, GalleryTimelineStats.rowBuilds,
+        GalleryTimelineStats.turnBodies, GalleryTimelineStats.blockBodies)
     }
   }
 #endif

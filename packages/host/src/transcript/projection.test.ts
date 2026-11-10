@@ -841,7 +841,7 @@ describe("projectTranscript", () => {
     expect(turnEntryIds).toStrictEqual(["u1", "u2"]);
   });
 
-  it("puts the record of a review between the turns as a notice, with the snapshot and the verdict (ADR-0017)", () => {
+  it("puts the record of a review between the turns as a notice, with the snapshot and the verdict (ADR-0018)", () => {
     const record: ReviewRecord = {
       source: { kind: "gate", gate: "task_human" },
       subject: { code: "task_human_node", params: { taskId: "tsk_a", node: "H", merge: false } },

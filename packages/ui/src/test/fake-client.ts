@@ -14,13 +14,14 @@ import type {
   TaskState,
   TasksView,
 } from "@atrium/client";
-import { loadingView } from "@atrium/client";
+import { isDirectionId, loadingView } from "@atrium/client";
 import {
   type Chat,
   type ChildPlacement,
   type CommandResult,
   CommandError,
   type DiffTarget,
+  type Direction,
   type DiscoveredDirectory,
   type ForkPlacement,
   type Control,
@@ -79,7 +80,36 @@ export function workspace(fields: Partial<Workspace> & Pick<Workspace, "id">): W
  * @returns The chat.
  */
 export function chat(fields: Partial<Chat> & Pick<Chat, "id" | "firstSessionId">): Chat {
-  return { dir: `/home/chats/${fields.id}`, alias: null, archivedAt: null, ...fields };
+  return { dir: `/home/chats/${fields.id}`, alias: null, archivedAt: null, pinnedAt: null, ...fields };
+}
+
+/**
+ * A learning direction under discussion, not archived.
+ *
+ * @remarks
+ * Its directory under the learning directory, named as its id, unless `fields` say otherwise.
+ *
+ * @sideEffects none
+ * @param fields - Fields to set; the id is required.
+ * @returns The direction.
+ */
+export function direction(fields: Partial<Direction> & Pick<Direction, "id">): Direction {
+  const dirName = fields.id.slice("lrn_".length);
+  return {
+    dir: `/home/Atrium/Learning/${dirName}`,
+    name: dirName,
+    alias: null,
+    broken: false,
+    newer: false,
+    discussing: true,
+    archived: false,
+    createdAt: 1,
+    pinnedAt: null,
+    lastOpenedAt: null,
+    progress: null,
+    next: { primary: null, secondary: null },
+    ...fields,
+  };
 }
 
 /**
@@ -105,11 +135,13 @@ export function session(
     running: false,
     attention: null,
     asking: null,
-    handedOff: false,
+    question: null,
     model: null,
     parent: null,
     agent: null,
     heldDeliveries: 0,
+    kickoff: null,
+    study: null,
     ...fields,
   };
 }
@@ -176,12 +208,20 @@ export interface FakeAnswers {
   /** Answers creating a workspace, which then shows in the list as a worktree; created at once when left out. */
   readonly createWorkspace?: () => Promise<void>;
   readonly renameChat?: () => Promise<void>;
+  /** Answers pinning or unpinning a chat; pinned at once when left out. */
+  readonly pinChat?: () => Promise<void>;
   /** Answers renaming a session; renamed at once when left out. */
   readonly renameSession?: () => Promise<void>;
   /** Answers archiving a chat, which is then archived in the list; archived at once when left out. */
   readonly archiveChat?: () => Promise<void>;
   /** Answers restoring a chat, which then shows again; restored at once when left out. */
   readonly restoreChat?: () => Promise<void>;
+  /** Answers creating a direction, which then shows with its discussion; `lrn_go` at once when left out. */
+  readonly createDirection?: () => Promise<void>;
+  /** The host makes the direction but not its discussion (`sessionId` `null`). */
+  readonly noDiscussion?: boolean;
+  /** Answers any other direction command, which then changes the list; at once when left out. */
+  readonly directionCommand?: () => Promise<void>;
   readonly prompt?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
   /**
    * Sessions whose pi is not running: watching them brings no snapshot (the view stays `loading`) until
@@ -199,9 +239,10 @@ export interface FakeAnswers {
   readonly taskCommand?: (name: string, args: readonly unknown[]) => Promise<void>;
   /** Answers `watchSchedules(true)`, such as by rejecting with the host's `schedule_file_unreadable`. */
   readonly watchSchedules?: () => Promise<void>;
+  /** Answers listing a session's commands, as when pi is still starting; at once when left out. */
+  readonly listCommands?: () => Promise<void>;
   readonly addProject?: () => Promise<void>;
   readonly openSession?: () => Promise<void>;
-  readonly handOff?: () => Promise<void>;
   /** The list `loadModels` puts in a container's model list; empty and ready when left out. */
   readonly models?: ModelListView;
   /** Holds back an upload, given its number counting from 1. */
@@ -243,6 +284,8 @@ export interface FakeAnswers {
   readonly listDir?: (workspaceId: string, path: string) => Promise<CommandResult<"list_dir">>;
   /** A workspace file; `path_not_found` when left out. */
   readonly readFile?: (workspaceId: string, path: string) => Promise<CommandResult<"read_file">>;
+  /** A visual's address (SPEC-0007); `visual_missing` when left out. */
+  readonly resolveVisual?: (sessionId: string, path: string) => Promise<CommandResult<"resolve_visual">>;
   /** Reads ordinary pi configuration without recording its contents. */
   readonly readPiConfig?: (workspaceId: string | null, name: PiConfigName) => Promise<PiConfigFile>;
   /** Saves ordinary pi configuration without recording its contents. */
@@ -372,6 +415,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     projects: [],
     workspaces: [],
     chats: [],
+    directions: [],
     sessions: [],
     layout: { container: null, tabs: {} },
     preferences: {
@@ -387,6 +431,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       inbox: true,
     },
     resets: [],
+    learningDir: "~/Atrium/Learning",
     ...initial,
   }));
   const connection = createStore<ConnectionState>(() => ({
@@ -559,6 +604,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
             alias: null,
             firstSessionId: `new${created + 1}`,
             archivedAt: null,
+            pinnedAt: null,
           },
         ],
       });
@@ -569,7 +615,11 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       await answers.createSession?.();
       // As the host does: told not to go, the tab opens and the client stays.
       const layout = index.getState().layout;
+      // As the host does: a direction's first session is its discussion.
+      const first =
+        isDirectionId(containerId) && !index.getState().sessions.some((one) => one.containerId === containerId);
       const sessionId = addDraft(containerId);
+      if (first) change(sessionId, () => ({ study: { kind: "discuss" } }));
       if (go === false) index.setState({ layout: { ...index.getState().layout, container: layout.container } });
       return { sessionId };
     },
@@ -666,17 +716,6 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       }));
       return {};
     },
-    async handOff(sessionId: string) {
-      calls.push(`handOff ${sessionId}`);
-      await answers.handOff?.();
-      change(sessionId, () => ({ handedOff: true }));
-      return { file: index.getState().sessions.find((one) => one.sessionId === sessionId)?.file ?? "" };
-    },
-    async takeBack(sessionId: string) {
-      calls.push(`takeBack ${sessionId}`);
-      change(sessionId, () => ({ handedOff: false }));
-      return {};
-    },
     async addProject(path: string) {
       calls.push(`addProject ${path}`);
       await answers.addProject?.();
@@ -734,6 +773,120 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
             : one,
         ),
       });
+      return {};
+    },
+    async createDirection(text: string, model: ModelRef | null) {
+      calls.push(`createDirection ${text} ${model === null ? "null" : `${model.providerId}/${model.modelId}`}`);
+      await answers.createDirection?.();
+      // As the host does: the direction, and its discussion opened as the active tab there.
+      const directionId = "lrn_go";
+      index.setState({
+        directions: [
+          ...index.getState().directions,
+          direction({ id: directionId, name: "Go", lastOpenedAt: Date.now() }),
+        ],
+      });
+      if (answers.noDiscussion === true) return { directionId, sessionId: null };
+      const sessionId = addDraft(directionId);
+      change(sessionId, () => ({ study: { kind: "discuss" } }));
+      return { directionId, sessionId };
+    },
+    async renameDirection(directionId: string, name: string | null) {
+      calls.push(`renameDirection ${directionId} ${name}`);
+      await answers.directionCommand?.();
+      const { directions } = index.getState();
+      index.setState({ directions: directions.map((one) => (one.id === directionId ? { ...one, alias: name } : one)) });
+      return {};
+    },
+    async pinDirection(directionId: string) {
+      calls.push(`pinDirection ${directionId}`);
+      await answers.directionCommand?.();
+      const { directions } = index.getState();
+      index.setState({
+        directions: directions.map((one) => (one.id === directionId ? { ...one, pinnedAt: Date.now() } : one)),
+      });
+      return {};
+    },
+    async unpinDirection(directionId: string) {
+      calls.push(`unpinDirection ${directionId}`);
+      await answers.directionCommand?.();
+      const { directions } = index.getState();
+      index.setState({
+        directions: directions.map((one) => (one.id === directionId ? { ...one, pinnedAt: null } : one)),
+      });
+      return {};
+    },
+    async archiveDirection(directionId: string) {
+      calls.push(`archiveDirection ${directionId}`);
+      await answers.directionCommand?.();
+      const { directions, layout } = index.getState();
+      const { [directionId]: _gone, ...tabs } = layout.tabs;
+      index.setState({
+        directions: directions.map((one) =>
+          one.id === directionId
+            ? { ...one, archived: true, dir: one.dir.replace("/Learning/", "/Learning/Archive/") }
+            : one,
+        ),
+        layout: { container: layout.container === directionId ? null : layout.container, tabs },
+      });
+      return {};
+    },
+    async startStudySession(
+      directionId: string,
+      study: { readonly kind: string; readonly level: string; readonly step?: string; readonly gap?: string },
+    ) {
+      calls.push(`startStudySession ${directionId} ${JSON.stringify(study)}`);
+      await answers.directionCommand?.();
+      return { sessionId: "s-study" };
+    },
+    async upgradeStudy(directionId: string, level: string, archiveSessions: boolean) {
+      calls.push(`upgradeStudy ${directionId} ${level} ${String(archiveSessions)}`);
+      await answers.directionCommand?.();
+      return { planSessionId: null, notArchived: 0 };
+    },
+    async restoreStudySessions(directionId: string, sessionIds: readonly string[]) {
+      calls.push(`restoreStudySessions ${directionId} ${sessionIds.join(",")}`);
+      await answers.directionCommand?.();
+      return {};
+    },
+    async markStudyStep(directionId: string, level: string, step: string, mark: string, done: boolean) {
+      calls.push(`markStudyStep ${directionId} ${level} ${step} ${mark} ${String(done)}`);
+      await answers.directionCommand?.();
+      return {};
+    },
+    async retryStudyKickoff(sessionId: string) {
+      calls.push(`retryStudyKickoff ${sessionId}`);
+      await answers.directionCommand?.();
+      return {};
+    },
+    async markStudyGap(directionId: string, gapId: string, fixed: boolean) {
+      calls.push(`markStudyGap ${directionId} ${gapId} ${String(fixed)}`);
+      await answers.directionCommand?.();
+      return {};
+    },
+    async restoreDirection(directionId: string) {
+      calls.push(`restoreDirection ${directionId}`);
+      await answers.directionCommand?.();
+      const { directions } = index.getState();
+      index.setState({
+        directions: directions.map((one) =>
+          one.id === directionId ? { ...one, archived: false, dir: one.dir.replace("/Archive/", "/") } : one,
+        ),
+      });
+      return {};
+    },
+    async pinChat(chatId: string) {
+      calls.push(`pinChat ${chatId}`);
+      await answers.pinChat?.();
+      const { chats } = index.getState();
+      index.setState({ chats: chats.map((one) => (one.id === chatId ? { ...one, pinnedAt: Date.now() } : one)) });
+      return {};
+    },
+    async unpinChat(chatId: string) {
+      calls.push(`unpinChat ${chatId}`);
+      await answers.pinChat?.();
+      const { chats } = index.getState();
+      index.setState({ chats: chats.map((one) => (one.id === chatId ? { ...one, pinnedAt: null } : one)) });
       return {};
     },
     async renameChat(chatId: string, name: string | null) {
@@ -884,6 +1037,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     async listCommands(sessionId: string) {
       calls.push(`listCommands ${sessionId}`);
+      await answers.listCommands?.();
       return { commands: [{ name: "review", description: "Reviews", source: "prompt" }] };
     },
     async searchFiles(sessionId: string, query: string) {
@@ -914,6 +1068,17 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
         }
       );
     },
+    async resolveVisual(sessionId: string, path: string) {
+      calls.push(`resolveVisual ${sessionId} ${path}`);
+      const resolved = await answers.resolveVisual?.(sessionId, path);
+      if (resolved === undefined) throw new CommandError("visual_missing");
+      return resolved;
+    },
+    async sendVisualMessage(sessionId: string, path: string, text: string) {
+      calls.push(`sendVisualMessage ${sessionId} ${path} ${text}`);
+      return { disposition: "started" };
+    },
+    onVisualChanged: () => () => undefined,
     async readFile(workspaceId: string, path: string) {
       calls.push(`readFile ${workspaceId} ${path}`);
       const read = await answers.readFile?.(workspaceId, path);

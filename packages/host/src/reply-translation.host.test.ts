@@ -1,6 +1,5 @@
 import { CommandError } from "@atrium/protocol";
-import { findPi } from "@atrium/pi";
-import { type FauxScript, createTempDir, fauxPi, present } from "@atrium/testkit";
+import { createTempDir, fauxPi, type FauxScript, installedPi, present } from "@atrium/testkit";
 import { chmod, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -29,7 +28,7 @@ async function translationHost(
     },
     directory.path,
   );
-  const pi = present(await findPi(present(process.env["PATH"], "PATH")), "pi");
+  const pi = await installedPi();
   const wrapper = join(directory.path, "pi");
   const args = launch.args.map((arg) => `'${arg}'`).join(" ");
   await writeFile(

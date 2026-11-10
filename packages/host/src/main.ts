@@ -43,10 +43,13 @@ import { type HostTools, createToolbox, withProxySetting } from "./setup/toolbox
 import { HOST_TO_PHONE_LIMIT } from "@atrium/remote-crypto";
 import type { VaultPort } from "./remote/vault";
 import { RemoteService } from "./remote/remote-service";
+import { RelayRoute, relayProxy } from "./remote/relay-route";
 import { REMOTE_FILE } from "./remote/devices";
 import { loadIndexFile } from "./store/index-file";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
+import { defaultVisualsDir, visualPlaceOf } from "./visuals/visual-place";
+import { createVisualService } from "./visuals/visual-service";
 import { openReceipts } from "./remote/receipts";
 import { discoverProjects } from "./projects/discovery";
 import { createIndexCommands } from "./sessions/index-commands";
@@ -85,6 +88,15 @@ import { createWorktreeCreator } from "./workspaces/worktree-creator";
 import { homeTagOf } from "./workspaces/worktree-lock";
 import { createWorktreeQueue } from "./workspaces/worktree-queue";
 import { createWorkspaceService } from "./workspaces/workspace-service";
+import { createLearningRecords } from "./store/learning-records";
+import { createDirectionCreator } from "./study/direction-creator";
+import { createDirectionNamer } from "./study/direction-namer";
+import { errorCode } from "./platform/errors";
+import { createDirections, resolveRoot, shownPath } from "./study/directions";
+import { withEntries } from "./study/entering";
+import { createStudyCommands } from "./study/study-commands";
+import { createProgressFiles } from "./study/progress-file";
+import { createStudyTools } from "./study/study-tools";
 
 /** How often clients ping the host, and how long they wait for the answer (SPEC-0001, "握手与心跳"). */
 const HEARTBEAT_MS = 15_000;
@@ -96,6 +108,11 @@ const MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
 export interface HostConfig {
   /** Atrium home directory, normally `~/.atrium`. */
   readonly home: string;
+  /**
+   * The learning directory, normally `~/Atrium/Learning` (SPEC-0008); `<home>/Learning` when
+   * left out, so a host started without it, as in tests, never touches the real one.
+   */
+  readonly learningRoot?: string;
   /** Token clients must present. */
   readonly token: string;
   /** Port to listen on; defaults to 0 (any free port). */
@@ -261,16 +278,34 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     resources,
     logger,
   });
+  // Learning directions live outside the home, where the user can see them (SPEC-0008).
+  const directions = createDirections({
+    root: await resolveRoot(config.learningRoot ?? join(home.root, "Learning")),
+    clock,
+    resources,
+    logger,
+  });
+  const learningRecords = createLearningRecords(index.learning);
+  // The catalog files directions' sessions by their directories: its first scan waits for theirs.
+  const directionsFound = directions
+    .scan()
+    .catch((error: unknown) => logger.warn({ code: errorCode(error) }, "learning directory not scanned"));
   const catalog = createSessionCatalog({
     file: index.sessions,
     location: toolbox.current().then((tools) => (tools === null ? null : sessionsLocation(tools.env))),
     chatsRoot: join(home.root, "chats"),
     workspaces: () => workspaces.list().map((workspace) => ({ id: workspace.id, dir: workspace.dir })),
+    // At the directory their sessions run in, archived or not (domain-model §1, Direction).
+    directions: () => directions.list().map((direction) => ({ id: direction.id, dir: direction.home })),
+    directionsFound: () => directionsFound,
     reader: createSessionFileReader(),
     clock,
     logger,
   });
-  const layouts = createLayouts({ file: index.layouts, clock });
+  // A client going into a direction makes it the one opened last; the commands come below.
+  const layouts = withEntries(createLayouts({ file: index.layouts, clock }), (containerId) =>
+    study.entered(containerId),
+  );
   const chatRecords = createChatRecords(index.chats);
   const feed = createIndexFeed({
     registry: subscriptions,
@@ -279,9 +314,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       projects: projects.projects().map(({ id, path, name, mainBranch }) => ({ id, path, name, mainBranch })),
       workspaces: workspaces.list(),
       chats: listChats(catalog.chats(), chatRecords),
+      directions: study.list(),
       sessions: sessions.summaries(),
       preferences: preferences.read(),
       resets: [...index.resets],
+      learningDir: shownPath(directions.root, homedir()),
     }),
     layoutOf: (clientId) => layouts.of(clientId),
     clock,
@@ -335,6 +372,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     chosen: () => preferences.read().titleModel,
     list: (dir) => models.list(dir, false),
     chatsRoot: join(home.root, "chats"),
+    learningRoot: directions.root,
     // As the model lister asks for chats.
     chatsDir: home.root,
   });
@@ -342,10 +380,42 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const worktreeNaming = new AbortController();
   // Who else wants to know the sessions changed: an update waits for running sessions to finish.
   const sessionListeners = new Set<() => void>();
-  // What waits for the user's verdict, per session (ADR-0017); the task gates register when the tasks exist.
+  // What waits for the user's verdict, per session (ADR-0018); the task gates register when the tasks exist.
   const reviewHub = createReviewHub({ logger, resources });
+  /**
+   * Where a session's visuals go.
+   *
+   * @remarks
+   * Every session has the default one until a container gives its own (SPEC-0007; ML4 adds study directions').
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @returns The directory, or `null`.
+   */
+  function visualsDir(sessionId: string): string | null {
+    return defaultVisualsDir(home.root, sessionId);
+  }
+  // Directions' progress, written by the agent's study tools and your marks (SPEC-0008, "ML2 定的细节").
+  const progressFiles = createProgressFiles({
+    root: directions.root,
+    random: () => randomBytes(6).toString("hex"),
+    logger,
+  });
+  const studyTools = createStudyTools({
+    // A session archived, or being archived, takes no tool (SPEC-0008, "ML3 定的细节").
+    find: (sessionId) => {
+      const entry = catalog.find(sessionId);
+      return entry === undefined
+        ? undefined
+        : { ...entry, archived: entry.archived || sessions.isArchiving(sessionId) };
+    },
+    directions,
+    files: progressFiles,
+    logger,
+  });
   const sessions = createSessionManager({
     reviews: reviewHub,
+    study: studyTools,
     chatsRoot: join(home.root, "chats"),
     // A pi started while pi is being updated waits, so it is the new one.
     tools: async () => {
@@ -356,6 +426,15 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     catalog,
     layouts,
     chats: chatRecords,
+    // An archived direction takes no new session (SPEC-0008).
+    directions: {
+      dirOf: (directionId) => {
+        const found = directions.find(directionId);
+        return found === undefined || found.archived ? undefined : found.dir;
+      },
+      // Its sessions are shown from their files, without pi (SPEC-0008, "ML1 定的细节").
+      readOnly: (containerId) => directions.find(containerId)?.archived === true,
+    },
     // A run ending in a workspace may have changed its files.
     workspaces: {
       dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
@@ -448,6 +527,27 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       if (setAside !== null) logger.warn({ sessionId }, "turn starts file was damaged and has been reset");
       return starts;
     },
+    visualsDir,
+  });
+  // Inline visuals (SPEC-0007): each session's directory, its pages, and messages sent from them.
+  const visuals = createVisualService({
+    // A fork or child also reads the visuals of the sessions it came from (SPEC-0007, MV1 details).
+    locate: (sessionId) =>
+      visualPlaceOf(
+        sessionId,
+        (id) => {
+          const entry = catalog.find(id);
+          return entry === undefined
+            ? undefined
+            : { cwd: entry.cwd, parent: entry.parent?.sessionId ?? null, detachedFrom: entry.detachedFrom };
+        },
+        visualsDir,
+      ),
+    steer: (command, source) => sessions.steer(command, [], source),
+    send: (connectionId, event) => subscriptions.sendTo(connectionId, event),
+    clock,
+    resources,
+    logger,
   });
   const translations = createReplyTranslations({
     source: (sessionId, turnId) => sessions.replyTranslationSource(sessionId, turnId),
@@ -464,8 +564,51 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       );
     },
   });
+  // Names a new direction by its first message and makes its directory (SPEC-0008, "新建方向").
+  const directionNamer = createDirectionNamer({
+    // As chats are named: the direction's directory is not made yet.
+    cwd: home.root,
+    titleModel,
+    models: (dir) => models.list(dir, false),
+    // As a new session starts (SPEC-0008, "真实模型检查后改").
+    preferred: () => preferences.preferred()?.model ?? null,
+    oneShot: async ({ timeoutMs, ...request }, signal) => {
+      const found = await toolbox.current();
+      if (found?.pi.status !== "ready") {
+        throw new CommandError("pi_unavailable", { status: found?.pi.status ?? "unknown" });
+      }
+      return runOneShot(
+        { piPath: found.pi.piPath, ...request },
+        createPiDeps({ clock, resources, logger, env: found.env }),
+        { timeoutMs, ...(signal === undefined ? {} : { signal }) },
+      );
+    },
+    logger,
+  });
+  const study = createStudyCommands({
+    directions,
+    namer: directionNamer,
+    creator: createDirectionCreator({
+      root: directions.root,
+      git,
+      clock,
+      random: () => randomBytes(3).toString("hex"),
+      logger,
+    }),
+    records: learningRecords,
+    sessions,
+    files: progressFiles,
+    clock,
+    changed: () => feed.changed(),
+    logger,
+  });
   projects.onChange(() => feed.changed());
   catalog.onChange(() => feed.changed());
+  directions.onChange(() => {
+    feed.changed();
+    // A direction come or moved may hold sessions started in a terminal.
+    sessions.rescan();
+  });
   workspaces.onChange(() => {
     feed.changed();
     // A scan or fetch may have moved a branch or the main branch.
@@ -582,7 +725,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       ...(config.scheduleTimeZone === undefined ? {} : { timeZone: config.scheduleTimeZone }),
     });
   }
-  // The task gates (ADR-0017): graph approval, human nodes, the question about the worktree.
+  // The task gates (ADR-0018): graph approval, human nodes, the question about the worktree.
   reviewHub.register(
     createTaskReviewProvider({
       service: tasks,
@@ -640,6 +783,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       windowFocused: () => {
         workspaces.windowFocused();
         changes.refresh();
+        // Fire and forget: a failed scan is logged; the next focus tries again.
+        void directions
+          .scan()
+          .catch((error: unknown) => logger.warn({ code: errorCode(error) }, "learning directory not scanned"));
       },
       refresh: (workspaceId) => {
         workspaces.refresh(workspaceId);
@@ -653,6 +800,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     preferences,
     chats: () => catalog.chats(),
     chatRecords,
+    clock,
     feed,
     listModels: createModelLister({
       catalog: models,
@@ -740,6 +888,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     resources,
     logger,
     hostName: hostname(),
+    // The proxy setting, read afresh at every attempt (SPEC-0005, "连 relay 走代理").
+    route: new RelayRoute(() => relayProxy(preferences.read().proxy)),
     send: (id, event) => subscriptions.sendTo(id, event),
     accept: (transport, origin) => server.accept(transport, origin),
   });
@@ -763,6 +913,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       subscriptions,
       sessions,
       index: indexCommands,
+      study,
+      containerOfSession: (sessionId) => catalog.find(sessionId)?.containerId,
       setup,
       piConfig: createPiConfig({
         environment: async () => {
@@ -794,6 +946,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       attachments,
       changes,
       files: createWorkspaceFiles({ dirOf: (workspaceId) => workspaces.dirOf(workspaceId), git, logger }),
+      visuals,
       logger,
       tracer: tracing.tracer,
       clock,
@@ -801,6 +954,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     });
   } catch (error) {
     logger.error({ err: error }, "host failed to start");
+    // The learning directory is scanned, and so watched, from the start.
+    await directions.close();
     releaseRejections();
     await tracing.shutdown();
     await closeLogFile(destination);
@@ -971,8 +1126,13 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await translations.close();
     // Naming may be waiting on a shared cold model query: abort both before awaiting either.
     const namingClosed = namer.close();
+    const studyClosed = study.close();
     await models.close();
     await namingClosed;
+    // Before the sessions, which a direction being created or archived still uses.
+    await studyClosed;
+    // The progress a tool or a mark is writing goes to disk before the directions close.
+    await progressFiles.close();
     // Before the sessions and the index, which a worktree being created, archived or restored still uses.
     await worktreeQueue.idle();
     await loginService.close();
@@ -981,6 +1141,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await logins.close();
     attachments.close();
     await changes.close();
+    visuals.close();
     await workspaces.close();
     // Before the sessions, whose stopping the runner would otherwise answer with events.
     recovery.abort();
@@ -997,6 +1158,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await reviewHub.close();
     await sessions.close();
     await catalog.close();
+    await directions.close();
     // After the sessions, whose stopping still reports changes.
     feed.close();
     ring.close();

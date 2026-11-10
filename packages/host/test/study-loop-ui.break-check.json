@@ -1,0 +1,321 @@
+[
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "study?.kind === \"lesson\" && study.level === level && study.step === step,",
+    "to": "study?.kind === \"lesson\" && study.level === level,",
+    "test": "packages/ui/src/study/loop.test.ts",
+    "name": "is the latest lesson session"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "  if (lesson.running) return true;",
+    "to": "  if (lesson.running) return false;",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "fades 开始测验",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "!archived && study !== null && study.kind !== \"discuss\" && study.kind !== \"ask\" && study.level === level,",
+    "to": "!archived && study !== null && study.level === level,",
+    "test": "packages/ui/src/study/loop.test.ts",
+    "name": "archives the level's sessions"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "      if (session.archived || chosen.has(session.sessionId) || parent === undefined || !chosen.has(parent)) continue;",
+    "to": "      continue;",
+    "test": "packages/ui/src/study/loop.test.ts",
+    "name": "archives the level's sessions"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "  const nextAt = progress.ladder.findIndex((one, index) => index > at && one.state === \"todo\");",
+    "to": "  const nextAt = progress.ladder.findIndex((one, index) => index > at);",
+    "test": "packages/ui/src/study/loop.test.ts",
+    "name": "skips skipped levels"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "  const open = progress.gaps.filter((gap) => gap.fixed === null).length;\n  return {\n    last: false,",
+    "to": "  const open = progress.gaps.length;\n  return {\n    last: false,",
+    "test": "packages/ui/src/study/loop.test.ts",
+    "name": "says what it does for a level in the middle"
+  },
+  {
+    "file": "packages/ui/src/study/upgrade-dialog.tsx",
+    "from": "      .upgradeStudy(directionId, level, archive && view.archive !== null)",
+    "to": "      .upgradeStudy(directionId, level, true)",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "says the level gone to",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "    ...(gap.from.level === level.id ? { step: gap.from.step } : {}),",
+    "to": "    step: gap.from.step,",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "groups this level's and those carried",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "    carried: earlier.filter((gap) => gap.fixed === null),",
+    "to": "    carried: earlier,",
+    "test": "packages/ui/src/study/loop.test.ts",
+    "name": "groups this level's"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "    (item) => item.kind === \"turn\" && item.source?.kind === \"study\" && item.source.study.kind === \"quiz\",",
+    "to": "    (item) => item.kind === \"turn\" && item.source?.kind === \"study\",",
+    "test": "packages/ui/src/study/loop.test.ts",
+    "name": "are those before the quiz's own start"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "    return { verb, object: text.split(\"\\n\")[0] ?? \"\", square: \"gap\", wrote };",
+    "to": "    return { verb, object: text.split(\"\\n\")[0] ?? \"\", square: null, wrote };",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "says a gap found and a report in words",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "    return { verb, object: gap?.text.split(\"\\n\")[0] ?? \"\", square: \"fixed\", wrote };",
+    "to": "    return { verb, object: gap?.text.split(\"\\n\")[0] ?? \"\", square: \"gap\", wrote };",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "says the gap a Feynman session fixed",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "    return step?.kind === \"lesson\" ? `${KIND_NAMES[study.kind]} · ${step.title}` : null;",
+    "to": "    return null;",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "says where it came from",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/upgrade-dialog.tsx",
+    "from": "          {archive && view.archive !== null && view.running > 0 ? (",
+    "to": "          {view.archive !== null && view.running > 0 ? (",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "says the level gone to",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/step-strip.tsx",
+    "from": "      if (action.available) confirmUpgrade(store, { directionId, level: action.level });",
+    "to": "      return;",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "archives when left checked",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/step-strip.tsx",
+    "from": "  const unplanned = view.kind === \"learning\" && !view.dots.some((dot) => !dot.round);",
+    "to": "  const unplanned = false;",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "takes a level hand-edited down to steps without lessons",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "    !steps.some((step) => step.kind === \"lesson\") &&",
+    "to": "    steps.length === 0 &&",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "takes a level hand-edited down to steps without lessons",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "          onClick={() => act(() => client.restoreStudySessions(direction.id, [session.sessionId]))}",
+    "to": "          onClick={() => undefined}",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "lists them under the level opened",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/conversation-area.tsx",
+    "from": "      index.sessions.some((session) => session.sessionId === sessionId && session.archived),",
+    "to": "      false,",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "shows an archived session to read",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/transcript.tsx",
+    "from": "                if (row.index < copied && !copiedShown) return null;\n",
+    "to": "",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "says where it came from",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/source-line.tsx",
+    "from": "{noLesson ? <span className=\"text-[var(--text-dim)]\"> · 没带上课的上下文</span> : null}",
+    "to": "{null}",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "says a quiz with no lesson to carry",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/progress.ts",
+    "from": "  return `${score}${String(count)} 个漏洞`;",
+    "to": "  return \"有漏洞没补\";",
+    "test": "packages/ui/src/study/progress.test.ts",
+    "name": "says where the current step stands"
+  },
+  {
+    "file": "packages/ui/src/study/progress.ts",
+    "from": "      return last ? \"学完\" : \"升级\";",
+    "to": "      return \"升级\";",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "finishes the last level",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/study-icon.tsx",
+    "from": "  if (session.name !== null || study === null || study.kind === \"discuss\" || study.kind === \"ask\") {",
+    "to": "  if (session.name !== null || session.prompt !== null || study === null || study.kind === \"discuss\" || study.kind === \"ask\") {",
+    "test": "packages/ui/src/study/progress.test.ts",
+    "name": "names the sessions the host opened by their use"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "  const retakable = progress.ladder.find((one) => one.id === level.id)?.state === \"current\";",
+    "to": "  const retakable = false;",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "offers 补测 on hover",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/children/breadcrumb.tsx",
+    "from": "{title(crumb.session)}\n            </span>",
+    "to": "{crumb.session.prompt ?? \"\"}\n            </span>",
+    "test": "packages/ui/src/children/children.browser.test.tsx",
+    "name": "names a lesson and its quiz by their use",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "  return control !== null && (control.stopping || control.compacting || control.restarting || control.queue.length > 0);",
+    "to": "  return false;",
+    "test": "packages/ui/src/study/loop.test.ts",
+    "name": "waits while the lesson shown here stops"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "          study.level === start.level &&\n          study.step === start.step &&",
+    "to": "",
+    "test": "packages/ui/src/study/loop.test.ts",
+    "name": "finds the Feynman session open for a gap's start"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "  return start === -1 ? items.length : start;",
+    "to": "  return start === -1 ? 0 : start;",
+    "test": "packages/ui/src/study/loop.test.ts",
+    "name": "are all before the quiz started"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "  if (study.kind === \"quiz\" || study.kind === \"lesson\") {",
+    "to": "  if (study.kind === \"quiz\") {",
+    "test": "packages/ui/src/study/progress.test.ts",
+    "name": "names the sessions the host opened by their use"
+  },
+  {
+    "file": "packages/ui/src/study/loop.ts",
+    "from": "  if (study.kind === \"plan\" || study.kind === \"sheet\" || study.kind === \"project\" || study.kind === \"exam\") {",
+    "to": "  if (study.kind === \"plan\") {",
+    "test": "packages/ui/src/study/progress.test.ts",
+    "name": "names the sessions the host opened by their use"
+  },
+  {
+    "file": "packages/ui/src/study/progress.ts",
+    "from": "  const at = ladder.findIndex((level, index) => index >= levelNumber && level.state !== \"skipped\");",
+    "to": "  const at = levelNumber < ladder.length ? levelNumber : -1;",
+    "test": "packages/ui/src/study/progress.test.ts",
+    "name": "names the upgrade by the next level not skipped"
+  },
+  {
+    "file": "packages/ui/src/study/progress.ts",
+    "from": "  const at = ladder.findIndex((level, index) => index >= levelNumber && level.state !== \"skipped\");",
+    "to": "  const at = levelNumber < ladder.length ? levelNumber : -1;",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "names the upgrade by the next level not skipped",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/progress.ts",
+    "from": "  const learnt = progress.ladder.findLastIndex((level) => level.state === \"done\");",
+    "to": "  const learnt = -1;",
+    "test": "packages/ui/src/study/progress.test.ts",
+    "name": "shows a finished direction's last level learnt"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "    noMarks: readOnly || (progress?.finishedAt ?? null) !== null,",
+    "to": "    noMarks: readOnly,",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "offers no manual mark or undo in a finished direction",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "    all: all.filter((session) => session.containerId === directionId),",
+    "to": "    all,",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "fades 开始测验 only for this direction's lesson",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "      session.study?.step === undefined || (session.study.level !== undefined && session.study.level !== level?.id),",
+    "to": "      session.study?.step === undefined,",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "lists sessions of an earlier level kept or restored",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "              disabled={actions.busy || actions.readOnly || !retakable || waiting !== null}",
+    "to": "              disabled={actions.busy || actions.readOnly || !retakable}",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "fades 补测 while its lesson runs",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "group-focus-within/archived:inline group-hover/archived:inline",
+    "to": "group-hover/archived:inline",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "reaches an archived session's 恢复 by the keyboard",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/step-strip.tsx",
+    "from": "  const lessonControl = useLessonControl(client, quizAction ?? null, mine);",
+    "to": "  const lessonControl = null;",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "fades 开始测验 while the lesson shown here stops",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/learning.ts",
+    "from": "  session_busy: \"等上课这一轮结束\",",
+    "to": "  session_busy: \"上课这一轮还没结束，等它停下再开始测验\",",
+    "test": "packages/ui/src/study/study-loop.browser.test.tsx",
+    "name": "fades 开始测验 while the lesson shown here stops",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/learning.ts",
+    "from": "  session_busy: \"等上课这一轮结束\",",
+    "to": "  session_busy: \"上课还没结束\",",
+    "test": "packages/ui/src/study/learning.test.ts",
+    "name": "describeStudyError"
+  }
+]

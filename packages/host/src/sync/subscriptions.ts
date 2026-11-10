@@ -17,6 +17,7 @@ import type {
   TasksUpdatedEvent,
   ResumePoint,
   SnapshotBudget,
+  VisualChangedEvent,
 } from "@atrium/protocol";
 import type { ResourceTracker } from "../platform/resources";
 import type { EventRing } from "./event-ring";
@@ -36,6 +37,7 @@ type SinkEvent =
   | TasksUpdatedEvent
   | TaskUpdatedEvent
   | SchedulesUpdatedEvent
+  | VisualChangedEvent
   | BroadcastEvent;
 
 /** What goes to every connection, whatever it watches. */

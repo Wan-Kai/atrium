@@ -54,10 +54,17 @@ struct ModelChoiceTests {
   @Test("names providers it knows, tags the ones always on a plan, and keeps pi's order in groups")
   func providers() throws {
     #expect(ModelChoice.providerName("openai-codex") == "ChatGPT 订阅")
+    #expect(ModelChoice.providerName("opencode-go") == "OpenCode Go")
+    #expect(ModelChoice.providerName("google") == "Google")
     #expect(ModelChoice.providerName("someone") == "someone")
     #expect(ModelChoice.onPlan("claude-bridge"))
+    #expect(ModelChoice.onPlan("opencode-go"))
     #expect(!ModelChoice.onPlan("openai"))
+    #expect(!ModelChoice.onPlan("opencode"))
     #expect(ModelChoice.logo("openai") == "openai.png")
+    #expect(ModelChoice.logo("opencode") == "opencode.png")
+    #expect(ModelChoice.logo("opencode-go") == "opencode.png")
+    #expect(ModelChoice.logo("google") == "google.png")
     #expect(ModelChoice.logo("someone") == nil)
     let groups = ModelChoice.groups([
       try catalogModel("openai", "sol"), try catalogModel("anthropic", "opus"), try catalogModel("openai", "luna"),

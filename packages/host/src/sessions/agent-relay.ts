@@ -138,6 +138,33 @@ export interface AgentHost {
   removeDir(dir: string): Promise<void>;
   /** The summaries changed. */
   changed(): void;
+  /**
+   * Answers a study tool's call from a session of a direction (SPEC-0008, "ML2 定的细节");
+   * without it every study call is `study_not_allowed`.
+   */
+  study?(
+    sessionId: string,
+    call: Extract<AgentRequest, { readonly kind: "call"; readonly op: `study_${string}` }>,
+  ): Promise<
+    | { readonly ok: true; readonly result: unknown }
+    | { readonly ok: false; readonly code: AgentErrorCode; readonly params?: Readonly<Record<string, number>> }
+  >;
+}
+
+/**
+ * Whether a call is one of the study tools'.
+ *
+ * @remarks
+ * Their operation is the tool's name (SPEC-0008, "ML2 定的细节").
+ *
+ * @sideEffects none
+ * @param request - The call.
+ * @returns Whether it is.
+ */
+function isStudyCall(
+  request: Extract<AgentRequest, { kind: "call" }>,
+): request is Extract<AgentRequest, { readonly kind: "call"; readonly op: `study_${string}` }> {
+  return request.op.startsWith("study_");
 }
 
 /** What a `work` child changed in its own worktree. */
@@ -165,14 +192,12 @@ export interface AgentRelay {
   /** A tab of a session closed: an agent child idle without one stops its pi. */
   tabClosed(sessionId: string): void;
   /**
-   * A session's pi is about to be stopped because it is archived or handed off: the end of its run
-   * meanwhile is not its task's, which `ended` tells instead. Call the result once it stopped.
+   * A session's pi is about to be stopped because it is archived: the end of its run meanwhile is
+   * not its task's, which `ended` tells instead. Call the result once it stopped.
    */
   ending(sessionId: string): () => void;
-  /** A child stopped being its parent's: archived, detached from `parentId`, or handed to a terminal. */
-  ended(sessionId: string, reason: "archived" | "detached" | "handed_off", parentId?: string): Promise<void>;
-  /** A session handed off came back: what waited for it can go. */
-  takenBack(sessionId: string): void;
+  /** A child stopped being its parent's: archived, or detached from `parentId`. */
+  ended(sessionId: string, reason: "archived" | "detached", parentId?: string): Promise<void>;
   /**
    * Takes a delivery out of a session's queue panel.
    *
@@ -518,8 +543,8 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
    * A child's status, as `agent_list` and the child list show it.
    *
    * @remarks
-   * SPEC-0002, `agent_list`: ended once archived or gone, handed off, being created, asking its
-   * parent, asking you, running, with work queued, failed, stopped, or idle.
+   * SPEC-0002, `agent_list`: ended once archived or gone, being created, asking its parent,
+   * asking you, running, with work queued, failed, stopped, or idle.
    *
    * @sideEffects none
    * @param entry - The child.
@@ -527,7 +552,6 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
    */
   const statusOf = (entry: CatalogEntry): AgentStatus => {
     if (entry.archived || entry.state === "missing") return "ended";
-    if (entry.handedOff) return "handed_off";
     if (fresh.has(entry.sessionId)) return "creating";
     if ([...(questions.get(entry.sessionId)?.values() ?? [])].some((question) => question.state === "open"))
       return "waiting_for_parent";
@@ -664,8 +688,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
    * @remarks
    * SPEC-0002, "句柄与显示名" and "错误码": a handle among the caller's children, or `id:` and a
    * session id. Another's, or one detached, is `agent_not_allowed`; one whose record went, `agent_gone`.
-   * For what changes it, an archived one is `agent_gone` too, one handed off `agent_handed_off`,
-   * one being archived `agent_busy`.
+   * For what changes it, an archived one is `agent_gone` too, one being archived `agent_busy`.
    *
    * @sideEffects none
    * @param callerId - The caller.
@@ -688,7 +711,6 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
     if (target.parent?.sessionId !== callerId || !isAgentChild(target)) throw new AgentFailure("agent_not_allowed");
     if (target.state === "missing") throw new AgentFailure("agent_gone");
     if (acting && target.archived) throw new AgentFailure("agent_gone");
-    if (acting && target.handedOff) throw new AgentFailure("agent_handed_off");
     if (acting && host.archiving(target.sessionId)) throw new AgentFailure("agent_busy");
     return target;
   };
@@ -829,7 +851,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
       return;
     }
     const waiting = entry.deliveries.filter((delivery) => delivery.state === "waiting");
-    if (waiting.length === 0 || entry.handedOff || held.has(sessionId)) return;
+    if (waiting.length === 0 || held.has(sessionId)) return;
     const controller = host.controller(sessionId);
     if (controller !== undefined) {
       controller.deliveriesChanged();
@@ -1562,7 +1584,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
           ...(latest === undefined ? {} : { lastProgress: latest }),
         };
       })
-      .filter((child) => includeEnded || (child.status !== "ended" && child.status !== "handed_off"));
+      .filter((child) => includeEnded || child.status !== "ended");
     return { children };
   };
 
@@ -1668,6 +1690,11 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
     epoch: number,
     request: Extract<AgentRequest, { kind: "call" }>,
   ): Promise<unknown> => {
+    if (isStudyCall(request)) {
+      const answered = (await host.study?.(sessionId, request)) ?? { ok: false, code: "study_not_allowed" };
+      if (answered.ok) return answered.result;
+      throw new AgentFailure(answered.code, answered.params ?? {});
+    }
     const parentOp = request.op !== "ask" && request.op !== "branch" && request.op !== "ask_user";
     if (parentOp && agentDepth(catalog.list(), sessionId) >= MAX_DEPTH) throw new AgentFailure("agent_depth_limit");
     switch (request.op) {
@@ -1978,7 +2005,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
           // Stryker disable next-line CallExpression: every run sets its own entry as it starts, and tools, which read it, run only inside a run.
           runs.delete(sessionId);
           const entry = find(sessionId);
-          // Archived or handed off as it ran: `ended` tells its parent instead (SPEC-0002, "归档、脱离、交接").
+          // Archived as it ran: `ended` tells its parent instead (SPEC-0002, "归档、脱离").
           if (endingNow.has(sessionId)) {
             stopReasons.delete(sessionId);
             return;
@@ -2139,13 +2166,6 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
       host.changed();
       // Its place frees.
       wakeSiblings(parent);
-    },
-
-    takenBack(sessionId) {
-      // Fire and forget: `wake` logs a start that failed.
-      void wake(sessionId).catch((error: unknown) =>
-        host.logger.warn({ sessionId, err: error }, "session not started for its deliveries"),
-      );
     },
 
     async removeDelivery(sessionId, deliveryId) {

@@ -1,0 +1,85 @@
+[
+  {
+    "file": "packages/ui/src/chat/status-bar.tsx",
+    "from": "group-data-[hovered]/item:visible group-data-[hovered]/item:opacity-100 group-data-[hovered]/item:delay-[120ms]",
+    "to": "group-hover/item:visible group-hover/item:opacity-100 group-hover/item:delay-[120ms]",
+    "test": "packages/ui/src/chat/hover-presence.browser.test.tsx",
+    "name": "keeps the status card shown while the pointer is on it",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/fast-toggle.tsx",
+    "from": "group-data-[hovered]/fast:visible group-data-[hovered]/fast:opacity-100 group-data-[hovered]/fast:delay-[120ms]",
+    "to": "group-hover/fast:visible group-hover/fast:opacity-100 group-hover/fast:delay-[120ms]",
+    "test": "packages/ui/src/chat/hover-presence.browser.test.tsx",
+    "name": "keeps the fast card shown while the pointer is on it",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/use-hover-presence.ts",
+    "from": "\"data-hovered\": pointed ? \"\" : undefined,",
+    "to": "\"data-hovered\": undefined,",
+    "test": "packages/ui/src/chat/hover-presence.browser.test.tsx",
+    "name": "keeps the status card shown while the pointer is on it",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/use-hover-presence.ts",
+    "from": "      hovered.current = false;\n      setPointed(false);",
+    "to": "      hovered.current = false;",
+    "test": "packages/ui/src/chat/hover-presence.browser.test.tsx",
+    "name": "keeps the status card shown while the pointer is on it",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/fast-toggle.tsx",
+    "from": "group-data-[hovered]/fast:delay-[120ms]",
+    "to": "group-data-[hovered]/fast:delay-[0ms]",
+    "test": "packages/ui/src/chat/hover-presence.browser.test.tsx",
+    "name": "keeps the fast card fixed through its exit",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/status-bar.tsx",
+    "from": "delay-100 duration-150 group-has-[:focus-visible]/item:visible",
+    "to": "delay-100 duration-300 group-has-[:focus-visible]/item:visible",
+    "test": "packages/ui/src/chat/hover-presence.browser.test.tsx",
+    "name": "keeps the status card fixed through its exit",
+    "project": "ui"
+  },
+  {
+    "file": "packages/testkit/src/installed-pi.ts",
+    "from": " && !(await isCmuxShim(candidate))",
+    "to": "",
+    "test": "packages/testkit/src/installed-pi.test.ts",
+    "name": "passes over cmux's pi shim"
+  },
+  {
+    "file": "packages/testkit/src/installed-pi.ts",
+    "from": "if (candidate.includes(CMUX_SHIM_FOLDER)) return true;",
+    "to": "",
+    "test": "packages/testkit/src/installed-pi.test.ts",
+    "name": "passes over cmux's pi shim"
+  },
+  {
+    "file": "packages/testkit/src/installed-pi.ts",
+    "from": ".includes(CMUX_WRAPPER);",
+    "to": ".includes(\"no such marker\");",
+    "test": "packages/testkit/src/installed-pi.test.ts",
+    "name": "passes over cmux's pi shim"
+  },
+  {
+    "file": "packages/testkit/src/installed-pi.ts",
+    "from": "if (!isAbsolute(folder)) continue;",
+    "to": "",
+    "test": "packages/testkit/src/installed-pi.test.ts",
+    "name": "passes over relative folders"
+  },
+  {
+    "file": "packages/testkit/src/installed-pi.ts",
+    "from": "await access(candidate, constants.X_OK);",
+    "to": "",
+    "test": "packages/testkit/src/installed-pi.test.ts",
+    "name": "passes over relative folders"
+  }
+]

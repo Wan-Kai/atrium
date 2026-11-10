@@ -79,7 +79,7 @@ export interface TaskRunner {
    */
   continueNode(taskId: string, node: NodeId): Promise<void>;
   /**
-   * Writes the record of a review whose verdict took effect into the task conversation (ADR-0017, decision 2).
+   * Writes the record of a review whose verdict took effect into the task conversation (ADR-0018, decision 2).
    *
    * @remarks
    * The hidden command `review`, which the extension writes as an `atrium-review` custom message without a model

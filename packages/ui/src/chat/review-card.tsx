@@ -49,7 +49,7 @@ function ActionIcon({ icon }: { readonly icon: ActionIconName }) {
  * One fact: an icon that carries its status and one sentence.
  *
  * @remarks
- * Only the host's own facts have a status; text an agent wrote never comes through here (ADR-0017 decision 2).
+ * Only the host's own facts have a status; text an agent wrote never comes through here (ADR-0018 decision 2).
  *
  * @sideEffects none
  * @param props - The status and the sentence.
@@ -224,7 +224,7 @@ export function EvidenceBlock({
  * The card for something you are asked to judge, above the input box.
  *
  * @remarks
- * SPEC-0006 ("界面 · 审核卡片") and ADR-0017: it reads a `PendingReview` and knows nothing about tasks; the words
+ * SPEC-0006 ("界面 · 审核卡片") and ADR-0018: it reads a `PendingReview` and knows nothing about tasks; the words
  * come from the environment (`ReviewEnvContext`). Top: the source and what is reviewed; then the evidence the host
  * worked out; a problem band when the last try did not go through; the buttons, the recommended one filled. A button
  * that needs a reason or a target opens a form in the card (not the box below, which keeps going to the
@@ -256,7 +256,7 @@ export function ReviewCard({
   const ordered = orderedActions(review);
   const opened = review.actions.find((one) => one.id === draft.open) ?? null;
   const problem = review.problem === null ? null : look.problem(review.problem);
-  // The host's facts carry a status; a request an agent made cannot (ADR-0017 decision 2), so none is drawn for it.
+  // The host's facts carry a status; a request an agent made cannot (ADR-0018 decision 2), so none is drawn for it.
   const shown =
     review.source.kind === "agent" ? review.evidence.filter((one) => one.kind !== "facts") : review.evidence;
 

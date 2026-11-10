@@ -4,7 +4,7 @@ import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxPiEnvironment } from "./faux-pi";
-import { findDetachedDomLeaks, takeHeapSnapshot } from "./heap";
+import { findDetachedDomLeaks, readDetachedDomCounts, takeHeapSnapshot } from "./heap";
 import { launchApp } from "./launch";
 import { addProject } from "./projects";
 
@@ -15,6 +15,7 @@ test("@leak opening and closing viewer tabs back and forth leaks no DOM", async 
   const code = Array.from({ length: 200 }, (_, line) => `export const value${line} = ${line};`).join("\n");
   await writeFile(join(repo, "a.ts"), `${code}\n`);
   await writeFile(join(repo, "b.ts"), `${code}\n// b\n`);
+  await writeFile(join(repo, "README.md"), "# Preview\n\n```mermaid\ngraph LR\n  A[Source] --> B[Preview]\n```\n");
   const launched = await launchApp(pi.env);
   const dir = await mkdtemp(join(tmpdir(), "atrium-heap-"));
   try {
@@ -35,13 +36,22 @@ test("@leak opening and closing viewer tabs back and forth leaks no DOM", async 
           timeout: 30_000,
         });
       }
+      await tree.getByRole("button", { name: "README.md", exact: true }).dblclick();
+      await window.getByRole("button", { name: "预览", exact: true }).click();
+      await expect(window.getByTestId("markdown-preview").locator('svg[id^="mermaid"]')).toBeVisible({
+        timeout: 30_000,
+      });
+      await window.getByRole("button", { name: "查看源码", exact: true }).click();
+      await expect(window.getByTestId("markdown-preview")).toHaveCount(0);
+      await window.getByRole("button", { name: "预览", exact: true }).click();
+      await expect(window.getByTestId("markdown-preview").locator('svg[id^="mermaid"]')).toBeVisible();
       await panel.getByRole("tab", { name: /更改/ }).click();
       await panel.getByTestId("changes-tree").getByRole("button", { name: /a\.ts/ }).click({ timeout: 30_000 });
       await expect(window.getByRole("region", { name: "改动" }).locator("span[style]").first()).toBeAttached({
         timeout: 30_000,
       });
       await panel.getByRole("tab", { name: "文件" }).click();
-      for (let open = 3; open > 0; open--) await window.keyboard.press("Meta+w");
+      for (let open = 4; open > 0; open--) await window.keyboard.press("Meta+w");
       await expect(tabs).toHaveCount(sessions);
     };
     // Each kind of tab has been shown once, so what stays cached for them is in the baseline.
@@ -50,6 +60,9 @@ test("@leak opening and closing viewer tabs back and forth leaks no DOM", async 
     await takeHeapSnapshot(window, join(dir, "baseline.heapsnapshot"));
     for (let again = 0; again < 15; again++) await round();
     await takeHeapSnapshot(window, join(dir, "final.heapsnapshot"));
+    // Even one retained drawing container is a leak, including one already in the warm baseline.
+    const detached = await readDetachedDomCounts(join(dir, "final.heapsnapshot"));
+    expect([...detached.entries()].filter(([name]) => name.startsWith('<div id="dmermaid-'))).toStrictEqual([]);
 
     expect(
       await findDetachedDomLeaks(join(dir, "baseline.heapsnapshot"), join(dir, "final.heapsnapshot")),

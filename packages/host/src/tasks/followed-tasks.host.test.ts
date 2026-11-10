@@ -189,7 +189,7 @@ describe("tasks followed read-only (SPEC-0006, T7.1)", () => {
     expect(countOf(host.host.resources.snapshot(), "session.controller")).toBe(0);
   });
 
-  it("shows a followed task no reviews to answer, and a verdict on its conversation finds nothing open and writes nothing (ADR-0017)", async () => {
+  it("shows a followed task no reviews to answer, and a verdict on its conversation finds nothing open and writes nothing (ADR-0018)", async () => {
     const { tasks, host } = await followingHost(async (directory) => {
       const writer = await writeTask(directory, followedTask("tsk_try"));
       for (const step of FOLLOWED_STEPS) await writer.record(step);

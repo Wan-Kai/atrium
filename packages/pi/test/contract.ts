@@ -1,13 +1,14 @@
 import {
-  type FauxContext,
-  type FauxScript,
-  type FixtureRecord,
-  type JsonObject,
   comparable,
   createNormalizer,
   createRecorder,
   createTempDir,
+  type FauxContext,
   fauxPi,
+  type FauxScript,
+  type FixtureRecord,
+  installedPi,
+  type JsonObject,
   parseFixture,
   present,
   serializeFixture,
@@ -18,7 +19,7 @@ import { dirname, join } from "node:path";
 import { expect, vi } from "vitest";
 import type { PiDeps } from "../src/deps";
 import { editNormalizer } from "./edit-normalizer";
-import { findPi, readVersion } from "../src/locate/locate";
+import { readVersion } from "../src/locate/locate";
 import { type PiEvent, type PiProcess, startPiProcess } from "../src/process/pi-process";
 
 /** Where fixtures live, one directory per pi version (testing.md, "pi 夹具"). */
@@ -149,7 +150,7 @@ export async function runScenario(
       await writeFile(join(cwd, path), content);
     }
     const path = present(process.env["PATH"], "PATH");
-    const piPath = present(await findPi(path), "pi on PATH");
+    const piPath = await installedPi(path);
     const version = present(await readVersion(piPath, { env: process.env }), "pi version").join(".");
     const sessionsDir = join(cwd, "sessions");
     await mkdir(sessionsDir, { recursive: true });
@@ -291,7 +292,7 @@ export async function startOtherPi(options: {
   await mkdir(options.dir, { recursive: true });
   const launch = await fauxPi(options.script, options.dir);
   const path = present(process.env["PATH"], "PATH");
-  const piPath = present(await findPi(path), "pi on PATH");
+  const piPath = await installedPi(path);
   const pi = startPiProcess(
     {
       piPath,

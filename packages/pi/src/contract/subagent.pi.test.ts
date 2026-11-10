@@ -1,4 +1,4 @@
-import { createTempDir, present } from "@atrium/testkit";
+import { createTempDir, installedPi, present } from "@atrium/testkit";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, readdir, realpath } from "node:fs/promises";
@@ -17,7 +17,6 @@ import {
   type ProbeDelivery,
   encodeArgument,
 } from "../../test/subagent-probe";
-import { findPi } from "../locate/locate";
 import type { PiEvent } from "../process/pi-process";
 
 /** The test-only extension that tries out what SPEC-0002's extension will rely on. */
@@ -209,7 +208,7 @@ type TransformMessages = (messages: unknown[], model: unknown) => unknown[];
  * @throws {Error} When the installed pi has no pi-ai beside it.
  */
 async function installedTransformMessages(): Promise<TransformMessages> {
-  let dir = await realpath(present(await findPi(present(process.env["PATH"], "PATH")), "pi on PATH"));
+  let dir = await realpath(await installedPi());
   for (;;) {
     const file = join(dir, "node_modules", "@earendil-works", "pi-ai", "dist", "api", "transform-messages.js");
     if (existsSync(file)) {

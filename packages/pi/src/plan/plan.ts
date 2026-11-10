@@ -35,13 +35,14 @@ export type PlanReport =
   | { readonly provider: PlanProvider; readonly failure: string };
 
 /**
- * The subscriptions whose usage Atrium asks for (ADR-0010, ADR-0011), in the order they are listed.
+ * The subscriptions whose usage Atrium asks for (ADR-0010, ADR-0011, ADR-0017), in the order they
+ * are listed.
  *
  * @remarks
  * The protocol's `PlanProvider` without importing its schema, which the extension's bundle would
  * then carry into every pi.
  */
-export const PLAN_PROVIDERS: readonly PlanProvider[] = ["openai-codex", "anthropic", "xai"];
+export const PLAN_PROVIDERS: readonly PlanProvider[] = ["openai-codex", "anthropic", "xai", "opencode-go"];
 
 /**
  * Whether a provider is one Atrium asks for the usage of.
@@ -62,6 +63,9 @@ const FIVE_HOURS = 18_000;
 
 /** A week, in seconds. */
 const WEEK = 604_800;
+
+/** A month, in seconds: the 30 days OpenCode Go's monthly window spans (ADR-0017). */
+const MONTH = 2_592_000;
 
 /** Most windows a report may carry, as the protocol allows. */
 const MAX_WINDOWS = 8;
@@ -318,6 +322,37 @@ export function grokUsage(body: unknown): PlanWindow[] | null {
       parts: parts.slice(0, MAX_PARTS),
     },
   ];
+}
+
+/** OpenCode Go's windows: the field that names each and how long it is (ADR-0017). */
+const OPENCODE_WINDOWS: readonly (readonly [string, number])[] = [
+  ["rolling", FIVE_HOURS],
+  ["weekly", WEEK],
+  ["monthly", MONTH],
+];
+
+/**
+ * OpenCode Go's usage from its answer to `/zen/go/v1/usage`.
+ *
+ * @remarks
+ * ADR-0017: `usage.rolling`, `weekly` and `monthly`, each `percent` and `resetsAt` in ISO time;
+ * the three are 5 hours, a week and a month. `status` says whether the window already refused
+ * requests, which the percentage shows anyway, so it is not read. A window without a percentage is
+ * left out; an answer with none of them is not usage.
+ *
+ * @sideEffects none
+ * @param body - The answer.
+ * @returns The windows, or `null`.
+ */
+export function opencodeUsage(body: unknown): PlanWindow[] | null {
+  const usage = fieldOf(body, "usage");
+  const windows = OPENCODE_WINDOWS.flatMap(([key, seconds]): PlanWindow[] => {
+    const meter = fieldOf(usage, key);
+    const used = numberOf(fieldOf(meter, "percent"));
+    if (used === null) return [];
+    return [{ seconds, model: null, usedPercent: used, resetsAt: isoTime(fieldOf(meter, "resetsAt")), parts: [] }];
+  });
+  return windows.length === 0 ? null : windows;
 }
 
 /**

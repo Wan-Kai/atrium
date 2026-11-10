@@ -4,6 +4,7 @@ import { ArrowDown } from "../design/icons";
 import { type RefObject, useEffect, useEffectEvent, useRef, useState } from "react";
 import { commandArguments, typedMessage } from "./composer-text";
 import type { LaunchInTurn } from "./launch-timeline";
+import type { CreatedDirection } from "./turn-view";
 import type { Launch } from "../state/new-workspace";
 import { useFollowBottom } from "./follow-bottom";
 import { UserBubble } from "./messages";
@@ -15,6 +16,10 @@ import { CompactingCat, RunStatus } from "./run-status";
 import { type ForkFromTurn, NoticeView, TurnView } from "./turn-view";
 import { arrangeRows } from "../tasks/task-progress-model";
 import { TaskProgressGroup } from "./task-progress";
+import { useAgentLinks } from "./agent-links";
+import { copiedItems } from "../study/loop";
+import { CopiedTurns, QuizHead } from "../study/quiz-head";
+import { useStudySession } from "../study/study-label";
 
 /**
  * Asks for older items when the top of the transcript comes into view.
@@ -236,19 +241,21 @@ export interface TranscriptProps {
   /** Fetches a step that arrived as a preview. */
   readonly onLoadStep: (turnId: string, stepId: string) => void;
   /** The error card's "重试", offered on the last turn when it failed and nothing runs. */
-  readonly onRetry?: () => void;
+  readonly onRetry?: (() => void) | undefined;
   /** Forks the session after a turn, offered under every finished turn's reply. */
-  readonly onFork?: (turnId: string) => void;
+  readonly onFork?: ((turnId: string) => void) | undefined;
   /** Opens a child conversation carrying the turns up to one, offered beside forking (SPEC-0002). */
-  readonly onChild?: (turnId: string) => void;
+  readonly onChild?: ((turnId: string) => void) | undefined;
   /** Opens a stopped message in the bottom box without touching the transcript. */
-  readonly onEditStopped?: (turn: Turn) => void;
+  readonly onEditStopped?: ((turn: Turn) => void) | undefined;
   /** An existing editor blocks reopening its message. */
   readonly editingStopped?: boolean;
   /** How to open a file a tool was given, from its chip; none where files cannot be opened. */
   readonly openFile?: FileOpener;
   /** The launch that made the session, shown in its first turn (SPEC-0001, "M1.11 的新建工作区"). */
   readonly launch?: LaunchInTurn | undefined;
+  /** The learning direction the session's first message made, said in its first turn (SPEC-0008). */
+  readonly created?: CreatedDirection | undefined;
 }
 
 /**
@@ -323,7 +330,8 @@ function cutBefore(items: readonly TranscriptItem[], index: number): boolean {
  * The launch that made the session from the new-workspace page shows in its first turn, from the
  * moment it is sent, a stand-in until the host's turn arrives under the same key, so nothing is
  * mounted again; the session's pending copy of its message and the run's own line give way to
- * it (SPEC-0001, "M1.11 的新建工作区").
+ * it (SPEC-0001, "M1.11 的新建工作区"). A study quiz that is a lesson's child starts with where it
+ * came from and folds the lesson's turns it copied into one row (SPEC-0008, prototype 1A).
  *
  * @sideEffects Observes the content's size and scrolling while mounted; asks for older items.
  * @param props - The session's view, how to load older items, how to fetch a step whole, how to
@@ -342,6 +350,7 @@ export function Transcript({
   editingStopped = false,
   openFile,
   launch,
+  created,
 }: TranscriptProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -371,6 +380,13 @@ export function Transcript({
   const pending = standIn === undefined ? view.pending : view.pending.slice(1);
   // One key for the stand-in and the host's turn after it, so the turn is not mounted again.
   const launchKey = `launch:${shownLaunch?.launch.id ?? ""}`;
+  // A quiz child of a lesson: its head, and the lesson's turns it copied folded (SPEC-0008, prototype 1A).
+  const study = useStudySession();
+  const quizChild = study?.study.kind === "quiz" && study.parentId !== null ? study : null;
+  const copied = quizChild === null ? 0 : copiedItems(items);
+  const copiedTurns = items.slice(0, copied).filter((item) => item.kind === "turn").length;
+  const [copiedShown, setCopiedShown] = useState(false);
+  const agentLinks = useAgentLinks();
   return (
     <LoadStepContext value={onLoadStep}>
       <OpenFileContext value={openFile ?? null}>
@@ -384,10 +400,30 @@ export function Transcript({
                   <p className="text-center text-[length:var(--fs-sm)] text-[var(--text-dim)]">正在加载更早的记录…</p>
                 ) : null}
               </div>
+              {quizChild === null ? null : (
+                <div className="flex flex-col gap-2">
+                  <QuizHead
+                    lessonTitle={quizChild.lessonTitle}
+                    onBack={
+                      agentLinks === null || quizChild.parentId === null
+                        ? null
+                        : () => agentLinks.open(quizChild.parentId ?? "")
+                    }
+                  />
+                  {copiedTurns === 0 ? null : (
+                    <CopiedTurns
+                      count={copiedTurns}
+                      shown={copiedShown}
+                      onToggle={() => setCopiedShown(!copiedShown)}
+                    />
+                  )}
+                </div>
+              )}
               {arrangeRows(items).map((row) => {
                 if (row.kind === "progress")
                   return <TaskProgressGroup key={`progress:${row.id}`} notices={row.notices} last={row.last} />;
                 const item = row.item;
+                if (row.index < copied && !copiedShown) return null;
                 if (item.kind !== "turn") return <NoticeView key={item.id} notice={item} />;
                 return (
                   <TurnView
@@ -406,6 +442,7 @@ export function Transcript({
                         : undefined
                     }
                     launch={item === standIn || item === launchTurn ? shownLaunch : undefined}
+                    created={row.index === 0 && !view.hasOlder ? created : undefined}
                     runStartedAt={view.run?.startedAt ?? null}
                     {...(fork === undefined || item === standIn
                       ? {}

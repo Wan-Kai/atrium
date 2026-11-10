@@ -74,7 +74,7 @@ const FAMILY = [
   child("补测试", "main", { containerId: OTHER, updatedAt: Date.now() - 180_000 }),
   child("边界用例", "补测试", { asking: 5, containerId: OTHER }),
   child("时区", "边界用例", { containerId: OTHER }),
-  child("日志排查", "main", { handedOff: true, updatedAt: Date.now() - 3_600_000 }),
+  child("日志排查", "main", { updatedAt: Date.now() - 3_600_000 }),
   child("旧的", "main", { archived: true }),
 ];
 
@@ -112,7 +112,7 @@ describe("ChildCapsule", () => {
       expect(rows.elements().map((row) => row.textContent)).toStrictEqual([
         "安全审查刚刚",
         "补测试atrium · atrium/tests+23 分钟前",
-        "日志排查已在终端中继续1 小时前",
+        "日志排查1 小时前",
       ]),
     );
     const list = screen.getByRole("dialog", { name: "子对话" }).element();
@@ -325,6 +325,7 @@ describe("ChildCapsule with children the agent opened", () => {
       updatedAt: Date.now() - 1000,
       parent: { sessionId: "main", by: "agent" },
       heldDeliveries: 2,
+      kickoff: null,
       agent: {
         handle: "tests",
         role: "work",
@@ -421,6 +422,28 @@ describe("Breadcrumb", () => {
     const screen = await render(<Breadcrumb client={client} sessionId="main" />);
 
     expect(screen.container.textContent).toBe("");
+  });
+
+  it("names a lesson and its quiz by their use, not by the first message there (SPEC-0008, ML3, B)", async () => {
+    const lesson = session({
+      sessionId: "lesson",
+      containerId: "lrn_go",
+      name: null,
+      prompt: "输出是 内层 和 外层",
+      study: { kind: "lesson", level: "l1", step: "s1" },
+    });
+    const quiz = session({
+      sessionId: "quiz",
+      containerId: "lrn_go",
+      name: null,
+      prompt: "输出是 内层 和 外层",
+      parent: { sessionId: "lesson", by: "user" },
+      study: { kind: "quiz", level: "l1", step: "s1" },
+    });
+    const { client } = fakeClient({ sessions: [lesson, quiz] });
+    const screen = await render(<Breadcrumb client={client} sessionId="quiz" />);
+
+    await expect.element(screen.getByRole("navigation", { name: "子对话的位置" })).toHaveTextContent("上课测验");
   });
 
   it("shows the way down to a child, going back from a name", async () => {

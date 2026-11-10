@@ -5,7 +5,7 @@ import { createContext } from "react";
  * The words and links a review card needs from where it sits.
  *
  * @remarks
- * The host sends codes and parameters, and the words are the UI's (coding-standards, ADR-0017 decision 4). The card
+ * The host sends codes and parameters, and the words are the UI's (coding-standards, ADR-0018 decision 4). The card
  * itself is generic; the source of the review (the task, later an agent's request) provides its own words through
  * this, so the card reads a `PendingReview` and nothing about tasks.
  */

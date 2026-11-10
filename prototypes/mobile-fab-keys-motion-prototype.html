@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>首页 + 圆钮动效</title>
+    <style>
+      :root {
+        --page: #f6f2e9;
+        --note: #fffcf5;
+        --text: #26221c;
+        --l2: #8b8477;
+        --l3: #d3cbbb;
+        --tint: #8a7352;
+        --rule: rgba(70, 55, 30, 0.11);
+        --glass: rgba(255, 252, 245, 0.6);
+        --glass-strong: rgba(255, 252, 245, 0.82);
+        --edge: rgba(255, 255, 255, 0.9);
+        --edge-dark: rgba(70, 55, 30, 0.1);
+        --shadow: rgba(60, 45, 20, 0.14);
+        --scrim: rgba(246, 242, 233, 0.36);
+        --track: rgba(138, 115, 82, 0.16);
+        --desk: #e4ddcf;
+      }
+      :root[data-theme="dark"] {
+        --page: #1c1a16;
+        --note: #25221d;
+        --text: #eee9df;
+        --l2: #8f887b;
+        --l3: #4a453c;
+        --tint: #c9b28c;
+        --rule: rgba(255, 240, 220, 0.08);
+        --glass: rgba(58, 54, 48, 0.55);
+        --glass-strong: rgba(62, 58, 52, 0.85);
+        --edge: rgba(255, 255, 255, 0.14);
+        --edge-dark: rgba(0, 0, 0, 0.3);
+        --shadow: rgba(0, 0, 0, 0.45);
+        --scrim: rgba(28, 26, 22, 0.45);
+        --track: rgba(201, 178, 140, 0.14);
+        --desk: #121110;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--desk);
+        color: var(--text);
+        font:
+          15px/1.45 -apple-system,
+          "PingFang SC",
+          sans-serif;
+      }
+      header {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 28px 16px 8px;
+      }
+      header h1 {
+        margin: 0 0 6px;
+        font-size: 20px;
+      }
+      header p {
+        margin: 0 0 12px;
+        color: var(--l2);
+        max-width: 860px;
+      }
+      .controls {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .controls button {
+        font: inherit;
+        font-size: 13px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        border: 0.5px solid var(--l3);
+        background: var(--note);
+        color: var(--text);
+        cursor: pointer;
+      }
+      .controls button[aria-pressed="true"] {
+        background: var(--text);
+        color: var(--page);
+      }
+      main {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 12px 16px 48px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 28px;
+      }
+      .option h2 {
+        font-size: 15px;
+        margin: 0 0 4px;
+      }
+      .option .note {
+        color: var(--l2);
+        font-size: 12.5px;
+        margin: 0 0 10px;
+        max-width: 360px;
+        min-height: 72px;
+      }
+      .phone {
+        position: relative;
+        width: 360px;
+        height: 700px;
+        border-radius: 42px;
+        background: var(--page);
+        overflow: hidden;
+        box-shadow: 0 10px 30px var(--shadow);
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+      }
+      .content {
+        padding: 58px 20px 0;
+      }
+      .brand {
+        font:
+          italic 560 34px/1 "Fraunces",
+          Georgia,
+          serif;
+      }
+      .host {
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--l2);
+      }
+      .proj {
+        margin-top: 22px;
+        font:
+          600 17px/1.2 "New York",
+          Georgia,
+          serif;
+      }
+      .row {
+        height: 46px;
+        border-bottom: 0.5px solid var(--rule);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .row b {
+        font:
+          500 12.5px ui-monospace,
+          Menlo,
+          monospace;
+      }
+      .row span {
+        color: var(--l2);
+        font-size: 12px;
+      }
+
+      /* The scrim grows out of the + as a circle, frosting the page. */
+      .scrim {
+        position: absolute;
+        inset: 0;
+        background: var(--scrim);
+        backdrop-filter: blur(6px) saturate(0.9);
+        -webkit-backdrop-filter: blur(6px) saturate(0.9);
+        clip-path: circle(0px at 313px 643px);
+        pointer-events: none;
+      }
+      .tracks {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: visible;
+      }
+      .layer {
+        position: absolute;
+        left: 313px;
+        top: 643px;
+        width: 0;
+        height: 0;
+      }
+      .key {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 0;
+        height: 0;
+        will-change: transform, opacity;
+      }
+      .key .disc {
+        position: absolute;
+        left: calc(var(--size) / -2);
+        top: calc(var(--size) / -2);
+        width: var(--size);
+        height: var(--size);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font:
+          600 calc(var(--size) * 0.36) "New York",
+          Georgia,
+          serif;
+        color: var(--tint);
+        background: var(--glass);
+        backdrop-filter: blur(18px) saturate(1.3);
+        -webkit-backdrop-filter: blur(18px) saturate(1.3);
+        border: 0.5px solid var(--edge);
+        box-shadow:
+          inset 0 1px 0 var(--edge),
+          inset 0 -6px 12px rgba(138, 115, 82, 0.06),
+          0 0 0 0.5px var(--edge-dark),
+          0 6px 14px var(--shadow);
+        cursor: pointer;
+        transition: transform 0.14s;
+      }
+      .key.pressed .disc {
+        transform: scale(0.9);
+      }
+      .key.chat .disc {
+        background: var(--text);
+        color: var(--page);
+        border-color: transparent;
+        font:
+          300 calc(var(--size) * 0.5) / 1 -apple-system,
+          sans-serif;
+      }
+      .key .disc i {
+        position: absolute;
+        right: 0;
+        top: 0;
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: var(--tint);
+        border: 2px solid var(--page);
+      }
+      .key .label {
+        position: absolute;
+        top: calc(var(--size) / 2 + 4px);
+        left: 0;
+        transform: translateX(-50%);
+        text-align: center;
+        white-space: nowrap;
+        pointer-events: none;
+        text-shadow:
+          0 0 4px var(--page),
+          0 0 8px var(--page);
+      }
+      .key .label b {
+        display: block;
+        font-size: 11.5px;
+        font-weight: 600;
+        max-width: 78px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .key .label small {
+        display: block;
+        font-size: 10px;
+        color: var(--l2);
+        margin-top: -1px;
+      }
+      .fab {
+        position: absolute;
+        right: 18px;
+        bottom: 28px;
+        width: 58px;
+        height: 58px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        z-index: 5;
+        background: var(--glass-strong);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border: 0.5px solid var(--edge);
+        box-shadow: 0 8px 22px var(--shadow);
+        will-change: transform;
+      }
+      .toast {
+        position: absolute;
+        left: 50%;
+        top: 120px;
+        transform: translate(-50%, -8px);
+        background: var(--text);
+        color: var(--page);
+        font-size: 13px;
+        padding: 8px 14px;
+        border-radius: 18px;
+        opacity: 0;
+        transition:
+          opacity 0.2s,
+          transform 0.2s;
+        z-index: 6;
+        white-space: nowrap;
+      }
+      .toast.show {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>首页右下 + · 内外两圈圆钮 · 展开动效</h1>
+      <p>
+        同一套圆钮，三种展开动效。内圈固定：新对话 + 最近 2 个项目；外圈是其余项目，绕着 + 拖动转。点 + 展开 /
+        收起，点圆钮选中。用"慢放"看清每一段。
+      </p>
+      <div class="controls">
+        <button id="replay">全部重播</button>
+        <button id="slow" aria-pressed="false">慢放 ×4</button>
+        <button id="theme">切到深色</button>
+      </div>
+    </header>
+    <main id="main"></main>
+    <script>
+      const projects = [
+        ["atrium", "2 在跑", true],
+        ["radar-map", "1 在跑", true],
+        ["blog", "1 小时前"],
+        ["weather-app", "昨天"],
+        ["dotfiles", "周一"],
+        ["notes", "10/20"],
+        ["pi-bridge", "10/12"],
+        ["design-sys", "10/9"],
+        ["infra", "10/2"],
+        ["ios-kit", "9/28"],
+        ["sandbox", "9/20"],
+        ["papers", "9/11"],
+      ].map(([name, meta, running]) => ({ name, meta, running: Boolean(running) }));
+      const chat = { name: "新对话", meta: "", chat: true };
+      const inner = [chat, ...projects.slice(0, 2)];
+      const outer = projects.slice(2);
+      const cx = 313;
+      const cy = 643;
+      const INNER = { radius: 142, step: 38, home: -88, size: 56 };
+      const OUTER = { radius: 252, step: 19, home: -79, size: 48 };
+      const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      let slow = 1;
+      const rad = (deg) => (deg * Math.PI) / 180;
+
+      /** A damped spring from 0 to 1, as SwiftUI's spring(duration:bounce:) would move. */
+      function spring(t, duration = 0.5, bounce = 0.25) {
+        if (t <= 0) return 0;
+        const omega = (2 * Math.PI) / duration;
+        const zeta = 1 - bounce;
+        if (zeta >= 1) return 1 - Math.exp(-omega * t) * (1 + omega * t);
+        const wd = omega * Math.sqrt(1 - zeta * zeta);
+        return 1 - Math.exp(-zeta * omega * t) * (Math.cos(wd * t) + ((zeta * omega) / wd) * Math.sin(wd * t));
+      }
+      const clamp = (value, low = 0, high = 1) => Math.min(high, Math.max(low, value));
+      const easeOut = (t) => 1 - Math.pow(1 - clamp(t), 3);
+      const easeIn = (t) => Math.pow(clamp(t), 2);
+
+      /**
+       * Each motion maps (key, time since open, ring, final angle) to a pose:
+       * { deg, radius, scale, opacity, label } where label is the label's opacity.
+       */
+      const motions = [
+        {
+          id: "ripple",
+          title: "1 · 涟漪弹出",
+          note: "毛玻璃底从 + 里圆形扩开；+ 转成 ×；圆钮沿各自的方向从 + 里弹出，内圈先、外圈后，像水面一圈圈荡开，落位时带一点回弹；名字在圆钮停稳后淡入。最干脆，约 0.5 秒。",
+          pose(key, t) {
+            const delay = (key.ring === INNER ? 0 : 0.1) + key.order * 0.028;
+            const p = spring(t - delay, 0.42, 0.28);
+            return {
+              deg: key.deg,
+              radius: key.ringSpec.radius * p,
+              scale: 0.35 + 0.65 * p,
+              opacity: clamp((t - delay) / 0.08),
+              label: clamp((t - delay - 0.2) / 0.15),
+            };
+          },
+          scrim: (t) => easeOut(t / 0.32),
+          tracks: (t) => easeOut((t - 0.05) / 0.4),
+        },
+        {
+          id: "bloom",
+          title: "2 · 旋开",
+          note: '圆钮从 + 里沿螺旋线转出来：一边往外走、一边绕着 + 转约 60° 到位，像花瓣旋开；外圈比内圈多转一点，整体有"拧开"的感觉，和后面拖动转圈的手势是一回事。约 0.6 秒。',
+          pose(key, t) {
+            const delay = (key.ring === INNER ? 0 : 0.06) + key.order * 0.022;
+            const p = spring(t - delay, 0.55, 0.18);
+            const twist = key.ring === INNER ? 50 : 70;
+            return {
+              deg: key.deg + twist * (1 - p),
+              radius: key.ringSpec.radius * p,
+              scale: 0.4 + 0.6 * p,
+              opacity: clamp((t - delay) / 0.1),
+              label: clamp((t - delay - 0.28) / 0.16),
+            };
+          },
+          scrim: (t) => easeOut(t / 0.38),
+          tracks: (t) => easeOut((t - 0.08) / 0.5),
+        },
+        {
+          id: "wheel",
+          title: "3 · 轮子滚入",
+          note: '内圈 3 个圆钮在原位从小弹大（新对话最先）；外圈像一个轮子，整圈从屏幕右边外面滚进来、带惯性稍微过头再回正，直接预告"它能转"。最有分量，约 0.7 秒。',
+          pose(key, t) {
+            if (key.ring === INNER) {
+              const delay = key.order * 0.045;
+              const p = spring(t - delay, 0.4, 0.32);
+              return {
+                deg: key.deg,
+                radius: key.ringSpec.radius,
+                scale: p,
+                opacity: clamp((t - delay) / 0.06),
+                label: clamp((t - delay - 0.16) / 0.14),
+              };
+            }
+            const p = spring(t - 0.08, 0.62, 0.22);
+            return {
+              deg: key.deg + 95 * (1 - p),
+              radius: key.ringSpec.radius,
+              scale: 1,
+              opacity: clamp((t - 0.08) / 0.12),
+              label: clamp((t - 0.42) / 0.18),
+            };
+          },
+          scrim: (t) => easeOut(t / 0.34),
+          tracks: (t) => easeOut((t - 0.1) / 0.45),
+        },
+      ];
+
+      const plus = `<svg width="22" height="22" viewBox="0 0 22 22"><path d="M11 4v14M4 11h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+      const page = `<div class="content"><div class="brand">Atrium</div><div class="host">● MacBook Pro</div>
+        <div class="proj">atrium</div>
+        <div class="row"><b>feat/mobile-redesign</b><span>首页空状态换成纸</span></div>
+        <div class="row"><b>main</b><span>夜间变异测试结果</span></div>
+        <div class="proj">radar-map</div>
+        <div class="row"><b>feat/radar-map</b><span>雷达图缩放</span></div>
+        <div class="row"><b>fix/legend</b><span>图例错位</span></div>
+        <div class="proj">blog</div>
+        <div class="row"><b>main</b><span>写一篇 Noise 的笔记</span></div></div>`;
+      document.getElementById("main").innerHTML = motions
+        .map(
+          (motion) => `<section class="option"><h2>${motion.title}</h2><p class="note">${motion.note}</p>
+          <div class="phone" data-motion="${motion.id}">${page}<div class="scrim"></div>
+          <svg class="tracks" width="360" height="700"></svg><div class="layer"></div>
+          <div class="fab">${plus}</div><div class="toast"></div></div></section>`,
+        )
+        .join("");
+
+      /** Wires one phone with one opening motion. */
+      function setUp(motion, phone) {
+        const layer = phone.querySelector(".layer");
+        const scrim = phone.querySelector(".scrim");
+        const tracks = phone.querySelector(".tracks");
+        const fab = phone.querySelector(".fab");
+        const toast = phone.querySelector(".toast");
+        const keys = [];
+        [
+          [inner, INNER],
+          [outer, OUTER],
+        ].forEach(([items, spec]) => {
+          items.forEach((item, index) => {
+            const node = document.createElement("div");
+            node.className = `key${item.chat ? " chat" : ""}`;
+            node.style.setProperty("--size", `${spec.size}px`);
+            const glyph = item.chat ? "+" : item.name[0].toUpperCase();
+            const meta = item.chat ? "" : `<small>${item.meta}</small>`;
+            node.innerHTML = `<div class="disc">${glyph}${item.running ? "<i></i>" : ""}</div><div class="label"><b>${item.name}</b>${spec === INNER ? meta : ""}</div>`;
+            layer.appendChild(node);
+            keys.push({ item, node, index, ring: spec, ringSpec: spec, order: keys.length, deg: 0 });
+          });
+        });
+        // Faint hairline tracks under each ring, drawn in as the keys arrive.
+        tracks.innerHTML = [INNER, OUTER]
+          .map(
+            (spec) =>
+              `<circle cx="${cx}" cy="${cy}" r="${spec.radius}" fill="none" stroke="var(--track)" stroke-width="1" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" transform="rotate(-80 ${cx} ${cy}) scale(-1 1) translate(${-2 * cx} 0)" />`,
+          )
+          .join("");
+        const circles = [...tracks.querySelectorAll("circle")];
+
+        let state = "closed";
+        let openedAt = 0;
+        let closedAt = 0;
+        let scroll = 0; // outer ring, in slots
+        let velocity = 0;
+        let spin = 0;
+        const maxScroll = outer.length - 5;
+
+        /** Where a key rests for the current scroll. */
+        function rest(key) {
+          const spec = key.ring;
+          const turn = spec === OUTER ? scroll : 0;
+          return spec.home - (key.index - turn) * spec.step;
+        }
+
+        /** Draws one frame. */
+        function frame(now) {
+          const open = state !== "closed";
+          const t = (now - openedAt) / 1000 / slow;
+          const c = (now - closedAt) / 1000 / slow;
+          let fabTurn;
+          let scrimAmount;
+          let trackAmount;
+          if (reduce) {
+            const fade = open ? clamp(t / 0.18) : 1 - clamp(c / 0.18);
+            keys.forEach((key) => {
+              key.deg = rest(key);
+              place(key, { deg: key.deg, radius: key.ring.radius, scale: 1, opacity: fade, label: fade });
+            });
+            fabTurn = open ? 45 : 0;
+            scrimAmount = fade;
+            trackAmount = fade;
+          } else if (open) {
+            keys.forEach((key) => {
+              key.deg = rest(key);
+              place(key, motion.pose(key, t));
+            });
+            fabTurn = 45 * spring(t, 0.36, 0.3);
+            scrimAmount = motion.scrim(t);
+            trackAmount = motion.tracks(t);
+          } else {
+            // Closing: everything falls back into the +, the last out first in.
+            const total = keys.length;
+            keys.forEach((key) => {
+              key.deg = rest(key);
+              const delay = (total - 1 - key.order) * 0.008;
+              const p = 1 - easeIn((c - delay) / 0.2);
+              place(key, {
+                deg: key.deg,
+                radius: key.ring.radius * p,
+                scale: 0.4 + 0.6 * p,
+                opacity: clamp(p * 1.5),
+                label: clamp(p * 3 - 2),
+              });
+            });
+            fabTurn = 45 * (1 - easeOut(c / 0.24));
+            scrimAmount = 1 - easeOut(c / 0.24);
+            trackAmount = scrimAmount;
+          }
+          fab.style.transform = `rotate(${fabTurn}deg) scale(${open && !reduce ? 1 - 0.06 * Math.sin(clamp(t / 0.18) * Math.PI) : 1})`;
+          scrim.style.clipPath = `circle(${(scrimAmount * 820).toFixed(1)}px at ${cx}px ${cy}px)`;
+          scrim.style.opacity = reduce ? scrimAmount : 1;
+          circles.forEach((circle) => circle.setAttribute("stroke-dashoffset", String(1 - trackAmount * 0.36)));
+          if (open || c < 0.5) requestAnimationFrame(frame);
+        }
+
+        /** Puts a key at a pose. */
+        function place(key, pose) {
+          const x = pose.radius * Math.cos(rad(pose.deg));
+          const y = pose.radius * Math.sin(rad(pose.deg));
+          key.node.style.transform = `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px) scale(${pose.scale.toFixed(3)})`;
+          key.node.style.opacity = pose.opacity.toFixed(3);
+          key.node.querySelector(".label").style.opacity = pose.label.toFixed(3);
+          key.node.style.pointerEvents = pose.opacity > 0.5 ? "auto" : "none";
+        }
+
+        function setOpen(open) {
+          const now = performance.now();
+          if (open) {
+            scroll = 0;
+            velocity = 0;
+            openedAt = now;
+            state = "open";
+          } else {
+            closedAt = now;
+            state = "closed";
+          }
+          requestAnimationFrame(frame);
+        }
+
+        /** Turns the outer ring after a release, springing to the nearest slot. */
+        function settle() {
+          const target = clamp(Math.round(scroll + (reduce ? 0 : velocity * 9)), 0, maxScroll);
+          let speed = velocity;
+          const tick = () => {
+            speed = (speed + (target - scroll) * 0.11) * 0.75;
+            scroll += speed;
+            if (Math.abs(target - scroll) > 0.002 || Math.abs(speed) > 0.002) requestAnimationFrame(tick);
+            else scroll = target;
+          };
+          requestAnimationFrame(tick);
+        }
+
+        const angleOf = (event) => {
+          const rect = phone.getBoundingClientRect();
+          return (Math.atan2(event.clientY - rect.top - cy, event.clientX - rect.left - cx) * 180) / Math.PI;
+        };
+        let drag = null;
+        phone.addEventListener("pointerdown", (event) => {
+          if (state === "closed" || event.target.closest(".fab")) return;
+          const key = event.target.closest(".key");
+          key?.classList.add("pressed");
+          drag = { last: angleOf(event), moved: 0, raw: scroll, key };
+          phone.setPointerCapture(event.pointerId);
+          velocity = 0;
+        });
+        phone.addEventListener("pointermove", (event) => {
+          if (!drag) return;
+          const now = angleOf(event);
+          let delta = now - drag.last;
+          if (delta > 180) delta -= 360;
+          if (delta < -180) delta += 360;
+          drag.last = now;
+          drag.moved += Math.abs(delta);
+          drag.raw += delta / OUTER.step;
+          const next =
+            drag.raw < 0
+              ? drag.raw * 0.35
+              : drag.raw > maxScroll
+                ? maxScroll + (drag.raw - maxScroll) * 0.35
+                : drag.raw;
+          velocity = next - scroll;
+          scroll = next;
+          if (drag.moved > 2) drag.key?.classList.remove("pressed");
+        });
+        phone.addEventListener("pointerup", () => {
+          if (!drag) return;
+          const { key, moved } = drag;
+          key?.classList.remove("pressed");
+          drag = null;
+          if (moved <= 2) {
+            const found = keys.find((entry) => entry.node === key);
+            if (found) pick(found);
+            else setOpen(false);
+            return;
+          }
+          settle();
+        });
+
+        /** Picks a key: it swells while the rest fall back, then says where the session goes. */
+        function pick(key) {
+          const { item } = key;
+          key.node.animate(
+            [
+              { transform: key.node.style.transform },
+              { transform: `${key.node.style.transform} scale(1.18)`, opacity: 0 },
+            ],
+            { duration: 260 * slow, easing: "ease-out" },
+          );
+          toast.textContent = item.chat ? "新对话（不绑定项目）" : `在 ${item.name} 里新建`;
+          toast.classList.add("show");
+          setTimeout(() => toast.classList.remove("show"), 1200);
+          setOpen(false);
+        }
+
+        fab.addEventListener("click", () => setOpen(state === "closed"));
+        frame(performance.now() - 10000);
+        return {
+          replay() {
+            setOpen(false);
+            setTimeout(() => setOpen(true), 380 * slow);
+          },
+          /** Shows the frame at a time after opening, for screenshots. */
+          at(seconds) {
+            state = "open";
+            openedAt = performance.now() - seconds * 1000;
+            frame(performance.now());
+            state = "frozen";
+          },
+        };
+      }
+
+      const phones = motions.map((motion) => setUp(motion, document.querySelector(`[data-motion="${motion.id}"]`)));
+      document.getElementById("replay").addEventListener("click", () => phones.forEach((phone) => phone.replay()));
+      const slowButton = document.getElementById("slow");
+      slowButton.addEventListener("click", () => {
+        slow = slow === 1 ? 4 : 1;
+        slowButton.setAttribute("aria-pressed", String(slow === 4));
+      });
+      const theme = document.getElementById("theme");
+      theme.addEventListener("click", () => {
+        const dark = document.documentElement.dataset.theme === "dark";
+        document.documentElement.dataset.theme = dark ? "light" : "dark";
+        theme.textContent = dark ? "切到深色" : "切到浅色";
+      });
+      // "#at=0.12" freezes every phone that long after opening; "-dark" goes dark. For screenshots.
+      const match = location.hash.match(/^#at=([\d.]+)/);
+      if (location.hash.includes("dark")) theme.click();
+      if (match) setTimeout(() => phones.forEach((phone) => phone.at(Number(match[1]))), 50);
+    </script>
+  </body>
+</html>

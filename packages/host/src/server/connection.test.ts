@@ -150,6 +150,46 @@ describe("a phone's connection", () => {
     expect(socket.sent).toStrictEqual([JSON.stringify(response)]);
   });
 
+  it("sends a phone the list, snapshot and changes, without learning directions, their sessions or paths", () => {
+    const socket = fakeSocket();
+    const { connection } = phoneOver(socket, {});
+
+    connection.send({
+      type: "index_changes",
+      generation: "h1",
+      seq: 2,
+      projects: { upsert: [], remove: [] },
+      workspaces: { upsert: [], remove: [] },
+      chats: { upsert: [], remove: [] },
+      directions: { upsert: [{ id: "lrn_go" } as never], remove: [] },
+      sessions: { upsert: [{ sessionId: "talk", containerId: "lrn_go" } as never], remove: [] },
+      layout: null,
+      preferences: null,
+    });
+
+    connection.send({
+      type: "index_snapshot",
+      generation: "h1",
+      seq: 3,
+      reason: "no_cursor",
+      projects: [],
+      workspaces: [],
+      chats: [],
+      directions: [{ id: "lrn_go", dir: "/Users/kim/Atrium/Learning/go" } as never],
+      sessions: [{ sessionId: "talk", containerId: "lrn_go" } as never],
+      layout: { container: "lrn_go", tabs: { lrn_go: { open: ["talk"], active: "talk" } } },
+      preferences: {} as never,
+      resets: [],
+      learningDir: "/Users/kim/Atrium/Learning",
+    });
+
+    expect(socket.sent.map((text) => JSON.parse(text) as unknown)).toMatchObject([
+      { type: "index_changes", directions: { upsert: [] }, sessions: { upsert: [] } },
+      { type: "index_snapshot", directions: [], sessions: [], layout: { container: null, tabs: {} }, learningDir: "~" },
+    ]);
+    expect(socket.sent.join("")).not.toMatch(/lrn_|Learning|talk/u);
+  });
+
   it("sends a message of exactly the limit, and answers a larger response with response_too_large", () => {
     const socket = fakeSocket();
     const { connection } = phoneOver(socket, {});
@@ -196,12 +236,18 @@ describe("a phone's connection", () => {
   it("drops a large message that is no session's, such as the list", () => {
     const socket = fakeSocket();
     const { connection } = phoneOver(socket, {});
-    const list = {
+    const list: HostMessage = {
       type: "index_changes",
       generation: "g".repeat(LIMIT),
       seq: 1,
-      changes: [],
-    } as unknown as HostMessage;
+      projects: { upsert: [], remove: [] },
+      workspaces: { upsert: [], remove: [] },
+      chats: { upsert: [], remove: [] },
+      directions: { upsert: [], remove: [] },
+      sessions: { upsert: [], remove: [] },
+      layout: null,
+      preferences: null,
+    };
 
     expect(connection.send(list)).toBe(false);
     expect(socket.sent).toStrictEqual([]);
@@ -214,6 +260,49 @@ describe("a phone's connection", () => {
 
     expect(connection.send(response)).toBe(false);
     expect(socket.closes).toStrictEqual([[CloseCode.SlowConsumer, "slow consumer"]]);
+  });
+
+  it("sends the list without archived sessions or file paths, and a local client the list as it is", () => {
+    const archived = {
+      sessionId: "s1",
+      containerId: "cht_1",
+      name: null,
+      prompt: null,
+      file: "/pi/sessions/s1.jsonl",
+      state: "persisted",
+      updatedAt: 1,
+      archived: true,
+      running: false,
+      attention: null,
+      asking: null,
+      question: null,
+      model: null,
+      parent: null,
+      agent: null,
+      heldDeliveries: 0,
+      kickoff: null,
+      study: null,
+    } as const;
+    const changes: HostMessage = {
+      type: "index_changes",
+      generation: "g1",
+      seq: 1,
+      projects: { upsert: [], remove: [] },
+      workspaces: { upsert: [], remove: [] },
+      chats: { upsert: [], remove: [] },
+      directions: { upsert: [], remove: [] },
+      sessions: { upsert: [archived], remove: [] },
+      layout: null,
+      preferences: null,
+    };
+    const phoneSocket = fakeSocket();
+    const localSocket = fakeSocket();
+
+    expect(phoneOver(phoneSocket, {}).connection.send(changes)).toBe(true);
+    expect(connectionOver(localSocket).connection.send(changes)).toBe(true);
+
+    expect(phoneSocket.sent).toStrictEqual([JSON.stringify({ ...changes, sessions: { upsert: [], remove: ["s1"] } })]);
+    expect(localSocket.sent).toStrictEqual([JSON.stringify(changes)]);
   });
 
   it("is local, with no device, without the remote rules", () => {

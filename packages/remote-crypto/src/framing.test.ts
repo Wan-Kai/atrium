@@ -1,7 +1,8 @@
 import { FakeClock } from "@atrium/testkit";
+import { deflateRawSync, inflateRawSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { utf8 } from "./bytes";
-import { encodeMessage, FrameReader } from "./framing";
+import { COMPRESS_FROM, encodeMessage, FrameReader } from "./framing";
 import { concat } from "./noise";
 import {
   CHUNK_TIMEOUT_MS,
@@ -141,5 +142,105 @@ describe("framing", () => {
     expect(failureOf(() => freshReader().push(concat(Uint8Array.of(0x04), utf8('"kind"'))))).toBe("bad_control");
     expect(failureOf(() => freshReader().push(Uint8Array.of(0x04, 0xc3)))).toBe("bad_control");
     expect(failureOf(() => freshReader().push(Uint8Array.of(0x00, 0xc3)))).toBe("bad_utf8");
+  });
+});
+
+/**
+ * Raw deflate at level 6, as the host compresses.
+ *
+ * @remarks
+ * Node's zlib; the package itself takes the codec from its owner.
+ *
+ * @sideEffects none
+ * @param bytes - The message.
+ * @returns The compressed bytes.
+ */
+function deflate(bytes: Uint8Array): Uint8Array {
+  return deflateRawSync(bytes, { level: 6 });
+}
+
+/**
+ * Raw inflate that stops past `limit`.
+ *
+ * @remarks
+ * Node throws a RangeError past `maxOutputLength`; the reader wants `null`. Corrupt input still throws.
+ *
+ * @sideEffects none
+ * @param bytes - The compressed bytes.
+ * @param limit - The most bytes it may give.
+ * @returns The bytes, or null past the limit.
+ */
+function inflate(bytes: Uint8Array, limit: number): Uint8Array | null {
+  try {
+    return inflateRawSync(bytes, { maxOutputLength: limit });
+  } catch (error) {
+    if (error instanceof RangeError) return null;
+    throw error;
+  }
+}
+
+/**
+ * A "compressor" that makes everything one byte longer.
+ *
+ * @remarks
+ * Stands for incompressible input.
+ *
+ * @sideEffects none
+ * @param bytes - The message.
+ * @returns The bytes and one more.
+ */
+function grows(bytes: Uint8Array): Uint8Array {
+  return concat(bytes, Uint8Array.of(0));
+}
+
+describe("compression", () => {
+  const big = JSON.stringify(Array.from({ length: 4000 }, (_, index) => ({ sessionId: `s${index}`, archived: false })));
+
+  it("sends a large message deflated in 0x06 chunks then a 0x05, and the reader inflates it", () => {
+    const frames = encodeMessage(big, HOST_TO_PHONE_LIMIT, deflate);
+    const plain = encodeMessage(big, HOST_TO_PHONE_LIMIT);
+    expect(frames.map((frame) => frame[0])).toStrictEqual([0x05]);
+    expect(frames[0]!.length).toBeLessThan(plain.reduce((sum, frame) => sum + frame.length, 0) / 5);
+    const reader = new FrameReader(HOST_TO_PHONE_LIMIT, new FakeClock(), () => {}, inflate);
+    expect(reader.push(frames[0]!)).toStrictEqual({ kind: "message", text: big });
+  });
+
+  it("chunks a long deflated message and joins it", () => {
+    const random = Array.from({ length: MAX_CHUNK * 2 }, (_, index) =>
+      String.fromCharCode(0x4e00 + ((index * 7919) % 20000)),
+    ).join("");
+    const frames = encodeMessage(random, HOST_TO_PHONE_LIMIT, deflate);
+    expect(frames.length).toBeGreaterThan(1);
+    expect(frames.map((frame) => frame[0])).toStrictEqual([...frames.slice(1).map(() => 0x06), 0x05]);
+    const reader = new FrameReader(HOST_TO_PHONE_LIMIT, new FakeClock(), () => {}, inflate);
+    expect(frames.map((frame) => reader.push(frame)).at(-1)).toStrictEqual({ kind: "message", text: random });
+  });
+
+  it("sends a message under 1 KiB, or one deflate does not shrink, as it is", () => {
+    const small = "a".repeat(COMPRESS_FROM - 1);
+    expect(encodeMessage(small, HOST_TO_PHONE_LIMIT, deflate).map((frame) => frame[0])).toStrictEqual([0x00]);
+    expect(
+      encodeMessage("a".repeat(COMPRESS_FROM), HOST_TO_PHONE_LIMIT, deflate).map((frame) => frame[0]),
+    ).toStrictEqual([0x05]);
+    expect(encodeMessage(big, HOST_TO_PHONE_LIMIT, grows)).toStrictEqual(encodeMessage(big, HOST_TO_PHONE_LIMIT));
+  });
+
+  it("checks the limit on the message before compressing", () => {
+    expect(failureOf(() => encodeMessage("a".repeat(2049), 2048, deflate))).toBe("message_too_large");
+  });
+
+  it("refuses deflated frames it did not ask for, mixed chunk kinds, and a message that inflates past the limit", () => {
+    const [frame] = encodeMessage(big, HOST_TO_PHONE_LIMIT, deflate);
+    expect(failureOf(() => freshReader().push(frame!))).toBe("unknown_frame_type");
+    const mixed = new FrameReader(HOST_TO_PHONE_LIMIT, new FakeClock(), () => {}, inflate);
+    expect(mixed.push(concat(Uint8Array.of(0x01), utf8("x")))).toBeNull();
+    expect(failureOf(() => mixed.push(frame!))).toBe("bad_frame");
+    const other = new FrameReader(HOST_TO_PHONE_LIMIT, new FakeClock(), () => {}, inflate);
+    expect(other.push(concat(Uint8Array.of(0x06), deflate(utf8("x")).subarray(0, 1)))).toBeNull();
+    expect(failureOf(() => other.push(Uint8Array.of(0x00, 0x78)))).toBe("bad_frame");
+    const small = new FrameReader(big.length - 1, new FakeClock(), () => {}, inflate);
+    expect(failureOf(() => small.push(frame!))).toBe("message_too_large");
+    const broken = new FrameReader(HOST_TO_PHONE_LIMIT, new FakeClock(), () => {}, inflate);
+    expect(failureOf(() => broken.push(Uint8Array.of(0x05, 0xff, 0xff)))).toBe("bad_frame");
   });
 });

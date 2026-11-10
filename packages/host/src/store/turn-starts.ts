@@ -1,3 +1,4 @@
+import { VisualSource } from "@atrium/protocol";
 import { type IndexFile, loadIndexFile } from "./index-file";
 import { type TurnStartsDocument, turnStartsFile } from "./index-schema";
 
@@ -6,16 +7,22 @@ type CompactionReason = "overflow" | "threshold" | null;
 
 /** The user message entries a session's host saw open a turn, and the compactions it saw in runs. */
 export interface TurnStarts {
+  /** Of those, the messages sent from a visual, with which (SPEC-0007, "回传"). */
+  readonly sources: ReadonlyMap<string, VisualSource>;
   readonly opened: ReadonlySet<string>;
   /** Of those, the messages the host sent on its own to have the agent go on (SPEC-0001, "运行控制"). */
   readonly auto: ReadonlySet<string>;
   /** Compaction entries the host saw during a run, with what set each off (SPEC-0001, `compaction`). */
   readonly compactions: ReadonlyMap<string, CompactionReason>;
-  /** Adds entries, which of them the host sent, and compactions seen during runs, and writes them. */
+  /**
+   * Adds entries, which of them the host sent, compactions seen during runs, and which entries came
+   * from a visual, and writes them.
+   */
   record(
     entryIds: readonly string[],
     autoIds?: readonly string[],
     compactions?: ReadonlyMap<string, CompactionReason>,
+    sources?: ReadonlyMap<string, VisualSource>,
   ): Promise<void>;
 }
 
@@ -60,14 +67,17 @@ export async function loadTurnStarts(
 function inMemory(opened: Set<string>): TurnStarts {
   const auto = new Set<string>();
   const compactions = new Map<string, CompactionReason>();
+  const sources = new Map<string, VisualSource>();
   return {
     opened,
     auto,
     compactions,
-    async record(entryIds, autoIds = [], seen = new Map()) {
+    sources,
+    async record(entryIds, autoIds = [], seen = new Map(), from = new Map()) {
       for (const id of entryIds) opened.add(id);
       for (const id of autoIds) auto.add(id);
       for (const [id, reason] of seen) if (!compactions.has(id)) compactions.set(id, reason);
+      for (const [id, source] of from) if (!sources.has(id)) sources.set(id, source);
     },
   };
 }
@@ -88,23 +98,33 @@ function onFile(file: IndexFile<TurnStartsDocument>): TurnStarts {
   const opened = new Set(file.read().entries);
   const auto = new Set(file.read().auto);
   const compactions = new Map(Object.entries(file.read().compactions ?? {}));
+  const sources = new Map<string, VisualSource>();
+  for (const [id, value] of Object.entries(file.read().sources ?? {})) {
+    const source = VisualSource.safeParse(value);
+    if (source.success) sources.set(id, source.data);
+  }
   return {
     opened,
     auto,
     compactions,
-    async record(entryIds, autoIds = [], seen = new Map()) {
+    sources,
+    async record(entryIds, autoIds = [], seen = new Map(), from = new Map()) {
       const added = entryIds.filter((id) => !opened.has(id));
       const addedAuto = autoIds.filter((id) => !auto.has(id));
       const addedCompactions = [...seen].filter(([id]) => !compactions.has(id));
-      if (added.length === 0 && addedAuto.length === 0 && addedCompactions.length === 0) return;
+      const addedSources = [...from].filter(([id]) => !sources.has(id));
+      if (added.length === 0 && addedAuto.length === 0 && addedCompactions.length === 0 && addedSources.length === 0)
+        return;
       for (const id of added) opened.add(id);
       for (const id of addedAuto) auto.add(id);
       for (const [id, reason] of addedCompactions) compactions.set(id, reason);
+      for (const [id, source] of addedSources) sources.set(id, source);
       await file.save({
         ...file.read(),
         entries: [...opened],
         ...(auto.size === 0 ? {} : { auto: [...auto] }),
         ...(compactions.size === 0 ? {} : { compactions: Object.fromEntries(compactions) }),
+        ...(sources.size === 0 ? {} : { sources: Object.fromEntries(sources) }),
       });
     },
   };

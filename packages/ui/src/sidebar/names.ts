@@ -1,4 +1,4 @@
-import { type IndexView, isChatId } from "@atrium/client";
+import { type IndexView, isChatId, isDirectionId } from "@atrium/client";
 import type { Chat, MergeUnknownReason, SessionSummary, Workspace } from "@atrium/protocol";
 
 /**
@@ -151,11 +151,54 @@ export function sortWorkspaces<T extends Pick<Workspace, "kind" | "createdAt" | 
   ];
 }
 
+/** A chat as the sidebar orders it: when it was pinned, whether it waits on a run, and when it last changed. */
+export interface ChatOrder {
+  /** When the user pinned it; `null` when not (SPEC-0001, "对话的置顶与顺序"). */
+  readonly pinnedAt: number | null;
+  /** A session in it is running or shows a status icon, so the row is lit. */
+  readonly busy: boolean;
+  /** Its latest activity, milliseconds since the epoch. */
+  readonly at: number;
+}
+
 /**
- * Where a session lives, in words: "项目 · 工作区", or "对话 · 对话名".
+ * Which band of the sidebar's order a chat falls in, counted from the top.
  *
  * @remarks
- * The second line of a session in the inbox and search results (SPEC-0001, "收件箱", "搜索").
+ * Pinned chats first, then the ones a run or a question makes busy, then the rest
+ * (SPEC-0001, "对话的置顶与顺序"). The row that climbs a band flashes when the list moves it.
+ *
+ * @sideEffects none
+ * @param chat - The chat.
+ * @returns 0, 1 or 2.
+ */
+export function chatBand(chat: Pick<ChatOrder, "pinnedAt" | "busy">): number {
+  if (chat.pinnedAt !== null) return 0;
+  return chat.busy ? 1 : 2;
+}
+
+/**
+ * The chats in the order the sidebar shows them.
+ *
+ * @remarks
+ * By band, then latest activity first; pinned chats are newest activity first among themselves too,
+ * so a pinned chat keeps moving as it is used without ever falling out of the top
+ * (SPEC-0001, "对话的置顶与顺序").
+ *
+ * @sideEffects none
+ * @param chats - The chats.
+ * @returns The sorted chats.
+ */
+export function sortChats<T extends ChatOrder>(chats: readonly T[]): T[] {
+  return chats.toSorted((a, b) => chatBand(a) - chatBand(b) || b.at - a.at);
+}
+
+/**
+ * Where a session lives, in words: "项目 · 工作区", "对话 · 对话名", or "学习 · 方向名".
+ *
+ * @remarks
+ * The second line of a session in the inbox and search results (SPEC-0001, "收件箱", "搜索";
+ * SPEC-0008: a direction's sessions reach the inbox too).
  *
  * @sideEffects none
  * @param index - The list.
@@ -163,9 +206,13 @@ export function sortWorkspaces<T extends Pick<Workspace, "kind" | "createdAt" | 
  * @returns The place; empty for a container the list does not have.
  */
 export function placeOf(
-  index: Pick<IndexView, "projects" | "workspaces" | "chats" | "sessions">,
+  index: Pick<IndexView, "projects" | "workspaces" | "chats" | "sessions" | "directions">,
   containerId: string,
 ): string {
+  if (isDirectionId(containerId)) {
+    const direction = index.directions.find((candidate) => candidate.id === containerId);
+    return direction === undefined ? "学习" : `学习 · ${direction.alias ?? direction.name}`;
+  }
   if (isChatId(containerId)) {
     const chat = index.chats.find((candidate) => candidate.id === containerId);
     return chat === undefined ? "对话" : `对话 · ${chatName(chat, index.sessions)}`;

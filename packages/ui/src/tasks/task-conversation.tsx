@@ -71,7 +71,7 @@ async function ensureTaskSession(client: AtriumClient, taskId: string, sessionId
  * subscription any conversation uses, and never opened as a tab. If its pi is not running it is started with
  * `open_task_session` after the watch. The input box sends with `prompt` (queued while a run goes on) and `steer`
  * (⌘+Enter) on this session's id. While a review is open a message goes to the conversation and the review stays
- * (ADR-0017); the cards (a question and the reviews) wait above the box. `extra` is the part above the transcript
+ * (ADR-0018); the cards (a question and the reviews) wait above the box. `extra` is the part above the transcript
  * (the requirements summary). A task that is only followed (T7.1) has its conversation in another process: the
  * pane says so, watches nothing and has no box.
  *
@@ -214,7 +214,7 @@ export function TaskConversation({
    *
    * @remarks
    * `prompt` on the session's id (queued while a round goes on). It never opens the conversation as a session. A
-   * review that is open stays: for the host's gates a message is only a message (ADR-0017). A message that did not
+   * review that is open stays: for the host's gates a message is only a message (ADR-0018). A message that did not
    * go (the session could not be started, the host refused it) is put back in the box, as the chat's box does.
    *
    * @sideEffects Sends `prompt`; may put the text back into the draft.

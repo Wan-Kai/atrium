@@ -1,0 +1,417 @@
+[
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "  if (!levelSteps.some((one) => one.kind === \"lesson\"))\n    return { primary: startAction(\"plan\", level.id), secondary: null };",
+    "to": "  if (false)\n    return { primary: startAction(\"plan\", level.id), secondary: null };",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "a current level with no lessons yet"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "const gap = gapOf(exam?.id);",
+    "to": "const gap = gapOf(\"none\");",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "the upgrade with a gap of the exam"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "add(startAction(\"feynman\", level.id, gap.from.level === level.id ? gap.from.step : undefined, gap.id));",
+    "to": "add(startAction(\"feynman\", level.id, gap.from.step, gap.id));",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "can start the main button's session"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "if (step.kind === \"lesson\" && step.quiz?.by === \"later\") add",
+    "to": "if (step.kind === \"lesson\" && step.quiz?.by === \"manual\") add",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "can start the main button's session"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "if (primary?.type === \"start\") add(primary);",
+    "to": "if (primary?.type === \"open\") add(primary);",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "can start the main button's session"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "    if (gap.fixed !== null) continue;",
+    "to": "    if (gap.fixed === undefined) continue;",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "can start the main button's session"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "index > at && one.state === \"todo\"",
+    "to": "index > at && one.state !== \"done\"",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "upgrades a middle level"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "...(next === -1 ? { finishedAt: now } : {}),",
+    "to": "...{},",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "upgrades the last level"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "if (at === -1 || step?.kind !== \"up\") throw",
+    "to": "if (at === -1) throw",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "refuses an upgrade of a level not current"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "index === at ? { ...one, state: \"done\" } :",
+    "to": "index === at ? { ...one, state: \"current\" } :",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "upgrades a middle level"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "!archived && study !== null && study.level === level && LEVEL_USES.has(study.kind)",
+    "to": "study !== null && study.level === level && LEVEL_USES.has(study.kind)",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "upgrades: the level done"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "(one === step ? { ...one, done: { by: \"manual\" } } : one)",
+    "to": "(one)",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "upgrades a middle level"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "        if (open !== null) {",
+    "to": "        if (false) {",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "opens one session for two presses at once"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "if (!starts.some((start) => sameStart(start, study))) {",
+    "to": "if (starts.length === 0) {",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "starts Feynman on any gap not fixed"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "        if (archiveSessions) {",
+    "to": "        if (true) {",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "upgrades without archiving when not asked to"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "        if (next !== undefined) {",
+    "to": "        if (false) {",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "upgrades: the level done"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "if (foreign !== undefined) throw",
+    "to": "if (false) throw",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "restores sessions of the direction archived"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "inside.some((session) => session.sessionId === id && session.archived)",
+    "to": "inside.some((session) => session.sessionId === id)",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "restores sessions of the direction archived"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "        if (found.archived) throw new CommandError(\"direction_archived\", { directionId });\n        if (found.broken) throw new CommandError(\"study_file_broken\");",
+    "to": "        if (found.broken) throw new CommandError(\"study_file_broken\");",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "refuses an upgrade of an archived direction"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "          if (chosen.length > 0) notArchived = await options.sessions.archiveSessions(chosen);",
+    "to": "          if (chosen.length > 0) await options.sessions.archiveSessions(chosen);",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "upgrades: the level done"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "if (lesson !== undefined && occupied(lesson.sessionId)) throw",
+    "to": "if (false) throw",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "refuses a quiz while its lesson runs"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "one.details.study.kind === kind",
+    "to": "true",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "sends the start to a forked session whose file has only its lesson's"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "const from = entries.findIndex((one) => one.id === entry.usageAfter) + 1;",
+    "to": "const from = 0;",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "counts only a start after the baseline"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "        if (await startedOnFile(entryOf(sessionId))) {",
+    "to": "        if (false) {",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "as after a restart"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "const HOST_OPENED: ReadonlySet<string> = new Set([\"lesson\", \"quiz\", \"feynman\", \"sheet\", \"project\", \"exam\", \"plan\"]);",
+    "to": "const HOST_OPENED: ReadonlySet<string> = new Set([\"lesson\", \"quiz\", \"sheet\", \"project\", \"exam\"]);",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "starts the plan, Feynman and quiz sessions"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "        (entry.archived && isDirectionId(entry.containerId)))",
+    "to": "        false)",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "shows an archived session of a live direction"
+  },
+  {
+    "file": "packages/host/src/sessions/child-tree.ts",
+    "from": "        const withIt = child.archivedWith === undefined || child.archivedWith === batch;",
+    "to": "        const withIt = false;",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "shows an archived session of a live direction"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "          left += 1;",
+    "to": "          left += 0;",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "archives sessions with their children"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "      forkFrom.set(sessionId, fork.file);",
+    "to": "      void fork;",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "opens a quiz as its lesson's child"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "          entry.study.step === study.step,",
+    "to": "          entry.study.step !== undefined,",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "forks from the latest lesson"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "          !entry.archived &&\n          entry.state === \"persisted\" &&",
+    "to": "          entry.state === \"persisted\" &&",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "opens a quiz with no lesson's context"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "      readOnly.forget([...back]);",
+    "to": "      void back;",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "shows an archived session of a live direction"
+  },
+  {
+    "file": "packages/host/src/sessions/agent-launch.ts",
+    "from": "const alone = study.kind === \"quiz\" && (unforked || (entry.parent ?? null) === null);",
+    "to": "const alone = study.kind === \"quiz\" && unforked;",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "opens a quiz with no lesson's context"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "    await whileArchivingAll(tree, async () => {\n      await Promise.all(tree.map((id) => stopEnding(id)));",
+    "to": "    await whileArchivingAll(tree, async () => {",
+    "test": "packages/host/src/sessions.leak.test.ts",
+    "name": "archived by each upgrade",
+    "project": "leak"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "        if (entry === undefined || entry.archived || archiving.has(sessionId)) return;",
+    "to": "",
+    "test": "packages/host/src/sessions.leak.test.ts",
+    "name": "archived by each upgrade",
+    "project": "leak"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "  if (level !== current.id) throw new StudyRuleError(\"study_not_allowed\");",
+    "to": "",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "writes only the level the plan session is recorded at"
+  },
+  {
+    "file": "packages/host/src/study/study-tools.ts",
+    "from": "      return (file) => setSteps(file, lessons, study.level);",
+    "to": "      return (file) => setSteps(file, lessons, file.ladder?.find((one) => one.state === \"current\")?.id);",
+    "test": "packages/host/src/study/study-tools.test.ts",
+    "name": "writes a plan session's lessons only at the level"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "  if (there.some((step) => step.kind === \"lesson\")) throw new StudyRuleError(\"study_steps_set\");",
+    "to": "  if (there.length > 0) throw new StudyRuleError(\"study_steps_set\");",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "plans a level hand-edited down"
+  },
+  {
+    "file": "packages/host/src/study/study-tools.ts",
+    "from": "        entry?.archived === false &&",
+    "to": "",
+    "test": "packages/host/src/study/study-tools.test.ts",
+    "name": "refuses a tool the session's use does not have"
+  },
+  {
+    "file": "packages/host/src/study/study-commands.ts",
+    "from": "            if (open === null) {",
+    "to": "            if (true) {",
+    "test": "packages/host/src/study/study-commands.test.ts",
+    "name": "opens the plan session of the next level open already"
+  },
+  {
+    "file": "packages/host/src/sessions/child-tree.ts",
+    "from": "      if (at.archived) back.add(at.sessionId);",
+    "to": "",
+    "test": "packages/host/src/sessions/child-tree.test.ts",
+    "name": "restores a child with its archived ancestors"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "          await options.catalog.archive(id, sessionId);",
+    "to": "          await options.catalog.archive(id);",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "restores a child with its archived lesson"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "          left += failed.length;",
+    "to": "          left += failed.length > 0 ? 1 : 0;",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "archives the rest of a tree when one of it cannot be"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "        try {\n          await options.catalog.archive(id, sessionId);\n          archived.push(id);\n        } catch (error) {\n          failed.push(error);\n        }",
+    "to": "        await options.catalog.archive(id, sessionId);\n        archived.push(id);",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "archives the rest of a tree when one of it cannot be"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "      const release = lesson === undefined ? undefined : holdLesson(lesson.sessionId);",
+    "to": "      const release = lesson === undefined ? undefined : () => undefined;",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "holds the lesson from the busy check"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "      await lessonHolds.get(sessionId)?.done;\n      // Counted as a start meanwhile",
+    "to": "      // Counted as a start meanwhile",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "holds a lesson with no pi"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "        forkReleases.get(sessionId)?.();\n        forkReleases.delete(sessionId);\n      }\n    };",
+    "to": "      }\n    };",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "holds the lesson from the busy check"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "                (error: unknown) => {\n                  // A file gone or unreadable is no lesson to fork: the quiz goes without it.",
+    "to": "                (error: unknown) => {\n                  return { usageAfter: null };\n                  // A file gone or unreadable is no lesson to fork: the quiz goes without it.",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "opens a quiz with no lesson's context when the lesson's file is gone"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "{ sessionId: lesson.sessionId, code: errorCode(error) },",
+    "to": "{ sessionId: lesson.sessionId, err: error },",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "opens a quiz with no lesson's context when the lesson's file is gone"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "    const again = forkReleases.has(sessionId) || sessions.has(sessionId) ? undefined : await quizForkAgain(entry);",
+    "to": "    const again = undefined;",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "forks a quiz whose pi never started"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "    if (lesson?.file === null || lesson === undefined) return null;",
+    "to": "    if (lesson?.file === null || lesson === undefined) return undefined;",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "starts a quiz left by an earlier host under a lesson with no file"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "      release();\n      forkReleases.delete(entry.sessionId);\n      return null;",
+    "to": "      release();\n      forkReleases.delete(entry.sessionId);\n      return lesson.file;",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "forks a quiz whose pi never started"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "        kicked.delete(sessionId);\n      },",
+    "to": "      },",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "sends the start again after a stop dropped it"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "    for (const kept of [failures, marked, renamed, created, kickoffs, kicked, forkFrom]) kept.delete(sessionId);",
+    "to": "    for (const kept of [failures, marked, renamed, created, kickoffs, kicked]) kept.delete(sessionId);",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "forgets where a quiz archived before its pi started"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "      return archiving.has(sessionId);",
+    "to": "      return false;",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "tells whether a session is being archived"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "    if (entry?.name !== null || entry.state !== \"persisted\" || found === undefined || hostOpened(entry.study)) {",
+    "to": "    if (entry?.name !== null || entry.state !== \"persisted\" || found === undefined) {",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "gives no title to a session the host opened"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "  // A finished direction is only looked back on (SPEC-0008, \"ML2 定的细节\").\n  if ((file.finishedAt ?? null) !== null) return refused();\n  return withStep(",
+    "to": "  return withStep(",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "refuses marks and their undos in a finished direction"
+  },
+  {
+    "file": "packages/host/src/study/progress-rules.ts",
+    "from": "  // A finished direction is only looked back on (SPEC-0008, \"ML2 定的细节\").\n  if ((file.finishedAt ?? null) !== null) return refused();\n  return withGap(",
+    "to": "  return withGap(",
+    "test": "packages/host/src/study/progress-rules.test.ts",
+    "name": "refuses marks and their undos in a finished direction"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "        // queue it went to meanwhile could be one a stop paused.\n        await lessonHolds.get(sessionId)?.done;",
+    "to": "        // queue it went to meanwhile could be one a stop paused.",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "holds the lesson from the busy check"
+  }
+]

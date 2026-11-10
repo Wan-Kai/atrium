@@ -1,0 +1,76 @@
+diff --git a/dist/chunks/mermaid.core/chunk-2E4U76K2.mjs b/dist/chunks/mermaid.core/chunk-2E4U76K2.mjs
+index 7ede80c36b091b1dcd5672b006199936a76ef8d6..2942f461fb80c2946c413f2a6b34770d86f2af9e 100644
+--- a/dist/chunks/mermaid.core/chunk-2E4U76K2.mjs
++++ b/dist/chunks/mermaid.core/chunk-2E4U76K2.mjs
+@@ -509,36 +509,41 @@ function createCommonLayoutRenderer({
+       data4Layout.diagramId
+     );
+     clearLayoutRenderState();
+-    const renderContext = {
+-      element,
+-      // root SVG <g>
+-      helpers,
+-      // Mermaid helper functions
+-      options
+-      // { algorithm: "elk.layered" }
+-    };
+-    renderContext.preparedLayout = false ? await profiler.span("prepare", () => prepareLayout?.(data4Layout, renderContext)) : await prepareLayout?.(data4Layout, renderContext);
+-    const measure = false ? await profiler.span("measure", () => measureLayoutFn(data4Layout, renderContext)) : await measureLayoutFn(data4Layout, renderContext);
+-    const coreResult = false ? await profiler.span("layout", () => runLayoutCore(data4Layout, renderContext)) : await runLayoutCore(data4Layout, renderContext);
+-    const paintContext = {
+-      ...renderContext,
+-      measure
+-    };
+-    if (false) {
+-      profiler.begin("paint");
+-    }
+-    if (paintLayout) {
+-      await paintLayout(data4Layout, paintContext, coreResult);
+-    } else {
+-      await paintLayoutData(
+-        data4Layout,
+-        paintContext,
+-        paintOptions
+-      );
+-    }
+-    await afterPaint?.(data4Layout, paintContext, coreResult);
+-    if (false) {
+-      profiler.end();
++    try {
++      const renderContext = {
++        element,
++        // root SVG <g>
++        helpers,
++        // Mermaid helper functions
++        options
++        // { algorithm: "elk.layered" }
++      };
++      renderContext.preparedLayout = false ? await profiler.span("prepare", () => prepareLayout?.(data4Layout, renderContext)) : await prepareLayout?.(data4Layout, renderContext);
++      const measure = false ? await profiler.span("measure", () => measureLayoutFn(data4Layout, renderContext)) : await measureLayoutFn(data4Layout, renderContext);
++      const coreResult = false ? await profiler.span("layout", () => runLayoutCore(data4Layout, renderContext)) : await runLayoutCore(data4Layout, renderContext);
++      const paintContext = {
++        ...renderContext,
++        measure
++      };
++      if (false) {
++        profiler.begin("paint");
++      }
++      if (paintLayout) {
++        await paintLayout(data4Layout, paintContext, coreResult);
++      } else {
++        await paintLayoutData(
++          data4Layout,
++          paintContext,
++          paintOptions
++        );
++      }
++      await afterPaint?.(data4Layout, paintContext, coreResult);
++      if (false) {
++        profiler.end();
++      }
++    } finally {
++      // Atrium: selections must not retain the temporary drawing DOM between renders.
++      clearLayoutRenderState();
+     }
+   }, "render");
+ }

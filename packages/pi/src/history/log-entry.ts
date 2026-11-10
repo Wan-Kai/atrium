@@ -124,7 +124,7 @@ export type LogEntry = { readonly id: string; readonly parentId: string | null }
       | { readonly kind: "agent"; readonly details: MessageDetails }
       /** A progress line of the task conversation, or the "已转为任务" mark of its source (SPEC-0006). */
       | { readonly kind: "task_line"; readonly line: TaskLine }
-      /** The record of a review whose verdict took effect, an `atrium-review` custom message (ADR-0017). */
+      /** The record of a review whose verdict took effect, an `atrium-review` custom message (ADR-0018). */
       | { readonly kind: "review_line"; readonly line: ReviewMessageDetails }
       /** Anything the transcript does not show: model and thinking changes, labels, `!bash` messages… */
       | { readonly kind: "other" }

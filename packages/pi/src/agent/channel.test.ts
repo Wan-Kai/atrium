@@ -21,7 +21,6 @@ const CODES = [
   "agent_depth_limit",
   "agent_not_allowed",
   "agent_gone",
-  "agent_handed_off",
   "agent_busy",
   "agent_name_taken",
   "agent_name_invalid",
@@ -283,15 +282,29 @@ describe("handles and events", () => {
 describe("readCancel", () => {
   it("reads every reason the host closes a question for", () => {
     expect(
-      ["detached", "archived", "handed_off", "reply_failed"].map(
-        (reason) => readCancel({ v: 1, id: "q", reason })?.reason,
-      ),
-    ).toStrictEqual(["detached", "archived", "handed_off", "reply_failed"]);
+      ["detached", "archived", "reply_failed"].map((reason) => readCancel({ v: 1, id: "q", reason })?.reason),
+    ).toStrictEqual(["detached", "archived", "reply_failed"]);
   });
 
   it("reads the id and why, and nothing from another shape", () => {
     expect(readCancel({ v: 1, id: "q", reason: "archived" })).toStrictEqual({ id: "q", reason: "archived" });
     expect(readCancel({ v: 1, id: "q", reason: "bored" })).toBeNull();
     expect(readCancel({ v: 2, id: "q", reason: "archived" })).toBeNull();
+  });
+});
+
+/** A study_set_steps call with these lessons, as the channel reads it. */
+function stepsCall(lessons: string[]) {
+  return readRequest(JSON.stringify({ v: 1, kind: "call", id: "c", op: "study_set_steps", args: { lessons } }));
+}
+
+describe("the study tools' texts on the channel (SPEC-0008, ML2)", () => {
+  it("bounds them by characters as seen, as the extension does", () => {
+    const family = "👨‍👩‍👧";
+
+    expect(stepsCall([family.repeat(120)])).toStrictEqual({
+      request: { kind: "call", id: "c", op: "study_set_steps", args: { lessons: [family.repeat(120)] } },
+    });
+    expect(stepsCall([family.repeat(121)])).toStrictEqual({ bad: "c", kind: "call" });
   });
 });

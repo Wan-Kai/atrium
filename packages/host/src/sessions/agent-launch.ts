@@ -7,16 +7,19 @@ import {
   NODE_TOOLS,
   PARENT_TOOLS,
   READ_ONLY_TOOLS,
+  STUDY_FLAG,
   TASK_FLAG,
   type TaskSelf,
   encodeArgument,
+  studyArgument,
 } from "@atrium/pi";
+import { isDirectionId } from "@atrium/protocol";
 import type { CatalogEntry } from "./session-catalog";
 import { agentDepth } from "./child-tree";
 
 /** What the launch rules read of a session. */
 type LaunchEntry = Pick<CatalogEntry, "sessionId" | "containerId" | "parent" | "archived" | "agent"> &
-  Partial<Pick<CatalogEntry, "task">>;
+  Partial<Pick<CatalogEntry, "task" | "study">>;
 
 /** The agent depth at which a session has none of the main agent's tools (SPEC-0002, "概念 · 层数"). */
 const MAX_DEPTH = 2;
@@ -198,4 +201,27 @@ export function sessionLaunchFlags(entries: readonly LaunchEntry[], sessionId: s
   if (flags !== null) return flags;
   if (entry?.task != null) throw new Error("a task session without a launch path of its own");
   return agentLaunchFlags(entries, sessionId);
+}
+
+/**
+ * pi's flag for a session of a direction with a use: `--atrium-study=<base64url JSON>`.
+ *
+ * @remarks
+ * SPEC-0008, "ML2 定的细节": only a session of a direction whose record has a use other than
+ * asking; every other session, in a workspace or a chat or asking in a direction, gets none, so
+ * Atrium's extension registers no study tool there. One argument with `=`, as `--atrium-agent`.
+ *
+ * @sideEffects none
+ * @param entries - Every session.
+ * @param sessionId - The session.
+ * @param unforked - A quiz with its lesson as parent that could not fork from it after all.
+ * @returns The flag, or none.
+ */
+export function studyLaunchFlags(entries: readonly LaunchEntry[], sessionId: string, unforked = false): string[] {
+  const entry = entries.find((candidate) => candidate.sessionId === sessionId);
+  const study = entry?.study ?? null;
+  if (entry === undefined || !isDirectionId(entry.containerId) || study === null || study.kind === "ask") return [];
+  // A quiz not forked from its lesson is told it has none of the lesson's conversation (SPEC-0008, "ML3 定的细节").
+  const alone = study.kind === "quiz" && (unforked || (entry.parent ?? null) === null);
+  return [`--${STUDY_FLAG}=${studyArgument({ ...study, kind: study.kind, ...(alone ? { context: "none" } : {}) })}`];
 }

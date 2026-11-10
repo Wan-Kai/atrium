@@ -47,7 +47,7 @@ function only(id: string | null): string[] {
   return id === null ? [] : [id];
 }
 
-describe("the review hub leaks nothing (ADR-0017)", () => {
+describe("the review hub leaks nothing (ADR-0018)", () => {
   it("holds a count for each provider and listener it was given, and gives them all back, round after round", async () => {
     const resources = new ResourceTracker();
     const baseline = resources.snapshot();

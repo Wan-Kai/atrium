@@ -1,11 +1,12 @@
-import { type AtriumClient, CommandError, type SessionView } from "@atrium/client";
+import { type AtriumClient } from "@atrium/client";
 import type { SessionSummary, TranscriptItem } from "@atrium/protocol";
 import { DotsThree } from "../design/icons";
 import { useState } from "react";
+import { useStore } from "zustand";
+import { desktopBridge } from "../app/bootstrap";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { download } from "../chat/download";
 import { transcriptMarkdown } from "../chat/turn-layout";
-import { terminalCommand } from "./hand-off";
 
 /** The most pages an export fetches, so a host that keeps saying "more" cannot loop it forever. */
 const MAX_EXPORT_PAGES = 10_000;
@@ -39,59 +40,19 @@ export async function wholeTranscript(client: AtriumClient, sessionId: string): 
 }
 
 /**
- * Why a hand-off to the terminal failed, in words.
+ * The "···" menu of the active session: rename, archive, copy the file's path, open a terminal
+ * in its workspace, export.
  *
  * @remarks
- * The host refuses a session with a run or messages queued (SPEC-0001, "交给终端").
+ * SPEC-0001 ("标签栏", "在终端中打开"). Renaming happens on the session's tab, which the tab bar
+ * holds, so it says here whether the last rename failed; renaming and copying need the session's
+ * file, which a draft does not have yet, though a draft child conversation can be renamed
+ * (SPEC-0002, "概念 · 名字"). Opening a terminal only opens one, in the session's workspace or in
+ * the home folder for a chat, and leaves the session as it is; the desktop shell does it, so a
+ * browser has no such item. Failures are shown next to the menu, until the next action.
  *
- * @sideEffects none
- * @param error - What the hand-off threw.
- * @returns The words.
- */
-function describeHandOffError(error: unknown): string {
-  return error instanceof CommandError && error.code === "session_busy"
-    ? "先停止运行或清空排队，再交给终端"
-    : "交给终端失败";
-}
-
-/**
- * Why the hand-off item is greyed, if it is.
- *
- * @remarks
- * pi in a terminal goes on from the session's file, which a draft does not have yet; a session
- * running, with a message on its way, stopping, starting pi again or with messages in the
- * host's queue must be stopped or emptied first, as the host would refuse it (SPEC-0001,
- * "交给终端"). The session's view says so when the session is watched.
- *
- * @sideEffects none
- * @param session - The session.
- * @param view - Its view, when watched.
- * @returns The reason, or `null` when it can be handed off.
- */
-function handOffBlocked(
-  session: Pick<SessionSummary, "file" | "running">,
-  view: Pick<SessionView, "run" | "pending" | "control"> | undefined,
-): string | null {
-  if (session.file === null) return "发出第一条消息后才能交给终端";
-  if (session.running) return "先停止运行再交给终端";
-  if (view === undefined) return null;
-  const { run, pending, control } = view;
-  const busy = run !== null || pending.length > 0 || control.stopping || control.restarting || control.queue.length > 0;
-  return busy ? "先停止运行或清空排队，再交给终端" : null;
-}
-
-/**
- * The "···" menu of the active session: rename, archive, copy the file's path, go on in a
- * terminal, export.
- *
- * @remarks
- * SPEC-0001 ("标签栏", "交给终端"). Renaming happens on the session's tab, which the tab bar
- * holds, so it says here whether the last rename failed; renaming, copying and the terminal need
- * the session's file, which a draft does not have yet, though a draft child conversation can be
- * renamed (SPEC-0002, "概念 · 名字"). Going on in a terminal copies the command
- * that does it. Failures are shown next to the menu, until the next action.
- *
- * @sideEffects Sends commands; writes the clipboard; downloads an export.
+ * @sideEffects Sends commands; writes the clipboard; downloads an export; asks the desktop shell
+ * to open a terminal.
  * @param props - The client, the session, whether its last rename failed, how to start renaming
  * it, and what to do as another action starts.
  * @returns The menu.
@@ -112,6 +73,12 @@ export function SessionMenu({
 }) {
   const [problem, setProblem] = useState<string | null>(null);
   const shown = problem ?? (renameFailed ? "改名失败" : null);
+  // A chat has no workspace: the desktop shell opens a terminal in the home folder instead.
+  const workspaceDir = useStore(
+    client.index,
+    (index) => index.workspaces.find((workspace) => workspace.id === session.containerId)?.dir ?? null,
+  );
+  const desktop = desktopBridge();
   // A child's name waits in its record until pi writes its file (SPEC-0002, "概念 · 名字").
   const unnamable = session.state === "draft" && session.parent === null;
 
@@ -141,8 +108,6 @@ export function SessionMenu({
       )}
       <MenuButton label="当前会话" content={<DotsThree size={16} weight="bold" />}>
         {(close) => {
-          // Read as the menu opens, so it shows the session as it is then.
-          const blocked = handOffBlocked(session, client.session(session.sessionId)?.getState());
           return (
             <>
               <button
@@ -188,17 +153,16 @@ export function SessionMenu({
                 type="button"
                 role="menuitem"
                 className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
-                disabled={blocked !== null}
-                title={blocked ?? "复制在终端里接着做的命令"}
+                disabled={desktop?.openTerminal === undefined}
+                title={desktop?.openTerminal === undefined ? "只在桌面 App 里可用" : "在会话的目录里打开终端"}
                 onClick={() => {
                   close();
                   run(async () => {
-                    const { file, args } = await client.handOff(session.sessionId);
-                    await navigator.clipboard.writeText(terminalCommand(file, args)).catch(() => undefined);
-                  }, describeHandOffError);
+                    await desktop?.openTerminal?.(workspaceDir);
+                  }, "打开终端失败");
                 }}
               >
-                在终端中继续
+                在终端中打开
               </button>
               <button
                 type="button"

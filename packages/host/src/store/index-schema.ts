@@ -58,12 +58,29 @@ export const PROJECTS_FILE: IndexFileSpec<ProjectsDocument> = {
 };
 
 /**
- * What `chats.json` keeps of a chat: its name and whether it is archived; a chat with neither has
- * no record (ADR-0007; SPEC-0001, "M1.11 的对话归档").
+ * A name kept in an index file as the list can carry it: 1 to 256 characters, else none.
+ *
+ * @remarks
+ * The files are read loosely; one name out of bounds, written by hand or by a newer Atrium, would
+ * otherwise make a client refuse the whole list (protocol `alias`).
+ *
+ * @sideEffects none
+ * @param alias - The name kept, if any.
+ * @returns The name, or `null`.
+ */
+export function listedAlias(alias: string | undefined): string | null {
+  return alias !== undefined && alias.length >= 1 && alias.length <= 256 ? alias : null;
+}
+
+/**
+ * What `chats.json` keeps of a chat: its name, whether it is pinned and whether it is archived; a
+ * chat with none of them has no record (ADR-0007; SPEC-0001, "M1.11 的对话归档", "对话的置顶与顺序").
  */
 const ChatRecord = z.looseObject({
   id: z.string(),
   alias: z.string().optional(),
+  /** When it was pinned (SPEC-0001, "对话的置顶与顺序"). */
+  pinnedAt: z.number().int().nonnegative().optional(),
   archived: z
     .looseObject({
       at: z.number().int().nonnegative(),
@@ -76,7 +93,7 @@ const ChatRecord = z.looseObject({
 const ChatsDocument = z.looseObject({ chats: z.array(ChatRecord) });
 export type ChatsDocument = z.infer<typeof ChatsDocument>;
 
-/** `chats.json`: the names given to chats and which are archived (domain-model §1, "索引的存储"). */
+/** `chats.json`: the names given to chats, which are pinned and which are archived (domain-model §1, "索引的存储"). */
 export const CHATS_FILE: IndexFileSpec<ChatsDocument> = {
   name: "chats",
   version: 2,
@@ -86,6 +103,29 @@ export const CHATS_FILE: IndexFileSpec<ChatsDocument> = {
     // M1.11 archives chats: a record may have an archive and no name, which version 1 cannot read.
     1: (document) => document,
   },
+};
+
+/**
+ * What `learning.json` keeps of a direction: the name the user gave it, when it was pinned and
+ * when a client last went into it; a direction with none of them has no record (SPEC-0008, "索引").
+ * Whether it is archived is where its directory is, not a field here.
+ */
+const LearningRecord = z.looseObject({
+  id: z.string(),
+  alias: z.string().optional(),
+  pinnedAt: z.number().int().nonnegative().optional(),
+  lastOpenedAt: z.number().int().nonnegative().optional(),
+});
+
+const LearningDocument = z.looseObject({ directions: z.array(LearningRecord) });
+export type LearningDocument = z.infer<typeof LearningDocument>;
+
+/** `learning.json`: the directions' names, pins and when each was last opened (domain-model §1, "索引的存储"). */
+export const LEARNING_FILE: IndexFileSpec<LearningDocument> = {
+  name: "learning",
+  version: 1,
+  schema: LearningDocument,
+  empty: () => ({ directions: [] }),
 };
 
 /** The container every chat's session was filed under in version 1 of `sessions.json`. */
@@ -102,14 +142,25 @@ const SessionRecord = z.looseObject({
   draft: z.boolean(),
   archived: z.boolean(),
   createdAt: z.number(),
-  /** Why it needs a look, until its next run starts (SPEC-0001, "会话状态"); added in M1.9. */
-  attention: Attention.nullable().optional(),
-  /** It was handed to pi in a terminal (SPEC-0001, "交给终端"); added in M1.9. */
-  handedOff: z.boolean().optional(),
+  /**
+   * Why it needs a look, until its next run starts (SPEC-0001, "会话状态"); added in M1.9. A mark
+   * kept before protocol 32 has no failure text, read as none (SPEC-0005, "协议改动" 6).
+   */
+  attention: Attention.extend({ text: z.string().max(300).nullable().default(null) })
+    .nullable()
+    .optional(),
   /** Fast as last switched in it (SPEC-0001, "Fast"); added in M1.11. */
   fast: z.boolean().optional(),
   /** The session it is a child conversation of, and who opened it (SPEC-0002); added in M1.15. */
   parent: z.looseObject({ sessionId: z.string(), by: z.enum(["user", "agent"]) }).optional(),
+  /** The parent a detached child had, for reading its visuals only (SPEC-0007, MV1 details); added in MV1. */
+  detachedFrom: z.string().optional(),
+  /**
+   * Where the archive that archived it started: the session archived with its subtree, itself for
+   * that one, so restoring a parent brings back only what went with it (SPEC-0008, "ML3 定的细节 ·
+   * 方向里归档了的会话"); added in ML3, dropped once it is restored.
+   */
+  archivedWith: z.string().optional(),
   /**
    * A child's usage baseline: the last entry it copied from its parent, whose usage it does not
    * count; `null` when it copied none (SPEC-0002, "用量合计"); added in M1.15.
@@ -128,6 +179,11 @@ const SessionRecord = z.looseObject({
   deliveries: z.unknown().optional(),
   /** The task a node's or task conversation's session belongs to (SPEC-0006); read by `taskFieldOf`; added in T4. */
   task: z.unknown().optional(),
+  /**
+   * What a session of a learning direction is for (SPEC-0008, "索引"); added in ML1. Read by
+   * `studyOf`, so a broken one loses only itself.
+   */
+  study: z.unknown().optional(),
 });
 export type SessionRecord = z.infer<typeof SessionRecord>;
 
@@ -298,6 +354,11 @@ const TurnStartsDocument = z.looseObject({
    * absent until there is one (SPEC-0001, `compaction`).
    */
   compactions: z.record(z.string(), z.enum(["overflow", "threshold"]).nullable()).optional(),
+  /**
+   * Messages sent from a visual, by entry, with which (SPEC-0007, "回传"); absent until there is
+   * one. Each is checked as it is read, so one that cannot be read is dropped alone.
+   */
+  sources: z.record(z.string(), z.unknown()).optional(),
 });
 export type TurnStartsDocument = z.infer<typeof TurnStartsDocument>;
 

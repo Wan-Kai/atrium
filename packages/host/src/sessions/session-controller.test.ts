@@ -1041,6 +1041,47 @@ describe("createSessionController on a recorded session", () => {
     await controller.shutdown();
   });
 
+  it("cuts a page's steps to the step limit it is given", async () => {
+    const call = replyEntry("call", "u0");
+    const entries: LogEntry[] = [
+      userEntry("u0", null, "zero"),
+      {
+        ...call,
+        stopReason: "toolUse",
+        parts: [{ type: "toolCall", callId: "tool", tool: "bash", args: { command: "pwd" } }],
+      } as LogEntry,
+      {
+        id: "result",
+        parentId: "call",
+        kind: "toolResult",
+        callId: "tool",
+        tool: "bash",
+        text: "o".repeat(4096),
+        isError: false,
+        details: null,
+        timestamp: 1,
+      },
+      replyEntry("done", "result"),
+      userEntry("u1", "done", "one"),
+    ];
+    const { controller } = control(manualPi().pi, { entries, leafId: "u1" });
+    await settle();
+
+    expect(controller.fetchTranscript(fetch(1, "s1:u1"), 512).items[0]).toMatchObject({
+      steps: [
+        { partial: true, output: "o".repeat(512) },
+        { kind: "text", text: "ok" },
+      ],
+    });
+    expect(controller.fetchTranscript(fetch(1, "s1:u1")).items[0]).toMatchObject({
+      steps: [
+        { partial: false, output: "o".repeat(4096) },
+        { kind: "text", text: "ok" },
+      ],
+    });
+    await controller.shutdown();
+  });
+
   it("pages back through the transcript, and refuses a page from an epoch that has passed", async () => {
     const { pi, raw, since, initial } = replayedHistory();
     const { controller } = control(pi, initial);
@@ -1180,6 +1221,47 @@ describe("createSessionController on cases the fixtures do not show", () => {
 
     expect(controller.snapshot().items).toHaveLength(SNAPSHOT_TURNS);
     expect(controller.items()).toMatchObject(entries.map((_, n) => ({ kind: "turn", user: { text: `message ${n}` } })));
+  });
+
+  it("marks the turn a visual's message opened, and records where it came from", async () => {
+    const { pi, emit, pages } = manualPi();
+    const recorded: unknown[][] = [];
+    const { controller, events } = control(pi, empty, {
+      turnStarts: { opened: new Set(), record: (...seen) => recorded.push(seen) },
+    });
+    const source = { kind: "visual", path: "a.html" } as const;
+    pages.push(async () => ({ entries: [userEntry("u1", null, "选 B")], leafId: "u1" }));
+
+    expect(await controller.steer(steer("v1", "选 B"), [], source)).toStrictEqual({ disposition: "started" });
+    emit({ type: "agent_start" }, userEnd("选 B"));
+    const started = events.filter((event) => event.type === "turn_started");
+    emit(replyEnd("stop"), { type: "agent_settled" });
+    await settle();
+
+    expect(started.map((event) => [event.turn.user.clientMessageId, event.turn.user.source])).toStrictEqual([
+      ["v1", source],
+    ]);
+    expect(recorded).toStrictEqual([[["u1"], [], new Map(), new Map([["u1", source]])]]);
+    expect(controller.snapshot().items).toMatchObject([{ user: { text: "选 B", source } }]);
+  });
+
+  it("marks the turns an earlier host saw come from a visual", () => {
+    const { pi } = manualPi();
+    const { controller } = control(
+      pi,
+      { entries: [userEntry("u1", null, "one"), userEntry("u2", "u1", "选 B")], leafId: "u2" },
+      {
+        turnStarts: {
+          opened: new Set(["u1", "u2"]),
+          sources: new Map([["u2", { kind: "visual", path: "a.html" }]]),
+          record: () => undefined,
+        },
+      },
+    );
+
+    const [typed, picked] = controller.snapshot().items;
+    expect(typed).not.toHaveProperty("user.source");
+    expect(picked).toMatchObject({ user: { text: "选 B", source: { kind: "visual", path: "a.html" } } });
   });
 
   it("marks the turns an earlier host sent on its own", () => {
@@ -2729,6 +2811,29 @@ describe("createSessionController after pi crashes", () => {
     expect(recorded).toStrictEqual([["u1"], ["u2", "u2"]]);
   });
 
+  it("keeps a visual's steer marked when pi went before delivering it and it goes as a message", async () => {
+    const { first, next, controller, events } = crashing(1);
+    const source = { kind: "visual", path: "a.html" } as const;
+    await controller.prompt(prompt("q1", "one"));
+    first.emit({ type: "agent_start" }, userEnd("one"));
+    await controller.steer(steer("v1", "选 B"), [], source);
+
+    first.crash();
+    await settle();
+    const second = present(next[0], "the second pi");
+    second.emit({ type: "agent_start" }, userEnd(CONTINUE_TEXT), replyEnd("stop"), { type: "agent_settled" });
+    await settle();
+    second.emit({ type: "agent_start" }, userEnd("选 B"));
+
+    expect(second.sent).toStrictEqual([`prompt ${CONTINUE_TEXT}`, "prompt 选 B"]);
+    const started = events.filter((event) => event.type === "turn_started");
+    expect(started.map((event) => [event.turn.user.text, event.turn.user.source])).toStrictEqual([
+      ["one", undefined],
+      [CONTINUE_TEXT, undefined],
+      ["选 B", source],
+    ]);
+  });
+
   it("sends steers pi had not delivered back to the queue, paused until pi is back", async () => {
     const { first, next, controller } = crashing(1);
     await controller.prompt(prompt("q1", "one"));
@@ -3332,7 +3437,7 @@ describe("createSessionController compacting during a run", () => {
     emit({ type: "agent_settled" });
     await settle();
 
-    expect(recorded).toStrictEqual([[["u1"], [], new Map([["k1", "overflow"]])]]);
+    expect(recorded).toStrictEqual([[["u1"], [], new Map([["k1", "overflow"]]), new Map()]]);
     // The rebuild agrees with what was sent live: no new snapshot.
     expect(events.filter((event) => event.type === "session_snapshot")).toStrictEqual([]);
   });
@@ -3991,7 +4096,7 @@ function statusEvent(statusKey: string, statusText: string): PiEvent {
 }
 
 /** Every subscription, in the order the controller asks them. */
-const EVERY_PLAN = ["openai-codex", "anthropic", "xai"];
+const EVERY_PLAN = ["openai-codex", "anthropic", "xai", "opencode-go"];
 
 describe("createSessionController's plan usage", () => {
   it("asks for every subscription through its pi after pi starts and each run, whatever the model", async () => {
@@ -4537,7 +4642,7 @@ function replyEntry(id: string, parentId: string | null = null): LogEntry {
   };
 }
 
-describe("createSessionController's reviews (ADR-0017)", () => {
+describe("createSessionController's reviews (ADR-0018)", () => {
   const open: PendingReview = {
     id: "tsk_1:human:H:1",
     openedAt: 5,

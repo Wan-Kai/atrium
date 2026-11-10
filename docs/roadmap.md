@@ -16,11 +16,47 @@
 
 ## 当前状态
 
-**2026-11-04：任务与任务图设计定稿，在 `atrium/design-agent-task-board`（worktree `atrium.worktrees/design-agent-task-board`），只改文档和原型，未提交、未合并。** 设计稿 `prototypes/agent-task-board-design.html` 经 5 轮审查定下界面：只从对话 `/task` 创建任务；任务和对话是两个入口、两种视图；任务区有固定的"任务""定时"标签；任务标签是图加任务对话。执行方案经讨论定下 Q1–Q14（[task-graph-execution.md](research/task-graph-execution.md)），worktree 的做法参考了 Claude Code 和 8 个 pi 扩展（[worktree-practices.md](research/worktree-practices.md)）。合成 [SPEC-0006](specs/0006-tasks-and-task-graph.md)，用户确认；domain-model §9、overview、security 已同步。开发拆成 T0–T11 和 TP（见"阶段 · 任务与任务图"），每步单独验收；T0 pi 契约 2026-11-04 用户验收通过：6 条行为在 1.0.2、1.3.0、1.5.0 上都成立（`task.pi.test.ts` 9 项、破坏检查 14/14）。T1–T3 由三个子代理并行做完，2026-11-05 用户让继续 T4（未逐项手验）；T3 补出的 32 处 SPEC 细节已写回 SPEC-0006。本机测试环境有两件既有问题，用户定后面单独处理：cmux 终端放在 PATH 最前面的 `pi` 垫片会让宿主 `edit-stopped` / `reply-translation` 11 项挂住（把 `cmux-cli-shims` 移出 PATH 就过）；`test:pi` 52 项失败是缺 pi 1.5.0 的录制夹具。T4 分两段：T4a（pi 侧工具与通道）已提交；T4b（宿主侧 TaskRunner、提交、`pnpm task:try`）2026-11-05 做完，真实模型跑通三节点示例图、Ctrl-C 后重跑不重复提交；变异测试中 Stryker 改掉 `cwd` 让测试在仓库里真提交过一次，已撤销并让测试的 git 运行器缺 `cwd` 就抛错。用户确认：工作区标记记在任务目录的 `workspace.json`，崩溃窗口留给 T9；提交失败记 `failed(commit)`、任务停下，重跑只重试提交。T4 三方审查（Codex gpt-6-astra、Grok grok-4.7、Claude）找出宿主 git 会执行仓库配置里的命令（`diff.external`、`gpg.program`、`core.worktree`）、bash git 拦截的多种绕过、重启后把别的节点的改动提交到旧节点名下、旧 `node_done` 让节点错误通过、崩溃后节点卡住、契约没送到、节点 id 可逃出外壳等，已全部修完：可写节点改为提交落定（`committed` / `commit_checked`）才 `passed`，原先"`done` 之后记 `committed`"的特例随之取消。修完后真实模型跑通示例图，N2 中途 Ctrl-C 再跑只有一个带尾注的提交。2026-11-05 用户让继续 T5（T4 未逐项手验）。T5（human 节点与合并）2026-11-05 做完：打回、合并前检查与 `merge_blocked`（新增第六个原因 `merge_git_failed`）、冲突后 abort 且主目录回到原提交、已合并直接算 `merged`、归档提问记进 `task.json`、任务协议命令和事件（手机只读）；宿主合并会执行仓库里的 `merge.<名>.driver`，已全部清空（变成冲突），MergeInspector 的 `merge-tree` 也收进 `runSafeGit`；工作区扫描里直接跑的 git 仍未带安全参数，单独排。协议号 29→30 是在本分支上加的，合回 `main` 时取当时的下一个号并重新生成 Swift 投影。没有 `origin` 的本地仓库没有主干，合并一律 `merge_main_not_trunk`（和现有 MergeInspector 一致）。真实模型跑通：打回一次、主目录脏 / 不在主干 / 冲突各挡一次（冲突后主目录 HEAD 不变且干净）、改好后合并、归档清掉 worktree、origin 未动。2026-11-05 用户让继续 T6（T5 未逐项手验）；T5 改到的 `scheduler.ts` 变异 99.57%。T6（任务对话与 /task）2026-11-06 做完：任务对话的工具做了 8 个（`task_set_schedule` 随 T10）、宿主核对调用方、进度行和唤醒任务对话、`create_task` / `start_task` / `abandon_task` / `approve_graph` / `reject_graph` 与三个错误码（协议 30→31，手机只读）、四套写死的引导词（全文在 SPEC-0006 附录）、`pnpm task:design`（只读原会话、在临时副本上跑，前后核对原文件没变）。真实模型跑通两段造出来的对话（feature、research 各一）。整套测试在另一个 worktree 跑变异测试、负载 20–28 时有 11 项 5 秒 / 15 秒超时，单独重跑或放宽超时都通过。用户让继续（T6 未逐项手验，`task:design` 的真实对话验收待做）。TP 2026-11-06：第一稿每处 3 种做法；用户改定方向：都放在输入框上方，做成和提问卡片共用外壳的通用"审核"卡片（以后普通对话也用），并区分宿主发起和 agent 发起（已写进 SPEC-0006"界面 › 审核卡片"）。第二稿设计稿第 6–8 屏：审核卡片的结构和来源、在各处的样子、节点对话标签（三种做法，建议 A），标注 25–41。用户看第二稿后定：任务对话的进度和记录和普通对话一样折叠；"agent 说"去掉左边线；技术上分宿主关卡和 agent 请求两种来源，写成 [ADR-0017](adr/0017-reviews-one-shape-two-sources.md)（提议）。2026-11-06 用户同意 ADR-0017、节点对话标签选 A，TP 定稿。T7（只读任务区）2026-11-06 做完：侧栏"任务"入口与任务区标签栏、任务列表（排序、近 7 天、项目筛选）、任务标签（图自适应宽度、七种节点状态、悬停卡、只读任务对话与进度折叠）、需求对话里的"已转为任务"行、错误码界面说法；修了宿主不把进度行实时推给任务对话的问题（`task_line_added`）；协议 31→32。性能：50 任务 × 20 节点，首次打开约 530 ms，之后列表约 22 ms、图约 12 ms（预算 1000 / 100 / 100 ms）。破坏检查 52/52。2026-11-06 用户定：选 B（开发时只读跟随任务目录，作为 T7.1 补做，做完再验收 T7）；改过节点的虚线框和需求摘要卡片放 T8；human 节点的改动统计放悬停卡、"项目 · worktree"的写法照 T7 做的。T7.1 2026-11-06 做完：开发版设 `ATRIUM_FOLLOW_TASKS=<task:try 的 home>/tasks` 后宿主只读跟随（不写任何文件，前后哈希一致；命令一律 `task_read_only`；不调度、不起 pi；打包版忽略），协议 32→33；真实模型（deepseek-flash）跑 `task:try` 时 Atrium 里节点逐个变色到 human 节点。2026-11-06 用户验收 T7（含 T7.1）通过：在演示仓库里边跑 `task:try` 边在 Atrium 里看到节点逐个变色、打回与合并。T8 分两段做：T8a 协议与宿主（`PendingReview` / `answer_review`、ReviewHub、任务 provider、裁决记录、图的差异和需求摘要给界面），T8b 界面；T8 做完后三方审查。T8a 2026-11-06 做完：协议 33→34（`PendingReview`、`Control.reviews`、`answer_review`、`review_closed` / `review_invalid`、`Notice.review`、`open_task_session`），宿主 ReviewHub 与任务 provider（审核从持久状态现算、重启后还在，合并被挡是 human 审核的 `problem`），裁决记录写进任务对话且进模型上下文，`TaskView` 加 `reviews`、`pending`、`graphDiff`、`requirements`；变异 review-hub 85.94%、task-reviews 95.83%、graph-diff 98.36%，破坏检查 64/64；用户定了四处细节（见 SPEC-0006"T8a 定下的细节"）。T8b 2026-11-06 做完：聊天里 `/task`、任务对话输入框、和提问卡片共用外壳的通用审核卡片（四个关卡）、裁决记录并进进度折叠、任务栏按钮、列表一次展开一行就地作答、任务进"等你处理"、节点对话标签（08 A）、改过节点的虚线框与"新"、需求摘要卡片；协议未改。Electron e2e（真宿主、faux pi）走通 SPEC"验证 · 端到端"，真实模型（deepseek-flash）手动跑通一次；破坏检查 48/48。真实模型那次一开始用错模型，原因是宿主取登录 shell 的环境，丢了 `PI_CODING_AGENT_DIR`，测试改为传 `SHELL=/usr/bin/false`。待用户定的界面问题三处：打回目标用胶囊代替下拉框、部分按钮无图标、合并冲突"加解决冲突节点"的链接留给 T9 之后。T8 三方审查（Codex gpt-6-astra、Grok grok-4.7、Claude）找出：暂停的任务无法继续、改图裁决可能批准没看过的版本、任务/节点会话能被 `open_session` 变成普通标签、证据条数超协议上限后客户端整条丢弃、未提交的原因和发不出的消息丢失、宿主重启后任务对话不恢复、hub 按会话的状态不释放等，已全部修完（协议 34→35）。2026-11-08 用户定：列表行里不做 human 验收，只给"打开任务"；"在图上看"保留已有节点的状态；"不批准"可写原因；手机在任务/节点对话里可发消息、插话、停下、答提问，审核和任务命令仍只在桌面。变异 review-hub 83.33%、task-reviews 100%；破坏检查 t8a 64/64、t8b 48/48、修复 34/34 + 27/27。2026-11-09 用户让继续 T9（T8 未逐项手验）。T9（宿主重启）2026-11-09 做完：宿主找到 pi 后对没结束的任务 `recoverAll`；`node_done` 那一轮已结束的先 `node_settled`；问题作废后重问；`commitPending` 只重发提交；合并前先查已合并；没结束的任务重新加锁，启动时解掉已结束任务的锁；`ensure_workspace` 在 git 建 worktree 前把计划写进 `workspace.json`，崩溃后只认和计划完全一致的 worktree；`request_graph_change` 的理由和建议落盘；会话文件里已有契约就补记 `contract_sent`，不发第二份。协议未改（仍 35）。宿主层崩溃表 10 行（截掉事件再重启）都不重复；破坏检查 t9 35/35；变异 runner 88.17%、task-workspaces 97.30%、task-service 94.59%、scheduler 87.18%、worktree-creator 92.25%（新增 taskrunner / taskscheduler / worktreecreator 三组）。真实模型（deepseek-flash）`task:try` 中途 `kill -9` 再跑：结算后提交一次，worktree 只有一个带尾注的提交；停在提问上再跑：问题作废后重问。性能测试的种子改为暂停的“运行中”任务，启动接回不再干扰测量。2026-11-09 用户让继续 T10。T10（定时）2026-11-09 做完：`ScheduleService` 经注入的 Clock 按本机时区触发（上一次没结束就跳过、错过只补一次、夏令时、时间回拨、模板被删）；新增 `interval` 节奏；`task_set_schedule` 注册（任务对话九个工具），开始页按钮"确认并保存规则"存进 `schedules.json`；每次触发建普通任务"规则名 · 日期"（间隔规则加时间）；"定时"标签（立即跑一次 / 暂停 / 恢复 / 修改 / 删除，删除确认在行下面）；协议 35→36，定时命令只在桌面。用户定了七处说法（SPEC-0006"T10 定下的细节"）。破坏检查宿主 39/39、界面 17/17；变异 cadence 100%、schedule-service 89.24%、schedule-commands 82.11%、schedule-rules 93.02%，task-service 的两段 75% / 78%（存活的是 T6 的旧守卫）。真实模型（deepseek-flash）定下"每 5 分钟"的规则，等真实 5 分钟自动建出任务。下一步请用户验收 T8、T9、T10。
+**2026-11-04 起：任务与任务图（SPEC-0006，T0–T10）在 `atrium/design-agent-task-board`（worktree `atrium.worktrees/design-agent-task-board`）上做，2026-11-10 用户验收 T8、T9、T10 通过，同日把 `main` 合进本分支，等用户确认后合回 `main`，未推送。** 下面是这条线的经过： 设计稿 `prototypes/agent-task-board-design.html` 经 5 轮审查定下界面：只从对话 `/task` 创建任务；任务和对话是两个入口、两种视图；任务区有固定的"任务""定时"标签；任务标签是图加任务对话。执行方案经讨论定下 Q1–Q14（[task-graph-execution.md](research/task-graph-execution.md)），worktree 的做法参考了 Claude Code 和 8 个 pi 扩展（[worktree-practices.md](research/worktree-practices.md)）。合成 [SPEC-0006](specs/0006-tasks-and-task-graph.md)，用户确认；domain-model §9、overview、security 已同步。开发拆成 T0–T11 和 TP（见"阶段 · 任务与任务图"），每步单独验收；T0 pi 契约 2026-11-04 用户验收通过：6 条行为在 1.0.2、1.3.0、1.5.0 上都成立（`task.pi.test.ts` 9 项、破坏检查 14/14）。T1–T3 由三个子代理并行做完，2026-11-05 用户让继续 T4（未逐项手验）；T3 补出的 32 处 SPEC 细节已写回 SPEC-0006。本机测试环境有两件既有问题，用户定后面单独处理：cmux 终端放在 PATH 最前面的 `pi` 垫片会让宿主 `edit-stopped` / `reply-translation` 11 项挂住（把 `cmux-cli-shims` 移出 PATH 就过）；`test:pi` 52 项失败是缺 pi 1.5.0 的录制夹具。T4 分两段：T4a（pi 侧工具与通道）已提交；T4b（宿主侧 TaskRunner、提交、`pnpm task:try`）2026-11-05 做完，真实模型跑通三节点示例图、Ctrl-C 后重跑不重复提交；变异测试中 Stryker 改掉 `cwd` 让测试在仓库里真提交过一次，已撤销并让测试的 git 运行器缺 `cwd` 就抛错。用户确认：工作区标记记在任务目录的 `workspace.json`，崩溃窗口留给 T9；提交失败记 `failed(commit)`、任务停下，重跑只重试提交。T4 三方审查（Codex gpt-6-astra、Grok grok-4.7、Claude）找出宿主 git 会执行仓库配置里的命令（`diff.external`、`gpg.program`、`core.worktree`）、bash git 拦截的多种绕过、重启后把别的节点的改动提交到旧节点名下、旧 `node_done` 让节点错误通过、崩溃后节点卡住、契约没送到、节点 id 可逃出外壳等，已全部修完：可写节点改为提交落定（`committed` / `commit_checked`）才 `passed`，原先"`done` 之后记 `committed`"的特例随之取消。修完后真实模型跑通示例图，N2 中途 Ctrl-C 再跑只有一个带尾注的提交。2026-11-05 用户让继续 T5（T4 未逐项手验）。T5（human 节点与合并）2026-11-05 做完：打回、合并前检查与 `merge_blocked`（新增第六个原因 `merge_git_failed`）、冲突后 abort 且主目录回到原提交、已合并直接算 `merged`、归档提问记进 `task.json`、任务协议命令和事件（手机只读）；宿主合并会执行仓库里的 `merge.<名>.driver`，已全部清空（变成冲突），MergeInspector 的 `merge-tree` 也收进 `runSafeGit`；工作区扫描里直接跑的 git 仍未带安全参数，单独排。协议号 29→30 是在本分支上加的；合回 `main` 时取当时的下一个号：本分支的号段 29→38 与 `main` 的 29→37 各走各的，2026-11-10 合并时取 **38**（`main` 的 37 之后），两边的命令、事件、错误码都在 38 里，Swift 投影重新生成。下文各步写的协议号是当时在本分支上的编号。没有 `origin` 的本地仓库没有主干，合并一律 `merge_main_not_trunk`（和现有 MergeInspector 一致）。真实模型跑通：打回一次、主目录脏 / 不在主干 / 冲突各挡一次（冲突后主目录 HEAD 不变且干净）、改好后合并、归档清掉 worktree、origin 未动。2026-11-05 用户让继续 T6（T5 未逐项手验）；T5 改到的 `scheduler.ts` 变异 99.57%。T6（任务对话与 /task）2026-11-06 做完：任务对话的工具做了 8 个（`task_set_schedule` 随 T10）、宿主核对调用方、进度行和唤醒任务对话、`create_task` / `start_task` / `abandon_task` / `approve_graph` / `reject_graph` 与三个错误码（协议 30→31，手机只读）、四套写死的引导词（全文在 SPEC-0006 附录）、`pnpm task:design`（只读原会话、在临时副本上跑，前后核对原文件没变）。真实模型跑通两段造出来的对话（feature、research 各一）。整套测试在另一个 worktree 跑变异测试、负载 20–28 时有 11 项 5 秒 / 15 秒超时，单独重跑或放宽超时都通过。用户让继续（T6 未逐项手验，`task:design` 的真实对话验收待做）。TP 2026-11-06：第一稿每处 3 种做法；用户改定方向：都放在输入框上方，做成和提问卡片共用外壳的通用"审核"卡片（以后普通对话也用），并区分宿主发起和 agent 发起（已写进 SPEC-0006"界面 › 审核卡片"）。第二稿设计稿第 6–8 屏：审核卡片的结构和来源、在各处的样子、节点对话标签（三种做法，建议 A），标注 25–41。用户看第二稿后定：任务对话的进度和记录和普通对话一样折叠；"agent 说"去掉左边线；技术上分宿主关卡和 agent 请求两种来源，写成 [ADR-0018](adr/0018-reviews-one-shape-two-sources.md)（提议）。2026-11-06 用户同意 ADR-0018、节点对话标签选 A，TP 定稿。T7（只读任务区）2026-11-06 做完：侧栏"任务"入口与任务区标签栏、任务列表（排序、近 7 天、项目筛选）、任务标签（图自适应宽度、七种节点状态、悬停卡、只读任务对话与进度折叠）、需求对话里的"已转为任务"行、错误码界面说法；修了宿主不把进度行实时推给任务对话的问题（`task_line_added`）；协议 31→32。性能：50 任务 × 20 节点，首次打开约 530 ms，之后列表约 22 ms、图约 12 ms（预算 1000 / 100 / 100 ms）。破坏检查 52/52。2026-11-06 用户定：选 B（开发时只读跟随任务目录，作为 T7.1 补做，做完再验收 T7）；改过节点的虚线框和需求摘要卡片放 T8；human 节点的改动统计放悬停卡、"项目 · worktree"的写法照 T7 做的。T7.1 2026-11-06 做完：开发版设 `ATRIUM_FOLLOW_TASKS=<task:try 的 home>/tasks` 后宿主只读跟随（不写任何文件，前后哈希一致；命令一律 `task_read_only`；不调度、不起 pi；打包版忽略），协议 32→33；真实模型（deepseek-flash）跑 `task:try` 时 Atrium 里节点逐个变色到 human 节点。2026-11-06 用户验收 T7（含 T7.1）通过：在演示仓库里边跑 `task:try` 边在 Atrium 里看到节点逐个变色、打回与合并。T8 分两段做：T8a 协议与宿主（`PendingReview` / `answer_review`、ReviewHub、任务 provider、裁决记录、图的差异和需求摘要给界面），T8b 界面；T8 做完后三方审查。T8a 2026-11-06 做完：协议 33→34（`PendingReview`、`Control.reviews`、`answer_review`、`review_closed` / `review_invalid`、`Notice.review`、`open_task_session`），宿主 ReviewHub 与任务 provider（审核从持久状态现算、重启后还在，合并被挡是 human 审核的 `problem`），裁决记录写进任务对话且进模型上下文，`TaskView` 加 `reviews`、`pending`、`graphDiff`、`requirements`；变异 review-hub 85.94%、task-reviews 95.83%、graph-diff 98.36%，破坏检查 64/64；用户定了四处细节（见 SPEC-0006"T8a 定下的细节"）。T8b 2026-11-06 做完：聊天里 `/task`、任务对话输入框、和提问卡片共用外壳的通用审核卡片（四个关卡）、裁决记录并进进度折叠、任务栏按钮、列表一次展开一行就地作答、任务进"等你处理"、节点对话标签（08 A）、改过节点的虚线框与"新"、需求摘要卡片；协议未改。Electron e2e（真宿主、faux pi）走通 SPEC"验证 · 端到端"，真实模型（deepseek-flash）手动跑通一次；破坏检查 48/48。真实模型那次一开始用错模型，原因是宿主取登录 shell 的环境，丢了 `PI_CODING_AGENT_DIR`，测试改为传 `SHELL=/usr/bin/false`。待用户定的界面问题三处：打回目标用胶囊代替下拉框、部分按钮无图标、合并冲突"加解决冲突节点"的链接留给 T9 之后。T8 三方审查（Codex gpt-6-astra、Grok grok-4.7、Claude）找出：暂停的任务无法继续、改图裁决可能批准没看过的版本、任务/节点会话能被 `open_session` 变成普通标签、证据条数超协议上限后客户端整条丢弃、未提交的原因和发不出的消息丢失、宿主重启后任务对话不恢复、hub 按会话的状态不释放等，已全部修完（协议 34→35）。2026-11-08 用户定：列表行里不做 human 验收，只给"打开任务"；"在图上看"保留已有节点的状态；"不批准"可写原因；手机在任务/节点对话里可发消息、插话、停下、答提问，审核和任务命令仍只在桌面。变异 review-hub 83.33%、task-reviews 100%；破坏检查 t8a 64/64、t8b 48/48、修复 34/34 + 27/27。2026-11-09 用户让继续 T9（T8 未逐项手验）。T9（宿主重启）2026-11-09 做完：宿主找到 pi 后对没结束的任务 `recoverAll`；`node_done` 那一轮已结束的先 `node_settled`；问题作废后重问；`commitPending` 只重发提交；合并前先查已合并；没结束的任务重新加锁，启动时解掉已结束任务的锁；`ensure_workspace` 在 git 建 worktree 前把计划写进 `workspace.json`，崩溃后只认和计划完全一致的 worktree；`request_graph_change` 的理由和建议落盘；会话文件里已有契约就补记 `contract_sent`，不发第二份。协议未改（仍 35）。宿主层崩溃表 10 行（截掉事件再重启）都不重复；破坏检查 t9 35/35；变异 runner 88.17%、task-workspaces 97.30%、task-service 94.59%、scheduler 87.18%、worktree-creator 92.25%（新增 taskrunner / taskscheduler / worktreecreator 三组）。真实模型（deepseek-flash）`task:try` 中途 `kill -9` 再跑：结算后提交一次，worktree 只有一个带尾注的提交；停在提问上再跑：问题作废后重问。性能测试的种子改为暂停的“运行中”任务，启动接回不再干扰测量。2026-11-09 用户让继续 T10。T10（定时）2026-11-09 做完：`ScheduleService` 经注入的 Clock 按本机时区触发（上一次没结束就跳过、错过只补一次、夏令时、时间回拨、模板被删）；新增 `interval` 节奏；`task_set_schedule` 注册（任务对话九个工具），开始页按钮"确认并保存规则"存进 `schedules.json`；每次触发建普通任务"规则名 · 日期"（间隔规则加时间）；"定时"标签（立即跑一次 / 暂停 / 恢复 / 修改 / 删除，删除确认在行下面）；协议 35→36，定时命令只在桌面。用户定了七处说法（SPEC-0006"T10 定下的细节"）。破坏检查宿主 39/39、界面 17/17；变异 cadence 100%、schedule-service 89.24%、schedule-commands 82.11%、schedule-rules 93.02%，task-service 的两段 75% / 78%（存活的是 T6 的旧守卫）。真实模型（deepseek-flash）定下"每 5 分钟"的规则，等真实 5 分钟自动建出任务。2026-11-10 用户验收 T8、T9、T10 通过。
+
+**2026-11-10：ML3 学习循环经用户验收通过并合回 `main`，未推送。** 分支 `atrium/ml3-study-loop`。一级从第一节课走到升级：测验是上课会话的子对话，宿主用 `pi --fork <上课文件>` 开，从检查到复制完锁住上课，上课在跑回 `session_busy`，没有上课会话或文件时开不带上下文的测验；开场按"分叉基线之后有没有开场"判断，测验、费曼、排计划由宿主开场；宿主算"能开的"集合（主按钮、每个没补漏洞的费曼、每个以后再测的补测），同一（用途、级、步、漏洞）只开一个；综合测验有漏洞时软门槛"跑费曼 + 升级"；这一级没有课时"排计划"；`upgrade_study { directionId, level, archiveSessions }` 先原子写档案、再尽量归档这一级的会话、再开排计划（最后一级写 `finishedAt`），排计划只能写自己那一级；`restore_study_sessions` 带回上级、只带回一起归档的子孙（`archivedWith`）；方向里归档的会话只读查看。协议 37，新命令对手机 `local_only`。原型选 1A 2A 3B 4A 5B 6A 7C；有用途的会话由界面按用途起名。三方评审（gpt-6-astra、grok-4.7、Claude）的问题全部修完。真实模型（`catpaw-cli/deepseek-v4.1-flash`）检查：测验用提问卡片、答错当场补讲、不说内部 id、排计划先确认且不写文件；没照做的是连错两题不停、测验往方向外写过临时文件。SPEC-0008"ML3 定的细节"里的 7 条待定点 2026-11-10 用户都按建议定了（前几级没归档的会话放"其他会话"、上课在 `lab/` 建练习文件、手改成只剩固定步骤时课放前面、重启后重新分叉的用量基线、连错两题的硬规则、测验往方向外写文件、复制来的上课系统消息）；测验不往方向目录外写文件的提示词随下一个动到扩展的里程碑补上。测试见[追踪表](testing/coverage-map.md#学习模式-ml3学习循环spec-0008ml3-定的细节2026-11-09)。
+
+**2026-11-09：ML2 进度、步骤条与下一步经用户验收通过并合回 `main`，未推送。** 分支 `atrium/ml2-study-progress`。进度只存在各方向的 `.atrium-study.json`（严格读、保留未知字段、按方向排队原子写、不跟随链接、写前复查方向目录、≤ 1 MiB、版本更高只读）；`study_*` 工具只在带 `--atrium-study` 的方向会话里按会话用途注册，宿主再按会话记录复查，普通对话看不到；宿主起的会话用隐藏命令 `/atrium-study start` 开场，丢了在打开时重发、否则给"重试"；下一步规则表、手动标记与撤销（`mark_study_step`、`mark_study_gap`）、`start_study_session`；标签栏下的常驻步骤条（原型 2D）和重写的方向主页（1A/3A/4A/5A）。协议 36，新命令对手机 `local_only`。用户定：撤销整步连带撤销它标的子项、字数按字形算、接受 agent 手改进度文件（只写进文档）、"档案"推到 ML4。真实模型（`catpaw-cli/deepseek-v4.1-flash`）检查后改：新建方向的第一条消息送到 pi 之前后发的排在它后面；起名在页面没选模型时用新会话的默认模型（之前落到 pi 默认的 `glm-5.2`，它在某些目录下报 400）；提示词不再让 agent 改 `AGENTS.md`、先提方案确认后再排阶梯并收尾；长级名一行省略带悬停全名。没做：worktree 分支起名的同样回退缺口、个别课名里服务商带来的 U+FFFD 乱码。细节见 SPEC-0008"ML2 定的细节"，测试见[追踪表](testing/coverage-map.md#学习模式-ml2进度步骤条与下一步spec-00082026-11-09)。
+
+**2026-11-09：修掉已知不稳的测试，用户验收通过并合回 `main`，未推送。** 分支 `atrium/fix-flaky-tests`。`ask-user.leak`、`viewers.leak`：Chromium 在删掉带动画的元素后多留一帧，快照前等两帧（`heap.ts` 的 `settleFrames`）；`status-bar` 的卡片在顶层里不算悬停在父元素上，约 250 ms 后自己淡出，是产品 bug，改由 `use-hover-presence` 记进出（`group-data-[hovered]`），Fast 卡片同；`git.test.ts`、`boundary.test.ts` 子进程多，超时放到 30 秒；测试统一用 `@atrium/testkit` 的 `installedPi` 找 pi，跳过 cmux 的 pi 垫片。git 模板改为每轮建一次，用户定先不做。`question-card` 一处偶发的取整误差记在 testing.md 待查。详见 coverage-map "已知不稳的测试修复（2026-11-06）"。
+
+**2026-11-06：MV1 对话里的交互演示经用户验收通过并合回 `main`，未推送。** 分支 `atrium/mv1-inline-visuals`。审查后定：DNS 预解析泄露主机名作为已知风险接受（security.md），esm.sh 按版本范围的依赖继续拦，提示模型用固定版本加 `?bundle`。 协议 35（合并时 main 已用到 34：MP6e 32、拿掉交接 33、ML1 34）。宿主 `visuals/`（目录校验、令牌、外壳、监视、限速）、桌面端 `atrium-visual:` 协议与按 frame 的请求过滤、界面 `visual-card`、扩展的 `atrium_visuals` 提示、手机端占位卡片。实现时定的细节写在 SPEC-0007"MV1 实现时定的细节"（单独的 session 改成按 frame 过滤、回传要落在演示里的鼠标按下、插话步骤不标来源、打开按钮只给相对路径、截图内存里最多 64 个、单独运行的宿主没有演示），2026-11-06 用户全部确认；同日按用户要求在外壳里关掉 WebRTC，TURN over TCP 的口子堵上；测试与未跑的见[追踪表](testing/coverage-map.md#mv1-对话里的交互演示spec-00072026-11-05待验收)。三方审查还没做。
+
+**2026-11-06：ML1 方向容器与新建方向经用户验收通过并合回 `main`，未推送。** 分支 `atrium/ml1-study-directions`。审查后定：手机完全不碰学习方向（不下发、相关命令拒绝），讨论会话起不来时的兜底会话算讨论会话。 方向是第三种容器（`lrn_<目录名>`，`~/Atrium/Learning/`，设了 `ATRIUM_HOME` 时在其下的 `Learning/`），宿主扫描并监听学习目录、`learning.json` 记别名置顶和上次打开、`sessions.json` 加 `study`；新建方向由宿主起名、建目录（AGENTS.md、`lab/` 的 git、标记文件最后写）、开讨论会话，第一条消息由界面发；归档移到 `Archive/`、恢复冲突 `study_restore_conflict`；侧栏"学习"一行、学习首页、新建方向页、方向主页标签。协议 32（MV1 也要升，合并时顺延）。2026-11-06 按用户对待定点的回答补做：归档的方向的会话只读地看（宿主读会话文件，不起 pi）、有会话在跑时归档先确认、去掉"继续讨论"（点卡片进方向，主页列出会话）、讨论第一轮下"建了方向"一行。同日按三方评审补：学习目录和 `Archive/` 不经链接、不覆盖的移动（先占位）、git 去掉指向别的仓库的变量、日志只记错误码、归档方向的会话宿主端拒绝一切要 pi 的命令、只读副本有上限和作废、新建与移动排队、关闭等新建、讨论没建成时照样给方向、归档冲突单独的错误码、启动先扫学习目录、`learning.json` 的保留字段和名字长度、界面面包屑和主页标签的快捷键、`learningDir`。定下的细节和偏离写在 SPEC-0008"ML1 定的细节"，测试见[追踪表](testing/coverage-map.md#学习模式-ml1方向容器与新建方向spec-00082026-11-05)。
+
+**2026-11-05：学习模式和对话里的交互演示设计定稿，SPEC-0007、SPEC-0008 进入评审，在 `atrium/discuss-study-mode`，未合并、未推送。** 原型三份（`study-mode-prototype.html` 入口与主页、`study-mode-flow-prototype.html` 完整流程、`study-mode-visuals-prototype.html` 展示形式），用户选入口丁、步骤条 C、演示内联；调研 [inline-visuals.md](research/inline-visuals.md)；选定的视觉写进 design-language。里程碑排成 ML1～ML5 和 MV1（见"阶段 · 学习模式"），还没开工。
+
+**2026-11-05：标签栏的"在终端中继续"改成"在终端中打开"，并按要求把整套"交给终端"删掉。用户验收通过并要求合回 `main`，已本地合并（功能提交 `c387b73`，合并 `e5c9e04`），未推送、未装包。在 `atrium/brave-koala`（worktree `atrium.worktrees/brave-koala`），当前会话还以它为工作目录，保留不删。** 用户定：只开终端，不再交接（不停 pi、不写索引、不复制也不运行命令）；会话属于工作区时开在工作区目录，对话开在 `~`；cmux 装着就在它当前窗口新开一个工作区并切到 cmux，没跑就先启动，没装就用系统"终端"。桌面壳（`apps/desktop/src/main/open-terminal.ts`）按固定顺序找 cmux 的命令，探活失败就 `open -b com.cmuxterm.app` 启动并最多等 15 秒，然后 `new-workspace --window <当前窗口> --cwd <目录> --focus true`；失败在菜单旁显示"打开终端失败"。这条路径只由用户点菜单触发，不向终端输入文字、不读屏、不关窗口，cmux 的凭据仍由它自己的 CLI 读。交接机制（`hand_off` / `take_back`、`SessionSummary.handedOff`、`session_handed_off`、子对话的 `handed_off` 状态和 `agent_handed_off`、"已在终端中继续"面板）随之删掉，协议 **33**；索引里旧的 `handedOff: true` 不再读，这样的会话下次打开时照常在 Atrium 里起 pi。文档先改：SPEC-0001、SPEC-0002、SPEC-0005"协议改动 7"、domain-model"已决定 16"、security.md、[外部终端最小接入](architecture/external-terminal.md#标签栏的在终端中打开2026-11-05)。验证：`pnpm check`、unit 4346、宿主 243、完整 UI 单 worker 1180、Swift 473、`pnpm protocol:swift` 重新生成通过；破坏检查 10/10 检出；`remote-policy.ts` 定向变异 98.75%（唯一存活是没改的既有分支）。`agent-relay.ts` 的定向变异 2140 个变异跑 40 分钟只到 22% 就停了，没有结论；`pnpm test:pi` 仍是既有的 52 项缺 pi-1.5.0 夹具；没跑 Electron 端到端、泄漏、打包和模拟器测试；合并前把 `main` 的 `7aaefe0` 合进分支后重跑 `pnpm check`、unit 4346、Swift 473 通过。真实 cmux 的开窗由用户在实际使用里验证。
+
+**2026-11-05：本机换装固化成 `scripts/install-app.sh`，并已用它装过一次 `main` 的包（`5969056`）。** 起因是当天两次事故：从 Atrium 里的 pi 用 `nohup` 起的替换脚本随 Atrium 退出被一起杀掉，`/Applications/Atrium.app` 没换成；改用 `launchctl submit` 后那个作业常驻、进程退出就重启，Atrium 被连装十几次（同一天 16:26 add-google-logo 的旁路脚本 `/tmp/atrium-replace.log` 每 50 秒一轮，是同一个坑）。现在：脚本写一个 `RunAtLoad`、不设 `KeepAlive` 的一次性 LaunchAgent 并 `bootstrap`，作业先删自己的 plist、等 12 秒（用户定，让发起换装的会话把回复说完，试过 45 秒）、退出 Atrium（超时 `TERM`/`KILL`，仍不走就放弃）、`tccutil reset`、旧包 `mv` 成 `Atrium.app.bak-<时间戳>`、`ditto`、去隔离、验签、`open`，拷贝失败把备份换回去；`install-app.last` 兜住 10 分钟内被意外重跑。跑通一次：`runs = 1`、作业跑完自行卸载、装进的是 `Apple Development: wanktaoo@163.com` 证书签名的包（requirement 是 bundle id 加证书，不是 cdhash）。新增 [install-app.md](install-app.md)，`AGENTS.md` 的常用命令、development.md 第 7 步、acceptance.md 的"装上试用"改为链过去。这个脚本是自用的运维脚本，没有测试，也没有进追踪表。
+
+**2026-11-04：MP6e 手机纸面改版按用户要求合回 `main`，未推送、未装到真机。** 分支 `atrium/mobile-redesign`（74 个提交，原 worktree 目录已不在，按分支重建于 `atrium.worktrees/mobile-redesign`）先合进 `main` 的 21 个提交再 `--no-ff` 合回。冲突 12 处：协议版本两边都占了 29（`main` 已到 31：中文 worktree 名、OpenCode Go、置顶），改版的 `Attention.text` / `SessionSummary.question` 改记为协议 32，Swift 类型和往返夹具重新生成；首页列表、同步核心保留改版的便签与 worktree 行并接上置顶；对话页右上"⋯"两边冲突（`main` 是置顶菜单、改版直接开设置页），用户定置顶挪到设置页"对话"组第一行，SPEC-0001/0005、design-language 已改。严格构建（`-warnings-as-errors`）还查出改版代码 10 处：`Text +` 在 macOS 26 弃用改为插值、`ProviderColumn.edge` 标 `nonisolated`、`Inflate` 空输入回退到临时数组指针（悬空指针）改为按损坏拒绝并补测试。验证：`pnpm check` 通过；单元 4358；Swift 475（严格构建）；界面 1185；宿主 233/244，失败的 11 项（`edit-stopped`、`reply-translation` 两个文件，`pi_unavailable`）在 `main` 上同样失败，是本机 pi 1.5.0 的既有问题。未跑：模拟器 UI 测试、Electron 端到端、泄漏、变异、break-check、三方审查；改版本身的真机验收仍未做。
+
+**2026-11-04：Markdown 文件预览经用户验收通过并授权本地合并，第二次同步 main 后发现的 Mermaid 绘图 DOM 残留已按用户要求先修复并复验，未安装或推送。原分支 `atrium/add-markdown-preview-button` 和 worktree 仍被当前会话使用，保留，不为清理结束会话。** M1.12 自用后补充：用户选原型 A“单按钮原位切换”，`.md` / `.markdown` 文件头新增“预览 / 查看源码”；复用回复渲染，本地图片和文件链接按文档目录解析，保持已有工作区边界。按标签记模式和各自滚动，行定位回到源码。同步至 main 的 `4678388` 后，检查、单元 4325、Swift 406、界面 1185、相关 Electron 5 项通过；查看器泄漏的绝对零绘图容器断言另连跑 3 次通过。Mermaid 11.17.2 局部补丁在共用布局 finally 清空内部缓存，6 个生命周期测试先红后绿；原功能 12 处破坏检查、依赖清理负控和桌面负控检出，原改动行变异 54/54 Killed。明暗、空/错状态截图已看；合并前失败/修复、未跑范围与限制见[追踪表](testing/coverage-map.md#markdown-文件预览m112-自用后补充2026-11-04)。
+
+**2026-11-04：对话的置顶与顺序实现完成，用户验收通过并要求合回 `main`，未推送。** 用户指出跑着的对话不浮上来、不能把非项目下的对话置顶；定下顺序"置顶 → 进行中 → 最近活动"（进行中含运行中、待回答、待授权、出错）、置顶只做对话、桌面与手机同一套顺序且手机也能置顶。原型 `prototypes/conversation-pin-and-order-prototype.html` 选甲"名字前的图钉"（13px，Hugeicons `Pin02Icon`）、「···」菜单入口、A"让位滑行 + 落位高亮"；第一版手绘的图钉被用户否掉，换成仓库里现成的图标。协议 **31**（`30` 已被 OpenCode Go 的 `PlanProvider` 占用，合并 `main` 时顺延）：`Chat.pinnedAt`、`pin_chat` / `unpin_chat`（对手机开放）；`chats.json` 的记录多一个 `pinnedAt`，重复置顶保留首次时间。手机首页对话行按同一规则排并显示图钉，对话页顶栏新加「···」（只在对话里出现）。合进 `main` 后复查：`pnpm check`、单元 4317、宿主 243、Swift 406、界面全量 1167/1167 通过（合并前那次界面并行跑曾有两处失败，单文件各自通过，合并后整套干净）。破坏检查 10 处全检出；改动行变异 names.ts 99.04%、index-commands.ts 97.70%（存活均是未改动代码）。详见[追踪表](testing/coverage-map.md#对话的置顶与顺序2026-10-28自用反馈)。
+
+**2026-11-05：Google 服务商换了官方四色图标，用户验收通过并要求合并，已本地合回 `main`，未推送。** 在 `atrium/add-google-logo`（worktree `atrium.worktrees/add-google-logo`，提交 `8779da8`，合并 `e69ed16`）里：桌面和手机把 pi 的 `google` 显示为 “Google”、用 Google 官方 gstatic 的 `googleg_standard_color_128dp.png`（128×128 透明底 PNG，原图不缩放，来源记在 `brand/SOURCES.md`）；手机那份由 `scripts/ios-brand-icons.mjs` 复制，重跑后只有 `google.png` 新增。模型的名字、上下文、最大输出、是否收图照旧来自 pi 的目录，Atrium 不另配；没有新增服务商、没有新增查询。验证：`model-choice.test.ts` 16 项与 Swift `ModelChoiceTests` 7 项先红后绿（去掉映射后挂在 `{ name: "google", logo: null }` 与 `nil`/`"google"`），`pnpm check` 通过。没跑完整端到端和变异；新包用 `pnpm package` 打出后经旁路脚本退出、替换并重开 `/Applications/Atrium.app`，旧包备份在 `/Applications/Atrium.app.bak-*`。
+
+**2026-11-04：外部 cmux 终端最小接入经用户验收通过并授权本地合并，未推送。原 worktree 仍被当前会话的 pi 使用，先保留，不为清理结束会话。** 不改 Atrium 业务代码、协议或 UI。用户授权通过 Homebrew 安装正式 cmux（cask 0.65.2.2，App/CLI 0.65.2 build 113），两个官方 skill 固定到 release commit 并装入实际 pi 用户目录，仅加外部调用规则、覆盖焦点回退；用户另行明确授权 password 模式，密码不进提示词、参数或终端环境。以已安装 Atrium 的独立测试数据实例、真实 pi 1.5.0 与 GPT-6.1 Sol 跑通 skill 发现/读取、明确目标、A/B 中文输出和不串输入、非焦点寻址、Enter/Ctrl+C、缺目标先询问、测试 App 退出后 cmux 任务继续；用户正在使用的 App 未退出，专用 cmux 测试窗口保留。`pnpm check`、边界检查及 9 个安装文件的 patch 重建/校验通过；合并前同步 main（无新增提交），单元 4309、Swift 402、单 worker UI 1164 全部通过。环境探针和一次性汇总脚本的失败、补测与尚未注入的响应丢失场景照实记在[追踪表](testing/coverage-map.md#外部-cmux-终端最小接入2026-11-04)。Skill 不是权限沙箱，不提供归档前所有终端任务已停止的保证。方案与使用见[外部终端最小接入](architecture/external-terminal.md)。
+
+**2026-11-03：OpenCode Go 的 DeepSeek V4 用不了，查明是工作区的地区设置；顺手隐藏了 Go 上确实用不了的模型，用户验收通过并要求合并，已本地合回 `main`，未推送。** 在 `atrium/debug-deepseek-flash-access`（worktree 同名）里：①`deepseek-v4.1-flash`、`deepseek-v4-pro` 请求报 400 "This Go model requires Global regions"——OpenCode 控制台 Workspace → Privacy → Regions 原是 Europe & United States，改成 Global 后两个模型实测 200、pi 端到端回复正常，Atrium 不为它加规则；②用 `temperature: 5` 的不计费探针把 Go 的每个模型试了一遍，把 7 个确实用不了的写进宿主规则表按确切 id 隐藏（`mimo-v2.5`、`mimo-v2.5-pro` 已下线报 410；`beam-free`、`gpt-6-luna`、`muse-spark-1.2-contributor`、`muse-spark-1.3-contributor` 按国家报 403；`iceman-contributor-free` 要开工作区的训练数据开关），`ModelRule` 因此支持可选的 `modelIds`。验证：单元 4309 全过；`pnpm check` 通过；破坏检查 1 处检出；`model-rules.ts` 变异 92.8%（116 检出、9 个存活全是源码里注明不参与过滤的 `reason` 字符串）。只改宿主规则和文档，没跑界面、端到端、泄漏和打包。原 worktree 与分支因当前会话还以它为工作目录先保留。
+
+**2026-11-03：OpenCode Go 接进 Atrium，用户验收通过并要求合并，已本地合回 `main`，未推送。** 两件事在 `atrium/add-opencode-provider`（worktree `atrium.worktrees/add-opencode-provider`）里一起做：①服务商——桌面和手机把 `opencode-go` 显示为 "OpenCode Go"、`opencode` 显示为 "OpenCode Zen"，用 OpenCode 官方品牌图标（白底小方块，浅色深色同一份），Go 打"套餐"签；列表里有 Go 的模型时隐藏按量计费的 Zen，只有 Zen 凭据时照常列出；模型的名字、上下文、最大输出、是否收图都来自 pi 的目录，Atrium 不另配。②套餐用量——按 ADR-0017，`atrium-plan` 扩展用 pi 里的 Go API Key 请求写死的 `https://opencode.ai/zen/go/v1/usage`，把 `{usage:{rolling,weekly,monthly}}` 变成 5 小时/每周/每月三个窗口；协议 30 的 `PlanProvider` 加 `opencode-go`，状态栏套餐卡片和设置的"套餐用量"多一段"OpenCode Go"，2592000 秒显示"每月"；该地址已在 security.md 登记。查额度的接口、字段和"共享池按各模型月上限折算"的算法来自 OpenCode 官方客户端源码和文档，用用户的 Key 实测过（窗口进度、Argon 与 DeepSeek V4.1 Flash 各自的折算上限 $30 / $100）。服务商部分和套餐部分各请 GPT-6 Astra 只读审查一次，服务商部分只有已设计上的"套餐签压在图标右下角"一项中、和两条文档/验证准确性问题，均已按低修掉；无阻断。
+
+验证：`pnpm check`；单元 4308；宿主 243；界面单 worker 1164/1164（并行跑时既有 `status-bar`「opens a row…」和 `question-card` 一处 61.99998 ≥ 62 的浮点断言偶发失败，单文件 50/50 通过，根因未查）；完整非泄漏端到端 72/72；`pnpm test:ios` 的 Swift 402 项和模拟器 UI 测试通过；破坏检查 15 处（服务商 7、套餐 8）全部检出；改动行变异 ui 组 `model-choice.ts` / `status-figures.ts` 100%，pi 组 `plan.ts` / `extension.ts` 100%（`plan.ts` 首轮 3 个既有存活在旧分支，重跑后不进最终分数）；`pnpm boundary` 新增 URL 1 条已登记、协议 29→30。已用旁路脚本自动退出、替换并重开 `/Applications/Atrium.app`（旧包备份在 `/tmp/Atrium.app.backup.*`）。
+
+已知：`pnpm test:pi` 52 项报 "no fixture pi-1.5.0"——用户把 pi 升到了 1.5.0，仓库夹具只到 1.3.0，和本分支无关，但下次动 pi 前要先 `pnpm fixtures:record` 并审查 diff；Go 的用量请求没有端到端测试（地址写死，测试不能连真网），真实额度靠用户打开看；手机只有类型、名字、图标和套餐签，没有额度卡片。原 worktree 与分支因为当前会话和装在"应用程序"里的 Atrium 还以它为工作目录，先保留，不在会话里删除。
 
 **2026-10-28：新建 worktree 同时生成中文名用户验收通过，已本地提交并合回 `main`（功能提交 `7e1a87f`），未安装或推送。原分支和 worktree 仍被当前会话及 Xcode 使用，保留、不强删。** 用户确认全部新增入口（新建工作区、手动子对话、agent 子对话），选原型 `worktree-chinese-name-prototype.html` 的 A“中文单行”：英文分支和目录不改，中文名保存为工作区 `alias`，悬停查看英文分支，已有 worktree 不回填。自动英文分支一次调用产出双名；固定分支只补中文名，失败保留原有兜底，创建重试不重复调用。协议 29，Swift 投影和往返夹具已同步。按用户要求只做 GPT-6 Astra / Grok 4.7 审查，修了冷模型查询拖住关闭及主动取消误记崩溃，限定复核无阻断。检查、单元 4301、宿主 243、Node 泄漏 20、Swift 402 和模拟器测试通过；合并前单 worker 完整 UI 1163/1163、非泄漏 Electron 套件 71 项通过（其中日志门禁一项为预期失败自检）。此前默认 UI 两次 1162/1163，既有状态栏失败、单文件各 28/28，历史失败保留，不视为已修复。30 项破坏检查全部检出，另有 Electron 中文别名负控；改动行变异 UI 100%、shared 87.50%、host 100%、git 保守不计所有超时信用 95.79%。详细口径与首轮失败见[追踪表](testing/coverage-map.md#新建-worktree-同时生成中文名m111-自用后补充2026-10-28)。
 
 **2026-10-28：提问卡片顶行去掉点阵大问号，用户验收通过，已本地合并回 `main`，未推送。** 用户嫌 5×7 点阵问号突兀；原型三轮（`question-card-header-v2/v3/v4-prototype.html`），选 v4 的乙一"字母波浪"：不放图标，`agent` 五个字母依次跳起 3px（2.4 秒一轮、错开 80ms，减弱动效时不动）。design-language、SPEC-0003 已同步，`dots.ts` 的点阵问号删掉。`pnpm check`、界面 1160/1161 通过（状态栏一项单跑通过，已登记不稳），破坏检查 6 处全检出，详见[追踪表](testing/coverage-map.md)。
+
+**2026-10-28 MP6e 纸面改版：设计定稿，开始实现。** 在 `atrium/mobile-redesign`（`atrium.worktrees/mobile-redesign`）：原型逐页由用户选定（首页、便签规则、对话、输入框、设置页），规范写进 design-language"手机端"和 SPEC-0005"界面"（含协议 29，合回 main 时改为 32）。下一步：协议与宿主、Swift 各屏、测试、真机验收。
 
 **2026-10-28 MP6a–d 实现完成并经两方审查修完；同日用户在 iPhone 16 Pro 上验收通过，`atrium/mp4-sync`、`atrium/mp5-conversation` 已本地合并回 `main`，未推送。下一步 MP7 自用。** 都在 `atrium/mp5-conversation`（`atrium.worktrees/mp5-conversation`）：MP6a 改动列表和 diff 页（`22fb87d`）、MP6b 首页 / 工作区页 / 抽屉 / 签名天数（`98e5d79`）、MP6c 模型 sheet（`1cc1f93`）、MP6d 新会话（`12e5287`）；codex gpt-6-astra 和 grok grok-4.7 只读审查的发现在 `ea48157` 修完（改动列表推出时会话不再关闭、模型目录按位置、"找不到"标记只活一个连接、首页 `+` 的位置、抽屉补 relay / 手机名 / 版本 / 重新配对等），决定不改的三条写在追踪表"MP6 审查"。Swift 402 个测试、`pnpm check`、模拟器构建通过。真机性能已测（iPhone 16 Pro，`List` 无超过 50 毫秒的帧和主线程忙段，最长 24 毫秒，负控抓到注入的 80 毫秒；定下继续用 `List`，见 mobile-render.md"iPhone 16 Pro 真机"）。未做、交给验收：需要真实同步数据的整屏截图（模型 sheet、选位置 sheet、找不到工作区、抽屉）、hunk 之间的上下文展开（协议没有按版本取内容的命令，SPEC 已写明第一版不做）。MVP 手机端剩 MP7 自用，要用户本人用一周。
 
@@ -588,6 +624,12 @@ MP0 互通实验 ──┬── MP1 Swift 工程基础 ──┐
 - **范围**：改动列表（单行分组、按改动量排、筛选）和 diff（不换行、折叠上下文、工具条）、新会话页（入口、位置和模型胶囊、选位置 sheet、发出时原地变成对话、回首页插入、找不到的工作区）、模型 sheet（图标栏、点阵推理强度框、Fast）、首页的完整视觉（衬线标题、工作区小标题、"还有 N 个"、工作区页）、左上角抽屉、像素猫插图和空状态、"签名还剩 N 天"。
 - **完成标准**：同 MP5；各屏截图对照定稿原型逐项核对。
 
+##### MP6e 纸面改版（2026-10-28 定稿，进行中）
+
+- **为什么**：自用前用户要把手机端整体换成"纸面"风格、深米色主题，并精简首页、输入框和抽屉（SPEC-0005"界面"2026-10-28 条，design-language"手机端"）。
+- **范围**：手机端 token 和字体（Fraunces 斜体标题子集）；首页（便签式"等你处理"、一个 worktree 一行、右上设置钮）；对话页（居中标题、玻璃上下边、桌面小猫、气泡外时间、两层输入框、出错与重连浮条）；提问 sheet；模型 sheet（照桌面、加 Fast 开关）；全屏设置页（切换同 worktree 的对话）；工作区页、改动、diff、新会话、配对换新配色；协议 32（`Attention.text`、`SessionSummary.question`；分支上原为 29）和宿主填这两个字段。
+- **完成标准**：同 MP5；各屏截图对照定稿原型逐项核对；设计稿没覆盖、照桌面做的地方交付时列给用户。
+
 ##### MP7 自用
 
 - **目标**：用一周，把手机端当作离开电脑时的主要入口。
@@ -833,13 +875,13 @@ TP 补原型（只改原型，随时可做）───────────�
   - 有 50 个任务、每个任务 20 个节点（上限）时，列表和图不卡（性能测试）。
 - **你来验收**：在 Atrium 开着时，在终端用 `pnpm task:try` 跑一张图，在任务区看着节点一个个变色，一直跑到停在 human 节点。（T7 实现时发现：task:try 自己起宿主，边跑边在开着的 Atrium 里看要新做一个办法，三个候选和建议见 [development.md · task:try 与 Atrium](development.md#task-try-与-atrium-t7-定)，等你选；跑完再看现在就能做。）
 
-##### T8 任务区（交互）
+##### T8 任务区（交互） ✅
 
 - **目标**：第一次完整可用：从对话 `/task` 到验收合并，全程在 Atrium 里做完。
 - **范围**：
   - 聊天输入框注册 `/task`；
   - 任务对话能发消息；
-  - 审核卡片（ADR-0017）：协议的 `PendingReview` / `answer_review`、宿主的 ReviewHub 和任务 provider、和提问卡片共用外壳的组件；用它做批准改图、human 节点"通过 / 打回"、合并被挡住、归档提问；裁决后写进任务对话的记录；
+  - 审核卡片（ADR-0018）：协议的 `PendingReview` / `answer_review`、宿主的 ReviewHub 和任务 provider、和提问卡片共用外壳的组件；用它做批准改图、human 节点"通过 / 打回"、合并被挡住、归档提问；裁决后写进任务对话的记录；
   - 列表行内作答（提问、改图、确认）；
   - 接入"等你处理"；
   - 节点对话标签：可以打开节点对话，在里面插话或停下；
@@ -856,7 +898,7 @@ TP 补原型（只改原型，随时可做）───────────�
   - 打回一次；
   - 最后验收合并。
 
-##### T9 宿主重启
+##### T9 宿主重启 ✅
 
 - **目标**：宿主重启后，任务从停下的地方接着跑，不重复做已经做过的事。
 - **范围**：SPEC-0006"宿主重启"的全部流程：
@@ -877,7 +919,7 @@ TP 补原型（只改原型，随时可做）───────────�
   - 正在等你回答的问题显示为已作废，节点重新问你；
   - worktree 里没有重复的提交。
 
-##### T10 定时
+##### T10 定时 ✅
 
 - **目标**：在对话里说清时间，就能变成定时规则，每次触发出一个普通任务。
 - **范围**：
@@ -914,6 +956,50 @@ TP 补原型（只改原型，随时可做）───────────�
   - 一周里至少 5 个任务走到合并；
   - 卡住或出错的每一次都查清原因：修掉，或者写进 SPEC"风险与待定问题"；
   - 三方审查后修完。
+#### 学习模式（[SPEC-0008](specs/0008-study-mode.md)）与对话里的交互演示（[SPEC-0007](specs/0007-inline-visuals.md)）
+
+2026-11-05 定稿设计、两份 SPEC 进入评审。学习算日常使用（"用真实的日常任务驱动"）。顺序：ML1 → ML2 → ML3 → ML4 → ML5；MV1 不依赖学习模式，可以在另一个 worktree 并行，但 ML4 要等它。协议版本按合并的先后顺延。
+
+##### ML1 方向容器与新建方向（2026-11-06 完成）
+
+- **目标**：侧栏有"学习"，能从一句话建出一个方向、进入讨论会话。
+- **范围**：`SessionContainer` 加 Direction（`lrn_<目录名>`）；扫描 `~/Atrium/Learning/` 下一层带 `.atrium-study.json` 的目录、监听变化；`learning.json`（别名、置顶、上次打开）；`sessions.json` 的 `study` 字段；侧栏"学习"一行和状态汇总、学习首页（空状态和方向卡片的骨架）、新建方向页（只有输入框）；第一条消息后起名、建目录、写 AGENTS.md 模板、`lab/` 初始化 git、开讨论会话；方向主页标签（还没有步骤条，只有"讨论中"）；归档到 `Archive/` 和恢复（`study.restore_conflict`）。
+- **参考**：SPEC-0008"入口""方向是一种新容器""新建方向""方向目录"、design-language"侧栏""学习模式"、domain-model §1。
+- **完成标准**：SPEC-0008"验证"里新建方向、归档与恢复两条有测试；pi 在方向目录里读到 AGENTS.md、不需要信任有 pi 契约测试；扫描和监听的泄漏测试通过；domain-model 写进 Direction。
+
+##### ML2 进度、步骤条与下一步（2026-11-09 完成）
+
+- **目标**：讨论能排出阶梯，主页和每个学习会话都看得到这一级走到哪、下一步是什么。
+- **范围**：扩展的隐藏命令 `/atrium-study` 和各用途的提示词（先照推文的 6 段写）、`study_*` 工具（按用途给）；宿主校验后写 `.atrium-study.json`（2～6 级、坏文件不覆盖、保留不认识的字段）；下一步的规则表；常驻步骤条（C）；方向主页的完整内容；手动标完成和撤回（`study.mark`）。
+- **参考**：SPEC-0008"讨论""一级 = 一串步骤""常驻步骤条""下一步怎么算""接口与数据"、ADR-0013。
+- **完成标准**：每个 `study_*` 工具、规则表的每一行、手动标记各有测试；破坏检查覆盖级数上下限和规则表；`.atrium-study.json` 的读写加进变异分组且 ≥ 80%；用真实模型走一次讨论，排出阶梯。
+
+##### ML3 学习循环（2026-11-10 完成）
+
+- **目标**：一级从第一节课走到升级。
+- **范围**：上课 → 测验（上课会话的子对话，带上下文）→ 费曼的串联和漏洞；速查表、过关项目、综合测验；升级确认框、把这一级的会话一起归档、没补的漏洞带到下一级、排计划会话。
+- **参考**：SPEC-0008"会话的用途""升级"、SPEC-0002（子对话）、SPEC-0003（提问卡片）。
+- **完成标准**：SPEC-0008"验证"里上课到升级的各条有测试；端到端测试用 faux 模型走完一级；归档连带的泄漏测试通过。
+
+##### MV1 对话里的交互演示（2026-11-06 完成）
+
+- **目标**：所有会话里，agent 都能在回复中放一个可交互的演示，你在演示里点的回答直接回到对话。
+- **范围**：`atrium-visual:` 协议、令牌、外壳（颜色变量、常用 Hugeicons、高度上报、`window.atrium.sendMessage`）；CSP 和单独的 session，按站点只放行写死版本的 CDN 路径；消息流认 `visual` 代码块、`visual.resolve` / `visual.changed` / `visual.sendMessage`；来自演示的消息和来源标记；离开视口卸载和截图；焦点在演示里时按键归演示；手机端占位卡片；扩展系统提示里的演示说明。先改 security.md（原始 HTML 不执行的例外、外部地址表加 CDN）并跑 `pnpm boundary` 登记。
+- **参考**：SPEC-0007、[inline-visuals.md](research/inline-visuals.md)、plugin-model.md"沙箱视图由核心提供"、design-language"消息流 · 交互演示"。
+- **完成标准**：SPEC-0007"验证"的各条有测试（沙箱逃逸、版本拦截、回传要刚点过、限速）；演示卸载和重新加载的泄漏测试通过；协议和宿主的新模块加进变异分组且 ≥ 80%；三方审查（安全为重点）后修完。
+
+##### ML4 首页与演示接进学习
+
+- **目标**：学习首页的"继续"一键接着学；课上用得上演示。
+- **范围**：首页"继续"（上次打开的方向和它的下一步）、方向卡片的完整内容和点阵进度、已归档列表；学习方向的演示放 `visuals/`、AGENTS.md 里演示的两条规则；方向主页右栏的"档案"（目录里的文件，用现有的文件预览打开，要先让 `list_dir`、`read_file` 和查看标签认方向；ML2 推过来的，2026-11-09 用户确认），档案里列出演示。
+- **参考**：SPEC-0008"入口""演示"、design-language"学习模式"。
+- **完成标准**：界面测试和明暗截图对照原型；真实模型上一节带演示的课。
+
+##### ML5 自用
+
+- **目标**：自己学一个方向，至少走完一级。
+- **范围**：按问题修；调各用途的提示词；记下要不要改阶梯、间隔复习这些先没做的。
+- **完成标准**：用户验收；`self-use.md` 补学习模式一节。
 
 v0.1 不做：沙箱隔离、插件系统、会话树、agent 自扩展、对外分发的签名与公证（本机用的打包在 M1.11 做了）、空闲进程回收、编辑文件（M1.12 的文件区只读；外部改动的处理留到做编辑时设计）。
 
@@ -927,7 +1013,7 @@ v0.1 不做：沙箱隔离、插件系统、会话树、agent 自扩展、对外
 
 ### 3. 抽出插件接口（2026-10-23 暂缓）
 
-从 todo 中抽出"extension + 视图"的插件接口，再用第二个插件验证。第二个插件的候选是 HTML 设计稿（对话里渲染模型写的 HTML、一个文件持续改、元素标注、分享），它能检验 todo 测不出的内联挂载和沙箱视图，需求见 [plugin-model.md · 待做的插件：HTML 设计稿](architecture/plugin-model.md#待做的插件html-设计稿)。
+从 todo 中抽出"extension + 视图"的插件接口，再用第二个插件验证。HTML 设计稿用的沙箱视图会先在 MV1（SPEC-0007）做成核心组件。第二个插件的候选是 HTML 设计稿（对话里渲染模型写的 HTML、一个文件持续改、元素标注、分享），它能检验 todo 测不出的内联挂载和沙箱视图，需求见 [plugin-model.md · 待做的插件：HTML 设计稿](architecture/plugin-model.md#待做的插件html-设计稿)。
 
 ### 4. 深度特性
 
@@ -956,4 +1042,4 @@ Atrium 区别于宿主层方案的核心，按学习价值和实现难度排序�
 - 浏览器插件：ego lite 做不到的、或和 Atrium 相关的浏览器功能（例如把当前页面送进会话），自用中真遇到时再做；连宿主的鉴权、只操作"Atrium"标签组等规则见 [ADR-0009](adr/0009-browser-stays-external.md)。不内置浏览器（原先的"内嵌浏览器面板"，2026-10-12 改）
 - 手机端的推送、局域网直连、Android：见 SPEC-0005"非目标"（手机端本身已排进上文"手机端"，2026-10-25）
 - 空闲进程回收、文件区、forge（PR）状态
-- SPEC-0001 里标为"以后"的：侧聊、agent 提出的任务建议卡片、全文搜索、置顶、一个目录多个工作区、把对话移到项目、收藏模型、语音输入、长会话虚拟列表、extension 单向通知的显示
+- SPEC-0001 里标为"以后"的：侧聊、agent 提出的任务建议卡片、全文搜索、一个目录多个工作区、把对话移到项目、收藏模型、语音输入、长会话虚拟列表、extension 单向通知的显示（置顶 2026-10-28 已做）

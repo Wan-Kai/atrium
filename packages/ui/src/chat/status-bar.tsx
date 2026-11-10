@@ -571,7 +571,8 @@ const DRAWINGS: Readonly<Record<string, GroupDrawing>> = {
  *
  * @remarks
  * The card shows 120 ms after the pointer comes, stays while it is on the group or the card, and
- * goes 100 ms after it leaves, as in the prototype; CSS times it, and keyboard focus shows it too.
+ * goes 100 ms after it leaves, as in the prototype; CSS times it from `data-hovered`
+ * (`useHoverPresence`), and keyboard focus shows it too.
  * The 8px between the group and the card belong to the card, so the pointer can cross to it and
  * use what is in it (SPEC-0001, "状态栏").
  *
@@ -594,14 +595,14 @@ function Group({
   const { present, ...hover } = useHoverPresence(250);
   useFloatingLayer(trigger, card, { enabled: present, align: "center", gap: 0, maxHeight: "calc(100vh - 132px)" });
   // A warning colour stays on hover; only the plain grey brightens.
-  const tone = drawing.tone?.(figures) || "text-[var(--text-muted)] group-hover/item:text-[var(--text-2)]";
+  const tone = drawing.tone?.(figures) || "text-[var(--text-muted)] group-data-[hovered]/item:text-[var(--text-2)]";
   return (
     <div {...hover} className="group/item relative">
       <button
         type="button"
         ref={trigger}
         aria-describedby={cardId}
-        className={`inline-flex h-[26px] items-center gap-1.5 rounded-[var(--r-pill)] px-2.5 whitespace-nowrap group-has-[:focus-visible]/item:bg-[var(--hover)] group-hover/item:bg-[var(--hover)] ${tone}`}
+        className={`inline-flex h-[26px] items-center gap-1.5 rounded-[var(--r-pill)] px-2.5 whitespace-nowrap group-has-[:focus-visible]/item:bg-[var(--hover)] group-data-[hovered]/item:bg-[var(--hover)] ${tone}`}
       >
         {drawing.summary(figures)}
       </button>
@@ -609,7 +610,7 @@ function Group({
         ref={card}
         role="tooltip"
         id={cardId}
-        className={`invisible absolute bottom-full left-1/2 z-30 flex -translate-x-1/2 flex-col pb-2 opacity-0 transition-[opacity,visibility] delay-100 duration-150 group-has-[:focus-visible]/item:visible group-has-[:focus-visible]/item:opacity-100 group-hover/item:visible group-hover/item:opacity-100 group-hover/item:delay-[120ms] ${drawing.wide === true ? "w-[340px]" : "w-[300px]"}`}
+        className={`invisible absolute bottom-full left-1/2 z-30 flex -translate-x-1/2 flex-col pb-2 opacity-0 transition-[opacity,visibility] delay-100 duration-150 group-has-[:focus-visible]/item:visible group-has-[:focus-visible]/item:opacity-100 group-data-[hovered]/item:visible group-data-[hovered]/item:opacity-100 group-data-[hovered]/item:delay-[120ms] ${drawing.wide === true ? "w-[340px]" : "w-[300px]"}`}
       >
         {/* Never past the window: a long list opened in it scrolls (design-language, "状态栏"). */}
         <div className="min-h-0 overflow-y-auto rounded-[14px] bg-[var(--surface-1)] px-4 pt-3.5 pb-3 text-[length:var(--fs-meta)] text-[var(--text-muted)] shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]">

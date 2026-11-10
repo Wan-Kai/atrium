@@ -29,6 +29,7 @@ export const MUTATION_GROUPS = {
       "packages/pi/src/extension/*.ts",
       "packages/pi/src/agent/*.ts",
       "packages/pi/src/task/*.ts",
+      "packages/pi/src/study/*.ts",
       "packages/pi/src/stats/*.ts",
       "packages/pi/src/oneshot/oneshot.ts",
       "packages/pi/src/auth/login.ts",
@@ -42,6 +43,7 @@ export const MUTATION_GROUPS = {
       "packages/host/src/platform/{redact,resources,clock,login-shell,errors,proxy,stray-rejections}.ts",
       "packages/host/src/server/*.ts",
       "packages/host/src/store/*.ts",
+      "!packages/host/src/store/learning-records.ts",
       "packages/host/src/sessions/{session-controller,session-metrics,session-catalog,layouts,prompt-line,index-commands,model-lister,titles,plan-usage,child-tree,children-usage,agent-relay,agent-launch,model-rules,stopped-edit}.ts",
       "packages/host/src/sync/*.ts",
       "packages/host/src/transcript/*.ts",
@@ -179,7 +181,7 @@ export const MUTATION_GROUPS = {
     tests: ["packages/host/src/workspaces/worktree-lock.test.ts"],
     skip: [],
   },
-  // The review hub and the task gates (ADR-0017, T8a): pure code, whose unit tests are quick; the real-host tests
+  // The review hub and the task gates (ADR-0018, T8a): pure code, whose unit tests are quick; the real-host tests
   // (`reviews.host.test.ts`) cover the wiring and are not run per mutant.
   reviews: {
     mutate: [
@@ -206,6 +208,7 @@ export const MUTATION_GROUPS = {
       "packages/ui/src/chat/markdown-transforms.ts",
       "packages/ui/src/chat/image-preview-layout.ts",
       "packages/ui/src/chat/model-choice.ts",
+      "packages/ui/src/chat/first-message.ts",
       "packages/ui/src/chat/composer-text.ts",
       "packages/ui/src/chat/builtin-commands.ts",
       "packages/ui/src/chat/changes.ts",
@@ -223,13 +226,65 @@ export const MUTATION_GROUPS = {
       "packages/ui/src/state/panes.ts",
       "packages/ui/src/sidebar/names.ts",
       "packages/ui/src/sidebar/status.ts",
-      "packages/ui/src/tabs/hand-off.ts",
       "packages/ui/src/children/children.ts",
       "packages/ui/src/children/new-child.ts",
       "packages/ui/src/chat/agent-words.ts",
       "packages/ui/src/chat/question-state.ts",
+      "packages/ui/src/chat/visual-reference.ts",
+      "packages/ui/src/chat/visual-snapshots.ts",
+      "packages/ui/src/chat/visual-presses.ts",
+      "packages/ui/src/study/learning.ts",
+      "packages/ui/src/study/progress.ts",
+      "packages/ui/src/study/loop.ts",
     ],
     tests: ["packages/ui"],
+    skip: [],
+  },
+  // Inline visuals (SPEC-0007): the host's files, pages and messages, the desktop's sandbox rules, the extension's prompt.
+  visuals: {
+    mutate: [
+      "packages/host/src/visuals/*.ts",
+      "!packages/host/src/visuals/*.test.ts",
+      "apps/desktop/src/main/visual-sandbox.ts",
+      "apps/desktop/src/main/shortcuts.ts",
+      "packages/pi/src/visuals/*.ts",
+      "!packages/pi/src/visuals/*.test.ts",
+    ],
+    tests: [
+      "packages/host/src/visuals",
+      "packages/host/src/visuals.host.test.ts",
+      "apps/desktop/src/main/visual-sandbox.test.ts",
+      "apps/desktop/src/main/shortcuts.test.ts",
+      "packages/pi/src/visuals",
+    ],
+    skip: [],
+  },
+  // Study mode's directions on the host (SPEC-0008): scanning, naming, making and moving them.
+  study: {
+    mutate: [
+      "packages/host/src/study/*.ts",
+      // Their own group below, as the progress is ML2's.
+      "!packages/host/src/study/{progress,progress-file,progress-rules,study-tools}.ts",
+      "packages/host/src/store/learning-records.ts",
+      "packages/host/src/sessions/read-only-transcripts.ts",
+    ],
+    tests: [
+      "packages/host/src/study",
+      "packages/host/src/store/learning-records.test.ts",
+      "packages/host/src/sessions/read-only-transcripts.test.ts",
+    ],
+    skip: [],
+  },
+  // Study mode's progress on the host (SPEC-0008, "ML2 定的细节"): reading and writing
+  // `.atrium-study.json`, the rules of tools, marks and the next step, and the tools' answers.
+  studyProgress: {
+    mutate: [
+      "packages/host/src/study/progress.ts",
+      "packages/host/src/study/progress-file.ts",
+      "packages/host/src/study/progress-rules.ts",
+      "packages/host/src/study/study-tools.ts",
+    ],
+    tests: ["packages/host/src/study"],
     skip: [],
   },
   // The phone's end-to-end encryption and the host's remote module (SPEC-0005, "Noise 通道", "宿主").

@@ -215,7 +215,7 @@ describe("the host's commands", () => {
     ]);
   });
 
-  it("describes the record a review leaves, apart from the task messages (ADR-0017)", () => {
+  it("describes the record a review leaves, apart from the task messages (ADR-0018)", () => {
     const review = {
       source: { kind: "gate", gate: "task_archive" },
       subject: { code: "task_archive", params: { taskId: "tsk_a" } },

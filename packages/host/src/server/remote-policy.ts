@@ -1,4 +1,15 @@
-import type { Command, CommandType, HostMessage } from "@atrium/protocol";
+import {
+  type Command,
+  type CommandType,
+  type HostMessage,
+  type Layout,
+  type SessionSummary,
+  isDirectionId,
+} from "@atrium/protocol";
+import { forTransport, itemForTransport } from "../transcript/rules";
+
+/** The longest text of a tool step that travels whole to a phone (SPEC-0005, "给手机推什么"). */
+export const PHONE_STEP_TEXT_LIMIT = 512;
 
 /** Whether a phone may send a command, or only the Mac. */
 type Reach = "phone" | "local_only";
@@ -41,7 +52,7 @@ export const COMMAND_REACH = {
   retry_run: "phone",
   answer_interaction: "phone",
   answer_question: "phone",
-  // A task gate's verdict is carried out by the host on the Mac; a phone only sees the reviews (ADR-0017, decision 5).
+  // A task gate's verdict is carried out by the host on the Mac; a phone only sees the reviews (ADR-0018, decision 5).
   answer_review: "local_only",
   // A session's settings.
   set_model: "phone",
@@ -75,6 +86,22 @@ export const COMMAND_REACH = {
   cancel_translation: "local_only",
   rename_workspace: "local_only",
   rename_chat: "local_only",
+  // Pinning is offered on the phone too (SPEC-0005, "MP6b").
+  pin_chat: "phone",
+  unpin_chat: "phone",
+  // Learning directions are the Mac's for now (SPEC-0008, "非目标": 手机端).
+  create_direction: "local_only",
+  rename_direction: "local_only",
+  pin_direction: "local_only",
+  unpin_direction: "local_only",
+  archive_direction: "local_only",
+  restore_direction: "local_only",
+  start_study_session: "local_only",
+  mark_study_step: "local_only",
+  mark_study_gap: "local_only",
+  retry_study_kickoff: "local_only",
+  upgrade_study: "local_only",
+  restore_study_sessions: "local_only",
   // Signing in and installing.
   login: "local_only",
   answer_login: "local_only",
@@ -92,8 +119,6 @@ export const COMMAND_REACH = {
   set_preferences: "local_only",
   // Only for the Mac's own window.
   window_focused: "local_only",
-  hand_off: "local_only",
-  take_back: "local_only",
   export_session: "local_only",
   // Not in the first version.
   edit_stopped_message: "local_only",
@@ -135,6 +160,9 @@ export const COMMAND_REACH = {
   run_schedule_now: "local_only",
   delete_schedule: "local_only",
   edit_schedule: "local_only",
+  // The phone shows a visual as a card and renders nothing (SPEC-0007, "手机端").
+  resolve_visual: "local_only",
+  send_visual_message: "local_only",
 } as const satisfies Record<CommandType, Reach>;
 
 /**
@@ -143,6 +171,9 @@ export const COMMAND_REACH = {
  * @remarks
  * By `COMMAND_REACH`; a new child conversation is not in the first version, so `create_session`
  * with `child` is the Mac's only (SPEC-0005, "远程客户端能用的命令").
+ * Nothing of learning mode is a phone's either (SPEC-0008, "ML1 定的细节"): the router refuses
+ * any command naming a direction or a session in one (`namesLearning`), and `forPhone` keeps them
+ * out of what is sent.
  *
  * @sideEffects none
  * @param command - The command.
@@ -194,6 +225,7 @@ export const PUSHED_TO_PHONE = {
   tasks_updated: true,
   task_updated: true,
   schedules_updated: false,
+  visual_changed: false,
 } as const satisfies Record<HostMessage["type"], boolean>;
 
 /**
@@ -208,4 +240,129 @@ export const PUSHED_TO_PHONE = {
  */
 export function pushedToPhone(message: HostMessage): boolean {
   return PUSHED_TO_PHONE[message.type];
+}
+
+/**
+ * A host message as a phone gets it: the list without what the phone never shows, and tool steps
+ * as short previews.
+ *
+ * @remarks
+ * Tool steps of snapshots and step events are cut to `PHONE_STEP_TEXT_LIMIT`; the phone fetches
+ * one whole when it is opened (SPEC-0005, "给手机推什么").
+ * The phone only ever shows sessions, workspaces and chats that are not archived, and has no use
+ * for session file paths, so the list leaves them out: a snapshot drops them, and a change that
+ * archived one becomes its removal. An upsert that takes an item out of the archive brings it back
+ * whole (SPEC-0005, "给手机推什么"). Nothing of learning mode goes either (SPEC-0008, "ML1 定的细节",
+ * option A): no learning direction, no session in one, no direction's tabs and no learning
+ * directory, so no path of them leaves the Mac; a phone's commands that name one are refused in
+ * the router, and a session's events reach only its subscribers, which a phone cannot be for a
+ * direction's session. The ids of removed sessions stay, as the list does not say where those
+ * were. Every other message is the same object.
+ *
+ * @sideEffects none
+ * @param message - The message.
+ * @returns The message for the phone.
+ */
+export function forPhone(message: HostMessage): HostMessage {
+  if (message.type === "session_snapshot") {
+    return { ...message, items: message.items.map((item) => itemForTransport(item, PHONE_STEP_TEXT_LIMIT)) };
+  }
+  if (message.type === "step_added" || message.type === "step_updated") {
+    return { ...message, step: forTransport(message.step, PHONE_STEP_TEXT_LIMIT) };
+  }
+  if (message.type === "index_snapshot") {
+    return {
+      ...message,
+      workspaces: message.workspaces.filter((workspace) => workspace.archivedAt === null),
+      chats: message.chats.filter((chat) => chat.archivedAt === null),
+      directions: [],
+      sessions: message.sessions
+        .filter((session) => !session.archived && !isDirectionId(session.containerId))
+        .map(withoutFile),
+      layout: withoutLearning(message.layout),
+      // The phone shows no learning mode; the field only has to be there.
+      learningDir: "~",
+    };
+  }
+  if (message.type !== "index_changes") return message;
+  const workspaces = split(
+    message.workspaces,
+    (workspace) => workspace.archivedAt !== null,
+    (item) => item.id,
+  );
+  const chats = split(
+    message.chats,
+    (chat) => chat.archivedAt !== null,
+    (item) => item.id,
+  );
+  const sessions = split(
+    {
+      upsert: message.sessions.upsert.filter((session) => !isDirectionId(session.containerId)),
+      remove: message.sessions.remove,
+    },
+    (session) => session.archived,
+    (item) => item.sessionId,
+  );
+  return {
+    ...message,
+    workspaces,
+    chats,
+    directions: { upsert: [], remove: [] },
+    sessions: { ...sessions, upsert: sessions.upsert.map(withoutFile) },
+    layout: message.layout === null ? null : withoutLearning(message.layout),
+  };
+}
+
+/**
+ * One collection's changes with its archived upserts turned into removals.
+ *
+ * @remarks
+ * Removals the change already had come first, in their order.
+ *
+ * @sideEffects none
+ * @param changes - The collection's changes.
+ * @param archived - Whether an item is archived.
+ * @param id - An item's id.
+ * @returns The changes for the phone.
+ */
+function split<T>(
+  changes: { readonly upsert: readonly T[]; readonly remove: readonly string[] },
+  archived: (item: T) => boolean,
+  id: (item: T) => string,
+): { upsert: T[]; remove: string[] } {
+  return {
+    upsert: changes.upsert.filter((item) => !archived(item)),
+    remove: [...changes.remove, ...changes.upsert.filter(archived).map(id)],
+  };
+}
+
+/**
+ * A session summary without its file path.
+ *
+ * @remarks
+ * `state` still says whether the file exists.
+ *
+ * @sideEffects none
+ * @param session - The summary.
+ * @returns The same summary with `file` null.
+ */
+function withoutFile(session: SessionSummary): SessionSummary {
+  return { ...session, file: null };
+}
+
+/**
+ * A layout without learning directions: not where the client is, and without their tabs.
+ *
+ * @remarks
+ * See `forPhone`.
+ *
+ * @sideEffects none
+ * @param layout - The layout.
+ * @returns The layout a phone gets.
+ */
+function withoutLearning(layout: Layout): Layout {
+  return {
+    container: layout.container !== null && isDirectionId(layout.container) ? null : layout.container,
+    tabs: Object.fromEntries(Object.entries(layout.tabs).filter(([containerId]) => !isDirectionId(containerId))),
+  };
 }
