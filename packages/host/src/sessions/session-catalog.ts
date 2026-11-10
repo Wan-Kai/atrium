@@ -7,6 +7,7 @@ import type { Logger } from "../platform/logger";
 import type { IndexFile } from "../store/index-file";
 import { type AgentRecord, type DeliveryRecord, agentFieldsOf } from "../store/agent-records";
 import type { SessionRecord, SessionsDocument } from "../store/index-schema";
+import { type TaskSessionRecord, taskFieldOf } from "../store/task-session-record";
 import { promptLine } from "./prompt-line";
 
 /** A directory sessions are filed under: a workspace's, or one chat's. */
@@ -45,6 +46,8 @@ export type CatalogEntry = Omit<
     readonly detachedFrom?: string;
     /** A child's usage baseline; `null` to count all of it (SPEC-0002, "用量合计"). */
     readonly usageAfter: string | null;
+    /** For a session of a task's node or conversation (SPEC-0006); `null` for any other. */
+    readonly task: TaskSessionRecord | null;
     /** For an archived session, where the archive that took it started (SPEC-0008, ML3). */
     readonly archivedWith?: string;
   };
@@ -61,6 +64,8 @@ export interface NewRecord {
   readonly persisted?: boolean;
   /** A child the agent opens (SPEC-0002, "第二步"). */
   readonly agent?: AgentRecord;
+  /** A session of a task's node or conversation (SPEC-0006). */
+  readonly task?: TaskSessionRecord;
   /** What a session of a direction is for (SPEC-0008, "索引"). */
   readonly study?: NonNullable<SessionSummary["study"]>;
 }
@@ -305,6 +310,7 @@ export function createSessionCatalog(options: {
         usageAfter: record?.usageAfter ?? null,
         study: studyOf(record),
         ...agentFieldsOf(record ?? {}),
+        task: record === undefined ? null : taskFieldOf(record),
       });
     }
     for (const record of records.values()) {
@@ -331,6 +337,7 @@ export function createSessionCatalog(options: {
         usageAfter: record.usageAfter ?? null,
         study: studyOf(record),
         ...agentFieldsOf(record),
+        task: taskFieldOf(record),
       });
     }
     return entries;
@@ -514,6 +521,7 @@ export function createSessionCatalog(options: {
           ...(session.name === undefined ? {} : { name: session.name }),
           ...(session.usageAfter === undefined ? {} : { usageAfter: session.usageAfter }),
           ...(session.agent === undefined ? {} : { agent: session.agent }),
+          ...(session.task === undefined ? {} : { task: session.task }),
           ...(session.study === undefined ? {} : { study: session.study }),
         },
       ]);

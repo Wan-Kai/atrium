@@ -637,6 +637,7 @@ async function proceed(store: StoreApi<NewWorkspaceState>, context: LaunchContex
 export function describeWorktreeError(error: unknown): string | null {
   if (!(error instanceof CommandError)) return null;
   if (error.code === "project_not_found") return "这个项目已经不在了";
+  if (error.code === "worktree_config_unsafe") return "这个仓库的配置里有 include 或不安全的过滤器，为安全起见没有新建";
   if (error.code !== "worktree_create_failed") return null;
   const params = error.params ?? {};
   const reasons: Readonly<Record<string, string>> = {
@@ -645,6 +646,7 @@ export function describeWorktreeError(error: unknown): string | null {
     base_missing: `找不到起点 ${baseName(String(params["base"]))}`,
     dir_taken: `目录 ${String(params["dir"])} 已经存在，换个分支名`,
     not_git: "这个项目不是 git 仓库",
+    head_mismatch: "新建的 worktree 没停在起点上，目录留着，请检查",
   };
   return reasons[String(params["reason"])] ?? "没能建好工作区：git 出错了";
 }

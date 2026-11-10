@@ -57,6 +57,7 @@ Atrium 自带扩展注册 `ask_user`，参数对齐 Claude Code 的 `AskUserQues
 ### 哪些会话有这个工具
 
 - 只有**不是 agent 开的会话**有：主对话、对话、你手动开的子对话（`by: "user"`，你直接在和它说话）。**agent 开的子对话（`by: "agent"`）没有**，拿不准照旧用 `ask_parent` 问主 agent，由主 agent 决定要不要用 `ask_user` 问你（2026-10-21 定）。
+- **例外：任务的节点会话有**（SPEC-0006，2026-11-05 T4 定）。节点不是 agent 替自己开的子对话：会话记录带 `task` 字段、没有 `agent` 字段，不带 `--atrium-agent`，宿主不把它当 agent 子对话（`isAgentChild` 为假），所以 `ask_user` 的执行和中转都不拒绝它；它是你的任务里的一步，拿不准时直接问你，不经主 agent。节点的 `--tools` 白名单带 `ask_user`（`work` 节点用排除表，不排除它）。问题卡、作答、作废的规则同本文其余各节；节点因此进 `waiting`（`question`），你答了回 `running`，宿主重启时问题作废（SPEC-0006"宿主重启"）。
 - 做法同 SPEC-0002"哪些会话有哪些工具"：
   - 不带上下文的 agent 子对话：启动参数 `--exclude-tools` 加上 `ask_user`；只读角色的白名单（`--tools`）本来就不含它。
   - 带上下文的 agent 子对话：工具声明和父会话一样（为了命中缓存），由扩展在 `tool_call` 钩子里拦下，`work` 角色"放全部"也不放它；返回"这个子对话不能直接问用户，用 ask_parent 问主 agent"。

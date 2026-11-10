@@ -1,0 +1,365 @@
+[
+  {
+    "file": "packages/ui/src/chat/review-state.ts",
+    "from": "if (action.reason === \"required\" && reason === \"\") return null;",
+    "to": "if (false) return null;",
+    "test": "packages/ui/src/chat/review-state.test.ts",
+    "name": "needs a required reason with a word in it, and trims it"
+  },
+  {
+    "file": "packages/ui/src/chat/review-state.ts",
+    "from": "const reason = draft.reason.trim();",
+    "to": "const reason = draft.reason;",
+    "test": "packages/ui/src/chat/review-state.test.ts",
+    "name": "needs a required reason with a word in it, and trims it"
+  },
+  {
+    "file": "packages/ui/src/chat/review-state.ts",
+    "from": "...(action.reason === \"none\" || reason === \"\" ? {} : { reason }),",
+    "to": "...(reason === \"\" ? {} : { reason }),",
+    "test": "packages/ui/src/chat/review-state.test.ts",
+    "name": "is the bare verdict for a button that takes nothing, even with text lying in the draft"
+  },
+  {
+    "file": "packages/ui/src/chat/review-state.ts",
+    "from": "(draft.target ?? (usable.length === 1 ? usable[0]?.id : undefined))",
+    "to": "(draft.target ?? usable[0]?.id)",
+    "test": "packages/ui/src/chat/review-state.test.ts",
+    "name": "takes the one target left by itself but makes you choose among several"
+  },
+  {
+    "file": "packages/ui/src/chat/review-state.ts",
+    "from": "!usable.some((one) => one.id === target)",
+    "to": "false",
+    "test": "packages/ui/src/chat/review-state.test.ts",
+    "name": "refuses a target with nothing left and a target that is not listed"
+  },
+  {
+    "file": "packages/ui/src/chat/review-state.ts",
+    "from": "action.targets.filter((target) => target.remaining !== 0)",
+    "to": "action.targets",
+    "test": "packages/ui/src/chat/review-state.test.ts",
+    "name": "refuses a target with nothing left and a target that is not listed"
+  },
+  {
+    "file": "packages/ui/src/chat/review-state.ts",
+    "from": "return action.reason !== \"none\" || action.targets.length > 0;",
+    "to": "return action.reason !== \"none\";",
+    "test": "packages/ui/src/chat/review-state.test.ts",
+    "name": "is true for a button that takes a reason or a target and false for one that takes neither"
+  },
+  {
+    "file": "packages/ui/src/chat/review-state.ts",
+    "from": "...review.actions.filter((action) => action.recommended),",
+    "to": "...review.actions.filter((action) => !action.recommended),",
+    "test": "packages/ui/src/chat/review-state.test.ts",
+    "name": "puts the recommended buttons first"
+  },
+  {
+    "file": "packages/ui/src/chat/review-state.ts",
+    "from": "if (key.startsWith(prefix) && !live.includes(key.slice(prefix.length))) drafts.delete(key);",
+    "to": "if (key.startsWith(prefix)) drafts.delete(key);",
+    "test": "packages/ui/src/chat/review-state.test.ts",
+    "name": "keeps one per session and review, forgets an emptied one, and forgets those whose review is gone"
+  },
+  {
+    "file": "packages/ui/src/chat/review-card.tsx",
+    "from": "review.source.kind === \"agent\" ? review.evidence.filter((one) => one.kind !== \"facts\") : review.evidence",
+    "to": "review.evidence",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "quotes what the agent wrote as text, says it was the agent, and draws no fact it could have made up",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/review-card.tsx",
+    "from": "if (words === null) writeReviewDraft(sessionId, review.id, NO_DRAFT);",
+    "to": "",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "forgets what you wrote for a review once its verdict was taken",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/review-card.tsx",
+    "from": "disabled={exhausted}",
+    "to": "disabled={false}",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "greys a target with nothing left, makes you choose among several, and sends the one chosen",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/review-card.tsx",
+    "from": "if (event.key !== \"Enter\" || event.shiftKey || opened === null) return;",
+    "to": "if (event.key !== \"Enter\" || opened === null) return;",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "sends the reason with Enter, breaks the line with Shift Enter, and folds the form with Esc",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/review-card.tsx",
+    "from": "disabled={!ready || sent}",
+    "to": "disabled={sent}",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "does not take a reason of blanks",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/review-card.tsx",
+    "from": "data-danger={problem.danger}",
+    "to": "data-danger={false}",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "paints the merge that could not be undone in the danger colour",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/review-card.tsx",
+    "from": "const ordered = orderedActions(review);",
+    "to": "const ordered = review.actions;",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "puts the recommended button first and filled, whatever the order the host listed",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/run-control.tsx",
+    "from": "].toSorted((a, b) => a.at - b.at);",
+    "to": "];",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "opens one card at a time with the others as capsules in the order they came, and switches on a press",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/card-shell.tsx",
+    "from": "if (cards.length < 2) return null;",
+    "to": "if (cards.length < 1) return null;",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "draws no capsule for one card, and the question card is the same shell as before",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/run-control.tsx",
+    "from": "open !== `review:${review.id}` ? null : (",
+    "to": "false ? null : (",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "opens one card at a time with the others as capsules in the order they came, and switches on a press",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/review-words.ts",
+    "from": "return { text: `合并被挡住：${text}`, danger: problem.code === \"merge_abort_failed\" };",
+    "to": "return { text: `合并被挡住：${text}`, danger: false };",
+    "test": "packages/ui/src/tasks/review-words.test.ts",
+    "name": "words each reason a merge is held back, with the files counted for a conflict, red only when it cannot be undone"
+  },
+  {
+    "file": "packages/ui/src/tasks/review-words.ts",
+    "from": "problem.code === \"merge_conflict\" && files > 0 ? `${String(files)} 个文件冲突` : known",
+    "to": "known",
+    "test": "packages/ui/src/tasks/review-words.test.ts",
+    "name": "words each reason a merge is held back, with the files counted for a conflict, red only when it cannot be undone"
+  },
+  {
+    "file": "packages/ui/src/tasks/review-words.ts",
+    "from": "return merge ? \"通过并合并\" : \"通过\";",
+    "to": "return \"通过并合并\";",
+    "test": "packages/ui/src/tasks/review-words.test.ts",
+    "name": "labels the buttons, naming the lone target of a send back, and the confirm of the ones with a form"
+  },
+  {
+    "file": "packages/ui/src/tasks/review-words.ts",
+    "from": "const only = action.targets.length === 1 ? action.targets[0] : undefined;",
+    "to": "const only = action.targets[0];",
+    "test": "packages/ui/src/tasks/review-words.test.ts",
+    "name": "labels the buttons, naming the lone target of a send back, and the confirm of the ones with a form"
+  },
+  {
+    "file": "packages/ui/src/tasks/review-words.ts",
+    "from": "if (code === \"task_graph_change\") return `图 v${String(params[\"version\"] ?? \"\")} 等你批准`;",
+    "to": "",
+    "test": "packages/ui/src/tasks/review-words.test.ts",
+    "name": "names the source and what is reviewed for each gate"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-progress-model.ts",
+    "from": "if (item.kind === \"notice\" && (item.notice === \"task_progress\" || item.notice === \"review\")) {",
+    "to": "if (item.kind === \"notice\" && item.notice === \"task_progress\") {",
+    "test": "packages/ui/src/tasks/task-progress-model.test.ts",
+    "name": "puts a review's record in the group of the progress lines around it, and a turn ends the group"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-progress-model.ts",
+    "from": "? `你批准了图 v${String(params[\"version\"] ?? \"\")}`",
+    "to": "? \"你批准了图\"",
+    "test": "packages/ui/src/tasks/task-progress-model.test.ts",
+    "name": "says what you decided on each gate"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-progress-model.ts",
+    "from": "if (action === \"send_back\") return `你打回到 ${target ?? \"\"}${because}`;",
+    "to": "if (action === \"send_back\") return \"你打回了\";",
+    "test": "packages/ui/src/tasks/task-progress-model.test.ts",
+    "name": "says what you decided on each gate"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-progress-model.ts",
+    "from": "    ...verdicts,\n",
+    "to": "",
+    "test": "packages/ui/src/tasks/task-progress-model.test.ts",
+    "name": "names each verdict in the folded line, between the counts and the time"
+  },
+  {
+    "file": "packages/ui/src/state/task-area.ts",
+    "from": "while (parseNodeTab(base[at] ?? \"\")?.taskId === taskId) at += 1;",
+    "to": "",
+    "test": "packages/ui/src/state/task-area.test.ts",
+    "name": "opens right after its task's tab and the node tabs it has, opening the task's tab if it was not"
+  },
+  {
+    "file": "packages/ui/src/state/task-area.ts",
+    "from": "const gone = new Set([taskId, ...state.tabs.filter((tab) => parseNodeTab(tab)?.taskId === taskId)]);",
+    "to": "const gone = new Set([taskId]);",
+    "test": "packages/ui/src/state/task-area.test.ts",
+    "name": "closes with its task, and closing it alone goes back to its task"
+  },
+  {
+    "file": "packages/ui/src/state/task-area.ts",
+    "from": "if (state.tabs.includes(id)) return { open: true, active: id };",
+    "to": "",
+    "test": "packages/ui/src/state/task-area.test.ts",
+    "name": "is brought up when opened again instead of being added twice"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-conversation.tsx",
+    "from": "void attemptOrRestore(text, () => client.prompt(sessionId, text));",
+    "to": "void attemptOrRestore(text, () => client.steer(sessionId, text));",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "sends a message with prompt on the task conversation's id, never opening it as a session",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-tab.tsx",
+    "from": "disabled={busy || task.nodes.length === 0}",
+    "to": "disabled={busy}",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "offers 放弃任务 and 确认并启动 while designing, the second only once there is a graph",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-tab.tsx",
+    "from": "onClick={() => setAsking(true)}",
+    "to": "onClick={() => onConfirm()}",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "asks again before abandoning or cancelling, sends nothing for 不了, and sends once for 确定",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-tab.tsx",
+    "from": "{task.paused ? \"继续\" : \"暂停任务\"}",
+    "to": "{\"暂停任务\"}",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "offers 暂停任务 and 取消任务 while it runs, 继续 once paused, and only 取消任务 when stopped",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-tab.tsx",
+    "from": "  ) : task.archive === \"kept\" ? (",
+    "to": "  ) : false ? (",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "offers nothing for a finished or cancelled task, and 归档 worktree for a kept one",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-tab.tsx",
+    "from": "const buttons: ReactNode = task.followed ? null :",
+    "to": "const buttons: ReactNode = false ? null :",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "draws no button and no input box for a task another process runs",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-tab.tsx",
+    "from": "for (const node of diff.changed) marks.set(node, \"changed\");",
+    "to": "",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "marks the nodes the last change added with 新 and the ones it changed with a dashed frame",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/requirements-card.tsx",
+    "from": "if (!hasRequirements(requirements)) return null;",
+    "to": "",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "shows model text as text, never as markup, and leaves the card out while the summary is empty",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-list.tsx",
+    "from": "onToggle={() => setExpanded(expanded === task.id ? null : task.id)}",
+    "to": "onToggle={() => setExpanded(task.id)}",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "folds a row on a second press and offers 打开任务 for one with nothing to answer",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-list.tsx",
+    "from": "failed === null || view.followed ? null : (",
+    "to": "true ? null : (",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "runs a failed node again from the row",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/app/workbench.tsx",
+    "from": "if (task?.attention === \"question\" && task.current !== null) area.getState().openNode(taskId, task.current.id);",
+    "to": "if (false) area.getState().openNode(taskId, \"\");",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "opens the node's conversation straight away for a question",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/conversation-area.tsx",
+    "from": "taskLinks.openTask(taskId);",
+    "to": "",
+    "test": "packages/ui/src/tasks/task-command.browser.test.tsx",
+    "name": "makes the task from the conversation and opens its tab, sending nothing to the model",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/conversation-area.tsx",
+    "from": "const { taskId } = await client.createTask(await target(), args === \"\" ? undefined : args);",
+    "to": "const { taskId } = await client.createTask(await target(), undefined);",
+    "test": "packages/ui/src/tasks/task-command.browser.test.tsx",
+    "name": "takes the words after it as the scope",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/sidebar/sidebar.tsx",
+    "from": "                leave();\n                tasks?.openTask(entry.task.id);",
+    "to": "                leave();\n                tasks?.openTask(\"\");",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "lists a task that wants you with what it waits for, and opens its tab",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/task-progress.tsx",
+    "from": "links.openNode !== undefined && links.canOpenNode?.(node) === true",
+    "to": "links.openNode !== undefined",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "says a node that has not started has no conversation",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/review-card.tsx",
+    "from": "if (verdict === null || sent || onAnswer === undefined) return;",
+    "to": "if (verdict === null || onAnswer === undefined) return;",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "sends a reason once when Enter is pressed twice while the answer is on its way",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/task-progress.tsx",
+    "from": "const opens = node !== null && links.openNode !== undefined && links.canOpenNode?.(node) === true;",
+    "to": "const opens = false;",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "opens from a progress row of a node that started",
+    "project": "ui"
+  }
+]

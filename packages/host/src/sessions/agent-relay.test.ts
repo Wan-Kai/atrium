@@ -63,6 +63,7 @@ function session(sessionId: string, fields: Partial<CatalogEntry> = {}): Catalog
     usageAfter: null,
     study: null,
     agent: null,
+    task: null,
     usedHandles: [],
     deliveries: [],
     ...fields,

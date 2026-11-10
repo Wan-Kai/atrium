@@ -8,6 +8,8 @@ export interface ListedWorktree {
   /** git marks it prunable: its directory is gone. */
   readonly prunable: boolean;
   readonly bare: boolean;
+  /** The reason git has it locked (`git worktree lock`), empty when locked without one; `null` when not locked. */
+  readonly locked: string | null;
 }
 
 /**
@@ -41,12 +43,15 @@ export function parseWorktreeList(output: string): ListedWorktree[] {
      */
     const valueOf = (key: string) => lines.find((line) => line.startsWith(`${key} `))?.slice(key.length + 1);
     const branch = valueOf("branch");
+    // `locked` alone is a lock without a reason.
+    const locked = lines.includes("locked") ? "" : (valueOf("locked") ?? null);
     worktrees.push({
       dir: path.slice("worktree ".length),
       head: valueOf("HEAD") ?? "",
       branch: branch === undefined ? null : branch.replace(/^refs\/heads\//, ""),
       prunable: lines.some((line) => line === "prunable" || line.startsWith("prunable ")),
       bare: lines.includes("bare"),
+      locked,
     });
   }
   return worktrees;

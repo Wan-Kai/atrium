@@ -3,9 +3,13 @@ import {
   ASK_USER_TOOL,
   type AgentSelf,
   CHILD_TOOLS,
+  CONVERSATION_TOOLS,
+  NODE_TOOLS,
   PARENT_TOOLS,
   READ_ONLY_TOOLS,
   STUDY_FLAG,
+  TASK_FLAG,
+  type TaskSelf,
   encodeArgument,
   studyArgument,
 } from "@atrium/pi";
@@ -15,7 +19,7 @@ import { agentDepth } from "./child-tree";
 
 /** What the launch rules read of a session. */
 type LaunchEntry = Pick<CatalogEntry, "sessionId" | "containerId" | "parent" | "archived" | "agent"> &
-  Partial<Pick<CatalogEntry, "study">>;
+  Partial<Pick<CatalogEntry, "task" | "study">>;
 
 /** The agent depth at which a session has none of the main agent's tools (SPEC-0002, "概念 · 层数"). */
 const MAX_DEPTH = 2;
@@ -28,7 +32,9 @@ const CHILD_SEARCH_EXCLUSIONS = ["grep", "find"] as const;
  *
  * @remarks
  * A child the agent opened has its own two tools, its role and where its tools are limited; any
- * other session is no one's child here. Its depth decides the main agent's tools.
+ * other session is no one's child here. Its depth decides the main agent's tools. A `work` child
+ * is isolated: its `edit` / `write` stay in its directory (SPEC-0002, "路径隔离"); a session the
+ * user opened is not.
  *
  * @sideEffects none
  * @param entries - Every session.
@@ -44,6 +50,7 @@ export function agentSelf(entries: readonly LaunchEntry[], sessionId: string): A
     role: agent?.role ?? null,
     depth: agentDepth(entries, sessionId),
     guard: agent?.toolGuard ?? "flags",
+    isolated: agent?.role === "work",
   };
 }
 
@@ -136,6 +143,64 @@ function withChildTools(flags: readonly string[]): string[] {
  */
 export function agentLaunchFlags(entries: readonly LaunchEntry[], sessionId: string): string[] {
   return [`--${AGENT_FLAG}=${encodeArgument(agentSelf(entries, sessionId))}`, ...toolFlags(entries, sessionId)];
+}
+
+/**
+ * pi's flags for a session of a task's node or of its conversation: who it is, and its tools (SPEC-0006,
+ * "一个 agent 节点怎么跑 · 起").
+ *
+ * @remarks
+ * `--atrium-task=<base64url JSON>` says the session is a node and which role; it is no identity, the host
+ * knows the caller by the pi process (SPEC-0006, "调用方由宿主认定"). There is no `--atrium-agent`: a node
+ * is not a child conversation of SPEC-0002, so it has none of `agent_*`, `report_progress` or `ask_parent`
+ * and keeps `ask_user` (SPEC-0003). The read-only roles (`explore`, `advise`, `check`) get the white list
+ * of SPEC-0002's read-only roles plus the node's three tools; `check` keeps `bash` unrestricted by the
+ * white list as every role does, since tests and builds run there. A `work` node has every built-in tool but
+ * the legacy `grep` / `find`, and none of the agent's. The extension's guards are on for every node.
+ *
+ * @sideEffects none
+ * @param entry - The node's session.
+ * @returns The flags, or `null` for a session that is not a node's.
+ */
+export function taskLaunchFlags(entry: LaunchEntry | undefined): string[] | null {
+  const task = entry?.task;
+  if (task?.role === "conversation") {
+    // The task conversation: SPEC-0002's read-only list, its own tools and `ask_user`; it edits nothing.
+    const self: TaskSelf = { v: 1, kind: "conversation" };
+    return [
+      `--${TASK_FLAG}=${encodeArgument(self)}`,
+      "--tools",
+      [...READ_ONLY_TOOLS, ...CONVERSATION_TOOLS, ASK_USER_TOOL].join(","),
+    ];
+  }
+  if (task?.role !== "node" || task.nodeRole === undefined) return null;
+  const self: TaskSelf = { v: 1, kind: "node", role: task.nodeRole };
+  const flag = `--${TASK_FLAG}=${encodeArgument(self)}`;
+  if (task.nodeRole === "work") {
+    return [flag, "--exclude-tools", [...CHILD_SEARCH_EXCLUSIONS, ...PARENT_TOOLS, ...CHILD_TOOLS].join(",")];
+  }
+  return [flag, "--tools", [...READ_ONLY_TOOLS, ...NODE_TOOLS, ASK_USER_TOOL].join(",")];
+}
+
+/**
+ * pi's flags for a session of any kind: a node's, or else an agent's.
+ *
+ * @remarks
+ * A session with a `task` field never gets the agent's flags (all tools, no isolation): a node without a role
+ * is refused instead (SPEC-0006, "一个 agent 节点怎么跑 · 起"). The task conversation has its own flags.
+ *
+ * @sideEffects none
+ * @param entries - The catalogued sessions.
+ * @param sessionId - The session.
+ * @returns The flags.
+ * @throws {Error} When the session belongs to a task but has no launch path of its own.
+ */
+export function sessionLaunchFlags(entries: readonly LaunchEntry[], sessionId: string): string[] {
+  const entry = entries.find((candidate) => candidate.sessionId === sessionId);
+  const flags = taskLaunchFlags(entry);
+  if (flags !== null) return flags;
+  if (entry?.task != null) throw new Error("a task session without a launch path of its own");
+  return agentLaunchFlags(entries, sessionId);
 }
 
 /**

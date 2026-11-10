@@ -612,6 +612,40 @@ describe("createEventTranslator on cases the fixtures do not show", () => {
     ]);
   });
 
+  it("reports a task progress line or a conversion mark when pi writes it, and nothing for the messages that start turns", () => {
+    const translate = createEventTranslator(() => 99);
+    const progress = { v: 1, kind: "progress", id: "p1", at: 5, text: "t", what: "node_started", node: "N1" };
+    const converted = { v: 1, kind: "converted", id: "m1", at: 6, taskId: "tsk_a", state: "converted" };
+
+    expect([
+      ...translate(customEnded("atrium-task", progress)),
+      ...translate(customEnded("atrium-task", converted)),
+      ...translate(customEnded("atrium-task", { v: 1, kind: "nudge", id: "n1" })),
+      ...translate(customEnded("atrium-task", { v: 1, kind: "resume", id: "r1", reason: "wake" })),
+      ...translate(customEnded("atrium-task", { v: 1, kind: "progress", id: "bad" })),
+      ...translate(customEnded("someone-else", progress)),
+    ]).toStrictEqual([
+      { kind: "task_line_added", timestamp: 42 },
+      { kind: "task_line_added", timestamp: 42 },
+    ]);
+  });
+
+  it("reports the record of a review when pi writes it, and nothing for one it cannot read", () => {
+    const translate = createEventTranslator(() => 99);
+    const review = {
+      source: { kind: "gate", gate: "task_graph" },
+      subject: { code: "task_graph_change", params: { taskId: "tsk_a", version: 2 } },
+      evidence: [],
+      verdict: { action: "approve" },
+    };
+
+    expect([
+      ...translate(customEnded("atrium-review", { v: 1, kind: "review", id: "r1", at: 5, review })),
+      ...translate(customEnded("atrium-review", { v: 1, kind: "review", id: "r2", at: 5 })),
+      ...translate(customEnded("someone-else", { v: 1, kind: "review", id: "r3", at: 5, review })),
+    ]).toStrictEqual([{ kind: "task_line_added", timestamp: 42 }]);
+  });
+
   it("reports Atrium's note when pi writes it, mid-message without ending the message, and nothing for another", () => {
     const note = { v: 1, kind: "note", note: "worktree_moved", from: "/a", to: "/b" };
 

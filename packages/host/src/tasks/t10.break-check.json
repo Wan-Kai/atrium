@@ -1,0 +1,273 @@
+[
+  {
+    "file": "packages/host/src/tasks/cadence.ts",
+    "from": ".filter((slot) => slot > since && slot <= now);",
+    "to": ".filter((slot) => slot >= since && slot <= now);",
+    "test": "packages/host/src/tasks/cadence.test.ts",
+    "name": "fires once when the clocks go back"
+  },
+  {
+    "file": "packages/host/src/tasks/cadence.ts",
+    "from": "const next = slotsAround(when, after, timeZone).find((slot) => slot > after);",
+    "to": "const next = slotsAround(when, after, timeZone).find((slot) => slot >= after);",
+    "test": "packages/host/src/tasks/cadence.test.ts",
+    "name": "is strictly after the instant given"
+  },
+  {
+    "file": "packages/host/src/tasks/cadence.ts",
+    "from": "if (exact.length > 0) return Math.min(...exact);",
+    "to": "if (exact.length > 0) return Math.max(...exact);",
+    "test": "packages/host/src/tasks/cadence.test.ts",
+    "name": "fires once when the clocks go back"
+  },
+  {
+    "file": "packages/host/src/tasks/cadence.ts",
+    "from": "const slot = anchor + Math.floor((now - anchor) / step) * step;",
+    "to": "const slot = anchor + Math.ceil((now - anchor) / step) * step;",
+    "test": "packages/host/src/tasks/cadence.test.ts",
+    "name": "counts from the anchor"
+  },
+  {
+    "file": "packages/host/src/tasks/cadence.ts",
+    "from": "if (weekday !== when.day) continue;",
+    "to": "if (weekday === when.day) continue;",
+    "test": "packages/host/src/tasks/cadence.test.ts",
+    "name": "finds the weekday"
+  },
+  {
+    "file": "packages/host/src/tasks/cadence.ts",
+    "from": "for (let offset = -8; offset <= 8; offset += 1) {",
+    "to": "for (let offset = -1; offset <= 1; offset += 1) {",
+    "test": "packages/host/src/tasks/cadence.test.ts",
+    "name": "looks a week back"
+  },
+  {
+    "file": "packages/host/src/tasks/cadence.ts",
+    "from": "return anchor + (Math.max(0, Math.floor((after - anchor) / step)) + 1) * step;",
+    "to": "return anchor + (Math.max(0, Math.floor((after - anchor) / step)) + 2) * step;",
+    "test": "packages/host/src/tasks/cadence.test.ts",
+    "name": "counts from the anchor"
+  },
+  {
+    "file": "packages/host/src/tasks/cadence.ts",
+    "from": "  return high;\n}",
+    "to": "  return low;\n}",
+    "test": "packages/host/src/tasks/cadence.test.ts",
+    "name": "skips to the first minute that exists"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "put({ ...rule, lastFiredAt: due, skipped: rule.skipped + 1 });",
+    "to": "put({ ...rule, lastFiredAt: due, skipped: rule.skipped });",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "skips the trigger, counts it"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "return ![\"done\", \"cancelled\"].includes(deriveStatus(task));",
+    "to": "return ![\"done\"].includes(deriveStatus(task));",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "skips the trigger, counts it"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "if (last !== undefined && isGoing(last)) return true;",
+    "to": "if (last === undefined || isGoing(last)) return true;",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "counts a last task that is gone as ended"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "put({ ...rule, paused: false, lastFiredAt: Math.max(rule.lastFiredAt ?? 0, clock.now()) });",
+    "to": "put({ ...rule, paused: false });",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "fires nothing while paused"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "const wait = waitingForPi ? HEARTBEAT_MS : Math.min(Math.max(Math.min(...next) - clock.now(), 1), HEARTBEAT_MS);",
+    "to": "const wait = waitingForPi ? HEARTBEAT_MS : Math.max(Math.min(...next) - clock.now(), 1);",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "is one timer at most"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "if (current === undefined || current.paused) continue;",
+    "to": "if (current === undefined) continue;",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "keeps a paused rule paused through a restart"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "const due = lastDue(current.when, sinceOf(current), clock.now(), sinceOf(current), timeZone);",
+    "to": "const due = lastDue(current.when, current.createdAt, clock.now(), sinceOf(current), timeZone);",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "runs nothing when no trigger fell in the gap"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "rules = rules.filter((candidate) => candidate.id !== ruleId);",
+    "to": "",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "is removed with the rule"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "if (rule.paused) throw new CommandError(\"task_state_invalid\");",
+    "to": "",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "refuses to pause a paused rule"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "put({ ...current, lastTaskId: taskId, skipped: 0 });",
+    "to": "put({ ...current, lastTaskId: taskId, skipped: 0, lastFiredAt: now });",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "runs now whatever the last run is doing"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "rule.when.every === \"interval\"\n      ?",
+    "to": "rule.when.every !== \"interval\"\n      ?",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "adds the time to the name"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "if (closed || !started) return;",
+    "to": "if (!started) return;",
+    "test": "packages/host/src/tasks/schedules.leak.test.ts",
+    "name": "leaves no timer when a ringing timer finds the service closed",
+    "project": "leak"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "skipped: known?.skipped ?? 0,",
+    "to": "skipped: 0,",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "saves a changed rule over the same one"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "paused: known?.paused ?? false,",
+    "to": "paused: false,",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "saves a changed rule over the same one"
+  },
+  {
+    "file": "packages/host/src/tasks/conversation.ts",
+    "from": "if (task.startedAt !== null || task.projectId === null) return refuse(\"task_state_invalid\");",
+    "to": "if (task.startedAt !== null) return refuse(\"task_state_invalid\");",
+    "test": "packages/host/src/tasks/conversation.test.ts",
+    "name": "is refused once the task started"
+  },
+  {
+    "file": "packages/host/src/tasks/conversation.ts",
+    "from": "validateGraph(graph, { projectless: false, localReadonly: call.args.place === \"local_readonly\" })[0];",
+    "to": "validateGraph(graph, { projectless: false, localReadonly: false })[0];",
+    "test": "packages/host/src/tasks/conversation.test.ts",
+    "name": "refuses a read-only place when the graph has a work node"
+  },
+  {
+    "file": "packages/host/src/tasks/conversation.ts",
+    "from": "localReadonly: task.scheduleDraft?.place === \"local_readonly\",",
+    "to": "localReadonly: false,",
+    "test": "packages/host/src/tasks/conversation.test.ts",
+    "name": "then holds the graphs it proposes"
+  },
+  {
+    "file": "packages/host/src/tasks/conversation.ts",
+    "from": "  \"task_set_schedule\",\n  \"task_propose_graph\",",
+    "to": "  \"task_propose_graph\",",
+    "test": "packages/host/src/tasks/conversation.test.ts",
+    "name": "is refused once the task started"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "if (options.schedules?.saved(taskId) === true) throw new CommandError(\"task_state_invalid\");",
+    "to": "",
+    "test": "packages/host/src/tasks/schedules.host.test.ts",
+    "name": "the conversation sets the schedule",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "await options.schedules.confirm(task);\n        return;",
+    "to": "await options.schedules.confirm(task);",
+    "test": "packages/host/src/tasks/schedules.host.test.ts",
+    "name": "the conversation sets the schedule",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "localReadonly: rule.place === \"local_readonly\",",
+    "to": "localReadonly: false,",
+    "test": "packages/host/src/tasks/schedules.host.test.ts",
+    "name": "makes no task, and leaves nothing half-made",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-commands.ts",
+    "from": "return task.scheduleDraft === null || !saved(task.id);",
+    "to": "return true;",
+    "test": "packages/host/src/tasks/schedules.host.test.ts",
+    "name": "the conversation sets the schedule",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": "scheduleDraft: task.scheduleDraft === null ? null : { ...task.scheduleDraft, saved: schedule.saved },",
+    "to": "scheduleDraft: task.scheduleDraft === null ? null : { ...task.scheduleDraft, saved: false },",
+    "test": "packages/host/src/tasks/schedule-commands.test.ts",
+    "name": "shows a template's cadence"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-commands.ts",
+    "from": "failed: row.attention === \"failed\"",
+    "to": "failed: false",
+    "test": "packages/host/src/tasks/schedule-commands.test.ts",
+    "name": "lists the rules as rows"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-commands.ts",
+    "from": "if (template === undefined) throw new CommandError(\"task_not_found\");",
+    "to": "",
+    "test": "packages/host/src/tasks/schedule-commands.test.ts",
+    "name": "says the template is gone"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-commands.ts",
+    "from": "      seq += 1;\n",
+    "to": "",
+    "test": "packages/host/src/tasks/schedule-commands.test.ts",
+    "name": "pushes the rows whole"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-rules.ts",
+    "from": "else rest.push(raw);",
+    "to": "",
+    "test": "packages/host/src/tasks/schedule-commands.test.ts",
+    "name": "round-trips the rules"
+  },
+  {
+    "file": "packages/pi/src/task/schema.ts",
+    "from": "task_set_schedule: z.strictObject({ when: Cadence, place: SchedulePlace }),",
+    "to": "task_set_schedule: z.strictObject({ place: SchedulePlace }),",
+    "test": "packages/pi/src/task/schema.test.ts",
+    "name": "names nine tools"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "list_schedules: \"local_only\",",
+    "to": "list_schedules: \"phone\",",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "keeps the schedule rules on the Mac"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "    if (loaded) return;\n    loaded = true;",
+    "to": "    loaded = true;",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "shows the rules after load"
+  }
+]

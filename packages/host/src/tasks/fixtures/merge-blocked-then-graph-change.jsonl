@@ -1,0 +1,20 @@
+{"seq":1,"at":1793782800000,"type":"created","task":{"id":"tsk_1","name":"加功能（合并被挡住后改图）","projectId":"prj_1","workspaceId":null,"workspaceState":"none","sourceDir":"/src","ownsWorkspace":true,"baseCommit":null,"model":{"providerId":"p","modelId":"m","thinking":"off"},"guide":{"id":"g","version":1},"summary":{"goal":"","decisions":[],"constraints":[],"nonGoals":[],"openQuestions":[],"acceptance":[]},"origin":{"kind":"chat","sessionId":"ses_src"},"scheduleDraft":null,"taskSessionId":"ses_task","graphs":[{"version":1,"nodes":[{"id":"N1","name":"实现","kind":"agent","job":"do N1","done":["N1 done"],"role":"work"},{"id":"H1","name":"验收合并","kind":"human","job":"check H1","done":["H1 ok"],"merge":true}],"edges":[{"from":"N1","to":"H1","kind":"seq"},{"from":"H1","to":"N1","kind":"back"}],"author":"agent","note":"","createdAt":0,"approvedAt":null}],"activeGraph":1,"pendingGraph":null,"runs":[],"paused":false,"cancelled":false,"createdAt":1793782800000,"startedAt":null,"endedAt":null}}
+{"seq":2,"at":1793782805000,"type":"started"}
+{"seq":3,"at":1793782808000,"type":"workspace_created","workspaceId":"wsp_1","baseCommit":"9f8e7d6"}
+{"seq":4,"at":1793782809000,"type":"node_started","node":"N1","attempt":1,"sessionId":"ses_N1_1","startCommit":null}
+{"seq":5,"at":1793782829000,"type":"node_done_pending","node":"N1","attempt":1,"ok":true,"summary":"功能已实现"}
+{"seq":6,"at":1793782830000,"type":"node_settled","node":"N1","attempt":1}
+{"seq":7,"at":1793782831000,"type":"committed","node":"N1","attempt":1,"commit":"c0ffee1"}
+{"seq":8,"at":1793782891000,"type":"human_passed","node":"H1"}
+{"seq":9,"at":1793782892000,"type":"merge_started","node":"H1"}
+{"seq":10,"at":1793782894000,"type":"merge_blocked","node":"H1","reason":"merge_conflict"}
+{"seq":11,"at":1793782924000,"type":"graph_proposed","author":"agent","note":"加一个解决冲突的节点","nodes":[{"id":"N1","name":"实现","kind":"agent","job":"do N1","done":["N1 done"],"role":"work"},{"id":"N2","name":"合入主干并解决冲突","kind":"agent","job":"do N2","done":["N2 done"],"role":"work"},{"id":"H1","name":"验收合并","kind":"human","job":"check H1","done":["H1 ok"],"merge":true}],"edges":[{"from":"N1","to":"N2","kind":"seq"},{"from":"N2","to":"H1","kind":"seq"},{"from":"H1","to":"N1","kind":"back"}]}
+{"seq":12,"at":1793782934000,"type":"graph_approved"}
+{"seq":13,"at":1793782935000,"type":"node_started","node":"N2","attempt":1,"sessionId":"ses_N2_1","startCommit":null}
+{"seq":14,"at":1793782955000,"type":"node_done_pending","node":"N2","attempt":1,"ok":true,"summary":"冲突已解决"}
+{"seq":15,"at":1793782956000,"type":"node_settled","node":"N2","attempt":1}
+{"seq":16,"at":1793782957000,"type":"committed","node":"N2","attempt":1,"commit":"d00d1e2"}
+{"seq":17,"at":1793783007000,"type":"human_passed","node":"H1"}
+{"seq":18,"at":1793783008000,"type":"merge_started","node":"H1"}
+{"seq":19,"at":1793783010000,"type":"merged","node":"H1"}
+{"seq":20,"at":1793783011000,"type":"archive_asked"}

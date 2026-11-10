@@ -176,7 +176,7 @@
         "outcome":"running","error":null,"startedAt":\(now - 192_000),"durationMs":null,"usage":null,"changes":[]}],\
         "hasOlder":\(older),"run":{"runId":"r-gallery","startedAt":\(now - 192_000)},"exited":false,"control":{"queue":[],"deliveries":[],"deliveriesHeld":null,\
         "paused":null,"steers":[],"stopping":false,"restarting":false,"compacting":false,"interactions":[],\
-        "question":null,"failure":null},\
+        "question":null,"reviews":[],"failure":null},\
         "model":{"providerId":"openai-codex","modelId":"gpt-6","thinkingLevel":"high"},"fast":true,\
         "metrics":{"turns":null,"steps":null,"tokens":null,"cost":null,"reasoning":null,"branchTokens":0,\
         "context":null,"timing":null,"children":null}}

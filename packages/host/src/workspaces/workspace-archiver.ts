@@ -1,11 +1,13 @@
 import { CommandError } from "@atrium/protocol";
 import { stat } from "node:fs/promises";
 import type { Clock } from "../platform/clock";
-import type { GitRunner } from "../platform/git";
+import { GitError, type GitRunner } from "../platform/git";
 import type { Logger } from "../platform/logger";
 import type { ProjectService } from "../projects/project-service";
 import type { WorkspaceRecord } from "../store/index-schema";
+import { runSafeGit } from "./safe-git";
 import { type ListedWorktree, parseWorktreeList } from "./worktree-list";
+import { lockedTaskOf } from "./worktree-lock";
 import { type WorktreeQueue, createWorktreeQueue } from "./worktree-queue";
 
 /** Archives worktree workspaces and brings them back (SPEC-0001, "M1.11 的工作区归档"). */
@@ -59,6 +61,11 @@ export interface WorkspaceSessions {
  * - restoring adds the worktree back on its branch, or detached at its commit, after pruning
  *   registrations whose directories are gone; a branch deleted since is not restored, as git
  *   would start it afresh from a remote one of that name; one already back is only shown again;
+ * - a worktree a task has locked (`git worktree lock --reason "atrium task <id>"`, SPEC-0006,
+ *   "加锁") is not archived: `workspace_in_task`, with the task's id;
+ * - restoring adds the worktree through `runSafeGit`, like creating one: no hooks, fsmonitor or
+ *   filters run, and a repository whose configuration includes files is refused
+ *   (`worktree_config_unsafe`);
  * - removing and adding a directory may take git ten minutes;
  * - the directory only ever comes from the index, after `--`; logs carry the workspace's id and
  *   git's exit code, never paths or branches.
@@ -102,6 +109,22 @@ export function createWorkspaceArchiver(options: {
   }
 
   /**
+   * The directory of a workspace's repository.
+   *
+   * @remarks
+   * Worktrees are listed, removed and added from the repository.
+   *
+   * @sideEffects none
+   * @param record - The workspace.
+   * @returns Its project's directory.
+   */
+  function repoOf(record: WorkspaceRecord): string {
+    // A workspace's record goes with its project's, so the project is always there.
+    // Stryker disable next-line StringLiteral,OptionalChaining: never used, as the line above says.
+    return options.projects.projects().find((project) => project.id === record.projectId)?.path ?? "";
+  }
+
+  /**
    * Runs git for a workspace, in its project's directory unless told otherwise.
    *
    * @remarks
@@ -113,9 +136,7 @@ export function createWorkspaceArchiver(options: {
    * @returns The runner, taking the arguments, the directory and how long git may take.
    */
   function runnerOf(record: WorkspaceRecord, git: GitRunner) {
-    // A workspace's record goes with its project's, so the project is always there.
-    // Stryker disable next-line StringLiteral,OptionalChaining: never used, as the line above says.
-    const path = options.projects.projects().find((project) => project.id === record.projectId)?.path ?? "";
+    const path = repoOf(record);
     return (args: string[], cwd = path, timeoutMs?: number) =>
       git.run(args, timeoutMs === undefined ? { cwd } : { cwd, timeoutMs });
   }
@@ -176,10 +197,13 @@ export function createWorkspaceArchiver(options: {
    * @param record - The workspace.
    * @param run - Runs git.
    * @returns The listed worktree, if any, and it again when present.
-   * @throws {CommandError} `workspace_dirty`, `workspace_unsaved_commits` or `worktree_remove_failed`.
+   * @throws {CommandError} `workspace_in_task`, `workspace_dirty`, `workspace_unsaved_commits` or
+   * `worktree_remove_failed`.
    */
   async function checked(record: WorkspaceRecord, run: ReturnType<typeof runnerOf>) {
     const listing = await listedOf(record, run, "worktree_remove_failed");
+    const taskId = lockedTaskOf(listing.listed?.locked ?? null);
+    if (taskId !== null) throw new CommandError("workspace_in_task", { taskId });
     const { present } = listing;
     if (present === undefined) return listing;
     const status = await run(["status", "--porcelain"], record.dir);
@@ -220,12 +244,14 @@ export function createWorkspaceArchiver(options: {
    * @param record - The workspace.
    * @param archived - What its archiving recorded.
    * @param run - Runs git.
-   * @throws {CommandError} `worktree_restore_failed`.
+   * @param git - git, for the command that checks files out.
+   * @throws {CommandError} `worktree_restore_failed` or `worktree_config_unsafe`.
    */
   async function addBack(
     record: WorkspaceRecord,
     archived: NonNullable<WorkspaceRecord["archived"]>,
     run: ReturnType<typeof runnerOf>,
+    git: GitRunner,
   ): Promise<void> {
     const target = archived.branch ?? archived.head;
     if (target === null) throw new CommandError("worktree_restore_failed", { reason: "no_branch" });
@@ -237,7 +263,16 @@ export function createWorkspaceArchiver(options: {
       if (branch.code !== 0) throw new CommandError("worktree_restore_failed", { reason: "branch_gone" });
     }
     // Given a commit rather than a branch, git adds the worktree detached at it.
-    const added = await run(["worktree", "add", "--quiet", "--", record.dir, target], undefined, WORKTREE_TIMEOUT_MS);
+    const added = await runSafeGit(
+      git,
+      ["worktree", "add", "--quiet", "--", record.dir, target],
+      { cwd: repoOf(record), timeoutMs: WORKTREE_TIMEOUT_MS },
+      { rejectIncludes: true },
+    ).catch((error: unknown) => {
+      // git not listing its configuration is git failing, as an exit code is.
+      if (error instanceof GitError) return { code: -1, stdout: "" };
+      throw error;
+    });
     if (added.code !== 0) {
       options.logger.warn({ workspaceId: record.id, code: added.code }, "worktree add failed");
       throw new CommandError("worktree_restore_failed");
@@ -279,9 +314,10 @@ export function createWorkspaceArchiver(options: {
         const record = recordOf(workspaceId);
         const archived = record.archived ?? null;
         if (archived === null) return;
-        const run = runnerOf(record, await gitOr("worktree_restore_failed"));
+        const git = await gitOr("worktree_restore_failed");
+        const run = runnerOf(record, git);
         const { present } = await listedOf(record, run, "worktree_restore_failed");
-        if (present === undefined) await addBack(record, archived, run);
+        if (present === undefined) await addBack(record, archived, run, git);
         await options.sessions.restoreWorkspace(workspaceId, archived.sessions ?? null);
         await options.projects.setArchived(workspaceId, null);
         options.refresh(workspaceId);

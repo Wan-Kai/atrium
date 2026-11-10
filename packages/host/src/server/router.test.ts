@@ -263,6 +263,104 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
       },
       unwatch: () => {},
     },
+    reviews: {
+      answer: async (sessionId, reviewId, verdict) => {
+        calls.push(["answerReview", sessionId, reviewId, verdict]);
+      },
+    },
+    tasks: {
+      refresh: () => {},
+      list: async (id, watch) => {
+        calls.push(["listTasks", id, watch]);
+        return { tasks: [] };
+      },
+      open: async (id, taskId) => {
+        calls.push(["openTask", id, taskId]);
+        return Promise.reject(new CommandError("task_not_found"));
+      },
+      create: async (sessionId, scope) => {
+        calls.push(["createTask", sessionId, scope]);
+        return { taskId: "tsk_new" };
+      },
+      start: async (taskId) => {
+        calls.push(["startTask", taskId]);
+        return {};
+      },
+      abandon: async (taskId) => {
+        calls.push(["abandonTask", taskId]);
+        return {};
+      },
+      approveGraph: async (taskId) => {
+        calls.push(["approveGraph", taskId]);
+        return {};
+      },
+      rejectGraph: async (taskId) => {
+        calls.push(["rejectGraph", taskId]);
+        return {};
+      },
+      answerHuman: async (taskId, node, answer) => {
+        calls.push(["answerHuman", taskId, node, answer]);
+        return {};
+      },
+      rerunNode: async (taskId, node) => {
+        calls.push(["rerunNode", taskId, node]);
+        return {};
+      },
+      continueNode: async (taskId, node) => {
+        calls.push(["continueNode", taskId, node]);
+        return {};
+      },
+      pause: async (taskId) => {
+        calls.push(["pauseTask", taskId]);
+        return {};
+      },
+      resume: async (taskId) => {
+        calls.push(["resumeTask", taskId]);
+        return {};
+      },
+      cancel: async (taskId) => {
+        calls.push(["cancelTask", taskId]);
+        return {};
+      },
+      answerArchive: async (taskId, answer) => {
+        calls.push(["answerArchive", taskId, answer]);
+        return {};
+      },
+      openSession: async (taskId, sessionId) => {
+        calls.push(["openTaskSession", taskId, sessionId]);
+        return {};
+      },
+      disconnect: () => {},
+      close: async () => {},
+    },
+    schedules: {
+      list: async (id, watch) => {
+        calls.push(["listSchedules", id, watch]);
+        return { schedules: [], followed: false };
+      },
+      pause: async (scheduleId) => {
+        calls.push(["pauseSchedule", scheduleId]);
+        return {};
+      },
+      resume: async (scheduleId) => {
+        calls.push(["resumeSchedule", scheduleId]);
+        return {};
+      },
+      runNow: async (scheduleId) => {
+        calls.push(["runScheduleNow", scheduleId]);
+        return { taskId: "tsk_made" };
+      },
+      remove: async (scheduleId) => {
+        calls.push(["deleteSchedule", scheduleId]);
+        return {};
+      },
+      edit: async (scheduleId) => {
+        calls.push(["editSchedule", scheduleId]);
+        return { taskId: "tsk_t" };
+      },
+      disconnect: () => {},
+      close: async () => {},
+    },
     sessions,
     index,
     piConfig: {
@@ -453,6 +551,140 @@ describe("createRouter", () => {
     await route(connection, withTrace(command));
     expect(calls).toStrictEqual([call]);
     expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: true, result }]);
+  });
+
+  it.each([
+    { command: { type: "list_tasks", watch: true }, call: ["listTasks", "connection-7", true], result: { tasks: [] } },
+    { command: { type: "list_tasks" }, call: ["listTasks", "connection-7", undefined], result: { tasks: [] } },
+    {
+      command: { type: "create_task", sessionId: "ses_src", scope: "just the auth part" },
+      call: ["createTask", "ses_src", "just the auth part"],
+      result: { taskId: "tsk_new" },
+    },
+    {
+      command: { type: "create_task", sessionId: "ses_src" },
+      call: ["createTask", "ses_src", undefined],
+      result: { taskId: "tsk_new" },
+    },
+    {
+      command: { type: "list_schedules", watch: true },
+      call: ["listSchedules", "connection-7", true],
+      result: { schedules: [], followed: false },
+    },
+    { command: { type: "pause_schedule", scheduleId: "rul_a" }, call: ["pauseSchedule", "rul_a"], result: {} },
+    { command: { type: "resume_schedule", scheduleId: "rul_a" }, call: ["resumeSchedule", "rul_a"], result: {} },
+    {
+      command: { type: "run_schedule_now", scheduleId: "rul_a" },
+      call: ["runScheduleNow", "rul_a"],
+      result: { taskId: "tsk_made" },
+    },
+    { command: { type: "delete_schedule", scheduleId: "rul_a" }, call: ["deleteSchedule", "rul_a"], result: {} },
+    {
+      command: { type: "edit_schedule", scheduleId: "rul_a" },
+      call: ["editSchedule", "rul_a"],
+      result: { taskId: "tsk_t" },
+    },
+    { command: { type: "start_task", taskId: "tsk_a" }, call: ["startTask", "tsk_a"], result: {} },
+    { command: { type: "abandon_task", taskId: "tsk_a" }, call: ["abandonTask", "tsk_a"], result: {} },
+    { command: { type: "approve_graph", taskId: "tsk_a" }, call: ["approveGraph", "tsk_a"], result: {} },
+    { command: { type: "reject_graph", taskId: "tsk_a" }, call: ["rejectGraph", "tsk_a"], result: {} },
+    {
+      command: { type: "answer_human", taskId: "tsk_a", node: "N3", answer: { kind: "pass" } },
+      call: ["answerHuman", "tsk_a", "N3", { kind: "pass" }],
+      result: {},
+    },
+    {
+      command: {
+        type: "answer_human",
+        taskId: "tsk_a",
+        node: "N3",
+        answer: { kind: "send_back", backTo: "N2", reason: "again" },
+      },
+      call: ["answerHuman", "tsk_a", "N3", { kind: "send_back", backTo: "N2", reason: "again" }],
+      result: {},
+    },
+    { command: { type: "rerun_node", taskId: "tsk_a", node: "N2" }, call: ["rerunNode", "tsk_a", "N2"], result: {} },
+    {
+      command: { type: "continue_node", taskId: "tsk_a", node: "N2" },
+      call: ["continueNode", "tsk_a", "N2"],
+      result: {},
+    },
+    { command: { type: "pause_task", taskId: "tsk_a" }, call: ["pauseTask", "tsk_a"], result: {} },
+    { command: { type: "resume_task", taskId: "tsk_a" }, call: ["resumeTask", "tsk_a"], result: {} },
+    { command: { type: "cancel_task", taskId: "tsk_a" }, call: ["cancelTask", "tsk_a"], result: {} },
+    {
+      command: { type: "answer_archive", taskId: "tsk_a", answer: "keep" },
+      call: ["answerArchive", "tsk_a", "keep"],
+      result: {},
+    },
+    {
+      command: { type: "open_task_session", taskId: "tsk_a", sessionId: "ses_n2" },
+      call: ["openTaskSession", "tsk_a", "ses_n2"],
+      result: {},
+    },
+  ])("routes the task command $command.type with its complete arguments", async ({ command, call, result }) => {
+    const { route, connection, calls, sent } = setUp();
+    await route(connection, withTrace(command));
+    expect(calls).toStrictEqual([call]);
+    expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: true, result }]);
+  });
+
+  it("answers a task command's CommandError with its code", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "open_task", taskId: "tsk_gone" }));
+
+    expect(calls).toStrictEqual([["openTask", "connection-7", "tsk_gone"]]);
+    expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: false, error: { code: "task_not_found" } }]);
+  });
+
+  it("lets a phone list and open tasks but not create, start, abandon, approve, answer, rerun, pause, resume, cancel or archive them", async () => {
+    const { route, sent, calls, logger } = setUp();
+    const phone = createConnection(
+      { bufferedAmount: 0, send: (data) => sent.push(JSON.parse(data) as HostMessage), close: () => undefined },
+      {
+        id: "c3",
+        clientId: "dev_0123456789abcdef",
+        trace: ROOT_CONTEXT,
+        maxBufferedBytes: 1024,
+        logger,
+        remote: { deviceId: "dev_0123456789abcdef", maxMessageBytes: 1024, snapshotOf: () => null },
+      },
+    );
+    const forbidden = [
+      { type: "create_task", sessionId: "ses_src" },
+      { type: "start_task", taskId: "tsk_a" },
+      { type: "abandon_task", taskId: "tsk_a" },
+      { type: "approve_graph", taskId: "tsk_a" },
+      { type: "reject_graph", taskId: "tsk_a" },
+      { type: "answer_human", taskId: "tsk_a", node: "N3", answer: { kind: "pass" } },
+      { type: "rerun_node", taskId: "tsk_a", node: "N2" },
+      { type: "continue_node", taskId: "tsk_a", node: "N2" },
+      { type: "pause_task", taskId: "tsk_a" },
+      { type: "resume_task", taskId: "tsk_a" },
+      { type: "cancel_task", taskId: "tsk_a" },
+      { type: "answer_archive", taskId: "tsk_a", answer: "archive" },
+      { type: "open_task_session", taskId: "tsk_a", sessionId: "ses_n2" },
+      { type: "answer_review", sessionId: "ses_task", reviewId: "tsk_a:human:N3:1", verdict: { action: "pass" } },
+    ];
+
+    await route(phone, withTrace({ type: "list_tasks", requestId: "l1" }));
+    await route(phone, withTrace({ type: "open_task", requestId: "o1", taskId: "tsk_a" }));
+    for (const [index, command] of forbidden.entries()) {
+      await route(phone, withTrace({ ...command, requestId: `f${String(index)}` }));
+    }
+
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "l1", ok: true, result: { tasks: [] } },
+      { type: "response", requestId: "o1", ok: false, error: { code: "task_not_found" } },
+      ...forbidden.map((_, index) => ({
+        type: "response",
+        requestId: `f${String(index)}`,
+        ok: false,
+        error: { code: "local_only" },
+      })),
+    ]);
+    expect(calls.map(([name]) => name)).toStrictEqual(["listTasks", "openTask"]);
   });
 
   it("routes reply translation and cancellation with the requesting connection identity", async () => {
@@ -735,6 +967,16 @@ describe("createRouter", () => {
         answer: { skipped: true },
       }),
     );
+    await route(
+      connection,
+      withTrace({
+        type: "answer_review",
+        requestId: "r8c",
+        ...session,
+        reviewId: "tsk_a:human:N3:1",
+        verdict: { action: "send_back", target: "N2", reason: "again" },
+      }),
+    );
     await route(connection, withTrace({ type: "retry_run", requestId: "r9", ...session }));
     await route(
       connection,
@@ -762,6 +1004,7 @@ describe("createRouter", () => {
       ["steerQueued", "s1", "q3"],
       ["answerInteraction", "s1", "d1", { value: "a" }],
       ["answerQuestion", "s1", "call-1", { skipped: true }],
+      ["answerReview", "s1", "tsk_a:human:N3:1", { action: "send_back", target: "N2", reason: "again" }],
       ["retryRun", "s1"],
       ["setModel", "s1", { providerId: "anthropic", modelId: "haiku" }],
       ["setThinkingLevel", "s1", "max"],
@@ -782,7 +1025,12 @@ describe("createRouter", () => {
       { type: "response", requestId: "r2", ok: true, result: { confirmed: false } },
       ...["r3", "r4", "r5", "r6"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
       { type: "response", requestId: "r7", ok: true, result: { disposition: "handled" } },
-      ...["r8", "r8b", "r9", "r10", "r11"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      ...["r8", "r8b", "r8c", "r9", "r10", "r11"].map((requestId) => ({
+        type: "response",
+        requestId,
+        ok: true,
+        result: {},
+      })),
       { type: "response", requestId: "r12", ok: true, result: { commands: [] } },
       { type: "response", requestId: "r13", ok: true, result: { files: [] } },
       ...["r14", "r15", "r16"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),

@@ -15,7 +15,7 @@ func control(_ fields: [String: String] = [:]) throws -> Control {
   var values: [String: String] = [
     "queue": "[]", "deliveries": "[]", "deliveriesHeld": "null", "paused": "null", "steers": "[]",
     "stopping": "false", "restarting": "false", "compacting": "false", "interactions": "[]", "question": "null",
-    "failure": "null",
+    "reviews": "[]", "failure": "null",
   ]
   values.merge(fields) { _, new in new }
   let json = "{" + values.map { "\"\($0.key)\":\($0.value)" }.joined(separator: ",") + "}"

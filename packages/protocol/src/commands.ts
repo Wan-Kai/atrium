@@ -6,6 +6,7 @@ import { DirEntry, FILE_LIMITS, FileContent, WorkspacePath } from "./files";
 import { SNAPSHOT_TURNS, SnapshotStream } from "./events";
 import { InteractionAnswer } from "./control";
 import { QuestionReply } from "./question";
+import { Verdict } from "./reviews";
 import { ChatId, ContainerId, DirectionId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, BranchName, ProxySetting, StatusBarChoices, TranslationLanguage } from "./listing";
 import { StudyKind, StudyRef } from "./study";
@@ -14,6 +15,8 @@ import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup"
 import { Step, TranscriptItem } from "./transcript";
 import { PI_CONFIG_MAX_BYTES, PiConfigFile, PiConfigName, PiConfigRevision } from "./pi-config";
 import { DeviceId, PairingId, RelayLine, RemoteState } from "./remote";
+import { ScheduleId, ScheduleSummary } from "./schedules";
+import { ArchiveAnswer, HumanAnswer, TaskId, TaskNodeId, TaskSummary, TaskView } from "./tasks";
 import { VISUAL_FILE_MAX, VISUAL_MESSAGE_MAX, VisualPath } from "./visuals";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
@@ -231,6 +234,23 @@ export const AnswerQuestionCommand = z.strictObject({
   answer: QuestionReply,
 });
 export type AnswerQuestionCommand = z.infer<typeof AnswerQuestionCommand>;
+
+/**
+ * Gives a verdict on a review waiting in a session (ADR-0018): a task's gates (graph approval, a human node, the
+ * question about the worktree), which the host then carries out through the same checks as `approve_graph`,
+ * `answer_human` and `answer_archive`. The first verdict on a review wins; later ones fail with `review_closed`.
+ * Fails with `review_invalid` when the verdict does not fit the review, `review_closed` for a followed task (it has
+ * no reviews here), and with the codes of the business command it stands for (`task_back_limit`,
+ * `workspace_dirty`…). A graph verdict is for the version the card showed: another waiting by then is
+ * `review_closed`.
+ */
+export const AnswerReviewCommand = z.strictObject({
+  type: z.literal("answer_review"),
+  ...sessionCommandFields,
+  reviewId: z.string().min(1).max(256),
+  verdict: Verdict,
+});
+export type AnswerReviewCommand = z.infer<typeof AnswerReviewCommand>;
 
 /** The error card's "重试": runs the last turn again, as after an automatic restart. */
 export const RetryRunCommand = z.strictObject({ type: z.literal("retry_run"), ...sessionCommandFields });
@@ -1088,6 +1108,193 @@ export const ResetRemoteIdentityCommand = z.strictObject({
 });
 export type ResetRemoteIdentityCommand = z.infer<typeof ResetRemoteIdentityCommand>;
 
+/**
+ * Lists the schedule rules; with `watch` the connection gets `schedules_updated` from then on, and `watch: false`
+ * stops it (SPEC-0006, "协议（给 UI）"). Not for a phone (`local_only`).
+ */
+const ListSchedulesCommand = z.strictObject({
+  type: z.literal("list_schedules"),
+  ...commandFields,
+  watch: z.boolean().optional(),
+});
+
+/** Pauses a rule: it fires no more until resumed. Fails with `schedule_not_found`, or `task_state_invalid` if it is paused. */
+const PauseScheduleCommand = z.strictObject({
+  type: z.literal("pause_schedule"),
+  ...commandFields,
+  scheduleId: ScheduleId,
+});
+
+/**
+ * Lets a paused rule go on. What fell due while it was paused is not made up (SPEC-0006, "T10 定下的细节").
+ * Fails with `schedule_not_found`, or `task_state_invalid` if it is not paused.
+ */
+const ResumeScheduleCommand = z.strictObject({
+  type: z.literal("resume_schedule"),
+  ...commandFields,
+  scheduleId: ScheduleId,
+});
+
+/**
+ * Makes a task of the rule now ("立即跑一次"): answers its id. The rule's own times do not move. Fails with
+ * `schedule_not_found`, or whatever refuses the task (`session_not_found`, `task_graph_invalid`).
+ */
+const RunScheduleNowCommand = z.strictObject({
+  type: z.literal("run_schedule_now"),
+  ...commandFields,
+  scheduleId: ScheduleId,
+});
+
+/** Deletes a rule and its template task. Tasks it already made stay. Fails with `schedule_not_found`. */
+const DeleteScheduleCommand = z.strictObject({
+  type: z.literal("delete_schedule"),
+  ...commandFields,
+  scheduleId: ScheduleId,
+});
+
+/**
+ * "修改": answers the rule's template task, whose tab holds the rule's conversation. Fails with `schedule_not_found`,
+ * and with `task_not_found` when the template is gone.
+ */
+const EditScheduleCommand = z.strictObject({
+  type: z.literal("edit_schedule"),
+  ...commandFields,
+  scheduleId: ScheduleId,
+});
+
+/**
+ * Lists the tasks; with `watch` the connection gets `tasks_updated` from then on, and `watch: false` stops it
+ * (SPEC-0006, "协议（给 UI）"). A phone may send it: tasks are read-only there.
+ */
+export const ListTasksCommand = z.strictObject({
+  type: z.literal("list_tasks"),
+  ...commandFields,
+  watch: z.boolean().optional(),
+});
+export type ListTasksCommand = z.infer<typeof ListTasksCommand>;
+
+/**
+ * Opens a task: answers with its whole state, and the connection gets `task_updated` for it from then on
+ * until it opens another or disconnects (SPEC-0006, "协议（给 UI）"). A phone may send it.
+ */
+export const OpenTaskCommand = z.strictObject({ type: z.literal("open_task"), ...commandFields, taskId: TaskId });
+export type OpenTaskCommand = z.infer<typeof OpenTaskCommand>;
+
+/**
+ * Makes a task of a conversation: the `/task` of the input box (SPEC-0006, "/task 与创建").
+ *
+ * @remarks
+ * Answers the new task's id. Fails with `task_already_converted` (`params.taskId`) when the conversation has a
+ * task already, and with `session_not_found` when it is unknown. `scope` is what the user typed after `/task`.
+ */
+export const CreateTaskCommand = z.strictObject({
+  type: z.literal("create_task"),
+  ...commandFields,
+  sessionId: SessionId,
+  scope: z.string().min(1).max(4000).optional(),
+});
+export type CreateTaskCommand = z.infer<typeof CreateTaskCommand>;
+
+/**
+ * Confirms a task's initial graph and starts it: "确认并启动". The host checks the graph once more and fails with
+ * `task_graph_invalid` (`params.code`, and `params.node` when one is meant) or `task_no_project_for_work`.
+ */
+export const StartTaskCommand = z.strictObject({ type: z.literal("start_task"), ...commandFields, taskId: TaskId });
+export type StartTaskCommand = z.infer<typeof StartTaskCommand>;
+
+/**
+ * Gives up a task that has not started: its record and conversation go, and the conversation it was made from can
+ * be turned into a task again (SPEC-0006, "放弃任务").
+ */
+export const AbandonTaskCommand = z.strictObject({ type: z.literal("abandon_task"), ...commandFields, taskId: TaskId });
+export type AbandonTaskCommand = z.infer<typeof AbandonTaskCommand>;
+
+/** Approves the graph a started task is waiting for (SPEC-0006, "改图"); checked again, `task_graph_invalid` if it no longer fits. */
+export const ApproveGraphCommand = z.strictObject({
+  type: z.literal("approve_graph"),
+  ...commandFields,
+  taskId: TaskId,
+});
+export type ApproveGraphCommand = z.infer<typeof ApproveGraphCommand>;
+
+/** Refuses the graph a started task is waiting for; the nodes that asked go on with the old one. */
+export const RejectGraphCommand = z.strictObject({
+  type: z.literal("reject_graph"),
+  ...commandFields,
+  taskId: TaskId,
+});
+export type RejectGraphCommand = z.infer<typeof RejectGraphCommand>;
+
+/**
+ * Answers a human node that is waiting: pass it, or send the task back to one of the nodes its back edges
+ * lead to, with a reason (SPEC-0006, "human 节点"). Passing a node whose merge is blocked tries the merge again.
+ * Fails with `task_not_found`, `task_state_invalid` or, for the third use of a back edge, `task_back_limit`.
+ */
+export const AnswerHumanCommand = z.strictObject({
+  type: z.literal("answer_human"),
+  ...commandFields,
+  taskId: TaskId,
+  node: TaskNodeId,
+  answer: HumanAnswer,
+});
+export type AnswerHumanCommand = z.infer<typeof AnswerHumanCommand>;
+
+/** Reruns a failed node: the same session and attempt go on, told why it failed (SPEC-0006, "失败"). */
+export const RerunNodeCommand = z.strictObject({
+  type: z.literal("rerun_node"),
+  ...commandFields,
+  taskId: TaskId,
+  node: TaskNodeId,
+});
+export type RerunNodeCommand = z.infer<typeof RerunNodeCommand>;
+
+/** Lets a node the user stopped go on, in its own conversation (SPEC-0006, "节点"). */
+export const ContinueNodeCommand = z.strictObject({
+  type: z.literal("continue_node"),
+  ...commandFields,
+  taskId: TaskId,
+  node: TaskNodeId,
+});
+export type ContinueNodeCommand = z.infer<typeof ContinueNodeCommand>;
+
+/** Pauses a task: running nodes hold after their turn (SPEC-0006, "暂停和恢复"). */
+export const PauseTaskCommand = z.strictObject({ type: z.literal("pause_task"), ...commandFields, taskId: TaskId });
+export type PauseTaskCommand = z.infer<typeof PauseTaskCommand>;
+
+/** Lets a paused task go on. */
+export const ResumeTaskCommand = z.strictObject({ type: z.literal("resume_task"), ...commandFields, taskId: TaskId });
+export type ResumeTaskCommand = z.infer<typeof ResumeTaskCommand>;
+
+/** Cancels a task: running nodes stop at once and the task ends. */
+export const CancelTaskCommand = z.strictObject({ type: z.literal("cancel_task"), ...commandFields, taskId: TaskId });
+export type CancelTaskCommand = z.infer<typeof CancelTaskCommand>;
+
+/**
+ * Answers the question about the worktree a finished task made: archive it, which runs `archive_workspace`'s
+ * checks again and may fail with its codes, or keep it (SPEC-0006, "归档"). After "keep" it can still be archived.
+ */
+export const AnswerArchiveCommand = z.strictObject({
+  type: z.literal("answer_archive"),
+  ...commandFields,
+  taskId: TaskId,
+  answer: ArchiveAnswer,
+});
+export type AnswerArchiveCommand = z.infer<typeof AnswerArchiveCommand>;
+
+/**
+ * Starts the pi of a session that belongs to a task, its conversation or one of its nodes', so that a client which
+ * watches it gets its snapshot and can write to it, without making it a tab among the project's (SPEC-0006, "T8a
+ * 定下的细节"). Fails with `task_not_found`, `session_not_found` for a session that is not the task's, and
+ * `task_read_only` for a followed task.
+ */
+export const OpenTaskSessionCommand = z.strictObject({
+  type: z.literal("open_task_session"),
+  ...commandFields,
+  taskId: TaskId,
+  sessionId: SessionId,
+});
+export type OpenTaskSessionCommand = z.infer<typeof OpenTaskSessionCommand>;
+
 /** Every command a client may send after the handshake. */
 export const Command = z.discriminatedUnion("type", [
   PingCommand,
@@ -1149,6 +1356,7 @@ export const Command = z.discriminatedUnion("type", [
   SteerQueuedCommand,
   AnswerInteractionCommand,
   AnswerQuestionCommand,
+  AnswerReviewCommand,
   RetryRunCommand,
   ListModelsCommand,
   SetModelCommand,
@@ -1190,6 +1398,27 @@ export const Command = z.discriminatedUnion("type", [
   RenameDeviceCommand,
   RevokeDeviceCommand,
   ResetRemoteIdentityCommand,
+  ListTasksCommand,
+  OpenTaskCommand,
+  CreateTaskCommand,
+  StartTaskCommand,
+  AbandonTaskCommand,
+  ApproveGraphCommand,
+  RejectGraphCommand,
+  AnswerHumanCommand,
+  RerunNodeCommand,
+  ContinueNodeCommand,
+  PauseTaskCommand,
+  ResumeTaskCommand,
+  CancelTaskCommand,
+  AnswerArchiveCommand,
+  OpenTaskSessionCommand,
+  ListSchedulesCommand,
+  PauseScheduleCommand,
+  ResumeScheduleCommand,
+  RunScheduleNowCommand,
+  DeleteScheduleCommand,
+  EditScheduleCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -1300,6 +1529,7 @@ export const CommandResult = {
   steer_queued: z.strictObject({ disposition: z.enum(["started", "queued", "handled"]) }),
   answer_interaction: z.strictObject({}),
   answer_question: z.strictObject({}),
+  answer_review: z.strictObject({}),
   retry_run: z.strictObject({}),
   /** `defaultModel` is the one pi picks by its own settings, `null` when it reported none. */
   list_models: z.strictObject({ models: z.array(CatalogModel), defaultModel: ModelRef.nullable() }),
@@ -1356,5 +1586,27 @@ export const CommandResult = {
   rename_device: z.strictObject({}),
   revoke_device: z.strictObject({}),
   reset_remote_identity: z.strictObject({}),
+  list_tasks: z.strictObject({ tasks: z.array(TaskSummary).max(10_000) }),
+  open_task: z.strictObject({ task: TaskView }),
+  create_task: z.strictObject({ taskId: TaskId }),
+  start_task: z.strictObject({}),
+  abandon_task: z.strictObject({}),
+  approve_graph: z.strictObject({}),
+  reject_graph: z.strictObject({}),
+  answer_human: z.strictObject({}),
+  rerun_node: z.strictObject({}),
+  continue_node: z.strictObject({}),
+  pause_task: z.strictObject({}),
+  resume_task: z.strictObject({}),
+  cancel_task: z.strictObject({}),
+  answer_archive: z.strictObject({}),
+  open_task_session: z.strictObject({}),
+  /** `followed`: the host follows another process's tasks and runs no schedules (SPEC-0006, "T9 / T10 审查后用户定"). */
+  list_schedules: z.strictObject({ schedules: z.array(ScheduleSummary).max(1000), followed: z.boolean() }),
+  pause_schedule: z.strictObject({}),
+  resume_schedule: z.strictObject({}),
+  run_schedule_now: z.strictObject({ taskId: TaskId }),
+  delete_schedule: z.strictObject({}),
+  edit_schedule: z.strictObject({ taskId: TaskId }),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

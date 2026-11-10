@@ -146,8 +146,8 @@
   },
   {
     "file": "packages/ui/src/chat/transcript.tsx",
-    "from": "                index < copied && !copiedShown ? null : item.kind === \"turn\" ? (",
-    "to": "                item.kind === \"turn\" ? (",
+    "from": "                if (row.index < copied && !copiedShown) return null;\n",
+    "to": "",
     "test": "packages/ui/src/study/study-loop.browser.test.tsx",
     "name": "says where it came from",
     "project": "ui"

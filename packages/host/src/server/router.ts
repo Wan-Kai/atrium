@@ -27,6 +27,9 @@ import type { PiConfig } from "../setup/pi-config";
 import type { Connection } from "./connection";
 import { PHONE_STEP_TEXT_LIMIT, phoneMayRun } from "./remote-policy";
 import type { ReceiptBook } from "../remote/receipts";
+import type { ReviewHub } from "../reviews/review-hub";
+import type { ScheduleCommands } from "../tasks/schedule-commands";
+import type { TaskCommands } from "../tasks/task-commands";
 import type { VisualService } from "../visuals/visual-service";
 
 /**
@@ -92,6 +95,11 @@ export interface RouterOptions {
   readonly piLatest: Pick<PiLatestService, "check">;
   /** Remote access, for the local "手机" page. */
   readonly remote: RemoteCommands;
+  /** Tasks and their graphs (SPEC-0006); a phone may only list and open them. */
+  readonly tasks: TaskCommands;
+  readonly schedules: ScheduleCommands;
+  /** The reviews waiting for a verdict (ADR-0018). */
+  readonly reviews: Pick<ReviewHub, "answer">;
   /** A phone's `prompt` and `steer` run at most once per request id (SPEC-0005, "MP4b 定的细节"). */
   readonly receipts: ReceiptBook;
   readonly tracer: Tracer;
@@ -331,6 +339,9 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.answerInteraction(command.sessionId, command.interactionId, command.answer);
       case "answer_question":
         return options.sessions.answerQuestion(command.sessionId, command.questionId, command.answer);
+      case "answer_review":
+        await options.reviews.answer(command.sessionId, command.reviewId, command.verdict);
+        return {};
       case "retry_run":
         return options.sessions.retryRun(command.sessionId);
       case "set_model":
@@ -392,6 +403,48 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.listBranches(command.projectId);
       case "set_main_branch":
         return options.index.setMainBranch(command.projectId, command.branch);
+      case "list_tasks":
+        return options.tasks.list(connection.id, command.watch);
+      case "open_task":
+        return options.tasks.open(connection.id, command.taskId);
+      case "create_task":
+        return options.tasks.create(command.sessionId, command.scope);
+      case "start_task":
+        return options.tasks.start(command.taskId);
+      case "abandon_task":
+        return options.tasks.abandon(command.taskId);
+      case "approve_graph":
+        return options.tasks.approveGraph(command.taskId);
+      case "reject_graph":
+        return options.tasks.rejectGraph(command.taskId);
+      case "answer_human":
+        return options.tasks.answerHuman(command.taskId, command.node, command.answer);
+      case "rerun_node":
+        return options.tasks.rerunNode(command.taskId, command.node);
+      case "continue_node":
+        return options.tasks.continueNode(command.taskId, command.node);
+      case "pause_task":
+        return options.tasks.pause(command.taskId);
+      case "resume_task":
+        return options.tasks.resume(command.taskId);
+      case "cancel_task":
+        return options.tasks.cancel(command.taskId);
+      case "open_task_session":
+        return options.tasks.openSession(command.taskId, command.sessionId);
+      case "answer_archive":
+        return options.tasks.answerArchive(command.taskId, command.answer);
+      case "list_schedules":
+        return options.schedules.list(connection.id, command.watch);
+      case "pause_schedule":
+        return options.schedules.pause(command.scheduleId);
+      case "resume_schedule":
+        return options.schedules.resume(command.scheduleId);
+      case "run_schedule_now":
+        return options.schedules.runNow(command.scheduleId);
+      case "delete_schedule":
+        return options.schedules.remove(command.scheduleId);
+      case "edit_schedule":
+        return options.schedules.edit(command.scheduleId);
       case "get_remote":
         return options.remote.get(connection.id, command.watch);
       case "set_remote":

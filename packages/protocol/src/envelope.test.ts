@@ -8,7 +8,8 @@ import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
 import type { SessionEvent } from "./events";
 import type { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { type CatalogModel, ThinkingLevel } from "./models";
-import { Step, Turn } from "./transcript";
+import type { PendingReview } from "./reviews";
+import { type Notice, Step, Turn } from "./transcript";
 import { isChatId } from "./ids";
 import { protocolJsonSchema } from "./json-schema";
 import { PROTOCOL_VERSION } from "./version";
@@ -21,6 +22,7 @@ const CHAT = "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc";
 const DIRECTION = "lrn_node-backend";
 const DEVICE = "dev_0123456789abcdef";
 const PAIRING = "pair_0123456789abcdef";
+const TASK = "tsk_0123456789abcdef";
 const RELAY_LINE = `atrium-relay://hst_0123456789abcdef:${"A".repeat(43)}@ktoon.site/atrium`;
 
 /** One valid example of every command. */
@@ -249,6 +251,36 @@ const commands: Command[] = [
   },
   { type: "retry_run", requestId: "r38", traceparent, sessionId: "s1" },
   {
+    type: "answer_review",
+    requestId: "r38d",
+    traceparent,
+    sessionId: "s1",
+    reviewId: "tsk_a:human:N3:1",
+    verdict: { action: "send_back", target: "N2", reason: "The merge conflicts; fix it first." },
+  },
+  {
+    type: "open_task_session",
+    requestId: "r38f",
+    traceparent,
+    taskId: "tsk_a",
+    sessionId: "s2",
+  },
+  { type: "list_schedules", requestId: "r38g", traceparent },
+  { type: "list_schedules", requestId: "r38h", traceparent, watch: true },
+  { type: "pause_schedule", requestId: "r38i", traceparent, scheduleId: "rul_a" },
+  { type: "resume_schedule", requestId: "r38j", traceparent, scheduleId: "rul_a" },
+  { type: "run_schedule_now", requestId: "r38k", traceparent, scheduleId: "rul_a" },
+  { type: "delete_schedule", requestId: "r38l", traceparent, scheduleId: "rul_a" },
+  { type: "edit_schedule", requestId: "r38m", traceparent, scheduleId: "rul_a" },
+  {
+    type: "answer_review",
+    requestId: "r38e",
+    traceparent,
+    sessionId: "s1",
+    reviewId: "tsk_a:graph:2",
+    verdict: { action: "approve" },
+  },
+  {
     type: "answer_question",
     requestId: "r38b",
     traceparent,
@@ -368,7 +400,197 @@ const commands: Command[] = [
   { type: "rename_device", requestId: "r87", traceparent, deviceId: DEVICE, name: "" },
   { type: "revoke_device", requestId: "r88", traceparent, deviceId: DEVICE },
   { type: "reset_remote_identity", requestId: "r89", traceparent },
+  { type: "list_tasks", requestId: "r90", traceparent },
+  { type: "list_tasks", requestId: "r91", traceparent, watch: true },
+  { type: "open_task", requestId: "r92", traceparent, taskId: TASK },
+  { type: "answer_human", requestId: "r93", traceparent, taskId: TASK, node: "N4", answer: { kind: "pass" } },
+  {
+    type: "answer_human",
+    requestId: "r94",
+    traceparent,
+    taskId: TASK,
+    node: "N4",
+    answer: { kind: "send_back", backTo: "N2", reason: "The test for the empty list is missing." },
+  },
+  { type: "rerun_node", requestId: "r95", traceparent, taskId: TASK, node: "N2" },
+  { type: "continue_node", requestId: "r96", traceparent, taskId: TASK, node: "N2" },
+  { type: "pause_task", requestId: "r97", traceparent, taskId: TASK },
+  { type: "resume_task", requestId: "r98", traceparent, taskId: TASK },
+  { type: "cancel_task", requestId: "r99", traceparent, taskId: TASK },
+  { type: "answer_archive", requestId: "r100", traceparent, taskId: TASK, answer: "archive" },
+  { type: "answer_archive", requestId: "r101", traceparent, taskId: TASK, answer: "keep" },
+  { type: "create_task", requestId: "r102", traceparent, sessionId: "ses_src" },
+  { type: "create_task", requestId: "r103", traceparent, sessionId: "ses_src", scope: "only the login flow" },
+  { type: "start_task", requestId: "r104", traceparent, taskId: TASK },
+  { type: "abandon_task", requestId: "r105", traceparent, taskId: TASK },
+  { type: "approve_graph", requestId: "r106", traceparent, taskId: TASK },
+  { type: "reject_graph", requestId: "r107", traceparent, taskId: TASK },
 ];
+
+/** A task waiting for the user to merge. */
+const taskSummary = {
+  id: TASK,
+  name: "Add the export",
+  status: "waiting",
+  projectId: PROJECT,
+  workspaceId: WORKSPACE,
+  paused: false,
+  createdAt: 1_760_000_000_000,
+  startedAt: 1_760_000_001_000,
+  endedAt: null,
+  attention: "merge_blocked",
+  archive: null,
+  current: { id: "N3", name: "Accept and merge", state: "waiting" },
+  activeAt: 1_760_000_003_000,
+  scheduled: false,
+} as const;
+
+/** A task whose closing human node cannot merge, with its graph. */
+const taskNodeBase = {
+  kind: "agent",
+  job: "Do it",
+  done: ["It works"],
+  state: "passed",
+  attempt: 1,
+  waitingFor: null,
+  blocked: null,
+  failure: null,
+  summary: "Done.",
+  model: null,
+  sessionId: "s1",
+  sendBack: [],
+} as const;
+/** Reviews of the three gates, one with every kind of evidence and a held-back merge. */
+const humanReview: PendingReview = {
+  id: "tsk_a:human:N3:1",
+  openedAt: 1_760_000_002_000,
+  source: { kind: "gate", gate: "task_human" },
+  subject: { code: "task_human_node", params: { taskId: "tsk_a", node: "N3", merge: true } },
+  evidence: [
+    {
+      kind: "facts",
+      facts: [
+        { code: "worktree_dirty", params: { name: "task-a" }, status: "warn" },
+        { code: "commits_ahead", params: { count: 3 }, status: "ok" },
+      ],
+    },
+    { kind: "changes", workspaceId: "wks_0123456789abcdef", files: 4, added: 120, removed: 7 },
+    { kind: "summary", by: { kind: "node", node: "N2" }, text: "Wrote it." },
+  ],
+  problem: { code: "merge_conflict", params: {}, files: ["src/a.ts", "src/b.ts"] },
+  actions: [
+    { id: "retry", reason: "none", targets: [], recommended: true },
+    { id: "send_back", reason: "required", targets: [{ id: "N2", remaining: 1 }], recommended: false },
+  ],
+};
+const graphReview: PendingReview = {
+  id: "tsk_a:graph:2",
+  openedAt: 1_760_000_002_500,
+  source: { kind: "gate", gate: "task_graph" },
+  subject: { code: "task_graph_change", params: { taskId: "tsk_a", version: 2 } },
+  evidence: [{ kind: "graph_diff", from: 1, to: 2, added: ["N5"], removed: [], changed: ["N3"] }],
+  problem: null,
+  actions: [
+    { id: "approve", reason: "none", targets: [], recommended: true },
+    { id: "reject", reason: "optional", targets: [], recommended: false },
+  ],
+};
+const agentReview: PendingReview = {
+  id: "call-12",
+  openedAt: 1_760_000_002_700,
+  source: { kind: "agent", toolCallId: "call-12" },
+  subject: { text: "Push the branch?" },
+  evidence: [{ kind: "summary", by: { kind: "agent" }, text: "Two commits, tests pass." }],
+  problem: null,
+  actions: [{ id: "yes", reason: "optional", targets: [], recommended: true }],
+};
+const requirements = {
+  goal: "Make out.txt",
+  decisions: ["plain text"],
+  constraints: [],
+  nonGoals: [],
+  openQuestions: [],
+  acceptance: ["out.txt says hello"],
+} as const;
+
+const taskView = {
+  ...taskSummary,
+  taskSessionId: "s0",
+  model: { providerId: "anthropic", modelId: "opus-5.5", thinking: "high" },
+  sourceSessionId: "s-origin",
+  graphVersion: 1,
+  pendingGraph: true,
+  pending: {
+    version: 2,
+    author: "agent",
+    note: "Add a docs step",
+    nodes: [
+      { id: "N1", name: "Explore", kind: "agent", job: "Look", done: ["Looked"], role: "explore", model: null },
+      { id: "N5", name: "Docs", kind: "agent", job: "Write docs", done: ["Written"], role: "work", model: null },
+    ],
+    edges: [{ from: "N1", to: "N5", kind: "seq" }],
+    diff: { from: 1, added: ["N5"], removed: [], changed: ["N3"] },
+  },
+  graphDiff: { from: 1, added: [], removed: ["N9"], changed: ["N2"] },
+  requirements,
+  reviews: [humanReview, graphReview],
+  nodes: [
+    {
+      ...taskNodeBase,
+      id: "N1",
+      name: "Explore",
+      role: "explore",
+      place: "readonly",
+      model: { providerId: "openai", modelId: "gpt-6-astra" },
+    },
+    {
+      ...taskNodeBase,
+      id: "N2",
+      name: "Write",
+      role: "work",
+      place: "workspace",
+      backFrom: { node: "N3", reason: "Again" },
+    },
+    {
+      ...taskNodeBase,
+      id: "N3",
+      name: "Accept and merge",
+      kind: "human",
+      merge: true,
+      state: "waiting",
+      waitingFor: "merge_blocked",
+      blocked: "merge_conflict",
+      blockedFiles: ["src/a.ts", "src/b.ts"],
+      summary: null,
+      sessionId: null,
+      sendBack: [{ to: "N2", uses: 1 }],
+    },
+    { ...taskNodeBase, id: "N4", name: "Check", role: "check", state: "failed", failure: "commit", sessionId: null },
+  ],
+  edges: [
+    { from: "N1", to: "N2", kind: "seq" },
+    { from: "N2", to: "N3", kind: "seq" },
+    { from: "N3", to: "N2", kind: "back" },
+  ],
+  archiveFacts: null,
+  followed: false,
+  scheduleDraft: null,
+} as const;
+
+/** A schedule rule's row, as the 定时 tab gets it. */
+const scheduleSummary = {
+  id: "rul_a",
+  name: "Mutation run",
+  projectId: PROJECT,
+  place: "new_worktree",
+  when: { every: "day", at: "2:00" },
+  paused: false,
+  nextAt: 1_760_000_000_000,
+  last: { taskId: "tsk_a", status: "stopped", failed: true },
+  skipped: 1,
+  templateTaskId: "tsk_t",
+  createdAt: 1_759_000_000_000,
+} as const;
 
 /** An update waiting for two sessions to finish. */
 const installUpdated = {
@@ -488,6 +710,7 @@ const control: Control = {
   restarting: false,
   compacting: true,
   interactions: [pick],
+  reviews: [humanReview, agentReview],
   question: {
     id: "call-9",
     askedAt: 6,
@@ -806,6 +1029,38 @@ const noted = {
   timestamp: 6,
 } as const;
 
+/** A progress line the host wrote into a task conversation, and the mark in the conversation a task was made from. */
+const taskProgressed = {
+  kind: "notice",
+  id: "task-1",
+  notice: "task_progress",
+  what: "node_passed",
+  node: "N2",
+  timestamp: 7,
+} as const;
+const taskMarked = {
+  kind: "notice",
+  id: "task-2",
+  notice: "task_mark",
+  taskId: "tsk_a",
+  state: "converted",
+  timestamp: 8,
+} as const;
+
+/** The outcome of a review, as the conversation keeps it. */
+const reviewRecorded: Extract<Notice, { notice: "review" }> = {
+  kind: "notice",
+  id: "review-1",
+  notice: "review",
+  review: {
+    source: { kind: "gate", gate: "task_human" },
+    subject: { code: "task_human_node", params: { taskId: "tsk_a", node: "N3", merge: false } },
+    evidence: [{ kind: "summary", by: { kind: "node", node: "N2" }, text: "Wrote it." }],
+    verdict: { action: "send_back", target: "N2", reason: "Again" },
+  },
+  timestamp: 9,
+};
+
 const events: SessionEvent[] = [
   {
     type: "session_snapshot",
@@ -874,6 +1129,10 @@ const events: SessionEvent[] = [
   },
   { type: "notice_added", ...at, notice: asked, before: null },
   { type: "notice_added", ...at, notice: noted, before: null },
+  { type: "notice_added", ...at, notice: taskProgressed, before: null },
+  { type: "notice_added", ...at, notice: { ...taskProgressed, what: null, node: null }, before: null },
+  { type: "notice_added", ...at, notice: taskMarked, before: null },
+  { type: "notice_added", ...at, notice: reviewRecorded, before: null },
   { type: "session_resumed", sessionId: "s1", epoch: 2, seq: 40 },
   { type: "model_updated", ...at, model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "off" } },
   { type: "model_updated", ...at, model: null },
@@ -906,10 +1165,15 @@ describe("parseClientMessage", () => {
 
   it("knows exactly the commands it accepts", () => {
     expect([...COMMAND_TYPES].toSorted()).toStrictEqual([
+      "abandon_task",
       "add_project",
+      "answer_archive",
+      "answer_human",
       "answer_interaction",
       "answer_login",
       "answer_question",
+      "answer_review",
+      "approve_graph",
       "archive_chat",
       "archive_direction",
       "archive_session",
@@ -917,6 +1181,7 @@ describe("parseClientMessage", () => {
       "cancel_install",
       "cancel_login",
       "cancel_pairing",
+      "cancel_task",
       "cancel_translation",
       "check_pi_update",
       "check_setup",
@@ -925,12 +1190,16 @@ describe("parseClientMessage", () => {
       "close_tab",
       "compact_session",
       "confirm_pairing",
+      "continue_node",
       "create_chat",
       "create_direction",
       "create_session",
+      "create_task",
       "create_workspace",
+      "delete_schedule",
       "detach_session",
       "discover_projects",
+      "edit_schedule",
       "edit_stopped_message",
       "export_session",
       "fetch_image",
@@ -945,18 +1214,25 @@ describe("parseClientMessage", () => {
       "list_commands",
       "list_dir",
       "list_models",
+      "list_schedules",
+      "list_tasks",
       "login",
       "logout",
       "mark_study_gap",
       "mark_study_step",
       "name_branch",
       "open_session",
+      "open_task",
+      "open_task_session",
+      "pause_schedule",
+      "pause_task",
       "pin_chat",
       "pin_direction",
       "ping",
       "prompt",
       "read_file",
       "read_pi_config",
+      "reject_graph",
       "remove_delivery",
       "remove_project",
       "remove_queued",
@@ -967,6 +1243,7 @@ describe("parseClientMessage", () => {
       "rename_session",
       "rename_workspace",
       "report_client_issue",
+      "rerun_node",
       "reset_remote_identity",
       "resolve_visual",
       "restore_chat",
@@ -975,9 +1252,12 @@ describe("parseClientMessage", () => {
       "restore_workspace",
       "resume_deliveries",
       "resume_queue",
+      "resume_schedule",
+      "resume_task",
       "retry_run",
       "retry_study_kickoff",
       "revoke_device",
+      "run_schedule_now",
       "save_pi_config",
       "search_files",
       "select_container",
@@ -990,6 +1270,7 @@ describe("parseClientMessage", () => {
       "set_thinking_level",
       "start_pairing",
       "start_study_session",
+      "start_task",
       "steer",
       "steer_queued",
       "stop",
@@ -2167,6 +2448,23 @@ const hostMessages: unknown[] = [
   },
   { type: "plans_updated", plans: [] },
   { type: "remote_updated", remote: remoteState },
+  { type: "tasks_updated", seq: 1, tasks: [taskSummary, { ...taskSummary, status: "done", attention: null }] },
+  { type: "tasks_updated", seq: 2, tasks: [] },
+  { type: "task_updated", task: taskView },
+  {
+    type: "schedules_updated",
+    seq: 1,
+    schedules: [scheduleSummary, { ...scheduleSummary, paused: true, nextAt: null, last: null }],
+  },
+  { type: "schedules_updated", seq: 2, schedules: [] },
+  {
+    type: "schedules_updated",
+    seq: 3,
+    schedules: [
+      { ...scheduleSummary, when: { every: "week", day: 1, at: "10:00" } },
+      { ...scheduleSummary, when: { every: "interval", minutes: 5 }, place: "local_readonly" },
+    ],
+  },
   { type: "visual_changed", sessionId: "s1", path: "visuals/2-03-isolation.html", mtime: 1_760_000_000_000 },
   {
     type: "turn_started",
@@ -2352,6 +2650,7 @@ const commandResultExamples = {
   steer_queued: [{ disposition: "queued" }],
   answer_interaction: [{}],
   answer_question: [{}],
+  answer_review: [{}],
   retry_run: [{}],
   list_models: [
     { models: [model, { ...model, fast: { speed: null, moreUsage: true } }], defaultModel: null },
@@ -2498,6 +2797,61 @@ const commandResultExamples = {
   rename_device: [{}],
   revoke_device: [{}],
   reset_remote_identity: [{}],
+  list_tasks: [
+    { tasks: [] },
+    {
+      tasks: [
+        taskSummary,
+        { ...taskSummary, status: "done", attention: null, archive: "asked", endedAt: 1_760_000_002_000 },
+      ],
+    },
+  ],
+  open_task: [
+    { task: taskView },
+    // A task another process writes, which the host only follows (T7.1).
+    { task: { ...taskView, followed: true } },
+    {
+      task: {
+        ...taskView,
+        status: "done",
+        attention: null,
+        archive: "asked",
+        archiveFacts: { name: "export", merged: true, dirty: false, commits: 3 },
+      },
+    },
+    {
+      task: {
+        ...taskView,
+        workspaceId: null,
+        projectId: null,
+        archive: null,
+        archiveFacts: { name: "x", merged: null, dirty: true, commits: 0 },
+      },
+    },
+  ],
+  create_task: [{ taskId: TASK }],
+  start_task: [{}],
+  abandon_task: [{}],
+  approve_graph: [{}],
+  reject_graph: [{}],
+  answer_human: [{}],
+  rerun_node: [{}],
+  continue_node: [{}],
+  pause_task: [{}],
+  resume_task: [{}],
+  cancel_task: [{}],
+  answer_archive: [{}],
+  open_task_session: [{}],
+  list_schedules: [
+    { schedules: [], followed: false },
+    { schedules: [scheduleSummary], followed: false },
+    { schedules: [], followed: true },
+  ],
+  pause_schedule: [{}],
+  resume_schedule: [{}],
+  run_schedule_now: [{ taskId: "tsk_a" }],
+  delete_schedule: [{}],
+  edit_schedule: [{ taskId: "tsk_t" }],
 } satisfies Record<CommandType, unknown[]>;
 
 /**
@@ -2622,6 +2976,7 @@ describe("IDLE_CONTROL", () => {
       compacting: false,
       interactions: [],
       question: null,
+      reviews: [],
       failure: null,
     });
   });
@@ -2718,6 +3073,8 @@ describe("HostMessage", () => {
       "interaction_closed",
       "question_closed",
       "question_invalid",
+      "review_closed",
+      "review_invalid",
       "models_unavailable",
       "fd_missing",
       "attachment_limit",
@@ -2729,6 +3086,17 @@ describe("HostMessage", () => {
       "worktree_remove_failed",
       "worktree_restore_failed",
       "worktree_create_failed",
+      "worktree_config_unsafe",
+      "workspace_in_task",
+      "task_not_found",
+      "task_state_invalid",
+      "task_back_limit",
+      "task_graph_invalid",
+      "task_read_only",
+      "task_already_converted",
+      "task_no_project_for_work",
+      "schedule_not_found",
+      "schedule_file_unreadable",
       "branch_name_failed",
       "translation_failed",
       "visual_outside",

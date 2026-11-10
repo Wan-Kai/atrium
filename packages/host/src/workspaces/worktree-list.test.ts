@@ -31,33 +31,46 @@ describe("parseWorktreeList", () => {
     ].join("\n");
 
     expect(parseWorktreeList(output)).toStrictEqual([
-      { dir: "/w/app", head: "1".repeat(40), branch: "main", prunable: false, bare: false },
-      { dir: "/w/app-feature", head: "2".repeat(40), branch: "feat/sidebar", prunable: false, bare: false },
-      { dir: "/w/app-detached", head: "3".repeat(40), branch: null, prunable: false, bare: false },
-      { dir: "/w/app-gone", head: "4".repeat(40), branch: "gone", prunable: true, bare: false },
-      { dir: "/w/app-gone2", head: "5".repeat(40), branch: null, prunable: true, bare: false },
+      { dir: "/w/app", head: "1".repeat(40), branch: "main", prunable: false, bare: false, locked: null },
+      {
+        dir: "/w/app-feature",
+        head: "2".repeat(40),
+        branch: "feat/sidebar",
+        prunable: false,
+        bare: false,
+        locked: "reason here",
+      },
+      { dir: "/w/app-detached", head: "3".repeat(40), branch: null, prunable: false, bare: false, locked: null },
+      { dir: "/w/app-gone", head: "4".repeat(40), branch: "gone", prunable: true, bare: false, locked: null },
+      { dir: "/w/app-gone2", head: "5".repeat(40), branch: null, prunable: true, bare: false, locked: null },
     ]);
   });
 
   it("marks a bare repository, which has no commit checked out, and skips blocks without a worktree line", () => {
     expect(parseWorktreeList("worktree /w/app.git\nbare\n\nHEAD 1\n\n")).toStrictEqual([
-      { dir: "/w/app.git", head: "", branch: null, prunable: false, bare: true },
+      { dir: "/w/app.git", head: "", branch: null, prunable: false, bare: true, locked: null },
     ]);
     expect(parseWorktreeList("")).toStrictEqual([]);
   });
 
   it("keeps a branch that is not under refs/heads as it is, even one with refs/heads further on", () => {
     expect(parseWorktreeList("worktree /w/x\nHEAD 1\nbranch refs/remotes/origin/x\n\n")).toStrictEqual([
-      { dir: "/w/x", head: "1", branch: "refs/remotes/origin/x", prunable: false, bare: false },
+      { dir: "/w/x", head: "1", branch: "refs/remotes/origin/x", prunable: false, bare: false, locked: null },
     ]);
     expect(parseWorktreeList("worktree /w/y\nHEAD 2\nbranch refs/backup/refs/heads/y\n\n")).toStrictEqual([
-      { dir: "/w/y", head: "2", branch: "refs/backup/refs/heads/y", prunable: false, bare: false },
+      { dir: "/w/y", head: "2", branch: "refs/backup/refs/heads/y", prunable: false, bare: false, locked: null },
     ]);
   });
 
   it("reads a last record that is not followed by an empty line", () => {
     expect(parseWorktreeList("worktree /w/x\nHEAD 1\nbranch refs/heads/x\n")).toStrictEqual([
-      { dir: "/w/x", head: "1", branch: "x", prunable: false, bare: false },
+      { dir: "/w/x", head: "1", branch: "x", prunable: false, bare: false, locked: null },
     ]);
+  });
+
+  it("reads a lock with and without a reason", () => {
+    const output =
+      "worktree /w/a\nHEAD 1\ndetached\nlocked\n\nworktree /w/b\nHEAD 2\ndetached\nlocked atrium task t1\n\n";
+    expect(parseWorktreeList(output).map((worktree) => worktree.locked)).toStrictEqual(["", "atrium task t1"]);
   });
 });

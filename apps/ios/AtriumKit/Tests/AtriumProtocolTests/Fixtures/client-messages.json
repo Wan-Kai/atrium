@@ -1,14 +1,14 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 37,
+    "protocolVersion": 38,
     "clientId": "c1",
     "token": "t",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
     "type": "hello",
-    "protocolVersion": 37,
+    "protocolVersion": 38,
     "clientId": "dev_0123456789abcdef",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
@@ -656,6 +656,76 @@
     "sessionId": "s1"
   },
   {
+    "type": "answer_review",
+    "requestId": "r38d",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "reviewId": "tsk_a:human:N3:1",
+    "verdict": {
+      "action": "send_back",
+      "target": "N2",
+      "reason": "The merge conflicts; fix it first."
+    }
+  },
+  {
+    "type": "open_task_session",
+    "requestId": "r38f",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_a",
+    "sessionId": "s2"
+  },
+  {
+    "type": "list_schedules",
+    "requestId": "r38g",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "list_schedules",
+    "requestId": "r38h",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "watch": true
+  },
+  {
+    "type": "pause_schedule",
+    "requestId": "r38i",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "scheduleId": "rul_a"
+  },
+  {
+    "type": "resume_schedule",
+    "requestId": "r38j",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "scheduleId": "rul_a"
+  },
+  {
+    "type": "run_schedule_now",
+    "requestId": "r38k",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "scheduleId": "rul_a"
+  },
+  {
+    "type": "delete_schedule",
+    "requestId": "r38l",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "scheduleId": "rul_a"
+  },
+  {
+    "type": "edit_schedule",
+    "requestId": "r38m",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "scheduleId": "rul_a"
+  },
+  {
+    "type": "answer_review",
+    "requestId": "r38e",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "s1",
+    "reviewId": "tsk_a:graph:2",
+    "verdict": {
+      "action": "approve"
+    }
+  },
+  {
     "type": "answer_question",
     "requestId": "r38b",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
@@ -1119,5 +1189,127 @@
     "type": "reset_remote_identity",
     "requestId": "r89",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "list_tasks",
+    "requestId": "r90",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  },
+  {
+    "type": "list_tasks",
+    "requestId": "r91",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "watch": true
+  },
+  {
+    "type": "open_task",
+    "requestId": "r92",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
+  },
+  {
+    "type": "answer_human",
+    "requestId": "r93",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef",
+    "node": "N4",
+    "answer": {
+      "kind": "pass"
+    }
+  },
+  {
+    "type": "answer_human",
+    "requestId": "r94",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef",
+    "node": "N4",
+    "answer": {
+      "kind": "send_back",
+      "backTo": "N2",
+      "reason": "The test for the empty list is missing."
+    }
+  },
+  {
+    "type": "rerun_node",
+    "requestId": "r95",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef",
+    "node": "N2"
+  },
+  {
+    "type": "continue_node",
+    "requestId": "r96",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef",
+    "node": "N2"
+  },
+  {
+    "type": "pause_task",
+    "requestId": "r97",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
+  },
+  {
+    "type": "resume_task",
+    "requestId": "r98",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
+  },
+  {
+    "type": "cancel_task",
+    "requestId": "r99",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
+  },
+  {
+    "type": "answer_archive",
+    "requestId": "r100",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef",
+    "answer": "archive"
+  },
+  {
+    "type": "answer_archive",
+    "requestId": "r101",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef",
+    "answer": "keep"
+  },
+  {
+    "type": "create_task",
+    "requestId": "r102",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "ses_src"
+  },
+  {
+    "type": "create_task",
+    "requestId": "r103",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "sessionId": "ses_src",
+    "scope": "only the login flow"
+  },
+  {
+    "type": "start_task",
+    "requestId": "r104",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
+  },
+  {
+    "type": "abandon_task",
+    "requestId": "r105",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
+  },
+  {
+    "type": "approve_graph",
+    "requestId": "r106",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
+  },
+  {
+    "type": "reject_graph",
+    "requestId": "r107",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "taskId": "tsk_0123456789abcdef"
   }
 ]

@@ -10,6 +10,7 @@
 |---|---|---|---|
 | **pi** | `~/.pi/agent/sessions/` 下的会话文件、`~/.pi/agent/auth.json` | pi | 会话条目（对话、工具结果、系统消息、压缩检查点）、会话名、凭据 |
 | **Atrium 索引** | `~/.atrium/`（宿主持有，文件布局见 §1"索引的存储"） | 宿主 | 项目和工作区登记、Atrium 建的会话属于哪个容器、工作区别名与起点提交、归档、关注状态、每个客户端的布局、偏好、插话记录 |
+| **任务**（SPEC-0006） | `~/.atrium/tasks/<id>/`（`task.json` 快照 + `events.jsonl` 只追加）、`~/.atrium/schedules.json` | 宿主 | 任务、图的各版本、每次节点运行（状态、交接摘要、结束时的提交）、需求摘要、定时规则 |
 | **运行时** | 宿主内存 | 宿主 | pi 进程、排队、待交互请求、运行状态、当场计时、合并状态缓存 |
 | **扫描结果** | 宿主内存（可随时重算） | 宿主 | 分支名、是否 git 仓库、worktree 创建时间、会话文件位置、第一条用户消息 |
 | **视图** | 各客户端自己 | UI | 展开的过程、滚动位置、草稿 |
@@ -178,6 +179,8 @@ classDiagram
 │                             以及运行中看到的压缩和原因（SPEC-0001 `compaction`，2026-10-20）；
 │                             以及哪些消息来自交互演示（`sources`，SPEC-0007，2026-11-05 加，可选字段，不升版本）；
 │                             随会话变长，单独放，不拖累其他文件
+├── tasks/<任务 id>/          任务（SPEC-0006）：task.json 当前状态快照、events.jsonl 只追加的事件日志（快照坏了从它重放）
+├── schedules.json            定时规则（SPEC-0006）
 ├── visuals/<会话 id>/        普通会话的交互演示文件（SPEC-0007）：agent 写的 HTML 片段，宿主只读、不清理；
 │                             学习方向的演示在方向目录下的 `visuals/`（SPEC-0008）
 ├── chats/<目录名>/           每个对话的工作目录，对话 id 由目录名得出
@@ -310,6 +313,7 @@ classDiagram
 - **ContextBreakdown** 给状态栏用，是估算值：总量来自 `get_session_stats().contextUsage`（可能为空或是估算）；系统提示词和工具定义沿当前分支回放系统消息与压缩检查点得出；没有系统消息的旧会话只显示总量。MVP 2 的上下文检查器要的是"每次实际发出的请求"，另由 extension 捕获，不从这里升级。
 - **Notice** 里 `extension` 类型保留无法识别的 extension 通知原文，MVP 1 只记录不显示，MVP 2 的"带标记的通知"从这里接入。
 - 自动重试发生在一轮中间，用 **RetryStep** 显示"正在重试（第 N / 3 次）"，不拆开这一轮；一轮中间的压缩同样是一步（**CompactionStep**，2026-10-20 改），放在它发生的位置；**Notice** 用来显示轮与轮之间的压缩和"进程已自动重启"（M1.6），以及 Atrium 给模型的说明（`note`，SPEC-0002：pi 的 `atrium-agent` 自定义消息，排在它跟着的那一轮后面，不开新的一轮）。
+- **PendingReview**（[ADR-0018](../adr/0018-reviews-one-shape-two-sources.md)，T8a）是挂在会话上、等用户裁决的一件事，在 `Control.reviews`：来源是宿主的关卡（任务的改图、human 节点、归档题，从任务的持久状态现算、裁决由宿主执行）或以后 agent 的请求（工具调用，随 pi 作废）。裁决生效后宿主写一条 `atrium-review` 自定义消息进会话，对话记录里是过程轨道上的一步。
 - **InteractionStep** 只是对话记录里"问题 → 回答"的展示，活着的请求见下一节的 PendingInteraction。pi 不把对话框写进会话文件，所以这一步只在宿主存活期间存在。
 - **ToolStep** 各自带状态，同一批里的工具调用可以并行，不假设前一个结束后一个才开始。
 - **改动汇总**不建类，语义是"已观测到的工具修改"：`edit` 有 diff，显示增删行；`write` 显示写入内容（取自调用参数，pi 的结果里没有），增删行未知时不显示数字；通过 bash 等其他方式的改动统计不到。多次编辑同一文件是累计编辑量，不是净改动。
@@ -806,6 +810,8 @@ classDiagram
 | `fork_session` | SessionManager → SessionForker：由轮找到下一轮开头的用户消息条目，另起临时 pi 做 pi 的 `fork`（最后一轮用 `clone`）、设上界面给的名字，读出新会话后停掉它，复制轮的记录，重扫容器并打开新会话（M1.11）。带 `child` 时同时写下子对话的记录；放到新 worktree 的，临时 pi 写到宿主临时目录，子对话的 pi 在新目录以 `--fork` 起，收到路径说明（M1.15） |
 | `fetch_image(sessionId, turnId, index)` | SessionManager → SessionController 找出轮的用户消息条目，pi 包的 SessionFiles 从会话文件里读出图片（M1.11） |
 | `upload_attachment` | AttachmentStore：按客户端暂存压缩后的图片，被 `prompt` / `steer` 用掉或连接断开时释放（M1.7） |
+| `create_task` / `list_tasks` / `open_task` / `start_task` / `abandon_task` / `approve_graph` / `reject_graph` / `answer_human` / `rerun_node` / `continue_node` / `pause_task` / `resume_task` / `cancel_task` / `answer_archive` | TaskService：把操作变成事件，按任务串行交给 Scheduler 的 `step`，TaskRunner 执行动作（SPEC-0006） |
+| `list_schedules` / `pause_schedule` / `resume_schedule` / `run_schedule_now` / `delete_schedule` / `edit_schedule` | ScheduleService（SPEC-0006） |
 | `ping` / `report_client_issue` | Router 直接处理：应答心跳；把界面的问题写进日志 |
 | `check_setup` / `install_*` / `update_pi` / `cancel_install` / `login` / `cancel_login` / `set_api_key` | SetupService |
 
@@ -817,6 +823,29 @@ classDiagram
 | `changes_updated` / `diff_updated`（整份最新状态，不带序号） | ChangesService |
 | `queue_updated` / `metrics_updated` | SessionController |
 | `install_*` / `login_*` | SetupService |
+| `tasks_updated`（带 `generation + seq`）/ `task_updated` / `schedules_updated` | TaskService、ScheduleService（SPEC-0006） |
+
+## 9. 任务（SPEC-0006）
+
+```
+Task ──1:1── 任务对话（一个会话，只读角色，带任务对话的工具）
+  │  ──0..1─ 需求对话（来源对话，只记会话 id）
+  │  ──0..1─ 工作区（任务的 worktree；要写才建，或者就是来源对话所在的 worktree）
+  │  ──1:n── GraphVersion（只增不改）── Node、Edge
+  │  ──1:n── NodeRun（节点每跑一次一条）──0..1── 节点对话（一个会话；human 节点没有）
+  └─ ──0..1─ ScheduleRule（定时触发出来的任务才有）
+```
+
+- **Task** 属于一个项目，或不属于项目（那时不能有改代码的节点）。任务状态由节点状态推出，不另存；只有"暂停""取消"是标记。
+- **GraphVersion**：改图就是加一个版本；启动前直接生效，启动后要你批准。节点 id（N1、N2…）跨版本认同一个节点。
+- **NodeRun**：节点的当前状态取它最新的一条；没有 NodeRun 就是 `pending`；改图作废的（`void`）仍是最新的一条，读作 `pending`。打回开新的一条（`attempt + 1`、新会话），重跑沿用原来那条（`attempt` 不变、同一会话）。状态：`pending`、`running`、`waiting`（带 `waitingFor`：问题、改图、等你、合并被挡住）、`held`（调度器连带挂起，任务恢复就接着跑）、`stopped`（你亲手停的）、`passed`、`failed`。下游只读每个上游最新一次通过的交接摘要。可写节点的 `node_done` 生效后仍是 `running`，带 `commitPending`，提交落定（`committed` / `commit_checked`）才 `passed`；提交失败 → `failed`，失败原因 `commit`（`commitPending` 保留，重跑只重试提交）。`contractSent` 记着契约是否已交给节点的 pi（没交到就补发契约，不发"接着做"）。失败原因共六种：`no_done`、`crashed`、`model_error`、`gave_up`、`workspace`、`commit`。
+- **节点对话、任务对话不是 SPEC-0002 的 agent 子对话**：会话记录带 `task: { taskId, role: "conversation" | "node", node?, attempt? }`，没有 `agent`。它们走单独的启动路径，只借用 SPEC-0002 起停 pi 和送达的做法；不给任务对话自动回报、不占 SPEC-0002 的名额、重启时不暂停送达；节点能用 `ask_user`。SessionCatalog 按 `task` 字段把它们排除在项目目录、侧栏之外，只在任务区出现。
+- **调度**：宿主里的纯函数 `step(任务, 事件) → (新任务, 动作[])`，发出动作时状态当场变（防重复）；每个任务一个串行队列；动作都能认出"已经做过"（重放后不重复提交、建 worktree、合并）。事件写进 `events.jsonl`（节点相关的带 `attempt`，旧会话迟到的事件丢掉），`task.json`（`{ version, seq, task }`）可以从事件重放出来。
+- **工作区**：任务建的 worktree 记"由任务 X 创建"；任务在用时对它 `git worktree lock`。任务结束时，任务建的 worktree 由你决定归档还是留着；来源对话本来就在的 worktree，任务只解锁，不问、不删。
+- **创建与任务对话**（T6）：任务只从对话 `/task` 来：`create_task` 建 `designing` 的任务（还没有图，`activeGraph: 0`，引导词记 `{ id: "default" }` 表示还没选），起任务对话（会话记录 `task: { role: "conversation", startOn }`，目录 `sourceDir`，模型同来源），来源对话写一行 `converted`（`/atrium-task mark`）。一个来源对话至多一个任务（放弃的不算）。任务对话用八个工具写摘要（事件 `summary_set`）、改名和模型（`meta_changed`）、提图（`graph_proposed`，设计中带 `guide`）、读来源和节点、给运行中的节点带话；调用方由宿主按会话记录认定。放弃（`designing`）删任务目录并归档任务对话。
+- **归档提问**（T5）：`Task.archive`（`asked` / `archived` / `kept`）在任务结束、`ownsWorkspace` 时置为 `asked`，是任务记录的一部分，重启后还在；回答是事件 `archive_answered`，任务结束后调度器只收这一种事件。显示的事实（worktree 名、是否已合并、有无未提交改动、提交数）问的时候现算，不存。
+- **合并被挡住**（T5）：停在 human 节点那条 NodeRun 上：`waitingFor = merge_blocked`，`blocked` 是原因（`merge_worktree_dirty`、`merge_main_dirty`、`merge_main_not_trunk`、`merge_conflict`、`merge_abort_failed`、`merge_git_failed`），冲突时 `blockedFiles` 是冲突的文件（最多 50 个）。再"通过"一次就重试，成功前 `merging` 为真。
+- **数据归属**：任务数据里有交接摘要和你写的打回原因，它们和会话内容一样不进宿主日志；日志只记任务 id、节点 id、事件种类。
 
 ## 已决定
 

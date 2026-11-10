@@ -14,6 +14,8 @@ import { LoadStepContext } from "./steps";
 import { OpenFileContext, type FileOpener } from "./file-opener";
 import { CompactingCat, RunStatus } from "./run-status";
 import { type ForkFromTurn, NoticeView, TurnView } from "./turn-view";
+import { arrangeRows } from "../tasks/task-progress-model";
+import { TaskProgressGroup } from "./task-progress";
 import { useAgentLinks } from "./agent-links";
 import { copiedItems } from "../study/loop";
 import { CopiedTurns, QuizHead } from "../study/quiz-head";
@@ -417,8 +419,13 @@ export function Transcript({
                   )}
                 </div>
               )}
-              {items.map((item, index) =>
-                index < copied && !copiedShown ? null : item.kind === "turn" ? (
+              {arrangeRows(items).map((row) => {
+                if (row.kind === "progress")
+                  return <TaskProgressGroup key={`progress:${row.id}`} notices={row.notices} last={row.last} />;
+                const item = row.item;
+                if (row.index < copied && !copiedShown) return null;
+                if (item.kind !== "turn") return <NoticeView key={item.id} notice={item} />;
+                return (
                   <TurnView
                     key={item === standIn || item === launchTurn ? launchKey : item.id}
                     turn={item}
@@ -435,20 +442,18 @@ export function Transcript({
                         : undefined
                     }
                     launch={item === standIn || item === launchTurn ? shownLaunch : undefined}
-                    created={index === 0 && !view.hasOlder ? created : undefined}
+                    created={row.index === 0 && !view.hasOlder ? created : undefined}
                     runStartedAt={view.run?.startedAt ?? null}
                     {...(fork === undefined || item === standIn
                       ? {}
-                      : { fork: cutBefore(items, index) ? { ...fork, cut: true } : fork })}
+                      : { fork: cutBefore(items, row.index) ? { ...fork, cut: true } : fork })}
                     {...(item === last && view.run === null && !view.control.restarting && onRetry !== undefined
                       ? { onRetry }
                       : {})}
                     {...(item === last && turnRunning && view.control.compacting ? { compacting: true } : {})}
                   />
-                ) : (
-                  <NoticeView key={item.id} notice={item} />
-                ),
-              )}
+                );
+              })}
               {pending.map((message) => (
                 <UserBubble
                   key={message.clientMessageId}

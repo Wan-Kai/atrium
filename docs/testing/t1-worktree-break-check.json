@@ -1,0 +1,269 @@
+[
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "\"core.fsmonitor=false\",",
+    "to": "\"core.preloadindex=true\",",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "does not run the repository's fsmonitor"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "`core.hooksPath=${NO_HOOKS_PATH}`",
+    "to": "`core.preloadindex=${NO_HOOKS_PATH}`",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "does not run the repository's hook"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "`filter.${filter}.smudge=`",
+    "to": "`filter.${filter}.smudgex=`",
+    "test": "packages/host/src/workspaces/safe-git.test.ts",
+    "name": "turns off hooks and fsmonitor"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "`filter.${filter}.clean=`",
+    "to": "`filter.${filter}.cleanx=`",
+    "test": "packages/host/src/workspaces/safe-git.test.ts",
+    "name": "turns off hooks and fsmonitor"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "`filter.${filter}.process=`",
+    "to": "`filter.${filter}.processx=`",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "does not run the repository's process"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "`filter.${filter}.required=false`",
+    "to": "`filter.${filter}.required=true`",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "does not run the repository's process"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "filtersOf(await configNames(git, cwd, null))",
+    "to": "filtersOf(await configNames(git, cwd, \"--local\"))",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "does not run a filter only the user's global"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "own.some(isInclude)",
+    "to": "own.some(() => false)",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "refuses include.path"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "lower.startsWith(\"includeif.\")",
+    "to": "lower.startsWith(\"includeifx.\")",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "refuses includeIf"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "(await hasWorktreeConfig(git, cwd)) ? await configNames(git, cwd, \"--worktree\") : []",
+    "to": "[]",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "refuses an include in the per-worktree"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "filter.includes(\"=\")",
+    "to": "filter.includes(\"#\")",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "refuses a filter whose name"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "if (guard.rejectIncludes) {",
+    "to": "if (true) {",
+    "test": "packages/host/src/workspaces/safe-git.test.ts",
+    "name": "refuses includes only when asked to"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "dot <= \"filter.\".length - 1 || ",
+    "to": "",
+    "test": "packages/host/src/workspaces/safe-git.test.ts",
+    "name": "turns off hooks and fsmonitor"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-creator.ts",
+    "from": "head.stdout.trim() !== start",
+    "to": "false",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "head_mismatch"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-creator.ts",
+    "from": "await copyWorktreeInclude({ git, sourceDir, destDir: dir, logger: options.logger });",
+    "to": "",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "takes the ignored files it lists along"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-creator.ts",
+    "from": "const added = await runSafeGit(",
+    "to": "const added = await ((g, a, o) => g.run(a, o))(",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "does not run the repository's hook"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-creator.ts",
+    "from": "addAt(project, run, branch, commit.stdout.trim(), project.path)",
+    "to": "addAt(project, run, branch, base, project.path)",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "starts from the commit the base was when checked"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-creator.ts",
+    "from": "head.stdout.trim(), workspace.dir)",
+    "to": "head.stdout.trim(), project.path)",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "reads .worktreeinclude where the child's workspace is"
+  },
+  {
+    "file": "packages/host/src/workspaces/workspace-archiver.ts",
+    "from": "if (taskId !== null) throw",
+    "to": "if (taskId !== null && false) throw",
+    "test": "packages/host/src/workspaces/workspace-archiver.test.ts",
+    "name": "refuses a worktree a task has locked"
+  },
+  {
+    "file": "packages/host/src/workspaces/workspace-archiver.ts",
+    "from": "const added = await runSafeGit(",
+    "to": "const added = await ((g, a, o) => g.run(a, o))(",
+    "test": "packages/host/src/workspaces/workspace-archiver.test.ts",
+    "name": "adds a worktree back without running"
+  },
+  {
+    "file": "packages/host/src/workspaces/workspace-archiver.ts",
+    "from": "{ rejectIncludes: true },\n    ).catch",
+    "to": "{ rejectIncludes: false },\n    ).catch",
+    "test": "packages/host/src/workspaces/workspace-archiver.test.ts",
+    "name": "refuses to add a worktree back"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-lock.ts",
+    "from": "\"atrium task \"",
+    "to": "\"atrium job \"",
+    "test": "packages/host/src/workspaces/worktree-lock.test.ts",
+    "name": "name the task in the reason"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-lock.ts",
+    "from": "/^[A-Za-z0-9_-]+$/",
+    "to": "/^.*$/",
+    "test": "packages/host/src/workspaces/worktree-lock.test.ts",
+    "name": "name the task in the reason"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-lock.ts",
+    "from": "if (taskId === null || isActive(taskId)) continue;",
+    "to": "if (taskId === null) continue;",
+    "test": "packages/host/src/workspaces/worktree-lock.test.ts",
+    "name": "lifts the locks of tasks that are over"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-lock.ts",
+    "from": "if (current === reason) return true;",
+    "to": "",
+    "test": "packages/host/src/workspaces/worktree-lock.test.ts",
+    "name": "lock twice for the same task"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-lock.ts",
+    "from": "if (current !== taskLockReason(taskId)) return false;",
+    "to": "",
+    "test": "packages/host/src/workspaces/worktree-lock.test.ts",
+    "name": "leave a lock of another task"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-list.ts",
+    "from": "lines.includes(\"locked\") ? \"\" :",
+    "to": "lines.includes(\"locked\") ? \"x\" :",
+    "test": "packages/host/src/workspaces/worktree-list.test.ts",
+    "name": "reads a lock with and without a reason"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-include.ts",
+    "from": "info.size > INCLUDE_FILE_LIMIT ||",
+    "to": "info.size > INCLUDE_FILE_LIMIT * 2 ||",
+    "test": "packages/host/src/workspaces/worktree-include.test.ts",
+    "name": "10 MiB"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-include.ts",
+    "from": "if (copied >= INCLUDE_COUNT_LIMIT) break;",
+    "to": "if (copied > INCLUDE_COUNT_LIMIT) break;",
+    "test": "packages/host/src/workspaces/worktree-include.test.ts",
+    "name": "stops at 500 files"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-include.ts",
+    "from": " || info.size > room",
+    "to": "",
+    "test": "packages/host/src/workspaces/worktree-include.test.ts",
+    "name": "stops taking files into 64 MiB"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-include.ts",
+    "from": "constants.O_RDONLY | constants.O_NOFOLLOW",
+    "to": "constants.O_RDONLY",
+    "test": "packages/host/src/workspaces/worktree-include.test.ts",
+    "name": "does not follow a link"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-include.ts",
+    "from": "if (info === null || !info.isFile()) return [];",
+    "to": "if (info === null) return [];",
+    "test": "packages/host/src/workspaces/worktree-include.test.ts",
+    "name": "copies nothing without a .worktreeinclude"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-include.ts",
+    "from": "new Set([\".git\", \"node_modules\"])",
+    "to": "new Set([\".git\"])",
+    "test": "packages/host/src/workspaces/worktree-include.test.ts",
+    "name": "does not follow a link"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-include.ts",
+    "from": "return ignored.code === 0 ? pathsOf(ignored.stdout) : [];",
+    "to": "return kept;",
+    "test": "packages/host/src/workspaces/worktree-include.test.ts",
+    "name": "copies only the files"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-include.ts",
+    "from": "if (real !== realDest && !real.startsWith(`${realDest}${sep}`)) return null;",
+    "to": "",
+    "test": "packages/host/src/workspaces/worktree-include.test.ts",
+    "name": "does not write through a link"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-include.ts",
+    "from": "constants.O_CREAT | constants.O_EXCL",
+    "to": "constants.O_CREAT | constants.O_TRUNC",
+    "test": "packages/host/src/workspaces/worktree-include.test.ts",
+    "name": "never overwrites a file"
+  },
+  {
+    "file": "packages/ui/src/sidebar/archive.tsx",
+    "from": "有任务正在用，等任务结束再归档",
+    "to": "x",
+    "test": "packages/ui/src/app/workbench.browser.test.tsx",
+    "name": "says why archiving failed for each code",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/state/new-workspace.ts",
+    "from": "这个仓库的配置里有 include 或不安全的过滤器，为安全起见没有新建",
+    "to": "x",
+    "test": "packages/ui/src/state/new-workspace.test.ts",
+    "name": "explains a repository whose configuration"
+  }
+]

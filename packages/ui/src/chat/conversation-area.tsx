@@ -7,7 +7,7 @@ import {
   loadingView,
 } from "@atrium/client";
 import type { DiffStat, SessionModel, SessionStudy } from "@atrium/protocol";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StudyKickoffLine } from "../study/kickoff-line";
 import { ArchivedDirectionBar } from "./archived-direction-bar";
 import { type StoreApi, useStore } from "zustand";
@@ -42,6 +42,8 @@ import { MessageImagesContext, messageImages } from "./message-images";
 import { ReplyImagesContext, replyImageFiles } from "./reply-images";
 import { ReplyTranslationContext } from "./reply-translation";
 import type { FileOpener } from "./file-opener";
+import { TaskLinksContext } from "./task-links";
+import { knownTaskError } from "../tasks/task-words";
 import { Transcript } from "./transcript";
 import { StoppedMessageEditor } from "./stopped-message-editor";
 import { stoppedEditStore } from "../state/stopped-edits";
@@ -756,6 +758,8 @@ export function ConversationArea({
   const [ownViews] = useState(() => createWorkspaceViews(memoryStorage()));
   const views = givenViews ?? ownViews;
   const [failure, setFailure] = useState<string | null>(null);
+  // `/task` opens the task it makes in the task area, which the workbench owns.
+  const taskLinks = use(TaskLinksContext);
   // The session shown now, for an answer that comes after the area has moved on.
   const shownNow = useRef(sessionId);
   useEffect(() => {
@@ -1152,6 +1156,22 @@ export function ConversationArea({
       // Not a draft, as `inDraft` says, so there is a session.
       if (sessionId !== null) askForChild({ parentSessionId: sessionId, turnId: null });
       return null;
+    }
+    if (name === "task") {
+      // Not a draft, as `inDraft` says, so there is a session. The host answers in codes, the words are ours.
+      try {
+        const { taskId } = await client.createTask(await target(), args === "" ? undefined : args);
+        taskLinks.openTask(taskId);
+        return null;
+      } catch (error) {
+        // The conversation has its task already: that is the one to go to, not an error (SPEC-0006, "错误码").
+        const existing = error instanceof CommandError ? error.params?.["taskId"] : undefined;
+        if (error instanceof CommandError && error.code === "task_already_converted" && typeof existing === "string") {
+          taskLinks.openTask(existing);
+          return null;
+        }
+        return (error instanceof CommandError ? knownTaskError(error.code) : null) ?? describeSendError(error);
+      }
     }
     if (name === "compact") {
       await client.compactSession(await target(), args === "" ? undefined : args);

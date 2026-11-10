@@ -52,6 +52,8 @@ export const COMMAND_REACH = {
   retry_run: "phone",
   answer_interaction: "phone",
   answer_question: "phone",
+  // A task gate's verdict is carried out by the host on the Mac; a phone only sees the reviews (ADR-0018, decision 5).
+  answer_review: "local_only",
   // A session's settings.
   set_model: "phone",
   set_thinking_level: "phone",
@@ -135,6 +137,29 @@ export const COMMAND_REACH = {
   rename_device: "local_only",
   revoke_device: "local_only",
   reset_remote_identity: "local_only",
+  // Tasks are read-only on a phone: it may list and open them, not answer, rerun, pause or cancel
+  // (SPEC-0006, "协议（给 UI）").
+  list_tasks: "phone",
+  open_task: "phone",
+  create_task: "local_only",
+  start_task: "local_only",
+  abandon_task: "local_only",
+  approve_graph: "local_only",
+  reject_graph: "local_only",
+  answer_human: "local_only",
+  rerun_node: "local_only",
+  continue_node: "local_only",
+  pause_task: "local_only",
+  resume_task: "local_only",
+  cancel_task: "local_only",
+  answer_archive: "local_only",
+  open_task_session: "local_only",
+  list_schedules: "local_only",
+  pause_schedule: "local_only",
+  resume_schedule: "local_only",
+  run_schedule_now: "local_only",
+  delete_schedule: "local_only",
+  edit_schedule: "local_only",
   // The phone shows a visual as a card and renders nothing (SPEC-0007, "手机端").
   resolve_visual: "local_only",
   send_visual_message: "local_only",
@@ -197,6 +222,9 @@ export const PUSHED_TO_PHONE = {
   pi_latest: false,
   credentials_changed: false,
   remote_updated: false,
+  tasks_updated: true,
+  task_updated: true,
+  schedules_updated: false,
   visual_changed: false,
 } as const satisfies Record<HostMessage["type"], boolean>;
 

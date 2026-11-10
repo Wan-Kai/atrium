@@ -4,6 +4,45 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## T1 worktree 加固（SPEC-0006"工作区"，2026-11-04，待验收）
+
+真的 git、真的仓库（testkit `createGitScene`），仓库里埋真的钩子、过滤器和 fsmonitor（`plantTraps`，每个被执行就留一个标记文件；`testkit/git.test.ts` 先证明裸 git 会触发它们，所以"没出现标记"不是陷阱本来就没响）。
+
+| 行为 / 风险 | 验证 |
+|---|---|
+| 新建工作区、新建子对话的 worktree 不跑 `post-checkout` 钩子、smudge/clean 过滤器、`process` 过滤器、`core.fsmonitor`；只有用户全局配置里定义的过滤器也不跑 | `workspaces/worktree-creator.test.ts` "hooks, filters and fsmonitor" |
+| 宿主的 `git commit`、`git merge` 同一组参数，不跑 `pre-commit`、`post-commit`、`post-merge`、过滤器；对照：裸 git 会跑 | `workspaces/safe-git.test.ts` |
+| 配置遍历：每个过滤器（含名字带点的）四条命令；没有名字的 `filter.smudge` 不算；git 不在仓库里时报错 | `safe-git.test.ts` `safeGitOptions` |
+| 有 `include.path`、`includeIf`、`config.worktree` 里的 include、名字带 `=` 的过滤器时拒绝，不建分支不建目录；子对话也拒；无 include 或只有用户全局的 include 照建 | `worktree-creator.test.ts` "a repository that includes other configuration" |
+| 起点固定：起点分支（或父工作区的 HEAD）在 `worktree add` 前被移动，仍从核对时的提交建；建完 HEAD 不等于起点报 `head_mismatch`、留目录、不登记 | `worktree-creator.test.ts` "the start" |
+| `.worktreeinclude`：只复制被忽略、未跟踪、列出的文件；不跟随链接；`node_modules` 跳过；不覆盖；不写出新 worktree 的链接；`.worktreeinclude` 是链接时不用；10 MiB 边界、64 MiB 总量、500 个文件；跳过只记个数不记路径 | `workspaces/worktree-include.test.ts` |
+| 新建工作区和子对话都带上 `.worktreeinclude` 的文件；子对话读的是父工作区的目录 | `worktree-creator.test.ts` ".worktreeinclude" |
+| 任务锁：加锁、同任务重复加锁、解锁、不动别的任务或用户的锁、`git worktree list` 的锁原因解析、启动时只清已结束任务的锁 | `workspaces/worktree-lock.test.ts`、`worktree-list.test.ts` |
+| 归档遇到任务锁：`workspace_in_task`（带任务 id），目录和会话都不动；用户自己的锁仍由 git 拒绝（`worktree_remove_failed`） | `workspace-archiver.test.ts` |
+| 恢复归档的 worktree 同样不跑钩子、过滤器、fsmonitor；仓库配置有 `include` 时拒绝，标记保留 | `workspace-archiver.test.ts` |
+| 界面说法：`worktree_config_unsafe`、`head_mismatch`、`workspace_in_task`；错误码进协议和 Swift 投影 | `ui/state/new-workspace.test.ts`、`ui/app/workbench.browser.test.tsx`、`protocol/envelope.test.ts` |
+
+- 破坏检查：`docs/testing/t1-worktree-break-check.json`。
+- 没做：加锁、解锁、启动清锁还没接到任何流程上（T1 里没有任务）；不关 `merge.<名>.driver`、`diff.<名>.textconv`（T5 已评估：驱动关掉，`textconv` 不用，见 T5 一节和 security.md）。
+
+## T3 任务核心（SPEC-0006"状态机""调度器""改图"，2026-11-04，待验收）
+
+`packages/host/src/tasks/`：类型、`GraphValidator`、`Scheduler.step`、`TaskStore`；开发入口 `pnpm task:replay`。全是纯函数加文件，不起 pi。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 状态机每条转移、调度器每条规则：就绪与汇合、`node_done` 结算与提交顺序、`no_done` 提醒一次再失败、五种失败、`held` 与 `stopped` 分开、暂停恢复、重跑沿用 attempt、打回（旁支一起重置、attempt+1、`backFrom`、上限 2）、取消、放弃、问题 / 改图等待、批准 / 拒绝、human 节点与合并（`merging`、`merge_blocked`、再点通过重试）、工作区 `none→creating→ready` 与失败、`work` 独占、6 个名额、宿主重启 | `tasks/scheduler.test.ts`、`scheduler-resources.test.ts`（表驱动 85 项） |
+| SPEC 列的六种交错：兄弟失败后重跑、暂停后恢复、合并冲突后改图加节点使 human 回到 `pending`、打回时旁支重置、一个 running 一个 waiting 时第三个失败、`stopped` 期间批准改图 | 同上，用例名里带原文 |
+| 性质（随机图 + 随机事件序列，含同一事件送两次、迟到的旧 attempt）：`work` 在跑时没有别的节点在跑；`stopped` 的任务不起新节点；打回不超过 2 次；同一 attempt 不重复 `start_node`（重跑后除外）、`creating` 时不重发 `ensure_workspace`；任务状态与节点状态一致（另写一份状态表对照）；任何状态下合作式操作都能走到 done；另有名额、依赖、`endedAt` | `tasks/scheduler.prop.test.ts`（fast-check，400 + 500 次游走；`scheduler-model.ts` 放生成器和不变量；另有固定种子的"覆盖"测试，保证游走真的走到打回、保持、合并等动作） |
+| `step` 纯：不改传入的任务（测试里深度冻结）、同一输入同一输出、不适用的事件原样返回 | `scheduler-resources.test.ts`、`scheduler.prop.test.ts` |
+| `GraphValidator` 每条规则一个通过、一个不通过：结构（20 个上限、重复 id、未知节点、环、打回边、起点终点）、字段（agent / human / `merge`）、不属于项目、只读规则、启动后（不能删、不能改、入边锁定） | `tasks/graph-validator.test.ts`（27 项） |
+| `TaskStore`：追加事件、`task.json` 快照、重开读回；截断的最后一行丢弃并补齐换行；中间坏行报错；`task.json` 缺失 / 损坏 / 落后 / 超前时从事件重建；事件串行；无效事件不写入；重放得到同样的动作（动作带 node + attempt，供 T4 认"已做过"） | `tasks/task-store.test.ts`（23 项） |
+| 三个示例事件文件重放结果 | `tasks/fixtures.test.ts`；`dev/task-replay.test.ts`（输出格式、目录 / 文件、截断行、错误码） |
+
+- 破坏检查：`packages/host/src/tasks/tasks.break-check.json`，32 处全部抓到（六条性质各至少一处，另有表驱动、`GraphValidator`、`TaskStore` 的）。
+- 变异测试：`pnpm test:mutation tasks --force`（新组 `tasks`，`types.ts`、`test-support.ts`、`scheduler-model.ts` 不算）：scheduler.ts 84.90%（单独跑 86.04%）、graph-validator.ts 89.67%、task-store.ts 85.31%、advance.ts 93.45%、status.ts 90.20%、graph.ts 80.42%、draft.ts 80.00%、replay.ts 92.59%、texts.ts 90.91%。`dev/task-replay.ts` 不在变异组里（构建入口，测试直接调 `main`）。
+- 没做：`TaskRunner` / `TaskService` / 动作幂等的真实认出（T4）；`archive_*` 事件在 `Task` 里无处记（T5）；冲突文件列表不在事件里。
+
 ## MV1 对话里的交互演示（SPEC-0007，2026-11-05，2026-11-06 验收）
 
 回复里 `visual` 代码块内联成沙箱演示；协议 35（分支上是 32，2026-11-06 合回 main 时 main 已用到 34，改为 35；`resolve_visual`、`send_visual_message`、`visual_changed`、`Turn.user.source`）。实现时定的细节（2026-11-06 已全部由用户确认）见 SPEC-0007"MV1 实现时定的细节"。
@@ -2487,6 +2526,358 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 用样例同步数据截图（经真的 `SyncCore.receive`）：`pnpm ios:shot --gallery=location-sheet|new-session-missing|model-sheet|drawer [--dark]`，已逐张看过。
 - 没有自动测试、靠验收看：抽屉里的 relay、手机名、版本和"重新配对"；忘掉 Mac 清理失败时的提示；新建进行中不能点"×"；新会话页的失败提示只显示本页发起的。
 - 审查里决定不改的：hunk 之间的上下文不展开（协议没有按版本取内容的命令，SPEC 已写明）；签名到期用 `Date.now`（按天显示，`Signing` 本身接受注入的时间，界面层不另做时钟）；`ios-brand-icons.mjs` 不进 `pnpm check`（要 Playwright 的浏览器）。
+
+## T2 路径隔离（SPEC-0006"路径隔离"、SPEC-0002"路径隔离"，2026-11-04，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 第一步按 pi `resolveToCwd` 解析：相对路径、`..`、绝对路径、开头的 `@`（只去一个）、`~` / `~/`（`~name` 不展开）、`file://`（含百分号转义）、各种 Unicode 空格 | `path-guard.test.ts` `resolveWritten` |
+| 第二步求真实路径：存在的穿链接、不存在的多级目录取最深存在的祖先、悬空链接按目标（含相对链接）、成环和无权限当算不出来 | `path-guard.test.ts` `realLocation` |
+| 第三步判定：放行 `./ok.txt`、`.github`、`.gitignore`、深处的 `x/.git/y`；拦 `..`、`@/tmp/x`、`~/x`、`file:///tmp/x`、名字以 cwd 开头的兄弟目录、经外部目录链接写新文件（任意深）、指向外部的文件链接和悬空链接、cwd 本身是链接、`.git`（目录、文件、不存在、大小写、经链接）、算不出来的路径 | `path-guard.test.ts` `checkWrite` |
+| 钩子：拦 `edit` / `write`、统一原因、不看 `read` / `bash` 和没有文本路径的调用、开关为假时不动；和 pi 的扩展接口对得上 | `path-guard.test.ts` `guardPaths` |
+| 真实 pi 加 faux 模型：被拦 `../outside-…`、`@<外部>/…`、`~/…`（HOME 设在目录外）、`file://…`、经外部目录链接写新文件、`.git/config`；模型读到原因；放行 `./ok.txt`；`.git/config` 内容不变 | `path-guard.pi.test.ts` "blocks a work child's writes…"、"keeps .git/config" |
+| 终端里的 pi（没有宿主的参数）、手动开的子对话（`isolated: false`）、没有这个字段的旧参数：钩子不动作，同样的写入全部落地 | `path-guard.pi.test.ts` "does nothing in …" |
+| 宿主算 `isolated`：agent 开的 `work`（含带上下文的、孙）为真；手动开的、带 `work` 记录的用户会话、`explore`、`advise`、主对话为假；写进 `--atrium-agent` | `agent-launch.test.ts` `agentSelf, isolated` |
+| 宿主层：用宿主算出的参数起真 pi，agent 开的 `work` 子对话写目录外被拦、目录内写成；手动开的都写成 | `agent-isolation.host.test.ts` |
+
+- 破坏检查：`packages/pi/src/task/path-guard.break-check.json`，31 处全部抓到（解析 6、真实路径 5、判定 6、钩子 5、扩展接线 5、宿主 5）。
+- 变异测试：`pnpm test:mutation pi --mutate=packages/pi/src/task/path-guard.ts`：92.93%（92 杀、7 活；活下来的是等价或只影响退出条件的变异，原因文字的一个随后补了字面断言）。
+- 没做：`bash` 里 `git -C` 等的拦截（SPEC-0006 要，留给 T4）；终端 pi 的"钩子不生效"由 `path-guard.pi.test.ts` 覆盖，没有另做 `fixtures` 录制（`unrecorded`，断言文件结果不断言 pi 流量）。
+
+## T4a 节点运行的 pi 扩展一侧（SPEC-0006"一个 agent 节点怎么跑""扩展与通道"，2026-11-05，待验收）
+
+`packages/pi/src/task/`：`schema.ts`（给 T4b 的接口）、`extension.ts`（`node_done`、`request_graph_change`、`/atrium-task`）、`words.ts`（给模型的话、各角色可用的工具）、`git-guard.ts`（bash 的 git 拦截）。契约测试用 `packages/pi/test/fake-task-host.ts` 当假宿主：只看 pi 的事件、回答通道请求，按 SPEC 判待结算的作废和结算，是 T4b 判定的参照。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| `--atrium-task` 只分会话种类和角色：节点（四种角色）、任务对话、都不是（缺参数、读不出、未知角色、带多余字段）；都不是时什么也不注册；参数不带身份 | `task/schema.test.ts`、`task/extension.test.ts`；`task-node.pi.test.ts` "who gets the node tools"（真 pi：五种情形下模型的工具里没有 `node_done` / `request_graph_change`） |
+| 请求信封、参数、回答、隐藏命令各自的 zod 校验：版本、未知操作、多余字段、超长、坏请求回 id；文字上限 | `task/schema.test.ts` |
+| `node_done` 单独调用：宿主收到请求，这一轮停住（不再请求模型），`agent_settled` 时待结算生效；`ok: false` 带 `reason` | `task-node.pi.test.ts` done-alone、done-gave-up |
+| 待结算作废：与别的工具同批（新的 `turn_start`）、之后插话（steer）、之后被停下、之后模型出错；各自结算为 `no_done` / `stopped` / `error`，不是 `node_done` | `task-node.pi.test.ts` done-with-others、done-then-steer、done-then-stop、done-then-error |
+| `request_graph_change` 单独调用停住这一轮；同批有别的工具同样作废 | `task-node.pi.test.ts` graph-change、graph-change-with-others |
+| 宿主的拒绝（`task_args_invalid`、`task_caller_invalid`）变成给模型的错误结果，不带 `terminate`，模型能改了再调；超长由扩展自己答，不问宿主；读不出的参数由扩展答 `task_bad_request` | `task-node.pi.test.ts` refused、wrong-caller、too-long；`task/extension.test.ts` |
+| 工具停下（abort）时清掉状态、发 `cancel`、工具失败；回答只认每个 id 的第一个，迟到的、读不出的不理 | `task-node.pi.test.ts` stopped-while-asking；`task/extension.test.ts` |
+| `nudge` 开新一轮，模型读到提醒；同 id 再发（含 pi 重启后）不再开；只对节点 | `task-node.pi.test.ts` nudge；`task/extension.test.ts` |
+| `resume` 把宿主的话包进外壳开新一轮（节点、任务对话都行），外壳标签在正文里被转义、宿主自己的引用外壳不动；`progress` 写一行不开轮、按 id 去重 | `task-node.pi.test.ts` resume、conversation；`task/words.test.ts`、`task/extension.test.ts` |
+| 节点按角色限制工具：`explore` / `advise` / `check` 只读表，`work` 全部（不含旧 `grep` / `find`），任何节点都没有 `agent_*`、`ask_parent`、`report_progress` | `task/words.test.ts`；`task-node.pi.test.ts` "a node's tools by role" |
+| 节点默认开路径隔离（`isolated` 可关）；agent 开的 `work` 子对话照旧 | `task/extension.test.ts`；`task-node.pi.test.ts` task-role-work |
+| bash 的 git 拦截：`git -C`、`--git-dir`、`--work-tree`（`=` 与空格两种）、`GIT_DIR=`、`GIT_WORK_TREE=`；引号、转义、相对路径、`~` / `$HOME` / `$PWD`、符号链接、`cd` / `pushd` 之后、`$(…)`、反引号、`sh -c`、`eval`、嵌套过深、无法判断的路径；`git commit -C HEAD` 不算；不在隔离里全部放行 | `task/git-guard.test.ts`；`task-node.pi.test.ts` "bash git outside"（真 pi、真 git：外部仓库没多出提交，`git status` 照跑，关隔离或不是任务会话时命令照跑） |
+
+- 破坏检查：`packages/pi/src/task/node.break-check.json`，59 处全部抓到（扩展 24、words 5、schema 3、git-guard 27）。
+- 变异测试：见汇报（`pnpm test:mutation pi --mutate=<文件>`）。
+- 没做：宿主一侧（T4b）：`TaskRunner`、调用方核对、待结算的真实判定、`--atrium-task` 的下发；任务对话的 `task_*` 工具（T6，`schema.ts` 里留了扩展位）。拦不住的 bash 写法见 security.md 路径隔离一条。
+
+## T4b 节点运行的宿主一侧（SPEC-0006"一个 agent 节点怎么跑""调度器""工作区"，SPEC-0003"哪些会话有这个工具"，2026-11-05，待验收）
+
+`packages/host/src/tasks/`：`runner.ts`（TaskRunner：每任务一个串行队列，执行 T4 范围内的动作）、`judge.ts`（按 pi 事件判待结算）、`channel.ts`（调用方核对、参数校验、回答）、`contract.ts` + `quote.ts`（契约拼装、外壳转义）、`commit.ts`（节点提交）、`task-workspaces.ts`（`ensure_workspace` 与加锁，用 T1 的创建器）、`task-service.ts`、`new-task.ts`；`sessions/task-sessions.ts` 与 `session-manager.ts` 的 `taskSessions`（节点会话的单独启动路径）、`agent-launch.ts` 的 `taskLaunchFlags`；`store/task-session-record.ts`（会话记录的 `task` 字段）；`dev/task-try.ts`（`pnpm task:try`）。测试用 `packages/testkit` faux 的新字段 `byConversation`（按对话的第一条用户消息挑回复，一个文件脚本化每个节点各自的 pi）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 三节点图 `explore → work → check` 跑到最后一个 agent 节点通过；可写节点的改动提交，提交带 `Atrium-Task: <taskId>/<node>/<attempt>`；check 的交接摘要记着它跑了什么；任务建的 worktree 起锁、结束解锁 | `node-run.host.test.ts` "runs explore, work and check" |
+| 按角色的工具：`explore` / `check` 只读白名单 + 三个节点工具，`work` 全部（无 `agent_*`）；节点不带 `--atrium-agent`、不是 agent 子对话 | `agent-launch.test.ts` `taskLaunchFlags`；`node-run.host.test.ts` "gives each node its own tools" |
+| 契约：做什么、怎样算完成、整张图（✓ / ← / 下一步 / 之后 / 由用户决定）、不归你做的（从图算）、上游最新一次 passed 的摘要（被打回重置的旁支不传旧摘要）、新 worktree 的环境提示、被打回的原因与上一次的摘要和提交、下一步名字；模型来源的文字（目标、结论、摘要、原因）套 `<atrium-quoted>`，外壳标签被转义，名字和"做什么"也转义 | `contract.test.ts`、`quote.test.ts`；`node-run.host.test.ts` "hands the upstream summary…as quoted data"、"puts the earlier summary and the reason into the contract of a node that was sent back" |
+| 批准改图后的新契约（`图已改…` + 新图 + 新的"不归你做的"） | `contract.test.ts` `graphChangedText`；`node-run.host.test.ts` "waits for a graph change…" |
+| 待结算由 pi 事件判定：`turn_start` 作废、`agent_end` 末条出错作废、`agent_settled` 带 `aborted` 作废（先看 `aborted`）、`auto_retry_end` 失败；结算为 done / graph_change / none / stopped / error | `judge.test.ts` |
+| `node_done` 与别的工具同批 → 作废（`node_done_void`），之后重新调用生效；不调 `node_done` → 提醒一次（`nudged`），再不调 → `failed(no_done)`；提醒只在这一轮结束后发 | `node-run.host.test.ts` "does not count a node_done that other tools…"、"reminds a node that did not call node_done once…" |
+| 调用方由宿主认定：别的会话、旧 attempt、节点不在 `running`（停了、等待、已结束）、已取消或结束的任务 → `task_caller_invalid`；空 summary / reason / suggestion → `task_args_invalid`（`params.field`）；任务不存在 → `task_not_found` | `channel.test.ts`；`node-run.host.test.ts` "refuses node_done from a session that is not the node's running one"（真 pi：模型读到拒绝，不记待结算） |
+| `request_graph_change`：这一轮结束不提醒、不提交、停 pi，节点 `waiting(graph_change)`；批准后在原会话里接着跑并提交 | `node-run.host.test.ts` "waits for a graph change without reminding or committing…" |
+| 节点用 `ask_user`：走 SPEC-0003 的问题卡，节点 `waiting(question)`，答了回 `running` 接着跑（节点不被"agent 子对话不能问"拒掉） | `node-run.host.test.ts` "lets a node ask the user with ask_user…" |
+| 兄弟失败：在跑的节点这一轮结束后 `held`（pi 停掉），重跑失败节点后 `held` 的自动在原会话接着跑；`gave_up`（`node_done({ ok: false })`）、`model_error`（pi 不重试的出错）、`crashed`（会话起不来）、`workspace`（worktree 建不出） | `node-run.host.test.ts` "fails a node that gives up, holds its sibling…"、"fails a node whose model call ends in an error…"、"starts the same attempt again after its session could not start…"、"fails a work node when the task's worktree cannot be made" |
+| 打回（直接喂 `human_sent_back`）后新 attempt 开新会话，契约里有上次的原因、摘要和提交 | `node-run.host.test.ts` "puts the earlier summary and the reason…" |
+| `start_node` 幂等：同一 attempt 会话起不来后重跑，接回已记录的会话，不开第二个 | `node-run.host.test.ts` "starts the same attempt again after its session could not start, without a second session"（读索引里该节点该 attempt 的记录数为 1） |
+| `commit_node` 幂等与不重复提交：HEAD 已带同样尾注就记下它；没改动不提交；另一 attempt 另提；提交走 `runSafeGit`（钩子、过滤器、fsmonitor 不跑，含读 HEAD 和 `diff`）、不签名、仓库没有作者时用 Atrium 的 | `commit.test.ts`；`node-run.host.test.ts` "finds the commit again after a replay that lost its event…" |
+| 宿主重启后接着跑：`recover` 重做丢了的动作（建 worktree、起节点、缺的提交），再送 `host_restarted`；跑着的节点收到"宿主重启了…"接着做 | `node-run.host.test.ts` "carries on after the host restarts…" |
+| （已被 T4 审查修复取代，见末尾"T4 审查修复"）可写节点的提交落定才 `passed`，任务结束在提交之后 | `scheduler.test.ts` "does not end the task until the last writing node's commit is settled"、"drops a commit that arrives after the task was cancelled" |
+| 节点会话不在用户的会话列表里 | `node-run.host.test.ts` "leaves no node session in the list the user sees" |
+| 泄漏：反复起停节点后 pi 进程、控制器、监听、定时器回到基线；宿主在节点跑着时关闭，runner 与所有 pi 都释放 | `node-run.leak.test.ts` |
+| `pnpm task:try`：参数、模型、图文件校验、任务 id 稳定、事件的输出、停下的条件与退出码；示例图合法 | `dev/task-try.test.ts` |
+| faux 新字段 `byConversation`：按对话的第一条用户消息挑回复、按对话里已有的助手消息数挑第几条（pi 重启后接着走） | `packages/testkit/src/faux/faux.pi.test.ts` |
+
+- 破坏检查：`packages/host/src/tasks/node-run.break-check.json` 34 条（补测试后只重跑了 contract 的 4 条）；`done` 后记 `committed` 的 3 条在 `tasks.break-check.json`，全部检出。
+- 变异测试：`pnpm test:mutation tasks`，见汇报；`runner.ts`、`task-workspaces.ts`、`task-service.ts`、`new-task.ts` 需要真实的 pi 和 git，由宿主层测试覆盖，没放进变异层（变异测试跑的是不带 `.host` 的单元测试）。
+- 没做（留给后面的步骤）：`merge`、`ask_archive`、`progress_line`、`wake_task_conversation`、`notify` 只记一条 debug 日志不执行（T5、T6、T7）；`node_done` 那一轮在宿主重启前已结束、会话文件里能看到 `terminate` 结果的结算（T9 的完整重启流程）；节点对话里用户亲手停下、插话的宿主层用例（需要 T8 的界面命令，判定本身由 `judge.test.ts` 覆盖）。
+
+## T4 审查修复（三路审查 Codex / Grok / Claude 对 T4 的发现，2026-11-05，待验收）
+
+按审查意见的字母编号。破坏检查：`packages/host/src/tasks/review-fixes.break-check.json`（宿主 36 条）、`packages/pi/src/task/review-fixes.break-check.json`（守卫 10 条），`tasks.break-check.json` 因提交落定后才 `passed` 改了 1 条、删了 2 条；`node-run.break-check.json` 有 6 条的 `from` 随代码改了（全部重跑检出）。三组均已重跑，全部检出。变异测试（只跑改动的行）：`tasks` 组 250 个变异 98.09%，`pi` 组 git-guard.ts 81.84%（补测试前，补后未重跑），`git` 组 safe-git.ts 100%，`host` 组 agent-launch.ts 84.62%。
+
+| 行为 | 测试 |
+|---|---|
+| A1/A2/A4 宿主的 git 不跑仓库配置里的命令：`diff.external`（`diff.trustExitCode`）、`log.showSignature` + 已签名 HEAD 的 `gpg.program`；`diff --cached --quiet` 只有退出码 1 算有暂存，其他非零报错；安全参数多了 `log.showSignature` / `merge.verifySignatures` / `commit.gpgsign` | `tasks/commit.test.ts` "does not run a diff driver…"、"does not run gpg.program…"、"fails on any exit code but 1…"；`workspaces/safe-git.test.ts`（参数表） |
+| A3 `core.worktree` 劫持：提交前核对顶层目录，不是节点 worktree 就拒绝且不碰外面；每条提交命令带 `--work-tree` | `commit.test.ts` "refuses to commit when the worktree's configuration points core.worktree elsewhere…"、"pins every command to the worktree…" |
+| A3/H bash 守卫：改 `core.worktree`、`extensions.worktreeConfig`、`-c core.worktree=`、`GIT_CONFIG_KEY_n`、`git config --file` 越界；`$'…'`、`${X:-…}`、`$@`；`builtin`/`command cd`、`if`/`{ }`/循环里的 `cd`；子 shell 的 `cd` 不外泄、可能没发生的 `cd` 不覆盖；读标准输入的 shell | `packages/pi/src/task/git-guard.test.ts` 新增 4 组 "what the T4 review found it let through"；`cd OUT && cd ../work/sub` 一条改为拦（第二个 `cd` 可能失败） |
+| B/C 提交标记：`commitPending` 区分"还没提交"和"查过没有改动"（`commit_checked`）；`host_restarted` 只对这一个 run 重发 `commit_node`；已结束任务 `recover` 再解锁 | `scheduler.test.ts`（"does not end the task until…"、"passes a writing node that changed nothing…"、"asks again for a pending commit…"）；`runner.test.ts` "lets go of the worktree's lock again…"；`node-run.host.test.ts` "finds the commit again after a replay that lost its event…" |
+| J 提交失败 → `failed(commit)`，后继不起、任务不结束；重跑只重试提交（同一 attempt、不开新会话），成功后图照常往下走 | `scheduler.test.ts` "fails a writing node whose commit failed…"、"retries only the commit…"、"ignores a node's turn ending…"；`channel.test.ts` "refuses a node that waits for its commit"；`review-fixes.host.test.ts` "fails the node with `commit`…"（`index.lock` 让 `git add` 失败一次，删掉后重跑） |
+| D1 同批 `node_done` 后又改图 → `node_done` 作废；放行、停下后继续时清掉待结算 | `judge.test.ts` "voids a node_done when a graph change is accepted…"；`scheduler.test.ts` "drops a waiting node_done…"、"forgets a waiting node_done when a stopped node goes on"；`review-fixes.host.test.ts` "does not pass a node on a node_done that a graph-change request…" |
+| D2 `node_done` 已生效的节点被要求 hold 时照常通过；judge 的决定和 `stop_node` 读状态在同一个队列 | `scheduler.test.ts` "passes a node whose node_done stands instead of holding it"；`review-fixes.host.test.ts` "passes a node whose node_done stands when a pause…" |
+| E1 `crashed` 去重按次 | `runner.test.ts` "reports a second crash of the same node after a rerun" |
+| E2 pi 中途崩溃被控制器重启后，宿主作废那一轮并发"宿主重启了" | `review-fixes.host.test.ts` "tells a node its pi was restarted after a crash…"（`SIGKILL` 节点的 pi） |
+| F 契约没送到就补发契约（`contract_sent` 标记） | `scheduler.test.ts` "records that the contract was sent once…"；`review-fixes.host.test.ts` "sends the contract, not a line about carrying on…" |
+| G 新建 worktree 那一行：explore 先跑过也有；单个 work 节点第二次 attempt 没有 | `review-fixes.host.test.ts` "tells the first work node the worktree is new…"、"does not tell a work node's second attempt…" |
+| I 节点 id 的格式与长度；契约里写 id 的地方都转义；`SHELL_TAG` 认空白、零宽字符、全角 `＜` | `graph-validator.test.ts`；`contract.test.ts` "escapes node ids wherever they are written…"；`quote.test.ts` |
+| K 停下的节点在对话里又运行 → `node_resumed` 先记再接受调用 | `review-fixes.host.test.ts` "lets a node the user stopped go on…" |
+| L 调用方校验、记待结算、judge 记账在同一个队列步骤 | `runner.test.ts` "takes a node_done at once after a question was answered…"（假的会话层，信号连着到） |
+| M 关宿主时取消在途的 `prompt` / `command`（带 `AbortSignal`） | `runner.test.ts` "closes while a prompt is stuck…" |
+| N 刚发出 prompt / nudge / resume、`agent_start` 还没到的 15 秒内，`stop_node(after_turn)` 等这一轮 | `runner.test.ts` "does not hold a node right after it was sent a turn that has not begun…"、"holds a node at once when no turn is going…" |
+| O 带 `task` 字段的会话不用 agent 启动参数，无启动路径的直接报错 | `sessions/agent-launch.test.ts` "sessionLaunchFlags…" |
+| P 标记指向的工作区没有 base commit 时报错不重建；`createFrom` 带取消信号；已取消不记 `workspace_created` | `tasks/task-workspaces.test.ts` |
+
+- 没有单独的测试：结束了的任务释放节点上下文（P，只回收内存，源码里按 `Stryker disable` 标注）；`merge.<名>.driver`（T5）。
+- 没做：协议包里没有失败原因枚举的镜像，`commit` 这个新原因留给 T5 的协议工作。
+
+## T5 human 节点与合并（SPEC-0006"human 节点""合并""归档""协议（给 UI）"，2026-11-05，待验收）
+
+合并、冲突、abort 失败都用真的 git 仓库（testkit `createGitScene`）；合并测试的 git 运行器缺 `cwd` 就抛错，变异体改掉 `cwd` 也不会合并进本仓库。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 合并检查顺序：worktree 脏（含未跟踪）、已合并 / 没改动直接 `merged`（主目录脏或不在主干也一样）、主目录脏、主目录不在主干（含游离 HEAD、项目没有主干）；处理后能合并；成功是 `--no-ff` 的合并提交、不推送 | `tasks/merge.test.ts` |
+| 冲突：`merge --abort`，主目录回到合并前的提交且干净，没有残留的合并状态，冲突文件列表；改好后能合并；`abort` 退出码失败、abort 后留下文件、abort 后提交跑偏 → `merge_abort_failed`；git 自己拒绝 → `merge_git_failed`、主目录没动 | `merge.test.ts` |
+| 合并驱动不跑：配置里的驱动被清空，文件变冲突（对照：裸 git 会跑）；`merge-tree`（MergeInspector）同样不跑（原有问题）；驱动名带 `=` 拒绝；钩子不跑；`core.worktree` 把主目录或任务 worktree 引走 → `merge_git_failed`；仓库没配作者时用 Atrium 的作者；合并提交号而非名字；关宿主的信号在合并前抛出 | `merge.test.ts`、`workspaces/safe-git.test.ts`、`workspaces/merge-inspector.test.ts`、`tasks/task-merge.host.test.ts` |
+| 宿主层（真实宿主 + faux pi）：脏 worktree / 脏主目录 / 不在主干分别挡住、处理后合并成功；冲突后主目录原样、处理后合并；已合并不重复合并；配置的合并驱动不跑；归档提问：已合并事实、有未提交改动时 `workspace_dirty` 且提问保留、先留着再归档、已取消未合并任务的事实、重启后提问和答案还在 | `tasks/task-merge.host.test.ts` |
+| 打回：旁支和下游一起重置（human 节点图，不起 pi）、第三次用同一条边 `task_back_limit`、重启后事件重放出同样的任务；`task_not_found`、`task_state_invalid` 各情形；暂停 / 恢复 / 取消；列出磁盘上的任务 | `tasks/human-node.host.test.ts` |
+| 调度器：`archive` 在任务结束（完成、取消）时置 `asked`、借来的 worktree 没有；`archive_answered` 结束后仍收，`asked`→`kept`/`archived`、`kept`→`archived`、其余忽略；`blockedFiles` 截到 50 个、重试时清掉 | `tasks/scheduler.test.ts` |
+| Runner：`merge` 动作的四种结果（合并、被挡带文件、抛错 → `merge_git_failed`、关宿主时什么也不记且仍 `merging`）；`continue_node` 发"继续"、状态不符报 `task_state_invalid` | `tasks/runner.test.ts` |
+| 视图：状态 / 尝试 / 摘要（取最近一次给出的）/ 打回边用了几次 / `attention` 优先级 / 文本截断 / 没有图；协议枚举和上限与宿主一致 | `tasks/task-view.test.ts` |
+| 协议：命令和事件的往返、命令结果、Swift 夹具；错误码；整条 WebSocket 上的 `list_tasks` / `open_task` / `answer_human` / 推送 / 取消订阅 / 错误码；手机只能列出和打开 | `protocol/envelope.test.ts`、`tasks/tasks-protocol.host.test.ts`、`server/router.test.ts`、`server/remote-policy.test.ts`、`client/atrium-client.test.ts`（客户端放过任务推送）；`pnpm protocol:swift --check` |
+| `pnpm task:try`：解析回答（通过 / 打回带或不带原因 / 退出 / 不认识）、human 节点显示、合并被挡的说明、归档显示、问什么、什么时候停、按行读输入；示例图读得进来 | `dev/task-try.test.ts` |
+| 泄漏：反复合并、被挡、打回、归档、订阅和退订后，资源、子进程、句柄和定时器回到原样 | `tasks/node-run.leak.test.ts` |
+
+- 破坏检查：`packages/host/src/tasks/t5.break-check.json`（34 处）、`t5-host.break-check.json`（7 处，`project: host`）。第一次跑时各漏了几处，补测后全部抓到：已合并 / 没改动的直接算合并（原先靠 git 的"Already up to date"碰巧也对）、`abort` 退出码（原先被"主目录没回原样"盖住）、摘要取最近一次、`open_task` 参数顺序。三处改成不再声称：按名字还是按提交号合并（实测 git 都选分支，留着提交号是为了合的就是检查过的那一个）、客户端放过任务推送（只是类型上的守卫）、任务 id 的形状检查（`openTaskStore` 对不存在的目录什么也不建，检查是纵深防御）。
+- 没有测试保护的：`TaskWorkspaces.merge` 里主干名取自项目的覆盖值（测试里的主干都是 `main`）；`opened.get(...) === taskId` 的守卫（连接中途换了任务时不推旧任务）。
+- 真实模型：`pnpm task:try` 跑 `explore-work-check-merge.json`（claude-bridge/claude-haiku-4-5）：打回一次（第二次的契约带上次的摘要和原因）、主目录切到 `side` 时通过被挡（`merge_main_not_trunk`）、切回后合并成功、origin 未动、回答"归档"后 worktree 目录被清理。
+
+
+## T6 任务对话与 /task（SPEC-0006"任务对话""/task 与创建""改图""扩展与通道"、附录，2026-11-05，待验收）
+
+任务对话用真的 pi + faux 模型（`byConversation` 按第一条消息 `<atrium-task-design>` 认它）；来源对话、任务对话、节点都是真会话。读 diff 用真的 git 仓库（testkit `createGitScene`）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 八个工具的参数和结果（往返、缺字段、页码 0、不存在的引导词、空图、多余参数）；`task_set_schedule` 不是一个已知调用；四个引导词 id；`mark` 命令；进度行和转换行的 `details` | `pi/task/schema.test.ts` |
+| 扩展：对话会话注册八个工具（顺序执行）、没有 `task_set_schedule`；节点只注册两个；没有标记的会话只注册命令；读结果的文字和页脚（一页没有页脚）；写结果的文字；超长 / 读不了的参数自己答 `task_text_too_long` / `task_bad_request`；`task_graph_invalid` 带码和节点；结果不对当 `task_bad_request`；停下的调用发 `cancel`；`edit` / `write` / `agent_*` / `node_done` 被钩子拦；`mark` 对没有任务标记的会话写 `converted` / `abandoned` 行、不开轮次、按 id 去重、读不了的忽略；进度行带 `what` 和 `node` | `pi/task/extension.test.ts`、`words.test.ts` |
+| 调用方由宿主认定：对话会话 / 另一个会话 / 另一个任务 / 节点；`task_not_found`；应答带结果或错误码；节点发 `task_*`、对话发 `node_done` 都 `task_caller_invalid` 且什么也没执行；同一调用 id 只答一次、被撤回的丢掉、旧的 pi 代次丢掉 | `tasks/channel.test.ts`、`tasks/runner.test.ts`（假会话层） |
+| 工具对任务的作用：状态 JSON（每个节点的全部字段、没有图、作废读作 pending、待批准的图）；摘要和名字和模型的记录、启动后拒绝摘要、结束 / 取消后四个改的工具拒绝而读的照常；提图的各种拒绝（环、缺字段、不属于项目、改了已跑的节点、多余字段）、设计中立即生效并记引导词、启动后进待批准且忽略引导词；读来源（分页、外壳、转义冒充的标记、超页、不是对话来的任务）；读节点的摘要 / 契约 / 对话；带话给运行中的节点（外壳、转义、不在跑的拒绝）；diff（范围、`since`、外壳、没有改动、截断、git 失败、仓库配的外部 diff 不跑、没有 worktree） | `tasks/conversation.test.ts`、`tasks/transcript-text.test.ts` |
+| 调度器：`summary_set` 只在设计中；`graph_proposed` 的引导词只在设计中记 | `tasks/scheduler-resources.test.ts` |
+| 设计消息：来源 id、范围包外壳并转义、四套引导词全文、项目 / 无项目的说明、五步指令的顺序；引导词：四个 id 与版本、每套写明自己的名字、写代码的三套把实现和验证分开并以带合并的 human 节点收尾、调研一套没有 work | `tasks/design.test.ts`、`tasks/guides.test.ts` |
+| 进度行和唤醒：节点开始 / 通过写进度行（带 `what`、`node`、按行 id）；手工造的任务不写；改图申请唤醒任务对话（`kind: wake`，理由和建议包节点的外壳并转义） | `tasks/runner.test.ts`（假会话层）、`tasks/design.host.test.ts` |
+| **宿主层（真宿主 + faux pi）**：`/task`（`createFromChat`）→ 读来源 → 写摘要 → 起名 → 按引导词提图 → 启动 → 三个节点跑到 `done`，来源对话文件里有 `converted` 行、任务对话文件里有进度行、任务对话的工具里没有 `write` / `agent_*`；节点申请改图 → 唤醒任务对话 → 它提新图 → 批准 → 节点接着跑、任务 `done`；拒绝后节点按原图做；已转过的再 `/task` 答 `task_already_converted`（带任务 id）；放弃：记录和目录没了、任务对话归档、来源对话第二行 `abandoned`、能重新 `/task`；已启动（取消）的仍答 `task_already_converted`；崩溃留下的半删记录不挡；不认识的会话 `session_not_found`；启动检查（无图、有环、不属于项目的 work）；批准 / 拒绝的状态错误；批准前再校验；放弃时推送的连接收到空列表且不记警告 | `tasks/design.host.test.ts`（11 项） |
+| 协议：五个命令的往返、答复、路由（含参数完整）、手机不能发；三个新错误码；协议号 31；Swift 投影和往返夹具 | `protocol/envelope.test.ts`、`protocol/remote.test.ts`、`server/router.test.ts`、`server/remote-policy.test.ts`；`pnpm protocol:swift --check` |
+| 任务对话的启动参数：只读白名单 + 八个工具 + `ask_user`、标记里是 `conversation`、没有 `--atrium-agent` | `sessions/agent-launch.test.ts` |
+| `pnpm task:design`：参数解析、按会话 id 找文件并读 cwd（只读）、提醒（实现节点后没有 `check`、没有 human 节点）、打印的摘要和图、读任务对话最后说的话 | `dev/task-design.test.ts` |
+| 泄漏：反复建任务再放弃后资源、子进程、句柄、定时器回到原样；设计中关宿主时运行器和任务对话的 pi 都释放 | `tasks/node-run.leak.test.ts`（新增 2 项） |
+
+- 破坏检查：`packages/host/src/tasks/t6.break-check.json`（35 处，pi、协议、宿主单元）和 `t6-host.break-check.json`（11 处，`project: host`），共 46 处全部抓到。第一次跑时漏了两处，补测后抓到：一页的文字不该有页脚（`pageFooter`）；放弃时没归档任务对话（原先只断言了“不在侧栏”，任务对话本来就不在侧栏，断言恒真，改读索引里的 `archived`）。
+- 变异测试：`pnpm test:mutation tasks --mutate=<文件>` 会让每个变异都跑 `tasks` 组里的全部宿主层测试（几分钟一个），所以这次用了只含单元测试的临时分组（`mutation-groups.mjs` 里加过 `t6` / `t6pi`，跑完已还原、没有提交），命令同 `pnpm test:mutation <组> --force --mutate=<文件>`。结果：`conversation.ts` 90.64%、`channel.ts` 99.13%、`design.ts` 100%、`transcript-text.ts` 96.81%；pi 侧 `extension.ts` 89.64%、`words.ts` 94.25%、`schema.ts` 94.35%。`dev/task-design.ts` 的纯函数（解析、找文件、提醒、打印、读最后一句）变异全部抓到；`runTaskDesign` 和 `main` 要真模型，不在变异组里（同 `task-try.ts`），整文件 54.22% 主要是它们。conversation.ts 第一次只有 81.87%，补了状态 JSON 的逐字段断言、diff 的空 / 截断 / git 失败、对话里的工具调用、契约和对话的来源标签、带话的整段文字，抓到了大部分。没跑：`runner.ts`、`task-service.ts`、`new-task.ts`（`tasks` 组按说明不含这三个，由宿主层测试覆盖）、`scheduler.ts` 本次新增的两处（表驱动测试加破坏检查，没单独跑变异：另一个变异测试在跑它）、`agent-launch.ts`、`session-manager.ts`、协议文件（各有测试和破坏检查）。
+- 没有测试保护的：`task_send_to_node` 经真宿主送进真 pi 的 `streamingBehavior: "steer"`（宿主层没有这一条：单元测试只验证调用 `deliver` 时带着外壳的话）；`pnpm task:design` 的 `runTaskDesign` 本身（要真模型，已手跑，见下）；任务对话的 `bash` 不受只读约束（SPEC 里已写明）。
+- 真实模型：`pnpm task:design --from <id> --model claude-bridge/claude-haiku-4-5` 在一段现造的需求对话上跑通，选了 `feature`、写出摘要和四节点图（explore → work → check → human 合并，human 可打回 work），原文件前后哈希相同；输出见 T6 的验收报告。
+
+## T7 任务区（只读）（SPEC-0006"界面""任务对话的进度和记录折叠""错误码"、"T7 定下的细节"，2026-11-06，待验收）
+
+界面测试在真浏览器里渲染整个 `Workbench`，客户端是假的（`fakeClient` 多了 `tasks`、`task(id)`），所以侧栏入口、任务区、标签、列表、图、任务对话、需求对话的那一行都走真实的组件和真实的 store；宿主一侧用真宿主 + faux pi + 真客户端。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 侧栏入口在搜索下面，数字是"待我介入"组的任务数（设计中、等你、停下），为 0 不显示；点它主区换成任务区，选侧栏里的工作区离开任务区 | `ui/tasks/task-area.browser.test.tsx`（"the sidebar's task entry"） |
+| 任务区标签：任务、定时在前且都没有关闭按钮；任务标签有关闭按钮，关掉回到列表、任务不受影响；定时标签的空状态 | 同上（"the task area's tabs"） |
+| 任务列表：按待我介入 → 运行中 → 已完成分组和排序、每行的名字 / 项目 · worktree / 当前节点 / 最后活动 / 状态、设计中的行、失败 / 合并被挡 / human / 暂停 / 改图各自的说法、已完成 7 天 5 条加"显示全部"和"收起"、项目筛选含"不属于项目"、空状态、定时触发的时钟图标 | 同上（"the task list"）；排序、分组、紧迫程度、7 天 5 条、筛选的逻辑 `ui/tasks/task-list-model.test.ts`；各状态的说法、节点和模型的说法、"多久以前" `ui/tasks/task-words.test.ts` |
+| 任务标签：七种节点状态各有自己的图标和图例、边数；单独指定的模型蓝字 / 继承灰字 / human 节点没有模型；点节点描框、换节点、点空白取消；悬停出做什么 / 怎样算完成 / 失败原因 / 合并被挡的原因；设计中的任务显示草图和版本、任务模型、项目 · worktree、"需求对话"链接；点链接回需求对话并离开任务区；打开任务并经会话订阅看任务对话、没有输入框和任务按钮；`task_not_found` 的话和读取中；节点状态随宿主推送变（运转中→通过）不重载；human 节点在等时订 `watch_changes` 并显示改动统计 | 同上（"a task's tab"）；分层、居中、边的路径、打回环的泳道、环和不存在的边、20 个节点的耗时 `ui/tasks/graph-layout.test.ts` |
+| 任务对话里的进度：同一段连成一组、最后一组展开成过程轨道的步骤（失败 ×、等你橙点）、前面的组收成一行摘要（节点通过数、时间范围）、点开再收起、点过之后加一行不改选择、新的一组出现时上一组自己收起；设计指示缩成一行 | 同上（"the task conversation's progress and records"）；分组和摘要的纯逻辑在同一文件里经界面验证 |
+| 需求对话里的"已转为任务「名」· 状态 · 打开 ›"，点"打开"开任务标签；同一任务两条标记只画最后一条（任务已放弃） | 同上（"the line a conversation shows once it became a task"） |
+| 任务区状态：打开的任务标签不重复、关闭后去前一个或列表、显示 / 隐藏不动标签、筛选和显示全部 | `ui/state/task-area.test.ts` |
+| 客户端：`watchTasks` 要列表并收整张推送、旧 `seq` 丢掉、答案不盖掉更新的推送、重连后计数重来并再要一次、停止后推送不收；`openTask` 保留整个任务、`task_not_found` → `missing`（留着上次的任务）、别的失败 → `failed`、重连后再开 | `client/atrium-client.test.ts`（"tasks (SPEC-0006, T7)"） |
+| 宿主：`TaskSummary.current`（失败 > 停下 > 等你 > 运转中，同级取图里靠前）、`activeAt`、`scheduled`；`TaskView.model`、`sourceSessionId`、`TaskNode.model` | `host/tasks/task-view.test.ts` |
+| 对话记录：任务对话的进度行和需求对话的标记投影成 `task_progress` / `task_mark` 两条线之间的 notice；`atrium-task` 的 `nudge` / `resume` / 读不了的什么也不画 | `host/transcript/projection.test.ts`、`pi/history/log-entry.test.ts` |
+| 进度行实时到：pi 写下进度行时翻译成 `task_line_added`，控制器重读文件；`nudge` / `resume` / 读不了的不发 | `pi/events/translate.test.ts`；真宿主 `host/tasks/board.host.test.ts` |
+| **真宿主 + 真客户端**：任务列表里有设计中的任务（无当前节点、`activeAt`）、`open_task` 的整个任务（模型、需求对话、节点模型 `null`）、任务对话按 id 订阅得到快照和第一条设计指示、启动后列表变 `done`、进度行逐条出现在任务对话、节点状态推送、需求对话里有 `task_mark` | `host/tasks/board.host.test.ts`（先在没有 `task_line_added` 时失败过：60 秒也没有进度行） |
+| 协议：新字段的往返、两种新 notice、协议号 32；Swift 投影和往返夹具（`pnpm protocol:swift --check`，`swift test --filter AtriumProtocolTests` 通过，`swift build` 通过） | `protocol/envelope.test.ts`、`protocol/remote.test.ts` |
+| 性能：50 个任务 × 20 个节点，按下"任务"到列表画好、按下一行到图画好 | `apps/desktop/e2e/tasks.perf.spec.ts`（`@perf`，数字见 testing.md） |
+
+- 破坏检查：`packages/ui/src/tasks/task-area.break-check.json`（46 处，`project: ui` 的是界面测试）。
+- 没有测试保护的：悬停卡的浮动位置（`useFloatingLayer`，别处已测）；任务标签在窄窗口下的排版；点阵涡旋等动效；浅色 / 深色截图对照设计稿靠人看（截图在验收报告里）。
+- 没做（留给后面的步骤）：见 SPEC-0006"T7 定下的细节 · 没做、留给后面"。
+
+## T7.1 开发时在 Atrium 里跟着 task:try（SPEC-0006"T7.1 定下的细节"，2026-11-06，待验收）
+
+宿主一侧用真宿主、真文件系统（递归 `fs.watch`）、真任务存储；写者是同一进程里另开的一个 `openTaskStore`（`pnpm task:try` 在另一个进程里，写的是同样的字节，一次真实运行见验收报告），半行用手写字节造。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 纯读重放：整份日志重放成存储会给的任务（同一个 `parseEvents` / `replayEvents`）；最后一行没写完时忽略、写完整后读到；**不写**（每个文件的哈希和 mtime 不变，落后的 `task.json` 不修、没有的不建、半行不截、不补换行）；没有事件时没有任务；中间坏行报 `TaskStoreCorruptError`；用大小和 mtime 判断变没变 | `host/tasks/task-reader.test.ts` |
+| 跟随：已有的任务列出、之后写者每走一步推一次、不为第一次扫描推；后来才出现的任务目录、整个消失的任务；半行忽略且目录不变、写完整后读到；watch 起不来时轮询、watch 开着但漏了通知时的兜底；目录不存在时只记一次 warn（不含路径）、之后重试、出现后跟上并推给监听者；自己的任务同 id 时自己赢并记一次 warn；跟自己的任务目录（含符号链接）时拒绝；中间坏行的任务保留上次的状态、只记一次；关闭后 watch 和计时器都释放、不再通知，等着去抖的那次也取消 | `host/tasks/task-follower.test.ts` |
+| 真宿主：被跟着的任务和自己的任务一起出现在 `list_tasks`，`open_task` 的 `followed` 为 `true` / `false`、被跟着的 `sourceSessionId` 为 `null`、`archiveFacts` 为 `null`；写者一步步写，`task_updated` 里节点一个个变色，`tasks_updated` 里状态和当前节点跟着变；**十二个任务命令**（`answer_human` 两种、`rerun_node`、`continue_node`、暂停、恢复、取消、启动、放弃、批准图、拒绝图、`answer_archive`）和 `recover`、`submit` 都答 `task_read_only` 且目录不变，Atrium 自己的目录里没有它；不认识的 id 仍是 `task_not_found`；跑着、停在节点的被跟着任务 400ms 里没有任何 pi（`session.controller` 为 0、目录不变）；写者留着半行时目录逐字节不变；同 id 时自己赢（列表、视图、命令）；目录不存在时 warn 一次、出现后跟上；目录被删时从列表拿掉并推送；跟自己的目录时拒绝 | `host/tasks/followed-tasks.host.test.ts`（日志门禁：未声明的 warn 会失败） |
+| 泄漏：宿主一轮轮起停，一个 watch、关后为 0、`timer` 为 0、Node 的 `FSEvent` / `FSWatcher` 回到基线；六十次追加后资源计数回到稳定值 | `host/tasks/followed-tasks.leak.test.ts`（`Timeout` 数没比，它随测试运行器自己的计时器变，见文件注释） |
+| 打包版忽略：只有主进程在 `!app.isPackaged` 时读 `ATRIUM_FOLLOW_TASKS`；Electron 里的宿主只收主进程交来的值（空串被拒） | `apps/desktop/src/main/follow-tasks.test.ts`、`host/electron-port.test.ts`；`security.md` 环境变量表登记，`pnpm boundary --all` 通过 |
+| 界面：被跟着的任务的任务对话窗格写两行只读说明、不写"正在读取任务对话…"、不订阅会话；`task_read_only` 的说法 | `ui/tasks/task-area.browser.test.tsx`（"says a followed task is read-only"）、`ui/tasks/task-words.test.ts` |
+| 协议：`TaskView.followed` 往返（`true` 与 `false` 都在例子里）、错误码 `task_read_only`、协议号 33；Swift 投影和往返夹具（`pnpm protocol:swift --check`、`swift test --filter AtriumProtocolTests` 通过） | `protocol/envelope.test.ts`、`protocol/remote.test.ts` |
+
+- 破坏检查：`packages/host/src/tasks/t71-follow.break-check.json`（40 处，`project` 写明 host / leak / ui，其余是 unit）。
+- 没有测试保护的：入口 `entry.ts` 把环境变量或主进程交来的值写进宿主配置的那几行（真实运行里走过：开发版 Electron 经 `config` 消息交给宿主，见验收报告）；`startTaskFollower` 里"没变就不重读"的优化（只省读文件，行为一样）。
+- **一次真实运行**（2026-11-06）：开发版 Electron + Vite，临时 `ATRIUM_HOME`，`ATRIUM_FOLLOW_TASKS=<仓库>.task-try-xyz/tasks`，另一个进程 `pnpm task:try packages/host/examples/explore-work-check-merge.json --model deepseek/deepseek-flash:off`，跑到 human 节点；Atrium 里图上节点一个个变色，停在"等你验收"；task:try 空闲时哈希和 mtime 在第二次启动 Atrium 前后逐文件相同。截图见验收报告。
+- 没做（留给后面的步骤）：见 SPEC-0006"T7.1 定下的细节 · 没做"。
+
+
+## T8a 审核（协议与宿主）（ADR-0018、SPEC-0006"T8a 定下的细节"，2026-11-06，待验收）
+
+宿主一侧：ReviewHub 用手写的 provider 单测，任务关卡用真宿主（真 pi 跑 faux 模型、真任务存储、真 git 工作区、真 WebSocket 客户端）；任务对话是 `/task` 做出来的真会话，human 节点不需要 pi。界面（T8b）不在这一步。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| ReviewHub：按会话汇总各 provider（先出现的在前）、只在变了时通知、没有审核的会话不吵、一串变化只算一次；裁决形状（按钮不存在 / 目标缺了、不在列表里、不该给 / 必填的原因没写、全是空白、不收原因的写了 → `review_invalid` 带 `field`）；审核不在 → `review_closed`；同一会话两个裁决排队、第二个 `review_closed`、两个会话互不等；provider 失败照样抛出并重算；算失败时保留上次的结果并记一条 warn；监听者抛错不挡别人；多个 provider 各收各的裁决；provider / 监听者的资源计数关闭后归零 | `host/reviews/review-hub.test.ts` |
+| ReviewHub 不漏：一轮轮建、答、关，`review.provider` / `review.listener` 回到 0；跑着的宿主各 1、停后 0、`timer` 为 0 | `host/reviews/review-hub.leak.test.ts` |
+| 任务关卡算出的审核（纯函数）：设计中 / 无人等的任务没有；human 节点的 id（带第几次）、`openedAt`、打回目标和剩余次数（用完的仍列出）、没有打回边时没有 `send_back`、事实和改动在上游摘要前、脏工作区 `warn` 且不推荐 `pass`；合并被挡住是同一张卡的 `problem`（码、文件）、`retry` 换 `pass`；作废的、正在合并的、已结束任务的 human 节点不问；改图的差异和 agent 的说明、设计中的图不算；归档题只在 `asked`、推荐按"已合并且干净"、脏树 `danger`、合并状态未知 `warn`、`kept` / `archived` / 未结束没有；按出现先后；裁决的记录和给模型看的那一行（理由截 4000 字、快照里别人写的话截 8000 字） | `host/tasks/task-reviews.test.ts` |
+| 任务关卡 provider：找到会话对应的任务、别的会话没有、任务被撤回时没有审核、别的失败抛出；每个按钮走对应业务命令（`approve` / `reject` / `pass` / `retry` / `send_back` / `archive` / `keep`）；审核没了才写记录、合并又被挡（审核还在）不写；没有任务的会话和 agent 来源的审核不执行；订阅按会话报事件、可停 | `host/tasks/task-reviews.test.ts` |
+| 图的差异：加 / 删 / 改（任何字段、边的两端、边的种类）、`inputs` 和边的顺序不算改；"上一个生效过的版本"：设计中取前一版，启动后取最近一个批准过的（拒绝的、被顶掉的、设计时的草稿不算） | `host/tasks/graph-diff.test.ts` |
+| `TaskView` 多的四个字段：`graphDiff`（第一版 `null`）、`pending`（整份、节点只含计划、对生效图的差异、说明截到上限）、`requirements`（六个字段，目标截 8000）、`reviews`（传入的，被跟着的任务为空）；都过协议的 schema | `host/tasks/task-view.test.ts`（"what the interactive task area adds"） |
+| **真宿主，human 节点**：任务对话的 `Control.reviews` 里出现、`pass` 后任务结束、卡片消失；对话里多一条 `review` 记录（证据快照 + 裁决）；模型下一次请求的上下文里有 `Atrium review: the user decided task_human_node …`；`send_back` 带目标和理由、剩余次数 2 → 1 → 0、用完的目标宿主拒绝 `task_back_limit` 且不动；每次裁决一条记录；校验的各种 `review_invalid`、不在的 `review_closed`、两个窗口同时答只有一个成功；宿主重启后任务的 `reviews` 和重新起的对话 pi 的 `Control` 里都还在，答了照样往下走 | `host/tasks/reviews.host.test.ts` |
+| **真宿主，改图**：启动后提新图，卡片带差异（加、改）和 agent 的说明，`TaskView.pending` 给整份、批准后 `graphDiff` 对上一版；拒绝；两条记录；已经没有的再答 `review_closed`，业务命令 `task_state_invalid`；需求摘要给到 `requirements`、启动后不再变 | `host/tasks/reviews.host.test.ts` |
+| **真宿主，合并与归档**：合并被挡（工作区脏）→ 同一张卡带 `problem`、按钮 `retry`、不写记录 → 清掉后 `retry` → 合并成功、写一条记录；任务结束后出现归档题，已合并且干净推荐 `archive`，选 `archive` 后 `archived`；未合并推荐 `keep`，选 `keep` 后 `kept`，业务命令再答 `keep` 仍 `task_state_invalid`；`archive` 被业务命令拒绝（工作区脏）时原码 `workspace_dirty` 回给客户端、卡片还在（事实变成 `danger`）、不写记录 | `host/tasks/reviews.host.test.ts` |
+| **真宿主，会话**：审核开着时给任务对话发消息，模型收到、审核不动；节点用 `ask_user` 提问，只 `watch` 它会话的客户端看到 `control.question`，`answer_question` 后节点继续；任务和节点的会话不在 `client.index` 的会话列表里；`open_task_session` 起已通过节点的 pi（`watch` 后收到快照、任务没有新事件、不进布局）和任务对话的 pi；别的任务 / 来源对话 / 不存在的会话 `session_not_found`、不存在的任务 `task_not_found` | `host/tasks/reviews.host.test.ts` |
+| 被跟着的任务：没有审核（`reviews: []`），对它的会话发 `answer_review` 应答 `review_closed`、目录逐字节不变；`open_task_session` 与其它任务命令一样 `task_read_only` | `host/tasks/followed-tasks.host.test.ts` |
+| 手机 / 远程：`answer_review`、`open_task_session` 是 `local_only`，连接是远程时路由应答 `local_only` 且什么也不调 | `host/server/remote-policy.test.ts`、`host/server/router.test.ts`（"lets a phone list and open tasks but not …"） |
+| 路由：`answer_review`、`open_task_session` 带完整参数交给 hub / 任务命令 | `host/server/router.test.ts` |
+| 会话控制：`Control.reviews` 来自注入的来源、变了才发 `control_updated`、没注入时为空 | `host/sessions/session-controller.test.ts`（"createSessionController's reviews"） |
+| 扩展：`/atrium-task review` 在任务对话里写 `atrium-review` 自定义消息（`display: true`、`triggerTurn: false`、`details`）、同 id 只写一次、会话文件已有也不重写、节点和普通会话不收、读不了的忽略 | `pi/task/extension.test.ts`（"/atrium-task review"）、`pi/task/schema.test.ts` |
+| 翻译与投影：`atrium-review` 条目 → `review_line`、读不了的当 `other`；实时事件 `task_line_added`；对话记录里是 `Notice.review`（带快照和裁决） | `pi/history/log-entry.test.ts`、`pi/events/translate.test.ts`、`host/transcript/projection.test.ts` |
+| 协议：`PendingReview` / `Evidence` / `Verdict` / `ReviewRecord` 的形状（严格、四种证据、agent 来源的形状）、`Control.reviews` 必填且空时为 `[]`、命令与错误码；`answer_review`、`open_task_session` 的往返例子、协议号 34；Swift 投影和往返夹具（`pnpm protocol:swift --check`、`swift test` 402 项通过，iOS 的 `Notice` 多一个"审核"灰行） | `protocol/reviews.test.ts`、`protocol/envelope.test.ts`、`protocol/remote.test.ts` |
+| 客户端：十二个任务命令的方法、`answerReview`、`openTaskSession` 带正确参数（`createTask` 没有范围时不带 `scope`） | `client/atrium-client.test.ts` |
+
+- 破坏检查：`packages/host/src/tasks/t8a.break-check.json`（64 处，`project` 写明 host 或 unit）。
+- 变异测试（新组 `reviews`，每个文件单独跑）：`reviews/review-hub.ts` 85.94%（192 个里 27 个存活）、`tasks/task-reviews.ts` 95.83%（408 个里 17 个存活）、`tasks/graph-diff.ts` 98.36%（61 个里 1 个存活，`join(",")` 的分隔符）。存活的多是日志字段和文字、`close()` 之后的清理（`abort`、`clear`）、`idle()` 里"等到没有新排的活"的循环（只让测试能等）、不会发生的 `undefined` 兜底（`graph === undefined`）和 `clip` 恰好等于上限时切不切（结果相同）。
+- 没有测试保护的：上面存活的那些；`task-reviews.ts` 里 `recommended` 对 `send_back` 的 `false`（它永远不是默认）。
+- 没做（留给后面）：见 SPEC-0006"T8a 定下的细节 · 没做"。
+
+## T8b 交互任务区（SPEC-0006"T8b 定下的细节"、ADR-0018，2026-11-06，待验收）
+
+界面用真 Chromium 渲染真组件、真 `Workbench`，客户端是 `fakeClient`（命令只记录、失败由测试给）；纯函数用单测；整条流程在 Electron 里对真宿主走一遍（`apps/desktop/e2e/tasks-flow.spec.ts`，真 pi 跑 faux 模型）。破坏检查 `packages/ui/src/tasks/t8b.break-check.json`。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 审核卡片的组成：顶上一行来源和审核什么（任务的小胶囊、agent 发起的字）、图的改动（加 / 改 / 去掉和"在图上看"）、改动统计和"查看改动"、事实的状态、摘要引用（"某某 说"）、问题带（含文件、红色那种）、推荐的按钮排最前并填色、注意的事实让卡片描边 | `chat/review-card.browser.test.tsx`、`tasks/review-words.test.ts` |
+| 裁决：不要原因的直接发；"打回"展开表单、只剩一个目标自动选上、几个目标要自己选、用完的置灰且不能发、全用完不能发、必填原因要有非空白字、可选原因可不写；Enter 确定 / Shift+Enter 换行 / Esc 收起；失败写在卡片里能再按、一次只发一个；没发完的原因按会话和审核留着、发成功或审核没了就清掉；确认按钮、取消 | `chat/review-card.browser.test.tsx`、`chat/review-state.test.ts` |
+| agent 发起的审核：不画事实、摘要写"agent 说"、模型写的话按文字（不当标记） | `chat/review-card.browser.test.tsx` |
+| 几张卡片同时在（提问加审核）：胶囊按出现先后、一次一张、点了切换；一张时不画胶囊；提问卡片共用外壳后原有测试照旧通过 | `chat/review-card.browser.test.tsx`、`chat/question-card.browser.test.tsx`、`tasks/task-interactive.browser.test.tsx` |
+| 任务对话输入框：`prompt` / `steer` / `stop` 用任务对话的会话 id、从不 `open_session`；审核开着时发消息卡片不动；pi 没在跑先 `open_task_session`；发失败写在输入框上面 | `tasks/task-interactive.browser.test.tsx` |
+| 四种关卡在任务标签里作答（通过、打回带目标和原因、归档）、`review_closed` / `review_invalid` / `task_back_limit` 写成话、改图的"在图上看"换成提议的图并能回来 | `tasks/task-interactive.browser.test.tsx` |
+| 任务栏的按钮：设计中（放弃、确认并启动，没图时后者灰）、运行中（暂停 / 继续、取消）、停下的、完成的、归档兜底、被跟着的任务一个都没有；放弃和取消先问一句、"不了" / Esc 不发；命令失败写在任务栏下面 | `tasks/task-interactive.browser.test.tsx` |
+| 改过的节点虚线框、新加的"新"（来自 `graphDiff`，第一版没有）；需求摘要卡片（目标引用、展开各段、模型写的话按文字、全空不画） | `tasks/task-interactive.browser.test.tsx` |
+| 过程轨道上的审核记录：和进度行同组折叠、折叠行写进每个裁决、各种裁决的说法、点开看当时的证据和原因；进度行点开节点对话 | `tasks/task-progress-model.test.ts`、`tasks/task-interactive.browser.test.tsx` |
+| 列表行内作答：一次一行、再按收起；审核卡片经 `answer_review`；节点的提问用 `watch` 看它的会话并 `answer_question`；失败节点"重跑这个节点"；只有"打开任务"的行 | `tasks/task-interactive.browser.test.tsx` |
+| "等你处理"里的任务：写任务名和在等什么、按紧迫程度混排、点了开任务标签，提问的直接开节点对话；没有要处理的任务时没有 | `tasks/task-interactive.browser.test.tsx` |
+| 节点对话标签：从图的悬停卡、进度行、列表行、收件箱打开；标签在任务标签之后带箭头和节点 id；插话 `prompt`、停 `stop`、pi 没在跑 `open_task_session`；关任务一起关、单关回任务；没开始的节点说明白 | `tasks/task-interactive.browser.test.tsx`、`state/task-area.test.ts` |
+| `/task`：内置命令、列在命令里、调 `create_task`（带范围）、成功开任务标签、不发给模型；失败（`task_already_converted`）写在输入框上面 | `tasks/task-command.browser.test.tsx`、`chat/builtin-commands.test.ts`、`chat/composer.browser.test.tsx` |
+| 从对话 `/task` → 确认并启动 → 在列表里答多选 → 通过并合并 → 归档，全程在 Electron 里对真宿主走通 | `apps/desktop/e2e/tasks-flow.spec.ts` |
+
+- 没做（留给后面）：见 SPEC-0006"T8b 定下的细节 · 没做"。
+
+## T8 审查修复（SPEC-0006"T8 审查后用户定"，2026-11-08，待验收）
+
+三方审查（Codex gpt-6-astra、Grok grok-4.7、Claude）找出的问题和用户的四个决定。宿主一侧的新用例在 `packages/host/src/tasks/t8-fixes.host.test.ts`（真宿主、真 pi 跑 faux 模型、真 git、真客户端）和各自模块的单测；界面一侧在 `tasks/task-interactive.browser.test.tsx`、`chat/review-card.browser.test.tsx`、`tasks/task-command.browser.test.tsx`。破坏检查 `packages/host/src/tasks/t8-fixes.break-check.json`（宿主）和 `packages/ui/src/tasks/t8-fixes.break-check.json`（界面）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 决定 1：列表行只有节点提问、改图、归档三种卡片，human 验收只给"打开任务"；几张卡片按胶囊叠、一次一张 | `tasks/task-interactive.browser.test.tsx`（"gives a human node's acceptance no card in the row"、"stacks the cards of a row as capsules"） |
+| 决定 2：看提议的图时已有的节点保持当前状态、只有新节点未开始（文档改了，代码和测试本来就是） | `tasks/task-interactive.browser.test.tsx`（"looks at a proposed graph on the graph"） |
+| 决定 3：改图"不批准"的原因可选：宿主给 `optional`、记录和模型的上下文带原因、界面可留空 | `tasks/task-reviews.test.ts`、`tasks/reviews.host.test.ts`、`tasks/t8-fixes.host.test.ts`（端到端：原因进记录和模型的下一次请求）、`tasks/task-interactive.browser.test.tsx`、`chat/review-card.browser.test.tsx`、`protocol/envelope.test.ts` |
+| 决定 4：手机对任务 / 节点会话能 `prompt`、`steer`、`stop`、`answer_question`，不能审核和任务命令；对没在跑的任务对话 `prompt` 按老办法起 pi | `server/remote-policy.test.ts`、`tasks/t8-fixes.host.test.ts`（"starts its pi the way prompt always does"，本机客户端；手机与本机走同一个 `sessions.prompt`，只是命令白名单不同，白名单由 `remote-policy.test.ts` 管） |
+| 修 1：暂停的任务（宿主发 `stopped` 加 `paused`）显示"继续"；只停下的才只有"取消任务"；夹具不再能造出宿主不会发的状态 | `tasks/task-interactive.browser.test.tsx`、`tasks/task-fixtures.ts`（`hostPossible`） |
+| 修 2：改图的裁决只对看过的版本有效，新提案先到就 `review_closed`，不执行（在任务自己的队列里核对） | `tasks/t8-fixes.host.test.ts`、`tasks/task-reviews.test.ts` |
+| 修 3：任务 / 节点会话不能经 `open_session`、`rename_session`、`archive_session` 变成普通标签（`session_not_found`） | `tasks/t8-fixes.host.test.ts` |
+| 修 4：证据最多 8 条、审核最多 16 条（提供者守，ReviewHub 再截一道）；多个上游节点、多个等待的 human 节点 | `tasks/task-reviews.test.ts`、`reviews/review-hub.test.ts`、`tasks/t8-fixes.host.test.ts` |
+| 修 5：没提交的审核输入只在"已读到"的控制里审核不见了才丢；经真实的"读取中 → 读到"过程（假客户端改成和真的一样） | `tasks/task-interactive.browser.test.tsx`、`test/fake-client.ts` |
+| 修 6：`open_task_session` / `prompt` / `steer` 被拒时文字放回输入框 | `tasks/task-interactive.browser.test.tsx` |
+| 修 7：宿主换了之后任务 / 节点对话重新 `watch`，视图 `lost` 时也起 pi | `tasks/task-interactive.browser.test.tsx` |
+| 修 8：审核记录展开后的证据没有按钮；"在图上看"带版本；看着 v3 来了 v4 就换成 v4（横幅跟着）；没有提议了就复位 | `tasks/task-interactive.browser.test.tsx` |
+| 修 9：裁决成功后卡片一直禁用到审核离开；"正在提交"的锁按会话 + 审核 id，切胶囊不解锁；失败写在卡片里、切回来还在 | `chat/review-card.browser.test.tsx`、`chat/review-state.test.ts` |
+| 修 10：没有推荐的按钮时不画蓝色按钮、保持宿主的顺序 | `chat/review-card.browser.test.tsx`、`chat/review-state.test.ts` |
+| 修 11：打开任务时重算它任务对话的审核，卡片上的事实不陈旧 | `tasks/t8-fixes.host.test.ts`、`reviews/review-hub.test.ts` |
+| 修 12：合并中途宿主关闭，不写"通过"记录 | `tasks/task-reviews.test.ts` |
+| 修 13：ReviewHub 的 `lanes` / `known` 不无限增长；控制器放掉时 `forget`；一个长寿的 hub 来来去去很多会话后资源计数回 0 | `reviews/review-hub.test.ts`、`reviews/review-hub.leak.test.ts`、`sessions/session-manager.test.ts` |
+| 修 14：列表行、任务 / 节点对话卸载时放掉自己的 `watch`、不清掉新所有者的；被跟着的任务不 watch 别的进程的节点会话、没有节点对话链接 | `tasks/task-interactive.browser.test.tsx`、`state/watch-owner.ts` |
+| 修 15：`/task` 对已转为任务的对话直接打开它的任务（`params.taskId`） | `tasks/task-command.browser.test.tsx` |
+| 修 16：`review_invalid` / `review_closed` 的说法和 SPEC 错误表一字不差；完成的任务栏只写"已完成" | `tasks/task-words.test.ts`、`tasks/task-interactive.browser.test.tsx` |
+| 修 17：协议注释更正；通用审核卡片不再依赖 `tasks/`（`clockWords` 挪到 `chat/clock-words.ts`）；收件箱的任务行先 `leave()` 并关页面 | `chat/clock-words.test.ts`、`tasks/task-interactive.browser.test.tsx` |
+| 修 18：浏览器测试里改图 reject 的动作形状和宿主给的一致（`optional`） | `tasks/task-interactive.browser.test.tsx`、`protocol/envelope.test.ts` |
+| 协议号 34 → 35；Swift 投影重新生成、夹具和 `RoundTripTests` 的版本号跟着改 | `protocol/remote.test.ts`、`swift test --filter AtriumProtocolTests` |
+
+## T9 宿主重启（SPEC-0006"宿主重启""动作要幂等""T9 定下的细节"，2026-11-09，待验收）
+
+宿主启动时自己把没结束的任务接回来（`TaskService.recoverAll`，在找到 pi 之后），逐项见 SPEC。宿主层测试在 `packages/host/src/tasks/t9.host.test.ts`（真宿主、真 pi 跑 faux 模型、真 git；"动作做完、事件没写"用把 `events.jsonl` 截到该事件之前再重启来造），单元测试在 `t9-runner.test.ts`（真 runner、真 store，只替掉会话层和 worktree 端口）、`t9-service.test.ts`（真 service、runner、store，`recoverAll`）、`t9-scheduler.test.ts`、`task-workspaces.test.ts`、`workspaces/worktree-creator.test.ts`（真 git）、`dev/task-try.test.ts`。泄漏测试 `t9.leak.test.ts`。破坏检查 `packages/host/src/tasks/t9.break-check.json`（单元和宿主层两部分）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 启动时接回：对每个已启动、没结束的任务 `recover`；pi 没好不接，只记一条 warn，任务文件原样；没有任务时不写日志；一个任务接不回来不挡别的 | `tasks/t9.host.test.ts`（"tasks that must not be taken up"）、其余宿主层测试（重启后不再手动 `recover`） |
+| 崩溃表（真宿主、真 git）：建 worktree（`workspace_created` 丢）、worktree 已建但记录和标记都没写（计划）、起节点（`node_started` 丢）、契约（`contract_sent` 丢，pi 文件里已有）、结算（`node_settled` 丢）、提交（`committed` 丢）、合并（`merged` 丢）、归档（`archive_answered` 丢）、提问中宿主死、回答后 `node_resumed` 丢——都不重复：一个 worktree、一个会话记录、一份契约、一次提交、一次合并 | `tasks/t9.host.test.ts`（"a host that dies when an action is done and its event is not written does not do it twice"，表驱动） |
+| 先结算：待结算的 `node_done` 那一轮在重启前已结束（会话文件最后一条是 `node_done` 的成功结果）→ 先 `node_settled` 再 `host_restarted`，节点不被再叫起来；文件继续往下写了 / 结果是错误 / 是别的工具的 / 没文件 / 没有待结算的 `node_done` → 不结算；各节点各看各的文件 | `tasks/t9-runner.test.ts`（"recover settles a node whose node_done turn ended before the restart"）、`tasks/t9.host.test.ts`（"passes an explore node whose node_done turn ended…"、结算那一行） |
+| 契约：会话文件第一条用户消息已是契约 → 补记 `contract_sent`、发"宿主重启了"，不发第二份；文件里没有 → 发契约；`node_started` 丢了接回已有会话也不重发；恢复里自己起的节点不再被告知"宿主重启了" | `tasks/t9-runner.test.ts`（"recover and a contract that reached pi"、"settles each node of a graph…"）、`tasks/review-fixes.host.test.ts`、`tasks/t9.host.test.ts` |
+| `waitingFor` 各情况：running → `resume_node`；question 作废后 `resume_node` 并能再问（新卡片）；graph_change 有 `pendingGraph` 继续等且不再唤醒，没有就再唤醒一次；human / merge_blocked 不动；commitPending 只重发 `commit_node`；held / stopped；merging 先查已合并 | `tasks/t9-scheduler.test.ts`、`tasks/scheduler.test.ts`（既有 host_restarted 用例）、`tasks/t9.host.test.ts`（question 两行、graph_change 两个用例）、`tasks/runner.test.ts` |
+| 锁：已结束和取消的任务再解一次；没结束的再加一次；启动时解掉原因是 `atrium task <id>`、但任务已结束或不存在的锁，不碰用户自己的锁和还在跑的任务的锁；跟着别人任务时不扫锁 | `tasks/t9-runner.test.ts`（"recover and the worktree's lock"）、`tasks/t9.host.test.ts`（"locks that tasks left"、"leaves a followed task alone"） |
+| `ensure_workspace` 的崩溃窗口：建之前写计划（分支、目录、起点）；重启后只认和计划一模一样的 worktree（在 `git worktree list` 里、分支和起点对、没有提交、没有改动、没被别人锁），登记并补复制 `.worktreeinclude`；有任何一条对不上就不认，另建（避让 `-2`），留下的不删；任务自己的锁可以认，别人的锁不认 | `workspaces/worktree-creator.test.ts`（"planning and adopting"，真 git）、`tasks/task-workspaces.test.ts`（"the plan and the crash window"）、`tasks/t9.host.test.ts`（崩溃表里"git added it…"和"makes another worktree… someone's own"） |
+| `request_graph_change` 的理由和建议随 `node_waiting` 落盘（`NodeRun.graphRequest`），等待结束清掉；重启后的唤醒带着它们，包 `<atrium-quoted>` | `tasks/t9-scheduler.test.ts`、`tasks/t9-runner.test.ts`（"recover wakes the task conversation…"）、`tasks/t9.host.test.ts`（"wakes the conversation again, with the node's reason…"） |
+| 任务对话接回：宿主重启后 `watch` 之后 `open_task_session` 起它的 pi，快照带着重启前的对话；不预先起 pi | `tasks/t9.host.test.ts`（"the task conversation after a restart"）、`tasks/t8-fixes.host.test.ts`（既有） |
+| `recoverAll` 本身：按任务建立的顺序（不是目录顺序）接；设计中的任务不动；只在有任务要 pi 时才问 pi 好了没有、没好就原样留下并记一条 warn（只有任务数）；已结束 / 取消的任务不要 pi，照样解锁；宿主关闭时立刻停；一个任务接不回来只记 warn，不挡后面的；扫锁失败只记 warn；扫锁时已结束的任务（不管是 `done` 还是 `cancelled`）和不存在的任务算不在跑 | `tasks/t9-service.test.ts`（假的是会话层和 worktree 端口） |
+| `pnpm task:try` 接着跑走 `recoverAll`，一个上次停在提问上的任务不再因为"问题还开着"一开头就停（问题已作废，节点会再问）；宿主的自动接回在 task:try 里关掉 | `dev/task-try.test.ts`（`stopReason` 标出提问的停）、真实模型运行（见 T9 验收记录） |
+| 被跟着的任务（`ATRIUM_FOLLOW_TASKS`）：不接、不写、不启会话、不扫锁；自己的任务照常接回 | `tasks/t9.host.test.ts`（"leaves a followed task alone"）、`tasks/followed-tasks.host.test.ts`（既有） |
+| 泄漏：接回的任务跑完 / 被取消 / 宿主关闭（含接回途中关闭），pi、控制器、`task.runner`、子进程都放掉 | `tasks/t9.leak.test.ts` |
+
+## T10 定时（SPEC-0006"定时（ScheduleService）""T10 定下的细节"，2026-11-09，待验收）
+
+规则、时钟、协议和定时标签；逐项见 SPEC "T10 定下的细节"。假时钟的测试在 `packages/host/src/tasks/schedule-service.test.ts`（`TestClock` 能往回拨；任务端口是假的，服务、规则文件、`cadence` 是真的），纯函数在 `cadence.test.ts`，宿主层（真宿主、真 pi 跑 faux 模型、真 git）在 `schedules.host.test.ts`，泄漏在 `schedules.leak.test.ts`，界面在 `packages/ui/src/tasks/schedule-*.test.ts(x)`，端到端 `apps/desktop/e2e/schedules-flow.spec.ts`。破坏检查：`tasks/t10.break-check.json`（宿主 38 条）、`ui/src/tasks/t10.break-check.json`（界面 14 条），全部检出。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 时区：同一条"每天 2:00"在上海和纽约触发在不同的时刻；下次 / 最近一次按所给时区的挂钟算，周几按该时区的日历 | `cadence.test.ts`（"is the next 2:00…"、"finds the weekday"）、`schedule-service.test.ts`（"fires 2:00 at different instants in different zones"） |
+| 夏令时：拨快那天不存在的钟点在钟跳过去的那一分钟触发一次，第二天恢复；拨慢那天重复的钟点只在第一次出现时触发一次；平常的钟点跨切换日不变；间隔不按挂钟算 | `cadence.test.ts`（"daylight saving time" 四条）、`schedule-service.test.ts`（"runs a rule on the spring-forward day once…"、"…on the fall-back day once…"） |
+| 系统时间往回拨：不补、不重复、等下一个时间点；规则建在"未来"（时钟又拨回去）要等到它自己的时间 | `schedule-service.test.ts`（"the system clock is set back" 两条）、`cadence.test.ts`（"finds nothing when the system clock was set back…"） |
+| 上一次没结束就跳过（`skipped + 1`、时间照样推进），含停下 / 等你的任务；取消或完成后下一次照常建；上一次的任务已不在算结束 | `schedule-service.test.ts`（"the last run has not ended" 两条） |
+| 错过补一次：宿主关着错过多次也只补最近一次、`lastFiredAt` 记成它、之后照常；没错过不补；规则建之前的时间点不补；15 分钟的间隔规则重启后只补一个 | `schedule-service.test.ts`（"the host was off" 四条、"does not run a trigger from before the rule was made"）、`schedules.host.test.ts`（"after the host was off for 15 minutes…"，真宿主重启，恰好一个任务） |
+| 补一次和跳过同时发生：错过了三天、上一次还在跑 → `skipped` 加一、不建任务 | `schedule-service.test.ts`（"catches up and skips together…"） |
+| 模板任务被删：规则照样触发，"修改"答 `task_not_found`；删规则带走模板，模板删不掉也不挡删规则 | `schedule-service.test.ts`（"the template task is gone" 两条）、`schedules.host.test.ts`（"修改 of a rule whose template is gone says so"、"pauses, resumes and deletes…"） |
+| 暂停 / 恢复 / 立即跑一次 / 删除：暂停期间不补、恢复从现在起；立即跑一次不管上一次、不动规则的时间；暂停的规则重启后仍暂停；未知规则 `schedule_not_found`、重复暂停 / 恢复 `task_state_invalid` | `schedule-service.test.ts`（"pausing, resuming, running now and deleting" 四条）、`schedules.host.test.ts` |
+| 保存规则：同一个模板再保存改同一条规则并保留位置（暂停、`lastFiredAt`、`lastTaskId`、`skipped`、`createdAt`）；不是模板 / 没项目 / 没图被拒 | `schedule-service.test.ts`（"saving a rule from its template"） |
+| 触发失败（pi 起不来等）：记 warn、这次触发用掉、下一个时间点再试；规则文件读不懂时原样留着、不写回；读不懂的单条原样保留 | `schedule-service.test.ts`（"failures"）、`schedule-commands.test.ts`（"the rules file"） |
+| 一个定时器：只在有没暂停的规则时有，睡到下一次触发或 60 秒；暂停 / 删除 / 关闭后为零；换规则不累积 | `schedule-service.test.ts`（"the timer"）、`schedules.leak.test.ts`（三条：服务、响铃时已关闭、真宿主关闭后） |
+| 规则从对话来：`task_set_schedule` 注册（九个工具）、只在设计中且有项目时收、`place` 为只读而图里有 work 节点被拒、之后提的图按只读规则校验；已结束 / 取消 / 启动 / 没项目都是 `task_state_invalid` | `conversation.test.ts`（"task_set_schedule"）、`pi/src/task/schema.test.ts`、`extension.test.ts`、`words.test.ts`、`agent-launch.test.ts`、`design.test.ts` |
+| "确认并保存规则"是 `start_task`：保存规则、不启动；模板不进任务列表；已存规则的模板不能放弃；模板的"已保存"变了推 `task_updated` | `schedules.host.test.ts`（"the conversation sets the schedule…"）、`schedule-commands.test.ts`（"shows a template's cadence…"） |
+| 每次触发出一个普通任务：规则的摘要和图、`origin: schedule`、名字"规则名 · 日期"（间隔规则加时间）、自己的任务对话、`TaskSummary.scheduled`；图按规则的 place 再校验，失败不留半成品 | `schedules.host.test.ts`（"立即跑一次 makes an ordinary task…"、"makes no task, and leaves nothing half-made…"）、`schedule-commands.test.ts`（"a task a rule makes"）、`schedule-service.test.ts`（"adds the time to the name…"） |
+| 协议 35 → 36：六条命令、`schedules_updated`、`schedule_not_found`、`TaskView.scheduleDraft`；全部 `local_only`、事件不推手机；Swift 投影 | `protocol/src/envelope.test.ts`、`remote.test.ts`、`host/src/server/router.test.ts`、`remote-policy.test.ts`、`pnpm protocol:swift --check` |
+| 命令与推送：行里是上一次任务的状态和是否失败；规则或上次的任务变了才推、按顺序、整份；断开 / 关闭后不推；跟随开发版任务目录时命令一律 `task_read_only`、列表为空 | `schedule-commands.test.ts` |
+| 跟随时（`ATRIUM_FOLLOW_TASKS`）、`task:try`：不建 ScheduleService | `main.ts`（`schedulesWanted`），`schedule-commands.test.ts`（"is read-only while another process's tasks are followed…"） |
+| 界面：定时标签一行一条（名字、项目、位置、时间的话、下次、上次结果、动作）；暂停行为恢复 / 修改 / 删除；删除行内"确定 / 不了"；修改打开模板的任务标签，那里的按钮写"确认并保存规则"，已保存的不再给"放弃任务"；失败写在行下；没有"新建" | `schedule-tab.browser.test.tsx`、`schedule-words.test.ts`、`apps/desktop/e2e/schedules-flow.spec.ts` |
+
+- 没做 / 靠别的层：`powerMonitor` 转发（60 秒的心跳覆盖睡醒）；Mac 真睡醒后补跑（只在假时钟里验证）。
+
+## T9 / T10 审查修复（SPEC-0006"T9 / T10 审查后用户定"，2026-11-09，待验收）
+
+三家审查（gpt-6-astra、grok-4.7、Claude 子代理）找到的问题和用户定的六条；逐项做法见 SPEC。破坏检查：`tasks/t910-fixes.break-check.json`（宿主）、`ui/src/tasks/t910-fixes.break-check.json`（界面）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 过期的锁：原因记着是哪个家目录加的（`home <12 位哈希>`），旧写法照旧认得；启动只解本机的、任务已结束或目录不存在的；别家的、旧写法的、目录在但读不出来的不解；任务自己新旧写法的锁都能加 / 解；归档遇到两种写法都停 | `workspaces/worktree-lock.test.ts`（"the home in a lock's reason"、"clearStaleLocks"）、`tasks/task-workspaces.test.ts`、`tasks/t9-service.test.ts`（"for one that cannot be read"）、`tasks/t9.host.test.ts`（"locks that tasks left"） |
+| 改规则的时间 / 频率从保存起算，保存不当场触发；间隔规则从那一刻起重新数；时钟被拨回时不往回退 | `tasks/schedule-service.test.ts`（"editing a rule counts from the moment of the edit"） |
+| pi 没准备好：不触发、不用掉时间点、只记一条 warn、按心跳再问而不是空转；好了之后下一次启动补一次；`main.ts` 和 `recoverAll` 同一个 `piReady` | `tasks/schedule-service.test.ts`（"pi is not ready when a trigger is due"） |
+| 规则文件读不出来：确认 / 暂停 / 恢复 / 删除 / 立即跑 / 修改 / 列表都答 `schedule_file_unreadable`；内存里不装规则、不挂定时器、文件不动；定时标签显示这句话代替列表；"确认并保存规则"同一句话；`watchSchedules` 被拒显示错误而不是一直"正在读取" | `tasks/schedule-service.test.ts`（"a rules file that cannot be read"）、`tasks/schedule-commands.test.ts`、`ui/src/tasks/schedule-tab.browser.test.tsx` |
+| 模板在规则真的存下来之前留在任务列表里，存下来之后才隐藏 | `tasks/t910-service.test.ts`（"the task list and a template task"）、`tasks/schedules.host.test.ts` |
+| 立即跑一次算最近的任务：它没结束时下一个时间点被跳过 | `tasks/schedule-service.test.ts`（"a run started with 立即跑一次"） |
+| 崩在 `started` 之后、`lastTaskId` 存下之前：磁盘上没结束的规则任务算"上一个任务"；启动时对账 `lastTaskId` | `tasks/schedule-service.test.ts`（"a task the rule made and did not record"）、`tasks/t910-service.test.ts`（`ofRule`） |
+| 崩在 `createScheduled` 里：没启动的计划任务重启时补上 `started`（pi 没好时不动）；任务记录没写成的孤儿对话重启时放掉，正在建的不放；关闭时撤销不拆半成品 | `tasks/t910-service.test.ts`（"what a crash inside createScheduled leaves"） |
+| 崩在存规则与删模板之间：先删模板后删规则，不留隐藏的孤儿模板 | `tasks/schedule-service.test.ts`（"deleting a rule"） |
+| 删与确认的竞争：确认时重新取模板，规则或模板没了答 `schedule_not_found`，不把规则建回来 | `tasks/schedule-service.test.ts`（"a save that races a deletion"） |
+| `start()` 之前命令可以改规则但不挂定时器 | `tasks/schedule-service.test.ts`（"before start() the rules do not run by themselves"） |
+| 关闭不死锁：pi 永不应答合同提示时，先后关闭两个服务都能结束；两个一起发出关闭 | `tasks/t910-service.test.ts`（"a host that closes while a trigger waits"）、`tasks/t910.leak.test.ts` |
+| 暂停 / 有节点失败的任务重启：被打断的轮次和作废的问题记在节点上（`afterRestart`），真的恢复时才说，一直停着不说；已经是 `held` 的不动 | `tasks/t9-scheduler.test.ts`（"a task held back at the restart…"） |
+| `host_restarted` 的次序：这个进程已经对话过的节点（`live`）不被告知重启、已回答的问题不作废；`spoken` 用完即删 | `tasks/t9-scheduler.test.ts`（"leaves alone the nodes this process already spoke to"）、`tasks/t9-runner.test.ts`（"tells the scheduler which nodes…"） |
+| 唤醒任务对话一次（不是每个等改图的节点一次）；整条唤醒的字数有预算，几个最大长度的申请也不超 32 000 字，截断有标记，实在放不下只点名 | `tasks/t9-scheduler.test.ts`、`tasks/t9-runner.test.ts`（"within what the command takes"） |
+| `endedOnNodeDone`：同一条助手消息里每个工具调用都有结果才算那一轮结束 | `tasks/t9-runner.test.ts`（"another call of the same message has no result"） |
+| 认回 worktree：`worktree list` / `rev-parse` / `ls-files` / `check-ignore` 都经 `runSafeGit`（不跑 fsmonitor、过滤器、钩子）；在目录里核对共同 git 目录、顶层、分支、HEAD，状态检查带 `--work-tree`；别的仓库的检出、`core.worktree` 引走的都不认 | `workspaces/worktree-creator.test.ts`（"planning and adopting"）、`workspaces/worktree-include.test.ts`（"the repository's configuration is not run"） |
+| `.worktreeinclude` 复制是原子的：先写到 worktree 旁边的暂存目录再 `link`，已有的文件不覆盖；中途被打断不留半截文件，崩溃留下的暂存目录下次清掉 | `workspaces/worktree-include.test.ts`（"a copy that dies in the middle"） |
+| 动作中途被打断（不是"做完、事件没写"）：`git worktree add` 被杀留下的半截目录；复制到一半；提示被 pi 收下而会话文件没写（既有 `t9-runner.test.ts` "sends the contract when the file has none"）；定时的各个崩溃窗口 | `workspaces/worktree-creator.test.ts`（"a killed `git worktree add`"）、`workspaces/worktree-include.test.ts`、`tasks/schedule-service.test.ts`、`tasks/t910-service.test.ts` |
+| 真的子进程 `kill -9`：宿主在另一个进程里跑，节点跑到一半被杀，同一个家目录上再起宿主，任务接着跑完，一个 worktree、一份契约、一次 `host_restarted` | `tasks/t910.crash.host.test.ts` |
+| `pnpm task:try` 只 `recover` 自己的任务，不扫锁 | 一行调用（`dev/task-try.ts`），无自动测试：没有 pi 的单元测试跑不到那条路；靠 `pnpm typecheck` 和真实运行 |
+| 界面：午夜"凌晨 12:00"、中午"中午 12:00"；"上次还在跑"只在真的还在时写；关闭删除确认后焦点回"删除" | `ui/src/tasks/schedule-words.test.ts`、`ui/src/tasks/schedule-tab.browser.test.tsx` |
+| 协议号 36 → 37（新错误码 `schedule_file_unreadable`）→ 38（`list_schedules` 答复加 `followed`），Swift 投影重新生成 | `protocol/src/envelope.test.ts`、`remote.test.ts`、`pnpm protocol:swift --check`、`swift test --filter RoundTrip` |
+| 跟随开发版任务目录时：`list_schedules` 答 `{ schedules: [], followed: true }`，定时标签写「这是在跟着别的进程的任务，定时规则不在这里运行」，代替空状态和规则数 | `tasks/schedule-commands.test.ts`、`ui/src/tasks/schedule-tab.browser.test.tsx`（"says schedules do not run here…"） |
+| `watchSchedules` 因别的原因被拒：写「定时规则读取失败，稍后再试」，不写"发送失败"、不停在"正在读取" | `ui/src/tasks/schedule-tab.browser.test.tsx`（"does not wait for ever…"） |
 
 ## MP6e 纸面改版（SPEC-0005，2026-10-28，进行中）
 

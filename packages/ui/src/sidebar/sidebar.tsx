@@ -5,6 +5,7 @@ import {
   CaretUp,
   ChatAdd,
   DotsThree,
+  Flowchart,
   Folder,
   FolderOpen,
   FolderPlus,
@@ -52,7 +53,7 @@ import { type ArchiveToast, ArchiveToasts, pushToast } from "./archive-toasts";
 import { MORE_ROW } from "./more-row";
 import { RenameField } from "./rename-field";
 import { useReorderRows } from "./reorder";
-import { INBOX_SHOWN, type RowStatus, inboxOf, sessionStatus, topStatus } from "./status";
+import { INBOX_SHOWN, type InboxEntry, type RowStatus, inboxOf, sessionStatus, topStatus } from "./status";
 import { StatusIcon } from "./status-icon";
 import { liveSessions, studySessions } from "../study/learning";
 
@@ -187,6 +188,7 @@ export function Sidebar({
   pickDirectory,
   onSettings,
   page,
+  tasks,
   learning,
   folded = false,
 }: {
@@ -202,6 +204,8 @@ export function Sidebar({
   readonly onSettings: () => void;
   /** The new-workspace page; without it, projects have no "+". */
   readonly page?: SidebarPage;
+  /** The "任务" entry; without it the sidebar has none. */
+  readonly tasks?: SidebarTasks;
   /** The learning home, and whether a learning page shows; without it, there is no "学习" row. */
   readonly learning?: SidebarLearning;
   readonly folded?: boolean;
@@ -315,15 +319,37 @@ export function Sidebar({
               className="h-8 w-full rounded-[var(--r-md)] bg-[var(--hover)] pr-2.5 pl-8 text-[length:var(--fs-meta)] shadow-[inset_0_0_0_0.5px_var(--line)] outline-none placeholder:text-[var(--text-dim)] focus:shadow-[inset_0_0_0_0.5px_var(--line-strong),var(--focus-ring)]"
             />
           </div>
-          {learning === undefined ? null : (
+          {learning === undefined && tasks === undefined ? null : (
             <div className="shrink-0 px-3">
-              <LearningRow
-                index={listed}
-                selected={
-                  learning.shown || (listed.layout.container !== null && isDirectionId(listed.layout.container))
-                }
-                onOpen={learning.open}
-              />
+              {learning === undefined ? null : (
+                <LearningRow
+                  index={listed}
+                  selected={
+                    learning.shown || (listed.layout.container !== null && isDirectionId(listed.layout.container))
+                  }
+                  onOpen={learning.open}
+                />
+              )}
+              {tasks === undefined ? null : (
+                <button
+                  type="button"
+                  aria-label="任务"
+                  aria-current={tasks.open}
+                  onClick={tasks.show}
+                  className={`${ROW} w-full text-left aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
+                >
+                  <Flowchart size={16} className="shrink-0 text-[var(--text-muted)]" />
+                  <span className="flex-1">任务</span>
+                  {tasks.attention > 0 ? (
+                    <span
+                      data-testid="tasks-attention"
+                      className="rounded-[var(--r-pill)] bg-[var(--attn-soft)] px-[7px] text-[length:var(--fs-sm)] leading-[18px] font-semibold text-[var(--attn-text)] tabular-nums"
+                    >
+                      {tasks.attention}
+                    </span>
+                  ) : null}
+                </button>
+              )}
               <div aria-hidden="true" className="mx-1 my-1.5 h-[0.5px] bg-[var(--line)]" />
             </div>
           )}
@@ -389,7 +415,7 @@ export function Sidebar({
               </>
             )}
           </div>
-          <Inbox client={client} index={index} now={now} showSession={showSession} />
+          <Inbox client={client} index={index} now={now} showSession={showSession} tasks={tasks} />
           <div className="flex shrink-0 items-center gap-1 px-3 pt-2 pb-3">
             <button
               type="button"
@@ -421,6 +447,24 @@ export function Sidebar({
       {toasts.length === 0 ? null : <ArchiveToasts toasts={toasts} onGone={dropToast} />}
     </LeavePage>
   );
+}
+
+/** The "任务" entry under the search: whether the task area shows, how many tasks want the user, and how to show it. */
+export interface SidebarTasks {
+  readonly open: boolean;
+  /** The tasks that want the user, for the inbox (SPEC-0006, "界面 · 等你处理"): one line each. */
+  readonly waiting: readonly {
+    readonly id: string;
+    readonly title: string;
+    readonly words: string;
+    readonly at: number;
+    readonly failed: boolean;
+  }[];
+  /** Opens a task's tab, or the conversation of the node that asks. */
+  readonly openTask: (taskId: string) => void;
+  /** How many tasks want the user (SPEC-0006, "界面 · 入口"). */
+  readonly attention: number;
+  readonly show: () => void;
 }
 
 /** The learning home, as the sidebar opens and marks it (SPEC-0008, "入口"). */
@@ -1370,6 +1414,19 @@ function SessionLine({
   );
 }
 
+/** The statuses of the inbox's lines, most urgent first. */
+const INBOX_ORDER: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error", "running"];
+
+/** One line of the inbox: a session that waits for you, or a task that does. */
+type InboxRow =
+  | ({ readonly kind: "session" } & InboxEntry)
+  | {
+      readonly kind: "task";
+      readonly status: "asking" | "error";
+      readonly at: number;
+      readonly task: SidebarTasks["waiting"][number];
+    };
+
 /**
  * The inbox: a card at the bottom of the sidebar with the sessions waiting for the user, across
  * every project and chat.
@@ -1384,8 +1441,8 @@ function SessionLine({
  * at most until "还有 N 条" opens the rest, which "收起" closes again; a long list scrolls in the
  * card. A row is lit while its session is the one shown.
  *
- * @sideEffects Sends `open_session` when a row is clicked; remembers the card opened or folded in
- * `localStorage`.
+ * @sideEffects Leaves the page that was open and sends `open_session` when a row is clicked (a task's row opens
+ * its tab); remembers the card opened or folded in `localStorage`.
  * @param props - The client, the list, the time now, and how to show a session chosen.
  * @returns The inbox, or nothing.
  */
@@ -1394,17 +1451,29 @@ function Inbox({
   index,
   now,
   showSession,
+  tasks,
 }: {
   readonly client: AtriumClient;
   readonly index: IndexView;
   readonly now: number;
   readonly showSession: (session: SessionSummary) => void;
+  readonly tasks: SidebarTasks | undefined;
 }) {
   const [open, setOpen] = useState(() => localStorage.getItem(INBOX_OPEN_KEY) === "true");
   const [expanded, setExpanded] = useState(false);
   const leave = use(LeavePage);
   // An archived direction's sessions cannot run, and wait for nothing (SPEC-0008, "ML1 定的细节").
-  const entries = inboxOf(liveSessions(index));
+  const sessions = inboxOf(liveSessions(index));
+  // A task that wants you stands among the sessions, as a question (or an error when it failed), by the same order.
+  const entries: readonly InboxRow[] = [
+    ...sessions.map((entry): InboxRow => ({ kind: "session", ...entry })),
+    ...(tasks?.waiting ?? []).map((task): InboxRow => ({
+      kind: "task",
+      status: task.failed ? "error" : "asking",
+      at: task.at,
+      task,
+    })),
+  ].toSorted((a, b) => INBOX_ORDER.indexOf(a.status) - INBOX_ORDER.indexOf(b.status) || b.at - a.at);
   if (!index.preferences.inbox || entries.length === 0) return null;
   const shown = expanded ? entries : entries.slice(0, INBOX_SHOWN);
   const active = activeOf(index);
@@ -1422,23 +1491,49 @@ function Inbox({
         duration={PROJECT_FOLD_MS}
         className="flex max-h-[228px] flex-col overflow-y-auto"
       >
-        {shown.map(({ session, status, at }) => (
-          <SessionLine
-            key={session.sessionId}
-            index={index}
-            session={session}
-            when={timeAgo(at, now)}
-            status={status}
-            current={index.layout.container === session.containerId && active === session.sessionId}
-            testId="inbox-row"
-            onOpen={() => {
-              leave();
-              showSession(session);
-              // Fire and forget: opening shows the session or its failure there.
-              void client.openSession(session.sessionId).catch(() => undefined);
-            }}
-          />
-        ))}
+        {shown.map((entry) =>
+          entry.kind === "task" ? (
+            <button
+              key={entry.task.id}
+              type="button"
+              data-testid="inbox-task-row"
+              data-fold-row
+              onClick={() => {
+                // As a session row does: a page that was open (the new-workspace page) is left first.
+                leave();
+                tasks?.openTask(entry.task.id);
+              }}
+              className={`${ROW} h-auto w-full items-start py-[7px] text-left`}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{entry.task.title === "" ? "任务" : entry.task.title}</span>
+                <span className="block truncate text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+                  {entry.task.words}
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2.5 pt-px text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+                {timeAgo(entry.at, now)}
+                <StatusIcon status={entry.status} />
+              </span>
+            </button>
+          ) : (
+            <SessionLine
+              key={entry.session.sessionId}
+              index={index}
+              session={entry.session}
+              when={timeAgo(entry.at, now)}
+              status={entry.status}
+              current={index.layout.container === entry.session.containerId && active === entry.session.sessionId}
+              testId="inbox-row"
+              onOpen={() => {
+                leave();
+                showSession(entry.session);
+                // Fire and forget: opening shows the session or its failure there.
+                void client.openSession(entry.session.sessionId).catch(() => undefined);
+              }}
+            />
+          ),
+        )}
         {entries.length > INBOX_SHOWN ? (
           <button type="button" data-fold-row onClick={() => setExpanded(!expanded)} className={MORE_ROW}>
             {expanded ? "收起" : `还有 ${entries.length - INBOX_SHOWN} 条`}

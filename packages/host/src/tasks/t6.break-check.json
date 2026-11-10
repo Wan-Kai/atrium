@@ -1,0 +1,247 @@
+[
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "for (const op of CONVERSATION_TOOLS) {",
+    "to": "for (const op of [] as readonly ConversationOp[]) {",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "gives the task conversation the command and its eight tools"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "if (op === \"task_send_to_node\") words = SENT_TO_NODE;",
+    "to": "if (false) words = SENT_TO_NODE;",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "words what the host recorded"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "words = `${page.data.text}${pageFooter(page.data.page, page.data.pages)}`;",
+    "to": "words = page.data.text;",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "gives the model the host's page"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "if (mark.success && claim(mark.data.id, ctx)) {",
+    "to": "if (mark.success) {",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "writes the converted line into any session"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "const why = conversationToolRefusal(event.toolName);",
+    "to": "const why = null as string | null;",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "lets the task conversation read and use its own tools"
+  },
+  {
+    "file": "packages/pi/src/task/words.ts",
+    "from": "const allowed = [...READ_ONLY_TOOLS, ...CONVERSATION_TOOLS, \"ask_user\"] as readonly string[];",
+    "to": "const allowed = [...READ_ONLY_TOOLS, ...CONVERSATION_TOOLS, \"ask_user\", \"write\", \"edit\"] as readonly string[];",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "lets the task conversation read and use its own tools"
+  },
+  {
+    "file": "packages/pi/src/task/words.ts",
+    "from": "if (issue.code === \"too_big\" && typeof issue.maximum === \"number\") {",
+    "to": "if (false) {",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "answers task_text_too_long and task_bad_request itself"
+  },
+  {
+    "file": "packages/pi/src/task/schema.ts",
+    "from": "export const GUIDE_IDS = [\"feature\", \"fix\", \"scheduled_fix\", \"research\"] as const;",
+    "to": "export const GUIDE_IDS = [\"feature\", \"fix\", \"scheduled_fix\"] as const;",
+    "test": "packages/pi/src/task/schema.test.ts",
+    "name": "names the four guides"
+  },
+  {
+    "file": "packages/pi/src/task/schema.ts",
+    "from": "const PageNumber = z.number().int().min(1).max(10_000).optional();",
+    "to": "const PageNumber = z.number().int().min(0).max(10_000).optional();",
+    "test": "packages/pi/src/task/schema.test.ts",
+    "name": "refuses a summary missing a part, a page of 0"
+  },
+  {
+    "file": "packages/pi/src/task/words.ts",
+    "from": "return pages <= 1",
+    "to": "return pages <= 0",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "adds no footer to a text of one page"
+  },
+  {
+    "file": "packages/host/src/tasks/channel.ts",
+    "from": "if (caller.role !== \"conversation\" || caller.taskId !== task.id || task.taskSessionId !== caller.sessionId) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/tasks/channel.test.ts",
+    "name": "with task_caller_invalid"
+  },
+  {
+    "file": "packages/host/src/tasks/channel.ts",
+    "from": "? { v: 1, id, ok: true, result }",
+    "to": "? { v: 1, id, ok: true, result: { recorded: true } }",
+    "test": "packages/host/src/tasks/channel.test.ts",
+    "name": "answers a call with a result the tool reads"
+  },
+  {
+    "file": "packages/host/src/tasks/conversation.ts",
+    "from": "if (CHANGING.has(call.op) && (task.endedAt !== null || task.cancelled)) return refuse(\"task_state_invalid\");",
+    "to": "if (false) return refuse(\"task_state_invalid\");",
+    "test": "packages/host/src/tasks/conversation.test.ts",
+    "name": "once the task ended or was cancelled"
+  },
+  {
+    "file": "packages/host/src/tasks/conversation.ts",
+    "from": "if (task.startedAt !== null) return refuse(\"task_state_invalid\");",
+    "to": "if (false) return refuse(\"task_state_invalid\");",
+    "test": "packages/host/src/tasks/conversation.test.ts",
+    "name": "refuse the summary once the task started"
+  },
+  {
+    "file": "packages/host/src/tasks/conversation.ts",
+    "from": "projectless: task.projectId === null,",
+    "to": "projectless: false,",
+    "test": "packages/host/src/tasks/conversation.test.ts",
+    "name": "refuses work nodes in a task outside any project"
+  },
+  {
+    "file": "packages/host/src/tasks/conversation.ts",
+    "from": "...(task.startedAt === null ? {} : { started: task }),",
+    "to": "...{},",
+    "test": "packages/host/src/tasks/conversation.test.ts",
+    "name": "refuses a graph that changes what already ran"
+  },
+  {
+    "file": "packages/host/src/tasks/conversation.ts",
+    "from": "...(call.args.guide === undefined ? {} : { guide: guideRecord(call.args.guide) }),",
+    "to": "...{},",
+    "test": "packages/host/src/tasks/conversation.test.ts",
+    "name": "records the guide it follows"
+  },
+  {
+    "file": "packages/host/src/tasks/conversation.ts",
+    "from": "    escapeShell(text),\n    \"</atrium-task-note>\",",
+    "to": "    text,\n    \"</atrium-task-note>\",",
+    "test": "packages/host/src/tasks/conversation.test.ts",
+    "name": "hands a running node the words as a note"
+  },
+  {
+    "file": "packages/host/src/tasks/conversation.ts",
+    "from": "if (run?.state !== \"running\" || run.sessionId === null || run.commitPending === true) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/tasks/conversation.test.ts",
+    "name": "refuses a node that is not running"
+  },
+  {
+    "file": "packages/host/src/tasks/conversation.ts",
+    "from": "text: found.text === \"\" ? \"\" : quoted(from, found.text)",
+    "to": "text: found.text",
+    "test": "packages/host/src/tasks/conversation.test.ts",
+    "name": "pages the source conversation and quotes every page"
+  },
+  {
+    "file": "packages/host/src/tasks/conversation.ts",
+    "from": "\"--no-ext-diff\", \"--no-textconv\", \"--stat\"",
+    "to": "\"--stat\"",
+    "test": "packages/host/src/tasks/conversation.test.ts",
+    "name": "does not run the repository's external diff"
+  },
+  {
+    "file": "packages/host/src/tasks/transcript-text.ts",
+    "from": "const pages = Math.max(1, Math.ceil(text.length / PAGE_CHARS));",
+    "to": "const pages = Math.ceil(text.length / PAGE_CHARS);",
+    "test": "packages/host/src/tasks/transcript-text.test.ts",
+    "name": "makes an empty text one empty page"
+  },
+  {
+    "file": "packages/host/src/tasks/design.ts",
+    "from": "quotedUser(\"用户在 /task 后写的范围\", input.scope)",
+    "to": "input.scope",
+    "test": "packages/host/src/tasks/design.test.ts",
+    "name": "escapes a scope that tries to close"
+  },
+  {
+    "file": "packages/host/src/tasks/guides.ts",
+    "from": "{ id: \"scheduled_fix\", version: 1, text: SCHEDULED_FIX },",
+    "to": "{ id: \"scheduled_fix\", version: 2, text: SCHEDULED_FIX },",
+    "test": "packages/host/src/tasks/guides.test.ts",
+    "name": "are the four ids"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (event.guide !== undefined) task.guide = { ...event.guide };",
+    "to": "",
+    "test": "packages/host/src/tasks/scheduler-resources.test.ts",
+    "name": "records the guide a graph follows"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (draft.task.startedAt !== null) return false;\n  draft.task.summary",
+    "to": "if (false) return false;\n  draft.task.summary",
+    "test": "packages/host/src/tasks/scheduler-resources.test.ts",
+    "name": "takes the requirement summary only while"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "if (isConversationCall(request)) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/tasks/runner.test.ts",
+    "name": "refuses a node that calls a tool of the task conversation"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "return record?.role === \"conversation\" && record.taskId === task.id ? task.taskSessionId : undefined;",
+    "to": "return task.taskSessionId;",
+    "test": "packages/host/src/tasks/runner.test.ts",
+    "name": "writes nothing to a conversation the host did not start"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "kind: \"wake\", text: words",
+    "to": "kind: \"continue\", text: words",
+    "test": "packages/host/src/tasks/runner.test.ts",
+    "name": "wakes the conversation when a node asks"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "if (home === undefined || signal.epoch < conversation.epoch) return;",
+    "to": "if (home === undefined) return;",
+    "test": "packages/host/src/tasks/runner.test.ts",
+    "name": "drops a request from an older start of pi"
+  },
+  {
+    "file": "packages/host/src/sessions/agent-launch.ts",
+    "from": "[...READ_ONLY_TOOLS, ...CONVERSATION_TOOLS, ASK_USER_TOOL].join(\",\"),",
+    "to": "[...READ_ONLY_TOOLS, ASK_USER_TOOL].join(\",\"),",
+    "test": "packages/host/src/sessions/agent-launch.test.ts",
+    "name": "gives the task conversation the read-only list"
+  },
+  {
+    "file": "packages/host/src/dev/task-design.ts",
+    "from": "if (!graph.nodes.some((one) => after.has(one.id) && one.role === \"check\")) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/dev/task-design.test.ts",
+    "name": "names a work node with no check node after it"
+  },
+  {
+    "file": "packages/host/src/dev/task-design.ts",
+    "from": "candidate.endsWith(`_${sessionId}.jsonl`)",
+    "to": "candidate.includes(sessionId)",
+    "test": "packages/host/src/dev/task-design.test.ts",
+    "name": "finds the file by the session id"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "create_task: \"local_only\",",
+    "to": "create_task: \"phone\",",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "lets a phone list and open tasks"
+  },
+  {
+    "file": "packages/protocol/src/version.ts",
+    "from": "PROTOCOL_VERSION = 31",
+    "to": "PROTOCOL_VERSION = 30",
+    "test": "packages/protocol/src/remote.test.ts",
+    "name": "uses version 28"
+  }
+]

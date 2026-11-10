@@ -1,0 +1,90 @@
+[
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "if (known !== undefined) throw new CommandError(\"task_already_converted\", { taskId: known.id });",
+    "to": "",
+    "test": "packages/host/src/tasks/design.host.test.ts",
+    "name": "answers task_already_converted with the task's id",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": ".filter((task) => !isAbandoned(task));",
+    "to": ";",
+    "test": "packages/host/src/tasks/design.host.test.ts",
+    "name": "does not count a record that a crash left",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "if (task.startedAt !== null || task.cancelled || graph === undefined)\n        throw new CommandError(\"task_state_invalid\");",
+    "to": "if (false)\n        throw new CommandError(\"task_state_invalid\");",
+    "test": "packages/host/src/tasks/design.host.test.ts",
+    "name": "refuses to start a task with no graph",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "if (problem.code === \"no_project_for_work\") return new CommandError(\"task_no_project_for_work\");",
+    "to": "",
+    "test": "packages/host/src/tasks/design.host.test.ts",
+    "name": "refuses to start a task with no graph",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "started: task,",
+    "to": "",
+    "test": "packages/host/src/tasks/design.host.test.ts",
+    "name": "refuses to approve a pending graph that no longer fits",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "await options.design.sessions.retire(task.taskSessionId).catch(",
+    "to": "await Promise.resolve().catch(",
+    "test": "packages/host/src/tasks/design.host.test.ts",
+    "name": "answers task_already_converted with the task's id, until the task is abandoned",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "if (task.startedAt !== null || task.cancelled) throw new CommandError(\"task_state_invalid\");\n      await runner.submit(taskId, { type: \"abandoned\" });",
+    "to": "await runner.submit(taskId, { type: \"abandoned\" });",
+    "test": "packages/host/src/tasks/design.host.test.ts",
+    "name": "a task that started stays the conversation's task",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "await markSource(sessionId, taskId, \"converted\");",
+    "to": "",
+    "test": "packages/host/src/tasks/design.host.test.ts",
+    "name": "reads the source, writes the summary",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "return writeProgress(entry, action.line);",
+    "to": "return undefined;",
+    "test": "packages/host/src/tasks/design.host.test.ts",
+    "name": "reads the source, writes the summary",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "return wakeConversation(entry, action.text, seq);",
+    "to": "return undefined;",
+    "test": "packages/host/src/tasks/design.host.test.ts",
+    "name": "wakes the conversation",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "submit: (input) => dispatch(entry, input),",
+    "to": "submit: (input) => Promise.resolve(entry.store.current() as never),",
+    "test": "packages/host/src/tasks/design.host.test.ts",
+    "name": "reads the source, writes the summary",
+    "project": "host"
+  }
+]

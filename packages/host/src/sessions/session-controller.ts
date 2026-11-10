@@ -14,6 +14,7 @@ import {
   type InteractionAnswer,
   type ModelRef,
   type PendingQuestion,
+  type PendingReview,
   type VisualSource,
   type PendingSteer,
   type PlanProvider,
@@ -252,6 +253,8 @@ export interface SessionController {
   childrenChanged(totals: SessionMetrics["children"]): void;
   /** Its deliveries changed: publishes them and hands pi what can go now (SPEC-0002, "送达"). */
   deliveriesChanged(): void;
+  /** What waits for the user's verdict in it changed: publishes the run control (ADR-0018). */
+  reviewsChanged(): void;
   /**
    * Keeps the session busy while a fork reads its file, until the release given is called:
    * messages queue, and compacting or forking again is refused.
@@ -581,6 +584,8 @@ export function createSessionController(options: {
   readonly onFastChosen?: (enabled: boolean) => void;
   /** The session's deliveries (SPEC-0002, "送达"); without them it takes none. */
   readonly deliveries?: ControllerDeliveries;
+  /** What waits for the user's verdict in this session (ADR-0018), as last worked out; without it, nothing does. */
+  readonly reviews?: () => readonly PendingReview[];
 }): SessionController {
   const { sessionId, clock, newId } = options;
   const log = options.log ?? (() => undefined);
@@ -818,6 +823,7 @@ export function createSessionController(options: {
       compacting,
       interactions: [...interactions.values()].map((open) => open.interaction),
       question: question?.pending ?? null,
+      reviews: [...(options.reviews?.() ?? [])],
       failure,
     };
   }
@@ -1116,7 +1122,9 @@ export function createSessionController(options: {
         return;
       }
       case "note_added":
-        // pi wrote the note to its file already; the read places it where a rebuild would (SPEC-0002).
+      case "task_line_added":
+        // pi wrote the note or the task line to its file already; the read places it where a rebuild would (SPEC-0002;
+        // SPEC-0006, "任务对话的进度和记录折叠").
         // Fire and forget: `refresh` reports its own failures.
         void refresh();
         return;
@@ -2531,6 +2539,9 @@ export function createSessionController(options: {
     deliveriesChanged() {
       controlChanged();
       dispatch();
+    },
+    reviewsChanged() {
+      controlChanged();
     },
     entriesRead: () => refreshing ?? Promise.resolve(),
     childrenChanged(totals) {

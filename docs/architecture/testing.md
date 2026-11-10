@@ -135,8 +135,10 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
      - `git`：宿主的 `workspaces/`、`changes/`、`projects/` 和 `platform/git.ts`；跑这几处的测试，加用 git 的集成测试。
      - `ui`：界面的纯逻辑文件；跑界面的 Node 层测试。
      - `relay`：手机端的 relay（`apps/relay/src`，除了只做组装的 `entry.ts`）；跑它自己的测试（2026-10-25 MP2 加）。
+     - `reviews`：审核的 ReviewHub、任务关卡的算法和图的差异（`reviews/review-hub.ts`、`tasks/task-reviews.ts`、`tasks/graph-diff.ts`）；只跑它们的单测和 `task-view.test.ts`，真实宿主的测试（`reviews.host.test.ts`）不逐个变异跑（2026-11-06 T8a 加；这几个文件不在 `tasks` 组里）。
      - `study`：学习模式在宿主的部分（`study/`、`store/learning-records.ts`，2026-11-06 加只读看归档会话的 `sessions/read-only-transcripts.ts`）；跑它们自己的单元测试（2026-11-05 ML1 加，SPEC-0008）。真实宿主的 `study.host.test.ts` 不在里面：每个变异都起 pi 和 git 太慢，它守的行用破坏检查验证。
 
+     - `taskrunner`、`taskscheduler`、`worktreecreator`：宿主重启（T9，2026-11-09 加）。`taskrunner` 变异 `tasks/runner.ts`、`task-workspaces.ts`、`task-service.ts`，只跑把会话层和 worktree 端口换成替身的单测（`runner.test.ts`、`t9-runner.test.ts`、`t9-service.test.ts`、`task-workspaces.test.ts`）；runner 的其余代码靠宿主层测试，逐个变异跑太慢，所以这一组按行范围跑：`pnpm test:mutation taskrunner --mutate=packages/host/src/tasks/runner.ts:<起>-<止>,…`。`taskscheduler` 变异 `tasks/scheduler.ts`，只跑 scheduler 的单测（`tasks` 组会对每个存活的变异跑完整个目录的宿主层测试）；`worktreecreator` 变异 `workspaces/worktree-creator.ts`，只跑它自己的（真 git）测试，不跑 `git` 组的全部。按范围跑时，增量文件会把别的范围留下的旧结果一起算进分数：换范围前先删 `reports/stryker-incremental-<组>.json`。
      `pnpm test:mutation` 依次跑各组（也可以只跑某几组：`pnpm test:mutation git ui`），每组的增量结果分开存（`reports/stryker-incremental-<组>.json`）。代价是只能被别组测试抓住的变异会显示存活，补本组的测试或注明理由。之前试过、不用的办法：Stryker 自带的 Vitest 运行器能按覆盖选测试，但在 Vitest 5 下运行时激活的变异全被判成存活（10.0.0 仍然如此）；先跑 `vitest related` 选出的测试、全过再跑整套确认，在四个文件 377 个变异上没有提速（被检出的变异有 `--bail` 本来就停得早），存活的变异还因为跑两轮超过期限被记成超时（23 个里 18 个）。全量仍然慢，所以放到夜里跑。
    - **登录程序不做变异测试**（2026-10-10 定）：`packages/pi/src/auth/login-worker.ts` 由系统 Node 在另一个进程里运行，Stryker 的激活开关传不过去，所有变异都会显示存活。它保持很薄（只把 pi 的调用翻译成按行的 JSON），宿主这边的 `login.ts` 照常做变异测试；登录程序靠手工破坏验证：写完测试后逐个改坏它的每条分支（重复撤回提问、不给设备 ID、`stored` 写死、不分订阅、标准输入关闭不中止），确认都有测试失败，改动它时同样再做一遍。
    - 时有时无的测试会让变异分数虚高：偶发失败被算成"杀死了变异"。M1.1 时日志流有竞态，分数显示 93%，修掉竞态后真实分数是 78%，补测试后才到 100%。
@@ -210,12 +212,14 @@ client 也做同样的测试：订阅和退订 1000 次，store 数量回到基�
 | 切换标签 | ≤ 100 毫秒 |
 | 改动标签显示约 2 万行的 diff 时折叠展开左栏 | 单次脚本、样式计算、布局、PrePaint、绘制都 ≤ 4 毫秒 |
 | 在会话和约 2 万行 diff 的改动标签之间切换 | 同"切换标签"，≤ 100 毫秒 |
+| 50 个任务、每个 20 个节点（T7）：按下"任务"到列表画好 / 按下一行到 20 个节点的图画好 | 第一次打开（宿主读 50 个任务、页面第一次画）≤ 1 秒；之后各 ≤ 100 毫秒（中位数） |
 | 用滚轮把约 2 万行 diff 的改动标签滚到底 | 同折叠左栏，每段 ≤ 4 毫秒（三遍里每段最长值的中位数） |
 
 长任务和帧时间在渲染进程里用 `PerformanceObserver` 采集。超出预算即失败。
 
 - 流式输出那一项在 `e2e/chat.perf.spec.ts`：faux 以 50 tok/s 输出 6 节"表格 + 代码 + diff + 行内与块公式"的长回复。帧时间取相邻两次 `requestAnimationFrame` 的间隔。2026-10-07 在 M 系列 MacBook 上实测：三次都没有长任务，帧间隔 p95 约 10 毫秒（120Hz 屏）。在渲染里故意每次卡 60 毫秒，测试会报出 67 毫秒的长任务，失败。
 - 左栏那一项在 `e2e/changes.perf.spec.ts`：工作区里 40 个新文件、每个 500 行，面板打开后按 ⌘B 折叠再展开，用 CDP 追踪取渲染主线程的各段耗时。帧间隔受屏幕刷新率影响（60Hz 屏上本来就是 16.7 毫秒），所以不比帧间隔，比每段的耗时。2026-10-13 实测：面板滚动区没有 `contain: strict` 时 PrePaint 每帧约 14 毫秒，加上后不到 1 毫秒。收起右栏还不在预算里：第一帧有一次约 10 毫秒的 PrePaint，原因没查清（单独重放 React 改的几处 DOM 都不到 1 毫秒）；重新打开要重建整个 diff，约 250 毫秒。M1.12 起 diff 在改动标签里，测的是标签。
+- 任务区那一项在 `e2e/tasks.perf.spec.ts`：临时 home 里播 50 个任务（10 个等你、20 个在跑、20 个已完成，每个 20 节点的图，有扇出、汇合和打回边），启动 Atrium，按 ⌘N 离开任务区后再按"任务"，量到 35 行（已完成只显示 5 条）画好；再点第一行量到 20 个节点画好；共三遍。2026-11-06 实测（负载不低的 M 系列）：第一次打开约 520–540 毫秒，之后列表 21–22 毫秒、图 11–13 毫秒（第一遍图 22 毫秒），三次运行一致；预算按中位数留约 4 倍余量定。
 - 切换和滚动两项也在 `e2e/changes.perf.spec.ts`。切换从按下标签算到要显示的内容进页面、再过两帧。滚动用真实的滚轮事件（每次 400px），不在脚本里改 `scrollTop`：脚本里改了再读会强制布局，测到的是测试自己。2026-10-14 实测：到改动标签约 60 毫秒，回到会话约 16 毫秒（第一次约 90 毫秒）；滚动时每段 1–3 毫秒，偶尔有一遍出现约 9 毫秒的布局，原因没查清，所以取三遍的中位数。去掉行分组的 `content-visibility` 后切换要 260 毫秒以上；滚动时每次滚动事件卡 8 毫秒，测试会报出来。
 
 **4. 基准与长时间运行**

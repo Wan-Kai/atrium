@@ -1,0 +1,427 @@
+[
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "      executionMode: \"sequential\",\n",
+    "to": "",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "gives a node node_done"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "{ v: 1, tool: op }, { terminate: true })",
+    "to": "{ v: 1, tool: op }, {})",
+    "test": "packages/pi/src/contract/task-node.pi.test.ts",
+    "name": "done-alone",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "{ v: 1, tool: op }, { terminate: true })",
+    "to": "{ v: 1, tool: op }, {})",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "node_done asks the host"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "  if (self.kind !== \"node\") return;",
+    "to": "",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "task conversation"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "        cancel(ui, id);",
+    "to": "",
+    "test": "packages/pi/src/contract/task-node.pi.test.ts",
+    "name": "stopped-while-asking",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "        signal?.removeEventListener(\"abort\", aborted);",
+    "to": "",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "stops listening for the stop"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "        ui.setStatus(key, undefined);\n        resolve(reply);",
+    "to": "        resolve(reply);",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "node_done asks the host"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "    if (!reply.ok) return failed(reply.code, reply.params);",
+    "to": "",
+    "test": "packages/pi/src/contract/task-node.pi.test.ts",
+    "name": "wrong-caller",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "    if (long !== null) return failed(\"task_text_too_long\", long);",
+    "to": "",
+    "test": "packages/pi/src/contract/task-node.pi.test.ts",
+    "name": "too-long",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "handled.has(id) || ",
+    "to": "",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "does the same command once"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": " || ctx.sessionManager.getBranch().some((entry) => messageId(entry) === id)",
+    "to": "",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "does the same command once"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "kind: \"nudge\", id: nudge.data.id }, true)",
+    "to": "kind: \"nudge\", id: nudge.data.id }, false)",
+    "test": "packages/pi/src/contract/task-node.pi.test.ts",
+    "name": "nudge:",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "reason: kind }, true)",
+    "to": "reason: kind }, false)",
+    "test": "packages/pi/src/contract/task-node.pi.test.ts",
+    "name": "resume:",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "text }, false)",
+    "to": "text }, true)",
+    "test": "packages/pi/src/contract/task-node.pi.test.ts",
+    "name": "conversation:",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "nudge.success && self.kind === \"node\" && claim",
+    "to": "nudge.success && claim",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "nudges nodes only"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "nodeIsolated || isolated()",
+    "to": "isolated()",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "isolates a node by default"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "nodeIsolated || isolated()",
+    "to": "nodeIsolated",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "isolates what is not a task session"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "self?.kind === \"node\" && self.isolated !== false",
+    "to": "self?.kind === \"node\"",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "does not isolate a node"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "return why === null ? undefined : { block: true, reason: why };",
+    "to": "return undefined;",
+    "test": "packages/pi/src/contract/task-node.pi.test.ts",
+    "name": "explore:",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "if (entry.type !== \"custom_message\" || Reflect",
+    "to": "if (Reflect",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "not fooled by other messages"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "summary: params[\"summary\"] ?? \"\",",
+    "to": "summary: params[\"summary\"],",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "sends a failing node"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "const prefix = `--${TASK_FLAG}=`;",
+    "to": "const prefix = `${TASK_FLAG}=`;",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "reads the flag wherever"
+  },
+  {
+    "file": "packages/pi/src/task/words.ts",
+    "from": "if (role === \"work\") {",
+    "to": "if (role === \"check\") {",
+    "test": "packages/pi/src/task/words.test.ts",
+    "name": "gives a work node"
+  },
+  {
+    "file": "packages/pi/src/task/words.ts",
+    "from": "  if (agentTools.includes(tool)) return \"A task node cannot start or talk to sub-agents.\";\n",
+    "to": "",
+    "test": "packages/pi/src/task/words.test.ts",
+    "name": "refuses every agent tool"
+  },
+  {
+    "file": "packages/pi/src/task/words.ts",
+    "from": "|| tool === \"ask_user\") return null;",
+    "to": ") return null;",
+    "test": "packages/pi/src/task/words.test.ts",
+    "name": "lets every role"
+  },
+  {
+    "file": "packages/pi/src/task/words.ts",
+    "from": "text.replaceAll(SHELL_TAG, \"&lt;$1\")",
+    "to": "text",
+    "test": "packages/pi/src/task/words.test.ts",
+    "name": "wraps the host's resume text"
+  },
+  {
+    "file": "packages/pi/src/task/words.ts",
+    "from": "value.length > limit",
+    "to": "value.length >= limit",
+    "test": "packages/pi/src/task/words.test.ts",
+    "name": "accepts texts at the limit"
+  },
+  {
+    "file": "packages/pi/src/task/schema.ts",
+    "from": "  /** The node's role: it decides which tools the session may use. */\n    role: NodeRole,",
+    "to": "    role: z.string(),",
+    "test": "packages/pi/src/task/schema.test.ts",
+    "name": "is neither for"
+  },
+  {
+    "file": "packages/pi/src/task/schema.ts",
+    "from": "const parsed = v === 1 && schema !== undefined ? schema.safeParse(args) : null;",
+    "to": "const parsed = schema !== undefined ? schema.safeParse(args) : null;",
+    "test": "packages/pi/src/task/schema.test.ts",
+    "name": "as a bad request"
+  },
+  {
+    "file": "packages/pi/src/task/schema.ts",
+    "from": "status.length > TASK_ENVELOPE_LIMIT ? undefined : JSON.parse(status)",
+    "to": "JSON.parse(status)",
+    "test": "packages/pi/src/task/schema.test.ts",
+    "name": "as a bad request"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "const GIT_PLACE = /^(?:GIT_DIR|GIT_WORK_TREE)=/u;",
+    "to": "const GIT_PLACE = /^(?:GIT_DIR)=/u;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "blocks GIT_DIR="
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "flag === \"-C\" || flag === \"--git-dir\" || flag === \"--work-tree\"",
+    "to": "flag === \"-C\" || flag === \"--git-dir\"",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "blocks --git-dir and --work-tree"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "flag === \"-C\" || flag === \"--git-dir\" || flag === \"--work-tree\"",
+    "to": "flag === \"--git-dir\" || flag === \"--work-tree\"",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "blocks -C to a place outside"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "flag === \"-C\" || flag === \"--git-dir\" || flag === \"--work-tree\"",
+    "to": "flag === \"-C\" || flag === \"--work-tree\"",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "blocks --git-dir and --work-tree"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "if (flag === \"-C\") at = placed(value, at, reading);",
+    "to": "",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "lets git that stays inside go"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "} else if (glued === undefined && VALUE_OPTIONS.includes(flag)) {",
+    "to": "} else if (false) {",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "blocks -C to a place outside"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "if (dir === null || !inside(dir, reading)) return true;",
+    "to": "if (dir === null) return true;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "after cd to a place outside"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "if (builtin === \"cd\" || builtin === \"pushd\" || builtin === \"popd\") dir",
+    "to": "if (builtin === \"cd\") dir",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "after cd to a place outside"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "  if (operand.text === \"-\" && !operand.unknown) return null;\n",
+    "to": "",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "after cd to a place outside"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "  if (operand === undefined) return reading.home;",
+    "to": "  if (operand === undefined) return dir;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "after cd to a place outside"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "SHELLS.includes(name) || word.text === \"eval\"",
+    "to": "SHELLS.includes(name)",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "reads scripts handed to a shell or eval"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "if (depth >= MAX_DEPTH || script.unknown) return true;",
+    "to": "if (script.unknown) return true;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "gives up on scripts nested too deep"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "if (depth >= MAX_DEPTH || script.unknown) return true;",
+    "to": "if (depth >= MAX_DEPTH) return true;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "reads scripts handed to a shell or eval"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "    if (option.unknown) return true;\n",
+    "to": "",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "refuses a path or a directory"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "return below !== \"..\" && !below.startsWith(`..${sep}`) && !isAbsolute(below);",
+    "to": "return !below.startsWith(`..${sep}`) && !isAbsolute(below);",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "blocks -C to a place outside"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "return below !== \"..\" && !below.startsWith(`..${sep}`) && !isAbsolute(below);",
+    "to": "return below !== \"..\" && !isAbsolute(below);",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "blocks -C to a place outside"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "if (inner.trim() === \"pwd\") {",
+    "to": "if (false) {",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "lets git that stays inside go"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "/^[A-Za-z_]\\w*=$/u.test(text)",
+    "to": "false",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "blocks GIT_DIR="
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "if (event.toolName !== \"bash\" || !isOn()) return undefined;",
+    "to": "if (!isOn()) return undefined;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "leaves other tools"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "if (event.toolName !== \"bash\" || !isOn()) return undefined;",
+    "to": "if (event.toolName !== \"bash\") return undefined;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "lets everything through when the session is not isolated"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "} else if (char === \"#\" && !started) {",
+    "to": "} else if (false) {",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "skips comments"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "else if (variable === \"HOME\") text += HOME;",
+    "to": "else if (variable === \"HOME\") unknown = true;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "as the home directory it was given"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "if (variable === \"PWD\") text += PWD;",
+    "to": "if (variable === \"PWD\") unknown = true;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "lets git that stays inside go"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "else if (char === \"\\n\" || char === \";\" || char === \"&\" || char === \"|\" || char === \"(\" || char === \")\") {",
+    "to": "else if (char === \"\\n\" || char === \";\" || char === \"&\" || char === \"|\" || char === \")\") {",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "splits on the shell's separators"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "const end = command.indexOf(\"'\", i + 1);\n      started = true;",
+    "to": "const end = -1;\n      started = true;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "reads single quotes"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "if (event.toolName !== \"bash\" || !isOn()) return undefined;",
+    "to": "return undefined;",
+    "test": "packages/pi/src/contract/task-node.pi.test.ts",
+    "name": "a node: git -C",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "guardGit(pi, isOn);",
+    "to": "",
+    "test": "packages/pi/src/contract/task-node.pi.test.ts",
+    "name": "a node: git -C",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "if (self === null) return;\n\n  /** Calls waiting",
+    "to": "\n  /** Calls waiting",
+    "test": "packages/pi/src/contract/task-node.pi.test.ts",
+    "name": "who gets the node tools",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "registerFlag(TASK_FLAG",
+    "to": "registerFlag(TASK_FLAG+\"x\"",
+    "test": "packages/pi/src/contract/task-node.pi.test.ts",
+    "name": "done-alone",
+    "project": "pi"
+  }
+]
