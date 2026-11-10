@@ -41,8 +41,8 @@ const pairing = {
 };
 
 describe("the coordinated remote contract", () => {
-  it("uses version 38, which merges the task board (SPEC-0006) with the study loop and inline visuals (SPEC-0008)", () => {
-    expect(PROTOCOL_VERSION).toBe(38);
+  it("uses version 39, which adds a direction's files and visuals and release_visual (SPEC-0008, ML4) after the task board (SPEC-0006)", () => {
+    expect(PROTOCOL_VERSION).toBe(39);
   });
 
   it.each([

@@ -227,6 +227,21 @@ describe("the step strip (SPEC-0008, ML2; prototype 2D)", () => {
     expect(strip.element().querySelectorAll("button")).toHaveLength(0);
   });
 
+  it("no longer calls a direction whose file cannot be read under discussion on its home, and says why (ML4)", async () => {
+    const { screen } = await home({
+      broken: true,
+      discussing: true,
+      progress: null,
+      next: { primary: null, secondary: null },
+    });
+    const directionHome = screen.getByTestId("direction-home");
+
+    await expect
+      .element(directionHome.getByTestId("profile-line"))
+      .toHaveTextContent(".atrium-study.json 不是能读的格式，文件没有被改动");
+    await expect.element(directionHome.getByText("讨论中")).not.toBeInTheDocument();
+  });
+
   it("shows an archived direction where it stopped, and a finished one all lit, without buttons", async () => {
     // Buttons the host would never offer here are not drawn either.
     const archived = await home({ archived: true });

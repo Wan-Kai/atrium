@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { STUDY_FLAG, studyArgument } from "../study/study";
 import atriumVisuals, { type VisualsApi } from "./extension";
 import {
   VISUALS_FLAG,
@@ -19,15 +20,19 @@ import {
  *
  * @sideEffects none
  * @param flag - What pi gives for `--atrium-visuals`.
+ * @param study - What pi gives for `--atrium-study`.
  * @returns The sections after the hook, and the flags it registered.
  */
-function startRun(flag: string | undefined): { sections: Record<string, string>; flags: unknown[]; events: string[] } {
+function startRun(
+  flag: string | undefined,
+  study?: string,
+): { sections: Record<string, string>; flags: unknown[]; events: string[] } {
   const flags: unknown[] = [];
   const events: string[] = [];
   let hook: ((event: { systemPromptOptions: { sections: Record<string, string> } }) => void) | undefined;
   const pi: VisualsApi = {
     registerFlag: (name, options) => flags.push([name, options]),
-    getFlag: (name) => (name === VISUALS_FLAG ? flag : undefined),
+    getFlag: (name) => (name === VISUALS_FLAG ? flag : name === STUDY_FLAG ? study : undefined),
     on: (event, handler) => {
       events.push(event);
       hook = handler;
@@ -37,6 +42,20 @@ function startRun(flag: string | undefined): { sections: Record<string, string>;
   const sections: Record<string, string> = { cwd: "/repo" };
   hook?.({ systemPromptOptions: { sections } });
   return { sections, flags, events };
+}
+
+/**
+ * The fragment's rules of a visuals prompt, from their heading on.
+ *
+ * @remarks
+ * The same for every session; only how and where differ.
+ *
+ * @sideEffects none
+ * @param prompt - The prompt.
+ * @returns The rules.
+ */
+function rulesOf(prompt: string): string {
+  return prompt.slice(prompt.indexOf("Rules for the fragment:"));
 }
 
 describe("visuals in the system prompt", () => {
@@ -115,6 +134,45 @@ describe("visuals in the system prompt", () => {
       - To send the user's answer back, call window.atrium.sendMessage(text) from a click handler; it reaches you as the user's message. It only works right after the user clicks in the visual, at most 4000 characters, once a second.
       - The visual cannot read the conversation or files, call tools, or receive your replies."
     `);
+  });
+
+  it("reads back a study direction's launch, whose visuals are written and named by their place in it (SPEC-0008, ML4)", () => {
+    const flag = visualsArgument("/L/rust/visuals", "visuals");
+
+    expect(readVisualsArgument(flag)).toStrictEqual({ v: 1, dir: "/L/rust/visuals", relative: "visuals" });
+    for (const relative of ["lab", "", 1, null]) {
+      const value = { v: 1, dir: "/L/rust/visuals", relative };
+      expect(readVisualsArgument(Buffer.from(JSON.stringify(value)).toString("base64url"))).toBeNull();
+    }
+    expect(startRun(flag).sections[VISUALS_SECTION]).toBe(visualsPrompt("/L/rust/visuals", "visuals"));
+  });
+
+  it("tells a quiz and an exam nothing of visuals, which make none, and every other use as before (ML4 review)", () => {
+    const flag = visualsArgument("/L/rust/visuals", "visuals");
+    const told = visualsPrompt("/L/rust/visuals", "visuals");
+
+    for (const kind of ["quiz", "exam"] as const) {
+      expect(startRun(flag, studyArgument({ kind, level: "l1", step: "s1" })).sections).toStrictEqual({ cwd: "/repo" });
+    }
+    for (const kind of ["discuss", "plan", "lesson", "feynman", "sheet", "project"] as const) {
+      expect(startRun(flag, studyArgument({ kind })).sections[VISUALS_SECTION]).toBe(told);
+    }
+    expect(startRun(flag, "not a flag").sections[VISUALS_SECTION]).toBe(told);
+  });
+
+  it("tells a direction's session to write in visuals/ and reference it by that relative path", () => {
+    const prompt = visualsPrompt("/L/rust/visuals", "visuals");
+
+    expect(prompt).toContain(
+      "How: write the fragment to a file in the visuals/ folder of the working directory (create the folder if needed), with a name ending in .html, then put this code block in your reply where it should appear:",
+    );
+    expect(prompt).toContain('```visual\n{"path":"visuals/<name>.html","title":"<short title>"}\n```');
+    expect(prompt).toContain(
+      "Always reference it by this relative path, never an absolute one: the folder may move, and the relative path still finds it.",
+    );
+    expect(prompt).not.toContain("/L/rust");
+    // The rest is the same as every session's.
+    expect(rulesOf(prompt)).toBe(rulesOf(visualsPrompt("/v")));
   });
 
   it("offers a common subset of icons, each named once", () => {

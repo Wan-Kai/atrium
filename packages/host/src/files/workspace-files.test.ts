@@ -458,3 +458,181 @@ describe("WorkspaceFiles.readFile", () => {
     expect(JSON.stringify(records)).not.toContain("secret");
   });
 });
+
+/** The direction the tests read. */
+const DIRECTION = "lrn_rust";
+
+/**
+ * A direction inside a home that is a git repository ignoring everything, as a dotfiles one may.
+ *
+ * @remarks
+ * Its `lab/` is a repository of its own, as the host makes it; `notes/` and `visuals/` are in no
+ * repository but the home's.
+ *
+ * @sideEffects Creates the directories and runs `git init`.
+ * @returns The direction's directory.
+ */
+async function direction(): Promise<string> {
+  const { root } = await scene();
+  gitInit(root);
+  await writeFile(join(root, ".gitignore"), "*\n");
+  const dir = join(root, "Learning", "rust");
+  await mkdir(join(dir, "notes"), { recursive: true });
+  await mkdir(join(dir, "visuals"));
+  await mkdir(join(dir, "lab", "target"), { recursive: true });
+  gitInit(join(dir, "lab"));
+  await writeFile(join(dir, "lab", ".gitignore"), "target/\n");
+  await writeFile(join(dir, "lab", "main.rs"), "fn main() {}\n");
+  for (const name of [".atrium-study.json", ".atrium-study.json.ab12.tmp", ".hidden", "AGENTS.md"]) {
+    await writeFile(join(dir, name), "{}");
+  }
+  await writeFile(join(dir, "notes", "2-03.md"), "# 借用\n");
+  await writeFile(join(dir, "notes", ".draft.md"), "");
+  await writeFile(join(dir, "visuals", "2-03-borrow.html"), "<p>x</p>");
+  return dir;
+}
+
+/**
+ * The reader with the direction at `dir`, checked by `safe`.
+ *
+ * @remarks
+ * As the host gives it: the direction's place now, after its check.
+ *
+ * @sideEffects none
+ * @param dir - The direction's directory.
+ * @param safe - Whether its check passes, asked on each read.
+ * @returns The reader and the log.
+ */
+function directionFiles(dir: string, safe: () => boolean = () => true) {
+  const { logger, records } = recordingTracing();
+  const files = createWorkspaceFiles({
+    dirOf: () => undefined,
+    directionOf: async (directionId) => {
+      if (directionId !== DIRECTION) throw new CommandError("direction_not_found");
+      if (!safe()) throw new CommandError("learning_dir_unsafe");
+      return dir;
+    },
+    git: Promise.resolve(createGitRunner({ env: GIT_SCENE_ENV, clock: systemClock, resources: new ResourceTracker() })),
+    logger,
+  });
+  return { files, records };
+}
+
+describe("WorkspaceFiles in a learning direction (SPEC-0008, ML4)", () => {
+  it("lists the root without its dot files and without git, a folder outside lab/ without git, and lab/ as git says", async () => {
+    const dir = await direction();
+    const { files } = directionFiles(dir);
+
+    expect(sorted(await files.listDir(DIRECTION, ""))).toStrictEqual({
+      entries: [
+        { name: "AGENTS.md", kind: "file" },
+        { name: "lab", kind: "dir" },
+        { name: "notes", kind: "dir" },
+        { name: "visuals", kind: "dir" },
+      ],
+      truncated: false,
+    });
+    expect(sorted(await files.listDir(DIRECTION, "notes"))).toStrictEqual({
+      entries: [
+        { name: ".draft.md", kind: "file" },
+        { name: "2-03.md", kind: "file" },
+      ],
+      truncated: false,
+    });
+    expect(sorted(await files.listDir(DIRECTION, "lab"))).toStrictEqual({
+      entries: [
+        { name: ".gitignore", kind: "file" },
+        { name: "main.rs", kind: "file" },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("reads a direction's file as a workspace's, with the same checks on the path", async () => {
+    const dir = await direction();
+    await symlink(join(dir, "notes", "2-03.md"), join(dir, "notes", "linked.md"));
+    const { files } = directionFiles(dir);
+
+    expect(await files.readFile(DIRECTION, "notes/2-03.md")).toStrictEqual({
+      size: 9,
+      content: { kind: "text", text: "# 借用\n" },
+    });
+    expect(await files.readFile(DIRECTION, "notes/linked.md")).toMatchObject({ content: { kind: "link" } });
+    expect(await codeOf(files.readFile(DIRECTION, "notes/../AGENTS.md"))).toBe("path_invalid");
+  });
+
+  it("refuses an unknown direction, and one whose place fails its check, even after it opened", async () => {
+    const dir = await direction();
+    let checks = 0;
+    // The check passes once, then fails, as a direction swapped for a link between the two.
+    const { files } = directionFiles(dir, () => (checks += 1) === 1);
+
+    expect(await codeOf(files.listDir("lrn_gone", ""))).toBe("direction_not_found");
+    expect(await codeOf(files.listDir(DIRECTION, "notes"))).toBe("learning_dir_unsafe");
+    checks = 0;
+    expect(await codeOf(files.readFile(DIRECTION, "notes/2-03.md"))).toBe("learning_dir_unsafe");
+  });
+
+  it("refuses a direction swapped for a link before its real path was taken and swapped back before the check again", async () => {
+    const dir = await direction();
+    const elsewhere = `${dir}-elsewhere`;
+    await mkdir(join(elsewhere, "notes"), { recursive: true });
+    await writeFile(join(elsewhere, "notes", "2-03.md"), "outside");
+    let checks = 0;
+    // Each first check passes, then the direction is a link; by the second it is back and passes.
+    const steps = [
+      async () => {
+        await rename(dir, `${dir}-real`);
+        await symlink(elsewhere, dir);
+      },
+      async () => {
+        await rm(dir);
+        await rename(`${dir}-real`, dir);
+      },
+    ];
+    const files = createWorkspaceFiles({
+      dirOf: () => undefined,
+      directionOf: async () => {
+        await steps[checks % 2]?.();
+        checks += 1;
+        return dir;
+      },
+      git: Promise.resolve(null),
+      logger: recordingTracing().logger,
+    });
+
+    expect(await codeOf(files.readFile(DIRECTION, "notes/2-03.md"))).toBe("learning_dir_unsafe");
+    expect(await codeOf(files.listDir(DIRECTION, "notes"))).toBe("learning_dir_unsafe");
+    expect(checks).toBe(4);
+  });
+
+  it("asks git about a lab folder named in another case, as the Mac's volume does not tell them apart", async () => {
+    const dir = await direction();
+    await rename(join(dir, "lab"), join(dir, "Lab"));
+    const { files } = directionFiles(dir);
+
+    expect(sorted(await files.listDir(DIRECTION, "Lab"))).toStrictEqual({
+      entries: [
+        { name: ".gitignore", kind: "file" },
+        { name: "main.rs", kind: "file" },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("logs a direction's failed read by the direction and the kind only", async () => {
+    const dir = await direction();
+    await mkdir(join(dir, "secret-dir"));
+    await chmod(join(dir, "secret-dir"), 0o000);
+    onTestFinished(() => chmod(join(dir, "secret-dir"), 0o700));
+    const { files, records } = directionFiles(dir);
+
+    expect(await codeOf(files.listDir(DIRECTION, "secret-dir"))).toBe("read_failed");
+    expect(
+      records.map(({ msg, direction_id, workspace_id, reason }) => ({ msg, direction_id, workspace_id, reason })),
+    ).toStrictEqual([
+      { msg: "workspace file read failed", direction_id: DIRECTION, workspace_id: undefined, reason: "EACCES" },
+    ]);
+    expect(JSON.stringify(records)).not.toContain("secret-dir");
+  });
+});

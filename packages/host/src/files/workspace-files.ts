@@ -1,4 +1,11 @@
-import { CommandError, type DirEntry, FILE_LIMITS, type FileContent, type ShownImageType } from "@atrium/protocol";
+import {
+  CommandError,
+  type DirEntry,
+  FILE_LIMITS,
+  type FileContent,
+  type ShownImageType,
+  isDirectionId,
+} from "@atrium/protocol";
 import { constants, type Stats } from "node:fs";
 import { type FileHandle, lstat, open, readdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,7 +13,10 @@ import { BINARY_SNIFF_BYTES, isLikelyBinary } from "../changes/diff-text";
 import type { GitRunner } from "../platform/git";
 import type { Logger } from "../platform/logger";
 
-/** Reads a workspace's files for the right panel's file tree and the viewer tabs. */
+/**
+ * Reads a workspace's files for the right panel's file tree and the viewer tabs, and a learning
+ * direction's for its home's archive and its viewer tabs (SPEC-0008, ML4).
+ */
 export interface WorkspaceFiles {
   /** One directory's entries, as `list_dir` answers. */
   listDir(workspaceId: string, path: string): Promise<{ entries: DirEntry[]; truncated: boolean }>;
@@ -16,6 +26,12 @@ export interface WorkspaceFiles {
 
 /** How long one `git check-ignore` may take. */
 const IGNORE_TIMEOUT_MS = 10_000;
+
+/** A workspace's or direction's directory, and its check once a target is open, given the real path it was read at. */
+interface Root {
+  readonly dir: string;
+  readonly again: (realRoot: string) => Promise<void>;
+}
 
 /** The PNG signature. */
 const PNG_START = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -50,18 +66,56 @@ function imageTypeOf(start: Buffer): ShownImageType | undefined {
  * plain parts, and reached without passing through a link; the last part is opened without
  * following one. A file's type, size and content come from one opening. Every failure becomes an
  * error code, so nothing that names a path reaches the router's log; this logs only the workspace
- * and the error's kind.
+ * and the error's kind. A learning direction (SPEC-0008, "ML4 定的细节"), named by its `lrn_` id,
+ * is read where it is now, after the host's check of its place, which runs again once the target is
+ * open; its root lists no dot file (the progress file and its temporary ones) and asks git nothing,
+ * as it is in no repository of its own; only its `lab/` is, so only there does git say what is
+ * ignored. Its log names the direction.
  *
  * @sideEffects none until called; then reads the file system and runs `git check-ignore`.
- * @param options - Where each workspace is, git (`null` without git, when nothing counts as
+ * @param options - Where each workspace is, where each direction is now after its check (it throws
+ * `direction_not_found` or `learning_dir_unsafe`), git (`null` without git, when nothing counts as
  * ignored), and the logger.
  * @returns The reader.
  */
 export function createWorkspaceFiles(options: {
   readonly dirOf: (workspaceId: string) => string | undefined;
+  readonly directionOf?: (directionId: string) => Promise<string>;
   readonly git: Promise<GitRunner | null>;
   readonly logger: Logger;
 }): WorkspaceFiles {
+  /**
+   * Where a workspace or a direction is, and how to check it again once a target is open.
+   *
+   * @remarks
+   * See `createWorkspaceFiles`. A direction checked again must still be at the real path the
+   * target's path was built from: one swapped for a link before that and swapped back by now
+   * passes its own check, but the target was found through the link (ML4 three-way review).
+   *
+   * @sideEffects Runs the direction's check.
+   * @param id - The workspace or direction.
+   * @returns Its directory and the check, given the real path it was read at, or `undefined` for
+   * an unknown workspace.
+   * @throws {CommandError} From the direction's check.
+   */
+  async function rootOf(id: string): Promise<Root | undefined> {
+    if (!isDirectionId(id)) {
+      const dir = options.dirOf(id);
+      return dir === undefined ? undefined : { dir, again: async () => undefined };
+    }
+    if (options.directionOf === undefined) throw new CommandError("direction_not_found");
+    const directionOf = options.directionOf;
+    const dir = await directionOf(id);
+    return {
+      dir,
+      again: async (realRoot) => {
+        await directionOf(id);
+        const now = await realpath(dir).catch(() => null);
+        if (now !== realRoot) throw new CommandError("learning_dir_unsafe");
+      },
+    };
+  }
+
   /**
    * Turns a failure into the error the command answers with.
    *
@@ -76,7 +130,8 @@ export function createWorkspaceFiles(options: {
    */
   function failure(workspaceId: string, error: unknown): CommandError {
     if (error instanceof CommandError) return error;
-    options.logger.warn({ workspace_id: workspaceId, reason: errorKind(error) }, "workspace file read failed");
+    const which = isDirectionId(workspaceId) ? { direction_id: workspaceId } : { workspace_id: workspaceId };
+    options.logger.warn({ ...which, reason: errorKind(error) }, "workspace file read failed");
     return new CommandError("read_failed");
   }
 
@@ -111,7 +166,12 @@ export function createWorkspaceFiles(options: {
 
   return {
     async listDir(workspaceId, path) {
-      const { target, check } = await locate(options.dirOf, workspaceId, path);
+      const { target, check } = await locate(await rootOf(workspaceId), path);
+      // A direction's root is in no repository of its own, and its dot files are the host's (ML4).
+      const direction = isDirectionId(workspaceId);
+      const atRoot = direction && path === "";
+      // Any case: the Mac's volume does not tell lab/ from Lab/.
+      const asksGit = !direction || /^lab(?:\/|$)/iu.test(path);
       let dir: FileHandle;
       try {
         // Without O_NOFOLLOW a link would still fail the check below, the opened directory not being the link.
@@ -124,14 +184,16 @@ export function createWorkspaceFiles(options: {
         const read = await readdir(target, { withFileTypes: true });
         await check(opened);
         const listed = read.flatMap((entry): DirEntry[] => {
-          if (entry.name === ".git") return [];
+          if (entry.name === ".git" || (atRoot && entry.name.startsWith("."))) return [];
           const kind = entry.isDirectory() ? "dir" : entry.isFile() ? "file" : entry.isSymbolicLink() ? "link" : null;
           return kind === null ? [] : [{ name: entry.name, kind }];
         });
-        const skip = await ignored(
-          target,
-          listed.map((entry) => entry.name),
-        );
+        const skip = asksGit
+          ? await ignored(
+              target,
+              listed.map((entry) => entry.name),
+            )
+          : new Set<string>();
         const entries = listed.filter((entry) => !skip.has(entry.name));
         if (entries.length <= FILE_LIMITS.entries) return { entries, truncated: false };
         // Node's readdir gives names in byte order, so the same directory keeps the same first ones.
@@ -144,7 +206,7 @@ export function createWorkspaceFiles(options: {
     },
 
     async readFile(workspaceId, path) {
-      const { target, check } = await locate(options.dirOf, workspaceId, path);
+      const { target, check } = await locate(await rootOf(workspaceId), path);
       let file: FileHandle;
       try {
         file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -177,28 +239,26 @@ export function createWorkspaceFiles(options: {
  * for a link meanwhile, or a target swapped after it was opened, is refused.
  *
  * @sideEffects Reads real paths from the file system.
- * @param dirOf - Where each workspace is.
- * @param workspaceId - The workspace.
+ * @param root - The workspace's or direction's directory and its check, `undefined` for none.
  * @param path - The path, relative to it.
  * @returns The target's path, and the check to run once it is open.
  * @throws {CommandError} `workspace_not_found`, `path_invalid` or `path_not_found`.
  */
 async function locate(
-  dirOf: (workspaceId: string) => string | undefined,
-  workspaceId: string,
+  root: Root | undefined,
   path: string,
 ): Promise<{ readonly target: string; readonly check: (opened: Stats) => Promise<void> }> {
-  const dir = dirOf(workspaceId);
-  if (dir === undefined) throw new CommandError("workspace_not_found");
+  if (root === undefined) throw new CommandError("workspace_not_found");
+  const { dir, again } = root;
   const parts = path === "" ? [] : path.split("/");
   if (path.includes("\0") || parts.some((part) => part === "" || part === "." || part === "..")) {
     throw new CommandError("path_invalid");
   }
-  const root = await realpath(dir).catch(() => {
+  const realRoot = await realpath(dir).catch(() => {
     throw new CommandError("path_not_found");
   });
-  const parent = join(root, ...parts.slice(0, -1));
-  const target = join(root, ...parts);
+  const parent = join(realRoot, ...parts.slice(0, -1));
+  const target = join(realRoot, ...parts);
   /**
    * Checks the parent is still reached without a link.
    *
@@ -218,6 +278,7 @@ async function locate(
   return {
     target,
     check: async (opened) => {
+      await again(realRoot);
       await checkParent();
       const now = await lstat(target).catch(() => null);
       if (now?.ino !== opened.ino || now.dev !== opened.dev) throw new CommandError("path_invalid");

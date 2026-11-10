@@ -13,9 +13,10 @@ import {
   utilityProcess,
 } from "electron";
 import { randomBytes } from "node:crypto";
-import { lstat, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { isBrowsable } from "./browsable";
 import { followTasksFor } from "./follow-tasks";
 import { openTerminalIn } from "./open-terminal";
 import { allowsPermission, isPageUrl } from "./permissions";
@@ -249,26 +250,6 @@ async function isRevealable(path: string): Promise<boolean> {
   if (!isAbsolute(path)) return false;
   return stat(path).then(
     () => true,
-    () => false,
-  );
-}
-
-/**
- * Whether the page may open a path in the browser: an absolute path to an HTML file.
- *
- * @remarks
- * The page asks for an HTML file shown in a file tab (SPEC-0001, "查看标签"). The file must be a
- * regular file, not a link to somewhere else or a folder; anything else it sends is ignored
- * (security.md, "Electron").
- *
- * @sideEffects Reads the file system.
- * @param path - The path the page sent.
- * @returns Whether to open it.
- */
-async function isBrowsable(path: string): Promise<boolean> {
-  if (!isAbsolute(path) || !/\.html?$/iu.test(path)) return false;
-  return lstat(path).then(
-    (found) => found.isFile(),
     () => false,
   );
 }

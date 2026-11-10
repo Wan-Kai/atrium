@@ -33,6 +33,7 @@ import {
   type VisualChangedEvent,
   createTraceContext,
   formatTraceparent,
+  isDirectionId,
 } from "@atrium/protocol";
 import { type StoreApi, createStore } from "zustand/vanilla";
 import {
@@ -376,13 +377,16 @@ export interface AtriumClient {
   /**
    * Checks a visual a reply names and gets its sandbox address (SPEC-0007); while a card holds it,
    * it is resolved again on each later connection, so the host keeps telling of its changes.
+   * `owner` is the session whose reply names it, or a learning direction (`lrn_…`) for its viewer
+   * tab (SPEC-0008, ML4).
    */
-  resolveVisual(sessionId: string, path: string): Promise<CommandResult<"resolve_visual">>;
+  resolveVisual(owner: string, path: string): Promise<CommandResult<"resolve_visual">>;
   /**
    * Holds a visual while its card is shown, so each new connection resolves it again; returns how
-   * to let go, after which, with no other card holding it, it is forgotten.
+   * to let go, after which, with no other card holding it, it is forgotten and the host told to let
+   * go of it too (`release_visual`). `owner` as for `resolveVisual`.
    */
-  holdVisual(sessionId: string, path: string): () => void;
+  holdVisual(owner: string, path: string): () => void;
   /** Sends what you picked in a visual as your message in its session (SPEC-0007, "回传"). */
   sendVisualMessage(sessionId: string, path: string, text: string): Promise<CommandResult<"send_visual_message">>;
   /**
@@ -608,6 +612,21 @@ const systemClock: ClientClock = {
 
 // Stryker disable ConditionalExpression,BlockStatement: a binary frame or broken JSON fails the schema check just like `undefined`.
 /**
+ * The field a visual's owner goes by in `resolve_visual` and `visual_changed`.
+ *
+ * @remarks
+ * A learning direction's id (`lrn_…`) names its viewer tab's visual; anything else is the session
+ * whose reply names it (SPEC-0008, ML4).
+ *
+ * @sideEffects none
+ * @param owner - The owner.
+ * @returns The field.
+ */
+function visualOwner(owner: string): { readonly sessionId: string } | { readonly directionId: string } {
+  return isDirectionId(owner) ? { directionId: owner } : { sessionId: owner };
+}
+
+/**
  * Parses JSON without throwing.
  *
  * @remarks
@@ -709,12 +728,13 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   /** The workspaces shown, asked for again on each connection. */
   let showing: readonly string[] = [];
   /**
-   * The visuals cards hold, by session and path, with how many hold each and the address and time
-   * last heard (`null` before one was, or after it failed); resolved again on each connection.
+   * The visuals cards hold, by owner (a session, or a direction for its viewer tab) and path, with
+   * how many hold each and the address and time last heard (`null` before one was, or after it
+   * failed); resolved again on each connection.
    */
   const visuals = new Map<
     string,
-    { readonly sessionId: string; readonly path: string; holds: number; url: string | null; mtime: number | null }
+    { readonly owner: string; readonly path: string; holds: number; url: string | null; mtime: number | null }
   >();
   const visualListeners = new Set<(changed: VisualChangedEvent) => void>();
   const diff = createStore<DiffView>(() => diffViewOf(null));
@@ -1221,24 +1241,24 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    * @param known - The visual, as held.
    */
   async function resolveHeldAgain(known: {
-    readonly sessionId: string;
+    readonly owner: string;
     readonly path: string;
     url: string | null;
     mtime: number | null;
   }): Promise<void> {
-    const { sessionId, path } = known;
+    const { owner, path } = known;
     try {
-      const { url, mtime } = await request("resolve_visual", { sessionId, path });
+      const { url, mtime } = await request("resolve_visual", { ...visualOwner(owner), path });
       if (url === known.url && mtime === known.mtime) return;
       known.url = url;
       known.mtime = mtime;
-      visualChanged({ type: "visual_changed", sessionId, path, mtime });
+      visualChanged({ type: "visual_changed", ...visualOwner(owner), path, mtime });
     } catch (error) {
       if (error instanceof ConnectionLostError) return;
       const before = known.mtime;
       known.url = null;
       known.mtime = null;
-      visualChanged({ type: "visual_changed", sessionId, path, mtime: before ?? 0 });
+      visualChanged({ type: "visual_changed", ...visualOwner(owner), path, mtime: before ?? 0 });
     }
   }
 
@@ -1853,10 +1873,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     searchFiles: (sessionId, query) => request("search_files", { sessionId, query }),
     listDir: (workspaceId, path) => request("list_dir", { workspaceId, path }),
     readFile: (workspaceId, path) => request("read_file", { workspaceId, path }),
-    async resolveVisual(sessionId, path) {
-      const known = visuals.get(`${sessionId}\u0000${path}`);
+    async resolveVisual(owner, path) {
+      const known = visuals.get(`${owner}\u0000${path}`);
       try {
-        const result = await request("resolve_visual", { sessionId, path });
+        const result = await request("resolve_visual", { ...visualOwner(owner), path });
         if (known !== undefined) {
           known.url = result.url;
           known.mtime = result.mtime;
@@ -1870,9 +1890,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         throw error;
       }
     },
-    holdVisual(sessionId, path) {
-      const key = `${sessionId}\u0000${path}`;
-      const known = visuals.get(key) ?? { sessionId, path, holds: 0, url: null, mtime: null };
+    holdVisual(owner, path) {
+      const key = `${owner}\u0000${path}`;
+      const known = visuals.get(key) ?? { owner, path, holds: 0, url: null, mtime: null };
       known.holds += 1;
       visuals.set(key, known);
       let held = true;
@@ -1880,7 +1900,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         if (!held) return;
         held = false;
         known.holds -= 1;
-        if (known.holds === 0 && visuals.get(key) === known) visuals.delete(key);
+        if (known.holds > 0 || visuals.get(key) !== known) return;
+        visuals.delete(key);
+        // Fire and forget: the host lets go of it on disconnect anyway, so a lost or refused release costs nothing.
+        request("release_visual", { ...visualOwner(owner), path }).catch(() => undefined);
       };
     },
     sendVisualMessage: (sessionId, path, text) => request("send_visual_message", { sessionId, path, text }),

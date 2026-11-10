@@ -1079,6 +1079,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       return { disposition: "started" };
     },
     onVisualChanged: () => () => undefined,
+    holdVisual: () => () => undefined,
     async readFile(workspaceId: string, path: string) {
       calls.push(`readFile ${workspaceId} ${path}`);
       const read = await answers.readFile?.(workspaceId, path);

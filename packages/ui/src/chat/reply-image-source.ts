@@ -12,9 +12,16 @@ export type ReplyImageSource =
  * @param source - The Markdown address, before the renderer's default URL filtering.
  * @param workspaceDir - The current workspace root, or null for an unbound chat.
  * @param basePath - A trusted workspace-relative document directory, including its trailing slash.
+ * @param parents - Resolve `..` from the document's folder, keeping the result inside the root, as
+ * a direction's Markdown preview does (SPEC-0008, ML4); refused otherwise. The path read never has one.
  * @returns The permitted remote address or workspace-relative path.
  */
-export function replyImageSource(source: string, workspaceDir: string | null, basePath = ""): ReplyImageSource {
+export function replyImageSource(
+  source: string,
+  workspaceDir: string | null,
+  basePath = "",
+  parents = false,
+): ReplyImageSource {
   if (/\p{Cc}|\\/u.test(source)) return { kind: "blocked" };
   if (/^https?:\/\//iu.test(source)) {
     try {
@@ -40,14 +47,24 @@ export function replyImageSource(source: string, workspaceDir: string | null, ba
   } catch {
     return { kind: "blocked" };
   }
-  if (/\p{Cc}|\\/u.test(path) || path.startsWith("~") || path.split("/").includes("..")) return { kind: "blocked" };
+  if (/\p{Cc}|\\/u.test(path) || path.startsWith("~") || (!parents && path.split("/").includes(".."))) {
+    return { kind: "blocked" };
+  }
   const absolute = path.startsWith("/");
   if (absolute) {
     const root = workspaceDir.replace(/\/+$/u, "");
     if (!path.startsWith(`${root}/`)) return { kind: "blocked" };
     path = path.slice(root.length + 1);
   }
-  const parts = path.split("/").filter((part) => part !== "" && part !== ".");
-  if (parts.length === 0 || path.length > 4096) return { kind: "blocked" };
-  return { kind: "local", path: `${absolute ? "" : basePath}${parts.join("/")}` };
+  const parts: string[] = [];
+  for (const part of `${absolute ? "" : basePath}${path}`.split("/")) {
+    if (part === "..") {
+      // Above the root: outside the workspace or direction.
+      if (parts.pop() === undefined) return { kind: "blocked" };
+    } else if (part !== "" && part !== ".") parts.push(part);
+  }
+  // The address itself names something, not only the document's folder.
+  const named = path.split("/").some((part) => part !== "" && part !== "." && part !== "..");
+  if (!named || parts.length === 0 || path.length > 4096) return { kind: "blocked" };
+  return { kind: "local", path: parts.join("/") };
 }

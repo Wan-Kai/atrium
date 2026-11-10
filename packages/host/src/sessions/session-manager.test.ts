@@ -4,6 +4,7 @@ import {
   encodeArgument,
   sessionFolder,
   startCommand,
+  askArgument,
   studyArgument,
   visualsArgument,
 } from "@atrium/pi";
@@ -2567,8 +2568,8 @@ function fastSwitches(received: readonly Record<string, unknown>[]): unknown[] {
 }
 
 /** Where the visuals go: the first session's in its folder, none for any other. */
-function firstSessionVisuals(sessionId: string): string | null {
-  return sessionId === "pi-session-1" ? `/home/.atrium/visuals/${sessionId}` : null;
+function firstSessionVisuals(sessionId: string): { dir: string } | null {
+  return sessionId === "pi-session-1" ? { dir: `/home/.atrium/visuals/${sessionId}` } : null;
 }
 
 describe("SessionManager Fast", () => {
@@ -2643,6 +2644,29 @@ describe("SessionManager Fast", () => {
       .filter((argv) => argv !== undefined);
     expect(argvs[0]?.at(-1)).toBe(`--atrium-visuals=${visualsArgument("/home/.atrium/visuals/pi-session-1")}`);
     expect(argvs[1]?.some((arg) => arg.startsWith("--atrium-visuals"))).toBe(false);
+  });
+
+  it("tells Atrium's extension a study direction's visuals go in its visuals/, named by their place (SPEC-0008, ML4)", async () => {
+    const { fast } = fastMemory(false);
+    const { manager, starts } = await manage(
+      { argvToStderr: true, rules: FAST_PI },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fast,
+      undefined,
+      { visualsDir: () => ({ dir: "/L/rust/visuals", base: "/L/rust" }) },
+    );
+
+    await started(manager, manager.createChat("client-1"));
+
+    const argvs = starts()
+      .map(({ argv }) => argv)
+      .filter((argv) => argv !== undefined);
+    expect(argvs[0]?.at(-1)).toBe(`--atrium-visuals=${visualsArgument("/L/rust/visuals", "visuals")}`);
   });
 
   it("sends no switch while Fast is off", async () => {
@@ -5499,7 +5523,7 @@ async function studyDirection(
 }
 
 describe("SessionManager a learning direction's sessions with a use (SPEC-0008, ML2)", () => {
-  it("starts pi with the use's flag, and nothing for an asking session", async () => {
+  it("starts pi with the use's flag, and an asking session with only the asking flag (ML4 review)", async () => {
     const { manager, starts } = await studyDirection(STUDY_PI);
 
     await manager.createStudySession("client-1", "lrn_go", { kind: "discuss" });
@@ -5512,7 +5536,9 @@ describe("SessionManager a learning direction's sessions with a use (SPEC-0008, 
     await vi.waitFor(() => expect(argvs()).toHaveLength(2));
 
     expect(argvs()[0]).toContain(`--atrium-study=${studyArgument({ kind: "discuss" })}`);
-    expect(argvs()[1]?.some((arg) => arg.startsWith("--atrium-study"))).toBe(false);
+    expect(argvs()[1]?.filter((arg) => arg.startsWith("--atrium-study"))).toStrictEqual([
+      `--atrium-study=${askArgument()}`,
+    ]);
   });
 
   it("starts a session it opened for a use with /atrium-study start, once pi lists the command", async () => {

@@ -11,6 +11,11 @@ export interface VisualsLaunch {
   readonly v: 1;
   /** The absolute directory the agent writes the session's visuals into. */
   readonly dir: string;
+  /**
+   * `visuals` for a study direction's session: the directory is `visuals/` of its working
+   * directory, written and referenced by that relative path, as the direction may move (SPEC-0008, ML4).
+   */
+  readonly relative?: "visuals";
 }
 
 /**
@@ -145,18 +150,20 @@ export const VISUAL_VARIABLES = [
  *
  * @sideEffects none
  * @param dir - The session's directory for visuals.
+ * @param relative - `visuals` for a study direction's session (ML4).
  * @returns The flag's value.
  */
-export function visualsArgument(dir: string): string {
-  return encodeArgument({ v: 1, dir } satisfies VisualsLaunch);
+export function visualsArgument(dir: string, relative?: "visuals"): string {
+  return encodeArgument({ v: 1, dir, ...(relative === undefined ? {} : { relative }) } satisfies VisualsLaunch);
 }
 
 /**
  * Reads `--atrium-visuals`.
  *
  * @remarks
- * Anything but a version 1 object with an absolute directory reads as none: the session then
- * gets no instructions on visuals, as a pi Atrium did not start.
+ * Anything but a version 1 object with an absolute directory, and `relative` absent or
+ * `visuals`, reads as none: the session then gets no instructions on visuals, as a pi Atrium did
+ * not start.
  *
  * @sideEffects none
  * @param flag - The flag's value, as pi gives it.
@@ -173,8 +180,10 @@ export function readVisualsArgument(flag: unknown): VisualsLaunch | null {
   if (typeof value !== "object" || value === null) return null;
   const v: unknown = Reflect.get(value, "v");
   const dir: unknown = Reflect.get(value, "dir");
+  const relative: unknown = Reflect.get(value, "relative");
   if (v !== 1 || typeof dir !== "string" || !dir.startsWith("/") || dir.length > 4096) return null;
-  return { v: 1, dir };
+  if (relative !== undefined && relative !== "visuals") return null;
+  return { v: 1, dir, ...(relative === undefined ? {} : { relative }) };
 }
 
 /**
@@ -183,22 +192,37 @@ export function readVisualsArgument(flag: unknown): VisualsLaunch | null {
  * @remarks
  * SPEC-0007, "怎么让 agent 知道": where the directory is, the fragment's rules, when to make one
  * and how to send an answer back. Rules of a container, such as study mode's, are in its own
- * AGENTS.md, not here.
+ * AGENTS.md, not here. A study direction's session (ML4) writes in `visuals/` of its working
+ * directory and references it by that relative path, which still finds it once the direction is
+ * archived or restored; its naming rule is in the study prompt.
  *
  * @sideEffects none
  * @param dir - The session's directory for visuals.
+ * @param relative - `visuals` for a study direction's session.
  * @returns The section's text.
  */
-export function visualsPrompt(dir: string): string {
+export function visualsPrompt(dir: string, relative?: "visuals"): string {
+  const how =
+    relative === undefined
+      ? [
+          `How: write the fragment to a file in ${dir} (create the directory if needed), with a name ending in .html, then put this code block in your reply where it should appear:`,
+          "```visual",
+          `{"path":"${dir}/<name>.html","title":"<short title>"}`,
+          "```",
+        ]
+      : [
+          `How: write the fragment to a file in the ${relative}/ folder of the working directory (create the folder if needed), with a name ending in .html, then put this code block in your reply where it should appear:`,
+          "```visual",
+          `{"path":"${relative}/<name>.html","title":"<short title>"}`,
+          "```",
+          "Always reference it by this relative path, never an absolute one: the folder may move, and the relative path still finds it.",
+        ];
   return [
     "You can show the user an interactive visual inline in your reply: a small HTML fragment that Atrium runs in a sandbox at the place you reference it.",
     "",
     'When to make one: only for something with steps, changing state or conditions to compare (two transactions interleaving, a request passing middleware, an algorithm step by step), and only when it clearly explains better than text. Use a Mermaid block for static structure and a Markdown table for tables. Do not mention the implementation in your text (no "I wrote an HTML file"); explain in the reply, keep the fragment to the visual itself.',
     "",
-    `How: write the fragment to a file in ${dir} (create the directory if needed), with a name ending in .html, then put this code block in your reply where it should appear:`,
-    "```visual",
-    `{"path":"${dir}/<name>.html","title":"<short title>"}`,
-    "```",
+    ...how,
     "To change a visual, edit the same file and reference it again in that reply; every card showing the file reloads.",
     "",
     "Rules for the fragment:",

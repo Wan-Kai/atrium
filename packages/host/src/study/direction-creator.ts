@@ -1,3 +1,4 @@
+import { VISUAL_RULES } from "@atrium/pi";
 import { CommandError } from "@atrium/protocol";
 import { lstat, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -13,6 +14,8 @@ import { ARCHIVE, type FoundDirection, MARKER, directionIdOf, realDir } from "./
  * @remarks
  * English, as the model reads it; the user may edit it, the agent does not (its prompt says so),
  * and the learner's profile lives in `.atrium-study.json` (SPEC-0008, "真实模型检查后改"). pi reads `AGENTS.md` from the working directory up without trusting it (pi-internals).
+ * The two rules of visuals (ML4) are the lesson's and Feynman's prompts' own words, so both say
+ * them alike; a direction made before keeps its file, and gets them from the prompts.
  */
 export const AGENTS_TEMPLATE = `# Learning direction
 
@@ -34,6 +37,11 @@ in it: a discussion, a lesson, a quiz, a Feynman session, a cheat sheet, a proje
   do not edit that file yourself.
 - The learner's profile (goal, background, time per week, language or environment) is in
   \`.atrium-study.json\`.
+
+## Visuals
+
+- ${VISUAL_RULES[0]}
+- ${VISUAL_RULES[1]}
 `;
 
 /** How many numbered names are tried for a directory name already used: `-2` up to it. */

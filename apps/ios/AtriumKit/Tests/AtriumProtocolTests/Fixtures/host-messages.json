@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 38,
+    "protocolVersion": 39,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -3287,6 +3287,12 @@
     "sessionId": "s1",
     "path": "visuals/2-03-isolation.html",
     "mtime": 1760000000000
+  },
+  {
+    "type": "visual_changed",
+    "directionId": "lrn_node-backend",
+    "path": "visuals/2-03-isolation.html",
+    "mtime": 0
   },
   {
     "type": "turn_started",

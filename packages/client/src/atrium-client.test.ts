@@ -3496,6 +3496,39 @@ describe("createAtriumClient: inline visuals", () => {
     ]);
   });
 
+  it("resolves a direction's visual for its viewer tab, by the direction, and again on a new connection (SPEC-0008, ML4)", async () => {
+    const { client, clock, latest } = clientWith({ reconnectDelaysMs: [100] });
+    const connecting = client.connect();
+    latest().open();
+    latest().receive(welcome());
+    await connecting;
+    client.holdVisual("lrn_rust", "visuals/1-01-a.html");
+    const resolving = client.resolveVisual("lrn_rust", "visuals/1-01-a.html");
+    latest().answer("resolve_visual", { url, size: 3, mtime: 5 });
+    await resolving;
+    const heard: unknown[] = [];
+    client.onVisualChanged((changed) => heard.push(changed));
+
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+    await vi.waitFor(() => expect(resolvesOf(latest())).toStrictEqual(["visuals/1-01-a.html"]));
+    latest().answer("resolve_visual", { url: `atrium-visual://${"b".repeat(32)}/1-01-a.html`, size: 3, mtime: 5 });
+
+    await vi.waitFor(() =>
+      expect(heard).toStrictEqual([
+        { type: "visual_changed", directionId: "lrn_rust", path: "visuals/1-01-a.html", mtime: 5 },
+      ]),
+    );
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "resolve_visual")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([{ type: "resolve_visual", directionId: "lrn_rust", path: "visuals/1-01-a.html" }]);
+  });
+
   it("tells each listener a visual changed, until it stops listening", async () => {
     const { client, latest } = await connected();
     const heard: unknown[] = [];
@@ -3566,6 +3599,39 @@ describe("createAtriumClient: inline visuals", () => {
     latest().receive(welcome("0.1.0", "h3"));
     await Promise.resolve();
     expect(resolvesOf(latest())).toStrictEqual([]);
+  });
+
+  it("tells the host to let go of a visual once its last card does, by who it was held for (SPEC-0007, ML4 review)", async () => {
+    const { client, latest } = await connected();
+    /** The release commands sent, without their ids. */
+    const releases = () =>
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "release_visual")
+        .map(({ sessionId, directionId, path }) => ({ sessionId, directionId, path }));
+    const first = client.holdVisual("lrn_rust", "visuals/1-01-a.html");
+    const second = client.holdVisual("lrn_rust", "visuals/1-01-a.html");
+    const other = client.holdVisual("s1", "a.html");
+
+    first();
+    first();
+    expect(releases()).toStrictEqual([]);
+    second();
+    other();
+
+    expect(releases()).toStrictEqual([
+      { sessionId: undefined, directionId: "lrn_rust", path: "visuals/1-01-a.html" },
+      { sessionId: "s1", directionId: undefined, path: "a.html" },
+    ]);
+  });
+
+  it("lets go of a visual quietly while no connection is there", async () => {
+    const { client, sockets } = clientWith({});
+    const release = client.holdVisual("s1", "a.html");
+
+    expect(() => release()).not.toThrow();
+    await Promise.resolve();
+    expect(sockets).toStrictEqual([]);
   });
 
   it("keeps a held visual that failed, or whose connection dropped, and tries it again on the next one", async () => {

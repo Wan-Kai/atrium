@@ -1,3 +1,5 @@
+import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
+import { join } from "node:path";
 import { AGENT_MESSAGE } from "../agent/agent";
 import type { AgentErrorCode } from "../agent/channel";
 import type { HostChannel, StatusLine } from "../agent/extension";
@@ -10,8 +12,11 @@ import {
   type StudyTool,
   TOOLS_BY_USE,
   kickoffText,
+  positionOf,
   readStart,
   readStudyArgument,
+  readsAsAsk,
+  ASK_PROMPT,
   studyPrompt,
   studyTooLong,
 } from "./study";
@@ -248,6 +253,67 @@ function failed(code: AgentErrorCode, params?: Readonly<Record<string, unknown>>
   );
 }
 
+/** The most of a progress file the kickoff reads for its numbers, as the host's limit. */
+const PROGRESS_MAX = 1024 * 1024;
+
+/**
+ * Reads the direction's progress file in a folder, refusing one over 1 MiB by its size before
+ * reading it.
+ *
+ * @remarks
+ * For the kickoff's numbers only (ML4). The size comes from the same opening that is read, and no
+ * more than that size is read, so a huge file neither blocks pi nor fills its memory; the limit is
+ * in bytes, as the host's. A file that grew meanwhile reads cut short, which then does not parse:
+ * the kickoff goes without its numbers. A link is not followed, as the host does not (security.md).
+ *
+ * @sideEffects Opens, reads and closes the file.
+ * @param dir - The direction's folder.
+ * @returns Its text.
+ * @throws When it cannot be read, is no plain file, or is too large.
+ */
+export function readProgressFile(dir: string): string {
+  const fd = openSync(
+    join(dir, ".atrium-study.json"),
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
+  try {
+    const stats = fstatSync(fd);
+    if (!stats.isFile()) throw new Error("not a file");
+    if (stats.size > PROGRESS_MAX) throw new Error("too large");
+    const buffer = Buffer.alloc(stats.size);
+    let length = 0;
+    // Stryker disable next-line EqualityOperator: one more turn asks for 0 bytes, which reads 0 and stops.
+    while (length < buffer.length) {
+      // Stryker disable next-line ArithmeticOperator: a file read in one go asks from 0, where both give the whole buffer.
+      const read = readSync(fd, buffer, length, buffer.length - length, length);
+      // Stryker disable next-line ConditionalExpression: only a file that shrank meanwhile ends early; reading on gives 0 again.
+      if (read === 0) break;
+      length += read;
+    }
+    return buffer.subarray(0, length).toString("utf8");
+    // Stryker disable next-line all: an open descriptor is not observable from the result.
+  } finally {
+    // Stryker disable next-line all: as above.
+    closeSync(fd);
+  }
+}
+
+// Stryker disable all: pi's working directory is the direction's folder; the tests give their own reader.
+/**
+ * Reads the direction's progress file in pi's working directory, the direction's folder.
+ *
+ * @remarks
+ * See `readProgressFile`.
+ *
+ * @sideEffects Reads the file.
+ * @returns Its text.
+ * @throws When it cannot be read.
+ */
+function readProgress(): string {
+  return readProgressFile(process.cwd());
+}
+// Stryker restore all
+
 /**
  * Study mode's part of Atrium's extension (SPEC-0008, "ML2 定的细节").
  *
@@ -258,14 +324,16 @@ function failed(code: AgentErrorCode, params?: Readonly<Record<string, unknown>>
  * session and a direction's asking ones, has no study tool in its list at all (2026-11-09). The
  * tools ask the host on the agent part's channel; the host checks the use again by the session's
  * record. `/atrium-study start` sends the kickoff as an `atrium-agent` message that starts a turn,
- * so its transcript shows the use, not this text.
+ * so its transcript shows the use, not this text; for a lesson and Feynman it names the level's and
+ * step's numbers from the progress file, and goes without them when the file cannot be read (ML4).
  *
  * @sideEffects Registers a flag, a command and two hooks with pi; at session start, the use's
- * tools; their calls ask the host.
+ * tools; their calls ask the host; a start reads the progress file.
  * @param pi - pi's extension API.
  * @param channel - The channel to the host.
+ * @param progress - Reads the progress file; tests give their own.
  */
-export default function atriumStudy(pi: StudyApi, channel: HostChannel): void {
+export default function atriumStudy(pi: StudyApi, channel: HostChannel, progress: () => string = readProgress): void {
   let launch: StudyLaunch | null | undefined;
   let registered = false;
 
@@ -332,6 +400,8 @@ export default function atriumStudy(pi: StudyApi, channel: HostChannel): void {
   pi.on("before_agent_start", (event) => {
     const found = use();
     if (found !== null) event.systemPromptOptions.sections[STUDY_SECTION] = studyPrompt(found);
+    // An asking session has no use, only the rule of staying in the direction's folder (ML4 review).
+    else if (readsAsAsk(pi.getFlag(STUDY_FLAG))) event.systemPromptOptions.sections[STUDY_SECTION] = ASK_PROMPT;
   });
 
   pi.registerCommand(STUDY_COMMAND, {
@@ -341,10 +411,16 @@ export default function atriumStudy(pi: StudyApi, channel: HostChannel): void {
       // Only a version 1 start. While pi runs (the learner wrote first), after the run, not dropped.
       if (found === null || !readStart(args)) return Promise.resolve();
       const { kind, level, step, gap } = found;
+      let at: ReturnType<typeof positionOf> = null;
+      try {
+        at = positionOf(progress(), level, step);
+      } catch {
+        // Without the file the kickoff goes without its numbers.
+      }
       pi.sendMessage(
         {
           customType: AGENT_MESSAGE,
-          content: kickoffText(found),
+          content: kickoffText(found, at),
           display: true,
           details: {
             v: 1,

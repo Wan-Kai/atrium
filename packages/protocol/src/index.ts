@@ -105,6 +105,7 @@ export {
   ListDirCommand,
   ReadFileCommand,
   ResolveVisualCommand,
+  ReleaseVisualCommand,
   SendVisualMessageCommand,
   ReadPiConfigCommand,
   SavePiConfigCommand,

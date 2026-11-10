@@ -1,8 +1,8 @@
-import type { AtriumClient } from "@atrium/client";
+import { type AtriumClient, isDirectionId } from "@atrium/client";
 import { useMemo } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { Markdown } from "../chat/markdown";
-import { OpenFileContext, type FileOpener } from "../chat/file-opener";
+import { FileParentsContext, OpenFileContext, type FileOpener } from "../chat/file-opener";
 import { ReplyImagesContext, replyImageFiles } from "../chat/reply-images";
 import { type WorkspaceViews, openFile } from "../state/workspace-views";
 import { useViewerPlace } from "./viewer-place";
@@ -30,14 +30,16 @@ export function MarkdownFilePreview({
   readonly text: string;
 }) {
   const { body } = useViewerPlace(views, workspaceId, `file:${path}`, true, "previewScrollTop");
+  // A workspace's, or a learning direction's where it is now; only a direction's notes link up with `..` (ML4).
+  const direction = isDirectionId(workspaceId);
   const dir = useStore(
     client.index,
-    (state) => state.workspaces.find((workspace) => workspace.id === workspaceId)?.dir ?? null,
+    (state) => (direction ? state.directions : state.workspaces).find((one) => one.id === workspaceId)?.dir ?? null,
   );
   const basePath = path.slice(0, path.lastIndexOf("/") + 1);
   const images = useMemo(
-    () => (dir === null ? null : replyImageFiles(client, workspaceId, dir, basePath)),
-    [client, workspaceId, dir, basePath],
+    () => (dir === null ? null : replyImageFiles(client, workspaceId, dir, basePath, direction)),
+    [client, workspaceId, dir, basePath, direction],
   );
   const opener = useMemo<FileOpener>(
     () => (target, range) => {
@@ -51,11 +53,13 @@ export function MarkdownFilePreview({
   return (
     <div ref={body} className="absolute inset-0 overflow-auto [contain:strict]" data-testid="markdown-preview">
       <div className="mx-auto max-w-[var(--column)] px-6 pt-6 pb-10 text-[length:var(--fs-reply)] leading-[var(--lh-reply)]">
-        <OpenFileContext value={opener}>
-          <ReplyImagesContext value={images}>
-            <Markdown text={text} streaming={false} />
-          </ReplyImagesContext>
-        </OpenFileContext>
+        <FileParentsContext value={direction}>
+          <OpenFileContext value={opener}>
+            <ReplyImagesContext value={images}>
+              <Markdown text={text} streaming={false} />
+            </ReplyImagesContext>
+          </OpenFileContext>
+        </FileParentsContext>
       </div>
     </div>
   );

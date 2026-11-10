@@ -1,6 +1,6 @@
 import { type AtriumClient, CommandError } from "@atrium/client";
 import { GIT_SCENE_ENV, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
-import { lstat, mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, rename, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { type TestHost, startTestHost } from "../test/harness";
@@ -402,5 +402,79 @@ describe("learning directions over the WebSocket (SPEC-0008, ML1)", () => {
     await vi.waitFor(() =>
       expect(client.index.getState().sessions.find((one) => one.sessionId === exam)?.archived).toBe(false),
     );
+  });
+});
+
+describe("a direction's files and visuals through a real host (SPEC-0008, ML4)", () => {
+  it("reads them where the direction is now, archived too, for its sessions and its viewer tabs", async () => {
+    const { host, client, root } = await studyHost();
+    const { directionId, sessionId } = await client.createDirection("学后端", MODEL);
+    const lesson = present(sessionId, "the discussion");
+    const home = await realpath(join(root, "node-backend"));
+    await mkdir(join(home, "visuals"));
+    await mkdir(join(home, "notes"));
+    await writeFile(join(home, "visuals", "1-01-routes.html"), '<div id="routes">路由</div>');
+    await writeFile(join(home, "notes", "1-01.md"), "# 路由\n");
+    const old = join(home, "visuals", "1-01-routes.html");
+    const listed = async () => (await client.listDir(directionId, "")).entries.map(({ name }) => name).toSorted();
+
+    expect(await listed()).toStrictEqual(["AGENTS.md", "lab", "notes", "visuals"]);
+    await expect(client.resolveVisual(lesson, "visuals/1-01-routes.html")).resolves.toMatchObject({ size: 29 });
+
+    await client.archiveDirection(directionId);
+
+    // The session's record keeps the old place; its relative and absolute paths both find the file.
+    const relative = await client.resolveVisual(lesson, "visuals/1-01-routes.html");
+    const absolute = await client.resolveVisual(lesson, old);
+    const tab = await client.resolveVisual(directionId, "visuals/1-01-routes.html");
+    expect(absolute.url).toBe(relative.url);
+    expect(tab.url).not.toBe(relative.url);
+    const page = await fetch(`http://127.0.0.1:${host.host.port}/visual/${new URL(tab.url).host}/1-01-routes.html`);
+    expect(await page.text()).toContain('<div id="routes">路由</div>');
+    expect(await listed()).toStrictEqual(["AGENTS.md", "lab", "notes", "visuals"]);
+    expect(await client.readFile(directionId, "notes/1-01.md")).toStrictEqual({
+      size: 9,
+      content: { kind: "text", text: "# 路由\n" },
+    });
+    await expect(client.sendVisualMessage(lesson, "visuals/1-01-routes.html", "选 B")).rejects.toMatchObject({
+      code: "direction_archived",
+    });
+
+    await client.restoreDirection(directionId);
+    await expect(client.resolveVisual(lesson, old)).resolves.toMatchObject({ size: 29 });
+
+    // A visuals/ the agent swapped for a link, even to a folder in the direction, is refused.
+    await mkdir(join(home, "elsewhere"));
+    await writeFile(join(home, "elsewhere", "1-01-routes.html"), "outside");
+    await rename(join(home, "visuals"), join(home, "visuals-was"));
+    await symlink(join(home, "elsewhere"), join(home, "visuals"));
+    await expect(client.resolveVisual(lesson, "visuals/1-01-routes.html")).rejects.toMatchObject({
+      code: "visual_outside",
+    });
+    await expect(client.resolveVisual(directionId, "visuals/1-01-routes.html")).rejects.toMatchObject({
+      code: "visual_outside",
+    });
+    // The direction itself swapped for a link is read nowhere.
+    await rename(home, `${home}-moved`);
+    await symlink(`${home}-moved`, home);
+    await expect(client.listDir(directionId, "")).rejects.toMatchObject({ code: "learning_dir_unsafe" });
+    await expect(client.listDir("lrn_gone", "")).rejects.toMatchObject({ code: "direction_not_found" });
+  });
+
+  it("refuses a message from a visual of a session archived in a direction (ML3)", async () => {
+    const { client, root } = await studyHost();
+    const { directionId, sessionId } = await client.createDirection("学后端", MODEL);
+    const lesson = present(sessionId, "the discussion");
+    const home = await realpath(join(root, "node-backend"));
+    await mkdir(join(home, "visuals"));
+    await writeFile(join(home, "visuals", "1-01-a.html"), "x");
+    const another = await client.createSession(directionId);
+
+    await client.archiveSession(lesson);
+
+    await expect(client.sendVisualMessage(lesson, "visuals/1-01-a.html", "猜：能")).rejects.toMatchObject({
+      code: "session_not_found",
+    });
+    expect(another.sessionId).not.toBe(lesson);
   });
 });

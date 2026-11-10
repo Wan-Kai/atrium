@@ -333,6 +333,96 @@
 - "会话被占着"含在停止（`control.stopping`）：在跑的会话停止时 `busy` 一般还在，没有单独抓住这一项的用例。
 - 真实模型检查见 SPEC-0008"ML3 定的细节 · 评审修完后的第二次真实模型检查"。
 
+## 学习模式 ML4：首页与演示接进学习（SPEC-0008"ML4 定的细节"，2026-11-10）
+
+继续卡、方向卡片、已归档的方向、方向的演示目录 `visuals/`、方向主页的档案、方向里的查看标签和演示预览；界面按原型 `study-home-prototype.html` 的 1C 2A 3A 4A 5A 6A。协议 38 → 39（实现时按 37 → 38，合并 main 时任务图已占 38，顺延）。
+
+### 宿主与协议
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 协议 39：`list_dir`、`read_file` 的 `workspaceId` 认方向 id、不认对话；`resolve_visual` 和 `visual_changed` 恰好带 `sessionId`、`directionId` 中的一个；Swift 类型和往返夹具重新生成 | `packages/protocol/src/envelope.test.ts`、`visuals.test.ts`、`remote.test.ts`；`pnpm protocol:swift --check` |
+| 方向里会话的演示：相对路径按方向现在的目录算、记录里旧位置下的绝对路径换算过去、现在位置的绝对路径照旧、只换前缀（旧位置旁边的同名前缀、旧位置下演示目录外的都拒绝）；`visuals/` 是链接（哪怕指向方向里）拒绝、方向自己的位置检查不过拒绝、`visuals/` 还没建是 `visual_missing`、是文件拒绝 | `packages/host/src/visuals/visual-file.test.ts`（"a direction's visuals"）；`visual-place.test.ts`（"in a direction"） |
+| 按方向 resolve：只认 `visuals/` 下一层的 `.html`，更深、绝对路径、`..`、方向外都 `visual_outside`；未知方向 `direction_not_found`；同一文件按会话和按方向令牌不同；`visual_changed` 带 `directionId` 只发给按方向 resolve 的连接；`visuals/` 没建时从方向目录监视、建好后照常；方向位置检查不过时页面 404；连接断开后令牌和监视都放掉 | `packages/host/src/visuals/visual-service.test.ts`（"a direction's visuals, for its viewer tabs"） |
+| 读方向的文件：根目录不列点文件、不问 git（家目录是忽略 `*` 的仓库也照样列出）、`notes/` 不问 git、`lab/` 按它自己的仓库忽略；路径检查同工作区；未知方向 `direction_not_found`；方向位置检查不过 `learning_dir_unsafe`，打开以后再查一次；日志只有方向 id 和错误种类 | `packages/host/src/files/workspace-files.test.ts`（"WorkspaceFiles in a learning direction"） |
+| 方向位置检查：学习目录或 `Archive/` 下一层的真目录；更深、链接、文件、不存在、`Archive/` 或学习目录是链接都不行 | `packages/host/src/study/directions.test.ts`（"directionPlaceSafe"） |
+| 路由：按方向的 `resolve_visual` 交给 `resolveForDirection`；手机发带方向 id 的 `list_dir`、`read_file`、`resolve_visual` 都 `local_only` 且什么都不跑 | `packages/host/src/server/router.test.ts` |
+| 方向会话的 `--atrium-visuals` 带 `relative: "visuals"` | `packages/host/src/sessions/session-manager.test.ts`（"a study direction's visuals go in its visuals/"） |
+| 新方向 `AGENTS.md` 有"Visuals"一节，两条规则和上课、费曼提示一字不差 | `packages/host/src/study/direction-creator.test.ts` |
+| 真实宿主：方向归档后老会话的相对、旧位置绝对路径都 resolve 成同一个令牌，按方向的令牌不同、页面能取；归档方向的档案和笔记能读；回传 `direction_archived`；恢复后照常；`visuals/` 换成链接后两种 resolve 都 `visual_outside`；方向目录换成链接 `learning_dir_unsafe`；方向里归档的会话回传 `session_not_found` | `packages/host/src/study.host.test.ts`（"a direction's files and visuals through a real host"） |
+
+### pi 扩展
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| `--atrium-visuals` 的 `relative`：只认 `"visuals"`；方向的写法让模型写进工作目录的 `visuals/`、引用写相对路径、不提绝对目录，规则部分和普通会话一样 | `packages/pi/src/visuals/visuals.test.ts` |
+| 提示词：所有用途都有"不往方向目录外建、改文件，含 /tmp"；上课、费曼有两条演示规则和"以 AGENTS.md 为准"；测验、综合测验写明不做演示；别的用途没有演示规则 | `packages/pi/src/study/study.test.ts`（ML4 的 2 条） |
+| 开场编号：级按阶梯位置（跳过的也算）、步按这一级的位置；步不在时只有级；文件读不了、级不在时没有；上课、费曼的开场带"第 N 级第 M 步"和 `visuals/N-MM-<short-name>.html`，测验没有；扩展读不到进度文件时照常开场 | 同上（"numbers a level…"、"gives the lesson's…kickoff"、"reads the progress…"） |
+| pi 契约（faux 模型，夹具 `pi-1.5.0/study-lesson-visuals`、`study-quiz-visuals`，学习的其他 7 份重录）：方向里的上课收到带编号的开场、两条规则、不往外写的规则、方向写法的演示说明；测验收到"不做演示"、没有演示规则 | `packages/pi/src/contract/study.pi.test.ts` |
+
+### 界面
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 纯逻辑：继续卡各状态（可开始、回到会话和在跑、待升级、学完最后一级、已学完、讨论中、档案读不出来、`newer`、还没排课、排计划中、改名后的名字）；"上次"一行（最近活动、没归档、测验和综合测验带分数、别的方向的不算）；方向卡片各状态和点阵、待回答盖过在跑；已归档的状态和顺序 | `packages/ui/src/study/home-view.test.ts` |
+| 纯逻辑：档案的演示按级分组（新的级在前、按步再按名）、对不上的放最后；文件的固定顺序、自己放的、没有 `visuals/`；方向里的演示路径；方向会话的路径（相对、现在的绝对、旧位置的绝对、出界） | `packages/ui/src/study/archive.test.ts` |
+| 方向笔记里的 `..`：链接留给打开函数规整、出界不显示成链接；图片按文档目录规整、出界不读；工作区照旧拒绝 | `packages/ui/src/chat/reply-file-target.test.ts`、`reply-image-source.test.ts` |
+| 继续卡（1C）：眉题、大字、点阵、"开始上课"先开会话再进方向、"上次"一行；回到会话带绿点；"进入下一步"留在首页；"学完"进主页弹确认框；`session_busy` 时卡片上方"等上课这一轮结束"、按钮恢复；只能打开的方向按主按钮画；没打开过不画 | `packages/ui/src/study/study-home.browser.test.tsx` |
+| 方向卡片（2A）和已归档（3A）：在跑圆点、待回答小标、点阵、档案读不出来；归档列表带状态、"恢复" | 同上；`study.browser.test.tsx`（ML1、ML2 的用例改成新写法） |
+| 档案（4A）、演示预览（5A）、查看标签（6A）：分组和顺序；点演示开查看标签、默认预览、"在这里点的不会发到对话"、没有"在浏览器打开"、没有卡片标题行、步骤条还在、主页标签不选中；切到源码；⌘W 回主页；笔记默认预览、`../visuals/` 链接打开演示、出界的不是链接、宿主收不到 `..` | 同上 |
+| 查看标签里的演示发不出消息：点了也回"refused" | `packages/ui/src/chat/visual-card.browser.test.tsx`（"refuses every clicked message of a direction's demo"） |
+
+### 端到端与泄漏
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 从档案打开演示：在沙箱里（`sandbox="allow-scripts"`、`atrium-visual://` 地址）、点了 `sendMessage` 得到 `false`、没有会话、pi 没起；笔记的 `../visuals/` 链接打开同一个查看标签 | `apps/desktop/e2e/study-home.spec.ts` 第一条 |
+| 泄漏（界面）：反复开关方向里的演示（渲染、切源码）和笔记预览，没有脱离文档的 DOM；故意在演示预览里留引用时检出 | `apps/desktop/e2e/study-home.spec.ts`（`@leak`） |
+| 泄漏（宿主）：反复开窗口读方向的档案、笔记、演示（含还没有的），断开后演示的监视回到 0、资源计数和 Node 的文件监视回到基线；故意不在断开时放掉时检出 | `packages/host/src/visuals.leak.test.ts` |
+
+### 三方审查后的修复（2026-11-10）
+
+审查报告：Astra、Grok 4.7、Claude 三份；修的 14 项见 SPEC-0008"ML4 定的细节"里标"审查后"的各条。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 演示认 `visuals/`、`.html` 不分大小写：`Visuals/a.HTML` 照样是演示、照样不给"在浏览器打开"和 ⌘O；`visuals/` 下任何深度、任何大小写都不给浏览器；`lab/` 的 html 照样给 | `packages/ui/src/study/archive.test.ts`（"any case"两条）；`study-home.browser.test.tsx`（"renders a demo a note names in another case"） |
+| 桌面端主进程不把方向演示交给浏览器：路上一层叫 `visuals`（不分大小写）、上一层有 `.atrium-study.json` 的拒绝，工作区的 `visuals/`、方向的 `lab/` 照开；相对路径、别的扩展名、目录、链接、不存在的拒绝 | `apps/desktop/src/main/browsable.test.ts` |
+| `lab/` 认 git 忽略不分大小写（`Lab/`） | `packages/host/src/files/workspace-files.test.ts`（"a lab folder named in another case"） |
+| 打开以后再查：`visuals/` 本身换成链接、方向目录换成链接（换了不换回）、方向目录查完换成链接打开后又换回来，按会话 resolve 和每次 `readVisual`（`GET /visual/…`）都 `visual_outside` | `packages/host/src/visuals/visual-file.test.ts`（三条 swap） |
+| 读方向文件时方向目录拼路径前换成链接、再查前换回来：`learning_dir_unsafe` | `packages/host/src/files/workspace-files.test.ts`（"swapped back before the check again"） |
+| 方向里开着查看标签时，首页的"打开 方向名"显示主页、"回到会话"显示那个本来就是当前的会话 | `packages/ui/src/study/study-home.browser.test.tsx`（"over a viewer tab left open"两条） |
+| 方向在归档、恢复途中读失败的查看标签，方向列表换了目录后再读一次 | 同上（"reads a file again once the direction is where the list says now"） |
+| pi 读进度文件：按字节 1 MiB 正好能读、多字节超了不读、多一个字节不读、3 GiB 的稀疏文件按大小拒绝不读、链接不跟随 | `packages/pi/src/study/study.test.ts`（"reads a progress file…"、"does not follow…"） |
+| 档案的演示组：`visuals/` 列不出来写"读不了演示目录"、被截断写"还有更多，没有列出" | `packages/ui/src/study/study-home.browser.test.tsx`（"demos could not be listed"、"were cut"） |
+| `newer` 且当前一级还没排课：继续卡写只能看的说明、没有"上次"、没有按钮；方向卡片"第 N 级 · 还没排课 · 只能看" | `packages/ui/src/study/home-view.test.ts`（两条） |
+| 方向主页：档案读不出来不标"讨论中"、说明行写读不出来的原因 | `packages/ui/src/study/progress.browser.test.tsx`（"no longer calls a direction…"） |
+| 提示词：上课"只写哪些文件"包括 `visuals/` 的演示；上课、费曼有"先写文件再引用"，别的用途没有；测验、综合测验不注入通用演示说明（别的用途照旧）；随口问带 `kind: "ask"` 的 `--atrium-study`，只有两句（含不往方向外写）、没有工具、没有开场，别的写法读成没有 | `packages/pi/src/study/study.test.ts`、`packages/pi/src/visuals/visuals.test.ts`；`packages/host/src/sessions/agent-launch.test.ts`、`session-manager.test.ts`（随口问的参数）；pi 契约 `study-ask`（新夹具）、`study-quiz-visuals`、`study-tools-none`（重录）、`study-lesson-visuals` |
+| `release_visual`：协议形状（恰好一个来源、路径非空）、手机 `local_only`；客户端最后一处放开才发、按来源发、没连接时不出错；宿主只停这个连接对这个来源和路径的监视、别的连接在看时留着令牌、还在路上的 resolve 遇到放开不加监视、等着出现的也停 | `packages/protocol/src/envelope.test.ts`；`packages/host/src/server/remote-policy.test.ts`、`router.test.ts`；`packages/client/src/atrium-client.test.ts`；`packages/host/src/visuals/visual-service.test.ts`（"letting go of a visual"）；Swift 往返夹具 |
+| 泄漏（宿主）：同一个窗口不断线，反复开关方向的演示（含还没有的），关掉就回到 0 个监视、令牌 404，资源计数和 Node 的文件监视回到基线 | `packages/host/src/visuals.leak.test.ts`（"as soon as its tab closes"） |
+| e2e：方向里先开着一节上课，再从档案打开演示，用窗口原生的按下点（`pressInWindow`，和 MV1 的一样，主进程看得到；Playwright 的点击主进程看不到，会被当成没按过而拒绝，测不出东西）得到 `false`、pi 没再收到请求、上课里没有"来自演示"的消息；反向对照：把演示预览换成按方向当前会话的回传，这条失败（得到 `true`），还原后通过 | `apps/desktop/e2e/study-home.spec.ts` 第一条（改写）；`press-in-window.ts`（从 `visuals.spec.ts` 挪出来共用） |
+| 方向卡片的在跑圆点 `role="img"` | `packages/ui/src/study/study-home.browser.test.tsx`（"marks a direction…"） |
+
+验证记录（2026-11-10，未合并、待审查和验收）：
+
+- `pnpm check` 通过（格式、lint 含 JSDoc、类型、knip、`boundary --all` 未登记 0、iOS 检查含 `protocol:swift --check`）。
+- vitest：单元 5023/5023（264 个文件）；宿主层 256/256；UI 1281/1281（70 个文件）；leak 25/25（含新的 `visuals.leak.test.ts`）；之后又加了 visual-service 3 条，该文件 29/29。pi 项目 58 过 52 失败：失败的 19 个契约文件都是"no fixture … pi-1.5.0"，本机装的 pi 是 1.5.0，而仓库里这些用例的夹具只录到 1.3.0（`main` 上同样），和本改动无关、没重录；学习和演示的契约（`study.pi.test.ts`，含两份新夹具）通过。Swift AtriumKit 475/475（往返测试里的协议版本改成 38）。
+- e2e：`study-home.spec.ts` 2/2（含 `@leak`），以及 `visuals.spec.ts` 3、`visuals.leak.spec.ts` 1、`viewers.leak.spec.ts` 1、`study.spec.ts` 2、`study-loop.spec.ts` 2、`archive.spec.ts` 1，共 12/12。没跑整套 e2e，没跑 `@package`、`pnpm package`。界面泄漏的反向对照：在演示预览里故意留住节点，`@leak` 失败（27 个脱离的节点），还原后通过。
+- 破坏检查 `packages/host/test/study-home.break-check.json` 51 条全部检出（首轮 47 条里漏 1 条：`moved()` 对 `..` 的判断，补了用例；之后加的会话里"在查看标签里打开"、旧位置换算、`topOf` 三条都检出；visual-service 精简后一条改了写法重跑，检出）。
+- 变异（增量，只变这次改的文件）：visual-file 84.38%（改动行 91.18%）、visual-place 100%、pi visuals 100%、workspace-files 92.12%（改动行 96.36%）、directions 87.62%（改动行 94.74%）、pi study 95.36%（改动行 92.86%）、UI home-view 86.40%、archive 88.72%、reply-image-source 97.11%、reply-file-target 97.79%。**visual-service 77.89%（改动行 74.71%），低于 80%**：剩下的存活集中在从 `resolve` 挪进共用 `resolveIn` 的计数和去重代码（`mark.count`、`addLook` 的同一路径判断），ML2 记录里同样存活（当时 72.44%）；方向新加的分支（`topOf`、`owned` 规则、`locateDirection`）都已杀掉。
+- 真实模型检查见 SPEC-0008"ML4 定的细节 · 真实模型检查"；明暗截图对照原型在 `/private/tmp/claude-501/atrium-ml4-real/shots/compare/`。
+- 写在实现之后的测试（先见过失败的是在桩上或手工改坏代码后）：`study.host.test.ts` 的两条 ML4、路由的三条手机 `local_only`、`session-manager` 的方向参数、pi"扩展读进度"、两份 pi 契约场景、visual-card 的"查看标签不发"、`visuals.leak.test.ts`、e2e 两条、visual-file"现在位置的绝对路径"、study-home 里"会话的演示卡片和文件链接进查看标签"、visual-service 的 topOf、归档会话旧路径、两个会话各自地址三条；`home-view.ts` 先写了实现，再在桩上看到测试 12 条失败。
+
+验证记录（三方审查后的修复，2026-11-10，未合并、待用户验收）：
+
+- `pnpm check` 通过（格式、lint 含 JSDoc、类型、knip、`boundary --all` 未登记 0、iOS 检查含 `protocol:swift --check`）。
+- `pnpm test`：单元 5062/5062（265 个文件）＋ Swift 套件；`swift test --package-path apps/ios/AtriumKit` 475/475。宿主层 256/256，UI 1288/1288（70 个文件）。pi 项目 59 过 52 失败：52 条全是"no fixture … pi 1.5.0"（19 个契约文件，夹具只录到旧版本，`main` 上同样，和本改动无关），学习和演示的契约 12/12（含新的 `study-ask`）。
+- `pnpm test:leak`：Node 泄漏 26/26（含新加的"关掉就放"），e2e `@leak` 13/13。
+- e2e：`study-home`（非 leak）、`visuals` 3、`study` 2、`study-loop` 2、`archive` 1，共 9/9；挪了 `pressInWindow` 以后 `study-home`＋`visuals` 再跑 4/4。没跑整套 e2e、`@package`、`pnpm package`。
+- 破坏检查 `packages/host/test/study-home.break-check.json`：新加 37 条，首轮 36 条检出，漏的 1 条是 case 写错（把 `release_visual` 改成不存在的 `"remote"`，仍然不是 `"phone"`），改成 `"phone"` 后检出。原有 3 条（`asksGit` 两条、`again()` 一条）跟着改过的那行换了 `from`。整份 88 条全部检出。
+- 变异（增量，`--force`，只变改过的文件或行）：visual-service 全文件 83.33%（270/324），改动行 90.98%；visual-file 85.29%（改动行 92.86%）；`browsable.ts`（新）89.19%；pi visuals extension 100%；pi study.ts 93.72%（改动行 88.32%）、extension.ts 95.56%（改动行 95.65%，先是 77.78%，补了"进度文件是目录"一条、给三处等价变异写了原因）；UI archive 88.97%、home-view 87.20%；client 放开那几行 93.33%、protocol `ReleaseVisualCommand` 100%；宿主改动行（workspace-files、agent-launch、router 的几行）95.83%。宿主组整文件跑估 6 小时，停掉改成只变改动行。
+- 写在实现之后的测试：visual-service 的"只放这一个还在路上的 resolve""同一会话两种路径""拒绝的不监视"三条（为杀变异补的，一写就过）；pi 的"进度文件是目录"一条（同上）；`browsable.test.ts` 先见过的失败只是模块不存在，真正的检出靠破坏检查（三条都检出）；"进度文件是链接"那条在实现前因为函数不存在而"过"了，同样靠破坏检查（去掉 `O_NOFOLLOW` 检出）。其余各条都先跑见过因为对的原因失败。
+
 ## 在终端中打开；拿掉"交给终端"（2026-11-05）
 
 用户定：标签栏"···"里的"在终端中继续"改成"在终端中打开"，只开终端、不再交接——不停 pi、不写索引、不复制也不运行命令。目录是会话所在工作区的目录，对话用 `~`；cmux 装着就在它当前窗口新开一个工作区并切到 cmux，没跑就先启动，没装就用系统"终端"。整套交接机制（`hand_off` / `take_back`、`handedOff`、"已在终端中继续"面板、子对话的 `handed_off` 状态、`agent_handed_off`）一并去掉，协议 33。

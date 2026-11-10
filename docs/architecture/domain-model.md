@@ -144,6 +144,10 @@ classDiagram
     - **升级的命令链**（`upgrade_study`，在方向的队里，同开会话和归档方向）：StudyCommands 在队里重算下一步、核对 `level` → ProgressFiles 原子写档案（升级一步完成、这一级 `done`、下一个 `todo` 的级变 `current`，最后一级写 `finishedAt`）→ SessionManager 按会话记录选出这一级的会话（`study.level` 是这一级、没归档的，讨论和随口问除外）连同子孙一起归档（停 pi，一个失败不挡其他的，记个数）→ SessionManager 开排计划会话并开场（最后一级不开）。只有写档案那一步要原子；它失败什么都不动，之后的失败不回滚：归档能恢复，排计划没开成时下一步的规则给"排计划"。
     - **方向里一批会话的归档和恢复**：方向在、里面一部分会话归档，和整个方向归档（目录移到 `Archive/`）是两回事。会话的归档同工作区里的会话（记录的 `archived`，连带同容器的子孙，SPEC-0002），只是由升级按级挑出来；恢复经 `restore_study_sessions`，只认这个方向里已归档的会话：连同它在方向里归档了的祖先，和同一次归档的子孙（记录里的 `archivedWith` 一样的）放回；单独归档过的子对话不跟着回来。正在归档的先等它做完。归档了的会话能看、发消息前要先恢复，它的学习工具调用被拒。
     - **测验分叉占住上课**：宿主查过上课会话没被占着就当场占住，直到测验的 pi 读完上课的文件（起来或没起来）；这期间上课不起 pi、不开新的一轮、不压缩，`usageAfter` 在占住以后读。
+  - **首页与演示**（ML4，2026-11-10，SPEC-0008"ML4 定的细节"）：
+    - **方向的演示目录**：方向里所有会话的演示目录是方向**现在的**目录下的 `visuals/`（归档的方向在 `Archive/` 下那份），由组装时注入的"会话 → 演示目录"函数给；会话记录里的 `cwd` 不改（归档、恢复只搬目录），所以 resolve 方向里会话的引用时，相对路径按方向现在的目录算，记录 `cwd` 下的绝对路径换算过来。宿主不建 `visuals/`，agent 写第一个演示时建；它必须是真目录。
+    - **档案的命令流**：方向主页右栏的档案和方向的查看标签都是界面经 `list_dir`、`read_file`（`workspaceId` 放宽成工作区或方向的 id）读方向目录：Router → WorkspaceFiles（按 id 前缀分：方向的根目录取 Directions 扫描到的现在的目录，先查是学习目录或 `Archive/` 下一层的真目录；根目录不调 `check-ignore`、不列点文件，`lab/` 里照旧）。演示的渲染经 `resolve_visual { directionId, path }`：Router → VisualService（只认方向 `visuals/` 下一层的 `.html`，令牌对应方向和文件，没有回传）。档案不读文件内容，课名由界面按文件名的 `<级>-<步>-` 前缀从 `progress` 对出来。
+    - 方向容器也有查看标签（同"已决定 19"，按容器记在窗口的界面状态里，不进布局）。
     - `study_set_steps` 只写排计划会话记录的那一级，那一级不是当前一级就拒绝。
 - **SessionContainer** 只表达"会话放在哪、怎么列、新会话在哪个目录建"。工作区和对话都对其中所有会话给同一个目录；新建对话时新建一个目录。标签页不在接口上，在 **ClientLayout**。
 - **Session** 是逻辑会话，以 pi 的会话 id 为主键，文件路径只是可更新的定位：
@@ -182,7 +186,7 @@ classDiagram
 ├── tasks/<任务 id>/          任务（SPEC-0006）：task.json 当前状态快照、events.jsonl 只追加的事件日志（快照坏了从它重放）
 ├── schedules.json            定时规则（SPEC-0006）
 ├── visuals/<会话 id>/        普通会话的交互演示文件（SPEC-0007）：agent 写的 HTML 片段，宿主只读、不清理；
-│                             学习方向的演示在方向目录下的 `visuals/`（SPEC-0008）
+│                             学习方向的演示在方向现在的目录下的 `visuals/`（SPEC-0008，ML4）
 ├── chats/<目录名>/           每个对话的工作目录，对话 id 由目录名得出
 └── logs/
 ```
@@ -797,6 +801,8 @@ classDiagram
 | `start_study_session` | StudyCommands（方向的队里重算下一步和"现在能开的"集合，已有同一用途的会话就给它）→ SessionManager（建会话并开场；测验以 `--fork <上课会话的文件>` 开成上课的子对话）（ML2，ML3 放宽） |
 | `upgrade_study` | StudyCommands（方向的队里核对 `level`）→ ProgressFiles（原子写档案）→ SessionManager（归档这一级的会话连同子孙、开排计划会话并开场）（ML3） |
 | `restore_study_sessions` | StudyCommands（方向的队里核对会话都属于这个方向）→ SessionManager（放回会话连同子孙）（ML3） |
+| `list_dir` / `read_file`（`workspaceId` 是工作区或方向） | WorkspaceFiles：工作区取索引里的目录；方向取 Directions 扫描到的现在的目录，先查是学习目录或 `Archive/` 下一层的真目录（`learning_dir_unsafe`），根目录不调 `check-ignore`、不列点文件（M1.12，ML4 认方向） |
+| `resolve_visual`（`sessionId` 或 `directionId`）/ `release_visual` / `send_visual_message` | VisualService（`release_visual`：客户端放开某个演示的最后一处时停掉这个连接对它的监视，没人看了丢掉令牌，ML4 三方审查后加）：按会话时演示目录由会话所在的容器给（方向里的会话是方向现在的目录下的 `visuals/`，相对路径按它算），沿上级会话找；按方向时只认方向 `visuals/` 下一层的 `.html`，没有回传；`visuals/` 不能是链接（MV1，ML4 认方向） |
 | `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `clear_attention` / `detach_session` | SessionManager；`create_session` 带 `child` 时开子对话，新 worktree 的经 WorktreeCreator 从父工作区当前的提交建（M1.15） |
 | `remove_delivery` / `resume_deliveries` | SessionManager → AgentRelay：删掉一条待送的，或放开宿主重启后暂停的（`tree` 时连同子树），再交给收件会话的 SessionController（M1.15） |
 | `subscribe_index(cursor?)` | IndexFeed |
@@ -821,6 +827,7 @@ classDiagram
 | `session_snapshot` / `message_*` / `tool_*` / `run_started` / `run_settled` / `interaction_*` / `notice` / `session_exited` | SessionController（经 EventTranslator） |
 | `session_changed_externally` | SessionCatalog：预留，文件被外部改过 |
 | `changes_updated` / `diff_updated`（整份最新状态，不带序号） | ChangesService |
+| `visual_changed`（带 resolve 时的来源：`sessionId` 或 `directionId`） | VisualService：按目录监视 resolve 过的演示文件，只发给按这个来源 resolve 过的连接（MV1，ML4 加方向） |
 | `queue_updated` / `metrics_updated` | SessionController |
 | `install_*` / `login_*` | SetupService |
 | `tasks_updated`（带 `generation + seq`）/ `task_updated` / `schedules_updated` | TaskService、ScheduleService（SPEC-0006） |

@@ -1,11 +1,12 @@
-import { type AtriumClient, CommandError } from "@atrium/client";
+import { type AtriumClient, CommandError, isDirectionId } from "@atrium/client";
 import type { DiffFile, FileContent } from "@atrium/protocol";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { splitPath } from "../chat/changes";
-import { ArrowUpRight, Code, Eye, TextWrap } from "../design/icons";
+import { ArrowUpRight, Code, Eye, Info, TextWrap } from "../design/icons";
 import { MarkdownFilePreview } from "./markdown-file-preview";
 import { CodeLines } from "./code-lines";
+import { DemoPreview } from "./demo-preview";
 import { CenterNote, DiffCounts } from "./diff-parts";
 import { formatSize, highlightable, linesOf } from "./file-facts";
 import { FileIcon } from "./file-icon";
@@ -30,7 +31,9 @@ export const VIEWER_BUTTON =
  *
  * @remarks
  * SPEC-0001 ("M1.12 的文件与更改 · 查看标签"): read when the tab shows, which mounts this; the same
- * reading again leaves everything, the scroll too, as it was.
+ * reading again leaves everything, the scroll too, as it was. A learning direction's file is read
+ * again when the direction is somewhere else now: archiving or restoring moves it, and a read in
+ * the middle fails (SPEC-0008, "ML4 定的细节 · `list_dir`、`read_file`、`resolve_visual` 认方向").
  *
  * @sideEffects Sends `read_file`; updates component state as answers come, until unmounted.
  * @param client - The client.
@@ -42,6 +45,9 @@ export const VIEWER_BUTTON =
 function useReading(client: AtriumClient, workspaceId: string, path: string, changed: string): Reading | null {
   const [reading, setReading] = useState<Reading | null>(null);
   const runEnds = useRunEnds(client, workspaceId);
+  const directionDir = useStore(client.index, (state) =>
+    isDirectionId(workspaceId) ? (state.directions.find((one) => one.id === workspaceId)?.dir ?? null) : null,
+  );
   useEffect(() => {
     let live = true;
     /**
@@ -66,9 +72,10 @@ function useReading(client: AtriumClient, workspaceId: string, path: string, cha
     return () => {
       live = false;
     };
-    // Read again at a run's end and when the file's diff changes (SPEC-0001, "M1.12 的文件与更改").
+    // Read again at a run's end and when the file's diff changes (SPEC-0001, "M1.12 的文件与更改"), and a
+    // direction's file once the direction moved (ML4).
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- see above.
-  }, [client, workspaceId, path, runEnds, changed]);
+  }, [client, workspaceId, path, runEnds, changed, directionDir]);
   return reading;
 }
 
@@ -165,6 +172,8 @@ export function FileViewer({
   diff,
   onShowDiff,
   onOpenInBrowser,
+  demo = false,
+  previewFirst = false,
 }: {
   readonly client: AtriumClient;
   readonly workspaceId: string;
@@ -174,6 +183,10 @@ export function FileViewer({
   readonly onShowDiff: () => void;
   /** Opens the file in the default browser; left out where the desktop shell cannot. */
   readonly onOpenInBrowser?: (() => void) | undefined;
+  /** A learning direction's demo, rendered in its sandbox until its source is asked for (ML4). */
+  readonly demo?: boolean;
+  /** Whether a preview shows first, as in a learning direction (ML4); else the source does. */
+  readonly previewFirst?: boolean;
 }) {
   // Turned to text only when another diff comes.
   const changed = useMemo(() => (diff === null ? "" : JSON.stringify(diff)), [diff]);
@@ -187,8 +200,7 @@ export function FileViewer({
   const { wrap, switchWrap, body: scrolled } = useViewerPlace(views, workspaceId, `file:${path}`, reading !== null);
   const text = reading?.kind === "read" && reading.content.kind === "text" ? reading.content.text : null;
   const preview = useStore(views, (state) => placeOf(viewOf(state, workspaceId), `file:${path}`).markdownPreview);
-  const canPreview = /\.(?:md|markdown)$/iu.test(path) && text !== null;
-  const previewing = canPreview && preview === true;
+  const canPreview = (demo || /\.(?:md|markdown)$/iu.test(path)) && text !== null;
   const [lines, setLines] = useState<{ readonly text: string | null; readonly lines: readonly string[] }>({
     text: null,
     lines: [],
@@ -200,6 +212,8 @@ export function FileViewer({
   const { name, dir } = splitPath(path);
   const request = useStore(views, (state) => viewOf(state, workspaceId).fileReveal);
   const range = request?.path === path ? request.range : null;
+  // A line asked for shows in the source, unless the preview was chosen.
+  const previewing = canPreview && (preview ?? (previewFirst && range === null));
   const lineCount = lines.lines.length;
   const highlighted =
     range === null || lineCount === 0
@@ -280,6 +294,12 @@ export function FileViewer({
             <ArrowUpRight size={14} />
           </button>
         )}
+        {demo ? (
+          <span className="inline-flex flex-none items-center gap-1 text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+            <Info size={13} aria-hidden />
+            在这里点的不会发到对话
+          </span>
+        ) : null}
         {canPreview ? (
           <button
             type="button"
@@ -320,7 +340,9 @@ export function FileViewer({
         >
           {body}
         </div>
-        {previewing ? (
+        {previewing && demo ? (
+          <DemoPreview client={client} views={views} directionId={workspaceId} path={path} />
+        ) : previewing ? (
           <MarkdownFilePreview client={client} views={views} workspaceId={workspaceId} path={path} text={text} />
         ) : null}
       </div>

@@ -12,9 +12,11 @@ export interface ReplyFileTarget {
  * @sideEffects none
  * @param source - The original Markdown address or entire inline-code text.
  * @param inline - Whether a line marker and an unambiguous file-shaped token are required.
+ * @param parents - Keep `..` parts for the opener to resolve and bound, as a direction's Markdown
+ * preview does (SPEC-0008, ML4: `notes/` links to `../visuals/`); refused otherwise.
  * @returns The local target, or null for unsupported syntax and unsafe addresses.
  */
-export function replyFileTarget(source: string, inline = false): ReplyFileTarget | null {
+export function replyFileTarget(source: string, inline = false, parents = false): ReplyFileTarget | null {
   const suffix = /(?:#L([0-9]+)(?:-L([0-9]+))?|:([0-9]+)(?:-([0-9]+))?)$/u.exec(source);
   const start = Number(suffix?.[1] ?? suffix?.[3]);
   const end = Number(suffix?.[2] ?? suffix?.[4] ?? suffix?.[1] ?? suffix?.[3]);
@@ -46,7 +48,7 @@ export function replyFileTarget(source: string, inline = false): ReplyFileTarget
     path.startsWith("//") ||
     path.startsWith("~") ||
     /^[a-z][a-z0-9+.-]*:/iu.test(path) ||
-    path.split("/").includes("..")
+    (!parents && path.split("/").includes(".."))
   )
     return null;
   // Bare name:digits is indistinguishable from host:port; ./ or #L makes intent explicit.
