@@ -180,7 +180,7 @@ export function createScheduleCommands(options: {
       if (schedules?.unreadable() === true && watch !== false) throw new CommandError("schedule_file_unreadable");
       if (watch === true) watchers.add(connectionId);
       else if (watch === false) watchers.delete(connectionId);
-      return { schedules: schedules === undefined ? [] : await rows(schedules) };
+      return { schedules: schedules === undefined ? [] : await rows(schedules), followed: schedules === undefined };
     },
     async pause(scheduleId) {
       await writable().pause(scheduleId);

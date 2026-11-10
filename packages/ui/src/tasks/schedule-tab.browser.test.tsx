@@ -62,7 +62,7 @@ async function schedules(rules: readonly ScheduleSummary[], answers: Parameters<
     },
     answers,
   );
-  fake.schedules.setState({ status: "ready", schedules: [...rules], seq: 1 });
+  fake.schedules.setState({ status: "ready", schedules: [...rules], seq: 1, followed: false });
   const screen = await render(
     <Workbench
       client={fake.client}
@@ -257,8 +257,19 @@ describe("the 定时 tab (SPEC-0006, 界面 · 定时标签; 设计稿第 3 屏)
         throw new Error("the connection is not open");
       },
     });
-    store.setState({ status: "loading", schedules: [], seq: -1 });
-    await expect.element(screen.getByTestId("schedules-unreadable")).toBeVisible();
+    store.setState({ status: "loading", schedules: [], seq: -1, followed: false });
+    await expect.element(screen.getByTestId("schedules-unreadable")).toHaveTextContent("定时规则读取失败，稍后再试");
+    expect(screen.container.textContent).not.toContain("正在读取定时规则");
+    expect(screen.container.textContent).not.toContain("发送失败");
+  });
+
+  it("says schedules do not run here when the host follows another process's tasks, in place of the empty state and the count", async () => {
+    const { screen, schedules: store } = await schedules([]);
+    store.setState({ status: "ready", schedules: [], seq: 1, followed: true });
+    await expect
+      .element(screen.getByTestId("schedules-followed"))
+      .toHaveTextContent("这是在跟着别的进程的任务，定时规则不在这里运行");
+    expect(screen.container.textContent).not.toContain("还没有定时规则");
     expect(screen.container.textContent).not.toContain("正在读取定时规则");
   });
 

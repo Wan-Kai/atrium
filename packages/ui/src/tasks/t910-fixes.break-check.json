@@ -17,7 +17,7 @@
   },
   {
     "file": "packages/ui/src/tasks/schedule-tab.tsx",
-    "from": "(error: unknown) => setUnreadable(describeTaskCommandError(error)),",
+    "from": "(error: unknown) => setUnreadable(readFailureWords(error)),",
     "to": "() => undefined,",
     "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
     "name": "words a rules file the host cannot read",
@@ -37,6 +37,22 @@
     "to": "",
     "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
     "name": "words a rules file that could not be read when the template",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-tab.tsx",
+    "from": "{schedules.followed ? (",
+    "to": "{false ? (",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "says schedules do not run here when the host follows",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-words.ts",
+    "from": ": \"定时规则读取失败，稍后再试\";",
+    "to": ": describeTaskCommandError(error);",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "does not wait for ever for rules that could not be asked for",
     "project": "ui"
   }
 ]

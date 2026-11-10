@@ -2606,7 +2606,8 @@
   ],
   "list_schedules": [
     {
-      "schedules": []
+      "schedules": [],
+      "followed": false
     },
     {
       "schedules": [
@@ -2630,7 +2631,12 @@
           "templateTaskId": "tsk_t",
           "createdAt": 1759000000000
         }
-      ]
+      ],
+      "followed": false
+    },
+    {
+      "schedules": [],
+      "followed": true
     }
   ],
   "pause_schedule": [

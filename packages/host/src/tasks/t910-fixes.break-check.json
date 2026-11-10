@@ -187,5 +187,12 @@
     "to": "const linked = await open(target, \"w\").then(\n      () => true,\n      () => false,\n    );",
     "test": "packages/host/src/workspaces/worktree-include.test.ts",
     "name": "keeps a file the user already has in its place"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-commands.ts",
+    "from": "followed: schedules === undefined }",
+    "to": "followed: false }",
+    "test": "packages/host/src/tasks/schedule-commands.test.ts",
+    "name": "is read-only while another process's tasks are followed"
   }
 ]

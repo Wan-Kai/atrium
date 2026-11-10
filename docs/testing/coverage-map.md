@@ -2429,6 +2429,7 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 真的子进程 `kill -9`：宿主在另一个进程里跑，节点跑到一半被杀，同一个家目录上再起宿主，任务接着跑完，一个 worktree、一份契约、一次 `host_restarted` | `tasks/t910.crash.host.test.ts` |
 | `pnpm task:try` 只 `recover` 自己的任务，不扫锁 | 一行调用（`dev/task-try.ts`），无自动测试：没有 pi 的单元测试跑不到那条路；靠 `pnpm typecheck` 和真实运行 |
 | 界面：午夜"凌晨 12:00"、中午"中午 12:00"；"上次还在跑"只在真的还在时写；关闭删除确认后焦点回"删除" | `ui/src/tasks/schedule-words.test.ts`、`ui/src/tasks/schedule-tab.browser.test.tsx` |
-| 协议号 36 → 37（新错误码 `schedule_file_unreadable`），Swift 投影重新生成 | `protocol/src/envelope.test.ts`、`remote.test.ts`、`pnpm protocol:swift --check` |
+| 协议号 36 → 37（新错误码 `schedule_file_unreadable`）→ 38（`list_schedules` 答复加 `followed`），Swift 投影重新生成 | `protocol/src/envelope.test.ts`、`remote.test.ts`、`pnpm protocol:swift --check`、`swift test --filter RoundTrip` |
+| 跟随开发版任务目录时：`list_schedules` 答 `{ schedules: [], followed: true }`，定时标签写「这是在跟着别的进程的任务，定时规则不在这里运行」，代替空状态和规则数 | `tasks/schedule-commands.test.ts`、`ui/src/tasks/schedule-tab.browser.test.tsx`（"says schedules do not run here…"） |
+| `watchSchedules` 因别的原因被拒：写「定时规则读取失败，稍后再试」，不写"发送失败"、不停在"正在读取" | `ui/src/tasks/schedule-tab.browser.test.tsx`（"does not wait for ever…"） |
 
-- 没做：跟随开发版任务目录时定时标签的说法（SPEC 没有，待用户定，见 SPEC"风险与待定问题"）。

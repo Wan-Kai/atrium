@@ -107,6 +107,7 @@ describe("the schedule commands", () => {
     const commands = createScheduleCommands({ schedules: service, tasks: tasks.port, send: () => undefined, logger });
 
     expect(await commands.list("c1", undefined)).toStrictEqual({
+      followed: false,
       schedules: [
         {
           id: "rul_a",
@@ -221,7 +222,7 @@ describe("the schedule commands", () => {
     await expect(commands.list("c1", true)).rejects.toStrictEqual(refused);
     await expect(commands.list("c1", undefined)).rejects.toStrictEqual(refused);
     await expect(commands.edit("rul_a")).rejects.toStrictEqual(refused);
-    expect(await commands.list("c1", false)).toStrictEqual({ schedules: [] });
+    expect(await commands.list("c1", false)).toStrictEqual({ schedules: [], followed: false });
     await commands.close();
   });
 
@@ -232,7 +233,7 @@ describe("the schedule commands", () => {
       send: () => undefined,
       logger: recordingTracing().logger,
     });
-    expect(await commands.list("c1", true)).toStrictEqual({ schedules: [] });
+    expect(await commands.list("c1", true)).toStrictEqual({ schedules: [], followed: true });
     for (const run of [
       (id: string) => commands.pause(id),
       (id: string) => commands.resume(id),

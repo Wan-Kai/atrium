@@ -8,7 +8,7 @@ import { RunningDots } from "../design/running-dots";
 import { useClock } from "../state/clock";
 import type { TaskArea } from "../state/task-area";
 import { describeTaskCommandError } from "./review-words";
-import { nextWords, resultWords, ruleSubWords, whenWords } from "./schedule-words";
+import { nextWords, readFailureWords, resultWords, ruleSubWords, whenWords } from "./schedule-words";
 
 /** The colour each result tone takes. */
 const TONES = {
@@ -263,7 +263,7 @@ export function ScheduleTab({ client, area }: { readonly client: AtriumClient; r
     // Fire and forget: the answer lands in the store; a lost connection asks again when it is back.
     client.watchSchedules(true).then(
       () => setUnreadable(null),
-      (error: unknown) => setUnreadable(describeTaskCommandError(error)),
+      (error: unknown) => setUnreadable(readFailureWords(error)),
     );
     return () => void client.watchSchedules(false).catch(() => undefined);
   }, [client]);
@@ -274,7 +274,7 @@ export function ScheduleTab({ client, area }: { readonly client: AtriumClient; r
         <div className="flex items-center gap-3 px-2.5">
           <h2 className="text-[length:var(--fs)] font-semibold text-[var(--text)]">定时</h2>
           <span className="rounded-[var(--r-pill)] bg-[var(--surface-2)] px-2 text-[length:var(--fs-sm)] leading-[20px] text-[var(--text-muted)] tabular-nums">
-            {unreadable === null ? schedules.schedules.length : 0}
+            {unreadable === null && !schedules.followed ? schedules.schedules.length : 0}
           </span>
           <span className="flex-1" />
           <span className="text-[length:var(--fs-sm)] text-[var(--text-dim)]">
@@ -283,7 +283,15 @@ export function ScheduleTab({ client, area }: { readonly client: AtriumClient; r
             ，就生成定时规则
           </span>
         </div>
-        {unreadable !== null ? (
+        {schedules.followed ? (
+          <p
+            role="status"
+            data-testid="schedules-followed"
+            className="px-2.5 py-8 text-[length:var(--fs-meta)] text-[var(--text-dim)]"
+          >
+            这是在跟着别的进程的任务，定时规则不在这里运行
+          </p>
+        ) : unreadable !== null ? (
           <p
             role="alert"
             data-testid="schedules-unreadable"

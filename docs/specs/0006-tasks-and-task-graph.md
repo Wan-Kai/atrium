@@ -1179,7 +1179,7 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 - **暂停与恢复**：暂停期间到点的不补；恢复时 `lastFiredAt` 取 `max(原值, 现在)`。
 - **规则文件** `<home>/schedules.json`：`{ v: 1, rules }`，经 `writeAtomically` 整份重写。规则比 SPEC 多三个字段：`containerId`（模板对话所在的容器，触发出来的任务对话放进它）、`sourceDir`（模板的目录，即每个任务的 `sourceDir`）、其余同 SPEC。读不懂的单条规则原样保留在文件里（以后的 Atrium 写的不被丢）；整个文件不是规则文件（不是 JSON、版本不对）：不装任何规则、不写回、不挂定时器，所有改规则的命令答 `schedule_file_unreadable`，定时标签显示这条错误（见"T9 / T10 审查后用户定"），直到用户处理这个文件、重启 Atrium。
 - **没有项目的对话不能定时**：`task_set_schedule` 对 `projectId: null` 的任务答 `task_state_invalid`，规则的 `projectId` 因此一定有。
-- **跟随开发版任务目录时**（`ATRIUM_FOLLOW_TASKS`）、`pnpm task:try`（`recoverTasks: false`）不建 ScheduleService：不读规则、不触发；定时命令一律 `task_read_only`，`list_schedules` 答空。
+- **跟随开发版任务目录时**（`ATRIUM_FOLLOW_TASKS`）、`pnpm task:try`（`recoverTasks: false`）不建 ScheduleService：不读规则、不触发；定时命令一律 `task_read_only`，`list_schedules` 答 `{ schedules: [], followed: true }`。
 
 **规则从对话来**
 
@@ -1224,7 +1224,7 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 1. **过期的锁**。锁的原因记下是哪个 Atrium 家目录加的：`atrium task <任务 id> home <ATRIUM_HOME 路径的 SHA-256 前 12 位十六进制>`。旧写法 `atrium task <任务 id>` 照旧认得（归档遇到它仍答 `workspace_in_task`），但认不出归属。宿主启动时**只解**：新写法、家目录哈希是本机的、任务已 `done` / `cancelled` 或任务目录不存在。留着不解的：别的家目录的锁、旧写法的锁、任务目录在但读不出来的锁（`events.jsonl` 坏了之类，它可能还在跑）。实现：`TaskService.recoverAll` 先读目录，把"目录在的任务 id"交给 `TaskRunner.clearStaleLocks`；runner 里有记录的任务看 `endedAt`，没记录的任务看它的目录在不在。
 2. **改规则的时间或频率**从保存的那一刻起算：`confirm` 对已存的规则把 `lastFiredAt` 记成 `max(原值, 现在)`；`interval` 规则的格子从 `max(lastFiredAt, createdAt)` 起数（原先从 `createdAt` 起），所以改过或恢复过的间隔规则从那一刻起重新数。保存从不当场触发。
 3. **pi 没准备好**（没装、版本不对）：到点不触发、不用掉时间点（`lastFiredAt` 不动）、记一条 warn（`schedule trigger waits for pi`，只有规则 id，一次没好只记一次，好了再重置）。`ScheduleService` 收一个 `ready()`，`main.ts` 用和 `recoverAll` 同一个 `piReady`；等 pi 的时候定时器按心跳（60 秒）醒来再问，不会 1 毫秒一转。下次启动 pi 好了，按"错过补一次"补跑一次。定时标签不加状态。
-4. **规则文件读不出来**：`schedule_file_unreadable`（新错误码，协议号 36 → 37）。确认、暂停、恢复、删除、修改、立即跑一次、`list_schedules` 都答它；不往内存里装任何规则、不挂定时器、不碰文件。定时标签把这条错误的话「定时规则文件读不出来，没有保存」放在规则列表的位置（`watchSchedules` 被拒时的通用做法：显示错误的说法，不再停在"正在读取定时规则…"）。"确认并保存规则"同样答这条码，按钮旁显示同一句话，模板留在任务列表里。
+4. **规则文件读不出来**：`schedule_file_unreadable`（新错误码，协议号 36 → 37；跟随模式的 `followed` 在 38，见下）。确认、暂停、恢复、删除、修改、立即跑一次、`list_schedules` 都答它；不往内存里装任何规则、不挂定时器、不碰文件。定时标签把这条错误的话「定时规则文件读不出来，没有保存」放在规则列表的位置；`watchSchedules` 因别的原因被拒（连接没开等）时写「定时规则读取失败，稍后再试」，不再停在"正在读取定时规则…"，也不用"发送失败"（2026-11-09 用户定）。"确认并保存规则"同样答这条码，按钮旁显示同一句话，模板留在任务列表里。
 5. **模板**：有 `scheduleDraft` 的任务在规则真的存下来之前留在任务列表里（可以放弃，可以在它的标签里改），存下来之后才隐藏。`createTaskCommands` 的"列不列"改看 `saved(taskId)`；保存规则、删规则都会让宿主刷新一次列表。
 6. **立即跑一次和下一个时间点**：立即跑一次建的任务算规则的"上一个任务"（`lastTaskId` 指向它），它没结束时，下一个到点的时间点被跳过（`skipped + 1`，`lastFiredAt` 照样推进）。立即跑一次本身不看上一个任务有没有结束。
 
@@ -1256,7 +1256,7 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 
 *界面*
 
-- **跟随模式**：SPEC 没有定时标签在跟随开发版任务目录时的说法；要先定说法再做（见"风险与待定问题"）。
+- **跟随模式**（2026-11-09 用户定）：`list_schedules` 的答复带 `followed: boolean`（协议号 38）；跟随开发版任务目录时宿主答 `{ schedules: [], followed: true }`，定时标签写「这是在跟着别的进程的任务，定时规则不在这里运行」，代替空状态，不显示规则数。
 - **`ruleSubWords`**：只有上一次真的还在（`running`，或 `waiting` 等你）时才写"上次还在跑"；失败、停下、设计中、已不在时只写"跳过 N 次"。
 - **午夜与中午**：每天的 12 小时写法里午夜是"凌晨 12:00"，中午是"中午 12:00"；测试里原来的 `0:00` 改掉。每周的钟点照设计稿用 24 小时（"每周一 0:00"）；"下次 …"也是 24 小时（"明天 0:00"）。
 - **焦点**：关掉删除的确认（Esc 或"不了"）后，焦点回到"删除"。
@@ -1293,7 +1293,6 @@ T5 把 `task_not_found`、`task_state_invalid`、`task_back_limit` 放进了协�
 - [ ] **全局合并驱动在宿主的合并里变成冲突**（T5）：见"宿主自己跑的 git"。
 - [ ] **宿主自己的提交不跑项目的钩子**：为了不执行 agent 放进 `.git/hooks` 的东西。lefthook 之类的检查要靠 `check` 节点。
 - [ ] **路径隔离不是沙箱**：`cp`、重定向、脚本里的写入拦不住。
-- [ ] **跟随开发版任务目录时的定时标签**（T9 / T10 审查，待用户定说法）：这时宿主不建 `ScheduleService`，`list_schedules` 答空，标签显示的是「还没有定时规则」的空状态，会让人以为是没建规则。需要一句话告诉用户这里不跑定时规则。建议：「这是在跟着别的进程的任务，定时规则不在这里运行」，协议上给 `list_schedules` 的答复加 `followed`（又一次协议号变动）。说法定下前不做。
 - [ ] **引导词写死**：效果全靠这四段说明，调优只能改代码发版；先接受，等用出经验再做设置页。
 - [ ] **引导词的效果**（T6）：四段话全靠它们让任务对话拆出合理的图；定稿前要用真实对话反复试（`pnpm task:design`），改了文字就加版本号。小改动倾向于选 `feature` 而不是 `fix`（`fix` 偏“一个已知的小问题”），定时修复的图是固定的、没有条件分支，所以没坏的那天也会走到最后一个 human 节点。
 - [ ] **模型不核对**（T6）：`task_set_meta` 写了不存在的模型，宿主不拦，还没开始的节点会 `failed(crashed)`；以后有模型清单的端口再核对。

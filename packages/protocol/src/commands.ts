@@ -1379,7 +1379,8 @@ export const CommandResult = {
   cancel_task: z.strictObject({}),
   answer_archive: z.strictObject({}),
   open_task_session: z.strictObject({}),
-  list_schedules: z.strictObject({ schedules: z.array(ScheduleSummary).max(1000) }),
+  /** `followed`: the host follows another process's tasks and runs no schedules (SPEC-0006, "T9 / T10 审查后用户定"). */
+  list_schedules: z.strictObject({ schedules: z.array(ScheduleSummary).max(1000), followed: z.boolean() }),
   pause_schedule: z.strictObject({}),
   resume_schedule: z.strictObject({}),
   run_schedule_now: z.strictObject({ taskId: TaskId }),

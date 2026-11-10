@@ -403,7 +403,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
   const installJob = createStore<InstallJob | null>(() => null);
   const plans = createStore<Plans>(() => []);
   const tasks = createStore<TasksView>(() => ({ status: "ready", tasks: [], seq: 0 }));
-  const schedules = createStore<SchedulesView>(() => ({ status: "ready", schedules: [], seq: 0 }));
+  const schedules = createStore<SchedulesView>(() => ({ status: "ready", schedules: [], seq: 0, followed: false }));
   const taskStates = new Map<string, StoreApi<TaskState>>();
   /**
    * A task's store, made on first use.

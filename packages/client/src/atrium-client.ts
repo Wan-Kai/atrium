@@ -1025,12 +1025,17 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   async function loadSchedules(): Promise<void> {
     const before = schedules.getState();
     schedules.setState(
-      { status: before.status === "ready" ? "ready" : "loading", schedules: before.schedules, seq: -1 },
+      {
+        status: before.status === "ready" ? "ready" : "loading",
+        schedules: before.schedules,
+        seq: -1,
+        followed: before.followed,
+      },
       true,
     );
-    const { schedules: listed } = await request("list_schedules", { watch: true });
+    const { schedules: listed, followed } = await request("list_schedules", { watch: true });
     if (!watchingSchedules || schedules.getState().seq >= 0) return;
-    schedules.setState({ status: "ready", schedules: listed, seq: 0 }, true);
+    schedules.setState({ status: "ready", schedules: listed, seq: 0, followed }, true);
   }
 
   /**
@@ -1352,7 +1357,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     }
     if (message.type === "schedules_updated") {
       if (!watchingSchedules || message.seq <= schedules.getState().seq) return;
-      schedules.setState({ status: "ready", schedules: message.schedules, seq: message.seq }, true);
+      schedules.setState(
+        { status: "ready", schedules: message.schedules, seq: message.seq, followed: schedules.getState().followed },
+        true,
+      );
       return;
     }
     if (message.type === "task_updated") {

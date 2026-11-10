@@ -1,4 +1,6 @@
+import { CommandError } from "@atrium/client";
 import type { Cadence, ScheduleSummary, SchedulePlace } from "@atrium/protocol";
+import { describeTaskCommandError } from "./review-words";
 
 /*
  * The words of the 定时 tab (设计稿第 3 屏; SPEC-0006, "T10 定下的细节"). The host sends cadences, instants and states; the
@@ -136,6 +138,23 @@ export function resultWords(rule: ScheduleSummary): ResultWords {
   if (last === null) return { text: "—", tone: "dim", icon: "none" };
   if (last.failed) return { text: "上次失败", tone: "danger", icon: "alert" };
   return LAST_WORDS[last.status];
+}
+
+/**
+ * What the tab says when it could not ask for the rules.
+ *
+ * @remarks
+ * A rules file the host cannot read has its own sentence (SPEC-0006, "T9 / T10 审查后用户定"); any other failure, such as a
+ * connection that is not open, is "定时规则读取失败，稍后再试" and not "发送失败".
+ *
+ * @sideEffects none
+ * @param error - What `watchSchedules` rejected with.
+ * @returns The sentence.
+ */
+export function readFailureWords(error: unknown): string {
+  return error instanceof CommandError && error.code === "schedule_file_unreadable"
+    ? describeTaskCommandError(error)
+    : "定时规则读取失败，稍后再试";
 }
 
 /**

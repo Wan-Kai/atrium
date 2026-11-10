@@ -2568,7 +2568,11 @@ const commandResultExamples = {
   cancel_task: [{}],
   answer_archive: [{}],
   open_task_session: [{}],
-  list_schedules: [{ schedules: [] }, { schedules: [scheduleSummary] }],
+  list_schedules: [
+    { schedules: [], followed: false },
+    { schedules: [scheduleSummary], followed: false },
+    { schedules: [], followed: true },
+  ],
   pause_schedule: [{}],
   resume_schedule: [{}],
   run_schedule_now: [{ taskId: "tsk_a" }],

@@ -307,7 +307,7 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
     schedules: {
       list: async (id, watch) => {
         calls.push(["listSchedules", id, watch]);
-        return { schedules: [] };
+        return { schedules: [], followed: false };
       },
       pause: async (scheduleId) => {
         calls.push(["pauseSchedule", scheduleId]);
@@ -479,7 +479,7 @@ describe("createRouter", () => {
     {
       command: { type: "list_schedules", watch: true },
       call: ["listSchedules", "connection-7", true],
-      result: { schedules: [] },
+      result: { schedules: [], followed: false },
     },
     { command: { type: "pause_schedule", scheduleId: "rul_a" }, call: ["pauseSchedule", "rul_a"], result: {} },
     { command: { type: "resume_schedule", scheduleId: "rul_a" }, call: ["resumeSchedule", "rul_a"], result: {} },

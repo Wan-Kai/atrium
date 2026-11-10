@@ -43,7 +43,9 @@ export interface SchedulesView {
   readonly status: "idle" | "loading" | "ready";
   readonly schedules: readonly ScheduleSummary[];
   readonly seq: number;
+  /** The host follows another process's tasks and runs no schedules here. */
+  readonly followed: boolean;
 }
 
 /** What a window that does not watch the schedules sees. */
-export const UNWATCHED_SCHEDULES: SchedulesView = { status: "idle", schedules: [], seq: -1 };
+export const UNWATCHED_SCHEDULES: SchedulesView = { status: "idle", schedules: [], seq: -1, followed: false };
