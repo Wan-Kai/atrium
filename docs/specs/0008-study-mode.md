@@ -565,7 +565,7 @@
 - `visuals/` 下的文件不给"在浏览器打开"（按钮和 ⌘O 都没有）：那会把演示交给系统浏览器跑，不在沙箱里、能联网。认 `visuals/` 和 `.html` **不分大小写**（审查后 2026-11-10 加）：Mac 的卷默认不分大小写，笔记或回复里写成 `Visuals/a.HTML` 的就是同一个文件，照样按演示在沙箱里显示（宿主按方向 resolve 时只认 `visuals/` 这个写法，别的写法得到 `visual_outside`，卡片照常报错），照样不给"在浏览器打开"。桌面端主进程另守一道：要用浏览器打开的文件，路上任何一层叫 `visuals`（不分大小写）、而它的上一层有 `.atrium-study.json` 的，一律不打开（界面漏了也出不去）。方向里别处的 `.html`（比如 `lab/index.html`）照工作区的做法：看源码、有"在浏览器打开"，不渲染。
 - 笔记里指向演示的链接，在 Markdown 预览里点了也走这里（打开这个演示的查看标签）。笔记在 `notes/` 里，指向演示要写 `../visuals/…html`（2026-11-10 用户定）：方向里的 Markdown 预览的链接和图片，界面先把 `..` 规整掉（以文档所在目录为基准，一个 `..` 去掉上一段），规整后仍落在方向目录里的才放行，交给宿主的仍是没有 `..` 的相对路径，宿主的路径检查不变；跳出方向目录的照旧拒绝（不显示成链接、图片不读）。工作区里的 Markdown 预览照旧拒绝含 `..` 的地址（security.md"渲染内容"）。
 
-**`list_dir`、`read_file`、`resolve_visual` 认方向（协议 38）**
+**`list_dir`、`read_file`、`resolve_visual` 认方向（协议 39）**
 
 - `list_dir`、`read_file` 的 `workspaceId` 放宽成"工作区或方向"（`WorkspaceId | DirectionId`），字段名不改（2026-11-10 用户定 A）。宿主按 id 的前缀分：方向的根目录是它**现在**的目录（归档的也能读）。方向不存在回 `direction_not_found`（工作区的照旧 `workspace_not_found`）。
 - 方向的根目录读之前确认是学习目录（或 `Archive/`）下一层的真目录（同 ML2 写档案前的检查），不合回 `learning_dir_unsafe`。路径检查（相对路径、各段不是空、`.`、`..`，路上不能有链接，最后一段 `O_NOFOLLOW`）、大小上限、内容种类都同工作区。
@@ -589,7 +589,7 @@
 
 - 所有用途的公共部分（`COMMON`）加一句（2026-11-10 用户定 B，原先只说测验）："Do not create or edit files outside the working directory (this direction's folder), not even in /tmp." 随口问也要（三方审查后 2026-11-10 用户定）：宿主给方向里随口问的会话起 pi 时也加 `--atrium-study`，内容只有 `{ v: 1, kind: "ask" }`；扩展读到它不注册学习工具、不给用途的提示、没有开场，只给 `atrium_study` 一段两句："This session is a question asked in a learning direction in Atrium's study mode." 和上面这句。 不写"放到 `lab/`"：往 `lab/` 里放什么各用途的规则不一样（上课只许一个起始文件，测验、排计划什么都不放），各用途原来的规则照旧。只改提示词，宿主不拦（"ML3 定的细节 · 第二次真实模型检查"）。加一条破坏检查（删掉这句，测试要失败）。
 
-**协议（38）**
+**协议（39；实现时是 38，合并时任务图先占了 38，顺延）**
 
 - `list_dir`、`read_file`：`workspaceId` 放宽成 `WorkspaceId | DirectionId`。
 - `resolve_visual`：`sessionId` 和 `directionId` 二选一；`visual_changed` 带对应的来源。

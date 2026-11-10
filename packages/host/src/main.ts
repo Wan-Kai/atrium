@@ -29,7 +29,7 @@ import { closeLogFile, createLogger, drainLogFile, openLogFile } from "./platfor
 import { catchStrayRejections } from "./platform/stray-rejections";
 import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
-import { createProjectService } from "./projects/project-service";
+import { type ProjectService, createProjectService } from "./projects/project-service";
 import { findHomebrew, withHomebrewOnPath } from "./setup/homebrew";
 import { createLoginService } from "./setup/login-service";
 import { runJob } from "./setup/install-job";
@@ -61,6 +61,16 @@ import { withModelRules } from "./sessions/model-rules";
 import { createSessionCatalog } from "./sessions/session-catalog";
 import { createPlanUsage } from "./sessions/plan-usage";
 import { createSessionManager } from "./sessions/session-manager";
+import { createReviewHub } from "./reviews/review-hub";
+import { createTaskRunner } from "./tasks/runner";
+import { createTaskArchiving } from "./tasks/task-archiving";
+import { createTaskReviewProvider } from "./tasks/task-reviews";
+import { createTaskCommands } from "./tasks/task-commands";
+import { followTasks } from "./tasks/followed-tasks";
+import { createScheduleCommands } from "./tasks/schedule-commands";
+import { type ScheduleService, createScheduleService } from "./tasks/schedule-service";
+import { type TaskService, createTaskService } from "./tasks/task-service";
+import { createTaskWorkspaces } from "./tasks/task-workspaces";
 import { createReplyTranslations, TRANSLATION_OUTPUT_BYTES } from "./sessions/reply-translation";
 import { titleModelLookup } from "./sessions/titles";
 import { acquireHostLock, processStartedAt } from "./store/host-lock";
@@ -75,6 +85,7 @@ import { createMergeInspector, parseGitVersion } from "./workspaces/merge-inspec
 import { createBranchNamer } from "./workspaces/branch-namer";
 import { createWorkspaceArchiver } from "./workspaces/workspace-archiver";
 import { createWorktreeCreator } from "./workspaces/worktree-creator";
+import { homeTagOf } from "./workspaces/worktree-lock";
 import { createWorktreeQueue } from "./workspaces/worktree-queue";
 import { createWorkspaceService } from "./workspaces/workspace-service";
 import { createLearningRecords } from "./store/learning-records";
@@ -126,6 +137,18 @@ export interface HostConfig {
   readonly homebrewPlaces?: readonly string[];
   /** Where to look up the latest pi; defaults to pi.dev, as pi does; `null` never looks (tests). */
   readonly piLatestUrl?: string | null;
+  /**
+   * A directory of tasks another process writes (`pnpm task:try`'s `<home>/tasks`) to follow read-only; dev only
+   * (`ATRIUM_FOLLOW_TASKS`, SPEC-0006, "T7.1 定下的细节"). Without it, the host follows nothing.
+   */
+  readonly followTasks?: string;
+  /**
+   * Whether to take up the tasks that were going when the host last stopped, once pi is found (SPEC-0006, "宿主重启");
+   * `true` unless set. `pnpm task:try` turns it off: it looks after the one task it runs itself.
+   */
+  readonly recoverTasks?: boolean;
+  /** The time zone schedule rules count their clock times in; the machine's when left out (tests set one). */
+  readonly scheduleTimeZone?: string;
   /** The vault Electron's main process keeps; without it, as when run alone, remote access is unavailable. */
   readonly vault?: VaultPort;
 }
@@ -138,6 +161,12 @@ export interface RunningHost {
   readonly address: string;
   /** Live resource counts, for leak tests and diagnostics. */
   readonly resources: ResourceTracker;
+  /** The tasks (SPEC-0006): the protocol's task commands go through them; tests and `task:try` use the handle too. */
+  readonly tasks: TaskService;
+  /** The schedule rules (SPEC-0006, "定时"); `undefined` while another process's tasks are followed or `recoverTasks` is off. */
+  readonly schedules: ScheduleService | undefined;
+  /** The projects, for the dev tools that set a host up without a client (`pnpm task:try`). */
+  readonly projects: Pick<ProjectService, "add" | "projects" | "workspaces">;
   /** Resolves once PATH is known and the tools have been looked for; `null` if the host closed first or detection failed. */
   readonly tools: Promise<HostTools | null>;
   /** Path that always points at the log file being written. */
@@ -236,14 +265,15 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     git,
     newId: (prefix) => `${prefix}_${randomBytes(8).toString("hex")}`,
   });
+  const inspector = git.then(async (runner) => {
+    if (runner === null) return null;
+    const version = await runner.run(["--version"], { cwd: home.root }).catch(() => null);
+    return createMergeInspector({ git: runner, version: parseGitVersion(version?.stdout ?? "") });
+  });
   const workspaces = createWorkspaceService({
     projects,
     git,
-    inspector: git.then(async (runner) => {
-      if (runner === null) return null;
-      const version = await runner.run(["--version"], { cwd: home.root }).catch(() => null);
-      return createMergeInspector({ git: runner, version: parseGitVersion(version?.stdout ?? "") });
-    }),
+    inspector,
     clock,
     resources,
     logger,
@@ -350,6 +380,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const worktreeNaming = new AbortController();
   // Who else wants to know the sessions changed: an update waits for running sessions to finish.
   const sessionListeners = new Set<() => void>();
+  // What waits for the user's verdict, per session (ADR-0018); the task gates register when the tasks exist.
+  const reviewHub = createReviewHub({ logger, resources });
   /**
    * Where a study direction's visuals are, counted from where it is now, with its place's check.
    *
@@ -407,6 +439,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
   });
   const sessions = createSessionManager({
+    reviews: reviewHub,
     study: studyTools,
     chatsRoot: join(home.root, "chats"),
     // A pi started while pi is being updated waits, so it is the new one.
@@ -638,6 +671,123 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     queue: worktreeQueue,
   });
   const creator = createWorktreeCreator({ projects, git, queue: worktreeQueue, refresh: rescanWorkspace, logger });
+  // Tasks (SPEC-0006): the runner carries out the scheduler's actions on node sessions and worktrees.
+  const taskRunner = createTaskRunner({
+    sessions: sessions.taskSessions,
+    workspaces: createTaskWorkspaces({
+      creator,
+      projects,
+      git,
+      root: join(home.root, "tasks"),
+      // The conversation the task was made from, else the workspace whose directory it started in.
+      sourceContainer: (task) =>
+        (task.origin.kind === "chat" ? catalog.find(task.origin.sessionId)?.containerId : undefined) ??
+        workspaces.list().find((workspace) => workspace.dir === task.sourceDir)?.id,
+      dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
+      inspector,
+      homeTag: homeTagOf(home.root),
+    }),
+    git,
+    clock,
+    logger,
+    resources,
+  });
+  // Schedules (SPEC-0006, "定时"): none while another process's tasks are followed, and none for `pnpm task:try`, which
+  // looks after the one task it runs itself. The rules make tasks through the service below and the service saves
+  // rules through them, so they are joined after both exist.
+  const schedulesWanted = config.followTasks === undefined && config.recoverTasks !== false;
+  let schedules: ScheduleService | undefined;
+  const ownedTasks: TaskService = createTaskService({
+    runner: taskRunner,
+    root: join(home.root, "tasks"),
+    clock,
+    logger,
+    ...(schedulesWanted
+      ? {
+          schedules: {
+            confirm: async (template) => {
+              const container = catalog.find(template.taskSessionId)?.containerId;
+              if (container === undefined)
+                throw new CommandError("session_not_found", { sessionId: template.taskSessionId });
+              await schedules?.confirm(template, container);
+            },
+            saved: (templateTaskId) => schedules?.saved(templateTaskId) ?? false,
+          },
+        }
+      : {}),
+    archiving: createTaskArchiving({ projects, git, inspector, archiver }),
+    design: {
+      sessions: sessions.taskSessions,
+      // A worktree the source conversation is in is lent to the task; a chat belongs to no project.
+      placement: (containerId) => {
+        const workspace = projects.workspaces().find((candidate) => candidate.id === containerId);
+        return {
+          projectId: workspace?.projectId ?? null,
+          borrowed:
+            workspace?.kind === "worktree"
+              ? { workspaceId: workspace.id, baseCommit: workspace.baseCommit ?? null }
+              : null,
+        };
+      },
+    },
+  });
+  // Dev only (SPEC-0006, "T7.1 定下的细节"): the tasks of a `pnpm task:try` run, followed read-only.
+  const tasks: TaskService =
+    config.followTasks === undefined
+      ? ownedTasks
+      : await followTasks({
+          owned: ownedTasks,
+          ownRoot: join(home.root, "tasks"),
+          directory: config.followTasks,
+          clock,
+          resources,
+          logger,
+        });
+  if (schedulesWanted) {
+    schedules = createScheduleService({
+      file: join(home.root, "schedules.json"),
+      clock,
+      resources,
+      logger,
+      tasks: ownedTasks,
+      // The same question the recovery of tasks asks: a trigger needs pi to start the task's conversation.
+      ready: () => piReady(),
+      ...(config.scheduleTimeZone === undefined ? {} : { timeZone: config.scheduleTimeZone }),
+    });
+  }
+  // The task gates (ADR-0018): graph approval, human nodes, the question about the worktree.
+  reviewHub.register(
+    createTaskReviewProvider({
+      service: tasks,
+      taskOf: (sessionId) =>
+        tasks.held().find((task) => task.taskSessionId === sessionId)?.id ??
+        (() => {
+          const record = sessions.taskSessions.recordOf(sessionId);
+          return record?.role === "conversation" ? record.taskId : undefined;
+        })(),
+    }),
+  );
+  const taskCommands = createTaskCommands({
+    service: tasks,
+    // A template task is listed until the rule it stands for is really saved (T9 / T10 审查后用户定 5).
+    saved: (taskId) => schedules?.saved(taskId) ?? false,
+    send: (connectionId, event) => subscriptions.sendTo(connectionId, event),
+    logger,
+    // Opening a task counts its conversation's reviews again: the worktree may have been edited since (T8 review fix 11).
+    onOpened: (task) => reviewHub.refresh(task.taskSessionId),
+  });
+  // The rules are read now, so that a window's commands do not find them missing while pi is still being looked for.
+  await schedules?.load();
+  // A rule saved or deleted changes how its template task looks (the start button says "saved"), though no task event did.
+  schedules?.onChange(() => {
+    for (const rule of schedules?.list() ?? []) taskCommands.refresh(rule.templateTaskId);
+  });
+  const scheduleCommands = createScheduleCommands({
+    schedules,
+    tasks,
+    send: (connectionId, event) => subscriptions.sendTo(connectionId, event),
+    logger,
+  });
   // Names a new worktree's branch by the first message (SPEC-0001, "AI 起分支名").
   const namer = createBranchNamer({
     projects,
@@ -818,6 +968,9 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       ],
       piLatest,
       remote,
+      tasks: taskCommands,
+      schedules: scheduleCommands,
+      reviews: reviewHub,
       receipts,
       translations,
       attachments,
@@ -858,6 +1011,50 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   toolbox.start();
   piLatest.start();
   const tools = toolbox.current();
+  /**
+   * Whether pi is found and fit to run.
+   *
+   * @remarks
+   * Asked by the recovery of tasks and by the schedules alike (SPEC-0006, "T9 / T10 审查后用户定"): a node, or the
+   * conversation of a scheduled task, needs pi, and a host that cannot run it must not fail them all.
+   *
+   * @sideEffects none
+   * @returns Whether pi's status is `ready`.
+   */
+  const piReady = async (): Promise<boolean> => (await tools)?.pi.status === "ready";
+  // SPEC-0006, "宿主重启": tasks that were going when the host stopped go on, as soon as pi is known to run.
+  const recovery = new AbortController();
+  const recovering: Promise<void> =
+    config.recoverTasks === false
+      ? Promise.resolve()
+      : tasks
+          .recoverAll({
+            signal: recovery.signal,
+            staleLocks: true,
+            ready: piReady,
+          })
+          .catch((error: unknown) => {
+            logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "tasks could not be recovered");
+          });
+
+  // SPEC-0006, "定时": once the tasks that were going are taken up and pi is known, read the rules and make up what was
+  // missed while the host was off (once per rule); a trigger needs pi to start the task's conversation.
+  const scheduling: Promise<void> =
+    schedules === undefined
+      ? Promise.resolve()
+      : recovering
+          .then(() =>
+            Promise.race([
+              tools,
+              new Promise<void>((resolve) =>
+                recovery.signal.addEventListener("abort", () => resolve(), { once: true }),
+              ),
+            ]),
+          )
+          .then(() => (recovery.signal.aborted ? undefined : schedules.start()))
+          .catch((error: unknown) => {
+            logger.warn({ err: error instanceof Error ? error.name : "unknown" }, "schedules could not be started");
+          });
 
   /**
    * Reads the login shell's environment, then looks for pi, Node, Homebrew and fd on its PATH.
@@ -987,6 +1184,19 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await changes.close();
     visuals.close();
     await workspaces.close();
+    // Before the sessions, whose stopping the runner would otherwise answer with events.
+    recovery.abort();
+    // Both are told to stop before either is waited for: a trigger in the middle of starting its task waits for a pi
+    // that may never answer, and only the tasks' closing cancels that.
+    const schedulesClosed = schedules?.close();
+    const tasksClosed = tasks.close();
+    await schedulesClosed;
+    await scheduling;
+    await tasksClosed;
+    await recovering;
+    await scheduleCommands.close();
+    await taskCommands.close();
+    await reviewHub.close();
     await sessions.close();
     await catalog.close();
     await directions.close();
@@ -1006,6 +1216,9 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   return {
     port: server.port,
     origin: server.origin,
+    tasks,
+    schedules,
+    projects,
     address: server.address,
     resources,
     tools,

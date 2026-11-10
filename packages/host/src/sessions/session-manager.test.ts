@@ -142,6 +142,8 @@ async function manage(
     readonly catalog?: (catalog: SessionCatalog) => SessionCatalog;
     /** The manager's clock, when a test moves time on; the system's otherwise. */
     readonly clock?: Clock;
+    /** What waits for a verdict in each session, when a test needs the manager to ask (ADR-0018). */
+    readonly reviews?: Parameters<typeof createSessionManager>[0]["reviews"];
     /** Where each session's visuals go (SPEC-0007). */
     readonly visualsDir?: Parameters<typeof createSessionManager>[0]["visualsDir"];
     /** A learning direction at a directory, archived while `archived()` says so. */
@@ -211,6 +213,7 @@ async function manage(
     ...(fast === undefined ? {} : { fast }),
     ...(more.childWorktree === undefined ? {} : { childWorktree: more.childWorktree }),
     ...(more.tempRoot === undefined ? {} : { tempRoot: more.tempRoot }),
+    ...(more.reviews === undefined ? {} : { reviews: more.reviews }),
     ...(more.visualsDir === undefined ? {} : { visualsDir: more.visualsDir }),
     ...(more.study === undefined ? {} : { study: more.study }),
     ...(more.direction === undefined
@@ -2600,7 +2603,7 @@ describe("SessionManager Fast", () => {
         "--extension",
         FAST_EXTENSION,
         // Who the session is for Atrium's extension: no one's child, at depth 0 (ADR-0013, point 3).
-        `--atrium-agent=${encodeArgument({ v: 1, child: false, role: null, depth: 0, guard: "flags" })}`,
+        `--atrium-agent=${encodeArgument({ v: 1, child: false, role: null, depth: 0, guard: "flags", isolated: false })}`,
         // A session the agent did not open has no child's tools (SPEC-0002, "角色与限制").
         "--exclude-tools",
         "report_progress,ask_parent",
@@ -3423,6 +3426,55 @@ async function opened(
 }
 
 /**
+ * `opened`, with the reviews the manager asks the hub for.
+ *
+ * @remarks
+ * Test support for the manager's side of the reviews' hub: it asks while a session has a controller, and says when
+ * nobody reads the session any more.
+ *
+ * @sideEffects As `opened`.
+ * @param reviews - The hub's side.
+ * @param clock - The manager's clock.
+ * @returns As `opened`.
+ */
+async function manageOpened(reviews: NonNullable<Parameters<typeof createSessionManager>[0]["reviews"]>, clock: Clock) {
+  const at = await place();
+  const file = await terminalSession(at, "pi-session-1", at.workspace);
+  const managed = await manage(
+    {
+      argvToStderr: true,
+      rules: { ...SESSION_ONE, prompt: { sequence: [{ data: { disposition: "started" }, events: turn }] } },
+    },
+    at,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { clock, reviews },
+  );
+  await managed.catalog.scan();
+  await managed.manager.openSession("client-1", "pi-session-1");
+  await managed.manager.subscribe("c1", ["pi-session-1"]);
+  const run = async () => {
+    const settled = managed.received.filter((event) => event.type === "run_settled").length;
+    await managed.manager.prompt({
+      type: "prompt",
+      requestId: "q",
+      traceparent,
+      sessionId: "pi-session-1",
+      text: "ping",
+    });
+    await vi.waitFor(() =>
+      expect(managed.received.filter((event) => event.type === "run_settled")).toHaveLength(settled + 1),
+    );
+  };
+  return { ...managed, file, run };
+}
+
+/**
  * pi's record of a user message it took.
  *
  * @remarks
@@ -4222,6 +4274,35 @@ describe("SessionManager idle reclaim (M1.11 自用, 2026-10-22)", () => {
     expect(starts()).toHaveLength(2);
     expect(received.filter((event) => event.type === "run_settled")).toHaveLength(2);
     expect(resources.snapshot()["pi-process"]).toBe(1);
+  });
+
+  it("tells the reviews' hub that nobody reads a session once its controller is let go of (T8 review fix 13)", async () => {
+    const time = movableClock();
+    const forgotten: string[] = [];
+    const read: string[] = [];
+    const reviews = {
+      current: () => [],
+      read: (sessionId: string) => void read.push(sessionId),
+      onChanged: () => () => undefined,
+      forget: (sessionId: string) => void forgotten.push(sessionId),
+    };
+    const { manager, received, run, resources } = await manageOpened(reviews, time.clock);
+    await run();
+    await piAnswered(resources);
+    time.pass(30 * MINUTE);
+    manager.reclaimIdle();
+    await vi.waitFor(() => expect(exits(received)).toBe(1));
+    // Stopped, but watched and its tab open: the controller stays, and so does the hub's interest.
+    manager.reclaimIdle();
+    expect(read).toContain("pi-session-1");
+    expect(forgotten).toStrictEqual([]);
+
+    await manager.subscribe("c1", []);
+    await manager.closeTab("client-1", "pi-session-1");
+    manager.reclaimIdle();
+
+    expect(resources.snapshot()["session.controller"]).toBe(0);
+    expect(forgotten).toStrictEqual(["pi-session-1"]);
   });
 
   it("lets go of a stopped session's controller once nobody watches it or has its tab open, and builds it again from the file on open", async () => {

@@ -95,6 +95,8 @@ export interface ComposerProps {
   readonly pinned?: ReactNode;
   /** The model button, beside the send button. */
   readonly picker?: ReactNode;
+  /** What the empty box says while nothing runs and nothing is asked, in place of the general line. */
+  readonly idlePlaceholder?: string;
   /** Where the draft is kept: the session id, or `new:<container>` before the session exists. */
   readonly draftKey: string;
   /** The messages sent earlier, newest first, for ↑. */
@@ -214,6 +216,7 @@ export function Composer({
   above,
   pinned,
   picker,
+  idlePlaceholder,
   draftKey,
   history = [],
   onOlderHistory,
@@ -883,7 +886,7 @@ export function Composer({
                         ? stopping
                           ? "正在停止…"
                           : "回车排队 · ⌘回车插话 · Esc 停止"
-                        : "发消息或描述任务，@ 引用文件，/ 使用命令"
+                        : (idlePlaceholder ?? "发消息或描述任务，@ 引用文件，/ 使用命令")
               }
               onChange={(event) => {
                 setText(event.target.value);

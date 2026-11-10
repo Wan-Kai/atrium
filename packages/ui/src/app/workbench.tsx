@@ -22,6 +22,12 @@ import {
   pageLaunch,
 } from "../state/new-workspace";
 import { TabBar } from "../tabs/tab-bar";
+import { createTaskArea } from "../state/task-area";
+import { TaskAreaView } from "../tasks/task-area";
+import { groupOf } from "../tasks/task-list-model";
+import { inboxWords, statusWords } from "../tasks/task-words";
+import { type TaskLinks, TaskLinksContext } from "../chat/task-links";
+import type { TaskArea } from "../state/task-area";
 import { Breadcrumb } from "../children/breadcrumb";
 import { NewChildDialog } from "../children/new-child-dialog";
 import {
@@ -125,12 +131,15 @@ function fireAndForget(command: Promise<unknown>): void {
  * @param client - The client.
  * @param pages - The new-workspace page's store.
  * @param views - The workspace views.
+ * @param area - The task area's state: ⌘N and ⌘T leave it, and the keys for tabs do nothing while it shows, as it
+ * has its own.
  * @param learning - The study store, whose pages the keys leave as the new-workspace page.
  */
 function useTabShortcuts(
   client: AtriumClient,
   pages: StoreApi<NewWorkspaceState>,
   views: StoreApi<WorkspaceViews>,
+  area: StoreApi<TaskArea>,
   learning: StoreApi<LearningState>,
 ): void {
   // ⌘W and ⌘, the main process took, as with the focus in a visual (SPEC-0007, "键盘").
@@ -155,7 +164,7 @@ function useTabShortcuts(
       const order = view === null ? [] : tabOrder(open, view);
       const at = view === null ? -1 : currentTab(order, view, tabs?.active ?? null);
       const key = event.key.toLowerCase();
-      const onPage = pages.getState().page !== null || learning.getState().page !== null;
+      const onPage = pages.getState().page !== null || learning.getState().page !== null || area.getState().open;
       // A direction's home shows while asked for, or while none of its sessions is active, under no viewer tab (ML4).
       const direction = container !== null && index.directions.some((one) => one.id === container);
       const homeShown =
@@ -167,6 +176,7 @@ function useTabShortcuts(
       let closing: string | null = null;
       if (!event.shiftKey && (key === "n" || key === "t")) {
         closePage(pages);
+        area.getState().hide();
         closeLearning(learning);
       }
       if (!event.shiftKey && key === "n") fireAndForget(client.createChat());
@@ -195,7 +205,7 @@ function useTabShortcuts(
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [client, pages, views, learning]);
+  }, [client, pages, views, learning, area]);
 }
 
 /**
@@ -595,6 +605,9 @@ function MainWindow({
   );
   const [panes] = useState(() => createPanes(localStorage));
   const [views] = useState(() => createWorkspaceViews(localStorage));
+  const [area] = useState(createTaskArea);
+  const tasksOpen = useStore(area, (state) => state.open);
+  const tasks = useStore(client.tasks, (state) => state.tasks);
   const folded = useStore(panes, (state) => state.sidebarCollapsed);
   const pageProject = useStore(pages, (state) => state.page?.projectId ?? null);
   // Sent from the page, its launch shows in the conversation area, the page's box under it.
@@ -605,6 +618,11 @@ function MainWindow({
     direction === undefined || viewer !== null ? false : (state.homes[direction.id] ?? false) || sessionId === null,
   );
   useDraftCleanup(index, client);
+  useEffect(() => {
+    // The sidebar's "任务" count follows the list wherever the window is; the client asks again on each connection.
+    client.watchTasks(true).catch(() => undefined);
+    return () => void client.watchTasks(false).catch(() => undefined);
+  }, [client]);
 
   useEffect(() => {
     /**
@@ -623,28 +641,80 @@ function MainWindow({
     return () => window.removeEventListener("focus", onFocus);
   }, [client]);
 
-  useTabShortcuts(client, pages, views, learning);
+  useTabShortcuts(client, pages, views, area, learning);
   useSessionShows(views, learning, container, sessionId);
   usePaneShortcuts(client, pages, panes);
   // On the new-workspace page or a learning page, under a viewer tab or a direction's home, no session shows.
   const sessionShown = pageProject === null && learningPage === null && viewer === null && !homeShown;
   useSeenErrors(client, index, sessionShown ? sessionId : null);
   /**
-   * Leaves the new-workspace page and the learning pages.
+   * Leaves the new-workspace page, the learning pages and the task area.
    *
    * @remarks
    * As going anywhere from the sidebar does.
    *
-   * @sideEffects Updates both page stores.
+   * @sideEffects Updates the page stores and hides the task area.
    */
   const leavePages = (): void => {
     closePage(pages);
     closeLearning(learning);
+    area.getState().hide();
   };
 
   const resets = index.resets.length > 0 && dismissed !== index.generation ? index.resets : [];
+  /** What the conversations' task lines know of tasks: their names and states, and how to open one. */
+  const links: Pick<TaskLinks, "task" | "openTask"> = {
+    task: (taskId) => {
+      const found = tasks.find((one) => one.id === taskId);
+      return found === undefined ? undefined : { name: found.name, status: statusWords(found).text };
+    },
+    openTask: (taskId) => area.getState().openTask(taskId),
+  };
+  /**
+   * Goes from a task to the conversation it was made from.
+   *
+   * @remarks
+   * Leaves the task area and shows the conversation in its container, over a viewer tab.
+   *
+   * @sideEffects Hides the task area; writes the views; sends `open_session`.
+   * @param sourceId - The conversation's session id.
+   */
+  const openSource = (sourceId: string): void => {
+    const source = index.sessions.find((one) => one.sessionId === sourceId);
+    area.getState().hide();
+    if (source !== undefined) showViewer(views, source.containerId, null);
+    fireAndForget(client.openSession(sourceId));
+  };
+  /**
+   * Opens what a task in the inbox waits on: its tab, and the node's conversation when a node asks.
+   *
+   * @remarks
+   * SPEC-0006 ("界面 · 等你处理"): a node's question opens that node's conversation straight away.
+   *
+   * @sideEffects Shows the task area; writes its state.
+   * @param taskId - The task.
+   */
+  const openWaiting = (taskId: string): void => {
+    const task = tasks.find((one) => one.id === taskId);
+    if (task?.attention === "question" && task.current !== null) area.getState().openNode(taskId, task.current.id);
+    else area.getState().openTask(taskId);
+  };
+  /**
+   * Goes from a review card to the changes of a task's worktree.
+   *
+   * @remarks
+   * Leaves the task area, shows the worktree and opens the right panel, where its changes are.
+   *
+   * @sideEffects Hides the task area; sends `select_container`; opens the right panel.
+   * @param workspaceId - The worktree.
+   */
+  const openChanges = (workspaceId: string): void => {
+    area.getState().hide();
+    fireAndForget(client.selectContainer(workspaceId));
+    panes.getState().setPanelOpen(true);
+  };
   return (
-    <>
+    <TaskLinksContext value={{ ...links, nodeName: () => undefined }}>
       <div className="relative flex h-full" inert={settings.open}>
         <Sidebar
           client={client}
@@ -662,21 +732,52 @@ function MainWindow({
             projectId: pageProject,
             open: (projectId) => {
               closeLearning(learning);
+              area.getState().hide();
               openPage(pages, projectId);
             },
             leave: leavePages,
+          }}
+          tasks={{
+            open: tasksOpen,
+            waiting: tasks
+              .filter((task) => groupOf(task) === "attention")
+              .map((task) => ({
+                id: task.id,
+                title: task.name,
+                words: inboxWords(task),
+                at: task.activeAt,
+                failed: task.attention === "failed",
+              })),
+            openTask: openWaiting,
+            attention: tasks.filter((task) => groupOf(task) === "attention").length,
+            show: () => {
+              closePage(pages);
+              closeLearning(learning);
+              area.getState().show();
+            },
           }}
           learning={{
             shown: learningPage !== null,
             open: () => {
               closePage(pages);
+              area.getState().hide();
               openLearning(learning, "home");
             },
           }}
           folded={folded}
         />
         <main className="flex min-w-0 flex-1 flex-col bg-[var(--main)]">
-          {learningPage !== null ? (
+          {tasksOpen ? (
+            <TaskAreaView
+              client={client}
+              area={area}
+              folded={folded}
+              onOpenSource={openSource}
+              onOpenChanges={openChanges}
+              links={links}
+            />
+          ) : null}
+          {tasksOpen ? null : learningPage !== null ? (
             <LearningBar panes={panes} {...(learningPage === "new" ? { crumb: "新方向" } : {})} />
           ) : container === null || pageProject !== null ? (
             <div className="h-12 shrink-0 [-webkit-app-region:drag]" />
@@ -707,11 +808,11 @@ function MainWindow({
               }
             />
           )}
-          {learningPage === null && pageProject === null && direction !== undefined ? (
+          {!tasksOpen && learningPage === null && pageProject === null && direction !== undefined ? (
             // On the direction's home and in each of its sessions (design-language "常驻步骤条").
             <StepStrip client={client} store={learning} directionId={direction.id} views={views} />
           ) : null}
-          {sessionShown && sessionId !== null ? (
+          {!tasksOpen && sessionShown && sessionId !== null ? (
             <Breadcrumb client={client} sessionId={sessionId} views={views} />
           ) : null}
           {resets.length > 0 ? (
@@ -727,7 +828,7 @@ function MainWindow({
               </button>
             </div>
           ) : null}
-          {learningPage === "home" ? (
+          {tasksOpen ? null : learningPage === "home" ? (
             <LearningHome client={client} store={learning} views={views} />
           ) : learningPage === "new" ? (
             <NewDirectionPage client={client} store={learning} />
@@ -766,6 +867,6 @@ function MainWindow({
           reveal={reveal}
         />
       ) : null}
-    </>
+    </TaskLinksContext>
   );
 }

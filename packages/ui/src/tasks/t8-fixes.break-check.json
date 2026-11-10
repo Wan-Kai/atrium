@@ -1,0 +1,218 @@
+[
+  {
+    "file": "packages/ui/src/tasks/task-tab.tsx",
+    "from": "{live || task.paused ? (",
+    "to": "{live ? (",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "offers 暂停任务 and 取消任务 while it runs, 继续 once paused",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-tab.tsx",
+    "from": "currentWords(task) === \"\" || task.status === \"done\"",
+    "to": "currentWords(task) === \"\"",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "writes a finished task's status once",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-conversation.tsx",
+    "from": "if (!(await attempt(command))) pageDrafts().restore(sessionId, text, []);",
+    "to": "await attempt(command);",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "puts a message that did not go back in the box",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-conversation.tsx",
+    "from": "if (status !== \"loading\" && status !== \"lost\") return;",
+    "to": "if (status !== \"loading\") return;",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "starts the pi of a conversation whose view is lost",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-conversation.tsx",
+    "from": "if (before === null || before === hostInstance || followed) return;",
+    "to": "if (true) return;",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "watches the session shown again",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-conversation.tsx",
+    "from": "if (before === null || before === hostInstance || followed) return;",
+    "to": "if (before === null || followed) return;",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "watches the session shown again",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/run-control.tsx",
+    "from": "if (settled) forgetReviewDrafts(",
+    "to": "if (true) forgetReviewDrafts(",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "keeps what was written on a card while the conversation is read again",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-conversation.tsx",
+    "from": "settled={view.status === \"ready\"}",
+    "to": "settled",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "keeps what was written on a card while the conversation is read again",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/task-progress.tsx",
+    "from": "evidence={evidence} frozen />",
+    "to": "evidence={evidence} />",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "shows the evidence of an opened record as it was",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-tab.tsx",
+    "from": "showOnGraph: (version) => setLooking(pending?.version === version),",
+    "to": "showOnGraph: () => setLooking(true),",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "looks at nothing for a card whose version",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-tab.tsx",
+    "from": "if (!proposalWaits) setLooking(false);",
+    "to": "",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "stops looking when the proposal is decided",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/review-card.tsx",
+    "from": "const sent = standing?.phase === \"sending\" || standing?.phase === \"sent\";",
+    "to": "const sent = standing?.phase === \"sending\";",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "keeps the buttons off once the verdict went",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/review-card.tsx",
+    "from": "words === null ? { phase: \"sent\" } : { phase: \"failed\", words }",
+    "to": "null",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "keeps the lock of a verdict on its way",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/review-card.tsx",
+    "from": "const failure = standing?.phase === \"failed\" ? standing.words : null;",
+    "to": "const failure = null;",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "shows a failure that came while another card was open",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/review-state.ts",
+    "from": "progress.delete(key);\n      dropped = true;",
+    "to": "dropped = true;",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "keeps the lock of a verdict on its way",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/review-state.ts",
+    "from": "...review.actions.filter((action) => !action.recommended)",
+    "to": "...review.actions.filter((action) => action.recommended)",
+    "test": "packages/ui/src/chat/review-state.test.ts",
+    "name": "puts the recommended buttons first",
+    "project": "unit"
+  },
+  {
+    "file": "packages/ui/src/chat/review-card.tsx",
+    "from": "                    action.recommended\n                      ? \"bg-[var(--tint)]",
+    "to": "                    true\n                      ? \"bg-[var(--tint)]",
+    "test": "packages/ui/src/chat/review-card.browser.test.tsx",
+    "name": "paints the recommended button, and none when",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-list.tsx",
+    "from": "review.source.kind !== \"gate\" || review.source.gate !== \"task_human\"",
+    "to": "true",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "gives a human node's acceptance no card in the row",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-list.tsx",
+    "from": "view === null || view.followed",
+    "to": "view === null",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "does not watch the node sessions of a followed task",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-list.tsx",
+    "from": "return claim.release;",
+    "to": "return undefined;",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "lets go of the node session it watched",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/conversation-area.tsx",
+    "from": "error.code === \"task_already_converted\" && typeof existing === \"string\"",
+    "to": "false",
+    "test": "packages/ui/src/tasks/task-command.browser.test.tsx",
+    "name": "opens the task the conversation already has",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-words.ts",
+    "from": "review_closed: \"这条审核已经处理过了\",",
+    "to": "review_closed: \"这张审核已经处理过，或者不在了\",",
+    "test": "packages/ui/src/tasks/task-words.test.ts",
+    "name": "words the errors of SPEC-0006's draft",
+    "project": "unit"
+  },
+  {
+    "file": "packages/ui/src/chat/clock-words.ts",
+    "from": "hour12: false",
+    "to": "hour12: true",
+    "test": "packages/ui/src/chat/clock-words.test.ts",
+    "name": "writes hours and minutes",
+    "project": "unit"
+  },
+  {
+    "file": "packages/ui/src/sidebar/sidebar.tsx",
+    "from": "                leave();\n                tasks?.openTask(entry.task.id);",
+    "to": "                tasks?.openTask(entry.task.id);",
+    "test": "packages/ui/src/tasks/task-interactive.browser.test.tsx",
+    "name": "leaves the new-workspace page that was open",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-fixtures.ts",
+    "from": "if (row.paused && row.status !== \"stopped\") throw new Error(`impossible task: ${row.status} but paused`);",
+    "to": "",
+    "test": "packages/ui/src/tasks/task-fixtures.test.ts",
+    "name": "refuses a task",
+    "project": "unit"
+  },
+  {
+    "file": "packages/ui/src/state/watch-owner.ts",
+    "from": "if (claims.get(client) !== turn) return;",
+    "to": "",
+    "test": "packages/ui/src/state/watch-owner.test.ts",
+    "name": "does not undo",
+    "project": "unit"
+  },
+  {
+    "file": "packages/ui/src/state/watch-owner.ts",
+    "from": "client.watch([]).catch(() => undefined);",
+    "to": "",
+    "test": "packages/ui/src/state/watch-owner.test.ts",
+    "name": "lets go of",
+    "project": "unit"
+  }
+]

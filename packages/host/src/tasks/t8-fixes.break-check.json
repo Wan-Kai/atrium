@@ -1,0 +1,274 @@
+[
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "if (reviewed !== undefined && task.pendingGraph !== reviewed.version) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/tasks/t8-fixes.host.test.ts",
+    "name": "does not approve or reject a newer proposal",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "if (guard !== undefined && task !== null) guard(task);",
+    "to": "",
+    "test": "packages/host/src/tasks/t8-fixes.host.test.ts",
+    "name": "does not approve or reject a newer proposal",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "await runner.submit(taskId, { type: \"graph_approved\" }, (now) => sameGraph(now, reviewed));",
+    "to": "await runner.submit(taskId, { type: \"graph_approved\" });",
+    "test": "packages/host/src/tasks/t8-fixes.host.test.ts",
+    "name": "does not approve or reject a newer proposal",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "await runner.submit(taskId, { type: \"graph_rejected\" }, (now) => sameGraph(now, reviewed));",
+    "to": "await runner.submit(taskId, { type: \"graph_rejected\" });",
+    "test": "packages/host/src/tasks/t8-fixes.host.test.ts",
+    "name": "does not approve or reject a newer proposal",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "if (verdict.action === \"approve\") await service.approveGraph(taskId, reviewed);",
+    "to": "if (verdict.action === \"approve\") await service.approveGraph(taskId);",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "maps each gate",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "if (typeof version !== \"number\") throw new CommandError(\"review_closed\", { reviewId: review.id });",
+    "to": "",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "refuses to carry out a verdict",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "{ id: \"reject\", reason: \"optional\", targets: [], recommended: false },",
+    "to": "{ id: \"reject\", reason: \"none\", targets: [], recommended: false },",
+    "test": "packages/host/src/tasks/t8-fixes.host.test.ts",
+    "name": "takes the reason into the record",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "{ id: \"reject\", reason: \"optional\", targets: [], recommended: false },",
+    "to": "{ id: \"reject\", reason: \"none\", targets: [], recommended: false },",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "asks for a verdict on a graph change",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "[...worktreeEvidence(task, facts, \"warn\", false), ...summaries].slice(0, REVIEW_EVIDENCE_LIMIT),",
+    "to": "[...worktreeEvidence(task, facts, \"warn\", false), ...summaries],",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "gives at most eight evidence items",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": ".slice(0, REVIEWS_LIMIT);",
+    "to": "",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "gives at most sixteen reviews",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "liveRun(held, node)?.merging === true",
+    "to": "false",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "writes no record while the node is still merging",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "gate === \"task_human\" &&",
+    "to": "gate !== \"task_human\" &&",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "writes no record while the node is still merging",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": ".slice(0, REVIEWS_LIMIT);",
+    "to": "",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "counts at most sixteen reviews",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "const kept = known.has(sessionId) || reading.has(sessionId) || lanes.has(sessionId);",
+    "to": "const kept = true;",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "holds a count for a session only while",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "if (reviews.length === 0 && !reading.has(sessionId)) known.delete(sessionId);",
+    "to": "if (false) known.delete(sessionId);",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "holds a count for a session only while",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "if (lanes.get(sessionId) === lane && lane.tail === tail && !lane.recountQueued) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "holds a count for a session only while",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "if ((known.get(sessionId) ?? []).length === 0) known.delete(sessionId);",
+    "to": "",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "keeps a forgotten session's reviews while they wait",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "reading.delete(sessionId);\n      if",
+    "to": "if",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "holds a count for a session only while",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "refresh: (sessionId) => recount(sessionId),",
+    "to": "refresh: () => undefined,",
+    "test": "packages/host/src/tasks/t8-fixes.host.test.ts",
+    "name": "shows a worktree edited while the human node waited",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/main.ts",
+    "from": "onOpened: (task) => reviewHub.refresh(task.taskSessionId),",
+    "to": "onOpened: () => undefined,",
+    "test": "packages/host/src/tasks/t8-fixes.host.test.ts",
+    "name": "shows a worktree edited while the human node waited",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-commands.ts",
+    "from": "options.onOpened?.(task);",
+    "to": "",
+    "test": "packages/host/src/tasks/t8-fixes.host.test.ts",
+    "name": "shows a worktree edited while the human node waited",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "const found = entryOf(sessionId);\n        notTaskSession(sessionId);",
+    "to": "const found = entryOf(sessionId);",
+    "test": "packages/host/src/tasks/t8-fixes.host.test.ts",
+    "name": "refuses to open, rename or archive",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "async archiveSession(sessionId) {\n      notTaskSession(sessionId);\n",
+    "to": "async archiveSession(sessionId) {\n",
+    "test": "packages/host/src/tasks/t8-fixes.host.test.ts",
+    "name": "refuses to open, rename or archive",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "const entry = entryOf(sessionId);\n      notTaskSession(sessionId);\n      notReadOnly(sessionId);",
+    "to": "const entry = entryOf(sessionId);\n      notReadOnly(sessionId);",
+    "test": "packages/host/src/tasks/t8-fixes.host.test.ts",
+    "name": "refuses to open, rename or archive",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "if (entryOf(sessionId).task !== null) throw",
+    "to": "if (false) throw",
+    "test": "packages/host/src/tasks/t8-fixes.host.test.ts",
+    "name": "refuses to open, rename or archive",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "options.reviews?.forget(sessionId);",
+    "to": "",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "tells the reviews' hub that nobody reads a session",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "answer_review: \"local_only\",",
+    "to": "answer_review: \"phone\",",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "may talk in a task's or a node's conversation",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "steer: \"phone\",",
+    "to": "steer: \"local_only\",",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "may talk in a task's or a node's conversation",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "answer_question: \"phone\",",
+    "to": "answer_question: \"local_only\",",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "may talk in a task's or a node's conversation",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "open_task_session: \"local_only\",",
+    "to": "open_task_session: \"phone\",",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "may talk in a task's or a node's conversation",
+    "project": "unit"
+  },
+  {
+    "file": "packages/protocol/src/reviews.ts",
+    "from": "export const REVIEW_EVIDENCE_LIMIT = 8;",
+    "to": "export const REVIEW_EVIDENCE_LIMIT = 9;",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "gives at most eight evidence items",
+    "project": "unit"
+  },
+  {
+    "file": "packages/protocol/src/version.ts",
+    "from": "export const PROTOCOL_VERSION = 38;",
+    "to": "export const PROTOCOL_VERSION = 37;",
+    "test": "packages/protocol/src/remote.test.ts",
+    "name": "uses version",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "options.reviews?.read(sessionId);",
+    "to": "",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "tells the reviews' hub that nobody reads a session",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "    read(sessionId) {\n      reading.add(sessionId);",
+    "to": "    read(sessionId) {",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "holds a count for a session only while",
+    "project": "unit"
+  }
+]

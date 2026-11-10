@@ -10,8 +10,11 @@ import type {
   SessionView,
   SetupView,
   RemoteView,
+  SchedulesView,
+  TaskState,
+  TasksView,
 } from "@atrium/client";
-import { isDirectionId } from "@atrium/client";
+import { isDirectionId, loadingView } from "@atrium/client";
 import {
   type Chat,
   type ChildPlacement,
@@ -21,6 +24,7 @@ import {
   type Direction,
   type DiscoveredDirectory,
   type ForkPlacement,
+  type Control,
   IDLE_CONTROL,
   type IndexSnapshotEvent,
   type LoginMethod,
@@ -219,6 +223,22 @@ export interface FakeAnswers {
   /** Answers any other direction command, which then changes the list; at once when left out. */
   readonly directionCommand?: () => Promise<void>;
   readonly prompt?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
+  /**
+   * Sessions whose pi is not running: watching them brings no snapshot (the view stays `loading`) until
+   * `open_task_session` starts it, as the host does.
+   */
+  readonly notRunning?: readonly string[];
+  /** The run control the host's snapshot of a session carries, by session id; idle for the rest. */
+  readonly controls?: Readonly<Record<string, Control>>;
+  /** Answers a steer; queued at once when left out. */
+  readonly steer?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
+  /**
+   * Answers a task, review or question command by its name (`startTask`, `answerReview`, `createTask`, …) with its
+   * arguments; reject with a `CommandError` to fail it. Succeeds when left out.
+   */
+  readonly taskCommand?: (name: string, args: readonly unknown[]) => Promise<void>;
+  /** Answers `watchSchedules(true)`, such as by rejecting with the host's `schedule_file_unreadable`. */
+  readonly watchSchedules?: () => Promise<void>;
   /** Answers listing a session's commands, as when pi is still starting; at once when left out. */
   readonly listCommands?: () => Promise<void>;
   readonly addProject?: () => Promise<void>;
@@ -283,6 +303,77 @@ export interface FakeAnswers {
 }
 
 /**
+ * One schedule command of the fake client: records itself and answers as the test says.
+ *
+ * @remarks
+ * `editSchedule` and `runScheduleNow` answer `{ taskId: "tsk_new" }`; the others `{}`.
+ *
+ * @sideEffects Records into `calls`.
+ * @param calls - The client's call log.
+ * @param answers - The test's answers.
+ * @param name - The method's name.
+ * @param scheduleId - The rule.
+ * @returns The command's result.
+ */
+async function scheduleCommand(calls: string[], answers: FakeAnswers, name: string, scheduleId: string) {
+  calls.push(`${name} ${scheduleId}`);
+  await answers.taskCommand?.(name, [scheduleId]);
+  return name === "editSchedule" || name === "runScheduleNow" ? { taskId: "tsk_new" } : {};
+}
+
+/**
+ * The task, review and question commands of the fake client: each records itself in `calls` and answers as the test says.
+ *
+ * @remarks
+ * Shared by the tests of the task area, not by the app. `createTask` answers `{ taskId: "tsk_new" }`; the others `{}`.
+ *
+ * @sideEffects Records into `calls`.
+ * @param calls - The client's call log.
+ * @param answers - The test's answers.
+ * @param started - Told when `open_task_session` started a session's pi, so its snapshot can arrive.
+ * @returns The methods.
+ */
+function taskCommands(calls: string[], answers: FakeAnswers, started: (sessionId: string) => void = () => undefined) {
+  /**
+   * Records one command and waits for the test's answer to it.
+   *
+   * @remarks
+   * A rejection from the answer is the command's failure.
+   *
+   * @sideEffects Records into `calls`.
+   * @param name - The method's name.
+   * @param args - Its arguments.
+   * @returns The command's result.
+   */
+  const command = async (name: string, ...args: readonly unknown[]) => {
+    calls.push(`${name} ${args.map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg))).join(" ")}`);
+    await answers.taskCommand?.(name, args);
+    return name === "createTask" ? { taskId: "tsk_new" } : {};
+  };
+  return {
+    createTask: (sessionId: string, scope?: string) =>
+      command("createTask", sessionId, ...(scope === undefined ? [] : [scope])),
+    startTask: (taskId: string) => command("startTask", taskId),
+    abandonTask: (taskId: string) => command("abandonTask", taskId),
+    pauseTask: (taskId: string) => command("pauseTask", taskId),
+    resumeTask: (taskId: string) => command("resumeTask", taskId),
+    cancelTask: (taskId: string) => command("cancelTask", taskId),
+    rerunNode: (taskId: string, node: string) => command("rerunNode", taskId, node),
+    answerArchive: (taskId: string, answer: string) => command("answerArchive", taskId, answer),
+    answerReview: (sessionId: string, reviewId: string, verdict: unknown) =>
+      command("answerReview", sessionId, reviewId, verdict),
+    answerQuestion: (sessionId: string, questionId: string, reply: unknown) =>
+      command("answerQuestion", sessionId, questionId, reply),
+    openTaskSession: async (taskId: string, sessionId: string) => {
+      const result = await command("openTaskSession", taskId, sessionId);
+      // Its pi runs now, and the snapshot reaches whoever watches it.
+      started(sessionId);
+      return result;
+    },
+  };
+}
+
+/**
  * A client that answers as the host would, in memory, recording every command.
  *
  * @remarks
@@ -313,6 +404,10 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
   const diff = createStore<DiffView>(() => ({ target: null, status: "idle", files: [], tooLarge: false, error: null }));
   const modelLists = new Map<string | null, StoreApi<ModelListView>>();
   const views = new Map<string, StoreApi<SessionView>>();
+  /** The run control the host's snapshot of a session carries, when a test gives it one; idle otherwise. */
+  const controls = new Map<string, Control>(Object.entries(answers.controls ?? {}));
+  /** The sessions still without a pi; watching them brings no snapshot. */
+  const idle = new Set<string>(answers.notRunning ?? []);
   const index = createStore<IndexView>(() => ({
     ready: true,
     generation: "h1",
@@ -352,6 +447,27 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
   const loginState = createStore<LoginUpdatedEvent | null>(() => null);
   const installJob = createStore<InstallJob | null>(() => null);
   const plans = createStore<Plans>(() => []);
+  const tasks = createStore<TasksView>(() => ({ status: "ready", tasks: [], seq: 0 }));
+  const schedules = createStore<SchedulesView>(() => ({ status: "ready", schedules: [], seq: 0, followed: false }));
+  const taskStates = new Map<string, StoreApi<TaskState>>();
+  /**
+   * A task's store, made on first use.
+   *
+   * @remarks
+   * Tests set a task's state through it, as the host's pushes would.
+   *
+   * @sideEffects May create the store.
+   * @param taskId - The task.
+   * @returns The store.
+   */
+  const taskStateOf = (taskId: string): StoreApi<TaskState> => {
+    let store = taskStates.get(taskId);
+    if (store === undefined) {
+      store = createStore<TaskState>(() => ({ status: "loading", task: null }));
+      taskStates.set(taskId, store);
+    }
+    return store;
+  };
   let created = 0;
   let uploaded = 0;
   let logins = 0;
@@ -446,14 +562,33 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     connection,
     index,
     session: (sessionId: string) => views.get(sessionId),
+    /**
+     * Watches sessions as the real client does: the views of sessions no longer named are dropped, a new one starts
+     * `loading` and becomes `ready` when the host's snapshot arrives, which is before the command's answer.
+     *
+     * @remarks
+     * T8 review fix 5: the fake used to give every new view ready at once and keep the ones left behind, which hid
+     * that a view comes back loading, with an empty control, whenever the watched set is replaced.
+     *
+     * @sideEffects Replaces the views; records the call.
+     * @param sessionIds - The sessions to watch.
+     */
     async watch(sessionIds: readonly string[]) {
       calls.push(`watch ${sessionIds.join(",")}`);
-      for (const id of sessionIds)
-        if (!views.has(id))
-          views.set(
-            id,
-            createStore(() => sessionView(id)),
-          );
+      for (const id of views.keys()) if (!sessionIds.includes(id)) views.delete(id);
+      const fresh = sessionIds.filter((id) => !views.has(id));
+      for (const id of fresh)
+        views.set(
+          id,
+          createStore(() => loadingView(id)),
+        );
+      if (fresh.length === 0) return;
+      // The snapshot comes after the view was seen loading, and before the answer.
+      await Promise.resolve();
+      for (const id of fresh) {
+        if (idle.has(id)) continue;
+        views.get(id)?.setState(sessionView(id, { control: controls.get(id) ?? IDLE_CONTROL }), true);
+      }
     },
     async createChat() {
       calls.push("createChat");
@@ -830,7 +965,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     steer(sessionId: string, text: string) {
       calls.push(`steer ${sessionId} ${text}`);
-      return Promise.resolve({ disposition: "queued" as const });
+      return answers.steer?.() ?? Promise.resolve({ disposition: "queued" as const });
     },
     async stop(sessionId: string) {
       calls.push(`stop ${sessionId}`);
@@ -1054,6 +1189,30 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       await answers.remoteCommand?.();
       return {};
     },
+    ...taskCommands(calls, answers, (sessionId) => {
+      if (!idle.delete(sessionId)) return;
+      views
+        .get(sessionId)
+        ?.setState(sessionView(sessionId, { control: controls.get(sessionId) ?? IDLE_CONTROL }), true);
+    }),
+    tasks,
+    async watchTasks(on: boolean) {
+      calls.push(`watchTasks ${String(on)}`);
+    },
+    schedules,
+    async watchSchedules(on: boolean) {
+      calls.push(`watchSchedules ${String(on)}`);
+      if (on) await answers.watchSchedules?.();
+    },
+    pauseSchedule: (scheduleId: string) => scheduleCommand(calls, answers, "pauseSchedule", scheduleId),
+    resumeSchedule: (scheduleId: string) => scheduleCommand(calls, answers, "resumeSchedule", scheduleId),
+    runScheduleNow: (scheduleId: string) => scheduleCommand(calls, answers, "runScheduleNow", scheduleId),
+    deleteSchedule: (scheduleId: string) => scheduleCommand(calls, answers, "deleteSchedule", scheduleId),
+    editSchedule: (scheduleId: string) => scheduleCommand(calls, answers, "editSchedule", scheduleId),
+    task: taskStateOf,
+    async openTask(taskId: string) {
+      calls.push(`openTask ${taskId}`);
+    },
     setup,
     async loadSetup(refresh = false) {
       calls.push(`loadSetup${refresh ? " refresh" : ""}`);
@@ -1130,6 +1289,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     modelCalls,
     changeCalls,
     views,
+    controls,
     index,
     connection,
     remote,
@@ -1137,6 +1297,9 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     loginState,
     installJob,
     plans,
+    tasks,
+    schedules,
+    taskStateOf,
   };
 }
 

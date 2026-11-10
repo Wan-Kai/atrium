@@ -463,7 +463,10 @@ describe("agent children's resources (SPEC-0002, 第二步)", () => {
     ).toStrictEqual(Array.from({ length: AGENT_ROUNDS + 1 }, () => "idle"));
     // Each child keeps its controller, as any session whose pi stopped does, until it is archived;
     // its pi does not stay.
-    await backToBaseline(host, before, handles, processes, { "session.controller": AGENT_ROUNDS });
+    await backToBaseline(host, before, handles, processes, {
+      "session.controller": AGENT_ROUNDS,
+      "review.session": AGENT_ROUNDS,
+    });
   });
 });
 

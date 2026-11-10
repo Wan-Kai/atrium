@@ -123,6 +123,17 @@ export const ErrorCode = z.enum([
   "question_closed",
   /** An answer does not answer its question; `params.index` is which one (SPEC-0003, "接口与数据"). */
   "question_invalid",
+  /**
+   * The review was answered first by someone else, or its state moved on (a node passed, a graph decided);
+   * `params.reviewId` repeats it (ADR-0018, decision 2).
+   */
+  "review_closed",
+  /**
+   * A verdict does not fit its review; `params.field` is `action` (it names no action of the review), `target` (it
+   * needs one of the action's targets and has none or another) or `reason` (the action requires one and has none,
+   * or takes none and was given one) (ADR-0018, decision 2).
+   */
+  "review_invalid",
   /** pi could not list its models, as when no provider has credentials; `params.detail` is pi's own text. */
   "models_unavailable",
   /** `@` needs `fd`, found neither where pi keeps it nor on the login shell's PATH. */
@@ -148,9 +159,42 @@ export const ErrorCode = z.enum([
   "worktree_restore_failed",
   /**
    * A worktree workspace could not be created; `params.reason` is `not_git`, `branch_invalid`,
-   * `base_missing`, `branch_exists` or `dir_taken`, or absent when git failed (SPEC-0001, "M1.11 的新建工作区").
+   * `base_missing`, `branch_exists`, `dir_taken` or `head_mismatch` (the new worktree is not at its
+   * start), or absent when git failed (SPEC-0001, "M1.11 的新建工作区").
    */
   "worktree_create_failed",
+  /**
+   * No worktree was created or restored: the repository's own configuration includes other files
+   * (`params.reason` `include`) or has a filter whose name cannot be turned off (`filter_name`)
+   * (SPEC-0001, "M1.11 的新建工作区"; SPEC-0006, "工作区").
+   */
+  "worktree_config_unsafe",
+  /** The worktree is locked by a task (`params.taskId`) and is not archived or removed (SPEC-0006, "加锁"). */
+  "workspace_in_task",
+  /** No task has this id (SPEC-0006, "错误码"). */
+  "task_not_found",
+  /** The task or node is not in a state that takes this command (SPEC-0006, "错误码"). */
+  "task_state_invalid",
+  /** The back edge has already been used twice (SPEC-0006, "错误码"). */
+  "task_back_limit",
+  /** The graph breaks a rule; `params.code` is the first problem's code, `params.node` the node when one is meant (SPEC-0006, "错误码"). */
+  "task_graph_invalid",
+  /**
+   * The task is followed read-only (`ATRIUM_FOLLOW_TASKS`, another process writes it), so no command may change it
+   * (SPEC-0006, "T7.1 定下的细节").
+   */
+  "task_read_only",
+  /** The conversation has a task already; `params.taskId` says which, to open it (SPEC-0006, "/task 与创建"). */
+  "task_already_converted",
+  /** A task outside any project has a `work` or `check` node, or a node in a worktree (SPEC-0006, "错误码"). */
+  "task_no_project_for_work",
+  /** No schedule rule has this id (SPEC-0006, "T10 定下的细节"). */
+  "schedule_not_found",
+  /**
+   * `schedules.json` cannot be read (not JSON, a version this Atrium does not know), so no schedule command works and
+   * the file is left as it is (SPEC-0006, "T9 / T10 审查后用户定").
+   */
+  "schedule_file_unreadable",
   /**
    * No branch name came of `name_branch`; `params.reason` is `not_git`, `no_model`, `failed`,
    * `invalid` or `taken` (SPEC-0001, "AI 起分支名").

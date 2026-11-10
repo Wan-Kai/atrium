@@ -463,7 +463,7 @@ describe("atriumPlan", () => {
     });
 
     expect([commands, hooks, tools.length, tools.slice(-2), flags]).toStrictEqual([
-      ["atrium-fast", "atrium-plan", "atrium-agent", "atrium-edit", "atrium-study"],
+      ["atrium-fast", "atrium-plan", "atrium-agent", "atrium-task", "atrium-edit", "atrium-study"],
       [
         "before_provider_request",
         "after_provider_response",
@@ -471,6 +471,9 @@ describe("atriumPlan", () => {
         "turn_end",
         "agent_end",
         "message_start",
+        // The path guard's and the git guard's (SPEC-0006), after the child conversations' own.
+        "tool_call",
+        "tool_call",
         "before_agent_start",
         // Study mode's tools wait for the session to start, and come only with its flag (SPEC-0008, ML2).
         "session_start",
@@ -478,7 +481,7 @@ describe("atriumPlan", () => {
       ],
       12,
       ["web_search", "web_fetch"],
-      ["atrium-agent", "atrium-visuals", "atrium-study"],
+      ["atrium-agent", "atrium-task", "atrium-visuals", "atrium-study"],
     ]);
   });
 

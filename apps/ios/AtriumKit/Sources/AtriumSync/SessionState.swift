@@ -408,6 +408,9 @@ extension Notice {
     case .restarted(let notice): notice.id
     case .interaction(let notice): notice.id
     case .note(let notice): notice.id
+    case .taskProgress(let notice): notice.id
+    case .taskMark(let notice): notice.id
+    case .review(let notice): notice.id
     }
   }
 }

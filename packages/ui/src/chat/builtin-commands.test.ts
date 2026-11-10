@@ -33,6 +33,7 @@ describe("BUILTIN_COMMANDS", () => {
       ["builtin", "copy", null, "复制最后一条回复", true, true],
       ["builtin", "export", null, "导出为 HTML", true, false],
       ["builtin", "child", null, "开子对话", true, false],
+      ["builtin", "task", "范围", "把这段对话转成任务", false, false],
     ]);
   });
 });

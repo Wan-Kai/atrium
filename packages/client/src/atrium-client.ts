@@ -9,11 +9,14 @@ import {
   type ContainerId,
   type DiffTarget,
   type ForkPlacement,
+  type ArchiveAnswer,
   type HelloMessage,
+  type HumanAnswer,
   HostMessage,
   type InstallUpdatedEvent,
   type InteractionAnswer,
   type QuestionReply,
+  type Verdict,
   type LoginMethod,
   type LoginUpdatedEvent,
   type ModelRef,
@@ -48,6 +51,14 @@ import { type ChangesView, type DiffView, diffViewOf } from "./changes-view";
 import { type ModelListView, UNASKED_MODELS } from "./model-list";
 import { type RemoteView, UNWATCHED_REMOTE } from "./remote-view";
 import { type SetupView, UNASKED_SETUP } from "./setup-view";
+import {
+  LOADING_TASK,
+  type SchedulesView,
+  type TaskState,
+  type TasksView,
+  UNWATCHED_SCHEDULES,
+  UNWATCHED_TASKS,
+} from "./tasks-view";
 import {
   type MessageTag,
   type PendingMessage,
@@ -325,6 +336,10 @@ export interface AtriumClient {
     questionId: string,
     answer: QuestionReply,
   ): Promise<CommandResult<"answer_question">>;
+  /** Starts the pi of a session of a task (its conversation or a node's) without a tab, so a watch gets its snapshot. */
+  openTaskSession(taskId: string, sessionId: string): Promise<CommandResult<"open_task_session">>;
+  /** Gives a verdict on a review waiting in a session, a task gate's (ADR-0018); fails `review_closed` if it is gone. */
+  answerReview(sessionId: string, reviewId: string, verdict: Verdict): Promise<CommandResult<"answer_review">>;
   /** The error card's "重试". */
   retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
   /** The models of a workspace, or with `null` of every chat and the settings, as far as asked; the same store every time. */
@@ -454,6 +469,58 @@ export interface AtriumClient {
   changes(workspaceId: string): StoreApi<ChangesView>;
   /** Says which workspaces are shown, on this connection and every later one. */
   watchChanges(workspaceIds: readonly string[]): Promise<void>;
+  /**
+   * The task list while a window watches it (SPEC-0006, "协议（给 UI）"): the host's `tasks_updated` pushes land
+   * here, whole each time; idle until {@link watchTasks}.
+   */
+  readonly tasks: StoreApi<TasksView>;
+  /** Starts or stops watching the task list, on this connection and every later one; the answer lands in {@link tasks}. */
+  watchTasks(on: boolean): Promise<void>;
+  /** One task as the host last sent it; the same store every time, `loading` until {@link openTask} is answered. */
+  task(taskId: string): StoreApi<TaskState>;
+  /**
+   * Opens a task: the host answers with it whole and pushes it on every change until another is opened (one
+   * task per connection); asked again on every later connection. A task that is not there shows as `missing`.
+   */
+  openTask(taskId: string): Promise<void>;
+  /** Makes a task of a conversation (`/task`); answers its id. Fails `task_already_converted` with the task's id. */
+  createTask(sessionId: string, scope?: string): Promise<CommandResult<"create_task">>;
+  /** "确认并启动". */
+  startTask(taskId: string): Promise<CommandResult<"start_task">>;
+  /** "放弃任务", while it is being designed. */
+  abandonTask(taskId: string): Promise<CommandResult<"abandon_task">>;
+  /** Approves the graph a started task waits for. */
+  approveGraph(taskId: string): Promise<CommandResult<"approve_graph">>;
+  /** Refuses the graph a started task waits for. */
+  rejectGraph(taskId: string): Promise<CommandResult<"reject_graph">>;
+  /** Answers a human node: pass it, or send the task back with a reason. */
+  answerHuman(taskId: string, node: string, answer: HumanAnswer): Promise<CommandResult<"answer_human">>;
+  /** Reruns a failed node. */
+  rerunNode(taskId: string, node: string): Promise<CommandResult<"rerun_node">>;
+  /** Lets a node the user stopped go on. */
+  continueNode(taskId: string, node: string): Promise<CommandResult<"continue_node">>;
+  /** "暂停任务". */
+  pauseTask(taskId: string): Promise<CommandResult<"pause_task">>;
+  /** "继续" a paused task. */
+  resumeTask(taskId: string): Promise<CommandResult<"resume_task">>;
+  /** "取消任务". */
+  cancelTask(taskId: string): Promise<CommandResult<"cancel_task">>;
+  /** The question about the worktree a finished task made. */
+  answerArchive(taskId: string, answer: ArchiveAnswer): Promise<CommandResult<"answer_archive">>;
+  /** The schedule rules while the 定时 tab is shown: `schedules_updated` pushes land here, whole; idle until {@link watchSchedules}. */
+  readonly schedules: StoreApi<SchedulesView>;
+  /** Starts or stops watching the rules, on this connection and every later one. */
+  watchSchedules(on: boolean): Promise<void>;
+  /** Pauses a rule. */
+  pauseSchedule(scheduleId: string): Promise<CommandResult<"pause_schedule">>;
+  /** Lets a paused rule go on. */
+  resumeSchedule(scheduleId: string): Promise<CommandResult<"resume_schedule">>;
+  /** "立即跑一次": answers the new task's id. */
+  runScheduleNow(scheduleId: string): Promise<CommandResult<"run_schedule_now">>;
+  /** Deletes a rule. */
+  deleteSchedule(scheduleId: string): Promise<CommandResult<"delete_schedule">>;
+  /** "修改": answers the template task to open. */
+  editSchedule(scheduleId: string): Promise<CommandResult<"edit_schedule">>;
   /** What the changes panel shows. */
   readonly diff: StoreApi<DiffView>;
   /** Opens the changes panel on a target, or closes it with `null`, on this connection and every later one. */
@@ -623,6 +690,16 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const setup = createStore<SetupView>(() => UNASKED_SETUP);
   const plans = createStore<Plans>(() => []);
   const remote = createStore<RemoteView>(() => UNWATCHED_REMOTE);
+  const tasks = createStore<TasksView>(() => UNWATCHED_TASKS);
+  /** Whether a window watches the task list, asked for again on each connection. */
+  let watchingTasks = false;
+  const schedules = createStore<SchedulesView>(() => UNWATCHED_SCHEDULES);
+  let watchingSchedules = false;
+  /** How many times the list was asked for, so an answer older than a push is not put over it. */
+  let taskListAsks = 0;
+  const taskStores = new Map<string, StoreApi<TaskState>>();
+  /** The task opened on the connection, asked for again on each connection. */
+  let openedTask: string | null = null;
   /** Whether the settings window watches remote state, asked for again on each connection. */
   let watchingRemote = false;
   let remoteAsks = 0;
@@ -999,6 +1076,94 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   }
 
   /**
+   * A task's store, made on first use.
+   *
+   * @remarks
+   * `loading` until the host sends the task.
+   *
+   * @sideEffects May create the store.
+   * @param taskId - The task.
+   * @returns The store.
+   */
+  function taskOf(taskId: string): StoreApi<TaskState> {
+    let store = taskStores.get(taskId);
+    if (store === undefined) {
+      store = createStore<TaskState>(() => LOADING_TASK);
+      taskStores.set(taskId, store);
+    }
+    return store;
+  }
+
+  /**
+   * Asks for the task list, and to be pushed it from then on.
+   *
+   * @remarks
+   * The host's send count starts again with each connection, so the view's does. An answer that comes after a
+   * push of this ask is older than it and is dropped.
+   *
+   * @sideEffects Sends `list_tasks`; updates the task list.
+   */
+  async function loadTasks(): Promise<void> {
+    taskListAsks += 1;
+    const ask = taskListAsks;
+    const before = tasks.getState();
+    // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+    tasks.setState({ status: before.status === "ready" ? "ready" : "loading", tasks: before.tasks, seq: -1 }, true);
+    const { tasks: listed } = await request("list_tasks", { watch: true });
+    if (ask !== taskListAsks || !watchingTasks || tasks.getState().seq >= 0) return;
+    // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+    tasks.setState({ status: "ready", tasks: listed, seq: 0 }, true);
+  }
+
+  /**
+   * Asks for the schedule rules and keeps watching them.
+   *
+   * @remarks
+   * A push that arrived first wins over this answer.
+   *
+   * @sideEffects Sends `list_schedules`; updates the rules' store.
+   */
+  async function loadSchedules(): Promise<void> {
+    const before = schedules.getState();
+    schedules.setState(
+      {
+        status: before.status === "ready" ? "ready" : "loading",
+        schedules: before.schedules,
+        seq: -1,
+        followed: before.followed,
+      },
+      true,
+    );
+    const { schedules: listed, followed } = await request("list_schedules", { watch: true });
+    if (!watchingSchedules || schedules.getState().seq >= 0) return;
+    schedules.setState({ status: "ready", schedules: listed, seq: 0, followed }, true);
+  }
+
+  /**
+   * Opens the task the window shows on this connection.
+   *
+   * @remarks
+   * A task the host does not know shows as `missing`; any other failure as `failed`, keeping the task last seen.
+   *
+   * @sideEffects Sends `open_task`; updates the task's store.
+   * @param taskId - The task.
+   */
+  async function loadTask(taskId: string): Promise<void> {
+    const store = taskOf(taskId);
+    try {
+      const { task } = await request("open_task", { taskId });
+      if (openedTask !== taskId) return;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      store.setState({ status: "ready", task }, true);
+    } catch (error) {
+      if (error instanceof ConnectionLostError) throw error;
+      const missing = error instanceof CommandError && error.code === "task_not_found";
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      store.setState({ status: missing ? "missing" : "failed", task: store.getState().task }, true);
+    }
+  }
+
+  /**
    * Asks for fresh snapshots of every watched session.
    *
    * @remarks
@@ -1359,6 +1524,27 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       remote.setState({ status: "ready", state: message.remote, error: null }, true);
       return;
     }
+    if (message.type === "tasks_updated") {
+      const shown = tasks.getState();
+      // A push still on its way when the window stopped watching shows nothing; an older one is dropped.
+      if (!watchingTasks || message.seq <= shown.seq) return;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      tasks.setState({ status: "ready", tasks: message.tasks, seq: message.seq }, true);
+      return;
+    }
+    if (message.type === "schedules_updated") {
+      if (!watchingSchedules || message.seq <= schedules.getState().seq) return;
+      schedules.setState(
+        { status: "ready", schedules: message.schedules, seq: message.seq, followed: schedules.getState().followed },
+        true,
+      );
+      return;
+    }
+    if (message.type === "task_updated") {
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      taskOf(message.task.id).setState({ status: "ready", task: message.task }, true);
+      return;
+    }
     if (message.type === "diff_updated") {
       const { target } = diff.getState();
       if (target?.workspaceId !== message.workspaceId || target.mode !== message.mode) return;
@@ -1482,6 +1668,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         request("subscribe_index", cursor === undefined ? {} : { cursor }).catch(() => undefined);
         subscribeWatched().catch(() => undefined);
         watchShown().catch(() => undefined);
+        if (watchingTasks) loadTasks().catch(() => undefined);
+        if (watchingSchedules) loadSchedules().catch(() => undefined);
+        if (openedTask !== null) loadTask(openedTask).catch(() => undefined);
         resolveVisualsAgain().catch(() => undefined);
         // Fire and forget: the failure lands in the store.
         if (watchingRemote) void loadRemote();
@@ -1669,6 +1858,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     answerInteraction: (sessionId, interactionId, answer) =>
       request("answer_interaction", { sessionId, interactionId, answer }),
     answerQuestion: (sessionId, questionId, answer) => request("answer_question", { sessionId, questionId, answer }),
+    openTaskSession: (taskId, sessionId) => request("open_task_session", { taskId, sessionId }),
+    answerReview: (sessionId, reviewId, verdict) => request("answer_review", { sessionId, reviewId, verdict }),
     retryRun: (sessionId) => request("retry_run", { sessionId }),
     models: (workspaceId) => modelList(workspaceId),
     loadModels: (workspaceId, refresh = false) => loadModels(workspaceId, refresh),
@@ -1819,6 +2010,63 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       showing = [...new Set(workspaceIds)];
       if (live !== undefined) await request("watch_changes", { workspaceIds: [...showing] });
     },
+    tasks,
+    async watchTasks(on) {
+      watchingTasks = on;
+      if (on) {
+        if (live !== undefined) await loadTasks();
+        return;
+      }
+      taskListAsks += 1;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      tasks.setState(UNWATCHED_TASKS, true);
+      // Stryker disable next-line ConditionalExpression: without a live socket the catch below ignores the same connection loss.
+      if (live === undefined) return;
+      try {
+        await request("list_tasks", { watch: false });
+      } catch (error) {
+        // A connection gone takes the watch with it, so there is nothing left to stop.
+        if (!(error instanceof ConnectionLostError)) throw error;
+      }
+    },
+    schedules,
+    async watchSchedules(on) {
+      watchingSchedules = on;
+      if (on) {
+        if (live !== undefined) await loadSchedules();
+        return;
+      }
+      schedules.setState(UNWATCHED_SCHEDULES, true);
+      if (live === undefined) return;
+      try {
+        await request("list_schedules", { watch: false });
+      } catch (error) {
+        if (!(error instanceof ConnectionLostError)) throw error;
+      }
+    },
+    pauseSchedule: (scheduleId) => request("pause_schedule", { scheduleId }),
+    resumeSchedule: (scheduleId) => request("resume_schedule", { scheduleId }),
+    runScheduleNow: (scheduleId) => request("run_schedule_now", { scheduleId }),
+    deleteSchedule: (scheduleId) => request("delete_schedule", { scheduleId }),
+    editSchedule: (scheduleId) => request("edit_schedule", { scheduleId }),
+    task: taskOf,
+    async openTask(taskId) {
+      openedTask = taskId;
+      if (live !== undefined) await loadTask(taskId);
+    },
+    createTask: (sessionId, scope) =>
+      request("create_task", scope === undefined ? { sessionId } : { sessionId, scope }),
+    startTask: (taskId) => request("start_task", { taskId }),
+    abandonTask: (taskId) => request("abandon_task", { taskId }),
+    approveGraph: (taskId) => request("approve_graph", { taskId }),
+    rejectGraph: (taskId) => request("reject_graph", { taskId }),
+    answerHuman: (taskId, node, answer) => request("answer_human", { taskId, node, answer }),
+    rerunNode: (taskId, node) => request("rerun_node", { taskId, node }),
+    continueNode: (taskId, node) => request("continue_node", { taskId, node }),
+    pauseTask: (taskId) => request("pause_task", { taskId }),
+    resumeTask: (taskId) => request("resume_task", { taskId }),
+    cancelTask: (taskId) => request("cancel_task", { taskId }),
+    answerArchive: (taskId, answer) => request("answer_archive", { taskId, answer }),
     diff,
     async watchDiff(target) {
       const shown = diff.getState().target;

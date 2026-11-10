@@ -10,8 +10,11 @@ import type {
   PiLatestEvent,
   PlansUpdatedEvent,
   RemoteUpdatedEvent,
+  SchedulesUpdatedEvent,
   SessionEvent,
   SessionSnapshotEvent,
+  TaskUpdatedEvent,
+  TasksUpdatedEvent,
   ResumePoint,
   SnapshotBudget,
   VisualChangedEvent,
@@ -31,6 +34,9 @@ type SinkEvent =
   | ChangesUpdatedEvent
   | DiffUpdatedEvent
   | RemoteUpdatedEvent
+  | TasksUpdatedEvent
+  | TaskUpdatedEvent
+  | SchedulesUpdatedEvent
   | VisualChangedEvent
   | BroadcastEvent;
 

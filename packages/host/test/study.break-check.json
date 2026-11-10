@@ -258,7 +258,7 @@
   },
   {
     "file": "packages/ui/src/chat/transcript.tsx",
-    "from": "                    created={index === 0 && !view.hasOlder ? created : undefined}",
+    "from": "                    created={row.index === 0 && !view.hasOlder ? created : undefined}",
     "to": "                    created={created}",
     "test": "packages/ui/src/study/study.browser.test.tsx",
     "name": "which direction it made",

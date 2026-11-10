@@ -2,7 +2,14 @@ import { askArgument, encodeArgument, studyArgument } from "@atrium/pi";
 import type { AgentRole, SessionStudy } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import type { AgentRecord } from "../store/agent-records";
-import { agentLaunchFlags, agentSelf, studyLaunchFlags, toolFlags } from "./agent-launch";
+import {
+  agentLaunchFlags,
+  agentSelf,
+  sessionLaunchFlags,
+  studyLaunchFlags,
+  taskLaunchFlags,
+  toolFlags,
+} from "./agent-launch";
 import { agentDepth } from "./child-tree";
 
 /** The main agent's tools, as pi's flags list them. */
@@ -93,12 +100,46 @@ describe("agentSelf", () => {
       role: "advise",
       depth: 1,
       guard: "extension",
+      isolated: false,
     });
     expect([agentSelf(entries, "main"), agentSelf(entries, "yours"), agentSelf(entries, "record-less")]).toStrictEqual([
-      { v: 1, child: false, role: null, depth: 0, guard: "flags" },
-      { v: 1, child: false, role: null, depth: 0, guard: "flags" },
-      { v: 1, child: false, role: null, depth: 1, guard: "flags" },
+      { v: 1, child: false, role: null, depth: 0, guard: "flags", isolated: false },
+      { v: 1, child: false, role: null, depth: 0, guard: "flags", isolated: false },
+      { v: 1, child: false, role: null, depth: 1, guard: "flags", isolated: false },
     ]);
+  });
+});
+
+describe("agentSelf, isolated (SPEC-0002, 路径隔离)", () => {
+  it("isolates the work children the agent opened, and no one else", () => {
+    const entries = [
+      entry("main"),
+      entry("worker", ["main", "agent"], ["work", "flags"]),
+      entry("forked-worker", ["main", "agent"], ["work", "extension"]),
+      entry("deep-worker", ["worker", "agent"], ["work", "flags"]),
+      entry("explorer", ["main", "agent"], ["explore", "flags"]),
+      entry("adviser", ["main", "agent"], ["advise", "flags"]),
+      // The agent's record stays on a session, but one the user opened (or took over) is theirs.
+      entry("yours", ["main", "user"], ["work", "flags"]),
+    ];
+
+    expect(
+      ["main", "worker", "forked-worker", "deep-worker", "explorer", "adviser", "yours"].map(
+        (id) => agentSelf(entries, id).isolated,
+      ),
+    ).toStrictEqual([false, true, true, true, false, false, false]);
+  });
+
+  it("puts the switch in the flag the extension reads", () => {
+    const entries = [entry("main"), entry("worker", ["main", "agent"], ["work", "flags"])];
+    const flagOf = (id: string) => agentLaunchFlags(entries, id)[0];
+
+    expect(flagOf("worker")).toBe(
+      `--atrium-agent=${encodeArgument({ v: 1, child: true, role: "work", depth: 1, guard: "flags", isolated: true })}`,
+    );
+    expect(flagOf("main")).toBe(
+      `--atrium-agent=${encodeArgument({ v: 1, child: false, role: null, depth: 0, guard: "flags", isolated: false })}`,
+    );
   });
 });
 
@@ -201,10 +242,113 @@ describe("agentLaunchFlags", () => {
     const entries = [entry("main"), entry("child", ["main", "agent"], ["explore", "flags"])];
 
     expect(agentLaunchFlags(entries, "child")).toStrictEqual([
-      `--atrium-agent=${encodeArgument({ v: 1, child: true, role: "explore", depth: 1, guard: "flags" })}`,
+      `--atrium-agent=${encodeArgument({ v: 1, child: true, role: "explore", depth: 1, guard: "flags", isolated: false })}`,
       "--tools",
       `read,bash,ffgrep,fffind,ls,report_progress,ask_parent,${PARENT}`,
     ]);
+  });
+});
+
+/**
+ * A node's session, as the launch rules read it.
+ *
+ * @remarks
+ * Without a role, the record of a node whose role is unknown.
+ *
+ * @sideEffects none
+ * @param nodeRole - The node's role.
+ * @returns The entry.
+ */
+function node(nodeRole?: "explore" | "work" | "check" | "advise") {
+  return {
+    ...entry("node"),
+    task: {
+      taskId: "tsk_1",
+      role: "node" as const,
+      node: "N1",
+      attempt: 1,
+      ...(nodeRole === undefined ? {} : { nodeRole }),
+      startOn: null,
+    },
+  };
+}
+
+/**
+ * Who the flags say the session is.
+ *
+ * @remarks
+ * Decodes the `--atrium-task` value, as the extension does.
+ *
+ * @sideEffects none
+ * @param flags - The launch flags.
+ * @returns The decoded value.
+ */
+function selfOf(flags: string[] | null): unknown {
+  return JSON.parse(Buffer.from((flags?.[0] ?? "").slice("--atrium-task=".length), "base64url").toString());
+}
+
+describe('taskLaunchFlags (SPEC-0006, "一个 agent 节点怎么跑 · 起")', () => {
+  it.each(["explore", "advise", "check"] as const)(
+    "limits a %s node to the read-only white list and its three tools",
+    (role) => {
+      const flags = taskLaunchFlags(node(role));
+
+      expect(flags?.slice(1)).toStrictEqual([
+        "--tools",
+        "read,bash,ffgrep,fffind,ls,node_done,request_graph_change,ask_user",
+      ]);
+      expect(selfOf(flags)).toStrictEqual({ v: 1, kind: "node", role });
+    },
+  );
+
+  it("gives a work node every tool but the legacy search and the agent's", () => {
+    const flags = taskLaunchFlags(node("work"));
+
+    expect(flags?.slice(1)).toStrictEqual(["--exclude-tools", `grep,find,${PARENT},report_progress,ask_parent`]);
+    expect(selfOf(flags)).toStrictEqual({ v: 1, kind: "node", role: "work" });
+  });
+
+  it("never carries the agent's flag, so the node is no child of SPEC-0002", () => {
+    for (const role of ["explore", "work", "check", "advise"] as const) {
+      expect(taskLaunchFlags(node(role))?.some((flag) => flag.startsWith("--atrium-agent"))).toBe(false);
+    }
+  });
+
+  it("gives the task conversation the read-only list, its nine tools and ask_user; no edit, write or agent tool", () => {
+    const flags = taskLaunchFlags({ ...entry("t"), task: { taskId: "tsk_1", role: "conversation", startOn: null } });
+
+    expect(selfOf(flags)).toStrictEqual({ v: 1, kind: "conversation" });
+    expect(flags?.slice(1)).toStrictEqual([
+      "--tools",
+      "read,bash,ffgrep,fffind,ls,task_read_source,task_set_summary,task_set_meta,task_status,task_read_node,task_diff,task_propose_graph,task_send_to_node,task_set_schedule,ask_user",
+    ]);
+    expect(flags?.some((flag) => flag.startsWith("--atrium-agent"))).toBe(false);
+  });
+
+  it("is none for a session of no node: an ordinary session, a child, a node without a role", () => {
+    expect(taskLaunchFlags(entry("main"))).toBeNull();
+    expect(taskLaunchFlags(entry("child", ["main", "agent"], ["work", "flags"]))).toBeNull();
+    expect(taskLaunchFlags(node())).toBeNull();
+    expect(taskLaunchFlags(undefined)).toBeNull();
+  });
+
+  it("leaves a node out of the agent's tree: it is no one's child and has depth 0", () => {
+    const entries = [entry("main"), node("work")];
+
+    expect(agentSelf(entries, "node")).toMatchObject({ child: false, depth: 0 });
+  });
+});
+
+describe("sessionLaunchFlags: a session of a task never gets the agent's flags", () => {
+  it("gives a node its own flags, and any other session the agent's", () => {
+    expect(sessionLaunchFlags([node("work")], "node")).toStrictEqual(taskLaunchFlags(node("work")));
+    expect(sessionLaunchFlags([entry("main")], "main")).toStrictEqual(agentLaunchFlags([entry("main")], "main"));
+  });
+
+  it("refuses a node without a role instead of starting it with every tool, and starts a task conversation read-only", () => {
+    expect(() => sessionLaunchFlags([node()], "node")).toThrow("a task session without a launch path");
+    const conversation = { ...entry("t"), task: { taskId: "tsk_1", role: "conversation" as const, startOn: null } };
+    expect(sessionLaunchFlags([conversation], "t")).toStrictEqual(taskLaunchFlags(conversation));
   });
 });
 

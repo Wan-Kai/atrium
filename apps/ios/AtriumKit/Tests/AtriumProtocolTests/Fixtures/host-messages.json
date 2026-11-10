@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 38,
+    "protocolVersion": 39,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -527,6 +527,116 @@
           "deadline": 9
         }
       ],
+      "reviews": [
+        {
+          "id": "tsk_a:human:N3:1",
+          "openedAt": 1760000002000,
+          "source": {
+            "kind": "gate",
+            "gate": "task_human"
+          },
+          "subject": {
+            "code": "task_human_node",
+            "params": {
+              "taskId": "tsk_a",
+              "node": "N3",
+              "merge": true
+            }
+          },
+          "evidence": [
+            {
+              "kind": "facts",
+              "facts": [
+                {
+                  "code": "worktree_dirty",
+                  "params": {
+                    "name": "task-a"
+                  },
+                  "status": "warn"
+                },
+                {
+                  "code": "commits_ahead",
+                  "params": {
+                    "count": 3
+                  },
+                  "status": "ok"
+                }
+              ]
+            },
+            {
+              "kind": "changes",
+              "workspaceId": "wks_0123456789abcdef",
+              "files": 4,
+              "added": 120,
+              "removed": 7
+            },
+            {
+              "kind": "summary",
+              "by": {
+                "kind": "node",
+                "node": "N2"
+              },
+              "text": "Wrote it."
+            }
+          ],
+          "problem": {
+            "code": "merge_conflict",
+            "params": {},
+            "files": [
+              "src/a.ts",
+              "src/b.ts"
+            ]
+          },
+          "actions": [
+            {
+              "id": "retry",
+              "reason": "none",
+              "targets": [],
+              "recommended": true
+            },
+            {
+              "id": "send_back",
+              "reason": "required",
+              "targets": [
+                {
+                  "id": "N2",
+                  "remaining": 1
+                }
+              ],
+              "recommended": false
+            }
+          ]
+        },
+        {
+          "id": "call-12",
+          "openedAt": 1760000002700,
+          "source": {
+            "kind": "agent",
+            "toolCallId": "call-12"
+          },
+          "subject": {
+            "text": "Push the branch?"
+          },
+          "evidence": [
+            {
+              "kind": "summary",
+              "by": {
+                "kind": "agent"
+              },
+              "text": "Two commits, tests pass."
+            }
+          ],
+          "problem": null,
+          "actions": [
+            {
+              "id": "yes",
+              "reason": "optional",
+              "targets": [],
+              "recommended": true
+            }
+          ]
+        }
+      ],
       "question": {
         "id": "call-9",
         "askedAt": 6,
@@ -801,6 +911,7 @@
       "compacting": false,
       "interactions": [],
       "question": null,
+      "reviews": [],
       "failure": null
     }
   },
@@ -859,6 +970,97 @@
       "from": "/work/atrium",
       "to": "/work/atrium.worktrees/tests",
       "timestamp": 6
+    },
+    "before": null
+  },
+  {
+    "type": "notice_added",
+    "sessionId": "s1",
+    "epoch": 1,
+    "seq": 7,
+    "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "notice": {
+      "kind": "notice",
+      "id": "task-1",
+      "notice": "task_progress",
+      "what": "node_passed",
+      "node": "N2",
+      "timestamp": 7
+    },
+    "before": null
+  },
+  {
+    "type": "notice_added",
+    "sessionId": "s1",
+    "epoch": 1,
+    "seq": 7,
+    "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "notice": {
+      "kind": "notice",
+      "id": "task-1",
+      "notice": "task_progress",
+      "what": null,
+      "node": null,
+      "timestamp": 7
+    },
+    "before": null
+  },
+  {
+    "type": "notice_added",
+    "sessionId": "s1",
+    "epoch": 1,
+    "seq": 7,
+    "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "notice": {
+      "kind": "notice",
+      "id": "task-2",
+      "notice": "task_mark",
+      "taskId": "tsk_a",
+      "state": "converted",
+      "timestamp": 8
+    },
+    "before": null
+  },
+  {
+    "type": "notice_added",
+    "sessionId": "s1",
+    "epoch": 1,
+    "seq": 7,
+    "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "notice": {
+      "kind": "notice",
+      "id": "review-1",
+      "notice": "review",
+      "review": {
+        "source": {
+          "kind": "gate",
+          "gate": "task_human"
+        },
+        "subject": {
+          "code": "task_human_node",
+          "params": {
+            "taskId": "tsk_a",
+            "node": "N3",
+            "merge": false
+          }
+        },
+        "evidence": [
+          {
+            "kind": "summary",
+            "by": {
+              "kind": "node",
+              "node": "N2"
+            },
+            "text": "Wrote it."
+          }
+        ],
+        "verdict": {
+          "action": "send_back",
+          "target": "N2",
+          "reason": "Again"
+        }
+      },
+      "timestamp": 9
     },
     "before": null
   },
@@ -2593,6 +2795,492 @@
         "refused": 1
       }
     }
+  },
+  {
+    "type": "tasks_updated",
+    "seq": 1,
+    "tasks": [
+      {
+        "id": "tsk_0123456789abcdef",
+        "name": "Add the export",
+        "status": "waiting",
+        "projectId": "prj_0123456789abcdef",
+        "workspaceId": "wks_0123456789abcdef",
+        "paused": false,
+        "createdAt": 1760000000000,
+        "startedAt": 1760000001000,
+        "endedAt": null,
+        "attention": "merge_blocked",
+        "archive": null,
+        "current": {
+          "id": "N3",
+          "name": "Accept and merge",
+          "state": "waiting"
+        },
+        "activeAt": 1760000003000,
+        "scheduled": false
+      },
+      {
+        "id": "tsk_0123456789abcdef",
+        "name": "Add the export",
+        "status": "done",
+        "projectId": "prj_0123456789abcdef",
+        "workspaceId": "wks_0123456789abcdef",
+        "paused": false,
+        "createdAt": 1760000000000,
+        "startedAt": 1760000001000,
+        "endedAt": null,
+        "attention": null,
+        "archive": null,
+        "current": {
+          "id": "N3",
+          "name": "Accept and merge",
+          "state": "waiting"
+        },
+        "activeAt": 1760000003000,
+        "scheduled": false
+      }
+    ]
+  },
+  {
+    "type": "tasks_updated",
+    "seq": 2,
+    "tasks": []
+  },
+  {
+    "type": "task_updated",
+    "task": {
+      "id": "tsk_0123456789abcdef",
+      "name": "Add the export",
+      "status": "waiting",
+      "projectId": "prj_0123456789abcdef",
+      "workspaceId": "wks_0123456789abcdef",
+      "paused": false,
+      "createdAt": 1760000000000,
+      "startedAt": 1760000001000,
+      "endedAt": null,
+      "attention": "merge_blocked",
+      "archive": null,
+      "current": {
+        "id": "N3",
+        "name": "Accept and merge",
+        "state": "waiting"
+      },
+      "activeAt": 1760000003000,
+      "scheduled": false,
+      "taskSessionId": "s0",
+      "model": {
+        "providerId": "anthropic",
+        "modelId": "opus-5.5",
+        "thinking": "high"
+      },
+      "sourceSessionId": "s-origin",
+      "graphVersion": 1,
+      "pendingGraph": true,
+      "pending": {
+        "version": 2,
+        "author": "agent",
+        "note": "Add a docs step",
+        "nodes": [
+          {
+            "id": "N1",
+            "name": "Explore",
+            "kind": "agent",
+            "job": "Look",
+            "done": [
+              "Looked"
+            ],
+            "role": "explore",
+            "model": null
+          },
+          {
+            "id": "N5",
+            "name": "Docs",
+            "kind": "agent",
+            "job": "Write docs",
+            "done": [
+              "Written"
+            ],
+            "role": "work",
+            "model": null
+          }
+        ],
+        "edges": [
+          {
+            "from": "N1",
+            "to": "N5",
+            "kind": "seq"
+          }
+        ],
+        "diff": {
+          "from": 1,
+          "added": [
+            "N5"
+          ],
+          "removed": [],
+          "changed": [
+            "N3"
+          ]
+        }
+      },
+      "graphDiff": {
+        "from": 1,
+        "added": [],
+        "removed": [
+          "N9"
+        ],
+        "changed": [
+          "N2"
+        ]
+      },
+      "requirements": {
+        "goal": "Make out.txt",
+        "decisions": [
+          "plain text"
+        ],
+        "constraints": [],
+        "nonGoals": [],
+        "openQuestions": [],
+        "acceptance": [
+          "out.txt says hello"
+        ]
+      },
+      "reviews": [
+        {
+          "id": "tsk_a:human:N3:1",
+          "openedAt": 1760000002000,
+          "source": {
+            "kind": "gate",
+            "gate": "task_human"
+          },
+          "subject": {
+            "code": "task_human_node",
+            "params": {
+              "taskId": "tsk_a",
+              "node": "N3",
+              "merge": true
+            }
+          },
+          "evidence": [
+            {
+              "kind": "facts",
+              "facts": [
+                {
+                  "code": "worktree_dirty",
+                  "params": {
+                    "name": "task-a"
+                  },
+                  "status": "warn"
+                },
+                {
+                  "code": "commits_ahead",
+                  "params": {
+                    "count": 3
+                  },
+                  "status": "ok"
+                }
+              ]
+            },
+            {
+              "kind": "changes",
+              "workspaceId": "wks_0123456789abcdef",
+              "files": 4,
+              "added": 120,
+              "removed": 7
+            },
+            {
+              "kind": "summary",
+              "by": {
+                "kind": "node",
+                "node": "N2"
+              },
+              "text": "Wrote it."
+            }
+          ],
+          "problem": {
+            "code": "merge_conflict",
+            "params": {},
+            "files": [
+              "src/a.ts",
+              "src/b.ts"
+            ]
+          },
+          "actions": [
+            {
+              "id": "retry",
+              "reason": "none",
+              "targets": [],
+              "recommended": true
+            },
+            {
+              "id": "send_back",
+              "reason": "required",
+              "targets": [
+                {
+                  "id": "N2",
+                  "remaining": 1
+                }
+              ],
+              "recommended": false
+            }
+          ]
+        },
+        {
+          "id": "tsk_a:graph:2",
+          "openedAt": 1760000002500,
+          "source": {
+            "kind": "gate",
+            "gate": "task_graph"
+          },
+          "subject": {
+            "code": "task_graph_change",
+            "params": {
+              "taskId": "tsk_a",
+              "version": 2
+            }
+          },
+          "evidence": [
+            {
+              "kind": "graph_diff",
+              "from": 1,
+              "to": 2,
+              "added": [
+                "N5"
+              ],
+              "removed": [],
+              "changed": [
+                "N3"
+              ]
+            }
+          ],
+          "problem": null,
+          "actions": [
+            {
+              "id": "approve",
+              "reason": "none",
+              "targets": [],
+              "recommended": true
+            },
+            {
+              "id": "reject",
+              "reason": "optional",
+              "targets": [],
+              "recommended": false
+            }
+          ]
+        }
+      ],
+      "nodes": [
+        {
+          "kind": "agent",
+          "job": "Do it",
+          "done": [
+            "It works"
+          ],
+          "state": "passed",
+          "attempt": 1,
+          "waitingFor": null,
+          "blocked": null,
+          "failure": null,
+          "summary": "Done.",
+          "model": {
+            "providerId": "openai",
+            "modelId": "gpt-6-astra"
+          },
+          "sessionId": "s1",
+          "sendBack": [],
+          "id": "N1",
+          "name": "Explore",
+          "role": "explore",
+          "place": "readonly"
+        },
+        {
+          "kind": "agent",
+          "job": "Do it",
+          "done": [
+            "It works"
+          ],
+          "state": "passed",
+          "attempt": 1,
+          "waitingFor": null,
+          "blocked": null,
+          "failure": null,
+          "summary": "Done.",
+          "model": null,
+          "sessionId": "s1",
+          "sendBack": [],
+          "id": "N2",
+          "name": "Write",
+          "role": "work",
+          "place": "workspace",
+          "backFrom": {
+            "node": "N3",
+            "reason": "Again"
+          }
+        },
+        {
+          "kind": "human",
+          "job": "Do it",
+          "done": [
+            "It works"
+          ],
+          "state": "waiting",
+          "attempt": 1,
+          "waitingFor": "merge_blocked",
+          "blocked": "merge_conflict",
+          "failure": null,
+          "summary": null,
+          "model": null,
+          "sessionId": null,
+          "sendBack": [
+            {
+              "to": "N2",
+              "uses": 1
+            }
+          ],
+          "id": "N3",
+          "name": "Accept and merge",
+          "merge": true,
+          "blockedFiles": [
+            "src/a.ts",
+            "src/b.ts"
+          ]
+        },
+        {
+          "kind": "agent",
+          "job": "Do it",
+          "done": [
+            "It works"
+          ],
+          "state": "failed",
+          "attempt": 1,
+          "waitingFor": null,
+          "blocked": null,
+          "failure": "commit",
+          "summary": "Done.",
+          "model": null,
+          "sessionId": null,
+          "sendBack": [],
+          "id": "N4",
+          "name": "Check",
+          "role": "check"
+        }
+      ],
+      "edges": [
+        {
+          "from": "N1",
+          "to": "N2",
+          "kind": "seq"
+        },
+        {
+          "from": "N2",
+          "to": "N3",
+          "kind": "seq"
+        },
+        {
+          "from": "N3",
+          "to": "N2",
+          "kind": "back"
+        }
+      ],
+      "archiveFacts": null,
+      "followed": false,
+      "scheduleDraft": null
+    }
+  },
+  {
+    "type": "schedules_updated",
+    "seq": 1,
+    "schedules": [
+      {
+        "id": "rul_a",
+        "name": "Mutation run",
+        "projectId": "prj_0123456789abcdef",
+        "place": "new_worktree",
+        "when": {
+          "every": "day",
+          "at": "2:00"
+        },
+        "paused": false,
+        "nextAt": 1760000000000,
+        "last": {
+          "taskId": "tsk_a",
+          "status": "stopped",
+          "failed": true
+        },
+        "skipped": 1,
+        "templateTaskId": "tsk_t",
+        "createdAt": 1759000000000
+      },
+      {
+        "id": "rul_a",
+        "name": "Mutation run",
+        "projectId": "prj_0123456789abcdef",
+        "place": "new_worktree",
+        "when": {
+          "every": "day",
+          "at": "2:00"
+        },
+        "paused": true,
+        "nextAt": null,
+        "last": null,
+        "skipped": 1,
+        "templateTaskId": "tsk_t",
+        "createdAt": 1759000000000
+      }
+    ]
+  },
+  {
+    "type": "schedules_updated",
+    "seq": 2,
+    "schedules": []
+  },
+  {
+    "type": "schedules_updated",
+    "seq": 3,
+    "schedules": [
+      {
+        "id": "rul_a",
+        "name": "Mutation run",
+        "projectId": "prj_0123456789abcdef",
+        "place": "new_worktree",
+        "when": {
+          "every": "week",
+          "day": 1,
+          "at": "10:00"
+        },
+        "paused": false,
+        "nextAt": 1760000000000,
+        "last": {
+          "taskId": "tsk_a",
+          "status": "stopped",
+          "failed": true
+        },
+        "skipped": 1,
+        "templateTaskId": "tsk_t",
+        "createdAt": 1759000000000
+      },
+      {
+        "id": "rul_a",
+        "name": "Mutation run",
+        "projectId": "prj_0123456789abcdef",
+        "place": "local_readonly",
+        "when": {
+          "every": "interval",
+          "minutes": 5
+        },
+        "paused": false,
+        "nextAt": 1760000000000,
+        "last": {
+          "taskId": "tsk_a",
+          "status": "stopped",
+          "failed": true
+        },
+        "skipped": 1,
+        "templateTaskId": "tsk_t",
+        "createdAt": 1759000000000
+      }
+    ]
   },
   {
     "type": "visual_changed",
@@ -11005,6 +11693,22 @@
     "requestId": "r1",
     "ok": false,
     "error": {
+      "code": "review_closed"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "review_invalid"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
       "code": "models_unavailable"
     }
   },
@@ -11086,6 +11790,94 @@
     "ok": false,
     "error": {
       "code": "worktree_create_failed"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "worktree_config_unsafe"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "workspace_in_task"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "task_not_found"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "task_state_invalid"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "task_back_limit"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "task_graph_invalid"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "task_read_only"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "task_already_converted"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "task_no_project_for_work"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "schedule_not_found"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "schedule_file_unreadable"
     }
   },
   {
@@ -13547,6 +14339,116 @@
           "placeholder": null,
           "prefill": null,
           "deadline": 9
+        }
+      ],
+      "reviews": [
+        {
+          "id": "tsk_a:human:N3:1",
+          "openedAt": 1760000002000,
+          "source": {
+            "kind": "gate",
+            "gate": "task_human"
+          },
+          "subject": {
+            "code": "task_human_node",
+            "params": {
+              "taskId": "tsk_a",
+              "node": "N3",
+              "merge": true
+            }
+          },
+          "evidence": [
+            {
+              "kind": "facts",
+              "facts": [
+                {
+                  "code": "worktree_dirty",
+                  "params": {
+                    "name": "task-a"
+                  },
+                  "status": "warn"
+                },
+                {
+                  "code": "commits_ahead",
+                  "params": {
+                    "count": 3
+                  },
+                  "status": "ok"
+                }
+              ]
+            },
+            {
+              "kind": "changes",
+              "workspaceId": "wks_0123456789abcdef",
+              "files": 4,
+              "added": 120,
+              "removed": 7
+            },
+            {
+              "kind": "summary",
+              "by": {
+                "kind": "node",
+                "node": "N2"
+              },
+              "text": "Wrote it."
+            }
+          ],
+          "problem": {
+            "code": "merge_conflict",
+            "params": {},
+            "files": [
+              "src/a.ts",
+              "src/b.ts"
+            ]
+          },
+          "actions": [
+            {
+              "id": "retry",
+              "reason": "none",
+              "targets": [],
+              "recommended": true
+            },
+            {
+              "id": "send_back",
+              "reason": "required",
+              "targets": [
+                {
+                  "id": "N2",
+                  "remaining": 1
+                }
+              ],
+              "recommended": false
+            }
+          ]
+        },
+        {
+          "id": "call-12",
+          "openedAt": 1760000002700,
+          "source": {
+            "kind": "agent",
+            "toolCallId": "call-12"
+          },
+          "subject": {
+            "text": "Push the branch?"
+          },
+          "evidence": [
+            {
+              "kind": "summary",
+              "by": {
+                "kind": "agent"
+              },
+              "text": "Two commits, tests pass."
+            }
+          ],
+          "problem": null,
+          "actions": [
+            {
+              "id": "yes",
+              "reason": "optional",
+              "targets": [],
+              "recommended": true
+            }
+          ]
         }
       ],
       "question": {

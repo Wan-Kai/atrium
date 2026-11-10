@@ -85,7 +85,7 @@ func snapshotJSON(
 /// The run control of an idle session, as JSON.
 let controlJSON = """
   {"queue":[],"deliveries":[],"deliveriesHeld":null,"paused":null,"steers":[],"stopping":false,\
-  "restarting":false,"compacting":false,"interactions":[],"question":null,"failure":null}
+  "restarting":false,"compacting":false,"interactions":[],"question":null,"reviews":[],"failure":null}
   """
 
 /// Status bar figures nobody knows yet, as JSON.

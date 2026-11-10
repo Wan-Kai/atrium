@@ -1,0 +1,72 @@
+[
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "if (/^(?:PWD|HOME)$/u.test(inner)) text += inner === \"PWD\" ? PWD : HOME;\n      else unknown = true;",
+    "to": "if (/^(?:PWD|HOME)$/u.test(inner)) text += inner === \"PWD\" ? PWD : HOME;\n      else text += inner;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "blocks quoting and expansions that hide where a path leads"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "if (next !== undefined && !\" \\t\\n;|&()<>\".includes(next)) unknown = true;",
+    "to": "if (false) unknown = true;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "blocks quoting and expansions that hide where a path leads"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "places = conditional || compound ? joined(places, moved) : joined([], moved);",
+    "to": "places = joined([], moved);",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "keeps a cd inside a subshell from leaking out"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "else if (marker === \"close\") places = saved.pop() ?? places;",
+    "to": "else if (marker === \"close\") places = places;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "keeps a cd inside a subshell from leaking out"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "if (words.some((word) => COMPOUND.includes(word.text))) compound = true;",
+    "to": "",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "keeps a cd inside a subshell from leaking out"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "else if (marker === \"cond\") conditional = true;",
+    "to": "",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "keeps a cd inside a subshell from leaking out"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "  \"builtin\",\n",
+    "to": "  \"builtinx\",\n",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "follows cd through builtin, command and the keywords"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "if (stdinShell(words)) return true;",
+    "to": "",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "blocks a shell that reads its script from input"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "const MOVES_TREE = /^core\\.worktree=/iu;",
+    "to": "const MOVES_TREE = /^core\\.worktreeX=/iu;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "blocks changing where git's tree is"
+  },
+  {
+    "file": "packages/pi/src/task/git-guard.ts",
+    "from": "return rest[sub]?.text === \"config\" && configMovesTree(rest.slice(sub + 1), at, reading);",
+    "to": "return false;",
+    "test": "packages/pi/src/task/git-guard.test.ts",
+    "name": "blocks changing where git's tree is"
+  }
+]

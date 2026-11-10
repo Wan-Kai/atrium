@@ -4,6 +4,7 @@ import {
   isEditCommand,
   AGENT_COMMAND,
   AGENT_STATUS,
+  TASK_STATUS,
   type ModelCatalog,
   readEntries,
   compactionReserve,
@@ -36,6 +37,7 @@ import {
   IDLE_CONTROL,
   type CommandResult,
   type ModelRef,
+  type PendingReview,
   type PlanProvider,
   type SessionEvent,
   type SessionModel,
@@ -70,7 +72,7 @@ import type { Layouts } from "./layouts";
 import { type CatalogChat, type CatalogEntry, chatIdOf, type NewRecord, type SessionCatalog } from "./session-catalog";
 import { archivePlan, restoreSet } from "./child-tree";
 import { createReadOnlyTranscripts } from "./read-only-transcripts";
-import { agentLaunchFlags, studyLaunchFlags } from "./agent-launch";
+import { sessionLaunchFlags, studyLaunchFlags } from "./agent-launch";
 import {
   type AgentHost,
   type ChildCreated,
@@ -89,6 +91,7 @@ import {
   createSessionController,
 } from "./session-controller";
 import { forkWithPi } from "./session-forker";
+import type { TaskSessionSignal, TaskSessions } from "./task-sessions";
 import { type TitleSubject, createTitleGenerator, firstExchange, titleInput } from "./titles";
 import { type TracedPi, startTracedPi } from "./traced-pi";
 
@@ -226,6 +229,8 @@ export interface SessionManager extends SessionCommands {
    * pi has stopped that nobody watches (SPEC-0001, "空闲回收"); the host asks once a minute.
    */
   reclaimIdle(): void;
+  /** The sessions of tasks' nodes (SPEC-0006): started and stopped here, not shown among the sessions. */
+  readonly taskSessions: TaskSessions;
   /** Stops every pi; resolves once all have exited and background scans have stopped. */
   close(): Promise<void>;
 }
@@ -462,6 +467,18 @@ export function createSessionManager(options: {
   readonly tools: () => Promise<SessionTools | null>;
   readonly subscriptions: SubscriptionRegistry;
   readonly catalog: SessionCatalog;
+  /**
+   * What waits for the user's verdict in a session (ADR-0018): the control carries it, and a change is published.
+   * Without it no session has any.
+   */
+  readonly reviews?: {
+    readonly current: (sessionId: string) => readonly PendingReview[];
+    readonly onChanged: (listener: (sessionId: string) => void) => () => void;
+    /** A session got a controller, which reads its reviews until it is let go of (T8 review fix 13). */
+    readonly read: (sessionId: string) => void;
+    /** A session lost its controller, so nobody reads its reviews any more. */
+    readonly forget: (sessionId: string) => void;
+  };
   readonly layouts: Layouts;
   /** Which chats are archived, and with which sessions (SPEC-0001, "M1.11 的对话归档"). */
   readonly chats: Pick<ChatRecords, "archived" | "setArchived">;
@@ -540,6 +557,10 @@ export function createSessionManager(options: {
   ) => Promise<{ readonly branch: string | null; readonly changes: WorkChanges | null }>;
 }): SessionManager {
   const sessions = new Map<string, Running>();
+  /** Whether each session seen belongs to a task, to spare the catalog a look at every event. */
+  const taskSessionKinds = new Map<string, boolean>();
+  /** Who hears what the sessions of tasks tell (SPEC-0006). */
+  const taskListeners = new Set<(sessionId: string, signal: TaskSessionSignal) => void>();
   /** Releases each held controller's count, so a leak test sees controllers nobody lets go of. */
   const held = new Map<string, () => void>();
   /** The clock for controllers, whose timers count as open resources (testing.md, "泄漏"). */
@@ -650,6 +671,10 @@ export function createSessionManager(options: {
   // A child created, detached, archived or found grown changes its ancestors' figures.
   const stopWatchingCatalog = options.catalog.onChange(() => {
     for (const sessionId of sessions.keys()) childrenUsage.refresh(sessionId);
+  });
+  // A session's reviews changed: its control says so, if it has a controller (ADR-0018).
+  const stopWatchingReviews = options.reviews?.onChanged((sessionId) => {
+    sessions.get(sessionId)?.controller.reviewsChanged();
   });
   /** How many times pi was started, so each start has its own number (ADR-0013, point 5). */
   let epochs = 0;
@@ -945,6 +970,47 @@ export function createSessionManager(options: {
   }
 
   /**
+   * Whether a session belongs to a task (SPEC-0006).
+   *
+   * @remarks
+   * Asked for every event of every session, so the answer is kept: a session's record never gains or loses
+   * its `task` field. A session the catalog does not know is not remembered, as it may be recorded next.
+   *
+   * @sideEffects Remembers the answer.
+   * @param sessionId - The session.
+   * @returns Whether its record has a `task` field.
+   */
+  function belongsToTask(sessionId: string): boolean {
+    const known = taskSessionKinds.get(sessionId);
+    if (known !== undefined) return known;
+    const entry = options.catalog.find(sessionId);
+    if (entry === undefined) return false;
+    taskSessionKinds.set(sessionId, entry.task !== null);
+    return entry.task !== null;
+  }
+
+  /**
+   * Tells the runner of tasks something a task session did.
+   *
+   * @remarks
+   * A listener that throws is logged and does not keep the others from hearing it, nor pi's own event
+   * handling from going on.
+   *
+   * @sideEffects Calls the listeners; may log.
+   * @param sessionId - The task session.
+   * @param signal - What it did.
+   */
+  function tellTask(sessionId: string, signal: TaskSessionSignal): void {
+    for (const listener of taskListeners) {
+      try {
+        listener(sessionId, signal);
+      } catch (error) {
+        options.logger.error({ ...failureFields(error), sessionId }, "task session listener failed");
+      }
+    }
+  }
+
+  /**
    * Since when a session's oldest unanswered dialog waits.
    *
    * @remarks
@@ -991,6 +1057,8 @@ export function createSessionManager(options: {
   function titleSubject(sessionId: string): TitleSubject | null {
     const entry = options.catalog.find(sessionId);
     const found = live(sessionId);
+    // A node's session has no title: it is not among the sessions the user sees.
+    if (entry?.task != null) return null;
     // A session the host opened for a use is named by its use, not by your first message there
     // (SPEC-0008, "ML3 定的细节 · 宿主开的学习会话的名字").
     if (entry?.name !== null || entry.state !== "persisted" || found === undefined || hostOpened(entry.study)) {
@@ -1052,6 +1120,9 @@ export function createSessionManager(options: {
    */
   function observe(sessionId: string, event: SessionEvent): void {
     lastActive.set(sessionId, options.clock.now());
+    if (belongsToTask(sessionId)) {
+      tellTask(sessionId, { kind: "session", epoch: sessions.get(sessionId)?.epoch ?? 0, event });
+    }
     if (event.type === "run_started") {
       busy.add(sessionId);
       failures.delete(sessionId);
@@ -1140,16 +1211,19 @@ export function createSessionManager(options: {
    */
   async function spawn(tools: ReadyTools, launch: Launch, sessionId: string) {
     // Atrium's extension, and who the session is for it and its tools' limits (SPEC-0002, "角色与限制").
+    const catalogued = options.catalog.list();
+    const forTask = catalogued.find((entry) => entry.sessionId === sessionId)?.task != null;
     const visuals = options.visualsDir?.(sessionId) ?? null;
+    // A task's node has its own flags and none of the agent's (SPEC-0006, "一个 agent 节点怎么跑 · 起").
     const extension =
       options.fast === undefined
         ? []
         : [
             "--extension",
             options.fast.extension,
-            ...agentLaunchFlags(options.catalog.list(), sessionId),
+            ...sessionLaunchFlags(catalogued, sessionId),
             // Its use in a direction: only then does it have study tools (SPEC-0008, "ML2 定的细节").
-            ...studyLaunchFlags(options.catalog.list(), sessionId, launch.alone === true),
+            ...studyLaunchFlags(catalogued, sessionId, launch.alone === true),
             // Where its visuals go (SPEC-0007, "怎么让 agent 知道"); a direction's, by their place in it (ML4).
             ...(visuals === null
               ? []
@@ -1191,6 +1265,21 @@ export function createSessionManager(options: {
       )
         relay.request(sessionId, epoch, event.statusText);
     });
+    // What the runner of tasks needs of a task session's pi: its requests and the events that settle a node.
+    const taskHeard = forTask
+      ? pi.onEvent((event) => {
+          if (
+            event.type === "extension_ui_request" &&
+            event.method === "setStatus" &&
+            event.statusKey.startsWith(`${TASK_STATUS}:`) &&
+            event.statusText !== undefined
+          ) {
+            tellTask(sessionId, { kind: "request", epoch, text: event.statusText });
+          } else {
+            tellTask(sessionId, { kind: "pi", epoch, event });
+          }
+        })
+      : undefined;
     /**
      * Forgets the process once it exited.
      *
@@ -1202,6 +1291,7 @@ export function createSessionManager(options: {
     const ended = (): void => {
       running.delete(pi);
       unheard();
+      taskHeard?.();
       relay.exited(sessionId, epoch);
     };
     // Fire and forget: `exited` never rejects.
@@ -1408,6 +1498,11 @@ export function createSessionManager(options: {
         inBackground("fast record", () => options.catalog.mark(sessionId, { fast: enabled }));
       },
       deliveries: relay.deliveries(sessionId),
+      ...(options.reviews === undefined
+        ? {}
+        : {
+            reviews: () => options.reviews?.current(sessionId) ?? [],
+          }),
       ...(starts === undefined
         ? {}
         : {
@@ -1524,7 +1619,7 @@ export function createSessionManager(options: {
     // pi has written nothing of the session, so a new pi would not know the model it had.
     const had = snapshot?.model ?? null;
     // A child the agent opened starts on the model and level it asked for (SPEC-0002, `agent_spawn`).
-    const asked = entry.agent?.startOn ?? null;
+    const asked = entry.agent?.startOn ?? entry.task?.startOn ?? null;
     const startOn =
       had !== null
         ? { model: { providerId: had.providerId, modelId: had.modelId }, thinkingLevel: had.thinkingLevel }
@@ -1739,6 +1834,8 @@ export function createSessionManager(options: {
   function hold(sessionId: string, started: Running): void {
     held.get(sessionId)?.();
     held.set(sessionId, options.resources.acquire("session.controller"));
+    // The hub keeps a count for a session while its controller is held, and lets go of it in `dropController`.
+    options.reviews?.read(sessionId);
     sessions.set(sessionId, started);
     // A read-only copy from before its direction was restored is stale once pi runs it.
     readOnly.forget([sessionId]);
@@ -1759,6 +1856,7 @@ export function createSessionManager(options: {
     held.get(sessionId)?.();
     held.delete(sessionId);
     sessions.delete(sessionId);
+    options.reviews?.forget(sessionId);
     // A new controller starts a new stream; what the phones' ring kept cannot be resumed from.
     options.subscriptions.forget(sessionId);
     // Stryker disable next-line all: only frees memory; holding the session again sets it first.
@@ -1818,6 +1916,7 @@ export function createSessionManager(options: {
     for (const kept of [failures, marked, renamed, created, kickoffs, kicked, forkFrom]) kept.delete(sessionId);
     forkReleases.get(sessionId)?.();
     forkReleases.delete(sessionId);
+    taskSessionKinds.delete(sessionId);
   }
 
   /**
@@ -2093,6 +2192,7 @@ export function createSessionManager(options: {
         // The scan may have ended because the host is closing.
         if (closed) return undefined;
         const found = entryOf(sessionId);
+        notTaskSession(sessionId);
         // A direction's session archived with its level is looked at from its file.
         if (!(found.archived && viewOnly(found))) notArchived(sessionId);
         // The tab opens first, so a session that cannot start explains why in its own tab.
@@ -2150,6 +2250,7 @@ export function createSessionManager(options: {
       return {};
     },
     async archiveSession(sessionId) {
+      notTaskSession(sessionId);
       const [failure] = await archiveTree(sessionId);
       if (failure !== undefined) throw failure;
       return {};
@@ -2211,6 +2312,7 @@ export function createSessionManager(options: {
     async renameSession(sessionId, name) {
       await options.catalog.ready();
       const entry = entryOf(sessionId);
+      notTaskSession(sessionId);
       notReadOnly(sessionId);
       if (entry.state === "draft") {
         // pi writes no file before the first message, so a draft's name has nowhere to go, but a
@@ -2537,11 +2639,110 @@ export function createSessionManager(options: {
       await relay.resumeDeliveries(sessionId, tree);
       return {};
     },
+    taskSessions: {
+      async create(session) {
+        await options.catalog.ready();
+        const sessionId = options.newSessionId();
+        await options.catalog.record({
+          sessionId,
+          containerId: session.containerId,
+          cwd: session.cwd,
+          name: session.name,
+          task: session.task,
+        });
+        await ensureRunning(sessionId);
+        return sessionId;
+      },
+      find: (taskId, node, attempt) =>
+        options.catalog
+          .list()
+          .find(
+            (entry) =>
+              entry.task?.role === "node" &&
+              entry.task.taskId === taskId &&
+              entry.task.node === node &&
+              entry.task.attempt === attempt,
+          )?.sessionId,
+      recordOf: (sessionId) => options.catalog.find(sessionId)?.task ?? undefined,
+      conversations: () =>
+        options.catalog
+          .list()
+          .flatMap((entry) =>
+            entry.task?.role === "conversation" && !entry.archived
+              ? [{ sessionId: entry.sessionId, taskId: entry.task.taskId }]
+              : [],
+          ),
+      async open(sessionId) {
+        await options.catalog.ready();
+        entryOf(sessionId);
+        await commanded(sessionId);
+      },
+      async prompt(sessionId, text, signal) {
+        const found = await commanded(sessionId);
+        await found.pi.request({ type: "prompt", message: text }, { timeoutMs: null, ...(signal ? { signal } : {}) });
+      },
+      async command(sessionId, text, signal) {
+        const found = await commanded(sessionId);
+        await found.pi.request({ type: "prompt", message: text }, signal ? { signal } : {});
+      },
+      source(sessionId) {
+        const entry = options.catalog.find(sessionId);
+        if (entry === undefined || entry.task !== null || entry.archived) return undefined;
+        const model = sessions.get(sessionId)?.controller.snapshot().model ?? entry.model;
+        return {
+          containerId: entry.containerId,
+          cwd: entry.cwd,
+          name: entry.name,
+          model:
+            model === null
+              ? null
+              : { providerId: model.providerId, modelId: model.modelId, thinking: model.thinkingLevel },
+          file: entry.file,
+        };
+      },
+      async transcript(sessionId) {
+        await options.catalog.ready();
+        const file = options.catalog.find(sessionId)?.file ?? null;
+        return file === null ? [] : readEntries(file);
+      },
+      async deliver(sessionId, text, signal) {
+        const found = await commanded(sessionId);
+        // A running pi queues it for its next turn boundary; an idle one starts a turn with it.
+        await found.pi.request(
+          { type: "prompt", message: text, streamingBehavior: "steer" },
+          { timeoutMs: null, ...(signal ? { signal } : {}) },
+        );
+      },
+      async retire(sessionId) {
+        await options.catalog.ready();
+        entryOf(sessionId);
+        await whileArchivingAll([sessionId], async () => {
+          await stopEnding(sessionId);
+          forget(sessionId);
+          await options.catalog.archive(sessionId);
+        });
+        options.onChange();
+      },
+      alive: (sessionId) => live(sessionId) !== undefined,
+      async stop(sessionId) {
+        await stopSession(sessionId);
+        // The file pi wrote is found before the controller goes, so the session opens from it again.
+        await options.catalog.scan();
+        const controller = sessions.get(sessionId)?.controller;
+        if (controller !== undefined && controller.exited && !controller.restarting) dropController(sessionId);
+      },
+      subscribe(listener) {
+        taskListeners.add(listener);
+        return () => taskListeners.delete(listener);
+      },
+    },
     summaries() {
       return options.catalog
         .list()
+        .filter((entry) => entry.task === null)
         .map(
           ({
+            task: _task,
             cwd: _cwd,
             fast: _fast,
             usageAfter: _usageAfter,
@@ -2740,6 +2941,7 @@ export function createSessionManager(options: {
       closed = true;
       closing.abort();
       stopWatchingCatalog();
+      stopWatchingReviews?.();
       for (const search of searches.values()) search.abort();
       const titlesClosed = titles.close();
       // Tasks running are told `stopped` before their pi stops (SPEC-0002, "送达").
@@ -2787,6 +2989,22 @@ export function createSessionManager(options: {
     if (containerId !== undefined && options.directions?.readOnly?.(containerId) === true) {
       throw new CommandError("direction_archived", { directionId: containerId });
     }
+  }
+
+  /**
+   * Refuses a command that would make a task's session an ordinary tab, name or archive it.
+   *
+   * @remarks
+   * A task conversation or a node's conversation belongs to its task (SPEC-0006, "T8 审查后用户定"): it has no tab,
+   * no place in a list and is let go of by the task alone. It is answered as if it did not exist, which also keeps
+   * a client from learning which ids are task sessions.
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @throws {CommandError} `session_not_found`, also for an unknown session.
+   */
+  function notTaskSession(sessionId: string): void {
+    if (entryOf(sessionId).task !== null) throw new CommandError("session_not_found", { sessionId });
   }
 
   /**

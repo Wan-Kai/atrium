@@ -1,0 +1,52 @@
+{
+  "name": "Add a HELLO.md and merge it",
+  "goal": "Add a HELLO.md at the top of the repository that says in a few lines what the repository is for, check it, and merge it into the main branch once the user has looked at it.",
+  "nodes": [
+    {
+      "id": "N1",
+      "name": "Look around",
+      "kind": "agent",
+      "role": "explore",
+      "job": "Read the repository's README, its top-level layout and its build or test setup, and write down what it is for, how it is built and how its tests are run.",
+      "done": ["You know what the repository is for.", "You know how its tests, if any, are run."]
+    },
+    {
+      "id": "N2",
+      "name": "Write HELLO.md",
+      "kind": "agent",
+      "role": "work",
+      "job": "Create HELLO.md at the top of the repository: three to six lines saying what the repository is for and how to run its tests, based on what the earlier step found. Do not change any other file. If you are told why an earlier try was sent back, fix exactly that.",
+      "done": [
+        "HELLO.md exists at the top of the repository.",
+        "It states what the repository is for.",
+        "No other file changed."
+      ]
+    },
+    {
+      "id": "N3",
+      "name": "Check it",
+      "kind": "agent",
+      "role": "check",
+      "job": "Check the work of the earlier step: run the repository's tests if it has any (if it has none, say so), and check that HELLO.md exists, is accurate against the README, and that no other file was changed.",
+      "done": [
+        "You ran the tests, or saw there are none, and report which command you ran and what it printed.",
+        "You checked HELLO.md against the README.",
+        "You checked that only HELLO.md changed."
+      ]
+    },
+    {
+      "id": "N4",
+      "name": "验收并合并",
+      "kind": "human",
+      "merge": true,
+      "job": "Look at HELLO.md and what the check found. Pass to merge the task's branch into the main branch, or send the task back to N2 with the reason.",
+      "done": ["HELLO.md is what you want in the repository."]
+    }
+  ],
+  "edges": [
+    { "from": "N1", "to": "N2", "kind": "seq" },
+    { "from": "N2", "to": "N3", "kind": "seq" },
+    { "from": "N3", "to": "N4", "kind": "seq" },
+    { "from": "N4", "to": "N2", "kind": "back" }
+  ]
+}

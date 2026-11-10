@@ -1,5 +1,6 @@
 import type { MergeState, MergeUnknownReason } from "@atrium/protocol";
 import type { GitRunner } from "../platform/git";
+import { runSafeGit } from "./safe-git";
 
 /** A worktree whose merge state is wanted. */
 export interface MergeTarget {
@@ -196,7 +197,8 @@ export function createMergeInspector(options: {
    *
    * @remarks
    * `merge-tree --write-tree` changes neither working tree nor index, but writes objects
-   * (domain-model §6). Exit 0 is a clean merge whose tree is the first line; 1 is conflicts.
+   * (domain-model §6). Exit 0 is a clean merge whose tree is the first line; 1 is conflicts. It runs
+   * without the repository's merge drivers, hooks and filters: a file that names a driver conflicts.
    *
    * @sideEffects Runs git, which writes objects into the repository.
    * @param repo - The project's directory.
@@ -211,10 +213,15 @@ export function createMergeInspector(options: {
     head: string,
     signal: AbortSignal | undefined,
   ): Promise<"merged" | "pending" | "git_failed"> {
-    const merged = await options.git.run(["merge-tree", "--write-tree", "--no-messages", mainCommit, head], {
-      cwd: repo,
-      signal,
-    });
+    // Through `runSafeGit`: `merge-tree` runs the merge drivers the repository configures, which an agent can
+    // write (SPEC-0006, "宿主自己跑的 git"). A repository whose configuration cannot be made safe is `git_failed`.
+    const merged = await runSafeGit(
+      options.git,
+      ["merge-tree", "--write-tree", "--no-messages", mainCommit, head],
+      { cwd: repo, signal },
+      { rejectIncludes: false },
+    ).catch(() => null);
+    if (merged === null) return "git_failed";
     if (merged.code === 1) return "pending";
     if (merged.code !== 0) return "git_failed";
     const tree = await options.git.run(["rev-parse", `${mainCommit}^{tree}`], { cwd: repo, signal });

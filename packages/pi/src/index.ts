@@ -37,6 +37,7 @@ export {
   type LogStopReason,
   type LogUsage,
   type SystemParts,
+  type TaskLine,
   toLogEntry,
 } from "./history/log-entry";
 export { contextParts } from "./history/system-prompt";
@@ -64,6 +65,26 @@ export {
 } from "./agent/channel";
 export { ASK_USER_TOOL, type AskUserResult } from "./agent/ask-user";
 export { CHILD_TOOLS, PARENT_TOOLS, READ_ONLY_TOOLS } from "./agent/words";
+export {
+  CONVERSATION_TOOLS,
+  type ConversationOp,
+  GUIDE_IDS,
+  type GuideId,
+  NODE_TOOLS,
+  type NodeRole as TaskNodeRole,
+  type ReplyCommand as TaskReplyCommand,
+  type ResumeKind,
+  type SummaryArgs,
+  TASK_FLAG,
+  TASK_STATUS,
+  TASK_TEXT_LIMITS,
+  type TaskCallOp,
+  type TaskErrorCode,
+  type TaskRequest,
+  type TaskSelf,
+  commandText as taskCommandText,
+  readRequest as readTaskRequest,
+} from "./task/schema";
 export { type ToolArgs, contentText, toolDetails } from "./history/tools";
 export {
   type SessionDirectory,

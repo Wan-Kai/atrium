@@ -152,7 +152,7 @@ Atrium 自带的 pi 扩展（ADR-0008）在系统提示里加一段英文说明�
   - 方向里所有会话的演示目录是**方向现在的目录**下的 `visuals/`（归档的方向是 `Archive/<目录名>/visuals/`），宿主不建，agent 第一次写演示时建。`--atrium-visuals` 的 JSON 多一个可选的 `relative: "visuals"`（版本不变），扩展据此让模型写 `visuals/<级>-<步>-<名字>.html`、引用写这个相对路径；别的会话照旧写绝对路径。
   - resolve 方向里会话的引用：相对路径按方向现在的目录算，不按会话记录里的 `cwd`（方向归档、恢复时整个目录搬走了，记录里的 `cwd` 不改）；绝对路径落在记录的 `cwd` 下面的，换算到现在的目录再查。上级会话的演示目录照旧也算（方向里的上下级用的是同一个 `visuals/`）。
   - `visuals/` 必须是真目录：`lstat` 不是链接，`realpath` 的上一层就是方向目录的 `realpath`；方向目录本身也要是学习目录（或 `Archive/`）下一层的真目录。不合都是 `visual_outside`。默认目录 `~/.atrium/visuals/<id>/` 由宿主管、照旧允许经链接到达（家目录是链接的情况），方向的 `visuals/` 在 agent 的工作目录里、它能换成链接，所以不一样。
-  - 按方向 resolve：`resolve_visual` 改成 `{ sessionId, path }` 和 `{ directionId, path }` 二选一（协议 38）；按方向时 `path` 只认 `visuals/` 下一层的 `.html`，不走上级会话，方向不存在 `direction_not_found`。令牌对应"谁在看"和文件，同一个文件按会话和按方向拿到的令牌不同。`visual_changed` 带上 resolve 时的来源（`sessionId` 或 `directionId`），只发给按这个来源 resolve 过的连接。手机带方向 id 按 `local_only` 拒绝。
+  - 按方向 resolve：`resolve_visual` 改成 `{ sessionId, path }` 和 `{ directionId, path }` 二选一（协议 39，任务图先占了 38）；按方向时 `path` 只认 `visuals/` 下一层的 `.html`，不走上级会话，方向不存在 `direction_not_found`。令牌对应"谁在看"和文件，同一个文件按会话和按方向拿到的令牌不同。`visual_changed` 带上 resolve 时的来源（`sessionId` 或 `directionId`），只发给按这个来源 resolve 过的连接。手机带方向 id 按 `local_only` 拒绝。
   - **查看标签里的演示没有回传**：方向主页的档案、笔记里的链接、方向会话里演示卡片的"在查看标签里打开"，打开的都是查看标签里的演示，按方向 resolve，不属于任何会话；演示里的 `sendMessage` 一律得到 `false`，界面不发 `send_visual_message`。查看标签里一句"在这里点的不会发到对话"。`visuals/` 下的文件不给"在浏览器打开"（那样演示会跑在沙箱外面、能联网）。
   - "在查看标签里打开"：方向会话里，`path` 是相对路径、或换算后落在方向的 `visuals/` 里时显示，打开这个方向的查看标签（渲染，没有回传）。
   - 回传照旧：方向归档后 `direction_archived`；方向里归档了的会话（SPEC-0008 ML3）`session_not_found`。

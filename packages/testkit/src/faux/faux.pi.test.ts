@@ -187,6 +187,9 @@ describe("faux model in pi's print mode", () => {
   });
 });
 
+/** A reply that only says something. */
+const say = (text: string) => ({ blocks: [{ type: "text" as const, text }] });
+
 describe("faux model in a real pi process", () => {
   it("streams scripted thinking and text in several chunks and then settles", async () => {
     const pi = await startPi({
@@ -333,6 +336,25 @@ describe("faux model in a real pi process", () => {
     await pi.until(() => finished() === 2);
 
     expect([byPrompt, deltas(pi.records, "text_delta").join("")]).toStrictEqual(["by prompt", "by promptsecond"]);
+  });
+
+  it("answers a conversation from its own list, the next reply for each reply it already has (byConversation)", async () => {
+    const pi = await startPi({
+      replies: [],
+      byConversation: [
+        { startsWith: "alpha", replies: [say("a1"), say("a2")] },
+        { startsWith: "beta", replies: [say("b1")] },
+      ],
+    });
+    const finished = () => pi.records.filter(settled).length;
+
+    pi.send({ id: "r1", type: "prompt", message: "alpha: go" });
+    await pi.until(() => finished() === 1);
+    pi.send({ id: "r2", type: "prompt", message: "more" });
+    await pi.until(() => finished() === 2);
+
+    // Both replies came from the conversation the first message names, in order.
+    expect(deltas(pi.records, "text_delta").join("")).toBe("a1a2");
   });
 
   it("writes down the process id of the pi that loaded it", async () => {

@@ -1,0 +1,514 @@
+[
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "throw new CommandError(\"review_closed\", { reviewId });",
+    "to": "return;",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "answers review_closed for a review that is not there",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "if (action === undefined) throw new CommandError(\"review_invalid\", { field: \"action\" });",
+    "to": "",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "refuses a verdict that does not fit",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "named ? !action.targets.some((target) => target.id === verdict.target) : verdict.target !== undefined",
+    "to": "false",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "refuses a verdict that does not fit",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "action.reason === \"required\" ? !written : action.reason === \"none\" && verdict.reason !== undefined",
+    "to": "false",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "refuses a verdict that does not fit",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "const written = (verdict.reason ?? \"\").trim() !== \"\";",
+    "to": "const written = (verdict.reason ?? \"\") !== \"\";",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "refuses a verdict that does not fit",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "const turn = lane.tail.then(work, work);",
+    "to": "const turn = Promise.resolve().then(work);",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "answers review_closed for a review that is not there",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "if (before !== undefined && JSON.stringify(before) === JSON.stringify(reviews)) return;",
+    "to": "",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "counts a session's reviews oldest first",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": ".toSorted((a, b) => a.review.openedAt - b.review.openedAt)",
+    "to": "",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "counts a session's reviews oldest first",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "if (lane?.recountQueued === true) return;",
+    "to": "",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "counts a burst of changes once after the last",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "      recount(sessionId);\n      return [];",
+    "to": "      return [];",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "says nothing about a session that has no reviews",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "for (const release of listeners.values()) release();",
+    "to": "",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "holds a count for each provider and listener",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "provider.subscribe((sessionId) => recount(sessionId))",
+    "to": "provider.subscribe(() => undefined)",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "counts a session's reviews oldest first",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "if (!closing.signal.aborted) {\n            keep(",
+    "to": "if (false) {\n            keep(",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "lets a verdict through when it fits",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "if (before === undefined && reviews.length === 0) return;",
+    "to": "",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "says nothing about a session that has no reviews",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/reviews/review-hub.ts",
+    "from": "        if (!closing.signal.aborted) {\n          options.logger.warn({ err: error instanceof Error ? error.name : \"unknown\" }, \"reviews not counted\");",
+    "to": "        if (false) {\n          options.logger.warn({ err: error instanceof Error ? error.name : \"unknown\" }, \"reviews not counted\");",
+    "test": "packages/host/src/reviews/review-hub.test.ts",
+    "name": "keeps the last count when a provider fails to count",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "pending === undefined || active === undefined || task.startedAt === null || task.endedAt !== null",
+    "to": "pending === undefined || active === undefined || task.endedAt !== null",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "asks for a verdict on a graph change",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "      run.merging === true ||\n",
+    "to": "",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "asks nothing for a human node whose merge is under way",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "id: blocked ? \"retry\" : \"pass\"",
+    "to": "id: \"pass\"",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "shows a merge that was held back as a problem",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "recommended: !dirty }",
+    "to": "recommended: true }",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "puts the worktree's facts and changes before the upstream summaries",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "if (task.archive !== \"asked\" || task.endedAt === null) return [];",
+    "to": "if (task.endedAt === null) return [];",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "asks the archive question only while it is open",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "const safe = facts.worktree?.merged === true && !facts.worktree.dirty;",
+    "to": "const safe = true;",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "asks the archive question only while it is open",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "openedAt: run.startedAt,",
+    "to": "openedAt: 0,",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "asks for a verdict on a waiting human node",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "remaining: Math.max(0, BACK_LIMIT - backUses(task, node.id, edge.to)),",
+    "to": "remaining: BACK_LIMIT,",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "offers no send-back where the node has no back edge",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "`The user's reason: ${clip(reason, 4000)}`",
+    "to": "`The user's reason: ${reason}`",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "tells the model the gate",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "if (after !== undefined && !after.reviews.some((one) => one.id === review.id)) {",
+    "to": "if (after !== undefined) {",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "does not record a verdict whose review is still there",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "if (verdict.action === \"approve\") await service.approveGraph(taskId, reviewed);",
+    "to": "if (true) await service.approveGraph(taskId, reviewed);",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "maps each gate",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "status: dirty }",
+    "to": "status: \"ok\" }",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "puts the worktree's facts and changes before the upstream summaries",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "status: worktree.commits === 0 ? \"warn\" : \"ok\"",
+    "to": "status: \"ok\"",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "puts the worktree's facts and changes before the upstream summaries",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "if (pending.note !== \"\") {",
+    "to": "if (true) {",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "asks for a verdict on a graph change",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "one.kind === \"summary\" ? { ...one, text: clip(one.text, RECORD_TEXT_CHARS) } : one",
+    "to": "one",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "keeps the review as it was",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "task.archive === \"asked\" || humanReviews",
+    "to": "humanReviews",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "lists the reviews oldest first and says when the worktree",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "(a, b) => a.openedAt - b.openedAt",
+    "to": "() => 0",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "lists the reviews oldest first",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "return service.onEvent((task) => changed(task.taskSessionId));",
+    "to": "return () => undefined;",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "tells the hub which session a task event is about",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reviews.ts",
+    "from": "if (taskId === undefined || review.source.kind !== \"gate\")",
+    "to": "if (false)",
+    "test": "packages/host/src/tasks/task-reviews.test.ts",
+    "name": "refuses to carry out a verdict for a session that has no task",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/graph-diff.ts",
+    "from": "return earlier.findLast((graph) => graph.approvedAt !== null);",
+    "to": "return earlier.at(-1);",
+    "test": "packages/host/src/tasks/graph-diff.test.ts",
+    "name": "is the latest approved one after the start",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/graph-diff.ts",
+    "from": "|| edgesAt(from, node.id) !== edgesAt(to, node.id)",
+    "to": "",
+    "test": "packages/host/src/tasks/graph-diff.test.ts",
+    "name": "calls a node changed by any field",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/graph-diff.ts",
+    "from": "inputs: node.inputs === undefined ? undefined : node.inputs.toSorted()",
+    "to": "inputs: node.inputs",
+    "test": "packages/host/src/tasks/graph-diff.test.ts",
+    "name": "does not take the order of a node",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/graph-diff.ts",
+    "from": ".toSorted()\n    .join(\",\")",
+    "to": ".join(\",\")",
+    "test": "packages/host/src/tasks/graph-diff.test.ts",
+    "name": "does not take the order of a node",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": "goal: task.summary.goal.slice(0, REQUIREMENT_GOAL_CHARS),",
+    "to": "goal: task.summary.goal,",
+    "test": "packages/host/src/tasks/task-view.test.ts",
+    "name": "cuts a long note and carries the requirement summary",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": "note: clip(pending.note),",
+    "to": "note: pending.note,",
+    "test": "packages/host/src/tasks/task-view.test.ts",
+    "name": "cuts a long note and carries the requirement summary",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": "  if (active === undefined || before === undefined) return null;",
+    "to": "  if (active === undefined) return null;",
+    "test": "packages/host/src/tasks/task-view.test.ts",
+    "name": "shows what the graph in force changed",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": "diff: diffGraphs(active, pending),",
+    "to": "diff: diffGraphs(pending, active),",
+    "test": "packages/host/src/tasks/task-view.test.ts",
+    "name": "gives the graph that waits whole",
+    "project": "unit"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "review.success && self.kind === \"conversation\" && claim(review.data.id, ctx)",
+    "to": "review.success && claim(review.data.id, ctx)",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "is for the task conversation only",
+    "project": "unit"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "if (type !== TASK_MESSAGE && type !== REVIEW_MESSAGE) return undefined;",
+    "to": "if (type !== TASK_MESSAGE) return undefined;",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "knows a record the session file has already",
+    "project": "unit"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "{ triggerTurn: false },\n          );\n        }\n      } else if (action === \"reply\")",
+    "to": "{ triggerTurn: true },\n          );\n        }\n      } else if (action === \"reply\")",
+    "test": "packages/pi/src/task/extension.test.ts",
+    "name": "writes the record into the task conversation",
+    "project": "unit"
+  },
+  {
+    "file": "packages/pi/src/history/log-entry.ts",
+    "from": "return line.success ? { ...base, kind: \"review_line\", line: line.data } : { ...base, kind: \"other\" };",
+    "to": "return { ...base, kind: \"other\" };",
+    "test": "packages/pi/src/history/log-entry.test.ts",
+    "name": "reads the record of a review",
+    "project": "unit"
+  },
+  {
+    "file": "packages/pi/src/events/translate.ts",
+    "from": "return ReviewMessageDetails.safeParse(message.details).success",
+    "to": "return false",
+    "test": "packages/pi/src/events/translate.test.ts",
+    "name": "reports the record of a review",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/transcript/projection.ts",
+    "from": "notice: \"review\",",
+    "to": "notice: \"task_mark\",",
+    "test": "packages/host/src/transcript/projection.test.ts",
+    "name": "puts the record of a review between the turns",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/sessions/session-controller.ts",
+    "from": "reviews: [...(options.reviews?.() ?? [])],",
+    "to": "reviews: [],",
+    "test": "packages/host/src/sessions/session-controller.test.ts",
+    "name": "carries what waits for a verdict in its control",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/sessions/session-controller.ts",
+    "from": "    reviewsChanged() {\n      controlChanged();\n    },",
+    "to": "    reviewsChanged() {},",
+    "test": "packages/host/src/sessions/session-controller.test.ts",
+    "name": "carries what waits for a verdict in its control",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "await options.reviews.answer(command.sessionId, command.reviewId, command.verdict);",
+    "to": "await options.reviews.answer(command.sessionId, command.reviewId, { action: \"pass\" });",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "hands run control commands to the session layer",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "  answer_review: \"local_only\",",
+    "to": "  answer_review: \"phone\",",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "may list and open tasks and nothing else about them",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "  open_task_session: \"local_only\",",
+    "to": "  open_task_session: \"phone\",",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "may list and open tasks and nothing else about them",
+    "project": "unit"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "request(\"answer_review\", { sessionId, reviewId, verdict })",
+    "to": "request(\"answer_review\", { sessionId, reviewId, verdict: { action: \"pass\" } })",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "sends the run control commands with their fields",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "taskCommandText(\"review\", {",
+    "to": "taskCommandText(\"progress\", {",
+    "test": "packages/host/src/tasks/reviews.host.test.ts",
+    "name": "shows the waiting node on the task conversation, passes it",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "const changes = needsWorktreeFacts(task) ? await options.archiving.changes(task, signal).catch(() => null) : null;",
+    "to": "const changes = null;",
+    "test": "packages/host/src/tasks/reviews.host.test.ts",
+    "name": "holds a merge back as a problem on the same card",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "if (options.design.sessions.recordOf(sessionId)?.taskId !== task.id) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/tasks/reviews.host.test.ts",
+    "name": "opens the task conversation the same way",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "      await options.design.sessions.open(sessionId);\n    },\n    createFromChat",
+    "to": "    },\n    createFromChat",
+    "test": "packages/host/src/tasks/reviews.host.test.ts",
+    "name": "starts the pi of a node that has passed",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/main.ts",
+    "from": "      reviews: reviewHub,\n",
+    "to": "      reviews: { answer: async () => { throw new Error(\"off\"); } },\n",
+    "test": "packages/host/src/tasks/reviews.host.test.ts",
+    "name": "shows the waiting node on the task conversation, passes it",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "sessions.get(sessionId)?.controller.reviewsChanged();",
+    "to": "",
+    "test": "packages/host/src/tasks/reviews.host.test.ts",
+    "name": "shows the waiting node on the task conversation, passes it",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-archiving.ts",
+    "from": "return changesSince(git, workspace.dir, base, signal).catch(() => null);",
+    "to": "return null;",
+    "test": "packages/host/src/tasks/reviews.host.test.ts",
+    "name": "holds a merge back as a problem on the same card",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "const sessionId = task === null ? undefined : conversationOf(task);\n      if (entry === undefined || sessionId === undefined) return;\n      onLine(entry, \"review record\"",
+    "to": "const sessionId = undefined as string | undefined;\n      if (entry === undefined || sessionId === undefined) return;\n      onLine(entry, \"review record\"",
+    "test": "packages/host/src/tasks/reviews.host.test.ts",
+    "name": "shows the waiting node on the task conversation, passes it",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/followed-tasks.ts",
+    "from": "    async openSession(taskId, sessionId) {\n      refuseIfFollowed(taskId);\n",
+    "to": "    async openSession(taskId, sessionId) {\n",
+    "test": "packages/host/src/tasks/followed-tasks.host.test.ts",
+    "name": "answers task_read_only to every command that would change a followed task",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-commands.ts",
+    "from": "      await service.openSession(taskId, sessionId);\n      return {};",
+    "to": "      return {};",
+    "test": "packages/host/src/tasks/reviews.host.test.ts",
+    "name": "starts the pi of a node that has passed",
+    "project": "host"
+  }
+]
