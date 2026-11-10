@@ -77,6 +77,8 @@ export interface RouterOptions {
     | "startStudySession"
     | "markStudyStep"
     | "markStudyGap"
+    | "upgradeStudy"
+    | "restoreStudySessions"
   >;
   /** First launch and the settings. */
   readonly setup: Pick<SetupService, "check">;
@@ -221,10 +223,19 @@ export function createRouter(options: RouterOptions): Route {
         return options.study.startStudySession(connection.clientId, directionId, {
           kind,
           level,
-          step,
+          ...(step === undefined ? {} : { step }),
           ...(gap === undefined ? {} : { gap }),
         });
       }
+      case "upgrade_study":
+        return options.study.upgradeStudy(
+          connection.clientId,
+          command.directionId,
+          command.level,
+          command.archiveSessions,
+        );
+      case "restore_study_sessions":
+        return options.study.restoreStudySessions(command.directionId, command.sessionIds);
       case "mark_study_step":
         return options.study.markStudyStep(
           command.directionId,

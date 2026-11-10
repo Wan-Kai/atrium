@@ -239,6 +239,28 @@ describe("studyLaunchFlags", () => {
     ]);
   });
 
+  it("tells a quiz with no lesson's conversation so: no parent, or a fork that could not be made (ML3)", () => {
+    const entries = [
+      study("alone", "lrn_go", { kind: "quiz", level: "l1", step: "s1" }),
+      {
+        ...study("child", "lrn_go", { kind: "quiz", level: "l1", step: "s1" }),
+        parent: { sessionId: "l", by: "user" as const },
+      },
+      study("lesson", "lrn_go", { kind: "lesson", level: "l1", step: "s1" }),
+    ];
+    const none = `--atrium-study=${studyArgument({ kind: "quiz", level: "l1", step: "s1", context: "none" })}`;
+
+    expect(studyLaunchFlags(entries, "alone")).toStrictEqual([none]);
+    expect(studyLaunchFlags(entries, "child")).toStrictEqual([
+      `--atrium-study=${studyArgument({ kind: "quiz", level: "l1", step: "s1" })}`,
+    ]);
+    expect(studyLaunchFlags(entries, "child", true)).toStrictEqual([none]);
+    // Only a quiz is ever told it has no lesson.
+    expect(studyLaunchFlags(entries, "lesson", true)).toStrictEqual([
+      `--atrium-study=${studyArgument({ kind: "lesson", level: "l1", step: "s1" })}`,
+    ]);
+  });
+
   it("gives none to a workspace's, a chat's, an asking or a use-less session, or one unknown", () => {
     const entries = [
       study("workspace", "wks_0123456789abcdef", { kind: "lesson", level: "l1", step: "s1" }),

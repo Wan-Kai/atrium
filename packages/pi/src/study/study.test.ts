@@ -125,6 +125,23 @@ describe("study mode's flag", () => {
     }
   });
 
+  it("reads a quiz with no lesson to come from, and that mark on nothing else (ML3)", () => {
+    expect(readStudyArgument(studyArgument({ kind: "quiz", level: "l1", step: "s2", context: "none" }))).toStrictEqual({
+      kind: "quiz",
+      level: "l1",
+      step: "s2",
+      context: "none",
+    });
+    for (const flag of [
+      encodeArgument({ v: 1, kind: "quiz", level: "l1", step: "s2", context: "lesson" }),
+      encodeArgument({ v: 1, kind: "quiz", level: "l1", step: "s2", context: null }),
+      encodeArgument({ v: 1, kind: "lesson", level: "l1", step: "s2", context: "none" }),
+      encodeArgument({ v: 1, kind: "exam", level: "l1", step: "s9", context: "none" }),
+    ]) {
+      expect(readStudyArgument(flag)).toBeNull();
+    }
+  });
+
   it("reads no flag that is empty, not text, or no object", () => {
     expect([undefined, "", 7, true, encodeArgument(null)].map((flag) => readStudyArgument(flag))).toStrictEqual([
       null,
@@ -334,7 +351,7 @@ describe("study mode's words", () => {
 
     expect(at).toBeGreaterThan(1);
     expect(lines[at - 1]).toBe("");
-    expect(lines[at - 2]?.startsWith("Keep content in Markdown files")).toBe(true);
+    expect(lines[at - 2]?.startsWith("Never say Atrium's internal ids")).toBe(true);
     expect(studyPrompt({ kind: "discuss" }).split("\n")).toContain("This session's use: discuss.");
   });
 
@@ -357,6 +374,109 @@ describe("study mode's words", () => {
     );
     expect(discuss).toContain(
       "Once it succeeds, wrap up in two or three sentences (what was set, and that the first lesson starts from the direction's home in Atrium), then stop. Do no more work with files in this session: do not create directories or files and do not edit resources.md or anything else.",
+    );
+  });
+
+  it("has the quiz ask 5 to 10 questions one at a time, score them by tens, and report again to overwrite (ML3)", () => {
+    const quiz = studyPrompt({ kind: "quiz", level: "l1", step: "s2" });
+
+    expect(quiz).toContain(
+      "Ask one question at a time, from easy to hard: 5 to 10 questions, and stop early after two in a row the learner cannot answer.",
+    );
+    // Real-model check (2026-11-09, D): cards for every choice, a wrong answer explained at once.
+    expect(quiz).toContain(
+      "Ask every multiple-choice question with the ask_user tool, as a question card with the choices as its options; never list the choices in your text instead.",
+    );
+    expect(quiz).toContain(
+      "Judge each answer as soon as it comes: say whether it was right, and when it was wrong or partly right, explain the right answer and what was missed right then, before you ask the next question. Do not leave the explanations for the summary at the end.",
+    );
+    expect(quiz).toContain(
+      "Score each question out of 10 (partial credit allowed). At the end call study_report with score as the sum and of as 10 times the number of questions asked.",
+    );
+    expect(quiz).toContain(
+      "Each time an answer shows a gap, call study_add_gap with what the learner does not understand and the question's number.",
+    );
+    expect(quiz).toContain("Calling study_report again in this session overwrites the score.");
+  });
+
+  it("has the exam cover the whole level in 10 questions, scored as the quiz (ML3)", () => {
+    const exam = studyPrompt({ kind: "exam", level: "l1", step: "s9" });
+
+    expect(exam).toContain(
+      "Give the level's final exam: 10 questions over the whole level, from easy to hard, one at a time, judging each at once.",
+    );
+    expect(exam).toContain(
+      "Score each question out of 10 (partial credit allowed). At the end call study_report with score as the sum and of as 100.",
+    );
+    expect(exam).toContain("Ask every multiple-choice question with the ask_user tool");
+    expect(exam).toContain(
+      "Each time an answer shows a gap, call study_add_gap with what the learner does not understand and the question's number.",
+    );
+  });
+
+  it("has Feynman read its gap, mark it only once explained back clearly, and stop otherwise (ML3)", () => {
+    const feynman = studyPrompt({ kind: "feynman", level: "l2", gap: "g3" });
+
+    expect(feynman).toContain('This session\'s use: feynman (level="l2" gap="g3" in .atrium-study.json).');
+    expect(feynman).toContain(
+      "The gap is the entry of gaps in .atrium-study.json with the id above: read its text and where it came from first.",
+    );
+    expect(feynman).toContain(
+      "Call study_fix_gap only once the learner has explained it back clearly in their own words. If they still cannot, do not call it: say what is still unclear and stop.",
+    );
+    expect(feynman).toContain("Write the final clean explanation to notes/ as a Feynman note for this gap.");
+  });
+
+  it("has the plan propose the level's lessons, set them only once agreed, then wrap up and stop (ML3)", () => {
+    const plan = studyPrompt({ kind: "plan", level: "l2" });
+
+    expect(plan).toContain(
+      "Read the ladder, what the learner did in the levels before, and the gaps not yet fixed in .atrium-study.json.",
+    );
+    expect(plan).toContain(
+      "Show the lessons as a proposal and ask the learner to confirm, in their language (for example: 准备这样排，确认吗？). Do not say the lessons are set or saved before you have called study_set_steps.",
+    );
+    expect(plan).toContain(
+      "Only after the learner confirms, call study_set_steps once with the lesson titles: it can be called only once for a level.",
+    );
+    expect(plan).toContain(
+      "Once it succeeds, wrap up in two or three sentences (how many lessons, and that the first one starts from the direction's home in Atrium), then stop.",
+    );
+    expect(plan).toContain(
+      "You may add this level's resources to resources.md; do not change the ladder or AGENTS.md.",
+    );
+    // Real-model check (2026-11-09, D): the plan put a probe file in lab/.
+    expect(plan).toContain(
+      "Apart from adding to resources.md, do not create or edit any file in this session: nothing in lab/, no probe, scratch or test files.",
+    );
+  });
+
+  it("has the lesson write no probe files, only its note and a starting file it needs (D)", () => {
+    expect(studyPrompt({ kind: "lesson", level: "l1", step: "s1" })).toContain(
+      "Do not create probe or scratch files to try things yourself. The files you write are the lesson's note in notes/ and, only when the lesson needs one, a short starting file in lab/ that the learner then fills in.",
+    );
+  });
+
+  it("tells every use never to say Atrium's internal ids to the learner (D)", () => {
+    for (const kind of ["discuss", "plan", "lesson", "quiz", "feynman", "sheet", "project", "exam"] as const) {
+      expect(studyPrompt({ kind }).split("\n")).toContain(
+        "Never say Atrium's internal ids (such as l1, s2 or g3) to the learner: call a level by its number and name, a lesson by its title, a gap by what it is about.",
+      );
+    }
+  });
+
+  it("tells a quiz with no lesson to come from to quiz from the notes and the progress (ML3)", () => {
+    const none = kickoffText({ kind: "quiz", level: "l1", step: "s2", context: "none" }).split("\n");
+    const forked = kickoffText({ kind: "quiz", level: "l1", step: "s2" });
+
+    expect(none[0]).toBe('<atrium-study use="quiz" level="l1" step="s2" context="none">');
+    expect(none).toContain(
+      "There is no conversation of the lesson in this session: build the questions from the lesson's note in notes/ and from .atrium-study.json.",
+    );
+    expect(forked).not.toContain("There is no conversation of the lesson");
+    expect(forked).toContain("The lesson's conversation is above: quiz on what was taught there, with its examples.");
+    expect(kickoffText({ kind: "lesson", level: "l1", step: "s2" })).not.toContain(
+      "The lesson's conversation is above",
     );
   });
 

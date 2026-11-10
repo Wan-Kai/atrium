@@ -468,7 +468,11 @@ export type RestoreDirectionCommand = z.infer<typeof RestoreDirectionCommand>;
  * (SPEC-0008, "ML2 定的细节"); it opens as this client's active tab there.
  *
  * @remarks
- * Only the one the host's next step offers can be opened: else `study_not_available`.
+ * Only one of those the host can open now (SPEC-0008, "ML3 定的细节 · 费曼和补测从哪开"): the
+ * main button's, Feynman on a gap not fixed, a quiz put off; else `study_not_available`. One open
+ * already for the same use, level, step and gap is given instead of a new one. A quiz while its
+ * lesson's session runs is `session_busy`. `step` is left out for a plan session and for Feynman
+ * on a gap carried from an earlier level.
  */
 export const StartStudySessionCommand = z.strictObject({
   type: z.literal("start_study_session"),
@@ -476,7 +480,7 @@ export const StartStudySessionCommand = z.strictObject({
   directionId: DirectionId,
   kind: StudyKind,
   level: StudyRef,
-  step: StudyRef,
+  step: StudyRef.optional(),
   gap: StudyRef.optional(),
 });
 export type StartStudySessionCommand = z.infer<typeof StartStudySessionCommand>;
@@ -519,6 +523,40 @@ export const RetryStudyKickoffCommand = z.strictObject({
   sessionId: SessionId,
 });
 export type RetryStudyKickoffCommand = z.infer<typeof RetryStudyKickoffCommand>;
+
+/**
+ * Upgrades a direction past its current level (SPEC-0008, "ML3 定的细节 · 升级"): writes the level
+ * done and the next current, or the direction finished after the last; archives the level's
+ * sessions with their children when `archiveSessions`; opens the next level's plan session.
+ *
+ * @remarks
+ * `level` is the level the client saw as current, so two windows pressing it once each upgrade
+ * once; when it is not current, or the upgrade is not the next step, `study_not_available`.
+ */
+export const UpgradeStudyCommand = z.strictObject({
+  type: z.literal("upgrade_study"),
+  ...commandFields,
+  directionId: DirectionId,
+  level: StudyRef,
+  archiveSessions: z.boolean(),
+});
+export type UpgradeStudyCommand = z.infer<typeof UpgradeStudyCommand>;
+
+/**
+ * Unarchives sessions of a direction archived with a level, with their children (SPEC-0008,
+ * "ML3 定的细节 · 方向里归档了的会话").
+ *
+ * @remarks
+ * One id not of a session of this direction refuses the whole command (`session_not_found`); those
+ * not archived are skipped.
+ */
+export const RestoreStudySessionsCommand = z.strictObject({
+  type: z.literal("restore_study_sessions"),
+  ...commandFields,
+  directionId: DirectionId,
+  sessionIds: z.array(SessionId).min(1).max(256),
+});
+export type RestoreStudySessionsCommand = z.infer<typeof RestoreStudySessionsCommand>;
 
 /** The window gained focus: the host scans workspaces, merge states and session files again. */
 export const WindowFocusedCommand = z.strictObject({ type: z.literal("window_focused"), ...commandFields });
@@ -1088,6 +1126,8 @@ export const Command = z.discriminatedUnion("type", [
   MarkStudyStepCommand,
   MarkStudyGapCommand,
   RetryStudyKickoffCommand,
+  UpgradeStudyCommand,
+  RestoreStudySessionsCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -1234,6 +1274,9 @@ export const CommandResult = {
   mark_study_step: z.strictObject({}),
   mark_study_gap: z.strictObject({}),
   retry_study_kickoff: z.strictObject({}),
+  /** The plan session opened (`null` after the last level, or when it could not be), and how many sessions could not be archived. */
+  upgrade_study: z.strictObject({ planSessionId: SessionId.nullable(), notArchived: z.number().int().nonnegative() }),
+  restore_study_sessions: z.strictObject({}),
   window_focused: z.strictObject({}),
   create_session: z.strictObject({ sessionId: SessionId }),
   close_tab: z.strictObject({}),

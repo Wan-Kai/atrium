@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 36,
+    "protocolVersion": 37,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -1316,13 +1316,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -1814,13 +1816,15 @@
           "progress": null,
           "next": {
             "primary": {
-              "type": "open",
-              "sessionId": "s1"
+              "type": "start",
+              "kind": "plan",
+              "level": "l3",
+              "available": true
             },
             "secondary": {
               "type": "upgrade",
               "level": "l2",
-              "available": false
+              "available": true
             }
           }
         }
@@ -2879,13 +2883,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -3349,13 +3355,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -3819,13 +3827,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -4289,13 +4299,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -4759,13 +4771,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -5229,13 +5243,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -5699,13 +5715,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -6182,13 +6200,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -6617,13 +6637,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -7100,13 +7122,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -7583,13 +7607,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -8066,13 +8092,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -8506,13 +8534,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -8989,13 +9019,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -9472,13 +9504,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -9947,13 +9981,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }
@@ -10383,13 +10419,15 @@
         "progress": null,
         "next": {
           "primary": {
-            "type": "open",
-            "sessionId": "s1"
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
           },
           "secondary": {
             "type": "upgrade",
             "level": "l2",
-            "available": false
+            "available": true
           }
         }
       }

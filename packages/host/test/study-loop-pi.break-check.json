@@ -1,0 +1,164 @@
+[
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "(context !== \"none\" || Reflect.get(value, \"kind\") !== \"quiz\")",
+    "to": "(context !== \"none\")",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "reads a quiz with no lesson"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "if (context !== undefined && (context !== \"none\" || Reflect.get(value, \"kind\") !== \"quiz\")) return null;\n",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "reads a quiz with no lesson"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "...(context === \"none\" ? { context } : {})",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "reads a quiz with no lesson"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "key !== \"v\" && key !== \"context\"",
+    "to": "key !== \"v\"",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "reads a quiz with no lesson"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "    QUESTIONS,\n",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "has the quiz ask 5 to 10"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "5 to 10 questions, and stop early after two in a row",
+    "to": "as many questions as you like",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "has the quiz ask 5 to 10"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "of as 10 times the number of questions asked",
+    "to": "of as the number of questions",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "has the quiz ask 5 to 10"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "    \"Calling study_report again in this session overwrites the score.\",\n  ].join(\"\\n\"),\n  feynman",
+    "to": "  ].join(\"\\n\"),\n  feynman",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "has the quiz ask 5 to 10"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "study_report with score as the sum and of as 100",
+    "to": "study_report with the score out of 10",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "has the exam cover the whole level"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "    \"The gap is the entry of gaps in .atrium-study.json with the id above: read its text and where it came from first.\",\n",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "has Feynman read its gap"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "\"Call study_fix_gap only once the learner has explained it back clearly in their own words. If they still cannot, do not call it: say what is still unclear and stop.\"",
+    "to": "\"Then call study_fix_gap.\"",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "has Feynman read its gap"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "4. Set: Only after the learner confirms, call study_set_steps",
+    "to": "4. Set: Call study_set_steps",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "has the plan propose"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": " Do not say the lessons are set or saved before you have called study_set_steps.",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "has the plan propose"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "    \"5. Stop: Once it succeeds",
+    "to": "    \"5. Stop: Once it fails",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "has the plan propose"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "    \"You may add this level's resources to resources.md; do not change the ladder or AGENTS.md.\",\n",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "has the plan propose"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "${none ? ' context=\"none\"' : \"\"}",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "tells a quiz with no lesson"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "...(launch.kind !== \"quiz\"",
+    "to": "...(launch.kind === \"exam\"",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "tells a quiz with no lesson"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "      : none\n",
+    "to": "      : !none\n",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "tells a quiz with no lesson"
+  },
+  {
+    "file": "packages/pi/src/study/extension.ts",
+    "from": "            study: {\n              kind,",
+    "to": "            study: {\n              ...found,\n              kind,",
+    "test": "packages/pi/src/contract/study.pi.test.ts",
+    "name": "study-quiz-none",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "  \"Ask every multiple-choice question with the ask_user tool, as a question card with the choices as its options; never list the choices in your text instead.\",",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "has the quiz ask 5 to 10 questions"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "    \"Apart from adding to resources.md, do not create or edit any file in this session: nothing in lab/, no probe, scratch or test files.\",",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "has the plan propose the level's lessons"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "  \"Never say Atrium's internal ids (such as l1, s2 or g3) to the learner: call a level by its number and name, a lesson by its title, a gap by what it is about.\",",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "tells every use never to say Atrium's internal ids"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "    \"Do not create probe or scratch files to try things yourself.",
+    "to": "    \"Do create probe or scratch files to try things yourself.",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "has the lesson write no probe files"
+  }
+]

@@ -1,6 +1,7 @@
 import type { Direction, SessionSummary, StudyKind } from "@atrium/protocol";
 import { BookOpen, Idea, Message, Note, Quiz, Target, TerminalWindow } from "../design/icons";
 import { sessionTitle } from "../sidebar/names";
+import { loopSessionName } from "./loop";
 import { studyLabel } from "./progress";
 
 /** Each use's icon (design-language "学习模式", "宿主开的学习会话第一轮"). */
@@ -41,11 +42,14 @@ export function StudyIcon({
 }
 
 /**
- * A session's title: its own, else for a session the host opened for a use, the use and step.
+ * A session's title: its own name, else for a session the host opened for a use, the use.
  *
  * @remarks
- * A session the host opened starts with no message of yours, so until pi names it the use says
- * what it is: "上课 · 第 2 级第 4 步" (design-language "学习模式").
+ * SPEC-0008, "ML3 定的细节 · 宿主开的学习会话的名字" (2026-11-09, B): a session the host opened (a
+ * lesson, a quiz, Feynman, a cheat sheet, a project, an exam, a plan) is named by its use, never
+ * by your first message there ("上课 · 课名", "排计划 · 第 2 级", "费曼 · 漏洞文字前段"; `loopSessionName`,
+ * else "上课 · 第 2 级第 4 步"); a name of its own (one you gave it) wins. The discussion, asking and
+ * a session of no use keep the ordinary title, which your first message gives.
  *
  * @sideEffects none
  * @param session - The session.
@@ -57,14 +61,9 @@ export function studySessionTitle(
   direction: Pick<Direction, "progress"> | undefined,
 ): string {
   const { study } = session;
-  if (
-    session.name !== null ||
-    session.prompt !== null ||
-    study === null ||
-    study.kind === "discuss" ||
-    study.kind === "ask"
-  ) {
+  if (session.name !== null || study === null || study.kind === "discuss" || study.kind === "ask") {
     return sessionTitle(session);
   }
-  return studyLabel(study, direction?.progress ?? null);
+  const progress = direction?.progress ?? null;
+  return loopSessionName(study, progress) ?? studyLabel(study, progress);
 }

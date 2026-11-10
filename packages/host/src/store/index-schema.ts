@@ -156,6 +156,12 @@ const SessionRecord = z.looseObject({
   /** The parent a detached child had, for reading its visuals only (SPEC-0007, MV1 details); added in MV1. */
   detachedFrom: z.string().optional(),
   /**
+   * Where the archive that archived it started: the session archived with its subtree, itself for
+   * that one, so restoring a parent brings back only what went with it (SPEC-0008, "ML3 定的细节 ·
+   * 方向里归档了的会话"); added in ML3, dropped once it is restored.
+   */
+  archivedWith: z.string().optional(),
+  /**
    * A child's usage baseline: the last entry it copied from its parent, whose usage it does not
    * count; `null` when it copied none (SPEC-0002, "用量合计"); added in M1.15.
    */

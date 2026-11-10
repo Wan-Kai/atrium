@@ -45,6 +45,8 @@ export type CatalogEntry = Omit<
     readonly detachedFrom?: string;
     /** A child's usage baseline; `null` to count all of it (SPEC-0002, "用量合计"). */
     readonly usageAfter: string | null;
+    /** For an archived session, where the archive that took it started (SPEC-0008, ML3). */
+    readonly archivedWith?: string;
   };
 
 /** A new session's record: where it is, and for a child conversation its parent, name and baseline. */
@@ -83,9 +85,12 @@ export interface SessionCatalog {
   changeAgent(sessionId: string, change: (fields: AgentFields) => AgentFields): Promise<void>;
   /** Forgets a draft that was discarded. */
   forget(sessionId: string): Promise<void>;
-  /** Hides a session in Atrium; pi's file stays. */
-  archive(sessionId: string): Promise<void>;
-  /** Shows a session hidden by `archive` again. */
+  /**
+   * Hides a session in Atrium; pi's file stays. `withRoot` is the session the archive started
+   * from, kept so a restore brings back only what went with it (SPEC-0008, ML3).
+   */
+  archive(sessionId: string, withRoot?: string): Promise<void>;
+  /** Shows a session hidden by `archive` again, forgetting what it was archived with. */
   unarchive(sessionId: string): Promise<void>;
   /** Sets a session's attention or Fast, as given. */
   mark(sessionId: string, change: SessionMarks): Promise<void>;
@@ -294,6 +299,9 @@ export function createSessionCatalog(options: {
         fast: record?.fast ?? null,
         parent: parentOf(record),
         ...(record?.detachedFrom === undefined ? {} : { detachedFrom: record.detachedFrom }),
+        ...(record?.archived !== true || record.archivedWith === undefined
+          ? {}
+          : { archivedWith: record.archivedWith }),
         usageAfter: record?.usageAfter ?? null,
         study: studyOf(record),
         ...agentFieldsOf(record ?? {}),
@@ -319,6 +327,7 @@ export function createSessionCatalog(options: {
         fast: record.fast ?? null,
         parent: parentOf(record),
         ...(record.detachedFrom === undefined ? {} : { detachedFrom: record.detachedFrom }),
+        ...(!record.archived || record.archivedWith === undefined ? {} : { archivedWith: record.archivedWith }),
         usageAfter: record.usageAfter ?? null,
         study: studyOf(record),
         ...agentFieldsOf(record),
@@ -411,13 +420,17 @@ export function createSessionCatalog(options: {
    * @param sessionId - The session.
    * @param change - The fields to set.
    */
-  async function update(sessionId: string, change: SessionMarks & { readonly archived?: boolean }): Promise<void> {
+  async function update(
+    sessionId: string,
+    change: SessionMarks & { readonly archived?: boolean; readonly archivedWith?: string | undefined },
+  ): Promise<void> {
     const entry = list().find((candidate) => candidate.sessionId === sessionId);
     if (entry === undefined) return;
     const marks = {
       archived: entry.archived,
       attention: entry.attention,
       fast: entry.fast,
+      ...("archivedWith" in change ? { archivedWith: entry.archivedWith } : {}),
     };
     if (JSON.stringify({ ...marks, ...change }) === JSON.stringify(marks)) return;
     await write(entry, { ...change });
@@ -523,8 +536,9 @@ export function createSessionCatalog(options: {
       if (!sessions.some((record) => record.sessionId === sessionId && record.name !== name)) return;
       await save(sessions.map((record) => (record.sessionId === sessionId ? { ...record, name } : record)));
     },
-    archive: (sessionId) => update(sessionId, { archived: true }),
-    unarchive: (sessionId) => update(sessionId, { archived: false }),
+    archive: (sessionId, withRoot) =>
+      update(sessionId, { archived: true, ...(withRoot === undefined ? {} : { archivedWith: withRoot }) }),
+    unarchive: (sessionId) => update(sessionId, { archived: false, archivedWith: undefined }),
     mark: (sessionId, change) => update(sessionId, change),
     async changeAgent(sessionId, change) {
       const entry = list().find((candidate) => candidate.sessionId === sessionId);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type TreeEntry, ancestorsOf, archivePlan, childrenOf, descendantsOf } from "./child-tree";
+import { type TreeEntry, ancestorsOf, archivePlan, childrenOf, descendantsOf, restoreSet } from "./child-tree";
 
 /**
  * A session in a container, with its parent if it has one.
@@ -85,5 +85,54 @@ describe("archivePlan", () => {
     const deep = [at("p", "c", null), at("q", "c", "p"), at("r", "c", "q"), at("s", "d", "r"), at("t", "c", "s")];
 
     expect(archivePlan(deep, ["p"], "c")).toStrictEqual({ archive: ["q", "r"], detach: ["s"] });
+  });
+});
+
+describe("restoreSet (SPEC-0008, ML3 定的细节 · 方向里归档了的会话)", () => {
+  /**
+   * An archived session, with the session its archive started from.
+   *
+   * @sideEffects none
+   * @param sessionId - Its id.
+   * @param parent - Its parent's id; `null` for none.
+   * @param withRoot - Where its archive started; `undefined` for none recorded.
+   * @param containerId - Its container.
+   * @returns The entry.
+   */
+  const shelved = (sessionId: string, parent: string | null, withRoot?: string, containerId = "lrn_go") => ({
+    ...at(sessionId, containerId, parent, true),
+    ...(withRoot === undefined ? {} : { archivedWith: withRoot }),
+  });
+  /** lesson → quiz (archived alone first), feynman, quiz2 → deep; all but quiz archived with the lesson. */
+  const LEVEL = [
+    shelved("lesson", null, "lesson"),
+    shelved("quiz", "lesson", "quiz"),
+    shelved("quiz2", "lesson", "lesson"),
+    shelved("deep", "quiz2", "lesson"),
+    shelved("old", "lesson"),
+    shelved("away", "lesson", "lesson", "wks_0123456789abcdef"),
+    at("live", "lrn_go", "lesson"),
+  ];
+
+  it("restores a parent with what was archived with it, not a child archived alone before", () => {
+    expect([...restoreSet(LEVEL, ["lesson"])].toSorted()).toStrictEqual(["deep", "lesson", "old", "quiz2"]);
+  });
+
+  it("restores a child with its archived ancestors, each alone, and its own descendants archived with it", () => {
+    expect([...restoreSet(LEVEL, ["deep"])].toSorted()).toStrictEqual(["deep", "lesson", "quiz2"]);
+    expect([...restoreSet(LEVEL, ["quiz"])].toSorted()).toStrictEqual(["lesson", "quiz"]);
+  });
+
+  it("skips one not archived or unknown, and stops at a loop or another container", () => {
+    const loop = [
+      shelved("x", "y", "x"),
+      shelved("y", "x", "x"),
+      shelved("z", null, "z", "lrn_b"),
+      shelved("w", "z", "w"),
+    ];
+
+    expect([...restoreSet(LEVEL, ["live", "nobody"])]).toStrictEqual([]);
+    expect([...restoreSet(loop, ["x"])].toSorted()).toStrictEqual(["x", "y"]);
+    expect([...restoreSet(loop, ["w"])]).toStrictEqual(["w"]);
   });
 });

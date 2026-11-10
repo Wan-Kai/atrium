@@ -1,14 +1,14 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 36,
+    "protocolVersion": 37,
     "clientId": "c1",
     "token": "t",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
     "type": "hello",
-    "protocolVersion": 36,
+    "protocolVersion": 37,
     "clientId": "dev_0123456789abcdef",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
@@ -427,6 +427,32 @@
     "requestId": "r19q",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
     "sessionId": "s1"
+  },
+  {
+    "type": "start_study_session",
+    "requestId": "r19r",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "directionId": "lrn_node-backend",
+    "kind": "plan",
+    "level": "l3"
+  },
+  {
+    "type": "upgrade_study",
+    "requestId": "r19s",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "directionId": "lrn_node-backend",
+    "level": "l2",
+    "archiveSessions": true
+  },
+  {
+    "type": "restore_study_sessions",
+    "requestId": "r19t",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "directionId": "lrn_node-backend",
+    "sessionIds": [
+      "s1",
+      "s2"
+    ]
   },
   {
     "type": "close_tab",

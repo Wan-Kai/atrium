@@ -18,6 +18,7 @@ export type StudyRuleCode =
   | "study_not_allowed"
   | "study_mark_refused"
   | "study_gaps_full"
+  | "study_not_available"
   | "agent_bad_request";
 
 /**
@@ -46,9 +47,6 @@ export class StudyRuleError extends Error {
     super(code);
   }
 }
-
-/** The sessions ML2 can open; the quiz, Feynman and the upgrade come in ML3 (SPEC-0008, "ML2 定的细节"). */
-const AVAILABLE: ReadonlySet<StudyKind> = new Set(["lesson", "sheet", "project", "exam"]);
 
 /** The steps the host puts after a level's lessons, in order (SPEC-0008, "一级 = 一串步骤"). */
 const AFTER_LESSONS = ["sheet", "project", "exam", "up"] as const;
@@ -192,19 +190,31 @@ export function setLadder(
  * The current level's lessons written, when it has none (`study_set_steps`).
  *
  * @remarks
- * For the plan session after an upgrade (ML3).
+ * For the plan session after an upgrade (ML3), only for the level it was opened for: an old plan
+ * session kept or restored never writes a later level's (SPEC-0008, "ML3 定的细节 · 排计划"). A level
+ * with no steps gets the lessons and the four steps after them; one hand-edited down to some of
+ * those four keeps them after the lessons, the lessons numbered after their ids.
  *
  * @sideEffects none
  * @param file - The file.
  * @param lessons - The lessons' titles.
+ * @param level - The level the plan session is recorded at.
  * @returns The file changed.
- * @throws {StudyRuleError} `study_not_found` without a current level; `study_steps_set` when it has steps.
+ * @throws {StudyRuleError} `study_not_found` without a current level; `study_not_allowed` for
+ * another level; `study_steps_set` when it has lessons.
  */
-export function setSteps(file: StudyFile, lessons: readonly string[]): StudyFile {
-  const current = file.ladder?.find((level) => level.state === "current");
+export function setSteps(file: StudyFile, lessons: readonly string[], level: string | undefined): StudyFile {
+  const current = file.ladder?.find((one) => one.state === "current");
   if (current === undefined) throw new StudyRuleError("study_not_found");
-  if ((file.steps?.[current.id]?.length ?? 0) > 0) throw new StudyRuleError("study_steps_set");
-  return { ...file, steps: { ...file.steps, [current.id]: stepsFor(lessons) } };
+  if (level !== current.id) throw new StudyRuleError("study_not_allowed");
+  const there = file.steps?.[current.id] ?? [];
+  if (there.some((step) => step.kind === "lesson")) throw new StudyRuleError("study_steps_set");
+  if (there.length === 0) return { ...file, steps: { ...file.steps, [current.id]: stepsFor(lessons) } };
+  const added: FileStep[] = [];
+  for (const title of lessons) {
+    added.push({ id: nextId("s", [...there, ...added]), kind: "lesson", title, lesson: null, quiz: null, done: null });
+  }
+  return { ...file, steps: { ...file.steps, [current.id]: [...added, ...there] } };
 }
 
 /**
@@ -362,16 +372,19 @@ export function fixGap(file: StudyFile, gapId: string): StudyFile {
  * A gap marked fixed by hand, or that mark taken back (`mark_study_gap`).
  *
  * @remarks
- * SPEC-0008, "手动标完成": only a gap not fixed is marked; only a manual mark is taken back.
+ * SPEC-0008, "手动标完成": only a gap not fixed is marked; only a manual mark is taken back; nothing
+ * in a finished direction.
  *
  * @sideEffects none
  * @param file - The file.
  * @param gapId - The gap.
  * @param fixed - Mark it, or take the mark back.
  * @returns The file changed.
- * @throws {StudyRuleError} `study_not_found` or `study_mark_refused`.
+ * @throws {StudyRuleError} `study_mark_refused` in a finished direction, or as above; `study_not_found`.
  */
 export function markGap(file: StudyFile, gapId: string, fixed: boolean): StudyFile {
+  // A finished direction is only looked back on (SPEC-0008, "ML2 定的细节").
+  if ((file.finishedAt ?? null) !== null) return refused();
   return withGap(file, gapId, (gap) => {
     if (fixed ? gap.fixed !== null : gap.fixed?.by !== "manual") throw new StudyRuleError("study_mark_refused");
     return { ...gap, fixed: fixed ? { by: "manual" } : null };
@@ -400,7 +413,8 @@ function refused(): never {
  *   the whole step its lesson and quiz; `later` needs the lesson taught and no quiz, and is done;
  * - only a manual mark is taken back, with the manual marks after it on the step; the whole
  *   step's takes back the parts it marked with it (`parts`), unless the agent reported them since;
- * - a step after the lessons has only `step`, and the upgrade none.
+ * - a step after the lessons has only `step`, and the upgrade none;
+ * - nothing in a finished direction (ML3).
  *
  * @sideEffects none
  * @param file - The file.
@@ -412,6 +426,8 @@ function refused(): never {
  * @throws {StudyRuleError} `study_not_found` or `study_mark_refused`.
  */
 export function markStep(file: StudyFile, level: string, step: string, mark: StepMark, done: boolean): StudyFile {
+  // A finished direction is only looked back on (SPEC-0008, "ML2 定的细节").
+  if ((file.finishedAt ?? null) !== null) return refused();
   return withStep(file, level, step, (found) => {
     const manual = { by: "manual" as const };
     if (found.kind !== "lesson") {
@@ -472,28 +488,58 @@ export function markStep(file: StudyFile, level: string, step: string, mark: Ste
   });
 }
 
+/** A step-strip button that starts a session. */
+export type StartAction = Extract<StudyAction, { type: "start" }>;
+
 /**
- * Starting a session for a step: available or not, as ML2 can open it.
+ * Starting a session for a use.
  *
  * @remarks
- * See `nextOf`.
+ * Every use can be opened since ML3 (SPEC-0008, "ML3 定的细节 · 协议"); a plan has no step, nor
+ * Feynman on a gap from an earlier level.
  *
  * @sideEffects none
  * @param kind - The use.
  * @param level - The level.
- * @param step - The step.
+ * @param step - The step, if any.
  * @param gap - The gap, for Feynman.
  * @returns The action.
  */
-function startAction(kind: StudyKind, level: string, step: string, gap?: string): StudyAction {
-  return { type: "start", kind, level, step, ...(gap === undefined ? {} : { gap }), available: AVAILABLE.has(kind) };
+function startAction(kind: StudyKind, level: string, step?: string, gap?: string): StartAction {
+  return {
+    type: "start",
+    kind,
+    level,
+    ...(step === undefined ? {} : { step }),
+    ...(gap === undefined ? {} : { gap }),
+    available: true,
+  };
 }
 
 /**
- * The session already open for what a start would open: the latest of those not archived.
+ * The session open for a use, level, step and gap: the latest of those not archived.
  *
  * @remarks
- * Running or not (SPEC-0008, "ML2 定的细节"), so a step never gets a second session.
+ * Running or not (SPEC-0008, "ML2 定的细节"), so a step never gets a second session; a start asked
+ * for what has one gets it back (SPEC-0008, "ML3 定的细节 · 费曼和补测从哪开").
+ *
+ * @sideEffects none
+ * @param study - The use, level, step and gap.
+ * @param sessions - The direction's sessions.
+ * @returns The session, or `null`.
+ */
+export function existingFor(study: StartFields, sessions: readonly StudySession[]): string | null {
+  const open = sessions
+    .filter((session) => !session.archived && session.study !== null && sameStart(session.study, study))
+    .toSorted((a, b) => b.updatedAt - a.updatedAt)[0];
+  return open?.sessionId ?? null;
+}
+
+/**
+ * The session already open for what a start would open, or the start.
+ *
+ * @remarks
+ * See `existingFor`.
  *
  * @sideEffects none
  * @param action - The start.
@@ -502,29 +548,99 @@ function startAction(kind: StudyKind, level: string, step: string, gap?: string)
  */
 function openFor(action: StudyAction, sessions: readonly StudySession[]): StudyAction {
   if (action.type !== "start") return action;
-  const open = sessions
-    .filter(
-      ({ study, archived }) =>
-        !archived &&
-        study?.kind === action.kind &&
-        study.level === action.level &&
-        study.step === action.step &&
-        study.gap === action.gap,
-    )
-    .toSorted((a, b) => b.updatedAt - a.updatedAt)[0];
-  return open === undefined ? action : { type: "open", sessionId: open.sessionId };
+  const open = existingFor(action, sessions);
+  return open === null ? action : { type: "open", sessionId: open };
+}
+
+/** Whether a direction can be gone on with: archived, broken, of a later version or finished cannot. */
+type DirectionState = { readonly archived: boolean; readonly broken: boolean; readonly newer: boolean };
+
+/**
+ * The current level of a direction that can be gone on with.
+ *
+ * @remarks
+ * See `nextOf`.
+ *
+ * @sideEffects none
+ * @param progress - The progress, or `null` under discussion.
+ * @param state - Whether it is archived, broken or newer.
+ * @returns The level, or `undefined`.
+ */
+function currentLevel(progress: StudyProgress | null, state: DirectionState) {
+  if (progress === null || state.archived || state.broken || state.newer || progress.finishedAt !== null) {
+    return undefined;
+  }
+  return progress.ladder.find((one) => one.state === "current");
 }
 
 /**
- * What the step strip offers (SPEC-0008, "下一步怎么算", "ML2 定的细节").
+ * The step strip's buttons before a start is matched to the session it would open.
  *
  * @remarks
- * The current step is the current level's first not done. A lesson: not taught, start it; taught
- * and not quizzed, the quiz, or put it off; quizzed with a gap of this step not fixed, Feynman on
- * the first, or go on; else go on. The steps after the lessons: start each; the upgrade last. A
- * start whose session is open goes back to it. An archived or broken direction, one whose file is
- * of a later version (read, never written), one finished, and one with no current level or steps
- * offer nothing.
+ * See `nextOf`.
+ *
+ * @sideEffects none
+ * @param progress - The progress, or `null` under discussion.
+ * @param state - Whether it is archived, broken or newer.
+ * @returns The two buttons.
+ */
+function buttonsOf(progress: StudyProgress | null, state: DirectionState): StudyNext {
+  const none: StudyNext = { primary: null, secondary: null };
+  const level = currentLevel(progress, state);
+  if (progress === null || level === undefined) return none;
+  const levelSteps = progress.steps[level.id] ?? [];
+  // A level with no lessons yet, as after an upgrade: plan it (SPEC-0008, "ML3 定的细节 · 升级").
+  if (!levelSteps.some((one) => one.kind === "lesson"))
+    return { primary: startAction("plan", level.id), secondary: null };
+  const step = levelSteps.find((one) => one.done === null);
+  if (step === undefined) return none;
+  const at = { level: level.id, step: step.id };
+  /**
+   * The first gap not fixed that a step of this level found.
+   *
+   * @remarks
+   * The one Feynman is offered on.
+   *
+   * @sideEffects none
+   * @param stepId - The step.
+   * @returns The gap, or `undefined`.
+   */
+  const gapOf = (stepId: string | undefined) =>
+    progress.gaps.find((one) => one.fixed === null && one.from.level === level.id && one.from.step === stepId);
+  if (step.kind === "up") {
+    // The exam's gaps first, but not in the way (SPEC-0008, "ML3 定的细节 · 综合测验的漏洞和升级").
+    const up: StudyAction = { type: "upgrade", level: level.id, available: true };
+    const exam = levelSteps.find((one) => one.kind === "exam");
+    const gap = gapOf(exam?.id);
+    return gap === undefined
+      ? { primary: up, secondary: null }
+      : { primary: startAction("feynman", level.id, gap.from.step, gap.id), secondary: up };
+  }
+  if (step.kind !== "lesson") return { primary: startAction(step.kind, at.level, at.step), secondary: null };
+  if (step.lesson === null) return { primary: startAction("lesson", at.level, at.step), secondary: null };
+  if (step.quiz === null) {
+    return { primary: startAction("quiz", at.level, at.step), secondary: { type: "mark", mark: "later", ...at } };
+  }
+  const gap = gapOf(at.step);
+  return gap === undefined
+    ? { primary: { type: "mark", mark: "step", ...at }, secondary: null }
+    : {
+        primary: startAction("feynman", at.level, at.step, gap.id),
+        secondary: { type: "mark", mark: "step", ...at },
+      };
+}
+
+/**
+ * What the step strip offers (SPEC-0008, "下一步怎么算", "ML2 定的细节", "ML3 定的细节").
+ *
+ * @remarks
+ * The current step is the current level's first not done. A level with no lessons yet: plan it. A
+ * lesson: not taught, start it; taught and not quizzed, the quiz, or put it off; quizzed with a
+ * gap of this step not fixed, Feynman on the first, or go on; else go on. The steps after the
+ * lessons: start each; the upgrade last, after Feynman on the exam's first gap not fixed when
+ * there is one. A start whose session is open goes back to it. An archived or broken direction,
+ * one whose file is of a later version (read, never written), one finished, and one with no
+ * current level offer nothing.
  *
  * @sideEffects none
  * @param progress - The progress, or `null` under discussion.
@@ -535,40 +651,126 @@ function openFor(action: StudyAction, sessions: readonly StudySession[]): StudyA
 export function nextOf(
   progress: StudyProgress | null,
   sessions: readonly StudySession[],
-  state: { readonly archived: boolean; readonly broken: boolean; readonly newer: boolean },
+  state: DirectionState,
 ): StudyNext {
-  const none: StudyNext = { primary: null, secondary: null };
-  if (progress === null || state.archived || state.broken || state.newer || progress.finishedAt !== null) {
-    return none;
-  }
-  const level = progress.ladder.find((one) => one.state === "current");
-  const step = level === undefined ? undefined : progress.steps[level.id]?.find((one) => one.done === null);
-  if (level === undefined || step === undefined) return none;
-  const at = { level: level.id, step: step.id };
-  let next: StudyNext;
-  if (step.kind !== "lesson") {
-    next = {
-      primary:
-        step.kind === "up"
-          ? { type: "upgrade", level: level.id, available: false }
-          : startAction(step.kind, at.level, at.step),
-      secondary: null,
-    };
-  } else if (step.lesson === null) {
-    next = { primary: startAction("lesson", at.level, at.step), secondary: null };
-  } else if (step.quiz === null) {
-    next = { primary: startAction("quiz", at.level, at.step), secondary: { type: "mark", mark: "later", ...at } };
-  } else {
-    const gap = progress.gaps.find(
-      (one) => one.fixed === null && one.from.level === at.level && one.from.step === at.step,
-    );
-    next =
-      gap === undefined
-        ? { primary: { type: "mark", mark: "step", ...at }, secondary: null }
-        : {
-            primary: startAction("feynman", at.level, at.step, gap.id),
-            secondary: { type: "mark", mark: "step", ...at },
-          };
-  }
+  const next = buttonsOf(progress, state);
   return { primary: next.primary === null ? null : openFor(next.primary, sessions), secondary: next.secondary };
+}
+
+/**
+ * The sessions that can be started now (SPEC-0008, "ML3 定的细节 · 费曼和补测从哪开").
+ *
+ * @remarks
+ * The main button's start (a plan included); Feynman on every gap not fixed, of any level, as a
+ * session of the current level, with the gap's step only when the gap is of this level; the quiz
+ * of every step of the current level put off ("以后再测"). Nothing for a direction that cannot be
+ * gone on with. `start_study_session` takes only these.
+ *
+ * @sideEffects none
+ * @param progress - The progress, or `null` under discussion.
+ * @param state - Whether the direction is archived, its file broken or of a later version.
+ * @returns The starts, without repeats.
+ */
+export function startable(progress: StudyProgress | null, state: DirectionState): StartAction[] {
+  const level = currentLevel(progress, state);
+  if (progress === null || level === undefined) return [];
+  const starts: StartAction[] = [];
+  /**
+   * Adds a start not listed yet.
+   *
+   * @remarks
+   * The main button's Feynman is a gap's too.
+   *
+   * @sideEffects Updates `starts`.
+   * @param action - The start.
+   */
+  const add = (action: StartAction) => {
+    if (!starts.some((one) => sameStart(one, action))) starts.push(action);
+  };
+  const { primary } = buttonsOf(progress, state);
+  if (primary?.type === "start") add(primary);
+  for (const gap of progress.gaps) {
+    if (gap.fixed !== null) continue;
+    add(startAction("feynman", level.id, gap.from.level === level.id ? gap.from.step : undefined, gap.id));
+  }
+  for (const step of progress.steps[level.id] ?? []) {
+    if (step.kind === "lesson" && step.quiz?.by === "later") add(startAction("quiz", level.id, step.id));
+  }
+  return starts;
+}
+
+/** What a start opens: a use, at a level, step and gap. */
+type StartFields = Pick<SessionStudy, "kind" | "level" | "step" | "gap">;
+
+/**
+ * Whether two starts open the same: the same use, level, step and gap.
+ *
+ * @remarks
+ * See `startable`.
+ *
+ * @sideEffects none
+ * @param a - One.
+ * @param b - The other.
+ * @returns Whether.
+ */
+export function sameStart(a: StartFields, b: StartFields): boolean {
+  return a.kind === b.kind && a.level === b.level && a.step === b.step && a.gap === b.gap;
+}
+
+/** The uses whose sessions are a level's, archived with it (SPEC-0008, "ML3 定的细节 · 升级确认框"). */
+const LEVEL_USES: ReadonlySet<StudyKind> = new Set(["plan", "lesson", "quiz", "feynman", "sheet", "project", "exam"]);
+
+/**
+ * The sessions of a level an upgrade archives.
+ *
+ * @remarks
+ * Not archived, recorded at the level, for any use but the discussion and asking; their children
+ * go with them when they are archived (SPEC-0002). By the sessions' records, not the file: a level
+ * the agent edited by hand may leave some out (accepted, SPEC-0008).
+ *
+ * @sideEffects none
+ * @param sessions - The direction's sessions.
+ * @param level - The level.
+ * @returns Their ids, in the order given.
+ */
+export function levelSessions(sessions: readonly StudySession[], level: string): string[] {
+  return sessions
+    .filter(({ study, archived }) => !archived && study !== null && study.level === level && LEVEL_USES.has(study.kind))
+    .map(({ sessionId }) => sessionId);
+}
+
+/**
+ * A level upgraded (`upgrade_study`, SPEC-0008, "ML3 定的细节 · 升级").
+ *
+ * @remarks
+ * Only the current level, and only once its upgrade is the step to do (every step before it done):
+ * the upgrade is marked done by you (you pressed it; no mark makes or takes it back), the level
+ * done, and the first level after it still to learn current, skipped ones left; after the last,
+ * the direction is finished at `now`. The next level's lessons come from its plan session.
+ *
+ * @sideEffects none
+ * @param file - The file.
+ * @param level - The level the client saw as current.
+ * @param now - The time, as ISO text, for `finishedAt`.
+ * @returns The file changed.
+ * @throws {StudyRuleError} `study_not_available` otherwise, as when a second window upgrades again.
+ */
+export function upgrade(file: StudyFile, level: string, now: string): StudyFile {
+  const levels = file.ladder ?? [];
+  const at = levels.findIndex((one) => one.id === level && one.state === "current");
+  const levelSteps = file.steps?.[level] ?? [];
+  const step = levelSteps.find((one) => one.done === null);
+  if (at === -1 || step?.kind !== "up") throw new StudyRuleError("study_not_available");
+  const next = levels.findIndex((one, index) => index > at && one.state === "todo");
+  return {
+    ...file,
+    ladder: levels.map((one, index) =>
+      index === at ? { ...one, state: "done" } : index === next ? { ...one, state: "current" } : one,
+    ),
+    steps: {
+      ...file.steps,
+      [level]: levelSteps.map((one) => (one === step ? { ...one, done: { by: "manual" } } : one)),
+    },
+    ...(next === -1 ? { finishedAt: now } : {}),
+  };
 }

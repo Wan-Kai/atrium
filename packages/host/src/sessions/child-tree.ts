@@ -142,3 +142,50 @@ export function agentDepth(entries: readonly TreeEntry[], sessionId: string): nu
   }
   return depth;
 }
+
+/**
+ * The sessions a restore brings back: each archived one asked for, its archived ancestors in its
+ * container, and its descendants archived with it.
+ *
+ * @remarks
+ * SPEC-0008, "ML3 定的细节 · 方向里归档了的会话" (2026-11-09, A): no live session is left under an
+ * archived one, so the ancestors come back, each alone; a descendant comes back only when its
+ * record says it was archived with the same archive (`archivedWith`), or says nothing, as one
+ * archived before that was recorded. A loop in the parents ends the walk.
+ *
+ * @sideEffects none
+ * @param entries - Every session.
+ * @param sessionIds - The sessions asked for.
+ * @returns Their ids, without repeats.
+ */
+export function restoreSet(
+  entries: readonly (TreeEntry & { readonly archivedWith?: string })[],
+  sessionIds: readonly string[],
+): Set<string> {
+  const byId = new Map(entries.map((entry) => [entry.sessionId, entry]));
+  const back = new Set<string>();
+  for (const sessionId of sessionIds) {
+    const entry = byId.get(sessionId);
+    if (entry?.archived !== true) continue;
+    back.add(sessionId);
+    const seen = new Set([sessionId]);
+    for (let at = byId.get(entry.parent?.sessionId ?? ""); at !== undefined && !seen.has(at.sessionId);) {
+      seen.add(at.sessionId);
+      if (at.containerId !== entry.containerId) break;
+      if (at.archived) back.add(at.sessionId);
+      at = byId.get(at.parent?.sessionId ?? "");
+    }
+    const batch = entry.archivedWith ?? sessionId;
+    const queue = [sessionId];
+    for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+      for (const child of childrenOf(entries, next)) {
+        const withIt = child.archivedWith === undefined || child.archivedWith === batch;
+        if (!child.archived || child.containerId !== entry.containerId || !withIt || back.has(child.sessionId))
+          continue;
+        back.add(child.sessionId);
+        queue.push(child.sessionId);
+      }
+    }
+  }
+  return back;
+}

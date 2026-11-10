@@ -320,7 +320,7 @@ describe("learning directions over the WebSocket (SPEC-0008, ML1)", () => {
     await first.client.markStudyStep("lrn_go", "l1", "s1", "lesson", true);
 
     expect(first.client.index.getState().directions[0]?.next).toStrictEqual({
-      primary: { type: "start", kind: "quiz", level: "l1", step: "s1", available: false },
+      primary: { type: "start", kind: "quiz", level: "l1", step: "s1", available: true },
       secondary: { type: "mark", mark: "later", level: "l1", step: "s1" },
     });
     expect(JSON.parse(await readFile(join(root, "go", ".atrium-study.json"), "utf8"))).toMatchObject({
@@ -329,7 +329,7 @@ describe("learning directions over the WebSocket (SPEC-0008, ML1)", () => {
     });
     await expect(first.client.markStudyGap("lrn_go", "g1", true)).rejects.toMatchObject({ code: "study_not_found" });
     await expect(
-      first.client.startStudySession("lrn_go", { kind: "quiz", level: "l1", step: "s1" }),
+      first.client.startStudySession("lrn_go", { kind: "sheet", level: "l1", step: "s1" }),
     ).rejects.toMatchObject({ code: "study_not_available" });
     await first.host.dispose();
     const second = await studyHost(undefined, root);
@@ -338,6 +338,69 @@ describe("learning directions over the WebSocket (SPEC-0008, ML1)", () => {
       expect(second.client.index.getState().directions[0]?.progress?.steps["l1"]?.[0]).toMatchObject({
         lesson: { by: "manual" },
       }),
+    );
+  });
+
+  it("upgrades over the WebSocket: the file, the level's session archived and restorable, the plan opened (ML3)", async () => {
+    const learning = await createTempDir("study-learning");
+    onTestFinished(learning.cleanup);
+    const root = join(await realpath(learning.path), "Learning");
+    const done = { by: "manual" };
+    const marker = {
+      version: 1,
+      name: "Go",
+      ladder: [
+        { id: "l1", name: "语法", topics: "", pass: "", state: "current" },
+        { id: "l2", name: "并发", topics: "", pass: "", state: "todo" },
+      ],
+      steps: {
+        l1: [
+          { id: "s1", kind: "lesson", title: "变量", lesson: done, quiz: done, done },
+          { id: "s2", kind: "sheet", done },
+          { id: "s3", kind: "project", done },
+          { id: "s4", kind: "exam", done: null },
+          { id: "s5", kind: "up", done: null },
+        ],
+      },
+      gaps: [],
+      finishedAt: null,
+    };
+    await mkdir(join(root, "go"), { recursive: true });
+    await writeFile(join(root, "go", ".atrium-study.json"), JSON.stringify(marker));
+    const { host, client } = await studyHost(undefined, root);
+    // The scripted pi lists no study command and answers as one session only: the starts fail, as
+    // their own tests show; here only the upgrade matters.
+    for (const msg of ["study session not started", "study extension not loaded"]) {
+      host.expectLog({ level: "warn", msg, optional: true });
+    }
+    await vi.waitFor(() => expect(client.index.getState().directions[0]?.next.primary).toMatchObject({ kind: "exam" }));
+    const { sessionId: exam } = await client.startStudySession("lrn_go", { kind: "exam", level: "l1", step: "s4" });
+    await client.markStudyStep("lrn_go", "l1", "s4", "step", true);
+
+    await expect(client.upgradeStudy("lrn_go", "l2", true)).rejects.toMatchObject({ code: "study_not_available" });
+    const { planSessionId, notArchived } = await client.upgradeStudy("lrn_go", "l1", true);
+
+    expect(notArchived).toBe(0);
+    const written = JSON.parse(await readFile(join(root, "go", ".atrium-study.json"), "utf8")) as typeof marker;
+    expect(written.ladder.map((level) => level.state)).toStrictEqual(["done", "current"]);
+    await vi.waitFor(() => {
+      const { sessions, directions } = client.index.getState();
+      expect(sessions.find((one) => one.sessionId === exam)?.archived).toBe(true);
+      expect(sessions.find((one) => one.sessionId === planSessionId)?.study).toStrictEqual({
+        kind: "plan",
+        level: "l2",
+      });
+      expect(directions[0]?.next.primary).toStrictEqual({ type: "open", sessionId: planSessionId });
+    });
+    await expect(client.upgradeStudy("lrn_go", "l1", true)).rejects.toMatchObject({ code: "study_not_available" });
+    await expect(client.restoreStudySessions("lrn_go", [exam, "pi-session-x"])).rejects.toMatchObject({
+      code: "session_not_found",
+    });
+
+    await client.restoreStudySessions("lrn_go", [exam]);
+
+    await vi.waitFor(() =>
+      expect(client.index.getState().sessions.find((one) => one.sessionId === exam)?.archived).toBe(false),
     );
   });
 });

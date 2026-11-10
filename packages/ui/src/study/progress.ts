@@ -49,11 +49,12 @@ export function currentLevel(progress: StudyProgress): NumberedLevel | null {
 }
 
 /**
- * The level the strip and the home show: the current one, or the last once none is.
+ * The level the strip and the home show: the current one, or the last learnt once none is.
  *
  * @remarks
- * A finished direction has no current level; its last level's steps stay shown, all lit, with
- * their sessions (prototype 2D).
+ * A finished direction has no current level; the last level it learnt (`done`, not a skipped one
+ * after it) stays shown, all lit, with its sessions (prototype 2D; SPEC-0008, "ML3 定的细节 · 升级").
+ * With none learnt, the ladder's last.
  *
  * @sideEffects none
  * @param progress - The progress.
@@ -62,25 +63,52 @@ export function currentLevel(progress: StudyProgress): NumberedLevel | null {
 export function shownLevel(progress: StudyProgress): NumberedLevel | null {
   const current = currentLevel(progress);
   if (current !== null) return current;
-  const last = progress.ladder.at(-1);
-  return last === undefined ? null : { id: last.id, number: progress.ladder.length, name: last.name };
+  const learnt = progress.ladder.findLastIndex((level) => level.state === "done");
+  const at = learnt === -1 ? progress.ladder.length - 1 : learnt;
+  const last = progress.ladder[at];
+  return last === undefined ? null : { id: last.id, number: at + 1, name: last.name };
+}
+
+/**
+ * The number of the level an upgrade from a level goes to: the first after it not skipped.
+ *
+ * @remarks
+ * As the confirmation and the host pick it (SPEC-0008, "ML3 定的细节 · 升级"); `null` after the
+ * last level to learn, which finishes the direction.
+ *
+ * @sideEffects none
+ * @param ladder - The ladder.
+ * @param levelNumber - The level's number, from 1.
+ * @returns The number, or `null`.
+ */
+function nextLevelNumber(ladder: readonly StudyProgress["ladder"][number][], levelNumber: number): number | null {
+  const at = ladder.findIndex((level, index) => index >= levelNumber && level.state !== "skipped");
+  return at === -1 ? null : at + 1;
 }
 
 /**
  * A step's title as the UI shows it: a lesson's own, or its kind's name for the steps after.
  *
  * @remarks
- * The upgrade names the level it goes up to when there is one (prototype: "升到第 3 级").
+ * The upgrade names the level it goes up to, the first after it not skipped (prototype: "升到第 3
+ * 级"), or "学完最后一级" with none (SPEC-0008, "ML3 定的细节 · 升级").
  *
  * @sideEffects none
  * @param step - The step.
  * @param levelNumber - Its level's number.
- * @param levels - How many levels the ladder has.
+ * @param ladder - The ladder.
  * @returns The title.
  */
-export function stepTitle(step: StudyStep, levelNumber: number, levels: number): string {
+export function stepTitle(
+  step: StudyStep,
+  levelNumber: number,
+  ladder: readonly StudyProgress["ladder"][number][],
+): string {
   if (step.kind === "lesson") return step.title;
-  if (step.kind === "up") return levelNumber < levels ? `升到第 ${String(levelNumber + 1)} 级` : "学完最后一级";
+  if (step.kind === "up") {
+    const next = nextLevelNumber(ladder, levelNumber);
+    return next === null ? "学完最后一级" : `升到第 ${String(next)} 级`;
+  }
   return KIND_NAMES[step.kind];
 }
 
@@ -141,39 +169,69 @@ export function lessonParts(
  * Where the current step stands, in a few words, after its title on the strip.
  *
  * @remarks
- * A lesson's part; "进行中" while its session runs.
+ * A lesson's part; "进行中" while its session runs. A lesson quizzed with gaps open says the score
+ * and how many (prototype 2A: "测验 32/50 · 2 个漏洞"); the upgrade, how many of the exam's gaps
+ * are open, else nothing.
  *
  * @sideEffects none
  * @param step - The step.
  * @param level - Its level's id.
  * @param gaps - The direction's gaps.
  * @param running - Whether the session open for it runs.
+ * @param steps - The level's steps, for the upgrade's exam.
  * @returns The words.
  */
-export function stepPhase(step: StudyStep, level: string, gaps: readonly StudyGap[], running: boolean): string {
+export function stepPhase(
+  step: StudyStep,
+  level: string,
+  gaps: readonly StudyGap[],
+  running: boolean,
+  steps: readonly StudyStep[] = [],
+): string {
   if (running) return "进行中";
+  /**
+   * How many gaps of a step of this level are open.
+   *
+   * @remarks
+   * As the strip's Feynman button counts them.
+   *
+   * @sideEffects none
+   * @param id - The step.
+   * @returns How many.
+   */
+  const open = (id: string | undefined): number =>
+    gaps.filter((gap) => gap.fixed === null && gap.from.level === level && gap.from.step === id).length;
+  if (step.kind === "up") {
+    const exam = open(steps.find((one) => one.kind === "exam")?.id);
+    return exam === 0 ? "" : `综合测验还有 ${String(exam)} 个漏洞`;
+  }
   if (step.kind !== "lesson") return "还没开始";
   if (step.lesson === null) return "还没开始";
   if (step.quiz === null) return "上课完成";
-  return lessonParts(step, level, gaps)[2] === "gap" ? "有漏洞没补" : "测完了";
+  const count = open(step.id);
+  if (count === 0) return "测完了";
+  const score = step.quiz.by === "agent" ? `测验 ${String(step.quiz.score)}/${String(step.quiz.of)} · ` : "";
+  return `${score}${String(count)} 个漏洞`;
 }
 
 /**
  * A strip button's words.
  *
  * @remarks
- * SPEC-0008, "下一步怎么算": what each action of the host's next step is called.
+ * SPEC-0008, "下一步怎么算": what each action of the host's next step is called; the last
+ * level's upgrade finishes the direction, "学完" (prototype 2A).
  *
  * @sideEffects none
  * @param action - The action.
+ * @param last - Whether the upgrade is from the last level.
  * @returns The words.
  */
-export function actionLabel(action: StudyAction): string {
+export function actionLabel(action: StudyAction, last = false): string {
   switch (action.type) {
     case "open":
       return "回到会话";
     case "upgrade":
-      return "升级";
+      return last ? "学完" : "升级";
     case "mark":
       return action.mark === "later" ? "以后再测" : "进入下一步";
     case "start":
@@ -260,8 +318,8 @@ export function stripView(
         ? null
         : {
             number: currentAt + 1,
-            title: stepTitle(current, level.number, progress.ladder.length),
-            phase: stepPhase(current, level.id, progress.gaps, running),
+            title: stepTitle(current, level.number, progress.ladder),
+            phase: stepPhase(current, level.id, progress.gaps, running, steps),
           },
   };
 }
