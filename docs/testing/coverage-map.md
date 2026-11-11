@@ -4,7 +4,20 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
-## T1 worktree 加固（SPEC-0006"工作区"，2026-11-04，待验收）
+## 行内公式认 `$…$`（SPEC-0001“回复渲染”，2026-11-11，待验收）
+
+模型写行内公式几乎都用 `$…$`，`$\rightarrow$`、`$x_i$` 这类原先原样显示成乱码（用户截图反馈，一屏几乎不可读）。原先 SPEC 明确不启用单个 `$`，理由是会和 shell 变量、价格冲突；现在改成有条件地认，冲突的几种写法仍当文字。
+
+| 行为 | 测试 | 破坏检查 |
+|---|---|---|
+| 同一行成对的 `$…$` 改写成 `$$…$$` 后由 KaTeX 渲染；紧跟中文、内部有空格、以数字结尾、带 `+` 都算公式 | `packages/ui/src/chat/markdown-transforms.test.ts` "turns $…$ inline math into $$…$$, including right beside Chinese text"、"takes a formula with spaces and one ending in a digit"；`markdown.browser.test.tsx` "renders $$ block math and \\( \\) and $…$ inline math, but not prices"（真实 KaTeX 节点 3 个） | 12 处全部 `CAUGHT` |
+| 以下仍当文字：`$5 到 $10`（跨空格的价格区间）、`${HOME}:$PATH` 与 `${a}${b}`（开头紧接 `{`）、`$1,000.00$` 与 `$5$`（纯数字）、`a$b$c`、`a$x$`、`$x$y`（紧贴 ASCII 字母数字下划线）、只写一半的 `$x` | 同上 "leaves prices, shell expansions, numbers and word-adjacent dollars alone"；浏览器用例断言价格仍是原文 | 同上 |
+| `$$…$$` 块内不把它里面的单个 `$` 当分隔符，块结束后接着认；同一个 `$$` 已经成对时不开块；缩进写的块和开行带内容的块都认；只以 `$$` 结尾的行不开块；fenced code、行内代码里的 `$` 一律不动 | 同上 "keeps a $$…$$ display block's dollars, single ones included, and reads math after it"、"opens a display block written indented…"、"takes a $$ block that opens with its content…"、"does not take a line that only ends with $$ for the start of a block"、"leaves $ inside inline code and fenced code" | 同上 |
+| KaTeX 懒加载的门控改看归一化后的文本（`$$`），否则 `$…$` 永远不触发加载 | `packages/ui/src/chat/inline-math.browser.test.tsx`（本文件只渲染一次，KaTeX 从未加载过）：只写 `$m$` 的回复里出现 1 个 `.katex` | 门控改回 `usePlugins(text)` 后该用例见红，`CAUGHT` |
+
+验证：新用例先在原实现上失败（`$e$`→`$er$` 用例和 `$$` 块用例），实现后通过。破坏检查 12 个 case 全部 `CAUGHT`（词界左右各一、纯数字、`{` 开头、两端空白各一、块内跳过、块开关、同一行 `$$` 不开块、行内代码、`isFormula` 整体、懒加载门控）；其中两处先把测试补到能真的抓住（补 `a$x$`/`$x$y`/缩进块/`$$a$$` 开头的行），没靠改实现通过。聚焦变异 `pnpm test:mutation ui --mutate=packages/ui/src/chat/markdown-transforms.ts`：新代码 0 存活，全文件 95.08%（425 检出、22 存活，存活的 22 个都在本次没动的 `remarkReplyFiles`/`remarkReplyData` 里，与基线同位置同数量）。`pnpm check` 通过。单元 321 个文件 6220 项、界面 76 个文件 1419 项通过；默认并行单元首轮有一个 git 场景用例超时（已登记的负载敏感项，第二轮及之后全量通过）。只改渲染前的文本变换和插件门控，不动协议、不新增依赖；未跑端到端、泄漏、性能、浸泡和打包。
+
+## T1 worktree 加固（SPEC-0006“工作区”，2026-11-04，待验收）
 
 真的 git、真的仓库（testkit `createGitScene`），仓库里埋真的钩子、过滤器和 fsmonitor（`plantTraps`，每个被执行就留一个标记文件；`testkit/git.test.ts` 先证明裸 git 会触发它们，所以"没出现标记"不是陷阱本来就没响）。
 
@@ -1276,7 +1289,7 @@ Opus 未确认硬性规范、安全或正确性违规；提示事务恢复分支
 | 客户端连接：握手、只认真的 welcome、拒绝原因且不重试、主动断开不重试、替换连接时忽略旧 socket、断线按退避重连（最后一档重复，连上后归零）、可关闭重连、心跳 ping 到下一次没应答就断开 | `packages/client/src/atrium-client.test.ts` | 已覆盖 |
 | 客户端命令：每条新的请求 id 和 trace；结果按 schema 校验；错误应答变成 `CommandError`；没有连接或断线时 `ConnectionLostError`、不重发；上报截断到 4 KB | atrium-client.test.ts | 已覆盖 |
 | 会话视图：订阅时创建、退订时释放；快照整体替换；事件按序应用，缺口、重复、换代都重新取快照；流式只复制改动的那一块；乐观显示的消息在确认、失败、被 extension 处理时移除；重连后重新订阅 | `packages/client/src/session-view.test.ts`、atrium-client.test.ts | M1.4 改为按轮，见"对话记录（M1.4）" |
-| 回复渲染：排得紧凑（行高 1.55、块之间 12px、列表项上下 2px，圆点在第一行中线）、GFM（表格、嵌套与任务列表、删除线）、无序列表的圆点自己画（5px、靠近文字，折行和文字对齐，有序列表不变，任务列表只有勾选框）、中文标点旁的加粗、`$$…$$` 与 `\(…\)` 公式而不认单个 `$`、Shiki 高亮与 diff、Mermaid、链接交给系统浏览器且不弹确认、`https` 图片直接显示而 `http` 图片变成链接、原始 HTML 按文字显示且不执行 | `packages/ui/src/chat/markdown.browser.test.tsx`、`markdown-transforms.test.ts` | 已覆盖 |
+| 回复渲染：排得紧凑（行高 1.55、块之间 12px、列表项上下 2px，圆点在第一行中线）、GFM（表格、嵌套与任务列表、删除线）、无序列表的圆点自己画（5px、靠近文字，折行和文字对齐，有序列表不变，任务列表只有勾选框）、中文标点旁的加粗、`$$…$$`、`\(…\)` 与 `$…$` 公式（价格、shell 变量仍当文字，见上方 2026-11-11 一节）、Shiki 高亮与 diff、Mermaid、链接交给系统浏览器且不弹确认、`https` 图片直接显示而 `http` 图片变成链接、原始 HTML 按文字显示且不执行 | `packages/ui/src/chat/markdown.browser.test.tsx`、`markdown-transforms.test.ts` | 已覆盖 |
 | 覆盖"回复渲染"全部范围的样例按真实节奏分片流式渲染，每一步都不出错，结束后与一次性渲染逐字节一致 | `packages/ui/src/chat/streaming.browser.test.tsx`（样例 `reply-showcase.md`） | 已覆盖 |
 | 平滑揭示：只放慢增长部分；每帧按积压量揭示、约 150 毫秒的时间常数；长时间停顿也只算 250 毫秒；不切断字形，未到齐的字符等到齐；结束时一次显示完 | `packages/ui/src/chat/text-reveal.test.ts`；基准 `text-reveal.bench.ts` | 已覆盖 |
 | 滚动跟随：停在底部时跟随；往上翻停止跟随并出现"回到底部"，有新内容时带圆点；点了回到底部并恢复跟随；下方变高（输入框、卡片）时仍在底部；最后一轮的过程展开、步骤详情打开、过程折叠时每一帧都在底部；不在底部时这些都不移动视窗 | `packages/ui/src/chat/follow-bottom.test.ts`、`chat.browser.test.tsx` | 已覆盖 |
