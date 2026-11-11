@@ -3053,7 +3053,7 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 
 验证（2026-11-08，`installedPi` 之后，PATH 第一个 `pi` 仍是 cmux 的 shim）：`pnpm check` 通过；`pnpm test` 单元 4750/4750、AtriumKit 475/475；`pnpm build` 后端到端 `--grep @leak` 12/12、`ask-user.spec.ts` 2/2；宿主 `edit-stopped.host.test.ts` + `reply-translation.host.test.ts` 10/10；`locate.pi.test.ts` + `oneshot.pi.test.ts` 15/15。没跑：vitest 的 leak / soak 项目（`sessions.leak.test.ts`、`sessions.soak.test.ts` 也改成了 `installedPi`，只过了类型检查和 lint）、完整 `pnpm test:pi`（本机 pi 1.5.0 没有夹具，同前）、`pnpm test:ui`（这次没改界面）。
 
-## 学习方向的会话跟着方向的模型（2026-11-11，worktree `fix-study-model-default`，待验收）
+## 学习方向的会话跟着方向的模型（2026-11-11）
 
 用户 2026-11-11：建方向时在页上选了 Argon，上课却自动用了别处最近选的 DeepSeek。原先宿主给 pi 还没写过文件的会话一律用 `models.preferred()`（整个 Atrium 上次选的）；现在方向里的会话先用这个方向里最近一个记下过模型的会话的模型和档位，方向里还没有时才退到上次选的（SPEC-0008"会话的用途"、domain-model §1 Direction）。模型只从会话文件和目录列表里读，不另存。
 
