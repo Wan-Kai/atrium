@@ -21,15 +21,37 @@ const INLINE_CODE = /(`+[^`]*`+)/;
 /** An opening or closing code fence: three or more backticks or tildes. */
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 
+/** `\(…\)` inline math, not empty; rewritten as `$$…$$` the way the plugin reads it. */
+const PAREN_MATH = /\\\((.+?)\\\)/g;
+
 /**
- * Rewrites `\(…\)` inline math as `$$…$$`, outside code.
+ * Dollars already paired for math, an escaped dollar, or a `$…$` pair on one line.
  *
  * @remarks
- * SPEC-0001 ("回复渲染") asks for `$$…$$` and `\(…\)` and not single dollars, which clash with
- * shell variables and prices. The math plugin's parser (remark-math) knows only dollars, and
- * reads `$$…$$` inside a line as inline math, so this is the one translation needed. Fenced code
- * and inline code are left alone; an unclosed fence, as while a reply streams, covers the rest of
- * the text. Only what is rendered is rewritten: copying uses the original text.
+ * One pass so a pair inside `$$…$$` is never read as two single dollars: whichever alternative
+ * matches first wins and `$$…$$` is listed first for that.
+ */
+const DOLLAR_MATH = /\$\$[^$\n]*\$\$|\\\$|\$([^$\n]+)\$/g;
+
+/** What an opening `$` cannot follow: an ASCII word or a backslash, as in `a$b$c` and `\$x$`. */
+const WORD_BEFORE = /[A-Za-z0-9_\\]/;
+
+/** What a closing `$` cannot be followed by: an ASCII word, as in `$x$y`. */
+const WORD_AFTER = /[A-Za-z0-9_]/;
+
+/** A price or a count: `$5$`, `$1,000.00$`. */
+const NUMBER_ONLY = /^[\d.,]+$/;
+
+/**
+ * Rewrites `\(…\)` and `$…$` inline math as `$$…$$`, outside code.
+ *
+ * @remarks
+ * SPEC-0001 ("回复渲染") asks for `$$…$$`, `\(…\)` and `$…$`; the first two are what the math
+ * plugin's parser (remark-math) reads, and it reads `$$…$$` inside a line as inline math, so the
+ * others are translated to it here. Single dollars are common in shell variables, prices and code,
+ * so `isFormula` keeps the pair that would take one of those as text. Fenced code, inline code and
+ * a `$$` block are left alone; an unclosed fence, as while a reply streams, covers the rest of the
+ * text. Only what is rendered is rewritten: copying uses the original text.
  *
  * @sideEffects none
  * @param markdown - The reply as written.
@@ -37,6 +59,7 @@ const FENCE = /^ {0,3}(`{3,}|~{3,})/;
  */
 export function normalizeMathDelimiters(markdown: string): string {
   let fence: string | null = null;
+  let display = false;
   return markdown
     .split("\n")
     .map((line) => {
@@ -49,15 +72,83 @@ export function normalizeMathDelimiters(markdown: string): string {
         fence = marker;
         return line;
       }
+      if (display) {
+        if (line.includes("$$")) display = false;
+        return line;
+      }
+      display = opensDisplay(line);
       // Odd pieces are inline code; a backtick run without a partner stays plain text.
       return line
         .split(INLINE_CODE)
         .map((piece, index) =>
-          index % 2 === 1 ? piece : piece.replaceAll(/\\\((.+?)\\\)/g, (_match, math: string) => `$$${math}$$`),
+          index % 2 === 1
+            ? piece
+            : rewriteDollars(piece.replaceAll(PAREN_MATH, (_match, math: string) => `$$${math}$$`)),
         )
         .join("");
     })
     .join("\n");
+}
+
+/**
+ * Whether a line starts a `$$` block that closes on a later line.
+ *
+ * @remarks
+ * Only a leading `$$` counts, and only when nothing on the line closes it: `$$ E = mc^2 $$` is
+ * inline math the plugin already reads. Inside the block a `$` is not a delimiter, which is why the
+ * lines are skipped rather than rewritten.
+ *
+ * @sideEffects none
+ * @param line - One line of the reply.
+ * @returns Whether the block starts here.
+ */
+function opensDisplay(line: string): boolean {
+  const trimmed = line.trimStart();
+  return trimmed.slice(0, 2) === "$$" && !trimmed.slice(2).includes("$$");
+}
+
+/**
+ * Rewrites the `$…$` pairs of one line that are formulas.
+ *
+ * @remarks
+ * Pairs that fail `isFormula` stay as written, so a price keeps its dollars.
+ *
+ * @sideEffects none
+ * @param line - A line outside code and outside a `$$` block.
+ * @returns The line with those pairs doubled.
+ */
+function rewriteDollars(line: string): string {
+  // oxlint-disable-next-line no-useless-escape -- the plugin's delimiter is a literal `$`.
+  return line.replace(DOLLAR_MATH, (match: string, math: string | undefined, offset: number) =>
+    math === undefined || !isFormula(math, line, offset) ? match : `$$${math}$$`,
+  );
+}
+
+/**
+ * Whether a `$…$` pair is a formula and not a price, a shell variable or a word's neighbour.
+ *
+ * @remarks
+ * The pairs this rejects are the ones single dollars used to be turned off for (SPEC-0001,
+ * "回复渲染"): `$5 到 $10` pairs across a space, `${HOME}:$PATH` opens on a brace, `$1,000.00$` is
+ * a number, and `a$b$c` and `$x$y` have a word on one side. Chinese needs no space around a
+ * formula, so only ASCII words block one.
+ *
+ * @sideEffects none
+ * @param math - What is between the dollars.
+ * @param line - The line the pair is in.
+ * @param offset - Where its opening `$` is.
+ * @returns Whether it is a formula.
+ */
+function isFormula(math: string, line: string, offset: number): boolean {
+  const before = line.charAt(offset - 1);
+  const after = line.charAt(offset + math.length + 2);
+  // Whitespace at either end marks a range of prices, not a formula.
+  if (/^\s|\s$/.test(math)) return false;
+  // `${…}` is a shell or template expansion.
+  if (math.charAt(0) === "{") return false;
+  // `$5$`, `$1,000.00$`: a price, not a formula.
+  if (NUMBER_ONLY.test(math)) return false;
+  return !WORD_BEFORE.test(before) && !WORD_AFTER.test(after);
 }
 
 /** A line starting with a pipe, as a table's rows do. */
