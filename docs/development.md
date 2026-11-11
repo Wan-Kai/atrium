@@ -109,6 +109,18 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 
 只跑一部分 Swift 测试：`swift test --package-path apps/ios/AtriumKit --filter <套件名或测试函数名>`（例：`--filter RoundTripTests`）。
 
+## 发布
+
+> 2026-11-11 定，第一次发布 v0.0.1。仓库没有 CI，release 在本机打；只出 Apple Silicon 包，ad-hoc 签名，**不公证**。
+
+1. 改 `apps/desktop/package.json` 的 `version`（打包时写进 App 的 `Info.plist`，界面上不显示）。其它 `packages/*` 的 `0.0.0` 不进产物，不动。改了版本要连带提交 `pnpm-lock.yaml`（workspace 包的版本记在里面）。
+2. `pnpm package`，产物是 `apps/desktop/out/Atrium-darwin-arm64/Atrium.app`（[命令](#命令)）。
+3. 打包：`ditto -c -k --sequesterRsrc --keepParent apps/desktop/out/Atrium-darwin-arm64/Atrium.app Atrium-<版本>-macOS-arm64.zip`。**必须用 `ditto`**，`zip` 会打乱符号链接和扩展属性，解开的 App 签名就坏了。
+4. `git tag v<版本> && git push origin main v<版本>`，再 `gh release create v<版本> Atrium-<版本>-macOS-arm64.zip --title "Atrium <版本>" --notes-file <说明>`。
+5. release 说明里写清三件事：只支持 Apple Silicon、包是 ad-hoc 签名没公证（下载解开带着 `com.apple.quarantine`，首次打开被 Gatekeeper 拦，右键"打开"或 `xattr -dr com.apple.quarantine /Applications/Atrium.app`）、数据在 `~/.atrium` 与开发版共用。
+
+Intel Mac 要跑得打 x64 包（`arch: "x64"`，多下一份 Electron），现在没做。
+
 ## task:try 与 Atrium（T7 定）
 
 `pnpm task:try` 自己起一个宿主，home 是 `--home`（默认 `<仓库>.task-try`），不是 `~/.atrium`；任务区看的是正在开着的 Atrium 的宿主，所以 **task:try 跑的任务不会自己出现在开着的 Atrium 里**。硬性规则：任何时候都不能有两个宿主管理同一个 Atrium home 或同一批会话（锁、pi 进程、会话文件）。T7 评估过三个办法，2026-11-06 用户选 **B**（T7.1 做）：
