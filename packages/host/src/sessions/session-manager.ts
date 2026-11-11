@@ -436,7 +436,9 @@ async function sendNote(pi: TracedPi, from: string, to: string): Promise<boolean
  *   rebuilds steers and turns as they were (SPEC-0001, `steer`);
  * - a session pi has written nothing of starts on the model chosen last, with the thinking level
  *   remembered for it, set through pi's commands rather than `--model`, which makes pi exit when it
- *   cannot find the model; a remembered model pi refuses leaves pi's own; such a session started
+ *   cannot find the model; a session of a learning direction instead starts on the model the
+ *   direction's newest session recorded, so a direction keeps the model it was made with
+ *   (SPEC-0008, "会话的用途"); a remembered model pi refuses leaves pi's own; such a session started
  *   again goes back to the model it had, which its new pi would not know; a model chosen in any
  *   session is reported to `models` (SPEC-0001, "模型与输入框");
  * - every session's pi loads Atrium's Fast extension, given `fast`; once it runs, the host checks
@@ -1602,7 +1604,8 @@ export function createSessionManager(options: {
    * A new session's launch: `--session-id`, its name, the model to start on.
    *
    * @remarks
-   * See `launchOf`.
+   * See `launchOf`. A session of a direction starts on the direction's model, from the newest of
+   * its sessions that recorded one (SPEC-0008, "会话的用途").
    *
    * @sideEffects none
    * @param entry - The session, with no file yet.
@@ -1625,10 +1628,37 @@ export function createSessionManager(options: {
         ? { model: { providerId: had.providerId, modelId: had.modelId }, thinkingLevel: had.thinkingLevel }
         : asked !== null
           ? { model: { providerId: asked.providerId, modelId: asked.modelId }, thinkingLevel: asked.thinkingLevel }
-          : (options.models?.preferred() ?? null);
+          : (directionModel(entry) ?? options.models?.preferred() ?? null);
     // A child conversation's name goes into pi's session from its first start (SPEC-0002, "概念 · 名字").
     const named = entry.name === null ? [] : ["--name", entry.name];
     return { args: ["--session-id", sessionId, ...named], cwd: entry.cwd, startOn, fast };
+  }
+
+  /**
+   * The model a direction's sessions use, as its newest session that recorded one has it.
+   *
+   * @remarks
+   * SPEC-0008 ("会话的用途"): a direction keeps the model it was made with, so a lesson does not
+   * start on the model chosen last in some other chat. The model a session file records is the
+   * whole of it; nothing is kept beside it. `null` outside a direction, and for one whose sessions
+   * have recorded none yet (a direction just made, before its discussion wrote anything).
+   *
+   * @sideEffects none
+   * @param entry - The session about to start.
+   * @returns The model and level, or `null`.
+   */
+  function directionModel(entry: CatalogEntry): StartModel | null {
+    if (!isDirectionId(entry.containerId)) return null;
+    let newest: CatalogEntry | null = null;
+    for (const other of options.catalog.list()) {
+      if (other.sessionId === entry.sessionId) continue;
+      if (other.containerId !== entry.containerId || other.model === null) continue;
+      if (newest === null || other.updatedAt > newest.updatedAt) newest = other;
+    }
+    const model = newest?.model ?? null;
+    return model === null
+      ? null
+      : { model: { providerId: model.providerId, modelId: model.modelId }, thinkingLevel: model.thinkingLevel };
   }
 
   /**

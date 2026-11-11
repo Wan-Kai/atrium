@@ -678,5 +678,12 @@
     "to": "undefined",
     "test": "packages/host/src/sessions/session-manager.test.ts",
     "name": "first session"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": ": (directionModel(entry) ?? options.models?.preferred() ?? null);",
+    "to": ": (options.models?.preferred() ?? null);",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "the model its newest session recorded"
   }
 ]
