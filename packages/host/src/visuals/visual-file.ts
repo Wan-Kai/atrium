@@ -13,6 +13,24 @@ export interface VisualFile {
 }
 
 /**
+ * What a directory for visuals of a study direction adds to the checks (SPEC-0008, "ML4 定的细节 · 演示").
+ *
+ * @remarks
+ * A direction moves when it is archived or restored while its sessions' records keep the place
+ * they ran in; and its `visuals/` lies in the agent's working directory, where the agent could
+ * swap it for a link.
+ */
+export interface VisualDirRules {
+  /** The place the session's record names, when the direction is no longer there: absolute paths under it count from `cwd`. */
+  readonly movedFrom?: string | undefined;
+  /**
+   * Whether the folder holding the directory is still a real directory where the host expects it;
+   * given, the directory must itself be a real folder right in it, not a link.
+   */
+  readonly owned?: (() => Promise<boolean>) | undefined;
+}
+
+/**
  * The `code` of a file system error, if it has one.
  *
  * @remarks
@@ -38,17 +56,70 @@ function codeOf(error: unknown): unknown {
  * @param dir - The directory for visuals.
  * @param cwd - The session's working directory.
  * @param path - The path the reply named.
+ * @param movedFrom - Where the session's record says it ran, when that moved to `cwd` (ML4).
  * @returns The absolute path and its part below the directory.
  * @throws {CommandError} `visual_outside`.
  */
-export function placeVisual(dir: string, cwd: string, path: string): { readonly file: string; readonly below: string } {
-  const file = isAbsolute(path) ? resolve(path) : resolve(cwd, path);
+export function placeVisual(
+  dir: string,
+  cwd: string,
+  path: string,
+  movedFrom?: string,
+): { readonly file: string; readonly below: string } {
+  const file = isAbsolute(path) ? moved(resolve(path), movedFrom, cwd) : resolve(cwd, path);
   const below = relative(resolve(dir), file);
   if (below === "" || below.startsWith(`..${sep}`) || below === ".." || isAbsolute(below)) {
     throw new CommandError("visual_outside");
   }
   if (!/\.html$/iu.test(file)) throw new CommandError("visual_outside");
   return { file, below };
+}
+
+/**
+ * An absolute path under the place a direction was, as it is under where the direction is now.
+ *
+ * @remarks
+ * SPEC-0008, "ML4 定的细节 · 演示": a reply written before the direction was archived names the old
+ * place. Only the prefix changes; the result is checked as any other path. A path elsewhere stays.
+ *
+ * @sideEffects none
+ * @param file - The absolute path, resolved.
+ * @param from - Where the direction was, if it moved.
+ * @param to - Where it is now.
+ * @returns The path.
+ */
+function moved(file: string, from: string | undefined, to: string): string {
+  if (from === undefined) return file;
+  const below = relative(from, file);
+  return below.startsWith("..") || isAbsolute(below) ? file : join(to, below);
+}
+
+/**
+ * Makes sure a direction's directory for visuals is a real folder right in the direction's.
+ *
+ * @remarks
+ * security.md ("渲染内容", ML4): it is in the agent's working directory, so it must not be a link;
+ * its real path's parent is the direction's real path, and the direction itself passes the host's
+ * check. A folder not made yet is missing, so its card waits for it. Its real path is returned, for
+ * the check again once the file is open.
+ *
+ * @sideEffects Reads the file system.
+ * @param dir - The directory for visuals.
+ * @param owned - The direction's check.
+ * @returns The directory's real path.
+ * @throws {CommandError} `visual_outside` or `visual_missing`.
+ */
+async function checkOwned(dir: string, owned: () => Promise<boolean>): Promise<string> {
+  if (!(await owned())) throw new CommandError("visual_outside");
+  const info = await lstat(dir).catch(() => null);
+  if (info === null) throw new CommandError("visual_missing");
+  if (info.isSymbolicLink() || !info.isDirectory()) throw new CommandError("visual_outside");
+  const [real, owner] = await Promise.all([realpath(dir), realpath(dirname(dir))]).catch(() => {
+    throw new CommandError("visual_missing");
+  });
+  // Stryker disable next-line ConditionalExpression: a folder that is no link has its parent's real path; this guards a swap in between.
+  if (dirname(real) !== owner) throw new CommandError("visual_outside");
+  return real;
 }
 
 /**
@@ -92,13 +163,16 @@ async function confirmInside(
  * following a link, and checked again after the opening (`confirmInside`). The directory may
  * itself be reached through a link (a home that is one). A failure that is no refusal, as a file
  * it may not read, is told as missing: the file system's error carries the path, which must stay
- * out of errors and logs.
+ * out of errors and logs. A direction's `visuals/` (`owned`) is checked again once the file is open
+ * and must still have the real path the opening went by: the direction or `visuals/` swapped for a
+ * link before the opening, kept or swapped back after it, is refused (ML4 three-way review).
  *
  * @sideEffects Opens the file; the caller closes it.
  * @param dir - The directory for visuals.
  * @param file - The absolute file, inside it.
  * @param below - The file's path below the directory.
  * @param beforeOpen - Runs between the checks and the opening; for tests of that race.
+ * @param owned - A direction's check, for its `visuals/` (`VisualDirRules`).
  * @returns The open file, its size and when it changed.
  * @throws {CommandError} `visual_missing`, `visual_outside` or `visual_too_large`.
  */
@@ -107,7 +181,9 @@ async function openChecked(
   file: string,
   below: string,
   beforeOpen?: () => Promise<void>,
+  owned?: () => Promise<boolean>,
 ): Promise<{ readonly handle: FileHandle; readonly size: number; readonly mtime: number }> {
+  if (owned !== undefined) await checkOwned(dir, owned);
   let realDir: string;
   let realFolder: string;
   try {
@@ -130,6 +206,7 @@ async function openChecked(
     if (!stats.isFile()) throw new CommandError("visual_outside");
     if (stats.size > VISUAL_FILE_MAX) throw new CommandError("visual_too_large");
     await confirmInside(realDir, below, stats);
+    if (owned !== undefined && (await checkOwned(dir, owned)) !== realDir) throw new CommandError("visual_outside");
     return { handle, size: stats.size, mtime: Math.floor(stats.mtimeMs) };
   } catch (error) {
     await handle.close();
@@ -150,6 +227,7 @@ async function openChecked(
  * @param cwd - The session's working directory, for a relative path.
  * @param path - The path the reply named.
  * @param beforeOpen - Runs between the checks and the opening; for tests of that race.
+ * @param rules - A study direction's rules (ML4).
  * @returns Where it is, its size and when it changed.
  * @throws {CommandError} `visual_outside`, `visual_missing` or `visual_too_large`.
  */
@@ -158,9 +236,10 @@ export async function checkVisual(
   cwd: string,
   path: string,
   beforeOpen?: () => Promise<void>,
+  rules: VisualDirRules = {},
 ): Promise<VisualFile> {
-  const { file, below } = placeVisual(dir, cwd, path);
-  const { handle, size, mtime } = await openChecked(dir, file, below, beforeOpen);
+  const { file, below } = placeVisual(dir, cwd, path, rules.movedFrom);
+  const { handle, size, mtime } = await openChecked(dir, file, below, beforeOpen, rules.owned);
   await handle.close();
   return { file, size, mtime };
 }
@@ -176,12 +255,18 @@ export async function checkVisual(
  * @param dir - The session's directory for visuals.
  * @param file - The absolute file `checkVisual` found.
  * @param beforeOpen - Runs between the checks and the opening; for tests of that race.
+ * @param owned - A direction's check, for its `visuals/` (`VisualDirRules`).
  * @returns Its text.
  * @throws {CommandError} As `checkVisual`.
  */
-export async function readVisual(dir: string, file: string, beforeOpen?: () => Promise<void>): Promise<string> {
+export async function readVisual(
+  dir: string,
+  file: string,
+  beforeOpen?: () => Promise<void>,
+  owned?: () => Promise<boolean>,
+): Promise<string> {
   const { below } = placeVisual(dir, dir, file);
-  const { handle } = await openChecked(dir, file, below, beforeOpen);
+  const { handle } = await openChecked(dir, file, below, beforeOpen, owned);
   try {
     // Stryker disable next-line ArithmeticOperator: the size was checked on this opening; only a file growing while read needs the extra byte.
     const buffer = Buffer.alloc(VISUAL_FILE_MAX + 1);

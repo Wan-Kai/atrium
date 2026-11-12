@@ -221,8 +221,67 @@ describe("normalizeMathDelimiters", () => {
     );
   });
 
-  it("leaves block math, single dollars and text without delimiters alone", () => {
-    const text = "$$\nE = mc^2\n$$\n价格 $5 和 $HOME 不是公式";
+  it("leaves block math and text without delimiters alone", () => {
+    const text = "$$\nE = mc^2\n$$\n没有任何公式的一句话";
+
+    expect(normalizeMathDelimiters(text)).toBe(text);
+  });
+
+  it("turns $…$ inline math into $$…$$, including right beside Chinese text", () => {
+    expect(normalizeMathDelimiters(String.raw`情况：$e$ + $r$ → $er$，表示$x$和$y$`)).toBe(
+      String.raw`情况：$$e$$ + $$r$$ → $$er$$，表示$$x$$和$$y$$`,
+    );
+  });
+
+  it("takes a formula with spaces and one ending in a digit", () => {
+    expect(normalizeMathDelimiters(String.raw`$a + b$、$x^2$、$2n+1$`)).toBe(String.raw`$$a + b$$、$$x^2$$、$$2n+1$$`);
+  });
+
+  it("leaves prices, shell expansions, numbers and word-adjacent dollars alone", () => {
+    const text = [
+      "价格 $5 到 $10 之间",
+      "从 $ 5 到 10$ 元",
+      "${HOME}:$PATH",
+      "模板 ${a}${b} 不是公式",
+      "$1,000.00$ 和 $5$",
+      "a$b$c 和 a$x$ 和 $x$y",
+      "价格 $5 到 $ 10 元",
+      "只写了一半 $x",
+    ].join("\n");
+
+    expect(normalizeMathDelimiters(text)).toBe(text);
+  });
+
+  it("keeps a $$…$$ display block's dollars, single ones included, and reads math after it", () => {
+    const text = ["$$", "E = $mc^2$", "$$", "然后 $k$ 是公式", "$$a$$ 和 $m$", "最后 $n$ 还是公式"].join("\n");
+
+    expect(normalizeMathDelimiters(text)).toBe(
+      ["$$", "E = $mc^2$", "$$", "然后 $$k$$ 是公式", "$$a$$ 和 $$m$$", "最后 $$n$$ 还是公式"].join("\n"),
+    );
+  });
+
+  it("opens a display block written indented, and reads math once it has closed", () => {
+    const text = ["- 公式：", "  $$", "  E = $mc^2$", "  $$", "然后 $q$ 是公式"].join("\n");
+
+    expect(normalizeMathDelimiters(text)).toBe(
+      ["- 公式：", "  $$", "  E = $mc^2$", "  $$", "然后 $$q$$ 是公式"].join("\n"),
+    );
+  });
+
+  it("takes a $$ block that opens with its content, and closes on the next $$ line", () => {
+    const text = ["$$ E = mc^2", "$$", "然后 $q$ 是公式"].join("\n");
+
+    expect(normalizeMathDelimiters(text)).toBe(["$$ E = mc^2", "$$", "然后 $$q$$ 是公式"].join("\n"));
+  });
+
+  it("does not take a line that only ends with $$ for the start of a block", () => {
+    const text = ["结果是 $$x$$", "下一行的 $q$ 仍是公式"].join("\n");
+
+    expect(normalizeMathDelimiters(text)).toBe(["结果是 $$x$$", "下一行的 $$q$$ 仍是公式"].join("\n"));
+  });
+
+  it("leaves $ inside inline code and fenced code", () => {
+    const text = ["用 `$x$` 表示", "```", "$y$", "```"].join("\n");
 
     expect(normalizeMathDelimiters(text)).toBe(text);
   });

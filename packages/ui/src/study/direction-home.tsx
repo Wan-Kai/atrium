@@ -7,12 +7,14 @@ import { CaretRight, Check, DotsThree, Idea, Message, Quiz, Target, Undo } from 
 import { PRIMARY_BUTTON } from "../settings/parts";
 import { timeAgo } from "../sidebar/names";
 import { useClock } from "../state/clock";
+import type { WorkspaceViews } from "../state/workspace-views";
+import { DirectionArchive } from "./archive-part";
+import { BROKEN_DESC } from "./home-view";
 import {
   type LearningState,
   describeStudyError,
   directionName,
   directionSessions,
-  directionStage,
   openDirectionSession,
 } from "./learning";
 import { useLessonControl } from "./lesson-control";
@@ -949,11 +951,13 @@ function Progress({
   sessions,
   now,
   actions,
+  archive,
 }: {
   readonly progress: StudyProgress;
   readonly sessions: readonly SessionSummary[];
   readonly now: number;
   readonly actions: HomeActions;
+  readonly archive: ReactNode;
 }) {
   const level = shownLevel(progress);
   const steps = level === null ? [] : (progress.steps[level.id] ?? []);
@@ -1043,6 +1047,7 @@ function Progress({
               <SessionRows sessions={others} label="其他会话" now={now} actions={actions} />
             </section>
           )}
+          <div className="order-6 @min-[640px]:order-none">{archive}</div>
         </div>
       </div>
     </div>
@@ -1059,18 +1064,23 @@ function Progress({
  * (`Progress`). An archived direction offers "恢复", and its sessions open to be read. A failure
  * shows under the title (provisional wording).
  *
- * @sideEffects Subscribes to the list and the clock; sends commands when used.
- * @param props - The client, the study store and the direction.
+ * The files ("档案", ML4) come last, in the right column, or under the sessions while under
+ * discussion; they open in the direction's viewer tabs.
+ *
+ * @sideEffects Subscribes to the list and the clock; sends commands when used; lists the direction's files.
+ * @param props - The client, the study store, the direction and the views its viewer tabs are in.
  * @returns The home, or nothing for a direction the list does not have.
  */
 export function DirectionHome({
   client,
   store,
   directionId,
+  views,
 }: {
   readonly client: AtriumClient;
   readonly store: StoreApi<LearningState>;
   readonly directionId: string;
+  readonly views: StoreApi<WorkspaceViews>;
 }) {
   const direction = useStore(client.index, (index) => index.directions.find((one) => one.id === directionId));
   const all = useStore(client.index, (index) => index.sessions);
@@ -1103,6 +1113,7 @@ export function DirectionHome({
     },
   };
   const profile = progress === null ? null : profileLine(progress);
+  const archive = <DirectionArchive client={client} direction={direction} views={views} />;
   return (
     <div data-testid="direction-home" className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[780px] px-6 py-8">
@@ -1112,7 +1123,7 @@ export function DirectionHome({
             <span className="shrink-0 rounded-[var(--r-pill)] bg-[var(--selected)] px-[7px] text-[length:var(--fs-xs)] leading-[18px] font-semibold text-[var(--text-muted)]">
               已归档
             </span>
-          ) : direction.discussing || direction.broken ? (
+          ) : direction.discussing && !direction.broken ? (
             <span className="shrink-0 rounded-[var(--r-pill)] bg-[var(--attn-soft)] px-[7px] text-[length:var(--fs-xs)] leading-[18px] font-semibold text-[var(--attn-text)]">
               讨论中
             </span>
@@ -1134,7 +1145,7 @@ export function DirectionHome({
               ? "会话只能看，恢复以后才能接着学"
               : progress === null
                 ? direction.broken
-                  ? directionStage(direction).line
+                  ? BROKEN_DESC
                   : "排出阶梯以后，这里显示当前一级的步骤"
                 : (profile ?? "")}
           </span>
@@ -1156,13 +1167,16 @@ export function DirectionHome({
           </div>
         ) : null}
         {progress === null ? (
-          sessions.length === 0 ? null : (
-            <div className="mt-5">
-              <SessionRows sessions={sessions} label="会话" now={now} actions={actions} />
-            </div>
-          )
+          <>
+            {sessions.length === 0 ? null : (
+              <div className="mt-5">
+                <SessionRows sessions={sessions} label="会话" now={now} actions={actions} />
+              </div>
+            )}
+            <div className="mt-5">{archive}</div>
+          </>
         ) : (
-          <Progress progress={progress} sessions={sessions} now={now} actions={actions} />
+          <Progress progress={progress} sessions={sessions} now={now} actions={actions} archive={archive} />
         )}
       </div>
     </div>

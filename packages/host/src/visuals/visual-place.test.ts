@@ -48,8 +48,9 @@ describe("ancestorsOf", () => {
  * @param sessionId - The session.
  * @returns The directory, or `null`.
  */
-function dirOf(sessionId: string): string | null {
-  return defaultVisualsDir("/h", sessionId);
+function dirOf(sessionId: string): { dir: string } | null {
+  const dir = defaultVisualsDir("/h", sessionId);
+  return dir === null ? null : { dir };
 }
 
 describe("visualPlaceOf", () => {
@@ -71,5 +72,70 @@ describe("visualPlaceOf", () => {
       undefined,
       undefined,
     ]);
+  });
+});
+
+/**
+ * A direction's check of its place, which passes.
+ *
+ * @remarks
+ * The place itself is not checked here; `visual-file` does.
+ *
+ * @sideEffects none
+ * @returns `true`.
+ */
+async function owned(): Promise<boolean> {
+  return true;
+}
+
+/** The direction's sessions, as recorded where they ran. */
+const RECORDS: Record<string, { cwd: string; parent: string | null }> = {
+  lesson: { cwd: "/L/rust", parent: null },
+  quiz: { cwd: "/L/rust", parent: "lesson" },
+};
+
+/**
+ * Every session's visuals, of the direction archived.
+ *
+ * @remarks
+ * Its directory is under `Archive/` now; the records keep the old place.
+ *
+ * @sideEffects none
+ * @returns The directory.
+ */
+function archived(): { dir: string; base: string; owned: () => Promise<boolean> } {
+  return { dir: "/L/Archive/rust/visuals", base: "/L/Archive/rust", owned };
+}
+
+/**
+ * Every session's visuals, of the direction where it was made.
+ *
+ * @remarks
+ * As before it was archived, or once restored.
+ *
+ * @sideEffects none
+ * @returns The directory.
+ */
+function home(): { dir: string; base: string; owned: () => Promise<boolean> } {
+  return { dir: "/L/rust/visuals", base: "/L/rust", owned };
+}
+
+describe("visualPlaceOf, in a direction (SPEC-0008, ML4)", () => {
+  it("counts paths from where the direction is now, and maps the recorded place onto it once it moved", () => {
+    const records = RECORDS;
+
+    expect(visualPlaceOf("quiz", (id) => records[id], archived)).toStrictEqual({
+      cwd: "/L/Archive/rust",
+      dir: "/L/Archive/rust/visuals",
+      ancestors: ["/L/Archive/rust/visuals"],
+      movedFrom: "/L/rust",
+      owned,
+    });
+    expect(visualPlaceOf("lesson", (id) => records[id], home)).toStrictEqual({
+      cwd: "/L/rust",
+      dir: "/L/rust/visuals",
+      ancestors: [],
+      owned,
+    });
   });
 });

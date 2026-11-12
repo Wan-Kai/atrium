@@ -1,6 +1,6 @@
 import { CommandError } from "@atrium/protocol";
 import { createTempDir } from "@atrium/testkit";
-import { chmod, mkdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { checkVisual, readVisual } from "./visual-file";
@@ -62,6 +62,96 @@ function swapOnce(folder: string, outside: string): () => Promise<void> {
     await rename(folder, `${folder}-real`);
     await symlink(outside, folder);
   };
+}
+
+/**
+ * Checks or reads a direction's `visuals/a.html`, with its rules.
+ *
+ * @remarks
+ * Both go through the same opening, and both must refuse a swap (security.md, "渲染内容").
+ *
+ * @sideEffects Opens and closes the file.
+ * @param way - Whether to check it, as a resolve does, or read it, as a page request does.
+ * @param now - The direction's directory.
+ * @param dir - Its `visuals/`.
+ * @param beforeOpen - What runs between the checks and the opening.
+ * @param owned - The direction's check.
+ * @returns What the check or the read gives.
+ */
+function attempt(
+  way: "check" | "read",
+  now: string,
+  dir: string,
+  beforeOpen: (() => Promise<void>) | undefined,
+  owned: () => Promise<boolean>,
+): Promise<unknown> {
+  return way === "read"
+    ? readVisual(dir, join(dir, "a.html"), beforeOpen, owned)
+    : checkVisual(dir, now, "visuals/a.html", beforeOpen, { owned });
+}
+
+/**
+ * Whether a path is a folder and no link.
+ *
+ * @remarks
+ * As the host's check of a direction's place.
+ *
+ * @sideEffects Reads the file system.
+ * @param path - The path.
+ * @returns Whether.
+ */
+async function isRealFolder(path: string): Promise<boolean> {
+  const info = await lstat(path);
+  return info.isDirectory() && !info.isSymbolicLink();
+}
+
+/**
+ * A folder beside the direction's with the same `visuals/a.html`, holding other text.
+ *
+ * @remarks
+ * Where a swapped direction would lead.
+ *
+ * @sideEffects Creates the folder and the file.
+ * @param now - The direction's directory.
+ * @returns The folder.
+ */
+async function sameVisualElsewhere(now: string): Promise<string> {
+  const elsewhere = join(now, "..", "..", "elsewhere");
+  await mkdir(join(elsewhere, "visuals"), { recursive: true });
+  await writeFile(join(elsewhere, "visuals", "a.html"), "outside");
+  return elsewhere;
+}
+
+/**
+ * A direction's check that passes, then leaves the direction a link to elsewhere, and on its second
+ * call puts the direction back and passes again, as a racing process would.
+ *
+ * @remarks
+ * The swap lands right after the first check, the swap back once the file is open.
+ *
+ * @sideEffects Renames the direction and makes and removes the link.
+ * @param now - The direction's directory.
+ * @param elsewhere - Where the link points.
+ * @returns The check, and how many times it ran.
+ */
+function swapThenBack(now: string, elsewhere: string): (() => Promise<boolean>) & { calls: () => number } {
+  let calls = 0;
+  const steps = [
+    async () => {
+      await rename(now, `${now}-real`);
+      await symlink(elsewhere, now);
+    },
+    async () => {
+      await rm(now);
+      await rename(`${now}-real`, now);
+    },
+  ];
+  const check = async () => {
+    await steps[calls]?.();
+    calls += 1;
+    return true;
+  };
+  return Object.assign(check, { calls: () => calls });
 }
 
 describe("checkVisual", () => {
@@ -222,5 +312,120 @@ describe("readVisual", () => {
     await rm(file);
     await writeFile(file, "a".repeat(1024 * 1024 + 1));
     expect(await refusal(readVisual(dir, file))).toBe("visual_too_large");
+  });
+});
+
+/**
+ * A direction's directory with `visuals/` in it, and the place it was before it moved.
+ *
+ * @remarks
+ * As archiving moves it under `Archive/`: the session's record keeps the old place.
+ *
+ * @sideEffects Creates the directories, removed when the test ends.
+ * @returns The direction's directory now, its `visuals/`, and where it was.
+ */
+async function direction(): Promise<{ now: string; dir: string; was: string }> {
+  const temp = await createTempDir("direction");
+  onTestFinished(temp.cleanup);
+  const root = await realpath(temp.path);
+  const now = join(root, "Archive", "rust");
+  await mkdir(join(now, "visuals"), { recursive: true });
+  return { now, dir: join(now, "visuals"), was: join(root, "rust") };
+}
+
+describe("a direction's visuals (SPEC-0008, ML4)", () => {
+  it("maps an absolute path under the recorded working directory onto where the direction is now", async () => {
+    const { now, dir, was } = await direction();
+    await writeFile(join(dir, "2-03-borrow.html"), "x");
+
+    const relative = await checkVisual(dir, now, "visuals/2-03-borrow.html", undefined, { movedFrom: was });
+    const old = await checkVisual(dir, now, join(was, "visuals", "2-03-borrow.html"), undefined, { movedFrom: was });
+
+    expect(relative.file).toBe(join(dir, "2-03-borrow.html"));
+    expect(old).toStrictEqual(relative);
+    // An absolute path at where it is now stays as it is.
+    expect(await checkVisual(dir, now, join(dir, "2-03-borrow.html"), undefined, { movedFrom: was })).toStrictEqual(
+      relative,
+    );
+    expect(await refusal(checkVisual(dir, now, join(was, "visuals", "2-03-borrow.html")))).toBe("visual_outside");
+    // Only the prefix is mapped; the checks run on what it maps to.
+    expect(await refusal(checkVisual(dir, now, join(was, "secret.html"), undefined, { movedFrom: was }))).toBe(
+      "visual_outside",
+    );
+    expect(
+      await refusal(checkVisual(dir, now, `${was}-2/visuals/2-03-borrow.html`, undefined, { movedFrom: was })),
+    ).toBe("visual_outside");
+  });
+
+  it("refuses a visuals folder that is a link, even to a folder inside the direction", async () => {
+    const { now, dir } = await direction();
+    await mkdir(join(now, "real"));
+    await writeFile(join(now, "real", "a.html"), "x");
+    await rm(dir, { recursive: true });
+    await symlink(join(now, "real"), dir);
+    const owned = { owned: async () => true };
+
+    expect(await refusal(checkVisual(dir, now, "visuals/a.html", undefined, owned))).toBe("visual_outside");
+    expect(await refusal(readVisual(dir, join(dir, "a.html"), undefined, owned.owned))).toBe("visual_outside");
+    // Without the rule, as the home's own folders are, a link to the folder is followed.
+    expect((await checkVisual(dir, now, "visuals/a.html")).size).toBe(1);
+  });
+
+  it.each(["check", "read"] as const)(
+    "refuses visuals/ itself swapped for a link to the outside between the check and the opening (%s)",
+    async (way) => {
+      const { now, dir } = await direction();
+      await writeFile(join(dir, "a.html"), "inside");
+      await mkdir(join(now, "..", "..", "secret"));
+      await writeFile(join(now, "..", "..", "secret", "a.html"), "outside");
+      const swap = swapOnce(dir, join(now, "..", "..", "secret"));
+      const owned = async () => (await lstat(now)).isDirectory();
+
+      expect(await refusal(attempt(way, now, dir, swap, owned))).toBe("visual_outside");
+    },
+  );
+
+  it.each(["check", "read"] as const)(
+    "refuses the direction swapped for a link to a folder with the same visual, between the check and the opening (%s)",
+    async (way) => {
+      const { now, dir } = await direction();
+      await writeFile(join(dir, "a.html"), "inside");
+      const elsewhere = await sameVisualElsewhere(now);
+      const swap = swapOnce(now, elsewhere);
+      // As the host's check of a direction's place: a real folder, no link.
+      const owned = async () => isRealFolder(now);
+
+      expect(await refusal(attempt(way, now, dir, swap, owned))).toBe("visual_outside");
+    },
+  );
+
+  it.each(["check", "read"] as const)(
+    "refuses the direction swapped for a link right after its check and swapped back once the file is open (%s)",
+    async (way) => {
+      const { now, dir } = await direction();
+      await writeFile(join(dir, "a.html"), "inside");
+      const owned = swapThenBack(now, await sameVisualElsewhere(now));
+
+      expect(await refusal(attempt(way, now, dir, undefined, owned))).toBe("visual_outside");
+      expect(owned.calls()).toBe(2);
+    },
+  );
+
+  it("refuses a visual when the direction's own place fails its check, and tells a missing folder as missing", async () => {
+    const { now, dir } = await direction();
+    await writeFile(join(dir, "a.html"), "x");
+
+    expect(await refusal(checkVisual(dir, now, "visuals/a.html", undefined, { owned: async () => false }))).toBe(
+      "visual_outside",
+    );
+    expect(await refusal(readVisual(dir, join(dir, "a.html"), undefined, async () => false))).toBe("visual_outside");
+    await rm(dir, { recursive: true });
+    expect(await refusal(checkVisual(dir, now, "visuals/a.html", undefined, { owned: async () => true }))).toBe(
+      "visual_missing",
+    );
+    await writeFile(dir, "not a folder");
+    expect(await refusal(checkVisual(dir, now, "visuals/a.html", undefined, { owned: async () => true }))).toBe(
+      "visual_outside",
+    );
   });
 });

@@ -4,6 +4,7 @@ import {
   encodeArgument,
   sessionFolder,
   startCommand,
+  askArgument,
   studyArgument,
   visualsArgument,
 } from "@atrium/pi";
@@ -418,6 +419,41 @@ async function terminalSession(at: Awaited<ReturnType<typeof place>>, id: string
   const path = join(folder, `${id}.jsonl`);
   const user = { type: "message", id: "u1", parentId: null, timestamp: "", message: { role: "user", content: "hi" } };
   await writeFile(path, `${JSON.stringify({ type: "session", id, timestamp: "", cwd })}\n${JSON.stringify(user)}\n`);
+  return path;
+}
+
+/**
+ * A session on file that recorded the model and level it thinks with, as pi writes them.
+ *
+ * @sideEffects Creates the session's folder and file.
+ * @param at - The directories.
+ * @param id - The session.
+ * @param cwd - Where it ran.
+ * @param model - The model pi last switched to.
+ * @param level - The thinking level pi last switched to.
+ * @returns The file.
+ */
+async function modelSession(
+  at: Awaited<ReturnType<typeof place>>,
+  id: string,
+  cwd: string,
+  model: { readonly providerId: string; readonly modelId: string },
+  level: string,
+): Promise<string> {
+  const folder = sessionFolder({ directory: at.piSessions, perCwd: false }, cwd);
+  await mkdir(folder, { recursive: true });
+  const path = join(folder, `${id}.jsonl`);
+  const session = { type: "session", id, timestamp: "", cwd };
+  const change = {
+    type: "model_change",
+    id: "m1",
+    parentId: null,
+    timestamp: "",
+    provider: model.providerId,
+    modelId: model.modelId,
+  };
+  const levelChange = { type: "thinking_level_change", id: "t1", parentId: "m1", timestamp: "", thinkingLevel: level };
+  await writeFile(path, `${JSON.stringify(session)}\n${JSON.stringify(change)}\n${JSON.stringify(levelChange)}\n`);
   return path;
 }
 
@@ -2567,8 +2603,8 @@ function fastSwitches(received: readonly Record<string, unknown>[]): unknown[] {
 }
 
 /** Where the visuals go: the first session's in its folder, none for any other. */
-function firstSessionVisuals(sessionId: string): string | null {
-  return sessionId === "pi-session-1" ? `/home/.atrium/visuals/${sessionId}` : null;
+function firstSessionVisuals(sessionId: string): { dir: string } | null {
+  return sessionId === "pi-session-1" ? { dir: `/home/.atrium/visuals/${sessionId}` } : null;
 }
 
 describe("SessionManager Fast", () => {
@@ -2643,6 +2679,29 @@ describe("SessionManager Fast", () => {
       .filter((argv) => argv !== undefined);
     expect(argvs[0]?.at(-1)).toBe(`--atrium-visuals=${visualsArgument("/home/.atrium/visuals/pi-session-1")}`);
     expect(argvs[1]?.some((arg) => arg.startsWith("--atrium-visuals"))).toBe(false);
+  });
+
+  it("tells Atrium's extension a study direction's visuals go in its visuals/, named by their place (SPEC-0008, ML4)", async () => {
+    const { fast } = fastMemory(false);
+    const { manager, starts } = await manage(
+      { argvToStderr: true, rules: FAST_PI },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fast,
+      undefined,
+      { visualsDir: () => ({ dir: "/L/rust/visuals", base: "/L/rust" }) },
+    );
+
+    await started(manager, manager.createChat("client-1"));
+
+    const argvs = starts()
+      .map(({ argv }) => argv)
+      .filter((argv) => argv !== undefined);
+    expect(argvs[0]?.at(-1)).toBe(`--atrium-visuals=${visualsArgument("/L/rust/visuals", "visuals")}`);
   });
 
   it("sends no switch while Fast is off", async () => {
@@ -5468,6 +5527,8 @@ async function studyDirection(
     readonly gate?: () => Promise<void>;
     /** Steps into the real catalog. */
     readonly catalog?: (catalog: SessionCatalog) => SessionCatalog;
+    /** The model new sessions start with, and where choices go, if a test needs them. */
+    readonly models?: Parameters<typeof createSessionManager>[0]["models"];
   } = {},
 ) {
   const at = await place();
@@ -5486,7 +5547,7 @@ async function studyDirection(
     at,
     undefined,
     undefined,
-    undefined,
+    more.models,
     undefined,
     undefined,
     fastMemory(false).fast,
@@ -5499,7 +5560,7 @@ async function studyDirection(
 }
 
 describe("SessionManager a learning direction's sessions with a use (SPEC-0008, ML2)", () => {
-  it("starts pi with the use's flag, and nothing for an asking session", async () => {
+  it("starts pi with the use's flag, and an asking session with only the asking flag (ML4 review)", async () => {
     const { manager, starts } = await studyDirection(STUDY_PI);
 
     await manager.createStudySession("client-1", "lrn_go", { kind: "discuss" });
@@ -5512,7 +5573,9 @@ describe("SessionManager a learning direction's sessions with a use (SPEC-0008, 
     await vi.waitFor(() => expect(argvs()).toHaveLength(2));
 
     expect(argvs()[0]).toContain(`--atrium-study=${studyArgument({ kind: "discuss" })}`);
-    expect(argvs()[1]?.some((arg) => arg.startsWith("--atrium-study"))).toBe(false);
+    expect(argvs()[1]?.filter((arg) => arg.startsWith("--atrium-study"))).toStrictEqual([
+      `--atrium-study=${askArgument()}`,
+    ]);
   });
 
   it("starts a session it opened for a use with /atrium-study start, once pi lists the command", async () => {
@@ -5605,6 +5668,54 @@ describe("SessionManager a learning direction's sessions with a use (SPEC-0008, 
 
     await vi.waitFor(() => expect(records.some((record) => record["msg"] === "study extension not loaded")).toBe(true));
     expect(piReceived().filter((command) => command["message"] === startCommand())).toStrictEqual([]);
+  });
+
+  it("starts a direction's session on the model its newest session recorded, not the one chosen last (2026-11-11)", async () => {
+    const { models } = remembering({
+      providerId: "catpaw-cli",
+      modelId: "deepseek-v4.1-flash",
+      thinkingLevel: "medium",
+    });
+    const { manager, piReceived, at, catalog } = await studyDirection(STUDY_PI, { models });
+    const dir = join(at.root, "Learning", "go");
+    const argon = await modelSession(
+      at,
+      "argon",
+      dir,
+      { providerId: "opencode-go", modelId: "gemini-4-argon" },
+      "high",
+    );
+    const kimi = await modelSession(at, "kimi", dir, { providerId: "catpaw-cli", modelId: "kimi-k3" }, "low");
+    await utimes(argon, 1_000, 1_000);
+    await utimes(kimi, 2_000, 2_000);
+    await catalog.scan();
+
+    await manager.startStudySession("client-1", "lrn_go", LESSON_USE);
+
+    await vi.waitFor(() =>
+      expect(withoutIds(piReceived()).filter((command) => command["type"] === "set_model")).toStrictEqual([
+        { type: "set_model", provider: "catpaw-cli", modelId: "kimi-k3" },
+      ]),
+    );
+    expect(withoutIds(piReceived()).filter((command) => command["type"] === "set_thinking_level")).toStrictEqual([
+      { type: "set_thinking_level", level: "low" },
+    ]);
+  });
+
+  it("starts a direction's first session on the model chosen last, no session of it having recorded one", async () => {
+    const { models } = remembering({ providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" });
+    const { manager, piReceived } = await studyDirection(STUDY_PI, { models });
+
+    await manager.createStudySession("client-1", "lrn_go", { kind: "discuss" });
+
+    await vi.waitFor(() =>
+      expect(withoutIds(piReceived()).filter((command) => command["type"] === "set_model")).toStrictEqual([
+        { type: "set_model", provider: "anthropic", modelId: "haiku" },
+      ]),
+    );
+    expect(withoutIds(piReceived()).filter((command) => command["type"] === "set_thinking_level")).toStrictEqual([
+      { type: "set_thinking_level", level: "low" },
+    ]);
   });
 });
 

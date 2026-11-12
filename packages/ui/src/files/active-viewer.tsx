@@ -1,5 +1,6 @@
-import type { AtriumClient } from "@atrium/client";
+import { type AtriumClient, isDirectionId } from "@atrium/client";
 import type { StoreApi } from "zustand";
+import { inDirectionVisuals, isDirectionVisual } from "../study/archive";
 import { type WorkspaceViews, openDiff } from "../state/workspace-views";
 import { DiffViewer } from "./diff-viewer";
 import { FileViewer } from "./file-viewer";
@@ -19,6 +20,9 @@ import { useDiffMode, useShownDiff } from "./use-diff";
  * @param props - The client, the workspace, the views, the tab's key, and how to open a file in
  * the browser, where it can be.
  * @returns The tab's content.
+ *
+ * A learning direction's viewer tab (SPEC-0008, ML4) has no diff; a demo right in its `visuals/`
+ * shows rendered and never in the browser, Markdown shows its preview first.
  */
 export function ActiveViewer({
   client,
@@ -34,11 +38,15 @@ export function ActiveViewer({
   /** Opens a file of the workspace, by its path in it, in the default browser. */
   readonly openInBrowser?: ((path: string) => void) | undefined;
 }) {
-  const mode = useDiffMode(client, views, workspaceId);
-  const shown = useShownDiff(client, workspaceId, mode);
+  const direction = isDirectionId(workspaceId);
+  const mode = useDiffMode(client, views, direction ? null : workspaceId);
+  const shown = useShownDiff(client, direction ? "" : workspaceId, mode);
   if (viewerKey === "diff") return <DiffViewer client={client} workspaceId={workspaceId} views={views} mode={mode} />;
   const path = viewerKey.slice("file:".length);
   const diff = shown?.files.find((file) => file.path === path) ?? null;
+  const demo = direction && isDirectionVisual(path);
+  // Nothing of a direction's visuals/ goes to the browser, outside the sandbox (security.md, ML4).
+  const browsable = !(direction && inDirectionVisuals(path));
   return (
     <FileViewer
       client={client}
@@ -47,7 +55,9 @@ export function ActiveViewer({
       path={path}
       diff={diff}
       onShowDiff={() => openDiff(views, workspaceId, path)}
-      onOpenInBrowser={openInBrowser === undefined ? undefined : () => openInBrowser(path)}
+      onOpenInBrowser={openInBrowser === undefined || !browsable ? undefined : () => openInBrowser(path)}
+      demo={demo}
+      previewFirst={direction}
     />
   );
 }

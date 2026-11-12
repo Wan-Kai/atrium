@@ -8,7 +8,7 @@ import {
   runOneShot,
   sessionsLocation,
 } from "@atrium/pi";
-import { CommandError } from "@atrium/protocol";
+import { CommandError, isDirectionId } from "@atrium/protocol";
 import { randomBytes, randomUUID } from "node:crypto";
 import { homedir, hostname, uptime } from "node:os";
 import { join } from "node:path";
@@ -48,7 +48,7 @@ import { REMOTE_FILE } from "./remote/devices";
 import { loadIndexFile } from "./store/index-file";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
-import { defaultVisualsDir, visualPlaceOf } from "./visuals/visual-place";
+import { DIRECTION_VISUALS, type VisualsDir, defaultVisualsDir, visualPlaceOf } from "./visuals/visual-place";
 import { createVisualService } from "./visuals/visual-service";
 import { openReceipts } from "./remote/receipts";
 import { discoverProjects } from "./projects/discovery";
@@ -92,7 +92,7 @@ import { createLearningRecords } from "./store/learning-records";
 import { createDirectionCreator } from "./study/direction-creator";
 import { createDirectionNamer } from "./study/direction-namer";
 import { errorCode } from "./platform/errors";
-import { createDirections, resolveRoot, shownPath } from "./study/directions";
+import { createDirections, directionPlaceSafe, resolveRoot, shownPath } from "./study/directions";
 import { withEntries } from "./study/entering";
 import { createStudyCommands } from "./study/study-commands";
 import { createProgressFiles } from "./study/progress-file";
@@ -383,17 +383,42 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   // What waits for the user's verdict, per session (ADR-0018); the task gates register when the tasks exist.
   const reviewHub = createReviewHub({ logger, resources });
   /**
+   * Where a study direction's visuals are, counted from where it is now, with its place's check.
+   *
+   * @remarks
+   * SPEC-0008, "ML4 定的细节 · 演示": `visuals/` in the direction's directory now, under `Archive/`
+   * while archived; the direction must be a real directory in the learning directory, read again
+   * on each check (security.md, "渲染内容").
+   *
+   * @sideEffects none
+   * @param directionId - The direction.
+   * @returns The directory, or `null` for a direction not found.
+   */
+  function directionVisuals(directionId: string): Required<VisualsDir> | null {
+    const found = directions.find(directionId);
+    if (found === undefined) return null;
+    return {
+      dir: join(found.dir, DIRECTION_VISUALS),
+      base: found.dir,
+      owned: () => directionPlaceSafe(found.dir, directions.root),
+    };
+  }
+  /**
    * Where a session's visuals go.
    *
    * @remarks
-   * Every session has the default one until a container gives its own (SPEC-0007; ML4 adds study directions').
+   * SPEC-0007: the default one, `~/.atrium/visuals/<id>/`, unless its container gives its own; a
+   * study direction's sessions have the direction's `visuals/` (SPEC-0008, ML4).
    *
    * @sideEffects none
    * @param sessionId - The session.
    * @returns The directory, or `null`.
    */
-  function visualsDir(sessionId: string): string | null {
-    return defaultVisualsDir(home.root, sessionId);
+  function visualsDir(sessionId: string): VisualsDir | null {
+    const containerId = catalog.find(sessionId)?.containerId;
+    if (containerId !== undefined && isDirectionId(containerId)) return directionVisuals(containerId);
+    const dir = defaultVisualsDir(home.root, sessionId);
+    return dir === null ? null : { dir };
   }
   // Directions' progress, written by the agent's study tools and your marks (SPEC-0008, "ML2 定的细节").
   const progressFiles = createProgressFiles({
@@ -543,6 +568,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         },
         visualsDir,
       ),
+    // A direction's viewer tabs read its visuals/ with no session (SPEC-0008, ML4).
+    locateDirection: (directionId) => {
+      const own = directionVisuals(directionId);
+      return own === null ? undefined : { cwd: own.base, dir: own.dir, owned: own.owned };
+    },
     steer: (command, source) => sessions.steer(command, [], source),
     send: (connectionId, event) => subscriptions.sendTo(connectionId, event),
     clock,
@@ -945,7 +975,18 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       translations,
       attachments,
       changes,
-      files: createWorkspaceFiles({ dirOf: (workspaceId) => workspaces.dirOf(workspaceId), git, logger }),
+      files: createWorkspaceFiles({
+        dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
+        // A direction's archive and viewer tabs read it where it is now, archived too (SPEC-0008, ML4).
+        directionOf: async (directionId) => {
+          const found = directions.find(directionId);
+          if (found === undefined) throw new CommandError("direction_not_found");
+          if (!(await directionPlaceSafe(found.dir, directions.root))) throw new CommandError("learning_dir_unsafe");
+          return found.dir;
+        },
+        git,
+        logger,
+      }),
       visuals,
       logger,
       tracer: tracing.tracer,

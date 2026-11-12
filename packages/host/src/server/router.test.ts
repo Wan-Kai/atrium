@@ -486,9 +486,16 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
         if (path === "outside.html") throw new CommandError("visual_outside");
         return { url: `atrium-visual://${"a".repeat(32)}/a.html`, size: 1, mtime: 2 };
       },
+      resolveForDirection: async (connectionId, directionId, path) => {
+        calls.push(["resolveDirectionVisual", connectionId, directionId, path]);
+        return { url: `atrium-visual://${"b".repeat(32)}/a.html`, size: 1, mtime: 3 };
+      },
       send: async (command) => {
         calls.push(["sendVisual", command]);
         return { disposition: "dropped" };
+      },
+      release: (connectionId, owner, path) => {
+        calls.push(["releaseVisual", connectionId, owner, path]);
       },
     },
     tracer: recording.tracer,
@@ -1354,6 +1361,25 @@ describe("createRouter", () => {
     ]);
   });
 
+  it("hands letting go of a visual to the visuals, with the connection and who it was for (ML4 review)", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "release_visual", requestId: "r1", sessionId: "s1", path: "a.html" }));
+    await route(
+      connection,
+      withTrace({ type: "release_visual", requestId: "r2", directionId: "lrn_go", path: "visuals/a.html" }),
+    );
+
+    expect(calls).toStrictEqual([
+      ["releaseVisual", connection.id, { sessionId: "s1" }, "a.html"],
+      ["releaseVisual", connection.id, { directionId: "lrn_go" }, "visuals/a.html"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: {} },
+      { type: "response", requestId: "r2", ok: true, result: {} },
+    ]);
+  });
+
   it("hands resolving a visual and its messages to the visuals, with the connection", async () => {
     const { route, connection, sent, calls } = setUp();
 
@@ -1366,6 +1392,11 @@ describe("createRouter", () => {
       connection,
       withTrace({ type: "send_visual_message", requestId: "r3", sessionId: "s1", path: "a.html", text: "选 B" }),
     );
+    // A direction's viewer tab resolves for the direction (SPEC-0008, ML4).
+    await route(
+      connection,
+      withTrace({ type: "resolve_visual", requestId: "r4", directionId: "lrn_go", path: "visuals/a.html" }),
+    );
 
     expect(calls).toStrictEqual([
       ["resolveVisual", connection.id, "s1", "a.html"],
@@ -1374,6 +1405,7 @@ describe("createRouter", () => {
         "sendVisual",
         { requestId: "r3", traceparent: expect.any(String), sessionId: "s1", path: "a.html", text: "选 B" },
       ],
+      ["resolveDirectionVisual", connection.id, "lrn_go", "visuals/a.html"],
     ]);
     expect(sent).toStrictEqual([
       {
@@ -1384,6 +1416,12 @@ describe("createRouter", () => {
       },
       { type: "response", requestId: "r2", ok: false, error: { code: "visual_outside" } },
       { type: "response", requestId: "r3", ok: true, result: { disposition: "dropped" } },
+      {
+        type: "response",
+        requestId: "r4",
+        ok: true,
+        result: { url: `atrium-visual://${"b".repeat(32)}/a.html`, size: 1, mtime: 3 },
+      },
     ]);
   });
 
@@ -1684,6 +1722,11 @@ describe("createRouter's attachments", () => {
     { type: "retry_study_kickoff", sessionId: "talk" },
     { type: "upgrade_study", directionId: "lrn_go", level: "l1", archiveSessions: true },
     { type: "restore_study_sessions", directionId: "lrn_go", sessionIds: ["talk"] },
+    // A direction's files and visuals (SPEC-0008, ML4): the same field a workspace's use.
+    { type: "list_dir", workspaceId: "lrn_go", path: "" },
+    { type: "read_file", workspaceId: "lrn_go", path: "notes/a.md" },
+    { type: "resolve_visual", directionId: "lrn_go", path: "visuals/a.html" },
+    { type: "release_visual", directionId: "lrn_go", path: "visuals/a.html" },
   ])(
     "refuses a phone's $type on a learning direction or a session in one, as local_only, running nothing",
     async (fields) => {

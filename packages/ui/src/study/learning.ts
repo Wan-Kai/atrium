@@ -4,7 +4,6 @@ import { type StoreApi, createStore } from "zustand/vanilla";
 import { type FirstMessages, firstMessages } from "../chat/first-message";
 import type { CompressedImage } from "../chat/images";
 import type { Drafts } from "../state/drafts";
-import { progressLine } from "./progress";
 
 // Study mode in this window (SPEC-0008, ML1): the learning home and the new-direction page, which
 // show in place of the tab bar and the conversation area, and whether each direction shows its
@@ -139,26 +138,6 @@ export function showHome(store: StoreApi<LearningState>, directionId: string, sh
  */
 export function directionName(direction: Pick<Direction, "alias" | "name">): string {
   return direction.alias ?? direction.name;
-}
-
-/**
- * Where a direction stands, in a few words: under discussion until it has a ladder.
- *
- * @remarks
- * SPEC-0008 ("讨论"): `discussing` says whether the ladder is written; a broken marker shows as
- * under discussion. With a ladder, the line is where the learner is (`progressLine`, ML2).
- *
- * @sideEffects none
- * @param direction - The direction.
- * @returns Its stage and a line about it.
- */
-export function directionStage(direction: Pick<Direction, "discussing" | "broken" | "progress">): {
-  readonly stage: string;
-  readonly line: string;
-} {
-  if (direction.broken) return { stage: "讨论中", line: "档案读不出来，先按讨论中显示" };
-  if (direction.discussing || direction.progress === null) return { stage: "讨论中", line: "还没排出阶梯" };
-  return { stage: "已排好阶梯", line: progressLine(direction.progress) };
 }
 
 /**

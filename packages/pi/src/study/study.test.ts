@@ -1,9 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { createTempDir } from "@atrium/testkit";
+import { mkdir, symlink, truncate, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { describe, expect, expectTypeOf, it, onTestFinished } from "vitest";
 import { AGENT_MESSAGE, encodeArgument } from "../agent/agent";
 import type { AgentErrorCode, AgentReply } from "../agent/channel";
 import type { HostChannel } from "../agent/extension";
-import atriumStudy, { type StudyApi } from "./extension";
+import atriumStudy, { type StudyApi, readProgressFile } from "./extension";
 import {
   STUDY_COMMAND,
   STUDY_FLAG,
@@ -16,6 +19,11 @@ import {
   startCommand,
   studyArgument,
   AGENTS_RULE,
+  OUTSIDE_RULE,
+  VISUAL_RULES,
+  WRITE_VISUAL_FIRST,
+  askArgument,
+  positionOf,
   studyPrompt,
   studyTooLong,
 } from "./study";
@@ -51,7 +59,13 @@ interface Loaded {
  * @param reply - What the host answers.
  * @returns What it recorded.
  */
-function load(flag: string | undefined, reply: Answer | null = { ok: true, result: {} }): Loaded {
+function load(
+  flag: string | undefined,
+  reply: Answer | null = { ok: true, result: {} },
+  progress: () => string = () => {
+    throw new Error("no progress file");
+  },
+): Loaded {
   const tools: Registered[] = [];
   const hooks = new Map<string, (event: never) => void>();
   const sent: { message: unknown; options: unknown }[] = [];
@@ -74,7 +88,7 @@ function load(flag: string | undefined, reply: Answer | null = { ok: true, resul
       return Promise.resolve(answer);
     },
   };
-  atriumStudy(pi, channel);
+  atriumStudy(pi, channel, progress);
   return {
     tools,
     hooks,
@@ -170,13 +184,11 @@ describe("study mode's flag", () => {
 describe("study mode's part of the extension", () => {
   it("registers no tool and no prompt without the flag, and none before the session starts", () => {
     expectTypeOf<ExtensionAPI>().toExtend<StudyApi>();
-    for (const flag of [undefined, encodeArgument({ v: 1, kind: "ask" })]) {
-      const loaded = load(flag);
-      loaded.start();
+    const loaded = load(undefined);
+    loaded.start();
 
-      expect(loaded.tools).toStrictEqual([]);
-      expect(loaded.sections()).toStrictEqual({ cwd: "/d" });
-    }
+    expect(loaded.tools).toStrictEqual([]);
+    expect(loaded.sections()).toStrictEqual({ cwd: "/d" });
     const early = load(studyArgument({ kind: "discuss" }));
 
     expect(early.tools).toStrictEqual([]);
@@ -451,9 +463,9 @@ describe("study mode's words", () => {
     );
   });
 
-  it("has the lesson write no probe files, only its note and a starting file it needs (D)", () => {
+  it("has the lesson write no probe files, only its note, its visual and a starting file it needs (D, ML4 review)", () => {
     expect(studyPrompt({ kind: "lesson", level: "l1", step: "s1" })).toContain(
-      "Do not create probe or scratch files to try things yourself. The files you write are the lesson's note in notes/ and, only when the lesson needs one, a short starting file in lab/ that the learner then fills in.",
+      "Do not create probe or scratch files to try things yourself. The files you write are the lesson's note in notes/, its interactive visual in visuals/ when it uses one, and, only when the lesson needs one, a short starting file in lab/ that the learner then fills in.",
     );
   });
 
@@ -463,6 +475,177 @@ describe("study mode's words", () => {
         "Never say Atrium's internal ids (such as l1, s2 or g3) to the learner: call a level by its number and name, a lesson by its title, a gap by what it is about.",
       );
     }
+  });
+
+  it("tells every use not to write outside the direction's folder, not even in /tmp, asking too (ML4)", () => {
+    expect(OUTSIDE_RULE).toBe(
+      "Do not create or edit files outside the working directory (this direction's folder), not even in /tmp.",
+    );
+    for (const kind of ["discuss", "plan", "lesson", "quiz", "feynman", "sheet", "project", "exam"] as const) {
+      expect(studyPrompt({ kind }).split("\n")).toContain(OUTSIDE_RULE);
+    }
+    for (const flag of [
+      ...(["discuss", "plan", "lesson", "quiz", "feynman", "sheet", "project", "exam"] as const).map((kind) =>
+        studyArgument({ kind }),
+      ),
+      askArgument(),
+    ]) {
+      const loaded = load(flag);
+      loaded.start();
+      expect(loaded.sections()[STUDY_SECTION]?.split("\n")).toContain(OUTSIDE_RULE);
+    }
+  });
+
+  it("gives an asking session only the rule of staying in the direction's folder: no tool, no use, no kickoff (ML4)", async () => {
+    expect(askArgument()).toBe(encodeArgument({ v: 1, kind: "ask" }));
+    expect(readStudyArgument(askArgument())).toBeNull();
+    const loaded = load(askArgument());
+    loaded.start();
+    await loaded.command(startCommand().slice(STUDY_COMMAND.length + 2));
+
+    expect(loaded.tools).toStrictEqual([]);
+    expect(loaded.sections()).toStrictEqual({
+      cwd: "/d",
+      [STUDY_SECTION]: [
+        "This session is a question asked in a learning direction in Atrium's study mode.",
+        OUTSIDE_RULE,
+      ].join("\n"),
+    });
+    expect(loaded.sent).toStrictEqual([]);
+    // Only exactly an asking flag: another field, version or use is no flag at all.
+    for (const flag of [
+      encodeArgument({ v: 1, kind: "ask", level: "l1" }),
+      encodeArgument({ v: 2, kind: "ask" }),
+      encodeArgument({ kind: "ask" }),
+    ]) {
+      const other = load(flag);
+      other.start();
+      expect(other.sections()).toStrictEqual({ cwd: "/d" });
+    }
+  });
+
+  it("lets a lesson write its visual with its note and starting file, and write a visual before naming it (ML4 review)", () => {
+    expect(WRITE_VISUAL_FIRST).toBe(
+      "Write a visual's file first, then reference it in your reply: a reference to a file not written yet shows as missing.",
+    );
+    expect(studyPrompt({ kind: "lesson" }).split("\n")).toContain(
+      "Do not create probe or scratch files to try things yourself. The files you write are the lesson's note in notes/, its interactive visual in visuals/ when it uses one, and, only when the lesson needs one, a short starting file in lab/ that the learner then fills in.",
+    );
+    for (const kind of ["lesson", "feynman"] as const) {
+      expect(studyPrompt({ kind }).split("\n")).toContain(WRITE_VISUAL_FIRST);
+    }
+    for (const kind of ["discuss", "plan", "quiz", "sheet", "project", "exam"] as const) {
+      expect(studyPrompt({ kind }).split("\n")).not.toContain(WRITE_VISUAL_FIRST);
+    }
+  });
+
+  it("gives the lesson and Feynman the two rules of visuals, AGENTS.md first, and the quiz and the exam none (ML4)", () => {
+    expect(VISUAL_RULES).toStrictEqual([
+      "In a lesson, use at most one interactive visual, for the idea that moves or changes; write it to `visuals/<level>-<step>-<short-name>.html` (level and step as numbers, e.g. `2-03-borrow-flow.html`) and reference it by that relative path.",
+      "A visual may ask the learner at most one question to guess before you explain; it sends the guess back with `window.atrium.sendMessage`. Wait for that answer, then explain.",
+      "If AGENTS.md in the working directory says something else about visuals, follow AGENTS.md.",
+    ]);
+    for (const kind of ["lesson", "feynman"] as const) {
+      const lines = studyPrompt({ kind }).split("\n");
+      for (const rule of VISUAL_RULES) expect([kind, lines.includes(rule)]).toStrictEqual([kind, true]);
+    }
+    for (const kind of ["quiz", "exam"] as const) {
+      const lines = studyPrompt({ kind }).split("\n");
+      expect(lines).toContain("Make no interactive visual in this session: ask with question cards only.");
+      expect(lines.some((line) => (VISUAL_RULES as readonly string[]).includes(line))).toBe(false);
+    }
+    for (const kind of ["discuss", "plan", "sheet", "project"] as const) {
+      expect(
+        studyPrompt({ kind })
+          .split("\n")
+          .some((line) => (VISUAL_RULES as readonly string[]).includes(line)),
+      ).toBe(false);
+    }
+  });
+
+  it("numbers a level by its place in the ladder, skipped ones too, and a step by its place in the level (ML4)", () => {
+    const progress = JSON.stringify({
+      version: 1,
+      ladder: [{ id: "l1" }, { id: "l2" }, { id: "l3" }],
+      steps: { l2: [{ id: "s1" }, { id: "s2" }, { id: "s9" }] },
+    });
+
+    expect(positionOf(progress, "l2", "s9")).toStrictEqual({ level: 2, step: 3 });
+    expect(positionOf(progress, "l2", undefined)).toStrictEqual({ level: 2 });
+    expect(positionOf(progress, "l2", "s4")).toStrictEqual({ level: 2 });
+    expect(positionOf(progress, "l3", "s1")).toStrictEqual({ level: 3 });
+    for (const bad of [progress.slice(1), "null", "[]", '{"ladder":{}}', '{"ladder":[1]}']) {
+      expect([bad, positionOf(bad, "l2", "s1")]).toStrictEqual([bad, null]);
+    }
+    expect(positionOf(progress, "l9", "s1")).toBeNull();
+    expect(positionOf(progress, undefined, undefined)).toBeNull();
+  });
+
+  it("gives the lesson's and Feynman's kickoff the level and step as file names write them (ML4)", () => {
+    const lesson = kickoffText({ kind: "lesson", level: "l2", step: "s3" }, { level: 2, step: 3 }).split("\n");
+    const feynman = kickoffText({ kind: "feynman", level: "l2", gap: "g1" }, { level: 2 }).split("\n");
+
+    expect(lesson).toContain("This is level 2, step 3: a visual of it is named visuals/2-03-<short-name>.html.");
+    expect(feynman).toContain("This is level 2.");
+    expect(kickoffText({ kind: "quiz", level: "l2", step: "s3" }, { level: 2, step: 3 })).not.toContain(
+      "This is level",
+    );
+    expect(kickoffText({ kind: "lesson", level: "l2", step: "s3" })).not.toContain("This is level");
+    expect(kickoffText({ kind: "lesson", level: "l2", step: "s3" }, { level: 12, step: 10 })).toContain(
+      "visuals/12-10-<short-name>.html",
+    );
+  });
+
+  it("reads the progress for the kickoff's numbers, and starts without them when it cannot (ML4)", async () => {
+    const launch = { kind: "lesson", level: "l1", step: "s2" } as const;
+    const file = JSON.stringify({ ladder: [{ id: "l1" }], steps: { l1: [{ id: "s1" }, { id: "s2" }] } });
+    const loaded = load(studyArgument(launch), undefined, () => file);
+    const broken = load(studyArgument(launch));
+
+    await loaded.command(startCommand().slice(STUDY_COMMAND.length + 2));
+    await broken.command(startCommand().slice(STUDY_COMMAND.length + 2));
+
+    expect(loaded.sent.map(({ message }) => Reflect.get(Object(message), "content"))).toStrictEqual([
+      kickoffText(launch, { level: 1, step: 2 }),
+    ]);
+    expect(broken.sent.map(({ message }) => Reflect.get(Object(message), "content"))).toStrictEqual([
+      kickoffText(launch),
+    ]);
+  });
+
+  it("reads a progress file of up to 1 MiB in bytes, and refuses a larger one by its size before reading it (ML4)", async () => {
+    const temp = await createTempDir("progress");
+    onTestFinished(temp.cleanup);
+    const file = join(temp.path, ".atrium-study.json");
+    const full = `"${"a".repeat(1024 * 1024 - 2)}"`;
+
+    await writeFile(file, full);
+    expect(readProgressFile(temp.path)).toBe(full);
+    // Under 1 MiB in UTF-16 units, over it in bytes.
+    await writeFile(file, "é".repeat(600_000));
+    expect(() => readProgressFile(temp.path)).toThrow("too large");
+    await writeFile(file, `${full} `);
+    expect(() => readProgressFile(temp.path)).toThrow("too large");
+    // Far too large to read at all: told by its size, never read.
+    await truncate(file, 3 * 1024 * 1024 * 1024);
+    expect(() => readProgressFile(temp.path)).toThrow("too large");
+  });
+
+  it("refuses a progress file that is a folder (ML4)", async () => {
+    const temp = await createTempDir("progress");
+    onTestFinished(temp.cleanup);
+    await mkdir(join(temp.path, ".atrium-study.json"));
+
+    expect(() => readProgressFile(temp.path)).toThrow("not a file");
+  });
+
+  it("does not follow a progress file that is a link (ML4)", async () => {
+    const temp = await createTempDir("progress");
+    onTestFinished(temp.cleanup);
+    await writeFile(join(temp.path, "elsewhere.json"), "{}");
+    await symlink(join(temp.path, "elsewhere.json"), join(temp.path, ".atrium-study.json"));
+
+    expect(() => readProgressFile(temp.path)).toThrow("ELOOP");
   });
 
   it("tells a quiz with no lesson to come from to quiz from the notes and the progress (ML3)", () => {

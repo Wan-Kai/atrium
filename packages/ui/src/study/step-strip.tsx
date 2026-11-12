@@ -2,11 +2,13 @@ import type { AtriumClient } from "@atrium/client";
 import type { Control, StudyAction } from "@atrium/protocol";
 import { useState } from "react";
 import { type StoreApi, useStore } from "zustand";
+import { type WorkspaceViews, showViewer } from "../state/workspace-views";
 import { Archive, Award, Message, Mortarboard, Warning } from "../design/icons";
 import { type LearningState, confirmUpgrade, describeStudyError, openDirectionSession, showHome } from "./learning";
 import { useLessonControl } from "./lesson-control";
 import { isLastLevel, waitsForLesson } from "./loop";
-import { type StripDot, actionLabel, stripView } from "./progress";
+import { actionLabel, stripView } from "./progress";
+import { StepDots } from "./step-dots";
 import { UpgradeDialog } from "./upgrade-dialog";
 
 /** The strip's buttons: 26px high, 10px across, 9px corners (design-language "常驻步骤条"). */
@@ -20,13 +22,16 @@ const STRIP_BUTTON =
  * SPEC-0008, "下一步怎么算": a start asks the host to open the session, shown over the home (the
  * host opens its tab, a new one or the one there already); going back opens the session already
  * there; a mark is "以后再测" or "进入下一步"; the upgrade asks first (prototype 4A). Not
- * available ones are never run.
+ * available ones are never run. A session opened or started shows over the direction's viewer tab
+ * too: it may be the one already active, which the host's answer does not change (ML4 three-way
+ * review).
  *
- * @sideEffects Sends a command; updates the study store.
+ * @sideEffects Sends a command; updates the study store and, given, the views.
  * @param client - The client.
  * @param store - The study store.
  * @param directionId - The direction.
  * @param action - The action.
+ * @param views - The workspace views, whose viewer tab of the direction gives way to the session.
  * @returns When the host answered.
  */
 export async function runAction(
@@ -34,10 +39,12 @@ export async function runAction(
   store: StoreApi<LearningState>,
   directionId: string,
   action: StudyAction,
+  views?: StoreApi<WorkspaceViews>,
 ): Promise<void> {
   switch (action.type) {
     case "open":
       await openDirectionSession(client, store, directionId, action.sessionId);
+      if (views !== undefined) showViewer(views, directionId, null);
       return;
     case "mark":
       await client.markStudyStep(directionId, action.level, action.step, action.mark, true);
@@ -56,6 +63,7 @@ export async function runAction(
         ...(step === undefined ? {} : { step }),
         ...(gap === undefined ? {} : { gap }),
       });
+      if (views !== undefined) showViewer(views, directionId, null);
       return;
     }
   }
@@ -84,34 +92,6 @@ export function blockedBecause(
 }
 
 /**
- * One dot of the strip.
- *
- * @remarks
- * design-language "常驻步骤条" and prototype 2D: 8px, lessons square (2px corners), the steps after
- * round; done `--text-muted`, current `--tint`, not done `--line-strong`; the broken file's are
- * hollow placeholders, the current one of an archived direction or a later version's file a grey
- * ring, a finished one's all lit.
- *
- * @sideEffects none
- * @param props - The dot and how the strip draws it.
- * @returns The dot.
- */
-function Dot({ dot, look }: { readonly dot: StripDot; readonly look: "learning" | "archived" | "finished" | "newer" }) {
-  const shape = dot.round ? "rounded-full" : "rounded-[2px]";
-  const fill =
-    look === "finished"
-      ? "bg-[var(--tint)]"
-      : dot.state === "done"
-        ? "bg-[var(--text-muted)]"
-        : dot.state === "current"
-          ? look === "archived" || look === "newer"
-            ? "shadow-[inset_0_0_0_1.5px_var(--text-muted)]"
-            : "bg-[var(--tint)]"
-          : "bg-[var(--line-strong)]";
-  return <i data-state={dot.state} className={`block size-2 ${shape} ${fill}`} />;
-}
-
-/**
  * The step strip under the tab bar, on a direction's home and in each of its sessions.
  *
  * @remarks
@@ -126,17 +106,20 @@ function Dot({ dot, look }: { readonly dot: StripDot; readonly look: "learning" 
  * (provisional wording).
  *
  * @sideEffects Subscribes to the list and the study store; sends commands when a button is pressed.
- * @param props - The client, the study store and the direction.
+ * @param props - The client, the study store, the direction and the workspace views.
  * @returns The strip, or nothing for a direction the list does not have.
  */
 export function StepStrip({
   client,
   store,
   directionId,
+  views,
 }: {
   readonly client: AtriumClient;
   readonly store: StoreApi<LearningState>;
   readonly directionId: string;
+  /** The workspace views: a session the strip opens shows over the direction's viewer tab. */
+  readonly views?: StoreApi<WorkspaceViews> | undefined;
 }) {
   const direction = useStore(client.index, (index) => index.directions.find((one) => one.id === directionId));
   const sessions = useStore(client.index, (index) => index.sessions);
@@ -170,11 +153,7 @@ export function StepStrip({
           <Warning size={14} aria-hidden />
           档案读不出来
         </span>
-        <span className="inline-flex gap-[3px]" aria-hidden>
-          {Array.from({ length: view.dots }, (_, at) => (
-            <i key={at} className="block size-2 rounded-[2px] shadow-[inset_0_0_0_1px_var(--line-strong)]" />
-          ))}
-        </span>
+        <StepDots dots={{ kind: "broken", count: view.dots }} />
       </div>
     );
   }
@@ -197,7 +176,7 @@ export function StepStrip({
     setProblem(null);
     setBusy(true);
     // Fire and forget: a failure is shown on the strip; the buttons wait until the host answered.
-    void runAction(client, store, directionId, action)
+    void runAction(client, store, directionId, action, views)
       .catch((error: unknown) => setProblem(describeStudyError(error)))
       .finally(() => setBusy(false));
   };
@@ -234,13 +213,7 @@ export function StepStrip({
           {label}
         </span>
       </span>
-      {unplanned ? null : (
-        <span className="inline-flex gap-[3px]" role="img" aria-label={`共 ${String(view.dots.length)} 步`}>
-          {view.dots.map((dot) => (
-            <Dot key={dot.id} dot={dot} look={view.kind} />
-          ))}
-        </span>
-      )}
+      {unplanned ? null : <StepDots dots={{ kind: "steps", dots: view.dots, look: view.kind }} />}
       <span className="min-w-0 truncate">
         {problem !== null ? (
           <span role="alert" className="text-[var(--danger)]">

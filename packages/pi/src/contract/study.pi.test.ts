@@ -7,7 +7,20 @@ import { runScenario, startOtherPi } from "../../test/contract";
 import { AGENT_MESSAGE, encodeArgument } from "../agent/agent";
 import { readRequest } from "../agent/channel";
 import type { PiEvent } from "../process/pi-process";
-import { AGENTS_RULE, STUDY_FLAG, STUDY_TOOLS, kickoffText, startCommand, studyArgument } from "../study/study";
+import {
+  AGENTS_RULE,
+  ASK_PROMPT,
+  OUTSIDE_RULE,
+  STUDY_FLAG,
+  STUDY_TOOLS,
+  VISUAL_RULES,
+  WRITE_VISUAL_FIRST,
+  askArgument,
+  kickoffText,
+  startCommand,
+  studyArgument,
+} from "../study/study";
+import { VISUALS_FLAG, visualsArgument, visualsPrompt } from "../visuals/visuals";
 
 /** Atrium's extension, as the host has pi load it (ADR-0008, ADR-0013). */
 const ATRIUM_EXTENSION = fileURLToPath(new URL("../extension/atrium.ts", import.meta.url));
@@ -168,13 +181,13 @@ describe("pi contract: study mode (SPEC-0008)", () => {
     );
   });
 
-  it("study-tools-none: a session without --atrium-study, as a workspace's, a chat's or an asking one, has no study tool", async () => {
+  it("study-tools-none: a session with no use it can read, as a workspace's or a chat's, has no study tool and no study prompt", async () => {
     await runScenario(
       {
         scenario: "study-tools-none",
         extensions: [ATRIUM_EXTENSION],
-        // An asking session's use is never given; one that came anyway is read as none.
-        args: [`--${STUDY_FLAG}=${encodeArgument({ v: 1, kind: "ask" })}`],
+        // No use is read from a flag that names none.
+        args: [`--${STUDY_FLAG}=${encodeArgument({ v: 1, kind: "nap" })}`],
         script: { replies: [{ blocks: [{ type: "text", text: "ok" }] }] },
       },
       async ({ pi, until, contexts }) => {
@@ -184,6 +197,31 @@ describe("pi contract: study mode (SPEC-0008)", () => {
 
         expect(studyTools(request)).toStrictEqual([]);
         expect(systemText(present(request, "the request").messages)).not.toContain("atrium_study");
+      },
+    );
+  });
+
+  it("study-ask: an asking session of a direction has no study tool, only the rule of staying in its folder (ML4 review)", async () => {
+    await runScenario(
+      {
+        scenario: "study-ask",
+        extensions: [ATRIUM_EXTENSION],
+        args: [
+          `--${STUDY_FLAG}=${askArgument()}`,
+          `--${VISUALS_FLAG}=${visualsArgument("/L/rust/visuals", "visuals")}`,
+        ],
+        script: { replies: [{ blocks: [{ type: "text", text: "ok" }] }] },
+      },
+      async ({ pi, until, contexts }) => {
+        await pi.request({ type: "prompt", message: "借用是什么" });
+        await until((event) => event.type === "agent_settled");
+        const [request] = await contexts();
+        const told = systemText(present(request, "the request").messages);
+
+        expect(studyTools(request)).toStrictEqual([]);
+        expect(told).toContain(JSON.stringify(ASK_PROMPT).slice(1, -1));
+        expect(told).not.toContain("This session's use:");
+        expect(told).toContain(JSON.stringify(visualsPrompt("/L/rust/visuals", "visuals")).slice(1, -1));
       },
     );
   });
@@ -413,6 +451,72 @@ describe("pi contract: study mode (SPEC-0008)", () => {
         expect(studyTools(request)).toStrictEqual(["study_set_steps"]);
         expect(told).toContain('This session\'s use: plan (level=\\\"l2\\\" in .atrium-study.json).');
         expect(told).toContain("Do not say the lessons are set or saved before you have called study_set_steps.");
+      },
+    );
+  });
+
+  it("study-lesson-visuals: a lesson in a direction is told its numbers, the two rules of visuals, to stay in its folder, and to write visuals by their place (ML4)", async () => {
+    const launch = { kind: "lesson", level: "l2", step: "s9" } as const;
+    const progress = {
+      version: 1,
+      name: "Rust",
+      ladder: [{ id: "l1" }, { id: "l2" }],
+      steps: { l2: [{ id: "s1" }, { id: "s2" }, { id: "s9" }] },
+    };
+    await runScenario(
+      {
+        scenario: "study-lesson-visuals",
+        session: true,
+        extensions: [ATRIUM_EXTENSION],
+        args: [
+          `--${STUDY_FLAG}=${studyArgument(launch)}`,
+          `--${VISUALS_FLAG}=${visualsArgument("/L/rust/visuals", "visuals")}`,
+        ],
+        files: { ".atrium-study.json": `${JSON.stringify(progress)}\n` },
+        script: { replies: [{ blocks: [{ type: "text", text: "第三课" }] }] },
+      },
+      async ({ pi, until, contexts }) => {
+        await pi.request({ type: "prompt", message: startCommand() });
+        await until(customEnd);
+        await until((event) => event.type === "agent_settled");
+        const [request] = await contexts();
+        const sent = JSON.stringify(present(request, "the request").messages);
+        const told = systemText(present(request, "the request").messages);
+
+        expect(sent).toContain(JSON.stringify(kickoffText(launch, { level: 2, step: 3 })).slice(1, -1));
+        expect(sent).toContain("visuals/2-03-<short-name>.html");
+        for (const rule of [OUTSIDE_RULE, ...VISUAL_RULES, WRITE_VISUAL_FIRST]) {
+          expect(told).toContain(JSON.stringify(rule).slice(1, -1));
+        }
+        expect(told).toContain(JSON.stringify(visualsPrompt("/L/rust/visuals", "visuals")).slice(1, -1));
+        expect(told).not.toContain("/L/rust/visuals/<name>.html");
+      },
+    );
+  });
+
+  it("study-quiz-visuals: a quiz makes no visual, and is told only that, nothing of visuals besides (ML4)", async () => {
+    await runScenario(
+      {
+        scenario: "study-quiz-visuals",
+        extensions: [ATRIUM_EXTENSION],
+        args: [
+          `--${STUDY_FLAG}=${studyArgument({ kind: "quiz", level: "l1", step: "s1", context: "none" })}`,
+          `--${VISUALS_FLAG}=${visualsArgument("/L/rust/visuals", "visuals")}`,
+        ],
+        script: { replies: [{ blocks: [{ type: "text", text: "ok" }] }] },
+      },
+      async ({ pi, until, contexts }) => {
+        await pi.request({ type: "prompt", message: "测我" });
+        await until((event) => event.type === "agent_settled");
+        const [request] = await contexts();
+        const told = systemText(present(request, "the request").messages);
+
+        expect(told).toContain("Make no interactive visual in this session: ask with question cards only.");
+        expect(told).toContain(JSON.stringify(OUTSIDE_RULE).slice(1, -1));
+        for (const rule of [...VISUAL_RULES, WRITE_VISUAL_FIRST])
+          expect(told).not.toContain(JSON.stringify(rule).slice(1, -1));
+        expect(told).not.toContain("atrium_visuals");
+        expect(told).not.toContain("visuals/<name>.html");
       },
     );
   });

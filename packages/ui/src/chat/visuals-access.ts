@@ -39,7 +39,8 @@ function windowPresses(
  * @remarks
  * SPEC-0007: resolving and sending go to the host; changes are this session's only; snapshots
  * need the desktop shell's capture, which a page outside the app has not; a path opens in a
- * viewer tab only when the workspace's opener takes it.
+ * viewer tab only when the opener takes it: a workspace's takes only a relative path (MV1), a
+ * direction's one that lands in its `visuals/` (ML4).
  *
  * @sideEffects none until used; then sends commands, listens to the client and captures the page.
  * @param client - The client.
@@ -58,7 +59,7 @@ export function visualsAccess(
   const listen = bridge?.onPointerDown;
   const heard = listen === undefined ? null : windowPresses(listen, clock);
   return {
-    sessionId,
+    owner: sessionId,
     resolve: (path) => client.resolveVisual(sessionId, path),
     hold: (path) => client.holdVisual(sessionId, path),
     send: (path, text) => client.sendVisualMessage(sessionId, path, text),
@@ -72,5 +73,34 @@ export function visualsAccess(
         ? null
         : { has: (frame) => heard.has(frame, clock.now()), spend: (frame) => heard.spend(frame, clock.now()) },
     open: open === undefined ? null : (path) => open(path),
+  };
+}
+
+/**
+ * What a learning direction's viewer tab may do with a demo of its `visuals/`.
+ *
+ * @remarks
+ * SPEC-0008, "ML4 定的细节 · 从档案打开的演示": resolved for the direction, it belongs to no session,
+ * so nothing is sent from it (`send` is `null`) and presses are not needed; it opens nothing else
+ * and takes no snapshot, as it shows only while its tab does.
+ *
+ * @sideEffects none until used; then sends `resolve_visual` and listens to the client.
+ * @param client - The client.
+ * @param directionId - The direction.
+ * @returns The access.
+ */
+export function directionVisualsAccess(client: AtriumClient, directionId: string): VisualsAccess {
+  return {
+    owner: directionId,
+    resolve: (path) => client.resolveVisual(directionId, path),
+    hold: (path) => client.holdVisual(directionId, path),
+    send: null,
+    onChanged: (listener) =>
+      client.onVisualChanged((changed) => {
+        if (changed.directionId === directionId) listener(changed.path);
+      }),
+    capture: null,
+    presses: null,
+    open: null,
   };
 }

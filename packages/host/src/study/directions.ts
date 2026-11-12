@@ -163,6 +163,33 @@ export async function realDir(path: string): Promise<boolean> {
 }
 
 /**
+ * Whether a direction's directory is a real one right in the learning directory or its `Archive/`.
+ *
+ * @remarks
+ * security.md ("子进程与文件", "渲染内容", ML4): checked before its files or visuals are read, for
+ * archived directions too. The directory must be right in the learning directory or `Archive/`,
+ * and it, the learning directory and `Archive/` no link, so a direction
+ * swapped for a link after the scan is read nowhere else. Deeper folders are no direction.
+ *
+ * @sideEffects Looks at the directories.
+ * @param dir - The direction's directory, as the scan found it.
+ * @param root - The learning directory.
+ * @returns Whether it is safe to read.
+ */
+export async function directionPlaceSafe(dir: string, root: string): Promise<boolean> {
+  const archive = join(root, ARCHIVE);
+  const parent = dirname(dir);
+  if (parent !== root && parent !== archive) return false;
+  // Each folder on the way below the learning directory's own parents is no link, so the real path is this one.
+  const [own, learning, archived] = await Promise.all([
+    realDir(dir),
+    realDir(root),
+    parent === archive ? realDir(archive) : true,
+  ]);
+  return own && learning && archived;
+}
+
+/**
  * Whether a change the watch saw can change the list of directions.
  *
  * @remarks

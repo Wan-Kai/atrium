@@ -3,12 +3,15 @@ import {
   CommandError,
   ConnectionLostError,
   type SessionView,
+  isDirectionId,
   isWorkspaceId,
   loadingView,
 } from "@atrium/client";
 import type { DiffStat, SessionModel, SessionStudy } from "@atrium/protocol";
 import { type ReactNode, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StudyKickoffLine } from "../study/kickoff-line";
+import { directionPath, isDirectionVisual } from "../study/archive";
+import { isRelativeVisual } from "./visual-reference";
 import { ArchivedDirectionBar } from "./archived-direction-bar";
 import { type StoreApi, useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
@@ -380,6 +383,7 @@ function SessionArea({
   launch,
   onRetryLaunch,
   fileOpener,
+  visualOpener,
   views,
   bottom,
   readOnly = false,
@@ -411,8 +415,10 @@ function SessionArea({
   readonly onRetryLaunch: (launchId: string) => void;
   /** The new-workspace page's choices and box, in place of the session's while it has none. */
   readonly bottom?: ReactNode;
-  /** How to open a file a tool was given, from its chip; none outside a workspace. */
+  /** How to open a file a tool was given, from its chip; none outside a workspace or direction. */
   readonly fileOpener?: FileOpener | undefined;
+  /** How to open a visual's file in a viewer tab, from its card; none where it cannot (ML4). */
+  readonly visualOpener?: ((path: string) => (() => void) | null) | undefined;
   /** The workspace views, so a child opened from the capsule shows over a viewer tab. */
   readonly views: StoreApi<WorkspaceViews>;
   /**
@@ -457,16 +463,20 @@ function SessionArea({
   );
   // One per session, so thumbnails do not load again on every render.
   const images = useMemo(() => messageImages(client, sessionId), [client, sessionId]);
-  const imageWorkspace = useStore(client.index, (index) =>
-    index.workspaces.find((one) => one.id === workspaceOf(containerId)),
+  // A workspace's, or a learning direction's where it is now (SPEC-0008, ML4).
+  const imageWorkspace = useStore(
+    client.index,
+    (index) =>
+      index.workspaces.find((one) => one.id === workspaceOf(containerId)) ??
+      index.directions.find((one) => one.id === containerId),
   );
   const imageWorkspaceId = imageWorkspace?.id;
   const imageWorkspaceDir = imageWorkspace?.dir;
   // The session's inline visuals (SPEC-0007).
   const uiClock = useClock();
   const visuals = useMemo(
-    () => visualsAccess(client, sessionId, fileOpener, uiClock),
-    [client, sessionId, fileOpener, uiClock],
+    () => visualsAccess(client, sessionId, visualOpener, uiClock),
+    [client, sessionId, visualOpener, uiClock],
   );
   const replyImages = useMemo(
     () =>
@@ -822,14 +832,46 @@ export function ConversationArea({
     client.index,
     (index) => index.workspaces.find((workspace) => workspace.id === workspaceId)?.dir ?? null,
   );
-  // A chip's file opens in a pinned tab of the workspace (SPEC-0001, "查看标签 · 从对话里打开").
+  // A learning direction's viewer tabs (SPEC-0008, ML4): where it is now, and whether it moved there.
+  const directionId = containerId !== null && isDirectionId(containerId) ? containerId : null;
+  const directionDir = useStore(
+    client.index,
+    (index) => index.directions.find((one) => one.id === directionId)?.dir ?? null,
+  );
+  const directionArchived = useStore(
+    client.index,
+    (index) => index.directions.find((one) => one.id === directionId)?.archived ?? false,
+  );
+  /** The container whose viewer tabs show here: the workspace, or the direction. */
+  const viewerId = workspaceId ?? directionId;
+  // A chip's file opens in a pinned tab of the workspace (SPEC-0001, "查看标签 · 从对话里打开"),
+  // or of the direction, as a reply's file link there does (SPEC-0008, ML4).
   const fileOpener = useMemo(() => {
-    if (workspaceId === null || workspaceDir === null) return undefined;
+    if (workspaceId !== null && workspaceDir !== null) {
+      return (path: string, range?: FileLineRange) => {
+        const relative = workspacePath(path, workspaceDir);
+        return relative === null ? null : () => openFile(views, workspaceId, relative, true, range);
+      };
+    }
+    if (directionId === null || directionDir === null) return undefined;
     return (path: string, range?: FileLineRange) => {
-      const relative = workspacePath(path, workspaceDir);
-      return relative === null ? null : () => openFile(views, workspaceId, relative, true, range);
+      const relative = directionPath(path, { dir: directionDir, archived: directionArchived });
+      return relative === null ? null : () => openFile(views, directionId, relative, true, range);
     };
-  }, [views, workspaceId, workspaceDir]);
+  }, [views, workspaceId, workspaceDir, directionId, directionDir, directionArchived]);
+  // A visual's card opens its file: a workspace's by a relative path (MV1), a direction's when it lands in its visuals/ (ML4).
+  const visualOpener = useMemo(() => {
+    if (fileOpener === undefined) return undefined;
+    if (directionId === null || directionDir === null) {
+      return (path: string) => (isRelativeVisual(path) ? fileOpener(path) : null);
+    }
+    return (path: string) => {
+      const relative = directionPath(path, { dir: directionDir, archived: directionArchived });
+      return relative === null || !isDirectionVisual(relative)
+        ? null
+        : () => openFile(views, directionId, relative, true);
+    };
+  }, [views, fileOpener, directionId, directionDir, directionArchived]);
   useEffect(() => {
     // Fire and forget: a lost connection asks again when it is back (SPEC-0001, "工作区改动").
     client.watchChanges(workspaceId === null ? [] : [workspaceId]).catch(() => undefined);
@@ -842,7 +884,7 @@ export function ConversationArea({
     [client],
   );
   const panelOpen = useStore(panes, (state) => state.panelOpen);
-  const viewer = useStore(views, (state) => (workspaceId === null ? NO_VIEW : viewOf(state, workspaceId)).active);
+  const viewer = useStore(views, (state) => (viewerId === null ? NO_VIEW : viewOf(state, viewerId)).active);
   // A file tab's counts and its reading again as its diff changes want the diff too.
   useDiffWatch(client, views, workspaceId, workspaceId !== null && (panelOpen || viewer !== null));
   /**
@@ -1296,18 +1338,18 @@ export function ConversationArea({
     // The changes panel's room: it cuts the panel off as it slides out past its edge.
     <div className="relative flex min-h-0 flex-1 overflow-x-clip">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {workspaceId !== null && viewer !== null ? (
+        {viewerId !== null && viewer !== null ? (
           <ActiveViewer
-            // A tab's reading, scroll and wrapping are its own, in each workspace.
-            key={`${workspaceId}\n${viewer}`}
+            // A tab's reading, scroll and wrapping are its own, in each workspace or direction.
+            key={`${viewerId}\n${viewer}`}
             client={client}
-            workspaceId={workspaceId}
+            workspaceId={viewerId}
             views={views}
             viewerKey={viewer}
             openInBrowser={
-              openInBrowser === undefined || workspaceDir === null
+              openInBrowser === undefined || (workspaceDir ?? directionDir) === null
                 ? undefined
-                : (path) => openInBrowser(`${workspaceDir.replace(/\/+$/u, "")}/${path}`)
+                : (path) => openInBrowser(`${(workspaceDir ?? directionDir ?? "").replace(/\/+$/u, "")}/${path}`)
             }
           />
         ) : launch !== undefined ? (
@@ -1333,6 +1375,7 @@ export function ConversationArea({
             onRetryLaunch={onRetryLaunch}
             views={views}
             fileOpener={fileOpener}
+            visualOpener={visualOpener}
             {...(page === undefined ? {} : { bottom: page })}
           />
         ) : store === undefined || sessionId === null ? (
@@ -1393,6 +1436,7 @@ export function ConversationArea({
             onRetryLaunch={onRetryLaunch}
             views={views}
             fileOpener={fileOpener}
+            visualOpener={visualOpener}
             {...(archivedDirection && containerId !== null
               ? {
                   readOnly: true,

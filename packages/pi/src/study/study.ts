@@ -23,7 +23,7 @@ export const STUDY_TOOLS = [
 ] as const;
 export type StudyTool = (typeof STUDY_TOOLS)[number];
 
-/** The uses a session can be started with: every one but asking, which has no tools or prompt. */
+/** The uses a session can be started with: every one but asking, which has no tools and only the outside rule (`askArgument`). */
 export type StudyUse = Exclude<StudyKind, "ask">;
 
 /**
@@ -123,6 +123,101 @@ export const AGENTS_RULE =
   "Do not modify AGENTS.md in the working directory: Atrium put the study method there, and only the learner edits it. The learner's profile is in .atrium-study.json; record it with study_set_profile, not in a file.";
 
 /**
+ * The rule that keeps every study session's files in the direction's folder.
+ *
+ * @remarks
+ * In ML3's second real-model check a quiz wrote a scratch file in `/tmp` (SPEC-0008, "ML4 定的细节 ·
+ * 提示词"); every use gets it, as a lesson or Feynman may run code too. Only the prompt says so: the
+ * host stops nothing. What may go in `lab/` stays each use's own rule.
+ */
+export const OUTSIDE_RULE =
+  "Do not create or edit files outside the working directory (this direction's folder), not even in /tmp.";
+
+/**
+ * The rules of visuals in a lesson and Feynman, the same as a new direction's AGENTS.md says them.
+ *
+ * @remarks
+ * SPEC-0008, "ML4 定的细节 · 演示": written in both places so a direction made before ML4 has them
+ * too; an AGENTS.md the learner changed wins. File names number the level by its place in the
+ * ladder and the step by its place in the level, two digits.
+ */
+export const VISUAL_RULES = [
+  "In a lesson, use at most one interactive visual, for the idea that moves or changes; write it to `visuals/<level>-<step>-<short-name>.html` (level and step as numbers, e.g. `2-03-borrow-flow.html`) and reference it by that relative path.",
+  "A visual may ask the learner at most one question to guess before you explain; it sends the guess back with `window.atrium.sendMessage`. Wait for that answer, then explain.",
+  "If AGENTS.md in the working directory says something else about visuals, follow AGENTS.md.",
+] as const;
+
+/**
+ * Where a lesson's or Feynman's visual is written before its reply names it.
+ *
+ * @remarks
+ * In ML4's real-model check a lesson named its visual in the reply without writing the file, so the
+ * card said it was missing (SPEC-0008, "ML4 定的细节 · 真实模型检查"). Only the prompt says so.
+ */
+export const WRITE_VISUAL_FIRST =
+  "Write a visual's file first, then reference it in your reply: a reference to a file not written yet shows as missing.";
+
+/** The quiz and the exam ask one question at a time with question cards (SPEC-0008, ML4). */
+const NO_VISUAL = "Make no interactive visual in this session: ask with question cards only.";
+
+/**
+ * Whether a session of a use makes no visual, and so is told nothing of visuals but that.
+ *
+ * @remarks
+ * SPEC-0008, "ML4 定的细节 · 演示" (three-way review): the quiz and the exam get only `NO_VISUAL`,
+ * not the general instructions of visuals beside it. The host still stops nothing by use.
+ *
+ * @sideEffects none
+ * @param launch - The session's use, or `null` for none.
+ * @returns Whether.
+ */
+export function makesNoVisual(launch: StudyLaunch | null): boolean {
+  return launch?.kind === "quiz" || launch?.kind === "exam";
+}
+
+/**
+ * The flag of an asking session of a direction, which has no tools and no use's prompt.
+ *
+ * @remarks
+ * SPEC-0008, "ML4 定的细节 · 提示词" (2026-11-10, user's answer to the three-way review): an asking
+ * session runs in the direction's folder with bash too, so it gets the rule of staying in it.
+ *
+ * @sideEffects none
+ * @returns The flag's value.
+ */
+export function askArgument(): string {
+  return encodeArgument({ v: 1, kind: "ask" });
+}
+
+/**
+ * Whether `--atrium-study` says an asking session, exactly as `askArgument` writes it.
+ *
+ * @remarks
+ * Anything else that is no use reads as no flag at all (`readStudyArgument`).
+ *
+ * @sideEffects none
+ * @param flag - The flag's value, as pi gives it.
+ * @returns Whether.
+ */
+export function readsAsAsk(flag: unknown): boolean {
+  if (typeof flag !== "string" || flag === "") return false;
+  const value = decodeArgument(flag);
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.keys(value).length === 2 &&
+    Reflect.get(value, "v") === 1 &&
+    Reflect.get(value, "kind") === "ask"
+  );
+}
+
+/** An asking session's whole study section: where it is, and the rule of staying in the folder. */
+export const ASK_PROMPT = [
+  "This session is a question asked in a learning direction in Atrium's study mode.",
+  OUTSIDE_RULE,
+].join("\n");
+
+/**
  * The common part of every study session's instructions.
  *
  * @remarks
@@ -133,6 +228,7 @@ const COMMON = [
   "This session is part of a learning direction in Atrium's study mode. The learner's progress is in .atrium-study.json in the working directory: read it (and AGENTS.md, the notes of the last lesson in notes/ and the gaps not yet fixed) before you start, so the learner does not have to repeat themselves.",
   "Never edit .atrium-study.json yourself. Progress changes only through the study_* tools you have; if you do not call them, the progress does not move.",
   AGENTS_RULE,
+  OUTSIDE_RULE,
   "Keep content in Markdown files: resources.md, cheatsheet.md (one section per level), notes/ (one note per lesson).",
   "Never say Atrium's internal ids (such as l1, s2 or g3) to the learner: call a level by its number and name, a lesson by its title, a gap by what it is about.",
 ].join("\n");
@@ -180,8 +276,10 @@ const USES: { readonly [Use in StudyUse]: string } = {
   lesson: [
     "This is one lesson: teach the step of the current level named in .atrium-study.json, as part of the 20-hour plan.",
     "Teach one idea at a time, then let the learner try it in lab/ before going on; read their code, point at what is wrong, and do not write it for them. Keep the lesson to what the step covers.",
-    "Do not create probe or scratch files to try things yourself. The files you write are the lesson's note in notes/ and, only when the lesson needs one, a short starting file in lab/ that the learner then fills in.",
+    "Do not create probe or scratch files to try things yourself. The files you write are the lesson's note in notes/, its interactive visual in visuals/ when it uses one, and, only when the lesson needs one, a short starting file in lab/ that the learner then fills in.",
     "Write a short note of the lesson to notes/. When the lesson is done, call study_report with no score.",
+    ...VISUAL_RULES,
+    WRITE_VISUAL_FIRST,
   ].join("\n"),
   quiz: [
     "Quiz the learner on the lesson until they break.",
@@ -190,12 +288,15 @@ const USES: { readonly [Use in StudyUse]: string } = {
     "Score each question out of 10 (partial credit allowed). At the end call study_report with score as the sum and of as 10 times the number of questions asked.",
     GAPS,
     "Calling study_report again in this session overwrites the score.",
+    NO_VISUAL,
   ].join("\n"),
   feynman: [
     "The gap is the entry of gaps in .atrium-study.json with the id above: read its text and where it came from first.",
     "Run the Feynman loop on it: explain it simply, as to a 12-year-old; then have the learner explain it back in their own words; where their explanation is unclear or wrong, explain that part again, and repeat until it is clear.",
     "Write the final clean explanation to notes/ as a Feynman note for this gap.",
     "Call study_fix_gap only once the learner has explained it back clearly in their own words. If they still cannot, do not call it: say what is still unclear and stop.",
+    ...VISUAL_RULES,
+    WRITE_VISUAL_FIRST,
   ].join("\n"),
   sheet:
     "Condense the current level into a one-page cheat sheet the learner can review in 5 minutes: the key ideas, commands and pitfalls. Add it to cheatsheet.md as this level's section, then call study_report with no score.",
@@ -207,6 +308,7 @@ const USES: { readonly [Use in StudyUse]: string } = {
     "Score each question out of 10 (partial credit allowed). At the end call study_report with score as the sum and of as 100.",
     GAPS,
     "Calling study_report again in this session overwrites the score.",
+    NO_VISUAL,
   ].join("\n"),
 };
 // Stryker restore StringLiteral,ArrayDeclaration
@@ -226,20 +328,95 @@ export function studyPrompt(launch: StudyLaunch): string {
 }
 
 /**
- * What the model is told when the host starts a session it opened, in place of a message of yours.
+ * An item's `id`, as a progress file's levels and steps carry it.
  *
  * @remarks
- * The UI shows the turn as its use and step; the model gets this (SPEC-0008, "ML2 定的细节").
+ * The file is read as far as it goes: anything without one has none.
+ *
+ * @sideEffects none
+ * @param item - The item.
+ * @returns Its id, or `undefined`.
+ */
+function idOf(item: unknown): unknown {
+  return typeof item === "object" && item !== null ? Reflect.get(item, "id") : undefined;
+}
+
+/** A level's and a step's numbers, from 1, as the learner and visual file names say them. */
+export interface StudyPosition {
+  readonly level: number;
+  readonly step?: number;
+}
+
+/**
+ * The numbers of a level and a step in a direction's progress file.
+ *
+ * @remarks
+ * SPEC-0008, "ML4 定的细节 · 演示": a level by its place in the ladder, skipped ones too; a step by
+ * its place in the level. The file is read as far as it goes: a step not there gives the level
+ * alone; a file that cannot be read, or a level not in it, nothing.
+ *
+ * @sideEffects none
+ * @param text - The progress file's text.
+ * @param level - The level's id.
+ * @param step - The step's id, if any.
+ * @returns The numbers, or `null`.
+ */
+export function positionOf(text: string, level: string | undefined, step: string | undefined): StudyPosition | null {
+  if (level === undefined) return null;
+  let file: unknown;
+  try {
+    file = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const ladder: unknown = typeof file === "object" && file !== null ? Reflect.get(file, "ladder") : undefined;
+  if (!Array.isArray(ladder)) return null;
+  const levelAt = ladder.findIndex((item) => idOf(item) === level);
+  if (levelAt === -1) return null;
+  const steps: unknown = Reflect.get(Reflect.get(Object(file), "steps") ?? {}, level);
+  const stepAt = Array.isArray(steps) && step !== undefined ? steps.findIndex((item) => idOf(item) === step) : -1;
+  return stepAt === -1 ? { level: levelAt + 1 } : { level: levelAt + 1, step: stepAt + 1 };
+}
+
+/**
+ * The kickoff's line with the level and step numbers, for the uses that may make a visual.
+ *
+ * @remarks
+ * SPEC-0008, "ML4 定的细节 · 演示": the model need not count them; the step padded to two digits,
+ * as visual file names write it.
  *
  * @sideEffects none
  * @param launch - The session's use.
+ * @param at - The numbers, if the file gave them.
+ * @returns The line, or none.
+ */
+function numbering(launch: StudyLaunch, at: StudyPosition | null): string[] {
+  if (at === null || (launch.kind !== "lesson" && launch.kind !== "feynman")) return [];
+  if (at.step === undefined) return [`This is level ${String(at.level)}.`];
+  const name = `${String(at.level)}-${String(at.step).padStart(2, "0")}`;
+  return [
+    `This is level ${String(at.level)}, step ${String(at.step)}: a visual of it is named visuals/${name}-<short-name>.html.`,
+  ];
+}
+
+/**
+ * What the model is told when the host starts a session it opened, in place of a message of yours.
+ *
+ * @remarks
+ * The UI shows the turn as its use and step; the model gets this (SPEC-0008, "ML2 定的细节"). A
+ * lesson and Feynman are told the level's and step's numbers (ML4).
+ *
+ * @sideEffects none
+ * @param launch - The session's use.
+ * @param at - The level's and step's numbers, when the progress file gave them.
  * @returns The message's content.
  */
-export function kickoffText(launch: StudyLaunch): string {
+export function kickoffText(launch: StudyLaunch, at: StudyPosition | null = null): string {
   const none = launch.context === "none";
   return [
     `<atrium-study use="${launch.kind}"${launch.level === undefined ? "" : ` level="${escapeAttribute(launch.level)}"`}${launch.step === undefined ? "" : ` step="${escapeAttribute(launch.step)}"`}${launch.gap === undefined ? "" : ` gap="${escapeAttribute(launch.gap)}"`}${none ? ' context="none"' : ""}>`,
     "Atrium opened this session for the learner. This is not the learner's message. Read the progress, then begin as your instructions for this use say.",
+    ...numbering(launch, at),
     // A quiz is the lesson's child with its history, or, with no lesson session, a new session (ML3).
     ...(launch.kind !== "quiz"
       ? []

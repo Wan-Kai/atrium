@@ -124,3 +124,23 @@ describe("reply image paths", () => {
     });
   });
 });
+
+describe("Markdown images in a direction's notes (SPEC-0008, ML4)", () => {
+  it("resolves a .. from the document's folder when asked, only while it stays in the direction", () => {
+    expect(replyImageSource("../visuals/a.png", "/L/rust", "notes/", true)).toStrictEqual({
+      kind: "local",
+      path: "visuals/a.png",
+    });
+    expect(replyImageSource("../../a.png", "/L/rust", "notes/", true)).toStrictEqual({ kind: "blocked" });
+    expect(replyImageSource("./../a.png", "/L/rust", "notes/deep/", true)).toStrictEqual({
+      kind: "local",
+      path: "notes/a.png",
+    });
+    expect(replyImageSource("../visuals/a.png", "/L/rust", "notes/")).toStrictEqual({ kind: "blocked" });
+    expect(replyImageSource("/L/rust/notes/../a.png", "/L/rust", "notes/", true)).toStrictEqual({
+      kind: "local",
+      path: "a.png",
+    });
+    expect(replyImageSource("/L/rust/../go/a.png", "/L/rust", "notes/", true)).toStrictEqual({ kind: "blocked" });
+  });
+});

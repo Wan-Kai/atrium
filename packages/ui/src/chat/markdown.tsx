@@ -62,8 +62,8 @@ const REMARK_PLUGINS = [
 /** Only Markdown images may become this inert custom element; raw HTML remains text. */
 const ALLOWED_TAGS = { "atrium-image": ["source", "alt", "title"], "atrium-file": ["source", "inline"] };
 
-/** Math needs loading once a reply contains `$$` or `\(`. */
-const NEEDS_MATH = /\$\$|\\\(/;
+/** Math needs loading once a reply, normalized, contains `$$` — which every formula ends up as. */
+const NEEDS_MATH = /\$\$/;
 /** Mermaid needs loading once a reply contains a mermaid code block. */
 const NEEDS_MERMAID = /^ {0,3}(?:`{3,}|~{3,})\s*mermaid/m;
 
@@ -436,7 +436,7 @@ export interface MarkdownProps {
  * Streamdown completes unfinished syntax while text streams and keeps finished blocks from
  * re-rendering (SPEC-0001, "回复渲染"). The configuration follows the SPEC: GFM, Shiki
  * highlighting and Mermaid themes following light and dark, CJK punctuation next to emphasis,
- * `$$…$$` and `\(…\)` math but not single dollars, links to the system browser, raw HTML shown as
+ * `$$…$$`, `\(…\)` and `$…$` math, links to the system browser, raw HTML shown as
  * text. Links use `ExternalLink`, so Streamdown's own link confirmation never applies; the
  * desktop shell already sends links to the system browser. Code blocks have no line numbers and no
  * download, buttons are Atrium's icons with Chinese names, and `styles.css` lays the blocks flat
@@ -448,7 +448,9 @@ export interface MarkdownProps {
  * @returns The rendered Markdown.
  */
 export function Markdown({ text, streaming }: MarkdownProps) {
-  const plugins = usePlugins(text);
+  // Normalized first so `$…$` counts as a formula a moment later; SPEC-0001, "回复渲染".
+  const markdown = normalizeMathDelimiters(streaming ? withoutUnfinishedTable(text) : text);
+  const plugins = usePlugins(markdown);
   return (
     <Streamdown
       plugins={plugins}
@@ -466,7 +468,7 @@ export function Markdown({ text, streaming }: MarkdownProps) {
       // space-y-3 replaces Streamdown's own space-y-4: blocks 12px apart (design-language, "字体").
       className="atrium-markdown space-y-3"
     >
-      {normalizeMathDelimiters(streaming ? withoutUnfinishedTable(text) : text)}
+      {markdown}
     </Streamdown>
   );
 }

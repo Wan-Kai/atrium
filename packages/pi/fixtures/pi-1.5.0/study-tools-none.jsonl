@@ -1,4 +1,4 @@
-{"kind":"fixture","scenario":"study-tools-none","pi":"1.5.0","script":{"replies":[{"blocks":[{"type":"text","text":"ok"}]}]},"args":["--no-session","--atrium-study=eyJ2IjoxLCJraW5kIjoiYXNrIn0"]}
+{"kind":"fixture","scenario":"study-tools-none","pi":"1.5.0","script":{"replies":[{"blocks":[{"type":"text","text":"ok"}]}]},"args":["--no-session","--atrium-study=eyJ2IjoxLCJraW5kIjoibmFwIn0"]}
 {"kind":"send","record":{"type":"prompt","message":"hi","id":"r1"}}
 {"kind":"stdout","record":{"id":"r1","type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}}
 {"kind":"stdout","record":{"type":"agent_start"}}
