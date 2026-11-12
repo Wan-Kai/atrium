@@ -2962,3 +2962,21 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 验证（2026-11-06，未提交）：`pnpm check` 通过；`pnpm test` 单元 4748/4748、AtriumKit 475/475；`pnpm test:ui` 1221/1221；`pnpm test:leak` 连跑两次，每次 vitest 23/23、端到端 12/12。改动的文件都不在变异分组里，没跑变异测试。端到端在去掉 cmux 的 pi shim 的 PATH 下跑（见上）。
 
 验证（2026-11-08，`installedPi` 之后，PATH 第一个 `pi` 仍是 cmux 的 shim）：`pnpm check` 通过；`pnpm test` 单元 4750/4750、AtriumKit 475/475；`pnpm build` 后端到端 `--grep @leak` 12/12、`ask-user.spec.ts` 2/2；宿主 `edit-stopped.host.test.ts` + `reply-translation.host.test.ts` 10/10；`locate.pi.test.ts` + `oneshot.pi.test.ts` 15/15。没跑：vitest 的 leak / soak 项目（`sessions.leak.test.ts`、`sessions.soak.test.ts` 也改成了 `installedPi`，只过了类型检查和 lint）、完整 `pnpm test:pi`（本机 pi 1.5.0 没有夹具，同前）、`pnpm test:ui`（这次没改界面）。
+
+## 手机签名自动续签（SPEC-0005"安装"，2026-11-10，自用中加，待验收）
+
+免费账号签的 App 7 天后打不开，原先得自己记住每 7 天插线跑一次 `pnpm ios:install`。用户 2026-11-10 要求做成定时任务：手机和这台 Mac 在同一个 Wi-Fi 下时，自动把 `main` 的最新提交装上去续签名，`main` 构建不出来时退回上次装上的提交；2026-11-12 用户把触发层改到 Atrium 自己的定时规则上（每天 11:00 一条，不装 launchd 作业）。`scripts/ios-sign.test.ts` 用真的 git 仓库（真的建 worktree、真的检出、真的清理），只把 Xcode 换成 `ATRIUM_IOS_XCRUN` 的替身，`devicectl` 的调用由替身记下来核对。
+
+| 行为 | 验证 |
+| --- | --- |
+| 手机在同一 Wi-Fi 下时，在专用 worktree（`~/.cache/atrium-ios-sign`）里检出 `main` 的最新提交装上去，装完不打开 App，并记下提交 | `scripts/ios-sign.test.ts`"installs main's latest commit on a reachable iPhone, without opening the app, and remembers it"（核对 worktree 的 HEAD 和 `state.json`）；`scripts/ios.test.ts`"installs without opening the app when told not to, for the job that only renews the signature" |
+| 手机不在同一 Wi-Fi 下时不构建、不改状态；`install` 用退出码 3 表示"手机不在"，和构建失败分得开 | `ios-sign.test.ts`"builds nothing at all when the iPhone is not on this network"；`ios.test.ts` 的两例"stops before building when no iPhone has been paired…""…when the paired iPhone is not connected…"（都断言退出码 3） |
+| 手机上已经是 `main` 的最新提交、描述文件还剩两天以上时不构建，连 worktree 都不建；读不到到期时间时按装完 7 天算 | `ios-sign.test.ts`"does nothing when the phone already has main and its signature has days left"、"trusts 7 days from the install when the last run could not read the profile's expiry" |
+| 还剩两天以内时同一个提交也重装（Apple 只在旧的快用完时才换新的） | `ios-sign.test.ts`"re-signs the same commit when what the phone has is about to run out" |
+| `main` 构建不出来时改装上次成功装上的提交并更新记录；两个都失败才退 1，手机上原来那个 App 不动 | `ios-sign.test.ts`"installs the last commit that built when main does not, so the signature is renewed anyway"、"fails when neither main nor the last commit that built can be installed" |
+| 上一轮还没跑完时跳过（锁在 `~/Library/Caches/atrium-ios/sign/run.lock`，记录的进程不在就接管） | `ios-sign.test.ts`"leaves a run alone when another one is still going" |
+| launchd 作业（仓库里的 `scripts/install-ios-sign.sh`，**现在不装**：触发走 Atrium 每天 11:00 的规则，它是回到 launchd 时的退路）：周一到周五 11:00 / 19:00 共 10 个时点；运行时取 `main` 上的 `scripts/ios-sign.mjs`，不管当前检出的是哪个分支 | 手工（2026-11-10）：临时 HOME 加 `launchctl` 替身生成 plist，`plutil -lint` 通过、10 个 `StartCalendarInterval` 对得上；plist 里那条 `sh -c` 在临时仓库上跑过，能从 `main` 取出脚本、把仓库路径传给 node，`main` 上没有该文件时退出码 1 |
+
+- 破坏检查（`/tmp` 里的一份 cases 文件，10 处）：全部检出，`ios.mjs` 2 处、`ios-sign.mjs` 8 处。其中"--no-launch 时不去打开 App"那一处起初漏检：测试写成 `call[3] === "process"`，而 `devicectl` 的第三个参数才是 `process`，断言永远为假；改成核对前三个参数后检出。
+- 真机（2026-11-10，iPhone 16 Pro / iOS 26.6.1，无线）：`pnpm ios:sign` 在 `~/.cache/atrium-ios-sign` 里构建 `main`（`3e43db4a71`）经无线隧道装上去，`--no-launch` 确实没打开 App；重跑增量构建 7 秒。描述文件：旧的（11-02 到 11-09）过期后，这次 Apple 发了新的（11-10 11:53 创建、11-17 到期，团队和 bundle id 不变）；同一份再构建时它原样返回，`state.json` 记到 `expiresAt: 2026-11-17T11:53:33Z`，下一次因此按“什么都没做”跳过。
+- 没验证：定时规则到点自己跑（规则不在仓库里，下次另开任务建，建成时看第一轮）；`pnpm ios:sign:install` 现在不执行，launchd 这一层没有实际跑过。App 在手机上能不能打开（当次重新登录 Apple ID 后签名身份换了，手机还没信任新开发者，`--no-launch` 看不出这件事，只有 `pnpm ios:install` 会报并说明去哪里信任）。没改核心模块，没跑变异测试。

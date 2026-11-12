@@ -74,7 +74,9 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | `pnpm ios:format` | 用 Xcode 自带的 `swift format` 改写 `apps/ios` 下的 Swift 文件（生成的除外） |
 | `pnpm ios:build [--simulator]` | 用 `xcodebuild` 构建 App：默认给真机（`generic/platform=iOS`，带 `-allowProvisioningUpdates`，用 Xcode 里登录的免费账号签名），`--simulator` 给模拟器。产物在 `apps/ios/.build/xcode/`（不进 git） |
 | `pnpm ios:shot [--dark]` | 在模拟器 "Atrium iPhone 16 Pro" 上构建、装好、打开 App，设成浅色或深色，3 秒后截图到 `apps/ios/.build/shots/home-<light\|dark>.png`（不进 git）并打出路径；看界面的标准手段（testing.md"Swift（手机端）"） |
-| `pnpm ios:install` | 先 `pnpm ios:build`，再用 `xcrun devicectl` 装到连着的 iPhone 上并打开。没有配对过的 iPhone、或 iPhone 没连上（`devicectl` 里是 unavailable）时，在构建之前就报错，写明设备名、上次连接的时间和怎么连上。免费账号签的 App 7 天后打不开，到时重跑一次 |
+| `pnpm ios:install` | 先 `pnpm ios:build`，再用 `xcrun devicectl` 装到连着的 iPhone 上并打开。没有配对过的 iPhone、或 iPhone 没连上（`devicectl` 里是 unavailable）时，在构建之前就报错，写明设备名、上次连接的时间和怎么连上。免费账号签的 App 7 天后打不开，到时重跑一次。`--no-launch` 装完不打开，给 `pnpm ios:sign` 用；手机不在时退出码 3，和构建失败分得开 |
+| `pnpm ios:sign` | 跑一次自动续签：手机在同一个 Wi-Fi 下时，把 `main` 的最新提交装到手机上（构建不出来就装上次装上的提交），手机上已经是 `main` 且签名还有两天以上时什么都不做。手机不在时不构建。见下文[手机签名自动续签](#手机签名自动续签) |
+| `pnpm ios:sign:install` | 把 `pnpm ios:sign` 装成 launchd 作业：周一到周五 11:00 和 19:00，日志在 `~/Library/Logs/Atrium/ios-sign/launchd.log`；加 `uninstall` 卸掉。**现在不执行**：日常触发走 Atrium 里每天 11:00 的定时规则（见下文[手机签名自动续签](#手机签名自动续签)），脚本只作为回到 launchd 时的退路留着 |
 | `pnpm mutation:nightly:install` | 装上每晚的全量变异测试（见下文）；加 `uninstall` 卸掉 |
 
 真机第一次装（2026-10-26 实测，iPhone 16 Pro、iOS 26.6.1）：
@@ -95,7 +97,8 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | `pnpm test` 的 Swift 部分、`pnpm test:ios` 第一步 | `xcrun swift test --package-path <仓库>/apps/ios/AtriumKit --explicit-target-dependency-import-check error -Xswiftc -warnings-as-errors` |
 | `pnpm test:ios` 第二步（拿着模拟器锁，见下文） | `xcrun xcodebuild test -project <仓库>/apps/ios/Atrium.xcodeproj -scheme Atrium -destination id=<udid>,arch=arm64 -derivedDataPath <仓库>/apps/ios/.build/xcode -quiet` |
 | `pnpm ios:build` | `xcrun xcodebuild build -project <仓库>/apps/ios/Atrium.xcodeproj -scheme Atrium -configuration Debug -destination generic/platform=iOS -derivedDataPath <仓库>/apps/ios/.build/xcode -allowProvisioningUpdates -quiet`（`--simulator` 时 destination 是 `generic/platform=iOS Simulator`） |
-| `pnpm ios:install` | 先 `xcrun devicectl list devices --json-output <临时文件>` 找配对过、连得上的 iPhone，再跑上面的构建，然后 `xcrun devicectl device install app --device <手机 udid> <仓库>/apps/ios/.build/xcode/Build/Products/Debug-iphoneos/Atrium.app`、`xcrun devicectl device process launch --device <手机 udid> site.ktoon.atrium` |
+| `pnpm ios:install` | 先 `xcrun devicectl list devices --json-output <临时文件>` 找配对过、连得上的 iPhone，再跑上面的构建，然后 `xcrun devicectl device install app --device <手机 udid> <仓库>/apps/ios/.build/xcode/Build/Products/Debug-iphoneos/Atrium.app`、`xcrun devicectl device process launch --device <手机 udid> site.ktoon.atrium`；`--no-launch` 时不做后一步 |
+| `pnpm ios:sign` | 见下文“手机签名自动续签”：在 `~/.cache/atrium-ios-sign` 里检出 `main`，跑那里的 `node scripts/ios.mjs install --no-launch`；结果记在 `~/Library/Caches/atrium-ios/sign/state.json` |
 | `pnpm ios:shot` | 拿模拟器锁（见下文），构建（destination `id=<udid>,arch=arm64`），`simctl boot`、`simctl ui <udid> appearance light\|dark`、`simctl install`、`simctl launch --terminate-running-process <udid> site.ktoon.atrium`，等 3 秒，`simctl io <udid> screenshot <文件>` |
 | `pnpm ios:check`（`pnpm check` 的最后一步） | `node scripts/protocol-swift.mjs --check`；有 Xcode 时再跑 `xcrun swift-format lint --strict --parallel --configuration <仓库>/apps/ios/.swift-format --recursive <AtriumKit 的 Package.swift、Sources、Tests，Atrium/，AtriumUITests/>` 和 `node scripts/swift-lint.mjs apps/ios` |
 | `pnpm ios:format` | 同上的 `swift-format format --in-place` |
@@ -108,6 +111,24 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 - `pnpm test` 里的 `swift test`、`pnpm ios:build`、`pnpm ios:install` 不碰模拟器，不拿锁。
 
 只跑一部分 Swift 测试：`swift test --package-path apps/ios/AtriumKit --filter <套件名或测试函数名>`（例：`--filter RoundTripTests`）。
+
+## 手机签名自动续签
+
+2026-11-10 自用时加，2026-11-12 把日常触发改到 Atrium 自己的定时规则上。免费账号签的 App 7 天后打不开（SPEC-0005“安装”），原先得自己记住每 7 天插线跑一次 `pnpm ios:install`；现在手机和这台 Mac 在同一个 Wi-Fi 下时由一条定时规则自己续。每天 11:00 一次、装 `main` 的最新提交、`main` 构建不出来时退回上次装上的提交，这三条都是用户定的（前两条 2026-11-10，触发层 2026-11-12）。
+
+- 触发：Atrium 里一条定时规则，`when` 是 `{ every: "day", at: "11:00" }`，到点起一个任务让它跑 `pnpm ios:sign`。规则建在 Atrium 里，仓库里没有它的配置（2026-11-12 时本机还没有 `~/.atrium/schedules.json`）。`pnpm ios:sign:install` 和它装的 `com.atrium.ios-sign` launchd 作业**不装**：同一份脚本两套触发只会互相抢 `run.lock`，还多一层要维护。`scripts/install-ios-sign.sh` 保持原样（仍是周一到周五 11:00 和 19:00），只在回到 launchd 时才 `pnpm ios:sign:install`，先确认规则已暂停或删掉。
+- 跑什么：那一轮运行 `main` 上的 `scripts/ios-sign.mjs`，不管当前检出的是哪个分支。它先看 `~/Library/Caches/atrium-ios/sign/state.json`：
+  - 手机上已经是 `main` 的最新提交、描述文件还剩两天以上：什么都不做，这一轮连手机都不用找。
+  - 否则先在 `~/.cache/atrium-ios-sign` 这个 worktree 里检出 `main` 的最新提交，再由那里的 `scripts/ios.mjs` 构建、装到手机上（`--no-launch`，不替你把 App 打开）。这台手机不在同一 Wi-Fi 下时 `install` 退出码 3，这一轮不构建，只记一行日志等下一个时点。
+  - `main` 构建不出来或装不上时，改装上次成功装上的那个提交，签名照样续上；两个都失败才记一行失败（退 1），手机上原来那个 App 不动。失败不重试：一轮只是一轮，等下一个时点（第二天 11:00）。
+- 续上的是什么：`xcodebuild -allowProvisioningUpdates` 向 Apple 要描述文件，免费账号给 7 天。旧的还在有效期内时 Apple 会原样返回，所以真正续到新的是“上一个过期之后第一次成功安装”。描述文件在两次运行之间过期时（比如 11:00 刚过就到期），那一轮装上的还是旧的，第二天 11:00 才换新的，这段时间 App 打不开，最长约一天（周末也一样，规则每天都跑）；日志每轮都写清手上这个到什么时候、Apple 有没有换新的。想缩短这段空白就手动跑一次 `pnpm ios:sign`（它会构建，因此能要新描述文件）。
+- 状态和日志：`state.json` 记上次装的提交、装的时间和描述文件的到期时间，是**上一次运行的记录，不是手机的真值**（手动 `pnpm ios:install` 装的东西它不知道）；读不到到期时间时按装完 7 天算。日志就是脚本打在 stdout 的带 UTC 时间戳的行：规则跑的那一轮在 Atrium 里那次任务的对话中，手动跑时就打在终端，脚本自己不写日志文件。`run.lock` 在同一个目录下。`~/.cache/atrium-ios-sign` 是它的 worktree，留着才有增量构建，删掉不影响下一轮（会全量构建一次）。
+- 前提（2026-11-10 实测发现的两条）：
+  - Xcode › Settings › Accounts 里登录着 Apple ID。账号掉了时 `xcodebuild` 报 `No Accounts`，命令行的签名全都做不了（2026-11-10 就是这样，重新登录后恢复）。
+  - iPhone 用线连过一次，并在 Xcode › Window › Devices and Simulators 里勾上“Connect via network”。之后同一 Wi-Fi 下 `devicectl` 就能看到它，`pnpm ios:install` 和这条规则也能走无线；Wi-Fi 开了客户端隔离（公司访客网常见）时看不到。
+- 手机锁屏时无线隧道可能连不上或装不上：那一轮失败，原因记在那一轮的对话里，下一个时点再来。
+- 续签这一轮把 App 装上但不打开（`--no-launch`），所以它看不出“装上了、手机却不愿打开”这件事。重新登录 Apple ID、换了签名身份之后，手机上可能要再信任一次开发者：App 打不开时照 `pnpm ios:install` 的提示去“设置 › 通用 › VPN 与设备管理”里信任，不用改这里的东西。
+- 为什么用 Atrium 自己的定时（SPEC-0006“定时（ScheduleService）”）而不是 launchd：2026-11-12 用户改的主意，日常触发归 Atrium，少一套要另外装的作业；脚本还是这个，只是壳子不同，想手动跑一次就是 `pnpm ios:sign`。代价写在这里：`Cadence` 只有每天、单个星期几、每 N 分钟三档，没有“工作日”，所以是每天 11:00 一条规则，**周末也跑一次**——手机上已经是最新且没过期时脚本一行 nothing to do 就结束，可以接受。那个时点 Atrium 得开着：关着时那一轮不跑，下次启动或唤醒只补最近漏掉的那一次（SPEC-0006“定时（ScheduleService）”）。
 
 ## task:try 与 Atrium（T7 定）
 
