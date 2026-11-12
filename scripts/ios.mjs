@@ -7,7 +7,9 @@ import { dirname, join } from "node:path";
  * The phone app's commands: checks, tests, builds, installing on the iPhone and screenshots.
  *
  * `node scripts/ios.mjs <check|kit|test|build|install|format|shot> [options]` (`kit --if-xcode` skips
- * without Xcode, for `pnpm test`), behind `pnpm ios:*`,
+ * without Xcode, for `pnpm test`; `install [--no-launch]` leaves the app closed and exits 3 rather
+ * than 1 when no iPhone is reachable, so `scripts/ios-sign.mjs` can tell "the phone is not here"
+ * from "it would not build"), behind `pnpm ios:*`,
  * `pnpm test:ios` and `pnpm check` (development.md "命令"; testing.md "Swift（手机端）"). Every
  * Xcode tool runs through `xcrun`; `ATRIUM_IOS_XCRUN` swaps it for a Node stand-in in this
  * script's own test. `scripts/` is assembly code, so it may wait on real time (coding-standards).
@@ -405,7 +407,8 @@ function build(destination) {
  * them, by cable or Wi-Fi. Checked before building so a missing phone does not cost a build.
  *
  * @sideEffects Runs `devicectl`; prints why when no iPhone can be used.
- * @returns {string | null} The iPhone's UDID, or `null` when there is none to use.
+ * @returns {{ deviceProperties: { name: string }, hardwareProperties: { udid: string } } | null} The
+ *   device `devicectl` describes, or `null` when there is none to use.
  */
 function connectedPhone() {
   const dir = mkdtempSync(join(tmpdir(), "atrium-devices-"));
@@ -420,10 +423,7 @@ function connectedPhone() {
         device.connectionProperties?.pairingState === "paired",
     );
     const usable = phones.find((device) => device.connectionProperties.tunnelState !== "unavailable");
-    if (usable !== undefined) {
-      console.log(`installing on ${usable.deviceProperties.name}`);
-      return usable.hardwareProperties.udid;
-    }
+    if (usable !== undefined) return usable;
     if (phones.length === 0) {
       console.error(
         "pnpm ios:install: no paired iPhone. Connect it to this Mac with a cable, unlock it, tap Trust, " +
@@ -449,13 +449,19 @@ function connectedPhone() {
  *
  * @remarks
  * `pnpm ios:install` (SPEC-0005 "安装"). The free team's signature lasts 7 days; running this
- * again re-signs and keeps the keychain, since bundle id and team stay the same.
+ * again re-signs and keeps the keychain, since bundle id and team stay the same. `--no-launch`
+ * stops after installing, for `scripts/ios-sign.mjs`: opening the app in someone's pocket is not
+ * the job, and the phone may be locked. No reachable iPhone exits 3, the one failure that is not
+ * the build's fault.
  *
- * @sideEffects Builds, installs on the phone and launches the app; exits on any failure.
+ * @sideEffects Builds, installs on the phone and, unless told otherwise, launches the app; exits on
+ * any failure.
  */
 function install() {
-  const udid = connectedPhone();
-  if (udid === null) process.exit(1);
+  const found = connectedPhone();
+  if (found === null) process.exit(3);
+  const udid = found.hardwareProperties.udid;
+  console.log(`installing on ${found.deviceProperties.name}`);
   build("generic/platform=iOS");
   must([
     "devicectl",
@@ -466,6 +472,7 @@ function install() {
     udid,
     join(derivedData, "Build", "Products", "Debug-iphoneos", "Atrium.app"),
   ]);
+  if (process.argv.includes("--no-launch")) return;
   const launch = xcrun(["devicectl", "device", "process", "launch", "--device", udid, bundleId], { capture: true });
   if (launch.status === 0) return;
   // The free team's first install on a phone: iOS will not open it until the developer is trusted.

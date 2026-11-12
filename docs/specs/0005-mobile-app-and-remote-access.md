@@ -574,7 +574,7 @@ MP4 拆成三片，各自验收：**MP4a** 只读同步（列表、打开会话�
   - 缓存：放在 Application Support 下按 `hostId` 和缓存格式版本分开的目录，数据保护 `complete`，标 `isExcludedFromBackup`。每个会话一个文件，快照和它的游标（`stream`、`epoch`、`seq`）一起原子写入，所以读出来的游标一定对应读出来的内容。被撤销、删掉这台主机时清掉缓存和草稿。
   - 草稿、偏好：App 沙盒。
 - **扫码**：VisionKit `DataScannerViewController`，只认 `atrium://pair`。
-- **安装**：用免费账号（Personal Team）签名，`pnpm ios:install` 调 `xcodebuild` 和 `devicectl` 装到连着的 iPhone 上。每 7 天要重装，App 在离过期还剩 1 天时提示。重装要保持同一个 bundle id 和签名团队，钥匙串里的配对和草稿才留得住，验收时实测。
+- **安装**：用免费账号（Personal Team）签名，`pnpm ios:install` 调 `xcodebuild` 和 `devicectl` 装到连着的 iPhone 上。每 7 天要重装，App 在离过期还剩 1 天时提示。重装要保持同一个 bundle id 和签名团队，钥匙串里的配对和草稿才留得住，验收时实测。2026-11-10 自用时加：`pnpm ios:sign` 在手机和 Mac 同一个 Wi-Fi 下把 `main` 的最新提交装上去续签名（构建不出来就退回上次装上的提交），原先只能手动重装；2026-11-12 起由 Atrium 自己的定时规则每天 11:00 跑一次，不装 launchd 作业（`Cadence` 没有工作日档，周末也跑一次，什么都最新时什么都不做）。细节与前提见 [development.md · 手机签名自动续签](../development.md#手机签名自动续签)。
 
 ### 界面
 

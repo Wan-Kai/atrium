@@ -14,6 +14,8 @@
     "ios:format": "node scripts/ios.mjs format",
     "ios:build": "node scripts/ios.mjs build",
     "ios:install": "node scripts/ios.mjs install",
+    "ios:sign": "node scripts/ios-sign.mjs",
+    "ios:sign:install": "sh scripts/install-ios-sign.sh",
     "ios:shot": "node scripts/ios.mjs shot",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
