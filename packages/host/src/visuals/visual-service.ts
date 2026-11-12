@@ -10,12 +10,12 @@ import { randomBytes } from "node:crypto";
 import { watch } from "node:fs";
 import { stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { basename, dirname, isAbsolute, sep } from "node:path";
+import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
 import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
 import { VISUAL_CSP, visualPage } from "./shell";
-import { type VisualFile, checkVisual, placeVisual, readVisual } from "./visual-file";
+import { type VisualFile, checkInRoot, checkVisual, placeInRoot, placeVisual, readVisual } from "./visual-file";
 
 /**
  * Watches one folder, not its subfolders: `onEvent` is told something in it changed, `onError`
@@ -56,6 +56,11 @@ export interface VisualPlace {
   readonly cwd: string;
   readonly dir: string;
   readonly ancestors?: readonly string[];
+  /**
+   * The host's own folder for demos: a `.html` right in a folder right in it is read too, for a
+   * reply written before the session's visuals moved (SPEC-0007, 2026-11-12).
+   */
+  readonly root?: string | undefined;
   /** Where the session's record says it ran, when its study direction moved to `cwd` since (ML4). */
   readonly movedFrom?: string | undefined;
   /** A study direction's check of its own place; `dir` must then be a real folder right in it (ML4). */
@@ -227,33 +232,91 @@ function topOf(place: VisualPlace, dir: string): string {
   return place.owned === undefined ? dir : dirname(dir);
 }
 
+/** Where a reply's path lands, and what it takes to show the file there. */
+interface Landing {
+  /** The directory that answers the path. */
+  readonly dir: string;
+  /** The file's absolute path, as that directory places it. */
+  readonly file: string;
+  /** The highest folder the file may be watched from while it is missing. */
+  readonly top: string;
+  /** A study direction's check, for a file in its `visuals/` (ML4). */
+  readonly owned?: (() => Promise<boolean>) | undefined;
+  /** Checks the file there; a resolve of a missing one checks it again. */
+  readonly check: () => Promise<VisualFile & { readonly dir: string }>;
+}
+
+/** A visual a reply's path landed on, with what the service needs to watch and serve it. */
+interface Landed extends VisualFile {
+  /** The directory that answered the path. */
+  readonly dir: string;
+  /** The highest folder its own may be watched from while it is missing. */
+  readonly top: string;
+  /** A study direction's check, for a file in its `visuals/` (ML4). */
+  readonly owned?: (() => Promise<boolean>) | undefined;
+}
+
 /**
- * Checks a path against the session's directory for visuals, then its ancestors', nearest first.
+ * Where a session's reply's path lands, if it lands anywhere the session may read.
  *
  * @remarks
- * A path outside one directory is tried in the next; one inside a directory is that directory's
- * to answer, found or not (SPEC-0007, MV1 details). A direction's place checks itself for every
- * directory: its sessions' ancestors are its own sessions, whose visuals are in the same `visuals/`
- * (SPEC-0008, ML4).
+ * SPEC-0007: the session's directory for visuals answers first; a path outside it is tried in its
+ * ancestors' directories, nearest first. A path inside one of them is that directory's to answer,
+ * found or not (MV1 details); a direction's place checks itself for every directory, its sessions'
+ * ancestors being its own sessions (SPEC-0008, ML4). Last, the host's own folder for demos answers
+ * a `.html` right in a folder right in it, so a reply written before a session's visuals moved
+ * still opens (2026-11-12).
  *
- * @sideEffects Opens and closes the file.
+ * @sideEffects none; the checks it hands back read the file system.
  * @param place - The session's place.
  * @param path - The path the reply named.
- * @returns The file and the directory it is in.
- * @throws {CommandError} As `checkVisual`, for the last directory tried.
+ * @returns Where it lands, or `null` when it lands nowhere the session may read.
  */
-async function checkIn(place: VisualPlace, path: string): Promise<VisualFile & { readonly dir: string }> {
-  const dirs = [place.dir, ...(place.ancestors ?? [])];
-  for (const dir of dirs) {
+function landingOf(place: VisualPlace, path: string): Landing | null {
+  for (const dir of [place.dir, ...(place.ancestors ?? [])]) {
+    let file: string;
     try {
-      placeVisual(dir, place.cwd, path, place.movedFrom);
+      file = placeVisual(dir, place.cwd, path, place.movedFrom).file;
     } catch {
       continue;
     }
     const rules = { movedFrom: place.movedFrom, owned: place.owned };
-    return { ...(await checkVisual(dir, place.cwd, path, undefined, rules)), dir };
+    return {
+      dir,
+      file,
+      top: topOf(place, dir),
+      ...(place.owned === undefined ? {} : { owned: place.owned }),
+      check: async () => ({ ...(await checkVisual(dir, place.cwd, path, undefined, rules)), dir }),
+    };
   }
-  throw new CommandError("visual_outside");
+  if (place.root === undefined) return null;
+  const root = place.root;
+  const dir = placeInRoot(root, path);
+  if (dir === null) return null;
+  return { dir, file: resolve(path), top: root, check: () => checkInRoot(root, path) };
+}
+
+/**
+ * Checks a path against the session's directory for visuals, then its ancestors', then the host's
+ * own folder for demos.
+ *
+ * @remarks
+ * See `landingOf`.
+ *
+ * @sideEffects Opens and closes the file; reads the file system.
+ * @param place - The session's place.
+ * @param path - The path the reply named.
+ * @returns The file, the directory it is in, and how far its folder may be watched from.
+ * @throws {CommandError} As `checkVisual` and `checkInRoot`.
+ */
+async function checkIn(place: VisualPlace, path: string): Promise<Landed> {
+  const landing = landingOf(place, path);
+  if (landing === null) throw new CommandError("visual_outside");
+  return {
+    ...(await landing.check()),
+    top: landing.top,
+    ...(landing.owned === undefined ? {} : { owned: landing.owned }),
+  };
 }
 
 /**
@@ -269,11 +332,16 @@ async function checkIn(place: VisualPlace, path: string): Promise<VisualFile & {
  * @returns The file.
  * @throws {CommandError} As `checkVisual`.
  */
-async function checkInDirection(place: VisualPlace, path: string): Promise<VisualFile & { readonly dir: string }> {
+async function checkInDirection(place: VisualPlace, path: string): Promise<Landed> {
   if (isAbsolute(path)) throw new CommandError("visual_outside");
   const { below } = placeVisual(place.dir, place.cwd, path);
   if (below.includes(sep)) throw new CommandError("visual_outside");
-  return { ...(await checkVisual(place.dir, place.cwd, path, undefined, { owned: place.owned })), dir: place.dir };
+  return {
+    ...(await checkVisual(place.dir, place.cwd, path, undefined, { owned: place.owned })),
+    dir: place.dir,
+    top: topOf(place, place.dir),
+    ...(place.owned === undefined ? {} : { owned: place.owned }),
+  };
 }
 
 /** A visual's path below `/visual/`: a token and a name. */
@@ -565,19 +633,12 @@ export function createVisualService(options: {
     mark: { readonly gone: boolean },
     me: Resolving,
   ): Promise<void> {
-    for (const dir of [place.dir, ...(place.ancestors ?? [])]) {
-      let file: string;
-      try {
-        file = placeVisual(dir, place.cwd, path, place.movedFrom).file;
-      } catch {
-        continue;
-      }
-      const top = topOf(place, dir);
-      const folder = await nearestFolder(file, top);
-      if (folder !== null && stillThere(mark, me))
-        addLook({ connectionId, owner, path, file, dir, top, mtime: 0, folder });
-      return;
-    }
+    const landing = landingOf(place, path);
+    // Stryker disable next-line ConditionalExpression: only a path a place answered is missing, the check having just said so.
+    if (landing === null) return;
+    const folder = await nearestFolder(landing.file, landing.top);
+    if (folder !== null && stillThere(mark, me))
+      addLook({ connectionId, owner, path, file: landing.file, dir: landing.dir, top: landing.top, mtime: 0, folder });
   }
 
   /**
@@ -600,7 +661,7 @@ export function createVisualService(options: {
     owner: Owner,
     place: VisualPlace,
     path: string,
-    check: (place: VisualPlace, path: string) => Promise<VisualFile & { readonly dir: string }>,
+    check: (place: VisualPlace, path: string) => Promise<Landed>,
   ): Promise<CommandResult<"resolve_visual">> {
     const mark = pending.get(connectionId) ?? { count: 0, gone: false, resolves: new Set<Resolving>() };
     pending.set(connectionId, mark);
@@ -608,7 +669,7 @@ export function createVisualService(options: {
     const me: Resolving = { who: whoOf(owner, path), released: false };
     mark.resolves.add(me);
     try {
-      let visual: VisualFile & { readonly dir: string };
+      let visual: Landed;
       try {
         visual = await check(place, path);
       } catch (error) {
@@ -623,10 +684,17 @@ export function createVisualService(options: {
         if (token === undefined) {
           token = newToken();
           tokens.set(key, token);
-          entries.set(token, { dir: visual.dir, file: visual.file, owned: place.owned });
+          entries.set(token, { dir: visual.dir, file: visual.file, owned: visual.owned });
         }
-        const top = topOf(place, visual.dir);
-        const look = { connectionId, owner, path, file: visual.file, dir: visual.dir, top, mtime: visual.mtime };
+        const look = {
+          connectionId,
+          owner,
+          path,
+          file: visual.file,
+          dir: visual.dir,
+          top: visual.top,
+          mtime: visual.mtime,
+        };
         addLook({ ...look, folder: dirname(visual.file) });
       }
       return {

@@ -461,6 +461,22 @@ describe("a direction's files and visuals through a real host (SPEC-0008, ML4)",
     await expect(client.listDir("lrn_gone", "")).rejects.toMatchObject({ code: "direction_not_found" });
   });
 
+  it("opens a demo a direction's session wrote before the direction gave it one, from its next session too", async () => {
+    const { host, client } = await studyHost();
+    const home = join(host.host.logFile, "..", "..");
+    const { directionId, sessionId } = await client.createDirection("学后端", MODEL);
+    const lesson = present(sessionId, "the discussion");
+    // As a reply from before ML4 named it: the session's own folder in the host's home, not the
+    // direction's `visuals/` (SPEC-0007, 2026-11-12).
+    const before = join(home, "visuals", lesson);
+    await mkdir(before, { recursive: true });
+    await writeFile(join(before, "1-01-routes.html"), '<div id="routes">路由</div>');
+    const next = await client.createSession(directionId);
+
+    expect(await client.resolveVisual(lesson, join(before, "1-01-routes.html"))).toMatchObject({ size: 29 });
+    expect(await client.resolveVisual(next.sessionId, join(before, "1-01-routes.html"))).toMatchObject({ size: 29 });
+  });
+
   it("refuses a message from a visual of a session archived in a direction (ML3)", async () => {
     const { client, root } = await studyHost();
     const { directionId, sessionId } = await client.createDirection("学后端", MODEL);

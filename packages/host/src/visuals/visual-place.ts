@@ -3,6 +3,25 @@ import { join } from "node:path";
 /** pi's rule for session ids (pi-internals.md §1), which also keeps them safe as one path part. */
 const SAFE_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u;
 
+/** The folder in Atrium's home the default place for every session's visuals lies in (SPEC-0007). */
+const VISUALS_ROOT = "visuals";
+
+/**
+ * The host's own folder for demos: `visuals/` in Atrium's home.
+ *
+ * @remarks
+ * SPEC-0007 (2026-11-12): a reply written before a session's visuals moved names a place in here,
+ * and every session may read a file right in a folder right in it, so such a reply still opens.
+ * Only the host writes here, one folder per session.
+ *
+ * @sideEffects none
+ * @param home - Atrium's home.
+ * @returns The folder.
+ */
+export function visualsRootOf(home: string): string {
+  return join(home, VISUALS_ROOT);
+}
+
 /**
  * Where an ordinary session's visuals go: `visuals/<session id>/` in Atrium's home.
  *
@@ -18,7 +37,7 @@ const SAFE_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u;
  * @returns The directory, or `null`.
  */
 export function defaultVisualsDir(home: string, sessionId: string): string | null {
-  return SAFE_ID.test(sessionId) ? join(home, "visuals", sessionId) : null;
+  return SAFE_ID.test(sessionId) ? join(visualsRootOf(home), sessionId) : null;
 }
 
 /** The folder in a study direction its visuals go in (SPEC-0008, "方向目录"). */
@@ -71,6 +90,11 @@ export interface VisualsDir {
   readonly dir: string;
   /** Where relative paths count from instead of the recorded working directory. */
   readonly base?: string;
+  /**
+   * The host's own folder for demos (`visualsRootOf`): a file right in a folder right in it is
+   * read too, for replies written before the session's visuals moved (SPEC-0007, 2026-11-12).
+   */
+  readonly root?: string;
   readonly owned?: () => Promise<boolean>;
 }
 
@@ -101,6 +125,8 @@ export function visualPlaceOf(
       readonly cwd: string;
       readonly dir: string;
       readonly ancestors: readonly string[];
+      /** The host's own folder for demos, as the session's own place gives it. */
+      readonly root?: string;
       readonly movedFrom?: string;
       readonly owned?: () => Promise<boolean>;
     }
@@ -115,6 +141,7 @@ export function visualPlaceOf(
   return {
     cwd,
     dir: own.dir,
+    ...(own.root === undefined ? {} : { root: own.root }),
     ancestors,
     ...(cwd === recorded ? {} : { movedFrom: recorded }),
     ...(own.owned === undefined ? {} : { owned: own.owned }),

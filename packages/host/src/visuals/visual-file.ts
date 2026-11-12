@@ -95,6 +95,27 @@ function moved(file: string, from: string | undefined, to: string): string {
 }
 
 /**
+ * Where a path a reply names lands inside the host's own folder for demos: a file right in a folder
+ * right in it, as `~/.atrium/visuals/<session id>/<name>.html`.
+ *
+ * @remarks
+ * SPEC-0007 (2026-11-12): a reply written before a session's visuals moved names a place in here,
+ * and the file is still that session's. Only an absolute path counts — a relative one belongs to
+ * the session's own place — and only exactly one folder below the root, so a deeper folder, the
+ * root itself and anything outside it are not here.
+ *
+ * @sideEffects none
+ * @param root - The host's folder for demos.
+ * @param path - The path the reply named.
+ * @returns The folder that answers it, or `null` when the path is not one in there.
+ */
+export function placeInRoot(root: string, path: string): string | null {
+  if (!isAbsolute(path)) return null;
+  const folder = dirname(resolve(path));
+  return dirname(folder) === root ? folder : null;
+}
+
+/**
  * Makes sure a direction's directory for visuals is a real folder right in the direction's.
  *
  * @remarks
@@ -242,6 +263,34 @@ export async function checkVisual(
   const { handle, size, mtime } = await openChecked(dir, file, below, beforeOpen, rules.owned);
   await handle.close();
   return { file, size, mtime };
+}
+
+/**
+ * Checks a visual a reply names anywhere in the host's own folder for demos.
+ *
+ * @remarks
+ * SPEC-0007 (2026-11-12): the folder right in the root must be one the host made — a real folder,
+ * not a link the agent could have swapped in (`lstat` does not follow one) — and the file in it is
+ * checked as one in a session's own folder: `.html`, reached without a link, at most 1 MB
+ * (`checkVisual`). A file the folder does not hold yet is missing, so its card waits for it.
+ *
+ * @sideEffects Reads the file system; opens and closes the file.
+ * @param root - The host's folder for demos.
+ * @param path - The path the reply named.
+ * @param beforeOpen - Runs between the checks and the opening; for tests of that race.
+ * @returns Where it is, how large and when it changed, and the folder that holds it.
+ * @throws {CommandError} `visual_outside`, `visual_missing` or `visual_too_large`.
+ */
+export async function checkInRoot(
+  root: string,
+  path: string,
+  beforeOpen?: () => Promise<void>,
+): Promise<VisualFile & { readonly dir: string }> {
+  const dir = placeInRoot(root, path);
+  if (dir === null) throw new CommandError("visual_outside");
+  const info = await lstat(dir).catch(() => null);
+  if (info !== null && !info.isDirectory()) throw new CommandError("visual_outside");
+  return { ...(await checkVisual(dir, dir, path, beforeOpen)), dir };
 }
 
 /**

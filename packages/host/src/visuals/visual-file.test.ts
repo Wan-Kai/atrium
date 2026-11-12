@@ -3,7 +3,7 @@ import { createTempDir } from "@atrium/testkit";
 import { chmod, lstat, mkdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { checkVisual, readVisual } from "./visual-file";
+import { checkInRoot, checkVisual, placeInRoot, readVisual } from "./visual-file";
 
 /**
  * A session's working directory with its visuals directory inside, as a study direction has.
@@ -427,5 +427,66 @@ describe("a direction's visuals (SPEC-0008, ML4)", () => {
     expect(await refusal(checkVisual(dir, now, "visuals/a.html", undefined, { owned: async () => true }))).toBe(
       "visual_outside",
     );
+  });
+});
+
+/**
+ * The host's own folder for demos with one session's folder in it.
+ *
+ * @remarks
+ * As `~/.atrium/visuals/<session id>/`; the folder is resolved, as macOS's temporary directory is a link.
+ *
+ * @sideEffects Creates the directories, removed when the test ends.
+ * @returns The host's folder for demos and one session's folder.
+ */
+async function demos(): Promise<{ root: string; dir: string }> {
+  const temp = await createTempDir("demos");
+  onTestFinished(temp.cleanup);
+  const root = join(await realpath(temp.path), "visuals");
+  const dir = join(root, "2537f4aa-5e70-4da5-9de0-689712915b04");
+  await mkdir(dir, { recursive: true });
+  return { root, dir };
+}
+
+describe("the host's own folder for demos (SPEC-0007, 2026-11-12)", () => {
+  it("finds a file right in a folder right in it, and nothing else", () => {
+    expect(placeInRoot("/h/visuals", "/h/visuals/s1/a.html")).toBe("/h/visuals/s1");
+    expect(placeInRoot("/h/visuals", "/h/visuals/s1/deep/a.html")).toBeNull();
+    expect(placeInRoot("/h/visuals", "/h/visuals/a.html")).toBeNull();
+    expect(placeInRoot("/h/visuals", "/h/visuals/deep/x/a.html")).toBeNull();
+    expect(placeInRoot("/h/visuals", "/h/elsewhere/s1/a.html")).toBeNull();
+    expect(placeInRoot("/h/visuals", "/h/a.html")).toBeNull();
+    expect(placeInRoot("/h/visuals", "/h/visuals/s1/../../../a.html")).toBeNull();
+    // Only an absolute path: a relative one belongs to the session's own place.
+    expect(placeInRoot("/h/visuals", "s1/a.html")).toBeNull();
+    expect(placeInRoot(join(process.cwd(), "visuals"), join("visuals", "s1", "a.html"))).toBeNull();
+  });
+
+  it("checks a file in such a folder as the default folder is checked", async () => {
+    const { root, dir } = await demos();
+    await writeFile(join(dir, "old.html"), '<div id="old">旧</div>');
+
+    expect(await checkInRoot(root, join(dir, "old.html"))).toMatchObject({ dir, size: 23 });
+    expect(await refusal(checkInRoot(root, join(dir, "later.html")))).toBe("visual_missing");
+    // A folder not made yet is missing too, as one in a session's own directory is.
+    expect(await refusal(checkInRoot(root, join(root, "later", "a.html")))).toBe("visual_missing");
+    expect(await refusal(checkInRoot(root, join(root, "loose.html")))).toBe("visual_outside");
+    expect(await refusal(checkInRoot(root, join(dir, "old.txt")))).toBe("visual_outside");
+  });
+
+  it("refuses a link on the way, and a folder swapped for one", async () => {
+    const { root, dir } = await demos();
+    await mkdir(join(root, "outside"));
+    await writeFile(join(root, "outside", "a.html"), "x");
+    await writeFile(join(dir, "a.html"), "x");
+    // The folder right in the root is made by the host; one the agent swapped for a link is not one.
+    await rm(dir, { recursive: true });
+    await symlink(join(root, "outside"), dir);
+    expect(await refusal(checkInRoot(root, join(dir, "a.html")))).toBe("visual_outside");
+    // A file that is a link is refused as it is in a session's own folder.
+    await rm(dir);
+    await mkdir(dir);
+    await symlink(join(root, "outside", "a.html"), join(dir, "a.html"));
+    expect(await refusal(checkInRoot(root, join(dir, "a.html")))).toBe("visual_outside");
   });
 });

@@ -66,6 +66,7 @@
 | 演示目录：只认 `.html`、目录内、路上无符号链接（文件、文件夹，指回目录里的也不行）、最多 1 MB；读的时候再查一次；查完、打开之前把目录换成链接也读不到外面（打开后逐段 `lstat` 比 inode）；读不了的文件只给错误码、不带路径 | `packages/host/src/visuals/visual-file.test.ts`（真实文件；竞争由检查和打开之间的钩子造出来） |
 | 分叉、子对话读得到上级会话的演示（`parent`，脱离后 `detachedFrom`），无关会话照样 `visual_outside`，环只走一遍 | `visual-place.test.ts`（`ancestorsOf`、`visualPlaceOf`）；`visual-service.test.ts` 的 parent 一条；`sessions/session-catalog.test.ts` 的 detach 一条 |
 | 默认目录 `~/.atrium/visuals/<会话 id>/`，会话 id 不安全时没有 | `visuals/visual-place.test.ts` |
+| `~/.atrium/visuals/` 下的演示任何会话都可读（2026-11-12，修 ML4 之后旧课的演示打不开）：恰好一层真目录、绝对路径、`.html`、路上不经链接、最多 1 MB；更深一层、根目录下的文件、链接的目录和文件、别的目录都 `visual_outside`；还没有的文件 `visual_missing` 并照旧监视；方向会话的旧绝对路径、从它分叉的下一会话都打得开 | `visuals/visual-file.test.ts` 三条（`placeInRoot`、`checkInRoot`）；`visuals/visual-service.test.ts`“opens a demo anywhere in the host's own folder for demos”（含不给 `root` 的会话）；`visuals/visual-place.test.ts` 一条；`visuals.host.test.ts` 第三条；`study.host.test.ts` 一条 |
 | 令牌：同一文件一个、小写十六进制、只认令牌；页面带外壳、CSP、`no-store`；坏令牌、非 GET、变得不安全的文件 404 | `visuals/visual-service.test.ts`（真实 HTTP）；`visuals.host.test.ts`（真实宿主） |
 | 改了文件告诉 resolve 过的连接；目录监视按引用计数，断开就停，计时器、监视计数归零；监视失败只记一条不带路径的日志；文件删了发 `mtime` 0；resolve 时还没有的文件（文件夹也没有）出现了就发；断开或关闭后才完成的 resolve 不加监视；没人看的令牌丢掉，再 resolve 换新令牌 | `visual-service.test.ts` 的 watching 三条、comes and go 两条、resolving 三条；`visuals.host.test.ts` 第一条 |
 | 回传：当作插话或新一轮发出；同一演示 1 秒内第二条丢掉（同时到的两条也只发一条），日志只记次数、不记正文；不是本会话演示的拒绝 | `visual-service.test.ts` 的 sending 四条；`visuals.host.test.ts` 第二条 |
