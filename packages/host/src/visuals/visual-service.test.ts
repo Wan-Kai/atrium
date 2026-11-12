@@ -1,6 +1,6 @@
 import { CommandError, type SteerCommand, type VisualChangedEvent, type VisualSource } from "@atrium/protocol";
 import { FakeClock, createTempDir } from "@atrium/testkit";
-import { chmod, mkdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
@@ -17,7 +17,7 @@ const TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
  * @remarks
  * Sessions `s1` and `s2` each have a working directory with its visuals inside, as a study
  * direction has; `s3` is a child of `s1`, `s4` a child of `s3`, each with its own; anything else
- * is unknown.
+ * is unknown. The host's own folder for demos is `demos/`, with `demos/old/` in it.
  *
  * @sideEffects Creates temporary directories, removed when the test ends.
  * @returns The service and what it did.
@@ -30,6 +30,8 @@ async function harness(failAtOnce = false, owner = { safe: true }) {
   const dir = join(cwd, "visuals");
   await mkdir(dir, { recursive: true });
   for (const other of ["s2", "s3", "s4"]) await mkdir(join(root, other, "visuals"), { recursive: true });
+  const demos = join(root, "demos");
+  await mkdir(join(demos, "old"), { recursive: true });
   const clock = new FakeClock(1_000);
   const { logger, records, resources } = recordingTracing();
   const sent: [string, VisualChangedEvent][] = [];
@@ -50,7 +52,13 @@ async function harness(failAtOnce = false, owner = { safe: true }) {
       // `s5` ran in a direction at `s5`, archived since to `Archive/s5` (SPEC-0008, ML4).
       if (sessionId === "s5") {
         const now = join(root, "Archive", "s5");
-        return { cwd: now, dir: join(now, "visuals"), movedFrom: join(root, "s5"), owned: async () => owner.safe };
+        return {
+          cwd: now,
+          dir: join(now, "visuals"),
+          movedFrom: join(root, "s5"),
+          root: demos,
+          owned: async () => owner.safe,
+        };
       }
       const ancestors = { s1: [], s2: [], s3: ["s1"], s4: ["s3", "s1"] }[sessionId];
       return ancestors === undefined
@@ -59,6 +67,8 @@ async function harness(failAtOnce = false, owner = { safe: true }) {
             cwd: join(root, sessionId),
             dir: join(root, sessionId, "visuals"),
             ancestors: ancestors.map((up) => join(root, up, "visuals")),
+            // `s2` tells of a place that gives no host folder for demos.
+            ...(sessionId === "s2" ? {} : { root: demos }),
           };
     },
     // `lrn_rust` is a direction at `s1`, the place its sessions' visuals are in (SPEC-0008, ML4).
@@ -78,7 +88,7 @@ async function harness(failAtOnce = false, owner = { safe: true }) {
     newToken: () => String(++tokens).padStart(32, "0"),
   });
   onTestFinished(() => service.close());
-  return { service, root, cwd, dir, clock, records, resources, sent, steered, folders, stopped };
+  return { service, root, cwd, dir, demos, clock, records, resources, sent, steered, folders, stopped };
 }
 
 /**
@@ -173,6 +183,45 @@ describe("resolving a visual", () => {
     expect([fromChild.size, fromGrandchild.size, ownOfParent.size]).toStrictEqual([1, 1, 1]);
     expect(await refusal(service.resolve("c1", "s1", join(root, "s3", "visuals", "b.html")))).toBe("visual_outside");
     expect(await refusal(service.resolve("c1", "s2", join(root, "s1", "visuals", "a.html")))).toBe("visual_outside");
+  });
+
+  it("opens a demo anywhere in the host's own folder for demos, as a reply written before a move names it", async () => {
+    const { service, dir, demos, folders, clock, sent } = await harness();
+    await writeFile(join(demos, "old", "a.html"), "x");
+    await mkdir(join(demos, "old", "deep"));
+    await writeFile(join(demos, "old", "deep", "b.html"), "x");
+    await writeFile(join(demos, "loose.html"), "x");
+    await symlink(dir, join(demos, "linked"));
+
+    expect((await service.resolve("c1", "s1", join(demos, "old", "a.html"))).size).toBe(1);
+    // Only exactly one folder below it, and only a folder the host made there.
+    expect(await refusal(service.resolve("c1", "s1", join(demos, "old", "deep", "b.html")))).toBe("visual_outside");
+    expect(await refusal(service.resolve("c1", "s1", join(demos, "loose.html")))).toBe("visual_outside");
+    expect(await refusal(service.resolve("c1", "s1", "old/a.html"))).toBe("visual_outside");
+    // A place that gives no host folder for demos reads none of it.
+    expect(await refusal(service.resolve("c1", "s2", join(demos, "old", "a.html")))).toBe("visual_outside");
+    await writeFile(join(dir, "c.html"), "x");
+    expect(await refusal(service.resolve("c1", "s1", join(demos, "linked", "c.html")))).toBe("visual_outside");
+    // A file the folder does not hold yet is watched for, as in a session's own folder.
+    expect(await refusal(service.resolve("c1", "s1", join(demos, "old", "later.html")))).toBe("visual_missing");
+    expect([...folders.keys()]).toStrictEqual([join(demos, "old")]);
+
+    await writeFile(join(demos, "old", "later.html"), "x");
+    folders.get(join(demos, "old"))?.fire();
+    clock.advance(100);
+    await service.settled();
+
+    expect(sent).toStrictEqual([
+      [
+        "c1",
+        {
+          type: "visual_changed",
+          sessionId: "s1",
+          path: join(demos, "old", "later.html"),
+          mtime: expect.any(Number),
+        },
+      ],
+    ]);
   });
 
   it("adds no watch for a resolve that ends after its connection closed, or the service did", async () => {
@@ -594,9 +643,12 @@ describe("a direction's visuals, for its viewer tabs (SPEC-0008, ML4)", () => {
 
     const byOld = await service.resolve("c1", "s5", join(root, "s5", "visuals", "a.html"));
     const byRelative = await service.resolve("c1", "s5", "visuals/a.html");
+    const base = await serving((request, response) => service.serve(request, response));
 
     expect([byOld.size, byRelative.url]).toStrictEqual([8, byOld.url]);
     owner.safe = false;
+    // The direction's place is checked again for the page, as for a new resolve (ML4 review).
+    expect((await fetch(`${base}/visual/${new URL(byOld.url).host}/a.html`)).status).toBe(404);
     expect(await refusal(service.resolve("c2", "s5", "visuals/a.html"))).toBe("visual_outside");
   });
 

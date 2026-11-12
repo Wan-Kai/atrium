@@ -48,7 +48,13 @@ import { REMOTE_FILE } from "./remote/devices";
 import { loadIndexFile } from "./store/index-file";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
-import { DIRECTION_VISUALS, type VisualsDir, defaultVisualsDir, visualPlaceOf } from "./visuals/visual-place";
+import {
+  DIRECTION_VISUALS,
+  type VisualsDir,
+  defaultVisualsDir,
+  visualPlaceOf,
+  visualsRootOf,
+} from "./visuals/visual-place";
 import { createVisualService } from "./visuals/visual-service";
 import { openReceipts } from "./remote/receipts";
 import { discoverProjects } from "./projects/discovery";
@@ -394,7 +400,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    * @param directionId - The direction.
    * @returns The directory, or `null` for a direction not found.
    */
-  function directionVisuals(directionId: string): Required<VisualsDir> | null {
+  function directionVisuals(directionId: string): Required<Pick<VisualsDir, "dir" | "base" | "owned">> | null {
     const found = directions.find(directionId);
     if (found === undefined) return null;
     return {
@@ -404,11 +410,13 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     };
   }
   /**
-   * Where a session's visuals go.
+   * Where a session's visuals go, and the host's own folder for them.
    *
    * @remarks
    * SPEC-0007: the default one, `~/.atrium/visuals/<id>/`, unless its container gives its own; a
-   * study direction's sessions have the direction's `visuals/` (SPEC-0008, ML4).
+   * study direction's sessions have the direction's `visuals/` (SPEC-0008, ML4). Either way it may
+   * read `~/.atrium/visuals/` too, for replies written before ML4 moved the direction's sessions
+   * there (2026-11-12).
    *
    * @sideEffects none
    * @param sessionId - The session.
@@ -416,9 +424,13 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    */
   function visualsDir(sessionId: string): VisualsDir | null {
     const containerId = catalog.find(sessionId)?.containerId;
-    if (containerId !== undefined && isDirectionId(containerId)) return directionVisuals(containerId);
+    const root = visualsRootOf(home.root);
+    if (containerId !== undefined && isDirectionId(containerId)) {
+      const direction = directionVisuals(containerId);
+      return direction === null ? null : { ...direction, root };
+    }
     const dir = defaultVisualsDir(home.root, sessionId);
-    return dir === null ? null : { dir };
+    return dir === null ? null : { dir, root };
   }
   // Directions' progress, written by the agent's study tools and your marks (SPEC-0008, "ML2 定的细节").
   const progressFiles = createProgressFiles({

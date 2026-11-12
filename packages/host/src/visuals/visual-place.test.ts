@@ -138,4 +138,22 @@ describe("visualPlaceOf, in a direction (SPEC-0008, ML4)", () => {
       owned,
     });
   });
+
+  it("gives a session the host's own folder for demos too, for replies written before its visuals moved", () => {
+    const records = RECORDS;
+
+    expect(
+      visualPlaceOf(
+        "lesson",
+        (id) => records[id],
+        () => ({ ...home(), root: "/h/visuals" }),
+      ),
+    ).toStrictEqual({
+      cwd: "/L/rust",
+      dir: "/L/rust/visuals",
+      ancestors: [],
+      root: "/h/visuals",
+      owned,
+    });
+  });
 });
