@@ -84,6 +84,14 @@ import {
   UnfoldVerticalIcon,
   UserIcon,
   ViewIcon,
+  Archive02Icon,
+  Award01Icon,
+  BookOpen01Icon,
+  Idea01Icon,
+  Note01Icon,
+  Quiz01Icon,
+  Target02Icon,
+  Undo02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import type { SVGProps } from "react";
@@ -268,3 +276,12 @@ export const User = drawn(UserIcon);
 export const Warning = drawn(Alert02Icon);
 export const WarningCircle = drawn(AlertCircleIcon);
 export const X = drawn(Cancel01Icon);
+// Study mode's uses and states (design-language "学习模式", ML2).
+export const Archive = drawn(Archive02Icon);
+export const Award = drawn(Award01Icon);
+export const BookOpen = drawn(BookOpen01Icon);
+export const Idea = drawn(Idea01Icon);
+export const Note = drawn(Note01Icon);
+export const Quiz = drawn(Quiz01Icon);
+export const Target = drawn(Target02Icon);
+export const Undo = drawn(Undo02Icon);

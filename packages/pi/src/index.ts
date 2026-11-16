@@ -37,6 +37,7 @@ export {
   type LogStopReason,
   type LogUsage,
   type SystemParts,
+  type TaskLine,
   toLogEntry,
 } from "./history/log-entry";
 export { contextParts } from "./history/system-prompt";
@@ -64,6 +65,26 @@ export {
 } from "./agent/channel";
 export { ASK_USER_TOOL, type AskUserResult } from "./agent/ask-user";
 export { CHILD_TOOLS, PARENT_TOOLS, READ_ONLY_TOOLS } from "./agent/words";
+export {
+  CONVERSATION_TOOLS,
+  type ConversationOp,
+  GUIDE_IDS,
+  type GuideId,
+  NODE_TOOLS,
+  type NodeRole as TaskNodeRole,
+  type ReplyCommand as TaskReplyCommand,
+  type ResumeKind,
+  type SummaryArgs,
+  TASK_FLAG,
+  TASK_STATUS,
+  TASK_TEXT_LIMITS,
+  type TaskCallOp,
+  type TaskErrorCode,
+  type TaskRequest,
+  type TaskSelf,
+  commandText as taskCommandText,
+  readRequest as readTaskRequest,
+} from "./task/schema";
 export { type ToolArgs, contentText, toolDetails } from "./history/tools";
 export {
   type SessionDirectory,
@@ -81,7 +102,7 @@ export {
 export { type ModelList, queryModels } from "./catalog/query";
 export { type ModelCatalog, createModelCatalog } from "./catalog/model-catalog";
 export { sessionModelOf } from "./catalog/models";
-export { isAgentCommand, isFastSwitch, isEditCommand, toSlashCommand } from "./catalog/commands";
+export { isAgentCommand, isFastSwitch, isEditCommand, isStudyCommand, toSlashCommand } from "./catalog/commands";
 export { EDIT_COMMAND, type EditParams, editCommand } from "./edit/edit";
 export { FAST_COMMAND } from "./fast/fast";
 export { PLAN_PROVIDERS, type PlanReport, isPlanProvider, planReplyOf } from "./plan/plan";
@@ -119,3 +140,15 @@ export {
   type VisualIcon,
   visualsArgument,
 } from "./visuals/visuals";
+export {
+  STUDY_COMMAND,
+  STUDY_FLAG,
+  type StudyLaunch,
+  type StudyTool,
+  type StudyUse,
+  TOOLS_BY_USE,
+  VISUAL_RULES,
+  askArgument,
+  startCommand,
+  studyArgument,
+} from "./study/study";

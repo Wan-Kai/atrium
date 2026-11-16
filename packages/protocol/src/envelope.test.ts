@@ -8,7 +8,8 @@ import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
 import type { SessionEvent } from "./events";
 import type { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { type CatalogModel, ThinkingLevel } from "./models";
-import { Step, Turn } from "./transcript";
+import type { PendingReview } from "./reviews";
+import { type Notice, Step, Turn } from "./transcript";
 import { isChatId } from "./ids";
 import { protocolJsonSchema } from "./json-schema";
 import { PROTOCOL_VERSION } from "./version";
@@ -21,6 +22,7 @@ const CHAT = "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc";
 const DIRECTION = "lrn_node-backend";
 const DEVICE = "dev_0123456789abcdef";
 const PAIRING = "pair_0123456789abcdef";
+const TASK = "tsk_0123456789abcdef";
 const RELAY_LINE = `atrium-relay://hst_0123456789abcdef:${"A".repeat(43)}@ktoon.site/atrium`;
 
 /** One valid example of every command. */
@@ -147,6 +149,47 @@ const commands: Command[] = [
   { type: "unpin_direction", requestId: "r19j", traceparent, directionId: DIRECTION },
   { type: "archive_direction", requestId: "r19k", traceparent, directionId: DIRECTION },
   { type: "restore_direction", requestId: "r19l", traceparent, directionId: DIRECTION },
+  {
+    type: "start_study_session",
+    requestId: "r19m",
+    traceparent,
+    directionId: DIRECTION,
+    kind: "lesson",
+    level: "l2",
+    step: "s4",
+  },
+  {
+    type: "start_study_session",
+    requestId: "r19n",
+    traceparent,
+    directionId: DIRECTION,
+    kind: "feynman",
+    level: "l2",
+    step: "s3",
+    gap: "g1",
+  },
+  {
+    type: "mark_study_step",
+    requestId: "r19o",
+    traceparent,
+    directionId: DIRECTION,
+    level: "l2",
+    step: "s4",
+    mark: "quiz",
+    done: true,
+  },
+  { type: "mark_study_gap", requestId: "r19p", traceparent, directionId: DIRECTION, gapId: "g1", fixed: false },
+  { type: "retry_study_kickoff", requestId: "r19q", traceparent, sessionId: "s1" },
+  { type: "start_study_session", requestId: "r19r", traceparent, directionId: DIRECTION, kind: "plan", level: "l3" },
+  {
+    type: "upgrade_study",
+    requestId: "r19s",
+    traceparent,
+    directionId: DIRECTION,
+    level: "l2",
+    archiveSessions: true,
+  },
+  { type: "restore_study_sessions", requestId: "r19t", traceparent, directionId: DIRECTION, sessionIds: ["s1", "s2"] },
   { type: "close_tab", requestId: "r20", traceparent, sessionId: "s1" },
   { type: "select_container", requestId: "r21", traceparent, containerId: WORKSPACE },
   { type: "select_container", requestId: "r22", traceparent, containerId: CHAT },
@@ -207,6 +250,36 @@ const commands: Command[] = [
     answer: { cancelled: true },
   },
   { type: "retry_run", requestId: "r38", traceparent, sessionId: "s1" },
+  {
+    type: "answer_review",
+    requestId: "r38d",
+    traceparent,
+    sessionId: "s1",
+    reviewId: "tsk_a:human:N3:1",
+    verdict: { action: "send_back", target: "N2", reason: "The merge conflicts; fix it first." },
+  },
+  {
+    type: "open_task_session",
+    requestId: "r38f",
+    traceparent,
+    taskId: "tsk_a",
+    sessionId: "s2",
+  },
+  { type: "list_schedules", requestId: "r38g", traceparent },
+  { type: "list_schedules", requestId: "r38h", traceparent, watch: true },
+  { type: "pause_schedule", requestId: "r38i", traceparent, scheduleId: "rul_a" },
+  { type: "resume_schedule", requestId: "r38j", traceparent, scheduleId: "rul_a" },
+  { type: "run_schedule_now", requestId: "r38k", traceparent, scheduleId: "rul_a" },
+  { type: "delete_schedule", requestId: "r38l", traceparent, scheduleId: "rul_a" },
+  { type: "edit_schedule", requestId: "r38m", traceparent, scheduleId: "rul_a" },
+  {
+    type: "answer_review",
+    requestId: "r38e",
+    traceparent,
+    sessionId: "s1",
+    reviewId: "tsk_a:graph:2",
+    verdict: { action: "approve" },
+  },
   {
     type: "answer_question",
     requestId: "r38b",
@@ -291,6 +364,13 @@ const commands: Command[] = [
   { type: "read_file", requestId: "r93", traceparent, workspaceId: WORKSPACE, path: "a".repeat(4096) },
   { type: "resolve_visual", requestId: "r94", traceparent, sessionId: "s1", path: "visuals/2-03-isolation.html" },
   { type: "resolve_visual", requestId: "r95", traceparent, sessionId: "s1", path: "a".repeat(4096) },
+  // A direction's own files and visuals, for its home's archive and its viewer tabs (SPEC-0008, ML4).
+  { type: "list_dir", requestId: "r98", traceparent, workspaceId: DIRECTION, path: "notes" },
+  { type: "read_file", requestId: "r99", traceparent, workspaceId: DIRECTION, path: "notes/2-03.md" },
+  { type: "resolve_visual", requestId: "r100", traceparent, directionId: DIRECTION, path: "visuals/2-03-a.html" },
+  // A visual whose last card closed (SPEC-0007, ML4 review).
+  { type: "release_visual", requestId: "r101", traceparent, sessionId: "s1", path: "visuals/2-03-isolation.html" },
+  { type: "release_visual", requestId: "r102", traceparent, directionId: DIRECTION, path: "visuals/2-03-a.html" },
   { type: "send_visual_message", requestId: "r96", traceparent, sessionId: "s1", path: "/v/a.html", text: "选 B" },
   {
     type: "send_visual_message",
@@ -327,7 +407,197 @@ const commands: Command[] = [
   { type: "rename_device", requestId: "r87", traceparent, deviceId: DEVICE, name: "" },
   { type: "revoke_device", requestId: "r88", traceparent, deviceId: DEVICE },
   { type: "reset_remote_identity", requestId: "r89", traceparent },
+  { type: "list_tasks", requestId: "r90", traceparent },
+  { type: "list_tasks", requestId: "r91", traceparent, watch: true },
+  { type: "open_task", requestId: "r92", traceparent, taskId: TASK },
+  { type: "answer_human", requestId: "r93", traceparent, taskId: TASK, node: "N4", answer: { kind: "pass" } },
+  {
+    type: "answer_human",
+    requestId: "r94",
+    traceparent,
+    taskId: TASK,
+    node: "N4",
+    answer: { kind: "send_back", backTo: "N2", reason: "The test for the empty list is missing." },
+  },
+  { type: "rerun_node", requestId: "r95", traceparent, taskId: TASK, node: "N2" },
+  { type: "continue_node", requestId: "r96", traceparent, taskId: TASK, node: "N2" },
+  { type: "pause_task", requestId: "r97", traceparent, taskId: TASK },
+  { type: "resume_task", requestId: "r98", traceparent, taskId: TASK },
+  { type: "cancel_task", requestId: "r99", traceparent, taskId: TASK },
+  { type: "answer_archive", requestId: "r100", traceparent, taskId: TASK, answer: "archive" },
+  { type: "answer_archive", requestId: "r101", traceparent, taskId: TASK, answer: "keep" },
+  { type: "create_task", requestId: "r102", traceparent, sessionId: "ses_src" },
+  { type: "create_task", requestId: "r103", traceparent, sessionId: "ses_src", scope: "only the login flow" },
+  { type: "start_task", requestId: "r104", traceparent, taskId: TASK },
+  { type: "abandon_task", requestId: "r105", traceparent, taskId: TASK },
+  { type: "approve_graph", requestId: "r106", traceparent, taskId: TASK },
+  { type: "reject_graph", requestId: "r107", traceparent, taskId: TASK },
 ];
+
+/** A task waiting for the user to merge. */
+const taskSummary = {
+  id: TASK,
+  name: "Add the export",
+  status: "waiting",
+  projectId: PROJECT,
+  workspaceId: WORKSPACE,
+  paused: false,
+  createdAt: 1_760_000_000_000,
+  startedAt: 1_760_000_001_000,
+  endedAt: null,
+  attention: "merge_blocked",
+  archive: null,
+  current: { id: "N3", name: "Accept and merge", state: "waiting" },
+  activeAt: 1_760_000_003_000,
+  scheduled: false,
+} as const;
+
+/** A task whose closing human node cannot merge, with its graph. */
+const taskNodeBase = {
+  kind: "agent",
+  job: "Do it",
+  done: ["It works"],
+  state: "passed",
+  attempt: 1,
+  waitingFor: null,
+  blocked: null,
+  failure: null,
+  summary: "Done.",
+  model: null,
+  sessionId: "s1",
+  sendBack: [],
+} as const;
+/** Reviews of the three gates, one with every kind of evidence and a held-back merge. */
+const humanReview: PendingReview = {
+  id: "tsk_a:human:N3:1",
+  openedAt: 1_760_000_002_000,
+  source: { kind: "gate", gate: "task_human" },
+  subject: { code: "task_human_node", params: { taskId: "tsk_a", node: "N3", merge: true } },
+  evidence: [
+    {
+      kind: "facts",
+      facts: [
+        { code: "worktree_dirty", params: { name: "task-a" }, status: "warn" },
+        { code: "commits_ahead", params: { count: 3 }, status: "ok" },
+      ],
+    },
+    { kind: "changes", workspaceId: "wks_0123456789abcdef", files: 4, added: 120, removed: 7 },
+    { kind: "summary", by: { kind: "node", node: "N2" }, text: "Wrote it." },
+  ],
+  problem: { code: "merge_conflict", params: {}, files: ["src/a.ts", "src/b.ts"] },
+  actions: [
+    { id: "retry", reason: "none", targets: [], recommended: true },
+    { id: "send_back", reason: "required", targets: [{ id: "N2", remaining: 1 }], recommended: false },
+  ],
+};
+const graphReview: PendingReview = {
+  id: "tsk_a:graph:2",
+  openedAt: 1_760_000_002_500,
+  source: { kind: "gate", gate: "task_graph" },
+  subject: { code: "task_graph_change", params: { taskId: "tsk_a", version: 2 } },
+  evidence: [{ kind: "graph_diff", from: 1, to: 2, added: ["N5"], removed: [], changed: ["N3"] }],
+  problem: null,
+  actions: [
+    { id: "approve", reason: "none", targets: [], recommended: true },
+    { id: "reject", reason: "optional", targets: [], recommended: false },
+  ],
+};
+const agentReview: PendingReview = {
+  id: "call-12",
+  openedAt: 1_760_000_002_700,
+  source: { kind: "agent", toolCallId: "call-12" },
+  subject: { text: "Push the branch?" },
+  evidence: [{ kind: "summary", by: { kind: "agent" }, text: "Two commits, tests pass." }],
+  problem: null,
+  actions: [{ id: "yes", reason: "optional", targets: [], recommended: true }],
+};
+const requirements = {
+  goal: "Make out.txt",
+  decisions: ["plain text"],
+  constraints: [],
+  nonGoals: [],
+  openQuestions: [],
+  acceptance: ["out.txt says hello"],
+} as const;
+
+const taskView = {
+  ...taskSummary,
+  taskSessionId: "s0",
+  model: { providerId: "anthropic", modelId: "opus-5.5", thinking: "high" },
+  sourceSessionId: "s-origin",
+  graphVersion: 1,
+  pendingGraph: true,
+  pending: {
+    version: 2,
+    author: "agent",
+    note: "Add a docs step",
+    nodes: [
+      { id: "N1", name: "Explore", kind: "agent", job: "Look", done: ["Looked"], role: "explore", model: null },
+      { id: "N5", name: "Docs", kind: "agent", job: "Write docs", done: ["Written"], role: "work", model: null },
+    ],
+    edges: [{ from: "N1", to: "N5", kind: "seq" }],
+    diff: { from: 1, added: ["N5"], removed: [], changed: ["N3"] },
+  },
+  graphDiff: { from: 1, added: [], removed: ["N9"], changed: ["N2"] },
+  requirements,
+  reviews: [humanReview, graphReview],
+  nodes: [
+    {
+      ...taskNodeBase,
+      id: "N1",
+      name: "Explore",
+      role: "explore",
+      place: "readonly",
+      model: { providerId: "openai", modelId: "gpt-6-astra" },
+    },
+    {
+      ...taskNodeBase,
+      id: "N2",
+      name: "Write",
+      role: "work",
+      place: "workspace",
+      backFrom: { node: "N3", reason: "Again" },
+    },
+    {
+      ...taskNodeBase,
+      id: "N3",
+      name: "Accept and merge",
+      kind: "human",
+      merge: true,
+      state: "waiting",
+      waitingFor: "merge_blocked",
+      blocked: "merge_conflict",
+      blockedFiles: ["src/a.ts", "src/b.ts"],
+      summary: null,
+      sessionId: null,
+      sendBack: [{ to: "N2", uses: 1 }],
+    },
+    { ...taskNodeBase, id: "N4", name: "Check", role: "check", state: "failed", failure: "commit", sessionId: null },
+  ],
+  edges: [
+    { from: "N1", to: "N2", kind: "seq" },
+    { from: "N2", to: "N3", kind: "seq" },
+    { from: "N3", to: "N2", kind: "back" },
+  ],
+  archiveFacts: null,
+  followed: false,
+  scheduleDraft: null,
+} as const;
+
+/** A schedule rule's row, as the 定时 tab gets it. */
+const scheduleSummary = {
+  id: "rul_a",
+  name: "Mutation run",
+  projectId: PROJECT,
+  place: "new_worktree",
+  when: { every: "day", at: "2:00" },
+  paused: false,
+  nextAt: 1_760_000_000_000,
+  last: { taskId: "tsk_a", status: "stopped", failed: true },
+  skipped: 1,
+  templateTaskId: "tsk_t",
+  createdAt: 1_759_000_000_000,
+} as const;
 
 /** An update waiting for two sessions to finish. */
 const installUpdated = {
@@ -447,6 +717,7 @@ const control: Control = {
   restarting: false,
   compacting: true,
   interactions: [pick],
+  reviews: [humanReview, agentReview],
   question: {
     id: "call-9",
     askedAt: 6,
@@ -765,6 +1036,38 @@ const noted = {
   timestamp: 6,
 } as const;
 
+/** A progress line the host wrote into a task conversation, and the mark in the conversation a task was made from. */
+const taskProgressed = {
+  kind: "notice",
+  id: "task-1",
+  notice: "task_progress",
+  what: "node_passed",
+  node: "N2",
+  timestamp: 7,
+} as const;
+const taskMarked = {
+  kind: "notice",
+  id: "task-2",
+  notice: "task_mark",
+  taskId: "tsk_a",
+  state: "converted",
+  timestamp: 8,
+} as const;
+
+/** The outcome of a review, as the conversation keeps it. */
+const reviewRecorded: Extract<Notice, { notice: "review" }> = {
+  kind: "notice",
+  id: "review-1",
+  notice: "review",
+  review: {
+    source: { kind: "gate", gate: "task_human" },
+    subject: { code: "task_human_node", params: { taskId: "tsk_a", node: "N3", merge: false } },
+    evidence: [{ kind: "summary", by: { kind: "node", node: "N2" }, text: "Wrote it." }],
+    verdict: { action: "send_back", target: "N2", reason: "Again" },
+  },
+  timestamp: 9,
+};
+
 const events: SessionEvent[] = [
   {
     type: "session_snapshot",
@@ -833,6 +1136,10 @@ const events: SessionEvent[] = [
   },
   { type: "notice_added", ...at, notice: asked, before: null },
   { type: "notice_added", ...at, notice: noted, before: null },
+  { type: "notice_added", ...at, notice: taskProgressed, before: null },
+  { type: "notice_added", ...at, notice: { ...taskProgressed, what: null, node: null }, before: null },
+  { type: "notice_added", ...at, notice: taskMarked, before: null },
+  { type: "notice_added", ...at, notice: reviewRecorded, before: null },
   { type: "session_resumed", sessionId: "s1", epoch: 2, seq: 40 },
   { type: "model_updated", ...at, model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "off" } },
   { type: "model_updated", ...at, model: null },
@@ -865,10 +1172,15 @@ describe("parseClientMessage", () => {
 
   it("knows exactly the commands it accepts", () => {
     expect([...COMMAND_TYPES].toSorted()).toStrictEqual([
+      "abandon_task",
       "add_project",
+      "answer_archive",
+      "answer_human",
       "answer_interaction",
       "answer_login",
       "answer_question",
+      "answer_review",
+      "approve_graph",
       "archive_chat",
       "archive_direction",
       "archive_session",
@@ -876,6 +1188,7 @@ describe("parseClientMessage", () => {
       "cancel_install",
       "cancel_login",
       "cancel_pairing",
+      "cancel_task",
       "cancel_translation",
       "check_pi_update",
       "check_setup",
@@ -884,12 +1197,16 @@ describe("parseClientMessage", () => {
       "close_tab",
       "compact_session",
       "confirm_pairing",
+      "continue_node",
       "create_chat",
       "create_direction",
       "create_session",
+      "create_task",
       "create_workspace",
+      "delete_schedule",
       "detach_session",
       "discover_projects",
+      "edit_schedule",
       "edit_stopped_message",
       "export_session",
       "fetch_image",
@@ -904,16 +1221,26 @@ describe("parseClientMessage", () => {
       "list_commands",
       "list_dir",
       "list_models",
+      "list_schedules",
+      "list_tasks",
       "login",
       "logout",
+      "mark_study_gap",
+      "mark_study_step",
       "name_branch",
       "open_session",
+      "open_task",
+      "open_task_session",
+      "pause_schedule",
+      "pause_task",
       "pin_chat",
       "pin_direction",
       "ping",
       "prompt",
       "read_file",
       "read_pi_config",
+      "reject_graph",
+      "release_visual",
       "remove_delivery",
       "remove_project",
       "remove_queued",
@@ -924,15 +1251,21 @@ describe("parseClientMessage", () => {
       "rename_session",
       "rename_workspace",
       "report_client_issue",
+      "rerun_node",
       "reset_remote_identity",
       "resolve_visual",
       "restore_chat",
       "restore_direction",
+      "restore_study_sessions",
       "restore_workspace",
       "resume_deliveries",
       "resume_queue",
+      "resume_schedule",
+      "resume_task",
       "retry_run",
+      "retry_study_kickoff",
       "revoke_device",
+      "run_schedule_now",
       "save_pi_config",
       "search_files",
       "select_container",
@@ -944,6 +1277,8 @@ describe("parseClientMessage", () => {
       "set_remote",
       "set_thinking_level",
       "start_pairing",
+      "start_study_session",
+      "start_task",
       "steer",
       "steer_queued",
       "stop",
@@ -955,6 +1290,7 @@ describe("parseClientMessage", () => {
       "unpin_direction",
       "update_pi",
       "update_queued",
+      "upgrade_study",
       "upload_attachment",
       "watch_changes",
       "watch_diff",
@@ -1433,6 +1769,29 @@ describe("parseClientMessage", () => {
     ],
     ["a cancel without the job", { type: "cancel_install", requestId: "r1", traceparent }, "r1"],
     ["a visual of no path", { type: "resolve_visual", requestId: "r1", traceparent, sessionId: "s1", path: "" }, "r1"],
+    ["a visual of nobody", { type: "resolve_visual", requestId: "r1", traceparent, path: "a.html" }, "r1"],
+    [
+      "a visual of a session and a direction at once",
+      { type: "resolve_visual", requestId: "r1", traceparent, sessionId: "s1", directionId: DIRECTION, path: "a.html" },
+      "r1",
+    ],
+    [
+      "a visual of a workspace",
+      { type: "resolve_visual", requestId: "r1", traceparent, directionId: WORKSPACE, path: "a.html" },
+      "r1",
+    ],
+    ["a release of nobody's visual", { type: "release_visual", requestId: "r1", traceparent, path: "a.html" }, "r1"],
+    [
+      "a release of a session's and a direction's visual at once",
+      { type: "release_visual", requestId: "r1", traceparent, sessionId: "s1", directionId: DIRECTION, path: "a.html" },
+      "r1",
+    ],
+    [
+      "a release of no path",
+      { type: "release_visual", requestId: "r1", traceparent, directionId: DIRECTION, path: "" },
+      "r1",
+    ],
+    ["a read in a chat", { type: "read_file", requestId: "r1", traceparent, workspaceId: "cht_abc", path: "a" }, "r1"],
     [
       "a visual path over 4096 characters",
       { type: "resolve_visual", requestId: "r1", traceparent, sessionId: "s1", path: "a".repeat(4097) },
@@ -1806,11 +2165,76 @@ const snapshot: IndexSnapshotEvent = {
       name: "Node 后端",
       alias: null,
       broken: false,
+      newer: false,
       discussing: true,
       archived: false,
       createdAt: 1_700_000_400_000,
       pinnedAt: 1_700_000_500_000,
       lastOpenedAt: 1_700_000_600_000,
+      progress: null,
+      next: { primary: null, secondary: null },
+    },
+    {
+      id: "lrn_go",
+      dir: "/Users/test/Atrium/Learning/go",
+      name: "Go",
+      alias: null,
+      broken: false,
+      newer: false,
+      discussing: false,
+      archived: false,
+      createdAt: 1_700_000_400_000,
+      pinnedAt: null,
+      lastOpenedAt: null,
+      progress: {
+        profile: { goal: "写一个 CLI", weeklyHours: "4", language: "Go" },
+        ladder: [
+          { id: "l1", name: "语法", topics: "类型、函数", pass: "一个小工具", state: "skipped" },
+          { id: "l2", name: "并发", topics: "goroutine", pass: "一个爬虫", state: "current" },
+        ],
+        steps: {
+          l2: [
+            {
+              id: "s1",
+              kind: "lesson",
+              title: "goroutine",
+              lesson: { by: "agent" },
+              quiz: { by: "agent", score: 4, of: 5 },
+              done: { by: "manual" },
+            },
+            {
+              id: "s2",
+              kind: "lesson",
+              title: "channel",
+              lesson: { by: "manual" },
+              quiz: { by: "manual" },
+              done: null,
+            },
+            {
+              id: "s3",
+              kind: "lesson",
+              title: "select",
+              lesson: { by: "agent" },
+              quiz: { by: "later" },
+              done: { by: "manual" },
+            },
+            { id: "s4", kind: "lesson", title: "context", lesson: null, quiz: null, done: null },
+            { id: "s5", kind: "sheet", done: null },
+            { id: "s6", kind: "project", done: { by: "agent" } },
+            { id: "s7", kind: "exam", done: { by: "agent", score: 8, of: 10 } },
+            { id: "s8", kind: "up", done: null },
+          ],
+        },
+        gaps: [
+          { id: "g1", text: "关闭的 channel 还能读", from: { level: "l2", step: "s1", question: 3 }, fixed: null },
+          { id: "g2", text: "nil channel", from: { level: "l2", step: "s2" }, fixed: { by: "manual" } },
+        ],
+        finishedAt: null,
+      },
+      next: {
+        primary: { type: "start", kind: "feynman", level: "l2", step: "s2", gap: "g1", available: false },
+        secondary: { type: "mark", mark: "step", level: "l2", step: "s2" },
+      },
     },
     {
       id: "lrn_rust",
@@ -1818,11 +2242,17 @@ const snapshot: IndexSnapshotEvent = {
       name: "rust",
       alias: "Rust 入门",
       broken: true,
+      newer: false,
       discussing: true,
       archived: true,
       createdAt: null,
       pinnedAt: null,
       lastOpenedAt: null,
+      progress: null,
+      next: {
+        primary: { type: "start", kind: "plan", level: "l3", available: true },
+        secondary: { type: "upgrade", level: "l2", available: true },
+      },
     },
   ],
   sessions: [
@@ -1843,6 +2273,7 @@ const snapshot: IndexSnapshotEvent = {
       parent: null,
       agent: null,
       heldDeliveries: 0,
+      kickoff: null,
       study: null,
     },
     {
@@ -1870,6 +2301,7 @@ const snapshot: IndexSnapshotEvent = {
         taskStartedAt: 9,
       },
       heldDeliveries: 2,
+      kickoff: null,
       study: { kind: "lesson", level: "l2", step: "s4", gap: "g1" },
     },
   ],
@@ -1922,6 +2354,7 @@ const changes: IndexChangesEvent = {
         parent: { sessionId: "s2", by: "agent" },
         agent: null,
         heldDeliveries: 0,
+        kickoff: null,
         study: { kind: "discuss" },
       },
     ],
@@ -2046,7 +2479,25 @@ const hostMessages: unknown[] = [
   },
   { type: "plans_updated", plans: [] },
   { type: "remote_updated", remote: remoteState },
+  { type: "tasks_updated", seq: 1, tasks: [taskSummary, { ...taskSummary, status: "done", attention: null }] },
+  { type: "tasks_updated", seq: 2, tasks: [] },
+  { type: "task_updated", task: taskView },
+  {
+    type: "schedules_updated",
+    seq: 1,
+    schedules: [scheduleSummary, { ...scheduleSummary, paused: true, nextAt: null, last: null }],
+  },
+  { type: "schedules_updated", seq: 2, schedules: [] },
+  {
+    type: "schedules_updated",
+    seq: 3,
+    schedules: [
+      { ...scheduleSummary, when: { every: "week", day: 1, at: "10:00" } },
+      { ...scheduleSummary, when: { every: "interval", minutes: 5 }, place: "local_readonly" },
+    ],
+  },
   { type: "visual_changed", sessionId: "s1", path: "visuals/2-03-isolation.html", mtime: 1_760_000_000_000 },
+  { type: "visual_changed", directionId: DIRECTION, path: "visuals/2-03-isolation.html", mtime: 0 },
   {
     type: "turn_started",
     ...at,
@@ -2099,6 +2550,15 @@ const hostVariants: unknown[] = [
   { ...snapshot, workspaces: [local] },
   ...ErrorCode.options.map((code) => ({ type: "response", requestId: "r1", ok: false, error: { code } })),
   ...["running", "done", "stopped", "failed"].map((outcome) => ({ ...events[2], turn: { ...turn, outcome } })),
+  // A session the host opened for a use starts with no message of yours (SPEC-0008, "ML2 定的细节").
+  {
+    ...events[2],
+    turn: {
+      ...turn,
+      source: { kind: "study", study: { kind: "lesson", level: "l2", step: "s4" } },
+      user: { ...turn.user, text: "", images: 0 },
+    },
+  },
   ...["done", "stopped", "failed"].map((outcome) => ({ ...events[6], outcome })),
   ...["completed", "stopped", "failed"].map((outcome) => ({ ...events[8], outcome })),
   ...["requested", "crashed"].map((reason) => ({ ...events[9], reason })),
@@ -2193,6 +2653,15 @@ const commandResultExamples = {
   unpin_direction: [{}],
   archive_direction: [{}],
   restore_direction: [{}],
+  start_study_session: [{ sessionId: "s1" }],
+  mark_study_step: [{}],
+  mark_study_gap: [{}],
+  retry_study_kickoff: [{}],
+  upgrade_study: [
+    { planSessionId: "s1", notArchived: 0 },
+    { planSessionId: null, notArchived: 2 },
+  ],
+  restore_study_sessions: [{}],
   window_focused: [{}],
   create_session: [{ sessionId: "s1" }],
   close_tab: [{}],
@@ -2214,6 +2683,7 @@ const commandResultExamples = {
   steer_queued: [{ disposition: "queued" }],
   answer_interaction: [{}],
   answer_question: [{}],
+  answer_review: [{}],
   retry_run: [{}],
   list_models: [
     { models: [model, { ...model, fast: { speed: null, moreUsage: true } }], defaultModel: null },
@@ -2252,6 +2722,7 @@ const commandResultExamples = {
     { size: 4, content: { kind: "image", mimeType: "image/png", data: "UklGRg==" } },
     { size: 9, content: { kind: "too_large" } },
   ],
+  release_visual: [{}],
   resolve_visual: [
     { url: `atrium-visual://${"A".repeat(43)}/2-03-isolation.html`, size: 1, mtime: 1_760_000_000_000 },
     { url: `atrium-visual://${"b".repeat(43)}/a.html`, size: 1024 * 1024, mtime: 0 },
@@ -2360,6 +2831,61 @@ const commandResultExamples = {
   rename_device: [{}],
   revoke_device: [{}],
   reset_remote_identity: [{}],
+  list_tasks: [
+    { tasks: [] },
+    {
+      tasks: [
+        taskSummary,
+        { ...taskSummary, status: "done", attention: null, archive: "asked", endedAt: 1_760_000_002_000 },
+      ],
+    },
+  ],
+  open_task: [
+    { task: taskView },
+    // A task another process writes, which the host only follows (T7.1).
+    { task: { ...taskView, followed: true } },
+    {
+      task: {
+        ...taskView,
+        status: "done",
+        attention: null,
+        archive: "asked",
+        archiveFacts: { name: "export", merged: true, dirty: false, commits: 3 },
+      },
+    },
+    {
+      task: {
+        ...taskView,
+        workspaceId: null,
+        projectId: null,
+        archive: null,
+        archiveFacts: { name: "x", merged: null, dirty: true, commits: 0 },
+      },
+    },
+  ],
+  create_task: [{ taskId: TASK }],
+  start_task: [{}],
+  abandon_task: [{}],
+  approve_graph: [{}],
+  reject_graph: [{}],
+  answer_human: [{}],
+  rerun_node: [{}],
+  continue_node: [{}],
+  pause_task: [{}],
+  resume_task: [{}],
+  cancel_task: [{}],
+  answer_archive: [{}],
+  open_task_session: [{}],
+  list_schedules: [
+    { schedules: [], followed: false },
+    { schedules: [scheduleSummary], followed: false },
+    { schedules: [], followed: true },
+  ],
+  pause_schedule: [{}],
+  resume_schedule: [{}],
+  run_schedule_now: [{ taskId: "tsk_a" }],
+  delete_schedule: [{}],
+  edit_schedule: [{ taskId: "tsk_t" }],
 } satisfies Record<CommandType, unknown[]>;
 
 /**
@@ -2484,6 +3010,7 @@ describe("IDLE_CONTROL", () => {
       compacting: false,
       interactions: [],
       question: null,
+      reviews: [],
       failure: null,
     });
   });
@@ -2556,6 +3083,14 @@ describe("HostMessage", () => {
       "learning_dir_unsafe",
       "study_move_failed",
       "direction_archived",
+      "study_not_found",
+      "study_not_available",
+      "study_mark_refused",
+      "study_file_broken",
+      "study_file_version",
+      "study_write_failed",
+      "study_file_too_large",
+      "study_kickoff_failed",
       "project_exists",
       "name_taken",
       "path_not_found",
@@ -2572,6 +3107,8 @@ describe("HostMessage", () => {
       "interaction_closed",
       "question_closed",
       "question_invalid",
+      "review_closed",
+      "review_invalid",
       "models_unavailable",
       "fd_missing",
       "attachment_limit",
@@ -2583,6 +3120,17 @@ describe("HostMessage", () => {
       "worktree_remove_failed",
       "worktree_restore_failed",
       "worktree_create_failed",
+      "worktree_config_unsafe",
+      "workspace_in_task",
+      "task_not_found",
+      "task_state_invalid",
+      "task_back_limit",
+      "task_graph_invalid",
+      "task_read_only",
+      "task_already_converted",
+      "task_no_project_for_work",
+      "schedule_not_found",
+      "schedule_file_unreadable",
       "branch_name_failed",
       "translation_failed",
       "visual_outside",

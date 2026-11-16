@@ -21,6 +21,7 @@ export function describeArchiveError(error: unknown): string {
   if (code === "workspace_dirty") return "有未提交的改动，先提交或丢弃再归档";
   if (code === "workspace_unsaved_commits") return "当前提交不在任何分支上，先建一个分支再归档";
   if (code === "worktree_remove_failed") return "git 没能删除这个 worktree";
+  if (code === "workspace_in_task") return "有任务正在用，等任务结束再归档";
   if (code === "workspace_not_found") return "这个工作区已经不在了";
   return "宿主出错了，没有完成";
 }

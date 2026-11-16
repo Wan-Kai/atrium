@@ -98,11 +98,14 @@ function direction(id: string, alias: string | null = null) {
     name: id.slice(4),
     alias,
     broken: false,
+    newer: false,
     discussing: true,
     archived: false,
     createdAt: null,
     pinnedAt: null,
     lastOpenedAt: null,
+    progress: null,
+    next: { primary: null, secondary: null },
   };
 }
 
@@ -135,6 +138,7 @@ function session(id: string, running = false): SessionSummary {
     parent: null,
     agent: null,
     heldDeliveries: 0,
+    kickoff: null,
     study: null,
   };
 }

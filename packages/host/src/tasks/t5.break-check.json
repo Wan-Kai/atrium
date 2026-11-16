@@ -1,0 +1,240 @@
+[
+  {
+    "file": "packages/host/src/tasks/merge.ts",
+    "from": "if (await isDirty(options, worktreeDir)) return { kind: \"blocked\", reason: \"merge_worktree_dirty\" };",
+    "to": "if (false) return { kind: \"blocked\", reason: \"merge_worktree_dirty\" };",
+    "test": "packages/host/src/tasks/merge.test.ts",
+    "name": "blocks when the task's worktree has changes"
+  },
+  {
+    "file": "packages/host/src/tasks/merge.ts",
+    "from": "if (await isDirty(options, mainDir)) return { kind: \"blocked\", reason: \"merge_main_dirty\" };",
+    "to": "if (false) return { kind: \"blocked\", reason: \"merge_main_dirty\" };",
+    "test": "packages/host/src/tasks/merge.test.ts",
+    "name": "blocks while the main checkout has changes"
+  },
+  {
+    "file": "packages/host/src/tasks/merge.ts",
+    "from": "onBranch.stdout.trim() !== `refs/heads/${options.trunk}`",
+    "to": "onBranch.stdout.trim() === `refs/heads/${options.trunk}`",
+    "test": "packages/host/src/tasks/merge.test.ts",
+    "name": "blocks while the main checkout is on another branch"
+  },
+  {
+    "file": "packages/host/src/tasks/merge.ts",
+    "from": "[\"merge\", \"--abort\"]",
+    "to": "[\"status\"]",
+    "test": "packages/host/src/tasks/merge.test.ts",
+    "name": "reports the files of a conflict"
+  },
+  {
+    "file": "packages/host/src/tasks/merge.ts",
+    "from": "(await headOf(options, dir, false)) === before &&",
+    "to": "true &&",
+    "test": "packages/host/src/tasks/merge.test.ts",
+    "name": "leaves the main checkout on another commit"
+  },
+  {
+    "file": "packages/host/src/tasks/merge.ts",
+    "from": "!(await isDirty(options, dir, false))",
+    "to": "true",
+    "test": "packages/host/src/tasks/merge.test.ts",
+    "name": "leaves the main checkout with a change"
+  },
+  {
+    "file": "packages/host/src/tasks/merge.ts",
+    "from": "if (state.verdict === \"merged\" || state.verdict === \"noChange\") return { kind: \"merged\" };",
+    "to": "if (false) return { kind: \"merged\" };",
+    "test": "packages/host/src/tasks/merge.test.ts",
+    "name": "answers merged for an already merged branch even when the main checkout has moved off the trunk"
+  },
+  {
+    "file": "packages/host/src/tasks/merge.ts",
+    "from": "if (state.verdict === \"merged\" || state.verdict === \"noChange\") return { kind: \"merged\" };",
+    "to": "if (state.verdict === \"merged\") return { kind: \"merged\" };",
+    "test": "packages/host/src/tasks/merge.test.ts",
+    "name": "answers merged for a task that changed nothing even while the main checkout has changes"
+  },
+  {
+    "file": "packages/host/src/tasks/merge.ts",
+    "from": "    await assertOwnTree(options.git, mainDir);\n",
+    "to": "",
+    "test": "packages/host/src/tasks/merge.test.ts",
+    "name": "refuses a main checkout whose configuration points git at another tree"
+  },
+  {
+    "file": "packages/host/src/tasks/merge.ts",
+    "from": "      : { kind: \"blocked\", reason: \"merge_git_failed\" };\n  } catch {",
+    "to": "      : { kind: \"blocked\", reason: \"merge_conflict\" };\n  } catch {",
+    "test": "packages/host/src/tasks/merge.test.ts",
+    "name": "answers merge_git_failed, with the main checkout as it was"
+  },
+  {
+    "file": "packages/host/src/tasks/merge.ts",
+    "from": "before: author }",
+    "to": "before: [] }",
+    "test": "packages/host/src/tasks/merge.test.ts",
+    "name": "makes the merge commit with an author of its own"
+  },
+  {
+    "file": "packages/host/src/tasks/merge.ts",
+    "from": "if (conflicted && aborted.code !== 0) return",
+    "to": "if (false) return",
+    "test": "packages/host/src/tasks/merge.test.ts",
+    "name": "when git says the abort failed, though it did put the checkout back"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "...drivers.flatMap((driver) => [\"-c\", `merge.${driver}.driver=`]),",
+    "to": "",
+    "test": "packages/host/src/workspaces/safe-git.test.ts",
+    "name": "merges without running a merge driver"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "driver.includes(\"=\") || driver.includes(\"\\n\")",
+    "to": "false",
+    "test": "packages/host/src/workspaces/safe-git.test.ts",
+    "name": "refuses a merge driver name"
+  },
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "&& variable === \"driver\")",
+    "to": "&& variable === \"name\")",
+    "test": "packages/host/src/workspaces/safe-git.test.ts",
+    "name": "empties every configured merge driver"
+  },
+  {
+    "file": "packages/host/src/workspaces/merge-inspector.ts",
+    "from": "const merged = await runSafeGit(\n      options.git,\n      [\"merge-tree\", \"--write-tree\", \"--no-messages\", mainCommit, head],\n      { cwd: repo, signal },\n      { rejectIncludes: false },\n    ).catch(() => null);",
+    "to": "const merged = await options.git.run([\"merge-tree\", \"--write-tree\", \"--no-messages\", mainCommit, head], { cwd: repo, signal }).catch(() => null);",
+    "test": "packages/host/src/workspaces/merge-inspector.test.ts",
+    "name": "without running a merge driver"
+  },
+  {
+    "file": "packages/host/src/tasks/advance.ts",
+    "from": "  task.archive = \"asked\";\n",
+    "to": "",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "asks about archiving as part of the task"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "const open = task.archive === \"asked\" || (task.archive === \"kept\" && event.answer === \"archive\");",
+    "to": "const open = task.archive === \"asked\";",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "takes the answer about archiving after the task has ended"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "  if (event.type === \"archive_answered\") return answerArchive(task, event);\n",
+    "to": "",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "takes the answer about archiving after the task has ended"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "else run.blockedFiles = event.files.slice(0, MAX_CONFLICT_FILES);",
+    "to": "else run.blockedFiles = event.files;",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "keeps the conflicting files on the blocked node"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "    delete run.blockedFiles;\n    emit(draft, { kind: \"merge\", node: node.id });",
+    "to": "    emit(draft, { kind: \"merge\", node: node.id });",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "keeps the conflicting files on the blocked node"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "      outcome = { kind: \"blocked\", reason: \"merge_git_failed\" };",
+    "to": "      outcome = { kind: \"merged\" };",
+    "test": "packages/host/src/tasks/runner.test.ts",
+    "name": "blocks with merge_git_failed"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "      if (closing.signal.aborted) return;\n      logger.warn({ err: error instanceof Error ? error.name : \"unknown\" }, \"task merge could not be made\");",
+    "to": "      logger.warn({ err: error instanceof Error ? error.name : \"unknown\" }, \"task merge could not be made\");",
+    "test": "packages/host/src/tasks/runner.test.ts",
+    "name": "records nothing for a merge that the host's closing stopped"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "if (run?.state !== \"stopped\" || run.sessionId === null) throw new CommandError(\"task_state_invalid\");",
+    "to": "if (run?.sessionId == null) throw new CommandError(\"task_state_invalid\");",
+    "test": "packages/host/src/tasks/runner.test.ts",
+    "name": "refuses a node that is not stopped"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "await sessions.prompt(run.sessionId, CONTINUE_NODE, closing.signal);",
+    "to": "await sessions.open(run.sessionId);",
+    "test": "packages/host/src/tasks/runner.test.ts",
+    "name": "sends a node the user stopped a message"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": "if (waiting.some((run) => run?.waitingFor === \"merge_blocked\")) return \"merge_blocked\";",
+    "to": "if (waiting.some((run) => run?.waitingFor === \"merge_blocked\")) return \"human\";",
+    "test": "packages/host/src/tasks/task-view.test.ts",
+    "name": "marks what the user is wanted for"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": ".toSorted((a, b) => b.attempt - a.attempt)[0]",
+    "to": ".toSorted((a, b) => a.attempt - b.attempt)[0]",
+    "test": "packages/host/src/tasks/task-view.test.ts",
+    "name": "keeps the last summary of a node that was sent back"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": "  return text.length > TASK_TEXT_LIMIT ? text.slice(0, TASK_TEXT_LIMIT) : text;",
+    "to": "  return text;",
+    "test": "packages/host/src/tasks/task-view.test.ts",
+    "name": "cuts texts the protocol would refuse"
+  },
+  {
+    "file": "packages/host/src/dev/task-try.ts",
+    "from": "if (word === \"p\" || word === \"pass\") return { kind: \"pass\" };",
+    "to": "if (word === \"pass\") return { kind: \"pass\" };",
+    "test": "packages/host/src/dev/task-try.test.ts",
+    "name": "reads pass, send-back"
+  },
+  {
+    "file": "packages/host/src/dev/task-try.ts",
+    "from": "const archiveOpen = interactive && task.archive === \"asked\";",
+    "to": "const archiveOpen = false;",
+    "test": "packages/host/src/dev/task-try.test.ts",
+    "name": "goes on past a human node and an unanswered archive question"
+  },
+  {
+    "file": "packages/host/src/dev/task-try.ts",
+    "from": "    return { kind: \"back\", to: target, reason: reason === \"\" ? null : reason };",
+    "to": "    return { kind: \"back\", to: target, reason };",
+    "test": "packages/host/src/dev/task-try.test.ts",
+    "name": "reads pass, send-back"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "  answer_human: \"local_only\",",
+    "to": "  answer_human: \"phone\",",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "may list and open tasks and nothing else about them"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "return options.tasks.answerHuman(command.taskId, command.node, command.answer);",
+    "to": "return options.tasks.answerHuman(command.node, command.taskId, command.answer);",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "routes the task command"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "return options.tasks.open(connection.id, command.taskId);",
+    "to": "return options.tasks.open(command.taskId, connection.id);",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "answers a task command's CommandError with its code"
+  }
+]

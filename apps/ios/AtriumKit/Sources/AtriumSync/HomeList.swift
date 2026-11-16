@@ -25,7 +25,7 @@ public struct HomeList: Sendable, Equatable {
     case error
     /// A run is in progress.
     case running
-    /// A run finished and you have not looked, which showing it clears (SPEC-0005, 协议 36).
+    /// A run finished and you have not looked, which showing it clears (SPEC-0005, 协议 40).
     case finished
   }
 

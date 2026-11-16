@@ -233,6 +233,39 @@ export function projectTranscript(
           timestamp: entry.timestamp,
         });
         break;
+      case "task_line":
+        // A progress line of the task conversation, or the mark of a conversation a task was made from: a line
+        // between the turns, as a note is (SPEC-0006, "任务对话的进度和记录折叠").
+        notices.push(
+          entry.line.kind === "progress"
+            ? {
+                kind: "notice",
+                id: historyId(sessionId, entry.id),
+                notice: "task_progress",
+                what: entry.line.what ?? null,
+                node: entry.line.node ?? null,
+                timestamp: entry.line.at,
+              }
+            : {
+                kind: "notice",
+                id: historyId(sessionId, entry.id),
+                notice: "task_mark",
+                taskId: entry.line.taskId,
+                state: entry.line.state,
+                timestamp: entry.line.at,
+              },
+        );
+        break;
+      case "review_line":
+        // The outcome of a review (ADR-0018, decision 2): a step on the process rail between the turns.
+        notices.push({
+          kind: "notice",
+          id: historyId(sessionId, entry.id),
+          notice: "review",
+          review: entry.line.review,
+          timestamp: entry.line.at,
+        });
+        break;
       // Stryker disable next-line StringLiteral,ConditionalExpression: these cases do nothing, as no case does for other kinds.
       case "omission":
       // Stryker disable next-line StringLiteral,ConditionalExpression: see above.

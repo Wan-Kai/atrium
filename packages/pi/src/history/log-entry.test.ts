@@ -471,6 +471,61 @@ describe("toLogEntry", () => {
     });
   });
 
+  it("reads a task progress line or a conversion mark from an atrium-task message, and nothing from its other kinds", () => {
+    const progress = { v: 1, kind: "progress", id: "p1", at: 5, text: "x", what: "node_passed", node: "N2" };
+    const converted = { v: 1, kind: "converted", id: "m1", at: 6, taskId: "tsk_a", state: "abandoned" };
+
+    expect(toLogEntry(custom("atrium-task", progress))).toStrictEqual({
+      id: "c1",
+      parentId: null,
+      timestamp: 3,
+      kind: "task_line",
+      line: progress,
+    });
+    expect(toLogEntry(custom("atrium-task", converted))).toMatchObject({ kind: "task_line", line: converted });
+    for (const details of [
+      { v: 1, kind: "nudge", id: "n" },
+      { v: 1, kind: "resume", id: "r", reason: "wake" },
+      { v: 1, kind: "progress", id: "bad" },
+      "not an object",
+    ]) {
+      expect(toLogEntry(custom("atrium-task", details))).toStrictEqual({
+        id: "c1",
+        parentId: null,
+        timestamp: 3,
+        kind: "other",
+      });
+    }
+  });
+
+  it("reads the record of a review from an atrium-review message, and nothing from a record it cannot read", () => {
+    const review = {
+      source: { kind: "gate", gate: "task_archive" },
+      subject: { code: "task_archive", params: { taskId: "tsk_a" } },
+      evidence: [],
+      verdict: { action: "keep" },
+    };
+    const details = { v: 1, kind: "review", id: "review:tsk_a:archive", at: 8, review };
+
+    expect(toLogEntry(custom("atrium-review", details))).toStrictEqual({
+      id: "c1",
+      parentId: null,
+      timestamp: 3,
+      kind: "review_line",
+      line: details,
+    });
+    for (const bad of [{ ...details, review: { ...review, verdict: {} } }, { ...details, v: 2 }, "text", null]) {
+      expect(toLogEntry(custom("atrium-review", bad))).toStrictEqual({
+        id: "c1",
+        parentId: null,
+        timestamp: 3,
+        kind: "other",
+      });
+    }
+    // The task extension's own type does not carry it.
+    expect(toLogEntry(custom("atrium-task", details))).toMatchObject({ kind: "other" });
+  });
+
   it("treats another extension's custom message, or a note it cannot read, as nothing to show", () => {
     const note = { v: 1, kind: "note", note: "worktree_moved", from: "/a", to: "/b" };
     const other = { id: "c1", parentId: null, timestamp: 3, kind: "other" };

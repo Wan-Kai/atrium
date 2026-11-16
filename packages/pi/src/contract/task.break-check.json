@@ -1,0 +1,114 @@
+[
+  {
+    "file": "packages/pi/test/task-probe-extension.ts",
+    "from": "details: {}, terminate: true }",
+    "to": "details: {} }",
+    "test": "packages/pi/src/contract/task.pi.test.ts",
+    "name": "terminate-alone",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/test/task-probe-extension.ts",
+    "from": "details: {}, terminate: true }",
+    "to": "details: {} }",
+    "test": "packages/pi/src/contract/task.pi.test.ts",
+    "name": "terminate-all",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/test/task-probe-extension.ts",
+    "from": "text: \"noted\" }], details: {} }",
+    "to": "text: \"noted\" }], details: {}, terminate: true }",
+    "test": "packages/pi/src/contract/task.pi.test.ts",
+    "name": "terminate-mixed",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/test/task-probe-extension.ts",
+    "from": "{ triggerTurn: args.trim() === \"trigger\" }",
+    "to": "{ triggerTurn: false }",
+    "test": "packages/pi/src/contract/task.pi.test.ts",
+    "name": "wake-trigger-turn",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/test/task-probe-extension.ts",
+    "from": "{ triggerTurn: args.trim() === \"trigger\" }",
+    "to": "{ triggerTurn: true }",
+    "test": "packages/pi/src/contract/task.pi.test.ts",
+    "name": "wake-quiet",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/contract/task.pi.test.ts",
+    "from": "type: \"follow_up\", message: \"later\"",
+    "to": "type: \"prompt\", message: \"later\"",
+    "test": "packages/pi/src/contract/task.pi.test.ts",
+    "name": "wake-follow-up",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/test/task-probe-extension.ts",
+    "from": "...(name.startsWith(\"seq\") ? { executionMode: \"sequential\" as const } : {}),",
+    "to": "",
+    "test": "packages/pi/src/contract/task.pi.test.ts",
+    "name": "sequential",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/contract/task.pi.test.ts",
+    "from": "[\"@at.txt\", \"at\"]",
+    "to": "[\"x/@at.txt\", \"at\"]",
+    "test": "packages/pi/src/contract/task.pi.test.ts",
+    "name": "resolve-to-cwd",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/contract/task.pi.test.ts",
+    "from": "[\"~/tilde.txt\", \"tilde\"]",
+    "to": "[\"./tilde.txt\", \"tilde\"]",
+    "test": "packages/pi/src/contract/task.pi.test.ts",
+    "name": "resolve-to-cwd",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/contract/task.pi.test.ts",
+    "from": "[`file://${cwd}/url.txt`, \"url\"]",
+    "to": "[`file://${cwd}/other.txt`, \"url\"]",
+    "test": "packages/pi/src/contract/task.pi.test.ts",
+    "name": "resolve-to-cwd",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/contract/task.pi.test.ts",
+    "from": "[\"no\\u00A0break.txt\", \"nbsp\"]",
+    "to": "[\"nobreak.txt\", \"nbsp\"]",
+    "test": "packages/pi/src/contract/task.pi.test.ts",
+    "name": "resolve-to-cwd",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/contract/task.pi.test.ts",
+    "from": "[\"narrow\\u202Fspace.txt\", \"nnbsp\"]",
+    "to": "[\"narrowspace.txt\", \"nnbsp\"]",
+    "test": "packages/pi/src/contract/task.pi.test.ts",
+    "name": "resolve-to-cwd",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/test/task-probe-extension.ts",
+    "from": "blocked.includes(event.toolName) ? { block: true",
+    "to": "false ? { block: true",
+    "test": "packages/pi/src/contract/task.pi.test.ts",
+    "name": "tool-call-hook",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/test/task-probe-extension.ts",
+    "from": "input: event.input",
+    "to": "input: { path: \"x\" }",
+    "test": "packages/pi/src/contract/task.pi.test.ts",
+    "name": "tool-call-hook",
+    "project": "pi"
+  }
+]

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { cp, mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -163,5 +163,101 @@ export async function createGitScene(prefix: string): Promise<GitScene> {
       return path;
     },
     cleanup: dir.cleanup,
+  };
+}
+
+/** The ways a repository can make git run a command of its own, which `plantTraps` sets up. */
+export type GitTrap = "hook" | "filter" | "process" | "fsmonitor";
+
+/** Every trap, for reading markers back as traps. */
+const ALL_TRAPS: readonly GitTrap[] = ["hook", "filter", "process", "fsmonitor"];
+
+/** What `plantTraps` set up. */
+export interface GitTraps {
+  /** The names of the traps that have run since, sorted: a trap leaves a file of its name. */
+  ran(): Promise<GitTrap[]>;
+  /** Forgets what has run, to see what a later step runs. */
+  reset(): Promise<void>;
+}
+
+/**
+ * Sets up commands a repository makes git run, each leaving a marker file when it does.
+ *
+ * @remarks
+ * Hardening that keeps git from running a repository's hooks, filters and fsmonitor (SPEC-0006,
+ * "工作区") needs a repository that has them: a `post-checkout` hook, a smudge and clean filter
+ * on one tracked file, a long-running `process` filter on another, and `core.fsmonitor`. The
+ * files are committed first, so setting the filters up does not run them; markers go in a folder
+ * of the scene's, outside the repository. A scene that built them is shown to run them by
+ * running git plainly (the test of this function), so a test that finds no marker is not seeing
+ * a trap that never worked.
+ *
+ * @sideEffects Writes files and git configuration in `scene.repo`; commits.
+ * @param scene - The scene.
+ * @param traps - Which to set up.
+ * @returns A way to see which have run.
+ */
+export async function plantTraps(scene: GitScene, traps: readonly GitTrap[]): Promise<GitTraps> {
+  const markers = join(scene.root, "trap-markers");
+  await mkdir(markers, { recursive: true });
+  /**
+   * Writes an executable script that leaves a marker and copies its input to its output.
+   *
+   * @remarks
+   * Copying keeps the file's content as it was, as a filter that does nothing would.
+   *
+   * @sideEffects Writes the script.
+   * @param name - The trap, which names the script and the marker.
+   * @param tail - What the script does after the marker.
+   * @returns The script's path.
+   */
+  const script = async (name: GitTrap, tail = "cat"): Promise<string> => {
+    const path = join(scene.root, `trap-${name}.sh`);
+    await writeFile(path, `#!/bin/sh\ntouch '${join(markers, name)}'\n${tail}\n`, { mode: 0o755 });
+    return path;
+  };
+  const attributes: string[] = [];
+  if (traps.includes("filter")) {
+    attributes.push("filtered.txt filter=trapfilter");
+    await writeFile(join(scene.repo, "filtered.txt"), "filtered\n");
+  }
+  if (traps.includes("process")) {
+    attributes.push("processed.txt filter=trapprocess");
+    await writeFile(join(scene.repo, "processed.txt"), "processed\n");
+  }
+  if (attributes.length > 0) await writeFile(join(scene.repo, ".gitattributes"), `${attributes.join("\n")}\n`);
+  await scene.git(scene.repo, "add", "-A");
+  await scene.git(scene.repo, "commit", "--quiet", "--allow-empty", "-m", "files the traps work on");
+  if (traps.includes("hook")) {
+    await mkdir(join(scene.repo, ".git", "hooks"), { recursive: true });
+    await writeFile(
+      join(scene.repo, ".git", "hooks", "post-checkout"),
+      `#!/bin/sh\ntouch '${join(markers, "hook")}'\n`,
+      {
+        mode: 0o755,
+      },
+    );
+  }
+  if (traps.includes("filter")) {
+    const path = await script("filter");
+    await scene.git(scene.repo, "config", "filter.trapfilter.smudge", path);
+    await scene.git(scene.repo, "config", "filter.trapfilter.clean", path);
+  }
+  if (traps.includes("process")) {
+    await scene.git(scene.repo, "config", "filter.trapprocess.process", await script("process"));
+  }
+  if (traps.includes("fsmonitor")) {
+    await scene.git(scene.repo, "config", "core.fsmonitor", await script("fsmonitor", ""));
+  }
+  return {
+    async ran() {
+      return (await readdir(markers))
+        .filter((name): name is GitTrap => ALL_TRAPS.some((trap) => trap === name))
+        .toSorted();
+    },
+    async reset() {
+      await rm(markers, { recursive: true, force: true });
+      await mkdir(markers, { recursive: true });
+    },
   };
 }

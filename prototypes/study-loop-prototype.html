@@ -1,0 +1,2592 @@
+<!doctype html>
+<!--
+  PROTOTYPE — 设计稿，不接入生产构建。ML3 学习循环（SPEC-0008"ML3 定的细节"）里还没定样子的 7 处，每处 3 种做法，按编号挑（比如"1A 2B 3B 4A 5B 6A 7C"）。
+
+  已定的前提：
+  · 步骤条 2D（study-progress-states-prototype.html）：高 40px，8px 的点（课方点，后面几步圆点），右端主次按钮；不能点的按钮不透明度 0.42。
+  · 方向主页 1A/3A/4A/5A：标题 + 当前步骤卡 + 这一级的全部步骤 | 右栏 240px 阶梯、漏洞、其他会话；漏洞悬停出圆勾（3A）。
+  · 测验是上课会话的子对话（宿主 --fork 上课的文件）；费曼是新会话；升级先写档案、再归档这一级的会话、再开排计划。
+  · 用户 2026-11-09 对第一阶段 13 个问题"都按建议"；标"推荐"的是和那些回答对应的一种。
+
+  每种做法左边浅色、右边深色。数据是一个 Rust 方向：第 2 级"所有权和借用"，10 步。
+  图标：Hugeicons 免费版 stroke-rounded（4.3.5，路径照抄自仓库里的其他原型）。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>原型 · 学习循环</title>
+    <style>
+      :root,
+      .th-light {
+        --window: #e8ecf2;
+        --main: #ffffff;
+        --surface-1: #ffffff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --code: #f6f6f8;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --rail: rgba(0, 0, 0, 0.15);
+        --node: #c4c4c9;
+        --tint: #2f6fed;
+        --on-tint: #ffffff;
+        --linked: rgba(47, 111, 237, 0.1);
+        --attn: #dd8629;
+        --attn-text: #c96509;
+        --attn-soft: rgba(221, 134, 41, 0.12);
+        --danger: #e5484d;
+        --ok: #16a34a;
+        --ok-text: #1e8e3e;
+        --chip-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.05);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.08);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --fs-mono: 12.5px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-btn: 12px;
+        --r-card: 16px;
+        color-scheme: light;
+      }
+      .th-dark {
+        --window: #0d1016;
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --surface-3: #353638;
+        --code: #19191b;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --rail: rgba(255, 255, 255, 0.15);
+        --node: #5d6067;
+        --tint: #7aaaff;
+        --on-tint: #0d1016;
+        --linked: rgba(122, 170, 255, 0.14);
+        --attn: #dd8629;
+        --attn-text: #f0a24e;
+        --attn-soft: rgba(221, 134, 41, 0.16);
+        --danger: #f25a5a;
+        --ok: #22c55e;
+        --ok-text: #4ade80;
+        --chip-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.3);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.5);
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 22px 28px 64px;
+        background: #e8ecf2;
+        color: #2c2c30;
+        font:
+          14px / 1.5 -apple-system,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        font-variant-numeric: tabular-nums;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+      }
+      svg.i {
+        width: 16px;
+        height: 16px;
+        flex: 0 0 auto;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.75;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      svg.i.s12 {
+        width: 12px;
+        height: 12px;
+      }
+      svg.i.s13 {
+        width: 13px;
+        height: 13px;
+      }
+      svg.i.s14 {
+        width: 14px;
+        height: 14px;
+      }
+      .ft {
+        width: 15px;
+        height: 15px;
+        flex: 0 0 auto;
+      }
+
+      /* ---------- 页面框架 ---------- */
+      .doc-head h1 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+        color: #1d1d1f;
+      }
+      .doc-head p {
+        margin: 6px 0 0;
+        max-width: 900px;
+        color: #6e6e74;
+        font-size: 13px;
+      }
+      .toc {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 14px 0 0;
+      }
+      .toc a {
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: #fff;
+        box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1);
+        color: #2c2c30;
+        text-decoration: none;
+        font-size: 12px;
+      }
+      .part {
+        margin-top: 44px;
+      }
+      .part > h2 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 600;
+        color: #1d1d1f;
+      }
+      .part > .why {
+        margin: 4px 0 0;
+        max-width: 900px;
+        font-size: 13px;
+        color: #6e6e74;
+      }
+      .opt {
+        margin-top: 22px;
+      }
+      .opt > .oh {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        font-size: 14px;
+        color: #1d1d1f;
+      }
+      .opt > .oh .letter {
+        display: inline-grid;
+        place-items: center;
+        min-width: 30px;
+        height: 22px;
+        padding: 0 6px;
+        border-radius: 6px;
+        background: #1d1d1f;
+        color: #fff;
+        font-weight: 700;
+        font-size: 12px;
+      }
+      .opt > .oh b {
+        font-weight: 600;
+      }
+      .opt > .od {
+        margin: 4px 0 0 40px;
+        max-width: 900px;
+        font-size: 12.5px;
+        color: #6e6e74;
+      }
+      .pair {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin-top: 10px;
+      }
+      .frame {
+        padding: 16px;
+        border-radius: 14px;
+        background: var(--window);
+        color: var(--text-2);
+        font: var(--fs) / 1.5 var(--font-sans);
+      }
+      .frame > .fl {
+        margin: 0 0 8px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .win {
+        position: relative;
+        border-radius: 12px;
+        background: var(--main);
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+      }
+      .win.open {
+        overflow: visible;
+      }
+      .pad {
+        padding: 16px 18px 18px;
+      }
+      .cap {
+        margin: 12px 0 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .cap:first-child {
+        margin-top: 0;
+      }
+
+      /* ---------- 共用部件（同 study-mode-flow-prototype C） ---------- */
+      .muted {
+        color: var(--text-muted);
+      }
+      .dim {
+        color: var(--text-dim);
+      }
+      .tabbar {
+        height: 48px;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 0 12px;
+        box-shadow: inset 0 -0.5px 0 var(--line);
+        overflow: hidden;
+      }
+      .crumb {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-right: 8px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 10px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .tab.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .tab.home .i {
+        color: var(--tint);
+      }
+      .ibtn {
+        all: unset;
+        display: inline-grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        border-radius: var(--r);
+        color: var(--text-muted);
+      }
+      .ibtn.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .run {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 1.5px solid var(--tint);
+        border-right-color: transparent;
+        animation: spin 0.9s linear infinite;
+        flex: 0 0 auto;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .run {
+          animation: none;
+        }
+      }
+      .btn {
+        all: unset;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 12px;
+        border-radius: var(--r-btn);
+        font-size: var(--fs-meta);
+        white-space: nowrap;
+        cursor: default;
+      }
+      .btn.primary {
+        background: var(--tint);
+        color: var(--on-tint);
+        font-weight: 600;
+      }
+      .btn.ghost {
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        color: var(--text-2);
+      }
+      .btn.outline {
+        box-shadow: inset 0 0 0 1px var(--tint);
+        color: var(--tint);
+        font-weight: 500;
+      }
+      .btn.textbtn {
+        color: var(--text-muted);
+        padding: 0 8px;
+      }
+      .btn.sm {
+        height: 26px;
+        padding: 0 10px;
+        border-radius: 9px;
+      }
+      .btn.xs {
+        height: 22px;
+        padding: 0 8px;
+        border-radius: 7px;
+        font-size: var(--fs-sm);
+      }
+      .btn[disabled],
+      .btn.off {
+        opacity: 0.42;
+      }
+      .btn.locked {
+        background: var(--surface-2);
+        color: var(--text-dim);
+        font-weight: 500;
+      }
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 20px;
+        padding: 0 7px;
+        border-radius: var(--r-sm);
+        background: var(--surface-2);
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .tag.attn {
+        background: var(--attn-soft);
+        color: var(--attn-text);
+      }
+      .tag.tint {
+        background: var(--linked);
+        color: var(--tint);
+      }
+      .tag.ok {
+        background: color-mix(in srgb, var(--ok) 12%, transparent);
+        color: var(--ok-text);
+      }
+      .tag.xs {
+        height: 17px;
+        padding: 0 5px;
+        font-size: var(--fs-xs);
+        border-radius: 5px;
+      }
+      .card {
+        border-radius: var(--r-card);
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+      }
+
+      /* 步骤条 */
+      .strip {
+        height: 40px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 10px 0 16px;
+        box-shadow: inset 0 -0.5px 0 var(--line);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .strip .lvl {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--text-2);
+        font-weight: 500;
+      }
+      .strip .trk {
+        display: inline-flex;
+        gap: 3px;
+      }
+      .strip .trk i {
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        background: var(--line-strong);
+      }
+      .strip .trk i.done {
+        background: var(--text-muted);
+      }
+      .strip .trk i.cur {
+        background: var(--tint);
+      }
+      .strip .trk i.x {
+        border-radius: 50%;
+      }
+      .strip .trk.faded {
+        opacity: 0.45;
+      }
+      .strip .trk.grey i.cur {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--text-muted);
+      }
+      .strip .trk.hatch i {
+        background: transparent;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+      }
+      .strip .trk.all i {
+        background: var(--tint);
+      }
+      .strip .now {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .strip .now b {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .strip .sp {
+        flex: 1;
+      }
+      .strip .warn {
+        color: var(--attn-text);
+      }
+      .strip .okc {
+        color: var(--ok-text);
+      }
+      .strip-label {
+        padding: 8px 16px 0;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .live {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--ok);
+      }
+
+      /* 步骤列表 */
+      .lessons {
+        padding: 4px;
+        border-radius: 12px;
+        background: var(--code);
+      }
+      .lesson {
+        position: relative;
+        border-radius: var(--r);
+      }
+      .lesson .lh {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 32px;
+        padding: 0 6px 0 10px;
+        font-size: var(--fs-meta);
+        color: var(--text-3);
+      }
+      .lesson .no {
+        width: 18px;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+        flex: 0 0 auto;
+      }
+      .lesson .no.kd {
+        display: inline-flex;
+      }
+      .lesson .ok {
+        color: var(--ok-text);
+        display: inline-flex;
+      }
+      .lesson .okm {
+        color: var(--text-muted);
+        display: inline-flex;
+      }
+      .lesson .t {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .lesson .m {
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+        white-space: nowrap;
+      }
+      .lesson .m.attn {
+        color: var(--attn-text);
+      }
+      .lesson.next {
+        background: var(--surface-1);
+        box-shadow: var(--chip-shadow);
+      }
+      .lesson.next .lh {
+        color: var(--text);
+      }
+      .lesson.next .no {
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .lesson.todo .lh {
+        color: var(--text-dim);
+      }
+      .lesson.hover {
+        background: var(--hover);
+      }
+      .lesson .more {
+        width: 24px;
+        height: 24px;
+      }
+      .sess {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px;
+        padding: 0 10px 8px 38px;
+      }
+      .schip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 22px;
+        padding: 0 8px;
+        border-radius: 999px;
+        background: var(--surface-1);
+        box-shadow: var(--chip-shadow);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        white-space: nowrap;
+      }
+      .schip .i {
+        color: var(--text-muted);
+      }
+      .schip .s {
+        color: var(--text-dim);
+      }
+      .schip.manual {
+        background: transparent;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+        border: 0;
+        color: var(--text-muted);
+        background-image: none;
+        outline: 1px dashed var(--line-strong);
+        outline-offset: -1px;
+        box-shadow: none;
+      }
+      .inline-link {
+        font-size: var(--fs-sm);
+        color: var(--tint);
+      }
+      .subd {
+        display: inline-flex;
+        gap: 2px;
+        flex: 0 0 auto;
+      }
+      .subd i {
+        width: 5px;
+        height: 5px;
+        border-radius: 1.4px;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+      }
+      .subd i.d {
+        background: var(--text-muted);
+        box-shadow: none;
+      }
+      .subd i.g {
+        background: var(--attn);
+        box-shadow: none;
+      }
+      .subd i.m {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.25px var(--text-muted);
+      }
+      .subd i.n {
+        background: transparent;
+        box-shadow: none;
+        outline: 1px dashed var(--text-dim);
+        outline-offset: -1px;
+      }
+      .seg {
+        display: inline-flex;
+        padding: 2px;
+        gap: 2px;
+        border-radius: 8px;
+        background: var(--surface-2);
+      }
+      .seg span {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 20px;
+        padding: 0 7px;
+        border-radius: 6px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .seg span.on {
+        background: var(--surface-1);
+        box-shadow: var(--chip-shadow);
+        color: var(--text);
+      }
+      .seg span.mine {
+        background: var(--surface-1);
+        color: var(--text-2);
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+      }
+      .roundchk {
+        display: inline-grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+        color: var(--text-muted);
+        background: var(--surface-1);
+      }
+
+      /* 菜单 */
+      .menu {
+        position: absolute;
+        z-index: 5;
+        min-width: 188px;
+        padding: 4px;
+        border-radius: var(--r-md);
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .menu.flow {
+        position: relative;
+        margin: 2px 4px 8px auto;
+        width: max-content;
+      }
+      .menu .mi {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 28px;
+        padding: 0 8px;
+        border-radius: 6px;
+        white-space: nowrap;
+      }
+      .menu .mi.hl {
+        background: var(--selected);
+      }
+      .menu .mi .k {
+        margin-left: auto;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .menu .mi.dis {
+        color: var(--text-dim);
+      }
+      .menu .mi .ck {
+        width: 14px;
+        display: inline-flex;
+        color: var(--text-muted);
+      }
+      .menu .sep {
+        height: 0.5px;
+        margin: 4px 6px;
+        background: var(--line);
+      }
+      .menu .mh {
+        padding: 4px 8px 2px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .menu .note {
+        padding: 2px 8px 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        white-space: normal;
+        max-width: 220px;
+      }
+      .menu .row-btns {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+        padding: 6px 4px 2px;
+      }
+      .box {
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+        display: inline-grid;
+        place-items: center;
+        flex: 0 0 auto;
+      }
+      .box.on {
+        background: var(--tint);
+        color: var(--on-tint);
+        box-shadow: none;
+      }
+      .box.agent {
+        background: var(--surface-3);
+        color: var(--text-muted);
+        box-shadow: none;
+      }
+      .box.ok {
+        background: var(--ok);
+        color: #fff;
+        box-shadow: none;
+      }
+      .tip {
+        position: absolute;
+        z-index: 6;
+        padding: 4px 8px;
+        border-radius: 6px;
+        background: var(--text);
+        color: var(--main);
+        font-size: var(--fs-xs);
+        white-space: nowrap;
+      }
+
+      /* 主页 */
+      .ptitle {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .psub {
+        margin: 4px 0 0;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .hero {
+        padding: 16px 18px 14px;
+      }
+      .hero .eyebrow {
+        font-size: var(--fs-sm);
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .hero .big {
+        margin: 4px 0 2px;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .hero .desc {
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        line-height: 1.6;
+      }
+      .hero .row2 {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+      .hero .extra {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        padding-top: 10px;
+        box-shadow: inset 0 0.5px 0 var(--line);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .subpills {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 10px;
+        font-size: var(--fs-sm);
+      }
+      .subpill {
+        display: inline-flex;
+        align-items: center;
+        height: 24px;
+        padding: 0 9px;
+        border-radius: 999px;
+        background: var(--surface-2);
+        color: var(--text-muted);
+      }
+      .subpill.on {
+        background: var(--linked);
+        color: var(--tint);
+        font-weight: 500;
+      }
+      .sect {
+        margin-top: 20px;
+      }
+      .sect > .h {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .sect > .h span {
+        flex: 1;
+      }
+      .side-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+      .node {
+        width: 18px;
+        height: 18px;
+        display: grid;
+        place-items: center;
+        flex: 0 0 auto;
+      }
+      .node i {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--node);
+      }
+      .node i.cur {
+        width: 11px;
+        height: 11px;
+        background: transparent;
+        box-shadow: inset 0 0 0 2px var(--tint);
+      }
+      .node i.lock {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--rail);
+      }
+      .lvc {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 30px;
+        padding: 0 6px 0 4px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .lvc .nm {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .lvc .m {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .lvc.lock {
+        color: var(--text-dim);
+      }
+      .lvc.open {
+        background: var(--hover);
+      }
+      .lvx {
+        margin: 2px 0 6px 30px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        line-height: 1.6;
+      }
+      .lvx dt {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+      }
+      .lvx dd {
+        margin: 0 0 4px;
+        color: var(--text-2);
+      }
+      .lvcard {
+        margin: 4px 0 6px 26px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: var(--code);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        line-height: 1.6;
+      }
+      .lvcard .k {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+      }
+      .pop {
+        position: absolute;
+        z-index: 5;
+        width: 250px;
+        padding: 10px 12px;
+        border-radius: var(--r-md);
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        line-height: 1.6;
+      }
+      .pop .k {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+      }
+      .pop .t {
+        font-weight: 600;
+        color: var(--text);
+        font-size: var(--fs-meta);
+      }
+      .gap-row {
+        position: relative;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 9px 10px 9px 12px;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        line-height: 1.5;
+      }
+      .gap-row + .gap-row {
+        box-shadow: inset 0 0.5px 0 var(--line);
+      }
+      .gap-row .body {
+        flex: 1;
+        min-width: 0;
+      }
+      .gap-row .src {
+        display: block;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .gap-row .mk {
+        margin-top: 6px;
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        flex: 0 0 auto;
+        background: var(--attn);
+      }
+      .gap-row.fixed .mk {
+        background: var(--ok);
+      }
+      .gap-row.fixed .tx {
+        color: var(--text-dim);
+        text-decoration: line-through;
+        text-decoration-color: var(--line-strong);
+      }
+      .gap-row.hover {
+        background: var(--hover);
+      }
+      .gap-row .act {
+        display: inline-flex;
+        gap: 4px;
+        margin-top: 1px;
+      }
+      .gap-row .cb {
+        margin-top: 3px;
+      }
+      .mini-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+        flex-wrap: wrap;
+      }
+      .frow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 28px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        font: var(--fs-mono) var(--font-mono);
+        color: var(--text-2);
+      }
+      .frow .m {
+        margin-left: auto;
+        color: var(--text-dim);
+        font: var(--fs-sm) var(--font-sans);
+        white-space: nowrap;
+      }
+      .twocol {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 200px;
+        gap: 22px;
+        align-items: start;
+      }
+      .tabs-seg {
+        display: flex;
+        gap: 2px;
+        margin-top: 18px;
+        padding: 2px;
+        border-radius: 10px;
+        background: var(--surface-2);
+        width: max-content;
+      }
+      .tabs-seg span {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 26px;
+        padding: 0 12px;
+        border-radius: 8px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .tabs-seg span.on {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow: var(--chip-shadow);
+        font-weight: 500;
+      }
+      .tabs-seg span .n {
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .sumcards {
+        display: flex;
+        gap: 8px;
+        margin-top: 16px;
+        overflow: hidden;
+      }
+      .sumcard {
+        flex: 0 0 auto;
+        min-width: 128px;
+        padding: 9px 12px;
+        border-radius: 12px;
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .sumcard b {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text);
+        font-weight: 500;
+        font-size: var(--fs-meta);
+      }
+      .sumcard.on {
+        box-shadow:
+          inset 0 0 0 1px var(--tint),
+          var(--card-shadow);
+      }
+      .disc {
+        margin-top: 4px;
+        border-radius: 12px;
+      }
+      .disc + .disc {
+        margin-top: 2px;
+      }
+      .disc .dh {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        font-weight: 500;
+      }
+      .disc .dh .m {
+        margin-left: auto;
+        color: var(--text-dim);
+        font-weight: 400;
+        font-size: var(--fs-sm);
+      }
+      .disc .dh .chev {
+        color: var(--text-dim);
+        display: inline-flex;
+        transition: transform 0.2s;
+      }
+      .disc.open .dh .chev {
+        transform: rotate(90deg);
+      }
+      .disc .db {
+        padding: 0 4px 8px 10px;
+      }
+      .sheet-scrim {
+        position: absolute;
+        inset: 88px 0 0;
+        background: rgba(20, 24, 32, 0.16);
+      }
+      .th-dark .sheet-scrim {
+        background: rgba(0, 0, 0, 0.4);
+      }
+      .sheet {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 6;
+        padding: 14px 16px 16px;
+        border-radius: 16px 16px 0 0;
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+      }
+      .sheet .sh {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+        font-size: var(--fs-meta);
+        font-weight: 600;
+        color: var(--text);
+      }
+      .sheet .sh .ibtn {
+        margin-left: auto;
+      }
+      .reco {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 0 6px;
+        border-radius: 5px;
+        background: #2f6fed;
+        color: #fff;
+        font-size: 11px;
+        font-weight: 600;
+        vertical-align: 1px;
+      }
+
+      /* ---------- ML3 加的部件 ---------- */
+      .twocol {
+        grid-template-columns: minmax(0, 1fr) 240px;
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .small {
+        font-size: var(--fs-sm);
+      }
+
+      /* 对话 */
+      .conv {
+        padding: 18px 22px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .bubble {
+        align-self: flex-end;
+        max-width: 82%;
+        padding: 8px 13px;
+        border-radius: 20px;
+        background: var(--surface-2);
+        color: var(--text);
+        font-size: var(--fs);
+        line-height: 1.55;
+      }
+      .reply {
+        font-size: var(--fs);
+        line-height: 1.6;
+        color: var(--text);
+      }
+      .reply p {
+        margin: 0 0 8px;
+      }
+      .reply p:last-child {
+        margin-bottom: 0;
+      }
+      code {
+        font: var(--fs-mono) var(--font-mono);
+        padding: 0 4px;
+        border-radius: 4px;
+        background: var(--code);
+        color: var(--text-2);
+      }
+      .srcrow {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .srcrow b {
+        color: var(--text-2);
+        font-weight: 600;
+      }
+      .srcrow .lk {
+        margin-left: auto;
+        font-size: var(--fs-sm);
+        color: var(--tint);
+      }
+      .childhead {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 12px;
+        background: var(--code);
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .childhead b {
+        color: var(--text-2);
+        font-weight: 500;
+      }
+      .childhead .lk {
+        margin-left: auto;
+        font-size: var(--fs-sm);
+        color: var(--tint);
+      }
+      .fold {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 30px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .fold .n {
+        color: var(--text-dim);
+      }
+      .sepline {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .sepline::before,
+      .sepline::after {
+        content: "";
+        flex: 1;
+        height: 0.5px;
+        background: var(--line-strong);
+      }
+      .fadetop {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        text-align: center;
+      }
+      .composer-wrap {
+        padding: 0 22px 14px;
+      }
+      .composer {
+        min-height: 72px;
+        padding: 12px 14px;
+        border-radius: 20px;
+        background: var(--surface-2);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+        display: flex;
+        flex-direction: column;
+      }
+      .composer .bar {
+        margin-top: auto;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .composer .send {
+        margin-left: auto;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--text);
+        color: var(--main);
+        display: grid;
+        place-items: center;
+      }
+      .rolock {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 44px;
+        padding: 0 14px;
+        border-radius: 14px;
+        background: var(--code);
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .rolock .lk {
+        margin-left: auto;
+      }
+
+      /* 提问卡片（SPEC-0003） */
+      .qcard {
+        padding: 12px 14px;
+        border-radius: var(--r-card);
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        margin-bottom: 8px;
+      }
+      .th-dark .qcard {
+        background: var(--surface-2);
+      }
+      .qcard .qh {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-meta);
+      }
+      .qcard .qh .agent {
+        font-weight: 700;
+        color: var(--attn-text);
+      }
+      .qcard .qh .who {
+        font-weight: 500;
+        color: var(--text);
+      }
+      .qcard .qt {
+        margin: 8px 0 6px;
+        font-size: var(--fs);
+        font-weight: 500;
+        color: var(--text);
+      }
+      .qcard .qt .kind {
+        margin-left: 8px;
+        display: inline-flex;
+        height: 18px;
+        align-items: center;
+        padding: 0 6px;
+        border-radius: var(--r-sm);
+        background: var(--surface-2);
+        color: var(--text-muted);
+        font-size: var(--fs-xs);
+        font-weight: 400;
+        vertical-align: 1px;
+      }
+      .qo {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: var(--r-md);
+        font-size: var(--fs-meta);
+        color: var(--text);
+      }
+      .qo .k {
+        width: 20px;
+        height: 20px;
+        flex: 0 0 auto;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--surface-2);
+        color: var(--text-muted);
+        font-size: var(--fs-xs);
+        font-weight: 600;
+      }
+      .th-dark .qo .k {
+        background: var(--surface-3);
+      }
+      .qo code {
+        white-space: nowrap;
+      }
+
+      /* 过程轨道 */
+      .phead {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .rail {
+        position: relative;
+        padding-left: 30px;
+      }
+      .rail::before {
+        content: "";
+        position: absolute;
+        left: 10.5px;
+        top: 15px;
+        bottom: 15px;
+        width: 1px;
+        background: var(--rail);
+      }
+      .rs {
+        position: relative;
+        min-height: 30px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .rs::before {
+        content: "";
+        position: absolute;
+        left: -22.5px;
+        top: 12px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--node);
+        box-shadow: 0 0 0 4px var(--main);
+      }
+      .rs.sq-attn::before,
+      .rs.sq-ok::before {
+        left: -23px;
+        top: 11.5px;
+        width: 7px;
+        height: 7px;
+        border-radius: 2px;
+        background: var(--attn);
+      }
+      .rs.sq-ok::before {
+        background: var(--ok);
+      }
+      .rs .v {
+        color: var(--text-2);
+      }
+      .rs .o {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .rs .dot {
+        color: var(--text-dim);
+      }
+      .rs .tool {
+        font: 12px var(--font-mono);
+        color: var(--text-2);
+      }
+      .rs .r {
+        margin-left: auto;
+        padding-left: 8px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .rs .chev {
+        display: inline-flex;
+        color: var(--text-dim);
+      }
+      .detail {
+        margin: 0 0 6px;
+        padding: 8px 10px;
+        border-radius: var(--r);
+        background: var(--code);
+        font: 12px / 1.55 var(--font-mono);
+        color: var(--text-3);
+        white-space: pre-wrap;
+      }
+      .detail .k {
+        color: var(--text-dim);
+      }
+
+      /* 对话框 */
+      .scrim {
+        position: absolute;
+        inset: 0;
+        background: rgba(20, 24, 32, 0.18);
+        backdrop-filter: blur(6px);
+        display: grid;
+        place-items: center;
+        z-index: 7;
+      }
+      .th-dark .scrim {
+        background: rgba(0, 0, 0, 0.42);
+      }
+      .dialog {
+        width: 400px;
+        padding: 20px;
+        border-radius: var(--r-card);
+        background: var(--main);
+        box-shadow: var(--float-shadow);
+      }
+      .dialog h3 {
+        margin: 0 0 4px;
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .dialog p {
+        margin: 0 0 12px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        line-height: 1.55;
+      }
+      .dialog .foot {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      .dialog .opt-line {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        padding: 4px 0;
+      }
+      .dialog .cb {
+        width: 16px;
+        height: 16px;
+        border-radius: 5px;
+        background: var(--tint);
+        color: var(--on-tint);
+        display: grid;
+        place-items: center;
+        flex: 0 0 auto;
+      }
+      .dialog .hint {
+        padding-left: 24px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .dialog .line {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .dialog .line .mk {
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        background: var(--attn);
+        flex: 0 0 auto;
+      }
+      .dialog .danger {
+        margin-top: 8px;
+        font-size: var(--fs-meta);
+        color: var(--danger);
+      }
+      .dlist {
+        margin: 6px 0 0 24px;
+        padding: 6px 8px;
+        border-radius: 10px;
+        background: var(--code);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .dlist .dr {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 24px;
+        white-space: nowrap;
+      }
+      .dlist .dr .t {
+        color: var(--text-2);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dlist .dr .m {
+        margin-left: auto;
+        color: var(--text-dim);
+      }
+      .dlist .dh {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        padding: 2px 0;
+      }
+      .dlist .dh .lk {
+        margin-left: auto;
+        color: var(--tint);
+      }
+      .scores {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: var(--code);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .scores .sh {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        margin-bottom: 4px;
+      }
+      .scores .sr {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 22px;
+      }
+      .scores .sr .t {
+        color: var(--text-2);
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .scores .bar {
+        width: 70px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--line-strong);
+        overflow: hidden;
+      }
+      .scores .bar i {
+        display: block;
+        height: 100%;
+        background: var(--text-muted);
+      }
+      .scores .sr .v {
+        width: 40px;
+        text-align: right;
+        color: var(--text-muted);
+      }
+      .scores .sr.sum {
+        margin-top: 4px;
+        padding-top: 4px;
+        box-shadow: inset 0 0.5px 0 var(--line);
+      }
+      .scores .sr.sum .t {
+        font-weight: 500;
+      }
+
+      /* 漏洞分组、会话行 */
+      .ghead {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 12px 0 4px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .ghead:first-child {
+        margin-top: 0;
+      }
+      .ghead .n {
+        margin-left: auto;
+      }
+      .collrow {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 32px;
+        padding: 0 10px 0 12px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        box-shadow: inset 0 0.5px 0 var(--line);
+      }
+      .collrow .n {
+        margin-left: auto;
+        color: var(--text-dim);
+      }
+      .rbtn {
+        display: inline-grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+        color: var(--text-muted);
+        background: var(--surface-1);
+        flex: 0 0 auto;
+      }
+      .gap-row .act {
+        position: relative;
+      }
+      .srow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 30px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        white-space: nowrap;
+      }
+      .srow .i {
+        color: var(--text-muted);
+      }
+      .srow .t {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .srow .m {
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .srow.arch {
+        color: var(--text-muted);
+      }
+      .srow.hover {
+        background: var(--hover);
+      }
+      .srow .lk {
+        color: var(--tint);
+        font-size: var(--fs-sm);
+      }
+      .sgh {
+        padding: 6px 8px 2px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .emptyph {
+        display: grid;
+        place-items: center;
+        min-height: 86px;
+        padding: 12px;
+        border-radius: 12px;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+        background-image: none;
+        outline: 1px dashed var(--line-strong);
+        outline-offset: -1px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        text-align: center;
+      }
+      .dashrow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 40px;
+        margin: 2px 0;
+        padding: 0 8px 0 10px;
+        border-radius: var(--r);
+        outline: 1px dashed var(--line-strong);
+        outline-offset: -1px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .dashrow .sp {
+        flex: 1;
+      }
+      .strip .trk i.ph {
+        background: transparent;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+      }
+      .strip .trk i.dash {
+        width: 22px;
+        background: transparent;
+        box-shadow: none;
+        outline: 1px dashed var(--line-strong);
+        outline-offset: -1px;
+      }
+      .tip.below {
+        white-space: nowrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="doc-head">
+      <h1>学习循环（ML3 · SPEC-0008）</h1>
+      <p>
+        还没定样子的 7 处，每处 3
+        种做法，按编号挑（比如"1A、2B、3B、4A、5B、6A、7C"）。每种左边浅色、右边深色。数据是一个 Rust 方向：第 1
+        级"语法和工具链"学完，当前第 2 级"所有权和借用"（6 节课 + 速查表、过关项目、综合测验、升级），共 5 级。
+      </p>
+      <nav class="toc" id="toc"></nav>
+    </div>
+    <main id="parts"></main>
+
+    <script>
+      const ICONS = {
+        Mortarboard02:
+          '<path d="M2 8C2 9.34178 10.0949 13 11.9861 13C13.8772 13 21.9722 9.34178 21.9722 8C21.9722 6.65822 13.8772 3 11.9861 3C10.0949 3 2 6.65822 2 8Z"/><path d="M5.99414 11L6.23925 16.6299C6.24415 16.7426 6.25634 16.8555 6.28901 16.9635C6.38998 17.2973 6.57608 17.6006 6.86 17.8044C9.08146 19.3985 14.8901 19.3985 17.1115 17.8044C17.3956 17.6006 17.5816 17.2973 17.6826 16.9635C17.7152 16.8555 17.7274 16.7426 17.7324 16.6299L17.9774 11"/><path d="M20.4734 9.5V16.5M20.4734 16.5C19.6814 17.9463 19.3312 18.7212 18.9755 20C18.8983 20.455 18.9596 20.6843 19.2732 20.8879C19.4006 20.9706 19.5537 21 19.7055 21H21.2259C21.3876 21 21.5507 20.9663 21.6838 20.8745C21.9753 20.6735 22.0503 20.453 21.9713 20C21.6595 18.8126 21.2623 18.0008 20.4734 16.5Z"/>',
+        Search01:
+          '<path d="M17 17L21 21"/><path d="M19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11C3 15.4183 6.58172 19 11 19C15.4183 19 19 15.4183 19 11Z"/>',
+        Pin02:
+          '<path d="M12 16V21"/><path d="M8 5.2918C8 5.02079 8 4.88529 8.01312 4.77132C8.1194 3.84789 8.84789 3.1194 9.77133 3.01312C9.88529 3 10.0208 3 10.2918 3H13.7082C13.9792 3 14.1147 3 14.2287 3.01312C15.1521 3.1194 15.8806 3.84789 15.9869 4.77132C16 4.88529 16 5.02079 16 5.2918C16 5.37885 16 5.42237 15.9967 5.46264C15.9708 5.78281 15.7927 6.07104 15.5179 6.2374C15.4834 6.25832 15.4444 6.27779 15.3666 6.31672L15.1055 6.44726C14.7021 6.64897 14.5003 6.74983 14.3681 6.90564C14.26 7.03286 14.1856 7.18509 14.1515 7.34846C14.1097 7.54854 14.1539 7.76968 14.2424 8.21197L15 12H15.3333C15.9533 12 16.2633 12 16.5176 12.0681C17.2078 12.2531 17.7469 12.7922 17.9319 13.4824C18 13.7367 18 14.0467 18 14.6667C18 14.9767 18 15.1317 17.9659 15.2588C17.8735 15.6039 17.6039 15.8735 17.2588 15.9659C17.1317 16 16.9767 16 16.6667 16H7.33333C7.02334 16 6.86835 16 6.74118 15.9659C6.39609 15.8735 6.12654 15.6039 6.03407 15.2588C6 15.1317 6 14.9767 6 14.6667C6 14.0467 6 13.7367 6.06815 13.4824C6.25308 12.7922 6.79218 12.2531 7.48236 12.0681C7.73669 12 8.04669 12 8.66667 12H9L9.75761 8.21197C9.84606 7.76968 9.89029 7.54854 9.84852 7.34846C9.81441 7.18509 9.73995 7.03286 9.63194 6.90564C9.49965 6.74983 9.29794 6.64897 8.89452 6.44726L8.63344 6.31672C8.55558 6.27779 8.51665 6.25832 8.48208 6.2374C8.20731 6.07104 8.02917 5.78281 8.00326 5.46264C8 5.42237 8 5.37885 8 5.2918Z"/>',
+        BubbleChatAdd:
+          '<path d="M21.5 12C21.5 17.2467 17.2467 21.5 12 21.5C10.3719 21.5 8.8394 21.0904 7.5 20.3687C5.63177 19.362 4.37462 20.2979 3.26592 20.4658C3.09774 20.4913 2.93024 20.4302 2.80997 20.31C2.62741 20.1274 2.59266 19.8451 2.6935 19.6074C3.12865 18.5818 3.5282 16.6382 2.98341 15C2.6698 14.057 2.5 13.0483 2.5 12C2.5 6.75329 6.75329 2.5 12 2.5C17.2467 2.5 21.5 6.75329 21.5 12Z"/><path d="M15.5 12H8.5M12 8.5V15.5"/>',
+        Folder01:
+          '<path d="M8 7H16.75C18.8567 7 19.91 7 20.6667 7.50559C20.9943 7.72447 21.2755 8.00572 21.4944 8.33329C22 9.08996 22 10.1433 22 12.25C22 15.7612 22 17.5167 21.1573 18.7779C20.7926 19.3238 20.3238 19.7926 19.7779 20.1573C18.5167 21 16.7612 21 13.25 21H12C7.28595 21 4.92893 21 3.46447 19.5355C2 18.0711 2 15.714 2 11V7.94427C2 6.1278 2 5.21956 2.38032 4.53806C2.65142 4.05227 3.05227 3.65142 3.53806 3.38032C4.21956 3 5.1278 3 6.94427 3C8.10802 3 8.6899 3 9.19926 3.19101C10.3622 3.62712 10.8418 4.68358 11.3666 5.73313L12 7"/>',
+        Add01: '<path d="M12.001 5.00003V19.002"/><path d="M19.002 12.002L4.99998 12.002"/>',
+        MoreHorizontal:
+          '<path d="M6.00449 12.5V12M18.0045 12.5V12M12.0045 12.5V12M7.00449 12.5C7.00449 11.9477 6.55677 11.5 6.00449 11.5C5.4522 11.5 5.00449 11.9477 5.00449 12.5C5.00449 13.0523 5.4522 13.5 6.00449 13.5C6.55677 13.5 7.00449 13.0523 7.00449 12.5ZM19.0045 12.5C19.0045 11.9477 18.5568 11.5 18.0045 11.5C17.4522 11.5 17.0045 11.9477 17.0045 12.5C17.0045 13.0523 17.4522 13.5 18.0045 13.5C18.5568 13.5 19.0045 13.0523 19.0045 12.5ZM13.0045 12.5C13.0045 11.9477 12.5568 11.5 12.0045 11.5C11.4522 11.5 11.0045 11.9477 11.0045 12.5C11.0045 13.0523 11.4522 13.5 12.0045 13.5C12.5568 13.5 13.0045 13.0523 13.0045 12.5Z"/>',
+        Settings01:
+          '<path d="M21.3175 7.14139L20.8239 6.28479C20.4506 5.63696 20.264 5.31305 19.9464 5.18388C19.6288 5.05472 19.2696 5.15664 18.5513 5.36048L17.3311 5.70418C16.8725 5.80994 16.3913 5.74994 15.9726 5.53479L15.6357 5.34042C15.2766 5.11043 15.0004 4.77133 14.8475 4.37274L14.5136 3.37536C14.294 2.71534 14.1842 2.38533 13.9228 2.19657C13.6615 2.00781 13.3143 2.00781 12.6199 2.00781H11.5051C10.8108 2.00781 10.4636 2.00781 10.2022 2.19657C9.94085 2.38533 9.83106 2.71534 9.61149 3.37536L9.27753 4.37274C9.12465 4.77133 8.84845 5.11043 8.48937 5.34042L8.15249 5.53479C7.73374 5.74994 7.25259 5.80994 6.79398 5.70418L5.57375 5.36048C4.85541 5.15664 4.49625 5.05472 4.17867 5.18388C3.86109 5.31305 3.67445 5.63696 3.30115 6.28479L2.80757 7.14139C2.45766 7.74864 2.2827 8.05227 2.31666 8.37549C2.35061 8.69871 2.58483 8.95918 3.05326 9.48012L4.0843 10.6328C4.3363 10.9518 4.51521 11.5078 4.51521 12.0077C4.51521 12.5078 4.33636 13.0636 4.08433 13.3827L3.05326 14.5354C2.58483 15.0564 2.35062 15.3168 2.31666 15.6401C2.2827 15.9633 2.45766 16.2669 2.80757 16.8741L3.30114 17.7307C3.67443 18.3785 3.86109 18.7025 4.17867 18.8316C4.49625 18.9608 4.85542 18.8589 5.57377 18.655L6.79394 18.3113C7.25263 18.2055 7.73387 18.2656 8.15267 18.4808L8.4895 18.6752C8.84851 18.9052 9.12464 19.2442 9.2775 19.6428L9.61149 20.6403C9.83106 21.3003 9.94085 21.6303 10.2022 21.8191C10.4636 22.0078 10.8108 22.0078 11.5051 22.0078H12.6199C13.3143 22.0078 13.6615 22.0078 13.9228 21.8191C14.1842 21.6303 14.294 21.3003 14.5136 20.6403L14.8476 19.6428C15.0004 19.2442 15.2765 18.9052 15.6356 18.6752L15.9724 18.4808C16.3912 18.2656 16.8724 18.2055 17.3311 18.3113L18.5513 18.655C19.2696 18.8589 19.6288 18.9608 19.9464 18.8316C20.264 18.7025 20.4506 18.3785 20.8239 17.7307L21.3175 16.8741C21.6674 16.2669 21.8423 15.9633 21.8084 15.6401C21.7744 15.3168 21.5402 15.0564 21.0718 14.5354L20.0407 13.3827C19.7887 13.0636 19.6098 12.5078 19.6098 12.0077C19.6098 11.5078 19.7888 10.9518 20.0407 10.6328L21.0718 9.48012C21.5402 8.95918 21.7744 8.69871 21.8084 8.37549C21.8423 8.05227 21.6674 7.74864 21.3175 7.14139Z"/><path d="M15.5195 12C15.5195 13.933 13.9525 15.5 12.0195 15.5C10.0865 15.5 8.51953 13.933 8.51953 12C8.51953 10.067 10.0865 8.5 12.0195 8.5C13.9525 8.5 15.5195 10.067 15.5195 12Z"/>',
+        Sparkles:
+          '<path d="M15 2L15.5387 4.39157C15.9957 6.42015 17.5798 8.00431 19.6084 8.46127L22 9L19.6084 9.53873C17.5798 9.99569 15.9957 11.5798 15.5387 13.6084L15 16L14.4613 13.6084C14.0043 11.5798 12.4202 9.99569 10.3916 9.53873L8 9L10.3916 8.46127C12.4201 8.00431 14.0043 6.42015 14.4613 4.39158L15 2Z"/><path d="M7 12L7.38481 13.7083C7.71121 15.1572 8.84275 16.2888 10.2917 16.6152L12 17L10.2917 17.3848C8.84275 17.7112 7.71121 18.8427 7.38481 20.2917L7 22L6.61519 20.2917C6.28879 18.8427 5.15725 17.7112 3.70827 17.3848L2 17L3.70827 16.6152C5.15725 16.2888 6.28879 15.1573 6.61519 13.7083L7 12Z"/>',
+        ArrowRight01: '<path d="M9.00005 6C9.00005 6 15 10.4189 15 12C15 13.5812 9 18 9 18"/>',
+        Tick02: '<path d="M5 14L8.5 17.5L19 6.5"/>',
+        Target02:
+          '<path d="M17 12C17 14.7614 14.7614 17 12 17C9.23858 17 7 14.7614 7 12C7 9.23858 9.23858 7 12 7"/><path d="M14 2.20004C13.3538 2.06886 12.6849 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12C22 11.3151 21.9311 10.6462 21.8 10"/><path d="M12.0303 11.9625L16.5832 7.4096M19.7404 4.34462L19.1872 2.35748C19.0853 2.03011 18.6914 1.89965 18.4259 2.11662C16.9898 3.29018 15.4254 4.87091 16.703 7.36419C19.2771 8.56455 20.7466 6.94584 21.8733 5.5853C22.0975 5.3146 21.9623 4.90767 21.6247 4.81005L19.7404 4.34462Z"/>',
+        Idea01:
+          '<path d="M8 16.4998C6.7725 15.4011 6 13.7768 6 11.9998C6 8.68605 8.68629 5.99976 12 5.99976C15.3137 5.99976 18 8.68605 18 11.9998C18 13.7768 17.2275 15.4011 16 16.4998"/><path d="M12 11.9998V16.4998"/><path d="M9.5 18.9998H14.5"/><path d="M10.5 21.4998H13.5"/><path d="M3.5 11.9998H2.5M5.98438 5.97632L5.23438 5.23022M18.0195 5.97632L18.7695 5.23022M21.5 11.9998H20.5M12 2.49976V3.49976"/>',
+        Note01:
+          '<path d="M16.5 2V5M7.5 2V5M12 2V5"/><path d="M13 3.5H11C7.70017 3.5 6.05025 3.5 5.02513 4.52513C4 5.55025 4 7.20017 4 10.5V15C4 18.2998 4 19.9497 5.02513 20.9749C6.05025 22 7.70017 22 11 22H13C16.2998 22 17.9497 22 18.9749 20.9749C20 19.9497 20 18.2998 20 15V10.5C20 7.20017 20 5.55025 18.9749 4.52512C17.9497 3.5 16.2998 3.5 13 3.5Z"/><path d="M8 15H12M8 11H16"/>',
+        BookOpen01:
+          '<path d="M7.99978 3.5H6.60021C4.43183 3.5 3.34764 3.5 2.67399 4.17362C2.00034 4.84724 2.00029 5.93144 2.00021 8.09982L2 13.3998C1.99992 15.5684 1.99987 16.6526 2.67353 17.3263C3.34719 18 4.43146 18 6.6 18H8.95042C10.4329 18 11.7092 19.0464 11.9999 20.5V5.5C11.0556 4.24097 9.99989 3.5 7.99978 3.5Z"/><path d="M16.0001 3.5H17.3997C19.5681 3.5 20.6523 3.5 21.3259 4.17362C21.9996 4.84724 21.9996 5.93144 21.9997 8.09982L21.9999 13.3998C22 15.5684 22 16.6526 21.3264 17.3263C20.6527 18 19.5684 18 17.3999 18H15.0495C13.567 18 12.2907 19.0464 12 20.5V5.5C12.9443 4.24097 14 3.5 16.0001 3.5Z"/>',
+        Quiz01:
+          '<path d="M10.4564 2.64012C11.3085 1.78663 12.6915 1.78663 13.5436 2.64012L14.553 3.65112C14.9625 4.06139 15.5186 4.29172 16.0983 4.29124L17.5269 4.29007C18.733 4.28909 19.7109 5.26702 19.7099 6.47306L19.7088 7.90166C19.7083 8.48139 19.9386 9.03745 20.3489 9.44705L21.3599 10.4564C22.2134 11.3085 22.2134 12.6915 21.3599 13.5436L20.3489 14.553C19.9386 14.9625 19.7083 15.5186 19.7088 16.0983L19.7099 17.5269C19.7109 18.733 18.733 19.7109 17.5269 19.7099L16.0983 19.7088C15.5186 19.7083 14.9625 19.9386 14.553 20.3489L13.5436 21.3599C12.6915 22.2134 11.3085 22.2134 10.4564 21.3599L9.44705 20.3489C9.03745 19.9386 8.48139 19.7083 7.90166 19.7088L6.47306 19.7099C5.26702 19.7109 4.28909 18.733 4.29007 17.5269L4.29124 16.0983C4.29172 15.5186 4.06139 14.9625 3.65112 14.553L2.64012 13.5436C1.78663 12.6915 1.78663 11.3085 2.64012 10.4564L3.65112 9.44705C4.06139 9.03745 4.29172 8.48139 4.29124 7.90166L4.29007 6.47306C4.28909 5.26702 5.26702 4.28909 6.47306 4.29007L7.90166 4.29124C8.48139 4.29172 9.03745 4.06139 9.44705 3.65112L10.4564 2.64012Z"/><path d="M10 9C10 7.89543 10.8954 7 12 7C13.1046 7 14 7.89543 14 9C14 9.39815 13.8837 9.76913 13.6831 10.0808C13.0854 11.0097 12 11.8954 12 13V13.5M12.1244 16.75H11.9994M12.2494 16.75C12.2494 16.8881 12.1375 17 11.9994 17C11.8613 17 11.7494 16.8881 11.7494 16.75C11.7494 16.6119 11.8613 16.5 11.9994 16.5C12.1375 16.5 12.2494 16.6119 12.2494 16.75Z"/>',
+        Flag01:
+          '<path d="M5.0249 21C5.04385 19.2643 5.04366 17.5541 5.0366 15.9209M5.0366 15.9209C5.01301 10.4614 4.91276 5.86186 5.19475 4.04271C5.5611 1.67939 9.39301 3.82993 13.9703 5.59842L16.0328 6.48729C17.5508 7.1415 19.7187 8.30352 18.7662 9.66084C18.3738 10.22 17.56 10.8596 16.0575 11.567L5.0366 15.9209Z"/>',
+        ArrowDown01: '<path d="M18 9.00005C18 9.00005 13.5811 15 12 15C10.4188 15 6 9 6 9"/>',
+        Message01:
+          '<path d="M8.5 14.5H15.5M8.5 9.5H12"/><path d="M14.1706 20.8905C18.3536 20.6125 21.6856 17.2332 21.9598 12.9909C22.0134 12.1607 22.0134 11.3009 21.9598 10.4707C21.6856 6.22838 18.3536 2.84913 14.1706 2.57107C12.7435 2.47621 11.2536 2.47641 9.8294 2.57107C5.64639 2.84913 2.31441 6.22838 2.04024 10.4707C1.98659 11.3009 1.98659 12.1607 2.04024 12.9909C2.1401 14.536 2.82343 15.9666 3.62791 17.1746C4.09501 18.0203 3.78674 19.0758 3.30021 19.9978C2.94941 20.6626 2.77401 20.995 2.91484 21.2351C3.05568 21.4752 3.37026 21.4829 3.99943 21.4982C5.24367 21.5285 6.08268 21.1757 6.74868 20.6846C7.1264 20.4061 7.31527 20.2668 7.44544 20.2508C7.5756 20.2348 7.83177 20.3403 8.34401 20.5513C8.8044 20.7409 9.33896 20.8579 9.8294 20.8905C11.2536 20.9852 12.7435 20.9854 14.1706 20.8905Z"/>',
+        PlayCircle:
+          '<circle cx="12" cy="12" r="10"/><path d="M15.9453 12.3948C15.7686 13.0215 14.9333 13.4644 13.2629 14.3502C11.648 15.2064 10.8406 15.6346 10.1899 15.4625C9.9209 15.3913 9.6758 15.2562 9.47812 15.0701C9 14.6198 9 13.7465 9 12C9 10.2535 9 9.38018 9.47812 8.92995C9.6758 8.74381 9.9209 8.60868 10.1899 8.53753C10.8406 8.36544 11.648 8.79357 13.2629 9.64983C14.9333 10.5356 15.7686 10.9785 15.9453 11.6052C16.0182 11.8639 16.0182 12.1361 15.9453 12.3948Z"/>',
+        Globe02:
+          '<circle cx="12" cy="12" r="10"/><path d="M8 12C8 18 12 22 12 22C12 22 16 18 16 12C16 6 12 2 12 2C12 2 8 6 8 12Z"/><path d="M21 15H3"/><path d="M21 9H3"/>',
+        Cancel01: '<path d="M18 6L6.00081 17.9992M17.9992 18L6 6.00085"/>',
+        ArrowTurnBackward:
+          '<path d="M11 6H15.5C17.9853 6 20 8.01472 20 10.5C20 12.9853 17.9853 15 15.5 15H4"/><path d="M6.99998 12C6.99998 12 4.00001 14.2095 4 15C3.99999 15.7906 7 18 7 18"/>',
+        ArrowUpRight01:
+          '<path d="M9 6.65032C9 6.65032 15.9383 6.10759 16.9154 7.08463C17.8924 8.06167 17.3496 15 17.3496 15M16.5 7.5L6.5 17.5"/>',
+        Archive02:
+          '<path d="M7 21H16.9999C19.3569 21 20.5354 21 21.2677 20.2678C21.9999 19.5355 21.9999 18.357 21.9999 16C21.9999 13.643 21.9999 12.4645 21.2677 11.7322C20.5354 11 19.3569 11 16.9999 11H7C4.64302 11 3.46453 11 2.7323 11.7322C2.00007 12.4644 2.00005 13.6429 2 15.9999C1.99995 18.357 1.99993 19.5355 2.73217 20.2677C3.4644 21 4.64294 21 7 21Z"/><path d="M4 11C4.00005 9.59977 4.00008 8.89966 4.27263 8.36485C4.5123 7.89455 4.89469 7.51218 5.365 7.27253C5.89981 7 6.59993 7 8.00015 7H16C17.4001 7 18.1002 7 18.635 7.27248C19.1054 7.51217 19.4878 7.89462 19.7275 8.36502C20 8.8998 20 9.59987 20 11"/><path d="M6 7C6.00004 5.5998 6.00006 4.89969 6.27259 4.3649C6.51227 3.89457 6.89467 3.51218 7.36501 3.27252C7.89981 3 8.59991 3 10.0001 3H14C15.4001 3 16.1002 3 16.635 3.27248C17.1054 3.51217 17.4878 3.89462 17.7275 4.36502C18 4.8998 18 5.59987 18 7"/><path d="M16 15L15.7 15.4C15.1111 16.1851 14.8167 16.5777 14.3944 16.7889C13.9721 17 13.4814 17 12.5 17H11.5C10.5186 17 10.0279 17 9.60557 16.7889C9.18328 16.5777 8.88885 16.1851 8.3 15.4L8 15"/>',
+        Award01:
+          '<path d="M15.9349 21.033C16.1789 21.5331 15.699 22 15.1239 22H8.87606C8.30096 22 7.82107 21.5331 8.06509 21.033C8.63149 19.8722 10.1793 19 12 19C13.8207 19 15.3685 19.8722 15.9349 21.033Z"/><path d="M12 16L11.9883 19"/><path d="M17.9866 4.49139C17.992 4.30176 17.9963 4.11477 17.9997 3.93095C18.0194 2.86463 17.1162 2.00002 16.0093 2.00002L7.99052 2C6.88381 2 5.98074 2.86438 6.00031 3.93054C6.00358 4.10833 6.00768 4.28907 6.01283 4.47231C6.05734 6.05627 6.18024 7.82593 6.51875 9.47415C7.18043 12.6958 8.66606 16 12.0001 16C15.3341 16 16.8193 12.6958 17.481 9.47415C17.8181 7.83255 17.9415 6.07048 17.9866 4.49139Z"/><path d="M18 4.5L19.4447 4.68748C20.9062 4.87714 22 6.122 22 7.59578C22 8.99373 21.0133 10.1973 19.6425 10.4715L17.5 11"/><path d="M6 4.5L4.55527 4.68748C3.09375 4.87714 2 6.122 2 7.59578C2 8.99373 2.98673 10.1973 4.35754 10.4715L6.5 11"/>',
+        ComputerTerminal01:
+          '<path d="M7.5 7.5L8.72654 8.55719C9.24218 9.00163 9.5 9.22386 9.5 9.5C9.5 9.77614 9.24218 9.99836 8.72654 10.4428L7.5 11.5"/><path d="M11.5 12.5H15.5"/><path d="M12 21C15.7497 21 17.6246 21 18.9389 20.0451C19.3634 19.7367 19.7367 19.3634 20.0451 18.9389C21 17.6246 21 15.7497 21 12C21 8.25027 21 6.3754 20.0451 5.06107C19.7367 4.6366 19.3634 4.26331 18.9389 3.95491C17.6246 3 15.7497 3 12 3C8.25027 3 6.3754 3 5.06107 3.95491C4.6366 4.26331 4.26331 4.6366 3.95491 5.06107C3 6.3754 3 8.25027 3 12C3 15.7497 3 17.6246 3.95491 18.9389C4.26331 19.3634 4.6366 19.7367 5.06107 20.0451C6.3754 21 8.25027 21 12 21Z"/>',
+        Square:
+          '<path d="M2.5 12C2.5 7.52166 2.5 5.28249 3.89124 3.89124C5.28249 2.5 7.52166 2.5 12 2.5C16.4783 2.5 18.7175 2.5 20.1088 3.89124C21.5 5.28249 21.5 7.52166 21.5 12C21.5 16.4783 21.5 18.7175 20.1088 20.1088C18.7175 21.5 16.4783 21.5 12 21.5C7.52166 21.5 5.28249 21.5 3.89124 20.1088C2.5 18.7175 2.5 16.4783 2.5 12Z"/>',
+        CheckmarkSquare02:
+          '<path d="M2.5 12C2.5 7.52166 2.5 5.28249 3.89124 3.89124C5.28249 2.5 7.52166 2.5 12 2.5C16.4783 2.5 18.7175 2.5 20.1088 3.89124C21.5 5.28249 21.5 7.52166 21.5 12C21.5 16.4783 21.5 18.7175 20.1088 20.1088C18.7175 21.5 16.4783 21.5 12 21.5C7.52166 21.5 5.28249 21.5 3.89124 20.1088C2.5 18.7175 2.5 16.4783 2.5 12Z"/><path d="M8 12.5L10.5 15L16 9"/>',
+        Alert02:
+          '<path d="M13.9248 21H10.0752C5.44476 21 3.12955 21 2.27636 19.4939C1.42317 17.9879 2.60736 15.9914 4.97574 11.9985L6.90057 8.75333C9.17559 4.91778 10.3131 3 12 3C13.6869 3 14.8244 4.91777 17.0994 8.75332L19.0243 11.9985C21.3926 15.9914 22.5768 17.9879 21.7236 19.4939C20.8704 21 18.5552 21 13.9248 21Z"/><path d="M12 9V13"/><path d="M12.125 16.75H12M12.25 16.75C12.25 16.8881 12.1381 17 12 17C11.8619 17 11.75 16.8881 11.75 16.75C11.75 16.6119 11.8619 16.5 12 16.5C12.1381 16.5 12.25 16.6119 12.25 16.75Z"/>',
+        Undo02:
+          '<path d="M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C8.66873 3 5.76018 4.80989 4.20404 7.5"/><path d="M3 3V4.27816C3 6.47004 3 7.56599 3.70725 8.16512C4.4145 8.76425 5.49553 8.58408 7.6576 8.22373L9 8"/>',
+        Clock01: '<circle cx="12" cy="12" r="10"/><path d="M12 8V12L14 14"/>',
+        CheckmarkCircle02:
+          '<path d="M22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12Z"/><path d="M8 12.5L10.5 15L16 9"/>',
+        LockKey:
+          '<path d="M18 10.9971C17.6078 10.1968 16.5481 9.02153 14.3703 9.07154C14.3703 9.07154 12.6431 8.99652 10.6906 8.99652C8.73815 8.99652 7.82408 9.04224 6.25999 9.07154C5.25872 9.04653 3.35629 9.2716 2.48017 11.3472C1.90444 13.0976 1.87941 16.7736 2.22986 18.6241C2.30495 19.5744 2.80559 20.8998 4.35757 21.6C5.30878 22.1001 6.83573 21.9 7.98719 22.0001M5.98464 8.1963C5.93458 5.82065 5.83445 3.94514 8.58796 2.39472C9.51414 2.01962 10.8909 1.69453 12.5931 2.49475C14.3703 3.57004 14.5917 4.70802 14.7458 4.99543C15.1713 6.12074 14.9461 7.72117 14.9961 8.37135"/><path d="M15.5 19.7351C15.5 20.9792 14.4911 21.9656 13.2552 21.9656C12.0194 21.9656 11 20.9792 11 19.7351C11 18.4911 12.0194 17.4915 13.2552 17.4915C14.4911 17.4915 15.5 18.4911 15.5 19.7351Z"/><path d="M22 15.8482L20.3731 14.3089C19.6 13.5692 18.95 14.2149 18.6264 14.4906L17.2156 15.8482L15.225 17.7909M17.2156 15.8482L18.825 17.3936"/>',
+        CornerDownRight:
+          '<path d="M19 15H12C8.22876 15 6.34315 15 5.17157 13.8284C4 12.6569 4 10.7712 4 7V4"/><path d="M15 20C15 20 20 16.3176 20 15C20 13.6824 15 10 15 10"/>',
+        ArrowUp02: '<path d="M12 5.5V19"/><path d="M18 11C18 11 13.5811 5.00001 12 5C10.4188 4.99999 6 11 6 11"/>',
+      };
+
+      const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24">${ICONS[n]}</svg>`;
+      const KIND = {
+        home: "Mortarboard02",
+        talk: "Message01",
+        ask: "Message01",
+        lesson: "BookOpen01",
+        quiz: "Quiz01",
+        exam: "Quiz01",
+        feyn: "Idea01",
+        sheet: "Note01",
+        project: "ComputerTerminal01",
+        up: "Award01",
+        plan: "Target02",
+      };
+
+      /* ---------- 数据：一个 Rust 方向 ---------- */
+      const NAME = "Rust 系统编程";
+      const LADDER = [
+        { n: "语法和工具链", m: "cargo、变量与类型、控制流、match", pass: "猜数字游戏，cargo test 全过" },
+        {
+          n: "所有权和借用",
+          m: "所有权、借用、生命周期、切片、智能指针、错误处理",
+          pass: "文本统计 CLI，不用 clone 绕开借用检查",
+        },
+        { n: "trait 与泛型", m: "trait、泛型、迭代器、闭包", pass: "给统计工具加可插拔的输出格式" },
+        { n: "并发与异步", m: "线程、Send / Sync、channel、tokio", pass: "并发抓 100 个网页并汇总" },
+        { n: "写一个能发布的 CLI", m: "clap、错误报告、测试、发布", pass: "别人能 cargo install 的工具" },
+      ];
+      const STEPS = [
+        { t: "所有权与移动", k: "lesson" },
+        { t: "借用规则", k: "lesson" },
+        { t: "生命周期标注", k: "lesson" },
+        { t: "切片与 String", k: "lesson" },
+        { t: "智能指针：Box 与 Rc", k: "lesson" },
+        { t: "错误处理：Result 与 ?", k: "lesson" },
+        { t: "速查表", k: "sheet" },
+        { t: "过关项目：文本统计 CLI", k: "project" },
+        { t: "综合测验", k: "exam" },
+        { t: "升到第 3 级", k: "up" },
+      ];
+      const LAST = [
+        { k: "lesson" },
+        { k: "lesson" },
+        { k: "lesson" },
+        { k: "lesson" },
+        { k: "lesson" },
+        { k: "lesson" },
+        { k: "sheet" },
+        { k: "project" },
+        { k: "exam" },
+        { k: "up" },
+      ];
+      const FIXED4 = [{ k: "sheet" }, { k: "project" }, { k: "exam" }, { k: "up" }];
+      const G = {
+        g1: ["<code>&amp;mut</code> 借用还在时，为什么连读原变量都不行", "借用规则 · 测验第 3 题"],
+        g2: ["生命周期标注不改变引用能活多久，只描述它们之间的关系", "生命周期标注 · 测验第 4 题"],
+        g3: ["Rc 和 Arc 的区别，什么时候要配 RefCell", "智能指针 · 测验第 5 题"],
+        g4: ["<code>?</code> 在 main 里要返回什么类型才能用", "综合测验第 8 题"],
+        c1: ["shadowing 和 <code>mut</code> 有什么不一样", "第 1 级 · 变量与类型 · 测验第 2 题"],
+        c2: ["match 为什么必须穷尽，什么时候该用 <code>_</code>", "第 1 级 · 综合测验第 7 题"],
+      };
+
+      /* ---------- 共用画法 ---------- */
+      const subDots = (s) =>
+        `<span class="subd">${[...s].map((c) => `<i class="${c === "-" ? "" : c}"></i>`).join("")}</span>`;
+      const lead = (i, k) =>
+        k === "lesson" ? `<span class="no">${i + 1}</span>` : `<span class="no kd">${ic(KIND[k], "s14")}</span>`;
+      const chip = (kind, name, score, cls = "") =>
+        `<span class="schip ${cls}">${ic(KIND[kind], "s12")}${name}${score ? `<span class="s">${score}</span>` : ""}</span>`;
+      function row(
+        i,
+        { state = "todo", tick = "", sub = "", right = "", below = "", t, steps = STEPS, lvlNo = 2 } = {},
+      ) {
+        const s = steps[i];
+        const tk = tick === "ok" ? `<span class="ok">${ic("Tick02", "s14")}</span>` : "";
+        return `<div class="lesson ${state === "next" ? "next" : state === "todo" ? "todo" : ""}"><div class="lh">${lead(i, s.k)}${tk}<span class="t">${t ?? s.t}</span>${sub ? subDots(sub) : ""}${right}</div>${below}</div>`;
+      }
+      const trk = (cur, cls = "", steps = STEPS) =>
+        `<span class="trk ${cls}">${steps.map((s, i) => `<i class="${i < cur ? "done" : i === cur ? "cur" : ""}${s.k !== "lesson" ? " x" : ""}"></i>`).join("")}</span>`;
+      const lvl = (text = `第 2 级 · ${LADDER[1].n}`, icon = "Mortarboard02", cls = "") =>
+        `<span class="lvl ${cls}">${ic(icon, "s14")}${text}</span>`;
+      const strip = (inner) => `<div class="strip">${inner}</div>`;
+      const tabbar = (tabs = [], homeOn = false) =>
+        `<div class="tabbar"><span class="crumb">${ic("Mortarboard02", "s14")}学习 ›</span><span class="tab home ${homeOn ? "on" : ""}">${ic("Mortarboard02", "s14")}${NAME}</span>${tabs
+          .map(
+            ([k, t, on, child]) =>
+              `<span class="tab ${on ? "on" : ""}">${child ? `<span class="dim" style="display:inline-flex">${ic("CornerDownRight", "s12")}</span>` : ""}${ic(KIND[k], "s14")}${t}</span>`,
+          )
+          .join("")}<span style="flex:1"></span><span class="ibtn">${ic("Add01", "s14")}</span></div>`;
+      const sect = (h, body, m = "") => `<div class="sect"><div class="h"><span>${h}</span>${m}</div>${body}</div>`;
+      const gapRow = ([t, s], { fixed = false, act = "", src, cls = "" } = {}) =>
+        `<div class="gap-row ${fixed ? "fixed" : ""} ${cls}"><span class="mk"></span><span class="body"><span class="tx">${t}</span><span class="src">${src ?? s}</span></span>${act}</div>`;
+      const composer = (ph = "回答，或者问点别的") =>
+        `<div class="composer-wrap"><div class="composer">${ph}<div class="bar">${ic("Add01", "s14")}<span>DeepSeek V4.1 Flash · 中</span><span class="send">${ic("ArrowUp02", "s14")}</span></div></div></div>`;
+      const sessionWin = (tabs, stripHtml, conv, bottom = composer(), h = 600) =>
+        `<div class="win" style="height:${h}px;display:flex;flex-direction:column"><div style="flex:0 0 auto">${tabbar(tabs)}${stripHtml}</div><div style="flex:1;overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:flex-end"><div class="conv">${conv}</div></div>${bottom}</div>`;
+      const ladderNode = (st) =>
+        `<span class="node"><i class="${st === "cur" ? "cur" : st === "lock" ? "lock" : ""}"></i></span>`;
+
+      /* 成对的浅色 / 深色 */
+      const pair = (build, width) =>
+        `<div class="pair">${["light", "dark"]
+          .map(
+            (th) =>
+              `<div class="frame th-${th}" style="width:${width + 32}px"><p class="fl">${th === "light" ? "浅色" : "深色"}</p>${build(th)}</div>`,
+          )
+          .join("")}</div>`;
+      const cap = (t) => `<p class="cap">${t}</p>`;
+
+      /* =====================================================================
+         1 · 测验子对话的开头
+         ===================================================================== */
+      const quizTabs = [
+        ["lesson", "借用规则"],
+        ["quiz", "测验 · 借用规则", true, true],
+      ];
+      const quizStrip = () => strip(`${lvl()}${trk(1)}<span class="now"><b>第 2 步 · 借用规则</b> · 测验中</span>`);
+      const childHead = () =>
+        `<div class="childhead">${ic("CornerDownRight", "s14")}测验 · 来自上课「<b>借用规则</b>」，带着这节课的上下文<span class="lk">回到上课</span></div>`;
+      const quizSrc = (extra = "") =>
+        `<div class="srcrow">${ic("Quiz01", "s13")}<b>测验</b> · 第 2 级第 2 步 · 借用规则${extra}</div>`;
+      const quizOpen = () =>
+        `<div class="reply"><p>这节测 5 到 10 题，一次一题，每题 10 分；连续两题答不上就停。先从简单的来。</p><p><b>第 1 题</b>，选一个：</p></div>`;
+      const qcard = () =>
+        `<div class="composer-wrap" style="padding-bottom:12px"><div class="qcard"><div class="qh"><span class="agent">agent</span><span class="dim">/</span><span class="who">在问你</span></div><div class="qt">下面哪段能通过编译？<span class="kind">单选</span></div>
+        <div class="qo"><span class="k">1</span><code>let r = &amp;mut s; println!("{s}"); r.push('!');</code></div>
+        <div class="qo"><span class="k">2</span><code>let a = &amp;s; let b = &amp;s; println!("{a}{b}");</code></div>
+        <div class="qo"><span class="k">3</span><code>let a = &amp;mut s; let b = &amp;mut s; a.push('!');</code></div>
+        <div class="qo"><span class="k">4</span>其他</div></div></div>`;
+      const lessonTail = () =>
+        `<div class="bubble">改好了：先把 <code>r</code> 用完，再打印 <code>s</code>。</div>
+        <div class="reply"><p>对，这就是借用的<b>作用范围</b>：<code>r</code> 最后一次用完，借用就结束了，后面再读 <code>s</code> 没问题。这节到这里，笔记写进了 <code>notes/2-02-借用规则.md</code>。</p></div>`;
+      const P1 = {
+        title: "1 · 测验子对话的开头",
+        why: "测验是上课会话的子对话，宿主用 --fork 把上课的全部轮复制过来。按 SPEC-0002 会全部显示，一打开先是一整节课，第一题在最底下。这里比较复制来的轮怎么显示。三种的顶上都有来源行和“回到上课”。",
+        opts: [
+          {
+            L: "1A",
+            reco: true,
+            name: "复制来的轮收成一行，点开展开",
+            desc: "来源行下面一行“› 这节课的 14 轮（来自上课会话）”，点开在原地展开成原样的对话；下面是测验的开场和题目。打开就是测验，又看得到模型带着什么。",
+            w: 560,
+            build: () =>
+              sessionWin(
+                quizTabs,
+                quizStrip(),
+                `${childHead()}<div class="fold"><span class="dim" style="display:inline-flex">${ic("ArrowRight01", "s12")}</span>这节课的 14 轮<span class="n">· 来自上课会话</span></div>${quizSrc()}${quizOpen()}`,
+                qcard(),
+              ),
+          },
+          {
+            L: "1B",
+            name: "全部照常显示，打开时滚到最底",
+            desc: "同普通的带上下文子对话：复制来的轮照常显示，上课和测验之间一条细线“以下是测验”；打开时已经滚到最底，往上翻能看到整节课。",
+            w: 560,
+            build: () =>
+              sessionWin(
+                quizTabs,
+                quizStrip(),
+                `<div class="fadetop">↑ 往上还有这节课的 12 轮</div>${lessonTail()}<div class="sepline">以下是测验</div>${quizSrc()}${quizOpen()}`,
+                qcard(),
+              ),
+          },
+          {
+            L: "1C",
+            name: "复制来的轮不显示",
+            desc: "只有来源行和“回到上课”，下面直接是测验。最干净，但看不到模型拿到了哪些上下文；想看上课的内容要点“回到上课”。",
+            w: 560,
+            build: () => sessionWin(quizTabs, quizStrip(), `${childHead()}${quizSrc()}${quizOpen()}`, qcard()),
+          },
+        ],
+        shared: {
+          title: "三种共用：这一步没有能用的上课会话时（手动标了上课、上课会话归档了）",
+          desc: "退回不带上下文的测验：普通会话，不是子对话，没有“回到上课”；来源行后面写“没带上课的上下文”。",
+          w: 560,
+          build: () =>
+            `<div class="win"><div class="conv">${quizSrc(`<span class="dim"> · 没带上课的上下文</span>`)}<div class="reply"><p>这一步没有上课的对话，我按笔记 <code>notes/2-02-借用规则.md</code> 和档案出题。先从简单的来。</p></div></div></div>`,
+        },
+      };
+
+      /* =====================================================================
+         2 · 步骤条在 ML3 的新状态
+         ===================================================================== */
+      const stripSet = (rows) =>
+        `<div class="win" style="overflow:visible">${rows.map(([label, html]) => `<div class="strip-label">${label}</div>${html}`).join("")}<div style="height:6px"></div></div>`;
+      const btnP = (t, cls = "") => `<button class="btn primary sm ${cls}">${t}</button>`;
+      const btnG = (t) => `<button class="btn ghost sm">${t}</button>`;
+      const lvl3 = (icon = "Mortarboard02", text = `第 3 级 · ${LADDER[2].n}`) => lvl(text, icon);
+      const commonRows = () => [
+        [
+          "② 测完、这一步有没补的漏洞",
+          strip(
+            `${lvl()}${trk(1)}<span class="now"><b>第 2 步 · 借用规则</b> · 测验 32/50 · 2 个漏洞</span><span class="sp"></span>${btnG("进入下一步")}${btnP("跑费曼")}`,
+          ),
+        ],
+        [
+          "⑤ 综合测验还有没补的漏洞",
+          strip(
+            `${lvl()}${trk(9)}<span class="now"><b>第 10 步 · 升到第 3 级</b> · 综合测验还有 1 个漏洞</span><span class="sp"></span>${btnG("升级")}${btnP("跑费曼")}`,
+          ),
+        ],
+        [
+          "⑥ 可以升级",
+          strip(
+            `${lvl()}${trk(9)}<span class="now"><b>第 10 步 · 升到第 3 级</b></span><span class="sp"></span>${btnP("升级")}`,
+          ),
+        ],
+        [
+          "⑦ 最后一级可以学完",
+          strip(
+            `${lvl(`第 5 级 · ${LADDER[4].n}`)}${trk(9, "", LAST)}<span class="now"><b>第 10 步 · 学完</b></span><span class="sp"></span>${btnP("学完")}`,
+          ),
+        ],
+      ];
+      const busyRow = (tipText = "等上课这一轮结束") =>
+        `<div style="position:relative">${strip(`${lvl()}${trk(1)}<span class="now"><b>第 2 步 · 借用规则</b> · 上课完成</span><span class="sp"></span>${btnG("以后再测")}${btnP("开始测验", "off")}`)}<span class="tip" style="right:8px;top:-22px">${tipText}</span></div>`;
+      const P2 = {
+        title: "2 · 步骤条在 ML3 的新状态",
+        why: "2D 的点阵、按钮尺寸都不动。新的状态：① agent 报告上课完成后还在说话（上课会话在跑，宿主这时开测验会回 session_busy）；② 测完有漏洞；③④ 升级以后这一级还没排课（排计划没开成、或开着还没排完）；⑤ 综合测验有没补的漏洞；⑥ 升级；⑦ 最后一级。②⑤⑥⑦ 三种一样，只为对照。",
+        opts: [
+          {
+            L: "2A",
+            reco: true,
+            name: "都用现有的主次按钮，不能点的变淡、悬停说原因",
+            desc: "① “开始测验”照常画、不透明度 0.42，悬停“等上课这一轮结束”，这一轮结束后自己变亮。③ 级名换成第 3 级，没有点，说明写“还没排课”，主按钮“排计划”；④ 排计划会话开着时是“回到会话”（在跑时前面绿点）。",
+            w: 720,
+            build: () =>
+              stripSet([
+                ["① 上课会话还在跑（悬停中）", busyRow()],
+                commonRows()[0],
+                [
+                  "③ 这一级还没排课",
+                  strip(
+                    `${lvl3()}<span class="now"><b>还没排课</b> · 排计划会话排出课以后，这里是这一级的步骤</span><span class="sp"></span>${btnP("排计划")}`,
+                  ),
+                ],
+                [
+                  "④ 排计划会话开着",
+                  strip(
+                    `${lvl3()}<span class="now"><b>排计划中</b></span><span class="sp"></span><span class="live"></span><button class="btn outline sm">回到会话</button>`,
+                  ),
+                ],
+                ...commonRows().slice(1),
+              ]),
+          },
+          {
+            L: "2B",
+            name: "同 A，但上课在跑时按钮不变淡，原因写进说明",
+            desc: "① 说明写“上课完成 · 等上课这一轮结束再测”，“开始测验”照常能点；点了宿主回 session_busy，步骤条下面一行红字。按钮不闪烁，但可能点了没用。",
+            w: 720,
+            build: () =>
+              stripSet([
+                [
+                  "① 上课会话还在跑",
+                  strip(
+                    `${lvl()}${trk(1)}<span class="now"><b>第 2 步</b> · 上课完成 · <span style="color:var(--attn-text)">等这一轮结束再测</span></span><span class="sp"></span>${btnG("以后再测")}${btnP("开始测验")}`,
+                  ),
+                ],
+                [
+                  "① 点了“开始测验”以后（宿主回 session_busy）",
+                  `${strip(`${lvl()}${trk(1)}<span class="now"><b>第 2 步 · 借用规则</b> · 上课完成</span><span class="sp"></span>${btnG("以后再测")}${btnP("开始测验")}`)}<div style="padding:6px 16px 2px;color:var(--danger);font-size:var(--fs-sm)">上课这一轮还没结束，等它停下再开始测验</div>`,
+                ],
+                commonRows()[0],
+                [
+                  "③ 这一级还没排课",
+                  strip(
+                    `${lvl3()}<span class="now"><b>还没排课</b> · 排计划会话排出课以后，这里是这一级的步骤</span><span class="sp"></span>${btnP("排计划")}`,
+                  ),
+                ],
+                [
+                  "④ 排计划会话开着",
+                  strip(
+                    `${lvl3()}<span class="now"><b>排计划中</b></span><span class="sp"></span><span class="live"></span><button class="btn outline sm">回到会话</button>`,
+                  ),
+                ],
+                ...commonRows().slice(1),
+              ]),
+          },
+          {
+            L: "2C",
+            name: "同 A，排课之前点阵画出固定的 4 步和一段虚线",
+            desc: "① 同 A。③④ 级名后面先是一段虚线（课的位置），再是速查表、过关项目、综合测验、升级 4 颗空心圆点，说明写“第 3 级 · 排计划中”；排出课以后虚线换成课的方点。",
+            w: 720,
+            build: () => {
+              const ph = `<span class="trk"><i class="dash"></i>${FIXED4.map(() => `<i class="x ph"></i>`).join("")}</span>`;
+              return stripSet([
+                ["① 上课会话还在跑（悬停中）", busyRow()],
+                commonRows()[0],
+                [
+                  "③ 这一级还没排课",
+                  strip(
+                    `${lvl3()}${ph}<span class="now"><b>第 3 级 · 还没排课</b></span><span class="sp"></span>${btnP("排计划")}`,
+                  ),
+                ],
+                [
+                  "④ 排计划会话开着",
+                  strip(
+                    `${lvl3()}${ph}<span class="now"><b>第 3 级 · 排计划中</b></span><span class="sp"></span><span class="live"></span><button class="btn outline sm">回到会话</button>`,
+                  ),
+                ],
+                ...commonRows().slice(1),
+              ]);
+            },
+          },
+        ],
+      };
+
+      /* =====================================================================
+         3 · 漏洞列表
+         ===================================================================== */
+      const gapsWin = (body, w = 272) =>
+        `<div class="win open" style="width:${w}px"><div class="pad"><div class="sect" style="margin-top:0"><div class="h"><span>漏洞</span><em class="small" style="font-style:normal">5 个没补</em></div>${body}</div></div></div>`;
+      const feynBtn = (on = false) =>
+        `<span class="rbtn" style="${on ? "color:var(--tint);box-shadow:inset 0 0 0 1px var(--tint)" : ""}">${ic("Idea01", "s12")}</span>`;
+      const hoverAct = () =>
+        `<span class="act">${feynBtn(true)}<span class="roundchk">${ic("Tick02", "s12")}</span><span class="tip" style="right:24px;top:28px">跑费曼</span></span>`;
+      const P3 = {
+        title: "3 · 漏洞列表（这一级 / 之前带来的，漏洞旁的“跑费曼”）",
+        why: "漏洞是整个方向一份，升级不搬；带来的漏洞不进步骤条，只能从这里开费曼。现在在第 2 级：这一级 3 个（1 个已补），第 1 级带来 2 个没补，第 1 级还有 4 个早补了的。第一条是悬停的样子。3A 的勾“标为已补”沿用 ML2。",
+        opts: [
+          {
+            L: "3A",
+            name: "一个列表，悬停出“跑费曼”和勾",
+            desc: "没补的在前，来源写全（带来的写“第 1 级 · …”），已补的划掉、全都列在后面。悬停一条出两个 22px 圆按钮：灯泡（跑费曼）和勾（标为已补）。",
+            w: 272,
+            build: () =>
+              gapsWin(
+                `<div class="card">${gapRow(G.g1, { cls: "hover", act: hoverAct() })}${gapRow(G.g3)}${gapRow(G.c1)}${gapRow(G.c2)}${gapRow(G.g2, { fixed: true })}${gapRow(["所有权移动后原变量不能再用", "第 1 级 · 测验第 1 题"], { fixed: true })}${gapRow(["<code>loop</code> 能带返回值", "第 1 级 · 测验第 3 题"], { fixed: true })}</div>`,
+              ),
+          },
+          {
+            L: "3B",
+            reco: true,
+            name: "分“这一级”和“之前带来的”两组，旧的已补收成一行",
+            desc: "上面“这一级”：没补的、已补的都列；下面“之前带来的 2 个”只列没补的；之前几级已补的收成一行“之前已补 4 个 ›”，点开看。按钮同 A，悬停出现。",
+            w: 272,
+            build: () =>
+              gapsWin(
+                `<div class="ghead">这一级<span class="n">2 个没补</span></div><div class="card">${gapRow(G.g1, { cls: "hover", act: hoverAct() })}${gapRow(G.g3)}${gapRow(G.g2, { fixed: true })}</div><div class="ghead">之前带来的<span class="n">2 个</span></div><div class="card">${gapRow(G.c1)}${gapRow(G.c2)}<div class="collrow">${ic("ArrowRight01", "s12")}之前已补<span class="n">4 个</span></div></div>`,
+              ),
+          },
+          {
+            L: "3C",
+            name: "同 B，“跑费曼”常显成行尾的小字按钮",
+            desc: "分组同 B。每条没补的漏洞下面常显一个小字按钮“跑费曼”（已有费曼会话时写“回到费曼”，在跑时前面绿点）；勾只在悬停时出。一眼看得到能补，但每条多一行。",
+            w: 272,
+            build: () => {
+              const fb = (t = "跑费曼", live = false) =>
+                `<span style="display:inline-flex;align-items:center;gap:5px;margin-top:4px">${live ? `<span class="live"></span>` : ""}<span class="inline-link" style="display:inline-flex;align-items:center;gap:3px">${ic("Idea01", "s12")}${t}</span></span>`;
+              const g = (x, o = {}) => gapRow(x, { ...o, src: `${x[1]}<br>${fb(o.ft, o.live)}` });
+              return gapsWin(
+                `<div class="ghead">这一级<span class="n">2 个没补</span></div><div class="card">${g(G.g1, { cls: "hover", act: `<span class="act"><span class="roundchk">${ic("Tick02", "s12")}</span></span>` })}${g(G.g3, { ft: "回到费曼", live: true })}${gapRow(G.g2, { fixed: true })}</div><div class="ghead">之前带来的<span class="n">2 个</span></div><div class="card">${g(G.c1)}${g(G.c2)}<div class="collrow">${ic("ArrowRight01", "s12")}之前已补<span class="n">4 个</span></div></div>`,
+              );
+            },
+          },
+        ],
+      };
+
+      /* =====================================================================
+         4 · 升级确认框
+         ===================================================================== */
+      const homeBg = (h) =>
+        `<div style="padding:20px 22px;opacity:.9"><h3 class="ptitle">${NAME} <span class="tag tint">第 2 级 · ${LADDER[1].n}</span></h3><p class="psub">能写出不靠 clone 的 Rust CLI · Rust 2024 · 每周 4–6 小时</p><div class="lessons" style="margin-top:16px">${row(7, { state: "done", tick: "ok" })}${row(8, { state: "done", tick: "ok", below: `<div class="sess">${chip("exam", "综合测验", "72/100")}</div>` })}${row(9, { state: "next" })}</div></div>`;
+      const dlgWin = (dialog, h = 470) =>
+        `<div class="win" style="height:${h}px;position:relative">${tabbar([], true)}${strip(`${lvl()}${trk(9)}<span class="now"><b>第 10 步 · 升到第 3 级</b></span><span class="sp"></span>${btnP("升级")}`)}${homeBg()}<div class="scrim">${dialog}</div></div>`;
+      const dlgWinLast = (dialog, h = 360) =>
+        `<div class="win" style="height:${h}px;position:relative">${tabbar([], true)}${strip(`${lvl(`第 5 级 · ${LADDER[4].n}`)}${trk(9, "", LAST)}<span class="now"><b>第 10 步 · 学完</b></span><span class="sp"></span>${btnP("学完")}`)}<div style="height:300px"></div><div class="scrim">${dialog}</div></div>`;
+      const dBody = ({ title, text, n, extra = "", gaps = 3, run = 2, btn = "升级并排计划", afterCb = "" }) =>
+        `<div class="dialog"><h3>${title}</h3><p>${text}</p><div class="opt-line"><span class="cb">${ic("Tick02", "s12")}</span>把${n}</div><div class="hint">档案和笔记都留着，会话能在“已归档”里恢复。</div>${afterCb}${gaps ? `<div class="line"><span class="mk"></span>还没补的 ${gaps} 个漏洞带到第 3 级。</div>` : ""}${extra}${run ? `<div class="danger">会停掉 ${run} 个在跑的会话。</div>` : ""}<div class="foot"><button class="btn ghost">先不升</button><button class="btn primary">${btn}</button></div></div>`;
+      const up = (o = {}) =>
+        dBody({
+          title: "升到第 3 级「trait 与泛型」",
+          text: "第 2 级前面的 9 步都做完了。确定后开一个“排计划”会话，排第 3 级的课。",
+          n: "第 2 级的 23 个会话一起归档",
+          ...o,
+        });
+      const last = (o = {}) =>
+        dBody({
+          title: "学完最后一级",
+          text: "第 5 级前面的 9 步都做完了。确定后这个方向标为“已学完”，还能随口问、复习。",
+          n: "第 5 级的 18 个会话一起归档",
+          gaps: 0,
+          run: 0,
+          btn: "学完",
+          ...o,
+        });
+      const sessList = () =>
+        `<div class="dlist"><div class="dh">按步骤<span class="lk">收起</span></div>${[
+          ["所有权与移动", "上课、测验", "2"],
+          ["借用规则", "上课、测验、费曼 2", "4"],
+          ["生命周期标注", "上课、测验、费曼", "3"],
+          ["…… 另外 5 步", "", "12"],
+          ["综合测验", "综合测验", "2"],
+        ]
+          .map(
+            ([t, k, n]) =>
+              `<div class="dr"><span class="t">${t}</span><span class="dim">${k}</span><span class="m">${n}</span></div>`,
+          )
+          .join("")}</div>`;
+      const scoreBlock = (rows, sum) =>
+        `<div class="scores"><div class="sh">这一级的成绩</div>${rows
+          .map(
+            ([t, s, of]) =>
+              `<div class="sr"><span class="t">${t}</span><span class="bar"><i style="width:${(s / of) * 100}%"></i></span><span class="v">${s}/${of}</span></div>`,
+          )
+          .join(
+            "",
+          )}<div class="sr sum"><span class="t">${sum[0]}</span><span class="bar"><i style="width:${(sum[1] / sum[2]) * 100}%"></i></span><span class="v">${sum[1]}/${sum[2]}</span></div></div>`;
+      const P4 = {
+        title: "4 · 升级确认框",
+        why: "同“归档确认框”。复选框默认勾上；有没补的漏洞时写带几个到下一级（按整个方向没补的）；勾着且有会话在跑时红字写会停几个。每种上面是中间一级，下面是最后一级的“学完”版（不提排计划、没有漏洞时不写那一行）。",
+        opts: [
+          {
+            L: "4A",
+            reco: true,
+            name: "照归档确认框：标题、正文、复选框、漏洞一行、红字一行",
+            desc: "最少的内容，和归档方向的确认框一个样子。",
+            w: 520,
+            build: () => `<div class="stack">${dlgWin(up())}${dlgWinLast(last())}</div>`,
+          },
+          {
+            L: "4B",
+            name: "同 A，复选框下面列出这一级的会话（按步骤，可收起）",
+            desc: "勾上以后下面一块浅底列表，按步骤列出会归档哪些会话、各几个；默认收起成一行“按步骤看 ›”，这里画的是展开的。",
+            w: 520,
+            build: () =>
+              `<div class="stack">${dlgWin(up({ afterCb: sessList() }), 600)}${dlgWinLast(last({ afterCb: `<div class="dlist"><div class="dh">按步骤看 ›</div></div>` }), 400)}</div>`,
+          },
+          {
+            L: "4C",
+            name: "同 A，再加一小块这一级的成绩",
+            desc: "正文下面一块：各课测验的分数（小横条）和综合测验的分数。升级前看一眼，自己判断过没过。",
+            w: 520,
+            build: () =>
+              `<div class="stack">${dlgWin(
+                up({
+                  extra: scoreBlock(
+                    [
+                      ["所有权与移动", 42, 50],
+                      ["借用规则", 32, 50],
+                      ["生命周期标注", 28, 40],
+                      ["切片与 String", 50, 60],
+                      ["智能指针", 30, 50],
+                      ["错误处理", 44, 50],
+                    ],
+                    ["综合测验", 72, 100],
+                  ),
+                }),
+                680,
+              )}${dlgWinLast(last({ extra: scoreBlock([], ["综合测验", 86, 100]) }), 420)}</div>`,
+          },
+        ],
+      };
+
+      /* =====================================================================
+         5 · 方向里归档了的会话
+         ===================================================================== */
+      const archRows = (hoverFirst = true) =>
+        `<div class="sgh">所有权与移动</div><div class="srow arch ${hoverFirst ? "hover" : ""}">${ic("BookOpen01", "s14")}<span class="t">上课 · 所有权与移动</span>${hoverFirst ? `<span class="lk">恢复</span>` : `<span class="m">11月2日</span>`}</div><div class="srow arch">${ic("Quiz01", "s14")}<span class="t">测验 · 所有权与移动</span><span class="m">42/50</span></div><div class="sgh">借用规则</div><div class="srow arch">${ic("BookOpen01", "s14")}<span class="t">上课 · 借用规则</span><span class="m">11月3日</span></div><div class="srow arch">${ic("Idea01", "s14")}<span class="t">费曼 · &amp;mut 借用</span><span class="m">11月4日</span></div><div class="sgh" style="padding-bottom:6px">…… 另外 19 个</div>`;
+      const ladder3 = (openBody = "", openIdx = -1) =>
+        `<div class="side-list">${LADDER.map((l, k) => {
+          const st = k < 2 ? "done" : k === 2 ? "cur" : "lock";
+          const m = k === 2 ? "当前" : "";
+          const r = `<div class="lvc ${st === "lock" ? "lock" : ""} ${k === openIdx ? "open" : ""}">${ladderNode(st)}<span class="nm">第 ${k + 1} 级 · ${l.n}</span><span class="m">${m}</span><span class="dim" style="display:inline-flex;transform:rotate(${k === openIdx ? 90 : 0}deg)">${ic("ArrowRight01", "s12")}</span></div>`;
+          return k === openIdx ? r + openBody : r;
+        }).join("")}</div>`;
+      const others = (extra = "") =>
+        `<div class="side-list"><div class="srow">${ic("Message01", "s14")}<span class="t">讨论 · 排阶梯</span><span class="m">11月1日</span></div><div class="srow">${ic("Message01", "s14")}<span class="t">生命周期省略规则</span><span class="m">昨天</span></div>${extra}</div>`;
+      const head3 = () =>
+        `<h3 class="ptitle">${NAME} <span class="tag tint">第 3 级 · ${LADDER[2].n}</span></h3><p class="psub">能写出不靠 clone 的 Rust CLI · Rust 2024 · 每周 4–6 小时</p>`;
+      const hero3 = () =>
+        `<div class="card hero"><div class="eyebrow">第 1 步 · 上课</div><div class="big">trait 是什么</div><div class="desc">给 lab/ 里的统计工具定义一个 Formatter trait，先实现纯文本输出。</div><div class="row2"><button class="btn primary">${ic("BookOpen01", "s14")}开始上课</button></div></div>`;
+      const STEPS3 = [
+        { t: "trait 是什么", k: "lesson" },
+        { t: "泛型函数与约束", k: "lesson" },
+        { t: "迭代器", k: "lesson" },
+      ];
+      const steps3 = () =>
+        `<div class="lessons">${row(0, { state: "next", steps: STEPS3 })}${row(1, { steps: STEPS3 })}${row(2, { steps: STEPS3 })}</div>`;
+      const homeWin3 = (main, side, h = 640, stripHtml) =>
+        `<div class="win" style="height:${h}px;display:flex;flex-direction:column"><div style="flex:0 0 auto">${tabbar([], true)}${stripHtml ?? strip(`${lvl3()}${trk(0, "", [...STEPS3, ...STEPS3, ...FIXED4])}<span class="now"><b>第 1 步 · trait 是什么</b> · 还没开始</span><span class="sp"></span>${btnP("开始上课")}`)}</div><div style="flex:1;overflow:hidden"><div style="padding:20px 18px"><div class="twocol"><div>${main}</div><div>${side}</div></div></div></div></div>`;
+      const gapsSide3 = () =>
+        `<div class="card">${gapRow(G.g1, { src: "第 2 级 · 借用规则 · 测验第 3 题" })}${gapRow(G.g4, { src: "第 2 级 · 综合测验第 8 题" })}</div>`;
+      const P5 = {
+        title: "5 · 方向里归档了的会话",
+        why: "升到第 3 级时，第 2 级的 23 个会话一起归档了（档案、笔记都在）。它们放在哪、怎么恢复。打开一个归档的会话能看，发消息前要先恢复（下面“共用”）。",
+        opts: [
+          {
+            L: "5A",
+            name: "右栏“其他会话”下面一行“已归档 N”，点开按级分组",
+            desc: "右栏“其他会话”最后一行“已归档 41 ›”（第 1、2 级加起来），点开在原地按级、按步骤分组列出；悬停一行出“恢复”，组头有“恢复这一级”。",
+            w: 720,
+            build: () =>
+              homeWin3(
+                `${head3()}<div style="margin-top:16px">${hero3()}</div>${sect("第 3 级的步骤", steps3())}`,
+                `${sect("阶梯 · 5 级", ladder3())}${sect(
+                  "其他会话",
+                  others(
+                    `<div class="srow open" style="color:var(--text-muted)">${ic("Archive02", "s14")}<span class="t">已归档</span><span class="m">41</span><span class="dim" style="display:inline-flex;transform:rotate(90deg)">${ic("ArrowRight01", "s12")}</span></div><div class="sgh" style="display:flex">第 2 级 · 23 个<span style="margin-left:auto;color:var(--tint)">恢复这一级</span></div>${archRows()}<div class="sgh">第 1 级 · 18 个 ›</div>`,
+                  ),
+                )}`,
+                700,
+              ),
+          },
+          {
+            L: "5B",
+            reco: true,
+            name: "阶梯里展开那一级，多一段“会话 N 个 · 已归档”",
+            desc: "阶梯点开第 2 级，在“学什么 / 怎样算过关 / 状态”下面多一段“会话 23 个 · 已归档 ›”，点开按步骤列出，悬停一行出“恢复”。会话本来就按级来，放在那一级下面最好找。",
+            w: 720,
+            build: () =>
+              homeWin3(
+                `${head3()}<div style="margin-top:16px">${hero3()}</div>${sect("第 3 级的步骤", steps3())}`,
+                `${sect(
+                  "阶梯 · 5 级",
+                  ladder3(
+                    `<dl class="lvx"><dt>学什么</dt><dd>${LADDER[1].m}</dd><dt>状态</dt><dd>11月8日学完 · 综合测验 72/100</dd><dt style="display:flex;align-items:center;gap:4px">会话 23 个 · 已归档 <span style="display:inline-flex;transform:rotate(90deg)">${ic("ArrowRight01", "s12")}</span></dt></dl><div style="margin:-2px 0 6px 22px">${archRows()}</div>`,
+                    1,
+                  ),
+                )}${sect("其他会话", others())}`,
+                760,
+              ),
+          },
+          {
+            L: "5C",
+            name: "主页最底下一个可收起的“已归档的会话”区",
+            desc: "左栏这一级的步骤下面，一段默认收起的“已归档的会话 · 41”，点开按级、按步骤列出，悬停出“恢复”。和侧栏“已归档的对话”一个意思。",
+            w: 720,
+            build: () =>
+              homeWin3(
+                `${head3()}<div style="margin-top:16px">${hero3()}</div>${sect("第 3 级的步骤", steps3())}${sect(
+                  `<span style="display:inline-flex;align-items:center;gap:4px"><span style="display:inline-flex;transform:rotate(90deg)">${ic("ArrowRight01", "s12")}</span>已归档的会话 · 41</span>`,
+                  `<div class="lessons" style="padding:6px"><div class="sgh" style="display:flex">第 2 级 · ${LADDER[1].n} · 23 个<span style="margin-left:auto;color:var(--tint)">恢复这一级</span></div>${archRows()}<div class="sgh">第 1 级 · ${LADDER[0].n} · 18 个 ›</div></div>`,
+                )}`,
+                `${sect("阶梯 · 5 级", ladder3())}${sect("其他会话", others())}`,
+                820,
+              ),
+          },
+        ],
+        shared: {
+          title: "共用：打开一个归档了的会话",
+          desc: "对话记录照常显示；输入框的位置换成一行说明和“恢复”（同工作区里归档的会话）。点开看不会把它放回列表。",
+          w: 560,
+          build: () =>
+            sessionWin(
+              [["lesson", "上课 · 借用规则", true]],
+              strip(
+                `${lvl3()}${trk(0, "", [...STEPS3, ...STEPS3, ...FIXED4])}<span class="now"><b>第 1 步 · trait 是什么</b> · 还没开始</span><span class="sp"></span>${btnP("开始上课")}`,
+              ),
+              lessonTail(),
+              `<div class="composer-wrap"><div class="rolock">${ic("Archive02", "s14")}这个会话已归档，恢复以后才能接着发<span class="lk"><button class="btn outline sm">恢复</button></span></div></div>`,
+              300,
+            ),
+        },
+      };
+
+      /* =====================================================================
+         6 · 升级后、课还没排出来时的主页
+         ===================================================================== */
+      const planStrip = () =>
+        strip(
+          `${lvl3()}<span class="now"><b>排计划中</b></span><span class="sp"></span><span class="live"></span><button class="btn outline sm">回到会话</button>`,
+        );
+      const side6 = () =>
+        `${sect("阶梯 · 5 级", ladder3())}${sect("漏洞", `<div class="ghead">这一级<span class="n">还没有</span></div><div class="ghead">之前带来的<span class="n">2 个</span></div>${gapsSide3()}`)}${sect("其他会话", others())}`;
+      const P6 = {
+        title: "6 · 升级后、这一级的课还没排出来时的主页",
+        why: "刚升到第 3 级，排计划会话开着、还在跟你确认课表（agent 先问再写）。也可能排计划没开成、或者你关掉了：那时按钮是“排计划”。步骤条按 2 选的样子（这里画 2A）。",
+        opts: [
+          {
+            L: "6A",
+            reco: true,
+            name: "当前步骤卡换成“排计划”卡，步骤列表是空的占位",
+            desc: "卡片：排计划图标、“第 3 级还没排课”、一句说明、按钮（开着时“回到会话”，没开时“开始排计划”）。下面“第 3 级的步骤”是一块虚线占位。",
+            w: 720,
+            build: () =>
+              homeWin3(
+                `${head3()}<div style="margin-top:16px"><div class="card hero"><div class="eyebrow" style="display:flex;align-items:center;gap:5px">${ic("Target02", "s14")}第 3 级 · 排计划</div><div class="big">第 3 级还没排课</div><div class="desc">排计划会话按阶梯和带来的 2 个漏洞排出这一级的课，问过你才写进去。</div><div class="row2"><span class="live"></span><button class="btn outline">回到会话</button></div></div></div>${sect("第 3 级的步骤", `<div class="emptyph">课排出来以后列在这里，后面接速查表、过关项目、综合测验、升级。</div>`)}`,
+                side6(),
+                560,
+                planStrip(),
+              ),
+          },
+          {
+            L: "6B",
+            name: "步骤列表画出固定的 4 步，课的位置一行虚线",
+            desc: "当前步骤卡同 A。步骤列表第一行是虚线框“等排计划会话排出课”（行尾“回到会话”），下面照常是速查表、过关项目、综合测验、升到第 4 级 4 行（灰的）。一眼看到这一级的形状。",
+            w: 720,
+            build: () => {
+              const S = [
+                { t: "速查表", k: "sheet" },
+                { t: "过关项目：可插拔的输出格式", k: "project" },
+                { t: "综合测验", k: "exam" },
+                { t: "升到第 4 级", k: "up" },
+              ];
+              return homeWin3(
+                `${head3()}<div style="margin-top:16px"><div class="card hero"><div class="eyebrow" style="display:flex;align-items:center;gap:5px">${ic("Target02", "s14")}第 3 级 · 排计划</div><div class="big">第 3 级还没排课</div><div class="row2"><span class="live"></span><button class="btn outline">回到会话</button></div></div></div>${sect(
+                  "第 3 级的步骤",
+                  `<div class="lessons"><div class="dashrow">${ic("Target02", "s14")}<span>等排计划会话排出课</span><span class="sp"></span><span class="inline-link">回到会话</span></div>${S.map((s, i) => row(i, { steps: S })).join("")}</div>`,
+                )}`,
+                side6(),
+                560,
+                planStrip(),
+              );
+            },
+          },
+          {
+            L: "6C",
+            name: "主页照常，只有步骤条上有按钮",
+            desc: "不加卡片：没有当前步骤卡，步骤列表只有一行灰字“还没排课”。要做的事只在步骤条上（回到会话 / 排计划）。最省，但主页上看不出该干什么。",
+            w: 720,
+            build: () =>
+              homeWin3(
+                `${head3()}${sect("第 3 级的步骤", `<div class="lessons" style="padding:12px 14px;color:var(--text-dim);font-size:var(--fs-meta)">还没排课</div>`)}`,
+                side6(),
+                560,
+                planStrip(),
+              ),
+          },
+        ],
+      };
+
+      /* =====================================================================
+         7 · 学习工具在过程轨道上的样子
+         ===================================================================== */
+      const turnCard = (label, inner) =>
+        `<div class="win"><div class="strip-label">${label}</div><div class="conv" style="padding-top:8px">${inner}</div></div>`;
+      const phead = (t) =>
+        `<div class="phead"><span class="dim" style="display:inline-flex;transform:rotate(90deg)">${ic("ArrowRight01", "s12")}</span>${t}</div>`;
+      const P7_A = () =>
+        `<div class="stack">${turnCard(
+          "测验 · 答完第 5 题以后",
+          `${phead("已完成，用时 18 秒")}<div class="rail"><div class="rs"><span class="v">调用</span><span class="tool">study_add_gap</span><span class="o dim">{ text: "Rc 和 Arc 的区别…" }</span></div><div class="rs"><span class="v">调用</span><span class="tool">study_report</span><span class="o dim">{ score: 32, of: 50 }</span></div></div><div class="reply"><p><b>测验结束 · 32 / 50</b>。记下了 1 个漏洞。</p></div>`,
+        )}${turnCard(
+          "费曼 · 讲清楚以后",
+          `${phead("已完成，用时 9 秒")}<div class="rail"><div class="rs"><span class="v">写入</span><span class="o">notes/费曼-Rc-与-Arc.md</span></div><div class="rs"><span class="v">调用</span><span class="tool">study_fix_gap</span><span class="o dim">{}</span></div></div>`,
+        )}${turnCard(
+          "排计划 · 你确认以后",
+          `${phead("已完成，用时 6 秒")}<div class="rail"><div class="rs"><span class="v">调用</span><span class="tool">study_set_steps</span><span class="o dim">{ lessons: ["trait 是什么", …] }</span></div></div>`,
+        )}</div>`;
+      const P7_B = (sq) => {
+        const c = (k) => (sq ? `sq-${k}` : "");
+        return `<div class="stack">${turnCard(
+          "测验 · 答完第 5 题以后（第二行点开了）",
+          `${phead("已完成，用时 18 秒")}<div class="rail"><div class="rs ${c("attn")}"><span class="v">记下漏洞</span><span class="dot">·</span><span class="o">Rc 和 Arc 的区别，什么时候要配 RefCell</span><span class="chev">${ic("ArrowRight01", "s12")}</span></div><div class="rs"><span class="v">报告</span><span class="dot">·</span><span class="o">测验 32 / 50</span><span class="chev" style="transform:rotate(90deg)">${ic("ArrowRight01", "s12")}</span></div><div class="detail"><span class="k">study_report</span>  { "score": 32, "of": 50 }\n<span class="k">写到</span>  第 2 级第 5 步 · 测验</div></div><div class="reply"><p><b>测验结束 · 32 / 50</b>。记下了 1 个漏洞。</p></div>`,
+        )}${turnCard(
+          "费曼 · 讲清楚以后",
+          `${phead("已完成，用时 9 秒")}<div class="rail"><div class="rs"><span class="v">写入</span><span class="o">notes/费曼-Rc-与-Arc.md</span></div><div class="rs ${c("ok")}"><span class="v">补上漏洞</span><span class="dot">·</span><span class="o">Rc 和 Arc 的区别，什么时候要配 RefCell</span><span class="chev">${ic("ArrowRight01", "s12")}</span></div></div>`,
+        )}${turnCard(
+          "排计划 · 你确认以后",
+          `${phead("已完成，用时 6 秒")}<div class="rail"><div class="rs"><span class="v">排了课</span><span class="dot">·</span><span class="o">第 3 级 · 6 节</span><span class="chev">${ic("ArrowRight01", "s12")}</span></div></div>`,
+        )}</div>`;
+      };
+      const P7 = {
+        title: "7 · 学习工具在过程轨道上的样子",
+        why: "study_report、study_add_gap、study_fix_gap、study_set_steps 四个工具。宿主只给工具名和参数，说法由界面按工具名写。这一处第一阶段没有预设推荐。",
+        opts: [
+          {
+            L: "7A",
+            name: "普通工具步骤，不改",
+            desc: "同别的扩展工具：“调用 工具名”加参数摘要。不用改过程轨道，但学生看到的是英文工具名和 JSON。",
+            w: 520,
+            build: P7_A,
+          },
+          {
+            L: "7B",
+            name: "一行人话，点开看参数",
+            desc: "“记下漏洞 · 文字”“报告 · 测验 32 / 50”“补上漏洞 · 文字”“排了课 · 第 3 级 · 6 节”；节点是普通圆点；点开是详情块（工具名、参数、写到第几级第几步）。",
+            w: 520,
+            build: () => P7_B(false),
+          },
+          {
+            L: "7C",
+            name: "同 B，记漏洞、补漏洞的节点换成主页漏洞的小方块",
+            desc: "记下漏洞那一行的节点是 7px 橙色小方块（--attn），补上漏洞是绿色小方块（--ok），和主页漏洞列表的方块一致；别的同 B。",
+            w: 520,
+            build: () => P7_B(true),
+          },
+        ],
+      };
+
+      /* ---------- 渲染 ---------- */
+      const PARTS = [P1, P2, P3, P4, P5, P6, P7];
+      document.getElementById("toc").innerHTML = PARTS.map((p, k) => `<a href="#part-${k + 1}">${p.title}</a>`).join(
+        "",
+      );
+      document.getElementById("parts").innerHTML = PARTS.map(
+        (p, k) =>
+          `<section class="part" id="part-${k + 1}"><h2>${p.title}</h2><p class="why">${p.why}</p>${p.opts
+            .map(
+              (o) =>
+                `<div class="opt" id="opt-${o.L}"><div class="oh"><span class="letter">${o.L}</span><b>${o.name}</b>${o.reco ? `<span class="reco">推荐</span>` : ""}</div><p class="od">${o.desc}</p>${pair(o.build, o.w)}</div>`,
+            )
+            .join("")}${
+            p.shared
+              ? `<div class="opt"><div class="oh"><span class="letter" style="background:#6e6e74">共用</span><b>${p.shared.title}</b></div><p class="od">${p.shared.desc}</p>${pair(p.shared.build, p.shared.w)}</div>`
+              : ""
+          }</section>`,
+      ).join("");
+    </script>
+  </body>
+</html>

@@ -60,6 +60,7 @@ function changesOf(changes: ReportDetail["changes"]): AgentNoticeEvent["changes"
  * @returns The source, or `null`.
  */
 export function agentSource(details: MessageDetails): AgentSource | null {
+  if (details.kind === "study") return { kind: "study", study: details.study };
   if (details.kind === "task") {
     return {
       kind: "task",

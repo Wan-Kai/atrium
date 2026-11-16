@@ -27,5 +27,6 @@
 | [0002](0002-child-conversations.md) | 子对话与子代理 | 草稿 | 2026-10-16 |
 | [0003](0003-agent-asks-user.md) | agent 向你提问 | 已确认 | 2026-10-21 |
 | [0005](0005-mobile-app-and-remote-access.md) | 手机端与远程访问（SwiftUI App、自建 relay、Noise 端到端加密） | 已确认 | 2026-10-25 |
+| [0006](0006-tasks-and-task-graph.md) | 任务与任务图 | 已确认 | 2026-11-04 |
 | [0007](0007-inline-visuals.md) | 对话里的交互演示 | 评审中 | 2026-11-05 |
 | [0008](0008-study-mode.md) | 学习模式 | 评审中 | 2026-11-05 |

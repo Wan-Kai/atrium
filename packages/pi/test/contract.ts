@@ -116,7 +116,12 @@ async function sessionLines(sessionsDir: string): Promise<JsonObject[]> {
 export async function runScenario(
   options: {
     readonly scenario: string;
-    readonly script: FauxScript;
+    /** The faux model's replies; a function gets the working directory, for scripts that name paths in it. */
+    readonly script: FauxScript | ((cwd: string) => FauxScript);
+    /** Skip the fixture: for scenarios that assert on files, timing or order rather than on pi's traffic. */
+    readonly unrecorded?: boolean;
+    /** A directory under the working directory (created) to use as pi's HOME instead of the working directory. */
+    readonly home?: string;
     readonly session?: boolean;
     /** Contents of pi's `settings.json`, such as compaction thresholds. */
     readonly settings?: object;
@@ -133,7 +138,10 @@ export async function runScenario(
   const dir = await createTempDir("contract");
   try {
     const cwd = await realpath(dir.path);
-    const launch = await fauxPi(options.script, cwd);
+    const script = typeof options.script === "function" ? options.script(cwd) : options.script;
+    const home = options.home === undefined ? cwd : join(cwd, options.home);
+    await mkdir(home, { recursive: true });
+    const launch = await fauxPi(script, cwd);
     if (options.settings !== undefined) {
       await writeFile(join(cwd, "pi-agent", "settings.json"), JSON.stringify(options.settings));
     }
@@ -166,7 +174,7 @@ export async function runScenario(
       {
         scenario: options.scenario,
         pi: version,
-        script: options.script,
+        script,
         args: [...sessionArgs.map((arg) => arg.replace(sessionsDir, "<sessions>")), ...(options.args ?? [])],
       },
       normalize,
@@ -184,7 +192,7 @@ export async function runScenario(
         env: { ...launch.env, ...options.env },
       },
       // TMPDIR too, so pi's own temporary files land in the run's directory, which is cleaned up.
-      contractDeps({ PATH: path, HOME: cwd, TMPDIR: tmpdir() }),
+      contractDeps({ PATH: path, HOME: home, TMPDIR: tmpdir() }),
       { tap: recorder.tap },
     );
     const events: PiEvent[] = [];
@@ -216,7 +224,7 @@ export async function runScenario(
     }
     if (options.session === true) recorder.session(await sessionLines(sessionsDir));
     const records = recorder.records();
-    await recordOrCheck(options.scenario, version, records);
+    if (options.unrecorded !== true) await recordOrCheck(options.scenario, version, records);
     return records;
   } finally {
     await dir.cleanup();

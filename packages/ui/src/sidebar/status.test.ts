@@ -31,6 +31,7 @@ function session(sessionId: string, fields: Partial<SessionSummary> = {}): Sessi
     parent: null,
     agent: null,
     heldDeliveries: 0,
+    kickoff: null,
     study: null,
     ...fields,
   };
@@ -96,7 +97,7 @@ describe("inboxOf", () => {
       session("signin", auth(5)),
       session("signin-seen", auth(3, true)),
       session("question", { asking: 1, ...error(70) }),
-      // A finished run waits for nothing: it shows a dot in the list, never here (SPEC-0005, 协议 36).
+      // A finished run waits for nothing: it shows a dot in the list, never here (SPEC-0005, 协议 40).
       session("finished", finished(80)),
       session("finished-seen", finished(90, true)),
     ]);

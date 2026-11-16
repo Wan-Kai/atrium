@@ -69,7 +69,7 @@ atrium/
 │   │       ├── ids.ts              prj_ / wks_ / 会话 id 的品牌类型
 │   │       ├── entities/           线上实体：项目、工作区、会话摘要，对话记录的轮、步骤、系统事件，
 │   │       │                       待交互，指标，上下文分段
-│   │       ├── commands/           按领域分文件：projects、workspaces、sessions、run、catalog、setup
+│   │       ├── commands/           按领域分文件：projects、workspaces、sessions、run、catalog、setup、tasks（SPEC-0006）
 │   │       ├── events/             同上
 │   │       ├── sync.ts             generation+seq、epoch+seq、游标、快照或增量的信封
 │   │       ├── json-schema.ts      按导出名登记全部 schema，导出 JSON Schema（`pnpm protocol:swift` 用，ADR-0015）
@@ -90,6 +90,8 @@ atrium/
 │   │   │   │                       和宿主这边的调用（登录状态、OAuth、API Key、退出）
 │   │   │   ├── edit/               停止消息编辑：受保护的同会话无摘要导航、失败恢复与隐藏命令编码
 │   │   │   ├── fast/               Fast：哪些模型支持的规则，和交给 pi 加载的扩展（ADR-0008）
+│   │   │   ├── task/               任务扩展（SPEC-0006）：节点工具 node_done / request_graph_change、任务对话的工具、路径隔离的 tool_call 钩子、
+│   │   │   │                       隐藏命令 `/atrium-task` 的参数和 schema；走 ADR-0013 的通道
 │   │   │   ├── agent/              子对话：隐藏命令 `/atrium-agent` 的参数、给模型的说明，扩展的这一部分（SPEC-0002、ADR-0013）
 │   │   │   ├── stats/              会话统计；UsageReader 增量读会话文件里的用量（子对话的"含子对话"，SPEC-0002）
 │   │   │   ├── visuals/            交互演示（SPEC-0007）：`--atrium-visuals` 参数、系统提示里的说明、外壳可用的图标名单
@@ -113,13 +115,18 @@ atrium/
 │   │   │   │                       和用量合计（children-usage，SPEC-0002）；stopped-edit 负责停止消息编辑的分支事务和恢复；
 │   │   │   │                       reply-translation 管理按连接归属的临时翻译与取消，不写会话
 │   │   │   ├── study/              学习方向（SPEC-0008，ML1）：扫描和监听学习目录（Directions）、起名、建方向目录、
-│   │   │   │                       方向的命令（新建、归档、恢复，经 SessionManager 建会话、停 pi）
+│   │   │   │                       方向的命令（新建、归档、恢复，经 SessionManager 建会话、停 pi）；
+│   │   │   │                       进度（ML2）：progress（读 `.atrium-study.json`）、progress-file（排队、原子写）、
+│   │   │   │                       progress-rules（工具、手动标记、下一步，纯函数）、study-tools（答扩展的 `study_*` 工具）
 │   │   │   ├── transcript/         SessionLog（日志条目树、叶子、当前分支）、TranscriptProjection
 │   │   │   ├── status/             会话状态、工作区和项目的汇总（纯函数）
 │   │   │   ├── sync/               订阅表、列表推送（M1.5 整份快照，M1.9 加 generation+seq 增量）
 │   │   │   ├── setup/              Toolbox（找到的工具，可重新检测）、SetupService、安装和登录任务；PiConfig（固定白名单的普通配置读取、版本检查与原子保存）
 │   │   │   ├── titles/             TitleGenerator：标题的提示词、截断和写回规则
-│   │   │   ├── files/              FileSearch（`@` 引用的候选文件：调 fd，按 pi 终端界面的规则打分）；WorkspaceFiles（M1.12：右栏文件树的目录内容、查看标签的文件内容，只读工作区里的、不跟随链接）
+│   │   │   ├── files/              FileSearch（`@` 引用的候选文件：调 fd，按 pi 终端界面的规则打分）；WorkspaceFiles（M1.12：右栏文件树的目录内容、查看标签的文件内容，只读工作区里的、不跟随链接；ML4 起也读学习方向的目录，给方向主页的档案和方向的查看标签）
+│   │   │   ├── tasks/              任务（SPEC-0006）：TaskService、Scheduler（纯函数 step）、TaskRunner、TaskStore（事件日志与重放）、
+│   │   │   │                       GraphValidator、ScheduleService；用 sessions/、workspaces/、store/、platform/，反过来不用
+│   │   │   ├── reviews/            ReviewHub（ADR-0018）：按会话汇总各来源的待审核、校验裁决的形状、只认第一个裁决、转交给来源的 provider；不知道任务或 agent。任务关卡的 provider 在 `tasks/task-reviews.ts`
 │   │   │   ├── changes/            ChangesService（工作区的 git 改动：胶囊上的合计、右栏"更改"和"改动"标签的 diff，监听有人看的工作区）
 │   │   │   ├── visuals/            交互演示（SPEC-0007，MV1）：演示目录里的路径校验、令牌、外壳和 CSP、按目录监视、
 │   │   │   │                       回传的限速；`/visual/<令牌>/…` 由 server 的 HTTP 处理转来
@@ -140,6 +147,7 @@ atrium/
 │   │       ├── sidebar/            侧栏、搜索、项目与工作区、对话分区（收件箱在 M1.9）
 │   │       ├── study/              学习模式（SPEC-0008）：学习首页、新建方向页、方向主页标签和主页
 │   │       ├── tabs/               标签栏、历史和会话菜单
+│   │       ├── tasks/              任务区（SPEC-0006）：固定的"任务""定时"标签、任务列表、任务标签（图 + 任务对话）
 │   │       ├── children/           子对话：子对话条、面包屑、开子对话的对话框和它们的规则（SPEC-0002）
 │   │       ├── chat/               对话区：消息流、过程、步骤、diff、Streamdown、平滑揭示、提问导航条、输入框；PlantUML 的有界本地 worker、工作区回复图片和全屏预览；受控文件引用与有界 JSON/CSV 查看（2026-10-20）；reply-translation 的临时回复译文；visual-card 交互演示的卡片（iframe、外壳消息、离开视口卸载和截图，SPEC-0007）
 │   │       ├── test/               浏览器测试用的假客户端
@@ -193,7 +201,7 @@ protocol  ←──  pi  ←──  host
 - **RelayLink 的公开回调所有权**：`onState` 是同步公开回调，允许在终态通知中调用 `retryNow()` 或 `stop()`。旧连接尝试只能结算进入该终态时已有的等待者；回调中新建的 retry 必须等新连接的 ready/失败，不能被旧结果结算。回调已经启动新代或停止后，旧 close 不能再挂自动重试 timer；正常自动 backoff 保持。旧 live check 的迟到结果不覆盖停止后或新代的诊断，不额外发布通知。此约束来自真实 socket 的模块公开边界复现，不表示当前 Electron UI 已复现该重入路径。
 - **MP3a 远程边界**：`server/transport.ts`、`server/router.ts` 声明传输和管理命令接口；`remote/` 只依赖这些类型，不 import 服务器实现；`main.ts` 注入 `RunningServer.accept`、订阅表的定向发送、Clock、资源计数和 VaultPort。服务器不 import `remote/`，继续共用会话/工作区服务。主进程 `main/vault.ts` 只处理固定 vault 文件的加解密与有版本的 IPC，不 import 宿主代码。独立宿主不触碰 safeStorage，未启用时不自动读保险箱（显式配置、测试、重置除外）。
 - **回复翻译的边界（M1.11 自用后补充）**：`sessions/reply-translation.ts` 只管理按连接归属的一次性翻译及取消，不控制原会话运行；`SessionManager.replyTranslationSource` 同步提取当前分支已结束轮的正文和当前模型，`main.ts` 注入偏好语言及 pi 一次性调用。服务不依赖 server，router 传连接 id，WebSocket 断开和宿主关闭调用取消；无翻译索引或历史字段。UI 的 `chat/reply-translation.tsx` 只在回复组件内存中保存结果，客户端等待之前的取消清理后再发送新请求，不跨重连补发；设置只写 `translationLanguage`。
-- **交互演示（SPEC-0007，MV1，2026-11-05）**：宿主 `visuals/` 只依赖 `sync`/`store`/`platform` 和 pi 包的名单；它要的会话工作目录、演示目录、按插话发消息都由 `main.ts` 注入（`visualsDirFor(sessionId)` 由会话所在的容器决定，现在只有默认的 `~/.atrium/visuals/<会话 id>/`，ML4 给学习方向换成方向目录下的 `visuals/`）。server 的 HTTP 处理只把 `/visual/` 开头的请求交给它。桌面端 `main/visual-sandbox.ts` 是纯函数（CSP、按站点检查地址），`main.ts` 把它接到 `protocol.handle`、`webRequest.onBeforeRequest` 和截图 IPC 上。界面 `chat/visual-card.tsx` 经 `VisualsContext` 拿到 resolve、发消息、截图的能力，`Markdown` 只把 `visual` 代码块交给它；Hugeicons 的 SVG 在宿主里按名单生成，界面不往 iframe 里送图标。
+- **交互演示（SPEC-0007，MV1，2026-11-05）**：宿主 `visuals/` 只依赖 `sync`/`store`/`platform` 和 pi 包的名单；它要的会话工作目录、演示目录、按插话发消息都由 `main.ts` 注入（`visualsDirFor(sessionId)` 由会话所在的容器决定，默认是 `~/.atrium/visuals/<会话 id>/`，学习方向里的会话是方向现在的目录下的 `visuals/`，ML4；按方向 resolve 的演示（查看标签里的）也由 `main.ts` 注入方向现在的目录，没有回传）。server 的 HTTP 处理只把 `/visual/` 开头的请求交给它。桌面端 `main/visual-sandbox.ts` 是纯函数（CSP、按站点检查地址），`main.ts` 把它接到 `protocol.handle`、`webRequest.onBeforeRequest` 和截图 IPC 上。界面 `chat/visual-card.tsx` 经 `VisualsContext` 拿到 resolve、发消息、截图的能力，`Markdown` 只把 `visual` 代码块交给它；Hugeicons 的 SVG 在宿主里按名单生成，界面不往 iframe 里送图标。
 - **文件 Markdown 预览（2026-11-04）**：`files/markdown-file-preview.tsx` 只组装已有的 `chat/Markdown`、受控图片读取和文件打开能力；相对引用以文档目录为基准，安全检查和渲染仍由既有组件负责。`FileViewer` 拥有显示切换，模式和两套纵向滚动位置只存窗口的 `ViewerPlace`，不新增宿主协议或依赖。
 - **回复增强的 UI 内部边界（2026-10-20）**：`chat/file-opener.ts` 只声明当前工作区的惰性打开能力，供工具胶囊与 Markdown 引用共同使用；不从 Markdown 反向 import 步骤组件。文件路径的工作区校验与打开仍由 ConversationArea 组装；`state/workspace-views.ts` 保存窗口内的一次性行范围导航，FileViewer 在读取和恢复滚动后按实际行元素消费，不增加宿主命令或持久索引字段。JSON 使用精确锁定的 `jsonc-parser@3.3.1` 的 scanner/AST（严格 JSON，不接受注释），通过源码位置展示数值和属性，CSV 用受限状态机；两者都不引入脚本执行或网络能力。
 - **faux extension 的例外**：`packages/testkit/src/faux/extension.ts` 可以 import `@earendil-works/pi-ai`。我们的代码从不加载它，它只作为文件路径交给 pi 进程（`--extension`），由 pi 自己加载执行，import 也由 pi 解析到它自带的 pi-ai；testkit 声明的同版本 pi-ai 开发依赖只用于类型检查。oxlint 只对这一个文件放开限制。放在 testkit 而不是 pi 包，是因为 pi 契约测试、宿主集成测试和端到端测试都要用它。
@@ -201,7 +209,7 @@ protocol  ←──  pi  ←──  host
 
 - **登录程序的例外**（2026-10-10 定）：`packages/pi/src/auth/` 里的登录程序由宿主交给系统 Node 运行，不被我们的进程加载。它按绝对路径 `import` 用户装的 pi 包（`dist/index.js`），用的是 pi 自带的依赖；只从 `@earendil-works/pi-coding-agent` 取类型（pi 包的开发依赖）。它只用 Node 能直接运行的写法（能被去掉的类型注解，不用 enum 等），因为系统 Node 直接运行源文件。
 
-- **Atrium 自带的 pi 扩展**（2026-10-12 定，ADR-0008；2026-10-15 加套餐用量，ADR-0010）：`packages/pi/src/extension/atrium.ts` 是入口，注册 `packages/pi/src/fast/` 的 Fast、`packages/pi/src/plan/` 的套餐用量、`packages/pi/src/agent/` 的子对话工具、`packages/pi/src/edit/` 的停止消息编辑隐藏命令、`packages/pi/src/search/` 的联网搜索与抓取（ADR-0014）和 `packages/pi/src/visuals/` 在系统提示里加的交互演示说明（SPEC-0007，分段 `atrium_visuals`）；由 pi 加载（`--extension`），不被我们的进程加载。构建时连同它用到的规则打成一个文件 `atrium-extension.mjs`（原名 `fast-extension.mjs`），放在宿主旁边（和登录程序一样，所以应用不用 asar）；测试里直接加载源文件。它只从 `@earendil-works/pi-coding-agent` 取类型，运行时不 import pi 的任何东西。
+- **Atrium 自带的 pi 扩展**（2026-10-12 定，ADR-0008；2026-10-15 加套餐用量，ADR-0010）：`packages/pi/src/extension/atrium.ts` 是入口，注册 `packages/pi/src/fast/` 的 Fast、`packages/pi/src/plan/` 的套餐用量、`packages/pi/src/agent/` 的子对话工具、`packages/pi/src/task/` 的任务工具与路径隔离钩子（SPEC-0006）、`packages/pi/src/edit/` 的停止消息编辑隐藏命令、`packages/pi/src/search/` 的联网搜索与抓取（ADR-0014）、`packages/pi/src/visuals/` 在系统提示里加的交互演示说明（SPEC-0007，分段 `atrium_visuals`）和 `packages/pi/src/study/` 的学习模式工具（SPEC-0008）；由 pi 加载（`--extension`），不被我们的进程加载。构建时连同它用到的规则打成一个文件 `atrium-extension.mjs`（原名 `fast-extension.mjs`），放在宿主旁边（和登录程序一样，所以应用不用 asar）；测试里直接加载源文件。它只从 `@earendil-works/pi-coding-agent` 取类型，运行时不 import pi 的任何东西。
 
 - **pi 包的边界**：怎么调 pi、pi 的事件和条目长什么样、pi 的回放语义，都在 pi 包里；Atrium 的业务规则（会话归哪个容器、标题怎么起、上下文分段怎么展示）在 host。pi 包对外输出两类东西：协议里的对话记录实体，以及它自己定义的 LogEntry（只在宿主内部用，不上线）。
 - **线上实体与宿主内部模型分开**：SessionRuntime 等运行时模型在 host 里，快照和事件由 SessionController 映射成 protocol 的实体。
@@ -258,6 +266,7 @@ server → study → sessions → transcript、status、pi
               → workspaces（起名用 branch-namer 的 cleanBranchName）
          sessions → workspaces → projects
        → setup、titles、files、visuals
+       → reviews（sessions 读它汇总的待审核，server 转交裁决；tasks 实现它的 provider，反过来它不依赖 tasks）
 各业务模块 → sync、store、platform（这三个不依赖任何业务模块）
 main.ts 负责组装全部
 ```

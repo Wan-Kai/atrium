@@ -1,0 +1,3189 @@
+<!doctype html>
+<!--
+  PROTOTYPE — 设计稿，不接入生产构建。ML4 首页与演示接进学习（SPEC-0008"ML4 定的细节"）里还没定样子的 6 处，每处 2～3 种做法，按编号挑（比如"1A 2A 3A 4A 5A 6A"）。
+
+  已定的前提：
+  · 入口丁；步骤条 2D；方向主页 1A/3A/4A/5A；ML3 的 1A 2A 3B 4A 5B 6A 7C（study-progress-states-prototype.html、study-loop-prototype.html）。
+  · 用户 2026-11-10 对第一阶段 12 个问题"都按建议"；标"推荐"的是和那些回答对应的一种。
+  · 继续卡的主按钮同步骤条；上次打开的方向不跳过。卡片点阵画当前一级的步骤。档案分"演示""文件"两组，不列点文件。
+    从档案打开的演示在查看标签里渲染、没有回传、没有"在浏览器打开"。方向里的查看标签排在会话标签后面。
+
+  每种做法左边浅色、右边深色。数据是一个 Rust 方向：当前第 2 级"所有权和借用"第 4 步"生命周期标注"，共 5 级；visuals/ 里 4 个演示。
+  图标：界面图标是 Hugeicons 免费版 stroke-rounded（4.3.5，@hugeicons/core-free-icons 里的原路径），
+  文件类型图标是 material-icon-theme 5.39.0 的原图（同 packages/ui/public/file-icons）。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>原型 · 学习首页与档案</title>
+    <style>
+      :root,
+      .th-light {
+        --window: #e8ecf2;
+        --main: #ffffff;
+        --surface-1: #ffffff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --code: #f6f6f8;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --rail: rgba(0, 0, 0, 0.15);
+        --node: #c4c4c9;
+        --tint: #2f6fed;
+        --on-tint: #ffffff;
+        --linked: rgba(47, 111, 237, 0.1);
+        --attn: #dd8629;
+        --attn-text: #c96509;
+        --attn-soft: rgba(221, 134, 41, 0.12);
+        --danger: #e5484d;
+        --ok: #16a34a;
+        --ok-text: #1e8e3e;
+        --chip-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.05);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.08);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --fs-mono: 12.5px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-btn: 12px;
+        --r-card: 16px;
+        color-scheme: light;
+      }
+      .th-dark {
+        --window: #0d1016;
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --surface-3: #353638;
+        --code: #19191b;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --rail: rgba(255, 255, 255, 0.15);
+        --node: #5d6067;
+        --tint: #7aaaff;
+        --on-tint: #0d1016;
+        --linked: rgba(122, 170, 255, 0.14);
+        --attn: #dd8629;
+        --attn-text: #f0a24e;
+        --attn-soft: rgba(221, 134, 41, 0.16);
+        --danger: #f25a5a;
+        --ok: #22c55e;
+        --ok-text: #4ade80;
+        --chip-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.3);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.5);
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 22px 28px 64px;
+        background: #e8ecf2;
+        color: #2c2c30;
+        font:
+          14px / 1.5 -apple-system,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        font-variant-numeric: tabular-nums;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+      }
+      svg.i {
+        width: 16px;
+        height: 16px;
+        flex: 0 0 auto;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.75;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      svg.i.s12 {
+        width: 12px;
+        height: 12px;
+      }
+      svg.i.s13 {
+        width: 13px;
+        height: 13px;
+      }
+      svg.i.s14 {
+        width: 14px;
+        height: 14px;
+      }
+      .ft {
+        width: 15px;
+        height: 15px;
+        flex: 0 0 auto;
+      }
+
+      /* ---------- 页面框架 ---------- */
+      .doc-head h1 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+        color: #1d1d1f;
+      }
+      .doc-head p {
+        margin: 6px 0 0;
+        max-width: 900px;
+        color: #6e6e74;
+        font-size: 13px;
+      }
+      .toc {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 14px 0 0;
+      }
+      .toc a {
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: #fff;
+        box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1);
+        color: #2c2c30;
+        text-decoration: none;
+        font-size: 12px;
+      }
+      .part {
+        margin-top: 44px;
+      }
+      .part > h2 {
+        margin: 0;
+        font-size: 17px;
+        font-weight: 600;
+        color: #1d1d1f;
+      }
+      .part > .why {
+        margin: 4px 0 0;
+        max-width: 900px;
+        font-size: 13px;
+        color: #6e6e74;
+      }
+      .opt {
+        margin-top: 22px;
+      }
+      .opt > .oh {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        font-size: 14px;
+        color: #1d1d1f;
+      }
+      .opt > .oh .letter {
+        display: inline-grid;
+        place-items: center;
+        min-width: 30px;
+        height: 22px;
+        padding: 0 6px;
+        border-radius: 6px;
+        background: #1d1d1f;
+        color: #fff;
+        font-weight: 700;
+        font-size: 12px;
+      }
+      .opt > .oh b {
+        font-weight: 600;
+      }
+      .opt > .od {
+        margin: 4px 0 0 40px;
+        max-width: 900px;
+        font-size: 12.5px;
+        color: #6e6e74;
+      }
+      .pair {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin-top: 10px;
+      }
+      .frame {
+        padding: 16px;
+        border-radius: 14px;
+        background: var(--window);
+        color: var(--text-2);
+        font: var(--fs) / 1.5 var(--font-sans);
+      }
+      .frame > .fl {
+        margin: 0 0 8px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .win {
+        position: relative;
+        border-radius: 12px;
+        background: var(--main);
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+      }
+      .win.open {
+        overflow: visible;
+      }
+      .pad {
+        padding: 16px 18px 18px;
+      }
+      .cap {
+        margin: 12px 0 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .cap:first-child {
+        margin-top: 0;
+      }
+
+      /* ---------- 共用部件（同 study-mode-flow-prototype C） ---------- */
+      .muted {
+        color: var(--text-muted);
+      }
+      .dim {
+        color: var(--text-dim);
+      }
+      .tabbar {
+        height: 48px;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 0 12px;
+        box-shadow: inset 0 -0.5px 0 var(--line);
+        overflow: hidden;
+      }
+      .crumb {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-right: 8px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 10px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .tab.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .tab.home .i {
+        color: var(--tint);
+      }
+      .ibtn {
+        all: unset;
+        display: inline-grid;
+        place-items: center;
+        width: 26px;
+        height: 26px;
+        border-radius: var(--r);
+        color: var(--text-muted);
+      }
+      .ibtn.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .run {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 1.5px solid var(--tint);
+        border-right-color: transparent;
+        animation: spin 0.9s linear infinite;
+        flex: 0 0 auto;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .run {
+          animation: none;
+        }
+      }
+      .btn {
+        all: unset;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 12px;
+        border-radius: var(--r-btn);
+        font-size: var(--fs-meta);
+        white-space: nowrap;
+        cursor: default;
+      }
+      .btn.primary {
+        background: var(--tint);
+        color: var(--on-tint);
+        font-weight: 600;
+      }
+      .btn.ghost {
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        color: var(--text-2);
+      }
+      .btn.outline {
+        box-shadow: inset 0 0 0 1px var(--tint);
+        color: var(--tint);
+        font-weight: 500;
+      }
+      .btn.textbtn {
+        color: var(--text-muted);
+        padding: 0 8px;
+      }
+      .btn.sm {
+        height: 26px;
+        padding: 0 10px;
+        border-radius: 9px;
+      }
+      .btn.xs {
+        height: 22px;
+        padding: 0 8px;
+        border-radius: 7px;
+        font-size: var(--fs-sm);
+      }
+      .btn[disabled],
+      .btn.off {
+        opacity: 0.42;
+      }
+      .btn.locked {
+        background: var(--surface-2);
+        color: var(--text-dim);
+        font-weight: 500;
+      }
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 20px;
+        padding: 0 7px;
+        border-radius: var(--r-sm);
+        background: var(--surface-2);
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      .tag.attn {
+        background: var(--attn-soft);
+        color: var(--attn-text);
+      }
+      .tag.tint {
+        background: var(--linked);
+        color: var(--tint);
+      }
+      .tag.ok {
+        background: color-mix(in srgb, var(--ok) 12%, transparent);
+        color: var(--ok-text);
+      }
+      .tag.xs {
+        height: 17px;
+        padding: 0 5px;
+        font-size: var(--fs-xs);
+        border-radius: 5px;
+      }
+      .card {
+        border-radius: var(--r-card);
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+      }
+
+      /* 步骤条 */
+      .strip {
+        height: 40px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 10px 0 16px;
+        box-shadow: inset 0 -0.5px 0 var(--line);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .strip .lvl {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--text-2);
+        font-weight: 500;
+      }
+      .strip .trk {
+        display: inline-flex;
+        gap: 3px;
+      }
+      .strip .trk i {
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        background: var(--line-strong);
+      }
+      .strip .trk i.done {
+        background: var(--text-muted);
+      }
+      .strip .trk i.cur {
+        background: var(--tint);
+      }
+      .strip .trk i.x {
+        border-radius: 50%;
+      }
+      .strip .trk.faded {
+        opacity: 0.45;
+      }
+      .strip .trk.grey i.cur {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--text-muted);
+      }
+      .strip .trk.hatch i {
+        background: transparent;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+      }
+      .strip .trk.all i {
+        background: var(--tint);
+      }
+      .strip .now {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .strip .now b {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .strip .sp {
+        flex: 1;
+      }
+      .strip .warn {
+        color: var(--attn-text);
+      }
+      .strip .okc {
+        color: var(--ok-text);
+      }
+      .strip-label {
+        padding: 8px 16px 0;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .live {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--ok);
+      }
+
+      /* 步骤列表 */
+      .lessons {
+        padding: 4px;
+        border-radius: 12px;
+        background: var(--code);
+      }
+      .lesson {
+        position: relative;
+        border-radius: var(--r);
+      }
+      .lesson .lh {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 32px;
+        padding: 0 6px 0 10px;
+        font-size: var(--fs-meta);
+        color: var(--text-3);
+      }
+      .lesson .no {
+        width: 18px;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+        flex: 0 0 auto;
+      }
+      .lesson .no.kd {
+        display: inline-flex;
+      }
+      .lesson .ok {
+        color: var(--ok-text);
+        display: inline-flex;
+      }
+      .lesson .okm {
+        color: var(--text-muted);
+        display: inline-flex;
+      }
+      .lesson .t {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .lesson .m {
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+        white-space: nowrap;
+      }
+      .lesson .m.attn {
+        color: var(--attn-text);
+      }
+      .lesson.next {
+        background: var(--surface-1);
+        box-shadow: var(--chip-shadow);
+      }
+      .lesson.next .lh {
+        color: var(--text);
+      }
+      .lesson.next .no {
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .lesson.todo .lh {
+        color: var(--text-dim);
+      }
+      .lesson.hover {
+        background: var(--hover);
+      }
+      .lesson .more {
+        width: 24px;
+        height: 24px;
+      }
+      .sess {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px;
+        padding: 0 10px 8px 38px;
+      }
+      .schip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 22px;
+        padding: 0 8px;
+        border-radius: 999px;
+        background: var(--surface-1);
+        box-shadow: var(--chip-shadow);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        white-space: nowrap;
+      }
+      .schip .i {
+        color: var(--text-muted);
+      }
+      .schip .s {
+        color: var(--text-dim);
+      }
+      .schip.manual {
+        background: transparent;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+        border: 0;
+        color: var(--text-muted);
+        background-image: none;
+        outline: 1px dashed var(--line-strong);
+        outline-offset: -1px;
+        box-shadow: none;
+      }
+      .inline-link {
+        font-size: var(--fs-sm);
+        color: var(--tint);
+      }
+      .subd {
+        display: inline-flex;
+        gap: 2px;
+        flex: 0 0 auto;
+      }
+      .subd i {
+        width: 5px;
+        height: 5px;
+        border-radius: 1.4px;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+      }
+      .subd i.d {
+        background: var(--text-muted);
+        box-shadow: none;
+      }
+      .subd i.g {
+        background: var(--attn);
+        box-shadow: none;
+      }
+      .subd i.m {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.25px var(--text-muted);
+      }
+      .subd i.n {
+        background: transparent;
+        box-shadow: none;
+        outline: 1px dashed var(--text-dim);
+        outline-offset: -1px;
+      }
+      .seg {
+        display: inline-flex;
+        padding: 2px;
+        gap: 2px;
+        border-radius: 8px;
+        background: var(--surface-2);
+      }
+      .seg span {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 20px;
+        padding: 0 7px;
+        border-radius: 6px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .seg span.on {
+        background: var(--surface-1);
+        box-shadow: var(--chip-shadow);
+        color: var(--text);
+      }
+      .seg span.mine {
+        background: var(--surface-1);
+        color: var(--text-2);
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+      }
+      .roundchk {
+        display: inline-grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+        color: var(--text-muted);
+        background: var(--surface-1);
+      }
+
+      /* 菜单 */
+      .menu {
+        position: absolute;
+        z-index: 5;
+        min-width: 188px;
+        padding: 4px;
+        border-radius: var(--r-md);
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .menu.flow {
+        position: relative;
+        margin: 2px 4px 8px auto;
+        width: max-content;
+      }
+      .menu .mi {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 28px;
+        padding: 0 8px;
+        border-radius: 6px;
+        white-space: nowrap;
+      }
+      .menu .mi.hl {
+        background: var(--selected);
+      }
+      .menu .mi .k {
+        margin-left: auto;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .menu .mi.dis {
+        color: var(--text-dim);
+      }
+      .menu .mi .ck {
+        width: 14px;
+        display: inline-flex;
+        color: var(--text-muted);
+      }
+      .menu .sep {
+        height: 0.5px;
+        margin: 4px 6px;
+        background: var(--line);
+      }
+      .menu .mh {
+        padding: 4px 8px 2px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .menu .note {
+        padding: 2px 8px 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        white-space: normal;
+        max-width: 220px;
+      }
+      .menu .row-btns {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+        padding: 6px 4px 2px;
+      }
+      .box {
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+        display: inline-grid;
+        place-items: center;
+        flex: 0 0 auto;
+      }
+      .box.on {
+        background: var(--tint);
+        color: var(--on-tint);
+        box-shadow: none;
+      }
+      .box.agent {
+        background: var(--surface-3);
+        color: var(--text-muted);
+        box-shadow: none;
+      }
+      .box.ok {
+        background: var(--ok);
+        color: #fff;
+        box-shadow: none;
+      }
+      .tip {
+        position: absolute;
+        z-index: 6;
+        padding: 4px 8px;
+        border-radius: 6px;
+        background: var(--text);
+        color: var(--main);
+        font-size: var(--fs-xs);
+        white-space: nowrap;
+      }
+
+      /* 主页 */
+      .ptitle {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .psub {
+        margin: 4px 0 0;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .hero {
+        padding: 16px 18px 14px;
+      }
+      .hero .eyebrow {
+        font-size: var(--fs-sm);
+        color: var(--tint);
+        font-weight: 600;
+      }
+      .hero .big {
+        margin: 4px 0 2px;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .hero .desc {
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        line-height: 1.6;
+      }
+      .hero .row2 {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+      .hero .extra {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+        padding-top: 10px;
+        box-shadow: inset 0 0.5px 0 var(--line);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .subpills {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 10px;
+        font-size: var(--fs-sm);
+      }
+      .subpill {
+        display: inline-flex;
+        align-items: center;
+        height: 24px;
+        padding: 0 9px;
+        border-radius: 999px;
+        background: var(--surface-2);
+        color: var(--text-muted);
+      }
+      .subpill.on {
+        background: var(--linked);
+        color: var(--tint);
+        font-weight: 500;
+      }
+      .sect {
+        margin-top: 20px;
+      }
+      .sect > .h {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .sect > .h span {
+        flex: 1;
+      }
+      .side-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+      .node {
+        width: 18px;
+        height: 18px;
+        display: grid;
+        place-items: center;
+        flex: 0 0 auto;
+      }
+      .node i {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--node);
+      }
+      .node i.cur {
+        width: 11px;
+        height: 11px;
+        background: transparent;
+        box-shadow: inset 0 0 0 2px var(--tint);
+      }
+      .node i.lock {
+        background: transparent;
+        box-shadow: inset 0 0 0 1.5px var(--rail);
+      }
+      .lvc {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 30px;
+        padding: 0 6px 0 4px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .lvc .nm {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .lvc .m {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .lvc.lock {
+        color: var(--text-dim);
+      }
+      .lvc.open {
+        background: var(--hover);
+      }
+      .lvx {
+        margin: 2px 0 6px 30px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        line-height: 1.6;
+      }
+      .lvx dt {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+      }
+      .lvx dd {
+        margin: 0 0 4px;
+        color: var(--text-2);
+      }
+      .lvcard {
+        margin: 4px 0 6px 26px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: var(--code);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        line-height: 1.6;
+      }
+      .lvcard .k {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+      }
+      .pop {
+        position: absolute;
+        z-index: 5;
+        width: 250px;
+        padding: 10px 12px;
+        border-radius: var(--r-md);
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        line-height: 1.6;
+      }
+      .pop .k {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+      }
+      .pop .t {
+        font-weight: 600;
+        color: var(--text);
+        font-size: var(--fs-meta);
+      }
+      .gap-row {
+        position: relative;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 9px 10px 9px 12px;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        line-height: 1.5;
+      }
+      .gap-row + .gap-row {
+        box-shadow: inset 0 0.5px 0 var(--line);
+      }
+      .gap-row .body {
+        flex: 1;
+        min-width: 0;
+      }
+      .gap-row .src {
+        display: block;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .gap-row .mk {
+        margin-top: 6px;
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        flex: 0 0 auto;
+        background: var(--attn);
+      }
+      .gap-row.fixed .mk {
+        background: var(--ok);
+      }
+      .gap-row.fixed .tx {
+        color: var(--text-dim);
+        text-decoration: line-through;
+        text-decoration-color: var(--line-strong);
+      }
+      .gap-row.hover {
+        background: var(--hover);
+      }
+      .gap-row .act {
+        display: inline-flex;
+        gap: 4px;
+        margin-top: 1px;
+      }
+      .gap-row .cb {
+        margin-top: 3px;
+      }
+      .mini-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+        flex-wrap: wrap;
+      }
+      .frow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 28px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        font: var(--fs-mono) var(--font-mono);
+        color: var(--text-2);
+      }
+      .frow .m {
+        margin-left: auto;
+        color: var(--text-dim);
+        font: var(--fs-sm) var(--font-sans);
+        white-space: nowrap;
+      }
+      .twocol {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 200px;
+        gap: 22px;
+        align-items: start;
+      }
+      .tabs-seg {
+        display: flex;
+        gap: 2px;
+        margin-top: 18px;
+        padding: 2px;
+        border-radius: 10px;
+        background: var(--surface-2);
+        width: max-content;
+      }
+      .tabs-seg span {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 26px;
+        padding: 0 12px;
+        border-radius: 8px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .tabs-seg span.on {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow: var(--chip-shadow);
+        font-weight: 500;
+      }
+      .tabs-seg span .n {
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .sumcards {
+        display: flex;
+        gap: 8px;
+        margin-top: 16px;
+        overflow: hidden;
+      }
+      .sumcard {
+        flex: 0 0 auto;
+        min-width: 128px;
+        padding: 9px 12px;
+        border-radius: 12px;
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .sumcard b {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text);
+        font-weight: 500;
+        font-size: var(--fs-meta);
+      }
+      .sumcard.on {
+        box-shadow:
+          inset 0 0 0 1px var(--tint),
+          var(--card-shadow);
+      }
+      .disc {
+        margin-top: 4px;
+        border-radius: 12px;
+      }
+      .disc + .disc {
+        margin-top: 2px;
+      }
+      .disc .dh {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        font-weight: 500;
+      }
+      .disc .dh .m {
+        margin-left: auto;
+        color: var(--text-dim);
+        font-weight: 400;
+        font-size: var(--fs-sm);
+      }
+      .disc .dh .chev {
+        color: var(--text-dim);
+        display: inline-flex;
+        transition: transform 0.2s;
+      }
+      .disc.open .dh .chev {
+        transform: rotate(90deg);
+      }
+      .disc .db {
+        padding: 0 4px 8px 10px;
+      }
+      .sheet-scrim {
+        position: absolute;
+        inset: 88px 0 0;
+        background: rgba(20, 24, 32, 0.16);
+      }
+      .th-dark .sheet-scrim {
+        background: rgba(0, 0, 0, 0.4);
+      }
+      .sheet {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 6;
+        padding: 14px 16px 16px;
+        border-radius: 16px 16px 0 0;
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+      }
+      .sheet .sh {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+        font-size: var(--fs-meta);
+        font-weight: 600;
+        color: var(--text);
+      }
+      .sheet .sh .ibtn {
+        margin-left: auto;
+      }
+      .reco {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 0 6px;
+        border-radius: 5px;
+        background: #2f6fed;
+        color: #fff;
+        font-size: 11px;
+        font-weight: 600;
+        vertical-align: 1px;
+      }
+
+      /* ---------- ML3 加的部件 ---------- */
+      .twocol {
+        grid-template-columns: minmax(0, 1fr) 240px;
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .small {
+        font-size: var(--fs-sm);
+      }
+
+      /* 对话 */
+      .conv {
+        padding: 18px 22px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .bubble {
+        align-self: flex-end;
+        max-width: 82%;
+        padding: 8px 13px;
+        border-radius: 20px;
+        background: var(--surface-2);
+        color: var(--text);
+        font-size: var(--fs);
+        line-height: 1.55;
+      }
+      .reply {
+        font-size: var(--fs);
+        line-height: 1.6;
+        color: var(--text);
+      }
+      .reply p {
+        margin: 0 0 8px;
+      }
+      .reply p:last-child {
+        margin-bottom: 0;
+      }
+      code {
+        font: var(--fs-mono) var(--font-mono);
+        padding: 0 4px;
+        border-radius: 4px;
+        background: var(--code);
+        color: var(--text-2);
+      }
+      .srcrow {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .srcrow b {
+        color: var(--text-2);
+        font-weight: 600;
+      }
+      .srcrow .lk {
+        margin-left: auto;
+        font-size: var(--fs-sm);
+        color: var(--tint);
+      }
+      .childhead {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 12px;
+        background: var(--code);
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .childhead b {
+        color: var(--text-2);
+        font-weight: 500;
+      }
+      .childhead .lk {
+        margin-left: auto;
+        font-size: var(--fs-sm);
+        color: var(--tint);
+      }
+      .fold {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 30px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .fold .n {
+        color: var(--text-dim);
+      }
+      .sepline {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .sepline::before,
+      .sepline::after {
+        content: "";
+        flex: 1;
+        height: 0.5px;
+        background: var(--line-strong);
+      }
+      .fadetop {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        text-align: center;
+      }
+      .composer-wrap {
+        padding: 0 22px 14px;
+      }
+      .composer {
+        min-height: 72px;
+        padding: 12px 14px;
+        border-radius: 20px;
+        background: var(--surface-2);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+        display: flex;
+        flex-direction: column;
+      }
+      .composer .bar {
+        margin-top: auto;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .composer .send {
+        margin-left: auto;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: var(--text);
+        color: var(--main);
+        display: grid;
+        place-items: center;
+      }
+      .rolock {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 44px;
+        padding: 0 14px;
+        border-radius: 14px;
+        background: var(--code);
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .rolock .lk {
+        margin-left: auto;
+      }
+
+      /* 提问卡片（SPEC-0003） */
+      .qcard {
+        padding: 12px 14px;
+        border-radius: var(--r-card);
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        margin-bottom: 8px;
+      }
+      .th-dark .qcard {
+        background: var(--surface-2);
+      }
+      .qcard .qh {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-meta);
+      }
+      .qcard .qh .agent {
+        font-weight: 700;
+        color: var(--attn-text);
+      }
+      .qcard .qh .who {
+        font-weight: 500;
+        color: var(--text);
+      }
+      .qcard .qt {
+        margin: 8px 0 6px;
+        font-size: var(--fs);
+        font-weight: 500;
+        color: var(--text);
+      }
+      .qcard .qt .kind {
+        margin-left: 8px;
+        display: inline-flex;
+        height: 18px;
+        align-items: center;
+        padding: 0 6px;
+        border-radius: var(--r-sm);
+        background: var(--surface-2);
+        color: var(--text-muted);
+        font-size: var(--fs-xs);
+        font-weight: 400;
+        vertical-align: 1px;
+      }
+      .qo {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: var(--r-md);
+        font-size: var(--fs-meta);
+        color: var(--text);
+      }
+      .qo .k {
+        width: 20px;
+        height: 20px;
+        flex: 0 0 auto;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--surface-2);
+        color: var(--text-muted);
+        font-size: var(--fs-xs);
+        font-weight: 600;
+      }
+      .th-dark .qo .k {
+        background: var(--surface-3);
+      }
+      .qo code {
+        white-space: nowrap;
+      }
+
+      /* 过程轨道 */
+      .phead {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .rail {
+        position: relative;
+        padding-left: 30px;
+      }
+      .rail::before {
+        content: "";
+        position: absolute;
+        left: 10.5px;
+        top: 15px;
+        bottom: 15px;
+        width: 1px;
+        background: var(--rail);
+      }
+      .rs {
+        position: relative;
+        min-height: 30px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .rs::before {
+        content: "";
+        position: absolute;
+        left: -22.5px;
+        top: 12px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--node);
+        box-shadow: 0 0 0 4px var(--main);
+      }
+      .rs.sq-attn::before,
+      .rs.sq-ok::before {
+        left: -23px;
+        top: 11.5px;
+        width: 7px;
+        height: 7px;
+        border-radius: 2px;
+        background: var(--attn);
+      }
+      .rs.sq-ok::before {
+        background: var(--ok);
+      }
+      .rs .v {
+        color: var(--text-2);
+      }
+      .rs .o {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .rs .dot {
+        color: var(--text-dim);
+      }
+      .rs .tool {
+        font: 12px var(--font-mono);
+        color: var(--text-2);
+      }
+      .rs .r {
+        margin-left: auto;
+        padding-left: 8px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .rs .chev {
+        display: inline-flex;
+        color: var(--text-dim);
+      }
+      .detail {
+        margin: 0 0 6px;
+        padding: 8px 10px;
+        border-radius: var(--r);
+        background: var(--code);
+        font: 12px / 1.55 var(--font-mono);
+        color: var(--text-3);
+        white-space: pre-wrap;
+      }
+      .detail .k {
+        color: var(--text-dim);
+      }
+
+      /* 对话框 */
+      .scrim {
+        position: absolute;
+        inset: 0;
+        background: rgba(20, 24, 32, 0.18);
+        backdrop-filter: blur(6px);
+        display: grid;
+        place-items: center;
+        z-index: 7;
+      }
+      .th-dark .scrim {
+        background: rgba(0, 0, 0, 0.42);
+      }
+      .dialog {
+        width: 400px;
+        padding: 20px;
+        border-radius: var(--r-card);
+        background: var(--main);
+        box-shadow: var(--float-shadow);
+      }
+      .dialog h3 {
+        margin: 0 0 4px;
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .dialog p {
+        margin: 0 0 12px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        line-height: 1.55;
+      }
+      .dialog .foot {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      .dialog .opt-line {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        padding: 4px 0;
+      }
+      .dialog .cb {
+        width: 16px;
+        height: 16px;
+        border-radius: 5px;
+        background: var(--tint);
+        color: var(--on-tint);
+        display: grid;
+        place-items: center;
+        flex: 0 0 auto;
+      }
+      .dialog .hint {
+        padding-left: 24px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .dialog .line {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .dialog .line .mk {
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        background: var(--attn);
+        flex: 0 0 auto;
+      }
+      .dialog .danger {
+        margin-top: 8px;
+        font-size: var(--fs-meta);
+        color: var(--danger);
+      }
+      .dlist {
+        margin: 6px 0 0 24px;
+        padding: 6px 8px;
+        border-radius: 10px;
+        background: var(--code);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .dlist .dr {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 24px;
+        white-space: nowrap;
+      }
+      .dlist .dr .t {
+        color: var(--text-2);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dlist .dr .m {
+        margin-left: auto;
+        color: var(--text-dim);
+      }
+      .dlist .dh {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        padding: 2px 0;
+      }
+      .dlist .dh .lk {
+        margin-left: auto;
+        color: var(--tint);
+      }
+      .scores {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: var(--code);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .scores .sh {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        margin-bottom: 4px;
+      }
+      .scores .sr {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 22px;
+      }
+      .scores .sr .t {
+        color: var(--text-2);
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .scores .bar {
+        width: 70px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--line-strong);
+        overflow: hidden;
+      }
+      .scores .bar i {
+        display: block;
+        height: 100%;
+        background: var(--text-muted);
+      }
+      .scores .sr .v {
+        width: 40px;
+        text-align: right;
+        color: var(--text-muted);
+      }
+      .scores .sr.sum {
+        margin-top: 4px;
+        padding-top: 4px;
+        box-shadow: inset 0 0.5px 0 var(--line);
+      }
+      .scores .sr.sum .t {
+        font-weight: 500;
+      }
+
+      /* 漏洞分组、会话行 */
+      .ghead {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 12px 0 4px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .ghead:first-child {
+        margin-top: 0;
+      }
+      .ghead .n {
+        margin-left: auto;
+      }
+      .collrow {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 32px;
+        padding: 0 10px 0 12px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        box-shadow: inset 0 0.5px 0 var(--line);
+      }
+      .collrow .n {
+        margin-left: auto;
+        color: var(--text-dim);
+      }
+      .rbtn {
+        display: inline-grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+        color: var(--text-muted);
+        background: var(--surface-1);
+        flex: 0 0 auto;
+      }
+      .gap-row .act {
+        position: relative;
+      }
+      .srow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 30px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        white-space: nowrap;
+      }
+      .srow .i {
+        color: var(--text-muted);
+      }
+      .srow .t {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .srow .m {
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .srow.arch {
+        color: var(--text-muted);
+      }
+      .srow.hover {
+        background: var(--hover);
+      }
+      .srow .lk {
+        color: var(--tint);
+        font-size: var(--fs-sm);
+      }
+      .sgh {
+        padding: 6px 8px 2px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .emptyph {
+        display: grid;
+        place-items: center;
+        min-height: 86px;
+        padding: 12px;
+        border-radius: 12px;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+        background-image: none;
+        outline: 1px dashed var(--line-strong);
+        outline-offset: -1px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        text-align: center;
+      }
+      .dashrow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 40px;
+        margin: 2px 0;
+        padding: 0 8px 0 10px;
+        border-radius: var(--r);
+        outline: 1px dashed var(--line-strong);
+        outline-offset: -1px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .dashrow .sp {
+        flex: 1;
+      }
+      .strip .trk i.ph {
+        background: transparent;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+      }
+      .strip .trk i.dash {
+        width: 22px;
+        background: transparent;
+        box-shadow: none;
+        outline: 1px dashed var(--line-strong);
+        outline-offset: -1px;
+      }
+      .tip.below {
+        white-space: nowrap;
+      }
+
+      /* ---------- ML4 加的部件 ---------- */
+      .ft {
+        width: 14px;
+        height: 14px;
+      }
+      .mono {
+        font-family: var(--font-mono);
+      }
+      .crumb.strong {
+        color: var(--text-2);
+      }
+      .crumb.strong b {
+        font-weight: 600;
+      }
+      .tab.viewer i {
+        font-style: italic;
+      }
+      .okdot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--ok);
+        flex: 0 0 auto;
+      }
+      /* 点阵（同步骤条，卡片里用 6px） */
+      .trk {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+      }
+      .trk i {
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+        background: var(--line-strong);
+      }
+      .trk i.done {
+        background: var(--text-muted);
+      }
+      .trk i.cur {
+        background: var(--tint);
+      }
+      .trk i.x {
+        border-radius: 50%;
+      }
+      .trk.hatch i {
+        background: transparent;
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+      }
+      .trk.all i {
+        background: var(--tint);
+      }
+      .trk.sm i {
+        width: 6px;
+        height: 6px;
+        border-radius: 1.5px;
+      }
+      .trk.sm i.x {
+        border-radius: 50%;
+      }
+      /* 学习首页 */
+      .hpad {
+        padding: 22px 24px 24px;
+      }
+      .hh {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 10px;
+        font-size: var(--fs-meta);
+        font-weight: 500;
+        color: var(--text-muted);
+      }
+      .cap + .hh {
+        margin-top: 2px;
+      }
+      .cc {
+        padding: 18px 20px 16px;
+      }
+      .cc .big {
+        margin: 6px 0 2px;
+        font-size: 17px;
+      }
+      .cc .eyebrow.warn {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--attn-text);
+      }
+      .cc .row2 {
+        margin-top: 14px;
+      }
+      .cc .last {
+        margin-left: auto;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        white-space: nowrap;
+      }
+      .ccdots {
+        margin-top: 10px;
+      }
+      .crow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 56px;
+        padding: 8px 12px 8px 14px;
+      }
+      .crow .cic {
+        display: inline-grid;
+        place-items: center;
+        color: var(--tint);
+      }
+      .crow .cic.warn {
+        color: var(--attn-text);
+      }
+      .crow .ct {
+        flex: 1;
+        min-width: 0;
+      }
+      .crow .l1 {
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .crow .l1 b {
+        font-weight: 600;
+        color: var(--text);
+      }
+      .crow .l2 {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dgrid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+      .dcard {
+        position: relative;
+        min-height: 86px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        font-size: var(--fs-meta);
+      }
+      .dcard .more {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        display: inline-grid;
+        place-items: center;
+        width: 24px;
+        height: 24px;
+        color: var(--text-dim);
+      }
+      .dcard .dn {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding-right: 26px;
+        font-size: var(--fs);
+        font-weight: 500;
+        color: var(--text);
+      }
+      .dcard .dn .t {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .dcard .pin {
+        display: inline-flex;
+        color: var(--tint);
+      }
+      .dcard .dl {
+        margin-top: 3px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .dcard .dl.row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        white-space: nowrap;
+      }
+      .dcard .dl .sp {
+        flex: 1;
+      }
+      .dcard .warnt {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        color: var(--attn-text);
+      }
+      .dcard .dd {
+        margin-top: 10px;
+      }
+      .lvbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 9px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .lvbar .bar {
+        display: flex;
+        gap: 2px;
+        width: 96px;
+      }
+      .lvbar .bar i {
+        flex: 1;
+        height: 3px;
+        border-radius: 2px;
+        background: var(--line-strong);
+      }
+      .lvbar .bar i.on {
+        background: var(--text-muted);
+      }
+      .lvbar .bar i.cur {
+        background: var(--tint);
+      }
+      .lvbar + .dd {
+        margin-top: 7px;
+      }
+      .dcard.arch {
+        opacity: 0.6;
+      }
+      .dcard .lk2 {
+        position: absolute;
+        top: 11px;
+        right: 12px;
+        font-size: var(--fs-sm);
+        color: var(--tint);
+      }
+      .newtile {
+        display: grid;
+        place-items: center;
+        align-content: center;
+        gap: 2px;
+        min-height: 86px;
+        border-radius: 14px;
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+      }
+      .faded-top {
+        -webkit-mask-image: linear-gradient(to bottom, transparent, #000 40%);
+        mask-image: linear-gradient(to bottom, transparent, #000 40%);
+      }
+      .morerow {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        margin-top: 18px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-dim);
+      }
+      .morerow .i {
+        transition: none;
+      }
+      .morerow.open .i {
+        transform: rotate(90deg);
+      }
+      .morerow .n {
+        color: var(--text-dim);
+      }
+      .alist {
+        padding-left: 4px;
+      }
+      .arow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 32px;
+        padding: 0 8px 0 10px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        white-space: nowrap;
+      }
+      .arow.hover {
+        background: var(--hover);
+      }
+      .arow .st {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .arow .sp {
+        flex: 1;
+      }
+      .arow .lk {
+        font-size: var(--fs-sm);
+        color: var(--tint);
+      }
+      .agrid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+      .acard {
+        position: relative;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        opacity: 0.6;
+        font-size: var(--fs-meta);
+      }
+      .acard .t {
+        padding-right: 30px;
+        font-weight: 500;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .acard .st {
+        margin-top: 2px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .acard .lk {
+        position: absolute;
+        top: 10px;
+        right: 12px;
+        font-size: var(--fs-sm);
+        color: var(--tint);
+      }
+      .seg2 {
+        display: inline-flex;
+        padding: 2px;
+        border-radius: 9px;
+        background: var(--surface-2);
+        font-size: var(--fs-sm);
+        font-weight: 400;
+      }
+      .seg2 span {
+        padding: 2px 10px;
+        border-radius: 7px;
+        color: var(--text-muted);
+      }
+      .seg2 span.on {
+        background: var(--surface-1);
+        box-shadow: var(--chip-shadow);
+        color: var(--text);
+      }
+      /* 档案 */
+      .dblock {
+        padding: 4px 0;
+      }
+      .dblock .sgh {
+        padding: 8px 12px 2px;
+      }
+      .drow {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 5px 12px;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .drow .ft {
+        margin-top: 2px;
+      }
+      .drow .b {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .drow .t,
+      .drow .fn {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .drow .fn {
+        font: var(--fs-xs) var(--font-mono);
+        color: var(--text-dim);
+      }
+      .drow.nolabel .t {
+        font-family: var(--font-mono);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .drow.sel {
+        background: var(--selected);
+      }
+      .frow2 {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 28px;
+        padding: 0 8px 0 6px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        white-space: nowrap;
+      }
+      .frow2 .t {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .frow2 .m {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .frow2 .arr {
+        display: inline-flex;
+        width: 14px;
+        justify-content: center;
+        color: var(--text-dim);
+      }
+      .tintic {
+        display: inline-flex;
+        color: var(--tint);
+      }
+      .fadetop2 {
+        padding: 10px 0 0;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      /* 查看标签 */
+      .vhead {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 40px;
+        padding: 0 8px 0 14px;
+        box-shadow: inset 0 -0.5px 0 var(--line);
+        font-size: var(--fs-meta);
+        white-space: nowrap;
+        flex: 0 0 auto;
+      }
+      .vhead .nm {
+        font-weight: 500;
+        color: var(--text);
+      }
+      .vhead .sp {
+        flex: 1;
+      }
+      .vhead .nosend {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .vbtn {
+        all: unset;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 26px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .vbtn.on {
+        background: var(--selected);
+        color: var(--text-2);
+      }
+      .vbody {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 24px 24px 40px;
+      }
+      .srcv {
+        padding: 6px 0 24px;
+        font: var(--fs-sm) / 1.7 var(--font-mono);
+        color: var(--text-2);
+      }
+      .srcv .sl {
+        display: flex;
+        white-space: pre;
+      }
+      .srcv .ln {
+        width: 48px;
+        padding-right: 12px;
+        text-align: right;
+        color: var(--text-dim);
+        flex: 0 0 auto;
+      }
+      .mdv {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 24px 24px 40px;
+        font-size: var(--fs);
+        line-height: 1.65;
+        color: var(--text);
+      }
+      .mdv h1 {
+        margin: 0;
+        font-size: 20px;
+      }
+      .mdv h2 {
+        margin: 16px 0 6px;
+        font-size: 15px;
+      }
+      .mdv p,
+      .mdv ul {
+        margin: 0 0 8px;
+      }
+      .mdv a,
+      a.flink {
+        color: var(--tint);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      /* 演示（片段画出来的样子） */
+      .demo {
+        padding: 14px 16px 12px;
+        border-radius: 12px;
+        background: var(--surface-1);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+        font-size: var(--fs-meta);
+        color: var(--text);
+      }
+      .demo .dtop {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .demo .dtop b {
+        font-weight: 600;
+      }
+      .demo .dtop .dim {
+        font-size: var(--fs-sm);
+      }
+      .demo .dbody {
+        display: grid;
+        grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+        gap: 14px;
+      }
+      .dcode {
+        padding: 6px 0;
+        border-radius: 8px;
+        background: var(--code);
+        font: var(--fs-sm) / 1.8 var(--font-mono);
+        color: var(--text-2);
+      }
+      .dcode .cl {
+        display: flex;
+        padding-right: 8px;
+        white-space: nowrap;
+      }
+      .dcode .cl.on {
+        background: var(--linked);
+      }
+      .dcode .ln {
+        width: 26px;
+        padding-right: 8px;
+        text-align: right;
+        color: var(--text-dim);
+        flex: 0 0 auto;
+      }
+      .dcode .kw {
+        color: var(--tint);
+      }
+      .dcode .str {
+        color: var(--ok-text);
+      }
+      .dcode .cm {
+        color: var(--text-dim);
+      }
+      .lanes {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 10px;
+      }
+      .lane {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .lane .lk {
+        display: flex;
+        gap: 6px;
+        font-size: var(--fs-sm);
+      }
+      .lane .track {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 3px;
+      }
+      .lane .track i {
+        height: 8px;
+        border-radius: 3px;
+        background: var(--surface-2);
+      }
+      .lane .track i.own {
+        background: var(--text-muted);
+      }
+      .lane .track i.shr {
+        background: var(--tint);
+      }
+      .lane .track i.mut {
+        background: var(--attn);
+      }
+      .lane .track i.now {
+        outline: 1.5px solid var(--text);
+        outline-offset: 1px;
+      }
+      .guess {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 12px;
+        padding: 9px 12px;
+        border-radius: 10px;
+        background: var(--attn-soft);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+      }
+      .guess .gb {
+        display: inline-flex;
+        gap: 6px;
+        margin-left: auto;
+      }
+      .demo button {
+        all: unset;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 24px;
+        padding: 0 10px;
+        border-radius: 8px;
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        background: var(--surface-1);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+      }
+      .demo button.pri {
+        background: var(--tint);
+        color: var(--on-tint);
+        box-shadow: none;
+      }
+      .dnav {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+        margin-top: 10px;
+      }
+      .inplace {
+        overflow: hidden;
+      }
+      .inplace .iph {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 40px;
+        padding: 0 12px 0 14px;
+        font-size: var(--fs-meta);
+        white-space: nowrap;
+      }
+      .inplace .iph .nm {
+        font-weight: 500;
+        color: var(--text);
+      }
+      .inplace .iph .sp {
+        flex: 1;
+      }
+      .inplace .iph .lk {
+        font-size: var(--fs-sm);
+        color: var(--tint);
+      }
+      .ipnote {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 14px 10px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      /* 会话里的演示卡片 */
+      .vcard {
+        border-radius: 14px;
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+      }
+      .vch {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 36px;
+        padding: 0 6px 0 12px;
+        box-shadow: inset 0 -0.5px 0 var(--line);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .vch > .i {
+        color: var(--tint);
+      }
+      .vch .sp {
+        flex: 1;
+      }
+      .ibtn.hov {
+        position: relative;
+        background: var(--hover);
+        color: var(--text-muted);
+      }
+      .tipx {
+        position: absolute;
+        top: 30px;
+        right: 0;
+        padding: 4px 8px;
+        border-radius: 7px;
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+        font: var(--fs-sm) var(--font-sans);
+        color: var(--text-2);
+        white-space: nowrap;
+        z-index: 3;
+      }
+      .dcode {
+        overflow: hidden;
+      }
+      .inplace .demo .dbody {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="doc-head">
+      <h1>学习首页与档案（ML4 · SPEC-0008）</h1>
+      <p>
+        还没定样子的 6 处，每处 2～3 种做法，按编号挑（比如"1A、2A、3A、4A、5A、6A"）。每种左边浅色、右边深色。字都按
+        SPEC-0008"ML4 定的细节"写，这里只比样子。
+      </p>
+      <nav class="toc" id="toc"></nav>
+    </div>
+    <main id="parts"></main>
+    <script>
+      const ICONS = {
+        Mortarboard02:
+          '<path d="M2 8C2 9.34178 10.0949 13 11.9861 13C13.8772 13 21.9722 9.34178 21.9722 8C21.9722 6.65822 13.8772 3 11.9861 3C10.0949 3 2 6.65822 2 8Z"/><path d="M5.99414 11L6.23925 16.6299C6.24415 16.7426 6.25634 16.8555 6.28901 16.9635C6.38998 17.2973 6.57608 17.6006 6.86 17.8044C9.08146 19.3985 14.8901 19.3985 17.1115 17.8044C17.3956 17.6006 17.5816 17.2973 17.6826 16.9635C17.7152 16.8555 17.7274 16.7426 17.7324 16.6299L17.9774 11"/><path d="M20.4734 9.5V16.5M20.4734 16.5C19.6814 17.9463 19.3312 18.7212 18.9755 20C18.8983 20.455 18.9596 20.6843 19.2732 20.8879C19.4006 20.9706 19.5537 21 19.7055 21H21.2259C21.3876 21 21.5507 20.9663 21.6838 20.8745C21.9753 20.6735 22.0503 20.453 21.9713 20C21.6595 18.8126 21.2623 18.0008 20.4734 16.5Z"/>',
+        Search01:
+          '<path d="M17 17L21 21"/><path d="M19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11C3 15.4183 6.58172 19 11 19C15.4183 19 19 15.4183 19 11Z"/>',
+        Pin02:
+          '<path d="M12 16V21"/><path d="M8 5.2918C8 5.02079 8 4.88529 8.01312 4.77132C8.1194 3.84789 8.84789 3.1194 9.77133 3.01312C9.88529 3 10.0208 3 10.2918 3H13.7082C13.9792 3 14.1147 3 14.2287 3.01312C15.1521 3.1194 15.8806 3.84789 15.9869 4.77132C16 4.88529 16 5.02079 16 5.2918C16 5.37885 16 5.42237 15.9967 5.46264C15.9708 5.78281 15.7927 6.07104 15.5179 6.2374C15.4834 6.25832 15.4444 6.27779 15.3666 6.31672L15.1055 6.44726C14.7021 6.64897 14.5003 6.74983 14.3681 6.90564C14.26 7.03286 14.1856 7.18509 14.1515 7.34846C14.1097 7.54854 14.1539 7.76968 14.2424 8.21197L15 12H15.3333C15.9533 12 16.2633 12 16.5176 12.0681C17.2078 12.2531 17.7469 12.7922 17.9319 13.4824C18 13.7367 18 14.0467 18 14.6667C18 14.9767 18 15.1317 17.9659 15.2588C17.8735 15.6039 17.6039 15.8735 17.2588 15.9659C17.1317 16 16.9767 16 16.6667 16H7.33333C7.02334 16 6.86835 16 6.74118 15.9659C6.39609 15.8735 6.12654 15.6039 6.03407 15.2588C6 15.1317 6 14.9767 6 14.6667C6 14.0467 6 13.7367 6.06815 13.4824C6.25308 12.7922 6.79218 12.2531 7.48236 12.0681C7.73669 12 8.04669 12 8.66667 12H9L9.75761 8.21197C9.84606 7.76968 9.89029 7.54854 9.84852 7.34846C9.81441 7.18509 9.73995 7.03286 9.63194 6.90564C9.49965 6.74983 9.29794 6.64897 8.89452 6.44726L8.63344 6.31672C8.55558 6.27779 8.51665 6.25832 8.48208 6.2374C8.20731 6.07104 8.02917 5.78281 8.00326 5.46264C8 5.42237 8 5.37885 8 5.2918Z"/>',
+        BubbleChatAdd:
+          '<path d="M21.5 12C21.5 17.2467 17.2467 21.5 12 21.5C10.3719 21.5 8.8394 21.0904 7.5 20.3687C5.63177 19.362 4.37462 20.2979 3.26592 20.4658C3.09774 20.4913 2.93024 20.4302 2.80997 20.31C2.62741 20.1274 2.59266 19.8451 2.6935 19.6074C3.12865 18.5818 3.5282 16.6382 2.98341 15C2.6698 14.057 2.5 13.0483 2.5 12C2.5 6.75329 6.75329 2.5 12 2.5C17.2467 2.5 21.5 6.75329 21.5 12Z"/><path d="M15.5 12H8.5M12 8.5V15.5"/>',
+        Folder01:
+          '<path d="M8 7H16.75C18.8567 7 19.91 7 20.6667 7.50559C20.9943 7.72447 21.2755 8.00572 21.4944 8.33329C22 9.08996 22 10.1433 22 12.25C22 15.7612 22 17.5167 21.1573 18.7779C20.7926 19.3238 20.3238 19.7926 19.7779 20.1573C18.5167 21 16.7612 21 13.25 21H12C7.28595 21 4.92893 21 3.46447 19.5355C2 18.0711 2 15.714 2 11V7.94427C2 6.1278 2 5.21956 2.38032 4.53806C2.65142 4.05227 3.05227 3.65142 3.53806 3.38032C4.21956 3 5.1278 3 6.94427 3C8.10802 3 8.6899 3 9.19926 3.19101C10.3622 3.62712 10.8418 4.68358 11.3666 5.73313L12 7"/>',
+        Add01: '<path d="M12.001 5.00003V19.002"/><path d="M19.002 12.002L4.99998 12.002"/>',
+        MoreHorizontal:
+          '<path d="M6.00449 12.5V12M18.0045 12.5V12M12.0045 12.5V12M7.00449 12.5C7.00449 11.9477 6.55677 11.5 6.00449 11.5C5.4522 11.5 5.00449 11.9477 5.00449 12.5C5.00449 13.0523 5.4522 13.5 6.00449 13.5C6.55677 13.5 7.00449 13.0523 7.00449 12.5ZM19.0045 12.5C19.0045 11.9477 18.5568 11.5 18.0045 11.5C17.4522 11.5 17.0045 11.9477 17.0045 12.5C17.0045 13.0523 17.4522 13.5 18.0045 13.5C18.5568 13.5 19.0045 13.0523 19.0045 12.5ZM13.0045 12.5C13.0045 11.9477 12.5568 11.5 12.0045 11.5C11.4522 11.5 11.0045 11.9477 11.0045 12.5C11.0045 13.0523 11.4522 13.5 12.0045 13.5C12.5568 13.5 13.0045 13.0523 13.0045 12.5Z"/>',
+        Settings01:
+          '<path d="M21.3175 7.14139L20.8239 6.28479C20.4506 5.63696 20.264 5.31305 19.9464 5.18388C19.6288 5.05472 19.2696 5.15664 18.5513 5.36048L17.3311 5.70418C16.8725 5.80994 16.3913 5.74994 15.9726 5.53479L15.6357 5.34042C15.2766 5.11043 15.0004 4.77133 14.8475 4.37274L14.5136 3.37536C14.294 2.71534 14.1842 2.38533 13.9228 2.19657C13.6615 2.00781 13.3143 2.00781 12.6199 2.00781H11.5051C10.8108 2.00781 10.4636 2.00781 10.2022 2.19657C9.94085 2.38533 9.83106 2.71534 9.61149 3.37536L9.27753 4.37274C9.12465 4.77133 8.84845 5.11043 8.48937 5.34042L8.15249 5.53479C7.73374 5.74994 7.25259 5.80994 6.79398 5.70418L5.57375 5.36048C4.85541 5.15664 4.49625 5.05472 4.17867 5.18388C3.86109 5.31305 3.67445 5.63696 3.30115 6.28479L2.80757 7.14139C2.45766 7.74864 2.2827 8.05227 2.31666 8.37549C2.35061 8.69871 2.58483 8.95918 3.05326 9.48012L4.0843 10.6328C4.3363 10.9518 4.51521 11.5078 4.51521 12.0077C4.51521 12.5078 4.33636 13.0636 4.08433 13.3827L3.05326 14.5354C2.58483 15.0564 2.35062 15.3168 2.31666 15.6401C2.2827 15.9633 2.45766 16.2669 2.80757 16.8741L3.30114 17.7307C3.67443 18.3785 3.86109 18.7025 4.17867 18.8316C4.49625 18.9608 4.85542 18.8589 5.57377 18.655L6.79394 18.3113C7.25263 18.2055 7.73387 18.2656 8.15267 18.4808L8.4895 18.6752C8.84851 18.9052 9.12464 19.2442 9.2775 19.6428L9.61149 20.6403C9.83106 21.3003 9.94085 21.6303 10.2022 21.8191C10.4636 22.0078 10.8108 22.0078 11.5051 22.0078H12.6199C13.3143 22.0078 13.6615 22.0078 13.9228 21.8191C14.1842 21.6303 14.294 21.3003 14.5136 20.6403L14.8476 19.6428C15.0004 19.2442 15.2765 18.9052 15.6356 18.6752L15.9724 18.4808C16.3912 18.2656 16.8724 18.2055 17.3311 18.3113L18.5513 18.655C19.2696 18.8589 19.6288 18.9608 19.9464 18.8316C20.264 18.7025 20.4506 18.3785 20.8239 17.7307L21.3175 16.8741C21.6674 16.2669 21.8423 15.9633 21.8084 15.6401C21.7744 15.3168 21.5402 15.0564 21.0718 14.5354L20.0407 13.3827C19.7887 13.0636 19.6098 12.5078 19.6098 12.0077C19.6098 11.5078 19.7888 10.9518 20.0407 10.6328L21.0718 9.48012C21.5402 8.95918 21.7744 8.69871 21.8084 8.37549C21.8423 8.05227 21.6674 7.74864 21.3175 7.14139Z"/><path d="M15.5195 12C15.5195 13.933 13.9525 15.5 12.0195 15.5C10.0865 15.5 8.51953 13.933 8.51953 12C8.51953 10.067 10.0865 8.5 12.0195 8.5C13.9525 8.5 15.5195 10.067 15.5195 12Z"/>',
+        Sparkles:
+          '<path d="M15 2L15.5387 4.39157C15.9957 6.42015 17.5798 8.00431 19.6084 8.46127L22 9L19.6084 9.53873C17.5798 9.99569 15.9957 11.5798 15.5387 13.6084L15 16L14.4613 13.6084C14.0043 11.5798 12.4202 9.99569 10.3916 9.53873L8 9L10.3916 8.46127C12.4201 8.00431 14.0043 6.42015 14.4613 4.39158L15 2Z"/><path d="M7 12L7.38481 13.7083C7.71121 15.1572 8.84275 16.2888 10.2917 16.6152L12 17L10.2917 17.3848C8.84275 17.7112 7.71121 18.8427 7.38481 20.2917L7 22L6.61519 20.2917C6.28879 18.8427 5.15725 17.7112 3.70827 17.3848L2 17L3.70827 16.6152C5.15725 16.2888 6.28879 15.1573 6.61519 13.7083L7 12Z"/>',
+        ArrowRight01: '<path d="M9.00005 6C9.00005 6 15 10.4189 15 12C15 13.5812 9 18 9 18"/>',
+        Tick02: '<path d="M5 14L8.5 17.5L19 6.5"/>',
+        Target02:
+          '<path d="M17 12C17 14.7614 14.7614 17 12 17C9.23858 17 7 14.7614 7 12C7 9.23858 9.23858 7 12 7"/><path d="M14 2.20004C13.3538 2.06886 12.6849 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12C22 11.3151 21.9311 10.6462 21.8 10"/><path d="M12.0303 11.9625L16.5832 7.4096M19.7404 4.34462L19.1872 2.35748C19.0853 2.03011 18.6914 1.89965 18.4259 2.11662C16.9898 3.29018 15.4254 4.87091 16.703 7.36419C19.2771 8.56455 20.7466 6.94584 21.8733 5.5853C22.0975 5.3146 21.9623 4.90767 21.6247 4.81005L19.7404 4.34462Z"/>',
+        Idea01:
+          '<path d="M8 16.4998C6.7725 15.4011 6 13.7768 6 11.9998C6 8.68605 8.68629 5.99976 12 5.99976C15.3137 5.99976 18 8.68605 18 11.9998C18 13.7768 17.2275 15.4011 16 16.4998"/><path d="M12 11.9998V16.4998"/><path d="M9.5 18.9998H14.5"/><path d="M10.5 21.4998H13.5"/><path d="M3.5 11.9998H2.5M5.98438 5.97632L5.23438 5.23022M18.0195 5.97632L18.7695 5.23022M21.5 11.9998H20.5M12 2.49976V3.49976"/>',
+        Note01:
+          '<path d="M16.5 2V5M7.5 2V5M12 2V5"/><path d="M13 3.5H11C7.70017 3.5 6.05025 3.5 5.02513 4.52513C4 5.55025 4 7.20017 4 10.5V15C4 18.2998 4 19.9497 5.02513 20.9749C6.05025 22 7.70017 22 11 22H13C16.2998 22 17.9497 22 18.9749 20.9749C20 19.9497 20 18.2998 20 15V10.5C20 7.20017 20 5.55025 18.9749 4.52512C17.9497 3.5 16.2998 3.5 13 3.5Z"/><path d="M8 15H12M8 11H16"/>',
+        BookOpen01:
+          '<path d="M7.99978 3.5H6.60021C4.43183 3.5 3.34764 3.5 2.67399 4.17362C2.00034 4.84724 2.00029 5.93144 2.00021 8.09982L2 13.3998C1.99992 15.5684 1.99987 16.6526 2.67353 17.3263C3.34719 18 4.43146 18 6.6 18H8.95042C10.4329 18 11.7092 19.0464 11.9999 20.5V5.5C11.0556 4.24097 9.99989 3.5 7.99978 3.5Z"/><path d="M16.0001 3.5H17.3997C19.5681 3.5 20.6523 3.5 21.3259 4.17362C21.9996 4.84724 21.9996 5.93144 21.9997 8.09982L21.9999 13.3998C22 15.5684 22 16.6526 21.3264 17.3263C20.6527 18 19.5684 18 17.3999 18H15.0495C13.567 18 12.2907 19.0464 12 20.5V5.5C12.9443 4.24097 14 3.5 16.0001 3.5Z"/>',
+        Quiz01:
+          '<path d="M10.4564 2.64012C11.3085 1.78663 12.6915 1.78663 13.5436 2.64012L14.553 3.65112C14.9625 4.06139 15.5186 4.29172 16.0983 4.29124L17.5269 4.29007C18.733 4.28909 19.7109 5.26702 19.7099 6.47306L19.7088 7.90166C19.7083 8.48139 19.9386 9.03745 20.3489 9.44705L21.3599 10.4564C22.2134 11.3085 22.2134 12.6915 21.3599 13.5436L20.3489 14.553C19.9386 14.9625 19.7083 15.5186 19.7088 16.0983L19.7099 17.5269C19.7109 18.733 18.733 19.7109 17.5269 19.7099L16.0983 19.7088C15.5186 19.7083 14.9625 19.9386 14.553 20.3489L13.5436 21.3599C12.6915 22.2134 11.3085 22.2134 10.4564 21.3599L9.44705 20.3489C9.03745 19.9386 8.48139 19.7083 7.90166 19.7088L6.47306 19.7099C5.26702 19.7109 4.28909 18.733 4.29007 17.5269L4.29124 16.0983C4.29172 15.5186 4.06139 14.9625 3.65112 14.553L2.64012 13.5436C1.78663 12.6915 1.78663 11.3085 2.64012 10.4564L3.65112 9.44705C4.06139 9.03745 4.29172 8.48139 4.29124 7.90166L4.29007 6.47306C4.28909 5.26702 5.26702 4.28909 6.47306 4.29007L7.90166 4.29124C8.48139 4.29172 9.03745 4.06139 9.44705 3.65112L10.4564 2.64012Z"/><path d="M10 9C10 7.89543 10.8954 7 12 7C13.1046 7 14 7.89543 14 9C14 9.39815 13.8837 9.76913 13.6831 10.0808C13.0854 11.0097 12 11.8954 12 13V13.5M12.1244 16.75H11.9994M12.2494 16.75C12.2494 16.8881 12.1375 17 11.9994 17C11.8613 17 11.7494 16.8881 11.7494 16.75C11.7494 16.6119 11.8613 16.5 11.9994 16.5C12.1375 16.5 12.2494 16.6119 12.2494 16.75Z"/>',
+        Flag01:
+          '<path d="M5.0249 21C5.04385 19.2643 5.04366 17.5541 5.0366 15.9209M5.0366 15.9209C5.01301 10.4614 4.91276 5.86186 5.19475 4.04271C5.5611 1.67939 9.39301 3.82993 13.9703 5.59842L16.0328 6.48729C17.5508 7.1415 19.7187 8.30352 18.7662 9.66084C18.3738 10.22 17.56 10.8596 16.0575 11.567L5.0366 15.9209Z"/>',
+        ArrowDown01: '<path d="M18 9.00005C18 9.00005 13.5811 15 12 15C10.4188 15 6 9 6 9"/>',
+        Message01:
+          '<path d="M8.5 14.5H15.5M8.5 9.5H12"/><path d="M14.1706 20.8905C18.3536 20.6125 21.6856 17.2332 21.9598 12.9909C22.0134 12.1607 22.0134 11.3009 21.9598 10.4707C21.6856 6.22838 18.3536 2.84913 14.1706 2.57107C12.7435 2.47621 11.2536 2.47641 9.8294 2.57107C5.64639 2.84913 2.31441 6.22838 2.04024 10.4707C1.98659 11.3009 1.98659 12.1607 2.04024 12.9909C2.1401 14.536 2.82343 15.9666 3.62791 17.1746C4.09501 18.0203 3.78674 19.0758 3.30021 19.9978C2.94941 20.6626 2.77401 20.995 2.91484 21.2351C3.05568 21.4752 3.37026 21.4829 3.99943 21.4982C5.24367 21.5285 6.08268 21.1757 6.74868 20.6846C7.1264 20.4061 7.31527 20.2668 7.44544 20.2508C7.5756 20.2348 7.83177 20.3403 8.34401 20.5513C8.8044 20.7409 9.33896 20.8579 9.8294 20.8905C11.2536 20.9852 12.7435 20.9854 14.1706 20.8905Z"/>',
+        PlayCircle:
+          '<circle cx="12" cy="12" r="10"/><path d="M15.9453 12.3948C15.7686 13.0215 14.9333 13.4644 13.2629 14.3502C11.648 15.2064 10.8406 15.6346 10.1899 15.4625C9.9209 15.3913 9.6758 15.2562 9.47812 15.0701C9 14.6198 9 13.7465 9 12C9 10.2535 9 9.38018 9.47812 8.92995C9.6758 8.74381 9.9209 8.60868 10.1899 8.53753C10.8406 8.36544 11.648 8.79357 13.2629 9.64983C14.9333 10.5356 15.7686 10.9785 15.9453 11.6052C16.0182 11.8639 16.0182 12.1361 15.9453 12.3948Z"/>',
+        Globe02:
+          '<circle cx="12" cy="12" r="10"/><path d="M8 12C8 18 12 22 12 22C12 22 16 18 16 12C16 6 12 2 12 2C12 2 8 6 8 12Z"/><path d="M21 15H3"/><path d="M21 9H3"/>',
+        Cancel01: '<path d="M18 6L6.00081 17.9992M17.9992 18L6 6.00085"/>',
+        ArrowTurnBackward:
+          '<path d="M11 6H15.5C17.9853 6 20 8.01472 20 10.5C20 12.9853 17.9853 15 15.5 15H4"/><path d="M6.99998 12C6.99998 12 4.00001 14.2095 4 15C3.99999 15.7906 7 18 7 18"/>',
+        ArrowUpRight01:
+          '<path d="M9 6.65032C9 6.65032 15.9383 6.10759 16.9154 7.08463C17.8924 8.06167 17.3496 15 17.3496 15M16.5 7.5L6.5 17.5"/>',
+        Archive02:
+          '<path d="M7 21H16.9999C19.3569 21 20.5354 21 21.2677 20.2678C21.9999 19.5355 21.9999 18.357 21.9999 16C21.9999 13.643 21.9999 12.4645 21.2677 11.7322C20.5354 11 19.3569 11 16.9999 11H7C4.64302 11 3.46453 11 2.7323 11.7322C2.00007 12.4644 2.00005 13.6429 2 15.9999C1.99995 18.357 1.99993 19.5355 2.73217 20.2677C3.4644 21 4.64294 21 7 21Z"/><path d="M4 11C4.00005 9.59977 4.00008 8.89966 4.27263 8.36485C4.5123 7.89455 4.89469 7.51218 5.365 7.27253C5.89981 7 6.59993 7 8.00015 7H16C17.4001 7 18.1002 7 18.635 7.27248C19.1054 7.51217 19.4878 7.89462 19.7275 8.36502C20 8.8998 20 9.59987 20 11"/><path d="M6 7C6.00004 5.5998 6.00006 4.89969 6.27259 4.3649C6.51227 3.89457 6.89467 3.51218 7.36501 3.27252C7.89981 3 8.59991 3 10.0001 3H14C15.4001 3 16.1002 3 16.635 3.27248C17.1054 3.51217 17.4878 3.89462 17.7275 4.36502C18 4.8998 18 5.59987 18 7"/><path d="M16 15L15.7 15.4C15.1111 16.1851 14.8167 16.5777 14.3944 16.7889C13.9721 17 13.4814 17 12.5 17H11.5C10.5186 17 10.0279 17 9.60557 16.7889C9.18328 16.5777 8.88885 16.1851 8.3 15.4L8 15"/>',
+        Award01:
+          '<path d="M15.9349 21.033C16.1789 21.5331 15.699 22 15.1239 22H8.87606C8.30096 22 7.82107 21.5331 8.06509 21.033C8.63149 19.8722 10.1793 19 12 19C13.8207 19 15.3685 19.8722 15.9349 21.033Z"/><path d="M12 16L11.9883 19"/><path d="M17.9866 4.49139C17.992 4.30176 17.9963 4.11477 17.9997 3.93095C18.0194 2.86463 17.1162 2.00002 16.0093 2.00002L7.99052 2C6.88381 2 5.98074 2.86438 6.00031 3.93054C6.00358 4.10833 6.00768 4.28907 6.01283 4.47231C6.05734 6.05627 6.18024 7.82593 6.51875 9.47415C7.18043 12.6958 8.66606 16 12.0001 16C15.3341 16 16.8193 12.6958 17.481 9.47415C17.8181 7.83255 17.9415 6.07048 17.9866 4.49139Z"/><path d="M18 4.5L19.4447 4.68748C20.9062 4.87714 22 6.122 22 7.59578C22 8.99373 21.0133 10.1973 19.6425 10.4715L17.5 11"/><path d="M6 4.5L4.55527 4.68748C3.09375 4.87714 2 6.122 2 7.59578C2 8.99373 2.98673 10.1973 4.35754 10.4715L6.5 11"/>',
+        ComputerTerminal01:
+          '<path d="M7.5 7.5L8.72654 8.55719C9.24218 9.00163 9.5 9.22386 9.5 9.5C9.5 9.77614 9.24218 9.99836 8.72654 10.4428L7.5 11.5"/><path d="M11.5 12.5H15.5"/><path d="M12 21C15.7497 21 17.6246 21 18.9389 20.0451C19.3634 19.7367 19.7367 19.3634 20.0451 18.9389C21 17.6246 21 15.7497 21 12C21 8.25027 21 6.3754 20.0451 5.06107C19.7367 4.6366 19.3634 4.26331 18.9389 3.95491C17.6246 3 15.7497 3 12 3C8.25027 3 6.3754 3 5.06107 3.95491C4.6366 4.26331 4.26331 4.6366 3.95491 5.06107C3 6.3754 3 8.25027 3 12C3 15.7497 3 17.6246 3.95491 18.9389C4.26331 19.3634 4.6366 19.7367 5.06107 20.0451C6.3754 21 8.25027 21 12 21Z"/>',
+        Square:
+          '<path d="M2.5 12C2.5 7.52166 2.5 5.28249 3.89124 3.89124C5.28249 2.5 7.52166 2.5 12 2.5C16.4783 2.5 18.7175 2.5 20.1088 3.89124C21.5 5.28249 21.5 7.52166 21.5 12C21.5 16.4783 21.5 18.7175 20.1088 20.1088C18.7175 21.5 16.4783 21.5 12 21.5C7.52166 21.5 5.28249 21.5 3.89124 20.1088C2.5 18.7175 2.5 16.4783 2.5 12Z"/>',
+        CheckmarkSquare02:
+          '<path d="M2.5 12C2.5 7.52166 2.5 5.28249 3.89124 3.89124C5.28249 2.5 7.52166 2.5 12 2.5C16.4783 2.5 18.7175 2.5 20.1088 3.89124C21.5 5.28249 21.5 7.52166 21.5 12C21.5 16.4783 21.5 18.7175 20.1088 20.1088C18.7175 21.5 16.4783 21.5 12 21.5C7.52166 21.5 5.28249 21.5 3.89124 20.1088C2.5 18.7175 2.5 16.4783 2.5 12Z"/><path d="M8 12.5L10.5 15L16 9"/>',
+        Alert02:
+          '<path d="M13.9248 21H10.0752C5.44476 21 3.12955 21 2.27636 19.4939C1.42317 17.9879 2.60736 15.9914 4.97574 11.9985L6.90057 8.75333C9.17559 4.91778 10.3131 3 12 3C13.6869 3 14.8244 4.91777 17.0994 8.75332L19.0243 11.9985C21.3926 15.9914 22.5768 17.9879 21.7236 19.4939C20.8704 21 18.5552 21 13.9248 21Z"/><path d="M12 9V13"/><path d="M12.125 16.75H12M12.25 16.75C12.25 16.8881 12.1381 17 12 17C11.8619 17 11.75 16.8881 11.75 16.75C11.75 16.6119 11.8619 16.5 12 16.5C12.1381 16.5 12.25 16.6119 12.25 16.75Z"/>',
+        Undo02:
+          '<path d="M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C8.66873 3 5.76018 4.80989 4.20404 7.5"/><path d="M3 3V4.27816C3 6.47004 3 7.56599 3.70725 8.16512C4.4145 8.76425 5.49553 8.58408 7.6576 8.22373L9 8"/>',
+        Clock01: '<circle cx="12" cy="12" r="10"/><path d="M12 8V12L14 14"/>',
+        CheckmarkCircle02:
+          '<path d="M22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12Z"/><path d="M8 12.5L10.5 15L16 9"/>',
+        LockKey:
+          '<path d="M18 10.9971C17.6078 10.1968 16.5481 9.02153 14.3703 9.07154C14.3703 9.07154 12.6431 8.99652 10.6906 8.99652C8.73815 8.99652 7.82408 9.04224 6.25999 9.07154C5.25872 9.04653 3.35629 9.2716 2.48017 11.3472C1.90444 13.0976 1.87941 16.7736 2.22986 18.6241C2.30495 19.5744 2.80559 20.8998 4.35757 21.6C5.30878 22.1001 6.83573 21.9 7.98719 22.0001M5.98464 8.1963C5.93458 5.82065 5.83445 3.94514 8.58796 2.39472C9.51414 2.01962 10.8909 1.69453 12.5931 2.49475C14.3703 3.57004 14.5917 4.70802 14.7458 4.99543C15.1713 6.12074 14.9461 7.72117 14.9961 8.37135"/><path d="M15.5 19.7351C15.5 20.9792 14.4911 21.9656 13.2552 21.9656C12.0194 21.9656 11 20.9792 11 19.7351C11 18.4911 12.0194 17.4915 13.2552 17.4915C14.4911 17.4915 15.5 18.4911 15.5 19.7351Z"/><path d="M22 15.8482L20.3731 14.3089C19.6 13.5692 18.95 14.2149 18.6264 14.4906L17.2156 15.8482L15.225 17.7909M17.2156 15.8482L18.825 17.3936"/>',
+        CornerDownRight:
+          '<path d="M19 15H12C8.22876 15 6.34315 15 5.17157 13.8284C4 12.6569 4 10.7712 4 7V4"/><path d="M15 20C15 20 20 16.3176 20 15C20 13.6824 15 10 15 10"/>',
+        ArrowUp02: '<path d="M12 5.5V19"/><path d="M18 11C18 11 13.5811 5.00001 12 5C10.4188 4.99999 6 11 6 11"/>',
+        View: '<path d="M21.544 11.045C21.848 11.4713 22 11.6845 22 12C22 12.3155 21.848 12.5287 21.544 12.955C20.1779 14.8706 16.6892 19 12 19C7.31078 19 3.8221 14.8706 2.45604 12.955C2.15201 12.5287 2 12.3155 2 12C2 11.6845 2.15201 11.4713 2.45604 11.045C3.8221 9.12944 7.31078 5 12 5C16.6892 5 20.1779 9.12944 21.544 11.045Z"/><path d="M15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15C13.6569 15 15 13.6569 15 12Z"/>',
+        SourceCode:
+          '<path d="M17 8L18.8398 9.85008C19.6133 10.6279 20 11.0168 20 11.5C20 11.9832 19.6133 12.3721 18.8398 13.1499L17 15"/><path d="M7 8L5.16019 9.85008C4.38673 10.6279 4 11.0168 4 11.5C4 11.9832 4.38673 12.3721 5.16019 13.1499L7 15"/><path d="M14.5 4L9.5 20"/>',
+        TextWrap:
+          '<path d="M3 3H21"/><path d="M3 15H9"/><path d="M3 21H9"/><path d="M3 9H16.5C18.9853 9 21 11.0147 21 13.5C21 15.9853 18.9853 18 16.5 18H12M12 18C12 17.1597 14.3932 15.5898 15 15M12 18C12 18.8403 14.3932 20.4102 15 21"/>',
+        InformationCircle:
+          '<circle cx="12" cy="12" r="10"/><path d="M12 16V12"/><path d="M12.125 8.25H12M12.25 8.25C12.25 8.11193 12.1381 8 12 8C11.8619 8 11.75 8.11193 11.75 8.25C11.75 8.38807 11.8619 8.5 12 8.5C12.1381 8.5 12.25 8.38807 12.25 8.25Z"/>',
+        ArrowLeft01: '<path d="M15 6C15 6 9.00001 10.4189 9 12C8.99999 13.5812 15 18 15 18"/>',
+      };
+      const ic = (n, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24">${ICONS[n]}</svg>`;
+      /* 文件类型图标：material-icon-theme 5.39.0 的原图（同 packages/ui/public/file-icons），按 file-icons.json 的规则认 */
+      const MIT = {
+        html: '<svg class="ft" viewBox="0 0 32 32"><path fill="#e65100" d="m4 4 2 22 10 2 10-2 2-22Zm19.72 7H11.28l.29 3h11.86l-.802 9.335L15.99 25l-6.635-1.646L8.93 19h3.02l.19 2 3.86.77 3.84-.77.29-4H8.84L8 8h16Z"/></svg>',
+        md: '<svg class="ft" viewBox="0 0 32 32"><path fill="#42a5f5" d="m14 10-4 3.5L6 10H4v12h4v-6l2 2 2-2v6h4V10zm12 6v-6h-4v6h-4l6 8 6-8z"/></svg>',
+        agent:
+          '<svg class="ft" viewBox="0 0 32 32"><path fill="#ff5252" d="M2.636 24H6v-8H2.636a.63.63 0 0 0-.636.625v6.75a.63.63 0 0 0 .636.625M26 16v8h3.364c.351 0 .636-.355.636-.7v-6.675a.63.63 0 0 0-.636-.625zM17.417 6H14.69a.63.63 0 0 0-.636.625V12H8.69a.63.63 0 0 0-.636.625L8 25.375c0 .345.305.625.637.625h14.727a.63.63 0 0 0 .636-.625v-12.75a.63.63 0 0 0-.636-.625h-5.31V6.625A.63.63 0 0 0 17.416 6m-5.363 8c1.781 0 2.674 2.154 1.414 3.414s-3.414.368-3.414-1.414a2 2 0 0 1 2-2M22 24H10v-2h12zm-1.946-10c1.781 0 2.674 2.154 1.414 3.414s-3.414.368-3.414-1.414a2 2 0 0 1 2-2"/></svg>',
+        rust: '<svg class="ft" viewBox="0 0 32 32"><path fill="#ff7043" d="m30 12-4-2V6h-4l-2-4-4 2-4-2-2 4H6v4l-4 2 2 4-2 4 4 2v4h4l2 4 4-2 4 2 2-4h4v-4l4-2-2-4ZM6 16a9.9 9.9 0 0 1 .842-4H10v8H6.842A9.9 9.9 0 0 1 6 16m10 10a9.98 9.98 0 0 1-7.978-4H16v-2h-2v-2h4c.819.819.297 2.308 1.179 3.37a1.89 1.89 0 0 0 1.46.63h3.34A9.98 9.98 0 0 1 16 26m-2-12v-2h4a1 1 0 0 1 0 2Zm11.158 6H24a2.006 2.006 0 0 1-2-2 2 2 0 0 0-2-2 3 3 0 0 0 3-3q0-.08-.004-.161A3.115 3.115 0 0 0 19.83 10H8.022a9.986 9.986 0 0 1 17.136 10"/></svg>',
+        toml: '<svg class="ft" viewBox="0 0 16 16"><path fill="#cfd8dc" d="M4 6V4h8v2H9v7H7V6z"/><path fill="#ef5350" d="M4 1v1H2v12h2v1H1V1zm8 0v1h2v12h-2v1h3V1z"/></svg>',
+        toml_light:
+          '<svg class="ft" viewBox="0 0 16 16"><path fill="#455a64" d="M4 6V4h8v2H9v7H7V6z"/><path fill="#ef5350" d="M4 1v1H2v12h2v1H1V1zm8 0v1h2v12h-2v1h3V1z"/></svg>',
+        git: '<svg class="ft" viewBox="0 0 32 32"><path fill="#e64a19" d="M13.172 2.828 11.78 4.22l1.91 1.91 2 2A2.986 2.986 0 0 1 20 10.81a3.25 3.25 0 0 1-.31 1.31l2.06 2a2.68 2.68 0 0 1 3.37.57 2.86 2.86 0 0 1 .88 2.117 3.02 3.02 0 0 1-.856 2.109A2.9 2.9 0 0 1 23 19.81a2.93 2.93 0 0 1-2.13-.87 2.694 2.694 0 0 1-.56-3.38l-2-2.06a3 3 0 0 1-.31.12V20a3 3 0 0 1 1.44 1.09 2.92 2.92 0 0 1 .56 1.72 2.88 2.88 0 0 1-.878 2.128 2.98 2.98 0 0 1-2.048.871 2.981 2.981 0 0 1-2.514-4.719A3 3 0 0 1 16 20v-6.38a2.96 2.96 0 0 1-1.44-1.09 2.9 2.9 0 0 1-.56-1.72 2.9 2.9 0 0 1 .31-1.31l-3.9-3.9-7.579 7.572a4 4 0 0 0-.001 5.658l10.342 10.342a4 4 0 0 0 5.656 0l10.344-10.344a4 4 0 0 0 0-5.656L18.828 2.828a4 4 0 0 0-5.656 0"/></svg>',
+        file: '<svg class="ft" viewBox="0 0 16 16"><path d="m8.668 6h3.6641l-3.6641-3.668v3.668m-4.668-4.668h5.332l4 4v8c0 0.73828-0.59375 1.3359-1.332 1.3359h-8c-0.73828 0-1.332-0.59766-1.332-1.3359v-10.664c0-0.74219 0.59375-1.3359 1.332-1.3359m3.332 1.3359h-3.332v10.664h8v-6h-4.668z" fill="#90a4ae"/></svg>',
+        folder:
+          '<svg class="ft" viewBox="0 0 16 16"><path d="m6.922 3.768-.644-.536A1 1 0 0 0 5.638 3H2a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H7.562a1 1 0 0 1-.64-.232" fill="#90a4ae"/></svg>',
+      };
+      /** 按文件名取图标：AGENTS.md → agent，.gitignore → git，扩展名 html / md / rs / toml，其余 file。 */
+      const fi = (name, th) => {
+        if (name === "AGENTS.md") return MIT.agent;
+        if (name === ".gitignore") return MIT.git;
+        const ext = name.split(".").pop();
+        if (ext === "html") return MIT.html;
+        if (ext === "md") return MIT.md;
+        if (ext === "rs") return MIT.rust;
+        if (ext === "toml") return th === "light" ? MIT.toml_light : MIT.toml;
+        return MIT.file;
+      };
+      const KIND = {
+        home: "Mortarboard02",
+        talk: "Message01",
+        ask: "Message01",
+        lesson: "BookOpen01",
+        quiz: "Quiz01",
+        exam: "Quiz01",
+        feyn: "Idea01",
+        sheet: "Note01",
+        project: "ComputerTerminal01",
+        up: "Award01",
+        plan: "Target02",
+      };
+
+      /* ---------- 数据：一个 Rust 方向，当前第 2 级第 4 步 ---------- */
+      const NAME = "Rust 系统编程";
+      const LADDER = [
+        { n: "语法和工具链", st: "done" },
+        { n: "所有权和借用", st: "cur" },
+        { n: "trait 与泛型", st: "lock" },
+        { n: "并发与异步", st: "lock" },
+        { n: "写一个能发布的 CLI", st: "lock" },
+      ];
+      const STEPS = [
+        { t: "所有权与移动", k: "lesson" },
+        { t: "借用规则", k: "lesson" },
+        { t: "可变借用的流向", k: "lesson" },
+        { t: "生命周期标注", k: "lesson" },
+        { t: "切片与 String", k: "lesson" },
+        { t: "智能指针：Box 与 Rc", k: "lesson" },
+        { t: "错误处理：Result 与 ?", k: "lesson" },
+        { t: "速查表", k: "sheet" },
+        { t: "过关项目：文本统计 CLI", k: "project" },
+        { t: "综合测验", k: "exam" },
+        { t: "升到第 3 级", k: "up" },
+      ];
+      const TEN = [..."LLLLLL"]
+        .map(() => ({ k: "lesson" }))
+        .concat([{ k: "sheet" }, { k: "project" }, { k: "exam" }, { k: "up" }]);
+      const SEVEN = [..."LLL"]
+        .map(() => ({ k: "lesson" }))
+        .concat([{ k: "sheet" }, { k: "project" }, { k: "exam" }, { k: "up" }]);
+
+      /* ---------- 共用画法（同 study-loop-prototype.html） ---------- */
+      const trk = (cur, cls = "", steps = STEPS) =>
+        `<span class="trk ${cls}">${steps.map((s, i) => `<i class="${i < cur ? "done" : i === cur ? "cur" : ""}${s.k !== "lesson" ? " x" : ""}"></i>`).join("")}</span>`;
+      const lvl = (text = `第 2 级 · ${LADDER[1].n}`, icon = "Mortarboard02", cls = "") =>
+        `<span class="lvl ${cls}">${ic(icon, "s14")}${text}</span>`;
+      const strip = (inner) => `<div class="strip">${inner}</div>`;
+      const btnP = (t, cls = "") => `<button class="btn primary sm ${cls}">${t}</button>`;
+      const btnG = (t) => `<button class="btn ghost sm">${t}</button>`;
+      const liveDot = `<span class="okdot"></span>`;
+      const mainStrip = () =>
+        strip(
+          `${lvl()}${trk(3)}<span class="now"><b>第 4 步 · 生命周期标注</b> · 还没上课</span><span class="sp"></span>${btnP(`${ic("BookOpen01", "s13")}开始上课`)}`,
+        );
+      /** 标签栏：学习首页只有面包屑；方向里是面包屑、主页标签、会话标签，查看标签排在会话后面（标题斜体、类型图标）。 */
+      const tabbar = ({ home = false, homeOn = false, tabs = [], viewers = [], th = "light", plus = true } = {}) => {
+        if (!home)
+          return `<div class="tabbar"><span class="crumb strong">${ic("Mortarboard02", "s14")}<b>学习</b></span></div>`;
+        return `<div class="tabbar"><span class="crumb">${ic("Mortarboard02", "s14")}学习 ›</span><span class="tab home ${homeOn ? "on" : ""}">${ic("Mortarboard02", "s14")}${NAME}</span>${tabs
+          .map(([k, t, on]) => `<span class="tab ${on ? "on" : ""}">${ic(KIND[k], "s14")}${t}</span>`)
+          .join("")}${viewers
+          .map(([name, on]) => `<span class="tab viewer ${on ? "on" : ""}">${fi(name, th)}<i>${name}</i></span>`)
+          .join("")}<span style="flex:1"></span>${plus ? `<span class="ibtn">${ic("Add01", "s14")}</span>` : ""}</div>`;
+      };
+      const sect = (h, body, m = "") => `<div class="sect"><div class="h"><span>${h}</span>${m}</div>${body}</div>`;
+      const cap = (t) => `<p class="cap">${t}</p>`;
+      const pair = (build, width) =>
+        `<div class="pair">${["light", "dark"]
+          .map(
+            (th) =>
+              `<div class="frame th-${th}" style="width:${width + 32}px"><p class="fl">${th === "light" ? "浅色" : "深色"}</p>${build(th)}</div>`,
+          )
+          .join("")}</div>`;
+
+      /* =====================================================================
+         1 · 继续卡
+         ===================================================================== */
+      const CSTATES = [
+        {
+          cap: "① 可开始（主按钮 = 步骤条的“开始上课”）",
+          eyebrow: `${NAME} · 第 2 级 · 第 4 步`,
+          big: "生命周期标注",
+          btn: btnP(`${ic("BookOpen01", "s13")}开始上课`).replace(" sm", ""),
+          last: "上次：昨天 · 测验 · 可变借用的流向 32/50",
+          dots: () => trk(3),
+          row: "第 2 级第 4 步 · 生命周期标注",
+        },
+        {
+          cap: "② 回到会话（上课会话在跑，前面一颗绿点）",
+          eyebrow: `${NAME} · 第 2 级 · 第 4 步`,
+          big: "生命周期标注",
+          btn: `<button class="btn outline">${liveDot}回到会话</button>`,
+          last: "上次：2 分钟前 · 上课 · 生命周期标注",
+          dots: () => trk(3),
+          row: "第 2 级第 4 步 · 生命周期标注",
+        },
+        {
+          cap: "③ 待升级（点了进方向主页、弹升级确认框）",
+          eyebrow: `${NAME} · 第 2 级 · 第 11 步`,
+          big: "升到第 3 级",
+          btn: `<button class="btn primary">${ic("Award01", "s13")}升级</button>`,
+          last: "上次：今天 · 综合测验 · 第 2 级 82/100",
+          dots: () => trk(10),
+          row: "第 2 级第 11 步 · 升到第 3 级",
+        },
+        {
+          cap: "④ 已学完（没有主按钮，只有“打开”）",
+          name: "JavaScript 异步",
+          eyebrow: "JavaScript 异步",
+          big: "已学完 · 共 4 级",
+          last: "上次：11月6日 · 随口问 · Promise.allSettled 和 all",
+          dots: () => trk(0, "all", SEVEN),
+          row: "已学完 · 共 4 级",
+        },
+        {
+          cap: "⑤ 讨论中（还没有阶梯）",
+          name: "Go 并发",
+          eyebrow: "Go 并发 · 讨论中",
+          big: "还没排出阶梯",
+          last: "上次：3 天前 · 讨论 · 想系统学一下 Go 的并发",
+          dots: null,
+          row: "讨论中 · 还没排出阶梯",
+        },
+        {
+          cap: "⑥ 档案读不出来（上次打开的就是它，不跳过）",
+          name: "SQL 查询优化",
+          eyebrow: "SQL 查询优化",
+          warn: true,
+          big: "档案读不出来",
+          desc: ".atrium-study.json 不是能读的格式，文件没有被改动",
+          dots: () => trk(0, "hatch", TEN),
+          row: "档案读不出来",
+        },
+      ];
+      const openBtn = (s, only) =>
+        only
+          ? `<button class="btn primary">打开 ${s.name}</button>`
+          : `<button class="btn ghost">打开 ${s.name ?? NAME}</button>`;
+      const contA = (s, withDots = false) =>
+        `<div class="card hero cc"><div class="eyebrow ${s.warn ? "warn" : ""}">${s.warn ? ic("Alert02", "s13") : ""}${s.eyebrow}</div><div class="big">${s.big}</div>${s.desc ? `<div class="desc">${s.desc}</div>` : ""}${withDots && s.dots ? `<div class="ccdots">${s.dots()}</div>` : ""}<div class="row2">${s.btn ?? ""}${openBtn(s, !s.btn)}${s.last ? `<span class="last">${s.last}</span>` : ""}</div></div>`;
+      const contB = (s) =>
+        `<div class="card crow"><span class="cic ${s.warn ? "warn" : ""}">${ic(s.warn ? "Alert02" : "Mortarboard02", "s14")}</span><div class="ct"><div class="l1"><b>${s.name ?? NAME}</b><span class="dim"> · </span>${s.row}</div><div class="l2">${s.last ?? s.desc}</div></div>${s.btn ? `<button class="btn ghost sm">打开</button>${s.btn.replace('class="btn ', 'class="btn sm ')}` : `<button class="btn primary sm">打开</button>`}</div>`;
+      const contHead = `<div class="hh">继续</div>`;
+      const contFrame = (draw) =>
+        `<div class="win"><div class="pad">${CSTATES.map((s) => `${cap(s.cap)}${contHead}${draw(s)}`).join("")}</div></div>`;
+      const P1 = {
+        title: "1 · “继续”卡",
+        why: "学习首页最上面一张。主按钮和这个方向步骤条的主按钮一样（开会话、回到会话、升级、进入下一步），次要按钮“打开 方向名”。上次打开的方向不跳过：已学完、讨论中、档案坏了也照实写，这时只有“打开”。每种做法画 6 个状态。",
+        opts: [
+          {
+            L: "1A",
+            reco: true,
+            name: "照原型丁：眉题、大字课名、主按钮、“打开 方向名”、右边“上次：…”",
+            desc: "眉题“方向 · 第 N 级 · 第 M 步”（--tint 半粗），大字是这一步的名字，下面一行按钮，“上次”在右端。没有主按钮时“打开”按主按钮画。",
+            w: 600,
+            build: () => contFrame((s) => contA(s)),
+          },
+          {
+            L: "1B",
+            name: "一行紧凑卡：方向名和这一步，右端两个小按钮",
+            desc: "高 56px：学士帽、方向名 · 第几级第几步 · 名字，下面一行灰字“上次：…”；右端“打开”和主按钮（26px 高）。省地方，下面的方向卡片上移。",
+            w: 600,
+            build: () => contFrame((s) => contB(s)),
+          },
+          {
+            L: "1C",
+            name: "同 A，大字下面加一条和步骤条一样的点阵",
+            desc: "点阵同步骤条（课方点、后面四步圆点；当前 --tint）。讨论中不画；档案坏了是空心占位；已学完全亮。",
+            w: 600,
+            build: () => contFrame((s) => contA(s, true)),
+          },
+        ],
+      };
+
+      /* =====================================================================
+         2 · 方向卡片的点阵与状态
+         ===================================================================== */
+      const CARDS = [
+        {
+          name: NAME,
+          pin: true,
+          mark: "run",
+          line: "共 5 级 · 第 2 级第 4 步 · 漏洞 2",
+          dots: (sz) => trk(3, sz),
+          lv: [2, 5],
+        },
+        {
+          name: "TypeScript 类型体操",
+          mark: "ask",
+          line: "第 3 级 · 还没排课",
+          dots: null,
+          lv: [3, 4],
+        },
+        {
+          name: "JavaScript 异步",
+          line: "已学完 · 共 4 级",
+          dots: (sz) => trk(0, `all ${sz}`, SEVEN),
+          lv: [4, 4],
+        },
+        { name: "Go 并发", tag: "讨论中", line: "还没排出阶梯", dots: null },
+        {
+          name: "SQL 查询优化",
+          line: "档案读不出来",
+          warn: true,
+          dots: (sz) => trk(0, `hatch ${sz}`, TEN),
+        },
+        {
+          name: "Python 数据分析",
+          line: "共 4 级 · 第 1 级第 6 步 · 只能看",
+          dots: (sz) => trk(5, sz, TEN),
+          lv: [1, 4],
+        },
+      ];
+      const markOf = (c) =>
+        c.mark === "run"
+          ? `<span class="okdot" title="有会话在跑"></span>`
+          : c.mark === "ask"
+            ? `<span class="tag attn xs">待回答</span>`
+            : c.tag
+              ? `<span class="tag xs">${c.tag}</span>`
+              : "";
+      const dcard = (c, mode) => {
+        const nm = `<div class="dn">${c.pin ? `<span class="pin">${ic("Pin02", "s12")}</span>` : ""}<span class="t">${c.name}</span>${markOf(c)}</div>`;
+        const line = `<span class="${c.warn ? "warnt" : ""}">${c.warn ? ic("Alert02", "s12") : ""}${c.line}</span>`;
+        const more = `<span class="more">${ic("MoreHorizontal", "s14")}</span>`;
+        if (mode === "A")
+          return `<div class="dcard">${more}${nm}<div class="dl">${line}</div>${c.dots ? `<div class="dd">${c.dots("sm")}</div>` : ""}</div>`;
+        if (mode === "B")
+          return `<div class="dcard">${more}${nm}<div class="dl row">${line}<span class="sp"></span>${c.dots ? c.dots("sm") : ""}</div></div>`;
+        const bar = c.lv
+          ? `<div class="lvbar"><span class="bar">${Array.from({ length: c.lv[1] }, (_, k) => `<i class="${k < c.lv[0] - 1 || (c.lv[0] === c.lv[1] && c.line.startsWith("已学完")) ? "on" : k === c.lv[0] - 1 ? "cur" : ""}"></i>`).join("")}</span><span>第 ${c.lv[0]} / 共 ${c.lv[1]} 级</span></div>`
+          : "";
+        return `<div class="dcard">${more}${nm}<div class="dl">${line}</div>${bar}${c.dots ? `<div class="dd">${c.dots("sm")}</div>` : ""}</div>`;
+      };
+      const homeWin = (inner, h) =>
+        `<div class="win" ${h ? `style="height:${h}px;overflow:hidden"` : ""}>${tabbar()}<div class="hpad">${inner}</div></div>`;
+      const allHead = `<div class="hh"><span style="flex:1">全部方向</span><button class="btn ghost sm">${ic("Add01", "s13")}新建方向</button></div>`;
+      const newTile = `<div class="newtile">${ic("Add01")}<span>新建方向</span></div>`;
+      const grid = (mode) => `<div class="dgrid">${CARDS.map((c) => dcard(c, mode)).join("")}${newTile}</div>`;
+      const P2 = {
+        title: "2 · 方向卡片的点阵与状态",
+        why: "点阵画当前一级的步骤，同步骤条（课方点、后面四步圆点；做完 --text-muted、当前 --tint、没做 --line-strong），卡片里缩到 6px。名字后面：有会话在跑一颗 7px --ok 圆点（Rust），有会话在等你回答一枚“待回答”（TypeScript，排计划在问你）。另有已学完、还没排课、讨论中、档案读不出来、只能看（newer）。",
+        opts: [
+          {
+            L: "2A",
+            reco: true,
+            name: "说明行下面一条点阵",
+            desc: "名字 → 说明行 → 点阵，三行。和原型丁、步骤条的读法一致；没有点阵的卡片少一行，靠最少高度对齐。",
+            w: 720,
+            build: () => homeWin(`${allHead}${grid("A")}`),
+          },
+          {
+            L: "2B",
+            name: "点阵放在说明行右端",
+            desc: "两行：名字 / 说明行 + 右端点阵。卡片矮一些；一级课多（超过 20 步）时说明行会被挤短。",
+            w: 720,
+            build: () => homeWin(`${allHead}${grid("B")}`),
+          },
+          {
+            L: "2C",
+            name: "点阵上面加一条很细的“第 N / 共 M 级”",
+            desc: "说明行下面一条 3px 的分段条（一级一段：学完 --text-muted、当前 --tint），右边小字“第 2 / 共 5 级”，再下面是这一级的点阵。看得到整条阶梯走到哪，但卡片最高。",
+            w: 720,
+            build: () => homeWin(`${allHead}${grid("C")}`),
+          },
+        ],
+      };
+
+      /* =====================================================================
+         3 · 已归档的方向
+         ===================================================================== */
+      const ARCH = [
+        ["Haskell 入门", "停在第 1 级第 3 步"],
+        ["日语 N3 语法", "讨论中"],
+        ["线性代数", "已学完"],
+      ];
+      const lastRow = () => `<div class="dgrid faded-top">${dcard(CARDS[4], "A")}${dcard(CARDS[5], "A")}</div>`;
+      const P3 = {
+        title: "3 · 已归档的方向",
+        why: "归档的方向只能打开（只读）和恢复，不删。顺序按上次打开、再按建的时间（归档不记时间）。画的是“全部方向”最后一排往下。",
+        opts: [
+          {
+            L: "3A",
+            reco: true,
+            name: "列表末尾折叠的一行，点开每行带状态",
+            desc: "样式同侧栏“已归档的对话”：一行“已归档的方向 3”，点开每行是名字和 --text-dim 的状态；悬停一行（第一行）右端出 --tint 的“恢复”。点名字进只读的主页。",
+            w: 720,
+            build: () =>
+              homeWin(
+                `${lastRow()}<div class="morerow open">${ic("ArrowRight01", "s12")}已归档的方向<span class="n">3</span></div><div class="alist">${ARCH.map(([n, s], k) => `<div class="arow ${k === 0 ? "hover" : ""}"><span class="t">${n}</span><span class="st">${s}</span><span class="sp"></span>${k === 0 ? `<span class="lk">恢复</span>` : ""}</div>`).join("")}</div>`,
+              ),
+          },
+          {
+            L: "3B",
+            name: "单独一节“已归档 · 3”，变淡的小卡片",
+            desc: "“全部方向”下面一节，三列小卡片（不画点阵，整张 60% 不透明）：名字、状态，右上角“恢复”。一眼看得到有哪些，但常驻占地方。",
+            w: 720,
+            build: () =>
+              homeWin(
+                `${lastRow()}<div class="hh" style="margin-top:22px">已归档 · 3</div><div class="agrid">${ARCH.map(([n, s]) => `<div class="acard"><span class="lk">恢复</span><div class="t">${n}</div><div class="st">${s}</div></div>`).join("")}</div>`,
+              ),
+          },
+          {
+            L: "3C",
+            name: "“全部方向”右上角一个“已归档”开关",
+            desc: "标题右边分段切换“进行中 6 / 已归档 3”，切到已归档时整片卡片换成归档的方向（变淡、右上角“恢复”）。平时完全看不到归档的方向。",
+            w: 720,
+            build: () =>
+              homeWin(
+                `<div class="hh"><span style="flex:1">全部方向</span><span class="seg2"><span>进行中 6</span><span class="on">已归档 3</span></span></div><div class="dgrid">${ARCH.map(([n, s]) => `<div class="dcard arch"><span class="lk2">恢复</span><div class="dn"><span class="t">${n}</span></div><div class="dl">${s}</div></div>`).join("")}</div>`,
+              ),
+          },
+        ],
+      };
+
+      /* =====================================================================
+         4 · 右栏“档案”
+         ===================================================================== */
+      const head = () =>
+        `<h3 class="ptitle">${NAME} <span class="tag tint">第 2 级 · ${LADDER[1].n}</span></h3><p class="psub">能写出不靠 clone 的 Rust CLI · Rust 2024 · 每周 4–6 小时</p>`;
+      const hero = () =>
+        `<div class="card hero"><div class="eyebrow">第 4 步 · 上课</div><div class="big">生命周期标注</div><div class="desc">引用能活多久由谁说了算；给 lab/ 里的 longest() 补上标注。</div><div class="subpills"><span class="subpill on">上课</span><span class="subpill">测验</span><span class="subpill">补漏</span></div><div class="row2"><button class="btn primary">${ic("BookOpen01", "s14")}开始上课</button></div></div>`;
+      const lead = (i, k) =>
+        k === "lesson" ? `<span class="no">${i + 1}</span>` : `<span class="no kd">${ic(KIND[k], "s14")}</span>`;
+      const steps = () =>
+        `<div class="lessons">${STEPS.slice(0, 6)
+          .map(
+            (s, i) =>
+              `<div class="lesson ${i === 3 ? "next" : i > 3 ? "todo" : ""}"><div class="lh">${lead(i, s.k)}${i < 3 ? `<span class="ok">${ic("Tick02", "s14")}</span>` : ""}<span class="t">${s.t}</span></div></div>`,
+          )
+          .join(
+            "",
+          )}<div class="lesson todo"><div class="lh"><span class="no">…</span><span class="t">另外 5 步</span></div></div></div>`;
+      const ladder = () =>
+        `<div class="side-list">${LADDER.map((l, k) => `<div class="lvc ${l.st === "lock" ? "lock" : ""}"><span class="node"><i class="${l.st === "cur" ? "cur" : l.st === "lock" ? "lock" : ""}"></i></span><span class="nm">第 ${k + 1} 级 · ${l.n}</span><span class="m">${l.st === "cur" ? "当前" : ""}</span><span class="dim" style="display:inline-flex">${ic("ArrowRight01", "s12")}</span></div>`).join("")}</div>`;
+      const gaps = () =>
+        `<div class="card"><div class="gap-row"><span class="mk"></span><span class="body"><span class="tx"><code>&amp;mut</code> 借用还在时，为什么连读原变量都不行</span><span class="src">可变借用的流向 · 测验第 3 题</span></span></div><div class="gap-row"><span class="mk"></span><span class="body"><span class="tx">NLL 下借用在哪一行结束</span><span class="src">可变借用的流向 · 测验第 5 题</span></span></div></div>`;
+      const others = () =>
+        `<div class="side-list"><div class="srow">${ic("Message01", "s14")}<span class="t">讨论 · 排阶梯</span><span class="m">11月1日</span></div><div class="srow">${ic("Message01", "s14")}<span class="t">Copy 和 Clone 的区别</span><span class="m">昨天</span></div></div>`;
+      const arrow = (open) =>
+        `<span class="arr" style="transform:rotate(${open ? 90 : 0}deg)">${ic("ArrowRight01", "s12")}</span>`;
+      const frow = (th, name, { dir = false, open = false, depth = 0, cls = "", m = "" } = {}) =>
+        `<div class="frow2 ${cls}" style="padding-left:${6 + depth * 14}px">${dir ? arrow(open) : fi(name, th)}<span class="t">${name}</span>${m ? `<span class="m">${m}</span>` : ""}</div>`;
+      const demoRow = (th, label, file, cls = "") =>
+        `<div class="drow ${cls}">${MIT.html}<span class="b"><span class="t">${label}</span><span class="fn">${file}</span></span></div>`;
+      const archA = (th, notesOpen = true) =>
+        `<div class="ghead">演示<span class="n">4 个</span></div><div class="card dblock"><div class="sgh">第 2 级</div>${demoRow(th, "第 3 步 · 可变借用的流向", "2-03-borrow-flow.html")}${demoRow(th, "第 1 步 · 所有权与移动", "2-01-move-semantics.html")}<div class="sgh">第 1 级</div>${demoRow(th, "第 4 步 · match 与模式", "1-04-match-arms.html")}<div class="sgh">没对上课的</div>${demoRow(th, "stack-vs-heap.html", "", "nolabel")}</div><div class="ghead">文件</div><div class="side-list">${frow(th, "resources.md")}${frow(th, "cheatsheet.md")}${frow(th, "notes/", { dir: true, open: notesOpen })}${notesOpen ? ["1-03-控制流.md", "1-04-match-与模式.md", "2-01-所有权与移动.md", "2-02-借用规则.md", "2-03-可变借用的流向.md", "费曼-mut-借用.md"].map((n) => frow(th, n, { depth: 1 })).join("") : ""}${frow(th, "lab/", { dir: true })}${frow(th, "AGENTS.md")}</div>`;
+      const archB = (th) =>
+        `<div class="side-list">${frow(th, "lab/", { dir: true })}${frow(th, "notes/", { dir: true })}${frow(th, "visuals/", { dir: true, open: true })}${["1-04-match-arms.html", "2-01-move-semantics.html", "2-03-borrow-flow.html", "stack-vs-heap.html"].map((n) => frow(th, n, { depth: 1 })).join("")}${frow(th, ".atrium-study.json")}${frow(th, "AGENTS.md")}${frow(th, "cheatsheet.md")}${frow(th, "resources.md")}</div>`;
+      const fixRow = (iconHtml, name, m) =>
+        `<div class="frow2">${iconHtml}<span class="t">${name}</span><span class="m">${m}</span><span class="arr">${ic("ArrowRight01", "s12")}</span></div>`;
+      const archC = (th) =>
+        `<div class="side-list">${fixRow(`<span class="tintic">${ic("PlayCircle", "s14")}</span>`, "演示", "4 个")}${fixRow(MIT.folder, "notes/", "6 篇")}${fixRow(MIT.md, "cheatsheet.md", "2 级")}${fixRow(MIT.md, "resources.md", "5 份")}${fixRow(MIT.folder, "lab/", "git")}${fixRow(MIT.agent, "AGENTS.md", "学习方法")}</div>`;
+      const dirHome = (th, side4, h = 1010) =>
+        `<div class="win" style="height:${h}px;display:flex;flex-direction:column">${tabbar({ home: true, homeOn: true, tabs: [["lesson", "上课 · 可变借用的流向"]], th })}${mainStrip()}<div style="flex:1;overflow:hidden;padding:20px 18px"><div class="twocol"><div>${head()}<div style="margin-top:16px">${hero()}</div>${sect("第 2 级的步骤", steps())}</div><div>${sect("阶梯 · 5 级", ladder())}${sect("漏洞", gaps(), `<span class="dim">2 个没补</span>`)}${sect("其他会话", others())}${sect("档案", side4(th))}</div></div></div></div>`;
+      const narrow = (th, side4) =>
+        `<div class="win" style="width:420px;display:flex;flex-direction:column">${tabbar({ home: true, homeOn: true, th, plus: false })}${strip(`${lvl()}${trk(3)}`)}<div style="position:relative;padding:0 18px 18px"><div class="fadetop2">↑ 上面是标题、当前步骤卡、阶梯、这一级的步骤、漏洞</div>${sect("其他会话", others())}${sect("档案", side4(th))}</div></div>`;
+      const P4 = {
+        title: "4 · 方向主页右栏的“档案”",
+        why: "右栏最后一段（阶梯、漏洞、其他会话之后）。目录里有 visuals/ 4 个演示（其中一个没照命名规则写）、notes/ 6 篇、cheatsheet.md、resources.md、lab/、AGENTS.md，还有不该列出来的 .atrium-study.json。每种上面是宽窗口，下面是窄窗口（5A 变一栏，档案在最后）。点一行都在查看标签里打开（第 5、6 项）。",
+        opts: [
+          {
+            L: "4A",
+            reco: true,
+            name: "两组：“演示”小块 + “文件”列表",
+            desc: "“演示”一张卡片，按级分组、新的级在前，每行“第 M 步 · 课名”和等宽的文件名；对不上课的放最后只写文件名。“文件”固定顺序 resources.md、cheatsheet.md、notes/、lab/、AGENTS.md，目录能原地展开（这里展开了 notes/）。不列 .atrium-study.json 和点文件。",
+            w: 760,
+            build: (th) => `<div class="stack">${dirHome(th, archA, 1300)}${narrow(th, (t) => archA(t, false))}</div>`,
+          },
+          {
+            L: "4B",
+            name: "一棵文件树（同右栏的文件树）",
+            desc: "从方向根目录列起，目录在前、按名字排，什么都列（只去掉 .git），所以 .atrium-study.json 也在；演示要展开 visuals/ 才看得到，也对不出课名。",
+            w: 760,
+            build: (th) => `<div class="stack">${dirHome(th, archB)}${narrow(th, archB)}</div>`,
+          },
+          {
+            L: "4C",
+            name: "固定几行，每行一句摘要",
+            desc: "同最早的原型：演示 4 个、notes/ 6 篇、cheatsheet.md 2 级、resources.md 5 份、lab/ git、AGENTS.md。最短；点一行才展开里面的文件，摘要里的“5 份”“2 级”要读文件内容才知道。",
+            w: 760,
+            build: (th) => `<div class="stack">${dirHome(th, archC, 950)}${narrow(th, archC)}</div>`,
+          },
+        ],
+      };
+
+      /* =====================================================================
+         5 · 从档案打开的演示
+         ===================================================================== */
+      const CODE = [
+        ["let", " mut s = String::from(", '"hi"', ");"],
+        ["let", " r1 = &s;", "", ""],
+        ["println!", '("{r1}");', "", "   // r1 最后一次用"],
+        ["let", " m = &mut s;", "", ""],
+        ["m", '.push_str("!");', "", ""],
+        ["println!", '("{s}");', "", ""],
+      ];
+      /** 演示的内容（片段画出来的样子）：一步步看 s、r1、m 各自借到哪一行。 */
+      const demo = (step = 4) =>
+        `<div class="demo"><div class="dtop"><b>可变借用的流向</b><span class="dim">第 ${step} / 6 行</span></div><div class="dbody"><div class="dcode">${CODE.map(
+          (l, k) =>
+            `<div class="cl ${k + 1 === step ? "on" : ""}"><span class="ln">${k + 1}</span><span><span class="kw">${l[0]}</span>${l[1]}<span class="str">${l[2]}</span><span class="cm">${l[3]}</span></span></div>`,
+        ).join("")}</div><div class="lanes">${[
+          ["s", "拥有者", 1, 6, "own"],
+          ["r1", "&amp;s", 2, 3, "shr"],
+          ["m", "&amp;mut s", 4, 5, "mut"],
+        ]
+          .map(
+            ([n, t, a, b, c]) =>
+              `<div class="lane"><span class="lk"><code>${n}</code><span class="dim">${t}</span></span><span class="track">${[1, 2, 3, 4, 5, 6].map((x) => `<i class="${x >= a && x <= b ? c : ""} ${x === step ? "now" : ""}"></i>`).join("")}</span></div>`,
+          )
+          .join(
+            "",
+          )}</div></div><div class="guess"><span>猜一下：把第 3 行挪到第 5 行后面，还能编译吗？</span><span class="gb"><button>能</button><button>不能</button></span></div><div class="dnav"><button>${ic("ArrowLeft01", "s13")}上一步</button><button class="pri">下一步${ic("ArrowRight01", "s13")}</button></div></div>`;
+      const vhead = (th, name, dir, size, { preview = true, toggle = true, note = true, wrap = true } = {}) =>
+        `<div class="vhead">${fi(name, th)}<span class="nm">${name}</span><span class="dim">${dir}</span><span class="dim small mono">${size}</span><span class="sp"></span>${note ? `<span class="nosend">${ic("InformationCircle", "s13")}在这里点的不会发到对话</span>` : ""}${toggle ? `<button class="vbtn ${preview ? "on" : ""}">${ic(preview ? "SourceCode" : "View", "s14")}${preview ? "查看源码" : "预览"}</button>` : ""}${!preview && wrap ? `<span class="ibtn">${ic("TextWrap", "s14")}</span>` : ""}</div>`;
+      const SRC = [
+        '<div id="borrow-flow" class="bf">',
+        '  <div class="bf-top"><b>可变借用的流向</b><span id="bf-at"></span></div>',
+        '  <pre class="bf-code" id="bf-code"></pre>',
+        '  <div class="bf-lanes" id="bf-lanes"></div>',
+        '  <div class="bf-guess">猜一下：把第 3 行挪到第 5 行后面，还能编译吗？',
+        '    <button data-a="能">能</button><button data-a="不能">不能</button>',
+        "  </div>",
+        "</div>",
+        "<style>",
+        "  .bf { font: var(--fs) var(--font-sans); color: var(--text); }",
+        "  .bf-lanes i.mut { background: var(--attn); }",
+        "</style>",
+        "<script>",
+        '  document.querySelectorAll(".bf-guess button").forEach((b) =>',
+        '    b.addEventListener("click", () => window.atrium.sendMessage("我猜：" + b.dataset.a)));',
+      ];
+      const srcBody = () =>
+        `<div class="srcv">${SRC.map((l, k) => `<div class="sl"><span class="ln">${k + 1}</span><span>${l.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</span></div>`).join("")}</div>`;
+      const viewerWin = (th, body, opts = {}, h = 620, withStrip = true) =>
+        `<div class="win" style="height:${h}px;display:flex;flex-direction:column">${tabbar({ home: true, tabs: [["lesson", "上课 · 生命周期标注"]], viewers: [["2-03-borrow-flow.html", true]], th })}${withStrip ? mainStrip() : ""}${vhead(th, "2-03-borrow-flow.html", "visuals/", "18.4 KB · 96 行", opts)}<div style="flex:1;overflow:hidden">${body}</div></div>`;
+      const P5 = {
+        title: "5 · 从档案打开的演示",
+        why: "点档案里的 visuals/2-03-borrow-flow.html。这里打开的演示不属于任何会话：里面点了不会发出去（sendMessage 一律是 false），也没有“在浏览器打开”（那样会跑在沙箱外面、能联网）。其余文件：Markdown 默认预览，别的看源码。",
+        opts: [
+          {
+            L: "5A",
+            reco: true,
+            name: "查看标签里渲染，文件头“预览 / 查看源码”，加一句“不会发到对话”",
+            desc: "同 Markdown 预览：默认渲染（同一个沙箱卡片），文件头右边的按钮切到“查看源码”；按钮左边一句 --text-dim 的“在这里点的不会发到对话”。上面是渲染的样子，下面是切到源码。",
+            w: 760,
+            build: (th) =>
+              `<div class="stack">${viewerWin(th, `<div class="vbody">${demo()}</div>`)}${viewerWin(th, srcBody(), { preview: false }, 460)}</div>`,
+          },
+          {
+            L: "5B",
+            name: "在方向主页原地展开",
+            desc: "点档案里的一行，主页左栏最上面展开这个演示（原型甲“复习 · 档案里的演示”），右上角“收起”；不开标签。主页会被撑长，笔记里的链接也没法打开到这里。",
+            w: 760,
+            build: null, // 下面补上
+          },
+          {
+            L: "5C",
+            name: "只看源码（现在的查看标签）",
+            desc: "和别的 .html 一样只显示源码，不渲染；要看效果得回到当时的会话里。没有“在浏览器打开”。",
+            w: 760,
+            build: (th) => viewerWin(th, srcBody(), { preview: false, toggle: false, note: false }, 460),
+          },
+        ],
+      };
+      /* 5B：主页左栏最上面原地展开，右栏档案里这一行选中 */
+      P5.opts[1].build = (th) =>
+        `<div class="win" style="height:960px;display:flex;flex-direction:column">${tabbar({ home: true, homeOn: true, tabs: [["lesson", "上课 · 生命周期标注"]], th })}${mainStrip()}<div style="flex:1;overflow:hidden;padding:20px 18px"><div class="twocol"><div><div class="card inplace"><div class="iph">${MIT.html}<span class="nm">2-03-borrow-flow.html</span><span class="dim">第 3 步 · 可变借用的流向</span><span class="sp"></span><span class="lk">收起</span></div><div class="ipnote">${ic("InformationCircle", "s13")}在这里点的不会发到对话</div><div style="padding:0 14px 14px">${demo()}</div></div><div style="margin-top:18px">${head()}</div><div style="margin-top:12px">${hero()}</div></div><div>${sect("其他会话", others())}${sect("档案", archA(th).replace('class="drow "', 'class="drow sel"'))}</div></div></div></div>`;
+
+      /* =====================================================================
+         6 · 方向里的查看标签
+         ===================================================================== */
+      const mdPreview = () =>
+        `<div class="mdv"><h1>可变借用的流向</h1><p class="dim small">第 2 级第 3 步 · 11月8日</p><h2>要点</h2><ul><li>同一时刻，要么有任意多个 <code>&amp;T</code>，要么只有一个 <code>&amp;mut T</code>。</li><li>借用到<b>最后一次使用</b>就结束（NLL），不是到作用域末尾。</li><li>所以 <code>r1</code> 用完以后，第 4 行才能拿 <code>&amp;mut s</code>。</li></ul><p>课上的演示：<a>可变借用的流向</a>（在查看标签里打开）。</p><h2>容易错的</h2><p><code>&amp;mut</code> 借用还在时，连读 <code>s</code> 都不行：读也是一次共享借用。</p></div>`;
+      const mdWin = (th, withStrip) =>
+        `<div class="win" style="height:520px;display:flex;flex-direction:column">${tabbar({ home: true, tabs: [["lesson", "上课 · 可变借用的流向"]], viewers: [["2-03-可变借用的流向.md", true]], th })}${withStrip ? mainStrip() : ""}${vhead(th, "2-03-可变借用的流向.md", "notes/", "2.1 KB · 38 行", { note: false })}<div style="flex:1;overflow:hidden">${mdPreview()}</div></div>`;
+      const P6 = {
+        title: "6 · 方向里的查看标签",
+        why: "档案、笔记里的链接、会话里演示卡片的“在查看标签里打开”、回复里的文件链接，都在这个方向的查看标签里打开。查看标签排在会话标签后面（标题斜体、类型图标，同工作区）；⌘W 关它，主页标签上 ⌘W 仍然什么都不关。这里画的是从档案打开的一篇笔记。",
+        opts: [
+          {
+            L: "6A",
+            reco: true,
+            name: "排在会话标签后面，上面照常是步骤条",
+            desc: "步骤条是方向里处处都有的东西，翻档案时也看得到下一步、一键开始。",
+            w: 760,
+            build: (th) => mdWin(th, true),
+          },
+          {
+            L: "6B",
+            name: "查看标签显示时不画步骤条",
+            desc: "让出 40px 给文件；切回会话标签或主页时步骤条回来。",
+            w: 760,
+            build: (th) => mdWin(th, false),
+          },
+        ],
+        shared: {
+          title: "方向会话里演示卡片的“在查看标签里打开”（6A、6B 都一样）",
+          desc: "现在只给有工作区的会话；方向里的会话也给（相对路径落在方向的 visuals/ 里时）。悬停标题行右端的箭头按钮，提示“在查看标签里打开”；点了打开的查看标签就是第 5 项那样，没有回传。下面回复里的 notes/… 文件链接点了也在查看标签里打开。",
+          w: 760,
+          build: (th) =>
+            `<div class="win" style="height:640px;display:flex;flex-direction:column">${tabbar({ home: true, tabs: [["lesson", "上课 · 可变借用的流向", true]], th })}${strip(`${lvl()}${trk(2)}<span class="now"><b>第 3 步 · 可变借用的流向</b> · 上课中</span>`)}<div style="flex:1;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end"><div class="conv"><div class="reply"><p>先别急着看答案。下面这个演示一行一行走，看 <code>r1</code> 和 <code>m</code> 各自借到哪一行：</p></div><div class="vcard"><div class="vch">${ic("PlayCircle", "s14")}<span class="mono">visuals/2-03-borrow-flow.html</span><span>沙箱</span><span class="sp"></span><span class="ibtn hov">${ic("ArrowUpRight01", "s14")}<span class="tipx">在查看标签里打开</span></span></div><div style="padding:12px">${demo(3)}</div></div><div class="reply"><p>笔记写进了 <a class="flink">notes/2-03-可变借用的流向.md</a>。</p></div></div></div><div class="composer-wrap"><div class="composer">回答，或者问点别的<div class="bar">${ic("Add01", "s14")}<span>DeepSeek V4.1 Flash · 中</span><span class="send">${ic("ArrowUp02", "s14")}</span></div></div></div></div>`,
+        },
+      };
+
+      /* ---------- 渲染 ---------- */
+      const PARTS = [P1, P2, P3, P4, P5, P6];
+      document.getElementById("toc").innerHTML = PARTS.map((p, k) => `<a href="#part-${k + 1}">${p.title}</a>`).join(
+        "",
+      );
+      document.getElementById("parts").innerHTML = PARTS.map(
+        (p, k) =>
+          `<section class="part" id="part-${k + 1}"><h2>${p.title}</h2><p class="why">${p.why}</p>${p.opts
+            .map(
+              (o) =>
+                `<div class="opt" id="opt-${o.L}"><div class="oh"><span class="letter">${o.L}</span><b>${o.name}</b>${o.reco ? `<span class="reco">推荐</span>` : ""}</div><p class="od">${o.desc}</p>${pair(o.build, o.w)}</div>`,
+            )
+            .join("")}${
+            p.shared
+              ? `<div class="opt" id="opt-${k + 1}-shared"><div class="oh"><span class="letter" style="background:#6e6e74">共用</span><b>${p.shared.title}</b></div><p class="od">${p.shared.desc}</p>${pair(p.shared.build, p.shared.w)}</div>`
+              : ""
+          }</section>`,
+      ).join("");
+    </script>
+  </body>
+</html>

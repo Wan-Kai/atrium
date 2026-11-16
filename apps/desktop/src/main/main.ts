@@ -13,9 +13,11 @@ import {
   utilityProcess,
 } from "electron";
 import { randomBytes } from "node:crypto";
-import { lstat, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { isBrowsable } from "./browsable";
+import { followTasksFor } from "./follow-tasks";
 import { openTerminalIn } from "./open-terminal";
 import { allowsPermission, isPageUrl } from "./permissions";
 import { menuShortcut } from "./shortcuts";
@@ -108,7 +110,7 @@ const HOST_STARTUP_TIMEOUT_MS = 15_000;
  * @sideEffects Forks a utility process and posts the config to it; posts app metrics at every
  * interval while the host runs; reads and writes the vault when the host asks; logs to stderr if
  * the host later exits unexpectedly.
- * @param options - Host bundle path, the vault's keeper, token, UI directory, extra allowed
+ * @param options - Host bundle path, the vault's keeper, token, UI directory, the tasks directory to follow (dev only), extra allowed
  * origins and the interval between samples of the app's processes.
  * @returns The host's port and a function that stops it.
  * @throws {Error} When the host reports a failure, exits early, or does not start in time.
@@ -119,10 +121,18 @@ function startHost(options: {
   readonly token: string;
   readonly uiDir: string | undefined;
   readonly extraOrigins: readonly string[];
+  /** The tasks directory to follow read-only; set only when the app is not packaged (`followTasksFor`). */
+  readonly followTasks: string | undefined;
   readonly metricsIntervalMs: number;
 }): Promise<HostProcess> {
   const child = utilityProcess.fork(options.hostEntry, [], { serviceName: "atrium-host", stdio: "inherit" });
-  child.postMessage({ type: "config", token: options.token, uiDir: options.uiDir, extraOrigins: options.extraOrigins });
+  child.postMessage({
+    type: "config",
+    token: options.token,
+    uiDir: options.uiDir,
+    extraOrigins: options.extraOrigins,
+    ...(options.followTasks === undefined ? {} : { followTasks: options.followTasks }),
+  });
   let stopping = false;
   let metricsTimer: NodeJS.Timeout | undefined;
   const exited = new Promise<number>((done) => child.once("exit", (code) => done(code)));
@@ -245,26 +255,6 @@ async function isRevealable(path: string): Promise<boolean> {
 }
 
 /**
- * Whether the page may open a path in the browser: an absolute path to an HTML file.
- *
- * @remarks
- * The page asks for an HTML file shown in a file tab (SPEC-0001, "查看标签"). The file must be a
- * regular file, not a link to somewhere else or a folder; anything else it sends is ignored
- * (security.md, "Electron").
- *
- * @sideEffects Reads the file system.
- * @param path - The path the page sent.
- * @returns Whether to open it.
- */
-async function isBrowsable(path: string): Promise<boolean> {
-  if (!isAbsolute(path) || !/\.html?$/iu.test(path)) return false;
-  return lstat(path).then(
-    (found) => found.isFile(),
-    () => false,
-  );
-}
-
-/**
  * Whether the page may open a terminal in a directory: an absolute path to a folder that exists.
  *
  * @remarks
@@ -347,6 +337,7 @@ async function main(): Promise<void> {
     token,
     uiDir: devUrl === undefined ? paths.uiDir : undefined,
     extraOrigins: [devUrl === undefined ? APP_ORIGIN : new URL(devUrl).origin],
+    followTasks: followTasksFor(process.env, app.isPackaged),
     metricsIntervalMs: paths.metricsIntervalMs,
   });
   let hostStopped = false;

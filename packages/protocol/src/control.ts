@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { DeliveryItem } from "./agent";
 import { PendingQuestion } from "./question";
+import { PendingReview, REVIEWS_LIMIT } from "./reviews";
 
 /** Milliseconds since the Unix epoch, from the host's clock. */
 const Timestamp = z.number().int().nonnegative();
@@ -75,6 +76,11 @@ export const Control = z.strictObject({
   interactions: z.array(Interaction),
   /** The questions the agent asked with `ask_user`, waiting for you (SPEC-0003); at most one call at a time. */
   question: PendingQuestion.nullable(),
+  /**
+   * What waits for your verdict in this session (ADR-0018): a task conversation's gates, worked out from the
+   * task's durable state, so they come back after a restart; later an agent's request. Oldest first.
+   */
+  reviews: z.array(PendingReview).max(REVIEWS_LIMIT),
   /** Set once pi crashed three times in a row; cleared when the next run starts. */
   failure: z.strictObject({ reason: z.literal("crashed"), attempts: z.number().int().positive() }).nullable(),
 });
@@ -92,5 +98,6 @@ export const IDLE_CONTROL: Control = {
   compacting: false,
   interactions: [],
   question: null,
+  reviews: [],
   failure: null,
 };

@@ -3,7 +3,7 @@ import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { CaretRight } from "../design/icons";
-import { sessionTitle } from "../sidebar/names";
+import { studySessionTitle } from "../study/study-icon";
 import { showNotice } from "../state/session-notices";
 import { type WorkspaceViews, showViewer } from "../state/workspace-views";
 import { chainOf, crumbsOf } from "./children";
@@ -35,8 +35,25 @@ export function Breadcrumb({
   readonly views?: StoreApi<WorkspaceViews>;
 }) {
   const sessions = useStore(client.index, (index) => index.sessions);
+  const directions = useStore(client.index, (index) => index.directions);
   const chain = chainOf(sessions, sessionId);
   if (chain.length < 2) return null;
+  /**
+   * A crumb's name, as its tab says it.
+   *
+   * @remarks
+   * A study session the host opened is named by its use; a quiz forked from its lesson carries
+   * the lesson's first message, which is not its own (SPEC-0008, "ML3 定的细节").
+   *
+   * @sideEffects none
+   * @param session - The session.
+   * @returns The name.
+   */
+  const title = (session: (typeof sessions)[number]): string =>
+    studySessionTitle(
+      session,
+      directions.find((direction) => direction.id === session.containerId),
+    );
 
   /**
    * Opens a session of the chain, saying beside the tab bar when it could not.
@@ -79,18 +96,18 @@ export function Breadcrumb({
                       open(session.sessionId);
                     }}
                   >
-                    {sessionTitle(session)}
+                    {title(session)}
                   </button>
                 ))
               }
             </MenuButton>
           ) : crumb.session.sessionId === sessionId ? (
             <span aria-current="page" className="max-w-[220px] truncate px-1.5 font-medium text-[var(--text)]">
-              {sessionTitle(crumb.session)}
+              {title(crumb.session)}
             </span>
           ) : (
             <button type="button" className={CRUMB} onClick={() => open(crumb.session.sessionId)}>
-              {sessionTitle(crumb.session)}
+              {title(crumb.session)}
             </button>
           )}
         </span>

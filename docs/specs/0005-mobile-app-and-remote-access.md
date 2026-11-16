@@ -548,7 +548,7 @@ MP4 拆成三片，各自验收：**MP4a** 只读同步（列表、打开会话�
    - `SessionSummary` 去掉 `handedOff`；`AgentStatus` 去掉 `handed_off`；宿主结束子对话、取消 `ask_parent` 的原因里不再有 `handed_off`，扩展的 `agent_handed_off` 错误码也去掉。
    - 索引里旧的 `handedOff: true` 不再读，这样记过的会话下次打开时照常在 Atrium 里起 pi（从同一个会话文件接着读）。手机端没有这个标记，不需要迁移。
 
-8. **已完成未读（协议 36，2026-11-09 自用时加）**：
+8. **已完成未读（协议 40，2026-11-09 自用时加；分支上原编号 36，2026-11-09 合回 main 时 main 已用到 39，改为 40）**：
    - `Attention` 的 `reason` 加 `finished`：一次运行正常结束、没有对话框或提问在等时设上，`text` 为 `null`；`clear_attention` 也清它（和 `error` 一样，只清没清除的），`auth` 仍不清。
    - 首页行的状态列多一种：7pt 深米圆点（设计稿的"未读"），和桌面的小圆点同义；它不进"等你处理"的便签（它没在等你做任何事）。
    - 会话页在前台显示时发 `clear_attention`（同 `error`），点随即消失；子对话页或改动列表压在上面时不清，退回来再清。
@@ -580,7 +580,7 @@ MP4 拆成三片，各自验收：**MP4a** 只读同步（列表、打开会话�
   - 缓存：放在 Application Support 下按 `hostId` 和缓存格式版本分开的目录，数据保护 `complete`，标 `isExcludedFromBackup`。每个会话一个文件，快照和它的游标（`stream`、`epoch`、`seq`）一起原子写入，所以读出来的游标一定对应读出来的内容。被撤销、删掉这台主机时清掉缓存和草稿。
   - 草稿、偏好：App 沙盒。
 - **扫码**：VisionKit `DataScannerViewController`，只认 `atrium://pair`。
-- **安装**：用免费账号（Personal Team）签名，`pnpm ios:install` 调 `xcodebuild` 和 `devicectl` 装到连着的 iPhone 上。每 7 天要重装，App 在离过期还剩 1 天时提示。重装要保持同一个 bundle id 和签名团队，钥匙串里的配对和草稿才留得住，验收时实测。
+- **安装**：用免费账号（Personal Team）签名，`pnpm ios:install` 调 `xcodebuild` 和 `devicectl` 装到连着的 iPhone 上。每 7 天要重装，App 在离过期还剩 1 天时提示。重装要保持同一个 bundle id 和签名团队，钥匙串里的配对和草稿才留得住，验收时实测。2026-11-10 自用时加：`pnpm ios:sign` 在手机和 Mac 同一个 Wi-Fi 下把 `main` 的最新提交装上去续签名（构建不出来就退回上次装上的提交），原先只能手动重装；2026-11-12 起由 Atrium 自己的定时规则每天 11:00 跑一次，不装 launchd 作业（`Cadence` 没有工作日档，周末也跑一次，什么都最新时什么都不做）。细节与前提见 [development.md · 手机签名自动续签](../development.md#手机签名自动续签)。
 
 ### 界面
 

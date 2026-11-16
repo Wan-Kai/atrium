@@ -2,6 +2,7 @@ import { QUESTION_LIMITS } from "@atrium/client";
 import type { AskedQuestion, PendingQuestion, QuestionReply } from "@atrium/protocol";
 import { type KeyboardEvent, type RefObject, useEffect, useRef, useState } from "react";
 import { CaretRight, Check } from "../design/icons";
+import { CARD_BUTTON, CARD_KEY, CardShell } from "./card-shell";
 import { useClock } from "../state/clock";
 import {
   type QuestionDraft,
@@ -16,14 +17,6 @@ import {
 
 /** How long after a single choice the card moves to the next question (SPEC-0003, "作答"). */
 const ADVANCE_MS = 200;
-
-/** The footer's buttons: 28px pills (design-language, "提问卡片"). */
-const BUTTON =
-  "atrium-press inline-flex h-7 items-center gap-1 rounded-[var(--r-pill)] px-3 text-[length:var(--fs-meta)] whitespace-nowrap disabled:cursor-default";
-
-/** A key's mark in the footer's hints. */
-const KEY =
-  "rounded-[4px] px-1 font-[family-name:var(--font-mono)] text-[length:var(--fs-xs)] text-[var(--text-muted)] shadow-[inset_0_0_0_0.5px_var(--line-strong)]";
 
 /** The letters of "agent", each its own span so each can rise on its own. */
 const AGENT_LETTERS = ["a", "g", "e", "n", "t"] as const;
@@ -152,10 +145,10 @@ function OptionRow({
           />
           <div className="mt-[5px] flex justify-end gap-3 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
             <span>
-              <kbd className={KEY}>⏎</kbd> 确定
+              <kbd className={CARD_KEY}>⏎</kbd> 确定
             </span>
             <span>
-              <kbd className={KEY}>⇧⏎</kbd> 换行
+              <kbd className={CARD_KEY}>⇧⏎</kbd> 换行
             </span>
           </div>
         </div>
@@ -417,13 +410,7 @@ export function QuestionCard({
   const unanswered = nextUnanswered(questions, draft.picks, current);
   const last = asked.options.length + 1;
   return (
-    <section
-      ref={card}
-      data-testid="question"
-      aria-label="agent 在问你"
-      onKeyDown={keyed}
-      className="atrium-question-card mt-3 mb-2 flex max-h-[60vh] flex-col rounded-[var(--r-card)] bg-[var(--surface-1)] px-3.5 py-3 shadow-[var(--card-shadow)] dark:bg-[var(--surface-2)]"
-    >
+    <CardShell testId="question" label="agent 在问你" onKeyDown={keyed} shellRef={card}>
       <div className="flex flex-none flex-wrap items-center gap-2.5">
         <span className="flex items-center gap-1.5">
           <WavingAgent />
@@ -527,22 +514,22 @@ export function QuestionCard({
       </div>
       <div className="mt-2.5 flex flex-none flex-wrap items-center gap-1.5 text-[length:var(--fs-sm)] text-[var(--text-dim)]">
         <span>
-          <kbd className={KEY}>1–{last}</kbd> {asked.multiSelect ? "勾选" : "选择"}
+          <kbd className={CARD_KEY}>1–{last}</kbd> {asked.multiSelect ? "勾选" : "选择"}
         </span>
         {asked.multiSelect ? (
           <span>
-            <kbd className={KEY}>空格</kbd> 勾选当前行
+            <kbd className={CARD_KEY}>空格</kbd> 勾选当前行
           </span>
         ) : null}
         <span>
-          <kbd className={KEY}>⏎</kbd> {reply !== null ? "提交" : questions.length > 1 ? "下一题" : "确定"}
+          <kbd className={CARD_KEY}>⏎</kbd> {reply !== null ? "提交" : questions.length > 1 ? "下一题" : "确定"}
         </span>
         <span className="flex-1" />
         <button
           type="button"
           disabled={sent}
           onClick={() => send({ skipped: true })}
-          className={`${BUTTON} text-[var(--text-2)] hover:bg-[var(--hover)]`}
+          className={`${CARD_BUTTON} text-[var(--text-2)] hover:bg-[var(--hover)]`}
         >
           跳过
         </button>
@@ -550,7 +537,7 @@ export function QuestionCard({
           <button
             type="button"
             onClick={() => show(unanswered)}
-            className={`${BUTTON} text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--hover)]`}
+            className={`${CARD_BUTTON} text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--hover)]`}
           >
             下一题
             <CaretRight size={12} aria-hidden />
@@ -562,7 +549,7 @@ export function QuestionCard({
           onClick={() => {
             if (reply !== null) send(reply);
           }}
-          className={`${BUTTON} font-medium ${
+          className={`${CARD_BUTTON} font-medium ${
             reply === null || sent
               ? "bg-[var(--surface-3)] text-[var(--text-dim)]"
               : "bg-[var(--text)] text-[var(--main)]"
@@ -571,6 +558,6 @@ export function QuestionCard({
           提交回答
         </button>
       </div>
-    </section>
+    </CardShell>
   );
 }

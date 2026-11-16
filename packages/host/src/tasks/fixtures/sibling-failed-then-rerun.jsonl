@@ -1,0 +1,17 @@
+{"seq":1,"at":1793782800000,"type":"created","task":{"id":"tsk_1","name":"选方案（兄弟失败后重跑）","projectId":"prj_1","workspaceId":null,"workspaceState":"none","sourceDir":"/src","ownsWorkspace":true,"baseCommit":null,"model":{"providerId":"p","modelId":"m","thinking":"off"},"guide":{"id":"g","version":1},"summary":{"goal":"","decisions":[],"constraints":[],"nonGoals":[],"openQuestions":[],"acceptance":[]},"origin":{"kind":"chat","sessionId":"ses_src"},"scheduleDraft":null,"taskSessionId":"ses_task","graphs":[{"version":1,"nodes":[{"id":"N1","name":"调研现状","kind":"agent","job":"do N1","done":["N1 done"],"role":"explore"},{"id":"N2","name":"方案 A 评估","kind":"agent","job":"do N2","done":["N2 done"],"role":"advise"},{"id":"N3","name":"方案 B 评估","kind":"agent","job":"do N3","done":["N3 done"],"role":"advise"},{"id":"N4","name":"汇总结论","kind":"agent","job":"do N4","done":["N4 done"],"role":"explore"}],"edges":[{"from":"N1","to":"N2","kind":"seq"},{"from":"N1","to":"N3","kind":"seq"},{"from":"N2","to":"N4","kind":"seq"},{"from":"N3","to":"N4","kind":"seq"}],"author":"agent","note":"","createdAt":0,"approvedAt":null}],"activeGraph":1,"pendingGraph":null,"runs":[],"paused":false,"cancelled":false,"createdAt":1793782800000,"startedAt":null,"endedAt":null}}
+{"seq":2,"at":1793782805000,"type":"started"}
+{"seq":3,"at":1793782806000,"type":"node_started","node":"N1","attempt":1,"sessionId":"ses_N1_1","startCommit":null}
+{"seq":4,"at":1793782826000,"type":"node_done_pending","node":"N1","attempt":1,"ok":true,"summary":"现状调研完成"}
+{"seq":5,"at":1793782827000,"type":"node_settled","node":"N1","attempt":1}
+{"seq":6,"at":1793782828000,"type":"node_started","node":"N2","attempt":1,"sessionId":"ses_N2_1","startCommit":null}
+{"seq":7,"at":1793782829000,"type":"node_started","node":"N3","attempt":1,"sessionId":"ses_N3_1","startCommit":null}
+{"seq":8,"at":1793782859000,"type":"node_failed","node":"N3","attempt":1,"reason":"crashed"}
+{"seq":9,"at":1793782863000,"type":"node_held","node":"N2","attempt":1}
+{"seq":10,"at":1793782923000,"type":"rerun_requested","node":"N3"}
+{"seq":11,"at":1793782943000,"type":"node_done_pending","node":"N2","attempt":1,"ok":true,"summary":"方案 A 可行"}
+{"seq":12,"at":1793782944000,"type":"node_settled","node":"N2","attempt":1}
+{"seq":13,"at":1793782964000,"type":"node_done_pending","node":"N3","attempt":1,"ok":true,"summary":"方案 B 有风险"}
+{"seq":14,"at":1793782965000,"type":"node_settled","node":"N3","attempt":1}
+{"seq":15,"at":1793782966000,"type":"node_started","node":"N4","attempt":1,"sessionId":"ses_N4_1","startCommit":null}
+{"seq":16,"at":1793782986000,"type":"node_done_pending","node":"N4","attempt":1,"ok":true,"summary":"推荐方案 A"}
+{"seq":17,"at":1793782987000,"type":"node_settled","node":"N4","attempt":1}

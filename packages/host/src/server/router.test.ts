@@ -41,6 +41,7 @@ function fakeCommands() {
     createSession: record("createSession", { sessionId: "s3" }),
     openSession: record("openSession", {}),
     closeTab: record("closeTab", {}),
+    retryStudyKickoff: record("retryStudyKickoff", {}),
     selectContainer: record("selectContainer", {}),
     archiveSession: record("archiveSession", {}),
     detachSession: record("detachSession", {}),
@@ -262,6 +263,104 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
       },
       unwatch: () => {},
     },
+    reviews: {
+      answer: async (sessionId, reviewId, verdict) => {
+        calls.push(["answerReview", sessionId, reviewId, verdict]);
+      },
+    },
+    tasks: {
+      refresh: () => {},
+      list: async (id, watch) => {
+        calls.push(["listTasks", id, watch]);
+        return { tasks: [] };
+      },
+      open: async (id, taskId) => {
+        calls.push(["openTask", id, taskId]);
+        return Promise.reject(new CommandError("task_not_found"));
+      },
+      create: async (sessionId, scope) => {
+        calls.push(["createTask", sessionId, scope]);
+        return { taskId: "tsk_new" };
+      },
+      start: async (taskId) => {
+        calls.push(["startTask", taskId]);
+        return {};
+      },
+      abandon: async (taskId) => {
+        calls.push(["abandonTask", taskId]);
+        return {};
+      },
+      approveGraph: async (taskId) => {
+        calls.push(["approveGraph", taskId]);
+        return {};
+      },
+      rejectGraph: async (taskId) => {
+        calls.push(["rejectGraph", taskId]);
+        return {};
+      },
+      answerHuman: async (taskId, node, answer) => {
+        calls.push(["answerHuman", taskId, node, answer]);
+        return {};
+      },
+      rerunNode: async (taskId, node) => {
+        calls.push(["rerunNode", taskId, node]);
+        return {};
+      },
+      continueNode: async (taskId, node) => {
+        calls.push(["continueNode", taskId, node]);
+        return {};
+      },
+      pause: async (taskId) => {
+        calls.push(["pauseTask", taskId]);
+        return {};
+      },
+      resume: async (taskId) => {
+        calls.push(["resumeTask", taskId]);
+        return {};
+      },
+      cancel: async (taskId) => {
+        calls.push(["cancelTask", taskId]);
+        return {};
+      },
+      answerArchive: async (taskId, answer) => {
+        calls.push(["answerArchive", taskId, answer]);
+        return {};
+      },
+      openSession: async (taskId, sessionId) => {
+        calls.push(["openTaskSession", taskId, sessionId]);
+        return {};
+      },
+      disconnect: () => {},
+      close: async () => {},
+    },
+    schedules: {
+      list: async (id, watch) => {
+        calls.push(["listSchedules", id, watch]);
+        return { schedules: [], followed: false };
+      },
+      pause: async (scheduleId) => {
+        calls.push(["pauseSchedule", scheduleId]);
+        return {};
+      },
+      resume: async (scheduleId) => {
+        calls.push(["resumeSchedule", scheduleId]);
+        return {};
+      },
+      runNow: async (scheduleId) => {
+        calls.push(["runScheduleNow", scheduleId]);
+        return { taskId: "tsk_made" };
+      },
+      remove: async (scheduleId) => {
+        calls.push(["deleteSchedule", scheduleId]);
+        return {};
+      },
+      edit: async (scheduleId) => {
+        calls.push(["editSchedule", scheduleId]);
+        return { taskId: "tsk_t" };
+      },
+      disconnect: () => {},
+      close: async () => {},
+    },
     sessions,
     index,
     piConfig: {
@@ -345,6 +444,28 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
         if (directionId === "lrn_taken") throw new CommandError("study_restore_conflict", { directionId });
         return {};
       },
+      startStudySession: async (clientId, directionId, study) => {
+        calls.push(["startStudySession", clientId, directionId, study]);
+        return { sessionId: "s8" };
+      },
+      markStudyStep: async (directionId, level, step, mark, done) => {
+        calls.push(["markStudyStep", directionId, level, step, mark, done]);
+        if (step === "s9") throw new CommandError("study_mark_refused");
+        return {};
+      },
+      markStudyGap: async (directionId, gapId, fixed) => {
+        calls.push(["markStudyGap", directionId, gapId, fixed]);
+        return {};
+      },
+      upgradeStudy: async (clientId, directionId, level, archiveSessions) => {
+        calls.push(["upgradeStudy", clientId, directionId, level, archiveSessions]);
+        if (level === "l9") throw new CommandError("study_not_available", { directionId });
+        return { planSessionId: "s9", notArchived: 1 };
+      },
+      restoreStudySessions: async (directionId, sessionIds) => {
+        calls.push(["restoreStudySessions", directionId, sessionIds]);
+        return {};
+      },
     },
     attachments,
     changes,
@@ -365,9 +486,16 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
         if (path === "outside.html") throw new CommandError("visual_outside");
         return { url: `atrium-visual://${"a".repeat(32)}/a.html`, size: 1, mtime: 2 };
       },
+      resolveForDirection: async (connectionId, directionId, path) => {
+        calls.push(["resolveDirectionVisual", connectionId, directionId, path]);
+        return { url: `atrium-visual://${"b".repeat(32)}/a.html`, size: 1, mtime: 3 };
+      },
       send: async (command) => {
         calls.push(["sendVisual", command]);
         return { disposition: "dropped" };
+      },
+      release: (connectionId, owner, path) => {
+        calls.push(["releaseVisual", connectionId, owner, path]);
       },
     },
     tracer: recording.tracer,
@@ -430,6 +558,140 @@ describe("createRouter", () => {
     await route(connection, withTrace(command));
     expect(calls).toStrictEqual([call]);
     expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: true, result }]);
+  });
+
+  it.each([
+    { command: { type: "list_tasks", watch: true }, call: ["listTasks", "connection-7", true], result: { tasks: [] } },
+    { command: { type: "list_tasks" }, call: ["listTasks", "connection-7", undefined], result: { tasks: [] } },
+    {
+      command: { type: "create_task", sessionId: "ses_src", scope: "just the auth part" },
+      call: ["createTask", "ses_src", "just the auth part"],
+      result: { taskId: "tsk_new" },
+    },
+    {
+      command: { type: "create_task", sessionId: "ses_src" },
+      call: ["createTask", "ses_src", undefined],
+      result: { taskId: "tsk_new" },
+    },
+    {
+      command: { type: "list_schedules", watch: true },
+      call: ["listSchedules", "connection-7", true],
+      result: { schedules: [], followed: false },
+    },
+    { command: { type: "pause_schedule", scheduleId: "rul_a" }, call: ["pauseSchedule", "rul_a"], result: {} },
+    { command: { type: "resume_schedule", scheduleId: "rul_a" }, call: ["resumeSchedule", "rul_a"], result: {} },
+    {
+      command: { type: "run_schedule_now", scheduleId: "rul_a" },
+      call: ["runScheduleNow", "rul_a"],
+      result: { taskId: "tsk_made" },
+    },
+    { command: { type: "delete_schedule", scheduleId: "rul_a" }, call: ["deleteSchedule", "rul_a"], result: {} },
+    {
+      command: { type: "edit_schedule", scheduleId: "rul_a" },
+      call: ["editSchedule", "rul_a"],
+      result: { taskId: "tsk_t" },
+    },
+    { command: { type: "start_task", taskId: "tsk_a" }, call: ["startTask", "tsk_a"], result: {} },
+    { command: { type: "abandon_task", taskId: "tsk_a" }, call: ["abandonTask", "tsk_a"], result: {} },
+    { command: { type: "approve_graph", taskId: "tsk_a" }, call: ["approveGraph", "tsk_a"], result: {} },
+    { command: { type: "reject_graph", taskId: "tsk_a" }, call: ["rejectGraph", "tsk_a"], result: {} },
+    {
+      command: { type: "answer_human", taskId: "tsk_a", node: "N3", answer: { kind: "pass" } },
+      call: ["answerHuman", "tsk_a", "N3", { kind: "pass" }],
+      result: {},
+    },
+    {
+      command: {
+        type: "answer_human",
+        taskId: "tsk_a",
+        node: "N3",
+        answer: { kind: "send_back", backTo: "N2", reason: "again" },
+      },
+      call: ["answerHuman", "tsk_a", "N3", { kind: "send_back", backTo: "N2", reason: "again" }],
+      result: {},
+    },
+    { command: { type: "rerun_node", taskId: "tsk_a", node: "N2" }, call: ["rerunNode", "tsk_a", "N2"], result: {} },
+    {
+      command: { type: "continue_node", taskId: "tsk_a", node: "N2" },
+      call: ["continueNode", "tsk_a", "N2"],
+      result: {},
+    },
+    { command: { type: "pause_task", taskId: "tsk_a" }, call: ["pauseTask", "tsk_a"], result: {} },
+    { command: { type: "resume_task", taskId: "tsk_a" }, call: ["resumeTask", "tsk_a"], result: {} },
+    { command: { type: "cancel_task", taskId: "tsk_a" }, call: ["cancelTask", "tsk_a"], result: {} },
+    {
+      command: { type: "answer_archive", taskId: "tsk_a", answer: "keep" },
+      call: ["answerArchive", "tsk_a", "keep"],
+      result: {},
+    },
+    {
+      command: { type: "open_task_session", taskId: "tsk_a", sessionId: "ses_n2" },
+      call: ["openTaskSession", "tsk_a", "ses_n2"],
+      result: {},
+    },
+  ])("routes the task command $command.type with its complete arguments", async ({ command, call, result }) => {
+    const { route, connection, calls, sent } = setUp();
+    await route(connection, withTrace(command));
+    expect(calls).toStrictEqual([call]);
+    expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: true, result }]);
+  });
+
+  it("answers a task command's CommandError with its code", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "open_task", taskId: "tsk_gone" }));
+
+    expect(calls).toStrictEqual([["openTask", "connection-7", "tsk_gone"]]);
+    expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: false, error: { code: "task_not_found" } }]);
+  });
+
+  it("lets a phone list and open tasks but not create, start, abandon, approve, answer, rerun, pause, resume, cancel or archive them", async () => {
+    const { route, sent, calls, logger } = setUp();
+    const phone = createConnection(
+      { bufferedAmount: 0, send: (data) => sent.push(JSON.parse(data) as HostMessage), close: () => undefined },
+      {
+        id: "c3",
+        clientId: "dev_0123456789abcdef",
+        trace: ROOT_CONTEXT,
+        maxBufferedBytes: 1024,
+        logger,
+        remote: { deviceId: "dev_0123456789abcdef", maxMessageBytes: 1024, snapshotOf: () => null },
+      },
+    );
+    const forbidden = [
+      { type: "create_task", sessionId: "ses_src" },
+      { type: "start_task", taskId: "tsk_a" },
+      { type: "abandon_task", taskId: "tsk_a" },
+      { type: "approve_graph", taskId: "tsk_a" },
+      { type: "reject_graph", taskId: "tsk_a" },
+      { type: "answer_human", taskId: "tsk_a", node: "N3", answer: { kind: "pass" } },
+      { type: "rerun_node", taskId: "tsk_a", node: "N2" },
+      { type: "continue_node", taskId: "tsk_a", node: "N2" },
+      { type: "pause_task", taskId: "tsk_a" },
+      { type: "resume_task", taskId: "tsk_a" },
+      { type: "cancel_task", taskId: "tsk_a" },
+      { type: "answer_archive", taskId: "tsk_a", answer: "archive" },
+      { type: "open_task_session", taskId: "tsk_a", sessionId: "ses_n2" },
+      { type: "answer_review", sessionId: "ses_task", reviewId: "tsk_a:human:N3:1", verdict: { action: "pass" } },
+    ];
+
+    await route(phone, withTrace({ type: "list_tasks", requestId: "l1" }));
+    await route(phone, withTrace({ type: "open_task", requestId: "o1", taskId: "tsk_a" }));
+    for (const [index, command] of forbidden.entries()) {
+      await route(phone, withTrace({ ...command, requestId: `f${String(index)}` }));
+    }
+
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "l1", ok: true, result: { tasks: [] } },
+      { type: "response", requestId: "o1", ok: false, error: { code: "task_not_found" } },
+      ...forbidden.map((_, index) => ({
+        type: "response",
+        requestId: `f${String(index)}`,
+        ok: false,
+        error: { code: "local_only" },
+      })),
+    ]);
+    expect(calls.map(([name]) => name)).toStrictEqual(["listTasks", "openTask"]);
   });
 
   it("routes reply translation and cancellation with the requesting connection identity", async () => {
@@ -712,6 +974,16 @@ describe("createRouter", () => {
         answer: { skipped: true },
       }),
     );
+    await route(
+      connection,
+      withTrace({
+        type: "answer_review",
+        requestId: "r8c",
+        ...session,
+        reviewId: "tsk_a:human:N3:1",
+        verdict: { action: "send_back", target: "N2", reason: "again" },
+      }),
+    );
     await route(connection, withTrace({ type: "retry_run", requestId: "r9", ...session }));
     await route(
       connection,
@@ -739,6 +1011,7 @@ describe("createRouter", () => {
       ["steerQueued", "s1", "q3"],
       ["answerInteraction", "s1", "d1", { value: "a" }],
       ["answerQuestion", "s1", "call-1", { skipped: true }],
+      ["answerReview", "s1", "tsk_a:human:N3:1", { action: "send_back", target: "N2", reason: "again" }],
       ["retryRun", "s1"],
       ["setModel", "s1", { providerId: "anthropic", modelId: "haiku" }],
       ["setThinkingLevel", "s1", "max"],
@@ -759,7 +1032,12 @@ describe("createRouter", () => {
       { type: "response", requestId: "r2", ok: true, result: { confirmed: false } },
       ...["r3", "r4", "r5", "r6"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
       { type: "response", requestId: "r7", ok: true, result: { disposition: "handled" } },
-      ...["r8", "r8b", "r9", "r10", "r11"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      ...["r8", "r8b", "r8c", "r9", "r10", "r11"].map((requestId) => ({
+        type: "response",
+        requestId,
+        ok: true,
+        result: {},
+      })),
       { type: "response", requestId: "r12", ok: true, result: { commands: [] } },
       { type: "response", requestId: "r13", ok: true, result: { files: [] } },
       ...["r14", "r15", "r16"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
@@ -923,6 +1201,89 @@ describe("createRouter", () => {
     ]);
   });
 
+  it("hands the study progress commands to the study commands, with the client for starting a session (SPEC-0008, ML2)", async () => {
+    const { route, connection, sent, calls } = setUp();
+    const at = { directionId: DIRECTION, level: "l2", step: "s4" } as const;
+
+    await route(connection, withTrace({ type: "start_study_session", requestId: "m1", kind: "lesson", ...at }));
+    await route(
+      connection,
+      withTrace({ type: "start_study_session", requestId: "m2", kind: "feynman", ...at, gap: "g1" }),
+    );
+    await route(connection, withTrace({ type: "mark_study_step", requestId: "m3", ...at, mark: "quiz", done: true }));
+    await route(
+      connection,
+      withTrace({ type: "mark_study_step", requestId: "m4", ...at, step: "s9", mark: "step", done: false }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "mark_study_gap", requestId: "m5", directionId: DIRECTION, gapId: "g1", fixed: true }),
+    );
+    await route(connection, withTrace({ type: "retry_study_kickoff", requestId: "m6", sessionId: "s8" }));
+
+    expect(calls).toStrictEqual([
+      ["startStudySession", "client-1", DIRECTION, { kind: "lesson", level: "l2", step: "s4" }],
+      ["startStudySession", "client-1", DIRECTION, { kind: "feynman", level: "l2", step: "s4", gap: "g1" }],
+      ["markStudyStep", DIRECTION, "l2", "s4", "quiz", true],
+      ["markStudyStep", DIRECTION, "l2", "s9", "step", false],
+      ["markStudyGap", DIRECTION, "g1", true],
+      ["retryStudyKickoff", "s8"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "m1", ok: true, result: { sessionId: "s8" } },
+      { type: "response", requestId: "m2", ok: true, result: { sessionId: "s8" } },
+      { type: "response", requestId: "m3", ok: true, result: {} },
+      { type: "response", requestId: "m4", ok: false, error: { code: "study_mark_refused" } },
+      { type: "response", requestId: "m5", ok: true, result: {} },
+      { type: "response", requestId: "m6", ok: true, result: {} },
+    ]);
+  });
+
+  it("hands upgrading and restoring a level's sessions to the study commands, a plan with no step (SPEC-0008, ML3)", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(
+      connection,
+      withTrace({ type: "upgrade_study", requestId: "u1", directionId: DIRECTION, level: "l2", archiveSessions: true }),
+    );
+    await route(
+      connection,
+      withTrace({
+        type: "upgrade_study",
+        requestId: "u2",
+        directionId: DIRECTION,
+        level: "l9",
+        archiveSessions: false,
+      }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "restore_study_sessions", requestId: "u3", directionId: DIRECTION, sessionIds: ["s1", "s2"] }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "start_study_session", requestId: "u4", directionId: DIRECTION, kind: "plan", level: "l3" }),
+    );
+
+    expect(calls).toStrictEqual([
+      ["upgradeStudy", "client-1", DIRECTION, "l2", true],
+      ["upgradeStudy", "client-1", DIRECTION, "l9", false],
+      ["restoreStudySessions", DIRECTION, ["s1", "s2"]],
+      ["startStudySession", "client-1", DIRECTION, { kind: "plan", level: "l3" }],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "u1", ok: true, result: { planSessionId: "s9", notArchived: 1 } },
+      {
+        type: "response",
+        requestId: "u2",
+        ok: false,
+        error: { code: "study_not_available", params: { directionId: DIRECTION } },
+      },
+      { type: "response", requestId: "u3", ok: true, result: {} },
+      { type: "response", requestId: "u4", ok: true, result: { sessionId: "s8" } },
+    ]);
+  });
+
   it("sends a connection the list changes waiting for it before answering any of its commands", async () => {
     const answered: [string, number][] = [];
     const setup = setUp((connectionId) => answered.push([connectionId, setup.sent.length]));
@@ -1000,6 +1361,25 @@ describe("createRouter", () => {
     ]);
   });
 
+  it("hands letting go of a visual to the visuals, with the connection and who it was for (ML4 review)", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "release_visual", requestId: "r1", sessionId: "s1", path: "a.html" }));
+    await route(
+      connection,
+      withTrace({ type: "release_visual", requestId: "r2", directionId: "lrn_go", path: "visuals/a.html" }),
+    );
+
+    expect(calls).toStrictEqual([
+      ["releaseVisual", connection.id, { sessionId: "s1" }, "a.html"],
+      ["releaseVisual", connection.id, { directionId: "lrn_go" }, "visuals/a.html"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: {} },
+      { type: "response", requestId: "r2", ok: true, result: {} },
+    ]);
+  });
+
   it("hands resolving a visual and its messages to the visuals, with the connection", async () => {
     const { route, connection, sent, calls } = setUp();
 
@@ -1012,6 +1392,11 @@ describe("createRouter", () => {
       connection,
       withTrace({ type: "send_visual_message", requestId: "r3", sessionId: "s1", path: "a.html", text: "选 B" }),
     );
+    // A direction's viewer tab resolves for the direction (SPEC-0008, ML4).
+    await route(
+      connection,
+      withTrace({ type: "resolve_visual", requestId: "r4", directionId: "lrn_go", path: "visuals/a.html" }),
+    );
 
     expect(calls).toStrictEqual([
       ["resolveVisual", connection.id, "s1", "a.html"],
@@ -1020,6 +1405,7 @@ describe("createRouter", () => {
         "sendVisual",
         { requestId: "r3", traceparent: expect.any(String), sessionId: "s1", path: "a.html", text: "选 B" },
       ],
+      ["resolveDirectionVisual", connection.id, "lrn_go", "visuals/a.html"],
     ]);
     expect(sent).toStrictEqual([
       {
@@ -1030,6 +1416,12 @@ describe("createRouter", () => {
       },
       { type: "response", requestId: "r2", ok: false, error: { code: "visual_outside" } },
       { type: "response", requestId: "r3", ok: true, result: { disposition: "dropped" } },
+      {
+        type: "response",
+        requestId: "r4",
+        ok: true,
+        result: { url: `atrium-visual://${"b".repeat(32)}/a.html`, size: 1, mtime: 3 },
+      },
     ]);
   });
 
@@ -1324,6 +1716,17 @@ describe("createRouter's attachments", () => {
     { type: "set_model", sessionId: "talk", providerId: "p", modelId: "m" },
     { type: "list_commands", sessionId: "talk" },
     { type: "compact_session", sessionId: "talk" },
+    { type: "start_study_session", directionId: "lrn_go", kind: "lesson", level: "l1", step: "s1" },
+    { type: "mark_study_step", directionId: "lrn_go", level: "l1", step: "s1", mark: "lesson", done: true },
+    { type: "mark_study_gap", directionId: "lrn_go", gapId: "g1", fixed: true },
+    { type: "retry_study_kickoff", sessionId: "talk" },
+    { type: "upgrade_study", directionId: "lrn_go", level: "l1", archiveSessions: true },
+    { type: "restore_study_sessions", directionId: "lrn_go", sessionIds: ["talk"] },
+    // A direction's files and visuals (SPEC-0008, ML4): the same field a workspace's use.
+    { type: "list_dir", workspaceId: "lrn_go", path: "" },
+    { type: "read_file", workspaceId: "lrn_go", path: "notes/a.md" },
+    { type: "resolve_visual", directionId: "lrn_go", path: "visuals/a.html" },
+    { type: "release_visual", directionId: "lrn_go", path: "visuals/a.html" },
   ])(
     "refuses a phone's $type on a learning direction or a session in one, as local_only, running nothing",
     async (fields) => {

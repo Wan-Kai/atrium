@@ -94,3 +94,19 @@ describe("reply file references", () => {
     });
   });
 });
+
+describe("reply file references in a direction's notes (SPEC-0008, ML4)", () => {
+  it("keeps a .. for the opener to resolve only when asked, refusing it otherwise as before", () => {
+    expect(replyFileTarget("../visuals/2-03-a.html", false, true)).toStrictEqual({ path: "../visuals/2-03-a.html" });
+    expect(replyFileTarget("../visuals/2-03-a.html#L2", false, true)).toStrictEqual({
+      path: "../visuals/2-03-a.html",
+      range: { start: 2, end: 2 },
+    });
+    expect(replyFileTarget("../visuals/2-03-a.html")).toBeNull();
+    expect(replyFileTarget("../visuals/2-03-a.html", false, false)).toBeNull();
+    // The rest of the checks stay: a scheme, a home, an escaped slash.
+    for (const source of ["../%2f/a.md", "~/../a.md", "javascript:../a", "..\\a.md"]) {
+      expect([source, replyFileTarget(source, false, true)]).toStrictEqual([source, null]);
+    }
+  });
+});

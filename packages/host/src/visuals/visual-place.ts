@@ -3,6 +3,25 @@ import { join } from "node:path";
 /** pi's rule for session ids (pi-internals.md §1), which also keeps them safe as one path part. */
 const SAFE_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u;
 
+/** The folder in Atrium's home the default place for every session's visuals lies in (SPEC-0007). */
+const VISUALS_ROOT = "visuals";
+
+/**
+ * The host's own folder for demos: `visuals/` in Atrium's home.
+ *
+ * @remarks
+ * SPEC-0007 (2026-11-12): a reply written before a session's visuals moved names a place in here,
+ * and every session may read a file right in a folder right in it, so such a reply still opens.
+ * Only the host writes here, one folder per session.
+ *
+ * @sideEffects none
+ * @param home - Atrium's home.
+ * @returns The folder.
+ */
+export function visualsRootOf(home: string): string {
+  return join(home, VISUALS_ROOT);
+}
+
 /**
  * Where an ordinary session's visuals go: `visuals/<session id>/` in Atrium's home.
  *
@@ -18,8 +37,11 @@ const SAFE_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/u;
  * @returns The directory, or `null`.
  */
 export function defaultVisualsDir(home: string, sessionId: string): string | null {
-  return SAFE_ID.test(sessionId) ? join(home, "visuals", sessionId) : null;
+  return SAFE_ID.test(sessionId) ? join(visualsRootOf(home), sessionId) : null;
 }
+
+/** The folder in a study direction its visuals go in (SPEC-0008, "方向目录"). */
+export const DIRECTION_VISUALS = "visuals";
 
 /** The most sessions up a line a fork or child may read visuals from; any real line is shorter. */
 const MOST_ANCESTORS = 64;
@@ -57,13 +79,34 @@ export function ancestorsOf(
 }
 
 /**
+ * A session's own directory for visuals, as its container gives it.
+ *
+ * @remarks
+ * A study direction's sessions (SPEC-0008, "ML4 定的细节 · 演示") have the direction's `visuals/`,
+ * counted from where the direction is now (`base`), which moves as it is archived or restored,
+ * with the direction's check of its own place (`VisualDirRules.owned`).
+ */
+export interface VisualsDir {
+  readonly dir: string;
+  /** Where relative paths count from instead of the recorded working directory. */
+  readonly base?: string;
+  /**
+   * The host's own folder for demos (`visualsRootOf`): a file right in a folder right in it is
+   * read too, for replies written before the session's visuals moved (SPEC-0007, 2026-11-12).
+   */
+  readonly root?: string;
+  readonly owned?: () => Promise<boolean>;
+}
+
+/**
  * Where a session's visuals may be: its working directory, its own directory for visuals, and its
  * ancestors' directories, nearest first.
  *
  * @remarks
  * SPEC-0007, MV1 details: new visuals go to the session's own directory; the ancestors' are read
  * only. A session not recorded, or with no directory of its own, has none; an ancestor without one
- * is skipped.
+ * is skipped. In a study direction (ML4) paths count from where the direction is now, and the
+ * place the record names maps onto it once the direction moved.
  *
  * @sideEffects none
  * @param sessionId - The session.
@@ -76,13 +119,31 @@ export function visualPlaceOf(
   find: (
     sessionId: string,
   ) => { readonly cwd: string; readonly parent: string | null; readonly detachedFrom?: string | undefined } | undefined,
-  dirOf: (sessionId: string) => string | null,
-): { readonly cwd: string; readonly dir: string; readonly ancestors: readonly string[] } | undefined {
-  const cwd = find(sessionId)?.cwd;
-  const dir = dirOf(sessionId);
-  if (cwd === undefined || dir === null) return undefined;
+  dirOf: (sessionId: string) => VisualsDir | null,
+):
+  | {
+      readonly cwd: string;
+      readonly dir: string;
+      readonly ancestors: readonly string[];
+      /** The host's own folder for demos, as the session's own place gives it. */
+      readonly root?: string;
+      readonly movedFrom?: string;
+      readonly owned?: () => Promise<boolean>;
+    }
+  | undefined {
+  const recorded = find(sessionId)?.cwd;
+  const own = dirOf(sessionId);
+  if (recorded === undefined || own === null) return undefined;
   const ancestors = ancestorsOf(sessionId, find)
-    .map((id) => dirOf(id))
+    .map((id) => dirOf(id)?.dir ?? null)
     .filter((up) => up !== null);
-  return { cwd, dir, ancestors };
+  const cwd = own.base ?? recorded;
+  return {
+    cwd,
+    dir: own.dir,
+    ...(own.root === undefined ? {} : { root: own.root }),
+    ancestors,
+    ...(cwd === recorded ? {} : { movedFrom: recorded }),
+    ...(own.owned === undefined ? {} : { owned: own.owned }),
+  };
 }

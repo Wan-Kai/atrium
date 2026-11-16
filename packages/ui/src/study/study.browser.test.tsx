@@ -104,6 +104,27 @@ describe("study mode in the window (SPEC-0008, ML1)", () => {
     await expect.element(screen.getByTestId("learning-bar")).not.toBeInTheDocument();
   });
 
+  it("sends what was typed in the discussion before the first message reached pi after it, in order (2026-11-09)", async () => {
+    const starting = Promise.withResolvers<void>();
+    const { screen, calls } = await workbench({}, { listCommands: () => starting.promise });
+    await screen.getByTestId("learning-row").click();
+    await screen.getByRole("button", { name: "新建方向" }).click();
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "我想学 Go{Enter}");
+    await expect.element(screen.getByLabelText("讨论")).toBeVisible();
+    await expect.poll(() => calls.includes("listCommands new1")).toBe(true);
+
+    // pi is still starting: the first message waits for it, and these two wait for the first.
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "第二条{Enter}");
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "第三条{Enter}");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls.filter((call) => call.startsWith("prompt"))).toStrictEqual([]);
+    starting.resolve();
+
+    await expect
+      .poll(() => calls.filter((call) => call.startsWith("prompt")))
+      .toStrictEqual(["prompt new1 我想学 Go", "prompt new1 第二条", "prompt new1 第三条"]);
+  });
+
   it("refuses a first message for the host, before any direction is made, keeping it in the box", async () => {
     const { screen, calls } = await workbench();
     await screen.getByTestId("learning-row").click();
@@ -128,7 +149,10 @@ describe("study mode in the window (SPEC-0008, ML1)", () => {
     await screen.getByTestId("learning-row").click();
 
     const resume = screen.getByRole("region", { name: "继续" });
-    await expect.element(resume).toHaveTextContent("继续Rust 入门讨论中还没排出阶梯打开 Rust 入门");
+    // ML4: the eyebrow says it is under discussion, and the last session (SPEC-0008, "ML4 定的细节 · 继续").
+    await expect
+      .element(resume)
+      .toHaveTextContent("继续Rust 入门 · 讨论中还没排出阶梯打开 Rust 入门上次：1 分钟前 · talk");
     await expect.element(screen.getByRole("button", { name: "继续讨论" })).not.toBeInTheDocument();
     const cards = screen.getByRole("region", { name: "全部方向" }).getByRole("group");
     await expect
@@ -137,11 +161,13 @@ describe("study mode in the window (SPEC-0008, ML1)", () => {
     await expect.element(cards.first().getByLabelText("已置顶")).toBeVisible();
     await expect.element(screen.getByRole("region", { name: "全部方向" })).not.toHaveTextContent("SQL");
     await screen.getByRole("button", { name: "已归档的方向" }).click();
-    await expect.element(screen.getByRole("list", { name: "已归档的方向" })).toHaveTextContent("SQL恢复");
+    await expect.element(screen.getByRole("list", { name: "已归档的方向" })).toHaveTextContent("SQL讨论中恢复");
 
     await resume.getByRole("button", { name: "打开 Rust 入门" }).click();
 
-    await expect.element(screen.getByTestId("direction-home").getByRole("heading")).toHaveTextContent("Rust 入门");
+    await expect
+      .element(screen.getByTestId("direction-home").getByRole("heading", { level: 1 }))
+      .toHaveTextContent("Rust 入门");
     expect(calls.filter((call) => /^(selectContainer|openSession|createSession)/.test(call))).toStrictEqual([
       `selectContainer ${RUST}`,
     ]);
@@ -154,7 +180,9 @@ describe("study mode in the window (SPEC-0008, ML1)", () => {
     // Its middle is none of its buttons.
     await screen.getByRole("group", { name: "Go" }).click();
 
-    await expect.element(screen.getByTestId("direction-home").getByRole("heading")).toHaveTextContent("Go");
+    await expect
+      .element(screen.getByTestId("direction-home").getByRole("heading", { level: 1 }))
+      .toHaveTextContent("Go");
     expect(calls).toContain(`selectContainer ${GO}`);
   });
 
@@ -317,20 +345,32 @@ describe("study mode in the window (SPEC-0008, ML1)", () => {
     await expect.element(screen.getByRole("button", { name: "新建" })).not.toBeInTheDocument();
   });
 
-  it("shows a direction with its ladder as no longer under discussion", async () => {
+  it("shows a direction with its ladder as no longer under discussion, where the learner is (ML2)", async () => {
+    const progress = {
+      profile: { goal: "写爬虫", language: "Go" },
+      ladder: [
+        { id: "l1", name: "语法", topics: "", pass: "", state: "current" as const },
+        { id: "l2", name: "并发", topics: "", pass: "", state: "todo" as const },
+      ],
+      steps: { l1: [{ id: "s1", kind: "lesson" as const, title: "变量", lesson: null, quiz: null, done: null }] },
+      gaps: [],
+      finishedAt: null,
+    };
     const { screen } = await workbench({
-      directions: [direction({ id: GO, name: "Go", discussing: false, lastOpenedAt: 3 })],
+      directions: [direction({ id: GO, name: "Go", discussing: false, lastOpenedAt: 3, progress })],
     });
     await screen.getByTestId("learning-row").click();
 
     const card = screen.getByRole("group", { name: "Go" });
-    await expect.element(card).toHaveTextContent("Go阶梯排好了");
+    await expect.element(card).toHaveTextContent("Go共 2 级 · 第 1 级第 1 步");
     await expect
       .element(screen.getByRole("region", { name: "继续" }))
-      .toHaveTextContent("继续Go已排好阶梯阶梯排好了打开 Go");
+      .toHaveTextContent("继续Go · 第 1 级 · 第 1 步变量打开 Go");
     await card.click();
     const home = screen.getByTestId("direction-home");
-    await expect.element(home.getByText("阶梯排好了")).toBeVisible();
+    await expect.element(home.getByText("写爬虫 · Go")).toBeVisible();
+    await expect.element(home.getByRole("heading", { level: 1 })).toHaveTextContent("Go");
+    await expect.element(home.getByText("第 1 级 · 语法").first()).toBeVisible();
     await expect.element(home.getByText("讨论中")).not.toBeInTheDocument();
   });
 

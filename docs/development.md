@@ -65,6 +65,8 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | `pnpm fixtures:record` | 用本机 pi 重录全部 pi 夹具，删掉其他版本的夹具目录；提交前审查 diff（testing.md"pi 夹具"） |
 | `pnpm readme:shots` | 构建后重拍 README 的六张截图，覆盖 `docs/images/*.png`（1920×1145）。只用演示数据：临时目录里现造的 `weather-app` 仓库（本地 bare origin 和两个 worktree）、临时的 Atrium 主目录、pi 配置目录和 HOME，`PI_OFFLINE=1`；模型是以真实服务商名字注册的 faux（`packages/testkit/src/faux/readme-extension.ts` 按 `apps/desktop/e2e/readme/story.ts` 的脚本回复），ChatGPT 的模型列表和用量由本机的替身服务给出，不发真实请求，不碰 `~/.atrium`。用 `screencapture` 截应用窗口，窗口会被提到最前，跑的约 3 分钟里别动它；终端要有"屏幕录制"权限。六张图在同一段故事里依次拍出，不能只拍其中一张；跑完看一眼 `git diff docs/images`，不满意就 `git checkout -- docs/images` |
 | `pnpm pi:try "<提示词>"` | 用宿主的组件直接驱动真实 pi：读登录 shell 环境、找 pi、发一条提示词，在终端里流式打出回复，结束时给出 trace id（日志在 `~/.atrium/dev-logs`）。`--cwd <目录>` 指定工作目录，`--keep-session` 保留会话文件，`--inherit-env` 跳过登录 shell，`--` 之后的参数原样交给 pi。会真的调用模型 |
+| `pnpm task:try <图.json> [--repo <目录>] [--model <provider/model[:档位]>] [--home <目录>]` | 用真实模型跑一张任务图，不经界面、不经 `/task`：在本进程里起一个宿主，把仓库登记成项目，建任务、启动，把事件流打在终端，失败或节点提问时停下（退出码 1 / 3）；遇到 human 节点和任务结束时的归档提问，从标准输入读一行回答（T5）：`p` 通过（带 `merge` 的会合并；被挡住后再 `p` 重试），`b <节点> [原因]` 打回，`a` / `k` 归档或先留着，`q` 退出；读到输入末尾就像以前一样停在 human 节点。任务的事件、宿主的索引和各节点会话的文件都放在 `--home`（默认 `<仓库>.task-try`，在仓库旁边、仓库之外），Ctrl-C 后再跑同一条命令会接着跑（走 app 启动时同一个 `recoverAll`，T9；宿主的自动接回在这里关掉，只接这一次的任务）：任务 id 由图文件和仓库路径算出，已有的提交按尾注认出、不重复提交。不给 `--model` 时用 pi 设置里的默认模型。示例图 `packages/host/examples/explore-work-check.json`，带"验收并合并"节点和打回边的 `explore-work-check-merge.json`。会真的调用模型；**不能和 Atrium 同时管同一个 home**（T7 定，见下"task:try 与 Atrium"）。示例图 `packages/host/examples/explore-work-check.json`，带"验收并合并"节点和打回边的 `explore-work-check-merge.json`。会真的调用模型 |
+| `pnpm task:design --from <会话 id> [--scope <文字>] [--model <provider/model[:档位]>] [--home <目录>] [--sessions <目录>] [--cwd <目录>] [--timeout <秒>] [--keep]` | 用真实模型对一段**已有的对话**跑任务对话的设计那一轮（T6，SPEC-0006“/task 与创建”），打印需求摘要、初始图、选了哪套引导词、任务对话最后对用户说的话和几条提醒（实现节点后面没有 `check` 节点、图没有 human 节点），**不启动任务**。会话 id 是 pi 会话文件名 `<时间>_<id>.jsonl` 里的 id（在 pi 会话目录里 `ls -t` 找最近的文件；Atrium 里侧栏会话的 id 同它）。**怎么保证不写真实对话**：只读 `--sessions`（默认 pi 自己的会话目录，按 `PI_CODING_AGENT_SESSION_DIR` / pi 设置）里那一个会话文件，把它复制进新建的临时目录，在那里起自己的宿主（自己的 Atrium home 和 pi 会话目录）对副本建任务，“已转为任务”那一行因此写进副本；真实的 `--home`（默认 `~/.atrium`）和会话目录从不交给宿主；每次先后各算一次原文件的哈希和修改时间并打印 `original unchanged`，不一致退出码 1。设计那一轮用对话原来的目录当工作目录，工具只读但 `bash` 不受只读约束；想完全不碰仓库，`--cwd` 指一份仓库的副本。`--model` 只换任务对话用的模型（默认同来源对话）；`--scope` 相当于输入框里 `/task` 后写的范围；`--keep` 保留临时目录（会话文件、事件）供查看。退出码 0 提出了图，1 没有图或出错，2 用法错。会真的调用模型 |
 | `pnpm check` | 格式、代码检查（含 JSDoc）、类型检查、knip、`pnpm boundary --all` |
 | `pnpm boundary [基准]` | 列出基准（默认 `git merge-base HEAD main`）以来的提交、未提交改动和未跟踪新文件碰到的外部边界：依赖增删改（标出非精确版本）、生产代码里新增和删掉的地址、环境变量、隐藏命令（标出是否已在 [security.md · 外部边界登记](architecture/security.md#外部边界登记) 登记）、`PROTOCOL_VERSION` 的变化（协议文件改了、版本没变时警告）、改动文件里的 `@sideEffects` 矛盾。新增了未登记的或非精确版本时退出码为 1。`--all` 拿全部生产代码对照登记表，接在 `pnpm check` 里 |
 | `pnpm break-check <cases.json>` | 破坏检查：按每个 case（`{ file, from, to, test, name, project? }`，`from` 在文件里恰好出现一次）把代码改坏，跑那个测试（`vitest run --project <project，默认 unit> <test> -t <name>`），打印 `CAUGHT` 或 `MISSED`，再改回去；有漏掉的退出码为 1。被中断时也会改回去（见上文"标准开发流程"第 4 步）。Swift 的 case 写 `{ file, from, to, name, runner: "swift", filter, package? }`，跑 `swift test --filter <filter>`（2026-10-25 加，[testing.md · Swift（手机端）](architecture/testing.md#swift手机端)） |
@@ -72,7 +74,9 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | `pnpm ios:format` | 用 Xcode 自带的 `swift format` 改写 `apps/ios` 下的 Swift 文件（生成的除外） |
 | `pnpm ios:build [--simulator]` | 用 `xcodebuild` 构建 App：默认给真机（`generic/platform=iOS`，带 `-allowProvisioningUpdates`，用 Xcode 里登录的免费账号签名），`--simulator` 给模拟器。产物在 `apps/ios/.build/xcode/`（不进 git） |
 | `pnpm ios:shot [--dark]` | 在模拟器 "Atrium iPhone 16 Pro" 上构建、装好、打开 App，设成浅色或深色，3 秒后截图到 `apps/ios/.build/shots/home-<light\|dark>.png`（不进 git）并打出路径；看界面的标准手段（testing.md"Swift（手机端）"） |
-| `pnpm ios:install` | 先 `pnpm ios:build`，再用 `xcrun devicectl` 装到连着的 iPhone 上并打开。没有配对过的 iPhone、或 iPhone 没连上（`devicectl` 里是 unavailable）时，在构建之前就报错，写明设备名、上次连接的时间和怎么连上。免费账号签的 App 7 天后打不开，到时重跑一次 |
+| `pnpm ios:install` | 先 `pnpm ios:build`，再用 `xcrun devicectl` 装到连着的 iPhone 上并打开。没有配对过的 iPhone、或 iPhone 没连上（`devicectl` 里是 unavailable）时，在构建之前就报错，写明设备名、上次连接的时间和怎么连上。免费账号签的 App 7 天后打不开，到时重跑一次。`--no-launch` 装完不打开，给 `pnpm ios:sign` 用；手机不在时退出码 3，和构建失败分得开 |
+| `pnpm ios:sign` | 跑一次自动续签：手机在同一个 Wi-Fi 下时，把 `main` 的最新提交装到手机上（构建不出来就装上次装上的提交），手机上已经是 `main` 且签名还有两天以上时什么都不做。手机不在时不构建。见下文[手机签名自动续签](#手机签名自动续签) |
+| `pnpm ios:sign:install` | 把 `pnpm ios:sign` 装成 launchd 作业：周一到周五 11:00 和 19:00，日志在 `~/Library/Logs/Atrium/ios-sign/launchd.log`；加 `uninstall` 卸掉。**现在不执行**：日常触发走 Atrium 里每天 11:00 的定时规则（见下文[手机签名自动续签](#手机签名自动续签)），脚本只作为回到 launchd 时的退路留着 |
 | `pnpm mutation:nightly:install` | 装上每晚的全量变异测试（见下文）；加 `uninstall` 卸掉 |
 
 真机第一次装（2026-10-26 实测，iPhone 16 Pro、iOS 26.6.1）：
@@ -93,7 +97,8 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | `pnpm test` 的 Swift 部分、`pnpm test:ios` 第一步 | `xcrun swift test --package-path <仓库>/apps/ios/AtriumKit --explicit-target-dependency-import-check error -Xswiftc -warnings-as-errors` |
 | `pnpm test:ios` 第二步（拿着模拟器锁，见下文） | `xcrun xcodebuild test -project <仓库>/apps/ios/Atrium.xcodeproj -scheme Atrium -destination id=<udid>,arch=arm64 -derivedDataPath <仓库>/apps/ios/.build/xcode -quiet` |
 | `pnpm ios:build` | `xcrun xcodebuild build -project <仓库>/apps/ios/Atrium.xcodeproj -scheme Atrium -configuration Debug -destination generic/platform=iOS -derivedDataPath <仓库>/apps/ios/.build/xcode -allowProvisioningUpdates -quiet`（`--simulator` 时 destination 是 `generic/platform=iOS Simulator`） |
-| `pnpm ios:install` | 先 `xcrun devicectl list devices --json-output <临时文件>` 找配对过、连得上的 iPhone，再跑上面的构建，然后 `xcrun devicectl device install app --device <手机 udid> <仓库>/apps/ios/.build/xcode/Build/Products/Debug-iphoneos/Atrium.app`、`xcrun devicectl device process launch --device <手机 udid> site.ktoon.atrium` |
+| `pnpm ios:install` | 先 `xcrun devicectl list devices --json-output <临时文件>` 找配对过、连得上的 iPhone，再跑上面的构建，然后 `xcrun devicectl device install app --device <手机 udid> <仓库>/apps/ios/.build/xcode/Build/Products/Debug-iphoneos/Atrium.app`、`xcrun devicectl device process launch --device <手机 udid> site.ktoon.atrium`；`--no-launch` 时不做后一步 |
+| `pnpm ios:sign` | 见下文“手机签名自动续签”：在 `~/.cache/atrium-ios-sign` 里检出 `main`，跑那里的 `node scripts/ios.mjs install --no-launch`；结果记在 `~/Library/Caches/atrium-ios/sign/state.json` |
 | `pnpm ios:shot` | 拿模拟器锁（见下文），构建（destination `id=<udid>,arch=arm64`），`simctl boot`、`simctl ui <udid> appearance light\|dark`、`simctl install`、`simctl launch --terminate-running-process <udid> site.ktoon.atrium`，等 3 秒，`simctl io <udid> screenshot <文件>` |
 | `pnpm ios:check`（`pnpm check` 的最后一步） | `node scripts/protocol-swift.mjs --check`；有 Xcode 时再跑 `xcrun swift-format lint --strict --parallel --configuration <仓库>/apps/ios/.swift-format --recursive <AtriumKit 的 Package.swift、Sources、Tests，Atrium/，AtriumUITests/>` 和 `node scripts/swift-lint.mjs apps/ios` |
 | `pnpm ios:format` | 同上的 `swift-format format --in-place` |
@@ -106,6 +111,66 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 - `pnpm test` 里的 `swift test`、`pnpm ios:build`、`pnpm ios:install` 不碰模拟器，不拿锁。
 
 只跑一部分 Swift 测试：`swift test --package-path apps/ios/AtriumKit --filter <套件名或测试函数名>`（例：`--filter RoundTripTests`）。
+
+## 手机签名自动续签
+
+2026-11-10 自用时加，2026-11-12 把日常触发改到 Atrium 自己的定时规则上。免费账号签的 App 7 天后打不开（SPEC-0005“安装”），原先得自己记住每 7 天插线跑一次 `pnpm ios:install`；现在手机和这台 Mac 在同一个 Wi-Fi 下时由一条定时规则自己续。每天 11:00 一次、装 `main` 的最新提交、`main` 构建不出来时退回上次装上的提交，这三条都是用户定的（前两条 2026-11-10，触发层 2026-11-12）。
+
+- 触发：Atrium 里一条定时规则，`when` 是 `{ every: "day", at: "11:00" }`，到点起一个任务让它跑 `pnpm ios:sign`。规则建在 Atrium 里，仓库里没有它的配置（2026-11-12 时本机还没有 `~/.atrium/schedules.json`）。`pnpm ios:sign:install` 和它装的 `com.atrium.ios-sign` launchd 作业**不装**：同一份脚本两套触发只会互相抢 `run.lock`，还多一层要维护。`scripts/install-ios-sign.sh` 保持原样（仍是周一到周五 11:00 和 19:00），只在回到 launchd 时才 `pnpm ios:sign:install`，先确认规则已暂停或删掉。
+- 跑什么：那一轮运行 `main` 上的 `scripts/ios-sign.mjs`，不管当前检出的是哪个分支。它先看 `~/Library/Caches/atrium-ios/sign/state.json`：
+  - 手机上已经是 `main` 的最新提交、描述文件还剩两天以上：什么都不做，这一轮连手机都不用找。
+  - 否则先在 `~/.cache/atrium-ios-sign` 这个 worktree 里检出 `main` 的最新提交，再由那里的 `scripts/ios.mjs` 构建、装到手机上（`--no-launch`，不替你把 App 打开）。这台手机不在同一 Wi-Fi 下时 `install` 退出码 3，这一轮不构建，只记一行日志等下一个时点。
+  - `main` 构建不出来或装不上时，改装上次成功装上的那个提交，签名照样续上；两个都失败才记一行失败（退 1），手机上原来那个 App 不动。失败不重试：一轮只是一轮，等下一个时点（第二天 11:00）。
+- 续上的是什么：`xcodebuild -allowProvisioningUpdates` 向 Apple 要描述文件，免费账号给 7 天。旧的还在有效期内时 Apple 会原样返回，所以真正续到新的是“上一个过期之后第一次成功安装”。描述文件在两次运行之间过期时（比如 11:00 刚过就到期），那一轮装上的还是旧的，第二天 11:00 才换新的，这段时间 App 打不开，最长约一天（周末也一样，规则每天都跑）；日志每轮都写清手上这个到什么时候、Apple 有没有换新的。想缩短这段空白就手动跑一次 `pnpm ios:sign`（它会构建，因此能要新描述文件）。
+- 状态和日志：`state.json` 记上次装的提交、装的时间和描述文件的到期时间，是**上一次运行的记录，不是手机的真值**（手动 `pnpm ios:install` 装的东西它不知道）；读不到到期时间时按装完 7 天算。日志就是脚本打在 stdout 的带 UTC 时间戳的行：规则跑的那一轮在 Atrium 里那次任务的对话中，手动跑时就打在终端，脚本自己不写日志文件。`run.lock` 在同一个目录下。`~/.cache/atrium-ios-sign` 是它的 worktree，留着才有增量构建，删掉不影响下一轮（会全量构建一次）。
+- 前提（2026-11-10 实测发现的两条）：
+  - Xcode › Settings › Accounts 里登录着 Apple ID。账号掉了时 `xcodebuild` 报 `No Accounts`，命令行的签名全都做不了（2026-11-10 就是这样，重新登录后恢复）。
+  - iPhone 用线连过一次，并在 Xcode › Window › Devices and Simulators 里勾上“Connect via network”。之后同一 Wi-Fi 下 `devicectl` 就能看到它，`pnpm ios:install` 和这条规则也能走无线；Wi-Fi 开了客户端隔离（公司访客网常见）时看不到。
+- 手机锁屏时无线隧道可能连不上或装不上：那一轮失败，原因记在那一轮的对话里，下一个时点再来。
+- 续签这一轮把 App 装上但不打开（`--no-launch`），所以它看不出“装上了、手机却不愿打开”这件事。重新登录 Apple ID、换了签名身份之后，手机上可能要再信任一次开发者：App 打不开时照 `pnpm ios:install` 的提示去“设置 › 通用 › VPN 与设备管理”里信任，不用改这里的东西。
+- 为什么用 Atrium 自己的定时（SPEC-0006“定时（ScheduleService）”）而不是 launchd：2026-11-12 用户改的主意，日常触发归 Atrium，少一套要另外装的作业；脚本还是这个，只是壳子不同，想手动跑一次就是 `pnpm ios:sign`。代价写在这里：`Cadence` 只有每天、单个星期几、每 N 分钟三档，没有“工作日”，所以是每天 11:00 一条规则，**周末也跑一次**——手机上已经是最新且没过期时脚本一行 nothing to do 就结束，可以接受。那个时点 Atrium 得开着：关着时那一轮不跑，下次启动或唤醒只补最近漏掉的那一次（SPEC-0006“定时（ScheduleService）”）。
+
+## 发布
+
+> 2026-11-11 定，第一次发布 v0.0.1。仓库没有 CI，release 在本机打；只出 Apple Silicon 包，ad-hoc 签名，**不公证**。
+
+1. 改 `apps/desktop/package.json` 的 `version`（打包时写进 App 的 `Info.plist`，界面上不显示）。其它 `packages/*` 的 `0.0.0` 不进产物，不动。改了版本要连带提交 `pnpm-lock.yaml`（workspace 包的版本记在里面）。
+2. `pnpm package`，产物是 `apps/desktop/out/Atrium-darwin-arm64/Atrium.app`（[命令](#命令)）。
+3. 打包：`ditto -c -k --sequesterRsrc --keepParent apps/desktop/out/Atrium-darwin-arm64/Atrium.app Atrium-<版本>-macOS-arm64.zip`。**必须用 `ditto`**，`zip` 会打乱符号链接和扩展属性，解开的 App 签名就坏了。
+4. `git tag v<版本> && git push origin main v<版本>`，再 `gh release create v<版本> Atrium-<版本>-macOS-arm64.zip --title "Atrium <版本>" --notes-file <说明>`。
+5. release 说明里写清三件事：只支持 Apple Silicon、包是 ad-hoc 签名没公证（下载解开带着 `com.apple.quarantine`，首次打开被 Gatekeeper 拦，右键"打开"或 `xattr -dr com.apple.quarantine /Applications/Atrium.app`）、数据在 `~/.atrium` 与开发版共用。
+
+Intel Mac 要跑得打 x64 包（`arch: "x64"`，多下一份 Electron），现在没做。
+
+## task:try 与 Atrium（T7 定）
+
+`pnpm task:try` 自己起一个宿主，home 是 `--home`（默认 `<仓库>.task-try`），不是 `~/.atrium`；任务区看的是正在开着的 Atrium 的宿主，所以 **task:try 跑的任务不会自己出现在开着的 Atrium 里**。硬性规则：任何时候都不能有两个宿主管理同一个 Atrium home 或同一批会话（锁、pi 进程、会话文件）。T7 评估过三个办法，2026-11-06 用户选 **B**（T7.1 做）：
+
+| 办法 | 做法 | 为什么这样判 |
+|---|---|---|
+| A. task:try 当客户端连开着的宿主，由那个宿主跑图 | 加一条只给开发用、`local_only` 的命令，打包版没有 | 开着的 Atrium 宿主的 token 是每次启动随机、只在内存和 IPC 里（security.md"WebSocket 与鉴权"），task:try 要连上就得有一份落盘的凭据或一个新的发现机制；再加一条"跑任意图"的命令，手机和远程的策略、打包版的屏蔽都要做和测。安全面比它省的事大，不在 T7 里偷偷加 |
+| B. Atrium 的宿主只读地跟着 task:try 的任务目录（**T7.1 已做，用这个**） | `ATRIUM_FOLLOW_TASKS=<home>/tasks` 开发用；宿主多读这个目录，递归 `fs.watch` 加轮询兜底，列表和任务标签照常显示，推送与自己的任务一样 | 安全：task:try 是目录的唯一写者，Atrium 只读。现有的 `openTaskStore` 打开时会**截掉半行的尾巴、补换行、重写快照**，对另一个进程正在追加的目录是写，所以另写了纯读的重放（`tasks/task-reader.ts`，复用 `parseEvents` / `replayEvents`）；被跟着的任务所有命令答 `task_read_only`，不进调度器，不起 pi。任务对话和节点的会话文件在 task:try 的会话目录里，窗格读不到，写明"只读"（图和列表够看节点一个个变色）。细节见 SPEC-0006"T7.1 定下的细节" |
+| C. 让开着的 Atrium 用 task:try 的 home | `ATRIUM_HOME=<仓库>.task-try pnpm dev` | 两个宿主同时管一个 home，**禁止** |
+
+**边跑边看（T7.1）**：两个宿主，**两个不同的 home**，Atrium 只读 task:try 的任务目录。
+
+```sh
+# 终端 1：task:try（唯一的写者），home 用自己的目录，不要用 ~/.atrium，也不要是 Atrium 的 ATRIUM_HOME
+pnpm task:try packages/host/examples/explore-work-check-merge.json \
+  --repo <仓库> --home <仓库>.task-try --model <provider/model[:档位]>
+
+# 终端 2：开发版 Atrium，ATRIUM_FOLLOW_TASKS 指向 task:try 的 <home>/tasks
+ATRIUM_HOME=<另一个临时目录> ATRIUM_FOLLOW_TASKS=<仓库>.task-try/tasks pnpm dev
+```
+
+先开哪个都行：目录还没有时宿主记一条 warn，每 5 秒再找。Atrium 里点侧栏的"任务"，task:try 的任务和自己的任务排在一起；点开看图，节点随 task:try 的进度一个个变色，任务对话窗格写明只读。task:try 在 human 节点停下时，图上那个节点是"等你"，要在终端 1 里回答（`p` / `b` / `a` / `k` / `q`）；Atrium 里点不了任何按钮，对被跟着的任务发的命令（比如脚本发的）都答 `task_read_only`。
+
+- 只有开发版读 `ATRIUM_FOLLOW_TASKS`：桌面端主进程在 `app.isPackaged` 时不读，打包版里设了也没用。
+- `ATRIUM_FOLLOW_TASKS` 不能指向 Atrium 自己的 `<ATRIUM_HOME>/tasks`（宿主拒绝并记 warn）；也不要让 Atrium 的 `ATRIUM_HOME` 等于 task:try 的 `--home`（方案 C，禁止）。
+- Atrium 对那个目录不写任何东西（测试逐文件比对哈希和 mtime）；宿主自己的日志、索引在 `ATRIUM_HOME` 里。
+- 任务对话和各节点的对话读不到，图和节点状态读得到；任务栏的项目 / worktree 对 Atrium 来说是陌生的，见 SPEC-0006"T7.1 定下的细节"。
+
+跑完之后再看也行：task:try 退出后同样设 `ATRIUM_FOLLOW_TASKS`，任务还在。
 
 ## 夜间变异测试
 

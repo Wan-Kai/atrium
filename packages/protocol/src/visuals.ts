@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SessionId } from "./ids";
+import { DirectionId, SessionId } from "./ids";
 
 /** The longest message a visual may send, in characters (SPEC-0007, "回传"). */
 export const VISUAL_MESSAGE_MAX = 4000;
@@ -18,11 +18,35 @@ export type VisualPath = z.infer<typeof VisualPath>;
 export const VisualSource = z.strictObject({ kind: z.literal("visual"), path: VisualPath });
 export type VisualSource = z.infer<typeof VisualSource>;
 
-/** A visual file a connection resolved has changed; its cards load it again. */
-export const VisualChangedEvent = z.strictObject({
-  type: z.literal("visual_changed"),
-  sessionId: SessionId,
-  path: VisualPath,
-  mtime: z.number().int().nonnegative(),
-});
+/**
+ * Whether exactly one of a session and a direction is named.
+ *
+ * @remarks
+ * A visual is resolved for a session's reply or for a direction's viewer tab, never both
+ * (SPEC-0008, "ML4 定的细节 · 协议"); zod has no exclusive fields of its own.
+ *
+ * @sideEffects none
+ * @param value - The command or event.
+ * @returns Whether it names one.
+ */
+export function namesOneOwner(value: { readonly sessionId?: unknown; readonly directionId?: unknown }): boolean {
+  return (value.sessionId === undefined) !== (value.directionId === undefined);
+}
+
+/**
+ * A visual file a connection resolved has changed; its cards load it again.
+ *
+ * @remarks
+ * It names what it was resolved for: a session, or a direction for its viewer tabs (ML4).
+ */
+export const VisualChangedEvent = z
+  .strictObject({
+    type: z.literal("visual_changed"),
+    sessionId: SessionId.optional(),
+    directionId: DirectionId.optional(),
+    path: VisualPath,
+    mtime: z.number().int().nonnegative(),
+  })
+  // No message of its own: a failure only ever becomes `invalid_message`.
+  .refine(namesOneOwner);
 export type VisualChangedEvent = z.infer<typeof VisualChangedEvent>;

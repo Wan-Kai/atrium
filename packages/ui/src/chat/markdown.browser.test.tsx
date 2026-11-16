@@ -222,10 +222,10 @@ describe("Markdown", () => {
     expect((window as unknown as { injected?: boolean }).injected).toBeUndefined();
   });
 
-  it("renders $$ block math and \\( \\) inline math, but not single dollars", async () => {
-    const root = await rendered(String.raw`面积 \(\pi r^2\)，价格 $5 和 $6。` + "\n\n$$\nE = mc^2\n$$");
+  it("renders $$ block math and \\( \\) and $…$ inline math, but not prices", async () => {
+    const root = await rendered(String.raw`面积 \(\pi r^2\)，斜率 $m$，价格 $5 和 $6。` + "\n\n$$\nE = mc^2\n$$");
 
-    await vi.waitFor(() => expect(root.querySelectorAll(".katex")).toHaveLength(2), { timeout: 10_000 });
+    await vi.waitFor(() => expect(root.querySelectorAll(".katex")).toHaveLength(3), { timeout: 10_000 });
     expect(root.querySelector(".katex-display")).not.toBeNull();
     expect(root.textContent).toContain("价格 $5 和 $6。");
   });

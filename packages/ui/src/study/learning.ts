@@ -1,6 +1,7 @@
 import { type AtriumClient, CommandError, type IndexView, isDirectionId } from "@atrium/client";
 import type { Direction, ModelRef, SessionSummary, ThinkingLevel } from "@atrium/protocol";
 import { type StoreApi, createStore } from "zustand/vanilla";
+import { type FirstMessages, firstMessages } from "../chat/first-message";
 import type { CompressedImage } from "../chat/images";
 import type { Drafts } from "../state/drafts";
 
@@ -34,6 +35,11 @@ export interface LearningState {
    * so. `null` for none.
    */
   readonly stranded: { readonly directionId: string; readonly failure: unknown } | null;
+  /**
+   * The upgrade being confirmed: its direction and the level gone up from (SPEC-0008, "ML3 定的细节
+   * · 升级确认框"); `null` for none.
+   */
+  readonly upgrading: { readonly directionId: string; readonly level: string } | null;
 }
 
 /** Where the new-direction page keeps what is typed in its box. */
@@ -56,6 +62,7 @@ export function createLearningStore(): StoreApi<LearningState> {
     sending: false,
     failure: undefined,
     stranded: null,
+    upgrading: null,
   }));
 }
 
@@ -87,6 +94,23 @@ export function closeLearning(store: StoreApi<LearningState>): void {
 }
 
 /**
+ * Asks to confirm upgrading a direction past a level, or stops asking.
+ *
+ * @remarks
+ * The strip and the home's current-step card both ask; the strip shows the dialog (prototype 4A).
+ *
+ * @sideEffects Updates the store.
+ * @param store - The store.
+ * @param upgrading - The direction and level, or `null`.
+ */
+export function confirmUpgrade(
+  store: StoreApi<LearningState>,
+  upgrading: { readonly directionId: string; readonly level: string } | null,
+): void {
+  store.setState({ upgrading });
+}
+
+/**
  * Shows or hides a direction's home tab over its sessions.
  *
  * @remarks
@@ -114,25 +138,6 @@ export function showHome(store: StoreApi<LearningState>, directionId: string, sh
  */
 export function directionName(direction: Pick<Direction, "alias" | "name">): string {
   return direction.alias ?? direction.name;
-}
-
-/**
- * Where a direction stands, in a few words: under discussion until it has a ladder.
- *
- * @remarks
- * SPEC-0008 ("讨论"): `discussing` says whether the ladder is written; a broken marker shows as
- * under discussion. The words after a ladder are provisional until ML2 shows the level and step.
- *
- * @sideEffects none
- * @param direction - The direction.
- * @returns Its stage and a line about it.
- */
-export function directionStage(direction: Pick<Direction, "discussing" | "broken">): {
-  readonly stage: string;
-  readonly line: string;
-} {
-  if (direction.broken) return { stage: "讨论中", line: "档案读不出来，先按讨论中显示" };
-  return direction.discussing ? { stage: "讨论中", line: "还没排出阶梯" } : { stage: "已排好阶梯", line: "阶梯排好了" };
 }
 
 /**
@@ -273,20 +278,26 @@ export interface DirectionImage {
  * the session's. A direction made whose discussion the host could not create (`sessionId` `null`)
  * is not made again: the message goes to a new session in it, and when that fails too the client
  * goes to the direction's home with the message back in the page's box (SPEC-0008, "ML1 定的细节").
+ * Once the session is there and until the message went (or failed), what is sent from the
+ * session's box waits behind it (`first`), so it cannot reach pi first while the model is set and
+ * pi starts (SPEC-0008, "真实模型检查后改").
  *
- * @sideEffects Sends commands; updates the store and the drafts.
+ * @sideEffects Sends commands; updates the store and the drafts; holds the session's later messages.
  * @param store - The study store.
  * @param client - The client.
  * @param drafts - The page's drafts.
  * @param message - The message and its uploaded images.
+ * @param first - The holds the session's box waits on; the page's when left out.
  */
 export async function launchDirection(
   store: StoreApi<LearningState>,
   client: DirectionLaunchClient,
   drafts: Pick<Drafts, "restore" | "handOver">,
   message: { readonly text: string; readonly images: readonly DirectionImage[] },
+  first: Pick<FirstMessages, "hold"> = firstMessages(),
 ): Promise<void> {
   const { model } = store.getState();
+  let release: (() => void) | undefined;
   store.setState({ sending: true, failure: undefined, stranded: null });
   let sessionId: string | null = null;
   try {
@@ -306,6 +317,8 @@ export async function launchDirection(
       void client.selectContainer(created.directionId).catch(() => undefined);
       throw failure;
     }
+    // Before the session's box can be used: what is sent there waits for this message.
+    release = first.hold(sessionId);
     // What was typed meanwhile goes with the session.
     drafts.handOver(NEW_DIRECTION_DRAFT, sessionId);
     store.setState(({ homes }) => ({ page: null, homes: { ...homes, [created.directionId]: false } }));
@@ -323,6 +336,8 @@ export async function launchDirection(
     store.setState({ sending: false, failure: sessionId === null ? failure : undefined });
     const kept = message.images.map((image) => ({ ...image, id: crypto.randomUUID() }));
     drafts.restore(sessionId ?? NEW_DIRECTION_DRAFT, message.text, kept);
+  } finally {
+    release?.();
   }
 }
 
@@ -337,7 +352,32 @@ const STUDY_ERRORS: Partial<Readonly<Record<CommandError["code"], string>>> = {
   direction_create_failed: "没能建好方向的目录",
   command_reserved: "以 /atrium- 开头的消息留给 Atrium 自己用",
   pi_unavailable: "pi 现在用不了",
+  study_not_available: "这一步现在开不了",
+  study_mark_refused: "这一项现在不能这样标",
+  study_not_found: "这一步已经不在进度里了",
+  study_file_broken: "档案读不出来，没有改动它",
+  study_file_version: "档案是更新版本的 Atrium 写的，这里不改它",
+  study_write_failed: "没能写进档案",
+  study_file_too_large: "档案会超过 1 MiB，没有写进去",
+  study_kickoff_failed: "pi 没有加载 Atrium 的学习扩展",
+  // Only a quiz on a lesson in use gets it from a study command (SPEC-0008, ML3, 2026-11-09 C).
+  session_busy: "等上课这一轮结束",
+  session_not_found: "这个会话已经不在了",
 };
+
+/**
+ * Why a session the host opened for a use did not start, in Chinese.
+ *
+ * @remarks
+ * SPEC-0008, "ML2 定的细节": the host gives only the code (`kickoff`).
+ *
+ * @sideEffects none
+ * @param code - The code.
+ * @returns The words.
+ */
+export function describeKickoff(code: CommandError["code"]): string {
+  return `这一步的会话没能开始：${STUDY_ERRORS[code] ?? "出错了"}`;
+}
 
 /**
  * Explains a failed direction command, in Chinese.

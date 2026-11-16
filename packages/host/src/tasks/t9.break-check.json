@@ -1,0 +1,266 @@
+[
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "if (last?.kind !== \"toolResult\" || last.tool !== \"node_done\" || last.isError) return false;",
+    "to": "if (last?.kind !== \"toolResult\" || last.tool !== \"node_done\") return false;",
+    "test": "packages/host/src/tasks/t9-runner.test.ts",
+    "name": "does not settle when",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "if (last?.kind !== \"toolResult\" || last.tool !== \"node_done\" || last.isError) return false;",
+    "to": "if (last?.kind !== \"toolResult\" || last.isError) return false;",
+    "test": "packages/host/src/tasks/t9-runner.test.ts",
+    "name": "does not settle when",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "(entry) => entry.kind === \"user\" || entry.kind === \"assistant\" || entry.kind === \"toolResult\",",
+    "to": "() => true,",
+    "test": "packages/host/src/tasks/t9-runner.test.ts",
+    "name": "looks past entries",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "return first?.kind === \"user\" && first.text.startsWith(CONTRACT_OPENING);",
+    "to": "return false;",
+    "test": "packages/host/src/tasks/t9-runner.test.ts",
+    "name": "recover and a contract that reached pi",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "entry.spoken?.add(run.sessionId);\n    await dispatch(entry, { type: \"contract_sent\"",
+    "to": "await dispatch(entry, { type: \"contract_sent\"",
+    "test": "packages/host/src/tasks/t9-runner.test.ts",
+    "name": "lists the node whose contract the recovery itself sent",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "if (task.workspaceState === \"ready\") await lockWorkspace(entry, true);",
+    "to": "",
+    "test": "packages/host/src/tasks/t9-runner.test.ts",
+    "name": "recover and the worktree's lock",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "await settleEndedTurns(entry);",
+    "to": "",
+    "test": "packages/host/src/tasks/t9-runner.test.ts",
+    "name": "sends node_settled before host_restarted",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "request: run.graphRequest }",
+    "to": "request: undefined }",
+    "test": "packages/host/src/tasks/t9-runner.test.ts",
+    "name": "quotes the reason and suggestion",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "if (beginsWithContract(await entriesOf(run.sessionId))) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/tasks/t9-runner.test.ts",
+    "name": "recover and a contract that reached pi",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "if (!(await deliverContract(entry, nodeId))) return;",
+    "to": "return;",
+    "test": "packages/host/src/tasks/t9-runner.test.ts",
+    "name": "records contract_sent and sends the restart line",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "return !present.has(taskId);",
+    "to": "return true;",
+    "test": "packages/host/src/tasks/t9-service.test.ts",
+    "name": "lifts stale locks first",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "...(context.graphRequest === null ? {} : { request: context.graphRequest }),",
+    "to": "",
+    "test": "packages/host/src/tasks/t9.host.test.ts",
+    "name": "wakes the conversation again",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "if (endedOnNodeDone(await entriesOf(run.sessionId))) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/tasks/t9-runner.test.ts",
+    "name": "sends node_settled before host_restarted",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "  run.waitingFor = null;\n  run.pendingDone = null;\n  delete run.graphRequest;",
+    "to": "  run.waitingFor = null;\n  run.pendingDone = null;",
+    "test": "packages/host/src/tasks/t9-scheduler.test.ts",
+    "name": "clears them when the wait ends",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "  run.waitingFor = null;\n  delete run.graphRequest;\n  run.endedAt = draft.event.at;",
+    "to": "  run.waitingFor = null;\n  run.endedAt = draft.event.at;",
+    "test": "packages/host/src/tasks/t9-scheduler.test.ts",
+    "name": "clears them when the node fails while it waits",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (event.request !== undefined) run.graphRequest = event.request;",
+    "to": "",
+    "test": "packages/host/src/tasks/t9-scheduler.test.ts",
+    "name": "keeps the reason and suggestion",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/types.ts",
+    "from": "request: GraphRequest.optional(),",
+    "to": "",
+    "test": "packages/host/src/tasks/t9-scheduler.test.ts",
+    "name": "is part of the event's shape",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-creator.ts",
+    "from": "(found.locked !== null && !(adoption.allowedLocks ?? []).includes(found.locked))",
+    "to": "false",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "adopts a worktree whose lock is the task",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-creator.ts",
+    "from": "if (status.code !== 0 || status.stdout !== \"\") return null;",
+    "to": "if (status.code !== 0) return null;",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "does not adopt what is not exactly the plan",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-creator.ts",
+    "from": "        await copyWorktreeInclude({\n          git,\n          sourceDir: workspace.dir,\n          destDir: plan.dir,\n          logger: options.logger,\n          ...(adoption.signal ? { signal: adoption.signal } : {}),\n        });\n",
+    "to": "",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "finds the worktree again after a crash",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-creator.ts",
+    "from": "await planned?.({",
+    "to": "void ({",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "tells the plan before it adds the worktree",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-creator.ts",
+    "from": "adoption.signal?.throwIfAborted();",
+    "to": "",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "does not adopt a worktree that was not made from the planned source",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-workspaces.ts",
+    "from": "allowedLocks: [taskLockReason(task.id, options.homeTag), taskLockReason(task.id)],",
+    "to": "",
+    "test": "packages/host/src/tasks/task-workspaces.test.ts",
+    "name": "adopts the worktree the plan names",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-workspaces.ts",
+    "from": "if (marker !== undefined && \"planned\" in marker) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/tasks/task-workspaces.test.ts",
+    "name": "adopts the worktree the plan names",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-workspaces.ts",
+    "from": "mark({ planned: plan }),",
+    "to": "Promise.resolve(),",
+    "test": "packages/host/src/tasks/task-workspaces.test.ts",
+    "name": "has written the plan",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-workspaces.ts",
+    "from": "await mark({ workspaceId: made.workspaceId });",
+    "to": "",
+    "test": "packages/host/src/tasks/task-workspaces.test.ts",
+    "name": "has written the plan",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-workspaces.ts",
+    "from": "lifted += await clearStaleLocks(git, project.path, options.homeTag, isOver).catch(",
+    "to": "lifted += await Promise.resolve(0).catch(",
+    "test": "packages/host/src/tasks/t9.host.test.ts",
+    "name": "lifts those of a task that is over or unknown",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "if (staleLocks && !signal.aborted) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/tasks/t9-service.test.ts",
+    "name": "lifts stale locks first",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": ".toSorted((a, b) => a.createdAt - b.createdAt)",
+    "to": "",
+    "test": "packages/host/src/tasks/t9-service.test.ts",
+    "name": "recovers started tasks in the order",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "if (task.startedAt === null && !unfinished) continue;",
+    "to": "",
+    "test": "packages/host/src/tasks/t9-service.test.ts",
+    "name": "does not ask for pi",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "const going = task.endedAt === null;",
+    "to": "const going = true;",
+    "test": "packages/host/src/tasks/t9-service.test.ts",
+    "name": "asks whether pi is ready only when",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "if (left > 0) options.logger.warn(",
+    "to": "if (false) options.logger.warn(",
+    "test": "packages/host/src/tasks/t9-service.test.ts",
+    "name": "asks whether pi is ready only when",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/main.ts",
+    "from": "ready: piReady,",
+    "to": "ready: async () => true,",
+    "test": "packages/host/src/tasks/t9.host.test.ts",
+    "name": "leaves tasks as they are, and says so once",
+    "project": "host"
+  }
+]

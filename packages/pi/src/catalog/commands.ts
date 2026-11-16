@@ -3,6 +3,7 @@ import { AGENT_COMMAND } from "../agent/agent";
 import { FAST_COMMAND } from "../fast/fast";
 import { EDIT_COMMAND } from "../edit/edit";
 import { isPlanQuery } from "../plan/plan";
+import { STUDY_COMMAND } from "../study/study";
 import type { PiResponseData } from "../process/pi-process";
 
 /** A command as pi's `get_commands` lists it. */
@@ -16,8 +17,8 @@ type PiSlashCommand = PiResponseData<"get_commands">["commands"][number];
  * came from on disk is pi's business. An empty description counts as none. A description too long
  * for the protocol is cut, so one extension cannot fail the whole list; a name too long is left
  * out with its command, which could not be run by a cut name. Atrium's own Fast switch and plan
- * query and child conversations' command are the host's, not yours, and are left out too
- * (SPEC-0001, "Fast"; ADR-0010; ADR-0013).
+ * query, child conversations' command and study mode's are the host's, not yours, and are left
+ * out too (SPEC-0001, "Fast"; ADR-0010; ADR-0013; SPEC-0008).
  *
  * @sideEffects none
  * @param command - The command as pi lists it.
@@ -25,7 +26,14 @@ type PiSlashCommand = PiResponseData<"get_commands">["commands"][number];
  */
 export function toSlashCommand(command: PiSlashCommand): SlashCommand | null {
   if (command.name.length > SLASH_COMMAND_LIMITS.name) return null;
-  if (isFastSwitch(command) || isPlanQuery(command) || isAgentCommand(command) || isEditCommand(command)) return null;
+  if (
+    isFastSwitch(command) ||
+    isPlanQuery(command) ||
+    isAgentCommand(command) ||
+    isEditCommand(command) ||
+    isStudyCommand(command)
+  )
+    return null;
   const description = (command.description ?? "").slice(0, SLASH_COMMAND_LIMITS.description);
   return { name: command.name, description: description === "" ? null : description, source: command.source };
 }
@@ -69,4 +77,18 @@ export function isAgentCommand(command: Pick<PiSlashCommand, "name" | "source">)
  */
 export function isEditCommand(command: Pick<PiSlashCommand, "name" | "source">): boolean {
   return command.name === EDIT_COMMAND && command.source === "extension";
+}
+
+/**
+ * Whether a command is study mode's, which only Atrium's extension registers.
+ *
+ * @remarks
+ * The host sends `/atrium-study start` only once pi lists it (SPEC-0008, "ML2 定的细节").
+ *
+ * @sideEffects none
+ * @param command - The command as pi lists it.
+ * @returns Whether it is.
+ */
+export function isStudyCommand(command: Pick<PiSlashCommand, "name" | "source">): boolean {
+  return command.name === STUDY_COMMAND && command.source === "extension";
 }

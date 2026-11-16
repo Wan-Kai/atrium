@@ -56,11 +56,27 @@ export interface FauxScript {
    */
   readonly byPrompt?: readonly { readonly startsWith: string; readonly reply: FauxReply }[];
   /**
+   * Replies picked by the conversation: one whose first user message starts with an entry's
+   * `startsWith` is answered with that entry's `replies`, the next one for each reply the model
+   * already gave in it. So the conversations of several sessions (each node of a task has its own pi)
+   * can be scripted from one file, and a pi stopped and started again on the same conversation goes on
+   * where it was, as `childReplies` do for children.
+   */
+  readonly byConversation?: readonly { readonly startsWith: string; readonly replies: readonly FauxReply[] }[];
+  /**
    * What a pi Atrium started as a child the agent opened says instead, told by the flag the host
    * gives it (`--atrium-agent=…` with `child: true`; SPEC-0002), so a parent and its children can
    * answer differently from one script.
    */
   readonly childReplies?: readonly FauxReply[];
+  /**
+   * What a pi Atrium started for a learning use says instead, by the use its `--atrium-study=…`
+   * flag names (SPEC-0008, "ML2 定的细节"), so each session of a direction answers as its use
+   * does from one script. Picked by how many replies the model gave since the session's own start
+   * (its newest `<atrium-study` message), so a quiz forked from its lesson starts at its own first
+   * reply, and a pi started again goes on where its conversation is.
+   */
+  readonly studyReplies?: Readonly<Partial<Record<string, readonly FauxReply[]>>>;
   /**
    * What a child the agent opened at depth 2 or more says instead of `childReplies`, so a child
    * and its own child can answer differently. A child's replies are picked by how many the model

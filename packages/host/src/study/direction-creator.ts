@@ -1,3 +1,4 @@
+import { VISUAL_RULES } from "@atrium/pi";
 import { CommandError } from "@atrium/protocol";
 import { lstat, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -11,8 +12,10 @@ import { ARCHIVE, type FoundDirection, MARKER, directionIdOf, realDir } from "./
  * The method's rules every session of a direction reads, for the model (SPEC-0008, "方向目录").
  *
  * @remarks
- * English, as the model reads it; the user may edit it, and the discussion appends the learner's
- * profile. pi reads `AGENTS.md` from the working directory up without trusting it (pi-internals).
+ * English, as the model reads it; the user may edit it, the agent does not (its prompt says so),
+ * and the learner's profile lives in `.atrium-study.json` (SPEC-0008, "真实模型检查后改"). pi reads `AGENTS.md` from the working directory up without trusting it (pi-internals).
+ * The two rules of visuals (ML4) are the lesson's and Feynman's prompts' own words, so both say
+ * them alike; a direction made before keeps its file, and gets them from the prompts.
  */
 export const AGENTS_TEMPLATE = `# Learning direction
 
@@ -32,10 +35,13 @@ in it: a discussion, a lesson, a quiz, a Feynman session, a cheat sheet, a proje
 - Keep content in Markdown: \`resources.md\` for the chosen resources, \`cheatsheet.md\` with one
   section per level, \`notes/\` for each lesson. Progress lives only in \`.atrium-study.json\`;
   do not edit that file yourself.
+- The learner's profile (goal, background, time per week, language or environment) is in
+  \`.atrium-study.json\`.
 
-## Learner profile
+## Visuals
 
-(Written during the discussion: goal, background, time per week, language or environment.)
+- ${VISUAL_RULES[0]}
+- ${VISUAL_RULES[1]}
 `;
 
 /** How many numbered names are tried for a directory name already used: `-2` up to it. */
@@ -201,7 +207,19 @@ export function createDirectionCreator(options: {
         options.logger.warn({ directionId: id, reason: "files" }, "direction not created");
         throw new CommandError("direction_create_failed");
       }
-      return { id, dirName, dir, home: dir, archived: false, name, createdAt, broken: false, discussing: true };
+      return {
+        id,
+        dirName,
+        dir,
+        home: dir,
+        archived: false,
+        name,
+        createdAt,
+        broken: false,
+        newer: false,
+        discussing: true,
+        progress: null,
+      };
     },
   };
 }

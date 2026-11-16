@@ -9,11 +9,14 @@ import {
   type ContainerId,
   type DiffTarget,
   type ForkPlacement,
+  type ArchiveAnswer,
   type HelloMessage,
+  type HumanAnswer,
   HostMessage,
   type InstallUpdatedEvent,
   type InteractionAnswer,
   type QuestionReply,
+  type Verdict,
   type LoginMethod,
   type LoginUpdatedEvent,
   type ModelRef,
@@ -24,11 +27,13 @@ import {
   type Preferences,
   type SessionEvent,
   type SessionModel,
+  type StudyKind,
   type ThinkingLevel,
   type TraceContext,
   type VisualChangedEvent,
   createTraceContext,
   formatTraceparent,
+  isDirectionId,
 } from "@atrium/protocol";
 import { type StoreApi, createStore } from "zustand/vanilla";
 import {
@@ -46,6 +51,14 @@ import { type ChangesView, type DiffView, diffViewOf } from "./changes-view";
 import { type ModelListView, UNASKED_MODELS } from "./model-list";
 import { type RemoteView, UNWATCHED_REMOTE } from "./remote-view";
 import { type SetupView, UNASKED_SETUP } from "./setup-view";
+import {
+  LOADING_TASK,
+  type SchedulesView,
+  type TaskState,
+  type TasksView,
+  UNWATCHED_SCHEDULES,
+  UNWATCHED_TASKS,
+} from "./tasks-view";
 import {
   type MessageTag,
   type PendingMessage,
@@ -228,6 +241,37 @@ export interface AtriumClient {
   archiveDirection(directionId: string): Promise<CommandResult<"archive_direction">>;
   /** Moves an archived direction back; fails as `study_restore_conflict` when its place is taken. */
   restoreDirection(directionId: string): Promise<CommandResult<"restore_direction">>;
+  /**
+   * Opens a session of a direction for a use, as the step strip's button does (SPEC-0008, "ML2 定的细节");
+   * only one the host can open now (the main button's, Feynman on a gap, a quiz put off), else
+   * `study_not_available`; one open already for the same use is given back instead.
+   */
+  startStudySession(
+    directionId: string,
+    study: { readonly kind: StudyKind; readonly level: string; readonly step?: string; readonly gap?: string },
+  ): Promise<CommandResult<"start_study_session">>;
+  /**
+   * Upgrades a direction past `level`, archiving that level's sessions when asked, and opens the
+   * next level's plan session (SPEC-0008, "ML3 定的细节 · 升级").
+   */
+  upgradeStudy(directionId: string, level: string, archiveSessions: boolean): Promise<CommandResult<"upgrade_study">>;
+  /** Unarchives sessions of a direction archived with a level, with their children. */
+  restoreStudySessions(
+    directionId: string,
+    sessionIds: readonly string[],
+  ): Promise<CommandResult<"restore_study_sessions">>;
+  /** Marks a step's part done by hand, or takes a manual mark back (SPEC-0008, "手动标完成"). */
+  markStudyStep(
+    directionId: string,
+    level: string,
+    step: string,
+    mark: "lesson" | "quiz" | "step" | "later",
+    done: boolean,
+  ): Promise<CommandResult<"mark_study_step">>;
+  /** Marks a gap fixed by hand, or takes that back. */
+  markStudyGap(directionId: string, gapId: string, fixed: boolean): Promise<CommandResult<"mark_study_gap">>;
+  /** Starts again a session the host opened for a use that did not start. */
+  retryStudyKickoff(sessionId: string): Promise<CommandResult<"retry_study_kickoff">>;
   /** Tells the host the window gained focus, so it looks at workspaces and sessions again. */
   windowFocused(): Promise<CommandResult<"window_focused">>;
   /** Changes preferences, at once in the list; a proxy shows once the host has checked it. */
@@ -292,6 +336,10 @@ export interface AtriumClient {
     questionId: string,
     answer: QuestionReply,
   ): Promise<CommandResult<"answer_question">>;
+  /** Starts the pi of a session of a task (its conversation or a node's) without a tab, so a watch gets its snapshot. */
+  openTaskSession(taskId: string, sessionId: string): Promise<CommandResult<"open_task_session">>;
+  /** Gives a verdict on a review waiting in a session, a task gate's (ADR-0018); fails `review_closed` if it is gone. */
+  answerReview(sessionId: string, reviewId: string, verdict: Verdict): Promise<CommandResult<"answer_review">>;
   /** The error card's "重试". */
   retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
   /** The models of a workspace, or with `null` of every chat and the settings, as far as asked; the same store every time. */
@@ -329,13 +377,16 @@ export interface AtriumClient {
   /**
    * Checks a visual a reply names and gets its sandbox address (SPEC-0007); while a card holds it,
    * it is resolved again on each later connection, so the host keeps telling of its changes.
+   * `owner` is the session whose reply names it, or a learning direction (`lrn_…`) for its viewer
+   * tab (SPEC-0008, ML4).
    */
-  resolveVisual(sessionId: string, path: string): Promise<CommandResult<"resolve_visual">>;
+  resolveVisual(owner: string, path: string): Promise<CommandResult<"resolve_visual">>;
   /**
    * Holds a visual while its card is shown, so each new connection resolves it again; returns how
-   * to let go, after which, with no other card holding it, it is forgotten.
+   * to let go, after which, with no other card holding it, it is forgotten and the host told to let
+   * go of it too (`release_visual`). `owner` as for `resolveVisual`.
    */
-  holdVisual(sessionId: string, path: string): () => void;
+  holdVisual(owner: string, path: string): () => void;
   /** Sends what you picked in a visual as your message in its session (SPEC-0007, "回传"). */
   sendVisualMessage(sessionId: string, path: string, text: string): Promise<CommandResult<"send_visual_message">>;
   /**
@@ -418,6 +469,58 @@ export interface AtriumClient {
   changes(workspaceId: string): StoreApi<ChangesView>;
   /** Says which workspaces are shown, on this connection and every later one. */
   watchChanges(workspaceIds: readonly string[]): Promise<void>;
+  /**
+   * The task list while a window watches it (SPEC-0006, "协议（给 UI）"): the host's `tasks_updated` pushes land
+   * here, whole each time; idle until {@link watchTasks}.
+   */
+  readonly tasks: StoreApi<TasksView>;
+  /** Starts or stops watching the task list, on this connection and every later one; the answer lands in {@link tasks}. */
+  watchTasks(on: boolean): Promise<void>;
+  /** One task as the host last sent it; the same store every time, `loading` until {@link openTask} is answered. */
+  task(taskId: string): StoreApi<TaskState>;
+  /**
+   * Opens a task: the host answers with it whole and pushes it on every change until another is opened (one
+   * task per connection); asked again on every later connection. A task that is not there shows as `missing`.
+   */
+  openTask(taskId: string): Promise<void>;
+  /** Makes a task of a conversation (`/task`); answers its id. Fails `task_already_converted` with the task's id. */
+  createTask(sessionId: string, scope?: string): Promise<CommandResult<"create_task">>;
+  /** "确认并启动". */
+  startTask(taskId: string): Promise<CommandResult<"start_task">>;
+  /** "放弃任务", while it is being designed. */
+  abandonTask(taskId: string): Promise<CommandResult<"abandon_task">>;
+  /** Approves the graph a started task waits for. */
+  approveGraph(taskId: string): Promise<CommandResult<"approve_graph">>;
+  /** Refuses the graph a started task waits for. */
+  rejectGraph(taskId: string): Promise<CommandResult<"reject_graph">>;
+  /** Answers a human node: pass it, or send the task back with a reason. */
+  answerHuman(taskId: string, node: string, answer: HumanAnswer): Promise<CommandResult<"answer_human">>;
+  /** Reruns a failed node. */
+  rerunNode(taskId: string, node: string): Promise<CommandResult<"rerun_node">>;
+  /** Lets a node the user stopped go on. */
+  continueNode(taskId: string, node: string): Promise<CommandResult<"continue_node">>;
+  /** "暂停任务". */
+  pauseTask(taskId: string): Promise<CommandResult<"pause_task">>;
+  /** "继续" a paused task. */
+  resumeTask(taskId: string): Promise<CommandResult<"resume_task">>;
+  /** "取消任务". */
+  cancelTask(taskId: string): Promise<CommandResult<"cancel_task">>;
+  /** The question about the worktree a finished task made. */
+  answerArchive(taskId: string, answer: ArchiveAnswer): Promise<CommandResult<"answer_archive">>;
+  /** The schedule rules while the 定时 tab is shown: `schedules_updated` pushes land here, whole; idle until {@link watchSchedules}. */
+  readonly schedules: StoreApi<SchedulesView>;
+  /** Starts or stops watching the rules, on this connection and every later one. */
+  watchSchedules(on: boolean): Promise<void>;
+  /** Pauses a rule. */
+  pauseSchedule(scheduleId: string): Promise<CommandResult<"pause_schedule">>;
+  /** Lets a paused rule go on. */
+  resumeSchedule(scheduleId: string): Promise<CommandResult<"resume_schedule">>;
+  /** "立即跑一次": answers the new task's id. */
+  runScheduleNow(scheduleId: string): Promise<CommandResult<"run_schedule_now">>;
+  /** Deletes a rule. */
+  deleteSchedule(scheduleId: string): Promise<CommandResult<"delete_schedule">>;
+  /** "修改": answers the template task to open. */
+  editSchedule(scheduleId: string): Promise<CommandResult<"edit_schedule">>;
   /** What the changes panel shows. */
   readonly diff: StoreApi<DiffView>;
   /** Opens the changes panel on a target, or closes it with `null`, on this connection and every later one. */
@@ -509,6 +612,21 @@ const systemClock: ClientClock = {
 
 // Stryker disable ConditionalExpression,BlockStatement: a binary frame or broken JSON fails the schema check just like `undefined`.
 /**
+ * The field a visual's owner goes by in `resolve_visual` and `visual_changed`.
+ *
+ * @remarks
+ * A learning direction's id (`lrn_…`) names its viewer tab's visual; anything else is the session
+ * whose reply names it (SPEC-0008, ML4).
+ *
+ * @sideEffects none
+ * @param owner - The owner.
+ * @returns The field.
+ */
+function visualOwner(owner: string): { readonly sessionId: string } | { readonly directionId: string } {
+  return isDirectionId(owner) ? { directionId: owner } : { sessionId: owner };
+}
+
+/**
  * Parses JSON without throwing.
  *
  * @remarks
@@ -572,6 +690,16 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const setup = createStore<SetupView>(() => UNASKED_SETUP);
   const plans = createStore<Plans>(() => []);
   const remote = createStore<RemoteView>(() => UNWATCHED_REMOTE);
+  const tasks = createStore<TasksView>(() => UNWATCHED_TASKS);
+  /** Whether a window watches the task list, asked for again on each connection. */
+  let watchingTasks = false;
+  const schedules = createStore<SchedulesView>(() => UNWATCHED_SCHEDULES);
+  let watchingSchedules = false;
+  /** How many times the list was asked for, so an answer older than a push is not put over it. */
+  let taskListAsks = 0;
+  const taskStores = new Map<string, StoreApi<TaskState>>();
+  /** The task opened on the connection, asked for again on each connection. */
+  let openedTask: string | null = null;
   /** Whether the settings window watches remote state, asked for again on each connection. */
   let watchingRemote = false;
   let remoteAsks = 0;
@@ -600,12 +728,13 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   /** The workspaces shown, asked for again on each connection. */
   let showing: readonly string[] = [];
   /**
-   * The visuals cards hold, by session and path, with how many hold each and the address and time
-   * last heard (`null` before one was, or after it failed); resolved again on each connection.
+   * The visuals cards hold, by owner (a session, or a direction for its viewer tab) and path, with
+   * how many hold each and the address and time last heard (`null` before one was, or after it
+   * failed); resolved again on each connection.
    */
   const visuals = new Map<
     string,
-    { readonly sessionId: string; readonly path: string; holds: number; url: string | null; mtime: number | null }
+    { readonly owner: string; readonly path: string; holds: number; url: string | null; mtime: number | null }
   >();
   const visualListeners = new Set<(changed: VisualChangedEvent) => void>();
   const diff = createStore<DiffView>(() => diffViewOf(null));
@@ -947,6 +1076,94 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   }
 
   /**
+   * A task's store, made on first use.
+   *
+   * @remarks
+   * `loading` until the host sends the task.
+   *
+   * @sideEffects May create the store.
+   * @param taskId - The task.
+   * @returns The store.
+   */
+  function taskOf(taskId: string): StoreApi<TaskState> {
+    let store = taskStores.get(taskId);
+    if (store === undefined) {
+      store = createStore<TaskState>(() => LOADING_TASK);
+      taskStores.set(taskId, store);
+    }
+    return store;
+  }
+
+  /**
+   * Asks for the task list, and to be pushed it from then on.
+   *
+   * @remarks
+   * The host's send count starts again with each connection, so the view's does. An answer that comes after a
+   * push of this ask is older than it and is dropped.
+   *
+   * @sideEffects Sends `list_tasks`; updates the task list.
+   */
+  async function loadTasks(): Promise<void> {
+    taskListAsks += 1;
+    const ask = taskListAsks;
+    const before = tasks.getState();
+    // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+    tasks.setState({ status: before.status === "ready" ? "ready" : "loading", tasks: before.tasks, seq: -1 }, true);
+    const { tasks: listed } = await request("list_tasks", { watch: true });
+    if (ask !== taskListAsks || !watchingTasks || tasks.getState().seq >= 0) return;
+    // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+    tasks.setState({ status: "ready", tasks: listed, seq: 0 }, true);
+  }
+
+  /**
+   * Asks for the schedule rules and keeps watching them.
+   *
+   * @remarks
+   * A push that arrived first wins over this answer.
+   *
+   * @sideEffects Sends `list_schedules`; updates the rules' store.
+   */
+  async function loadSchedules(): Promise<void> {
+    const before = schedules.getState();
+    schedules.setState(
+      {
+        status: before.status === "ready" ? "ready" : "loading",
+        schedules: before.schedules,
+        seq: -1,
+        followed: before.followed,
+      },
+      true,
+    );
+    const { schedules: listed, followed } = await request("list_schedules", { watch: true });
+    if (!watchingSchedules || schedules.getState().seq >= 0) return;
+    schedules.setState({ status: "ready", schedules: listed, seq: 0, followed }, true);
+  }
+
+  /**
+   * Opens the task the window shows on this connection.
+   *
+   * @remarks
+   * A task the host does not know shows as `missing`; any other failure as `failed`, keeping the task last seen.
+   *
+   * @sideEffects Sends `open_task`; updates the task's store.
+   * @param taskId - The task.
+   */
+  async function loadTask(taskId: string): Promise<void> {
+    const store = taskOf(taskId);
+    try {
+      const { task } = await request("open_task", { taskId });
+      if (openedTask !== taskId) return;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      store.setState({ status: "ready", task }, true);
+    } catch (error) {
+      if (error instanceof ConnectionLostError) throw error;
+      const missing = error instanceof CommandError && error.code === "task_not_found";
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      store.setState({ status: missing ? "missing" : "failed", task: store.getState().task }, true);
+    }
+  }
+
+  /**
    * Asks for fresh snapshots of every watched session.
    *
    * @remarks
@@ -1024,24 +1241,24 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    * @param known - The visual, as held.
    */
   async function resolveHeldAgain(known: {
-    readonly sessionId: string;
+    readonly owner: string;
     readonly path: string;
     url: string | null;
     mtime: number | null;
   }): Promise<void> {
-    const { sessionId, path } = known;
+    const { owner, path } = known;
     try {
-      const { url, mtime } = await request("resolve_visual", { sessionId, path });
+      const { url, mtime } = await request("resolve_visual", { ...visualOwner(owner), path });
       if (url === known.url && mtime === known.mtime) return;
       known.url = url;
       known.mtime = mtime;
-      visualChanged({ type: "visual_changed", sessionId, path, mtime });
+      visualChanged({ type: "visual_changed", ...visualOwner(owner), path, mtime });
     } catch (error) {
       if (error instanceof ConnectionLostError) return;
       const before = known.mtime;
       known.url = null;
       known.mtime = null;
-      visualChanged({ type: "visual_changed", sessionId, path, mtime: before ?? 0 });
+      visualChanged({ type: "visual_changed", ...visualOwner(owner), path, mtime: before ?? 0 });
     }
   }
 
@@ -1307,6 +1524,27 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       remote.setState({ status: "ready", state: message.remote, error: null }, true);
       return;
     }
+    if (message.type === "tasks_updated") {
+      const shown = tasks.getState();
+      // A push still on its way when the window stopped watching shows nothing; an older one is dropped.
+      if (!watchingTasks || message.seq <= shown.seq) return;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      tasks.setState({ status: "ready", tasks: message.tasks, seq: message.seq }, true);
+      return;
+    }
+    if (message.type === "schedules_updated") {
+      if (!watchingSchedules || message.seq <= schedules.getState().seq) return;
+      schedules.setState(
+        { status: "ready", schedules: message.schedules, seq: message.seq, followed: schedules.getState().followed },
+        true,
+      );
+      return;
+    }
+    if (message.type === "task_updated") {
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      taskOf(message.task.id).setState({ status: "ready", task: message.task }, true);
+      return;
+    }
     if (message.type === "diff_updated") {
       const { target } = diff.getState();
       if (target?.workspaceId !== message.workspaceId || target.mode !== message.mode) return;
@@ -1430,6 +1668,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         request("subscribe_index", cursor === undefined ? {} : { cursor }).catch(() => undefined);
         subscribeWatched().catch(() => undefined);
         watchShown().catch(() => undefined);
+        if (watchingTasks) loadTasks().catch(() => undefined);
+        if (watchingSchedules) loadSchedules().catch(() => undefined);
+        if (openedTask !== null) loadTask(openedTask).catch(() => undefined);
         resolveVisualsAgain().catch(() => undefined);
         // Fire and forget: the failure lands in the store.
         if (watchingRemote) void loadRemote();
@@ -1568,6 +1809,22 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     unpinDirection: (directionId) => request("unpin_direction", { directionId }),
     archiveDirection: (directionId) => request("archive_direction", { directionId }),
     restoreDirection: (directionId) => request("restore_direction", { directionId }),
+    startStudySession: (directionId, { kind, level, step, gap }) =>
+      request("start_study_session", {
+        directionId,
+        kind,
+        level,
+        ...(step === undefined ? {} : { step }),
+        ...(gap === undefined ? {} : { gap }),
+      }),
+    upgradeStudy: (directionId, level, archiveSessions) =>
+      request("upgrade_study", { directionId, level, archiveSessions }),
+    restoreStudySessions: (directionId, sessionIds) =>
+      request("restore_study_sessions", { directionId, sessionIds: [...sessionIds] }),
+    markStudyStep: (directionId, level, step, mark, done) =>
+      request("mark_study_step", { directionId, level, step, mark, done }),
+    markStudyGap: (directionId, gapId, fixed) => request("mark_study_gap", { directionId, gapId, fixed }),
+    retryStudyKickoff: (sessionId) => request("retry_study_kickoff", { sessionId }),
     windowFocused: () => request("window_focused", {}),
     setPreferences(changes) {
       // Proxy and translation language show only after the host validates and saves them.
@@ -1601,6 +1858,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     answerInteraction: (sessionId, interactionId, answer) =>
       request("answer_interaction", { sessionId, interactionId, answer }),
     answerQuestion: (sessionId, questionId, answer) => request("answer_question", { sessionId, questionId, answer }),
+    openTaskSession: (taskId, sessionId) => request("open_task_session", { taskId, sessionId }),
+    answerReview: (sessionId, reviewId, verdict) => request("answer_review", { sessionId, reviewId, verdict }),
     retryRun: (sessionId) => request("retry_run", { sessionId }),
     models: (workspaceId) => modelList(workspaceId),
     loadModels: (workspaceId, refresh = false) => loadModels(workspaceId, refresh),
@@ -1614,10 +1873,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     searchFiles: (sessionId, query) => request("search_files", { sessionId, query }),
     listDir: (workspaceId, path) => request("list_dir", { workspaceId, path }),
     readFile: (workspaceId, path) => request("read_file", { workspaceId, path }),
-    async resolveVisual(sessionId, path) {
-      const known = visuals.get(`${sessionId}\u0000${path}`);
+    async resolveVisual(owner, path) {
+      const known = visuals.get(`${owner}\u0000${path}`);
       try {
-        const result = await request("resolve_visual", { sessionId, path });
+        const result = await request("resolve_visual", { ...visualOwner(owner), path });
         if (known !== undefined) {
           known.url = result.url;
           known.mtime = result.mtime;
@@ -1631,9 +1890,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         throw error;
       }
     },
-    holdVisual(sessionId, path) {
-      const key = `${sessionId}\u0000${path}`;
-      const known = visuals.get(key) ?? { sessionId, path, holds: 0, url: null, mtime: null };
+    holdVisual(owner, path) {
+      const key = `${owner}\u0000${path}`;
+      const known = visuals.get(key) ?? { owner, path, holds: 0, url: null, mtime: null };
       known.holds += 1;
       visuals.set(key, known);
       let held = true;
@@ -1641,7 +1900,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         if (!held) return;
         held = false;
         known.holds -= 1;
-        if (known.holds === 0 && visuals.get(key) === known) visuals.delete(key);
+        if (known.holds > 0 || visuals.get(key) !== known) return;
+        visuals.delete(key);
+        // Fire and forget: the host lets go of it on disconnect anyway, so a lost or refused release costs nothing.
+        request("release_visual", { ...visualOwner(owner), path }).catch(() => undefined);
       };
     },
     sendVisualMessage: (sessionId, path, text) => request("send_visual_message", { sessionId, path, text }),
@@ -1748,6 +2010,63 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       showing = [...new Set(workspaceIds)];
       if (live !== undefined) await request("watch_changes", { workspaceIds: [...showing] });
     },
+    tasks,
+    async watchTasks(on) {
+      watchingTasks = on;
+      if (on) {
+        if (live !== undefined) await loadTasks();
+        return;
+      }
+      taskListAsks += 1;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      tasks.setState(UNWATCHED_TASKS, true);
+      // Stryker disable next-line ConditionalExpression: without a live socket the catch below ignores the same connection loss.
+      if (live === undefined) return;
+      try {
+        await request("list_tasks", { watch: false });
+      } catch (error) {
+        // A connection gone takes the watch with it, so there is nothing left to stop.
+        if (!(error instanceof ConnectionLostError)) throw error;
+      }
+    },
+    schedules,
+    async watchSchedules(on) {
+      watchingSchedules = on;
+      if (on) {
+        if (live !== undefined) await loadSchedules();
+        return;
+      }
+      schedules.setState(UNWATCHED_SCHEDULES, true);
+      if (live === undefined) return;
+      try {
+        await request("list_schedules", { watch: false });
+      } catch (error) {
+        if (!(error instanceof ConnectionLostError)) throw error;
+      }
+    },
+    pauseSchedule: (scheduleId) => request("pause_schedule", { scheduleId }),
+    resumeSchedule: (scheduleId) => request("resume_schedule", { scheduleId }),
+    runScheduleNow: (scheduleId) => request("run_schedule_now", { scheduleId }),
+    deleteSchedule: (scheduleId) => request("delete_schedule", { scheduleId }),
+    editSchedule: (scheduleId) => request("edit_schedule", { scheduleId }),
+    task: taskOf,
+    async openTask(taskId) {
+      openedTask = taskId;
+      if (live !== undefined) await loadTask(taskId);
+    },
+    createTask: (sessionId, scope) =>
+      request("create_task", scope === undefined ? { sessionId } : { sessionId, scope }),
+    startTask: (taskId) => request("start_task", { taskId }),
+    abandonTask: (taskId) => request("abandon_task", { taskId }),
+    approveGraph: (taskId) => request("approve_graph", { taskId }),
+    rejectGraph: (taskId) => request("reject_graph", { taskId }),
+    answerHuman: (taskId, node, answer) => request("answer_human", { taskId, node, answer }),
+    rerunNode: (taskId, node) => request("rerun_node", { taskId, node }),
+    continueNode: (taskId, node) => request("continue_node", { taskId, node }),
+    pauseTask: (taskId) => request("pause_task", { taskId }),
+    resumeTask: (taskId) => request("resume_task", { taskId }),
+    cancelTask: (taskId) => request("cancel_task", { taskId }),
+    answerArchive: (taskId, answer) => request("answer_archive", { taskId, answer }),
     diff,
     async watchDiff(target) {
       const shown = diff.getState().target;

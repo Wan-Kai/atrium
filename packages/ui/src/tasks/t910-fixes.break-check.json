@@ -1,0 +1,58 @@
+[
+  {
+    "file": "packages/ui/src/tasks/schedule-words.ts",
+    "from": "const shown = hour % 12 === 0 ? 12 : hour % 12;",
+    "to": "const shown = hour > 12 ? hour - 12 : hour;",
+    "test": "packages/ui/src/tasks/schedule-words.test.ts",
+    "name": "whenWords",
+    "project": "unit"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-words.ts",
+    "from": "const going = rule.last !== null && !rule.last.failed && [\"running\", \"waiting\"].includes(rule.last.status);",
+    "to": "const going = true;",
+    "test": "packages/ui/src/tasks/schedule-words.test.ts",
+    "name": "says the last run is still going only while it is",
+    "project": "unit"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-tab.tsx",
+    "from": "(error: unknown) => setUnreadable(readFailureWords(error)),",
+    "to": "() => undefined,",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "words a rules file the host cannot read",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-tab.tsx",
+    "from": "      deleteButton.current?.focus();",
+    "to": "      void 0;",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "puts the focus back on 删除",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-words.ts",
+    "from": "  schedule_file_unreadable: \"定时规则文件读不出来，没有保存\",\n",
+    "to": "",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "words a rules file that could not be read when the template",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-tab.tsx",
+    "from": "{schedules.followed ? (",
+    "to": "{false ? (",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "says schedules do not run here when the host follows",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/schedule-words.ts",
+    "from": ": \"定时规则读取失败，稍后再试\";",
+    "to": ": describeTaskCommandError(error);",
+    "test": "packages/ui/src/tasks/schedule-tab.browser.test.tsx",
+    "name": "does not wait for ever for rules that could not be asked for",
+    "project": "ui"
+  }
+]

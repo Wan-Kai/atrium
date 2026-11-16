@@ -38,3 +38,4 @@
 | [0015](0015-native-ios-app-in-swiftui.md) | 手机端做 SwiftUI 原生 iOS App，先不做推送 | 已接受 | 2026-10-24 |
 | [0016](0016-remote-access-through-own-relay-with-noise.md) | 手机经自建 relay 连回宿主，用 Noise 端到端加密 | 已接受 | 2026-10-24 |
 | [0017](0017-opencode-go-plan-usage.md) | OpenCode Go 的套餐用量用 API Key 查固定地址 | 已接受 | 2026-11-02 |
+| [0018](0018-reviews-one-shape-two-sources.md) | 审核用一个形状，分"宿主关卡"和"agent 请求"两种来源 | 已接受 | 2026-11-06 |

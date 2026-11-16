@@ -3,6 +3,9 @@ import {
   createSessionFileReader,
   encodeArgument,
   sessionFolder,
+  startCommand,
+  askArgument,
+  studyArgument,
   visualsArgument,
 } from "@atrium/pi";
 import {
@@ -14,7 +17,7 @@ import {
   UNKNOWN_METRICS,
 } from "@atrium/protocol";
 import { type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
-import { appendFile, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -139,10 +142,14 @@ async function manage(
     readonly catalog?: (catalog: SessionCatalog) => SessionCatalog;
     /** The manager's clock, when a test moves time on; the system's otherwise. */
     readonly clock?: Clock;
+    /** What waits for a verdict in each session, when a test needs the manager to ask (ADR-0018). */
+    readonly reviews?: Parameters<typeof createSessionManager>[0]["reviews"];
     /** Where each session's visuals go (SPEC-0007). */
     readonly visualsDir?: Parameters<typeof createSessionManager>[0]["visualsDir"];
     /** A learning direction at a directory, archived while `archived()` says so. */
     readonly direction?: { readonly id: string; readonly dir: string; readonly archived: () => boolean };
+    /** The study tools' answers (SPEC-0008, ML2). */
+    readonly study?: Parameters<typeof createSessionManager>[0]["study"];
   } = {},
 ) {
   const at = where ?? (await place());
@@ -206,7 +213,9 @@ async function manage(
     ...(fast === undefined ? {} : { fast }),
     ...(more.childWorktree === undefined ? {} : { childWorktree: more.childWorktree }),
     ...(more.tempRoot === undefined ? {} : { tempRoot: more.tempRoot }),
+    ...(more.reviews === undefined ? {} : { reviews: more.reviews }),
     ...(more.visualsDir === undefined ? {} : { visualsDir: more.visualsDir }),
+    ...(more.study === undefined ? {} : { study: more.study }),
     ...(more.direction === undefined
       ? {}
       : {
@@ -410,6 +419,41 @@ async function terminalSession(at: Awaited<ReturnType<typeof place>>, id: string
   const path = join(folder, `${id}.jsonl`);
   const user = { type: "message", id: "u1", parentId: null, timestamp: "", message: { role: "user", content: "hi" } };
   await writeFile(path, `${JSON.stringify({ type: "session", id, timestamp: "", cwd })}\n${JSON.stringify(user)}\n`);
+  return path;
+}
+
+/**
+ * A session on file that recorded the model and level it thinks with, as pi writes them.
+ *
+ * @sideEffects Creates the session's folder and file.
+ * @param at - The directories.
+ * @param id - The session.
+ * @param cwd - Where it ran.
+ * @param model - The model pi last switched to.
+ * @param level - The thinking level pi last switched to.
+ * @returns The file.
+ */
+async function modelSession(
+  at: Awaited<ReturnType<typeof place>>,
+  id: string,
+  cwd: string,
+  model: { readonly providerId: string; readonly modelId: string },
+  level: string,
+): Promise<string> {
+  const folder = sessionFolder({ directory: at.piSessions, perCwd: false }, cwd);
+  await mkdir(folder, { recursive: true });
+  const path = join(folder, `${id}.jsonl`);
+  const session = { type: "session", id, timestamp: "", cwd };
+  const change = {
+    type: "model_change",
+    id: "m1",
+    parentId: null,
+    timestamp: "",
+    provider: model.providerId,
+    modelId: model.modelId,
+  };
+  const levelChange = { type: "thinking_level_change", id: "t1", parentId: "m1", timestamp: "", thinkingLevel: level };
+  await writeFile(path, `${JSON.stringify(session)}\n${JSON.stringify(change)}\n${JSON.stringify(levelChange)}\n`);
   return path;
 }
 
@@ -2042,6 +2086,7 @@ describe("SessionManager workspaces", () => {
         parent: null,
         agent: null,
         heldDeliveries: 0,
+        kickoff: null,
         study: null,
       },
     ]);
@@ -2558,8 +2603,8 @@ function fastSwitches(received: readonly Record<string, unknown>[]): unknown[] {
 }
 
 /** Where the visuals go: the first session's in its folder, none for any other. */
-function firstSessionVisuals(sessionId: string): string | null {
-  return sessionId === "pi-session-1" ? `/home/.atrium/visuals/${sessionId}` : null;
+function firstSessionVisuals(sessionId: string): { dir: string } | null {
+  return sessionId === "pi-session-1" ? { dir: `/home/.atrium/visuals/${sessionId}` } : null;
 }
 
 describe("SessionManager Fast", () => {
@@ -2593,7 +2638,7 @@ describe("SessionManager Fast", () => {
         "--extension",
         FAST_EXTENSION,
         // Who the session is for Atrium's extension: no one's child, at depth 0 (ADR-0013, point 3).
-        `--atrium-agent=${encodeArgument({ v: 1, child: false, role: null, depth: 0, guard: "flags" })}`,
+        `--atrium-agent=${encodeArgument({ v: 1, child: false, role: null, depth: 0, guard: "flags", isolated: false })}`,
         // A session the agent did not open has no child's tools (SPEC-0002, "角色与限制").
         "--exclude-tools",
         "report_progress,ask_parent",
@@ -2634,6 +2679,29 @@ describe("SessionManager Fast", () => {
       .filter((argv) => argv !== undefined);
     expect(argvs[0]?.at(-1)).toBe(`--atrium-visuals=${visualsArgument("/home/.atrium/visuals/pi-session-1")}`);
     expect(argvs[1]?.some((arg) => arg.startsWith("--atrium-visuals"))).toBe(false);
+  });
+
+  it("tells Atrium's extension a study direction's visuals go in its visuals/, named by their place (SPEC-0008, ML4)", async () => {
+    const { fast } = fastMemory(false);
+    const { manager, starts } = await manage(
+      { argvToStderr: true, rules: FAST_PI },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fast,
+      undefined,
+      { visualsDir: () => ({ dir: "/L/rust/visuals", base: "/L/rust" }) },
+    );
+
+    await started(manager, manager.createChat("client-1"));
+
+    const argvs = starts()
+      .map(({ argv }) => argv)
+      .filter((argv) => argv !== undefined);
+    expect(argvs[0]?.at(-1)).toBe(`--atrium-visuals=${visualsArgument("/L/rust/visuals", "visuals")}`);
   });
 
   it("sends no switch while Fast is off", async () => {
@@ -3393,6 +3461,55 @@ async function opened(
 }
 
 /**
+ * `opened`, with the reviews the manager asks the hub for.
+ *
+ * @remarks
+ * Test support for the manager's side of the reviews' hub: it asks while a session has a controller, and says when
+ * nobody reads the session any more.
+ *
+ * @sideEffects As `opened`.
+ * @param reviews - The hub's side.
+ * @param clock - The manager's clock.
+ * @returns As `opened`.
+ */
+async function manageOpened(reviews: NonNullable<Parameters<typeof createSessionManager>[0]["reviews"]>, clock: Clock) {
+  const at = await place();
+  const file = await terminalSession(at, "pi-session-1", at.workspace);
+  const managed = await manage(
+    {
+      argvToStderr: true,
+      rules: { ...SESSION_ONE, prompt: { sequence: [{ data: { disposition: "started" }, events: turn }] } },
+    },
+    at,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { clock, reviews },
+  );
+  await managed.catalog.scan();
+  await managed.manager.openSession("client-1", "pi-session-1");
+  await managed.manager.subscribe("c1", ["pi-session-1"]);
+  const run = async () => {
+    const settled = managed.received.filter((event) => event.type === "run_settled").length;
+    await managed.manager.prompt({
+      type: "prompt",
+      requestId: "q",
+      traceparent,
+      sessionId: "pi-session-1",
+      text: "ping",
+    });
+    await vi.waitFor(() =>
+      expect(managed.received.filter((event) => event.type === "run_settled")).toHaveLength(settled + 1),
+    );
+  };
+  return { ...managed, file, run };
+}
+
+/**
  * pi's record of a user message it took.
  *
  * @remarks
@@ -3930,6 +4047,23 @@ describe("SessionManager titles (M1.9)", () => {
     expect(await plain.asked()).toBe(false);
   });
 
+  it("gives no title to a session the host opened for a use, which the UI names by its use (SPEC-0008, ML3)", async () => {
+    const { run, seen, catalog, at } = await titled("Ping");
+    await catalog.record({
+      sessionId: "pi-session-1",
+      containerId: WORKSPACE,
+      cwd: at.workspace,
+      persisted: true,
+      study: { kind: "lesson", level: "l1", step: "s1" },
+    });
+    await catalog.scan();
+
+    await run();
+
+    // A one-shot pi for the title would have started by now, as in the first test of this group.
+    await expect(seen()).rejects.toThrow("ENOENT");
+  });
+
   it("asks for no title for a session that has a name", async () => {
     const { run, asked, manager, file, catalog } = await titled("Ping");
     await appendFile(
@@ -4229,6 +4363,35 @@ describe("SessionManager idle reclaim (M1.11 自用, 2026-10-22)", () => {
     expect(starts()).toHaveLength(2);
     expect(received.filter((event) => event.type === "run_settled")).toHaveLength(2);
     expect(resources.snapshot()["pi-process"]).toBe(1);
+  });
+
+  it("tells the reviews' hub that nobody reads a session once its controller is let go of (T8 review fix 13)", async () => {
+    const time = movableClock();
+    const forgotten: string[] = [];
+    const read: string[] = [];
+    const reviews = {
+      current: () => [],
+      read: (sessionId: string) => void read.push(sessionId),
+      onChanged: () => () => undefined,
+      forget: (sessionId: string) => void forgotten.push(sessionId),
+    };
+    const { manager, received, run, resources } = await manageOpened(reviews, time.clock);
+    await run();
+    await piAnswered(resources);
+    time.pass(30 * MINUTE);
+    manager.reclaimIdle();
+    await vi.waitFor(() => expect(exits(received)).toBe(1));
+    // Stopped, but watched and its tab open: the controller stays, and so does the hub's interest.
+    manager.reclaimIdle();
+    expect(read).toContain("pi-session-1");
+    expect(forgotten).toStrictEqual([]);
+
+    await manager.subscribe("c1", []);
+    await manager.closeTab("client-1", "pi-session-1");
+    manager.reclaimIdle();
+
+    expect(resources.snapshot()["session.controller"]).toBe(0);
+    expect(forgotten).toStrictEqual(["pi-session-1"]);
   });
 
   it("lets go of a stopped session's controller once nobody watches it or has its tab open, and builds it again from the file on open", async () => {
@@ -5352,7 +5515,7 @@ describe("SessionManager archived directions' sessions", () => {
 });
 
 describe("SessionManager a learning direction's first session", () => {
-  it("is its discussion, as when the one create_direction made could not be created; later ones are not", async () => {
+  it("is its discussion, as when the one create_direction made could not be created; later ones ask (SPEC-0008, ML2)", async () => {
     const at = await place();
     const dir = join(at.root, "Learning", "go");
     await mkdir(dir, { recursive: true });
@@ -5373,6 +5536,875 @@ describe("SessionManager a learning direction's first session", () => {
     const second = await manager.createSession("client-1", "lrn_go");
 
     expect(catalog.find(first.sessionId)?.study).toStrictEqual({ kind: "discuss" });
-    expect(catalog.find(second.sessionId)?.study).toBeNull();
+    expect(catalog.find(second.sessionId)?.study).toStrictEqual({ kind: "ask" });
+  });
+});
+
+/** A lesson's use, at the first level's first step. */
+const LESSON_USE = { kind: "lesson", level: "l1", step: "s1" } as const;
+
+/** pi's entries of a session with no turn yet. */
+const EMPTY = { data: { entries: [], leafId: null } };
+
+/** pi's entries once a turn is in its file. */
+const ANSWERED = { data: (getEntries as { sequence: { data: unknown }[] }).sequence[1]?.data };
+
+/** A pi that lists Atrium's Fast switch and study mode's command, as with Atrium's extension. */
+const STUDY_PI = {
+  ...SESSION_ONE,
+  get_commands: {
+    data: {
+      commands: [
+        { name: "atrium-fast", description: "Atrium's Fast switch", source: "extension", sourceInfo: {} },
+        { name: "atrium-study", description: "study", source: "extension", sourceInfo: {} },
+      ],
+    },
+  },
+  prompt: { data: { disposition: "handled" } },
+};
+
+/**
+ * A manager with one direction, its pi scripted to list `commands` and to write what it received.
+ *
+ * @remarks
+ * As the first-session test, with Atrium's extension given, so the launch flags are there.
+ *
+ * @sideEffects Creates directories; starts scripted pi.
+ * @param rules - The pi's script.
+ * @param more - A gate before each pi starts, and a step into the catalog.
+ * @returns The managed manager.
+ */
+async function studyDirection(
+  rules: NonNullable<ScriptedPiBehavior["rules"]>,
+  more: {
+    /** Waited for before each pi starts, so a test holds starts back. */
+    readonly gate?: () => Promise<void>;
+    /** Steps into the real catalog. */
+    readonly catalog?: (catalog: SessionCatalog) => SessionCatalog;
+    /** The model new sessions start with, and where choices go, if a test needs them. */
+    readonly models?: Parameters<typeof createSessionManager>[0]["models"];
+  } = {},
+) {
+  const at = await place();
+  const dir = join(at.root, "Learning", "go");
+  await mkdir(dir, { recursive: true });
+  const behavior = { argvToStderr: true, receivedToStderr: true, rules } as const;
+  const tools = more.gate === undefined ? undefined : await scriptedTools(at, behavior);
+  const { gate } = more;
+  return manage(
+    gate === undefined || tools === undefined
+      ? behavior
+      : async () => {
+          await gate();
+          return tools;
+        },
+    at,
+    undefined,
+    undefined,
+    more.models,
+    undefined,
+    undefined,
+    fastMemory(false).fast,
+    undefined,
+    {
+      direction: { id: "lrn_go", dir, archived: () => false },
+      ...(more.catalog === undefined ? {} : { catalog: more.catalog }),
+    },
+  );
+}
+
+describe("SessionManager a learning direction's sessions with a use (SPEC-0008, ML2)", () => {
+  it("starts pi with the use's flag, and an asking session with only the asking flag (ML4 review)", async () => {
+    const { manager, starts } = await studyDirection(STUDY_PI);
+
+    await manager.createStudySession("client-1", "lrn_go", { kind: "discuss" });
+    await manager.createSession("client-1", "lrn_go");
+    /** The arguments of each pi started. */
+    const argvs = () =>
+      starts()
+        .map(({ argv }) => argv)
+        .filter((argv) => argv !== undefined);
+    await vi.waitFor(() => expect(argvs()).toHaveLength(2));
+
+    expect(argvs()[0]).toContain(`--atrium-study=${studyArgument({ kind: "discuss" })}`);
+    expect(argvs()[1]?.filter((arg) => arg.startsWith("--atrium-study"))).toStrictEqual([
+      `--atrium-study=${askArgument()}`,
+    ]);
+  });
+
+  it("starts a session it opened for a use with /atrium-study start, once pi lists the command", async () => {
+    const { manager, starts, piReceived } = await studyDirection(STUDY_PI);
+
+    const { sessionId } = await manager.startStudySession("client-1", "lrn_go", {
+      kind: "lesson",
+      level: "l1",
+      step: "s1",
+    });
+
+    expect(sessionId).toBe("pi-session-1");
+    await vi.waitFor(() =>
+      expect(
+        piReceived()
+          .filter((command) => command["type"] === "prompt")
+          .map((command) => command["message"]),
+      ).toContain(startCommand()),
+    );
+    expect(starts().find(({ argv }) => argv !== undefined)?.argv).toContain(
+      `--atrium-study=${studyArgument({ kind: "lesson", level: "l1", step: "s1" })}`,
+    );
+  });
+
+  it("shows a start that did not happen, and sends it on 重试 once pi lists the command", async () => {
+    // pi's start asks once for Fast's switch; the first start, then the next, ask again.
+    const commands = { sequence: [FAST_PI.get_commands, FAST_PI.get_commands, STUDY_PI.get_commands] };
+    const { manager, piReceived } = await studyDirection({ ...STUDY_PI, get_entries: EMPTY, get_commands: commands });
+    const { sessionId } = await manager.startStudySession("client-1", "lrn_go", LESSON_USE);
+    /** The session's summary. */
+    const summary = () => manager.summaries().find((one) => one.sessionId === sessionId);
+    /** The starts pi was sent. */
+    const kickoffs = () => piReceived().filter((command) => command["message"] === startCommand());
+
+    await vi.waitFor(() => expect(summary()?.kickoff).toStrictEqual({ code: "study_kickoff_failed" }));
+    expect(kickoffs()).toStrictEqual([]);
+    await manager.retryStudyKickoff(sessionId);
+
+    await vi.waitFor(() => expect(kickoffs()).toHaveLength(1));
+    expect(summary()?.kickoff).toBeNull();
+    // Opening it again sends no second start.
+    await manager.openSession("client-1", sessionId);
+    await manager.retryStudyKickoff(sessionId);
+    // Closing waits for the work in the background, an opening's start included.
+    await manager.close();
+    expect(kickoffs()).toHaveLength(1);
+  });
+
+  it("sends the start again when a session it opened is opened with no turn yet", async () => {
+    // pi's start asks once for Fast's switch; the first start, then the next, ask again.
+    const commands = { sequence: [FAST_PI.get_commands, FAST_PI.get_commands, STUDY_PI.get_commands] };
+    const { manager, piReceived } = await studyDirection({ ...STUDY_PI, get_entries: EMPTY, get_commands: commands });
+    const { sessionId } = await manager.startStudySession("client-1", "lrn_go", LESSON_USE);
+    await vi.waitFor(() =>
+      expect(manager.summaries().find((one) => one.sessionId === sessionId)?.kickoff).not.toBeNull(),
+    );
+
+    await manager.openSession("client-1", sessionId);
+
+    await vi.waitFor(() =>
+      expect(piReceived().filter((command) => command["message"] === startCommand())).toHaveLength(1),
+    );
+    expect(manager.summaries().find((one) => one.sessionId === sessionId)?.kickoff).toBeNull();
+  });
+
+  it("sends the start once to a session with a turn but no start in its file, opened or retried (ML3)", async () => {
+    const { manager, piReceived } = await studyDirection({ ...STUDY_PI, get_entries: ANSWERED });
+    const { sessionId } = await manager.startStudySession("client-1", "lrn_go", LESSON_USE);
+    await manager.openSession("client-1", sessionId);
+    await manager.retryStudyKickoff(sessionId);
+    const kickoff = manager.summaries().find((one) => one.sessionId === sessionId)?.kickoff;
+    await manager.close();
+
+    expect(piReceived().filter((command) => command["message"] === startCommand())).toHaveLength(1);
+    expect(kickoff).toBeNull();
+  });
+
+  it("shows a pi that cannot start by its code, and refuses 重试 for a session of no host-opened use", async () => {
+    const { manager } = await studyDirection(STUDY_PI);
+    const { sessionId } = await manager.createStudySession("client-1", "lrn_go", { kind: "discuss" });
+
+    await expect(manager.retryStudyKickoff(sessionId)).rejects.toMatchObject({ code: "study_not_available" });
+    await expect(manager.retryStudyKickoff("nope")).rejects.toMatchObject({ code: "session_not_found" });
+  });
+
+  it("sends no start to a pi without study mode's command, and logs that", async () => {
+    const { manager, piReceived, records } = await studyDirection(FAST_PI);
+
+    await manager.startStudySession("client-1", "lrn_go", { kind: "lesson", level: "l1", step: "s1" });
+
+    await vi.waitFor(() => expect(records.some((record) => record["msg"] === "study extension not loaded")).toBe(true));
+    expect(piReceived().filter((command) => command["message"] === startCommand())).toStrictEqual([]);
+  });
+
+  it("starts a direction's session on the model its newest session recorded, not the one chosen last (2026-11-11)", async () => {
+    const { models } = remembering({
+      providerId: "catpaw-cli",
+      modelId: "deepseek-v4.1-flash",
+      thinkingLevel: "medium",
+    });
+    const { manager, piReceived, at, catalog } = await studyDirection(STUDY_PI, { models });
+    const dir = join(at.root, "Learning", "go");
+    const argon = await modelSession(
+      at,
+      "argon",
+      dir,
+      { providerId: "opencode-go", modelId: "gemini-4-argon" },
+      "high",
+    );
+    const kimi = await modelSession(at, "kimi", dir, { providerId: "catpaw-cli", modelId: "kimi-k3" }, "low");
+    await utimes(argon, 1_000, 1_000);
+    await utimes(kimi, 2_000, 2_000);
+    await catalog.scan();
+
+    await manager.startStudySession("client-1", "lrn_go", LESSON_USE);
+
+    await vi.waitFor(() =>
+      expect(withoutIds(piReceived()).filter((command) => command["type"] === "set_model")).toStrictEqual([
+        { type: "set_model", provider: "catpaw-cli", modelId: "kimi-k3" },
+      ]),
+    );
+    expect(withoutIds(piReceived()).filter((command) => command["type"] === "set_thinking_level")).toStrictEqual([
+      { type: "set_thinking_level", level: "low" },
+    ]);
+  });
+
+  it("starts a direction's first session on the model chosen last, no session of it having recorded one", async () => {
+    const { models } = remembering({ providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" });
+    const { manager, piReceived } = await studyDirection(STUDY_PI, { models });
+
+    await manager.createStudySession("client-1", "lrn_go", { kind: "discuss" });
+
+    await vi.waitFor(() =>
+      expect(withoutIds(piReceived()).filter((command) => command["type"] === "set_model")).toStrictEqual([
+        { type: "set_model", provider: "anthropic", modelId: "haiku" },
+      ]),
+    );
+    expect(withoutIds(piReceived()).filter((command) => command["type"] === "set_thinking_level")).toStrictEqual([
+      { type: "set_thinking_level", level: "low" },
+    ]);
+  });
+});
+
+/** A quiz's use, after the lesson at the first level's first step. */
+const QUIZ_USE = { kind: "quiz", level: "l1", step: "s1" } as const;
+
+/**
+ * The start of a host-opened session as its file keeps it: an `atrium-agent` message of kind `study`.
+ *
+ * @remarks
+ * As Atrium's extension writes it (SPEC-0008, "ML2 定的细节").
+ *
+ * @sideEffects none
+ * @param id - The entry's id.
+ * @param parentId - The entry before it.
+ * @param study - The use it starts.
+ * @returns The entry.
+ */
+function kickoffEntry(id: string, parentId: string | null, study: object) {
+  return {
+    type: "custom_message",
+    id,
+    parentId,
+    timestamp: "1970-01-01T00:00:00.000Z",
+    customType: "atrium-agent",
+    content: "start",
+    display: true,
+    details: { v: 1, kind: "study", deliveries: [], study },
+  };
+}
+
+/** A message of yours in a lesson, after its start. */
+const LESSON_REPLY = {
+  type: "message",
+  id: "a1",
+  parentId: "k0",
+  timestamp: "1970-01-01T00:00:00.000Z",
+  message: { role: "user", content: "got it", timestamp: 0 },
+};
+
+/** A lesson's file: its start, then a message of yours. */
+const LESSON_ENTRIES = [kickoffEntry("k0", null, LESSON_USE), LESSON_REPLY];
+
+/**
+ * A session of the direction on file, recorded with a use.
+ *
+ * @remarks
+ * Written where pi keeps the direction's sessions, then found by a scan.
+ *
+ * @sideEffects Writes the session's file and the index; scans.
+ * @param managed - The manager and its catalog.
+ * @param sessionId - The session.
+ * @param entries - Its entries after the header.
+ * @param record - What its record holds besides the direction and its use.
+ * @returns Its file.
+ */
+async function studyOnFile(
+  managed: Awaited<ReturnType<typeof studyDirection>>,
+  sessionId: string,
+  entries: readonly object[],
+  record: Omit<Parameters<SessionCatalog["record"]>[0], "sessionId" | "containerId" | "cwd">,
+): Promise<string> {
+  const dir = join(managed.at.root, "Learning", "go");
+  const folder = sessionFolder({ directory: managed.at.piSessions, perCwd: false }, dir);
+  await mkdir(folder, { recursive: true });
+  const file = join(folder, `${sessionId}.jsonl`);
+  const header = { type: "session", version: 3, id: sessionId, timestamp: "1970-01-01T00:00:00.000Z", cwd: dir };
+  await writeFile(file, `${[header, ...entries].map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+  await managed.catalog.record({ sessionId, containerId: "lrn_go", cwd: dir, persisted: true, ...record });
+  await managed.catalog.scan();
+  return file;
+}
+
+/** The pi started, without the commands they wrote. */
+function launches(managed: Awaited<ReturnType<typeof studyDirection>>) {
+  return managed.starts().filter((line) => "argv" in line);
+}
+
+/** The starts pi was sent. */
+function kickoffsOf(managed: Awaited<ReturnType<typeof studyDirection>>) {
+  return managed.piReceived().filter((command) => command["message"] === startCommand());
+}
+
+/**
+ * A gate pi's starts pass: closed, it holds the next start only, until opened.
+ *
+ * @remarks
+ * For the tests that hold a quiz's pi before it reads its lesson's file, while any other start
+ * goes on.
+ *
+ * @sideEffects none
+ * @returns The gate and how to close, open and fail it.
+ */
+function startGate() {
+  const held = Promise.withResolvers<void>();
+  let closed = false;
+  return {
+    gate: () => {
+      const wait = closed ? held.promise : Promise.resolve();
+      closed = false;
+      return wait;
+    },
+    close: () => {
+      closed = true;
+    },
+    open: () => held.resolve(),
+    /** Fails the start held, as tools that cannot be found would. */
+    fail: () => held.reject(new Error("no tools")),
+  };
+}
+
+/**
+ * A catalog whose `archive` fails for one session.
+ *
+ * @remarks
+ * As a disk error would, on that session only.
+ *
+ * @sideEffects none
+ * @param failing - The sessions.
+ * @returns The step into the catalog.
+ */
+function failingArchive(...failing: string[]): (catalog: SessionCatalog) => SessionCatalog {
+  return (catalog) => ({
+    ...catalog,
+    archive: async (sessionId, withRoot) => {
+      if (failing.includes(sessionId)) throw new Error("disk full");
+      await catalog.archive(sessionId, withRoot);
+    },
+  });
+}
+
+/**
+ * A catalog whose `archive` waits for a promise.
+ *
+ * @remarks
+ * So a test sees a session while it is being archived.
+ *
+ * @sideEffects none
+ * @param until - What it waits for.
+ * @returns The step into the catalog.
+ */
+function heldArchive(until: Promise<void>): (catalog: SessionCatalog) => SessionCatalog {
+  return (catalog) => ({
+    ...catalog,
+    archive: async (sessionId, withRoot) => {
+      await until;
+      await catalog.archive(sessionId, withRoot);
+    },
+  });
+}
+
+describe("SessionManager the learning loop (SPEC-0008, ML3)", () => {
+  it("opens a quiz as its lesson's child, its pi forked from the lesson's file, and starts it", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    const lessonFile = await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE);
+
+    expect(managed.catalog.find(sessionId)).toMatchObject({
+      containerId: "lrn_go",
+      parent: { sessionId: "lesson", by: "user" },
+      name: null,
+      usageAfter: "a1",
+      study: QUIZ_USE,
+    });
+    await vi.waitFor(() => expect(kickoffsOf(managed)).toHaveLength(1));
+    const quizStart = present(
+      launches(managed).find(({ argv }) => argv.includes("--fork")),
+      "the quiz's start",
+    );
+    expect(quizStart.argv.slice(0, 6)).toStrictEqual([
+      "--mode",
+      "rpc",
+      "--fork",
+      lessonFile,
+      "--session-id",
+      sessionId,
+    ]);
+    expect(quizStart.argv).toContain(`--atrium-study=${studyArgument(QUIZ_USE)}`);
+    expect(quizStart.cwd).toBe(join(managed.at.root, "Learning", "go"));
+    expect(managed.layouts.of("client-1").tabs["lrn_go"]?.active).toBe(sessionId);
+  });
+
+  it("forks from the latest lesson of the step not archived, on file", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    const files = [
+      await studyOnFile(managed, "older", LESSON_ENTRIES, { study: LESSON_USE }),
+      await studyOnFile(managed, "newer", LESSON_ENTRIES, { study: LESSON_USE }),
+      await studyOnFile(managed, "other-step", LESSON_ENTRIES, { study: { ...LESSON_USE, step: "s2" } }),
+    ];
+    // Last active in this order, the other step's the latest.
+    for (const [at, file] of files.entries()) await utimes(file, 1_000 + at, 1_000 + at);
+    await managed.catalog.scan();
+
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE);
+
+    expect(managed.catalog.find(sessionId)?.parent).toStrictEqual({ sessionId: "newer", by: "user" });
+  });
+
+  it("opens a quiz with no lesson's context when the step has no lesson on file, telling the extension", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    // A lesson marked by hand has no session; a draft has no file; an archived one is not used.
+    await managed.manager.createStudySession("client-1", "lrn_go", LESSON_USE);
+    await studyOnFile(managed, "archived", LESSON_ENTRIES, { study: LESSON_USE });
+    await managed.catalog.archive("archived");
+
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE);
+
+    expect(managed.catalog.find(sessionId)).toMatchObject({ parent: null, study: QUIZ_USE });
+    await vi.waitFor(() => expect(launches(managed).some(({ argv }) => argv.includes(sessionId))).toBe(true));
+    const quizStart = present(
+      launches(managed).find(({ argv }) => argv.includes(sessionId)),
+      "the quiz's start",
+    );
+    expect(quizStart.argv).not.toContain("--fork");
+    expect(quizStart.argv).toContain(`--atrium-study=${studyArgument({ ...QUIZ_USE, context: "none" })}`);
+  });
+
+  it("refuses a quiz while its lesson runs, creating nothing", async () => {
+    const managed = await studyDirection({ ...STUDY_PI, prompt: { events: [{ type: "agent_start" }], data: {} } });
+    await studyOnFile(managed, "pi-session-1", LESSON_ENTRIES, { study: LESSON_USE });
+    await managed.manager.prompt({
+      type: "prompt",
+      requestId: "q",
+      traceparent,
+      sessionId: "pi-session-1",
+      text: "go",
+    });
+    await vi.waitFor(() =>
+      expect(managed.manager.summaries().find((one) => one.sessionId === "pi-session-1")?.running).toBe(true),
+    );
+    const before = managed.catalog.list().length;
+
+    await expect(managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE)).rejects.toStrictEqual(
+      new CommandError("session_busy"),
+    );
+
+    expect(managed.catalog.list()).toHaveLength(before);
+  });
+
+  it("sends no start to a session whose file has one after its fork's baseline, as after a restart", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    await studyOnFile(managed, "pi-session-1", [...LESSON_ENTRIES, kickoffEntry("k1", "a1", QUIZ_USE)], {
+      study: QUIZ_USE,
+      parent: { sessionId: "lesson", by: "user" },
+      usageAfter: "a1",
+    });
+
+    await managed.manager.openSession("client-1", "pi-session-1");
+    await managed.manager.retryStudyKickoff("pi-session-1");
+    await managed.manager.close();
+
+    expect(kickoffsOf(managed)).toStrictEqual([]);
+  });
+
+  it("sends the start to a forked session whose file has only its lesson's, its baseline found or not", async () => {
+    for (const usageAfter of ["a1", "(unread)"]) {
+      const managed = await studyDirection(STUDY_PI);
+      await studyOnFile(managed, "pi-session-1", LESSON_ENTRIES, {
+        study: QUIZ_USE,
+        parent: { sessionId: "lesson", by: "user" },
+        usageAfter,
+      });
+
+      await managed.manager.openSession("client-1", "pi-session-1");
+
+      await vi.waitFor(() => expect(kickoffsOf(managed)).toHaveLength(1));
+      await managed.manager.close();
+    }
+  });
+
+  it("counts only a start after the baseline, as one before it is the parent's", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    // Forked from a session started for the same use: that start is the parent's.
+    await studyOnFile(managed, "pi-session-1", [kickoffEntry("k0", null, QUIZ_USE), LESSON_REPLY], {
+      study: QUIZ_USE,
+      parent: { sessionId: "lesson", by: "user" },
+      usageAfter: "a1",
+    });
+
+    await managed.manager.openSession("client-1", "pi-session-1");
+
+    await vi.waitFor(() => expect(kickoffsOf(managed)).toHaveLength(1));
+    await managed.manager.close();
+  });
+
+  it("sends no start to a lesson whose file has its start, and no second while the first is not in it yet", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    await studyOnFile(managed, "pi-session-1", LESSON_ENTRIES, { study: LESSON_USE });
+    await managed.manager.openSession("client-1", "pi-session-1");
+    await managed.manager.retryStudyKickoff("pi-session-1");
+    expect(kickoffsOf(managed)).toStrictEqual([]);
+    await managed.manager.close();
+
+    const fresh = await studyDirection(STUDY_PI);
+    const { sessionId } = await fresh.manager.startStudySession("client-1", "lrn_go", {
+      kind: "feynman",
+      level: "l1",
+      gap: "g1",
+    });
+    await fresh.manager.openSession("client-1", sessionId);
+    await fresh.manager.openSession("client-1", sessionId);
+    await vi.waitFor(() => expect(kickoffsOf(fresh)).toHaveLength(1));
+    await fresh.manager.retryStudyKickoff(sessionId);
+    await fresh.manager.close();
+
+    expect(kickoffsOf(fresh)).toHaveLength(1);
+  });
+
+  it("starts the plan, Feynman and quiz sessions it opens itself", async () => {
+    for (const study of [
+      { kind: "plan", level: "l2" },
+      { kind: "feynman", level: "l1", step: "s1", gap: "g1" },
+    ] as const) {
+      const managed = await studyDirection(STUDY_PI);
+      const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", study);
+      await vi.waitFor(() => expect(kickoffsOf(managed)).toHaveLength(1));
+      // One it opens itself, so it may be started again (重试), which sends nothing more.
+      await expect(managed.manager.retryStudyKickoff(sessionId)).resolves.toStrictEqual({});
+      await managed.manager.close();
+      expect(kickoffsOf(managed)).toHaveLength(1);
+    }
+  });
+
+  it("archives sessions with their children, stopping them, and counts those it could not", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    await studyOnFile(managed, "quiz", LESSON_ENTRIES, {
+      study: QUIZ_USE,
+      parent: { sessionId: "lesson", by: "user" },
+      usageAfter: "a1",
+    });
+    await studyOnFile(managed, "talk", [], { study: { kind: "discuss" } });
+
+    // The quiz goes with its lesson; asked for again, it is not counted as failed.
+    await expect(managed.manager.archiveSessions(["lesson", "quiz", "unknown"])).resolves.toBe(1);
+
+    expect(["lesson", "quiz", "talk"].map((id) => managed.catalog.find(id)?.archived)).toStrictEqual([
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it("shows an archived session of a live direction from its file without pi, and restores it with its children", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    await studyOnFile(managed, "quiz", LESSON_ENTRIES, {
+      study: QUIZ_USE,
+      parent: { sessionId: "lesson", by: "user" },
+      usageAfter: "a1",
+    });
+    await managed.manager.archiveSessions(["lesson"]);
+
+    await managed.manager.openSession("client-1", "lesson");
+    await managed.manager.subscribe("c1", ["lesson"]);
+
+    const snapshot = managed.received.find((event) => event.type === "session_snapshot");
+    expect(snapshot).toMatchObject({ sessionId: "lesson", epoch: 0, run: null });
+    expect(launches(managed)).toStrictEqual([]);
+    expect(managed.resources.snapshot()["session.read_only"]).toBe(1);
+    await expect(
+      managed.manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "lesson", text: "go" }),
+    ).rejects.toMatchObject({ code: "session_not_found" });
+
+    await managed.manager.restoreSessions(["lesson"]);
+
+    expect(["lesson", "quiz"].map((id) => managed.catalog.find(id)?.archived)).toStrictEqual([false, false]);
+    expect(managed.resources.snapshot()["session.read_only"]).toBe(0);
+  });
+
+  it("holds the lesson from the busy check until the quiz's pi read its file: a message waits meanwhile", async () => {
+    const starts = startGate();
+    const managed = await studyDirection(
+      {
+        ...STUDY_PI,
+        prompt: { data: { disposition: "started" }, events: [{ type: "agent_start" }] },
+        abort: { data: {}, events: [{ type: "agent_settled" }] },
+      },
+      { gate: starts.gate },
+    );
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    await managed.manager.openSession("client-1", "lesson");
+    await vi.waitFor(() => expect(launches(managed)).toHaveLength(1));
+    // Stopped once, so its queue is paused: a message must not wait there after the fork.
+    await managed.manager.prompt({ type: "prompt", requestId: "q0", traceparent, sessionId: "lesson", text: "first" });
+    await vi.waitFor(() =>
+      expect(managed.manager.summaries().find((one) => one.sessionId === "lesson")?.running).toBe(true),
+    );
+    await managed.manager.stop("lesson");
+    await vi.waitFor(() =>
+      expect(managed.manager.summaries().find((one) => one.sessionId === "lesson")?.running).toBe(false),
+    );
+    starts.close();
+
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE);
+    // The quiz's pi has not read the lesson's file: the lesson is held, so no second fork.
+    await expect(managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE)).rejects.toStrictEqual(
+      new CommandError("session_busy"),
+    );
+    const sent = managed.manager.prompt({
+      type: "prompt",
+      requestId: "q",
+      traceparent,
+      sessionId: "lesson",
+      text: "go",
+    });
+    const sentToLesson = () => managed.piReceived().filter((command) => command["message"] === "go");
+    expect(sentToLesson()).toStrictEqual([]);
+    starts.open();
+    await sent;
+    await vi.waitFor(() => expect(launches(managed).some(({ argv }) => argv.includes(sessionId))).toBe(true));
+    await vi.waitFor(() => expect(sentToLesson()).toHaveLength(1));
+    // Its baseline is the last entry it copied.
+    expect(managed.catalog.find(sessionId)?.usageAfter).toBe("a1");
+  });
+
+  it("holds a lesson with no pi: its start waits until the quiz's pi started", async () => {
+    const starts = startGate();
+    const managed = await studyDirection(STUDY_PI, { gate: starts.gate });
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    starts.close();
+
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE);
+    // Started from the host's side too, as its kickoff starts it, not only by a command of yours.
+    const lessonOpened = managed.manager.retryStudyKickoff("lesson");
+    // Held, the lesson's pi does not start while the quiz's waits; unheld, it would within this time.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(launches(managed)).toStrictEqual([]);
+    starts.open();
+    await lessonOpened;
+    await vi.waitFor(() => expect(launches(managed)).toHaveLength(2));
+
+    expect(launches(managed)[0]?.argv).toContain(sessionId);
+  });
+
+  it("opens a quiz with no lesson's context when the lesson's file is gone, logging ids and codes only", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    const lessonFile = await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    // Gone outside Atrium; the catalog has not looked again.
+    await rm(lessonFile);
+
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE);
+
+    expect(managed.catalog.find(sessionId)).toMatchObject({ parent: null, study: QUIZ_USE });
+    await vi.waitFor(() => expect(launches(managed).some(({ argv }) => argv.includes(sessionId))).toBe(true));
+    const quizStart = present(
+      launches(managed).find(({ argv }) => argv.includes(sessionId)),
+      "the quiz's start",
+    );
+    expect(quizStart.argv).not.toContain("--fork");
+    expect(quizStart.argv).toContain(`--atrium-study=${studyArgument({ ...QUIZ_USE, context: "none" })}`);
+    const logged = managed.records.filter((record) => record["msg"] === "lesson not read for its quiz");
+    expect(logged).toStrictEqual([expect.objectContaining({ sessionId: "lesson", code: "ENOENT" })]);
+    expect(JSON.stringify(managed.records)).not.toContain(lessonFile);
+  });
+
+  it("forks a quiz whose pi never started from its lesson again after a restart, or goes without it", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    const lessonFile = await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    // Recorded by an earlier host, whose fork never ran: no file, nothing in memory.
+    await managed.catalog.record({
+      sessionId: "quiz",
+      containerId: "lrn_go",
+      cwd: join(managed.at.root, "Learning", "go"),
+      parent: { sessionId: "lesson", by: "user" },
+      usageAfter: "a1",
+      study: QUIZ_USE,
+    });
+
+    await managed.manager.openSession("client-1", "quiz");
+    await vi.waitFor(() => expect(launches(managed)).toHaveLength(1));
+
+    expect(launches(managed)[0]?.argv.slice(0, 6)).toStrictEqual([
+      "--mode",
+      "rpc",
+      "--fork",
+      lessonFile,
+      "--session-id",
+      "quiz",
+    ]);
+    await managed.manager.close();
+
+    const gone = await studyDirection(STUDY_PI);
+    const goneFile = await studyOnFile(gone, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    await gone.catalog.record({
+      sessionId: "quiz",
+      containerId: "lrn_go",
+      cwd: join(gone.at.root, "Learning", "go"),
+      parent: { sessionId: "lesson", by: "user" },
+      usageAfter: "a1",
+      study: QUIZ_USE,
+    });
+    await rm(goneFile);
+
+    await gone.manager.openSession("client-1", "quiz");
+    await vi.waitFor(() => expect(launches(gone)).toHaveLength(1));
+
+    expect(launches(gone)[0]?.argv).not.toContain("--fork");
+    expect(launches(gone)[0]?.argv).toContain(`--atrium-study=${studyArgument({ ...QUIZ_USE, context: "none" })}`);
+  });
+
+  it("starts a quiz left by an earlier host under a lesson with no file without the lesson's context", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    await managed.catalog.record({
+      sessionId: "lesson",
+      containerId: "lrn_go",
+      cwd: join(managed.at.root, "Learning", "go"),
+      study: LESSON_USE,
+    });
+    await managed.catalog.record({
+      sessionId: "quiz",
+      containerId: "lrn_go",
+      cwd: join(managed.at.root, "Learning", "go"),
+      parent: { sessionId: "lesson", by: "user" },
+      usageAfter: null,
+      study: QUIZ_USE,
+    });
+
+    await managed.manager.openSession("client-1", "quiz");
+    await vi.waitFor(() => expect(launches(managed)).toHaveLength(1));
+
+    expect(launches(managed)[0]?.argv).not.toContain("--fork");
+    expect(launches(managed)[0]?.argv).toContain(`--atrium-study=${studyArgument({ ...QUIZ_USE, context: "none" })}`);
+  });
+
+  it("forgets where a quiz archived before its pi started would have forked from", async () => {
+    const starts = startGate();
+    const managed = await studyDirection(STUDY_PI, { gate: starts.gate });
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    starts.close();
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", QUIZ_USE);
+    expect(managed.resources.snapshot()["session.fork_from"]).toBe(1);
+
+    // Its pi never starts, so only the archive can let go of where it would fork from.
+    starts.fail();
+    await vi.waitFor(() => expect(managed.resources.snapshot()["study.lesson_hold"]).toBe(0));
+    expect(managed.resources.snapshot()["session.fork_from"]).toBe(1);
+    await managed.manager.archiveSessions([sessionId]);
+
+    expect(managed.catalog.find(sessionId)?.archived).toBe(true);
+    expect(managed.resources.snapshot()).toMatchObject({
+      "session.fork_from": 0,
+      "study.fork_release": 0,
+      "study.lesson_hold": 0,
+    });
+  });
+
+  it("sends the start again after a stop dropped it, in the same host run", async () => {
+    const managed = await studyDirection({
+      ...STUDY_PI,
+      prompt: { events: [{ type: "agent_start" }], data: { disposition: "handled" } },
+      abort: { data: {}, events: [{ type: "agent_settled" }] },
+    });
+    const { sessionId } = await managed.manager.startStudySession("client-1", "lrn_go", {
+      kind: "feynman",
+      level: "l1",
+      gap: "g1",
+    });
+    await vi.waitFor(() => expect(kickoffsOf(managed)).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(managed.manager.summaries().find((one) => one.sessionId === sessionId)?.running).toBe(true),
+    );
+
+    await managed.manager.stop(sessionId);
+    await vi.waitFor(() => expect(managed.piReceived().some((command) => command["type"] === "abort")).toBe(true));
+    await managed.manager.retryStudyKickoff(sessionId);
+
+    await vi.waitFor(() => expect(kickoffsOf(managed)).toHaveLength(2));
+  });
+
+  it("archives the rest of a tree when one of it cannot be, counting each session not archived", async () => {
+    const managed = await studyDirection(STUDY_PI, { catalog: failingArchive("quiz", "quiz3") });
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    for (const child of ["quiz", "quiz2", "quiz3"]) {
+      await studyOnFile(managed, child, LESSON_ENTRIES, {
+        study: QUIZ_USE,
+        parent: { sessionId: "lesson", by: "user" },
+        usageAfter: "a1",
+      });
+    }
+    await managed.layouts.open("client-1", "lrn_go", "quiz2", true);
+
+    await expect(managed.manager.archiveSessions(["lesson"])).resolves.toBe(2);
+
+    expect(["lesson", "quiz", "quiz2", "quiz3"].map((id) => managed.catalog.find(id)?.archived)).toStrictEqual([
+      true,
+      false,
+      true,
+      false,
+    ]);
+    expect(managed.layouts.of("client-1").tabs["lrn_go"]?.open).toStrictEqual([]);
+  });
+
+  it("restores a child with its archived lesson, and a lesson without a child archived alone before", async () => {
+    const managed = await studyDirection(STUDY_PI);
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    for (const child of ["alone", "with"]) {
+      await studyOnFile(managed, child, LESSON_ENTRIES, {
+        study: QUIZ_USE,
+        parent: { sessionId: "lesson", by: "user" },
+        usageAfter: "a1",
+      });
+    }
+    await managed.manager.archiveSession("alone");
+    await managed.manager.archiveSessions(["lesson"]);
+
+    await managed.manager.restoreSessions(["lesson"]);
+
+    expect(["lesson", "alone", "with"].map((id) => managed.catalog.find(id)?.archived)).toStrictEqual([
+      false,
+      true,
+      false,
+    ]);
+    await managed.manager.archiveSessions(["lesson"]);
+    await managed.manager.restoreSessions(["alone"]);
+
+    expect(["lesson", "alone", "with"].map((id) => managed.catalog.find(id)?.archived)).toStrictEqual([
+      false,
+      false,
+      true,
+    ]);
+  });
+
+  it("tells whether a session is being archived, from its archive's start to its end", async () => {
+    const release = Promise.withResolvers<void>();
+    const managed = await studyDirection(STUDY_PI, { catalog: heldArchive(release.promise) });
+    await studyOnFile(managed, "lesson", LESSON_ENTRIES, { study: LESSON_USE });
+    expect(managed.manager.isArchiving("lesson")).toBe(false);
+
+    const archived = managed.manager.archiveSessions(["lesson"]);
+    await vi.waitFor(() => expect(managed.manager.isArchiving("lesson")).toBe(true));
+    release.resolve();
+    await archived;
+
+    expect(managed.manager.isArchiving("lesson")).toBe(false);
   });
 });

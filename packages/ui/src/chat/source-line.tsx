@@ -2,6 +2,8 @@ import type { AgentNoticeEvent, AgentSource } from "@atrium/protocol";
 import { ArrowTurnBack, Question, Robot } from "../design/icons";
 import { useAgentLinks } from "./agent-links";
 import { EVENT_WORDS, tookWords } from "./agent-words";
+import { StudyIcon } from "../study/study-icon";
+import { useStudyLabel, useStudySession } from "../study/study-label";
 
 /**
  * What a `work` child changed: "+A −D", as the changes capsule says it.
@@ -83,8 +85,9 @@ export function NoticeLine({ event }: { readonly event: AgentNoticeEvent }) {
  *
  * @remarks
  * SPEC-0002 ("显示 · 由通知开头的轮"): notices one line each; a task as "来自主对话的 agent · 交代的
- * 事", "主对话" at its right, and below it the task whole as a quote. What Atrium wrapped it in for
- * the model is not shown.
+ * 事", "主对话" at its right, and below it the task whole as a quote; a study session's start as its
+ * use and step (SPEC-0008, "ML2 定的细节"), a quiz with no lesson to carry saying so (ML3). What
+ * Atrium wrapped it in for the model is not shown.
  *
  * @sideEffects Opens a session when a link is clicked.
  * @param props - The source.
@@ -92,6 +95,32 @@ export function NoticeLine({ event }: { readonly event: AgentNoticeEvent }) {
  */
 export function SourceLines({ source }: { readonly source: AgentSource }) {
   const links = useAgentLinks();
+  const label = useStudyLabel();
+  const shown = useStudySession();
+  if (source.kind === "study") {
+    // A quiz opened as a new session, not as its lesson's child: the model has no lesson to go on.
+    const noLesson = source.study.kind === "quiz" && shown?.study.kind === "quiz" && shown.parentId === null;
+    // A session the host opened for a use: its use and step, no link (design-language "学习模式").
+    const [use, ...rest] = label(source.study).split(" · ");
+    return (
+      <div className="flex flex-col gap-1" data-testid="source">
+        <div
+          className="flex min-w-0 items-center gap-1.5 text-[length:var(--fs-meta)] text-[var(--text-muted)]"
+          data-testid="source-line"
+          data-event="study"
+        >
+          <span className="flex flex-none items-center">
+            <StudyIcon kind={source.study.kind} size={13} />
+          </span>
+          <span className="min-w-0 truncate">
+            <b className="font-semibold text-[var(--text-2)]">{use}</b>
+            {rest.map((part) => ` · ${part}`).join("")}
+            {noLesson ? <span className="text-[var(--text-dim)]"> · 没带上课的上下文</span> : null}
+          </span>
+        </div>
+      </div>
+    );
+  }
   if (source.kind === "report") {
     return (
       <div className="flex flex-col gap-1" data-testid="source">

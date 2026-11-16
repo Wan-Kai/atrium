@@ -1,0 +1,58 @@
+[
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": ">= BACK_LIMIT) throw new CommandError(\"task_back_limit\")",
+    "to": "> BACK_LIMIT) throw new CommandError(\"task_back_limit\")",
+    "test": "packages/host/src/tasks/human-node.host.test.ts",
+    "name": "resets the side branch",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "if (task.endedAt !== null || kind !== \"human\" || !open)",
+    "to": "if (kind !== \"human\" || !open)",
+    "test": "packages/host/src/tasks/human-node.host.test.ts",
+    "name": "pauses, resumes and cancels",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "if (answer === \"archive\") await options.archiving.archive(task);",
+    "to": "",
+    "test": "packages/host/src/tasks/task-merge.host.test.ts",
+    "name": "asks about archiving when the task ends",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "const open = task.archive === \"asked\" || (task.archive === \"kept\" && answer === \"archive\");",
+    "to": "const open = task.archive === \"asked\";",
+    "test": "packages/host/src/tasks/task-merge.host.test.ts",
+    "name": "asks about archiving when the task ends",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-commands.ts",
+    "from": "else if (watch === false) listWatchers.delete(connectionId);",
+    "to": "",
+    "test": "packages/host/src/tasks/tasks-protocol.host.test.ts",
+    "name": "stops pushing once the watch is turned off",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-archiving.ts",
+    "from": ": state.verdict === \"pending\"\n                ? false",
+    "to": "            : state.verdict === \"pending\"\n                ? true",
+    "test": "packages/host/src/tasks/task-merge.host.test.ts",
+    "name": "a cancelled task whose branch was never merged",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "      await dispatch(entry, { type: \"merged\", node: nodeId });",
+    "to": "      logger.info(\"task branch merged\");",
+    "test": "packages/host/src/tasks/task-merge.host.test.ts",
+    "name": "leaves the main checkout exactly as it was on a conflict",
+    "project": "host"
+  }
+]

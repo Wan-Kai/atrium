@@ -4,6 +4,7 @@ import {
   CommandError,
   IDLE_CONTROL,
   type ModelRef,
+  type PendingReview,
   type QuestionAnswer,
   SNAPSHOT_TURNS,
   type SessionEvent,
@@ -668,6 +669,7 @@ function control(
     | "home"
     | "plan"
     | "deliveries"
+    | "reviews"
   > = {},
 ) {
   const events: SessionEvent[] = [];
@@ -4639,6 +4641,49 @@ function replyEntry(id: string, parentId: string | null = null): LogEntry {
     timestamp: 0,
   };
 }
+
+describe("createSessionController's reviews (ADR-0018)", () => {
+  const open: PendingReview = {
+    id: "tsk_1:human:H:1",
+    openedAt: 5,
+    source: { kind: "gate", gate: "task_human" },
+    subject: { code: "task_human_node", params: { taskId: "tsk_1", node: "H", merge: false } },
+    evidence: [],
+    problem: null,
+    actions: [{ id: "pass", reason: "none", targets: [], recommended: true }],
+  };
+
+  it("carries what waits for a verdict in its control and publishes the control when that changes", () => {
+    const { pi } = manualPi();
+    let now: PendingReview[] = [];
+    const { controller, events } = control(pi, empty, { reviews: () => now });
+    expect(controller.control().reviews).toStrictEqual([]);
+    expect(controller.snapshot().control.reviews).toStrictEqual([]);
+
+    now = [open];
+    controller.reviewsChanged();
+
+    expect(controller.control().reviews).toStrictEqual([open]);
+    expect(events.filter((event) => event.type === "control_updated")).toMatchObject([
+      { control: { reviews: [open] } },
+    ]);
+    expect(controller.snapshot().control.reviews).toStrictEqual([open]);
+    // The same again is no news.
+    controller.reviewsChanged();
+    expect(events.filter((event) => event.type === "control_updated")).toHaveLength(1);
+
+    now = [];
+    controller.reviewsChanged();
+    expect(events.filter((event) => event.type === "control_updated")).toHaveLength(2);
+  });
+
+  it("has none when it is given no source", () => {
+    const { pi } = manualPi();
+    const { controller } = control(pi);
+
+    expect(controller.control().reviews).toStrictEqual([]);
+  });
+});
 
 describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", () => {
   it("leaves a report's normal empty reply completed without prompting or restarting again", async () => {

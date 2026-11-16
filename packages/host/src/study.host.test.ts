@@ -1,6 +1,6 @@
 import { type AtriumClient, CommandError } from "@atrium/client";
 import { GIT_SCENE_ENV, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
-import { lstat, mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, rename, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { type TestHost, startTestHost } from "../test/harness";
@@ -30,15 +30,22 @@ const NAMES = {
  *
  * @sideEffects Creates temporary directories and starts a host, both gone when the test ends.
  * @param piSessions - Where pi keeps sessions, when a test writes one there.
+ * @param learningRoot - The learning directory, when a test keeps it across hosts.
+ * @param more - The host's home, when a test puts files in it first, and the file a one-shot pi
+ * records what it was started with into.
  * @returns The host, the client and the learning directory.
  */
-async function studyHost(piSessions?: string): Promise<{ host: TestHost; client: AtriumClient; root: string }> {
+async function studyHost(
+  piSessions?: string,
+  learningRoot?: string,
+  more: { readonly home?: string; readonly recordTo?: string } = {},
+): Promise<{ host: TestHost; client: AtriumClient; root: string }> {
   const bin = await createTempDir("study-bin");
   onTestFinished(bin.cleanup);
   const scripted = await writeScriptedPi(
     bin.path,
     {
-      print: { lines: [NAMES] },
+      print: { lines: [NAMES], ...(more.recordTo === undefined ? {} : { recordTo: more.recordTo }) },
       rules: {
         get_state: { data: { sessionId: "pi-session-1" } },
         get_entries: PONG_ENTRIES,
@@ -54,6 +61,8 @@ async function studyHost(piSessions?: string): Promise<{ host: TestHost; client:
       ...scripted.env,
       ...(piSessions === undefined ? {} : { PI_CODING_AGENT_SESSION_DIR: piSessions }),
     },
+    ...(learningRoot === undefined ? {} : { learningRoot }),
+    ...(more.home === undefined ? {} : { home: more.home }),
   });
   onTestFinished(host.dispose);
   await host.host.tools;
@@ -61,7 +70,7 @@ async function studyHost(piSessions?: string): Promise<{ host: TestHost; client:
   onTestFinished(() => client.disconnect());
   await client.connect();
   await vi.waitFor(() => expect(client.index.getState().ready).toBe(true));
-  return { host, client, root: join(host.host.logFile, "..", "..", "Learning") };
+  return { host, client, root: learningRoot ?? join(host.host.logFile, "..", "..", "Learning") };
 }
 
 /** Whether something is at a path. */
@@ -97,11 +106,14 @@ describe("learning directions over the WebSocket (SPEC-0008, ML1)", () => {
         name: "Node 后端",
         alias: null,
         broken: false,
+        newer: false,
         discussing: true,
         archived: false,
         createdAt: expect.any(Number),
         pinnedAt: null,
         lastOpenedAt: expect.any(Number),
+        progress: null,
+        next: { primary: null, secondary: null },
       },
     ]);
     expect(index.sessions.find((session) => session.sessionId === sessionId)).toMatchObject({
@@ -113,6 +125,26 @@ describe("learning directions over the WebSocket (SPEC-0008, ML1)", () => {
       container: directionId,
       tabs: { [directionId]: { open: [sessionId], active: sessionId } },
     });
+  });
+
+  it("names a direction with the model a new session starts on when the page sent none (2026-11-09)", async () => {
+    const home = await createTempDir("study-home");
+    onTestFinished(home.cleanup);
+    const last = { providerId: "faux", modelId: "last" };
+    await writeFile(
+      join(home.path, "preferences.json"),
+      JSON.stringify({ version: 3, appearance: "system", lastModel: last, thinkingByModel: {} }),
+    );
+    const records = await createTempDir("study-oneshot");
+    onTestFinished(records.cleanup);
+    const recordTo = join(records.path, "oneshot.json");
+    const { client } = await studyHost(undefined, undefined, { home: home.path, recordTo });
+
+    const { directionId } = await client.createDirection("我想学后端", null);
+
+    expect(directionId).toBe("lrn_node-backend");
+    const { argv } = JSON.parse(await readFile(recordTo, "utf8")) as { argv: string[] };
+    expect(argv[argv.indexOf("--model") + 1]).toBe("faux/last");
   });
 
   it("archives a direction into Archive/, takes no new session there, and restores it to go on", async () => {
@@ -149,9 +181,10 @@ describe("learning directions over the WebSocket (SPEC-0008, ML1)", () => {
     await client.openSession(present(sessionId, "the discussion"));
     expect(client.index.getState().layout.container).toBe(directionId);
     const another = await client.createSession(directionId);
+    // Not the first: the learner asking, with no study tools (SPEC-0008, ML2).
     expect(client.index.getState().sessions.find((session) => session.sessionId === another.sessionId)).toMatchObject({
       containerId: directionId,
-      study: null,
+      study: { kind: "ask" },
     });
   });
 
@@ -252,5 +285,212 @@ describe("learning directions over the WebSocket (SPEC-0008, ML1)", () => {
     await vi.waitFor(() =>
       expect(client.index.getState().directions).toMatchObject([{ id: "lrn_rust", name: "Rust" }]),
     );
+  });
+
+  it("lists a direction's progress and next step, marks by hand into its file, and reads it again after a restart (ML2)", async () => {
+    const learning = await createTempDir("study-learning");
+    onTestFinished(learning.cleanup);
+    const root = join(await realpath(learning.path), "Learning");
+    const marker = {
+      version: 1,
+      name: "Go",
+      mine: "kept",
+      ladder: [
+        { id: "l1", name: "语法", topics: "", pass: "", state: "current" },
+        { id: "l2", name: "并发", topics: "", pass: "", state: "todo" },
+      ],
+      steps: { l1: [{ id: "s1", kind: "lesson", title: "变量", lesson: null, quiz: null, done: null }] },
+      gaps: [],
+      finishedAt: null,
+    };
+    await mkdir(join(root, "go"), { recursive: true });
+    await writeFile(join(root, "go", ".atrium-study.json"), JSON.stringify(marker));
+    const first = await studyHost(undefined, root);
+
+    await vi.waitFor(() =>
+      expect(first.client.index.getState().directions).toMatchObject([
+        {
+          id: "lrn_go",
+          discussing: false,
+          progress: { ladder: [{ id: "l1", state: "current" }, { id: "l2" }] },
+          next: { primary: { type: "start", kind: "lesson", level: "l1", step: "s1", available: true } },
+        },
+      ]),
+    );
+    await first.client.markStudyStep("lrn_go", "l1", "s1", "lesson", true);
+
+    expect(first.client.index.getState().directions[0]?.next).toStrictEqual({
+      primary: { type: "start", kind: "quiz", level: "l1", step: "s1", available: true },
+      secondary: { type: "mark", mark: "later", level: "l1", step: "s1" },
+    });
+    expect(JSON.parse(await readFile(join(root, "go", ".atrium-study.json"), "utf8"))).toMatchObject({
+      mine: "kept",
+      steps: { l1: [{ id: "s1", lesson: { by: "manual" } }] },
+    });
+    await expect(first.client.markStudyGap("lrn_go", "g1", true)).rejects.toMatchObject({ code: "study_not_found" });
+    await expect(
+      first.client.startStudySession("lrn_go", { kind: "sheet", level: "l1", step: "s1" }),
+    ).rejects.toMatchObject({ code: "study_not_available" });
+    await first.host.dispose();
+    const second = await studyHost(undefined, root);
+
+    await vi.waitFor(() =>
+      expect(second.client.index.getState().directions[0]?.progress?.steps["l1"]?.[0]).toMatchObject({
+        lesson: { by: "manual" },
+      }),
+    );
+  });
+
+  it("upgrades over the WebSocket: the file, the level's session archived and restorable, the plan opened (ML3)", async () => {
+    const learning = await createTempDir("study-learning");
+    onTestFinished(learning.cleanup);
+    const root = join(await realpath(learning.path), "Learning");
+    const done = { by: "manual" };
+    const marker = {
+      version: 1,
+      name: "Go",
+      ladder: [
+        { id: "l1", name: "语法", topics: "", pass: "", state: "current" },
+        { id: "l2", name: "并发", topics: "", pass: "", state: "todo" },
+      ],
+      steps: {
+        l1: [
+          { id: "s1", kind: "lesson", title: "变量", lesson: done, quiz: done, done },
+          { id: "s2", kind: "sheet", done },
+          { id: "s3", kind: "project", done },
+          { id: "s4", kind: "exam", done: null },
+          { id: "s5", kind: "up", done: null },
+        ],
+      },
+      gaps: [],
+      finishedAt: null,
+    };
+    await mkdir(join(root, "go"), { recursive: true });
+    await writeFile(join(root, "go", ".atrium-study.json"), JSON.stringify(marker));
+    const { host, client } = await studyHost(undefined, root);
+    // The scripted pi lists no study command and answers as one session only: the starts fail, as
+    // their own tests show; here only the upgrade matters.
+    for (const msg of ["study session not started", "study extension not loaded"]) {
+      host.expectLog({ level: "warn", msg, optional: true });
+    }
+    await vi.waitFor(() => expect(client.index.getState().directions[0]?.next.primary).toMatchObject({ kind: "exam" }));
+    const { sessionId: exam } = await client.startStudySession("lrn_go", { kind: "exam", level: "l1", step: "s4" });
+    await client.markStudyStep("lrn_go", "l1", "s4", "step", true);
+
+    await expect(client.upgradeStudy("lrn_go", "l2", true)).rejects.toMatchObject({ code: "study_not_available" });
+    const { planSessionId, notArchived } = await client.upgradeStudy("lrn_go", "l1", true);
+
+    expect(notArchived).toBe(0);
+    const written = JSON.parse(await readFile(join(root, "go", ".atrium-study.json"), "utf8")) as typeof marker;
+    expect(written.ladder.map((level) => level.state)).toStrictEqual(["done", "current"]);
+    await vi.waitFor(() => {
+      const { sessions, directions } = client.index.getState();
+      expect(sessions.find((one) => one.sessionId === exam)?.archived).toBe(true);
+      expect(sessions.find((one) => one.sessionId === planSessionId)?.study).toStrictEqual({
+        kind: "plan",
+        level: "l2",
+      });
+      expect(directions[0]?.next.primary).toStrictEqual({ type: "open", sessionId: planSessionId });
+    });
+    await expect(client.upgradeStudy("lrn_go", "l1", true)).rejects.toMatchObject({ code: "study_not_available" });
+    await expect(client.restoreStudySessions("lrn_go", [exam, "pi-session-x"])).rejects.toMatchObject({
+      code: "session_not_found",
+    });
+
+    await client.restoreStudySessions("lrn_go", [exam]);
+
+    await vi.waitFor(() =>
+      expect(client.index.getState().sessions.find((one) => one.sessionId === exam)?.archived).toBe(false),
+    );
+  });
+});
+
+describe("a direction's files and visuals through a real host (SPEC-0008, ML4)", () => {
+  it("reads them where the direction is now, archived too, for its sessions and its viewer tabs", async () => {
+    const { host, client, root } = await studyHost();
+    const { directionId, sessionId } = await client.createDirection("学后端", MODEL);
+    const lesson = present(sessionId, "the discussion");
+    const home = await realpath(join(root, "node-backend"));
+    await mkdir(join(home, "visuals"));
+    await mkdir(join(home, "notes"));
+    await writeFile(join(home, "visuals", "1-01-routes.html"), '<div id="routes">路由</div>');
+    await writeFile(join(home, "notes", "1-01.md"), "# 路由\n");
+    const old = join(home, "visuals", "1-01-routes.html");
+    const listed = async () => (await client.listDir(directionId, "")).entries.map(({ name }) => name).toSorted();
+
+    expect(await listed()).toStrictEqual(["AGENTS.md", "lab", "notes", "visuals"]);
+    await expect(client.resolveVisual(lesson, "visuals/1-01-routes.html")).resolves.toMatchObject({ size: 29 });
+
+    await client.archiveDirection(directionId);
+
+    // The session's record keeps the old place; its relative and absolute paths both find the file.
+    const relative = await client.resolveVisual(lesson, "visuals/1-01-routes.html");
+    const absolute = await client.resolveVisual(lesson, old);
+    const tab = await client.resolveVisual(directionId, "visuals/1-01-routes.html");
+    expect(absolute.url).toBe(relative.url);
+    expect(tab.url).not.toBe(relative.url);
+    const page = await fetch(`http://127.0.0.1:${host.host.port}/visual/${new URL(tab.url).host}/1-01-routes.html`);
+    expect(await page.text()).toContain('<div id="routes">路由</div>');
+    expect(await listed()).toStrictEqual(["AGENTS.md", "lab", "notes", "visuals"]);
+    expect(await client.readFile(directionId, "notes/1-01.md")).toStrictEqual({
+      size: 9,
+      content: { kind: "text", text: "# 路由\n" },
+    });
+    await expect(client.sendVisualMessage(lesson, "visuals/1-01-routes.html", "选 B")).rejects.toMatchObject({
+      code: "direction_archived",
+    });
+
+    await client.restoreDirection(directionId);
+    await expect(client.resolveVisual(lesson, old)).resolves.toMatchObject({ size: 29 });
+
+    // A visuals/ the agent swapped for a link, even to a folder in the direction, is refused.
+    await mkdir(join(home, "elsewhere"));
+    await writeFile(join(home, "elsewhere", "1-01-routes.html"), "outside");
+    await rename(join(home, "visuals"), join(home, "visuals-was"));
+    await symlink(join(home, "elsewhere"), join(home, "visuals"));
+    await expect(client.resolveVisual(lesson, "visuals/1-01-routes.html")).rejects.toMatchObject({
+      code: "visual_outside",
+    });
+    await expect(client.resolveVisual(directionId, "visuals/1-01-routes.html")).rejects.toMatchObject({
+      code: "visual_outside",
+    });
+    // The direction itself swapped for a link is read nowhere.
+    await rename(home, `${home}-moved`);
+    await symlink(`${home}-moved`, home);
+    await expect(client.listDir(directionId, "")).rejects.toMatchObject({ code: "learning_dir_unsafe" });
+    await expect(client.listDir("lrn_gone", "")).rejects.toMatchObject({ code: "direction_not_found" });
+  });
+
+  it("opens a demo a direction's session wrote before the direction gave it one, from its next session too", async () => {
+    const { host, client } = await studyHost();
+    const home = join(host.host.logFile, "..", "..");
+    const { directionId, sessionId } = await client.createDirection("学后端", MODEL);
+    const lesson = present(sessionId, "the discussion");
+    // As a reply from before ML4 named it: the session's own folder in the host's home, not the
+    // direction's `visuals/` (SPEC-0007, 2026-11-12).
+    const before = join(home, "visuals", lesson);
+    await mkdir(before, { recursive: true });
+    await writeFile(join(before, "1-01-routes.html"), '<div id="routes">路由</div>');
+    const next = await client.createSession(directionId);
+
+    expect(await client.resolveVisual(lesson, join(before, "1-01-routes.html"))).toMatchObject({ size: 29 });
+    expect(await client.resolveVisual(next.sessionId, join(before, "1-01-routes.html"))).toMatchObject({ size: 29 });
+  });
+
+  it("refuses a message from a visual of a session archived in a direction (ML3)", async () => {
+    const { client, root } = await studyHost();
+    const { directionId, sessionId } = await client.createDirection("学后端", MODEL);
+    const lesson = present(sessionId, "the discussion");
+    const home = await realpath(join(root, "node-backend"));
+    await mkdir(join(home, "visuals"));
+    await writeFile(join(home, "visuals", "1-01-a.html"), "x");
+    const another = await client.createSession(directionId);
+
+    await client.archiveSession(lesson);
+
+    await expect(client.sendVisualMessage(lesson, "visuals/1-01-a.html", "猜：能")).rejects.toMatchObject({
+      code: "session_not_found",
+    });
+    expect(another.sessionId).not.toBe(lesson);
   });
 });

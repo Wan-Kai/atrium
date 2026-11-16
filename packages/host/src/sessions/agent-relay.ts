@@ -138,6 +138,33 @@ export interface AgentHost {
   removeDir(dir: string): Promise<void>;
   /** The summaries changed. */
   changed(): void;
+  /**
+   * Answers a study tool's call from a session of a direction (SPEC-0008, "ML2 定的细节");
+   * without it every study call is `study_not_allowed`.
+   */
+  study?(
+    sessionId: string,
+    call: Extract<AgentRequest, { readonly kind: "call"; readonly op: `study_${string}` }>,
+  ): Promise<
+    | { readonly ok: true; readonly result: unknown }
+    | { readonly ok: false; readonly code: AgentErrorCode; readonly params?: Readonly<Record<string, number>> }
+  >;
+}
+
+/**
+ * Whether a call is one of the study tools'.
+ *
+ * @remarks
+ * Their operation is the tool's name (SPEC-0008, "ML2 定的细节").
+ *
+ * @sideEffects none
+ * @param request - The call.
+ * @returns Whether it is.
+ */
+function isStudyCall(
+  request: Extract<AgentRequest, { kind: "call" }>,
+): request is Extract<AgentRequest, { readonly kind: "call"; readonly op: `study_${string}` }> {
+  return request.op.startsWith("study_");
 }
 
 /** What a `work` child changed in its own worktree. */
@@ -1663,6 +1690,11 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
     epoch: number,
     request: Extract<AgentRequest, { kind: "call" }>,
   ): Promise<unknown> => {
+    if (isStudyCall(request)) {
+      const answered = (await host.study?.(sessionId, request)) ?? { ok: false, code: "study_not_allowed" };
+      if (answered.ok) return answered.result;
+      throw new AgentFailure(answered.code, answered.params ?? {});
+    }
     const parentOp = request.op !== "ask" && request.op !== "branch" && request.op !== "ask_user";
     if (parentOp && agentDepth(catalog.list(), sessionId) >= MAX_DEPTH) throw new AgentFailure("agent_depth_limit");
     switch (request.op) {

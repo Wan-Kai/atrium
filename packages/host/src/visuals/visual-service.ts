@@ -10,12 +10,12 @@ import { randomBytes } from "node:crypto";
 import { watch } from "node:fs";
 import { stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { basename, dirname, relative } from "node:path";
+import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
 import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
 import { VISUAL_CSP, visualPage } from "./shell";
-import { type VisualFile, checkVisual, placeVisual, readVisual } from "./visual-file";
+import { type VisualFile, checkInRoot, checkVisual, placeInRoot, placeVisual, readVisual } from "./visual-file";
 
 /**
  * Watches one folder, not its subfolders: `onEvent` is told something in it changed, `onError`
@@ -56,16 +56,49 @@ export interface VisualPlace {
   readonly cwd: string;
   readonly dir: string;
   readonly ancestors?: readonly string[];
+  /**
+   * The host's own folder for demos: a `.html` right in a folder right in it is read too, for a
+   * reply written before the session's visuals moved (SPEC-0007, 2026-11-12).
+   */
+  readonly root?: string | undefined;
+  /** Where the session's record says it ran, when its study direction moved to `cwd` since (ML4). */
+  readonly movedFrom?: string | undefined;
+  /** A study direction's check of its own place; `dir` must then be a real folder right in it (ML4). */
+  readonly owned?: (() => Promise<boolean>) | undefined;
+}
+
+/** Who a visual is resolved for: a session's reply, or a study direction's viewer tab (SPEC-0008, ML4). */
+type Owner = { readonly sessionId: string } | { readonly directionId: string };
+
+/** A resolve under way: what it is of (`whoOf`), and whether that was let go meanwhile. */
+interface Resolving {
+  readonly who: string;
+  released: boolean;
 }
 
 /** The inline visuals of every session: their addresses, their files, and messages sent from them. */
 export interface VisualService {
   /** Checks a visual a reply names and hands out its address; the connection hears when it changes. */
   resolve(connectionId: string, sessionId: string, path: string): Promise<CommandResult<"resolve_visual">>;
+  /**
+   * Checks a visual right in a study direction's `visuals/` for its viewer tab and hands out its
+   * address; the connection hears when it changes. It belongs to no session, so nothing sends from it.
+   */
+  resolveForDirection(
+    connectionId: string,
+    directionId: string,
+    path: string,
+  ): Promise<CommandResult<"resolve_visual">>;
   /** Sends a visual's message as a steer from it, unless the same visual sent one less than a second before. */
   send(command: Omit<SendVisualMessageCommand, "type">): Promise<CommandResult<"send_visual_message">>;
   /** Answers `GET /visual/<token>/<name>` with the page; any other request with 404. */
   serve(request: IncomingMessage, response: ServerResponse): Promise<void>;
+  /**
+   * A connection's last card of a visual closed: it hears of it no more, and the visual's address
+   * is forgotten once no connection looks at it (SPEC-0007, "接口与数据"; ML4 review). A resolve of
+   * it still under way adds no look.
+   */
+  release(connectionId: string, owner: Owner, path: string): void;
   /** A connection closed; it hears of no more changes. */
   disconnect(connectionId: string): void;
   /** Resolves once the looks at changed files under way are done. */
@@ -80,20 +113,24 @@ const QUIET_MS = 100;
 /** The least time between two messages of one visual, in milliseconds (SPEC-0007, "回传"). */
 const MESSAGE_GAP_MS = 1000;
 
-/** What a token stands for: one file in one session's directory for visuals. */
+/** What a token stands for: one file in one session's directory for visuals, or a direction's. */
 interface Entry {
   readonly dir: string;
   readonly file: string;
+  readonly owned?: (() => Promise<boolean>) | undefined;
 }
 
 /** A connection looking at a visual, by the path its reply named. */
 interface Look {
   readonly connectionId: string;
-  readonly sessionId: string;
+  /** Who it was resolved for. */
+  readonly owner: Owner;
   readonly path: string;
   readonly file: string;
   /** The directory for visuals it is in, which bounds where its folder may be watched from. */
   readonly dir: string;
+  /** The highest folder it may be watched from: the directory, or a direction's own folder (ML4). */
+  readonly top: string;
   /** The time last told; 0 while the file is missing. */
   mtime: number;
   /** The folder watched for it: its own, or the nearest one there is while that is missing. */
@@ -125,52 +162,186 @@ function randomToken(): string {
 
 // Stryker restore all
 /**
+ * The key of a file for who it is resolved for.
+ *
+ * @remarks
+ * A session's and a direction's look at one file are apart: their tokens differ (SPEC-0008, ML4).
+ *
+ * @sideEffects none
+ * @param owner - Who.
+ * @param file - The file.
+ * @returns The key.
+ */
+function keyOf(owner: Owner, file: string): string {
+  return "sessionId" in owner ? `s\u0000${owner.sessionId}\u0000${file}` : `d\u0000${owner.directionId}\u0000${file}`;
+}
+
+/**
+ * The key of a visual as a client holds it: who it is resolved for and the path named.
+ *
+ * @remarks
+ * What `release` lets go of: the client knows the path, not the file it lands on.
+ *
+ * @sideEffects none
+ * @param owner - Who.
+ * @param path - The path named.
+ * @returns The key.
+ */
+function whoOf(owner: Owner, path: string): string {
+  return keyOf(owner, `\u0000${path}`);
+}
+
+/**
  * The nearest folder there is on the way to a file, from its own folder up to its directory for visuals.
  *
  * @remarks
  * A file missing when resolved is watched from here, so it is heard of when it appears, even in
  * a folder made later (SPEC-0007, MV1 details); `null` when not even the directory is there.
  *
+ * A direction's `visuals/` is made by the agent only with its first visual, so up to the
+ * direction's own folder there (ML4).
+ *
  * @sideEffects Reads the file system.
  * @param file - The file.
- * @param dir - Its directory for visuals.
+ * @param top - The highest folder: its directory for visuals, or the direction's folder.
  * @returns The folder, or `null`.
  */
-async function nearestFolder(file: string, dir: string): Promise<string | null> {
+async function nearestFolder(file: string, top: string): Promise<string | null> {
   for (let folder = dirname(file); ; folder = dirname(folder)) {
     const found = await stat(folder).then(
       (stats) => stats.isDirectory(),
       () => false,
     );
     if (found) return folder;
-    if (folder === dir || relative(dir, folder).startsWith("..") || folder === dirname(folder)) return null;
+    if (folder === top) return null;
   }
 }
 
 /**
- * Checks a path against the session's directory for visuals, then its ancestors', nearest first.
+ * The highest folder a place's missing visual may be watched from.
  *
  * @remarks
- * A path outside one directory is tried in the next; one inside a directory is that directory's
- * to answer, found or not (SPEC-0007, MV1 details).
+ * See `nearestFolder`: a direction's own folder, the parent of its `visuals/`; else the directory.
  *
- * @sideEffects Opens and closes the file.
+ * @sideEffects none
+ * @param place - The place.
+ * @param dir - One of its directories for visuals.
+ * @returns The folder.
+ */
+function topOf(place: VisualPlace, dir: string): string {
+  return place.owned === undefined ? dir : dirname(dir);
+}
+
+/** Where a reply's path lands, and what it takes to show the file there. */
+interface Landing {
+  /** The directory that answers the path. */
+  readonly dir: string;
+  /** The file's absolute path, as that directory places it. */
+  readonly file: string;
+  /** The highest folder the file may be watched from while it is missing. */
+  readonly top: string;
+  /** A study direction's check, for a file in its `visuals/` (ML4). */
+  readonly owned?: (() => Promise<boolean>) | undefined;
+  /** Checks the file there; a resolve of a missing one checks it again. */
+  readonly check: () => Promise<VisualFile & { readonly dir: string }>;
+}
+
+/** A visual a reply's path landed on, with what the service needs to watch and serve it. */
+interface Landed extends VisualFile {
+  /** The directory that answered the path. */
+  readonly dir: string;
+  /** The highest folder its own may be watched from while it is missing. */
+  readonly top: string;
+  /** A study direction's check, for a file in its `visuals/` (ML4). */
+  readonly owned?: (() => Promise<boolean>) | undefined;
+}
+
+/**
+ * Where a session's reply's path lands, if it lands anywhere the session may read.
+ *
+ * @remarks
+ * SPEC-0007: the session's directory for visuals answers first; a path outside it is tried in its
+ * ancestors' directories, nearest first. A path inside one of them is that directory's to answer,
+ * found or not (MV1 details); a direction's place checks itself for every directory, its sessions'
+ * ancestors being its own sessions (SPEC-0008, ML4). Last, the host's own folder for demos answers
+ * a `.html` right in a folder right in it, so a reply written before a session's visuals moved
+ * still opens (2026-11-12).
+ *
+ * @sideEffects none; the checks it hands back read the file system.
  * @param place - The session's place.
  * @param path - The path the reply named.
- * @returns The file and the directory it is in.
- * @throws {CommandError} As `checkVisual`, for the last directory tried.
+ * @returns Where it lands, or `null` when it lands nowhere the session may read.
  */
-async function checkIn(place: VisualPlace, path: string): Promise<VisualFile & { readonly dir: string }> {
-  const dirs = [place.dir, ...(place.ancestors ?? [])];
-  for (const dir of dirs) {
+function landingOf(place: VisualPlace, path: string): Landing | null {
+  for (const dir of [place.dir, ...(place.ancestors ?? [])]) {
+    let file: string;
     try {
-      placeVisual(dir, place.cwd, path);
+      file = placeVisual(dir, place.cwd, path, place.movedFrom).file;
     } catch {
       continue;
     }
-    return { ...(await checkVisual(dir, place.cwd, path)), dir };
+    const rules = { movedFrom: place.movedFrom, owned: place.owned };
+    return {
+      dir,
+      file,
+      top: topOf(place, dir),
+      ...(place.owned === undefined ? {} : { owned: place.owned }),
+      check: async () => ({ ...(await checkVisual(dir, place.cwd, path, undefined, rules)), dir }),
+    };
   }
-  throw new CommandError("visual_outside");
+  if (place.root === undefined) return null;
+  const root = place.root;
+  const dir = placeInRoot(root, path);
+  if (dir === null) return null;
+  return { dir, file: resolve(path), top: root, check: () => checkInRoot(root, path) };
+}
+
+/**
+ * Checks a path against the session's directory for visuals, then its ancestors', then the host's
+ * own folder for demos.
+ *
+ * @remarks
+ * See `landingOf`.
+ *
+ * @sideEffects Opens and closes the file; reads the file system.
+ * @param place - The session's place.
+ * @param path - The path the reply named.
+ * @returns The file, the directory it is in, and how far its folder may be watched from.
+ * @throws {CommandError} As `checkVisual` and `checkInRoot`.
+ */
+async function checkIn(place: VisualPlace, path: string): Promise<Landed> {
+  const landing = landingOf(place, path);
+  if (landing === null) throw new CommandError("visual_outside");
+  return {
+    ...(await landing.check()),
+    top: landing.top,
+    ...(landing.owned === undefined ? {} : { owned: landing.owned }),
+  };
+}
+
+/**
+ * Checks a path a direction's viewer tab names: only a `.html` right in its `visuals/`.
+ *
+ * @remarks
+ * SPEC-0008, "ML4 定的细节 · 协议": relative to where the direction is now; no ancestors, no
+ * deeper folder, no absolute path, as the viewer tab names a file by its place in the direction.
+ *
+ * @sideEffects Opens and closes the file.
+ * @param place - The direction's place.
+ * @param path - The path the tab named.
+ * @returns The file.
+ * @throws {CommandError} As `checkVisual`.
+ */
+async function checkInDirection(place: VisualPlace, path: string): Promise<Landed> {
+  if (isAbsolute(path)) throw new CommandError("visual_outside");
+  const { below } = placeVisual(place.dir, place.cwd, path);
+  if (below.includes(sep)) throw new CommandError("visual_outside");
+  return {
+    ...(await checkVisual(place.dir, place.cwd, path, undefined, { owned: place.owned })),
+    dir: place.dir,
+    top: topOf(place, place.dir),
+    ...(place.owned === undefined ? {} : { owned: place.owned }),
+  };
 }
 
 /** A visual's path below `/visual/`: a token and a name. */
@@ -197,6 +368,8 @@ const VISUAL_PATH = /^\/visual\/([0-9a-f]{32})\/[^/]+$/u;
  */
 export function createVisualService(options: {
   readonly locate: (sessionId: string) => VisualPlace | undefined;
+  /** Where a study direction's visuals are, for its viewer tabs (ML4); without it, no direction has any. */
+  readonly locateDirection: (directionId: string) => VisualPlace | undefined;
   readonly steer: (command: SteerCommand, source: VisualSource) => Promise<CommandResult<"steer">>;
   readonly send: (connectionId: string, event: VisualChangedEvent) => void;
   readonly clock: Clock;
@@ -212,9 +385,11 @@ export function createVisualService(options: {
   const folders = new Map<string, Folder>();
   const looksBy = new Map<string, Set<Look>>();
   const lastSent = new Map<string, number>();
+  /** Each session's last claim of a message, which the next waits for. */
+  const claims = new Map<string, Promise<void>>();
   const looking = new Set<Promise<void>>();
-  /** Resolves under way, by connection, and whether the connection closed meanwhile. */
-  const pending = new Map<string, { count: number; gone: boolean }>();
+  /** Resolves under way, by connection, whether the connection closed meanwhile, and each one's visual. */
+  const pending = new Map<string, { count: number; gone: boolean; readonly resolves: Set<Resolving> }>();
   let closed = false;
   let dropped = 0;
 
@@ -253,12 +428,12 @@ export function createVisualService(options: {
       );
       if (!folder.looks.has(look)) continue;
       if (mtime === 0 && look.folder !== dirname(look.file)) {
-        const nearer = await nearestFolder(look.file, look.dir);
+        const nearer = await nearestFolder(look.file, look.top);
         if (nearer !== null && nearer !== look.folder && folder.looks.has(look)) moveLook(look, nearer);
       }
       if (mtime === look.mtime) continue;
       look.mtime = mtime;
-      options.send(look.connectionId, { type: "visual_changed", sessionId: look.sessionId, path: look.path, mtime });
+      options.send(look.connectionId, { type: "visual_changed", ...look.owner, path: look.path, mtime });
     }
   }
 
@@ -386,9 +561,9 @@ export function createVisualService(options: {
   function dropLook(look: Look, unwatchToo: boolean): void {
     looksBy.get(look.connectionId)?.delete(look);
     if (unwatchToo) unwatchFor(look);
-    const key = `${look.sessionId}\u0000${look.file}`;
+    const key = keyOf(look.owner, look.file);
     for (const mine of looksBy.values()) {
-      for (const other of mine) if (`${other.sessionId}\u0000${other.file}` === key) return;
+      for (const other of mine) if (keyOf(other.owner, other.file) === key) return;
     }
     const token = tokens.get(key);
     tokens.delete(key);
@@ -410,7 +585,7 @@ export function createVisualService(options: {
     const mine = looksBy.get(look.connectionId) ?? new Set();
     looksBy.set(look.connectionId, mine);
     for (const known of mine) {
-      if (known.sessionId === look.sessionId && known.path === look.path && known.file === look.file) {
+      if (keyOf(known.owner, known.file) === keyOf(look.owner, look.file) && known.path === look.path) {
         known.mtime = look.mtime;
         if (known.folder !== look.folder) moveLook(known, look.folder);
         return;
@@ -424,14 +599,16 @@ export function createVisualService(options: {
    * Whether a look may still be added for a connection whose resolve just ended.
    *
    * @remarks
-   * Not once the connection closed or the service did meanwhile: nothing would end its watch.
+   * Not once the connection closed or the service did meanwhile, nor once its visual was let go:
+   * nothing would end its watch.
    *
    * @sideEffects none
    * @param mark - The connection's resolves under way.
+   * @param me - This resolve.
    * @returns Whether it may.
    */
-  function stillThere(mark: { readonly gone: boolean }): boolean {
-    return !closed && !mark.gone;
+  function stillThere(mark: { readonly gone: boolean }, me: Resolving): boolean {
+    return !closed && !mark.gone && !me.released;
   }
 
   /**
@@ -442,82 +619,152 @@ export function createVisualService(options: {
    *
    * @sideEffects Reads the file system; may start a watch.
    * @param connectionId - The connection.
-   * @param sessionId - The session.
+   * @param owner - Who it is resolved for.
    * @param path - The path the reply named.
    * @param place - The session's place.
    * @param mark - The connection's resolves under way.
+   * @param me - This resolve.
    */
   async function watchMissing(
     connectionId: string,
-    sessionId: string,
+    owner: Owner,
     path: string,
     place: VisualPlace,
     mark: { readonly gone: boolean },
+    me: Resolving,
   ): Promise<void> {
-    for (const dir of [place.dir, ...(place.ancestors ?? [])]) {
-      let file: string;
+    const landing = landingOf(place, path);
+    // Stryker disable next-line ConditionalExpression: only a path a place answered is missing, the check having just said so.
+    if (landing === null) return;
+    const folder = await nearestFolder(landing.file, landing.top);
+    if (folder !== null && stillThere(mark, me))
+      addLook({ connectionId, owner, path, file: landing.file, dir: landing.dir, top: landing.top, mtime: 0, folder });
+  }
+
+  /**
+   * Resolves a visual for someone: checks it, hands out its token, and watches it.
+   *
+   * @remarks
+   * See `createVisualService`; a missing file is watched for, so its card hears when it appears.
+   *
+   * @sideEffects Reads the file; may start a watch; updates the maps.
+   * @param connectionId - The connection.
+   * @param owner - Who it is resolved for.
+   * @param place - Their place.
+   * @param path - The path named.
+   * @param check - How the path is checked in the place.
+   * @returns The address, size and time.
+   * @throws {CommandError} As the check.
+   */
+  async function resolveIn(
+    connectionId: string,
+    owner: Owner,
+    place: VisualPlace,
+    path: string,
+    check: (place: VisualPlace, path: string) => Promise<Landed>,
+  ): Promise<CommandResult<"resolve_visual">> {
+    const mark = pending.get(connectionId) ?? { count: 0, gone: false, resolves: new Set<Resolving>() };
+    pending.set(connectionId, mark);
+    mark.count += 1;
+    const me: Resolving = { who: whoOf(owner, path), released: false };
+    mark.resolves.add(me);
+    try {
+      let visual: Landed;
       try {
-        file = placeVisual(dir, place.cwd, path).file;
-      } catch {
-        continue;
+        visual = await check(place, path);
+      } catch (error) {
+        if (error instanceof CommandError && error.code === "visual_missing") {
+          await watchMissing(connectionId, owner, path, place, mark, me);
+        }
+        throw error;
       }
-      const folder = await nearestFolder(file, dir);
-      if (folder !== null && stillThere(mark)) addLook({ connectionId, sessionId, path, file, dir, mtime: 0, folder });
-      return;
+      const key = keyOf(owner, visual.file);
+      let token = tokens.get(key);
+      if (stillThere(mark, me)) {
+        if (token === undefined) {
+          token = newToken();
+          tokens.set(key, token);
+          entries.set(token, { dir: visual.dir, file: visual.file, owned: visual.owned });
+        }
+        const look = {
+          connectionId,
+          owner,
+          path,
+          file: visual.file,
+          dir: visual.dir,
+          top: visual.top,
+          mtime: visual.mtime,
+        };
+        addLook({ ...look, folder: dirname(visual.file) });
+      }
+      return {
+        url: `atrium-visual://${token ?? newToken()}/${encodeURIComponent(basename(visual.file))}`,
+        size: visual.size,
+        mtime: visual.mtime,
+      };
+    } finally {
+      mark.resolves.delete(me);
+      mark.count -= 1;
+      if (mark.count === 0) pending.delete(connectionId);
     }
+  }
+
+  /**
+   * Checks a message's visual and claims its second, unless the same visual claimed one less than
+   * a second before.
+   *
+   * @remarks
+   * See `createVisualService`; `send` runs one session's claims one at a time, in order.
+   *
+   * @sideEffects Reads the file; updates the times; may log a drop.
+   * @param sessionId - The session.
+   * @param path - The visual's path, as its reply named it.
+   * @returns Whether to send it.
+   * @throws {CommandError} As `checkIn`, or `session_not_found`.
+   */
+  async function claim(sessionId: string, path: string): Promise<boolean> {
+    const visual = await checkIn(placeOf(sessionId), path);
+    const key = keyOf({ sessionId }, visual.file);
+    const now = options.clock.now();
+    // Only the last second's times matter; the older ones go, so the map holds no more.
+    // Stryker disable next-line all: only frees memory; a time a second old is let through below all the same.
+    for (const [sentKey, at] of lastSent) if (now - at >= MESSAGE_GAP_MS) lastSent.delete(sentKey);
+    const last = lastSent.get(key);
+    // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: without a last time the difference is NaN, which is never less; a time a second old was forgotten above, so `<=` drops nothing more.
+    if (last !== undefined && now - last < MESSAGE_GAP_MS) {
+      dropped += 1;
+      options.logger.info({ dropped }, "visual message dropped");
+      return false;
+    }
+    lastSent.set(key, now);
+    return true;
   }
 
   return {
     async resolve(connectionId, sessionId, path) {
-      const place = placeOf(sessionId);
-      const mark = pending.get(connectionId) ?? { count: 0, gone: false };
-      pending.set(connectionId, mark);
-      mark.count += 1;
-      try {
-        let visual: VisualFile & { readonly dir: string };
-        try {
-          visual = await checkIn(place, path);
-        } catch (error) {
-          if (error instanceof CommandError && error.code === "visual_missing") {
-            await watchMissing(connectionId, sessionId, path, place, mark);
-          }
-          throw error;
-        }
-        const key = `${sessionId}\u0000${visual.file}`;
-        let token = tokens.get(key);
-        if (stillThere(mark)) {
-          if (token === undefined) {
-            token = newToken();
-            tokens.set(key, token);
-            entries.set(token, { dir: visual.dir, file: visual.file });
-          }
-          const look = { connectionId, sessionId, path, file: visual.file, dir: visual.dir, mtime: visual.mtime };
-          addLook({ ...look, folder: dirname(visual.file) });
-        }
-        return {
-          url: `atrium-visual://${token ?? newToken()}/${encodeURIComponent(basename(visual.file))}`,
-          size: visual.size,
-          mtime: visual.mtime,
-        };
-      } finally {
-        mark.count -= 1;
-        if (mark.count === 0) pending.delete(connectionId);
-      }
+      return resolveIn(connectionId, { sessionId }, placeOf(sessionId), path, checkIn);
+    },
+    async resolveForDirection(connectionId, directionId, path) {
+      const place = options.locateDirection(directionId);
+      if (place === undefined) throw new CommandError("direction_not_found");
+      return resolveIn(connectionId, { directionId }, place, path, checkInDirection);
     },
     async send({ requestId, traceparent, sessionId, path, text }) {
-      const visual = await checkIn(placeOf(sessionId), path);
-      const key = `${sessionId}\u0000${visual.file}`;
-      const now = options.clock.now();
-      // Only the last second's times matter; the older ones go, so the map holds no more.
-      for (const [sentKey, at] of lastSent) if (now - at >= MESSAGE_GAP_MS) lastSent.delete(sentKey);
-      const last = lastSent.get(key);
-      // Stryker disable next-line ConditionalExpression: without a last time the difference is NaN, which is never less.
-      if (last !== undefined && now - last < MESSAGE_GAP_MS) {
-        dropped += 1;
-        options.logger.info({ dropped }, "visual message dropped");
-        return { disposition: "dropped" };
-      }
-      lastSent.set(key, now);
+      // The check and the claim of one session's messages go in the order they came: the check reads
+      // the file system, and two messages of one visual must not both pass before either claims.
+      const turn = (claims.get(sessionId) ?? Promise.resolve()).then(() => claim(sessionId, path));
+      const settled = turn.then(
+        () => undefined,
+        () => undefined,
+      );
+      claims.set(sessionId, settled);
+      // Fire and forget: only frees memory once the claim settles.
+      // Stryker disable next-line all: only frees memory; a settled claim holds up nothing.
+      void settled.finally(() => {
+        // Stryker disable next-line all: see above.
+        if (claims.get(sessionId) === settled) claims.delete(sessionId);
+      });
+      if (!(await turn)) return { disposition: "dropped" };
       return options.steer({ type: "steer", requestId, traceparent, sessionId, text }, { kind: "visual", path });
     },
     async serve(request, response) {
@@ -532,7 +779,7 @@ export function createVisualService(options: {
       }
       let page: string;
       try {
-        page = visualPage(await readVisual(entry.dir, entry.file));
+        page = visualPage(await readVisual(entry.dir, entry.file, undefined, entry.owned));
       } catch {
         // Refusals are codes only: nothing of the file reaches the log.
         response.writeHead(404).end();
@@ -547,6 +794,17 @@ export function createVisualService(options: {
           "referrer-policy": "no-referrer",
         })
         .end(page);
+    },
+    release(connectionId, owner, path) {
+      const who = whoOf(owner, path);
+      for (const resolving of pending.get(connectionId)?.resolves ?? []) {
+        if (resolving.who === who) resolving.released = true;
+      }
+      const mine = looksBy.get(connectionId);
+      if (mine === undefined) return;
+      // A Set iterated while its current entry is deleted goes on with the next.
+      for (const look of mine) if (whoOf(look.owner, look.path) === who) dropLook(look, true);
+      if (mine.size === 0) looksBy.delete(connectionId);
     },
     disconnect(connectionId) {
       const mark = pending.get(connectionId);

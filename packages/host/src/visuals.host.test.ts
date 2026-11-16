@@ -1,6 +1,6 @@
 import { type HostMessage, PROTOCOL_VERSION } from "@atrium/protocol";
 import { createTempDir, present, writeScriptedPi } from "@atrium/testkit";
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { WebSocket } from "ws";
@@ -135,6 +135,48 @@ describe("inline visuals through a real host", () => {
         }),
       { timeout: 10_000 },
     );
+  });
+
+  it("opens a demo anywhere in the host's own folder for demos, as a reply written before a move names it", async () => {
+    const host = await visualHost();
+    const before = join(host.home, "visuals", "2537f4aa-5e70-4da5-9de0-689712915b04");
+    await mkdir(join(before, "deep"), { recursive: true });
+    await writeFile(join(before, "old.html"), '<div id="old">旧</div>');
+    await writeFile(join(before, "deep", "deeper.html"), "x");
+    await writeFile(join(before, "notes.txt"), "x");
+    await writeFile(join(host.home, "visuals", "loose.html"), "x");
+    await mkdir(join(host.home, "elsewhere"));
+    await writeFile(join(host.home, "elsewhere", "out.html"), "x");
+    await symlink(join(host.home, "elsewhere"), join(host.home, "visuals", "linked"));
+    const resolve = (requestId: string, path: string) =>
+      command(host, { type: "resolve_visual", requestId, sessionId: host.sessionId, path });
+
+    const resolved = await resolve("v1", join(before, "old.html"));
+    const { url } = (resolved as { result: { url: string } }).result;
+    const page = await fetch(`http://127.0.0.1:${host.port}/visual/${new URL(url).host}/old.html`);
+
+    expect(resolved).toMatchObject({
+      ok: true,
+      result: { url: expect.stringMatching(/^atrium-visual:\/\/[0-9a-f]{32}\/old\.html$/u) },
+    });
+    expect(await page.text()).toContain('<div id="old">旧</div>');
+    for (const [index, path] of [
+      join(before, "deep", "deeper.html"),
+      join(before, "notes.txt"),
+      join(host.home, "visuals", "loose.html"),
+      join(host.home, "elsewhere", "out.html"),
+      join(host.home, "visuals", "linked", "out.html"),
+    ].entries()) {
+      expect([path, await resolve(`outside${index}`, path)]).toStrictEqual([
+        path,
+        expect.objectContaining({ ok: false, error: expect.objectContaining({ code: "visual_outside" }) }),
+      ]);
+    }
+    // A file the folder does not hold yet is told as missing, so its card waits for it.
+    expect(await resolve("missing", join(before, "later.html"))).toMatchObject({
+      ok: false,
+      error: { code: "visual_missing" },
+    });
   });
 
   it("sends a visual's message as the session's, marked and remembered, and drops one too soon after", async () => {

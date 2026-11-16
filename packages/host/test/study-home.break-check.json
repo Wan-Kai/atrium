@@ -1,0 +1,639 @@
+[
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "if (info.isSymbolicLink() || !info.isDirectory())",
+    "to": "if (!info.isDirectory() && !info.isSymbolicLink())",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "refuses a visuals folder that is a link"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "if (!(await owned())) throw new CommandError(\"visual_outside\");",
+    "to": "await owned();",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "refuses a visual when the direction's own place fails its check"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "return below.startsWith(\"..\") || isAbsolute(below) ? file : join(to, below);",
+    "to": "return file;",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "maps an absolute path under the recorded working directory"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "return below.startsWith(\"..\") || isAbsolute(below) ? file : join(to, below);",
+    "to": "return isAbsolute(below) ? file : join(to, below);",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "maps an absolute path under the recorded working directory"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-place.ts",
+    "from": "const cwd = own.base ?? recorded;",
+    "to": "const cwd = recorded;",
+    "test": "packages/host/src/visuals/visual-place.test.ts",
+    "name": "counts paths from where the direction is now"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "if (isAbsolute(path)) throw new CommandError(\"visual_outside\");",
+    "to": "",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "refuses anything but a .html right in visuals/"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "if (below.includes(sep)) throw new CommandError(\"visual_outside\");",
+    "to": "",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "refuses anything but a .html right in visuals/"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "return place.owned === undefined ? dir : dirname(dir);",
+    "to": "return dir;",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "watches the direction's folder for a visuals/ not made yet"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "readVisual(entry.dir, entry.file, undefined, entry.owned)",
+    "to": "readVisual(entry.dir, entry.file)",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "answers 404 for a direction's visual once"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "options.send(look.connectionId, { type: \"visual_changed\", ...look.owner, path: look.path, mtime });",
+    "to": "options.send(look.connectionId, { type: \"visual_changed\", sessionId: \"s1\", path: look.path, mtime });",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "tells a change by the direction"
+  },
+  {
+    "file": "packages/host/src/main.ts",
+    "from": "      base: found.dir,",
+    "to": "      base: found.home,",
+    "test": "packages/host/src/study.host.test.ts",
+    "name": "reads them where the direction is now",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/main.ts",
+    "from": "if (containerId !== undefined && isDirectionId(containerId)) return directionVisuals(containerId);",
+    "to": "",
+    "test": "packages/host/src/study.host.test.ts",
+    "name": "reads them where the direction is now",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/main.ts",
+    "from": "if (!(await directionPlaceSafe(found.dir, directions.root))) throw new CommandError(\"learning_dir_unsafe\");",
+    "to": "",
+    "test": "packages/host/src/study.host.test.ts",
+    "name": "reads them where the direction is now",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/files/workspace-files.ts",
+    "from": "(atRoot && entry.name.startsWith(\".\"))",
+    "to": "(false && entry.name.startsWith(\".\"))",
+    "test": "packages/host/src/files/workspace-files.test.ts",
+    "name": "lists the root without its dot files"
+  },
+  {
+    "file": "packages/host/src/files/workspace-files.ts",
+    "from": "const asksGit = !direction || /^lab(?:\\/|$)/iu.test(path);",
+    "to": "const asksGit = true;",
+    "test": "packages/host/src/files/workspace-files.test.ts",
+    "name": "lists the root without its dot files"
+  },
+  {
+    "file": "packages/host/src/files/workspace-files.ts",
+    "from": "const asksGit = !direction || /^lab(?:\\/|$)/iu.test(path);",
+    "to": "const asksGit = !direction;",
+    "test": "packages/host/src/files/workspace-files.test.ts",
+    "name": "lists the root without its dot files"
+  },
+  {
+    "file": "packages/host/src/files/workspace-files.ts",
+    "from": "      await again(realRoot);",
+    "to": "",
+    "test": "packages/host/src/files/workspace-files.test.ts",
+    "name": "refuses an unknown direction, and one whose place fails its check"
+  },
+  {
+    "file": "packages/host/src/study/directions.ts",
+    "from": "if (parent !== root && parent !== archive) return false;",
+    "to": "",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "takes a real directory right in the learning directory"
+  },
+  {
+    "file": "packages/host/src/study/directions.ts",
+    "from": "parent === archive ? realDir(archive) : true,",
+    "to": "true,",
+    "test": "packages/host/src/study/directions.test.ts",
+    "name": "refuses a direction under an Archive/"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "const CONTAINER_FIELDS = new Set([\"containerId\", \"workspaceId\", \"directionId\"]);",
+    "to": "const CONTAINER_FIELDS = new Set([\"containerId\", \"directionId\"]);",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "refuses a phone's list_dir"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "return command.sessionId === undefined",
+    "to": "return false",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "hands resolving a visual and its messages to the visuals"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "visuals.base === undefined ? undefined : \"visuals\"",
+    "to": "undefined",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "a study direction's visuals go in its visuals/"
+  },
+  {
+    "file": "packages/host/src/study/direction-creator.ts",
+    "from": "- ${VISUAL_RULES[1]}\n",
+    "to": "",
+    "test": "packages/host/src/study/direction-creator.test.ts",
+    "name": "makes the directory with AGENTS.md"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "  AGENTS_RULE,\n  OUTSIDE_RULE,\n",
+    "to": "  AGENTS_RULE,\n",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "tells every use not to write outside the direction's folder"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "call study_report with no score.\",\n    ...VISUAL_RULES,",
+    "to": "call study_report with no score.\",",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "gives the lesson and Feynman the two rules of visuals"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "say what is still unclear and stop.\",\n    ...VISUAL_RULES,",
+    "to": "say what is still unclear and stop.\",",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "gives the lesson and Feynman the two rules of visuals"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "the number of questions asked.\",\n    GAPS,\n    \"Calling study_report again in this session overwrites the score.\",\n    NO_VISUAL,",
+    "to": "the number of questions asked.\",\n    GAPS,\n    \"Calling study_report again in this session overwrites the score.\",",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "gives the lesson and Feynman the two rules of visuals"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "of as 100.\",\n    GAPS,\n    \"Calling study_report again in this session overwrites the score.\",\n    NO_VISUAL,",
+    "to": "of as 100.\",\n    GAPS,\n    \"Calling study_report again in this session overwrites the score.\",",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "gives the lesson and Feynman the two rules of visuals"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "    ...numbering(launch, at),",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "gives the lesson's and Feynman's kickoff the level and step"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "String(at.step).padStart(2, \"0\")",
+    "to": "String(at.step)",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "gives the lesson's and Feynman's kickoff the level and step"
+  },
+  {
+    "file": "packages/pi/src/study/extension.ts",
+    "from": "at = positionOf(progress(), level, step);",
+    "to": "at = null;",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "reads the progress for the kickoff's numbers"
+  },
+  {
+    "file": "packages/pi/src/visuals/extension.ts",
+    "from": "visualsPrompt(launch.dir, launch.relative)",
+    "to": "visualsPrompt(launch.dir)",
+    "test": "packages/pi/src/visuals/visuals.test.ts",
+    "name": "reads back a study direction's launch"
+  },
+  {
+    "file": "packages/pi/src/visuals/visuals.ts",
+    "from": "if (relative !== undefined && relative !== \"visuals\") return null;",
+    "to": "",
+    "test": "packages/pi/src/visuals/visuals.test.ts",
+    "name": "reads back a study direction's launch"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-image-source.ts",
+    "from": "(!parents && path.split(\"/\").includes(\"..\"))",
+    "to": "path.split(\"/\").includes(\"..\")",
+    "test": "packages/ui/src/chat/reply-image-source.test.ts",
+    "name": "resolves a .. from the document's folder"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-image-source.ts",
+    "from": "if (parts.pop() === undefined) return { kind: \"blocked\" };",
+    "to": "parts.pop();",
+    "test": "packages/ui/src/chat/reply-image-source.test.ts",
+    "name": "resolves a .. from the document's folder"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-file-target.ts",
+    "from": "(!parents && path.split(\"/\").includes(\"..\"))",
+    "to": "path.split(\"/\").includes(\"..\")",
+    "test": "packages/ui/src/chat/reply-file-target.test.ts",
+    "name": "keeps a .. for the opener"
+  },
+  {
+    "file": "packages/ui/src/chat/reply-file-target.ts",
+    "from": "(!parents && path.split(\"/\").includes(\"..\"))",
+    "to": "(!true && path.split(\"/\").includes(\"..\"))",
+    "test": "packages/ui/src/chat/reply-file-target.test.ts",
+    "name": "keeps a .. for the opener"
+  },
+  {
+    "file": "packages/ui/src/files/markdown-file-preview.tsx",
+    "from": "<FileParentsContext value={direction}>",
+    "to": "<FileParentsContext value={false}>",
+    "test": "packages/ui/src/study/study-home.browser.test.tsx",
+    "name": "opens a note in preview",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/visual-card.tsx",
+    "from": "          access.send === null ||\n",
+    "to": "",
+    "test": "packages/ui/src/chat/visual-card.browser.test.tsx",
+    "name": "refuses every clicked message of a direction's demo",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/home-view.ts",
+    "from": "mine.some((one) => one.asking !== null) ? \"asking\" : mine.some((one) => one.running) ? \"running\" : null",
+    "to": "mine.some((one) => one.running) ? \"running\" : mine.some((one) => one.asking !== null) ? \"asking\" : null",
+    "test": "packages/ui/src/study/home-view.test.ts",
+    "name": "marks a session waiting for you over one running"
+  },
+  {
+    "file": "packages/ui/src/study/home-view.ts",
+    "from": "big: primary?.type === \"open\" ? \"排计划中\" : \"还没排课\",",
+    "to": "big: \"还没排课\",",
+    "test": "packages/ui/src/study/home-view.test.ts",
+    "name": "says a level not planned yet"
+  },
+  {
+    "file": "packages/ui/src/study/home-view.ts",
+    "from": "session.containerId === direction.id && !session.archived);",
+    "to": "session.containerId === direction.id);",
+    "test": "packages/ui/src/study/home-view.test.ts",
+    "name": "names the latest session not archived"
+  },
+  {
+    "file": "packages/ui/src/study/archive.ts",
+    "from": "!(entry.name === \"visuals\" && entry.kind === \"dir\")",
+    "to": "true",
+    "test": "packages/ui/src/study/archive.test.ts",
+    "name": "lists the known ones in their order"
+  },
+  {
+    "file": "packages/ui/src/study/archive.ts",
+    "from": ".toSorted(([a], [b]) => b - a)",
+    "to": ".toSorted(([a], [b]) => a - b)",
+    "test": "packages/ui/src/study/archive.test.ts",
+    "name": "groups the visuals by level"
+  },
+  {
+    "file": "packages/ui/src/app/workbench.tsx",
+    "from": "direction === undefined || viewer !== null ? false",
+    "to": "direction === undefined ? false",
+    "test": "packages/ui/src/study/study-home.browser.test.tsx",
+    "name": "lists the demos by level",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/learning-home.tsx",
+    "from": "  if (action.type === \"start\") {\n    closeLearning(store);\n    await client.selectContainer(directionId);\n  }",
+    "to": "",
+    "test": "packages/ui/src/study/study-home.browser.test.tsx",
+    "name": "names the next step with the strip's dots",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/files/file-viewer.tsx",
+    "from": "(preview ?? (previewFirst && range === null))",
+    "to": "(preview ?? false)",
+    "test": "packages/ui/src/study/study-home.browser.test.tsx",
+    "name": "lists the demos by level",
+    "project": "ui"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "      for (const look of mine) dropLook(look, true);\n",
+    "to": "",
+    "test": "packages/host/src/visuals.leak.test.ts",
+    "name": "lets go of every visual's watch",
+    "project": "leak"
+  },
+  {
+    "file": "packages/ui/src/chat/conversation-area.tsx",
+    "from": "      return relative === null || !isDirectionVisual(relative)",
+    "to": "      return true",
+    "test": "packages/ui/src/study/study-home.browser.test.tsx",
+    "name": "offers 在查看标签里打开 on a demo card",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/archive.ts",
+    "from": "(path.startsWith(\"/\") ? workspacePath(path, directionHomeDir(direction)) : null)",
+    "to": "null",
+    "test": "packages/ui/src/study/study-home.browser.test.tsx",
+    "name": "offers 在查看标签里打开 on a demo card",
+    "project": "ui"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "  return place.owned === undefined ? dir : dirname(dir);",
+    "to": "  return dirname(dir);",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "watches from a session's own directory",
+    "project": "unit"
+  },
+  {
+    "file": "packages/ui/src/study/archive.ts",
+    "from": "return /^visuals\\/[^/]+\\.html$/iu.test(path);",
+    "to": "return /^visuals\\/[^/]+\\.html$/u.test(path);",
+    "test": "packages/ui/src/study/archive.test.ts",
+    "name": "knows a demo named in any case"
+  },
+  {
+    "file": "packages/ui/src/study/archive.ts",
+    "from": "return /^visuals(?:\\/|$)/iu.test(path);",
+    "to": "return /^visuals(?:\\/|$)/u.test(path);",
+    "test": "packages/ui/src/study/archive.test.ts",
+    "name": "knows anything in visuals/, in any case"
+  },
+  {
+    "file": "packages/ui/src/files/active-viewer.tsx",
+    "from": "const browsable = !(direction && inDirectionVisuals(path));",
+    "to": "const browsable = !(direction && path.startsWith(\"visuals/\"));",
+    "test": "packages/ui/src/study/study-home.browser.test.tsx",
+    "name": "renders a demo a note names in another case",
+    "project": "ui"
+  },
+  {
+    "file": "apps/desktop/src/main/browsable.ts",
+    "from": "    if (marked) return true;\n",
+    "to": "",
+    "test": "apps/desktop/src/main/browsable.test.ts",
+    "name": "refuses anything in a learning direction's visuals/"
+  },
+  {
+    "file": "apps/desktop/src/main/browsable.ts",
+    "from": "if (basename(dir).toLowerCase() !== \"visuals\") continue;",
+    "to": "if (basename(dir) !== \"visuals\") continue;",
+    "test": "apps/desktop/src/main/browsable.test.ts",
+    "name": "refuses anything in a learning direction's visuals/"
+  },
+  {
+    "file": "apps/desktop/src/main/browsable.ts",
+    "from": "  return regular && !(await inDirectionVisuals(path));",
+    "to": "  return regular;",
+    "test": "apps/desktop/src/main/browsable.test.ts",
+    "name": "refuses anything in a learning direction's visuals/"
+  },
+  {
+    "file": "packages/host/src/files/workspace-files.ts",
+    "from": "const asksGit = !direction || /^lab(?:\\/|$)/iu.test(path);",
+    "to": "const asksGit = !direction || /^lab(?:\\/|$)/u.test(path);",
+    "test": "packages/host/src/files/workspace-files.test.ts",
+    "name": "asks git about a lab folder named in another case"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "    if (owned !== undefined && (await checkOwned(dir, owned)) !== realDir) throw new CommandError(\"visual_outside\");\n",
+    "to": "",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "refuses visuals/ itself swapped for a link"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "    if (owned !== undefined && (await checkOwned(dir, owned)) !== realDir) throw new CommandError(\"visual_outside\");\n",
+    "to": "",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "refuses the direction swapped for a link to a folder with the same visual"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "    if (owned !== undefined && (await checkOwned(dir, owned)) !== realDir) throw new CommandError(\"visual_outside\");\n",
+    "to": "    if (owned !== undefined) await checkOwned(dir, owned);\n",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "swapped back once the file is open"
+  },
+  {
+    "file": "packages/host/src/files/workspace-files.ts",
+    "from": "        if (now !== realRoot) throw new CommandError(\"learning_dir_unsafe\");\n",
+    "to": "",
+    "test": "packages/host/src/files/workspace-files.test.ts",
+    "name": "swapped back before the check again"
+  },
+  {
+    "file": "packages/ui/src/study/learning-home.tsx",
+    "from": "  closeLearning(store);\n  showViewer(views, directionId, null);\n",
+    "to": "  closeLearning(store);\n",
+    "test": "packages/ui/src/study/study-home.browser.test.tsx",
+    "name": "opens the direction's home from the learning home over a viewer tab",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/step-strip.tsx",
+    "from": "      await openDirectionSession(client, store, directionId, action.sessionId);\n      if (views !== undefined) showViewer(views, directionId, null);\n",
+    "to": "      await openDirectionSession(client, store, directionId, action.sessionId);\n",
+    "test": "packages/ui/src/study/study-home.browser.test.tsx",
+    "name": "goes back to the session already active in the direction",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/files/file-viewer.tsx",
+    "from": "  }, [client, workspaceId, path, runEnds, changed, directionDir]);",
+    "to": "  }, [client, workspaceId, path, runEnds, changed]);",
+    "test": "packages/ui/src/study/study-home.browser.test.tsx",
+    "name": "reads a file again once the direction is where the list says now",
+    "project": "ui"
+  },
+  {
+    "file": "packages/pi/src/study/extension.ts",
+    "from": "    if (stats.size > PROGRESS_MAX) throw new Error(\"too large\");\n",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "reads a progress file of up to 1 MiB in bytes"
+  },
+  {
+    "file": "packages/pi/src/study/extension.ts",
+    "from": "constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK",
+    "to": "constants.O_RDONLY | constants.O_NONBLOCK",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "does not follow a progress file that is a link"
+  },
+  {
+    "file": "packages/ui/src/study/archive-part.tsx",
+    "from": "  const demosFailed = hasVisuals && visuals === \"failed\";",
+    "to": "  const demosFailed = false;",
+    "test": "packages/ui/src/study/study-home.browser.test.tsx",
+    "name": "says the demos could not be listed",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/archive-part.tsx",
+    "from": "          {demosCut ? <Note depth={0}>还有更多，没有列出</Note> : null}\n",
+    "to": "",
+    "test": "packages/ui/src/study/study-home.browser.test.tsx",
+    "name": "says when the demos were cut",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/home-view.ts",
+    "from": "  if (dots === null && view.kind === \"newer\") {",
+    "to": "  if (dots === null && view.kind === \"archived\") {",
+    "test": "packages/ui/src/study/home-view.test.ts",
+    "name": "says a newer file with no lessons in its level is only to be read, without the last session"
+  },
+  {
+    "file": "packages/ui/src/study/home-view.ts",
+    "from": "    return { ...plain, line: view.kind === \"newer\" ? `${unplanned} · 只能看` : unplanned, dots };",
+    "to": "    return { ...plain, line: unplanned, dots };",
+    "test": "packages/ui/src/study/home-view.test.ts",
+    "name": "says a newer file with no lessons in its level is only to be read"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": ") : direction.discussing && !direction.broken ? (",
+    "to": ") : direction.discussing || direction.broken ? (",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "no longer calls a direction whose file cannot be read under discussion",
+    "project": "ui"
+  },
+  {
+    "file": "packages/pi/src/visuals/extension.ts",
+    "from": "if (launch !== null && !makesNoVisual(readStudyArgument(pi.getFlag(STUDY_FLAG))))",
+    "to": "if (launch !== null)",
+    "test": "packages/pi/src/visuals/visuals.test.ts",
+    "name": "tells a quiz and an exam nothing of visuals"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "  return launch?.kind === \"quiz\" || launch?.kind === \"exam\";",
+    "to": "  return launch?.kind === \"quiz\";",
+    "test": "packages/pi/src/visuals/visuals.test.ts",
+    "name": "tells a quiz and an exam nothing of visuals"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "    ...VISUAL_RULES,\n    WRITE_VISUAL_FIRST,\n  ].join(\"\\n\"),\n  quiz: [",
+    "to": "    ...VISUAL_RULES,\n  ].join(\"\\n\"),\n  quiz: [",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "write a visual before naming it"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "The files you write are the lesson's note in notes/, its interactive visual in visuals/ when it uses one, and,",
+    "to": "The files you write are the lesson's note in notes/ and,",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "lets a lesson write its visual with its note"
+  },
+  {
+    "file": "packages/pi/src/study/extension.ts",
+    "from": "    else if (readsAsAsk(pi.getFlag(STUDY_FLAG))) event.systemPromptOptions.sections[STUDY_SECTION] = ASK_PROMPT;\n",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "gives an asking session only the rule of staying"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "    Object.keys(value).length === 2 &&\n",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "gives an asking session only the rule of staying"
+  },
+  {
+    "file": "packages/host/src/sessions/agent-launch.ts",
+    "from": "  if (study.kind === \"ask\") return [`--${STUDY_FLAG}=${askArgument()}`];\n",
+    "to": "  if (study.kind === \"ask\") return [];\n",
+    "test": "packages/host/src/sessions/agent-launch.test.ts",
+    "name": "tells an asking session of a direction only that it asks"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "        request(\"release_visual\", { ...visualOwner(owner), path }).catch(() => undefined);\n",
+    "to": "",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "tells the host to let go of a visual once its last card does"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "        request(\"release_visual\", { ...visualOwner(owner), path }).catch(() => undefined);\n",
+    "to": "",
+    "test": "packages/host/src/visuals.leak.test.ts",
+    "name": "as soon as its tab closes",
+    "project": "leak"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "        if (known.holds > 0 || visuals.get(key) !== known) return;\n",
+    "to": "",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "tells the host to let go of a visual once its last card does"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "      for (const look of mine) if (whoOf(look.owner, look.path) === who) dropLook(look, true);\n",
+    "to": "",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "stops this connection's watch and forgets the address"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "        if (resolving.who === who) resolving.released = true;\n",
+    "to": "",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "adds no watch for a resolve still under way when its visual is let go"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "    return !closed && !mark.gone && !me.released;",
+    "to": "    return !closed && !mark.gone;",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "adds no watch for a resolve still under way when its visual is let go"
+  },
+  {
+    "file": "packages/host/src/server/router.ts",
+    "from": "      case \"release_visual\":\n",
+    "to": "      case \"release_visual_never\" as never:\n",
+    "test": "packages/host/src/server/router.test.ts",
+    "name": "hands letting go of a visual to the visuals"
+  },
+  {
+    "file": "packages/host/src/server/remote-policy.ts",
+    "from": "  release_visual: \"local_only\",",
+    "to": "  release_visual: \"phone\",",
+    "test": "packages/host/src/server/remote-policy.test.ts",
+    "name": "keeps visuals on the Mac"
+  },
+  {
+    "file": "packages/ui/src/study/learning-home.tsx",
+    "from": "\n          <span role=\"img\" aria-label=\"在跑\" className=\"size-[7px] shrink-0 rounded-full bg-[var(--ok)]\" />",
+    "to": "\n          <span aria-label=\"在跑\" className=\"size-[7px] shrink-0 rounded-full bg-[var(--ok)]\" />",
+    "test": "packages/ui/src/study/study-home.browser.test.tsx",
+    "name": "marks a direction with a session waiting for you or running",
+    "project": "ui"
+  }
+]

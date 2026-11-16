@@ -4,23 +4,76 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## 行内公式认 `$…$`（SPEC-0001“回复渲染”，2026-11-11，待验收）
+
+模型写行内公式几乎都用 `$…$`，`$\rightarrow$`、`$x_i$` 这类原先原样显示成乱码（用户截图反馈，一屏几乎不可读）。原先 SPEC 明确不启用单个 `$`，理由是会和 shell 变量、价格冲突；现在改成有条件地认，冲突的几种写法仍当文字。
+
+| 行为 | 测试 | 破坏检查 |
+|---|---|---|
+| 同一行成对的 `$…$` 改写成 `$$…$$` 后由 KaTeX 渲染；紧跟中文、内部有空格、以数字结尾、带 `+` 都算公式 | `packages/ui/src/chat/markdown-transforms.test.ts` "turns $…$ inline math into $$…$$, including right beside Chinese text"、"takes a formula with spaces and one ending in a digit"；`markdown.browser.test.tsx` "renders $$ block math and \\( \\) and $…$ inline math, but not prices"（真实 KaTeX 节点 3 个） | 12 处全部 `CAUGHT` |
+| 以下仍当文字：`$5 到 $10`（跨空格的价格区间）、`${HOME}:$PATH` 与 `${a}${b}`（开头紧接 `{`）、`$1,000.00$` 与 `$5$`（纯数字）、`a$b$c`、`a$x$`、`$x$y`（紧贴 ASCII 字母数字下划线）、只写一半的 `$x` | 同上 "leaves prices, shell expansions, numbers and word-adjacent dollars alone"；浏览器用例断言价格仍是原文 | 同上 |
+| `$$…$$` 块内不把它里面的单个 `$` 当分隔符，块结束后接着认；同一个 `$$` 已经成对时不开块；缩进写的块和开行带内容的块都认；只以 `$$` 结尾的行不开块；fenced code、行内代码里的 `$` 一律不动 | 同上 "keeps a $$…$$ display block's dollars, single ones included, and reads math after it"、"opens a display block written indented…"、"takes a $$ block that opens with its content…"、"does not take a line that only ends with $$ for the start of a block"、"leaves $ inside inline code and fenced code" | 同上 |
+| KaTeX 懒加载的门控改看归一化后的文本（`$$`），否则 `$…$` 永远不触发加载 | `packages/ui/src/chat/inline-math.browser.test.tsx`（本文件只渲染一次，KaTeX 从未加载过）：只写 `$m$` 的回复里出现 1 个 `.katex` | 门控改回 `usePlugins(text)` 后该用例见红，`CAUGHT` |
+
+验证：新用例先在原实现上失败（`$e$`→`$er$` 用例和 `$$` 块用例），实现后通过。破坏检查 12 个 case 全部 `CAUGHT`（词界左右各一、纯数字、`{` 开头、两端空白各一、块内跳过、块开关、同一行 `$$` 不开块、行内代码、`isFormula` 整体、懒加载门控）；其中两处先把测试补到能真的抓住（补 `a$x$`/`$x$y`/缩进块/`$$a$$` 开头的行），没靠改实现通过。聚焦变异 `pnpm test:mutation ui --mutate=packages/ui/src/chat/markdown-transforms.ts`：新代码 0 存活，全文件 95.08%（425 检出、22 存活，存活的 22 个都在本次没动的 `remarkReplyFiles`/`remarkReplyData` 里，与基线同位置同数量）。`pnpm check` 通过。单元 321 个文件 6220 项、界面 76 个文件 1419 项通过；默认并行单元首轮有一个 git 场景用例超时（已登记的负载敏感项，第二轮及之后全量通过）。只改渲染前的文本变换和插件门控，不动协议、不新增依赖；未跑端到端、泄漏、性能、浸泡和打包。
+
+## T1 worktree 加固（SPEC-0006“工作区”，2026-11-04，待验收）
+
+真的 git、真的仓库（testkit `createGitScene`），仓库里埋真的钩子、过滤器和 fsmonitor（`plantTraps`，每个被执行就留一个标记文件；`testkit/git.test.ts` 先证明裸 git 会触发它们，所以"没出现标记"不是陷阱本来就没响）。
+
+| 行为 / 风险 | 验证 |
+|---|---|
+| 新建工作区、新建子对话的 worktree 不跑 `post-checkout` 钩子、smudge/clean 过滤器、`process` 过滤器、`core.fsmonitor`；只有用户全局配置里定义的过滤器也不跑 | `workspaces/worktree-creator.test.ts` "hooks, filters and fsmonitor" |
+| 宿主的 `git commit`、`git merge` 同一组参数，不跑 `pre-commit`、`post-commit`、`post-merge`、过滤器；对照：裸 git 会跑 | `workspaces/safe-git.test.ts` |
+| 配置遍历：每个过滤器（含名字带点的）四条命令；没有名字的 `filter.smudge` 不算；git 不在仓库里时报错 | `safe-git.test.ts` `safeGitOptions` |
+| 有 `include.path`、`includeIf`、`config.worktree` 里的 include、名字带 `=` 的过滤器时拒绝，不建分支不建目录；子对话也拒；无 include 或只有用户全局的 include 照建 | `worktree-creator.test.ts` "a repository that includes other configuration" |
+| 起点固定：起点分支（或父工作区的 HEAD）在 `worktree add` 前被移动，仍从核对时的提交建；建完 HEAD 不等于起点报 `head_mismatch`、留目录、不登记 | `worktree-creator.test.ts` "the start" |
+| `.worktreeinclude`：只复制被忽略、未跟踪、列出的文件；不跟随链接；`node_modules` 跳过；不覆盖；不写出新 worktree 的链接；`.worktreeinclude` 是链接时不用；10 MiB 边界、64 MiB 总量、500 个文件；跳过只记个数不记路径 | `workspaces/worktree-include.test.ts` |
+| 新建工作区和子对话都带上 `.worktreeinclude` 的文件；子对话读的是父工作区的目录 | `worktree-creator.test.ts` ".worktreeinclude" |
+| 任务锁：加锁、同任务重复加锁、解锁、不动别的任务或用户的锁、`git worktree list` 的锁原因解析、启动时只清已结束任务的锁 | `workspaces/worktree-lock.test.ts`、`worktree-list.test.ts` |
+| 归档遇到任务锁：`workspace_in_task`（带任务 id），目录和会话都不动；用户自己的锁仍由 git 拒绝（`worktree_remove_failed`） | `workspace-archiver.test.ts` |
+| 恢复归档的 worktree 同样不跑钩子、过滤器、fsmonitor；仓库配置有 `include` 时拒绝，标记保留 | `workspace-archiver.test.ts` |
+| 界面说法：`worktree_config_unsafe`、`head_mismatch`、`workspace_in_task`；错误码进协议和 Swift 投影 | `ui/state/new-workspace.test.ts`、`ui/app/workbench.browser.test.tsx`、`protocol/envelope.test.ts` |
+
+- 破坏检查：`docs/testing/t1-worktree-break-check.json`。
+- 没做：加锁、解锁、启动清锁还没接到任何流程上（T1 里没有任务）；不关 `merge.<名>.driver`、`diff.<名>.textconv`（T5 已评估：驱动关掉，`textconv` 不用，见 T5 一节和 security.md）。
+
+## T3 任务核心（SPEC-0006"状态机""调度器""改图"，2026-11-04，待验收）
+
+`packages/host/src/tasks/`：类型、`GraphValidator`、`Scheduler.step`、`TaskStore`；开发入口 `pnpm task:replay`。全是纯函数加文件，不起 pi。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 状态机每条转移、调度器每条规则：就绪与汇合、`node_done` 结算与提交顺序、`no_done` 提醒一次再失败、五种失败、`held` 与 `stopped` 分开、暂停恢复、重跑沿用 attempt、打回（旁支一起重置、attempt+1、`backFrom`、上限 2）、取消、放弃、问题 / 改图等待、批准 / 拒绝、human 节点与合并（`merging`、`merge_blocked`、再点通过重试）、工作区 `none→creating→ready` 与失败、`work` 独占、6 个名额、宿主重启 | `tasks/scheduler.test.ts`、`scheduler-resources.test.ts`（表驱动 85 项） |
+| SPEC 列的六种交错：兄弟失败后重跑、暂停后恢复、合并冲突后改图加节点使 human 回到 `pending`、打回时旁支重置、一个 running 一个 waiting 时第三个失败、`stopped` 期间批准改图 | 同上，用例名里带原文 |
+| 性质（随机图 + 随机事件序列，含同一事件送两次、迟到的旧 attempt）：`work` 在跑时没有别的节点在跑；`stopped` 的任务不起新节点；打回不超过 2 次；同一 attempt 不重复 `start_node`（重跑后除外）、`creating` 时不重发 `ensure_workspace`；任务状态与节点状态一致（另写一份状态表对照）；任何状态下合作式操作都能走到 done；另有名额、依赖、`endedAt` | `tasks/scheduler.prop.test.ts`（fast-check，400 + 500 次游走；`scheduler-model.ts` 放生成器和不变量；另有固定种子的"覆盖"测试，保证游走真的走到打回、保持、合并等动作） |
+| `step` 纯：不改传入的任务（测试里深度冻结）、同一输入同一输出、不适用的事件原样返回 | `scheduler-resources.test.ts`、`scheduler.prop.test.ts` |
+| `GraphValidator` 每条规则一个通过、一个不通过：结构（20 个上限、重复 id、未知节点、环、打回边、起点终点）、字段（agent / human / `merge`）、不属于项目、只读规则、启动后（不能删、不能改、入边锁定） | `tasks/graph-validator.test.ts`（27 项） |
+| `TaskStore`：追加事件、`task.json` 快照、重开读回；截断的最后一行丢弃并补齐换行；中间坏行报错；`task.json` 缺失 / 损坏 / 落后 / 超前时从事件重建；事件串行；无效事件不写入；重放得到同样的动作（动作带 node + attempt，供 T4 认"已做过"） | `tasks/task-store.test.ts`（23 项） |
+| 三个示例事件文件重放结果 | `tasks/fixtures.test.ts`；`dev/task-replay.test.ts`（输出格式、目录 / 文件、截断行、错误码） |
+
+- 破坏检查：`packages/host/src/tasks/tasks.break-check.json`，32 处全部抓到（六条性质各至少一处，另有表驱动、`GraphValidator`、`TaskStore` 的）。
+- 变异测试：`pnpm test:mutation tasks --force`（新组 `tasks`，`types.ts`、`test-support.ts`、`scheduler-model.ts` 不算）：scheduler.ts 84.90%（单独跑 86.04%）、graph-validator.ts 89.67%、task-store.ts 85.31%、advance.ts 93.45%、status.ts 90.20%、graph.ts 80.42%、draft.ts 80.00%、replay.ts 92.59%、texts.ts 90.91%。`dev/task-replay.ts` 不在变异组里（构建入口，测试直接调 `main`）。
+- 没做：`TaskRunner` / `TaskService` / 动作幂等的真实认出（T4）；`archive_*` 事件在 `Task` 里无处记（T5）；冲突文件列表不在事件里。
+
 ## 已完成未读（2026-11-09 自用反馈）
 
 用户反馈：一次运行跑完，侧栏和标签上看不出"刚跑完、还没看"和"很久以前的历史"的区别；希望跑完标一个点，点开看过才消失。做法照早先写下的设计：关注状态加 `finished`，看过（成为当前会话且窗口有焦点）就清掉，不进收件箱，子对话的点不抬高主对话标签，手机上同义。
 
 | 需求 / 风险 | 验证 |
 |---|---|
-| 协议：`Attention.reason` 加 `finished`，未知原因仍被拒；Swift 类型和往返夹具同步；版本 36 | `packages/protocol/src/envelope.test.ts`（宿主消息示例含 `finished`，未知原因 `done` 被拒）、`remote.test.ts`；`AtriumProtocolTests/RoundTripTests.swift` |
+| 协议：`Attention.reason` 加 `finished`，未知原因仍被拒；Swift 类型和往返夹具同步；版本 40（分支上 36，合回 main 时 main 已用到 39） | `packages/protocol/src/envelope.test.ts`（宿主消息示例含 `finished`，未知原因 `done` 被拒）、`remote.test.ts`；`AtriumProtocolTests/RoundTripTests.swift` |
 | 宿主：运行正常结束（`completed`）且没有对话框在等时设 `finished`（`text` 为 `null`）；失败仍是 `error` / `auth`；主动停止不设；下一次运行开始去掉；`clear_attention` 清 `error` 和 `finished`，不清 `auth` | `packages/host/src/sessions/session-manager.test.ts` 的 attention 一节（完成、看过清除、下一次运行开始清除、停止不标、失败后仍按完成标、对话框在等时不标） |
 | 桌面：优先级（待回答 > 待授权 > 出错 > 运行中 > 已完成未读 > 空闲）、看过即刻消失（已清出的出错仍旧显示，两者不同）、7px 圆点、工作区/对话/学习/收起项目行按最高优先级汇总、收件箱不收、对话行"进行中"的排序不把 `finished` 当进行中 | `packages/ui/src/sidebar/status.test.ts`；`packages/ui/src/app/workbench.browser.test.tsx`（工作区行和对话行上的点、显示时清掉、对话排序不因 `finished` 上升）；`packages/ui/src/study/study.browser.test.tsx`（学习行汇总） |
 | 子对话：点只在子对话条里（行的状态、胶囊计数），不抬高主对话的标签 | `packages/ui/src/children/children.test.ts`；`children.browser.test.tsx`（胶囊计数和行上的点） |
 | 手机：首页行 7pt 深米点（`StatusIcon` 的 `.unread`）、不进"等你处理"便签、排序在运行中之后、设置页子对话行、会话页在前台时 `clear_attention` 清掉（子对话页或改动列表压在上面时不清，回来再清） | `apps/ios/AtriumKit/Tests/AtriumSyncTests/HomeListTests.swift`（状态、排序、便签）、`SyncControlTests.swift`、`AtriumUITests/HomeViewTests.swift` |
 
-验证记录（2026-11-09，worktree `proud-tiger`，分支 `atrium/proud-tiger`，未提交）：
+验证记录（2026-11-09，worktree `proud-tiger`，分支 `atrium/proud-tiger`）：
 
 - `pnpm check` 通过（格式、oxlint 含 JSDoc、类型、knip、`boundary --all` 未登记 0、`ios:check`）。
 - 单元 4754/4754（253 个文件）；`pnpm test:host` 251/251；`pnpm test:ui` 1223/1223；AtriumKit 475/475。
-- 已知不稳：中途有几轮全量并行跑各偶发一次失败，其中两次认出是本改动之前就偶发的 `visual-service.test.ts` 回传先后顺序（单独跑 20/20）和 `chat.browser.test.tsx` 插入后最远帧（单独跑 197/197），另有一次单元套件里单个失败没记下名字；之后单元整套连跑三次、界面整套一次都全绿，新加的那条宿主测试单独连跑八次也全过，没能复现，没改代码。
+- 合回 `main` 前（协议号改为 40）：`pnpm check` 通过；单元 6238/6238（322 个文件）、宿主 363/363、界面 1421/1421、AtriumKit 475/475。
+- 已知不稳：中途有几轮全量并行跑各偶发一次失败，其中两次认出是本改动之前就偶发的 `visual-service.test.ts` 回传先后顺序（单独跑 20/20）和 `chat.browser.test.tsx` 停留在底部那条，另有一次单元套件里单个失败没记下名字；之后单元整套连跑三次、界面整套一次都全绿，新加的那条宿主测试单独连跑八次也全过，没能复现，没改代码。
 - 破坏检查 `docs/testing/finished-attention.break-check.json` 13/13 CAUGHT（宿主三处、状态与收件箱、子对话标签与胶囊计数、图标名称、对话排序、显示时清除，Swift 三处）。
 - 定向变异：`packages/ui/src/sidebar/status.ts` 100%（73/73）；`packages/ui/src/children/children.ts` 97.54%，3 个存活都在未改动的 `modelLine`（既有存活）。`session-manager.ts`、`sidebar.tsx`、`status-icon.tsx`、`workbench.tsx` 不在变异分组。
 - 没覆盖：宿主在"运行刚好跑完、同时被归档"的窄竞态里不设 `finished`（`session-manager.ts` 的 `archived` 判断）没有测试，也没法稳定造出来；Swift 的"子对话页压在上面时不清"只有逻辑，没有 UI 测试。
@@ -36,6 +89,7 @@
 | 演示目录：只认 `.html`、目录内、路上无符号链接（文件、文件夹，指回目录里的也不行）、最多 1 MB；读的时候再查一次；查完、打开之前把目录换成链接也读不到外面（打开后逐段 `lstat` 比 inode）；读不了的文件只给错误码、不带路径 | `packages/host/src/visuals/visual-file.test.ts`（真实文件；竞争由检查和打开之间的钩子造出来） |
 | 分叉、子对话读得到上级会话的演示（`parent`，脱离后 `detachedFrom`），无关会话照样 `visual_outside`，环只走一遍 | `visual-place.test.ts`（`ancestorsOf`、`visualPlaceOf`）；`visual-service.test.ts` 的 parent 一条；`sessions/session-catalog.test.ts` 的 detach 一条 |
 | 默认目录 `~/.atrium/visuals/<会话 id>/`，会话 id 不安全时没有 | `visuals/visual-place.test.ts` |
+| `~/.atrium/visuals/` 下的演示任何会话都可读（2026-11-12，修 ML4 之后旧课的演示打不开）：恰好一层真目录、绝对路径、`.html`、路上不经链接、最多 1 MB；更深一层、根目录下的文件、链接的目录和文件、别的目录都 `visual_outside`；还没有的文件 `visual_missing` 并照旧监视；方向会话的旧绝对路径、从它分叉的下一会话都打得开 | `visuals/visual-file.test.ts` 三条（`placeInRoot`、`checkInRoot`）；`visuals/visual-service.test.ts`“opens a demo anywhere in the host's own folder for demos”（含不给 `root` 的会话）；`visuals/visual-place.test.ts` 一条；`visuals.host.test.ts` 第三条；`study.host.test.ts` 一条 |
 | 令牌：同一文件一个、小写十六进制、只认令牌；页面带外壳、CSP、`no-store`；坏令牌、非 GET、变得不安全的文件 404 | `visuals/visual-service.test.ts`（真实 HTTP）；`visuals.host.test.ts`（真实宿主） |
 | 改了文件告诉 resolve 过的连接；目录监视按引用计数，断开就停，计时器、监视计数归零；监视失败只记一条不带路径的日志；文件删了发 `mtime` 0；resolve 时还没有的文件（文件夹也没有）出现了就发；断开或关闭后才完成的 resolve 不加监视；没人看的令牌丢掉，再 resolve 换新令牌 | `visual-service.test.ts` 的 watching 三条、comes and go 两条、resolving 三条；`visuals.host.test.ts` 第一条 |
 | 回传：当作插话或新一轮发出；同一演示 1 秒内第二条丢掉（同时到的两条也只发一条），日志只记次数、不记正文；不是本会话演示的拒绝 | `visual-service.test.ts` 的 sending 四条；`visuals.host.test.ts` 第二条 |
@@ -127,6 +181,284 @@
 - `pnpm check` 通过。单元 4474/4474，宿主层 249/249，UI 1198/1198（学习模式 13/13），leak 22/22。Electron：`study`、`chats`、`new-workspace`、`inbox` 全过；其余 e2e 未跑。
 - 破坏检查新增 16 处全部检出（首轮 `openSession` 里只读会话不起 pi 的那行漏检，宿主层测试补了"从主页打开"后检出）。宿主层用例补了 `project`。
 - 变异：`sessions/read-only-transcripts.ts` 并进 `study` 组，92%（剩下空文件的叶子、重建的 `reset`、步骤的 epoch 判断）；`ui` 组 `study/learning.ts` 94.16%。`session-manager.ts`、`conversation-area.tsx`、`turn-view.tsx` 的改动由破坏检查守。`hold` 里"pi 跑起来后丢掉只读副本"一行没有测试能看出来（假的 pi 不写会话文件），说明在交付报告里。
+
+## 学习模式 ML2：进度、步骤条与下一步（SPEC-0008，2026-11-09）
+
+进度只在 `.atrium-study.json`，只经 `study_*` 工具和手动标记改；步骤条（原型 C、`study-progress-states` 的 2D）、方向主页（1A、3A、4A、5A）。协议 35 → 36。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 读 `.atrium-study.json`：严格读阶梯（2～6 级、id 不重复、步骤只属于阶梯里的级、分数不超过总数、文字上限），不认识的字段每一层都留；读不出就是"坏了"；只发协议认识的字段 | `packages/host/src/study/progress.test.ts`；扫描 `directions.test.ts`（1 级、7 级坏，6 级好） |
+| 写：每次先重读、排队一个一个写、临时文件再改名；坏的、版本更高的、是链接的、超过 1 MiB 的不写；改名失败删掉临时文件；临时文件名被占用不覆盖；写不回去的改动不写；日志只有错误码；关闭时等写完 | `packages/host/src/study/progress-file.test.ts` |
+| 工具的规则：阶梯一次写完（含起点那一级的课和后面 4 步）、2/6 级通过、1/7 级 `study_ladder_size` 带 `min`/`max`/`got`、只能写一次、全部跳过拒绝；排计划只写当前一级的课一次；上课、测验、速查表、过关项目、综合测验的报告和分数；漏洞的编号和上限；agent 的报告和补漏盖过手动标记 | `packages/host/src/study/progress-rules.test.ts` |
+| 手动标记：小步、测验连上课、整步、以后再测；只撤回手动的、连带后面手动的；不合规则的 `study_mark_refused`；找不到 `study_not_found`；漏洞标已补和撤回 | 同上 |
+| 下一步规则表：每一行一个用例（没上、上了没测＋以后再测、测了有漏洞＝跑费曼＋进入下一步、测了没漏洞或补完、速查表/过关项目/综合测验、升级），回到正对着这一步的会话（最新的、不算归档的），归档/坏了/学完/没有当前级或步骤时没有按钮；ML2 里测验、费曼、升级 `available: false` | 同上 |
+| 工具只写调用方会话记录里的那一级那一步；用途不对、随口问、没有用途、方向外、归档的方向都 `study_not_allowed`；坏文件 `study_file_broken`；日志只有方向 id、工具名、错误码 | `packages/host/src/study/study-tools.test.ts` |
+| 通道：`study_*` 调用交给学习工具（不受 agent 层数限制），错误码和参数原样回；没有学习工具时 `study_not_allowed`；坏参数 `agent_bad_request` | `packages/host/src/sessions/agent-relay.test.ts` |
+| 只有方向里有用途的会话带 `--atrium-study`；工作区、对话、随口问、没有用途的会话都没有 | `packages/host/src/sessions/agent-launch.test.ts`；`session-manager.test.ts`（起 pi 的参数） |
+| "+" 开的会话记成随口问；宿主开的会话在 pi 列出 `atrium-study` 后才发 `/atrium-study start`，没列出时不发并记日志 | `packages/host/src/sessions/session-manager.test.ts` |
+| 命令：列表带进度和下一步；只能开下一步给的那个会话（`study_not_available`）；手动标记写进文件、列表跟着变；归档的方向 `direction_archived`；坏文件不写 | `packages/host/src/study/study-commands.test.ts` |
+| 路由：三条新命令交给学习命令；手机按 `local_only` 拒绝 | `packages/host/src/server/router.test.ts`；`remote-policy` 的穷举 |
+| 真实宿主：列表里的进度和下一步；经 WebSocket 手动标记写进文件（保留不认识的字段）；开不了的会话被拒；换一个宿主后进度还在 | `packages/host/src/study.host.test.ts` |
+| 扩展：只有带 `--atrium-study` 时在 `session_start` 注册这个用途的工具（不带、随口问的都没有）；每次运行前加 `atrium_study` 一段；工具经通道问宿主、按错误码说给模型；文字超长不问宿主；`/atrium-study start` 只认 `{ v: 1 }`、只在空闲时开一轮，消息是 `atrium-agent`、`details.kind` 为 `study` | `packages/pi/src/study/study.test.ts`；`plan/extension.test.ts`（整个扩展注册了什么）；`catalog/commands.test.ts`（`/` 菜单不列它） |
+| pi 契约：没有参数（或随口问）的会话工具表里没有 `study_*`；讨论有三个工具和提示；`study_report` 经通道问到宿主、模型读到结果；`/atrium-study start` 开一轮，模型读到的是 Atrium 的开场 | `packages/pi/src/contract/study.pi.test.ts`（夹具 `pi-1.5.0/study-tools-none`、`study-tools-discuss`、`study-call`、`study-kickoff`，faux 模型录的） |
+| 协议：进度、下一步、新命令和结果、错误码、`study` 来源的往返；版本 36 | `packages/protocol/src/envelope.test.ts`、`remote.test.ts`；Swift 往返夹具和版本 |
+| 界面纯逻辑：级和步的说法、会话的名字、课的三小步、当前一步的说明、按钮的说法、卡片一行、步骤条的各种状态 | `packages/ui/src/study/progress.test.ts` |
+| 界面：步骤条（讨论中、正常、坏了的占位、归档停在第几步且没有按钮、学完全亮、回到会话和在跑的点、ML3 的按钮变淡"即将开放"、以后再测、开始上课）；主页（当前步骤卡、步骤列表的状态和三小步、会话小签和分数、"你标的"、··· 菜单标记和撤回、以后再测的"没测"和悬停"补测"、漏洞的悬停圆勾和"撤回"、阶梯原地展开、宽两栏窄一栏且阶梯在步骤前、其他会话）；宿主开的会话第一轮的来源行；标签上的用途名；首页卡片的一行 | `packages/ui/src/study/progress.browser.test.tsx`、`study.browser.test.tsx` |
+| 桌面端整条：讨论的 agent 调 `study_set_ladder` 后文件里有阶梯和步骤、步骤条显示第一节课；讨论只有讨论的工具；点"开始上课"开出上课会话，第一轮是"上课 · 第 2 级第 1 步 · goroutine"的来源行、没有你的消息，上课只有 `study_report`，步骤条换成"回到会话" | `apps/desktop/e2e/study.spec.ts` |
+| 真实模型检查后改（2026-11-09）：新建方向的第一条消息交给 pi 之前，讨论会话里再发的消息排在它后面、按顺序发；第一条没发出去也照常放行 | `packages/ui/src/study/study.browser.test.tsx`（"before the first message reached pi"，pi 还在起时连发两条）；`packages/ui/src/chat/first-message.test.ts`（放行顺序、两个 hold、只有最新的 hold 清掉记录）。宿主层没有对应的测试：乱序发生在界面里，第二条命令先到宿主，宿主无从知道它不是第一条 |
+| 起名的模型：标题模型 → 页上选的 → 新会话会用的模型（上次选的）→ pi 的默认 | `packages/host/src/study/direction-namer.test.ts`；真实宿主 `study.host.test.ts`（"the model a new session starts on"：偏好里有上次选的模型、页上发 `null`，一次性 pi 的 `--model` 是它） |
+| 方向的 `AGENTS.md` agent 不改：每种用途的提示词都有这条，讨论不再把定档写进 `AGENTS.md`；模板没有"Learner profile"一节；讨论先提议、确认后才调 `study_set_ladder`、调完收尾停下 | `packages/pi/src/study/study.test.ts`；`direction-creator.test.ts`；pi 契约 `study.pi.test.ts`（讨论的系统提示里有这条，夹具重录） |
+| 长级名：主页标题下的级标签、阶梯的级名、步骤条的级名都一行省略、悬停提示完整的"第 N 级 · 名字"；右栏 240px | `packages/ui/src/study/progress.browser.test.tsx`（"keeps a long level name on one line"、两栏宽度） |
+
+验证记录（2026-11-09）：
+
+- `pnpm check` 通过（含 knip、JSDoc、`boundary --all` 登记了 `/atrium-study`、iOS 检查）。
+- 单元 4837/4837；Swift AtriumKit 475/475（`RailRows` 的新来源分支、协议版本 36）。宿主层 252/252（含 ML2 新增 1 条，ML1 的 2 条按新字段改了期望）。UI 1234/1234；之前两轮各有一次不是本改动的失败：一次 `chat.browser.test.tsx` 的"stays at the bottom through every frame…"在整套并发下失败（单跑 3/3 通过），一次 31 个文件因 Vite 依赖缓存报 `Duplicate export of 'ZzzIcon'` 没加载（紧接着重跑全过）；学习模式 UI 32/32。leak（vitest）23/23；e2e 泄漏 12/12；e2e `study`（2）、`chats`、`new-workspace`、`inbox` 7/7。
+- `test:pi`：52/104 失败，全是"没有 pi 1.5.0 的夹具"（同 MV1 记录的那 52 条，与本改动无关）；新加的学习模式契约 5/5 通过（4 条新夹具用 faux 模型录，不要账号）。以后给 1.5.0 补录夹具时，`commands`、`agent-tools` 等的输出会多出 `atrium-study` 命令和标志，这是预期的。
+- 破坏检查 `packages/host/test/study-progress.break-check.json` 33 处全部检出（首轮漏 2 处：上课报告盖过手动标的上课、归档方向的步骤条按钮守卫，各补了断言）。
+- 变异：新分组 `studyProgress` 93.03%（progress 98.19、progress-file 98.04、progress-rules 91.89、study-tools 87.88；首轮 85.03%，补了 `progress.test.ts` 和写入失败、关闭等待、大小上限的用例，只管内存释放的几行用 `Stryker disable` 写明）；`ui` 组 `study/progress.ts` 89.64%。`pi` 组里新加的 `study/*.ts` 没跑增量变异（这一组每个变异要跑宿主的会话测试），关键行由破坏检查守。
+- 没跑：完整 e2e、`test:perf`、`test:package`、`test:stress`、`test:soak`、`pnpm package`；真实模型的讨论（等用户定模型）。
+- 没做：方向主页的"档案"（SPEC-0008"ML2 定的细节"最后一条，待用户确认推到 ML4）；没有新的监听、计时器或订阅，所以没加新的泄漏测试。
+
+真实模型检查后改的验证记录（2026-11-09，SPEC-0008"真实模型检查后改"）：
+
+- `pnpm check` 通过。单元 4874/4874（261 个文件）、Swift AtriumKit 475/475；宿主层 253/253；UI 1242/1242；学习契约 `study.pi.test.ts` 6/6（讨论和超长两份夹具按新提示词重录，faux 模型）。leak（vitest）23/23、e2e 泄漏 12/12；e2e `study`、`new-workspace`、`chats` 6/6。没有新的监听、计时器或订阅。
+- 破坏检查 `packages/host/test/study-real-run.break-check.json` 18 处全部检出（首轮漏 2 处：只有最新的 hold 清掉记录、步骤条级名的省略，各补了断言）。
+- 变异增量：`study` 组 direction-namer 88.89%、direction-creator 94.79%（组 96.66%；namer 剩下的存活都在这次没改的行）；`ui` 组 first-message 100%（只管释放内存的两行用 `Stryker disable` 写明）、learning 82.14%（组 91.95%）。`pi` 组的 `study/study.ts` 提示词本来就整段 `Stryker disable`，新加的 `AGENTS_RULE` 由破坏检查守。
+- 真实模型（`catpaw-cli/deepseek-v4.1-flash`，开发页面，`ATRIUM_HOME` 和 pi 的会话目录都在临时目录，`~/.pi/agent/sessions` 前后一致）：目录名 `rust-ownership`、显示名"Rust 所有权与借用"（起名成功）；连发的第二条排在第一条后面；`AGENTS.md` 前后哈希相同；先说"准备这样排，确认吗？"，确认后才调 `study_set_ladder`，调完一段收尾、没有再动文件；阶梯级名和步骤条一行省略、带完整的悬停提示。
+
+评审后补（2026-11-09 第一轮，三方评审 gpt-6-astra、grok-4.7、Claude）：
+
+| 行为 | 测试 |
+|---|---|
+| 每次写之前确认方向目录仍是学习目录下一层的真目录：扫描后换成链接的、不在下一层的都 `learning_dir_unsafe`，不经它写；工具回 `study_write_failed` | `packages/host/src/study/progress-file.test.ts`；`study-tools.test.ts` |
+| 归档等排在前面的写做完再移目录，归档中来的手动标记 `direction_archived`、工具 `study_not_allowed`，开会话等归档完再拒绝；`Archive/<目录>/` 里没有临时文件 | `progress-file.test.ts`（`hold`）；`study-commands.test.ts`；`study-tools.test.ts` |
+| 写出来超过 1 MiB 不写（`study_file_too_large`），正好 1 MiB 照写；读得进的 1 MiB 文件缩进写回超了也拒绝 | `progress-file.test.ts` |
+| 升级一步不能手动标；主页的升级行没有"···" | `progress-rules.test.ts`；`progress.browser.test.tsx` |
+| agent 报告测验时保留测验上不认识的字段 | `progress-rules.test.ts` |
+| 漏洞满 200 条回 `study_gaps_full`（带 `max`），SPEC 同步 | `progress-rules.test.ts` |
+| 扩展向 pi 声明的每个工具（名字、标签、说明、参数、执行方式）整份比对，没有 `maxLength`；每个工具成功后对模型说的话 | `packages/pi/src/study/study.test.ts` |
+| 文字上限不进工具的 JSON Schema：真实 pi 里超长的名字到了扩展，模型拿到 `agent_text_too_long`、字段和上限，没有问宿主（改之前 pi 回的是自己的 "Validation failed"） | `packages/pi/src/contract/study.pi.test.ts`（新夹具 `pi-1.5.0/study-too-long`，faux 录） |
+| 档案版本比 1 大：列表标 `newer`，照样给进度，没有按钮；开会话、手动标记都 `study_file_version`；步骤条是自己的"只能看"状态，主页没有标记和撤回 | `directions.test.ts`、`progress-rules.test.ts`、`study-commands.test.ts`；`packages/ui/src/study/progress.test.ts`、`progress.browser.test.tsx`；协议 `envelope.test.ts`、Swift 夹具 |
+| 归档、档案版本更高的方向主页没有"···"、漏洞的勾按钮和"撤回" | `progress.browser.test.tsx` |
+| 已学完的方向没有当前一级：步骤条和主页按最后一级，点全亮（断言点数，不再对空列表用 `every`） | `progress.test.ts`、`progress.browser.test.tsx` |
+| 同时开同一步两次只开一个会话（命令按方向排队、队里再算下一步）；步骤条和主页的按钮在宿主回答前不能再按 | `study-commands.test.ts`；`progress.browser.test.tsx` |
+| 讨论中的步骤条是一句"讨论中，排出阶梯以后这里显示当前一级的步骤" | `progress.browser.test.tsx` |
+| 主页宽窗口当前步骤卡在左栏、和阶梯顶端对齐、在步骤上面；窄窗口卡片在阶梯前；1A 菜单"标测验完成"和"整步标为完成"之间有分隔线 | `progress.browser.test.tsx` |
+| 同一个会话的可视化回传按到达顺序检查、占位，同一可视化一秒内的第二条一定丢掉（MV1 留下、`main` 上也有的偶发失败） | `packages/host/src/visuals/visual-service.test.ts`"sends one of two messages…"，单跑 60/60 |
+
+用户定的五项（2026-11-09）：
+
+| 行为 | 测试 |
+|---|---|
+| 宿主开的会话没开起来：pi 没列出 `atrium-study` 时会话的 `kickoff` 是 `{ code: "study_kickoff_failed" }`；"重试"（`retry_study_kickoff`）在 pi 列出命令后发开场、`kickoff` 回到 `null`；打开一个还没有任何一轮的这种会话时重发一次；已有一轮的会话打开、重试都不发；同一次宿主运行里不发第二次；不是宿主开的会话"重试"回 `study_not_available` | `packages/host/src/sessions/session-manager.test.ts` |
+| 扩展收到开场时 pi 在跑：排到这次运行之后（`followUp`），不丢 | `packages/pi/src/study/study.test.ts` |
+| 会话里"这一步的会话没能开始：…"一行和"重试"，开起来的会话没有 | `packages/ui/src/study/progress.browser.test.tsx` |
+| 协议：`kickoff`、`retry_study_kickoff`、`study_kickoff_failed` 的往返；路由；手机 `local_only` | `packages/protocol/src/envelope.test.ts`、Swift 夹具；`packages/host/src/server/router.test.ts` |
+| 撤回"整步标为完成"回到标之前：它一起标的上课、测验撤回，标之前就有的、之后 agent 报告的留着；没有 `parts` 的旧标记照旧 | `packages/host/src/study/progress-rules.test.ts` |
+| 文字上限按看到的字符（字形簇）数：协议、档案、通道、扩展同一个函数（`seenLength`），ML1 起名也用它 | `packages/protocol/src/text.test.ts`；`progress.test.ts`；`packages/pi/src/agent/channel.test.ts`；`packages/pi/src/study/study.test.ts`；`direction-namer.test.ts` |
+| agent 用 write/edit/bash 改档案：不改代码，security.md、domain-model 写明；改坏的照"档案读不出来"处理（已有的读法测试） | `directions.test.ts`、`progress.test.ts` |
+
+验证记录（2026-11-09，用户定的五项做完后）：
+
+- `pnpm check` 通过；`pnpm test` 单元 4867/4867、Swift 475/475（协议仍 36：`SessionSummary.kickoff`、`retry_study_kickoff`、`study_kickoff_failed`，Swift 重新生成，手写的 Swift 夹具补了 `kickoff`）；学习模式契约 6/6。宿主层 252/252、UI 1240/1240、leak 23/23、e2e `study.spec.ts` 2/2、e2e 泄漏 12/12（这几层在最后两处只改测试和 Stryker 注释之前跑的）。
+- 破坏检查 65/65 检出（新加 13 处；"撤回整步"首轮漏一处，补了从空到整步再撤回的断言）。
+- 变异：`studyProgress` 组 progress-file 94.37、progress-rules 92.08、progress 95.00、study-tools 90.00；`shared` 组 `text.ts` 93.75；`pi` 组 `study/extension.ts` 96.53、`study/study.ts` 96.38（首轮 75.40：提示词正文用 `Stryker disable StringLiteral,ArrayDeclaration` 写明是给模型的字、由真实模型的检查调，补了拼法、开场、`readStart`、旗标的测试）。`session-manager.ts` 的重发开场没跑增量变异（`host` 组每个变异跑整套宿主测试），改的行由破坏检查守。
+
+验证记录（2026-11-09，评审第一轮修完后）：
+
+- `pnpm check` 通过。`pnpm test`：单元 4852/4852，Swift 475/475（协议仍是 36，`Direction` 多 `newer`、错误码多 `study_file_too_large`，已重新生成）。宿主层 252/252，UI 1238/1238，leak 23/23；学习模式契约 6/6（新夹具 `study-too-long` 用 faux 录，不要账号）；e2e `study.spec.ts` 2/2；e2e 泄漏 12 项里 `viewers.leak.spec.ts` 在整套里失败一次（留下 8 个 `SVGPathElement`，与 ML1 记录的同一项偶发相同），单跑 3/3 通过，没改相关代码。
+- 破坏检查 `packages/host/test/study-progress.break-check.json` 53/53 检出（新加 20 处；"同时按两下"首轮漏检，测试里的会话管理替身改成像真的一样隔一轮事件循环才记下会话后检出）。临时文件"写到一半失败"那一步没有能在测试里造出来的失败方式，没有破坏检查，只靠"建出来就归这次写"的结构和改名失败的用例。
+- 变异：`studyProgress` 组 93.22%（progress-file 94.37、progress-rules 92.38、progress 98.19、study-tools 89.09）；`study` 组只变 `study-commands.ts`、`directions.ts` 84.02%；`ui` 组 `study/progress.ts` 89.66%；`pi` 组 `study/extension.ts` 96.53%（首轮 42.08%：工具的说明和参数没有测试，补了整份比对）；`visuals` 组 `visual-service.ts` 72.44%，低于 80%：存活的都在这次没改的 `resolve`、`serve`、`disconnect`、`watchFolder` 等代码里，改动的 `send` 和新的 `claim` 里没有存活的（两处只释放内存、与下面判断等价的用 `Stryker disable` 写明）。
+
+
+## 学习模式 ML3：学习循环（SPEC-0008"ML3 定的细节"，2026-11-09）
+
+测验是上课会话的子对话（`--fork <上课会话的文件>`）；开场按会话文件判断；"现在能开的"集合；升级（档案、归档这一级的会话、排计划）；方向里归档的会话和恢复；界面按原型 `study-loop-prototype.html` 的 1A 2A 3B 4A 5B 6A 7C。协议 36 → 37。
+
+### 宿主与协议
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 下一步：这一级还没有课 → 排计划（有这一级的排计划会话时回到它）；升级这一步、综合测验有没补的漏洞 → 跑费曼（综合测验那一步第一个）＋次要"升级"，没有或补完 → 升级；课的漏洞不挡升级；所有按钮 `available: true` | `packages/host/src/study/progress-rules.test.ts`（"ML3: planning, the exam's gaps and the upgrade"） |
+| "现在能开的"集合：主按钮的那个（含排计划）、每个没补的漏洞的费曼（当前一级的带来源那一步，之前几级的不带步）、当前一级每个"以后再测"的补测；不重复；归档、坏了、版本更高、学完、讨论中都是空的；同一个（用途、级、步、漏洞）最新的没归档会话 | 同上 |
+| 升级的规则：中间一级（升级一步 `done: { by: "manual" }`、这一级 `done`、后面第一个 `todo` 变 `current`、跳过的不动、不排下一级的课、不认识的字段留着）；最后一级写 `finishedAt`；不是当前一级、升级还不是当前这一步、没有课、第二次升级都 `study_not_available` | 同上 |
+| 命令：费曼和补测按集合开，别的 `study_not_available`；同时按两下只开一个、第二下拿到第一个并打开它；升级（勾着归档：只归档这一级没归档的、讨论随口问和别的级不算；不勾不归档；排计划开在下一级，之后下一步是"回到这个会话"）；最后一级不开排计划；没给的、别的级、两个窗口各升一次只升一次；排计划没开成照样升级、日志只有方向 id、下一步是"排计划"；归档的方向、坏文件、版本更高拒绝；写档案失败什么都不做；先来的归档方向之后的升级 `direction_archived`；恢复：一个不是这个方向的就整条 `session_not_found`、没归档的跳过、归档的方向拒绝 | `packages/host/src/study/study-commands.test.ts`（"StudyCommands learning loop (ML3)"） |
+| 测验是上课的子对话：记录（`parent.by: "user"`、`usageAfter` 是上课文件最后一条、没有名字）、pi 以 `--fork <上课的文件> --session-id <id>` 在方向目录起、`--atrium-study` 是测验的、标签打开、开场发一次；取这一步最近活动的上课会话；没有能用的上课会话（手动标的、草稿、归档的）时普通会话、`context: "none"`；上课在跑时 `session_busy`、什么都不建 | `packages/host/src/sessions/session-manager.test.ts`（"SessionManager the learning loop (SPEC-0008, ML3)"）；`agent-launch.ts` 由同一组用例看参数 |
+| 开场按会话文件判断：基线之后有这个用途的开场不发（重启后）；只有上课的开场时发，基线找得到找不到都对；基线之前同一用途的开场不算；上课文件里有开场不发；刚发还没写进文件时打开两次只发一次；只有你的一轮、没有开场的也发（ML2 的旧规则改了）；排计划、费曼宿主开场，"重试"认它们 | 同上 |
+| 归档一批会话：连同子对话、停 pi、不归档讨论；找不到的记个数；归档了的方向内会话从文件只读地看、不起 pi、要 pi 的命令 `session_not_found`；恢复连同子孙、丢掉只读副本 | 同上 |
+| 路由：`upgrade_study`、`restore_study_sessions`、没有步的 `start_study_session` 交给学习命令，错误码原样回；手机按 `local_only` 拒绝 | `packages/host/src/server/router.test.ts` |
+| 真实宿主经 WebSocket：别的级升级被拒；升级后档案、这一级的综合测验会话归档、排计划会话（`{ kind: "plan", level: "l2" }`）、下一步回到它；再升一次被拒；恢复别处的会话被拒、恢复这一个；ML2 那条的测验现在能点 | `packages/host/src/study.host.test.ts` |
+| 协议 37：新命令和结果、没有步的开始、计划和真的升级按钮；Swift 类型和往返夹具重新生成 | `packages/protocol/src/envelope.test.ts`、`remote.test.ts`；`apps/ios/AtriumKit/Tests/AtriumProtocolTests` |
+
+### pi 扩展
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| `--atrium-study` 的 `context: "none"`：只认测验、只认 `"none"`，别的值或别的用途整个标志当作没有；开场的 `details.study` 里不带它 | `packages/pi/src/study/study.test.ts`（"reads a quiz with no lesson…"）；契约 `study-quiz-none` |
+| 提示词：测验 5～10 题、一次一题、连续两题答不上就停、选择题用 `ask_user`、每题 10 分可部分给分、`of` 是 10×题数、漏洞带题号、再报覆盖；综合测验 10 题、`of` 100；费曼先读 `gaps` 里的那条、讲清楚才 `study_fix_gap`、讲不清不标并停下、讲解写进 `notes/`；排计划先读阶梯和没补的漏洞、提议并问"准备这样排，确认吗？"、确认后才调 `study_set_steps`、成功后两三句收尾停下、只可追加 `resources.md` | `packages/pi/src/study/study.test.ts`（ML3 的 5 条） |
+| 开场：分叉来的测验写明"上课的对话在上面"，不带上下文的写明按 `notes/` 和档案出题，开场标签带 `context="none"`；别的用途都没有这两句 | 同上（"tells a quiz with no lesson…"） |
+| pi 契约：`--fork <上课的文件> --session-id <id> --atrium-study=<测验>` 起的 pi 工具表是测验的两个、最后一条系统消息是测验段（复制来的上课那条也在，排在前面）、模型收到上课的轮、开场开一轮测验；不带上下文的测验开场文字；排计划只有 `study_set_steps` 和它的提示 | `packages/pi/src/contract/study.pi.test.ts`（夹具 `pi-1.5.0/study-quiz-fork`、`study-quiz-none`、`study-tools-plan`，faux 模型录的） |
+| 破坏检查 | `packages/host/test/study-loop-pi.break-check.json` 19 处全部检出 |
+
+### 界面
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 纯逻辑：测验挂的上课会话（这一步最近活动、没归档的上课会话）和它在跑时"开始测验"要等；这一级要归档的会话（不含讨论、随口问、别的级，连带子孙）；升级确认框的标题、正文、X、R、Z、按钮（中间一级、跳过的级、最后一级、没有会话和漏洞）；漏洞分组（这一级、之前带来的、之前已补）；费曼的记录（当前一级，来自这一级才带步）、已开的费曼会话；一级里归档的会话按步骤分组（子对话跟着父会话，环不死循环）；测验子对话复制来的条目数；学习工具的一行人话和小方块；会话名（测验 · 课名、费曼 · 漏洞、排计划 · 第 N 级，测验子对话不用复制来的第一条消息） | `packages/ui/src/study/loop.test.ts`；`progress.test.ts`（说明"测验 32/50 · 2 个漏洞""综合测验还有 N 个漏洞"、"学完"按钮、`studySessionTitle`）；`learning.test.ts`（升级确认的状态、`session_busy` 等说法） |
+| 步骤条（2A）：上课在跑时"开始测验"变淡、悬停"等上课这一轮结束"、轮结束后能点；跑费曼 + 进入下一步；综合测验有漏洞时跑费曼 + 升级；没排课时没有点阵、"还没排课"和"排计划"，排计划会话开着时"排计划中"、"回到会话"和绿点；最后一级"学完"；"即将开放"去掉 | `packages/ui/src/study/study-loop.browser.test.tsx`；`progress.browser.test.tsx`（ML2 的用例改成按钮能点、补测开测验） |
+| 升级确认框（4A）：标题、正文、默认勾上的归档、带来的漏洞、勾着时会停掉几个；取消勾以后发 `archiveSessions: false`、红字消失；"先不升"不发命令；主页当前步骤卡也能开；最后一级的"学完"版没有复选框和漏洞行 | `study-loop.browser.test.tsx` |
+| 升级后没排课的主页（6A）：排计划卡（带来的漏洞数）、"开始排计划"开 `{ kind: "plan", level }`、步骤是虚线占位；排计划会话开着时"回到会话"和绿点 | 同上 |
+| 漏洞（3B）：这一级 / 之前带来的两组和数、之前已补收成一行能展开；悬停"跑费曼"按当前一级开（带过来的不带步）、已有费曼会话时"回到费曼"打开它；已补的没有按钮 | 同上 |
+| 方向里归档的会话（5B）：阶梯展开一级有"会话 N 个 · 已归档"，按步骤列出、测验带分数，悬停"恢复"发 `restore_study_sessions`，点一行打开；没有归档的级不画；打开归档的会话没有输入框，换成"这个会话已归档"和"恢复" | 同上 |
+| 测验子对话的开头（1A）：来源条"测验 · 来自上课「课名」"和"回到上课"（打开上课会话）、复制来的轮收成"这节课的 N 轮"能展开、标签名"测验 · 课名"；没带上下文的测验来源行写"没带上课的上下文"、没有来源条 | 同上 |
+| 过程轨道上的学习工具（7C）：记下漏洞、报告的一行人话，记漏洞的节点是 `--attn` 小方块，点开是工具名、参数和"写到 第 N 级第 M 步 · 用途"；补上漏洞写档案里那个漏洞的字、节点是 `--ok` 小方块 | 同上 |
+
+### 端到端与泄漏
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 端到端（faux 模型，按 `--atrium-study` 的用途给回复：`studyReplies`）走完一级：讨论 `study_set_ladder`（2 级、第 1 级 1 节课）→ 上课 `study_report` → 开始测验（上课的子对话，`parent.by: "user"`，来源条和"这节课的 1 轮"，模型收到上课的回复、工具表有 `study_add_gap` 没有 `study_set_ladder`）→ 提问卡片答一题 → `study_add_gap` + `study_report` → 跑费曼 `study_fix_gap` → 进入下一步 → 速查表、过关项目、综合测验（留一个漏洞）→ 次要按钮"升级"、确认框写带过去 1 个漏洞、复选框默认勾上 → 排计划开场、`study_set_steps` → 步骤条第 2 级第 1 步；第 1 级 6 个会话都归档、讨论还在、档案里第 1 级 `done`、漏洞一个已补一个带过去 | `apps/desktop/e2e/study-loop.spec.ts` 第一条 |
+| 端到端：最后一级（第 1 级跳过）以后再测、速查表、项目、综合测验后"学完"，确认框"学完最后一级"，方向"已学完"、写了 `finishedAt`、不开排计划 | `apps/desktop/e2e/study-loop.spec.ts` 第二条 |
+| 测验子对话的面包屑按用途起名，不用复制来的上课第一条消息（真实模型检查时发现） | `packages/ui/src/children/children.browser.test.tsx`（"names a lesson's quiz by its use"） |
+| 泄漏：在跑的上课、它的测验子对话、费曼被升级一起归档（6 轮，每轮之后恢复、再跑、再升级，排计划会话归档）：pi 进程退出、controller、订阅、计时器、句柄回到基线；归档中断掉的开场不记错误 | `packages/host/src/sessions.leak.test.ts`（"study resources (SPEC-0008, ML3)"） |
+
+验证记录（2026-11-09）：
+
+- `pnpm check` 通过（格式、lint 含 JSDoc、类型、knip、`boundary --all`、iOS 检查）。
+- `pnpm test`：单元 4938/4938（262 个文件），Swift AtriumKit 475/475；宿主层 254/254；UI 1259/1259（之后又加了面包屑 1 条，children 文件 23/23）；leak（vitest）24/24（含新的升级归档泄漏测试）。
+- 破坏检查：`study-loop-host.break-check.json` 35/35、`study-loop-ui.break-check.json` 26/26、`study-loop-pi.break-check.json` 19/19，全部检出（宿主首轮漏 3 处：`HOST_OPENED` 的用例只看了直接开的路径，补了"重试"的断言；挑最新上课会话的用例三个文件时间太近，改成显式设时间；"已归档的跳过"只省事、行为不变，去掉了这一条）。
+- 变异（增量）：`progress-rules.ts` 91.63%，`study-commands.ts` 83.86%；UI 的 `study/loop.ts` 89.38%、`study/progress.ts` 91.46%（UI 那次跑在 `loop.ts` 最后一次只改 lint 的修改之前）。`session-manager.ts` 的改动由破坏检查守，没跑变异（整组太慢）。
+- e2e：`study-loop.spec.ts` 2/2、`study.spec.ts` 2/2 通过。整套 e2e 误跑了一遍（命令过滤没生效，含 `@perf`、`@package`，没有执行 `pnpm package`）：93 过 6 失败；其中 `app.spec.ts`"gives the page no Node access…"（桥上多了 `openTerminal` 等，终端那次合并留下的）和 `children.spec.ts`"forks a child into a new worktree…"在 `main`（ec9a3d0）上同样失败，和本改动无关；`status-bar.spec.ts` 在单跑时通过；`changes.perf`、两条 `@package` 是没打包、性能门槛的，不属于这次。
+- 真实模型检查见 SPEC-0008"ML3 定的细节 · 真实模型检查"。
+
+- 界面（UI 分支）：`pnpm test:ui` 1259/1259（69 个文件，含新文件 `study-loop.browser.test.tsx` 17 条）；单元 `packages/ui` + `packages/client` 890/890（含 `loop.test.ts` 18 条）。破坏检查 `packages/host/test/study-loop-ui.break-check.json` 25/25 检出（首轮漏 1 处：确认框"会停掉"一行在取消勾以后还显示，原断言用了 `not.toHaveTextContent`，它是整段比对、永远通过，改成比对整段文字后检出）。变异 `ui` 组 `study/loop.ts` 89.38%、`study/progress.ts` 91.46%（合计 90.16%）。明暗截图对照原型（`/private/tmp/claude-501/atrium-ml3-real/shots/ui-*.png`）。
+
+### 三方评审后修（2026-11-09，gpt-6-astra、grok-4.7、Claude；用户定 A～E）
+
+| 行为 | 测试 |
+|---|---|
+| `study_set_steps` 只写排计划会话记录的那一级；不是当前一级（旧的、恢复的排计划）`study_not_allowed`，文件不动 | `progress-rules.test.ts`（"writes only the level the plan session is recorded at"）；`study-tools.test.ts`（"writes a plan session's lessons only at the level"） |
+| "没有课"按没有课步骤算：只剩速查表这几步的一级给"排计划"，`study_set_steps` 把课写在前面、留着原来的几步（id 不重用） | `progress-rules.test.ts`（"a current level with no lessons yet"、"plans a level hand-edited down"）；界面 `direction-home.tsx`、`step-strip.tsx` 的占位由破坏检查守 |
+| 已学完的方向宿主拒绝手动标记和撤回（步骤、漏洞都 `study_mark_refused`）；主页没有"···"、勾和"撤回" | `progress-rules.test.ts`（"refuses marks and their undos in a finished direction"）；`study-loop.browser.test.tsx`（"offers no manual mark or undo"） |
+| 升级时这一级已有没归档的排计划会话就打开它，不开第二个 | `study-commands.test.ts`（"opens the plan session of the next level open already"） |
+| 测验分叉占住上课：查过以后占住，到测验的 pi 读完上课文件为止；占着时上课的消息不交给 pi（停止过、排队暂停的也照样在放开后发）、第二个测验 `session_busy`；没起 pi 的上课等测验的 pi 起来再起；`usageAfter` 是复制的最后一条；"会话被占着"含在停止 | `session-manager.test.ts`（"holds the lesson from the busy check…"、"holds a lesson with no pi…"） |
+| 上课文件找不到、读不了：退回不带上下文的测验（没有 `parent`、`context: "none"`、不 `--fork`）；日志只有会话 id 和错误码，没有路径 | `session-manager.test.ts`（"…when the lesson's file is gone, logging ids and codes only"） |
+| 分叉没跑过的测验重启后从上课文件再分叉（同样占住）；上课文件没了就不带上下文起；`forget` 清掉分叉来源 | `session-manager.test.ts`（"forks a quiz whose pi never started…"）；`agent-launch.test.ts`（"tells a quiz with no lesson's conversation so"） |
+| 停止丢掉的开场：同一次宿主运行里"重试"再发 | `session-manager.test.ts`（"sends the start again after a stop dropped it"） |
+| 一棵树里一个归档失败：其余照样归档、从布局去掉，`notArchived` 按会话数 | `session-manager.test.ts`（"archives the rest of a tree when one of it cannot be"） |
+| 恢复（A）：恢复子对话连同归档的祖先；恢复父会话只带回同一次归档的子孙（`archivedWith`），之前单独归档的不回来；恢复先等进行中的归档 | `child-tree.test.ts`（`restoreSet`）；`session-catalog.test.ts`（"records what a session was archived with"）；`session-manager.test.ts`（"restores a child with its archived lesson…"） |
+| 归档了的、正在归档的会话调学习工具 `study_not_allowed` | `study-tools.test.ts`（`shelved`）；`session-manager.test.ts`（"tells whether a session is being archived"，`main.ts` 用它） |
+| 宿主开的学习会话不自动起标题（B） | `session-manager.test.ts`（"gives no title to a session the host opened for a use"） |
+| 会话名（B）：上课 / 测验"· 课名"、速查表 / 过关项目 / 综合测验 / 排计划"· 第 N 级"、费曼"· 漏洞前段"，不用第一条消息；讨论、随口问照旧；有名字用名字 | `progress.test.ts`（`studySessionTitle`）；`loop.test.ts`（`loopSessionName`）；`children.browser.test.tsx`、`progress.browser.test.tsx`、`study-loop.browser.test.tsx` 的标签和列表 |
+| 升级一步的名字按后面第一个没跳过的级，没有就"学完最后一级"；已学完的方向显示最后学完的一级 | `progress.test.ts`（"names the upgrade by the next level not skipped"、"shows a finished direction's last level learnt"）；`study-loop.browser.test.tsx`（步骤条、卡片、步骤行） |
+| 开始测验 / 补测变淡（C）：只看这个方向的会话；界面开着上课会话时在停止、压缩、重启、有排队也变淡；宿主回 `session_busy` 时写"等上课这一轮结束" | `loop.test.ts`（"waits while the lesson shown here stops…"）；`study-loop.browser.test.tsx`（"only for this direction's lesson"、"while the lesson shown here stops"、"fades 补测"）；`learning.test.ts` |
+| "回到费曼"和宿主一样按（用途、级、步、漏洞）对上 | `loop.test.ts`（"finds the Feynman session open for a gap's start"） |
+| 之前几级没归档的会话列在"其他会话" | `study-loop.browser.test.tsx`（"lists sessions of an earlier level"） |
+| 已归档的会话"恢复"键盘能到 | `study-loop.browser.test.tsx`（"reaches an archived session's 恢复 by the keyboard"） |
+| 测验子对话：较早的没加载、显示的里没有测验开场时全部收起 | `loop.test.ts`（"are all before the quiz started…"） |
+| 提示词（D）：选择题一律提问卡片、答错当场讲；排计划除了追加 `resources.md` 不建不改文件；上课不建探查文件；不对学生说内部 id；契约夹具重录 | `study.test.ts`；`study.pi.test.ts`（faux 夹具重录） |
+| 泄漏：开场的记账、分叉来源、占住都算资源（`CountedMap`），升级归档几轮后都是 0 | `resources.test.ts`（`CountedMap`）；`sessions.leak.test.ts`（"study resources"） |
+| 破坏检查 | `study-loop-host.break-check.json`、`study-loop-ui.break-check.json`、`study-loop-pi.break-check.json`（数字见验证记录） |
+
+验证记录（2026-11-10，评审后修）：
+
+- `pnpm check` 通过。`pnpm test`：单元 4965/4965（262 个文件）、Swift AtriumKit 475/475。同一轮之前一次在机器忙时跑出 33 个超时（git、登录 shell、errors 脚本等，单跑全过，第二次整跑全过）。宿主层 254/254；UI 1268/1268；leak（vitest）24/24、e2e 泄漏 12/12；e2e `study-loop.spec.ts` + `study.spec.ts` 4/4；学习契约 `study.pi.test.ts` 9/9（夹具按新提示词重录）。
+- 破坏检查：宿主 59/59、UI 42/42、pi 23/23 全部检出（首轮宿主漏 7、UI 漏 3：树里归档失败只数了一个、占住和 `ensureRunning` 的等待、上课没有文件的再分叉、`forget` 清分叉来源、不自动起标题、UI 三条用例改了名；各补了断言或改了用例；只守控制器的那层占住〔挡宿主自己排队和通知〕没有能单独抓住它的用例，删掉了这一条，记在这里）。
+- 变异（增量）：`progress-rules.ts` 92.40%、`study-commands.ts` 84.69%、`ui` 组 `study/loop.ts` 100%、`study/progress.ts` 92.07%（合计 96.49%）。`session-manager.ts`、`child-tree.ts` 的改动由破坏检查守，没跑变异。
+- "会话被占着"含在停止（`control.stopping`）：在跑的会话停止时 `busy` 一般还在，没有单独抓住这一项的用例。
+- 真实模型检查见 SPEC-0008"ML3 定的细节 · 评审修完后的第二次真实模型检查"。
+
+## 学习模式 ML4：首页与演示接进学习（SPEC-0008"ML4 定的细节"，2026-11-10）
+
+继续卡、方向卡片、已归档的方向、方向的演示目录 `visuals/`、方向主页的档案、方向里的查看标签和演示预览；界面按原型 `study-home-prototype.html` 的 1C 2A 3A 4A 5A 6A。协议 38 → 39（实现时按 37 → 38，合并 main 时任务图已占 38，顺延）。
+
+### 宿主与协议
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 协议 39：`list_dir`、`read_file` 的 `workspaceId` 认方向 id、不认对话；`resolve_visual` 和 `visual_changed` 恰好带 `sessionId`、`directionId` 中的一个；Swift 类型和往返夹具重新生成 | `packages/protocol/src/envelope.test.ts`、`visuals.test.ts`、`remote.test.ts`；`pnpm protocol:swift --check` |
+| 方向里会话的演示：相对路径按方向现在的目录算、记录里旧位置下的绝对路径换算过去、现在位置的绝对路径照旧、只换前缀（旧位置旁边的同名前缀、旧位置下演示目录外的都拒绝）；`visuals/` 是链接（哪怕指向方向里）拒绝、方向自己的位置检查不过拒绝、`visuals/` 还没建是 `visual_missing`、是文件拒绝 | `packages/host/src/visuals/visual-file.test.ts`（"a direction's visuals"）；`visual-place.test.ts`（"in a direction"） |
+| 按方向 resolve：只认 `visuals/` 下一层的 `.html`，更深、绝对路径、`..`、方向外都 `visual_outside`；未知方向 `direction_not_found`；同一文件按会话和按方向令牌不同；`visual_changed` 带 `directionId` 只发给按方向 resolve 的连接；`visuals/` 没建时从方向目录监视、建好后照常；方向位置检查不过时页面 404；连接断开后令牌和监视都放掉 | `packages/host/src/visuals/visual-service.test.ts`（"a direction's visuals, for its viewer tabs"） |
+| 读方向的文件：根目录不列点文件、不问 git（家目录是忽略 `*` 的仓库也照样列出）、`notes/` 不问 git、`lab/` 按它自己的仓库忽略；路径检查同工作区；未知方向 `direction_not_found`；方向位置检查不过 `learning_dir_unsafe`，打开以后再查一次；日志只有方向 id 和错误种类 | `packages/host/src/files/workspace-files.test.ts`（"WorkspaceFiles in a learning direction"） |
+| 方向位置检查：学习目录或 `Archive/` 下一层的真目录；更深、链接、文件、不存在、`Archive/` 或学习目录是链接都不行 | `packages/host/src/study/directions.test.ts`（"directionPlaceSafe"） |
+| 路由：按方向的 `resolve_visual` 交给 `resolveForDirection`；手机发带方向 id 的 `list_dir`、`read_file`、`resolve_visual` 都 `local_only` 且什么都不跑 | `packages/host/src/server/router.test.ts` |
+| 方向会话的 `--atrium-visuals` 带 `relative: "visuals"` | `packages/host/src/sessions/session-manager.test.ts`（"a study direction's visuals go in its visuals/"） |
+| 新方向 `AGENTS.md` 有"Visuals"一节，两条规则和上课、费曼提示一字不差 | `packages/host/src/study/direction-creator.test.ts` |
+| 真实宿主：方向归档后老会话的相对、旧位置绝对路径都 resolve 成同一个令牌，按方向的令牌不同、页面能取；归档方向的档案和笔记能读；回传 `direction_archived`；恢复后照常；`visuals/` 换成链接后两种 resolve 都 `visual_outside`；方向目录换成链接 `learning_dir_unsafe`；方向里归档的会话回传 `session_not_found` | `packages/host/src/study.host.test.ts`（"a direction's files and visuals through a real host"） |
+
+### pi 扩展
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| `--atrium-visuals` 的 `relative`：只认 `"visuals"`；方向的写法让模型写进工作目录的 `visuals/`、引用写相对路径、不提绝对目录，规则部分和普通会话一样 | `packages/pi/src/visuals/visuals.test.ts` |
+| 提示词：所有用途都有"不往方向目录外建、改文件，含 /tmp"；上课、费曼有两条演示规则和"以 AGENTS.md 为准"；测验、综合测验写明不做演示；别的用途没有演示规则 | `packages/pi/src/study/study.test.ts`（ML4 的 2 条） |
+| 开场编号：级按阶梯位置（跳过的也算）、步按这一级的位置；步不在时只有级；文件读不了、级不在时没有；上课、费曼的开场带"第 N 级第 M 步"和 `visuals/N-MM-<short-name>.html`，测验没有；扩展读不到进度文件时照常开场 | 同上（"numbers a level…"、"gives the lesson's…kickoff"、"reads the progress…"） |
+| pi 契约（faux 模型，夹具 `pi-1.5.0/study-lesson-visuals`、`study-quiz-visuals`，学习的其他 7 份重录）：方向里的上课收到带编号的开场、两条规则、不往外写的规则、方向写法的演示说明；测验收到"不做演示"、没有演示规则 | `packages/pi/src/contract/study.pi.test.ts` |
+
+### 界面
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 纯逻辑：继续卡各状态（可开始、回到会话和在跑、待升级、学完最后一级、已学完、讨论中、档案读不出来、`newer`、还没排课、排计划中、改名后的名字）；"上次"一行（最近活动、没归档、测验和综合测验带分数、别的方向的不算）；方向卡片各状态和点阵、待回答盖过在跑；已归档的状态和顺序 | `packages/ui/src/study/home-view.test.ts` |
+| 纯逻辑：档案的演示按级分组（新的级在前、按步再按名）、对不上的放最后；文件的固定顺序、自己放的、没有 `visuals/`；方向里的演示路径；方向会话的路径（相对、现在的绝对、旧位置的绝对、出界） | `packages/ui/src/study/archive.test.ts` |
+| 方向笔记里的 `..`：链接留给打开函数规整、出界不显示成链接；图片按文档目录规整、出界不读；工作区照旧拒绝 | `packages/ui/src/chat/reply-file-target.test.ts`、`reply-image-source.test.ts` |
+| 继续卡（1C）：眉题、大字、点阵、"开始上课"先开会话再进方向、"上次"一行；回到会话带绿点；"进入下一步"留在首页；"学完"进主页弹确认框；`session_busy` 时卡片上方"等上课这一轮结束"、按钮恢复；只能打开的方向按主按钮画；没打开过不画 | `packages/ui/src/study/study-home.browser.test.tsx` |
+| 方向卡片（2A）和已归档（3A）：在跑圆点、待回答小标、点阵、档案读不出来；归档列表带状态、"恢复" | 同上；`study.browser.test.tsx`（ML1、ML2 的用例改成新写法） |
+| 档案（4A）、演示预览（5A）、查看标签（6A）：分组和顺序；点演示开查看标签、默认预览、"在这里点的不会发到对话"、没有"在浏览器打开"、没有卡片标题行、步骤条还在、主页标签不选中；切到源码；⌘W 回主页；笔记默认预览、`../visuals/` 链接打开演示、出界的不是链接、宿主收不到 `..` | 同上 |
+| 查看标签里的演示发不出消息：点了也回"refused" | `packages/ui/src/chat/visual-card.browser.test.tsx`（"refuses every clicked message of a direction's demo"） |
+
+### 端到端与泄漏
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 从档案打开演示：在沙箱里（`sandbox="allow-scripts"`、`atrium-visual://` 地址）、点了 `sendMessage` 得到 `false`、没有会话、pi 没起；笔记的 `../visuals/` 链接打开同一个查看标签 | `apps/desktop/e2e/study-home.spec.ts` 第一条 |
+| 泄漏（界面）：反复开关方向里的演示（渲染、切源码）和笔记预览，没有脱离文档的 DOM；故意在演示预览里留引用时检出 | `apps/desktop/e2e/study-home.spec.ts`（`@leak`） |
+| 泄漏（宿主）：反复开窗口读方向的档案、笔记、演示（含还没有的），断开后演示的监视回到 0、资源计数和 Node 的文件监视回到基线；故意不在断开时放掉时检出 | `packages/host/src/visuals.leak.test.ts` |
+
+### 三方审查后的修复（2026-11-10）
+
+审查报告：Astra、Grok 4.7、Claude 三份；修的 14 项见 SPEC-0008"ML4 定的细节"里标"审查后"的各条。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 演示认 `visuals/`、`.html` 不分大小写：`Visuals/a.HTML` 照样是演示、照样不给"在浏览器打开"和 ⌘O；`visuals/` 下任何深度、任何大小写都不给浏览器；`lab/` 的 html 照样给 | `packages/ui/src/study/archive.test.ts`（"any case"两条）；`study-home.browser.test.tsx`（"renders a demo a note names in another case"） |
+| 桌面端主进程不把方向演示交给浏览器：路上一层叫 `visuals`（不分大小写）、上一层有 `.atrium-study.json` 的拒绝，工作区的 `visuals/`、方向的 `lab/` 照开；相对路径、别的扩展名、目录、链接、不存在的拒绝 | `apps/desktop/src/main/browsable.test.ts` |
+| `lab/` 认 git 忽略不分大小写（`Lab/`） | `packages/host/src/files/workspace-files.test.ts`（"a lab folder named in another case"） |
+| 打开以后再查：`visuals/` 本身换成链接、方向目录换成链接（换了不换回）、方向目录查完换成链接打开后又换回来，按会话 resolve 和每次 `readVisual`（`GET /visual/…`）都 `visual_outside` | `packages/host/src/visuals/visual-file.test.ts`（三条 swap） |
+| 读方向文件时方向目录拼路径前换成链接、再查前换回来：`learning_dir_unsafe` | `packages/host/src/files/workspace-files.test.ts`（"swapped back before the check again"） |
+| 方向里开着查看标签时，首页的"打开 方向名"显示主页、"回到会话"显示那个本来就是当前的会话 | `packages/ui/src/study/study-home.browser.test.tsx`（"over a viewer tab left open"两条） |
+| 方向在归档、恢复途中读失败的查看标签，方向列表换了目录后再读一次 | 同上（"reads a file again once the direction is where the list says now"） |
+| pi 读进度文件：按字节 1 MiB 正好能读、多字节超了不读、多一个字节不读、3 GiB 的稀疏文件按大小拒绝不读、链接不跟随 | `packages/pi/src/study/study.test.ts`（"reads a progress file…"、"does not follow…"） |
+| 档案的演示组：`visuals/` 列不出来写"读不了演示目录"、被截断写"还有更多，没有列出" | `packages/ui/src/study/study-home.browser.test.tsx`（"demos could not be listed"、"were cut"） |
+| `newer` 且当前一级还没排课：继续卡写只能看的说明、没有"上次"、没有按钮；方向卡片"第 N 级 · 还没排课 · 只能看" | `packages/ui/src/study/home-view.test.ts`（两条） |
+| 方向主页：档案读不出来不标"讨论中"、说明行写读不出来的原因 | `packages/ui/src/study/progress.browser.test.tsx`（"no longer calls a direction…"） |
+| 提示词：上课"只写哪些文件"包括 `visuals/` 的演示；上课、费曼有"先写文件再引用"，别的用途没有；测验、综合测验不注入通用演示说明（别的用途照旧）；随口问带 `kind: "ask"` 的 `--atrium-study`，只有两句（含不往方向外写）、没有工具、没有开场，别的写法读成没有 | `packages/pi/src/study/study.test.ts`、`packages/pi/src/visuals/visuals.test.ts`；`packages/host/src/sessions/agent-launch.test.ts`、`session-manager.test.ts`（随口问的参数）；pi 契约 `study-ask`（新夹具）、`study-quiz-visuals`、`study-tools-none`（重录）、`study-lesson-visuals` |
+| `release_visual`：协议形状（恰好一个来源、路径非空）、手机 `local_only`；客户端最后一处放开才发、按来源发、没连接时不出错；宿主只停这个连接对这个来源和路径的监视、别的连接在看时留着令牌、还在路上的 resolve 遇到放开不加监视、等着出现的也停 | `packages/protocol/src/envelope.test.ts`；`packages/host/src/server/remote-policy.test.ts`、`router.test.ts`；`packages/client/src/atrium-client.test.ts`；`packages/host/src/visuals/visual-service.test.ts`（"letting go of a visual"）；Swift 往返夹具 |
+| 泄漏（宿主）：同一个窗口不断线，反复开关方向的演示（含还没有的），关掉就回到 0 个监视、令牌 404，资源计数和 Node 的文件监视回到基线 | `packages/host/src/visuals.leak.test.ts`（"as soon as its tab closes"） |
+| e2e：方向里先开着一节上课，再从档案打开演示，用窗口原生的按下点（`pressInWindow`，和 MV1 的一样，主进程看得到；Playwright 的点击主进程看不到，会被当成没按过而拒绝，测不出东西）得到 `false`、pi 没再收到请求、上课里没有"来自演示"的消息；反向对照：把演示预览换成按方向当前会话的回传，这条失败（得到 `true`），还原后通过 | `apps/desktop/e2e/study-home.spec.ts` 第一条（改写）；`press-in-window.ts`（从 `visuals.spec.ts` 挪出来共用） |
+| 方向卡片的在跑圆点 `role="img"` | `packages/ui/src/study/study-home.browser.test.tsx`（"marks a direction…"） |
+
+验证记录（2026-11-10，未合并、待审查和验收）：
+
+- `pnpm check` 通过（格式、lint 含 JSDoc、类型、knip、`boundary --all` 未登记 0、iOS 检查含 `protocol:swift --check`）。
+- vitest：单元 5023/5023（264 个文件）；宿主层 256/256；UI 1281/1281（70 个文件）；leak 25/25（含新的 `visuals.leak.test.ts`）；之后又加了 visual-service 3 条，该文件 29/29。pi 项目 58 过 52 失败：失败的 19 个契约文件都是"no fixture … pi-1.5.0"，本机装的 pi 是 1.5.0，而仓库里这些用例的夹具只录到 1.3.0（`main` 上同样），和本改动无关、没重录；学习和演示的契约（`study.pi.test.ts`，含两份新夹具）通过。Swift AtriumKit 475/475（往返测试里的协议版本改成 38）。
+- e2e：`study-home.spec.ts` 2/2（含 `@leak`），以及 `visuals.spec.ts` 3、`visuals.leak.spec.ts` 1、`viewers.leak.spec.ts` 1、`study.spec.ts` 2、`study-loop.spec.ts` 2、`archive.spec.ts` 1，共 12/12。没跑整套 e2e，没跑 `@package`、`pnpm package`。界面泄漏的反向对照：在演示预览里故意留住节点，`@leak` 失败（27 个脱离的节点），还原后通过。
+- 破坏检查 `packages/host/test/study-home.break-check.json` 51 条全部检出（首轮 47 条里漏 1 条：`moved()` 对 `..` 的判断，补了用例；之后加的会话里"在查看标签里打开"、旧位置换算、`topOf` 三条都检出；visual-service 精简后一条改了写法重跑，检出）。
+- 变异（增量，只变这次改的文件）：visual-file 84.38%（改动行 91.18%）、visual-place 100%、pi visuals 100%、workspace-files 92.12%（改动行 96.36%）、directions 87.62%（改动行 94.74%）、pi study 95.36%（改动行 92.86%）、UI home-view 86.40%、archive 88.72%、reply-image-source 97.11%、reply-file-target 97.79%。**visual-service 77.89%（改动行 74.71%），低于 80%**：剩下的存活集中在从 `resolve` 挪进共用 `resolveIn` 的计数和去重代码（`mark.count`、`addLook` 的同一路径判断），ML2 记录里同样存活（当时 72.44%）；方向新加的分支（`topOf`、`owned` 规则、`locateDirection`）都已杀掉。
+- 真实模型检查见 SPEC-0008"ML4 定的细节 · 真实模型检查"；明暗截图对照原型在 `/private/tmp/claude-501/atrium-ml4-real/shots/compare/`。
+- 写在实现之后的测试（先见过失败的是在桩上或手工改坏代码后）：`study.host.test.ts` 的两条 ML4、路由的三条手机 `local_only`、`session-manager` 的方向参数、pi"扩展读进度"、两份 pi 契约场景、visual-card 的"查看标签不发"、`visuals.leak.test.ts`、e2e 两条、visual-file"现在位置的绝对路径"、study-home 里"会话的演示卡片和文件链接进查看标签"、visual-service 的 topOf、归档会话旧路径、两个会话各自地址三条；`home-view.ts` 先写了实现，再在桩上看到测试 12 条失败。
+
+验证记录（三方审查后的修复，2026-11-10，未合并、待用户验收）：
+
+- `pnpm check` 通过（格式、lint 含 JSDoc、类型、knip、`boundary --all` 未登记 0、iOS 检查含 `protocol:swift --check`）。
+- `pnpm test`：单元 5062/5062（265 个文件）＋ Swift 套件；`swift test --package-path apps/ios/AtriumKit` 475/475。宿主层 256/256，UI 1288/1288（70 个文件）。pi 项目 59 过 52 失败：52 条全是"no fixture … pi 1.5.0"（19 个契约文件，夹具只录到旧版本，`main` 上同样，和本改动无关），学习和演示的契约 12/12（含新的 `study-ask`）。
+- `pnpm test:leak`：Node 泄漏 26/26（含新加的"关掉就放"），e2e `@leak` 13/13。
+- e2e：`study-home`（非 leak）、`visuals` 3、`study` 2、`study-loop` 2、`archive` 1，共 9/9；挪了 `pressInWindow` 以后 `study-home`＋`visuals` 再跑 4/4。没跑整套 e2e、`@package`、`pnpm package`。
+- 破坏检查 `packages/host/test/study-home.break-check.json`：新加 37 条，首轮 36 条检出，漏的 1 条是 case 写错（把 `release_visual` 改成不存在的 `"remote"`，仍然不是 `"phone"`），改成 `"phone"` 后检出。原有 3 条（`asksGit` 两条、`again()` 一条）跟着改过的那行换了 `from`。整份 88 条全部检出。
+- 变异（增量，`--force`，只变改过的文件或行）：visual-service 全文件 83.33%（270/324），改动行 90.98%；visual-file 85.29%（改动行 92.86%）；`browsable.ts`（新）89.19%；pi visuals extension 100%；pi study.ts 93.72%（改动行 88.32%）、extension.ts 95.56%（改动行 95.65%，先是 77.78%，补了"进度文件是目录"一条、给三处等价变异写了原因）；UI archive 88.97%、home-view 87.20%；client 放开那几行 93.33%、protocol `ReleaseVisualCommand` 100%；宿主改动行（workspace-files、agent-launch、router 的几行）95.83%。宿主组整文件跑估 6 小时，停掉改成只变改动行。
+- 写在实现之后的测试：visual-service 的"只放这一个还在路上的 resolve""同一会话两种路径""拒绝的不监视"三条（为杀变异补的，一写就过）；pi 的"进度文件是目录"一条（同上）；`browsable.test.ts` 先见过的失败只是模块不存在，真正的检出靠破坏检查（三条都检出）；"进度文件是链接"那条在实现前因为函数不存在而"过"了，同样靠破坏检查（去掉 `O_NOFOLLOW` 检出）。其余各条都先跑见过因为对的原因失败。
 
 ## 在终端中打开；拿掉"交给终端"（2026-11-05）
 
@@ -981,7 +1313,7 @@ Opus 未确认硬性规范、安全或正确性违规；提示事务恢复分支
 | 客户端连接：握手、只认真的 welcome、拒绝原因且不重试、主动断开不重试、替换连接时忽略旧 socket、断线按退避重连（最后一档重复，连上后归零）、可关闭重连、心跳 ping 到下一次没应答就断开 | `packages/client/src/atrium-client.test.ts` | 已覆盖 |
 | 客户端命令：每条新的请求 id 和 trace；结果按 schema 校验；错误应答变成 `CommandError`；没有连接或断线时 `ConnectionLostError`、不重发；上报截断到 4 KB | atrium-client.test.ts | 已覆盖 |
 | 会话视图：订阅时创建、退订时释放；快照整体替换；事件按序应用，缺口、重复、换代都重新取快照；流式只复制改动的那一块；乐观显示的消息在确认、失败、被 extension 处理时移除；重连后重新订阅 | `packages/client/src/session-view.test.ts`、atrium-client.test.ts | M1.4 改为按轮，见"对话记录（M1.4）" |
-| 回复渲染：排得紧凑（行高 1.55、块之间 12px、列表项上下 2px，圆点在第一行中线）、GFM（表格、嵌套与任务列表、删除线）、无序列表的圆点自己画（5px、靠近文字，折行和文字对齐，有序列表不变，任务列表只有勾选框）、中文标点旁的加粗、`$$…$$` 与 `\(…\)` 公式而不认单个 `$`、Shiki 高亮与 diff、Mermaid、链接交给系统浏览器且不弹确认、`https` 图片直接显示而 `http` 图片变成链接、原始 HTML 按文字显示且不执行 | `packages/ui/src/chat/markdown.browser.test.tsx`、`markdown-transforms.test.ts` | 已覆盖 |
+| 回复渲染：排得紧凑（行高 1.55、块之间 12px、列表项上下 2px，圆点在第一行中线）、GFM（表格、嵌套与任务列表、删除线）、无序列表的圆点自己画（5px、靠近文字，折行和文字对齐，有序列表不变，任务列表只有勾选框）、中文标点旁的加粗、`$$…$$`、`\(…\)` 与 `$…$` 公式（价格、shell 变量仍当文字，见上方 2026-11-11 一节）、Shiki 高亮与 diff、Mermaid、链接交给系统浏览器且不弹确认、`https` 图片直接显示而 `http` 图片变成链接、原始 HTML 按文字显示且不执行 | `packages/ui/src/chat/markdown.browser.test.tsx`、`markdown-transforms.test.ts` | 已覆盖 |
 | 覆盖"回复渲染"全部范围的样例按真实节奏分片流式渲染，每一步都不出错，结束后与一次性渲染逐字节一致 | `packages/ui/src/chat/streaming.browser.test.tsx`（样例 `reply-showcase.md`） | 已覆盖 |
 | 平滑揭示：只放慢增长部分；每帧按积压量揭示、约 150 毫秒的时间常数；长时间停顿也只算 250 毫秒；不切断字形，未到齐的字符等到齐；结束时一次显示完 | `packages/ui/src/chat/text-reveal.test.ts`；基准 `text-reveal.bench.ts` | 已覆盖 |
 | 滚动跟随：停在底部时跟随；往上翻停止跟随并出现"回到底部"，有新内容时带圆点；点了回到底部并恢复跟随；下方变高（输入框、卡片）时仍在底部；最后一轮的过程展开、步骤详情打开、过程折叠时每一帧都在底部；不在底部时这些都不移动视窗 | `packages/ui/src/chat/follow-bottom.test.ts`、`chat.browser.test.tsx` | 已覆盖 |
@@ -2322,6 +2654,358 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 - 没有自动测试、靠验收看：抽屉里的 relay、手机名、版本和"重新配对"；忘掉 Mac 清理失败时的提示；新建进行中不能点"×"；新会话页的失败提示只显示本页发起的。
 - 审查里决定不改的：hunk 之间的上下文不展开（协议没有按版本取内容的命令，SPEC 已写明）；签名到期用 `Date.now`（按天显示，`Signing` 本身接受注入的时间，界面层不另做时钟）；`ios-brand-icons.mjs` 不进 `pnpm check`（要 Playwright 的浏览器）。
 
+## T2 路径隔离（SPEC-0006"路径隔离"、SPEC-0002"路径隔离"，2026-11-04，待验收）
+
+| 行为 | 测试 |
+|---|---|
+| 第一步按 pi `resolveToCwd` 解析：相对路径、`..`、绝对路径、开头的 `@`（只去一个）、`~` / `~/`（`~name` 不展开）、`file://`（含百分号转义）、各种 Unicode 空格 | `path-guard.test.ts` `resolveWritten` |
+| 第二步求真实路径：存在的穿链接、不存在的多级目录取最深存在的祖先、悬空链接按目标（含相对链接）、成环和无权限当算不出来 | `path-guard.test.ts` `realLocation` |
+| 第三步判定：放行 `./ok.txt`、`.github`、`.gitignore`、深处的 `x/.git/y`；拦 `..`、`@/tmp/x`、`~/x`、`file:///tmp/x`、名字以 cwd 开头的兄弟目录、经外部目录链接写新文件（任意深）、指向外部的文件链接和悬空链接、cwd 本身是链接、`.git`（目录、文件、不存在、大小写、经链接）、算不出来的路径 | `path-guard.test.ts` `checkWrite` |
+| 钩子：拦 `edit` / `write`、统一原因、不看 `read` / `bash` 和没有文本路径的调用、开关为假时不动；和 pi 的扩展接口对得上 | `path-guard.test.ts` `guardPaths` |
+| 真实 pi 加 faux 模型：被拦 `../outside-…`、`@<外部>/…`、`~/…`（HOME 设在目录外）、`file://…`、经外部目录链接写新文件、`.git/config`；模型读到原因；放行 `./ok.txt`；`.git/config` 内容不变 | `path-guard.pi.test.ts` "blocks a work child's writes…"、"keeps .git/config" |
+| 终端里的 pi（没有宿主的参数）、手动开的子对话（`isolated: false`）、没有这个字段的旧参数：钩子不动作，同样的写入全部落地 | `path-guard.pi.test.ts` "does nothing in …" |
+| 宿主算 `isolated`：agent 开的 `work`（含带上下文的、孙）为真；手动开的、带 `work` 记录的用户会话、`explore`、`advise`、主对话为假；写进 `--atrium-agent` | `agent-launch.test.ts` `agentSelf, isolated` |
+| 宿主层：用宿主算出的参数起真 pi，agent 开的 `work` 子对话写目录外被拦、目录内写成；手动开的都写成 | `agent-isolation.host.test.ts` |
+
+- 破坏检查：`packages/pi/src/task/path-guard.break-check.json`，31 处全部抓到（解析 6、真实路径 5、判定 6、钩子 5、扩展接线 5、宿主 5）。
+- 变异测试：`pnpm test:mutation pi --mutate=packages/pi/src/task/path-guard.ts`：92.93%（92 杀、7 活；活下来的是等价或只影响退出条件的变异，原因文字的一个随后补了字面断言）。
+- 没做：`bash` 里 `git -C` 等的拦截（SPEC-0006 要，留给 T4）；终端 pi 的"钩子不生效"由 `path-guard.pi.test.ts` 覆盖，没有另做 `fixtures` 录制（`unrecorded`，断言文件结果不断言 pi 流量）。
+
+## T4a 节点运行的 pi 扩展一侧（SPEC-0006"一个 agent 节点怎么跑""扩展与通道"，2026-11-05，待验收）
+
+`packages/pi/src/task/`：`schema.ts`（给 T4b 的接口）、`extension.ts`（`node_done`、`request_graph_change`、`/atrium-task`）、`words.ts`（给模型的话、各角色可用的工具）、`git-guard.ts`（bash 的 git 拦截）。契约测试用 `packages/pi/test/fake-task-host.ts` 当假宿主：只看 pi 的事件、回答通道请求，按 SPEC 判待结算的作废和结算，是 T4b 判定的参照。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| `--atrium-task` 只分会话种类和角色：节点（四种角色）、任务对话、都不是（缺参数、读不出、未知角色、带多余字段）；都不是时什么也不注册；参数不带身份 | `task/schema.test.ts`、`task/extension.test.ts`；`task-node.pi.test.ts` "who gets the node tools"（真 pi：五种情形下模型的工具里没有 `node_done` / `request_graph_change`） |
+| 请求信封、参数、回答、隐藏命令各自的 zod 校验：版本、未知操作、多余字段、超长、坏请求回 id；文字上限 | `task/schema.test.ts` |
+| `node_done` 单独调用：宿主收到请求，这一轮停住（不再请求模型），`agent_settled` 时待结算生效；`ok: false` 带 `reason` | `task-node.pi.test.ts` done-alone、done-gave-up |
+| 待结算作废：与别的工具同批（新的 `turn_start`）、之后插话（steer）、之后被停下、之后模型出错；各自结算为 `no_done` / `stopped` / `error`，不是 `node_done` | `task-node.pi.test.ts` done-with-others、done-then-steer、done-then-stop、done-then-error |
+| `request_graph_change` 单独调用停住这一轮；同批有别的工具同样作废 | `task-node.pi.test.ts` graph-change、graph-change-with-others |
+| 宿主的拒绝（`task_args_invalid`、`task_caller_invalid`）变成给模型的错误结果，不带 `terminate`，模型能改了再调；超长由扩展自己答，不问宿主；读不出的参数由扩展答 `task_bad_request` | `task-node.pi.test.ts` refused、wrong-caller、too-long；`task/extension.test.ts` |
+| 工具停下（abort）时清掉状态、发 `cancel`、工具失败；回答只认每个 id 的第一个，迟到的、读不出的不理 | `task-node.pi.test.ts` stopped-while-asking；`task/extension.test.ts` |
+| `nudge` 开新一轮，模型读到提醒；同 id 再发（含 pi 重启后）不再开；只对节点 | `task-node.pi.test.ts` nudge；`task/extension.test.ts` |
+| `resume` 把宿主的话包进外壳开新一轮（节点、任务对话都行），外壳标签在正文里被转义、宿主自己的引用外壳不动；`progress` 写一行不开轮、按 id 去重 | `task-node.pi.test.ts` resume、conversation；`task/words.test.ts`、`task/extension.test.ts` |
+| 节点按角色限制工具：`explore` / `advise` / `check` 只读表，`work` 全部（不含旧 `grep` / `find`），任何节点都没有 `agent_*`、`ask_parent`、`report_progress` | `task/words.test.ts`；`task-node.pi.test.ts` "a node's tools by role" |
+| 节点默认开路径隔离（`isolated` 可关）；agent 开的 `work` 子对话照旧 | `task/extension.test.ts`；`task-node.pi.test.ts` task-role-work |
+| bash 的 git 拦截：`git -C`、`--git-dir`、`--work-tree`（`=` 与空格两种）、`GIT_DIR=`、`GIT_WORK_TREE=`；引号、转义、相对路径、`~` / `$HOME` / `$PWD`、符号链接、`cd` / `pushd` 之后、`$(…)`、反引号、`sh -c`、`eval`、嵌套过深、无法判断的路径；`git commit -C HEAD` 不算；不在隔离里全部放行 | `task/git-guard.test.ts`；`task-node.pi.test.ts` "bash git outside"（真 pi、真 git：外部仓库没多出提交，`git status` 照跑，关隔离或不是任务会话时命令照跑） |
+
+- 破坏检查：`packages/pi/src/task/node.break-check.json`，59 处全部抓到（扩展 24、words 5、schema 3、git-guard 27）。
+- 变异测试：见汇报（`pnpm test:mutation pi --mutate=<文件>`）。
+- 没做：宿主一侧（T4b）：`TaskRunner`、调用方核对、待结算的真实判定、`--atrium-task` 的下发；任务对话的 `task_*` 工具（T6，`schema.ts` 里留了扩展位）。拦不住的 bash 写法见 security.md 路径隔离一条。
+
+## T4b 节点运行的宿主一侧（SPEC-0006"一个 agent 节点怎么跑""调度器""工作区"，SPEC-0003"哪些会话有这个工具"，2026-11-05，待验收）
+
+`packages/host/src/tasks/`：`runner.ts`（TaskRunner：每任务一个串行队列，执行 T4 范围内的动作）、`judge.ts`（按 pi 事件判待结算）、`channel.ts`（调用方核对、参数校验、回答）、`contract.ts` + `quote.ts`（契约拼装、外壳转义）、`commit.ts`（节点提交）、`task-workspaces.ts`（`ensure_workspace` 与加锁，用 T1 的创建器）、`task-service.ts`、`new-task.ts`；`sessions/task-sessions.ts` 与 `session-manager.ts` 的 `taskSessions`（节点会话的单独启动路径）、`agent-launch.ts` 的 `taskLaunchFlags`；`store/task-session-record.ts`（会话记录的 `task` 字段）；`dev/task-try.ts`（`pnpm task:try`）。测试用 `packages/testkit` faux 的新字段 `byConversation`（按对话的第一条用户消息挑回复，一个文件脚本化每个节点各自的 pi）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 三节点图 `explore → work → check` 跑到最后一个 agent 节点通过；可写节点的改动提交，提交带 `Atrium-Task: <taskId>/<node>/<attempt>`；check 的交接摘要记着它跑了什么；任务建的 worktree 起锁、结束解锁 | `node-run.host.test.ts` "runs explore, work and check" |
+| 按角色的工具：`explore` / `check` 只读白名单 + 三个节点工具，`work` 全部（无 `agent_*`）；节点不带 `--atrium-agent`、不是 agent 子对话 | `agent-launch.test.ts` `taskLaunchFlags`；`node-run.host.test.ts` "gives each node its own tools" |
+| 契约：做什么、怎样算完成、整张图（✓ / ← / 下一步 / 之后 / 由用户决定）、不归你做的（从图算）、上游最新一次 passed 的摘要（被打回重置的旁支不传旧摘要）、新 worktree 的环境提示、被打回的原因与上一次的摘要和提交、下一步名字；模型来源的文字（目标、结论、摘要、原因）套 `<atrium-quoted>`，外壳标签被转义，名字和"做什么"也转义 | `contract.test.ts`、`quote.test.ts`；`node-run.host.test.ts` "hands the upstream summary…as quoted data"、"puts the earlier summary and the reason into the contract of a node that was sent back" |
+| 批准改图后的新契约（`图已改…` + 新图 + 新的"不归你做的"） | `contract.test.ts` `graphChangedText`；`node-run.host.test.ts` "waits for a graph change…" |
+| 待结算由 pi 事件判定：`turn_start` 作废、`agent_end` 末条出错作废、`agent_settled` 带 `aborted` 作废（先看 `aborted`）、`auto_retry_end` 失败；结算为 done / graph_change / none / stopped / error | `judge.test.ts` |
+| `node_done` 与别的工具同批 → 作废（`node_done_void`），之后重新调用生效；不调 `node_done` → 提醒一次（`nudged`），再不调 → `failed(no_done)`；提醒只在这一轮结束后发 | `node-run.host.test.ts` "does not count a node_done that other tools…"、"reminds a node that did not call node_done once…" |
+| 调用方由宿主认定：别的会话、旧 attempt、节点不在 `running`（停了、等待、已结束）、已取消或结束的任务 → `task_caller_invalid`；空 summary / reason / suggestion → `task_args_invalid`（`params.field`）；任务不存在 → `task_not_found` | `channel.test.ts`；`node-run.host.test.ts` "refuses node_done from a session that is not the node's running one"（真 pi：模型读到拒绝，不记待结算） |
+| `request_graph_change`：这一轮结束不提醒、不提交、停 pi，节点 `waiting(graph_change)`；批准后在原会话里接着跑并提交 | `node-run.host.test.ts` "waits for a graph change without reminding or committing…" |
+| 节点用 `ask_user`：走 SPEC-0003 的问题卡，节点 `waiting(question)`，答了回 `running` 接着跑（节点不被"agent 子对话不能问"拒掉） | `node-run.host.test.ts` "lets a node ask the user with ask_user…" |
+| 兄弟失败：在跑的节点这一轮结束后 `held`（pi 停掉），重跑失败节点后 `held` 的自动在原会话接着跑；`gave_up`（`node_done({ ok: false })`）、`model_error`（pi 不重试的出错）、`crashed`（会话起不来）、`workspace`（worktree 建不出） | `node-run.host.test.ts` "fails a node that gives up, holds its sibling…"、"fails a node whose model call ends in an error…"、"starts the same attempt again after its session could not start…"、"fails a work node when the task's worktree cannot be made" |
+| 打回（直接喂 `human_sent_back`）后新 attempt 开新会话，契约里有上次的原因、摘要和提交 | `node-run.host.test.ts` "puts the earlier summary and the reason…" |
+| `start_node` 幂等：同一 attempt 会话起不来后重跑，接回已记录的会话，不开第二个 | `node-run.host.test.ts` "starts the same attempt again after its session could not start, without a second session"（读索引里该节点该 attempt 的记录数为 1） |
+| `commit_node` 幂等与不重复提交：HEAD 已带同样尾注就记下它；没改动不提交；另一 attempt 另提；提交走 `runSafeGit`（钩子、过滤器、fsmonitor 不跑，含读 HEAD 和 `diff`）、不签名、仓库没有作者时用 Atrium 的 | `commit.test.ts`；`node-run.host.test.ts` "finds the commit again after a replay that lost its event…" |
+| 宿主重启后接着跑：`recover` 重做丢了的动作（建 worktree、起节点、缺的提交），再送 `host_restarted`；跑着的节点收到"宿主重启了…"接着做 | `node-run.host.test.ts` "carries on after the host restarts…" |
+| （已被 T4 审查修复取代，见末尾"T4 审查修复"）可写节点的提交落定才 `passed`，任务结束在提交之后 | `scheduler.test.ts` "does not end the task until the last writing node's commit is settled"、"drops a commit that arrives after the task was cancelled" |
+| 节点会话不在用户的会话列表里 | `node-run.host.test.ts` "leaves no node session in the list the user sees" |
+| 泄漏：反复起停节点后 pi 进程、控制器、监听、定时器回到基线；宿主在节点跑着时关闭，runner 与所有 pi 都释放 | `node-run.leak.test.ts` |
+| `pnpm task:try`：参数、模型、图文件校验、任务 id 稳定、事件的输出、停下的条件与退出码；示例图合法 | `dev/task-try.test.ts` |
+| faux 新字段 `byConversation`：按对话的第一条用户消息挑回复、按对话里已有的助手消息数挑第几条（pi 重启后接着走） | `packages/testkit/src/faux/faux.pi.test.ts` |
+
+- 破坏检查：`packages/host/src/tasks/node-run.break-check.json` 34 条（补测试后只重跑了 contract 的 4 条）；`done` 后记 `committed` 的 3 条在 `tasks.break-check.json`，全部检出。
+- 变异测试：`pnpm test:mutation tasks`，见汇报；`runner.ts`、`task-workspaces.ts`、`task-service.ts`、`new-task.ts` 需要真实的 pi 和 git，由宿主层测试覆盖，没放进变异层（变异测试跑的是不带 `.host` 的单元测试）。
+- 没做（留给后面的步骤）：`merge`、`ask_archive`、`progress_line`、`wake_task_conversation`、`notify` 只记一条 debug 日志不执行（T5、T6、T7）；`node_done` 那一轮在宿主重启前已结束、会话文件里能看到 `terminate` 结果的结算（T9 的完整重启流程）；节点对话里用户亲手停下、插话的宿主层用例（需要 T8 的界面命令，判定本身由 `judge.test.ts` 覆盖）。
+
+## T4 审查修复（三路审查 Codex / Grok / Claude 对 T4 的发现，2026-11-05，待验收）
+
+按审查意见的字母编号。破坏检查：`packages/host/src/tasks/review-fixes.break-check.json`（宿主 36 条）、`packages/pi/src/task/review-fixes.break-check.json`（守卫 10 条），`tasks.break-check.json` 因提交落定后才 `passed` 改了 1 条、删了 2 条；`node-run.break-check.json` 有 6 条的 `from` 随代码改了（全部重跑检出）。三组均已重跑，全部检出。变异测试（只跑改动的行）：`tasks` 组 250 个变异 98.09%，`pi` 组 git-guard.ts 81.84%（补测试前，补后未重跑），`git` 组 safe-git.ts 100%，`host` 组 agent-launch.ts 84.62%。
+
+| 行为 | 测试 |
+|---|---|
+| A1/A2/A4 宿主的 git 不跑仓库配置里的命令：`diff.external`（`diff.trustExitCode`）、`log.showSignature` + 已签名 HEAD 的 `gpg.program`；`diff --cached --quiet` 只有退出码 1 算有暂存，其他非零报错；安全参数多了 `log.showSignature` / `merge.verifySignatures` / `commit.gpgsign` | `tasks/commit.test.ts` "does not run a diff driver…"、"does not run gpg.program…"、"fails on any exit code but 1…"；`workspaces/safe-git.test.ts`（参数表） |
+| A3 `core.worktree` 劫持：提交前核对顶层目录，不是节点 worktree 就拒绝且不碰外面；每条提交命令带 `--work-tree` | `commit.test.ts` "refuses to commit when the worktree's configuration points core.worktree elsewhere…"、"pins every command to the worktree…" |
+| A3/H bash 守卫：改 `core.worktree`、`extensions.worktreeConfig`、`-c core.worktree=`、`GIT_CONFIG_KEY_n`、`git config --file` 越界；`$'…'`、`${X:-…}`、`$@`；`builtin`/`command cd`、`if`/`{ }`/循环里的 `cd`；子 shell 的 `cd` 不外泄、可能没发生的 `cd` 不覆盖；读标准输入的 shell | `packages/pi/src/task/git-guard.test.ts` 新增 4 组 "what the T4 review found it let through"；`cd OUT && cd ../work/sub` 一条改为拦（第二个 `cd` 可能失败） |
+| B/C 提交标记：`commitPending` 区分"还没提交"和"查过没有改动"（`commit_checked`）；`host_restarted` 只对这一个 run 重发 `commit_node`；已结束任务 `recover` 再解锁 | `scheduler.test.ts`（"does not end the task until…"、"passes a writing node that changed nothing…"、"asks again for a pending commit…"）；`runner.test.ts` "lets go of the worktree's lock again…"；`node-run.host.test.ts` "finds the commit again after a replay that lost its event…" |
+| J 提交失败 → `failed(commit)`，后继不起、任务不结束；重跑只重试提交（同一 attempt、不开新会话），成功后图照常往下走 | `scheduler.test.ts` "fails a writing node whose commit failed…"、"retries only the commit…"、"ignores a node's turn ending…"；`channel.test.ts` "refuses a node that waits for its commit"；`review-fixes.host.test.ts` "fails the node with `commit`…"（`index.lock` 让 `git add` 失败一次，删掉后重跑） |
+| D1 同批 `node_done` 后又改图 → `node_done` 作废；放行、停下后继续时清掉待结算 | `judge.test.ts` "voids a node_done when a graph change is accepted…"；`scheduler.test.ts` "drops a waiting node_done…"、"forgets a waiting node_done when a stopped node goes on"；`review-fixes.host.test.ts` "does not pass a node on a node_done that a graph-change request…" |
+| D2 `node_done` 已生效的节点被要求 hold 时照常通过；judge 的决定和 `stop_node` 读状态在同一个队列 | `scheduler.test.ts` "passes a node whose node_done stands instead of holding it"；`review-fixes.host.test.ts` "passes a node whose node_done stands when a pause…" |
+| E1 `crashed` 去重按次 | `runner.test.ts` "reports a second crash of the same node after a rerun" |
+| E2 pi 中途崩溃被控制器重启后，宿主作废那一轮并发"宿主重启了" | `review-fixes.host.test.ts` "tells a node its pi was restarted after a crash…"（`SIGKILL` 节点的 pi） |
+| F 契约没送到就补发契约（`contract_sent` 标记） | `scheduler.test.ts` "records that the contract was sent once…"；`review-fixes.host.test.ts` "sends the contract, not a line about carrying on…" |
+| G 新建 worktree 那一行：explore 先跑过也有；单个 work 节点第二次 attempt 没有 | `review-fixes.host.test.ts` "tells the first work node the worktree is new…"、"does not tell a work node's second attempt…" |
+| I 节点 id 的格式与长度；契约里写 id 的地方都转义；`SHELL_TAG` 认空白、零宽字符、全角 `＜` | `graph-validator.test.ts`；`contract.test.ts` "escapes node ids wherever they are written…"；`quote.test.ts` |
+| K 停下的节点在对话里又运行 → `node_resumed` 先记再接受调用 | `review-fixes.host.test.ts` "lets a node the user stopped go on…" |
+| L 调用方校验、记待结算、judge 记账在同一个队列步骤 | `runner.test.ts` "takes a node_done at once after a question was answered…"（假的会话层，信号连着到） |
+| M 关宿主时取消在途的 `prompt` / `command`（带 `AbortSignal`） | `runner.test.ts` "closes while a prompt is stuck…" |
+| N 刚发出 prompt / nudge / resume、`agent_start` 还没到的 15 秒内，`stop_node(after_turn)` 等这一轮 | `runner.test.ts` "does not hold a node right after it was sent a turn that has not begun…"、"holds a node at once when no turn is going…" |
+| O 带 `task` 字段的会话不用 agent 启动参数，无启动路径的直接报错 | `sessions/agent-launch.test.ts` "sessionLaunchFlags…" |
+| P 标记指向的工作区没有 base commit 时报错不重建；`createFrom` 带取消信号；已取消不记 `workspace_created` | `tasks/task-workspaces.test.ts` |
+
+- 没有单独的测试：结束了的任务释放节点上下文（P，只回收内存，源码里按 `Stryker disable` 标注）；`merge.<名>.driver`（T5）。
+- 没做：协议包里没有失败原因枚举的镜像，`commit` 这个新原因留给 T5 的协议工作。
+
+## T5 human 节点与合并（SPEC-0006"human 节点""合并""归档""协议（给 UI）"，2026-11-05，待验收）
+
+合并、冲突、abort 失败都用真的 git 仓库（testkit `createGitScene`）；合并测试的 git 运行器缺 `cwd` 就抛错，变异体改掉 `cwd` 也不会合并进本仓库。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 合并检查顺序：worktree 脏（含未跟踪）、已合并 / 没改动直接 `merged`（主目录脏或不在主干也一样）、主目录脏、主目录不在主干（含游离 HEAD、项目没有主干）；处理后能合并；成功是 `--no-ff` 的合并提交、不推送 | `tasks/merge.test.ts` |
+| 冲突：`merge --abort`，主目录回到合并前的提交且干净，没有残留的合并状态，冲突文件列表；改好后能合并；`abort` 退出码失败、abort 后留下文件、abort 后提交跑偏 → `merge_abort_failed`；git 自己拒绝 → `merge_git_failed`、主目录没动 | `merge.test.ts` |
+| 合并驱动不跑：配置里的驱动被清空，文件变冲突（对照：裸 git 会跑）；`merge-tree`（MergeInspector）同样不跑（原有问题）；驱动名带 `=` 拒绝；钩子不跑；`core.worktree` 把主目录或任务 worktree 引走 → `merge_git_failed`；仓库没配作者时用 Atrium 的作者；合并提交号而非名字；关宿主的信号在合并前抛出 | `merge.test.ts`、`workspaces/safe-git.test.ts`、`workspaces/merge-inspector.test.ts`、`tasks/task-merge.host.test.ts` |
+| 宿主层（真实宿主 + faux pi）：脏 worktree / 脏主目录 / 不在主干分别挡住、处理后合并成功；冲突后主目录原样、处理后合并；已合并不重复合并；配置的合并驱动不跑；归档提问：已合并事实、有未提交改动时 `workspace_dirty` 且提问保留、先留着再归档、已取消未合并任务的事实、重启后提问和答案还在 | `tasks/task-merge.host.test.ts` |
+| 打回：旁支和下游一起重置（human 节点图，不起 pi）、第三次用同一条边 `task_back_limit`、重启后事件重放出同样的任务；`task_not_found`、`task_state_invalid` 各情形；暂停 / 恢复 / 取消；列出磁盘上的任务 | `tasks/human-node.host.test.ts` |
+| 调度器：`archive` 在任务结束（完成、取消）时置 `asked`、借来的 worktree 没有；`archive_answered` 结束后仍收，`asked`→`kept`/`archived`、`kept`→`archived`、其余忽略；`blockedFiles` 截到 50 个、重试时清掉 | `tasks/scheduler.test.ts` |
+| Runner：`merge` 动作的四种结果（合并、被挡带文件、抛错 → `merge_git_failed`、关宿主时什么也不记且仍 `merging`）；`continue_node` 发"继续"、状态不符报 `task_state_invalid` | `tasks/runner.test.ts` |
+| 视图：状态 / 尝试 / 摘要（取最近一次给出的）/ 打回边用了几次 / `attention` 优先级 / 文本截断 / 没有图；协议枚举和上限与宿主一致 | `tasks/task-view.test.ts` |
+| 协议：命令和事件的往返、命令结果、Swift 夹具；错误码；整条 WebSocket 上的 `list_tasks` / `open_task` / `answer_human` / 推送 / 取消订阅 / 错误码；手机只能列出和打开 | `protocol/envelope.test.ts`、`tasks/tasks-protocol.host.test.ts`、`server/router.test.ts`、`server/remote-policy.test.ts`、`client/atrium-client.test.ts`（客户端放过任务推送）；`pnpm protocol:swift --check` |
+| `pnpm task:try`：解析回答（通过 / 打回带或不带原因 / 退出 / 不认识）、human 节点显示、合并被挡的说明、归档显示、问什么、什么时候停、按行读输入；示例图读得进来 | `dev/task-try.test.ts` |
+| 泄漏：反复合并、被挡、打回、归档、订阅和退订后，资源、子进程、句柄和定时器回到原样 | `tasks/node-run.leak.test.ts` |
+
+- 破坏检查：`packages/host/src/tasks/t5.break-check.json`（34 处）、`t5-host.break-check.json`（7 处，`project: host`）。第一次跑时各漏了几处，补测后全部抓到：已合并 / 没改动的直接算合并（原先靠 git 的"Already up to date"碰巧也对）、`abort` 退出码（原先被"主目录没回原样"盖住）、摘要取最近一次、`open_task` 参数顺序。三处改成不再声称：按名字还是按提交号合并（实测 git 都选分支，留着提交号是为了合的就是检查过的那一个）、客户端放过任务推送（只是类型上的守卫）、任务 id 的形状检查（`openTaskStore` 对不存在的目录什么也不建，检查是纵深防御）。
+- 没有测试保护的：`TaskWorkspaces.merge` 里主干名取自项目的覆盖值（测试里的主干都是 `main`）；`opened.get(...) === taskId` 的守卫（连接中途换了任务时不推旧任务）。
+- 真实模型：`pnpm task:try` 跑 `explore-work-check-merge.json`（claude-bridge/claude-haiku-4-5）：打回一次（第二次的契约带上次的摘要和原因）、主目录切到 `side` 时通过被挡（`merge_main_not_trunk`）、切回后合并成功、origin 未动、回答"归档"后 worktree 目录被清理。
+
+
+## T6 任务对话与 /task（SPEC-0006"任务对话""/task 与创建""改图""扩展与通道"、附录，2026-11-05，待验收）
+
+任务对话用真的 pi + faux 模型（`byConversation` 按第一条消息 `<atrium-task-design>` 认它）；来源对话、任务对话、节点都是真会话。读 diff 用真的 git 仓库（testkit `createGitScene`）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 八个工具的参数和结果（往返、缺字段、页码 0、不存在的引导词、空图、多余参数）；`task_set_schedule` 不是一个已知调用；四个引导词 id；`mark` 命令；进度行和转换行的 `details` | `pi/task/schema.test.ts` |
+| 扩展：对话会话注册八个工具（顺序执行）、没有 `task_set_schedule`；节点只注册两个；没有标记的会话只注册命令；读结果的文字和页脚（一页没有页脚）；写结果的文字；超长 / 读不了的参数自己答 `task_text_too_long` / `task_bad_request`；`task_graph_invalid` 带码和节点；结果不对当 `task_bad_request`；停下的调用发 `cancel`；`edit` / `write` / `agent_*` / `node_done` 被钩子拦；`mark` 对没有任务标记的会话写 `converted` / `abandoned` 行、不开轮次、按 id 去重、读不了的忽略；进度行带 `what` 和 `node` | `pi/task/extension.test.ts`、`words.test.ts` |
+| 调用方由宿主认定：对话会话 / 另一个会话 / 另一个任务 / 节点；`task_not_found`；应答带结果或错误码；节点发 `task_*`、对话发 `node_done` 都 `task_caller_invalid` 且什么也没执行；同一调用 id 只答一次、被撤回的丢掉、旧的 pi 代次丢掉 | `tasks/channel.test.ts`、`tasks/runner.test.ts`（假会话层） |
+| 工具对任务的作用：状态 JSON（每个节点的全部字段、没有图、作废读作 pending、待批准的图）；摘要和名字和模型的记录、启动后拒绝摘要、结束 / 取消后四个改的工具拒绝而读的照常；提图的各种拒绝（环、缺字段、不属于项目、改了已跑的节点、多余字段）、设计中立即生效并记引导词、启动后进待批准且忽略引导词；读来源（分页、外壳、转义冒充的标记、超页、不是对话来的任务）；读节点的摘要 / 契约 / 对话；带话给运行中的节点（外壳、转义、不在跑的拒绝）；diff（范围、`since`、外壳、没有改动、截断、git 失败、仓库配的外部 diff 不跑、没有 worktree） | `tasks/conversation.test.ts`、`tasks/transcript-text.test.ts` |
+| 调度器：`summary_set` 只在设计中；`graph_proposed` 的引导词只在设计中记 | `tasks/scheduler-resources.test.ts` |
+| 设计消息：来源 id、范围包外壳并转义、四套引导词全文、项目 / 无项目的说明、五步指令的顺序；引导词：四个 id 与版本、每套写明自己的名字、写代码的三套把实现和验证分开并以带合并的 human 节点收尾、调研一套没有 work | `tasks/design.test.ts`、`tasks/guides.test.ts` |
+| 进度行和唤醒：节点开始 / 通过写进度行（带 `what`、`node`、按行 id）；手工造的任务不写；改图申请唤醒任务对话（`kind: wake`，理由和建议包节点的外壳并转义） | `tasks/runner.test.ts`（假会话层）、`tasks/design.host.test.ts` |
+| **宿主层（真宿主 + faux pi）**：`/task`（`createFromChat`）→ 读来源 → 写摘要 → 起名 → 按引导词提图 → 启动 → 三个节点跑到 `done`，来源对话文件里有 `converted` 行、任务对话文件里有进度行、任务对话的工具里没有 `write` / `agent_*`；节点申请改图 → 唤醒任务对话 → 它提新图 → 批准 → 节点接着跑、任务 `done`；拒绝后节点按原图做；已转过的再 `/task` 答 `task_already_converted`（带任务 id）；放弃：记录和目录没了、任务对话归档、来源对话第二行 `abandoned`、能重新 `/task`；已启动（取消）的仍答 `task_already_converted`；崩溃留下的半删记录不挡；不认识的会话 `session_not_found`；启动检查（无图、有环、不属于项目的 work）；批准 / 拒绝的状态错误；批准前再校验；放弃时推送的连接收到空列表且不记警告 | `tasks/design.host.test.ts`（11 项） |
+| 协议：五个命令的往返、答复、路由（含参数完整）、手机不能发；三个新错误码；协议号 31；Swift 投影和往返夹具 | `protocol/envelope.test.ts`、`protocol/remote.test.ts`、`server/router.test.ts`、`server/remote-policy.test.ts`；`pnpm protocol:swift --check` |
+| 任务对话的启动参数：只读白名单 + 八个工具 + `ask_user`、标记里是 `conversation`、没有 `--atrium-agent` | `sessions/agent-launch.test.ts` |
+| `pnpm task:design`：参数解析、按会话 id 找文件并读 cwd（只读）、提醒（实现节点后没有 `check`、没有 human 节点）、打印的摘要和图、读任务对话最后说的话 | `dev/task-design.test.ts` |
+| 泄漏：反复建任务再放弃后资源、子进程、句柄、定时器回到原样；设计中关宿主时运行器和任务对话的 pi 都释放 | `tasks/node-run.leak.test.ts`（新增 2 项） |
+
+- 破坏检查：`packages/host/src/tasks/t6.break-check.json`（35 处，pi、协议、宿主单元）和 `t6-host.break-check.json`（11 处，`project: host`），共 46 处全部抓到。第一次跑时漏了两处，补测后抓到：一页的文字不该有页脚（`pageFooter`）；放弃时没归档任务对话（原先只断言了“不在侧栏”，任务对话本来就不在侧栏，断言恒真，改读索引里的 `archived`）。
+- 变异测试：`pnpm test:mutation tasks --mutate=<文件>` 会让每个变异都跑 `tasks` 组里的全部宿主层测试（几分钟一个），所以这次用了只含单元测试的临时分组（`mutation-groups.mjs` 里加过 `t6` / `t6pi`，跑完已还原、没有提交），命令同 `pnpm test:mutation <组> --force --mutate=<文件>`。结果：`conversation.ts` 90.64%、`channel.ts` 99.13%、`design.ts` 100%、`transcript-text.ts` 96.81%；pi 侧 `extension.ts` 89.64%、`words.ts` 94.25%、`schema.ts` 94.35%。`dev/task-design.ts` 的纯函数（解析、找文件、提醒、打印、读最后一句）变异全部抓到；`runTaskDesign` 和 `main` 要真模型，不在变异组里（同 `task-try.ts`），整文件 54.22% 主要是它们。conversation.ts 第一次只有 81.87%，补了状态 JSON 的逐字段断言、diff 的空 / 截断 / git 失败、对话里的工具调用、契约和对话的来源标签、带话的整段文字，抓到了大部分。没跑：`runner.ts`、`task-service.ts`、`new-task.ts`（`tasks` 组按说明不含这三个，由宿主层测试覆盖）、`scheduler.ts` 本次新增的两处（表驱动测试加破坏检查，没单独跑变异：另一个变异测试在跑它）、`agent-launch.ts`、`session-manager.ts`、协议文件（各有测试和破坏检查）。
+- 没有测试保护的：`task_send_to_node` 经真宿主送进真 pi 的 `streamingBehavior: "steer"`（宿主层没有这一条：单元测试只验证调用 `deliver` 时带着外壳的话）；`pnpm task:design` 的 `runTaskDesign` 本身（要真模型，已手跑，见下）；任务对话的 `bash` 不受只读约束（SPEC 里已写明）。
+- 真实模型：`pnpm task:design --from <id> --model claude-bridge/claude-haiku-4-5` 在一段现造的需求对话上跑通，选了 `feature`、写出摘要和四节点图（explore → work → check → human 合并，human 可打回 work），原文件前后哈希相同；输出见 T6 的验收报告。
+
+## T7 任务区（只读）（SPEC-0006"界面""任务对话的进度和记录折叠""错误码"、"T7 定下的细节"，2026-11-06，待验收）
+
+界面测试在真浏览器里渲染整个 `Workbench`，客户端是假的（`fakeClient` 多了 `tasks`、`task(id)`），所以侧栏入口、任务区、标签、列表、图、任务对话、需求对话的那一行都走真实的组件和真实的 store；宿主一侧用真宿主 + faux pi + 真客户端。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 侧栏入口在搜索下面，数字是"待我介入"组的任务数（设计中、等你、停下），为 0 不显示；点它主区换成任务区，选侧栏里的工作区离开任务区 | `ui/tasks/task-area.browser.test.tsx`（"the sidebar's task entry"） |
+| 任务区标签：任务、定时在前且都没有关闭按钮；任务标签有关闭按钮，关掉回到列表、任务不受影响；定时标签的空状态 | 同上（"the task area's tabs"） |
+| 任务列表：按待我介入 → 运行中 → 已完成分组和排序、每行的名字 / 项目 · worktree / 当前节点 / 最后活动 / 状态、设计中的行、失败 / 合并被挡 / human / 暂停 / 改图各自的说法、已完成 7 天 5 条加"显示全部"和"收起"、项目筛选含"不属于项目"、空状态、定时触发的时钟图标 | 同上（"the task list"）；排序、分组、紧迫程度、7 天 5 条、筛选的逻辑 `ui/tasks/task-list-model.test.ts`；各状态的说法、节点和模型的说法、"多久以前" `ui/tasks/task-words.test.ts` |
+| 任务标签：七种节点状态各有自己的图标和图例、边数；单独指定的模型蓝字 / 继承灰字 / human 节点没有模型；点节点描框、换节点、点空白取消；悬停出做什么 / 怎样算完成 / 失败原因 / 合并被挡的原因；设计中的任务显示草图和版本、任务模型、项目 · worktree、"需求对话"链接；点链接回需求对话并离开任务区；打开任务并经会话订阅看任务对话、没有输入框和任务按钮；`task_not_found` 的话和读取中；节点状态随宿主推送变（运转中→通过）不重载；human 节点在等时订 `watch_changes` 并显示改动统计 | 同上（"a task's tab"）；分层、居中、边的路径、打回环的泳道、环和不存在的边、20 个节点的耗时 `ui/tasks/graph-layout.test.ts` |
+| 任务对话里的进度：同一段连成一组、最后一组展开成过程轨道的步骤（失败 ×、等你橙点）、前面的组收成一行摘要（节点通过数、时间范围）、点开再收起、点过之后加一行不改选择、新的一组出现时上一组自己收起；设计指示缩成一行 | 同上（"the task conversation's progress and records"）；分组和摘要的纯逻辑在同一文件里经界面验证 |
+| 需求对话里的"已转为任务「名」· 状态 · 打开 ›"，点"打开"开任务标签；同一任务两条标记只画最后一条（任务已放弃） | 同上（"the line a conversation shows once it became a task"） |
+| 任务区状态：打开的任务标签不重复、关闭后去前一个或列表、显示 / 隐藏不动标签、筛选和显示全部 | `ui/state/task-area.test.ts` |
+| 客户端：`watchTasks` 要列表并收整张推送、旧 `seq` 丢掉、答案不盖掉更新的推送、重连后计数重来并再要一次、停止后推送不收；`openTask` 保留整个任务、`task_not_found` → `missing`（留着上次的任务）、别的失败 → `failed`、重连后再开 | `client/atrium-client.test.ts`（"tasks (SPEC-0006, T7)"） |
+| 宿主：`TaskSummary.current`（失败 > 停下 > 等你 > 运转中，同级取图里靠前）、`activeAt`、`scheduled`；`TaskView.model`、`sourceSessionId`、`TaskNode.model` | `host/tasks/task-view.test.ts` |
+| 对话记录：任务对话的进度行和需求对话的标记投影成 `task_progress` / `task_mark` 两条线之间的 notice；`atrium-task` 的 `nudge` / `resume` / 读不了的什么也不画 | `host/transcript/projection.test.ts`、`pi/history/log-entry.test.ts` |
+| 进度行实时到：pi 写下进度行时翻译成 `task_line_added`，控制器重读文件；`nudge` / `resume` / 读不了的不发 | `pi/events/translate.test.ts`；真宿主 `host/tasks/board.host.test.ts` |
+| **真宿主 + 真客户端**：任务列表里有设计中的任务（无当前节点、`activeAt`）、`open_task` 的整个任务（模型、需求对话、节点模型 `null`）、任务对话按 id 订阅得到快照和第一条设计指示、启动后列表变 `done`、进度行逐条出现在任务对话、节点状态推送、需求对话里有 `task_mark` | `host/tasks/board.host.test.ts`（先在没有 `task_line_added` 时失败过：60 秒也没有进度行） |
+| 协议：新字段的往返、两种新 notice、协议号 32；Swift 投影和往返夹具（`pnpm protocol:swift --check`，`swift test --filter AtriumProtocolTests` 通过，`swift build` 通过） | `protocol/envelope.test.ts`、`protocol/remote.test.ts` |
+| 性能：50 个任务 × 20 个节点，按下"任务"到列表画好、按下一行到图画好 | `apps/desktop/e2e/tasks.perf.spec.ts`（`@perf`，数字见 testing.md） |
+
+- 破坏检查：`packages/ui/src/tasks/task-area.break-check.json`（46 处，`project: ui` 的是界面测试）。
+- 没有测试保护的：悬停卡的浮动位置（`useFloatingLayer`，别处已测）；任务标签在窄窗口下的排版；点阵涡旋等动效；浅色 / 深色截图对照设计稿靠人看（截图在验收报告里）。
+- 没做（留给后面的步骤）：见 SPEC-0006"T7 定下的细节 · 没做、留给后面"。
+
+## T7.1 开发时在 Atrium 里跟着 task:try（SPEC-0006"T7.1 定下的细节"，2026-11-06，待验收）
+
+宿主一侧用真宿主、真文件系统（递归 `fs.watch`）、真任务存储；写者是同一进程里另开的一个 `openTaskStore`（`pnpm task:try` 在另一个进程里，写的是同样的字节，一次真实运行见验收报告），半行用手写字节造。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 纯读重放：整份日志重放成存储会给的任务（同一个 `parseEvents` / `replayEvents`）；最后一行没写完时忽略、写完整后读到；**不写**（每个文件的哈希和 mtime 不变，落后的 `task.json` 不修、没有的不建、半行不截、不补换行）；没有事件时没有任务；中间坏行报 `TaskStoreCorruptError`；用大小和 mtime 判断变没变 | `host/tasks/task-reader.test.ts` |
+| 跟随：已有的任务列出、之后写者每走一步推一次、不为第一次扫描推；后来才出现的任务目录、整个消失的任务；半行忽略且目录不变、写完整后读到；watch 起不来时轮询、watch 开着但漏了通知时的兜底；目录不存在时只记一次 warn（不含路径）、之后重试、出现后跟上并推给监听者；自己的任务同 id 时自己赢并记一次 warn；跟自己的任务目录（含符号链接）时拒绝；中间坏行的任务保留上次的状态、只记一次；关闭后 watch 和计时器都释放、不再通知，等着去抖的那次也取消 | `host/tasks/task-follower.test.ts` |
+| 真宿主：被跟着的任务和自己的任务一起出现在 `list_tasks`，`open_task` 的 `followed` 为 `true` / `false`、被跟着的 `sourceSessionId` 为 `null`、`archiveFacts` 为 `null`；写者一步步写，`task_updated` 里节点一个个变色，`tasks_updated` 里状态和当前节点跟着变；**十二个任务命令**（`answer_human` 两种、`rerun_node`、`continue_node`、暂停、恢复、取消、启动、放弃、批准图、拒绝图、`answer_archive`）和 `recover`、`submit` 都答 `task_read_only` 且目录不变，Atrium 自己的目录里没有它；不认识的 id 仍是 `task_not_found`；跑着、停在节点的被跟着任务 400ms 里没有任何 pi（`session.controller` 为 0、目录不变）；写者留着半行时目录逐字节不变；同 id 时自己赢（列表、视图、命令）；目录不存在时 warn 一次、出现后跟上；目录被删时从列表拿掉并推送；跟自己的目录时拒绝 | `host/tasks/followed-tasks.host.test.ts`（日志门禁：未声明的 warn 会失败） |
+| 泄漏：宿主一轮轮起停，一个 watch、关后为 0、`timer` 为 0、Node 的 `FSEvent` / `FSWatcher` 回到基线；六十次追加后资源计数回到稳定值 | `host/tasks/followed-tasks.leak.test.ts`（`Timeout` 数没比，它随测试运行器自己的计时器变，见文件注释） |
+| 打包版忽略：只有主进程在 `!app.isPackaged` 时读 `ATRIUM_FOLLOW_TASKS`；Electron 里的宿主只收主进程交来的值（空串被拒） | `apps/desktop/src/main/follow-tasks.test.ts`、`host/electron-port.test.ts`；`security.md` 环境变量表登记，`pnpm boundary --all` 通过 |
+| 界面：被跟着的任务的任务对话窗格写两行只读说明、不写"正在读取任务对话…"、不订阅会话；`task_read_only` 的说法 | `ui/tasks/task-area.browser.test.tsx`（"says a followed task is read-only"）、`ui/tasks/task-words.test.ts` |
+| 协议：`TaskView.followed` 往返（`true` 与 `false` 都在例子里）、错误码 `task_read_only`、协议号 33；Swift 投影和往返夹具（`pnpm protocol:swift --check`、`swift test --filter AtriumProtocolTests` 通过） | `protocol/envelope.test.ts`、`protocol/remote.test.ts` |
+
+- 破坏检查：`packages/host/src/tasks/t71-follow.break-check.json`（40 处，`project` 写明 host / leak / ui，其余是 unit）。
+- 没有测试保护的：入口 `entry.ts` 把环境变量或主进程交来的值写进宿主配置的那几行（真实运行里走过：开发版 Electron 经 `config` 消息交给宿主，见验收报告）；`startTaskFollower` 里"没变就不重读"的优化（只省读文件，行为一样）。
+- **一次真实运行**（2026-11-06）：开发版 Electron + Vite，临时 `ATRIUM_HOME`，`ATRIUM_FOLLOW_TASKS=<仓库>.task-try-xyz/tasks`，另一个进程 `pnpm task:try packages/host/examples/explore-work-check-merge.json --model deepseek/deepseek-flash:off`，跑到 human 节点；Atrium 里图上节点一个个变色，停在"等你验收"；task:try 空闲时哈希和 mtime 在第二次启动 Atrium 前后逐文件相同。截图见验收报告。
+- 没做（留给后面的步骤）：见 SPEC-0006"T7.1 定下的细节 · 没做"。
+
+
+## T8a 审核（协议与宿主）（ADR-0018、SPEC-0006"T8a 定下的细节"，2026-11-06，待验收）
+
+宿主一侧：ReviewHub 用手写的 provider 单测，任务关卡用真宿主（真 pi 跑 faux 模型、真任务存储、真 git 工作区、真 WebSocket 客户端）；任务对话是 `/task` 做出来的真会话，human 节点不需要 pi。界面（T8b）不在这一步。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| ReviewHub：按会话汇总各 provider（先出现的在前）、只在变了时通知、没有审核的会话不吵、一串变化只算一次；裁决形状（按钮不存在 / 目标缺了、不在列表里、不该给 / 必填的原因没写、全是空白、不收原因的写了 → `review_invalid` 带 `field`）；审核不在 → `review_closed`；同一会话两个裁决排队、第二个 `review_closed`、两个会话互不等；provider 失败照样抛出并重算；算失败时保留上次的结果并记一条 warn；监听者抛错不挡别人；多个 provider 各收各的裁决；provider / 监听者的资源计数关闭后归零 | `host/reviews/review-hub.test.ts` |
+| ReviewHub 不漏：一轮轮建、答、关，`review.provider` / `review.listener` 回到 0；跑着的宿主各 1、停后 0、`timer` 为 0 | `host/reviews/review-hub.leak.test.ts` |
+| 任务关卡算出的审核（纯函数）：设计中 / 无人等的任务没有；human 节点的 id（带第几次）、`openedAt`、打回目标和剩余次数（用完的仍列出）、没有打回边时没有 `send_back`、事实和改动在上游摘要前、脏工作区 `warn` 且不推荐 `pass`；合并被挡住是同一张卡的 `problem`（码、文件）、`retry` 换 `pass`；作废的、正在合并的、已结束任务的 human 节点不问；改图的差异和 agent 的说明、设计中的图不算；归档题只在 `asked`、推荐按"已合并且干净"、脏树 `danger`、合并状态未知 `warn`、`kept` / `archived` / 未结束没有；按出现先后；裁决的记录和给模型看的那一行（理由截 4000 字、快照里别人写的话截 8000 字） | `host/tasks/task-reviews.test.ts` |
+| 任务关卡 provider：找到会话对应的任务、别的会话没有、任务被撤回时没有审核、别的失败抛出；每个按钮走对应业务命令（`approve` / `reject` / `pass` / `retry` / `send_back` / `archive` / `keep`）；审核没了才写记录、合并又被挡（审核还在）不写；没有任务的会话和 agent 来源的审核不执行；订阅按会话报事件、可停 | `host/tasks/task-reviews.test.ts` |
+| 图的差异：加 / 删 / 改（任何字段、边的两端、边的种类）、`inputs` 和边的顺序不算改；"上一个生效过的版本"：设计中取前一版，启动后取最近一个批准过的（拒绝的、被顶掉的、设计时的草稿不算） | `host/tasks/graph-diff.test.ts` |
+| `TaskView` 多的四个字段：`graphDiff`（第一版 `null`）、`pending`（整份、节点只含计划、对生效图的差异、说明截到上限）、`requirements`（六个字段，目标截 8000）、`reviews`（传入的，被跟着的任务为空）；都过协议的 schema | `host/tasks/task-view.test.ts`（"what the interactive task area adds"） |
+| **真宿主，human 节点**：任务对话的 `Control.reviews` 里出现、`pass` 后任务结束、卡片消失；对话里多一条 `review` 记录（证据快照 + 裁决）；模型下一次请求的上下文里有 `Atrium review: the user decided task_human_node …`；`send_back` 带目标和理由、剩余次数 2 → 1 → 0、用完的目标宿主拒绝 `task_back_limit` 且不动；每次裁决一条记录；校验的各种 `review_invalid`、不在的 `review_closed`、两个窗口同时答只有一个成功；宿主重启后任务的 `reviews` 和重新起的对话 pi 的 `Control` 里都还在，答了照样往下走 | `host/tasks/reviews.host.test.ts` |
+| **真宿主，改图**：启动后提新图，卡片带差异（加、改）和 agent 的说明，`TaskView.pending` 给整份、批准后 `graphDiff` 对上一版；拒绝；两条记录；已经没有的再答 `review_closed`，业务命令 `task_state_invalid`；需求摘要给到 `requirements`、启动后不再变 | `host/tasks/reviews.host.test.ts` |
+| **真宿主，合并与归档**：合并被挡（工作区脏）→ 同一张卡带 `problem`、按钮 `retry`、不写记录 → 清掉后 `retry` → 合并成功、写一条记录；任务结束后出现归档题，已合并且干净推荐 `archive`，选 `archive` 后 `archived`；未合并推荐 `keep`，选 `keep` 后 `kept`，业务命令再答 `keep` 仍 `task_state_invalid`；`archive` 被业务命令拒绝（工作区脏）时原码 `workspace_dirty` 回给客户端、卡片还在（事实变成 `danger`）、不写记录 | `host/tasks/reviews.host.test.ts` |
+| **真宿主，会话**：审核开着时给任务对话发消息，模型收到、审核不动；节点用 `ask_user` 提问，只 `watch` 它会话的客户端看到 `control.question`，`answer_question` 后节点继续；任务和节点的会话不在 `client.index` 的会话列表里；`open_task_session` 起已通过节点的 pi（`watch` 后收到快照、任务没有新事件、不进布局）和任务对话的 pi；别的任务 / 来源对话 / 不存在的会话 `session_not_found`、不存在的任务 `task_not_found` | `host/tasks/reviews.host.test.ts` |
+| 被跟着的任务：没有审核（`reviews: []`），对它的会话发 `answer_review` 应答 `review_closed`、目录逐字节不变；`open_task_session` 与其它任务命令一样 `task_read_only` | `host/tasks/followed-tasks.host.test.ts` |
+| 手机 / 远程：`answer_review`、`open_task_session` 是 `local_only`，连接是远程时路由应答 `local_only` 且什么也不调 | `host/server/remote-policy.test.ts`、`host/server/router.test.ts`（"lets a phone list and open tasks but not …"） |
+| 路由：`answer_review`、`open_task_session` 带完整参数交给 hub / 任务命令 | `host/server/router.test.ts` |
+| 会话控制：`Control.reviews` 来自注入的来源、变了才发 `control_updated`、没注入时为空 | `host/sessions/session-controller.test.ts`（"createSessionController's reviews"） |
+| 扩展：`/atrium-task review` 在任务对话里写 `atrium-review` 自定义消息（`display: true`、`triggerTurn: false`、`details`）、同 id 只写一次、会话文件已有也不重写、节点和普通会话不收、读不了的忽略 | `pi/task/extension.test.ts`（"/atrium-task review"）、`pi/task/schema.test.ts` |
+| 翻译与投影：`atrium-review` 条目 → `review_line`、读不了的当 `other`；实时事件 `task_line_added`；对话记录里是 `Notice.review`（带快照和裁决） | `pi/history/log-entry.test.ts`、`pi/events/translate.test.ts`、`host/transcript/projection.test.ts` |
+| 协议：`PendingReview` / `Evidence` / `Verdict` / `ReviewRecord` 的形状（严格、四种证据、agent 来源的形状）、`Control.reviews` 必填且空时为 `[]`、命令与错误码；`answer_review`、`open_task_session` 的往返例子、协议号 34；Swift 投影和往返夹具（`pnpm protocol:swift --check`、`swift test` 402 项通过，iOS 的 `Notice` 多一个"审核"灰行） | `protocol/reviews.test.ts`、`protocol/envelope.test.ts`、`protocol/remote.test.ts` |
+| 客户端：十二个任务命令的方法、`answerReview`、`openTaskSession` 带正确参数（`createTask` 没有范围时不带 `scope`） | `client/atrium-client.test.ts` |
+
+- 破坏检查：`packages/host/src/tasks/t8a.break-check.json`（64 处，`project` 写明 host 或 unit）。
+- 变异测试（新组 `reviews`，每个文件单独跑）：`reviews/review-hub.ts` 85.94%（192 个里 27 个存活）、`tasks/task-reviews.ts` 95.83%（408 个里 17 个存活）、`tasks/graph-diff.ts` 98.36%（61 个里 1 个存活，`join(",")` 的分隔符）。存活的多是日志字段和文字、`close()` 之后的清理（`abort`、`clear`）、`idle()` 里"等到没有新排的活"的循环（只让测试能等）、不会发生的 `undefined` 兜底（`graph === undefined`）和 `clip` 恰好等于上限时切不切（结果相同）。
+- 没有测试保护的：上面存活的那些；`task-reviews.ts` 里 `recommended` 对 `send_back` 的 `false`（它永远不是默认）。
+- 没做（留给后面）：见 SPEC-0006"T8a 定下的细节 · 没做"。
+
+## T8b 交互任务区（SPEC-0006"T8b 定下的细节"、ADR-0018，2026-11-06，待验收）
+
+界面用真 Chromium 渲染真组件、真 `Workbench`，客户端是 `fakeClient`（命令只记录、失败由测试给）；纯函数用单测；整条流程在 Electron 里对真宿主走一遍（`apps/desktop/e2e/tasks-flow.spec.ts`，真 pi 跑 faux 模型）。破坏检查 `packages/ui/src/tasks/t8b.break-check.json`。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 审核卡片的组成：顶上一行来源和审核什么（任务的小胶囊、agent 发起的字）、图的改动（加 / 改 / 去掉和"在图上看"）、改动统计和"查看改动"、事实的状态、摘要引用（"某某 说"）、问题带（含文件、红色那种）、推荐的按钮排最前并填色、注意的事实让卡片描边 | `chat/review-card.browser.test.tsx`、`tasks/review-words.test.ts` |
+| 裁决：不要原因的直接发；"打回"展开表单、只剩一个目标自动选上、几个目标要自己选、用完的置灰且不能发、全用完不能发、必填原因要有非空白字、可选原因可不写；Enter 确定 / Shift+Enter 换行 / Esc 收起；失败写在卡片里能再按、一次只发一个；没发完的原因按会话和审核留着、发成功或审核没了就清掉；确认按钮、取消 | `chat/review-card.browser.test.tsx`、`chat/review-state.test.ts` |
+| agent 发起的审核：不画事实、摘要写"agent 说"、模型写的话按文字（不当标记） | `chat/review-card.browser.test.tsx` |
+| 几张卡片同时在（提问加审核）：胶囊按出现先后、一次一张、点了切换；一张时不画胶囊；提问卡片共用外壳后原有测试照旧通过 | `chat/review-card.browser.test.tsx`、`chat/question-card.browser.test.tsx`、`tasks/task-interactive.browser.test.tsx` |
+| 任务对话输入框：`prompt` / `steer` / `stop` 用任务对话的会话 id、从不 `open_session`；审核开着时发消息卡片不动；pi 没在跑先 `open_task_session`；发失败写在输入框上面 | `tasks/task-interactive.browser.test.tsx` |
+| 四种关卡在任务标签里作答（通过、打回带目标和原因、归档）、`review_closed` / `review_invalid` / `task_back_limit` 写成话、改图的"在图上看"换成提议的图并能回来 | `tasks/task-interactive.browser.test.tsx` |
+| 任务栏的按钮：设计中（放弃、确认并启动，没图时后者灰）、运行中（暂停 / 继续、取消）、停下的、完成的、归档兜底、被跟着的任务一个都没有；放弃和取消先问一句、"不了" / Esc 不发；命令失败写在任务栏下面 | `tasks/task-interactive.browser.test.tsx` |
+| 改过的节点虚线框、新加的"新"（来自 `graphDiff`，第一版没有）；需求摘要卡片（目标引用、展开各段、模型写的话按文字、全空不画） | `tasks/task-interactive.browser.test.tsx` |
+| 过程轨道上的审核记录：和进度行同组折叠、折叠行写进每个裁决、各种裁决的说法、点开看当时的证据和原因；进度行点开节点对话 | `tasks/task-progress-model.test.ts`、`tasks/task-interactive.browser.test.tsx` |
+| 列表行内作答：一次一行、再按收起；审核卡片经 `answer_review`；节点的提问用 `watch` 看它的会话并 `answer_question`；失败节点"重跑这个节点"；只有"打开任务"的行 | `tasks/task-interactive.browser.test.tsx` |
+| "等你处理"里的任务：写任务名和在等什么、按紧迫程度混排、点了开任务标签，提问的直接开节点对话；没有要处理的任务时没有 | `tasks/task-interactive.browser.test.tsx` |
+| 节点对话标签：从图的悬停卡、进度行、列表行、收件箱打开；标签在任务标签之后带箭头和节点 id；插话 `prompt`、停 `stop`、pi 没在跑 `open_task_session`；关任务一起关、单关回任务；没开始的节点说明白 | `tasks/task-interactive.browser.test.tsx`、`state/task-area.test.ts` |
+| `/task`：内置命令、列在命令里、调 `create_task`（带范围）、成功开任务标签、不发给模型；失败（`task_already_converted`）写在输入框上面 | `tasks/task-command.browser.test.tsx`、`chat/builtin-commands.test.ts`、`chat/composer.browser.test.tsx` |
+| 从对话 `/task` → 确认并启动 → 在列表里答多选 → 通过并合并 → 归档，全程在 Electron 里对真宿主走通 | `apps/desktop/e2e/tasks-flow.spec.ts` |
+
+- 没做（留给后面）：见 SPEC-0006"T8b 定下的细节 · 没做"。
+
+## T8 审查修复（SPEC-0006"T8 审查后用户定"，2026-11-08，待验收）
+
+三方审查（Codex gpt-6-astra、Grok grok-4.7、Claude）找出的问题和用户的四个决定。宿主一侧的新用例在 `packages/host/src/tasks/t8-fixes.host.test.ts`（真宿主、真 pi 跑 faux 模型、真 git、真客户端）和各自模块的单测；界面一侧在 `tasks/task-interactive.browser.test.tsx`、`chat/review-card.browser.test.tsx`、`tasks/task-command.browser.test.tsx`。破坏检查 `packages/host/src/tasks/t8-fixes.break-check.json`（宿主）和 `packages/ui/src/tasks/t8-fixes.break-check.json`（界面）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 决定 1：列表行只有节点提问、改图、归档三种卡片，human 验收只给"打开任务"；几张卡片按胶囊叠、一次一张 | `tasks/task-interactive.browser.test.tsx`（"gives a human node's acceptance no card in the row"、"stacks the cards of a row as capsules"） |
+| 决定 2：看提议的图时已有的节点保持当前状态、只有新节点未开始（文档改了，代码和测试本来就是） | `tasks/task-interactive.browser.test.tsx`（"looks at a proposed graph on the graph"） |
+| 决定 3：改图"不批准"的原因可选：宿主给 `optional`、记录和模型的上下文带原因、界面可留空 | `tasks/task-reviews.test.ts`、`tasks/reviews.host.test.ts`、`tasks/t8-fixes.host.test.ts`（端到端：原因进记录和模型的下一次请求）、`tasks/task-interactive.browser.test.tsx`、`chat/review-card.browser.test.tsx`、`protocol/envelope.test.ts` |
+| 决定 4：手机对任务 / 节点会话能 `prompt`、`steer`、`stop`、`answer_question`，不能审核和任务命令；对没在跑的任务对话 `prompt` 按老办法起 pi | `server/remote-policy.test.ts`、`tasks/t8-fixes.host.test.ts`（"starts its pi the way prompt always does"，本机客户端；手机与本机走同一个 `sessions.prompt`，只是命令白名单不同，白名单由 `remote-policy.test.ts` 管） |
+| 修 1：暂停的任务（宿主发 `stopped` 加 `paused`）显示"继续"；只停下的才只有"取消任务"；夹具不再能造出宿主不会发的状态 | `tasks/task-interactive.browser.test.tsx`、`tasks/task-fixtures.ts`（`hostPossible`） |
+| 修 2：改图的裁决只对看过的版本有效，新提案先到就 `review_closed`，不执行（在任务自己的队列里核对） | `tasks/t8-fixes.host.test.ts`、`tasks/task-reviews.test.ts` |
+| 修 3：任务 / 节点会话不能经 `open_session`、`rename_session`、`archive_session` 变成普通标签（`session_not_found`） | `tasks/t8-fixes.host.test.ts` |
+| 修 4：证据最多 8 条、审核最多 16 条（提供者守，ReviewHub 再截一道）；多个上游节点、多个等待的 human 节点 | `tasks/task-reviews.test.ts`、`reviews/review-hub.test.ts`、`tasks/t8-fixes.host.test.ts` |
+| 修 5：没提交的审核输入只在"已读到"的控制里审核不见了才丢；经真实的"读取中 → 读到"过程（假客户端改成和真的一样） | `tasks/task-interactive.browser.test.tsx`、`test/fake-client.ts` |
+| 修 6：`open_task_session` / `prompt` / `steer` 被拒时文字放回输入框 | `tasks/task-interactive.browser.test.tsx` |
+| 修 7：宿主换了之后任务 / 节点对话重新 `watch`，视图 `lost` 时也起 pi | `tasks/task-interactive.browser.test.tsx` |
+| 修 8：审核记录展开后的证据没有按钮；"在图上看"带版本；看着 v3 来了 v4 就换成 v4（横幅跟着）；没有提议了就复位 | `tasks/task-interactive.browser.test.tsx` |
+| 修 9：裁决成功后卡片一直禁用到审核离开；"正在提交"的锁按会话 + 审核 id，切胶囊不解锁；失败写在卡片里、切回来还在 | `chat/review-card.browser.test.tsx`、`chat/review-state.test.ts` |
+| 修 10：没有推荐的按钮时不画蓝色按钮、保持宿主的顺序 | `chat/review-card.browser.test.tsx`、`chat/review-state.test.ts` |
+| 修 11：打开任务时重算它任务对话的审核，卡片上的事实不陈旧 | `tasks/t8-fixes.host.test.ts`、`reviews/review-hub.test.ts` |
+| 修 12：合并中途宿主关闭，不写"通过"记录 | `tasks/task-reviews.test.ts` |
+| 修 13：ReviewHub 的 `lanes` / `known` 不无限增长；控制器放掉时 `forget`；一个长寿的 hub 来来去去很多会话后资源计数回 0 | `reviews/review-hub.test.ts`、`reviews/review-hub.leak.test.ts`、`sessions/session-manager.test.ts` |
+| 修 14：列表行、任务 / 节点对话卸载时放掉自己的 `watch`、不清掉新所有者的；被跟着的任务不 watch 别的进程的节点会话、没有节点对话链接 | `tasks/task-interactive.browser.test.tsx`、`state/watch-owner.ts` |
+| 修 15：`/task` 对已转为任务的对话直接打开它的任务（`params.taskId`） | `tasks/task-command.browser.test.tsx` |
+| 修 16：`review_invalid` / `review_closed` 的说法和 SPEC 错误表一字不差；完成的任务栏只写"已完成" | `tasks/task-words.test.ts`、`tasks/task-interactive.browser.test.tsx` |
+| 修 17：协议注释更正；通用审核卡片不再依赖 `tasks/`（`clockWords` 挪到 `chat/clock-words.ts`）；收件箱的任务行先 `leave()` 并关页面 | `chat/clock-words.test.ts`、`tasks/task-interactive.browser.test.tsx` |
+| 修 18：浏览器测试里改图 reject 的动作形状和宿主给的一致（`optional`） | `tasks/task-interactive.browser.test.tsx`、`protocol/envelope.test.ts` |
+| 协议号 34 → 35；Swift 投影重新生成、夹具和 `RoundTripTests` 的版本号跟着改 | `protocol/remote.test.ts`、`swift test --filter AtriumProtocolTests` |
+
+## T9 宿主重启（SPEC-0006"宿主重启""动作要幂等""T9 定下的细节"，2026-11-09，待验收）
+
+宿主启动时自己把没结束的任务接回来（`TaskService.recoverAll`，在找到 pi 之后），逐项见 SPEC。宿主层测试在 `packages/host/src/tasks/t9.host.test.ts`（真宿主、真 pi 跑 faux 模型、真 git；"动作做完、事件没写"用把 `events.jsonl` 截到该事件之前再重启来造），单元测试在 `t9-runner.test.ts`（真 runner、真 store，只替掉会话层和 worktree 端口）、`t9-service.test.ts`（真 service、runner、store，`recoverAll`）、`t9-scheduler.test.ts`、`task-workspaces.test.ts`、`workspaces/worktree-creator.test.ts`（真 git）、`dev/task-try.test.ts`。泄漏测试 `t9.leak.test.ts`。破坏检查 `packages/host/src/tasks/t9.break-check.json`（单元和宿主层两部分）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 启动时接回：对每个已启动、没结束的任务 `recover`；pi 没好不接，只记一条 warn，任务文件原样；没有任务时不写日志；一个任务接不回来不挡别的 | `tasks/t9.host.test.ts`（"tasks that must not be taken up"）、其余宿主层测试（重启后不再手动 `recover`） |
+| 崩溃表（真宿主、真 git）：建 worktree（`workspace_created` 丢）、worktree 已建但记录和标记都没写（计划）、起节点（`node_started` 丢）、契约（`contract_sent` 丢，pi 文件里已有）、结算（`node_settled` 丢）、提交（`committed` 丢）、合并（`merged` 丢）、归档（`archive_answered` 丢）、提问中宿主死、回答后 `node_resumed` 丢——都不重复：一个 worktree、一个会话记录、一份契约、一次提交、一次合并 | `tasks/t9.host.test.ts`（"a host that dies when an action is done and its event is not written does not do it twice"，表驱动） |
+| 先结算：待结算的 `node_done` 那一轮在重启前已结束（会话文件最后一条是 `node_done` 的成功结果）→ 先 `node_settled` 再 `host_restarted`，节点不被再叫起来；文件继续往下写了 / 结果是错误 / 是别的工具的 / 没文件 / 没有待结算的 `node_done` → 不结算；各节点各看各的文件 | `tasks/t9-runner.test.ts`（"recover settles a node whose node_done turn ended before the restart"）、`tasks/t9.host.test.ts`（"passes an explore node whose node_done turn ended…"、结算那一行） |
+| 契约：会话文件第一条用户消息已是契约 → 补记 `contract_sent`、发"宿主重启了"，不发第二份；文件里没有 → 发契约；`node_started` 丢了接回已有会话也不重发；恢复里自己起的节点不再被告知"宿主重启了" | `tasks/t9-runner.test.ts`（"recover and a contract that reached pi"、"settles each node of a graph…"）、`tasks/review-fixes.host.test.ts`、`tasks/t9.host.test.ts` |
+| `waitingFor` 各情况：running → `resume_node`；question 作废后 `resume_node` 并能再问（新卡片）；graph_change 有 `pendingGraph` 继续等且不再唤醒，没有就再唤醒一次；human / merge_blocked 不动；commitPending 只重发 `commit_node`；held / stopped；merging 先查已合并 | `tasks/t9-scheduler.test.ts`、`tasks/scheduler.test.ts`（既有 host_restarted 用例）、`tasks/t9.host.test.ts`（question 两行、graph_change 两个用例）、`tasks/runner.test.ts` |
+| 锁：已结束和取消的任务再解一次；没结束的再加一次；启动时解掉原因是 `atrium task <id>`、但任务已结束或不存在的锁，不碰用户自己的锁和还在跑的任务的锁；跟着别人任务时不扫锁 | `tasks/t9-runner.test.ts`（"recover and the worktree's lock"）、`tasks/t9.host.test.ts`（"locks that tasks left"、"leaves a followed task alone"） |
+| `ensure_workspace` 的崩溃窗口：建之前写计划（分支、目录、起点）；重启后只认和计划一模一样的 worktree（在 `git worktree list` 里、分支和起点对、没有提交、没有改动、没被别人锁），登记并补复制 `.worktreeinclude`；有任何一条对不上就不认，另建（避让 `-2`），留下的不删；任务自己的锁可以认，别人的锁不认 | `workspaces/worktree-creator.test.ts`（"planning and adopting"，真 git）、`tasks/task-workspaces.test.ts`（"the plan and the crash window"）、`tasks/t9.host.test.ts`（崩溃表里"git added it…"和"makes another worktree… someone's own"） |
+| `request_graph_change` 的理由和建议随 `node_waiting` 落盘（`NodeRun.graphRequest`），等待结束清掉；重启后的唤醒带着它们，包 `<atrium-quoted>` | `tasks/t9-scheduler.test.ts`、`tasks/t9-runner.test.ts`（"recover wakes the task conversation…"）、`tasks/t9.host.test.ts`（"wakes the conversation again, with the node's reason…"） |
+| 任务对话接回：宿主重启后 `watch` 之后 `open_task_session` 起它的 pi，快照带着重启前的对话；不预先起 pi | `tasks/t9.host.test.ts`（"the task conversation after a restart"）、`tasks/t8-fixes.host.test.ts`（既有） |
+| `recoverAll` 本身：按任务建立的顺序（不是目录顺序）接；设计中的任务不动；只在有任务要 pi 时才问 pi 好了没有、没好就原样留下并记一条 warn（只有任务数）；已结束 / 取消的任务不要 pi，照样解锁；宿主关闭时立刻停；一个任务接不回来只记 warn，不挡后面的；扫锁失败只记 warn；扫锁时已结束的任务（不管是 `done` 还是 `cancelled`）和不存在的任务算不在跑 | `tasks/t9-service.test.ts`（假的是会话层和 worktree 端口） |
+| `pnpm task:try` 接着跑走 `recoverAll`，一个上次停在提问上的任务不再因为"问题还开着"一开头就停（问题已作废，节点会再问）；宿主的自动接回在 task:try 里关掉 | `dev/task-try.test.ts`（`stopReason` 标出提问的停）、真实模型运行（见 T9 验收记录） |
+| 被跟着的任务（`ATRIUM_FOLLOW_TASKS`）：不接、不写、不启会话、不扫锁；自己的任务照常接回 | `tasks/t9.host.test.ts`（"leaves a followed task alone"）、`tasks/followed-tasks.host.test.ts`（既有） |
+| 泄漏：接回的任务跑完 / 被取消 / 宿主关闭（含接回途中关闭），pi、控制器、`task.runner`、子进程都放掉 | `tasks/t9.leak.test.ts` |
+
+## T10 定时（SPEC-0006"定时（ScheduleService）""T10 定下的细节"，2026-11-09，待验收）
+
+规则、时钟、协议和定时标签；逐项见 SPEC "T10 定下的细节"。假时钟的测试在 `packages/host/src/tasks/schedule-service.test.ts`（`TestClock` 能往回拨；任务端口是假的，服务、规则文件、`cadence` 是真的），纯函数在 `cadence.test.ts`，宿主层（真宿主、真 pi 跑 faux 模型、真 git）在 `schedules.host.test.ts`，泄漏在 `schedules.leak.test.ts`，界面在 `packages/ui/src/tasks/schedule-*.test.ts(x)`，端到端 `apps/desktop/e2e/schedules-flow.spec.ts`。破坏检查：`tasks/t10.break-check.json`（宿主 38 条）、`ui/src/tasks/t10.break-check.json`（界面 14 条），全部检出。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 时区：同一条"每天 2:00"在上海和纽约触发在不同的时刻；下次 / 最近一次按所给时区的挂钟算，周几按该时区的日历 | `cadence.test.ts`（"is the next 2:00…"、"finds the weekday"）、`schedule-service.test.ts`（"fires 2:00 at different instants in different zones"） |
+| 夏令时：拨快那天不存在的钟点在钟跳过去的那一分钟触发一次，第二天恢复；拨慢那天重复的钟点只在第一次出现时触发一次；平常的钟点跨切换日不变；间隔不按挂钟算 | `cadence.test.ts`（"daylight saving time" 四条）、`schedule-service.test.ts`（"runs a rule on the spring-forward day once…"、"…on the fall-back day once…"） |
+| 系统时间往回拨：不补、不重复、等下一个时间点；规则建在"未来"（时钟又拨回去）要等到它自己的时间 | `schedule-service.test.ts`（"the system clock is set back" 两条）、`cadence.test.ts`（"finds nothing when the system clock was set back…"） |
+| 上一次没结束就跳过（`skipped + 1`、时间照样推进），含停下 / 等你的任务；取消或完成后下一次照常建；上一次的任务已不在算结束 | `schedule-service.test.ts`（"the last run has not ended" 两条） |
+| 错过补一次：宿主关着错过多次也只补最近一次、`lastFiredAt` 记成它、之后照常；没错过不补；规则建之前的时间点不补；15 分钟的间隔规则重启后只补一个 | `schedule-service.test.ts`（"the host was off" 四条、"does not run a trigger from before the rule was made"）、`schedules.host.test.ts`（"after the host was off for 15 minutes…"，真宿主重启，恰好一个任务） |
+| 补一次和跳过同时发生：错过了三天、上一次还在跑 → `skipped` 加一、不建任务 | `schedule-service.test.ts`（"catches up and skips together…"） |
+| 模板任务被删：规则照样触发，"修改"答 `task_not_found`；删规则带走模板，模板删不掉也不挡删规则 | `schedule-service.test.ts`（"the template task is gone" 两条）、`schedules.host.test.ts`（"修改 of a rule whose template is gone says so"、"pauses, resumes and deletes…"） |
+| 暂停 / 恢复 / 立即跑一次 / 删除：暂停期间不补、恢复从现在起；立即跑一次不管上一次、不动规则的时间；暂停的规则重启后仍暂停；未知规则 `schedule_not_found`、重复暂停 / 恢复 `task_state_invalid` | `schedule-service.test.ts`（"pausing, resuming, running now and deleting" 四条）、`schedules.host.test.ts` |
+| 保存规则：同一个模板再保存改同一条规则并保留位置（暂停、`lastFiredAt`、`lastTaskId`、`skipped`、`createdAt`）；不是模板 / 没项目 / 没图被拒 | `schedule-service.test.ts`（"saving a rule from its template"） |
+| 触发失败（pi 起不来等）：记 warn、这次触发用掉、下一个时间点再试；规则文件读不懂时原样留着、不写回；读不懂的单条原样保留 | `schedule-service.test.ts`（"failures"）、`schedule-commands.test.ts`（"the rules file"） |
+| 一个定时器：只在有没暂停的规则时有，睡到下一次触发或 60 秒；暂停 / 删除 / 关闭后为零；换规则不累积 | `schedule-service.test.ts`（"the timer"）、`schedules.leak.test.ts`（三条：服务、响铃时已关闭、真宿主关闭后） |
+| 规则从对话来：`task_set_schedule` 注册（九个工具）、只在设计中且有项目时收、`place` 为只读而图里有 work 节点被拒、之后提的图按只读规则校验；已结束 / 取消 / 启动 / 没项目都是 `task_state_invalid` | `conversation.test.ts`（"task_set_schedule"）、`pi/src/task/schema.test.ts`、`extension.test.ts`、`words.test.ts`、`agent-launch.test.ts`、`design.test.ts` |
+| "确认并保存规则"是 `start_task`：保存规则、不启动；模板不进任务列表；已存规则的模板不能放弃；模板的"已保存"变了推 `task_updated` | `schedules.host.test.ts`（"the conversation sets the schedule…"）、`schedule-commands.test.ts`（"shows a template's cadence…"） |
+| 每次触发出一个普通任务：规则的摘要和图、`origin: schedule`、名字"规则名 · 日期"（间隔规则加时间）、自己的任务对话、`TaskSummary.scheduled`；图按规则的 place 再校验，失败不留半成品 | `schedules.host.test.ts`（"立即跑一次 makes an ordinary task…"、"makes no task, and leaves nothing half-made…"）、`schedule-commands.test.ts`（"a task a rule makes"）、`schedule-service.test.ts`（"adds the time to the name…"） |
+| 协议 35 → 36：六条命令、`schedules_updated`、`schedule_not_found`、`TaskView.scheduleDraft`；全部 `local_only`、事件不推手机；Swift 投影 | `protocol/src/envelope.test.ts`、`remote.test.ts`、`host/src/server/router.test.ts`、`remote-policy.test.ts`、`pnpm protocol:swift --check` |
+| 命令与推送：行里是上一次任务的状态和是否失败；规则或上次的任务变了才推、按顺序、整份；断开 / 关闭后不推；跟随开发版任务目录时命令一律 `task_read_only`、列表为空 | `schedule-commands.test.ts` |
+| 跟随时（`ATRIUM_FOLLOW_TASKS`）、`task:try`：不建 ScheduleService | `main.ts`（`schedulesWanted`），`schedule-commands.test.ts`（"is read-only while another process's tasks are followed…"） |
+| 界面：定时标签一行一条（名字、项目、位置、时间的话、下次、上次结果、动作）；暂停行为恢复 / 修改 / 删除；删除行内"确定 / 不了"；修改打开模板的任务标签，那里的按钮写"确认并保存规则"，已保存的不再给"放弃任务"；失败写在行下；没有"新建" | `schedule-tab.browser.test.tsx`、`schedule-words.test.ts`、`apps/desktop/e2e/schedules-flow.spec.ts` |
+
+- 没做 / 靠别的层：`powerMonitor` 转发（60 秒的心跳覆盖睡醒）；Mac 真睡醒后补跑（只在假时钟里验证）。
+
+## T9 / T10 审查修复（SPEC-0006"T9 / T10 审查后用户定"，2026-11-09，待验收）
+
+三家审查（gpt-6-astra、grok-4.7、Claude 子代理）找到的问题和用户定的六条；逐项做法见 SPEC。破坏检查：`tasks/t910-fixes.break-check.json`（宿主）、`ui/src/tasks/t910-fixes.break-check.json`（界面）。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 过期的锁：原因记着是哪个家目录加的（`home <12 位哈希>`），旧写法照旧认得；启动只解本机的、任务已结束或目录不存在的；别家的、旧写法的、目录在但读不出来的不解；任务自己新旧写法的锁都能加 / 解；归档遇到两种写法都停 | `workspaces/worktree-lock.test.ts`（"the home in a lock's reason"、"clearStaleLocks"）、`tasks/task-workspaces.test.ts`、`tasks/t9-service.test.ts`（"for one that cannot be read"）、`tasks/t9.host.test.ts`（"locks that tasks left"） |
+| 改规则的时间 / 频率从保存起算，保存不当场触发；间隔规则从那一刻起重新数；时钟被拨回时不往回退 | `tasks/schedule-service.test.ts`（"editing a rule counts from the moment of the edit"） |
+| pi 没准备好：不触发、不用掉时间点、只记一条 warn、按心跳再问而不是空转；好了之后下一次启动补一次；`main.ts` 和 `recoverAll` 同一个 `piReady` | `tasks/schedule-service.test.ts`（"pi is not ready when a trigger is due"） |
+| 规则文件读不出来：确认 / 暂停 / 恢复 / 删除 / 立即跑 / 修改 / 列表都答 `schedule_file_unreadable`；内存里不装规则、不挂定时器、文件不动；定时标签显示这句话代替列表；"确认并保存规则"同一句话；`watchSchedules` 被拒显示错误而不是一直"正在读取" | `tasks/schedule-service.test.ts`（"a rules file that cannot be read"）、`tasks/schedule-commands.test.ts`、`ui/src/tasks/schedule-tab.browser.test.tsx` |
+| 模板在规则真的存下来之前留在任务列表里，存下来之后才隐藏 | `tasks/t910-service.test.ts`（"the task list and a template task"）、`tasks/schedules.host.test.ts` |
+| 立即跑一次算最近的任务：它没结束时下一个时间点被跳过 | `tasks/schedule-service.test.ts`（"a run started with 立即跑一次"） |
+| 崩在 `started` 之后、`lastTaskId` 存下之前：磁盘上没结束的规则任务算"上一个任务"；启动时对账 `lastTaskId` | `tasks/schedule-service.test.ts`（"a task the rule made and did not record"）、`tasks/t910-service.test.ts`（`ofRule`） |
+| 崩在 `createScheduled` 里：没启动的计划任务重启时补上 `started`（pi 没好时不动）；任务记录没写成的孤儿对话重启时放掉，正在建的不放；关闭时撤销不拆半成品 | `tasks/t910-service.test.ts`（"what a crash inside createScheduled leaves"） |
+| 崩在存规则与删模板之间：先删模板后删规则，不留隐藏的孤儿模板 | `tasks/schedule-service.test.ts`（"deleting a rule"） |
+| 删与确认的竞争：确认时重新取模板，规则或模板没了答 `schedule_not_found`，不把规则建回来 | `tasks/schedule-service.test.ts`（"a save that races a deletion"） |
+| `start()` 之前命令可以改规则但不挂定时器 | `tasks/schedule-service.test.ts`（"before start() the rules do not run by themselves"） |
+| 关闭不死锁：pi 永不应答合同提示时，先后关闭两个服务都能结束；两个一起发出关闭 | `tasks/t910-service.test.ts`（"a host that closes while a trigger waits"）、`tasks/t910.leak.test.ts` |
+| 暂停 / 有节点失败的任务重启：被打断的轮次和作废的问题记在节点上（`afterRestart`），真的恢复时才说，一直停着不说；已经是 `held` 的不动 | `tasks/t9-scheduler.test.ts`（"a task held back at the restart…"） |
+| `host_restarted` 的次序：这个进程已经对话过的节点（`live`）不被告知重启、已回答的问题不作废；`spoken` 用完即删 | `tasks/t9-scheduler.test.ts`（"leaves alone the nodes this process already spoke to"）、`tasks/t9-runner.test.ts`（"tells the scheduler which nodes…"） |
+| 唤醒任务对话一次（不是每个等改图的节点一次）；整条唤醒的字数有预算，几个最大长度的申请也不超 32 000 字，截断有标记，实在放不下只点名 | `tasks/t9-scheduler.test.ts`、`tasks/t9-runner.test.ts`（"within what the command takes"） |
+| `endedOnNodeDone`：同一条助手消息里每个工具调用都有结果才算那一轮结束 | `tasks/t9-runner.test.ts`（"another call of the same message has no result"） |
+| 认回 worktree：`worktree list` / `rev-parse` / `ls-files` / `check-ignore` 都经 `runSafeGit`（不跑 fsmonitor、过滤器、钩子）；在目录里核对共同 git 目录、顶层、分支、HEAD，状态检查带 `--work-tree`；别的仓库的检出、`core.worktree` 引走的都不认 | `workspaces/worktree-creator.test.ts`（"planning and adopting"）、`workspaces/worktree-include.test.ts`（"the repository's configuration is not run"） |
+| `.worktreeinclude` 复制是原子的：先写到 worktree 旁边的暂存目录再 `link`，已有的文件不覆盖；中途被打断不留半截文件，崩溃留下的暂存目录下次清掉 | `workspaces/worktree-include.test.ts`（"a copy that dies in the middle"） |
+| 动作中途被打断（不是"做完、事件没写"）：`git worktree add` 被杀留下的半截目录；复制到一半；提示被 pi 收下而会话文件没写（既有 `t9-runner.test.ts` "sends the contract when the file has none"）；定时的各个崩溃窗口 | `workspaces/worktree-creator.test.ts`（"a killed `git worktree add`"）、`workspaces/worktree-include.test.ts`、`tasks/schedule-service.test.ts`、`tasks/t910-service.test.ts` |
+| 真的子进程 `kill -9`：宿主在另一个进程里跑，节点跑到一半被杀，同一个家目录上再起宿主，任务接着跑完，一个 worktree、一份契约、一次 `host_restarted` | `tasks/t910.crash.host.test.ts` |
+| `pnpm task:try` 只 `recover` 自己的任务，不扫锁 | 一行调用（`dev/task-try.ts`），无自动测试：没有 pi 的单元测试跑不到那条路；靠 `pnpm typecheck` 和真实运行 |
+| 界面：午夜"凌晨 12:00"、中午"中午 12:00"；"上次还在跑"只在真的还在时写；关闭删除确认后焦点回"删除" | `ui/src/tasks/schedule-words.test.ts`、`ui/src/tasks/schedule-tab.browser.test.tsx` |
+| 协议号 36 → 37（新错误码 `schedule_file_unreadable`）→ 38（`list_schedules` 答复加 `followed`），Swift 投影重新生成 | `protocol/src/envelope.test.ts`、`remote.test.ts`、`pnpm protocol:swift --check`、`swift test --filter RoundTrip` |
+| 跟随开发版任务目录时：`list_schedules` 答 `{ schedules: [], followed: true }`，定时标签写「这是在跟着别的进程的任务，定时规则不在这里运行」，代替空状态和规则数 | `tasks/schedule-commands.test.ts`、`ui/src/tasks/schedule-tab.browser.test.tsx`（"says schedules do not run here…"） |
+| `watchSchedules` 因别的原因被拒：写「定时规则读取失败，稍后再试」，不写"发送失败"、不停在"正在读取" | `ui/src/tasks/schedule-tab.browser.test.tsx`（"does not wait for ever…"） |
+
 ## MP6e 纸面改版（SPEC-0005，2026-10-28，进行中）
 
 | 行为 | 测试 |
@@ -2405,3 +3089,32 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 验证（2026-11-06，未提交）：`pnpm check` 通过；`pnpm test` 单元 4748/4748、AtriumKit 475/475；`pnpm test:ui` 1221/1221；`pnpm test:leak` 连跑两次，每次 vitest 23/23、端到端 12/12。改动的文件都不在变异分组里，没跑变异测试。端到端在去掉 cmux 的 pi shim 的 PATH 下跑（见上）。
 
 验证（2026-11-08，`installedPi` 之后，PATH 第一个 `pi` 仍是 cmux 的 shim）：`pnpm check` 通过；`pnpm test` 单元 4750/4750、AtriumKit 475/475；`pnpm build` 后端到端 `--grep @leak` 12/12、`ask-user.spec.ts` 2/2；宿主 `edit-stopped.host.test.ts` + `reply-translation.host.test.ts` 10/10；`locate.pi.test.ts` + `oneshot.pi.test.ts` 15/15。没跑：vitest 的 leak / soak 项目（`sessions.leak.test.ts`、`sessions.soak.test.ts` 也改成了 `installedPi`，只过了类型检查和 lint）、完整 `pnpm test:pi`（本机 pi 1.5.0 没有夹具，同前）、`pnpm test:ui`（这次没改界面）。
+
+## 手机签名自动续签（SPEC-0005"安装"，2026-11-10，自用中加，待验收）
+
+免费账号签的 App 7 天后打不开，原先得自己记住每 7 天插线跑一次 `pnpm ios:install`。用户 2026-11-10 要求做成定时任务：手机和这台 Mac 在同一个 Wi-Fi 下时，自动把 `main` 的最新提交装上去续签名，`main` 构建不出来时退回上次装上的提交；2026-11-12 用户把触发层改到 Atrium 自己的定时规则上（每天 11:00 一条，不装 launchd 作业）。`scripts/ios-sign.test.ts` 用真的 git 仓库（真的建 worktree、真的检出、真的清理），只把 Xcode 换成 `ATRIUM_IOS_XCRUN` 的替身，`devicectl` 的调用由替身记下来核对。
+
+| 行为 | 验证 |
+| --- | --- |
+| 手机在同一 Wi-Fi 下时，在专用 worktree（`~/.cache/atrium-ios-sign`）里检出 `main` 的最新提交装上去，装完不打开 App，并记下提交 | `scripts/ios-sign.test.ts`"installs main's latest commit on a reachable iPhone, without opening the app, and remembers it"（核对 worktree 的 HEAD 和 `state.json`）；`scripts/ios.test.ts`"installs without opening the app when told not to, for the job that only renews the signature" |
+| 手机不在同一 Wi-Fi 下时不构建、不改状态；`install` 用退出码 3 表示"手机不在"，和构建失败分得开 | `ios-sign.test.ts`"builds nothing at all when the iPhone is not on this network"；`ios.test.ts` 的两例"stops before building when no iPhone has been paired…""…when the paired iPhone is not connected…"（都断言退出码 3） |
+| 手机上已经是 `main` 的最新提交、描述文件还剩两天以上时不构建，连 worktree 都不建；读不到到期时间时按装完 7 天算 | `ios-sign.test.ts`"does nothing when the phone already has main and its signature has days left"、"trusts 7 days from the install when the last run could not read the profile's expiry" |
+| 还剩两天以内时同一个提交也重装（Apple 只在旧的快用完时才换新的） | `ios-sign.test.ts`"re-signs the same commit when what the phone has is about to run out" |
+| `main` 构建不出来时改装上次成功装上的提交并更新记录；两个都失败才退 1，手机上原来那个 App 不动 | `ios-sign.test.ts`"installs the last commit that built when main does not, so the signature is renewed anyway"、"fails when neither main nor the last commit that built can be installed" |
+| 上一轮还没跑完时跳过（锁在 `~/Library/Caches/atrium-ios/sign/run.lock`，记录的进程不在就接管） | `ios-sign.test.ts`"leaves a run alone when another one is still going" |
+| launchd 作业（仓库里的 `scripts/install-ios-sign.sh`，**现在不装**：触发走 Atrium 每天 11:00 的规则，它是回到 launchd 时的退路）：周一到周五 11:00 / 19:00 共 10 个时点；运行时取 `main` 上的 `scripts/ios-sign.mjs`，不管当前检出的是哪个分支 | 手工（2026-11-10）：临时 HOME 加 `launchctl` 替身生成 plist，`plutil -lint` 通过、10 个 `StartCalendarInterval` 对得上；plist 里那条 `sh -c` 在临时仓库上跑过，能从 `main` 取出脚本、把仓库路径传给 node，`main` 上没有该文件时退出码 1 |
+
+- 破坏检查（`/tmp` 里的一份 cases 文件，10 处）：全部检出，`ios.mjs` 2 处、`ios-sign.mjs` 8 处。其中"--no-launch 时不去打开 App"那一处起初漏检：测试写成 `call[3] === "process"`，而 `devicectl` 的第三个参数才是 `process`，断言永远为假；改成核对前三个参数后检出。
+- 真机（2026-11-10，iPhone 16 Pro / iOS 26.6.1，无线）：`pnpm ios:sign` 在 `~/.cache/atrium-ios-sign` 里构建 `main`（`3e43db4a71`）经无线隧道装上去，`--no-launch` 确实没打开 App；重跑增量构建 7 秒。描述文件：旧的（11-02 到 11-09）过期后，这次 Apple 发了新的（11-10 11:53 创建、11-17 到期，团队和 bundle id 不变）；同一份再构建时它原样返回，`state.json` 记到 `expiresAt: 2026-11-17T11:53:33Z`，下一次因此按“什么都没做”跳过。
+- 没验证：定时规则到点自己跑（规则不在仓库里，下次另开任务建，建成时看第一轮）；`pnpm ios:sign:install` 现在不执行，launchd 这一层没有实际跑过。App 在手机上能不能打开（当次重新登录 Apple ID 后签名身份换了，手机还没信任新开发者，`--no-launch` 看不出这件事，只有 `pnpm ios:install` 会报并说明去哪里信任）。没改核心模块，没跑变异测试。
+
+## 学习方向的会话跟着方向的模型（2026-11-11）
+
+用户 2026-11-11：建方向时在页上选了 Argon，上课却自动用了别处最近选的 DeepSeek。原先宿主给 pi 还没写过文件的会话一律用 `models.preferred()`（整个 Atrium 上次选的）；现在方向里的会话先用这个方向里最近一个记下过模型的会话的模型和档位，方向里还没有时才退到上次选的（SPEC-0008"会话的用途"、domain-model §1 Direction）。模型只从会话文件和目录列表里读，不另存。
+
+| 行为 | 验证 |
+| --- | --- |
+| 方向里的新会话（上课等）起 pi 时用方向里最新那个会话记录的模型和档位，不是上次选的；挑的是方向里所有会话里最新的那个 | `packages/host/src/sessions/session-manager.test.ts` "starts a direction's session on the model its newest session recorded, not the one chosen last"（破坏检查 `packages/host/test/study.break-check.json` 检出） |
+| 方向里还没有会话记下模型（刚建、讨论还没写过）时用上次选的 | 同上 "starts a direction's first session on the model chosen last, no session of it having recorded one" |
+
+验证（2026-11-11，未合并）：`pnpm check` 通过；`session-manager.test.ts` 233/233、`study.host.test.ts` 11/11、宿主项目 361/361；单元项目 6212/6212（第二轮全过；第一轮 `packages/host/src/tasks/conversation.test.ts` 有一条 git 场景失败，重跑没再出现，和这次改动无关）。没跑 UI、e2e、泄漏、pi 契约和变异（`session-manager.ts` 不在变异分组里，见 `mutation-groups.mjs`）。

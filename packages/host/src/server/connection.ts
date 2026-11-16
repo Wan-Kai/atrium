@@ -121,7 +121,9 @@ export function createConnection(
         } satisfies HostMessage),
       );
     }
-    const snapshot = "sessionId" in message ? rules.snapshotOf(message.sessionId) : null;
+    // A visual of a direction names no session; phones never get one (SPEC-0008, ML4).
+    const snapshot =
+      "sessionId" in message && message.sessionId !== undefined ? rules.snapshotOf(message.sessionId) : null;
     if (snapshot !== null) {
       const replacement = JSON.stringify(snapshot);
       if (Buffer.byteLength(replacement) <= rules.maxMessageBytes) return write(replacement);

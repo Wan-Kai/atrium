@@ -3,11 +3,15 @@ import {
   CommandError,
   ConnectionLostError,
   type SessionView,
+  isDirectionId,
   isWorkspaceId,
   loadingView,
 } from "@atrium/client";
-import type { DiffStat, SessionModel } from "@atrium/protocol";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DiffStat, SessionModel, SessionStudy } from "@atrium/protocol";
+import { type ReactNode, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StudyKickoffLine } from "../study/kickoff-line";
+import { directionPath, isDirectionVisual } from "../study/archive";
+import { isRelativeVisual } from "./visual-reference";
 import { ArchivedDirectionBar } from "./archived-direction-bar";
 import { type StoreApi, useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
@@ -41,6 +45,8 @@ import { MessageImagesContext, messageImages } from "./message-images";
 import { ReplyImagesContext, replyImageFiles } from "./reply-images";
 import { ReplyTranslationContext } from "./reply-translation";
 import type { FileOpener } from "./file-opener";
+import { TaskLinksContext } from "./task-links";
+import { knownTaskError } from "../tasks/task-words";
 import { Transcript } from "./transcript";
 import { StoppedMessageEditor } from "./stopped-message-editor";
 import { stoppedEditStore } from "../state/stopped-edits";
@@ -59,6 +65,9 @@ import {
 import type { LaunchInTurn } from "./launch-timeline";
 import type { CreatedDirection } from "./turn-view";
 import { directionName } from "../study/learning";
+import { stepTitle, studyLabel } from "../study/progress";
+import { StudyLabelContext, StudySessionContext, type StudySessionInfo } from "../study/study-label";
+import { ArchivedSessionBar } from "./archived-session-bar";
 import { type Panes, createPanes, memoryStorage } from "../state/panes";
 import {
   NO_VIEW,
@@ -74,6 +83,7 @@ import {
 import { ActiveViewer } from "../files/active-viewer";
 import { workspacePath } from "../files/workspace-path";
 import { NO_CHANGES, useDiffWatch } from "../files/use-diff";
+import { firstMessages } from "./first-message";
 
 /** What to say when pi cannot be used, by the status the host found. */
 const PI_STATUS_TEXT: Readonly<Record<string, string>> = {
@@ -373,6 +383,7 @@ function SessionArea({
   launch,
   onRetryLaunch,
   fileOpener,
+  visualOpener,
   views,
   bottom,
   readOnly = false,
@@ -404,8 +415,10 @@ function SessionArea({
   readonly onRetryLaunch: (launchId: string) => void;
   /** The new-workspace page's choices and box, in place of the session's while it has none. */
   readonly bottom?: ReactNode;
-  /** How to open a file a tool was given, from its chip; none outside a workspace. */
+  /** How to open a file a tool was given, from its chip; none outside a workspace or direction. */
   readonly fileOpener?: FileOpener | undefined;
+  /** How to open a visual's file in a viewer tab, from its card; none where it cannot (ML4). */
+  readonly visualOpener?: ((path: string) => (() => void) | null) | undefined;
   /** The workspace views, so a child opened from the capsule shows over a viewer tab. */
   readonly views: StoreApi<WorkspaceViews>;
   /**
@@ -450,16 +463,20 @@ function SessionArea({
   );
   // One per session, so thumbnails do not load again on every render.
   const images = useMemo(() => messageImages(client, sessionId), [client, sessionId]);
-  const imageWorkspace = useStore(client.index, (index) =>
-    index.workspaces.find((one) => one.id === workspaceOf(containerId)),
+  // A workspace's, or a learning direction's where it is now (SPEC-0008, ML4).
+  const imageWorkspace = useStore(
+    client.index,
+    (index) =>
+      index.workspaces.find((one) => one.id === workspaceOf(containerId)) ??
+      index.directions.find((one) => one.id === containerId),
   );
   const imageWorkspaceId = imageWorkspace?.id;
   const imageWorkspaceDir = imageWorkspace?.dir;
   // The session's inline visuals (SPEC-0007).
   const uiClock = useClock();
   const visuals = useMemo(
-    () => visualsAccess(client, sessionId, fileOpener, uiClock),
-    [client, sessionId, fileOpener, uiClock],
+    () => visualsAccess(client, sessionId, visualOpener, uiClock),
+    [client, sessionId, visualOpener, uiClock],
   );
   const replyImages = useMemo(
     () =>
@@ -482,6 +499,8 @@ function SessionArea({
     }),
     [client, views, sessionId, sessions],
   );
+  const studyNames = useStudyNames(client, sessionId);
+  const studySession = useStudySessionInfo(client, sessionId);
   useEffect(() => {
     // The box's own effect has focused it by now, as children's effects run first.
     if (takesFocus) onFocusTaken();
@@ -519,58 +538,62 @@ function SessionArea({
           <VisualsContext value={visuals}>
             <MessageImagesContext value={images}>
               <AgentLinksContext value={links}>
-                <ReplyTranslationContext value={translation}>
-                  <Transcript
-                    view={view}
-                    editingStopped={editing !== null}
-                    onEditStopped={
-                      readOnly
-                        ? undefined
-                        : (turn) => {
-                            const draftKey = `edit:${sessionId}:${crypto.randomUUID()}`;
-                            const imageIds = Array.from({ length: turn.user.images }, () => crypto.randomUUID());
-                            const next = pageDrafts().read(sessionId);
-                            pageDrafts().update(draftKey, () => ({
-                              text: turn.user.text,
-                              pastes: [],
-                              files: [],
-                              command: null,
-                              images: imageIds.map((id) => ({ id, image: null, attachmentId: null })),
-                            }));
-                            editStore.setState({
-                              target: {
-                                epoch: view.epoch,
-                                turnId: turn.id,
-                                draftKey,
-                                images: imageIds,
-                                savedDraft:
-                                  next.text !== "" ||
-                                  next.images.length > 0 ||
-                                  next.pastes.length > 0 ||
-                                  next.files.length > 0 ||
-                                  next.command !== null,
-                              },
-                              submitting: false,
-                              error: null,
-                            });
-                          }
-                    }
-                    onLoadOlder={() => {
-                      // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
-                      client.loadOlder(sessionId).catch(() => undefined);
-                    }}
-                    onLoadStep={(turnId, stepId) => {
-                      // Fire and forget: a failed fetch leaves the preview, still marked as loading.
-                      client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
-                    }}
-                    onRetry={readOnly ? undefined : actions.retry}
-                    onFork={readOnly ? undefined : (turnId) => forkFrom(client, sessionId, turnId)}
-                    onChild={readOnly ? undefined : (turnId) => askForChild({ parentSessionId: sessionId, turnId })}
-                    {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
-                    launch={shown}
-                    created={created}
-                  />
-                </ReplyTranslationContext>
+                <StudyLabelContext value={studyNames}>
+                  <StudySessionContext value={studySession}>
+                    <ReplyTranslationContext value={translation}>
+                      <Transcript
+                        view={view}
+                        editingStopped={editing !== null}
+                        onEditStopped={
+                          readOnly
+                            ? undefined
+                            : (turn) => {
+                                const draftKey = `edit:${sessionId}:${crypto.randomUUID()}`;
+                                const imageIds = Array.from({ length: turn.user.images }, () => crypto.randomUUID());
+                                const next = pageDrafts().read(sessionId);
+                                pageDrafts().update(draftKey, () => ({
+                                  text: turn.user.text,
+                                  pastes: [],
+                                  files: [],
+                                  command: null,
+                                  images: imageIds.map((id) => ({ id, image: null, attachmentId: null })),
+                                }));
+                                editStore.setState({
+                                  target: {
+                                    epoch: view.epoch,
+                                    turnId: turn.id,
+                                    draftKey,
+                                    images: imageIds,
+                                    savedDraft:
+                                      next.text !== "" ||
+                                      next.images.length > 0 ||
+                                      next.pastes.length > 0 ||
+                                      next.files.length > 0 ||
+                                      next.command !== null,
+                                  },
+                                  submitting: false,
+                                  error: null,
+                                });
+                              }
+                        }
+                        onLoadOlder={() => {
+                          // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
+                          client.loadOlder(sessionId).catch(() => undefined);
+                        }}
+                        onLoadStep={(turnId, stepId) => {
+                          // Fire and forget: a failed fetch leaves the preview, still marked as loading.
+                          client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
+                        }}
+                        onRetry={readOnly ? undefined : actions.retry}
+                        onFork={readOnly ? undefined : (turnId) => forkFrom(client, sessionId, turnId)}
+                        onChild={readOnly ? undefined : (turnId) => askForChild({ parentSessionId: sessionId, turnId })}
+                        {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
+                        launch={shown}
+                        created={created}
+                      />
+                    </ReplyTranslationContext>
+                  </StudySessionContext>
+                </StudyLabelContext>
               </AgentLinksContext>
             </MessageImagesContext>
           </VisualsContext>
@@ -745,6 +768,8 @@ export function ConversationArea({
   const [ownViews] = useState(() => createWorkspaceViews(memoryStorage()));
   const views = givenViews ?? ownViews;
   const [failure, setFailure] = useState<string | null>(null);
+  // `/task` opens the task it makes in the task area, which the workbench owns.
+  const taskLinks = use(TaskLinksContext);
   // The session shown now, for an answer that comes after the area has moved on.
   const shownNow = useRef(sessionId);
   useEffect(() => {
@@ -807,14 +832,46 @@ export function ConversationArea({
     client.index,
     (index) => index.workspaces.find((workspace) => workspace.id === workspaceId)?.dir ?? null,
   );
-  // A chip's file opens in a pinned tab of the workspace (SPEC-0001, "查看标签 · 从对话里打开").
+  // A learning direction's viewer tabs (SPEC-0008, ML4): where it is now, and whether it moved there.
+  const directionId = containerId !== null && isDirectionId(containerId) ? containerId : null;
+  const directionDir = useStore(
+    client.index,
+    (index) => index.directions.find((one) => one.id === directionId)?.dir ?? null,
+  );
+  const directionArchived = useStore(
+    client.index,
+    (index) => index.directions.find((one) => one.id === directionId)?.archived ?? false,
+  );
+  /** The container whose viewer tabs show here: the workspace, or the direction. */
+  const viewerId = workspaceId ?? directionId;
+  // A chip's file opens in a pinned tab of the workspace (SPEC-0001, "查看标签 · 从对话里打开"),
+  // or of the direction, as a reply's file link there does (SPEC-0008, ML4).
   const fileOpener = useMemo(() => {
-    if (workspaceId === null || workspaceDir === null) return undefined;
+    if (workspaceId !== null && workspaceDir !== null) {
+      return (path: string, range?: FileLineRange) => {
+        const relative = workspacePath(path, workspaceDir);
+        return relative === null ? null : () => openFile(views, workspaceId, relative, true, range);
+      };
+    }
+    if (directionId === null || directionDir === null) return undefined;
     return (path: string, range?: FileLineRange) => {
-      const relative = workspacePath(path, workspaceDir);
-      return relative === null ? null : () => openFile(views, workspaceId, relative, true, range);
+      const relative = directionPath(path, { dir: directionDir, archived: directionArchived });
+      return relative === null ? null : () => openFile(views, directionId, relative, true, range);
     };
-  }, [views, workspaceId, workspaceDir]);
+  }, [views, workspaceId, workspaceDir, directionId, directionDir, directionArchived]);
+  // A visual's card opens its file: a workspace's by a relative path (MV1), a direction's when it lands in its visuals/ (ML4).
+  const visualOpener = useMemo(() => {
+    if (fileOpener === undefined) return undefined;
+    if (directionId === null || directionDir === null) {
+      return (path: string) => (isRelativeVisual(path) ? fileOpener(path) : null);
+    }
+    return (path: string) => {
+      const relative = directionPath(path, { dir: directionDir, archived: directionArchived });
+      return relative === null || !isDirectionVisual(relative)
+        ? null
+        : () => openFile(views, directionId, relative, true);
+    };
+  }, [views, fileOpener, directionId, directionDir, directionArchived]);
   useEffect(() => {
     // Fire and forget: a lost connection asks again when it is back (SPEC-0001, "工作区改动").
     client.watchChanges(workspaceId === null ? [] : [workspaceId]).catch(() => undefined);
@@ -827,7 +884,7 @@ export function ConversationArea({
     [client],
   );
   const panelOpen = useStore(panes, (state) => state.panelOpen);
-  const viewer = useStore(views, (state) => (workspaceId === null ? NO_VIEW : viewOf(state, workspaceId)).active);
+  const viewer = useStore(views, (state) => (viewerId === null ? NO_VIEW : viewOf(state, viewerId)).active);
   // A file tab's counts and its reading again as its diff changes want the diff too.
   useDiffWatch(client, views, workspaceId, workspaceId !== null && (panelOpen || viewer !== null));
   /**
@@ -890,6 +947,16 @@ export function ConversationArea({
   /** Whether the session shown is an archived direction's, only to be read (SPEC-0008, "ML1 定的细节"). */
   const archivedDirection = useStore(client.index, (index) =>
     index.directions.some((direction) => direction.id === containerId && direction.archived),
+  );
+  /**
+   * Whether the session shown was archived in a direction still there, as with its level: read
+   * until restored (SPEC-0008, "ML3 定的细节 · 方向里归档了的会话").
+   */
+  const archivedInDirection = useStore(
+    client.index,
+    (index) =>
+      index.directions.some((direction) => direction.id === containerId && !direction.archived) &&
+      index.sessions.some((session) => session.sessionId === sessionId && session.archived),
   );
   // The host instance last connected to; a new one has lost every session's view.
   const hostInstance = useStore(client.connection, (state) =>
@@ -954,7 +1021,8 @@ export function ConversationArea({
    * See `ConversationArea`.
    *
    * An image the host has let go after 30 minutes is uploaded again once, from the copy the box
-   * kept, one image at a time (SPEC-0001, "模型与输入框"). A message that still does not go goes
+   * kept, one image at a time (SPEC-0001, "模型与输入框"). While a new direction's first message
+   * is on its way to pi, this one waits behind it (SPEC-0008, "真实模型检查后改"). A message that still does not go goes
    * back into its box with its latest uploads.
    *
    * @sideEffects Sends commands; may upload images; updates component state.
@@ -977,6 +1045,8 @@ export function ConversationArea({
     try {
       id = await target();
       const to = id;
+      // A new direction's first message is still on its way: this one goes after it.
+      await firstMessages().after(to);
       const previews = images.map(({ image }) => image.preview);
       const tag = command ?? undefined;
       /**
@@ -1129,6 +1199,22 @@ export function ConversationArea({
       if (sessionId !== null) askForChild({ parentSessionId: sessionId, turnId: null });
       return null;
     }
+    if (name === "task") {
+      // Not a draft, as `inDraft` says, so there is a session. The host answers in codes, the words are ours.
+      try {
+        const { taskId } = await client.createTask(await target(), args === "" ? undefined : args);
+        taskLinks.openTask(taskId);
+        return null;
+      } catch (error) {
+        // The conversation has its task already: that is the one to go to, not an error (SPEC-0006, "错误码").
+        const existing = error instanceof CommandError ? error.params?.["taskId"] : undefined;
+        if (error instanceof CommandError && error.code === "task_already_converted" && typeof existing === "string") {
+          taskLinks.openTask(existing);
+          return null;
+        }
+        return (error instanceof CommandError ? knownTaskError(error.code) : null) ?? describeSendError(error);
+      }
+    }
     if (name === "compact") {
       await client.compactSession(await target(), args === "" ? undefined : args);
       return null;
@@ -1252,18 +1338,18 @@ export function ConversationArea({
     // The changes panel's room: it cuts the panel off as it slides out past its edge.
     <div className="relative flex min-h-0 flex-1 overflow-x-clip">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {workspaceId !== null && viewer !== null ? (
+        {viewerId !== null && viewer !== null ? (
           <ActiveViewer
-            // A tab's reading, scroll and wrapping are its own, in each workspace.
-            key={`${workspaceId}\n${viewer}`}
+            // A tab's reading, scroll and wrapping are its own, in each workspace or direction.
+            key={`${viewerId}\n${viewer}`}
             client={client}
-            workspaceId={workspaceId}
+            workspaceId={viewerId}
             views={views}
             viewerKey={viewer}
             openInBrowser={
-              openInBrowser === undefined || workspaceDir === null
+              openInBrowser === undefined || (workspaceDir ?? directionDir) === null
                 ? undefined
-                : (path) => openInBrowser(`${workspaceDir.replace(/\/+$/u, "")}/${path}`)
+                : (path) => openInBrowser(`${(workspaceDir ?? directionDir ?? "").replace(/\/+$/u, "")}/${path}`)
             }
           />
         ) : launch !== undefined ? (
@@ -1289,6 +1375,7 @@ export function ConversationArea({
             onRetryLaunch={onRetryLaunch}
             views={views}
             fileOpener={fileOpener}
+            visualOpener={visualOpener}
             {...(page === undefined ? {} : { bottom: page })}
           />
         ) : store === undefined || sessionId === null ? (
@@ -1334,7 +1421,12 @@ export function ConversationArea({
             act={act}
             attempt={attempt}
             session={target}
-            notice={notice}
+            notice={
+              <>
+                {notice}
+                <StudyKickoffLine client={client} sessionId={sessionId} />
+              </>
+            }
             pickerRequest={pickerRequest}
             attaching={attaching}
             takesFocus={handing?.sessionId === sessionId}
@@ -1344,6 +1436,7 @@ export function ConversationArea({
             onRetryLaunch={onRetryLaunch}
             views={views}
             fileOpener={fileOpener}
+            visualOpener={visualOpener}
             {...(archivedDirection && containerId !== null
               ? {
                   readOnly: true,
@@ -1354,7 +1447,19 @@ export function ConversationArea({
                     </>
                   ),
                 }
-              : {})}
+              : archivedInDirection && containerId !== null && sessionId !== null
+                ? {
+                    readOnly: true,
+                    bottom: (
+                      <>
+                        {notice}
+                        <ArchivedSessionBar
+                          onRestore={() => act(() => client.restoreStudySessions(containerId, [sessionId]))}
+                        />
+                      </>
+                    ),
+                  }
+                : {})}
           />
         )}
       </div>
@@ -1392,6 +1497,73 @@ function useCreatedDirection(client: AtriumClient, sessionId: string): CreatedDi
           { name: directionName(direction), dir: `${learningDir}/${direction.id.slice("lrn_".length)}` },
     [direction, learningDir],
   );
+}
+
+/**
+ * How this session's conversation names a use: with its direction's level and step, and the
+ * step's title (design-language "学习模式", "宿主开的学习会话第一轮").
+ *
+ * @remarks
+ * Outside a direction, or before its progress is read, the use alone.
+ *
+ * @sideEffects Subscribes to the list.
+ * @param client - The client.
+ * @param sessionId - The session.
+ * @returns The namer.
+ */
+function useStudyNames(client: AtriumClient, sessionId: string): (study: SessionStudy) => string {
+  const progress = useStore(client.index, (index) => {
+    const session = index.sessions.find((one) => one.sessionId === sessionId);
+    return index.directions.find((one) => one.id === session?.containerId)?.progress ?? null;
+  });
+  return useCallback(
+    (study: SessionStudy) => {
+      const label = studyLabel(study, progress);
+      const levelAt = progress?.ladder.findIndex((level) => level.id === study.level) ?? -1;
+      const step =
+        study.level === undefined ? undefined : progress?.steps[study.level]?.find((one) => one.id === study.step);
+      return step === undefined || progress === null
+        ? label
+        : `${label} · ${stepTitle(step, levelAt + 1, progress.ladder)}`;
+    },
+    [progress],
+  );
+}
+
+/**
+ * What the conversation knows of the study session it shows: its use, its direction's progress,
+ * and for a quiz its lesson.
+ *
+ * @remarks
+ * SPEC-0008, "ML3 定的细节": a quiz child folds the lesson's turns and says where it came from; the
+ * study tools are worded from the use. `null` for a session with no use, or one of no direction.
+ *
+ * @sideEffects Subscribes to the list.
+ * @param client - The client.
+ * @param sessionId - The session.
+ * @returns The session's study, or `null`.
+ */
+function useStudySessionInfo(client: AtriumClient, sessionId: string): StudySessionInfo | null {
+  const study = useStore(client.index, (index) => index.sessions.find((one) => one.sessionId === sessionId)?.study);
+  const parentId = useStore(
+    client.index,
+    (index) => index.sessions.find((one) => one.sessionId === sessionId)?.parent?.sessionId ?? null,
+  );
+  const progress = useStore(client.index, (index) => {
+    const session = index.sessions.find((one) => one.sessionId === sessionId);
+    return index.directions.find((one) => one.id === session?.containerId)?.progress ?? null;
+  });
+  return useMemo(() => {
+    if (study === undefined || study === null) return null;
+    const step =
+      study.level === undefined ? undefined : progress?.steps[study.level]?.find((one) => one.id === study.step);
+    return {
+      study,
+      progress,
+      parentId,
+      lessonTitle: step?.kind === "lesson" ? step.title : null,
+    };
+  }, [study, progress, parentId]);
 }
 
 /** No launches, where the new-workspace page is not given. */

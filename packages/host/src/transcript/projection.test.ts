@@ -1,5 +1,5 @@
 import type { AssistantPart, LogEntry } from "@atrium/pi";
-import type { Step, TranscriptItem, Turn } from "@atrium/protocol";
+import type { ReviewRecord, Step, TranscriptItem, Turn } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { fixtureEntries } from "../../test/pi-fixtures";
 import { projectTranscript } from "./projection";
@@ -213,6 +213,15 @@ const firstTurn = turn("e6", "one", {
   ],
   // Written first, so its line counts are unknown.
   changes: [{ path: "notes.txt", added: null, removed: null }],
+});
+
+/** A task line entry. */
+const line = (id: string, details: Extract<LogEntry, { kind: "task_line" }>["line"]): LogEntry => ({
+  id,
+  parentId: null,
+  timestamp: 99,
+  kind: "task_line",
+  line: details,
 });
 
 describe("projectTranscript on a recorded session", () => {
@@ -805,6 +814,67 @@ describe("projectTranscript", () => {
       to: "/repo.worktrees/tests",
       timestamp: 7,
     });
+  });
+
+  it("puts a task conversation's progress lines and a source conversation's mark between the turns, as notices", () => {
+    const { items, turnEntryIds } = projectTranscript(
+      [
+        user("u1", "go"),
+        reply("a1", [says("done")]),
+        line("p1", { v: 1, kind: "progress", id: "x", at: 1_000, text: "t", what: "node_started", node: "N2" }),
+        line("p2", { v: 1, kind: "progress", id: "y", at: 2_000, text: "t" }),
+        line("m1", { v: 1, kind: "converted", id: "z", at: 3_000, taskId: "tsk_a", state: "converted" }),
+        line("m2", { v: 1, kind: "converted", id: "w", at: 3_500, taskId: "tsk_a", state: "abandoned" }),
+        user("u2", "next"),
+      ],
+      "s",
+      none,
+    );
+
+    expect(items.map((item) => item.kind)).toStrictEqual(["turn", "notice", "notice", "notice", "notice", "turn"]);
+    expect(items.slice(1, 5)).toStrictEqual([
+      { kind: "notice", id: "s:p1", notice: "task_progress", what: "node_started", node: "N2", timestamp: 1_000 },
+      { kind: "notice", id: "s:p2", notice: "task_progress", what: null, node: null, timestamp: 2_000 },
+      { kind: "notice", id: "s:m1", notice: "task_mark", taskId: "tsk_a", state: "converted", timestamp: 3_000 },
+      { kind: "notice", id: "s:m2", notice: "task_mark", taskId: "tsk_a", state: "abandoned", timestamp: 3_500 },
+    ]);
+    expect(turnEntryIds).toStrictEqual(["u1", "u2"]);
+  });
+
+  it("puts the record of a review between the turns as a notice, with the snapshot and the verdict (ADR-0018)", () => {
+    const record: ReviewRecord = {
+      source: { kind: "gate", gate: "task_human" },
+      subject: { code: "task_human_node", params: { taskId: "tsk_a", node: "H", merge: false } },
+      evidence: [{ kind: "summary", by: { kind: "node", node: "N1" }, text: "Wrote it." }],
+      verdict: { action: "send_back", target: "N1", reason: "again" },
+    };
+
+    const { items, turnEntryIds } = projectTranscript(
+      [
+        user("u1", "go"),
+        reply("a1", [says("done")]),
+        {
+          id: "r1",
+          parentId: null,
+          timestamp: 99,
+          kind: "review_line",
+          line: { v: 1, kind: "review", id: "rv", at: 4_000, review: record },
+        },
+        user("u2", "next"),
+      ],
+      "s",
+      none,
+    );
+
+    expect(items.map((item) => item.kind)).toStrictEqual(["turn", "notice", "turn"]);
+    expect(items[1]).toStrictEqual({
+      kind: "notice",
+      id: "s:r1",
+      notice: "review",
+      review: record,
+      timestamp: 4_000,
+    });
+    expect(turnEntryIds).toStrictEqual(["u1", "u2"]);
   });
 
   it("opens a turn with notices or a task, and makes them a step where a steer would be (SPEC-0002)", () => {

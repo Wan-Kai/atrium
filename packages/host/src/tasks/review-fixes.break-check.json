@@ -1,0 +1,260 @@
+[
+  {
+    "file": "packages/host/src/workspaces/safe-git.ts",
+    "from": "\"log.showSignature=false\"",
+    "to": "\"log.showSignature=true\"",
+    "test": "packages/host/src/tasks/commit.test.ts",
+    "name": "does not run gpg.program"
+  },
+  {
+    "file": "packages/host/src/tasks/commit.ts",
+    "from": "[pin, \"diff\", \"--cached\", \"--quiet\", \"--no-ext-diff\", \"--no-textconv\"]",
+    "to": "[pin, \"diff\", \"--cached\", \"--quiet\"]",
+    "test": "packages/host/src/tasks/commit.test.ts",
+    "name": "does not run a diff driver"
+  },
+  {
+    "file": "packages/host/src/tasks/commit.ts",
+    "from": "const pin = `--work-tree=${cwd}`;",
+    "to": "const pin = \"--no-pager\";",
+    "test": "packages/host/src/tasks/commit.test.ts",
+    "name": "pins every command to the worktree"
+  },
+  {
+    "file": "packages/host/src/tasks/commit.ts",
+    "from": "if (top.code !== 0 || (await realpath(top.stdout.trim()).catch(() => \"\")) !== expected) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/tasks/commit.test.ts",
+    "name": "refuses to commit when the worktree's configuration points core.worktree"
+  },
+  {
+    "file": "packages/host/src/tasks/commit.ts",
+    "from": "if (staged.code !== 1) throw new Error(\"git diff failed\");",
+    "to": "",
+    "test": "packages/host/src/tasks/commit.test.ts",
+    "name": "fails on any exit code but 1"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "    run.commitPending = true;\n",
+    "to": "",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "does not end the task until the last writing node's commit is settled"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "run.commit = event.commit;\n  passCommitted(draft, run);",
+    "to": "run.commit = event.commit;",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "does not end the task until the last writing node's commit is settled"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "failRun(draft, run, \"commit\");",
+    "to": "failRun(draft, run, \"crashed\");",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "fails a writing node whose commit failed with"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (run.commitPending === true) {\n    // Only the commit failed",
+    "to": "if (false) {\n    // Only the commit failed",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "retries only the commit when a node failed with"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (run.state === \"running\" && run.commitPending === true) {\n      // Its commit",
+    "to": "if (false) {\n      // Its commit",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "asks again for a pending commit when the host restarts"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "run.pendingDone !== null || run.commitPending === true) return false;",
+    "to": "run.commitPending === true) return false;",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "passes a node whose node_done stands instead of holding it"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (event.waitingFor === \"graph_change\") run.pendingDone = null;",
+    "to": "",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "drops a waiting node_done when the same turn asked for a graph change"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (run?.state !== \"running\" || run.commitPending === true) return false;\n  const done",
+    "to": "if (run?.state !== \"running\") return false;\n  const done",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "ignores a node's turn ending, a failure or a hold while its commit is pending"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "  if (run.commitPending === true) return false;\n  if (run.state === \"waiting\" &&",
+    "to": "  if (run.state === \"waiting\" &&",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "ignores a node's turn ending, a failure or a hold while its commit is pending"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "  run.contractSent = true;\n",
+    "to": "",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "records that the contract was sent once"
+  },
+  {
+    "file": "packages/host/src/tasks/judge.ts",
+    "from": "const replaced = input.call === \"graph_change\" && state.pending === \"done\";",
+    "to": "const replaced = false;",
+    "test": "packages/host/src/tasks/judge.test.ts",
+    "name": "voids a node_done when a graph change is accepted"
+  },
+  {
+    "file": "packages/host/src/tasks/channel.ts",
+    "from": "run.state !== \"running\" ||\n    run.commitPending === true",
+    "to": "run.state !== \"running\"",
+    "test": "packages/host/src/tasks/channel.test.ts",
+    "name": "refuses a node that waits for its commit"
+  },
+  {
+    "file": "packages/host/src/tasks/graph-validator.ts",
+    "from": "if (!NODE_ID.test(node.id)) problems.push({ code: \"bad_node_id\", node: node.id });",
+    "to": "",
+    "test": "packages/host/src/tasks/graph-validator.test.ts",
+    "name": "refuses a repeated node id"
+  },
+  {
+    "file": "packages/host/src/tasks/contract.ts",
+    "from": "里负责节点 ${escapeShell(node.id)} · ",
+    "to": "里负责节点 ${node.id} · ",
+    "test": "packages/host/src/tasks/contract.test.ts",
+    "name": "escapes node ids wherever they are written"
+  },
+  {
+    "file": "packages/host/src/tasks/contract.ts",
+    "from": "（来自 ${escapeShell(run.backFrom.node)}）",
+    "to": "（来自 ${run.backFrom.node}）",
+    "test": "packages/host/src/tasks/contract.test.ts",
+    "name": "escapes node ids wherever they are written"
+  },
+  {
+    "file": "packages/host/src/tasks/contract.ts",
+    "from": "[`  - ${escapeShell(node.id)} · ",
+    "to": "[`  - ${node.id} · ",
+    "test": "packages/host/src/tasks/contract.test.ts",
+    "name": "escapes node ids wherever they are written"
+  },
+  {
+    "file": "packages/host/src/tasks/quote.ts",
+    "from": "[<＜]",
+    "to": "[<]",
+    "test": "packages/host/src/tasks/quote.test.ts",
+    "name": "spelled with a gap or a full-width bracket"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "      closing.signal,\n    );\n    await dispatch(entry, { type: \"contract_sent\"",
+    "to": "    );\n    await dispatch(entry, { type: \"contract_sent\"",
+    "test": "packages/host/src/tasks/runner.test.ts",
+    "name": "closes while a prompt is stuck"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "const starting = context.startingAt !== null && options.clock.now() - context.startingAt < STARTING_MS;",
+    "to": "const starting = false;",
+    "test": "packages/host/src/tasks/runner.test.ts",
+    "name": "does not hold a node right after it was sent a turn that has not begun"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "track(\n      enqueue(entry, () => handleSignal(entry, context, signal)),\n      \"signal\",\n    );",
+    "to": "track(handleSignal(entry, context, signal), \"signal\");",
+    "test": "packages/host/src/tasks/runner.test.ts",
+    "name": "takes a node_done at once after a question was answered"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "if (task.workspaceState === \"ready\") await lockWorkspace(entry, false);",
+    "to": "",
+    "test": "packages/host/src/tasks/runner.test.ts",
+    "name": "lets go of the worktree's lock again when it recovers a task that had already ended"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "known.find((candidate) => candidate.id === other.node)?.role === \"work\"",
+    "to": "true",
+    "test": "packages/host/src/tasks/review-fixes.host.test.ts",
+    "name": "tells the first work node the worktree is new",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "if (run.contractSent !== true) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/tasks/review-fixes.host.test.ts",
+    "name": "sends the contract, not a line about carrying on",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "      await dispatch(entry, { type: \"commit_failed\", ...ref });",
+    "to": "",
+    "test": "packages/host/src/tasks/review-fixes.host.test.ts",
+    "name": "fails the node with `commit`",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "live.state === \"stopped\"",
+    "to": "live.state === \"never\"",
+    "test": "packages/host/src/tasks/review-fixes.host.test.ts",
+    "name": "lets a node the user stopped go on",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "      await sendBack(entry, run.node, RESUME_RESTARTED, `e${String(epoch)}.${run.node}`);",
+    "to": "",
+    "test": "packages/host/src/tasks/review-fixes.host.test.ts",
+    "name": "tells a node its pi was restarted",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "if (!context.judge.running && context.judge.pending === null && !starting) {",
+    "to": "if (context.judge.pending === null && !starting) {",
+    "test": "packages/host/src/tasks/review-fixes.host.test.ts",
+    "name": "passes a node whose node_done stands when a pause",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/sessions/agent-launch.ts",
+    "from": "if (entry?.task != null) throw new Error(",
+    "to": "if (false) throw new Error(",
+    "test": "packages/host/src/sessions/agent-launch.test.ts",
+    "name": "refuses a node without a role"
+  },
+  {
+    "file": "packages/host/src/tasks/task-workspaces.ts",
+    "from": "if (found !== undefined) throw new Error(\"the task's worktree has no base commit\");",
+    "to": "",
+    "test": "packages/host/src/tasks/task-workspaces.test.ts",
+    "name": "refuses, rather than makes another worktree"
+  },
+  {
+    "file": "packages/host/src/tasks/task-workspaces.ts",
+    "from": "task.name, signal);",
+    "to": "task.name);",
+    "test": "packages/host/src/tasks/task-workspaces.test.ts",
+    "name": "handing the creator the abort signal"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "  run.waitingFor = null;\n  run.pendingDone = null;\n  if (isHeldBack",
+    "to": "  run.waitingFor = null;\n  if (isHeldBack",
+    "test": "packages/host/src/tasks/scheduler.test.ts",
+    "name": "forgets a waiting node_done when the host restarts"
+  }
+]

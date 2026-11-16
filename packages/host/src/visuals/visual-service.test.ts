@@ -1,6 +1,6 @@
 import { CommandError, type SteerCommand, type VisualChangedEvent, type VisualSource } from "@atrium/protocol";
 import { FakeClock, createTempDir } from "@atrium/testkit";
-import { chmod, mkdir, realpath, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
@@ -17,12 +17,12 @@ const TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
  * @remarks
  * Sessions `s1` and `s2` each have a working directory with its visuals inside, as a study
  * direction has; `s3` is a child of `s1`, `s4` a child of `s3`, each with its own; anything else
- * is unknown.
+ * is unknown. The host's own folder for demos is `demos/`, with `demos/old/` in it.
  *
  * @sideEffects Creates temporary directories, removed when the test ends.
  * @returns The service and what it did.
  */
-async function harness(failAtOnce = false) {
+async function harness(failAtOnce = false, owner = { safe: true }) {
   const temp = await createTempDir("visual-service");
   onTestFinished(temp.cleanup);
   const root = await realpath(temp.path);
@@ -30,6 +30,8 @@ async function harness(failAtOnce = false) {
   const dir = join(cwd, "visuals");
   await mkdir(dir, { recursive: true });
   for (const other of ["s2", "s3", "s4"]) await mkdir(join(root, other, "visuals"), { recursive: true });
+  const demos = join(root, "demos");
+  await mkdir(join(demos, "old"), { recursive: true });
   const clock = new FakeClock(1_000);
   const { logger, records, resources } = recordingTracing();
   const sent: [string, VisualChangedEvent][] = [];
@@ -47,6 +49,17 @@ async function harness(failAtOnce = false) {
   let tokens = 0;
   const service = createVisualService({
     locate: (sessionId) => {
+      // `s5` ran in a direction at `s5`, archived since to `Archive/s5` (SPEC-0008, ML4).
+      if (sessionId === "s5") {
+        const now = join(root, "Archive", "s5");
+        return {
+          cwd: now,
+          dir: join(now, "visuals"),
+          movedFrom: join(root, "s5"),
+          root: demos,
+          owned: async () => owner.safe,
+        };
+      }
       const ancestors = { s1: [], s2: [], s3: ["s1"], s4: ["s3", "s1"] }[sessionId];
       return ancestors === undefined
         ? undefined
@@ -54,8 +67,15 @@ async function harness(failAtOnce = false) {
             cwd: join(root, sessionId),
             dir: join(root, sessionId, "visuals"),
             ancestors: ancestors.map((up) => join(root, up, "visuals")),
+            // `s2` tells of a place that gives no host folder for demos.
+            ...(sessionId === "s2" ? {} : { root: demos }),
           };
     },
+    // `lrn_rust` is a direction at `s1`, the place its sessions' visuals are in (SPEC-0008, ML4).
+    locateDirection: (directionId) =>
+      directionId === "lrn_rust"
+        ? { cwd: join(root, "s1"), dir: join(root, "s1", "visuals"), owned: async () => owner.safe }
+        : undefined,
     steer: async (command, source) => {
       steered.push([command, source]);
       return { disposition: "started" };
@@ -68,7 +88,7 @@ async function harness(failAtOnce = false) {
     newToken: () => String(++tokens).padStart(32, "0"),
   });
   onTestFinished(() => service.close());
-  return { service, root, cwd, dir, clock, records, resources, sent, steered, folders, stopped };
+  return { service, root, cwd, dir, demos, clock, records, resources, sent, steered, folders, stopped };
 }
 
 /**
@@ -163,6 +183,45 @@ describe("resolving a visual", () => {
     expect([fromChild.size, fromGrandchild.size, ownOfParent.size]).toStrictEqual([1, 1, 1]);
     expect(await refusal(service.resolve("c1", "s1", join(root, "s3", "visuals", "b.html")))).toBe("visual_outside");
     expect(await refusal(service.resolve("c1", "s2", join(root, "s1", "visuals", "a.html")))).toBe("visual_outside");
+  });
+
+  it("opens a demo anywhere in the host's own folder for demos, as a reply written before a move names it", async () => {
+    const { service, dir, demos, folders, clock, sent } = await harness();
+    await writeFile(join(demos, "old", "a.html"), "x");
+    await mkdir(join(demos, "old", "deep"));
+    await writeFile(join(demos, "old", "deep", "b.html"), "x");
+    await writeFile(join(demos, "loose.html"), "x");
+    await symlink(dir, join(demos, "linked"));
+
+    expect((await service.resolve("c1", "s1", join(demos, "old", "a.html"))).size).toBe(1);
+    // Only exactly one folder below it, and only a folder the host made there.
+    expect(await refusal(service.resolve("c1", "s1", join(demos, "old", "deep", "b.html")))).toBe("visual_outside");
+    expect(await refusal(service.resolve("c1", "s1", join(demos, "loose.html")))).toBe("visual_outside");
+    expect(await refusal(service.resolve("c1", "s1", "old/a.html"))).toBe("visual_outside");
+    // A place that gives no host folder for demos reads none of it.
+    expect(await refusal(service.resolve("c1", "s2", join(demos, "old", "a.html")))).toBe("visual_outside");
+    await writeFile(join(dir, "c.html"), "x");
+    expect(await refusal(service.resolve("c1", "s1", join(demos, "linked", "c.html")))).toBe("visual_outside");
+    // A file the folder does not hold yet is watched for, as in a session's own folder.
+    expect(await refusal(service.resolve("c1", "s1", join(demos, "old", "later.html")))).toBe("visual_missing");
+    expect([...folders.keys()]).toStrictEqual([join(demos, "old")]);
+
+    await writeFile(join(demos, "old", "later.html"), "x");
+    folders.get(join(demos, "old"))?.fire();
+    clock.advance(100);
+    await service.settled();
+
+    expect(sent).toStrictEqual([
+      [
+        "c1",
+        {
+          type: "visual_changed",
+          sessionId: "s1",
+          path: join(demos, "old", "later.html"),
+          mtime: expect.any(Number),
+        },
+      ],
+    ]);
   });
 
   it("adds no watch for a resolve that ends after its connection closed, or the service did", async () => {
@@ -475,5 +534,262 @@ describe("sending from a visual", () => {
       ),
     ).toBe("visual_outside");
     expect(steered).toStrictEqual([]);
+  });
+});
+
+describe("a direction's visuals, for its viewer tabs (SPEC-0008, ML4)", () => {
+  it("hands out its own address for a file right in visuals/, apart from a session's for the same file", async () => {
+    const { service, dir } = await harness();
+    await writeFile(join(dir, "2-03-borrow.html"), "<p>x</p>");
+
+    const bySession = await service.resolve("c1", "s1", "visuals/2-03-borrow.html");
+    const byDirection = await service.resolveForDirection("c1", "lrn_rust", "visuals/2-03-borrow.html");
+    const again = await service.resolveForDirection("c2", "lrn_rust", "visuals/2-03-borrow.html");
+
+    expect(byDirection).toStrictEqual({
+      url: `atrium-visual://${"2".padStart(32, "0")}/2-03-borrow.html`,
+      size: 8,
+      mtime: bySession.mtime,
+    });
+    expect(bySession.url).not.toBe(byDirection.url);
+    expect(again.url).toBe(byDirection.url);
+  });
+
+  it("refuses anything but a .html right in visuals/, an absolute path, and an unknown direction", async () => {
+    const { service, root, dir } = await harness();
+    await mkdir(join(dir, "lesson"));
+    await writeFile(join(dir, "lesson", "a.html"), "x");
+    await writeFile(join(dir, "a.html"), "x");
+    await writeFile(join(root, "s1", "lab.html"), "x");
+
+    for (const path of ["visuals/lesson/a.html", join(dir, "a.html"), "lab.html", "visuals/../lab.html", "visuals"]) {
+      expect([path, await refusal(service.resolveForDirection("c1", "lrn_rust", path))]).toStrictEqual([
+        path,
+        "visual_outside",
+      ]);
+    }
+    expect(await refusal(service.resolveForDirection("c1", "lrn_gone", "visuals/a.html"))).toBe("direction_not_found");
+  });
+
+  it("tells a change by the direction, only to the connection that resolved it for the direction", async () => {
+    const { service, dir, clock, sent, folders } = await harness();
+    await writeFile(join(dir, "a.html"), "x");
+    await service.resolve("c1", "s1", "visuals/a.html");
+    await service.resolveForDirection("c2", "lrn_rust", "visuals/a.html");
+
+    await utimes(join(dir, "a.html"), 3_000, 3_000);
+    folders.get(dir)?.fire();
+    clock.advance(100);
+    await service.settled();
+
+    expect(sent).toStrictEqual([
+      ["c1", { type: "visual_changed", sessionId: "s1", path: "visuals/a.html", mtime: 3_000_000 }],
+      ["c2", { type: "visual_changed", directionId: "lrn_rust", path: "visuals/a.html", mtime: 3_000_000 }],
+    ]);
+  });
+
+  it("watches the direction's folder for a visuals/ not made yet, and serves the file once it is there", async () => {
+    const { service, root, dir, clock, sent, folders } = await harness();
+    await rm(dir, { recursive: true });
+    const where = join(root, "s1");
+
+    expect(await refusal(service.resolveForDirection("c1", "lrn_rust", "visuals/a.html"))).toBe("visual_missing");
+    expect([...folders.keys()]).toStrictEqual([where]);
+    await mkdir(dir);
+    await writeFile(join(dir, "a.html"), "<p>made</p>");
+    await utimes(join(dir, "a.html"), 5_000, 5_000);
+    folders.get(where)?.fire();
+    clock.advance(100);
+    await service.settled();
+    folders.get(dir)?.fire();
+    clock.advance(100);
+    await service.settled();
+
+    expect(sent).toStrictEqual([
+      ["c1", { type: "visual_changed", directionId: "lrn_rust", path: "visuals/a.html", mtime: 5_000_000 }],
+    ]);
+    const { url } = await service.resolveForDirection("c1", "lrn_rust", "visuals/a.html");
+    const base = await serving((request, response) => service.serve(request, response));
+    expect(await (await fetch(`${base}/visual/${new URL(url).host}/a.html`)).text()).toContain("<p>made</p>");
+  });
+
+  it("answers 404 for a direction's visual once the direction's place fails its check", async () => {
+    const owner = { safe: true };
+    const { service, dir } = await harness(false, owner);
+    await writeFile(join(dir, "a.html"), "x");
+    const { url } = await service.resolveForDirection("c1", "lrn_rust", "visuals/a.html");
+    const base = await serving((request, response) => service.serve(request, response));
+
+    owner.safe = false;
+
+    expect((await fetch(`${base}/visual/${new URL(url).host}/a.html`)).status).toBe(404);
+    expect(await refusal(service.resolveForDirection("c1", "lrn_rust", "visuals/a.html"))).toBe("visual_outside");
+  });
+
+  it("watches from a session's own directory for visuals at the highest, never its working directory, unlike a direction", async () => {
+    const { service, root, folders } = await harness();
+    await rm(join(root, "s2", "visuals"), { recursive: true });
+
+    expect(await refusal(service.resolve("c1", "s2", "visuals/a.html"))).toBe("visual_missing");
+
+    expect(folders.size).toBe(0);
+  });
+
+  it("opens an archived direction session's visual by its old absolute path, while the direction's place passes its check", async () => {
+    const owner = { safe: true };
+    const { service, root } = await harness(false, owner);
+    await mkdir(join(root, "Archive", "s5", "visuals"), { recursive: true });
+    await writeFile(join(root, "Archive", "s5", "visuals", "a.html"), "<p>x</p>");
+
+    const byOld = await service.resolve("c1", "s5", join(root, "s5", "visuals", "a.html"));
+    const byRelative = await service.resolve("c1", "s5", "visuals/a.html");
+    const base = await serving((request, response) => service.serve(request, response));
+
+    expect([byOld.size, byRelative.url]).toStrictEqual([8, byOld.url]);
+    owner.safe = false;
+    // The direction's place is checked again for the page, as for a new resolve (ML4 review).
+    expect((await fetch(`${base}/visual/${new URL(byOld.url).host}/a.html`)).status).toBe(404);
+    expect(await refusal(service.resolve("c2", "s5", "visuals/a.html"))).toBe("visual_outside");
+  });
+
+  it("gives two sessions their own address for one file", async () => {
+    const { service, dir } = await harness();
+    await writeFile(join(dir, "a.html"), "x");
+
+    const own = await service.resolve("c1", "s1", "visuals/a.html");
+    const child = await service.resolve("c1", "s3", join(dir, "a.html"));
+
+    expect(own.url).not.toBe(child.url);
+  });
+
+  it("forgets a direction's address and watch once its connection closes", async () => {
+    const { service, dir, resources } = await harness();
+    await writeFile(join(dir, "a.html"), "x");
+    const first = await service.resolveForDirection("c1", "lrn_rust", "visuals/a.html");
+    expect(watchesOf(resources)).toBe(1);
+
+    service.disconnect("c1");
+    const again = await service.resolveForDirection("c2", "lrn_rust", "visuals/a.html");
+
+    expect(again.url).not.toBe(first.url);
+    service.disconnect("c2");
+    expect(watchesOf(resources)).toBe(0);
+  });
+});
+
+describe("letting go of a visual whose cards closed (SPEC-0007, SPEC-0008 ML4 review)", () => {
+  it("stops this connection's watch and forgets the address once no connection looks, without closing it", async () => {
+    const { service, dir, resources, stopped } = await harness();
+    await writeFile(join(dir, "a.html"), "x");
+    await writeFile(join(dir, "b.html"), "x");
+    const base = await serving((request, response) => service.serve(request, response));
+    const { url } = await service.resolveForDirection("c1", "lrn_rust", "visuals/a.html");
+    const kept = await service.resolveForDirection("c2", "lrn_rust", "visuals/a.html");
+    await service.resolveForDirection("c1", "lrn_rust", "visuals/b.html");
+
+    service.release("c1", { directionId: "lrn_rust" }, "visuals/a.html");
+    expect(kept.url).toBe(url);
+    expect((await fetch(`${base}/visual/${new URL(url).host}/a.html`)).status).toBe(200);
+    service.release("c2", { directionId: "lrn_rust" }, "visuals/a.html");
+
+    expect((await fetch(`${base}/visual/${new URL(url).host}/a.html`)).status).toBe(404);
+    // b.html is still looked at by c1, so its folder stays watched.
+    expect(stopped).toStrictEqual([]);
+    expect(watchesOf(resources)).toBe(1);
+    service.release("c1", { directionId: "lrn_rust" }, "visuals/b.html");
+    expect(stopped).toStrictEqual([dir]);
+    expect(watchesOf(resources)).toBe(0);
+    expect((await service.resolveForDirection("c1", "lrn_rust", "visuals/a.html")).url).not.toBe(url);
+  });
+
+  it("lets go only of what was resolved for that owner and path", async () => {
+    const { service, dir, resources, sent, folders, clock } = await harness();
+    await writeFile(join(dir, "a.html"), "x");
+    await service.resolve("c1", "s1", "visuals/a.html");
+    await service.resolveForDirection("c1", "lrn_rust", "visuals/a.html");
+
+    service.release("c1", { sessionId: "s1" }, "visuals/other.html");
+    service.release("c1", { directionId: "lrn_go" }, "visuals/a.html");
+    service.release("c2", { directionId: "lrn_rust" }, "visuals/a.html");
+    service.release("c1", { sessionId: "s1" }, "visuals/a.html");
+    await utimes(join(dir, "a.html"), 5000, 5000);
+    folders.get(dir)?.fire();
+    clock.advance(100);
+    await service.settled();
+
+    expect(sent).toStrictEqual([
+      ["c1", { type: "visual_changed", directionId: "lrn_rust", path: "visuals/a.html", mtime: 5_000_000 }],
+    ]);
+    expect(watchesOf(resources)).toBe(1);
+  });
+
+  it("adds no watch for a resolve still under way when its visual is let go, and watches it again when asked again", async () => {
+    const { service, dir, folders, resources } = await harness();
+    await writeFile(join(dir, "a.html"), "x");
+
+    const resolving = service.resolveForDirection("c1", "lrn_rust", "visuals/a.html");
+    service.release("c1", { directionId: "lrn_rust" }, "visuals/a.html");
+    await resolving;
+    expect(folders.size).toBe(0);
+    const missing = service.resolveForDirection("c1", "lrn_rust", "visuals/later.html");
+    service.release("c1", { directionId: "lrn_rust" }, "visuals/later.html");
+    expect(await refusal(missing)).toBe("visual_missing");
+    expect(folders.size).toBe(0);
+    expect(watchesOf(resources)).toBe(0);
+
+    await service.resolveForDirection("c1", "lrn_rust", "visuals/a.html");
+    expect(watchesOf(resources)).toBe(1);
+  });
+
+  it("lets go of only the resolve under way of that visual, not another one of the connection", async () => {
+    const { service, dir, resources } = await harness();
+    await writeFile(join(dir, "a.html"), "x");
+    await writeFile(join(dir, "b.html"), "x");
+
+    const first = service.resolveForDirection("c1", "lrn_rust", "visuals/a.html");
+    const second = service.resolveForDirection("c1", "lrn_rust", "visuals/b.html");
+    service.release("c1", { directionId: "lrn_rust" }, "visuals/a.html");
+    await Promise.all([first, second]);
+
+    expect(watchesOf(resources)).toBe(1);
+    service.release("c1", { directionId: "lrn_rust" }, "visuals/b.html");
+    expect(watchesOf(resources)).toBe(0);
+  });
+
+  it("keeps a file looked at by another path of the same session once one path is let go, telling of it once per path", async () => {
+    const { service, dir, resources, sent, folders, clock } = await harness();
+    await writeFile(join(dir, "a.html"), "x");
+    await service.resolve("c1", "s1", "visuals/a.html");
+    await service.resolve("c1", "s1", "visuals/a.html");
+    await service.resolve("c1", "s1", join(dir, "a.html"));
+
+    await utimes(join(dir, "a.html"), 5000, 5000);
+    folders.get(dir)?.fire();
+    clock.advance(100);
+    await service.settled();
+    expect(sent.map(([, event]) => event.path)).toStrictEqual(["visuals/a.html", join(dir, "a.html")]);
+    service.release("c1", { sessionId: "s1" }, "visuals/a.html");
+
+    expect(watchesOf(resources)).toBe(1);
+    service.release("c1", { sessionId: "s1" }, join(dir, "a.html"));
+    expect(watchesOf(resources)).toBe(0);
+  });
+
+  it("watches nothing for a direction's visual it refuses, only for one missing", async () => {
+    const { service, resources } = await harness();
+
+    expect(await refusal(service.resolveForDirection("c1", "lrn_rust", "visuals/sub/a.html"))).toBe("visual_outside");
+    expect(await refusal(service.resolveForDirection("c1", "lrn_go", "visuals/a.html"))).toBe("direction_not_found");
+    expect(watchesOf(resources)).toBe(0);
+  });
+
+  it("stops watching for a missing visual once it is let go", async () => {
+    const { service, resources } = await harness();
+
+    expect(await refusal(service.resolveForDirection("c1", "lrn_rust", "visuals/later.html"))).toBe("visual_missing");
+    expect(watchesOf(resources)).toBe(1);
+    service.release("c1", { directionId: "lrn_rust" }, "visuals/later.html");
+
+    expect(watchesOf(resources)).toBe(0);
   });
 });

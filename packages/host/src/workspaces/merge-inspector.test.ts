@@ -1,5 +1,5 @@
 import { GIT_SCENE_ENV, type GitScene, createGitScene } from "@atrium/testkit";
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { systemClock } from "../platform/clock";
@@ -26,6 +26,14 @@ async function scene(): Promise<GitScene> {
   const built = await createGitScene("merge");
   onTestFinished(built.cleanup);
   return built;
+}
+
+/** Whether anything is at a path. */
+async function exists(path: string): Promise<boolean> {
+  return access(path).then(
+    () => true,
+    () => false,
+  );
 }
 
 /** Runs git with the scenes' environment, counting commands so tests can see what was cached. */
@@ -212,6 +220,27 @@ describe("MergeInspector.inspect", () => {
     await pushMain(repo);
 
     expect(await inspector().inspect(await target(repo, dir))).toMatchObject({ verdict: "pending", ahead: 1 });
+  });
+
+  it("simulates a merge without running a merge driver the repository configures, and calls such a conflict pending", async () => {
+    const repo = await scene();
+    const marker = join(repo.root, "driver-ran");
+    const script = join(repo.root, "driver.sh");
+    // A driver that settles every merge for the current side, as a program an agent planted would.
+    await writeFile(script, `#!/bin/sh\ntouch '${marker}'\nexit 0\n`, { mode: 0o755 });
+    await writeFile(join(repo.repo, ".gitattributes"), "driven.txt merge=evil\n");
+    await repo.commit(repo.repo, "driven.txt", "base\n");
+    await repo.git(repo.repo, "add", ".gitattributes");
+    await repo.git(repo.repo, "commit", "--quiet", "-m", "attributes");
+    await repo.git(repo.repo, "config", "merge.evil.driver", `${script} %O %A %B`);
+    const dir = await repo.worktree("work");
+    await repo.commit(dir, "driven.txt", "from the branch\n");
+    await repo.commit(repo.repo, "driven.txt", "from main\n");
+    await pushMain(repo);
+
+    expect(await inspector().inspect(await target(repo, dir))).toMatchObject({ verdict: "pending", ahead: 1 });
+
+    expect(await exists(marker)).toBe(false);
   });
 
   it("calls an external worktree that never committed unchanged, by its branch's reflog", async () => {
@@ -473,7 +502,7 @@ describe("MergeInspector caching (after the review)", () => {
 
   it.each([
     ["telling ancestry", (args: readonly string[]) => args[0] === "merge-base"],
-    ["simulating the merge", (args: readonly string[]) => args[0] === "merge-tree"],
+    ["simulating the merge", (args: readonly string[]) => args.includes("merge-tree")],
     ["reading the main branch's tree", (args: readonly string[]) => args.at(-1)?.endsWith("^{tree}") === true],
   ])("does not keep a verdict git failed to give while %s, and asks again next time", async (_case, fails) => {
     const repo = await scene();

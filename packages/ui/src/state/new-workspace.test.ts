@@ -995,10 +995,17 @@ describe("describeWorktreeError", () => {
     [{ reason: "base_missing", base: "refs/remotes/origin/x" }, "找不到起点 origin/x"],
     [{ reason: "dir_taken", dir: "/code/app.worktrees/a" }, "目录 /code/app.worktrees/a 已经存在，换个分支名"],
     [{ reason: "not_git" }, "这个项目不是 git 仓库"],
+    [{ reason: "head_mismatch" }, "新建的 worktree 没停在起点上，目录留着，请检查"],
     [{ reason: "later" }, "没能建好工作区：git 出错了"],
     [undefined, "没能建好工作区：git 出错了"],
   ])("explains a worktree that could not be created (%o)", (params, words) => {
     expect(describeWorktreeError(new CommandError("worktree_create_failed", params))).toBe(words);
+  });
+
+  it("explains a repository whose configuration is not safe to create a worktree in", () => {
+    expect(describeWorktreeError(new CommandError("worktree_config_unsafe", { reason: "include" }))).toBe(
+      "这个仓库的配置里有 include 或不安全的过滤器，为安全起见没有新建",
+    );
   });
 
   it("explains a project gone, and leaves other failures to the send's words", () => {

@@ -3,6 +3,7 @@ import { AGENT_MESSAGE, type AgentNote } from "../agent/agent";
 import type { MessageDetails } from "../agent/channel";
 import { type AssistantPart, type LogMessage, type PiMessage, agentMessage, toLogMessage } from "../history/log-entry";
 import { contentText } from "../history/tools";
+import { REVIEW_MESSAGE, ReviewMessageDetails, TASK_MESSAGE, TaskMessageDetails } from "../task/schema";
 import type { PiEvent } from "../process/pi-process";
 
 /**
@@ -27,6 +28,8 @@ export type TranslatedEvent =
   | { readonly kind: "message_finished"; readonly message: LogMessage }
   /** pi wrote the host's note to the model, an `atrium-agent` custom message (SPEC-0002). */
   | { readonly kind: "note_added"; readonly note: AgentNote; readonly timestamp: number }
+  /** pi wrote a progress line or a conversion mark, an `atrium-task` custom message (SPEC-0006, "任务对话的进度和记录折叠"). */
+  | { readonly kind: "task_line_added"; readonly timestamp: number }
   /** pi took notices or a task delivered as an `atrium-agent` custom message (SPEC-0002, "送达"). */
   | { readonly kind: "agent_message"; readonly details: MessageDetails; readonly timestamp: number }
   /** A running tool's output so far, all of it, not just what is new. */
@@ -91,7 +94,7 @@ export type EventTranslator = (event: PiEvent) => TranslatedEvent[];
 type PiUpdate = Extract<PiEvent, { type: "message_update" }>["assistantMessageEvent"];
 
 /**
- * Reports a custom message pi wrote: Atrium's note or delivery, and nothing for any other.
+ * Reports a custom message pi wrote: Atrium's note or delivery, a task line, and nothing for any other.
  *
  * @remarks
  * Mid-run it does not end the message that is streaming (SPEC-0002, "对话记录里的自定义消息").
@@ -101,6 +104,18 @@ type PiUpdate = Extract<PiEvent, { type: "message_update" }>["assistantMessageEv
  * @returns The events.
  */
 function custom(message: Extract<PiMessage, { role: "custom" }>): TranslatedEvent[] {
+  if (message.customType === TASK_MESSAGE) {
+    const line = TaskMessageDetails.safeParse(message.details);
+    // `nudge` and `resume` start turns the transcript does not show as lines.
+    return line.success && (line.data.kind === "progress" || line.data.kind === "converted")
+      ? [{ kind: "task_line_added", timestamp: message.timestamp }]
+      : [];
+  }
+  if (message.customType === REVIEW_MESSAGE) {
+    return ReviewMessageDetails.safeParse(message.details).success
+      ? [{ kind: "task_line_added", timestamp: message.timestamp }]
+      : [];
+  }
   const read = message.customType === AGENT_MESSAGE ? agentMessage(message.details) : null;
   if (read === null) return [];
   return read.kind === "note"

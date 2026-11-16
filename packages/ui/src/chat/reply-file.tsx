@@ -1,6 +1,6 @@
 import { type ReactNode, useContext } from "react";
 import { FileIcon } from "../files/file-icon";
-import { OpenFileContext } from "./file-opener";
+import { FileParentsContext, OpenFileContext } from "./file-opener";
 import { replyFileTarget } from "./reply-file-target";
 import type { ExtraProps } from "streamdown";
 import { replyImageLabel } from "./reply-images";
@@ -24,8 +24,9 @@ export function ReplyFile({
   readonly node?: ExtraProps["node"];
 }) {
   const opener = useContext(OpenFileContext);
+  const parents = useContext(FileParentsContext);
   const isInline = inline === "true";
-  const target = typeof source === "string" ? replyFileTarget(source, isInline) : null;
+  const target = typeof source === "string" ? replyFileTarget(source, isInline, parents) : null;
   const open = target === null || opener === null ? null : opener(target.path, target.range);
   if (open === null)
     return isInline ? <code className="atrium-file-reference-code">{label}</code> : <span>{label}</span>;

@@ -1,0 +1,322 @@
+[
+  {
+    "file": "packages/host/src/tasks/task-reader.ts",
+    "from": "partialTail: parsed.droppedTail",
+    "to": "partialTail: false",
+    "test": "packages/host/src/tasks/task-reader.test.ts",
+    "name": "ignores a last line that is not written out yet",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reader.ts",
+    "from": "  const parsed = parseEvents(text, path);\n",
+    "to": "  const parsed = parseEvents(text, path);\n  if (parsed.droppedTail) await (await import(\"node:fs/promises\")).truncate(path, parsed.goodBytes);\n",
+    "test": "packages/host/src/tasks/task-reader.test.ts",
+    "name": "writes nothing",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reader.ts",
+    "from": "  const steps = replayEvents(parsed.events);\n",
+    "to": "  const steps = replayEvents(parsed.events);\n  await (await import(\"node:fs/promises\")).writeFile(join(directory, \"task.json\"), \"{}\\n\");\n",
+    "test": "packages/host/src/tasks/task-reader.test.ts",
+    "name": "writes nothing",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reader.ts",
+    "from": "    text = await readFile(path, \"utf8\");\n  } catch (error) {\n    if (errorCode(error) === \"ENOENT\" || errorCode(error) === \"ENOTDIR\") return null;",
+    "to": "    text = await readFile(path, \"utf8\");\n  } catch (error) {\n    if (false) return null;",
+    "test": "packages/host/src/tasks/task-reader.test.ts",
+    "name": "finds no task in a directory with no event yet",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reader.ts",
+    "from": "  if (final === undefined) return null;",
+    "to": "  if (final === undefined) return { task: null as never, last: null as never, count: 0, partialTail: false };",
+    "test": "packages/host/src/tasks/task-reader.test.ts",
+    "name": "finds no task in a directory with no event yet",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-reader.ts",
+    "from": "    return { size, mtimeMs };",
+    "to": "    return { size: 0, mtimeMs };",
+    "test": "packages/host/src/tasks/task-reader.test.ts",
+    "name": "tells a changed log by its size and time",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-follower.ts",
+    "from": "      if (await options.isOwned(name)) {",
+    "to": "      if (false) {",
+    "test": "packages/host/src/tasks/task-follower.test.ts",
+    "name": "lets an own task win an id",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-follower.ts",
+    "from": "  if (own === target) {",
+    "to": "  if (false) {",
+    "test": "packages/host/src/tasks/task-follower.test.ts",
+    "name": "refuses to follow the host's own tasks directory",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-follower.ts",
+    "from": "resolveLoose(options.ownRoot), resolveLoose(options.directory)",
+    "to": "Promise.resolve(options.ownRoot), resolveLoose(options.directory)",
+    "test": "packages/host/src/tasks/task-follower.test.ts",
+    "name": "refuses to follow the host's own tasks directory, also through a link",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-follower.ts",
+    "from": "    await look();\n    first = false;",
+    "to": "    await look();",
+    "test": "packages/host/src/tasks/task-follower.test.ts",
+    "name": "tells the listeners of a task that appears after the directory was missing",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-follower.ts",
+    "from": "      if (before !== undefined && before.count === read.count) {",
+    "to": "      if (false) {",
+    "test": "packages/host/src/tasks/task-follower.test.ts",
+    "name": "ignores a line the writer has not finished",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-follower.ts",
+    "from": "      if (!names.includes(id)) {",
+    "to": "      if (false) {",
+    "test": "packages/host/src/tasks/task-follower.test.ts",
+    "name": "finds a task whose directory appears later, and one that goes away",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-follower.ts",
+    "from": "    if (logged.has(key)) return;",
+    "to": "",
+    "test": "packages/host/src/tasks/task-follower.test.ts",
+    "name": "warns once about a missing directory",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-follower.ts",
+    "from": "        mode = \"poll\";\n",
+    "to": "        mode = \"retry\";\n",
+    "test": "packages/host/src/tasks/task-follower.test.ts",
+    "name": "follows by polling when the watch cannot be had",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-follower.ts",
+    "from": "      cancelSafety = null;\n      stopWatching();\n      listeners.clear();",
+    "to": "      cancelSafety = null;\n      listeners.clear();",
+    "test": "packages/host/src/tasks/task-follower.test.ts",
+    "name": "releases its watch and timers when closed",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-follower.ts",
+    "from": "      closed = true;\n      cancelTimer?.();",
+    "to": "      closed = true;",
+    "test": "packages/host/src/tasks/task-follower.test.ts",
+    "name": "cancels a look it was waiting to make when closed",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-follower.ts",
+    "from": "          arm(retryMs, () => void look());",
+    "to": "          arm(retryMs, () => void 0);",
+    "test": "packages/host/src/tasks/task-follower.test.ts",
+    "name": "warns once about a missing directory, tries again",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-follower.ts",
+    "from": "        warnOnce(\n          `task:${name}:${error instanceof Error ? error.message : \"unknown\"}`,",
+    "to": "        options.logger.warn({}, \"a followed task could not be read\"); warnOnce(\n          `task:${name}:${error instanceof Error ? error.message : \"unknown\"}`,",
+    "test": "packages/host/src/tasks/task-follower.test.ts",
+    "name": "keeps the last good state of a task whose log is damaged",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-follower.ts",
+    "from": "        if (before !== undefined) before.stamp = stamp;\n        continue;\n      }\n      if (read === null) continue;",
+    "to": "        known.delete(name);\n        continue;\n      }\n      if (read === null) continue;",
+    "test": "packages/host/src/tasks/task-follower.test.ts",
+    "name": "keeps the last good state of a task whose log is damaged",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/followed-tasks.ts",
+    "from": "    if (followed(taskId) !== undefined) throw new CommandError(\"task_read_only\");",
+    "to": "",
+    "test": "packages/host/src/tasks/followed-tasks.host.test.ts",
+    "name": "answers task_read_only to every command",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/followed-tasks.ts",
+    "from": "    async pause(taskId) {\n      refuseIfFollowed(taskId);",
+    "to": "    async pause(taskId) {",
+    "test": "packages/host/src/tasks/followed-tasks.host.test.ts",
+    "name": "answers task_read_only to every command",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/followed-tasks.ts",
+    "from": "    async answerHuman(taskId, node, answer) {\n      refuseIfFollowed(taskId);",
+    "to": "    async answerHuman(taskId, node, answer) {",
+    "test": "packages/host/src/tasks/followed-tasks.host.test.ts",
+    "name": "answers task_read_only to every command",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/followed-tasks.ts",
+    "from": "    async answerArchive(taskId, answer) {\n      refuseIfFollowed(taskId);",
+    "to": "    async answerArchive(taskId, answer) {",
+    "test": "packages/host/src/tasks/followed-tasks.host.test.ts",
+    "name": "answers task_read_only to every command",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/followed-tasks.ts",
+    "from": "    async recover(taskId) {\n      refuseIfFollowed(taskId);",
+    "to": "    async recover(taskId) {",
+    "test": "packages/host/src/tasks/followed-tasks.host.test.ts",
+    "name": "answers task_read_only to every command",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/followed-tasks.ts",
+    "from": "    async submit(taskId, input) {\n      refuseIfFollowed(taskId);",
+    "to": "    async submit(taskId, input) {",
+    "test": "packages/host/src/tasks/followed-tasks.host.test.ts",
+    "name": "answers task_read_only to every command",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/followed-tasks.ts",
+    "from": "    async abandon(taskId) {\n      refuseIfFollowed(taskId);",
+    "to": "    async abandon(taskId) {",
+    "test": "packages/host/src/tasks/followed-tasks.host.test.ts",
+    "name": "answers task_read_only to every command",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/followed-tasks.ts",
+    "from": "viewOf(task, null, true)",
+    "to": "viewOf(task, null)",
+    "test": "packages/host/src/tasks/followed-tasks.host.test.ts",
+    "name": "lists a followed task like an own one",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/followed-tasks.ts",
+    "from": "    owned.task(taskId) === undefined ? follower.task(taskId) : undefined;",
+    "to": "    follower.task(taskId);",
+    "test": "packages/host/src/tasks/followed-tasks.host.test.ts",
+    "name": "lets an own task win an id a followed one has",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/followed-tasks.ts",
+    "from": "      return [...own, ...follower.tasks().filter((task) => !ids.has(task.id) && !isAbandoned(task))];\n    },\n    held() {",
+    "to": "      return [...own, ...follower.tasks().filter((task) => !isAbandoned(task))];\n    },\n    held() {",
+    "test": "packages/host/src/tasks/followed-tasks.host.test.ts",
+    "name": "lets an own task win an id a followed one has",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/followed-tasks.ts",
+    "from": "    async close() {\n      await follower.close();",
+    "to": "    async close() {",
+    "test": "packages/host/src/tasks/followed-tasks.leak.test.ts",
+    "name": "holds one watch while the host runs",
+    "project": "leak"
+  },
+  {
+    "file": "packages/host/src/main.ts",
+    "from": "    config.followTasks === undefined\n      ? ownedTasks",
+    "to": "    true\n      ? ownedTasks",
+    "test": "packages/host/src/tasks/followed-tasks.host.test.ts",
+    "name": "lists a followed task like an own one",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": "    archiveFacts,\n    followed,",
+    "to": "    archiveFacts,\n    followed: false,",
+    "test": "packages/host/src/tasks/followed-tasks.host.test.ts",
+    "name": "lists a followed task like an own one",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/electron-port.ts",
+    "from": "  followTasks: z.string().min(1).optional(),",
+    "to": "  followTasks: z.string().optional(),",
+    "test": "packages/host/src/electron-port.test.ts",
+    "name": "hands the tasks directory to follow",
+    "project": "unit"
+  },
+  {
+    "file": "apps/desktop/src/main/follow-tasks.ts",
+    "from": "  if (packaged) return undefined;",
+    "to": "",
+    "test": "apps/desktop/src/main/follow-tasks.test.ts",
+    "name": "ignores the variable in a packaged app",
+    "project": "unit"
+  },
+  {
+    "file": "apps/desktop/src/main/follow-tasks.ts",
+    "from": "  return value === undefined || value === \"\" ? undefined : value;",
+    "to": "  return value;",
+    "test": "apps/desktop/src/main/follow-tasks.test.ts",
+    "name": "gives nothing when the variable is unset or empty",
+    "project": "unit"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-conversation.tsx",
+    "from": "    if (followed) return;\n",
+    "to": "",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "says a followed task is read-only in the conversation pane",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-conversation.tsx",
+    "from": "      {followed ? (",
+    "to": "      {false ? (",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "says a followed task is read-only in the conversation pane",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-words.ts",
+    "from": "  task_read_only: \"这个任务是别的进程在跑的，Atrium 里只能看\",\n",
+    "to": "",
+    "test": "packages/ui/src/tasks/task-words.test.ts",
+    "name": "words the errors of SPEC-0006's draft",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-follower.ts",
+    "from": "        } else if (mode === \"watch\") {\n          armSafety();\n        }",
+    "to": "        }",
+    "test": "packages/host/src/tasks/task-follower.test.ts",
+    "name": "finds a change the watch never told of",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": "task.origin.kind === \"chat\" && !followed ? task.origin.sessionId : null",
+    "to": "task.origin.kind === \"chat\" ? task.origin.sessionId : null",
+    "test": "packages/host/src/tasks/followed-tasks.host.test.ts",
+    "name": "lists a followed task like an own one",
+    "project": "host"
+  }
+]

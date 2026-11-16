@@ -3,15 +3,24 @@ import {
   ASK_USER_TOOL,
   type AgentSelf,
   CHILD_TOOLS,
+  CONVERSATION_TOOLS,
+  NODE_TOOLS,
   PARENT_TOOLS,
   READ_ONLY_TOOLS,
+  STUDY_FLAG,
+  TASK_FLAG,
+  type TaskSelf,
   encodeArgument,
+  askArgument,
+  studyArgument,
 } from "@atrium/pi";
+import { isDirectionId } from "@atrium/protocol";
 import type { CatalogEntry } from "./session-catalog";
 import { agentDepth } from "./child-tree";
 
 /** What the launch rules read of a session. */
-type LaunchEntry = Pick<CatalogEntry, "sessionId" | "containerId" | "parent" | "archived" | "agent">;
+type LaunchEntry = Pick<CatalogEntry, "sessionId" | "containerId" | "parent" | "archived" | "agent"> &
+  Partial<Pick<CatalogEntry, "task" | "study">>;
 
 /** The agent depth at which a session has none of the main agent's tools (SPEC-0002, "概念 · 层数"). */
 const MAX_DEPTH = 2;
@@ -24,7 +33,9 @@ const CHILD_SEARCH_EXCLUSIONS = ["grep", "find"] as const;
  *
  * @remarks
  * A child the agent opened has its own two tools, its role and where its tools are limited; any
- * other session is no one's child here. Its depth decides the main agent's tools.
+ * other session is no one's child here. Its depth decides the main agent's tools. A `work` child
+ * is isolated: its `edit` / `write` stay in its directory (SPEC-0002, "路径隔离"); a session the
+ * user opened is not.
  *
  * @sideEffects none
  * @param entries - Every session.
@@ -40,6 +51,7 @@ export function agentSelf(entries: readonly LaunchEntry[], sessionId: string): A
     role: agent?.role ?? null,
     depth: agentDepth(entries, sessionId),
     guard: agent?.toolGuard ?? "flags",
+    isolated: agent?.role === "work",
   };
 }
 
@@ -132,4 +144,87 @@ function withChildTools(flags: readonly string[]): string[] {
  */
 export function agentLaunchFlags(entries: readonly LaunchEntry[], sessionId: string): string[] {
   return [`--${AGENT_FLAG}=${encodeArgument(agentSelf(entries, sessionId))}`, ...toolFlags(entries, sessionId)];
+}
+
+/**
+ * pi's flags for a session of a task's node or of its conversation: who it is, and its tools (SPEC-0006,
+ * "一个 agent 节点怎么跑 · 起").
+ *
+ * @remarks
+ * `--atrium-task=<base64url JSON>` says the session is a node and which role; it is no identity, the host
+ * knows the caller by the pi process (SPEC-0006, "调用方由宿主认定"). There is no `--atrium-agent`: a node
+ * is not a child conversation of SPEC-0002, so it has none of `agent_*`, `report_progress` or `ask_parent`
+ * and keeps `ask_user` (SPEC-0003). The read-only roles (`explore`, `advise`, `check`) get the white list
+ * of SPEC-0002's read-only roles plus the node's three tools; `check` keeps `bash` unrestricted by the
+ * white list as every role does, since tests and builds run there. A `work` node has every built-in tool but
+ * the legacy `grep` / `find`, and none of the agent's. The extension's guards are on for every node.
+ *
+ * @sideEffects none
+ * @param entry - The node's session.
+ * @returns The flags, or `null` for a session that is not a node's.
+ */
+export function taskLaunchFlags(entry: LaunchEntry | undefined): string[] | null {
+  const task = entry?.task;
+  if (task?.role === "conversation") {
+    // The task conversation: SPEC-0002's read-only list, its own tools and `ask_user`; it edits nothing.
+    const self: TaskSelf = { v: 1, kind: "conversation" };
+    return [
+      `--${TASK_FLAG}=${encodeArgument(self)}`,
+      "--tools",
+      [...READ_ONLY_TOOLS, ...CONVERSATION_TOOLS, ASK_USER_TOOL].join(","),
+    ];
+  }
+  if (task?.role !== "node" || task.nodeRole === undefined) return null;
+  const self: TaskSelf = { v: 1, kind: "node", role: task.nodeRole };
+  const flag = `--${TASK_FLAG}=${encodeArgument(self)}`;
+  if (task.nodeRole === "work") {
+    return [flag, "--exclude-tools", [...CHILD_SEARCH_EXCLUSIONS, ...PARENT_TOOLS, ...CHILD_TOOLS].join(",")];
+  }
+  return [flag, "--tools", [...READ_ONLY_TOOLS, ...NODE_TOOLS, ASK_USER_TOOL].join(",")];
+}
+
+/**
+ * pi's flags for a session of any kind: a node's, or else an agent's.
+ *
+ * @remarks
+ * A session with a `task` field never gets the agent's flags (all tools, no isolation): a node without a role
+ * is refused instead (SPEC-0006, "一个 agent 节点怎么跑 · 起"). The task conversation has its own flags.
+ *
+ * @sideEffects none
+ * @param entries - The catalogued sessions.
+ * @param sessionId - The session.
+ * @returns The flags.
+ * @throws {Error} When the session belongs to a task but has no launch path of its own.
+ */
+export function sessionLaunchFlags(entries: readonly LaunchEntry[], sessionId: string): string[] {
+  const entry = entries.find((candidate) => candidate.sessionId === sessionId);
+  const flags = taskLaunchFlags(entry);
+  if (flags !== null) return flags;
+  if (entry?.task != null) throw new Error("a task session without a launch path of its own");
+  return agentLaunchFlags(entries, sessionId);
+}
+
+/**
+ * pi's flag for a session of a direction with a use: `--atrium-study=<base64url JSON>`.
+ *
+ * @remarks
+ * SPEC-0008, "ML2 定的细节": only a session of a direction whose record has a use other than
+ * asking; every other session, in a workspace or a chat or asking in a direction, gets none, so
+ * Atrium's extension registers no study tool there. One argument with `=`, as `--atrium-agent`.
+ *
+ * @sideEffects none
+ * @param entries - Every session.
+ * @param sessionId - The session.
+ * @param unforked - A quiz with its lesson as parent that could not fork from it after all.
+ * @returns The flag, or none.
+ */
+export function studyLaunchFlags(entries: readonly LaunchEntry[], sessionId: string, unforked = false): string[] {
+  const entry = entries.find((candidate) => candidate.sessionId === sessionId);
+  const study = entry?.study ?? null;
+  if (entry === undefined || !isDirectionId(entry.containerId) || study === null) return [];
+  // Asking has no use's tools or prompt, only the rule of staying in the folder (SPEC-0008, ML4 review).
+  if (study.kind === "ask") return [`--${STUDY_FLAG}=${askArgument()}`];
+  // A quiz not forked from its lesson is told it has none of the lesson's conversation (SPEC-0008, "ML3 定的细节").
+  const alone = study.kind === "quiz" && (unforked || (entry.parent ?? null) === null);
+  return [`--${STUDY_FLAG}=${studyArgument({ ...study, kind: study.kind, ...(alone ? { context: "none" } : {}) })}`];
 }

@@ -1,0 +1,226 @@
+[
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "if (path.startsWith(\"@\")) path = path.slice(1);",
+    "to": "",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "resolveWritten"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "else if (path.startsWith(\"~/\")) path = join(home, path.slice(2));",
+    "to": "",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "resolveWritten"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "if (path === \"~\") path = home;",
+    "to": "if (false) path = home;",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "resolveWritten"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "input.replace(UNICODE_SPACES, \" \")",
+    "to": "input",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "resolveWritten"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "if (path.startsWith(\"file://\")) path = fileURLToPath(path);",
+    "to": "",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "resolveWritten"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "return isAbsolute(path) ? resolve(path) : resolve(cwd, path);",
+    "to": "return resolve(path);",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "resolveWritten"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "return real === null ? null : join(real, basename(path));",
+    "to": "return real;",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "realLocation"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "if (lstatSync(path).isSymbolicLink()) {",
+    "to": "if (false) {",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "realLocation"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "return realLocation(resolve(dirname(path), readlinkSync(path)));",
+    "to": "return realLocation(resolve(readlinkSync(path)));",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "realLocation"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "if (code !== \"ENOENT\" && code !== \"ENOTDIR\") return null;",
+    "to": "",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "realLocation"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "if (root === null || target === null) return refused;",
+    "to": "",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "checkWrite"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "if (below === \"..\" || below.startsWith(`..${sep}`) || isAbsolute(below)) return refused;",
+    "to": "if (below.startsWith(`..${sep}`)) return refused;",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "checkWrite"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "below.split(sep)[0]?.toLowerCase() === \".git\"",
+    "to": "below.split(sep)[0] === \".git\"",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "checkWrite"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "if (below.split(sep)[0]?.toLowerCase() === \".git\") return refused;",
+    "to": "",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "checkWrite"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "below.split(sep)[0]?.toLowerCase() === \".git\"",
+    "to": "below.startsWith(\".git\")",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "checkWrite"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "const root = realLocation(resolve(cwd));",
+    "to": "const root = resolve(cwd);",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "checkWrite"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "GUARDED_TOOLS: readonly string[] = [\"edit\", \"write\"]",
+    "to": "GUARDED_TOOLS: readonly string[] = [\"write\"]",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "guardPaths"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "GUARDED_TOOLS: readonly string[] = [\"edit\", \"write\"]",
+    "to": "GUARDED_TOOLS: readonly string[] = [\"edit\"]",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "guardPaths"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "|| !isOn()) return undefined;",
+    "to": ") return undefined;",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "guardPaths"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "if (typeof path !== \"string\") return undefined;",
+    "to": "",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "guardPaths"
+  },
+  {
+    "file": "packages/pi/src/task/path-guard.ts",
+    "from": "checkWrite(path, ctx.cwd)",
+    "to": "checkWrite(path, process.cwd())",
+    "test": "packages/pi/src/task/path-guard.test.ts",
+    "name": "guardPaths"
+  },
+  {
+    "file": "packages/pi/src/extension/atrium.ts",
+    "from": ".isolated === true",
+    "to": ".isolated !== false",
+    "test": "packages/pi/src/contract/path-guard.pi.test.ts",
+    "name": "does nothing in",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/extension/atrium.ts",
+    "from": "atriumTask(pi, () => selfOf(pi.getFlag(AGENT_FLAG)).isolated === true);",
+    "to": "atriumTask(pi, () => false);",
+    "test": "packages/pi/src/contract/path-guard.pi.test.ts",
+    "name": "blocks a work child",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/extension/atrium.ts",
+    "from": "atriumTask(pi, () => selfOf(pi.getFlag(AGENT_FLAG)).isolated === true);",
+    "to": "atriumTask(pi, () => true);",
+    "test": "packages/pi/src/contract/path-guard.pi.test.ts",
+    "name": "does nothing in",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/extension/atrium.ts",
+    "from": "pi.getFlag(AGENT_FLAG)",
+    "to": "pi.getFlag(\"other\")",
+    "test": "packages/pi/src/contract/path-guard.pi.test.ts",
+    "name": "blocks a work child",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/task/extension.ts",
+    "from": "guardPaths(pi, isolated);",
+    "to": "",
+    "test": "packages/pi/src/contract/path-guard.pi.test.ts",
+    "name": "blocks a work child",
+    "project": "pi"
+  },
+  {
+    "file": "packages/host/src/sessions/agent-launch.ts",
+    "from": "isolated: agent?.role === \"work\",",
+    "to": "isolated: agent !== null,",
+    "test": "packages/host/src/sessions/agent-launch.test.ts",
+    "name": "isolated"
+  },
+  {
+    "file": "packages/host/src/sessions/agent-launch.ts",
+    "from": "isolated: agent?.role === \"work\",",
+    "to": "isolated: false,",
+    "test": "packages/host/src/sessions/agent-launch.test.ts",
+    "name": "isolated"
+  },
+  {
+    "file": "packages/host/src/sessions/agent-launch.ts",
+    "from": "isolated: agent?.role === \"work\",",
+    "to": "isolated: true,",
+    "test": "packages/host/src/sessions/agent-launch.test.ts",
+    "name": "isolated"
+  },
+  {
+    "file": "packages/host/src/sessions/agent-launch.ts",
+    "from": "isolated: agent?.role === \"work\",",
+    "to": "isolated: false,",
+    "test": "packages/host/src/sessions/agent-isolation.host.test.ts",
+    "name": "work child the agent opened",
+    "project": "host"
+  },
+  {
+    "file": "packages/host/src/sessions/agent-launch.ts",
+    "from": "isolated: agent?.role === \"work\",",
+    "to": "isolated: true,",
+    "test": "packages/host/src/sessions/agent-isolation.host.test.ts",
+    "name": "user opened",
+    "project": "host"
+  }
+]

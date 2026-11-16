@@ -1,0 +1,138 @@
+[
+  {
+    "file": "packages/host/src/study/direction-namer.ts",
+    "from": "      options.preferred() ??\n",
+    "to": "",
+    "test": "packages/host/src/study/direction-namer.test.ts",
+    "name": "then the one a new session starts on"
+  },
+  {
+    "file": "packages/host/src/main.ts",
+    "from": "    preferred: () => preferences.preferred()?.model ?? null,",
+    "to": "    preferred: () => null,",
+    "test": "packages/host/src/study.host.test.ts",
+    "name": "the model a new session starts on",
+    "project": "host"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "  AGENTS_RULE,\n",
+    "to": "",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "leave the direction's AGENTS.md alone"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": " Record it with study_set_profile. If",
+    "to": " Record it with study_set_profile, and write it under \"Learner profile\" in AGENTS.md. If",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "leave the direction's AGENTS.md alone"
+  },
+  {
+    "file": "packages/pi/src/study/study.ts",
+    "from": "    \"5. Set: Only after the learner confirms, call study_set_ladder",
+    "to": "    \"5. Set: Call study_set_ladder",
+    "test": "packages/pi/src/study/study.test.ts",
+    "name": "propose the ladder"
+  },
+  {
+    "file": "packages/host/src/study/direction-creator.ts",
+    "from": "- The learner's profile (goal, background, time per week, language or environment) is in\n  \\`.atrium-study.json\\`.\n",
+    "to": "\n## Learner profile\n\n(Written during the discussion: goal, background, time per week, language or environment.)\n",
+    "test": "packages/host/src/study/direction-creator.test.ts",
+    "name": "makes the directory with AGENTS.md"
+  },
+  {
+    "file": "packages/ui/src/chat/first-message.ts",
+    "from": "      held.set(sessionId, whole);",
+    "to": "",
+    "test": "packages/ui/src/chat/first-message.test.ts",
+    "name": "holds later messages until released"
+  },
+  {
+    "file": "packages/ui/src/chat/first-message.ts",
+    "from": "      const before = held.get(sessionId) ?? Promise.resolve();",
+    "to": "      const before = Promise.resolve();",
+    "test": "packages/ui/src/chat/first-message.test.ts",
+    "name": "waits for both holds"
+  },
+  {
+    "file": "packages/ui/src/chat/first-message.ts",
+    "from": "          if (held.get(sessionId) === whole) held.delete(sessionId);",
+    "to": "          held.delete(sessionId);",
+    "test": "packages/ui/src/chat/first-message.test.ts",
+    "name": "keeps a later hold"
+  },
+  {
+    "file": "packages/ui/src/study/learning.ts",
+    "from": "    release = first.hold(sessionId);",
+    "to": "",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "before the first message reached pi",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/conversation-area.tsx",
+    "from": "      await firstMessages().after(to);",
+    "to": "",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "before the first message reached pi",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/learning.ts",
+    "from": "  } finally {\n    release();\n  }",
+    "to": "  }",
+    "test": "packages/ui/src/study/study.browser.test.tsx",
+    "name": "before the first message reached pi",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "max-w-[60%] min-w-0 shrink truncate rounded-[var(--r-sm)]",
+    "to": "rounded-[var(--r-sm)]",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "keeps a long level name on one line",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "              title={`第 ${String(level.number)} 级 · ${level.name}`}\n",
+    "to": "",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "keeps a long level name on one line",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "<span className=\"min-w-0 flex-1 truncate\" title={`第 ${String(at + 1)} 级 · ${level.name}`}>",
+    "to": "<span className=\"min-w-0 flex-1 truncate\">",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "keeps a long level name on one line",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/direction-home.tsx",
+    "from": "@min-[640px]:grid-cols-[minmax(0,1fr)_240px]",
+    "to": "@min-[640px]:grid-cols-[minmax(0,1fr)_200px]",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "keeps a long level name on one line",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/step-strip.tsx",
+    "from": "        <span className=\"min-w-0 truncate\" title={label}>",
+    "to": "        <span className=\"min-w-0\" title={label}>",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "keeps a long level name on one line",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/study/step-strip.tsx",
+    "from": "        <span className=\"min-w-0 truncate\" title={label}>",
+    "to": "        <span className=\"min-w-0 truncate\">",
+    "test": "packages/ui/src/study/progress.browser.test.tsx",
+    "name": "keeps a long level name on one line",
+    "project": "ui"
+  }
+]

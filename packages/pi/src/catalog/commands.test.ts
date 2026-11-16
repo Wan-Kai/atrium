@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isEditCommand, toSlashCommand } from "./commands";
+import { isEditCommand, isStudyCommand, toSlashCommand } from "./commands";
 
 /** Where a command came from, as pi reports it; Atrium does not show it. */
 const sourceInfo = { path: "/x", source: "local", scope: "user", origin: "top-level" } as const;
@@ -46,6 +46,14 @@ describe("toSlashCommand", () => {
       description: null,
       source: "prompt",
     });
+  });
+
+  it("recognizes and hides only study mode's extension command (SPEC-0008)", () => {
+    expect(toSlashCommand({ name: "atrium-study", source: "extension", sourceInfo })).toBeNull();
+    expect(isStudyCommand({ name: "atrium-study", source: "extension" })).toBe(true);
+    expect(isStudyCommand({ name: "atrium-study", source: "skill" })).toBe(false);
+    expect(isStudyCommand({ name: "atrium-studying", source: "extension" })).toBe(false);
+    expect(toSlashCommand({ name: "atrium-study", source: "prompt", sourceInfo })?.name).toBe("atrium-study");
   });
 
   it("cuts a description too long to send, and leaves out a command whose name is", () => {

@@ -6,6 +6,7 @@ import { recordingTracing } from "../../test/recording-tracing";
 import { systemClock } from "../platform/clock";
 import { type GitRunner, createGitRunner } from "../platform/git";
 import { ResourceTracker } from "../platform/resources";
+import { VISUAL_RULES } from "@atrium/pi";
 import { AGENTS_TEMPLATE, createDirectionCreator, fallbackName } from "./direction-creator";
 import { createDirections } from "./directions";
 
@@ -58,10 +59,21 @@ describe("DirectionCreator", () => {
       name: "Node 后端",
       createdAt: Date.parse("2026-11-05T10:12:00Z"),
       broken: false,
+      newer: false,
       discussing: true,
+      progress: null,
     });
     expect((await readdir(dir)).toSorted()).toStrictEqual([".atrium-study.json", "AGENTS.md", "lab"]);
     expect(await readFile(join(dir, "AGENTS.md"), "utf8")).toBe(AGENTS_TEMPLATE);
+    // The profile lives in the marker file; nothing in AGENTS.md invites the agent to write there (2026-11-09).
+    expect(AGENTS_TEMPLATE).not.toContain("Learner profile");
+    expect(AGENTS_TEMPLATE).toContain(
+      "- The learner's profile (goal, background, time per week, language or environment) is in\n  `.atrium-study.json`.",
+    );
+    // The two rules of visuals, worded as the lesson's and Feynman's prompts word them (SPEC-0008, ML4).
+    expect(AGENTS_TEMPLATE).toContain(`\n## Visuals\n\n- ${VISUAL_RULES[0]}\n- ${VISUAL_RULES[1]}\n`);
+    // A visual of the quiz or the exam is not asked for here: their prompts say so.
+    expect(AGENTS_TEMPLATE).not.toContain(VISUAL_RULES[2]);
     expect(JSON.parse(await readFile(join(dir, ".atrium-study.json"), "utf8"))).toStrictEqual({
       version: 1,
       name: "Node 后端",

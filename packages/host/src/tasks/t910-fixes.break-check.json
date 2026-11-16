@@ -1,0 +1,198 @@
+[
+  {
+    "file": "packages/host/src/workspaces/worktree-lock.ts",
+    "from": "if (owner === null || owner.home !== home || !isOver(owner.taskId)) continue;",
+    "to": "if (owner === null || !isOver(owner.taskId)) continue;",
+    "test": "packages/host/src/workspaces/worktree-lock.test.ts",
+    "name": "leaves a lock of another home"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-lock.ts",
+    "from": "if (current === reason || current === taskLockReason(taskId)) return true;",
+    "to": "if (current === reason) return true;",
+    "test": "packages/host/src/workspaces/worktree-lock.test.ts",
+    "name": "takes the older reason of its own task"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "return !present.has(taskId);",
+    "to": "return true;",
+    "test": "packages/host/src/tasks/t9-service.test.ts",
+    "name": "lifts stale locks first"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "known === undefined ? null : Math.max(known.lastFiredAt ?? 0, clock.now())",
+    "to": "known?.lastFiredAt ?? null",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "editing a rule counts from the moment"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "if (!(await ready())) {",
+    "to": "if (!(await ready()) && false) {",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "pi is not ready when a trigger is due"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "const wait = waitingForPi ? HEARTBEAT_MS :",
+    "to": "const wait = false ? HEARTBEAT_MS :",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "pi is not ready when a trigger is due"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "if (unreadable) throw new CommandError(\"schedule_file_unreadable\");",
+    "to": "if (false) throw new CommandError(\"schedule_file_unreadable\");",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "a rules file that cannot be read"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "return (await tasks.ofRule(rule.id)).some(isGoing);",
+    "to": "return false;",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "makes a slot skip while an older task of the rule is still going"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "put({ ...rule, lastTaskId: newest.id, skipped: 0 });",
+    "to": "put({ ...rule });",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "is made the rule's last task when the host starts"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "if (current === undefined || (knewId !== undefined && known === undefined)) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "a save that races a deletion"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-service.ts",
+    "from": "if (closed || !started) return;",
+    "to": "if (closed) return;",
+    "test": "packages/host/src/tasks/schedule-service.test.ts",
+    "name": "the rules do not run by themselves"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-commands.ts",
+    "from": "if (schedules?.unreadable() === true && watch !== false) throw new CommandError(\"schedule_file_unreadable\");",
+    "to": "",
+    "test": "packages/host/src/tasks/schedule-commands.test.ts",
+    "name": "answers schedule_file_unreadable"
+  },
+  {
+    "file": "packages/host/src/tasks/task-commands.ts",
+    "from": "return task.scheduleDraft === null || !saved(task.id);",
+    "to": "return task.scheduleDraft === null;",
+    "test": "packages/host/src/tasks/t910-service.test.ts",
+    "name": "the task list and a template task"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "await untilAborted(runner.submit(taskId, { type: \"started\" }), signal);",
+    "to": "await runner.submit(taskId, { type: \"started\" });",
+    "test": "packages/host/src/tasks/t910-service.test.ts",
+    "name": "lets the schedules close without the tasks closing first"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "if (present.has(conversation.taskId) || making.has(conversation.taskId)) continue;",
+    "to": "if (present.has(conversation.taskId)) continue;",
+    "test": "packages/host/src/tasks/t910-service.test.ts",
+    "name": "being made right now"
+  },
+  {
+    "file": "packages/host/src/tasks/task-service.ts",
+    "from": "const unfinished = task.origin.kind === \"schedule\" && task.startedAt === null && !task.cancelled;",
+    "to": "const unfinished = false;",
+    "test": "packages/host/src/tasks/t910-service.test.ts",
+    "name": "starts a task a schedule made that never started"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (!woken) emit(draft, { kind: \"wake_task_conversation\", text: wakeForGraphChange(node.id) });",
+    "to": "emit(draft, { kind: \"wake_task_conversation\", text: wakeForGraphChange(node.id) });",
+    "test": "packages/host/src/tasks/t9-scheduler.test.ts",
+    "name": "wakes the task conversation once"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "run.afterRestart = { ...run.afterRestart, cutOff: true };",
+    "to": "",
+    "test": "packages/host/src/tasks/t9-scheduler.test.ts",
+    "name": "a task held back at the restart"
+  },
+  {
+    "file": "packages/host/src/tasks/scheduler.ts",
+    "from": "if (run === undefined || live.includes(node.id)) continue;",
+    "to": "if (run === undefined) continue;",
+    "test": "packages/host/src/tasks/t9-scheduler.test.ts",
+    "name": "leaves alone the nodes this process already spoke to"
+  },
+  {
+    "file": "packages/host/src/tasks/advance.ts",
+    "from": "...(run.afterRestart?.questionVoid === true ? [RESUME_QUESTION_VOID] : []),",
+    "to": "",
+    "test": "packages/host/src/tasks/t9-scheduler.test.ts",
+    "name": "sends the held line and those sentences"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "if (words.length <= WAKE_LIMIT) return words;",
+    "to": "return words;",
+    "test": "packages/host/src/tasks/t9-runner.test.ts",
+    "name": "within what the command takes"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "return calls.includes(last.callId) && calls.every((callId) => answered.has(callId));",
+    "to": "return true;",
+    "test": "packages/host/src/tasks/t9-runner.test.ts",
+    "name": "another call of the same message has no result"
+  },
+  {
+    "file": "packages/host/src/tasks/runner.ts",
+    "from": "run.sessionId !== null && spoken?.has(run.sessionId) === true ? [run.node] : [],",
+    "to": "[],",
+    "test": "packages/host/src/tasks/t9-runner.test.ts",
+    "name": "tells the scheduler which nodes"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-creator.ts",
+    "from": "if (ours === null || ours !== theirs || top === null || top !== real) return false;",
+    "to": "if (ours === null || top === null || top !== real) return false;",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "belongs to another repository"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-creator.ts",
+    "from": "if (ours === null || ours !== theirs || top === null || top !== real) return false;",
+    "to": "if (ours === null || ours !== theirs || top === null) return false;",
+    "test": "packages/host/src/workspaces/worktree-creator.test.ts",
+    "name": "work tree git was told to find elsewhere"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-include.ts",
+    "from": "const candidates = await runSafeGit(",
+    "to": "const candidates = await ((g: GitRunner, a: string[], o: { cwd: string }) => g.run(a, o))(",
+    "test": "packages/host/src/workspaces/worktree-include.test.ts",
+    "name": "does not run the source repository's fsmonitor"
+  },
+  {
+    "file": "packages/host/src/workspaces/worktree-include.ts",
+    "from": "const linked = await link(staged, target).then(\n      () => true,\n      () => false,\n    );",
+    "to": "const linked = await open(target, \"w\").then(\n      () => true,\n      () => false,\n    );",
+    "test": "packages/host/src/workspaces/worktree-include.test.ts",
+    "name": "keeps a file the user already has in its place"
+  },
+  {
+    "file": "packages/host/src/tasks/schedule-commands.ts",
+    "from": "followed: schedules === undefined }",
+    "to": "followed: false }",
+    "test": "packages/host/src/tasks/schedule-commands.test.ts",
+    "name": "is read-only while another process's tasks are followed"
+  }
+]

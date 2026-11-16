@@ -21,6 +21,8 @@ const ConfigMessage = z.object({
   token: z.string().refine(isStrongToken),
   uiDir: z.string().optional(),
   extraOrigins: z.array(z.string()).optional(),
+  // Dev only: the desktop app sends it only when it is not packaged (SPEC-0006, "T7.1 定下的细节").
+  followTasks: z.string().min(1).optional(),
 });
 
 /** A valid config message. */

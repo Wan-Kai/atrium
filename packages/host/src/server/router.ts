@@ -27,6 +27,9 @@ import type { PiConfig } from "../setup/pi-config";
 import type { Connection } from "./connection";
 import { PHONE_STEP_TEXT_LIMIT, phoneMayRun } from "./remote-policy";
 import type { ReceiptBook } from "../remote/receipts";
+import type { ReviewHub } from "../reviews/review-hub";
+import type { ScheduleCommands } from "../tasks/schedule-commands";
+import type { TaskCommands } from "../tasks/task-commands";
 import type { VisualService } from "../visuals/visual-service";
 
 /**
@@ -63,12 +66,22 @@ export interface RouterOptions {
   /** A workspace's files, for the right panel's file tree and the viewer tabs. */
   readonly files: WorkspaceFiles;
   /** Inline visuals: their addresses and the messages sent from them (SPEC-0007). */
-  readonly visuals: Pick<VisualService, "resolve" | "send">;
+  readonly visuals: Pick<VisualService, "resolve" | "resolveForDirection" | "send" | "release">;
   readonly index: IndexCommands;
   /** Learning directions (SPEC-0008). */
   readonly study: Pick<
     StudyCommands,
-    "createDirection" | "renameDirection" | "pinDirection" | "unpinDirection" | "archiveDirection" | "restoreDirection"
+    | "createDirection"
+    | "renameDirection"
+    | "pinDirection"
+    | "unpinDirection"
+    | "archiveDirection"
+    | "restoreDirection"
+    | "startStudySession"
+    | "markStudyStep"
+    | "markStudyGap"
+    | "upgradeStudy"
+    | "restoreStudySessions"
   >;
   /** First launch and the settings. */
   readonly setup: Pick<SetupService, "check">;
@@ -82,6 +95,11 @@ export interface RouterOptions {
   readonly piLatest: Pick<PiLatestService, "check">;
   /** Remote access, for the local "手机" page. */
   readonly remote: RemoteCommands;
+  /** Tasks and their graphs (SPEC-0006); a phone may only list and open them. */
+  readonly tasks: TaskCommands;
+  readonly schedules: ScheduleCommands;
+  /** The reviews waiting for a verdict (ADR-0018). */
+  readonly reviews: Pick<ReviewHub, "answer">;
   /** A phone's `prompt` and `steer` run at most once per request id (SPEC-0005, "MP4b 定的细节"). */
   readonly receipts: ReceiptBook;
   readonly tracer: Tracer;
@@ -208,6 +226,36 @@ export function createRouter(options: RouterOptions): Route {
         return options.study.archiveDirection(command.directionId);
       case "restore_direction":
         return options.study.restoreDirection(command.directionId);
+      case "start_study_session": {
+        const { directionId, kind, level, step, gap } = command;
+        return options.study.startStudySession(connection.clientId, directionId, {
+          kind,
+          level,
+          ...(step === undefined ? {} : { step }),
+          ...(gap === undefined ? {} : { gap }),
+        });
+      }
+      case "upgrade_study":
+        return options.study.upgradeStudy(
+          connection.clientId,
+          command.directionId,
+          command.level,
+          command.archiveSessions,
+        );
+      case "restore_study_sessions":
+        return options.study.restoreStudySessions(command.directionId, command.sessionIds);
+      case "mark_study_step":
+        return options.study.markStudyStep(
+          command.directionId,
+          command.level,
+          command.step,
+          command.mark,
+          command.done,
+        );
+      case "mark_study_gap":
+        return options.study.markStudyGap(command.directionId, command.gapId, command.fixed);
+      case "retry_study_kickoff":
+        return options.sessions.retryStudyKickoff(command.sessionId);
       case "window_focused":
         return options.index.windowFocused();
       case "watch_changes":
@@ -221,7 +269,20 @@ export function createRouter(options: RouterOptions): Route {
       case "read_file":
         return options.files.readFile(command.workspaceId, command.path);
       case "resolve_visual":
-        return options.visuals.resolve(connection.id, command.sessionId, command.path);
+        // A direction's viewer tab resolves for the direction, with no session (SPEC-0008, ML4).
+        return command.sessionId === undefined
+          ? options.visuals.resolveForDirection(connection.id, command.directionId ?? "", command.path)
+          : options.visuals.resolve(connection.id, command.sessionId, command.path);
+      case "release_visual":
+        // Named as it was resolved: a direction's viewer tab, or a session's reply (ML4 review).
+        options.visuals.release(
+          connection.id,
+          command.sessionId === undefined
+            ? { directionId: command.directionId ?? "" }
+            : { sessionId: command.sessionId },
+          command.path,
+        );
+        return {};
       case "send_visual_message": {
         const { type: _type, ...message } = command;
         return options.visuals.send(message);
@@ -291,6 +352,9 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.answerInteraction(command.sessionId, command.interactionId, command.answer);
       case "answer_question":
         return options.sessions.answerQuestion(command.sessionId, command.questionId, command.answer);
+      case "answer_review":
+        await options.reviews.answer(command.sessionId, command.reviewId, command.verdict);
+        return {};
       case "retry_run":
         return options.sessions.retryRun(command.sessionId);
       case "set_model":
@@ -352,6 +416,48 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.listBranches(command.projectId);
       case "set_main_branch":
         return options.index.setMainBranch(command.projectId, command.branch);
+      case "list_tasks":
+        return options.tasks.list(connection.id, command.watch);
+      case "open_task":
+        return options.tasks.open(connection.id, command.taskId);
+      case "create_task":
+        return options.tasks.create(command.sessionId, command.scope);
+      case "start_task":
+        return options.tasks.start(command.taskId);
+      case "abandon_task":
+        return options.tasks.abandon(command.taskId);
+      case "approve_graph":
+        return options.tasks.approveGraph(command.taskId);
+      case "reject_graph":
+        return options.tasks.rejectGraph(command.taskId);
+      case "answer_human":
+        return options.tasks.answerHuman(command.taskId, command.node, command.answer);
+      case "rerun_node":
+        return options.tasks.rerunNode(command.taskId, command.node);
+      case "continue_node":
+        return options.tasks.continueNode(command.taskId, command.node);
+      case "pause_task":
+        return options.tasks.pause(command.taskId);
+      case "resume_task":
+        return options.tasks.resume(command.taskId);
+      case "cancel_task":
+        return options.tasks.cancel(command.taskId);
+      case "open_task_session":
+        return options.tasks.openSession(command.taskId, command.sessionId);
+      case "answer_archive":
+        return options.tasks.answerArchive(command.taskId, command.answer);
+      case "list_schedules":
+        return options.schedules.list(connection.id, command.watch);
+      case "pause_schedule":
+        return options.schedules.pause(command.scheduleId);
+      case "resume_schedule":
+        return options.schedules.resume(command.scheduleId);
+      case "run_schedule_now":
+        return options.schedules.runNow(command.scheduleId);
+      case "delete_schedule":
+        return options.schedules.remove(command.scheduleId);
+      case "edit_schedule":
+        return options.schedules.edit(command.scheduleId);
       case "get_remote":
         return options.remote.get(connection.id, command.watch);
       case "set_remote":

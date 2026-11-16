@@ -280,6 +280,7 @@ describe("a phone's connection", () => {
       parent: null,
       agent: null,
       heldDeliveries: 0,
+      kickoff: null,
       study: null,
     } as const;
     const changes: HostMessage = {

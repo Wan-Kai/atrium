@@ -1,0 +1,389 @@
+[
+  {
+    "file": "packages/ui/src/tasks/task-list-model.ts",
+    "from": "return task.status === \"running\" ? \"running\" : \"attention\";",
+    "to": "return \"running\";",
+    "test": "packages/ui/src/tasks/task-list-model.test.ts",
+    "name": "lists a designing task"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-list-model.ts",
+    "from": "attention.sort((a, b) => urgencyOf(a) - urgencyOf(b) || latestFirst(a, b));",
+    "to": "attention.sort(latestFirst);",
+    "test": "packages/ui/src/tasks/task-list-model.test.ts",
+    "name": "puts the most urgent first among those that want you"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-list-model.ts",
+    "from": "<= DONE_DAYS * 86_400_000",
+    "to": "<= 99 * 86_400_000",
+    "test": "packages/ui/src/tasks/task-list-model.test.ts",
+    "name": "leaves what ended more than seven days ago behind"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-list-model.ts",
+    "from": "recent.slice(0, DONE_SHOWN)",
+    "to": "recent.slice(0, 9)",
+    "test": "packages/ui/src/tasks/task-list-model.test.ts",
+    "name": "shows only what ended in the last seven days"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-list-model.ts",
+    "from": "return filter === NO_PROJECT ? task.projectId === null : task.projectId === filter;",
+    "to": "return task.projectId === filter;",
+    "test": "packages/ui/src/tasks/task-list-model.test.ts",
+    "name": "filters by project"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-list-model.ts",
+    "from": "const running = shown.filter((task) => groupOf(task) === \"running\").toSorted(latestFirst);",
+    "to": "const running = shown.filter((task) => groupOf(task) === \"running\");",
+    "test": "packages/ui/src/tasks/task-list-model.test.ts",
+    "name": "orders the running ones by latest activity"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-words.ts",
+    "from": "if (task.paused) return { text: \"已暂停\", tone: \"attn\" };",
+    "to": "",
+    "test": "packages/ui/src/tasks/task-words.test.ts",
+    "name": "says what each row waits for"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-words.ts",
+    "from": "return days === 1 ? \"昨天\" : `${days} 天前`;",
+    "to": "return `${days} 天前`;",
+    "test": "packages/ui/src/tasks/task-words.test.ts",
+    "name": "says how long ago"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-words.ts",
+    "from": "task_state_invalid: \"任务的状态变了，刷新后再试\",",
+    "to": "",
+    "test": "packages/ui/src/tasks/task-words.test.ts",
+    "name": "words the errors of SPEC-0006"
+  },
+  {
+    "file": "packages/ui/src/tasks/graph-layout.ts",
+    "from": "const wanted = (layer.get(from) ?? 0) + 1;",
+    "to": "const wanted = 1;",
+    "test": "packages/ui/src/tasks/graph-layout.test.ts",
+    "name": "puts each node on the row after everything it follows"
+  },
+  {
+    "file": "packages/ui/src/tasks/graph-layout.ts",
+    "from": "const out = PAD + LANE - 8 * lane;",
+    "to": "const out = PAD + LANE;",
+    "test": "packages/ui/src/tasks/graph-layout.test.ts",
+    "name": "loops a send-back through the left margin"
+  },
+  {
+    "file": "packages/ui/src/tasks/graph-layout.ts",
+    "from": "const left = PAD + (backs.length > 0 ? LANE + 8 * (backs.length - 1) : 0);",
+    "to": "const left = PAD;",
+    "test": "packages/ui/src/tasks/graph-layout.test.ts",
+    "name": "loops a send-back through the left margin"
+  },
+  {
+    "file": "packages/ui/src/state/task-area.ts",
+    "from": "tabs: state.tabs.includes(taskId) ? state.tabs : [...state.tabs, taskId],",
+    "to": "tabs: [...state.tabs, taskId],",
+    "test": "packages/ui/src/state/task-area.test.ts",
+    "name": "opens a task as a tab behind the two fixed ones"
+  },
+  {
+    "file": "packages/ui/src/state/task-area.ts",
+    "from": "active: state.active === taskId ? (tabs[at - 1] ?? \"list\") : state.active",
+    "to": "active: \"list\"",
+    "test": "packages/ui/src/state/task-area.test.ts",
+    "name": "goes to the tab before the one closed"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-progress-model.ts",
+    "from": "latestMark.get(item.taskId) !== item.id",
+    "to": "false",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "shows only the latest mark of a task",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-progress-model.ts",
+    "from": "row === lastGroup && row.kind === \"progress\" ? { ...row, last: true } : row",
+    "to": "row",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "keeps the latest group of progress lines open",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-progress-model.ts",
+    "from": "passed > 0 ? `${passed} 个节点通过` : null,",
+    "to": "null,",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "keeps the latest group of progress lines open",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-progress-model.ts",
+    "from": "if (open === null) {",
+    "to": "if (true) {",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "keeps the latest group of progress lines open",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/task-progress.tsx",
+    "from": "onClick={() => setChoice(!open)}",
+    "to": "onClick={() => setChoice(open)}",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "opens a folded group when pressed",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/task-progress.tsx",
+    "from": "const abandoned = notice.state === \"abandoned\";",
+    "to": "const abandoned = false;",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "shows only the latest mark of a task",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/chat/task-progress.tsx",
+    "from": "const open = choice ?? last;",
+    "to": "const open = last;",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "opens a folded group when pressed",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-conversation.tsx",
+    "from": "? { ...item, user: { ...item.user, text: DESIGN_STAND_IN } }",
+    "to": "? item",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "shows the host's long instruction",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-tab.tsx",
+    "from": "workspaceId !== null && waitsOnHuman ? client.changes(workspaceId) : NO_CHANGES",
+    "to": "NO_CHANGES",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "asks for the worktree's changes while a human node waits",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-tab.tsx",
+    "from": "onClick={() => onOpenSource(task.sourceSessionId ?? \"\")}",
+    "to": "onClick={() => undefined}",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "goes back to the source conversation from the link",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-graph.tsx",
+    "from": "aria-pressed={selected}",
+    "to": "aria-pressed={false}",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "outlines the node pressed",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-graph.tsx",
+    "from": "onClick={() => onSelect(null)}",
+    "to": "onClick={() => undefined}",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "outlines the node pressed",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-graph.tsx",
+    "from": "{node.model === null ? `继承 · ${modelWords(taskModel)}` : modelWords(node.model)}",
+    "to": "{`继承 · ${modelWords(taskModel)}`}",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "writes a node's own model",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-graph.tsx",
+    "from": "if (node.state === \"failed\" && node.failure !== null) return `失败：${FAILURE_WORDS[node.failure]}`;",
+    "to": "",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "floats what a node does and what counts as done on hover",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/app/workbench.tsx",
+    "from": "attention: tasks.filter((task) => groupOf(task) === \"attention\").length,",
+    "to": "attention: tasks.filter((task) => task.attention !== null).length,",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "sits under the search with the number of tasks that want you",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/app/workbench.tsx",
+    "from": "fireAndForget(client.openSession(sourceId));",
+    "to": "",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "goes back to the source conversation from the link",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-list.tsx",
+    "from": "group.foldable > 0",
+    "to": "group.hidden > 0",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "shows the last seven days of finished tasks",
+    "project": "ui"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "if (!watchingTasks || message.seq <= shown.seq) return;",
+    "to": "if (!watchingTasks) return;",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "asks to watch the list and shows what the host answers"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "if (ask !== taskListAsks || !watchingTasks || tasks.getState().seq >= 0) return;",
+    "to": "if (ask !== taskListAsks || !watchingTasks) return;",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "does not put an answer over a push that came before it"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "tasks: before.tasks, seq: -1 }",
+    "to": "tasks: before.tasks, seq: before.seq }",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "does not put an answer over a push that came before it"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "const missing = error instanceof CommandError && error.code === \"task_not_found\";",
+    "to": "const missing = false;",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "says a task is missing when the host does not know it"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "if (watchingTasks) loadTasks().catch(() => undefined);",
+    "to": "",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "does not put an answer over a push that came before it"
+  },
+  {
+    "file": "packages/client/src/atrium-client.ts",
+    "from": "if (openedTask !== null) loadTask(openedTask).catch(() => undefined);",
+    "to": "",
+    "test": "packages/client/src/atrium-client.test.ts",
+    "name": "asks again for the open task on every connection"
+  },
+  {
+    "file": "packages/host/src/transcript/projection.ts",
+    "from": "what: entry.line.what ?? null,",
+    "to": "what: null,",
+    "test": "packages/host/src/transcript/projection.test.ts",
+    "name": "puts a task conversation's progress lines"
+  },
+  {
+    "file": "packages/host/src/transcript/projection.ts",
+    "from": "state: entry.line.state,",
+    "to": "state: \"converted\",",
+    "test": "packages/host/src/transcript/projection.test.ts",
+    "name": "puts a task conversation's progress lines"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": "scheduled: task.origin.kind === \"schedule\",",
+    "to": "scheduled: false,",
+    "test": "packages/host/src/tasks/task-view.test.ts",
+    "name": "says whether a schedule made the task"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": "Math.max(latest, run.startedAt, run.endedAt ?? 0)",
+    "to": "Math.max(latest, run.startedAt)",
+    "test": "packages/host/src/tasks/task-view.test.ts",
+    "name": "dates the row by the latest start or end of a node"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": "if (rank !== undefined && (best === null || rank < best.rank))",
+    "to": "if (rank !== undefined && best === null)",
+    "test": "packages/host/src/tasks/task-view.test.ts",
+    "name": "names the node a row is at"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": "sourceSessionId: task.origin.kind === \"chat\" ? task.origin.sessionId : null,",
+    "to": "sourceSessionId: null,",
+    "test": "packages/host/src/tasks/task-view.test.ts",
+    "name": "says whether a schedule made the task"
+  },
+  {
+    "file": "packages/host/src/tasks/task-view.ts",
+    "from": "model: node.model === undefined ? null : node.model,",
+    "to": "model: null,",
+    "test": "packages/host/src/tasks/task-view.test.ts",
+    "name": "says whether a schedule made the task"
+  },
+  {
+    "file": "packages/pi/src/history/log-entry.ts",
+    "from": "return line.success && (line.data.kind === \"progress\" || line.data.kind === \"converted\")",
+    "to": "return line.success",
+    "test": "packages/pi/src/history/log-entry.test.ts",
+    "name": "reads a task progress line or a conversion mark"
+  },
+  {
+    "file": "packages/pi/src/events/translate.ts",
+    "from": "return line.success && (line.data.kind === \"progress\" || line.data.kind === \"converted\")",
+    "to": "return line.success",
+    "test": "packages/pi/src/events/translate.test.ts",
+    "name": "reports a task progress line or a conversion mark"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-graph.tsx",
+    "from": "Math.min(1, Math.max(MIN_SCALE, paneWidth / layout.width))",
+    "to": "1",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "fits a graph three nodes wide",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-graph.tsx",
+    "from": "Math.max(MIN_SCALE, paneWidth / layout.width)",
+    "to": "paneWidth / layout.width",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "stops shrinking a graph at its floor",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-graph.tsx",
+    "from": "data-testid=\"graph-version\"",
+    "to": "data-testid=\"x\"",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "fits a graph three nodes wide",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-list.tsx",
+    "from": "{status.tone === \"danger\" ? <NodeStateIcon state=\"failed\" size={14} /> : null}",
+    "to": "",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "draws the list inside a card",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-list.tsx",
+    "from": "{status.tone === \"attn\" ? <NodeStateIcon state=\"waiting\" size={14} /> : null}",
+    "to": "",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "draws the list inside a card",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/tasks/task-list.tsx",
+    "from": "data-testid=\"task-card\"",
+    "to": "data-testid=\"task-x\"",
+    "test": "packages/ui/src/tasks/task-area.browser.test.tsx",
+    "name": "draws the list inside a card",
+    "project": "ui"
+  }
+]

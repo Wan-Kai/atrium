@@ -136,6 +136,7 @@ describe("SessionCatalog", () => {
         study: null,
         agent: null,
         usedHandles: [],
+        task: null,
         deliveries: [],
       },
       expect.objectContaining({ sessionId: "s2", containerId: B, prompt: "hello", updatedAt: 200_000 }),
@@ -226,6 +227,7 @@ describe("SessionCatalog", () => {
         study: null,
         agent: null,
         usedHandles: [],
+        task: null,
         deliveries: [],
       },
     ]);
@@ -287,6 +289,29 @@ describe("SessionCatalog", () => {
       { sessionId: "ours", archived: true, draft: true },
       { sessionId: "terminal", containerId: A, cwd: dirs.a, archived: true, draft: false, createdAt: 5_000 },
     ]);
+  });
+
+  it("records what a session was archived with, and forgets it once restored (SPEC-0008, ML3)", async () => {
+    const { sessions, dirs, file } = await catalog();
+    await sessions.record({ sessionId: "lesson", containerId: A, cwd: dirs.a });
+    await sessions.record({ sessionId: "quiz", containerId: A, cwd: dirs.a });
+
+    await sessions.archive("lesson", "lesson");
+    await sessions.archive("quiz", "lesson");
+
+    expect(sessions.list().map((one) => [one.sessionId, one.archived, one.archivedWith])).toStrictEqual([
+      ["lesson", true, "lesson"],
+      ["quiz", true, "lesson"],
+    ]);
+    await sessions.unarchive("quiz");
+
+    expect(sessions.find("quiz")).toMatchObject({ archived: false });
+    expect(sessions.find("quiz")).not.toHaveProperty("archivedWith");
+    expect(JSON.parse(JSON.stringify(file.read().sessions))).toMatchObject([
+      { sessionId: "lesson", archived: true, archivedWith: "lesson" },
+      { sessionId: "quiz", archived: false },
+    ]);
+    expect(JSON.parse(JSON.stringify(file.read().sessions))[1]).not.toHaveProperty("archivedWith");
   });
 
   it("marks a session's attention, recording one from the terminal, and writes only a change", async () => {
@@ -744,6 +769,38 @@ describe("SessionCatalog before its first scan", () => {
 
     expect(sessions.find("c1")).toMatchObject({ agent, usedHandles: [], deliveries: [] });
     expect(sessions.find("s1")).toMatchObject({ agent: null, usedHandles: ["audit", "tests"], deliveries: [delivery] });
+  });
+
+  it("keeps a task session's record, and reads a broken one as no task (SPEC-0006)", async () => {
+    const { sessions, dirs, file } = await catalog();
+    const task = {
+      taskId: "tsk_1",
+      role: "node",
+      node: "N1",
+      attempt: 1,
+      nodeRole: "work",
+      startOn: { providerId: "p", modelId: "m", thinkingLevel: null },
+    } as const;
+    await sessions.record({ sessionId: "n1", containerId: A, cwd: dirs.a, name: "N1 · look", task });
+    await file.save({
+      ...file.read(),
+      sessions: [
+        ...file.read().sessions,
+        {
+          sessionId: "bad",
+          containerId: A,
+          cwd: dirs.a,
+          draft: true,
+          archived: false,
+          createdAt: 1,
+          task: { taskId: 7 },
+        },
+      ],
+    });
+
+    expect(sessions.find("n1")).toMatchObject({ task, agent: null, parent: null });
+    expect(file.read().sessions[0]).toMatchObject({ sessionId: "n1", task });
+    expect(sessions.find("bad")?.task).toBeNull();
   });
 
   it("changes a session's agent fields, records a session from the terminal, and writes nothing that is the same", async () => {

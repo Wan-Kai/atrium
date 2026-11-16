@@ -125,7 +125,7 @@ describe("ios.mjs install", () => {
     const { xcrun, log } = await scene({ devices: { result: { devices: [phone("unavailable", "unpaired")] } } });
     const result = await ios(xcrun, log, ["install"]);
 
-    expect(result.code).toBe(1);
+    expect(result.code).toBe(3);
     expect(result.output).toContain("no paired iPhone");
     expect(result.output).toContain("cable");
     expect(result.calls.some((call) => call[0] === "xcodebuild")).toBe(false);
@@ -135,7 +135,7 @@ describe("ios.mjs install", () => {
     const { xcrun, log } = await scene({ devices: { result: { devices: [phone("unavailable")] } } });
     const result = await ios(xcrun, log, ["install"]);
 
-    expect(result.code).toBe(1);
+    expect(result.code).toBe(3);
     expect(result.output).toContain("Test iPhone (iPhone 16 Pro) is paired but not connected");
     expect(result.output).toContain("last seen 2026-09-10");
     expect(result.calls.some((call) => call[0] === "xcodebuild")).toBe(false);
@@ -164,7 +164,7 @@ describe("ios.mjs install", () => {
     });
     const result = await ios(xcrun, log, ["install"]);
 
-    expect(result.code).toBe(1);
+    expect(result.code).toBe(3);
     expect(result.output).toContain("Test iPhone (iPhone17,1) is paired but not connected");
   });
 
@@ -228,6 +228,16 @@ describe("ios.mjs install", () => {
       "00008140-TEST",
       "site.ktoon.atrium",
     ]);
+  });
+
+  it("installs without opening the app when told not to, for the job that only renews the signature", async () => {
+    const { xcrun, log } = await scene({ devices: { result: { devices: [phone("connected")] } } });
+    const result = await ios(xcrun, log, ["install", "--no-launch"]);
+
+    expect(result.code).toBe(0);
+    expect(result.output).toContain("installing on Test iPhone");
+    expect(result.calls.some((call) => call.slice(0, 4).join(" ") === "devicectl device install app")).toBe(true);
+    expect(result.calls.some((call) => call.slice(0, 3).join(" ") === "devicectl device process")).toBe(false);
   });
 });
 

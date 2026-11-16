@@ -6,6 +6,7 @@ import {
   NEW_DIRECTION_DRAFT,
   closeLearning,
   continueDirection,
+  confirmUpgrade,
   createLearningStore,
   directionName,
   openLearning,
@@ -262,7 +263,16 @@ describe("the study store", () => {
       sending: false,
       failure: undefined,
       stranded: null,
+      upgrading: null,
     });
+  });
+
+  it("asks to confirm an upgrade, and stops asking", () => {
+    const store = createLearningStore();
+    confirmUpgrade(store, { directionId: "lrn_go", level: "l2" });
+    expect(store.getState().upgrading).toStrictEqual({ directionId: "lrn_go", level: "l2" });
+    confirmUpgrade(store, null);
+    expect(store.getState().upgrading).toBeNull();
   });
 
   it("opens the new-direction page afresh, the learning home as it was, and closes either", () => {
@@ -397,7 +407,9 @@ describe("describeStudyError", () => {
     [new CommandError("direction_create_failed"), "没能建好方向的目录"],
     [new CommandError("command_reserved"), "以 /atrium- 开头的消息留给 Atrium 自己用"],
     [new CommandError("pi_unavailable"), "pi 现在用不了"],
-    [new CommandError("session_busy"), "出错了，再试一次"],
+    [new CommandError("session_busy"), "等上课这一轮结束"],
+    [new CommandError("session_not_found"), "这个会话已经不在了"],
+    [new CommandError("worktree_remove_failed"), "出错了，再试一次"],
     [new Error("boom"), "出错了，再试一次"],
   ])("%s", (error, words) => {
     expect(describeStudyError(error)).toBe(words);

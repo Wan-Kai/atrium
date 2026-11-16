@@ -63,6 +63,17 @@ describe("visual protocol", () => {
     ).toBe(false);
   });
 
+  it("tells a changed file by the session or the direction it was resolved for, exactly one (SPEC-0008, ML4)", () => {
+    const at = { type: "visual_changed", path: "visuals/1-01-a.html", mtime: 1 };
+    expect(VisualChangedEvent.parse({ ...at, directionId: "lrn_rust" })).toStrictEqual({
+      ...at,
+      directionId: "lrn_rust",
+    });
+    expect(VisualChangedEvent.safeParse(at).success).toBe(false);
+    expect(VisualChangedEvent.safeParse({ ...at, sessionId: "s1", directionId: "lrn_rust" }).success).toBe(false);
+    expect(VisualChangedEvent.safeParse({ ...at, directionId: "wks_0123456789abcdef" }).success).toBe(false);
+  });
+
   it("has an error code for each refusal of a file", () => {
     for (const code of ["visual_outside", "visual_missing", "visual_too_large"]) {
       expect(ErrorCode.safeParse(code).success).toBe(true);

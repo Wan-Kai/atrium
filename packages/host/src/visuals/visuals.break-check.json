@@ -128,7 +128,7 @@
   },
   {
     "file": "packages/host/src/visuals/visual-service.ts",
-    "from": "    return !closed && !mark.gone;",
+    "from": "    return !closed && !mark.gone && !me.released;",
     "to": "    return true;",
     "test": "packages/host/src/visuals/visual-service.test.ts",
     "name": "adds no watch for a resolve that ends"
@@ -149,7 +149,7 @@
   },
   {
     "file": "packages/host/src/visuals/visual-service.ts",
-    "from": "            await watchMissing(connectionId, sessionId, path, place, mark);",
+    "from": "          await watchMissing(connectionId, owner, path, place, mark, me);",
     "to": "",
     "test": "packages/host/src/visuals/visual-service.test.ts",
     "name": "tells of a file missing when resolved"
@@ -163,8 +163,8 @@
   },
   {
     "file": "packages/host/src/visuals/visual-service.ts",
-    "from": "  const dirs = [place.dir, ...(place.ancestors ?? [])];",
-    "to": "  const dirs = [place.dir];",
+    "from": "  for (const dir of [place.dir, ...(place.ancestors ?? [])]) {",
+    "to": "  for (const dir of [place.dir]) {",
     "test": "packages/host/src/visuals/visual-service.test.ts",
     "name": "opens a visual of a session's parent"
   },
@@ -233,8 +233,8 @@
   },
   {
     "file": "packages/client/src/atrium-client.ts",
-    "from": "        if (known.holds === 0 && visuals.get(key) === known) visuals.delete(key);",
-    "to": "",
+    "from": "        if (known.holds > 0 || visuals.get(key) !== known) return;",
+    "to": "        if (known.holds >= 0 || visuals.get(key) !== known) return;",
     "test": "packages/client/src/atrium-client.test.ts",
     "name": "forgets a visual once no card"
   },
@@ -324,16 +324,16 @@
   },
   {
     "file": "packages/ui/src/chat/visual-card.tsx",
-    "from": "        if (text === null || document.activeElement !== element || !navigator.userActivation.isActive) {",
-    "to": "        if (text === null) {",
+    "from": "        if (\n          access.send === null ||\n          text === null ||\n          document.activeElement !== element ||\n          !navigator.userActivation.isActive\n        ) {",
+    "to": "        if (access.send === null || text === null) {",
     "test": "packages/ui/src/chat/visual-card.browser.test.tsx",
     "name": "drops a message the frame's script sends",
     "project": "ui"
   },
   {
     "file": "packages/ui/src/chat/visual-card.tsx",
-    "from": "        if (text === null || document.activeElement !== element || !navigator.userActivation.isActive) {",
-    "to": "        if (document.activeElement !== element || !navigator.userActivation.isActive) {",
+    "from": "        if (\n          access.send === null ||\n          text === null ||\n          document.activeElement !== element ||\n          !navigator.userActivation.isActive\n        ) {",
+    "to": "        if (access.send === null || document.activeElement !== element || !navigator.userActivation.isActive) {",
     "test": "packages/ui/src/chat/visual-card.browser.test.tsx",
     "name": "sends a clicked message once a press",
     "project": "ui"
@@ -367,5 +367,48 @@
     "to": "compactions: starts.compactions }",
     "test": "packages/host/src/sessions/read-only-transcripts.test.ts",
     "name": "rebuilds with the turn starts the host recorded"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "  return dirname(folder) === root ? folder : null;",
+    "to": "  return folder;",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "finds a file right in a folder right in it"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "  if (!isAbsolute(path)) return null;\n",
+    "to": "",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "finds a file right in a folder right in it"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-file.ts",
+    "from": "if (info !== null && !info.isDirectory())",
+    "to": "if (false)",
+    "test": "packages/host/src/visuals/visual-file.test.ts",
+    "name": "refuses a link on the way, and a folder swapped for one"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-place.ts",
+    "from": "    ...(own.root === undefined ? {} : { root: own.root }),\n",
+    "to": "",
+    "test": "packages/host/src/visuals/visual-place.test.ts",
+    "name": "gives a session the host's own folder for demos too"
+  },
+  {
+    "file": "packages/host/src/visuals/visual-service.ts",
+    "from": "  const dir = placeInRoot(root, path);\n  if (dir === null) return null;\n",
+    "to": "  return null;\n",
+    "test": "packages/host/src/visuals/visual-service.test.ts",
+    "name": "opens a demo anywhere in the host's own folder for demos"
+  },
+  {
+    "file": "packages/host/src/main.ts",
+    "from": "{ ...direction, root }",
+    "to": "{ ...direction }",
+    "test": "packages/host/src/study.host.test.ts",
+    "name": "opens a demo a direction's session wrote before the direction gave it one",
+    "project": "host"
   }
 ]

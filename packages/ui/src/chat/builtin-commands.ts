@@ -3,8 +3,8 @@ import type { CatalogModel, ModelRef, TranscriptItem } from "@atrium/protocol";
 import type { ChosenCommand } from "./composer-text";
 import { layoutTurn } from "./turn-layout";
 
-/** The names of pi's built-in commands Atrium runs itself, and `child`, Atrium's own. */
-type BuiltinName = "compact" | "model" | "thinking" | "copy" | "export" | "child";
+/** The names of pi's built-in commands Atrium runs itself, and `child` and `task`, Atrium's own. */
+type BuiltinName = "compact" | "model" | "thinking" | "copy" | "export" | "child" | "task";
 
 /** A built-in command as the `/` list shows it, and when it can run. */
 export interface BuiltinCommand {
@@ -38,6 +38,15 @@ export const BUILTIN_COMMANDS: readonly BuiltinCommand[] = [
   { source: "builtin", name: "export", hint: null, description: "导出为 HTML", whileRunning: true, inDraft: false },
   // An empty child conversation under this session, as the tab bar's "+" menu opens (SPEC-0002, "第一步 · 入口").
   { source: "builtin", name: "child", hint: null, description: "开子对话", whileRunning: true, inDraft: false },
+  // This conversation becomes the requirements conversation of a task, and the task's tab opens (SPEC-0006, "/task 与创建").
+  {
+    source: "builtin",
+    name: "task",
+    hint: "范围",
+    description: "把这段对话转成任务",
+    whileRunning: false,
+    inDraft: false,
+  },
 ];
 
 /** A built-in command to run, and what followed its name. */

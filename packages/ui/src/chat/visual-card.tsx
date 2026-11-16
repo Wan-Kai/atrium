@@ -4,7 +4,7 @@ import { CodeBlock, CodeBlockCopyButton, type CustomRendererProps } from "stream
 import { ArrowUpRight, PlayCircle } from "../design/icons";
 import { useDarkMode } from "../design/use-dark-mode";
 import { useClock } from "../state/clock";
-import { isRelativeVisual, parseVisualReference } from "./visual-reference";
+import { parseVisualReference } from "./visual-reference";
 import { VisualSnapshots } from "./visual-snapshots";
 
 /** A rectangle of the page, in CSS pixels. */
@@ -15,16 +15,19 @@ export interface VisualRect {
   readonly height: number;
 }
 
-/** What a session's reply may do with its visuals. */
+/** What a session's reply, or a direction's viewer tab (ML4), may do with its visuals. */
 export interface VisualsAccess {
-  /** The session the reply belongs to, which the snapshots are kept by. */
-  readonly sessionId: string;
+  /** The session the reply belongs to, or the direction, which the snapshots are kept by. */
+  readonly owner: string;
   /** Checks the visual a reply names and gets its address. */
   resolve(path: string): Promise<{ readonly url: string; readonly mtime: number }>;
   /** Holds the visual while its card is shown, so a new connection resolves it again; returns how to let go. */
   hold(path: string): () => void;
-  /** Sends what the user picked in it as their message; `dropped` when the host did not send it. */
-  send(path: string, text: string): Promise<{ readonly disposition: string }>;
+  /**
+   * Sends what the user picked in it as their message; `dropped` when the host did not send it.
+   * `null` in a direction's viewer tab, which belongs to no session: nothing is sent (SPEC-0008, ML4).
+   */
+  readonly send: ((path: string, text: string) => Promise<{ readonly disposition: string }>) | null;
   /** Hears the paths of this session's visuals that changed; returns how to stop. */
   onChanged(listener: (path: string) => void): () => void;
   /** Captures a rectangle of the page; `null` outside the desktop app, which alone can. */
@@ -224,16 +227,18 @@ function VisualHeader({ path, open }: { readonly path: string; readonly open: ((
  * shadow and no border.
  *
  * @sideEffects none
- * @param props - The path, how to open it, and what goes below the title row.
+ * @param props - The path, how to open it, whether it has no title row, and what goes below it.
  * @returns The card.
  */
 function VisualFrame({
   path,
   open,
+  headless = false,
   children,
 }: {
   readonly path: string;
   readonly open: (() => void) | null;
+  readonly headless?: boolean;
   readonly children: ReactNode;
 }) {
   return (
@@ -241,7 +246,7 @@ function VisualFrame({
       className="m-0 overflow-hidden rounded-[14px] bg-[var(--surface-1)] shadow-[var(--card-shadow)]"
       data-testid="visual-card"
     >
-      <VisualHeader path={path} open={open} />
+      {headless ? null : <VisualHeader path={path} open={open} />}
       {children}
     </figure>
   );
@@ -356,21 +361,26 @@ type Resolved =
  * @sideEffects Resolves the file and listens for its changes; listens for the frame's messages
  * and answers them; may send a message; observes where the card is; captures snapshots; starts
  * timers.
- * @param props - The session's visuals, the path and its title.
+ * A direction's viewer tab draws the same card without its title row, and with no way to send.
+ *
+ * @param props - The session's visuals, the path, its title, and whether it has no title row.
  * @returns The card.
  */
-function VisualCard({
+export function VisualCard({
   access,
   path,
   title,
+  headless = false,
 }: {
   readonly access: VisualsAccess;
   readonly path: string;
   readonly title: string | null;
+  /** Without the title row, as a direction's viewer tab shows it (ML4). */
+  readonly headless?: boolean;
 }) {
   const clock = useClock();
   const dark = useDarkMode();
-  const key = `${access.sessionId}\u0000${path}`;
+  const key = `${access.owner}\u0000${path}`;
   const [resolved, setResolved] = useState<Resolved>({ kind: "loading" });
   const [height, setHeight] = useState(FIRST_HEIGHT);
   const [inView, setInView] = useState(false);
@@ -530,7 +540,7 @@ function VisualCard({
      */
     const answer = async (element: HTMLIFrameElement, id: unknown, text: string): Promise<void> => {
       try {
-        const { disposition } = await access.send(path, text);
+        const { disposition } = await (access.send?.(path, text) ?? Promise.resolve({ disposition: "dropped" }));
         post(
           element,
           disposition === "dropped" ? { id, error: { code: -32_000, message: "dropped" } } : { id, result: {} },
@@ -578,7 +588,13 @@ function VisualCard({
         const refuse = (): void => post(element, { id, error: { code: -32_000, message: "refused" } });
         // The user clicked in this frame just now: it has the focus and the page the activation.
         // Only once that holds is a press spent, so a message that fails here burns none.
-        if (text === null || document.activeElement !== element || !navigator.userActivation.isActive) {
+        // A direction's viewer tab sends nothing, whatever was clicked (SPEC-0008, ML4).
+        if (
+          access.send === null ||
+          text === null ||
+          document.activeElement !== element ||
+          !navigator.userActivation.isActive
+        ) {
           refuse();
           return;
         }
@@ -618,16 +634,16 @@ function VisualCard({
     pokeNow.current();
   }, [dark, loaded]);
 
-  const opener = isRelativeVisual(path) ? (access.open?.(path) ?? null) : null;
+  const opener = headless ? null : (access.open?.(path) ?? null);
   if (resolved.kind === "failed") {
     return (
-      <VisualFrame path={path} open={opener}>
+      <VisualFrame path={path} open={opener} headless={headless}>
         <VisualFailure code={resolved.code} />
       </VisualFrame>
     );
   }
   return (
-    <VisualFrame path={path} open={opener}>
+    <VisualFrame path={path} open={opener} headless={headless}>
       <div ref={setBody} style={{ height }} className="relative" data-testid="visual-body">
         {loaded ? (
           <iframe

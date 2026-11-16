@@ -4,7 +4,14 @@ import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import { ResourceTracker } from "../platform/resources";
-import { type FoundDirection, createDirections, directionIdOf, mattersToDirections, resolveRoot } from "./directions";
+import {
+  type FoundDirection,
+  createDirections,
+  directionIdOf,
+  directionPlaceSafe,
+  mattersToDirections,
+  resolveRoot,
+} from "./directions";
 
 /**
  * A learning directory for one test, and its directions.
@@ -50,6 +57,12 @@ async function direction(parent: string, name: string, marker: unknown = { versi
   return dir;
 }
 
+/** A ladder of two levels, the smallest the host reads (SPEC-0008, "ML2 定的细节"). */
+const RUST_LADDER = [
+  { id: "l1", name: "所有权", topics: "借用", pass: "一个链表", state: "current" },
+  { id: "l2", name: "并发", topics: "线程", pass: "一个服务", state: "todo" },
+] as const;
+
 describe("Directions", () => {
   it("lists the directories with a marker, archived ones from Archive/, and nothing else", async () => {
     const { directions, root } = await learning();
@@ -59,7 +72,7 @@ describe("Directions", () => {
       createdAt: "2026-11-05T10:12:00Z",
       profile: { goal: "x" },
     });
-    await direction(root, "rust", { version: 1, name: "Rust", ladder: [{ id: "l1" }] });
+    await direction(root, "rust", { version: 1, name: "Rust", ladder: RUST_LADDER });
     await direction(join(root, "Archive"), "sql", { version: 1, name: "SQL" });
     // Not directions: no marker, a name no id can have, a link to a directory, a file.
     await mkdir(join(root, "notes"));
@@ -81,7 +94,9 @@ describe("Directions", () => {
         name: "Node 后端",
         createdAt: Date.parse("2026-11-05T10:12:00Z"),
         broken: false,
+        newer: false,
         discussing: true,
+        progress: null,
       },
       {
         id: "lrn_rust",
@@ -92,7 +107,9 @@ describe("Directions", () => {
         name: "Rust",
         createdAt: null,
         broken: false,
+        newer: false,
         discussing: false,
+        progress: { profile: {}, ladder: [...RUST_LADDER], steps: {}, gaps: [], finishedAt: null },
       },
       {
         id: "lrn_sql",
@@ -103,7 +120,9 @@ describe("Directions", () => {
         name: "SQL",
         createdAt: null,
         broken: false,
+        newer: false,
         discussing: true,
+        progress: null,
       },
     ]);
     expect(directions.find("lrn_sql")?.archived).toBe(true);
@@ -174,15 +193,26 @@ describe("Directions", () => {
     await direction(root, "no-name", { version: 1 });
     await direction(root, "too-big", `{"version":1,"name":"x","pad":"${"x".repeat(1024 * 1024)}"}`);
     await mkdir(join(root, "marker-dir", ".atrium-study.json"), { recursive: true });
+    // A ladder outside 2–6 levels is no ladder Atrium wrote (SPEC-0008, "ML2 定的细节").
+    await direction(root, "one-level", { version: 1, name: "x", ladder: RUST_LADDER.slice(0, 1) });
+    const seven = Array.from({ length: 7 }, (_, at) => ({ ...RUST_LADDER[1], id: `l${String(at + 1)}` }));
+    await direction(root, "seven-levels", { version: 1, name: "x", ladder: seven });
+    await direction(root, "six-levels", { version: 1, name: "six", ladder: seven.slice(0, 6) });
+    // A later version is read as far as Atrium knows it, never written (ML2).
+    await direction(root, "later", { version: 2, name: "later", ladder: seven.slice(0, 2), more: 1 });
 
     await directions.scan();
 
     expect(
-      directions.list().map(({ id, name, broken, discussing }) => ({ id, name, broken, discussing })),
+      directions.list().map(({ id, name, broken, newer, discussing }) => ({ id, name, broken, newer, discussing })),
     ).toStrictEqual([
-      { id: "lrn_no-name", name: null, broken: true, discussing: true },
-      { id: "lrn_not-json", name: null, broken: true, discussing: true },
-      { id: "lrn_too-big", name: null, broken: true, discussing: true },
+      { id: "lrn_later", name: "later", broken: false, newer: true, discussing: false },
+      { id: "lrn_no-name", name: null, broken: true, newer: false, discussing: true },
+      { id: "lrn_not-json", name: null, broken: true, newer: false, discussing: true },
+      { id: "lrn_one-level", name: null, broken: true, newer: false, discussing: true },
+      { id: "lrn_seven-levels", name: null, broken: true, newer: false, discussing: true },
+      { id: "lrn_six-levels", name: "six", broken: false, newer: false, discussing: false },
+      { id: "lrn_too-big", name: null, broken: true, newer: false, discussing: true },
     ]);
   });
 
@@ -221,7 +251,9 @@ describe("Directions", () => {
       name: "新",
       createdAt: 5,
       broken: false,
+      newer: false,
       discussing: true,
+      progress: null,
     };
 
     directions.added(made);
@@ -318,7 +350,9 @@ describe("Directions", () => {
       name: "新",
       createdAt: 5,
       broken: false,
+      newer: false,
       discussing: true,
+      progress: null,
     };
 
     const early = directions.scan();
@@ -414,5 +448,52 @@ describe("directionIdOf", () => {
     ["x".repeat(65), null],
   ])("%s → %s", (name, id) => {
     expect(directionIdOf(name)).toBe(id);
+  });
+});
+
+describe("directionPlaceSafe (SPEC-0008, ML4)", () => {
+  it("takes a real directory right in the learning directory or its Archive/, and nothing else", async () => {
+    const temp = await createTempDir("place");
+    onTestFinished(temp.cleanup);
+    const base = await realpath(temp.path);
+    const root = join(base, "Learning");
+    await mkdir(join(root, "rust"), { recursive: true });
+    await mkdir(join(root, "Archive", "go"), { recursive: true });
+    await mkdir(join(root, "deep", "x"), { recursive: true });
+    await mkdir(join(base, "elsewhere", "go2"), { recursive: true });
+    await symlink(join(base, "elsewhere", "go2"), join(root, "linked"));
+    await writeFile(join(root, "file"), "x");
+
+    const seen = await Promise.all(
+      ["rust", "Archive/go", "deep/x", "linked", "file", "gone", "."].map(async (path) => [
+        path,
+        await directionPlaceSafe(join(root, path), root),
+      ]),
+    );
+
+    expect(seen).toStrictEqual([
+      ["rust", true],
+      ["Archive/go", true],
+      ["deep/x", false],
+      ["linked", false],
+      ["file", false],
+      ["gone", false],
+      [".", false],
+    ]);
+  });
+
+  it("refuses a direction under an Archive/ or a learning directory that is a link", async () => {
+    const temp = await createTempDir("place");
+    onTestFinished(temp.cleanup);
+    const base = await realpath(temp.path);
+    const root = join(base, "Learning");
+    await mkdir(join(base, "other", "go"), { recursive: true });
+    await mkdir(root);
+    await symlink(join(base, "other"), join(root, "Archive"));
+    await mkdir(join(base, "real", "rust"), { recursive: true });
+    await symlink(join(base, "real"), join(base, "Linked"));
+
+    expect(await directionPlaceSafe(join(root, "Archive", "go"), root)).toBe(false);
+    expect(await directionPlaceSafe(join(base, "Linked", "rust"), join(base, "Linked"))).toBe(false);
   });
 });

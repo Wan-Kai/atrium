@@ -520,7 +520,7 @@ async function creationTimes(common: string): Promise<Map<string, number>> {
  * @returns The ref, or `null`.
  */
 export async function mainBranchRef(
-  project: ProjectRecord,
+  project: Pick<ProjectRecord, "mainBranch">,
   run: (...args: string[]) => Promise<{ readonly code: number; readonly stdout: string } | null>,
 ): Promise<string | null> {
   if (project.mainBranch !== null) return `refs/remotes/origin/${project.mainBranch}`;
@@ -540,7 +540,7 @@ export async function mainBranchRef(
  * @param run - Runs git in the project.
  * @returns The ref, or `null` without a main branch.
  */
-async function comparedMainRef(
+export async function comparedMainRef(
   project: ProjectRecord,
   run: (...args: string[]) => Promise<{ readonly code: number; readonly stdout: string } | null>,
 ): Promise<string | null> {
