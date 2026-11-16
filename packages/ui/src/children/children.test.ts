@@ -81,7 +81,7 @@ describe("rowStatus and tabStatus", () => {
     expect(rowStatus([at("quiet", null)], at("quiet", null))).toBeNull();
   });
 
-  it("raise a tab by a descendant asking, waiting for a sign-in or failed, never by one running", () => {
+  it("raise a tab by a descendant asking, waiting for a sign-in or failed, never by one running or done", () => {
     expect(tabStatus(sessions, at("main", null))).toBe("asking");
     expect(tabStatus([at("main", null), running], at("main", null))).toBeNull();
     expect(
@@ -90,6 +90,18 @@ describe("rowStatus and tabStatus", () => {
         at("main", null, { running: true }),
       ),
     ).toBe("auth");
+  });
+
+  it("show a descendant's finished run as its row's dot, never on the tab", () => {
+    const done = at("d", "main", { attention: { reason: "finished", at: 1, cleared: false, text: null } });
+    const seen = at("d", "main", { attention: { reason: "finished", at: 1, cleared: true, text: null } });
+
+    expect([
+      rowStatus([at("main", null), done], done),
+      rowStatus([at("main", null), done], at("main", null)),
+      tabStatus([at("main", null), done], at("main", null)),
+      rowStatus([at("main", null), seen], seen),
+    ]).toStrictEqual(["finished", "finished", null, null]);
   });
 });
 

@@ -136,11 +136,12 @@ export type Direction = z.infer<typeof Direction>;
  * Why a session needs you, kept in the index until its next run starts (SPEC-0001, "并行、同步与关注").
  *
  * @remarks
- * `error` is cleared once a client showed the session, and stays as the error icon until the next
- * run; `auth` is not cleared by a look, only by a run starting.
+ * `error` and `finished` are cleared once a client showed the session; an error stays as its icon
+ * until the next run, a finished run's dot goes at once. `auth` is not cleared by a look, only by a
+ * run starting. `finished` is "done, not seen yet" and carries no text (SPEC-0005, "协议改动" 8).
  */
 export const Attention = z.strictObject({
-  reason: z.enum(["error", "auth"]),
+  reason: z.enum(["error", "auth", "finished"]),
   /** When it was set. */
   at: Timestamp,
   cleared: z.boolean(),

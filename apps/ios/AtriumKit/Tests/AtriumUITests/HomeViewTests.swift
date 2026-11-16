@@ -33,6 +33,7 @@ struct HomeViewTests {
     #expect(SessionRow.kind(.asking) == .asking)
     #expect(SessionRow.kind(.error) == .error)
     #expect(SessionRow.kind(.running) == .running)
+    #expect(SessionRow.kind(.finished) == .unread)
     #expect(SessionRow.kind(nil) == .idle)
   }
 }

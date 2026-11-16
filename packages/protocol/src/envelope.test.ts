@@ -2528,6 +2528,7 @@ const hostVariants: unknown[] = [
   ...["missing"].map((state) => ({ ...snapshot, sessions: [{ ...session, state }] })),
   ...["generation_changed", "cursor_expired", "too_many_changes"].map((reason) => ({ ...snapshot, reason })),
   { ...snapshot, sessions: [{ ...session, attention: { reason: "auth", at: 0, cleared: true, text: null } }] },
+  { ...snapshot, sessions: [{ ...session, attention: { reason: "finished", at: 0, cleared: false, text: null } }] },
   ...["light", "dark"].map((appearance) => ({ ...snapshot, preferences: { ...snapshot.preferences, appearance } })),
   { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "chats", "sessions", "preferences"] },
   {
@@ -3263,7 +3264,7 @@ describe("HostMessage", () => {
       "an unknown attention reason",
       {
         ...snapshot,
-        sessions: [{ ...snapshot.sessions[0], attention: { reason: "finished", at: 1, cleared: false } }],
+        sessions: [{ ...snapshot.sessions[0], attention: { reason: "done", at: 1, cleared: false, text: null } }],
       },
     ],
     ["a session still marked failed", { ...snapshot, sessions: [{ ...snapshot.sessions[0], failed: false }] }],

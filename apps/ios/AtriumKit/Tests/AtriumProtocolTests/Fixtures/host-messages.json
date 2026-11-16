@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 39,
+    "protocolVersion": 40,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -8814,6 +8814,448 @@
           "reason": "auth",
           "at": 0,
           "cleared": true,
+          "text": null
+        },
+        "asking": null,
+        "question": null,
+        "model": null,
+        "parent": null,
+        "agent": null,
+        "heldDeliveries": 0,
+        "kickoff": null,
+        "study": null
+      }
+    ],
+    "layout": {
+      "container": "wks_0123456789abcdef",
+      "tabs": {
+        "wks_0123456789abcdef": {
+          "open": [
+            "s1"
+          ],
+          "active": "s1"
+        },
+        "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc": {
+          "open": [],
+          "active": null
+        }
+      }
+    },
+    "preferences": {
+      "setupDone": true,
+      "appearance": "system",
+      "lastModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5"
+      },
+      "thinkingByModel": {
+        "anthropic/claude-opus-5-5": "high",
+        "faux/faux-1": "off"
+      },
+      "lastFast": true,
+      "statusBar": {
+        "cost": true,
+        "session": false
+      },
+      "titleModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-haiku-4-5"
+      },
+      "proxy": {
+        "url": "http://127.0.0.1:7897",
+        "noProxy": [
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h",
+          "h"
+        ]
+      },
+      "inbox": false,
+      "translationLanguage": "简体中文"
+    },
+    "resets": [
+      "layouts"
+    ],
+    "learningDir": "~/Atrium/Learning"
+  },
+  {
+    "type": "index_snapshot",
+    "generation": "h1",
+    "seq": 3,
+    "reason": "no_cursor",
+    "projects": [
+      {
+        "id": "prj_0123456789abcdef",
+        "path": "/work/app",
+        "name": "app",
+        "mainBranch": "trunk"
+      }
+    ],
+    "workspaces": [
+      {
+        "id": "wks_0123456789abcdef",
+        "projectId": "prj_0123456789abcdef",
+        "kind": "local",
+        "dir": "/work/app",
+        "alias": null,
+        "branch": "main",
+        "head": null,
+        "external": false,
+        "createdAt": null,
+        "merge": null,
+        "archivedAt": null
+      },
+      {
+        "id": "wks_fedcba9876543210",
+        "projectId": "prj_0123456789abcdef",
+        "kind": "worktree",
+        "dir": "/work/app-sidebar",
+        "alias": "侧栏",
+        "branch": null,
+        "head": "1a2b3c4",
+        "external": true,
+        "createdAt": 1700000000000,
+        "merge": {
+          "dirty": true,
+          "ahead": 3,
+          "verdict": "unknown",
+          "reason": "no_main_branch"
+        },
+        "archivedAt": 1700000100000
+      }
+    ],
+    "chats": [
+      {
+        "id": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
+        "dir": "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
+        "alias": null,
+        "firstSessionId": "s2",
+        "archivedAt": null,
+        "pinnedAt": 1700000300000
+      },
+      {
+        "id": "cht_x",
+        "dir": "/Users/test/.atrium/chats/x",
+        "alias": "合并原理",
+        "firstSessionId": null,
+        "archivedAt": 1700000200000,
+        "pinnedAt": null
+      }
+    ],
+    "directions": [
+      {
+        "id": "lrn_node-backend",
+        "dir": "/Users/test/Atrium/Learning/node-backend",
+        "name": "Node 后端",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": true,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": 1700000500000,
+        "lastOpenedAt": 1700000600000,
+        "progress": null,
+        "next": {
+          "primary": null,
+          "secondary": null
+        }
+      },
+      {
+        "id": "lrn_go",
+        "dir": "/Users/test/Atrium/Learning/go",
+        "name": "Go",
+        "alias": null,
+        "broken": false,
+        "newer": false,
+        "discussing": false,
+        "archived": false,
+        "createdAt": 1700000400000,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": {
+          "profile": {
+            "goal": "写一个 CLI",
+            "weeklyHours": "4",
+            "language": "Go"
+          },
+          "ladder": [
+            {
+              "id": "l1",
+              "name": "语法",
+              "topics": "类型、函数",
+              "pass": "一个小工具",
+              "state": "skipped"
+            },
+            {
+              "id": "l2",
+              "name": "并发",
+              "topics": "goroutine",
+              "pass": "一个爬虫",
+              "state": "current"
+            }
+          ],
+          "steps": {
+            "l2": [
+              {
+                "id": "s1",
+                "kind": "lesson",
+                "title": "goroutine",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "agent",
+                  "score": 4,
+                  "of": 5
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s2",
+                "kind": "lesson",
+                "title": "channel",
+                "lesson": {
+                  "by": "manual"
+                },
+                "quiz": {
+                  "by": "manual"
+                },
+                "done": null
+              },
+              {
+                "id": "s3",
+                "kind": "lesson",
+                "title": "select",
+                "lesson": {
+                  "by": "agent"
+                },
+                "quiz": {
+                  "by": "later"
+                },
+                "done": {
+                  "by": "manual"
+                }
+              },
+              {
+                "id": "s4",
+                "kind": "lesson",
+                "title": "context",
+                "lesson": null,
+                "quiz": null,
+                "done": null
+              },
+              {
+                "id": "s5",
+                "kind": "sheet",
+                "done": null
+              },
+              {
+                "id": "s6",
+                "kind": "project",
+                "done": {
+                  "by": "agent"
+                }
+              },
+              {
+                "id": "s7",
+                "kind": "exam",
+                "done": {
+                  "by": "agent",
+                  "score": 8,
+                  "of": 10
+                }
+              },
+              {
+                "id": "s8",
+                "kind": "up",
+                "done": null
+              }
+            ]
+          },
+          "gaps": [
+            {
+              "id": "g1",
+              "text": "关闭的 channel 还能读",
+              "from": {
+                "level": "l2",
+                "step": "s1",
+                "question": 3
+              },
+              "fixed": null
+            },
+            {
+              "id": "g2",
+              "text": "nil channel",
+              "from": {
+                "level": "l2",
+                "step": "s2"
+              },
+              "fixed": {
+                "by": "manual"
+              }
+            }
+          ],
+          "finishedAt": null
+        },
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "feynman",
+            "level": "l2",
+            "step": "s2",
+            "gap": "g1",
+            "available": false
+          },
+          "secondary": {
+            "type": "mark",
+            "mark": "step",
+            "level": "l2",
+            "step": "s2"
+          }
+        }
+      },
+      {
+        "id": "lrn_rust",
+        "dir": "/Users/test/Atrium/Learning/Archive/rust",
+        "name": "rust",
+        "alias": "Rust 入门",
+        "broken": true,
+        "newer": false,
+        "discussing": true,
+        "archived": true,
+        "createdAt": null,
+        "pinnedAt": null,
+        "lastOpenedAt": null,
+        "progress": null,
+        "next": {
+          "primary": {
+            "type": "start",
+            "kind": "plan",
+            "level": "l3",
+            "available": true
+          },
+          "secondary": {
+            "type": "upgrade",
+            "level": "l2",
+            "available": true
+          }
+        }
+      }
+    ],
+    "sessions": [
+      {
+        "sessionId": "s1",
+        "containerId": "wks_0123456789abcdef",
+        "name": null,
+        "prompt": "重构宿主进程管理",
+        "file": "/pi/sessions/s1.jsonl",
+        "state": "persisted",
+        "updatedAt": 5,
+        "archived": false,
+        "running": true,
+        "attention": {
+          "reason": "finished",
+          "at": 0,
+          "cleared": false,
           "text": null
         },
         "asking": null,

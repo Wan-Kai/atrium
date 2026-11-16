@@ -3659,8 +3659,20 @@ describe("SessionManager attention (M1.9)", () => {
     ]);
     expect(marked[0]?.attention?.at).toBeGreaterThanOrEqual(before);
     expect(looked).toStrictEqual(marked);
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null }]);
-    expect(catalog.find("pi-session-1")?.attention).toBeNull();
+    // The next run starts without the sign-in problem, and ends done: the dot, not the key.
+    expect(marks(manager)).toStrictEqual([
+      {
+        attention: { reason: "finished", at: expect.any(Number), cleared: false, text: null },
+        asking: null,
+        question: null,
+      },
+    ]);
+    expect(catalog.find("pi-session-1")?.attention).toStrictEqual({
+      reason: "finished",
+      at: expect.any(Number),
+      cleared: false,
+      text: null,
+    });
     expect(changes()).toBeGreaterThan(changed);
   });
 
@@ -3699,8 +3711,35 @@ describe("SessionManager attention (M1.9)", () => {
     expect(marks(manager)[0]?.attention?.text).toBe(long.slice(0, 300));
   });
 
-  it("does not mark a run that was stopped or completed, nor clear a session that needs no look", async () => {
-    const { manager, run } = await opened([turn]);
+  it("marks a run that completed as finished, cleared by a look, until its next run starts", async () => {
+    const { manager, catalog, run } = await opened([turn, [{ type: "agent_start" }]]);
+    const before = Date.now();
+
+    await run();
+    const marked = marks(manager)[0]?.attention;
+    expect(marked).toStrictEqual({ reason: "finished", at: expect.any(Number), cleared: false, text: null });
+    expect(marked?.at).toBeGreaterThanOrEqual(before);
+    expect(catalog.find("pi-session-1")?.attention).toStrictEqual(marked);
+
+    await manager.clearAttention("pi-session-1");
+    expect(marks(manager)[0]?.attention).toStrictEqual({ ...marked, cleared: true });
+    expect(catalog.find("pi-session-1")?.attention).toStrictEqual({ ...marked, cleared: true });
+
+    await manager.prompt({ type: "prompt", requestId: "q2", traceparent, sessionId: "pi-session-1", text: "again" });
+    await vi.waitFor(() => expect(manager.summaries()[0]?.running).toBe(true));
+
+    expect(marks(manager)[0]?.attention).toBeNull();
+    expect(catalog.find("pi-session-1")?.attention).toBeNull();
+  });
+
+  it("does not mark a run that was stopped, nor clear a session that needs no look", async () => {
+    const stopped = [
+      { type: "agent_start" },
+      userEnd("ping", 1),
+      replyEnd(2, { stopReason: "aborted" }),
+      { type: "agent_settled" },
+    ];
+    const { manager, run } = await opened([stopped]);
 
     await run();
     await manager.clearAttention("pi-session-1");
@@ -3712,29 +3751,44 @@ describe("SessionManager attention (M1.9)", () => {
   });
 
   it.each([
-    ["completed", "stop", "done"],
-    ["stopped", "aborted", "stopped"],
-  ])("does not mark a run that %s after one of its turns failed", async (outcome, stopReason, last) => {
-    const { manager, received } = await opened([
-      [
-        { type: "agent_start" },
-        userEnd("ping", 1),
-        replyEnd(2, { stopReason: "error", errorMessage: "overloaded" }),
-        userEnd("again", 3),
-        replyEnd(4, { stopReason }),
-        { type: "agent_settled" },
-      ],
-    ]);
+    ["completed", "stop", "done", { reason: "finished", at: expect.any(Number), cleared: false, text: null }],
+    ["stopped", "aborted", "stopped", null],
+  ])(
+    "marks a run that %s after one of its turns failed as failed or done, never as an error",
+    async (outcome, stopReason, last, attention) => {
+      const { manager, received } = await opened([
+        [
+          { type: "agent_start" },
+          userEnd("ping", 1),
+          replyEnd(2, { stopReason: "error", errorMessage: "overloaded" }),
+          userEnd("again", 3),
+          replyEnd(4, { stopReason }),
+          { type: "agent_settled" },
+        ],
+      ]);
 
+      await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
+      await vi.waitFor(() => expect(received.map((event) => event.type)).toContain("run_settled"));
+
+      expect(received.filter((event) => event.type === "turn_finished")).toMatchObject([
+        { outcome: "failed" },
+        { outcome: last },
+      ]);
+      expect(received.find((event) => event.type === "run_settled")).toMatchObject({ outcome });
+      expect(marks(manager)).toStrictEqual([{ attention, asking: null, question: null }]);
+    },
+  );
+
+  it("does not mark a run finished while a dialog waits for an answer", async () => {
+    const ask = { type: "extension_ui_request", id: "d1", method: "select", title: "Pick", options: ["a", "b"] };
+    const { manager, received } = await opened([[{ type: "agent_start" }, ask, { type: "agent_settled" }]]);
     await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
     await vi.waitFor(() => expect(received.map((event) => event.type)).toContain("run_settled"));
 
-    expect(received.filter((event) => event.type === "turn_finished")).toMatchObject([
-      { outcome: "failed" },
-      { outcome: last },
+    expect(received.find((event) => event.type === "run_settled")).toMatchObject({ outcome: "completed" });
+    expect(marks(manager)).toStrictEqual([
+      { attention: null, asking: expect.any(Number), question: { title: "Pick", detail: null } },
     ]);
-    expect(received.find((event) => event.type === "run_settled")).toMatchObject({ outcome });
-    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, question: null }]);
   });
 
   it("says since when a session waits for an answer, until it has none", async () => {

@@ -46,7 +46,7 @@ struct HomeListTests {
     #expect(list.projects[1].workspaces.isEmpty)
   }
 
-  @Test("marks rows asking, failed or running, counts a project's runs, and leaves archived workspaces out")
+  @Test("marks rows asking, failed, running or finished, counts a project's runs, and leaves archived workspaces out")
   func statuses() {
     let list = home(
       indexSnapshotJSON(
@@ -63,13 +63,19 @@ struct HomeListTests {
           summaryJSON(
             "s3", in: "w1", name: "c", extra: ["attention": #"{"reason":"error","at":2,"cleared":true,"text":null}"#]),
           summaryJSON("s4", in: "w1", name: "d", extra: ["running": "true"]),
+          summaryJSON(
+            "s6", in: "w1", name: "f",
+            extra: ["attention": #"{"reason":"finished","at":2,"cleared":false,"text":null}"#]),
+          summaryJSON(
+            "s7", in: "w1", name: "g",
+            extra: ["attention": #"{"reason":"finished","at":2,"cleared":true,"text":null}"#]),
           summaryJSON("s5", in: "w2", name: "e", extra: ["running": "true"]),
         ]))
 
     let rows = list.projects[0].workspaces.flatMap(\.rows)
     #expect(list.projects[0].workspaces.map(\.id) == ["w1"])
-    #expect(rows.map(\.id) == ["s1", "s2", "s3", "s4"])
-    #expect(rows.map(\.status) == [.asking, .error, nil, .running])
+    #expect(rows.map(\.id) == ["s1", "s2", "s3", "s4", "s6", "s7"])
+    #expect(rows.map(\.status) == [.asking, .error, nil, .running, .finished, nil])
     #expect(list.projects[0].running == 2)
   }
 
@@ -94,6 +100,9 @@ struct HomeListTests {
             "s5", in: "w1", name: "看过", extra: ["attention": #"{"reason":"error","at":5,"cleared":true,"text":null}"#]),
           summaryJSON("s6", in: "w1", name: "归档", extra: ["asking": "3", "archived": "true"]),
           summaryJSON("s7", in: "w1", name: "没说问什么", extra: ["asking": "4"]),
+          summaryJSON(
+            "s8", in: "w1", name: "跑完了",
+            extra: ["attention": #"{"reason":"finished","at":5,"cleared":false,"text":null}"#]),
         ]))
 
     #expect(list.notes.map(\.id) == ["s2", "s1", "s3", "s7", "s4"])
@@ -307,14 +316,17 @@ struct HomeLayoutTests {
       summaryJSON(
         "s5", in: "w1", name: "err",
         extra: ["updatedAt": "4", "attention": #"{"reason":"error","at":1,"cleared":false,"text":null}"#]),
+      summaryJSON(
+        "s6", in: "w1", name: "done",
+        extra: ["updatedAt": "5", "attention": #"{"reason":"finished","at":1,"cleared":false,"text":null}"#]),
     ])
 
-  @Test("shows three sessions a workspace, asking before errors before running before the rest, and how many more")
+  @Test("shows three sessions a workspace, asking before errors before running before finished before the rest")
   func three() {
     let workspace = home(Self.busy).projects[0].workspaces[0]
     #expect(workspace.shown.map(\.id) == ["s4", "s5", "s3"])
-    #expect(workspace.more == 2)
-    #expect(workspace.rows.count == 5)
+    #expect(workspace.more == 3)
+    #expect(workspace.rows.count == 6)
     #expect(workspace.kind == .worktree)
     #expect(!workspace.merged)
   }

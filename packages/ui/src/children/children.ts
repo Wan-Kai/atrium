@@ -134,7 +134,8 @@ export function heldIn(sessions: readonly TreeSession[], sessionId: string): num
  *
  * @remarks
  * SPEC-0002 ("显示 · 主对话标签的状态图标"): a child running does not raise it; that shows only in
- * the child bar.
+ * the child bar. Nor does a child finished and not seen: its dot stays in the child bar, which
+ * keeps the tab from saying a child needs a look.
  *
  * @sideEffects none
  * @param sessions - Every session.
@@ -144,7 +145,7 @@ export function heldIn(sessions: readonly TreeSession[], sessionId: string): num
 export function tabStatus(sessions: readonly TreeSession[], session: TreeSession): RowStatus {
   const below = descendantsOf(sessions, session.sessionId)
     .map(sessionStatus)
-    .filter((status) => status !== "running");
+    .filter((status) => status !== "running" && status !== "finished");
   return topStatus([sessionStatus(session), ...below]);
 }
 

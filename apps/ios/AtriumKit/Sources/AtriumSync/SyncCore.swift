@@ -696,16 +696,16 @@ public struct SyncCore {
     chatProblems[chatId] = nil
   }
 
-  /// Clears a session's error once its page shows it, as the desktop does.
+  /// Clears a session's error or finished run once its page shows it, as the desktop does.
   ///
-  /// - Remark: SPEC-0005 "MP5 定的细节 · MP5b": only an uncleared `error`, not `auth`, and once
-  ///   while a request for it is on its way.
+  /// - Remark: SPEC-0005 "MP5 定的细节 · MP5b" and "协议改动" 8: only an uncleared `error` or
+  ///   `finished`, not `auth`, and once while a request for it is on its way.
   /// - SideEffects: none
   /// - Parameter sessionId: The session.
   /// - Returns: The command to send, if any.
   public mutating func clearAttention(_ sessionId: SessionId) -> [SyncOutput] {
     guard synced, let summary = index.sessions.first(where: { $0.sessionId == sessionId }),
-      let attention = summary.attention, attention.reason == .error, !attention.cleared,
+      let attention = summary.attention, attention.reason != .auth, !attention.cleared,
       !requests.values.contains(where: { if case .clearing(sessionId) = $0 { true } else { false } })
     else { return [] }
     return [

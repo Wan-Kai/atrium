@@ -17,7 +17,7 @@ import Foundation
 public struct HomeList: Sendable, Equatable {
   /// How a row is marked.
   ///
-  /// - Remark: The marks of design-language "会话状态" the MP4a rows use.
+  /// - Remark: The marks of design-language "会话状态" the rows use.
   public enum Status: Sendable, Equatable {
     /// An agent's question or a dialog waits for an answer.
     case asking
@@ -25,6 +25,8 @@ public struct HomeList: Sendable, Equatable {
     case error
     /// A run is in progress.
     case running
+    /// A run finished and you have not looked, which showing it clears (SPEC-0005, 协议 40).
+    case finished
   }
 
   /// One session's row.
@@ -227,8 +229,9 @@ public struct HomeList: Sendable, Equatable {
   /// The notes of what waits on you, in order.
   ///
   /// - Remark: Picked as the desktop's `inboxOf`: not archived; waiting for an answer, else with an
-  ///   attention not seen yet (an error seen stays out, a sign-in stays in). Ordered by level (stuck,
-  ///   then waiting), each newest first, as design-language "手机端 · 首页" orders the notes.
+  ///   attention not seen yet (an error seen stays out, a sign-in stays in, a run finished is not a
+  ///   thing to do). Ordered by level (stuck, then waiting), each newest first, as design-language
+  ///   "手机端 · 首页" orders the notes.
   /// - SideEffects: none
   /// - Parameter index: The list.
   /// - Returns: The notes.
@@ -241,7 +244,9 @@ public struct HomeList: Sendable, Equatable {
           id: session.sessionId, level: .waiting, title: session.question?.title ?? title(of: session),
           body: session.question?.detail, code: false, place: place, since: asking)
       }
-      guard let attention = session.attention, !(attention.reason == .error && attention.cleared) else { return nil }
+      guard let attention = session.attention, !(attention.reason == .error && attention.cleared),
+        attention.reason != .finished
+      else { return nil }
       let (first, rest) = split(attention.text)
       return Note(
         id: session.sessionId, level: .stuck, title: first ?? title(of: session), body: rest, code: rest != nil,
@@ -295,7 +300,7 @@ public struct HomeList: Sendable, Equatable {
     return "\(parts.month ?? 0)月\(parts.day ?? 0)日"
   }
 
-  /// Rows in the order the home shows a workspace's: asking, errors, running, then the rest.
+  /// Rows in the order the home shows a workspace's: asking, errors, running, finished, then the rest.
   ///
   /// - Remark: Stable, so within each the newest stays first.
   /// - SideEffects: none
@@ -307,7 +312,8 @@ public struct HomeList: Sendable, Equatable {
       case .asking?: 0
       case .error?: 1
       case .running?: 2
-      case nil: 3
+      case .finished?: 3
+      case nil: 4
       }
     }
     return stable(rows) { rank($0) < rank($1) }
@@ -403,16 +409,19 @@ public struct HomeList: Sendable, Equatable {
 
   /// A session's row in a group.
   ///
-  /// - Remark: Asking before an error not seen before running, as the sidebar's row.
+  /// - Remark: Asking before an error not seen before running, as the sidebar's row; a run finished
+  ///   and not seen is the dot after them (SPEC-0001, "会话状态").
   /// - SideEffects: none
   /// - Parameters:
   ///   - session: The session.
   ///   - pinned: Whether its chat is pinned.
   /// - Returns: The row.
   private static func row(_ session: SessionSummary, pinned: Bool = false) -> Row {
-    let failed = session.attention.map { !($0.reason == .error && $0.cleared) } ?? false
+    let attention = session.attention
+    let failed = attention.map { $0.reason == .auth || ($0.reason == .error && !$0.cleared) } ?? false
+    let done = attention.map { $0.reason == .finished && !$0.cleared } ?? false
     let status: Status? =
-      session.asking != nil ? .asking : failed ? .error : session.running ? .running : nil
+      session.asking != nil ? .asking : failed ? .error : session.running ? .running : done ? .finished : nil
     return Row(
       id: session.sessionId, title: title(of: session), detail: nil, status: status, updatedAt: session.updatedAt,
       pinned: pinned)

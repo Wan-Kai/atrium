@@ -324,6 +324,7 @@ struct SessionRow: View {
     case .asking: .asking
     case .error: .error
     case .running: .running
+    case .finished: .unread
     case nil: .idle
     }
   }

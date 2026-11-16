@@ -12,6 +12,11 @@ const LOOKS = {
     color: "text-[var(--tint)]",
     icon: <RunningDots size={14} />,
   },
+  finished: {
+    label: "已完成未读",
+    color: "text-[var(--tint)]",
+    icon: <span className="block size-[7px] rounded-full bg-[var(--tint)]" />,
+  },
 } as const;
 
 /**
@@ -19,7 +24,8 @@ const LOOKS = {
  *
  * @remarks
  * A question circle or a key in the attention color, an exclamation circle in the danger color,
- * the dot matrix with its turning arm in the tint color (design-language, "会话状态"). Colored, with
+ * the dot matrix with its turning arm in the tint color, a 7px dot for a run finished and not seen
+ * yet (design-language, "会话状态"). Colored, with
  * no background; the label says the state for screen readers and on hover.
  *
  * @sideEffects none

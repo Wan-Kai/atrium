@@ -522,6 +522,11 @@ describe("Workbench sidebar", () => {
             attention: { reason: "auth", at: 1, cleared: false, text: null },
           }),
           session({ sessionId: "s5", containerId: MERGED, asking: 1, archived: true }),
+          session({
+            sessionId: "s6",
+            containerId: MERGED,
+            attention: { reason: "finished", at: 1, cleared: false, text: null },
+          }),
         ],
       },
     });
@@ -531,6 +536,7 @@ describe("Workbench sidebar", () => {
     await expect.element(rows.nth(0).getByRole("img", { name: "运行中" })).not.toBeInTheDocument();
     await expect.element(rows.nth(1).getByRole("img", { name: "待授权" })).toBeVisible();
     await expect.element(rows.nth(2).getByRole("img", { name: "待回答" })).not.toBeInTheDocument();
+    await expect.element(rows.nth(2).getByRole("img", { name: "已完成未读" })).toBeVisible();
     const tabs = screen.getByRole("tab");
     await expect.element(tabs.nth(0).getByRole("img", { name: "出错" })).toBeVisible();
     await expect.element(tabs.nth(1).getByRole("img", { name: "运行中" })).toBeVisible();
@@ -905,6 +911,46 @@ describe("Workbench sidebar", () => {
     await expect.element(rows.nth(5)).not.toBeInTheDocument();
     // The area opens the active session s1 of the local workspace on its own.
     expect(calls.filter((call) => /^(selectContainer|openSession c)/.test(call))).toStrictEqual([]);
+  });
+
+  it("does not lift a chat for a run finished and not seen: only a run in progress does", async () => {
+    const minute = 60_000;
+    const { screen } = await workbench({
+      initial: {
+        ...list(),
+        sessions: [
+          session({
+            sessionId: "done",
+            containerId: "cht_done",
+            prompt: "跑完了",
+            updatedAt: Date.now() - 5 * minute,
+            attention: { reason: "finished", at: Date.now(), cleared: false, text: null },
+          }),
+          session({ sessionId: "quiet", containerId: "cht_quiet", prompt: "刚聊过", updatedAt: Date.now() - minute }),
+          session({
+            sessionId: "running",
+            containerId: "cht_running",
+            prompt: "在跑",
+            updatedAt: Date.now() - 50 * minute,
+            running: true,
+          }),
+        ],
+        chats: [
+          chat({ id: "cht_done", firstSessionId: "done" }),
+          chat({ id: "cht_quiet", firstSessionId: "quiet" }),
+          chat({ id: "cht_running", firstSessionId: "running" }),
+        ],
+      },
+    });
+    const rows = screen.getByRole("region", { name: "对话" }).getByTestId("chat-row");
+
+    // The run going is in progress; the done one is not, so it stays below the newer chat.
+    expect(rows.elements().map((row) => row.textContent)).toStrictEqual([
+      "在跑50 分钟前",
+      "刚聊过1 分钟前",
+      "跑完了5 分钟前",
+    ]);
+    await expect.element(rows.nth(2).getByRole("img", { name: "已完成未读" })).toBeVisible();
   });
 
   it("starts a chat from the icon on 对话's heading, shown with no chats too, and from nowhere else in the sidebar", async () => {
@@ -2599,6 +2645,31 @@ describe("Workbench attention and the terminal (M1.9)", () => {
     expect(calls.filter((call) => call.startsWith("clearAttention"))).toStrictEqual(["clearAttention s1"]);
     expect(index.getState().sessions[0]?.attention).toStrictEqual({
       reason: "error",
+      at: 1,
+      cleared: true,
+      text: null,
+    });
+  });
+
+  it("marks a finished run seen once its session shows in a focused window", async () => {
+    const initial = list();
+    const { calls, index } = await workbench({
+      initial: {
+        ...initial,
+        sessions: [
+          session({
+            sessionId: "s1",
+            containerId: LOCAL,
+            attention: { reason: "finished", at: 1, cleared: false, text: null },
+          }),
+        ],
+      },
+    });
+
+    window.dispatchEvent(new FocusEvent("focus"));
+    await vi.waitFor(() => expect(calls).toContain("clearAttention s1"));
+    expect(index.getState().sessions[0]?.attention).toStrictEqual({
+      reason: "finished",
       at: 1,
       cleared: true,
       text: null,

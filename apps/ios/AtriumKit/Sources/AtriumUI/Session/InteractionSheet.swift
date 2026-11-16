@@ -223,14 +223,17 @@ struct ChildrenSheet: View {
     .background(palette.surface)
   }
 
-  /// A child's state icon: asking, running, or neither.
+  /// A child's state icon: asking, running, finished or neither.
   ///
   /// - Remark: As the home's rows.
   /// - SideEffects: none
   /// - Parameter child: The child.
   /// - Returns: The state.
   static func state(of child: SessionSummary) -> StatusIcon.Kind {
-    child.asking != nil ? .asking : child.running ? .running : .idle
+    if child.asking != nil { return .asking }
+    if child.running { return .running }
+    if let attention = child.attention, attention.reason == .finished, !attention.cleared { return .unread }
+    return .idle
   }
 
   /// A child's role as its tag says it.
